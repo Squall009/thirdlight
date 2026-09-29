@@ -1,5 +1,5 @@
 /**
- * Phase 25.11: behavior callbacks through the production composition, on the
+ * Behavior callbacks through the production composition, on the
  * main thread and in the simulation worker, on the 2D plane and in 3D.
  *
  * A neutral level: the character walks right through a trigger and into a

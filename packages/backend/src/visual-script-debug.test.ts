@@ -1,5 +1,5 @@
 /**
- * Phase 19.2: Play runs a visual script as a debug build, an export never
+ * Play runs a visual script as a debug build, an export never
  * does (real backend, real compiler, real filesystem).
  *
  * - A published visual script: the Play build's behavior artifact (served on

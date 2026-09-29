@@ -1,5 +1,5 @@
 /**
- * Phase 14.6: animator override layers (validation and canonical form),
+ * Animator override layers (validation and canonical form),
  * animation-only model assets (`clipsFor`), and the migration of the old
  * `modelAnimation` profile into an animator controller.
  */

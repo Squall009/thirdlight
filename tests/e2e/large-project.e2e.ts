@@ -1,5 +1,5 @@
 /**
- * Phase 21.4: the editor with a large project, against the real backend.
+ * The editor with a large project, against the real backend.
  *
  * - Play of a project whose runtime snapshot exceeds the 1 MiB WebSocket
  *   frame bound starts: `play.started` carries a reference, the editor

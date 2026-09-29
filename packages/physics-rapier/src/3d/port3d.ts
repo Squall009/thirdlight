@@ -1,5 +1,5 @@
 /**
- * Phase 23.0: the Rapier 3D physics port (`@dimforge/rapier3d-compat`, the
+ * The Rapier 3D physics port (`@dimforge/rapier3d-compat`, the
  * same 0.20.0 pin as the 2D backend) for a project whose
  * `physics_dimension` is 3. It sits beside the 2D adapter (`../port.ts`,
  * untouched) behind the package's `./3d` subpath, so a 2D bundle never
@@ -17,11 +17,10 @@
  * and the rounding never accumulates.
  *
  * The runtime owns stepping (no frame driver here) and applies gravity
- * itself (it stages the fall). Phase 23.1: sphere, capsule, convex-hull and
+ * itself (it stages the fall). Sphere, capsule, convex-hull and
  * (static) triangle-mesh colliders; kinematic bodies for movers, posed after
- * the character's sweep like the 2D port's; overlap queries (box, sphere,
- * capsule) and the character's clearance/placement. Walking and jumping are
- * phase 23.2; scripts' rays and overlaps are wired in 23.3.
+ * the character's sweep like the 2D port's; raycasts, overlap queries (box,
+ * sphere, capsule) and the character's clearance/placement.
  */
 import { COLLIDER_3D_LIMITS } from '@thirdlight/project-model/limits';
 import * as RAPIER from '@dimforge/rapier3d-compat';
@@ -32,7 +31,7 @@ import { CLEARANCE_PENETRATION_EPS, CLEARANCE_RAY_EPS, CLEARANCE_SUPPORT_PROBE, 
 /** The value of `PhysicsPort3D.implementation` for this adapter. */
 export const PHYSICS_3D_IMPLEMENTATION = 'rapier3d-compat@0.20.0' as const;
 
-/** Phase 23.0: a validated 3D box shape. */
+/** A validated 3D box shape. */
 export interface ColliderShapeBox3D {
   type: 'box';
   hx: number;
@@ -41,7 +40,7 @@ export interface ColliderShapeBox3D {
 }
 
 /**
- * Phase 23.1: a validated 3D collider shape — a box, a sphere, a capsule
+ * A validated 3D collider shape — a box, a sphere, a capsule
  * (standing along its local Y; `halfHeight` is its centre segment's half
  * length, Rapier's convention), the convex hull of points, or a triangle
  * mesh (a static collider only). Point lists are flat `[x, y, z, ...]`.
@@ -106,7 +105,7 @@ const flatList = (v: unknown, minItems: number, maxItems: number): number[] | nu
   return out;
 };
 
-/** Phase 23.1: whether flat [x, y, z, ...] points span a volume (the project model's rule, 1e-9 tolerance). */
+/** Whether flat [x, y, z, ...] points span a volume (the project model's rule, 1e-9 tolerance). */
 function spansVolume(p: readonly number[]): boolean {
   const n = p.length / 3;
   const P = (i: number): [number, number, number] => [p[3 * i]!, p[3 * i + 1]!, p[3 * i + 2]!];
@@ -139,7 +138,7 @@ function spansVolume(p: readonly number[]): boolean {
 }
 
 /**
- * The 3D shape vocabulary (phase 23.1): box (three positive half extents),
+ * The 3D shape vocabulary: box (three positive half extents),
  * sphere, capsule (radius and centre-segment half height, >= 0), convex hull
  * (4–64 points) and triangle mesh (3–1,024 vertices, 1–2,048 triangles of
  * three distinct in-range indices). Nothing is defaulted.
@@ -237,7 +236,7 @@ function validateConfig(config: PhysicsInitConfig3D): { reason: 'invalid_config'
   if (!finite(cc.maxSlopeClimbRad) || cc.maxSlopeClimbRad <= 0 || cc.maxSlopeClimbRad >= Math.PI / 2) return { reason: 'invalid_config', message: 'controller.maxSlopeClimbRad must be a finite angle in (0, pi/2)' };
   if (!finite(cc.minSlopeSlideRad) || cc.minSlopeSlideRad < 0 || cc.minSlopeSlideRad >= Math.PI / 2) return { reason: 'invalid_config', message: 'controller.minSlopeSlideRad must be a finite angle in [0, pi/2)' };
   if (!Array.isArray(config.statics)) return { reason: 'invalid_config', message: 'statics must be an array of static collider specs' };
-  // Phase 23.3: the named collision layers (bit 1 + index; "default" is bit 0 and never listed) and a world without a character.
+  // The named collision layers (bit 1 + index; "default" is bit 0 and never listed) and a world without a character.
   if (config.layers !== undefined && !(Array.isArray(config.layers) && config.layers.length <= 15 && config.layers.every((n) => typeof n === 'string' && n !== 'default') && new Set(config.layers).size === config.layers.length)) return { reason: 'invalid_config', message: 'layers must be up to 15 unique layer names (not "default")' };
   if (config.noCharacter !== undefined && config.noCharacter !== true) return { reason: 'invalid_config', message: 'noCharacter must be true or absent' };
   const seen = new Set<string>();
@@ -319,9 +318,9 @@ function awaitInit(signal?: AbortSignal): Promise<void> {
 interface Collider3DInfo {
   entityId: string;
   body: RAPIER.RigidBody;
-  /** Phase 23.1: a mover's (or a script-driven collider's) kinematic body. */
+  /** A mover's (or a script-driven collider's) kinematic body. */
   kinematic: boolean;
-  /** Phase 23.1: the shape's highest point above its body origin (for the kinematic-drag rule). */
+  /** The shape's highest point above its body origin (for the kinematic-drag rule). */
   top: number;
   /** The cosine of the steepest slope of this collider a character walks up, when its spec sets one (a block layer's maxSlope). */
   climbCos?: number;
@@ -336,7 +335,7 @@ function rotate(q: PhysicsQuat, p: readonly [number, number, number]): [number, 
   return [x + q.w * tx + (q.y * tz - q.z * ty), y + q.w * ty + (q.z * tx - q.x * tz), z + q.w * tz + (q.x * ty - q.y * tx)];
 }
 
-/** Phase 23.1: the collider description of a validated shape (null: the points span no hull). */
+/** The collider description of a validated shape (null: the points span no hull). */
 function colliderDescOf(shape: ColliderShape3D): RAPIER.ColliderDesc | null {
   switch (shape.type) {
     case 'box':
@@ -353,7 +352,7 @@ function colliderDescOf(shape: ColliderShape3D): RAPIER.ColliderDesc | null {
   }
 }
 
-/** Phase 23.1: the shape's highest point above its body origin with the body's rotation. */
+/** The shape's highest point above its body origin with the body's rotation. */
 function topOf(shape: ColliderShape3D, q: PhysicsQuat): number {
   switch (shape.type) {
     case 'box': {
@@ -376,7 +375,7 @@ function topOf(shape: ColliderShape3D, q: PhysicsQuat): number {
 }
 
 /**
- * Phase 23.3: collision layers as Rapier interaction groups. Bit 0 is
+ * Collision layers as Rapier interaction groups. Bit 0 is
  * "default" (a collider without layers), bit 1 + i the config's i-th named
  * layer. A collider is a member of its layers and filters nothing (the upper
  * 16 bits are memberships, the lower 16 the filter), so contacts and the
@@ -422,7 +421,7 @@ function addStaticBody(world: RAPIER.World, spec: StaticColliderSpec3D, bits: La
 
 function createAdapter(world: RAPIER.World, characterCollider: RAPIER.Collider, controller: RAPIER.KinematicCharacterController, config: PhysicsInitConfig3D, bodies: Map<string, RAPIER.RigidBody>, infoByHandle: Map<number, Collider3DInfo>, bits: LayerBits): RapierPhysicsPort3D {
   const noCharacter = config.noCharacter === true;
-  /** Phase 23.3: a query filter as Rapier's groups and predicate. */
+  /** A query filter as Rapier's groups and predicate. */
   const groupsOf = (filter: PhysicsQueryFilter3D | undefined): number | undefined => (filter?.layers !== undefined ? queryGroups(bits, filter.layers) : undefined);
   const predicateOf = (filter: PhysicsQueryFilter3D | undefined): ((c: RAPIER.Collider) => boolean) | undefined => {
     const accept = filter?.accept;
@@ -445,20 +444,20 @@ function createAdapter(world: RAPIER.World, characterCollider: RAPIER.Collider, 
   let grounded = false;
   let retainedSupport: PhysicsVec3 = { x: 0, y: 1, z: 0 };
   /**
-   * Phase 23.2: a step-up in progress — the character was lifted onto a riser
+   * A step-up in progress — the character was lifted onto a riser
    * it pushes against and moves on at that height (no snap, no fall) until
    * the ground under its centre is the step's top; the way it went, and how
    * many steps it has taken so far.
    */
   let stepping: { x: number; z: number; steps: number } | null = null;
-  /** Phase 23.2: a step-up that has not reached the top after a second ends (the character falls as usual). */
+  /** A step-up that has not reached the top after a second ends (the character falls as usual). */
   const maxSteppingSteps = config.solver.hz;
   let disposed = false;
   let steps = 0;
   let stallSteps = 0;
   let penetrationCorrectedCount = 0;
   let released: Rapier3DDiagnostics | null = null;
-  // Phase 23.1: the kinematic (mover) poses for this step, where each was posed last, and the largest move of the last world step.
+  // The kinematic (mover) poses for this step, where each was posed last, and the largest move of the last world step.
   let kinematicPoses: readonly KinematicPose3D[] = [];
   const kinematicAt = new Map<string, PhysicsVec3>();
   let kinematicMoved = 0;
@@ -508,7 +507,7 @@ function createAdapter(world: RAPIER.World, characterCollider: RAPIER.Collider, 
     return out;
   };
   /**
-   * Phase 23.2: whether the character at `from`, pushing along the unit
+   * Whether the character at `from`, pushing along the unit
    * horizontal direction (dx, dz), can step up — three sweeps without the
    * snap: up by the step height (plus two skins), across by its radius (plus
    * two skins, so its centre would be over what is there), down onto it. The
@@ -557,7 +556,7 @@ function createAdapter(world: RAPIER.World, characterCollider: RAPIER.Collider, 
   const IDENTITY = { x: 0, y: 0, z: 0, w: 1 };
 
   /**
-   * Phase 23.1: the clearance of the character capsule if its origin were at
+   * The clearance of the character capsule if its origin were at
    * `origin` (query only; the 2D probe's rules): blocked by the deepest
    * overlap with a collider (a narrow-phase contact deeper than the
    * penetration epsilon), else supported by the nearest collider straight
@@ -588,7 +587,7 @@ function createAdapter(world: RAPIER.World, characterCollider: RAPIER.Collider, 
     return { ok: true, supportNormal: support, penetration: 0 };
   }
 
-  /** Phase 23.3: the step of a world without a character — the movers are posed and the world updates; nothing is swept. */
+  /** The step of a world without a character — the movers are posed and the world updates; nothing is swept. */
   function stepWithoutCharacter(): CharacterMoveResult3D {
     staged = null;
     for (const pose of kinematicPoses) {
@@ -620,17 +619,17 @@ function createAdapter(world: RAPIER.World, characterCollider: RAPIER.Collider, 
       const requested: PhysicsVec3 = staged ?? { x: 0, y: 0, z: 0 };
       staged = null;
       if (!isVec3(requested)) throw new Error(`staged movement must be a finite { x, y, z } (got ${JSON.stringify(requested)})`);
-      // Phase 23.2: the request is swept as it is, a grounded character's small downward part
+      // The request is swept as it is, a grounded character's small downward part
       // included (the 23.0 port dropped it like the 2D port, which made Rapier's grounded status
       // flicker every other step on flat ground — measured with a walking character; the sweep
       // stops it on the ground and keeps it grounded).
       const commanded: PhysicsVec3 = { x: requested.x, y: requested.y, z: requested.z };
       const across = Math.hypot(commanded.x, commanded.z);
-      // Phase 23.2: a step-up goes on while the character keeps pushing the way it went (not up).
+      // A step-up goes on while the character keeps pushing the way it went (not up).
       if (stepping !== null && (commanded.y > 0 || across < 1e-9 || commanded.x * stepping.x + commanded.z * stepping.z <= 0 || stepping.steps >= maxSteppingSteps)) stepping = null;
       const midStep = stepping !== null;
       const before = position;
-      // Phase 23.1: Rapier's controller takes a touched kinematic body's velocity into its sweep
+      // Rapier's controller takes a touched kinematic body's velocity into its sweep
       // ("kinematic friction"). In 3D that fights the runtime's own carry: a character riding a
       // mover sideways (its move equal to the mover's) sticks in the mover's offset margin and
       // stalls (measured: 20 iterations, no motion, about one step in three on a sliding lift).
@@ -638,7 +637,7 @@ function createAdapter(world: RAPIER.World, characterCollider: RAPIER.Collider, 
       // mover's way (the 2D rules), so every kinematic body is at rest for the sweep — made
       // velocity-based with zero velocity and turned back right after; its next pose is set below
       // and the world step derives its velocity from it as always. (The 2D port does the same for
-      // a mover rising past the character, phase 14.7.)
+      // a mover rising past the character.)
       stilled.length = 0;
       for (const info of infoByHandle.values()) {
         if (!info.kinematic) continue;
@@ -693,7 +692,7 @@ function createAdapter(world: RAPIER.World, characterCollider: RAPIER.Collider, 
         // On top: the ground under its centre is walkable (the step's top) — the step-up ends.
         if (walkableFloorUnder({ x: before.x + swept.x, y: before.y + swept.y, z: before.z + swept.z })) stepping = null;
       }
-      // Phase 23.1: riding a kinematic body (a mover, a collider a script drives) Rapier's sweep
+      // Riding a kinematic body (a mover, a collider a script drives) Rapier's sweep
       // sometimes reads the support's normal numerically tilted within its skin and takes it for a
       // block — measured on a sliding lift: no motion at all, 20 iterations, about one step in
       // three. When a grounded character's horizontal move is stopped by nothing but ground-like
@@ -711,7 +710,7 @@ function createAdapter(world: RAPIER.World, characterCollider: RAPIER.Collider, 
           readCollisions();
         }
       }
-      // Phase 23.2: standing still. A grounded character asked for nothing across and at most a
+      // Standing still. A grounded character asked for nothing across and at most a
       // fall, whose sweep moved it less than its skin, on something that does not move (not a
       // mover or a collider a script drives), stays exactly where it is — Rapier's sweep and
       // ground snap otherwise alternate it by about 0.1 mm every step (measured), so it never
@@ -720,7 +719,7 @@ function createAdapter(world: RAPIER.World, characterCollider: RAPIER.Collider, 
         const under = world.castRay(new RAPIER.Ray(probeFrom(before), down), 0.2, true, undefined, undefined, characterCollider);
         if (under !== null && infoByHandle.get(under.collider.handle)?.kinematic !== true) swept = { x: 0, y: 0, z: 0 };
       }
-      // Phase 23.2: stepping up. Rapier's own autostep missed risers above about 0.15 m with a
+      // Stepping up. Rapier's own autostep missed risers above about 0.15 m with a
       // capsule (measured with rapier3d 0.20.0: a 0.2 m riser blocked a walking capsule of radius
       // 0.3 m whatever its minimum width), so a grounded character whose move across is cut to
       // less than half probes the riser (`stepProbe`): when it can stand on top, it is lifted by
@@ -783,7 +782,7 @@ function createAdapter(world: RAPIER.World, characterCollider: RAPIER.Collider, 
         throw new Error(`collision correction out of the contracted bound: requested (${requested.x}, ${requested.y}, ${requested.z}), applied (${movement.x}, ${movement.y}, ${movement.z})`);
       }
       characterCollider.setTranslation(at(next));
-      // Phase 23.1: the movers move after the character's sweep (the runtime already added a carrying platform's motion).
+      // The movers move after the character's sweep (the runtime already added a carrying platform's motion).
       kinematicMoved = 0;
       for (const pose of kinematicPoses) {
         const body = bodies.get(pose.entityId);
@@ -825,7 +824,7 @@ function createAdapter(world: RAPIER.World, characterCollider: RAPIER.Collider, 
       const len = Math.hypot(direction.x, direction.y, direction.z);
       if (!(len > 0) || !finite(maxDistance) || maxDistance <= 0 || !isVec3(origin)) return null;
       const u = { x: direction.x / len, y: direction.y / len, z: direction.z / len };
-      // Phase 23.3: a script's filter (collision layers as groups; tags and exclusions as the predicate); a ray reaches 10 km.
+      // A script's filter (collision layers as groups; tags and exclusions as the predicate); a ray reaches 10 km.
       const reach = Math.min(maxDistance, 10000);
       const hit = world.castRayAndGetNormal(new RAPIER.Ray({ x: origin.x, y: origin.y, z: origin.z }, u), reach, true, undefined, groupsOf(filter), characterCollider, undefined, predicateOf(filter));
       if (hit === null) return null;
@@ -901,7 +900,7 @@ function createAdapter(world: RAPIER.World, characterCollider: RAPIER.Collider, 
 
     removeStaticColliders(entityIds: readonly string[]): void {
       assertLive('removeStaticColliders');
-      // Phase 25.24e: one pass over the collider records for the whole batch.
+      // One pass over the collider records for the whole batch.
       const gone = new Set<unknown>();
       for (const id of entityIds) {
         const body = bodies.get(id);
@@ -960,7 +959,7 @@ export async function createPhysicsPort3D(config: PhysicsInitConfig3D, signal?: 
     // PARENTLESS character collider (the 2D port's normative pattern): moved with setTranslation only.
     const ch = config.character;
     const characterCollider = world.createCollider(RAPIER.ColliderDesc.capsule(ch.halfHeight, ch.radius).setTranslation(ch.position.x + ch.offset.x, ch.position.y + ch.offset.y, ch.position.z + ch.offset.z));
-    // Phase 23.3: a world without a character keeps its placeholder capsule disabled (no contacts, no query sees it).
+    // A world without a character keeps its placeholder capsule disabled (no contacts, no query sees it).
     if (config.noCharacter === true) characterCollider.setEnabled(false);
     const controller = world.createCharacterController(config.controller.offsetSkin);
     // Up is +Y (gravity along −Y), as in the 2D plane.
@@ -968,7 +967,7 @@ export async function createPhysicsPort3D(config: PhysicsInitConfig3D, signal?: 
     controller.setMaxSlopeClimbAngle(config.controller.maxSlopeClimbRad);
     controller.setMinSlopeSlideAngle(config.controller.minSlopeSlideRad);
     controller.enableSnapToGround(config.controller.groundSnap);
-    // Phase 23.2: stepping up is the port's own (`stepProbe` / `stepping` in `step()`), not Rapier's
+    // Stepping up is the port's own (`stepProbe` / `stepping` in `step()`), not Rapier's
     // autostep, which missed risers above about 0.15 m with a capsule.
     // One pipeline update so the first sweep and any ray see every collider (no dynamic bodies: nothing moves).
     world.step();

@@ -1,5 +1,5 @@
 /**
- * Phase 15.4: declared-property visibility, group, header and tooltip in the
+ * Declared-property visibility, group, header and tooltip in the
  * content model (validation and canonical form), `declaredInCode` on a source
  * record.
  */

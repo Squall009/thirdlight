@@ -1,5 +1,5 @@
 /**
- * Phase 25.24c: the prebuilt play scripts at stable, digest-keyed URLs.
+ * The prebuilt play scripts at stable, digest-keyed URLs.
  *
  * The preview origin's play page loads three prebuilt scripts from the
  * preview directory: the game bundle (`preview-m3.js`, served as `game.js`),

@@ -1,9 +1,9 @@
 /**
  * The MCP server (stdio, the official SDK client) against a live editor: the
- * charter §7 tool categories — inspect the selection, edit, diagnostics,
+ * charter's tool categories — inspect the selection, edit, diagnostics,
  * pick a browser session, start/stop play, bounded input, observations and
  * screenshots.
- * Phase 19.3: a visual script built entirely over MCP (publishBehavior with a
+ * A visual script built entirely over MCP (publishBehavior with a
  * graph, graphEdit), published through the editor's HTTP source route and
  * played with the MCP play tools; the editor shows the same graph (one
  * mutation path).
@@ -78,7 +78,7 @@ test('an MCP agent inspects the selection, plays, observes, moves and captures t
   const shot = await call('tl_screenshot', { playSessionId, maxWidth: 512 });
   expect(shot.isError, JSON.stringify(shot.body).slice(0, 300)).toBe(false);
   expect(String(shot.body.dataUrl)).toMatch(/^data:image\/png;base64,/);
-  // Phase 25.2: a drawn frame (the scene, not one flat colour), at most maxWidth wide.
+  // A drawn frame (the scene, not one flat colour), at most maxWidth wide.
   const img = decodePng(Buffer.from(String(shot.body.dataUrl).slice('data:image/png;base64,'.length), 'base64'));
   expect(img.width).toBeLessThanOrEqual(512);
   const colours = new Set<string>();

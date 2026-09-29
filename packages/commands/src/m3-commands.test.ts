@@ -1,6 +1,6 @@
 /**
- * Packet 45 — implementation-level tests for the pure v3 presentation
- * command surface (commands.md §§2/3.1/5.3/5.4/8.5.1/8.10/8.13–8.14).
+ * Implementation-level tests for the pure v3 presentation
+ * command surface.
  *
  * Covers: creation of the add-capable component kinds, component removal,
  * invalid reimport role/kind, no-change, exact inverse and redo IDs, stale
@@ -243,10 +243,9 @@ describe('queryGameConfig and the content counts (commands.md §A6)', () => {
 });
 
 describe('publishAsset kind and reimport rules (commands.md §3.1.1/§8.5)', () => {
-  // presentation.md §41.4.3 (packet 47, CC-44-2): the real `pcm-wav` recipe and
-  // `PcmWavMetrics` member (96 frames of the committed cue-start preimage). The
-  // packet-41 placeholder shape (`recipeVersion: 0`, empty toolchain, GLB
-  // metrics) is refused by the promoted §18.5/§18.6 audio rules.
+  // The real `pcm-wav` recipe and `PcmWavMetrics` member (96 frames of the
+  // committed cue-start preimage). A placeholder shape (`recipeVersion: 0`,
+  // empty toolchain, GLB metrics) is refused by the audio rules.
   const AUDIO_RECIPE = { profile: 'pcm-wav', recipeVersion: 1, toolchain: { 'asset-pipeline': '0.1.0' } };
   const MODEL_RECIPE = { profile: 'gltf-glb', recipeVersion: 1, toolchain: { three: '0.186.0' }, extensions: [] };
   const AUDIO_METRICS = { container: 'riff-wave', encoding: 'pcm-s16le', channels: 1, sampleRate: 48000, bitsPerSample: 16, frames: 96, durationMs: 2, pcmBytes: 192, dataChunkBytes: 192, riffChunkBytes: 228 };
@@ -296,12 +295,12 @@ describe('publishAsset kind and reimport rules (commands.md §3.1.1/§8.5)', () 
         req('publishAsset', { ...REIMPORT, animation: { entityId: 'model-0001', roles } }, 5),
       ),
     );
-    // CC-L-1 (Gate L): the change carries the FULL `modelAnimation` component
+    // The change carries the FULL `modelAnimation` component
     // in both directions — `version` advances to the newly appended version
     // together with the new mapping (the binding is owned by that
     // (assetId, version); a roles-only change would leave the entity
     // recording the old version and capture would keep delivering the
-    // previous bytes — a silent no-op success, project-model §19.2).
+    // previous bytes — a silent no-op success).
     expect(applied.change).toMatchObject({
       type: 'publishAsset',
       mode: 'reimport',
@@ -318,7 +317,7 @@ describe('publishAsset kind and reimport rules (commands.md §3.1.1/§8.5)', () 
       stateOf(MEDIA),
       req('publishAsset', { ...REIMPORT, animation: { entityId: 'model-0001', roles } }, 5),
     );
-    // Regression (CC-L-1): the entity's recorded version advanced to the
+    // The entity's recorded version advanced to the
     // asset's new currentVersion — the reimported bytes are now what capture
     // resolves the entity to.
     expect(entityComponent(appliedState, 'model-0001').version).toBe(2);
@@ -342,10 +341,10 @@ describe('publishAsset kind and reimport rules (commands.md §3.1.1/§8.5)', () 
     }
     const undoneState = nextState(appliedState, req('undo', {}, 6));
     expect(undoneState.content?.assets.some((a) => a.assetId === 'asset-model-courier' && a.currentVersion === 1)).toBe(true);
-    // Regression (CC-L-1): the entity's component is the FULL previous
+    // The entity's component is the FULL previous
     // component — version 1 is a valid binding against the rolled-back
-    // record (1 ≤ version ≤ currentVersion, project-model §23.3.6); a
-    // roles-only restore would have left version 2 recorded above a
+    // record (1 ≤ version ≤ currentVersion); a roles-only restore would
+    // leave version 2 recorded above a
     // currentVersion 1 (an invalid binding).
     expect(entityComponent(undoneState, 'model-0001').version).toBe(1);
     expect(entityComponent(undoneState, 'model-0001').roles).toEqual({
@@ -353,8 +352,8 @@ describe('publishAsset kind and reimport rules (commands.md §3.1.1/§8.5)', () 
       run: { binding: 'packet-41-placeholder' },
       airborne: { binding: 'packet-41-placeholder' },
     });
-    // Redo re-applies the recorded FULL next component (recorded-value rule,
-    // commands.md §9.1): version and roles together.
+    // Redo re-applies the recorded FULL next component (recorded-value
+    // rule): version and roles together.
     const redoneState = nextState(undoneState, req('redo', {}, 7));
     expect(entityComponent(redoneState, 'model-0001').version).toBe(2);
     expect(entityComponent(redoneState, 'model-0001').roles).toEqual(roles);

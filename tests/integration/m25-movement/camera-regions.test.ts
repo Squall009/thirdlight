@@ -1,5 +1,5 @@
 /**
- * Phase 25.14: camera regions and look-ahead on the track camera, through
+ * Camera regions and look-ahead on the track camera, through
  * the production composition (the real game host, the character controllers
  * and Rapier), on the 2D plane and in 3D, on the main thread and in the
  * simulation worker, driven by recorded input.

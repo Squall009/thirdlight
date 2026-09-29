@@ -59,7 +59,7 @@ function modelEntity(id: string, assetId: string, x: number): Entity {
     name: id,
     components: {
       transform: { position: [x, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] },
-      // The M1 Entity type predates `model`; the projection reads it structurally.
+      // The Entity type has no `model`; the projection reads it structurally.
       ...({ model: { asset: { assetId } } } as unknown as Record<string, never>),
     },
   };

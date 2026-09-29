@@ -1,5 +1,5 @@
 /**
- * Phase 25.6 (E19): glTF `extras` (application data an exporter such as
+ * glTF `extras` (application data an exporter such as
  * Blender writes from custom properties) are accepted and ignored on every
  * glTF object — the root, the asset, scenes, nodes, meshes, primitives,
  * accessors, buffer views, buffers, materials and their texture references,

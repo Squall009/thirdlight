@@ -1,5 +1,5 @@
 /**
- * Packet 58 — B21: export is a complete declared==emitted relative closure
+ * B21: export is a complete declared==emitted relative closure
  * including audio, models and code; no authoring/server/MCP/Node/credential/
  * capability/CDN dependency.
  *
@@ -21,7 +21,7 @@
  *     byte-untouched (`export_snapshot_mismatch`).
  *
  * UNVERIFIED here (no browser in this container): the real-browser static-URL
- * walkthrough (WebGL, the audio owner, the HUD) — packet 61/62 evidence.
+ * walkthrough (WebGL, the audio owner, the HUD).
  */
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -198,19 +198,19 @@ describe('B21 the M3 export is a complete declared==emitted relative closure', (
       },
     };
     expect(checkBundleGraphM3(cleanMetafile, M3_BOOTSTRAP, ['thirdlight.character:controller']).ok).toBe(true);
-    // Phase 24.3: a manifest that names no platformer module may not link its package.
+    // A manifest that names no platformer module may not link its package.
     const without = checkBundleGraphM3(cleanMetafile, M3_BOOTSTRAP, []);
     expect(without.ok).toBe(false);
     expect(without.forbidden).toEqual(['packages/character/src/controller.ts']);
 
     // The emitted bundle (from the successful first export) carries no
-    // forbidden content (the pipeline's §5.4 forbidden-pattern gate passed):
+    // forbidden content (the pipeline's forbidden-pattern gate passed):
     // the a/b/c/e/g/i patterns (authoring/preview origin, /api/v1/, node:,
     // /mcp, tokens) must be zero. (`XMLHttpRequest`/`http` are three.js's own
     // recorded-exception contributions — not forbidden.)
     const outDir = join(exportRoot, 'm3b21@r1');
     const bundleText = new TextDecoder().decode(readFileSync(join(outDir, 'js/main.js')));
-    // Phase 17.1: pattern e is a Node built-in module specifier (three's node materials have `node:` object keys).
+    // Pattern e is a Node built-in module specifier (three's node materials have `node:` object keys).
     expect(bundleText.match(/["'`]node:/g) ?? []).toEqual([]);
     for (const needle of ['/api/v1/', '/mcp', 'http://authoring.invalid', 'http://preview.invalid', 'secret-token-value-123']) {
       expect(bundleText.includes(needle), `bundle contains forbidden ${needle}`).toBe(false);

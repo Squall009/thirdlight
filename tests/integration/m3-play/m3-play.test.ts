@@ -1,5 +1,5 @@
 /**
- * Packet 59 — the v3 play-content build (B16/B19; delivery.md §2/§3).
+ * The v3 play-content build (B16/B19).
  *
  * `buildPlayContentM3` (packages/backend/src/play-m3.ts) is the v3 counterpart
  * of the M2 `buildPlayContent`: a THIN consumer of the shared M3 closure
@@ -8,7 +8,7 @@
  * the prebuilt M3 bundle served as the entry). These Node tests prove the
  * build + its closed failure modes over a self-contained v3 envelope; the
  * real-backend + browser + SDK preview playthrough is the owner-run half
- * (UNVERIFIED in-container, packet-38 baseline §1).
+ * (UNVERIFIED in-container).
  */
 import { describe, expect, it } from 'vitest';
 
@@ -59,7 +59,7 @@ describe('buildPlayContentM3 (the v3 play artifact set)', () => {
     // The snapshot identity.
     expect(built.snapshotId).toBe(`${CTX.projectId}@r1`);
     expect(built.contentDigest).toMatch(/^[0-9a-f]{64}$/);
-    // The module set is derived from the declared dependencies (D17): the
+    // The module set is derived from the declared dependencies: the
     // controller entity and the model asset.
     expect(built.moduleIds).toEqual([
       'thirdlight.character:controller',
@@ -68,7 +68,7 @@ describe('buildPlayContentM3 (the v3 play artifact set)', () => {
       'thirdlight.three-adapter:gltf-loader',
     ]);
 
-    // The complete artifact set (the accepted §17.2.1 locator route set —
+    // The complete artifact set (the locator's route set —
     // manifest.json + assets + game.js). NO scene.json: the v3 scene arrives
     // via the nonce-verified tl.snapshot bridge; the manifest's sceneDigest is
     // the identity the preview verifies the bridge snapshot against.

@@ -1,7 +1,5 @@
 /**
- * The Scene view's helper overlay (phase 9.9/9.12/14.0/15.2; phase 24.7
- * removed the game block's zone and camera-follow drawing and the zone
- * gesture) — three.js, framework-free.
+ * The Scene view's helper overlay — three.js, framework-free.
  *
  * It draws the projected helpers — collider outlines, the character
  * capsule, the component areas (mover paths, trigger/switch/collectible/
@@ -16,7 +14,7 @@ import type { DescriptorRegistry } from '@thirdlight/project-model';
 import { capsuleDistance, capsuleShapeOf, outlinePoints, type SizeShape } from '../session/size-handles';
 import { deletePoint, dragGrip, gripsOf, handleShapesOf, insertPoint, linesOf, type Grip, type HandleShape, type P3 } from '../session/handles';
 
-/** Phase 15.2: a grip under the pointer (which handle shape of which entity, which grip). */
+/** A grip under the pointer (which handle shape of which entity, which grip). */
 export interface HandleRef {
   entityId: string;
   shapeIndex: number;
@@ -24,11 +22,11 @@ export interface HandleRef {
   role: Grip['role'];
 }
 
-/** The collider outline colour (phase 9.12); the player's capsule uses it too. */
+/** The collider outline colour; the player's capsule uses it too. */
 const COLLIDER_COLOR = 0x7cfc00;
 const SIZE_HANDLE_COLOR = 0xffffff;
 
-/** Phase 9.9: gameplay block helpers (mover paths, trigger/switch/collectible/hitbox/patrol areas). */
+/** Gameplay block helpers (mover paths, trigger/switch/collectible/hitbox/patrol areas). */
 const BLOCK_COLORS = { mover: 0xffa53a, trigger: 0x3ad7ff, switch: 0xff5a8c, audioSource: 0x7fe0a0, collectible: 0xf2c230, hitbox: 0xff6a3a, patrol: 0xb05aff, climbVolume: 0x5ad18c, gravity: 0x9aa3b2, cameraRegion: 0xd0d6e0 } as const;
 
 /** Safe numeric read (positions are always 3-element). */
@@ -45,29 +43,29 @@ export class HelperOverlay {
   private readonly root: THREE.Group;
   private selectedId: string | null = null;
   private readonly raycaster = new THREE.Raycaster();
-  /** Phase 9.9: the gameplay block helpers, rebuilt on every sync. */
+  /** The gameplay block helpers, rebuilt on every sync. */
   private readonly blocks = new THREE.Group();
-  /** Phase 9.12: every collider's 2D outline (the Gizmos menu toggles them). */
+  /** Every collider's 2D outline (the Gizmos menu toggles them). */
   private readonly colliders = new THREE.Group();
-  /** Phase 21.3: collider outlines drawn (their merged line objects hold every one). */
+  /** Collider outlines drawn (their merged line objects hold every one). */
   private colliderOutlines = 0;
-  /** Phase 14.0: the entities of the last sync (the handles read the selected one). */
+  /** The entities of the last sync (the handles read the selected one). */
   private entities: readonly ProjectedEntity[] = [];
-  /** Phase 14.0: each player's capsule (drawn with the collider outlines, clickable). */
+  /** Each player's capsule (drawn with the collider outlines, clickable). */
   private readonly capsules = new Map<string, { shape: SizeShape; z: number }>();
-  /** Phase 15.2: the selected entity's handle grips, its handle outlines and the drag preview. */
+  /** The selected entity's handle grips, its handle outlines and the drag preview. */
   private readonly sizeHandles = new THREE.Group();
   private readonly handleOutlines = new THREE.Group();
   private handleShapes: HandleShape[] = [];
   private handleFrames: THREE.Matrix4[] = [];
   private handleDrag: { shapeIndex: number; grip: string; shape: HandleShape; moved: boolean } | null = null;
   private handlePreview: THREE.Group | null = null;
-  /** Phase 15.2: the descriptors (the handles come from them) and each entity's scene node (its frame). */
+  /** The descriptors (the handles come from them) and each entity's scene node (its frame). */
   private registry: DescriptorRegistry | null = null;
   private physicsDimension: 2 | 3 = 2;
   private nodeFor: (entityId: string) => THREE.Object3D | null = () => null;
 
-  /** Phase 17.1: the Scene view replaced its canvas (another renderer backend). */
+  /** The Scene view replaced its canvas (another renderer backend). */
   setCanvas(canvas: HTMLCanvasElement): void {
     this.canvas = canvas;
   }
@@ -102,7 +100,7 @@ export class HelperOverlay {
   }
 
   /**
-   * Phase 21.3: the latest entities when nothing the overlay draws changed
+   * The latest entities when nothing the overlay draws changed
    * (the Scene view's incremental sync): a later selection reads its handles
    * from the current objects without a rebuild.
    */
@@ -111,7 +109,7 @@ export class HelperOverlay {
   }
 
   /**
-   * Phase 9.9: a mover's path (a line through its stops, a dot per stop) and
+   * A mover's path (a line through its stops, a dot per stop) and
    * the outline of each trigger, switch, collectible, hitbox and patrol area.
    */
   private syncBlocks(entities: readonly ProjectedEntity[]): void {
@@ -123,15 +121,15 @@ export class HelperOverlay {
       this.colliders.remove(c);
       this.disposeGroup(c as THREE.Group);
     }
-    // Phase 9.12: every collider's outline on the game plane (box or polygon, turned about Z).
-    // Phase 21.3: all outlines of one colour are one line-segment object (one draw call, not one per
+    // Every collider's outline on the game plane (box or polygon, turned about Z).
+    // All outlines of one colour are one line-segment object (one draw call, not one per
     // collider); `userData.outlines` keeps each entity's range of vertices.
     this.colliderOutlines = 0;
     const merged = { solid: { points: [] as number[], ranges: {} as Record<string, { start: number; count: number }> }, oneWay: { points: [] as number[], ranges: {} as Record<string, { start: number; count: number }> } };
     for (const e of entities) {
       const shape = (e.collider as { shape?: { type: string; hx?: number; hy?: number; vertices?: number[][] } } | undefined)?.shape;
       if (shape === undefined) continue;
-      // Phase 23.1: a 3D shape (a box with its depth, a sphere, a capsule, a hull, a mesh) as a wire outline
+      // A 3D shape (a box with its depth, a sphere, a capsule, a hull, a mesh) as a wire outline
       // with the object's whole transform (a 3D collider turns and scales with it), in the same merged lines.
       const local = colliderSegments3D(shape);
       if (local !== null) {
@@ -165,7 +163,7 @@ export class HelperOverlay {
       outline.renderOrder = 9;
       this.colliders.add(outline);
     }
-    // Phase 14.0: the player's capsule (its own, or the default one), in the collider colour.
+    // The player's capsule (its own, or the default one), in the collider colour.
     this.capsules.clear();
     for (const e of entities) {
       if (e.controller !== true) continue;
@@ -186,7 +184,7 @@ export class HelperOverlay {
       return new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineDashedMaterial({ color, dashSize: 0.2, gapSize: 0.1 })).computeLineDistances();
     };
     for (const e of entities) {
-      // Phase 25.14: a camera region's box (dashed; its handles when selected).
+      // A camera region's box (dashed; its handles when selected).
       const region = e.components['cameraRegion'] as { size?: number[] } | undefined;
       if (Array.isArray(region?.size)) {
         const box = rect(N(e.position[0]), N(e.position[1]), N(region.size[0]), N(region.size[1]), BLOCK_COLORS.cameraRegion);
@@ -206,7 +204,7 @@ export class HelperOverlay {
         line.name = `mover-path:${e.id}`;
         line.renderOrder = 10;
         this.blocks.add(line);
-        // A dot per stop (phase 15.2: the selected mover's stops get grips from its path handle).
+        // A dot per stop (the selected mover's stops get grips from its path handle).
         const count = mover.waypoints.length + 1;
         for (let i = 0; i < count; i++) {
           const dot = new THREE.Mesh(new THREE.SphereGeometry(0.08, 10, 8), new THREE.MeshBasicMaterial({ color: BLOCK_COLORS.mover, depthTest: false }));
@@ -215,7 +213,7 @@ export class HelperOverlay {
           this.blocks.add(dot);
         }
       }
-      // Phase 23.1: a 3D trigger area (a box with its depth, a sphere, a capsule), turned with its object.
+      // A 3D trigger area (a box with its depth, a sphere, a capsule), turned with its object.
       const trig3 = triggerSegments3D(b.trigger);
       if (trig3 !== null) {
         const pts: number[] = [];
@@ -226,7 +224,7 @@ export class HelperOverlay {
         wire.name = `trigger-3d:${e.id}`;
         this.blocks.add(wire);
       }
-      // Phase 14.2: a circle trigger's outline (dashed, in the trigger colour).
+      // A circle trigger's outline (dashed, in the trigger colour).
       const trig = b.trigger as { shape?: string; radius?: number } | undefined;
       if (trig?.shape === 'circle' && typeof trig.radius === 'number') {
         const pts = outlinePoints({ kind: 'circle', center: { x, y }, half: { x: trig.radius, y: trig.radius } } as SizeShape, 24).map((p) => new THREE.Vector3(p.x, p.y, 0.02));
@@ -239,7 +237,7 @@ export class HelperOverlay {
         if (k === 'trigger' && trig3 !== null) continue;
         if (size !== undefined) this.blocks.add(rect(x, y, N(size[0]), N(size[1]), BLOCK_COLORS[k]));
       }
-      // Phase 24.4: a collectible's area, a hitbox (box or circle) and an edge patroller's body, centred on the object.
+      // A collectible's area, a hitbox (box or circle) and an edge patroller's body, centred on the object.
       const coll = b.collectible as { size?: number[] } | undefined;
       if (coll !== undefined) this.blocks.add(rect(x, y, N(coll.size?.[0] ?? 1), N(coll.size?.[1] ?? coll.size?.[0] ?? 1), BLOCK_COLORS.collectible));
       const hit = b.hitbox as { shape?: string; size?: number[]; radius?: number } | undefined;
@@ -251,12 +249,12 @@ export class HelperOverlay {
       } else if (hit?.size !== undefined) this.blocks.add(rect(x, y, N(hit.size[0]), N(hit.size[1]), BLOCK_COLORS.hitbox));
       const walker = b.patrol as { mode?: string; size?: number[] } | undefined;
       if (walker !== undefined && walker.mode === 'edges') this.blocks.add(rect(x, y, N(walker.size?.[0] ?? 1), N(walker.size?.[1] ?? walker.size?.[0] ?? 1), BLOCK_COLORS.patrol));
-      // Phase 25.13: a climb volume's box and a gravity body's body.
+      // A climb volume's box and a gravity body's body.
       const climb = b.climbVolume as { size?: number[] } | undefined;
       if (climb?.size !== undefined) this.blocks.add(rect(x, y, N(climb.size[0]), N(climb.size[1]), BLOCK_COLORS.climbVolume));
       const fall = b.gravity as { size?: number[] } | undefined;
       if (fall !== undefined) this.blocks.add(rect(x, y, N(fall.size?.[0] ?? 1), N(fall.size?.[1] ?? fall.size?.[0] ?? 1), BLOCK_COLORS.gravity));
-      // Phase 9.10: an audio source's hearing range along X (full volume in the inner quarter).
+      // An audio source's hearing range along X (full volume in the inner quarter).
       const sound = b.audioSource as { range?: number } | undefined;
       if (sound?.range !== undefined) {
         this.blocks.add(rect(x, y, sound.range * 2, 0.4, BLOCK_COLORS.audioSource));
@@ -265,7 +263,7 @@ export class HelperOverlay {
     }
   }
 
-  /** Phase 9.9: the drawn gameplay helpers (names of the mover paths), for tests. */
+  /** The drawn gameplay helpers (names of the mover paths), for tests. */
   blockHelpers(): { moverPaths: string[]; count: number; colliders: number; capsules: number; sizeHandles: number } {
     return {
       moverPaths: this.blocks.children.filter((c) => c.name.startsWith('mover-path:')).map((c) => c.name.slice(11)),
@@ -276,13 +274,13 @@ export class HelperOverlay {
     };
   }
 
-  /** Phase 9.12: the Gizmos menu's collider outlines and gameplay helpers. */
+  /** The Gizmos menu's collider outlines and gameplay helpers. */
   setGizmos(g: { colliders: boolean; gameplay: boolean }): void {
     this.colliders.visible = g.colliders;
     this.blocks.visible = g.gameplay;
   }
 
-  // ---- Phase 15.2: descriptor-driven handles ---------------------------------
+  // ---- Descriptor-driven handles ---------------------------------
 
   /** The descriptors (handles come from them) and how to find an entity's scene node (its frame). */
   setHandleSources(registry: DescriptorRegistry | null, nodeFor: (entityId: string) => THREE.Object3D | null): void {
@@ -291,7 +289,7 @@ export class HelperOverlay {
     this.updateSizeHandles();
   }
 
-  /** Phase 23.2: the project's physics dimension (a handle of the other dimension is not shown). */
+  /** The project's physics dimension (a handle of the other dimension is not shown). */
   setPhysicsDimension(dimension: 2 | 3): void {
     if (dimension === this.physicsDimension) return;
     this.physicsDimension = dimension;
@@ -311,7 +309,7 @@ export class HelperOverlay {
   private frameMatrix(s: HandleShape): THREE.Matrix4 {
     const m = new THREE.Matrix4();
     if (s.anchor !== undefined) {
-      // Phase 25.14: on another object's world position plus an offset (a track camera's target).
+      // On another object's world position plus an offset (a track camera's target).
       const at = this.anchorPosition(s.anchor.entityId) ?? new THREE.Vector3();
       return m.makeTranslation(at.x + s.anchor.offset.x, at.y + s.anchor.offset.y, at.z + s.anchor.offset.z);
     }
@@ -331,7 +329,7 @@ export class HelperOverlay {
     return m.compose(pos, quat, new THREE.Vector3(1, 1, 1));
   }
 
-  /** Phase 25.14: an object's world position (its scene node, else its projected transform; null: not in the open scene). */
+  /** An object's world position (its scene node, else its projected transform; null: not in the open scene). */
   private anchorPosition(entityId: string): THREE.Vector3 | null {
     const node = this.nodeFor(entityId);
     if (node !== null) {
@@ -565,7 +563,7 @@ export class HelperOverlay {
     this.root.removeFromParent();
   }
 }
-// ---- phase 23.1: 3D wire outlines (local segments as flat [x, y, z, x, y, z, ...] pairs) ----
+// ---- 3D wire outlines (local segments as flat [x, y, z, x, y, z, ...] pairs) ----
 
 const ringXZ = (out: number[], r: number, y: number, n = 32): void => {
   for (let i = 0; i < n; i += 1) {
@@ -640,7 +638,7 @@ function hullSegments(points: readonly (readonly number[])[]): number[] {
   return out;
 }
 
-/** Phase 23.1: a 3D collider shape's wire outline in its object's frame, or null for a 2D-plane shape. */
+/** A 3D collider shape's wire outline in its object's frame, or null for a 2D-plane shape. */
 export function colliderSegments3D(shape: { type: string; [k: string]: unknown }): number[] | null {
   const out: number[] = [];
   switch (shape.type) {
@@ -679,7 +677,7 @@ export function colliderSegments3D(shape: { type: string; [k: string]: unknown }
   }
 }
 
-/** Phase 23.1: a 3D trigger area's wire outline (box with a depth, sphere, capsule), or null for a 2D-plane one. */
+/** A 3D trigger area's wire outline (box with a depth, sphere, capsule), or null for a 2D-plane one. */
 function triggerSegments3D(trigger: unknown): number[] | null {
   if (typeof trigger !== 'object' || trigger === null) return null;
   const t = trigger as { shape?: string; size?: number[]; radius?: number; height?: number };

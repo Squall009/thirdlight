@@ -1,12 +1,12 @@
 /**
- * Phase 23.12 (E9): graph-material parameters set per object while the game
+ * Graph-material parameters set per object while the game
  * runs — the script API `ctx.materials`, the values as simulation state and
  * the changes the renderer applies.
  *
- * A graph material (phase 18) declares exposed parameters; objects override
+ * A graph material declares exposed parameters; objects override
  * the public ones as authoring data (the `materialParams` component). Here a
  * script sets them per object at run time: float, vec2–4, colour, a texture
- * (an asset in the game's closure), and (new in this phase) the cells of a
+ * (an asset in the game's closure), and the cells of a
  * `data` parameter — a small RGBA8 grid (at most 64 × 64, project-model
  * `MATERIAL_DATA_MAX`) a Sample data node reads, so one mesh can show
  * per-cell state without an object per cell. The engine knows nothing about
@@ -238,7 +238,7 @@ function fnvBytes(b: Uint8Array): string {
   return h.toString(16).padStart(8, '0');
 }
 
-/** Phase 23.19: one object's script-set values of one material, as a save document keeps them. */
+/** One object's script-set values of one material, as a save document keeps them. */
 export interface MaterialSaveEntry {
   readonly entityId: string;
   readonly materialId: string;
@@ -268,7 +268,7 @@ export class RuntimeMaterials {
   private readonly pending = new Map<string, { op: 'set' | 'clear' | 'data'; entityId: string; materialId: string; key: string }>();
   private writesStep = -1;
   private writes = 0;
-  /** Phase 25.10: the values changed in this step as they stood at its start (`scriptSnapshot` reads the step-start state). */
+  /** The values changed in this step as they stood at its start (`scriptSnapshot` reads the step-start state). */
   private readonly stepBefore = new Map<string, MaterialParamValue | undefined>();
   readonly api: BehaviorMaterials;
 
@@ -313,7 +313,7 @@ export class RuntimeMaterials {
     }
   }
 
-  // ---- phase 25.10: the generic component path (ctx.entity(id).get/set('materialParams')) ----------
+  // ---- The generic component path (ctx.entity(id).get/set('materialParams')) ----------
 
   /**
    * The object's public (non-data) parameters of every graph material it
@@ -423,7 +423,7 @@ export class RuntimeMaterials {
   }
 
   /**
-   * Phase 23.19: the values scripts set, as plain data for a save document
+   * The values scripts set, as plain data for a save document
    * (`materials` section): one entry per object and material, sorted.
    */
   saveState(): MaterialSaveEntry[] {
@@ -445,7 +445,7 @@ export class RuntimeMaterials {
     return out;
   }
 
-  /** Phase 23.19: why a saved `materials` section cannot be restored now (null: it can). */
+  /** Why a saved `materials` section cannot be restored now (null: it can). */
   checkState(v: unknown): string | null {
     if (!Array.isArray(v)) return 'the materials section is a list';
     for (const e of v as unknown[]) {
@@ -466,7 +466,7 @@ export class RuntimeMaterials {
     return null;
   }
 
-  /** Phase 23.19: every object back to its authored values, then the saved ones (checked with `checkState`; the renderer is told). */
+  /** Every object back to its authored values, then the saved ones (checked with `checkState`; the renderer is told). */
   restoreState(v: readonly MaterialSaveEntry[] | undefined): void {
     this.reset();
     for (const r of v ?? []) {

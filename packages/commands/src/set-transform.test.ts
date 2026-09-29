@@ -1,5 +1,5 @@
 /**
- * setTransform — commands.md §8.2/§6.5: whole-field replacement (no
+ * setTransform — whole-field replacement (no
  * component-wise merge), full previous/next change data, the no_change
  * check (including -0 canonicalization), quaternion tolerance, and input
  * invariance on failure.
@@ -245,7 +245,7 @@ describe('setTransform — the resulting scene re-validation is the uniform pipe
     const b = serializeCanonical({ ...r2.state.scene, revision: 0 });
     expect(a.ok && b.ok && bytesEqual(a.bytes, b.bytes)).toBe(true);
     // undo's change data: previous/next swapped, changedFields = all three
-    // (the inverse restores the FULL previous transform, §9.1).
+    // (the inverse restores the FULL previous transform).
     const ch = r2.result.change as SetTransformChange;
     expect(ch.type).toBe('setTransform');
     expect(ch.previous.position).toEqual([9, 9, 9]);

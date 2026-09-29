@@ -1,16 +1,16 @@
 /**
- * The workspace service — the sole command executor (dependencies.md §4.3).
+ * The workspace service — the sole command executor.
  *
  * `openWorkspaceService(config)` builds a service bound to one configured
  * data root (`<root>/projects/<projectId>` — arbitrary absolute paths are
- * never accepted, charter §4). `runCommand` runs the full commands.md §6.1
- * pipeline per mutation: project resolution (1), deduplication before any
+ * never accepted). `runCommand` runs the full command pipeline per
+ * mutation: project resolution (1), deduplication before any
  * revision check (2), pause check (3), `applyMutation` (4–6, the pure
  * layer), the durable write (7), publish (8), acknowledge (9). The
  * pipeline is synchronous: the per-project mutation lock is the whole
- * synchronous sequence (one mutation at a time — commands.md §10).
+ * synchronous sequence (one mutation at a time).
  *
- * Acknowledgement timing (workspace.md §5.3): a success ack is returned
+ * Acknowledgement timing: a success ack is returned
  * only after the durable write completed including the directory flush AND
  * the verification read, and the in-memory state is published at the same
  * point — a success ack implies the durable state already contains the
@@ -187,11 +187,11 @@ import type {
 
 /** The envelope of a storage v3 project (read and upgraded on open). */
 const SCENE_REL = join('scenes', 'main.json');
-/** A migration-copy marker left by an earlier version (the copy operators were removed in phase 9.3). */
+/** A migration-copy marker an earlier version may have left (reported by the scan, never completed). */
 const MIGRATION_MARKER_REL = join('.thirdlight', 'migration.json');
 
 /**
- * Phase 25.7c: the scripts whose source names `id` as a string literal
+ * The scripts whose source names `id` as a string literal
  * (`'crate'`, `"crate"`, `` `crate` ``): each published behavior's source
  * container (a visual script's generated source too) and each script
  * library's files. A reference only code can hold, so a delete is refused
@@ -237,15 +237,15 @@ function contentCtx(s: ProjectSession): ContentContext {
 /**
  * The authoritative blob a successful publication references (the new
  * version's digest/length), or null for a non-publication / history-op
- * result. commit-time verification (workspace.md §13.3.2 step 4) uses it.
+ * result. commit-time verification uses it.
  */
 function publishedBlobRef(
   result: MutationSuccess,
 ): { digest: string; byteLength: number; sourcePath?: string; convertedFrom?: ConvertedOriginal } | null {
   const ch = result.change;
   if (ch.type === 'publishBehavior') {
-    // Packet 33: a source publication references the immutable container blob
-    // exactly like an asset version does (§13.3.2 step 4 verification).
+    // A source publication references the immutable container blob
+    // exactly like an asset version does.
     const src = ch.next === null ? null : ch.next.source;
     if (src === null) return null;
     return { digest: src.sourceDigest, byteLength: src.sourceByteLength };
@@ -309,8 +309,8 @@ export function openWorkspaceService(config: WorkspaceServiceConfig): WorkspaceS
       now: config.now ?? (() => Date.now()),
       ...(config.assetInspector !== undefined ? { assetInspector: config.assetInspector } : {}),
       ...(config.inspectTimeoutMs !== undefined ? { inspectTimeoutMs: config.inspectTimeoutMs } : {}),
-      // Packet 33: the injected behavior-source compiler (dependencies.md
-      // §4.1 — `backend` constructs it; the workspace holds only its type).
+      // The injected behavior-source compiler (dependencies.md
+      // `backend` constructs it; the workspace holds only its type).
       ...(config.behaviorCompiler !== undefined ? { behaviorCompiler: config.behaviorCompiler } : {}),
     },
   };
@@ -319,14 +319,14 @@ export function openWorkspaceService(config: WorkspaceServiceConfig): WorkspaceS
 
 function buildService(core: Core): WorkspaceService {
   const self = core.self;
-  // The startup scan (workspace.md §10: run once at open, before serving)
-  // with its deterministic completion (§8.3); its report is `lastScan`.
+  // The startup scan (run once at open, before serving)
+  // with its deterministic completion; its report is `lastScan`.
   const lastScanRef: [ScanReport] = [runScan(core)];
 
-  // ---- mutation pipeline (commands.md §6.1) ------------------------------
+  // ---- mutation pipeline ------------------------------
 
   /**
-   * Public `runCommand` (R10, 2026-09-18 review): the result may alias
+   * Public `runCommand`: the result may alias
    * authoritative state — the fresh ack shares its `change`/`history`
    * containers with the durable record and the history entries, and a
    * replayed ack shares the persisted record's nested objects — so the
@@ -339,17 +339,16 @@ function buildService(core: Core): WorkspaceService {
   }
 
   function runCommandImpl(request: unknown): MutationResult {
-    // Step 0 (R11, 2026-09-18 review) — canonicalizability gate: the request
-    // must be a JSON value under the digest's canonical rules (commands.md
-    // §6.6 — the same canonical-bytes semantics the model's serialization
+    // Step 0 — canonicalizability gate: the request
+    // must be a JSON value under the digest's canonical rules (the same
+    // canonical-bytes semantics the model's serialization
     // relies on: plain objects/arrays, finite numbers, strings, booleans,
     // null; no undefined/BigInt/Symbol/function, no exotic objects such as
     // Date, no cycles). Non-canonicalizable requests fail here with a
     // structured validation error BEFORE project resolution, deduplication
-    // and any record construction or write. Previously the digest came back
-    // null and the null was written into the envelope's record (the `D!`
-    // site), poisoning the envelope with a `null` digest its own loader
-    // rejects (`retry_records_invalid` at reopen).
+    // and any record construction or write: a `null` digest in a record
+    // would poison the envelope (its own loader rejects it with
+    // `retry_records_invalid` at reopen).
     const issue = canonicalIssue(request);
     if (issue !== null) {
       return failRequest(
@@ -364,7 +363,7 @@ function buildService(core: Core): WorkspaceService {
       );
     }
     // Step 1 — resolve the project. The request envelope's projectId is the
-    // only addressing (charter §4); a syntactically invalid ID cannot exist
+    // only addressing; a syntactically invalid ID cannot exist
     // inside the root, so it is an envelope-level schema failure.
     const pid = envelopeProjectId(request);
     if (pid === null) return failRequest(request, invalidRequestFor(request));
@@ -376,15 +375,13 @@ function buildService(core: Core): WorkspaceService {
     if (o.kind === 'released') return failRequest(request, workspaceClosedError());
     const s = o.session;
 
-    // Step 2 — deduplication BEFORE any revision check (commands.md §6.1:
-    // a retried request carries its ORIGINAL expectedRevision, which is
+    // Step 2 — deduplication BEFORE any revision check (a retried request carries its ORIGINAL expectedRevision, which is
     // stale by definition after the original application).
     const rid = envelopeRequestId(request);
     const D = requestDigest(request);
-    // R11: step 0's gate guarantees the canonical bytes exist, so the
+    // Step 0's gate guarantees the canonical bytes exist, so the
     // digest is non-null. A null here would mean the gate was bypassed:
-    // fail closed — a null digest must never reach a record (that was the
-    // NULL_DIGEST failure: `"digest": null` on disk).
+    // fail closed — a null digest must never reach a record.
     if (D === null) {
       return failRequest(
         request,
@@ -400,7 +397,7 @@ function buildService(core: Core): WorkspaceService {
       const rec = s.recordMap.get(rid)!;
       if (rec.digest === D) {
         // Identical retry: replay the recorded result (a pure read of the
-        // record map — served even while writes are paused, §6.1 step 2).
+        // record map — served even while writes are paused).
         // No revision is consumed, no state changes, no write.
         return { ...(rec.result as object), duplicated: true } as MutationResult;
       }
@@ -412,13 +409,13 @@ function buildService(core: Core): WorkspaceService {
     if (s.pendingChange !== null) {
       if (s.pendingChange.snapshotState === 'unreadable') {
         // The on-disk bytes are unknown (a non-ENOENT read failure
-        // paused the project): the same §11 error stands for every
+        // paused the project): the same error stands for every
         // mutation while the state is unreadable.
         return failRequest(request, externalChangeUnreadable(pid));
       }
-      // A readable pending state (a durable or failed step-2 snapshot,
-      // §7.2 step 2): the §11 payload carries the real `snapshotState`
-      // (R3 — the snapshot failure is reported, not swallowed).
+      // A readable pending state (a durable or failed snapshot): the
+      // payload carries the real `snapshotState` (the snapshot failure is
+      // reported, not swallowed).
       return failRequest(request, externalChangeUnresolved({
         ...pendingInfo(s.pendingChange),
         snapshotState: s.pendingChange.snapshotState,
@@ -467,7 +464,7 @@ function buildService(core: Core): WorkspaceService {
         } as unknown as CommandError);
       }
     }
-    // Phase 25.7c: an asset or prefab a script names as a string literal (`ctx.spawn("crate")`) is in use too.
+    // An asset or prefab a script names as a string literal (`ctx.spawn("crate")`) is in use too.
     if ((op === 'deleteAsset' || op === 'deletePrefab') && typeof args[op === 'deleteAsset' ? 'assetId' : 'prefabId'] === 'string') {
       const id = args[op === 'deleteAsset' ? 'assetId' : 'prefabId'] as string;
       const named = scriptsNaming((digest) => {
@@ -486,7 +483,7 @@ function buildService(core: Core): WorkspaceService {
     };
     if (core.content.behaviorCompiler !== undefined) commandState.behaviorPreparerRegistered = true;
     if (s.preparedSources.size > 0) commandState.preparedBehaviorSources = preparedFactsOf(s.preparedSources);
-    // Phase 25.9: the staged library edit sets (a commit reads only these).
+    // The staged library edit sets (a commit reads only these).
     const stages = libraryStageFacts(s);
     if (stages !== undefined) commandState.scriptLibraryStages = stages;
     const outcome = applyMutation(commandState, pureRequest);
@@ -533,7 +530,7 @@ function buildService(core: Core): WorkspaceService {
     const errors: ModelErrorV3[] = [];
     composeV4([...nextScenes.values()], nextContent, errors, newRevision);
     if (errors.length > 0 && (op === 'deleteAsset' || op === 'deletePrefab')) {
-      // Phase 25.7c: what no longer resolves in the other scenes names it.
+      // What no longer resolves in the other scenes names it.
       return failRequest(request, contentInUse(op === 'deleteAsset' ? 'asset' : 'prefab', String(args[op === 'deleteAsset' ? 'assetId' : 'prefabId']), errors as unknown as { path?: string; document?: string; sceneId?: string }[]));
     }
     if (errors.length > 0) {
@@ -548,9 +545,9 @@ function buildService(core: Core): WorkspaceService {
         hint: 'fix the request (ids are unique across scenes; the start scenes hold the camera and the player)',
       } as unknown as CommandError);
     }
-    // Phase 12 (c): the acknowledgement names the edited scene (the editor
-    // files new entities under it); a scene-index change names none. Phase
-    // 14.8: the record stores that acknowledgement, so a replay carries it.
+    // The acknowledgement names the edited scene (the editor
+    // files new entities under it); a scene-index change names none.
+    // The record stores that acknowledgement, so a replay carries it.
     const ack: MutationSuccess = outcome.result.change.type !== 'setSceneIndex' ? { ...outcome.result, sceneId: carrierId } : outcome.result;
     const record: RetryRecord = { requestId: envelopeRequestId(request)!, digest: D, appliedRevision: newRevision, result: ack };
     const plan = changedFiles(s.projectId, state, { content: nextContent, scenes: nextScenes, revision: newRevision }, record);
@@ -572,14 +569,14 @@ function buildService(core: Core): WorkspaceService {
     }
     publishV4(s, nextState);
     s.history = outcome.state.history;
-    // Phase 25.9: a committed stage is done (committing it again is refused).
+    // A committed stage is done (committing it again is refused).
     if (op === 'commitScriptLibraryStage' && typeof args['stageId'] === 'string') s.libraryStages?.delete(args['stageId']);
     return ack;
   }
 
   // ---- queries --------------------------------------------------------------
 
-  /** Public `query` (R10): results expose the published scene entities,
+  /** Public `query`: results expose the published scene entities,
    * the manifest, the pause state's error details and the error payload
    * by reference — deep-freeze at the boundary. */
   function query(request: unknown): QueryResult {
@@ -599,9 +596,9 @@ function buildService(core: Core): WorkspaceService {
     return serveQuery(core, env.op, env.projectId, env.args);
   }
 
-  // ---- operator operations (workspace.md §11) --------------------------------
+  // ---- operator operations --------------------------------
 
-  /** Public `createProject` (R10): operator results carry error payloads
+  /** Public `createProject`: operator results carry error payloads
    * (and `details`) that may alias loaded/validation data. */
   function createProject(projectId: string, name: string): CreateProjectResult {
     return deepFreeze(createProjectImpl(projectId, name));
@@ -625,7 +622,7 @@ function buildService(core: Core): WorkspaceService {
     }
     const dir = projectBaseDir(core, projectId);
     if (core.ops.dirExists(dir)) {
-      // R7 (2026-09-18 review): the containment gate BEFORE any read or
+      // The containment gate BEFORE any read or
       // converge (a symlinked or unresolvable directory is not a project
       // of this backend — no writes anywhere).
       if (!resolveContained(core, projectId).ok) {
@@ -641,11 +638,11 @@ function buildService(core: Core): WorkspaceService {
           ]),
         };
       }
-      // Existing directory (§8.1): loadable ⇒ idempotent no-op; otherwise
+      // Existing directory: loadable ⇒ idempotent no-op; otherwise
       // project_exists_invalid with the load errors. Nothing is written.
       return convergeExisting(projectId);
     }
-    // §8.3 creation write sequence (two files — explicitly not "atomic";
+    // Creation write sequence (two files — explicitly not "atomic";
     // deterministic crash completion by the startup scan).
     const partial = createDirectories(dir, core.ops);
     if (partial === 'error') {
@@ -653,7 +650,7 @@ function buildService(core: Core): WorkspaceService {
     }
     // 'failed' = the directory (partially) exists concurrently: converge.
     if (partial !== 'failed') {
-      // The v4 project files (§8.3 creation write sequence, extended to v4):
+      // The v4 project files (creation write sequence):
       // project.json, the scene file, then content.json — its presence makes
       // the directory a v4 project; a crash before it leaves an interrupted
       // creation the startup scan completes deterministically.
@@ -662,7 +659,7 @@ function buildService(core: Core): WorkspaceService {
       const w = writeNewProjectFiles(core, dir, built.files);
       if (w.kind === 'external') return convergeExisting(projectId);
       if (w.kind === 'failed') return { ok: false, error: writeFailed(w.onDiskState, w.errno) };
-      // Claim ownership (§6.3) and load in memory.
+      // Claim ownership and load in memory.
       const o = ensureSession(core, projectId);
       if (o.kind === 'open') return { ok: true, created: true, revision: 0 };
       if (o.kind === 'unavailable') {
@@ -761,17 +758,16 @@ function buildService(core: Core): WorkspaceService {
     return { ok: true, created: true, revision: 0 };
   }
 
-  /** The existing-directory outcome of createProject (§8.1 idempotency).
-   * READ-ONLY (R15, 2026-09-18 review): a strict manifest + envelope load
+  /** The existing-directory outcome of createProject (idempotency).
+   * READ-ONLY: a strict manifest + envelope load
    * via the same loaders the query path uses — MINUS session creation,
    * ownership evaluation/claim, and liveness side effects. Loadable ⇒ the
    * idempotent no-op; unloadable ⇒ `project_exists_invalid` with the load
    * errors; neither outcome writes anything (no ownership/claim file is
-   * created or rewritten, envelope bytes are untouched — §8.1: "nothing
-   * written"). */
+   * created or rewritten, envelope bytes are untouched). */
   function convergeExisting(projectId: string): CreateProjectResult {
     const dir = projectBaseDir(core, projectId);
-    // Phase 12 (c): an existing v4 project is loadable when its files validate.
+    // An existing v4 project is loadable when its files validate.
     if (isV4Layout(core.ops, dir)) {
       const l = loadV4(core.ops, dir, projectId);
       if (l.kind === 'loaded') return { ok: true, created: false, revision: l.state.revision };
@@ -779,8 +775,8 @@ function buildService(core: Core): WorkspaceService {
     }
 
     // Manifest loadability — report the actual manifest load details (a
-    // garbage manifest is still an existing-invalid directory, workspace.md
-    // §8.1). Nothing is written.
+    // garbage manifest is still an existing-invalid directory). Nothing is
+    // written.
     let manifest: Manifest | null = null;
     const details: LoadDetail[] = [];
     const manPath = join(dir, 'project.json');
@@ -820,10 +816,10 @@ function buildService(core: Core): WorkspaceService {
       return { ok: false, error: projectExistsInvalid(details) };
     }
 
-    // A storage v3 project (upgraded to v4 when opened): the §4.3/§16.4
+    // A storage v3 project (upgraded to v4 when opened): the
     // envelope load — the same loader as the open path, without the
     // session/ownership acquisition around it (and without the upgrade).
-    // R15/R7: read-only probe; the caller's containment gate verified the
+    // Read-only probe; the caller's containment gate verified the
     // project directory (the scenes child is read here, never written).
     const l = loadEnvelopeV3(core, join(dir, 'scenes'), projectId, manifest);
     if (l.kind === 'loaded') return { ok: true, created: false, revision: l.scene.revision };
@@ -850,7 +846,7 @@ function buildService(core: Core): WorkspaceService {
     return { ok: false, error: projectExistsInvalid(envDetails) };
   }
 
-  /** Public `releaseWorkspace` (R10). */
+  /** Public `releaseWorkspace` (deep-frozen at the boundary). */
   function releaseWorkspace(projectId: string): ReleaseResult {
     return deepFreeze(releaseWorkspaceImpl(projectId));
   }
@@ -867,12 +863,12 @@ function buildService(core: Core): WorkspaceService {
     return releaseProject(core, o.session);
   }
 
-  /** Public `takeoverWorkspace` (R10). */
+  /** Public `takeoverWorkspace` (deep-frozen at the boundary). */
   function takeoverWorkspace(projectId: string): TakeoverResult {
     return deepFreeze(takeover(core, projectId));
   }
 
-  /** Public `acceptExternalState` (R10). */
+  /** Public `acceptExternalState` (deep-frozen at the boundary). */
   function acceptExternalState(projectId: string): AcceptResult {
     return deepFreeze(acceptExternalStateImpl(projectId));
   }
@@ -900,7 +896,7 @@ function buildService(core: Core): WorkspaceService {
     return acceptExternal(core, s);
   }
 
-  /** Public `discardExternalState` (R10). */
+  /** Public `discardExternalState` (deep-frozen at the boundary). */
   function discardExternalState(projectId: string): DiscardResult {
     return deepFreeze(discardExternalStateImpl(projectId));
   }
@@ -928,7 +924,7 @@ function buildService(core: Core): WorkspaceService {
     return discardExternal(core, s);
   }
 
-  // ---- content storage operations (workspace.md §11/§13) ---------------------
+  // ---- content storage operations ---------------------
 
   /** Resolve the project for a content operation (the on-demand open). */
   function withOpenSession<T>(
@@ -947,7 +943,7 @@ function buildService(core: Core): WorkspaceService {
     return fn(s);
   }
 
-  /** `stageContent` (workspace.md §7.6/§11): non-authoritative staged input. */
+  /** `stageContent`: non-authoritative staged input. */
   function stageContentOp(projectId: string, request: StageRequest): StageResult {
     return deepFreeze(
       withOpenSession<StageResult>(
@@ -958,7 +954,7 @@ function buildService(core: Core): WorkspaceService {
     );
   }
 
-  /** `discardStage` (workspace.md §7.6.2/§11): non-authoritative cleanup. */
+  /** `discardStage`: non-authoritative cleanup. */
   function discardStageOp(projectId: string, stageId: string): StageDiscardResult {
     return deepFreeze(
       withOpenSession<StageDiscardResult>(
@@ -969,7 +965,7 @@ function buildService(core: Core): WorkspaceService {
     );
   }
 
-  /** `inspectStage` (workspace.md §11/§13.3.1): the injected bounded inspector
+  /** `inspectStage`: the injected bounded inspector
    * over the staged bytes; non-authoritative, never mutates authoring state. */
   function inspectStageOp(projectId: string, stageId: string, options?: InspectStageOptions): InspectStageResult {
     return deepFreeze(
@@ -1029,7 +1025,7 @@ function buildService(core: Core): WorkspaceService {
     );
   }
 
-  /** `publishBlob` (workspace.md §13.2/§11): immutable blob publication (no lock). */
+  /** `publishBlob`: immutable blob publication (no lock). */
   function publishBlobOp(projectId: string, request: BlobPublishRequest): BlobPublishResult {
     return deepFreeze(
       withOpenSession<BlobPublishResult>(
@@ -1040,7 +1036,7 @@ function buildService(core: Core): WorkspaceService {
     );
   }
 
-  /** `readBlob` (workspace.md §13.5/§11): the only public byte read. */
+  /** `readBlob`: the only public byte read. */
   function readBlobOp(projectId: string, request: BlobReadRequest): BlobReadResult {
     return deepFreeze(
       withOpenSession<BlobReadResult>(
@@ -1052,7 +1048,7 @@ function buildService(core: Core): WorkspaceService {
   }
 
   /**
-   * `readSourceBlob` (packet 35): the digest-addressed verified immutable-blob
+   * `readSourceBlob`: the digest-addressed verified immutable-blob
    * read the play/export delivery build uses for behavior source containers.
    */
   function readSourceBlobOp(projectId: string, request: SourceBlobReadRequest): SourceBlobReadResult {
@@ -1065,7 +1061,7 @@ function buildService(core: Core): WorkspaceService {
     );
   }
 
-  /** `contentIntegrity` (workspace.md §13.5/§11): bounded integrity report. */
+  /** `contentIntegrity`: bounded integrity report. */
   function contentIntegrityOp(projectId: string): ContentIntegrityResult {
     return deepFreeze(
       withOpenSession<ContentIntegrityResult>(
@@ -1076,7 +1072,7 @@ function buildService(core: Core): WorkspaceService {
     );
   }
 
-  /** `readCapturedV3` (packet 58, delivery.md §2.6): the single
+  /** `readCapturedV3`: the single
    *  acknowledged project read (scenes + content). Pure read. */
   function readCapturedV3Op(projectId: string): CapturedV3ReadResult {
     return deepFreeze(
@@ -1108,7 +1104,7 @@ function buildService(core: Core): WorkspaceService {
   }
 
   function dispose(): void {
-    // Process-exit semantics (workspace.md §9.4): discard all in-memory
+    // Process-exit semantics: discard all in-memory
     // state without writing. The ownership records persist; the next
     // backend reclaims them once this process is dead.
     core.sessions.clear();
@@ -1303,7 +1299,7 @@ function buildService(core: Core): WorkspaceService {
 
   const prepareBehaviorSourceOp = (projectId: string, request: PrepareBehaviorSourceRequest) =>
     prepareBehaviorSource(core, projectId, request);
-  // Phase 23.7: compile a library's dependents for the set a setScriptLibrary will commit.
+  // Compile a library's dependents for the set a setScriptLibrary will commit.
   const prepareScriptLibraryDependentsOp = (projectId: string, patch: import('@thirdlight/project-model').ScriptLibraryPatch) =>
     prepareScriptLibraryDependents(core, projectId, patch);
 
@@ -1331,7 +1327,7 @@ function buildService(core: Core): WorkspaceService {
     prepareBehaviorSource: prepareBehaviorSourceOp,
     prepareScriptLibraryDependents: prepareScriptLibraryDependentsOp,
     checkScriptLibraryDraft: (projectId: string, draft: { libraryId: string; files: { path: string; text: string }[] }) => checkScriptLibraryDraft(core, projectId, draft),
-    // Phase 25.9: staged library edits.
+    // Staged library edits.
     stageScriptLibraryPatch: (projectId: string, request: { stageId?: string; patch: import('./behavior').StagedLibraryPatch }) => stageScriptLibraryPatch(core, projectId, request),
     discardScriptLibraryStage: (projectId: string, stageId: string) => discardScriptLibraryStage(core, projectId, stageId),
     prepareScriptLibraryStage: (projectId: string, stageId: string) => prepareScriptLibraryStage(core, projectId, stageId),
@@ -1352,14 +1348,14 @@ function buildService(core: Core): WorkspaceService {
   } as WorkspaceService;
 }
 
-// ---- scan implementation (workspace.md §10) ------------------------------------------
+// ---- scan implementation ------------------------------------------
 
 function runScan(core: Core): ScanReport {
-  // R14 (2026-09-18 review): the §10 cap bounds the LOG, not the work —
-  // scanEntry must visit EVERY entry (the deterministic §8.3 completion
+  // The scan-log cap bounds the LOG, not the work —
+  // scanEntry must visit EVERY entry (the deterministic creation completion
   // and the corruption/stale reporting run on all of them); only the
   // report's entries are capped at 100. `total` counts all visited,
-  // `truncated` now means "more than 100 entries visited".
+  // `truncated` means "more than 100 entries visited".
   const entries: ScanEntry[] = [];
   let total = 0;
   const names = new Set<string>();
@@ -1373,14 +1369,14 @@ function runScan(core: Core): ScanReport {
     const entry = scanEntry(core, name);
     if (entries.length < 100) entries.push(entry);
   }
-  // R10: the report is also published through the `lastScan` getter and
+  // The report is also published through the `lastScan` getter and
   // `scan()` — freeze it at construction (single site for both).
   return deepFreeze({ entries, total, truncated: total > entries.length });
 }
 
 /**
- * One scan entry. Read-only except the deterministic creation completion
- * (§8.3); claims no ownership; leftover temps are reported, NOT cleaned.
+ * One scan entry. Read-only except the deterministic creation completion;
+ * claims no ownership; leftover temps are reported, NOT cleaned.
  */
 function scanEntry(core: Core, name: string): ScanEntry {
   const entry: ScanEntry = { projectId: name, kind: 'orphan' };
@@ -1400,8 +1396,8 @@ function scanEntry(core: Core, name: string): ScanEntry {
     entry.note = 'directory absent (vanished during the scan)';
     return entry;
   }
-  // R7 (2026-09-18 review): the containment gate BEFORE any read or write
-  // through the entry (the §8.3 completion write included) — a symlinked
+  // The containment gate BEFORE any read or write
+  // through the entry (the creation completion write included) — a symlinked
   // or unresolvable project directory is not a project of this backend:
   // reported as an orphan, not completed, not modified.
   if (!resolveContained(core, name).ok) {
@@ -1410,7 +1406,7 @@ function scanEntry(core: Core, name: string): ScanEntry {
       'directory is not a contained project of this backend (symlink escape or missing path) — not completed, not modified';
     return entry;
   }
-  // Leftover temps — reported, not cleaned (workspace.md §10).
+  // Leftover temps — reported, not cleaned.
   const temps = listLeftoverTemps(join(dir, 'scenes'), 'main.json', core.ops);
   // Storage v4: also the temps of content.json / project.json, every scene file and the journal.
   const tempsV4 = listLeftoverTempsV4(core.ops, dir, join(dir, 'scenes'), join(dir, '.thirdlight')).filter((rel) => !rel.startsWith('scenes/.main.json.tmp-'));
@@ -1418,7 +1414,7 @@ function scanEntry(core: Core, name: string): ScanEntry {
 
   // Ownership: a stale (dead-pid) record is reported; no action is taken
   // (a live record means another backend is working: untouched).
-  // R8a (2026-09-18 review): the read keeps the absent/unreadable/record
+  // The read keeps the absent/unreadable/record
   // distinction — an UNREADABLE record is unknown, never absent, and
   // never proven dead: no `staleOwnership` flag (only a parseable owned
   // record with a proven-dead pid is reported; the scan claims nothing).
@@ -1432,10 +1428,9 @@ function scanEntry(core: Core, name: string): ScanEntry {
   }
   if (stale) entry.staleOwnership = true;
 
-  // An interrupted migration copy made by an earlier version (workspace.md
-  // §10/§14.3/§16.5.3; the copy operators were removed in phase 9.3): a
+  // An interrupted migration copy made by an earlier version: a
   // `.thirdlight/migration.json` marker with no project files suppresses the
-  // §8.3 completion — auto-completing would create an empty default project
+  // creation completion — auto-completing would create an empty default project
   // over the copy. Checked BEFORE the manifest (a marker-only destination has
   // no manifest yet). Reported; the operator deletes the directory.
   const contentExists = isV4Layout(core.ops, dir);
@@ -1463,14 +1458,14 @@ function scanEntry(core: Core, name: string): ScanEntry {
     } else {
       entry.loadable = false;
       entry.code = l.reason;
-      // Phase 24.8: the first problem says why (a removed game component names itself).
+      // The first problem says why (a removed game component names itself).
       const first = l.errors[0]?.message;
       entry.note = `v4 project does not load (${l.reason}${first !== undefined ? `: ${first.slice(0, 160)}` : ''}); retained until operator repair`;
     }
     return entry;
   }
 
-  // Manifest: a v4 manifest (schemaVersion 4; 3 before phase 25.7, 2 before phase 24.8) of an interrupted creation, or
+  // Manifest: a v4 manifest of an interrupted creation, or
   // the v1 manifest of a storage v3 project.
   const manPath = join(dir, 'project.json');
   if (!core.ops.fileExists(manPath)) {
@@ -1519,10 +1514,10 @@ function scanEntry(core: Core, name: string): ScanEntry {
         : 'interrupted creation by an earlier version (a v3 manifest without scenes/main.json; kept — delete the directory and create the project again)';
       return entry;
     }
-    // R7 (2026-09-18 review): the completion writes go through the scenes
+    // The completion writes go through the scenes
     // directory — a PRESENT scenes dir that escapes the data root is kept for
-    // the operator, never completed through a symlink. (An ABSENT scenes dir
-    // keeps the pre-fix path: the write attempt fails and the state is kept.)
+    // the operator, never completed through a symlink. (With an ABSENT scenes
+    // dir the write attempt fails and the state is kept.)
     if (verifyChildDir(core, name, 'scenes').kind === 'escape') {
       entry.completion = 'kept';
       entry.loadable = false;
@@ -1533,7 +1528,7 @@ function scanEntry(core: Core, name: string): ScanEntry {
       return entry;
     }
     // Interrupted creation: the scan's only sanctioned write — the
-    // deterministic §8.3 completion.
+    // deterministic creation completion.
     const completed = completeInterruptedCreation(core, dir, name, manifest);
     entry.completion = completed ? 'completed' : 'kept';
     entry.loadable = completed;
@@ -1586,7 +1581,7 @@ function scanEntry(core: Core, name: string): ScanEntry {
 }
 
 /**
- * The deterministic §8.3 completion of a v4 project whose creation stopped
+ * The deterministic creation completion of a v4 project whose creation stopped
  * after `project.json`: the missing default scene file and `content.json` —
  * a pure function of the manifest (the default project at revision 0) — are
  * written via W, content.json last. A file already present is never
@@ -1622,7 +1617,7 @@ function completeInterruptedCreation(
 }
 
 /**
- * Write a new project's files (§8.3 creation sequence, v4): `project.json`,
+ * Write a new project's files (creation sequence, v4): `project.json`,
  * the scene file, then `content.json` — its presence makes the directory a
  * v4 project, so a crash before it leaves an interrupted creation the startup
  * scan completes. A scene/content file that already exists is an external
@@ -1639,8 +1634,8 @@ function writeNewProjectFiles(
       dir: dirname(target),
       target,
       bytes: f.bytes as Uint8Array,
-      // The manifest takes no pre-write check (races are handled by the reload,
-      // §8.3); the scene and content files must not exist yet.
+      // The manifest takes no pre-write check (races are handled by the
+      // reload); the scene and content files must not exist yet.
       allowedPreHashes: f === files.manifest ? [] : null,
       previousHash: null,
       ops: core.ops,
@@ -1655,13 +1650,13 @@ function writeNewProjectFiles(
 // ---- request envelope helpers ----------------------------------------------------------
 
 /** Extract the request envelope's projectId (string or null). */
-/** Phase 12 (c): the id of a v4 project's first start scene. */
+/** The id of a v4 project's first start scene. */
 function primarySceneIdV4(state: V4State): string {
   return state.content.startScenes[0] ?? state.content.scenes[0]?.sceneId ?? '';
 }
 
 /**
- * Phase 12 (c): the scene a v4 command edits — from the entity ids it names
+ * The scene a v4 command edits — from the entity ids it names
  * (ids are unique across scenes), `args.sceneId` or the parent for a create,
  * the history entry for undo/redo; null for a content-only command. A command
  * spanning two scenes is refused (one transaction touches one scene).
@@ -1704,7 +1699,7 @@ function targetSceneV4(
     return { ok: true, sceneId: sceneOf(args['parentId']) ?? primarySceneIdV4(state) };
   }
   if (op === 'createEntities') {
-    // Phase 25.7e: every item lands in one scene: `sceneId`, else the scene of the items' existing parents, else the primary one.
+    // Every item lands in one scene: `sceneId`, else the scene of the items' existing parents, else the primary one.
     const items = Array.isArray(args['entities']) ? (args['entities'] as unknown[]) : [];
     const parents = new Set(items.map((it) => sceneOf((it as { parentId?: unknown } | null)?.parentId)).filter((x): x is string => x !== null));
     const explicit = args['sceneId'];
@@ -1769,9 +1764,9 @@ function envelopeRequestId(request: unknown): string | null {
 }
 
 /**
- * R11 (2026-09-18 review): the first non-canonicalizable part of the request
+ * The first non-canonicalizable part of the request
  * value, or null when the ENTIRE value is a JSON value under the digest's
- * canonical rules (commands.md §6.6 — the same canonical-bytes semantics the
+ * canonical rules (the same canonical-bytes semantics the
  * model's canonical serialization relies on: plain objects, arrays, finite
  * numbers, strings, booleans, null). Reports the first offending field with
  * a JSON-pointer-style path (first key order, then array order).
@@ -1863,8 +1858,7 @@ function canonicalIssue(value: unknown): CanonicalIssue | null {
   return walk(value, '');
 }
 
-/** A §5.2 failure payload with the parseable echo fields (commands.md §5.2:
- * `op` ≤ 32 chars, `projectId` when parseable, `requestId` ≤ 64 chars). */
+/** A failure payload with the parseable echo fields (`op` ≤ 32 chars, `projectId` when parseable, `requestId` ≤ 64 chars). */
 function failRequest(request: unknown, error: CommandError): MutationResult {
   const out: {
     ok: false;
@@ -1895,7 +1889,7 @@ function echoProjectId(v: unknown): string | undefined {
   return typeof v === 'string' ? v : undefined;
 }
 
-/** §4/§5.6 query envelope validation (request-level `invalid_request`). */
+/** Query envelope validation (request-level `invalid_request`). */
 function validateQueryRequest(request: unknown):
   | {
       ok: true;
@@ -1961,7 +1955,7 @@ function jsonTypeName(v: unknown): string {
   return typeof v;
 }
 
-/** `name` 1–128 chars, no control characters (workspace.md §8.1). */
+/** `name` 1–128 chars, no control characters. */
 function validName(s: string): boolean {
   if (s.length < 1 || s.length > 128) return false;
   for (let i = 0; i < s.length; i++) {
@@ -1972,7 +1966,7 @@ function validName(s: string): boolean {
 }
 
 /**
- * §8.3 step 1: mkdir the project, scenes, .thirdlight and
+ * Mkdir the project, scenes, .thirdlight and
  * .thirdlight/recovery (all 0755). Returns 'ok', 'failed' (the project
  * directory already exists — a concurrent creator: converge instead), or
  * 'error' (a real I/O failure).

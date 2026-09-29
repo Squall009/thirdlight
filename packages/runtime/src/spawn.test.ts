@@ -1,5 +1,5 @@
 /**
- * Phase 14.1 — `ctx.spawn` / `ctx.destroy`: project prefabs copied into the
+ * `ctx.spawn` / `ctx.destroy`: project prefabs copied into the
  * running game (never the project). The pure expansion and option rules, and
  * the runtime: requests queue with the step and apply at the next boundary in
  * order, colliders go to the physics port, scripts and gameplay blocks attach,
@@ -337,7 +337,7 @@ describe('spawn: the runtime (ctx.spawn / ctx.destroy)', () => {
     for (const id of before) if (id !== undefined && a.h.log.added.some((s) => s.startsWith(`${id}@`))) expect(a.h.log.removed).toContain(id);
     a.h.tick(20);
     expect(a.ids[firstAfter]).toBe(`spawn-${firstAfter + 1}`);
-    // Phase 25.16: the run began at the restart's boundary, after the copies numbered so far (tools name a run's copies from there).
+    // The run began at the restart's boundary, after the copies numbered so far (tools name a run's copies from there).
     expect(a.h.rt.runStart!()).toEqual({ step: boundary, spawnBase: firstAfter });
     expect(b.h.rt.runStart!()).toEqual({ step: 0, spawnBase: 0 });
   });

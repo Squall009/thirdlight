@@ -1,5 +1,5 @@
 /**
- * Phase 15.2: Scene-view handles driven by the component descriptors — the
+ * Scene-view handles driven by the component descriptors — the
  * pure part (no DOM, no three.js).
  *
  * Every component of the selected object whose descriptor lists a handle
@@ -11,8 +11,7 @@
  * turns pointer positions into frame points, and asks this module where the
  * grips sit, what a drag makes of the model (snapped, inside the fields'
  * ranges) and which `setComponent` value stores it — one command on release,
- * one undo step. Generalises the phase 14.0 size handles and the 9.12 mover
- * waypoint handles.
+ * one undo step. One system for size handles and mover waypoint handles.
  *
  * Snapping (the snap toggle; Shift turns it off for one drag): sizes, radii,
  * ranges and polygon corners land on 5 cm (`SNAP_SIZE_M`), path points on
@@ -59,16 +58,16 @@ type Range = { min: number; max: number };
 
 export type HandleModel =
   | { type: 'box'; dims: 2 | 3; roles: 'size' | 'half'; center: P3; half: P3 }
-  /** Phase 23.1: `centered` — a capsule without an offset (a collider or trigger): its height grows both ways. */
+  /** `centered` — a capsule without an offset (a collider or trigger): its height grows both ways. */
   | { type: 'capsule'; cx: number; cy: number; radius: number; halfHeight: number; cz?: number; centered?: boolean }
   | { type: 'radius'; r: number; along: 'xy' | 'x'; band: number | null }
   | { type: 'cone'; dir: P3; angle: number; range: number }
   | { type: 'direction'; dir: P3 }
   | { type: 'points'; pts: P3[]; dims: 2 | 3; closed: boolean; start: boolean; minItems: number; maxItems: number }
   | { type: 'point'; p: P3; dims: 2 | 3 }
-  /** Phase 23.2: a height `h` above `base` (the capsule's feet, or the origin), along the frame's Y; `r` the drawn ring's radius. */
+  /** A height `h` above `base` (the capsule's feet, or the origin), along the frame's Y; `r` the drawn ring's radius. */
   | { type: 'height'; base: P3; h: number; r: number }
-  /** Phase 25.14: an axis-aligned box between two corners; `dims` 2 draws and drags it on the 2D plane (z kept). */
+  /** An axis-aligned box between two corners; `dims` 2 draws and drags it on the 2D plane (z kept). */
   | { type: 'bounds'; min: P3; max: P3; dims: 2 | 3 };
 
 export interface HandleShape {
@@ -88,7 +87,7 @@ export interface HandleShape {
   value: Record<string, unknown>;
   bind: Readonly<Record<string, string>>;
   root: ObjectFieldDescriptor;
-  /** Phase 25.14: the frame sits on this object (plus `offset`) instead of the handle's own object. */
+  /** The frame sits on this object (plus `offset`) instead of the handle's own object. */
   anchor?: { entityId: string; offset: P3 };
 }
 
@@ -172,13 +171,13 @@ export function handleShapesOf(e: ProjectedEntity, reg: DescriptorRegistry | nul
     if (raw === undefined || !isObj(raw)) continue;
     const root = c.value;
     c.handles.forEach((h, handleIndex) => {
-      // Phase 23.2: a handle of one physics dimension shows only in a project of that dimension.
+      // A handle of one physics dimension shows only in a project of that dimension.
       if (h.dimension !== undefined && h.dimension !== dimension) return;
       if (!conditionsHold(root, raw, h.when)) return;
       const shape = readShape(e.id, c.name, handleIndex, h, root, raw, dimension);
       if (shape === null) return;
       if (h.anchor !== undefined) {
-        // Phase 25.14: on another object (a track camera's target); none named: no handle.
+        // On another object (a track camera's target); none named: no handle.
         const id = effective(root, raw, h.anchor.entity).v;
         if (typeof id !== 'string' || id === '') return;
         const o = h.anchor.offset !== undefined ? effective(root, raw, h.anchor.offset).v : undefined;
@@ -206,14 +205,14 @@ function readShape(entityId: string, component: string, handleIndex: number, h: 
     case 'box3': {
       if (h.bind['size'] !== undefined) {
         const s = at('size');
-        // Phase 23.1: a `box2` size with a depth ([w, h, d], a 3D trigger) is a 3-axis box turning with the object.
+        // A `box2` size with a depth ([w, h, d], a 3D trigger) is a 3-axis box turning with the object.
         const deep = h.kind === 'box2' && Array.isArray(s.v) && s.v.length === 3;
         const dims = h.kind === 'box3' || deep ? 3 : 2;
         const v = vec(s.v, dims);
         if (v === null) return null;
         lim('size', s.f);
         const half = p3(v[0]! / 2, v[1]! / 2, dims === 3 ? v[2]! / 2 : 0);
-        // A deep box turns with the object unless the handle says it keeps to the world axes (Phase 25.14: `follows: 'position'`).
+        // A deep box turns with the object unless the handle says it keeps to the world axes (`follows: 'position'`).
         return { ...base, ...(deep && h.follows === undefined ? { frame: 'rotation' as const } : {}), model: { type: 'box', dims, roles: 'size', center: p3(0, 0, 0), half } };
       }
       if (h.bind['halfX'] !== undefined) {
@@ -222,13 +221,13 @@ function readShape(entityId: string, component: string, handleIndex: number, h: 
         if (typeof hx.v !== 'number' || typeof hy.v !== 'number') return null;
         lim('halfX', hx.f);
         lim('halfY', hy.f);
-        // Phase 23.0: with its depth set (a collider's hz) the box has three axes and
+        // With its depth set (a collider's hz) the box has three axes and
         // turns with the object's whole rotation (a 3D collider); without, it is the flat
         // 2D-plane box, turning about Z only (as before).
         const hz = h.bind['halfZ'] !== undefined ? at('halfZ') : null;
         if (hz !== null && typeof hz.v === 'number') {
           lim('halfZ', hz.f);
-          // Phase 23.1: the object's whole transform (a 3D collider scales with it).
+          // The object's whole transform (a 3D collider scales with it).
           return { ...base, frame: 'transform', model: { type: 'box', dims: 3, roles: 'half', center: p3(0, 0, 0), half: p3(hx.v, hy.v, hz.v) } };
         }
         return { ...base, model: { type: 'box', dims: 2, roles: 'half', center: p3(0, 0, 0), half: p3(hx.v, hy.v, 0) } };
@@ -241,13 +240,13 @@ function readShape(entityId: string, component: string, handleIndex: number, h: 
       lim('radius', r.f);
       lim('height', ht.f);
       if (h.bind['offset'] === undefined) {
-        // Phase 23.1: a centred capsule (a 3D collider or trigger, standing along the object's Y).
+        // A centred capsule (a 3D collider or trigger, standing along the object's Y).
         return { ...base, model: { type: 'capsule', cx: 0, cy: 0, radius: N(r.v, 0.5), halfHeight: N(ht.v, 2) / 2, centered: true } };
       }
       const o = at('offset');
       const off = vec(o.v, 2) ?? [0, 0];
       lim('offset', o.f);
-      // Phase 23.0: an offset's third component (z, a 3D project) is kept through a drag.
+      // An offset's third component (z, a 3D project) is kept through a drag.
       return { ...base, model: { type: 'capsule', cx: off[0]!, cy: off[1]!, radius: N(r.v, 0.3), halfHeight: N(ht.v, 1.8) / 2, ...(typeof off[2] === 'number' ? { cz: off[2] } : {}) } };
     }
     case 'radius': {
@@ -307,7 +306,7 @@ function readShape(entityId: string, component: string, handleIndex: number, h: 
       return { ...base, model: { type: 'height', base: feet, h: N(hv.v), r } };
     }
     case 'bounds': {
-      // Phase 25.14: both corners set (one side alone has no box to draw).
+      // Both corners set (one side alone has no box to draw).
       const lo = at('min');
       const hi = at('max');
       const a = vec(lo.v, 3);
@@ -320,7 +319,7 @@ function readShape(entityId: string, component: string, handleIndex: number, h: 
   }
 }
 
-/** Phase 25.14: where a bounds box is drawn along z on the 2D plane (the plane itself, when the box spans it). */
+/** Where a bounds box is drawn along z on the 2D plane (the plane itself, when the box spans it). */
 const planeZ = (m: { min: P3; max: P3 }): number => Math.min(m.max.z, Math.max(m.min.z, 0));
 
 // ---- grips --------------------------------------------------------------------
@@ -465,7 +464,7 @@ export function dragGrip(s: HandleShape, id: string, p: P3, snap: boolean): Hand
         return { ...s, model: { ...m, radius } };
       }
       if (m.centered === true) {
-        // Phase 23.1: a centred capsule grows both ways (its centre stays on the object).
+        // A centred capsule grows both ways (its centre stays on the object).
         const height = round3(clamp(size(2 * Math.abs(p.y - m.cy)), { min: Math.max(hr.min, 2 * m.radius), max: hr.max }));
         return { ...s, model: { ...m, halfHeight: height / 2 } };
       }

@@ -43,7 +43,7 @@ export function digestError(path: string, found: unknown): ModelErrorV2 {
  * A referenced asset version's `sourcePath`: relative to the game folder,
  * forward slashes only, 1–512 characters, no empty, `.` or `..` segment, no
  * leading `/`, no drive letter, no backslash and no control characters. It
- * is a name inside the game folder, never a host path (charter §4).
+ * is a name inside the game folder, never a host path.
  */
 export function isValidSourcePath(s: unknown): s is string {
   if (typeof s !== 'string' || s.length < 1 || s.length > MAX_SOURCE_PATH_LENGTH) return false;
@@ -58,7 +58,7 @@ function canonicalBytes(text: string): number {
   return utf8Encode(text).length;
 }
 
-/** §12.2 canonical document bytes of any validated value. */
+/** Canonical document bytes of any validated value. */
 export function canonicalDocBytes(value: unknown): number {
   return canonicalBytes(JSON.stringify(value, null, 2) + '\n');
 }

@@ -1,5 +1,5 @@
 /**
- * Phase 16.1: the generic node-graph editor.
+ * The generic node-graph editor.
  *
  * A self-contained component: give it a graph kind (catalogue, port types,
  * rules), the owner (which document's graph it is), the graph value, and an
@@ -97,34 +97,34 @@ export interface GraphEditorProps {
   onSelection?: (ids: readonly string[]) => void;
   /** Select and frame an item (a Problems jump); a new `nonce` repeats it. */
   focus?: { id: string; nonce: number } | null;
-  /** Phase 16.2: a short label drawn on a wire (edge id → text, e.g. "×2"). */
+  /** A short label drawn on a wire (edge id → text, e.g. "×2"). */
   edgeLabels?: ReadonlyMap<string, string>;
-  /** Phase 16.2: nodes drawn highlighted (e.g. the live preview's current state). */
+  /** Nodes drawn highlighted (e.g. the live preview's current state). */
   highlighted?: ReadonlySet<string>;
-  /** Phase 16.2: the host's field values for a node added from the catalogue (absent = the field defaults). */
+  /** The host's field values for a node added from the catalogue (absent = the field defaults). */
   newNodeData?: (type: string) => Record<string, GraphValue> | undefined;
-  /** Phase 16.2: a node's body was double-clicked (e.g. open a blend tree's own graph). */
+  /** A node's body was double-clicked (e.g. open a blend tree's own graph). */
   onOpenNode?: (id: string) => void;
   /**
-   * Phase 18.1: what data-dependent ports read outside the graph — the
+   * What data-dependent ports read outside the graph — the
    * standalone graphs a sub-graph call names and external declarations
    * (e.g. a material's parameters). Absent = none.
    */
   portContext?: GraphContext;
   /**
-   * Phase 19.2: problems found outside the kind's rules (e.g. a visual
+   * Problems found outside the kind's rules (e.g. a visual
    * script's compile errors, by node): shown like the kind's own — a badge on
    * the node, the toolbar count, the node's hover text.
    */
   extraProblems?: readonly GraphProblem[];
-  /** Phase 19.2: nodes with a breakpoint (a red dot); with `onToggleBreakpoint`, F9 and the toolbar toggle them on the selection. */
+  /** Nodes with a breakpoint (a red dot); with `onToggleBreakpoint`, F9 and the toolbar toggle them on the selection. */
   breakpoints?: ReadonlySet<string>;
   onToggleBreakpoint?: (nodeIds: readonly string[]) => void;
-  /** Phase 19.2: the node a paused debugger stands on (outlined, with a ▶). */
+  /** The node a paused debugger stands on (outlined, with a ▶). */
   current?: string | null;
-  /** Phase 19.2: a short text shown while the pointer is over a wire (e.g. the value it carried in Play); null = none. */
+  /** A short text shown while the pointer is over a wire (e.g. the value it carried in Play); null = none. */
   edgeTip?: (edgeId: string) => string | null;
-  /** Phase 19.2: something was dropped on the graph (drag and drop from outside, e.g. a variable); `at` in graph units, `screen` the client (window) point. */
+  /** Something was dropped on the graph (drag and drop from outside, e.g. a variable); `at` in graph units, `screen` the client (window) point. */
   onDropItem?: (data: DataTransfer, at: GraphPoint, screen: { x: number; y: number }) => void;
 }
 
@@ -164,7 +164,7 @@ interface Catalogue {
 
 export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus, edgeLabels, highlighted, newNodeData, onOpenNode, portContext, extraProblems, breakpoints, onToggleBreakpoint, current, edgeTip, onDropItem }: GraphEditorProps): JSX.Element {
   const fixedTypes = useMemo(() => fixedTypesOf(kind), [kind]);
-  // Phase 18.1: every node's resolved ports for this graph value; the geometry
+  // Every node's resolved ports for this graph value; the geometry
   // helpers below read the current table through a ref (callbacks keep working).
   const portsOf = useMemo(() => portsResolver(kind, graph, portContext), [kind, graph, portContext]);
   const portsRef = useRef<PortsOf>(portsOf);
@@ -201,7 +201,7 @@ export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus, ed
   const [editing, setEditing] = useState<{ id: string; kind: 'comment' | 'group'; text: string } | null>(null);
   const [pendingPort, setPendingPort] = useState<PortEnd | null>(null);
   const [hoverEdge, setHoverEdge] = useState<string | null>(null);
-  /** Phase 19.2: where the pointer is over the hovered wire (the tip follows it). */
+  /** Where the pointer is over the hovered wire (the tip follows it). */
   const [hoverAt, setHoverAt] = useState<{ sx: number; sy: number } | null>(null);
 
   const problems = useMemo(() => [...diagnoseGraph(kind, graph, portsOf), ...(extraProblems ?? [])], [kind, graph, portsOf, extraProblems]);
@@ -931,7 +931,7 @@ export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus, ed
       return;
     }
     if (ev.key === 'F9' && onToggleBreakpoint !== undefined) {
-      // Phase 19.2: toggle breakpoints on the selected nodes.
+      // Toggle breakpoints on the selected nodes.
       handled();
       const ids = graphRef.current.nodes.filter((n) => selectionRef.current.has(n.id)).map((n) => n.id);
       if (ids.length > 0) onToggleBreakpoint(ids);
@@ -1059,7 +1059,7 @@ export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus, ed
   const pos = (id: string, fallback: GraphPoint): GraphPoint => movedRef.current.get(id) ?? fallback;
   const visible = graph.nodes.filter((n) => overlaps(nodeRect(kind, { ...n, position: pos(n.id, n.position) }), viewRect));
   const domNodes = visible.length <= MAX_DOM_NODES ? visible : visible.filter((n) => selection.has(n.id));
-  // Phase 16.2: a focusable handle at each wire's middle (keyboard selection, screen readers,
+  // A focusable handle at each wire's middle (keyboard selection, screen readers,
   // tests) — only while every node in view has its DOM element (the same budget).
   const domEdges = ((): { e: GraphData['edges'][number]; mid: GraphPoint; label: string }[] => {
     if (visible.length > MAX_DOM_NODES) return [];

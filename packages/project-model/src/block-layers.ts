@@ -1,5 +1,5 @@
 /**
- * Phase 23.5 (E8): block layers — a grid of blocks for building levels.
+ * Block layers — a grid of blocks for building levels.
  *
  * Content (v4, optional keys, absent = none so existing content bytes stay):
  * - `content.blockTypes[]` — block definitions: a mesh (a model asset, a
@@ -70,7 +70,7 @@ export interface BlockChunk {
   palette: BlockCell[];
   columns: number[][];
   /**
-   * Phase 25.21: the layer's paint over this chunk — base64 of its 17 × 17
+   * The layer's paint over this chunk — base64 of its 17 × 17
    * lattice vertices × (four layer weights summing to 255, a wetness), what
    * a painted terrain material reads (`block-paint.ts`). Absent: unpainted
    * (all first layer, dry).
@@ -797,7 +797,7 @@ export function validateSceneBlocks(value: unknown, entities: readonly unknown[]
           const cp = `${p}/chunks/${j}`;
           if (!isPlainObject(c)) return err(errors, 'field_type', cp, 'a chunk is {cx, cz, palette, columns, paint?}', c, 'object');
           onlyKeys(c, ['cx', 'cz', 'palette', 'columns', 'paint'], cp, errors, 'chunk');
-          // Phase 25.21: the chunk's paint lattice.
+          // The chunk's paint lattice.
           if (c['paint'] !== undefined) {
             const pe = chunkPaintError(c['paint']);
             if (pe !== null) err(errors, 'field_value', `${cp}/paint`, pe, typeof c['paint'] === 'string' ? `${c['paint'].length} characters` : c['paint']);
@@ -876,7 +876,7 @@ export function canonicalBlockChunk(c: BlockChunk): BlockChunk | null {
   if (canonicalChunks.has(c)) return c;
   const runs = canonicalRuns(c.palette, c.columns);
   if (runs.columns.length === 0) return null;
-  // Phase 25.21: an all-unpainted lattice is not stored.
+  // An all-unpainted lattice is not stored.
   const paint = c.paint !== undefined ? decodeChunkPaint(c.paint) : null;
   const out: BlockChunk = { cx: c.cx, cz: c.cz, palette: runs.palette, columns: runs.columns, ...(paint !== null && !isUnpainted(paint) ? { paint: encodeChunkPaint(paint) } : {}) };
   canonicalChunks.add(out);
@@ -1022,10 +1022,10 @@ function footprintErrors(entry: BlockLayerData, comp: BlockLayerComponent, types
   }
 }
 
-// ---- Phase 23.6: the block footprint component ------------------------------------------
+// ---- The block footprint component ------------------------------------------
 
 /**
- * Phase 23.6 (E8 "prop integration"): a prop's occupancy footprint — the
+ * A prop's occupancy footprint — the
  * metadata it writes into the block-layer cells beneath it (a house marks its
  * cells blocked, a market stall a shop). Which fields and values it writes is
  * data (`set`, fields of the project's cell schema); the engine knows no

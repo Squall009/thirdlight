@@ -1,5 +1,5 @@
 /**
- * Phase 12 hierarchy commands: folders (`createEntity kind: folder`), the
+ * Hierarchy commands: folders (`createEntity kind: folder`), the
  * hierarchy flags on `updateEntity`, world-keeping reparents and
  * `moveEntities` (sibling reorder, filing into a folder or object, moving a
  * multi-selection), each with exact undo/redo.

@@ -1,19 +1,19 @@
 /**
- * Packet 36 — format-aware validation of the emitted M2 export closure
- * (export.md §4 step 5/5a/5b/5c, sessions.md §17.5/§17.5.1).
+ * Format-aware validation of the emitted export closure (export.md steps
+ * 5/5a/5b/5c).
  *
- * M1's textual pattern scan (§5.4 a–j) is meaningful for JavaScript/text bytes.
- * Running it over a GLB binary is meaningless, so M2 validates **by container
- * format** and then scans text:
+ * The textual pattern scan (a–j) is meaningful for JavaScript/text bytes.
+ * Running it over a GLB binary is meaningless, so the closure is validated
+ * **by container format** and then text is scanned:
  *
  * - `scanGlbContainer(bytes)`  — glTF magic/version/declared length, chunk
  *   table, strict JSON chunk, every `uri` free of a scheme/absolute/traversal
- *   form (sessions.md §17.5.1).
+ *   form.
  * - `scanWasmContainer(bytes)` — `\0asm` magic + version 1 + declared digest
- *   pin (no WASM artifact is emitted by the packet-36 closure; the validator is
+ *   pin (the closure emits no WASM artifact; the validator is
  *   implemented and unit-tested so a future WASM artifact cannot bypass it).
- * - `scanM2TextBundle(...)`    — the §5.4 a–j patterns for JS/text bytes with
- *   the §5.4.1 recorded-exception counts re-measured against the current
+ * - `scanM2TextBundle(...)`    — the a–j patterns for JS/text bytes with
+ *   the recorded-exception counts re-measured against the current
  *   install (core three + the GLTFLoader subpath row + the pinned Rapier
  *   compat row) and the exact declared-fetch count (one `fetch(` per unique
  *   declared asset path + the single `./manifest.json` read).
@@ -118,7 +118,7 @@ function findDuplicateKey(text: string): string | null {
   return null;
 }
 
-/** Strict JSON parse rejecting duplicate object keys (the §17.5.1 "strict"). */
+/** Strict JSON parse rejecting duplicate object keys. */
 function strictJson(text: string): { ok: true; value: unknown } | { ok: false; message: string } {
   try {
     const value = JSON.parse(text) as unknown;
@@ -130,7 +130,7 @@ function strictJson(text: string): { ok: true; value: unknown } | { ok: false; m
   }
 }
 
-/** A forbidden `uri` value (sessions.md §17.5.1). */
+/** A forbidden `uri` value. */
 export function forbiddenUriReason(uri: string): string | null {
   if (uri.includes('://')) return 'contains a scheme separator "://"';
   if (uri.startsWith('data:')) return 'is a data: URI';
@@ -142,7 +142,7 @@ export function forbiddenUriReason(uri: string): string | null {
   return null;
 }
 
-/** GLB container validation (sessions.md §17.5.1). */
+/** GLB container validation. */
 export function scanGlbContainer(bytes: Uint8Array): ContainerResult {
   if (bytes.length < 20) return { ok: false, code: 'glb_truncated', message: 'a GLB shorter than the 12-byte header + 8-byte chunk header' };
   const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -188,7 +188,7 @@ export function scanGlbContainer(bytes: Uint8Array): ContainerResult {
   return { ok: true };
 }
 
-/** WASM container validation (sessions.md §17.5.1; empty host-import allowlist). */
+/** WASM container validation (empty host-import allowlist). */
 export function scanWasmContainer(bytes: Uint8Array, declaredDigest: string): ContainerResult {
   if (bytes.length < 8) return { ok: false, code: 'wasm_truncated', message: 'a WASM module shorter than its 8-byte header' };
   const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -223,7 +223,7 @@ function countOccurrences(haystack: string, needle: string): number {
   return n;
 }
 
-/** The §5.4 a–j pattern counts for one text byte string. */
+/** The a–j pattern counts for one text byte string. */
 export function textPatternCounts(text: string, p: ScanPatterns): M2ScanCounts {
   const iValues = [...p.tokenValues, ...(p.locatorValues ?? [])].filter((v) => v.length > 0);
   return {
@@ -231,7 +231,7 @@ export function textPatternCounts(text: string, p: ScanPatterns): M2ScanCounts {
     b: countOccurrences(text, p.previewOrigin),
     c: countOccurrences(text, '/api/v1/'),
     d: countOccurrences(text, 'fetch('),
-    // Phase 17.1: a Node built-in module specifier (not an object key named `node`).
+    // A Node built-in module specifier (not an object key named `node`).
     e: nodeSpecifierOffsets(text).length,
     f: countOccurrences(text, '__dirname') + countOccurrences(text, 'process.'),
     g: countOccurrences(text, '/mcp'),
@@ -245,8 +245,8 @@ const LOADER_HTTPS_ADDITION = 12;
 const LOADER_IDENTIFIER_MIN = 37;
 
 /**
- * WAV (RIFF/WAVE) container validation (export.md §6.3, the `audio/wav`
- * artifact row): the `RIFF`/`WAVE` markers, a `fmt ` chunk with PCM
+ * WAV (RIFF/WAVE) container validation (the `audio/wav` artifact row): the
+ * `RIFF`/`WAVE` markers, a `fmt ` chunk with PCM
  * (`audioFormat 1`) mono/48000/16-bit, and a `data` chunk whose declared size
  * fits the file. Pure byte processing: no I/O.
  */
@@ -295,7 +295,7 @@ export function scanWavContainer(bytes: Uint8Array): ContainerResult {
 }
 
 /**
- * Music validation (phase 9.10): an Ogg page, an MP3 (ID3v2 tag or an MPEG
+ * Music validation: an Ogg page, an MP3 (ID3v2 tag or an MPEG
  * frame sync) or a RIFF/WAVE whose RIFF length matches the file. No decoding.
  */
 export function scanMusicContainer(bytes: Uint8Array): ContainerResult {
@@ -322,7 +322,7 @@ export function scanAssetContainer(contentType: string, bytes: Uint8Array): Cont
 }
 
 /**
- * Font validation (phase 23.9a): the sfnt version of a TrueType (0x00010000
+ * Font validation: the sfnt version of a TrueType (0x00010000
  * or 'true') or CFF ('OTTO') font with a table directory inside the file, or
  * a WOFF2/WOFF whose declared length matches the file. No glyph parsing.
  */
@@ -344,7 +344,7 @@ export function scanFontContainer(bytes: Uint8Array): ContainerResult {
 }
 
 /**
- * Texture image validation (phase 9.4): PNG (signature + IHDR), JPEG (SOI) or
+ * Texture image validation: PNG (signature + IHDR), JPEG (SOI) or
  * WebP (RIFF/WEBP with the RIFF length matching the file). No decoding.
  */
 export function scanImageContainer(bytes: Uint8Array): ContainerResult {
@@ -358,16 +358,16 @@ export function scanImageContainer(bytes: Uint8Array): ContainerResult {
     const declared = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(4, true);
     return declared + 8 === bytes.length ? { ok: true } : { ok: false, code: 'image_webp_length', message: 'the WebP RIFF length does not match the file', offset: 4 };
   }
-  // Phase 25.19: a Basis Universal KTX2 (the header's identifier; the game's transcoder reads the rest).
+  // A Basis Universal KTX2 (the header's identifier; the game's transcoder reads the rest).
   const ktx2 = [0xab, 0x4b, 0x54, 0x58, 0x20, 0x32, 0x30, 0xbb, 0x0d, 0x0a, 0x1a, 0x0a];
   if (bytes.length >= 80 && ktx2.every((b, i) => bytes[i] === b)) return { ok: true };
   return { ok: false, code: 'image_format', message: 'not a PNG, JPEG, WebP or KTX2 image', offset: 0 };
 }
 
 /**
- * `assertRelativeClosure` (sessions.md §17.5.1): every emitted text file's
- * references are relative — the §5.4 absolute patterns are zero outside the
- * recorded §5.4.1 exception scope.
+ * `assertRelativeClosure`: every emitted text file's
+ * references are relative — the absolute patterns are zero outside the
+ * recorded exception scope.
  */
 export function assertRelativeClosure(
   files: readonly { name: string; text: string }[],

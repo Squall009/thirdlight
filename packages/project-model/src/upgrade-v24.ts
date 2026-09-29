@@ -1,5 +1,5 @@
 /**
- * Phase 24.8: the project format after the engine/game separation.
+ * The project format after the engine/game separation.
  *
  * `project.json` schemaVersion 3 is the format without the genre layer:
  * `content.json` has no `game` key, and scenes and prefabs carry no
@@ -20,22 +20,22 @@
  *   loses behaviour without saying so): a non-null `content.game`, `enemy`,
  *   `gameZone`, `cameraFollow`, and the pickup forms that were game rules
  *   (a heart's healing, "respawn on death", an effect, a sound on a
- *   prefab). Each problem names the component and says it was removed in
- *   phase 24 and is built as project scripts.
+ *   prefab). Each problem names the component and ends with
+ *   `REMOVED_IN_PHASE_24`.
  */
 import type { ModelErrorV3 } from './errors';
 
 /**
- * The `project.json` schemaVersion this build writes. Phase 24.8 made it 3;
- * phase 25.7 made it 4 (wider entity ids; `upgradeProjectDocsV25`).
+ * The `project.json` schemaVersion this build writes (4: wider entity ids;
+ * `upgradeProjectDocsV25`).
  */
 export const PROJECT_SCHEMA_VERSION = 4;
-/** The phase 24 format (`project.json` schemaVersion 3), upgraded to 4 on load (`upgradeProjectDocsV25`). */
+/** The format without the genre layer (`project.json` schemaVersion 3), upgraded to 4 on load (`upgradeProjectDocsV25`). */
 export const PROJECT_SCHEMA_VERSION_V24 = 3;
-/** The `project.json` schemaVersion `upgradeProjectDocsV24` upgrades (before the phase 24 upgrade), then `upgradeProjectDocsV25`. */
+/** The `project.json` schemaVersion `upgradeProjectDocsV24` upgrades (the format with the genre layer), then `upgradeProjectDocsV25`. */
 export const PROJECT_SCHEMA_VERSION_UPGRADED = 2;
 
-/** Phase 25.7: whether the loader upgrades a project of this `project.json` schemaVersion (2 or 3). */
+/** Whether the loader upgrades a project of this `project.json` schemaVersion (2 or 3). */
 export function isUpgradedProjectSchemaVersion(v: unknown): v is 2 | 3 {
   return v === PROJECT_SCHEMA_VERSION_UPGRADED || v === PROJECT_SCHEMA_VERSION_V24;
 }
@@ -102,7 +102,8 @@ function refused(document: 'content' | 'scene', sceneId: string | undefined, pat
 
 /**
  * Upgrade a schemaVersion 2 project's raw content block and scene documents
- * to the phase 24 format (see the module comment). Pure.
+ * to schemaVersion 3, the format without the genre layer (see the module
+ * comment). Pure.
  */
 export function upgradeProjectDocsV24(contentIn: unknown, scenesIn: readonly unknown[]): UpgradeV24Result {
   const content = JSON.parse(JSON.stringify(contentIn ?? null)) as unknown;

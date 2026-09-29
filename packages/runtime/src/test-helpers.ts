@@ -5,7 +5,7 @@
  */
 
 /** A valid v4 scene: one camera, one group, one
- *  box under the group (parent before child, §11 order). */
+ *  box under the group (parent before child). */
 export function baseScene(): {
   schemaVersion: 4;
   sceneId: string;
@@ -43,7 +43,7 @@ export function baseScene(): {
   };
 }
 
-/** A well-formed runtime snapshot (runtime.md §2) over `scene`. */
+/** A well-formed runtime snapshot over `scene`. */
 export function snapshotOf(scene: { revision: number }, projectId = 'demo-0001'): unknown {
   const revision = scene.revision;
   return {

@@ -1,5 +1,5 @@
 /**
- * Phase 23.19 (E15): project-defined save documents against a real backend,
+ * Project-defined save documents against a real backend,
  * on a neutral fixture built by commands on a blank project.
  *
  * - Editor: the Saves bottom tab adds a save schema, sets 5 slots, opts into

@@ -1,5 +1,5 @@
 /**
- * Phase 23.7: `ctx.random` — seeded, replay-safe random numbers for scripts.
+ * `ctx.random` — seeded, replay-safe random numbers for scripts.
  *
  * Every script instance owns a main stream and up to `MAX_RANDOM_STREAMS`
  * named sub-streams. A stream's seed is a 128-bit hash (cyrb128) of the

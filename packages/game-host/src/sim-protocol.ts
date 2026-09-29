@@ -1,5 +1,5 @@
 /**
- * Phase 22.0: the messages between the page and the simulation worker.
+ * The messages between the page and the simulation worker.
  *
  * The worker owns the deterministic simulation (runtime, physics, gameplay
  * blocks, animators, timers, spawns, scripts); the page owns input, audio, the
@@ -50,7 +50,7 @@ export interface SimWorkerHandle extends SimEndpoint {
 export const TRANSFORM_STRIDE = 10;
 
 /**
- * Engine limit (22.3): the physics engine's WebAssembly memory may grow to
+ * Engine limit: the physics engine's WebAssembly memory may grow to
  * this many bytes; past it the simulation stops with `physics_memory_limit`
  * instead of growing without bound (a runaway spawn loop, a leak). 512 MiB is
  * far above any 2D scene (the 16 000-entity benchmark uses a few MiB).
@@ -74,11 +74,11 @@ export interface SimInitMessage {
   /** Transforms through shared memory (only when the page is cross-origin isolated). */
   readonly shared?: boolean;
   readonly memoryCapBytes?: number;
-  /** Phase 23.8: script variables injected at the start (ctx.save from step 0). */
+  /** Script variables injected at the start (ctx.save from step 0). */
   readonly variables?: Readonly<Record<string, unknown>>;
-  /** Phase 23.10: the game mode runs start in (a Play start option). */
+  /** The game mode runs start in (a Play start option). */
   readonly startMode?: string;
-  /** Phase 23.19: the stored project settings document. */
+  /** The stored project settings document. */
   readonly projectSettings?: Readonly<Record<string, unknown>>;
 }
 
@@ -90,7 +90,7 @@ export interface SimTickMessage {
   readonly frame: ActionFrame | null;
   /** A transform buffer the page has finished with (reused by the worker). */
   readonly give?: ArrayBuffer;
-  /** Phase 25.15: the page's UI hit targets when they changed while an input exercise runs. */
+  /** The page's UI hit targets when they changed while an input exercise runs. */
   readonly uiTargets?: readonly UiHitTarget[];
 }
 
@@ -98,17 +98,17 @@ export type SimCommand =
   | { readonly op: 'setPaused'; readonly paused: boolean }
   | { readonly op: 'requestScene'; readonly sceneOp: 'load' | 'unload'; readonly sceneId: string }
   | { readonly op: 'requestArrival'; readonly sceneId: string; readonly spawnId: string }
-  /** Phase 23.4: the viewport the view is drawn in (screen↔world projection's aspect). */
+  /** The viewport the view is drawn in (screen↔world projection's aspect). */
   | { readonly op: 'setCameraViewport'; readonly width: number; readonly height: number }
-  // Phase 23.8: a debug command call, queued in the worker's runtime for its next step.
+  // A debug command call, queued in the worker's runtime for its next step.
   | { readonly op: 'debugCommand'; readonly call: DebugCommandCall }
-  // Phase 23.19: a storage answer (slot list, outcome, loaded save), queued in the worker's runtime for its next step.
+  // A storage answer (slot list, outcome, loaded save), queued in the worker's runtime for its next step.
   | { readonly op: 'saveEvent'; readonly event: import('@thirdlight/runtime').SaveEvent }
-  // Phase 24.4j: the player's save from the game shell (made in the worker now, between steps).
+  // The player's save from the game shell (made in the worker now, between steps).
   | { readonly op: 'requestSave'; readonly slot: number; readonly meta?: import('@thirdlight/runtime').SaveMeta }
-  /** Phase 23.9a: a UI event, queued in the worker's runtime for its next sampled frame. */
+  /** A UI event, queued in the worker's runtime for its next sampled frame. */
   | { readonly op: 'uiEvent'; readonly event: UiEventRecord }
-  /** Phase 23.16: a dialogue input, queued in the worker's runtime for its next sampled frame. */
+  /** A dialogue input, queued in the worker's runtime for its next sampled frame. */
   | { readonly op: 'dialogueInput'; readonly input: import('@thirdlight/runtime').DialogueInputRecord }
   | { readonly op: 'stop' };
 
@@ -120,7 +120,7 @@ export type SimQuery =
   | { readonly op: 'debug.request'; readonly request: unknown }
   | { readonly op: 'debug.control'; readonly command: 'debugPause' | 'debugResume' | 'debugStep' }
   | { readonly op: 'debug.observation' }
-  /** Phase 25.16: the run digest now and after the last exercise. */
+  /** The run digest now and after the last exercise. */
   | { readonly op: 'runDigests' };
 
 export type MainToWorker =
@@ -129,7 +129,7 @@ export type MainToWorker =
   | { readonly t: 'cmd'; readonly command: SimCommand }
   | { readonly t: 'scene'; readonly sceneId: string; readonly result: { ok: true; entities: SceneEntities } | { ok: false; message: string } }
   | { readonly t: 'relay'; readonly frames: readonly RelayTestFrame[]; readonly uiTargets?: readonly UiHitTarget[]; readonly restart?: boolean; readonly hold?: boolean }
-  /** Phase 25.15: a page frame in which the game is paused while an exercise runs. */
+  /** A page frame in which the game is paused while an exercise runs. */
   | { readonly t: 'relay.idle' }
   | { readonly t: 'query'; readonly id: number; readonly query: SimQuery }
   | { readonly t: 'dispose' };
@@ -168,57 +168,57 @@ export interface FrameState {
   /** Shared memory: the slot the transforms are in (and the buffer when it was (re)allocated). */
   readonly xfShared?: { readonly slot: number; readonly count: number; readonly slotFloats: number; readonly buffer?: SharedArrayBuffer };
   readonly hidden?: readonly string[];
-  /** Phase 25.10: the objects scripts switched off (with their children) when that changed. */
+  /** The objects scripts switched off (with their children) when that changed. */
   readonly inactive?: readonly string[];
-  /** Phase 25.10: the light values scripts wrote when they changed (the whole list; [] when cleared). */
+  /** The light values scripts wrote when they changed (the whole list; [] when cleared). */
   readonly lights?: readonly (readonly [string, import('@thirdlight/runtime').LightOverride])[];
-  /** Phase 24.4h: the look overrides when they changed (the whole list; [] when the last one was cleared). */
+  /** The look overrides when they changed (the whole list; [] when the last one was cleared). */
   readonly looks?: readonly (readonly [string, { readonly emissive?: string; readonly emissiveIntensity?: number; readonly tint?: string }])[];
   readonly poses?: readonly (readonly [string, AnimatorPose])[];
   readonly counters?: { counters: Record<string, number>; health: { current: number; max: number } | null };
-  /** Phase 24.4j: every object's health (when it changed; the HUD's `$flow.health`). */
+  /** Every object's health (when it changed; the HUD's `$flow.health`). */
   readonly healths?: Readonly<Record<string, { readonly current: number; readonly max: number }>>;
-  /** Phase 24.4j: the shell's scene list entry the run is at (when it changed). */
+  /** The shell's scene list entry the run is at (when it changed). */
   readonly listed?: number;
   readonly sceneSet?: SceneSetWire;
-  /** Phase 23.13: the audio intent log's commands (phase 9.10: script sound requests). */
+  /** The audio intent log's commands (script sound requests). */
   readonly audio?: readonly AudioCommand[];
   readonly effects?: readonly EffectRequest[];
   /**
-   * Phase 23.4: the resolved camera (virtual cameras), every frame while the game has one:
+   * The resolved camera (virtual cameras), every frame while the game has one:
    * the interpolated view [px, py, pz, qx, qy, qz, qw, fovY, near, far, letterbox] and the
    * committed view (null: no virtual camera).
    */
   readonly cam?: { readonly pose: readonly number[]; readonly view: CameraViewInfo } | null;
-  /** Phase 23.5: block-layer chunks to re-mesh (their cells now). */
+  /** Block-layer chunks to re-mesh (their cells now). */
   readonly grid?: readonly import('@thirdlight/runtime').GridRenderChange[];
-  /** Phase 23.12: material parameters scripts changed (one change per object, material and parameter). */
+  /** Material parameters scripts changed (one change per object, material and parameter). */
   readonly mat?: readonly import('@thirdlight/runtime').MaterialRenderChange[];
-  /** Phase 23.18: the environment preset blend, interpolated with the frame's alpha (when it changed; absent until a script used it). */
+  /** The environment preset blend, interpolated with the frame's alpha (when it changed; absent until a script used it). */
   readonly env?: import('@thirdlight/runtime').EnvironmentBlendView | null;
-  /** Phase 23.9a: the project UI's changes since the last frame (view-model writes, shown documents, tween/focus commands). */
+  /** The project UI's changes since the last frame (view-model writes, shown documents, tween/focus commands). */
   readonly ui?: UiOutput;
-  /** Phase 23.10: the game modes (when they changed; null: the project has none). */
+  /** The game modes (when they changed; null: the project has none). */
   readonly mode?: ModeView | null;
-  /** Phase 23.3: the cursor a script asked for (when it changed; null: the input map decides). */
+  /** The cursor a script asked for (when it changed; null: the input map decides). */
   readonly cursor?: 'free' | 'locked' | null;
-  /** Phase 23.3: the pointer as of the last step (when it changed; observers). */
+  /** The pointer as of the last step (when it changed; observers). */
   readonly pointer?: PointerSample | null;
-  /** Phase 23.14: the binding requests scripts made in this frame (and how many were dropped over the limit). */
+  /** The binding requests scripts made in this frame (and how many were dropped over the limit). */
   readonly rb?: { readonly requests: readonly import('@thirdlight/runtime').InputBindingRequest[]; readonly dropped: number };
   readonly diag?: RuntimeDiagnostics;
   readonly digests?: readonly string[];
   readonly tickError?: { readonly code: string; readonly message: string };
   readonly memoryBytes?: number;
-  /** Phase 23.8: the debug commands (registered, applied) when they changed. */
+  /** The debug commands (registered, applied) when they changed. */
   readonly debugCommands?: DebugCommandState;
-  /** Phase 23.11: the objects riding on sockets (entity, target, node) when that changed. */
+  /** The objects riding on sockets (entity, target, node) when that changed. */
   readonly sockets?: readonly { readonly entityId: string; readonly target: string; readonly node: string }[];
-  /** Phase 23.17: the timelines' view (screen fade/letterbox, plays, last events) when it changed. */
+  /** The timelines' view (screen fade/letterbox, plays, last events) when it changed. */
   readonly tl?: import('@thirdlight/runtime').TimelineView | null;
-  /** Phase 25.24e: scene loading (the scenes loading, a transition waiting, the last swap) when it changed. */
+  /** Scene loading (the scenes loading, a transition waiting, the last swap) when it changed. */
   readonly sl?: import('@thirdlight/runtime').SceneLoadingView;
-  /** Phase 23.19: the save/load/delete/settings requests scripts made (the page owns storage). */
+  /** The save/load/delete/settings requests scripts made (the page owns storage). */
   readonly saveReq?: readonly import('@thirdlight/runtime').SaveRequest[];
 }
 
@@ -228,7 +228,7 @@ export type WorkerToMain =
   | { readonly t: 'frame'; readonly state: FrameState }
   | { readonly t: 'scene.request'; readonly sceneId: string }
   | { readonly t: 'relay.done'; readonly from: number; readonly to: number }
-  /** Phase 25.15: a relay step's UI edges or click for the page. */
+  /** A relay step's UI edges or click for the page. */
   | { readonly t: 'relay.effect'; readonly effect: RelayEffect }
   | { readonly t: 'input.reset'; readonly reason?: string }
   | { readonly t: 'query.result'; readonly id: number; readonly result: unknown }

@@ -1,5 +1,5 @@
 /**
- * Packet 28 — declared-property control model (Node; vitest).
+ * Declared-property control model (Node; vitest).
  *
  * The controls are derived **only** from published declaration data; these
  * tests pin the contract's seven-type vocabulary, defaults, ranges and the
@@ -24,7 +24,7 @@ import {
   validatePropertyValue,
 } from './property-controls';
 
-/** The accepted packet-16 fixture declaration ("Lantern Glow"). */
+/** The fixture declaration ("Lantern Glow"). */
 const DECLARATION: PropertyDeclaration = {
   properties: [
     { key: 'speed', label: 'Speed', type: 'number', default: 3.5, min: -1000, max: 1000, step: 0.25 },

@@ -1,14 +1,13 @@
 /**
- * Pure digest helpers for the M2 content view — project-model.md §19.1
- * (`contentDigest`) and §18.5 (`recipeDigest` shape reference).
+ * Pure digest helpers for the captured content view (`contentDigest`,
+ * `recipeDigest`).
  *
  * The project-model package is the zero-dependency leaf of the node-side
- * graph (dependencies.md §4.1: no project deps, no externals, no Node
- * built-ins), so SHA-256 is implemented here in pure TypeScript. This is
+ * graph (no project deps, no externals, no Node built-ins), so SHA-256 is implemented here in pure TypeScript. This is
  * the standard FIPS 180-4 algorithm with the usual constants; it operates
  * on `Uint8Array` and never touches the filesystem, a clock or the network.
  *
- * `canonicalJsonText` is commands.md §6.6 rule 2: object keys sorted in
+ * `canonicalJsonText`: object keys sorted in
  * codepoint order at every level, no insignificant whitespace, strings
  * JSON-escaped in the shortest form, numbers with JavaScript
  * `JSON.stringify` double semantics.
@@ -56,7 +55,7 @@ function sha256Words(bytes: Uint8Array): Uint32Array {
   const withPad = new Uint8Array((((bytes.length + 8) >> 6) + 1) << 6);
   withPad.set(bytes);
   withPad[bytes.length] = 0x80;
-  // 64-bit big-endian bit length (JS safe for the bounded M2 inputs).
+  // 64-bit big-endian bit length (JS safe for the bounded inputs).
   const hi = Math.floor(bitLen / 0x100000000);
   const lo = bitLen >>> 0;
   const dv = new DataView(withPad.buffer);
@@ -111,7 +110,7 @@ function sha256Words(bytes: Uint8Array): Uint32Array {
 
 const HEX = '0123456789abcdef';
 
-/** SHA-256 of `bytes`, lowercase hex (§18.4/§19.1 digest syntax). */
+/** SHA-256 of `bytes`, lowercase hex (the digest syntax). */
 export function sha256Hex(bytes: Uint8Array): string {
   const words = sha256Words(bytes);
   let out = '';
@@ -143,7 +142,7 @@ function compareCodePoints(a: string, b: string): number {
 }
 
 /**
- * commands.md §6.6 rule 2 canonical JSON text: keys sorted in codepoint order
+ * Canonical JSON text: keys sorted in codepoint order
  * at every level, no insignificant whitespace, shortest JSON string escapes,
  * JavaScript `JSON.stringify` number semantics.
  */
@@ -153,7 +152,7 @@ export function canonicalJsonText(value: unknown): string {
   if (t === 'number') {
     const n = value as number;
     // Canonical JSON is only defined over JSON-serializable values; -0 is
-    // serialized as 0 (§12.2 rule 2).
+    // serialized as 0.
     return JSON.stringify(n === 0 ? 0 : n);
   }
   if (t === 'boolean') return value === true ? 'true' : 'false';

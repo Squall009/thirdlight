@@ -1,5 +1,5 @@
 /**
- * Packet-24 acceptance: determinism (project-model.md §18.8.3) — identical
+ * Determinism — identical
  * bytes plus identical options must produce a byte-identical proposal and
  * identical recipe/metadata hashes, with no clock, PRNG, locale, environment or
  * network influence. Acceptance row A02 ("import recipe/source hashes").
@@ -113,7 +113,7 @@ describe('determinism', () => {
     expect(importMetadataDigest(v1)).not.toBe(importMetadataDigest(v2));
     expect(v1.sourceDigest).not.toBe(v2.sourceDigest);
     // The metadata digest covers only persistable facts, so it is stable across
-    // the non-persistent inspection lists (§18.1 rule 3 / §8).
+    // the non-persistent inspection lists.
     expect(importMetadataDigest(v1)).toBe(
       importMetadataDigest({
         ...v1,

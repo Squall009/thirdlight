@@ -1,17 +1,11 @@
 /**
- * 2026-09-18 review repair — packet 07 O2 (workspace audit): RFC 6901
- * escaping of dynamic JSON Pointer segments in the workspace validators.
+ * RFC 6901 escaping of dynamic JSON Pointer segments in the workspace
+ * validators. Dynamic object keys are interpolated into error `path` fields
+ * (JSON Pointers into the request or the envelope); unescaped, a key `a/b`
+ * would produce the pointer `/args/a/b` instead of the RFC 6901-correct
+ * `/args/a~1b` (`path` is "a JSON Pointer into the request").
  *
- * The review's O2 (commands package) carries the instruction: "Coordinate
- * the same audit in workspace validators." Dynamic object keys were
- * interpolated into error `path` fields (JSON Pointers into the request or
- * the envelope) without escaping `~`/`/`, so a key `a/b` produced the
- * pointer `/args/a/b` instead of the RFC 6901-correct `/args/a~1b`
- * (commands.md §3: `path` is "a JSON Pointer into the request").
- *
- * One test per fixed site (11 reachable sites; the 12th, the M1 setTransform
- * record's `fullTransformError`, went with the storage v1 record validator —
- * its test is archived in archive/removed-v1-v2/workspace/):
+ * One test per reachable site:
  *
  *   service.ts   canonicalIssue object-key walk      args `x/y`   ⇒ /args/x~1y
  *   service.ts   query envelope unknown top-level    `a/b~c`      ⇒ /a~1b~0c
@@ -25,21 +19,13 @@
  *   envelope.ts  originOfApplied unknown key         `m/n`        ⇒ /result/originOfApplied/m~1n
  *   envelope.ts  recorded history unknown key        `h/i`        ⇒ /result/history/h~1i
  *
- * Ported to storage v4 (phase 9.3 step B): the envelope-level sites run
- * against the storage v3 envelope reader (`validateEnvelope` reads only
- * storageVersion 3 now; a v3 project is upgraded to v4 on open), and the
- * retry-block sites are pinned a second time through the v4 file loader
- * (`loadV4`, store-v4.ts) on a real v4 project's content.json, where the
- * loader prefixes the file (`/content.json/retry/...`). The v4 loader's own
- * top-level key check (store-v4.ts `checkFileKeys`) is pinned through the
- * service on content.json and a scene file.
- *
- * (session.ts's `validateQueryEnvelope` carries the same pattern but has no
- * callers at HEAD — unreachable; its site is fixed for consistency and is
- * noted in the handoff rather than tested through the public API.)
- *
- * Pre-fix RED: each test fails on the unescaped pointer shape (e.g. the
- * detail at `/args/x/y` instead of `/args/x~1y`).
+ * The envelope-level sites run against the storage v3 envelope reader
+ * (`validateEnvelope` reads only storageVersion 3; a v3 project is upgraded
+ * to v4 on open), and the retry-block sites are pinned a second time through
+ * the v4 file loader (`loadV4`, store-v4.ts) on a real v4 project's
+ * content.json, where the loader prefixes the file (`/content.json/retry/...`).
+ * The v4 loader's own top-level key check (store-v4.ts `checkFileKeys`) is
+ * pinned through the service on content.json and a scene file.
  */
 
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -170,7 +156,7 @@ describe('O2 workspace audit — envelope-level sites (validateEnvelope, storage
   const RID2 = `req-${'b'.repeat(32)}`;
   const DIGEST = `c`.repeat(64);
 
-  /** A minimal valid v3 scene: exactly one camera (project-model §10.3). */
+  /** A minimal valid v3 scene: exactly one camera (the model requires one). */
   const BASE_SCENE = {
     schemaVersion: 3,
     sceneId: 'scene-main',
@@ -209,7 +195,7 @@ describe('O2 workspace audit — envelope-level sites (validateEnvelope, storage
     expect(d, `expected a detail at ${path}; got: ${JSON.stringify(res.errors)}`).toBeDefined();
   }
 
-  /** A valid setTransform change (§5.3). */
+  /** A valid setTransform change. */
   function stChange(): Record<string, unknown> {
     return {
       type: 'setTransform',
@@ -220,7 +206,7 @@ describe('O2 workspace audit — envelope-level sites (validateEnvelope, storage
     };
   }
 
-  /** A valid setTransform result (§5.1 key set) with optional extra fields. */
+  /** A valid setTransform result (success-payload key set) with optional extra fields. */
   function stResult(extra: Record<string, unknown> = {}): Record<string, unknown> {
     return {
       ok: true,

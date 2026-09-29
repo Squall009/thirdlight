@@ -1,5 +1,5 @@
 /**
- * Phase 23.6 (E8): the Blocks panel — block-layer editing in the Scene view.
+ * The Blocks panel — block-layer editing in the Scene view.
  *
  * - Layer: which block layer the tools edit, its visibility and lock (the
  *   object's Hierarchy flags), the height slice (PageUp/PageDown or ] / [).

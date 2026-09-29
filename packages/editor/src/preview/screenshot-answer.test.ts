@@ -1,5 +1,5 @@
 /**
- * Phase 25.2: the preview always answers a screenshot relay, inside the
+ * The preview always answers a screenshot relay, inside the
  * relay's bounds (the bridge drops a message over 256 characters; the
  * backend refuses a data URL over 1 MiB).
  */

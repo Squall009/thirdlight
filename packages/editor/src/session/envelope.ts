@@ -1,12 +1,11 @@
 /**
- * Command envelope + ack-loss retry discipline (sessions.md §6.1/§8.4;
- * commands.md §4/§7.2; packet 10).
+ * Command envelope + ack-loss retry discipline.
  *
  * The browser issues a mutation with a client-generated `requestId`. If the
  * ack is LOST (timeout / network drop), the browser retries with the SAME
  * `requestId` — the backend then either replays the recorded result
  * (`duplicated: true`) or executes it fresh; either way the envelope revision
- * advances EXACTLY ONCE (commands.md §7.2). The browser adopts the
+ * advances EXACTLY ONCE. The browser adopts the
  * authoritative `revision` the backend returns (it never advances its own
  * counter independently).
  *
@@ -15,13 +14,13 @@
 
 import { REQUEST_ID_RE } from '@thirdlight/protocol';
 
-/** The origin of a command (sessions.md §3). */
+/** The origin of a command. */
 export interface Origin {
   kind: 'browser' | 'mcp';
   clientId: string;
 }
 
-/** A full command envelope (commands.md §4). */
+/** A full command envelope. */
 export interface CommandEnvelope {
   op: string;
   projectId: string;
@@ -32,7 +31,7 @@ export interface CommandEnvelope {
 }
 
 /**
- * The backend's mutation response (commands.md §5/§6.4) — the fields the
+ * The backend's mutation response — the fields the
  * browser needs to advance its projection and decide retries.
  */
 export type MutationResponse =
@@ -46,9 +45,9 @@ export type MutationResponse =
       limit?: string;
       current?: number;
       max?: number;
-      /** Phase 23.7: `behavior_trust_unacknowledged` — the digest to acknowledge. */
+      /** `behavior_trust_unacknowledged` — the digest to acknowledge. */
       sourceDigest?: string;
-      /** Phase 23.7: a script library change a dependent script does not compile against. */
+      /** A script library change a dependent script does not compile against. */
       behaviorId?: string;
       diagnostics?: import('./behavior-publication').CompileDiagnosticView[];
     };
@@ -71,7 +70,7 @@ export function isValidRequestId(id: string): boolean {
   return REQUEST_ID_RE.test(id);
 }
 
-/** Build a command envelope (commands.md §4). */
+/** Build a command envelope. */
 export function makeEnvelope(
   op: string,
   projectId: string,
@@ -83,7 +82,7 @@ export function makeEnvelope(
   return { op, projectId, requestId, expectedRevision, args, origin };
 }
 
-/** The establish request body (sessions.md §5.1). */
+/** The establish request body. */
 export interface EstablishBody {
   projectId: string;
   sessionId: string;
@@ -117,7 +116,7 @@ export interface RetryDecision {
 }
 
 /**
- * Decide what to do after a command outcome (sessions.md §8.4). The same
+ * Decide what to do after a command outcome. The same
  * `requestId` is ALWAYS reused on retry (idempotency). A `lost` ack retries at
  * most once; a `revision_conflict` is NOT auto-retried here (the gesture
  * handles the bounded auto-rebase); any other error is surfaced.

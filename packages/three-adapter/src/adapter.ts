@@ -1,19 +1,19 @@
 /**
- * Three.js scene adapter — packet 08 (runtime.md §6 frame ordering,
- * §8 adapter diagnostics, §9 environment; dependencies.md §3 surface row:
+ * Three.js scene adapter (runtime.md frame ordering, adapter diagnostics
+ * and environment; the dependencies.md surface row:
  * `createSceneAdapter(canvas, opts) → SceneAdapter { renderFrame,
  * captureScreenshot(maxWidth), diagnostics, dispose }`, `ERROR_CODES`).
  *
- * The adapter owns ALL Object3D/material/renderer lifetimes for the M1
+ * The adapter owns ALL Object3D/material/renderer lifetimes for the
  * scene graph: box primitives (unit-geometry scaled by `size`, simple
  * Lambert material from `material.color`), one perspective camera
- * (project-model §10.3: exactly one camera entity), and a fixed M1
- * component→Object3D table (no registration API — dependencies.md §6:
- * out of scope). One renderer path: three's WebGPURenderer from the renderer
- * factory — WebGPU where it starts, else its WebGL 2 backend (phase 17.4;
- * runtime.md §8: the SELECTED backend is reported in diagnostics).
+ * (project-model: exactly one camera entity), and a fixed
+ * component→Object3D table (no registration API — out of scope per
+ * dependencies.md). One renderer path: three's WebGPURenderer from the renderer
+ * factory — WebGPU where it starts, else its WebGL 2 backend (the SELECTED
+ * backend is reported in diagnostics).
  *
- * Frame ordering (normative, runtime.md §6): the RUNTIME owns the single
+ * Frame ordering (normative): the RUNTIME owns the single
  * frame driver; `renderFrame` runs as the runtime's `onFrame` — after
  * the step update it reads `getInterpolatedState()`, copies the values
  * into Object3Ds, and renders. The adapter never installs its own
@@ -92,30 +92,30 @@ export interface SceneAdapterOptions {
   snapshot: RuntimeSnapshot;
   /** Renderer antialiasing (default true). */
   antialias?: boolean;
-  /** M4 (C64-4, delivery.md (M4) §2.2): the injected model surface — the
+  /** The injected model surface — the
    *  resolved model-asset rows, the committed per-`modelAnimation`-entity
-   *  mappings and the wrapper's verified-bytes resolver. Absent ⇒ the
-   *  adapter behaves exactly as accepted today (byte-stable). Requires
+   *  mappings and the wrapper's verified-bytes resolver. Absent ⇒ no
+   *  model realization at all (byte-stable). Requires
    *  `modelsLoader` and a v3 snapshot (fail-fast `models_config_invalid`). */
   models?: SceneAdapterModels;
-  /** M4 (C64-4): the injected GLB loader port (the wrapper builds it from
+  /** The injected GLB loader port (the wrapper builds it from
    *  the `@thirdlight/three-adapter/gltf-loader` subpath; the root subpath
    *  stays loader-free). Required iff `models` is present. */
   modelsLoader?: GlbLoaderPort;
   /**
-   * Phase 9.4: project materials (the manifest's), the wind, and the texture
+   * Project materials (the manifest's), the wind, and the texture
    * decoder (bytes come from the wrapper's verified content). Absent: files
    * and boxes keep their own materials.
    */
   materials?: {
     readonly defs: readonly MaterialDefLike[];
-    /** Phase 18.3: the material functions graph materials call (the manifest's). */
+    /** The material functions graph materials call (the manifest's). */
     readonly functions?: readonly MaterialFunctionLike[];
     readonly wind: WindLike | null;
     readonly loadTexture: (assetId: string) => Promise<THREE.Texture | null>;
   };
   /**
-   * Phase 9.5: sky, fog, fog volumes and post-processing (the manifest's
+   * Sky, fog, fog volumes and post-processing (the manifest's
    * environment). Absent: the scene renders as before.
    */
   environment?: {
@@ -125,20 +125,20 @@ export interface SceneAdapterOptions {
     readonly quality?: QualityLevel | null;
   };
   /**
-   * Phase 25.8: the texture decoder for spot light cookies (bytes from the
+   * The texture decoder for spot light cookies (bytes from the
    * wrapper's verified content). Absent: the materials' or the environment's
    * decoder, else cookies are not drawn.
    */
   lights?: {
     readonly loadTexture: (assetId: string) => Promise<THREE.Texture | null>;
   };
-  /** Phase 9.6: the scenes' bakes (lightmaps; the manifest's `lighting`). */
+  /** The scenes' bakes (lightmaps; the manifest's `lighting`). */
   lighting?: {
     readonly bakes: Readonly<Record<string, LightingBakeLike>>;
     readonly loadTexture: (assetId: string) => Promise<THREE.Texture | null>;
   };
   /**
-   * Phase 17.1: which renderer backend to use and where that choice came
+   * Which renderer backend to use and where that choice came
    * from (the page's `?renderer=` flag, the project's `render_backend`
    * setting, or the default — see `resolveRendererPreference`). Absent: the
    * default (`auto`: WebGPU where it starts, else WebGL 2).
@@ -146,26 +146,26 @@ export interface SceneAdapterOptions {
   renderer?: {
     readonly preference: RendererPreference;
     readonly source: RendererPreferenceSource;
-    /** Phase 23.4: the depth buffer (the project's `depth_buffer` setting; absent: standard). */
+    /** The depth buffer (the project's `depth_buffer` setting; absent: standard). */
     readonly depthBuffer?: 'standard' | 'logarithmic' | 'reversed';
     /** Tests only: stubbed renderer constructors and WebGPU probe. */
     readonly deps?: Partial<RendererFactoryDeps>;
   };
   /**
-   * Phase 20.2: the game's visual effects (the manifest's `effects`). The
+   * The game's visual effects (the manifest's `effects`). The
    * adapter plays `effect` components (play on start; their signals) and the
    * runtime's effect requests (scripts, gameplay hooks) — on the WebGPU
    * compute executor when the renderer draws on WebGPU, else on the CPU
    * executor. Absent: effects are not drawn.
    */
   /**
-   * Phase 21.3: draw repeated objects (boxes, model pieces with the same
+   * Draw repeated objects (boxes, model pieces with the same
    * geometry, material and shadow flags) instanced (default true). Off: one
    * draw per object, as before (tests compare the two).
    */
   batching?: boolean;
   /**
-   * Phase 25.24a: called after each drawn frame, with the scenes that frame
+   * Called after each drawn frame, with the scenes that frame
    * attached (loaded scenes realized in it). The page's start and scene-load
    * timings read it; absent: nothing is called.
    */
@@ -180,13 +180,13 @@ export interface SceneAdapterOptions {
 }
 
 /**
- * Phase 25.24d: the longest a present waits for its precompile (ms). A
+ * The longest a present waits for its precompile (ms). A
  * device that never answers must not hold the picture: past it the frame is
  * drawn and builds what is left itself.
  */
 export const PRECOMPILE_WAIT_MS = 20_000;
 
-/** Phase 25.24a: what `onFrameDrawn` reports for a drawn frame. */
+/** What `onFrameDrawn` reports for a drawn frame. */
 export interface FrameDrawnInfo {
   /** The scenes this frame attached (loaded scenes realized in it). */
   readonly realizedScenes: readonly string[];
@@ -194,23 +194,23 @@ export interface FrameDrawnInfo {
   readonly renderMs: number;
   /** When the first render call of this adapter began (ms, `performance.now()`); frames before the renderer was ready were skipped. */
   readonly firstCallAt: number;
-  /** Phase 25.24d: the precompile this frame waited for (the first present, a scene attached): when it began (`performance.now()`) and how long it ran (ms). */
+  /** The precompile this frame waited for (the first present, a scene attached): when it began (`performance.now()`) and how long it ran (ms). */
   readonly precompile?: { readonly startedAt: number; readonly ms: number };
-  /** Phase 25.24e: the frame's draw calls, and the scene set revision it drew (the runtime's; -1 without scenes). */
+  /** The frame's draw calls, and the scene set revision it drew (the runtime's; -1 without scenes). */
   readonly draws?: number;
   readonly sceneRevision?: number;
 }
 
-/** Adapter diagnostics block (runtime.md §8, separate block; the M3
- * additions are presentation.md §41.1.4 — exactly two read-only fields). */
+/** Adapter diagnostics block (runtime.md, separate block; the shadow
+ * fields are presentation.md's — exactly two read-only fields). */
 export interface SceneAdapterDiagnostics {
   /** The SELECTED graphics API: `"webgpu"` or `"webgl2"` (WebGPURenderer's
-   *  backends; `"webgl1"` was the archived WebGL renderer's WebGL 1 fallback
-   *  and is no longer produced), or `null` when no backend has been selected
+   *  backends; `"webgl1"` stays in the type for the contract but is never
+   *  produced), or `null` when no backend has been selected
    *  yet (no successful render — e.g. a non-browser environment, or
    *  WebGPURenderer still initialising: the contract-prescribed absent value). */
   renderBackend: 'webgl2' | 'webgl1' | 'webgpu' | null;
-  /** Phase 17.1: the renderer choice — requested backend and its source, the
+  /** The renderer choice — requested backend and its source, the
    *  backend that draws, its state and why (absent until a renderer was
    *  asked for, i.e. before the first render). */
   renderer?: RendererInfo;
@@ -218,24 +218,24 @@ export interface SceneAdapterDiagnostics {
   rendererInfo: string | null;
   canvasSize: [number, number];
   pixelRatio: number;
-  /** presentation.md §41.1.4 — the shadow realization result for the
+  /** The shadow realization result for the
    *  current scene. `on` is the planned/realized state; the first-render
    *  probe may flip it to `off` / `shadow_unsupported`. v1/v2 and scenes
    *  without a shadow-casting light are `off` / `cast_shadow_false` (the
    *  author's own choice — not an error). */
   shadows: 'on' | 'off';
-  /** §41.1.4 — present iff `shadows === 'off'`; carries no path, token or
+  /** Present iff `shadows === 'off'`; carries no path, token or
    *  device string. Recorded once per realized scene, never per frame. */
   shadowReason?: ShadowReason;
   /**
-   * Phase 25.8 (v3/v4 scenes): the lights that are on — the directional,
+   * v3/v4 scenes: the lights that are on — the directional,
    * ambient and hemisphere light's entity (the most recently loaded scene's
    * of each kind; null: none), the point and spot lights of the loaded
    * scenes and how many of them are on (the budget), and the spot cookies
    * drawn.
    */
   lights?: { directional: string | null; ambient: string | null; hemisphere: string | null; local: number; localOn: number; cookies: number };
-  /** M4 (C64-4, delivery.md (M4) §2.5) — the bounded model-realization
+  /** The bounded model-realization
    *  counters block; ABSENT when the `models` option is absent (or after
    *  dispose). Counters only: no paths, tokens, asset IDs or byte lengths.
    */
@@ -244,33 +244,33 @@ export interface SceneAdapterDiagnostics {
    *  until a renderer exists. Flat counts while a scene runs — growth means
    *  something is allocated per frame and never freed. */
   gpu?: RendererMemoryCounts;
-  /** Phase 20.2: the effect player — the executor (webgpu | cpu) and its caps, what plays; ABSENT without the `effects` option. */
+  /** The effect player — the executor (webgpu | cpu) and its caps, what plays; ABSENT without the `effects` option. */
   effects?: EffectsDiagnostics;
   /**
-   * Phase 21.3: the automatic instancing of the last frame (groups, objects drawn through them, objects drawn alone); ABSENT when off or before the first drawn frame.
-   * Phase 25.24d: `programs` — the node programs the batches are drawn with (every pass; groups of one material and vertex layout share one).
+   * The automatic instancing of the last frame (groups, objects drawn through them, objects drawn alone); ABSENT when off or before the first drawn frame.
+   * `programs` — the node programs the batches are drawn with (every pass; groups of one material and vertex layout share one).
    */
   batching?: AutoBatcherDiagnostics & { programs?: number };
   /**
-   * Phase 25.24d: every mesh drawn through instance-matrix columns (automatic
+   * Every mesh drawn through instance-matrix columns (automatic
    * batches and instance-set chunks) and the node programs they are drawn
    * with (every pass); ABSENT before the first drawn frame.
    */
   instanced?: { meshes: number; programs: number };
-  /** Phase 23.5: the block layers drawn (layers, chunk meshes, triangles). */
+  /** The block layers drawn (layers, chunk meshes, triangles). */
   blocks?: BlockLayerViewDiagnostics;
   /**
-   * Phase 23.12: graph materials — the compiled ones alive (objects with
+   * Graph materials — the compiled ones alive (objects with
    * different parameter values share one) and the objects carrying values
    * scripts set, with their data textures; ABSENT without project materials.
    */
   materials?: { graphMaterials: number } & RuntimeMaterialsDiagnostics;
-  /** Phase 21.3: draw calls and triangles of the last frame (three's renderer info); ABSENT until a frame was drawn. */
+  /** Draw calls and triangles of the last frame (three's renderer info); ABSENT until a frame was drawn. */
   frame?: { drawCalls: number; triangles: number };
-  /** Phase 25.3: the environment renderer — image-based lighting re-bakes of a sky changed in place (a blend, a moved sun light) so far — only when it moved past a threshold; ABSENT without one. */
+  /** The environment renderer — image-based lighting re-bakes of a sky changed in place (a blend, a moved sun light) so far — only when it moved past a threshold; ABSENT without one. */
   environment?: { iblRebakes: number };
   /**
-   * Phase 25.24d: the precompiles (`renderer.compileAsync` before the first
+   * The precompiles (`renderer.compileAsync` before the first
    * present and after each scene attach): settled, failed (the frame then
    * built its programs itself), given up after PRECOMPILE_WAIT_MS, the last
    * one's time (ms), and whether one runs now; ABSENT before the first.
@@ -293,33 +293,33 @@ export interface SceneAdapter {
   renderFrame(): { ok: true } | { ok: false; error: AdapterError };
   /** Capture a bounded PNG (width ≤ `maxWidth`, default 1024). */
   captureScreenshot(maxWidth?: number): { ok: true; result: ScreenshotResult } | { ok: false; error: AdapterError };
-  /** Phase 23.19: a downscaled picture of a freshly drawn frame (a save slot's thumbnail); null when nothing is drawn. */
+  /** A downscaled picture of a freshly drawn frame (a save slot's thumbnail); null when nothing is drawn. */
   captureThumbnail(width: number, height: number, type: 'image/jpeg' | 'image/webp', quality: number): { dataUrl: string; width: number; height: number } | null;
   diagnostics(): { ok: true; diagnostics: SceneAdapterDiagnostics } | { ok: false; error: AdapterError };
-  /** Idempotent (mirrors runtime.md §3.4): second call ⇒
+  /** Idempotent (mirrors the runtime's dispose): second call ⇒
    *  `{ ok: true, alreadyDisposed: true }`. */
   dispose(): { ok: true; alreadyDisposed?: true } | { ok: false; error: AdapterError };
-  /** M4 (C64-4, delivery.md (M4) §2.8 step 10): present iff the `models`
+  /** Present iff the `models`
    *  option was given. Resolves (never rejects) when the model prepares
-   *  have settled — all ready, the first hard failure (§2.7 L2–L5), or the
-   *  adapter disposed (§2.6). The wrapper posts `tl.ready` on `ok: true`
+   *  have settled — all ready, the first hard failure, or the
+   *  adapter disposed. The wrapper posts `tl.ready` on `ok: true`
    *  and `tl.error` (phase `"assets"`) on `ok: false`. */
   modelsSettled?(): Promise<ModelsSettledResult>;
-  /** Phase 9.10: a player's quality setting (low/medium/high) over the environment's. */
+  /** A player's quality setting (low/medium/high) over the environment's. */
   setQuality?(level: QualityLevel): void;
   /**
-   * Phase 14.4: a look (sky, fog, post, wind) laid over the project
+   * A look (sky, fog, post, wind) laid over the project
    * environment; null = the project environment. Needs the `environment`
    * option for sky/fog/post and the `materials` option for wind.
    */
   setEnvironmentLayer?(layer: EnvironmentLayerLike | null): void;
   /**
-   * Phase 23.18: show an environment preset blend instead of the running
+   * Show an environment preset blend instead of the running
    * game's (an editor preview; null: the game's again).
    */
   previewEnvironmentBlend?(view: EnvironmentBlendView | null): void;
   /**
-   * Phase 23.9a: project an entity's world position (or a world point), plus
+   * Project an entity's world position (or a world point), plus
    * a world offset, through the camera of the last rendered frame: `out` =
    * [x 0 (left)–1 (right), y 0 (top)–1 (bottom), 1 in front of the camera /
    * 0 behind]. False without a camera or for an unknown entity. The game
@@ -327,19 +327,19 @@ export interface SceneAdapter {
    */
   projectToScreen?(target: { readonly entityId?: string; readonly point?: readonly number[]; readonly offset?: readonly number[] }, out: number[]): boolean;
   /**
-   * Phase 25.24e: prepare a scene before it loads — its model files read
+   * Prepare a scene before it loads — its model files read
    * and parsed, instance buffers decoded and the textures `textures` names
    * decoded — and keep them until the scene is realized (or `release`), so
    * the frame that attaches it draws it whole. `ready` never rejects.
    */
   prepareScene?(sceneId: string, entities: readonly { readonly id: string; readonly components: unknown }[], textures?: readonly string[]): { readonly ready: Promise<void>; release(): void };
-  /** Phase 25.24e: the runtime's scene set revision the last presented frame drew (-1: none drawn yet). */
+  /** The runtime's scene set revision the last presented frame drew (-1: none drawn yet). */
   presentedSceneRevision?(): number;
 }
 
 const DEFAULT_SCREENSHOT_MAX_WIDTH = 1024;
 
-/** Phase 25.2: what a thrown value says, for a capture failure's message (clipped by adapterError). */
+/** What a thrown value says, for a capture failure's message (clipped by adapterError). */
 function reasonOf(e: unknown): string {
   if (e instanceof Error) return `${e.name}: ${e.message}`;
   return String(e);
@@ -363,12 +363,12 @@ interface CanvasLike {
 interface OwnedResources {
   geometries: THREE.BufferGeometry[];
   materials: THREE.Material[];
-  /** Phase 17.1: the renderer handle (the factory's); its renderer may be replaced after a loss. */
+  /** The renderer handle (the factory's); its renderer may be replaced after a loss. */
   renderer: RendererHandle | null;
 }
 
 /**
- * Phase 17.4: whether an entity's box, model or instance set casts and
+ * Whether an entity's box, model or instance set casts and
  * receives the directional light's realtime shadow — its component's
  * `castShadow` / `receiveShadow`, true when absent (solid geometry blocks the
  * light and shows the shadows falling on it; project-model's descriptors).
@@ -379,10 +379,10 @@ function shadowFlagsOf(components: unknown): { cast: boolean; receive: boolean }
   return { cast: part?.castShadow !== false, receive: part?.receiveShadow !== false };
 }
 
-/** Phase 23.18: an environment preset (project-model's, as the runtime's blend maths takes it). */
+/** An environment preset (project-model's, as the runtime's blend maths takes it). */
 type PresetOf = Parameters<typeof blendEnvironment>[1] extends ReadonlyMap<string, infer P> ? P : never;
 
-/** Phase 18.3: an entity's `materialParams` component (overrides of its graph materials' public parameters). */
+/** An entity's `materialParams` component (overrides of its graph materials' public parameters). */
 function materialParamsOf(components: unknown): MaterialOverridesLike | null {
   const v = (components as { materialParams?: unknown } | undefined)?.materialParams;
   return v !== null && typeof v === 'object' && !Array.isArray(v) ? (v as MaterialOverridesLike) : null;
@@ -392,7 +392,7 @@ function materialParamsOf(components: unknown): MaterialOverridesLike | null {
 function applyShadowFlags(root: THREE.Object3D, flags: { cast: boolean; receive: boolean }): void {
   root.traverse((o) => {
     if ((o as THREE.Mesh).isMesh === true) {
-      // Phase 18.3: a graph material whose output casts no shadow keeps it off (its flag is data too).
+      // A graph material whose output casts no shadow keeps it off (its flag is data too).
       if (o.userData[MATERIAL_NO_SHADOW_KEY] !== undefined) o.userData[MATERIAL_NO_SHADOW_KEY] = flags.cast;
       else o.castShadow = flags.cast;
       o.receiveShadow = flags.receive;
@@ -433,19 +433,19 @@ function modelRefsOf(entities: readonly { id: string; components: unknown }[]): 
   return { models, pieces, animations, instances };
 }
 
-/** Phase 20.2: what a particle material holder wears until the project material library dresses it. */
+/** What a particle material holder wears until the project material library dresses it. */
 const EFFECT_MATERIAL_PLACEHOLDER = new THREE.MeshBasicMaterial();
 
 export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): SceneAdapter {
   const scene = new THREE.Scene();
-  // Phase 9.4: project materials (shared by boxes, models and instance sets), node materials (phase 17.4).
+  // Project materials (shared by boxes, models and instance sets), node materials.
   /** The lightmap set once it exists (the library may report a change while it is still being set up). */
   let lightmapsLive: LightmapSet | null = null;
   const materialLibrary: MaterialLibrary | null =
     opts.materials !== undefined
       ? createMaterialLibrary({
           loadTexture: opts.materials.loadTexture,
-          // Phase 17.3: a project material changed in place (a texture arrived): lightmapped
+          // A project material changed in place (a texture arrived): lightmapped
           // copies made before are clones and follow it (else they keep the texture-less look).
           onChange: () => lightmapsLive?.refresh(),
         })
@@ -455,9 +455,9 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     materialLibrary.setWind(opts.materials.wind);
   }
   const materialUndo = new Map<string, () => void>();
-  /** Phase 23.12: the values scripts set per object (the simulation's material changes). */
+  /** The values scripts set per object (the simulation's material changes). */
   let runtimeMaterials: RuntimeMaterialView | null = null;
-  /** Phase 9.6: lightmaps of the baked static objects; the lights a bake holds are not realtime. */
+  /** Lightmaps of the baked static objects; the lights a bake holds are not realtime. */
   const lightmaps: LightmapSet | null =
     opts.lighting !== undefined && Object.keys(opts.lighting.bakes).length > 0
       ? createLightmapSet(opts.lighting.bakes, opts.lighting.loadTexture, (ids) =>
@@ -468,9 +468,9 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         )
       : null;
   lightmapsLive = lightmaps;
-  /** Phase 9.9: entities the runtime hides (`ctx.game.setVisible`, a collected collectible). */
+  /** Entities the runtime hides (`ctx.game.setVisible`, a collected collectible). */
   const hiddenIds = new Set<string>();
-  /** Phase 9.7: the animator poses the runtime committed, played on the models. */
+  /** The animator poses the runtime committed, played on the models. */
   const animatorPlayers = new Map<string, { instance: unknown; player: AnimatorPlayer }>();
   const applyAnimatorPoses = (): void => {
     const poses = (opts.runtime as { animatorPoses?: () => ReadonlyMap<string, AnimatorPoseLike> }).animatorPoses?.();
@@ -489,7 +489,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         if (found === null) continue;
         const rig = found.assetId;
         const r = realization;
-        // Phase 14.6: clips of an animation-only asset marked "clips for" this model's asset.
+        // Clips of an animation-only asset marked "clips for" this model's asset.
         rec = { instance: found.instance, player: createAnimatorPlayer(found.instance.root, found.instance.animationClips(), rig, { clipsOf: (clipAssetId) => r.clipsOf(clipAssetId, rig) }) };
         animatorPlayers.set(id, rec);
       }
@@ -499,15 +499,15 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   /** A light that stays out of realtime rendering: held by a bake (ambient/hemisphere always stay). */
   const bakedAway = (id: string | undefined, l: { type: string; mode?: string }): boolean =>
     l.mode === 'baked' && l.type !== 'ambient' && l.type !== 'hemisphere' && id !== undefined && lightmaps?.isBakedLight(id) === true;
-  /** Phase 9.5: the environment renderer (created with the renderer). */
+  /** The environment renderer (created with the renderer). */
   let environmentRenderer: EnvironmentRenderer | null = null;
   /** The size last handed to the environment renderer (it rebuilds its post stack on a change). */
   let environmentSize: [number, number] | null = null;
   let playerQuality: QualityLevel | null = opts.environment?.quality ?? null;
-  /** Phase 14.4: a look laid over the project environment (null: none). */
+  /** A look laid over the project environment (null: none). */
   let environmentLayer: EnvironmentLayerLike | null = null;
   /**
-   * Phase 23.18: the lights environment presets may change (scene-level
+   * The lights environment presets may change (scene-level
    * directional/ambient lights and the entities' point/spot/hemisphere lights)
    * with their authored values, and what was last applied.
    */
@@ -543,11 +543,11 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     }
     return out;
   };
-  /** Phase 9.5: point/spot lights casting shadows (the shadow map is enabled for them). */
+  /** point/spot lights casting shadows (the shadow map is enabled for them). */
   let localShadowLights = 0;
-  /** Phase 25.8: every realized light by entity, switched on and off by `selectLights` (scene-lights.ts). */
+  /** Every realized light by entity, switched on and off by `selectLights` (scene-lights.ts). */
   const switchable = new Map<string, { kind: SceneLightKind; light: THREE.Light }>();
-  /** Phase 25.8: the spot cookies drawn (their textures are the adapter's: disposed with the light). */
+  /** The spot cookies drawn (their textures are the adapter's: disposed with the light). */
   const cookies = new Map<THREE.SpotLight, THREE.Texture>();
   const cookieLoader = opts.lights?.loadTexture ?? opts.materials?.loadTexture ?? opts.environment?.loadTexture ?? null;
   const attachCookie = (s: THREE.SpotLight, assetId: string): void => {
@@ -569,7 +569,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       () => undefined,
     );
   };
-  /** Phase 9.5 (v4): a point, spot or hemisphere light for an entity (null otherwise, or when a bake holds it). */
+  /** v4: a point, spot or hemisphere light for an entity (null otherwise, or when a bake holds it). */
   const localLightOf = (e: { id?: string; components: unknown }): THREE.Light | null => {
     const l = (e.components as { light?: { type: string; color: string; intensity: number; range?: number; decay?: number; angle?: number; penumbra?: number; direction?: readonly number[]; groundColor?: string; castShadow?: boolean; mode?: string; cookie?: string } }).light;
     if (l === undefined || bakedAway(e.id, l)) return null;
@@ -583,13 +583,13 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     }
     if (l.type === 'spot') {
       const s = new THREE.SpotLight(colour, l.intensity, l.range ?? 0, THREE.MathUtils.degToRad(l.angle ?? 30), l.penumbra ?? 0.2, l.decay ?? 2);
-      // D49: three puts a new SpotLight at (0, 1, 0) (Object3D.DEFAULT_UP); at its entity's origin it shines along `direction`.
+      // Three puts a new SpotLight at (0, 1, 0) (Object3D.DEFAULT_UP); at its entity's origin it shines along `direction`.
       s.position.set(0, 0, 0);
       const d = l.direction ?? [0, -1, 0];
       s.target.position.set(d[0] ?? 0, d[1] ?? -1, d[2] ?? 0);
       s.castShadow = l.castShadow === true;
       if (s.castShadow) s.shadow.mapSize.set(1024, 1024);
-      // Phase 25.8: a cookie (three's SpotLight.map; the node lighting projects it through the cone on both backends).
+      // A cookie (three's SpotLight.map; the node lighting projects it through the cone on both backends).
       if (typeof l.cookie === 'string') attachCookie(s, l.cookie);
       return s;
     }
@@ -597,9 +597,9 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   };
   const clockStart = typeof performance !== 'undefined' ? performance.now() : 0;
   const objects = new Map<string, THREE.Object3D>();
-  /** Phase 21.5: which entity an object is (a release stops at other entities' objects parented below). */
+  /** Which entity an object is (a release stops at other entities' objects parented below). */
   const ownerOf = new WeakMap<THREE.Object3D, string>();
-  /** Phase 23.12: one object's own meshes (its child objects' are theirs). */
+  /** One object's own meshes (its child objects' are theirs). */
   const ownMeshes = (entityId: string): THREE.Object3D[] => {
     const root = objects.get(entityId);
     const out: THREE.Object3D[] = [];
@@ -612,7 +612,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     return out;
   };
   if (materialLibrary !== null) runtimeMaterials = new RuntimeMaterialView(materialLibrary, ownMeshes);
-  // --- Phase 20.2: visual effects --------------------------------------------
+  // --- Visual effects --------------------------------------------
   /** A project material for particles shaded with one (the library's compiled material, taken from a holder mesh). */
   const effectMaterials = new Map<string, THREE.Mesh>();
   const effects: EffectsPlayer | null =
@@ -640,12 +640,12 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   const effectEntities = new Set<string>();
   let effectsLastNow: number | null = null;
   let effectsMark = '';
-  /** Phase 21.3: the MSAA samples last stamped on the canvas. */
+  /** The MSAA samples last stamped on the canvas. */
   let msaaMark = -1;
   let drawsMark = -1;
-  /** Phase 21.3: the last drawn frame's counts. */
+  /** The last drawn frame's counts. */
   const lastFrameCounts = { drawCalls: 0, triangles: 0 };
-  /** Phase 21.2: the transform sync for `forEachInterpolated` (one function for the adapter's life). */
+  /** The transform sync for `forEachInterpolated` (one function for the adapter's life). */
   const applyInterpolated = (id: string, position: readonly number[], rotation: readonly number[], scale: readonly number[]): void => {
     const obj = objects.get(id);
     if (obj) applyTransformToObject3D(obj, position as AdapterVec3, rotation as AdapterQuat, scale as AdapterVec3);
@@ -654,19 +654,19 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   const reportedViewport: [number, number] = [0, 0];
   let camera: THREE.PerspectiveCamera | null = null;
 
-  // --- M3 (presentation.md §§41.1/41.2, packet 52): v3 detection, the
+  // --- v3 detection, the
   // --- authored lights and the shadow decision ----------------------------
   // The snapshot is deep-frozen and runtime-validated; the adapter reads it
   // structurally and never re-validates (the runtime already did).
   const sceneDoc = opts.snapshot.scene;
   const isV3 = sceneDoc.schemaVersion === 3 || sceneDoc.schemaVersion === 4;
-  // Phase 12 (c): the shadow region is a square that follows the camera
+  // The shadow region is a square that follows the camera
   // (planned here around its start), half its side the light's
-  // `shadowExtent` (phase 17.4; 24 m by default).
+  // `shadowExtent` (24 m by default).
   const followShadow = isV3;
   const startCamera = sceneDoc.entities.find((e) => e.components.camera !== undefined)?.components.transform.position ?? [0, 0, 0];
   /**
-   * Phase 25.8: the directional lights of the loaded scenes, each with its
+   * The directional lights of the loaded scenes, each with its
    * own shadow settings and planned outcome (probeOk: true — the capability
    * probe runs at the first render with shadows; the webgl2 requirement is
    * enforced at renderer creation). One is on: the key light.
@@ -685,11 +685,11 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   let keyRec: KeyRec | null = null;
   /** The first frame with shadows failed (soft degradation): no light casts a shadow from then on. */
   let shadowsUnsupported = false;
-  /** The current shadow realization state (the key light's); recorded when the key light changes (never per frame) — the bounded §41.1.4 diagnostic. */
+  /** The current shadow realization state (the key light's); recorded when the key light changes (never per frame) — the bounded shadow diagnostic. */
   let shadowState: { shadows: 'on' | 'off'; reason?: ShadowReason } = { shadows: 'off', reason: 'cast_shadow_false' };
   let shadowProbeDone = false;
   const keyDirectionOf = (r: KeyRec | null): readonly [number, number, number] | undefined => r?.directionNow ?? r?.authored.direction;
-  /** A directional light for a v3/v4 light entity: at the derived position round the camera's start square (§41.1.2 rule 2). */
+  /** A directional light for a v3/v4 light entity: at the derived position round the camera's start square (rule 2). */
   const directionalLightOf = (id: string, l: AuthoredLight): KeyRec => {
     const settings = directionalShadowSettings(l);
     const region: ShadowRegion = { minX: startCamera[0] - settings.extent, maxX: startCamera[0] + settings.extent, minY: startCamera[1] - settings.extent, maxY: startCamera[1] + settings.extent };
@@ -705,9 +705,9 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     }
     if (outcome.ok && outcome.shadows === 'on' && !shadowsUnsupported) {
       // The shadow-camera parameters are set now; the shadow map is
-      // allocated only by the first-render probe (§41.1.4 rule 5).
+      // allocated only by the first-render probe (rule 5).
       light.castShadow = true;
-      // Phase 17.4: the light's shadow map settings (data; DIRECTIONAL_SHADOW_DEFAULTS when absent).
+      // The light's shadow map settings (data; DIRECTIONAL_SHADOW_DEFAULTS when absent).
       light.shadow.mapSize.set(settings.mapSize, settings.mapSize);
       light.shadow.bias = settings.bias;
       light.shadow.normalBias = settings.normalBias;
@@ -721,7 +721,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     }
     return { id, light, authored: l, settings, plan, outcome, directionNow: null };
   };
-  /** Phase 25.8: the shadow state follows the key light (a scene with a shadow-casting sun turns shadows on; the probe runs for it). */
+  /** The shadow state follows the key light (a scene with a shadow-casting sun turns shadows on; the probe runs for it). */
   const applyKeyShadow = (): void => {
     const o = keyRec?.outcome;
     if (keyRec === null || o === undefined || !o.ok) shadowState = { shadows: 'off', reason: 'cast_shadow_false' };
@@ -729,13 +729,13 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     else shadowState = o.shadows === 'on' ? { shadows: 'on' } : { shadows: 'off', reason: o.shadowReason ?? 'cast_shadow_false' };
   };
 
-  // --- scene graph construction (fixed M1 table; read-only over the
+  // --- scene graph construction (fixed component table; read-only over the
   // --- (deep-frozen, normalized) snapshot) ---------------------------------
-  /** Phase 12 (c): each entity's own GPU resources (released when its scene unloads). */
+  /** Each entity's own GPU resources (released when its scene unloads). */
   const entityResources = new Map<string, { geometries: THREE.BufferGeometry[]; materials: THREE.Material[]; shared?: THREE.Material }>();
-  /** Phase 21.3: the unit box every box is drawn through when batched. */
+  /** The unit box every box is drawn through when batched. */
   const unitBox = unitBoxGeometry(addBoxLightmapUv);
-  /** Phase 21.3: box materials by value (shared by every box with the same values; counted). */
+  /** Box materials by value (shared by every box with the same values; counted). */
   const boxMaterials = new Map<string, { material: THREE.Material; refs: number }>();
   const boxMaterialKeys = new Map<THREE.Material, string>();
   const sharedBoxMaterial = (surface: AuthoredSurface | undefined, color: string): THREE.Material => {
@@ -769,13 +769,13 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     boxMaterialKeys.delete(material);
     material.dispose();
   };
-  /** Phase 21.3: repeated objects drawn instanced (absent when the option turns it off). */
+  /** Repeated objects drawn instanced (absent when the option turns it off). */
   const batcher: AutoBatcher | null = opts.batching === false ? null : createAutoBatcher(scene);
   // Its update walks the graph for the world matrices right before every render: the renderer's own pass is left out.
   if (batcher !== null) scene.matrixWorldAutoUpdate = false;
-  /** Phase 12 (c): the documents of every realized entity (the loaded scenes). */
+  /** The documents of every realized entity (the loaded scenes). */
   const entityDocs = new Map<string, (typeof opts.snapshot.scene.entities)[number]>();
-  // Phase 23.5: block layers — merged chunk meshes per block look (the same view as the editor's Scene view).
+  // Block layers — merged chunk meshes per block look (the same view as the editor's Scene view).
   const blockPrefabs = (opts.snapshot as { prefabs?: readonly { prefabId: string; entities: readonly { parentLocalId?: string; components: Record<string, unknown> }[] }[] }).prefabs ?? [];
   const blockLooks = new Map<string, BlockModelLook | null>();
   const blockView = new BlockLayerView({
@@ -814,29 +814,29 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     const cam = e.components.camera;
     if (box) {
       // Box primitive: unit-axis geometry sized by `size`; the
-      // transform's `scale` multiplies on top per frame (§6).
+      // transform's `scale` multiplies on top per frame.
       const geometry = new THREE.BoxGeometry(box.size[0], box.size[1], box.size[2]);
       addBoxLightmapUv(geometry);
       const surface = (e.components as { surface?: AuthoredSurface }).surface;
-      // §41.2.3 (packet 52): an entity carrying `surface` gets ONE
+      // An entity carrying `surface` gets ONE
       // material instance created per entity placement — owned by that
       // entity's mesh instance (value-level independence; the per-placement
       // instance is by construction). No preset lookup: the values are
       // taken literally from the `surface` component. No `surface` ⇒ the
-      // M1 Lambert path, unchanged.
-      // Phase 21.3: boxes with equal values share one material (a per-object
+      // plain Lambert path.
+      // Boxes with equal values share one material (a per-object
       // look — `ctx.look`, a lightmap — copies it first), so
       // they can be drawn together.
       const material = sharedBoxMaterial(surface, box.material.color);
       own.geometries.push(geometry);
       own.shared = material;
       obj = new THREE.Mesh(geometry, material);
-      // Phase 21.3: drawn through the one unit box scaled by the size when batched.
+      // Drawn through the one unit box scaled by the size when batched.
       obj.userData[BATCH_KEY] = { geometry: unitBox, scale: [box.size[0], box.size[1], box.size[2]] };
-      // Phase 17.4: boxes cast and receive the key light's shadow (data: box.castShadow / receiveShadow).
+      // Boxes cast and receive the key light's shadow (data: box.castShadow / receiveShadow).
       applyShadowFlags(obj, shadowFlagsOf(e.components));
     } else if (cam) {
-      // The single M1 camera (project-model §10.3). Aspect is a
+      // The single scene camera (project-model). Aspect is a
       // viewport property — updated per frame from the canvas size.
       camera = new THREE.PerspectiveCamera(cam.fovY, 1, cam.near, cam.far);
       obj = camera;
@@ -844,7 +844,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       obj = new THREE.Group();
       const local = localLightOf(e);
       if (local !== null) {
-        // Phase 23.18: environment presets may set its colour, intensity, direction and ground colour.
+        // Environment presets may set its colour, intensity, direction and ground colour.
         const l = (e.components as { light: { type: string; color: string; intensity: number; direction?: readonly number[]; groundColor?: string } }).light;
         const d = l.direction ?? (l.type === 'spot' ? [0, -1, 0] : undefined);
         envLights.set(`entity:${e.id}`, {
@@ -855,24 +855,24 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
           authored: { color: l.color, intensity: l.intensity, ...(d !== undefined ? { direction: [d[0] ?? 0, d[1] ?? -1, d[2] ?? 0] as [number, number, number] } : {}), ...(l.type === 'hemisphere' ? { groundColor: l.groundColor ?? '#444444' } : {}) },
         });
         envLightsRevision += 1;
-        // D49: a hemisphere light's sky is up (+Y) whatever its entity's transform (as the Scene view and the bake take it): it hangs off the scene.
+        // A hemisphere light's sky is up (+Y) whatever its entity's transform (as the Scene view and the bake take it): it hangs off the scene.
         if (l.type === 'hemisphere') scene.add(local);
         else obj.add(local);
         if (local instanceof THREE.SpotLight) obj.add(local.target);
         if ((local as THREE.PointLight).castShadow === true) localShadowLights += 1;
         switchable.set(e.id, { kind: l.type as SceneLightKind, light: local });
       } else if (isV3) {
-        // Phase 25.8: a directional or ambient light of any loaded scene. Its entity's transform is
-        // irrelevant (§41.1.2 rule 3): it hangs off the scene; `selectLights` switches it on or off.
+        // A directional or ambient light of any loaded scene. Its entity's transform is
+        // irrelevant (rule 3): it hangs off the scene; `selectLights` switches it on or off.
         const l = (e.components as { light?: AuthoredLight }).light;
         if (l !== undefined && (l.type === 'directional' || l.type === 'ambient') && !bakedAway(e.id, l as { type: string; mode?: string })) {
           const tags = (e as { tags?: number }).tags ?? 0;
           if (l.type === 'ambient') {
-            // §41.1.2 rule 1: no shadow, no position dependence; the intensity is used exactly as authored.
+            // Rule 1: no shadow, no position dependence; the intensity is used exactly as authored.
             const ambient = new THREE.AmbientLight(new THREE.Color(l.color), l.intensity);
             scene.add(ambient);
             switchable.set(e.id, { kind: 'ambient', light: ambient });
-            // Phase 23.18: environment presets may set its colour and intensity.
+            // Environment presets may set its colour and intensity.
             envLights.set(`entity:${e.id}`, { light: ambient, id: e.id, tags, type: 'ambient', authored: { color: l.color, intensity: l.intensity } });
           } else {
             const rec = directionalLightOf(e.id, l);
@@ -880,7 +880,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
             scene.add(rec.light.target);
             directionals.set(e.id, rec);
             switchable.set(e.id, { kind: 'directional', light: rec.light });
-            // Phase 23.18: environment presets may set its colour, intensity and direction.
+            // Environment presets may set its colour, intensity and direction.
             const kd = l.direction ?? [0, -1, 0];
             envLights.set(`entity:${e.id}`, { light: rec.light, id: e.id, tags, type: 'directional', authored: { color: l.color, intensity: l.intensity, direction: [kd[0], kd[1], kd[2]] } });
           }
@@ -890,12 +890,12 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     }
     objects.set(e.id, obj);
     ownerOf.set(obj, e.id);
-    // Phase 23.5: a block layer (its cells ride on the resolved component).
+    // A block layer (its cells ride on the resolved component).
     const layer = (e.components as { blockLayer?: BlockLayerComponent & { data?: BlockLayerData } }).blockLayer;
     if (layer !== undefined) blockView.setLayer(e.id, layer, t.position, layer.data ?? null);
     if ((e.components as { fogVolume?: unknown }).fogVolume !== undefined) fogVolumeIds.add(e.id);
     const boxMaterials = (e.components as { materials?: Record<string, string> }).materials;
-    // Phase 18.3: with the object's values for its graph materials' public parameters.
+    // With the object's values for its graph materials' public parameters.
     if (box && materialLibrary !== null && boxMaterials !== undefined) materialUndo.set(e.id, materialLibrary.apply(obj, boxMaterials, materialParamsOf(e.components)));
     if (box) lightmaps?.apply(e.id, obj);
     entityDocs.set(e.id, e);
@@ -903,7 +903,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     const parent = e.parentId ? objects.get(e.parentId) : undefined;
     (parent ?? scene).add(obj);
     applyTransformToObject3D(obj, t.position, t.rotation, t.scale);
-    // Phase 20.2: an effect component plays from the object (on start unless it waits for a signal or a script).
+    // An effect component plays from the object (on start unless it waits for a signal or a script).
     const fx = (e.components as { effect?: EffectComponentLike }).effect;
     if (effects !== null && fx !== undefined) {
       effectEntities.add(e.id);
@@ -918,12 +918,12 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       effectEntities.delete(id);
     }
     const obj = objects.get(id);
-    // Phase 21.5: per-object looks first (a look override's own copies), then the shared paths undo.
+    // Per-object looks first (a look override's own copies), then the shared paths undo.
     if (obj !== undefined) releaseEmissiveLooks(obj);
     lightmaps?.release(id);
     fogVolumeIds.delete(id);
     if (envLights.delete(`entity:${id}`)) envLightsRevision += 1;
-    // Phase 25.8: its light (a directional or ambient light hangs off the scene; a cookie is the adapter's).
+    // Its light (a directional or ambient light hangs off the scene; a cookie is the adapter's).
     const lit = switchable.get(id);
     if (lit !== undefined) {
       switchable.delete(id);
@@ -948,7 +948,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       obj.traverse((o) => {
         if ((o instanceof THREE.PointLight || o instanceof THREE.SpotLight) && o.castShadow) localShadowLights = Math.max(0, localShadowLights - 1);
       });
-      // Phase 21.5: its render objects (a material that outlives it — a project material, a shared box
+      // Its render objects (a material that outlives it — a project material, a shared box
       // material — would keep them), a light's shadow map; other entities' objects below it are theirs.
       disposeObjectTree(obj, { skip: (o) => o !== obj && ownerOf.get(o) !== undefined });
     }
@@ -970,13 +970,12 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     camera = new THREE.PerspectiveCamera(60, 1, 0.1, 100);
     scene.add(camera);
   }
-  // Realized lights. M1 path (v1/v2): the accepted fixed pair, unchanged
-  // (presentation.md §41.10). M3 path (v3/v4): the light entities' own lights
-  // (realizeEntity), switched on and off per loaded scene (phase 25.8,
-  // `selectLights` below).
+  // Realized lights. v1/v2 scenes: the accepted fixed pair. v3/v4 scenes:
+  // the light entities' own lights (realizeEntity), switched on and off per
+  // loaded scene (`selectLights` below).
   if (!isV3) {
-    // Simple M1 lighting for the Lambert material (charter first-release
-    // item; no shadow pipeline in M1): one directional + one ambient.
+    // Simple lighting for the Lambert material (no shadow pipeline for
+    // v1/v2 scenes): one directional + one ambient.
     const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
     dirLight.position.set(0.5, 1, 0.8);
     const ambient = new THREE.AmbientLight(0xffffff, 0.55);
@@ -984,16 +983,16 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     scene.add(ambient);
   }
 
-  // --- M4 (C64-4, delivery.md (M4) §2): the model realization ------------
+  // --- The model realization ------------
   // The holders (the `objects` map entries) exist now; the prepared
   // ModelInstance roots attach as their children. The realization is
-  // created lazily when `models` is present (absent ⇒ byte-stable M1/M2/
-  // M3 behavior — the accepted path is untouched). Fail-fast config
-  // validation (§2.2) surfaces through `modelsSettled` + the structured
+  // created lazily when `models` is present (absent ⇒ no model path at
+  // all, byte-stable). Fail-fast config
+  // validation surfaces through `modelsSettled` + the structured
   // result; the base scene keeps rendering (degraded, never a throw).
   let realization: ModelsRealization | null = null;
   /**
-   * Phase 25.24f: the start scenes' models have settled (the blocking assets
+   * The start scenes' models have settled (the blocking assets
    * of the first picture): the first present waits for them, so it shows the
    * whole world and its precompile covers the models' programs. The rest —
    * instance buffers, textures, clips, later scenes — stream in.
@@ -1005,7 +1004,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     // Structural reads over the (deep-frozen, runtime-validated) snapshot —
     // the adapter never re-validates (the runtime already did).
     const { models: modelEntities, pieces: modelPieces, animations: modelAnimationEntities, instances: instanceEntities } = modelRefsOf(opts.snapshot.scene.entities);
-    // Phase 24.7: no game session drives the roles (the idle/run/airborne
+    // No game session drives the roles (the idle/run/airborne
     // profile of an older project): every animated entity gets the constant
     // neutral motion at the runtime's step, so the accepted pure selector
     // yields `idle` — no blending, no run/airborne. The selector reads no
@@ -1036,11 +1035,11 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       holderFor: (entityId: string) => objects.get(entityId) ?? null,
       viewFor,
       onAttached: (entityId: string, root: THREE.Object3D) => {
-        // Phase 17.4: models and instance sets cast and receive the key light's shadow (their data).
+        // Models and instance sets cast and receive the key light's shadow (their data).
         applyShadowFlags(root, shadowFlagsOf(entityDocs.get(entityId)?.components));
-        // Phase 23.12: values a script set before the model arrived.
+        // Values a script set before the model arrived.
         runtimeMaterials?.reapply(entityId);
-        // Phase 21.3: a model's meshes may be drawn together with other placements' (instance sets already are).
+        // A model's meshes may be drawn together with other placements' (instance sets already are).
         markBatchable(root);
         lightmaps?.apply(entityId, root);
       },
@@ -1062,23 +1061,23 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   let rendererInfo: string | null = null;
   let pixelRatio = 1;
   let contextAttempted = false;
-  /** Phase 17.1: the last frame was skipped (WebGPURenderer still initialising). */
+  /** The last frame was skipped (WebGPURenderer still initialising). */
   let lastFrameSkipped = false;
-  /** Phase 21.3: a frame was drawn (the renderer info holds its counts). */
+  /** A frame was drawn (the renderer info holds its counts). */
   let lastFrameDrawn = false;
-  /** Phase 17.1: the renderer choice as last seen (kept for diagnostics after dispose). */
+  /** The renderer choice as last seen (kept for diagnostics after dispose). */
   let lastRendererInfo: RendererInfo | null = null;
   let contextLost = false;
   let disposed = false;
-  /** M4 (C64-4): the previous frame's `performance.now()` for the clamped
+  /** The previous frame's `performance.now()` for the clamped
    *  role-controller delta (the adapter derives `deltaSeconds` from the
-   *  host clock, guarded — §2.4). The first frame uses 0 (a fresh anchor
+   *  host clock, guarded). The first frame uses 0 (a fresh anchor
    *  after mount/suspend/resume: no fast-forward). */
   let lastFrameNow: number | null = null;
-  /** Releases of the WebGL context listeners this adapter owns (packet 26). */
+  /** Releases of the WebGL context listeners this adapter owns. */
   const contextListenerReleases: Array<() => void> = [];
 
-  // Packet 26: observe the WebGL context lifecycle of the canvas this adapter
+  // Observe the WebGL context lifecycle of the canvas this adapter
   // renders into. Loss is reported as a structured `render_context_lost` (no
   // render into a dead context); three.js re-initializes its own GL state on
   // restoration and this adapter clears the flag. The adapter owns exactly
@@ -1106,7 +1105,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     return [w, h];
   }
 
-  /** Phase 17.1: the renderer generation the environment renderer and shadow probe were set up for. */
+  /** The renderer generation the environment renderer and shadow probe were set up for. */
   let rendererGeneration = 0;
 
   function ensureRenderer(): AdapterError | null {
@@ -1122,7 +1121,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     contextAttempted = true;
     const preference = opts.renderer?.preference ?? DEFAULT_RENDERER_PREFERENCE;
     try {
-      // Phase 17.1: the one renderer factory (WebGPURenderer on WebGPU or WebGL 2).
+      // The one renderer factory (WebGPURenderer on WebGPU or WebGL 2).
       const handle = createRenderer({
         canvas: canvasLike,
         preference,
@@ -1152,7 +1151,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   }
 
   /**
-   * Phase 17.1: a (re)created WebGPURenderer became ready — set it up, and
+   * A (re)created WebGPURenderer became ready — set it up, and
    * rebuild what held the previous renderer (the environment renderer; the
    * shadow probe runs again).
    */
@@ -1165,19 +1164,19 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     r.setPixelRatio(pixelRatio);
     const inf = handle.info();
     renderBackend = inf.api;
-    // Phase 20.2: the effect executors follow the renderer (compute on WebGPU, the CPU on WebGL 2).
+    // The effect executors follow the renderer (compute on WebGPU, the CPU on WebGL 2).
     effects?.setRenderer(r as unknown as import('three/webgpu').WebGPURenderer, inf.api === 'webgpu' ? 'webgpu' : 'webgl2');
     rendererInfo = `WebGPURenderer (${inf.api === 'webgpu' ? 'WebGPU' : 'WebGL 2'})`;
     if (shadowState.shadows === 'on') shadowProbeDone = false;
-    // Phase 25.24d: a new renderer (a lost device) builds its programs ahead of its first present too.
+    // A new renderer (a lost device) builds its programs ahead of its first present too.
     precompileRun = null;
     precompileWanted = 'start';
-    // Phase 23.4: the depth buffer the renderer draws with (reversed Z falls back to standard without support).
+    // The depth buffer the renderer draws with (reversed Z falls back to standard without support).
     const depth = r as { reversedDepthBuffer?: boolean; logarithmicDepthBuffer?: boolean };
     if (typeof canvasLike?.setAttribute === 'function') canvasLike.setAttribute('data-tl-depth', depth.reversedDepthBuffer === true ? 'reversed' : depth.logarithmicDepthBuffer === true ? 'logarithmic' : 'standard');
   }
 
-  // Phase 24.4h: the simulation's per-object look overrides (ctx.look): applied
+  // The simulation's per-object look overrides (ctx.look): applied
   // when one changes, and again when the object's meshes change (a model that
   // finished loading after the override was set); cleared ones give the
   // object its own look back.
@@ -1211,7 +1210,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     }
   };
 
-  // --- Phase 12 (c): follow the runtime's scene set ------------------------
+  // --- Follow the runtime's scene set --------------------------------------
   /** Scenes realized so far (the start scenes came with the snapshot). */
   const realizedScenes = new Map<string, ReadonlySet<string>>();
   let realizedRevision = -1;
@@ -1222,10 +1221,10 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       realizedRevision = set.revision;
     }
   }
-  /** Phase 25.8: the lights that are on (updated when the scene set changes). */
+  /** The lights that are on (updated when the scene set changes). */
   let lightSelection: SceneLightSelection | null = null;
   /**
-   * Phase 25.8: switch the loaded scenes' lights: the most recently loaded
+   * Switch the loaded scenes' lights: the most recently loaded
    * scene's directional, ambient and hemisphere light (each kind on its own),
    * point and spot lights within the budget (scene-lights.ts). The key light
    * decides the shadow state.
@@ -1240,7 +1239,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     }
     const entries: SceneLightEntry[] = [];
     let order = 0;
-    // Phase 25.10: a light whose object is hidden or switched off is off and counts for nothing (the previous scene's
+    // A light whose object is hidden or switched off is off and counts for nothing (the previous scene's
     // light of its kind comes back; a point or spot light frees its place in the budget).
     for (const [id, r] of switchable) {
       if (hiddenIds.has(id)) {
@@ -1258,11 +1257,11 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     }
   }
   selectLights();
-  /** Phase 25.24a: the scenes realized since the last drawn frame (for `onFrameDrawn`). */
+  /** The scenes realized since the last drawn frame (for `onFrameDrawn`). */
   const frameRealized: string[] = [];
-  /** Phase 25.24e: scenes prepared ahead of their load (released once realized). */
+  /** Scenes prepared ahead of their load (released once realized). */
   const sceneHolds = new Map<string, { release(): void }>();
-  /** Phase 25.24e: the scene set revision the last presented frame drew. */
+  /** The scene set revision the last presented frame drew. */
   let presentedRevision = -1;
   function syncSceneSet(): void {
     const set = opts.runtime.sceneSet?.();
@@ -1287,21 +1286,21 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       for (const e of entities) realizeEntity(e);
       realizedScenes.set(b.sceneId, new Set(entities.map((e) => e.id)));
       realization?.addEntities(modelRefsOf(entities));
-      // Phase 25.24e: its entities hold what the preparation held.
+      // Its entities hold what the preparation held.
       sceneHolds.get(b.sceneId)?.release();
       sceneHolds.delete(b.sceneId);
       frameRealized.push(b.sceneId);
-      // Phase 25.24d: the attached scene's programs are built before it is presented.
+      // The attached scene's programs are built before it is presented.
       precompileWanted ??= 'scene';
       added = true;
     }
-    // Phase 25.8: the lights follow the scene set (a light switched on or off changes the shading programs too).
+    // The lights follow the scene set (a light switched on or off changes the shading programs too).
     if (added || removed) selectLights();
     if (removed && !added && isV3) precompileWanted ??= 'scene';
     syncSpawned((set as { spawned?: readonly unknown[] }).spawned ?? []);
   }
 
-  // --- Phase 14.1: spawned prefab copies (ctx.spawn / ctx.destroy) ------------
+  // --- Spawned prefab copies (ctx.spawn / ctx.destroy) ------------
   /** The realized spawned entities: id → the runtime's (frozen) entity object. */
   const realizedSpawned = new Map<string, unknown>();
   function syncSpawned(spawned: readonly unknown[]): void {
@@ -1329,7 +1328,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   }
 
   /**
-   * Phase 23.18: draw the environment blend — the look (sky, fog, post) on the
+   * Draw the environment blend — the look (sky, fog, post) on the
    * environment renderer, the lights' colours/intensities/directions, the
    * lightmap multiplier. Only when the blend or the light set changed; back to
    * the authored look when the blend ends (a new run).
@@ -1364,7 +1363,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     }
   }
   /**
-   * Phase 25.10: the light values scripts wrote (`ctx.entity(id).set('light',
+   * The light values scripts wrote (`ctx.entity(id).set('light',
    * …)`): colour and intensity become the light's authored values (presets
    * blend from them; a new run's empty list restores the document's), range
    * is a point or spot light's distance. Applied when the list or the light
@@ -1430,7 +1429,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   }
 
   /**
-   * Phase 23.4: the camera brain's resolved view (virtual cameras) replaces the
+   * The camera brain's resolved view (virtual cameras) replaces the
    * camera entity's pose and lens after the transform sync; without virtual
    * cameras the runtime returns null and the camera entity is drawn as before
    * (its lens restored if a view had changed it). Presentation only: the pose
@@ -1471,10 +1470,10 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     camera.far = lens.far;
   }
 
-  /** Phase 25.24a: when the first render call began (for `onFrameDrawn`). */
+  /** When the first render call began (for `onFrameDrawn`). */
   let firstRenderCallAt: number | null = null;
 
-  // --- Phase 25.24d: pipelines precompiled ahead of a present -----------------
+  // --- Pipelines precompiled ahead of a present -----------------
   /** Wanted before the next present: the first one, and after a scene attached (or a new renderer). */
   let precompileWanted: 'start' | 'scene' | null = 'start';
   /** The precompile running (frames are skipped until it settles, at most PRECOMPILE_WAIT_MS). */
@@ -1500,7 +1499,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     const now = performance.now();
     if (precompileRunning(now)) return true;
     if (precompileWanted === null || camera === null) return false;
-    // Phase 25.24f: the first present waits for the start scenes' models (at most PRECOMPILE_WAIT_MS).
+    // The first present waits for the start scenes' models (at most PRECOMPILE_WAIT_MS).
     if (precompileWanted === 'start' && !startModelsIn) {
       startHeldSince ??= now;
       if (now - startHeldSince < PRECOMPILE_WAIT_MS) return true;
@@ -1562,21 +1561,21 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     }
     const live = handle.current();
     if (live === null || !handle.ready()) {
-      // Phase 17.1: WebGPURenderer initialises asynchronously; frames are
+      // WebGPURenderer initialises asynchronously; frames are
       // skipped (not an error) until it is ready.
       lastFrameSkipped = true;
       return { ok: true };
     }
     adoptRenderer(handle, live);
-    // Phase 25.24d: while a precompile runs, a skipped frame does none of the frame's work (the transform
+    // While a precompile runs, a skipped frame does none of the frame's work (the transform
     // sync, the batches): the compile gets the main thread, and the frame after it starts from now.
     if (!force && precompileRunning(performance.now())) {
       lastFrameSkipped = true;
       return { ok: true };
     }
     // The runtime is the single frame driver: this runs after the step
-    // update (runtime.md §6 frame ordering: step → onFrame → render).
-    // Phase 21.2: a runtime that hands out its interpolated transforms in
+    // update (runtime.md frame ordering: step → onFrame → render).
+    // A runtime that hands out its interpolated transforms in
     // reused arrays is read without a per-frame copy of every transform.
     if (opts.runtime.forEachInterpolated !== undefined) {
       syncSceneSet();
@@ -1593,7 +1592,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       }
       syncSceneSet();
       // Transform synchronization: copy the interpolated values into the
-      // Object3Ds (no other transform math — §6).
+      // Object3Ds (no other transform math).
       for (const tr of st.state.transforms) {
         const obj = objects.get(tr.id);
         if (obj) applyTransformToObject3D(obj, tr.position as AdapterVec3, tr.rotation as AdapterQuat, tr.scale as AdapterVec3);
@@ -1601,7 +1600,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     }
     applyResolvedCamera();
     syncEntityLooks();
-    // Phase 9.9: the objects the simulation hides disappear (and come back on a restart).
+    // The objects the simulation hides disappear (and come back on a restart).
     const hiddenNow = (opts.runtime as { hiddenEntities?: () => ReadonlySet<string> }).hiddenEntities?.();
     if (hiddenNow !== undefined) {
       let lightsTouched = false;
@@ -1619,13 +1618,13 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         hiddenIds.add(id);
         if (switchable.has(id)) lightsTouched = true;
       }
-      // Phase 25.10: a light object hidden or switched off (or back) changes which lights are on.
+      // A light object hidden or switched off (or back) changes which lights are on.
       if (lightsTouched) {
         selectLights();
         precompileWanted ??= 'scene';
       }
     }
-    // Phase 20.2: the effect requests of the steps since the last frame (presentation only), then the effects step.
+    // The effect requests of the steps since the last frame (presentation only), then the effects step.
     if (effects !== null) {
       for (const req of (opts.runtime as { takeEffectRequests?: () => EffectRequestLike[] }).takeEffectRequests?.() ?? []) effects.request(req, (id) => objects.get(id));
       for (const id of effectEntities) effects.setAttachedActive(id, !hiddenIds.has(id));
@@ -1652,15 +1651,15 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     if (materialLibrary !== null && materialLibrary.animated()) {
       materialLibrary.tick(((typeof performance !== 'undefined' ? performance.now() : 0) - clockStart) / 1000);
     }
-    // M4 (C64-4, delivery.md (M4) §2.4): one host-driven update per
-    // rendered frame, in this order — (1) the transform sync above
-    // (unchanged), (2) every live role controller advanced once with the
+    // One host-driven update per
+    // rendered frame, in this order — (1) the transform sync above,
+    // (2) every live role controller advanced once with the
     // real frame delta CLAMPED to the accepted [0, 0.25] range (first
     // frame after mount or after a suspend/resume: a fresh anchor — the
     // host's frame-time reset makes a resume a fresh anchor; the clamp is
     // the adapter-side bound, no fast-forward), (3) `renderer.render`
     // (below). The controllers install no rAF, no timer, no mixer
-    // listener — there is no second loop (C13 ruled out by construction).
+    // listener — there is no second loop.
     if (realization !== null) {
       let delta = 0;
       const perf = globalThis.performance;
@@ -1671,7 +1670,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         }
         lastFrameNow = now;
       }
-      // The accepted clamp (presentation.md §41.7.1 / rule 2:
+      // The accepted clamp (presentation.md rule 2:
       // 0 ≤ deltaSeconds ≤ 0.25).
       if (!Number.isFinite(delta) || delta < 0) delta = 0;
       if (delta > ANIMATION_MAX_DELTA_SECONDS) delta = ANIMATION_MAX_DELTA_SECONDS;
@@ -1680,7 +1679,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     }
     const renderer = live;
     if (followShadow) followCameraShadow();
-    // Phase 17.4: the follow shadow and the size first — the shadow probe below is a
+    // The follow shadow and the size first — the shadow probe below is a
     // real frame (it compiles the scene's pipelines), drawn as the game will draw it.
     const [w, h] = canvasSize();
     // Resize only on a change: setSize rewrites the canvas' drawing buffer,
@@ -1691,33 +1690,24 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     }
     camera!.aspect = w / h;
     camera!.updateProjectionMatrix();
-    // Phase 23.4: the viewport the view is drawn in (screen↔world projection in scripts uses its aspect).
+    // The viewport the view is drawn in (screen↔world projection in scripts uses its aspect).
     if (w !== reportedViewport[0] || h !== reportedViewport[1]) {
       reportedViewport[0] = w;
       reportedViewport[1] = h;
       (opts.runtime as { setCameraViewport?: (w: number, h: number) => boolean }).setCameraViewport?.(w, h);
     }
-    // §41.1.4 shadow capability probe (packet 52): once per realized
-    // scene, before the first successful v3 frame. The probe render is the
-    // allocation check (`maxTextureSize ≥ SHADOW_MAP_SIZE` + the actual
-    // render). A failure degrades SOFT — shadows off, rendering continues
-    // with the key light only, and the bounded diagnostic is the
-    // `shadows`/`shadowReason` pair itself (recorded once, never per
-    // frame; no path, token or device string). A scene with no
-    // shadow-casting light never enables `shadowMap` (rule 5: no shadow
-    // map is allocated).
-    // Phase 23.5: the block chunks the simulation changed, re-meshed before the draw.
+    // The block chunks the simulation changed, re-meshed before the draw.
     const gridChanges = (opts.runtime as { takeGridChanges?: () => GridRenderChange[] }).takeGridChanges?.() ?? [];
     if (gridChanges.length > 0) blockView.applyRuntimeChanges(gridChanges);
     blockView.update();
-    // Phase 25.10: the light values scripts wrote, then (phase 23.18) the environment preset blend
+    // The light values scripts wrote, then the environment preset blend
     // (the running game's, or the editor's preview) before the draw.
     applyLightOverrides();
     applyEnvironmentBlend();
-    // Phase 23.12: material parameters scripts changed, on the objects before the draw (and before regrouping).
+    // Material parameters scripts changed, on the objects before the draw (and before regrouping).
     const materialChanges = (opts.runtime as { takeMaterialChanges?: () => MaterialRenderChangeLike[] }).takeMaterialChanges?.() ?? [];
     if (materialChanges.length > 0) runtimeMaterials?.apply(materialChanges);
-    // Phase 21.3: regroup the repeated objects and copy their matrices (after every transform and look change).
+    // Regroup the repeated objects and copy their matrices (after every transform and look change).
     batcher?.update(camera!);
     const disableShadows = (): void => {
       try {
@@ -1729,17 +1719,18 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       shadowsUnsupported = true;
       shadowState = { shadows: 'off', reason: 'shadow_unsupported' };
     };
-    // §41.1.4 shadow capability probe (packet 52), phase 25.24d: the first frame of a scene with shadows is
-    // the probe — shadows go on before it (and before the precompile below, so the programs are built
-    // with them); if that frame throws, they go off (soft degradation) and it is drawn again without.
-    // (Before, the probe was an extra full render in the first frame, drawn over by the real one.)
+    // Shadow capability probe: the first frame of a scene with shadows is the probe — shadows go
+    // on before it (and before the precompile below, so the programs are built with them); if that
+    // frame throws, they go off (soft degradation: the `shadows`/`shadowReason` pair is the
+    // diagnostic) and it is drawn again without. A scene with no shadow-casting light never
+    // enables `shadowMap`.
     let probing = false;
     if (shadowState.shadows === 'on' && isV3 && !shadowProbeDone) {
       shadowProbeDone = true;
       probing = true;
       try {
         renderer.shadowMap.enabled = true;
-        // §41.1.2: three's `THREE.PCFShadowMap` (the frozen profile row).
+        // three's `THREE.PCFShadowMap` (the frozen profile row).
         renderer.shadowMap.type = THREE.PCFShadowMap;
       } catch {
         probing = false;
@@ -1747,13 +1738,13 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       }
     }
     try {
-      // Phase 21.3: a player's quality level also applies without a project environment (the low
+      // A player's quality level also applies without a project environment (the low
       // level draws without MSAA), so the environment renderer draws then too.
       if ((opts.environment !== undefined || playerQuality !== null) && environmentRenderer === null) {
         environmentRenderer = createEnvironmentRenderer(renderer, scene, { loadTexture: opts.environment?.loadTexture ?? (async () => null) });
         environmentRenderer.set(effectiveEnvironment());
         if (playerQuality !== null) environmentRenderer.setQuality(playerQuality);
-        // Phase 23.18: a blend already running goes onto the new environment renderer.
+        // A blend already running goes onto the new environment renderer.
         envAppliedKey = '';
         envBlendActive = false;
         applyEnvironmentBlend();
@@ -1770,7 +1761,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     } catch (e) {
       return { ok: false, error: adapterError('render_failed', `render failed: ${String(e)}`) };
     }
-    // Phase 25.24d: no present that would build programs in the frame — they are built ahead
+    // No present that would build programs in the frame — they are built ahead
     // (renderer.compileAsync) before the first present and after a scene attached; frames are
     // skipped meanwhile (the last picture stays). A capture draws regardless.
     if (!force && precompileHolds(renderer)) {
@@ -1793,13 +1784,13 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         disableShadows();
         draw();
       }
-      // Phase 21.3: the MSAA samples the frame was drawn with (the export has no other in-page diagnostics surface).
+      // The MSAA samples the frame was drawn with (the export has no other in-page diagnostics surface).
       const samples = environmentRenderer !== null ? environmentRenderer.samples() : renderer.samples;
       if (samples !== msaaMark && typeof canvasLike?.setAttribute === 'function') {
         msaaMark = samples;
         canvasLike.setAttribute('data-tl-msaa', String(samples));
       }
-      // Phase 21.3: this frame's draw calls (the export's only diagnostics surface; the play diagnostics carry them too).
+      // This frame's draw calls (the export's only diagnostics surface; the play diagnostics carry them too).
       lastFrameCounts.drawCalls = Math.max(0, frameInfo.drawCalls - drawsBefore);
       lastFrameCounts.triangles = Math.max(0, frameInfo.triangles - trianglesBefore);
       if (lastFrameCounts.drawCalls !== drawsMark && typeof canvasLike?.setAttribute === 'function') {
@@ -1830,7 +1821,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     // Argument validation FIRST (before any render attempt — no side
     // effects on a bad argument; observable in Node-side tests where the
     // render itself would be `render_unsupported`). The session layer
-    // passes integers per sessions.md §11.5 (default 1024, max 2048);
+    // passes integers per sessions.md (default 1024, max 2048);
     // this is the adapter's defensive bound on its own argument.
     if (typeof maxWidth !== 'number' || !Number.isInteger(maxWidth) || maxWidth < 1) {
       return {
@@ -1838,7 +1829,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         error: adapterError('screenshot_failed', 'captureScreenshot: maxWidth must be a positive integer (width bound)'),
       };
     }
-    // Phase 25.2: a capture always answers — anything the frame or the read throws becomes
+    // A capture always answers — anything the frame or the read throws becomes
     // `screenshot_failed` with the reason (the relay would otherwise wait for its timeout).
     let frame: { ok: true } | { ok: false; error: AdapterError };
     try {
@@ -1857,7 +1848,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     try {
       // Synchronous capture, the same on both backends: the frame is read back in the task
       // that drew it. WebGL 2: the drawing buffer is valid until the task ends (no
-      // preserveDrawingBuffer needed). WebGPU (phase 25.2): the canvas' current texture is
+      // preserveDrawingBuffer needed). WebGPU: the canvas' current texture is
       // the drawing buffer until the browser presents it after this task, so the canvas
       // copy (and the downscale's drawImage) read this frame; checked pixel by pixel in
       // tests/e2e/screenshot.e2e.ts on a GPU and on headless (SwiftShader) WebGPU.
@@ -1865,7 +1856,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       w = Math.max(1, Math.floor(canvasLike.width ?? 0));
       h = Math.max(1, Math.floor(canvasLike.height ?? 0));
       if (w > maxWidth && typeof document !== 'undefined' && typeof document.createElement === 'function') {
-        // Downscale to ≤ maxWidth (session bound: sessions.md §11.5).
+        // Downscale to ≤ maxWidth (the session bound in sessions.md).
         const off = document.createElement('canvas');
         const scale = maxWidth / w;
         off.width = maxWidth;
@@ -1892,7 +1883,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   }
 
   /**
-   * Phase 23.19: a save slot's picture — draw a frame and scale it to cover
+   * A save slot's picture — draw a frame and scale it to cover
    * `width × height` (centred crop), encoded as JPEG/WebP (the browser falls
    * back to PNG for a type it cannot encode; the data URL says which).
    * Null when nothing is drawn yet or the page has no 2D canvas.
@@ -1922,7 +1913,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   function diagnostics(): { ok: true; diagnostics: SceneAdapterDiagnostics } | { ok: false; error: AdapterError } {
     // Works after dispose too (reports the last known backend or null) —
     // the session layer composes this block for the play relay
-    // (sessions.md §12; runtime.md §8 adapter block).
+    // (the runtime.md adapter block).
     const d: SceneAdapterDiagnostics = {
       renderBackend,
       rendererInfo,
@@ -1933,15 +1924,15 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     if (precompileRun !== null || precompileStats.runs + precompileStats.failed + precompileStats.gaveUp > 0) d.precompile = { ...precompileStats, running: precompileRun !== null };
     const choice = owned.renderer !== null && !disposed ? owned.renderer.info() : lastRendererInfo;
     if (choice !== null) d.renderer = choice;
-    // §41.1.4: `shadowReason` is present iff `shadows === 'off'`.
+    // `shadowReason` is present iff `shadows === 'off'`.
     if (shadowState.shadows === 'off' && shadowState.reason !== undefined) {
       d.shadowReason = shadowState.reason;
     }
-    // Phase 25.8: the lights that are on.
+    // The lights that are on.
     if (lightSelection !== null && !disposed) {
       d.lights = { directional: lightSelection.directional, ambient: lightSelection.ambient, hemisphere: lightSelection.hemisphere, local: lightSelection.localTotal, localOn: lightSelection.localOn, cookies: cookies.size };
     }
-    // M4 (C64-4): the `models` counters block — present iff the `models`
+    // The `models` counters block — present iff the `models`
     // option was given and the adapter is not disposed (absent when
     // `models` is absent; after dispose the realization is gone).
     if (realization !== null && !disposed) {
@@ -1965,7 +1956,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     }
     if (batcher !== null && !disposed && lastFrameDrawn) {
       d.batching = batcher.diagnostics();
-      // Phase 25.24d: distinct node programs of the batch meshes' render objects (three 0.186 internals, guarded).
+      // Distinct node programs of the batch meshes' render objects (three 0.186 internals, guarded).
       const ros = (liveRenderer as unknown as { _objects?: { _renderObjects?: Iterable<{ object?: THREE.Object3D; _nodeBuilderState?: unknown }> } } | null)?._objects?._renderObjects;
       if (ros !== undefined) {
         const states = new Set<unknown>();
@@ -1996,7 +1987,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     sceneHolds.clear();
     materialLibrary?.dispose();
     environmentRenderer?.dispose();
-    // M4 (C64-4, delivery.md (M4) §2.6): tear down the model realization
+    // Tear down the model realization
     // FIRST — cancel every in-flight prepare, dispose the attached
     // instances (cloned materials + controllers + instances) and the
     // store (a late completion is discarded and released, never applied).
@@ -2009,9 +2000,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       realization = null;
       lastFrameNow = null;
     }
-    // Release ALL owned Object3D/material/renderer lifetimes (runtime.md
-    // §3.4-style repeatable disposal; m1-acceptance step 8: "no leaked
-    // loop, no stale GPU state").
+    // Release ALL owned Object3D/material/renderer lifetimes (repeatable
+    // disposal, as in runtime.md: no leaked loop, no stale GPU state).
     for (const release of contextListenerReleases) {
       try { release(); } catch { /* best effort */ }
     }
@@ -2118,10 +2108,10 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       if (materialLibrary !== null) materialLibrary.setWind(((layer?.wind as WindLike | undefined) ?? opts.materials?.wind ?? null) as WindLike | null);
     },
   };
-  // M4 (C64-4): the settle surface — present iff the `models` option was
+  // The settle surface — present iff the `models` option was
   // given. A config-invalid block resolves the structured failure (the
   // wrapper posts `tl.error`); a realized block resolves when every
-  // prepare has settled (§2.8 step 10). Never rejects.
+  // prepare has settled. Never rejects.
   if (opts.models !== undefined) {
     api.modelsSettled = (): Promise<ModelsSettledResult> => {
       if (realization !== null) return realization.settled();

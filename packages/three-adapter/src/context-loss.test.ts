@@ -1,13 +1,12 @@
 /**
- * Packet-26 tests: WebGL context-loss handling in the M1 scene adapter (the
+ * WebGL context-loss handling in the scene adapter (the
  * adapter is where a renderer exists, so it is where loss is observed).
  *
  * Node-level with a stub canvas that only exposes the listener surface: this
  * proves the structured `render_context_lost` error, the restore path, and that
  * the adapter owns exactly two context listeners and releases them once.
  * A REAL `webglcontextlost`/`webglcontextrestored` round trip (and any rendered
- * output after restoration) is browser-only and remains UNVERIFIED — see
- * docs/acceptance/evidence-m2/26/manifest.md.
+ * output after restoration) is browser-only and remains UNVERIFIED here.
  */
 import { describe, expect, it, vi } from 'vitest';
 import {

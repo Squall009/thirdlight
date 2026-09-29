@@ -1,26 +1,17 @@
 /**
- * 2026-09-18 review repair — group C (R1 + R2 + R6) regression tests.
+ * Read errors in the durable write and the external-change protocol.
  *
- * Findings (docs/reviews/2026-09-18-commits.md, group C):
+ *   - An unreadable file is never mistaken for a deleted one: treating a
+ *     read error as ABSENCE would report a ZERO-BYTE snapshot (the SHA-256
+ *     of empty content) for a chmod-000 file, and `discardExternalState`
+ *     would then rename over the unreadable foreign file, losing its bytes.
+ *   - A write retry never overwrites foreign content without another
+ *     pre-write check: a hash check run once before the retry loop would
+ *     let a second W attempt replace a target it never checked.
+ *   - A temp-file close error is never swallowed: rename/verification must
+ *     not continue and acknowledge a sequence whose close failed.
  *
- *   R1 (P1) — unreadable files are mistaken for deleted files, enabling
- *            loss of foreign bytes: `readFile` caught every error and
- *            treated it as ABSENCE. A chmod-000 `scenes/main.json`
- *            reported `external_change_unresolved` with a ZERO-BYTE
- *            snapshot (the SHA-256 of empty content), and
- *            `discardExternalState` then renamed over the unreadable
- *            foreign file. Reproduced with real permissions as the
- *            unprivileged host user (this file runs the same way).
- *   R2 (P1) — a write retry overwrote foreign content without another
- *            pre-write check: the §5.2 hash check ran once before the
- *            retry loop, so a second W attempt began without checking
- *            the target it was about to replace.
- *   R6 (P2) — temp-file close errors were swallowed in the attempt's
- *            `finally`; rename/verification continued and a success was
- *            acknowledged for a sequence whose close failed.
- *
- * Repairs pinned here (workspace.md §5.1/§5.2/§7.2/§7.3, the applied
- * contract diff `dabfcff`):
+ * Pinned here:
  *   - W distinguishes ENOENT (absence) from any other read failure in
  *     the pre-write check AND the final classification: non-ENOENT ⇒
  *     `unreadable` outcome (the bytes are UNKNOWN, never absent) — no
@@ -28,15 +19,15 @@
  *     misclassification;
  *   - the mutation records the unreadable pending state
  *     (`snapshotState: "unreadable"`, `externalHash: null`, no snapshot
- *     taken) and fails `external_change_unreadable` (§11);
- *   - the §7.3 refusal clause: while `snapshotState` is not "ok",
+ *     taken) and fails `external_change_unreadable`;
+ *   - the resolution refusal clause: while `snapshotState` is not "ok",
  *     accept/discard are refused — but the command RE-READS the file
  *     before answering: readable ⇒ (re)establish from the real bytes
  *     (durable snapshot) and proceed in the same call; ENOENT ⇒ the
  *     foreign state is gone (LKG durably restored via W, creation-style
- *     check); still unreadable ⇒ refused; other foreign bytes ⇒ the §7.2
- *     protocol re-fires;
- *   - the §5.2 pre-write check is the first statement of EVERY attempt
+ *     check); still unreadable ⇒ refused; other foreign bytes ⇒ the
+ *     external-change protocol re-fires;
+ *   - the pre-write check is the first statement of EVERY attempt
  *     (per-attempt allowed set = `allowedPreHashes` PLUS the intended
  *     hash — this W's own intermediate state is never "foreign");
  *   - a close failure ABORTS the attempt (no rename with a possibly
@@ -44,18 +35,16 @@
  *     close error never masks an earlier write/fsync errno; a retry uses
  *     a NEW temp file + nonce).
  *
- * Ported to storage v4 (phase 9.3 step B): the session-level cases run on
- * a v4 project's `scenes/scene-main.json` (a createEntity writes only that
- * file, with one W). Case 2's §7.3 re-read-and-proceed holds for v4 too
- * (session-v4.ts rereadForResolutionV4, the 9.3 step B follow-up).
+ * The session-level cases run on a v4 project's `scenes/scene-main.json`
+ * (a createEntity writes only that file, with one W). Case 2's re-read-and-
+ * proceed holds for v4 too (session-v4.ts rereadForResolutionV4).
  *
- * Real filesystem, unprivileged (chmod 000 is a REAL EACCES — the
- * review's repro ran exactly this way). Data roots are disposable
- * `mkdtemp` directories, cleaned in finally (afterAll backstop). Fault
- * injection goes through the existing `ops` seam (`WriteOps`) and the
- * new `betweenAttempts` test seam of `writeAtomic` (called after a
- * failed attempt completes and before the next attempt's re-check —
- * documented in write.ts exactly like `beforeVerifyRead`).
+ * Real filesystem, unprivileged (chmod 000 is a REAL EACCES). Data roots
+ * are disposable `mkdtemp` directories, cleaned in finally (afterAll
+ * backstop). Fault injection goes through the `ops` seam (`WriteOps`) and
+ * the `betweenAttempts` test seam of `writeAtomic` (called after a failed
+ * attempt completes and before the next attempt's re-check — documented in
+ * write.ts exactly like `beforeVerifyRead`).
  */
 
 import {
@@ -191,7 +180,7 @@ function pausedQuery(s: { query: (r: unknown) => unknown }): void {
 // ---- cases ---------------------------------------------------------------------
 
 describe('2026-09-18 review group C (R1, R2, R6) regressions', () => {
-  // -- R1: the review's exact repro (permission denied ≠ absent) ----------------
+  // -- permission denied ≠ absent ------------------------------------------------
 
   it('1. R1 permission-denied: an unreadable foreign file pauses as unreadable (no zero-byte snapshot, bytes untouched)', () => {
     const root = makeRoot('r1a');
@@ -201,7 +190,7 @@ describe('2026-09-18 review group C (R1, R2, R6) regressions', () => {
       const scene = join(root, SCENE_REL);
       const lkgBytes = readFileSync(scene);
 
-      // The review's repro: foreign bytes + chmod 000 (directory stays writable).
+      // Foreign bytes + chmod 000 (directory stays writable).
       writeFileSync(scene, FOREIGN);
       chmodSync(scene, 0o000);
       const before = recoverySnaps(root);
@@ -209,8 +198,8 @@ describe('2026-09-18 review group C (R1, R2, R6) regressions', () => {
       const m = s.runCommand(request(1));
       expect(m.ok).toBe(false);
       const e = (m as unknown as { ok: false; error: Record<string, unknown> }).error;
-      // §11 payload — same wrapper shape as external_change_unresolved
-      // (code/cls/pendingChange/message/hint) plus the §11 additions.
+      // The payload — same wrapper shape as external_change_unresolved
+      // (code/cls/pendingChange/message/hint) plus the workspace additions.
       expect(e['code']).toBe('external_change_unreadable');
       expect(e['cls']).toBe('unavailable');
       expect(e['projectId']).toBe(PROJECT);
@@ -290,7 +279,7 @@ describe('2026-09-18 review group C (R1, R2, R6) regressions', () => {
       const m2 = s.runCommand(request(1));
       expect((m2 as { error: { code: string } }).error.code).toBe('external_change_unreadable');
 
-      // The same foreign bytes now readable (644): the §7.3 re-read
+      // The same foreign bytes now readable (644): the resolution re-read
       // re-establishes the pending change from the REAL bytes (durable
       // snapshot) and the discard proceeds in the SAME call.
       chmodSync(scene, 0o644);
@@ -386,7 +375,7 @@ describe('2026-09-18 review group C (R1, R2, R6) regressions', () => {
       });
       expect(res.ok).toBe(false);
       expect(res.unreadable).toEqual({ errno: 'EIO' });
-      // NOT the pre-fix misclassification: no fabricated empty "foreign"
+      // No misclassification: no fabricated empty "foreign"
       // snapshot, no `previous`/`new-undurable`.
       expect(res.external).toBeUndefined();
       expect(res.failed).toBeUndefined();
@@ -661,7 +650,7 @@ describe('2026-09-18 review group C (R1, R2, R6) regressions', () => {
 
   it('7. R6 close-only failure never succeeds: every attempt fails at close ⇒ no rename is ever reached ⇒ after 3 attempts W returns failed { onDiskState: "previous" } (target byte-identical to the previous bytes)', () => {
     // W level: closeFile throws on EVERY attempt (after actually closing
-    // the descriptor — the review's injection).
+    // the descriptor).
     const dir = makeRoot('r6a-w');
     try {
       const target = join(dir, 'main.json');
@@ -771,8 +760,8 @@ describe('2026-09-18 review group C (R1, R2, R6) regressions', () => {
       expect(res.failed).toBeDefined();
       expect(res.failed!.onDiskState).toBe('previous');
       // FIRST failure of the attempt wins: the write's EIO — NOT the
-      // close's EPERM (pre-fix, the close error in the finally replaced
-      // the write error and its errno was recorded).
+      // close's EPERM (a close error in the finally must not replace the
+      // write error's errno).
       expect(res.failed!.errno).toBe('EIO');
       expect(res.failed!.errno).not.toBe('EPERM');
       expect(bytesEqual(readFileSync(target), LKG)).toBe(true);
@@ -797,8 +786,8 @@ describe('2026-09-18 review group C (R1, R2, R6) regressions', () => {
     }
 
     // (b) A READABLE foreign change: standard external_change_unresolved,
-    // a snapshot of the REAL bytes, and the pause (the pre-fix detection
-    // path — unchanged by the group C repair).
+    // a snapshot of the REAL bytes, and the pause (the standard detection
+    // path).
     const rootB = makeRoot('g9b');
     try {
       const s = openProject(rootB);
@@ -809,9 +798,9 @@ describe('2026-09-18 review group C (R1, R2, R6) regressions', () => {
       expect(m.ok).toBe(false);
       const e = (m as unknown as { ok: false; error: Record<string, unknown> }).error;
       expect(e['code']).toBe('external_change_unresolved');
-      // (group D, 2026-09-18: the §7.2 step-2 `snapshotState` joined the
-      // pendingChange payload — "ok" for this readable, durably-snapshotted
-      // foreign change; the pre-fix shape pinned here no longer exists.)
+      // (The pendingChange payload carries the snapshot step's
+      // `snapshotState` — "ok" for this readable, durably-snapshotted
+      // foreign change.)
       expect(e['pendingChange']).toEqual({
         snapshotState: 'ok',
         externalHash: FOREIGN_HASH,

@@ -1,20 +1,19 @@
 /**
- * v3 project composition and the model-owned v3 authoring-envelope branch —
- * project-model.md §13.2 (`validateProjectV3`), §23.5/§23.8 (the effective v3
- * order) and `workspace.md` §16.2/§16.3 (the envelope combination and key
- * set). A v3 project is only read now: it is upgraded to v4 on open
+ * v3 project composition (`validateProjectV3`) and the model-owned v3
+ * authoring-envelope branch (the envelope combination and key set). A v3
+ * project is only read now: it is upgraded to v4 on open
  * (`project-v4.ts`), and `composeV3` is part of every v4 scene's checks.
  *
- * Composition order (§23.8): content block → scene (the accepted per-document
+ * Composition order: content block → scene (the accepted per-document
  * order) → game-dependent scene rules → v3 cross-block asset/cue/animation
- * references → the §13.1 cross-block checks. A non-null game block is a
+ * references → the cross-block checks. A non-null game block is a
  * single-error rule that stops the pipeline; the combination check and the
  * envelope/content key set are single-error rules too.
  *
  * Pure: no I/O, no filesystem, no three.js. Paths handed to
  * `validateEnvelopeV3` are envelope-relative (`/scene/…`, `/content/…`);
  * `validateProjectV3` returns the accepted document-tagged, document-relative
- * shape (§13.2).
+ * shape.
  */
 
 import { fail, fieldValue, isPlainObject, pointerSegment, withFound } from './validate';
@@ -36,7 +35,7 @@ import type { SceneV3, ContentCatalogV3, AuthoringEnvelopeV3 } from './types-v3'
 const ENVELOPE_V3_FIELDS = ['storageVersion', 'type', 'projectId', 'scene', 'content', 'retry'] as const;
 const CONTENT_V3_FIELDS = ['assets', 'prefabs', 'behaviors', 'settings', 'behaviorTrust', 'game'] as const;
 
-// ---- shared v3 composition (§23.5/§23.8 steps 5–6) ---------------------------
+// ---- shared v3 composition ---------------------------
 
 function assetRef(
   code: 'asset_reference_missing' | 'asset_kind_mismatch' | 'asset_version_invalid',
@@ -52,9 +51,10 @@ function assetRef(
 }
 
 /**
- * §23.5/§23.8 steps 5–6 over already-validated v3 blocks. Emits
- * document-tagged, document-relative errors (the §13.2 shape); the envelope
- * branch maps them to envelope-relative paths.
+ * The game-dependent scene rules and cross-block references over
+ * already-validated v3 blocks. Emits document-tagged, document-relative
+ * errors (the `validateProjectV3` shape); the envelope branch maps them to
+ * envelope-relative paths.
  */
 export function composeV3(
   scene: SceneV3,
@@ -70,7 +70,7 @@ export function composeV3(
     return i === undefined ? undefined : scene.entities[i];
   };
 
-  // Phase 12 (b): every tag bit an entity carries is defined in content.tags.
+  // Every tag bit an entity carries is defined in content.tags.
   let definedBits = 0;
   for (const t of content.tags ?? []) definedBits = (definedBits | (1 << t.bit)) >>> 0;
   scene.entities.forEach((e, i) => {
@@ -158,7 +158,7 @@ export function composeV3(
     }
   });
 
-  // The cross-block checks (§13.1/§13.2 items 1–7).
+  // The cross-block checks.
   crossBlockChecks(
     scene as unknown as Parameters<typeof crossBlockChecks>[0],
     content as unknown as Parameters<typeof crossBlockChecks>[1],
@@ -166,7 +166,7 @@ export function composeV3(
   );
 }
 
-// ---- cross-block checks (§13.1/§13.2) --------------------------------------
+// ---- cross-block checks --------------------------------------
 
 function checkDeclaredValue(
   prop: DeclaredProperty,
@@ -268,7 +268,7 @@ function checkBehaviorValues(
     }
   }
   for (const prop of declaration) {
-    // Phase 15.4: an absent key reads its declared default (a private
+    // An absent key reads its declared default (a private
     // property is never stored by the commands; a key added to — or made
     // public in — a declaration already in use has no stored value yet). A
     // stored value of a private property (left from when it was public) is
@@ -301,10 +301,9 @@ interface CrossBlockScene {
 }
 
 /**
- * The §13.1/§13.2 cross-block checks over already-validated blocks (checks
- * 1–7 plus the publishedRevision ordering) — part of the v3 composition
- * (§13.2) and so of every v4 scene (`composeV4`). Written for the M2 model
- * (v2 scene) and kept when that model was removed (phase 9.3).
+ * The cross-block checks over already-validated blocks (checks 1–7 plus the
+ * publishedRevision ordering) — part of the v3 composition and so of every
+ * v4 scene (`composeV4`).
  */
 function crossBlockChecks(
   ss: CrossBlockScene,
@@ -317,7 +316,7 @@ function crossBlockChecks(
   const behaviors = ctxIn?.behaviors ?? new Map(cc.behaviors.map((b) => [b.behaviorId, b.declaration.properties]));
   const ctx: BehaviorCheckContext = { behaviors, assetIds, entityIds };
 
-  // §13.1 check 1: every scene model reference resolves.
+  // Check 1: every scene model reference resolves.
   ss.entities.forEach((e, i) => {
     const model = e.components.model;
     if (model && !assetIds.has(model.asset.assetId)) {
@@ -336,7 +335,7 @@ function crossBlockChecks(
     }
   });
 
-  // §13.1 check 2: behavior ids/values in the scene and inside definitions.
+  // Check 2: behavior ids/values in the scene and inside definitions.
   ss.entities.forEach((e, i) => {
     checkBehaviorValues(e.components.behavior, `/entities/${i}/components/behavior`, errors, ctx, 'scene');
   });
@@ -348,7 +347,7 @@ function crossBlockChecks(
     });
   });
 
-  // §13.1 check 3: prefab provenance resolves to a definition + localId.
+  // Check 3: prefab provenance resolves to a definition + localId.
   ss.entities.forEach((e, i) => {
     const prov = e.components.prefab;
     if (!prov) return;
@@ -369,7 +368,7 @@ function crossBlockChecks(
     }
   });
 
-  // §13.2 step 5 / §18.9.2 step 4: publication revisions never exceed the revision.
+  // Publication revisions never exceed the revision.
   cc.assets.forEach((a, ai) => {
     a.versions.forEach((v, vi) => {
       if (v.publishedRevision > ss.revision) {
@@ -407,13 +406,13 @@ function crossBlockChecks(
   });
 }
 
-// ---- validateProjectV3 (§13.2) ----------------------------------------------
+// ---- validateProjectV3 ----------------------------------------------
 
 function tag(errors: readonly ModelErrorV3[], document: 'manifest' | 'scene' | 'content'): ModelErrorV3[] {
   return errors.map((e) => ({ ...e, document }));
 }
 
-/** §13.2 `validateProjectV3`: manifest (v1) + v3 scene + v3 content. */
+/** `validateProjectV3`: manifest (v1) + v3 scene + v3 content. */
 export function validateProjectV3(
   manifest: unknown,
   scene: unknown,
@@ -452,7 +451,7 @@ export function validateProjectV3(
   return { ok: true, normalized: { manifest: mm, scene: ss, content: cc } };
 }
 
-// ---- the model-owned v3 authoring envelope (§23.8; workspace §16.2/§16.3) ----
+// ---- the model-owned v3 authoring envelope ----
 
 export type EnvelopeV3Load =
   | { ok: true; normalized: AuthoringEnvelopeV3 }
@@ -566,7 +565,7 @@ export function validateEnvelopeV3(root: unknown): EnvelopeV3Load {
     }
   }
   for (const k of Object.keys(contentRaw)) {
-    // Phase 12 (b): `tags` is the one optional content key.
+    // `tags` is the one optional content key.
     if (!(CONTENT_V3_FIELDS as readonly string[]).includes(k) && k !== 'tags') {
       return envelopeFail([
         envelopeError('envelope_invalid', `/content/${pointerSegment(k)}`, 'unknown v3 content key is not permitted (the six-key set is exact)', CONTENT_V3_FIELDS.join(', '), 'field_unexpected', k),
@@ -577,7 +576,7 @@ export function validateEnvelopeV3(root: unknown): EnvelopeV3Load {
   const contentResult = validateContentV3(contentRaw);
   if (!contentResult.ok) {
     const mapped = prefixErrors(contentResult.errors, '/content');
-    // A non-null game block (removed in phase 24) is a single-error rule that stops the pipeline.
+    // A non-null game block (the engine has none) is a single-error rule that stops the pipeline.
     if (mapped.some((e) => e.path === '/content/game')) return envelopeFail(mapped);
     const sceneResult = validateSceneV3(sceneRaw);
     if (!sceneResult.ok) return envelopeFail([...mapped, ...prefixErrors(sceneResult.errors, '/scene')]);
@@ -598,16 +597,16 @@ export function validateEnvelopeV3(root: unknown): EnvelopeV3Load {
       projectId,
       scene: sceneResult.normalized,
       content: contentResult.normalized,
-      // Workspace-owned (§4.6): required present, carried unchanged.
+      // Workspace-owned: required present, carried unchanged.
       retry: root['retry'],
     },
   };
 }
 
 /**
- * Validate and re-emit the canonical v3 envelope (`workspace.md` §16.3 key
+ * Validate and re-emit the canonical v3 envelope (`ENVELOPE_V3_FIELDS` key
  * order). The `retry` block is carried through byte-preserving — the
- * workspace owns it and re-validates it (`§16.4` step 6).
+ * workspace owns it and re-validates it.
  */
 export function normalizeEnvelopeV3(root: unknown): EnvelopeV3Load {
   return validateEnvelopeV3(root);

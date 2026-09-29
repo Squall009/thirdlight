@@ -1,5 +1,5 @@
 /**
- * Phase 20.0: the Effects list (bottom dock) — the project's visual effects
+ * The Effects list (bottom dock) — the project's visual effects
  * with their systems; create (a name → an id), rename, delete and open (the
  * "Effect: <name>" centre tab). Each action is one command (setEffect,
  * renameEffect, deleteEffect).

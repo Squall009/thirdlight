@@ -1,5 +1,5 @@
 /**
- * Phase 23.16: the dialogue runner — lines and the typewriter, advance and
+ * The dialogue runner — lines and the typewriter, advance and
  * instant reveal, choices with conditions and effects, branches, jumps,
  * signals and waits, skip-if-seen, the backlog, voice on the voice bus with
  * ducking and auto-advance, the save section, and determinism.

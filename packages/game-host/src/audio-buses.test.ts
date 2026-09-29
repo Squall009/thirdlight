@@ -1,5 +1,5 @@
 /**
- * Phase 9.10: the audio owner's buses (master/music/sfx), looping music with
+ * The audio owner's buses (master/music/sfx), looping music with
  * a crossfade target, one-shot sounds and looping emitters — over a fake
  * Web Audio graph that records connections and gains.
  */

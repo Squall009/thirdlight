@@ -1,5 +1,5 @@
 /**
- * Phase 18.3: a graph material renders in the Scene view, in Play and in the
+ * A graph material renders in the Scene view, in Play and in the
  * static export (the graph compiles to TSL in each; the export carries the
  * graph in its manifest). The graph: a texture × a tint into the PBR base
  * colour and a fresnel-weighted colour into the emissive, calling a material
@@ -200,7 +200,7 @@ for (const variant of VARIANTS) test(`a graph material (texture × tint, fresnel
   const res = await be.admin(`projects/${be.projectId}/export`);
   expect(res.status, JSON.stringify(res.json)).toBe(200);
   const out = join(be.exportRoot, String(res.json.outputDir));
-  // Phase 25.7b: materials and material functions are content files the manifest lists by digest.
+  // Materials and material functions are content files the manifest lists by digest.
   const doc = JSON.parse(readFileSync(join(out, 'manifest.json'), 'utf8')) as { contentFiles: { key: string; path: string }[] };
   const file = (key: string): unknown => JSON.parse(readFileSync(join(out, doc.contentFiles.find((r) => r.key === key)!.path), 'utf8'));
   const manifest = { materials: file('materials'), materialFunctions: file('materialFunctions') } as { materials: { materialId: string; graph?: unknown }[]; materialFunctions?: { graphId: string }[] };

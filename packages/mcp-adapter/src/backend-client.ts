@@ -1,9 +1,9 @@
 /**
  * The MCP adapter's client to the backend's authoring HTTP API (the SAME
- * `/api/v1` surface the browser uses — decision 0001 §5: "MCP is a client of
+ * `/api/v1` surface the browser uses — decision 0001: "MCP is a client of
  * the same command services — never a second source of truth").
  *
- * Pure Node (dependencies.md §4.3: `mcp-adapter` node: []) — uses the global
+ * Pure Node (`mcp-adapter` node: []) — uses the global
  * `fetch` (a Web global, not a Node builtin import) and the global `crypto`
  * (Web Crypto) for `requestId` generation. No `node:` imports.
  *
@@ -45,7 +45,7 @@ function trimOrigin(origin: string): string {
 
 /**
  * A narrow HTTP client bound to one backend origin + token. All methods hit
- * the authoring-origin routes documented in sessions.md §6–§12.
+ * the authoring-origin routes documented in sessions.md.
  */
 export class BackendClient {
   private readonly origin: string;
@@ -100,17 +100,17 @@ export class BackendClient {
     return this.request('POST', `/api/v1/projects/${encodeURIComponent(projectId)}/commands`, body);
   }
 
-  /** Phase 25.17: the same client with another per-request timeout (a long input exercise waits for its span). */
+  /** The same client with another per-request timeout (a long input exercise waits for its span). */
   withTimeout(timeoutMs: number): BackendClient {
     return new BackendClient({ authoringOrigin: this.origin, token: this.token, timeoutMs });
   }
 
-  /** Phase 25.18: GET the engine the backend runs. */
+  /** GET the engine the backend runs. */
   engineInfo(): Promise<BackendResponse> {
     return this.request('GET', '/api/v1/engine');
   }
 
-  /** Phase 25.18: GET the materials and their graph problems (paged). */
+  /** GET the materials and their graph problems (paged). */
   contentMaterials(projectId: string, q: { limit?: number; offset?: number; materialId?: string; withProblems?: boolean }): Promise<BackendResponse> {
     const qs = new URLSearchParams();
     if (q.limit !== undefined) qs.set('limit', String(q.limit));
@@ -121,7 +121,7 @@ export class BackendClient {
     return this.request('GET', `/api/v1/projects/${encodeURIComponent(projectId)}/content/materials${t.length > 0 ? `?${t}` : ''}`);
   }
 
-  /** Phase 25.17: GET the projects (a folder project's `folder`). */
+  /** GET the projects (a folder project's `folder`). */
   listProjects(): Promise<BackendResponse> {
     return this.request('GET', '/api/v1/projects');
   }
@@ -165,7 +165,7 @@ export class BackendClient {
   }
 
   /**
-   * POST the bounded input-exercise relay (sessions.md §18.1): a step-indexed
+   * POST the bounded input-exercise relay: a step-indexed
    * semantic action sequence applied in exclusive test-input mode. With no
    * connected browser the backend returns the structured `session_unavailable`.
    */
@@ -174,7 +174,7 @@ export class BackendClient {
   }
 
   /**
-   * POST the bounded §20 control relay (sessions.md §20.1) to an explicitly
+   * POST the bounded game control relay to an explicitly
    * presented play session. With no connected/presenting browser the backend
    * returns its structured `session_unavailable` — never a fabricated success.
    */
@@ -182,12 +182,12 @@ export class BackendClient {
     return this.request('POST', `/api/v1/projects/${encodeURIComponent(projectId)}/play/${encodeURIComponent(playSessionId)}/control`, body);
   }
 
-  /** POST the bounded §20 observation relay (body: `{ timeoutMs? }`). */
+  /** POST the bounded game observation relay (body: `{ timeoutMs? }`). */
   gameObserve(projectId: string, playSessionId: string, body: Record<string, unknown>): Promise<BackendResponse> {
     return this.request('POST', `/api/v1/projects/${encodeURIComponent(projectId)}/play/${encodeURIComponent(playSessionId)}/observe`, body);
   }
 
-  // ---- packet 25 content services (the same /api/v1 surface) --------------
+  // ---- content services (the same /api/v1 surface) -----------------------
 
   /** POST create a bounded upload stage (the stage id is server-allocated). */
   createStage(projectId: string, body: Record<string, unknown> = {}): Promise<BackendResponse> {
@@ -218,7 +218,7 @@ export class BackendClient {
   }
 
   /** POST inspect a staged source (bounded import proposal). `body` may carry
-   *  the packet-48 additive `{ kind?, animation? }` request. */
+   *  the additive `{ kind?, animation? }` request. */
   inspectStage(projectId: string, stageId: string, body: Record<string, unknown> = {}): Promise<BackendResponse> {
     return this.request('POST', `/api/v1/projects/${encodeURIComponent(projectId)}/content/stages/${encodeURIComponent(stageId)}/inspect`, body);
   }
@@ -234,28 +234,28 @@ export class BackendClient {
     return this.request('POST', `/api/v1/projects/${encodeURIComponent(projectId)}/content/project-files/inspect`, body);
   }
 
-  /** Phase 25.22: POST inspect an asset tool's job export (`{ path | stageId, displayName? }`: a folder or zip with a GLB and manifest.json). */
+  /** POST inspect an asset tool's job export (`{ path | stageId, displayName? }`: a folder or zip with a GLB and manifest.json). */
   inspectJobExport(projectId: string, body: Record<string, unknown>): Promise<BackendResponse> {
     return this.request('POST', `/api/v1/projects/${encodeURIComponent(projectId)}/content/job-exports/inspect`, body);
   }
 
-  /** Phase 25.21: POST pack a KTX2 texture (array) from texture assets (`{ layers, encoding, displayName? }`). */
+  /** POST pack a KTX2 texture (array) from texture assets (`{ layers, encoding, displayName? }`). */
   packTexture(projectId: string, body: Record<string, unknown>): Promise<BackendResponse> {
     return this.request('POST', `/api/v1/projects/${encodeURIComponent(projectId)}/content/textures/pack`, body);
   }
 
-  /** Phase 25.9: POST one staged library patch, or discard a stage (`{ stageId, discard: true }`). */
+  /** POST one staged library patch, or discard a stage (`{ stageId, discard: true }`). */
   stageScriptLibrary(projectId: string, body: Record<string, unknown>): Promise<BackendResponse> {
     return this.request('POST', `/api/v1/projects/${encodeURIComponent(projectId)}/content/libraries/stage`, body);
   }
 
-  /** Phase 12 (c): POST publish an instance-set buffer (`{ transforms }` or `{ stageId }`). */
+  /** POST publish an instance-set buffer (`{ transforms }` or `{ stageId }`). */
   publishInstanceBuffer(projectId: string, body: Record<string, unknown>): Promise<BackendResponse> {
     return this.request('POST', `/api/v1/projects/${encodeURIComponent(projectId)}/content/buffers`, body);
   }
 
   /**
-   * Phase 15.2: GET an instance-set buffer's bytes (the copies' transforms, 10
+   * GET an instance-set buffer's bytes (the copies' transforms, 10
    * little-endian float32 each), or the backend's error. Bounded by the
    * buffer cap (65536 copies = 2.5 MiB).
    */
@@ -307,7 +307,7 @@ export class BackendClient {
 }
 
 /**
- * Generate a `requestId` (`req-` + 32 hex, commands.md §3) from Web Crypto
+ * Generate a `requestId` (`req-` + 32 hex) from Web Crypto
  * (the global `crypto`, not a Node builtin). Falls back to a non-CSPRNG
  * source only if Web Crypto is unavailable (still 128 random bits).
  */

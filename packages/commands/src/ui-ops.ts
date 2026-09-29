@@ -1,5 +1,5 @@
 /**
- * Phase 23.9a: project UI documents and themes (`content.uiDocuments`,
+ * Project UI documents and themes (`content.uiDocuments`,
  * `content.uiThemes`).
  *
  * `setUiDocument {document}` creates or replaces one document (by

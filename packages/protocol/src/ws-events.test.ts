@@ -1,6 +1,6 @@
 /**
- * WS event catalog (sessions.md §7) — builders, strict inbound
- * validation, the unknown-type robustness rule, and the §5.2 frame bounds.
+ * WS event catalog — builders, strict inbound
+ * validation, the unknown-type robustness rule, and the frame bounds.
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -26,9 +26,7 @@ const hex32 = '0123456789abcdef0123456789abcdef';
 const play = `play-${hex32}`;
 const relay = `relay-${hex32}`;
 
-// Packet 48 (sessions.md §7.1/§7.2, packet-42 promoted rows): the M3 game
-// control/observation relay adds two server events and two client acks. The
-// §7.1/§7.2 lists are otherwise unchanged.
+// The game control/observation relay has two server events and two client acks.
 describe('catalog constants (sessions.md §7 + packet-35 input relay + packet-42 §20 relay, exhaustive)', () => {
   it('server → client: exactly the §7.1 set + input.request + the §20 relay rows', () => {
     expect([...SERVER_EVENT_TYPES].sort()).toEqual(
@@ -137,7 +135,7 @@ describe('parseInboundEvent (sessions.md §7.2)', () => {
     expect(ok1.ok).toBe(true);
     const missing = parseInboundEvent({ type: 'screenshot.ack', relayId: relay, ok: true });
     expect(missing.ok).toBe(true); // dataUrl/width/height are OPTIONAL fields of the ack
-      // (the §7.2 payload marks them `?`); the backend treats a missing
+      // (the payload marks them `?`); the backend treats a missing
       // dataUrl on ok:true as a relay failure (relay_failed).
     const badRelay = parseInboundEvent({ type: 'screenshot.ack', relayId: 'relay-bad', ok: true });
     expect(badRelay.ok).toBe(false);

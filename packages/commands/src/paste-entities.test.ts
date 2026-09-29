@@ -1,5 +1,5 @@
 /**
- * `pasteEntities` (2026-09-24): Duplicate and Copy/Paste as one transaction —
+ * `pasteEntities`: Duplicate and Copy/Paste as one transaction —
  * new ids, hierarchy kept, internal references remapped, offset in world
  * space only, undo/redo.
  */

@@ -1,12 +1,12 @@
 /**
- * Phase 14.6: animator override layers with a bone mask, and an
+ * Animator override layers with a bone mask, and an
  * animation-only GLB whose clips play on another model's rig.
  *
  * The neutral skinned column (bones `root` and `upper`, clips `idle` and
  * `bend`) and a clips-only file (the same bones, no mesh, clip `wave`: the
  * upper half bent to the right) are imported; the clips file is marked
  * "clips for rig of" the column in the Asset browser. In the Animator tab
- * (phase 16.2: the graph editor; layers are tabs inside it) a controller
+ * (the graph editor; layers are tabs inside it) a controller
  * plays `idle` on the base layer; a second layer, masked to the `upper` bone
  * with the bone picker, plays `wave` from the clips file (a state added from
  * the node catalogue, made the entry state in the Inspector). The

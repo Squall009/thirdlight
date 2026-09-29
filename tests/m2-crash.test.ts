@@ -1,6 +1,6 @@
 /**
- * Packet 23 — crash durability on the REAL filesystem with REAL subprocess
- * termination (workspace.md §5.1/§13.3.4; acceptance A09).
+ * Crash durability on the REAL filesystem with REAL subprocess
+ * termination (acceptance A09).
  *
  * The child runner (tests/crash/m2-child.ts, esbuild-bundled) opens the real
  * storage v4 project, drives a real blob publication and/or a v4 file
@@ -8,8 +8,8 @@
  * publishAsset), and SIGKILLs itself from inside a WriteOps seam at the exact
  * crash boundary.
  *
- * Seeding (phase 9.3 step B): the committed M2 storage fixture is storage v2,
- * which the workspace now refuses. The seeded copy is converted to the
+ * Seeding: the committed `m2` storage fixture is storage v2, which the
+ * workspace refuses. The seeded copy is converted to the
  * equivalent storage v3 envelope (tests/storage-seed.ts) and opened once by
  * the parent, which upgrades it in place to v4 (project.json v2, content.json,
  * scenes/scene-main.json) before the child runs.
@@ -176,7 +176,7 @@ describe('packet 23 — real SIGKILL at the blob / v4 file boundaries (workspace
     const svc = openWorkspaceService({ root });
     const to = svc.takeoverWorkspace(PROJECT_ID);
     if (!to.ok) throw new Error('takeover failed: ' + JSON.stringify(to));
-    // The open cleaned the leftover blob temp (workspace.md §5.4/§13.2 rule 5).
+    // The open cleaned the leftover blob temp.
     expect(readdirSync(blobDir(root)).filter((n) => n.startsWith(`.${FRESH}.tmp-`))).toEqual([]);
     expect(readdirSync(blobDir(root))).not.toContain(FRESH);
     // The project files are untouched (no unreferenced record).

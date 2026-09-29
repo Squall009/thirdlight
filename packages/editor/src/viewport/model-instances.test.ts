@@ -1,5 +1,5 @@
 /**
- * Packet 27 repair — viewport `ModelInstances` Node tests (GG-4, GG-8).
+ * Viewport `ModelInstances` Node tests.
  *
  * Browser-only pixel/WebGL behavior stays UNVERIFIED; these tests use the real
  * pinned GLTFLoader port and a synthetic self-contained GLB (the boundary

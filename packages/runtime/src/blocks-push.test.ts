@@ -1,5 +1,5 @@
 /**
- * Phase 14.7: a mover that moves into the player pushes it out. A mover moving
+ * A mover that moves into the player pushes it out. A mover moving
  * mostly upward pushes a player beside or under it (the capsule's centre below
  * the mover's top) sideways, away from the mover — never up; only a player
  * above it is scooped up. Other movers keep the shallower-axis push.

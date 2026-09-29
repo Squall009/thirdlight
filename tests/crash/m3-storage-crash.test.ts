@@ -1,6 +1,6 @@
 /**
- * Packet 46 — real SIGKILL durability for a storage v3 project's state after
- * its in-place upgrade to storage v4 (workspace.md §5.3).
+ * Real SIGKILL durability for a storage v3 project's state after
+ * its in-place upgrade to storage v4.
  *
  * The child runner (tests/crash/m3-storage-child.ts, esbuild-bundled) drives a
  * real `setTags` and SIGKILLs itself from inside a WriteOps seam at an
@@ -14,10 +14,6 @@
  *     (fresh re-execution) or new state + record (durable replay);
  *   - a SIGKILLed owner is reported stale by the scan and reclaimed on the next access;
  *   - a lost ack is replayed, never double-applied.
- *
- * The v2→v3 copy-operator crash cases (`migrateProjectCopyV3`) were removed
- * with the operator (phase 9.3 step B); the original suite is archived at
- * archive/removed-v1-v2/tests/crash/m3-storage-crash.test.ts.
  *
  * Process-crash guarantees are proven here; power-loss durability is the
  * stronger property this suite cannot prove without a power-failure simulator.

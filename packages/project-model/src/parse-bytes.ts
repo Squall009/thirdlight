@@ -1,5 +1,5 @@
 /**
- * Strict byte parsing — project-model.md §12.3 pass 1, normative order:
+ * Strict byte parsing — pass 1, normative order:
  *
  *   1. UTF-8 decode WITHOUT replacement of malformed bytes; invalid UTF-8 or
  *      a leading UTF-8 BOM ⇒ exactly one `encoding_invalid` at `""`.
@@ -16,7 +16,7 @@
  * value for duplicate keys and accepts numeric overflow), so a strict
  * recursive-descent parser is used. Numeric tokens are decoded with
  * JavaScript `JSON.parse` semantics (`1e400` → `Infinity`); finiteness is
- * the value validator's job (§12.3/§12.7), not a syntax error.
+ * the value validator's job, not a syntax error.
  *
  * The input bytes are never mutated or consumed.
  */
@@ -25,7 +25,7 @@ import type { ModelError } from './errors';
 
 const BOM = [0xef, 0xbb, 0xbf] as const;
 
-/** RFC 6901 JSON Pointer escaping of one reference token (§12.5). */
+/** RFC 6901 JSON Pointer escaping of one reference token. */
 export function escapePointer(token: string): string {
   return token.replace(/~/g, '~0').replace(/\//g, '~1');
 }
@@ -105,7 +105,7 @@ class DuplicateKeyErr extends Error {
  *
  * - `trackDuplicates` off: pure syntax check (pass 1) — the materialized
  *   value is discarded by the caller, so last-key-wins materialization can
- *   never feed duplicate detection (contract §12.3 pass 1).
+ *   never feed duplicate detection.
  * - `trackDuplicates` on: materializes the value and stops at the first
  *   repeated (escape-decoded) member name within a single object.
  */
@@ -262,7 +262,7 @@ function strictJsonParse(
       while (i < n && isDigit(text.charCodeAt(i))) i += 1;
     }
     // JavaScript JSON.parse semantics: `1e400` → Infinity (a value-validation
-    // concern, §12.7), never a syntax error.
+    // concern), never a syntax error.
     return Number(text.slice(start, i));
   };
 
@@ -378,7 +378,7 @@ export type ByteParse =
   | { ok: false; error: ModelError };
 
 /**
- * Run §12.3 pass 1 over raw document bytes (manifest or scene interchange
+ * Run pass 1 (strict byte parsing) over raw document bytes (manifest or scene interchange
  * bytes). Pure: never mutates `bytes`, never throws. Parse failures stop
  * all deeper checks, even for unknown schema versions.
  */

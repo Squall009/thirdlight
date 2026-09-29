@@ -1,5 +1,5 @@
 /**
- * Phase 25.7c: `deleteAsset {assetId}` and `deletePrefab {prefabId}`.
+ * `deleteAsset {assetId}` and `deletePrefab {prefabId}`.
  *
  * Each removes one catalog record, and is refused while anything references
  * it. "Anything" is every typed reference the project model checks: scene
@@ -13,8 +13,8 @@
  * refuses while a script's source names the id as a string literal
  * (`ctx.spawn("crate")`).
  *
- * The record's bytes stay in the content store (unreferenced blobs are kept,
- * workspace §13.7), so one undo puts the record back as it was: an asset as a
+ * The record's bytes stay in the content store (unreferenced blobs are
+ * kept), so one undo puts the record back as it was: an asset as a
  * `publishAsset` change (previous: null), a prefab as a `createPrefab` change.
  * A file referenced in a game folder is never touched.
  */

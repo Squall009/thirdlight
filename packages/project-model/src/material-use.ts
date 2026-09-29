@@ -1,5 +1,5 @@
 /**
- * Phase 25.7b: the project materials a game uses — the ones the runtime
+ * The project materials a game uses — the ones the runtime
  * manifest ships (an unused material is left out of the game).
  *
  * A material is used when something the game can draw names it:
@@ -12,7 +12,7 @@
  * - an effect's Output block that shades with a project material;
  * - a timeline's material track.
  *
- * Phase 25.19: any of these may name a material instance; the instance is
+ * Any of these may name a material instance; the instance is
  * then the used material and ships resolved against its parents
  * (`resolveMaterialInstances`), so its parents are not uses of their own.
  *

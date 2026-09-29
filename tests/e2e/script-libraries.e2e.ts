@@ -1,5 +1,5 @@
 /**
- * Phase 23.7: shared script libraries against a real backend (the engine
+ * Shared script libraries against a real backend (the engine
  * sample with neutral additions: two plain boxes, each carrying a script).
  *
  * - The Libraries tab creates a library ("Scoring" → `@lib/scoring`); its

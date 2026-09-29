@@ -1,5 +1,5 @@
 /**
- * Phase 14.1: a script spawns prefab copies into the running game, against a
+ * A script spawns prefab copies into the running game, against a
  * real backend. On the starter template a neutral "Projectile"
  * prefab is made by command from a small magenta box carrying its own script
  * (it owns "@self", flies right and counts "flown" 3 m out), and a script on
@@ -194,7 +194,7 @@ test('a script spawns a projectile every second in Play (and in the export); old
   game.on('pageerror', (e) => errors.push(e.message));
   try {
     await game.goto(url);
-    // Phase 24.6: the scene plays at once (the export's own observation says so).
+    // The scene plays at once (the export's own observation says so).
     await expect.poll(() => game.evaluate(() => (window as unknown as { __thirdlightObserve?: () => { state?: string } | null }).__thirdlightObserve?.()?.state ?? null), { timeout: 30_000 }).toBe('running');
     // The shots come; one is always beside the player.
     let seen = 0;

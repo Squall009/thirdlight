@@ -1,5 +1,5 @@
 /**
- * Assets referenced in place in a game folder (phase 10, option B), against
+ * Assets referenced in place in a game folder (option B), against
  * the real backend and Chromium, with the game folder outside the data root:
  * import a .glb from the project folder in the picker, place it, reload,
  * restart, Play, export and run the export with the backend stopped; then
@@ -151,7 +151,7 @@ test('import a .glb from the project folder, place, reload, restart, Play, expor
   await tile.click();
   await expect(page.locator('.tl-assets__source')).toHaveText('file: assets/props/crate.glb');
   // Referenced in place: recorded with its path, nothing copied into the project.
-  // Read as JSON: the file's layout (one list item per line since phase 21.4) is not the fact under test.
+  // Read as JSON: the file's layout (one list item per line) is not the fact under test.
   const sourcePaths = (): string[] => {
     const doc = JSON.parse(readFileSync(join(meadow, 'thirdlight', 'content.json'), 'utf8')) as { content: { assets: { versions: { sourcePath?: string }[] }[] } };
     return doc.content.assets.flatMap((a) => a.versions.map((v) => v.sourcePath ?? ''));

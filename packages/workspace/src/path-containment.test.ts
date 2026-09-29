@@ -1,37 +1,31 @@
 /**
- * 2026-09-18 review repair — group B3 (R7) regression tests.
- *
- * R7 (docs/reviews/2026-09-18-commits.md): containment checks are bypassed
- * by the startup scan and by child-directory symlinks. The supported
- * policy is now ONE rule, applied at every path site (scan, creation,
- * session open, and all subsequent path building):
+ * One containment policy, applied at every path site (scan, creation,
+ * session open, and all subsequent path building) — neither the startup
+ * scan nor a child-directory symlink may bypass it:
  *
  *   A project of this backend is a real directory tree under the data
  *   root; any symlink component escaping the data root makes the path
  *   NOT a project of this backend — verified before any content-acting
  *   read or any write. (A hostile unlink-replace race AFTER
- *   verification is the workspace.md §7.1 bypassing-actor class —
- *   documented bound, not solved.)
+ *   verification is the bypassing-actor class — documented bound, not
+ *   solved.)
  *
- * The three findings' repros, each against a DISPOSABLE outside
- * directory (mkdtemp) — symlinks never point at repo/user paths:
+ * Each case runs against a DISPOSABLE outside directory (mkdtemp) —
+ * symlinks never point at repo/user paths. Storage v4: the scene file is
+ * `scenes/scene-main.json`, the interrupted creation a manifest without
+ * content.json.
  *
- *   1. R7 scan: a project-directory symlink under the root, pointing at
+ *   1. scan: a project-directory symlink under the root, pointing at
  *      an outside directory with a valid manifest + empty scenes/, must
  *      NOT be completed by the startup scan (no scene file or
- *      content.json outside), the
- *      report entry must be an orphan with the escape note (NOT
- *      completed), and a query must reject the project.
- *   2. R7 scenes/.thirdlight: a real project whose scenes (resp.
+ *      content.json outside), the report entry must be an orphan with the
+ *      escape note (NOT completed), and a query must reject the project.
+ *   2. scenes/.thirdlight: a real project whose scenes (resp.
  *      .thirdlight) is replaced by a symlink to an outside directory —
  *      a mutation on a FRESH open must fail with the
  *      `project_not_found` class and must leave the outside bytes
  *      UNCHANGED (no scene-file write, no ownership claim, no recovery).
- *
- * Ported to storage v4 (phase 9.3 step B): the scene file is
- * `scenes/scene-main.json`, the interrupted creation a v2 manifest without
- * content.json.
- *   3. R7 create: a projects name symlinked at an outside directory —
+ *   3. create: a projects name symlinked at an outside directory —
  *      `createProject` must return `project_exists_invalid` (a loadable
  *      outside project) with NO new files inside or outside.
  *
@@ -142,15 +136,15 @@ function manifestBytes(id: string): string {
   });
 }
 
-/** The R7 escape note the scan must report (pinned verbatim). */
+/** The escape note the scan must report (pinned verbatim). */
 const SCAN_ESCAPE_NOTE =
   'directory is not a contained project of this backend (symlink escape or missing path) — not completed, not modified';
 
-/** The R7 create-gate detail message (pinned verbatim). */
+/** The create-gate detail message (pinned verbatim). */
 const CREATE_ESCAPE_DETAIL =
   'the project directory is a symlink escape or an unresolvable path — not a project of this backend';
 
-// ---- the three R7 cases --------------------------------------------------------
+// ---- the three cases -----------------------------------------------------------
 
 describe('R7 (group B3): one containment policy at scan / create / session-open', () => {
   it('1. R7 scan: a symlinked project dir is NOT completed — no outside write, orphan entry, query rejects', () => {
@@ -172,8 +166,8 @@ describe('R7 (group B3): one containment policy at scan / create / session-open'
       const s = openWorkspaceService({ root: r });
       try {
         // (a) The outside tree is UNCHANGED — no scene file or
-        //     content.json was created outside the data root (pre-fix: the
-        //     scan completed the creation through the symlink).
+        //     content.json was created outside the data root (the scan
+        //     never completes a creation through the symlink).
         expect(listing(join(od, 'scenes')), 'outside scenes must stay empty').toEqual([]);
         expect(existsSync(join(od, 'scenes', 'scene-main.json'))).toBe(false);
         expect(existsSync(join(od, 'content.json'))).toBe(false);
@@ -224,8 +218,8 @@ describe('R7 (group B3): one containment policy at scan / create / session-open'
       const ownBefore = readFileSync(join(d, '.thirdlight', 'ownership.json'));
 
       // A FRESH service: the mutation must fail with the project_not_
-      // found class — and write NOTHING (pre-fix: the claim landed
-      // locally and the scene write went through the symlink OUTSIDE).
+      // found class — and write NOTHING (no local claim, no scene write
+      // through the symlink OUTSIDE).
       const s2 = openWorkspaceService({ root: r });
       try {
         const m = s2.runCommand({
@@ -281,8 +275,8 @@ describe('R7 (group B3): one containment policy at scan / create / session-open'
 
       // A FRESH service: the mutation (which would claim the released
       // record — an ownership WRITE through .thirdlight) must fail with
-      // the project_not_found class — pre-fix the claim was written
-      // INTO the outside directory.
+      // the project_not_found class — never a claim written INTO the
+      // outside directory.
       const s2 = openWorkspaceService({ root: r });
       try {
         const m = s2.runCommand({
@@ -327,8 +321,8 @@ describe('R7 (group B3): one containment policy at scan / create / session-open'
       mkdirSync(join(r, 'projects'), { recursive: true });
       symlinkSync(od, join(r, 'projects', 'demo'), 'dir');
 
-      // createProject must fail `project_exists_invalid` (pre-fix: the
-      // read-only converge LOADS the outside project and returns the
+      // createProject must fail `project_exists_invalid` (not LOAD the
+      // outside project in the read-only converge and return the
       // idempotent no-op success).
       const s = openWorkspaceService({ root: r });
       try {

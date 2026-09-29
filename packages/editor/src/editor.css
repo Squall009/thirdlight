@@ -70,7 +70,7 @@ button, input, select, textarea { font-family: inherit; }
 .tl-app { display: flex; flex-direction: column; height: 100vh; }
 .tl-app__body { flex: 1; display: flex; min-height: 0; }
 .tl-app__stage { flex: 1; position: relative; min-width: 0; background: var(--viewport-bg); }
-/* Phase 17.1: the Viewport owns the canvas inside this host (a renderer backend change swaps it). */
+/* The Viewport owns the canvas inside this host (a renderer backend change swaps it). */
 .tl-viewport-host { position: absolute; inset: 0; }
 .tl-viewport { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .tl-app__preview-renderer { margin-left: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -133,7 +133,7 @@ button, input, select, textarea { font-family: inherit; }
   color: var(--text); border: 1px solid var(--line); border-radius: var(--radius); }
 .tl-hierarchy__filter:focus { border-color: var(--select); outline: none; }
 .tl-hierarchy__list { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; }
-/* Phase 21.4: a long list is windowed; its rows have the fixed heights Hierarchy.tsx lays out with. */
+/* A long list is windowed; its rows have the fixed heights Hierarchy.tsx lays out with. */
 .tl-hierarchy__list.is-windowed .tl-row { height: 24px; box-sizing: border-box; padding-top: 0; padding-bottom: 0; overflow: hidden; }
 .tl-hierarchy__list.is-windowed .tl-scene-header { height: 28px; box-sizing: border-box; padding-top: 0; padding-bottom: 0; overflow: hidden; }
 .tl-hierarchy__spacer { padding: 0; margin: 0; border: 0; pointer-events: none; }
@@ -150,7 +150,7 @@ button, input, select, textarea { font-family: inherit; }
 .tl-row__kind--model { color: var(--kind-model); }
 .tl-row__kind--entity { color: var(--kind-entity); }
 .tl-row__name { overflow: hidden; text-overflow: ellipsis; }
-/* Phase 12: the tree — twisty, folder icon, flags, drop positions, inactive rows. */
+/* The tree — twisty, folder icon, flags, drop positions, inactive rows. */
 .tl-row { position: relative; gap: 4px; }
 .tl-row.is-primary { border-left-color: var(--accent); }
 .tl-row__twisty { width: 14px; flex: none; padding: 0; border: 0; background: none; color: var(--text-dim);
@@ -171,7 +171,7 @@ button, input, select, textarea { font-family: inherit; }
   height: 2px; background: var(--accent); pointer-events: none; }
 .tl-row.is-drop-before::before { top: -1px; }
 .tl-row.is-drop-after::after { bottom: -1px; }
-/* Phase 12 (c): scene headers (one per open scene), the scene tools, the drag hint. */
+/* Scene headers (one per open scene), the scene tools, the drag hint. */
 .tl-hierarchy__scenes { display: flex; gap: 6px; align-items: center; padding: 0 10px 6px; }
 .tl-hierarchy__scenes select { flex: 1; min-width: 0; background: var(--surface-0); color: var(--text);
   border: 1px solid var(--line); border-radius: var(--radius); padding: 3px 4px; }
@@ -238,8 +238,8 @@ button, input, select, textarea { font-family: inherit; }
 .tl-config-error h1 { font-size: 20px; }
 .tl-config-error pre { background: var(--panel); border: 1px solid var(--border); padding: 12px;
   border-radius: 6px; color: var(--err); overflow-x: auto; }
-/* Packet 27 — content browser panel (queries/jobs/placement). Practical
- * panels only; no decorative or graph UI (decision 0001 §10 scope guard). */
+/* Content browser panel (queries/jobs/placement). Practical panels only; no
+ * decorative or graph UI (the decision 0001 scope guard). */
 .tl-panel__title { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 /* Wide (bottom-dock) layout: the list and its actions left, preview + place right. */
 .tl-assets__body { flex: 1; display: flex; min-height: 0; }
@@ -266,9 +266,9 @@ button, input, select, textarea { font-family: inherit; }
   border-top: 1px solid var(--border); margin-top: auto; }
 .tl-assets__hint { color: var(--warn); font-size: 11px; }
 
-/* Packet 28 — prefab (copy) authoring + declared-property controls. Practical
- * form rows only; no decorative/graph UI and no link/apply/revert controls
- * (decision 0001 §10 scope guard; project-model §20.1). */
+/* Prefab (copy) authoring + declared-property controls. Practical form rows
+ * only; no decorative/graph UI and no link/apply/revert controls (the
+ * decision 0001 scope guard). */
 .tl-prefabs__capture { padding: 8px 10px; border-bottom: 1px solid var(--border); }
 .tl-prefabs__row { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
 .tl-prefabs__list { list-style: none; margin: 0; padding: 0; overflow-y: auto; max-height: 40%; }
@@ -297,9 +297,9 @@ button, input, select, textarea { font-family: inherit; }
 .tl-comp__value { flex: 1; overflow: hidden; text-overflow: ellipsis; }
 .tl-comp__type { color: var(--muted); font-size: 10px; }
 
-/* Packet 34 — trusted behavior publication (runtime.md §14.2; project-model
- * §22). Form rows, the normative trust notice and bounded diagnostics only;
- * there is deliberately no source evaluator or "run" control here. */
+/* Trusted behavior publication. Form rows, the trust notice and bounded
+ * diagnostics only; there is deliberately no source evaluator or "run"
+ * control here. */
 /* Wide (bottom-dock) layout: notice + list left, detail/source/new right. */
 .tl-behaviors__body { flex: 1; display: flex; min-height: 0; }
 .tl-behaviors__main { width: 38%; min-width: 260px; flex: none; display: flex; flex-direction: column; min-height: 0;
@@ -320,9 +320,8 @@ button, input, select, textarea { font-family: inherit; }
 .tl-behaviors__row { display: flex; gap: 6px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
 .tl-behaviors__new { padding: 8px 10px; border-top: 1px solid var(--border); }
 
-/* Packet 56 — M3 gameplay authoring (the settings and camera tabs). Practical
- * form rows; the backend projection stays authoritative (sessions.md §6;
- * authoring.md §A8). */
+/* Gameplay authoring (the settings and camera tabs). Practical form rows;
+ * the backend projection stays authoritative. */
 .tl-gameplay__tabs { display: flex; gap: 4px; padding: 8px 10px; border-bottom: 1px solid var(--border); }
 .tl-gameplay__tabs .tl-btn { flex: 1; padding: 4px 6px; font-size: 11px; text-transform: capitalize; }
 .tl-gameplay__tab { padding: 10px; overflow-y: auto; flex: 1; min-height: 0; }
@@ -349,7 +348,7 @@ button, input, select, textarea { font-family: inherit; }
 .tl-btn--danger:hover:not(:disabled) { border-color: var(--err); background: rgba(255,82,82,.2); }
 
 /* ------------------------------------------------------------------ */
-/* M3 media / lighting / animation panel (packet 57)                   */
+/* Media / lighting / animation panel                                  */
 /* ------------------------------------------------------------------ */
 
 .tl-media {
@@ -413,7 +412,7 @@ button, input, select, textarea { font-family: inherit; }
   margin-bottom: 2px;
 }
 
-/* the §8.5.1 animated-reimport mapping (Assets panel) */
+/* the animated-reimport mapping (Assets panel) */
 .tl-asset__roles {
   margin-top: 8px;
   padding: 8px;
@@ -549,7 +548,7 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-projects__folder { display: block; font-size: 10.5px; color: var(--text-faint); font-family: var(--tl-font-mono);
   max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
 
-/* Phase 10: files referenced in place in the game folder. */
+/* Files referenced in place in the game folder. */
 .tl-problem__source--asset { color: var(--warn); }
 .tl-problem .tl-btn { margin-left: auto; flex: none; }
 .tl-assets__source { font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
@@ -563,12 +562,12 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-files__entry--dir { font-weight: 600; }
 .tl-files__size { color: var(--muted); font-size: 11px; }
 
-/* Phase 12: hierarchy flags in the inspector. */
+/* Hierarchy flags in the inspector. */
 .tl-inspector__flags { display: flex; flex-direction: column; gap: 4px; }
 .tl-flag { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text); cursor: pointer; }
 .tl-flag__inherited { margin-left: auto; font-size: 11px; color: var(--accent); }
 
-/* Phase 12 (b): project tags panel and inspector tags. */
+/* Project tags panel and inspector tags. */
 .tl-tags { flex: 1; overflow-y: auto; }
 .tl-tags__hint { margin: 4px 10px 8px; font-size: 11px; color: var(--text-dim); }
 .tl-tags__list { list-style: none; margin: 0; padding: 0 10px; }
@@ -581,18 +580,18 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-tags__add input { background: var(--surface-0); color: var(--text); border: 1px solid var(--line); border-radius: var(--radius); padding: 4px 6px; }
 .tl-inspector__tags { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
 .tl-field--inline { flex-direction: row; align-items: center; gap: 6px; }
-/* Phase 12 (c): the instance-set (scatter) dialog. */
+/* The instance-set (scatter) dialog. */
 .tl-scatter { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 12px; margin: 8px 0; }
 .tl-scatter > .tl-field:first-child { grid-column: 1 / -1; }
 .tl-dialog__error { color: var(--warn); margin: 6px 0; }
-/* Phase 12 (c): a two-column dialog form (Play from…). */
+/* A two-column dialog form (Play from…). */
 .tl-exit { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; margin: 8px 0; }
 .tl-exit > .tl-field { grid-column: 1 / -1; }
 .tl-exit__scenes { border: 1px solid var(--line); border-radius: var(--radius); padding: 4px 8px; margin: 0; }
 .tl-exit__scenes legend { color: var(--text-dim); font-size: 11px; padding: 0 4px; }
 .tl-exit__scenes .tl-field { margin-bottom: 2px; }
 
-/* Phase 9.4: materials and environment */
+/* Materials and environment */
 .tl-material-swatch { width: 34px; height: 34px; border-radius: 50%; display: block; box-shadow: inset -6px -8px 12px rgba(0,0,0,.35), inset 4px 5px 8px rgba(255,255,255,.25); }
 .tl-material-inspector { display: flex; flex-direction: column; gap: 4px; }
 .tl-param { display: grid; grid-template-columns: 110px 1fr auto; align-items: center; gap: 6px; font-size: 12px; opacity: .75; }
@@ -607,7 +606,7 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-environment .tl-field { display: grid; grid-template-columns: 140px 1fr; align-items: center; gap: 8px; }
 .tl-environment__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 10px; overflow: auto; }
 
-/* Phase 9.6: the Lighting window. */
+/* The Lighting window. */
 .tl-lighting__status { margin: 6px 0; font-size: 12px; }
 .tl-lighting__stale { color: #f2b544; }
 .tl-lighting__actions { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
@@ -616,7 +615,7 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-lighting__bar { position: absolute; inset: 0 auto 0 0; background: #2f5ea8; }
 .tl-lighting__message { font-size: 12px; margin: 6px 0; }
 
-/* Phase 9.7: the Animator window. */
+/* The Animator window. */
 .tl-animator__bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 6px; }
 .tl-animator__body { display: flex; gap: 10px; position: relative; }
 .tl-animator__graph { flex: 1; min-width: 0; height: 300px; background: #141821; border: 1px solid #262d3b; border-radius: 4px; }
@@ -633,7 +632,7 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-animator__param { flex: 1; }
 .tl-animator__menu { position: absolute; z-index: 20; display: flex; flex-direction: column; min-width: 160px; }
 
-/* Phase 9.8: the Input window. */
+/* The Input window. */
 .tl-input__maps { display: flex; gap: 16px; flex-wrap: wrap; }
 .tl-input-map { flex: 1; min-width: 360px; }
 .tl-input-action { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 4px 0; border-bottom: 1px solid #232a37; font-size: 12px; }
@@ -645,7 +644,7 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-animator__preview { display: block; width: 100%; aspect-ratio: 4 / 3; max-height: 200px; border: 1px solid var(--border);
   border-radius: 4px; margin: 6px 0; }
 
-/* Phase 15.1: the descriptor-built Inspector sections. */
+/* The descriptor-built Inspector sections. */
 .tl-desc__head { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
 .tl-desc__row { display: grid; grid-template-columns: 110px 1fr; align-items: center; gap: 6px; margin-bottom: 6px; font-size: 12px; }
 .tl-desc__row.tl-flag { display: flex; }
@@ -668,7 +667,7 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-desc__add { padding-top: 8px; }
 .tl-desc__add > select { width: 100%; box-sizing: border-box; }
 
-/* Phase 15.4: script property visibility — Inspector groups/headers, the declaration editor, the Play debug view. */
+/* Script property visibility — Inspector groups/headers, the declaration editor, the Play debug view. */
 .tl-prop__header { font-weight: 600; font-size: 11px; margin: 6px 0 2px; }
 .tl-props__group { margin-top: 4px; border-top: 1px solid var(--line); }
 .tl-props__group-title { cursor: pointer; font-size: 11px; color: var(--text-dim); padding: 3px 0; }
@@ -684,7 +683,7 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-playdebug__script { margin-top: 4px; }
 .tl-playdebug .tl-comp__field[data-visibility="private"] .tl-comp__name { font-style: italic; }
 
-/* Phase 16.0: centre workspace tabs (Scene, Game, documents) and maximize. */
+/* Centre workspace tabs (Scene, Game, documents) and maximize. */
 .tl-tabs--center { flex-wrap: nowrap; overflow-x: auto; align-items: flex-end; }
 .tl-wtab { display: flex; align-items: center; flex: none; border-radius: var(--radius) var(--radius) 0 0; }
 .tl-wtab.is-drop-target { box-shadow: inset 2px 0 0 var(--select-line); }
@@ -701,7 +700,7 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-workspace__doc { position: absolute; inset: 0; z-index: 1; display: flex; flex-direction: column;
   background: var(--panel); overflow: hidden; }
 .tl-workspace__view { flex: 1; display: flex; flex-direction: column; min-height: 0; padding: 8px; overflow: auto; }
-/* Phase 16.2: the Animator tab (layers, graph path, parameters | graph | dockable preview pane). */
+/* The Animator tab (layers, graph path, parameters | graph | dockable preview pane). */
 .tl-animator-doc { flex: 1; display: flex; flex-direction: column; min-height: 0; gap: 4px; }
 .tl-animator-doc__path { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-dim); }
 .tl-animator-doc__path [aria-current] { color: var(--text); font-weight: 600; }
@@ -727,7 +726,7 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-app__body.is-maximized .tl-dock,
 .tl-app__body.is-maximized .tl-splitter { display: none; }
 
-/* Phase 16.3: the script editor tab (files | code + problems | declaration). */
+/* The script editor tab (files | code + problems | declaration). */
 .tl-script { flex: 1; display: flex; min-height: 0; gap: 8px; }
 .tl-script--loading { align-items: flex-start; }
 .tl-script__files { width: 190px; flex: none; display: flex; flex-direction: column; min-height: 0;
@@ -763,11 +762,11 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-script__trust { border: 1px solid var(--warn); border-radius: var(--radius); background: var(--warn-bg); padding: 8px; }
 .tl-script__published { color: var(--ok); font-size: 12px; }
 .tl-script__owned { display: flex; flex-direction: column; gap: 2px; }
-/* Phase 16.1: the graph editor (canvas + a DOM layer of focusable nodes and ports); it fills a `graph` document tab. */
+/* The graph editor (canvas + a DOM layer of focusable nodes and ports); it fills a `graph` document tab. */
 .tl-workspace__view > .tl-graph { margin: -8px; }
-/* Phase 19.0: a visual script tab — the graph beside its compile/publish panel. */
+/* A visual script tab — the graph beside its compile/publish panel. */
 .tl-vscript { flex: 1; display: flex; flex-direction: column; min-height: 0; margin: -8px; }
-/* Phase 19.2: the event graph and function tabs, the variable list, the debugger. */
+/* The event graph and function tabs, the variable list, the debugger. */
 .tl-vscript__tabs { display: flex; align-items: center; gap: 4px; padding: 4px 8px; border-bottom: 1px solid var(--line, #2a303a); flex-wrap: wrap; }
 .tl-vscript__tab { display: inline-flex; align-items: center; gap: 2px; padding: 3px 8px; border-radius: 4px 4px 0 0; background: transparent; border: 1px solid transparent; color: var(--text-dim); cursor: pointer; font-size: 12px; }
 .tl-vscript__tab.is-active { background: var(--surface-2); border-color: var(--line, #2a303a); color: var(--text); }
@@ -835,7 +834,7 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-problem__link { background: none; border: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; padding: 0; }
 .tl-problem__link:hover { text-decoration: underline; }
 
-/* Phase 18.0: the Material tab (graph materials). */
+/* The Material tab (graph materials). */
 .tl-material-doc__note { margin: 0; font-size: 12px; }
 .tl-material-preview { display: flex; flex-direction: column; gap: 4px; }
 .tl-material-preview .tl-subhead { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
@@ -847,7 +846,7 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-material-param .tl-input { min-width: 0; }
 .tl-material-overrides { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
 
-/* Phase 20.1: curve and gradient field widgets (GraphInspector). */
+/* Curve and gradient field widgets (GraphInspector). */
 .tl-curve, .tl-gradient { display: flex; flex-direction: column; gap: 3px; }
 .tl-curve__plot { background: var(--panel-2, #1c1f24); border: 1px solid var(--line); border-radius: 3px; touch-action: none; }
 .tl-curve__bg { fill: transparent; }
@@ -859,7 +858,7 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-gradient__bar { height: 16px; border: 1px solid var(--line); border-radius: 3px; background: repeating-conic-gradient(#777 0 25%, #bbb 0 50%) 0 0 / 10px 10px; }
 .tl-gradient__bar > div { width: 100%; height: 100%; }
 
-/* Phase 20.0: the Effects list and the Effect tab. */
+/* The Effects list and the Effect tab. */
 .tl-effects__list { list-style: none; margin: 0; padding: 0; }
 .tl-effects__row { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 4px; }
 .tl-effects__row.is-active { background: var(--select-bg); }
@@ -868,7 +867,7 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-effect-doc__systems { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
 .tl-effect-doc__settings { display: grid; grid-template-columns: 110px 1fr; gap: 4px 6px; align-items: center; }
 .tl-effect-doc__settings .tl-input { min-width: 0; }
-/* Phase 20.3: the Effect tab's preview pane. */
+/* The Effect tab's preview pane. */
 .tl-effect-doc__preview { width: 300px; display: flex; flex-direction: column; }
 .tl-effect-preview { display: flex; flex-direction: column; gap: 6px; }
 .tl-effect-preview__canvas { width: 100%; aspect-ratio: 1; display: block; border: 1px solid var(--line); border-radius: var(--radius); background: #000; touch-action: none; }
@@ -889,7 +888,7 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 
 .tl-panel__subtitle { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--text-dim); margin-top: 4px; }
 
-/* Phase 23.6: the Blocks panel (block-layer editing) and the snapping settings dialog. */
+/* The Blocks panel (block-layer editing) and the snapping settings dialog. */
 .tl-blocks { flex: 1; overflow-y: auto; padding: 6px 10px; font-size: 12px; display: flex; flex-direction: column; gap: 6px; }
 .tl-blocks__bar, .tl-blocks__tools, .tl-blocks__opts, .tl-blocks__row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .tl-blocks__tools { gap: 3px; }
@@ -921,12 +920,12 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-snapform__row input[type='number'] { width: 90px; }
 .tl-dialog__actions { display: flex; justify-content: flex-end; gap: 8px; }
 
-/* Phase 23.10: the Game modes panel (list | selected mode's form | behavior groups) and the Play toolbar's mode. */
+/* The Game modes panel (list | selected mode's form | behavior groups) and the Play toolbar's mode. */
 .tl-modes__cols { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(320px, 2fr) minmax(220px, 1fr); gap: 12px; align-items: start; }
 .tl-modes__col { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .tl-modes .tl-tags__row.is-selected { outline: 1px solid var(--tl-accent, #5aa0ff); border-radius: 4px; }
 .tl-toolbar__mode { align-self: center; padding: 2px 8px; margin-right: 6px; border-radius: 999px; font-size: 12px; background: #ffffff14; }
-/* Phase 23.17: the Timeline tab leaves the Scene view visible above it (the scrub preview shows there):
+/* The Timeline tab leaves the Scene view visible above it (the scrub preview shows there):
    the document layer is see-through and lets the pointer reach the view; the timeline sits at the bottom. */
 .tl-workspace__doc:has(.tl-timeline-doc) { background: transparent; pointer-events: none; }
 .tl-workspace__doc:has(.tl-timeline-doc) .tl-workspace__view { padding: 0; overflow: hidden; justify-content: flex-end; }
@@ -934,7 +933,7 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
   max-height: 62%; overflow: auto; box-sizing: border-box; border-top: 1px solid var(--border, #3b4252); }
 .tl-timeline__field { display: inline-flex; flex-direction: column; font-size: 11px; gap: 2px; }
 .tl-timeline__track-head.is-active { background: rgba(143, 180, 255, 0.12); }
-/* ---- Phase 23.9b: the UI document editor ---------------------------------------- */
+/* ---- The UI document editor ---------------------------------------- */
 .tl-uidoc, .tl-uitheme { flex: 1; display: flex; flex-direction: column; min-height: 0; gap: 4px; }
 .tl-uidoc__bar .tl-flag { display: inline-flex; gap: 4px; align-items: center; }
 .tl-uidoc__main { flex: 1; display: flex; min-height: 0; gap: 6px; }
@@ -982,7 +981,7 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-uitheme__main > .tl-uidoc__panel { width: 360px; }
 .tl-uitheme__users { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 
-/* Phase 25.9: the Console (Play script logs and errors with source locations). */
+/* The Console (Play script logs and errors with source locations). */
 .tl-console__list { list-style: none; margin: 0; padding: 0; font-size: 11px; overflow: auto; }
 .tl-console__entry { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline; padding: 2px 4px; border-bottom: 1px solid var(--surface-2); }
 .tl-console__entry--error .tl-console__level { color: var(--err); }

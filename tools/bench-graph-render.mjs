@@ -1,5 +1,5 @@
 /**
- * Phase 16.1: the graph editor's rendering choice, measured.
+ * The graph editor's rendering choice, measured.
  *
  * Draws the same 2000-node / 2000-edge graph three ways in the pinned
  * Playwright Chromium (on this host: CPU raster, SwiftShader GL) and animates
@@ -16,7 +16,7 @@
  *
  * Each runs "all in view" (zoomed out, worst case) and "working zoom"
  * (about 100 nodes in view). The numbers are relative (this host has no
- * GPU); the decision is logged in docs/plan-phase-16.md §6.
+ * GPU); the decision is logged in docs/plan-phase-16.md.
  *
  * Run: node tools/bench-graph-render.mjs
  */

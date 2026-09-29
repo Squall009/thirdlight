@@ -1,5 +1,5 @@
 /**
- * The M1 authoring loop in a real browser against the real backend:
+ * The authoring loop in a real browser against the real backend:
  * open, create, undo/redo, gizmo drag, reload, restart, MCP-origin edits.
  */
 import { expect, test, type Page } from '@playwright/test';

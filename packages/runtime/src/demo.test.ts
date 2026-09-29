@@ -1,10 +1,10 @@
 /**
- * Built-in moving-box demonstration tests (runtime.md §7) + the §4
+ * Built-in moving-box demonstration tests + the
  * determinism check (two instances, same fake-clock sequence ⇒
  * identical state sequences).
  *
- * Exact points per m1-acceptance §2.1 (the §7.1 `(stepIndex + 1)`
- * offset; SIM_HZ·T = 480 steps per period at the 120 Hz default):
+ * Exact points (the demo formula's `(stepIndex + 1)` offset; SIM_HZ·T =
+ * 480 steps per period at the 120 Hz default):
  * stepIndex 119 ⇒ x0 + A; 239 ⇒ x0; 359 ⇒ x0 − A; 479 ⇒ x0.
  */
 import { describe, expect, it } from 'vitest';
@@ -35,7 +35,7 @@ function makeDemo(modules?: string[]): DemoHarness {
   if (!res.ok) throw new Error(`instantiate failed: ${JSON.stringify((res as { error: RuntimeError }).error)}`);
   const rt = res.runtime;
   rt.start();
-  // First tick = the anchor frame (§5.6): zero steps.
+  // First tick = the anchor frame: zero steps.
   let t = 0;
   rt.tick(t);
   return {
@@ -62,7 +62,7 @@ function transformOf(st: InterpolatedState, id: string) {
   return t;
 }
 
-/** Exact §7.1 formula (the contract's normative math). */
+/** The demo's exact formula. */
 function xAt(stepIndex: number, x0: number): number {
   return x0 + A * Math.sin((2 * Math.PI * (stepIndex + 1)) / PERIOD_STEPS);
 }
@@ -91,7 +91,7 @@ describe('built-in moving-box demonstration (runtime.md §7)', () => {
     expect(transformOf(stateOf(rt), BOX_ID).position[0]).toBeCloseTo(BOX_X0, 9);
 
     // alpha is exactly 0 after whole-multiple ticks (targetSim == simTime)
-    // — the transforms above are the curr state exactly (§6).
+    // — the transforms above are the curr state exactly.
     expect(stateOf(rt).alpha).toBe(0);
     rt.dispose();
   });

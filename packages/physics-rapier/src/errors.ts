@@ -2,10 +2,10 @@
  * Adapter errors.
  *
  * Initialization failures are *returned* (`physics_init_failed` /
- * `physics_init_cancelled`, physics.md §6/§10) — never thrown, so the host can
+ * `physics_init_cancelled`, physics.md) — never thrown, so the host can
  * report an actionable unavailable state. Runtime failures are *thrown* from
- * the port so the runtime's fail-stop path (`physics_port_error`, runtime.md
- * §13) applies:
+ * the port so the runtime's fail-stop path (`physics_port_error`, runtime.md)
+ * applies:
  *
  * - a stale handle (any port call after `dispose()`) throws
  *   `physics_port_disposed` instead of touching the freed WASM world;

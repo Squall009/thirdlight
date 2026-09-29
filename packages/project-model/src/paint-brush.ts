@@ -1,5 +1,5 @@
 /**
- * Phase 25.21: the paint brush — radius, strength, falloff and the target
+ * The paint brush — radius, strength, falloff and the target
  * channel — as its own module, so every paint target uses the same brush: a
  * block layer's paint and wetness today (`block-paint.ts`), mesh vertex
  * colours later.

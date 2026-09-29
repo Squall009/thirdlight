@@ -1,15 +1,15 @@
 /**
- * Strict JSON payload discipline — sessions.md §1/§11.2 (unknown fields
- * rejected, mirroring the commands.md discipline) + the project-model
- * §12.3 pass-1 byte rules applied to request bodies (sessions.md §6.1).
+ * Strict JSON payload discipline: unknown fields rejected, mirroring the
+ * command discipline, plus the project-model pass-1 byte rules applied to
+ * request bodies.
  *
  * `parseStrictJsonBytes` enforces the pass-1 byte rules itself (BOM-free
  * UTF-8 → strict RFC 8259 syntax → no duplicate keys → no trailing
  * garbage) and maps failures to the session-layer `invalid_request`
  * shape. The parser is self-contained: `protocol` is pure, I/O-free, and
- * its edges to `project-model`/`commands` are types-only
- * (dependencies.md §4.1), so it must not call project-model's byte
- * parser at runtime. The shape helpers below produce `field_missing` /
+ * its edges to `project-model`/`commands` are types-only, so it must not
+ * call project-model's byte parser at runtime. The shape helpers below
+ * produce `field_missing` /
  * `field_unexpected` / `field_type` / `field_value` with `path`
  * (JSON Pointer), `found`, and `expected`.
  *
@@ -22,9 +22,9 @@ export type StrictParseResult =
   | { ok: false; error: SessionError };
 
 /**
- * Strict pass-1 parse of HTTP/WS payload bytes (sessions.md §6.1:
- * "strict parsing of the bytes first — project-model §12.3 pass 1 rules
- * apply to the request body").
+ * Strict pass-1 parse of HTTP/WS payload bytes: the bytes are parsed
+ * strictly first, with the project-model pass-1 rules applied to the
+ * request body.
  */
 export function parseStrictJsonBytes(bytes: Uint8Array): StrictParseResult {
   // Exactly one UTF-8 BOM is an encoding_invalid (never silently stripped).
@@ -269,7 +269,7 @@ export type FieldErrorResult =
   | { ok: false; error: SessionError };
 
 /**
- * Strict object shape check (sessions.md §1: unknown fields rejected):
+ * Strict object shape check (unknown fields rejected):
  * unknown keys ⇒ `field_unexpected`, missing required keys ⇒
  * `field_missing`, wrong JSON types ⇒ `field_type`.
  *

@@ -1,5 +1,5 @@
 /**
- * Packet 31 — collider-shape validation (project-model §10.7/§21.3).
+ * Collider-shape validation (the project-model collider vocabulary).
  *
  * The adapter's copy of the accepted vocabulary must accept exactly what the
  * model accepts and reject everything else with a detail string. The valid

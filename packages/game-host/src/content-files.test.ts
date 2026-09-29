@@ -1,5 +1,5 @@
 /**
- * Phase 25.7b: a reader puts the manifest's content files back under their
+ * A reader puts the manifest's content files back under their
  * keys, each checked against its row (length and SHA-256) before it is used.
  */
 import { describe, expect, it } from 'vitest';

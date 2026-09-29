@@ -1,5 +1,5 @@
 /**
- * Phase 23.13: the audio owner executes the simulation's audio commands over
+ * The audio owner executes the simulation's audio commands over
  * a fake Web Audio graph — handle voices (loop, pitch, fade, stop), the
  * music held by scripts over the host's track, the duck node, the scripts'
  * bus mix, positional voices through an equal-power panner with the

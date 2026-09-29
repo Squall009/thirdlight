@@ -1,5 +1,5 @@
 /**
- * Phase 25.22: importing an asset-generation job's export.
+ * Importing an asset-generation job's export.
  *
  * A job export is what an external asset tool (an art pipeline, a generator,
  * a hand-made delivery) hands over: a folder, or a zip of one, holding a GLB

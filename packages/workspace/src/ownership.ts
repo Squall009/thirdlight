@@ -1,22 +1,22 @@
 /**
- * Project ownership — workspace.md §6.
+ * Project ownership.
  *
  * The ownership record (`.thirdlight/ownership.json`), the open-time
- * evaluation table (§6.2) with the conservative liveness rules (any `/proc`
- * ambiguity resolves to "live" — reject), the claim primitive (§6.3: the
+ * evaluation table with the conservative liveness rules (any `/proc`
+ * ambiguity resolves to "live" — reject), the claim primitive (the
  * only ownership write — the epoch-scoped claim file `claim-<e>` is the
  * exclusive gate, created with O_CREAT|O_EXCL and serialized by the
  * kernel per path; the record is the identity/audit layer — no read or
  * re-read of it can arbitrate a claim), and the explicit stale-owner
- * takeover procedure (§6.4 — no automatic takeover, ever).
+ * takeover procedure (no automatic takeover, ever).
  *
  * The record is canonical JSON (2-space, LF, trailing newline) in the key
  * order `storageVersion, state, backendId, pid, openedAt, lockEpoch`. The
  * file is never deleted (deletion would reintroduce the absent-record
  * race); release rewrites it with `state: "released"`. The claim file is
  * a file, not an fd (its existence with its content is the token, held
- * for the session lifetime, §6.5); a successful claim at epoch e+1
- * unlinks `claim-e` (the superseded-epoch cleanup, §6.3).
+ * for the session lifetime); a successful claim at epoch e+1
+ * unlinks `claim-e` (the superseded-epoch cleanup).
  */
 
 import {
@@ -35,10 +35,10 @@ import { generateBackendId, sha256Hex } from './digest';
 import { isPlainObject, isSafeInt, type Holder } from './errors';
 import { errnoOf, writeAtomic, type WriteOps } from './write';
 
-/** The ownership record storageVersion (M1). */
+/** The ownership record storageVersion. */
 export const OWNERSHIP_STORAGE_VERSION = 1;
 
-/** The default process marker: argv[0] containing it ⇒ live (workspace.md §6.2). */
+/** The default process marker: argv[0] containing it ⇒ live. */
 export const DEFAULT_PROCESS_MARKER = 'thirdlight';
 /** The default process table root (same LXC ⇒ same /proc namespace). */
 export const DEFAULT_PROC_ROOT = '/proc';
@@ -54,17 +54,17 @@ export interface OwnershipRecord {
   lockEpoch: number;
 }
 
-/** Current UTC second, project-model §7.2 format (`YYYY-MM-DDTHH:mm:ssZ`). */
+/** Current UTC second, project-model timestamp format (`YYYY-MM-DDTHH:mm:ssZ`). */
 export function utcSecond(d: Date = new Date()): string {
   return d.toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
 
-/** Recovery snapshot stamp: `YYYYMMDDTHHMMSSZ` (workspace.md §7.2). */
+/** Recovery snapshot stamp: `YYYYMMDDTHHMMSSZ`. */
 export function utcStamp(d: Date = new Date()): string {
   return d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
 }
 
-/** Canonical ownership record bytes (§6.1 key order, §4.4 style). */
+/** Canonical ownership record bytes (record key order, canonical JSON style). */
 export function buildOwnershipRecordBytes(rec: OwnershipRecord): Uint8Array {
   const doc = {
     storageVersion: OWNERSHIP_STORAGE_VERSION,
@@ -119,17 +119,16 @@ export function parseOwnershipRecord(bytes: Uint8Array | null): OwnershipRecord 
 }
 
 /**
- * The three-state result of an ownership-record read (R8a, 2026-09-18
- * review): `absent` (ENOENT — the ONLY read result that means absence),
+ * The three-state result of an ownership-record read: `absent` (ENOENT — the ONLY read result that means absence),
  * `unreadable` (a non-ENOENT read failure: the on-disk bytes are UNKNOWN,
- * never absent — the §6.2 conservative rule resolves unknown to "live":
+ * never absent — the conservative liveness rule resolves unknown to "live":
  * the caller REFUSES; no claim/takeover may overwrite or re-evaluate
  * unknown bytes as empty), or `record` (the bytes plus the strict parse —
  * `record` null for known-but-corrupt bytes, which the evaluator rejects
  * conservatively). The errno of the read failure is carried when
  * obtainable. There is NO `fileExists` pre-check: absence is classified
  * on the read itself (ENOENT), so a read error is never reported as "not
- * exists" (R8c).
+ * exists".
  */
 export type OwnershipRecordRead =
   | { kind: 'absent' }
@@ -139,12 +138,11 @@ export type OwnershipRecordRead =
 /**
  * Read the ownership record from the project's VERIFIED `.thirdlight`
  * directory, preserving the absent / unreadable / record distinction
- * through to the caller (R8a — workspace.md §6.2/§6.3):
+ * through to the caller:
  * - `absent` (ENOENT) ⇒ the normal claim flow;
  * - `unreadable` (any other read failure) ⇒ the caller REFUSES (unknown
  *   record state resolves to live — `ownership_conflict` with holder
- *   null, §11: "carries `holder`, `null` when no parseable owned record
- *   exists");
+ *   null: no parseable owned record exists);
  * - `record` ⇒ bytes + strict parse (the evaluator decides).
  */
 export function readOwnershipRecord(
@@ -162,15 +160,15 @@ export function readOwnershipRecord(
 export type Liveness = 'dead' | 'live' | 'unknown';
 
 /**
- * Conservative liveness rules (workspace.md §6.2 — ambiguity resolves to
+ * Conservative liveness rules (ambiguity resolves to
  * "live"; a false "dead" costs split-brain risk, a false "live" costs an
  * operator check):
  * - `/proc/<pid>` absent (ENOENT on the entry) ⇒ dead — the ONLY
  *   proven-dead-by-absence signal;
  * - present, but the process start time (`/proc/<pid>/stat` field 22,
  *   clock ticks since boot) is strictly after `openedAt` + 1 s ⇒ pid
- *   reuse ⇒ dead (the original owner is gone). The +1 s boundary (L1,
- *   2026-09-18 orchestrator spot-check): `openedAt` is second-
+ *   reuse ⇒ dead (the original owner is gone). The +1 s boundary:
+ *   `openedAt` is second-
  *   truncated, so a start inside the SAME truncated second as the claim
  *   (startMs ≤ openedAtMs + 1000) is AMBIGUOUS — the live owner may have
  *   started and claimed within that second ⇒ unknown ⇒ live. A reused
@@ -182,7 +180,7 @@ export type Liveness = 'dead' | 'live' | 'unknown';
  *   mismatched, the proc table is unavailable (procRoot missing or not a
  *   directory), the entry is present but the `stat` file is missing or
  *   unreadable, or ANY other `/proc` I/O error (EACCES, EIO, ENOTDIR, …)
- *   ⇒ unknown (treated as live) (R8b — an I/O error is never death).
+ *   ⇒ unknown (treated as live) (an I/O error is never death).
  */
 export function evaluateLiveness(
   pid: number,
@@ -191,7 +189,7 @@ export function evaluateLiveness(
   marker: string,
 ): Liveness {
   const procEntry = join(procRoot, String(pid));
-  // R8b (2026-09-18 review): the proc table itself — if <procRoot> cannot
+  // The proc table itself: if <procRoot> cannot
   // be stat'ed or is not a directory, the table is unavailable: nothing
   // is provable ⇒ unknown ⇒ live (an unavailable proc table is not a
   // proven-absent proc entry; only ENOENT on the entry is death).
@@ -210,7 +208,7 @@ export function evaluateLiveness(
   }
   // The `stat` file: the entry is PRESENT (the pid is allocated), but the
   // start time is missing/unreadable ⇒ unknown ⇒ live (a missing stat
-  // file is not proven death — R8b).
+  // file is not proven death).
   let statText: string;
   try {
     statText = readFileSync(join(procEntry, 'stat'), 'utf8');
@@ -238,13 +236,13 @@ export function evaluateLiveness(
   }
   if (!Number.isFinite(btime)) return 'unknown'; // cannot verify ⇒ live
   const startMs = btime * 1000 + (starttime / CLK_TCK) * 1000;
-  // L1 (2026-09-18 orchestrator spot-check): `openedAt` is second-
+  // `openedAt` is second-
   // truncated, so a reused pid is proven to have started after the true
   // claim time C only when its start is strictly after the whole second
   // `openedAt` covers. Conclusive pid reuse requires
   // `startMs > openedAtMs + 1000`; `startMs <= openedAtMs + 1000` is
   // ambiguous (the live owner may have started and claimed within that
-  // same second) ⇒ falls through to the cmdline check (§6.2: ambiguity
+  // same second) ⇒ falls through to the cmdline check (ambiguity
   // resolves to live — costs an operator check, never split-brain).
   if (startMs > openedAtMs + 1000) return 'dead'; // conclusive pid reuse
   try {
@@ -260,7 +258,7 @@ export function evaluateLiveness(
 }
 
 /**
- * Open-time evaluation (workspace.md §6.2, normative table).
+ * Open-time evaluation (normative table).
  * `self` is this backend process's identity (backendId + pid).
  */
 export type OwnershipEval =
@@ -304,21 +302,21 @@ export function evaluateOwnership(
   return { action: 'conflict', holder };
 }
 
-// ---- the claim-file primitives (workspace.md §6.3) ------------------------------
+// ---- the claim-file primitives ------------------------------
 
 /**
- * The epoch-scoped claim file name (workspace.md §6.3): `claim-<e>` in the
+ * The epoch-scoped claim file name: `claim-<e>` in the
  * project's `.thirdlight` directory, one per `lockEpoch` e. The exclusive
  * gate: it is created with O_CREAT|O_EXCL and is serialized by the kernel
  * per path — the ONLY exclusion gate (liveness is reporting and
- * classification only, §6.2; the record is the identity/audit layer and
+ * classification only; the record is the identity/audit layer and
  * no read or re-read of it can arbitrate a claim).
  */
 export function claimFileName(lockEpoch: number): string {
   return `claim-${lockEpoch}`;
 }
 
-/** The claim file's identity stamp (workspace.md §6.3 step 2). */
+/** The claim file's identity stamp. */
 export interface ClaimStamp {
   backendId: string;
   pid: number;
@@ -338,7 +336,7 @@ export function buildClaimStampBytes(stamp: ClaimStamp): Uint8Array {
  * unknown fields) — the caller treats that as unparseable (the
  * orphan-recovery rule refuses to reclaim; the verification steps fail
  * the claim). The holder content carried by `claim_inconsistent` is this
- * parsed shape ("the holder content if parseable", §11).
+ * parsed shape ("the holder content if parseable").
  */
 export function parseClaimStamp(bytes: Uint8Array): ClaimStamp | null {
   const p = parseDocumentBytes(bytes);
@@ -372,8 +370,8 @@ function readClaimStamp(path: string, ops: WriteOps): ClaimStamp | null {
 /**
  * Read the ownership record discriminating ABSENCE (ENOENT — the only
  * read result that means absence) from an unreadable record (a non-ENOENT
- * read failure: the on-disk bytes are UNKNOWN, never absent —
- * workspace.md §6.2/§6.3). The §6.3 step-1 EEXIST re-read must never
+ * read failure: the on-disk bytes are UNKNOWN, never absent). The claim's
+ * step-1 EEXIST re-read must never
  * treat an unreadable record as absent.
  */
 type RecordRead =
@@ -398,12 +396,12 @@ export interface SelfIdentity {
 }
 
 /**
- * The claim failure the orphan-recovery rule cannot resolve
- * (workspace.md §6.3/§11): the claim file exists at the target epoch but
+ * The claim failure the orphan-recovery rule cannot resolve:
+ * the claim file exists at the target epoch but
  * cannot be reclaimed — its content is unparseable/unreadable, or its
- * holder's pid is not proven dead under the §6.2 liveness rules (unknown
+ * holder's pid is not proven dead under the liveness rules (unknown
  * ⇒ live ⇒ refuse). `holderContent` is the parsed stamp (null when the
- * content is unparseable/unreadable); `liveness` is the holder's §6.2
+ * content is unparseable/unreadable); `liveness` is the holder's
  * liveness outcome (null when the content is unparseable/unreadable).
  * Nothing is claimed; the operator confirms the holder is dead, removes
  * the orphan claim file, and re-issues the open (an operator file
@@ -432,14 +430,14 @@ export interface ClaimOptions {
   /**
    * The record bytes the caller evaluated to authorize this claim at
    * `lockEpoch` (null when the record was absent): the record W's
-   * `previousHash` classification target (workspace.md §6.3 step 4 — the
+   * `previousHash` classification target (claim step 4 — the
    * absent-record and stale-record cases: "previous" is the state the
    * claim was evaluated against, never fabricated).
    */
   previousRecord?: Uint8Array | null;
   openedAt?: () => string;
   /**
-   * Test seam: the exclusive claim-file open (workspace.md §6.3 step 1 —
+   * Test seam: the exclusive claim-file open (claim step 1 —
    * `O_CREAT|O_EXCL`; on Node `fs.open(path, 'wx', 0o644)` — the same
    * primitive `openTempFile` uses). Default: the real open through the
    * `ops.openTempFile` primitive. Documented as a test seam exactly like
@@ -451,14 +449,14 @@ export interface ClaimOptions {
 }
 
 /**
- * The orphan-recovery rule (workspace.md §6.3 — the ONLY
+ * The orphan-recovery rule (the ONLY
  * liveness-referenced path, normative): step 1 failed EEXIST and the
  * record is absent/released/older-epoch — or unreadable (never treated as
  * absence). The existing claim-e's content is read: the claimant may
  * proceed (**reclaim**: rewrite claim-e with its own step-2 identity,
  * fsync, and continue at step 4 — steps 5–6 then apply unchanged) **only**
  * if the content is parseable and its holder pid is proven dead under the
- * §6.2 liveness rules (unknown ⇒ live ⇒ refuse). Otherwise the claim fails
+ * liveness rules (unknown ⇒ live ⇒ refuse). Otherwise the claim fails
  * with `claim_inconsistent` (holder null; carries the claim file path, the
  * holder content if parseable, and the liveness outcome). This path
  * consults liveness to reclaim a *crashed* claimant's file; it is not a
@@ -508,7 +506,7 @@ function orphanRecovery(
 }
 
 /**
- * Steps 5–6 of the claim primitive (workspace.md §6.3): the on-disk record
+ * Steps 5–6 of the claim primitive: the on-disk record
  * must contain our `backendId`, `pid`, and `lockEpoch` (consistency: the
  * re-read record's epoch must be e — any other epoch ⇒ the record was
  * changed outside the protocol), and the on-disk claim-e must contain our
@@ -545,15 +543,15 @@ function verifyClaimedFiles(
 }
 
 /**
- * The claim primitive (workspace.md §6.3 — the only ownership write): the
+ * The claim primitive (the only ownership write): the
  * exclusive gate is the epoch-scoped claim file `claim-e`, created with
  * `O_CREAT|O_EXCL` (step 1 — serialized by the kernel per path; at most
  * one caller succeeds; liveness never arbitrates). The six-step sequence:
  *
  *   1. acquire the claim file; on failure (EEXIST or any open failure) —
- *      no retry loop — re-read the record and re-evaluate per the §6.2
+ *      no retry loop — re-read the record and re-evaluate per the evaluation
  *      table rows: owned+live ⇒ `ownership_conflict` (the holder); owned+
- *      dead ⇒ `stale_ownership` (the holder; the §6.4 takeover path —
+ *      dead ⇒ `stale_ownership` (the holder; the takeover path —
  *      explicit only); absent/released/older-epoch/unreadable ⇒ the
  *      orphan-recovery rule (reclaim a proven-dead holder's file, or
  *      `claim_inconsistent`); a non-ENOENT record read failure is never
@@ -569,7 +567,7 @@ function verifyClaimedFiles(
  *      not serve);
  *   6. consistency (the re-read record's `lockEpoch` must be e).
  *
- * **Self-reclaim (§6.2 row, normative):** if the on-disk record is already
+ * **Self-reclaim (normative):** if the on-disk record is already
  * exactly ours (state `owned`, same `backendId` + `pid`, same epoch) ⇒ do
  * NOT re-run `O_CREAT|O_EXCL` against our own claim file (it would fail
  * EEXIST against ourselves); re-verify the claim file content matches our
@@ -577,7 +575,7 @@ function verifyClaimedFiles(
  * is byte-identical, no write); missing/foreign ⇒ `ownership_conflict`
  * (holder `null`), refuse to serve.
  *
- * **Superseded-epoch cleanup (§6.3, normative):** a successful claim at
+ * **Superseded-epoch cleanup (normative):** a successful claim at
  * epoch e+1 unlinks `claim-e` best-effort AFTER its own record W is
  * durable; a failed/unproven claim never unlinks a file that is not its
  * own. The safety argument: a claim at e+1 occurs only against a record at
@@ -594,7 +592,7 @@ export function claimOwnership(opts: ClaimOptions): ClaimOutcome {
   const recPath = join(thirdlightDir, 'ownership.json');
   const claimPath = join(thirdlightDir, claimFileName(lockEpoch));
 
-  // ---- self-reclaim (workspace.md §6.2 row, normative) ----------------
+  // ---- self-reclaim (normative) ----------------
   // The on-disk record is already exactly ours (owned, same backendId +
   // pid, same epoch): do NOT re-run O_CREAT|O_EXCL against our own claim
   // file (it would EEXIST against ourselves). Re-verify the claim file
@@ -603,12 +601,12 @@ export function claimOwnership(opts: ClaimOptions): ClaimOutcome {
   // (holder null), refuse to serve.
   const selfRead = readRecord(thirdlightDir, ops);
   if (selfRead.kind === 'unreadable') {
-    // R8a (2026-09-18 review; workspace.md §6.2/§6.3): the record's state
+    // The record's state
     // is UNKNOWN (a non-ENOENT read failure) — never treated as absence:
     // a fresh claim here would overwrite unknown bytes (a live foreign
     // owner may hold the project). Refuse — no claim, no serve
     // (ownership_conflict; holder null — no parseable owned record
-    // exists, §11).
+    // exists).
     return { ok: false, eval: { action: 'conflict', holder: null } };
   }
   if (selfRead.kind === 'bytes') {
@@ -637,7 +635,7 @@ export function claimOwnership(opts: ClaimOptions): ClaimOutcome {
     fd = openClaim(claimPath);
   } catch {
     // EEXIST (or any open failure): a different claimer holds epoch e.
-    // Re-read the record and re-evaluate per the §6.2 table rows. There
+    // Re-read the record and re-evaluate per the evaluation table rows. There
     // is no retry loop.
     const r = readRecord(thirdlightDir, ops);
     if (r.kind === 'bytes') {
@@ -667,7 +665,7 @@ export function claimOwnership(opts: ClaimOptions): ClaimOutcome {
             state: 'owned',
           };
           // owned + live ⇒ ownership_conflict; owned + dead ⇒
-          // stale_ownership (the §6.4 takeover path — explicit only, no
+          // stale_ownership (the takeover path — explicit only, no
           // automatic takeover, ever); unknown ⇒ treated as live (reject;
           // the operator investigates).
           const lv = liveness(rec.pid, rec.openedAt);
@@ -693,7 +691,7 @@ export function claimOwnership(opts: ClaimOptions): ClaimOutcome {
     }
     // absent / unreadable / corrupt: the record's state is unknown or
     // supports a fresh claim at our target — a non-ENOENT record read
-    // failure is NEVER treated as absence. The §6.3 orphan-recovery rule
+    // failure is NEVER treated as absence. The orphan-recovery rule
     // (which requires parseable claim-file content and a proven-dead
     // holder) applies, or the claim fails claim_inconsistent.
     const orphan = orphanRecovery(claimPath, liveness, ops);
@@ -706,7 +704,7 @@ export function claimOwnership(opts: ClaimOptions): ClaimOutcome {
 
   if (fd !== null) {
     // ---- step 2: stamp the claim file (durable) -----------------------
-    // A crash before this step leaves an empty claim file (orphan, §6.3).
+    // A crash before this step leaves an empty claim file (orphan).
     let seqError: unknown = null;
     try {
       ops.writeAll(fd, stampBytes);
@@ -742,8 +740,8 @@ export function claimOwnership(opts: ClaimOptions): ClaimOutcome {
     }
   } else {
     // Reclaim (the orphan-recovery rule): rewrite claim-e with our step-2
-    // identity, fsync, and continue at step 4 (workspace.md §6.3 — steps
-    // 5–6 then apply unchanged). The rewrite uses the real node:fs: the
+    // identity, fsync, and continue at step 4 (steps 5–6 then apply
+    // unchanged). The rewrite uses the real node:fs: the
     // WriteOps seam exposes no truncate-open primitive, and the claim-file
     // read/absence paths (fileExists/readFile) still go through `ops`.
     try {
@@ -778,7 +776,7 @@ export function claimOwnership(opts: ClaimOptions): ClaimOutcome {
     dir: thirdlightDir,
     target: recPath,
     bytes: buildOwnershipRecordBytes(record),
-    allowedPreHashes: [], // no pre-write check: the O_EXCL claim file is the gate; the verification re-read arbitrates (§6.3)
+    allowedPreHashes: [], // no pre-write check: the O_EXCL claim file is the gate; the verification re-read arbitrates
     previousHash:
       opts.previousRecord === null || opts.previousRecord === undefined
         ? null
@@ -792,7 +790,7 @@ export function claimOwnership(opts: ClaimOptions): ClaimOutcome {
     // ---- steps 5–6: verification re-read (both files) + consistency ----
     const v = verifyClaimedFiles(thirdlightDir, claimPath, self, stampTs, lockEpoch, ops);
     if (v !== null) {
-      // Superseded-epoch cleanup (workspace.md §6.3, normative): a
+      // Superseded-epoch cleanup (normative): a
       // successful claim at epoch e unlinks claim-(e-1) best-effort AFTER
       // its own record W is durable. Safe: the session that created
       // claim-(e-1) is no longer an active writer (a released session
@@ -811,7 +809,7 @@ export function claimOwnership(opts: ClaimOptions): ClaimOutcome {
     // ownership_conflict (holder null) and the session does not serve.
     // The claim file is left on disk — recovered by the orphan-recovery
     // rule or the next epoch's superseded-epoch cleanup (the residual
-    // `record@e` + foreign `claim-e` state resolves via the §6.2 liveness
+    // `record@e` + foreign `claim-e` state resolves via the liveness
     // path; the envelope is untouched).
     return { ok: false, eval: { action: 'conflict', holder: null } };
   }
@@ -824,7 +822,7 @@ export function claimOwnership(opts: ClaimOptions): ClaimOutcome {
   }
   if (res.external !== undefined) {
     // A foreign writer won (the on-disk value differs from our record):
-    // re-read and re-evaluate per the §6.2 table rows (the winner's record
+    // re-read and re-evaluate per the evaluation table rows (the winner's record
     // is owned+live ⇒ conflict, owned+dead ⇒ stale, or a moved state the
     // caller's bounded loop re-claims).
     return { ok: false, eval: evaluateOwnership(res.external.bytes, self, liveness) };
@@ -842,8 +840,8 @@ export function claimOwnership(opts: ClaimOptions): ClaimOutcome {
 }
 
 /**
- * The own-claim-file unlink outcome at release (workspace.md §9 step 1:
- * "unlinks the owner's own claim file (`claim-<e>`, §6.5)").
+ * The own-claim-file unlink outcome at release (release step 1:
+ * "unlinks the owner's own claim file (`claim-<e>`)").
  */
 export type ReleaseClaimUnlink =
   | /** The claim file carried our identity (backendId + pid) and was unlinked. */
@@ -860,8 +858,8 @@ export type ReleaseClaimUnlink =
   { kind: 'unreadable' };
 
 /**
- * The release's own-claim-file unlink (workspace.md §9 step 1). By-path
- * verification (the same discipline as the claim's steps 3/5, 9f9eff2):
+ * The release's own-claim-file unlink. By-path
+ * verification (the same discipline as the claim's steps 3/5):
  * the file's holder bytes are read and strict-parsed BEFORE the unlink —
  * only a file that carries our identity (backendId + pid) is removed.
  * A missing, foreign, empty, unparseable, or unreadable claim file is
@@ -869,7 +867,7 @@ export type ReleaseClaimUnlink =
  * value (the release completes; the residue is inert — the epoch is
  * monotonic, so no future claim ever targets `claim-<e>` again, and a
  * claim at e+1's superseded-epoch cleanup removes any residue of a
- * released record, §6.3/§6.5).
+ * released record).
  */
 export function unlinkOwnClaimFile(
   thirdlightDir: string,
@@ -886,7 +884,7 @@ export function unlinkOwnClaimFile(
   const stamp = parseClaimStamp(bytes);
   if (stamp === null || stamp.backendId !== current.backendId || stamp.pid !== current.pid) {
     // Not our claim file: a foreign/empty/unparseable holder — do NOT
-    // unlink (the §6.3 safety bound: a live foreign holder's file is
+    // unlink (the claim safety bound: a live foreign holder's file is
     // never removed or rewritten by any backend path).
     return { kind: 'foreign' };
   }
@@ -895,17 +893,17 @@ export function unlinkOwnClaimFile(
 }
 
 /**
- * R4 (2026-09-18 review): verify FROM DISK that this backend still holds
+ * Verify FROM DISK that this backend still holds
  * the project's ownership after a failed (incomplete) release attempt —
  * the old session must never act on the cached ownership. The record must
  * be exactly ours (state `owned`, same `backendId` + `pid`, same
  * `lockEpoch`) AND the claim file `claim-<e>` must carry our stamp
- * (backendId + pid — the §6.2 self-reclaim row's identity check). Any
+ * (backendId + pid — the self-reclaim identity check). Any
  * deviation — absent or unreadable record, a record that is no longer
  * ours (released / foreign / other epoch / unparseable), or a
  * missing/foreign/unparseable/unreadable claim file ⇒ `false`: the
  * caller must stop writing (the session becomes a non-writer and every
- * later operation is a fresh open re-evaluating from disk — the R4
+ * later operation is a fresh open re-evaluating from disk — the
  * split-brain bound).
  */
 export function stillHoldsOwnership(
@@ -930,10 +928,9 @@ export function stillHoldsOwnership(
 }
 
 /**
- * R4 (2026-09-18 review): after a foreign ownership write is observed
+ * After a foreign ownership write is observed
  * during a release (the record W's `external` outcome), re-read the
- * record for the `ownership_conflict` holder (workspace.md §11: the
- * holder is the identity object of the parseable owned record; `null`
+ * record for the `ownership_conflict` holder (the holder is the identity object of the parseable owned record; `null`
  * when no parseable owned record exists). A parseable OWNED record (any
  * identity) ⇒ its holder shape; released / absent / unreadable /
  * unparseable ⇒ null.
@@ -953,26 +950,25 @@ export function reReadOwnershipHolder(thirdlightDir: string, ops: WriteOps): Hol
 }
 
 /**
- * Rewrite the ownership record with `state: "released"` (workspace.md §9.1)
+ * Rewrite the ownership record with `state: "released"`
  * — the same W + verification re-read as a claim, keeping the record's
  * identity (backendId/pid/openedAt/lockEpoch; only `state` changes). The
  * file is never deleted.
  *
- * R4 (2026-09-18 review): every ownership-write outcome is handled
+ * Every ownership-write outcome is handled
  * explicitly (ok / failed / external / unreadable / new-undurable):
  * - `ok` and `new-undurable` — the released record REACHED DISK (the
- *   rename took effect; `new-undurable`'s durability is unproven, §5.1):
+ *   rename took effect; `new-undurable`'s durability is unproven):
  *   the release tail runs — the own-claim-file unlink with its by-path
- *   holder verification (workspace.md §9 step 1; "Once the released
+ *   holder verification (release step 1; "Once the released
  *   record is durable, the old session must not issue further writes") —
  *   and the caller discards the in-memory state. The caller reports
  *   `ok` for `ok` and still reports the FAILURE
  *   (`write_failed { onDiskState: "new-undurable" }`) for unproven
- *   durability (the R4 acceptance: "while still returning failure for
- *   unproven durability");
+ *   durability;
  * - `failed/previous` — the release did not reach the record: the
  *   project is still owned and the old session is still the writer
- *   (workspace.md §9: no partial release); no claim unlink;
+ *   (no partial release); no claim unlink;
  * - `external` — foreign ownership was observed (the record is no
  *   longer ours): no claim unlink (the file, if any, is not verified as
  *   ours); the caller must stop writing;
@@ -998,7 +994,7 @@ export function releaseOwnership(
       /**
        * Set only when the released record reached disk (the W's `ok` /
        * `new-undurable` outcome) and the release tail ran the
-       * own-claim-file unlink (workspace.md §9 step 1).
+       * own-claim-file unlink.
        */
       claim?: ReleaseClaimUnlink;
     } {
@@ -1016,15 +1012,15 @@ export function releaseOwnership(
     // The released record is durable: the release tail unlinks the
     // owner's own claim file (verified by path — a missing/foreign file
     // is recorded, never fatal) and the caller discards the in-memory
-    // state (the session becomes a non-writer, workspace.md §9).
+    // state (the session becomes a non-writer).
     return { ok: true, claim: unlinkOwnClaimFile(thirdlightDir, current, ops) };
   }
   if (res.failed !== undefined && res.failed.onDiskState === 'new-undurable') {
     // The rename took effect: the released record IS on disk (durability
-    // unproven). R4/§9: once the released record is on disk the old
+    // unproven). Once the released record is on disk the old
     // session must not remain an active writer — the release tail
     // proceeds (the own-claim-file unlink) while the caller still reports
-    // the failure for unproven durability (§5.1: `write_failed
+    // the failure for unproven durability (`write_failed
     // { onDiskState: "new-undurable" }`).
     return {
       ok: false,
@@ -1047,11 +1043,11 @@ export function releaseOwnership(
   }
   // res.failed 'previous': the release did not reach the record — the
   // project is still owned and the old session is still the writer
-  // (workspace.md §9: no partial release). No claim unlink.
+  // (no partial release). No claim unlink.
   return { ok: false, failed: { onDiskState: 'previous', errno: res.failed?.errno } };
 }
 
-/** A fresh per-backend-process identity (workspace.md §6.1). */
+/** A fresh per-backend-process identity. */
 export function newSelfIdentity(pid: number, backendId?: string): SelfIdentity {
   return { backendId: backendId ?? generateBackendId(), pid };
 }

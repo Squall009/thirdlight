@@ -1,15 +1,14 @@
 /**
- * v3 command helpers — commands.md §§3.1/5.4/8.5.1/8.10/8.13–8.14 and
- * project-model.md §§23.3–23.9 (packet 45).
+ * v3 command helpers.
  *
  * Pure helpers shared by the forward ops and the history engine:
  * - the canonical field order of every `setComponent` component;
  * - the delegation of a v3 component VALUE to the project-model's
- *   per-component validators (one value authority, project-model §23.3) with
+ *   per-component validators (one value authority) with
  *   the command-layer error shape (`CommandError`);
- * - the packet-41 `modelAnimation` role-binding stages 2–4 (shape, range,
- *   duplicates), which project-model §23.3.6 deliberately leaves to the
- *   command layer (`presentation.md` §41.3.2).
+ * - the `modelAnimation` role-binding stages 2–4 (shape, range,
+ *   duplicates), which the project model deliberately leaves to the
+ *   command layer.
  *
  * No I/O, no transport, no renderer: values in, values out.
  */
@@ -37,104 +36,104 @@ import type {
   V3OwnedComponent,
 } from './types';
 
-/** §23.3 registry field order for the components `setComponent` can edit. */
+/** Registry field order for the components `setComponent` can edit. */
 export const COMPONENT_FIELD_ORDER_V3: Record<V3OwnedComponent, readonly string[]> = {
-  // Phase 24.4f: a v4 spawn's yaw (optional; phase 24.8: the left/right facing became it).
+  // A v4 spawn's yaw (optional; the left/right facing became it).
   playerSpawn: ['yaw'],
   light: ['type', 'color', 'intensity', 'direction', 'castShadow', 'range', 'decay', 'angle', 'penumbra', 'groundColor', 'mode', 'shadowMapSize', 'shadowBias', 'shadowNormalBias', 'shadowExtent', 'cookie'],
   surface: ['color', 'roughness', 'metalness', 'emissive', 'emissiveIntensity'],
   modelAnimation: ['assetId', 'version', 'roles'],
   instances: ['asset', 'buffer', 'count', 'castShadow', 'receiveShadow', 'chunkSize'],
-  // Phase 9.4: free-form keys (material names); a setComponent replaces the whole mapping.
+  // Free-form keys (material names); a setComponent replaces the whole mapping.
   materials: [],
   fogVolume: ['size', 'density', 'color', 'falloff', 'heightFalloff'],
   animator: ['controller', 'parameters'],
-  // Phase 9.9: gameplay building blocks.
+  // Gameplay building blocks.
   mover: ['waypoints', 'speed', 'mode', 'wait', 'easing', 'startOn', 'maxPush', 'active', 'stopOn', 'toggleOn', 'reverseOn'],
   audioSource: ['assetId', 'volume', 'range', 'distanceModel', 'refDistance', 'rolloff'],
   faceMovement: ['yawRight', 'yawLeft', 'turnSeconds', 'mode', 'yawOffset'],
   trigger: ['size', 'signal', 'once', 'exitSignal', 'shape', 'radius', 'mode', 'height', 'sceneTransition'],
   switch: ['mode', 'signal', 'size', 'once', 'action'],
   health: ['max', 'start'],
-  // Phase 18.0: free-form keys (materialIds); a setComponent replaces the whole value.
+  // Free-form keys (materialIds); a setComponent replaces the whole value.
   materialParams: [],
-  // Phase 20.0: the effect and its parameter overrides (`params` is replaced whole).
+  // The effect and its parameter overrides (`params` is replaced whole).
   effect: ['effectId', 'playOnStart', 'params', 'signal', 'stopSignal'],
-  // Phase 23.4: the camera framework (project-model cameras.ts field order).
+  // The camera framework (project-model cameras.ts field order).
   virtualCamera: VIRTUAL_CAMERA_FIELDS,
   cameraPath: CAMERA_PATH_FIELDS,
-  // Phase 23.11: sockets (project-model sockets.ts field order).
+  // Sockets (project-model sockets.ts field order).
   socketAttach: SOCKET_ATTACH_FIELDS,
-  // Phase 23.5: a block layer's settings (its cells are editBlocks' data).
+  // A block layer's settings (its cells are editBlocks' data).
   blockLayer: BLOCK_LAYER_FIELDS,
-  // Phase 23.6: a prop's block footprint (`set` is replaced whole).
+  // A prop's block footprint (`set` is replaced whole).
   blockFootprint: ['layer', 'size', 'set'],
-  // Phase 23.10: the behavior group an entity's behavior belongs to (game modes tick groups).
+  // The behavior group an entity's behavior belongs to (game modes tick groups).
   behaviorGroup: ['group'],
-  // Phase 24.4: the generic primitives (project-model blocks.ts field order).
+  // The generic primitives (project-model blocks.ts field order).
   collectible: ['counter', 'amount', 'respawn', 'onCollect', 'size'],
   patrol: ['mode', 'waypoints', 'loop', 'speed', 'wait', 'direction', 'size', 'wallProbe', 'ledgeProbe'],
   hitbox: ['shape', 'size', 'radius', 'damage'],
   climbVolume: ['size'],
   gravity: ['scale', 'size'],
-  // Phase 25.14: a camera region (project-model cameras.ts field order).
+  // A camera region (project-model cameras.ts field order).
   cameraRegion: CAMERA_REGION_FIELDS,
 };
 
-/** §8.13: `applySurfacePreset`'s `changedFields` (the surface field order). */
+/** `applySurfacePreset`'s `changedFields` (the surface field order). */
 export const SURFACE_CHANGED_FIELDS: readonly string[] = COMPONENT_FIELD_ORDER_V3.surface;
 
-/** §41.3.1 the three role keys, in canonical order. */
+/** The three role keys, in canonical order. */
 export const ANIMATION_ROLE_KEYS = ['idle', 'run', 'airborne'] as const;
 
-/** All six v3 add-capable components, in §8.10 table order. */
+/** All six v3 add-capable components, in `setComponent` table order. */
 export const V3_COMPONENTS: readonly V3OwnedComponent[] = [
   'playerSpawn',
   'light',
   'surface',
   'modelAnimation',
-  // Phase 12 (c): v4 scenes only (a v3 scene's registry refuses it).
+  // v4 scenes only (a v3 scene's registry refuses it).
   'instances',
-  // Phase 9.4: v4 scenes only.
+  // v4 scenes only.
   'materials',
-  // Phase 9.5: v4 scenes only.
+  // v4 scenes only.
   'fogVolume',
-  // Phase 9.7: v4 scenes only.
+  // v4 scenes only.
   'animator',
-  // Phase 9.9: v4 scenes only.
+  // v4 scenes only.
   'mover',
   'trigger',
   'switch',
   'health',
   'audioSource',
   'faceMovement',
-  // Phase 18.0: v4 scenes only.
+  // v4 scenes only.
   'materialParams',
-  // Phase 20.0: v4 scenes only.
+  // v4 scenes only.
   'effect',
-  // Phase 23.4: v4 scenes only.
+  // v4 scenes only.
   'virtualCamera',
   'cameraPath',
-  // Phase 23.11: v4 scenes only.
+  // v4 scenes only.
   'socketAttach',
-  // Phase 23.5: v4 scenes only.
+  // v4 scenes only.
   'blockLayer',
-  // Phase 23.6: v4 scenes only.
+  // v4 scenes only.
   'blockFootprint',
-  // Phase 23.10: v4 scenes only.
+  // v4 scenes only.
   'behaviorGroup',
-  // Phase 24.4: v4 scenes only.
+  // v4 scenes only.
   'collectible',
   'patrol',
   'hitbox',
-  // Phase 25.13: v4 scenes only.
+  // v4 scenes only.
   'climbVolume',
   'gravity',
-  // Phase 25.14: v4 scenes only.
+  // v4 scenes only.
   'cameraRegion',
 ];
 
-/** Every component `setComponent` may address (commands.md §8.10). */
+/** Every component `setComponent` may address. */
 export const ALL_OWNED_COMPONENTS = [
   'box',
   'camera',
@@ -144,7 +143,7 @@ export const ALL_OWNED_COMPONENTS = [
   ...V3_COMPONENTS,
 ] as const;
 
-/** §8.10: components that support `add`/`remove` (phase 15.1: `box`/`camera`/`model` too). */
+/** Components that support `add`/`remove` (`box`/`camera`/`model` too). */
 export const REMOVABLE_COMPONENTS: readonly string[] = [
   'box',
   'camera',
@@ -154,7 +153,7 @@ export const REMOVABLE_COMPONENTS: readonly string[] = [
   ...V3_COMPONENTS,
 ];
 
-/** The built-in preset names (project-model §23.3.5; phase 24.7: generic names). */
+/** The built-in preset names (generic names). */
 export const SURFACE_PRESET_NAMES: readonly SurfacePresetName[] = [
   'matte-ground',
   'signal-red',
@@ -163,7 +162,7 @@ export const SURFACE_PRESET_NAMES: readonly SurfacePresetName[] = [
 
 /**
  * Map one project-model error into the command-layer error shape, keeping the
- * §5.2 key order (`code`, `cls`, code-specific fields, `message`).
+ * error key order (`code`, `cls`, code-specific fields, `message`).
  */
 export function commandErrorFromModel(e: ModelErrorV3): CommandError {
   const out: Record<string, unknown> = { code: e.code, cls: 'validation' };
@@ -180,7 +179,7 @@ export function commandErrorFromModel(e: ModelErrorV3): CommandError {
 }
 
 /**
- * §23.3: delegate one v3 component VALUE to the project-model's per-component
+ * Delegate one v3 component VALUE to the project-model's per-component
  * validator. `path` is the request path the diagnostics are reported against
  * (`/args/value` for `setComponent`, `/args/components/<name>` for
  * `createEntity`). Structural value rules only — scene-local target rules
@@ -265,7 +264,7 @@ export function validateV3ComponentValue(
   return errors;
 }
 
-/** §41.3.2 stage 2: each binding is exactly `{ clipIndex, clipName }`. */
+/** Role-binding stage 2: each binding is exactly `{ clipIndex, clipName }`. */
 export function validateAnimationRolesShape(
   value: unknown,
   path: string,
@@ -319,7 +318,7 @@ export function validateAnimationRolesShape(
 }
 
 /**
- * §41.3.2 stages 3–4 against the named immutable version's clip count
+ * Role-binding stages 3–4 against the named immutable version's clip count
  * (`metrics.animations`): pure, no bytes needed. Returns the first failing
  * command error, or `null`.
  */
@@ -353,7 +352,7 @@ export function assetsOf(content: ContentDocument): CommandAssetRecord[] {
   return content.assets as unknown as CommandAssetRecord[];
 }
 
-/** §23.3.7: the record's kind, defaulting a v2 record to `model`. */
+/** The record's kind, defaulting a v2 record to `model`. */
 export function assetKindOf(record: { kind?: unknown }): 'model' | 'audio' | 'texture' | 'music' | 'font' {
   return record.kind === 'audio' ? 'audio' : record.kind === 'texture' ? 'texture' : record.kind === 'music' ? 'music' : record.kind === 'font' ? 'font' : 'model';
 }
@@ -370,7 +369,7 @@ export function animationVersionOf(
   return record.versions.find((v) => v.version === version);
 }
 
-/** §5.6/§A6: an entity "carries" a component when the key is present. */
+/** An entity "carries" a component when the key is present. */
 export function entityHasComponent(
   entity: { components: Record<string, unknown> },
   component: string,

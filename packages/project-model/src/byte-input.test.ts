@@ -1,16 +1,14 @@
 /**
- * Constructed byte-input cases (the packet-05 byte-input-cases.md list,
- * archived with the M1 corpus under
- * archive/removed-v1-v2/fixtures-project-model/runtime/): encoding, strict
+ * Constructed byte-input cases: encoding, strict
  * JSON syntax vs duplicate-key precedence, JSON Pointer escaping, numeric
  * overflow, whitespace tolerance, project version precedence and error
  * attribution. Uses the actual `parseManifest`/`parseSceneV3` exports (NOT
  * `JSON.parse` followed by validation). Every input is copied and asserted
  * byte-equal after every call.
  *
- * Phase 9.3: the M1 `parseScene`/`validateProject` were removed; the scene
- * inputs are schemaVersion 3 documents (inline, test-docs-v3.ts) and the
- * project cases run through `validateProjectV3` (manifest + scene + content).
+ * The scene inputs are schemaVersion 3 documents (inline, test-docs-v3.ts)
+ * and the project cases run through `validateProjectV3` (manifest + scene +
+ * content).
  */
 
 import { describe, it, expect } from 'vitest';

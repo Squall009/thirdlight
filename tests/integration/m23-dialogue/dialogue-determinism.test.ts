@@ -1,5 +1,5 @@
 /**
- * Phase 23.16: conversations are simulation state across the worker
+ * Conversations are simulation state across the worker
  * boundary. A neutral scene with a script that starts a conversation (two
  * speakers, a voiced line with auto-advance, a choice that sets a variable,
  * a branch on it); a recorded input carries dialogue inputs (advances and a

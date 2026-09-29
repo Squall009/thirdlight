@@ -1,5 +1,5 @@
 /**
- * Phase 14.2: trigger shapes (`shape: box | circle`, a circle's `radius`) and
+ * Trigger shapes (`shape: box | circle`, a circle's `radius`) and
  * modes (`mode: enter | stay`) — validation and the canonical form (every new
  * field kept, an existing trigger's canonical bytes unchanged).
  */

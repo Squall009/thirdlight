@@ -1,6 +1,5 @@
 /**
- * The v3 presentation mutation op — commands.md §8.13 (`applySurfacePreset`),
- * packet 45. Phase 24.7: `setGameConfig` was deleted with the game block.
+ * The v3 presentation mutation op, `applySurfacePreset`.
  *
  * It runs the SAME pure pipeline and history engine as every other op
  * (`applyMutation`): one revision, one history entry, one `change`, one
@@ -17,7 +16,7 @@ import type { EntityV3 } from '@thirdlight/project-model';
 import type { ApplySurfacePresetArgs, ApplySurfacePresetChange } from './types';
 import { SURFACE_CHANGED_FIELDS } from './v3';
 
-/** §8.13: copy one frozen preset row onto an entity's `surface`. */
+/** Copy one frozen preset row onto an entity's `surface`. */
 export function applyApplySurfacePreset(
   input: OpInput,
   args: ApplySurfacePresetArgs,
@@ -72,7 +71,7 @@ export function applyApplySurfacePreset(
       scene: gate.scene,
       content: gate.content,
       change,
-      // §9.1: the inverse is the `setComponent` surface restore; the redo
+      // The inverse is the `setComponent` surface restore; the redo
       // re-applies the recorded `next` value (recorded-value rule).
       inverse: {
         kind: 'setComponent',

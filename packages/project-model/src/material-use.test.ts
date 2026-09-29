@@ -1,4 +1,4 @@
-/** Phase 25.7b: the materials a game uses (the manifest leaves the others out). */
+/** The materials a game uses (the manifest leaves the others out). */
 import { describe, expect, it } from 'vitest';
 import { materialsInUse } from './material-use';
 

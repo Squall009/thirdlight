@@ -1,5 +1,5 @@
 /**
- * Phase 23.4: the camera framework against a real backend, on a neutral 3D
+ * The camera framework against a real backend, on a neutral 3D
  * scene built by commands on a blank project (a floor, four coloured
  * pillars, a player capsule, a colour sky).
  *

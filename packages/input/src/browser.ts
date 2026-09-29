@@ -1,15 +1,15 @@
 /**
- * The single explicit browser listener owner (packet 30; input.md §4/§5).
+ * The single explicit browser listener owner.
  *
  * This is the **only** file in `@thirdlight/input` that touches `window`,
- * `document` or `navigator` (input.md §1). It owns every listener it installs,
+ * `document` or `navigator`. It owns every listener it installs,
  * reduces raw events and `Navigator.getGamepads()` to plain
  * `RawInputSnapshot` values, and delegates all mapping to the pure
  * `mapRawStep`. It never throws into the caller and never pretends the
  * gamepad API works: a blocked/insecure/absent API degrades to keyboard-only
  * with a structured `input_unavailable` diagnostic.
  *
- * Failure handling covered here (packet 30 "Failures" row):
+ * Failure handling covered here:
  *  - blocked / insecure API → `input_unavailable` once per attach;
  *  - absent or non-standard device → keyboard-only / `input_mapping_unsupported`;
  *  - reconnect and **index reuse** → the active pad is keyed by `index`+`id`,
@@ -55,7 +55,7 @@ interface VisibilityEventLike {
   target?: unknown;
 }
 
-/** Phase 23.3: the pointer/wheel event surface the owner reads (real DOM events satisfy it). */
+/** The pointer/wheel event surface the owner reads (real DOM events satisfy it). */
 interface PointerEventLike {
   clientX?: unknown;
   clientY?: unknown;
@@ -69,25 +69,25 @@ interface PointerEventLike {
   preventDefault?: () => void;
 }
 
-/** Phase 23.3: DOM `button` (0 left, 1 middle, 2 right) → the frame's button bit (1 left, 2 right, 4 middle). */
+/** DOM `button` (0 left, 1 middle, 2 right) → the frame's button bit (1 left, 2 right, 4 middle). */
 function buttonBit(button: unknown): number {
   return button === 0 ? 1 : button === 2 ? 2 : button === 1 ? 4 : 0;
 }
 
-/** Phase 23.3: a wheel event's notches (pixel deltas: 100 px a notch — Chrome's line; lines: 3 a notch; pages: 1). */
+/** A wheel event's notches (pixel deltas: 100 px a notch — Chrome's line; lines: 3 a notch; pages: 1). */
 function wheelNotches(deltaY: unknown, deltaMode: unknown): number {
   const d = typeof deltaY === 'number' && Number.isFinite(deltaY) ? deltaY : 0;
   return deltaMode === 1 ? d / 3 : deltaMode === 2 ? d : d / 100;
 }
 
-/** Phase 23.3: 1e-4 quantization (the frame's), negative zero normalized. */
+/** 1e-4 quantization (the frame's), negative zero normalized. */
 function q4(v: number): number {
   const r = Math.round(v * 1e4) / 1e4;
   return r === 0 ? 0 : r;
 }
 
 
-/** Editable-target detection from the event's own target (input.md §5.1). */
+/** Editable-target detection from the event's own target. */
 function isEditableTarget(target: unknown): boolean {
   if (typeof target !== 'object' || target === null) return false;
   const el = target as { tagName?: unknown; isContentEditable?: unknown };
@@ -114,8 +114,8 @@ function neutral(stepIndex: number): ActionFrame {
  * Make the game surface receive keyboard input: a canvas is not focusable by
  * default, so keys would never reach the keydown listener. Gives it a tab
  * stop, focuses it now and whenever it is clicked. Returns the release of
- * the click listener (phase 21.5: a page that composes the game again on the
- * same canvas — a new Play snapshot — must not pile up listeners).
+ * the click listener (a page that composes the game again on the same
+ * canvas — a new Play snapshot — must not pile up listeners).
  */
 export function focusGameSurface(el: HTMLElement): () => void {
   if (el.tabIndex < 0) el.tabIndex = 0;
@@ -129,13 +129,13 @@ export function focusGameSurface(el: HTMLElement): () => void {
 /**
  * Attach the browser binding to one play host. `target` scopes keyboard
  * `keydown`/`focusin`/`focusout`; window/document events handle release,
- * suspension and gamepad hot-plug (input.md §5.2/§5.3).
+ * suspension and gamepad hot-plug.
  *
  * The returned source is the runtime's `ActionSource` plus `detach()` /
  * `dispose()`, `unavailable()` and `attached`. Attaching never throws, even
  * with no DOM at all.
  */
-/** Phase 9.10: one frame's menu edges. */
+/** One frame's menu edges. */
 export interface UiSample {
   up: boolean;
   down: boolean;
@@ -146,7 +146,7 @@ export interface UiSample {
   pause: boolean;
 }
 
-/** Phase 9.10: the keys of the `ui` actions (navigate's composites give the directions). */
+/** The keys of the `ui` actions (navigate's composites give the directions). */
 function uiKeys(cfg: InputConfigLike): { up: Set<string>; down: Set<string>; left: Set<string>; right: Set<string>; submit: Set<string>; cancel: Set<string>; pause: Set<string> } {
   const out = { up: new Set<string>(), down: new Set<string>(), left: new Set<string>(), right: new Set<string>(), submit: new Set<string>(), cancel: new Set<string>(), pause: new Set<string>() };
   for (const a of cfg.actions) {
@@ -169,7 +169,7 @@ function uiKeys(cfg: InputConfigLike): { up: Set<string>; down: Set<string>; lef
   return out;
 }
 
-/** Phase 23.14: what a rebind listens to. */
+/** What a rebind listens to. */
 export interface CaptureInputOptions {
   /** The devices (default all). */
   readonly devices?: readonly ('keyboard' | 'mouse' | 'gamepad')[];
@@ -177,7 +177,7 @@ export interface CaptureInputOptions {
   readonly cancelKeys?: readonly string[];
 }
 
-/** Phase 23.14: the input a rebind heard. */
+/** The input a rebind heard. */
 export type CapturedInput =
   | { readonly device: 'keyboard'; readonly code: string }
   | { readonly device: 'mouse'; readonly button: 'left' | 'right' | 'middle' }
@@ -191,44 +191,44 @@ export function attachBrowserInput(
 ): ActionSource & {
   /** Remove every listener and clear held state; idempotent. */
   detach(): void;
-  /** Alias of `detach` (input.md §5.6 disposal). */
+  /** Alias of `detach` (input.md disposal). */
   dispose(): void;
   /** The structured unavailable state, or `null` while the API is usable. */
   unavailable(): { reason: 'gamepad' | 'environment'; message: string } | null;
   /** `true` until `detach()`; a detached source samples neutral frames. */
   readonly attached: boolean;
   /**
-   * The bounded semantic menu channel (delivery.md §4.1 — packet 55): one
+   * The bounded semantic menu channel: one
    * plain-data sample, latches cleared on read. Consumed by the game host,
    * never by the runtime ActionFrame.
    */
   sampleMenu(): MenuSample;
-  /** The host consumed a confirm sample: the held press now needs a release (delivery.md §4.2). */
+  /** The host consumed a confirm sample: the held press now needs a release. */
   markConfirmConsumed(): void;
-  /** Phase 9.10: the next menu edge (the `ui` actions' keys, pad D-pad/stick/A/B/Start), one per call in arrival order. */
+  /** The next menu edge (the `ui` actions' keys, pad D-pad/stick/A/B/Start), one per call in arrival order. */
   sampleUi(): UiSample;
-  /** Phase 9.10: rebind at runtime (a player's settings); held state is cleared. */
+  /** Rebind at runtime (a player's settings); held state is cleared. */
   configure(inputConfig: InputConfigLike): void;
-  /** Phase 9.10: hand the next key press to `onKey` (Escape gives null); returns a cancel function. */
+  /** Hand the next key press to `onKey` (Escape gives null); returns a cancel function. */
   captureKey(onKey: (code: string | null) => void): () => void;
   /**
-   * Phase 14.5: hand the next pad button pressed (a fresh press — a button
+   * Hand the next pad button pressed (a fresh press — a button
    * already held when the capture starts must be released first) to
    * `onButton`; the Escape key gives null. Polled by `sampleUi` (the host
    * calls it every frame).
    * Returns a cancel function.
    */
   capturePadButton(onButton: (button: number | null) => void): () => void;
-  /** Phase 15.5: the device the player used last (a key press, or a pad button/stick) — the HUD names its bindings. */
+  /** The device the player used last (a key press, or a pad button/stick) — the HUD names its bindings. */
   activeDevice(): 'keyboard' | 'gamepad';
   /**
-   * Phase 23.14: the device used last with the active gamepad's id (the
+   * The device used last with the active gamepad's id (the
    * browser's `Gamepad.id`, clipped; null without an active pad) — glyphs
    * name the pad family from it.
    */
   activeDeviceInfo(): { device: 'keyboard' | 'gamepad'; gamepadId: string | null };
   /**
-   * Phase 23.14: listen for the next input for a rebind — a key (not
+   * Listen for the next input for a rebind — a key (not
    * auto-repeat), a mouse button or wheel notch over the view, a fresh pad
    * button press or a pad axis pushed past half way from where it rested —
    * from the devices asked for. A cancel key gives null. Returns a cancel
@@ -236,19 +236,19 @@ export function attachBrowserInput(
    */
   captureInput(options: CaptureInputOptions, onInput: (input: CapturedInput | null) => void): () => void;
   /**
-   * Phase 23.14: what the host adds to the next sampled frame (`ActionFrame.input`:
+   * What the host adds to the next sampled frame (`ActionFrame.input`:
    * the device, the bindings, rebind outcomes) — called once per sample; null removes it.
    */
   setFrameInput(source: (() => InputStatusEntry | undefined) | null): void;
   /**
-   * Phase 23.9a: only the actions of these maps feed the frame (null: every
+   * Only the actions of these maps feed the frame (null: every
    * map) — the host switches to a focused UI document's map. With the
    * gameplay map off the character controller's move and jump read neutral too; when it
    * comes back, a control still held must be released before it acts.
    */
   setActiveMaps(maps: readonly string[] | null): void;
   /**
-   * Phase 23.3: the cursor the game wants now (the host resolves it every
+   * The cursor the game wants now (the host resolves it every
    * frame from the input map and a script's request): locked → pointer lock
    * on the view (taken on the next click in the view when the browser wants
    * a gesture), free → released. The cursor is hidden while locked or while
@@ -256,13 +256,13 @@ export function attachBrowserInput(
    */
   applyCursor(mode: 'free' | 'locked'): void;
   /**
-   * Phase 25.15: the UI hit test (x, y fractions of the view; null: none).
+   * The UI hit test (x, y fractions of the view; null: none).
    * The pointer over an element the test hits is still tracked (a move over
    * the page's UI updates the position) and the frame's pointer reports
    * `overUi`; a press there went to the UI (the view never saw it).
    */
   setUiHitTest(hit: ((x: number, y: number) => boolean) | null): void;
-  /** Phase 23.3: the cursor as it is (the mode asked for, whether the browser holds the lock, whether it is hidden). */
+  /** The cursor as it is (the mode asked for, whether the browser holds the lock, whether it is hidden). */
   cursorState(): { mode: 'free' | 'locked'; locked: boolean; hidden: boolean };
 } {
   const globalWindow =
@@ -282,21 +282,21 @@ export function attachBrowserInput(
     return () => candidate.call(nav);
   })();
 
-  // Phase 9.8: the character controller keys come from the project's move/jump actions
-  // (phase 9.10: `configure` rebinds them at runtime).
+  // The character controller keys come from the project's move/jump actions
+  // (`configure` rebinds them at runtime).
   let LEFT_CODES = new Set<string>();
   let RIGHT_CODES = new Set<string>();
   let JUMP_CODES = new Set<string>();
-  /** Phase 14.5: the pad buttons/axes of the character controller's move and jump (rebindable). */
+  /** The pad buttons/axes of the character controller's move and jump (rebindable). */
   let PAD: CharacterPad = STANDARD_CHARACTER_PAD;
   let evaluator: ReturnType<typeof createActionEvaluator> | null = null;
-  /** Phase 23.2: the project's `move` action is a 2D axis (a 3D character's move vector: the frame's moveX and moveY). */
+  /** The project's `move` action is a 2D axis (a 3D character's move vector: the frame's moveX and moveY). */
   let MOVE_2D = false;
   /** Every key an action uses (held keys and taps between samples feed the evaluator). */
   let ACTION_CODES = new Set<string>();
-  /** Phase 9.10: the ui actions' keys (menus). */
+  /** The ui actions' keys (menus). */
   let UI_KEYS: { up: Set<string>; down: Set<string>; left: Set<string>; right: Set<string>; submit: Set<string>; cancel: Set<string>; pause: Set<string> } = uiKeys(DEFAULT_INPUT_CONFIG);
-  /** Phase 23.3: the view keeps its context menu / the page scroll from the right button / wheel when an action binds them. */
+  /** The view keeps its context menu / the page scroll from the right button / wheel when an action binds them. */
   let SUPPRESS_CONTEXT_MENU = false;
   let SUPPRESS_WHEEL = false;
   const applyConfig = (cfg: InputConfigLike | undefined): void => {
@@ -328,14 +328,14 @@ export function attachBrowserInput(
   const isMappedCode = (code: unknown): code is string =>
     typeof code === 'string' && (LEFT_CODES.has(code) || RIGHT_CODES.has(code) || JUMP_CODES.has(code));
   let lastPad: { buttons: boolean[]; axes: number[] } | null = null;
-  /** Phase 15.5: the device used last (keyboard until a pad button or stick moves). */
+  /** The device used last (keyboard until a pad button or stick moves). */
   let lastDevice: 'keyboard' | 'gamepad' = 'keyboard';
-  /** Phase 23.14: the id of the pad used last (null: none yet). */
+  /** The id of the pad used last (null: none yet). */
   let lastPadId: string | null = null;
-  /** Phase 23.14: a rebind listening for input, and the pad's buttons/axes when it started (a press is a change from there). */
+  /** A rebind listening for input, and the pad's buttons/axes when it started (a press is a change from there). */
   type Capture = { devices: ReadonlySet<string>; cancel: ReadonlySet<string>; cb: (input: CapturedInput | null) => void; buttons: boolean[] | null; axes: number[] | null };
   let inputCapture: Capture | null = null;
-  /** Phase 23.14: the host's frame entry source. */
+  /** The host's frame entry source. */
   let frameInput: (() => InputStatusEntry | undefined) | null = null;
   const clock: () => number = options.now ?? (() => (typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now()));
   const finishCapture = (input: CapturedInput | null): void => {
@@ -343,7 +343,7 @@ export function attachBrowserInput(
     inputCapture = null;
     c?.cb(input);
   };
-  /** Phase 23.9a: the active action maps (null: all). */
+  /** The active action maps (null: all). */
   let activeMaps: ReadonlySet<string> | null = null;
   const actionActive = (a: { map: string }): boolean => activeMaps === null || activeMaps.has(a.map);
 
@@ -361,12 +361,12 @@ export function attachBrowserInput(
   const held = new Set<string>();
   let jumpLatch = false;
   let state: StepState = { down: false, awaitingRelease: false };
-  // The bounded semantic menu channel (delivery.md §4.1/§4.2) — separate
+  // The bounded semantic menu channel — separate
   // from the gameplay ActionFrame: the owner feeds its device events into
   // the pure controller; the game host consumes `sampleMenu()` and calls
   // `markConfirmConsumed()`. The controller's `suppress()` state feeds the
   // gameplay sampler so a consumed menu press can never become a jump from
-  // the same physical press (§4.2 fresh release).
+  // the same physical press (the fresh-release rule).
   const menu = createMenuController();
   let prevGamepadJumpDown = false;
   let activeIndex: number | null = null;
@@ -389,7 +389,7 @@ export function attachBrowserInput(
     try {
       options.onDiagnostic(event);
     } catch {
-      // A diagnostic sink must never break input (input.md §5.3 "diagnostics only").
+      // A diagnostic sink must never break input (diagnostics only).
     }
   };
 
@@ -400,13 +400,12 @@ export function attachBrowserInput(
     emit({ code: 'input_unavailable', reason, message });
   };
 
-  // --- suspension / fresh activation (input.md §5.3) ------------------------
+  // --- suspension / fresh activation ------------------------
 
   /**
-   * Fresh activation after a suspension or an active-pad change (input.md
-   * §5.3/§5.4): held state and pending edges are discarded and every control
+   * Fresh activation after a suspension or an active-pad change: held state and pending edges are discarded and every control
    * enters `awaitingRelease`, so a physically down control yields `held` —
-   * never `pressed` — until it is observed up once (§12.5.6/§12.5.7).
+   * never `pressed` — until it is observed up once.
    */
   const freshActivation = (): void => {
     jumpLatch = false;
@@ -420,14 +419,14 @@ export function attachBrowserInput(
     actionHeld.clear();
     actionPressed.clear();
     evaluator?.reset();
-    // Phase 23.3: held pointer buttons are let go (the next sample reports their release) and pending movement dropped.
+    // Held pointer buttons are let go (the next sample reports their release) and pending movement dropped.
     pointerButtons = 0;
     pointerPressed = 0;
     pointerDx = 0;
     pointerDy = 0;
     pointerWheel = 0;
     menu.clear('all'); // focus/visibility loss: every held key/button and the
-    // menu latch clear (delivery.md §4.6)
+    // menu latch clear
     freshActivation();
     suspendPending = true;
     counters.suspendCount += 1;
@@ -441,11 +440,11 @@ export function attachBrowserInput(
     emit({ code: 'input_activate', reason });
   };
 
-  // --- gamepad bookkeeping (input.md §4.4/§5.4) ----------------------------
+  // --- gamepad bookkeeping ----------------------------
 
   /**
    * The pad reduced to the snapshot through the character controller's pad bindings
-   * (phase 14.5: `button0` is the mapped jump, `button14`/`button15` the
+   * (`button0` is the mapped jump, `button14`/`button15` the
    * mapped left/right buttons, `axis0` the mapped stick — the standard
    * layout unless rebound). `ignore`: buttons that must not count (a
    * consumed menu confirm still held).
@@ -465,7 +464,7 @@ export function attachBrowserInput(
     };
   };
 
-  /** Phase 23.14: the pad part of a rebind: a fresh button press or an axis pushed past half way from its rest. */
+  /** The pad part of a rebind: a fresh button press or an axis pushed past half way from its rest. */
   const pollCapture = (pads: ArrayLike<Gamepad | null> | null): void => {
     const c = inputCapture;
     if (c === null || !c.devices.has('gamepad') || pads === null) return;
@@ -526,14 +525,14 @@ export function attachBrowserInput(
     activeIndex = null;
     activeId = null;
     menu.clear('gamepad'); // disconnect clears that device's held menu state;
-    // keyboard play is unaffected and nothing stays stuck (delivery.md §4.3)
+    // keyboard play is unaffected and nothing stays stuck
     freshActivation();
     counters.disconnectCount += 1;
     emit({ code: 'input_disconnect', reason, deviceId: clipDeviceId(lostId ?? '') });
   };
 
   /**
-   * Pick the active pad (input.md §4.4): the lowest-index connected
+   * Pick the active pad: the lowest-index connected
    * standard-mapped pad showing activity; the current pad stays active until
    * it is lost or a lower-index active pad appears. Reconciles index reuse.
    */
@@ -566,7 +565,7 @@ export function attachBrowserInput(
           // A lower-index pad takes over. This is an active-pad change, so it
           // goes through the same fresh-activation transition as a disconnect:
           // a button already held on the new pad yields `held`, never
-          // `pressed` (input.md §4.4/§5.4).
+          // `pressed`.
           freshActivation();
           activeIndex = lower.index;
           activeId = lower.id;
@@ -594,7 +593,7 @@ export function attachBrowserInput(
     lastDevice = 'keyboard';
     const code = String(e.code ?? '');
     if (padCapture !== null && code === 'Escape' && e.repeat !== true) {
-      // Phase 14.5: Escape cancels a pad rebinding.
+      // Escape cancels a pad rebinding.
       const cb = padCapture;
       padCapture = null;
       padCaptureBase = null;
@@ -603,25 +602,25 @@ export function attachBrowserInput(
       return;
     }
     if (inputCapture !== null && e.repeat !== true && (inputCapture.devices.has('keyboard') || inputCapture.cancel.has(code))) {
-      // Phase 23.14: a rebind takes this key (nothing else sees it); a cancel key gives null.
+      // A rebind takes this key (nothing else sees it); a cancel key gives null.
       if (typeof e.preventDefault === 'function') e.preventDefault();
       finishCapture(inputCapture.cancel.has(code) ? null : { device: 'keyboard', code });
       return;
     }
     if (capture !== null && e.repeat !== true) {
-      // Phase 9.10: a rebinding screen takes this key (nothing else sees it).
+      // A rebinding screen takes this key (nothing else sees it).
       const cb = capture;
       capture = null;
       if (typeof e.preventDefault === 'function') e.preventDefault();
       cb(code === 'Escape' ? null : code);
       return;
     }
-    // Phase 9.10: menu edges (navigation repeats while held).
+    // Menu edges (navigation repeats while held).
     if (UI_KEYS.up.has(code)) pushUi('up');
     if (UI_KEYS.down.has(code)) pushUi('down');
     if (UI_KEYS.left.has(code)) pushUi('left');
     if (UI_KEYS.right.has(code)) pushUi('right');
-    if (e.repeat === true) return; // auto-repeat never creates a latch (runtime.md §12.5.2)
+    if (e.repeat === true) return; // auto-repeat never creates a latch (runtime.md)
     if (UI_KEYS.submit.has(code)) pushUi('submit');
     if (UI_KEYS.cancel.has(code)) pushUi('cancel');
     if (UI_KEYS.pause.has(code)) {
@@ -629,7 +628,7 @@ export function attachBrowserInput(
       if (typeof e.preventDefault === 'function') e.preventDefault();
     }
     // The menu channel sees the fresh press BEFORE the gameplay mapping gate
-    // (Enter/KeyM are not gameplay bindings — packet-38); the editable-target
+    // (Enter/KeyM are not gameplay bindings); the editable-target
     // and repeat gates above still apply (menu keys in a text field are inert).
     menu.keyboardDown(String(e.code ?? ''));
     if (typeof e.code === 'string' && ACTION_CODES.has(e.code)) {
@@ -694,7 +693,7 @@ export function attachBrowserInput(
 
   const onFocusOut = (): void => suspend('focusout');
 
-  // --- phase 23.3: the pointer ----------------------------------------------
+  // --- The pointer ----------------------------------------------
 
   /** Seen once (a pointer event over the view): from then on every sample carries the pointer. */
   let pointerSeen = false;
@@ -748,9 +747,9 @@ export function attachBrowserInput(
     pointerOver = true;
     if (e.pointerType !== 'touch') lastDevice = 'keyboard'; // keyboard and mouse are one device for the HUD
   };
-  /** Phase 25.15: the UI hit test (the host's). */
+  /** The UI hit test (the host's). */
   let uiHit: ((x: number, y: number) => boolean) | null = null;
-  /** Phase 25.15: a move over the page's UI (an element over the view): the pointer stays tracked there. */
+  /** A move over the page's UI (an element over the view): the pointer stays tracked there. */
   const onWindowPointerMove = (event: Event): void => {
     if (detached || uiHit === null || isLocked()) return;
     if ((event as { target?: unknown }).target === target) return; // the view's own listener has it
@@ -771,7 +770,7 @@ export function attachBrowserInput(
     pointerOver = true;
     lastDevice = 'keyboard';
     if (inputCapture !== null && inputCapture.devices.has('mouse') && buttonBit(e.button) !== 0) {
-      // Phase 23.14: a rebind takes this mouse button.
+      // A rebind takes this mouse button.
       finishCapture({ device: 'mouse', button: e.button === 0 ? 'left' : e.button === 2 ? 'right' : 'middle' });
       if (typeof e.preventDefault === 'function') e.preventDefault();
       return;
@@ -808,7 +807,7 @@ export function attachBrowserInput(
     if (inputCapture !== null && inputCapture.devices.has('mouse')) {
       const n = wheelNotches(e.deltaY, e.deltaMode);
       if (n !== 0) {
-        // Phase 23.14: a rebind takes the wheel (positive towards the user).
+        // A rebind takes the wheel (positive towards the user).
         finishCapture({ device: 'mouse', wheel: n > 0 ? 1 : -1 });
         if (typeof e.preventDefault === 'function') e.preventDefault();
         return;
@@ -900,7 +899,7 @@ export function attachBrowserInput(
       ...(pointerReleased !== 0 ? { released: pointerReleased } : {}),
       ...(!pointerOver && !locked ? { over: false } : {}),
       ...(locked ? { locked: true } : {}),
-      // Phase 25.15: over the UI (the host's hit test at the pointer).
+      // Over the UI (the host's hit test at the pointer).
       ...(pointerOver && !locked && uiHit !== null && uiHit(pointerX, pointerY) ? { overUi: true } : {}),
     };
   };
@@ -923,7 +922,7 @@ export function attachBrowserInput(
   listen(win, 'gamepadconnected', onGamepadConnected);
   listen(win, 'gamepaddisconnected', onGamepadDisconnected);
   listen(doc, 'visibilitychange', onVisibilityChange);
-  // Phase 23.3: the pointer over the view (a release outside it still counts), the wheel, pointer lock.
+  // The pointer over the view (a release outside it still counts), the wheel, pointer lock.
   listen(target, 'pointermove', onPointerMove);
   listen(win, 'pointermove', onWindowPointerMove);
   listen(target, 'pointerdown', onPointerDown);
@@ -935,7 +934,7 @@ export function attachBrowserInput(
   listen(target, 'contextmenu', onContextMenu);
   listen(doc, 'pointerlockchange', onPointerLockChange);
 
-  // --- availability (input.md §5.5) ----------------------------------------
+  // --- availability ----------------------------------------
 
   const insecure = win !== null && win.isSecureContext === false;
   if (!win && !doc && !nav && pollGamepads === null) {
@@ -956,7 +955,7 @@ export function attachBrowserInput(
     return false;
   };
 
-  /** Phase 23.14: the frame with the host's input entry (device, bindings, rebind outcomes) when it has one. */
+  /** The frame with the host's input entry (device, bindings, rebind outcomes) when it has one. */
   const sample = (stepIndex: number): ActionFrame => {
     const frame = sampleDevices(stepIndex);
     const extra = frameInput?.();
@@ -989,20 +988,18 @@ export function attachBrowserInput(
       }
     }
     // The menu channel sees the primary button (a fresh press confirms; the
-    // same button is the pad's M2 jump unless rebound — §4.2 suppression
-    // below). A disabled/blocked poll reads as released.
+    // same button is the pad's jump unless rebound — suppression below). A disabled/blocked poll reads as released.
     menu.gamepadButton0(active !== null && active.buttons[0]?.pressed === true);
     const suppressed = menu.suppress();
     // A consumed confirm press still held: the SAME physical button must
-    // not also drive the pad jump until it is released (phase 14.5: only
-    // when button 0 is one of the jump buttons; a rebound jump is another button).
+    // not also drive the pad jump until it is released (only when button 0 is one of the jump buttons; a rebound jump is another button).
     gamepad = active !== null ? toSnapshot(active, suppressed.gamepad ? new Set([0]) : undefined) : null;
     if (suppressed.keyboard) {
       // A consumed confirm press still held: the same physical key must not
       // contribute to the jump at all — the mapping derives the jump
       // down-transition from the HELD keyboard state, so the suppression
       // zeroes the held contribution, not just the owner's press latch
-      // (delivery.md §4.2 fresh release).
+      // (the delivery.md fresh-release rule).
       jumpLatch = false;
       keyboardJumpSuppressed = true;
     }
@@ -1011,7 +1008,7 @@ export function attachBrowserInput(
     if (gamepadJumpDown && !prevGamepadJumpDown) jumpLatch = true;
     prevGamepadJumpDown = gamepadJumpDown;
 
-    // Phase 23.9a: the gameplay map switched off (a focused UI document): move and jump read neutral.
+    // The gameplay map switched off (a focused UI document): move and jump read neutral.
     const gameplayOn = activeMaps === null || activeMaps.has('gameplay');
     const snapshot: RawInputSnapshot = gameplayOn
       ? {
@@ -1029,11 +1026,11 @@ export function attachBrowserInput(
     });
     state = next;
     jumpLatch = false; // the latch is cleared after the sample, in the same call
-    // Phase 23.3: the pointer (once seen) rides in every frame; the cursor follows the last device.
+    // The pointer (once seen) rides in every frame; the cursor follows the last device.
     const pointer = pointerSample();
     const rawPointer = takePointer();
     presentCursor();
-    // Phase 24.8: the mapped controls are the frame's `move` and `jump` actions (frame version 2).
+    // The mapped controls are the frame's `move` and `jump` actions (frame version 2).
     if (evaluator === null) {
       clearPointerEdges();
       return toActionFrame(frame, pointer === null ? {} : { pointer });
@@ -1041,7 +1038,7 @@ export function attachBrowserInput(
     const actions = evaluator.sample({ keys: actionHeld, pressedKeys: actionPressed, gamepad: gamepadEnabled ? lastPad : null, pointer: rawPointer, now: clock() }, activeMaps === null ? undefined : actionActive);
     actionPressed.clear();
     clearPointerEdges();
-    // Phase 23.2: a 2D `move` action gives the move vector (x right, y forward/up); a 1D one keeps the M2 mapping exactly.
+    // A 2D `move` action gives the move vector (x right, y forward/up); a 1D one keeps the 1D frame exactly.
     const move = MOVE_2D ? actions['move'] : undefined;
     if (move !== undefined) return toActionFrame({ ...frame, moveX: quantizeMove(move.x ?? 0), moveY: quantizeMove(move.y ?? 0) }, { actions, ...(pointer !== null ? { pointer } : {}) });
     return toActionFrame(frame, { actions, ...(pointer !== null ? { pointer } : {}) });
@@ -1074,7 +1071,7 @@ export function attachBrowserInput(
     activeId = null;
     tracked.clear();
     reportedMappingIds.clear();
-    // Phase 23.3: give the cursor back.
+    // Give the cursor back.
     releaseLock();
     if (targetEl?.style !== undefined && cursorHidden) targetEl.style.cursor = '';
     cursorHidden = false;
@@ -1088,7 +1085,7 @@ export function attachBrowserInput(
     reset,
     diagnostics,
     /**
-     * The bounded semantic menu channel (delivery.md §4.1): one plain-data
+     * The bounded semantic menu channel: one plain-data
      * sample, latches cleared on read. Consumed by the game host, never by
      * the runtime ActionFrame.
      */
@@ -1153,7 +1150,7 @@ export function attachBrowserInput(
           const list = pollGamepads();
           const pad = Array.from(list).find((g) => g !== null && g.mapping === 'standard') ?? null;
           const now = pad === null ? [] : Array.from(pad.buttons, (b) => b?.pressed === true);
-          // Phase 23.14: the pad counts as the device used last while a menu is open too; a rebind listens.
+          // The pad counts as the device used last while a menu is open too; a rebind listens.
           if (pad !== null && (now.some((d) => d) || Array.from(pad.axes).some((v) => Math.abs(v ?? 0) > 0.5))) {
             lastDevice = 'gamepad';
             lastPadId = clipDeviceId(pad.id);
@@ -1166,7 +1163,7 @@ export function attachBrowserInput(
             return { up: false, down: false, left: false, right: false, submit: false, cancel: false, pause: false };
           }
           if (padCapture !== null) {
-            // Phase 14.5: a pad rebinding takes the next fresh button press
+            // A pad rebinding takes the next fresh button press
             // (nothing else sees the pad meanwhile).
             const base = padCaptureBase ?? now;
             const hit = now.findIndex((d, i) => d && base[i] !== true);

@@ -1,6 +1,6 @@
 /**
  * three's Draco and Basis decoder files, shipped with an export only when a
- * shipped KTX2 texture (phase 25.19) or a
+ * shipped KTX2 texture or a
  * shipped GLB declares KHR_draco_mesh_compression / KHR_texture_basisu (read
  * from the GLB's own extensionsUsed, i.e. the bytes the game will load). The
  * export bootstrap's loader port looks for them at `./decoders/`. Meshopt
@@ -42,11 +42,11 @@ function glbExtensionsUsed(bytes: Uint8Array): string[] {
 
 const KTX2_ID = [0xab, 0x4b, 0x54, 0x58, 0x20, 0x32, 0x30, 0xbb, 0x0d, 0x0a, 0x1a, 0x0a];
 
-/** Which decoders the shipped models (and, phase 25.19, KTX2 textures) need. */
+/** Which decoders the shipped models (and KTX2 textures) need. */
 export function decodersNeeded(assets: readonly { bytes: Uint8Array; contentType: string }[]): ('draco' | 'basis')[] {
   const need = new Set<'draco' | 'basis'>();
   for (const a of assets) {
-    // Phase 25.19: a KTX2 texture asset needs the Basis transcoder too.
+    // A KTX2 texture asset needs the Basis transcoder too.
     if (a.contentType === 'image/x-texture' && a.bytes.length >= 12 && KTX2_ID.every((b, i) => a.bytes[i] === b)) need.add('basis');
     if (a.contentType !== 'model/gltf-binary') continue;
     const used = glbExtensionsUsed(a.bytes);

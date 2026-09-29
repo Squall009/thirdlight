@@ -1,5 +1,5 @@
 /**
- * Phase 16.3: the shape of one entry of the generated behavior API member
+ * The shape of one entry of the generated behavior API member
  * table (`behavior-api.generated.ts`, written by tools/gen-behavior-api.mjs).
  */
 export interface BehaviorApiMember {

@@ -1,5 +1,5 @@
 /**
- * Phase 9.4: the editor's copy of the material schema equals project-model's
+ * The editor's copy of the material schema equals project-model's
  * (the editor may import project-model types only).
  */
 import { describe, expect, it } from 'vitest';

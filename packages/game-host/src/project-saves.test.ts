@@ -1,5 +1,5 @@
 /**
- * Phase 24.7: the project save service forgets every slot of a game on
+ * The project save service forgets every slot of a game on
  * `clear()` (the editor's "Clear Play save" — the level flow's own saves it
  * cleared before were deleted with the flow). Real service over the memory
  * backend: two slots saved, then cleared; the stored keys are gone, the slot

@@ -1,5 +1,5 @@
 /**
- * Phase 9.8: the input package's copy of the default actions (the editor's
+ * The input package's copy of the default actions (the editor's
  * Play preview may not import project-model values) equals project-model's.
  */
 import { describe, expect, it } from 'vitest';

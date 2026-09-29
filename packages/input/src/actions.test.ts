@@ -1,5 +1,5 @@
 /**
- * Phase 9.8: named input actions — composites, gamepad buttons/axes,
+ * Named input actions — composites, gamepad buttons/axes,
  * processors and phases from synthetic device state, and the browser owner
  * with a project's bindings (fake window, synthetic key events; no gamepad).
  */

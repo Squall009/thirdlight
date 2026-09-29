@@ -1,5 +1,5 @@
 /**
- * Phase 9.6: the Blender (Cycles) side of the final light bake. Written to
+ * The Blender (Cycles) side of the final light bake. Written to
  * the bake host next to the package and run as
  *   blender -b --factory-startup --python cycles_bake.py -- <package> <out dir>
  *

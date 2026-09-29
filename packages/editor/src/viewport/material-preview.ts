@@ -1,5 +1,5 @@
 /**
- * Phase 18.2: the Material tab's live preview — one graph material on a
+ * The Material tab's live preview — one graph material on a
  * sphere, a plane, a cube or a model of the project, lit by a neutral key
  * light and drawn through the project environment (sky, image-based light,
  * fog, tone mapping and post, the same environment renderer as the Scene
@@ -53,7 +53,7 @@ export class MaterialPreview {
   private materialId: string | null = null;
   private shapeObject: THREE.Object3D | null = null;
   private ownedGeometry: THREE.BufferGeometry | null = null;
-  /** Phase 21.5: the primitive's own material (released with its shape). */
+  /** The primitive's own material (released with its shape). */
   private ownedMaterial: THREE.Material | null = null;
   private disposed = false;
   private raf = 0;
@@ -66,7 +66,7 @@ export class MaterialPreview {
     private readonly options: MaterialPreviewOptions,
   ) {
     const choice = editorRendererChoice();
-    // Phase 21.5: the canvas is never reused (a tab mounts a new one): its WebGL context is released at
+    // The canvas is never reused (a tab mounts a new one): its WebGL context is released at
     // once instead of waiting for the collector (browsers drop the oldest contexts past ~16).
     this.renderer = createRenderer({ canvas, preference: choice.preference, source: choice.source, antialias: true, clearColor: 0x000000, clearAlpha: 1, loseContextOnDispose: true });
     this.library = createMaterialLibrary({ loadTexture: options.loadTexture });
@@ -131,7 +131,7 @@ export class MaterialPreview {
     this.undo = null;
     if (this.shapeObject !== null) {
       this.holder.remove(this.shapeObject);
-      // Phase 21.5: the primitive's render objects (it wore the library's material, which stays).
+      // The primitive's render objects (it wore the library's material, which stays).
       if (this.ownedGeometry !== null) disposeObjectTree(this.shapeObject);
     }
     this.ownedGeometry?.dispose();

@@ -1,5 +1,5 @@
 /**
- * Phase 14.6: the old `modelAnimation` idle/run/airborne profile becomes an
+ * The old `modelAnimation` idle/run/airborne profile becomes an
  * animator controller when a v4 project is opened.
  *
  * Every distinct binding (asset, version and the three role clips) becomes
@@ -17,7 +17,7 @@
 import type { AnimatorController } from './animator';
 import type { ContentCatalogV4, SceneV4 } from './types-v3';
 
-/** The old role rule's run threshold (m/s) and crossfade (s) — the three-adapter constants of packet 53. */
+/** The role rule's run threshold (m/s) and crossfade (s), kept so a converted profile plays as it did. */
 export const LEGACY_RUN_SPEED_EPS = 0.05;
 export const LEGACY_CROSSFADE_SECONDS = 0.2;
 
@@ -109,7 +109,7 @@ export function migrateModelAnimations(scenes: readonly SceneV4[], content: Cont
       byKey.set(key, id);
       const model = next.content.assets.find((a) => a.assetId === b.assetId)?.displayName ?? b.assetId;
       const clip = (i: number) => ({ assetId: b.assetId, clip: clips[i]!.name, duration: clips[i]!.duration });
-      // Phase 15.3: the project's animation blend time when it sets one (else the old 0.2 s).
+      // The project's animation blend time when it sets one (else the old 0.2 s).
       const set = (next.content.settings as Record<string, unknown> | undefined)?.['animation_crossfade_s'];
       const fade = typeof set === 'number' && Number.isFinite(set) ? set : LEGACY_CROSSFADE_SECONDS;
       const controller: AnimatorController = {

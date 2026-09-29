@@ -1,18 +1,12 @@
 /**
- * Explicitly versioned v3 logical types — project-model.md §23
- * (scene `schemaVersion` 3, the six appended components, the bounded
- * `content.game` block and the `audio` asset kind).
+ * Explicitly versioned v3 logical types (scene `schemaVersion` 3, the six
+ * appended components, the bounded `content.game` block and the `audio`
+ * asset kind), built on `types.ts` and `types-v2.ts`.
  *
- * The M1 (`types.ts`) and M2 (`types-v2.ts`) types are unchanged. These
- * describe the STRICT canonical output of the v3 normalizers (§12.2/§23.7):
- * only the §23.7 defaults are filled, component/field order is the §23.3
- * registry order, and only present fields are emitted. Inputs to the entry
- * points are `unknown`; the boundary re-checks every rule.
- *
- * Packet 41 owns `AnimationRoleBinding`'s media fields and the WAV
- * `importRecipe`/`AssetMetrics` vocabulary; this module fixes only the
- * container shapes 39 owns (the three role keys, the asset/version binding,
- * the `audio` discriminator) — see §23.3.6/§23.3.7.
+ * These describe the STRICT canonical output of the v3 normalizers: only
+ * the v3 defaults are filled, component/field order is the v3 registry
+ * order, and only present fields are emitted. Inputs to the entry points
+ * are `unknown`; the boundary re-checks every rule.
  */
 
 import type { AnimatorComponent, AnimatorController } from './animator';
@@ -32,9 +26,9 @@ import type {
 } from './types-v2';
 import type { Vec3 } from './types';
 
-// ---- scene schemaVersion 3 registry (§23.3) ----------------------------------
+// ---- scene schemaVersion 3 registry ----------------------------------
 
-/** The §23.3 v3 registry, in canonical order (v2 registry plus six). */
+/** The v3 registry, in canonical order (v2 registry plus six). */
 export const V3_REGISTRY = [
   'transform',
   'model',
@@ -53,7 +47,7 @@ export const V3_REGISTRY = [
 export type ComponentV3 = (typeof V3_REGISTRY)[number];
 
 /**
- * Phase 12 (c): an instance set — one entity, many copies of one model placed
+ * An instance set — one entity, many copies of one model placed
  * by a binary buffer of `count` transforms (10 little-endian float32 each:
  * position xyz, rotation quaternion xyzw, scale xyz), stored by SHA-256 like
  * an asset source. Rendered as instanced meshes; the copies have no ids.
@@ -64,11 +58,11 @@ export interface InstancesComponent {
   /** SHA-256 (64 lowercase hex) of the buffer bytes; byte length = count × 40. */
   buffer: string;
   count: number;
-  /** Phase 17.4: the copies cast the directional light's realtime shadow (absent: true). */
+  /** The copies cast the directional light's realtime shadow (absent: true). */
   castShadow?: boolean;
-  /** Phase 17.4: the copies show realtime shadows falling on them (absent: true). */
+  /** The copies show realtime shadows falling on them (absent: true). */
   receiveShadow?: boolean;
-  /** Phase 25.7d: this set's chunk size (m), 1–4096 (absent: the project's `instance_chunk_m`, else 32). */
+  /** This set's chunk size (m), 1–4096 (absent: the project's `instance_chunk_m`, else 32). */
   chunkSize?: number;
 }
 
@@ -77,15 +71,15 @@ export const INSTANCE_FLOATS = 10;
 /** Most copies in one instance set. */
 export const MAX_INSTANCES = 65_536;
 
-/** §23.3.2 spawn marker. Phase 24.8: the left/right `facing` (phase 15.2) became `yaw` (the loader upgrades it). */
+/** Spawn marker. A left/right `facing` is upgraded to `yaw` by the loader. */
 export interface PlayerSpawnComponent {
-  /** Phase 24.4f (v4): the character's yaw on arrival, degrees about +Y (0: facing +Z). */
+  /** v4: the character's yaw on arrival, degrees about +Y (0: facing +Z). */
   yaw?: number;
 }
 
-/** §23.3.4 one directional key light or one ambient fill. */
+/** One directional key light or one ambient fill. */
 export interface LightComponent {
-  /** Phase 9.5 (v4) adds point, spot and hemisphere. */
+  /** v4 adds point, spot and hemisphere. */
   type: 'directional' | 'ambient' | 'point' | 'spot' | 'hemisphere';
   /** `^#[0-9a-f]{6}$`; canonical lowercase. */
   color: string;
@@ -93,33 +87,33 @@ export interface LightComponent {
   intensity: number;
   /** Required iff `type === 'directional'`; each `|v| <= 1`, `||v|| >= 1e-6`. */
   direction?: Vec3;
-  /** Directional only; defaulted to `false` by the §23.7 normalizer. */
+  /** Directional only; defaulted to `false` by the normalizer. */
   castShadow?: boolean;
-  /** Phase 17.4 (directional): shadow map width = height in texels (absent: 1024). */
+  /** Directional: shadow map width = height in texels (absent: 1024). */
   shadowMapSize?: number;
-  /** Phase 17.4 (directional): depth bias of the shadow test (absent: -0.0005). */
+  /** Directional: depth bias of the shadow test (absent: -0.0005). */
   shadowBias?: number;
-  /** Phase 17.4 (directional): offset along the surface normal in metres (absent: 0.02). */
+  /** Directional: offset along the surface normal in metres (absent: 0.02). */
   shadowNormalBias?: number;
-  /** Phase 17.4 (directional): half the side of the shadowed square around the camera, metres (v4 games; absent: 24). */
+  /** Directional: half the side of the shadowed square around the camera, metres (v4 games; absent: 24). */
   shadowExtent?: number;
-  /** Phase 9.5, point/spot: the reach in meters (0 = unlimited). */
+  /** Point/spot: the reach in meters (0 = unlimited). */
   range?: number;
-  /** Phase 9.5, point/spot: light falloff (2 = physical). */
+  /** Point/spot: light falloff (2 = physical). */
   decay?: number;
-  /** Phase 9.5, spot: the cone half-angle in degrees. */
+  /** Spot: the cone half-angle in degrees. */
   angle?: number;
-  /** Phase 9.5, spot: the soft edge (0-1). */
+  /** Spot: the soft edge (0-1). */
   penumbra?: number;
-  /** Phase 9.5, hemisphere: the ground colour (`color` is the sky). */
+  /** Hemisphere: the ground colour (`color` is the sky). */
   groundColor?: string;
-  /** Phase 9.5/9.6: `baked` lights only feed light baking; `mixed` bakes indirect light (absent = realtime). */
+  /** `baked` lights only feed light baking; `mixed` bakes indirect light (absent = realtime). */
   mode?: 'baked' | 'mixed';
-  /** Phase 25.8, spot only: a texture asset projected through the cone (three's `SpotLight.map`). */
+  /** Spot only: a texture asset projected through the cone (three's `SpotLight.map`). */
   cookie?: string;
 }
 
-/** §23.3.5 copied surface value row (never a linked resource). */
+/** A copied surface value row (never a linked resource). */
 export interface SurfaceComponent {
   /** `^#[0-9a-f]{6}$`; canonical lowercase. No default (present component fills `#b0b0b0`). */
   color: string;
@@ -130,13 +124,14 @@ export interface SurfaceComponent {
 }
 
 /**
- * §23.3.6 one rigid animation role binding. Packet 41 owns the binding's
- * fields; 39 fixes the role key set, all-three-required, that each binding
- * is a non-empty JSON object owned by the version, and the byte bound.
+ * One rigid animation role binding. This type fixes the role key set,
+ * all-three-required, that each binding is a non-empty JSON object owned by
+ * the version, and the byte bound; the binding's media fields are checked
+ * against the asset.
  */
 export type AnimationRoleBinding = Record<string, unknown>;
 
-/** §23.3.6 animated model instance. */
+/** Animated model instance. */
 export interface ModelAnimationComponent {
   /** Resolves in `content.assets` with `kind === 'model'`. */
   assetId: string;
@@ -151,52 +146,52 @@ export interface ModelAnimationComponent {
 
 /** v3 component set (canonical order = {@link V3_REGISTRY}). */
 export interface EntityComponentsV3 extends EntityComponentsV2 {
-  /** Phase 9.4, v4 only: source material name (or "*") → materialId. */
+  /** v4 only: source material name (or "*") → materialId. */
   materials?: Record<string, string>;
-  /** Phase 18.0, v4 only: overrides of graph-material parameters (materialId → parameter → value). */
+  /** v4 only: overrides of graph-material parameters (materialId → parameter → value). */
   materialParams?: Record<string, Record<string, number | number[] | string>>;
-  /** Phase 9.5, v4 only: a box of fog around the entity. */
+  /** v4 only: a box of fog around the entity. */
   fogVolume?: FogVolumeComponent;
-  /** Phase 20.0, v4 only: a visual effect played from the entity. */
+  /** v4 only: a visual effect played from the entity. */
   effect?: import('./effects').EffectComponent;
-  /** Phase 23.4, v4 only: a virtual camera shot the camera brain can cut or blend to. */
+  /** v4 only: a virtual camera shot the camera brain can cut or blend to. */
   virtualCamera?: import('./cameras').VirtualCameraComponent;
-  /** Phase 23.4, v4 only: a path rail cameras ride (offsets from the entity). */
+  /** v4 only: a path rail cameras ride (offsets from the entity). */
   cameraPath?: import('./cameras').CameraPathComponent;
-  /** Phase 25.14, v4 only: a camera region (a track camera's dead zone, bounds and distance while its target is inside). */
+  /** v4 only: a camera region (a track camera's dead zone, bounds and distance while its target is inside). */
   cameraRegion?: import('./cameras').CameraRegionComponent;
-  /** Phase 23.11, v4 only: rides on a named node of another entity's model (with an offset). */
+  /** v4 only: rides on a named node of another entity's model (with an offset). */
   socketAttach?: import('./sockets').SocketAttachComponent;
-  /** Phase 9.7, v4 only: the animator controller that plays the model's clips. */
+  /** v4 only: the animator controller that plays the model's clips. */
   animator?: AnimatorComponent;
-  /** Phase 9.9, v4 only: gameplay building blocks. */
+  /** v4 only: gameplay building blocks. */
   mover?: MoverComponent;
   trigger?: TriggerComponent;
   switch?: SwitchComponent;
   health?: HealthComponent;
-  /** Phase 24.4, v4 only: generic primitives (a collectible, a patrol walker, a hitbox). */
+  /** v4 only: generic primitives (a collectible, a patrol walker, a hitbox). */
   collectible?: import('./blocks').CollectibleComponent;
   patrol?: import('./blocks').PatrolComponent;
   hitbox?: import('./blocks').HitboxComponent;
-  /** Phase 25.13, v4 only: a volume the character climbs in, and a body that falls. */
+  /** v4 only: a volume the character climbs in, and a body that falls. */
   climbVolume?: import('./blocks').ClimbVolumeComponent;
   gravity?: import('./blocks').GravityComponent;
   playerSpawn?: PlayerSpawnComponent;
   light?: LightComponent;
   surface?: SurfaceComponent;
   modelAnimation?: ModelAnimationComponent;
-  /** Phase 12 (c), scene schemaVersion 4 only: an instance set. */
+  /** Scene schemaVersion 4 only: an instance set. */
   instances?: InstancesComponent;
-  /** Phase 23.5, v4 only: a grid of blocks (its cells are the scene's `blocks`). */
+  /** v4 only: a grid of blocks (its cells are the scene's `blocks`). */
   blockLayer?: import('./block-layers').BlockLayerComponent;
-  /** Phase 23.6, v4 only: the metadata a prop writes into the block cells beneath it. */
+  /** v4 only: the metadata a prop writes into the block cells beneath it. */
   blockFootprint?: import('./block-layers').BlockFootprintComponent;
-  /** Phase 23.10, v4 only: the behavior group the entity's behavior belongs to (game modes tick groups). */
+  /** v4 only: the behavior group the entity's behavior belongs to (game modes tick groups). */
   behaviorGroup?: import('./modes').BehaviorGroupComponent;
 }
 
 /**
- * Hierarchy flags every entity may carry (phase 12). Only non-default values
+ * Hierarchy flags every entity may carry. Only non-default values
  * are stored: `active: false` (the entity and its subtree are left out of the
  * game and hidden in the editor), `locked: true` (editor only: not pickable
  * or movable in the viewport), `static: true` (the object does not move).
@@ -214,14 +209,14 @@ export interface EntityFlagsV3 {
   locked?: true;
   static?: true;
   /**
-   * Phase 12 (b): the entity's own tag bits (unsigned 32-bit mask; bit i =
+   * The entity's own tag bits (unsigned 32-bit mask; bit i =
    * the tag with `bit: i` in `content.tags`). Stored only when non-zero. The
    * effective mask is this OR the masks of every folder above it.
    */
   tags?: number;
 }
 
-/** Phase 12 (b): one named tag; `bit` (0–31) is fixed for the tag's life. */
+/** One named tag; `bit` (0–31) is fixed for the tag's life. */
 export interface TagDefinition {
   bit: number;
   name: string;
@@ -238,7 +233,7 @@ export interface EntityV3 extends EntityFlagsV3 {
 }
 
 /**
- * Phase 12 folder marker: organisation only. A folder carries no transform
+ * Folder marker: organisation only. A folder carries no transform
  * and no other component, and sits at the root or inside another folder, so
  * it never moves what is filed in it.
  */
@@ -272,7 +267,7 @@ export interface SceneV3 {
 }
 
 /**
- * Phase 12 (c): a scene document of schemaVersion 4 — one file per scene in a
+ * A scene document of schemaVersion 4 — one file per scene in a
  * project (`scenes/<sceneId>.json`). Same entities as v3 (plus instance sets
  * and exit zones) and at most one camera; its display name is in the
  * project's scene index (`content.scenes`).
@@ -282,7 +277,7 @@ export interface SceneV4 {
   sceneId: string;
   revision: number;
   entities: SceneEntityV3[];
-  /** Phase 23.5: the block layers' cells and regions (one entry per layer holding any; absent = none). */
+  /** The block layers' cells and regions (one entry per layer holding any; absent = none). */
   blocks?: import('./block-layers').BlockLayerData[];
 }
 
@@ -298,16 +293,15 @@ export interface ResolvedSceneV3 {
   entities: EntityV3[];
 }
 
-// ---- content: audio kind and content.game (§23.3.7/§23.4) ---------------------
+// ---- content: audio kind and content.game ---------------------
 
-/** §23.3.7 the v3 asset-kind discriminator. */
-/** Phase 9.4 adds `texture` (a standalone PNG/JPEG/WebP image). */
-/** Phase 23.9a adds `font` (a TTF/OTF/WOFF2/WOFF for the project UI). */
+/** The v3 asset-kind discriminator. */
+/** `texture`: a standalone PNG/JPEG/WebP image. */
+/** `font`: a TTF/OTF/WOFF2/WOFF for the project UI. */
 export type AssetKind = 'model' | 'audio' | 'texture' | 'music' | 'font';
 
 /**
- * presentation.md §41.4.3: the `gltf-glb` recipe member (the accepted M2
- * shape). `extensions` is present iff `profile === 'gltf-glb'` (§18.5).
+ * The `gltf-glb` recipe member (the v2 shape). `extensions` is present iff `profile === 'gltf-glb'`.
  */
 export interface GltfGlbRecipeV3 {
   profile: 'gltf-glb';
@@ -317,7 +311,7 @@ export interface GltfGlbRecipeV3 {
 }
 
 /**
- * presentation.md §41.4.3: the `pcm-wav` recipe. The `toolchain` names exactly
+ * The `pcm-wav` recipe. The `toolchain` names exactly
  * `asset-pipeline` (the bounded pure inspector); there is no `extensions` key
  * because a WAV has no glTF extensions.
  */
@@ -328,15 +322,15 @@ export interface PcmWavRecipe {
 }
 
 /**
- * A v3 import recipe (`project-model.md` §18.5): the `gltf-glb` member for a
- * `model` version, the `pcm-wav` member for an `audio` version (packet 41/47).
+ * A v3 import recipe: the `gltf-glb` member for a
+ * `model` version, the `pcm-wav` member for an `audio` version.
  */
 export type ImportRecipeV3 = GltfGlbRecipeV3 | PcmWavRecipe;
 
 /**
- * presentation.md §41.4.3: the bounded PCM-WAV metrics member for an
+ * The bounded PCM-WAV metrics member for an
  * `kind: "audio"` version. Canonical key order is exactly the field order
- * below. Every field is a re-derivable integer of §41.4.2.
+ * below. Every field is an integer re-derivable from the WAV bytes.
  */
 export interface PcmWavMetrics {
   container: 'riff-wave';
@@ -357,7 +351,7 @@ export interface PcmWavMetrics {
 }
 
 /**
- * §18.6: the metrics member depends on the record's `kind` — the GLB
+ * The metrics member depends on the record's `kind` — the GLB
  * decoded-resource member for `model`, {@link PcmWavMetrics} for `audio`.
  */
 export type AssetMetricsV3 = AssetMetrics | PcmWavMetrics;
@@ -379,10 +373,10 @@ export interface AssetRecordV3 {
    * `tint` = the glTF default (vertex colour multiplies the base colour).
    */
   vertexColors?: 'tint';
-  /** Model only (phase 9.4): the default material mapping of every placement (source material name or "*" → materialId). */
+  /** Model only: the default material mapping of every placement (source material name or "*" → materialId). */
   materials?: Record<string, string>;
   /**
-   * Model only (phase 14.6, v4): an animation-only file — its clips play on
+   * Model only (v4): an animation-only file — its clips play on
    * the model asset named here (matched by bone names). Absent = the file's
    * clips are for its own nodes.
    */
@@ -396,82 +390,81 @@ export interface ContentCatalogV3 {
   behaviors: BehaviorRecord[];
   settings: SettingsMap;
   behaviorTrust: BehaviorTrust;
-  /** The v3 envelope's game block (phase 24.7: always null; phase 24.8: v4 content has no such key). */
+  /** The v3 envelope's game block (always null; v4 content has no such key). */
   game: null;
-  /** Phase 12 (b): the project tag registry, ascending `bit`; absent = no tags. */
+  /** The project tag registry, ascending `bit`; absent = no tags. */
   tags?: TagDefinition[];
 }
 
 /**
- * Phase 12 (c): the v4 project content block (`content.json`) — v3's plus the
- * scenes the game starts with (phase 24.8: without the v3 `game` key).
+ * The v4 project content block (`content.json`) — v3's plus the
+ * scenes the game starts with (without the v3 `game` key).
  */
 export interface ContentCatalogV4 extends Omit<ContentCatalogV3, 'game'> {
   /** The project's scenes, in the order the editor lists them (one file each). */
   scenes: SceneIndexEntry[];
   /** The scenes loaded when the game starts (a subset of `scenes`). */
   startScenes: string[];
-  /** Phase 9.4: the project materials (absent = none). */
+  /** The project materials (absent = none). */
   materials?: MaterialDef[];
-  /** Phase 9.4: the environment (global wind; sky/fog/post in 9.5). */
+  /** The environment (global wind, sky, fog, post). */
   environment?: EnvironmentConfig;
-  /** Phase 9.6: baked lighting per scene (absent = no bakes). */
+  /** Baked lighting per scene (absent = no bakes). */
   lighting?: LightingMap;
-  /** Phase 9.7: animator controllers (absent = none). */
+  /** Animator controllers (absent = none). */
   animators?: AnimatorController[];
-  /** Phase 9.8: input actions and bindings (absent = the defaults). */
+  /** Input actions and bindings (absent = the defaults). */
   input?: InputConfig;
-  /** Phase 16.1: standalone graph documents (absent = none). */
+  /** Standalone graph documents (absent = none). */
   graphs?: GraphDocument[];
-  /** Phase 20.0: visual effects (absent = none). */
+  /** Visual effects (absent = none). */
   effects?: import('./effects').EffectDef[];
-  /** Phase 23.7: shared script libraries behaviors import as `@lib/<id>` (absent = none). */
+  /** Shared script libraries behaviors import as `@lib/<id>` (absent = none). */
   scriptLibraries?: import('./script-libraries').ScriptLibrary[];
-  /** Phase 23.5: block definitions for block layers (absent = none). */
+  /** Block definitions for block layers (absent = none). */
   blockTypes?: import('./block-layers').BlockType[];
-  /** Phase 23.5: the cell metadata schema (absent = none). */
+  /** The cell metadata schema (absent = none). */
   cellFields?: import('./block-layers').CellField[];
-  /** Phase 23.5: saved cell patterns (absent = none). */
+  /** Saved cell patterns (absent = none). */
   blockStamps?: import('./block-layers').BlockStamp[];
-  /** Phase 23.9a: project UI documents drawn by the game host (absent = none). */
+  /** Project UI documents drawn by the game host (absent = none). */
   uiDocuments?: import('./ui-documents').UiDocument[];
-  /** Phase 23.9a: UI themes (named styles and icons documents share; absent = none). */
+  /** UI themes (named styles and icons documents share; absent = none). */
   uiThemes?: import('./ui-documents').UiTheme[];
-  /** Phase 23.10: game modes (the first is the start mode; absent = none). */
+  /** Game modes (the first is the start mode; absent = none). */
   modes?: import('./modes').GameMode[];
-  /** Phase 23.10: the behavior group names entities may carry (absent = none). */
+  /** The behavior group names entities may carry (absent = none). */
   behaviorGroups?: string[];
-  /** Phase 24.4i: the event → cue table (sounds the host plays for signals and events; absent = none). */
+  /** The event → cue table (sounds the host plays for signals and events; absent = none). */
   eventCues?: import('./event-cues').EventCue[];
-  /** Phase 24.4j: the game shell (menus and HUD as UI documents, the ordered scene list). */
+  /** The game shell (menus and HUD as UI documents, the ordered scene list). */
   shell?: import('./shell').GameShell;
-  /** Phase 23.17: timelines (sequencer assets; absent = none). */
+  /** Timelines (sequencer assets; absent = none). */
   timelines?: import('./timelines').TimelineAsset[];
   /**
-   * Phase 23.3: the project's named collision layers (absent = only the
+   * The project's named collision layers (absent = only the
    * implicit "default" layer). A collider lists the layers it is in (absent:
    * "default"); script queries filter by layer. 3D physics only.
    */
   collisionLayers?: string[];
-  /** Phase 23.19: the project save document and settings document schema (absent = no project saves). */
+  /** The project save document and settings document schema (absent = no project saves). */
   saveSchema?: import('./save-schema').SaveSchema;
-  /** Phase 23.16: conversations (node graphs of kind `dialogue`; absent = none). */
+  /** Conversations (node graphs of kind `dialogue`; absent = none). */
   dialogues?: import('./dialogue').DialogueDocument[];
-  /** Phase 23.16: the speaker registry (absent = none). */
+  /** The speaker registry (absent = none). */
   speakers?: import('./dialogue').DialogueSpeaker[];
-  /** Phase 23.16: dialogue engine settings (absent = the defaults). */
+  /** Dialogue engine settings (absent = the defaults). */
   dialogueSettings?: import('./dialogue').DialogueSettings;
 }
 
-/** Phase 12 (c): one scene in the project's scene index. */
+/** One scene in the project's scene index. */
 export interface SceneIndexEntry {
   sceneId: string;
   name: string;
 }
 
 /**
- * The model-owned v3 authoring envelope (§23.8's effective order;
- * `workspace.md` §16.3). `retry` is workspace-owned (§4.6): it is required
+ * The model-owned v3 authoring envelope. `retry` is workspace-owned: it is required
  * present and carried through unchanged — the model never rewrites it.
  */
 export interface AuthoringEnvelopeV3 {
@@ -484,9 +477,7 @@ export interface AuthoringEnvelopeV3 {
 }
 
 /**
- * §23.3.5 the built-in surface presets, as frozen value rows. Phase 24.7: the
- * two demo-named presets became `signal-red` and `emissive-accent` (a
- * command naming an old one is refused with the new name).
+ * The built-in surface presets, as frozen value rows.
  */
 export const SURFACE_PRESET_NAMES = ['matte-ground', 'signal-red', 'emissive-accent'] as const;
 export type SurfacePresetName = (typeof SURFACE_PRESET_NAMES)[number];
@@ -515,23 +506,23 @@ export const SURFACE_PRESETS: Readonly<Record<SurfacePresetName, SurfaceComponen
     }),
   }) as Readonly<Record<SurfacePresetName, SurfaceComponent>>;
 
-/** §23.10 the v3/v4 scene limit values (contract material: fixtures reference them). */
+/** The v3/v4 scene limit values (contract material: fixtures reference them). */
 export const SCENE_LIMITS_V3 = Object.freeze({
   playerSpawns: 16,
   lightsDirectional: 1,
   lightsAmbient: 1,
   entities: 1024,
-  // Phase 25.7c: 64 (was 16), MAX_AUDIO_ASSETS.
+  // The same value as MAX_AUDIO_ASSETS.
   audioAssets: 64,
   audioVersions: 8,
   animationProfileBytes: 4_096,
 });
 
 /**
- * presentation.md §41.4.2/§41.4.3: the frozen PCM-WAV profile constants. They
+ * The frozen PCM-WAV profile constants. They
  * live here (not imported from `asset-pipeline`) because `project-model` has no
- * dependency on the inspector (`dependencies.md` §4.1); §18.6 defines the same
- * exact arithmetic on load. `audioPipelineVersion` is the repository pin of
+ * dependency on the inspector; the importer applies the same exact
+ * arithmetic. `audioPipelineVersion` is the repository pin of
  * `@thirdlight/asset-pipeline` (`packages/asset-pipeline/package.json`), the
  * only tool whose version can change an inspected WAV.
  */
@@ -546,7 +537,7 @@ export const AUDIO_PCM_WAV_PROFILE = Object.freeze({
   maxFrames: 96_000,
   maxDurationMs: 2_000,
   maxSourceBytes: 192_044,
-  /** presentation.md §41.4.4 stage 1: the hard source-file bound, before any profile cap. */
+  /** The hard source-file bound, checked before any profile cap. */
   maxSourceFileBytes: 196_608,
   recipeVersion: 1,
   audioPipelineVersion: '0.1.0',

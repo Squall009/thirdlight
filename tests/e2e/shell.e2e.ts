@@ -1,5 +1,5 @@
 /**
- * Phase 24.4j: the game shell against a real backend and a real browser, on
+ * The game shell against a real backend and a real browser, on
  * the starter template (a scene without any game session). Three UI
  * documents (a title with a Start button, a pause screen with Resume, Save
  * and Load, and a HUD text bound to the named counter `items`), a project
@@ -12,7 +12,7 @@
  * the HUD shows; walking into a collectible raises the HUD's counter; Escape
  * opens the pause screen (the steps stop); Save writes project save slot 1;
  * after a second collectible, Load brings the first save back (one item, the
- * second collectible uncollected; phase 24.8: the character back where it
+ * second collectible uncollected, the character back where it
  * stood when it was saved).
  */
 import { randomBytes } from 'node:crypto';
@@ -186,7 +186,7 @@ test('the game shell from the editor: title, HUD bound to a counter, pause, save
   // The title first (its document drawn over the view); the game waits behind it.
   await expect.poll(async () => (await observe())?.shell?.screen ?? null, { timeout: 60_000 }).toBe('title');
   const t0 = (await observe())!;
-  expect(t0.state).toBe('paused'); // phase 24.6: the menu holds the engine pause
+  expect(t0.state).toBe('paused'); // the menu holds the engine pause
   expect(t0.paused).toBe(true);
   expect(t0.ui?.screen).toBe('title');
   await expect(frame.locator('[data-tl-ui-doc="title"][data-tl-ui-source="screen"]')).toHaveCount(1);
@@ -258,7 +258,7 @@ test('the game shell from the editor: title, HUD bound to a counter, pause, save
   await expect.poll(async () => (await observe())?.counters?.['items'] ?? 0, { timeout: 15_000 }).toBe(1);
   const l0 = (await observe())!;
   expect(l0.shell?.screen).toBe('playing');
-  // Phase 24.8: the save carries where the character stood — the load puts it back there (it had walked left past 0.6 since).
+  // The save carries where the character stood — the load puts it back there (it had walked left past 0.6 since).
   await expect.poll(async () => Math.abs(((await observe())?.player?.x ?? -99) - p0.player!.x), { timeout: 10_000 }).toBeLessThan(0.5);
   expect(l0.paused).toBe(false);
   expect(l0.hidden ?? []).toContain(tokenA);
@@ -271,8 +271,7 @@ test('the game shell from the editor: title, HUD bound to a counter, pause, save
 });
 
 /**
- * Phase 24.7: the generic parts of the deleted level flow's saves test — the
- * exported game (served statically, backend stopped) saves to a project save
+ * Saves outside the editor — the exported game (served statically, backend stopped) saves to a project save
  * slot and a new page load continues from it with the collectible still
  * collected; in Play, the editor's "Clear Play save" (Saves tab) forgets the
  * Play page's slots.

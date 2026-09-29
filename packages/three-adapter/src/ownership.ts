@@ -1,11 +1,11 @@
 /**
- * Resource-ownership ledger (packet 26; three-adapter additions row in
- * dependencies.md §3: "the GLB realization/resource-owner helpers").
+ * Resource-ownership ledger ("the GLB realization/resource-owner helpers" of
+ * the three-adapter row in dependencies.md).
  *
  * Every resource this package's visual path can own is counted once when it is
  * allocated and once when it is released, so a disposal test can prove
- * `allocations === releases` after a full teardown (packet-26 acceptance:
- * "Repeated load/reimport/dispose releases owned GPU/CPU/listener resources").
+ * `allocations === releases` after a full teardown (repeated
+ * load/reimport/dispose releases owned GPU/CPU/listener resources).
  *
  * Internal module: `OwnershipLedger` is NOT part of the public surface — only
  * the `ResourceOwnership` report type is re-exported by `index.ts`.

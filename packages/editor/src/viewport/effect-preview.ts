@@ -1,5 +1,5 @@
 /**
- * Phase 20.3: the Effect tab's looping preview pane — one effect on a
+ * The Effect tab's looping preview pane — one effect on a
  * timeline, with its own renderer (the three-adapter factory, the editor's
  * backend choice), the project environment (the same environment renderer
  * as the Scene view) and an orbit camera framed on the effect's bounds.
@@ -23,7 +23,7 @@
  *   materials), the environment, the renderer (and its WebGL context) and
  *   checks that the renderer's geometry/attribute counts went back to what
  *   they were before the first play was built (the leak ledger on
- *   `<html data-tl-effect-previews>`, read by the e2e and by phase 21.5).
+ *   `<html data-tl-effect-previews>`, read by the e2e tests).
  *
  * Self-contained (its own renderer, scene and loop): the Scene view's
  * render loop is not involved. Browser-only.

@@ -1,6 +1,5 @@
 /**
- * Packet 33 — the canonical source-graph container and the static source rules
- * (project-model.md §22.1/§22.3.3 steps 1–12).
+ * The canonical source-graph container and the static source rules.
  *
  * Every case in `fixtures/m2/behaviors/expected.json` is executed against the
  * real parser/analyzer; the expectations are the committed fixture index (also

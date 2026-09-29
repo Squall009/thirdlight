@@ -1,5 +1,5 @@
 /**
- * Phase 9.7 / 16.2: the Animator. A skinned test model (two joints, clips
+ * The Animator. A skinned test model (two joints, clips
  * `idle` and `bend`) gets a controller built in the "Animator: <controller>"
  * centre tab on the graph framework: an entry state playing `idle`, a second
  * state (added from the node catalogue) playing `bend`, a transition wire
@@ -200,7 +200,7 @@ test('a controller built in the Animator tab poses a skinned model in Play by it
   // Put the controller on the model (Scene tab → the Inspector shows the object again).
   await page.getByRole('tab', { name: 'Scene', exact: true }).click();
   await page.locator(`.tl-hierarchy__list li[data-entity-id="${column}"]`).click();
-  // Phase 15.1: "+ Add component" → Animator, then pick its controller.
+  // "+ Add component" → Animator, then pick its controller.
   await page.locator('.tl-inspector').getByLabel('add component', { exact: true }).selectOption({ label: 'Animator' });
   await page.locator('.tl-inspector').getByLabel('animator controller', { exact: true }).selectOption({ label: 'New animator' });
   await page.locator('.tl-inspector').getByRole('button', { name: 'Add', exact: true }).click();

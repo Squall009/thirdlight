@@ -1,10 +1,9 @@
 /**
- * Compiler constants, the pinned module table and the pinned build option set
- * (project-model.md §22.4, behaviors.md §5.3/§5.4/§6, dependencies.md §7).
+ * Compiler constants, the pinned module table and the pinned build option set.
  *
  * `COMPILER_LIMITS` is the closed resource-bound table; the pinned esbuild
- * option set is a contract constant (export.md §5.3) — changing any of it is a
- * reviewed contract change, not a packet edit.
+ * option set is a contract constant — changing any of it is a reviewed
+ * contract change.
  */
 
 import { version as esbuildVersion } from 'esbuild';
@@ -21,26 +20,26 @@ import {
 } from '@thirdlight/project-model';
 import type { BehaviorCompilerLimits, PinnedModuleRef } from './types';
 
-/** The stable compiler identity (dependencies.md §2/§3: `COMPILER_ID` string). */
+/** The stable compiler identity (`COMPILER_ID` string). */
 export const COMPILER_ID = 'thirdlight.behavior-compiler' as const;
 
 /** The compiler implementation version (the manifest's `compiler.version`). */
 export const COMPILER_VERSION = '1' as const;
 
-/** The pinned toolchain (dependencies.md §7). */
+/** The pinned toolchain. */
 export const ESBUILD_PIN = '0.28.2' as const;
 export const TYPESCRIPT_PIN = '5.9.3' as const;
 
-/** The behavior API version (runtime.md §12/§13; behaviors.md §11). */
+/** The behavior API version. */
 export const BEHAVIOR_API_VERSION = 1 as const;
 
-/** The fixed entry path (project-model.md §22.2: exactly `src/index.ts`). */
+/** The fixed entry path (exactly `src/index.ts`). */
 export const ENTRY_PATH = BEHAVIOR_ENTRY_PATH;
 
 /**
- * The M2 defaults (behaviors.md §6). The contract lists the first nine keys;
- * `ownedTransforms`, `properties` and `declarationBytes` are the §22.4/§20.7
- * bounds the preparer re-checks here.
+ * The defaults. The contract lists the first nine keys; `ownedTransforms`,
+ * `properties` and `declarationBytes` are project-model bounds the preparer
+ * re-checks here.
  */
 export const COMPILER_LIMITS: Readonly<BehaviorCompilerLimits> = Object.freeze({
   files: MAX_BEHAVIOR_FILES,
@@ -57,11 +56,11 @@ export const COMPILER_LIMITS: Readonly<BehaviorCompilerLimits> = Object.freeze({
 } as const);
 
 /**
- * The pinned build option set for the intermediate output (behaviors.md §5.4).
- * `absWorkingDir: '/'` is a packet-33 determinism pin: esbuild's emitted
- * module-path comments are relative to the working directory, so without it
- * the same input bytes would produce cwd-dependent output (contract note
- * C33-2). It is part of the compile recipe digest.
+ * The pinned build option set for the intermediate output.
+ * `absWorkingDir: '/'` is a determinism pin: esbuild's emitted module-path
+ * comments are relative to the working directory, so without it the same
+ * input bytes would produce cwd-dependent output. It is part of the compile
+ * recipe digest.
  */
 export const COMPILER_OPTIONS = Object.freeze({
   bundle: true,
@@ -77,11 +76,11 @@ export const COMPILER_OPTIONS = Object.freeze({
 } as const);
 
 /**
- * The host's pinned engine module table (behaviors.md §5.3; the M2 set at its
- * locked versions). `@thirdlight/behaviors` does not exist (dependencies.md §2
- * D19-A: the browser-safe behavior types live in `runtime`). Phase 24.3: the
- * character controller is not pinned — every build and every script sees only the
- * generic engine packages; a genre module is never implied.
+ * The host's pinned engine module table (behaviors.md), at its locked
+ * versions. There is no `@thirdlight/behaviors` package: the browser-safe
+ * behavior types live in `runtime`. The character controller is not pinned —
+ * every build and every script sees only the generic engine packages; a genre
+ * module is never implied.
  */
 export const M2_PINNED_MODULES: readonly PinnedModuleRef[] = Object.freeze([
   Object.freeze({ id: '@thirdlight/physics-rapier', version: '0.1.0', apiVersion: BEHAVIOR_API_VERSION }),
@@ -89,8 +88,8 @@ export const M2_PINNED_MODULES: readonly PinnedModuleRef[] = Object.freeze([
 ]);
 
 /**
- * The output content scan (behaviors.md §5.5 / export.md §5.4 letter table).
- * Letters follow export.md §5.4 where a pattern is shared (`d` = `fetch(`,
+ * The output content scan (the letter table of behaviors.md and export.md).
+ * Letters follow export.md where a pattern is shared (`d` = `fetch(`,
  * `e` = `node:`, `f` = `__dirname`/`process.`, `g` = `/mcp`,
  * `h` = URL literals, `j` = `XMLHttpRequest`/`WebSocket`); the behavior-only
  * patterns take the next free letters (`k`–`o`) and `p` is a surviving pinned
@@ -115,10 +114,10 @@ export const OUTPUT_SCAN_PATTERNS: readonly { letter: string; pattern: string }[
   Object.freeze({ letter: 'o', pattern: 'require(' }),
 ]);
 
-/** Letter assigned to a surviving pinned engine module id (behaviors.md §5.5). */
+/** Letter assigned to a surviving pinned engine module id. */
 export const OUTPUT_SCAN_ENGINE_LETTER = 'p' as const;
 
-/** Letters assigned to host-supplied origin/token strings (export.md §5.4 a/b/i). */
+/** Letters assigned to host-supplied origin/token strings (export.md a/b/i). */
 export const OUTPUT_SCAN_HOST_LETTERS = ['a', 'b', 'i'] as const;
 
 /** The compiler's toolchain block recorded in every manifest. */

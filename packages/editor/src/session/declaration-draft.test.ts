@@ -1,5 +1,5 @@
 /**
- * Phase 15.4: the declaration editor model (drafts ⇄ declaration) and the
+ * The declaration editor model (drafts ⇄ declaration) and the
  * Inspector's handling of private properties (not shown, never sent).
  */
 import { describe, expect, it } from 'vitest';
@@ -34,7 +34,7 @@ describe('phase 15.4: declaration drafts', () => {
     expect(declarationOf([drafts[0]!, { ...drafts[1]!, key: 'speed' }])).toMatchObject({ ok: false, problem: { index: 1, field: 'key' } });
     expect(declarationOf([{ ...drafts[2]!, default: 'fly' }])).toMatchObject({ ok: false, problem: { field: 'default' } });
     expect(declarationOf([{ ...drafts[3]!, boundsMax: '1, 1' }])).toMatchObject({ ok: false, problem: { field: 'boundsMax' } });
-    // Phase 19.1: no property at all is a valid declaration.
+    // No property at all is a valid declaration.
     expect(declarationOf([])).toEqual({ ok: true, declaration: { properties: [] } });
   });
 

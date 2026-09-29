@@ -1,5 +1,5 @@
 /**
- * Phase 25.7: `project.json` schemaVersion 4.
+ * `project.json` schemaVersion 4.
  *
  * The format bump of the scale limits. Version 4 is the format whose new
  * entity ids are written with at least six digits (`box-000001`,
@@ -7,8 +7,8 @@
  * schemaVersion 3 project is upgraded by the loader without changing a
  * document: its four-digit ids (`box-0001`) stay as they are (an id is any
  * string of the id syntax; references to it keep working), and the open
- * writes the project back as schemaVersion 4 (one new revision, as the
- * phase 24.8 upgrade does). A schemaVersion 2 project goes through
+ * writes the project back as schemaVersion 4 (one new revision, as
+ * `upgradeProjectDocsV24` does). A schemaVersion 2 project goes through
  * `upgradeProjectDocsV24` first, then this.
  */
 import { PROJECT_SCHEMA_VERSION, PROJECT_SCHEMA_VERSION_V24 } from './upgrade-v24';

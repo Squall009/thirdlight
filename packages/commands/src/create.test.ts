@@ -1,5 +1,5 @@
 /**
- * createEntity — commands.md §8.1/§8.3: backend-assigned IDs, defaults,
+ * createEntity — backend-assigned IDs, defaults,
  * placement, limits, reference checks, and result-scene value failures.
  */
 
@@ -74,7 +74,7 @@ describe('createEntity — ID assignment (§8.1 step 2)', () => {
     const s = scene(0, [cameraEntity(), boxEntity('box-000001'), boxEntity('box-000003')]);
     expect(nextEntityId(s, 'box')).toBe('box-000002');
     expect(nextEntityId(s, 'group')).toBe('group-000001');
-    // Phase 25.7a: 9,999 boxes used up the old four-digit space; the six-digit one goes on.
+    // Past 9,999 boxes the six-digit id space goes on.
     const full: EntityV3[] = [cameraEntity()];
     for (let n = 1; n <= 9999; n++) {
       full.push(boxEntity(`box-${String(n).padStart(6, '0')}`));
@@ -111,7 +111,7 @@ describe('createEntity — defaults and placement (§8.1 step 3/4)', () => {
         },
       },
     });
-    // Canonical key order (durable record, §5.1): id, components;
+    // Canonical key order (durable record): id, components;
     // transform → position, rotation, scale; box → size, material.
     const ent = (s.change as { entity: EntityV3 }).entity;
     expect(Object.keys(ent)).toEqual(['id', 'components']);
@@ -205,7 +205,7 @@ describe('createEntity — preconditions and limits (§8.1 step 1)', () => {
   const groupId = (n: number): string => `group-${String(n).padStart(6, '0')}`;
 
   it('16385th entity in a v4 scene ⇒ limits_exceeded { entities, 16385, 16384 }; the 16384th is allowed', () => {
-    // A v4 scene holds up to 16384 entities (the v3 limit was 1024): the
+    // A v4 scene holds up to 16384 entities: the
     // camera, box-000001..box-009999 and group-000001..group-006384.
     const ents: EntityV3[] = [cameraEntity()];
     for (let n = 1; n <= 9999; n++) ents.push(boxEntity(boxId(n)));

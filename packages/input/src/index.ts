@@ -1,15 +1,12 @@
 /**
- * `@thirdlight/input` — public surface (dependencies.md §3 `input` row:
+ * `@thirdlight/input` — public surface (dependencies.md `input` row:
  * `mapRawInput`, `attachBrowserInput`, `DEFAULT_KEYBOARD_MAP`,
  * `GAMEPAD_DEAD_ZONE`, `RawInputSnapshot`, `InputBindingOptions`; plus
- * `createStepInputSource`, the replayable test source the packet requires —
- * recorded as a bounded contract-change request C30-3 in the packet-30
- * handoff/evidence, since the accepted row does not list it yet).
+ * `createStepInputSource`, the replayable test source).
  *
- * Packet 30 (docs/contracts/runtime.md §12.5.1–§12.5.8: the ActionFrame/sampling
- * text from `input.md` §2/§3/§6 at §12.5.1–§12.5.3, and the device-binding
- * `input.md` §4–§5 text at §12.5.4–§12.5.8 promoted by the Gate H repair,
- * C30-1): focused browser input becomes bounded, testable action frames.
+ * Focused browser input becomes bounded, testable action frames
+ * (docs/contracts/runtime.md, the ActionFrame, sampling and device-binding
+ * rules).
  *
  * - **Pure layer** — `mapRawInput(snapshot, options)` maps one plain-data
  *   `RawInputSnapshot` to one quantized `ActionFrame` (keyboard A/D + arrows +
@@ -28,16 +25,16 @@
  *   step-indexed source for tests/replays, separate from the browser
  *   attachment.
  *
- * Module ownership (dependencies.md §4.1/§4.3): imports `@thirdlight/runtime`
+ * Module ownership: imports `@thirdlight/runtime`
  * types only — no editor/protocol/backend/workspace/commands/three/
  * three-adapter/physics-rapier/character edge, no Node built-ins, no I/O.
  *
- * Packet 55 (delivery.md §4.1/§4.2): the bounded semantic menu-control
+ * The bounded semantic menu-control
  * channel — `createMenuController` (pure) and the owner's additive
  * `sampleMenu()`/`markConfirmConsumed()` methods. No new dependency.
  */
 export { attachBrowserInput, focusGameSurface, type UiSample } from './browser';
-// Phase 23.14: listen-for-input rebinding and the frame's input entry.
+// Listen-for-input rebinding and the frame's input entry.
 export type { CaptureInputOptions, CapturedInput } from './browser';
 export {
   createMenuController,
@@ -48,13 +45,13 @@ export {
 export type { MenuConfirmDevice, MenuController, MenuSample } from './menu';
 export { mapRawInput, toActionFrame, type CharacterChannels } from './mapping';
 export { createStepInputSource, type StepInputStep } from './step-source';
-// Phase 25.15: a virtual standard gamepad read through the project's bindings (the input exercise relay).
+// A virtual standard gamepad read through the project's bindings (the input exercise relay).
 export { createVirtualPad, VIRTUAL_PAD_AXES, VIRTUAL_PAD_BUTTON_DOWN, VIRTUAL_PAD_BUTTONS, type VirtualPadInput, type VirtualPadStep, type VirtualPadUiEdge } from './virtual-pad';
 export { DEFAULT_KEYBOARD_MAP, GAMEPAD_DEAD_ZONE } from './types';
 export type { InputBindingOptions, RawInputSnapshot } from './types';
-// Phase 9.8: named input actions.
+// Named input actions.
 export { actionKeys, createActionEvaluator, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, characterKeys, type InputActionLike, type InputBindingLike, type InputConfigLike, type RawDeviceState } from './actions';
-// Phase 14.5: the character controller's pad controls (rebindable).
+// The character controller's pad controls (rebindable).
 export { characterPad, readCharacterPad, STANDARD_CHARACTER_PAD, type CharacterPad } from './actions';
-// Phase 23.3: pointer bindings and the cursor (free/locked per map, a script's request, hidden while a gamepad drives).
+// Pointer bindings and the cursor (free/locked per map, a script's request, hidden while a gamepad drives).
 export { bindsPointerButton, bindsWheel, cursorPresentation, type RawPointerState } from './actions';

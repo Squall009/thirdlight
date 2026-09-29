@@ -1,5 +1,5 @@
 /**
- * Phase 23.19 (E15): project-defined save documents in the simulation —
+ * Project-defined save documents in the simulation —
  * `ctx.saves` and the runtime's part of the save flow.
  *
  * The runtime never touches storage (the host owns it: IndexedDB in the
@@ -14,7 +14,7 @@
  * A save is assembled at the end of the step it was asked for: the project
  * document plus the engine sections the schema opts into (block-layer cells,
  * material parameters, spawned copies, `ctx.save` storage) and the play time.
- * Phase 24.8 (format version 2): every save also carries where the play
+ * Format version 2: every save also carries where the play
  * stands (`world`: the loaded scenes, the active spawn, the scene list entry
  * and the character's position and velocity), so a load puts the character
  * back where it was saved; a version 1 save (without it) still loads.
@@ -36,12 +36,12 @@ import {
   type SettingsFieldValue,
 } from '@thirdlight/project-model';
 
-/** The save document's format marker (and its engine format version; phase 24.8: 2, with `world`). */
+/** The save document's format marker (and its engine format version; 2, with `world`). */
 export const PROJECT_SAVE_FORMAT = 'thirdlight.save';
 export const PROJECT_SAVE_FORMAT_VERSION = 2;
 
 /**
- * Phase 24.8: where the play stands in a save — the scenes loaded (in load
+ * Where the play stands in a save — the scenes loaded (in load
  * order), the spawn respawns use, the game shell's scene list entry (-1:
  * none) and the character (the controller's object) with its velocity (m/s;
  * z is 0 on the 2D plane), or null without a character.
@@ -55,7 +55,7 @@ export interface WorldSave {
 
 const SCENE_ID_RE = ID_RE;
 
-/** Phase 24.8: a saved `world` block's shape (null: fine). */
+/** A saved `world` block's shape (null: fine). */
 export function worldSaveProblem(v: unknown): string | null {
   if (!isObj(v)) return 'world is an object { scenes, activeSpawn, listedScene, character }';
   for (const k of Object.keys(v)) if (!['scenes', 'activeSpawn', 'listedScene', 'character'].includes(k)) return `unknown world field "${k.slice(0, 32)}"`;
@@ -130,7 +130,7 @@ export interface ProjectSaveFile {
   readonly doc: unknown;
   /** Engine state the schema opts into. */
   readonly sections?: Readonly<Partial<Record<SaveSection, unknown>>>;
-  /** Phase 24.8 (format version 2): where the play stands. */
+  /** Format version 2: where the play stands. */
   readonly world?: WorldSave;
 }
 
@@ -260,11 +260,11 @@ export interface SaveSectionsPort {
   check(section: SaveSection, value: unknown): string | null;
   /** Restore (value undefined: back to the run's start); the grid may refuse (null: done). */
   apply(section: SaveSection, value: unknown): string | null;
-  /** Phase 24.8: where the play stands now (every save carries it). */
+  /** Where the play stands now (every save carries it). */
   captureWorld(): WorldSave;
-  /** Phase 24.8: why a saved world cannot be restored now (null: it can). */
+  /** Why a saved world cannot be restored now (null: it can). */
   checkWorld(world: WorldSave): string | null;
-  /** Phase 24.8: restore it (scenes load and unload; the character is placed once they are in). */
+  /** Restore it (scenes load and unload; the character is placed once they are in). */
   applyWorld(world: WorldSave): void;
 }
 
@@ -303,7 +303,7 @@ function jsonText(v: unknown): string | null {
 /** Check a stored save document's shape (not its migration): null when it can be loaded by a schema of `maxVersion`. */
 export function projectSaveFileProblem(v: unknown, maxVersion: number): string | null {
   if (!isObj(v) || v['format'] !== PROJECT_SAVE_FORMAT) return 'not a project save document (format "thirdlight.save")';
-  // Phase 24.8: format version 2 carries `world`; a version 1 save (without it) still loads.
+  // Format version 2 carries `world`; a version 1 save (without it) still loads.
   const fv = v['formatVersion'] ?? 1;
   if (fv !== 1 && fv !== PROJECT_SAVE_FORMAT_VERSION) return `save format version ${String(v['formatVersion']).slice(0, 16)} is not supported`;
   if (fv === 1 && v['world'] !== undefined) return 'a format version 1 save has no world';
@@ -507,7 +507,7 @@ export class RuntimeSaves {
   }
 
   /**
-   * Phase 24.4j: a save the player asked for through the game shell, made now
+   * A save the player asked for through the game shell, made now
    * (between steps: the state the last step left) and handed to the host with
    * the next requests. Null when it was made, else why not.
    */
@@ -623,7 +623,7 @@ export class RuntimeSaves {
       if (p !== null) return `section grid: ${p}`;
     }
     for (const s of opted) if (s !== 'grid') this.port.apply(s, saved[s]);
-    // Phase 24.8: where the play stood (after the sections: a spawned copy's scene state is in).
+    // Where the play stood (after the sections: a spawned copy's scene state is in).
     if (file.world !== undefined) this.port.applyWorld(file.world);
     this.doc = doc;
     this.docText = JSON.stringify(doc);

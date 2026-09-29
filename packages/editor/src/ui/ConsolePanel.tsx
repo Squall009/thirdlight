@@ -1,5 +1,5 @@
 /**
- * Phase 25.9: the Console (bottom dock) — the running Play's script logs and
+ * The Console (bottom dock) — the running Play's script logs and
  * errors, newest last, each with where it happened in the project's own
  * sources: the behavior or library file, line and column (the backend maps
  * the compiled position with the build's source maps). A location opens that

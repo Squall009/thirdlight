@@ -1,6 +1,5 @@
 /**
- * The MCP server (decision 0001 §5: "the backend exposes an MCP server" — the
- * server side is this packet's deliverable). Built on the supported
+ * The MCP server (decision 0001: "the backend exposes an MCP server"). Built on the supported
  * `@modelcontextprotocol/sdk` (pinned 1.30.0) low-level `Server`, using the
  * protocol's `tools/list` + `tools/call` primitives.
  *
@@ -11,7 +10,7 @@
  *
  * Using the low-level `Server` (rather than `McpServer` + `registerTool`)
  * keeps the input schemas plain JSON Schema objects and avoids a direct `zod`
- * dependency (zod is not a §7 pin; it is only a transitive dep of the SDK).
+ * dependency (zod is not a pinned dependency; it is only a transitive dep of the SDK).
  * The SDK's own protocol schemas (`ListToolsRequestSchema`,
  * `CallToolRequestSchema`) are imported from the SDK and used unchanged.
  *
@@ -27,14 +26,14 @@ export interface McpServerInfo {
   readonly version: string;
 }
 
-/**
- * Build the Thirdlight MCP server with the charter §7 tool surface. The
- * server auto-handles `initialize` (the SDK `Server` base registers the
- * `InitializeRequestSchema` handler); we register `tools/list` + `tools/call`.
- */
 /** Resolves the project context lazily (the project is worked out from the harness's folder). */
 export type McpContextProvider = () => Promise<{ ok: true; ctx: McpContext } | { ok: false; message: string }>;
 
+/**
+ * Build the Thirdlight MCP server with the charter's tool surface. The
+ * server auto-handles `initialize` (the SDK `Server` base registers the
+ * `InitializeRequestSchema` handler); we register `tools/list` + `tools/call`.
+ */
 export function createMcpServer(ctx: McpContext | McpContextProvider, info?: McpServerInfo): Server {
   const serverInfo = info ?? { name: 'thirdlight-mcp', version: '0.1.0' };
   const server = new Server(serverInfo, {

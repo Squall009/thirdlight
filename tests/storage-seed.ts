@@ -1,5 +1,5 @@
 /**
- * Test seeding helper (phase 9.3 step B): the workspace opens only storage v4
+ * Test seeding helper: the workspace opens only storage v4
  * projects, upgrades a storage v3 project in place on open, and refuses a
  * storage v1/v2 project (`storage_version_unsupported`).
  *

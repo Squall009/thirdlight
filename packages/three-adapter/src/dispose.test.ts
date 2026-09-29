@@ -1,5 +1,5 @@
 /**
- * Phase 21.5: the dispose helpers — a released subtree fires `dispose` on
+ * The dispose helpers — a released subtree fires `dispose` on
  * every node (the renderer drops its render objects), lights free their
  * shadows, owned skeletons go, other entities' nodes are skipped; node-made
  * attributes of instanced meshes are deleted from every live renderer's
@@ -332,7 +332,7 @@ describe('fixes built on the helpers', () => {
       });
       return found;
     };
-    /** Phase 25.24d: the batch's object and geometry disposals, and what its geometry held when it went. */
+    /** The batch's object and geometry disposals, and what its geometry held when it went. */
     const watch = (mesh: THREE.Mesh): { object: number; geometry: number; heldAtDispose: string[][] } => {
       const w = { object: 0, geometry: 0, heldAtDispose: [] as string[][] };
       mesh.addEventListener('dispose' as never, () => void (w.object += 1));

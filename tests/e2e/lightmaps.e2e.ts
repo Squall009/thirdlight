@@ -1,12 +1,12 @@
 /**
- * Phase 9.6: light baking. A static cube on a static ground, the sun set to
+ * Light baking. A static cube on a static ground, the sun set to
  * "baked" and casting no realtime shadow: before a bake Play shows no shadow;
  * after "Bake preview" (in this browser) or "Bake final" (Blender Cycles on
  * the bake host) in the Lighting window the cube's shadow is in the ground's
  * lightmap (the sun is then no longer realtime), and a lit spot keeps about
  * the brightness the realtime sun gave it.
  *
- * Phase 17.2/17.4: the preview bake runs once per renderer variant
+ * The preview bake runs once per renderer variant
  * (renderer-variants.ts): the browser baker and Play draw with WebGPURenderer
  * (auto and forced WebGL 2 in the default project, WebGPU in the webgpu
  * project), the lightmaps as node materials including the no-ambient copies

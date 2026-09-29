@@ -1,11 +1,11 @@
 /**
- * `compileBehavior` — the shared, pure behavior compiler (behaviors.md §5,
- * project-model.md §22.3.3 steps 13–15, §22.4).
+ * `compileBehavior` — the shared, pure behavior compiler (behaviors.md;
+ * project-model.md source rules steps 13–15).
  *
  * It parses and statically analyzes the supplied canonical container bytes,
  * then hands the *in-memory* file map to the pinned `esbuild@0.28.2` as a
  * bundler over an in-memory resolver (`stdin` + a plugin; `write: false`) with
- * the closed option set of behaviors.md §5.4. It never imports, requires,
+ * the closed option set `COMPILER_OPTIONS`. It never imports, requires,
  * evaluates or otherwise runs project source, never reads a filesystem path,
  * and never spawns a shell/process/plugin/hook.
  *
@@ -56,7 +56,7 @@ import type {
   SharedLibraryModule,
 } from './types';
 
-/** The canonical manifest bytes: 2-space JSON in the §5.2 field order + `\n`. */
+/** The canonical manifest bytes: 2-space JSON in the manifest field order + `\n`. */
 export function manifestBytesOf(manifest: BehaviorManifest): Uint8Array {
   return utf8Encode(`${JSON.stringify(manifest, null, 2)}\n`);
 }
@@ -83,9 +83,9 @@ export function compileRecipe(
     limits,
     pinnedModules,
     declarationDigest: declarationDigestOf(declaration),
-    // Phase 23.7: the linked library versions (only when there are any: older recipes keep their digest).
+    // The linked library versions (only when there are any: older recipes keep their digest).
     ...(libraries.length > 0 ? { libraries } : {}),
-    // Phase 25.9: libraries linked as shared modules (absent for the bundled form and when there are none).
+    // Libraries linked as shared modules (absent for the bundled form and when there are none).
     ...(libraries.length > 0 && linking === 'shared' ? { libraryLinking: 'shared' } : {}),
   };
 }
@@ -108,7 +108,7 @@ function diag(d: CompileDiagnostic, limits: BehaviorCompilerLimits): CompileDiag
 }
 
 /**
- * The output content scan (behaviors.md §5.5): textual, explicitly not a
+ * The output content scan: textual, explicitly not a
  * sandbox. Returns the first hit's letter plus up to four hit letters.
  */
 export function scanOutput(
@@ -138,7 +138,7 @@ export function scanOutput(
   return { letter: hits[0]?.letter as string, letters: letters.slice(0, 4) };
 }
 
-/** Phase 23.7: the namespace library modules load from (`<libraryId>/<stored path>`). */
+/** The namespace library modules load from (`<libraryId>/<stored path>`). */
 const LIBRARY_NAMESPACE = 'tl-lib';
 
 /** The in-memory resolver over the accepted container's file map (and the linked libraries). */
@@ -153,9 +153,9 @@ function memoryPlugin(
     setup(api) {
       api.onResolve({ filter: /^\.{1,2}\// }, (args) => {
         if (overDeadline()) throw new Error('__thirdlight_compile_timeout__');
-        // Phase 25.9: a link stub's import of the shared module stays an import (loaded by digest at run time).
+        // A link stub's import of the shared module stays an import (loaded by digest at run time).
         if (args.namespace === LINK_NAMESPACE) return { path: args.path, external: true };
-        // Phase 23.7: a relative import inside a library resolves in that library.
+        // A relative import inside a library resolves in that library.
         if (args.namespace === LIBRARY_NAMESPACE) {
           const slash = args.importer.indexOf('/');
           const libraryId = args.importer.slice(0, slash);
@@ -174,12 +174,12 @@ function memoryPlugin(
         }
         return { path: target, namespace: 'tl-behavior-memory' };
       });
-      // Phase 23.7: `@lib/<id>` -> the library's entry module (resolved and checked before the build).
+      // `@lib/<id>` -> the library's entry module (resolved and checked before the build).
       api.onResolve({ filter: /^@lib\// }, (args) => {
         if (overDeadline()) throw new Error('__thirdlight_compile_timeout__');
         const m = LIBRARY_SPECIFIER_RE.exec(args.path);
         const id = m?.[1];
-        // Phase 25.9: shared linking - the stub re-exporting the module's names.
+        // Shared linking - the stub re-exporting the module's names.
         if (links !== null) {
           if (id === undefined || !links.has(id)) return { errors: [{ text: `internal: esbuild resolved a forbidden specifier "${args.path}"` }] };
           return { path: id, namespace: LINK_NAMESPACE };
@@ -210,7 +210,7 @@ function memoryPlugin(
         if (overDeadline()) throw new Error('__thirdlight_compile_timeout__');
         const key = args.path.replace(/^\//, '');
         const text = files.get(key) ?? files.get(ENTRY_PATH);
-        // Phase 23.7: a `.json` file is a data module (its parsed value is the default export).
+        // A `.json` file is a data module (its parsed value is the default export).
         return { contents: text as string, loader: key.endsWith('.json') && files.has(key) ? 'json' : 'ts' };
       };
       api.onLoad({ filter: /.*/, namespace: 'tl-behavior-memory' }, load);
@@ -224,22 +224,20 @@ function memoryPlugin(
  * API, which is the only entry point that supports an in-memory resolver plugin
  * (0.28.2 rejects plugins in the synchronous API calls). It is invoked as a
  * parser/linker over supplied in-memory bytes with `write: false`; the returned
- * bundle is never executed. The `Promise` signature is the contract note
- * C33-1 (behaviors.md §5.1 states a synchronous signature while §5.4 mandates
- * the in-memory plugin mechanism).
+ * bundle is never executed. The `Promise` signature follows from that.
  */
 const defaultBuild = (options: unknown): Promise<{ outputFiles?: { path?: string; contents: Uint8Array }[] }> =>
   esbuildBuild(options as BuildOptions) as unknown as Promise<{ outputFiles?: { path?: string; contents: Uint8Array }[] }>;
 
 /**
- * Phase 25.9: the source map rides along the build (an external map names an
+ * The source map rides along the build (an external map names an
  * output file; nothing is written). The JavaScript bytes are the same as
  * without a map, so every recorded output digest stays valid.
  */
 const SOURCE_MAP_OPTIONS = Object.freeze({ outfile: '/out.js', sourcemap: 'external', sourcesContent: false } as const);
 
 /**
- * Compile one behavior graph (behaviors.md §5.1). Pure and total: every
+ * Compile one behavior graph. Pure and total: every
  * failure is a `{ ok: false }` result with ≤ `limits.diagnostics` diagnostics;
  * no bytes are produced on failure.
  */
@@ -261,7 +259,7 @@ export async function compileBehavior(
     return { ...res.failure, diagnostics: diag(res.failure.diagnostics[0] as CompileDiagnostic, limits) };
   };
 
-  // The pinned parser must be the pinned version (dependencies.md §7): a drift
+  // The pinned parser must be the pinned version: a drift
   // changes the output bytes and therefore every published digest.
   if (!esbuildPinMatches()) {
     return fail('behavior_compile_failed', 'toolchain', {
@@ -269,7 +267,7 @@ export async function compileBehavior(
       message: `the installed esbuild is not the pinned ${ESBUILD_PIN}`,
     });
   }
-  // Phase 15.4: properties declared in code (`export const properties` in
+  // Properties declared in code (`export const properties` in
   // src/index.ts) are the declaration; the supplied JSON declaration is then
   // ignored (code wins, so the two cannot drift).
   const early = parseSourceGraphContainer(input.containerBytes, limits);
@@ -281,14 +279,14 @@ export async function compileBehavior(
       path: ENTRY_PATH,
       message: code.message.slice(0, 256),
     }) as BehaviorCompileFailure;
-    // Phase 16.3: the position as fields too (the script editor marks it inline).
+    // The position as fields too (the script editor marks it inline).
     return { ...failed, diagnostics: failed.diagnostics.map((d) => ({ ...d, line: code.line, column: code.column })) };
   }
   const declaredInCode = code.found && code.ok;
-  // Declaration bounds (project-model.md §22.4: re-checked here).
+  // Declaration bounds (re-checked here).
   const declaration = declaredInCode ? { properties: code.properties } : input.declaration;
   const properties = declaration.properties;
-  // Phase 19.1: 0–32 properties (a script may declare none).
+  // 0–32 properties (a script may declare none).
   if (!Array.isArray(properties)) {
     return fail('behavior_source_limits_exceeded', 'properties', {
       limit: 'properties',
@@ -325,10 +323,10 @@ export async function compileBehavior(
   if (!analyzed.ok) {
     return { ...analyzed.failure, diagnostics: diag(analyzed.failure.diagnostics[0] as CompileDiagnostic, limits) };
   }
-  // Phase 23.7: the script libraries the source reaches (checked, transpiled once, pinned).
+  // The script libraries the source reaches (checked, transpiled once, pinned).
   let linked: ReadonlyMap<string, CompiledLibrary> = new Map();
   let pins: LibraryPin[] = [];
-  // Phase 25.9: shared linking (the default) - each library its own module, compiled once.
+  // Shared linking (the default) - each library its own module, compiled once.
   const linking = input.libraryLinking ?? 'shared';
   let links: Map<string, SharedLibraryModule> | null = null;
   const libraryImports = analyzed.analysis.libraryImports ?? [];
@@ -380,8 +378,8 @@ export async function compileBehavior(
   } catch (e) {
     buildError = e;
   }
-  // The synchronous esbuild call cannot be preempted mid-call (behaviors.md
-  // §6): the bound is cooperative and measured around/inside the call.
+  // The synchronous esbuild call cannot be preempted mid-call: the bound is
+  // cooperative and measured around/inside the call.
   if (buildError !== null) {
     if (overDeadline()) {
       return fail('behavior_compile_timeout', 'timeout', { message: 'the compile wall-clock bound is exceeded' });
@@ -409,7 +407,7 @@ export async function compileBehavior(
       detail: message.slice(0, 128),
       message: `the pinned compiler rejected the source: ${message}`,
     }) as BehaviorCompileFailure;
-    // Phase 16.3: every located compiler error as its own diagnostic (path,
+    // Every located compiler error as its own diagnostic (path,
     // 1-based line and column), bounded like any diagnostic list.
     const located = syntaxDiagnostics(structured, limits);
     return located.length > 0 ? { ...failed, diagnostics: located } : failed;
@@ -454,13 +452,13 @@ export async function compileBehavior(
     ownedTransforms: [...container.ownedTransforms],
     enginePins: input.pinnedModules.map((p) => ({ id: p.id, version: p.version, apiVersion: p.apiVersion })),
     declaration: { properties: properties.map((p) => ({ ...p })) },
-    // Phase 15.4: present only when the declaration was derived from the code.
+    // Present only when the declaration was derived from the code.
     ...(declaredInCode ? { declaredInCode: true as const } : {}),
-    // Phase 19.0: generated from a visual-script graph (the generator's first line).
+    // Generated from a visual-script graph (the generator's first line).
     ...(entryText !== undefined && entryText.startsWith(`${GRAPH_SOURCE_BANNER}\n`) ? { sourceKind: 'graph' as const } : {}),
-    // Phase 23.7: the linked script library versions (absent when none: older manifests stay byte-identical).
+    // The linked script library versions (absent when none: older manifests stay byte-identical).
     ...(pins.length > 0 ? { libraries: pins.map((p) => ({ ...p })) } : {}),
-    // Phase 25.9: the shared modules the output imports (their digests are in its import paths too).
+    // The shared modules the output imports (their digests are in its import paths too).
     ...(links !== null && links.size > 0 ? { libraryModules: [...links.values()].map((m) => ({ libraryId: m.libraryId, outputDigest: m.outputDigest })).sort((a, b) => (a.libraryId < b.libraryId ? -1 : 1)) } : {}),
     apiVersion: BEHAVIOR_API_VERSION,
     compiler: { id: toolchain.id, version: toolchain.version, esbuild: toolchain.esbuild, typescript: toolchain.typescript },
@@ -484,7 +482,7 @@ export async function compileBehavior(
 }
 
 /**
- * Phase 16.3: esbuild's structured errors as located diagnostics. Files load
+ * esbuild's structured errors as located diagnostics. Files load
  * from the in-memory namespace (`tl-behavior-memory:src/a.ts`), the entry
  * from stdin (`src/index.ts`); esbuild columns are 0-based.
  */
@@ -498,7 +496,7 @@ function syntaxDiagnostics(errors: unknown[], limits: BehaviorCompilerLimits): C
     const loc = e.location;
     if (loc !== null && loc !== undefined) {
       if (typeof loc.file === 'string' && loc.file.startsWith(`${LIBRARY_NAMESPACE}:`)) {
-        // Phase 23.7: a library module (`tl-lib:<libraryId>/<path>`).
+        // A library module (`tl-lib:<libraryId>/<path>`).
         const rest = loc.file.slice(LIBRARY_NAMESPACE.length + 1);
         const slash = rest.indexOf('/');
         if (slash > 0) {
@@ -540,16 +538,16 @@ export function createBehaviorCompiler(
     pinnedModules?: readonly PinnedModuleRef[];
     now?: () => number;
     build?: BehaviorCompileOptions['build'];
-    /** Phase 25.24c: successful compiles kept (least recently used first out; default 256, 0: none). */
+    /** Successful compiles kept (least recently used first out; default 256, 0: none). */
     cacheEntries?: number;
   } = {},
 ): BehaviorCompiler {
   const pinnedModules = options.pinnedModules ?? M2_PINNED_MODULES;
-  // Phase 23.7: one compiled-library cache per instance (a library compiles once per build).
+  // One compiled-library cache per instance (a library compiles once per build).
   const compileOptions: BehaviorCompileOptions = { libraryCache: createLibraryCache() };
   if (options.now !== undefined) compileOptions.now = options.now;
   if (options.build !== undefined) compileOptions.build = options.build;
-  // Phase 25.24c: a compile is a pure function of its input and this compiler (a custom `build` is not
+  // A compile is a pure function of its input and this compiler (a custom `build` is not
   // cached), so a successful one is kept by the digest of what it compiled: the source container, the
   // declaration, the libraries it may link (their digests), the pinned modules, the limits and the
   // compiler's recipe. A Play of unchanged scripts then compiles nothing.
@@ -597,7 +595,7 @@ export function createBehaviorCompiler(
 }
 
 /**
- * Phase 23.7: check one script library on its own - its container rules,
+ * Check one script library on its own - its container rules,
  * imports (missing libraries, cycles), syntax and output bounds - by
  * compiling a one-line module that re-exports it (`export * from
  * '@lib/<id>'`) against the given library set. Nothing is kept; the result
@@ -618,7 +616,7 @@ export async function checkScriptLibrary(input: ScriptLibraryCheckInput, options
   );
   if (!result.ok) return result;
   const pins = result.manifest.libraries ?? [];
-  // Phase 25.9: the size of the library's own shared module (what it adds to a build).
+  // The size of the library's own shared module (what it adds to a build).
   const module = result.libraryModules?.find((m) => m.libraryId === input.libraryId);
   return {
     ok: true,

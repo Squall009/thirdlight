@@ -1,16 +1,16 @@
 /**
- * Phase 23.9a: inline rich text of project UI texts — a small, safe markup
+ * Inline rich text of project UI texts — a small, safe markup
  * parsed to plain tokens (the host builds DOM from them with `textContent`,
  * never HTML):
  *
  *   [b]bold[/b]  [i]italic[/i]  [color=#ff8800]colour[/color]
  *   [size=20]bigger[/size]  [icon=star] (an icon of the document/theme)
  *   {hud.hp} (a view-model value)   [[ (a literal "[")   {{ (a literal "{")
- *   {action:jump} (phase 23.14: the action's glyph for the device used last)
+ *   {action:jump} (the action's glyph for the device used last)
  *
  * Unknown or unbalanced tags are shown as the text they are. Pure.
  *
- * Phase 23.16: moved here from the game host so the dialogue runner (in the
+ * Moved here from the game host so the dialogue runner (in the
  * simulation) counts a line's visible characters with the host's rules — a
  * typewriter reveal of N characters shows the same N on screen.
  */
@@ -133,7 +133,7 @@ export function uiValueText(v: unknown): string {
 }
 
 /**
- * Phase 23.16: the visible characters of parsed tokens — a text token's
+ * The visible characters of parsed tokens — a text token's
  * characters (Unicode code points, so a surrogate pair is one), an icon is
  * one, a placeholder one per character of its value text (`valueText`;
  * absent: 0). A typewriter reveal counts these.

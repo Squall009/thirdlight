@@ -1,12 +1,12 @@
 /**
- * Bounded content queries — commands.md §4/§5.6 (packet 21 non-prefab subset).
+ * Bounded content queries.
  *
  * Queries are read-only: they carry no `expectedRevision`/`requestId`, never
  * mutate state and are never deduplicated. They observe the last acknowledged
- * in-memory state. This pure layer serves the content queries the packet-21
- * ops own (`queryAssets`, `queryBehaviors`, `queryPrefabs`) plus the bounded
+ * in-memory state. This pure layer serves the content queries
+ * (`queryAssets`, `queryBehaviors`, `queryPrefabs`) plus the bounded
  * `queryProject` content counts; the scene queries are served by the
- * workspace/protocol layers (packet 07).
+ * workspace/protocol layers.
  *
  * Results never carry bytes, blobs or staging handles.
  */
@@ -125,7 +125,7 @@ function parseBooleanArg(
   return { ok: true, value: v };
 }
 
-/** `queryAssets` (commands.md §5.6): paged catalog summaries. */
+/** `queryAssets`: paged catalog summaries. */
 export function queryAssets(
   state: CommandState<SceneDocument>,
   request: unknown,
@@ -210,7 +210,7 @@ export function queryAssets(
   };
 }
 
-/** `queryBehaviors` (commands.md §5.6): paged behavior summaries. */
+/** `queryBehaviors`: paged behavior summaries. */
 export function queryBehaviors(
   state: CommandState<SceneDocument>,
   request: unknown,
@@ -243,7 +243,7 @@ export function queryBehaviors(
   const total = records.length;
   const pageRecords = records.slice(page.offset, page.offset + page.limit);
   // `includeDeclaration: true` returns the exact stored record (the
-  // packet-16 query fixture pins this shape), never source bytes.
+  // query fixture pins this shape), never source bytes.
   const behaviors: BehaviorQueryEntry[] = pageRecords.map((b) => {
     if (inc.value) return b;
     const summary: BehaviorSummary = {
@@ -266,7 +266,7 @@ export function queryBehaviors(
   };
 }
 
-/** `queryPrefabs` (commands.md §5.6, packet 22): paged definition summaries. */
+/** `queryPrefabs`: paged definition summaries. */
 export function queryPrefabs(
   state: CommandState<SceneDocument>,
   request: unknown,
@@ -311,7 +311,7 @@ export function queryPrefabs(
   const total = records.length;
   const pageRecords = records.slice(page.offset, page.offset + page.limit);
   // `includeEntities: true` returns the exact stored definition value (the
-  // packet-16 query fixture pins this shape), never a projection.
+  // query fixture pins this shape), never a projection.
   const prefabs: PrefabQueryEntry[] = pageRecords.map((d) => {
     if (inc.value) return d;
     const summary: PrefabSummary = {
@@ -335,7 +335,7 @@ export function queryPrefabs(
 }
 
 /**
- * The `queryProject` bounded content counts (commands.md §4/§5.6, packet 45):
+ * The `queryProject` bounded content counts:
  * counts only, plus the v3 additions — `audioAssets` (asset records with
  * `kind === "audio"`), `game` (boolean), `zones` and `spawns` entity counts.
  * Never returns block contents, bytes or definitions.
@@ -348,7 +348,7 @@ export function contentCounts(state: CommandState<SceneDocument>): ContentCounts
     behaviors: content.behaviors.length,
     settingsKeys: Object.keys(content.settings).length,
   };
-  // The v3 additions (every state is v3 or v4 since phase 9.3).
+  // The v3 additions (every state is v3 or v4).
   {
     const entities = state.scene.entities as unknown as readonly {
       components: Record<string, unknown>;
@@ -360,9 +360,8 @@ export function contentCounts(state: CommandState<SceneDocument>): ContentCounts
 }
 
 /**
- * `queryGameConfig` (commands.md §3.1.11/authoring §A6): the project tag
- * registry; no page args, no mutation fields. Phase 24.7: the game block it
- * returned was deleted.
+ * `queryGameConfig`: the project tag registry; no page args, no mutation
+ * fields.
  */
 export function queryGameConfig(
   state: CommandState<SceneDocument>,
@@ -384,16 +383,16 @@ export function queryGameConfig(
     ok: true,
     projectId,
     revision: state.scene.revision,
-    // Phase 12 (b): the project tag registry (phase 24.7: the game block was deleted).
+    // The project tag registry.
     tags: (content.tags ?? []).map((t) => ({ bit: t.bit, name: t.name })),
   };
 }
 
 /**
- * The `queryEntities` component filter (commands.md §4, packet 45): the page
+ * The `queryEntities` component filter: the page
  * contains only entities carrying `component`, still in document order, and
  * `total` counts the filtered set. Unknown component names are `field_value`.
- * The workspace query validates/pages through this helper (packet 48).
+ * The workspace query validates/pages through this helper.
  */
 export function filterEntitiesByComponent(
   entities: readonly { components: Record<string, unknown> }[],

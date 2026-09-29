@@ -1,10 +1,7 @@
 /**
- * Phase 23.0: a 2D collider takes its entity's rotation about Z. Before 23.0
- * every host read `collider.rotationZ` — a field the collider model never
- * had — so physics always got 0 while the editor drew the collider rotated.
+ * A 2D collider takes its entity's rotation about Z, as the editor draws it.
  * `staticColliderOf` is the one place the runtime, Play, the export and the
- * perf harness derive the spec; an unrotated collider keeps exactly its old
- * spec (rotationZ 0).
+ * perf harness derive the spec; an unrotated collider gets rotationZ 0.
  */
 import { describe, expect, it } from 'vitest';
 

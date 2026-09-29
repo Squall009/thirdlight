@@ -1,10 +1,10 @@
 /**
- * Packet 34 — the Node test host for trusted behavior execution.
+ * The Node test host for trusted behavior execution.
  *
- * This is the ONLY place a published behavior is executed in this packet
- * (there is no browser in this container). It:
+ * This is the ONLY place a published behavior is executed in Node (there is
+ * no browser in this container). It:
  *
- *  1. reads the committed packet-33 compiled example artifact
+ *  1. reads the committed compiled example artifact
  *     (`fixtures/m2/behaviors/valid/sample.output.js`, digest-bound by
  *     `expected.json`) and executes it in a **bounded `node:vm` context**
  *     (no network, no `eval`/`new Function` code generation, a wall-clock
@@ -70,9 +70,9 @@ function sha256(bytes: Uint8Array): string {
 /**
  * Execute a compiled artifact in a bounded `vm` context and return its default
  * export. `codeGeneration` is closed, so an artifact cannot `eval`/`new
- * Function` its way out; evaluation has a hard wall-clock bound (which,
- * per runtime.md §14.1.1, does NOT preempt a same-thread loop *inside a step* —
- * it only bounds module evaluation here).
+ * Function` its way out; evaluation has a hard wall-clock bound (which
+ * does NOT preempt a same-thread loop *inside a step* — it only bounds module
+ * evaluation here).
  */
 function evaluateCompiledArtifact(outputBytes: Uint8Array): unknown {
   const source = new TextDecoder().decode(outputBytes);
@@ -116,7 +116,7 @@ function committedArtifact(behaviorId: string, ownedTransforms: string[] = []): 
   return { artifact, outputBytes, outputDigest: artifact.outputDigest };
 }
 
-/** Compile a fresh test behavior with the real packet-33 compiler. */
+/** Compile a fresh test behavior with the real behavior compiler. */
 async function compileHosted(
   behaviorId: string,
   source: string,
@@ -179,7 +179,7 @@ function snapshotOf(scene: unknown): unknown {
 
 /**
  * The test consumer: a phase module that reads the committed `control_move`
- * intent (falling back to the sampled frame — the §14.5 effective-input rule)
+ * intent (falling back to the sampled frame — the effective-input rule)
  * and moves its owned entity by `move · dt` in the transform phase.
  */
 function consumerSpec(ownerId: string, sampleLimit = Number.POSITIVE_INFINITY): SimulationModuleSpec {
@@ -398,11 +398,10 @@ describe('packet 34 — failure modes in the Node host', () => {
   });
 
   it('does not execute unbounded-loop behavior tests in a live browser context (documented limitation)', () => {
-    // runtime.md §14.1.1: a same-thread infinite loop cannot be preempted by a
-    // watchdog, an iframe removal, a Stop button or dispose(). This packet
-    // therefore contains NO unbounded-loop execution test in a browser; the
-    // limitation is documented in the packet-34 evidence manifest and the
-    // browser procedure. The VM module-evaluation timeout above bounds only
+    // A same-thread infinite loop cannot be preempted by a
+    // watchdog, an iframe removal, a Stop button or dispose(). There is
+    // therefore NO unbounded-loop execution test in a browser; the
+    // limitation is documented in the browser procedure. The VM module-evaluation timeout above bounds only
     // module evaluation, not a step-time loop.
     expect(true).toBe(true);
   });

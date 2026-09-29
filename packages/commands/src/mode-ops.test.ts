@@ -1,5 +1,5 @@
 /**
- * Phase 23.10: game modes and behavior groups through the commands —
+ * Game modes and behavior groups through the commands —
  * setModes / setBehaviorGroups (whole lists), the references the result is
  * checked for (UI documents, input maps, groups; a group an object carries;
  * a mode a UI action names), no_change, bad args, and undo/redo; the

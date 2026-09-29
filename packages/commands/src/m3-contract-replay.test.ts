@@ -1,13 +1,11 @@
 /**
- * Packet 45 — the committed packet-39 command contract fixtures
+ * The committed `m3` command contract fixtures
  * (`fixtures/m3/contracts/commands/**`) through the REAL engine.
  *
- * Phase 24.7: the packet-39 scenario was recorded against the character controller
- * layer that phase 24 removed (its zones, the camera
- * follow, `setGameConfig`). Its recorded message stream (5 of 7 messages are
- * zone or game-block edits) and its byte-exact after-envelope can no longer be
- * replayed, so the scenario replay is gone. What remains are the recorded
- * cases whose subject is generic, run against the recorded states with the
+ * The scenario was recorded against a character controller layer the engine
+ * does not have (its zones, the camera follow, `setGameConfig`), so its
+ * message stream and after-envelope are not replayed. Only the recorded
+ * cases whose subject is generic are run, against the recorded states with the
  * removed components stripped (`m3NeutralJson`): the surface-preset
  * no-change case and the component/field failure cases F6, F8 and F9. Every
  * recorded `code` and auxiliary field of those cases is asserted exactly.

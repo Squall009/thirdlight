@@ -1,5 +1,5 @@
 /**
- * Phase 23.10: game modes and behavior groups.
+ * Game modes and behavior groups.
  *
  * `setModes {modes}` replaces the whole list of game modes (`content.modes`;
  * the first is the start mode — order is data, so a reorder is one edit),
@@ -73,7 +73,7 @@ export function applySetBehaviorGroups(input: OpInput, args: { groups: string[] 
   return { ok: true, op: { scene: gate.scene, content: gate.content, change, inverse: { kind: 'setBehaviorGroups', restore: previous } } };
 }
 
-// ---- phase 24.4i: the event → cue table ------------------------------------------
+// ---- The event → cue table ------------------------------------------
 
 export const eventCuesOf = (content: ContentDocument): EventCue[] => (content as ContentDocument & { eventCues?: EventCue[] }).eventCues ?? [];
 
@@ -101,7 +101,7 @@ export function applySetEventCues(input: OpInput, args: { cues: EventCue[] }): O
   return { ok: true, op: { scene: gate.scene, content: gate.content, change, inverse: { kind: 'setEventCues', restore: previous } } };
 }
 
-// ---- phase 24.4j: the game shell ------------------------------------------------
+// ---- The game shell ------------------------------------------------
 
 export const shellOf = (content: ContentDocument): GameShell | null => (content as ContentDocument & { shell?: GameShell }).shell ?? null;
 

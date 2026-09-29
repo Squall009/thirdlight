@@ -1,5 +1,5 @@
 /**
- * Phase 17.4: realtime shadows of boxes (and, by the same rule, models and
+ * Realtime shadows of boxes (and, by the same rule, models and
  * instance sets). A box above a floor box casts the sun's shadow onto it in
  * Play; with the box's `castShadow` off (the Inspector's "Casts shadows"
  * checkbox, a component field) the shadow is gone. The difference between the

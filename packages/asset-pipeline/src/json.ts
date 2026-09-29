@@ -1,13 +1,13 @@
 /**
- * Strict JSON parsing of the GLB JSON chunk (project-model.md §18.7.2 step 4):
+ * Strict JSON parsing of the GLB JSON chunk:
  * UTF-8 without replacement, no BOM, RFC 8259 syntax only, root must be an
  * object, and repeated member names **rejected** (decoded, per object).
  *
  * `JSON.parse` cannot do the duplicate-key check (it silently keeps the last
  * value), so this is a small recursive-descent parser. It mirrors the pass-1
  * byte parser the model package uses for envelope/manifest bytes; the model
- * package's parser is not importable here (types-only edge, dependencies.md
- * §4.1) so this package parses the JSON chunk itself — the profile is defined
+ * package's parser is not importable here (types-only edge, dependencies.md)
+ * so this package parses the JSON chunk itself — the profile is defined
  * as inspecting bytes without a loader.
  *
  * Objects are built with a null prototype so a hostile `__proto__` member

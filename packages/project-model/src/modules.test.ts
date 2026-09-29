@@ -1,7 +1,7 @@
 /**
- * The declared-dependency module resolver (D17): modules come from the
+ * The declared-dependency module resolver: modules come from the
  * referenced content (components and content blocks), what behaviors require
- * and explicit declarations (phase 24.3); anything this engine does not
+ * and explicit declarations; anything this engine does not
  * provide is unresolved.
  */
 import { describe, expect, it } from 'vitest';
@@ -76,11 +76,11 @@ describe('resolveRequiredModules', () => {
 
   it('phase 23.0/23.2: a 3D project\'s controller needs the 3D character controller and backend', () => {
     const scene = { entities: [entity({ controller: {} })] };
-    // Phase 23.2: the 3D character controller module (with the 3D backend and input it needs).
+    // The 3D character controller module (with the 3D backend and input it needs).
     expect(resolveRequiredModules({ scene, physicsDimension: 3 })).toEqual({ ok: true, moduleIds: ['thirdlight.character3d:controller', 'thirdlight.input:keyboard-gamepad', 'thirdlight.physics-rapier:3d'] });
     expect(resolveRequiredModules({ scene, physicsDimension: 2 })).toEqual(resolveRequiredModules({ scene }));
     expect(resolveRequiredModules({ scene, behaviors: [{ behaviorId: 'b', requiredModules: ['@thirdlight/physics-rapier'] }], physicsDimension: 3 })).toEqual({ ok: true, moduleIds: ['thirdlight.character3d:controller', 'thirdlight.input:keyboard-gamepad', 'thirdlight.physics-rapier:3d'] });
-    // Phase 23.3: a collider alone needs it in 3D (rays and picks without a player); not on the 2D plane.
+    // A collider alone needs it in 3D (rays and picks without a player); not on the 2D plane.
     const colliders = { entities: [entity({ collider: { shape: { type: 'box', hx: 1, hy: 1, hz: 1 } } })] };
     expect(resolveRequiredModules({ scene: colliders, physicsDimension: 3 })).toEqual({ ok: true, moduleIds: ['thirdlight.physics-rapier:3d'] });
     expect(resolveRequiredModules({ scene: colliders })).toEqual({ ok: true, moduleIds: [] });

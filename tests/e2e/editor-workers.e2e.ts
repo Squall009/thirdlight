@@ -1,5 +1,5 @@
 /**
- * Phase 22.1: heavy editor jobs off the main thread, in a real browser
+ * Heavy editor jobs off the main thread, in a real browser
  * against the real backend.
  *
  * Long tasks (PerformanceObserver 'longtask', > 50 ms on the main thread) are
@@ -10,10 +10,10 @@
  * (count, longest, total) with the load average. The scatter and the preview
  * bake assert a bound on the longest task (relative and generous: this host
  * renders on the CPU and is shared with other test runs — see
- * docs/plan-phase-22.md §5 for the numbers and the bound).
+ * docs/plan-phase-22.md for the numbers and the bound).
  *
- * `TL_EDITOR_DIR=<dir>` serves another editor build (the "before" numbers
- * came from the pre-22.1 bundle); `TL_WORKERS_MEASURE_ONLY=1` logs without
+ * `TL_EDITOR_DIR=<dir>` serves another editor build (e.g. one that runs
+ * these jobs on the main thread, for "before" numbers); `TL_WORKERS_MEASURE_ONLY=1` logs without
  * asserting the bounds. `?workers=off` (the editor's own flag) runs every job
  * inline — the test checks both paths give the same result.
  */
@@ -39,8 +39,8 @@ const label = process.env['TL_EDITOR_DIR'] !== undefined ? 'before' : 'after';
 
 /**
  * The bound on the longest main-thread task during a scatter and a preview
- * bake. Before 22.1 these jobs blocked the main thread for 0.3–2 s here
- * (CPU renderer, shared host); after, what is left is the editor's own
+ * bake. On the main thread these jobs block it for 0.3–2 s here (CPU
+ * renderer, shared host); in the workers, what is left is the editor's own
  * frames and React commits. 400 ms is generous on purpose: this host's load
  * average swings between 8 and 25 while other suites run, which stretches
  * every task several times over.
@@ -57,7 +57,7 @@ const LONGEST_TASK_BOUND_MS = 400;
  * thread is still caught at any load: GROSS_TASK_BOUND_MS stays asserted.
  */
 const SATURATED_LOAD_PER_CORE = 1;
-/** Before 22.1 these jobs blocked the main thread 0.3–2 s on a quiet host; past 2 s is a job on the main thread at any load. */
+/** On the main thread these jobs take 0.3–2 s on a quiet host; past 2 s is a job on the main thread at any load. */
 const GROSS_TASK_BOUND_MS = 2000;
 
 /** The host's 1-minute load per core (the higher of two readings, as the average lags). */

@@ -1,5 +1,5 @@
 /**
- * Phase 23.3: named collision layers as project data — `setCollisionLayers`
+ * Named collision layers as project data — `setCollisionLayers`
  * (validation, undo/redo), a collider's `layers` (setComponent; only names
  * the project has, "default" always; 3D projects only), a layer a collider
  * lists cannot be removed, and the 3D physics config carries the names and

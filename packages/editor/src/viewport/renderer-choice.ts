@@ -1,5 +1,5 @@
 /**
- * Phase 17.1: the editor's renderer backend choice (the page's `?renderer=`
+ * The editor's renderer backend choice (the page's `?renderer=`
  * flag, else the project's `render_backend` setting, else the default). The
  * Scene view is told directly; previews and thumbnails read it when they
  * create their renderer.

@@ -1,12 +1,12 @@
 /**
- * Packet 22 — pure prefab capture and instantiation (commands.md §8.6–§8.7).
+ * Pure prefab capture and instantiation.
  *
- * The strongest evidence is replaying packet 16's accepted contract fixtures
+ * The strongest evidence is replaying the accepted contract fixtures
  * byte-for-byte: the `createPrefab`/`instantiatePrefab`/undo/redo/retry steps
  * M3–M10 of `contracts/commands/prefab-scenario.messages.json`, and every
  * prefab atomic-rejection case of `contracts/commands/prefab-failures.json`
- * against its reachable state. Those fixtures were authored at packet 16 and
- * are not regenerated here.
+ * against its reachable state. Those fixtures are committed and never
+ * regenerated here.
  *
  * The remaining tests cover the acceptance criteria directly: two instances
  * with distinct IDs and remapped internal references, the exact generated
@@ -14,11 +14,9 @@
  * independence, atomic rejection with no partial expansion, deterministic ID
  * re-use after a deletion, the prefab limits and `queryPrefabs`.
  *
- * Phase 9.3 (v1/v2 scene model removed): ported from `m2-*.test.ts` (archived
- * under archive/removed-v1-v2/commands/). Every state is a v4 project scene:
- * the M2 fixture envelopes are lifted in memory by `m2EnvelopeV4` (scene
+ * Every state is a v4 project scene: the `fixtures/m2` envelopes are lifted in memory by `m2EnvelopeV4` (scene
  * relabelled schemaVersion 4, content given the v4 scene index), and the
- * recorded M2 results are asserted against the v4 engine; where v4 differs
+ * recorded results are asserted against the v4 engine; where v4 differs
  * the difference is stated at the assertion.
  */
 
@@ -72,8 +70,8 @@ function baseState(): CommandState<SceneV4> {
 function stateThrough(id: string): CommandState<SceneV4> {
   let state = baseState();
   for (const s of STEPS) {
-    // M10 is a duplicated retry served by the workspace dedup layer (§6.1
-    // step 2); the pure layer re-validates and would conflict. It changes no
+    // M10 is a duplicated retry served by the workspace dedup layer
+    // (pipeline step 2); the pure layer re-validates and would conflict. It changes no
     // state, so skipping it reaches the same snapshot.
     if ((s.out as { duplicated?: boolean }).duplicated !== true) {
       const r = applyMutation(state, s.in);
@@ -138,7 +136,7 @@ function instantiateChange(result: MutationSuccess): InstantiatePrefabChange {
   return result.change as unknown as InstantiatePrefabChange;
 }
 
-// ---- accepted packet-16 fixture replay ---------------------------------------------
+// ---- accepted prefab fixture replay ---------------------------------------------
 
 describe('packet-16 accepted prefab fixture replay', () => {
   it('replays the whole M1–M10 scenario byte-for-byte and lands on the after envelope', () => {
@@ -147,8 +145,8 @@ describe('packet-16 accepted prefab fixture replay', () => {
     for (const s of STEPS) {
       const req = s.in as { requestId: string };
       if ((s.out as { duplicated?: boolean }).duplicated === true) {
-        // A duplicated retry is served by the workspace dedup layer (§6.1 step
-        // 2) BEFORE this pure layer is reached: the recorded result replays
+        // A duplicated retry is served by the workspace dedup layer (pipeline
+        // step 2) BEFORE this pure layer is reached: the recorded result replays
         // byte-identically modulo `duplicated`. Assert that relationship
         // instead of re-executing (the pure layer has no record map).
         const recorded = seen.get(req.requestId);
@@ -211,10 +209,9 @@ describe('packet-16 accepted prefab fixture replay', () => {
       expect(c.expect.durableStateUnchanged).toBe(true);
       replayed += 1;
     }
-    // F01–F09 (prefab), F10–F20 (packet-21 content/property cases, now
-    // reachable through the r3/r4/r5/r7 snapshots), F21 (`reference_in_use`,
-    // corrected to the Lantern `model-000003` by the Gate F repair GF-3),
-    // F22 (no_change), F23 (stale instantiate).
+    // F01–F09 (prefab), F10–F20 (content/property cases, reachable through
+    // the r3/r4/r5/r7 snapshots), F21 (`reference_in_use`, the Lantern
+    // `model-000003`), F22 (no_change), F23 (stale instantiate).
     expect(replayed).toBe(23);
   });
 
@@ -261,7 +258,7 @@ describe('packet-16 accepted prefab fixture replay', () => {
 describe('one undo/redo preserves instance identity (§8.7.6)', () => {
   it('undo removes the whole subtree and redo restores exactly those IDs', () => {
     const state = stateThrough('M5');
-    // Undo the SECOND instance (M5): its whole subtree disappears in one step.
+    // Undo the SECOND instance: its whole subtree disappears in one step.
     const undone = ok(mutation(state, 'undo', {}));
     const ids = undone.state.scene.entities.map((e) => e.id);
     expect(ids).not.toContain('group-000002');
@@ -276,10 +273,10 @@ describe('one undo/redo preserves instance identity (§8.7.6)', () => {
   });
 
   it('redo after undo re-inserts recorded values without re-checking IDs against later state', () => {
-    // Undo both instances (M5 then M4: separate history entries), then redo in order.
+    // Undo both instances (`M5` then `M4`: separate history entries), then redo in order.
     let state = stateThrough('M5');
-    state = ok(mutation(state, 'undo', {})).state; // undo M5
-    state = ok(mutation(state, 'undo', {})).state; // undo M4
+    state = ok(mutation(state, 'undo', {})).state; // undo `M5`
+    state = ok(mutation(state, 'undo', {})).state; // undo `M4`
     expect(state.scene.entities.map((e) => e.id)).not.toContain('group-000001');
     const redo1 = ok(mutation(state, 'redo', {}));
     expect(instantiateChange(redo1.result).mapping.map((m) => m.entityId)).toEqual([
@@ -606,7 +603,7 @@ describe('fixtures/m2/prefabs/independence.messages.json replay', () => {
   });
 });
 
-// ---- phase 14.1: gameplay components in v4 prefabs -----------------------------------
+// ---- Gameplay components in v4 prefabs -----------------------------------
 
 describe('phase 14.1: a v4 prefab keeps its gameplay components', () => {
   it('createPrefab captures a collider and a collectible; instantiatePrefab copies them; a controller is still refused', () => {

@@ -1,5 +1,5 @@
 /**
- * Phase 25.8: lights belong to scenes — checked in pixels in Play, against a
+ * Lights belong to scenes — checked in pixels in Play, against a
  * real backend, under each renderer variant (the forced WebGL 2 one with
  * TL_E2E_ALL_VARIANTS=1).
  *

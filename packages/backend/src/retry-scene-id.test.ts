@@ -1,5 +1,5 @@
 /**
- * Phase 14.8: a retried command replays the live acknowledgement, `sceneId`
+ * A retried command replays the live acknowledgement, `sceneId`
  * included, across a backend restart (the v4 retry record, record version 2,
  * stores the acked scene). Real HTTP against a real backend; the second
  * backend is a new process-level instance on the same data root.

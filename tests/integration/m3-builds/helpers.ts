@@ -1,5 +1,5 @@
 /**
- * Packet 58 — shared helpers for the M3 build integration tests (B19/B21).
+ * Shared helpers for the M3 build integration tests (B19/B21).
  *
  * Builders for minimal, SELF-CONTAINED container bytes (a valid glTF 2.0 GLB
  * and a valid RIFF/WAVE mono/48k/16-bit PCM WAV) so the M3 closure + export
@@ -76,8 +76,7 @@ export function sha256Hex(bytes: Uint8Array): string {
 /** A synthetic v3 authoring envelope (scene + content) with one model asset
  * and one audio asset, self-consistent digests. The model is reached through
  * the model/modelAnimation components; the audio through a declared `assetRef`
- * property of a declaration-only behavior on one entity (phase 24 removed the
- * game block whose cues reached it before). */
+ * property of a declaration-only behavior on one entity. */
 export function syntheticV3(): {
   scene: unknown;
   content: unknown;

@@ -1,14 +1,14 @@
 /**
- * Packet 21 — pure content and property commands (commands.md §8.5–§8.12).
+ * Pure content and property commands.
  *
- * The strongest evidence is replaying packet 16's accepted command fixtures:
- * the scenario's M1 (`publishBehavior` declaration-create) and M2
+ * The strongest evidence is replaying the accepted command fixtures: the
+ * scenario's `M1` (`publishBehavior` declaration-create) and `M2`
  * (`setBehaviorProperties` attach) request/result pairs are asserted
  * byte-for-byte against the committed `prefab-scenario.messages.json`, and the
  * non-prefab atomic-rejection cases of `prefab-failures.json` are replayed
  * against the base / after-M2 states and asserted against the committed error
- * payloads. Because packet 21 does not implement prefab ops, only the states
- * reachable without one (`base`, `r4-after-M2`) are replayed here.
+ * payloads. Prefab ops are covered by `prefab-ops-v4.test.ts`, so only the
+ * states reachable without one (`base`, `r4-after-M2`) are replayed here.
  *
  * The remaining tests cover the op surface itself: change/inverse data, one
  * revision + one history entry per success, undo/redo round-trips, redo
@@ -16,11 +16,9 @@
  * replacement rules and the bounded content queries (against the after
  * envelope's catalog).
  *
- * Phase 9.3 (v1/v2 scene model removed): ported from `m2-*.test.ts` (archived
- * under archive/removed-v1-v2/commands/). Every state is a v4 project scene:
- * the M2 fixture envelopes are lifted in memory by `m2EnvelopeV4` (scene
+ * Every state is a v4 project scene: the `fixtures/m2` envelopes are lifted in memory by `m2EnvelopeV4` (scene
  * relabelled schemaVersion 4, content given the v4 scene index), and the
- * recorded M2 results are asserted against the v4 engine; where v4 differs
+ * recorded results are asserted against the v4 engine; where v4 differs
  * the difference is stated at the assertion.
  */
 
@@ -179,7 +177,7 @@ describe('packet-16 accepted fixture replay (non-prefab steps)', () => {
 
 // ---- publishAsset ------------------------------------------------------------------
 
-// v3/v4 publishAsset names the asset kind (commands.md §3.1.1); the M2 args had none.
+// v3/v4 publishAsset names the asset kind; the fixture requests do not.
 const ASSET_ARGS = {
   mode: 'create',
   kind: 'model',
@@ -323,7 +321,7 @@ describe('publishBehavior (commands.md §8.8)', () => {
   });
 
   it('validates declaration data and bounds with the contract codes', () => {
-    // Phase 19.1: a behavior may declare no property (it was 1-32).
+    // A behavior may declare no property.
     expect(mutation(baseState(), 'publishBehavior', { ...NEW_BEHAVIOR, declaration: { properties: [] } }).ok).toBe(true);
     const badDefault = {
       ...NEW_BEHAVIOR,
@@ -519,7 +517,7 @@ describe('setComponent (commands.md §8.10)', () => {
     expect(
       failCode(mutation(state, 'setComponent', { entityId: 'box-0001', component: 'box', value: { colour: '#fff000' } })),
     ).toBe('field_unexpected');
-    // Phase 15.1: a box is added to an empty object like any component (a complete value).
+    // A box is added to an empty object like any component (a complete value).
     const added = mutation(state, 'setComponent', { entityId: 'group-0001', component: 'box', value: { size: [1, 1, 1], material: { color: '#b0b0b0' } } });
     expect(added.ok, JSON.stringify(added)).toBe(true);
     // A present field replaces the whole field; the same canonical value is a
@@ -714,7 +712,7 @@ describe('ordering, revision and history rules (commands.md §6.1/§9)', () => {
   });
 });
 
-// ---- packet-21 fixture replay ------------------------------------------------------
+// ---- content fixture replay ------------------------------------------------------
 
 describe('fixtures/m2/commands/content-ops.messages.json replay', () => {
   it('replays every step byte-for-byte and ends at the indexed revision', () => {
@@ -727,8 +725,8 @@ describe('fixtures/m2/commands/content-ops.messages.json replay', () => {
     }>('commands/expected.json');
     let state: CommandState<SceneV4> = baseState();
     for (const step of scenario.steps) {
-      // v3/v4: publishAsset requires the asset `kind` (the M2 requests
-      // predate it); the recorded results already carry `kind: "model"`.
+      // v3/v4: publishAsset requires the asset `kind` (the fixture requests
+      // lack it); the recorded results already carry `kind: "model"`.
       const request =
         step.in['op'] === 'publishAsset'
           ? { ...step.in, args: { ...(step.in['args'] as Record<string, unknown>), kind: 'model' } }
@@ -766,7 +764,7 @@ describe('content queries (commands.md §5.6)', () => {
     const example = m2FixtureJson<{ examples: Record<string, { result: { content: unknown } }> }>(
       'contracts/commands/queries.json',
     ).examples['queryProject'] as { result: { content: unknown } };
-    // v3/v4 add the audio/spawn counts to the M2 four.
+    // v3/v4 add the audio/spawn counts to the fixture's four.
     expect(contentCounts(afterState())).toEqual({
       ...(example.result.content as Record<string, unknown>),
       audioAssets: 0,

@@ -4,11 +4,11 @@
  * content catalog, as the workspace hands them over).
  *
  * A stale setTransform (expectedRevision 4 at current revision 5) is
- * reported as STALE, not validated (commands.md §6.1: revision checking
- * precedes argument validation) — the pinned `revision_conflict` payload
+ * reported as STALE, not validated (revision checking precedes argument
+ * validation) — the pinned `revision_conflict` payload
  * with `currentRevision`. The recovery re-issue (fresh requestId, current
  * revision) succeeds; the final scene must equal the disk-after scene.
- * The state at T5 has an EMPTY history (fresh process, §9.2 restart
+ * The state at T5 has an EMPTY history (fresh process, restart
  * boundary — the re-issue is the first recorded entry, undoDepth 1).
  */
 

@@ -1,19 +1,17 @@
 /**
- * Declared-property control model (packet 28; project-model §20.5/§20.8,
- * commands.md §8.7.3/§8.9).
+ * Declared-property control model.
  *
- * Schema-driven controls for the seven M2 property types, derived **only**
- * from the published declaration data (`content.behaviors[i].declaration`,
- * project-model §20.6): every control carries the declaration's `label`,
+ * Schema-driven controls for the seven declared property types, derived **only**
+ * from the published declaration data (`content.behaviors[i].declaration`):
+ * every control carries the declaration's `label`,
  * `type`, typed `default` and its constraints (min/max/step/maxLength/enum
  * members/vec3 bounds). Nothing here evaluates a value, imports behavior code
  * or discovers a schema by running anything — a declaration is data and is
- * consumed as data (project-model §20.5: "no schema discovery by evaluating
- * code").
+ * consumed as data (no schema discovery by evaluating code).
  *
  * The module also derives the contract component controls for `collider` and
- * `controller` shapes (project-model §10.7/§10.8/§21) and builds the exact
- * `setBehaviorProperties` args (commands.md §8.9): the whole values map is
+ * `controller` shapes and builds the exact
+ * `setBehaviorProperties` args: the whole values map is
  * sent, because omitted keys take their declaration default — editing one
  * property must not reset the others.
  *
@@ -34,13 +32,13 @@ import type {
 } from '@thirdlight/project-model';
 import { DECLARATION_STRING_LENGTH_DEFAULT, MAX_DECLARATION_STRING_LENGTH, MAX_ENUM_VALUES, MAX_PROPERTIES } from '@thirdlight/project-model/limits';
 
-/** `^[a-z0-9][a-z0-9_-]{0,63}$` — the project-model §5.1 ID syntax. */
+/** `^[a-z0-9][a-z0-9_-]{0,63}$` — the project model's ID syntax. */
 export const ID_SYNTAX = ID_RE;
 
 /** A `string` declaration without `maxLength` takes the model's default. */
 export const DEFAULT_STRING_MAX_LENGTH = DECLARATION_STRING_LENGTH_DEFAULT;
 
-/** §20.7: properties per declaration, enum members, string `maxLength`. */
+/** Properties per declaration, enum members, string `maxLength`. */
 export const MAX_DECLARED_PROPERTIES = MAX_PROPERTIES;
 export const MAX_ENUM_MEMBERS = MAX_ENUM_VALUES;
 export const MAX_STRING_MAX_LENGTH = MAX_DECLARATION_STRING_LENGTH;
@@ -80,13 +78,13 @@ export interface PropertyControl {
   constraintText: string;
   /** `current` violates the declaration (a bounded error), else `null`. */
   error: ControlError | null;
-  /** Phase 15.4: the Inspector section, heading and hover help the declaration names. */
+  /** The Inspector section, heading and hover help the declaration names. */
   group?: string;
   header?: string;
   tooltip?: string;
 }
 
-/** Phase 15.4: a private property is not shown or set per object (absent visibility = public). */
+/** A private property is not shown or set per object (absent visibility = public). */
 export function isPrivateProperty(p: { visibility?: string }): boolean {
   return p.visibility === 'private';
 }
@@ -113,7 +111,7 @@ function isFiniteNumber(v: unknown): v is number {
 }
 
 /**
- * Validate one value against one declaration (project-model §20.5). The
+ * Validate one value against one declaration. The
  * declaration is data: the value is checked structurally against the declared
  * type and range/length/enum/bounds — never executed or coerced.
  */
@@ -250,7 +248,7 @@ export function formatPropertyValue(value: PropertyValue | unknown): string {
 
 /**
  * Derive one control per public declared property, in declaration order
- * (phase 15.4: private properties are not shown per object). When a key is
+ * (private properties are not shown per object). When a key is
  * absent the declaration default is used — that is the same default the
  * backend materializes.
  */
@@ -391,7 +389,7 @@ export function parseControlInput(
 
 export interface SetBehaviorPropertiesArgsView {
   entityId: string;
-  /** `null` removes the behavior component (commands.md §8.9). */
+  /** `null` removes the behavior component. */
   behaviorId: string | null;
   /** Present for an attach/update; absent when removing. */
   values?: Record<string, PropertyValue>;
@@ -402,8 +400,8 @@ export type PlanEditResult =
   | { ok: false; error: ControlError };
 
 /**
- * Build the exact `setBehaviorProperties` args for one property edit
- * (commands.md §8.9). The **whole** declared values map is sent: omitted keys
+ * Build the exact `setBehaviorProperties` args for one property edit.
+ * The **whole** declared values map is sent: omitted keys
  * take their declaration default, so a partial map would reset the other
  * properties. The changed key is the only value that differs.
  */
@@ -438,7 +436,7 @@ export function planSetBehaviorProperties(
   if (invalid) return { ok: false, error: { path: `/args/values/${key}`, ...invalid } };
   const values: Record<string, PropertyValue> = {};
   for (const p of declaration.properties) {
-    // Phase 15.4: private properties are never sent (the backend refuses them).
+    // Private properties are never sent (the backend refuses them).
     if (isPrivateProperty(p)) continue;
     const stored = own(current, p.key);
     const kept = stored.present && stored.value !== undefined ? (stored.value as PropertyValue) : p.default;
@@ -447,7 +445,7 @@ export function planSetBehaviorProperties(
   return { ok: true, args: { entityId, behaviorId, values } };
 }
 
-/** The one typed command that removes a behavior component (commands.md §8.9). */
+/** The one typed command that removes a behavior component. */
 export function planRemoveBehaviorProperties(entityId: string): SetBehaviorPropertiesArgsView {
   return { entityId, behaviorId: null };
 }
@@ -467,7 +465,7 @@ export interface ComponentControl {
   /** Whether the selected entity currently carries the component. */
   present: boolean;
   fields: ComponentFieldView[];
-  /** Whether an accepted M2 command can edit this component (always true now). */
+  /** Whether a command can edit this component. */
   editable: boolean;
   /** Why editing is unavailable (bounded, actionable), else `null`. */
   unavailableReason: string | null;
@@ -475,7 +473,7 @@ export interface ComponentControl {
 }
 
 /**
- * `setComponent` (commands.md §8.10, C28-1 repair) owns `collider`/`controller`
+ * `setComponent` owns `collider`/`controller`
  * too: `collider` supports add/edit/remove, `controller` supports add (the
  * field-less marker's value is exactly `{}`) and remove (`value: null`). The
  * controls below therefore build real typed commands; nothing is read-only.
@@ -548,7 +546,7 @@ export function deriveComponentControls(
   return out;
 }
 
-/** Plan a collider add/edit from a parsed shape (commands.md §8.10). */
+/** Plan a collider add/edit from a parsed shape. */
 export function planSetCollider(
   entityId: string,
   shape: ColliderComponent['shape'],
@@ -610,7 +608,7 @@ export function planAddController(entityId: string): SetComponentArgsView {
   return { entityId, component: 'controller', value: {} };
 }
 
-/** Plan removing a physics component (`value: null`, commands.md §8.10). */
+/** Plan removing a physics component (`value: null`). */
 export function planRemovePhysicsComponent(
   entityId: string,
   component: 'collider' | 'controller',
@@ -627,7 +625,7 @@ function colliderFields(collider: ColliderComponent): ComponentFieldView[] {
       { path: 'collider.shape.hy', label: 'hy', type: 'number (0, 1e6]', value: numberText(shape.hy) },
     ];
   }
-  // Phase 23.1: the 3D shapes (a 3D project).
+  // The 3D shapes (a 3D project).
   if (shape.type === 'sphere') return [{ path: 'collider.shape.type', label: 'shape', type: '"sphere"', value: 'sphere' }, { path: 'collider.shape.radius', label: 'radius', type: 'number (0, 64]', value: numberText(shape.radius) }];
   if (shape.type === 'capsule') {
     return [

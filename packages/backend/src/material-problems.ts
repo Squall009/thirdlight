@@ -1,5 +1,5 @@
 /**
- * Phase 25.18: graph materials' compile problems on the backend — the same
+ * Graph materials' compile problems on the backend — the same
  * `materialGraphProblems` the editor's Problems tab runs (three-adapter:
  * the graph built to TSL nodes without a renderer), so MCP and tools see a
  * broken material without an editor open.

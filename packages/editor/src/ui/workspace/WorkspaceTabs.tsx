@@ -1,5 +1,5 @@
 /**
- * Phase 16.0: the centre workspace — its tab strip (Scene, Game, then the
+ * The centre workspace — its tab strip (Scene, Game, then the
  * open documents: closable, reorderable by drag, middle-click closes), the
  * maximize toggle, Ctrl+Tab / Ctrl+Shift+Tab cycling, and the layout storage
  * that remembers the tabs per project (localStorage, like the dock sizes).

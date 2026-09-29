@@ -1,5 +1,5 @@
 /**
- * Phase 16.3: the script editor's source model (pure, Node-testable).
+ * The script editor's source model (pure, Node-testable).
  *
  * A behavior's source is a source-graph container (`thirdlight-behavior-source`
  * v1: `graphVersion`, `entryPath` = `src/index.ts`, `requiredModules`,
@@ -113,7 +113,7 @@ export function newScript(hasDeclaration: boolean): ScriptContainer {
 /** Why a file name is refused (`null` = acceptable). */
 export function pathProblem(path: string, container: ScriptContainer, except?: string): string | null {
   if (path.length === 0) return 'a file needs a name';
-  // Phase 23.7: `.json` files are data modules (`import data from './data.json'`).
+  // `.json` files are data modules (`import data from './data.json'`).
   if (!path.endsWith('.ts') && !path.endsWith('.json')) return 'a script file ends in .ts (or .json for data)';
   if (!PATH_RE.test(path)) return 'use lower-case letters, digits, "-", "_", "." and "/" folders (e.g. src/util.ts)';
   if (path.length > 128) return 'the name is too long';
@@ -174,7 +174,7 @@ export function typeOfIdentifier(name: string, text: string, types: Readonly<Rec
     const t = m[1] as string;
     if (types[t] !== undefined) return t;
   }
-  // Phase 25.11: a spec method's parameter by its position (`onTriggerEnter(state, event, ctx)`: `event` is
+  // A spec method's parameter by its position (`onTriggerEnter(state, event, ctx)`: `event` is
   // the trigger event), from the method's signature in the table.
   for (const m of types[SPEC_TYPE] ?? []) {
     if (m.kind !== 'method') continue;
@@ -190,7 +190,7 @@ export function typeOfIdentifier(name: string, text: string, types: Readonly<Rec
   return null;
 }
 
-/** Phase 25.11: the type key of the behavior spec (`export default { … }`) in the member table. */
+/** The type key of the behavior spec (`export default { … }`) in the member table. */
 export const SPEC_TYPE = 'BehaviorSpec';
 
 /** The parameter types of a method's signature text (`(state: State, event: X): void` → State, X). */
@@ -201,7 +201,7 @@ function parameterTypesOf(detail: string): string[] {
 }
 
 /**
- * Phase 25.11: the spec members to complete when the cursor is at a member
+ * The spec members to complete when the cursor is at a member
  * name directly inside the script's `export default { … }` (`onTri` →
  * `onTriggerEnter`, …). `textBefore` is the whole text up to the cursor.
  * Null elsewhere (a nested object, a statement, a string or comment).
@@ -279,7 +279,7 @@ export function exportedTypeNames(dts: string): string[] {
   return [...new Set([...dts.matchAll(/\bexport\s+(?:interface|type|const|enum)\s+([A-Za-z_$][\w$]*)/g)].map((m) => m[1] as string))].sort();
 }
 
-// ---- phase 23.7: script libraries ---------------------------------------------
+// ---- Script libraries ---------------------------------------------
 
 /** The import prefix of a script library (`import { x } from '@lib/<id>'`). */
 export const LIBRARY_IMPORT_PREFIX = '@lib/';
@@ -309,14 +309,14 @@ export function libraryFilePatch(stored: readonly ScriptFile[], draft: readonly 
   return out;
 }
 
-/** Phase 25.9: one staged library patch (a file may come in pieces: `append`). */
+/** One staged library patch (a file may come in pieces: `append`). */
 export interface LibraryStagePatch {
   libraryId: string;
   files: { path: string; text: string | null; append?: true }[];
 }
 
 /**
- * Phase 25.9: the request budget of one patch's files (JSON bytes). A
+ * The request budget of one patch's files (JSON bytes). A
  * command or stage request is capped at 64 KiB; this leaves room for the
  * envelope.
  */
@@ -330,7 +330,7 @@ export function fitsOneRequest(files: readonly { path: string; text: string | nu
 }
 
 /**
- * Phase 25.9: a library patch cut into stage patches that each fit one
+ * A library patch cut into stage patches that each fit one
  * request: files are packed in order; a file too large for one request is
  * split into pieces (its first piece replaces the file, the rest append).
  * Staged in this order and committed once, they give exactly `files`.

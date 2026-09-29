@@ -1,30 +1,20 @@
 /**
- * Gate B re-review repair (round 1, 2026-09-18) — project-model scope:
+ * Malformed-input bounds of the validators ("never throws on malformed
+ * data"):
  *
- * G1/G2 (P1, project-model.md §12.1 "never throws on malformed data"):
- * `boundedFound`'s per-level width caps are NOT a recursion bound — a
- * 4000-level length-1 array chain used as `found` recursed one stack frame
- * per level and overflowed (RangeError) through the public
- * `validateScene`/`validateManifest` entry points. The bound applied here:
- * depth ≤ 64 AND nodes ≤ 4096 per `found` mapping (fresh budget per error;
- * the commands-O1 discipline, packages/commands/src/errors.ts, 69b1a17),
- * degrading the whole `found` to the bounded marker when the bound is hit.
+ * `boundedFound`'s per-level width caps are not a recursion bound — a deeply
+ * nested `found` value (a 4000-level length-1 array chain) must not overflow
+ * the stack through the public entry points. The bound: depth ≤ 64 AND
+ * nodes ≤ 4096 per `found` mapping (fresh budget per error, as the commands
+ * package's errors do), degrading the whole `found` to the bounded marker
+ * when the bound is hit. A long flat array is summarized by length and never
+ * recurses.
  *
- * G3 (P2, project-model.md §12.5: `path` is a JSON Pointer, RFC 6901):
- * dynamic keys (unknown fields) were interpolated into `path` unescaped —
- * an `a/b` key yielded the invalid pointer `/…/a/b` (must be `a~1b`).
+ * `path` is a JSON Pointer (RFC 6901): dynamic keys (unknown fields) are
+ * escaped — an `a/b` key yields `/…/a~1b`, never `/…/a/b`.
  *
- * RED evidence (pre-fix, this file, vitest 5.0.1 / node v22.22.1):
- * - T1–T6, T6b: `RangeError: Maximum call stack size exceeded` at
- *   `boundedFound` (validate.ts:109, the `v.map(boundedFound)` recursion).
- * - T6c passed pre-fix (the 05-N3 length summary never recurses — the
- *   guard the re-review §5.1 item 5 noted); it pins that behavior.
- * - T7 pre-fix: the error path was `/entities/0/components/transform/a/b`
- *   (unescaped — invalid RFC 6901).
- *
- * Phase 9.3: the M1 `validateScene` was removed; the scene cases now drive
- * the live `validateSceneV3` (schemaVersion 3), and T10–T12 add the same
- * shapes through `validateSceneV4` and `validateContentV3`.
+ * The scene cases drive `validateSceneV3` (schemaVersion 3), and T10–T12 add
+ * the same shapes through `validateSceneV4` and `validateContentV3`.
  */
 
 import { describe, it, expect } from 'vitest';

@@ -1,5 +1,5 @@
 /**
- * Phase 23.17 (E7): timelines — sequencer assets (`content.timelines[]`, v4).
+ * Timelines — sequencer assets (`content.timelines[]`, v4).
  *
  * A timeline is a length of time (`duration`, seconds) with tracks; every
  * track holds keys on the time ruler (a key with a `duration` is a clip).
@@ -31,7 +31,7 @@
  * - `material`   a graph-material parameter of the target (track `param`,
  *                `material`) [value, easing];
  * - `environment` switch to an environment preset [preset, blendTime];
- * - `mode`       switch the game mode (phase 23.10, as `ctx.modes.switch`)
+ * - `mode` switch the game mode (as `ctx.modes.switch`)
  *                [mode, blend, blendTime].
  *
  * Validation here is the data's own rules; references to assets, effects and
@@ -525,7 +525,7 @@ export function timelineRefs(list: readonly TimelineAsset[] | undefined): { asse
  * The timelines' references against the project: audio keys name an audio or
  * music asset, effect keys an effect, material tracks a material. Dialogue
  * and environment-preset ids are checked when the project holds those
- * collections (phases 23.16 / 23.18) — `dialogueIds` / `presetIds` null skip it.
+ * collections — `dialogueIds` / `presetIds` null skip it.
  */
 export function validateTimelineReferences(
   list: readonly TimelineAsset[],

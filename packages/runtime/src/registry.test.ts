@@ -1,7 +1,6 @@
 /**
- * Registry and module-isolation tests (dependencies.md §6; runtime.md
- * §3.1/§5.1/§8): duplicate-registration refusal, name syntax, unknown /
- * duplicate module selection, the BUILTIN_MODULES contents, the
+ * Registry and module-isolation tests: duplicate-registration refusal, name
+ * syntax, unknown / duplicate module selection, the BUILTIN_MODULES contents, the
  * module_error no-op rollback (no partial module application), the
  * bounded 32-entry error ring with cumulative errorCount, and module
  * `dispose?` on runtime disposal.
@@ -176,10 +175,10 @@ describe('module step isolation (runtime.md §5.1/§8)', () => {
     // the state stays frozen (stepIndex/simTime/transforms unchanged),
     // and each further failed step attempt records a module_error (the
     // stateless thrower throws on every attempt — this is what makes the
-    // m1-acceptance 33-error ring check below drive 33 recorded failures;
+    // 33-error ring check below drive 33 recorded failures;
     // the per-frame attempt count is bounded by MAX_CATCHUP_STEPS because
     // the frozen simTime makes rawN grow with wall time, and capped frames
-    // drop the remainder + resync per §5.4).
+    // drop the remainder and resync).
     rt.tick(2 * DT);
     rt.tick(3 * DT);
     const d2 = rt.getDiagnostics();
@@ -219,7 +218,7 @@ describe('module step isolation (runtime.md §5.1/§8)', () => {
     };
     // Drive EXACTLY 33 recorded failures. With the frozen simTime the
     // per-frame attempt count is rawN = floor(elapsed/dt) since the last
-    // anchor resync (§5.3/§5.4), so the ticks below are chosen so the
+    // anchor resync, so the ticks below are chosen so the
     // attempts sum to exactly 33: 4 + 5 + 6 + 7 (cumulative rawN 4..7 from
     // the t=0 anchor) + 8 (rawN 9 ⇒ capped at 8, anchor resyncs) + 3
     // (rawN 3 from the resynced anchor). The CONTRACT observables are the

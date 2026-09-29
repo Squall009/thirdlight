@@ -1,5 +1,5 @@
 /**
- * Phase 23.18: the environment blend is simulation state — a neutral scene
+ * The environment blend is simulation state — a neutral scene
  * with two presets ("day", "night") and a director script: night over 2 s
  * (from the base look), day over 1 s with a fog-colour override interrupting
  * it, then a held mix `blend(day, night, 0.3)`. Run twice in the page and

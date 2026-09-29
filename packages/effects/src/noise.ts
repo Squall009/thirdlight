@@ -1,5 +1,5 @@
 /**
- * Phase 20.1: seeded gradient noise and curl noise (the Turbulence block).
+ * Seeded gradient noise and curl noise (the Turbulence block).
  *
  * Perlin's improved 3D gradient noise over a permutation table shuffled by
  * the effect seed; curl noise is the curl of three decorrelated noise

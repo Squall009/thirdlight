@@ -1,5 +1,5 @@
 /**
- * Phase 21.0/21.1 (always on, fast): the benchmark generator and the
+ * Always on, fast: the benchmark generator and the
  * harness's pure plumbing. Every class generates exactly its entity count
  * within the model's limits, deterministically; pastes stay under the command
  * size cap; percentiles, the metric extraction and the baseline comparison
@@ -64,7 +64,7 @@ describe('benchmark generator', () => {
           for (const part of splitBySize(batch)) expect(JSON.stringify(part).length).toBeLessThan(60_000);
         }
       }
-      // Phase 21.2 (generator v2): the collider limit is per scene, so every scene
+      // Generator v2: the collider limit is per scene, so every scene
       // carries its own share — the 10-scene large class 2000 colliders.
       if (cls === 'large') expect(all.filter((e) => e.components['collider'] !== undefined).length).toBe(2000);
       // Loaded together the start scenes hold at most 16 point lights.
@@ -157,7 +157,7 @@ describe('harness plumbing', () => {
     expect(d.classes).toEqual([...BENCH_CLASSES]);
     expect(d.renderers).toEqual(['webgl2']);
     expect(d.surfaces).toEqual(['play', 'export', 'editor', 'sim']);
-    // Phase 22.0: Play and the export in the simulation worker (the default), or also with ?threads=off.
+    // Play and the export in the simulation worker (the default), or also with ?threads=off.
     expect(d.threads).toEqual(['worker']);
     expect(parseArgs(['--threads', 'worker,off']).threads).toEqual(['worker', 'off']);
     const q = parseArgs(['--classes', 'small,large', '--renderers', 'webgpu', '--quick', '--viewport', '800x600']);

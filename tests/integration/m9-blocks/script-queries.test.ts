@@ -1,10 +1,10 @@
 /**
- * Phase 9.9 (wrap-up): a script's overlap queries and show/hide, through the
+ * A script's overlap queries and show/hide, through the
  * real game host and Rapier — `ctx.physics.overlapBox/overlapCircle` find the
  * level's colliders (never the character), share the 32-per-step budget with
  * rays, and `ctx.game.setVisible` hides an entity until the next run.
  *
- * Phase 22.0/22.3: in both threading modes — in the simulation worker the
+ * In both threading modes — in the simulation worker the
  * queries and their budget are unchanged. The script keeps what it saw in
  * `ctx.save` (the test reads it from a project save's storage section; a
  * worker's script cannot write into the test's variables).

@@ -1,5 +1,5 @@
 /**
- * Phase 17.2: the neutral shader test scene (browser code, bundled by
+ * The neutral shader test scene (browser code, bundled by
  * `shader-parity.e2e.ts` with esbuild). One case per page load:
  *
  *   index.html?backend=webgl2|webgpu|auto&case=<name>[&control=1][&graph=1]
@@ -8,16 +8,15 @@
  * per-mesh look) through the real three-adapter code — `createRenderer`,
  * `createMaterialLibrary`, `applyLightmap`, `setSelectionHighlight`,
  * `setEntityLook` — with fixed time, wind, camera and lights, so the WebGL
- * reference images (drawn by the archived WebGLRenderer path before the
- * switch-over, phase 17.2) and the node-material renders (WebGPURenderer on
+ * reference images (drawn by the archived WebGLRenderer path) and the node-material renders (WebGPURenderer on
  * WebGL 2 / WebGPU) can be compared pixel by pixel. Textures are generated
  * here (no files, no fetch). `control=1` draws the cases without their shader
  * nodes (foliage, kit and water as plain standard materials, lightmap copies
  * keeping the ambient light) — what WebGPURenderer drew while the archived
- * onBeforeCompile hooks were silently ignored (phase 17.0). Phase 18.2:
+ * onBeforeCompile hooks were silently ignored.
  * `graph=1` draws every project material converted to a graph material by
  * the editor's "Convert to graph" (the built-in templates) — compiled by the
- * graph compiler (18.3), it must match the same references.
+ * graph compiler, it must match the same references.
  *
  * When done, `window.__shaderCase` holds { ok, backend, reason, error? };
  * with `debug=1` on WebGPURenderer, `window.__shader` holds the generated
@@ -219,7 +218,7 @@ const cases: Record<string, () => void | Promise<void>> = {
   look() {
     // Three boxes share one file material (like placements of one model), so
     // the library gives them one shared project material; the middle one gets a look override
-    // (phase 24.4h `ctx.look`; phase 24.7: this case was the deleted checkpoint glow, the same render).
+    // (`ctx.look`).
     library.setMaterials([def('pad', 'standard', { color: '#9aa0a8', roughness: 0.5 })]);
     const file = src();
     const pads = [-1.4, 0, 1.4].map((x) => {
@@ -229,7 +228,7 @@ const cases: Record<string, () => void | Promise<void>> = {
     });
     const shared = pads[0]!.material as THREE.MeshStandardMaterial;
     setEntityLook(pads[1]!, { emissive: '#ffb030', emissiveIntensity: 1.5 });
-    // The shared material is untouched (9.4 rule): the other pads do not glow.
+    // The shared material is untouched: the other pads do not glow.
     if (shared.emissive.getHex() !== 0 || pads[2]!.material !== shared || pads[1]!.material === shared) throw new Error('the look override touched the shared material');
   },
 };

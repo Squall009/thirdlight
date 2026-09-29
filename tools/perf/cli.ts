@@ -1,12 +1,12 @@
 /**
- * Phase 21.1: the harness command line (bundled and started by run.mjs).
+ * The harness command line (bundled and started by run.mjs).
  *
- *   --classes small,medium,...     benchmark classes (default: all six; asset-heavy since 25.24a)
- *   --renderers webgl2,webgpu      renderer backends (default: webgl2; webgpu/auto add the WebGPU flags; legacy = webgl2 since 17.4)
+ *   --classes small,medium,...     benchmark classes (default: all six)
+ *   --renderers webgl2,webgpu      renderer backends (default: webgl2; webgpu/auto add the WebGPU flags; legacy = webgl2)
  *   --surfaces play,export,editor,sim
  *   --quick                        short windows (a smoke run)
  *   --record-ms N --warmup-ms N --commands N --sim-steps N --viewport WxH --seed N
- *   --plays N                      Plays per class (phase 25.24a: each start split into stages; later ones reuse the editor page)
+ *   --plays N                      Plays per class (each start split into stages; later ones reuse the editor page)
  *   --gpu                          draw on the host's GPU (ANGLE on Vulkan, real WebGPU) instead of SwiftShader
  *   --keep                         keep the generated projects and exports under ~/.cache/thirdlight-perf/runs/
  *   --out FILE                     report path (default ~/.cache/thirdlight-perf/reports/<time>.json)

@@ -1,15 +1,15 @@
 /**
- * Public types — the workspace service surface (dependencies.md §3:
- * `openWorkspaceService(config) → WorkspaceService`, types, `runCommand`,
- * `query`, the operator operations per workspace.md §11, `ERROR_CODES`).
+ * Public types — the workspace service surface
+ * (`openWorkspaceService(config) → WorkspaceService`, types, `runCommand`,
+ * `query`, the operator operations, `ERROR_CODES`).
  *
  * Result shapes:
- * - mutations: commands.md §5.1/§5.2 (`MutationResult` from the commands
+ * - mutations: `MutationResult` (from the commands
  *   package — the sole mutation path);
- * - queries: commands.md §5.6 (last-acknowledged state; the
+ * - queries: the last-acknowledged state (the
  *   `workspace` block carries the pause state while an external change is
  *   pending);
- * - operator operations: workspace.md §11 result shapes
+ * - operator operations: their result shapes
  *   (`createProject`, `releaseWorkspace`, `takeoverWorkspace`,
  *   `acceptExternalState`, `discardExternalState`).
  */
@@ -54,26 +54,25 @@ import type {
 
 export interface WorkspaceServiceConfig {
   /**
-   * The configured data root (workspace.md §2/§3): projects live at
+   * The configured data root: projects live at
    * `<root>/projects/<projectId>`. All client-facing addressing is by
    * project ID inside this root — arbitrary absolute paths are never
-   * accepted (charter §4).
+   * accepted.
    */
   root: string;
   /**
-   * The backend's stable per-process identity: `tb-` + 32 hex
-   * (workspace.md §6.1). Generated (CSPRNG) when absent — one per
-   * backend process.
+   * The backend's stable per-process identity: `tb-` + 32 hex.
+   * Generated (CSPRNG) when absent — one per backend process.
    */
   backendId?: string;
   /**
-   * Liveness process marker (workspace.md §6.2): a `/proc/<pid>/cmdline`
+   * Liveness process marker: a `/proc/<pid>/cmdline`
    * argv[0] containing this string ⇒ the owner process is live.
    * Default: `thirdlight`.
    */
   processMarker?: string;
   /**
-   * Root of the liveness proc filesystem (workspace.md §6.2). Default
+   * Root of the liveness proc filesystem. Default
    * `/proc`; tests may point it at a controlled tree.
    */
   procRoot?: string;
@@ -85,7 +84,7 @@ export interface WorkspaceServiceConfig {
   stamp?: () => string;
   /**
    * The backend's process identity for ownership records (workspace.md
-   * §6.1: the owner process's PID). Default: `process.pid`.
+   * The owner process's PID). Default: `process.pid`.
    */
   pid?: number;
   /**
@@ -94,13 +93,13 @@ export interface WorkspaceServiceConfig {
    */
   utcNow?: () => string;
   /**
-   * The write-operation seam (workspace.md §5.1 fault classification).
+   * The write-operation seam (for fault classification).
    * Defaults to the real filesystem; tests inject controlled faults
    * (EACCES/EIO at specific steps) while the rest of the sequence still
    * runs on the real filesystem.
    */
   ops?: import('./write').WriteOps;
-  /** Authoritative-bytes quota per project (workspace.md §13.9; default
+  /** Authoritative-bytes quota per project (default
    * 536 870 912 = 512 MiB). Deployment-configurable. */
   maxSourceBytesPerProject?: number;
   /** Device free space that must remain after a blob write (default
@@ -112,7 +111,7 @@ export interface WorkspaceServiceConfig {
    * (default `Date.now`; tests pin it for deterministic TTL cases). */
   now?: () => number;
   /**
-   * The injected GLB inspector (packet 25; dependencies.md §4.1: `backend`
+   * The injected GLB inspector (`backend`
    * constructs the `asset-pipeline` inspector and injects it). The workspace
    * holds only its type and supplies the job port.
    */
@@ -120,18 +119,17 @@ export interface WorkspaceServiceConfig {
   /** The bounded inspection budget (default 30 000 ms). */
   inspectTimeoutMs?: number;
   /**
-   * The injected behavior-source compiler (packet 33; dependencies.md §4.1:
-   * `backend` constructs the `behavior-build` compiler and injects it). The
+   * The injected behavior-source compiler (`backend` constructs the `behavior-build` compiler and injects it). The
    * workspace holds only its type.
    */
   behaviorCompiler?: import('@thirdlight/behavior-build').BehaviorCompiler;
 }
 
-// ---- pending external change (workspace.md §7.2) -------------------------------
+// ---- pending external change -------------------------------
 
 export interface PendingChangeInfo {
   /**
-   * §7.2 step 4: the recovery snapshot's durable state — "ok" (durable),
+   * The recovery snapshot's durable state — "ok" (durable),
    * "snapshot_failed" (the bytes were read and validated but no snapshot
    * is durable), "unreadable" (step 1 failed with a non-ENOENT error: the
    * bytes were never read).
@@ -139,7 +137,7 @@ export interface PendingChangeInfo {
   snapshotState: 'ok' | 'snapshot_failed' | 'unreadable';
   /** SHA-256 (lowercase hex) of the foreign on-disk bytes; null while unreadable. */
   externalHash: string | null;
-  /** Whether the foreign bytes pass the full §4.3 validation pipeline; null while unreadable. */
+  /** Whether the foreign bytes pass the full load validation pipeline; null while unreadable. */
   externalValid: boolean | null;
   /** The true total number of validation errors; null while unreadable. */
   externalErrorCount: number | null;
@@ -147,7 +145,7 @@ export interface PendingChangeInfo {
   externalErrors: readonly LoadDetail[];
 }
 
-// ---- queries (commands.md §5.6) ------------------------------------------------
+// ---- queries ------------------------------------------------
 
 export type WorkspaceQueryInfo =
   | { writePaused: false }
@@ -166,7 +164,7 @@ export interface QueryProjectResult {
   scene: { sceneId: string; schemaVersion: number; entityCount: number; cameraId: string };
   history: HistoryDepths;
   workspace: WorkspaceQueryInfo;
-  /** Phase 12 (b): the project tag registry (ascending bit; empty when none). */
+  /** The project tag registry (ascending bit; empty when none). */
   tags?: { bit: number; name: string }[];
 }
 
@@ -180,7 +178,7 @@ export interface QueryEntityResult {
   parentChain: readonly string[];
   /** Direct children in document order. */
   childIds: readonly string[];
-  /** Phase 12 (b): the entity's tags by name, own and effective (own + folders above). */
+  /** The entity's tags by name, own and effective (own + folders above). */
   tagNames: { own: string[]; effective: string[] };
   /** Present only when `includeSubtree` is true. */
   subtree?: { count: number; entities: readonly EntityV3[] };
@@ -197,8 +195,7 @@ export interface QueryEntitiesResult {
   entities: readonly EntityV3[];
 }
 
-/** `queryGameConfig` (commands.md §3.1.11 / authoring §A6): the project's tag
- * registry and descriptors (phase 24.7: the game block was deleted). */
+/** `queryGameConfig`: the project's tag registry and descriptors. */
 export interface QueryGameConfigResult {
   ok: true;
   projectId: string;
@@ -221,7 +218,7 @@ export type QueryResult =
   | QueryGameConfigResult
   | QueryFailure;
 
-// ---- operator operations (workspace.md §11) ------------------------------------
+// ---- operator operations ------------------------------------
 
 /** A template/sample to create a project from (see `createProjectFrom`). */
 export interface ProjectSource {
@@ -231,45 +228,45 @@ export interface ProjectSource {
   blobs: ReadonlyMap<string, Uint8Array>;
 }
 
-/** `createProject(projectId, name)` (§8.1). */
+/** `createProject(projectId, name)`. */
 export type CreateProjectResult =
   | { ok: true; created: true; revision: 0 }
   | { ok: true; created: false; revision: number }
   | { ok: false; error: CommandError };
 
-/** `releaseWorkspace(projectId)` (§9.1). */
+/** `releaseWorkspace(projectId)`. */
 export type ReleaseResult =
   | { ok: true; revision: number; retryCleared: true }
   | { ok: false; error: CommandError };
 
-/** `takeoverWorkspace(projectId)` (§6.4 — explicit, never automatic). */
+/** `takeoverWorkspace(projectId)` (explicit, never automatic). */
 export type TakeoverResult =
   | { ok: true; lockEpoch: number; backendId: string; pid: number }
   | { ok: false; error: CommandError };
 
-/** `acceptExternalState(projectId)` (§7.3). */
+/** `acceptExternalState(projectId)`. */
 export type AcceptResult =
   | { ok: true; revision: number; historyReset: true; retryCleared: true }
   | { ok: false; error: CommandError };
 
-/** `discardExternalState(projectId)` (§7.3). */
+/** `discardExternalState(projectId)`. */
 export type DiscardResult =
   | { ok: true; revision: number; historyReset: true }
   | { ok: false; error: CommandError };
 
-// ---- durable retry records (workspace.md §4.2; commands.md §7.1) ---------------
+// ---- durable retry records ---------------
 
 export interface RetryRecord {
   requestId: string;
-  /** SHA-256 (lowercase hex) of the canonical request bytes (§6.6). */
+  /** SHA-256 (lowercase hex) of the canonical request bytes. */
   digest: string;
   /** The revision this command produced (per-record history metadata). */
   appliedRevision: number;
-  /** The full §5.1 success payload as originally acked, `duplicated: false`. */
+  /** The full success payload as originally acked, `duplicated: false`. */
   result: MutationSuccess;
 }
 
-// ---- startup scan (workspace.md §10) -------------------------------------------
+// ---- startup scan -------------------------------------------
 
 export interface ScanEntry {
   projectId: string;
@@ -278,21 +275,21 @@ export interface ScanEntry {
    * - `orphan`: no loadable manifest (reported, retained).
    */
   kind: 'project' | 'orphan';
-  /** Projects only: whether the §4.3 load pipeline succeeded. */
+  /** Projects only: whether the load pipeline succeeded. */
   loadable?: boolean;
-  /** The load-failure code (§4.3 / workspace §11 codes) when not loadable. */
+  /** The load-failure code (a workspace code) when not loadable. */
   code?: UnavailableReason | 'manifest_invalid' | 'migration_resume_required' | 'folder_unavailable';
   /** Registered projects: the folder holding the `thirdlight.json` marker. */
   folder?: string;
   /**
    * Interrupted creation (valid manifest, no envelope): `completed` = the
-   * deterministic §8.3 completion wrote the initial envelope; `kept` = the
+   * deterministic creation completion wrote the initial envelope; `kept` = the
    * completion could not be written (the state is retained for the operator).
    */
   completion?: 'completed' | 'kept';
   /** A migration marker (`.thirdlight/migration.json`) with no project files:
    * the interrupted destination of a migration copy made by an earlier
-   * version (the copy operators were removed in phase 9.3). Reported, never
+   * version. Reported, never
    * auto-completed; delete the directory. */
   migration?: 'resume_required';
   /** A stale (dead-pid) ownership record was reported (no action taken). */
@@ -317,53 +314,53 @@ export interface ScanReport {
 // ---- the service ----------------------------------------------------------------
 
 export interface WorkspaceService {
-  /** The backend process identity (workspace.md §6.1). */
+  /** The backend process identity. */
   readonly backendId: string;
 
   /**
-   * The full commands.md §6.1 pipeline for one mutation request — the sole
-   * command executor (dependencies.md §4.3): project resolution,
+   * The full command pipeline for one mutation request — the sole
+   * command executor: project resolution,
    * deduplication, pause check, `applyMutation` (steps 4–6), durability
    * write, publish, acknowledge. Synchronous by construction: the
    * per-project mutation lock is the entire synchronous pipeline (one
-   * mutation at a time, FIFO arrival order — commands.md §10).
+   * mutation at a time, FIFO arrival order).
    */
   runCommand(request: unknown): MutationResult;
 
   /**
-   * Bounded queries (commands.md §4/§5.6) — no mutation lock; served from
+   * Bounded queries — no mutation lock; served from
    * the last acknowledged in-memory state (never a partial state; while
    * paused, the last known good projection with the `workspace` block).
    */
   query(request: unknown): QueryResult;
 
-  /** Operator operation (workspace.md §8.1): create a project. */
+  /** Operator operation: create a project. */
   createProject(projectId: string, name: string): CreateProjectResult;
-  /** Operator operation (workspace.md §9.1): release for maintenance. */
+  /** Operator operation: release for maintenance. */
   releaseWorkspace(projectId: string): ReleaseResult;
-  /** Operator operation (workspace.md §6.4): explicit stale-owner takeover. */
+  /** Operator operation: explicit stale-owner takeover. */
   takeoverWorkspace(projectId: string): TakeoverResult;
-  /** Operator operation (workspace.md §7.3): accept the external bytes. */
+  /** Operator operation: accept the external bytes. */
   acceptExternalState(projectId: string): AcceptResult;
-  /** Operator operation (workspace.md §7.3): discard the external bytes. */
+  /** Operator operation: discard the external bytes. */
   discardExternalState(projectId: string): DiscardResult;
 
-  // ---- content storage (workspace.md §11/§13, packet 23) ---------------------
+  // ---- content storage ---------------------
 
-  /** `stageContent` — non-authoritative staged input (workspace.md §7.6). */
+  /** `stageContent` — non-authoritative staged input. */
   stageContent(projectId: string, request: StageRequest): StageResult;
-  /** `discardStage` — non-authoritative cleanup (workspace.md §7.6.2). */
+  /** `discardStage` — non-authoritative cleanup. */
   discardStage(projectId: string, stageId: string): StageDiscardResult;
   /**
-   * `inspectStage` — the injected bounded GLB inspector over the staged bytes
-   * (workspace.md §11/§13.3.1): non-authoritative proposal only, never an
+   * `inspectStage` — the injected bounded GLB inspector over the staged bytes:
+   * non-authoritative proposal only, never an
    * authoring mutation; a rejected profile is `import_rejected`.
    */
   inspectStage(projectId: string, stageId: string, options?: InspectStageOptions): InspectStageResult;
-  /** `publishBlob` — immutable blob publication (workspace.md §13.2, no lock). */
+  /** `publishBlob` — immutable blob publication (no lock). */
   publishBlob(projectId: string, request: BlobPublishRequest): BlobPublishResult;
   /**
-   * `readBlob` — the only public verified byte read (workspace.md §13.5). A
+   * `readBlob` — the only public verified byte read. A
    * version with a `sourcePath` is read from the game folder and verified
    * against its digest (`asset_source_missing` / `asset_source_changed`).
    */
@@ -384,46 +381,46 @@ export interface WorkspaceService {
   readStage(projectId: string, stageId: string): { ok: true; bytes: Uint8Array } | { ok: false; error: CommandError };
   /**
    * `readSourceBlob` — a digest-addressed verified read of one immutable
-   * `sources/sha256/<digest>` blob (packet 35; contract-change request C35-1).
+   * `sources/sha256/<digest>` blob (behavior source containers are not
+   * catalog assets, so `readBlob` cannot address them).
    */
   readSourceBlob(projectId: string, request: SourceBlobReadRequest): SourceBlobReadResult;
-  /** `contentIntegrity` — bounded integrity report (workspace.md §13.5). */
+  /** `contentIntegrity` — bounded integrity report. */
   contentIntegrity(projectId: string): ContentIntegrityResult;
   /** `readCapturedV3` — the single acknowledged project read (the merged
    *  start scene, every scene and the content block) for the shared closure
-   *  builder (packet 58, delivery.md §2.6).
+   *  builder.
    */
   readCapturedV3(projectId: string): CapturedV3ReadResult;
   /**
-   * `prepareBehaviorSource` — the behavior-source preparation layer (packet 33;
-   * project-model.md §22.4.1, workspace.md §13.3.1): resolve the stage / accept
+   * `prepareBehaviorSource` — the behavior-source preparation layer: resolve the stage / accept
    * bytes, apply the trust gate, run the INJECTED compiler, publish the
    * immutable container blob and store the digest-bound prepared record as a
    * derived cache. No lock, repeatable, changes no authoritative state.
    */
   prepareBehaviorSource(projectId: string, request: PrepareBehaviorSourceRequest): Promise<PrepareBehaviorSourceResult>;
   /**
-   * Phase 23.7: compile every published behavior that imports a script
+   * Compile every published behavior that imports a script
    * library against the library set a `setScriptLibrary` patch will commit
    * and file the prepared facts the command reads (no authoritative change).
    */
   prepareScriptLibraryDependents(projectId: string, patch: import('@thirdlight/project-model').ScriptLibraryPatch): Promise<PrepareLibraryDependentsResult>;
-  /** Phase 23.7: compile one script library draft on its own (nothing is written). */
+  /** Compile one script library draft on its own (nothing is written). */
   checkScriptLibraryDraft(projectId: string, draft: { libraryId: string; files: { path: string; text: string }[] }): Promise<ScriptLibraryDraftCheckResult>;
-  /** Phase 23.7: the compiler inputs of the project's script libraries as stored now. */
+  /** The compiler inputs of the project's script libraries as stored now. */
   scriptLibraryInputs(projectId: string): import('@thirdlight/behavior-build').ScriptLibraryInput[];
   /**
-   * Phase 25.9: add one `setScriptLibrary`-shaped patch to a staged edit set
+   * Add one `setScriptLibrary`-shaped patch to a staged edit set
    * (a new stage without stageId). Nothing authoritative changes until
    * `commitScriptLibraryStage` commits the stage as one change.
    */
   stageScriptLibraryPatch(projectId: string, request: { stageId?: string; patch: import('./behavior').StagedLibraryPatch }): import('./behavior').LibraryStageResult;
-  /** Phase 25.9: drop a staged edit set. */
+  /** Drop a staged edit set. */
   discardScriptLibraryStage(projectId: string, stageId: string): { ok: true } | { ok: false; error: CommandError };
-  /** Phase 25.9: compile a stage's dependents once against the committed set (before `commitScriptLibraryStage`). */
+  /** Compile a stage's dependents once against the committed set (before `commitScriptLibraryStage`). */
   prepareScriptLibraryStage(projectId: string, stageId: string): Promise<import('./behavior').PrepareLibraryStageResult>;
   /**
-   * The startup scan (workspace.md §10) — re-runs it. The initial scan ran
+   * The startup scan — re-runs it. The initial scan ran
    * at `openWorkspaceService` (the report is also in `lastScan`).
    */
   scan(): ScanReport;

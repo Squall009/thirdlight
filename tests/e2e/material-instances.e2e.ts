@@ -1,5 +1,5 @@
 /**
- * Phase 25.19: material instances, against a real backend on a blank project.
+ * Material instances, against a real backend on a blank project.
  *
  * - The parents (commands, as MCP makes them): a graph material "Glow" (unlit,
  *   colour = its `tint` parameter, green by default) and a shader material

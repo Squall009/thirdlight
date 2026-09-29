@@ -1,9 +1,9 @@
 /**
- * Pipeline ordering regression (06-review F1, commands.md §6.1 step 4):
+ * Pipeline ordering:
  * "Revision checking precedes argument validation: a stale request is
  * reported as stale, not validated."
  *
- * The F1 repair split request validation into the envelope pass
+ * Request validation is split into the envelope pass
  * (`invalid_request`, runs BEFORE the revision check) and the per-op
  * args-schema pass (`field_*`, runs AFTER the revision check and the
  * `revision_exhausted` check). These tests pin the ordering:
@@ -12,10 +12,9 @@
  *   both `expectedRevision` and `currentRevision` (never `field_*`);
  * - `expectedRevision` = current = MAX_REVISION + schema-invalid args ⇒
  *   `revision_exhausted` (a state-level condition precedes validation);
- * - guards for the orderings the repair must NOT change: a malformed
- *   envelope is still `invalid_request` even when stale (reviewer probe
- *   A6), and per-op preconditions (e.g. `entity_not_found`) remain AFTER
- *   the revision check (reviewer probes A2/A4/L1).
+ * - guards for the other orderings: a malformed envelope is
+ *   `invalid_request` even when stale, and per-op preconditions (e.g.
+ *   `entity_not_found`) run AFTER the revision check.
  */
 
 import { describe, expect, it } from 'vitest';

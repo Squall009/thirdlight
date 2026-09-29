@@ -1,5 +1,5 @@
 /**
- * Scene-adapter surface tests (packet 08; dependencies.md §3 row).
+ * Scene-adapter surface tests (the three-adapter row of dependencies.md).
  *
  * UNIT/MOCK-LEVEL — labeled per AGENTS.md ("mocks alone do not establish
  * integration success"): these run in Node with a STUB canvas (no GPU,
@@ -8,8 +8,7 @@
  * the non-browser ABSENT backend value (`renderBackend: null` — the
  * reporting PATH is proved, not the browser backend), and dispose
  * idempotency. Rendering, the actual WebGL backend, and visual
- * camera/axes/motion remain UNVERIFIED unless the packet 08 browser
- * step succeeds (see docs/handoffs/08.md).
+ * camera/axes/motion are left to the browser tests.
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -75,12 +74,12 @@ describe('scene adapter surface (packet 08; Node unit/mock-level)', () => {
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     const d = res.diagnostics;
-    // The M1 fields (runtime.md §8) + the two M3 fields (presentation.md
-    // §41.1.4); `shadowReason` is present iff `shadows === 'off'` — a v1
+    // The base fields plus the two shadow fields (presentation.md);
+    // `shadowReason` is present iff `shadows === 'off'` — a v1
     // scene has no shadow-casting light, so it is `cast_shadow_false`.
     expect(Object.keys(d).sort()).toEqual([
       'canvasSize',
-      // Phase 25.8: the lights that are on (none here).
+      // The lights that are on (none here).
       'lights',
       'pixelRatio',
       'renderBackend',

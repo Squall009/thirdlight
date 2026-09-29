@@ -1,5 +1,5 @@
 /**
- * Phase 9.10: music import — real Ogg Vorbis, Ogg Opus and MP3 files made by
+ * Music import — real Ogg Vorbis, Ogg Opus and MP3 files made by
  * Blender's audaspace (fixtures/music/make-music.py) and a synthetic stereo
  * WAV give their format, channels, rate and duration; other bytes are refused.
  */

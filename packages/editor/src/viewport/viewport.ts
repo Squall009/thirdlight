@@ -1,8 +1,8 @@
 /**
- * Authoring viewport (packet 10) — imperative three.js, framework-free.
+ * Authoring viewport — imperative three.js, framework-free.
  *
  * The three.js scene graph, camera controls, and picking live OUTSIDE React
- * (decision 0001 §10: React never instantiates or mutates Object3Ds). The
+ * (React never instantiates or mutates Object3Ds). The
  * viewport renders the browser's PROJECTION of the backend scene; it never
  * mutates the scene itself — scene mutation flows only through editing
  * commands (the client). A gizmo gesture previews transforms locally (the
@@ -73,20 +73,20 @@ export interface ViewportCallbacks {
   onGestureFrame: (entityId: string, transform: { position: number[]; rotation: number[]; scale: number[] }) => void;
   onGestureEnd: (entityId: string, transform: { position: number[]; rotation: number[]; scale: number[] }) => void | Promise<void>;
   /**
-   * Phase 15.2 (generalises 9.12's waypoint and 14.0's size handles): a
-   * handle was dragged and dropped, or a corner deleted — the component
-   * value to store (one setComponent, one undo step).
+   * A descriptor handle (waypoint, size, outline corner, …) was dragged
+   * and dropped, or a corner deleted — the component value to store (one
+   * setComponent, one undo step).
    */
   onHandleEdit?: (entityId: string, component: string, value: Record<string, unknown>) => void;
-  /** Phase 15.2: a handle edit that cannot be stored (a concave polygon, the last corners) — nothing is sent. */
+  /** A handle edit that cannot be stored (a concave polygon, the last corners) — nothing is sent. */
   onHandleRefused?: (message: string) => void;
-  /** Phase 15.2: one copy of the selected instance set was clicked (null: none). */
+  /** One copy of the selected instance set was clicked (null: none). */
   onCopyPick?: (entityId: string, index: number | null) => void;
-  /** Phase 15.2: the selected copy was moved, turned or scaled with the gizmo (its new local transform). */
+  /** The selected copy was moved, turned or scaled with the gizmo (its new local transform). */
   onCopyTransform?: (entityId: string, index: number, t: CopyTransform) => void;
-  /** Phase 15.2: a brush stroke on the selected instance set — new copies at these points (the set's local space). */
+  /** A brush stroke on the selected instance set — new copies at these points (the set's local space). */
   onBrushStroke?: (entityId: string, points: [number, number, number][]) => void;
-  /** Phase 17.1: the Scene view's renderer changed state (initialising, ready, lost, replaced). */
+  /** The Scene view's renderer changed state (initialising, ready, lost, replaced). */
   onRendererChange?: (info: RendererInfo) => void;
 }
 
@@ -108,19 +108,19 @@ const N = (v: number | undefined): number => v ?? 0;
 
 /** The box color the play renderer uses: the surface color, else the box material color. */
 /**
- * Phase 15.1: what an entity's own helpers are built from — its kind, its
+ * What an entity's own helpers are built from — its kind, its
  * light (type, direction, range, cone, mode) and whether it has a fog volume
  * or is a spawn. A change rebuilds them (sizes and colours update in place).
  */
 function buildKeyOf(e: ProjectedEntity, aspect: number): string {
   const l = e.light;
-  // Phase 15.2: the camera's frustum (fovY/near/far and the game's aspect) and a spawn's facing (phase 24.8: its yaw) shape the helpers too.
+  // The camera's frustum (fovY/near/far and the game's aspect) and a spawn's facing (its yaw) shape the helpers too.
   const camera = e.kind === 'camera' ? [e.components['camera'] ?? null, aspect] : null;
   const facing = e.playerSpawn === true ? ((e.components['playerSpawn'] as { yaw?: number } | undefined)?.yaw ?? null) : null;
   return JSON.stringify([e.kind, l === undefined ? null : [l.type, l.direction ?? null, l.range ?? null, l.angle ?? null, l.mode ?? null], e.fogVolume !== undefined, e.playerSpawn === true, camera, facing]);
 }
 
-/** Phase 15.2: the game's aspect before the Scene view is told one (16:9, the common screen shape). */
+/** The game's aspect before the Scene view is told one (16:9, the common screen shape). */
 const DEFAULT_GAME_ASPECT = 16 / 9;
 
 function boxColor(e: ProjectedEntity): number {
@@ -137,7 +137,7 @@ function boxColor(e: ProjectedEntity): number {
 export class Viewport {
   readonly scene = new THREE.Scene();
   private readonly camera: THREE.PerspectiveCamera;
-  /** Phase 17.1: the renderer (the three-adapter factory's); replaced with the canvas on a backend change. */
+  /** The renderer (the three-adapter factory's); replaced with the canvas on a backend change. */
   private rendererHandle: RendererHandle;
   private rendererChoice: { preference: RendererPreference; source: RendererPreferenceSource };
   /** The renderer generation the environment renderer was built for. */
@@ -146,17 +146,17 @@ export class Viewport {
   private readonly meshes = new Map<string, THREE.Object3D>();
   private readonly cb: ViewportCallbacks;
   private selectedId: string | null = null;
-  /** Phase 12: effective flags from the last sync (inactive = hidden, locked = not pickable/movable). */
+  /** Effective flags from the last sync (inactive = hidden, locked = not pickable/movable). */
   private hierarchyFlags: ReadonlyMap<string, EffectiveEntityFlags> = new Map();
   private folderIds = new Set<string>();
   private gizmoMode: GizmoMode = 'translate';
-  /** The packet-27 model realization path (shared with the asset browser). */
+  /** The model realization path (shared with the asset browser). */
   private models: ModelInstances | null = null;
   private readonly ground: THREE.Mesh;
   private readonly grid: THREE.GridHelper;
   /** The helper overlay: collider outlines, component areas, the selection's handles. */
   private readonly helpers: HelperOverlay;
-  /** Phase 9.12: which helpers the Scene view draws (the Gizmos menu). */
+  /** Which helpers the Scene view draws (the Gizmos menu). */
   private gizmos = { icons: true, lights: true, colliders: true, gameplay: true };
   private readonly orbit: OrbitControls;
   private readonly gizmo: TransformControls;
@@ -170,22 +170,22 @@ export class Viewport {
   private renderQueued = false;
   private readonly raycaster = new THREE.Raycaster();
   /**
-   * Phase 21.3: repeated boxes and model pieces drawn instanced. Their own
+   * Repeated boxes and model pieces drawn instanced. Their own
    * meshes stay in the graph for picking, the gizmo and bounds (on the
    * batched layer, which the raycaster enables).
    */
   private readonly batcher: AutoBatcher;
-  /** Phase 21.3: the unit box every box is drawn through when batched. */
+  /** The unit box every box is drawn through when batched. */
   private readonly unitBox = unitBoxGeometry(addBoxLightmapUv);
-  /** Phase 21.3: box materials shared by colour and selection (counted). */
+  /** Box materials shared by colour and selection (counted). */
   private readonly boxLooks = new Map<string, { material: THREE.MeshLambertMaterial; refs: number }>();
-  /** Phase 21.3: the entity object each node was last synced from (the projection is copy-on-write). */
+  /** The entity object each node was last synced from (the projection is copy-on-write). */
   private readonly synced = new Map<string, ProjectedEntity>();
-  /** Phase 21.3: frames drawn (render on demand: none while nothing changes). */
+  /** Frames drawn (render on demand: none while nothing changes). */
   private framesDrawn = 0;
-  /** Phase 21.3: the entity whose meshes carry the selection highlight. */
+  /** The entity whose meshes carry the selection highlight. */
   private highlightedId: string | null = null;
-  /** Phase 21.3: when animated materials started (their clock). */
+  /** When animated materials started (their clock). */
   private readonly clockStart = performance.now();
 
   constructor(canvas: HTMLCanvasElement, cb: ViewportCallbacks, options: { snapping?: () => boolean; renderer?: { preference: RendererPreference; source: RendererPreferenceSource } } = {}) {
@@ -238,7 +238,7 @@ export class Viewport {
       this.draggingGizmo = true;
       this.gizmoCancelled = false;
       this.applySnapping();
-      // Phase 15.2: a copy of an instance set previews locally; its release stores one buffer.
+      // A copy of an instance set previews locally; its release stores one buffer.
       if (this.gizmo.object === this.copyProxy) return;
       this.cb.onGestureBegin(id);
     });
@@ -251,7 +251,7 @@ export class Viewport {
         this.updateCopyHighlight();
         return;
       }
-      // Phase 23.6: a moved object lands on the cell tops under it (translate gestures).
+      // A moved object lands on the cell tops under it (translate gestures).
       if (this.cellTopSnap !== null && this.gizmoMode === 'translate' && this.gizmo.object !== undefined) {
         const o = this.gizmo.object;
         const at = this.cellTopSnap(id, [o.position.x, o.position.y, o.position.z], [o.quaternion.x, o.quaternion.y, o.quaternion.z, o.quaternion.w]);
@@ -283,12 +283,12 @@ export class Viewport {
     this.resize();
   }
 
-  /** Install the model realization path (packet 27). */
+  /** Install the model realization path. */
   setModelInstances(models: ModelInstances | null): void {
     this.models = models;
   }
 
-  // ---- Phase 23.5: block layers --------------------------------------------------
+  // ---- Block layers --------------------------------------------------
   /** The block layers (the same merged chunk meshes Play and exports draw). */
   private blockView: BlockLayerView | null = null;
   private blockRevision = -1;
@@ -347,7 +347,7 @@ export class Viewport {
         this.blockApplied.delete(id);
       }
       for (const [id, l] of layers) {
-        // Phase 23.6: only the chunks whose stored object changed are handed over (an edit re-meshes
+        // Only the chunks whose stored object changed are handed over (an edit re-meshes
         // the chunks it touched, not the layer; a previewed stroke's chunks then compare equal).
         const key = JSON.stringify(l.component);
         const prev = this.blockApplied.get(id);
@@ -368,7 +368,7 @@ export class Viewport {
     } else {
       for (const [id, l] of layers) view.setOrigin(id, l.origin);
     }
-    // Phase 23.6: a hidden layer object (inactive) is not drawn.
+    // A hidden layer object (inactive) is not drawn.
     for (const [id, l] of layers) {
       const g = view.root.getObjectByName(`block-layer:${id}`);
       if (g !== undefined) g.visible = l.hidden !== true;
@@ -376,10 +376,10 @@ export class Viewport {
     this.requestRender();
   }
 
-  /** Phase 23.6: the chunk objects each layer was last drawn from (edits hand over only the changed ones). */
+  /** The chunk objects each layer was last drawn from (edits hand over only the changed ones). */
   private blockApplied = new Map<string, { component: string; chunks: Map<string, BlockChunk> }>();
 
-  // ---- Phase 23.6: block-layer editing ---------------------------------------------
+  // ---- Block-layer editing ---------------------------------------------
   private blockEditorInst: BlockEditor | null = null;
   private orbitButtons: OrbitControls['mouseButtons'] | null = null;
 
@@ -406,7 +406,7 @@ export class Viewport {
   }
 
   /**
-   * Phase 23.6: snap moved and dropped objects to block-layer cell tops (null:
+   * Snap moved and dropped objects to block-layer cell tops (null:
    * off). The function maps an object's world position to the snapped one
    * (null: not over a layer).
    */
@@ -420,7 +420,7 @@ export class Viewport {
   blockStats(): { layers: number; chunks: number; meshes: number; triangles: number } {
     return this.blockView?.diagnostics() ?? { layers: 0, chunks: 0, meshes: 0, triangles: 0 };
   }
-  // ---- Phase 9.6: lightmaps ----------------------------------------------------
+  // ---- Lightmaps ----------------------------------------------------
   /** The last synced entities (the bake reads them). */
   private projected: readonly ProjectedEntity[] = [];
   /** The bakes shown on the baked objects and block-layer chunks (game lighting). */
@@ -459,7 +459,7 @@ export class Viewport {
   refreshLightmaps(): void {
     this.unapplyLightmaps();
     this.applyLightmaps();
-    // Phase 15.2: an instance buffer arrived — the selected copy's stand-in and box follow it.
+    // An instance buffer arrived — the selected copy's stand-in and box follow it.
     if (this.copySel !== null && !this.draggingGizmo) this.syncCopyProxy();
   }
 
@@ -485,7 +485,7 @@ export class Viewport {
   }
 
   /**
-   * Phase 9.5: "editor" lighting is a fixed key + fill; "game" lighting uses
+   * "editor" lighting is a fixed key + fill; "game" lighting uses
    * the scene's own lights (what Play shows). Automatic until chosen: game
    * lighting as soon as the scene has a light.
    */
@@ -512,12 +512,12 @@ export class Viewport {
     for (const { light } of this.sceneLights.values()) light.visible = this.lighting === 'game' && light.userData['tlActive'] !== false && light.userData['tlSwitchedOn'] !== false;
     this.render();
   }
-  /** Phase 25.8: the project's texture loader (spot light cookies; null until the editor set it). */
+  /** The project's texture loader (spot light cookies; null until the editor set it). */
   private textureSource: ((assetId: string) => Promise<THREE.Texture | null>) | null = null;
   setTextureSource(loadTexture: ((assetId: string) => Promise<THREE.Texture | null>) | null): void {
     this.textureSource = loadTexture;
   }
-  /** Phase 25.8: drop a scene light (its cookie texture is the viewport's). */
+  /** Drop a scene light (its cookie texture is the viewport's). */
   private dropSceneLight(have: { light: THREE.Light; parent: THREE.Object3D }): void {
     have.parent.remove(have.light);
     if (have.light instanceof THREE.SpotLight || have.light instanceof THREE.DirectionalLight) have.parent.remove(have.light.target);
@@ -527,7 +527,7 @@ export class Viewport {
     }
     have.light.dispose();
   }
-  /** Phase 25.8: a spot light's cookie, drawn in the Scene view as in Play (three's SpotLight.map). */
+  /** A spot light's cookie, drawn in the Scene view as in Play (three's SpotLight.map). */
   private loadCookie(light: THREE.SpotLight, assetId: string): void {
     const load = this.textureSource;
     if (load === null) return;
@@ -552,7 +552,7 @@ export class Viewport {
     const seen = new Set<string>();
     for (const e of entities) {
       const l = e.light;
-      // Phase 9.6: a light a bake holds is not realtime (ambient/hemisphere stay for dynamic objects).
+      // A light a bake holds is not realtime (ambient/hemisphere stay for dynamic objects).
       if (l === undefined || (l.mode === 'baked' && l.type !== 'ambient' && l.type !== 'hemisphere' && this.lightmaps.bakedLightIds.has(e.id))) continue;
       seen.add(e.id);
       const key = JSON.stringify(l);
@@ -581,7 +581,7 @@ export class Viewport {
       this.dropSceneLight(have);
       this.sceneLights.delete(id);
     }
-    // Phase 25.8: with several scenes open, the lights Play would have on with them loaded in that order
+    // With several scenes open, the lights Play would have on with them loaded in that order
     // (the last open scene's directional, ambient and hemisphere light; point and spot lights within the budget).
     const sceneRank = new Map<string, number>();
     for (const e of entities) if (e.sceneId !== undefined && !sceneRank.has(e.sceneId)) sceneRank.set(e.sceneId, sceneRank.size);
@@ -592,7 +592,7 @@ export class Viewport {
       return { id, kind: (e?.light?.type ?? 'point') as SceneLightKind, rank: e?.sceneId !== undefined ? (sceneRank.get(e.sceneId) ?? -1) : -1, order: order++ };
     }));
     for (const [id, have] of this.sceneLights) have.light.userData['tlSwitchedOn'] = picked.active.has(id);
-    // Phase 23.18: a preset preview applies to the lights as they are now.
+    // A preset preview applies to the lights as they are now.
     this.lightTags = new Map(entities.filter((e) => e.light !== undefined).map((e) => [e.id, e.tags]));
     if (this.envPreview !== null) this.applyEnvironmentPreview();
     // The sun of a procedural sky sits opposite the scene's directional light.
@@ -610,7 +610,7 @@ export class Viewport {
   }
 
   /**
-   * Phase 23.4: every virtual camera's preview, rebuilt from the authored data
+   * Every virtual camera's preview, rebuilt from the authored data
    * on each sync with the runtime's own rig maths (the camera brain) — the
    * pose Play starts it at, before input moves it.
    */
@@ -666,7 +666,7 @@ export class Viewport {
     this.showVirtualCameraPreview();
   }
   /**
-   * Phase 23.17: the timeline tab's scrub preview — the bound objects at the
+   * The timeline tab's scrub preview — the bound objects at the
    * timeline's time (the runtime's own evaluation, `evaluateTimelineAt`) and
    * the live camera's frustum there (the camera brain's rig maths, with the
    * key's rail progress). Presentation only: nothing is written to the
@@ -771,7 +771,7 @@ export class Viewport {
     this.root.setAttribute('data-virtual-camera', shown === null ? '' : JSON.stringify(shown));
   }
 
-  /** Phase 9.4: project materials on boxes (models get theirs through ModelInstances). */
+  /** Project materials on boxes (models get theirs through ModelInstances). */
   private materialLibrary: MaterialLibrary | null = null;
   private readonly boxMaterials = new Map<string, { key: string; undo: () => void }>();
   setMaterialLibrary(library: MaterialLibrary | null): void {
@@ -781,7 +781,7 @@ export class Viewport {
   private syncBoxMaterial(e: ProjectedEntity, obj: THREE.Object3D): void {
     const lib = this.materialLibrary;
     const mapping = e.kind === 'box' ? (e.materials ?? null) : null;
-    // Phase 18.3: the object's values for its graph materials' public parameters.
+    // The object's values for its graph materials' public parameters.
     const overrides = materialOverridesOf(e);
     const key = mapping === null ? '' : JSON.stringify([mapping, overrides]);
     const have = this.boxMaterials.get(e.id);
@@ -805,7 +805,7 @@ export class Viewport {
   }
 
   /**
-   * Phase 14.0 ("Fit to model"): the bounding box of the models drawn for
+   * For "Fit to model": the bounding box of the models drawn for
    * an entity — its own model and its children's — relative to the entity's
    * world position, or null when none is loaded.
    */
@@ -864,7 +864,7 @@ export class Viewport {
       return Math.abs(r) < 1e-9 ? 0 : Number(r.toFixed(3));
     };
     const snapped: [number, number, number] = [snap(p.x), snap(p.y), snap(p.z)];
-    // Phase 23.6: onto the cell top under the drop point.
+    // Onto the cell top under the drop point.
     return this.cellTopSnap?.(null, snapped, [0, 0, 0, 1]) ?? snapped;
   }
 
@@ -883,16 +883,16 @@ export class Viewport {
     this.requestRender();
   }
 
-  // ---- Phase 20.2: the edit-mode effect preview ------------------------------------
+  // ---- The edit-mode effect preview ------------------------------------
   private effectsPlayer: EffectsPlayer | null = null;
   private effectTarget: { id: string; component: EffectComponentLike } | null = null;
   private effectAttached: { id: string; obj: THREE.Object3D; key: string } | null = null;
   private effectRenderer: unknown = null;
   private effectLastNow: number | null = null;
-  /** Phase 21.5: the material holders the preview asked the library for (released with the preview). */
+  /** The material holders the preview asked the library for (released with the preview). */
   private effectHolders: { holders: Map<string, { mesh: THREE.Mesh; undo: () => void }>; placeholder: THREE.Material } | null = null;
 
-  /** Phase 21.5: release the edit-mode effect preview (player, library holders, placeholder). */
+  /** Release the edit-mode effect preview (player, library holders, placeholder). */
   private releaseEffectPreview(): void {
     this.effectsPlayer?.dispose();
     this.effectsPlayer = null;
@@ -995,30 +995,30 @@ export class Viewport {
     this.renderQueued = true;
     requestAnimationFrame(() => {
       this.renderQueued = false;
-      // Phase 14.0/15.2: where the handle grips are on screen (tests drag them); grips keep their screen size.
+      // Where the handle grips are on screen (tests drag them); grips keep their screen size.
       this.helpers.scaleGrips();
       this.root.setAttribute('data-size-handles', JSON.stringify(this.helpers.sizeHandleClientPoints()));
-      // Phase 15.2: the selected instance set's copies and the gizmo's X arrow on screen (tests click and drag them).
+      // The selected instance set's copies and the gizmo's X arrow on screen (tests click and drag them).
       const setId = this.selectedId !== null && this.projected.find((x) => x.id === this.selectedId)?.instances !== undefined ? this.selectedId : null;
       this.root.setAttribute('data-instance-copies', setId === null ? '[]' : JSON.stringify(this.copyClientPoints(setId)));
       this.root.setAttribute('data-gizmo-grab', JSON.stringify(this.gizmoGrab()));
-      // Phase 17.1: WebGPURenderer initialises asynchronously (the handle asks for a frame when ready).
+      // WebGPURenderer initialises asynchronously (the handle asks for a frame when ready).
       const renderer = this.rendererHandle.ready() ? this.rendererHandle.current() : null;
       if (renderer === null) return;
-      // Phase 20.2: the effect preview steps before the frame and keeps the view drawing while it plays.
+      // The effect preview steps before the frame and keeps the view drawing while it plays.
       const playing = this.stepEffects(renderer);
-      // Phase 21.3: animated materials (wind, water) tick with the frame and keep the view drawing;
+      // Animated materials (wind, water) tick with the frame and keep the view drawing;
       // nothing else draws unless something asked for a frame (render on demand).
       const lib = this.materialLibrary;
       const animated = lib !== null && lib.animated();
       if (animated) lib!.tick((performance.now() - this.clockStart) / 1000);
-      // Phase 23.6: while the block tools are on, the view-projection matrix (tests map cells to the screen).
+      // While the block tools are on, the view-projection matrix (tests map cells to the screen).
       if (this.blockEditorInst?.isActive() === true) {
         this.camera.updateMatrixWorld();
         const vp = new THREE.Matrix4().multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
         this.root.setAttribute('data-view-proj', JSON.stringify(vp.elements.map((v) => Math.round(v * 1e6) / 1e6)));
       }
-      // Phase 23.5: re-mesh the block chunks that changed (before the draw).
+      // Re-mesh the block chunks that changed (before the draw).
       if (this.blockView !== null) {
         this.blockView.update();
         if (this.blockLightmapsDirty) {
@@ -1033,7 +1033,7 @@ export class Viewport {
       const drawsBefore = info.drawCalls;
       const trianglesBefore = info.triangles;
       const environment = this.ensureEnvironment();
-      // Phase 21.3: the editor rig also draws at the project's quality level (low: no MSAA).
+      // The editor rig also draws at the project's quality level (low: no MSAA).
       const throughEnvironment = environment !== null && (this.lighting === 'game' || this.editorQuality() !== null);
       if (throughEnvironment) {
         environment.setFogVolumes(this.fogVolumesNow());
@@ -1042,7 +1042,7 @@ export class Viewport {
       this.framesDrawn += 1;
       const b = this.batcher.diagnostics();
       this.root.setAttribute('data-frames', String(this.framesDrawn));
-      // Phase 21.5: the renderer's live resource counts after the frame (the leak tests read them).
+      // The renderer's live resource counts after the frame (the leak tests read them).
       this.root.setAttribute('data-memory', JSON.stringify(rendererMemory(renderer)));
       this.root.setAttribute('data-draw-calls', String(Math.max(0, info.drawCalls - drawsBefore)));
       this.root.setAttribute('data-triangles', String(Math.max(0, info.triangles - trianglesBefore)));
@@ -1053,7 +1053,7 @@ export class Viewport {
     });
   }
 
-  // ---- Phase 17.1: the renderer backend --------------------------------------------
+  // ---- The renderer backend --------------------------------------------
   private makeRenderer(canvas: HTMLCanvasElement): RendererHandle {
     const handle = createRenderer({
       canvas,
@@ -1079,7 +1079,7 @@ export class Viewport {
   }
 
   /**
-   * Phase 17.1: draw with another backend. A canvas keeps the context type it
+   * Draw with another backend. A canvas keeps the context type it
    * was first given (WebGL or WebGPU), so the canvas is replaced by a fresh
    * one in the same place, with the same attributes and listeners.
    */
@@ -1088,7 +1088,7 @@ export class Viewport {
       this.rendererChoice = { preference, source };
       return;
     }
-    // Every backend is WebGPURenderer with node materials (phase 17.4): the materials stay.
+    // Every backend is WebGPURenderer with node materials: the materials stay.
     this.rendererChoice = { preference, source };
     const old = this.root;
     const next = document.createElement('canvas');
@@ -1096,13 +1096,13 @@ export class Viewport {
     this.unbindCanvasEvents();
     this.environment?.dispose();
     this.environment = null;
-    // Phase 21.5: the old canvas is never drawn to again: its WebGL context goes now (the WebGPU device is destroyed either way).
+    // The old canvas is never drawn to again: its WebGL context goes now (the WebGPU device is destroyed either way).
     this.rendererHandle.dispose({ loseContext: true });
     old.replaceWith(next);
     this.root = next;
     this.bindCanvasEvents();
     this.orbit.disconnect();
-    // Phase 21.5: the old canvas already left the page: its document keeps OrbitControls' key listeners otherwise.
+    // The old canvas already left the page: its document keeps OrbitControls' key listeners otherwise.
     releaseControlKeyListeners(this.orbit);
     this.orbit.connect(next);
     this.gizmo.disconnect();
@@ -1126,12 +1126,12 @@ export class Viewport {
     env.set(this.lighting === 'game' ? this.environmentValue : null);
     env.setQuality(this.editorQuality());
     this.environment = env;
-    // Phase 23.18: a preset preview carries over to a new renderer.
+    // A preset preview carries over to a new renderer.
     if (this.envPreview !== null) this.applyEnvironmentPreview();
     return env;
   }
 
-  // ---- Phase 23.18: environment preset preview --------------------------------------------
+  // ---- Environment preset preview --------------------------------------------
   /** The preset blend the Scene view previews (null: the authored look). */
   private envPreview: EnvironmentBlendView | null = null;
   private envPreviewTags = new Map<string, number>();
@@ -1196,18 +1196,18 @@ export class Viewport {
     this.gizmo.setTranslationSnap(on ? s.translateM : null);
     this.gizmo.setRotationSnap(on ? (s.rotateDeg * Math.PI) / 180 : null);
     this.gizmo.setScaleSnap(on ? s.scale : null);
-    // Phase 23.6: the step in force (tests read it).
+    // The step in force (tests read it).
     this.root.setAttribute('data-snap-step', on ? String(s.translateM) : '');
   }
 
   /** Cancel an in-flight gizmo gesture (Esc): revert, send nothing. */
   cancelGesture(): boolean {
-    // Phase 23.6: a block stroke in flight is dropped (nothing is sent).
+    // A block stroke in flight is dropped (nothing is sent).
     if (this.blockEditorInst?.cancel() === true) {
       this.orbit.enabled = true;
       return true;
     }
-    // Phase 15.2: a handle drag or a brush stroke cancels with nothing stored.
+    // A handle drag or a brush stroke cancels with nothing stored.
     if (this.handleDragging) {
       this.handleDragging = false;
       this.orbit.enabled = true;
@@ -1230,7 +1230,7 @@ export class Viewport {
   /**
    * Sync the entity set from the projection (add/remove/update meshes).
    *
-   * Phase 21.3: incremental. With `dirty` (the projection's `takeDirty()`)
+   * incremental. With `dirty` (the projection's `takeDirty()`)
    * only the entities it names — plus any whose projected object changed
    * since the last sync (the projection is copy-on-write) and the ones added
    * or removed — are rebuilt; the hierarchy flags, the helper overlay and the
@@ -1240,7 +1240,7 @@ export class Viewport {
    */
   syncEntities(entities: ProjectedEntity[], dirty?: { readonly all: boolean; readonly ids: ReadonlySet<string> }): void {
     const t0 = performance.now();
-    // Phase 9.6: the original materials are in place while the rest of the sync runs.
+    // The original materials are in place while the rest of the sync runs.
     this.unapplyLightmaps();
     this.projected = entities;
     const plan = planSync(entities, this.synced, dirty, this.selectedId);
@@ -1251,7 +1251,7 @@ export class Viewport {
       this.folderIds = new Set(entities.filter((e) => e.kind === 'folder').map((e) => e.id));
     }
     for (const e of changed) {
-      // Model entities are realized by the packet-26/27 resource path; the
+      // Model entities are realized by the shared resource path; the
       // viewport holds a hidden placeholder so picking + the gizmo keep a
       // stable target while the GLB resolves asynchronously.
       let m = this.meshes.get(e.id);
@@ -1260,7 +1260,7 @@ export class Viewport {
         this.meshes.set(e.id, m);
         this.scene.add(m);
       } else if (m.userData['tlBuildKey'] !== buildKeyOf(e, this.gameAspect)) {
-        // Phase 15.1: a component added or removed in the Inspector (a box, a
+        // A component added or removed in the Inspector (a box, a
         // camera, a light, a fog volume…) redraws the entity's own helpers;
         // children and a realized model under the node stay where they are.
         this.redecorate(m as THREE.Group, e);
@@ -1309,10 +1309,10 @@ export class Viewport {
     this.models?.sync(entities, full ? undefined : { changed: new Set(changed.map((e) => e.id)), removed });
     this.syncSceneLights(entities);
     this.syncVirtualCameraPreviews(entities);
-    // Phase 23.17: a timeline scrub preview stays on top of the synced transforms.
+    // A timeline scrub preview stays on top of the synced transforms.
     if (this.timelinePreview !== null) this.applyTimelinePreview();
     // The helper overlay syncs from the SAME projection pass
-    // (phase 12: an inactive entity's helpers are hidden like the entity).
+    // (an inactive entity's helpers are hidden like the entity).
     // The selected entity's handles come from any of its sized components: its change re-syncs the overlay too.
     const shown = entities.filter((e) => this.hierarchyFlags.get(e.id)?.active !== false);
     if (helpers || structural || selectionTouched) this.helpers.sync(shown);
@@ -1334,7 +1334,7 @@ export class Viewport {
     return group;
   }
 
-  /** Phase 15.1: drop the node's own helpers (marked when built) and build them for what the entity is now. */
+  /** Drop the node's own helpers (marked when built) and build them for what the entity is now. */
   private redecorate(group: THREE.Group, e: ProjectedEntity): void {
     this.boxMaterials.get(e.id)?.undo();
     this.boxMaterials.delete(e.id);
@@ -1357,26 +1357,26 @@ export class Viewport {
 
   private decorateInner(group: THREE.Group, e: ProjectedEntity): THREE.Object3D {
     if (e.kind === 'folder') {
-      // Phase 12: a folder is organisation only — an empty node at the origin
+      // A folder is organisation only — an empty node at the origin
       // its children hang under (it has no transform of its own).
       this.updateMesh(group, e);
       return group;
     }
     if (e.kind === 'model') {
-      // A whole-GLB placement is realized by the packet-26 resource path; the
+      // A whole-GLB placement is realized by the shared resource path; the
       // placeholder only anchors picking/selection until the bytes resolve.
       // It carries the entity transform (the realized model hangs under it).
       this.updateMesh(group, e);
       return group;
     }
     if (e.kind === 'box') {
-      // M3 (packet 57): an authored `surface` color previews on the box in the
+      // An authored `surface` color previews on the box in the
       // editor viewport (the play renderer realizes the full material from the
       // same component; the editor shows the copied color only).
       const size = e.box?.size ?? [1, 1, 1];
       const geometry = new THREE.BoxGeometry(size[0], size[1], size[2]);
       addBoxLightmapUv(geometry);
-      // Phase 21.3: boxes of one colour share a material (the selected one wears the highlighted twin),
+      // Boxes of one colour share a material (the selected one wears the highlighted twin),
       // and are drawn through the unit box scaled by their size when batched.
       const mesh = new THREE.Mesh(geometry, this.takeBoxLook(boxColor(e), this.selectedId === e.id));
       mesh.userData.boxSize = size.join(',');
@@ -1399,7 +1399,7 @@ export class Viewport {
         (line as { userData?: unknown }).userData = { lightKind: 'directional' };
         group.add(line);
       }
-      // Phase 9.5: a point light shows its reach, a spot light its cone.
+      // A point light shows its reach, a spot light its cone.
       if ((e.light.type === 'point' || e.light.type === 'spot') && e.light.mode !== 'baked') {
         const g = lightGizmo(e);
         g.userData['gizmo'] = 'light';
@@ -1419,7 +1419,7 @@ export class Viewport {
       frustum.name = e.id;
       (frustum as { entityId?: string }).entityId = e.id;
       group.add(frustum);
-      // Phase 15.2: the real frustum (its fovY, near, far and the game's aspect), shown while the camera is selected.
+      // The real frustum (its fovY, near, far and the game's aspect), shown while the camera is selected.
       const real = cameraFrustum(e, this.gameAspect);
       real.visible = this.selectedId === e.id;
       group.add(real);
@@ -1427,7 +1427,7 @@ export class Viewport {
     } else {
       // An empty entity: a spawn icon when it is a player spawn, an axis cross otherwise.
       this.addIcon(group, e.id, iconKindFor(e, this.iconTable));
-      // Phase 15.2: a spawn's facing, as an arrow (phase 24.8: its yaw, degrees about +Y, 0 = +Z).
+      // A spawn's facing, as an arrow (its yaw, degrees about +Y, 0 = +Z).
       const yaw = e.playerSpawn === true ? (e.components['playerSpawn'] as { yaw?: number } | undefined)?.yaw : undefined;
       if (typeof yaw === 'number') {
         const r = (yaw * Math.PI) / 180;
@@ -1444,7 +1444,7 @@ export class Viewport {
         arrow.renderOrder = 10;
         group.add(arrow);
       }
-      // Phase 9.5: a fog volume shows its box.
+      // A fog volume shows its box.
       if (e.fogVolume !== undefined) {
         const box = new THREE.LineSegments(
           new THREE.EdgesGeometry(new THREE.BoxGeometry(e.fogVolume.size[0], e.fogVolume.size[1], e.fogVolume.size[2])),
@@ -1460,7 +1460,7 @@ export class Viewport {
     return group;
   }
 
-  /** Phase 9.12: show or hide the Scene view's helpers (icons, light ranges, collider outlines, gameplay paths and areas). */
+  /** Show or hide the Scene view's helpers (icons, light ranges, collider outlines, gameplay paths and areas). */
   setGizmos(next: Partial<{ icons: boolean; lights: boolean; colliders: boolean; gameplay: boolean }>): void {
     this.gizmos = { ...this.gizmos, ...next };
     for (const s of this.sprites) s.visible = this.gizmos.icons;
@@ -1472,7 +1472,7 @@ export class Viewport {
     this.requestRender();
   }
 
-  /** Phase 9.12: the drawn helper counts on the view element (tests read them). */
+  /** The drawn helper counts on the view element (tests read them). */
   private stampGizmoCounts(): void {
     const c = this.helpers.blockHelpers();
     this.root.setAttribute('data-collider-outlines', String(c.colliders));
@@ -1495,7 +1495,7 @@ export class Viewport {
     group.add(sprite);
   }
 
-  /** Phase 9.12: an entity's icon follows what it is (a component added or removed). */
+  /** An entity's icon follows what it is (a component added or removed). */
   private refreshIcon(obj: THREE.Object3D, e: ProjectedEntity): void {
     const old = obj.children.find((c) => c instanceof THREE.Sprite && c.userData['iconKind'] !== undefined) as THREE.Sprite | undefined;
     if (old === undefined) return;
@@ -1512,17 +1512,17 @@ export class Viewport {
   }
 
   private updateMesh(obj: THREE.Object3D, e: ProjectedEntity): void {
-    // Phase 12: an inactive entity is hidden, and with it its subtree.
+    // An inactive entity is hidden, and with it its subtree.
     obj.visible = e.active;
     this.refreshIcon(obj, e);
     obj.position.set(N(e.position[0]), N(e.position[1]), N(e.position[2]));
     obj.quaternion.set(N(e.rotation[0]), N(e.rotation[1]), N(e.rotation[2]), N(e.rotation[3]));
     obj.scale.set(N(e.scale[0]), N(e.scale[1]), N(e.scale[2]));
-    // M3 (packet 57): the box previews its authored surface color (or the
+    // The box previews its authored surface color (or the
     // default blue when the component is absent) — the highlight emissive is
     // untouched (it is a separate material property).
     for (const c of obj.children) {
-      // Phase 9.5: a fog volume's box follows its size and colour.
+      // A fog volume's box follows its size and colour.
       if (c.userData['fogVolumeSize'] !== undefined && e.fogVolume !== undefined) {
         const lines = c as THREE.LineSegments;
         if (c.userData['fogVolumeSize'] !== e.fogVolume.size.join(',')) {
@@ -1561,7 +1561,7 @@ export class Viewport {
       // A project material is the library's; the mesh's own is kept aside while it is assigned.
       const mat = (mesh.userData?.['__tlSourceMaterial'] ?? (mesh as { material?: THREE.Material | THREE.Material[] }).material) as THREE.Material | THREE.Material[] | undefined;
       if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
-      // Phase 21.3: a shared box material is released (freed with its last box).
+      // A shared box material is released (freed with its last box).
       else if (mat !== undefined && mat.userData['tlBoxLook'] !== undefined) this.releaseBoxLook(mat);
       else if (mat) mat.dispose();
       for (const child of c.children) {
@@ -1569,7 +1569,7 @@ export class Viewport {
       }
     };
     visit(obj);
-    // Phase 21.5: the nodes themselves — the renderer keeps an object's render objects (pipeline,
+    // The nodes themselves — the renderer keeps an object's render objects (pipeline,
     // bindings, uniforms) while its material stays (a project material, a shared box look).
     disposeObjectTree(obj, { skip: (c) => (c as { entityId?: string }).entityId !== own });
   }
@@ -1579,14 +1579,14 @@ export class Viewport {
     if (this.selectedId !== id) this.copySel = null;
     this.selectedId = id;
     this.gizmoMode = mode;
-    // Phase 21.3: only the previous and the new selection change (not every node). Lightmapped
+    // Only the previous and the new selection change (not every node). Lightmapped
     // copies come off while a box swaps to its highlighted material.
     this.unapplyLightmaps();
     const mark = (eid: string | null, on: boolean): void => {
       const m = eid === null ? undefined : this.meshes.get(eid);
       if (m === undefined) return;
       this.setMeshHighlight(m, on);
-      // Phase 15.2: a camera's real frustum shows while it is selected.
+      // A camera's real frustum shows while it is selected.
       for (const c of m.children) if (c.userData['cameraFrustum'] !== undefined) c.visible = on;
     };
     if (this.highlightedId !== id) mark(this.highlightedId, false);
@@ -1595,11 +1595,11 @@ export class Viewport {
     this.applyLightmaps();
     const frustum = id === null ? undefined : this.meshes.get(id)?.children.find((c) => c.userData['cameraFrustum'] !== undefined);
     this.root.setAttribute('data-camera-frustum', frustum === undefined ? '' : JSON.stringify(frustum.userData['cameraFrustum']));
-    // Phase 23.4: a virtual camera's preview (where its rig puts it) shows while it is selected.
+    // A virtual camera's preview (where its rig puts it) shows while it is selected.
     this.showVirtualCameraPreview();
-    // Phase 15.2: a selected copy of an instance set takes the gizmo.
+    // A selected copy of an instance set takes the gizmo.
     this.syncCopyProxy();
-    // Phase 12: no gizmo on a folder (no transform) or a locked entity.
+    // No gizmo on a folder (no transform) or a locked entity.
     const movable = id !== null && !this.folderIds.has(id) && this.hierarchyFlags.get(id)?.locked !== true;
     const target = this.copySel !== null && this.copyProxy.parent !== null ? this.copyProxy : id && movable ? this.targetFor(id) : null;
     if (id && target) {
@@ -1620,7 +1620,7 @@ export class Viewport {
     this.render();
   }
 
-  /** Phase 21.3: the shared box material for a colour (highlighted: the selection tint), counted. */
+  /** The shared box material for a colour (highlighted: the selection tint), counted. */
   private takeBoxLook(color: number, highlighted: boolean): THREE.MeshLambertMaterial {
     const key = `${color}|${highlighted ? 1 : 0}`;
     let rec = this.boxLooks.get(key);
@@ -1645,7 +1645,7 @@ export class Viewport {
   }
 
   /**
-   * Phase 21.3: put a box on the shared material for its colour and selection. With a
+   * Put a box on the shared material for its colour and selection. With a
    * project material on, the kept-aside own material is swapped (the library restores it).
    */
   private setBoxLook(mesh: THREE.Mesh, color: number, highlight?: boolean): void {
@@ -1663,7 +1663,7 @@ export class Viewport {
   }
 
   private setMeshHighlight(obj: THREE.Object3D, on: boolean): void {
-    // Phase 21.3: the entity's own helpers only — a child entity's node below it keeps its own
+    // The entity's own helpers only — a child entity's node below it keeps its own
     // state (the full pass this replaced ended the same way: each node was set for its own id).
     const visit = (c: THREE.Object3D): void => {
       const owner = (c as { entityId?: string }).entityId;
@@ -1684,7 +1684,7 @@ export class Viewport {
       // materials and project materials are shared by every placement.
       const mesh = c as THREE.Mesh;
       if ((mesh as { entityId?: string }).entityId === undefined || mesh.userData['__tlSourceMaterial'] !== undefined) return;
-      // Phase 21.3: a box swaps to the highlighted twin of its shared material.
+      // A box swaps to the highlighted twin of its shared material.
       const look = (mesh.material as THREE.Material | undefined)?.userData?.['tlBoxLook'] as { color: number } | undefined;
       if (look !== undefined) this.setBoxLook(mesh, look.color, on);
       else setSelectionHighlight(mesh.material, on);
@@ -1698,7 +1698,7 @@ export class Viewport {
 
   /** Pick the entity under a pointer position (client coords in the canvas). */
   private pick(clientX: number, clientY: number): string | null {
-    // Phase 14.0: the player's capsule outline selects the player (before
+    // The player's capsule outline selects the player (before
     // whatever model is drawn over it); inside the outline it does when
     // nothing else is hit.
     const capsule = this.helpers.capsuleAt(clientX, clientY);
@@ -1729,7 +1729,7 @@ export class Viewport {
       while (o) {
         const id = (o as { entityId?: string }).entityId;
         if (id && this.meshes.has(id)) {
-          // Phase 12: hidden or locked entities are not pickable (try the next hit).
+          // Hidden or locked entities are not pickable (try the next hit).
           const f = this.hierarchyFlags.get(id);
           if (f === undefined || (f.active && !f.locked)) return id;
           break;
@@ -1763,16 +1763,16 @@ export class Viewport {
   private onContextMenu = (e: Event): void => e.preventDefault();
   private onWindowResize = (): void => this.resize();
 
-  /** Phase 15.2: a handle drag is in flight (the overlay holds the previewed shape). */
+  /** A handle drag is in flight (the overlay holds the previewed shape). */
   private handleDragging = false;
 
-  /** Phase 15.2: an in-flight brush stroke on an instance set (world points, their preview dots). */
+  /** An in-flight brush stroke on an instance set (world points, their preview dots). */
   private brushStroke: { entityId: string; points: THREE.Vector3[]; dots: THREE.Group } | null = null;
 
   private onPointerDown = (e: PointerEvent): void => {
     this.downAt = { x: e.clientX, y: e.clientY };
     if (e.button !== 0) return;
-    // Phase 23.6: armed block tools take the left button (not over a gizmo handle).
+    // Armed block tools take the left button (not over a gizmo handle).
     if (this.blockEditorInst?.isActive() === true && this.gizmo.axis === null && this.blockEditorInst.pointerDown(e)) {
       e.stopImmediatePropagation();
       this.downAt = null;
@@ -1780,7 +1780,7 @@ export class Viewport {
       this.root.setPointerCapture(e.pointerId);
       return;
     }
-    // Phase 15.2: a handle grip of the selected entity: Alt+click deletes a corner/point, a drag edits (one command on release).
+    // A handle grip of the selected entity: Alt+click deletes a corner/point, a drag edits (one command on release).
     const grip = this.helpers.pickHandle(e.clientX, e.clientY);
     if (grip !== null) {
       e.stopImmediatePropagation();
@@ -1799,7 +1799,7 @@ export class Viewport {
       this.requestRender();
       return;
     }
-    // Phase 15.2: the brush paints copies onto the selected instance set (not while the gizmo is under the pointer).
+    // The brush paints copies onto the selected instance set (not while the gizmo is under the pointer).
     if (this.brush !== null && this.brush === this.selectedId && this.gizmo.axis === null) {
       e.stopImmediatePropagation();
       const dots = new THREE.Group();
@@ -1812,7 +1812,7 @@ export class Viewport {
     }
   };
 
-  /** Phase 15.2: add a brush point (the surface under the pointer), at least the brush spacing from the others. */
+  /** Add a brush point (the surface under the pointer), at least the brush spacing from the others. */
   private brushAt(clientX: number, clientY: number): void {
     const s = this.brushStroke;
     if (s === null) return;
@@ -1850,7 +1850,7 @@ export class Viewport {
     }));
   }
 
-  /** Phase 15.2: store a handle shape (one setComponent), or say why it cannot be stored. */
+  /** Store a handle shape (one setComponent), or say why it cannot be stored. */
   private commitHandle(shape: HandleShape): void {
     const edit = commitValue(shape);
     if (edit === null) return;
@@ -1906,7 +1906,7 @@ export class Viewport {
     // A left click (no drag, not on a gizmo handle) picks or deselects.
     if (e.button !== 0 || down === null || this.draggingGizmo || this.gizmo.axis !== null) return;
     if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > CLICK_SLOP_PX) return;
-    // Phase 15.2: with an instance set selected, a click on one of its copies selects that copy.
+    // With an instance set selected, a click on one of its copies selects that copy.
     const sel = this.selectedId;
     if (sel !== null && this.projected.find((x) => x.id === sel)?.instances !== undefined) {
       const copy = this.pickCopy(e.clientX, e.clientY, sel);
@@ -1918,17 +1918,17 @@ export class Viewport {
     this.cb.onPick(this.pick(e.clientX, e.clientY));
   };
 
-  // ---- Phase 15.2: descriptors, the game's aspect, instance copies, model outlines ----
+  // ---- Descriptors, the game's aspect, instance copies, model outlines ----
 
   private gameAspect = DEFAULT_GAME_ASPECT;
-  /** Phase 24.5: which component shows which icon (from the descriptors). */
+  /** Which component shows which icon (from the descriptors). */
   private iconTable: IconTable = [];
   private brush: string | null = null;
   private copySel: { entityId: string; index: number } | null = null;
   private readonly copyProxy = new THREE.Object3D();
   private copyHighlight: THREE.Box3Helper | null = null;
 
-  /** The component descriptors: the handles (and, phase 24.5, the objects' icons) come from them. */
+  /** The component descriptors: the handles and the objects' icons come from them. */
   setDescriptors(reg: DescriptorRegistry | null): void {
     this.helpers.setHandleSources(reg, (id) => this.meshes.get(id) ?? null);
     this.iconTable = iconTableOf(reg);
@@ -1939,7 +1939,7 @@ export class Viewport {
     this.requestRender();
   }
 
-  /** Phase 23.2: the project's physics dimension (handles of the other dimension are not shown). */
+  /** The project's physics dimension (handles of the other dimension are not shown). */
   setPhysicsDimension(dimension: 2 | 3): void {
     this.helpers.setPhysicsDimension(dimension);
     this.requestRender();
@@ -2011,7 +2011,7 @@ export class Viewport {
     const sel = this.copySel;
     this.root.setAttribute('data-instance-copy', sel === null ? '' : String(sel.index));
     if (sel === null) return;
-    // Phase 21.3: the set is drawn in chunks; it finds the copy's own bounds.
+    // The set is drawn in chunks; it finds the copy's own bounds.
     const set = this.models?.instanceSet(sel.entityId) ?? null;
     set?.group.updateWorldMatrix(true, true);
     const box = set?.copyBox(sel.index) ?? null;
@@ -2072,7 +2072,7 @@ export class Viewport {
   }
 
   /**
-   * Phase 15.2 ("collider from model outline"): the vertices of the models
+   * For "collider from model outline": the vertices of the models
    * drawn for an entity (its own and its children's), on the play plane
    * relative to its origin with its rotation about Z undone (the collider's
    * frame), or null when no model is loaded.
@@ -2154,7 +2154,7 @@ export class Viewport {
   }
 
   /**
-   * Phase 9.5: the project environment (sky, fog, fog volumes, post) in the
+   * The project environment (sky, fog, fog volumes, post) in the
    * Scene view — with game lighting only (the editor rig shows the plain view).
    */
   private environment: EnvironmentRenderer | null = null;
@@ -2166,16 +2166,16 @@ export class Viewport {
   setEnvironment(value: EnvironmentLike | null, loadTexture: (assetId: string) => Promise<THREE.Texture | null>): void {
     this.environmentValue = value;
     this.environmentSource = loadTexture;
-    // Phase 17.1: built for the current renderer (null while WebGPURenderer initialises; the first frame builds it).
+    // Built for the current renderer (null while WebGPURenderer initialises; the first frame builds it).
     const env = this.ensureEnvironment();
     env?.set(this.lighting === 'game' ? value : null);
     env?.setQuality(this.editorQuality());
-    // Phase 23.18: a previewed blend follows edited presets.
+    // A previewed blend follows edited presets.
     if (this.envPreview !== null) this.applyEnvironmentPreview();
     this.requestRender();
   }
   /**
-   * Phase 21.3: with the editor rig (no project look) the Scene view still
+   * With the editor rig (no project look) the Scene view still
    * draws at the project's quality level — MSAA is the level's choice (low:
    * none); null in game lighting (the environment's own level applies) or
    * when the project sets none.
@@ -2234,7 +2234,7 @@ export class Viewport {
   }
 }
 
-/** Phase 9.5: the three.js light for an authored light (the editor's "game lighting"). */
+/** The three.js light for an authored light (the editor's "game lighting"). */
 function makeSceneLight(l: NonNullable<ProjectedEntity['light']>): THREE.Light {
   const colour = new THREE.Color(l.color);
   switch (l.type) {
@@ -2246,7 +2246,7 @@ function makeSceneLight(l: NonNullable<ProjectedEntity['light']>): THREE.Light {
       return new THREE.PointLight(colour, l.intensity, l.range ?? 0, l.decay ?? 2);
     case 'spot': {
       const s = new THREE.SpotLight(colour, l.intensity, l.range ?? 0, THREE.MathUtils.degToRad(l.angle ?? 30), l.penumbra ?? 0.2, l.decay ?? 2);
-      // D49: at its entity's origin (three starts a SpotLight at (0, 1, 0)), shining along `direction`.
+      // At its entity's origin (three starts a SpotLight at (0, 1, 0)), shining along `direction`.
       s.position.set(0, 0, 0);
       const d = l.direction ?? [0, -1, 0];
       s.target.position.set(d[0], d[1], d[2]);
@@ -2262,7 +2262,7 @@ function makeSceneLight(l: NonNullable<ProjectedEntity['light']>): THREE.Light {
 }
 
 /**
- * Phase 23.4: a virtual camera's preview in world space — the frustum where
+ * A virtual camera's preview in world space — the frustum where
  * its rig puts it (drawn out to the pivot it looks at, at most its far plane)
  * and a line to that pivot.
  */
@@ -2288,7 +2288,7 @@ function virtualCameraFrustum(id: string, pose: CameraPose, aspect: number, reac
 }
 
 /**
- * Phase 15.2: a camera's real frustum in its own space (it looks down −Z):
+ * A camera's real frustum in its own space (it looks down −Z):
  * the near and far rectangles and the edges from the eye, from its fovY,
  * near and far and the game's aspect.
  */
@@ -2314,7 +2314,7 @@ function cameraFrustum(e: ProjectedEntity, aspect: number): THREE.LineSegments {
   return lines;
 }
 
-/** Phase 9.5: a point light's reach (three circles) or a spot light's cone, as lines. */
+/** A point light's reach (three circles) or a spot light's cone, as lines. */
 function lightGizmo(e: ProjectedEntity): THREE.LineSegments {
   const l = e.light!;
   const pts: THREE.Vector3[] = [];

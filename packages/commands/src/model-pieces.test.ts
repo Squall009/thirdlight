@@ -1,5 +1,5 @@
 /**
- * Multi-piece models (2026-09-24): `model.piece`, a folder created with its
+ * Multi-piece models: `model.piece`, a folder created with its
  * children in one transaction, and `setAssetOptions {vertexColors}` — each
  * with undo/redo.
  */

@@ -1,12 +1,12 @@
 /**
- * Packet 32 — controller unit tests (pure, no library, no I/O).
+ * Controller unit tests (pure, no library, no I/O).
  *
- * These exercise the algorithm of the controller contract §7 A–K and the
- * classification of `physics.md` §8 with a deterministic in-memory
+ * These exercise the controller contract's step algorithm (A–K) and the
+ * grounding classification of `physics.md` with a deterministic in-memory
  * `PhysicsStepClient`: single jump, variable height on release, the
  * integer-step coyote/jump-buffer windows (including the off-by-one edges),
  * repeated/air jumps, head contact, maximum fall speed, grounding from
- * support normals, steep-slope refusal and the C32-1 slide policy.
+ * support normals, steep-slope refusal and the slide policy.
  *
  * The step-indexed traces of the accepted contract fixture are replayed in
  * `tests/m2-controller/contract-traces.test.ts` (repo level, where reading
@@ -136,7 +136,7 @@ describe('contract constants (dependencies.md §3 character row)', () => {
       charX: 1.5,
       charY: 0.91,
       slideSteps: 0,
-      // Phase 25.13: not climbing, no wall touched.
+      // Not climbing, no wall touched.
       climbing: null,
       wallSide: 0,
       wallCoyote: 0,
@@ -157,7 +157,7 @@ describe('grounding from support normals (physics.md §8)', () => {
   it('is grounded only with a support normal at or above the climb angle', () => {
     expect(isGrounded(result({ x: 0, y: 0 }, { supportNormal: { x: 0, y: 1 } }), COS_MAX)).toBe(true);
     expect(isGrounded(result({ x: 0, y: 0 }, { supportNormal: { x: -0.5, y: COS_MAX } }), COS_MAX)).toBe(true);
-    // 45.1°: below cos(45°) ⇒ steepSlope, treated as not grounded (§8 item 4).
+    // 45.1°: below cos(45°) ⇒ steepSlope, treated as not grounded.
     expect(isGrounded(result({ x: 0, y: 0 }, { supportNormal: { x: -0.7075, y: 0.70587157 } }), COS_MAX)).toBe(false);
     expect(isGrounded(undefined, COS_MAX)).toBe(false);
     expect(isGrounded(result({ x: 0, y: 0 }, { grounded: false }), COS_MAX)).toBe(false);
@@ -214,7 +214,7 @@ describe('jump (the controller contract §7 A–G)', () => {
     h.step(state, frame(0, 'none'), { grounded: false });
     const vyBeforeRelease = state.vy;
     h.step(state, frame(0, 'released'), { grounded: false });
-    // §7 order: D integrates gravity first, then F halves the ascending vy.
+    // Step order: D integrates gravity first, then F halves the ascending vy.
     expect(state.vy).toBeCloseTo((vyBeforeRelease + SETTINGS.gravity_y * DT) * 0.5, 12);
     expect(state.vy).toBeLessThan(maxVy);
     // A second release never halves again; it only integrates gravity.
@@ -231,7 +231,7 @@ describe('jump (the controller contract §7 A–G)', () => {
     const h = harness();
     h.seed(state, {});
     h.step(state, frame(0, 'pressed'));
-    // Step E reads the PREVIOUS step's head contact (§7 E), so the frame
+    // Step E reads the PREVIOUS step's head contact, so the frame
     // after the contact step is the one clamped.
     h.step(state, frame(0, 'held'), { grounded: false, contacts: { head: true } });
     expect(state.vy).toBeGreaterThan(0);
@@ -270,9 +270,8 @@ describe('coyote and buffer windows (the controller contract §7.1)', () => {
   it('allows the jump at the last coyote step and refuses one step later (fixture boundary)', () => {
     // The last grounded result is step 0. The fixture's normative model
     // (`jump-coyote-last-step`: m = 14, last step = 21) permits the press at
-    // m + 7 and refuses m + 8; the controller contract §7.1's "(m .. m+5)" prose is one
-    // short of the replayed fixture (recorded as contract-change request
-    // C32-3 in the evidence manifest).
+    // m + 7 and refuses m + 8; the controller contract's "(m .. m+5)" prose is one
+    // short of the replayed fixture, and the fixture wins.
     expect(coyoteCase(7)).toBe(true);
     expect(coyoteCase(8)).toBe(false);
   });

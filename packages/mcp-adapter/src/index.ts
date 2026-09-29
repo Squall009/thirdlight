@@ -1,13 +1,13 @@
 /**
- * The MCP server executable entry (dependencies.md §3: `mcp-adapter` `.` =
+ * The MCP server executable entry (dependencies.md: `mcp-adapter` `.` =
  * "the MCP server (not importable by any package)" — the process entry).
  *
- * Transport: **stdio** (decision 0001 §5's listed alternative; the
+ * Transport: **stdio** (decision 0001's listed alternative; the
  * `node: []` boundary — no `node:http` — makes streamable HTTP not
  * self-hostable by this package, so the harness spawns this process and
  * speaks MCP over stdin/stdout). The harness (a thin MCP client) configures
  * the connection via environment variables (documented in
- * docs/handoffs/11.md; no credentials are baked in):
+ * docs/deployment.md; no credentials are baked in):
  *
  *   THIRDLIGHT_AUTHORING_ORIGIN  e.g. http://127.0.0.1:8501  (required)
  *   THIRDLIGHT_PROJECT_ID        e.g. demo-0001  (optional: without it the project is the

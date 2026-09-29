@@ -1,5 +1,5 @@
 /**
- * Phase 23.2: the 3D kinematic character controller in a real browser
+ * The 3D kinematic character controller in a real browser
  * against a real backend. A neutral 3D scene built through the backend's
  * commands on a blank project — a floor, a 0.3 m riser to the right of the
  * player, a wall to its left — played without its own input actions (the 3D

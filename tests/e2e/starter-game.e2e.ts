@@ -1,5 +1,5 @@
 /**
- * Phase 24.9 acceptance: a new project from the Starter template is built into
+ * A new project from the Starter template is built into
  * a small game in the editor, using only engine primitives and a project
  * script, and played in a real browser against a real backend.
  *

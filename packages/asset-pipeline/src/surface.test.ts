@@ -1,8 +1,8 @@
 /**
- * Packet-24 acceptance: the module boundary and the observable absence of
+ * The module boundary and the observable absence of
  * network/plugin behavior.
  *
- * §18.7.1/§4.3 (dependencies.md): the importer inspects bytes itself — no
+ * The importer inspects bytes itself — no
  * `three`/GLTFLoader import, no plugin registry, no URL fetch, no I/O. The
  * static import graph is proved by `tools/check-boundaries.mjs`; this suite
  * proves the runtime behavior: with `fetch`, `XMLHttpRequest` and `WebSocket`
@@ -65,19 +65,19 @@ describe('public surface (dependencies.md §3)', () => {
         'AUDIO_PIPELINE_NAME',
         'AUDIO_PIPELINE_VERSION',
         'AUDIO_REPORTED_LIMITS',
-        // phase 9.4: standalone textures
+        // Standalone textures
         'IMAGE_TOOLCHAIN',
         'TEXTURE_EDGE_MAX',
         'TEXTURE_SOURCE_BYTES_MAX',
         'inspectImage',
-        // phase 25.19: a KTX2's facts (the backend's encoder tests read them)
+        // A KTX2's facts (the backend's encoder tests read them)
         'ktx2Info',
-        // phase 9.10: music
+        // music
         'inspectMusic',
         'MUSIC_DURATION_MS_MAX',
         'MUSIC_SOURCE_BYTES_MAX',
         'MUSIC_TOOLCHAIN',
-        // phase 23.9a: fonts
+        // fonts
         'FONT_FAMILY_NAME_MAX',
         'FONT_SOURCE_BYTES_MAX',
         'FONT_TABLES_MAX',

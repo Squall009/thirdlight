@@ -1,8 +1,7 @@
 /**
- * The executable bootstrap — the owner-deployment process entry
- * (dependencies.md §3: the default subpath "may be executed; no package
- * imports it"). Reads the deployment configuration from the environment
- * (sessions.md §13.7 shape), starts the backend, and records the outcome
+ * The executable bootstrap — the owner-deployment process entry (the
+ * default subpath may be executed; no package imports it). Reads the
+ * deployment configuration from the environment, starts the backend, and records the outcome
  * on stderr (the bounded startup log is the authoritative record).
  *
  * Environment variables (all required except where noted):
@@ -75,7 +74,7 @@ const config = parseBackendConfig({
     : {}),
   trustedNetworks: env.THIRDLIGHT_TRUSTED_NETWORKS,
   trustedProxies: env.THIRDLIGHT_TRUSTED_PROXIES,
-  // Phase 22.0: COOP + COEP on the editor and the preview origin (SharedArrayBuffer for Play's simulation worker).
+  // COOP + COEP on the editor and the preview origin (SharedArrayBuffer for Play's simulation worker).
   ...(env.THIRDLIGHT_CROSS_ORIGIN_ISOLATION === '1' || env.THIRDLIGHT_CROSS_ORIGIN_ISOLATION === 'true' ? { crossOriginIsolation: true } : {}),
   tokens,
   headless: {

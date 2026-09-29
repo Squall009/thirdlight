@@ -1,11 +1,10 @@
 #!/usr/bin/env node
 /**
- * Thirdlight root typecheck (dependencies.md §5 check 5 — type-level
- * strictness).
+ * Thirdlight root typecheck (type-level strictness).
  *
  * For every implemented workspace package (packages/<name>/package.json):
  *
- *   1. VALIDATES the package tsconfig (repaired per 04-review R7): it must
+ *   1. VALIDATES the package tsconfig: it must
  *      extend the root `tsconfig.base.json` (directly or transitively — the
  *      inheritance graph is resolved by TypeScript, including extends arrays)
  *      AND the EFFECTIVE compiler options must keep `strict: true`, all its
@@ -15,12 +14,11 @@
  *      tsconfig. Any type error ⇒ non-zero exit, tsc's own
  *      `file(line,col): error TSxxxx` listing. The editor's TSX is
  *      typechecked with the same tsc (jsx: react-jsx in the base config;
- *      decision 0001 §10 — the esbuild TSX loader builds it, this is the
- *      typecheck plane).
+ *      the esbuild TSX loader builds it, this is the typecheck plane).
  *
- * Uses the pinned `typescript` devDependency (dependencies.md §7) for config
- * resolution — no new dependency. With no implemented packages yet (packet
- * 04 state) there is nothing to typecheck — reported honestly, exit 0.
+ * Uses the pinned `typescript` devDependency for config
+ * resolution — no new dependency. With no implemented packages there is
+ * nothing to typecheck — reported honestly, exit 0.
  *
  * Exit codes: 0 = all validated and tsc clean; 1 = validation or tsc
  * failure; 2 = environment error (pinned tsc not installed).
@@ -31,7 +29,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import process from 'node:process';
-import ts from 'typescript'; // pinned devDependency (dependencies.md §7)
+import ts from 'typescript'; // pinned devDependency
 
 const BASE_CONFIG = 'tsconfig.base.json';
 
@@ -70,9 +68,8 @@ export function extendsChain(startPath) {
 /**
  * Validate one package tsconfig: it must extend the root tsconfig.base.json
  * (directly or transitively) and the effective compiler options must keep
- * `strict: true` without disabling its sub-options or skipping checks
- * (dependencies.md §5.5; decision 0001 §2/§3). Returns
- * violation strings (empty = OK).
+ * `strict: true` without disabling its sub-options or skipping checks.
+ * Returns violation strings (empty = OK).
  */
 export function validatePackageTsconfig(root, pkgName) {
   const violations = [];
@@ -140,7 +137,7 @@ function main() {
   try {
     entries = readdirSync(pkgsDir, { withFileTypes: true });
   } catch {
-    // no packages dir yet — nothing to typecheck (packet 04 state).
+    // no packages dir yet — nothing to typecheck.
   }
   const pkgs = entries
     .filter((e) => e.isDirectory() && !e.name.startsWith('.'))
@@ -191,8 +188,7 @@ function main() {
 // CLI guard — realpath-based, so it also works when the tool is invoked
 // through a symlinked or relative path. (The naive
 // `pathToFileURL(argv[1]) === import.meta.url` comparison silently skips
-// main() for symlinked tool paths — a silent no-op check, the exact
-// failure mode dependencies.md §9 forbids.)
+// main() for symlinked tool paths — a silent no-op check.)
 function isMain() {
   const invoked = process.argv[1];
   if (!invoked) return false;

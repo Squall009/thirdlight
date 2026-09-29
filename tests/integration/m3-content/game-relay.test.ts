@@ -1,12 +1,12 @@
 /**
- * Packet 48 — the bounded §20 game control/observation relay over the REAL
+ * The bounded game control/observation relay over the REAL
  * transports: a real backend process, a real WS (the owner editor) and the real
  * stdio MCP SDK tools. Nothing simulates gameplay; the relay only forwards the
  * preview's exact result. The absent-browser/unpresented cases return the
  * contracted structured `session_unavailable` — never a fabricated success.
  *
  * The play record is exercised on the committed v3 fixture project; the relay
- * only forwards, so no game runs here (sessions.md §20).
+ * only forwards, so no game runs here.
  */
 import { rmSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';

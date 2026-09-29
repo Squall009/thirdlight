@@ -1,5 +1,5 @@
 /**
- * Phase 23.11: sockets in the simulation — the rig poser (three.js's
+ * Sockets in the simulation — the rig poser (three.js's
  * sampling and mixing rules), the socket pose maths (target world · node ·
  * offset, written relative to the entity's parent), attach/detach rules, and
  * the animator's per-instance playback speed and morph weights.

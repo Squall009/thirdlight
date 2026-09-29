@@ -1,5 +1,5 @@
 /**
- * Phase 12 (b): scripts query objects by tag. The runtime loads a v3 scene
+ * Scripts query objects by tag. The runtime loads a v3 scene
  * with folders and a tag registry, resolves effective masks once (own OR every
  * folder above; inactive entities left out), and a behavior sees them through
  * `ctx.tags` in `instantiate` and `step`.

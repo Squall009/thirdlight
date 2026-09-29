@@ -25,7 +25,7 @@ function fakePort(): SaveSectionsPort & { storage: Record<string, unknown>; worl
       port.storage = { ...((v ?? {}) as Record<string, unknown>) };
       return null;
     },
-    // Phase 24.8: where the play stands (a fixed world here; the runtime's is tested with the host).
+    // Where the play stands (a fixed world here; the runtime's is tested with the host).
     world: { scenes: ['scene-main'], activeSpawn: null, listedScene: -1, character: null } as WorldSave,
     captureWorld: () => port.world,
     checkWorld: (w: WorldSave) => (w.scenes.includes('scene-gone') ? 'unknown scene' : null),
@@ -59,7 +59,7 @@ describe('phase 23.19: runtime project saves', () => {
     expect(reqs).toHaveLength(1);
     const req = reqs[0] as Extract<SaveRequest, { op: 'save' }>;
     expect(req.meta).toEqual({ title: 'T', chapter: 'C', location: 'L', thumbnail: true, playSeconds: 1, version: 2 });
-    // Phase 24.8: format version 2 — every save carries where the play stands.
+    // Format version 2 — every save carries where the play stands.
     expect(JSON.parse(req.text)).toEqual({ format: 'thirdlight.save', formatVersion: 2, version: 2, playSeconds: 1, doc: { level: 'b', hp: 3 }, sections: { storage: { k: 2 } }, world: { scenes: ['scene-main'], activeSpawn: null, listedScene: -1, character: null } });
   });
 
@@ -143,7 +143,7 @@ describe('phase 23.19: runtime project saves', () => {
     expect(validateSaveEvents([{ kind: 'loaded', slot: 1, ok: true, save: { format: 'thirdlight.save', version: 1, doc: 'x'.repeat(1_048_577) } }]).ok).toBe(false);
     const f = validateActionFrame({ stepIndex: 3, moveX: 0, jump: 'none', saves: [{ kind: 'deleted', slot: 1, ok: false, reason: 'r' }] }, 3);
     expect(f.ok && f.frame.saves).toEqual([{ kind: 'deleted', slot: 1, ok: false, reason: 'r' }]);
-    // A frame without saves keeps its old shape.
+    // A frame without saves carries no `saves` field.
     const g = validateActionFrame({ stepIndex: 3, moveX: 0, jump: 'none' }, 3);
     expect(g.ok && 'saves' in g.frame).toBe(false);
   });

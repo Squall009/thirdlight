@@ -1,5 +1,5 @@
 /**
- * Phase 23.14: the frame's input entry (validated strictly, frozen, merged)
+ * The frame's input entry (validated strictly, frozen, merged)
  * and what `ctx.input` reads from it and queues for the host.
  */
 import { describe, expect, it } from 'vitest';

@@ -1,5 +1,5 @@
 /**
- * Phase 23.5 (opt-in: TL_PERF=1): block-layer measurements for the E8 targets.
+ * Opt-in (TL_PERF=1): block-layer measurements against the editing and meshing targets.
  *
  *   TL_PERF=1 npx vitest run tests/perf/block-layers.test.ts
  *
@@ -10,7 +10,7 @@
  * - A 40 × 40 × 12 terrain map (heightmap-like, three block types): the
  *   merged chunk meshes (one draw per block look per chunk, before shadows),
  *   triangles after hidden-face removal, meshing and collision-building time.
- * The numbers are printed (and recorded in the phase 23 decision log); the
+ * The numbers are printed (and recorded in docs/plan-phase-23.md); the
  * assertions are the budgets (interactive: an edit under 50 ms; a few draws
  * per chunk).
  */

@@ -1,6 +1,5 @@
 /**
- * Prefab-definition and published-declaration projection (packet 28;
- * sessions.md §8/§19.4; commands.md §5.3/§5.6).
+ * Prefab-definition and published-declaration projection.
  *
  * The editor's projection of `content.prefabs` and `content.behaviors`
  * (definitions and declarations only — never bytes, never source). It is
@@ -8,16 +7,16 @@
  * `queryBehaviors` with `includeDeclaration: true`, both bounded) and advanced
  * from the **same applied `mutation.applied` change records** the scene
  * projection uses. `change.next` carries the full record, so no partial merge
- * is ever needed; a gap is resolved by a fresh full state (sessions.md §8).
+ * is ever needed; a gap is resolved by a fresh full state.
  *
- * "Copies, not links" (project-model §20.1.4) is a property of this module:
+ * "Copies, not links" is a property of this module:
  *
  *  - `createPrefab` adds a definition and touches no entity;
  *  - `removePrefab` (the undo of a capture) removes the definition and still
  *    touches no entity — materialized copies are ordinary scene entities;
  *  - `publishBehavior` updates the declaration/record and leaves every stored
  *    `components.behavior.values` map untouched (a changed default affects new
- *    values only, project-model §20.8.3);
+ *    values only);
  *  - there is no operation that rewrites an instance from a definition, and
  *    this module exposes none.
  *
@@ -38,9 +37,9 @@ export interface BehaviorDeclarationView {
   /** The digest-bound source record, or `null` (a declaration-only behavior). */
   source: BehaviorSourceRecord | null;
   publishedRevision: number;
-  /** Phase 19.0: the visual script (absent: not a visual script). */
+  /** The visual script (absent: not a visual script). */
   graph?: GraphData;
-  /** Phase 19.1: the script's functions (sorted by id; absent: none). */
+  /** The script's functions (sorted by id; absent: none). */
   functions?: { functionId: string; graph: GraphData }[];
 }
 
@@ -71,7 +70,7 @@ export class PrefabProjection {
     for (const b of behaviors) this.behaviors.set(b.behaviorId, toDeclarationView(b));
   }
 
-  /** Ascending `prefabId` order (commands.md §5.6). */
+  /** Ascending `prefabId` order. */
   listDefinitions(): PrefabDefinition[] {
     return [...this.definitions.values()].sort((a, b) => (a.prefabId < b.prefabId ? -1 : a.prefabId > b.prefabId ? 1 : 0));
   }
@@ -119,7 +118,7 @@ export class PrefabProjection {
   }
 
   /**
-   * The acknowledged trust digests observed in this session (packet 34). No
+   * The acknowledged trust digests observed in this session. No
    * accepted query returns `content.behaviorTrust`, so this is advanced ONLY by
    * `acknowledgeBehaviorTrust` change records; it deliberately survives a
    * hydrate (a resync must not forget what the user just acknowledged).
@@ -151,7 +150,7 @@ export class PrefabProjection {
       }
       case 'removePrefab': {
         // The undo of a capture: the definition disappears; materialized copies
-        // and their `components.prefab` provenance are untouched (§20.1.4).
+        // and their `components.prefab` provenance are untouched.
         return this.definitions.delete(change.prefabId);
       }
       case 'publishBehavior': {
@@ -162,15 +161,15 @@ export class PrefabProjection {
       }
       case 'setScriptLibrary':
       case 'setScriptLibraries': {
-        // Phase 23.7: the scripts recompiled against the changed library (their new records).
+        // The scripts recompiled against the changed library (their new records).
         for (const b of change.behaviors) this.behaviors.set(b.behaviorId, toDeclarationView(b.next));
         return change.behaviors.length > 0;
       }
       case 'graphEdit': {
-        // Phase 19.0: a visual script's graph advances from the change's ops
+        // A visual script's graph advances from the change's ops
         // (the backend applied and validated the same ops).
         if (change.owner.kind !== 'behavior') return false;
-        // Phase 19.1: `<behaviorId>#<functionId>` is one of the script's functions
+        // `<behaviorId>#<functionId>` is one of the script's functions
         // (it exists while it has nodes, like the backend's record).
         const target = parseBehaviorOwnerId(change.owner.id);
         const b = this.behaviors.get(target.behaviorId);
@@ -194,7 +193,7 @@ export class PrefabProjection {
         return true;
       }
       case 'acknowledgeBehaviorTrust': {
-        // Full entry arrays in the direction applied (commands.md §5.3/§8.12).
+        // Full entry arrays in the direction applied.
         this.trust = change.next.map((e) => ({ ...e }));
         return true;
       }

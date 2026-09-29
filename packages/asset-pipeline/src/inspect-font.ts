@@ -1,5 +1,5 @@
 /**
- * Font import (phase 23.9a): a TrueType (.ttf), OpenType/CFF (.otf), WOFF2 or
+ * Font import: a TrueType (.ttf), OpenType/CFF (.otf), WOFF2 or
  * WOFF file for the project UI (the page loads it through the browser
  * FontFace API; nothing here decodes glyphs).
  *

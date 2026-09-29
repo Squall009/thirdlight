@@ -1,5 +1,5 @@
 /**
- * Phase 24.8: the input actions a character controller reads (input frame
+ * The input actions a character controller reads (input frame
  * version 2 has no fixed move/jump channels).
  */
 import { describe, it, expect } from 'vitest';

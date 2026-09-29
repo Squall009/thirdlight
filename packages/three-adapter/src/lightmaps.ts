@@ -1,5 +1,5 @@
 /**
- * Phase 9.6: lightmaps at runtime (Play, export and the editor view).
+ * Lightmaps at runtime (Play, export and the editor view).
  *
  * - `addBoxLightmapUv`: boxes get a UV1 lightmap layout (the six faces in a
  *   3 × 2 grid with a margin) — the same one the bakers use.
@@ -10,7 +10,7 @@
  * - `createLightmapSet`: the bakes of a project — which entity has which
  *   atlas rectangle, which lights are baked, the atlas textures (loaded once).
  *
- * Phase 17.4: the copy is always a node material (every view draws with
+ * The copy is always a node material (every view draws with
  * `WebGPURenderer`) and the no-ambient hook is `withoutAmbientLight`; the
  * `onBeforeCompile` version is archived (`archive/webgl-renderer-17/`).
  *
@@ -80,7 +80,7 @@ export function lightmapTexture(atlas: THREE.Texture, scaleOffset: readonly numb
 type LightmapCapable = THREE.Material & { lightMap?: THREE.Texture | null; lightMapIntensity?: number };
 
 /**
- * Phase 23.18: a tint on the baked light (a colour uniform shared by a set's
+ * A tint on the baked light (a colour uniform shared by a set's
  * copies: an environment preset changes it per frame without new programs).
  * The hook replaces the material's lightmap term with lightMap × intensity × tint.
  */
@@ -107,7 +107,7 @@ export function lightmappedMaterial(material: THREE.Material, map: THREE.Texture
   const c = converted as LightmapCapable;
   c.lightMap = map;
   c.lightMapIntensity = range;
-  // Phase 23.18: the bake's range, which an environment preset's lightmap intensity multiplies.
+  // The bake's range, which an environment preset's lightmap intensity multiplies.
   c.userData['lightmapRange'] = range;
   if (tint !== undefined) withLightmapTint(c, tint);
   if (ignoreAmbient) withoutAmbientLight(c);
@@ -149,7 +149,7 @@ export function applyLightmap(
 
 /**
  * `applyLightmap` that also returns `refresh`: bring every copy up to date
- * with its source material (phase 17.3: a project material's texture that
+ * with its source material (a project material's texture that
  * arrives after the copy was made — the copy is a clone and would stay
  * without it).
  */
@@ -212,14 +212,14 @@ export interface LightmapSet {
   /** Take a chunk's lightmap off again. */
   releaseChunk(entityId: string, cx: number, cz: number): void;
   /**
-   * Phase 23.18: multiply the baked light by `intensity` and tint it (an
+   * Multiply the baked light by `intensity` and tint it (an
    * environment preset's `lightmap`; 1 and white leave the bake as it is).
    * A bake holds the light of the moment it was baked: without this, a preset
    * that darkens the realtime lights leaves baked surfaces as bright as before.
    */
   setLook(intensity: number, tint: string): void;
   /**
-   * Phase 17.3: bring the lightmapped copies up to date with their source
+   * Bring the lightmapped copies up to date with their source
    * materials (call when a project material changed in place, e.g. its
    * texture arrived after the copy was made).
    */
@@ -256,7 +256,7 @@ export function createLightmapSet(
   const textures = new Map<string, Promise<THREE.Texture | null>>();
   const undo = new Map<string, () => void>();
   const refreshers = new Map<string, () => void>();
-  /** Phase 23.18: the lightmapped copies per entity, the look multiplier and its shared tint uniform. */
+  /** The lightmapped copies per entity, the look multiplier and its shared tint uniform. */
   const copiesOf = new Map<string, readonly THREE.Material[]>();
   let lookIntensity = 1;
   const tint = uniform(new THREE.Color(1, 1, 1)) as unknown as { value: THREE.Color };

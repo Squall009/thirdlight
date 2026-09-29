@@ -1,5 +1,5 @@
 /**
- * Phase 22.1: the browser bake's input as a worker message.
+ * The browser bake's input as a worker message.
  *
  * The Scene view hands the baker live `BufferGeometry` objects (shared by
  * every mesh that uses them) and world matrices. For a worker they become

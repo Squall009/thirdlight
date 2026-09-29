@@ -1,5 +1,5 @@
 /**
- * Phase 23.2: neutral 3D scenes for the character controller tests — a floor
+ * Neutral 3D scenes for the character controller tests — a floor
  * (top at y = 0) and whatever blocks a test adds, a player capsule (the
  * default 0.3 m × 1.8 m) standing on the floor, run through the production
  * game host with the manifest's 3D module set and a recorded input.
@@ -60,7 +60,7 @@ export interface Run {
 /** Run a scene with a recorded input until `steps` steps executed. */
 export async function runScene(mode: Mode, scene: { snapshot: Any; physics: Any }, replay: readonly ActionFrame[], steps: number, extra: Record<string, unknown> = {}, cameraYaw?: number): Promise<Run> {
   const h = await startHarness(mode, { snapshot: scene.snapshot, settings: SETTINGS, physics: scene.physics, digestSteps: true, replay, modules: MODULES_3D, host: { buildId: 'b' }, ...extra });
-  // The camera framework's yaw input (phase 23.4 provides it; a test sets it on the page runtime).
+  // The camera framework's yaw input (a test sets it on the page runtime).
   if (cameraYaw !== undefined) (h.rt as Any).cameraYawSource = () => cameraYaw;
   const path: number[][] = [];
   if (mode === 'single') {

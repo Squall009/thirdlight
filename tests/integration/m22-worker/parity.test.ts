@@ -1,5 +1,5 @@
 /**
- * Phase 22.0: the simulation worker computes exactly what the page computes.
+ * The simulation worker computes exactly what the page computes.
  *
  * A neutral scene with most of the simulation's moving parts — the character
  * controller on Rapier with health, collectibles, a patroller with a damaging
@@ -15,7 +15,7 @@
  *
  * - replay: a recorded input (per step) with frames of 0–3 steps each;
  * - live input: a per-step input function, one step per frame (the bot path);
- * - 22.3: the worker frees the simulation on dispose (acknowledged), and a
+ * - the worker frees the simulation on dispose (acknowledged), and a
  *   physics memory past the limit stops the simulation instead of growing.
  */
 import { describe, expect, it } from 'vitest';

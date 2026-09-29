@@ -1,5 +1,5 @@
 /**
- * Phase 23.14: the host's input-bindings controller — the one rebinding API
+ * The host's input-bindings controller — the one rebinding API
  * behind scripts (through the frame's input entry and their requests), the
  * built-in settings screen and project UI.
  *

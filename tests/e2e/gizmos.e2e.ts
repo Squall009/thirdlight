@@ -1,5 +1,5 @@
 /**
- * Phase 9.12: icons and gizmos. The generated icons load; a new point light's
+ * Icons and gizmos. The generated icons load; a new point light's
  * hierarchy row shows the point-light icon; a moving platform's row the
  * mover icon; the Scene view draws a 2D outline for every collider (the
  * starter template's ground and boxes) and the Gizmos menu turns the outlines, icons,

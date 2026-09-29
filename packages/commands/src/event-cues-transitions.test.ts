@@ -1,5 +1,5 @@
 /**
- * Phase 24.4e/f/i through the commands: `setEventCues` (the whole event →
+ * Event cues and transitions through the commands: `setEventCues` (the whole event →
  * cue table; its sounds must be audio assets; undo/redo; an empty table
  * removes the field), a trigger's `sceneTransition` (its shape; the scenes
  * and the spawn are the cross-scene project rule), a switch's `action`, a

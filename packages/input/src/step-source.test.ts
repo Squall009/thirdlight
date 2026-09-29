@@ -1,5 +1,5 @@
 /**
- * Packet 30 — the replayable step-input source (the injectable source the
+ * The replayable step-input source (the injectable source the
  * runtime consumes, separate from the browser attachment).
  *
  * Proves that a recorded `(stepIndex, RawInputSnapshot)` sequence replays

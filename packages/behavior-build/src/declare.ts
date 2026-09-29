@@ -1,5 +1,5 @@
 /**
- * Phase 15.4: properties declared in code.
+ * Properties declared in code.
  *
  * A script may declare its properties in `src/index.ts`:
  *
@@ -217,7 +217,7 @@ function readProperty(r: Reader, key: string): DeclaredProperty {
     if (!(OPTION_KEYS as readonly string[]).includes(k)) r.fail(`unknown option "${k}" for "${key}" (options: ${OPTION_KEYS.join(', ')})`, at);
   }
   const label = options['label'];
-  // Canonical field order (project-model §20.5 + phase 15.4).
+  // Canonical field order (project-model.md).
   const out: Record<string, unknown> = {
     key,
     label: typeof label === 'string' ? label : labelOfKey(key),

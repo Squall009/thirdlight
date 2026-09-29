@@ -1,5 +1,5 @@
 /**
- * Phase 14.0 (v4): the player controller's collision capsule — validation,
+ * v4: the player controller's collision capsule — validation,
  * the canonical form and the default when it is absent.
  */
 import { describe, expect, it } from 'vitest';

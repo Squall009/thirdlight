@@ -1,5 +1,5 @@
 /**
- * Phase 15.3: the port takes the project's step rate (60/120/240 Hz) and the
+ * The port takes the project's step rate (60/120/240 Hz) and the
  * player's skin, ground snap and autostep from its init config (defaults
  * 120 Hz, 0.01 m, 0.1 m, off — the values the frozen traces were made with).
  */

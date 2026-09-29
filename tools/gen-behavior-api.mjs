@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Phase 16.3: generate the behavior API typings the script editor ships.
+ * Generate the behavior API typings the script editor ships.
  *
  * Source of truth: `@thirdlight/runtime`'s `BehaviorContext` (what a
  * behavior's `step(state, ctx)` receives), `BehaviorSpec`,
@@ -239,7 +239,7 @@ function memberTable(checker, exports) {
     const s = resolveSymbol(checker, exports.get(name));
     addType(name, checker.getDeclaredTypeOfSymbol(s));
   }
-  // Phase 25.11: the spec's members (completed inside `export default { … }`) and the types of the
+  // The spec's members (completed inside `export default { … }`) and the types of the
   // callbacks' event parameters (`onTriggerEnter(state, event, ctx)`: `event.` completes).
   const spec = checker.getDeclaredTypeOfSymbol(resolveSymbol(checker, exports.get('BehaviorSpec')));
   addType('BehaviorSpec', spec);

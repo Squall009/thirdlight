@@ -1,5 +1,5 @@
 /**
- * Phase 22.1: the worker side of the protocol — runs `run` messages through
+ * The worker side of the protocol — runs `run` messages through
  * the job table one at a time and answers with `progress` / `done` /
  * `failed`. The worker entry wires it to `self`; unit tests wire it to an
  * in-process channel.

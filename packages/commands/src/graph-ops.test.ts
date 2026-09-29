@@ -1,5 +1,5 @@
 /**
- * Phase 16.1: graph commands — setGraph/deleteGraph and the generic
+ * Graph commands — setGraph/deleteGraph and the generic
  * graphEdit (atomic op lists, one undo step, refusals change nothing).
  */
 import { describe, expect, it } from 'vitest';

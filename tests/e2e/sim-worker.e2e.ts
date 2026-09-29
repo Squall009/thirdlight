@@ -1,5 +1,5 @@
 /**
- * Phase 22.0: the game's simulation runs in a worker in Play and in the
+ * The game's simulation runs in a worker in Play and in the
  * export by default, and in the page with `?threads=off`.
  *
  * On the starter template (a collectible with an event sound put just ahead

@@ -1,5 +1,5 @@
 /**
- * Phase 25.3 (TL-21): environment blends are cheap. A script gives
+ * Environment blends are cheap. A script gives
  * `ctx.environment.blend(a, b, t)` a new `t` every step (120 Hz) in Play,
  * against a real backend, on the GPU host:
  *

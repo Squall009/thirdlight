@@ -1,5 +1,5 @@
 /**
- * Packet 29 — M2 fail-stop lifecycle (runtime.md §13).
+ * M2 fail-stop lifecycle.
  *
  * A module throw after private-state mutation, a malformed/throwing physics
  * port and a phase violation all fail-stop the whole simulation: the step is

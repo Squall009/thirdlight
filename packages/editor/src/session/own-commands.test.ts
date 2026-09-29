@@ -1,11 +1,11 @@
 /**
- * Own commands (fix after 17.4/21.4): an edit made right after the previous
- * one — before that one's WS `mutation.applied` has been handled (a busy main
- * thread runs input first) — used to be sent with the old revision and args
- * built from the old state, and was refused with `revision_conflict`
- * (Inspector preset after a field edit; a whole-document edit after another).
- * The client now sends its own commands in order, applies each HTTP ack's
- * change at once and rebases over its own revisions only.
+ * Own commands: an edit made right after the previous one — before that
+ * one's WS `mutation.applied` has been handled (a busy main thread runs input
+ * first) — must not go out with a stale revision or args built from a stale
+ * state, which the backend refuses with `revision_conflict` (Inspector preset
+ * after a field edit; a whole-document edit after another). The client sends
+ * its own commands in order, applies each HTTP ack's change at once and
+ * rebases over its own revisions only.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 

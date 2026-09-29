@@ -1,6 +1,5 @@
 /**
- * Packet 33 — immutable behavior builds, end to end on the real filesystem
- * (project-model.md §22.4.1, workspace.md §13.3.1, commands.md §8.8).
+ * Immutable behavior builds, end to end on the real filesystem.
  *
  * The real workspace service, the real commands pipeline and the real injected
  * `behavior-build` compiler (pinned esbuild 0.28.2) are driven through the
@@ -130,7 +129,7 @@ describe('packet 33 — behavior source publication (real fs, real compiler, one
 
     // Reopen: the record persists and a source publication succeeds from the
     // durable derived prepared record alone (no recompile needed). The
-    // supported boundary is release → reopen (workspace.md §9.1).
+    // supported boundary is release → reopen.
     const released = env.svc.releaseWorkspace(env.project);
     expect(released.ok).toBe(true);
     env.svc.dispose();
@@ -161,11 +160,10 @@ describe('packet 33 — behavior source publication (real fs, real compiler, one
   }, 90_000);
 
   it('publishes a 951-byte canonical container (the len == 55 (mod 64) digest class)', async () => {
-    // Gate I repair R-I-1(b). Build a canonical container whose UTF-8 length is
-    // exactly 951 bytes (951 % 64 === 55): the padding class the old
-    // `behavior-build` SHA-256 got wrong. Before the repair
-    // `prepareBehaviorSource` recorded the wrong `sourceDigest`, so
-    // `publishBehavior` (`mode:"source"`) failed
+    // Build a canonical container whose UTF-8 length is exactly 951 bytes
+    // (951 % 64 === 55): the padding class a SHA-256 easily gets wrong. A
+    // wrong digest there makes `prepareBehaviorSource` record the wrong
+    // `sourceDigest`, so `publishBehavior` (`mode:"source"`) fails
     // `behavior_publication_unavailable` / `reason:"preparation_missing"` for
     // this fully valid source.
     const env = makeBuildEnv('m2pad951');

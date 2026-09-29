@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Packet 38 — build the browser probes.
+ * Build the browser probes.
  *
  * Bundles the two probe entries with the repository's pinned esbuild (no new
  * dependency) into `tests/evaluations/m3-browser/.build/`, copies the committed

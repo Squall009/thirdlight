@@ -1,6 +1,6 @@
 /**
- * Phase 19.2: the visual-script debugger tab's id helpers (the debugger itself
- * moved to the game host in phase 22.0, with its own tests).
+ * The visual-script debugger tab's id helpers (the debugger itself
+ * lives in the game host, with its own tests).
  */
 import { describe, expect, it } from 'vitest';
 

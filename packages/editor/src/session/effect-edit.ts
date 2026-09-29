@@ -1,5 +1,5 @@
 /**
- * Phase 20.0: pure helpers for authoring effects in the editor (the editor
+ * Pure helpers for authoring effects in the editor (the editor
  * may import project-model types only, so the new-effect and new-system
  * values are built here; `tests/effect-editor-parity.test.ts` keeps them
  * equal to project-model's defaults and context layout).

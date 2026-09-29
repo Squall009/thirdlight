@@ -1,5 +1,5 @@
 /**
- * Phase 23.9a: `font` asset records in the v4 catalog — accepted with the
+ * `font` asset records in the v4 catalog — accepted with the
  * `font` recipe and `{format, familyName?}` metrics (canonical form keeps the
  * optional name), refused with a bad kind member, and capped at 16 records
  * (`font_assets`) and 8 versions per record (`font_versions`).

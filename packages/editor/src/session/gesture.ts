@@ -1,16 +1,16 @@
 /**
- * Gizmo transform gesture (sessions.md §9; packet 10).
+ * Gizmo transform gesture.
  *
  * A gizmo drag PREVIEWs locally (no per-frame network traffic — the browser
  * updates its own display only) and COMMITs as exactly ONE undoable
- * `setTransform` command on release (sessions.md §9: "no per-frame traffic;
- * one commit command"). If the base revision is stale by release time (another
+ * `setTransform` command on release (no per-frame traffic; one commit
+ * command). If the base revision is stale by release time (another
  * change advanced the revision mid-gesture), the command fails with
  * `revision_conflict`; the gesture then auto-rebases and retries AT MOST ONCE,
  * and if it still conflicts the conflict is surfaced (explained, never
  * silently lost — the edit is not discarded).
  *
- * Packet 27 adds the M2 **local snapping option** (sessions.md §9) and an
+ * It also has a **local snapping option** and an
  * explicit cancellation path:
  *
  *  - `preview(raw, shiftKey)` applies the contract's snapping increments to the
@@ -102,7 +102,7 @@ export class Gesture {
     this.snapping = options.snapping === true;
   }
 
-  /** Toggle the LOCAL snapping option (never persisted, sessions.md §9). */
+  /** Toggle the LOCAL snapping option (never persisted). */
   setSnapping(enabled: boolean): void {
     this.snapping = enabled;
   }
@@ -128,7 +128,7 @@ export class Gesture {
   /**
    * Advance the local preview from a RAW (unsnapped) gesture delta. Snapping is
    * applied to the preview only — this method decides no command, ever, so a
-   * drag sends zero commands (sessions.md §9). `shiftKey` disables snapping for
+   * drag sends zero commands. `shiftKey` disables snapping for
    * this gesture only.
    */
   preview(raw: RawGesture, shiftKey = false): Transform {
@@ -140,8 +140,7 @@ export class Gesture {
 
   /**
    * Cancel the gesture (Esc / cancel control): revert the preview and decide no
-   * command — no record, no revision, nothing observable to other clients
-   * (sessions.md §9).
+   * command — no record, no revision, nothing observable to other clients.
    */
   cancel(): void {
     this.cancelled = true;
@@ -222,7 +221,7 @@ export class Gesture {
 /**
  * Apply a RAW gesture delta to a base transform, in the contract's coordinate
  * spaces: world-axis translate deltas, an axis-angle rotation about the gizmo
- * axis, and the entity's uniform scale (sessions.md §9). When `snap` is true
+ * axis, and the entity's uniform scale. When `snap` is true
  * the contract's increments/rounding/clamps are applied; when false the raw
  * value is used (Shift disables snapping for that gesture). Pure, so the whole
  * local-preview path is Node-testable without three.js.
@@ -279,8 +278,8 @@ function multiplyQuaternion(a: readonly number[], b: readonly number[]): [number
 }
 
 /**
- * Rebuild a unit quaternion from an axis-angle pair (project-model §12.2: the
- * quaternion is re-normalized). The angle passed here is already the final,
+ * Rebuild a unit quaternion from an axis-angle pair (the quaternion is
+ * re-normalized, as the project model requires). The angle passed here is already the final,
  * possibly snapped, accumulated gesture angle.
  */
 function axisAngleQuaternion(
@@ -303,7 +302,7 @@ function axisAngleQuaternion(
  * makes "zero commands during the drag, exactly one on release, none on cancel"
  * an observable property of the authoring logic (the Node tests use a counting
  * sink; the React app drives `Gesture` directly in `onGestureEnd` and issues
- * the single command itself — see the Gate G review §3.3 correction).
+ * the single command itself).
  */
 export interface GestureCommandSink {
   issue(command: CommitCommand): void;

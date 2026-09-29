@@ -1,8 +1,8 @@
 /**
- * Phase 12 (c): the session side of storage v4 (see `store-v4.ts`) — open
- * (with the automatic v3 → v4 upgrade), publish, external changes, release,
- * and the scene-aware queries. The v1–v3 single-envelope paths in
- * `session.ts` are unchanged; they branch here for a v4 project.
+ * The session side of storage v4 (see `store-v4.ts`) — open (with the
+ * automatic v3 → v4 upgrade), publish, external changes, release, and the
+ * scene-aware queries. `session.ts` owns the single-envelope paths and
+ * branches here for a v4 project.
  */
 
 import { createCommandState, filterEntitiesByComponent, queryAssets, queryBehaviors, queryGameConfig, queryPrefabs } from '@thirdlight/commands';
@@ -183,7 +183,7 @@ export function openV4(
 }
 
 /**
- * Phase 24.8: write a project the load upgraded (schemaVersion 2 or 3 → 4, phase 25.7) back
+ * Write a project the load upgraded (schemaVersion 2 or 3 → 4) back
  * as one new revision: the manifest, the content file and every scene file
  * (block chunk files are unchanged). If the write fails the project still
  * opens upgraded in memory (the next open upgrades it again) and the notes
@@ -214,7 +214,7 @@ function writeUpgradedProject(core: Core, dir: string, thirdlightDir: string, pr
 }
 
 /**
- * Phase 14.6: the old `modelAnimation` idle/run/airborne profile becomes an
+ * The old `modelAnimation` idle/run/airborne profile becomes an
  * animator controller when the project opens (the clip lengths are read from
  * the model files). Written as one new revision; if anything fails the
  * project opens as it was (the old component keeps playing) and the reason
@@ -301,10 +301,10 @@ export function changedFiles(projectId: string, before: V4State, after: { conten
   // Scenes: written when their entities changed; created / removed with the index.
   for (const [id, scene] of after.scenes) {
     const prev = before.scenes.get(id);
-    // Phase 21.4: a scene the command did not touch is the same object (or
+    // A scene the command did not touch is the same object (or
     // holds the same entity array) — skip it without serializing it; only the
     // edited scene is compared by value.
-    // Phase 23.5: the scene's block cells count too (they live in its chunk files).
+    // The scene's block cells count too (they live in its chunk files).
     const sameBlocks = prev !== undefined && (prev.blocks === scene.blocks || JSON.stringify(prev.blocks ?? null) === JSON.stringify(scene.blocks ?? null));
     if (prev !== undefined && (prev === scene || (sameBlocks && (prev.entities === scene.entities || JSON.stringify(prev.entities) === JSON.stringify(scene.entities))))) continue;
     const rel = sceneRel(id);
@@ -315,7 +315,7 @@ export function changedFiles(projectId: string, before: V4State, after: { conten
     files.set(rel, { bytes, hash: sha256Hex(bytes) });
     fileRecords.set(rel, recs);
     after.scenes.set(id, stamped);
-    // Phase 23.5: the chunk files that changed, appeared or went away.
+    // The chunk files that changed, appeared or went away.
     const chunks = sceneChunkFiles(projectId, stamped);
     for (const [crel, f] of chunks) {
       if (files.get(crel)?.hash === f.hash) continue;
@@ -398,7 +398,7 @@ function diskBaseline(core: Core, s: ProjectSession, rels: Iterable<string>): Ma
   return out;
 }
 
-/** The public summary of a pending change (the §11 error payloads). */
+/** The public summary of a pending change (the external-change error payloads). */
 function infoOf<T extends PendingChange>(pc: T): { snapshotState: T['snapshotState']; externalHash: string | null; externalValid: boolean | null; externalErrorCount: number | null } {
   return { snapshotState: pc.snapshotState, externalHash: pc.externalHash, externalValid: pc.externalValid, externalErrorCount: pc.externalErrors?.length ?? null };
 }
@@ -418,7 +418,7 @@ export function setPendingUnreadableV4(s: ProjectSession, rel: string): void {
 }
 
 /**
- * The §7.3 refusal clause for v4: while the pending change's evidence is
+ * The resolution refusal clause for v4: while the pending change's evidence is
  * missing (`snapshot_failed`) or its bytes are unknown (`unreadable`), a
  * resolution first re-reads the project files (the pending file first):
  * - still unreadable ⇒ refused `external_change_unreadable`;
@@ -466,7 +466,7 @@ export function acceptExternalV4(core: Core, s: ProjectSession): { ok: true; rev
     const bytes = sceneFileBytes(s.projectId, scene, []);
     writes.push({ rel: sceneRel(scene.sceneId), bytes });
     files.set(sceneRel(scene.sceneId), { bytes, hash: sha256Hex(bytes) });
-    // Phase 23.5: its chunk files, canonical.
+    // Its chunk files, canonical.
     for (const [crel, f] of sceneChunkFiles(s.projectId, scene)) {
       writes.push({ rel: crel, bytes: f.bytes });
       files.set(crel, f);
@@ -505,7 +505,7 @@ export function discardExternalV4(core: Core, s: ProjectSession): { ok: true; re
   // The resolution overwrites only bytes that are known: this backend's own,
   // or the pending (snapshotted) foreign bytes of the pending file. Any other
   // change on disk has no snapshot yet: the protocol re-fires (snapshot, new
-  // pending change) instead of destroying it (workspace.md §7).
+  // pending change) instead of destroying it.
   const pendingFile = (pc as PendingChange & { externalFile?: string }).externalFile;
   for (const [rel, known] of state.files) {
     const onDisk = baseline.get(rel);
@@ -592,7 +592,7 @@ function failure(op: string, projectId: string, error: import('@thirdlight/comma
  * scenes, in index order, with `entitySceneIds` naming each entity's scene);
  * `queryEntity` reports the entity's `sceneId`; `queryProject` lists the
  * scene index and the start set; `queryGameConfig` adds them too (and,
- * with `args.descriptors: true`, the phase 15.0 descriptor registry).
+ * with `args.descriptors: true`, the descriptor registry).
  */
 export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, args: Record<string, unknown> | undefined, workspace: unknown): QueryResult {
   const state = s.v4 as V4State;
@@ -600,7 +600,7 @@ export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, 
   if (op === 'queryAssets' || op === 'queryPrefabs' || op === 'queryBehaviors' || op === 'queryGameConfig') {
     const cs = createCommandState({ ...primaryScene(state), revision: state.revision }, state.content as unknown as ContentDocument);
     const request: Record<string, unknown> = { op, projectId };
-    // Phase 15.0: `queryGameConfig {descriptors: true}` adds the component and
+    // `queryGameConfig {descriptors: true}` adds the component and
     // content descriptor registry (asked for once; it is static and ~120 KB).
     let withDescriptors = false;
     if (op === 'queryGameConfig' && args !== undefined && Object.prototype.hasOwnProperty.call(args, 'descriptors')) {
@@ -613,7 +613,7 @@ export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, 
     if (args !== undefined) request['args'] = args;
     const result = op === 'queryAssets' ? queryAssets(cs, request) : op === 'queryPrefabs' ? queryPrefabs(cs, request) : op === 'queryBehaviors' ? queryBehaviors(cs, request) : queryGameConfig(cs, request);
     if (op === 'queryGameConfig' && (result as { ok?: boolean }).ok === true) {
-      // Phase 9.4: the project materials and the environment travel with the game block.
+      // The project materials and the environment travel with the game block.
       return {
         ...(result as object),
         scenes: state.content.scenes.map((e) => ({ ...e })),
@@ -623,40 +623,40 @@ export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, 
         lighting: state.content.lighting !== undefined ? (JSON.parse(JSON.stringify(state.content.lighting)) as unknown) : null,
         animators: JSON.parse(JSON.stringify(state.content.animators ?? [])) as unknown,
         input: state.content.input !== undefined ? (JSON.parse(JSON.stringify(state.content.input)) as unknown) : null,
-        // Phase 23.2: a 3D project's defaults (a 2D move and a run button).
+        // A 3D project's defaults (a 2D move and a run button).
         inputDefaults: JSON.parse(JSON.stringify(defaultInputFor(physicsDimensionOf(state.content.settings) === 3 ? 3 : 2))) as unknown,
         flow: (state.content as { flow?: unknown }).flow !== undefined ? (JSON.parse(JSON.stringify((state.content as { flow?: unknown }).flow)) as unknown) : null,
-        // Phase 16.1: standalone graph documents (and, with the descriptors, the graph kinds' catalogues).
+        // Standalone graph documents (and, with the descriptors, the graph kinds' catalogues).
         graphs: JSON.parse(JSON.stringify((state.content as { graphs?: unknown[] }).graphs ?? [])) as unknown,
-        // Phase 20.0: visual effects (systems and their graphs).
+        // Visual effects (systems and their graphs).
         effects: JSON.parse(JSON.stringify((state.content as { effects?: unknown[] }).effects ?? [])) as unknown,
-        // Phase 23.5: block types, the cell metadata schema and stamps.
+        // Block types, the cell metadata schema and stamps.
         blockTypes: JSON.parse(JSON.stringify((state.content as { blockTypes?: unknown[] }).blockTypes ?? [])) as unknown,
         cellFields: JSON.parse(JSON.stringify((state.content as { cellFields?: unknown[] }).cellFields ?? [])) as unknown,
         blockStamps: JSON.parse(JSON.stringify((state.content as { blockStamps?: unknown[] }).blockStamps ?? [])) as unknown,
-        // Phase 23.7: shared script libraries (their files).
+        // Shared script libraries (their files).
         scriptLibraries: JSON.parse(JSON.stringify((state.content as { scriptLibraries?: unknown[] }).scriptLibraries ?? [])) as unknown,
-        // Phase 23.9a: project UI documents and themes.
+        // Project UI documents and themes.
         uiDocuments: JSON.parse(JSON.stringify((state.content as { uiDocuments?: unknown[] }).uiDocuments ?? [])) as unknown,
         uiThemes: JSON.parse(JSON.stringify((state.content as { uiThemes?: unknown[] }).uiThemes ?? [])) as unknown,
-        // Phase 23.17: timelines.
+        // timelines.
         timelines: JSON.parse(JSON.stringify((state.content as { timelines?: unknown[] }).timelines ?? [])) as unknown,
-        // Phase 23.3: the named collision layers.
+        // The named collision layers.
         collisionLayers: [...((state.content as { collisionLayers?: string[] }).collisionLayers ?? [])],
-        // Phase 23.10: the game modes and behavior groups.
+        // The game modes and behavior groups.
         modes: JSON.parse(JSON.stringify((state.content as { modes?: unknown[] }).modes ?? [])) as unknown,
         behaviorGroups: [...((state.content as { behaviorGroups?: string[] }).behaviorGroups ?? [])],
-        // Phase 24.4i: the event → cue table.
+        // The event → cue table.
         eventCues: JSON.parse(JSON.stringify((state.content as { eventCues?: unknown[] }).eventCues ?? [])) as unknown,
-        // Phase 24.4j: the game shell (null: none).
+        // The game shell (null: none).
         shell: (state.content as { shell?: unknown }).shell !== undefined ? (JSON.parse(JSON.stringify((state.content as { shell?: unknown }).shell)) as unknown) : null,
-        // Phase 23.19: the project save schema (null: no project saves).
+        // The project save schema (null: no project saves).
         saveSchema: (state.content as { saveSchema?: unknown }).saveSchema !== undefined ? (JSON.parse(JSON.stringify((state.content as { saveSchema?: unknown }).saveSchema)) as unknown) : null,
-        // Phase 23.16: conversations, the speaker registry and the dialogue settings (null: the defaults).
+        // Conversations, the speaker registry and the dialogue settings (null: the defaults).
         dialogues: JSON.parse(JSON.stringify((state.content as { dialogues?: unknown[] }).dialogues ?? [])) as unknown,
         speakers: JSON.parse(JSON.stringify((state.content as { speakers?: unknown[] }).speakers ?? [])) as unknown,
         dialogueSettings: (state.content as { dialogueSettings?: unknown }).dialogueSettings !== undefined ? (JSON.parse(JSON.stringify((state.content as { dialogueSettings?: unknown }).dialogueSettings)) as unknown) : null,
-        // Phase 17.1: the settings map (the editor's Scene view reads render_backend at load).
+        // The settings map (the editor's Scene view reads render_backend at load).
         settings: JSON.parse(JSON.stringify((state.content as { settings?: unknown }).settings ?? {})) as unknown,
         ...(withDescriptors ? { descriptors: JSON.parse(JSON.stringify(DESCRIPTORS)) as unknown, graphKinds: JSON.parse(JSON.stringify(GRAPH_KINDS)) as unknown } : {}),
       } as unknown as QueryResult;
@@ -761,7 +761,7 @@ export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, 
 }
 
 /**
- * Phase 23.5: `queryBlocks` — block-layer cells and regions for editors, MCP
+ * `queryBlocks` — block-layer cells and regions for editors, MCP
  * and tools. `{sceneId?}` lists the layers (entity, component, cell count,
  * chunk keys, regions); `{entityId}` one layer: with `chunks: [[cx, cz], …]`
  * those chunks in their stored form (palette + runs; the editor reads what a

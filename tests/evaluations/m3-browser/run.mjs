@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * Packet 38 — M3 browser baseline runner.
+ * Browser baseline runner.
  *
  * Serves the built probes from a local HTTP origin with the **production
- * preview CSP** (sessions.md §17.4 / the backend's `previewCsp`), drives a real
+ * preview CSP** (the backend's `previewCsp`), drives a real
  * Chrome over CDP, and writes raw evidence:
  *
  *   <evidenceDir>/capability.json        measured capability values
@@ -30,13 +30,13 @@ const REPO_ROOT = join(import.meta.dirname, '..', '..', '..');
 const EVIDENCE_DIR = process.env['TL_M3_EVIDENCE_DIR'] ?? join(REPO_ROOT, 'docs', 'acceptance', 'evidence-m3', '38', 'raw');
 const PORT = Number(process.env['TL_M3_BROWSER_PORT'] ?? 8793);
 
-/** sessions.md §17.4 / backend `previewCsp()` — the production preview policy. */
+/** The backend's `previewCsp()` — the production preview policy. */
 const PRODUCTION_CSP =
   "default-src 'none'; script-src 'self'; connect-src 'self'; img-src 'self' data:; " +
   "style-src 'self'; font-src 'none'; worker-src 'none'; object-src 'none'; frame-src 'none'; " +
   "base-uri 'none'; form-action 'none'";
 
-/** The candidate M3 repair: the same policy with WebAssembly compilation allowed. */
+/** The candidate repair: the same policy with WebAssembly compilation allowed. */
 const CSP_WITH_WASM = PRODUCTION_CSP.replace("script-src 'self'", "script-src 'self' 'wasm-unsafe-eval'");
 
 const MIME = {

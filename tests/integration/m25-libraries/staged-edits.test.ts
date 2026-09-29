@@ -1,5 +1,5 @@
 /**
- * Phase 25.9: staged library edits — several patches, one commit, the
+ * Staged library edits — several patches, one commit, the
  * dependents compiled once — on the real filesystem with the real compiler.
  *
  * Two libraries (`base`, and `mid` which imports it) and two published
@@ -174,7 +174,7 @@ describe('phase 25.9: records published before shared libraries', () => {
     const { makeRoot } = await import('../m2-builds/helpers');
     const root = makeRoot('m25-legacy-record');
     const real = createBehaviorCompiler({ now: () => Date.now() });
-    // The compiler as it was before 25.9 (libraries bundled into each script), then as it is now.
+    // First a compiler that bundles libraries into each script (how older records were built), then the linking one.
     let bundled = true;
     const compiler = { pinnedModules: real.pinnedModules, compile: (i: Any) => real.compile(bundled ? { ...i, libraryLinking: 'bundle' } : i), checkLibrary: real.checkLibrary };
     const old: BuildEnv = { root, project: 'demo-build-01', svc: openWorkspaceService({ root, behaviorCompiler: compiler as never }), compiler: real };

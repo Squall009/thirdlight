@@ -1,9 +1,9 @@
 /**
- * Packet 32 — the accepted step-indexed controller traces, replayed against
+ * The accepted step-indexed controller traces, replayed against
  * the real TypeScript controller.
  *
- * `fixtures/m2/contracts/platformer/traces.json` (packet 17, promoted) is the
- * normative contract model of `platformer.md` §7: 16 traces × 178 sampled
+ * `fixtures/m2/contracts/platformer/traces.json` (promoted) is the
+ * normative contract model of the platformer controller: 16 traces × 178 sampled
  * rows of position/velocity/grounded/airborne/coyote/buffer/contacts/snapped/
  * rotation/scale, derived from a scripted analytic port (flat ground and
  * axis-aligned statics only — its support normal is always (0,1)). The

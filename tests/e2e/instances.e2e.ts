@@ -1,5 +1,5 @@
 /**
- * Phase 12 (c) instance sets in a real browser against the real backend: the
+ * Instance sets in a real browser against the real backend: the
  * scatter dialog publishes a buffer and creates one entity that draws many
  * copies of a model (editor viewport and Play), the buffer route refuses bad
  * buffers, and a set loaded with its scene is drawn in Play.

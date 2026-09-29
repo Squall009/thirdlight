@@ -1,5 +1,5 @@
 /**
- * Phase 9.5b: the environment's sky, fog and post settings, and fog volumes.
+ * The environment's sky, fog and post settings, and fog volumes.
  */
 import { describe, expect, it } from 'vitest';
 

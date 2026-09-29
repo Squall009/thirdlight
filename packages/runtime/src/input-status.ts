@@ -1,5 +1,5 @@
 /**
- * Phase 23.14: the player's bindings, the device in use and rebinding, as the
+ * The player's bindings, the device in use and rebinding, as the
  * simulation sees them.
  *
  * Rebinding happens on the host (the page captures raw input and applies the
@@ -76,7 +76,7 @@ export interface InputBindingStatus extends InputGlyph {
 export interface InputActionStatus {
   readonly name: string;
   readonly type: 'button' | 'axis1d' | 'axis2d';
-  /** gameplay, ui or (phase 23.10) one of the project's own input maps. */
+  /** gameplay, ui or one of the project's own input maps. */
   readonly map: string;
   readonly bindings: readonly InputBindingStatus[];
   /** The player changed this action's bindings (they differ from the project's). */
@@ -117,7 +117,7 @@ export interface InputRebindEvent {
   readonly profile?: string;
 }
 
-/** Phase 23.14: the frame entry (every field optional; sent when it changed). */
+/** The frame entry (every field optional; sent when it changed). */
 export interface InputStatusEntry {
   readonly device?: InputDeviceStatus;
   readonly actions?: readonly InputActionStatus[];
@@ -195,7 +195,7 @@ function checkAction(a: unknown, at: string): Fail | null {
   if (k !== null) return k;
   if (typeof a['name'] !== 'string' || !NAME_RE.test(a['name'])) return { ok: false, field: `${at}/name`, message: 'an action name' };
   if (a['type'] !== 'button' && a['type'] !== 'axis1d' && a['type'] !== 'axis2d') return { ok: false, field: `${at}/type`, message: 'type is button, axis1d or axis2d' };
-  // Phase 23.10: gameplay, ui or one of the project's own input maps.
+  // Gameplay, ui or one of the project's own input maps.
   if (typeof a['map'] !== 'string' || !/^[A-Za-z_][A-Za-z0-9_]{0,31}$/.test(a['map'])) return { ok: false, field: `${at}/map`, message: 'map is gameplay, ui or a project input map' };
   if (a['changed'] !== undefined && typeof a['changed'] !== 'boolean') return { ok: false, field: `${at}/changed`, message: 'changed is true or false' };
   const bs = a['bindings'];
@@ -262,7 +262,7 @@ const deepFreeze = <T>(v: T): T => {
   return v;
 };
 
-/** Phase 23.14: validate a frame's `input` entry strictly; returns a frozen copy. */
+/** Validate a frame's `input` entry strictly; returns a frozen copy. */
 export function validateInputStatus(raw: unknown): { ok: true; input: InputStatusEntry } | Fail {
   if (!isObj(raw)) return { ok: false, field: 'input', message: 'input is { device?, actions?, events?, profile? }' };
   const k = onlyKeys(raw, ['device', 'actions', 'events', 'profile'], 'input');
@@ -297,7 +297,7 @@ function structuredCloneJson(v: unknown): unknown {
 }
 
 /**
- * Phase 23.14: two entries with no step between them (the worker's tick
+ * Two entries with no step between them (the worker's tick
  * source): the newer device, list and profile; the events of both (the
  * newest 8).
  */

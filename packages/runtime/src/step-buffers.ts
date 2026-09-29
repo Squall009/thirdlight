@@ -1,5 +1,5 @@
 /**
- * Phase 21.2: reusable per-step buffers of the fixed-step loop, so a steady
+ * Reusable per-step buffers of the fixed-step loop, so a steady
  * step allocates nothing per entity and looks nothing up by id.
  *
  * - `TransformMirror` holds a copy of a transform map (the step's backup, the

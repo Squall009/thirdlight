@@ -1,5 +1,5 @@
 /**
- * Phase 23.5 (E8): block-layer commands — block types, cell fields, stamps,
+ * Block-layer commands — block types, cell fields, stamps,
  * editBlocks bulk edits (compact change data), undo/redo, deleting a layer
  * with its cells (and its undo), the request cap and the project rules.
  */

@@ -1,5 +1,5 @@
 /**
- * Packet 58 — B19: the capture/build pins scene+game/settings/media/
+ * B19: the capture/build pins scene+game/settings/media/
  * behavior/modules at one revision; the M3 shared closure builder derives
  * the v2 manifest from ONE captured input (the single acknowledged envelope
  * read) and the declared artifact bytes.

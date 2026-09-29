@@ -1,5 +1,5 @@
 /**
- * Phase 25.19: KTX2 (Basis Universal) textures on the page — one shared
+ * KTX2 (Basis Universal) textures on the page — one shared
  * KTX2Loader per page (three warns about several: each loads the transcoder
  * and starts its own workers), used by GLBs with KHR_texture_basisu and by
  * KTX2 texture assets alike.

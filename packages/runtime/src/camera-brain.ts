@@ -1,5 +1,5 @@
 /**
- * Phase 23.4: the camera brain — which virtual camera is live, the blend to
+ * The camera brain — which virtual camera is live, the blend to
  * it, each rig's state (turned, zoomed, riding its path), shake impulses and
  * the resolved view. Pure maths (camera-rig.ts), run by the runtime at the
  * end of every fixed step, after the camera phase: the resolved camera is
@@ -84,18 +84,18 @@ export interface VirtualCameraData {
   readonly shakeAmplitude?: number;
   readonly shakeFrequency?: number;
   readonly shakeRotation?: number;
-  /** Phase 24.4g (track): the camera's offset from the framed point, the dead zone (w, h, d) and the bounds of the framed point. */
+  /** Track: the camera's offset from the framed point, the dead zone (w, h, d) and the bounds of the framed point. */
   readonly trackOffset?: readonly number[];
   readonly deadZone?: readonly number[];
   readonly boundsMin?: readonly number[];
   readonly boundsMax?: readonly number[];
-  /** Phase 25.14 (track): look-ahead seconds per axis, its cap (m) and smoothing (s). */
+  /** Track: look-ahead seconds per axis, its cap (m) and smoothing (s). */
   readonly lookAhead?: readonly number[];
   readonly lookAheadMax?: readonly number[];
   readonly lookAheadSmoothing?: number;
 }
 
-/** Phase 25.14: the cameraRegion component as the brain reads it (project-model `CameraRegionComponent`). */
+/** The cameraRegion component as the brain reads it (project-model `CameraRegionComponent`). */
 export interface CameraRegionData {
   readonly size: readonly number[];
   readonly camera?: string;
@@ -108,7 +108,7 @@ export interface CameraRegionData {
 }
 
 /**
- * Phase 25.14: the track settings a region changes — the dead zone's half
+ * The track settings a region changes — the dead zone's half
  * size, the bounds of the framed point (±Infinity: none) and the distance
  * along the offset (null: the offset as it is).
  */
@@ -197,7 +197,7 @@ export interface CameraViewInfo {
   readonly letterbox: number;
   /** The shake applied this step (m). */
   readonly shake: number;
-  /** Phase 25.14: the camera region the live track camera is in (null: none; absent: no region loaded, or not a track camera). */
+  /** The camera region the live track camera is in (null: none; absent: no region loaded, or not a track camera). */
   readonly region?: string | null;
 }
 
@@ -225,16 +225,16 @@ interface CamState {
   fovY: number | null;
   letterbox: number;
   pivot: V3 | null;
-  /** Phase 24.4g (track): the offset from the framed point (resolved on its first evaluation when not authored). */
+  /** Track: the offset from the framed point (resolved on its first evaluation when not authored). */
   trackOffset: V3 | null;
-  /** Phase 25.14 (track): the camera region its target is in, when each region was entered, the settings in force and a blend between them. */
+  /** Track: the camera region its target is in, when each region was entered, the settings in force and a blend between them. */
   region: string | null;
   readonly regionEntered: Map<string, number>;
   regionParams: TrackParams | null;
   /** The camera's own settings (its data does not change during a run). */
   ownParams: TrackParams | null;
   regionBlend: { from: TrackSource; steps: number; total: number } | null;
-  /** Phase 25.14 (track): the target's last point and its eased velocity (look-ahead). */
+  /** Track: the target's last point and its eased velocity (look-ahead). */
   lookLast: V3 | null;
   readonly lookVel: V3;
   readonly pose: CameraPose;
@@ -266,7 +266,7 @@ export class CameraBrain {
   private readonly hz: number;
   private stepCount = 0;
   private readonly cams = new Map<string, CamState>();
-  /** Phase 25.14: the loaded camera regions, in load order. */
+  /** The loaded camera regions, in load order. */
   private readonly regions = new Map<string, CameraRegionData>();
   private regionSerial = 0;
   private readonly regionPos: number[] = [0, 0, 0];
@@ -276,7 +276,7 @@ export class CameraBrain {
   private order = 0;
   private serialCounter = 0;
   private liveId: string | null = null;
-  /** Phase 23.17: the camera a timeline forces live (null: none); it wins over a game mode's camera. */
+  /** The camera a timeline forces live (null: none); it wins over a game mode's camera. */
   private timelineOverrideId: string | null = null;
   private blend: { from: CameraPose; fromId: string | null; fromLive: boolean; steps: number; total: number; style: CameraBlendStyle } | null = null;
   /** A blend a script asked for with the change it made (used by the next switch). */
@@ -309,7 +309,7 @@ export class CameraBrain {
   /** Warnings for missing targets or paths (reported once per camera). */
   private readonly warned = new Set<string>();
   /**
-   * Phase 23.10: the game mode's camera — live over every priority while the
+   * The game mode's camera — live over every priority while the
    * mode is active (null: the priority rule). Set by the mode switch.
    */
   private overrideId: string | null = null;
@@ -367,7 +367,7 @@ export class CameraBrain {
   }
 
   /**
-   * Phase 23.10: a game mode's camera (null: back to the priority rule) and
+   * A game mode's camera (null: back to the priority rule) and
    * the blend into it (the incoming camera's own when absent). A camera that
    * is not loaded is warned once and the priority rule applies.
    */
@@ -377,7 +377,7 @@ export class CameraBrain {
     this.noteBlend(options);
   }
 
-  /** Phase 23.10: the game mode's camera (null: none). */
+  /** The game mode's camera (null: none). */
   get override(): string | null {
     return this.overrideId;
   }
@@ -577,7 +577,7 @@ export class CameraBrain {
   // ---- the step ------------------------------------------------------------------
 
   /**
-   * Phase 23.17: the camera a timeline forces live (over priorities and over
+   * The camera a timeline forces live (over priorities and over
    * a game mode's camera while the timeline shows it), with the blend of the
    * change; null gives the view back (to the mode's camera, else the
    * priorities). Inert unless a timeline uses it.
@@ -595,12 +595,12 @@ export class CameraBrain {
   }
 
   private best(): CamState | null {
-    // Phase 23.17: a timeline's camera wins while the timeline shows one.
+    // A timeline's camera wins while the timeline shows one.
     if (this.timelineOverrideId !== null) {
       const t = this.cams.get(this.timelineOverrideId);
       if (t !== undefined) return t;
     }
-    // Phase 23.10: a game mode's camera is live over every priority.
+    // A game mode's camera is live over every priority.
     if (this.overrideId !== null) {
       const o = this.cams.get(this.overrideId);
       if (o !== undefined) return o;
@@ -653,7 +653,7 @@ export class CameraBrain {
         // Interrupted blend (or a camera that left): from the blended view, frozen.
         this.blend = { from: copyPose(this.unshaken, newPose()), fromId: null, fromLive: false, steps: 0, total: Math.max(1, Math.round(seconds * this.hz)), style };
       }
-      // A camera going live starts from where its rig is now (no damping lag from an old pivot).
+      // A camera going live starts from where its rig is now (no damping lag from a previous pivot).
       if (next !== null) next.pivot = null;
     }
     this.pendingBlend = null;
@@ -916,7 +916,7 @@ export class CameraBrain {
   }
 
   /**
-   * Phase 24.4g: the track rig — a standalone follow that keeps the camera's
+   * The track rig — a standalone follow that keeps the camera's
    * placed rotation. The framed point (`pivot`) moves only when the target
    * (plus `targetOffset`) leaves the dead zone around it (per world axis: the
    * point follows the target's overflow past the half size), eased by
@@ -927,7 +927,7 @@ export class CameraBrain {
    * that framing, whatever the depth). Without a target it stays where it is
    * placed.
    *
-   * Phase 25.14: with `lookAhead` the dead zone follows a point ahead of the
+   * With `lookAhead` the dead zone follows a point ahead of the
    * target — its velocity (eased over `lookAheadSmoothing`) times the
    * look-ahead seconds, per axis, capped at `lookAheadMax`. A camera region
    * the target is in replaces the dead zone, the bounds and the distance
@@ -935,7 +935,8 @@ export class CameraBrain {
    * the new (eased over the region's blend time: the entered region's, or
    * the left one's when entering none). Bounds blend as the two clamped
    * points, so a bound that appears or goes away moves the view smoothly.
-   * Without look-ahead and regions the maths is the 24.4g rig's, bit for bit.
+   * Without look-ahead and regions the maths is the plain dead-zone rig's,
+   * bit for bit.
    */
   private evaluateTrack(s: CamState, haveTarget: boolean, target: V3, haveSelf: boolean, selfPos: readonly number[], selfRot: readonly number[], world: CameraWorld, dt: number): void {
     const d = s.data;
@@ -1029,7 +1030,7 @@ export class CameraBrain {
   }
 
   /**
-   * Phase 25.14: the region a track camera's target point is in — among the
+   * The region a track camera's target point is in — among the
    * regions for this camera (or for every track camera), the highest
    * priority, then the one entered last, then the first loaded. Entering is
    * noted per camera, so a region re-entered counts as entered last again.
@@ -1070,7 +1071,7 @@ export class CameraBrain {
     return best;
   }
 
-  /** Phase 25.14: the camera's own track settings, with a region's in their place (its bounds from where it is now). */
+  /** The camera's own track settings, with a region's in their place (its bounds from where it is now). */
   private trackParams(s: CamState, rid: string | null, world: CameraWorld): TrackParams {
     const d = s.data;
     const r = rid !== null ? this.regions.get(rid) : undefined;
@@ -1097,7 +1098,7 @@ export class CameraBrain {
     return out;
   }
 
-  /** Phase 25.14: where a new region blend starts — what is in force now (a blend in flight frozen where it is; at most two deep). */
+  /** Where a new region blend starts — what is in force now (a blend in flight frozen where it is; at most two deep). */
   private freezeSource(s: CamState): TrackSource {
     const rb = s.regionBlend;
     const now = s.regionParams!;
@@ -1189,7 +1190,7 @@ export class CameraBrain {
     };
   }
 
-  /** Phase 25.14: the live track camera's region, while regions are loaded. */
+  /** The live track camera's region, while regions are loaded. */
   private regionView(): { region?: string | null } {
     if (this.regions.size === 0 || this.liveId === null) return {};
     const s = this.cams.get(this.liveId);

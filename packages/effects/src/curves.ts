@@ -1,5 +1,5 @@
 /**
- * Phase 20.1: curve and gradient evaluation (the framework's `curve` and
+ * Curve and gradient evaluation (the framework's `curve` and
  * `gradient` field types) and colour conversion.
  *
  * A curve is keys [t0, v0, t1, v1, …] (t ascending in 0–1): linear between

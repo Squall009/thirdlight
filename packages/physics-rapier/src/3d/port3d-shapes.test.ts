@@ -1,5 +1,5 @@
 /**
- * Phase 23.1: the Rapier 3D port's collider shapes (sphere, capsule, convex
+ * The Rapier 3D port's collider shapes (sphere, capsule, convex
  * hull, static triangle mesh), kinematic bodies posed each step (a mover),
  * overlap queries (box, sphere, turned capsule) and the character's
  * clearance/placement — real rapier3d-compat WASM.

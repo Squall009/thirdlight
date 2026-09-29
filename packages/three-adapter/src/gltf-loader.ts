@@ -1,27 +1,24 @@
 /**
- * The pinned three.js GLTFLoader-backed port (packet 26;
- * `dependencies.md` §7 "GLB loading | no new pin: the pinned `three`
- * package's `examples/jsm/loaders/GLTFLoader.js` (+ its animation subpath)").
+ * The pinned three.js GLTFLoader-backed port (`dependencies.md`, "GLB
+ * loading | no new pin: the pinned `three` package's
+ * `examples/jsm/loaders/GLTFLoader.js` (+ its animation subpath)").
  *
  * This module is the ONLY place this package imports the loader, and it is
  * exposed on the `@thirdlight/three-adapter/gltf-loader` subpath — not from the
- * package root. Rationale (recorded as a contract-change request in the packet
- * handoff): the M1 export/play-preview bundle graphs import the three-adapter
- * **root**, and `export.md` §5.4.1 binding 4 requires those bundles' recorded
+ * package root. Rationale: the export/play-preview bundle graphs import the
+ * three-adapter **root**, and `export.md` requires those bundles' recorded
  * exception counts to stay exact; a root-level loader import would add
- * GLTFLoader's own inert `https://`/`process.` occurrences to them today.
- * Packets 35/36 need the loader inside those bundles and must re-measure
- * §5.4.1 first.
+ * GLTFLoader's own inert `https://`/`process.` occurrences to them.
  *
  * Bounds and honesty:
  *  - the port never fetches: it parses supplied bytes only, and `GLTFLoader`
- *    resolves every buffer/image from the single BIN chunk (the M2 profile
- *    rejects external URIs at import time);
+ *    resolves every buffer/image from the single BIN chunk (the import
+ *    profile rejects external URIs);
  *  - it pre-guards the container (magic/version/length, JSON chunk, the
  *    extension lists) so an unsupported-extension GLB fails closed instead of
  *    being realized with silently-ignored semantics. This is a *rendering*
- *    guard, not the import-profile validator (`asset-pipeline` owns
- *    project-model §18.7); the renderer never re-implements the import profile;
+ *    guard, not the import-profile validator (`asset-pipeline` owns that);
+ *    the renderer never re-implements the import profile;
  *  - it owns everything it creates: it counts the geometries/materials/textures
  *    reachable from the loaded scene (plus the parser's cached textures from
  *    `parser.associations`) at load time and disposes exactly that set, once,
@@ -192,7 +189,7 @@ export function createGltfLoaderPort(options: GltfLoaderPortOptions = {}): GlbLo
         loader.setDRACOLoader(draco);
       }
       if (needs.has('basis')) {
-        // Phase 25.19: the page's one KTX2Loader (KTX2 texture assets share it).
+        // The page's one KTX2Loader (KTX2 texture assets share it).
         loader.setKTX2Loader(sharedKtx2Loader(options.decoderBase!));
       }
       let gltf: GLTF;

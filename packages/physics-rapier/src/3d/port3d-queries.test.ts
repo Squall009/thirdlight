@@ -1,5 +1,5 @@
 /**
- * Phase 23.3: the 3D port's script queries (real rapier3d-compat WASM) —
+ * The 3D port's script queries (real rapier3d-compat WASM) —
  * collision layers as interaction groups (a collider without layers is in
  * "default"), the accept predicate, the hit point, filtered overlaps, and a
  * world without a character (the capsule takes no part in queries or

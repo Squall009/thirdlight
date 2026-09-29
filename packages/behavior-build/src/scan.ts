@@ -1,5 +1,5 @@
 /**
- * Static source analysis — project-model.md §22.3 / §22.3.3 steps 8–12:
+ * Static source analysis — project-model.md source rules steps 8–12:
  * the `requiredModules ⊆ pinnedModules` check, the bounded textual import /
  * dynamic-code scanner in file order then text position, the relative
  * resolution, cycle detection and the import-depth bound.
@@ -46,7 +46,7 @@ export function posixResolve(fromPath: string, spec: string): string {
 
 interface ScanHit {
   index: number;
-  /** Phase 25.6: where the hit is judged (a declaration's `from`; else `index`). */
+  /** Where the hit is judged (a declaration's `from`; else `index`). */
   at: number;
   kind: 'dynamic' | 'specifier';
   reason?: string;
@@ -54,11 +54,11 @@ interface ScanHit {
   spec?: string;
 }
 
-/** Phase 25.6: what a text position is part of. */
+/** What a text position is part of. */
 export type TextRegion = 'code' | 'comment' | 'string' | 'regex';
 
 /**
- * Phase 25.6: a lexical map of TypeScript text — every position is code, a
+ * A lexical map of TypeScript text — every position is code, a
  * comment, a string (quotes and template text; a template's `${…}` is code)
  * or a regular expression literal. Used only to say where a scan hit sits;
  * the scan itself stays textual. A `/` starts a regex after an operator,
@@ -166,7 +166,7 @@ export function textRegions(text: string): Uint8Array {
 
 const REGION_NAMES: readonly TextRegion[] = ['code', 'comment', 'string', 'regex'];
 
-/** Phase 25.6: a scan hit's 1-based line and column, and the region it sits in. */
+/** A scan hit's 1-based line and column, and the region it sits in. */
 function locate(text: string, regions: Uint8Array, at: number): { line: number; column: number; region: TextRegion } {
   let line = 1;
   let lineStart = 0;
@@ -179,7 +179,7 @@ function locate(text: string, regions: Uint8Array, at: number): { line: number; 
   return { line, column: at - lineStart + 1, region: REGION_NAMES[regions[at] ?? 0] ?? 'code' };
 }
 
-/** Phase 25.6: the words a hit's message ends with when it is not in code (the scan is textual). */
+/** The words a hit's message ends with when it is not in code (the scan is textual). */
 function regionNote(region: TextRegion): string {
   if (region === 'code') return '';
   const where = region === 'comment' ? 'a comment' : region === 'string' ? 'a string' : 'a regular expression';
@@ -224,10 +224,10 @@ type Classified =
   | { kind: 'library'; libraryId: string }
   | { kind: 'forbidden'; reason: string; specifier: string };
 
-/** Phase 23.7: `@lib/<libraryId>` names a project script library's `src/index.ts`. */
+/** `@lib/<libraryId>` names a project script library's `src/index.ts`. */
 export const LIBRARY_SPECIFIER_RE = /^@lib\/([a-z0-9][a-z0-9_-]{0,63})$/;
 
-/** Phase 23.7: a relative specifier's stored path (`.json` kept; otherwise `.ts` appended when missing). */
+/** A relative specifier's stored path (`.json` kept; otherwise `.ts` appended when missing). */
 export function resolveRelativeTarget(from: string, spec: string): string {
   const target = posixResolve(from, spec);
   return target.endsWith('.ts') || target.endsWith('.json') ? target : `${target}.ts`;
@@ -280,7 +280,7 @@ export function analyzeSourceGraph(
   let acceptedImports = 0;
   const libraryImports = new Set<string>();
   for (const f of container.files) {
-    // Phase 23.7: a `.json` file is data — it has no imports; it must parse.
+    // A `.json` file is data — it has no imports; it must parse.
     if (f.path.endsWith('.json')) {
       try {
         JSON.parse(f.text);
@@ -324,9 +324,9 @@ export function analyzeSourceGraph(
         continue;
       }
       if (cls.kind === 'type_only_engine') {
-        // §22.3.1 rule 3: a type-only engine import must name a module from
+        // A type-only engine import must name a module from
         // `requiredModules` (it is erased and contributes no output bytes).
-        // Phase 23.7: a script library lists none (any pinned module's types).
+        // A script library lists none (any pinned module's types).
         if (options.library !== true && !container.requiredModules.includes(h.spec as string)) {
           const w = where(h);
           return containerFailure('behavior_import_unpinned', h.spec as string, {

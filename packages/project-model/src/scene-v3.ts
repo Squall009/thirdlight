@@ -1,19 +1,17 @@
 /**
- * schemaVersion 3 logical scene validation and canonicalization —
- * project-model.md §23.3–§23.8/§23.10, extending the accepted §12.2/§12.3
- * scene rules with the six appended components.
+ * schemaVersion 3 logical scene validation and canonicalization, extending
+ * the v2 scene rules with the six appended components.
  *
  * `validateSceneV3`/`normalizeSceneV3` are the explicitly versioned v3 scene
- * entry points (`workspace.md` §16.9; `project-model.md` §12.1). They perform
+ * entry points. They perform
  * the SCENE-LOCAL rules only: registry and combinations, per-component field
  * values, the `modelAnimation` container, counts/limits and the
  * `playerSpawn` transform rules. Rules that need `content.assets` — animation
  * asset resolution and the accepted v2 cross-block checks — run in
- * `validateProjectV3`/`validateEnvelopeV3` (§23.8 steps 5–6). Phase 24.7: the
- * `gameZone` and `cameraFollow` components were deleted.
+ * `validateProjectV3`/`validateEnvelopeV3`.
  *
- * The accepted v2 component validators are reused verbatim (no v2 component
- * is renumbered or reinterpreted; §23.3). Pure and total: same input → same
+ * The v2 component validators are reused verbatim (no v2 component is
+ * renumbered or reinterpreted). Pure and total: same input → same
  * result, never throws, never reads files.
  */
 import { ID_RE } from './validate';
@@ -102,13 +100,13 @@ import { effectiveEntityFlags, nearestObjectAncestor } from './hierarchy-v3';
 import { canonicalBlockFootprint, validateBlockFootprintComponent, type BlockFootprintComponent } from './block-layers';
 import { canonicalBlockLayerComponent, canonicalSceneBlocks, validateBlockLayerComponent, validateSceneBlocks, type BlockLayerComponent, type BlockLayerData } from './block-layers';
 
-export const COLOR_RE_V3 = /^#[0-9a-fA-F]{6}$/; // §23.3.1a/§23.3.4/§23.3.5
-export const MAX_ABS_V3 = 1e6; // §23.10 numbers bound
-export const MAX_INTENSITY = 8; // §23.3.4
-export const MAX_EMISSIVE_INTENSITY = 4; // §23.3.1a/§23.3.5
-export const MAX_ZONE_SPAN = 1e6; // §23.3.1 size bound
-export const MIN_BOUND_SPAN = 1e-6; // §23.3.3 bounds span
-export const MIN_DIRECTION_NORM = 1e-6; // §23.3.4
+export const COLOR_RE_V3 = /^#[0-9a-fA-F]{6}$/;
+export const MAX_ABS_V3 = 1e6; // numbers bound
+export const MAX_INTENSITY = 8;
+export const MAX_EMISSIVE_INTENSITY = 4;
+export const MAX_ZONE_SPAN = 1e6; // size bound
+export const MIN_BOUND_SPAN = 1e-6; // bounds span
+export const MIN_DIRECTION_NORM = 1e-6;
 export const SURFACE_DEFAULTS = Object.freeze({
   color: '#b0b0b0',
   roughness: 0.9,
@@ -118,26 +116,26 @@ export const SURFACE_DEFAULTS = Object.freeze({
 });
 
 const KNOWN_SCENE_FIELDS = new Set(['schemaVersion', 'sceneId', 'revision', 'entities']);
-// Phase 23.5: `blocks` — the scene's block-layer cells and regions (absent = none).
+// `blocks` — the scene's block-layer cells and regions (absent = none).
 const KNOWN_SCENE_FIELDS_V4 = new Set(['schemaVersion', 'sceneId', 'revision', 'entities', 'blocks']);
-/** Phase 12 (c): the v4 per-scene entity cap (instance sets hold dense detail). */
+/** The v4 per-scene entity cap (instance sets hold dense detail). */
 export const MAX_ENTITIES_V4 = 16_384;
 /** The boolean flags an entity may carry (only a non-default value is stored). */
 export const ENTITY_FLAGS = ['active', 'visible', 'locked', 'static'] as const;
 const KNOWN_ENTITY_FIELDS = new Set(['id', 'name', 'parentId', ...ENTITY_FLAGS, 'tags', 'components']);
-/** Phase 12 (c): the v4 component registry (v3's plus `instances`). */
-// Phase 18.0: `materialParams` (per-object overrides of graph-material parameters) is appended last.
-// Phase 20.0: `effect` (plays a visual effect from the entity) is appended after it.
+/** The v4 component registry (v3's plus `instances`). */
+// `materialParams` (per-object overrides of graph-material parameters) is appended last.
+// `effect` (plays a visual effect from the entity) is appended after it.
 export const V4_REGISTRY: readonly string[] = [...V3_REGISTRY, 'instances', 'materials', 'fogVolume', 'animator', ...BLOCK_COMPONENT_NAMES, 'materialParams', 'effect', 'virtualCamera', 'cameraPath', 'blockLayer', 'blockFootprint', 'socketAttach', 'behaviorGroup', 'cameraRegion'];
-// Phase 25.14: `cameraRegion` (a track camera's dead zone, bounds and distance while its target is inside) last.
-// Phase 23.5: `blockLayer` (a grid of blocks; its cells are the scene's `blocks`) is appended after it.
-// Phase 23.6: `blockFootprint` (the metadata a prop writes into the block cells beneath it) after that.
-// Phase 23.11: `socketAttach` (rides on a node of another entity's model) after that.
-// Phase 23.10: `behaviorGroup` (the behavior group game modes tick) after that.
+// `cameraRegion` (a track camera's dead zone, bounds and distance while its target is inside) last.
+// `blockLayer` (a grid of blocks; its cells are the scene's `blocks`) is appended after it.
+// `blockFootprint` (the metadata a prop writes into the block cells beneath it) after that.
+// `socketAttach` (rides on a node of another entity's model) after that.
+// `behaviorGroup` (the behavior group game modes tick) after that.
 const KNOWN_LIGHT_FIELDS = new Set(['type', 'color', 'intensity', 'direction', 'castShadow', 'shadowMapSize', 'shadowBias', 'shadowNormalBias', 'shadowExtent']);
 
 /**
- * Phase 17.4: the directional light's shadow settings (data; absent = the
+ * The directional light's shadow settings (data; absent = the
  * defaults, three-adapter `DIRECTIONAL_SHADOW_DEFAULTS` holds the same values):
  * - map size 1024²: over the default 48 m square a texel is 4.7 cm, a crisp
  *   shadow for a person-size object in a side, top-down or third-person view,
@@ -158,13 +156,13 @@ export const DIRECTIONAL_SHADOW_LIMITS = {
   extent: { min: 1, max: 64 },
 } as const;
 export const DIRECTIONAL_SHADOW_DEFAULTS = { mapSize: 1024, bias: -0.0005, normalBias: 0.02, extent: 24 } as const;
-/** Phase 9.5 (v4): the local light fields. */
+/** v4: the local light fields. */
 const KNOWN_LIGHT_FIELDS_V4 = new Set(['type', 'color', 'intensity', 'direction', 'castShadow', 'range', 'decay', 'angle', 'penumbra', 'groundColor', 'mode', 'cookie']);
-/** Phase 25.8: a spot light's cookie names a texture asset (the id pattern of every asset). */
+/** A spot light's cookie names a texture asset (the id pattern of every asset). */
 const COOKIE_ID_RE = ID_RE;
-/** Phase 9.5: point/spot intensity is in candela (three's physical units). */
+/** point/spot intensity is in candela (three's physical units). */
 export const MAX_LOCAL_INTENSITY = 1000;
-/** Phase 9.5: most point + spot lights per scene, and hemisphere lights per scene. */
+/** Most point + spot lights per scene, and hemisphere lights per scene. */
 export const MAX_LOCAL_LIGHTS = 16;
 export const MAX_HEMISPHERE_LIGHTS = 1;
 const KNOWN_SURFACE_FIELDS = new Set(['color', 'roughness', 'metalness', 'emissive', 'emissiveIntensity']);
@@ -174,7 +172,7 @@ const ROLE_KEYS = ['idle', 'run', 'airborne'] as const;
 // ---- small helpers -----------------------------------------------------------
 
 function v3ComponentUnknown(path: string, key: string): ModelErrorV3 {
-  // Phase 24.8: a removed game component names itself and says where it went.
+  // A removed game component names itself and says where it went.
   if (isRemovedComponent(key)) {
     return withFound({ code: 'component_unknown', path, message: removedComponentMessage(key), expected: `known component types: ${V3_REGISTRY.join(', ')}` }, key);
   }
@@ -215,7 +213,7 @@ function componentMissing(path: string, expected: string, message: string): Mode
 }
 
 function optionalColor(v: unknown, path: string, dflt: string, errors: ModelErrorV3[]): void {
-  if (v === undefined) return; // defaulted on normalize (§23.7)
+  if (v === undefined) return; // defaulted on normalize
   if (typeof v !== 'string') {
     errors.push(fieldType(path, v, 'string'));
     return;
@@ -230,11 +228,11 @@ function optionalColor(v: unknown, path: string, dflt: string, errors: ModelErro
 // ---- the six v3 components ---------------------------------------------------
 
 /**
- * Phase 12 (c): an instance set — one model, `count` placements in a binary
+ * An instance set — one model, `count` placements in a binary
  * buffer stored by SHA-256 (asset and buffer existence are checked against
  * the content block and the blob store elsewhere).
  */
-/** Phase 25.7d: the largest instance-set chunk size (m). */
+/** The largest instance-set chunk size (m). */
 export const MAX_INSTANCE_CHUNK_SIZE = 4096;
 
 export function validateInstancesComponent(c: unknown, path: string, errors: ModelErrorV3[]): void {
@@ -263,7 +261,7 @@ export function validateInstancesComponent(c: unknown, path: string, errors: Mod
     errors.push(fieldValue(`${path}/count`, count, `integer 1-${MAX_INSTANCES}`, 'an instance set holds 1 to 65536 copies'));
   }
   validateShadowFlags(c, path, errors);
-  // Phase 25.7d: the set's own spatial chunk size (m).
+  // The set's own spatial chunk size (m).
   const chunkSize = c['chunkSize'];
   if (chunkSize !== undefined && (typeof chunkSize !== 'number' || !Number.isFinite(chunkSize) || chunkSize < 1 || chunkSize > MAX_INSTANCE_CHUNK_SIZE)) {
     errors.push(fieldValue(`${path}/chunkSize`, chunkSize, `a number 1-${MAX_INSTANCE_CHUNK_SIZE}`, 'chunkSize is the chunk width in metres'));
@@ -279,13 +277,13 @@ export function validatePlayerSpawnComponent(c: unknown, path: string, errors: M
     return;
   }
   for (const k of Object.keys(c)) {
-    // Phase 24.4f: the way the character faces on arrival, a yaw in degrees about +Y (0: facing +Z; any direction, 3D too).
+    // The way the character faces on arrival, a yaw in degrees about +Y (0: facing +Z; any direction, 3D too).
     if (k === 'yaw' && version === 4) {
       const v = c[k];
       if (typeof v !== 'number' || !Number.isFinite(v) || v < -360 || v > 360) errors.push(fieldValue(`${path}/yaw`, v, 'a number −360–360', 'yaw is −360–360 degrees'));
       continue;
     }
-    // Phase 24.8: the left/right `facing` became `yaw` (a schemaVersion 2 project is upgraded on load).
+    // The left/right `facing` became `yaw` (a schemaVersion 2 project is upgraded on load).
     if (k === 'facing' && version === 4) {
       errors.push(withFound({ code: 'field_unexpected', path: `${path}/facing`, message: 'playerSpawn.facing was replaced by yaw in phase 24 (left: -90, right: 90 degrees)', expected: 'yaw' }, c[k]));
       continue;
@@ -345,7 +343,7 @@ export function validateLightComponent(c: unknown, path: string, errors: ModelEr
     if (c['castShadow'] !== undefined && typeof c['castShadow'] !== 'boolean') {
       errors.push(fieldType(`${path}/castShadow`, c['castShadow'], 'boolean'));
     }
-    // Phase 17.4: the shadow map settings (optional).
+    // The shadow map settings (optional).
     const lim = DIRECTIONAL_SHADOW_LIMITS;
     const size = c['shadowMapSize'];
     if (size !== undefined && !(lim.mapSizes as readonly unknown[]).includes(size)) {
@@ -378,7 +376,7 @@ export function validateLightComponent(c: unknown, path: string, errors: ModelEr
 }
 
 /**
- * Phase 9.5 (v4): a point light (at the entity, `range` 0 = unlimited,
+ * v4: a point light (at the entity, `range` 0 = unlimited,
  * `decay`), a spot light (also `direction`, `angle` in degrees, `penumbra`)
  * or a hemisphere light (`color` = sky, `groundColor`). Point and spot
  * intensity is in candela; any light may be `realtime`, `baked` or `mixed`.
@@ -406,7 +404,7 @@ function validateLocalLight(c: Record<string, unknown>, type: 'point' | 'spot' |
   if (c['mode'] !== undefined && c['mode'] !== 'realtime' && c['mode'] !== 'baked' && c['mode'] !== 'mixed') {
     errors.push(fieldValue(`${path}/mode`, c['mode'], '"realtime" | "baked" | "mixed"', 'mode is realtime, baked or mixed'));
   }
-  // Phase 25.8: a spot light's cookie (a texture projected through the cone; which texture: a project-level rule).
+  // A spot light's cookie (a texture projected through the cone; which texture: a project-level rule).
   if (type === 'spot' && c['cookie'] !== undefined && (typeof c['cookie'] !== 'string' || !COOKIE_ID_RE.test(c['cookie']))) {
     errors.push(fieldValue(`${path}/cookie`, c['cookie'], 'a texture assetId', 'a cookie names a texture asset'));
   }
@@ -426,7 +424,7 @@ export function validateSurfaceComponent(c: unknown, path: string, errors: Model
   }
   optionalColor(c['color'], `${path}/color`, SURFACE_DEFAULTS.color, errors);
   for (const k of ['roughness', 'metalness'] as const) {
-    if (c[k] === undefined) continue; // §23.7 fills the default
+    if (c[k] === undefined) continue; // the normalizer fills the default
     checkFiniteNumber(c[k], `${path}/${k}`, { min: 0, absMax: 1 }, '0 <= v <= 1', errors);
   }
   optionalColor(c['emissive'], `${path}/emissive`, SURFACE_DEFAULTS.emissive, errors);
@@ -535,7 +533,7 @@ interface EntityV3Counts {
   controllers: number;
   colliders: number;
   polygonVertices: number;
-  /** Phase 23.1: convex-hull points and mesh vertices (3D colliders). */
+  /** Convex-hull points and mesh vertices (3D colliders). */
   points3d: number;
 }
 
@@ -554,7 +552,7 @@ const EMPTY_COUNTS: EntityV3Counts = {
 };
 
 /**
- * Phase 23.5: a block layer is axis-aligned level geometry — a root object
+ * A block layer is axis-aligned level geometry — a root object
  * (its position is the layer origin) at identity rotation and unit scale
  * (the cell size carries the scale).
  */
@@ -571,7 +569,7 @@ function validateBlockLayerTransform(comps: Record<string, unknown>, parentId: u
   }
 }
 
-/** §23.3.2 spawn transform rules. */
+/** Spawn transform rules. */
 function validateSpawnTransform(
   comps: Record<string, unknown>,
   parentId: unknown,
@@ -627,7 +625,7 @@ function validateSpawnTransform(
 }
 
 /**
- * §23.3 component registry, combinations and per-component values for one
+ * The component registry, combinations and per-component values for one
  * entity. Pass 1 (registry + `transform` presence + zone/spawn transforms)
  * and pass 2 (field values) are run together in the accepted order.
  */
@@ -647,7 +645,7 @@ function validateEntityComponentsV3(
     }
   }
   if (comps['folder'] !== undefined) {
-    // Phase 12: a folder is organisation only — no transform, nothing else.
+    // A folder is organisation only — no transform, nothing else.
     const folder = comps['folder'];
     if (!isPlainObject(folder)) errors.push(fieldType(`${path}/folder`, folder, 'object'));
     else {
@@ -678,10 +676,10 @@ function validateEntityComponentsV3(
       expected: 'transform present',
     });
   }
-  // §23.8 step 1: the zone/spawn transform rules (distinct codes per §23.9).
+  // The zone/spawn transform rules (each with its own code).
   validateSpawnTransform(comps, parentId, ePath, errors);
 
-  // accepted v2 structural conflicts (+ the v3 conflicts §23.3 adds)
+  // v2 structural conflicts (+ the v3 ones)
   const structural = (['model', 'box', 'camera'] as const).filter((k) => comps[k] !== undefined);
   for (let i = 0; i < structural.length; i++) {
     for (let j = i + 1; j < structural.length; j++) {
@@ -705,11 +703,11 @@ function validateEntityComponentsV3(
   if (comps['behavior'] !== undefined) validateBehaviorComponent(comps['behavior'], `${path}/behavior`, errors);
   if (comps['prefab'] !== undefined) validatePrefabProvenance(comps['prefab'], `${path}/prefab`, errors);
   if (comps['collider'] !== undefined) {
-    // Phase 9.9 (v4): `oneWay: true` on a collider.
+    // v4: `oneWay: true` on a collider.
     const col = comps['collider'];
     const oneWay = isPlainObject(col) ? col['oneWay'] : undefined;
     if (oneWay !== undefined && (version !== 4 || oneWay !== true)) errors.push(fieldValue(`${path}/collider/oneWay`, oneWay, 'true (v4 scenes)', 'oneWay is true or absent'));
-    // Phase 23.3 (v4): the collision layers the collider is in.
+    // v4: the collision layers the collider is in.
     const layers = isPlainObject(col) ? col['layers'] : undefined;
     if (layers !== undefined) {
       if (version !== 4) errors.push(fieldValue(`${path}/collider/layers`, layers, 'absent (v4 scenes only)', 'collision layers are a v4 field'));
@@ -719,7 +717,7 @@ function validateEntityComponentsV3(
   }
   if (comps['controller'] !== undefined) validateControllerComponent(comps['controller'], `${path}/controller`, errors, version);
 
-  // v3 components (field values, §23.3.1–§23.3.6)
+  // v3 components (field values)
   if (comps['playerSpawn'] !== undefined) validatePlayerSpawnComponent(comps['playerSpawn'], `${path}/playerSpawn`, errors, version);
   if (comps['instances'] !== undefined) {
     validateInstancesComponent(comps['instances'], `${path}/instances`, errors);
@@ -730,34 +728,34 @@ function validateEntityComponentsV3(
     }
   }
   if (comps['materials'] !== undefined) {
-    // Phase 9.4: which project material each of the object's materials uses.
+    // Which project material each of the object's materials uses.
     validateMaterialMapping(comps['materials'], `${path}/materials`, errors);
     if (comps['model'] === undefined && comps['box'] === undefined && comps['instances'] === undefined) {
       errors.push(componentMissing(`${path}/materials`, 'model|box|instances', 'a materials component sits only on an entity with a model, a box or an instance set'));
     }
   }
   if (comps['materialParams'] !== undefined) {
-    // Phase 18.0: overrides of the object's graph materials' public parameters.
+    // Overrides of the object's graph materials' public parameters.
     validateMaterialParamsComponent(comps['materialParams'], `${path}/materialParams`, errors);
     if (comps['model'] === undefined && comps['box'] === undefined && comps['instances'] === undefined) {
       errors.push(componentMissing(`${path}/materialParams`, 'model|box|instances', 'material parameter overrides sit only on an entity with a model, a box or an instance set'));
     }
   }
-  // Phase 20.0: a visual effect played from the entity (any entity may carry one).
+  // A visual effect played from the entity (any entity may carry one).
   if (comps['effect'] !== undefined) validateEffectComponent(comps['effect'], `${path}/effect`, errors);
-  // Phase 23.4: a virtual camera shot and a path rail cameras ride (any entity may carry them).
+  // A virtual camera shot and a path rail cameras ride (any entity may carry them).
   if (comps['virtualCamera'] !== undefined) validateVirtualCameraComponent(comps['virtualCamera'], `${path}/virtualCamera`, errors);
   if (comps['cameraPath'] !== undefined) validateCameraPathComponent(comps['cameraPath'], `${path}/cameraPath`, errors);
-  // Phase 25.14: a camera region (any entity may carry one).
+  // A camera region (any entity may carry one).
   if (comps['cameraRegion'] !== undefined) validateCameraRegionComponent(comps['cameraRegion'], `${path}/cameraRegion`, errors);
-  // Phase 23.11: the entity rides on a node of another entity's model.
+  // The entity rides on a node of another entity's model.
   if (comps['socketAttach'] !== undefined) validateSocketAttachComponent(comps['socketAttach'], `${path}/socketAttach`, errors);
-  // Phase 23.10: the behavior group (whether the group exists is the project composition's check).
+  // The behavior group (whether the group exists is the project composition's check).
   if (comps['behaviorGroup'] !== undefined) validateBehaviorGroupComponent(comps['behaviorGroup'], `${path}/behaviorGroup`, errors);
   if (comps['light'] !== undefined) validateLightComponent(comps['light'], `${path}/light`, errors, version);
   if (comps['fogVolume'] !== undefined) validateFogVolumeComponent(comps['fogVolume'], `${path}/fogVolume`, errors);
   if (comps['blockLayer'] !== undefined) {
-    // Phase 23.5: a block layer. A merged runtime scene carries the layer's
+    // A block layer. A merged runtime scene carries the layer's
     // cells on the component (`data`, attached by resolveSceneHierarchy).
     const bl = comps['blockLayer'];
     const data = merged && isPlainObject(bl) ? bl['data'] : undefined;
@@ -768,20 +766,20 @@ function validateEntityComponentsV3(
     }
     validateBlockLayerTransform(comps, parentId, ePath, errors);
   }
-  // Phase 23.6: a prop's block footprint (any entity may carry one).
+  // A prop's block footprint (any entity may carry one).
   if (comps['blockFootprint'] !== undefined) validateBlockFootprintComponent(comps['blockFootprint'], `${path}/blockFootprint`, errors);
-  // Phase 9.9: gameplay building blocks.
+  // Gameplay building blocks.
   for (const name of BLOCK_COMPONENT_NAMES) {
     if (comps[name] !== undefined) BLOCK_COMPONENTS[name].validate(comps[name], `${path}/${name}`, errors as unknown as Parameters<(typeof BLOCK_COMPONENTS)[typeof name]["validate"]>[2]);
   }
   if (comps['mover'] !== undefined && comps['controller'] !== undefined) errors.push(collisionConflict(path, 'a mover cannot carry the player controller', ['mover', 'controller']));
-  // Phase 24.4: a patroller moves itself (not by input, a mover or physics); the character is never collected.
+  // A patroller moves itself (not by input, a mover or physics); the character is never collected.
   if (comps['patrol'] !== undefined) {
     const clash = (['controller', 'mover', 'collider'] as const).filter((c) => comps[c] !== undefined);
     if (clash.length > 0) errors.push(collisionConflict(path, `a patrol moves the object by itself: it cannot also carry ${clash.join(', ')}`, ['patrol', ...clash]));
   }
   if (comps['collectible'] !== undefined && comps['controller'] !== undefined) errors.push(collisionConflict(path, 'the character collects; it is not collected', ['collectible', 'controller']));
-  // Phase 25.13: a gravity body falls by itself (not a character, a mover or a physics body; a waypoint patrol sets its height itself).
+  // A gravity body falls by itself (not a character, a mover or a physics body; a waypoint patrol sets its height itself).
   if (comps['gravity'] !== undefined) {
     const clash = (['controller', 'mover', 'collider'] as const).filter((c) => comps[c] !== undefined);
     if (clash.length > 0) errors.push(collisionConflict(path, `a gravity body falls by itself: it cannot also carry ${clash.join(', ')}`, ['gravity', ...clash]));
@@ -796,7 +794,7 @@ function validateEntityComponentsV3(
   if (comps['surface'] !== undefined) validateSurfaceComponent(comps['surface'], `${path}/surface`, errors);
   if (comps['modelAnimation'] !== undefined) validateModelAnimationComponent(comps['modelAnimation'], `${path}/modelAnimation`, errors);
 
-  // §23.8 step 5 scene-local target rules
+  // scene-local target rules
   if (comps['surface'] !== undefined && comps['box'] === undefined && comps['model'] === undefined) {
     errors.push(
       componentMissing(`${path}/surface`, 'box|model', 'a surface component sits only on an entity carrying box or model'),
@@ -826,7 +824,7 @@ function validateEntityComponentsV3(
       }
     }
   }
-  // Phase 23.4: a virtual camera is a shot, not the scene camera (which draws whichever shot is live).
+  // A virtual camera is a shot, not the scene camera (which draws whichever shot is live).
   if (comps['virtualCamera'] !== undefined && comps['camera'] !== undefined) {
     errors.push(
       withFound(
@@ -841,7 +839,7 @@ function validateEntityComponentsV3(
       ),
     );
   }
-  // Phase 23.11: a socket poses the entity every step — a physics body (posed by physics) or the scene camera (posed by its
+  // A socket poses the entity every step — a physics body (posed by physics) or the scene camera (posed by its
   // camera module) cannot ride on one.
   if (comps['socketAttach'] !== undefined) {
     const clash = SOCKET_ATTACH_CONFLICTS.filter((c) => comps[c] !== undefined);
@@ -877,7 +875,7 @@ function validateEntityComponentsV3(
 
   const physicsBearing = comps['collider'] !== undefined || comps['controller'] !== undefined;
   if (physicsBearing) {
-    // Phase 23.0: a v4 scene's rotation rules depend on the project's physics
+    // A v4 scene's rotation rules depend on the project's physics
     // dimension (content settings) and are checked with the content (composeSceneV4).
     validatePhysicsTransform(comps, parentId, ePath, comps['controller'] !== undefined, errors, version !== 4);
   }
@@ -889,7 +887,7 @@ function validateEntityComponentsV3(
     if (isPlainObject(shape) && shape['type'] === 'polygon' && Array.isArray(shape['vertices'])) {
       polygonVertices = shape['vertices'].length;
     }
-    // Phase 23.1: a hull's points and a mesh's vertices count toward the scene's 3D point budget.
+    // A hull's points and a mesh's vertices count toward the scene's 3D point budget.
     if (isPlainObject(shape) && shape['type'] === 'convex' && Array.isArray(shape['points'])) points3d = shape['points'].length;
     if (isPlainObject(shape) && shape['type'] === 'mesh' && Array.isArray(shape['vertices'])) points3d = shape['vertices'].length;
   }
@@ -910,7 +908,7 @@ function validateEntityComponentsV3(
   };
 }
 
-// ---- canonicalization (§12.2 + §23.7) ---------------------------------------
+// ---- canonicalization ---------------------------------------
 
 
 
@@ -927,10 +925,10 @@ function canonicalLight(c: unknown): LightComponent {
     out.direction = [canonNum(dir[0]), canonNum(dir[1]), canonNum(dir[2])];
   }
   if (out.type === 'directional') out.castShadow = typeof o['castShadow'] === 'boolean' ? o['castShadow'] : false;
-  // Phase 17.4: the directional shadow settings, kept when set.
+  // The directional shadow settings, kept when set.
   if (out.type === 'directional') for (const k of ['shadowMapSize', 'shadowBias', 'shadowNormalBias', 'shadowExtent'] as const) if (typeof o[k] === 'number') out[k] = canonNum(o[k]);
   if ((out.type === 'point' || out.type === 'spot') && typeof o['castShadow'] === 'boolean') out.castShadow = o['castShadow'];
-  // Phase 9.5 local-light fields, kept when set.
+  // Local-light fields, kept when set.
   for (const k of ['range', 'decay', 'angle', 'penumbra'] as const) if (typeof o[k] === 'number') out[k] = canonNum(o[k]);
   if (typeof o['groundColor'] === 'string') out.groundColor = o['groundColor'].toLowerCase();
   if (o['mode'] === 'baked' || o['mode'] === 'mixed') out.mode = o['mode'];
@@ -1015,20 +1013,20 @@ function canonicalEntityV3(e: Record<string, unknown>): SceneEntityV3 {
     if (comps[name] !== undefined) (components as unknown as Record<string, unknown>)[name] = (BLOCK_COMPONENTS[name].canonical as (c: unknown) => unknown)(comps[name]);
   }
   if (comps['effect'] !== undefined) (components as { effect?: EffectComponent }).effect = canonicalEffectComponent(comps['effect'] as EffectComponent);
-  // Phase 23.4: last, so every existing entity keeps its exact canonical bytes.
+  // Last, so every existing entity keeps its exact canonical bytes.
   if (comps['virtualCamera'] !== undefined) (components as { virtualCamera?: VirtualCameraComponent }).virtualCamera = canonicalVirtualCamera(comps['virtualCamera'] as VirtualCameraComponent);
   if (comps['cameraPath'] !== undefined) (components as { cameraPath?: CameraPathComponent }).cameraPath = canonicalCameraPath(comps['cameraPath'] as CameraPathComponent);
   if (comps['blockLayer'] !== undefined) {
-    // Phase 23.5 (a merged runtime scene keeps the attached `data`).
+    // A merged runtime scene keeps the attached `data`.
     const bl = comps['blockLayer'] as BlockLayerComponent & { data?: BlockLayerData };
     (components as { blockLayer?: BlockLayerComponent }).blockLayer = { ...canonicalBlockLayerComponent(bl), ...(bl.data !== undefined ? { data: bl.data } : {}) } as BlockLayerComponent;
   }
   if (comps['blockFootprint'] !== undefined) (components as { blockFootprint?: BlockFootprintComponent }).blockFootprint = canonicalBlockFootprint(comps['blockFootprint'] as BlockFootprintComponent);
-  // Phase 23.11: last, so every existing entity keeps its exact canonical bytes.
+  // Last, so every existing entity keeps its exact canonical bytes.
   if (comps['socketAttach'] !== undefined) (components as { socketAttach?: SocketAttachComponent }).socketAttach = canonicalSocketAttach(comps['socketAttach'] as SocketAttachComponent);
-  // Phase 23.10: after that (existing entities keep their bytes).
+  // After that (existing entities keep their bytes).
   if (comps['behaviorGroup'] !== undefined) (components as { behaviorGroup?: BehaviorGroupComponent }).behaviorGroup = canonicalBehaviorGroup(comps['behaviorGroup'] as BehaviorGroupComponent);
-  // Phase 25.14: after that (existing entities keep their bytes).
+  // After that (existing entities keep their bytes).
   if (comps['cameraRegion'] !== undefined) (components as { cameraRegion?: CameraRegionComponent }).cameraRegion = canonicalCameraRegion(comps['cameraRegion'] as CameraRegionComponent);
   if (comps['instances'] !== undefined) {
     const i = comps['instances'] as { asset: { assetId: string; piece?: string }; buffer: string; count: number; castShadow?: boolean; receiveShadow?: boolean; chunkSize?: number };
@@ -1036,10 +1034,10 @@ function canonicalEntityV3(e: Record<string, unknown>): SceneEntityV3 {
       asset: { assetId: i.asset.assetId, ...(i.asset.piece !== undefined ? { piece: i.asset.piece } : {}) },
       buffer: i.buffer,
       count: i.count,
-      // Phase 17.4: kept only when set (an existing set keeps its exact canonical bytes).
+      // Kept only when set (an existing set keeps its exact canonical bytes).
       ...(typeof i.castShadow === 'boolean' ? { castShadow: i.castShadow } : {}),
       ...(typeof i.receiveShadow === 'boolean' ? { receiveShadow: i.receiveShadow } : {}),
-      // Phase 25.7d: kept only when set.
+      // Kept only when set.
       ...(typeof i.chunkSize === 'number' ? { chunkSize: i.chunkSize } : {}),
     };
   }
@@ -1096,7 +1094,7 @@ export function validateSceneV3Value(doc: Record<string, unknown>, version: 3 | 
   if (entities !== null) {
     const idFirstIndex = new Map<string, number>();
     const counts: EntityV3Counts = { ...EMPTY_COUNTS };
-    // Phase 12: folders have no transform, so the "must be a root" rules
+    // Folders have no transform, so the "must be a root" rules
     // (zones, spawns, physics) look at the nearest non-folder ancestor.
     const rawParent = new Map<string, string>();
     const rawFolders = new Set<string>();
@@ -1181,7 +1179,7 @@ export function validateSceneV3Value(doc: Record<string, unknown>, version: 3 | 
       }
     }
 
-    // hierarchy: reference, cycle, order (accepted §11.2 rules)
+    // hierarchy: reference, cycle, order
     for (let idx = 0; idx < entities.length; idx++) {
       const e = entities[idx];
       if (!isPlainObject(e)) continue;
@@ -1244,13 +1242,13 @@ export function validateSceneV3Value(doc: Record<string, unknown>, version: 3 | 
     if (!merged && counts.points3d > COLLIDER_3D_LIMITS.pointsTotal) {
       errors.push(limitsError('/entities', 'collider_vertices_total', counts.points3d, COLLIDER_3D_LIMITS.pointsTotal, `scene exceeds the total 3D collider point limit of ${COLLIDER_3D_LIMITS.pointsTotal} (hull points and mesh vertices)`));
     }
-    // §23.10 v3 scene limits (per scene: a merged runtime scene holds several)
+    // v3 scene limits (per scene: a merged runtime scene holds several)
     if (!merged && counts.spawns > SCENE_LIMITS_V3.playerSpawns) {
       errors.push(
         limitsError('/entities', 'player_spawns', counts.spawns, SCENE_LIMITS_V3.playerSpawns, `scene exceeds the player-spawn limit of ${SCENE_LIMITS_V3.playerSpawns}`),
       );
     }
-    // Phase 25.8: light counts are per scene (a merged runtime scene holds several scenes' lights; the renderer picks).
+    // Light counts are per scene (a merged runtime scene holds several scenes' lights; the renderer picks).
     if (!merged && counts.directional > SCENE_LIMITS_V3.lightsDirectional) {
       errors.push(
         limitsError('/entities', 'lights_directional', counts.directional, SCENE_LIMITS_V3.lightsDirectional, 'scene exceeds the directional-light limit'),
@@ -1275,7 +1273,7 @@ export function validateSceneV3Value(doc: Record<string, unknown>, version: 3 | 
   for (const k of Object.keys(doc)) {
     if (!knownScene.has(k)) errors.push(unexpectedField(`/${pointerSegment(k)}`, k, [...knownScene].join(', ')));
   }
-  // Phase 23.5: the scene's block-layer cells and regions.
+  // The scene's block-layer cells and regions.
   if (version === 4 && doc['blocks'] !== undefined && entities !== null) validateSceneBlocks(doc['blocks'], entities, errors, merged);
   if (errors.length > 0) return { errors };
   const canonical = canonicalSceneV3(doc, entities as unknown[], version);
@@ -1285,7 +1283,7 @@ export function validateSceneV3Value(doc: Record<string, unknown>, version: 3 | 
 }
 
 /**
- * Phase 12 rules over a structurally valid scene: a folder sits at the root
+ * Hierarchy rules over a structurally valid scene: a folder sits at the root
  * or in another folder; the camera and the spawns the scene relies on are
  * active (an inactive entity is not in the game).
  */
@@ -1325,7 +1323,7 @@ function checkFolderHierarchy(scene: SceneV3, errors: ModelErrorV3[]): void {
 
 function canonicalSceneV3(doc: Record<string, unknown>, ents: unknown[], version: 3 | 4 = 3): SceneV3 {
   if (version === 4) {
-    // Phase 23.5: `blocks` present only when a layer holds cells or regions.
+    // `blocks` present only when a layer holds cells or regions.
     const blocks = Array.isArray(doc['blocks']) ? canonicalSceneBlocks(doc['blocks'] as BlockLayerData[]) : null;
     return {
       schemaVersion: 4,
@@ -1345,7 +1343,7 @@ function canonicalSceneV3(doc: Record<string, unknown>, ents: unknown[], version
 
 // ---- public entry points -----------------------------------------------------
 
-/** §12.1/§23.11: the explicit `schemaVersion` 3 scene validator. */
+/** The explicit `schemaVersion` 3 scene validator. */
 export function validateSceneV3(doc: unknown): ModelResultV3<SceneV3> {
   if (!isPlainObject(doc)) return fail([fieldType('', doc, 'object')]);
   if (!isKnownVersion(doc['schemaVersion'], SCHEMA_VERSIONS_BY_DOCUMENT.scene)) {
@@ -1361,13 +1359,13 @@ export function validateSceneV3(doc: unknown): ModelResultV3<SceneV3> {
   return { ok: true, normalized: canonical as SceneV3 };
 }
 
-/** §12.1: validate, then return the new canonical v3 document (§12.2/§23.7). */
+/** Validate, then return the new canonical v3 document. */
 export function normalizeSceneV3(doc: unknown): ModelResultV3<SceneV3> {
   return validateSceneV3(doc);
 }
 
 /**
- * Phase 12 (c): a runtime scene made of several v4 scenes loaded together
+ * A runtime scene made of several v4 scenes loaded together
  * (the start set, merged by the host): the v4 rules without the per-scene
  * limits (spawn/collider counts, the entity cap).
  */
@@ -1382,7 +1380,7 @@ export function validateMergedSceneV4(doc: unknown): ModelResultV3<SceneV4> {
 }
 
 /**
- * Phase 12 (c): the `schemaVersion` 4 scene validator — the v3 rules plus
+ * The `schemaVersion` 4 scene validator — the v3 rules plus
  * instance sets, exit zones, optional camera-follow bounds and at
  * most (not exactly) one camera. Rules that span scenes (unique ids across the
  * project, the start set, exit targets) are `validateProjectV4`'s.

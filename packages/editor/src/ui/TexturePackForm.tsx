@@ -1,5 +1,5 @@
 /**
- * Phase 25.21: "Pack texture" — a KTX2 texture made from the project's
+ * "Pack texture" — a KTX2 texture made from the project's
  * PNG/JPEG texture assets channel by channel; several layers make a texture
  * array (graph materials read a layer: Sample texture, Normal map and
  * Triplanar have a `layer` input). Typical packing for a painted terrain's

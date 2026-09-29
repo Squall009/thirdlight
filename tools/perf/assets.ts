@@ -1,5 +1,5 @@
 /**
- * Phase 25.24a: the asset-heavy benchmark's files — many distinct model files
+ * The asset-heavy benchmark's files — many distinct model files
  * and textures, deterministic from a seed. A model is a UV sphere of `segments`
  * × `segments` quads (position, normal, UV, 16-bit indices) with its base
  * colour an embedded noise PNG; a texture is a noise PNG. Noise keeps the

@@ -1,5 +1,5 @@
 /**
- * Phase 25.10: the script access table (what `ctx.entity(ref).get/set`
+ * The script access table (what `ctx.entity(ref).get/set`
  * reads and writes) and the descriptor-based write check.
  */
 import { describe, expect, it } from 'vitest';
@@ -15,9 +15,8 @@ describe('phase 25.10: script access marks', () => {
     expect(SCRIPT_ACCESS_SCHEMA_VERSION).toBe(4);
     // A field renamed, unmarked or newly marked changes this digest. A rename or an unmarked field is a
     // schema change (bump the project schemaVersion with an upgrade, then re-pin here for the new version);
-    // a new optional field or component (phase 25.12: the mover's signals; 25.13: the controller's climb and
-    // wall fields, climbVolume, gravity; the wall jump lock; 25.14: look-ahead, cameraRegion) only adds to what scripts
-    // read — nothing they read before changes — and re-pins for the same version.
+    // a new optional field or component only adds to what scripts read — nothing they read before
+    // changes — and re-pins for the same version.
     const digest = fnv(JSON.stringify(t));
     expect({ schemaVersion: t.schemaVersion, digest }).toEqual({ schemaVersion: 4, digest: PINNED_V4 });
   });

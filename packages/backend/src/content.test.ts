@@ -1,5 +1,5 @@
 /**
- * Packet 25 backend content-transport units: the bounded job coordinator
+ * Backend content-transport units: the bounded job coordinator
  * (cancellation, expiry, late results, concurrency), the upload assembly
  * bounds, the error→session mapping, and the injected inspector binding.
  * The HTTP routes themselves are covered end-to-end in

@@ -1,5 +1,5 @@
 /**
- * Phase 14.0: the player's collision capsule in the editor, against a real
+ * The player's collision capsule in the editor, against a real
  * backend. On the engine sample's start ground (the player centred 0.91 m up)
  * a neutral low ceiling is added (its underside 1.2 m up: the default 1.8 m
  * capsule cannot pass). Selecting the player shows the Collision section and

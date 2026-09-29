@@ -1,5 +1,5 @@
 /**
- * Phase 20.0: visual effects (`content.effects`).
+ * Visual effects (`content.effects`).
  *
  * `setEffect {effect}` creates or replaces one effect (by effectId: its
  * settings, parameters and systems with their graphs — adding or removing a

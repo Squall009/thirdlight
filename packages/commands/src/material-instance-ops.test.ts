@@ -1,5 +1,5 @@
 /**
- * Phase 25.19: material instances through the commands — an instance is a
+ * Material instances through the commands — an instance is a
  * `setMaterial` with `instanceOf` (one undo), checked against its parent by
  * the resulting-state rules; object, model-asset and block-type mappings name
  * it like a material, and per-object overrides of an instance use its root's

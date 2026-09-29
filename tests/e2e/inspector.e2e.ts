@@ -1,13 +1,11 @@
 /**
- * Phase 15.1: the generic Inspector against a real backend, on a neutral new
+ * The generic Inspector against a real backend, on a neutral new
  * project (a camera, a sun, an ambient light). Every component kind is added
  * from "+ Add component" with its descriptor value (or the picked asset,
  * controller or script), one of its fields is edited through the widget its
  * descriptor type gets, the stored value is read back from the backend, one
  * undo restores it, and "remove" takes the component off — each step one
- * command. Components that cannot be added say why. Phase 24.7: the game
- * block, the zone, pickup, enemy and camera-follow components were deleted;
- * a content table built from its descriptor (the event sounds) sends a second
+ * command. Components that cannot be added say why. A content table built from its descriptor (the event sounds) sends a second
  * edit on top of a first whose result is still on its way.
  */
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
@@ -207,7 +205,7 @@ test('every component kind: added, edited (one undo) and removed through the Ins
   await page.getByLabel('animator model').selectOption(model);
   await page.getByRole('button', { name: 'New controller' }).click();
   await expect.poll(async () => (((await be.command({ op: 'queryGameConfig', projectId: be.projectId }))['animators'] as unknown[]) ?? []).length).toBe(1);
-  // Phase 16.2: the new controller opens as a centre tab (the Inspector then shows the graph); back to the Scene.
+  // The new controller opens as a centre tab (the Inspector then shows the graph); back to the Scene.
   await expect(page.getByRole('tab', { name: 'Animator: New animator', exact: true })).toHaveAttribute('aria-selected', 'true');
   await page.getByRole('tab', { name: 'Scene', exact: true }).click();
   await select(page, id);
@@ -240,8 +238,8 @@ test('every component kind: added, edited (one undo) and removed through the Ins
 test('a content table built from its descriptor sends a second edit on top of a first still on its way (event sounds)', async ({ page }) => {
   test.setTimeout(180_000);
   // The first edit's result is held back (its HTTP ack below, its WS event here, in order) so the second
-  // edit is made before the editor has seen the first — what a busy page does. Phase 24.7: this was the
-  // deleted game block's test; the event sounds table is a descriptor-built content block too.
+  // edit is made before the editor has seen the first — what a busy page does. The event
+  // sounds table stands for any descriptor-built content block.
   let holdName = false;
   await page.routeWebSocket(/\/api\/v1\/ws/, (ws) => {
     const server = ws.connectToServer();
@@ -306,7 +304,7 @@ test('the gameplay settings are built from their descriptor: a number and the st
   await run.fill('5');
   await run.press('Enter');
   await expect.poll(() => settings()['run_speed']).toBe(5);
-  // An int with allowed values (15.3) is a select of exactly those values.
+  // An int with allowed values is a select of exactly those values.
   const hz = tab.getByLabel('settings fixed_step_hz', { exact: true });
   await expect(hz).toHaveValue('120');
   await expect(hz.locator('option')).toHaveText(['60 Hz', '120 Hz', '240 Hz']);

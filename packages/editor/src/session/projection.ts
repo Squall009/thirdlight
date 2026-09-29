@@ -1,15 +1,15 @@
 /**
- * Browser projection state (sessions.md §6.2/§8.3/§9; packet 10).
+ * Browser projection state.
  *
  * The browser holds a PROJECTION of the backend's authoritative state. It is
  * hydrated from the full state (the establish result / `queryEntities` / a
  * resync) and updated incrementally from `mutation.applied` change data
- * (commands.md §5.3 — "a client projection updates from this alone"). The
+ * ("a client projection updates from this alone"). The
  * projection is display state only: on ANY gap, conflict, or resync the
  * client re-hydrates from the backend (the sole authority). The browser never
  * writes to browser storage as the authoritative project database.
  *
- * Normative behaviors pinned here (m1-acceptance §2.2):
+ * Normative behaviors pinned here:
  *  - the browser DEDUPS its own `requestId` (a `mutation.applied` for an
  *    already-applied command is ignored, not double-applied);
  *  - the GAP RULE: a `mutation.applied` with `revision > lastSeen + 1` means
@@ -30,68 +30,68 @@ export interface ProjectedEntity {
   name: string;
   parentId: string | null;
   kind: 'box' | 'camera' | 'model' | 'light' | 'entity' | 'folder';
-  /** Own hierarchy flags (phase 12); folders pass them down (see session/hierarchy.ts). */
+  /** Own hierarchy flags; folders pass them down (see session/hierarchy.ts). */
   active: boolean;
   /** False: the game starts it hidden (the Scene view still draws it). */
   visible: boolean;
   locked: boolean;
   static: boolean;
-  /** Phase 12 (b): the entity's own tag mask (0 = none). */
+  /** The entity's own tag mask (0 = none). */
   tags: number;
   /** Local transform; a folder has none and shows the identity. */
   position: number[];
   rotation: number[];
   scale: number[];
   /**
-   * M2 (packet 27): the whole-GLB reference a model entity resolves through
+   * The whole-GLB reference a model entity resolves through
    * (`components.model.asset.assetId`). Reimport never changes it — only the
    * asset's `currentVersion` moves — so placements keep their entity ID,
-   * transform and reference (project-model §18.1).
+   * transform and reference.
    */
   assetId?: string;
   /** One named piece of the model file (`components.model.piece`; absent: the whole file). */
   piece?: string;
-  /** Phase 9.4: the object's material mapping (source material name or "*" → materialId). */
+  /** The object's material mapping (source material name or "*" → materialId). */
   materials?: Record<string, string>;
-  /** Phase 9.5: a fog volume around the entity. */
+  /** A fog volume around the entity. */
   fogVolume?: { size: [number, number, number]; density: number; color: string; falloff?: number; heightFalloff?: number };
-  /** Phase 9.7: the animator controller the model plays. */
+  /** The animator controller the model plays. */
   animator?: { controller: string; parameters?: Record<string, number | boolean> };
-  /** Phase 9.9: the gameplay block components present on the entity (mover, trigger, switch, health, collectible, patrol, hitbox…). */
+  /** The gameplay block components present on the entity (mover, trigger, switch, health, collectible, patrol, hitbox…). */
   blocks?: Partial<Record<BlockName, Record<string, unknown>>>;
   /**
-   * M2 (packet 28): the informational prefab provenance a materialized copy
-   * carries (`components.prefab`, project-model §20.4). It is what lets the
+   * The informational prefab provenance a materialized copy
+   * carries (`components.prefab`). It is what lets the
    * inspector label the entity "Copy of <displayName> — copies are
    * independent"; it grants no inheritance, override or revert behavior.
    */
   prefab?: { prefabId: string; localId: string };
   /** The box primitive's authored size and base color (the runtime draws both). */
   box?: { size: [number, number, number]; color: string };
-  /** M2 (packet 28): the entity's behavior component, when present (§10.5). */
+  /** The entity's behavior component, when present. */
   behaviorId?: string;
-  /** M2 (packet 28): the stored declared-property values (declaration order). */
+  /** The stored declared-property values (declaration order). */
   behaviorValues?: Record<string, unknown>;
-  /** M2 (packet 28): the physics collider shape, when present (§10.7/§21.3). */
+  /** The physics collider shape, when present. */
   collider?: unknown;
-  /** M2 (packet 28): the controller component is present (§10.8). */
+  /** The controller component is present. */
   controller?: boolean;
-  /** Phase 14.0: the controller's own collision capsule (absent: the default one). */
+  /** The controller's own collision capsule (absent: the default one). */
   capsule?: { radius: number; height: number; offset?: [number, number] };
-  /** M3 (packet 56): the field-less spawn marker is present (project-model §23.3.2). */
+  /** The field-less spawn marker is present. */
   playerSpawn?: boolean;
-  /** M3 (packet 57): the light component, when present (project-model §23.3.4). */
+  /** The light component, when present. */
   light?: LightComponent;
-  /** M3 (packet 57): the copied surface values, when present (project-model §23.3.5). */
+  /** The copied surface values, when present. */
   surface?: SurfaceComponent;
-  /** M3 (packet 57): the model-animation profile, when present (project-model §23.3.6). */
+  /** The model-animation profile, when present. */
   modelAnimation?: ModelAnimationComponent;
-  /** Phase 12 (c): the instance set (one model, many placements from a buffer). */
+  /** The instance set (one model, many placements from a buffer). */
   instances?: { assetId: string; piece?: string; buffer: string; count: number; chunkSize?: number };
-  /** Phase 12 (c): the scene the entity is in (v4 projects; absent for older ones). */
+  /** The scene the entity is in (v4 projects; absent for older ones). */
   sceneId?: string;
   /**
-   * Phase 15.1: the entity's whole component bag as stored (a private copy,
+   * The entity's whole component bag as stored (a private copy,
    * kept current by every change). The generic Inspector reads its fields
    * from here through the descriptors; the typed fields above stay for the
    * viewport and the older panels.
@@ -113,28 +113,28 @@ export interface ApplyMutationResult {
 export interface FullState {
   revision: number;
   entities: readonly EntityV3[];
-  /** Phase 12 (c), v4: each entity's scene (aligned with `entities`), the scenes and the start set. */
+  /** Each entity's scene (aligned with `entities`), the scenes and the start set. */
   entitySceneIds?: readonly string[];
   scenes?: readonly SceneRowView[];
   startScenes?: readonly string[];
 }
 
-/** Phase 12 (c): one scene of the project as the editor shows it. */
+/** One scene of the project as the editor shows it. */
 export interface SceneRowView {
   sceneId: string;
   name: string;
 }
 
-/** A `mutation.applied` event (sessions.md §7). */
+/** A `mutation.applied` event. */
 export interface MutationApplied {
   requestId: string;
   revision: number;
   change: ChangeData;
-  /** Phase 12 (c): the scene the edit touched (v4). */
+  /** The scene the edit touched (v4). */
   sceneId?: string;
 }
 
-/** A structured conflict surfaced to the UI (commands.md §6.4). */
+/** A structured conflict surfaced to the UI. */
 export interface ConflictInfo {
   code: 'revision_conflict';
   /** The backend's authoritative current revision. */
@@ -149,7 +149,7 @@ function boxOf(b: { size?: number[]; material?: { color?: string } }): { size: [
   return { size: [s[0] ?? 1, s[1] ?? 1, s[2] ?? 1], color: b.material?.color ?? '#cccccc' };
 }
 
-/** Phase 9.9: the gameplay block component names (project-model BLOCK_COMPONENT_NAMES). */
+/** The gameplay block component names (project-model BLOCK_COMPONENT_NAMES). */
 export const BLOCK_NAMES = ['mover', 'trigger', 'switch', 'health', 'audioSource', 'faceMovement', 'collectible', 'patrol', 'hitbox', 'climbVolume', 'gravity'] as const;
 export type BlockName = (typeof BLOCK_NAMES)[number];
 
@@ -166,7 +166,7 @@ function kindOf(c: Record<string, unknown>): ProjectedEntity['kind'] {
   return c['folder'] !== undefined ? 'folder' : c['model'] ? 'model' : c['box'] ? 'box' : c['camera'] ? 'camera' : c['light'] ? 'light' : 'entity';
 }
 
-/** Phase 14.0: a controller component's capsule, copied (undefined when it has none). */
+/** A controller component's capsule, copied (undefined when it has none). */
 function capsuleOf(controller: unknown): ProjectedEntity['capsule'] {
   const c = (controller as { capsule?: { radius?: unknown; height?: unknown; offset?: unknown } } | null | undefined)?.capsule;
   if (c === undefined || typeof c.radius !== 'number' || typeof c.height !== 'number') return undefined;
@@ -235,7 +235,7 @@ function toProjected(e: EntityV3): ProjectedEntity {
   return projected;
 }
 
-/** Phase 15.1: the raw transform follows the projected one (a folder has none). */
+/** The raw transform follows the projected one (a folder has none). */
 function syncRawTransform(p: ProjectedEntity): void {
   if (p.components['transform'] === undefined) return;
   p.components['transform'] = { position: [...p.position], rotation: [...p.rotation], scale: [...p.scale] };
@@ -251,13 +251,13 @@ export class Projection {
   private order: string[] = [];
   private lastSeen = 0;
   private applied = new Set<string>();
-  /** Phase 12 (c): the project's scenes (empty for a pre-v4 project) and start set. */
+  /** The project's scenes (empty for a pre-v4 project) and start set. */
   private sceneRows: SceneRowView[] = [];
   private startSet: string[] = [];
   /** Set when the gap rule fires; the client must resync. */
   needsResync = false;
   /**
-   * Phase 21.4: incremental updates. Every applied change replaces only the
+   * Incremental updates. Every applied change replaces only the
    * entity objects it touched (copy-on-write: an untouched entity keeps its
    * object identity, so memoised views skip it), bumps `version`, and bumps
    * `structureVersion` when what the tree shows changed (entities added or
@@ -333,12 +333,12 @@ export class Projection {
     this.needsResync = false;
   }
 
-  /** Phase 12 (c): the scenes, in index order (empty: a single-scene project). */
+  /** The scenes, in index order (empty: a single-scene project). */
   get scenes(): readonly SceneRowView[] {
     return this.sceneRows;
   }
 
-  /** Phase 12 (c): the scenes the game starts with. */
+  /** The scenes the game starts with. */
   get startScenes(): readonly string[] {
     return this.startSet;
   }
@@ -363,7 +363,7 @@ export class Projection {
   }
 
   /**
-   * All projected entities in document order. Phase 21.4: the same array
+   * All projected entities in document order. The same array
    * until something changes (callers must not mutate it).
    */
   listEntities(): ProjectedEntity[] {
@@ -378,7 +378,7 @@ export class Projection {
   }
 
   /**
-   * Apply one `mutation.applied` (sessions.md §6.2/§8.3).
+   * Apply one `mutation.applied`.
    * Returns the outcome; NEVER throws. The gap rule and dedup are checked
    * before any mutation so a stale event cannot corrupt the projection.
    */
@@ -403,7 +403,7 @@ export class Projection {
     if (ok) {
       this.applied.add(ev.requestId);
       this.lastSeen = Math.max(this.lastSeen, ev.revision);
-      // Phase 12 (c): entities that just appeared live in the edited scene
+      // Entities that just appeared live in the edited scene
       // (or their parent's; the first scene as the last resort), parents first.
       if (this.sceneRows.length > 0) {
         for (const id of created) {
@@ -520,10 +520,10 @@ export class Projection {
         this.structural();
         return true;
       }
-      // ---- M2 scene changes (packet 27) ---------------------------------
+      // ---- scene changes ------------------------------------
       case 'instantiatePrefab': {
         // The change carries the full created entity values with their
-        // insertion indices (commands.md §5.3/§8.7.6). Applying them is a
+        // insertion indices. Applying them is a
         // projection update — never a local mutation path of its own.
         const entries = [...change.entries].sort((a, b) => a.index - b.index);
         for (const entry of entries) {
@@ -540,7 +540,7 @@ export class Projection {
         if (k !== undefined) kinds.set(change.id, k);
         const p = this.edit(change.id);
         if (!p) return false;
-        // Phase 15.1: the raw bag first (every component, box/camera/model added or removed too).
+        // The raw bag first (every component, box/camera/model added or removed too).
         if (change.next === null) delete p.components[change.component];
         else p.components[change.component] = structuredClone(change.next);
         p.kind = kindOf(p.components);
@@ -573,7 +573,7 @@ export class Projection {
           if (change.next === null) delete p.materials;
           else p.materials = { ...(change.next as Record<string, string>) };
         } else if (change.component === 'collider') {
-          // C28-1 repair: add/edit/remove converge without a reload (§5.3).
+          // Add/edit/remove converge without a reload.
           if (change.next === null) delete p.collider;
           else p.collider = change.next;
         } else if (change.component === 'controller') {
@@ -586,7 +586,7 @@ export class Projection {
           if (change.next === null) delete p.playerSpawn;
           else p.playerSpawn = true;
         } else if (change.component === 'light') {
-          // M3 (packet 57): the light component converges add/edit/remove the
+          // The light component converges add/edit/remove the
           // same way (the change carries the full component value or null).
           if (change.next === null) delete p.light;
           else {
@@ -610,23 +610,23 @@ export class Projection {
         return true;
       }
       // Content-only changes advance the revision without touching the scene
-      // (the content projection consumes the same records — sessions.md §8).
+      // (the content projection consumes the same records).
       case 'publishAsset':
       case 'publishBehavior':
       case 'setSettings':
       case 'acknowledgeBehaviorTrust':
       case 'createPrefab':
       case 'removePrefab':
-      // Phase 25.7c: a deleted asset record.
+      // A deleted asset record.
       case 'removeAsset':
         return true;
-      // M2 (packet 28): a declared-property edit converges the projection
+      // A declared-property edit converges the projection
       // without a reload — an MCP-origin change is applied exactly like a
-      // browser-origin one (sessions.md §6.2).
+      // browser-origin one.
       case 'setBehaviorProperties':
         return this.applySetBehaviorProperties(change);
       // Content changes the client tracks from the change data; an
-      // `applySurfacePreset` change (packet 57) updates a component the
+      // `applySurfacePreset` change updates a component the
       // projection does not display — advance the revision (no gap) and let
       // the next full state / `queryEntity` carry the value.
       case 'setTags':
@@ -637,36 +637,36 @@ export class Projection {
       case 'setAnimators':
       case 'setInput':
       case 'setCollisionLayers':
-      // Phase 23.10: game modes and behavior groups (tracked by the client from the change data).
+      // Game modes and behavior groups (tracked by the client from the change data).
       case 'setModes':
       case 'setBehaviorGroups':
-      // Phase 24.4i: the event → cue table (tracked by the client from the change data).
+      // The event → cue table (tracked by the client from the change data).
       case 'setEventCues':
-      // Phase 24.4j: the game shell (tracked by the client from the change data).
+      // The game shell (tracked by the client from the change data).
       case 'setShell':
       case 'setSaveSchema':
-      // Phase 16.1: graphs are tracked by the client from the change data.
+      // Graphs are tracked by the client from the change data.
       case 'graphEdit':
       case 'setGraph':
-      // Phase 20.0: effects are tracked by the client from the change data.
+      // Effects are tracked by the client from the change data.
       case 'setEffect':
-      // Phase 23.7: script libraries too (their dependents' records by the prefab projection).
+      // Script libraries too (their dependents' records by the prefab projection).
       case 'setScriptLibrary':
       case 'setScriptLibraries':
-      // Phase 23.5: block content and cells are tracked by the client (it reads the chunks a change names).
+      // Block content and cells are tracked by the client (it reads the chunks a change names).
       case 'editBlocks':
       case 'setBlockType':
       case 'setCellFields':
       case 'setBlockStamp':
-      // Phase 23.9a: UI documents and themes too.
+      // UI documents and themes too.
       case 'setUi':
-      // Phase 23.16: dialogue content too.
+      // Dialogue content too.
       case 'setDialogue':
-      // Phase 23.17: timelines too.
+      // Timelines too.
       case 'setTimeline':
         return true;
       case 'setSceneIndex':
-        // Phase 12 (c): the scene list and start set (files come and go with it).
+        // The scene list and start set (files come and go with it).
         this.sceneRows = change.next.scenes.map((r) => ({ sceneId: r.sceneId, name: r.name }));
         this.startSet = [...change.next.startScenes];
         this.structural();
@@ -702,7 +702,7 @@ export class Projection {
   }
 
   /**
-   * Explain a `revision_conflict` (commands.md §6.4). The projection is left
+   * Explain a `revision_conflict`. The projection is left
    * valid; the caller re-syncs (re-reads the current revision + entity) and,
    * if permitted, auto-retries at most once. Never silently loses the edit.
    */

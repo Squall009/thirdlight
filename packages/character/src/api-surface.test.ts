@@ -1,6 +1,6 @@
 /**
- * Packet 32 — public-surface and module-boundary assertions for
- * `@thirdlight/character` (dependencies.md §3 `character` row and §4.1
+ * Public-surface and module-boundary assertions for
+ * `@thirdlight/character` (the `character` row of dependencies.md and its
  * `character → runtime (types)` edge).
  *
  * The package must expose exactly the three contracted names, its spec must
@@ -8,7 +8,7 @@
  * stage only through the injected `PhysicsStepClient` (never a concrete
  * library, never a transform write of its own). The negative boundary probe
  * for the forbidden edges is run separately against
- * `tools/check-boundaries.mjs` (packet-32 evidence manifest).
+ * `tools/check-boundaries.mjs`.
  */
 import { describe, expect, it } from 'vitest';
 import type { CharacterMoveResult, PhysicsStepClient, RuntimeSnapshot, StepContext } from '@thirdlight/runtime';

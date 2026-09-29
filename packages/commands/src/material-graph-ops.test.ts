@@ -1,5 +1,5 @@
 /**
- * Phase 18.0/18.1: graph materials through the commands — `setMaterial`
+ * Graph materials through the commands — `setMaterial`
  * with a graph and parameters, `graphEdit` on owner kind `material` (one
  * revision, one undo step, refusals change nothing), material functions as
  * standalone graphs (a used function keeps the ports its callers wire and

@@ -1,8 +1,8 @@
 /**
- * Phase 21.3: what an incremental Scene view sync has to touch (pure; the
+ * What an incremental Scene view sync has to touch (pure; the
  * viewport applies it).
  *
- * The projection is copy-on-write (21.4): an entity it did not change keeps
+ * The projection is copy-on-write: an entity it did not change keeps
  * its object, and `takeDirty()` names the ones it did. A sync looks at the
  * named entities plus any whose object differs from the one the view last
  * synced (a scene opened, a caller without the dirty set); the hierarchy

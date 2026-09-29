@@ -1,5 +1,5 @@
 /**
- * Phase 25.15: the page resolves a relay's virtual gamepad through the
+ * The page resolves a relay's virtual gamepad through the
  * bindings, step by step: each step of a pad frame becomes its own frame (the
  * frame's own actions win), the pad is at rest in gaps and in frames without
  * one, frames without a pad pass through unchanged.

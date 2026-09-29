@@ -1,28 +1,27 @@
 /**
- * Phase 12 (c): instance sets — one model drawn many times from a transform
+ * Instance sets — one model drawn many times from a transform
  * buffer (10 float32 per copy: position xyz, rotation quaternion xyzw,
  * scale xyz). Each mesh of the model becomes `THREE.InstancedMesh`es
  * sharing the model's geometry and materials; the copy transform is
  * multiplied with the mesh's own offset inside the model. Used by the game
  * adapter and the editor viewport alike.
  *
- * Phase 21.3: culling and LODs. The copies are split into spatial chunks
+ * Culling and LODs. The copies are split into spatial chunks
  * (a grid over the set's two widest axes, about {@link INSTANCE_CHUNK_COPIES}
  * copies per chunk, at most {@link INSTANCE_MAX_CHUNKS}), so the renderer's
  * frustum culling skips the chunks out of view. A model with levels of
- * detail (9.0: `<piece>_LOD<n>`, a `THREE.LOD` in the instance) gets one
+ * detail (`<piece>_LOD<n>`, a `THREE.LOD` in the instance) gets one
  * `THREE.LOD` per chunk at the chunk's centre with the model's switch
- * distances: a chunk draws only the level its distance asks for (before,
- * every level of every copy was drawn). A copy is found again from a picked
+ * distances: a chunk draws only the level its distance asks for. A copy is found again from a picked
  * instanced mesh with `copyOf`, and its bounds with `copyBox`.
  *
  * The meshes own only their instance matrices; geometry, materials and
  * textures stay owned by the prepared model resource (released with it).
  *
- * Phase 25.24d: each chunk's mesh draws through instance-matrix columns of
+ * Each chunk's mesh draws through instance-matrix columns of
  * its own geometry (`attribute-instancing.ts`), not a `THREE.InstancedMesh`
  * — three builds a node program per instanced mesh, so a set of many chunks
- * built as many programs; now the chunks of a mesh share one. A chunk mesh
+ * would build as many programs; this way the chunks of a mesh share one. A chunk mesh
  * is picked per copy like an instanced mesh (the hit's `instanceId`).
  */
 import * as THREE from 'three';
@@ -42,7 +41,7 @@ export const INSTANCE_CHUNK_COPIES = 2048;
 /** Most chunks per set (bounds the draws of a very large set; 64 chunks × a few meshes stays well under any draw budget). */
 export const INSTANCE_MAX_CHUNKS = 64;
 /**
- * Phase 25.7d: most chunks per set when it is also chunked by spatial extent.
+ * Most chunks per set when it is also chunked by spatial extent.
  * Chunks out of view are culled, so more of them cost draws only where they
  * are seen; 256 cells keep a set seen whole (from above) at a few hundred
  * draws per mesh. A set larger than 256 cells of its chunk size gets larger
@@ -50,7 +49,7 @@ export const INSTANCE_MAX_CHUNKS = 64;
  */
 export const INSTANCE_MAX_SPATIAL_CHUNKS = 256;
 /**
- * Phase 25.7d: the engine default chunk size (m) of an instance set (the
+ * The engine default chunk size (m) of an instance set (the
  * project's `instance_chunk_m`, overridable per set). 32 m: a few seconds'
  * walk for the default 1.8 m character and small next to a typical view
  * distance, so a chunk out of view is culled, and a chunk's level of detail
@@ -61,17 +60,17 @@ export const INSTANCE_CHUNK_METERS = 32;
 export interface BuiltInstanceSet {
   /** Holds the instanced meshes; attach it under the entity's node. */
   readonly group: THREE.Group;
-  /** The chunk meshes (phase 25.24d: plain meshes drawing instance-matrix columns; a ray hit names the copy's slot as `instanceId`). */
+  /** The chunk meshes (plain meshes drawing instance-matrix columns; a ray hit names the copy's slot as `instanceId`). */
   readonly meshes: readonly THREE.Mesh[];
-  /** Phase 15.2 (editor preview): redraw copy `index` at a transform (position xyz, quaternion xyzw, scale xyz). */
+  /** Editor preview: redraw copy `index` at a transform (position xyz, quaternion xyzw, scale xyz). */
   setCopy(index: number, transform: readonly number[]): void;
-  /** Phase 21.3: the copy an instance of one of the set's meshes draws (a picked `instanceId`), or null. */
+  /** The copy an instance of one of the set's meshes draws (a picked `instanceId`), or null. */
   copyOf(mesh: THREE.Object3D, instanceId: number): number | null;
-  /** Phase 21.3: a copy's bounds in world space (its most detailed level; the group's world matrix must be current), or null. */
+  /** A copy's bounds in world space (its most detailed level; the group's world matrix must be current), or null. */
   copyBox(index: number): THREE.Box3 | null;
   /** Copies drawn (the buffer's count, bounded by its length). */
   readonly count: number;
-  /** Phase 25.7d: how many chunks the copies were split into (each culled and LOD'd on its own). */
+  /** How many chunks the copies were split into (each culled and LOD'd on its own). */
   readonly chunks: number;
   /** Release the instance matrices and detach (the model resource is untouched). */
   dispose(): void;
@@ -88,7 +87,7 @@ interface Part {
 /**
  * The chunk grid for copy positions: cells along the two widest axes. Pure (unit-tested).
  * By count (about `target` copies per chunk, at most `maxChunks`) and,
- * phase 25.7d, with `chunkSize` (m) also by extent: no cell is wider than
+ * with `chunkSize` (m), also by extent: no cell is wider than
  * `chunkSize` along either axis (at most {@link INSTANCE_MAX_SPATIAL_CHUNKS}
  * cells; past that the cells grow). The finer of the two grids wins per axis.
  */
@@ -112,7 +111,7 @@ export function chunkCopies(positions: Float32Array | readonly number[], count: 
   let n0 = chunks === 1 ? 1 : Math.max(1, Math.min(chunks, Math.round(Math.sqrt((chunks * ext[a0]!) / ext[a1]!))));
   let n1 = chunks === 1 ? 1 : Math.max(1, Math.floor(chunks / n0));
   if (chunkSize !== undefined && Number.isFinite(chunkSize) && chunkSize > 0) {
-    // Phase 25.7d: no cell wider than chunkSize (the cells grow when the set would need more than the cap).
+    // No cell wider than chunkSize (the cells grow when the set would need more than the cap).
     let size = chunkSize;
     const cells = (s: number): [number, number] => [Math.max(1, Math.ceil(ext[a0]! / s - 1e-9)), Math.max(1, Math.ceil(ext[a1]! / s - 1e-9))];
     let [s0, s1] = cells(size);
@@ -187,7 +186,7 @@ export function buildInstanceSet(template: ModelInstance, floats: Float32Array, 
     positions[i * 3 + 1] = floats[o + 1]!;
     positions[i * 3 + 2] = floats[o + 2]!;
   }
-  // Phase 25.7d: also by extent when a chunk size is given (each chunk culled and LOD'd on its own).
+  // Also by extent when a chunk size is given (each chunk culled and LOD'd on its own).
   const chunkOf = chunkCopies(positions, n, INSTANCE_CHUNK_COPIES, INSTANCE_MAX_CHUNKS, options.chunkSize);
   let chunkCount = 0;
   for (let i = 0; i < n; i += 1) if (chunkOf[i]! + 1 > chunkCount) chunkCount = chunkOf[i]! + 1;
@@ -294,7 +293,7 @@ export function buildInstanceSet(template: ModelInstance, floats: Float32Array, 
     },
     dispose(): void {
       group.removeFromParent();
-      // Phase 21.5: every chunk mesh and LOD node: render objects; phase 25.24d: each chunk mesh's own geometry
+      // Every chunk mesh and LOD node: render objects; Each chunk mesh's own geometry
       // and instance buffer (never the model's geometry).
       for (const c of chunks) for (const inst of c.meshes) inst.dispose();
       disposeObjectTree(group);

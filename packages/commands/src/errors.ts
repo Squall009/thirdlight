@@ -1,13 +1,12 @@
 /**
- * Error construction — commands.md §5.2/§5.4.
+ * Error construction.
  *
- * `ERROR_CODES` is the stable M1 command-layer code set (the §5.4 table,
- * normative for M1). Result-scene validation failures carry the
- * project-model's codes (project-model.md §12.6) at the top level and in
+ * `ERROR_CODES` is the stable command-layer code set. Result-scene validation failures carry the
+ * project-model's codes at the top level and in
  * `details`; those come from `@thirdlight/project-model`'s `ERROR_CODES`.
  *
  * Key order in emitted error objects (the scenario fixtures pin it):
- * `code`, `cls`, code-specific fields (§5.4 table order),
+ * `code`, `cls`, code-specific fields (error table order),
  * `detailDocument`/`details`/`detailCount`/`detailsTruncated`
  * (result-scene failures), `message`, `hint`.
  */
@@ -20,10 +19,10 @@ import type { CommandError, ErrorClass } from './types';
 export type { CommandError };
 
 /**
- * The stable command-layer error codes (commands.md §5.4, normative). The M1
- * rows are unchanged; packet 16/21 additions (prefab, behavior, property,
- * settings, reference and content-package rows) are appended in the contract's
- * table order so the set stays a single source of truth for consumers.
+ * The stable command-layer error codes (normative): the entity/history rows,
+ * then the prefab, behavior, property, settings, reference and
+ * content-package rows, in the contract's table order, so the set stays a
+ * single source of truth for consumers.
  */
 export const ERROR_CODES = [
   'invalid_request',
@@ -43,7 +42,7 @@ export const ERROR_CODES = [
   'limits_exceeded',
   'id_exhaustion',
   'no_change',
-  // packet 16/21 additions (commands.md §5.4 M2 rows):
+  // prefab, behavior, property, settings, reference and content rows:
   'prefab_not_found',
   'prefab_id_duplicate',
   'prefab_camera_capture_forbidden',
@@ -60,7 +59,7 @@ export const ERROR_CODES = [
   'property_type',
   'property_value',
   'property_declaration_incompatible',
-  // phase 15.4: a private declared property is not settable per object.
+  // A private declared property is not settable per object.
   'property_private',
   'setting_unknown',
   'reference_in_use',
@@ -76,7 +75,7 @@ export const ERROR_CODES = [
   'history_empty',
   'history_invalid',
   'write_failed',
-  // v3 presentation rows (commands.md §5.4, packet 45; phase 24.8: the game block and zone rows went with them):
+  // v3 presentation rows:
   'spawn_transform_unsupported',
   'asset_kind_mismatch',
   'animation_role_out_of_range',
@@ -91,12 +90,12 @@ export type CommandErrorCode = (typeof ERROR_CODES)[number];
 
 export { MAX_REVISION };
 
-/** §3.1: the canonical request byte cap (65 536). */
+/** The canonical request byte cap (65 536). */
 export const MAX_REQUEST_BYTES = 65_536;
 
-/** project-model §5.1 ID syntax (reused for `projectId`, commands.md §3). */
+/** The project-model ID syntax (reused for `projectId`). */
 
-/** commands.md §3: `req-` + 32 hex chars (128 random bits, client CSPRNG). */
+/** `req-` + 32 hex chars (128 random bits, client CSPRNG). */
 const REQUEST_ID_RE = /^req-[0-9a-f]{32}$/;
 
 export { ID_RE, REQUEST_ID_RE };
@@ -121,7 +120,7 @@ export function withBoundedFound(e: CommandError, found: unknown): CommandError 
 
 // ---- constructors (canonical key order) ----------------------------------------
 
-/** Envelope-level schema failure (§5.4: `invalid_request`). */
+/** Envelope-level schema failure (`invalid_request`). */
 export function invalidRequest(
   path: string,
   found: unknown,
@@ -216,7 +215,7 @@ export function fieldValue(
   return e;
 }
 
-/** §5.2/§8.3: the entity does not exist in the current scene. */
+/** The entity does not exist in the current scene. */
 export function entityNotFound(entityId: string): CommandError {
   return {
     code: 'entity_not_found',
@@ -227,7 +226,7 @@ export function entityNotFound(entityId: string): CommandError {
   };
 }
 
-/** §5.4/§8.1: createEntity.parentId does not resolve. */
+/** createEntity.parentId does not resolve. */
 export function referenceMissing(found: unknown): CommandError {
   return withFound(
     {
@@ -240,7 +239,7 @@ export function referenceMissing(found: unknown): CommandError {
   );
 }
 
-/** §5.4/§8.3: the deletion subtree contains the scene's only camera. */
+/** The deletion subtree contains the scene's only camera. */
 export function cameraCountInvalid(cameraId: string): CommandError {
   return {
     code: 'camera_count_invalid',
@@ -251,7 +250,7 @@ export function cameraCountInvalid(cameraId: string): CommandError {
   };
 }
 
-/** §5.4/§8.1: creation would exceed an M1 limit. */
+/** Creation would exceed an entity limit. */
 export function limitsExceeded(
   limit: LimitName,
   current: number,
@@ -272,7 +271,7 @@ export function limitsExceeded(
   };
 }
 
-/** §5.4/§8.1: no free `<kind>-N` ID (phase 25.7a: unreachable below the entity limits). */
+/** No free `<kind>-N` ID (unreachable below the entity limits). */
 export function idExhaustion(kind: string): CommandError {
   return {
     code: 'id_exhaustion',
@@ -282,7 +281,7 @@ export function idExhaustion(kind: string): CommandError {
   };
 }
 
-/** §5.4/§4: expectedRevision ≠ currentRevision. */
+/** expectedRevision ≠ currentRevision. */
 export function revisionConflict(
   expectedRevision: number,
   currentRevision: number,
@@ -297,7 +296,7 @@ export function revisionConflict(
   };
 }
 
-/** §5.4: current revision is 2^53−1; no mutation can be applied. */
+/** Current revision is 2^53−1; no mutation can be applied. */
 export function revisionExhausted(currentRevision: number): CommandError {
   return {
     code: 'revision_exhausted',
@@ -308,9 +307,8 @@ export function revisionExhausted(currentRevision: number): CommandError {
 }
 
 /**
- * §5.4/§6.5 (packet 16): a mutation whose resulting scene **and** content
- * canonical bytes are identical to the current state (the M1 scene-only
- * `noChange` was removed with the M1 scene model in phase 9.3).
+ * A mutation whose resulting scene **and** content
+ * canonical bytes are identical to the current state.
  */
 export function noChangeContent(): CommandError {
   return {
@@ -320,7 +318,7 @@ export function noChangeContent(): CommandError {
   };
 }
 
-/** §5.4/§8.4: undo/redo with an empty stack. */
+/** undo/redo with an empty stack. */
 export function historyEmpty(which: 'undo' | 'redo'): CommandError {
   return {
     code: 'history_empty',
@@ -334,7 +332,7 @@ export function historyEmpty(which: 'undo' | 'redo'): CommandError {
   };
 }
 
-/** §5.4/§9.4: a stored inverse/forward failed re-validation (defensive). */
+/** A stored inverse/forward failed re-validation (defensive). */
 export function historyInvalid(requestId: string): CommandError {
   return {
     code: 'history_invalid',
@@ -347,7 +345,7 @@ export function historyInvalid(requestId: string): CommandError {
 }
 
 /**
- * §5.2: validation failure of the RESULTING scene/content. Top-level `code` is
+ * Validation failure of the RESULTING scene/content. Top-level `code` is
  * the first detail's code (document order); `details` is capped at 32.
  */
 export function resultSceneError(
@@ -369,7 +367,7 @@ export function resultSceneError(
 
 // ---- small shared predicates -----------------------------------------------------
 
-/** §4/§9.1 name rule (project-model): 1–128 chars, no control characters. */
+/** The project-model name rule: 1–128 chars, no control characters. */
 export function isValidName(s: string): boolean {
   if (s.length < 1 || s.length > 128) return false;
   for (let k = 0; k < s.length; k++) {
@@ -392,9 +390,9 @@ export function jsonType(v: unknown): string {
   if (Array.isArray(v)) return 'array';
   return typeof v;
 }
-// ---- content/property error constructors (commands.md §5.4, packet 16 shapes) ----
+// ---- content/property error constructors (fixture-pinned shapes) ----
 
-/** §5.4/§8.9: an undeclared property key (never silently dropped). */
+/** An undeclared property key (never silently dropped). */
 export function propertyUnknown(behaviorId: string | undefined, key: string): CommandError {
   // Key order (fixture-pinned): code, cls, behaviorId?, key, message.
   const e: CommandError = {
@@ -408,7 +406,7 @@ export function propertyUnknown(behaviorId: string | undefined, key: string): Co
 }
 
 /**
- * Phase 15.4: a value for a private declared property (not settable per
+ * A value for a private declared property (not settable per
  * object: the script reads the declared default).
  */
 export function propertyPrivate(behaviorId: string | undefined, key: string): CommandError {
@@ -422,7 +420,7 @@ export function propertyPrivate(behaviorId: string | undefined, key: string): Co
   };
 }
 
-/** §5.4/§20.5: a value does not match its declared property type. */
+/** A value does not match its declared property type. */
 export function propertyType(key: string, found: unknown, expected: string): CommandError {
   return withFound(
     {
@@ -436,7 +434,7 @@ export function propertyType(key: string, found: unknown, expected: string): Com
   );
 }
 
-/** §5.4/§20.5: a value violates its declared range/length/enum/bounds. */
+/** A value violates its declared range/length/enum/bounds. */
 export function propertyValue(
   key: string,
   found: unknown,
@@ -455,7 +453,7 @@ export function propertyValue(
   );
 }
 
-/** §5.4/§8.7.3: an override names a key the resolved declaration lacks. */
+/** An override names a key the resolved declaration lacks. */
 export function propertyOverrideUnknown(
   behaviorId: string | undefined,
   key: string,
@@ -470,9 +468,9 @@ export function propertyOverrideUnknown(
   };
 }
 
-/** §5.4/§20.5: a value does not match its declared property type; the carried
+/** A value does not match its declared property type; the carried
  * `expected` may be a richer constraint description while `message` names the
- * declared type (the packet-16 override fixtures pin this split). */
+ * declared type (the prefab override fixtures pin this split). */
 export function propertyTypeDetail(
   key: string,
   found: unknown,
@@ -491,9 +489,9 @@ export function propertyTypeDetail(
   );
 }
 
-// ---- prefab error constructors (commands.md §5.4/§8.6–§8.7, packet 22) --------
+// ---- prefab error constructors --------
 
-/** §5.4/§8.7: an operation names a `prefabId` the catalog lacks. */
+/** An operation names a `prefabId` the catalog lacks. */
 export function prefabNotFound(prefabId: string): CommandError {
   return {
     code: 'prefab_not_found',
@@ -503,7 +501,7 @@ export function prefabNotFound(prefabId: string): CommandError {
   };
 }
 
-/** §5.4/§8.6: `createPrefab` names an existing definition. */
+/** `createPrefab` names an existing definition. */
 export function prefabIdDuplicate(prefabId: string): CommandError {
   return {
     code: 'prefab_id_duplicate',
@@ -513,7 +511,7 @@ export function prefabIdDuplicate(prefabId: string): CommandError {
   };
 }
 
-/** §5.4/§8.6.3: the captured subtree contains a camera component. */
+/** The captured subtree contains a camera component. */
 export function prefabCameraCaptureForbidden(
   sourceEntityId: string,
   cameraId: string,
@@ -528,7 +526,7 @@ export function prefabCameraCaptureForbidden(
   };
 }
 
-/** §5.4/§8.6.3: the captured subtree contains a prefab instance. */
+/** The captured subtree contains a prefab instance. */
 export function prefabNestedForbidden(
   sourceEntityId: string,
   prefabInstanceIds: readonly string[],
@@ -543,7 +541,7 @@ export function prefabNestedForbidden(
   };
 }
 
-/** §5.4/§8.6.3: a definition `entityRef` value names an entity outside the subtree. */
+/** A definition `entityRef` value names an entity outside the subtree. */
 export function prefabExternalReferenceForbidden(
   sourceEntityId: string,
   localId: string,
@@ -561,7 +559,7 @@ export function prefabExternalReferenceForbidden(
   };
 }
 
-/** §5.4/§8.7: an override names a `localId` the definition does not contain. */
+/** An override names a `localId` the definition does not contain. */
 export function prefabLocalUnknown(prefabId: string, localId: string): CommandError {
   return {
     code: 'prefab_local_unknown',
@@ -572,7 +570,7 @@ export function prefabLocalUnknown(prefabId: string, localId: string): CommandEr
   };
 }
 
-/** §5.4/§20.2: a definition entity carries `camera` or `prefab`. */
+/** A definition entity carries `camera` or `prefab`. */
 export function prefabComponentForbidden(
   prefabId: string,
   localId: string,
@@ -588,7 +586,7 @@ export function prefabComponentForbidden(
   };
 }
 
-/** §5.4/§20.4: a `components.prefab` value does not resolve. */
+/** A `components.prefab` value does not resolve. */
 export function prefabReferenceMissing(prefabId: string, localId: string): CommandError {
   return {
     code: 'prefab_reference_missing',
@@ -599,7 +597,7 @@ export function prefabReferenceMissing(prefabId: string, localId: string): Comma
   };
 }
 
-/** §5.4/§8.9: an `assetRef` value names no catalog record. */
+/** An `assetRef` value names no catalog record. */
 export function assetReferenceMissing(assetId: string): CommandError {
   return {
     code: 'asset_reference_missing',
@@ -609,7 +607,7 @@ export function assetReferenceMissing(assetId: string): CommandError {
   };
 }
 
-/** §5.4/§8.8: `publishAsset` reimport names an unknown asset. */
+/** `publishAsset` reimport names an unknown asset. */
 export function assetNotFound(assetId: string): CommandError {
   return {
     code: 'asset_not_found',
@@ -619,7 +617,7 @@ export function assetNotFound(assetId: string): CommandError {
   };
 }
 
-/** §5.4/§8.5: `publishAsset` create names an existing asset. */
+/** `publishAsset` create names an existing asset. */
 export function assetIdDuplicate(assetId: string): CommandError {
   return {
     code: 'asset_id_duplicate',
@@ -629,7 +627,7 @@ export function assetIdDuplicate(assetId: string): CommandError {
   };
 }
 
-/** §5.4/§8.8–§8.9: an operation names a behavior the content block lacks. */
+/** An operation names a behavior the content block lacks. */
 export function behaviorNotFound(behaviorId: string, message?: string): CommandError {
   return {
     code: 'behavior_not_found',
@@ -639,7 +637,7 @@ export function behaviorNotFound(behaviorId: string, message?: string): CommandE
   };
 }
 
-/** §5.4/§8.8: `declaration-create` names an existing behavior. */
+/** `declaration-create` names an existing behavior. */
 export function behaviorIdDuplicate(behaviorId: string): CommandError {
   return {
     code: 'behavior_id_duplicate',
@@ -649,7 +647,7 @@ export function behaviorIdDuplicate(behaviorId: string): CommandError {
   };
 }
 
-/** §5.4/§8.8.2/§22.6: behavior source publication is unavailable in M2. */
+/** Behavior source publication is unavailable (no preparer, or no prepared artifact). */
 export function behaviorPublicationUnavailable(
   behaviorId: string,
   mode: string,
@@ -668,7 +666,7 @@ export function behaviorPublicationUnavailable(
   };
 }
 
-/** §5.4/§8.8.3: a declaration update would invalidate stored values. */
+/** A declaration update would invalidate stored values. */
 export function propertyDeclarationIncompatible(
   behaviorId: string,
   reason: string,
@@ -685,7 +683,7 @@ export function propertyDeclarationIncompatible(
   };
 }
 
-/** §5.4/§8.11: a settings key the fixed registry does not declare. */
+/** A settings key the fixed registry does not declare. */
 export function settingUnknown(key: string): CommandError {
   return {
     code: 'setting_unknown',
@@ -696,7 +694,7 @@ export function settingUnknown(key: string): CommandError {
   };
 }
 
-/** §5.4/§8.10: the target entity does not carry the addressed component. */
+/** The target entity does not carry the addressed component. */
 export function componentMissing(entityId: string, component: string): CommandError {
   return {
     code: 'component_missing',
@@ -707,7 +705,7 @@ export function componentMissing(entityId: string, component: string): CommandEr
   };
 }
 
-/** §5.4/§8.3 step 2b: subtree deletion would dangle an entity reference. */
+/** Subtree deletion would dangle an entity reference. */
 export function referenceInUse(
   entityIds: readonly string[],
   referencingEntityIds: readonly string[],
@@ -722,7 +720,7 @@ export function referenceInUse(
   };
 }
 
-/** §5.4/§12.6: an ID does not use the project-model ID syntax. */
+/** An ID does not use the project-model ID syntax. */
 export function idInvalid(path: string, found: unknown, expected: string): CommandError {
   return withFound(
     {
@@ -736,7 +734,7 @@ export function idInvalid(path: string, found: unknown, expected: string): Comma
   );
 }
 
-/** §5.4/§18.9.3: a digest is not 64 lowercase hex. */
+/** A digest is not 64 lowercase hex. */
 export function digestInvalid(path: string, found: unknown): CommandError {
   return withFound(
     {
@@ -750,7 +748,7 @@ export function digestInvalid(path: string, found: unknown): CommandError {
   );
 }
 
-/** §5.4/§22.5: a digest has no `content.behaviorTrust` acknowledgment. */
+/** A digest has no `content.behaviorTrust` acknowledgment. */
 export function behaviorTrustUnacknowledged(sourceDigest: string): CommandError {
   return {
     code: 'behavior_trust_unacknowledged',
@@ -762,7 +760,7 @@ export function behaviorTrustUnacknowledged(sourceDigest: string): CommandError 
 }
 
 /**
- * §5.4/§22.4.1: the prepared artifact for the supplied digest is inconsistent
+ * The prepared artifact for the supplied digest is inconsistent
  * with the declaration the command would write (`reason` `digest` /
  * `manifest` / `declaration` / `pins`). Nothing is written.
  */
@@ -776,9 +774,9 @@ export function behaviorDeclarationMismatch(behaviorId: string, reason: string):
   };
 }
 
-// ---- v3 game/presentation constructors (commands.md §5.4, packet 45) -----------
+// ---- v3 game/presentation constructors -----------
 
-/** §5.4/§23.9: a reference/reimport kind disagrees with the record. */
+/** A reference/reimport kind disagrees with the record. */
 export function assetKindMismatch(
   assetId: string,
   expected: string,
@@ -796,7 +794,7 @@ export function assetKindMismatch(
   );
 }
 
-/** §5.4/§23.9: a `modelAnimation` binding's clip index exceeds the version. */
+/** A `modelAnimation` binding's clip index exceeds the version. */
 export function animationRoleOutOfRange(
   path: string,
   role: string,
@@ -815,7 +813,7 @@ export function animationRoleOutOfRange(
   };
 }
 
-/** §5.4/§41.3.2 stage 4: two roles of one binding share a `clipIndex`. */
+/** Role-binding stage 4: two roles of one binding share a `clipIndex`. */
 export function animationRoleDuplicate(
   path: string,
   clipIndex: number,

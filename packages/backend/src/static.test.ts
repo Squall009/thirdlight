@@ -1,6 +1,5 @@
 /**
  * The separate-origin preview listener + static serving + startup checks —
- * sessions.md §2/§13.2/§13.7 (packet 09 acceptance).
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { createServer } from 'node:http';

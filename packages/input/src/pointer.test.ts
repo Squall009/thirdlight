@@ -1,5 +1,5 @@
 /**
- * Phase 23.3 — the pointer in action frames and action maps, and the cursor
+ * The pointer in action frames and action maps, and the cursor
  * rules, against the real browser owner driven through fake DOM objects (the
  * same approach as browser.test.ts: logic evidence, not real-device evidence).
  */

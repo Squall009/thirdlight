@@ -1,10 +1,10 @@
 /**
- * Phase 9.4/9.5: the Environment window — sky, fog, post-processing, quality
+ * The Environment window — sky, fog, post-processing, quality
  * and the global wind. The Scene view previews it with game lighting (the
  * same renderer Play and export use). Each control commits on release as one
  * `setEnvironment` (one undo).
  *
- * Phase 23.18: environment presets (project mode) — "capture current as
+ * Environment presets (project mode) — "capture current as
  * preset" stores the environment's sky, fog and post-processing and every
  * scene light's colour / intensity / direction as a named preset (one
  * `setEnvironment`, one undo); a preset can be previewed in the Scene view,
@@ -23,7 +23,7 @@ interface Props {
   textures: readonly { assetId: string; displayName: string }[];
   onSave: (environment: EnvironmentConfig) => void;
   error: string | null;
-  /** Phase 23.18: the scene lights a captured preset records, and the Scene view's preset preview. */
+  /** The scene lights a captured preset records, and the Scene view's preset preview. */
   presets?: {
     lights: readonly PresetLightSource[];
     /** Preview a blend in the Scene view (weights by preset id, '' = the base look); null: the authored look. */
@@ -31,7 +31,7 @@ interface Props {
   };
 }
 
-/** Phase 23.18: a scene light as a captured preset records it. */
+/** A scene light as a captured preset records it. */
 export interface PresetLightSource {
   id: string;
   type: string;
@@ -41,14 +41,14 @@ export interface PresetLightSource {
   groundColor?: string;
 }
 
-/** Phase 23.18: an id for a new preset from its name (a-z, 0-9, _ -), unique among `taken`. */
+/** An id for a new preset from its name (a-z, 0-9, _ -), unique among `taken`. */
 export function presetIdFor(name: string, taken: ReadonlySet<string>): string {
   const slug = name.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^[-_]+|-+$/g, '').slice(0, 56) || 'preset';
   if (!taken.has(slug)) return slug;
   for (let i = 2; ; i += 1) if (!taken.has(`${slug}-${i}`)) return `${slug}-${i}`;
 }
 
-/** Phase 23.18: the environment and the scene lights as they are now, as a preset. */
+/** The environment and the scene lights as they are now, as a preset. */
 export function capturePreset(env: EnvironmentConfig, lights: readonly PresetLightSource[], name: string): EnvironmentPreset {
   const taken = new Set((env.presets ?? []).map((q) => q.presetId));
   const copy = <T,>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
@@ -69,7 +69,7 @@ export function capturePreset(env: EnvironmentConfig, lights: readonly PresetLig
   };
 }
 
-/** Phase 23.18: the preset list, capture, preview and the blend preview slider. */
+/** The preset list, capture, preview and the blend preview slider. */
 function PresetsSection(props: { env: EnvironmentConfig; lights: readonly PresetLightSource[]; save: (patch: Partial<EnvironmentConfig>) => void; onPreview: (weights: [string, number][] | null) => void }): JSX.Element {
   const list = props.env.presets ?? [];
   const [name, setName] = useState('');
@@ -253,7 +253,7 @@ export function EnvironmentPanel(p: Props): JSX.Element {
   const save = (patch: Partial<EnvironmentConfig>): void => p.onSave({ ...env, ...patch });
   const sky: SkyConfig = env.sky ?? { mode: 'procedural' };
   const setSky = (patch: Partial<SkyConfig>): void => save({ sky: { ...sky, ...patch } });
-  const fog: FogConfig = env.fog ?? { mode: 'none', color: '#c8d2dc' }; // phase 15.5: the descriptor's default (it was a second, near-equal value)
+  const fog: FogConfig = env.fog ?? { mode: 'none', color: '#c8d2dc' }; // the descriptor's default, so there is one value
   const setFog = (patch: Partial<FogConfig>): void => save({ fog: { ...fog, ...patch } });
   const post: PostConfig = env.post ?? {};
   const setPost = (patch: Partial<PostConfig>): void => save({ post: { ...post, ...patch } });

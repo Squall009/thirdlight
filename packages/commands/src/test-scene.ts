@@ -5,8 +5,8 @@
  * Builds VALID canonical v4 scenes (one scene file of a storage v4 project)
  * with the matching v4 project content block, and well-formed mutation
  * requests so the hand-crafted suites can exercise the pure layer end to end
- * (applyMutation in, canonical scene out). Since phase 9.3 the command layer
- * edits schemaVersion 3/4 scenes only, and a v4 command state is validated
+ * (applyMutation in, canonical scene out). The command layer edits
+ * schemaVersion 3/4 scenes only, and a v4 command state is validated
  * together with its v4 content block (`gateResultV4`).
  */
 

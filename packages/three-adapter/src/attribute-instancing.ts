@@ -1,5 +1,5 @@
 /**
- * Phase 25.24d: instancing that shares node programs.
+ * Instancing that shares node programs.
  *
  * three r186 builds a node program for every `InstancedMesh` on its own: the
  * render object's cache key holds the instanced object's `uuid` (its matrices

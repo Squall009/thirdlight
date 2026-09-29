@@ -1,18 +1,15 @@
 /**
- * 2026-09-18 review repair — group B1 (R14) regression tests.
+ * The startup scan's 100-entry cap ("bounded log: ≤ 100 project entries,
+ * then a count") bounds the LOG, not the WORK: `scanEntry` runs for every
+ * entry, so the deterministic creation completion (and the corruption/stale
+ * reporting) reaches entries beyond index 99 — a positional cap on the work
+ * would never reach them, however often the scan repeats (the sort order is
+ * stable).
  *
- * R14: the startup scan's 100-entry LOG cap (workspace.md §10: "bounded
- * log: ≤ 100 project entries, then a count") was applied to the WORK:
- * `scanEntry` was never called for entries beyond index 99, so the
- * deterministic §8.3 completion (and the corruption/stale reporting) never
- * ran for them, and a repeated scan never reached them (the cap is
- * positional, and sort order is stable).
- *
- * These tests pin the desired post-repair behavior through the public API
- * and the on-disk state only. Ported to storage v4 (phase 9.3 step B): a
- * new project is project.json (manifest v2) + scenes/scene-main.json +
- * content.json; an interrupted creation is a v2 manifest without
- * content.json, which the scan completes (scene file + content.json).
+ * Pinned through the public API and the on-disk state only. Storage v4: a
+ * new project is project.json + scenes/scene-main.json + content.json; an
+ * interrupted creation is a manifest without content.json, which the scan
+ * completes (scene file + content.json).
  *
  *   1. cap is on the log, not work — 101 manifest-only projects (interrupted
  *      creation) ⇒ the fresh service's startup scan completes ALL 101
@@ -83,7 +80,7 @@ const IDS: readonly string[] = Array.from(
   (_, i) => `p${i.toString().padStart(3, '0')}`,
 );
 
-/** The garbage content.json bytes (invalid UTF-8 ⇒ `encoding_invalid`, §4.3 step 1). */
+/** The garbage content.json bytes (invalid UTF-8 ⇒ `encoding_invalid`). */
 const GARBAGE = new Uint8Array([0xff, 0xfe, 0x00, 0x01, 0x80, 0xc0]);
 
 let seq = 0;
@@ -149,8 +146,7 @@ describe('R14 (group B1): the scan cap bounds the LOG, not the work', () => {
         const s2 = openWorkspaceService({ root: r, backendId: BACKEND_ID });
 
         // (a) ALL 101 projects were completed on disk — the 101st (index
-        // 100) included. Pre-fix, the scan never reached p100, so its
-        // completion never wrote the files.
+        // 100) included.
         for (const id of IDS) {
           expect(existsSync(scenePath(r, id)), `missing ${id}/scenes/scene-main.json`).toBe(true);
           expect(existsSync(contentPath(r, id)), `missing ${id}/content.json`).toBe(true);

@@ -1,6 +1,6 @@
 /**
- * Phase 23.9b: the "UI: <name>" centre tab — the visual editor of one UI
- * document (23.9a project UI).
+ * The "UI: <name>" centre tab — the visual editor of one UI
+ * document (project UI).
  *
  * - Left: the widget hierarchy — select, add (a widget of any type into the
  *   selected container), delete, reorder, reparent (drag a row onto a

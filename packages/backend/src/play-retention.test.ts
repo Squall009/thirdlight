@@ -1,5 +1,5 @@
 /**
- * Phase 25.24 (D48): ended plays are kept only as their `ended` answer. The
+ * Ended plays are kept only as their `ended` answer. The
  * snapshot is released when a play stops, and at most ENDED_PLAYS_KEPT ended
  * records are kept, none older than ENDED_PLAY_RETENTION_MS.
  */

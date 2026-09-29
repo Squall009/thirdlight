@@ -1,5 +1,5 @@
 /**
- * Phase 23.2: the 3D character's input and intent vocabulary — the optional
+ * The 3D character's input and intent vocabulary — the optional
  * second move axis of an action frame (older frames and replays unchanged),
  * `control_move`'s optional `y`, and the character intents' shapes and
  * values. The controller itself runs on the real Rapier 3D backend in
@@ -13,7 +13,7 @@ import { inputView } from './behavior';
 
 describe('phase 23.2: action frames carry an optional move-Y', () => {
   it('a frame without moveY validates exactly as before; with it, moveY follows moveX\'s rules', () => {
-    // Phase 24.8: a version 1 frame reads as the move/jump actions (version 2).
+    // A version 1 frame reads as the move/jump actions (version 2).
     expect(validateActionFrame({ stepIndex: 3, moveX: 0.5, jump: 'none' })).toEqual({ ok: true, frame: { stepIndex: 3, actions: { move: { v: 0.5, p: 'none' }, jump: { v: 0, p: 'none' } } } });
     const withY = validateActionFrame({ stepIndex: 3, moveX: 0.5, moveY: -1, jump: 'held', actions: { run: { v: 1, p: 'held' } } });
     expect(withY.ok && withY.frame).toEqual({ stepIndex: 3, actions: { run: { v: 1, p: 'held' }, move: { v: 0.5, x: 0.5, y: -1, p: 'none' }, jump: { v: 1, p: 'held' } } });

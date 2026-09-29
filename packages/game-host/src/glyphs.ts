@@ -1,5 +1,5 @@
 /**
- * Phase 23.14: input glyphs — what to show for a binding on screen.
+ * Input glyphs — what to show for a binding on screen.
  *
  * A glyph is a label a player reads ("Space", "A", "Cross", "Left button")
  * plus an icon id of the engine's neutral generic set, and the project's own

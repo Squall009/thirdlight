@@ -1,5 +1,5 @@
 /**
- * Phase 25.17: the play-test runner's own rules — checking a spec, splitting
+ * The play-test runner's own rules — checking a spec, splitting
  * an input script into relay exercises (between frames, at every requested
  * observation step, within the relay's steps, frames and body bounds), and
  * the run loop over a backend (a restart first, hold on every exercise, one

@@ -1,5 +1,5 @@
 /**
- * The Rapier 2D physics port (physics.md §5/§6/§8; runtime.md §12.6).
+ * The Rapier 2D physics port.
  *
  * One `World` per port (one per runtime instance). Static colliders are boxes
  * or convex polygons on fixed bodies; the single character is a **parentless**
@@ -9,7 +9,7 @@
  * makes the solver re-sync it toward the body and breaks the correction loop.
  *
  * The adapter owns no frame driver and no timers: the runtime calls `step()`
- * exactly once per executed fixed step (runtime.md §12.1.1 phase 4). `step()`
+ * exactly once per executed fixed step. `step()`
  * applies the staged delta, runs the world pipeline update once
  * (`world.step()`, no dynamic bodies), derives grounding/support normals from
  * the collision results (never from `position.y` or `vy`) and returns the
@@ -69,7 +69,7 @@ function finiteNumber(v: unknown): v is number {
 }
 
 /**
- * Phase 14.0: the character capsule of an init config — the player's own
+ * The character capsule of an init config — the player's own
  * (`character.radius`/`halfHeight`/`offset`), else the default shape.
  * `offset` is where the capsule's centre sits relative to the character
  * position the runtime works with (the entity origin): every position the
@@ -94,7 +94,7 @@ function capsuleOf(config: RapierPhysicsInitConfig): CapsuleShape {
 /**
  * Validate the whole init config before any WASM/world work. Nothing is
  * silently defaulted: `hz` is one of the project step rates (60/120/240),
- * the skin, ground snap and autostep (phase 15.3: the player's data) are in
+ * the skin, ground snap and autostep (the player's data) are in
  * their ranges, and the slope angles from the resolved settings are finite.
  */
 function validateConfig(config: RapierPhysicsInitConfig): ConfigProblem | null {
@@ -108,7 +108,7 @@ function validateConfig(config: RapierPhysicsInitConfig): ConfigProblem | null {
   if (!characterCheck.ok) {
     return { reason: characterCheck.reason, message: characterCheck.detail };
   }
-  // Phase 14.0: the character's capsule (optional; the default when absent).
+  // The character's capsule (optional; the default when absent).
   const ch = config.character;
   if (ch.radius !== undefined && (!finiteNumber(ch.radius) || ch.radius <= 0 || ch.radius > 1e3)) {
     return { reason: 'invalid_config', message: 'character.radius must be a finite number in (0, 1000]' };
@@ -192,7 +192,7 @@ function validateConfig(config: RapierPhysicsInitConfig): ConfigProblem | null {
 const CANCELLED = Symbol('physics-init-cancelled');
 
 /**
- * Phase 22.3: the Rapier module's WebAssembly memory, noted when the library
+ * The Rapier module's WebAssembly memory, noted when the library
  * instantiates it (its only allocation arena: every world, body and collider
  * is there). The library does not expose it, so the first init watches
  * `WebAssembly.instantiate` for the instance it creates and restores the
@@ -219,7 +219,7 @@ function watchInstantiate(): () => void {
   };
 }
 
-/** Phase 22.3: the physics engine's WebAssembly memory in bytes (null before the first init, or when it could not be seen). */
+/** The physics engine's WebAssembly memory in bytes (null before the first init, or when it could not be seen). */
 export function physicsMemoryBytes(): number | null {
   return wasmMemory !== null ? wasmMemory.buffer.byteLength : null;
 }
@@ -279,18 +279,18 @@ function failedResult(
   return { ok: false, error: { code: 'physics_init_failed', reason, message } };
 }
 
-/** Phase 9.9: what the port knows about a level collider. */
+/** What the port knows about a level collider. */
 interface ColliderInfo {
   entityId: string;
   oneWay: boolean;
   body: RAPIER.RigidBody;
   /** Height of the collider's top above its body origin (for one-way tests). */
   top: number;
-  /** Phase 21.2: a mover's kinematic body (fixed at creation). */
+  /** A mover's kinematic body (fixed at creation). */
   kinematic: boolean;
-  /** Phase 21.2: a one-way collider's world top for the current sweep. */
+  /** A one-way collider's world top for the current sweep. */
   topNow: number;
-  /** Phase 21.2: the body's position for the current sweep, and the shape's reach from it. */
+  /** The body's position for the current sweep, and the shape's reach from it. */
   xNow: number;
   yNow: number;
   reach: number;
@@ -307,7 +307,7 @@ function addStaticBody(
   const sin = Math.sin(spec.rotationZ);
   const cos = Math.cos(spec.rotationZ);
   let top: number;
-  // Phase 21.2: the farthest point of the shape from the body origin.
+  // The farthest point of the shape from the body origin.
   let reach: number;
   if (shape.shape.type === 'box') {
     desc = RAPIER.ColliderDesc.cuboid(shape.shape.hx, shape.shape.hy);
@@ -336,13 +336,13 @@ function createAdapter(
   staticBodies: Map<string, RAPIER.RigidBody>,
   colliderInfo: Map<number, ColliderInfo>,
 ): RapierPhysicsPort {
-  // Phase 9.9: mover poses for this step, one-way drop-through, the ground entity.
+  // Mover poses for this step, one-way drop-through, the ground entity.
   let kinematicPoses: readonly { entityId: string; position: Vec2; rotationZ: number }[] = [];
-  /** Phase 9.13: where each kinematic body was posed last, and the largest move of the last world step. */
+  /** Where each kinematic body was posed last, and the largest move of the last world step. */
   const kinematicAt = new Map<string, Vec2>();
   let kinematicMoved = 0;
   let dropSteps = 0;
-  // Phase 21.2: the one-way and the kinematic colliders, listed when colliders
+  // The one-way and the kinematic colliders, listed when colliders
   // come or go, so a step visits only those (not every level collider through
   // WASM) and makes no per-step collections.
   const oneWayList: ColliderInfo[] = [];
@@ -366,7 +366,7 @@ function createAdapter(
     }
   };
   relist();
-  // Phase 14.0: the player's capsule; the collider sits at the character position + offset.
+  // The player's capsule; the collider sits at the character position + offset.
   const cap = capsuleOf(config);
   const off = cap.offset;
   const feetOffset = cap.halfHeight + cap.radius;
@@ -381,7 +381,7 @@ function createAdapter(
     const len = Math.hypot(hit.normal.x, hit.normal.y);
     return len > 0 ? { x: hit.normal.x / len, y: hit.normal.y / len } : null;
   };
-  // Phase 25.4: internal edges. Rapier grounds the character on any contact
+  // Internal edges. Rapier grounds the character on any contact
   // within its ground prediction whose normal points up at all, collider by
   // collider. Where static colliders share a face (tiles in a row, boxes
   // stacked into a wall) a collider's corner on that shared face is not on
@@ -447,7 +447,7 @@ function createAdapter(
     return internal ? -1 : 0;
   };
   /**
-   * Phase 25.4 (D46): the move to sweep again when Rapier held a falling
+   * The move to sweep again when Rapier held a falling
    * character against a wall (see the step), or null. Reads the result of
    * the `computeColliderMovement` just run for (`requestedX`, `commandedY`).
    */
@@ -460,7 +460,7 @@ function createAdapter(
     let x = requestedX;
     for (let i = 0; i < n; i += 1) {
       const hit = controller.computedCollision(i);
-      // Only fixed level colliders: a mover's side keeps Rapier's own response (phase 14.7 decides what it may carry).
+      // Only fixed level colliders: a mover's side keeps Rapier's own response (the carry rules decide what it may carry).
       if (!hit || hit.collider === null || !solidStatic(hit.collider)) return null;
       const len = Math.hypot(hit.normal1.x, hit.normal1.y);
       if (!(len > 0) || Math.abs(hit.normal1.y / len) > WALL_NORMAL_EPS) return null;
@@ -471,7 +471,7 @@ function createAdapter(
   };
   const climbCos = Math.cos(config.controller.maxSlopeClimbRad);
   const snapDistance = config.controller.groundSnap;
-  // Phase 15.3: the skin (the correction bound's ground-offset part) and the autostep lift.
+  // The skin (the correction bound's ground-offset part) and the autostep lift.
   const skin = config.controller.offsetSkin;
   const stepLift = config.controller.autostep ? (config.controller.autostepHeight ?? 0.25) : 0;
   // The authoritative character position is kept as a double here. Rapier
@@ -519,7 +519,7 @@ function createAdapter(
   }
 
   /**
-   * The §5.2 clearance probe (query-only, no mutation): the clearance of the
+   * The clearance probe (query-only, no mutation): the clearance of the
    * capsule if its centre were placed at `center`.
    *
    * - **blocked** — the capsule body overlaps a static collider. Detected with
@@ -544,7 +544,7 @@ function createAdapter(
     // 1. blocked: the deepest capsule-vs-static overlap.
     let blocked = false;
     let maxPenetration = 0;
-    // Phase 14.7: a one-way platform never blocks a spawn — the character
+    // A one-way platform never blocks a spawn — the character
     // passes up through it (the sweep ignores it while the feet are below its
     // top), so a spawn inside one is free; it only supports feet on its top.
     const feet = c.y - feetOffset;
@@ -609,7 +609,7 @@ function createAdapter(
           `staged movement must be a finite { x, y } (got { x: ${String(requested.x)}, y: ${String(requested.y)} })`,
         );
       }
-      // Contract guard (decision 0002 §1.2 item 3): never command a downward
+      // Contract guard: never command a downward
       // delta while grounded — the degenerate path is unreachable through the
       // accepted controller, and this keeps it clean if it is ever reached.
       let commandedY = requested.y;
@@ -623,7 +623,7 @@ function createAdapter(
       // `computeColliderMovement` → `computedMovement` → `setTranslation`
       // pattern. `before` is the authoritative double.
       const before = position;
-      // Phase 9.9: a one-way collider only counts when the feet are on or above
+      // A one-way collider only counts when the feet are on or above
       // its top and the character is not rising (and not while dropping through).
       const rising = commandedY > 1e-9;
       const feet = before.y + off.y - feetOffset;
@@ -639,7 +639,7 @@ function createAdapter(
       sweepFeet = feet;
       sweepRising = rising;
       if (dropSteps > 0) dropSteps -= 1;
-      // Phase 21.2: the predicate (a call from WASM per candidate collider) is
+      // The predicate (a call from WASM per candidate collider) is
       // passed only when it could refuse a collider the sweep can reach — a
       // one-way collider near the capsule's swept box while rising, dropping
       // through or with its top above the feet. Otherwise it would accept every
@@ -663,7 +663,7 @@ function createAdapter(
         }
       }
       const oneWayFilter = excludes ? oneWayPredicate : undefined;
-      // Phase 14.7: Rapier's character controller drags the character along
+      // Rapier's character controller drags the character along
       // with a kinematic body it touches (the body's velocity along the
       // contact, "kinematic friction"). Against the side of a mover that
       // rises past the character — a gate opening, a pillar rising — that
@@ -691,14 +691,14 @@ function createAdapter(
         body.setAngvel(0, false);
         stilled.push(body);
       }
-      // Phase 25.4: Rapier also grounds (and snaps down) from where the sweep
+      // Rapier also grounds (and snaps down) from where the sweep
       // starts. An airborne character whose only ground-like contacts there
       // are internal edges (sliding down a stacked wall past a seam) sweeps
       // without the snap, so the seam neither catches nor pulls it.
       const startGround = grounded ? 1 : groundContacts(before);
       if (startGround === -1) controller.disableSnapToGround();
       controller.computeColliderMovement(characterCollider, { x: requested.x, y: commandedY }, undefined, undefined, oneWayFilter);
-      // Phase 25.4 (D46): a falling character pressed against a wall on its
+      // A falling character pressed against a wall on its
       // left is held there by Rapier 0.20.0: the sweep hits the wall and
       // keeps almost none of the fall (on the right the same wall lets it
       // slide). When a falling sweep keeps less than half its fall and every
@@ -752,7 +752,7 @@ function createAdapter(
         if (unit.y < -climbCos) head = true;
       }
       // Rapier's ground flag (its snap correction is what `snapped` describes),
-      // then the same flag with internal-edge contacts removed (phase 25.4).
+      // then the same flag with internal-edge contacts removed.
       const rapierGrounded = controller.computedGrounded();
       // Refused when the capsule has no real ground-like contact where the
       // sweep ended, and an internal one there or where it started.
@@ -784,7 +784,7 @@ function createAdapter(
       // normal observed together with a ground flag (a stale/character-side
       // contact entry) must never be reported as the support.
       if (rawGrounded && !(supportNormal.y > 0)) supportNormal = { x: 0, y: 1 };
-      // Phase 9.9: a sweep that moves the character up (a lift carrying it)
+      // A sweep that moves the character up (a lift carrying it)
       // never touches the floor, so its only contact can be a corner or a
       // wall beside it — never the support. While grounded, the surface
       // right under the feet (when there is one) is the support.
@@ -796,10 +796,10 @@ function createAdapter(
         }
       }
       const climbable = supportNormal.y >= climbCos - GROUND_NORMAL_TOLERANCE;
-      // physics.md §8 items 1 and 4: the adapter reports Rapier's
+      // Per physics.md, the adapter reports Rapier's
       // `computedGrounded()`; the climbable/steep classification is carried
       // by `contacts.ground`/`contacts.steepSlope` and applied by the
-      // controller (packet 32), which requires `supportNormal.y >= cos(maxClimb)`.
+      // controller, which requires `supportNormal.y >= cos(maxClimb)`.
       const isGrounded = rawGrounded;
 
       // Ground-contact correction ("snapped"): the controller changed the
@@ -809,7 +809,7 @@ function createAdapter(
       // establishes the controller's 0.01 m skin gap. The magnitude is bounded
       // by the snap distance plus the skin, which is exactly the allowance the
       // runtime gives a `snapped` result (0.11 m). An airborne character can
-      // never report it. Recorded as contract-change request C31-2.
+      // never report it.
       const verticalExtra = movement.y - commandedY;
       const bound = snapDistance + skin + 1e-6;
       const snapped =
@@ -833,9 +833,9 @@ function createAdapter(
       const appliedLength = Math.hypot(movement.x, movement.y);
       const requestedLength = Math.hypot(requested.x, requested.y);
       // A moving platform or door that moved into the character in the last
-      // world step may push it by up to that move (Phase 9.13).
+      // world step may push it by up to that move.
       const kinematicSlack = Math.min(0.5, kinematicMoved);
-      // Phase 15.3: an autostep lifts the character by up to the step height.
+      // An autostep lifts the character by up to the step height.
       const allowance = (snapped ? snapDistance + skin : 0.001) + kinematicSlack + stepLift;
       if (appliedLength > requestedLength + allowance + 1e-12) {
         throw correctionError(
@@ -848,7 +848,7 @@ function createAdapter(
       // Apply the correction and run the pipeline update exactly once (no
       // dynamic bodies: this is the broad/narrow-phase update).
       characterCollider.setTranslation(at2(next));
-      // Phase 9.9: the movers move after the character's sweep (the runtime
+      // The movers move after the character's sweep (the runtime
       // already added the carried platform's motion to the requested move).
       kinematicMoved = 0;
       for (const pose of kinematicPoses) {
@@ -938,7 +938,7 @@ function createAdapter(
     },
 
     /**
-     * M3 (gameplay.md §5.2 R4): zero every cached/kinematic motion of the
+     * Reset step (gameplay.md): zero every cached/kinematic motion of the
      * character — the pending staged delta and the grounding/support caches.
      * This is a restricted runtime-only operation (never on `PhysicsStepClient`):
      * the adapter has no dynamic velocity of its own
@@ -953,7 +953,7 @@ function createAdapter(
     },
 
     /**
-     * M3 (gameplay.md §5.2 R4): re-place the capsule centre and return the
+     * Reset step (gameplay.md): re-place the capsule centre and return the
      * resulting clearance. The authoritative double and the collider are both
      * written to `center`, the world pipeline is advanced once, and the motion
      * caches are cleared (idempotent with a prior `clearCharacterMotion`). The
@@ -975,11 +975,11 @@ function createAdapter(
     },
 
     /**
-     * M3 (gameplay.md §5.2 R3): query-only clearance of the capsule if placed
+     * Reset check (gameplay.md): query-only clearance of the capsule if placed
      * at `center` (no mutation). A non-finite centre is a `query_failed`;
      * a WASM throw during the probe is likewise `query_failed`. The runtime
      * maps `blocked`/`no_support`/`query_failed` to a refused placement
-     * (fail-stop, no mutation yet at R3).
+     * (fail-stop, nothing mutated yet).
      */
     characterClearance(center: Vec2): CharacterClearanceResult {
       assertLive('characterClearance');
@@ -1016,7 +1016,7 @@ function createAdapter(
     },
     removeStaticColliders(entityIds: readonly string[]): void {
       assertLive('removeStaticColliders');
-      // Phase 25.24e: one pass over the collider records for the whole batch (a scene's unload removed
+      // One pass over the collider records for the whole batch (a scene's unload removed
       // them per entity, over every record: 28 ms for 1 700 of 16 000).
       const gone = new Set<unknown>();
       for (const id of entityIds) {
@@ -1092,7 +1092,7 @@ export async function createPhysicsPort(
     // PARENTLESS character collider (normative trap): created with no parent
     // rigid body and moved with `setTranslation`. Parenting it would make the
     // solver re-sync the collider toward the body and break this loop.
-    // Phase 14.0: the player's capsule, centred at the character position + offset.
+    // The player's capsule, centred at the character position + offset.
     const cap = capsuleOf(config);
     const characterCollider = world.createCollider(
       RAPIER.ColliderDesc.capsule(cap.halfHeight, cap.radius).setTranslation(
@@ -1100,7 +1100,7 @@ export async function createPhysicsPort(
         config.character.y + cap.offset.y,
       ),
     );
-    // Phase 15.3: the skin, ground snap and autostep are the player's data (defaults 0.01 m, 0.1 m, off).
+    // The skin, ground snap and autostep are the player's data (defaults 0.01 m, 0.1 m, off).
     const controller = world.createCharacterController(config.controller.offsetSkin);
     controller.setMaxSlopeClimbAngle(config.controller.maxSlopeClimbRad);
     controller.setMinSlopeSlideAngle(config.controller.minSlopeSlideRad);

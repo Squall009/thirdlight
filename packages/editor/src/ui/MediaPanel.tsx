@@ -1,10 +1,10 @@
 /**
  * The Media tab: asset-level sound work — listen to the project's sounds.
  *
- * Phase 15.1: the object and game settings that lived here moved to where
+ * The object and game settings that lived here moved to where
  * the data is edited: a surface (with its presets), lights and the old
  * model-animation roles are Inspector sections built from their descriptors
- * (phase 24.4i: sounds for events are the event sounds table below). What stays is per asset: the preview of an audio asset.
+ * (sounds for events are the event sounds table below). What stays is per asset: the preview of an audio asset.
  *
  * The PREVIEW plays committed bytes through the injected preview-audio owner
  * (explicit local gesture; the authoring token stays the session credential of
@@ -26,12 +26,12 @@ interface Props {
   previewDiagnostics: readonly PreviewAudioDiagnostic[];
   onUnlockPreview: () => void;
   onPreviewCue: (assetId: string) => void;
-  /** Phase 24.4i: the event → cue table (edited with the `eventCues` content descriptor's item). */
+  /** The event → cue table (edited with the `eventCues` content descriptor's item). */
   registry?: DescriptorRegistry | null;
   eventCues?: readonly EventCue[];
   fieldContext?: FieldContext;
   eventCuesError?: string | null;
-  /** `base`: the table the edit was made on (phase 24.7: re-applied row by row onto the table as it is at send time). */
+  /** `base`: the table the edit was made on (re-applied row by row onto the table as it is at send time). */
   onSetEventCues?: (next: EventCue[], base: EventCue[]) => void;
 }
 
@@ -44,7 +44,7 @@ function cueItemDesc(registry: DescriptorRegistry | null | undefined): ObjectFie
 }
 
 /**
- * Phase 24.4i: the event → cue table — which sound plays when a signal is
+ * The event → cue table — which sound plays when a signal is
  * sent or an event happens. A new row is made from its three essentials (a
  * signal or an event, its name, the sound); each row is then edited with the
  * generic descriptor form. Every edit is one `setEventCues` command (the

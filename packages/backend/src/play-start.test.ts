@@ -1,5 +1,5 @@
 /**
- * Phase 23.8: resolving a test/debug start of Play against the project.
+ * Resolving a test/debug start of Play against the project.
  */
 import { describe, expect, it } from 'vitest';
 
@@ -16,7 +16,7 @@ describe('resolvePlayStart', () => {
     expect(resolvePlayStart({ sceneId: 'scene-hub' }, { content: {}, scenes, startScenes: ['scene-hub'], sceneId: 'scene-hub' })).toMatchObject({ ok: true, start: { scenes: ['scene-hub'], spawnId: 'spawn-0001' } });
     expect(resolvePlayStart({ sceneId: 'scene-extra' }, { content: {}, scenes, startScenes: ['scene-hub'], sceneId: 'scene-hub' })).toEqual({ ok: true, start: { sceneId: 'scene-extra', scenes: ['scene-hub', 'scene-extra'] }, notes: [] });
     expect(resolvePlayStart({ sceneId: 'scene-arena' }, { content: {}, scenes, startScenes: ['scene-hub'], sceneId: 'scene-hub' })).toEqual({ ok: true, start: { sceneId: 'scene-arena', scenes: ['scene-hub', 'scene-arena'], spawnId: 'spawn-0009' }, notes: [] });
-    // Phase 25.17: a play-test's threading mode passes through.
+    // A play-test's threading mode passes through.
     expect(resolvePlayStart({ threads: 'single' }, { content: {}, scenes, startScenes: ['scene-hub'], sceneId: 'scene-hub' })).toEqual({ ok: true, start: { threads: 'single' }, notes: [] });
   });
 

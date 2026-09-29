@@ -1,11 +1,11 @@
 /**
- * Packet 54 — the injected audio owner (presentation.md §41.4.7): the full
+ * The injected audio owner: the full
  * rule set exercised against a deterministic fake Web Audio graph (no
  * browser, no Node builtins — the owner's own injection seam). The
  * real-AudioContext halves (audibility, a real gesture reaching `running`,
  * the browser checklist) are the `tests/browser/m3-audio` host + the
  * root `tests/m3-audio` real-cue-bytes tests; audibility stays UNVERIFIED
- * (packet 38 baseline §1: no audio device in this container).
+ * (no audio device in this container).
  */
 import { describe, expect, it } from 'vitest';
 import {

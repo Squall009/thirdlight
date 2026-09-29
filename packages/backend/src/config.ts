@@ -1,15 +1,13 @@
 /**
- * Backend configuration — sessions.md §13.7 (normative shape; packet 09
- * implements) + the owner-issued token store (§4.1: tokens are issued by
- * the owner's deployment — no issuance/refresh endpoint, §14) + a
- * test-only timeouts seam (§11.5 constants stand in production; the
- * m1-acceptance test-config allowance).
+ * Backend configuration + the owner-issued token store (tokens are issued by
+ * the owner's deployment — no issuance/refresh endpoint) + a test-only
+ * timeouts seam (the default constants stand in production).
  */
 import { parseCidrList } from './trusted';
 import { sessionError } from '@thirdlight/protocol';
 import type { SessionError } from '@thirdlight/protocol';
 
-/** §11.5 M1 constants (normative) — the production defaults. */
+/** The session timeouts (normative) — the production defaults. */
 export const DEFAULT_TIMEOUTS = {
   wsTokenTtlSeconds: 60,
   silentDropSeconds: 60,
@@ -26,7 +24,7 @@ export type BackendTimeouts = typeof DEFAULT_TIMEOUTS;
 export interface BackendTokenEntry {
   /** The bearer token value (owner-issued). */
   token: string;
-  /** `authoring:<projectId>` or `admin` (§4.1). */
+  /** `authoring:<projectId>` or `admin`. */
   scope: string;
 }
 
@@ -45,9 +43,8 @@ export interface BackendConfig {
   /**
    * Optional. The engine installation root (the repository/install tree that
    * holds `packages/` + `node_modules/`). Used ONLY by the export route
-   * (export.md §3 step 3 containment + §5.4.1 identity/reference paths).
-   * Proposed sessions.md §13.7 contract diff (packet 12 handoff) — additive,
-   * optional; without it the export route reports `unavailable`.
+   * (path containment + identity/reference paths). Optional; without it the
+   * export route reports `unavailable`.
    */
   engineRoot?: string;
   /**
@@ -57,12 +54,12 @@ export interface BackendConfig {
    */
   blenderPath?: string;
   /**
-   * Phase 11: a headless editor for MCP play when no browser is connected
+   * A headless editor for MCP play when no browser is connected
    * (absent = on, with defaults; see headless.ts).
    */
   headless?: { enabled: boolean; libs?: string; idleMs: number };
   /**
-   * Phase 9.6: the final light bake's host (`user@host` over ssh, or `local`),
+   * The final light bake's host (`user@host` over ssh, or `local`),
    * its Blender and the time limit (absent = no final bake; see bake.ts).
    */
   bake?: { host: string; blender: string; timeoutMs: number };
@@ -75,7 +72,7 @@ export interface BackendConfig {
   /** Optional. Reverse proxies whose X-Forwarded-For names the client (THIRDLIGHT_TRUSTED_PROXIES). */
   trustedProxies?: string;
   /**
-   * Phase 22.0, optional (THIRDLIGHT_CROSS_ORIGIN_ISOLATION=1): serve the
+   * Optional (THIRDLIGHT_CROSS_ORIGIN_ISOLATION=1): serve the
    * editor and the preview origin cross-origin isolated (COOP + COEP), so the
    * Play page can use SharedArrayBuffer for the simulation worker's
    * transforms. Off by default: Play then streams them as messages (the same
@@ -83,7 +80,7 @@ export interface BackendConfig {
    */
   crossOriginIsolation?: boolean;
   tokens: BackendTokenEntry[];
-  /** Test-only seam (§11.5 constants stand in production). */
+  /** Test-only seam (`DEFAULT_TIMEOUTS` stand in production). */
   timeouts?: Partial<BackendTimeouts>;
 }
 
@@ -157,7 +154,7 @@ export function parseBackendConfig(value: unknown):
   if (engineRoot.e) return { ok: false, error: engineRoot.e };
   const blenderPath = str('blenderPath', false);
   if (blenderPath.e) return { ok: false, error: blenderPath.e };
-  // authoringOrigins: non-empty exact allowlist, no wildcards (§4.2).
+  // authoringOrigins: non-empty exact allowlist, no wildcards.
   const ao = obj.authoringOrigins;
   if (!Array.isArray(ao) || ao.length === 0) {
     return { ok: false, error: sessionError('field_value', 'validation', 'authoringOrigins must be a non-empty array of exact Origin strings', { path: '/authoringOrigins' }) };
@@ -167,7 +164,7 @@ export function parseBackendConfig(value: unknown):
       return { ok: false, error: sessionError('field_value', 'validation', 'authoringOrigins entries must be exact origin strings (no wildcards)', { path: '/authoringOrigins' }) };
     }
   }
-  // tokens: non-empty, unique (token, scope) pairs; scopes per §4.1.
+  // tokens: non-empty, unique (token, scope) pairs with known scopes.
   const tokensRaw = obj.tokens as unknown[];
   if (!Array.isArray(tokensRaw) || tokensRaw.length === 0) {
     return { ok: false, error: sessionError('field_value', 'validation', 'tokens must be a non-empty array of { token, scope }', { path: '/tokens' }) };

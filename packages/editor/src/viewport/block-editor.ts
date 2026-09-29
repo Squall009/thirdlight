@@ -1,5 +1,5 @@
 /**
- * Phase 23.6 (E8): the Scene view's block-layer editing — the grid of the
+ * The Scene view's block-layer editing — the grid of the
  * selected layer with its movable height slice, the cell under the pointer,
  * brush strokes, the selection box, region outlines and the metadata overlay.
  *
@@ -20,7 +20,7 @@
  * The terrain brushes (height, smooth, flatten) aim at the ground itself
  * (the layer's drawn surface under the pointer) and drop `sculpt` dabs along
  * the drag — each previewed on the layer copy as it lands, all of them sent
- * as one `editBlocks` on release. Phase 25.21: the Paint mode (the `paint`
+ * as one `editBlocks` on release. The Paint mode (the `paint`
  * tool) works the same way with `paint` dabs of the paint brush.
  *
  * Browser-only (three.js); the maths is `session/block-brush.ts`.
@@ -477,7 +477,7 @@ export class BlockEditor {
     const b = this.opts.brush;
     // The brush block grows empty ground (raising where nothing stands yet).
     const cell = brushCell(b, b.block !== null ? this.types.get(b.block) : undefined);
-    // Phase 25.21: the paint tool paints the surface under the paint brush (invert: erase).
+    // The paint tool paints the surface under the paint brush (invert: erase).
     const dab = k.tool === 'paint' ? paintEdit([x, z], b.paint, k.invert) : sculptEdit(k.tool, [x, z], b, k.invert, k.level, cell);
     k.dabs.push(dab);
     this.previewEdits([dab]);

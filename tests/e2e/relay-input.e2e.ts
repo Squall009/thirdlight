@@ -1,5 +1,5 @@
 /**
- * Phase 25.15: the input exercise relay (tl_input_exercise through the real
+ * The input exercise relay (tl_input_exercise through the real
  * MCP stdio adapter, the backend's HTTP relay and the owner's editor page),
  * in both threading modes (the simulation worker and a single thread), on
  * the starter project with neutral content made by commands: a HUD with an
@@ -269,7 +269,7 @@ test('tl_input_exercise on a single thread: run length, UI hit test and clicks, 
   await checks(page, 2, 'single');
 });
 
-// Phase 25.16: a run and its replay. An exercise with `restart` restarts the game and applies its frames from the new
+// A run and its replay. An exercise with `restart` restarts the game and applies its frames from the new
 // run's first step; tl_game_observe's run.lastInput is the run digest right after its last step. The same frames give
 // the same digest at the same run step (in the worker and on a single thread — and the two agree); other frames do not.
 test('a run and its replay (tl_input_exercise restart) give the same run digest, in the worker and on a single thread', async ({ page }) => {

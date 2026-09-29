@@ -1,12 +1,10 @@
 /**
- * Captured immutable content view — project-model.md §19.
+ * Captured immutable content view.
  *
  * `captureContent(scene, content, { projectId, revision })` is the single pure
- * derivation of the view (sessions.md §17.1; workspace.md §16.6 item 4) over
- * a v3 scene/content pair (the v2 pair was removed in phase 9.3): the v3
- * closure adds `components.modelAnimation` references (pinning the binding's recorded
- * version explicitly); the view shape and `contentVersion` stay unchanged
- * (§19.1/§16.6).
+ * derivation of the view over a v3 scene/content pair: the v3 closure adds
+ * `components.modelAnimation` references (pinning the binding's recorded
+ * version explicitly); the view shape and `contentVersion` stay unchanged.
  *
  * A reference that does not resolve is `asset_reference_missing`, reported
  * before any capture. Pure: no I/O, no filesystem, no three.js.
@@ -59,7 +57,7 @@ function view(
   return { ...withoutDigest, contentDigest: digest };
 }
 
-// ---- closure helpers (§19.2 steps 1–2) ----------------------------------------
+// ---- closure helpers ----------------------------------------
 
 function declaredAssetRefKeys(content: ContentCatalog): Map<string, Set<string>> {
   const out = new Map<string, Set<string>>();
@@ -69,7 +67,7 @@ function declaredAssetRefKeys(content: ContentCatalog): Map<string, Set<string>>
   return out;
 }
 
-// ---- v3 closure (§19.2 step 1 v3 additions; workspace.md §16.6 item 4) -------
+// ---- v3 closure -------
 
 /** A reachable asset with either an explicit pinned version or `null` (current). */
 export type AssetRefV3 = { assetId: string; version: number | null };
@@ -97,8 +95,8 @@ export function collectAssetRefsV3(scene: SceneV3, content: ContentCatalogV3): A
       if (typeof v === 'string') setRef(v);
     }
   };
-  // Phase 18.3: an object may override a graph material's public texture parameter with another texture.
-  // Phase 25.19: material instances as they draw (their root's parameters, their own values).
+  // An object may override a graph material's public texture parameter with another texture.
+  // Material instances as they draw (their root's parameters, their own values).
   const materialDefs = resolveMaterialInstances((content as { materials?: MaterialDef[] }).materials ?? []);
   const textureKeys = new Map(materialDefs.map((m) => [m.materialId, new Set((m.parameters ?? []).filter((p) => p.type === 'texture').map((p) => p.key))]));
   const addEntity = (e: SceneV3['entities'][number]): void => {
@@ -111,50 +109,50 @@ export function collectAssetRefsV3(scene: SceneV3, content: ContentCatalogV3): A
     if (e.components.behavior) addBehavior(e.components.behavior.behaviorId, e.components.behavior.values);
     const animation = e.components.modelAnimation;
     if (animation) setRef(animation.assetId, animation.version);
-    // Phase 12 (c): an instance set places one model.
+    // An instance set places one model.
     const instances = (e.components as { instances?: { asset: { assetId: string } } }).instances;
     if (instances) setRef(instances.asset.assetId);
-    // Phase 9.10: an audio source's sound.
+    // An audio source's sound.
     const source = (e.components as { audioSource?: { assetId: string } }).audioSource;
     if (source) setRef(source.assetId);
-    // Phase 25.8: a spot light's cookie texture.
+    // A spot light's cookie texture.
     const cookie = (e.components as { light?: { cookie?: string } }).light?.cookie;
     if (cookie !== undefined) setRef(cookie);
   };
   for (const e of scene.entities) addEntity(e);
   for (const d of content.prefabs) for (const e of d.entities) addEntity(e as unknown as SceneV3['entities'][number]);
-  // Phase 9.4: every texture a project material uses travels with the game.
-  // Phase 18.3: a graph material's texture fields and parameters too, and those of the functions it calls.
+  // Every texture a project material uses travels with the game.
+  // A graph material's texture fields and parameters too, and those of the functions it calls.
   for (const m of materialDefs) for (const id of materialTextureRefs(m)) setRef(id);
   for (const g of materialFunctionsForRuntime(materialDefs, (content as { graphs?: GraphDocument[] }).graphs ?? [])) {
     for (const r of graphAssetRefs(MATERIAL_FUNCTION_GRAPH_KIND, g.graph)) if (r.asset === 'texture') setRef(r.id);
   }
-  // Phase 23.5: the models block types show (prefab looks are captured with the prefabs above).
+  // The models block types show (prefab looks are captured with the prefabs above).
   for (const t of (content as { blockTypes?: { variants: { model?: { assetId: string } }[] }[] }).blockTypes ?? []) for (const v of t.variants) if (v.model !== undefined) setRef(v.model.assetId);
-  // Phase 20.2: the textures and models the project's effects draw and sample travel with the game.
+  // The textures and models the project's effects draw and sample travel with the game.
   for (const fx of (content as { effects?: EffectDef[] }).effects ?? []) for (const r of effectAssetRefs(fx)) setRef(r.id);
-  // Phase 23.14: the project's glyph images (input.glyphs).
+  // The project's glyph images (input.glyphs).
   for (const id of Object.values((content as { input?: { glyphs?: Record<string, string> } }).input?.glyphs ?? {})) setRef(id);
-  // Phase 23.9a: the textures (images, 9-slices, icons) and fonts the UI documents and themes use.
+  // The textures (images, 9-slices, icons) and fonts the UI documents and themes use.
   const ui = uiAssetRefs((content as { uiDocuments?: UiDocument[] }).uiDocuments, (content as { uiThemes?: UiTheme[] }).uiThemes);
   for (const id of [...ui.textures, ...ui.fonts]) setRef(id);
-  // Phase 23.16: voice clips, speaker portraits and text blips.
+  // Voice clips, speaker portraits and text blips.
   for (const id of dialogueAssetRefs(content as { dialogues?: DialogueDocument[]; speakers?: DialogueSpeaker[] })) setRef(id);
-  // Phase 23.17: the sounds the timelines play.
+  // The sounds the timelines play.
   for (const id of timelineRefs((content as { timelines?: TimelineAsset[] }).timelines).assets) setRef(id);
-  // Phase 24.4i: the sounds of the event → cue table.
+  // The sounds of the event → cue table.
   for (const c of (content as { eventCues?: { assetId: string }[] }).eventCues ?? []) setRef(c.assetId);
-  // Phase 9.5: the sky images and the grading LUT.
+  // The sky images and the grading LUT.
   const env = (content as { environment?: { sky?: { texture?: string; cube?: string[] }; post?: { grading?: { lut?: string } } } }).environment;
   if (env?.sky?.texture !== undefined) setRef(env.sky.texture);
   for (const id of env?.sky?.cube ?? []) setRef(id);
   if (env?.post?.grading?.lut !== undefined) setRef(env.post.grading.lut);
-  // Phase 23.18: the environment presets' sky images and LUTs.
+  // The environment presets' sky images and LUTs.
   for (const id of environmentPresetTextureRefs((content as { environment?: { presets?: EnvironmentPreset[] } }).environment?.presets)) setRef(id);
-  // Phase 9.7: the models an animator controller takes clips from.
-  // Phase 14.6: the override layers' clips too.
+  // The models an animator controller takes clips from.
+  // The override layers' clips too.
   for (const c of (content as { animators?: AnimatorController[] }).animators ?? []) for (const id of animatorAssetIds(c)) setRef(id);
-  // Phase 9.6: the lightmap atlases of every scene's bake.
+  // The lightmap atlases of every scene's bake.
   for (const bake of Object.values((content as { lighting?: Record<string, { atlases: string[] }> }).lighting ?? {})) for (const id of bake.atlases) setRef(id);
   return [...refs.entries()].map(([assetId, version]) => ({ assetId, version })).sort((a, b) => (a.assetId < b.assetId ? -1 : a.assetId > b.assetId ? 1 : 0));
 }
@@ -162,7 +160,7 @@ export function collectAssetRefsV3(scene: SceneV3, content: ContentCatalogV3): A
 // ---- public entry point ------------------------------------------------------
 
 /**
- * §19.2 `captureContent(scene, content, { projectId, revision })`: the pure
+ * `captureContent(scene, content, { projectId, revision })`: the pure
  * captured immutable content view for a v3 pair.
  */
 export function captureContent(

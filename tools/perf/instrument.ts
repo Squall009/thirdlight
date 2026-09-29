@@ -1,8 +1,8 @@
 /**
- * Phase 21.1: page instrumentation, installed with `addInitScript` in every
+ * Page instrumentation, installed with `addInitScript` in every
  * frame before any page script runs. It counts at the graphics API — so it
- * measures the legacy WebGLRenderer, WebGPURenderer on WebGL 2 and on WebGPU
- * alike, and needs no hook in the product:
+ * measures WebGPURenderer on WebGL 2 and on WebGPU alike, and needs no hook
+ * in the product:
  *
  * - draw calls and (approximate) triangles per rendered frame,
  * - live programs/pipelines, textures, buffers and vertex arrays,
@@ -27,22 +27,22 @@ export interface PerfPageState {
   live: { programs: number; pipelines: number; textures: number; buffers: number; vaos: number };
   bytes: { buffers: number; textures: number };
   apis: string[];
-  /** Phase 21.4: WebSocket messages the page received (by `type`), and when each `mutation.applied` arrived. */
+  /** WebSocket messages the page received (by `type`), and when each `mutation.applied` arrived. */
   ws: { byType: Record<string, { n: number; bytes: number; max: number }>; applied: number[]; appliedFrame: number[] };
-  /** Phase 21.4: long tasks (≥ 50 ms main-thread blocks) as [start, duration]. */
+  /** Long tasks (≥ 50 ms main-thread blocks) as [start, duration]. */
   longTasks: [number, number][];
   /**
-   * Phase 21.5: the same live counts per WebGL context / WebGPU device (held
+   * The same live counts per WebGL context / WebGPU device (held
    * weakly, so the instrumentation never keeps a released canvas alive). A
    * context that was lost or collected, or a destroyed device, frees its
    * resources without delete calls: `readGpuLive` leaves it out.
    */
   contexts: GpuContextRecord[];
-  /** Phase 21.5: workers created and terminated by this frame's scripts. */
+  /** Workers created and terminated by this frame's scripts. */
   workers: { created: number; terminated: number };
 }
 
-/** Phase 21.5: one WebGL context or WebGPU device and what it holds now. */
+/** One WebGL context or WebGPU device and what it holds now. */
 export interface GpuContextRecord {
   kind: 'webgl' | 'webgpu';
   ref: { deref(): object | undefined };
@@ -71,7 +71,7 @@ export function installPerfInstrumentation(): void {
     workers: { created: 0, terminated: 0 },
   };
   w.__tlPerf = P;
-  // Phase 21.5: per-context bookkeeping (WeakRef: a context is never kept alive by this map).
+  // Per-context bookkeeping (WeakRef: a context is never kept alive by this map).
   const ctxOf = new WeakMap<object, GpuContextRecord>();
   const WR = (globalThis as unknown as { WeakRef?: new (o: object) => { deref(): object | undefined } }).WeakRef;
   const ctxRecord = (owner: unknown, kind: 'webgl' | 'webgpu'): GpuContextRecord | null => {
@@ -88,7 +88,7 @@ export function installPerfInstrumentation(): void {
     const r = ctxRecord(owner, kind);
     if (r !== null) r.live[key] += d;
   };
-  // Phase 21.5: workers (created / terminated) — a leak test checks none is left behind.
+  // Workers (created / terminated) — a leak test checks none is left behind.
   const OrigWorker = (globalThis as unknown as { Worker?: typeof Worker }).Worker;
   if (typeof OrigWorker === 'function') {
     const WrappedWorker = function (url: string | URL, options?: WorkerOptions): Worker {
@@ -104,7 +104,7 @@ export function installPerfInstrumentation(): void {
       return term.call(this);
     };
   }
-  // Phase 21.4: WebSocket message sizes by type, and for each `mutation.applied` the delay until the
+  // WebSocket message sizes by type, and for each `mutation.applied` the delay until the
   // second animation frame after it (the page's own work for the change — projection, React, the
   // Scene view sync — delays that frame). The wrapper adds one listener before the page's own.
   const OrigWS = window.WebSocket;
@@ -412,7 +412,7 @@ export interface GpuLive {
 }
 
 /**
- * Phase 21.5, in the page: what the live contexts hold now (contexts that are
+ * In the page: what the live contexts hold now (contexts that are
  * lost, destroyed or collected freed their resources and are left out).
  * Call after a garbage collection for the collected ones to drop out.
  */

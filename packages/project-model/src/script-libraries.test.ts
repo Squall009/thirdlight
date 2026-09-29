@@ -1,5 +1,5 @@
 /**
- * Phase 23.7: script library data rules — validation and bounds, the patch
+ * Script library data rules — validation and bounds, the patch
  * rule, the digest (the canonical container) and the pins of behavior source
  * records (a pin names an existing library at its current digest).
  */

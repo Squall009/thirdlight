@@ -1,31 +1,30 @@
 /**
- * The game host (delivery.md §3.1/§3.2/§4 — packet 55, B04/B08/B09/B13/B15).
+ * The game host.
  *
  * The LOCAL (in-page) composition: one runtime instance per mounted host,
  * the injected input owner (the browser gameplay + menu channels), the
- * injected audio owner (packet 54), the injected render adapter (the
+ * injected audio owner, the injected render adapter (the
  * three-adapter, types-only), and the host-owned overlays (project UI, the
  * game shell, letterbox, fade, debug console). The exported page
- * (packets 56–59) composes the SAME entry behind the relay channel; nothing
+ * composes the SAME entry behind the relay channel; nothing
  * here imports the relay, the backend, the MCP, or the model service.
  *
  * Wiring rules this module enforces:
  *  - the runtime is the single frame driver (the host never adds a loop;
  *    its per-frame work runs as the runtime's `onFrame` — step → host →
- *    adapter render, runtime.md §6);
+ *    adapter render);
  *  - the menu/control channel is serviced BETWEEN frames, never on a tick
- *    (delivery.md §4.5: a restart or a UI event rides on the next step's
+ *    (a restart or a UI event rides on the next step's
  *    input frame);
  *  - the host reads the runtime's published views (interpolated state,
  *    UI, audio, camera) and never touches runtime internals or the
- *    adapter's scene graph (one scene-mutation path, C41-1);
+ *    adapter's scene graph (one scene-mutation path);
  *  - overlays write `textContent` only — project strings are never HTML.
  *
- * Additive over the binding §3.1 surface (contract-change requests CC-55-1
- * / CC-55-2, recorded in the packet-55 handoff — the binding members are
+ * Additive over the binding host surface (the binding members are
  * unchanged):
  *  - `GameHostConfig.buildId` — the verified manifest buildId the wrapper
- *    passed (the §3.1 `GameHostObservation.buildId` field is unsatisfiable
+ *    passed (the `GameHostObservation.buildId` field is unsatisfiable
  *    from the binding config, which carries no build identity);
  *  - `GameHostConfig.assetPaths` — assetId → manifest-declared relative
  *    path (the manifest is wrapper-owned; the host resolves cue bytes
@@ -36,7 +35,7 @@
  *    injected);
  *  - `GameHost.runtime` — the additive read-only runtime seam (manual
  *    driver / Node compositions need a frame-advance handle; the binding
- *    §3.1 surface exposes none).
+ *    surface exposes none).
  */
 import {
   BUILTIN_MODULES,
@@ -78,21 +77,20 @@ import { hitUiTargets, type UiHitTarget } from './ui-hit';
 import { createPausePanel, type PausePanel } from './pause-panel';
 import { createShellController, type ShellConfigLike, type ShellController, type ShellObservation } from './shell';
 
-/** delivery.md §3.1. */
 export const GAME_HOST_API_VERSION = 1;
 
-/** delivery.md §3.1 — the bounded game-control actions (`replay`: restart the game). */
+/** The bounded game-control actions (`replay`: restart the game). */
 export type GameControlAction = 'replay' | 'mute' | 'unmute' | 'clearSave';
 export const GAME_CONTROL_ACTIONS: readonly GameControlAction[] = Object.freeze([
   'replay',
   'mute',
   'unmute',
-  // Phase 9.11: forget this game's saves and settings (the editor's "clear Play save").
+  // Forget this game's saves and settings (the editor's "clear Play save").
   'clearSave',
 ]);
 
-/** delivery.md §3.1 — the four bridge message names (the relay channel,
- * packets 56–59, consumes these; the local host defines the constant). */
+/** The four bridge message names (the relay channel consumes these; the
+ * local host defines the constant). */
 export const GAME_HOST_MESSAGES: readonly string[] = Object.freeze([
   'tl.game.control',
   'tl.game.observe',
@@ -107,32 +105,32 @@ export interface HostInputOwner {
   sampleMenu(): MenuSample;
   markConfirmConsumed(): void;
   dispose(): void;
-  /** Phase 9.10: menu edges, key capture and rebinding (the browser owner has them). */
+  /** Menu edges, key capture and rebinding (the browser owner has them). */
   sampleUi?(): UiEdges;
   captureKey?(onKey: (code: string | null) => void): () => void;
-  /** Phase 14.5: the next pad button pressed (the settings screen's pad rebinding). */
+  /** The next pad button pressed (the settings screen's pad rebinding). */
   capturePadButton?(onButton: (button: number | null) => void): () => void;
   configure?(config: { actions: readonly { name: string; type: string; map: string; bindings: readonly unknown[] }[] }): void;
-  /** Phase 15.5: the device the player used last (the input prompts name its bindings; absent: keyboard). */
+  /** The device the player used last (the input prompts name its bindings; absent: keyboard). */
   activeDevice?(): 'keyboard' | 'gamepad';
-  /** Phase 23.9a: only these input action maps feed the frame (null: every map) — a focused UI document's map. */
+  /** Only these input action maps feed the frame (null: every map) — a focused UI document's map. */
   setActiveMaps?(maps: readonly string[] | null): void;
-  /** Phase 23.3: the cursor the game wants (free / locked); the owner locks, releases and hides it. */
+  /** The cursor the game wants (free / locked); the owner locks, releases and hides it. */
   applyCursor?(mode: 'free' | 'locked'): void;
-  /** Phase 25.15: the UI hit test (x, y fractions of the view): the owner reports the pointer over the UI (`overUi`) and leaves presses there to the UI. */
+  /** The UI hit test (x, y fractions of the view): the owner reports the pointer over the UI (`overUi`) and leaves presses there to the UI. */
   setUiHitTest?(hit: ((x: number, y: number) => boolean) | null): void;
-  /** Phase 23.3: the cursor as it is (observers). */
+  /** The cursor as it is (observers). */
   cursorState?(): { mode: 'free' | 'locked'; locked: boolean; hidden: boolean };
-  /** Phase 23.14: listen for the next input for a rebind (a cancel key gives null). */
+  /** Listen for the next input for a rebind (a cancel key gives null). */
   captureInput?(options: { devices?: readonly ('keyboard' | 'mouse' | 'gamepad')[]; cancelKeys?: readonly string[] }, onInput: (input: Captured | null) => void): () => void;
-  /** Phase 23.14: the device used last with the active pad's id. */
+  /** The device used last with the active pad's id. */
   activeDeviceInfo?(): { device: 'keyboard' | 'gamepad'; gamepadId: string | null };
-  /** Phase 23.14: what the host adds to the next sampled frame (`ActionFrame.input`). */
+  /** What the host adds to the next sampled frame (`ActionFrame.input`). */
   setFrameInput?(source: (() => import('@thirdlight/runtime').InputStatusEntry | undefined) | null): void;
 }
 
 /**
- * Phase 23.3, additive: the pointer and the cursor as an observer sees them —
+ * The pointer and the cursor as an observer sees them —
  * the pointer the simulation read last (position in the view, held buttons,
  * over the view, locked), the cursor mode in effect and whether the browser
  * holds the lock / hides it; and the objects scripts hid.
@@ -143,7 +141,7 @@ export interface GameHostInputObservation {
   /** The ids of the objects scripts hid (`ctx.game.setVisible`), sorted, at most 64. */
   readonly hidden?: readonly string[];
   /**
-   * Phase 23.14: the player's bindings — the device used last (pad id and
+   * The player's bindings — the device used last (pad id and
    * family), the profile, a rebind listening now, the actions the player
    * changed and each action's glyph for the device used last.
    */
@@ -155,15 +153,15 @@ export interface GameHostInputObservation {
 export interface HostRenderAdapter {
   renderFrame(): { ok: true } | { ok: false; error: unknown };
   dispose(): unknown;
-  /** Phase 23.19, optional: draw a frame and return it downscaled (a save slot's picture). */
+  /** Draw a frame and return it downscaled (a save slot's picture). */
   captureThumbnail?(width: number, height: number, type: 'image/jpeg' | 'image/webp', quality: number): { dataUrl: string; width: number; height: number } | null;
-  /** Phase 23.9a: project an entity or world point through the rendered camera (world-anchored UI widgets). */
+  /** Project an entity or world point through the rendered camera (world-anchored UI widgets). */
   projectToScreen?: UiProjector;
-  /** Phase 25.24e: the scene set revision the last presented frame drew (a transition fades in once it is on screen). */
+  /** The scene set revision the last presented frame drew (a transition fades in once it is on screen). */
   presentedSceneRevision?(): number;
 }
 
-/** Phase 23.19: the project saves as observers see them (a project with a save schema). */
+/** The project saves as observers see them (a project with a save schema). */
 export interface ProjectSavesObservation {
   readonly slotCount: number;
   readonly storage: 'indexeddb' | 'memory';
@@ -172,18 +170,18 @@ export interface ProjectSavesObservation {
   readonly settings: Readonly<Record<string, boolean | number | string>>;
 }
 
-/** delivery.md §3.1 `GameHostObservation.sound`. */
+/** `GameHostObservation.sound`. */
 export interface GameHostSound {
   readonly status: 'ready' | 'muted' | 'blocked' | 'unavailable';
   readonly unlocked: boolean;
   readonly voices: number;
   readonly muted: boolean;
   readonly gesture: 'local' | 'none';
-  /** Phase 22.0, additive: sounds the owner has started (scripts' `ctx.audio`, event cues) per bus. */
+  /** Sounds the owner has started (scripts' `ctx.audio`, event cues) per bus. */
   readonly played?: { readonly sfx: number; readonly ui: number };
 }
 
-/** Phase 23.16: the conversation in the observation (bounded; from the dialogue view model). */
+/** The conversation in the observation (bounded; from the dialogue view model). */
 export interface DialogueObservation {
   readonly running: boolean;
   readonly dialogueId: string;
@@ -200,13 +198,13 @@ export interface DialogueObservation {
 }
 
 /**
- * Phase 24.6: the play state every game reports — the simulation runs, or the
+ * The play state every game reports — the simulation runs, or the
  * engine pause holds it (a menu, the pause panel, a game mode's pause).
  * `stopped` is the play's end (a disposed host has nothing to observe).
  */
 export type PlayState = 'running' | 'paused' | 'stopped';
 
-/** Phase 23.18: the environment preset blend as observed (the frame's interpolated weights). */
+/** The environment preset blend as observed (the frame's interpolated weights). */
 export interface GameHostEnvironmentObservation {
   readonly target: string | null;
   readonly progress: number;
@@ -214,8 +212,8 @@ export interface GameHostEnvironmentObservation {
 }
 
 /**
- * delivery.md §3.1 `GameHostObservation` (phase 24.7: the one observation —
- * every game plays as a scene): its step and time, the play state, the sound
+ * `GameHostObservation` (the one observation — every game plays as a
+ * scene): its step and time, the play state, the sound
  * status, where its character (the controller entity) is, in 3D, and the
  * additive blocks of the systems the game uses.
  */
@@ -224,58 +222,58 @@ export interface GameHostObservation {
   readonly buildId: string;
   readonly stepIndex: number;
   readonly simTime: number;
-  /** Phase 24.6: the generic play state. */
+  /** The generic play state. */
   readonly state: PlayState;
   readonly sound: GameHostSound;
   readonly inputMode: 'physical' | 'test';
   readonly player?: { readonly x: number; readonly y: number; readonly z: number };
-  /** Phase 12 (c), additive: the loaded scenes and the ones being loaded. */
+  /** The loaded scenes and the ones being loaded. */
   readonly scenes?: {
     readonly loaded: readonly string[];
     readonly loading: readonly string[];
-    /** Phase 25.24e: the transition waiting for its scene (phase out/loading, how far the view faded), when one is. */
+    /** The transition waiting for its scene (phase out/loading, how far the view faded), when one is. */
     readonly transition?: import('@thirdlight/runtime').SceneTransitionView;
-    /** Phase 25.24e: the scenes read ahead (being prepared, ready). */
+    /** The scenes read ahead (being prepared, ready). */
     readonly preloading?: readonly string[];
     readonly preloaded?: readonly string[];
   };
-  /** Phase 9.10, additive: the audio sources' live loops (entity id → gain). */
+  /** The audio sources' live loops (entity id → gain). */
   readonly loops?: Readonly<Record<string, number>>;
-  /** Phase 23.4, additive: the resolved camera while the game has virtual cameras (live camera, blend, pose, lens, letterbox). */
+  /** The resolved camera while the game has virtual cameras (live camera, blend, pose, lens, letterbox). */
   readonly camera?: CameraViewInfo;
-  /** Phase 23.18, additive: the environment preset blend once a script changed it (target, progress, weights by key; '' = the base look). */
+  /** The environment preset blend once a script changed it (target, progress, weights by key; '' = the base look). */
   readonly environment?: GameHostEnvironmentObservation;
-  /** Phase 23.13, additive: the Web Audio graph (live voices with gain/pan/rate, music, buses, listener) once scripts used audio or a positional loop plays. */
+  /** The Web Audio graph (live voices with gain/pan/rate, music, buses, listener) once scripts used audio or a positional loop plays. */
   readonly audio?: AudioObservation;
-  /** Phase 23.9a, additive: the project UI — the documents shown, the screen's document, the focus. */
+  /** The project UI — the documents shown, the screen's document, the focus. */
   readonly ui?: UiLayerObservation;
-  /** Phase 23.16, additive: the conversation (once the project's dialogue ran). */
+  /** The conversation (once the project's dialogue ran). */
   readonly dialogue?: DialogueObservation;
-  /** Phase 23.3, additive: the pointer, the cursor and the objects scripts hid. */
+  /** The pointer, the cursor and the objects scripts hid. */
   readonly pointer?: GameHostInputObservation['pointer'];
   readonly cursor?: GameHostInputObservation['cursor'];
   readonly hidden?: readonly string[];
-  /** Phase 23.14, additive: the player's bindings (device, profile, listening, changed actions, glyphs). */
+  /** The player's bindings (device, profile, listening, changed actions, glyphs). */
   readonly inputBindings?: GameHostInputObservation['inputBindings'];
-  /** Phase 23.11, additive: the objects riding on sockets (only while some do) and their world positions. */
+  /** The objects riding on sockets (only while some do) and their world positions. */
   readonly sockets?: readonly SocketObservation[];
-  /** Phase 23.10, additive: the game modes (only a project with modes) and the engine pause. */
+  /** The game modes (only a project with modes) and the engine pause. */
   readonly mode?: ModeView;
   readonly paused?: boolean;
-  /** Phase 23.10, additive: the engine's pause panel (a paused game with modes and no pause screen of its own). */
+  /** The engine's pause panel (a paused game with modes and no pause screen of its own). */
   readonly pausePanel?: { readonly focus: 'resume' | 'restart' };
-  /** Phase 23.19, additive: the project saves (slot metadata, settings document). */
+  /** The project saves (slot metadata, settings document). */
   readonly saves?: ProjectSavesObservation;
-  /** Phase 23.17, additive: the timelines (screen fade/letterbox, plays, the last step's events) once one played. */
+  /** The timelines (screen fade/letterbox, plays, the last step's events) once one played. */
   readonly timeline?: import('@thirdlight/runtime').TimelineView;
-  /** Phase 24.4j, additive: the game shell (its screen, the listed scene, the HUD shown). */
+  /** The game shell (its screen, the listed scene, the HUD shown). */
   readonly shell?: ShellObservation;
-  /** Phase 24.7, additive: the named counters (at most 32) and every object's health (object id → current/max; at most 64) — Play and the export alike. */
+  /** The named counters (at most 32) and every object's health (object id → current/max; at most 64) — Play and the export alike. */
   readonly counters?: Readonly<Record<string, number>>;
   readonly health?: Readonly<Record<string, { readonly current: number; readonly max: number }>>;
 }
 
-/** Phase 23.11: one object riding on a socket, as the host observes it (its interpolated world position). */
+/** One object riding on a socket, as the host observes it (its interpolated world position). */
 export interface SocketObservation {
   readonly entityId: string;
   readonly target: string;
@@ -283,7 +281,7 @@ export interface SocketObservation {
   readonly position: readonly [number, number, number];
 }
 
-/** delivery.md §3.1 `GameControlResult` (accepted submissions; the
+/** `GameControlResult` (accepted submissions; the
  * runtime's own rejection rule passes through its structured error). */
 export type GameControlError =
   | { code: string; reason?: string; command?: string; state?: string; message: string };
@@ -293,7 +291,7 @@ export type GameControlResult =
   | { readonly ok: false; readonly error: GameControlError };
 
 /**
- * Phase 23.8: where a test or debug start begins (Play from…, `tl_play_start`)
+ * Where a test or debug start begins (Play from…, `tl_play_start`)
  * — resolved by the backend against the project, applied by the host at mount.
  */
 export interface GameStartOptions {
@@ -301,17 +299,17 @@ export interface GameStartOptions {
   readonly scenes?: readonly string[];
   /** ...and the player spawn it starts at (absent: the game's own). */
   readonly spawnId?: string;
-  /** Phase 23.10: the game mode the run starts in (validated by the backend against the project's modes). */
+  /** The game mode the run starts in (validated by the backend against the project's modes). */
   readonly mode?: string;
-  /** Phase 23.19: a project save document loaded at the first step (slot 0), or a project save slot of this page. */
+  /** A project save document loaded at the first step (slot 0), or a project save slot of this page. */
   readonly projectSave?: ProjectSaveFile;
   readonly projectSaveSlot?: number;
 }
 
-/** Phase 23.8: what became of the start options (`GameHost.startOutcome`). */
+/** What became of the start options (`GameHost.startOutcome`). */
 export type GameStartOutcome = { readonly ok: true; readonly applied: readonly string[] } | { readonly ok: false; readonly reason: string };
 
-/** delivery.md §3.1 `GameHostConfig` (+ the additive CC-55-1/CC-55-2 fields). */
+/** `GameHostConfig` (+ the additive buildId, assetPaths and adapter-factory fields). */
 export interface GameHostConfig {
   /** The runtime snapshot (validated by the runtime at instantiate). */
   readonly snapshot: RuntimeSnapshot;
@@ -327,72 +325,72 @@ export interface GameHostConfig {
    * The manifest's required engine module ids (derived by the build from the
    * declared dependencies). The host registers exactly these simulation
    * modules and checks the port modules it needs are injected; an id it
-   * cannot provide is `host_module_unresolved`. Absent ⇒ none (phase 24.3:
-   * there is no default set).
+   * cannot provide is `host_module_unresolved`. Absent ⇒ none (there
+   * is no default set).
    */
   readonly modules?: readonly string[];
   /**
-   * Phase 24.3: the simulation module specs this composition provides beyond
+   * The simulation module specs this composition provides beyond
    * the runtime's built-ins, keyed by their manifest module id (`spec.id`)
    * and listed in dependency order (a module after those it needs). The
    * composition entry (the Play preview, the export bootstrap, the
    * simulation worker) registers them; the host imports no module package.
    */
   readonly moduleSpecs?: readonly SimulationModuleSpec[];
-  /** ADDITIVE (CC-55-2): the render-adapter FACTORY — the three-adapter
+  /** ADDITIVE: the render-adapter FACTORY — the three-adapter
    * instance requires the runtime it renders, which the host creates inside
    * `mount()`. `null` = no adapter (headless composition). */
   readonly adapter: (runtime: Runtime) => HostRenderAdapter | null;
   /** The injected browser input owner (the gameplay + menu channels). */
   readonly input: HostInputOwner;
-  /** The injected audio owner (packet 54). */
+  /** The injected audio owner. */
   readonly audio: GameAudioOwner;
   /** The injected artifact reader (manifest-declared relative paths only;
-   * the host never fetches). Contract shape (delivery.md §3.1): the bytes
+   * the host never fetches). Contract shape: the bytes
    * arrive as an `ArrayBuffer`; the host wraps them for the audio owner. */
   readonly readArtifact: (path: string) => Promise<ArrayBuffer>;
   /** The overlay root element the host draws into (UI documents, letterbox, fade, console). */
   readonly container: HostDomNode;
-  /** ADDITIVE (CC-55-1): the verified manifest buildId → `observe().buildId`. */
+  /** ADDITIVE: the verified manifest buildId → `observe().buildId`. */
   readonly buildId: string;
-  /** ADDITIVE (CC-55-1): assetId → manifest-declared relative path; the host
+  /** ADDITIVE: assetId → manifest-declared relative path; the host
    * resolves non-null cue refs through `readArtifact` at mount. */
   readonly assetPaths?: Record<string, string>;
   /** The DOM document for overlay element creation (default: the environment's
    * `document`; Node tests inject a fake). */
   readonly document?: HostDom;
   /**
-   * Phase 12 (c), additive: fetch one scene the game asked for and return
+   * Fetch one scene the game asked for and return
    * its resolved entities (the wrapper reads and verifies the manifest's
    * `scenes/<sceneId>.json`; see `sceneEntitiesFromDocument`). Absent: loads
    * fail with a diagnostic and the game keeps its start scenes.
    */
   readonly loadScene?: (sceneId: string) => Promise<LoadedSceneBatch['entities']>;
   /**
-   * Phase 25.24e: the page's scene preloader (its `load` answers the game's
+   * The page's scene preloader (its `load` answers the game's
    * loads instead of `loadScene`; the host names the scenes to read ahead).
    * The page sets its preparation once the adapter exists.
    */
   readonly scenes?: ScenePreloader;
-  /** Phase 24.4j: the manifest's game shell (menus and HUD as UI documents, the scene list) — a game that plays as a scene. */
+  /** The manifest's game shell (menus and HUD as UI documents, the scene list) — a game that plays as a scene. */
   readonly shell?: ShellConfigLike;
-  /** Phase 9.10: the input actions the game runs with (the settings screen rebinds them). */
+  /** The input actions the game runs with (the settings screen rebinds them). */
   readonly inputConfig?: { actions: readonly { name: string; type: string; map: string; bindings: readonly unknown[] }[]; cursor?: { [map: string]: 'free' | 'locked' | undefined } };
-  /** Phase 9.10: each declared asset's kind (the host registers every audio asset for scripts, event cues and audio sources). */
+  /** Each declared asset's kind (the host registers every audio asset for scripts, event cues and audio sources). */
   readonly assetKinds?: Readonly<Record<string, string>>;
-  /** Phase 9.11: where the player's settings go (localStorage in the browser; see `storage.ts`) and this game's key prefix. */
+  /** Where the player's settings go (localStorage in the browser; see `storage.ts`) and this game's key prefix. */
   readonly saveStorage?: SaveStorage;
   readonly saveNamespace?: string;
   /**
-   * Phase 23.19: where project save slots go (IndexedDB in the browser; see
+   * Where project save slots go (IndexedDB in the browser; see
    * `browserProjectSaveBackend`), under `saveNamespace`. Absent with a save
    * schema: slots last for this page only (a memory store).
    */
   readonly projectSaveBackend?: ProjectSaveBackend;
-  /** Phase 9.10: apply a player's quality setting (the wrapper forwards it to the renderer). */
+  /** Apply a player's quality setting (the wrapper forwards it to the renderer). */
   readonly setQuality?: (level: 'low' | 'medium' | 'high') => void;
   /**
-   * Phase 22.0: where the simulation runs. Absent: in this page — `mount()`
+   * Where the simulation runs. Absent: in this page — `mount()`
    * composes the runtime (`composeGameRuntime`) with `physics`,
    * `behaviorModules` and `modules`. Present: the wrapper already composed
    * it elsewhere (the simulation worker) and this factory returns the
@@ -402,84 +400,84 @@ export interface GameHostConfig {
    */
   readonly runtimeFactory?: (onFrame: () => void) => { readonly ok: true; readonly runtime: Runtime } | { readonly ok: false; readonly error: GameControlError };
   /**
-   * Phase 23.8: script variables the scripts see in `ctx.save` from step 0
+   * Script variables the scripts see in `ctx.save` from step 0
    * (used when the host composes the runtime; a worker gets them in its init).
    */
   readonly variables?: Readonly<Record<string, unknown>>;
-  /** Phase 23.8: a test/debug start (see `GameStartOptions`). */
+  /** A test/debug start (see `GameStartOptions`). */
   readonly start?: GameStartOptions;
   /**
-   * Phase 23.8: show the in-game debug console (the backquote key). Play
+   * Show the in-game debug console (the backquote key). Play
    * always passes true; an export only with the project's `debug_console`
    * setting on. Absent: no console.
    */
   readonly debugConsole?: boolean;
-  /** Phase 23.8: give the keyboard back to the game (the console closed). */
+  /** Give the keyboard back to the game (the console closed). */
   readonly focusGame?: () => void;
   /**
-   * Phase 23.13: how audio sources are heard — `legacy` (phase 9.10: louder as
+   * How audio sources are heard — `legacy` (louder as
    * the player comes near along X, no panning; absent) or `panner` (a panner
    * per source, the listener on the active camera, the source's distance
    * model). Script sounds with a place always use the panner.
    */
   readonly audioSpatial?: 'legacy' | 'panner';
   /**
-   * Phase 23.9a: the project UI (the manifest's documents and themes). The
+   * The project UI (the manifest's documents and themes). The
    * host draws the documents the simulation and the shell show; absent or
    * empty: no project UI.
    */
   readonly ui?: { readonly documents: readonly UiDocument[]; readonly themes?: readonly UiTheme[] };
 }
 
-/** delivery.md §3.1 `GameHost`. */
+/** `GameHost`. */
 export interface GameHost {
-  /** The binding §3.1 members. */
+  /** The binding members. */
   mount(): { readonly ok: true } | { readonly ok: false; readonly error: GameControlError };
   control(action: GameControlAction): GameControlResult;
   observe():
     | { readonly ok: true; readonly observation: GameHostObservation }
     | { readonly ok: false; readonly error: GameControlError };
-  /** delivery.md §3.1: `dispose(): void` (idempotent). */
+  /** `dispose(): void` (idempotent). */
   dispose(): void;
-  /** ADDITIVE (CC-55-1b): the host's runtime seam (read-only; the manual
+  /** ADDITIVE: the host's runtime seam (read-only; the manual
    * driver / Node compositions advance frames through it). */
   readonly runtime: Runtime;
-  /** Phase 12 (c), additive: request a scene load/unload (the same rules as a script's `ctx.scenes`). */
+  /** Request a scene load/unload (the same rules as a script's `ctx.scenes`). */
   scene(op: 'load' | 'unload', sceneId: string): { readonly ok: true } | { readonly ok: false; readonly error: GameControlError };
   /**
-   * Phase 23.8, additive: run a project debug command — queued into the next
+   * Run a project debug command — queued into the next
    * simulation step's input (so a recording of the run replays it). The
    * result carries the step it was accepted at; refused when no script
    * declared the command or the arguments do not match.
    */
   debugCommand?(name: string, args?: Readonly<Record<string, number | string | boolean>>): GameControlResult;
-  /** Phase 23.8, additive: the in-game debug console (null: this game has none). */
+  /** The in-game debug console (null: this game has none). */
   readonly debugConsole?: DebugConsole | null;
-  /** Phase 23.8, additive: what became of `config.start` (null: no start options). */
+  /** What became of `config.start` (null: no start options). */
   readonly startOutcome?: GameStartOutcome | null;
-  /** Phase 23.19, additive: the project saves service (null: the project declares no save schema). */
+  /** The project saves service (null: the project declares no save schema). */
   readonly projectSaves?: ProjectSaveService | null;
   /**
-   * Phase 23.14, additive: the rebinding API (list, listen, conflicts, reset,
+   * The rebinding API (list, listen, conflicts, reset,
    * profiles, the device used last, glyphs) — for project UI and tools; null
    * before mount or without an input config.
    */
   readonly bindings?: InputBindingsController | null;
   /**
-   * Phase 25.15, additive: where a pointer press goes to the UI instead of
+   * Where a pointer press goes to the UI instead of
    * the game (the engine pause panel, then the project UI's buttons, inputs
    * and modal backdrops), topmost first — the pointer's UI hit test.
    */
   uiHitTargets?(): readonly UiHitTarget[];
-  /** Phase 25.15, additive: click the UI target with this key (a relayed pointer click); false when it is gone. */
+  /** Click the UI target with this key (a relayed pointer click); false when it is gone. */
   clickUi?(key: string): boolean;
-  /** Phase 25.15, additive: the shown UI widgets with their rectangles (tl_game_observe). */
+  /** The shown UI widgets with their rectangles (tl_game_observe). */
   uiElements?(max?: number): UiElementObservation[];
-  /** Phase 25.15, additive: the play state now (running, or paused: the engine pause, a menu or the debugger hold the simulation). */
+  /** The play state now (running, or paused: the engine pause, a menu or the debugger hold the simulation). */
   playState?(): PlayState;
 }
 
-// --- the sound-status mapping (delivery.md §3.1 `sound.status`) -----------
+// --- the sound-status mapping (`sound.status`) ---------------------------
 
 export function mapSoundStatus(owner: GameAudioOwner): GameHostSound {
   const st = owner.status();
@@ -538,7 +536,7 @@ function validateConfig(config: GameHostConfig): string | null {
   return null;
 }
 
-/** Phase 12 (c): the `scenes` observation block (absent without a scene catalog). */
+/** The `scenes` observation block (absent without a scene catalog). */
 function scenesObservation(rt: Runtime, preload: ScenePreloader | undefined): { scenes?: NonNullable<GameHostObservation['scenes']> } {
   const set = rt.sceneSet?.();
   if (set === undefined || Object.keys(set.status).length === 0) return {};
@@ -556,7 +554,7 @@ function scenesObservation(rt: Runtime, preload: ScenePreloader | undefined): { 
   };
 }
 
-/** Phase 25.24e: `$flow.scenes` — whether a scene is loading, which, and the transition waiting (a loading screen binds these). */
+/** `$flow.scenes` — whether a scene is loading, which, and the transition waiting (a loading screen binds these). */
 function sceneFlowValues(rt: Runtime): { loading: boolean; scenes: readonly string[]; transition: { scene: string; phase: string; fade: number } | null } {
   const v = rt.sceneLoadingView!();
   const t = v.transition;
@@ -564,7 +562,7 @@ function sceneFlowValues(rt: Runtime): { loading: boolean; scenes: readonly stri
 }
 
 /**
- * Phase 25.24e: the scenes a game is likely to load next — the targets of the
+ * The scenes a game is likely to load next — the targets of the
  * scene transitions in its loaded scenes (in load order) and the shell's next
  * listed scene — that are not loaded.
  */
@@ -592,14 +590,14 @@ function toControlError(error: RuntimeError): GameControlError {
 // --- the host ---------------------------------------------------------------
 
 /**
- * Create the game host (delivery.md §3.1). The host owns its runtime
+ * Create the game host. The host owns its runtime
  * instance and overlays; the input owner, audio owner, and canvas are
  * wrapper-owned and injected (a new host on the same snapshot reuses them).
  */
 /**
- * The runtime's own simulation modules a manifest can name (phase 23.2: the
- * 3D character controller). Every other simulation module comes from the
- * composition's injected spec table (`moduleSpecs`, phase 24.3).
+ * The runtime's own simulation modules a manifest can name (the 3D
+ * character controller). Every other simulation module comes from the
+ * composition's injected spec table (`moduleSpecs`).
  */
 const RUNTIME_SIMULATION_SPECS: readonly SimulationModuleSpec[] = [character3DSpec];
 /** The port modules the delivery wrapper injects (checked, not registered). */
@@ -608,7 +606,7 @@ const PORT_MODULES = new Set(['thirdlight.physics-rapier:2d', 'thirdlight.physic
 /**
  * Select the simulation modules from the manifest's module list (the build's
  * derived set) out of the runtime's built-ins and the injected spec table.
- * Phase 24.3: no list, no modules — the host has no default set. The
+ * No list, no modules — the host has no default set. The
  * selected specs register in table order (built-ins first, then the
  * injected table's dependency order).
  */
@@ -636,7 +634,7 @@ function selectModules(
     }
     return { ok: false, error: { code: 'host_module_unresolved', message: `module ${id} is required but this engine does not provide it` } };
   }
-  // A module's entity requirement is its own declaration (phase 24.3).
+  // A module's entity requirement is its own declaration.
   for (const spec of picked) {
     for (const component of spec.requiresEntityWith ?? []) {
       if (!entities.some((e) => ((e.components ?? {}) as Record<string, unknown>)[component] !== undefined)) {
@@ -653,7 +651,7 @@ function selectModules(
 }
 
 /**
- * Phase 22.0: what the simulation needs to run — the single place the game's
+ * What the simulation needs to run — the single place the game's
  * runtime is composed (module selection, the registry, `instantiateRuntime`,
  * `start`). The in-page host calls it in `mount()`; the simulation worker
  * calls it with the same inputs, so both run the same deterministic steps.
@@ -664,21 +662,21 @@ export interface GameRuntimeArgs {
   readonly physics?: PhysicsPort | PhysicsPort3D;
   readonly behaviorModules?: readonly SimulationModuleSpec[];
   readonly modules?: readonly string[];
-  /** Phase 24.3: the injected simulation module specs (see `GameHostConfig.moduleSpecs`). */
+  /** The injected simulation module specs (see `GameHostConfig.moduleSpecs`). */
   readonly moduleSpecs?: readonly SimulationModuleSpec[];
   readonly actions: ActionSource;
   readonly onFrame?: () => void;
   /** The frame driver (absent: rAF where the environment has it, else manual). A worker passes manual: the main thread drives it. */
   readonly driver?: { readonly kind: 'raf' | 'manual' };
-  /** Phase 23.8: script variables injected at the start (ctx.save from step 0). */
+  /** Script variables injected at the start (ctx.save from step 0). */
   readonly variables?: Readonly<Record<string, unknown>>;
-  /** Phase 23.10: the game mode runs start in (a start option). */
+  /** The game mode runs start in (a start option). */
   readonly startMode?: string;
-  /** Phase 23.19: the stored project settings document. */
+  /** The stored project settings document. */
   readonly projectSettings?: Readonly<Record<string, unknown>>;
 }
 
-/** Phase 22.0: compose and start the game's runtime (see `GameRuntimeArgs`). */
+/** Compose and start the game's runtime (see `GameRuntimeArgs`). */
 export function composeGameRuntime(args: GameRuntimeArgs): { ok: true; runtime: Runtime } | { ok: false; error: GameControlError } {
   const snapshot = args.snapshot;
   const scene = snapshot.scene;
@@ -687,10 +685,9 @@ export function composeGameRuntime(args: GameRuntimeArgs): { ok: true; runtime: 
   }
 
   const registry = createSimulationRegistry();
-  // The registry carries the runtime built-ins (inert unless selected —
-  // the M2 export-composition pattern); the SELECTED modules are the ones
-  // the manifest names (phase 24.3: resolved through the runtime's specs and
-  // the injected table), plus the project's compiled behaviors.
+  // The registry carries the runtime built-ins (inert unless selected);
+  // the SELECTED modules are the ones the manifest names (resolved through
+  // the runtime's specs and the injected table), plus the project's compiled behaviors.
   for (const spec of BUILTIN_MODULES) registerSimulationModule(registry, spec.id, spec);
   // (the typed `EntityComponents` union is per-schema; component presence is read structurally.)
   const selected = selectModules(args.modules, [...RUNTIME_SIMULATION_SPECS, ...(args.moduleSpecs ?? [])], args.physics !== undefined, scene.entities as readonly { readonly components?: unknown }[]);
@@ -718,7 +715,7 @@ export function composeGameRuntime(args: GameRuntimeArgs): { ok: true; runtime: 
     actions: args.actions,
     ...(args.physics !== undefined ? { physics: args.physics } : {}),
     settings: args.settings,
-    // Phase 15.3: the project's step rate (absent: the runtime's 120 Hz).
+    // The project's step rate (absent: the runtime's 120 Hz).
     ...(args.settings.fixed_step_hz !== undefined ? { fixedStepHz: args.settings.fixed_step_hz } : {}),
     ...(args.onFrame !== undefined ? { onFrame: args.onFrame } : {}),
     ...(args.driver !== undefined ? { driver: { kind: args.driver.kind } } : {}),
@@ -747,16 +744,16 @@ export function createGameHost(config: GameHostConfig): GameHost {
   let mounted = false;
   let runtime: Runtime | null = null;
   /**
-   * Phase 15.5: the bindings the game runs with — the project's actions with
+   * The bindings the game runs with — the project's actions with
    * the player's saved rebinding and any rebinding made while playing. The
    * input prompts name these.
    */
   let promptInput: InputConfigLike = config.inputConfig ?? { actions: [] };
-  /** Phase 24.4j: the game shell (a game with `content.shell`). */
+  /** The game shell (a game with `content.shell`). */
   let shellCtl: ShellController | null = null;
-  /** Phase 23.14: the player's bindings (created at mount when the game has an input config). */
+  /** The player's bindings (created at mount when the game has an input config). */
   let bindings: InputBindingsController | null = null;
-  /** Phase 23.14: the project's glyph images as object URLs (loaded on first use). */
+  /** The project's glyph images as object URLs (loaded on first use). */
   const glyphUrls = new Map<string, string | null>();
   const glyphImageUrl = (assetId: string): string | null => {
     if (glyphUrls.has(assetId)) return glyphUrls.get(assetId)!;
@@ -774,10 +771,10 @@ export function createGameHost(config: GameHostConfig): GameHost {
     return null;
   };
   let adapter: HostRenderAdapter | null = null;
-  /** Phase 23.8: the debug console (config.debugConsole) and what became of config.start. */
+  /** The debug console (config.debugConsole) and what became of config.start. */
   let debugConsole: DebugConsole | null = null;
   let startOutcome: GameStartOutcome | null = null;
-  /** Phase 23.19: project saves (a project with a save schema). */
+  /** Project saves (a project with a save schema). */
   const saveSchema = config.snapshot.saveSchema;
   const saveNamespace = config.saveNamespace ?? `thirdlight:${String((config.snapshot as { projectId?: string }).projectId ?? 'game')}`;
   let projectSaves: ProjectSaveService | null = null;
@@ -785,10 +782,10 @@ export function createGameHost(config: GameHostConfig): GameHost {
     projectSaves === null || saveSchema === undefined
       ? {}
       : { saves: { slotCount: saveSchema.slots, storage: projectSaves.storage, slots: projectSaves.slots().slice(0, 32), settings: { ...(runtime?.projectSettings?.() ?? projectSaves.settings()) } } };
-  /** Phase 23.9a: the project UI layer (null without UI documents). */
+  /** The project UI layer (null without UI documents). */
   let uiLayer: UiLayer | null = null;
   /**
-   * Phase 23.10: the engine pause of a game with game modes and no shell (the
+   * The engine pause of a game with game modes and no shell (the
    * mode allows it), the engine's pause panel (a mode without a pause screen
    * of its own), and the input maps in effect: a focused UI document's action
    * map, else the current mode's maps, else every map.
@@ -839,7 +836,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
       pausePanel?.hide();
     }
   };
-  /** Phase 24.4j: the input prompts generated from the declared actions (the active maps; the rebinding's labels for the device used last). */
+  /** The input prompts generated from the declared actions (the active maps; the rebinding's labels for the device used last). */
   let promptsCache: { key: string; list: ReturnType<typeof actionPrompts> } | null = null;
   const currentActionPrompts = (): ReturnType<typeof actionPrompts> => {
     const key = `${bindings?.revision() ?? 0}|${config.input.activeDevice?.() ?? 'keyboard'}|${modeMaps?.join(',') ?? ''}`;
@@ -851,7 +848,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
   };
   const promptsText = (): string => currentActionPrompts().map((p) => p.text).join(' · ');
 
-  /** Phase 24.4j: the game shell over this runtime (its seams: the engine pause, UI events, project saves, the UI layer). */
+  /** The game shell over this runtime (its seams: the engine pause, UI events, project saves, the UI layer). */
   const makeShell = (rt: Runtime): ShellController =>
     createShellController({
       shell: config.shell!,
@@ -924,7 +921,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
         break; // settings and saves belong to the game shell
     }
   };
-  /** Phase 12 (c): hand the game's scene requests to the wrapper's loader. */
+  /** Hand the game's scene requests to the wrapper's loader. */
   const sceneLoader = config.scenes !== undefined ? config.scenes.load : config.loadScene;
   const serviceSceneRequests = (rt: Runtime): void => {
     const requests = rt.takeSceneRequests?.() ?? [];
@@ -944,7 +941,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
     }
   };
 
-  /** Phase 25.24e: name the scenes to read ahead whenever the scene set or the listed scene changes. */
+  /** Name the scenes to read ahead whenever the scene set or the listed scene changes. */
   let readAheadSet: unknown = null;
   let readAheadListed = -2;
   const serviceReadAhead = (rt: Runtime): void => {
@@ -959,7 +956,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
     preload.want(scenesToReadAhead(set, config.shell?.scenes, listed), set.status);
   };
 
-  /** Phase 21.2: one entity's interpolated transform into `out` (the allocation-free read when the runtime has it). */
+  /** One entity's interpolated transform into `out` (the allocation-free read when the runtime has it). */
   const playerAt = { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
   const sourceAt = { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
   const readTransform = (rt: Runtime, id: string, out: { position: number[]; rotation: number[]; scale: number[] }): boolean => {
@@ -974,7 +971,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
   };
 
   /**
-   * Phase 23.4: the letterbox bars — two black bars over the top and bottom of
+   * The letterbox bars — two black bars over the top and bottom of
    * the view, each the live camera's share of the view height (interpolated
    * like the camera; blended between cameras). Made the first time a camera
    * asks for one; a game without virtual cameras never has them.
@@ -984,10 +981,10 @@ export function createGameHost(config: GameHostConfig): GameHost {
   const lbPos: number[] = [0, 0, 0];
   const lbRot: number[] = [0, 0, 0, 1];
   /**
-   * Phase 23.3: the cursor mode in effect, handed to the input owner every
+   * The cursor mode in effect, handed to the input owner every
    * frame: the ui map's setting while a menu is open or the game is paused,
-   * else a script's request or the setting of the active maps (phase 25.6:
-   * a focused document's or the game mode's maps; every map without modes).
+   * else a script's request or the setting of the active maps (a
+   * focused document's or the game mode's maps; every map without modes).
    */
   const serviceCursor = (rt: Runtime): void => {
     if (config.input.applyCursor === undefined) return;
@@ -995,7 +992,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
     config.input.applyCursor(resolveCursorMode(config.inputConfig as InputConfigLike | undefined, menu ? 'menu' : (uiMaps ?? modeMaps), rt.cursorRequest?.() ?? null));
   };
 
-  /** Phase 23.3: the pointer and cursor as an observer sees them, and the objects scripts hid. */
+  /** The pointer and cursor as an observer sees them, and the objects scripts hid. */
   const inputObservation = (rt: Runtime): GameHostInputObservation => {
     const p = rt.readPointer?.() ?? null;
     const cursor = config.input.cursorState?.();
@@ -1008,7 +1005,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
     };
   };
 
-  /** Phase 23.14: the bindings as UI documents read them (`$flow.input`), rebuilt when they change. */
+  /** The bindings as UI documents read them (`$flow.input`), rebuilt when they change. */
   let inputUi: { key: string; value: Record<string, unknown> } | null = null;
   const inputUiValues = (): Record<string, unknown> => {
     const b = bindings!;
@@ -1034,7 +1031,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
     return value;
   };
 
-  /** Phase 23.14: the rebind timeout, the device used last and the scripts' binding requests (after each frame). */
+  /** The rebind timeout, the device used last and the scripts' binding requests (after each frame). */
   const serviceBindings = (rt: Runtime): void => {
     const taken = rt.takeBindingRequests?.();
     if (bindings === null) return;
@@ -1046,7 +1043,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
 
   const serviceLetterbox = (rt: Runtime): void => {
     const lens = rt.readCameraView?.(lbPos, lbRot) ?? null;
-    // Phase 23.17: a timeline's letterbox track shows over the camera's (the larger bars win).
+    // A timeline's letterbox track shows over the camera's (the larger bars win).
     const tlBars = rt.timelineView?.()?.screen.letterbox ?? 0;
     const amount = Math.max(lens === null || !Number.isFinite(lens.letterbox) ? 0 : Math.max(0, Math.min(0.5, lens.letterbox)), Number.isFinite(tlBars) ? Math.max(0, Math.min(0.5, tlBars)) : 0);
     if (letterbox === null) {
@@ -1074,15 +1071,15 @@ export function createGameHost(config: GameHostConfig): GameHost {
   };
 
   /**
-   * Phase 23.17: a timeline's full-screen fade — one element over the view and
+   * A timeline's full-screen fade — one element over the view and
    * the letterbox bars, under the project UI (a title can show over black).
    * Made the first time a timeline fades; `data-tl-fade` carries the opacity.
    */
   let fadeNode: { readonly node: HostDomNode; shown: string } | null = null;
-  /** Phase 25.24e: a transition's fade back in — from the first presented frame that drew its swap (wall clock). */
+  /** A transition's fade back in — from the first presented frame that drew its swap (wall clock). */
   let fadeIn: { revision: number; seconds: number; color: string; from: number | null } | null = null;
   const nowMs = (): number => (typeof performance !== 'undefined' ? performance.now() : Date.now());
-  /** Phase 25.24e: a scene transition's fade (out while it waits; in once the swap is on screen): opacity and colour. */
+  /** A scene transition's fade (out while it waits; in once the swap is on screen): opacity and colour. */
   const transitionFade = (rt: Runtime): { opacity: number; color: string } | null => {
     const view = rt.sceneLoadingView?.();
     if (view === undefined) return null;
@@ -1136,13 +1133,13 @@ export function createGameHost(config: GameHostConfig): GameHost {
     fadeNode.node.setAttribute?.('data-tl-fade', String(Math.round(opacity * 1000) / 1000));
   };
 
-  /** Phase 23.17: the timelines as observers see them (once one played). */
+  /** The timelines as observers see them (once one played). */
   const timelineObservation = (rt: Runtime): { timeline?: import('@thirdlight/runtime').TimelineView } => {
     const v = rt.timelineView?.() ?? null;
     return v === null ? {} : { timeline: v };
   };
 
-  /** Phase 9.10: the loaded audio sources (recomputed when the scene set changes). */
+  /** The loaded audio sources (recomputed when the scene set changes). */
   let sourcesRevision = -1;
   let sources: { id: string; assetId: string; volume: number; range: number; spatial: AudioSpatialLike }[] = [];
   const liveLoops = new Set<string>();
@@ -1156,12 +1153,12 @@ export function createGameHost(config: GameHostConfig): GameHost {
     if (revision !== sourcesRevision) {
       sourcesRevision = revision;
       const loaded = set !== undefined && set.batches.length > 0 ? set.batches.flatMap((b) => b.entities) : config.snapshot.scene.entities;
-      // Phase 14.1: a spawned copy's audio source plays too.
+      // A spawned copy's audio source plays too.
       const entities = [...loaded, ...((set?.spawned ?? []) as unknown as typeof loaded)];
       sources = [];
       for (const e of entities) {
         const a = ((e.components ?? {}) as unknown as { audioSource?: { assetId: string; volume: number; range: number; distanceModel?: AudioSpatialLike['distanceModel']; refDistance?: number; rolloff?: number } }).audioSource;
-        // Phase 23.13: the panner model's distance fade — the range is its max distance; absent fields keep the
+        // The panner model's distance fade — the range is its max distance; absent fields keep the
         // legacy curve's shape (linear from a quarter of the range).
         if (a !== undefined) sources.push({ id: e.id, assetId: a.assetId, volume: a.volume, range: a.range, spatial: { distanceModel: a.distanceModel ?? 'linear', refDistance: Math.min(a.range, a.refDistance ?? a.range / 4), maxDistance: a.range, rolloff: a.rolloff ?? 1 } });
       }
@@ -1180,18 +1177,18 @@ export function createGameHost(config: GameHostConfig): GameHost {
       }
     }
     if (sources.length === 0 && liveLoops.size === 0) return;
-    // Phase 21.2: only the character and the sources are read (no per-frame copy of every transform).
+    // Only the character and the sources are read (no per-frame copy of every transform).
     characterId ??= config.snapshot.scene.entities.find((e) => ((e.components ?? {}) as unknown as Record<string, unknown>)['controller'] !== undefined)?.id ?? null;
     const player = characterId !== null && readTransform(rt, characterId, playerAt) ? playerAt : undefined;
     const seen = new Set<string>();
-    // Phase 25.10: a switched-off object's audio source is silent (it plays again when switched on).
+    // A switched-off object's audio source is silent (it plays again when switched on).
     const off = rt.inactiveEntities?.();
     for (const s of sources) {
       if (off !== undefined && off.size > 0 && off.has(s.id)) continue;
       if (!readTransform(rt, s.id, sourceAt)) continue;
       const t = sourceAt;
       if (panner && config.audio.setSpatialLoop !== undefined) {
-        // Phase 23.13: a panner per source; the listener is the active camera (spatialFrame).
+        // A panner per source; the listener is the active camera (spatialFrame).
         config.audio.setSpatialLoop(s.id, s.assetId, s.volume, t.position, s.spatial);
         seen.add(s.id);
         liveLoops.add(s.id);
@@ -1211,7 +1208,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
     }
   };
 
-  /** Phase 23.13: audio sources in the panner model (the project's `audio_spatial`). */
+  /** Audio sources in the panner model (the project's `audio_spatial`). */
   const panner = config.audioSpatial === 'panner';
   /** Script sounds: execute the simulation's audio commands (music-kind assets get their bytes on first use). */
   const scriptMusicAsked = new Set<string>();
@@ -1238,7 +1235,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
   const spatialAt = { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
   const listenerAt = { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
   let cameraEntityId: string | null | undefined;
-  /** The listener: the active camera — the resolved virtual camera (phase 23.4), else the scene camera. */
+  /** The listener: the active camera — the resolved virtual camera, else the scene camera. */
   const listenerOf = (rt: Runtime): { position: readonly number[]; rotation: readonly number[] } | null => {
     if (rt.readCameraView?.(listenerAt.position, listenerAt.rotation) != null) return listenerAt;
     cameraEntityId ??= config.snapshot.scene.entities.find((e) => ((e.components ?? {}) as unknown as Record<string, unknown>)['camera'] !== undefined)?.id ?? null;
@@ -1246,14 +1243,14 @@ export function createGameHost(config: GameHostConfig): GameHost {
     return null;
   };
 
-  /** Phase 23.9a: the simulation's UI diff, then the layer's frame (bindings, $flow values, the view size). */
+  /** The simulation's UI diff, then the layer's frame (bindings, $flow values, the view size). */
   const serviceUi = (rt: Runtime): void => {
     if (uiLayer === null) return;
     const out = rt.takeUiOutput?.() ?? null;
     if (out !== null) uiLayer.applyOutput(out);
     uiLayer.frame();
   };
-  /** Phase 23.9a: world-anchored widgets follow the frame just rendered. */
+  /** World-anchored widgets follow the frame just rendered. */
   const serviceAnchors = (): void => {
     const project = adapter?.projectToScreen;
     if (uiLayer !== null && project !== undefined) uiLayer.updateAnchors(project);
@@ -1267,15 +1264,15 @@ export function createGameHost(config: GameHostConfig): GameHost {
     serviceBindings(runtime);
     serviceUi(runtime);
     // (1) The menu/control channel — serviced BETWEEN frames, never on a
-    // tick (delivery.md §4.5). What it asks for (a restart, a UI event)
-    // rides on the next step's input frame.
+    // tick. What it asks for (a restart, a UI event) rides on the next
+    // step's input frame.
     const menu: MenuSample = config.input.sampleMenu();
-    // Phase 23.9a: a focused project UI document takes the ui edges it uses (navigation, submit, its cancel) first.
+    // A focused project UI document takes the ui edges it uses (navigation, submit, its cancel) first.
     const uiFocus = uiLayer !== null && uiLayer.hasFocus();
-    // Phase 23.10: the game modes (their input maps); a game with modes has the engine pause.
+    // The game modes (their input maps); a game with modes has the engine pause.
     const modeView = serviceModes(runtime);
     if (shellCtl !== null) {
-      // Phase 24.4j: the game shell takes what the focused document left (pause, cancel, the pause panel's navigation).
+      // The game shell takes what the focused document left (pause, cancel, the pause panel's navigation).
       const raw = config.input.sampleUi?.() ?? { up: false, down: false, left: false, right: false, submit: menu.confirm, cancel: false, pause: false };
       const rest = uiFocus ? uiLayer!.handleEdges(raw) : raw;
       shellCtl.handleEdges(rest);
@@ -1294,26 +1291,26 @@ export function createGameHost(config: GameHostConfig): GameHost {
       void control(st.state === 'ready' && st.muted ? 'unmute' : 'mute');
     }
     // (2) The overlays, sounds and the adapter — read from the runtime's
-    // published views; no runtime internals, no scene-graph mutation (C41-1).
-    // Phase 23.4: the live camera's letterbox (an overlay the host draws over the view).
+    // published views; no runtime internals, no scene-graph mutation.
+    // The live camera's letterbox (an overlay the host draws over the view).
     serviceLetterbox(runtime);
-    // Phase 23.17: a timeline's fade over the view.
+    // A timeline's fade over the view.
     serviceFade(runtime);
-    // Phase 23.3: the cursor (free/locked per input map, a script's request; hidden while a gamepad drives).
+    // The cursor (free/locked per input map, a script's request; hidden while a gamepad drives).
     serviceCursor(runtime);
-    // Phase 23.19: the simulation's save requests (a thumbnail is drawn now, in this frame).
+    // The simulation's save requests (a thumbnail is drawn now, in this frame).
     if (projectSaves !== null) {
       const reqs = runtime.takeSaveRequests?.() ?? [];
       if (reqs.length > 0) projectSaves.handle(reqs);
     }
-    // Phase 23.13: the sounds of scripts and event cues (the runtime's audio intent log), and the audio sources' loops.
+    // The sounds of scripts and event cues (the runtime's audio intent log), and the audio sources' loops.
     serviceScriptAudio(runtime);
     serviceAudioSources(runtime);
     adapter?.renderFrame();
     serviceAnchors();
   };
 
-  /** Phase 24.6: the generic play state (the engine pause, a menu or the debugger hold the simulation). */
+  /** The generic play state (the engine pause, a menu or the debugger hold the simulation). */
   const playState = (): PlayState => (disposed ? 'stopped' : runtime?.isPaused === true || scenePaused ? 'paused' : 'running');
 
   const control = (action: GameControlAction): GameControlResult => {
@@ -1323,7 +1320,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
     }
     switch (action) {
       case 'replay': {
-        // Phase 24.6: replay restarts the game (the pause panel's restart: an input-frame entry, so a recording replays it).
+        // Replay restarts the game (the pause panel's restart: an input-frame entry, so a recording replays it).
         if (runtime.queueUiEvent === undefined) return { ok: false, error: { code: 'game_command_invalid', reason: 'replay', message: 'this runtime cannot restart' } };
         const q = runtime.queueUiEvent({ kind: 'restart', doc: '', widget: '', name: '' });
         if (q.ok === false) return { ok: false, error: toControlError(q.error) };
@@ -1331,7 +1328,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
       }
       case 'clearSave':
         if (config.saveStorage !== undefined && config.saveNamespace !== undefined) createSettingsStore(config.saveStorage, config.saveNamespace).clear();
-        // Phase 24.7: and the project save slots (the level flow's saves this cleared were deleted).
+        // And the project save slots.
         void projectSaves?.clear();
         break;
       case 'mute':
@@ -1351,7 +1348,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
   };
 
   /**
-   * Phase 23.8: apply the start options — the start scenes plus the chosen
+   * Apply the start options — the start scenes plus the chosen
    * one (loaded) and the spawn the character arrives at, a project save, a
    * game mode.
    */
@@ -1364,7 +1361,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
         const r = rt.requestScene?.('load', id);
         if (r === undefined || !r.ok) return { ok: false, reason: r === undefined ? 'this game has no scenes to load' : r.error.message };
       }
-      // Phase 24.6: the character starts at the chosen scene's spawn (arriving once that scene is loaded).
+      // The character starts at the chosen scene's spawn (arriving once that scene is loaded).
       if (start.spawnId !== undefined) {
         const r = rt.requestArrival?.(start.scenes[start.scenes.length - 1]!, start.spawnId);
         if (r === undefined || !r.ok) return { ok: false, reason: r === undefined ? 'this game cannot place the character' : r.error.message };
@@ -1372,7 +1369,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
       }
       applied.push(`scenes ${start.scenes.join(', ')}`);
     }
-    // Phase 23.19: a project save document or slot (loaded at the first step).
+    // A project save document or slot (loaded at the first step).
     if (start.projectSave !== undefined || start.projectSaveSlot !== undefined) {
       if (projectSaves === null) return { ok: false, reason: 'a project save needs a project save schema' };
       if (start.projectSave !== undefined) {
@@ -1383,7 +1380,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
         applied.push(`project save slot ${start.projectSaveSlot!}`);
       }
     }
-    // Phase 23.10: the run started in this mode (the runtime was composed with it).
+    // The run started in this mode (the runtime was composed with it).
     if (start.mode !== undefined) {
       const mv = rt.modeView?.() ?? null;
       if (mv === null) applied.push(`mode ${start.mode} (ignored: the game has no modes)`);
@@ -1393,7 +1390,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
     return { ok: true, applied };
   };
 
-  /** Phase 23.8: queue one debug command call into the next step's input. */
+  /** Queue one debug command call into the next step's input. */
   const debugCommand = (name: string, args: Readonly<Record<string, number | string | boolean>> = {}): GameControlResult => {
     if (disposed) return { ok: false, error: { code: 'host_disposed', message: 'the host is disposed' } };
     if (!mounted || runtime === null) return { ok: false, error: { code: 'host_not_mounted', message: 'the host is not mounted' } };
@@ -1439,7 +1436,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
       return { ok: false, error: configError };
     }
     const snapshot = config.snapshot;
-    // Phase 22.0: the simulation runs where the wrapper chose — composed here
+    // The simulation runs where the wrapper chose — composed here
     // in this page, or in a worker (the factory hands over its mirror runtime,
     // composed by the worker with the same `composeGameRuntime`).
     let composed: { ok: true; runtime: Runtime } | { ok: false; error: GameControlError };
@@ -1469,7 +1466,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
       adapter = null; // a malformed factory result degrades to headless (the game keeps playing)
     }
 
-    // Phase 23.4: the document the overlays (letterbox bars, fade, UI documents) are made in.
+    // The document the overlays (letterbox bars, fade, UI documents) are made in.
     hostDom = config.document ?? (globalThis as { document?: HostDom }).document ?? null;
     const dom: HostDom = hostDom ?? { createElement: () => { throw new Error('no document available for the overlays'); } };
     if (config.debugConsole === true) {
@@ -1486,7 +1483,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
       });
     }
 
-    // Phase 23.19: project saves — the page owns the slots; the simulation gets the list and answers as input.
+    // Project saves — the page owns the slots; the simulation gets the list and answers as input.
     if (saveSchema !== undefined) {
       const rtS = res.runtime;
       projectSaves = createProjectSaveService({
@@ -1509,7 +1506,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
       });
       void projectSaves.start();
     }
-    // Phase 23.14: the player's bindings (saved per profile).
+    // The player's bindings (saved per profile).
     if (config.inputConfig !== undefined) {
       bindings = createInputBindings({
         defaults: config.inputConfig,
@@ -1522,7 +1519,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
       });
     }
 
-    // Phase 23.9a: the project UI layer.
+    // The project UI layer.
     if (config.ui !== undefined && config.ui.documents.length > 0 && hostDom !== null) {
       const rt = res.runtime;
       uiLayer = createUiLayer({
@@ -1536,13 +1533,13 @@ export function createGameHost(config: GameHostConfig): GameHost {
           const r = rt.queueUiEvent?.(event);
           if (r !== undefined && r.ok === false) console.warn('[game-host] UI event refused:', r.error.message);
         },
-        // Phase 23.16: the dialogue UI's buttons (advance, choose, skip, auto, backlog) ride on the next input frame.
+        // The dialogue UI's buttons (advance, choose, skip, auto, backlog) ride on the next input frame.
         dialogueInput: (input) => {
           const r = rt.queueDialogueInput?.(input);
           if (r !== undefined && r.ok === false) console.warn('[game-host] dialogue input refused:', r.error.message);
         },
         engineAction: (a) => {
-          // Phase 23.14: rebinding from project UI (the same bindings API as scripts and the settings screen).
+          // Rebinding from project UI (the same bindings API as scripts and the settings screen).
           if (a.action === 'rebind' || a.action === 'cancelRebind' || a.action === 'resetBindings') {
             if (bindings === null) return;
             const ex = a as { input?: string; device?: 'keyboardMouse' | 'gamepad'; index?: number; part?: 'negative'; policy?: 'swap' };
@@ -1555,26 +1552,26 @@ export function createGameHost(config: GameHostConfig): GameHost {
             void control(a.action);
             return;
           }
-          // Phase 23.10: a game without a shell has the engine pause (with modes) and the restart.
+          // A game without a shell has the engine pause (with modes) and the restart.
           if (shellCtl !== null) shellCtl.engine(a);
           else sceneEngineAction(a);
         },
-        // Phase 23.14: `$flow.input` — the device used last, the rebind listening and every action's keys/pad glyph (a project settings document lists them).
-        // Phase 24.4j: + the game shell, the named counters, every object's health and the generated input prompts.
+        // `$flow.input` — the device used last, the rebind listening and every action's keys/pad glyph (a project settings document lists them).
+        // + the game shell, the named counters, every object's health and the generated input prompts.
         flowValues: () => {
           const rtNow = runtime;
           return {
             ...(bindings !== null ? { input: inputUiValues() } : {}),
             ...(shellCtl !== null ? { shell: shellCtl.values() } : {}),
             counters: rtNow?.gameCounters?.().counters ?? {},
-            // Phase 25.24e: scene loading for a loading screen (`$flow.scenes.loading`, `.transition`).
+            // Scene loading for a loading screen (`$flow.scenes.loading`, `.transition`).
             ...(rtNow?.sceneLoadingView !== undefined ? { scenes: sceneFlowValues(rtNow) } : {}),
             health: rtNow?.healthsView?.() ?? {},
             prompts: promptsText(),
             promptList: currentActionPrompts(),
           };
         },
-        // Phase 23.14: {action:name} glyphs in UI texts.
+        // {action:name} glyphs in UI texts.
         ...(bindings !== null
           ? {
               glyph: (action: string) => {
@@ -1584,7 +1581,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
               glyphKey: () => String(bindings?.revision() ?? 0),
             }
           : {}),
-        // Phase 23.10: a focused document's map wins over the game mode's maps (applyMaps).
+        // A focused document's map wins over the game mode's maps (applyMaps).
         ...(config.input.setActiveMaps !== undefined
           ? {
               setActiveMaps: (maps: readonly string[] | null) => {
@@ -1595,10 +1592,10 @@ export function createGameHost(config: GameHostConfig): GameHost {
           : {}),
       });
     }
-    // Phase 24.4j: the game shell (a title, pause, settings, controls, save/load screens and the HUD as UI documents).
+    // The game shell (a title, pause, settings, controls, save/load screens and the HUD as UI documents).
     if (config.shell !== undefined) shellCtl = makeShell(res.runtime);
     mounted = true;
-    // Phase 23.13: script sounds, event cues and audio sources.
+    // Script sounds, event cues and audio sources.
     registerSounds();
     if (config.start !== undefined) startOutcome = applyStart(res.runtime, config.start);
     // A start given by a test or the debugger begins in play (no title).
@@ -1606,14 +1603,14 @@ export function createGameHost(config: GameHostConfig): GameHost {
     return { ok: true };
   };
 
-  /** Phase 23.10: the game modes, the engine pause and its panel (a project with modes). */
+  /** The game modes, the engine pause and its panel (a project with modes). */
   const modeObservation = (rt: Runtime): { mode?: ModeView; paused?: boolean; pausePanel?: { focus: 'resume' | 'restart' } } => {
     const mv = rt.modeView?.() ?? null;
     if (mv === null) return {};
     return { mode: mv, paused: scenePaused, ...(pausePanel?.shown === true ? { pausePanel: { focus: pausePanel.focus } } : {}) };
   };
 
-  /** Phase 23.11: the objects riding on sockets and where they are (world position, composed up their parents). */
+  /** The objects riding on sockets and where they are (world position, composed up their parents). */
   const socketsObservation = (rt: Runtime): { sockets?: SocketObservation[] } => {
     const list = rt.socketAttachments?.() ?? [];
     if (list.length === 0) return {};
@@ -1646,7 +1643,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
   };
 
   /**
-   * Phase 23.16: the conversation as the dialogue UI shows it (read from the
+   * The conversation as the dialogue UI shows it (read from the
    * view model the runner publishes, so threaded Play reports it the same).
    */
   const dialogueObservation = (rt: Runtime): { dialogue?: DialogueObservation } => {
@@ -1676,7 +1673,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
     };
   };
 
-  /** Phase 23.18: the environment blend, once a script changed it (weights by key: '' the base look, a preset id, a patched preset's key). */
+  /** The environment blend, once a script changed it (weights by key: '' the base look, a preset id, a patched preset's key). */
   const environmentObservation = (rt: Runtime): { environment?: GameHostEnvironmentObservation } => {
     const v = rt.readEnvironmentBlend?.() ?? null;
     if (v === null) return {};
@@ -1685,7 +1682,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
     return { environment: { target: v.target, progress: v.progress, weights } };
   };
 
-  /** Phase 23.4: the resolved camera, while the game has virtual cameras. */
+  /** The resolved camera, while the game has virtual cameras. */
   const cameraObservation = (rt: Runtime): { camera?: CameraViewInfo } => {
     const c = rt.cameraView?.() ?? null;
     return c === null ? {} : { camera: c };
@@ -1730,7 +1727,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
     };
   };
 
-  /** Phase 24.7: the named counters and every object's health (bounded; absent while empty). */
+  /** The named counters and every object's health (bounded; absent while empty). */
   const countersAndHealth = (rt: Runtime): Pick<GameHostObservation, 'counters' | 'health'> => {
     const c = Object.entries(rt.gameCounters?.().counters ?? {}).slice(0, 32);
     const hp = Object.entries(rt.healthsView?.() ?? {}).slice(0, 64);
@@ -1740,7 +1737,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
     };
   };
 
-  /** Phase 23.13: the Web Audio graph, once scripts used audio or a positional loop plays. */
+  /** The Web Audio graph, once scripts used audio or a positional loop plays. */
   const audioObservation = (): { audio?: AudioObservation } => {
     const a = config.audio.observeAudio?.() ?? null;
     return a === null ? {} : { audio: a };
@@ -1756,7 +1753,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
   };
 
   const dispose = (): void => {
-    if (disposed) return; // idempotent (delivery.md §3.1: `dispose(): void`)
+    if (disposed) return; // idempotent (`dispose(): void`)
     disposed = true;
     mounted = false;
     // The runtime owns the frame driver: stop (cancels it) then dispose.
@@ -1771,7 +1768,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
       }
       runtime = null;
     }
-    // Phase 21.5: what this host started on the wrapper-owned audio owner
+    // What this host started on the wrapper-owned audio owner
     // stops with it — the loops of audio sources — so a new composition on
     // the same owner (a new Play snapshot) does not keep the old one's loops
     // playing.
@@ -1785,7 +1782,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
       }
     }
     liveLoops.clear();
-    // Phase 23.13: and the scripts' sounds, music hold, duck and mix.
+    // And the scripts' sounds, music hold, duck and mix.
     try {
       config.audio.command?.({ op: 'reset', stepIndex: 0 });
     } catch {
@@ -1804,7 +1801,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
     shellCtl = null;
     pausePanel?.dispose();
     pausePanel = null;
-    // Phase 23.10: the input's maps back to every map (the owner outlives this host).
+    // The input's maps back to every map (the owner outlives this host).
     if (appliedMaps !== '*') {
       appliedMaps = '*';
       config.input.setActiveMaps?.(null);
@@ -1828,12 +1825,11 @@ export function createGameHost(config: GameHostConfig): GameHost {
       adapter = null;
     }
     // The injected input owner and audio owner are WRAPPER-owned: the host
-    // does not dispose them (a new host on the same snapshot reuses them —
-    // delivery.md §3.1). Its loops and music were stopped above; residual
-    // cues end on their own; the wrapper's final dispose closes the context.
+    // does not dispose them (a new host on the same snapshot reuses them).
+    // Its loops and music were stopped above; residual cues end on their own; the wrapper's final dispose closes the context.
   };
 
-  /** Phase 25.15: the engine pause panel's targets (keys `pause:<which>`), then the project UI's. */
+  /** The engine pause panel's targets (keys `pause:<which>`), then the project UI's. */
   const uiHitTargets = (): readonly UiHitTarget[] => {
     const g = globalThis as { innerWidth?: number; innerHeight?: number };
     const vp = { width: g.innerWidth ?? 1280, height: g.innerHeight ?? 720 };

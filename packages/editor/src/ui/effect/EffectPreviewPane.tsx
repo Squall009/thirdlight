@@ -1,5 +1,5 @@
 /**
- * Phase 20.3: the Effect tab's preview pane (right column) — the looping
+ * The Effect tab's preview pane (right column) — the looping
  * preview canvas (`viewport/effect-preview.ts`), its timeline (play/pause,
  * restart, scrub, preview length), the spawn counters per system, the frame
  * cost (GPU timestamps or CPU frame time, labelled) and sliders for

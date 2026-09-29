@@ -1,6 +1,5 @@
 /**
- * The trusted behavior host — runtime.md §14 (promoted packet-18
- * behavior contract; implemented by packet 34).
+ * The trusted behavior host.
  *
  * This module is the runtime's ONLY behavior-execution surface. It implements
  * the contract's `BehaviorSpec` lifecycle (`prepare → instantiate → step →
@@ -11,8 +10,7 @@
  * the fail-stop; this host owns instance identity, the prepared object and the
  * per-instance log ring.
  *
- * Trust boundary (normative, §14.1/§14.2 — no claim to the contrary may be
- * made by any packet, UI string, handoff or acceptance record):
+ * Trust boundary (no UI string or document may claim otherwise):
  *
  * 1. **No hard runtime timeout exists.** Trusted behavior code runs on the
  *    same thread as the renderer and the fixed-step loop. A same-thread
@@ -107,7 +105,7 @@ import type {
 } from './types';
 
 /**
- * Phase 23.8: `ctx.debug` over the runtime's per-phase control — the same
+ * `ctx.debug` over the runtime's per-phase control — the same
  * object for the same control (made once), with the optional handler run once
  * per call returned.
  */
@@ -128,10 +126,10 @@ function debugFor(control: NonNullable<StepContext['debug']>): BehaviorDebug {
   return view;
 }
 
-/** The declared-property value map fed to one behavior instance (§14.3). */
+/** The declared-property value map fed to one behavior instance. */
 export type BehaviorProperties = Readonly<Record<string, PropertyValue>>;
 
-// Phase 16.3: the public behavior API. The host builds exactly this object
+// The public behavior API. The host builds exactly this object
 // each step (`stepBehavior` below is typed by it); the script editor's typings
 // (tools/gen-behavior-api.mjs → editor `behavior-api.generated.ts`) are
 // generated from these declarations, so their doc comments are what a script
@@ -174,7 +172,7 @@ export interface BehaviorContext {
   /** An entity's animator (`ctx.animator(id)?.set('speed', 1)`), or null when it has none. */
   readonly animator?: (entityId: string) => BehaviorAnimatorHandle | null;
   /**
-   * Last step's clip events, the enter/exit events of the triggers this instance owns, and (phase 24.4)
+   * Last step's clip events, the enter/exit events of the triggers this instance owns, and
    * the health, collect, patrol and contact events of the objects it owns (its own, those below it, and
    * those its object properties name).
    * @graphNode skip the event nodes (On trigger, On animator event) read them one by one
@@ -183,27 +181,27 @@ export interface BehaviorContext {
   /** Named timers of this instance, counted in fixed steps. */
   readonly timers: BehaviorTimers;
   /**
-   * Phase 23.7: seeded random numbers of this instance (replay-safe; the project's
+   * Seeded random numbers of this instance (replay-safe; the project's
    * `random_seed` setting with this script and object), with named sub-streams.
    */
   readonly random: BehaviorRandom;
   /** Signals (seen one step after they are emitted). */
   readonly signals?: BehaviorSignals;
-  /** Phase 19.1: messages to other scripts, with a value (seen one step after they are sent). */
+  /** Messages to other scripts, with a value (seen one step after they are sent). */
   readonly messages?: BehaviorMessages;
   /** The run's counters, the player's health and object visibility. */
   readonly game?: BehaviorGameState;
-  /** Phase 24.4b: any object's health — read, damage and heal it; its events arrive in `ctx.events`. */
+  /** Any object's health — read, damage and heal it; its events arrive in `ctx.events`. */
   readonly health?: BehaviorHealth;
-  /** Phase 24.4c: patrollers — which way they walk, stop them, turn them around. */
+  /** Patrollers — which way they walk, stop them, turn them around. */
   readonly patrol?: BehaviorPatrol;
-  /** Phase 24.4d: hitboxes — switch them off and on, what they touch. */
+  /** Hitboxes — switch them off and on, what they touch. */
   readonly hitbox?: BehaviorHitbox;
-  /** Phase 24.4a: collectibles — collected or not, bring one back. */
+  /** Collectibles — collected or not, bring one back. */
   readonly collectible?: BehaviorCollectible;
-  /** Phase 24.4f: the character — give it an impulse. */
+  /** The character — give it an impulse. */
   readonly character?: BehaviorCharacter;
-  /** Phase 24.4h: per-object look overrides — a glow or a tint, set and cleared. */
+  /** Per-object look overrides — a glow or a tint, set and cleared. */
   readonly look?: BehaviorLook;
   /** Play sounds (presentation only, never part of the simulation). */
   readonly audio?: BehaviorAudio;
@@ -211,10 +209,10 @@ export interface BehaviorContext {
   readonly effects?: BehaviorEffects;
   /** Values kept in the player's save. */
   readonly save?: BehaviorSave;
-  /** Phase 23.8: project debug commands (run by tools and the in-game console, recorded with the input). */
+  /** Project debug commands (run by tools and the in-game console, recorded with the input). */
   readonly debug?: BehaviorDebug;
   /**
-   * Phase 23.5: the block layers of the loaded scenes — read and write cells and their
+   * The block layers of the loaded scenes — read and write cells and their
    * metadata, pick a cell with a ray, neighbours, named regions, change events, a diff for saves.
    */
   readonly grid?: BehaviorGrid;
@@ -249,43 +247,43 @@ export interface BehaviorContext {
    * @graphNode skip the Log node (debug.log) writes any value as text
    */
   log(level: BehaviorLogLevel, message: string): void;
-  /** Phase 23.4: the virtual cameras — activate, priorities, rig values, shake, screen↔world. */
+  /** The virtual cameras — activate, priorities, rig values, shake, screen↔world. */
   readonly camera?: BehaviorCamera;
-  /** Phase 23.11: objects riding on named nodes of other objects' models — attach, detach, node poses. */
+  /** Objects riding on named nodes of other objects' models — attach, detach, node poses. */
   readonly sockets?: BehaviorSockets;
   /**
-   * Phase 23.12: graph-material parameters per object — set a value (number, vector, colour,
+   * Graph-material parameters per object — set a value (number, vector, colour,
    * texture) or write the cells of a data parameter on one object; others wearing the material keep theirs.
    */
   readonly materials?: BehaviorMaterials;
   /**
-   * Phase 23.19: the project's save document and numbered slots (save, load, delete, the slot list
+   * The project's save document and numbered slots (save, load, delete, the slot list
    * with title/chapter/location/play time/picture) and the project settings document.
    */
   readonly saves?: BehaviorSaves;
-  /** Phase 23.9a: the project UI — publish view-model values, show and hide UI documents, read the step's UI events. */
+  /** The project UI — publish view-model values, show and hide UI documents, read the step's UI events. */
   readonly ui?: BehaviorUi;
   /**
-   * Phase 23.16: conversations — start a dialogue, advance, choose, skip seen lines, auto-advance,
+   * Conversations — start a dialogue, advance, choose, skip seen lines, auto-advance,
    * dialogue variables, the backlog and the events of lines, choices and signals.
    */
   readonly dialogue?: BehaviorDialogue;
-  /** Phase 23.10: the game modes — the current mode, switching (input maps, camera, UI, ticking groups together), enter/exit events. */
+  /** The game modes — the current mode, switching (input maps, camera, UI, ticking groups together), enter/exit events. */
   readonly modes?: BehaviorModes;
-  /** Phase 23.10: the run lifecycle — respawn the character at a spawn, restart the run. */
+  /** The run lifecycle — respawn the character at a spawn, restart the run. */
   readonly lifecycle?: BehaviorLifecycle;
-  /** Phase 23.17: timelines — play, pause, skip, seek and stop project timelines; their events and markers. */
+  /** Timelines — play, pause, skip, seek and stop project timelines; their events and markers. */
   readonly timeline?: BehaviorTimeline;
-  /** Phase 23.18: the environment presets — switch or blend sky, fog, lights, exposure and grading at run time. */
+  /** The environment presets — switch or blend sky, fog, lights, exposure and grading at run time. */
   readonly environment?: BehaviorEnvironment;
   /**
-   * Phase 25.10: one loaded object by id (an object property's value, a spawned copy's id, `ctx.entityId`) —
+   * One loaded object by id (an object property's value, a spawned copy's id, `ctx.entityId`) —
    * read any component (`get`: the step-start state of its script-readable fields) and write the fields
    * marked writable (`set`: applied at the end of the step). Null for no id or an object that is not loaded.
    * @graphLabel entityId object
    */
   readonly entity?: (entityId: string | null) => BehaviorEntityHandle | null;
-  /** Phase 25.10: the game shell's scene list — move to the next entry (the shell's nextScene action). */
+  /** The game shell's scene list — move to the next entry (the shell's nextScene action). */
   readonly shell?: BehaviorShell;
 }
 
@@ -305,8 +303,8 @@ export interface BehaviorInstanceInfo {
 }
 
 /**
- * A behavior module's `export default`: `step` and/or any of the callbacks
- * (phase 25.11); every one must be synchronous and return nothing. State is
+ * A behavior module's `export default`: `step` and/or any of the callbacks;
+ * every one must be synchronous and return nothing. State is
  * per entity (from `instantiate`).
  *
  * Callbacks run inside the step's intent phase, before the instance's `step`,
@@ -323,38 +321,38 @@ export interface BehaviorSpec<State = unknown, Prepared = unknown> {
   step?(state: State, ctx: BehaviorContext): void;
   dispose?(prepared: Prepared, state: State): void;
   /**
-   * Phase 25.11: the object is in the game and switched on — its first step (a run's start, a scene load,
+   * The object is in the game and switched on — its first step (a run's start, a scene load,
    * a spawned copy) and each time it is switched on again (`set('object', { active: true })`).
    */
   onEnable?(state: State, ctx: BehaviorContext): void;
-  /** Phase 25.11: the object was switched off (itself or an object above it), or it is leaving the game. */
+  /** The object was switched off (itself or an object above it), or it is leaving the game. */
   onDisable?(state: State, ctx: BehaviorContext): void;
   /**
-   * Phase 25.11: the object left the game (destroyed, or its scene unloaded) — in the step it left, after
+   * The object left the game (destroyed, or its scene unloaded) — in the step it left, after
    * `onDisable`; the object is already gone (`ctx.entity(ctx.entityId)` is null). Not called when a run restarts.
    */
   onDestroy?(state: State, ctx: BehaviorContext): void;
-  /** Phase 25.11: the player entered a trigger this script owns (on its object, below it, or named by one of its object properties) in the last step. */
+  /** The player entered a trigger this script owns (on its object, below it, or named by one of its object properties) in the last step. */
   onTriggerEnter?(state: State, event: TriggerEventRecord, ctx: BehaviorContext): void;
-  /** Phase 25.11: the player left a trigger this script owns in the last step. */
+  /** The player left a trigger this script owns in the last step. */
   onTriggerExit?(state: State, event: TriggerEventRecord, ctx: BehaviorContext): void;
-  /** Phase 25.11: a hitbox this script owns began (`type: 'contact'`) or stopped (`'separate'`) touching something in the last step. */
+  /** A hitbox this script owns began (`type: 'contact'`) or stopped (`'separate'`) touching something in the last step. */
   onContact?(state: State, event: ContactEventRecord, ctx: BehaviorContext): void;
-  /** Phase 25.11: a message sent in the last step to every script or to this object (`ctx.messages.send`). */
+  /** A message sent in the last step to every script or to this object (`ctx.messages.send`). */
   onMessage?(state: State, message: BehaviorMessage, ctx: BehaviorContext): void;
-  /** Phase 25.11: a UI event of this step (a button, a submitted input, a document shown or hidden). */
+  /** A UI event of this step (a button, a submitted input, a document shown or hidden). */
   onUiEvent?(state: State, event: UiEventRecord, ctx: BehaviorContext): void;
-  /** Phase 25.11: a clip event an animator this script owns passed in the last step. */
+  /** A clip event an animator this script owns passed in the last step. */
   onAnimatorEvent?(state: State, event: AnimatorEventRecord, ctx: BehaviorContext): void;
   /**
-   * Phase 19.2: what a debugger may read of an instance's state (Play's
+   * What a debugger may read of an instance's state (Play's
    * visual-script debugger: the trace of the step, wire values, variables).
    * Never called during a step; its result is read-only. Optional.
    */
   debug?(state: State): unknown;
 }
 
-/** Phase 19.2: one running instance's `debug(state)` answer (Play debugging). */
+/** One running instance's `debug(state)` answer (Play debugging). */
 export interface BehaviorDebugView {
   behaviorId: string;
   entityId: string;
@@ -362,7 +360,7 @@ export interface BehaviorDebugView {
 }
 
 /**
- * Phase 15.4: the property values one running behavior instance reads
+ * The property values one running behavior instance reads
  * (public and private, declaration order) — the Play debug view's data.
  */
 export interface BehaviorPropertyView {
@@ -388,7 +386,7 @@ export interface BehaviorArtifact {
   sourceDigest: string;
   manifestDigest: string;
   outputDigest: string;
-  /** Entities this behavior's source declares (project-model §22.1.6). */
+  /** Entities this behavior's source declares. */
   ownedTransforms: readonly string[];
   /** Type-only engine module IDs the source named. */
   requiredModules: readonly string[];
@@ -404,12 +402,12 @@ export interface BehaviorHostInput {
   artifact: BehaviorArtifact;
 }
 
-/** The behavior module ID prefix (runtime.md §12.1/§14.8.1). */
+/** The behavior module ID prefix. */
 export const BEHAVIOR_MODULE_PREFIX = 'thirdlight.behavior:';
 
 /** The module ID of one published behavior. */
 /**
- * Phase 14.1: the `ownedTransforms` entry meaning "the entity carrying this
+ * The `ownedTransforms` entry meaning "the entity carrying this
  * behavior": each instance may move (transform/pose intents) its own entity —
  * an authored one or a spawned copy, whose runtime id is only known at spawn.
  */
@@ -428,9 +426,9 @@ export class BehaviorHostError extends Error {
   readonly code: 'config_invalid' | 'module_error' | 'transform_owner_forbidden';
   readonly reason: string;
   readonly detail?: string;
-  /** Phase 19.0: the visual-script node that was running (see `graphNodeIdOf`). */
+  /** The visual-script node that was running (see `graphNodeIdOf`). */
   nodeId?: string;
-  /** Phase 25.9: where in the project's compiled modules the error came from (see `compiledFramesOf`). */
+  /** Where in the project's compiled modules the error came from (see `compiledFramesOf`). */
   frames?: CompiledFrame[];
   constructor(
     code: BehaviorHostError['code'],
@@ -446,12 +444,12 @@ export class BehaviorHostError extends Error {
   }
 }
 
-// Phase 19.1: a node inside a function is `fn:<functionId>/<nodeId>` or `lib:<graphId>/<nodeId>`.
+// A node inside a function is `fn:<functionId>/<nodeId>` or `lib:<graphId>/<nodeId>`.
 const GRAPH_NODE_ID_RE = /^(?:(?:fn|lib):[A-Za-z0-9_-]{1,64}\/)?[A-Za-z0-9_-]{1,64}$/;
 const GRAPH_DETAIL_RE = /^[a-z_]{1,32}$/;
 
 /**
- * Phase 19.0: the visual-script node an error came from. Code generated from
+ * The visual-script node an error came from. Code generated from
  * a behavior graph tags every error thrown while a node runs with the node's
  * id (`nodeId`); the runtime copies it into the script error (diagnostics,
  * Play) so the failure points at the node. Any other error has none.
@@ -462,7 +460,7 @@ export function graphNodeIdOf(e: unknown): string | undefined {
   return typeof id === 'string' && GRAPH_NODE_ID_RE.test(id) ? id : undefined;
 }
 
-/** Phase 25.9: one position in a project's compiled script module (`behaviors/<digest>.js` or `libraries/<digest>.js`). */
+/** One position in a project's compiled script module (`behaviors/<digest>.js` or `libraries/<digest>.js`). */
 export interface CompiledFrame {
   file: string;
   /** 1-based. */
@@ -474,7 +472,7 @@ export interface CompiledFrame {
 const COMPILED_FRAME_RE = /((?:behaviors|libraries)\/[0-9a-f]{64}\.js):(\d+):(\d+)/g;
 
 /**
- * Phase 25.9: the project-module positions in an error's stack, innermost
+ * The project-module positions in an error's stack, innermost
  * first (at most `max`; engine frames skipped). The browsers' stack formats
  * all end a frame with `<url>:<line>:<column>`, and a compiled script is
  * always loaded from a digest-named file, so only those frames match. The
@@ -500,14 +498,14 @@ export function compiledFramesOf(e: unknown, max = 4): CompiledFrame[] {
   return out;
 }
 
-/** Phase 25.9: a host error that keeps the script frames of the error it wraps. */
+/** A host error that keeps the script frames of the error it wraps. */
 function withFrames(err: BehaviorHostError, cause: unknown): BehaviorHostError {
   const frames = compiledFramesOf(cause);
   if (frames.length > 0) err.frames = frames;
   return err;
 }
 
-/** A write to the frozen `prepare` result (§14.3.1 `behavior_state_shared`). */
+/** A write to the frozen `prepare` result (`behavior_state_shared`). */
 class FrozenPreparedError extends Error {
   constructor(message: string) {
     super(clipMessage(message));
@@ -537,7 +535,7 @@ function isThenable(v: unknown): boolean {
   ) && typeof (v as { then?: unknown }).then === 'function';
 }
 
-/** `ctx.log` message clipping (§14.8: 256 chars, ellipsis). */
+/** `ctx.log` message clipping (256 chars, ellipsis). */
 export function clipLogMessage(message: string): string {
   const limit = INTENT_LIMITS.logMessageLength;
   if (typeof message !== 'string') return String(message).slice(0, limit);
@@ -548,7 +546,7 @@ export function clipLogMessage(message: string): string {
 /**
  * A read-only deep view of the `prepare` result. Plain objects and arrays are
  * frozen and wrapped so any write throws `FrozenPreparedError`, which the host
- * maps to `behavior_state_shared` (§14.3.1). Non-plain values (functions,
+ * maps to `behavior_state_shared`. Non-plain values (functions,
  * class instances, Maps) are returned as-is.
  */
 function readonlyPrepared(value: unknown, seen: WeakMap<object, unknown>): unknown {
@@ -590,7 +588,7 @@ function propertyError(key: string, message: string, detail: string): BehaviorHo
   return new BehaviorHostError('config_invalid', 'behavior_property_invalid', message, `${key}:${detail}`);
 }
 
-/** Validate one stored value against its declaration (§20.5). */
+/** Validate one stored value against its declaration. */
 function checkValue(prop: DeclaredProperty, value: unknown): string | null {
   switch (prop.type) {
     case 'number': {
@@ -632,9 +630,8 @@ function checkValue(prop: DeclaredProperty, value: unknown): string | null {
 
 /**
  * Materialize one entity's whole values map from its stored values and the
- * declaration (defaults filled for absent keys and — phase 15.4 — for private
- * properties, declaration order preserved). An undeclared stored key is never
- * dropped (§20.8.4).
+ * declaration (defaults filled for absent keys and for private properties,
+ * declaration order preserved). An undeclared stored key is never dropped.
  */
 export function materializeBehaviorValues(
   declaration: PropertyDeclaration,
@@ -642,7 +639,7 @@ export function materializeBehaviorValues(
 ): { ok: true; values: Record<string, PropertyValue> } | { ok: false; error: BehaviorHostError } {
   const out: Record<string, PropertyValue> = {};
   for (const prop of declaration.properties) {
-    // Phase 15.4: a private property always reads its declared default (a
+    // A private property always reads its declared default (a
     // stored value left from when it was public is inert).
     const has = prop.visibility !== 'private' && Object.prototype.hasOwnProperty.call(stored, prop.key);
     const raw = has ? stored[prop.key] : prop.default;
@@ -670,13 +667,13 @@ export function materializeBehaviorValues(
   return { ok: true, values: out };
 }
 
-/** Validate the declaration shape the host was given (§20.5/§20.7). */
+/** Validate the declaration shape the host was given. */
 function validateDeclaration(declaration: unknown): PropertyDeclaration {
   if (!isPlainObject(declaration) || !Array.isArray(declaration['properties'])) {
     throw new BehaviorHostError('config_invalid', 'behavior_declaration_invalid', 'a declaration must be { properties: [] }');
   }
   const properties = declaration['properties'] as unknown[];
-  // Phase 19.1: 0–32 (a script may declare no property at all).
+  // 0–32 (a script may declare no property at all).
   if (properties.length > 32) {
     throw new BehaviorHostError('config_invalid', 'behavior_declaration_invalid', 'a declaration has at most 32 properties');
   }
@@ -714,32 +711,32 @@ interface BehaviorInstance {
   /** Committed intents in `counterStep`. */
   stepIntents: number;
   /**
-   * Committed channels per entity (phase 21.2: a bit mask tagged with its
-   * step, `(counterStep + 1) * 64 + mask`, so nothing is cleared per step):
+   * Committed channels per entity (a bit mask tagged with its step,
+   * `(counterStep + 1) * 64 + mask`, so nothing is cleared per step):
    * position x/y/z = 1/2/4, rotation 8, scale 16.
    */
   committed: Map<string, number>;
   /** Committed non-entity channels (`control_move`, `control_jump`, `respawn`): the tagged step. */
   committedKinds: Map<string, number>;
-  /** Phase 14.2: `ctx.timers` of this instance. */
+  /** `ctx.timers` of this instance. */
   timers: InstanceTimers;
-  /** Phase 14.2: this step's `ctx.events` (built once per step, shared by its phases). */
+  /** This step's `ctx.events` (built once per step, shared by its phases). */
   events: readonly (AnimatorEventRecord | TriggerEventRecord | PrimitiveEventRecord)[] | null;
   /** The step `events` belongs to. */
   eventsStep: number;
   /**
-   * Phase 21.2: this instance's `ctx` per phase, made once for the runtime's
+   * This instance's `ctx` per phase, made once for the runtime's
    * (reused) step context `src` and read live (step, frame, intents, events).
    */
   contexts: Map<SimulationPhase, { src: StepContext; ctx: BehaviorContext }>;
-  /** Phase 21.2: `ctx.log` and `ctx.messages` of this instance (made once). */
+  /** `ctx.log` and `ctx.messages` of this instance (made once). */
   log: ((level: BehaviorLogLevel, message: string) => void) | null;
   messages: { src: StepContext; view: BehaviorMessages } | null;
-  /** Phase 23.7: `ctx.random` of this instance (made on first use). */
+  /** `ctx.random` of this instance (made on first use). */
   random: InstanceRandom | null;
-  /** Phase 25.10: `ctx.entity` of this instance (it writes as this script on its object). */
+  /** `ctx.entity` of this instance (it writes as this script on its object). */
   entity: { src: StepContext; fn: (ref: string | null) => BehaviorEntityHandle | null } | null;
-  /** Phase 25.11: `onEnable` was the last lifecycle callback it got (its object is on, as far as the script knows). */
+  /** `onEnable` was the last lifecycle callback it got (its object is on, as far as the script knows). */
   enabled: boolean;
 }
 
@@ -761,11 +758,11 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
   }
   const declaration = validateDeclaration(input.declaration);
   const declaredOwned = [...new Set(artifact.ownedTransforms ?? [])].sort();
-  // Phase 14.1: "@self" — each instance owns its own entity's transform.
+  // "@self" — each instance owns its own entity's transform.
   const selfOwned = declaredOwned.includes(BEHAVIOR_SELF_OWNER);
   const ownedTransforms = declaredOwned.filter((id) => id !== BEHAVIOR_SELF_OWNER);
   const spec = behaviorSpecOf(artifact.namespace);
-  // Phase 25.11: which callbacks the script has (a script without any steps exactly as before).
+  // Which callbacks the script has (a script without any steps exactly as before).
   const has = (name: BehaviorCallbackName): boolean => typeof spec[name] === 'function';
   const lifecycleCallbacks = has('onEnable') || has('onDisable') || has('onDestroy');
   const leaveCallbacks = has('onDisable') || has('onDestroy');
@@ -782,22 +779,22 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
     id: behaviorModuleId(behaviorId),
     phases: declaredOwned.length > 0 ? ['intent', 'transform'] : ['intent'],
     create(snapshot: RuntimeSnapshot, cfg: ModuleConfig): SimulationPhaseModule {
-      // Phase 12 (b/c): the tag query — the runtime's live index (it follows
+      // The tag query — the runtime's live index (it follows
       // scene loads), else one built from the snapshot.
       const tags = cfg.tags ?? createTagQuery(snapshot);
-      // Phase 12 (c): with a scene catalog an owner may live in a scene that
+      // With a scene catalog an owner may live in a scene that
       // is not loaded yet; it is checked when its scene loads.
       const deferOwners = snapshot.scenes !== undefined;
-      // §14.6: an owner must exist, carry THIS behavior's component, and be
+      // An owner must exist, carry THIS behavior's component, and be
       // neither the camera nor a physics-bearing entity.
       const entityIds = new Set<string>();
       const cameraIds = new Set<string>();
       const physicsIds = new Set<string>();
       const components = new Map<string, { behaviorId?: string; values?: Record<string, unknown> }>();
-      // Phase 14.2: the hierarchy of the loaded entities (a script owns the triggers below its entity).
+      // The hierarchy of the loaded entities (a script owns the triggers below its entity).
       const parentOf = new Map<string, string>();
       for (const e of snapshot.scene.entities) if (e.parentId !== undefined) parentOf.set(e.id, e.parentId);
-      // Phase 23.1: in a 3D project a collider no mover moves is script-drivable (the runtime poses it
+      // In a 3D project a collider no mover moves is script-drivable (the runtime poses it
       // as a kinematic body from the transform intents); the controller and movers stay off limits.
       const physicsBody = (c: { collider?: unknown; controller?: unknown; mover?: unknown }): boolean =>
         c.controller !== undefined || (c.collider !== undefined && (cfg.physicsDimension !== 3 || c.mover !== undefined));
@@ -821,7 +818,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
           throw new BehaviorHostError('transform_owner_forbidden', 'behavior_ownership_forbidden', `behavior "${behaviorId}" claims entity "${owner}" which does not carry this behavior`, 'not_behavior_entity');
         }
       };
-      /** Phase 14.1: a carrier that owns itself ("@self") is neither the camera nor a physics body. */
+      /** A carrier that owns itself ("@self") is neither the camera nor a physics body. */
       const checkSelf = (id: string): void => {
         if (cameraIds.has(id)) throw new BehaviorHostError('transform_owner_forbidden', 'behavior_ownership_forbidden', `behavior "${behaviorId}" (@self) is on the camera entity "${id}"`, 'camera');
         if (physicsIds.has(id)) throw new BehaviorHostError('transform_owner_forbidden', 'behavior_ownership_forbidden', `behavior "${behaviorId}" (@self) is on physics entity "${id}"`, 'physics_entity');
@@ -881,7 +878,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         }
       }
 
-      // Phase 23.7: the run seed of ctx.random (the project's random_seed, else the default).
+      // The run seed of ctx.random (the project's random_seed, else the default).
       const randomSeed = randomSeedOf(cfg.settings);
       const randomOf = (instance: BehaviorInstance): BehaviorRandom => {
         if (instance.random === null) instance.random = new InstanceRandom(randomSeed, behaviorId, instance.entityId);
@@ -899,12 +896,12 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
           instance.stepLogs = 0;
           instance.stepIntents = 0;
         }
-        // Phase 14.2: the timers due in this step fire (once per step, whatever the phases).
+        // The timers due in this step fire (once per step, whatever the phases).
         instance.timers.begin(stepIndex);
       };
 
       /**
-       * Phase 14.2: the triggers an instance owns — one on its own entity, on
+       * The triggers an instance owns — one on its own entity, on
        * a descendant of it, or named by one of its entityRef properties.
        */
       const entityRefKeys = declaration.properties.filter((p) => p.type === 'entityRef').map((p) => p.key);
@@ -916,7 +913,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         }
         return entityRefKeys.some((k) => instance.properties[k] === triggerId);
       };
-      /** `ctx.events`: last step's clip events, then the enter/exit events of the owned triggers, then (phase 24.4) the owned objects' primitive events. */
+      /** `ctx.events`: last step's clip events, then the enter/exit events of the owned triggers, then the owned objects' primitive events. */
       const eventsFor = (instance: BehaviorInstance, ctx: StepContext): readonly (AnimatorEventRecord | TriggerEventRecord | PrimitiveEventRecord)[] => {
         if (instance.events !== null && instance.eventsStep === ctx.stepIndex) return instance.events;
         const clips = ctx.animatorEvents ?? NO_EVENTS;
@@ -933,7 +930,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
       /** A listed entity, or (with "@self") the instance's own entity. */
       const owns = (instance: BehaviorInstance, entityId: string): boolean => ownedTransforms.includes(entityId) || (selfOwned && entityId === instance.entityId);
       const emitFor = (instance: BehaviorInstance, ctx: StepContext, phase: SimulationPhase) => (raw: unknown): void => {
-        // The contract's §14.4 order, per instance: shape → phase → value →
+        // The validation order, per instance: shape → phase → value →
         // ownership → duplicate → caps. The runtime repeats 1–4 and owns the
         // cross-module duplicate and per-step cap before it commits.
         const shape = validateIntentShape(raw);
@@ -943,7 +940,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         if (phaseError !== null) throw phaseError;
         const valueError = validateIntentValue(intent);
         if (valueError !== null) throw valueError;
-        // The channels this intent writes, as bits (phase 21.2: no per-intent strings or sets).
+        // The channels this intent writes, as bits (no per-intent strings or sets).
         const tag = (instance.counterStep + 1) * 64;
         let bits = 0;
         let key: string;
@@ -952,7 +949,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
           if (!owns(instance, intent.entityId)) {
             throw new BehaviorIntentError('behavior_transform_forbidden', 'not_owner', `entity "${intent.entityId}" is not in this behavior's ownedTransforms`);
           }
-          // Phase 23.7: a quaternion or a facing (transform or pose) writes the rotation too.
+          // A quaternion or a facing (transform or pose) writes the rotation too.
           if (intent.quaternion !== undefined || intent.facing !== undefined) bits |= 8;
           if (intent.kind === 'transform') {
             for (const axis in intent.position) bits |= axis === 'x' ? 1 : axis === 'y' ? 2 : 4;
@@ -993,11 +990,11 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         const clipped = clipLogMessage(typeof message === 'string' ? message : String(message));
         instance.logs.push({ level, message: clipped });
         if (instance.logs.length > INTENT_LIMITS.logsRetainedPerInstance) instance.logs.shift();
-        // Phase 25.9: where the script called ctx.log (the first project frame of the call's stack).
+        // Where the script called ctx.log (the first project frame of the call's stack).
         if (cfg.behaviorLog !== undefined) cfg.behaviorLog(level, clipped, compiledFramesOf(new Error(), 1)[0]);
       };
 
-      /** Phase 19.1: `ctx.messages` of one instance (it sends as, and receives for, its entity). */
+      /** `ctx.messages` of one instance (it sends as, and receives for, its entity). */
       const messagesFor = (instance: BehaviorInstance, ctx: StepContext): BehaviorMessages => {
         const control = ctx.messages!;
         return Object.freeze({
@@ -1007,7 +1004,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
       };
 
       /**
-       * Phase 21.2: `ctx.input` of the step's frame — one view per frame object,
+       * `ctx.input` of the step's frame — one view per frame object,
        * shared by every instance and phase of the step.
        */
       let inputFrame: ActionFrame | null = null;
@@ -1015,12 +1012,12 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
       const inputFor = (frame: ActionFrame, src: StepContext): BehaviorInputView => {
         if (inputFrame !== frame || inputOfFrame === null) {
           inputFrame = frame;
-          // Phase 23.3: `setCursor` goes to the runtime's cursor channel (one per runtime).
+          // `setCursor` goes to the runtime's cursor channel (one per runtime).
           inputOfFrame = inputView(frame, src.cursor?.request, src.inputStatus);
         }
         return inputOfFrame;
       };
-      /** Phase 21.2: `ctx.world` per runtime step context (it reads `state.curr` live). */
+      /** `ctx.world` per runtime step context (it reads `state.curr` live). */
       const worlds = new WeakMap<StepContext, BehaviorWorldView>();
       const worldFor = (ctx: StepContext): BehaviorWorldView => {
         let w = worlds.get(ctx);
@@ -1058,62 +1055,62 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
           world: { value: worldFor(src), enumerable: true },
         };
         if (src.scenes !== undefined) fields['scenes'] = { value: src.scenes, enumerable: true };
-        // Phase 9.8: the step's input actions by name.
+        // The step's input actions by name.
         fields['input'] = { get: () => inputFor(src.action, src), enumerable: true };
-        // Phase 9.7: animators (`ctx.animator(id)?.set(...)`); last step's clip
-        // events and (phase 14.2) the owned triggers' enter/exit events.
+        // Animators (`ctx.animator(id)?.set(...)`); last step's clip
+        // events and the owned triggers' enter/exit events.
         if (src.animators !== undefined) fields['animator'] = { value: src.animators.of, enumerable: true };
         if (src.animators !== undefined || src.triggerEvents !== undefined || src.primitiveEvents !== undefined) fields['events'] = { get: () => eventsFor(instance, src), enumerable: true };
-        // Phase 14.2: named step-counted timers of this instance.
+        // Named step-counted timers of this instance.
         fields['timers'] = { value: instance.timers.api, enumerable: true };
-        // Phase 23.7: seeded random numbers (made on first use).
+        // Seeded random numbers (made on first use).
         fields['random'] = { get: () => randomOf(instance), enumerable: true };
-        // Phase 9.9: signals and the run's counters.
+        // Signals and the run's counters.
         if (src.signals !== undefined) fields['signals'] = { value: src.signals, enumerable: true };
-        // Phase 19.1: messages between scripts (this instance sends and receives as its entity).
+        // Messages between scripts (this instance sends and receives as its entity).
         if (src.messages !== undefined) fields['messages'] = { value: messagesOf(instance, src), enumerable: true };
         if (src.game !== undefined) fields['game'] = { value: src.game, enumerable: true };
-        // Phase 24.4: the generic primitives (any object's health, patrols, hitboxes, collectibles).
+        // The generic primitives (any object's health, patrols, hitboxes, collectibles).
         if (src.health !== undefined) fields['health'] = { value: src.health, enumerable: true };
         if (src.patrol !== undefined) fields['patrol'] = { value: src.patrol, enumerable: true };
         if (src.hitbox !== undefined) fields['hitbox'] = { value: src.hitbox, enumerable: true };
         if (src.collectible !== undefined) fields['collectible'] = { value: src.collectible, enumerable: true };
-        // Phase 24.4f/h: the character's impulse and the look overrides.
+        // The character's impulse and the look overrides.
         if (src.character !== undefined) fields['character'] = { value: src.character, enumerable: true };
         if (src.look !== undefined) fields['look'] = { value: src.look, enumerable: true };
-        // Phase 9.10: sounds (played by the host; the simulation never waits on them).
+        // Sounds (played by the host; the simulation never waits on them).
         if (src.audio !== undefined) fields['audio'] = { value: src.audio, enumerable: true };
-        // Phase 20.2: visual effects (played by the renderer; the simulation never reads them back).
+        // Visual effects (played by the renderer; the simulation never reads them back).
         if (src.effects !== undefined) fields['effects'] = { value: src.effects, enumerable: true };
-        // Phase 9.11: values kept in the player's save.
+        // Values kept in the player's save.
         if (src.save !== undefined) fields['save'] = { value: src.save, enumerable: true };
-        // Phase 23.4: the virtual cameras (resolved by the camera brain at the end of the step).
+        // The virtual cameras (resolved by the camera brain at the end of the step).
         if (src.camera !== undefined) fields['camera'] = { value: src.camera, enumerable: true };
-        // Phase 23.11: sockets (resolved by the runtime at the end of the step, after the animators).
+        // Sockets (resolved by the runtime at the end of the step, after the animators).
         if (src.sockets !== undefined) fields['sockets'] = { value: src.sockets, enumerable: true };
-        // Phase 23.8: debug commands (the handler, when given, runs once per call of this step).
+        // Debug commands (the handler, when given, runs once per call of this step).
         if (src.debug !== undefined) fields['debug'] = { value: debugFor(src.debug), enumerable: true };
-        // Phase 23.5: the block layers.
+        // The block layers.
         if (src.grid !== undefined) fields['grid'] = { value: src.grid, enumerable: true };
-        // Phase 23.12: graph-material parameters per object.
+        // Graph-material parameters per object.
         if (src.materials !== undefined) fields['materials'] = { value: src.materials, enumerable: true };
-        // Phase 23.19: project saves.
+        // Project saves.
         if (src.saves !== undefined) fields['saves'] = { value: src.saves, enumerable: true };
-        // Phase 23.9a: the project UI (the view model and shown documents are simulation state).
+        // The project UI (the view model and shown documents are simulation state).
         if (src.ui !== undefined) fields['ui'] = { value: src.ui, enumerable: true };
-        // Phase 23.16: conversations (run by the engine at the end of the step).
+        // Conversations (run by the engine at the end of the step).
         if (src.dialogue !== undefined) fields['dialogue'] = { value: src.dialogue, enumerable: true };
-        // Phase 23.10: the game modes and the run lifecycle.
+        // The game modes and the run lifecycle.
         if (src.modes !== undefined) fields['modes'] = { value: src.modes, enumerable: true };
         if (src.lifecycle !== undefined) fields['lifecycle'] = { value: src.lifecycle, enumerable: true };
-        // Phase 23.17: timelines (an engine system in the step; scripts read its events next step).
+        // Timelines (an engine system in the step; scripts read its events next step).
         if (src.timeline !== undefined) fields['timeline'] = { value: src.timeline, enumerable: true };
-        // Phase 23.18: the environment presets.
+        // The environment presets.
         if (src.environment !== undefined) fields['environment'] = { value: src.environment, enumerable: true };
-        // Phase 25.10: generic component access (writes named after this script on its object) and the shell's scene list.
+        // Generic component access (writes named after this script on its object) and the shell's scene list.
         if (src.entities !== undefined) fields['entity'] = { value: entityOf(instance, src), enumerable: true };
         if (src.shell !== undefined) fields['shell'] = { value: src.shell, enumerable: true };
-        // Phase 14.1: prefab copies in the running game.
+        // Prefab copies in the running game.
         if (src.spawner !== undefined) {
           fields['spawn'] = { value: src.spawner.spawn, enumerable: true };
           fields['destroy'] = { value: src.spawner.destroy, enumerable: true };
@@ -1143,8 +1140,8 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         if (e instanceof BehaviorHostIntentLimit || e instanceof BehaviorIntentError || e instanceof BehaviorHostError) {
           return e;
         }
-        // Phase 19.0: a visual script's error keeps the node it came from.
-        // Phase 25.9: and every error where in the compiled script it was thrown.
+        // A visual script's error keeps the node it came from.
+        // And every error where in the compiled script it was thrown.
         const withNode = (err: BehaviorHostError): BehaviorHostError => {
           const nodeId = graphNodeIdOf(e);
           if (nodeId !== undefined) err.nodeId = nodeId;
@@ -1179,7 +1176,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         if (result !== undefined) throw resultFailure(result, 'step');
       };
 
-      /** Phase 25.11: run one callback of an instance (in the intent phase; `event` for the event callbacks). */
+      /** Run one callback of an instance (in the intent phase; `event` for the event callbacks). */
       const callback = (instance: BehaviorInstance, name: BehaviorCallbackName, src: StepContext, event?: unknown): void => {
         const fn = spec[name];
         if (typeof fn !== 'function') return;
@@ -1193,14 +1190,14 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         }
         if (result !== undefined) throw resultFailure(result, name);
       };
-      /** Phase 25.11: the object's switched-on state changed since the script last heard: onEnable / onDisable. */
+      /** The object's switched-on state changed since the script last heard: onEnable / onDisable. */
       const lifecycle = (instance: BehaviorInstance, src: StepContext): void => {
         const on = src.inactiveEntities?.has(instance.entityId) !== true;
         if (on === instance.enabled) return;
         instance.enabled = on;
         callback(instance, on ? 'onEnable' : 'onDisable', src);
       };
-      /** Phase 25.11: the event callbacks of one ticking instance, in their fixed order. */
+      /** The event callbacks of one ticking instance, in their fixed order. */
       const dispatchEvents = (instance: BehaviorInstance, src: StepContext): void => {
         if (triggerCallbacks) {
           const list = src.triggerEvents;
@@ -1229,7 +1226,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
           if (list !== undefined) for (let i = 0; i < list.length; i += 1) if (ownsTrigger(instance, list[i]!.entityId)) callback(instance, 'onAnimatorEvent', src, list[i]);
         }
       };
-      /** Phase 25.11: the instances whose objects left the game since the last intent phase (onDisable, onDestroy, then dispose). */
+      /** The instances whose objects left the game since the last intent phase (onDisable, onDestroy, then dispose). */
       const leaving: BehaviorInstance[] = [];
       const disposeInstance = (instance: BehaviorInstance): void => {
         try {
@@ -1249,20 +1246,20 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
           return owners;
         },
         /**
-         * Phase 14.2: a new run (start, replay) clears every instance's timers.
-         * Phase 19.0: and starts every instance with fresh state (dispose, then
+         * A new run (start, replay) clears every instance's timers.
+         * And starts every instance with fresh state (dispose, then
          * `instantiate` again with the same properties), so a run — a replay
          * included — begins exactly like the first one and code that runs "on
          * the first step" runs again at the start of each run.
          */
         reset(rctx): void {
           if (rctx.reason !== 'replay') return;
-          // Phase 25.11: objects that left with the old run get no callbacks; every instance hears onEnable again.
+          // Objects that left with the previous run get no callbacks; every instance hears onEnable again.
           for (const instance of leaving.splice(0)) disposeInstance(instance);
           for (const instance of instances) {
             instance.enabled = false;
             instance.timers.clear();
-            // Phase 23.7: every random stream starts over with the run.
+            // Every random stream starts over with the run.
             instance.random?.reset();
             instance.events = null;
             instance.eventsStep = -1;
@@ -1282,7 +1279,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
           if (disposed) {
             throw new BehaviorHostError('module_error', 'behavior_step_failed', `behavior "${behaviorId}" was stepped after dispose`);
           }
-          // Phase 25.11: the scripts of objects that left the game hear it first (one at a time: after a
+          // The scripts of objects that left the game hear it first (one at a time: after a
           // failure the rest are still disposed with the module).
           if (phase === 'intent') {
             while (leaving.length > 0) {
@@ -1297,10 +1294,10 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
             }
           }
           if (instances.length === 0) return;
-          // Phase 23.10: a behavior whose group the game mode pauses does not run this step.
+          // A behavior whose group the game mode pauses does not run this step.
           const ticks = ctx.behaviorTicks;
           if (phase === 'intent' && (lifecycleCallbacks || eventCallbacks)) {
-            // Phase 25.11: per instance, the lifecycle callbacks (whatever the game mode ticks), then the
+            // Per instance, the lifecycle callbacks (whatever the game mode ticks), then the
             // event callbacks and the step of a ticking one.
             for (let i = 0; i < instances.length; i += 1) {
               const instance = instances[i]!;
@@ -1318,7 +1315,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
           }
         },
         sceneLoaded(entities): void {
-          // Phase 12 (c): new carriers get their instance (document order of
+          // New carriers get their instance (document order of
           // the loaded scene); owners that just appeared are checked.
           const added = new Set<string>();
           for (const e of entities) if (e.parentId !== undefined) parentOf.set(e.id, e.parentId);
@@ -1348,7 +1345,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
             const instance = instances[i]!;
             if (!ids.has(instance.entityId)) continue;
             instances.splice(i, 1);
-            // Phase 25.11: a script with onDisable/onDestroy hears it in the next intent phase (then it is disposed).
+            // A script with onDisable/onDestroy hears it in the next intent phase (then it is disposed).
             if (leaveCallbacks) left.push(instance);
             else disposeInstance(instance);
           }
@@ -1378,12 +1375,12 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         behaviorDiagnostics(): { logCount: number; logDropped: number; instanceCount: number } {
           return { logCount, logDropped, instanceCount: instances.length };
         },
-        /** Phase 25.10: the declaration's object (entityRef) property keys (a spawned copy's prefab-local references are remapped by them). */
+        /** The declaration's object (entityRef) property keys (a spawned copy's prefab-local references are remapped by them). */
         behaviorEntityRefKeys(): readonly string[] {
           return entityRefKeys;
         },
         behaviorDebug(filter: { behaviorId?: string; entityId?: string }): BehaviorDebugView[] {
-          // Phase 19.2: only modules that answer (a Play debug build of a visual script).
+          // Only modules that answer (a Play debug build of a visual script).
           if (typeof spec.debug !== 'function' || (filter.behaviorId !== undefined && filter.behaviorId !== behaviorId)) return [];
           const out: BehaviorDebugView[] = [];
           for (const instance of instances) {
@@ -1448,13 +1445,13 @@ function channelName(intent: BehaviorIntent, bits: number): string {
 }
 
 /**
- * Phase 12 (c): `ctx.world` — read-only transforms of loaded entities, as
+ * `ctx.world` — read-only transforms of loaded entities, as
  * they stand at this point of the step.
  */
 function worldView(ctx: StepContext): BehaviorWorldView {
   const state = ctx.state;
   const curr = state.curr;
-  // Phase 23.7: name/component queries, cached per entity list (the runtime
+  // name/component queries, cached per entity list (the runtime
   // replaces `order` whenever entities come or go, never edits it in place).
   let cachedOrder: readonly string[] | null = null;
   const byName = new Map<string, readonly string[]>();
@@ -1505,12 +1502,12 @@ function worldView(ctx: StepContext): BehaviorWorldView {
   });
 }
 
-/** Phase 23.7: remembered name/component queries per kind before the cache starts over. */
+/** Remembered name/component queries per kind before the cache starts over. */
 const WORLD_QUERY_CACHE = 256;
 
 /** The evaluated `default` export of a compiled artifact namespace. */
 /**
- * Phase 12 (b): `ctx.tags` over the loaded (resolved) scene. The entities
+ * `ctx.tags` over the loaded (resolved) scene. The entities
  * already carry their effective masks; the registry maps names to bits.
  */
 export function createTagQuery(snapshot: RuntimeSnapshot): BehaviorTagQuery & LiveTagIndex {
@@ -1532,17 +1529,17 @@ function behaviorSpecOf(namespace: unknown): LoadedBehaviorSpec {
       'the compiled artifact namespace must export a spec with a step() function or callbacks',
     );
   }
-  // Phase 25.11: a callback key holds a function.
+  // A callback key holds a function.
   const bad = callbacks.find((k) => typeof candidate[k] !== 'function');
   if (bad !== undefined) throw new BehaviorHostError('config_invalid', 'behavior_artifact_invalid', `the spec's ${bad} must be a function`);
   return candidate as unknown as LoadedBehaviorSpec;
 }
 
-/** Phase 25.11: the callbacks a behavior spec may have (their dispatch order in a step is described on `BehaviorSpec`). */
+/** The callbacks a behavior spec may have (their dispatch order in a step is described on `BehaviorSpec`). */
 export const BEHAVIOR_CALLBACKS = ['onEnable', 'onDisable', 'onDestroy', 'onTriggerEnter', 'onTriggerExit', 'onContact', 'onMessage', 'onUiEvent', 'onAnimatorEvent'] as const;
 export type BehaviorCallbackName = (typeof BEHAVIOR_CALLBACKS)[number];
 
-/** The authored `export default` program as loaded (unchecked; runtime.md §14.3). */
+/** The authored `export default` program as loaded (unchecked). */
 interface LoadedBehaviorSpec extends Partial<Record<BehaviorCallbackName, (...args: unknown[]) => unknown>> {
   prepare?(cfg: unknown): unknown;
   instantiate?(prepared: unknown, inst: unknown): unknown;
@@ -1573,7 +1570,7 @@ function messageOf(e: unknown): string {
   return clipMessage(String(e));
 }
 
-/** One recorded behavior log entry as the runtime ring stores it (§14.8.1). */
+/** One recorded behavior log entry as the runtime ring stores it. */
 export interface BehaviorLogEntry {
   code: typeof BEHAVIOR_LOG_CODE;
   reason: BehaviorLogLevel;
@@ -1584,7 +1581,7 @@ export interface BehaviorLogEntry {
 export type { BehaviorIntent, IntentSet };
 
 /**
- * Phase 9.8: `ctx.input` — the step's input actions by name. Without named
+ * `ctx.input` — the step's input actions by name. Without named
  * actions in the frame, `move` and `jump` still answer from the frame.
  */
 export interface BehaviorInputView {
@@ -1624,107 +1621,107 @@ export interface BehaviorInputView {
    */
   held(name: string): boolean;
   /**
-   * Phase 23.3: the pointer this step — where it is in the view (x, y 0–1 from the top left), how far it moved since the last step, the wheel, whether it is over the view (and entered or left it this step), whether the cursor is locked and (phase 25.15) whether it is over a UI element (`overUi`: a click there went to the UI); null before the pointer is first seen.
+   * The pointer this step — where it is in the view (x, y 0–1 from the top left), how far it moved since the last step, the wheel, whether it is over the view (and entered or left it this step), whether the cursor is locked and whether it is over a UI element (`overUi`: a click there went to the UI); null before the pointer is first seen.
    * @graphPure
    * @graphNode Pointer
    */
   pointer(): BehaviorPointer | null;
   /**
-   * Phase 23.3: a pointer button (default left) went down this step — a click.
+   * A pointer button (default left) went down this step — a click.
    * @graphPure
    * @graphNode Pointer pressed
    */
   pointerPressed(button?: 'left' | 'right' | 'middle'): boolean;
   /**
-   * Phase 23.3: a pointer button (default left) went up this step.
+   * A pointer button (default left) went up this step.
    * @graphPure
    * @graphNode Pointer released
    */
   pointerReleased(button?: 'left' | 'right' | 'middle'): boolean;
   /**
-   * Phase 23.3: a pointer button (default left) is down this step.
+   * A pointer button (default left) is down this step.
    * @graphPure
    * @graphNode Pointer held
    */
   pointerHeld(button?: 'left' | 'right' | 'middle'): boolean;
   /**
-   * Phase 23.3: ask for a free or a locked cursor (locked: hidden and held in the view — its movement still counts); 'auto' goes back to the active input map's setting. Takes effect after the step (the player may have to click the view once before the browser locks it).
+   * Ask for a free or a locked cursor (locked: hidden and held in the view — its movement still counts); 'auto' goes back to the active input map's setting. Takes effect after the step (the player may have to click the view once before the browser locks it).
    * @graphNode Set cursor
    */
   setCursor(mode: 'free' | 'locked' | 'auto'): void;
   /**
-   * Phase 23.14: the device the player used last — `keyboardMouse` or `gamepad` (then with the pad's id and its family: xbox, playstation, switch or generic).
+   * The device the player used last — `keyboardMouse` or `gamepad` (then with the pad's id and its family: xbox, playstation, switch or generic).
    * @graphNode skip use Using gamepad (the id and family are for glyph choices a script makes)
    */
   device(): InputDeviceStatus;
   /**
-   * Phase 23.14: the player used a gamepad last (else the keyboard or mouse).
+   * The player used a gamepad last (else the keyboard or mouse).
    * @graphPure
    * @graphNode Using gamepad
    */
   usingGamepad(): boolean;
   /**
-   * Phase 23.14: every project action with the player's current bindings — per binding its device (keyboard, mouse, gamepad), kind, label and icon (and a composite's parts). A binding's position is the index `rebind` takes.
+   * Every project action with the player's current bindings — per binding its device (keyboard, mouse, gamepad), kind, label and icon (and a composite's parts). A binding's position is the index `rebind` takes.
    * @graphNode skip a list of records; a graph reads Action glyph label / icon
    */
   bindings(): readonly InputActionStatus[];
   /**
-   * Phase 23.14: what to show for an action on a device (default: the device used last) — its first binding from that device as a label, an icon id of the engine's glyph set and the project's own image; null when it has none.
+   * What to show for an action on a device (default: the device used last) — its first binding from that device as a label, an icon id of the engine's glyph set and the project's own image; null when it has none.
    * @graphNode skip an object with parts; a graph reads Action glyph label / icon
    */
   glyph(action: string, device?: InputDeviceKind): InputGlyph | null;
   /**
-   * Phase 23.14: an action's glyph label for the device used last ('' when it has no binding there) — e.g. "Space", "A", "Cross".
+   * An action's glyph label for the device used last ('' when it has no binding there) — e.g. "Space", "A", "Cross".
    * @graphPure
    * @graphNode Action glyph label
    */
   glyphLabel(action: string): string;
   /**
-   * Phase 23.14: an action's glyph icon id for the device used last ('' when it has no binding there) — e.g. key, pad-south, mouse-left.
+   * An action's glyph icon id for the device used last ('' when it has no binding there) — e.g. key, pad-south, mouse-left.
    * @graphPure
    * @graphNode Action glyph icon
    */
   glyphIcon(action: string): string;
   /**
-   * Phase 23.14: what became of binding requests this step (started, rebound, cancelled, timeout, refused, reset, profile).
+   * What became of binding requests this step (started, rebound, cancelled, timeout, refused, reset, profile).
    * @graphNode skip a list of records; a graph reads Rebinding
    */
   rebindEvents(): readonly InputRebindEvent[];
   /**
-   * Phase 23.14: the rebind listening for input now (action, binding index, part), or null.
+   * The rebind listening for input now (action, binding index, part), or null.
    * @graphPure
    * @graphNode Rebinding
    */
   rebinding(): InputRebindTarget | null;
   /**
-   * Phase 23.14: listen for the next key, button or axis and bind it to an action (a binding index and part, the device, the conflict policy swap/refuse/allow, the cancel key and a timeout in seconds). The host listens after the step; the outcome arrives in `rebindEvents()`.
+   * Listen for the next key, button or axis and bind it to an action (a binding index and part, the device, the conflict policy swap/refuse/allow, the cancel key and a timeout in seconds). The host listens after the step; the outcome arrives in `rebindEvents()`.
    * @graphNode skip its options would all be set by a node (part, device); scripts call it
    */
   rebind(action: string, options?: InputRebindOptions): void;
   /**
-   * Phase 23.14: stop listening for a rebind.
+   * Stop listening for a rebind.
    * @graphNode Cancel rebind
    */
   cancelRebind(): void;
   /**
-   * Phase 23.14: reset one action's bindings (or all, without a name) to the project's defaults.
+   * Reset one action's bindings (or all, without a name) to the project's defaults.
    * @graphNode Reset bindings
    */
   resetBindings(action?: string): void;
   /**
-   * Phase 23.14: use another player profile's saved bindings (a name of 1–32 letters, digits, _ or -; 'default' first).
+   * Use another player profile's saved bindings (a name of 1–32 letters, digits, _ or -; 'default' first).
    * @graphNode Use binding profile
    */
   useBindingProfile(profile: string): void;
   /**
-   * Phase 23.14: the player profile whose bindings are in effect.
+   * The player profile whose bindings are in effect.
    * @graphPure
    * @graphNode Binding profile
    */
   bindingProfile(): string;
 }
 
-/** Phase 23.3: the pointer as a script reads it (`ctx.input.pointer()`). */
+/** The pointer as a script reads it (`ctx.input.pointer()`). */
 export interface BehaviorPointer {
   /** 0 (left) – 1 (right) of the view; the centre while the cursor is locked. */
   readonly x: number;
@@ -1743,7 +1740,7 @@ export interface BehaviorPointer {
   /** The cursor is locked (hidden, held in the view). */
   readonly locked: boolean;
   /**
-   * Phase 25.15: over a UI element that takes the pointer (a project UI
+   * Over a UI element that takes the pointer (a project UI
    * button, input or modal backdrop, the engine pause panel) — a click there
    * went to the UI, so a game ignores world clicks while it is true.
    */
@@ -1754,7 +1751,7 @@ const POINTER_BIT: Readonly<Record<string, number>> = Object.freeze({ left: 1, r
 const NO_CURSOR_CONTROL = (): void => {
   /* a host without the cursor channel (tests, the 2D plane's modules) ignores the request */
 };
-/** Phase 23.14: a host without the input-status channel: the keyboard, no bindings, requests ignored. */
+/** A host without the input-status channel: the keyboard, no bindings, requests ignored. */
 const NO_INPUT_STATUS: InputStatusView = Object.freeze({
   device: (): InputDeviceStatus => Object.freeze({ kind: 'keyboardMouse' as const }),
   actions: (): readonly InputActionStatus[] => [],
@@ -1770,7 +1767,7 @@ export function inputView(frame: ActionFrame, setCursor: (mode: 'free' | 'locked
     if (d !== 'keyboardMouse' && d !== 'gamepad') throw new Error(`a device is 'keyboardMouse' or 'gamepad' (got ${JSON.stringify(String(d)).slice(0, 40)})`);
     return d;
   };
-  // Phase 24.8: every action is a named action of the frame (version 2 has no move/jump channels).
+  // Every action is a named action of the frame (version 2 has no move/jump channels).
   const get = (name: string): { v: number; x?: number; y?: number; p: string } | undefined => frame.actions?.[name];
   return Object.freeze({
     value: (name: string) => get(String(name))?.v ?? 0,
@@ -1792,7 +1789,7 @@ export function inputView(frame: ActionFrame, setCursor: (mode: 'free' | 'locked
       if (mode !== 'free' && mode !== 'locked' && mode !== 'auto') throw new Error(`setCursor takes 'free', 'locked' or 'auto' (got ${JSON.stringify(String(mode)).slice(0, 40)})`);
       setCursor(mode);
     },
-    // Phase 23.14: bindings, the device in use and rebinding.
+    // Bindings, the device in use and rebinding.
     device: (): InputDeviceStatus => status.device(),
     usingGamepad: (): boolean => status.device().kind === 'gamepad',
     bindings: (): readonly InputActionStatus[] => status.actions(),
@@ -1819,7 +1816,7 @@ function bitOf(button: unknown): number {
   return button === undefined ? 1 : (POINTER_BIT[String(button)] ?? 0);
 }
 
-/** Phase 23.3: the frame's pointer as a script reads it (the runtime completes the frame's sample with the held state). */
+/** The frame's pointer as a script reads it (the runtime completes the frame's sample with the held state). */
 const pointerViews = new WeakMap<object, BehaviorPointer>();
 function pointerOf(frame: ActionFrame): BehaviorPointer | null {
   const p = frame.pointer;

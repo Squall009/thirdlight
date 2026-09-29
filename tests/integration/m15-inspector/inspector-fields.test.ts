@@ -1,5 +1,5 @@
 /**
- * Phase 15.1: the generic Inspector against the real descriptor registry and
+ * The generic Inspector against the real descriptor registry and
  * the real command layer, on a neutral v4 fixture (a camera, two lights, two
  * boxes, an empty object):
  *
@@ -106,8 +106,7 @@ describe('the generic Inspector over the real registry', () => {
     };
     for (const c of DESCRIPTORS.components) walk(c.value);
     for (const b of DESCRIPTORS.content) walk(b.value);
-    // (Phase 24.7: the game block's instructions were the only multiline component or content field; the UI
-    // editor's rich text fields are its own panel's.)
+    // (No component or content field is multiline; the UI editor's rich text fields are its own panel's.)
     for (const w of ['number', 'int', 'bool', 'enum', 'vector', 'euler', 'color', 'asset', 'entity', 'scene', 'ref', 'signal', 'text', 'object', 'list', 'map', 'readonly']) expect(seen, w).toContain(w);
   });
 
@@ -153,7 +152,7 @@ describe('the generic Inspector over the real registry', () => {
         if (f === undefined) continue;
         const next = nudge(f, cur);
         if (next === undefined) continue;
-        // Phase 25.24e: the fixture's scene can be named (an absent scene transition is made with its required scene when one of its fields is edited).
+        // The fixture's scene can be named (an absent scene transition is made with its required scene when one of its fields is edited).
         const pickers = { assets: [], scenes: [{ sceneId: String((s.scene as Any).sceneId), name: 'Main' }], refs: {}, entities: s.scene.entities.map((e: Any) => ({ id: e.id, name: e.name ?? e.id, components: Object.keys(e.components) })) };
         const patch = componentPatch(desc, before, path, next, { seeds: seedsOf(DESCRIPTORS.components.find((c) => c.name === entry.component)!), pick: (g) => firstReference(g, pickers) });
         if (patch === null) continue;

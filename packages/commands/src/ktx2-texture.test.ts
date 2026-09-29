@@ -1,5 +1,5 @@
 /**
- * Phase 25.19: a KTX2 texture version through `publishAsset` — the KTX2
+ * A KTX2 texture version through `publishAsset` — the KTX2
  * metrics (codec, mip levels) and the `convertedFrom` of a PNG encoded at
  * import are kept in canonical form; the model refuses a converted texture
  * that is not a KTX2 and an encoding it does not know, and an image the page
@@ -57,7 +57,7 @@ describe('KTX2 texture versions (phase 25.19)', () => {
   it('refuses a converted texture that is not KTX2, an unknown encoding, missing codec facts', () => {
     expect(message(run(fresh(), 'publishAsset', publish({ metrics: { format: 'png', width: 64, height: 64, decodedBytes: 64 * 64 * 4 } })))).toMatch(/holds the KTX2/);
     expect(message(run(fresh(), 'publishAsset', publish({ convertedFrom: { ...CONVERTED, encoding: 'raw' } })))).toMatch(/color.*normal.*data/);
-    // Phase 25.21: "data" (UASTC, linear) is an encoding.
+    // "data" (UASTC, linear) is an encoding.
     expect(run(fresh(), 'publishAsset', publish({ convertedFrom: { ...CONVERTED, encoding: 'data' } })).ok).toBe(true);
     expect(message(run(fresh(), 'publishAsset', publish({ convertedFrom: { ...CONVERTED, converter: { name: 'blender', version: '4.2' } } })))).toMatch(/ktx2-encoder/);
     expect(message(run(fresh(), 'publishAsset', publish({ metrics: { ...METRICS, levels: 0 } })))).toMatch(/mip levels/);

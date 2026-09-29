@@ -1,11 +1,11 @@
 /**
- * Runtime snapshot validation — runtime.md §2 (normative).
+ * Runtime snapshot validation.
  *
  * The runtime re-validates on receipt: the producer is not trusted (the
  * session layer and the exporter both construct snapshots). Strict shape
  * (unknown fields at the wrapper level ⇒ `snapshot_invalid`
  * `reason: "shape"` with the path), ID/revision rules, and a full
- * `validateSceneV3`/`validateMergedSceneV4` re-check (project-model §23) — failures carry ≤ 10
+ * `validateSceneV3`/`validateMergedSceneV4` re-check — failures carry ≤ 10
  * project-model error objects + the total count.
  */
 import { ID_RE } from '@thirdlight/project-model';
@@ -17,7 +17,7 @@ import { ENVIRONMENT_PRESET_LIMITS, MAX_REVISION, MAX_SCENES, UI_LIMITS } from '
 import type { RuntimeError } from './errors';
 import type { ModelBounds, RuntimeSceneRow, RuntimeScene, RuntimeSnapshot } from './types';
 
-/** project-model §5.1 ID syntax (all IDs). */
+/** The project-model ID syntax (all IDs). */
 
 import { runtimeDialogueDataProblem, validateSaveSchema, type RuntimeDialogueData, type SaveSchema } from '@thirdlight/project-model';
 import { canonicalTimelines, validateTimelines, type TimelineAsset } from '@thirdlight/project-model';
@@ -25,13 +25,13 @@ import { canonicalEventCues, validateEventCues, type EventCue } from '@thirdligh
 import { materialCatalogProblem, type RuntimeMaterialCatalog } from './material-params';
 
 const WRAPPER_FIELDS = new Set(['snapshotId', 'projectId', 'revision', 'scene', 'tags', 'scenes', 'animators', 'prefabs', 'modelBounds', 'blockTypes', 'cellFields', 'rigs', 'materialCatalog', 'uiDocuments', 'modes', 'saveSchema', 'audioDurations', 'timelines', 'eventCues', 'sceneList', 'environmentPresets', 'dialogue']);
-/** Phase 15.3: at most this many model bounds rows (one per model asset; the asset catalog's size). */
+/** At most this many model bounds rows (one per model asset; the asset catalog's size). */
 const MAX_MODEL_BOUNDS = 4096;
 const SCENE_ID_RE = ID_RE;
 const MAX_SNAPSHOT_SCENES = MAX_SCENES;
 
 /**
- * Recursively freeze (idempotent). runtime.md §2: on successful
+ * Recursively freeze (idempotent). On successful
  * `instantiateRuntime`, the runtime deep-freezes the snapshot and never
  * writes to it.
  */
@@ -47,10 +47,10 @@ export function deepFreeze<T>(value: T): T {
 }
 
 /**
- * Validate the runtime snapshot (runtime.md §2). Returns the normalized
+ * Validate the runtime snapshot. Returns the normalized
  * scene on success. Never throws.
  *
- * Phase 24.8: there is no `game` wrapper field (the deleted game block); one
+ * There is no `game` wrapper field (the deleted game block); one
  * is `snapshot_invalid` (`reason: "shape"`).
  */
 export function validateRuntimeSnapshot(
@@ -102,7 +102,7 @@ export function validateRuntimeSnapshot(
           code: 'snapshot_invalid',
           reason: 'shape',
           path: `/${key}`,
-          // Phase 24.8: the deleted game block's field says where it went.
+          // The deleted game block's field says where it went.
           message: key === 'game' ? 'snapshot field "game" (the game block) was removed in phase 24: build it as project scripts' : `unknown snapshot field "${key}" (strict shape)`,
         },
       };
@@ -162,11 +162,10 @@ export function validateRuntimeSnapshot(
     };
   }
 
-  // Re-validate the scene (project-model §12.1/§13/§23): the producer is not
-  // trusted. Only schemaVersion 3 (`validateSceneV3`) and 4 (the merged start
-  // scenes, `validateMergedSceneV4`) are playable; the v1/v2 scene schemas
-  // were removed (phase 9.3). Validation failures ⇒ snapshot_invalid carrying
-  // the project-model error objects (≤ 10 reported, total count given).
+  // Re-validate the scene: the producer is not trusted. Only schemaVersion 3
+  // (`validateSceneV3`) and 4 (the merged start scenes,
+  // `validateMergedSceneV4`) are playable. Validation failures ⇒
+  // snapshot_invalid carrying the project-model error objects (≤ 10 reported, total count given).
   const rawScene = snap.scene as { schemaVersion?: unknown };
   const rawVersion: unknown = rawScene.schemaVersion;
   if (rawVersion !== 3 && rawVersion !== 4) {
@@ -194,7 +193,7 @@ export function validateRuntimeSnapshot(
       },
     };
   }
-  // Phase 12: the game never sees folders or inactive entities (resolved
+  // The game never sees folders or inactive entities (resolved
   // once here, at scene load).
   const scene: RuntimeScene = resolveSceneHierarchy(sceneResult.normalized);
   if (scene.revision !== revision) {
@@ -216,7 +215,7 @@ export function validateRuntimeSnapshot(
       },
     };
   }
-  // Phase 12 (b): the optional v3 tag registry.
+  // The optional v3 tag registry.
   let tags: readonly TagDefinition[] = [];
   if (snap.tags !== undefined) {
     const tagErrors: ModelErrorV2[] = [];
@@ -226,7 +225,7 @@ export function validateRuntimeSnapshot(
     }
     tags = snap.tags as TagDefinition[];
   }
-  // Phase 9.7: the optional v4 animator controllers.
+  // The optional v4 animator controllers.
   let animators: readonly AnimatorController[] = [];
   if (snap.animators !== undefined) {
     if (sceneVersion !== 4) return { error: { code: 'snapshot_invalid', reason: 'shape', path: '/animators', message: 'snapshot field "animators" is v4-only' } };
@@ -237,7 +236,7 @@ export function validateRuntimeSnapshot(
     }
     animators = snap.animators as AnimatorController[];
   }
-  // Phase 14.1: the optional v4 prefab definitions (`ctx.spawn`).
+  // The optional v4 prefab definitions (`ctx.spawn`).
   let prefabs: readonly PrefabDefinition[] = [];
   if (snap.prefabs !== undefined) {
     if (sceneVersion !== 4) return { error: { code: 'snapshot_invalid', reason: 'shape', path: '/prefabs', message: 'snapshot field "prefabs" is v4-only' } };
@@ -248,7 +247,7 @@ export function validateRuntimeSnapshot(
     }
     prefabs = snap.prefabs as PrefabDefinition[];
   }
-  // Phase 15.3: the optional v4 model bounds (assetId -> the model's recorded bounds).
+  // The optional v4 model bounds (assetId -> the model's recorded bounds).
   let modelBounds: Readonly<Record<string, ModelBounds>> = {};
   if (snap.modelBounds !== undefined) {
     const bad = (message: string): { error: RuntimeError } => ({ error: { code: 'snapshot_invalid', reason: 'shape', path: '/modelBounds', message } });
@@ -262,7 +261,7 @@ export function validateRuntimeSnapshot(
     }
     modelBounds = mb as Record<string, ModelBounds>;
   }
-  // Phase 23.13: the optional v4 audio durations (assetId -> the audio/music asset's recorded length, ms).
+  // The optional v4 audio durations (assetId -> the audio/music asset's recorded length, ms).
   let audioDurations: Readonly<Record<string, number>> = {};
   if (snap.audioDurations !== undefined) {
     const bad = (message: string): { error: RuntimeError } => ({ error: { code: 'snapshot_invalid', reason: 'shape', path: '/audioDurations', message } });
@@ -274,7 +273,7 @@ export function validateRuntimeSnapshot(
     }
     audioDurations = ad as Record<string, number>;
   }
-  // Phase 23.11: the optional v4 model rigs (assetId -> nodes and node animation channels; sockets are resolved on them).
+  // The optional v4 model rigs (assetId -> nodes and node animation channels; sockets are resolved on them).
   let rigs: Readonly<Record<string, ModelRig>> | undefined;
   if (snap.rigs !== undefined) {
     const bad = (message: string): { error: RuntimeError } => ({ error: { code: 'snapshot_invalid', reason: 'shape', path: '/rigs', message } });
@@ -287,7 +286,7 @@ export function validateRuntimeSnapshot(
     }
     rigs = r as Record<string, ModelRig>;
   }
-  // Phase 23.5: the optional v4 block types and cell fields (block layers).
+  // The optional v4 block types and cell fields (block layers).
   let blockTypes: readonly BlockType[] = [];
   let cellFields: readonly CellField[] = [];
   if (snap.blockTypes !== undefined || snap.cellFields !== undefined) {
@@ -301,14 +300,14 @@ export function validateRuntimeSnapshot(
     blockTypes = (snap.blockTypes ?? []) as BlockType[];
     cellFields = (snap.cellFields ?? []) as CellField[];
   }
-  // Phase 23.12: the optional graph-material catalogue (ctx.materials).
+  // The optional graph-material catalogue (ctx.materials).
   let materialCatalog: RuntimeMaterialCatalog | undefined;
   if ((snap as { materialCatalog?: unknown }).materialCatalog !== undefined) {
     const problem = materialCatalogProblem((snap as { materialCatalog?: unknown }).materialCatalog);
     if (problem !== null) return { error: { code: 'snapshot_invalid', reason: 'shape', path: '/materialCatalog', message: problem } };
     materialCatalog = (snap as { materialCatalog: RuntimeMaterialCatalog }).materialCatalog;
   }
-  // Phase 23.19: the optional project save schema (ctx.saves).
+  // The optional project save schema (ctx.saves).
   let saveSchema: SaveSchema | undefined;
   if ((snap as { saveSchema?: unknown }).saveSchema !== undefined) {
     const errs: ModelErrorV2[] = [];
@@ -316,7 +315,7 @@ export function validateRuntimeSnapshot(
     if (errs.length > 0) return { error: { code: 'snapshot_invalid', reason: 'shape', path: errs[0]!.path, message: errs[0]!.message } };
     saveSchema = (snap as { saveSchema: SaveSchema }).saveSchema;
   }
-  // Phase 23.17: the optional v4 timelines (ctx.timeline).
+  // The optional v4 timelines (ctx.timeline).
   let timelines: readonly TimelineAsset[] | undefined;
   if ((snap as { timelines?: unknown }).timelines !== undefined) {
     if (sceneVersion !== 4) return { error: { code: 'snapshot_invalid', reason: 'shape', path: '/timelines', message: 'snapshot field "timelines" is v4-only' } };
@@ -325,7 +324,7 @@ export function validateRuntimeSnapshot(
     if (errs.length > 0) return { error: { code: 'snapshot_invalid', reason: 'shape', path: errs[0]!.path, message: errs[0]!.message } };
     timelines = canonicalTimelines((snap as { timelines: TimelineAsset[] }).timelines);
   }
-  // Phase 24.4i: the optional v4 event → cue table.
+  // The optional v4 event → cue table.
   let eventCues: readonly EventCue[] | undefined;
   if ((snap as { eventCues?: unknown }).eventCues !== undefined) {
     if (sceneVersion !== 4) return { error: { code: 'snapshot_invalid', reason: 'shape', path: '/eventCues', message: 'snapshot field "eventCues" is v4-only' } };
@@ -334,7 +333,7 @@ export function validateRuntimeSnapshot(
     if (errs.length > 0) return { error: { code: 'snapshot_invalid', reason: 'shape', path: errs[0]!.path, message: errs[0]!.message } };
     eventCues = canonicalEventCues((snap as { eventCues: EventCue[] }).eventCues);
   }
-  // Phase 24.4j: the shell's ordered scene list (the `scene` UI event walks it).
+  // The shell's ordered scene list (the `scene` UI event walks it).
   let sceneList: readonly import('./types').ListedScene[] | undefined;
   if ((snap as { sceneList?: unknown }).sceneList !== undefined) {
     const list = (snap as { sceneList?: unknown }).sceneList;
@@ -344,7 +343,7 @@ export function validateRuntimeSnapshot(
       if (!Object.keys(e).every((k) => k === 'scene' || k === 'spawn' || k === 'fade' || k === 'fadeColor')) return false;
       if (typeof e.scene !== 'string' || !SCENE_ID_RE.test(e.scene)) return false;
       if (e.spawn !== undefined && !(typeof e.spawn === 'string' && e.spawn.length > 0 && e.spawn.length <= 128)) return false;
-      // Phase 25.24e: the fade of a move to the entry (seconds, colour).
+      // The fade of a move to the entry (seconds, colour).
       if (e.fade !== undefined && !(typeof e.fade === 'number' && Number.isFinite(e.fade) && e.fade >= 0 && e.fade <= 5)) return false;
       return e.fadeColor === undefined || (typeof e.fadeColor === 'string' && /^#[0-9a-f]{6}$/.test(e.fadeColor));
     };
@@ -352,7 +351,7 @@ export function validateRuntimeSnapshot(
     if (!ok) return { error: { code: 'snapshot_invalid', reason: 'shape', path: '/sceneList', message: 'sceneList is 1–32 entries { scene, spawn?, fade?, fadeColor? }' } };
     sceneList = (list as import('./types').ListedScene[]).map((x) => Object.freeze({ scene: x.scene, ...(x.spawn !== undefined ? { spawn: x.spawn } : {}), ...(x.fade !== undefined ? { fade: x.fade } : {}), ...(x.fadeColor !== undefined ? { fadeColor: x.fadeColor } : {}) }));
   }
-  // Phase 23.18: the optional environment preset ids (ctx.environment).
+  // The optional environment preset ids (ctx.environment).
   let environmentPresets: readonly string[] | undefined;
   if ((snap as { environmentPresets?: unknown }).environmentPresets !== undefined) {
     const ids = (snap as { environmentPresets?: unknown }).environmentPresets;
@@ -361,7 +360,7 @@ export function validateRuntimeSnapshot(
     }
     environmentPresets = ids as string[];
   }
-  // Phase 23.9a: the optional v4 UI document rows (id, layer, modal) scripts show and hide.
+  // The optional v4 UI document rows (id, layer, modal) scripts show and hide.
   let uiDocuments: readonly RuntimeUiDocumentRow[] = [];
   if (snap.uiDocuments !== undefined) {
     const bad = (message: string): { error: RuntimeError } => ({ error: { code: 'snapshot_invalid', reason: 'shape', path: '/uiDocuments', message } });
@@ -379,7 +378,7 @@ export function validateRuntimeSnapshot(
     }
     uiDocuments = rows as RuntimeUiDocumentRow[];
   }
-  // Phase 23.16: the optional v4 dialogue data (conversations, speakers, settings).
+  // The optional v4 dialogue data (conversations, speakers, settings).
   let dialogue: RuntimeDialogueData | undefined;
   if ((snap as { dialogue?: unknown }).dialogue !== undefined) {
     if (sceneVersion !== 4) return { error: { code: 'snapshot_invalid', reason: 'shape', path: '/dialogue', message: 'snapshot field "dialogue" is v4-only' } };
@@ -387,7 +386,7 @@ export function validateRuntimeSnapshot(
     if (problem !== null) return { error: { code: 'snapshot_invalid', reason: 'shape', path: '/dialogue', message: problem } };
     dialogue = (snap as { dialogue: RuntimeDialogueData }).dialogue;
   }
-  // Phase 23.10: the optional v4 game modes ({ modes, actionMaps }).
+  // The optional v4 game modes ({ modes, actionMaps }).
   let modes: RuntimeModes | undefined;
   if (snap.modes !== undefined) {
     const bad = (message: string): { error: RuntimeError } => ({ error: { code: 'snapshot_invalid', reason: 'shape', path: '/modes', message } });
@@ -402,7 +401,7 @@ export function validateRuntimeSnapshot(
     if (typeof maps !== 'object' || maps === null || Array.isArray(maps) || Object.keys(maps).length > 64 || Object.values(maps).some((v) => typeof v !== 'string')) return bad('actionMaps maps at most 64 action names to their input map');
     modes = snap.modes as unknown as RuntimeModes;
   }
-  // Phase 12 (c): the optional v4 scene catalog.
+  // The optional v4 scene catalog.
   let scenes: readonly RuntimeSceneRow[] | null = null;
   if (snap.scenes !== undefined) {
     const bad = (message: string, path = '/scenes'): { error: RuntimeError } => ({ error: { code: 'snapshot_invalid', reason: 'shape', path, message } });
@@ -445,7 +444,7 @@ function clipSceneMessage(errors: readonly (ModelErrorV2 | ModelErrorV3)[]): str
   return msg.length > 256 ? `${msg.slice(0, 255)}…` : msg;
 }
 /**
- * Phase 12: the snapshot as the game loads it — for a v3 scene, folders and
+ * The snapshot as the game loads it — for a v3 scene, folders and
  * inactive entities removed and effective flags applied
  * (`resolveSceneHierarchy`). Hosts call this once, right after the snapshot
  * arrives, so the renderer, physics and runtime all see the same entities.

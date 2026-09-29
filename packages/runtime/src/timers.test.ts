@@ -1,5 +1,5 @@
 /**
- * Phase 14.2 — scripts: timers and sensors.
+ * Scripts: timers and sensors.
  *
  * - `ctx.timers` (pure `InstanceTimers` and in the runtime): step-counted
  *   after/every/fired/cancel, idempotent restarts, the 64-per-instance limit,

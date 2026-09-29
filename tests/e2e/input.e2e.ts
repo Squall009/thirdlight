@@ -1,8 +1,8 @@
 /**
- * Phase 9.8: the Input window. Jump is rebound from Space to W by listening
+ * The Input window. Jump is rebound from Space to W by listening
  * for the key; in Play the player jumps with W and no longer with Space.
  *
- * Phase 25.6: a project map's cursor, set in the Input window, is stored
+ * A project map's cursor, set in the Input window, is stored
  * and applies in Play while a game mode activates that map; removing the
  * map drops its setting.
  */
@@ -130,7 +130,7 @@ test('phase 25.6: a project map\'s cursor, set in the Input window, applies in P
   await page.getByLabel('new input map name', { exact: true }).fill('tactical');
   await page.getByRole('button', { name: 'Add map', exact: true }).click();
   await expect.poll(async () => (await config()).input?.maps).toEqual(['tactical']);
-  // The project map has its own cursor select (before 25.6 only gameplay and ui had one, and the backend refused others).
+  // The project map has its own cursor select, not only gameplay and ui.
   await page.getByLabel('cursor while tactical', { exact: true }).selectOption('locked');
   await expect.poll(async () => (await config()).input?.cursor).toEqual({ tactical: 'locked' });
 

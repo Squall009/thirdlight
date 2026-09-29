@@ -1,5 +1,5 @@
 /**
- * Phase 22.0: the simulation worker entry for Node (worker_threads) — the same
+ * The simulation worker entry for Node (worker_threads) — the same
  * game-host worker core the browser bundles run, over `parentPort`. The
  * integration harness bundles this file with esbuild and starts it with
  * `new Worker(code, { eval: true })`.
@@ -20,10 +20,10 @@ runSimWorker(
   {
     createPhysicsPort: (config) => createPhysicsPort(config as never),
     importModule: (url) => import(/* @vite-ignore */ url),
-    // Phase 24.3: the spec table (as the preview's and the export's worker entries inject theirs).
+    // The spec table (as the preview's and the export's worker entries inject theirs).
     moduleSpecs: MODULE_SPECS,
     physicsMemoryBytes,
-    // Phase 23.0: the 3D backend (bundled in here; a browser worker loads physics-3d.js instead).
+    // The 3D backend (bundled in here; a browser worker loads physics-3d.js instead).
     loadPhysics3D: async () => {
       const m = await import('@thirdlight/physics-rapier/3d');
       return { createPhysicsPort3D: (config) => m.createPhysicsPort3D(config), physicsMemoryBytes3D: m.physicsMemoryBytes3D };

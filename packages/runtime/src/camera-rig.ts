@@ -1,5 +1,5 @@
 /**
- * Phase 23.4: the camera framework's pure maths — rig poses, camera paths,
+ * The camera framework's pure maths — rig poses, camera paths,
  * blends, seeded shake and screen projection. No three.js, no DOM, no I/O:
  * the camera brain (camera-brain.ts) runs it inside the simulation step, so
  * a replay or the simulation worker computes exactly the same camera; the

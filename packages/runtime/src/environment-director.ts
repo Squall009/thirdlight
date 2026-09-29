@@ -1,5 +1,5 @@
 /**
- * Phase 23.18 (E17): the environment blend state — simulation state, so
+ * The environment blend state — simulation state, so
  * page, worker, replays and saves agree.
  *
  * The state is a weight per key (`''` = the base look, a preset id, or a

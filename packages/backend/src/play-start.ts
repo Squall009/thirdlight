@@ -1,21 +1,21 @@
 /**
- * Phase 23.8: resolve a test/debug start of Play (`options.sceneId`, `mode`,
+ * Resolve a test/debug start of Play (`options.sceneId`, `mode`,
  * `variables`, `save`, `saveSlot` of the play-start request — the editor's
  * "Play from…" and `tl_play_start` send the same body) against the captured
  * project, so the preview only applies what the backend already checked:
  *
  * - a scene is loaded with the start scenes (they hold the camera and the
  *   character), and the character starts at the scene's first player spawn
- *   when it has one (phase 24.7: the level flow's level starts were deleted);
- * - phase 23.19: a project save document (`format: "thirdlight.save"`), or a
+ *   when it has one;
+ * - a project save document (`format: "thirdlight.save"`), or a
  *   save slot 1–99, in a project with a save schema (`content.saveSchema`) —
  *   loaded at the first step (the game migrates an older version); a
  *   document newer than the schema is refused;
  * - variables pass through (the runtime puts them in `ctx.save` at step 0,
- *   and again at every restart: phase 25.17);
- * - phase 25.17: `threads` (worker | single) passes through;
+ *   and again at every restart);
+ * - `threads` (worker | single) passes through;
  * - a mode is checked against `content.modes` when the project defines game
- *   modes, and noted as ignored otherwise (modes arrive with phase 23.10).
+ *   modes, and noted as ignored otherwise.
  *
  * Pure: no I/O.
  */
@@ -57,7 +57,7 @@ export function resolvePlayStart(options: PlayStartOptions, project: PlayStartPr
       if (scene === undefined) return invalid('/options/sceneId', `the project has no scene "${sceneId}"`);
       const start = project.startScenes ?? [];
       out.scenes = start.includes(sceneId) ? [...start] : [...start, sceneId];
-      // Phase 24.6: the chosen scene's first spawn.
+      // The chosen scene's first spawn.
       const spawn = scene.entities.find((e) => e.components?.['playerSpawn'] !== undefined);
       if (spawn !== undefined) out.spawnId = spawn.id;
     }
@@ -65,7 +65,7 @@ export function resolvePlayStart(options: PlayStartOptions, project: PlayStartPr
 
   const schema = project.content['saveSchema'] as { version?: number; slots?: number } | undefined;
   if (options.save !== undefined || options.saveSlot !== undefined) {
-    // Phase 23.19: project saves.
+    // Project saves.
     if (schema === undefined || typeof schema.version !== 'number' || typeof schema.slots !== 'number') return invalid(options.save !== undefined ? '/options/save' : '/options/saveSlot', 'a project save document needs a project save schema (content.saveSchema); this project declares none');
     if (options.save !== undefined) {
       const version = options.save['version'] as number;
@@ -79,7 +79,7 @@ export function resolvePlayStart(options: PlayStartOptions, project: PlayStartPr
   }
 
   if (options.variables !== undefined) out.variables = options.variables;
-  // Phase 25.17: a play-test's threading mode passes through (the page applies it over sim_thread).
+  // A play-test's threading mode passes through (the page applies it over sim_thread).
   if (options.threads !== undefined) out.threads = options.threads;
 
   if (options.mode !== undefined) {

@@ -1,5 +1,5 @@
 /**
- * Phase 23.4: view distance — a virtual camera's own far plane and the
+ * View distance — a virtual camera's own far plane and the
  * project's depth precision (`depth_buffer`), in Play against a real backend
  * on both renderer backends (this file runs in the WebGPU project too).
  *

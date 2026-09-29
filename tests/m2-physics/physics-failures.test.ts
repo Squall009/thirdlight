@@ -1,10 +1,10 @@
 /**
- * Packet 31 — fixture replay of the adapter's failure surface through the
+ * Fixture replay of the adapter's failure surface through the
  * real library (`fixtures/m2/physics/failures.json`).
  *
  * Every case runs against the pinned `@dimforge/rapier2d-compat@0.20.0`; no
  * mock stands in for the library. The expected codes/reasons come from the
- * fixture (physics.md §6/§10 + project-model §21.2), never from the observed
+ * fixture (the physics and project-model contracts), never from the observed
  * behavior of a failing run.
  */
 import { describe, expect, it } from 'vitest';

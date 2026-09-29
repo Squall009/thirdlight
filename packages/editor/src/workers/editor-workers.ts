@@ -1,5 +1,5 @@
 /**
- * Phase 22.1: the page side of the editor worker.
+ * The page side of the editor worker.
  *
  * `run(job, make, { inline })` runs a job of the job table (`jobs.ts`) in a
  * worker and resolves with its output; the caller always gives the inline
@@ -194,7 +194,7 @@ export class EditorWorkers {
   }
 }
 
-/** Workers are on unless the page says `?workers=off` (then every job runs on the page, as before 22.1). */
+/** Workers are on unless the page says `?workers=off` (then every job runs on the page). */
 export function workersRequested(search: string): boolean {
   return new URLSearchParams(search).get('workers') !== 'off';
 }

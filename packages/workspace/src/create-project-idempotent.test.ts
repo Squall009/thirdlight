@@ -1,14 +1,7 @@
 /**
- * 2026-09-18 review repair — group B2 (R15) regression tests.
- *
- * R15: the existing-directory path of `createProject` (workspace.md §8.1
- * idempotency) called `ensureSession` — the FULL on-demand open pipeline —
- * instead of checking loadable disk state without side effects. Reproduced:
- * a healthy project owned by another live identity, or released by this
- * backend, returned `project_exists_invalid` (ownership) or succeeded with
- * a NEW claim written over the released record; a create on a corrupt
- * envelope with no ownership record wrote a new claim before returning the
- * failure. §8.1 is the authority: directory present + loads strictly ⇒
+ * `createProject` on an existing directory checks loadable disk state
+ * without side effects — never the full on-demand open pipeline (which
+ * evaluates and writes ownership). Directory present + loads strictly ⇒
  * idempotent no-op `{ ok: true, created: false, revision }`; directory
  * present + unloadable ⇒ `project_exists_invalid` (with the load errors)
  * and NOTHING written.
@@ -20,17 +13,16 @@
  * `createProject` and must be byte-identical (or still absent) after it.
  *
  *   1. valid + owned by another live identity ⇒ `{ ok, created: false }`
- *      (pre-fix: `project_exists_invalid` / ownership_conflict) + ownership
+ *      (not `project_exists_invalid` / ownership_conflict) + ownership
  *      and envelope bytes identical.
  *   2. valid + released ⇒ `{ ok, created: false }` + ownership bytes
- *      identical (pre-fix: success but a new claim written over the
- *      released record).
+ *      identical (no new claim written over the released record).
  *   3. valid + owned by self (session already open) ⇒ `{ ok, created:
  *      false }` + ownership and envelope bytes identical (same-service
  *      guard).
  *   4. corrupt scene file, no ownership ⇒ `project_exists_invalid` with the
- *      load details + ownership file ABSENT afterwards (pre-fix: a new
- *      claim written before the failure).
+ *      load details + ownership file ABSENT afterwards (no claim written
+ *      before the failure).
  *   5. garbage manifest, no ownership ⇒ `project_exists_invalid` +
  *      ownership ABSENT afterwards.
  *   6. absent directory unchanged ⇒ `{ ok, created: true, revision: 0 }`
@@ -78,7 +70,7 @@ afterAll(() => {
 /** Instance 1's pinned backend identity (the durable records are format-checked). */
 const BACKEND_ID = 'tb-c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6';
 
-/** The garbage bytes (invalid UTF-8 ⇒ `encoding_invalid`, §4.3 step 1). */
+/** The garbage bytes (invalid UTF-8 ⇒ `encoding_invalid`). */
 const GARBAGE = new Uint8Array([0xff, 0xfe, 0x00, 0x01, 0x80, 0xc0]);
 
 function projectDir(root: string, id: string): string {
@@ -130,7 +122,7 @@ function nextRequestId(): string {
   return `req-${seq.toString(16).padStart(32, '0')}`;
 }
 
-// ---- the six R15 cases ---------------------------------------------------------
+// ---- the six cases -------------------------------------------------------------
 
 describe('R15 (group B2): the idempotent createProject is read-only (§8.1)', () => {
   it('1. valid + owned by another live identity: idempotent no-op, nothing written', () => {
@@ -156,8 +148,7 @@ describe('R15 (group B2): the idempotent createProject is read-only (§8.1)', ()
       expect(rec?.state).toBe('owned');
 
       // Instance 1 (a fresh service, same root): the idempotent re-create
-      // must be a no-op that writes NOTHING (pre-fix: `ensureSession`
-      // evaluated ownership and returned `project_exists_invalid` /
+      // must be a no-op that writes NOTHING (not `project_exists_invalid` /
       // ownership_conflict for this healthy foreign-owned project).
       const s1 = openWorkspaceService({ root: r, backendId: BACKEND_ID });
       try {
@@ -182,7 +173,7 @@ describe('R15 (group B2): the idempotent createProject is read-only (§8.1)', ()
     const dir = projectDir(r, 'demo');
     try {
       // Instance 2 (foreign identity) creates and then releases: the
-      // record is state "released" (the supported §9 hand-edit boundary).
+      // record is state "released" (the supported hand-edit boundary).
       const s2 = openWorkspaceService({ root: r });
       const c2 = s2.createProject('demo', 'Demo');
       expect(c2, JSON.stringify(c2)).toEqual({ ok: true, created: true, revision: 0 });
@@ -198,9 +189,9 @@ describe('R15 (group B2): the idempotent createProject is read-only (§8.1)', ()
       expect(recBefore?.state).toBe('released');
       expect(recBefore?.backendId).not.toBe(BACKEND_ID);
 
-      // Instance 1: the idempotent re-create must be a no-op. (Pre-fix:
-      // success, but `ensureSession` re-claimed the released record — a
-      // new ownership write with instance 1's identity and epoch + 1.)
+      // Instance 1: the idempotent re-create must be a no-op (no re-claim
+      // of the released record — no ownership write with instance 1's
+      // identity and epoch + 1).
       const s1 = openWorkspaceService({ root: r, backendId: BACKEND_ID });
       try {
         const res = s1.createProject('demo', 'Demo');
@@ -265,9 +256,9 @@ describe('R15 (group B2): the idempotent createProject is read-only (§8.1)', ()
       expect(ownBytes(dir)).toBeNull();
 
       // The fresh service's createProject must fail with the LOAD
-      // details — and must not write a claim first (pre-fix: the
-      // on-demand open claimed the (absent) record BEFORE the load
-      // failed, leaving a fresh ownership file behind).
+      // details — and must not write a claim first (claiming the absent
+      // record BEFORE the load fails would leave a fresh ownership file
+      // behind).
       const s2 = openWorkspaceService({ root: r, backendId: BACKEND_ID });
       try {
         const res = s2.createProject('demo', 'Demo');

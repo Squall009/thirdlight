@@ -1,9 +1,9 @@
 /**
- * Phase 25.7c: deleting an asset or a prefab, in the editor and over MCP, the
+ * Deleting an asset or a prefab, in the editor and over MCP, the
  * same command against the real backend. The editor's delete is refused (and
  * says why) while an object uses the record; an unused one is removed, and
  * an MCP undo brings it back in the editor. MCP's `tl_command` gets the same
- * refusal (`reference_in_use`) and the same deletion. Phase 25.7e: a
+ * refusal (`reference_in_use`) and the same deletion. A
  * `createEntities` batch over MCP is one revision and one undo, and the
  * editor shows its objects.
  */

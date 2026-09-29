@@ -1,12 +1,12 @@
 /**
- * Phase 18.1: the material node catalogue (graph-kind data).
+ * The material node catalogue (graph-kind data).
  *
  * Two graph kinds share one generic catalogue (never fitted to a demo):
  *
  * - `material`: a material's own graph (owner kind `material`, stored in
  *   `content.materials[].graph`) — inputs, exposed parameters, maths,
  *   vectors, textures, noise, utility, sub-graph calls, the lighting inputs
- *   (phase 23.15) and the outputs (PBR, Unlit or Custom-lit surface, vertex
+ *    and the outputs (PBR, Unlit or Custom-lit surface, vertex
  *   offset, with the render flags as fields);
  * - `material-function`: a reusable sub-graph stored as its own content
  *   record (a standalone graph document, `content.graphs[]` with this kind):
@@ -33,14 +33,14 @@ import type { GraphFieldDef, GraphKindDef, GraphNodeDef, GraphPortDef, GraphValu
 export const MATERIAL_VALUE_TYPES = ['float', 'vec2', 'vec3', 'vec4'] as const;
 /**
  * The types an exposed material parameter may have (`color` is a vec3 edited
- * as a colour). Phase 23.12: `data` is a small grid of RGBA8 cells (at most
+ * as a colour). `data` is a small grid of RGBA8 cells (at most
  * {@link MATERIAL_DATA_MAX} × {@link MATERIAL_DATA_MAX}) that scripts write
  * per object at run time and Sample data nodes read — appended last so every
  * existing list keeps its order.
  */
 export const MATERIAL_PARAMETER_TYPES = ['float', 'vec2', 'vec3', 'vec4', 'color', 'texture', 'data'] as const;
 /**
- * Phase 23.12: the largest data parameter, cells per side (engine limit):
+ * The largest data parameter, cells per side (engine limit):
  * 64 × 64 RGBA8 is 16 KiB per object — enough for a per-cell overlay of a
  * large board or map region, small enough to send whole on every change.
  */
@@ -128,8 +128,8 @@ const INPUT_NODES: readonly GraphNodeDef[] = [
       'A vertex colour set of the mesh (COLOR_0, or COLOR_1: a second set, e.g. a painted block layer\'s wetness); a mesh without it reads white (a neutral tint), zero with alpha 1 (vertex colours used as data, e.g. wind weights) or first — (1, 0, 0, 0), all weight on the first channel (vertex colours used as layer weights: an unpainted mesh shows its first layer).',
     inputs: [],
     outputs: [port('rgba', 'rgba', 'vec4'), port('rgb', 'rgb', 'vec3'), port('alpha', 'alpha', 'float')],
-    // Phase 18.2: white multiplies to no change (a tint); zero means "no effect" for data channels.
-    // Phase 25.21: `set` (a second colour set) and `first` (layer weights) appended; existing graphs keep their meaning.
+    // White multiplies to no change (a tint); zero means "no effect" for data channels.
+    // `set` (a second colour set) and `first` (layer weights) appended; existing graphs keep their meaning.
     fields: [
       { key: 'absent', label: 'Without the set', type: 'enum', options: ['white', 'zero', 'first'], default: 'white' },
       { key: 'set', label: 'Set', type: 'enum', options: ['COLOR_0', 'COLOR_1'], default: 'COLOR_0' },
@@ -160,7 +160,7 @@ const INPUT_NODES: readonly GraphNodeDef[] = [
 ];
 
 /**
- * Phase 23.15: the lighting inputs — what the lights put on the surface, for a
+ * The lighting inputs — what the lights put on the surface, for a
  * graph that computes its own shading (cel, painterly, hatching …). They read
  * light only under a Custom-lit output (a PBR or Unlit surface lights itself;
  * there, and in a vertex offset, they read no light and the compiler says
@@ -230,7 +230,7 @@ const MATH_NODES: readonly GraphNodeDef[] = [
   unary('cos', 'Cosine', 'cos(x), x in radians.'),
   unary('oneMinus', 'One minus', '1 − x.'),
   {
-    // Phase 25.21: four layers' values by their weights (after a Height blend, or any weights).
+    // Four layers' values by their weights (after a Height blend, or any weights).
     type: 'weightedMix',
     label: 'Weighted mix',
     category: 'Maths',
@@ -289,7 +289,7 @@ const TEX_IN = port('tex', 'texture', 'texture');
 const SAMPLE_OUTPUTS: readonly GraphPortDef[] = [port('rgba', 'rgba', 'vec4'), port('rgb', 'rgb', 'vec3'), port('r', 'r', 'float'), port('g', 'g', 'float'), port('b', 'b', 'float'), port('a', 'a', 'float')];
 
 /**
- * Phase 25.21: the layer of a texture array a sampling node reads (0 = the
+ * The layer of a texture array a sampling node reads (0 = the
  * first; rounded to the nearest layer and kept within the array). A plain
  * texture has one layer and ignores it. Appended last, so existing wires keep
  * their ports.
@@ -325,7 +325,7 @@ const TEXTURE_NODES: readonly GraphNodeDef[] = [
     fields: SAMPLER_FIELDS,
   },
   {
-    // Phase 25.21: layers mixed by their height maps (terrain, trim sheets: clean → dirt → moss).
+    // Layers mixed by their height maps (terrain, trim sheets: clean → dirt → moss).
     type: 'heightBlend',
     label: 'Height blend',
     category: 'Textures',
@@ -335,7 +335,7 @@ const TEXTURE_NODES: readonly GraphNodeDef[] = [
     outputs: [port('weights', 'weights', 'vec4')],
   },
   {
-    // Phase 23.12: reads a data parameter (a grid of RGBA8 cells scripts write per object).
+    // Reads a data parameter (a grid of RGBA8 cells scripts write per object).
     type: 'sampleData',
     label: 'Sample data',
     category: 'Textures',
@@ -533,7 +533,7 @@ const PORT_TYPES: GraphKindDef['portTypes'] = [
   { id: 'vec3', label: 'vec3', color: '#f2b544' },
   { id: 'vec4', label: 'vec4', color: '#e67e9b' },
   { id: 'texture', label: 'texture', color: '#c792ea' },
-  // Phase 23.12: a data parameter's cell grid (feeds only Sample data).
+  // A data parameter's cell grid (feeds only Sample data).
   { id: 'data', label: 'data', color: '#5fd3c6' },
 ];
 
@@ -558,7 +558,7 @@ function conversions(): GraphKindDef['conversions'] {
   return out;
 }
 
-// Phase 23.12: Sample data reads a data parameter, which only a material has (not a function).
+// Sample data reads a data parameter, which only a material has (not a function).
 const SHARED_NODES: readonly GraphNodeDef[] = [...INPUT_NODES.filter((n) => n.type !== 'parameter'), ...LIGHTING_NODES, ...MATH_NODES, ...VECTOR_NODES, ...TEXTURE_NODES.filter((n) => n.type !== 'sampleData'), ...UTILITY_NODES, CALL_NODE];
 const SAMPLE_DATA_NODE = TEXTURE_NODES.find((n) => n.type === 'sampleData')!;
 

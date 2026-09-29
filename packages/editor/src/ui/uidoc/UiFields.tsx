@@ -1,5 +1,5 @@
 /**
- * Phase 23.9b: the UI editor's own field controls — the `json` descriptor
+ * The UI editor's own field controls — the `json` descriptor
  * fields of the UI vocabulary (bindings, actions, style references,
  * padding), a widget's size (a missing value sizes to the content), the font
  * picker, and the style editor shared by a document's styles, a widget's own
@@ -126,7 +126,7 @@ type SizeAxis = number | null | { bind: string };
 
 /**
  * A widget's size: each axis a number, empty for "fit the content", or
- * (phase 25.22) a view-model path whose number is the px size (`hud.width`).
+ *  a view-model path whose number is the px size (`hud.width`).
  */
 export function SizeField(p: { value: readonly unknown[] | undefined; aria: string; disabledAxes: readonly boolean[]; onChange: (v: [SizeAxis, SizeAxis] | undefined) => void }): JSX.Element {
   const axisOf = (x: unknown): SizeAxis => (typeof x === 'number' ? x : isBinding(x) ? { bind: x.bind } : null);
@@ -331,10 +331,10 @@ export function StyleMapEditor(p: {
 // Actions
 // ---------------------------------------------------------------------------
 
-// Phase 24.4j: + open (a game shell screen) and nextScene (the shell's scene list).
+// + open (a game shell screen) and nextScene (the shell's scene list).
 const ENGINE_ACTIONS: readonly UiEngineAction[] = ['resume', 'pause', 'restartLevel', 'newGame', 'continue', 'quitToTitle', 'settings', 'load', 'save', 'back', 'setSetting', 'mute', 'unmute', 'open', 'nextScene'];
 const SHELL_SCREENS = ['title', 'pause', 'settings', 'controls', 'save', 'load'] as const;
-// Phase 23.16: + dialogue (advance, choose, skip, auto, backlog — a dialogue document's buttons).
+// + dialogue (advance, choose, skip, auto, backlog — a dialogue document's buttons).
 const DO_KINDS = ['event', 'engine', 'show', 'hide', 'toggle', 'play', 'dialogue'] as const;
 const DIALOGUE_INPUTS = ['advance', 'choose', 'skip', 'auto', 'backlog'] as const;
 

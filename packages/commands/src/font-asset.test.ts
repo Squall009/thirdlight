@@ -1,5 +1,5 @@
 /**
- * Phase 23.9a: the `font` asset kind through `publishAsset` — a create with the
+ * The `font` asset kind through `publishAsset` — a create with the
  * `font` recipe and metrics, the kind stays immutable on reimport, and the
  * per-project caps (16 fonts, 8 versions per font) refuse with `font_assets` /
  * `font_versions`. A bad recipe or bad metrics are refused by the model.

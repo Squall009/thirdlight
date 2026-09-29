@@ -1,58 +1,51 @@
 /**
- * 2026-09-18 review repair — group E3 (R8 + L1) regression tests:
- * liveness/ownership I/O errors are UNKNOWN, never dead/absent.
+ * Liveness/ownership I/O errors are UNKNOWN, never dead/absent.
  *
- * Findings:
- *  - R8 (docs/reviews/2026-09-18-commits.md): (a) with an active owner,
- *    chmod 000 of the ownership file makes the bytes unreadable ⇒ null ⇒
- *    "absent" ⇒ a second identity's open OVERWRITES the live claim;
- *    (b) an inaccessible `<procRoot>/<pid>/` directory (stat EACCES) is
- *    read as "dead" ⇒ query reports `stale_ownership` and an explicit
- *    takeover succeeds while the real owner is alive; (c)
- *    fileExists-style existence checks swallow read errors and report
- *    them as "not exists".
- *  - L1 (orchestrator spot-check of group E1, docs/orchestration.md
- *    2026-09-18 — 6/12 deterministic proof): `openedAt` is
- *    second-truncated (`utcSecond`) while the pid-reuse check compared
- *    against the SUB-SECOND process start time, so a LIVE owner that
- *    started and claimed within the same wall-clock second was
- *    classified dead (`startMs > floor(claimSecond)` ⇒ "pid reuse").
+ * What must not happen:
+ *  - (a) with an active owner, chmod 000 of the ownership file makes the
+ *    bytes unreadable; read as "absent", a second identity's open would
+ *    OVERWRITE the live claim;
+ *  - (b) an inaccessible `<procRoot>/<pid>/` directory (stat EACCES) read
+ *    as "dead" would make query report `stale_ownership` and let an
+ *    explicit takeover succeed while the real owner is alive;
+ *  - (c) fileExists-style existence checks would swallow read errors and
+ *    report them as "not exists";
+ *  - `openedAt` is second-truncated (`utcSecond`) while the process start
+ *    time is sub-second, so comparing them directly would classify a LIVE
+ *    owner that started and claimed within the same wall-clock second as
+ *    dead (`startMs > floor(claimSecond)` ⇒ "pid reuse").
  *
- * Contract (workspace.md §6.2, post-`dabfcff`): "Liveness rules
- * (conservative — ambiguity resolves to 'live')": `/proc/<pid>` absent ⇒
- * dead; a present entry with an unreadable/missing start time, an
- * unreadable cmdline, or ANY error reading `/proc` ⇒ unknown ⇒ treated
- * as live (reject; the operator investigates). §6.3: "A non-ENOENT
+ * Contract: "Liveness rules (conservative — ambiguity resolves to 'live')":
+ * `/proc/<pid>` absent ⇒ dead; a present entry with an unreadable/missing
+ * start time, an unreadable cmdline, or ANY error reading `/proc` ⇒ unknown
+ * ⇒ treated as live (reject; the operator investigates). "A non-ENOENT
  * record read failure at the re-read is never treated as absence".
- * §11: `ownership_conflict` "carries `holder`, `null` when no parseable
- * owned record exists" — the refusal code for an unreadable record
- * (the contract specifies the refusal without a dedicated code, so the
- * existing `ownership_conflict` is reused; no new code).
+ * `ownership_conflict` "carries `holder`, `null` when no parseable owned
+ * record exists" — the refusal code for an unreadable record (no dedicated
+ * code).
  *
- * L1 boundary (per the orchestrator fix sketch; the record format is
- * UNCHANGED — second-precision `openedAt`): pid reuse is CONCLUSIVE only
- * when `startMs > openedAtMs + 1000` (a reused pid necessarily starts
- * after the true claim time C, and C < floor(C) + 1 s);
+ * Pid-reuse boundary (the record keeps second-precision `openedAt`): pid
+ * reuse is CONCLUSIVE only when `startMs > openedAtMs + 1000` (a reused pid
+ * necessarily starts after the true claim time C, and C < floor(C) + 1 s);
  * `startMs <= openedAtMs + 1000` ⇒ ambiguous ⇒ live.
  *
- * Mechanisms (documented):
- *  - R8a: REAL `chmod 000` on the ownership file / `.thirdlight`
- *    directory — the tests run unprivileged, so the reads get a REAL
- *    EACCES (the R8 repro). The owner's liveness is proven with the
- *    supported procRoot seam (`buildFakeProc`, live entry).
- *  - R8b: fake procRoot trees: (i) `<procRoot>/<pid>` dir chmod 000 ⇒
- *    the stat-file read gets EACCES (documented mechanism — the seam is
- *    a real directory tree, so a real chmod gives the real errno);
- *    (ii) procRoot pointed at a REGULAR FILE ⇒ the proc table is
- *    unreadable (ENOTDIR on every entry access); (iii) the proc entry
- *    dir present but the `stat` file MISSING ⇒ unknown, not dead;
- *    (iv) cmdline chmod 000 ⇒ unreadable cmdline; (v) absent entry ⇒
- *    the ENOENT death pin; (vi) absent procRoot ⇒ the proc table is
- *    unavailable — nothing is provable ⇒ unknown.
- *  - L1: deterministic fake `/proc/<pid>/stat` with btime-anchored
- *    start times inside/above the `openedAt` second (no timing, no
- *    sleep — `btime` in `<procRoot>/stat` is written from the same boot
- *    clock the liveness math uses).
+ * Mechanisms:
+ *  - unreadable record: REAL `chmod 000` on the ownership file /
+ *    `.thirdlight` directory — the tests run unprivileged, so the reads get
+ *    a REAL EACCES. The owner's liveness is proven with the supported
+ *    procRoot seam (`buildFakeProc`, live entry).
+ *  - /proc I/O errors: fake procRoot trees: (i) `<procRoot>/<pid>` dir
+ *    chmod 000 ⇒ the stat-file read gets EACCES (the seam is a real
+ *    directory tree, so a real chmod gives the real errno); (ii) procRoot
+ *    pointed at a REGULAR FILE ⇒ the proc table is unreadable (ENOTDIR on
+ *    every entry access); (iii) the proc entry dir present but the `stat`
+ *    file MISSING ⇒ unknown, not dead; (iv) cmdline chmod 000 ⇒ unreadable
+ *    cmdline; (v) absent entry ⇒ the ENOENT death pin; (vi) absent procRoot
+ *    ⇒ the proc table is unavailable — nothing is provable ⇒ unknown.
+ *  - pid-reuse boundary: deterministic fake `/proc/<pid>/stat` with
+ *    btime-anchored start times inside/above the `openedAt` second (no
+ *    timing, no sleep — `btime` in `<procRoot>/stat` is written from the
+ *    same boot clock the liveness math uses).
  *
  * Real filesystem, disposable mkdtemp roots under /home/dadmin (ext4 —
  * /tmp is tmpfs). Never run against repo/user paths.
@@ -195,7 +188,7 @@ function queryErr(svc: ReturnType<typeof openWorkspaceService>): QueryErr | null
   return q.error as unknown as QueryErr;
 }
 
-// ---- fake /proc tree builders (L1 + R8b unit cases) -------------------------------
+// ---- fake /proc tree builders (pid-reuse boundary + /proc I/O error cases) ---------
 
 /** Boot wall-clock seconds (the clock the fake start times are built against). */
 function btimeSec(): number {
@@ -251,7 +244,7 @@ function currentSecondMs(): number {
 }
 
 // =============================================================================
-// T1 — R8a: an unreadable ownership record is NEVER "absent" (real EACCES)
+// T1 — an unreadable ownership record is NEVER "absent" (real EACCES)
 // =============================================================================
 
 describe('T1: R8a — real-permission unreadable ownership record (workspace.md §6.2/§6.3/§11)', () => {
@@ -268,9 +261,8 @@ describe('T1: R8a — real-permission unreadable ownership record (workspace.md 
     const b = openWorkspaceService({ root, backendId: B_ID, pid: B_PID, procRoot });
 
     // On-demand open (query): REFUSED — the record's state is unknown ⇒
-    // the §6.2 conservative rule resolves it to live ⇒ no claim (a claim
-    // would overwrite unknown bytes). §11 line 934: ownership_conflict
-    // carries holder — strict null when no parseable owned record exists.
+    // the conservative rule resolves it to live ⇒ no claim (a claim
+    // would overwrite unknown bytes). ownership_conflict carries holder — strict null when no parseable owned record exists.
     const e = queryErr(b);
     expect(e).not.toBeNull();
     expect(e?.code).toBe('project_unavailable');
@@ -279,7 +271,7 @@ describe('T1: R8a — real-permission unreadable ownership record (workspace.md 
 
     // Explicit takeover: REFUSED the same way (no stale_ownership — the
     // record cannot be evaluated at all; only PROVEN death permits a
-    // takeover, §6.4).
+    // takeover).
     const to = b.takeoverWorkspace(PROJECT);
     expect(to.ok).toBe(false);
     if (!to.ok) expect(to.error.code).toBe('ownership_conflict');
@@ -297,9 +289,9 @@ describe('T1: R8a — real-permission unreadable ownership record (workspace.md 
     const root = makeRoot('t1b');
     seedScenario09(root);
     const recBefore = readFileSync(recPath(root));
-    // The claim file is absent (the R8 repro state — a pre-E1 owner, or a
-    // removed token): with the record unreadable, the pre-fix open
-    // evaluated the record as ABSENT and claimed over the live owner.
+    // The claim file is absent (a removed token): with the record
+    // unreadable, an open that evaluated the record as ABSENT would claim
+    // over the live owner.
     unlinkSync(claimPath(root, 0));
     const procRoot = join(root, 'proc');
     writeProcEntry(procRoot, A_PID, Date.parse('2026-09-17T08:59:00Z'));
@@ -308,13 +300,13 @@ describe('T1: R8a — real-permission unreadable ownership record (workspace.md 
     const b = openWorkspaceService({ root, backendId: B_ID, pid: B_PID, procRoot });
 
     const e = queryErr(b);
-    expect(e).not.toBeNull(); // pre-fix: e === null (the open SUCCEEDED)
+    expect(e).not.toBeNull(); // the open is refused
     expect(e?.code).toBe('project_unavailable');
     expect(e?.reason).toBe('ownership_conflict');
     expect(e?.holder).toBeNull(); // holder: strict null on the wire (T5 pins it)
 
     const to = b.takeoverWorkspace(PROJECT);
-    expect(to.ok).toBe(false); // pre-fix: the takeover SUCCEEDED
+    expect(to.ok).toBe(false);
     if (!to.ok) expect(to.error.code).toBe('ownership_conflict');
 
     // The live claim was never overwritten (and nothing was written —
@@ -349,7 +341,7 @@ describe('T1: R8a — real-permission unreadable ownership record (workspace.md 
 });
 
 // =============================================================================
-// T2 — R8b: liveness I/O errors are unknown, never death (procRoot seam)
+// T2 — liveness I/O errors are unknown, never death (procRoot seam)
 // =============================================================================
 
 describe('T2: R8b — /proc I/O errors classify as unknown ⇒ live (workspace.md §6.2)', () => {
@@ -366,7 +358,7 @@ describe('T2: R8b — /proc I/O errors classify as unknown ⇒ live (workspace.m
     const e = queryErr(b);
     expect(e).not.toBeNull();
     expect(e?.code).toBe('project_unavailable');
-    // Pre-fix: reason stale_ownership (stat EACCES read as dead).
+    // Not stale_ownership: stat EACCES is not death.
     expect(e?.reason).toBe('ownership_conflict');
     // The record IS parseable (only /proc is unreadable): the holder is
     // the on-disk owner.
@@ -374,7 +366,7 @@ describe('T2: R8b — /proc I/O errors classify as unknown ⇒ live (workspace.m
 
     // Explicit takeover while the real owner is alive: REFUSED.
     const to = b.takeoverWorkspace(PROJECT);
-    expect(to.ok).toBe(false); // pre-fix: the takeover SUCCEEDED
+    expect(to.ok).toBe(false);
     if (!to.ok) expect(to.error.code).toBe('ownership_conflict');
 
     // The record was not rewritten and no takeover claim file appeared.
@@ -395,7 +387,7 @@ describe('T2: R8b — /proc I/O errors classify as unknown ⇒ live (workspace.m
     writeProcEntry(procRoot, A_PID, Date.parse(openedAt) - 60_000);
     chmodSync(join(procRoot, String(A_PID)), 0o000);
     const lv = evaluateLiveness(A_PID, openedAt, procRoot, MARKER);
-    expect(lv).toBe('unknown'); // pre-fix: 'dead'
+    expect(lv).toBe('unknown');
     chmodSync(join(procRoot, String(A_PID)), 0o755);
     dropRoot(root);
   });
@@ -406,7 +398,7 @@ describe('T2: R8b — /proc I/O errors classify as unknown ⇒ live (workspace.m
     const fileProc = join(root, 'not-a-dir');
     writeFileSync(fileProc, 'not a proc table\n');
     const lv = evaluateLiveness(A_PID, openedAt, fileProc, MARKER);
-    expect(lv).toBe('unknown'); // pre-fix: 'dead'
+    expect(lv).toBe('unknown');
     dropRoot(root);
   });
 
@@ -414,7 +406,7 @@ describe('T2: R8b — /proc I/O errors classify as unknown ⇒ live (workspace.m
     const root = makeRoot('t2d');
     const openedAt = '2026-09-17T09:00:00Z';
     const lv = evaluateLiveness(A_PID, openedAt, join(root, 'does-not-exist'), MARKER);
-    expect(lv).toBe('unknown'); // pre-fix: 'dead'
+    expect(lv).toBe('unknown');
     dropRoot(root);
   });
 
@@ -424,7 +416,7 @@ describe('T2: R8b — /proc I/O errors classify as unknown ⇒ live (workspace.m
     const openedAt = '2026-09-17T09:00:00Z';
     writeProcEntry(procRoot, A_PID, Date.parse(openedAt) - 60_000, { withStat: false });
     const lv = evaluateLiveness(A_PID, openedAt, procRoot, MARKER);
-    expect(lv).toBe('unknown'); // pre-fix: 'dead' (statPathExists false)
+    expect(lv).toBe('unknown');
     dropRoot(root);
   });
 
@@ -452,7 +444,7 @@ describe('T2: R8b — /proc I/O errors classify as unknown ⇒ live (workspace.m
 });
 
 // =============================================================================
-// T3 — L1: the pid-reuse boundary (deterministic, no timing)
+// T3 — the pid-reuse boundary (deterministic, no timing)
 // =============================================================================
 
 describe('T3: L1 — second-truncated openedAt makes pid reuse conclusive only past +1 s (workspace.md §6.2 "ambiguity resolves to live")', () => {
@@ -468,10 +460,9 @@ describe('T3: L1 — second-truncated openedAt makes pid reuse conclusive only p
     const { openedAt, ms } = secondAnchor();
     writeProcEntry(procRoot, A_PID, ms + 500); // startMs = openedAtMs + 500
     const lv = evaluateLiveness(A_PID, openedAt, procRoot, MARKER);
-    // Pre-fix: startMs (S+500) > openedAtMs (S) ⇒ 'dead' — the L1
-    // false-dead (the live owner started and claimed within the same
-    // wall-clock second). Post-fix: S+500 <= S+1000 ⇒ ambiguous ⇒ the
-    // cmdline marker match ⇒ live.
+    // The live owner started and claimed within the same wall-clock
+    // second: S+500 <= S+1000 ⇒ ambiguous ⇒ the cmdline marker match ⇒
+    // live (never the false 'dead' of comparing against S alone).
     expect(lv).toBe('live');
     dropRoot(root);
   });
@@ -482,7 +473,7 @@ describe('T3: L1 — second-truncated openedAt makes pid reuse conclusive only p
     const { openedAt, ms } = secondAnchor();
     writeProcEntry(procRoot, A_PID, ms + 1000); // startMs == openedAtMs + 1000
     const lv = evaluateLiveness(A_PID, openedAt, procRoot, MARKER);
-    expect(lv).toBe('live'); // pre-fix: 'dead'
+    expect(lv).toBe('live');
     dropRoot(root);
   });
 
@@ -519,12 +510,12 @@ describe('T3: L1 — second-truncated openedAt makes pid reuse conclusive only p
   });
 
   it('T3(f): service level — record openedAt = current second: owner start +0.5 s ⇒ query ownership_conflict (pre-fix stale_ownership); owner start +1.5 s ⇒ stale_ownership (pin)', () => {
-    // Case 1: the L1 window (same truncated second).
+    // Case 1: the same-truncated-second window.
     {
       const root = makeRoot('t3f1');
       seedScenario09(root);
       // Rewrite the record + claim file with a CURRENT-second openedAt
-      // (the L1 shape: the owner claimed this second; the fixture's
+      // (the owner claimed this second; the fixture's
       // static date would never exercise the window).
       const now = currentSecondMs();
       const openedAt = isoSecond(now);
@@ -547,8 +538,8 @@ describe('T3: L1 — second-truncated openedAt makes pid reuse conclusive only p
       const recBefore = readFileSync(recPath(root));
       const e = queryErr(b);
       expect(e).not.toBeNull();
-      // Pre-fix: stale_ownership (the false-dead L1); post-fix:
-      // ownership_conflict (ambiguous ⇒ live; the holder is parseable).
+      // ownership_conflict, not stale_ownership (ambiguous ⇒ live; the
+      // holder is parseable).
       expect(e?.reason).toBe('ownership_conflict');
       expect(e?.holder?.pid).toBe(A_PID);
       const to = b.takeoverWorkspace(PROJECT);
@@ -591,7 +582,7 @@ describe('T3: L1 — second-truncated openedAt makes pid reuse conclusive only p
 });
 
 // =============================================================================
-// T4 — R8a/R8c: the scan preserves absent vs unreadable (unknown ⇒ never
+// T4 — the scan preserves absent vs unreadable (unknown ⇒ never
 // reported stale; a proven-dead readable record still is)
 // =============================================================================
 
@@ -626,9 +617,8 @@ describe('T4: scan — an unreadable ownership record is never reported stale (w
 });
 
 // =============================================================================
-// T5 — residual (spot-check round 2): unreadable record ⇒ `holder` is a
-// STRICT `null` on both refusal surfaces (workspace.md §11 line 934:
-// `ownership_conflict` "carries `holder`, `null` when no parseable owned
+// T5 — unreadable record ⇒ `holder` is a
+// STRICT `null` on both refusal surfaces (`ownership_conflict` "carries `holder`, `null` when no parseable owned
 // record exists")
 // =============================================================================
 
@@ -637,7 +627,7 @@ describe('T5: §11 line 934 — unreadable-record refusal carries holder: strict
     const root = makeRoot('t5');
     seedScenario09(root);
     // The owner (pid 5000) is LIVE under the procRoot seam; the record is
-    // made unreadable (the R8a repro — same as T1(a)).
+    // made unreadable (same as T1(a)).
     const procRoot = join(root, 'proc');
     writeProcEntry(procRoot, A_PID, Date.parse('2026-09-17T08:59:00Z'));
     chmodSync(recPath(root), 0o000);
@@ -653,12 +643,12 @@ describe('T5: §11 line 934 — unreadable-record refusal carries holder: strict
     expect(e?.reason).toBe('ownership_conflict');
     if (e !== null) {
       expect('holder' in e).toBe(true); // the field is present…
-      expect(Object.is(e.holder, null)).toBe(true); // …as strict null (pre-fix: absent ⇒ undefined)
+      expect(Object.is(e.holder, null)).toBe(true); // …as strict null (never omitted ⇒ undefined)
     }
 
     // Surface 2 — the direct `takeoverWorkspace` error `{ code:
     // "ownership_conflict" }`: the `holder` field is PRESENT and strict
-    // null (pre-fix: absent ⇒ undefined).
+    // null (never omitted ⇒ undefined).
     const to = b.takeoverWorkspace(PROJECT);
     expect(to.ok).toBe(false);
     if (!to.ok) {

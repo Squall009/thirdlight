@@ -1,5 +1,5 @@
 /**
- * Phase 24.4: the generic primitives added through the editor and observed
+ * The generic primitives added through the editor and observed
  * in Play, on the starter template (a 2D-plane scene without any game
  * session), against a real backend:
  *

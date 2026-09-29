@@ -4,12 +4,12 @@
  * The PNG goes to the backend's thumbnail cache, so the next editor just
  * downloads it. Renders run one at a time.
  *
- * Phase 17.1: the renderer comes from the three-adapter factory with the
+ * The renderer comes from the three-adapter factory with the
  * editor's backend choice (a thumbnail waits until WebGPURenderer is ready).
  *
- * Phase 22.1: the render stays on the page (the loaded models live with the
+ * The render stays on the page (the loaded models live with the
  * editor's asset loader; a worker would need a second loader and a second
- * copy of every model), but the PNG is no longer read with `toDataURL` —
+ * copy of every model), but the PNG is not read with `toDataURL` —
  * a synchronous read-back of the WebGL/WebGPU canvas plus the encoding,
  * 0.6 s of main thread per thumbnail on the CPU renderer. A bitmap snapshot
  * of the canvas (taken in the render's task, no CPU read) goes to the
@@ -60,7 +60,7 @@ export class ThumbnailRenderer {
   private readonly queue: Job[] = [];
   private running = false;
   private readonly urls = new Map<string, Promise<string | null>>();
-  /** Phase 21.5: the newest `digest|piece` key per `asset|piece`. */
+  /** The newest `digest|piece` key per `asset|piece`. */
   private readonly latest = new Map<string, string>();
   private disposed = false;
 
@@ -78,7 +78,7 @@ export class ThumbnailRenderer {
     if (p === undefined) {
       p = this.load(assetId, digest, piece);
       this.urls.set(k, p);
-      // Phase 21.5: a new version of the same asset (and piece) replaces the old one's URL, which is revoked.
+      // A new version of the same asset (and piece) replaces the old one's URL, which is revoked.
       const slot = `${assetId}|${piece ?? ''}`;
       const previous = this.latest.get(slot);
       this.latest.set(slot, k);

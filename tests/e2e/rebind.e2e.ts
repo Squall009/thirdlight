@@ -1,14 +1,14 @@
 /**
- * Phase 23.14: rebinding in Play, on the starter with an emulated Xbox-family
- * pad. Phase 24.6: through a project's own controls screen (a UI document in
- * the game shell with the engine's `rebind` and `resetBindings` actions)
- * instead of the removed level flow's settings screen. Jump is rebound from
+ * Rebinding in Play, on the starter with an emulated Xbox-family
+ * pad. Through a project's own controls screen (a UI document in
+ * the game shell with the engine's `rebind` and `resetBindings` actions).
+ * Jump is rebound from
  * Space to K by pressing K: K jumps and Space no longer does; the rebinding
  * survives a reload of the editor (saved per player profile in the browser);
  * "Reset controls" brings Space back. The glyph lookup switches from the key
  * cap "K" to the pad's "A" (south face button) when the pad becomes the
- * device used last. Phase 24.7: a pad button is rebound the same way (the
- * deleted level flow's pad-menus test, on the shell's controls screen).
+ * device used last. A pad button is rebound the same way, on the
+ * shell's controls screen.
  */
 import { randomBytes } from 'node:crypto';
 

@@ -1,5 +1,5 @@
 /**
- * Phase 23.4: the camera brain and its rig maths — priority resolution,
+ * The camera brain and its rig maths — priority resolution,
  * blends (cut, linear, eased), each rig's pose, snapped turns on input, the
  * rail, seeded shake, collision pull-in and screen↔world projection.
  */

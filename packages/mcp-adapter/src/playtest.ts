@@ -1,5 +1,5 @@
 /**
- * Phase 25.17: the headless play-test runner — a client of the same `/api/v1`
+ * The headless play-test runner — a client of the same `/api/v1`
  * play surface as the editor and MCP (play start, the input exercise relay,
  * the observation, diagnostics), shared by `tl_playtest` and the
  * `tools/playtest.mjs` CLI. It ships no game knowledge: what a run does comes

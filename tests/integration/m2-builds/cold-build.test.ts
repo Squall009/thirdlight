@@ -1,8 +1,8 @@
 /**
- * Packet 33 — cold-build reliability (M1 U-2).
+ * Cold-build reliability.
  *
  * The behavior compiler runs inside the deployed backend bundle, whose build
- * (packet 13) bundles the workspace packages but keeps `esbuild` EXTERNAL with
+ *  bundles the workspace packages but keeps `esbuild` EXTERNAL with
  * a `createRequire` banner (esbuild's JS API resolves its platform binary
  * relative to its own file). This test reproduces that arrangement exactly,
  * bundles the cold-build harness with it, and runs the real compile in
@@ -26,7 +26,7 @@ describe('packet 33 — cold builds in fresh processes (deployed esbuild-externa
     rmSync(outDir, { recursive: true, force: true });
     mkdirSync(outDir, { recursive: true });
     const harnessOut = join(outDir, 'harness.mjs');
-    // The exact packet-13 backend deployment arrangement (tools/build.mjs).
+    // The exact backend deployment arrangement (tools/build.mjs).
     await esbuild.build({
       entryPoints: [join(REPO_ROOT, 'tests/m2-builds/cold-harness.ts')],
       outfile: harnessOut,
@@ -50,7 +50,7 @@ describe('packet 33 — cold builds in fresh processes (deployed esbuild-externa
       cases: { container: string; expect: Record<string, unknown> }[];
     };
     writeFileSync(declarationPath, JSON.stringify(expected.declaration));
-    // Phase 24.3: the digests were recorded under the fixture's own pin table (the live one no longer pins the platformer).
+    // The digests were recorded under the fixture's own pin table (the live one no longer pins the platformer).
     const pinsPath = join(outDir, 'pins.json');
     writeFileSync(pinsPath, JSON.stringify(expected.pinnedModules));
     const expectedSample = expected.cases.find((c) => c.container === 'valid/sample.json')?.expect as Record<string, unknown>;
@@ -90,8 +90,7 @@ describe('packet 33 — cold builds in fresh processes (deployed esbuild-externa
     expect(JSON.parse((sentinel.stdout ?? '').trim())).toMatchObject({ sentinel: true, ok: true, executed: false });
 
     // The deployed backend bundle is built by `npm run build` (tools/build.mjs,
-    // the same arrangement reproduced above) and inspected in the packet-33
-    // evidence manifest (`docs/acceptance/evidence-m2/33/`), not here: a stale
+    // the same arrangement reproduced above), not checked here: a stale
     // dist tree must not fail the cold-build measurement.
     rmSync(outDir, { recursive: true, force: true });
   }, 180_000);

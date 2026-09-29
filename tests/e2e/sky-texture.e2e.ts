@@ -1,11 +1,11 @@
 /**
- * Phase 9.13 fix: a texture sky is upright. An equirect that is blue above
+ * A texture sky is upright. An equirect that is blue above
  * the horizon and green below, imported as a texture and set as the sky,
- * shows blue at the top of Play's view and green at the bottom (it used to
- * show the ground overhead: the sky was uploaded unflipped). The Scene
+ * shows blue at the top of Play's view and green at the bottom (an
+ * unflipped upload would show the ground overhead). The Scene
  * view's camera looks down below the horizon, so its top shows ground.
  *
- * Phase 17.3: runs once per renderer variant (renderer-variants.ts).
+ * Runs once per renderer variant (renderer-variants.ts).
  */
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';

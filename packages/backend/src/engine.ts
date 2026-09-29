@@ -55,7 +55,7 @@ export function comparePin(pin: Partial<EngineIdentity> | undefined, engine: Eng
   return { matches: differences.length === 0, differences };
 }
 
-/** Phase 25.18: the build stamp `tools/build.mjs` writes into dist/ (`build-info.json`). */
+/** The build stamp `tools/build.mjs` writes into dist/ (`build-info.json`). */
 export interface BuildStamp {
   builtAt: string;
   commit: string;
@@ -63,7 +63,7 @@ export interface BuildStamp {
   version: string;
 }
 
-/** The build stamp in `distDir`, or null (no stamp: a dist/ built before phase 25.18, or none). */
+/** The build stamp in `distDir`, or null (no stamp: a dist/ built without one, or none). */
 export function readBuildStamp(distDir: string): BuildStamp | null {
   try {
     const raw = JSON.parse(readFileSync(join(distDir, 'build-info.json'), 'utf8')) as Record<string, unknown>;
@@ -95,7 +95,7 @@ function newestBundleMs(distDir: string): number | null {
   return newest;
 }
 
-/** Phase 25.18: what `GET /api/v1/engine` answers. */
+/** What `GET /api/v1/engine` answers. */
 export interface EngineInfo {
   version: string | null;
   /** The commit the running process was started from (read at start). */
@@ -112,7 +112,7 @@ export interface EngineInfo {
 }
 
 /**
- * Phase 25.18: the engine this backend runs — identity and build at start,
+ * The engine this backend runs — identity and build at start,
  * and whether dist/ is newer than the process (rebuilt since it started: the
  * browser pages already load the new bundles, the backend still runs the old
  * one until restarted).

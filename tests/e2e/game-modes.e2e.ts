@@ -1,5 +1,5 @@
 /**
- * Phase 23.10: game modes against a real backend and a real browser, on a
+ * Game modes against a real backend and a real browser, on a
  * neutral 3D project built by commands on a blank project (a floor, four
  * coloured pillars, a player capsule, physics_dimension 3) with two modes:
  *

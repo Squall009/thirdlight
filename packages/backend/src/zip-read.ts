@@ -1,5 +1,5 @@
 /**
- * Phase 25.22: a small bounded zip reader for job exports (the central
+ * A small bounded zip reader for job exports (the central
  * directory, stored and deflated entries, CRC-32 checked). No zip64, no
  * encryption, no multi-disk archives: those are refused, not guessed at.
  * Entries are read only when asked for, each within a byte bound.

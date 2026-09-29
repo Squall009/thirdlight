@@ -1,5 +1,5 @@
 /**
- * Phase 23.9a: keyboard/gamepad focus navigation between the focusable
+ * keyboard/gamepad focus navigation between the focusable
  * widgets of a UI document — explicit `nav` targets first, else spatial: the
  * nearest candidate whose centre lies in the pressed direction, scored by
  * the distance along the direction plus twice the sideways offset (so a

@@ -1,5 +1,5 @@
 /**
- * Bridge message allowlist + validators (sessions.md §13.5/§17.6, v2).
+ * Bridge message allowlist + validators (v2).
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -118,10 +118,10 @@ describe('editor → preview validators', () => {
     expect(tooMany.ok).toBe(false);
     const badJump = validateBridgeEditorToPreview({ v: 2, type: 'tl.input.request', playSessionId: play, requestId: req, frames: [{ stepOffset: 0, moveX: 0, jump: 'up' }] });
     expect(badJump.ok).toBe(false);
-    // Phase 23.2: the move vector's forward axis and named actions travel with a frame.
+    // The move vector's forward axis and named actions travel with a frame.
     const vec = validateBridgeEditorToPreview({ v: 2, type: 'tl.input.request', playSessionId: play, requestId: req, frames: [{ stepOffset: 0, actions: { move: { v: 0, x: 0, y: 1, p: 'none' }, jump: { v: 0, p: 'none' }, run: { v: 1, p: 'held' } } }] });
     expect(vec.ok).toBe(true);
-    // Phase 24.8: frame version 2 — the fixed channels are refused.
+    // Frame version 2 — the fixed channels are refused.
     expect(validateBridgeEditorToPreview({ v: 2, type: 'tl.input.request', playSessionId: play, requestId: req, frames: [{ stepOffset: 0, moveX: 0.5, jump: 'none' }] }).ok).toBe(false);
     expect(parseInputRelayRequest({ mode: 'exclusive-test', frames: [{ stepOffset: 0, moveX: 0.5, jump: 'none' }] }).ok).toBe(false);
   });

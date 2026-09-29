@@ -1,5 +1,5 @@
 /**
- * Phase 16.0: centre workspace tabs. Double-clicking an animator controller
+ * Centre workspace tabs. Double-clicking an animator controller
  * or a behavior opens it as a document tab next to Scene and Game; the tabs
  * are real editors (edits reach the backend), can be switched, reordered by
  * drag, closed (not Scene or Game), cycled with Ctrl+Tab, survive a reload,

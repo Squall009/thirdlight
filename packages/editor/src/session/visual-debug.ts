@@ -1,5 +1,5 @@
 /**
- * Phase 19.2: the editor side of visual-script tabs and debugging — pure
+ * The editor side of visual-script tabs and debugging — pure
  * helpers (unit-tested; no DOM).
  *
  * A script's graphs are its event graph (target "") and its functions

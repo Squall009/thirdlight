@@ -1,6 +1,5 @@
 /**
- * Prefab capture/instantiation planning (packet 28; commands.md §8.6–§8.7,
- * project-model §20.1–§20.3).
+ * Prefab capture/instantiation planning.
  *
  * Prefab copies, never links: `createPrefab` captures one immutable definition
  * from a **selected subtree** and `instantiatePrefab` materializes independent
@@ -8,23 +7,22 @@
  * them against the projection so the UI can surface the contract's actionable
  * errors before a round trip; the workspace remains the sole executor and the
  * only authority. There is deliberately no `updatePrefab`, no variant, no
- * apply/revert and no propagation — definitions are immutable in M2
- * (project-model §20.1.2) and a definition change never rewrites a copy
- * (§20.1.4).
+ * apply/revert and no propagation — definitions are immutable and a
+ * definition change never rewrites a copy.
  *
  * Normative rules implemented here:
  *
  *  - capture rejects the scene camera, a nested copy and an external
- *    `entityRef` atomically (commands.md §8.6.3) and enforces the
- *    `prefab_entities`/`prefab_depth`/`prefabs` limits (§20.3);
+ *    `entityRef` atomically and enforces the
+ *    `prefab_entities`/`prefab_depth`/`prefabs` limits;
  *  - instantiation accepts only the contract's three configurables — the root
  *    parent, the root's partial transform and declared-property overrides —
  *    and enforces `overrides`/`entities`/`depth` limits and override legality
  *    against the definition's **recorded values** and the **published
- *    declarations** (§8.7.3/§8.7.5);
+ *    declarations**;
  *  - a stale revision is recovered by re-reading and re-issuing with a fresh
  *    `requestId`; a backend-rejected instance limit is surfaced (never
- *    swallowed) with its `limit`/`current`/`max` (commands.md §5.5/§6.4).
+ *    swallowed) with its `limit`/`current`/`max`.
  *
  * Pure: no DOM, no I/O, no Node builtins, no code evaluation.
  */
@@ -136,7 +134,7 @@ interface Closure {
   depth: number;
 }
 
-/** The subtree closure in scene document order (parent before child, §8.6.2 step 5). */
+/** The subtree closure in scene document order (parent before child). */
 export function captureClosure(scene: readonly CaptureEntityView[], sourceEntityId: string): Closure | null {
   const byId = new Map<string, CaptureEntityView>();
   const children = new Map<string, CaptureEntityView[]>();
@@ -162,7 +160,7 @@ export function captureClosure(scene: readonly CaptureEntityView[], sourceEntity
   return { entities, depth };
 }
 
-/** Entity-reference links declared by a behavior component (§8.6.3 row 3). */
+/** Entity-reference links declared by a behavior component. */
 export function entityRefLinks(
   entity: CaptureEntityView,
   declarations: ReadonlyMap<string, PropertyDeclaration>,
@@ -172,7 +170,7 @@ export function entityRefLinks(
   if (declaration === undefined) return [];
   const out: { key: string; entityId: string }[] = [];
   for (const prop of declaration.properties) {
-    // Phase 15.4: a private property's stored value is inert (never read).
+    // A private property's stored value is inert (never read).
     if (prop.type !== 'entityRef' || prop.visibility === 'private') continue;
     const value = entity.behavior.values[prop.key];
     if (typeof value === 'string') out.push({ key: prop.key, entityId: value });
@@ -181,8 +179,8 @@ export function entityRefLinks(
 }
 
 /**
- * Preflight a capture in the normative §8.6.2/§8.6.3 order. The canonical
- * definition byte bound (`prefab_bytes`, §20.3) is enforced by the backend:
+ * Preflight a capture in the backend's validation order. The canonical
+ * definition byte bound (`prefab_bytes`) is enforced by the backend:
  * the editor cannot serialize the definition without duplicating the model's
  * canonical writer, and the backend remains authoritative.
  */
@@ -382,12 +380,12 @@ function checkPartialTransform(transform: PartialTransformInput): PlanError | nu
 }
 
 /**
- * Plan exactly one `instantiatePrefab` command ("Place Copy") in the normative
- * §8.7.5 validation order. A second copy is a second call: each is one
+ * Plan exactly one `instantiatePrefab` command ("Place Copy") in the
+ * backend's validation order. A second copy is a second call: each is one
  * independent transaction with its own backend-assigned IDs.
  */
 export function planInstantiatePrefab(input: InstantiateInput): PlanResult<{ command: InstantiateCommand }> {
-  // 1. overrides bound (checked before anything else, §8.7.5 step 1).
+  // 1. overrides bound (checked before anything else).
   const overrides = input.overrides ?? [];
   if (overrides.length > MAX_OVERRIDES) {
     return {
@@ -554,8 +552,7 @@ export function overrideDraftKey(localId: string, key: string): string {
  * Turn the UI's textual override drafts into typed overrides, derived only from
  * the published declarations (`BehaviorControlsView.controls`). An edit to a
  * target/key that is not a declared property is rejected — structural,
- * per-entity-transform and component overrides are not supported
- * (commands.md §8.7.1/§8.7.3).
+ * per-entity-transform and component overrides are not supported.
  */
 export function collectOverrides(
   targets: readonly BehaviorControlsView[],
@@ -611,7 +608,7 @@ export type PrefabRecovery =
   | { kind: 'surface'; reason: string; message: string };
 
 /**
- * Decide what to do with a failed prefab command (commands.md §5.5/§6.4):
+ * Decide what to do with a failed prefab command:
  * a stale revision is recovered by re-reading then re-issuing with a fresh
  * `requestId` (at most once per logical attempt); a backend-rejected instance
  * limit is surfaced with its exact bound. Nothing is swallowed.

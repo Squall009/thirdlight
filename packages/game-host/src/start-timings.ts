@@ -1,5 +1,5 @@
 /**
- * Phase 25.24a: where a game page's start time goes. A small recorder the
+ * Where a game page's start time goes. A small recorder the
  * page (Play's preview, and later the export) marks as it starts: named
  * stages with a start and an end (they may overlap: the simulation worker
  * starts while the assets are read), the first drawn frame, the slow frames
@@ -56,14 +56,14 @@ export interface SceneLoadTiming {
   attachedMs: number | null;
   /** That frame's time since the previous frame. */
   attachFrameMs: number | null;
-  /** Phase 25.24d: the precompile that frame waited for (ms; null: none). */
+  /** The precompile that frame waited for (ms; null: none). */
   precompileMs?: number | null;
-  /** Phase 25.24e: it was read ahead (a preload) before the game asked. */
+  /** It was read ahead (a preload) before the game asked. */
   preloaded?: boolean;
-  /** Phase 25.24e: its assets were prepared (models parsed, textures decoded) and it went to the simulation. */
+  /** Its assets were prepared (models parsed, textures decoded) and it went to the simulation. */
   preparedMs?: number | null;
   /**
-   * Phase 25.24e: draw calls of the last frame drawn before the request, of
+   * Draw calls of the last frame drawn before the request, of
    * the frame that attached it, and the fewest of any frame drawn from the
    * request to the end of the watch after the attach (an empty world shows
    * as a drop), with the frames drawn while it loaded and their longest gap.
@@ -83,7 +83,7 @@ export interface StartTimingsReport {
   readonly epochMs: number;
   readonly stages: readonly StartStage[];
   readonly firstFrameMs: number | null;
-  /** Phase 25.24f: the first drawn frame's draw calls (it waits for the start scenes' models). */
+  /** The first drawn frame's draw calls (it waits for the start scenes' models). */
   readonly firstFrameDraws?: number | null;
   /** Frames in the FRAME_WATCH_MS after the first frame. */
   readonly afterFirstFrame: FrameWatch;
@@ -108,7 +108,7 @@ export interface StartTimings {
    * frame's call) and `firstRender` (that call).
    */
   frame(info?: { readonly realizedScenes?: readonly string[]; readonly renderMs?: number; readonly firstCallAt?: number; readonly precompile?: { readonly startedAt: number; readonly ms: number }; readonly draws?: number }): void;
-  /** The game asked for a scene (phase 25.24e: `preloaded` when it was read ahead) / its file is read / prepared / the read failed. */
+  /** The game asked for a scene (`preloaded` when it was read ahead) / its file is read / prepared / the read failed. */
   sceneRequested(sceneId: string, preloaded?: boolean): void;
   sceneRead(sceneId: string, entities: number): void;
   scenePrepared(sceneId: string, entities?: number): void;
@@ -182,7 +182,7 @@ export function createStartTimings(opts: { now?: () => number; epochMs?: number 
         firstFrameDraws = info?.draws ?? null;
         if (info?.renderMs !== undefined && info.firstCallAt !== undefined && stages.size < MAX_STAGES - 2) {
           const callStart = t - info.renderMs;
-          // Phase 25.24d: the renderer was ready when the precompile began (it waits for an initialised renderer).
+          // The renderer was ready when the precompile began (it waits for an initialised renderer).
           const pre = info.precompile;
           const readyAt = pre !== undefined ? Math.min(pre.startedAt, callStart) : callStart;
           stages.set('rendererInit', { name: 'rendererInit', startMs: round1(Math.min(info.firstCallAt, readyAt)), endMs: round1(readyAt) });
@@ -195,7 +195,7 @@ export function createStartTimings(opts: { now?: () => number; epochMs?: number 
       const draws = info?.draws;
       for (const l of loads) {
         if (l.attachedMs !== null && t - l.attachedMs > 0 && t - l.attachedMs <= FRAME_WATCH_MS) addFrame(l.after, t, gap);
-        // Phase 25.24e: frames while it loads, and the fewest draws from the request to the end of the watch.
+        // Frames while it loads, and the fewest draws from the request to the end of the watch.
         if (l.attachedMs === null && l.error === undefined) {
           l.loadingFrames = (l.loadingFrames ?? 0) + 1;
           l.loadingWorstMs = Math.max(l.loadingWorstMs ?? 0, round1(gap));

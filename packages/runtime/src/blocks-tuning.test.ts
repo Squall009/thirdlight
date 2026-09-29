@@ -1,8 +1,7 @@
 /**
- * Phase 15.3: the gameplay blocks read their tuning from the components, each
- * absent field at the value every project played with before
- * (`BLOCK_DEFAULTS`). Phase 24.7: the removed game components' tuning went with
- * the genre layer; the mover push tuning stays.
+ * The gameplay blocks read their tuning from the components, each
+ * absent field at its default (`BLOCK_DEFAULTS`), including the mover push
+ * tuning.
  */
 import { describe, expect, it } from 'vitest';
 import type { EntityV3 } from '@thirdlight/project-model';

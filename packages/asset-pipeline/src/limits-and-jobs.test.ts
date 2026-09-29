@@ -1,5 +1,5 @@
 /**
- * Packet-24 acceptance: byte/decoded-resource/time limits with adversarial
+ * byte/decoded-resource/time limits with adversarial
  * inputs, plus the injected job port (bounded timeout and cancellation).
  *
  * The byte cap and the `vertices` decoded cap cannot be committed as files

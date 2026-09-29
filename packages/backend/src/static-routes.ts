@@ -53,8 +53,8 @@ export function makeStaticRoutes(ctx: StaticRoutesContext) {
   };
 
   /**
-   * The preview-origin CSP (sessions.md §17.4). `script-src` carries the
-   * per-response nonce for the shell's injected page config (delivery §7); the
+   * The preview-origin CSP. `script-src` carries the
+   * per-response nonce for the shell's injected page config; the
    * artifact responses use the same policy without a nonce.
    */
   const previewCsp = (nonce?: string, allowEval = false): string =>
@@ -62,7 +62,7 @@ export function makeStaticRoutes(ctx: StaticRoutesContext) {
     // blob: (connect/img): GLTFLoader hands a GLB's embedded textures to the
     // image decoder as blob: URLs of bytes already in the page. worker-src
     // blob:: three's Draco/KTX2 decoders run in workers built from blob: URLs;
-    // 'self' (phase 22.0): the game's simulation worker (/sim-worker.js).
+    // 'self': the game's simulation worker (/sim-worker.js).
     // 'unsafe-eval' only for a play whose models carry KTX2/Basis textures:
     // three's Basis transcoder (Emscripten embind) builds functions at run
     // time, and its worker inherits this policy.
@@ -74,7 +74,7 @@ export function makeStaticRoutes(ctx: StaticRoutesContext) {
     `frame-ancestors ${config.authoringOrigin}`;
 
   /**
-   * Phase 22.0: cross-origin isolation (opt-in, `crossOriginIsolation`). The
+   * Cross-origin isolation (opt-in, `crossOriginIsolation`). The
    * editor page and everything on the preview origin get COOP same-origin +
    * COEP require-corp; the play page (a cross-origin iframe of the editor)
    * also says it may be embedded (CORP cross-origin). Then the play page is
@@ -99,14 +99,14 @@ export function makeStaticRoutes(ctx: StaticRoutesContext) {
     '    <p>Thirdlight play preview. Start Play in the editor.</p>\n  </body>\n</html>\n';
 
   /**
-   * The M2 locator shell (sessions.md §17.2.1): the only dynamic page. It
-   * injects the §13.2/§17.6 page config (no tokens, no API URLs) and loads the
+   * The locator shell: the only dynamic page. It
+   * injects the page config (no tokens, no API URLs) and loads the
    * pinned play bundle from the artifact root.
    */
   const previewShellHtml = (playSessionId: string, contentId: string, nonce: string, roots?: { cacheRoot: string; buildRoot: string | null }): string => {
     const origin = config.authoringOrigin.replace(/"/g, '\\"');
     const root = `/play-content/${contentId}/`;
-    // Phase 25.24c: the project's cache root (declared artifacts by digest) and the play build (the bundle,
+    // The project's cache root (declared artifacts by digest) and the play build (the bundle,
     // the worker and physics scripts) — URLs that stay the same from Play to Play, so the browser's caches hit.
     const cacheRoot = roots?.cacheRoot ?? null;
     const buildRoot = roots?.buildRoot ?? null;

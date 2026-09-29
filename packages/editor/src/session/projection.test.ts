@@ -114,7 +114,7 @@ describe('Projection — conflict explanation (never silently lost)', () => {
   });
 });
 // ---------------------------------------------------------------------------
-// M3 v3 gameplay components (packet 56) — hydration + change convergence
+// v3 gameplay components — hydration + change convergence
 // ---------------------------------------------------------------------------
 
 function entV3(id: string, components: Record<string, unknown>, pos: [number, number, number] = [0, 0, 0]): Entity {

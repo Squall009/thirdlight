@@ -1,22 +1,21 @@
 /**
- * `exportProjectM3` — the M3 standalone content/gameplay export pipeline
- * (packet 58; delivery.md §2/§3/§5, export.md §2–§7).
+ * `exportProjectM3` — the standalone content/gameplay export pipeline.
  *
- * Composes the complete M3 closure from ONE captured authoring state (the
- * single acknowledged envelope read — delivery.md §2.6 "one capture, one
- * read") through the INJECTED workspace service:
+ * Composes the complete closure from ONE captured authoring state (the
+ * single acknowledged envelope read — "one capture, one read") through the
+ * INJECTED workspace service:
  *
  *   the v2 runtime-content manifest (self-identifying `buildId`, the resolved
  *   six-key `settings` / frozen `game` / media identity hash-bound through it)
  *   + the canonical v3 scene document
  *   + every reachable asset as a relative `content/sha256/<digest>` artifact
  *   (model → `model/gltf-binary`, audio → `audio/wav`)
- *   + the M3 bundle (the single shared production composition — `game-host`)
+ *   + the bundle (the single shared production composition — `game-host`)
  *   + `meta.json` v2
  *
  * and validates it: the v3 scene/content validity, the revision re-read, the
- * output-target rule, the exact M3 bundle graph, the format-aware scans (GLB
- * container, WAV container, JS text with the §5.4 forbidden patterns, relative
+ * output-target rule, the exact bundle graph, the format-aware scans (GLB
+ * container, WAV container, JS text with the forbidden patterns, relative
  * closure), the manifest self-identity (`buildId` recomputation), the closure
  * rule (every declared artifact present and every present artifact declared)
  * and the atomic publication.
@@ -49,17 +48,17 @@ import { checkBundleGraphM3 } from './graph';
 const M3_SCHEMA_VERSION = 2;
 const ENGINE_VERSION = '0.1.0';
 const BUNDLE_NAME = 'js/main.js';
-/** Phase 22.0: the simulation worker (runtime + physics + scripts off the page's main thread). */
+/** The simulation worker (runtime + physics + scripts off the page's main thread). */
 const WORKER_BUNDLE_NAME = 'js/sim-worker.js';
-/** Phase 23.0: the 3D physics backend (rapier3d), emitted only for a project whose physics_dimension is 3. */
+/** The 3D physics backend (rapier3d), emitted only for a project whose physics_dimension is 3. */
 const PHYSICS_3D_BUNDLE_NAME = 'js/physics-3d.js';
-/** Phase 23.0: the module that marks a 3D project's physics. */
+/** The module that marks a 3D project's physics. */
 const PHYSICS_3D_MODULE = 'thirdlight.physics-rapier:3d';
 const SCENE_NAME = 'scene.json';
 const MANIFEST_NAME = 'manifest.json';
 const META_NAME = 'meta.json';
 
-/** The minimal M3 export page (export.md §3): `<canvas id="game">` + the HUD
+/** The minimal export page: `<canvas id="game">` + the HUD
  * root + the relative module script. The HUD is the host-owned DOM. */
 const INDEX_HTML = `<!doctype html>
 <html>
@@ -112,7 +111,7 @@ function readLockfileIntegrity(ctx: ExportContext): string | null {
   }
 }
 
-/** The license + version of one installed package (the §6 `licenses` rows). */
+/** The license + version of one installed package (the `licenses` rows). */
 function installedPackage(ctx: ExportContext, packageJsonPath: string, id: string): { id: string; version: string; license: string; source: string } {
   try {
     const obj = JSON.parse(new TextDecoder().decode(ctx.fs.read(packageJsonPath))) as Record<string, unknown>;
@@ -128,18 +127,18 @@ function installedPackage(ctx: ExportContext, packageJsonPath: string, id: strin
 }
 
 /**
- * The §5.4.1 binding 3 reference three entry: the three build the engine
- * links — phase 17.4: the WebGPU build (`three/webgpu`, the full core
+ * The binding-3 reference three entry: the three build the engine
+ * links — the WebGPU build (`three/webgpu`, the full core
  * re-exported) and TSL; `three` resolves to `three/webgpu` like in the bundle.
  */
 const REFERENCE_ENTRY = "import * as WEBGPU from 'three/webgpu'; import * as TSL from 'three/tsl'; console.log(WEBGPU.REVISION, Object.keys(TSL).length);";
 
 /** The pinned Rapier compat probe entry (re-measures the physics row). */
 const RAPIER_PROBE_ENTRY = "import { createPhysicsPort } from '@thirdlight/physics-rapier'; console.log(typeof createPhysicsPort);";
-/** Phase 23.0: the pinned Rapier 3D compat probe entry (a 3D project's physics row). */
+/** The pinned Rapier 3D compat probe entry (a 3D project's physics row). */
 const RAPIER_3D_PROBE_ENTRY = "import { createPhysicsPort3D } from '@thirdlight/physics-rapier/3d'; console.log(typeof createPhysicsPort3D);";
 
-/** Phase 23.0: the installed rapier3d-compat package.json the 3D bundle linked (from its metafile: the physics-rapier package's own pin). */
+/** The installed rapier3d-compat package.json the 3D bundle linked (from its metafile: the physics-rapier package's own pin). */
 function linkedPackageJson(metafile: { inputs: Record<string, unknown> }, pkg: string): string | null {
   for (const key of Object.keys(metafile.inputs ?? {})) {
     const p = key.replace(/\\/g, '/');
@@ -149,7 +148,7 @@ function linkedPackageJson(metafile: { inputs: Record<string, unknown> }, pkg: s
   return null;
 }
 
-/** Build one probe bundle (stdin entry, pinned §5.3 options). */
+/** Build one probe bundle (stdin entry, pinned options). */
 async function probeBundle(ctx: ExportContext, contents: string, sourcefile: string): Promise<Uint8Array | null> {
   try {
     const r = await build({
@@ -165,7 +164,7 @@ async function probeBundle(ctx: ExportContext, contents: string, sourcefile: str
 }
 
 /**
- * The M3 pipeline. The single captured envelope read (scene + content halves)
+ * The pipeline. The single captured envelope read (scene + content halves)
  * is taken by the dispatcher through the injected workspace service; every
  * other read goes through the injected service too.
  */
@@ -178,7 +177,7 @@ export async function exportProjectM3(
   const now = ctx.now ?? (() => Date.now());
   const capturedAt = utcSeconds(now());
 
-  // ---- the shared M3 closure (manifest + declared artifact bytes) -----------
+  // ---- the shared closure (manifest + declared artifact bytes) --------------
 
   const closureResult = await buildContentClosureM3({
     service: ctx.service,
@@ -204,7 +203,7 @@ export async function exportProjectM3(
   }
   const closure: ContentClosureM3 = closureResult.closure;
 
-  // ---- the M3 bundle build ----------------------------------------------------
+  // ---- the bundle build -------------------------------------------------------
 
   const built = await buildM3Bundle({ bootstrapEntry: m3BootstrapEntry, closure });
   if (!built.ok) {
@@ -212,7 +211,7 @@ export async function exportProjectM3(
       modules: built.modules.slice(0, 8),
     });
   }
-  // Phase 22.0: the simulation worker bundle (next to the bootstrap: same directory, same rules).
+  // The simulation worker bundle (next to the bootstrap: same directory, same rules).
   const workerEntry = ctx.fs.join(ctx.fs.join(m3BootstrapEntry, '..'), 'export-sim-worker.ts');
   const worker = await buildSimWorkerBundle(workerEntry, closure.moduleIds);
   if (!worker.ok) {
@@ -221,7 +220,7 @@ export async function exportProjectM3(
     });
   }
 
-  // Phase 23.0: a 3D project's physics backend (next to the bootstrap: same directory, same rules).
+  // A 3D project's physics backend (next to the bootstrap: same directory, same rules).
   const threeD = closure.moduleIds.includes(PHYSICS_3D_MODULE);
   const physics3dEntry = ctx.fs.join(ctx.fs.join(m3BootstrapEntry, '..'), 'export-physics-3d.ts');
   const physics3d = threeD ? await buildSimWorkerBundle(physics3dEntry) : null;
@@ -235,7 +234,7 @@ export async function exportProjectM3(
     return fail('export_bundle_forbidden_content', 'internal', 'the pinned Rapier 3D compat probe could not be built (the 3D physics row fails closed)');
   }
 
-  // The §5.4.1 binding 3 reference build + the pinned Rapier compat probe.
+  // The binding-3 reference build + the pinned Rapier compat probe.
   const referenceBytes = await probeBundle(ctx, REFERENCE_ENTRY, 'three-reference-entry.ts');
   const rapierBytes = await probeBundle(ctx, RAPIER_PROBE_ENTRY, 'rapier-compat-probe.ts');
   if (referenceBytes === null) {
@@ -270,7 +269,7 @@ export async function exportProjectM3(
   if ('error' in resolved) return { ok: false, error: resolved.error };
   const { exportRootReal, dirName } = resolved;
 
-  // ---- step 4: the exact M3 bundle import graph --------------------------------
+  // ---- step 4: the exact bundle import graph -----------------------------------
 
   const graph = checkBundleGraphM3(built.metafile, m3BootstrapEntry, closure.moduleIds);
   if (!graph.ok) {
@@ -321,7 +320,7 @@ export async function exportProjectM3(
       return fail('scan_forbidden_content', 'internal', `the emitted asset artifact bytes do not match its digest (${asset.path})`);
     }
   }
-  // Behavior modules (and, phase 25.9, the shared library modules they import) are shipped as
+  // Behavior modules (and the shared library modules they import) are shipped as
   // separate files: same forbidden-content rule as the bundle.
   for (const b of [...closure.behaviorArtifacts, ...closure.libraryArtifacts]) {
     const bc = textPatternCounts(new TextDecoder().decode(b.bytes), patterns);
@@ -329,7 +328,7 @@ export async function exportProjectM3(
       return fail('export_bundle_forbidden_content', 'internal', `forbidden content in behavior module ${b.path}`);
     }
   }
-  // Phase 12 (c): scene files are text (the same forbidden-content and relative-closure
+  // Scene files are text (the same forbidden-content and relative-closure
   // rules as scene.json); instance buffers are plain float data checked by digest.
   for (const sc of closure.sceneArtifacts) {
     const sceneCounts = textPatternCounts(new TextDecoder().decode(sc.bytes), patterns);
@@ -342,7 +341,7 @@ export async function exportProjectM3(
       return fail('scan_forbidden_content', 'internal', `an instance buffer does not match its digest or size (${b.path})`);
     }
   }
-  // Phase 25.7b: the manifest's content files are JSON text (the rules manifest.json's text had).
+  // The manifest's content files are JSON text (the rules manifest.json's text had).
   for (const f of closure.contentFileArtifacts) {
     const c = textPatternCounts(new TextDecoder().decode(f.bytes), patterns);
     if (c.a + c.b + c.c + c.e + c.g + c.i !== 0 || digestBytes(f.bytes) !== f.digest) {
@@ -351,10 +350,9 @@ export async function exportProjectM3(
   }
   const bundleText = new TextDecoder().decode(built.bytes);
   const counts = textPatternCounts(bundleText, patterns);
-  // The §5.4 forbidden patterns must be zero in the M3 bundle (the exact
-  // §5.4.1 count re-measurement against the current three + game-host install
-  // is the 58/60 re-measurement step — the forbidden-pattern gate is the
-  // binding security check here).
+  // The forbidden patterns must be zero in the bundle: this gate, not an exact
+  // re-measurement of the recorded-exception counts, is the binding security
+  // check here.
   if (counts.a + counts.b + counts.c + counts.e + counts.g + counts.i !== 0) {
     return fail(
       'export_bundle_forbidden_content',
@@ -363,7 +361,7 @@ export async function exportProjectM3(
       { reason: `counts=${JSON.stringify(counts)}` },
     );
   }
-  // Phase 22.0: the worker bundle carries the same forbidden-pattern gate (the Rapier WASM is inlined: no URL).
+  // The worker bundle carries the same forbidden-pattern gate (the Rapier WASM is inlined: no URL).
   const workerCounts = textPatternCounts(new TextDecoder().decode(worker.bytes), patterns);
   if (workerCounts.a + workerCounts.b + workerCounts.c + workerCounts.e + workerCounts.g + workerCounts.i !== 0) {
     return fail(
@@ -373,7 +371,7 @@ export async function exportProjectM3(
       { reason: `counts=${JSON.stringify(workerCounts)}` },
     );
   }
-  // Phase 23.0: the 3D physics bundle carries the same gate (its WASM is inlined: no URL).
+  // The 3D physics bundle carries the same gate (its WASM is inlined: no URL).
   if (physics3d !== null && physics3d.ok) {
     const c3 = textPatternCounts(new TextDecoder().decode(physics3d.bytes), patterns);
     if (c3.a + c3.b + c3.c + c3.e + c3.g + c3.i !== 0) {
@@ -424,7 +422,7 @@ export async function exportProjectM3(
     installedPackage(ctx, ctx.typescriptPackageJson, 'typescript'),
     { id: 'esbuild', version: esbuildVersion, license: 'MIT', source: 'npm' },
     { id: '@dimforge/rapier2d-compat', version: readJsonStringField(ctx, ctx.fs.join(ctx.repoRoot, 'node_modules/@dimforge/rapier2d-compat/package.json'), 'version'), license: 'Apache-2.0', source: 'npm' },
-    // Phase 23.0: a 3D project's backend (the version the 3D bundle linked).
+    // A 3D project's backend (the version the 3D bundle linked).
     ...(physics3d !== null && physics3d.ok ? [{ id: '@dimforge/rapier3d-compat', version: rapier3dVersion(ctx, physics3d.metafile), license: 'Apache-2.0', source: 'npm' }] : []),
     ...decoders.map((d) => ({ id: DECODER_LICENSES[d].id, version: readJsonStringField(ctx, ctx.threePackageJson, 'version'), license: DECODER_LICENSES[d].license, source: 'npm' })),
   ].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
@@ -442,7 +440,7 @@ export async function exportProjectM3(
       three: readJsonStringField(ctx, ctx.threePackageJson, 'version'),
       typescript: readJsonStringField(ctx, ctx.typescriptPackageJson, 'version'),
       esbuild: esbuildVersion,
-      // Phase 15.3: the project's step rate (the fixed_step_hz setting; absent: 120).
+      // The project's step rate (the fixed_step_hz setting; absent: 120).
       runtime: { fixedStepHz: parsedManifest.settings.fixed_step_hz ?? 120, modules: [...closure.moduleIds] },
     },
     scene: {
@@ -458,8 +456,8 @@ export async function exportProjectM3(
       contentDigest: parsedManifest.contentDigest,
       buildId: parsedManifest.buildId,
       buildOptionsDigest: parsedManifest.buildOptionsDigest,
-      // Packet 58: the manifest block gains the M3 digests (copies of the
-      // manifest's own hash-bound fields; phase 24.8: no game digest).
+      // The manifest block carries the settings/media digests (copies of the
+      // manifest's own hash-bound fields; no game digest).
       settingsDigest: parsedManifest.settingsDigest,
       mediaDigest: parsedManifest.mediaDigest,
     },
@@ -504,7 +502,7 @@ export async function exportProjectM3(
   };
 }
 
-/** Phase 23.0: the rapier3d-compat version the 3D bundle linked ('' when unknown). */
+/** The rapier3d-compat version the 3D bundle linked ('' when unknown). */
 function rapier3dVersion(ctx: ExportContext, metafile: { inputs: Record<string, unknown> }): string {
   const rel = linkedPackageJson(metafile, '@dimforge/rapier3d-compat');
   if (rel === null) return '';
@@ -515,7 +513,7 @@ function rapier3dVersion(ctx: ExportContext, metafile: { inputs: Record<string, 
 /** The manifest document without `buildId` (the `buildId` preimage object). */
 function manifestWithoutBuildId(manifest: RuntimeContentManifestV2): Record<string, unknown> {
   const without: Record<string, unknown> = {};
-  // Phase 24.8: the model's key order (one list; every key but buildId).
+  // The model's key order (one list; every key but buildId).
   const keys = MANIFEST_KEYS_V2.filter((k) => k !== 'buildId');
   for (const k of keys) without[k] = (manifest as unknown as Record<string, unknown>)[k];
   return without;

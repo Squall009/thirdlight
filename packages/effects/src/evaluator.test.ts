@@ -1,5 +1,5 @@
 /**
- * Phase 20.1: the CPU reference semantics — seeded determinism, spawning
+ * The CPU reference semantics — seeded determinism, spawning
  * (rate, bursts, distance, events), initialize shapes, forces, over-life
  * curves and gradients, collisions, kills, spaces, parameters and the
  * output maths. Neutral fixtures only.

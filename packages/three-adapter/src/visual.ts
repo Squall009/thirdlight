@@ -1,5 +1,5 @@
 /**
- * Shared GLB realization path (packet 26) — `dependencies.md` §3 additions row:
+ * Shared GLB realization path — the three-adapter row of `dependencies.md`:
  * "the GLB realization/resource-owner helpers + an injected byte resolver: the
  * adapter accepts **bytes or a resolver function**, never a token/URL/fetch;
  * GLTFLoader/AnimationClip preview helpers".
@@ -18,17 +18,16 @@
  *        └─ ModelInstance.createPreviewController() ─► local material/animation
  *                                                       preview state only
  *
- * Out of scope (normative for this packet): this module never mutates the M1
+ * Out of scope: this module never mutates the
  * runtime's simulation state or the authoring scene (no second scene-mutation
  * engine); it never reads a clock (the host owns the frame loop and drives
  * `AssetPreviewController.update(dt)`), never fetches, and holds no token, URL
- * or session state. It has no runtime dependency on the M1 instantiate path:
- * `runtime.md` §6 stays the only frame-order authority and M2 runtime snapshots
- * arrive in packet 29 (production Play wiring in packet 35).
+ * or session state. It has no runtime dependency on the instantiate path:
+ * `runtime.md` stays the only frame-order authority.
  *
- * `three-adapter` may import `runtime`/`three` only (dependencies.md §4.1/§4.3):
+ * `three-adapter` may import `runtime`/`three` only:
  * the descriptor type below is a *structural* copy of the approved
- * project-model §18.4/§19.1 delivery facts — the adapter imports no
+ * project-model delivery facts — the adapter imports no
  * project-model type. Every public call returns a result object and never
  * throws across the module edge.
  */
@@ -43,7 +42,7 @@ import { disposeObjectTree } from './dispose';
 
 /**
  * The approved visual descriptor: the immutable, path-free per-version facts a
- * placement or an inspection resolves through (project-model §18.4/§19.1:
+ * placement or an inspection resolves through (project-model:
  * `assetId`, `version`, `sourceDigest`, `sourceByteLength`). The adapter adds
  * no field that could carry a path, URL or credential.
  */
@@ -58,14 +57,14 @@ export interface AssetVersionDescriptor {
 /**
  * Where the bytes come from. EXACTLY ONE of:
  *  - `bytes`: bytes the caller already obtained through the authenticated read
- *    path (sessions.md §16.1) — the adapter copies nothing and fetches nothing;
+ *    path — the adapter copies nothing and fetches nothing;
  *  - `resolver`: an injected async closure the caller owns (the editor's
  *    authenticated transport). It receives only the descriptor facts and an
  *    `AbortSignal`; it never receives a token from this package.
  *
  * There is deliberately no `url`/`token`/`path` variant: the renderer gets no
- * token (sessions.md §16.1) and `three-adapter → workspace|backend|protocol`
- * stays forbidden (dependencies.md §4.3).
+ * token and `three-adapter → workspace|backend|protocol`
+ * stays forbidden.
  */
 export type AssetByteSource =
   | {
@@ -137,7 +136,7 @@ const REASON_TO_CODE: Readonly<Record<VisualLoadFailureReason, AdapterErrorCode>
  * The injected loader port. The adapter binds to no concrete loader at this
  * layer: the real GLTFLoader-backed port is on the
  * `@thirdlight/three-adapter/gltf-loader` subpath (so the export/preview bundle
- * graphs stay free of the loader until packets 35/36 need it), and tests inject
+ * graphs stay free of the loader), and tests inject
  * a synthetic port. A port must not fetch, hold a token or read a path.
  */
 export interface GlbLoaderPort {
@@ -204,7 +203,7 @@ export interface VisualResourceHandle {
   cancel(): void;
 }
 
-/** Read-only diagnostics of one prepared resource (packet 26 convention). */
+/** Read-only diagnostics of one prepared resource. */
 export interface VisualResourceDiagnostics {
   readonly descriptor: AssetVersionDescriptor;
   readonly state: 'ready' | 'disposed';
@@ -231,16 +230,16 @@ export interface PreparedVisualResource {
   pieces(): readonly { readonly name: string; readonly lods: number; readonly hasCollider: boolean; readonly skinned: boolean }[];
   /** The 2D collider polygon from a piece's `_COL` node (null piece = the file's single `_COL`). */
   collider2D(piece: string | null): [number, number][] | null;
-  /** Phase 23.1: a 3D collider (triangle mesh or convex hull) from a piece's `_COL` node(s), else its LOD0 geometry. */
+  /** A 3D collider (triangle mesh or convex hull) from a piece's `_COL` node(s), else its LOD0 geometry. */
   collider3D(piece: string | null, kind: 'mesh' | 'convex'): ModelCollider3D;
   /** A piece's (or the whole file's) LOD0 bounds in the file's root space. */
   bounds(piece: string | null): THREE.Box3;
   /** The names of the file's materials (of one piece), in first-use order. */
   materialNames(piece: string | null): string[];
-  /** Phase 14.6: the file's animation clips (shared, read-only). */
+  /** The file's animation clips (shared, read-only). */
   animationClips(): readonly THREE.AnimationClip[];
   /**
-   * Phase 14.6: the file's skeleton for bone masks — its bones (every node
+   * The file's skeleton for bone masks — its bones (every node
    * when the file has none: rigid-node clips animate nodes), in hierarchy
    * order, each with its parent bone (null at the top) and depth.
    */
@@ -309,8 +308,8 @@ export interface ModelInstance {
   /** The preserved GLB hierarchy inside `root` (read-only use). */
   readonly glbRoot: THREE.Object3D;
   clips(): readonly VisualClipInfo[];
-  /** The loaded clips of this resource (packet 53: the role controller's
-   *  stage 3 / stage 5–6 re-check input, presentation.md §41.3.6 rule 7). */
+  /** The loaded clips of this resource (the role controller's
+   *  stage 3 / stage 5–6 re-check input, presentation.md rule 7). */
   animationClips(): readonly THREE.AnimationClip[];
   /** Copy the entity transform into `root` (the adapter's single transform-applying helper). */
   setTransform(position: AdapterVec3, rotation: AdapterQuat, scale: AdapterVec3): void;
@@ -327,7 +326,7 @@ export interface ModelInstance {
 export const VISUAL_SOURCE_BYTES_MAX = MAX_SOURCE_BYTES;
 
 /**
- * Packet 53 (presentation.md §41.6 mixer row): role controllers are tracked
+ * Role controllers (the presentation.md mixer row) are tracked
  * per instance so `ModelInstance.dispose()` releases each one exactly once
  * (idempotence makes the controller's own `dispose()` path a no-op on the
  * second release). Internal module surface — not part of the public exports;
@@ -512,7 +511,7 @@ function createInstanceHandle(
     animationClips: () => animations,
     setTransform(position, rotation, scale) {
       // The adapter's single transform-applying helper (sync.ts) — no second
-      // transform-math path (runtime.md §6).
+      // transform-math path.
       applyTransformToObject3D(holder, position, rotation, scale);
     },
     createPreviewController() {
@@ -530,9 +529,9 @@ function createInstanceHandle(
         controller.dispose();
         controllers.delete(controller);
       }
-      // Packet 53 (presentation.md §41.6): the tracked role controllers are
+      // The tracked role controllers are
       // released exactly once here; each `dispose()` is idempotent and safe
-      // mid-blend (§41.3.6 rule 8), so a controller already disposed by the
+      // mid-blend (rule 8), so a controller already disposed by the
       // host is a no-op.
       for (const roleController of [...(roleControllers.get(instance) ?? [])]) {
         try {
@@ -545,7 +544,7 @@ function createInstanceHandle(
       instanceDisposed.add(instance);
       holder.remove(glbRoot);
       holder.removeFromParent();
-      // Phase 21.5: the clone's nodes leave for good — their render objects (the resource's materials and
+      // The clone's nodes leave for good — their render objects (the resource's materials and
       // geometry outlive them) and the clone's own skeletons go with them.
       disposeObjectTree(glbRoot, { ownedSkeletons: true });
       disposeObjectTree(holder);
@@ -747,7 +746,7 @@ function createPreviewController(
   return controller;
 }
 
-/** Phase 14.6: the bones of a loaded hierarchy (or its named nodes when it has no bones), parents first. */
+/** The bones of a loaded hierarchy (or its named nodes when it has no bones), parents first. */
 export function skeletonOf(root: THREE.Object3D): { name: string; parent: string | null; depth: number }[] {
   let bones = false;
   root.traverse((o) => {
@@ -837,7 +836,7 @@ function createResource(descriptor: AssetVersionDescriptor, loaded: LoadedGlb, l
     collider2D(piece: string | null) {
       return pieceCollider2D(loaded.root, piece);
     },
-    // Phase 23.1: a 3D mesh or convex-hull collider from the piece's `_COL` node(s), else its LOD0 geometry.
+    // A 3D mesh or convex-hull collider from the piece's `_COL` node(s), else its LOD0 geometry.
     collider3D(piece: string | null, kind: 'mesh' | 'convex') {
       return pieceCollider3D(loaded.root, piece, kind);
     },
@@ -1121,7 +1120,7 @@ export function createVisualResourceStore(): VisualResourceStore {
   /** Every resource this store created that may still hold something (live, or retired with live instances). */
   let created: PreparedVisualResource[] = [];
   /**
-   * Phase 21.5: the final counters of resources that are retired and fully
+   * The final counters of resources that are retired and fully
    * released — folded into one total and dropped, so a retired resource (its
    * parsed model, geometry arrays and images) is not kept reachable for the
    * store's lifetime only to be counted; the aggregate stays the same.

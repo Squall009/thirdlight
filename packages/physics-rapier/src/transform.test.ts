@@ -1,5 +1,5 @@
 /**
- * Packet 31 — physics-transform validation (project-model §21.2).
+ * Physics-transform validation (project-model's physics-transform rules).
  *
  * An unsupported authored transform is a validation error, never silently
  * flattened: parented, non-unit scale, off-Z rotation and a tilted controller

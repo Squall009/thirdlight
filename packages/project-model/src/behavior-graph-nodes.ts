@@ -1,5 +1,5 @@
 /**
- * Phase 19.1: the visual-script node catalogue (data).
+ * The visual-script node catalogue (data).
  *
  * Three graph kinds share it:
  *
@@ -49,7 +49,7 @@ export const BEHAVIOR_GRAPH_LIMITS = {
   listItems: 1024,
   /** Entries in one map value (more is a script error naming the node). */
   mapEntries: 256,
-  /** Cases of one Switch node (phase 19.2: one exec output per listed case, up to this many). */
+  /** Cases of one Switch node (one exec output per listed case, up to this many). */
   switchCases: 32,
 } as const;
 
@@ -66,7 +66,7 @@ const SCALAR_TYPES: readonly BehaviorDataType[] = ['number', 'boolean', 'string'
  */
 export const BEHAVIOR_VARIABLE_KINDS = ['number', 'boolean', 'string', 'vector', 'entity', 'enum', 'list', 'map'] as const;
 export type BehaviorVariableKind = (typeof BEHAVIOR_VARIABLE_KINDS)[number];
-/** Phase 19.0 name, kept: the value types of the first variable kinds. */
+/** The value types of the first variable kinds (the name is part of the public surface). */
 export const BEHAVIOR_VALUE_TYPES = BEHAVIOR_VARIABLE_KINDS;
 export type BehaviorValueType = BehaviorVariableKind;
 
@@ -211,7 +211,7 @@ const EVENT_NODES: readonly GraphNodeDef[] = [
     titleField: 'message',
     fields: [textField('message', 'Message'), typeField('type', 'Value type', ['number', 'boolean', 'string'], 'number'), PHASE_FIELD],
   },
-  // Phase 25.11: the callback events (the script's onEnable … onUiEvent; always in the intent phase, before On step).
+  // The callback events (the script's onEnable … onUiEvent; always in the intent phase, before On step).
   { type: 'event.enable', label: 'On enable', category: 'Events', description: "Runs when this object comes into the game switched on (a run's first step, its scene loading, a spawned copy) and each time it is switched on again — before the step's other events.", inputs: [], outputs: [THEN] },
   { type: 'event.disable', label: 'On disable', category: 'Events', description: 'Runs when this object is switched off (itself or an object above it) or leaves the game.', inputs: [], outputs: [THEN] },
   { type: 'event.destroy', label: 'On destroy', category: 'Events', description: 'Runs when this object has left the game (destroyed, or its scene unloaded), after On disable. The object is already gone; a restart does not run it.', inputs: [], outputs: [THEN] },
@@ -235,7 +235,7 @@ const EVENT_NODES: readonly GraphNodeDef[] = [
   },
 ];
 
-/** Phase 25.11: event nodes that are behavior callbacks (the compiler emits them as the spec's methods), by callback. */
+/** Event nodes that are behavior callbacks (the compiler emits them as the spec's methods), by callback. */
 export const CALLBACK_EVENT_NODES: Readonly<Record<string, 'onEnable' | 'onDisable' | 'onDestroy' | 'onContact' | 'onUiEvent'>> = {
   'event.enable': 'onEnable',
   'event.disable': 'onDisable',
@@ -302,7 +302,7 @@ const FLOW_NODES: readonly GraphNodeDef[] = [
     category: 'Flow',
     description: `Continues on the first case equal to the value (text, or a whole number), else on "default". The cases are a comma-separated list — one output per case (at most ${BEHAVIOR_GRAPH_LIMITS.switchCases}); empty cases never match.`,
     inputs: [EXEC_IN, { id: 'value', label: 'value', type: 'string', typeFrom: { field: 'on', map: { text: 'string', int: 'number' } } }],
-    // Phase 19.2: one exec output per listed case (ids case1, case2, …: a case keeps its wire while others are added after it).
+    // One exec output per listed case (ids case1, case2, …: a case keeps its wire while others are added after it).
     outputs: [{ ...execOut('case', 'case'), repeat: { field: 'cases', max: BEHAVIOR_GRAPH_LIMITS.switchCases } }, execOut('default', 'default')],
     // "1, 2, 3": three cases, a neutral start that reads the same comparing text or whole numbers.
     fields: [typeField('on', 'Compare', ['text', 'int'], 'text'), { key: 'cases', label: 'Cases (comma separated)', type: 'string', default: '1, 2, 3', maxLength: 1024 }, { key: 'value', label: 'value', type: 'string', default: '', maxLength: 256 }],
@@ -591,7 +591,7 @@ export { BEHAVIOR_API_NODES };
 // ---- the kinds ----------------------------------------------------------------------------
 
 const PORT_TYPES: GraphKindDef['portTypes'] = [
-  // Phase 19.2: exec wires are control flow (drawn thicker, with arrows).
+  // Exec wires are control flow (drawn thicker, with arrows).
   { id: 'exec', label: 'exec', color: '#f4f4f4', flow: true },
   { id: 'number', label: 'number', color: '#7fb3ff' },
   { id: 'boolean', label: 'boolean', color: '#e67e9b' },

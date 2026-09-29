@@ -1,6 +1,6 @@
 /**
- * Phase 23.16: the "Dialogue: <name>" centre tab — one conversation's node
- * graph (graph kind `dialogue` on the phase 16 framework) and a previewer.
+ * The "Dialogue: <name>" centre tab — one conversation's node
+ * graph (graph kind `dialogue` on the graph framework) and a previewer.
  *
  * - The graph: every gesture is one `graphEdit` on owner kind `dialogue`
  *   (owner id = the dialogueId); the selected node shows in the right dock's

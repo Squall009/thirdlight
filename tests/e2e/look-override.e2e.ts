@@ -1,5 +1,5 @@
 /**
- * Phase 24.4h: a per-object look override set from a script (`ctx.look`),
+ * A per-object look override set from a script (`ctx.look`),
  * rendered on both renderers, against a real backend on the starter template
  * (a scene without any game session).
  *

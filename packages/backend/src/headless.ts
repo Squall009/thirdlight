@@ -1,5 +1,5 @@
 /**
- * Phase 11: Play without the owner's browser.
+ * Play without the owner's browser.
  *
  * When MCP asks for a play (or a screenshot of one) and no editor browser is
  * connected to the project, the backend opens the editor itself in a headless
@@ -63,7 +63,7 @@ interface Opened {
 
 const CONNECT_TIMEOUT_MS = 30_000;
 const SWIFTSHADER_ARGS = ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'];
-/** 2026-09-27: hardware WebGL 2 (ANGLE on the Vulkan driver) and WebGPU on the host's GPU. */
+/** Hardware WebGL 2 (ANGLE on the Vulkan driver) and WebGPU on the host's GPU. */
 const GPU_ARGS = ['--use-angle=vulkan', '--enable-features=Vulkan', '--enable-unsafe-webgpu'];
 
 /**

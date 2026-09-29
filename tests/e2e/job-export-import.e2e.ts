@@ -1,5 +1,5 @@
 /**
- * Phase 25.22: importing an asset tool's job export (a folder or a zip with
+ * Importing an asset tool's job export (a folder or a zip with
  * a GLB and manifest.json) against the real backend and the real MCP stdio
  * adapter, on a project in a game folder. The export is generated here: a
  * GLB fixture, a stand-in preview file and a manifest with their SHA-256

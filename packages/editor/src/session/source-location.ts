@@ -1,5 +1,5 @@
 /**
- * Phase 25.9: script error and log locations in the editor.
+ * Script error and log locations in the editor.
  *
  * A Play's diagnostics carry each script error and `ctx.log` with where it
  * happened: `at` (a position in the compiled module the game ran) and, after

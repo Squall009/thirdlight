@@ -1,11 +1,9 @@
 /**
- * The packet-20 (M2) scene/content/project rules on the live v3 model
- * (phase 9.3 port of `m2-model.test.ts`, archived under
- * archive/removed-v1-v2/project-model/).
+ * The v2 scene/content/project rules on the live v3 model.
  *
  * The committed fixtures under fixtures/m2/model/ are schemaVersion 2
- * documents. The v2 scene model is gone, but every rule they pin is kept in
- * the v3 validators, so each document is upgraded IN MEMORY by exactly two
+ * documents. Every rule they pin is kept in the v3 validators, so each
+ * document is upgraded IN MEMORY by exactly two
  * edits — scene `schemaVersion` 2 → 3 and content `game: null` — and then
  * run through `validateSceneV3`/`parseSceneV3`/`validateContentV3`/
  * `validateProjectV3`. That pins:
@@ -15,9 +13,6 @@
  *     bytes retained unchanged (non-destructive failure);
  *   - the captured content view, settings resolution, canonical number rules
  *     and the behavior source record rules.
- *
- * Not ported (removed behaviour): the v1 → v2 scene migration
- * (`migrateSceneV1ToV2`/`migrateScene`) and the M1 entry-point pinning.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -271,26 +266,26 @@ describe('gameplay settings resolution (§21.5)', () => {
       'max_fall_speed',
       'max_slope_climb_deg',
       'min_slope_slide_deg',
-      // Phase 15.3: optional engine settings (resolved only when set).
+      // Optional engine settings (resolved only when set).
       'fixed_step_hz',
       'audio_voices',
       'music_fade_s',
       'animation_crossfade_s',
-      // Phase 17.1: the renderer backend (0 legacy WebGL, 1 auto, 2 WebGPU, 3 WebGL 2).
+      // The renderer backend (0 legacy WebGL, 1 auto, 2 WebGPU, 3 WebGL 2).
       'render_backend',
-      // Phase 23.0: the simulation's dimension (2 the 2D plane, 3 3D).
+      // The simulation's dimension (2 the 2D plane, 3 3D).
       'physics_dimension',
-      // Phase 22.0: where the simulation runs (1 a worker, 2 the main thread).
+      // Where the simulation runs (1 a worker, 2 the main thread).
       'sim_thread',
-      // Phase 23.8: the debug console in an export (0 off, 1 on; absent: off).
+      // The debug console in an export (0 off, 1 on; absent: off).
       'debug_console',
-      // Phase 23.7: the seed of the scripts' ctx.random (absent: 0).
+      // The seed of the scripts' ctx.random (absent: 0).
       'random_seed',
-      // Phase 23.4: the depth buffer (1 standard, 2 logarithmic, 3 reversed Z).
+      // The depth buffer (1 standard, 2 logarithmic, 3 reversed Z).
       'depth_buffer',
-      // Phase 25.7d: instance-set chunk size (m; absent: 32).
+      // Instance-set chunk size (m; absent: 32).
       'instance_chunk_m',
-      // Phase 23.13: how audio sources are heard (0 automatic, 1 by X distance, 2 panned).
+      // How audio sources are heard (0 automatic, 1 by X distance, 2 panned).
       'audio_spatial',
     ]);
     // an unset engine setting stays out of the resolved block (its digest is unchanged); a set one follows the six
@@ -304,7 +299,7 @@ describe('gameplay settings resolution (§21.5)', () => {
     expect(dim.ok && dim.normalized).toMatchObject({ physics_dimension: 3 });
     const backend = resolveGameplaySettings({ settings: { render_backend: 3 } });
     expect(backend.ok && backend.normalized.render_backend).toBe(3);
-    // Phase 17.4: 0 (the archived WebGL renderer) stays valid in an older project (read as auto).
+    // 0 (the archived WebGL renderer) stays valid in an older project (read as auto).
     const legacy = resolveGameplaySettings({ settings: { render_backend: 0 } });
     expect(legacy.ok && legacy.normalized.render_backend).toBe(0);
     for (const bad of [{ fixed_step_hz: 90 }, { audio_voices: 2.5 }, { audio_voices: 33 }, { music_fade_s: -1 }, { render_backend: 4 }, { render_backend: 1.5 }, { sim_thread: 0 }, { sim_thread: 3 }, { physics_dimension: 1 }, { physics_dimension: 2.5 }, { random_seed: -1 }, { random_seed: 1.5 }, { random_seed: 4294967296 }, { debug_console: 2 }, { debug_console: 0.5 }]) {

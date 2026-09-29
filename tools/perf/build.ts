@@ -1,5 +1,5 @@
 /**
- * Phase 21.0: build a generated benchmark plan into a project through the
+ * Build a generated benchmark plan into a project through the
  * real HTTP API — the command endpoint (the one mutation path) and the
  * content routes (stages, the model import, behavior publishing, instance
  * buffers) — exactly as the editor or MCP would.
@@ -79,7 +79,7 @@ export async function buildBenchmark(be: PerfBackend, plan: BenchPlan, projectId
     });
     await be.discardStage(projectId, stageId);
   };
-  // Phase 25.24a: the class's own texture and model files (before the materials that use them).
+  // The class's own texture and model files (before the materials that use them).
   for (const f of plan.files.textures) await publishFile(f.assetId, 'texture', f.displayName, noisePng(f.seed, f.size));
   for (const f of plan.files.models) await publishFile(f.assetId, 'model', f.displayName, sphereGlb(f.seed, f.segments, f.size));
   if (plan.files.models.length + plan.files.textures.length > 0) log(`${plan.className}: ${plan.files.models.length} model files, ${plan.files.textures.length} textures`);
@@ -124,8 +124,8 @@ export async function buildBenchmark(be: PerfBackend, plan: BenchPlan, projectId
   for (const scene of plan.scenes.slice(1)) await cmd('createScene', { sceneId: scene.sceneId, name: scene.name });
   if (plan.scenes.length > 1) await cmd('setStartScenes', { sceneIds: plan.startScenes });
 
-  // Camera, player, spawn and a camera track following the player (phase 24.7: the game plays as a scene; the
-  // track rig replaced the deleted game block's following camera).
+  // Camera, player, spawn and a camera track following the player (the game plays as a scene; a camera track
+  // rig is what follows the player).
   await cmd('setTransform', { entityId: 'cam-main', transform: { position: plan.camera.position } });
   await cmd('setComponent', { entityId: 'cam-main', component: 'camera', value: { type: 'perspective', fovY: 50, near: 0.1, far: plan.camera.far } });
   await cmd('createEntity', { kind: 'group', name: 'Start spawn', transform: { position: plan.spawn }, components: { playerSpawn: {} } });

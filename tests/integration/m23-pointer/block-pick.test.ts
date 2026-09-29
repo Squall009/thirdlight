@@ -1,5 +1,5 @@
 /**
- * Phase 23.3 × 23.5: a 3D query that hits a block layer's chunk collider
+ * A 3D query that hits a block layer's chunk collider
  * reports the layer's entity and the cell it hit (`hit.cell`, the cell just
  * inside the surface — `ctx.grid` coordinates), the same cell `ctx.grid.pick`
  * finds along the same ray; an overlap reports the layer once; a filter's

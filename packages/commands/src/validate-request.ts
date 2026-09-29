@@ -1,5 +1,5 @@
 /**
- * Strict mutation-request validation — commands.md §3/§3.1.
+ * Strict mutation-request validation.
  *
  * The input is the transport-parsed request value (`unknown`). Validation
  * is total: any malformed input yields a structured error, never a thrown
@@ -8,14 +8,14 @@
  * missing required fields fail with `field_missing`, wrong JSON types with
  * `field_type`, right type / wrong value with `field_value`.
  *
- * Code assignment (commands.md §5.4): envelope-level schema failures
+ * Code assignment: envelope-level schema failures
  * (top-level fields: `op`, `projectId`, `expectedRevision`, `requestId`,
  * `origin`, and `args` itself missing or not an object) are
  * `invalid_request`; failures inside `args` are the `field_*` codes, with
  * `path` a JSON Pointer into the request.
  *
- * Two passes, orchestrated by `applyMutation` (commands.md §6.1 step 4 —
- * "revision checking precedes argument validation"): the ENVELOPE pass
+ * Two passes, orchestrated by `applyMutation` (pipeline step 4 —
+ * revision checking precedes argument validation): the ENVELOPE pass
  * (`validateRequestEnvelope`: op/projectId/expectedRevision/requestId/
  * origin and `args`-is-an-object → `invalid_request`) runs BEFORE the
  * revision check; the per-op ARGS-SCHEMA pass (`validateOpArgs`: `field_*`)
@@ -27,7 +27,7 @@
  * Value constraints on transform/box numbers (vector length, finiteness,
  * ranges, quaternion norm, color syntax) are deliberately NOT re-implemented
  * here: they are enforced by the project-model validation of the RESULTING
- * scene (pipeline step 5, commands.md §6.1) and surface as `result-scene`
+ * scene (pipeline step 5) and surface as `result-scene`
  * details — exactly the pinned behavior of the
  * `scenarios/04-invalid-no-partial` quaternion_invalid case. The model
  * stays the single authority for document value rules.
@@ -110,20 +110,20 @@ const OPS: readonly MutationOp[] = [
   'deleteEntity',
   'undo',
   'redo',
-  // non-prefab M2 content/property ops (packet 21):
+  // non-prefab content/property ops:
   'publishAsset',
   'publishBehavior',
   'setBehaviorProperties',
   'setComponent',
   'setSettings',
   'acknowledgeBehaviorTrust',
-  // prefab M2 ops (packet 22):
+  // prefab ops:
   'createPrefab',
   'instantiatePrefab',
-  // v3 game/presentation ops (packet 45):
+  // v3 game/presentation ops:
   'applySurfacePreset',
   'updateEntity',
-  // phase 12 hierarchy + tags:
+  // hierarchy + tags:
   'moveEntities',
   'setTags',
   'setAssetOptions',
@@ -141,25 +141,25 @@ const OPS: readonly MutationOp[] = [
   'renameScene',
   'deleteScene',
   'setStartScenes',
-  // phase 16.1: graphs
+  // graphs
   'setGraph',
   'deleteGraph',
   'graphEdit',
-  // phase 20.0: visual effects
+  // Visual effects
   'setEffect',
   'deleteEffect',
   'renameEffect',
-  // phase 23.7: shared script libraries
+  // Shared script libraries
   'setScriptLibrary',
   'deleteScriptLibrary',
-  // phase 23.5: block layers
+  // Block layers
   'editBlocks',
   'setBlockType',
   'deleteBlockType',
   'setCellFields',
   'setBlockStamp',
   'deleteBlockStamp',
-  // phase 23.9a: project UI documents and themes
+  // Project UI documents and themes
   'setUiDocument',
   'deleteUiDocument',
   'setUiTheme',
@@ -169,34 +169,34 @@ const OPS: readonly MutationOp[] = [
   'setSpeaker',
   'deleteSpeaker',
   'setDialogueSettings',
-  // phase 23.10: game modes and behavior groups
+  // Game modes and behavior groups
   'setModes',
   'setBehaviorGroups',
-  // phase 24.4i: the event → cue table
+  // The event → cue table
   'setEventCues',
-  // phase 24.4j: the game shell
+  // The game shell
   'setShell',
-  // phase 23.17: timelines
+  // timelines
   'setTimeline',
   'deleteTimeline',
-  // phase 25.7c: asset and prefab deletion
+  // Asset and prefab deletion
   'deleteAsset',
   'deletePrefab',
-  // phase 25.7e: bulk creation
+  // Bulk creation
   'createEntities',
-  // phase 25.9: staged library edits (several patches, one commit)
+  // Staged library edits (several patches, one commit)
   'commitScriptLibraryStage',
 ];
 
 const ORIGIN_KINDS = ['browser', 'mcp', 'admin'] as const;
 
-/** The most entities one `moveEntities` may name (phase 12). */
+/** The most entities one `moveEntities` may name. */
 export const MOVE_ENTITIES_MAX = 64;
 
 const TRANSFORM_FIELDS = ['position', 'rotation', 'scale'] as const;
 type TransformField = (typeof TRANSFORM_FIELDS)[number];
 
-/** §3.1: the add-capable `createEntity.components` key set (closed). */
+/** The add-capable `createEntity.components` key set (closed). */
 const CREATE_COMPONENTS: readonly string[] = [
   'collider',
   'controller',
@@ -204,37 +204,37 @@ const CREATE_COMPONENTS: readonly string[] = [
   'light',
   'surface',
   'modelAnimation',
-  // Phase 12 (c): v4 scenes only.
+  // v4 scenes only.
   'instances',
-  // Phase 9.4: v4 scenes only.
+  // v4 scenes only.
   'materials',
-  // Phase 9.5: v4 scenes only.
+  // v4 scenes only.
   'fogVolume',
-  // Phase 9.7: v4 scenes only.
+  // v4 scenes only.
   'animator',
-  // Phase 9.9: v4 scenes only.
+  // v4 scenes only.
   'mover',
   'trigger',
   'switch',
   'health',
   'audioSource',
   'faceMovement',
-  // Phase 23.5: v4 scenes only.
+  // v4 scenes only.
   'blockLayer',
-  // Phase 23.6: v4 scenes only.
+  // v4 scenes only.
   'blockFootprint',
-  // Phase 23.10: v4 scenes only.
+  // v4 scenes only.
   'behaviorGroup',
-  // Phase 24.4: v4 scenes only.
+  // v4 scenes only.
   'collectible',
   'patrol',
   'hitbox',
-  // Phase 25.13: v4 scenes only.
+  // v4 scenes only.
   'climbVolume',
   'gravity',
-  // Phase 24.5: v4 scenes only (the GameObject menu's camera track is one createEntity).
+  // v4 scenes only (the GameObject menu's camera track is one createEntity).
   'virtualCamera',
-  // Phase 25.14: v4 scenes only (the GameObject menu's camera region).
+  // v4 scenes only (the GameObject menu's camera region).
   'cameraRegion',
 ];
 
@@ -251,9 +251,8 @@ const EXPECT = {
 export const TOP_FIELDS_EXPECTED = 'known fields: op, projectId, expectedRevision, requestId, origin (optional), args';
 
 /**
- * RFC 6901 escaping of one JSON Pointer reference token (commands.md §3:
- * every field error carries `path` — "a JSON Pointer into the request";
- * RFC 6901 is the JSON Pointer standard). DYNAMIC keys (unknown fields at
+ * RFC 6901 escaping of one JSON Pointer reference token (every field error
+ * carries `path`, a JSON Pointer into the request). DYNAMIC keys (unknown fields at
  * any nesting level) are interpolated into `path` ONLY through this helper:
  * `~` → `~0` FIRST, then `/` → `~1`. Static segment names (`op`, `args`,
  * `position`, …) and numeric indices never need escaping.
@@ -276,10 +275,10 @@ export type RequestValidation =
   | { ok: false; error: CommandError };
 
 /**
- * Byte length of the §6.6 canonical request form (keys sorted, no
+ * Byte length of the canonical request form (keys sorted, no
  * whitespace, `JSON.stringify` number semantics) without recursion, so a
  * deeply nested malformed request cannot exhaust the stack: the public entry
- * points are total (commands.md §3; the O1 repair contract).
+ * points are total.
  */
 export function canonicalRequestByteLength(request: unknown): number {
   let bytes = 0;
@@ -349,7 +348,7 @@ function utf8ByteLength(s: string): number {
 }
 
 /**
- * §3.1 convention: the request's canonical bytes must be ≤ 65 536
+ * The request's canonical bytes must be ≤ 65 536
  * (`limits_exceeded` `request_bytes`), checked before argument validation and
  * after the revision check. Returns the limit error, or null.
  */
@@ -378,10 +377,9 @@ export interface EnvelopeOk {
 function validateEnvelope(
   req: Record<string, unknown>,
 ): { ok: false; error: CommandError } | EnvelopeOk {
-  // Strict top-level fields first (commands.md §3: nothing silently
-  // dropped). Unknown TOP-level fields are envelope-level ⇒
-  // `invalid_request` (commands.md §5.4: "envelope-level schema failure of
-  // the request itself (… unknown fields, etc.)").
+  // Strict top-level fields first (nothing silently dropped). Unknown
+  // TOP-level fields are an envelope-level schema failure ⇒
+  // `invalid_request`.
   for (const key of Object.keys(req)) {
     if (!(TOP_FIELDS as readonly string[]).includes(key)) {
       return {
@@ -587,7 +585,7 @@ function validateTransformArgs(
     }
     // Element values (type/finiteness/ranges/quaternion norm) are checked
     // by the project-model validation of the resulting scene; the args
-    // layer guarantees only the array shape (commands.md §3.1 strictness).
+    // layer guarantees only the array shape.
     if (f === 'position') out.position = v.slice() as readonly number[];
     else if (f === 'rotation') out.rotation = v.slice() as readonly number[];
     else out.scale = v.slice() as readonly number[];
@@ -684,7 +682,7 @@ function validateCreateArgs(args: Record<string, unknown>):
     };
   }
   if (args['kind'] === 'folder') {
-    // Phase 12: a folder is organisation only.
+    // A folder is organisation only.
     for (const key of ['transform', 'components', 'surfacePreset'] as const) {
       if (args[key] !== undefined) {
         return { ok: false, error: fieldUnexpected(`/args/${key}`, key, 'kind, parentId, name', 'a folder has no transform and no components') };
@@ -718,7 +716,7 @@ function validateCreateArgs(args: Record<string, unknown>):
     }
     out.name = args['name'];
   }
-  // Phase 25.7e: the hierarchy flags and tags, as updateEntity takes them.
+  // The hierarchy flags and tags, as updateEntity takes them.
   for (const flag of ENTITY_FLAGS) {
     const v = args[flag];
     if (v === undefined) continue;
@@ -819,9 +817,9 @@ function validateCreateArgs(args: Record<string, unknown>):
       error: fieldUnexpected('/args/model', 'model', KNOWN, 'model is permitted only when kind is "model"'),
     };
   }
-  // §3.1/authoring §A3.1: the add-capable components, created in the same
-  // transaction. Unknown keys are `component_unknown`; the per-component
-  // VALUES are validated by the op (project-model §23.3).
+  // The add-capable components, created in the same transaction. Unknown
+  // keys are `component_unknown`; the per-component VALUES are validated by
+  // the op.
   if (args['components'] !== undefined) {
     const components = args['components'];
     if (!isPlainObject(components)) {
@@ -841,7 +839,7 @@ function validateCreateArgs(args: Record<string, unknown>):
     }
     for (const key of keys) {
       if (!CREATE_COMPONENTS.includes(key)) {
-        // Phase 25.6: a component setComponent takes is not unknown — say how to add it.
+        // A component setComponent takes is not unknown — say how to add it.
         const settable = isSetComponentName(key);
         const made = key === 'box' || key === 'model';
         return {
@@ -941,7 +939,7 @@ function validateSetAssetOptionsArgs(args: Record<string, unknown>):
   if (args['assetId'] === undefined) return { ok: false, error: fieldMissing('/args/assetId', 'assetId') };
   if (typeof args['assetId'] !== 'string') return { ok: false, error: fieldType('/args/assetId', args['assetId'], 'string (asset ID)') };
   if (args['vertexColors'] === undefined && args['materials'] === undefined && args['clipsFor'] === undefined) return { ok: false, error: fieldMissing('/args/vertexColors', 'vertexColors, materials or clipsFor') };
-  // Phase 14.6: the rig an animation-only file's clips are for (null clears it).
+  // The rig an animation-only file's clips are for (null clears it).
   const clipsFor = args['clipsFor'];
   if (clipsFor !== undefined && clipsFor !== null && typeof clipsFor !== 'string') {
     return { ok: false, error: fieldType('/args/clipsFor', clipsFor, 'string (the model assetId whose rig the clips are for) or null') };
@@ -1082,7 +1080,7 @@ function validateUpdateEntityArgs(args: Record<string, unknown>):
   return { ok: true, args: out };
 }
 
-/** Phase 12 (c): the scene-index ops' args. */
+/** The scene-index ops' args. */
 function validateSceneIndexArgs(op: 'createScene' | 'renameScene' | 'deleteScene' | 'setStartScenes', args: Record<string, unknown>):
   | { ok: true; args: SceneIndexArgs }
   | { ok: false; error: CommandError } {
@@ -1202,7 +1200,7 @@ function validateUndoRedoArgs(op: 'undo' | 'redo', args: Record<string, unknown>
 // ---- entry points ------------------------------------------------------------------
 
 /**
- * Envelope-only pass (commands.md §3): op/projectId/expectedRevision/
+ * Envelope-only pass: op/projectId/expectedRevision/
  * requestId/origin and `args`-is-an-object. Failures are `invalid_request`.
  * In `applyMutation` this runs BEFORE the revision check: a malformed
  * envelope is `invalid_request` even when stale, and the revision check
@@ -1291,7 +1289,7 @@ export type ValidatedOpArgs =
   | { op: 'deletePrefab'; args: { prefabId: string } }
   | { op: 'createEntities'; args: { entities: (CreateEntityArgs & { ref?: string })[] } };
 
-/** Phase 23.5: the argument shapes of the block-layer ops (null: valid). */
+/** The argument shapes of the block-layer ops (null: valid). */
 function blockArgsError(op: string, args: Record<string, unknown>): CommandError | null {
   const allowed: Record<string, string[]> = {
     editBlocks: ['entityId', 'edits'],
@@ -1365,10 +1363,10 @@ export type ArgsValidation =
   | { ok: false; error: CommandError };
 
 /**
- * Per-op `args` schema pass (commands.md §3.1): failures are the `field_*`
+ * Per-op `args` schema pass: failures are the `field_*`
  * codes. In `applyMutation` this runs AFTER the revision check and the
- * `revision_exhausted` check (commands.md §6.1 step 4: a stale request is
- * reported as stale, not validated). Total: never throws.
+ * `revision_exhausted` check (a stale request is reported as stale, not
+ * validated). Total: never throws.
  */
 export function validateOpArgs(
   op: MutationOp,
@@ -1381,7 +1379,7 @@ export function validateOpArgs(
       return { ok: true, validated: { op: 'createEntity', args: r.args } };
     }
     case 'createEntities': {
-      // Phase 25.7e: createEntities {entities: [createEntity args + ref?]} (one transaction).
+      // createEntities {entities: [createEntity args + ref?]} (one transaction).
       for (const k of Object.keys(args)) if (k !== 'entities') return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'entities') };
       const list = args['entities'];
       if (list === undefined) return { ok: false, error: fieldMissing('/args/entities', 'entities') };
@@ -1409,7 +1407,7 @@ export function validateOpArgs(
     }
     case 'deleteAsset':
     case 'deletePrefab': {
-      // Phase 25.7c: deleteAsset {assetId}; deletePrefab {prefabId}.
+      // deleteAsset {assetId}; deletePrefab {prefabId}.
       const key = op === 'deleteAsset' ? 'assetId' : 'prefabId';
       for (const k of Object.keys(args)) if (k !== key) return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, key) };
       if (args[key] === undefined) return { ok: false, error: fieldMissing(`/args/${key}`, key) };
@@ -1464,8 +1462,8 @@ export function validateOpArgs(
     case 'setModes':
     case 'setBehaviorGroups':
     case 'setEventCues': {
-      // Phase 23.10: setModes {modes: [...]}; setBehaviorGroups {groups: [...]} (whole lists; [] = none).
-      // Phase 24.4i: setEventCues {cues: [...]} (the whole table; [] = none).
+      // setModes {modes: [...]}; setBehaviorGroups {groups: [...]} (whole lists; [] = none).
+      // setEventCues {cues: [...]} (the whole table; [] = none).
       const key = op === 'setModes' ? 'modes' : op === 'setEventCues' ? 'cues' : 'groups';
       for (const k of Object.keys(args)) if (k !== key) return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, key) };
       if (args[key] === undefined) return { ok: false, error: fieldMissing(`/args/${key}`, key) };
@@ -1485,7 +1483,7 @@ export function validateOpArgs(
       return { ok: true, validated: { op, args } as ValidatedOpArgs };
     }
     case 'setShell': {
-      // Phase 24.4j: setShell {shell} (the whole shell; null = none).
+      // setShell {shell} (the whole shell; null = none).
       for (const k of Object.keys(args)) if (k !== 'shell') return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'shell') };
       if (args['shell'] === undefined) return { ok: false, error: fieldMissing('/args/shell', 'shell') };
       if (args['shell'] !== null && !isPlainObject(args['shell'])) return { ok: false, error: fieldType('/args/shell', args['shell'], 'object ({ screens?, hud?, scenes?, pause?, status? }) or null (no shell)') };
@@ -1530,7 +1528,7 @@ export function validateOpArgs(
     case 'setCellFields':
     case 'setBlockStamp':
     case 'deleteBlockStamp': {
-      // Phase 23.5: block layers (the values are the model's; here the shapes).
+      // Block layers (the values are the model's; here the shapes).
       const r = blockArgsError(op, args);
       if (r !== null) return { ok: false, error: r };
       return { ok: true, validated: { op, args } as ValidatedOpArgs };
@@ -1539,7 +1537,7 @@ export function validateOpArgs(
     case 'deleteUiDocument':
     case 'setUiTheme':
     case 'deleteUiTheme': {
-      // Phase 23.9a: setUiDocument {document}; deleteUiDocument {uiDocumentId}; setUiTheme {theme}; deleteUiTheme {uiThemeId}.
+      // setUiDocument {document}; deleteUiDocument {uiDocumentId}; setUiTheme {theme}; deleteUiTheme {uiThemeId}.
       const key = op === 'setUiDocument' ? 'document' : op === 'deleteUiDocument' ? 'uiDocumentId' : op === 'setUiTheme' ? 'theme' : 'uiThemeId';
       for (const k of Object.keys(args)) if (k !== key) return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, key) };
       if (args[key] === undefined) return { ok: false, error: fieldMissing(`/args/${key}`, key) };
@@ -1554,7 +1552,7 @@ export function validateOpArgs(
     case 'setSpeaker':
     case 'deleteSpeaker':
     case 'setDialogueSettings': {
-      // Phase 23.16: setDialogue {dialogue}; deleteDialogue {dialogueId}; setSpeaker {speaker}; deleteSpeaker {speakerId}; setDialogueSettings {settings | null}.
+      // setDialogue {dialogue}; deleteDialogue {dialogueId}; setSpeaker {speaker}; deleteSpeaker {speakerId}; setDialogueSettings {settings | null}.
       const key = op === 'setDialogue' ? 'dialogue' : op === 'deleteDialogue' ? 'dialogueId' : op === 'setSpeaker' ? 'speaker' : op === 'deleteSpeaker' ? 'speakerId' : 'settings';
       for (const k of Object.keys(args)) if (k !== key) return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, key) };
       if (args[key] === undefined) return { ok: false, error: fieldMissing(`/args/${key}`, key) };
@@ -1567,7 +1565,7 @@ export function validateOpArgs(
     }
     case 'setTimeline':
     case 'deleteTimeline': {
-      // Phase 23.17: setTimeline {timeline}; deleteTimeline {timelineId}.
+      // setTimeline {timeline}; deleteTimeline {timelineId}.
       const key = op === 'setTimeline' ? 'timeline' : 'timelineId';
       for (const k of Object.keys(args)) if (k !== key) return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, key) };
       if (args[key] === undefined) return { ok: false, error: fieldMissing(`/args/${key}`, key) };
@@ -1578,7 +1576,7 @@ export function validateOpArgs(
     }
     case 'setScriptLibrary':
     case 'deleteScriptLibrary': {
-      // Phase 23.7: setScriptLibrary {libraryId, name?, files?: [{path, text: string|null}]}; deleteScriptLibrary {libraryId}.
+      // setScriptLibrary {libraryId, name?, files?: [{path, text: string|null}]}; deleteScriptLibrary {libraryId}.
       const keys = op === 'setScriptLibrary' ? ['libraryId', 'name', 'files'] : ['libraryId'];
       for (const k of Object.keys(args)) if (!keys.includes(k)) return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, keys.join(', ')) };
       if (args['libraryId'] === undefined) return { ok: false, error: fieldMissing('/args/libraryId', 'libraryId') };
@@ -1600,7 +1598,7 @@ export function validateOpArgs(
       return { ok: true, validated: { op, args } as ValidatedOpArgs };
     }
     case 'commitScriptLibraryStage': {
-      // Phase 25.9: commitScriptLibraryStage {stageId} (the staged libraries are host facts, never args).
+      // commitScriptLibraryStage {stageId} (the staged libraries are host facts, never args).
       for (const k of Object.keys(args)) if (k !== 'stageId') return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'stageId') };
       if (args['stageId'] === undefined) return { ok: false, error: fieldMissing('/args/stageId', 'stageId') };
       if (typeof args['stageId'] !== 'string' || !/^lstage-[0-9]{1,12}$/.test(args['stageId'])) return { ok: false, error: fieldType('/args/stageId', args['stageId'], 'string (a stage id from the library stage route: lstage-<n>)') };
@@ -1712,7 +1710,7 @@ export function validateOpArgs(
 }
 
 /**
- * Validate a raw mutation request (commands.md §3/§3.1) in full: envelope
+ * Validate a raw mutation request in full: envelope
  * pass, then per-op `args` pass. Envelope-level failures are
  * `invalid_request`; `args`-level failures are `field_*`. The pipeline
  * order (the revision check between the two passes) is owned by
@@ -1728,7 +1726,7 @@ export function validateMutationRequest(req: unknown): RequestValidation {
 }
 
 /**
- * Echo helpers for the §5.2 failure payload: `op` (first 32 chars if the
+ * Echo helpers for the failure payload: `op` (first 32 chars if the
  * raw value is longer), `projectId`, `requestId` (first 64 chars if longer;
  * omitted when not a string) — each present only when parseable.
  */

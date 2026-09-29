@@ -1,15 +1,15 @@
 /**
- * Export bundle import-graph check (export.md §4 step 4 / delivery.md §3),
+ * Export bundle import-graph check,
  * verified over the esbuild `--metafile` output.
  *
  * Allowed: the export bootstrap file (packages/exporter/src/export-bootstrap-m3.ts
  * only), the shared production composition `game-host` and the generic engine
- * packages — `runtime`, `three-adapter` (with its phase-20.2 `effects`),
+ * packages — `runtime`, `three-adapter` (with its `effects`),
  * `project-model`, `input`, `physics-rapier` — plus `three`, the pinned
- * `@dimforge/rapier2d-compat` (phase 23.0: and `@dimforge/rapier3d-compat`,
- * the 3D backend's `js/physics-3d.js` of a 3D project), and the per-snapshot
+ * `@dimforge/rapier2d-compat` (and `@dimforge/rapier3d-compat`, the 3D
+ * backend's `js/physics-3d.js` of a 3D project), and the per-snapshot
  * virtual modules the export build generates in memory
- * (`thirdlight:export-artifacts`, `thirdlight:export-modules`). Phase 24.3: a
+ * (`thirdlight:export-artifacts`, `thirdlight:export-modules`). A
  * module package outside that set (the character controller ones) is allowed only when
  * the manifest names one of its modules.
  *
@@ -22,7 +22,7 @@ import { ENGINE_MODULES } from '@thirdlight/project-model';
 
 export interface GraphReport {
   ok: boolean;
-  /** The forbidden module names (≤ 8 reported, export.md §4.1). */
+  /** The forbidden module names (≤ 8 reported). */
   forbidden: string[];
 }
 
@@ -45,7 +45,7 @@ function toRepoRel(p: string): string {
 /** The generic engine packages every export may link. */
 const ENGINE_PACKAGES = ['runtime', 'three-adapter', 'effects', 'project-model', 'input', 'physics-rapier', 'game-host'];
 
-/** Phase 24.3: the packages of the modules a manifest names (`@thirdlight/<name>` → `<name>`). */
+/** The packages of the modules a manifest names (`@thirdlight/<name>` → `<name>`). */
 export function modulePackagesOf(moduleIds: readonly string[]): string[] {
   const out = new Set<string>();
   for (const m of ENGINE_MODULES) if (moduleIds.includes(m.id) && m.package.startsWith('@thirdlight/')) out.add(m.package.slice('@thirdlight/'.length));
@@ -55,7 +55,7 @@ export function modulePackagesOf(moduleIds: readonly string[]): string[] {
 function allowed(p: string, packages: readonly string[]): boolean {
   if (packages.some((name) => p.includes(`packages/${name}/src/`))) return true;
   if (p.includes('node_modules/three/')) return true;
-  // The approved physics pins (dependencies.md §7; decision 0005 for 3D): the compat builds and their inlined WASM modules.
+  // The approved physics pins (decision 0005 for 3D): the compat builds and their inlined WASM modules.
   return p.includes('node_modules/@dimforge/rapier2d-compat/') || p.includes('node_modules/@dimforge/rapier3d-compat/');
 }
 

@@ -1,19 +1,18 @@
 /**
- * `applyMutation` — the pure core of the mutation pipeline
- * (commands.md §6.1 steps 4–6).
+ * `applyMutation` — the pure core of the mutation pipeline (steps 4–6).
  *
- * The workspace service (packet 07) runs the FULL pipeline: project
+ * The workspace service runs the FULL pipeline: project
  * resolution (1), deduplication (2), pause check (3), then THIS function
  * (4 revision check → 5 validation + pure application → 6 no-change
  * check), then durability write (7), publish (8), and acknowledge (9).
  * This function owns nothing durable: it takes the current in-memory
  * state + the raw request value and returns either the success payload
- * (§5.1) with the NEW state, or the failure payload (§5.2) with the input
+ *  with the NEW state, or the failure payload with the input
  * state left untouched. No filesystem, transport, digests, or records.
  *
- * Packet 21 adds the non-prefab M2 content/property ops (§8.5–§8.12); they run
- * the SAME pipeline and the same history engine — only the state they mutate
- * (the envelope's `content` block as well as the scene) differs.
+ * The content/property ops run the SAME pipeline and the same history
+ * engine — only the state they mutate (the envelope's `content` block as
+ * well as the scene) differs.
  */
 
 import type { Manifest } from '@thirdlight/project-model';
@@ -83,11 +82,10 @@ import {
 } from './validate-request';
 
 /**
- * Fresh per-project command state (empty history, §9.2: a restart starts
+ * Fresh per-project command state (empty history: a restart starts
  * here) over a v3 or v4 scene and its content block (an omitted block is
  * treated as the empty v3 catalog). `manifest` is supplied when the caller
- * has one so v3 results get the three-block `validateProjectV3` validation
- * (project-model §13.2).
+ * has one so v3 results get the three-block `validateProjectV3` validation.
  */
 export function createCommandState<S extends SceneDocument>(
   scene: S,
@@ -100,7 +98,7 @@ export function createCommandState<S extends SceneDocument>(
   return state;
 }
 
-/** §5.2 failure payload with the parseable echo fields, canonical key order. */
+/** The failure payload with the parseable echo fields, canonical key order. */
 function failure(raw: unknown, error: CommandError): MutationFailure {
   const out = { ok: false } as MutationFailure;
   const req =
@@ -109,7 +107,7 @@ function failure(raw: unknown, error: CommandError): MutationFailure {
       : {};
   const op = echoField(req['op'], 32);
   if (op.present) out.op = op.value;
-  // projectId is echoed when parseable (no truncation pinned, §5.2).
+  // projectId is echoed when parseable (no truncation pinned).
   if (typeof req['projectId'] === 'string') out.projectId = req['projectId'];
   const rid = echoField(req['requestId'], 64);
   if (rid.present) out.requestId = rid.value;
@@ -118,7 +116,7 @@ function failure(raw: unknown, error: CommandError): MutationFailure {
 }
 
 /**
- * Build the §5.1 success payload in canonical key order:
+ * Build the success payload in canonical key order:
  * `ok, op, projectId, requestId, revision, duplicated, createdId? (create
  * only), change, appliedOf?/originOfApplied? (undo/redo only), history`.
  */
@@ -190,17 +188,17 @@ function completeForward<S extends SceneDocument>(
 /**
  * Execute one mutation request against the current per-project state.
  *
- * Pipeline (commands.md §6.1, the pure steps):
- * - envelope validation (§3 — `invalid_request`; op/projectId/
+ * Pipeline (the pure steps):
+ * - envelope validation (`invalid_request`; op/projectId/
  *   expectedRevision/requestId/origin and `args`-is-an-object). Runs
  *   FIRST: a malformed envelope is `invalid_request` even when stale;
- * - revision check BEFORE argument validation (§6.1 step 4: a stale
- *   request is reported as stale, not validated) ⇒ `revision_conflict`;
+ * - revision check BEFORE argument validation (a stale request is
+ *   reported as stale, not validated) ⇒ `revision_conflict`;
  * - `revision_exhausted` when the current revision is 2^53−1 (state-level,
  *   so it also precedes argument validation);
  * - the canonical request byte bound (`limits_exceeded` `request_bytes`,
- *   §3.1: before argument validation);
- * - per-op `args` schema validation (§3.1 — `field_*`);
+ *   before argument validation);
+ * - per-op `args` schema validation (`field_*`);
  * - per-op preconditions and pure application on an in-memory copy, with
  *   project-model re-validation of the resulting state (step 5);
  * - the uniform `no_change` check (step 6).
@@ -213,7 +211,7 @@ export function applyMutation<S extends SceneDocument>(
   state: CommandState<S>,
   request: unknown,
 ): ApplyOutcome<S> {
-  // Envelope pass (commands.md §3): op/projectId/expectedRevision/
+  // Envelope pass: op/projectId/expectedRevision/
   // requestId/origin and `args`-is-an-object → `invalid_request`. Runs
   // FIRST — a malformed envelope is `invalid_request` even when stale, and
   // the revision check needs a parseable `expectedRevision`.
@@ -222,15 +220,15 @@ export function applyMutation<S extends SceneDocument>(
   const envelope = env.envelope;
   const { scene } = state;
 
-  // Step 4: revision check — precedes argument validation (commands.md
-  // §6.1 step 4: a stale request is reported as stale, not validated).
+  // Step 4: revision check — precedes argument validation (a stale
+  // request is reported as stale, not validated).
   if (envelope.expectedRevision !== scene.revision) {
     return {
       ok: false,
       result: failure(request, revisionConflict(envelope.expectedRevision, scene.revision)),
     };
   }
-  // Revision exhaustion (commands.md §5.4): the matching revision is the
+  // Revision exhaustion: the matching revision is the
   // maximum — +1 would overflow the safe-integer bound. A state-level
   // condition, so it precedes argument validation as well.
   if (scene.revision >= MAX_REVISION) {
@@ -240,12 +238,12 @@ export function applyMutation<S extends SceneDocument>(
     };
   }
 
-  // §3.1 request-byte bound: canonical request bytes ≤ 65 536, checked
+  // Request-byte bound: canonical request bytes ≤ 65 536, checked
   // before argument validation (pipeline step 5's first clause).
   const tooBig = checkRequestBytes(request);
   if (tooBig !== null) return { ok: false, result: failure(request, tooBig) };
 
-  // Step 5, args schema (commands.md §3.1): per-op `field_*` validation —
+  // Step 5, args schema: per-op `field_*` validation —
   // AFTER the revision check, before op application.
   const va = validateOpArgs(envelope.op, env.args);
   if (!va.ok) return { ok: false, result: failure(request, va.error) };
@@ -268,14 +266,14 @@ export function applyMutation<S extends SceneDocument>(
 
   switch (va.validated.op) {
     case 'createEntities': {
-      // Phase 25.7e: several creates, one transaction (one revision, one undo).
+      // Several creates, one transaction (one revision, one undo).
       const r = applyCreateEntities(scene, va.validated.args, state.content, state.reservedIds);
       if (!r.ok) return { ok: false, result: failure(request, r.error) };
       return completeForward(state, 'createEntities', envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
     }
     case 'deleteAsset':
     case 'deletePrefab': {
-      // Phase 25.7c: remove a catalog record (refused while anything references it).
+      // Remove a catalog record (refused while anything references it).
       const r = va.validated.op === 'deleteAsset' ? applyDeleteAsset(input, va.validated.args) : applyDeletePrefab(input, va.validated.args);
       if (!r.ok) return { ok: false, result: failure(request, r.error) };
       return completeForward(state, va.validated.op, envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
@@ -351,7 +349,7 @@ export function applyMutation<S extends SceneDocument>(
       return completeForward(state, 'setInput', envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
     }
     case 'setModes': {
-      // Phase 23.10: the game modes (the whole list).
+      // The game modes (the whole list).
       const r = applySetModes(input, va.validated.args as { modes: import('@thirdlight/project-model').GameMode[] });
       if (!r.ok) return { ok: false, result: failure(request, r.error) };
       return completeForward(state, 'setModes', envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
@@ -362,13 +360,13 @@ export function applyMutation<S extends SceneDocument>(
       return completeForward(state, 'setBehaviorGroups', envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
     }
     case 'setShell': {
-      // Phase 24.4j: the game shell (the whole block; null removes it).
+      // The game shell (the whole block; null removes it).
       const r = applySetShell(input, va.validated.args as { shell: import('@thirdlight/project-model').GameShell | null });
       if (!r.ok) return { ok: false, result: failure(request, r.error) };
       return completeForward(state, 'setShell', envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
     }
     case 'setEventCues': {
-      // Phase 24.4i: the event → cue table (the whole list).
+      // The event → cue table (the whole list).
       const r = applySetEventCues(input, va.validated.args as { cues: import('@thirdlight/project-model').EventCue[] });
       if (!r.ok) return { ok: false, result: failure(request, r.error) };
       return completeForward(state, 'setEventCues', envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
@@ -420,7 +418,7 @@ export function applyMutation<S extends SceneDocument>(
     case 'deleteUiDocument':
     case 'setUiTheme':
     case 'deleteUiTheme': {
-      // Phase 23.9a: project UI documents and themes.
+      // Project UI documents and themes.
       const a = va.validated.args as Record<string, unknown>;
       const op = va.validated.op;
       const r =
@@ -437,7 +435,7 @@ export function applyMutation<S extends SceneDocument>(
     case 'setSpeaker':
     case 'deleteSpeaker':
     case 'setDialogueSettings': {
-      // Phase 23.16: conversations, the speaker registry, the dialogue settings.
+      // Conversations, the speaker registry, the dialogue settings.
       const a = va.validated.args as Record<string, unknown>;
       const op = va.validated.op;
       const r =
@@ -453,7 +451,7 @@ export function applyMutation<S extends SceneDocument>(
     }
     case 'setTimeline':
     case 'deleteTimeline': {
-      // Phase 23.17: timelines (one whole timeline per command; one undo each).
+      // Timelines (one whole timeline per command; one undo each).
       const a = va.validated.args as Record<string, unknown>;
       const op = va.validated.op;
       const r = op === 'setTimeline' ? applySetTimeline(input, a as { timeline: import('@thirdlight/project-model').TimelineAsset }) : applyDeleteTimeline(input, String(a['timelineId']));
@@ -462,7 +460,7 @@ export function applyMutation<S extends SceneDocument>(
     }
     case 'setScriptLibrary':
     case 'deleteScriptLibrary': {
-      // Phase 23.7: shared script libraries (a change republishes the dependents from prepared facts).
+      // Shared script libraries (a change republishes the dependents from prepared facts).
       const a = va.validated.args as Record<string, unknown>;
       const r =
         va.validated.op === 'setScriptLibrary'
@@ -472,7 +470,7 @@ export function applyMutation<S extends SceneDocument>(
       return completeForward(state, va.validated.op, envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
     }
     case 'commitScriptLibraryStage': {
-      // Phase 25.9: a staged set of library edits, one change (the dependents from facts prepared once).
+      // A staged set of library edits, one change (the dependents from facts prepared once).
       const r = applyCommitScriptLibraryStage(input, va.validated.args as { stageId: string });
       if (!r.ok) return { ok: false, result: failure(request, r.error) };
       return completeForward(state, va.validated.op, envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
@@ -483,7 +481,7 @@ export function applyMutation<S extends SceneDocument>(
     case 'setCellFields':
     case 'setBlockStamp':
     case 'deleteBlockStamp': {
-      // Phase 23.5: block layers (cells as one undo step per command; block types, cell fields, stamps).
+      // Block layers (cells as one undo step per command; block types, cell fields, stamps).
       const a = va.validated.args as Record<string, unknown>;
       const op = va.validated.op;
       const r =

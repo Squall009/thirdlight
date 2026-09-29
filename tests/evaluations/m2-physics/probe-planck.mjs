@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Packet 14 — bounded FUNCTIONAL comparison probe: planck@1.5.0 (Box2D-derived,
+ * Bounded FUNCTIONAL comparison probe: planck@1.5.0 (Box2D-derived,
  * no WASM) against the same static-course requirements as the Rapier probe.
  * This is a controller-work comparison, NOT a browser benchmark (m2-physics.md
  * experiment 6: unrun candidates get no fabricated benchmark column; a

@@ -1,8 +1,8 @@
 /**
- * Phase 12 (c): storage version 4 — a project is several files.
+ * Storage version 4 — a project is several files.
  *
- *   project.json            manifest schemaVersion 3 (id, name, engine, createdAt;
- *                           a 2 is upgraded on open, phase 24.8)
+ *   project.json            manifest schemaVersion 4 (id, name, engine, createdAt;
+ *                           a 2 or 3 is upgraded on open)
  *   content.json            { storageVersion: 4, type: "project-content", projectId,
  *                             revision, content (v4), retry }
  *   scenes/<sceneId>.json   { storageVersion: 4, type: "scene", projectId,
@@ -20,16 +20,15 @@
  *   crash is completed (rolled forward) before the project is read.
  * - Retry records live in the files a transaction wrote; the project's
  *   record map is the union over its files. The retry block names its record
- *   format (`recordVersion` 2 since phase 14.8: a record also stores the
- *   acked `sceneId`); a block without the key (version 1) is still read.
+ *   format (`recordVersion` 2: a record also stores the acked `sceneId`); a block without the key (version 1) is still read.
  * - External changes are detected per file (a changed, missing or new file
  *   in the index): the foreign bytes are snapshotted and writes pause.
  *
  * Validation is the model's (`validateProjectV4`); nothing here repairs data.
- * Phase 24.8: a schemaVersion 2 project is upgraded by the model's pure
+ * A schemaVersion 2 project is upgraded by the model's pure
  * `upgradeProjectDocsV24` before it is validated (the open writes the result
  * back); game data it refuses blocks the load with the model's problems.
- * Phase 25.7: a schemaVersion 3 project (and a 2 after that upgrade) goes
+ * A schemaVersion 3 project (and a 2 after that upgrade) goes
  * through `upgradeProjectDocsV25` to 4 (no document changes; written back).
  */
 
@@ -72,12 +71,12 @@ export const sceneRel = (sceneId: string): string => `scenes/${sceneId}.json`;
 
 const CONTENT_FILE_KEYS = ['storageVersion', 'type', 'projectId', 'revision', 'content', 'retry'] as const;
 const SCENE_FILE_KEYS = ['storageVersion', 'type', 'projectId', 'scene', 'retry'] as const;
-/** Phase 23.5: a scene file lists its block chunk files (only when it has some). */
+/** A scene file lists its block chunk files (only when it has some). */
 const SCENE_FILE_OPTIONAL_KEYS = ['blockChunks'] as const;
 const CHUNK_FILE_KEYS = ['storageVersion', 'type', 'projectId', 'sceneId', 'entityId', 'cx', 'cz', 'palette', 'columns'] as const;
 
 /**
- * Phase 23.5: one block-layer chunk per file,
+ * One block-layer chunk per file,
  * `scenes/<sceneId>.blocks/<entityId>.<cx>.<cz>.json`. The scene file lists
  * the chunk files it owns (`blockChunks`, the index) and carries the
  * revision and the retry records: every change to a scene's cells rewrites
@@ -115,7 +114,7 @@ function jsonBytes(doc: unknown): Uint8Array {
 }
 
 /**
- * Phase 21.4: the project-file layout — objects indented (two spaces), and
+ * The project-file layout — objects indented (two spaces), and
  * every array of objects with one element per line (an entity, a material, a
  * retry record: a diff shows one line per changed item). About a third of
  * the fully indented size, so an edit writes (and hashes) far fewer bytes.
@@ -169,7 +168,7 @@ export function sceneFileBytes(projectId: string, scene: SceneV4, records: reado
 }
 
 /**
- * Phase 23.5: a scene as its file stores it (each layer entry without its
+ * A scene as its file stores it (each layer entry without its
  * chunks; entries with regions only keep them) plus the chunk index.
  */
 function splitSceneBlocks(scene: SceneV4): { scene: SceneV4; index: { entityId: string; cx: number; cz: number }[] } {
@@ -185,7 +184,7 @@ function splitSceneBlocks(scene: SceneV4): { scene: SceneV4; index: { entityId: 
 
 const chunkBytesCache = new WeakMap<BlockChunk, { key: string; bytes: Uint8Array; hash: string }>();
 
-/** Phase 23.5: a chunk file's bytes (palette one value per line, one column per line: a diff shows the columns that changed). */
+/** A chunk file's bytes (palette one value per line, one column per line: a diff shows the columns that changed). */
 export function chunkFileBytes(projectId: string, sceneId: string, entityId: string, chunk: BlockChunk): { bytes: Uint8Array; hash: string } {
   const key = `${projectId}|${sceneId}|${entityId}`;
   const hit = chunkBytesCache.get(chunk);
@@ -207,7 +206,7 @@ export function chunkFileBytes(projectId: string, sceneId: string, entityId: str
   return out;
 }
 
-/** Phase 23.5: every chunk file of a scene (relative path → bytes, hash). */
+/** Every chunk file of a scene (relative path → bytes, hash). */
 export function sceneChunkFiles(projectId: string, scene: SceneV4): Map<string, { bytes: Uint8Array; hash: string }> {
   const out = new Map<string, { bytes: Uint8Array; hash: string }>();
   for (const b of scene.blocks ?? []) for (const c of b.chunks ?? []) out.set(chunkRel(scene.sceneId, b.entityId, c.cx, c.cz), chunkFileBytes(projectId, scene.sceneId, b.entityId, c));
@@ -227,7 +226,7 @@ export function manifestV2Bytes(manifest: ProjectManifestV2): Uint8Array {
 // ---- reading -----------------------------------------------------------------
 
 export type LoadV4Outcome =
-  /** `upgraded`: a schemaVersion 2 project read through the phase 24.8 upgrade (not yet written back; its notes). */
+  /** `upgraded`: a schemaVersion 2 project read through `upgradeProjectDocsV24` (not yet written back; its notes). */
   | { kind: 'loaded'; state: V4State; upgraded?: { notes: string[] } }
   | { kind: 'blocked'; reason: UnavailableReason; errors: readonly LoadDetail[]; count: number };
 
@@ -294,7 +293,7 @@ export function loadV4(ops: WriteOps, dir: string, projectId: string): LoadV4Out
       return blocked('manifest_scene_mismatch', [{ code: 'manifest_scene_mismatch', path: `/${rel}`, message: `${rel} holds scene "${String(scene?.sceneId)}" (the file name is the scene id)`, expected: id }]);
     }
     files.set(rel, { bytes: f.bytes, hash: sha256Hex(f.bytes) });
-    // Phase 23.5: the scene's block chunks, one file each (listed by the scene file).
+    // The scene's block chunks, one file each (listed by the scene file).
     const joined = joinChunkFiles(ops, dir, projectId, id, f.value['scene'], f.value['blockChunks'], files);
     if (!joined.ok) return blocked('envelope_invalid', [joined.error]);
     sceneDocs.push(joined.scene);
@@ -302,7 +301,7 @@ export function loadV4(ops: WriteOps, dir: string, projectId: string): LoadV4Out
     sceneRetry.push({ rel, retry: f.value['retry'], revision: r });
     if (r > revision) revision = r;
   }
-  // Phase 24.8: a schemaVersion 2 project is upgraded before it is validated.
+  // A schemaVersion 2 project is upgraded before it is validated.
   let manifestDoc: unknown = man.value;
   let contentDoc: unknown = content.value['content'];
   let docs: unknown[] = sceneDocs;
@@ -318,7 +317,7 @@ export function loadV4(ops: WriteOps, dir: string, projectId: string): LoadV4Out
     docs = u.scenes;
     upgraded = { notes: [`the project was upgraded from project schemaVersion ${PROJECT_SCHEMA_VERSION_UPGRADED} to ${PROJECT_SCHEMA_VERSION_V24} (phase 24: the engine has no game rules)`, ...u.notes] };
   }
-  // Phase 25.7: a schemaVersion 3 project (or a 2 just upgraded to 3) becomes 4 (no document changes: old ids are kept).
+  // A schemaVersion 3 project (or a 2 just upgraded to 3) becomes 4 (no document changes: old ids are kept).
   if (isUpgradedProjectSchemaVersion(fromVersion)) {
     const u = upgradeProjectDocsV25(contentDoc, docs);
     manifestDoc = { ...man.value, schemaVersion: PROJECT_SCHEMA_VERSION };
@@ -366,7 +365,7 @@ export function loadV4(ops: WriteOps, dir: string, projectId: string): LoadV4Out
 }
 
 /**
- * Phase 23.5: read the chunk files a scene file lists and put the chunks
+ * Read the chunk files a scene file lists and put the chunks
  * back into the scene's layer entries (the model validates the result).
  */
 function joinChunkFiles(
@@ -421,7 +420,7 @@ const V4_TEMP_IN_THIRDLIGHT = /^\.journal\.json\.tmp-/;
 const V4_TEMP_IN_CHUNKS = /^\.[a-z0-9][a-z0-9_-]{0,63}\.-?\d{1,4}\.-?\d{1,4}\.json\.tmp-/;
 
 /**
- * Leftover `W` temps of the v4 project files (workspace.md §5.4): of
+ * Leftover `W` temps of the v4 project files: of
  * `content.json` / `project.json`, of every scene file, and of the journal.
  * Relative to the project directory, sorted.
  */
@@ -430,14 +429,14 @@ export function listLeftoverTempsV4(ops: WriteOps, dir: string, sceneDir: string
   for (const n of ops.listDir(dir)) if (V4_TEMP_IN_PROJECT.test(n)) out.push(n);
   for (const n of ops.listDir(sceneDir)) {
     if (V4_TEMP_IN_SCENES.test(n)) out.push(`scenes/${n}`);
-    // Phase 23.5: temps of chunk files in a scene's `.blocks` directory.
+    // Temps of chunk files in a scene's `.blocks` directory.
     else if (/^[a-z0-9][a-z0-9_-]{0,63}\.blocks$/.test(n)) for (const m of ops.listDir(join(sceneDir, n))) if (V4_TEMP_IN_CHUNKS.test(m)) out.push(`scenes/${n}/${m}`);
   }
   for (const n of ops.listDir(thirdlightDir)) if (V4_TEMP_IN_THIRDLIGHT.test(n)) out.push(`.thirdlight/${n}`);
   return out.sort();
 }
 
-/** §5.4: the owner deletes every leftover v4 temp at open (before any command). */
+/** The owner deletes every leftover v4 temp at open (before any command). */
 export function cleanLeftoverTempsV4(ops: WriteOps, dir: string, sceneDir: string, thirdlightDir: string): number {
   let n = 0;
   for (const rel of listLeftoverTempsV4(ops, dir, sceneDir, thirdlightDir)) {
@@ -503,7 +502,7 @@ function applyWrite(ops: WriteOps, dir: string, w: FileWrite): { ok: true } | { 
   return { ok: true };
 }
 
-/** Phase 23.5: a chunk file's directory (`scenes/<sceneId>.blocks`) is made on first write. */
+/** A chunk file's directory (`scenes/<sceneId>.blocks`) is made on first write. */
 function ensureChunkDir(ops: WriteOps, dir: string, rel: string): void {
   if (!CHUNK_REL_RE.test(rel)) return;
   const d = dirname(join(dir, rel));
@@ -718,10 +717,10 @@ export const DEFAULT_SCENE_ID = 'scene-main';
  * camera and the two starter lights (the runtime renders lit materials, so a
  * scene without lights plays black; they are ordinary entities the user can
  * edit) and an empty content catalog. Built as a v3 project and converted
- * like the automatic upgrade (`projectFilesFromV3`), so it is exactly the
- * project a new project was before new projects were written as v4 directly.
+ * like the automatic upgrade (`projectFilesFromV3`), so a new project and an
+ * upgraded one take the same shape.
  *
- * Phase 15.5 reasons: the camera 0.5 m up and 4 m out at 60° frames a 1 m box
+ * Why these values: the camera 0.5 m up and 4 m out at 60° frames a 1 m box
  * resting at the origin (where the editor's first box lands) with room around
  * it; the sun is a white key from above-front at 1.2 casting shadows, the
  * ambient a cool fill at 0.6 so shadowed sides stay readable. The GameObject
@@ -782,7 +781,7 @@ export function defaultProjectFilesV4(
 // ---- migration v3 → v4 on disk -----------------------------------------------------
 
 /**
- * Upgrade a v3 project directory in place (automatic, phase 12 c): the v3
+ * Upgrade a v3 project directory in place (automatic): the v3
  * envelope is copied to `.thirdlight/migrated-v3/main.json` (git-ignored
  * process state — a safety copy), then one journaled transaction writes
  * `project.json` (v2), `content.json`, `scenes/<sceneId>.json` and removes

@@ -1,5 +1,5 @@
 /**
- * Phase 25.24e: the scene preloader — a load answers only once the render
+ * The scene preloader — a load answers only once the render
  * side prepared the scene; scenes named by the host are read ahead (at most
  * `max`) and let go when no longer named; a read-ahead scene answers a load
  * without a second read; a cancelled load's preparation is released.

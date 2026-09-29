@@ -1,5 +1,5 @@
 /**
- * Phase 20.2: TSL twins of the effect reference maths (`@thirdlight/effects`)
+ * TSL twins of the effect reference maths (`@thirdlight/effects`)
  * for the WebGPU compute executor — each function mirrors its CPU
  * counterpart operation by operation so the GPU draws the same random
  * numbers and follows the same formulas:

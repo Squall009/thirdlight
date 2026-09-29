@@ -1,5 +1,5 @@
 /**
- * Phase 23.10: the Game modes panel — the project's game modes and the
+ * The Game modes panel — the project's game modes and the
  * behavior groups they tick.
  *
  * A mode is a named state of the running game: the input maps active in it,

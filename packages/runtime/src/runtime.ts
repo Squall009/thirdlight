@@ -1,18 +1,17 @@
 /**
- * Runtime core — runtime.md §3 (lifecycle), §4 (mutable simulation state),
- * §5 (fixed steps with bounded catch-up), §6 (interpolation + frame
- * ordering), §8 (diagnostics), §12 (M2 phases, ports, transform ownership)
- * and §13 (M2 fail-stop lifecycle).
+ * Runtime core: lifecycle, mutable simulation state, fixed steps with
+ * bounded catch-up, interpolation and frame ordering, diagnostics, module
+ * phases, ports, transform ownership and the fail-stop lifecycle.
  *
  * The runtime owns the single frame driver (rAF or manual). Every public
  * call returns a result object and never throws on protocol misuse. The
- * runtime core is three-free (dependencies.md §4.1: project-model only) and
+ * runtime core is three-free (project-model only) and
  * carries no hidden globals (every instance is an explicit object).
  *
  * Two module-set modes share the same constructor:
  *
- * - **M1 mode** (no selected spec declares phases): the accepted M1
- *   semantics, byte-for-byte. A module throw is a no-op step (the `curr`
+ * - **M1 mode** (no selected spec declares phases): a module throw is a
+ *   no-op step (the `curr`
  *   copy is restored) and `failed` is unreachable.
  * - **M2 mode** (at least one selected spec declares phases): the canonical
  *   phase order `intent → controller → physics → transform`, the write
@@ -24,7 +23,7 @@ import { RuntimeMaterials, type MaterialRenderChange, type RuntimeMaterialCatalo
 import { MAX_FRAME_SAVE_EVENTS, RuntimeSaves, validateSaveEvents, type SaveEvent, type SaveRequest, type SaveSectionsPort, type WorldSave } from './project-saves';
 import type { SaveSchema } from '@thirdlight/project-model';
 
-/** Phase 23.19: one spawned copy as a save document's `spawned` section keeps it. */
+/** One spawned copy as a save document's `spawned` section keeps it. */
 interface SavedSpawnCopy {
   prefabId: string;
   ids: string[];
@@ -164,7 +163,7 @@ import {
   type BehaviorUi,
 } from './types';
 
-/** Phase 23.3: the pointer state the runtime keeps — a pointer sample plus this step's enter/leave edges. */
+/** The pointer state the runtime keeps — a pointer sample plus this step's enter/leave edges. */
 export interface HeldPointer extends PointerSample {
   readonly entered?: boolean;
   readonly left?: boolean;
@@ -172,20 +171,20 @@ export interface HeldPointer extends PointerSample {
 
 
 /**
- * Phase 23.3: at most this many 3D physics queries (rays, overlaps, picks) a
+ * At most this many 3D physics queries (rays, overlaps, picks) a
  * step, for every script together — twice the 2D plane's 32, because a 3D
  * scene's scripts pick, test line of sight and probe volumes around several
  * objects each step; beyond it a query finds nothing (warned once).
  */
 export const QUERY_LIMIT_3D = 64;
 
-/** Phase 23.3: a query's [x, y, z] (a script error when it is not three finite numbers). */
+/** A query's [x, y, z] (a script error when it is not three finite numbers). */
 function queryVec3(v: unknown, what: string): [number, number, number] {
   if (!Array.isArray(v) || v.length < 3 || !v.slice(0, 3).every((n) => typeof n === 'number' && Number.isFinite(n))) throw new Error(`${what} is [x, y, z] (finite numbers)`);
   return [v[0] as number, v[1] as number, v[2] as number];
 }
 
-/** Phase 23.3: a query's optional rotation quaternion [x, y, z, w] (normalized; absent: none). */
+/** A query's optional rotation quaternion [x, y, z, w] (normalized; absent: none). */
 function queryQuat(v: unknown, what: string): PhysicsQuat | undefined {
   if (v === undefined || v === null) return undefined;
   if (!Array.isArray(v) || v.length !== 4 || !v.every((n) => typeof n === 'number' && Number.isFinite(n))) throw new Error(`${what} is a quaternion [x, y, z, w]`);
@@ -200,41 +199,40 @@ function queryPositive(v: unknown, what: string): number {
 }
 
 /**
- * Phase 23.3: the entity a physics collider belongs to — a block layer's
- * chunk collider (`<layer>#blocks:<chunk>:<piece>`, phase 23.5) is its layer.
+ * The entity a physics collider belongs to — a block layer's
+ * chunk collider (`<layer>#blocks:<chunk>:<piece>`) is its layer.
  */
 function colliderEntityOf(colliderId: string): string {
   const i = colliderId.indexOf('#blocks:');
   return i > 0 ? colliderId.slice(0, i) : colliderId;
 }
 
-/** Phase 23.3: a query's reach (absent: `fallback`; at most 10 km). */
+/** A query's reach (absent: `fallback`; at most 10 km). */
 function queryDistance(v: unknown, fallback: number, what: string): number {
   if (v === undefined || v === null) return fallback;
   if (typeof v !== 'number' || !Number.isFinite(v) || v <= 0) throw new Error(`${what} maxDistance is a positive number (m)`);
   return Math.min(v, 10_000);
 }
 
-/** runtime.md §3.1 default (the M1 constant). */
+/** The default step rate. */
 const DEFAULT_FIXED_STEP_HZ = 120;
-/** Phase 19.1: a script message name (the timer-name syntax). */
+/** A script message name (the timer-name syntax). */
 const MESSAGE_NAME_RE = /^[A-Za-z0-9_.:-]{1,64}$/;
 const MIN_FIXED_STEP_HZ = 1;
 const MAX_FIXED_STEP_HZ = 1000;
-/** runtime.md §5 (normative M1 constant). */
+/** Steps a frame may catch up before the rest is dropped. */
 export const MAX_CATCHUP_STEPS = 8;
 /**
- * runtime.md §3.2 (M2 settle pre-roll) at 120 Hz — the engine's settle time
+ * The M2 settle pre-roll at 120 Hz — the engine's settle time
  * (0.1 s, `ENGINE_TIMING_DEFAULTS.settleTime`) converted at the step rate.
  */
 export const SETTLE_PREROLL_STEPS = 12;
-/** Phase 9.9: steps a one-way platform lets the character drop through at 120 Hz (`ENGINE_TIMING_DEFAULTS.dropThroughTime`, 0.125 s). */
+/** Steps a one-way platform lets the character drop through at 120 Hz (`ENGINE_TIMING_DEFAULTS.dropThroughTime`, 0.125 s). */
 export const DROP_THROUGH_STEPS = 15;
 
 /**
- * Phase 15.3 / 24.7: the engine timing in whole steps at `hz` (120 Hz gives
- * exactly the old step counts). Phase 24.7: these were the character controller game
- * block's fields; they are engine defaults now.
+ * The engine timing in whole steps at `hz` (120 Hz gives
+ * `SETTLE_PREROLL_STEPS` and `DROP_THROUGH_STEPS`).
  */
 export function engineTimingSteps(hz: number): { settleSteps: number; dropThroughSteps: number } {
   return {
@@ -242,32 +240,32 @@ export function engineTimingSteps(hz: number): { settleSteps: number; dropThroug
     dropThroughSteps: Math.max(1, Math.round(ENGINE_TIMING_DEFAULTS.dropThroughTime * hz)),
   };
 }
-/** runtime.md §8: the error ring keeps the last 32 entries. */
+/** The error ring keeps the last 32 entries. */
 const MAX_ERROR_ENTRIES = 32;
-/** Phase 23.16: dialogue inputs per input frame (DIALOGUE_LIMITS.frameInputs). */
+/** Dialogue inputs per input frame (DIALOGUE_LIMITS.frameInputs). */
 const DIALOGUE_FRAME_INPUTS = 8;
 /**
- * Floating-point guard for the floor-based step count (§5.3). When the
+ * Floating-point guard for the floor-based step count. When the
  * wall-derived `elapsed` is a mathematical multiple of `dt`,
  * `(targetSim − simTime) / dt` can round to e.g. 11.999999999999998;
  * double-precision rounding at realistic elapsed values is ~1e-13 in step
  * units, so a 1e-9 guard corrects exact-multiple cases without ever
  * running a step early (at most ~1e-9 of a step ≈ 8e-12 s). Determinism
  * is preserved: the same floating-point inputs yield the same count
- * (§4/§7.3) — the guard is a fixed part of the computation.
+ *  — the guard is a fixed part of the computation.
  */
 const STEP_COUNT_EPS = 1e-9;
 
-/** runtime.md §3.1 default module selection (M1). */
+/** The default module selection. */
 const DEFAULT_MODULES = ['thirdlight.demo:box-motion'];
-/** runtime.md §12.4 `config_invalid` reason for a physics-bearing set. */
+/** The `config_invalid` reason for a physics-bearing set. */
 const PHYSICS_PORT_REASON = 'physics_port';
 
 interface BehaviorLogSink {
   handler: ((moduleId: string, level: BehaviorLogLevel, message: string, at?: { file: string; line: number; column: number }) => void) | null;
 }
 
-/** The runtime-owned mutable per-step intent set (runtime.md §14.5). */
+/** The runtime-owned mutable per-step intent set. */
 interface MutableIntentSet {
   stepIndex: number;
   move: number | null;
@@ -276,7 +274,7 @@ interface MutableIntentSet {
   jumpWriter: string | null;
   transformWrites: IntentTransformWrite[];
   /**
-   * Committed channels per entity in this step (phase 21.2): `axesTag * 64 +
+   * Committed channels per entity in this step: `axesTag * 64 +
    * mask` with position x/y/z = 1/2/4, rotation 8, scale 16; a value with an
    * older tag counts as none, so nothing is cleared per step.
    */
@@ -284,7 +282,7 @@ interface MutableIntentSet {
   axesTag: number;
   /** Accepted intents committed in this step. */
   count: number;
-  /** Phase 23.2: the committed control_move's second axis, and the character intents with their writers (null: none this step). */
+  /** The committed control_move's second axis, and the character intents with their writers (null: none this step). */
   moveY: number | null;
   characterMove: { x: number; z: number; run: boolean } | null;
   characterPlace: { x: number; y: number; z: number } | null;
@@ -341,14 +339,14 @@ interface ModuleEntry {
   phased: boolean;
   instance: SimulationModule | SimulationPhaseModule;
   owners: readonly string[];
-  /** Phase 21.2: the reused state view and step context per phase. */
+  /** The reused state view and step context per phase. */
   views?: Map<SimulationPhase, PhaseViews>;
-  /** Phase 21.2: `owners` as a set (remade when `owners` is replaced). */
+  /** `owners` as a set (remade when `owners` is replaced). */
   ownerSet?: ReadonlySet<string>;
   ownerSetSource?: readonly string[];
 }
 
-/** Phase 21.2: a module's owners as a set, remade only when the owners list is replaced. */
+/** A module's owners as a set, remade only when the owners list is replaced. */
 function ownerSetOf(entry: ModuleEntry): ReadonlySet<string> {
   if (entry.ownerSet === undefined || entry.ownerSetSource !== entry.owners) {
     entry.ownerSet = new Set(entry.owners);
@@ -357,7 +355,7 @@ function ownerSetOf(entry: ModuleEntry): ReadonlySet<string> {
   return entry.ownerSet;
 }
 
-/** Phase 21.2: one module's reused views for one phase. */
+/** One module's reused views for one phase. */
 interface PhaseViews {
   state: SimState;
   /** The step context (phased modules). */
@@ -398,7 +396,7 @@ function defaultClock(): (() => number) | null {
 function clamp01(v: number): number {
   if (Number.isNaN(v)) return 0;
   if (v < 0) return 0;
-  // The §6 invariant is 0 ≤ alpha < 1; a defensive clamp for the
+  // The interpolation invariant is 0 ≤ alpha < 1; a defensive clamp for the
   // (mathematically impossible) v ≥ 1 edge.
   if (v >= 1) return 1 - 1e-9;
   return v;
@@ -449,7 +447,7 @@ function isPhysicsPort(v: unknown): v is PhysicsPort {
 }
 
 /**
- * Phase 23.1: whether a script may drive this entity's collider (a 3D
+ * Whether a script may drive this entity's collider (a 3D
  * project): it has a collider, and neither a controller (the character is
  * the controller's) nor a mover (which moves it itself). The runtime turns
  * such a collider into a kinematic body posed from the entity's transform.
@@ -459,7 +457,7 @@ function scriptDrivableCollider(components: unknown): boolean {
   return components['collider'] !== undefined && components['controller'] === undefined && components['mover'] === undefined;
 }
 
-/** Phase 23.0: a 3D port carries `dimension: 3` (the 2D port has no such field). */
+/** A 3D port carries `dimension: 3` (the 2D port has no such field). */
 function isPhysicsPort3D(v: unknown): v is PhysicsPort3D {
   return isPlainObject(v) && v['dimension'] === 3 && typeof v['stageCharacterMove'] === 'function' && typeof v['step'] === 'function' && typeof v['dispose'] === 'function';
 }
@@ -474,7 +472,7 @@ function isFiniteVec2(v: unknown): v is Vec2 {
   );
 }
 
-/** Strict config parsing (runtime.md §3.1). */
+/** Strict config parsing. */
 function parseConfig(config: unknown): { cfg: ParsedConfig } | { error: RuntimeError } {
   if (!isPlainObject(config)) {
     return { error: fail('config_invalid', 'config must be an object', { reason: 'shape', path: '' }) };
@@ -542,7 +540,7 @@ function parseConfig(config: unknown): { cfg: ParsedConfig } | { error: RuntimeE
   let physics: PhysicsPort | undefined;
   let physics3d: PhysicsPort3D | undefined;
   if (config.physics !== undefined && isPhysicsPort3D(config.physics)) {
-    // Phase 23.0: a 3D project's port (the runtime holds one or the other).
+    // A 3D project's port (the runtime holds one or the other).
     physics3d = config.physics;
   } else if (config.physics !== undefined) {
     if (!isPhysicsPort(config.physics)) {
@@ -600,7 +598,7 @@ function parseConfig(config: unknown): { cfg: ParsedConfig } | { error: RuntimeE
     }
     onFrame = config.onFrame as () => void;
   }
-  // Phase 23.8: injected script variables (ctx.save from step 0), under ctx.save's own rules.
+  // Injected script variables (ctx.save from step 0), under ctx.save's own rules.
   let variables: Record<string, unknown> | undefined;
   if (config.variables !== undefined) {
     const v = config.variables;
@@ -616,12 +614,12 @@ function parseConfig(config: unknown): { cfg: ParsedConfig } | { error: RuntimeE
       variables[k] = JSON.parse(text) as unknown;
     }
   }
-  // Phase 23.10: the game mode runs start in (checked against the snapshot's modes at instantiate).
+  // The game mode runs start in (checked against the snapshot's modes at instantiate).
   const startMode = config.startMode;
   if (startMode !== undefined && (typeof startMode !== 'string' || !/^[a-z0-9][a-z0-9_-]{0,63}$/.test(startMode))) {
     return { error: fail('config_invalid', 'config field "startMode" must be a game mode id', { reason: 'shape', path: '/startMode' }) };
   }
-  // Phase 23.19: the stored project settings document (checked field by field against the save schema by the runtime).
+  // The stored project settings document (checked field by field against the save schema by the runtime).
   let projectSettings: Record<string, unknown> | undefined;
   if (config.projectSettings !== undefined) {
     if (!isPlainObject(config.projectSettings) || Object.keys(config.projectSettings).length > SAVE_LIMITS.settingsFields) {
@@ -650,7 +648,7 @@ function parseConfig(config: unknown): { cfg: ParsedConfig } | { error: RuntimeE
   };
 }
 
-/** Phase 9.11: `ctx.save` rules (shared by the Phase 23.8 injected variables). */
+/** `ctx.save` rules (shared by the start's injected script variables). */
 const SAVE_MAX_KEYS = SCRIPT_SAVE_LIMITS.keys;
 const SAVE_MAX_VALUE_CHARS = SCRIPT_SAVE_LIMITS.valueChars;
 const SAVE_KEY_RE = /^[A-Za-z0-9_.:-]{1,64}$/;
@@ -671,7 +669,7 @@ interface ParsedConfig {
   modules: string[];
   actions: ActionSource;
   physics?: PhysicsPort;
-  /** Phase 23.0: the 3D port (instead of `physics`). */
+  /** The 3D port (instead of `physics`). */
   physics3d?: PhysicsPort3D;
   settings: unknown;
   clock: () => number;
@@ -685,7 +683,7 @@ interface ParsedConfig {
 }
 
 /**
- * Create a runtime instance (runtime.md §3.1). Validates the snapshot
+ * Create a runtime instance. Validates the snapshot
  * (deep-freezing it on success), resolves the selected modules, validates
  * the M2 phase/ownership/exclusion rules, builds the initial mutable state
  * (`prev = curr = snapshot transforms`, stepIndex 0, simTime 0), and creates
@@ -701,15 +699,15 @@ export function instantiateRuntime(
 
   const snap = validateRuntimeSnapshot(snapshot);
   if ('error' in snap) return { ok: false, error: snap.error };
-  // Phase 23.10: a start mode names one of the project's modes (ignored without modes).
+  // A start mode names one of the project's modes (ignored without modes).
   if (startMode !== undefined && snap.modes !== undefined && !snap.modes.modes.some((m) => m.modeId === startMode)) {
     return { ok: false, error: fail('config_invalid', `config field "startMode": the project has no game mode "${startMode}"`, { reason: 'reference', path: '/startMode' }) };
   }
   const { scene, sceneVersion, snapshotId, revision } = snap;
-  // Phase 12 (c): the scene catalog (v4 only; null: one fixed scene).
+  // The scene catalog (v4 only; null: one fixed scene).
   const sceneRows = snap.scenes;
 
-  // Resolve the selection (runtime.md §3.1 / §8): unknown or duplicate
+  // Resolve the selection: unknown or duplicate
   // module ID ⇒ config_invalid; stepping order is the REGISTRATION order.
   const registered = registry[SIM_REGISTRY_BRAND];
   if (new Set(modules).size !== modules.length) {
@@ -738,7 +736,7 @@ export function instantiateRuntime(
     }
   }
 
-  // §12.1: validate every declared phase list (non-empty, unique, canonical).
+  // Validate every declared phase list (non-empty, unique, canonical).
   for (const spec of selected) {
     if (spec.phases === undefined) continue;
     const check = validatePhaseList(spec.phases);
@@ -754,7 +752,7 @@ export function instantiateRuntime(
   }
 
   const isM2 = selected.some((s) => s.phases !== undefined);
-  // §14.8: at most 64 behavior modules per runtime instance.
+  // At most 64 behavior modules per runtime instance.
   if (selected.filter((s) => s.id.startsWith(BEHAVIOR_MODULE_PREFIX)).length > INTENT_LIMITS.behaviorModules) {
     return {
       ok: false,
@@ -765,19 +763,19 @@ export function instantiateRuntime(
     };
   }
 
-  // Deep-freeze the snapshot (normative, runtime.md §2) — the input is
+  // Deep-freeze the snapshot (normative) — the input is
   // never written to; all mutable data is in the simulation state.
-  // Phase 12: for a v3 scene, modules see the scene with folders and
+  // For a v3 scene, modules see the scene with folders and
   // inactive entities resolved away (the input stays frozen as well).
   const inputSnapshot = deepFreeze(snapshot as RuntimeSnapshot);
   const frozenSnapshot = deepFreeze({ ...inputSnapshot, scene } as RuntimeSnapshot);
 
-  // Resolve + deep-freeze the gameplay settings (runtime.md §3.1/§12.2).
+  // Resolve + deep-freeze the gameplay settings.
   const settingsResult = resolveSettings(settings);
   if ('error' in settingsResult) return { ok: false, error: settingsResult.error };
   const resolvedSettings = deepFreeze(settingsResult.settings);
 
-  // M2 module-set validation (runtime.md §12.4) — before any instance is
+  // M2 module-set validation — before any instance is
   // created and before any port method is called.
   const controllerSpecs = selected.filter((s) => s.phases?.includes('controller') === true);
   const controllerIds = scene.entities
@@ -809,7 +807,7 @@ export function instantiateRuntime(
       };
     }
     const needsPort = selected.some((s) => s.requiresPhysicsPort === true);
-    // Phase 23.2: a 3D port serves a module that needs physics too (the 3D character controller).
+    // A 3D port serves a module that needs physics too (the 3D character controller).
     if (needsPort && physics === undefined && physics3d === undefined) {
       return {
         ok: false,
@@ -821,7 +819,7 @@ export function instantiateRuntime(
     }
   }
 
-  // Build the initial mutable state (runtime.md §4): prev = curr = the
+  // Build the initial mutable state: prev = curr = the
   // snapshot transforms (both deep copies — the snapshot is never aliased).
   const order = scene.entities.map((e) => e.id);
   const entities = new Map<string, SimEntityData>();
@@ -876,11 +874,11 @@ export function instantiateRuntime(
 
   // One module instance per selection entry (created at instantiate). The
   // behavior-log sink routes a behavior's accepted `ctx.log` entries into the
-  // runtime's own bounded diagnostics ring (runtime.md §14.8.1); the holder
+  // runtime's own bounded diagnostics ring; the holder
   // is bound to the RuntimeInstance once it exists (no log can be emitted
   // before the first step).
   const logSink: BehaviorLogSink = { handler: null };
-  // Phase 12 (c): with a scene catalog the tag index follows loads/unloads.
+  // With a scene catalog the tag index follows loads/unloads.
   const liveTags = sceneRows !== null ? createTagQuery(frozenSnapshot) : null;
   const configFor = (specId: string): ModuleConfig => ({
     fixedStepHz: hz,
@@ -888,9 +886,9 @@ export function instantiateRuntime(
     sceneVersion,
     behaviorLog: (level: BehaviorLogLevel, message: string, at?: { file: string; line: number; column: number }) => logSink.handler?.(specId, level, message, at),
     ...(liveTags !== null ? { tags: liveTags } : {}),
-    // Phase 23.1: a 3D project (scripts may drive colliders through intents there).
+    // A 3D project (scripts may drive colliders through intents there).
     ...(physics3d !== undefined ? { physicsDimension: 3 as const } : {}),
-    // Phase 23.2: the 3D character controller's read-only world queries.
+    // The 3D character controller's read-only world queries.
     ...(physics3d !== undefined
       ? {
           character3D: {
@@ -919,7 +917,7 @@ export function instantiateRuntime(
       instance = spec.create(frozenSnapshot, configFor(spec.id));
     } catch (e) {
       disposeCreated();
-      // §14.3.1: a behavior host create() failure carries its own contract code
+      // A behavior host create() failure carries its own contract code
       // (`config_invalid` prepare/instantiate/property, `transform_owner_forbidden`
       // ownership) instead of the generic `module_create`.
       if (e instanceof BehaviorHostError) {
@@ -965,12 +963,12 @@ export function instantiateRuntime(
     entries.push({ id: spec.id, phases, phased, instance, owners: [] });
   }
 
-  // §12.3/§12.4: transform ownership (declared at create), duplicate-writer
+  // Transform ownership (declared at create), duplicate-writer
   // and forbidden-entity rejection. A failure disposes every created
   // instance — no runtime instance is created and no port method is called.
   if (isM2) {
     // First pass: collect owners, then detect duplicate claims and missing
-    // entities (runtime.md §12.4 table order).
+    // entities (the error table's order).
     const ownerByEntity = new Map<string, string>();
     for (let i = 0; i < entries.length; i += 1) {
       const entry = entries[i]!;
@@ -982,7 +980,7 @@ export function instantiateRuntime(
           : [];
       entry.owners = owners;
       for (const entityId of owners) {
-        // Phase 12 (c): an owner in a scene that is not loaded is checked when it loads.
+        // An owner in a scene that is not loaded is checked when it loads.
         if (!entities.has(entityId) && sceneRows === null) {
           disposeCreated();
           return {
@@ -1022,7 +1020,7 @@ export function instantiateRuntime(
             }),
           };
         }
-        // Phase 23.1: in a 3D project a transform-phase module (a script) may drive a collider
+        // In a 3D project a transform-phase module (a script) may drive a collider
         // that no mover moves — the runtime poses it as a kinematic body (scriptDrivableCollider).
         const drivable = physics3d !== undefined && scriptDrivableCollider(scene.entities.find((x) => x.id === entityId)?.components);
         if ((colliderEntityIds.has(entityId) || controllerEntityIds.includes(entityId)) && !isController && !drivable) {
@@ -1040,7 +1038,7 @@ export function instantiateRuntime(
     }
   }
 
-  // Phase 12 (c): the start scenes as batches (members listed by the host;
+  // The start scenes as batches (members listed by the host;
   // unlisted entities belong to the first start scene).
   const startBatches: { sceneId: string; entities: EntityV3[] }[] = [];
   if (sceneRows !== null) {
@@ -1080,7 +1078,7 @@ export function instantiateRuntime(
     sceneRows,
     startBatches,
     liveTags,
-    // Phase 23.3: the tag index 3D queries filter by (the live one when the project has a scene catalog).
+    // The tag index 3D queries filter by (the live one when the project has a scene catalog).
     queryTags: liveTags ?? (physics3d !== undefined ? createTagQuery(frozenSnapshot) : null),
     animatorControllers: snap.animators as unknown as readonly AnimatorControllerLike[],
     initialEntities: scene.entities as unknown as readonly EntityV3[],
@@ -1107,7 +1105,7 @@ export function instantiateRuntime(
 }
 
 /**
- * Phase 23.7: write an intent's quaternion (normalized) or facing rotation
+ * Write an intent's quaternion (normalized) or facing rotation
  * (validated before: finite, not all zero, up not parallel) into `rotation`.
  */
 function writeRotationForm(rotation: Quat, intent: { quaternion?: readonly number[]; facing?: readonly number[]; up?: readonly number[] }): void {
@@ -1121,7 +1119,7 @@ function writeRotationForm(rotation: Quat, intent: { quaternion?: readonly numbe
 
 function resolveSettings(input: unknown): { settings: GameplaySettings } | { error: RuntimeError } {
   // project-model owns the settings registry and validation; the runtime
-  // consumes the resolved, frozen object (runtime.md §3.1/§12.2).
+  // consumes the resolved, frozen object.
   const content = input === undefined ? {} : input;
   const result = resolveGameplaySettings(content);
   if (!result.ok) {
@@ -1146,11 +1144,11 @@ interface RuntimeArgs {
   modules: string[];
   entries: ModuleEntry[];
   isM2: boolean;
-  /** Phase 15.3: the engine timing in steps. */
+  /** The engine timing in steps. */
   timing: { settleSteps: number; dropThroughSteps: number };
   actions: ActionSource;
   physics?: PhysicsPort;
-  /** Phase 23.0: the 3D port (a project with physics_dimension 3), instead of `physics`. */
+  /** The 3D port (a project with physics_dimension 3), instead of `physics`. */
   physics3d?: PhysicsPort3D;
   settings: GameplaySettings;
   controllerEntityId?: string;
@@ -1164,48 +1162,48 @@ interface RuntimeArgs {
   startBatches: readonly { sceneId: string; entities: EntityV3[] }[];
   liveTags: LiveTagIndex | null;
   queryTags: LiveTagIndex | null;
-  /** Phase 9.7: the controllers, and the snapshot scene's entities (their `animator` components). */
+  /** The controllers, and the snapshot scene's entities (their `animator` components). */
   animatorControllers: readonly AnimatorControllerLike[];
   initialEntities: readonly EntityV3[];
-  /** Phase 14.1: the prefab definitions scripts spawn. */
+  /** The prefab definitions scripts spawn. */
   prefabs: readonly PrefabDefinition[];
-  /** Phase 15.3: model assetId -> its recorded bounds. */
+  /** Model assetId -> its recorded bounds. */
   modelBounds: Readonly<Record<string, ModelBounds>>;
-  /** Phase 23.13: audio/music assetId -> its recorded duration (ms). */
+  /** audio/music assetId -> its recorded duration (ms). */
   audioDurations: Readonly<Record<string, number>>;
-  /** Phase 23.11: model rigs (sockets are resolved on them). */
+  /** Model rigs (sockets are resolved on them). */
   rigs?: Readonly<Record<string, import('@thirdlight/project-model').ModelRig>>;
-  /** Phase 23.8: injected script variables (validated; ctx.save from step 0). */
+  /** Injected script variables (validated; ctx.save from step 0). */
   variables?: Readonly<Record<string, unknown>>;
-  /** Phase 23.5: the block types and cell fields of the project's block layers. */
+  /** The block types and cell fields of the project's block layers. */
   blockTypes: readonly BlockType[];
   cellFields: readonly CellField[];
-  /** Phase 23.12: the graph materials' parameters (ctx.materials). */
+  /** The graph materials' parameters (ctx.materials). */
   materialCatalog?: RuntimeMaterialCatalog;
-  /** Phase 23.19: the project save schema and the stored project settings document. */
+  /** The project save schema and the stored project settings document. */
   saveSchema?: SaveSchema;
   projectSettings?: Readonly<Record<string, unknown>>;
-  /** Phase 23.9a: the project's UI documents (id, layer, modal). */
+  /** The project's UI documents (id, layer, modal). */
   uiDocuments: readonly RuntimeUiDocumentRow[];
-  /** Phase 23.16: the compiled conversations, speakers and dialogue settings. */
+  /** The compiled conversations, speakers and dialogue settings. */
   dialogue?: import('@thirdlight/project-model').RuntimeDialogueData;
-  /** Phase 23.10: the project's game modes (absent: none) and the mode runs start in. */
+  /** The project's game modes (absent: none) and the mode runs start in. */
   modes?: import('@thirdlight/project-model').RuntimeModes;
   startMode?: string;
-  /** Phase 23.17: the project's timelines. */
+  /** The project's timelines. */
   timelines?: readonly TimelineAsset[];
-  /** Phase 24.4i: the event → cue table. */
+  /** The event → cue table. */
   eventCues?: readonly import('./types').RuntimeEventCue[];
-  /** Phase 24.4j: the shell's ordered scene list. */
+  /** The shell's ordered scene list. */
   sceneList?: readonly import('./types').ListedScene[];
-  /** Phase 23.18: the environment preset ids (ctx.environment). */
+  /** The environment preset ids (ctx.environment). */
   environmentPresets: readonly string[];
 }
 
-/** Phase 14.1: one requested spawn or destroy, applied at the next step boundary in request order. */
+/** One requested spawn or destroy, applied at the next step boundary in request order. */
 type SpawnOp = { op: 'spawn'; entities: readonly EntityV3[] } | { op: 'destroy'; entityId: string };
 
-/** Phase 12 (c): one loaded scene inside the runtime. */
+/** One loaded scene inside the runtime. */
 interface SceneBatchState {
   sceneId: string;
   start: boolean;
@@ -1214,8 +1212,8 @@ interface SceneBatchState {
   contribution: SceneContribution;
 }
 
-/** Phase 12 (c): one requested scene operation, committed with its step. */
-/** Phase 25.24e: what a transition does once its scene is in: the scenes it unloads (in the same step), its fade (seconds, colour). */
+/** One requested scene operation, committed with its step. */
+/** What a transition does once its scene is in: the scenes it unloads (in the same step), its fade (seconds, colour). */
 interface TransitionSpec {
   readonly unload: readonly string[];
   readonly fade: number;
@@ -1223,7 +1221,7 @@ interface TransitionSpec {
 }
 type SceneOp = { op: 'load'; sceneId: string; at?: readonly [number, number, number]; transition?: TransitionSpec } | { op: 'unload'; sceneId: string };
 /**
- * Phase 25.24e: the time a step boundary spends preparing loaded scenes'
+ * The time a step boundary spends preparing loaded scenes'
  * entities (copying and freezing them) before it attaches them; a large
  * scene is prepared over several steps and attached in one.
  */
@@ -1231,7 +1229,7 @@ const SCENE_PREP_BUDGET_MS = 4;
 const nowMs = (): number => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 const FADE_COLOR_RE = /^#[0-9a-f]{6}$/;
 
-/** Phase 24.4f: the largest impulse component a script may give the character (m/s; a safety limit, far above a jump). */
+/** The largest impulse component a script may give the character (m/s; a safety limit, far above a jump). */
 export const CHARACTER_IMPULSE_MAX = 100;
 const NO_LOOKS: ReadonlyMap<string, import('./primitives').EntityLook> = new Map();
 const NO_IDS: ReadonlySet<string> = new Set();
@@ -1252,22 +1250,22 @@ class RuntimeInstance implements Runtime {
   private readonly actions: ActionSource;
   private readonly physics?: PhysicsPort;
   /**
-   * Phase 23.0: the 3D port. With it the runtime runs the 3D character phase
+   * The 3D port. With it the runtime runs the 3D character phase
    * (`runPhysicsPhase3D`) and commits the full position; `physics` is then
    * absent, so every 2D path (movers, drop-through, queries, respawn) is inert.
    */
   private readonly physics3d?: PhysicsPort3D;
-  /** Phase 23.0: the 3D moves staged in this step's controller phase. */
+  /** The 3D moves staged in this step's controller phase. */
   private staged3d = new Map<string, PhysicsVec3>();
-  /** Phase 23.0: the character's vertical speed under gravity (m/s; 3D, no movement input yet). */
+  /** The character's vertical speed under gravity (m/s; 3D, no movement input yet). */
   private fallSpeed3d = 0;
   private lastCharacterResult3D?: CharacterMoveResult3D;
-  /** Phase 23.2: the character's step-up height and ground snap (the 3D result check allows them). */
+  /** The character's step-up height and ground snap (the 3D result check allows them). */
   private character3DClimb?: { stepHeight: number; groundSnap: number };
-  /** Phase 23.2: where the active camera's yaw comes from (the camera framework sets it; null: world axes). */
+  /** Where the active camera's yaw comes from (the camera framework sets it; null: world axes). */
   private cameraYawSource: (() => number | undefined) | null = null;
   /**
-   * Phase 23.1: the collider-bearing entities of a 3D world (their authored
+   * The collider-bearing entities of a 3D world (their authored
    * components, to re-add a collider as kinematic), the colliders scripts
    * drive (posed each step from their transforms), and whether that set must
    * be brought up to date with the modules' owners before the next step.
@@ -1277,7 +1275,7 @@ class RuntimeInstance implements Runtime {
   private scriptCollidersDirty = true;
   private readonly settings: GameplaySettings;
   private readonly controllerEntityId?: string;
-  /** Phase 24.8: the input actions the character's controller reads (its moveAction / jumpAction). */
+  /** The input actions the character's controller reads (its moveAction / jumpAction). */
   private readonly characterActions: { move: string; jump: string };
   private readonly characterActionNames: readonly string[];
   private order: readonly string[];
@@ -1289,13 +1287,13 @@ class RuntimeInstance implements Runtime {
   /** The last fully committed step's transforms (fail-stop rendering). */
   private committed: Map<string, TransformState> | null = null;
   /**
-   * Phase 21.2: the step's backup (`prev` after the step) alternates between
+   * The step's backup (`prev` after the step) alternates between
    * two reused copies, and the committed state is a third, so a steady step
    * allocates no transform objects.
    */
   private readonly stepMirrors: readonly [TransformMirror, TransformMirror] = [new TransformMirror(), new TransformMirror()];
   private readonly committedMirror = new TransformMirror();
-  /** Phase 21.2: bumped whenever transforms are added to or removed from `curr` (the mirrors' shape key). */
+  /** Bumped whenever transforms are added to or removed from `curr` (the mirrors' shape key). */
   private currShape = 0;
   private stepIndex = 0;
   private simTime = 0;
@@ -1308,15 +1306,15 @@ class RuntimeInstance implements Runtime {
   private inputSamples = 0;
   private physicsSteps = 0;
   private settleSteps = 0;
-  /** Phase 15.3: the engine timing in steps. */
+  /** The engine timing in steps. */
   private readonly timing: { settleSteps: number; dropThroughSteps: number };
   private failedModuleId?: string;
   private failedPhase?: SimulationPhase;
   private failedStepIndex?: number;
   private errorRing: DiagnosticErrorEntry[] = [];
-  /** Phase 19.0: the visual-script node of the error being fail-stopped (consumed by `failStop`). */
+  /** The visual-script node of the error being fail-stopped (consumed by `failStop`). */
   private failNodeId: string | undefined = undefined;
-  /** Phase 25.9: the failing error's compiled script frames (consumed by the fail-stop entry). */
+  /** The failing error's compiled script frames (consumed by the fail-stop entry). */
   private failFrames: CompiledFrame[] = [];
   private errorCount = 0;
   private rafId: number | null = null;
@@ -1327,26 +1325,26 @@ class RuntimeInstance implements Runtime {
   private currentModuleId?: string;
   private staged = new Map<string, Vec2>();
   private lastCharacterResult?: CharacterMoveResult;
-  /** The runtime's per-step intent set (runtime.md §14.5). */
+  /** The runtime's per-step intent set. */
   private intents: MutableIntentSet = emptyMutableIntents(-1);
-  /** Phase 21.2: bumped at every commit and step start; the intents view is remade only when it moved. */
+  /** Bumped at every commit and step start; the intents view is remade only when it moved. */
   private intentsVersion = 0;
   private intentViewVersion = -1;
   private intentViewCache: IntentSet | null = null;
-  /** Phase 21.2: the per-step intent cap for the current entity order (`intentStepLimit`). */
+  /** The per-step intent cap for the current entity order (`intentStepLimit`). */
   private intentLimit: number = INTENT_LIMITS.perStep;
   private intentLimitOrder: readonly string[] | null = null;
-  /** Phase 21.2: the frame the current phase runs with (read by the reused step contexts). */
+  /** The frame the current phase runs with (read by the reused step contexts). */
   private phaseAction: ActionFrame = neutralFrame(0);
-  /** Phase 21.2: the last validated input frame (its frozen action values are reused when equal). */
+  /** The last validated input frame (its frozen action values are reused when equal). */
   private lastInputFrame: ActionFrame | null = null;
-  /** Phase 23.3: the pointer state after the last sampled step (null before the first pointer sample). */
+  /** The pointer state after the last sampled step (null before the first pointer sample). */
   private heldPointer: HeldPointer | null = null;
-  /** Phase 23.3: the cursor a script asked for (null: the active input map decides). */
+  /** The cursor a script asked for (null: the active input map decides). */
   private cursorMode: 'free' | 'locked' | null = null;
-  /** Phase 23.14: what the host last sent about bindings and devices, this step's rebind events, the scripts' requests. */
+  /** What the host last sent about bindings and devices, this step's rebind events, the scripts' requests. */
   private readonly inputStatus = new RuntimeInputStatus();
-  /** Phase 23.3: `ctx.input.setCursor` (the StepContext's cursor channel). */
+  /** `ctx.input.setCursor` (the StepContext's cursor channel). */
   private readonly cursorControl = Object.freeze({
     request: (mode: 'free' | 'locked' | 'auto'): void => {
       this.cursorMode = mode === 'auto' ? null : mode;
@@ -1356,34 +1354,34 @@ class RuntimeInstance implements Runtime {
   private frozenOrderCopy: readonly string[] = Object.freeze([]);
   /** Accepted intents committed in this runtime instance. */
   private intentCommitCount = 0;
-  /** The behavior-log ring sink bound to this instance (§14.8.1). */
+  /** The behavior-log ring sink bound to this instance. */
   private readonly logSink: BehaviorLogSink;
   /** Last observed behavior log totals (retained after disposal). */
   private behaviorLogTotals = { logCount: 0, logDropped: 0 };
-  // ---- Phase 12 (c) scene set ---------------------------------------------
+  // ---- Scene set ---------------------------------------------------------
   /** Every scene of the project (null: one fixed scene, no scene API). */
   private readonly sceneRows: readonly RuntimeSceneRow[] | null;
   private startBatchSource: ReadonlyMap<string, readonly EntityV3[]>;
-  /** Phase 9.11: the scripts' saved values (ctx.save; kept across restarts). */
+  /** The scripts' saved values (ctx.save; kept across restarts). */
   private readonly saveStore = new Map<string, unknown>();
-  /** Phase 9.10: paused — frames render and call onFrame, no steps run. */
+  /** Paused — frames render and call onFrame, no steps run. */
   private paused = false;
   /**
-   * Phase 19.2 (Play debugging): held at a step boundary — like `paused`
+   * Play debugging: held at a step boundary — like `paused`
    * but owned by the debugger, never by the game (the flow's pause does not
    * release it), and nothing at all happens at the boundary until a step is
    * allowed (`debugStep`) or the hold is released.
    */
   private debugHold = false;
-  /** Phase 19.2: steps the debugger allowed while held (each runs, then the hold stays). */
+  /** Steps the debugger allowed while held (each runs, then the hold stays). */
   private debugSteps = 0;
-  /** Phase 19.2: called after every executed step with the completed step index; true holds there (a breakpoint). */
+  /** Called after every executed step with the completed step index; true holds there (a breakpoint). */
   private stepWatcher: ((stepIndex: number) => boolean) | null = null;
-  /** Phase 25.16: told after every executed step (tools: the run digest after an input exercise); never holds. */
+  /** Told after every executed step (tools: the run digest after an input exercise); never holds. */
   private stepObserver: ((stepIndex: number) => void) | null = null;
-  /** Phase 23.8: the start's injected script variables (phase 25.17: applied again at every restart). */
+  /** The start's injected script variables (applied again at every restart). */
   private startVariables: Readonly<Record<string, unknown>> | undefined;
-  /** Phase 25.16: the step count when this run began (0; a restart's boundary) and the last spawned copy's number then. */
+  /** The step count when this run began (0; a restart's boundary) and the last spawned copy's number then. */
   private runStartStep = 0;
   private runSpawnBase = 0;
   /** Loaded scenes, in load order. */
@@ -1395,16 +1393,16 @@ class RuntimeInstance implements Runtime {
   private fetchingLoads = new Map<string, { at?: readonly [number, number, number] }>();
   /** Fetched scenes waiting for the next step boundary. */
   private readyLoads = new Map<string, readonly EntityV3[]>();
-  /** Phase 25.24e: fetched scenes being prepared (copied and frozen, a budget per step boundary) before they attach. */
+  /** Fetched scenes being prepared (copied and frozen, a budget per step boundary) before they attach. */
   private preparedLoads = new Map<string, { readonly out: EntityV3[]; next: number }>();
   private pendingUnloads = new Set<string>();
   /**
-   * Phase 25.24e: transitions waiting for their scene (keyed by it): the
+   * Transitions waiting for their scene (keyed by it): the
    * scenes they unload stay loaded (and drawn) until it is in, then both
    * happen at one step boundary. `outLeft`: steps of fade-out still to go.
    */
   private transitions = new Map<string, TransitionSpec & { readonly fadeSteps: number; outLeft: number }>();
-  /** Phase 25.24e: the last swap a transition made (the page fades back in once it drew that revision). */
+  /** The last swap a transition made (the page fades back in once it drew that revision). */
   private lastSwap: { readonly scene: string; readonly revision: number; readonly seconds: number; readonly color: string } | null = null;
   private loadingViewCache: { key: string; view: import('./types').SceneLoadingView } | null = null;
   /** Scene ops issued during the running step (committed with it). */
@@ -1412,9 +1410,9 @@ class RuntimeInstance implements Runtime {
   private sceneRevision = 0;
   private sceneSetCache: SceneSetView | null = null;
   private readonly liveTags: LiveTagIndex | null;
-  /** Phase 23.3: the tag index 3D queries filter by. */
+  /** The tag index 3D queries filter by. */
   private readonly queryTags: LiveTagIndex | null;
-  // ---- Phase 9.7: animators ----
+  // ---- Animators ----
   private readonly animatorControllers = new Map<string, AnimatorControllerLike>();
   private readonly animatorMachines = new Map<string, { machine: AnimatorMachine; entity: EntityV3 }>();
   /** Parent ids of the loaded entities (the player's model may be a child of the player). */
@@ -1422,21 +1420,21 @@ class RuntimeInstance implements Runtime {
   private animatorEvents: readonly AnimatorEventRecord[] = Object.freeze([]);
   private animatorWasGrounded = true;
   private readonly animatorControl: BehaviorAnimatorControl;
-  // ---- Phase 23.4: the camera brain (virtual cameras; inert without one) ----
+  // ---- The camera brain (virtual cameras; inert without one) ----
   private readonly cameras: CameraBrain;
   private readonly cameraControl: import('./types').BehaviorCamera;
-  /** Phase 23.11: sockets (entities riding on model nodes) and the script API over them. */
+  /** Sockets (entities riding on model nodes) and the script API over them. */
   private readonly sockets: SocketSystem;
   private readonly socketControl: import('./types').BehaviorSockets;
-  // ---- Phase 23.9a: the project UI (view model, shown documents, UI events) ----
+  // ---- The project UI (view model, shown documents, UI events) ----
   private readonly ui: UiState;
   /** UI events the host queued for the next sampled frame. */
   private uiQueue: UiEventRecord[] = [];
-  /** Phase 23.16: the dialogue runner (inert without conversations) and dialogue inputs waiting for the next sampled step. */
+  /** The dialogue runner (inert without conversations) and dialogue inputs waiting for the next sampled step. */
   private readonly dialogue: DialogueRunner;
   private dialogueQueue: DialogueInputRecord[] = [];
   private readonly uiControls = new Map<SimulationPhase, BehaviorUi>();
-  // ---- Phase 23.10: game modes and the run lifecycle ----
+  // ---- Game modes and the run lifecycle ----
   private readonly modes: ModeState;
   private readonly modeControls = new Map<SimulationPhase, import('./types').BehaviorModes>();
   /** The behavior group of each loaded entity that carries one (`behaviorGroup` component). */
@@ -1449,44 +1447,44 @@ class RuntimeInstance implements Runtime {
   private pendingRespawn: [number, number, number] | null = null;
   /** A run restart waiting for the next step boundary (ctx.lifecycle.restart, a restart UI event). */
   private pendingRestart = false;
-  /** Phase 24.4f: the yaw (radians) the character faces on its next placement (a spawn's yaw), and this step's one for the controller. */
+  /** The yaw (radians) the character faces on its next placement (a spawn's yaw), and this step's one for the controller. */
   private pendingFacing: number | null = null;
   private stepFacing: number | null = null;
-  /** Phase 24.4f: impulses scripts gave the character (m/s, summed) waiting for the next controller phase. */
+  /** Impulses scripts gave the character (m/s, summed) waiting for the next controller phase. */
   private impulseAcc: [number, number, number] | null = null;
-  /** Phase 24.4e: a trigger's scene transition waiting for its scene (then the character moves to the spawn). */
+  /** A trigger's scene transition waiting for its scene (then the character moves to the spawn). */
   private pendingArrival: { spawnId: string; waitFor: string } | null = null;
-  /** Phase 24.8: a loaded save's character placement, once the scenes it waits for are in. */
+  /** A loaded save's character placement, once the scenes it waits for are in. */
   private pendingRestore: { position: readonly [number, number, number]; velocity: readonly [number, number, number]; waitFor: readonly string[] } | null = null;
-  /** Phase 24.4j: the shell's ordered scene list, the entry the run is at (-1: none; null: not worked out yet this run) and a move asked for by a `scene` UI event. */
+  /** The shell's ordered scene list, the entry the run is at (-1: none; null: not worked out yet this run) and a move asked for by a `scene` UI event. */
   private readonly sceneList: readonly import('./types').ListedScene[];
   private listedScene: number | null = null;
   private pendingListedScene: number | null = null;
-  /** Phase 24.4i: the event → cue table (empty: no event sounds). */
+  /** The event → cue table (empty: no event sounds). */
   private readonly eventCues: readonly import('./types').RuntimeEventCue[];
   private readonly lifecycleControl: import('./types').BehaviorLifecycle;
   private behaviorTicksFn: ((entityId: string) => boolean) | undefined = undefined;
-  // ---- Phase 23.17: the sequencer (inert without timelines) ----
+  // ---- The sequencer (inert without timelines) ----
   private readonly timelines: TimelineSystem;
   private readonly timelineControl: import('./types').BehaviorTimeline;
-  // ---- Phase 9.9: gameplay building blocks ----
+  // ---- Gameplay building blocks ----
   private blocks: GameplayBlocks | null = null;
-  /** Phase 23.5: the loaded block layers (`ctx.grid`, their colliders and render changes). */
+  /** The loaded block layers (`ctx.grid`, their colliders and render changes). */
   private readonly grid: RuntimeGrid;
-  /** Phase 23.12: graph-material parameters scripts set per object (`ctx.materials`). */
+  /** Graph-material parameters scripts set per object (`ctx.materials`). */
   private readonly materials: RuntimeMaterials;
-  /** Phase 25.10: `ctx.entity(ref).get/set` — the written fields, the switched-off objects and the end-of-step writes. */
+  /** `ctx.entity(ref).get/set` — the written fields, the switched-off objects and the end-of-step writes. */
   private readonly entityAccess: EntityAccess;
-  /** Phase 25.10: the step's pre-step transforms (what `get('transform')` reads during the step). */
+  /** The step's pre-step transforms (what `get('transform')` reads during the step). */
   private stepStart: Map<string, TransformState> | null = null;
-  /** Phase 25.10: `ctx.shell` (the shell's scene list from scripts). */
+  /** `ctx.shell` (the shell's scene list from scripts). */
   private readonly shellControl: import('./types').BehaviorShell;
-  /** Phase 23.19: project saves (`ctx.saves`). */
+  /** Project saves (`ctx.saves`). */
   private readonly saves: RuntimeSaves;
-  /** Phase 23.18: the environment preset blend (`ctx.environment`; inert until a script uses it). */
+  /** The environment preset blend (`ctx.environment`; inert until a script uses it). */
   private readonly environment: EnvironmentDirector;
   private raycastsThisStep = 0;
-  /** Phase 23.3: the 3D query budget ran out once (warned in the play log). */
+  /** The 3D query budget ran out once (warned in the play log). */
   private queryLimitWarned = false;
   private readonly signalControl = Object.freeze({
     emit: (name: string): void => {
@@ -1494,7 +1492,7 @@ class RuntimeInstance implements Runtime {
     },
     on: (name: string): boolean => this.blocks?.signaled(String(name)) ?? false,
   });
-  /** Phase 19.1: script messages (`ctx.messages`; the behavior host passes sender and receiver). */
+  /** Script messages (`ctx.messages`; the behavior host passes sender and receiver). */
   private readonly messageControl = Object.freeze({
     send: (from: string, name: unknown, value: unknown, target: unknown): boolean => {
       if (typeof name !== 'string' || !MESSAGE_NAME_RE.test(name)) return false;
@@ -1528,7 +1526,7 @@ class RuntimeInstance implements Runtime {
       if (typeof entityId === 'string' && this.curr.has(entityId)) this.blocks?.setVisible(entityId, visible === true);
     },
   });
-  /** Phase 24.4b: any object's health (`ctx.health`; changes apply at once, events are seen next step). */
+  /** Any object's health (`ctx.health`; changes apply at once, events are seen next step). */
   private readonly healthControl = Object.freeze({
     get: (entityId: string): { current: number; max: number } | null => (typeof entityId === 'string' ? (this.blocks?.primitives.healthOf(entityId) ?? null) : null),
     damage: (entityId: string, amount: number, source?: string): boolean =>
@@ -1536,25 +1534,25 @@ class RuntimeInstance implements Runtime {
     heal: (entityId: string, amount: number): boolean => (typeof entityId === 'string' && typeof amount === 'number' ? (this.blocks?.primitives.heal(entityId, amount) ?? false) : false),
     events: () => this.blocks?.primitives.healthEvents() ?? [],
   });
-  /** Phase 24.4c: patrollers (`ctx.patrol`). */
+  /** Patrollers (`ctx.patrol`). */
   private readonly patrolControl = Object.freeze({
     get: (entityId: string) => (typeof entityId === 'string' ? (this.blocks?.primitives.patrolOf(entityId) ?? null) : null),
     setActive: (entityId: string, active: boolean): boolean => (typeof entityId === 'string' ? (this.blocks?.primitives.setPatrolActive(entityId, active === true) ?? false) : false),
     turn: (entityId: string): boolean => (typeof entityId === 'string' ? (this.blocks?.primitives.turnPatrol(entityId) ?? false) : false),
   });
-  /** Phase 24.4d: hitboxes (`ctx.hitbox`). */
+  /** Hitboxes (`ctx.hitbox`). */
   private readonly hitboxControl = Object.freeze({
     setActive: (entityId: string, active: boolean): boolean => (typeof entityId === 'string' ? (this.blocks?.primitives.setHitboxActive(entityId, active === true) ?? false) : false),
     touching: (entityId: string): readonly string[] => (typeof entityId === 'string' ? (this.blocks?.primitives.touching(entityId) ?? []) : []),
   });
-  /** Phase 24.4a: collectibles (`ctx.collectible`). */
+  /** Collectibles (`ctx.collectible`). */
   private readonly collectibleControl = Object.freeze({
     collected: (entityId: string): boolean => (typeof entityId === 'string' ? (this.blocks?.primitives.isCollected(entityId) ?? false) : false),
     restore: (entityId: string): boolean => (typeof entityId === 'string' ? (this.blocks?.primitives.restore(entityId) ?? false) : false),
   });
-  /** Phase 25.13: the climb volume the character's capsule centre is in (read by the character controllers in the controller phase). */
+  /** The climb volume the character's capsule centre is in (read by the character controllers in the controller phase). */
   private readonly climbQuery: ClimbQuery = Object.freeze({ volume: () => this.blocks?.climbVolume() ?? null });
-  /** Phase 24.4f: the character (`ctx.character`): an impulse (m/s added to its velocity) for its next controller phase. */
+  /** The character (`ctx.character`): an impulse (m/s added to its velocity) for its next controller phase. */
   private readonly characterControl = Object.freeze({
     impulse: (v: unknown): boolean => {
       if (this.controllerEntityId === undefined) return false;
@@ -1566,13 +1564,13 @@ class RuntimeInstance implements Runtime {
       return true;
     },
   });
-  /** Phase 24.4h: per-object look overrides (`ctx.look`; the renderer applies them). */
+  /** Per-object look overrides (`ctx.look`; the renderer applies them). */
   private readonly lookControl = Object.freeze({
     set: (entityId: string, look: unknown): boolean => (typeof entityId === 'string' ? (this.blocks?.primitives.setLook(entityId, look) ?? false) : false),
     clear: (entityId: string): boolean => (typeof entityId === 'string' ? (this.blocks?.primitives.clearLook(entityId) ?? false) : false),
     get: (entityId: string): import('./primitives').EntityLook | null => (typeof entityId === 'string' ? (this.blocks?.primitives.lookOf(entityId) ?? null) : null),
   });
-  /** Phase 23.13: the audio intent log (handles, fades, music, duck; the host plays its commands). */
+  /** The audio intent log (handles, fades, music, duck; the host plays its commands). */
   private readonly audio: AudioMixer;
   private readonly saveControl = Object.freeze({
     get: (key: string): unknown => (this.saveStore.has(String(key)) ? structuredClone(this.saveStore.get(String(key))) : undefined),
@@ -1602,7 +1600,7 @@ class RuntimeInstance implements Runtime {
   /** Storage answers queued by the host for the next sampled step. */
   private saveQueue: SaveEvent[] = [];
   private readonly audioControl: import('./types').BehaviorAudio;
-  // ---- Phase 20.2: visual effect requests (presentation only) ----
+  // ---- Visual effect requests (presentation only) ----
   /** Requests since the adapter last took them (bounded: the oldest are dropped beyond 256). */
   private effectQueue: EffectRequest[] = [];
   /** The last play handle handed out (never reset while the game runs: handles stay unique). */
@@ -1648,10 +1646,10 @@ class RuntimeInstance implements Runtime {
     },
   });
 
-  /** Entities that are never unloaded with their scene (camera, player, start spawn). Phase 25.8: lights go with their scene. */
+  /** Entities that are never unloaded with their scene (camera, player, start spawn). Lights go with their scene. */
   private readonly pinnedIds: ReadonlySet<string>;
   private readonly sceneControl: BehaviorSceneControl;
-  // ---- Phase 14.1: spawned prefab copies ----
+  // ---- Spawned prefab copies ----
   private readonly prefabs: ReadonlyMap<string, PrefabDefinition>;
   /** The live spawned entities, in spawn order (parents before children). */
   private readonly spawnedEntities = new Map<string, EntityV3>();
@@ -1682,8 +1680,8 @@ class RuntimeInstance implements Runtime {
     this.isM2 = args.isM2;
     this.timing = args.timing;
     this.actions = args.actions;
-    // Phase 23.8: injected variables are the scripts' saved values from step 0.
-    // Phase 25.17: and again at every restart (a replay, a shell's new game), so every start begins with them.
+    // Injected variables are the scripts' saved values from step 0.
+    // And again at every restart (a replay, a shell's new game), so every start begins with them.
     this.startVariables = args.variables;
     this.applyStartVariables();
     this.physics = args.physics;
@@ -1692,7 +1690,7 @@ class RuntimeInstance implements Runtime {
       for (const e of args.initialEntities) {
         const c = e.components as unknown as Record<string, unknown>;
         if (c['collider'] !== undefined && c['controller'] === undefined) this.colliderComponents3D.set(e.id, c);
-        // Phase 23.2: the character's step-up height and ground snap.
+        // The character's step-up height and ground snap.
         if (c['controller'] !== undefined) {
           const climb = character3DPhysicsOf(c['controller'], args.settings.max_slope_climb_deg);
           this.character3DClimb = { stepHeight: climb.stepHeight, groundSnap: climb.groundSnap };
@@ -1707,7 +1705,7 @@ class RuntimeInstance implements Runtime {
     this.entityCount = args.order.length;
     this.prev = args.prev;
     this.curr = args.curr;
-    // §13: the state committed at the end of the last fully completed step.
+    // The state committed at the end of the last fully completed step.
     // Initialized to the instantiate-time state so a fail-stop during the
     // 12-step settle pre-roll (before any step completes) renders only the
     // committed initial state — never the abandoned step's transform.
@@ -1734,31 +1732,31 @@ class RuntimeInstance implements Runtime {
     this.sceneControl = this.buildSceneControl();
     this.prefabs = new Map(args.prefabs.map((d) => [d.prefabId, d]));
     this.spawnControl = this.buildSpawnControl();
-    // Phase 23.5: the start scenes' block layers; in 3D their chunks collide (a 2D plane draws them only).
+    // The start scenes' block layers; in 3D their chunks collide (a 2D plane draws them only).
     this.grid = new RuntimeGrid(args.blockTypes, args.cellFields, args.physics3d !== undefined, args.settings.max_slope_climb_deg);
     this.grid.addLayers(args.initialEntities);
     this.grid.flushCollision(args.physics3d);
-    // Phase 23.12: the start set's graph materials (the values scripts set per object).
+    // The start set's graph materials (the values scripts set per object).
     this.materials = new RuntimeMaterials(args.materialCatalog);
     this.entityAccess = this.buildEntityAccess();
     this.shellControl = this.buildShellControl();
     this.materials.addEntities(args.initialEntities);
-    // Phase 23.18: the environment preset blend (before the saves, whose sections read it).
+    // The environment preset blend (before the saves, whose sections read it).
     this.environment = new EnvironmentDirector(this.hz, args.environmentPresets, (message) => this.recordBehaviorLog('thirdlight.runtime:environment', 'warn', message));
-    // Phase 23.19: project saves (the document, slots, settings; inert without a save schema).
+    // Project saves (the document, slots, settings; inert without a save schema).
     this.saves = new RuntimeSaves(args.saveSchema, this.hz, this.buildSaveSections(), args.projectSettings, (message) => this.recordBehaviorLog('thirdlight.runtime:saves', 'warn', message));
     for (const c of args.animatorControllers) this.animatorControllers.set(c.controllerId, c);
     this.addAnimators(args.initialEntities);
-    // Phase 23.13: the audio intent log (clip lengths from the snapshot's recorded durations).
+    // The audio intent log (clip lengths from the snapshot's recorded durations).
     this.audio = new AudioMixer(this.hz, args.audioDurations, () => this.stepIndex);
     this.audioControl = this.buildAudioControl();
-    // Phase 23.4: the virtual cameras of the start set (the brain is inert without one).
+    // The virtual cameras of the start set (the brain is inert without one).
     this.cameras = new CameraBrain(this.hz, { fovY: args.cameraInfo.fovY, near: args.cameraInfo.near, far: args.cameraInfo.far }, (message) => this.recordBehaviorLog('thirdlight.runtime:camera', 'warn', message));
     this.cameras.add(args.initialEntities);
     this.cameraControl = this.buildCameraControl();
-    // Phase 23.9a: the project UI (inert until a script or a frame uses it).
+    // The project UI (inert until a script or a frame uses it).
     this.ui = new UiState(args.uiDocuments);
-    // Phase 23.16: conversations (the view model under `dialogue.`, voice through the audio intent log).
+    // Conversations (the view model under `dialogue.`, voice through the audio intent log).
     const ui = this.ui;
     const durations = args.audioDurations;
     this.dialogue = new DialogueRunner(
@@ -1771,7 +1769,7 @@ class RuntimeInstance implements Runtime {
         return typeof ms === 'number' && Number.isFinite(ms) && ms > 0 ? ms / 1000 : null;
       },
     );
-    // Phase 23.10: the game modes (inert without modes) — the first run begins in the start mode.
+    // The game modes (inert without modes) — the first run begins in the start mode.
     this.modes = new ModeState(args.modes, this.hz, {
       showUi: (doc) => void this.ui.show(doc),
       hideUi: (doc) => void this.ui.hide(doc),
@@ -1786,12 +1784,12 @@ class RuntimeInstance implements Runtime {
     this.lifecycleControl = this.buildLifecycleControl();
     this.eventCues = args.eventCues ?? [];
     this.sceneList = args.sceneList ?? [];
-    // Phase 9.9: movers, triggers, switches, one-way colliders and the generic primitives
-    // (phase 24.7: the character is the controller's object in both dimensions).
+    // Movers, triggers, switches, one-way colliders and the generic primitives
+    // (the character is the controller's object in both dimensions).
     const rt = this;
     const characterComponents = args.initialEntities.find((e) => e.id === args.controllerEntityId)?.components.controller;
     this.characterActions = controllerActionsOf(characterComponents);
-    // Phase 25.13: and its climb action (a game mode that switches gameplay off holds it too).
+    // And its climb action (a game mode that switches gameplay off holds it too).
     const climbAction = controllerMovementOf(characterComponents).climbAction;
     this.characterActionNames = Object.freeze([this.characterActions.move, this.characterActions.jump, ...(climbAction !== null ? [climbAction] : [])]);
     this.blocks = new GameplayBlocks(
@@ -1800,11 +1798,11 @@ class RuntimeInstance implements Runtime {
         physics: this.physics,
         curr: this.curr,
         characterId: args.controllerEntityId ?? '',
-        // Phase 14.0: the character's own capsule (its controller's, else the default).
+        // The character's own capsule (its controller's, else the default).
         characterCapsule: playerCapsuleOf(characterComponents),
-        // Phase 15.3: the character's skin (a pushing mover keeps it).
+        // The character's skin (a pushing mover keeps it).
         characterSkin: controllerTuningOf(characterComponents).skin,
-        // Phase 25.13: gravity bodies fall under the project's gravity, capped at its fall speed.
+        // Gravity bodies fall under the project's gravity, capped at its fall speed.
         gravityY: this.settings.gravity_y,
         maxFallSpeed: this.settings.max_fall_speed,
         character: () => {
@@ -1812,7 +1810,7 @@ class RuntimeInstance implements Runtime {
           return t === undefined ? null : { x: t.position[0], y: t.position[1] };
         },
         groundEntityId: () => (rt.physics3d !== undefined ? (rt.lastCharacterResult3D?.groundEntityId ?? null) : (rt.lastCharacterResult?.groundEntityId ?? null)),
-        // Phase 23.1: the 3D world (movers posed on it, triggers in 3D).
+        // The 3D world (movers posed on it, triggers in 3D).
         ...(args.physics3d !== undefined
           ? {
               physics3d: args.physics3d,
@@ -1824,7 +1822,7 @@ class RuntimeInstance implements Runtime {
               scriptColliders3D: () => rt.scriptColliderPoses3D(),
             }
           : {}),
-        // Phase 24.4e: a trigger's scene transition.
+        // A trigger's scene transition.
         sceneTransition: (triggerId, t) => rt.beginSceneTransition(triggerId, t),
         effect: (r) => void rt.pushEffect({ op: r.op, effectId: r.effectId, entityId: r.entityId, position: r.position, params: null, source: r.source }),
       },
@@ -1840,7 +1838,7 @@ class RuntimeInstance implements Runtime {
           trigger: (name: string) => m.trigger(String(name)),
           get: (name: string) => m.get(String(name)),
           state: (layer?: number) => m.stateName(typeof layer === 'number' && Number.isInteger(layer) && layer >= 0 ? layer : 0),
-          // Phase 23.11: per-instance playback speed and morph weights.
+          // Per-instance playback speed and morph weights.
           setSpeed: (speed: number) => m.setSpeed(speed),
           speed: () => m.speed(),
           setMorph: (name: string, weight: number) => m.setMorph(String(name), weight),
@@ -1848,7 +1846,7 @@ class RuntimeInstance implements Runtime {
         });
       },
     });
-    // Phase 23.11: sockets — the start set's authored ones attach now and sit on their nodes from the first frame.
+    // Sockets — the start set's authored ones attach now and sit on their nodes from the first frame.
     this.sockets = new SocketSystem(args.rigs, {
       get curr() {
         return rt.curr;
@@ -1861,14 +1859,14 @@ class RuntimeInstance implements Runtime {
     this.sockets.add(args.initialEntities);
     this.settleSockets();
     this.socketControl = this.buildSocketControl();
-    // Phase 23.17: the timelines (inert while the project has none).
+    // The timelines (inert while the project has none).
     this.timelines = new TimelineSystem(args.timelines ?? [], this.hz, this.buildTimelineHost());
     this.timelineControl = this.buildTimelineControl();
-    // Phase 24.4i: the event → cue table listens to the blocks' signals and events.
+    // The event → cue table listens to the blocks' signals and events.
     if (this.eventCues.length > 0) this.blocks?.enableCueLog();
   }
 
-  // ---- Phase 23.11: sockets ---------------------------------------------------------
+  // ---- Sockets ---------------------------------------------------------
 
   /**
    * Pose the attached entities now and make `prev` (and the committed copy)
@@ -1917,7 +1915,7 @@ class RuntimeInstance implements Runtime {
     });
   }
 
-  // ---- Phase 9.7: animators -------------------------------------------------
+  // ---- Animators -------------------------------------------------
 
   /** Start an animator for every entity of these that has one (and whose controller exists). */
   private addAnimators(entities: readonly EntityV3[]): void {
@@ -1948,7 +1946,7 @@ class RuntimeInstance implements Runtime {
     this.animatorLastPos = null;
   }
 
-  /** The character the locomotion parameters describe: the controller's object (phase 24.6). */
+  /** The character the locomotion parameters describe: the controller's object. */
   private animatedCharacter(): string {
     return this.controllerEntityId ?? '';
   }
@@ -1965,7 +1963,7 @@ class RuntimeInstance implements Runtime {
   }
 
   /**
-   * Phase 24.6: the character's motion over the last step (its position a
+   * The character's motion over the last step (its position a
    * step ago; null after a reset): horizontal speed (x and z), vertical
    * velocity and the controller's grounding.
    */
@@ -1986,7 +1984,7 @@ class RuntimeInstance implements Runtime {
    * Advance every animator by one fixed step. The character's animators get
    * `speed` (horizontal, m/s), `grounded`, `velocityY` and the `landed`
    * trigger from the committed motion, when their controller has them — the
-   * controller's object (phase 24.6).
+   * controller's object.
    */
   private stepAnimators(): void {
     if (this.animatorMachines.size === 0) return;
@@ -1997,7 +1995,7 @@ class RuntimeInstance implements Runtime {
     const dt = 1 / this.hz;
     const off = this.entityAccess.inactive();
     for (const [id, { machine }] of this.animatorMachines) {
-      // Phase 25.10: a switched-off object's animator holds its pose.
+      // A switched-off object's animator holds its pose.
       if (off.size > 0 && off.has(id)) continue;
       if (this.isPlayerOrChild(id)) {
         machine.set('speed', speed);
@@ -2011,7 +2009,7 @@ class RuntimeInstance implements Runtime {
   }
 
   /**
-   * Phase 20.2: the effect requests since the last call (scripts'
+   * The effect requests since the last call (scripts'
    * `ctx.effects`, effect components' signals, gameplay hooks), in the order
    * they were made; the adapter plays them. Taking them changes nothing the
    * simulation computes.
@@ -2023,7 +2021,7 @@ class RuntimeInstance implements Runtime {
   }
 
   /**
-   * Phase 23.5: the block-layer chunks to re-mesh since the last call (their
+   * The block-layer chunks to re-mesh since the last call (their
    * cells now; null: no cells left) — cells scripts wrote, layers of scenes
    * loaded, a new run back to the authored cells. The renderer applies them
    * to its copy of each layer. Taking them changes nothing the simulation computes.
@@ -2032,13 +2030,13 @@ class RuntimeInstance implements Runtime {
     return this.grid.takeRenderChanges();
   }
 
-  /** Phase 23.5: the cells changed since the run started (tests, saves). */
+  /** The cells changed since the run started (tests, saves). */
   gridDiff(): import('./grid').GridDiff {
     return this.grid.api.diff();
   }
 
   /**
-   * Phase 23.12: the material parameters scripts changed since the last call
+   * The material parameters scripts changed since the last call
    * (the latest value of each, a cleared one, a data parameter's grid) — the
    * renderer applies them per object. Taking them changes nothing the simulation computes.
    */
@@ -2046,13 +2044,13 @@ class RuntimeInstance implements Runtime {
     return this.materials.takeRenderChanges();
   }
 
-  /** Phase 23.12: the values scripts set, as digest text (null while none is set). */
+  /** The values scripts set, as digest text (null while none is set). */
   materialState(): string | null {
     return this.materials.digestText();
   }
 
   /**
-   * Phase 23.18: the environment preset weights interpolated like the
+   * The environment preset weights interpolated like the
    * transforms (the renderer blends the look from them), or null until a
    * script changed the environment. Reading changes nothing the simulation computes.
    */
@@ -2061,12 +2059,12 @@ class RuntimeInstance implements Runtime {
     return this.environment.view(this.stateName === 'failed' ? 1 : this.lastAlpha);
   }
 
-  /** Phase 23.18: the committed environment blend as digest text (null until a script changed it). */
+  /** The committed environment blend as digest text (null until a script changed it). */
   environmentState(): string | null {
     return this.environment.digestText();
   }
 
-  /** Phase 24.4j: the player's save from the game shell, made now (between steps) and handed to the host with the next requests. */
+  /** The player's save from the game shell, made now (between steps) and handed to the host with the next requests. */
   requestSave(slot: number, meta?: import('./project-saves').SaveMeta): { ok: true } | { ok: false; error: RuntimeError } {
     if (this.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
     if (this.saves.schema === null) return { ok: false, error: fail('game_command_invalid', 'this game has no project save schema', { reason: 'saves' }) };
@@ -2074,18 +2072,18 @@ class RuntimeInstance implements Runtime {
     return problem === null ? { ok: true } : { ok: false, error: fail('game_command_invalid', problem, { reason: 'saves' }) };
   }
 
-  /** Phase 24.4j: every object's health now (the HUD's bindings). */
+  /** Every object's health now (the HUD's bindings). */
   healthsView(): Readonly<Record<string, { readonly current: number; readonly max: number }>> {
     return this.blocks?.primitives.healthsView() ?? {};
   }
 
-  /** Phase 23.19: the save/load/delete/settings requests since the last call; the host (the storage owner) carries them out. */
+  /** The save/load/delete/settings requests since the last call; the host (the storage owner) carries them out. */
   takeSaveRequests(): SaveRequest[] {
     return this.saves.takeRequests();
   }
 
   /**
-   * Phase 23.19: queue one storage answer (the slot list, a save/delete
+   * Queue one storage answer (the slot list, a save/delete
    * outcome, a loaded document) for the next sampled step — it rides on that
    * step's input frame, so a recording replays it and the worker applies it
    * at the same step. Refused for a project without a save schema, a bad
@@ -2101,17 +2099,17 @@ class RuntimeInstance implements Runtime {
     return { ok: true };
   }
 
-  /** Phase 23.19: the project saves state as digest text (null without a save schema or before any save activity). */
+  /** The project saves state as digest text (null without a save schema or before any save activity). */
   savesState(): string | null {
     return this.saves.digestText();
   }
 
-  /** Phase 23.19: the project settings document now (empty without a save schema). */
+  /** The project settings document now (empty without a save schema). */
   projectSettings(): Readonly<Record<string, boolean | number | string>> {
     return this.saves.settingsNow();
   }
 
-  /** Phase 23.19: the engine state a save document's sections capture and restore. */
+  /** The engine state a save document's sections capture and restore. */
   private buildSaveSections(): SaveSectionsPort {
     const rt = this;
     return {
@@ -2130,10 +2128,10 @@ class RuntimeInstance implements Runtime {
           case 'environment':
             return rt.environment.saveState();
           case 'components': {
-            // Phase 24.4j: the named counters travel with the objects' state (a collectible's total with it being collected).
+            // The named counters travel with the objects' state (a collectible's total with it being collected).
             const state = rt.blocks?.primitives.saveState() ?? {};
             const counters = rt.blocks?.countersView() ?? {};
-            // Phase 25.10: the fields scripts wrote (ctx.entity(id).set), only when there are any.
+            // The fields scripts wrote (ctx.entity(id).set), only when there are any.
             const fields = rt.entityAccess.saveState();
             return { ...state, ...(Object.keys(counters).length > 0 ? { counters } : {}), ...(Object.keys(fields).length > 0 ? { fields } : {}) };
           }
@@ -2192,7 +2190,7 @@ class RuntimeInstance implements Runtime {
             return null;
           case 'dialogue':
             rt.dialogue.restoreState(value);
-            // D36: the dialogue case fell through into the environment's restore.
+            // The dialogue case fell through into the environment's restore.
             return null;
           case 'environment':
             rt.environment.restoreState(value as EnvironmentSaveState | undefined);
@@ -2209,7 +2207,7 @@ class RuntimeInstance implements Runtime {
     };
   }
 
-  /** Phase 23.19: the live spawned copies (prefab, ids in prefab order, the root's placement now). */
+  /** The live spawned copies (prefab, ids in prefab order, the root's placement now). */
   private spawnedCopies(): SavedSpawnCopy[] {
     const out: SavedSpawnCopy[] = [];
     const copyOf = new Map<string, string[]>();
@@ -2260,7 +2258,7 @@ class RuntimeInstance implements Runtime {
     return null;
   }
 
-  /** Phase 23.19: the spawned copies become the saved ones at the next step boundary (checked with `spawnedCopiesProblem`). */
+  /** The spawned copies become the saved ones at the next step boundary (checked with `spawnedCopiesProblem`). */
   private restoreSpawnedCopies(copies: readonly SavedSpawnCopy[]): void {
     this.spawnOps = [];
     this.reservedSpawnIds.clear();
@@ -2285,8 +2283,8 @@ class RuntimeInstance implements Runtime {
 
 
   /**
-   * Phase 9.10: the sounds scripts played since the last call; the host plays
-   * them. Phase 23.13: the audio intent log's commands (plays with handles,
+   * The sounds scripts played since the last call; the host plays
+   * them. The audio intent log's commands (plays with handles,
    * stops, fades, music, duck, bus mix, reset), in the order they were made.
    * Taking them changes nothing the simulation computes.
    */
@@ -2294,12 +2292,12 @@ class RuntimeInstance implements Runtime {
     return this.audio.take();
   }
 
-  /** Phase 23.13: the audio intent log's deterministic state (null while scripts never used audio). */
+  /** The audio intent log's deterministic state (null while scripts never used audio). */
   audioState(): Record<string, unknown> | null {
     return this.audio.state();
   }
 
-  /** Phase 9.10: pause or resume the simulation (frames still render and reach onFrame). */
+  /** Pause or resume the simulation (frames still render and reach onFrame). */
   setPaused(paused: boolean): void {
     this.paused = paused === true;
   }
@@ -2308,13 +2306,13 @@ class RuntimeInstance implements Runtime {
     return this.paused;
   }
 
-  /** Phase 22.0: the last frame's interpolation alpha (what `getInterpolatedState().state.alpha` reports), without building the state. */
+  /** The last frame's interpolation alpha (what `getInterpolatedState().state.alpha` reports), without building the state. */
   get interpolationAlpha(): number {
     return this.stateName === 'failed' ? 0 : this.lastAlpha;
   }
 
   /**
-   * Phase 19.2 (Play debugging): hold the simulation at the next step
+   * Play debugging: hold the simulation at the next step
    * boundary (true) or let it run on (false). Frames still render and reach
    * onFrame; the clock resumes from where it was released (no catch-up).
    * Holding changes nothing the simulation computes: the same steps run
@@ -2325,18 +2323,18 @@ class RuntimeInstance implements Runtime {
     if (!this.debugHold) this.debugSteps = 0;
   }
 
-  /** Phase 19.2: held at a step boundary by the debugger. */
+  /** Held at a step boundary by the debugger. */
   get debugHeld(): boolean {
     return this.debugHold;
   }
 
-  /** Phase 19.2: while held, run exactly one more step on the next frame (then stay held). */
+  /** While held, run exactly one more step on the next frame (then stay held). */
   debugStep(): void {
     if (this.debugHold) this.debugSteps += 1;
   }
 
   /**
-   * Phase 19.2: a check after every executed step (settle steps excluded):
+   * A check after every executed step (settle steps excluded):
    * returning true holds the simulation right there — the rest of that
    * frame's steps do not run (a breakpoint pauses at a step boundary, the
    * same one whatever the frame rate). null removes it.
@@ -2345,13 +2343,13 @@ class RuntimeInstance implements Runtime {
     this.stepWatcher = watcher;
   }
 
-  /** Phase 25.16: an observer told after every executed step (settle steps excluded) with the step count; null removes it. */
+  /** An observer told after every executed step (settle steps excluded) with the step count; null removes it. */
   setStepObserver(observer: ((stepIndex: number) => void) | null): void {
     this.stepObserver = observer;
   }
 
   /**
-   * Phase 25.16: where this run began — the step count (0, or the boundary
+   * Where this run began — the step count (0, or the boundary
    * of the last restart) and the number of the last spawned copy then (a
    * run's copies are numbered after it: ids are never reused in a play).
    */
@@ -2360,8 +2358,8 @@ class RuntimeInstance implements Runtime {
   }
 
   /**
-   * Phase 9.9: entities hidden (collected collectibles, ctx.game.setVisible; the renderer hides them).
-   * Phase 25.10: with the objects scripts switched off (and their children), which are not drawn either.
+   * Entities hidden (collected collectibles, ctx.game.setVisible; the renderer hides them).
+   * With the objects scripts switched off (and their children), which are not drawn either.
    */
   hiddenEntities(): ReadonlySet<string> {
     const hidden = this.blocks?.hiddenEntities() ?? NO_IDS;
@@ -2375,22 +2373,22 @@ class RuntimeInstance implements Runtime {
   }
   private hiddenUnion: { hidden: ReadonlySet<string>; off: ReadonlySet<string>; size: number; set: ReadonlySet<string> } | null = null;
 
-  /** Phase 25.10: the objects scripts switched off, with their children (not drawn, no collision, no triggers, no ticking; audio sources silent). */
+  /** The objects scripts switched off, with their children (not drawn, no collision, no triggers, no ticking; audio sources silent). */
   inactiveEntities(): ReadonlySet<string> {
     return this.entityAccess.inactive();
   }
 
-  /** Phase 25.10: the light values scripts wrote (`ctx.entity(id).set('light', …)`), by object; the renderer applies them. */
+  /** The light values scripts wrote (`ctx.entity(id).set('light', …)`), by object; the renderer applies them. */
   lightOverrides(): ReadonlyMap<string, LightOverride> {
     return this.entityAccess.lightOverrides();
   }
 
-  /** Phase 25.10: the fields scripts wrote, as digest text (null while none: every other digest is unchanged). */
+  /** The fields scripts wrote, as digest text (null while none: every other digest is unchanged). */
   entityFieldsState(): string | null {
     return this.entityAccess.digestText();
   }
 
-  /** Phase 25.10: `ctx.entity` — what the generic component access reads and writes in this runtime. */
+  /** `ctx.entity` — what the generic component access reads and writes in this runtime. */
   private buildEntityAccess(): EntityAccess {
     const rt = this;
     return new EntityAccess({
@@ -2427,7 +2425,7 @@ class RuntimeInstance implements Runtime {
   }
 
   /**
-   * Phase 25.10: objects were switched off or on (with their children): the
+   * Objects were switched off or on (with their children): the
    * blocks skip them, their colliders leave the physics world (and come back
    * where they are now), their scripts and animators stop ticking (read per
    * step), the renderer hides them (`hiddenEntities`).
@@ -2469,7 +2467,7 @@ class RuntimeInstance implements Runtime {
   }
 
   /**
-   * Phase 25.10: a behavior's `entityRef` property keys (its module's
+   * A behavior's `entityRef` property keys (its module's
    * declaration), for the typed remap of prefab-local references in spawned
    * copies; undefined for a behavior this game has no module for.
    */
@@ -2479,7 +2477,7 @@ class RuntimeInstance implements Runtime {
     return typeof probe?.behaviorEntityRefKeys === 'function' ? probe.behaviorEntityRefKeys() : undefined;
   };
 
-  /** Phase 25.10: `ctx.shell` — the shell's scene list (the same move as the shell's nextScene UI action). */
+  /** `ctx.shell` — the shell's scene list (the same move as the shell's nextScene UI action). */
   private buildShellControl(): import('./types').BehaviorShell {
     const rt = this;
     return Object.freeze({
@@ -2499,12 +2497,12 @@ class RuntimeInstance implements Runtime {
     });
   }
 
-  /** Phase 9.9: the run's named counters and the character's health. */
+  /** The run's named counters and the character's health. */
   gameCounters(): { counters: Record<string, number>; health: { current: number; max: number } | null } {
     return { counters: this.blocks?.countersView() ?? {}, health: this.blocks?.healthView() ?? null };
   }
 
-  /** Phase 9.7: every loaded animator's pose (the renderer plays these). */
+  /** Every loaded animator's pose (the renderer plays these). */
   animatorPoses(): ReadonlyMap<string, AnimatorPose> {
     const out = new Map<string, AnimatorPose>();
     for (const [id, { machine }] of this.animatorMachines) out.set(id, machine.pose());
@@ -2526,9 +2524,9 @@ class RuntimeInstance implements Runtime {
     if (this.isM2 && !this.prerollDone) this.needsPreroll = true;
     this.stateName = 'running';
     if (this.driverKind === 'raf') {
-      // Exactly one driver at any time (normative, §3.2): one rAF loop,
+      // Exactly one driver at any time (normative): one rAF loop,
       // installed here, cancelled on stop/dispose. The wall anchor is set
-      // on the FIRST frame (§5.6), not here.
+      // on the FIRST frame, not here.
       this.rafId = globalThis.requestAnimationFrame(this.onRafFrame);
     }
     // Manual driver: no auto-loop; the host calls tick(), and the first
@@ -2541,7 +2539,7 @@ class RuntimeInstance implements Runtime {
       return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
     }
     if (this.stateName === 'failed') {
-      // §13 effect 5: stop() from `failed` returns { ok: true } (no driver).
+      // stop() from `failed` returns { ok: true } (no driver).
       return { ok: true };
     }
     if (this.stateName !== 'running') {
@@ -2581,7 +2579,7 @@ class RuntimeInstance implements Runtime {
   }
 
   getDiagnostics(): { ok: true; diagnostics: RuntimeDiagnostics } | { ok: false; error: RuntimeError } {
-    // Works in every state, including disposed (runtime.md §8).
+    // Works in every state, including disposed.
     return { ok: true, diagnostics: this.buildDiagnostics() };
   }
 
@@ -2602,7 +2600,7 @@ class RuntimeInstance implements Runtime {
         alpha === 0 ||
         (vec3Equal(p.position, c.position) && vec3Equal(p.scale, c.scale) && quatEqual(p.rotation, c.rotation))
       ) {
-        // §6: alpha == 0 or prev == curr ⇒ the result is curr exactly.
+        // Alpha == 0 or prev == curr ⇒ the result is curr exactly.
         transforms.push({
           id,
           position: [c.position[0], c.position[1], c.position[2]],
@@ -2622,7 +2620,7 @@ class RuntimeInstance implements Runtime {
   }
 
   /**
-   * Phase 21.2: the interpolated transform of every entity (draw order), the
+   * The interpolated transform of every entity (draw order), the
    * values `getInterpolatedState` would return, handed to `visit` in three
    * arrays the runtime reuses (copy them; they change at the next entity) —
    * no objects per frame. False when the runtime is disposed.
@@ -2641,7 +2639,7 @@ class RuntimeInstance implements Runtime {
     return true;
   }
 
-  /** Phase 25.17 (D51): every entity's committed transform (the last step's state; no interpolation). */
+  /** Every entity's committed transform (the last step's state; no interpolation). */
   forEachCommitted(visit: InterpolatedVisitor): boolean {
     if (this.stateName === 'disposed') return false;
     const curr = this.stateName === 'failed' && this.committed !== null ? this.committed : this.curr;
@@ -2655,7 +2653,7 @@ class RuntimeInstance implements Runtime {
   }
 
   /**
-   * Phase 21.2: one entity's interpolated transform into the caller's arrays
+   * One entity's interpolated transform into the caller's arrays
    * (no allocation). False when the runtime is disposed or has no such entity.
    */
   readInterpolated(id: string, position: number[], rotation: number[], scale: number[]): boolean {
@@ -2674,7 +2672,7 @@ class RuntimeInstance implements Runtime {
   private readonly interpRotation: number[] = [0, 0, 0, 1];
   private readonly interpScale: number[] = [1, 1, 1];
 
-  // ---- Phase 23.4: the resolved camera (virtual cameras) ------------------------
+  // ---- The resolved camera (virtual cameras) ------------------------
 
   /**
    * The view the camera brain resolved, interpolated like the transforms
@@ -2695,16 +2693,16 @@ class RuntimeInstance implements Runtime {
 
   /**
    * The viewport the view is drawn in (the renderer reports it): screen↔world
-   * projection (`ctx.camera`) uses its aspect (16:9 until reported). Unlike
-   * `setViewport` it never feeds the session follow camera, so games
-   * without virtual cameras keep their exact framing.
+   * projection (`ctx.camera`) uses its aspect (16:9 until reported). It
+   * moves no camera, so games without virtual cameras keep their exact
+   * framing.
    */
   setCameraViewport(width: number, height: number): boolean {
     if (this.stateName === 'disposed') return false;
     return this.cameras.setViewport(width, height);
   }
 
-  /** Phase 23.4: one camera-brain step on the step's committed transforms. */
+  /** One camera-brain step on the step's committed transforms. */
   private stepCameras(action: ActionFrame | null): void {
     if (!this.cameras.active) return;
     const base = this.curr.get(this.cameraInfo.id);
@@ -2773,7 +2771,7 @@ class RuntimeInstance implements Runtime {
     return true;
   }
 
-  /** Phase 23.13: `ctx.audio` (arguments checked by the mixer; every change is a command in step order). */
+  /** `ctx.audio` (arguments checked by the mixer; every change is a command in step order). */
   private buildAudioControl(): import('./types').BehaviorAudio {
     const a = this.audio;
     return Object.freeze({
@@ -2798,7 +2796,7 @@ class RuntimeInstance implements Runtime {
     });
   }
 
-  /** Phase 23.4: `ctx.camera` (arguments checked here; the brain applies them in order). */
+  /** `ctx.camera` (arguments checked here; the brain applies them in order). */
   private buildCameraControl(): import('./types').BehaviorCamera {
     const brain = this.cameras;
     const blendOf = (o: unknown): unknown => (typeof o === 'object' && o !== null ? o : undefined);
@@ -2813,13 +2811,13 @@ class RuntimeInstance implements Runtime {
       live: (): string | null => brain.live(),
       blending: (): boolean => brain.blending(),
       get: (cameraId: string) => brain.get(String(cameraId)),
-      // Phase 23.3: without a live virtual camera the projection is the scene camera's (it was a fixed default pose).
+      // Without a live virtual camera the projection is the scene camera's (it was a fixed default pose).
       worldToScreen: (position: readonly number[]) => (this.brainHasView() ? brain.worldToScreen(Array.isArray(position) ? position : [0, 0, 0]) : this.baseWorldToScreen(Array.isArray(position) ? position : [0, 0, 0])),
       screenToRay: (x: number, y: number) => this.screenRay(Number(x), Number(y)),
     }) as import('./types').BehaviorCamera;
   }
 
-  /** The §6 rule for one entity into the reused arrays (see `getInterpolatedState`). */
+  /** The interpolation rule for one entity into the reused arrays (see `getInterpolatedState`). */
   private interpolateInto(id: string, prev: ReadonlyMap<string, TransformState>, curr: ReadonlyMap<string, TransformState>, alpha: number): boolean {
     const p = prev.get(id);
     const c = curr.get(id);
@@ -2850,7 +2848,7 @@ class RuntimeInstance implements Runtime {
     if (this.stateName === 'disposed') {
       return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
     }
-    // Stable for the session (runtime.md §6): the snapshot's camera
+    // Stable for the session: the snapshot's camera
     // projection parameters; aspect is a viewport property.
     return {
       ok: true,
@@ -2858,7 +2856,7 @@ class RuntimeInstance implements Runtime {
     };
   }
 
-  // ---- Phase 12 (c) scene set ---------------------------------------------
+  // ---- Scene set ---------------------------------------------------------
 
   sceneSet(): SceneSetView {
     if (this.sceneSetCache === null) {
@@ -2891,7 +2889,7 @@ class RuntimeInstance implements Runtime {
     if (!this.fetchingLoads.has(sceneId)) return { ok: true };
     if (!result.ok) {
       this.fetchingLoads.delete(sceneId);
-      // Phase 25.24e: a transition to a scene that could not be read keeps the world it has.
+      // A transition to a scene that could not be read keeps the world it has.
       this.transitions.delete(sceneId);
       this.setSceneStatus(sceneId, 'unloaded');
       this.recordError({ code: 'scene_load_failed', message: clipMessage(`scene "${sceneId}" could not be loaded: ${result.message}`), stepIndex: this.stepIndex, reason: 'fetch' });
@@ -2909,7 +2907,7 @@ class RuntimeInstance implements Runtime {
     return { ok: true };
   }
 
-  /** Phase 25.24e: a load op from (validated) load options: its offset, and a transition when it unloads or fades. */
+  /** A load op from (validated) load options: its offset, and a transition when it unloads or fades. */
   private loadOp(sceneId: string, options: SceneLoadOptions | undefined): SceneOp {
     const at = options?.at;
     const unload = options?.unload ?? [];
@@ -2922,7 +2920,7 @@ class RuntimeInstance implements Runtime {
     };
   }
 
-  /** Phase 25.24e: the scenes being loaded, the transition waiting and the last swap (unchanged views are the same object). */
+  /** The scenes being loaded, the transition waiting and the last swap (unchanged views are the same object). */
   sceneLoadingView(): import('./types').SceneLoadingView {
     const loading: string[] = [];
     for (const [id, st] of this.sceneStatus) if (st === 'loading') loading.push(id);
@@ -2941,7 +2939,7 @@ class RuntimeInstance implements Runtime {
   }
 
   /**
-   * Phase 24.6: a test or debug start's spawn in a game without the game
+   * A test or debug start's spawn in a game without the game
    * session (Play from a scene, `tl_play_start sceneId`): the character
    * arrives at `spawnId` once `sceneId` is loaded, as a scene transition's
    * arrival (the spawn becomes the active one).
@@ -2960,10 +2958,10 @@ class RuntimeInstance implements Runtime {
     this.cancelDriver();
     this.stateName = 'disposed';
     // Capture the behavior log totals before the instances are released so
-    // `logCount`/`logDropped` stay observable after disposal (runtime.md §8).
+    // `logCount`/`logDropped` stay observable after disposal.
     this.behaviorLogDiagnostics();
     // Release the module instances and all references held by the
-    // runtime so the heap is reclaimable (runtime.md §3.4/§13): dispose is
+    // runtime so the heap is reclaimable: dispose is
     // called exactly once on every module instance (including a failed one)
     // and on the port.
     for (const entry of this.entries) {
@@ -3016,17 +3014,17 @@ class RuntimeInstance implements Runtime {
     if (this.stateName !== 'running' || this.driverKind !== 'raf') return; // cancelled
     this.runFrame(this.clock());
     // The loop reschedules itself: exactly ONE live rAF callback while
-    // running; stop/dispose cancel it (no duplicate loops, §3.2).
+    // running; stop/dispose cancel it (no duplicate loops).
     if (this.stateName === 'running') {
       this.rafId = globalThis.requestAnimationFrame(this.onRafFrame);
     }
   };
 
-  /** One frame update (§5) + onFrame (§6 frame ordering: step → onFrame). */
+  /** One frame update + onFrame (frame ordering: step → onFrame). */
   private runFrame(t: number): void {
-    this.frameCount += 1; // §5 frame updates, including zero-step frames
+    this.frameCount += 1; // frame updates, including zero-step frames
     if (this.needsPreroll) {
-      // §3.2 settle pre-roll: exactly `settleTime` of steps (default
+      // Settle pre-roll: exactly `settleTime` of steps (default
       // SETTLE_PREROLL_STEPS) with neutral frames, no input sampling, no wall
       // time; the anchor is installed at this frame's simTime afterwards.
       this.needsPreroll = false;
@@ -3042,7 +3040,7 @@ class RuntimeInstance implements Runtime {
     }
     if (!this.anchor) {
       // First frame after start: initialize the anchor at that frame
-      // (§5.6) — time before start is never simulated (zero steps).
+      //  — time before start is never simulated (zero steps).
       this.anchor = { wall: t, simTime: this.simTime };
       this.lastAlpha = 0;
       this.onFrame?.();
@@ -3051,14 +3049,14 @@ class RuntimeInstance implements Runtime {
     const elapsed = t - this.anchor.wall;
     if (elapsed < 0) {
       // Non-monotonic clock: zero steps + one clock_warning diagnostic
-      // count, no error (§5.1). The anchor is left in place.
+      // count, no error. The anchor is left in place.
       this.clockWarningCount += 1;
       this.lastAlpha = 0;
       this.onFrame?.();
       return;
     }
     if (this.debugHold) {
-      // Phase 19.2: held by the debugger — no steps (and nothing applied at the
+      // Held by the debugger — no steps (and nothing applied at the
       // boundary) except the single steps it allowed; the clock resumes from here.
       if (this.debugSteps > 0) {
         this.debugSteps -= 1;
@@ -3073,8 +3071,8 @@ class RuntimeInstance implements Runtime {
       return;
     }
     if (this.paused) {
-      // Phase 9.10: no steps while paused; the clock resumes from here.
-      // Phase 14.5: scene loads/unloads still apply (a paused game's menu may
+      // No steps while paused; the clock resumes from here.
+      // Scene loads/unloads still apply (a paused game's menu may
       // show another scene — the title background); this is the same step
       // boundary the next step would apply them at, so runs replay alike.
       if (!this.applySceneOps(false)) return;
@@ -3083,7 +3081,7 @@ class RuntimeInstance implements Runtime {
       this.onFrame?.();
       return;
     }
-    // Phase 23.10: the game mode's time scale — fewer or more fixed steps per wall second, each
+    // The game mode's time scale — fewer or more fixed steps per wall second, each
     // step unchanged (1 without modes: exactly the arithmetic before).
     const targetSim = this.anchor.simTime + elapsed * this.anchorScale;
     const rawN = Math.floor((targetSim - this.simTime) / this.dt + STEP_COUNT_EPS);
@@ -3093,16 +3091,16 @@ class RuntimeInstance implements Runtime {
       if (this.isM2) {
         if (!this.stepOnceM2()) return; // fail-stop: no further frame/onFrame
       } else if (!this.stepOnce()) {
-        return; // phase 23.0: a 3D physics fail-stop (the only way a plain step stops)
+        return; // a 3D physics fail-stop (the only way a plain step stops)
       }
       this.stepObserver?.(this.stepIndex);
-      // Phase 25.17: an observer that held the simulation (an input exercise with `hold`) stops the frame's steps right there.
+      // An observer that held the simulation (an input exercise with `hold`) stops the frame's steps right there.
       if (this.debugHold) {
         this.debugSteps = 0;
         held = true;
         break;
       }
-      // Phase 19.2: a breakpoint holds right after the step it hit.
+      // A breakpoint holds right after the step it hit.
       if (this.stepWatcher !== null && this.stepWatcher(this.stepIndex)) {
         this.debugHold = true;
         this.debugSteps = 0;
@@ -3114,10 +3112,10 @@ class RuntimeInstance implements Runtime {
       this.anchor = { wall: t, simTime: this.simTime };
       this.lastAlpha = 0;
     } else if (rawN > MAX_CATCHUP_STEPS) {
-      // Bounded catch-up (normative, §5.4): drop the remainder and
+      // Bounded catch-up (normative): drop the remainder and
       // resync the anchor — no unbounded burst after a stall. The
       // resync makes targetSim == simTime for the display, so
-      // alpha = 0 (§6).
+      // alpha = 0.
       this.droppedSteps += rawN - MAX_CATCHUP_STEPS;
       if (this.isM2) this.droppedInputSteps += rawN - MAX_CATCHUP_STEPS;
       this.anchor = { wall: t, simTime: this.simTime };
@@ -3125,7 +3123,7 @@ class RuntimeInstance implements Runtime {
     } else {
       this.lastAlpha = clamp01((targetSim - this.simTime) / this.dt);
     }
-    // Phase 23.10: a switch changed the time scale — the clock is re-anchored here (no jump).
+    // A switch changed the time scale — the clock is re-anchored here (no jump).
     if (this.modes.active && this.modes.timeScale() !== this.anchorScale) {
       this.anchorScale = this.modes.timeScale();
       this.anchor = { wall: t, simTime: this.simTime };
@@ -3134,36 +3132,36 @@ class RuntimeInstance implements Runtime {
     this.onFrame?.();
   }
 
-  /** One fixed M1 step (§5.3 + §5.1 module isolation). */
+  /** One fixed M1 step (with module isolation). */
   private stepOnce(): boolean {
-    // Phase 12 (c): scene loads/unloads requested by the host apply here too.
+    // Scene loads/unloads requested by the host apply here too.
     if (!this.applySceneOps()) return true;
-    // Phase 24.4e: a scene transition's arrival once its scene is loaded.
+    // A scene transition's arrival once its scene is loaded.
     if (this.pendingArrival !== null && !this.runArrival(this.stepIndex + 1)) return false;
-    // Phase 24.8: a loaded save's placement once its scenes are in.
+    // A loaded save's placement once its scenes are in.
     if (this.pendingRestore !== null && !this.runRestorePlace(this.stepIndex + 1)) return false;
-    // Phase 23.10: a restart asked for, then the game mode's step start.
+    // A restart asked for, then the game mode's step start.
     if (this.pendingRestart && !this.restartRun(this.stepIndex + 1)) return false;
     if (this.pendingListedScene !== null) this.goToListedScene();
     this.modes.beginStep(this.stepIndex + 1);
     this.grid.beginStep(this.stepIndex + 1);
     this.materials.beginStep(this.stepIndex + 1);
-    // §5.1: copy curr before the step; restore it if any module throws
-    // (no partial module application). Phase 23.0: into the reused step
-    // buffer `prev` does not hold (as the M2 step does since phase 21.2) — a
-    // 3D scene plays on this path, and a fresh copy per step was ~0.5 KiB of
-    // garbage per entity per step.
+    // Copy curr before the step; restore it if any module throws
+    // (no partial module application). Into the reused step
+    // buffer `prev` does not hold (as the M2 step does) — a 3D scene plays on
+    // this path, and a fresh copy per step would be ~0.5 KiB of garbage per
+    // entity per step.
     const backupMirror = this.stepMirrors[this.stepMirrors[0].map === this.prev ? 1 : 0];
     backupMirror.copyFrom(this.curr, this.currShape);
     const backup = backupMirror.map;
     let failed = false;
     // The module receives the 1-based ordinal of the step being executed:
-    // per §5.3 the step completes the stepIndex it is called with
-    // ("curr := step(curr, stepIndex); stepIndex++") — the m1-acceptance
-    // exact points (x0+A at stepIndex 119 under the §7.1 `(stepIndex + 1)`
-    // offset) pin this ordinal semantics. The SimState view still carries
-    // the state fields as written in §4/§5.3 (stepIndex = completed steps
-    // at call time; simTime = stepIndex / fixedStepHz).
+    // the step completes the stepIndex it is called with
+    // ("curr := step(curr, stepIndex); stepIndex++") — the demo's exact
+    // points (x0+A at stepIndex 119 under its `(stepIndex + 1)` offset) pin
+    // this ordinal semantics. The SimState view still carries completed
+    // steps (stepIndex = completed steps at call time;
+    // simTime = stepIndex / fixedStepHz).
     const stepOrdinal = this.stepIndex + 1;
     const view: SimState = {
       order: this.order,
@@ -3174,7 +3172,7 @@ class RuntimeInstance implements Runtime {
       curr: this.curr,
     };
     for (const entry of this.entries) {
-      // Registration order (§5.3: each module in registration order).
+      // Registration order (each module in registration order).
       try {
         (entry.instance as SimulationModule).step(view, stepOrdinal);
       } catch (e) {
@@ -3187,19 +3185,19 @@ class RuntimeInstance implements Runtime {
       // The step is a no-op: curr restored, stepIndex and simTime do not
       // advance; a module_error diagnostic is recorded. The failed module
       // instance is not re-created; the step keeps no-opping on every
-      // subsequent step until disposed (§5.1).
+      // subsequent step until disposed.
       this.curr = cloneCurr(backup);
       return true;
     }
-    // Phase 24.4: a 2D-plane plain step runs the generic primitives (patrols walk; no physics world for their probes).
+    // A 2D-plane plain step runs the generic primitives (patrols walk; no physics world for their probes).
     if (this.physics3d === undefined && !this.modes.physicsHeld) this.blocks?.stepPrimitivesOnly(stepOrdinal);
-    // Phase 23.10: a respawn places the character (a plain step has no intent phase).
+    // A respawn places the character (a plain step has no intent phase).
     if (this.physics3d !== undefined && this.pendingRespawn !== null) {
       const [x, y, z] = this.pendingRespawn;
       this.pendingRespawn = null;
       try {
         this.placeCharacter3D(x, y, z);
-        // Phase 24.4f: a spawn's yaw turns the character as it is placed.
+        // A spawn's yaw turns the character as it is placed.
         if (this.pendingFacing !== null) this.faceCharacter3D(this.pendingFacing);
         this.pendingFacing = null;
       } catch (e) {
@@ -3209,11 +3207,11 @@ class RuntimeInstance implements Runtime {
       }
     }
     if (this.physics3d !== undefined && !this.modes.physicsHeld) {
-      // Phase 23.0: a 3D game steps its physics in a plain (scene-mode) step
-      // too — its character falls and rests under the runtime's 3D phase (no
-      // controller module drives it before phase 23.2). The 2D plane keeps
-      // its scene mode exactly as before (no physics step).
-      // Phase 23.1: movers advance and are posed (script-driven colliders too), then after physics
+      // A 3D game steps its physics in a plain (scene-mode) step
+      // too — its character falls and rests under the runtime's 3D phase
+      // even without a controller module. The 2D plane's scene mode has no
+      // physics step.
+      // Movers advance and are posed (script-driven colliders too), then after physics
       // the triggers test the player (a scene has no run state: always "playing").
       if (this.scriptCollidersDirty && !this.syncScriptColliders3D()) {
         this.curr = cloneCurr(backup);
@@ -3230,52 +3228,52 @@ class RuntimeInstance implements Runtime {
         return false;
       }
     }
-    // Phase 23.17: the timelines (no input frame in a plain step: a wait key needs its timeout).
+    // The timelines (no input frame in a plain step: a wait key needs its timeout).
     if (this.timelines.active) this.timelines.step(stepOrdinal, null);
-    // Phase 23.4: the camera brain resolves the view on the step's transforms.
+    // The camera brain resolves the view on the step's transforms.
     this.stepCameras(null);
-    // Phase 23.16: conversations advance (before the audio: a voice started now plays from this step).
+    // Conversations advance (before the audio: a voice started now plays from this step).
     this.dialogue.endStep();
-    // Phase 23.18: the environment blend advances with the step.
+    // The environment blend advances with the step.
     this.environment.step();
-    // Phase 24.4i: the event → cue table plays the sounds of this step's signals and events.
+    // The event → cue table plays the sounds of this step's signals and events.
     if (this.eventCues.length > 0) this.playEventCues();
-    // Phase 23.13: fades and clips advance; finished sounds are seen next step.
+    // Fades and clips advance; finished sounds are seen next step.
     this.audio.endStep();
     this.prev = backup; // prev := curr at the end of step n−1
     this.stepIndex += 1;
-    this.simTime = this.stepIndex / this.hz; // single division (§4)
+    this.simTime = this.stepIndex / this.hz; // single division
     this.stepAnimators();
-    // Phase 23.11: attached entities follow their nodes (posed by the animators just stepped).
+    // Attached entities follow their nodes (posed by the animators just stepped).
     this.stepSockets(null);
-    // Phase 23.5: cells written after the physics phase collide from the next step.
+    // Cells written after the physics phase collide from the next step.
     this.grid.flushCollision(this.physics3d);
     return true;
   }
 
   /**
-   * One fixed M2 step (§12.1.1). Returns `false` after a fail-stop, so the
+   * One fixed M2 step. Returns `false` after a fail-stop, so the
    * caller stops the frame loop immediately.
    */
   private stepOnceM2(actionOverride?: ActionFrame): boolean {
     const stepIndex = this.stepIndex;
     const ordinal = stepIndex + 1; // the 1-based executed-step index (fixtures)
-    // Phase 12 (c): scene unloads/loads take effect at the step boundary,
+    // Scene unloads/loads take effect at the step boundary,
     // before the arrivals (a spawn may be in a scene that just loaded).
     if (!this.applySceneOps()) return false;
-    // Phase 24.4e: a scene transition's arrival once its scene is loaded.
+    // A scene transition's arrival once its scene is loaded.
     if (this.pendingArrival !== null && !this.runArrival(ordinal)) return false;
-    // Phase 24.8: a loaded save's placement once its scenes are in.
+    // A loaded save's placement once its scenes are in.
     if (this.pendingRestore !== null && !this.runRestorePlace(ordinal)) return false;
-    // Phase 14.1: the spawns and destroys the last step requested, in order.
+    // The spawns and destroys the last step requested, in order.
     if (!this.applySpawnOps()) return false;
     this.spawnsThisStep = 0;
     this.spawnRefusalLogged = false;
-    // Phase 23.10: a restart asked for last step, then the game mode's step start
+    // A restart asked for last step, then the game mode's step start
     // (last step's events end; a script's switch applies now).
     if (this.pendingRestart && !this.restartRun(ordinal)) return false;
     if (this.pendingListedScene !== null) this.goToListedScene();
-    // Phase 24.7: a 2D-plane respawn (ctx.lifecycle, a restart's placement) places the character at the boundary.
+    // A 2D-plane respawn (ctx.lifecycle, a restart's placement) places the character at the boundary.
     if (this.physics3d === undefined && this.pendingRespawn !== null && !this.runRespawn2D(ordinal)) return false;
     this.modes.beginStep(ordinal);
     if (this.stepSceneOps.length > 0) this.stepSceneOps = [];
@@ -3300,19 +3298,19 @@ class RuntimeInstance implements Runtime {
         return false;
       }
     }
-    // Phase 23.10: the actions of input maps the game mode does not activate read as released
+    // The actions of input maps the game mode does not activate read as released
     // (the sampled frame stays the recorded input).
     if (this.modes.active) action = this.modes.mask(action, this.characterActionNames);
-    // Phase 9.9: movers advance (and are posed for physics), a pending bounce
+    // Movers advance (and are posed for physics), a pending bounce
     // reaches the controller; down + jump on a one-way platform drops through.
     this.raycastsThisStep = 0;
-    // Phase 23.1: the colliders scripts drive become kinematic bodies before they are first posed.
+    // The colliders scripts drive become kinematic bodies before they are first posed.
     if (this.physics3d !== undefined && this.scriptCollidersDirty && !this.syncScriptColliders3D()) return false;
-    // Phase 23.10: a game mode may hold physics (the controller, physics, movers and triggers stand still).
+    // A game mode may hold physics (the controller, physics, movers and triggers stand still).
     const held = this.modes.physicsHeld;
     if (!held) this.blocks?.beforeStep(ordinal);
     this.stepFacing = null;
-    // Phase 24.8: the character's jump action (its controller's jumpAction; frame version 2 has no jump channel).
+    // The character's jump action (its controller's jumpAction; frame version 2 has no jump channel).
     const jumpName = this.characterActions.jump;
     if (
       actionPhase(action, jumpName) === 'pressed' &&
@@ -3322,29 +3320,29 @@ class RuntimeInstance implements Runtime {
       this.physics?.dropThrough?.(this.timing.dropThroughSteps);
       action = { ...action, actions: { ...action.actions, [jumpName]: { v: 0, p: 'none' } } };
     }
-    // Phase 21.2: the pre-step copy goes into the reused buffer `prev` does not hold.
+    // The pre-step copy goes into the reused buffer `prev` does not hold.
     const backupMirror = this.stepMirrors[this.stepMirrors[0].map === this.prev ? 1 : 0];
     backupMirror.copyFrom(this.curr, this.currShape);
     const backup = backupMirror.map;
-    // Phase 25.10: `ctx.entity(id).get('transform')` reads the step-start transforms; the hidden set's step-start copy starts over.
+    // `ctx.entity(id).get('transform')` reads the step-start transforms; the hidden set's step-start copy starts over.
     this.stepStart = backup;
     this.blocks?.beginScriptStep();
     if (this.staged.size > 0) this.staged.clear();
     this.currentPhase = undefined;
     this.currentModuleId = undefined;
-    // §14.5: the intent set is cleared at the start of every fixed step.
-    // Phase 21.2: reset in place (the committed writes are frozen copies, never handed out mutable).
+    // The intent set is cleared at the start of every fixed step.
+    // Reset in place (the committed writes are frozen copies, never handed out mutable).
     resetMutableIntents(this.intents, stepIndex);
     this.intentsVersion += 1;
     try {
       this.runPhase('intent', action);
-      // Phase 23.10: a respawn (ctx.lifecycle, a restart) places the character unless a script placed it this step.
+      // A respawn (ctx.lifecycle, a restart) places the character unless a script placed it this step.
       if (this.physics3d !== undefined && this.pendingRespawn !== null) {
         if (this.intents.characterPlace === null) {
           const [x, y, z] = this.pendingRespawn;
           this.intents.characterPlace = { x, y, z };
           this.intentsVersion += 1;
-          // Phase 24.4f: a spawn's yaw turns the character as it is placed.
+          // A spawn's yaw turns the character as it is placed.
           if (this.pendingFacing !== null) {
             this.stepFacing = this.pendingFacing;
             this.faceCharacter3D(this.pendingFacing);
@@ -3353,9 +3351,9 @@ class RuntimeInstance implements Runtime {
         this.pendingRespawn = null;
         this.pendingFacing = null;
       }
-      // Phase 23.2: a script's character_place takes effect before the controller runs.
+      // A script's character_place takes effect before the controller runs.
       if (this.physics3d !== undefined && this.intents.characterPlace !== null) this.applyCharacterPlace3D();
-      // Phase 25.10: on the 2D plane too — the 2D placement of arrivals and respawns (from rest, the controller reset),
+      // On the 2D plane too — the 2D placement of arrivals and respawns (from rest, the controller reset),
       // before the controller runs; a respawn asked for in this step gives way to it (as in 3D).
       if (this.physics3d === undefined && this.intents.characterPlace !== null) {
         this.pendingRespawn = null;
@@ -3364,7 +3362,7 @@ class RuntimeInstance implements Runtime {
       }
       if (!held) {
         this.runPhase('controller', action);
-        // Phase 24.4f: the impulses reached the controller (a held step keeps them for the next one).
+        // The impulses reached the controller (a held step keeps them for the next one).
         if (this.impulseAcc !== null) {
           this.impulseAcc = null;
           this.intentsVersion += 1;
@@ -3372,17 +3370,17 @@ class RuntimeInstance implements Runtime {
         this.runPhysicsPhase();
       }
       this.runPhase('transform', action);
-      // Phase 23.1 / 24.7: after the transform phase the blocks test the character (triggers,
+      // After the transform phase the blocks test the character (triggers,
       // switches, the primitives; not while a game mode holds physics).
       if (!held) this.blocks?.afterPhysics(action);
     } catch (e) {
       this.failStopFromError(e, stepIndex);
       return false;
     }
-    // Phase 25.10: the component writes scripts queued in this step, in script order.
+    // The component writes scripts queued in this step, in script order.
     this.entityAccess.applyQueued();
     if (this.stateName === 'failed') return false;
-    // Phase 23.17: the timelines, after every script phase and before the camera brain (on this step's input frame).
+    // The timelines, after every script phase and before the camera brain (on this step's input frame).
     if (this.timelines.active) {
       try {
         this.timelines.step(ordinal, action);
@@ -3391,35 +3389,34 @@ class RuntimeInstance implements Runtime {
         return false;
       }
     }
-    // Phase 23.4: the camera brain, after every phase (the camera phase included):
+    // The camera brain, after every phase (the camera phase included):
     // the view is resolved in the step, so replays and the worker resolve it alike.
     this.stepCameras(action);
-    // Phase 23.16: conversations advance: the frame's dialogue inputs and the scripts' calls apply, the view model follows.
+    // Conversations advance: the frame's dialogue inputs and the scripts' calls apply, the view model follows.
     this.dialogue.endStep();
-    // Phase 23.18: the environment blend advances with the step.
+    // The environment blend advances with the step.
     this.environment.step();
-    // Phase 23.19: saves asked for this step are assembled, loaded ones restored (a step boundary).
+    // Saves asked for this step are assembled, loaded ones restored (a step boundary).
     this.saves.endStep();
-    // Phase 24.4i: the event → cue table plays the sounds of this step's signals and events.
+    // The event → cue table plays the sounds of this step's signals and events.
     if (this.eventCues.length > 0) this.playEventCues();
-    // Phase 23.13: fades and clips advance; finished sounds are seen next step.
+    // Fades and clips advance; finished sounds are seen next step.
     this.audio.endStep();
-    // The accepted step-end promotion (runtime.md §12.1.1) runs unchanged
-    // for M3 sets too (gameplay.md §3.5 invariance; segment-source.json pins
-    // `state.prev` during step n at the end of step n−2): `prev := backup`
+    // The step-end promotion (`state.prev` during step n holds the state at
+    // the end of step n−2): `prev := backup`
     // below, where `backup` is the pre-step `curr` — the post-reset `curr`
     // when a reset wrote at this step's boundary (the no-streak mechanism).
     this.prev = backup;
     this.stepIndex += 1;
     this.simTime = this.stepIndex / this.hz;
-    // Phase 23.5: cells written after the physics phase collide from the next step.
+    // Cells written after the physics phase collide from the next step.
     this.grid.flushCollision(this.physics3d);
     this.committedMirror.copyFrom(this.curr, this.currShape);
     this.committed = this.committedMirror.map;
     this.stepAnimators();
-    // Phase 23.11: attached entities follow their nodes (posed by the animators just stepped); the committed copy too.
+    // Attached entities follow their nodes (posed by the animators just stepped); the committed copy too.
     this.stepSockets(this.committed);
-    // Phase 12 (c): the step's scene requests commit with it.
+    // The step's scene requests commit with it.
     if (this.stepSceneOps.length > 0) {
       for (const op of this.stepSceneOps) this.enqueueSceneOp(op);
       this.stepSceneOps = [];
@@ -3427,7 +3424,7 @@ class RuntimeInstance implements Runtime {
     return true;
   }
 
-  /** Phase 23.9a: `ctx.ui` for one phase (the UI events are read in the intent phase only, once per step). */
+  /** `ctx.ui` for one phase (the UI events are read in the intent phase only, once per step). */
   private uiControlFor(phase: SimulationPhase): BehaviorUi {
     let c = this.uiControls.get(phase);
     if (c !== undefined) return c;
@@ -3450,7 +3447,7 @@ class RuntimeInstance implements Runtime {
     return c;
   }
 
-  /** Phase 23.9a: queue a UI event for the next sampled step (see `Runtime.queueUiEvent`). */
+  /** Queue a UI event for the next sampled step (see `Runtime.queueUiEvent`). */
   queueUiEvent(event: UiEventRecord): { ok: true } | { ok: false; error: RuntimeError } {
     if (this.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
     const checked = validateUiEvent(event);
@@ -3464,7 +3461,7 @@ class RuntimeInstance implements Runtime {
   }
 
   /**
-   * Phase 23.16: queue a dialogue input (advance, choose, skip, auto,
+   * Queue a dialogue input (advance, choose, skip, auto,
    * backlog — the dialogue UI's buttons) for the next sampled step; it rides
    * on that step's input frame (`ActionFrame.dialogue`), so a recording
    * replays it and the worker applies it at the same step.
@@ -3479,29 +3476,29 @@ class RuntimeInstance implements Runtime {
     return { ok: true };
   }
 
-  /** Phase 23.16: the dialogue runner's state as digest text (null while nothing used dialogue). */
+  /** The dialogue runner's state as digest text (null while nothing used dialogue). */
   dialogueState(): string | null {
     return this.dialogue.digestText();
   }
 
-  /** Phase 23.16: the conversation now, for observers (null while nothing used dialogue). */
+  /** The conversation now, for observers (null while nothing used dialogue). */
   dialogueView(): Record<string, unknown> | null {
     return this.dialogue.observe();
   }
 
-  /** Phase 23.9a: the UI changes since the host last took them. */
+  /** The UI changes since the host last took them. */
   takeUiOutput(): UiOutput | null {
     return this.ui.takeOutput();
   }
 
-  /** Phase 23.9a: the committed view model and shown documents. */
+  /** The committed view model and shown documents. */
   uiView(): UiStateView {
     return this.ui.view();
   }
 
-  // ---- Phase 23.10: game modes and the run lifecycle -------------------------------
+  // ---- Game modes and the run lifecycle -------------------------------
 
-  /** Phase 23.10: the game modes as of the last step (null without modes). */
+  /** The game modes as of the last step (null without modes). */
   modeView(): ModeView | null {
     return this.modes.active ? this.modes.view() : null;
   }
@@ -3520,7 +3517,7 @@ class RuntimeInstance implements Runtime {
    * every group; one function per runtime).
    */
   private behaviorTicks(): ((entityId: string) => boolean) | undefined {
-    // Phase 25.10: a switched-off object's scripts do not tick.
+    // A switched-off object's scripts do not tick.
     const off = this.entityAccess.inactive();
     if (!this.modes.active || this.modes.ticksAll) {
       if (off.size === 0) return undefined;
@@ -3595,30 +3592,30 @@ class RuntimeInstance implements Runtime {
     });
   }
 
-  /** Phase 23.8 / 25.17: the start's injected variables into ctx.save (at the start and at every restart). */
+  /** The start's injected variables into ctx.save (at the start and at every restart). */
   private applyStartVariables(): void {
     if (this.startVariables !== undefined) for (const [k, v] of Object.entries(this.startVariables)) this.saveControl.set(k, v);
   }
 
   /**
-   * Phase 23.10: restart the run, at
+   * Restart the run, at
    * a step boundary: the start scenes (later loads unloaded, spawned copies
    * gone), every object at its authored transform, the scripts started over
    * (their reset hook, as a replay), cameras, animators, sockets, blocks,
    * cells, material values, the UI and the start mode as at the start, the
    * character placed where it started (from rest). `ctx.save` values stay (as
-   * across a replay), except that the start's variables are set again (phase
-   * 25.17). Returns false after a fail-stop.
+   * across a replay), except that the start's variables are set again.
+   * Returns false after a fail-stop.
    */
   private restartRun(ordinal: number): boolean {
     this.pendingRestart = false;
-    // Phase 25.17: every start begins with the start's variables (other ctx.save values stay, as across a replay).
+    // Every start begins with the start's variables (other ctx.save values stay, as across a replay).
     this.applyStartVariables();
-    // Phase 25.16: a new run — its steps count from here (tools compare a run with its replay by run step).
+    // A new run — its steps count from here (tools compare a run with its replay by run step).
     this.runStartStep = ordinal - 1;
     this.listedScene = null;
     this.pendingRestore = null;
-    // Phase 24.4f: scripts' impulses and a spawn facing do not outlive the run.
+    // scripts' impulses and a spawn facing do not outlive the run.
     this.impulseAcc = null;
     this.pendingFacing = null;
     this.clearSpawned();
@@ -3638,7 +3635,7 @@ class RuntimeInstance implements Runtime {
     this.sockets.reset();
     this.settleSockets();
     this.blocks?.resetRun();
-    // Phase 25.10: every field scripts wrote back as authored (switched-off objects come back, colliders included).
+    // Every field scripts wrote back as authored (switched-off objects come back, colliders included).
     this.entityAccess.reset();
     this.grid.reset();
     this.grid.flushCollision(this.physics3d);
@@ -3671,7 +3668,7 @@ class RuntimeInstance implements Runtime {
       }
       this.pendingRespawn = [p[0], p[1], p[2]];
     } else if (player !== undefined && this.resetPort() !== null) {
-      // D37: the 2D-plane character too (its port kept the old place; the next controller step failed its check).
+      // The 2D-plane character too (else its port keeps the previous place and the next controller step fails its check).
       try {
         this.placeCharacter2D(start.x, start.y, ordinal);
       } catch (e) {
@@ -3686,7 +3683,7 @@ class RuntimeInstance implements Runtime {
     return true;
   }
 
-  // ---- Phase 24.4e: scene transitions -------------------------------------------------
+  // ---- Scene transitions -------------------------------------------------
 
   /**
    * A trigger's scene transition (the character entered it): its unloads and
@@ -3695,7 +3692,7 @@ class RuntimeInstance implements Runtime {
    * load (`runArrival`).
    */
   private beginSceneTransition(triggerId: string, t: SceneTransitionRequest): void {
-    // Phase 25.24e: the unloads wait for the scene (they leave in the step it arrives), so the view is never empty.
+    // The unloads wait for the scene (they leave in the step it arrives), so the view is never empty.
     const unload: string[] = [];
     for (const sceneId of t.unload) {
       const problem = sceneId === t.scene ? `it unloads the scene it loads (${JSON.stringify(sceneId)})` : this.sceneOpProblem('unload', sceneId);
@@ -3720,7 +3717,7 @@ class RuntimeInstance implements Runtime {
   }
 
   /**
-   * Phase 24.4j: move to an entry of the shell's scene list (a `scene` UI
+   * Move to an entry of the shell's scene list (a `scene` UI
    * event, at a step boundary): the previous listed scene is unloaded unless
    * it is a start scene or the same scene; the entry's scene is loaded when
    * it is not; the character moves to the entry's spawn once it is (as a
@@ -3750,7 +3747,7 @@ class RuntimeInstance implements Runtime {
     if (entry.spawn !== undefined) this.pendingArrival = { spawnId: entry.spawn, waitFor: entry.scene };
   }
 
-  /** Phase 24.4j: the shell's scene list entry the run is at (-1: none). */
+  /** The shell's scene list entry the run is at (-1: none). */
   listedSceneIndex(): number {
     return this.listedScene ?? this.sceneList.findIndex((x) => this.startBatchSource.has(x.scene));
   }
@@ -3786,7 +3783,7 @@ class RuntimeInstance implements Runtime {
     return true;
   }
 
-  // ---- Phase 24.8: where the play stands in a save --------------------------------
+  // ---- Where the play stands in a save --------------------------------
 
   /** The loaded scenes, the active spawn, the scene list entry and the character with its velocity (m/s). */
   private captureWorld(): WorldSave {
@@ -3858,7 +3855,7 @@ class RuntimeInstance implements Runtime {
   }
 
   /**
-   * Phase 24.7: a 2D-plane respawn (`ctx.lifecycle.respawn`, the respawn
+   * A 2D-plane respawn (`ctx.lifecycle.respawn`, the respawn
    * intent) at the step boundary: the character is placed at the target from
    * rest (as an arrival). Returns false after a fail-stop.
    */
@@ -3886,7 +3883,7 @@ class RuntimeInstance implements Runtime {
   }
 
   /**
-   * Phase 24.4e: put the 2D-plane character at an origin, from rest: the
+   * Put the 2D-plane character at an origin, from rest: the
    * port's character is cleared and
    * placed, its transform set, and the controller module's windows and
    * velocity reset (its reset hook, as a transfer).
@@ -3917,7 +3914,7 @@ class RuntimeInstance implements Runtime {
     }
   }
 
-  /** Phase 24.4f: turn the 3D character to a yaw (radians about +Y) — its transform now, its controller with the placement. */
+  /** Turn the 3D character to a yaw (radians about +Y) — its transform now, its controller with the placement. */
   private faceCharacter3D(yaw: number): void {
     const id = this.controllerEntityId;
     const t = id !== undefined ? this.curr.get(id) : undefined;
@@ -3928,7 +3925,7 @@ class RuntimeInstance implements Runtime {
     t.rotation[3] = Math.cos(yaw / 2);
   }
 
-  // ---- Phase 24.4i: the event → cue table -----------------------------------------------
+  // ---- The event → cue table -----------------------------------------------
 
   /**
    * Play the cue of every table row a signal or event of this step matches
@@ -3951,22 +3948,22 @@ class RuntimeInstance implements Runtime {
     }
   }
 
-  /** Phase 24.4h: the look overrides now (object → emissive/tint), for the renderer. */
+  /** The look overrides now (object → emissive/tint), for the renderer. */
   entityLooks(): ReadonlyMap<string, import('./primitives').EntityLook> {
     return this.blocks?.primitives.looksView() ?? NO_LOOKS;
   }
 
-  /** Phase 23.17: the timelines' screen overlay, plays and last events (null until a timeline played). */
+  /** The timelines' screen overlay, plays and last events (null until a timeline played). */
   timelineView(): TimelineView | null {
     return this.timelines.view();
   }
 
-  /** Phase 23.17: the timelines' state for the step digest (null until a timeline played). */
+  /** The timelines' state for the step digest (null until a timeline played). */
   timelineState(): string | null {
     return this.timelines.digestState();
   }
 
-  /** Phase 23.17: what the sequencer drives — the runtime's own channels. */
+  /** What the sequencer drives — the runtime's own channels. */
   private buildTimelineHost(): import('./timeline').TimelineHost {
     const rt = this;
     const warn = (message: string): void => rt.recordBehaviorLog('thirdlight.runtime:timeline', 'warn', message);
@@ -4014,17 +4011,17 @@ class RuntimeInstance implements Runtime {
       emitSignal: (name) => rt.signalControl.emit(name),
       signaled: (name) => rt.signalControl.on(name),
       setMaterial: (id, param, value, materialId) => rt.materials.api.set(id, param, value, materialId),
-      // Phase 23.10: the same path as ctx.modes.switch (applies at the next step boundary).
+      // The same path as ctx.modes.switch (applies at the next step boundary).
       switchMode: (modeId, transition) => rt.modes.request(modeId, transition),
-      // Phase 23.18: the environment track switches presets through ctx.environment's own path.
+      // The environment track switches presets through ctx.environment's own path.
       environment: { apply: (presetId, blendSeconds) => rt.environment.api.set(presetId, blendSeconds > 0 ? { blend: blendSeconds } : {}) },
-      // Phase 23.16: the dialogue track runs a node through the dialogue runner and waits while it runs.
+      // The dialogue track runs a node through the dialogue runner and waits while it runs.
       ...(rt.dialogue.enabled ? { dialogue: rt.dialogue.timelinePort() } : {}),
       warn,
     };
   }
 
-  /** Phase 23.17: `ctx.timeline` (arguments checked by the system; requests apply at the end of the step). */
+  /** `ctx.timeline` (arguments checked by the system; requests apply at the end of the step). */
   private buildTimelineControl(): import('./types').BehaviorTimeline {
     const t = this.timelines;
     return Object.freeze({
@@ -4050,56 +4047,56 @@ class RuntimeInstance implements Runtime {
     } catch (e) {
       throw new InputSourceError(messageOf(e));
     }
-    // Phase 23.19: storage's queued answers ride on this step's frame too.
+    // storage's queued answers ride on this step's frame too.
     if (this.saveQueue.length > 0 && typeof raw === 'object' && raw !== null) {
       const have = (raw as ActionFrame).saves ?? [];
       const room = Math.max(0, MAX_FRAME_SAVE_EVENTS - (Array.isArray(have) ? have.length : 0));
       if (room > 0) raw = { ...(raw as ActionFrame), saves: [...have, ...this.saveQueue.splice(0, room)] };
     }
-    // Phase 23.8: queued debug commands ride on this step's frame (so a recording keeps them).
+    // Queued debug commands ride on this step's frame (so a recording keeps them).
     if (this.debugCommands.pending && typeof raw === 'object' && raw !== null) {
       const have = (raw as ActionFrame).commands ?? [];
       const room = Math.max(0, MAX_FRAME_COMMANDS - (Array.isArray(have) ? have.length : 0));
       if (room > 0) raw = { ...(raw as ActionFrame), commands: [...have, ...this.debugCommands.take(room)] };
     }
-    // Phase 23.9a: queued UI events ride on this step's frame (so a recording keeps them).
+    // Queued UI events ride on this step's frame (so a recording keeps them).
     if (this.uiQueue.length > 0 && typeof raw === 'object' && raw !== null) {
       const have = (raw as ActionFrame).ui ?? [];
       const room = Math.max(0, MAX_FRAME_UI_EVENTS - (Array.isArray(have) ? have.length : 0));
       if (room > 0) raw = { ...(raw as ActionFrame), ui: [...have, ...this.uiQueue.splice(0, room)] };
     }
-    // Phase 23.16: queued dialogue inputs ride on this step's frame (so a recording keeps them).
+    // Queued dialogue inputs ride on this step's frame (so a recording keeps them).
     if (this.dialogueQueue.length > 0 && typeof raw === 'object' && raw !== null) {
       const have = (raw as ActionFrame).dialogue ?? [];
       const room = Math.max(0, DIALOGUE_FRAME_INPUTS - (Array.isArray(have) ? have.length : 0));
       if (room > 0) raw = { ...(raw as ActionFrame), dialogue: [...have, ...this.dialogueQueue.splice(0, room)] };
     }
-    // Phase 21.2: equal action values of the last frame are shared (immutable).
+    // Equal action values of the last frame are shared (immutable).
     const check = validateActionFrame(raw, stepIndex, this.lastInputFrame ?? undefined);
     if (!check.ok) throw new InputFrameError(check.field, check.message);
     this.lastInputFrame = check.frame;
     this.inputSamples += 1;
     this.debugCommands.deliver(check.frame);
-    // Phase 23.19: storage's answers (the slot list, outcomes, a loaded document).
+    // storage's answers (the slot list, outcomes, a loaded document).
     if (check.frame.saves !== undefined) this.saves.deliver(check.frame.saves);
-    // Phase 23.14: the host's input status (device, bindings, rebind events).
+    // The host's input status (device, bindings, rebind events).
     this.inputStatus.apply(check.frame.input);
-    // Phase 23.9a: the frame's show/hide entries apply before any script runs.
+    // The frame's show/hide entries apply before any script runs.
     this.ui.deliver(check.frame.ui);
-    // Phase 23.16: the frame's dialogue inputs (applied at the end of the step).
+    // The frame's dialogue inputs (applied at the end of the step).
     this.dialogue.deliver(check.frame.dialogue);
-    // Phase 23.10: a mode action switches now (before the scripts); a restart applies at the next boundary.
+    // A mode action switches now (before the scripts); a restart applies at the next boundary.
     if (check.frame.ui !== undefined) {
       this.modes.deliver(check.frame.ui, stepIndex + 1);
       if (check.frame.ui.some((e) => e.kind === 'restart')) this.pendingRestart = true;
-      // Phase 24.4j: a move along the shell's scene list applies at the next boundary (after a restart of the same frame).
+      // A move along the shell's scene list applies at the next boundary (after a restart of the same frame).
       for (const e of check.frame.ui) if (e.kind === 'scene' && typeof e.value === 'number') this.pendingListedScene = e.value;
     }
     return this.withHeldPointer(check.frame);
   }
 
   /**
-   * Phase 23.3: the frame modules see carries the complete pointer state —
+   * The frame modules see carries the complete pointer state —
    * the sample's own values, or (a frame without a sample) the last
    * position, buttons and over/locked state with no movement — and its edges:
    * a button pressed/released when the held mask changed (or the sample says
@@ -4130,7 +4127,7 @@ class RuntimeInstance implements Runtime {
         buttons,
         over,
         locked: sample.locked === true,
-        // Phase 25.15: over a UI element (absent false, so every recording without it is unchanged).
+        // Over a UI element (absent false, so every recording without it is unchanged).
         ...(sample.overUi === true ? { overUi: true } : {}),
         ...(sample.dx !== undefined && sample.dx !== 0 ? { dx: sample.dx } : {}),
         ...(sample.dy !== undefined && sample.dy !== 0 ? { dy: sample.dy } : {}),
@@ -4145,13 +4142,13 @@ class RuntimeInstance implements Runtime {
     return { ...frame, pointer: this.heldPointer };
   }
 
-  /** Phase 23.3: the pointer state as of the last step (null before the first sample; observers, the host). */
+  /** The pointer state as of the last step (null before the first sample; observers, the host). */
   readPointer(): Readonly<HeldPointer> | null {
     return this.heldPointer;
   }
 
   /**
-   * Phase 23.3: the cursor a script asked for (`ctx.input.setCursor`): 'free',
+   * The cursor a script asked for (`ctx.input.setCursor`): 'free',
    * 'locked', or null — the active input map decides. Simulation state: a new
    * run starts with none.
    */
@@ -4159,7 +4156,7 @@ class RuntimeInstance implements Runtime {
     return this.cursorMode;
   }
 
-  /** Phase 23.14: the binding requests scripts made since the last call (see `Runtime.takeBindingRequests`). */
+  /** The binding requests scripts made since the last call (see `Runtime.takeBindingRequests`). */
   takeBindingRequests(): { readonly requests: readonly InputBindingRequest[]; readonly dropped: number } {
     return this.inputStatus.take();
   }
@@ -4209,7 +4206,7 @@ class RuntimeInstance implements Runtime {
     });
   }
 
-  // ---- Phase 12 (c) scene set internals ------------------------------------
+  // ---- Scene set internals ------------------------------------------------
 
   private setSceneStatus(sceneId: string, status: SceneStatus): void {
     this.sceneStatus.set(sceneId, status);
@@ -4217,7 +4214,7 @@ class RuntimeInstance implements Runtime {
   }
 
   /** Why a scene op cannot be requested (null: it can). */
-  /** Phase 22.0: why `requestScene(op, sceneId)` would be refused now (null: it would be accepted); changes nothing. */
+  /** Why `requestScene(op, sceneId)` would be refused now (null: it would be accepted); changes nothing. */
   sceneRequestProblem(op: 'load' | 'unload', sceneId: string): string | null {
     if (this.stateName === 'disposed') return 'runtime is disposed';
     return this.sceneOpProblem(op, sceneId);
@@ -4232,7 +4229,7 @@ class RuntimeInstance implements Runtime {
       if (at !== undefined && !(Array.isArray(at) && at.length === 3 && at.every((v) => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= 1e6))) {
         return 'load option "at" must be [x, y, z] (finite, |v| <= 1e6)';
       }
-      // Phase 25.24e: a transition's unloads and fade.
+      // A transition's unloads and fade.
       const o = options as { unload?: unknown; fade?: unknown; fadeColor?: unknown };
       if (o.unload !== undefined) {
         if (!Array.isArray(o.unload) || o.unload.length > MAX_TRANSITION_UNLOADS || !o.unload.every((x) => typeof x === 'string')) return `load option "unload" must be up to ${MAX_TRANSITION_UNLOADS} scene ids`;
@@ -4262,11 +4259,11 @@ class RuntimeInstance implements Runtime {
     if (op.op === 'load') {
       if (status === 'loaded') {
         this.pendingUnloads.delete(op.sceneId); // load after unload in one step: stays loaded
-        // Phase 25.24e: a transition to a scene that is in: its unloads go now (nothing to wait for).
+        // A transition to a scene that is in: its unloads go now (nothing to wait for).
         for (const u of op.transition?.unload ?? []) if (u !== op.sceneId && this.sceneOpProblem('unload', u) === null) this.enqueueSceneOp({ op: 'unload', sceneId: u });
         return;
       }
-      // Phase 25.24e: a transition waits for its scene (a later one for the same scene replaces it).
+      // A transition waits for its scene (a later one for the same scene replaces it).
       if (op.transition !== undefined) {
         const fadeSteps = Math.round(op.transition.fade * this.hz);
         this.transitions.set(op.sceneId, { ...op.transition, fadeSteps, outLeft: fadeSteps });
@@ -4335,7 +4332,7 @@ class RuntimeInstance implements Runtime {
       for (const sceneId of this.pendingUnloads) this.removeBatch(sceneId);
       this.pendingUnloads.clear();
     }
-    // Phase 25.24e: fade-outs advance one step per step (a paused game draws no fade: it is done at once).
+    // Fade-outs advance one step per step (a paused game draws no fade: it is done at once).
     for (const t of this.transitions.values()) {
       if (t.outLeft === 0) continue;
       t.outLeft = stepped ? t.outLeft - 1 : 0;
@@ -4344,7 +4341,7 @@ class RuntimeInstance implements Runtime {
     if (this.readyLoads.size === 0) return true;
     const deadline = nowMs() + SCENE_PREP_BUDGET_MS;
     for (const [sceneId, entities] of [...this.readyLoads]) {
-      // Phase 25.24e: copy and freeze its entities within the step's budget (a large scene over several steps).
+      // Copy and freeze its entities within the step's budget (a large scene over several steps).
       let prep = this.preparedLoads.get(sceneId);
       if (prep === undefined) this.preparedLoads.set(sceneId, (prep = { out: [], next: 0 }));
       while (prep.next < entities.length) {
@@ -4359,7 +4356,7 @@ class RuntimeInstance implements Runtime {
       this.preparedLoads.delete(sceneId);
       const at = this.fetchingLoads.get(sceneId)?.at;
       this.fetchingLoads.delete(sceneId);
-      // Phase 25.24e: a transition's unloads leave in the step its scene arrives (never an empty world between).
+      // A transition's unloads leave in the step its scene arrives (never an empty world between).
       if (t !== undefined) {
         this.transitions.delete(sceneId);
         for (const u of t.unload) if (u !== sceneId && this.batches.has(u) && this.sceneOpProblem('unload', u) === null) this.removeBatch(u);
@@ -4387,12 +4384,12 @@ class RuntimeInstance implements Runtime {
     for (const e of entities) {
       if (this.entities.has(e.id)) return refuse(`entity "${e.id}" is already loaded`);
       const c = e.components as unknown as Record<string, unknown>;
-      // Phase 25.8: lights belong to their scene (any kind, any scene); the camera and the player stay start-scene only.
+      // Lights belong to their scene (any kind, any scene); the camera and the player stay start-scene only.
       if (!start && (c['camera'] !== undefined || c['controller'] !== undefined)) {
         return refuse(`entity "${e.id}" belongs in a start scene (camera, player)`);
       }
     }
-    // Phase 25.24e: a loaded scene's entities arrive copied and frozen (prepared over the steps before).
+    // A loaded scene's entities arrive copied and frozen (prepared over the steps before).
     const frozen = prepared ? Object.freeze([...entities]) : deepFreeze(entities.map((e) => structuredClone(e)));
     const contribution = sceneContribution(frozen);
     if (this.physics3d !== undefined && !this.addColliders3D(frozen, (why) => refuse(why), `scene "${sceneId}"`)) return false;
@@ -4407,7 +4404,7 @@ class RuntimeInstance implements Runtime {
     }
     const ids = new Set(frozen.map((e) => e.id));
     this.attachEntities(frozen);
-    // Phase 23.5: the scene's block layers and their colliders (at this step boundary).
+    // The scene's block layers and their colliders (at this step boundary).
     if (this.grid.addLayers(frozen).length > 0) {
       try {
         this.grid.flushCollision(this.physics3d);
@@ -4445,15 +4442,15 @@ class RuntimeInstance implements Runtime {
     }
     this.order = [...this.order, ...frozen.map((e) => e.id)];
     this.entityCount = this.order.length;
-    // Phase 23.10: their behavior groups (game modes tick groups).
+    // Their behavior groups (game modes tick groups).
     this.noteBehaviorGroups(frozen);
     this.liveTags?.add(frozen as readonly { id: string; tags?: number }[]);
     this.addAnimators(frozen);
     this.blocks?.add(frozen);
     this.cameras.add(frozen);
-    // Phase 23.11: their models and authored sockets (resolved at the end of the step).
+    // Their models and authored sockets (resolved at the end of the step).
     this.sockets.add(frozen);
-    // Phase 25.10: children of a switched-off object arrive switched off.
+    // Children of a switched-off object arrive switched off.
     this.entityAccess.added();
   }
 
@@ -4476,7 +4473,7 @@ class RuntimeInstance implements Runtime {
   }
 
   /**
-   * Phase 14.1: re-read a module's transform owners after entities came or
+   * Re-read a module's transform owners after entities came or
    * went (a behavior that owns "@self" owns each carrier, spawned copies
    * included). A new owner gets the instantiate-time checks: claimed by no
    * other module, not the camera, not a physics body. Returns false after a
@@ -4495,7 +4492,7 @@ class RuntimeInstance implements Runtime {
         return false;
       }
       const data = this.entities.get(id);
-      // Phase 23.1: in 3D a script may drive a collider no mover moves (posed as a kinematic body).
+      // In 3D a script may drive a collider no mover moves (posed as a kinematic body).
       const drivable = this.physics3d !== undefined && scriptDrivableCollider(this.colliderComponents3D.get(id));
       const physicsBody = (data?.hasCollider === true && !drivable) || id === this.controllerEntityId;
       if (id === this.cameraInfo.id || (physicsBody && !entry.phases.includes('controller'))) {
@@ -4511,7 +4508,7 @@ class RuntimeInstance implements Runtime {
 
   /** Take entities out of the simulation and release what belongs to them (`what` names them in diagnostics). */
   private detachEntities(ids: ReadonlySet<string>, colliderIds: readonly string[], what: string): void {
-    // Phase 23.11: sockets of (and on) these entities let go.
+    // Sockets of (and on) these entities let go.
     this.sockets.remove(ids);
     this.materials.removeEntities(ids);
     for (const id of ids) {
@@ -4527,11 +4524,11 @@ class RuntimeInstance implements Runtime {
       } catch (e) {
         this.recordError({ code: 'scene_load_failed', message: clipMessage(`module "${entry.id}" failed to release ${what}: ${messageOf(e)}`), stepIndex: this.stepIndex, reason: 'unload', moduleId: entry.id });
       }
-      // Phase 14.1: owners that left ("@self" carriers) are released.
+      // Owners that left ("@self" carriers) are released.
       const owners = instance.transformOwners;
       if (Array.isArray(owners)) entry.owners = owners.filter((id) => !ids.has(id));
     }
-    // Phase 23.5: unloaded block layers take their chunk colliders along.
+    // Unloaded block layers take their chunk colliders along.
     const gridColliders = this.grid.removeLayers(ids);
     if (gridColliders.length > 0 && typeof this.physics3d?.removeStaticColliders === 'function') {
       try {
@@ -4568,7 +4565,7 @@ class RuntimeInstance implements Runtime {
     this.removeAnimators(ids);
     this.blocks?.remove(ids);
     this.cameras.remove(ids);
-    // Phase 25.10: their written fields go with them.
+    // Their written fields go with them.
     this.entityAccess.removed(ids);
   }
 
@@ -4585,7 +4582,7 @@ class RuntimeInstance implements Runtime {
     this.sceneRevision += 1;
   }
 
-  // ---- Phase 14.1: spawned prefab copies ------------------------------------
+  // ---- Spawned prefab copies ------------------------------------
 
   /** `ctx.spawn` / `ctx.destroy`: requests queue with the step; ids are handed out at once. */
   private buildSpawnControl(): BehaviorSpawnControl {
@@ -4741,11 +4738,11 @@ class RuntimeInstance implements Runtime {
     this.readyLoads.clear();
     this.preparedLoads.clear();
     this.pendingUnloads.clear();
-    // Phase 25.24e: transitions and their fades do not outlive the run.
+    // Transitions and their fades do not outlive the run.
     this.transitions.clear();
     this.lastSwap = null;
     this.loadingViewCache = null;
-    // Phase 24.4e/f: a scene transition's arrival, a spawn facing and scripts' impulses do not outlive the run.
+    // A scene transition's arrival, a spawn facing and scripts' impulses do not outlive the run.
     this.pendingArrival = null;
     this.pendingRestore = null;
     this.pendingFacing = null;
@@ -4776,7 +4773,7 @@ class RuntimeInstance implements Runtime {
     }
   }
 
-  /** Phase 21.2: the frozen copy of the entity order modules see (remade only when the order changes). */
+  /** The frozen copy of the entity order modules see (remade only when the order changes). */
   private frozenOrder(): readonly string[] {
     if (this.frozenOrderSource !== this.order) {
       this.frozenOrderSource = this.order;
@@ -4786,7 +4783,7 @@ class RuntimeInstance implements Runtime {
   }
 
   /**
-   * Phase 21.2: a module's state view and step context for one phase, made
+   * A module's state view and step context for one phase, made
    * once and reused every step. They read the step's values when accessed
    * (step index, time, transforms, the frame, the events) — what a context
    * made at the call would hold, since the runtime changes none of them while
@@ -4837,60 +4834,60 @@ class RuntimeInstance implements Runtime {
       fields['signals'] = { value: this.signalControl, enumerable: true };
       fields['messages'] = { value: this.messageControl, enumerable: true };
       fields['game'] = { value: this.gameControl, enumerable: true };
-      // Phase 24.4: the generic primitives.
+      // The generic primitives.
       fields['health'] = { value: this.healthControl, enumerable: true };
       fields['patrol'] = { value: this.patrolControl, enumerable: true };
       fields['hitbox'] = { value: this.hitboxControl, enumerable: true };
       fields['collectible'] = { value: this.collectibleControl, enumerable: true };
-      // Phase 24.4f/h: the character's impulse and the per-object look overrides.
+      // The character's impulse and the per-object look overrides.
       fields['character'] = { value: this.characterControl, enumerable: true };
       fields['look'] = { value: this.lookControl, enumerable: true };
       fields['audio'] = { value: this.audioControl, enumerable: true };
       fields['effects'] = { value: this.effectsControl, enumerable: true };
       fields['save'] = { value: this.saveControl, enumerable: true };
       fields['spawner'] = { value: this.spawnControl, enumerable: true };
-      // Phase 23.4: the virtual cameras (ctx.camera).
+      // The virtual cameras (ctx.camera).
       fields['camera'] = { value: this.cameraControl, enumerable: true };
-      // Phase 23.11: sockets (ctx.sockets).
+      // Sockets (ctx.sockets).
       fields['sockets'] = { value: this.socketControl, enumerable: true };
-      // Phase 23.3: the cursor channel (ctx.input.setCursor).
+      // The cursor channel (ctx.input.setCursor).
       fields['cursor'] = { value: this.cursorControl, enumerable: true };
-      // Phase 23.14: bindings, the device in use and rebinding (ctx.input).
+      // Bindings, the device in use and rebinding (ctx.input).
       fields['inputStatus'] = { value: this.inputStatus.view, enumerable: true };
-      // Phase 23.8: debug commands (this phase's calls; the behavior host adds the handler).
+      // Debug commands (this phase's calls; the behavior host adds the handler).
       const debugCommands = this.debugCommands;
       fields['debug'] = { value: Object.freeze({ command: (name: string, options?: DebugCommandOptions) => debugCommands.declare(name, options, phase === 'intent') }), enumerable: true };
-      // Phase 23.5: the block layers.
+      // The block layers.
       fields['grid'] = { value: this.grid.api, enumerable: true };
-      // Phase 23.12: graph-material parameters per object.
+      // Graph-material parameters per object.
       fields['materials'] = { value: this.materials.api, enumerable: true };
-      // Phase 25.10: generic component access (the behavior host names the writing script) and the shell's scene list.
+      // Generic component access (the behavior host names the writing script) and the shell's scene list.
       fields['entities'] = { value: this.entityAccess.control, enumerable: true };
       fields['shell'] = { value: this.shellControl, enumerable: true };
-      // Phase 23.19: project saves (ctx.saves).
+      // Project saves (ctx.saves).
       fields['saves'] = { value: this.saves.api, enumerable: true };
-      // Phase 23.9a: the project UI (the step's UI events in the intent phase).
+      // The project UI (the step's UI events in the intent phase).
       fields['ui'] = { value: this.uiControlFor(phase), enumerable: true };
-      // Phase 23.16: conversations (ctx.dialogue; calls apply at the end of the step).
+      // Conversations (ctx.dialogue; calls apply at the end of the step).
       fields['dialogue'] = { value: this.dialogue.api, enumerable: true };
-      // Phase 23.10: the game modes, the run lifecycle, and which behaviors tick in the current mode.
+      // The game modes, the run lifecycle, and which behaviors tick in the current mode.
       fields['modes'] = { value: this.modeControlFor(phase), enumerable: true };
       fields['lifecycle'] = { value: this.lifecycleControl, enumerable: true };
       fields['behaviorTicks'] = { get: () => rt.behaviorTicks(), enumerable: true };
-      // Phase 25.11: the switched-off objects (the behavior host's onEnable/onDisable).
+      // The switched-off objects (the behavior host's onEnable/onDisable).
       fields['inactiveEntities'] = { get: () => rt.entityAccess.inactive(), enumerable: true };
-      // Phase 23.17: timelines (ctx.timeline).
+      // Timelines (ctx.timeline).
       fields['timeline'] = { value: this.timelineControl, enumerable: true };
-      // Phase 23.18: the environment presets (ctx.environment).
+      // The environment presets (ctx.environment).
       fields['environment'] = { value: this.environment.api, enumerable: true };
-      // Phase 14.2: last step's trigger enter/exit events (each script gets those it owns).
+      // Last step's trigger enter/exit events (each script gets those it owns).
       const blocks = this.blocks;
       if (blocks !== null) fields['triggerEvents'] = { get: () => blocks.triggerEvents(), enumerable: true };
-      // Phase 24.4: the primitives' events of the last step (each script gets those of the objects it owns).
+      // The primitives' events of the last step (each script gets those of the objects it owns).
       if (blocks !== null) fields['primitiveEvents'] = { get: () => blocks.primitiveEvents(), enumerable: true };
-      // Phase 25.13: the climb volume the character is in (the character controllers read it).
+      // The climb volume the character is in (the character controllers read it).
       if (blocks !== null) fields['climb'] = { value: this.climbQuery, enumerable: true };
-      // Phase 23.2 (3D): the active camera's yaw for the character's move input (absent: world axes).
+      // 3D: the active camera's yaw for the character's move input (absent: world axes).
       if (this.physics3d !== undefined) fields['cameraYaw'] = { get: () => rt.cameraYaw3D(), enumerable: true };
       views.ctx = frozenContext(Object.defineProperties({}, fields) as StepContext);
     }
@@ -4899,7 +4896,7 @@ class RuntimeInstance implements Runtime {
 
   /**
    * A frozen read-only view of the intents committed so far this step (phase
-   * 21.2: the same object until the next commit or step).
+   * The same object until the next commit or step).
    */
   private intentView(): IntentSet {
     if (this.intentViewCache !== null && this.intentViewVersion === this.intentsVersion) return this.intentViewCache;
@@ -4912,12 +4909,12 @@ class RuntimeInstance implements Runtime {
       jumpWriter: s.jumpWriter,
       // The writes are frozen when committed.
       transformWrites: Object.freeze(s.transformWrites.slice()),
-      // Phase 23.2: present only when committed (a 2D step's view keeps its old shape).
+      // Present only when committed (a 2D step's view has no such field).
       ...(s.moveY !== null ? { moveY: s.moveY } : {}),
       ...(s.characterMove !== null ? { characterMove: Object.freeze({ ...s.characterMove }) } : {}),
       ...(s.characterPlace !== null ? { characterPlace: Object.freeze({ ...s.characterPlace }) } : {}),
       ...(s.characterEnabled !== null ? { characterEnabled: s.characterEnabled } : {}),
-      // Phase 24.4f: scripts' impulses for the controller, and the yaw a placement faces (present only when set).
+      // scripts' impulses for the controller, and the yaw a placement faces (present only when set).
       ...(this.impulseAcc !== null ? { impulse: Object.freeze({ x: this.impulseAcc[0], y: this.impulseAcc[1], z: this.impulseAcc[2] }) } : {}),
       ...(this.stepFacing !== null ? { characterYaw: this.stepFacing } : {}),
     });
@@ -4927,7 +4924,7 @@ class RuntimeInstance implements Runtime {
   }
 
   /**
-   * Commit one intent (runtime.md §14.4/§14.5, steps 1–7). The runtime owns the
+   * Commit one intent (steps 1–7). The runtime owns the
    * cross-module duplicate-writer check and the per-step cap; the transform
    * write is applied here (position axes only) so one step has at most one
    * writer per `(entityId, axis)`. Every rejection is a fail-stop.
@@ -4948,13 +4945,13 @@ class RuntimeInstance implements Runtime {
       this.bumpIntentCount();
       this.intents.move = quantizeIntentMove(intent.value);
       this.intents.moveWriter = entry.id;
-      // Phase 23.2: the second axis (a 3D character's forward input).
+      // The second axis (a 3D character's forward input).
       if (intent.y !== undefined) this.intents.moveY = quantizeIntentMove(intent.y);
       return;
     }
     if (intent.kind === 'character_move' || intent.kind === 'character_place' || intent.kind === 'character_enable') {
-      // Phase 23.2: the 3D character controller's channels (one writer each per step).
-      // Phase 25.10: character_place on the 2D plane too (a character with a physics port).
+      // The 3D character controller's channels (one writer each per step).
+      // character_place on the 2D plane too (a character with a physics port).
       if (this.physics3d === undefined && (intent.kind !== 'character_place' || this.controllerEntityId === undefined || this.resetPort() === null)) {
         throw new BehaviorIntentError('behavior_intent_invalid', 'value', intent.kind === 'character_place' ? 'a character_place intent needs a character (a controller) with physics' : `a ${intent.kind} intent needs a 3D project (physics_dimension 3)`);
       }
@@ -4970,7 +4967,7 @@ class RuntimeInstance implements Runtime {
       return;
     }
     if (intent.kind === 'respawn') {
-      // Phase 24.7: the respawn intent is ctx.lifecycle's respawn (at the active spawn, else where the character started).
+      // The respawn intent is ctx.lifecycle's respawn (at the active spawn, else where the character started).
       this.bumpIntentCount();
       this.lifecycleControl.respawn();
       return;
@@ -4991,13 +4988,13 @@ class RuntimeInstance implements Runtime {
     if (transform === undefined) {
       throw new BehaviorIntentError('behavior_transform_forbidden', 'not_owner', `entity "${intent.entityId}" does not exist`);
     }
-    // Phase 21.2: the written channels of an entity are bits in one map entry
+    // The written channels of an entity are bits in one map entry
     // tagged with the step (x/y/z 1/2/4, rotation 8, scale 16): no key strings per intent.
     const axes = this.intents.axes;
     const tag = this.intents.axesTag * 64;
     const stored = axes.get(intent.entityId);
     const have = stored !== undefined && stored >= tag && stored < tag + 64 ? stored - tag : 0;
-    // Phase 23.7: a quaternion or a facing is a rotation write too (one form per intent).
+    // A quaternion or a facing is a rotation write too (one form per intent).
     const turns = intent.quaternion !== undefined || intent.facing !== undefined;
     if (intent.kind === 'pose') {
       if ((intent.rotation !== undefined || turns) && (have & 8) !== 0) {
@@ -5080,7 +5077,7 @@ class RuntimeInstance implements Runtime {
     }));
   }
 
-  /** The per-step intent cap (runtime.md §14.8), then the cumulative count. */
+  /** The per-step intent cap, then the cumulative count. */
   private bumpIntentCount(): void {
     if (this.intents.count + 1 > INTENT_LIMITS.perStep) {
       const limit = this.intentStepLimit();
@@ -5094,7 +5091,7 @@ class RuntimeInstance implements Runtime {
   }
 
   /**
-   * Phase 21.2: the per-step intent cap scales with the live behavior
+   * The per-step intent cap scales with the live behavior
    * instances — `max(INTENT_LIMITS.perStep, perInstancePerStep × instances)` —
    * so every instance may use its own bound in the same step (hundreds of
    * moving objects), while the floor keeps every run the fixed cap of 64
@@ -5121,8 +5118,8 @@ class RuntimeInstance implements Runtime {
   }
 
   /**
-   * Record one accepted behavior `ctx.log` entry in the runtime's bounded ring
-   * (runtime.md §14.8.1). A log flood cannot grow a diagnostics frame beyond
+   * Record one accepted behavior `ctx.log` entry in the runtime's bounded
+   * ring. A log flood cannot grow a diagnostics frame beyond
    * the 32-entry ring; the per-instance ring and counters live in the host.
    */
   private recordBehaviorLog(moduleId: string, level: BehaviorLogLevel, message: string, at?: { file: string; line: number; column: number }): void {
@@ -5138,10 +5135,10 @@ class RuntimeInstance implements Runtime {
 
   private readonly physicsClient: PhysicsStepClient = {
     stageCharacterMove: (entityId: string, delta: Vec2): void => this.stageMove(entityId, delta),
-    // Phase 23.2: in 3D the 3D result (its vectors carry z too).
+    // In 3D the 3D result (its vectors carry z too).
     characterResult: (): CharacterMoveResult | undefined => (this.physics3d !== undefined ? (this.lastCharacterResult3D as unknown as CharacterMoveResult | undefined) : this.lastCharacterResult),
     characterState: (): CharacterState3D | undefined => this.characterState3D(),
-    // Phase 23.3 (3D): rays, overlaps and picks with filters; at most QUERY_LIMIT_3D a step.
+    // 3D: rays, overlaps and picks with filters; at most QUERY_LIMIT_3D a step.
     raycast3d: (origin: readonly number[], direction: readonly number[], maxDistance?: number, filter?: unknown) => {
       const o = queryVec3(origin, 'raycast3d origin');
       const d = queryVec3(direction, 'raycast3d direction');
@@ -5170,7 +5167,7 @@ class RuntimeInstance implements Runtime {
       const ray = p.locked === true ? this.screenRay(0.5, 0.5) : this.screenRay(p.x, p.y);
       return this.castRay3D(ray.origin, ray.direction, max, filter);
     },
-    // Phase 9.9: at most 32 queries (rays and overlaps) per step for modules and scripts.
+    // At most 32 queries (rays and overlaps) per step for modules and scripts.
     raycast: (origin: Vec2, direction: Vec2, maxDistance: number) => {
       if (this.raycastsThisStep >= 32 || this.physics?.raycast === undefined) return null;
       this.raycastsThisStep += 1;
@@ -5188,7 +5185,7 @@ class RuntimeInstance implements Runtime {
     },
   };
 
-  /** Phase 23.3: one query from the step's 3D budget (null past it — warned once — or without a 3D port). */
+  /** One query from the step's 3D budget (null past it — warned once — or without a 3D port). */
   private takeQuery3D(): PhysicsPort3D | null {
     const port = this.physics3d;
     if (port === undefined) return null;
@@ -5203,7 +5200,7 @@ class RuntimeInstance implements Runtime {
     return port;
   }
 
-  /** Phase 23.3: a script's query filter as the port takes it (tags and exclusions become the accept test). */
+  /** A script's query filter as the port takes it (tags and exclusions become the accept test). */
   private queryFilter3D(filter: unknown): PhysicsQueryFilter3D | undefined {
     if (filter === undefined || filter === null) return undefined;
     if (typeof filter !== 'object' || Array.isArray(filter)) throw new Error('a query filter is { tags?, layers?, exclude? }');
@@ -5231,7 +5228,7 @@ class RuntimeInstance implements Runtime {
     return { ...(layers !== undefined ? { layers } : {}), ...(accept !== undefined ? { accept } : {}) };
   }
 
-  /** Phase 23.3: a filtered 3D ray (origin, direction not normalized) into a script's hit. */
+  /** A filtered 3D ray (origin, direction not normalized) into a script's hit. */
   private castRay3D(origin: readonly number[], direction: readonly number[], maxDistance: number, filter: unknown): PhysicsHit | null {
     const f = this.queryFilter3D(filter);
     const len = Math.hypot(direction[0]!, direction[1]!, direction[2]!);
@@ -5252,7 +5249,7 @@ class RuntimeInstance implements Runtime {
     return Object.freeze({ entityId, point: [p.x, p.y, p.z], normal: [hit.normal.x, hit.normal.y, hit.normal.z], distance: hit.distance, ...(cell !== undefined ? { cell } : {}) }) as PhysicsHit;
   }
 
-  /** Phase 23.3: a filtered 3D overlap (sorted ids, at most 64). */
+  /** A filtered 3D overlap (sorted ids, at most 64). */
   private overlap3D(shape: OverlapShape3D, center: readonly number[], rotation: PhysicsQuat | undefined, filter: unknown): string[] {
     const f = this.queryFilter3D(filter);
     const port = this.takeQuery3D();
@@ -5261,12 +5258,12 @@ class RuntimeInstance implements Runtime {
     return [...new Set(port.overlap(shape, { x: center[0]!, y: center[1]!, z: center[2]! }, rotation, f).map(colliderEntityOf))].sort();
   }
 
-  /** Phase 23.3: the camera brain has resolved a view (a virtual camera is loaded and it has stepped). */
+  /** The camera brain has resolved a view (a virtual camera is loaded and it has stepped). */
   private brainHasView(): boolean {
     return this.cameras.active && this.cameras.hasView();
   }
 
-  /** Phase 23.3: the scene camera's pose now (its world transform and lens) — the view when no virtual camera is live. */
+  /** The scene camera's pose now (its world transform and lens) — the view when no virtual camera is live. */
   private basePose(): CameraPose {
     const pos = [0, 0, 0];
     const rot = [0, 0, 0, 1];
@@ -5281,7 +5278,7 @@ class RuntimeInstance implements Runtime {
   }
 
   /**
-   * Phase 23.3: the ray from the active camera through a screen point
+   * The ray from the active camera through a screen point
    * (normalized, 0,0 top left): the camera brain's resolved view when a
    * virtual camera is live, else the scene camera's.
    */
@@ -5309,11 +5306,11 @@ class RuntimeInstance implements Runtime {
       throw new Error('a staged character move must be a finite { x, y }');
     }
     if (this.physics3d !== undefined) {
-      // Phase 23.0: a 3D move (z optional: a module written for the plane moves in it).
+      // A 3D move (z optional: a module written for the plane moves in it).
       const z = (delta as { z?: unknown }).z;
-      // Phase 23.1: the player moves with what it stands on (and a mover's push).
+      // The player moves with what it stands on (and a mover's push).
       const c3 = entityId === this.controllerEntityId ? (this.blocks?.carryDelta3() ?? [0, 0, 0]) : [0, 0, 0];
-      // D50 (phase 25.12): lifted by what it stands on, its own fall is cancelled — the port poses the
+      // Lifted by what it stands on, its own fall is cancelled — the port poses the
       // movers after the sweep, so a grounded character's small fall would end inside the risen platform.
       const ownY = c3[1]! > 0 && delta.y < 0 ? 0 : delta.y;
       const moved3 = { x: delta.x + c3[0]!, y: ownY + c3[1]!, z: (typeof z === 'number' && Number.isFinite(z) ? z : 0) + c3[2]! };
@@ -5322,14 +5319,14 @@ class RuntimeInstance implements Runtime {
       this.physics3d.stageCharacterMove(moved3);
       return;
     }
-    // Phase 9.9: the player moves with the platform it stands on.
+    // The player moves with the platform it stands on.
     const carry = entityId === this.controllerEntityId ? (this.blocks?.carryDelta() ?? { x: 0, y: 0 }) : { x: 0, y: 0 };
     const moved = { x: delta.x + carry.x, y: delta.y + carry.y };
     this.staged.set(entityId, moved);
     this.physics?.stageCharacterMove(moved);
   }
 
-  /** Phase 4 (runtime, not a module): one validated `port.step()`. */
+  /** The physics phase (runtime, not a module): one validated `port.step()`. */
   private runPhysicsPhase(): void {
     if (this.physics3d !== undefined) {
       this.runPhysicsPhase3D(this.physics3d);
@@ -5360,7 +5357,7 @@ class RuntimeInstance implements Runtime {
       const t = this.curr.get(controllerId);
       if (t) {
         // Authoritative commit: position.x/position.y only, before any
-        // phase-transform module runs (§12.1.1 item 5).
+        // phase-transform module runs.
         t.position[0] = check.result.position.x;
         t.position[1] = check.result.position.y;
       }
@@ -5369,15 +5366,15 @@ class RuntimeInstance implements Runtime {
   }
 
   /**
-   * Phase 23.0: the 3D physics phase — one validated `port.step()`. The
+   * The 3D physics phase — one validated `port.step()`. The
    * character falls under the project's gravity (`gravity_y` along Y, capped
    * at `max_fall_speed`) and rests on what it lands on (its fall speed is
    * zeroed while grounded); a move a module staged in the controller phase
-   * replaces the fall. Walking, jumping and turning are phase 23.2. The full
-   * position (x, y and z) is committed to the controller's transform.
+   * replaces the fall. Walking, jumping and turning are the controller's.
+   * The full position (x, y and z) is committed to the controller's transform.
    */
   private runPhysicsPhase3D(port: PhysicsPort3D): void {
-    // Phase 23.5: cells written this step collide in this step's sweep.
+    // Cells written this step collide in this step's sweep.
     this.grid.flushCollision(port);
     const controllerId = this.controllerEntityId;
     const t = controllerId !== undefined ? this.curr.get(controllerId) : undefined;
@@ -5385,13 +5382,13 @@ class RuntimeInstance implements Runtime {
     const dt = 1 / this.hz;
     let requested = controllerId !== undefined ? this.staged3d.get(controllerId) : undefined;
     if (requested === undefined && controllerId === undefined) {
-      // Phase 23.3: a world without a character (colliders for queries and movers): nothing falls.
+      // A world without a character (colliders for queries and movers): nothing falls.
       requested = { x: 0, y: 0, z: 0 };
       port.stageCharacterMove(requested);
     } else if (requested === undefined) {
       const grounded = this.lastCharacterResult3D?.grounded === true;
       this.fallSpeed3d = grounded ? 0 : Math.max(this.settings.max_fall_speed, this.fallSpeed3d + this.settings.gravity_y * dt);
-      // Phase 23.1: plus the platform it stands on (a mover's or script-driven collider's motion) and a mover's push.
+      // Plus the platform it stands on (a mover's or script-driven collider's motion) and a mover's push.
       const c3 = this.blocks?.carryDelta3() ?? [0, 0, 0];
       requested = { x: c3[0]!, y: this.fallSpeed3d * dt + c3[1]!, z: c3[2]! };
       port.stageCharacterMove(requested);
@@ -5418,11 +5415,10 @@ class RuntimeInstance implements Runtime {
   }
 
   /**
-   * Phase 23.2: the active camera's yaw for the 3D character's move input —
+   * The active camera's yaw for the 3D character's move input —
    * radians about +Y (0 looking along −Z) — or undefined (world axes). It is
-   * the camera brain's committed view (phase 23.4: resolved in the
-   * simulation at the end of the previous step, so a replay reads the same
-   * yaw); without virtual cameras the character moves along world axes. An
+   * the camera brain's committed view (resolved in the simulation at the
+   * end of the previous step, so a replay reads the same yaw); without virtual cameras the character moves along world axes. An
    * injected source (`cameraYawSource`) takes precedence.
    */
   private cameraYaw3D(): number | undefined {
@@ -5447,7 +5443,7 @@ class RuntimeInstance implements Runtime {
   }
 
   /**
-   * Phase 23.2: apply a committed `character_place` (after the intent phase,
+   * Apply a committed `character_place` (after the intent phase,
    * before the controller runs): the port re-places the capsule and clears
    * its motion; the controller's transform takes the new origin (the
    * controller module starts from rest there).
@@ -5458,7 +5454,7 @@ class RuntimeInstance implements Runtime {
     this.placeCharacter3D(place.x, place.y, place.z);
   }
 
-  /** Phase 23.2/23.10: put the 3D character at an origin (the port's clearance rules), from rest. */
+  /** Put the 3D character at an origin (the port's clearance rules), from rest. */
   private placeCharacter3D(x: number, y: number, z: number): void {
     const place = { x, y, z };
     const port = this.physics3d;
@@ -5481,7 +5477,7 @@ class RuntimeInstance implements Runtime {
     this.fallSpeed3d = 0;
   }
 
-  /** Phase 23.2: `ctx.physics.characterState` — the 3D character after the last step (undefined in 2D or before it). */
+  /** `ctx.physics.characterState` — the 3D character after the last step (undefined in 2D or before it). */
   private characterState3D(): CharacterState3D | undefined {
     const r = this.lastCharacterResult3D;
     if (this.physics3d === undefined || r === undefined) return undefined;
@@ -5508,7 +5504,7 @@ class RuntimeInstance implements Runtime {
   }
 
   /**
-   * Phase 23.1: bring the colliders scripts drive up to date with the
+   * Bring the colliders scripts drive up to date with the
    * modules' transform owners (at a step boundary): an owned collider that is
    * still a fixed body is re-added to the 3D port as a kinematic one at its
    * current transform (posed from then on with the movers). False after a
@@ -5545,7 +5541,7 @@ class RuntimeInstance implements Runtime {
     return true;
   }
 
-  /** Phase 23.1: where the colliders scripts drive are now (their committed transforms), in id order. */
+  /** Where the colliders scripts drive are now (their committed transforms), in id order. */
   private scriptColliderPoses3D(): { entityId: string; position: [number, number, number]; rotation: readonly number[] }[] {
     if (this.scriptColliders3D.size === 0) return [];
     const out: { entityId: string; position: [number, number, number]; rotation: readonly number[] }[] = [];
@@ -5556,7 +5552,7 @@ class RuntimeInstance implements Runtime {
     return out;
   }
 
-  /** Phase 23.0: add the 3D colliders of loaded / spawned entities (false after a fail-stop). */
+  /** Add the 3D colliders of loaded / spawned entities (false after a fail-stop). */
   private addColliders3D(entities: readonly EntityV3[], refuse: (why: string) => boolean, what: string): boolean {
     const port = this.physics3d!;
     const specs: StaticColliderSpec3D[] = [];
@@ -5583,9 +5579,9 @@ class RuntimeInstance implements Runtime {
   private failStopFromError(e: unknown, stepIndex: number): void {
     const moduleId = this.currentModuleId;
     const phase = this.currentPhase;
-    // Phase 19.0: a visual script's error names the node it came from.
+    // A visual script's error names the node it came from.
     this.failNodeId = graphNodeIdOf(e);
-    // Phase 25.9: and where in the compiled scripts it was thrown.
+    // And where in the compiled scripts it was thrown.
     this.failFrames = compiledFramesOf(e);
     if (e instanceof PhaseViolationError) {
       this.failStop('module_error', 'phase_violation', messageOf(e), stepIndex, moduleId, phase);
@@ -5603,7 +5599,7 @@ class RuntimeInstance implements Runtime {
       this.failStop('module_error', 'input_frame_invalid', messageOf(e), stepIndex, moduleId, phase);
       return;
     }
-    // Behavior contract (runtime.md §14.4/§14.8): the validated-intent API's
+    // Behavior contract: the validated-intent API's
     // own rejection reasons, the per-instance cap and the host's step/shape
     // failures. Each is a fail-stop with the contract's exact reason.
     if (e instanceof BehaviorIntentError) {
@@ -5622,7 +5618,7 @@ class RuntimeInstance implements Runtime {
   }
 
   /**
-   * §13 fail-stop: abandon the step (no transform rollback), cancel the
+   * Fail-stop: abandon the step (no transform rollback), cancel the
    * driver, retain the last committed state for rendering, report the
    * failed module/step and refuse to resume.
    */
@@ -5699,11 +5695,11 @@ class RuntimeInstance implements Runtime {
   }
 
   /**
-   * Phase 15.4: the property values every behavior instance on `entityId`
+   * The property values every behavior instance on `entityId`
    * reads (public and private) — read-only, for the Play debug view.
    */
   /**
-   * Phase 19.2 (Play debugging): what the running behavior instances expose
+   * Play debugging: what the running behavior instances expose
    * for a debugger (their module's optional `debug(state)`; a visual script
    * built for Play returns its trace, wire values and variables), for one
    * behavior and/or one entity. Read-only by contract; exported games carry
@@ -5730,7 +5726,7 @@ class RuntimeInstance implements Runtime {
     return out;
   }
 
-  /** Cumulative behavior log totals the host instances report (§14.8.1). */
+  /** Cumulative behavior log totals the host instances report. */
   private behaviorLogDiagnostics(): { logCount: number; logDropped: number } {
     if (this.entries.length === 0) return this.behaviorLogTotals;
     let logCount = 0;
@@ -5788,7 +5784,7 @@ class RuntimeInstance implements Runtime {
       logCount: logs.logCount,
       logDropped: logs.logDropped,
     };
-    // Phase 25.10: generic component writes (only once a script used them: every other diagnostics frame keeps its shape).
+    // Generic component writes (only once a script used them: every other diagnostics frame keeps its shape).
     const ea = this.entityAccess;
     if (ea.applied + ea.refused + ea.conflicts > 0) m2.entityWrites = { applied: ea.applied, refused: ea.refused, conflicts: ea.conflicts, inactive: ea.inactive().size };
     if (this.failedModuleId !== undefined) m2.failedModuleId = this.failedModuleId;

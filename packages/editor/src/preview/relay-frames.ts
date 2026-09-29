@@ -1,5 +1,5 @@
 /**
- * Phase 25.15: the input exercise's frames as the simulation takes them. A
+ * The input exercise's frames as the simulation takes them. A
  * frame's virtual gamepad needs the project's input bindings, which only the
  * page has, so it is read here, step by step in step order, before the frames
  * go to the simulation (the page's or the worker's): each step of a frame

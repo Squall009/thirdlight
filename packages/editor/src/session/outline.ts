@@ -1,5 +1,5 @@
 /**
- * Phase 15.2: a collider from a model's outline — the pure part.
+ * A collider from a model's outline — the pure part.
  *
  * The Scene view projects the model's vertices onto the play plane (X/Y,
  * relative to the object origin, its rotation about Z undone); this module
@@ -121,7 +121,7 @@ export function boxFromOutline(points: readonly XY[]): OutlineCollider {
 }
 
 /**
- * Phase 23.1 (a 3D project): a box collider from a model's bounds — centred
+ * A 3D project: a box collider from a model's bounds — centred
  * on the object origin a box with its depth; otherwise (a box collider is
  * always centred) the convex hull of the bounds' eight corners, the same box
  * in place.

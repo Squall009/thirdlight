@@ -1,6 +1,6 @@
 /**
- * History edge behavior — commands.md §8.4/§9: redo re-application with
- * recorded values, the defensive `history_invalid` path (§9.4), mixed
+ * History edge behavior — redo re-application with
+ * recorded values, the defensive `history_invalid` path, mixed
  * origins with absent origin, `revision_exhausted`, and deep
  * undo/redo round-trips.
  */

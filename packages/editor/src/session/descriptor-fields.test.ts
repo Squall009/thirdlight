@@ -1,5 +1,5 @@
 /**
- * Phase 15.1: the generic Inspector's model — widget mapping, conditions,
+ * The generic Inspector's model — widget mapping, conditions,
  * edits → command values, the "+ Add component" list. Hand-made descriptors
  * here (the editor may not import project-model values); the real registry
  * and the real commands are checked in `tests/integration/m15-inspector`.
@@ -112,10 +112,10 @@ describe('widgetFor', () => {
     expect(sliderRange(f({ type: 'number', key: 'a', min: 0 }))).toBeNull();
     expect(sliderRange(f({ type: 'number', key: 'a', min: -1e6, max: 1e6 }))).toBeNull();
     expect(sliderRange(f({ type: 'int', key: 'a', min: 0, max: 10 }))?.step).toBe(1);
-    // Phase 15.3: an int with a list of allowed values is a select (no slider).
+    // An int with a list of allowed values is a select (no slider).
     expect(sliderRange(f({ type: 'int', key: 'a', min: 60, max: 240, values: [60, 120, 240] }))).toBeNull();
     expect(intChoices(f({ type: 'int', key: 'a', values: [60, 120, 240] }))).toEqual([60, 120, 240]);
-    expect(intChoices(f({ type: 'int', key: 'a', min: 0, max: 10 }))).toBeNull();    // Phase 17.1: a choice may name its values (the renderer backend).
+    expect(intChoices(f({ type: 'int', key: 'a', min: 0, max: 10 }))).toBeNull();    // A choice may name its values (the renderer backend).
     expect(intChoiceLabel(f({ type: 'int', key: 'a', values: [0, 1], valueLabels: ['WebGL', 'Auto'] }), 1)).toBe('Auto');
     expect(intChoiceLabel(f({ type: 'int', key: 'a', values: [60, 120], unit: 'Hz' }), 60)).toBe('60 Hz');
   });

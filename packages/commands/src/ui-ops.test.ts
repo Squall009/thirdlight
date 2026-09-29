@@ -1,5 +1,5 @@
 /**
- * Phase 23.9a: UI documents and themes through the commands — create,
+ * UI documents and themes through the commands — create,
  * replace, delete (refused while flow.screens, a show action or a document's
  * theme names it), validation errors, no_change, and undo/redo.
  */

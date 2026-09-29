@@ -5,7 +5,7 @@
 
 import type { DebugCommandArg } from './actions';
 
-/** Phase 19.1: one message a script sent (`ctx.messages`). */
+/** One message a script sent (`ctx.messages`). */
 export interface BehaviorMessage {
   readonly name: string;
   /** The payload (a number, text or true/false), or null when none was sent. */
@@ -17,7 +17,7 @@ export interface BehaviorMessage {
 }
 
 /**
- * Phase 19.1: `ctx.messages` — named messages between scripts with an
+ * `ctx.messages` — named messages between scripts with an
  * optional value, to every script or to the scripts of one entity. Like
  * signals, a message sent in a step is seen in the next step (in send order);
  * at most `MAX_MESSAGES_PER_STEP` (256) are sent per step and a new run
@@ -43,16 +43,16 @@ export interface BehaviorMessages {
   received(name: string): readonly BehaviorMessage[];
 }
 
-/** Phase 19.1: the runtime side of `ctx.messages` (the behavior host fills in sender and receiver). */
+/** The runtime side of `ctx.messages` (the behavior host fills in sender and receiver). */
 export interface BehaviorMessageControl {
   send(from: string, name: unknown, value: unknown, target: unknown): boolean;
   received(to: string, name: unknown): readonly BehaviorMessage[];
-  /** Phase 25.11: every message sent in the previous step to every script or to `to`, in send order (`onMessage`). */
+  /** Every message sent in the previous step to every script or to `to`, in send order (`onMessage`). */
   all?(to: string): readonly BehaviorMessage[];
 }
 
 /**
- * Phase 14.2: one `ctx.events` entry for a trigger a script owns — the player
+ * One `ctx.events` entry for a trigger a script owns — the player
  * entered (`enter`) or left (`exit`) it in `stepIndex` (scripts see it in the
  * next step, like signals). A script owns the triggers on its own entity, on
  * the entity's descendants, and those named by its entityRef properties.
@@ -64,7 +64,7 @@ export interface TriggerEventRecord {
   readonly stepIndex: number;
 }
 
-/** Phase 24.4b: a change of an object's health (seen in the step after it happened). */
+/** A change of an object's health (seen in the step after it happened). */
 export interface HealthEventRecord {
   readonly type: 'damaged' | 'healed' | 'died';
   /** The object whose health changed. */
@@ -78,7 +78,7 @@ export interface HealthEventRecord {
   readonly stepIndex: number;
 }
 
-/** Phase 24.4d: a hitbox began or stopped touching another hitbox or the character. */
+/** A hitbox began or stopped touching another hitbox or the character. */
 export interface ContactEventRecord {
   readonly type: 'contact' | 'separate';
   /** This side (a hitbox's object, or the character). */
@@ -90,7 +90,7 @@ export interface ContactEventRecord {
   readonly stepIndex: number;
 }
 
-/** Phase 24.4c: a patroller turned around (at a wall, a ledge, the end of its waypoints, or by a script). */
+/** A patroller turned around (at a wall, a ledge, the end of its waypoints, or by a script). */
 export interface PatrolEventRecord {
   readonly type: 'turned';
   readonly entity: string;
@@ -100,7 +100,7 @@ export interface PatrolEventRecord {
   readonly stepIndex: number;
 }
 
-/** Phase 24.4a: a collectible was collected (by the character) or came back. */
+/** A collectible was collected (by the character) or came back. */
 export interface CollectEventRecord {
   readonly type: 'collected' | 'restored';
   readonly entity: string;
@@ -115,7 +115,7 @@ export interface CollectEventRecord {
 export type PrimitiveEventRecord = HealthEventRecord | ContactEventRecord | PatrolEventRecord | CollectEventRecord;
 
 /**
- * Phase 14.2: `ctx.timers` — named timers of one script instance, counted in
+ * `ctx.timers` — named timers of one script instance, counted in
  * fixed steps (deterministic: `seconds × fixedStepHz` rounded, at least one
  * step). At most `MAX_TIMERS_PER_INSTANCE` (64) run per instance; a new run
  * (a restart) clears them.
@@ -155,7 +155,7 @@ export interface BehaviorTimers {
 }
 
 /**
- * Phase 14.1: `ctx.spawn` / `ctx.destroy` in scripts. A spawn is requested
+ * `ctx.spawn` / `ctx.destroy` in scripts. A spawn is requested
  * during a step and appears at the next step boundary (deterministic: in
  * request order); the id is returned at once. A new run removes every
  * spawned entity; saves never keep them.
@@ -178,7 +178,7 @@ export interface BehaviorSpawnControl {
   destroy(entityId: string): boolean;
 }
 
-/** Phase 9.11: `ctx.save` — values a script keeps in the player's save (≤ 64 keys, ≤ 4 KB each as JSON). */
+/** `ctx.save` — values a script keeps in the player's save (≤ 64 keys, ≤ 4 KB each as JSON). */
 export interface BehaviorSave {
   /**
    * The value kept under `key` (undefined when there is none).
@@ -204,10 +204,10 @@ export interface BehaviorSave {
   keys(): string[];
 }
 
-/** Phase 23.8: the type of a debug command argument. */
+/** The type of a debug command argument. */
 export type DebugCommandArgType = 'number' | 'string' | 'boolean';
 
-/** Phase 23.8: one declared argument of a debug command. */
+/** One declared argument of a debug command. */
 export interface DebugCommandArgSpec {
   /** The argument's name (a letter or _, then letters, digits, _ . : -). */
   readonly name: string;
@@ -216,7 +216,7 @@ export interface DebugCommandArgSpec {
   readonly optional?: boolean;
 }
 
-/** Phase 23.8: how a script declares a debug command (`ctx.debug.command(name, options)`). */
+/** How a script declares a debug command (`ctx.debug.command(name, options)`). */
 export interface DebugCommandOptions {
   /** One line the console and tools show (at most 120 characters). */
   readonly description?: string;
@@ -224,18 +224,18 @@ export interface DebugCommandOptions {
   readonly args?: readonly DebugCommandArgSpec[];
 }
 
-/** Phase 23.8: a registered debug command, as the console and tools list it. */
+/** A registered debug command, as the console and tools list it. */
 export interface DebugCommandSpec {
   readonly name: string;
   readonly description: string;
   readonly args: readonly DebugCommandArgSpec[];
 }
 
-/** Phase 23.8: the arguments of one debug command call. */
+/** The arguments of one debug command call. */
 export type DebugCommandArgs = Readonly<Record<string, DebugCommandArg>>;
 
 /**
- * Phase 23.8: the registered debug commands and the calls the game ran (the
+ * The registered debug commands and the calls the game ran (the
  * newest last, at most 16): what a playtest needs to reproduce a run (each
  * call is an input-frame entry at its step).
  */
@@ -248,7 +248,7 @@ export interface DebugCommandState {
 }
 
 /**
- * Phase 23.8: `ctx.debug` — project debug commands (a test or debug tool, the
+ * `ctx.debug` — project debug commands (a test or debug tool, the
  * in-game console and `tl_game_control` run them). A command runs inside the
  * simulation step as part of the step's input, so a recording replays it.
  */
@@ -313,7 +313,7 @@ export interface AudioStingerOptions {
 
 /** A script's view of the music (`ctx.audio.musicState()`). */
 export interface AudioMusicState {
-  /** Who picks the track: the scripts (after `music`), or the host (`flow`: since phase 24.7 deleted the level flow, nothing plays then). */
+  /** Who picks the track: the scripts (after `music`), or the host (`flow`: the engine has no level flow, so nothing plays then). */
   readonly owner: 'script' | 'flow';
   /** The scripts' track (null: silence, or the host owns it). */
   readonly track: string | null;
@@ -322,7 +322,7 @@ export interface AudioMusicState {
 }
 
 /**
- * Phase 9.10: `ctx.audio`. Phase 23.13: playback handles, music control and
+ * `ctx.audio`. Playback handles, music control and
  * positional sound — what scripts ask for is simulation state (handles,
  * volumes, fades, finished events replay identically); the page's audio
  * engine plays it.
@@ -398,7 +398,7 @@ export interface BehaviorAudio {
    */
   music(assetId: string | null, fadeSeconds?: number): void;
   /**
-   * Give the music back to the host (silence since phase 24.7 deleted the level flow's music), crossfading over `fadeSeconds` (1).
+   * Give the music back to the host (silence: the engine has no level-flow music), crossfading over `fadeSeconds` (1).
    * @graphNode Release music
    * @graphDefault fadeSeconds 1
    */
@@ -445,7 +445,7 @@ export interface BehaviorAudio {
 }
 
 /**
- * Phase 20.2: one request to the renderer's effect player (`ctx.effects`,
+ * One request to the renderer's effect player (`ctx.effects`,
  * the `effect` component's signals, gameplay hooks). Presentation only:
  * requests are recorded in step order and taken by the adapter; nothing in
  * the simulation reads them back (replays do not depend on effects).
@@ -462,13 +462,13 @@ export interface EffectRequest {
   readonly position: readonly [number, number, number];
   /** Overrides of the effect's public parameters (null = none). */
   readonly params: Readonly<Record<string, number | readonly number[] | string>> | null;
-  /** What asked: a script, or the entity's `effect` component (its signal). Phase 24.7: the character controller's gameplay hooks were deleted. */
+  /** What asked: a script, or the entity's `effect` component (its signal). The character controller's gameplay hooks were deleted. */
   readonly source: 'script' | 'component';
   /** The step it was asked in (1-based like the step being simulated). */
   readonly stepIndex: number;
 }
 
-/** Phase 20.2: `ctx.effects` — play visual effects (presentation only, never part of the simulation). */
+/** `ctx.effects` — play visual effects (presentation only, never part of the simulation). */
 export interface BehaviorEffects {
   /**
    * Play a project effect (particles) once: on `entityId` (it follows the object; `position` is then an offset from it) or, without one, at `position` in world metres. `params` override its public parameters. Returns a handle for `stop`, or 0 when refused (a bad id, more than 32 plays in one step).

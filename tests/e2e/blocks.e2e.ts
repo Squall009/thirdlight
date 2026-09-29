@@ -1,16 +1,13 @@
 /**
- * Phase 9.9 / 24.7: gameplay blocks built in the editor and played. On the
+ * Gameplay blocks built in the editor and played. On the
  * starter template's ground the GameObject → Gameplay menu places a
  * collectible, a pressure plate and a door, a one-way shelf, a lift and a
  * trigger; the Inspector sets them up (positions, the lift's path and
  * signal). In Play (the game plays as a scene: no game session), driven by
  * exclusive test input, the character collects the collectible (its named
  * counter), opens the door by stepping on the plate, jumps up through the
- * shelf, walks onto the lift and rides it up.
- *
- * Phase 24.7: this was the deleted sample game's level; its game rules were
- * deleted with the genre layer. The generic blocks stay, and the 2D-plane
- * switches now work without the session.
+ * shelf, walks onto the lift and rides it up. The 2D-plane switches work
+ * without a game session.
  */
 import { expect, test, type Page } from '@playwright/test';
 

@@ -1,5 +1,5 @@
 /**
- * Phase 25.15: a virtual standard gamepad for tests and tools — the relay's
+ * A virtual standard gamepad for tests and tools — the relay's
  * `gamepad` frames read through the project's input bindings (the action
  * evaluator a real pad feeds), plus the menu edges a real pad gives (D-pad or
  * left stick past 0.6: up/down/left/right, A: submit, B: cancel, start:

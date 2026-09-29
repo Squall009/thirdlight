@@ -1,5 +1,5 @@
 /**
- * Packet 58 — B16: non-default authored settings reach both production hosts
+ * B16: non-default authored settings reach both production hosts
  * and the physics/controller, are hash-bound, and do not change an active
  * pinned run.
  *
@@ -66,7 +66,7 @@ const DEFAULT_SETTINGS: GameplaySettings = {
   min_slope_slide_deg: 30,
 };
 
-/** The flat course (floor 0..48, player at x=3). Phase 24.7: no game block
+/** The flat course (floor 0..48, player at x=3). No game block
  * (a scene game: the controller entity is the character). */
 function v3Snapshot(): unknown {
   return {

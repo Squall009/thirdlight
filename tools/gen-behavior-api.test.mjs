@@ -1,5 +1,5 @@
 /**
- * Phase 16.3: the script editor's behavior API typings stay generated from
+ * The script editor's behavior API typings stay generated from
  * the runtime (parity), and they are valid TypeScript a script can use.
  */
 import { readFileSync } from 'node:fs';

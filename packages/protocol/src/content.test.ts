@@ -1,5 +1,5 @@
 /**
- * Packet 25 protocol validators — pure wire shapes for the content transport.
+ * Content transport protocol validators — pure wire shapes.
  * The upload-bound cases mirror
  * `fixtures/m2/contracts/delivery/upload-bounds.json` (re-derived there by the
  * fixture checker's `p19-upload` group); the numbers are inlined because the

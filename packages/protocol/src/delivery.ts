@@ -1,19 +1,15 @@
 /**
- * M2 delivery wire shapes — sessions.md §11.3/§11.5/§17/§18 (immutable
- * play-content locator, runtime-content manifest identity, bounded
- * input-exercise relay) and delivery.md §2/§4/§6/§8.
+ * Delivery wire shapes: the immutable play-content locator, runtime-content
+ * manifest identity and the bounded input-exercise relay.
  *
  * Pure: strict validators and constants only — no I/O, no crypto, no Node
  * built-ins. The digest algorithms live in the host (backend/tests); this
  * module owns the exact *bytes* a digest covers (`manifestBuildIdInput`) and
  * the exact request shapes.
  *
- * Contract-change requests recorded by packet 35 (docs/handoffs/35.md):
- *  - the backend↔editor WS input-relay event names (`input.request` /
- *    `input.result`) are not in the sessions.md §7 catalog;
- *  - sessions.md §10.1/§17.2 name the locator `path` as `/play-content/<id>/`
- *    while §17.2.1/§17.4 name `GET /play/:playSessionId` as the shell and
- *    reject the bare content path — both shell routes are served.
+ * The backend↔editor WS input-relay events are `input.request` /
+ * `input.result`. Both `/play-content/<id>/` and `GET /play/:playSessionId`
+ * are served as the play shell.
  */
 import { ID_RE } from '@thirdlight/project-model/limits';
 import { MANIFEST_CONTENT_FILE_MAX_BYTES, RUNTIME_CONTENT_MANIFEST_MAX_BYTES } from '@thirdlight/project-model/limits';
@@ -21,7 +17,7 @@ import { checkField, checkShape } from './strict';
 import { isContentId, isPlaySessionId, isRequestId } from './ids';
 import type { SessionError } from './errors';
 
-// ---- constants (sessions.md §11.5, delivery.md §11) ---------------------------
+// ---- constants ---------------------------
 
 /** Absolute locator lifetime from play start; never extended by reads. */
 export const PLAY_CONTENT_TTL_SECONDS = 900;
@@ -29,47 +25,47 @@ export const PLAY_CONTENT_TTL_SECONDS = 900;
 export const PLAY_CONTENT_GRACE_SECONDS = 60;
 /** 32 CSPRNG bytes ⇒ 43 base64url characters. */
 export const PLAY_CONTENT_ID_BYTES = 32;
-/** The manifest document cap (sessions.md §11.5): the runtime content manifest's. */
+/** The manifest document cap: the runtime content manifest's. */
 export const PLAY_CONTENT_MANIFEST_MAX_BYTES = RUNTIME_CONTENT_MANIFEST_MAX_BYTES;
-/** The whole artifact-set cap (§17.3). */
+/** The whole artifact-set cap. */
 export const PLAY_CONTENT_SET_MAX_BYTES = 536_870_912;
-/** The single-artifact cap (§17.3): one content file's. */
+/** The single-artifact cap: one content file's. */
 export const PLAY_CONTENT_ARTIFACT_MAX_BYTES = MANIFEST_CONTENT_FILE_MAX_BYTES;
-/** The bounded relay frame count (§18.1.1). */
+/** The bounded relay frame count. */
 export const INPUT_RELAY_MAX_FRAMES = 600;
-/** The bounded relay body size (§18.1.1). */
+/** The bounded relay body size. */
 export const INPUT_RELAY_MAX_BODY_BYTES = 16_384;
 /**
- * Phase 25.15: the most steps one relay covers (the last frame's
+ * The most steps one relay covers (the last frame's
  * `stepOffset + steps`): 60 s at the default 120 Hz step, 2 minutes at 60 Hz.
  * The backend waits for the relay by this span.
  */
 export const INPUT_RELAY_MAX_STEPS = 7_200;
-/** Phase 25.15: the UI edges a relay frame may carry (the keys and pad buttons that drive menus). */
+/** The UI edges a relay frame may carry (the keys and pad buttons that drive menus). */
 export const RELAY_UI_EDGES = ['up', 'down', 'left', 'right', 'submit', 'cancel', 'pause'] as const;
 export type RelayUiEdge = (typeof RELAY_UI_EDGES)[number];
-/** Phase 25.15: UI edges in one frame. */
+/** UI edges in one frame. */
 export const RELAY_MAX_UI_EDGES = 8;
-/** Phase 25.15: the standard gamepad layout's button and axis counts. */
+/** The standard gamepad layout's button and axis counts. */
 export const RELAY_GAMEPAD_BUTTONS = 17;
 export const RELAY_GAMEPAD_AXES = 4;
-/** The `tl.input.result` ack timeout (§18.1.2). */
+/** The `tl.input.result` ack timeout. */
 export const INPUT_RELAY_ACK_TIMEOUT_MS = 10_000;
-/** The v2 bridge message cap (§17.6). */
+/** The v2 bridge message cap. */
 export const BRIDGE_MESSAGE_MAX_BYTES = 65_536;
-/** The `tl.load.progress` cap (§17.6). */
+/** The `tl.load.progress` cap. */
 export const BRIDGE_LOAD_PROGRESS_MAX_BYTES = 1_024;
-/** session.md §11.5: the input relay body bound restated for the WS ack. */
+/** The input relay body bound restated for the WS ack. */
 export const INPUT_RELAY_RESULT_MAX_BYTES = 4_096;
 
-/** The one accepted relay mode (§18.1.1). */
+/** The one accepted relay mode. */
 export const INPUT_RELAY_MODE = 'exclusive-test' as const;
 
-/** The manifest discriminator (§17.1.1). */
+/** The manifest discriminator. */
 export const RUNTIME_CONTENT_TYPE = 'thirdlight-runtime-content' as const;
 export const RUNTIME_CONTENT_MANIFEST_VERSION = 1 as const;
 
-/** The exact canonical option-set record (delivery.md §4.2). */
+/** The exact canonical option-set record. */
 export const BUILD_OPTIONS_RECORD = Object.freeze({
   bundler: 'esbuild@0.28.2',
   bundle: true,
@@ -87,7 +83,7 @@ export function buildOptionsRecordBytes(): Uint8Array {
   return new TextEncoder().encode(`${JSON.stringify(BUILD_OPTIONS_RECORD, null, 2)}\n`);
 }
 
-// ---- runtime-content manifest identity (§17.1.1) ------------------------------
+// ---- runtime-content manifest identity ------------------------------
 
 /** The manifest keys in their exact canonical order (`buildId` last). */
 export const MANIFEST_KEYS = [
@@ -111,7 +107,7 @@ export const MANIFEST_KEYS = [
 
 /**
  * The exact bytes `buildId` covers: the canonical document serialization of the
- * manifest without `buildId`, key order exactly as §17.1.1 writes it,
+ * manifest without `buildId`, key order exactly as `MANIFEST_KEYS` lists it,
  * `JSON.stringify(…, null, 2) + "\n"`. Returns `null` when a key is missing.
  */
 export function manifestBuildIdInput(manifest: Record<string, unknown>): Uint8Array | null {
@@ -136,7 +132,7 @@ export function orderManifest(manifest: Record<string, unknown>): Record<string,
   return ordered;
 }
 
-// ---- the locator path set (§17.2.1) -------------------------------------------
+// ---- the locator path set -------------------------------------------
 
 /** One classified locator path (relative to the preview origin). */
 export type LocatorPath =
@@ -146,9 +142,9 @@ export type LocatorPath =
   | { kind: 'asset'; contentId: string; assetId: string; version: number }
   | { kind: 'asset-digest'; contentId: string; digest: string }
   | { kind: 'behavior'; contentId: string; outputDigest: string }
-  /** Phase 25.9: one shared script library module (`libraries/<outputDigest>.js`), imported by behaviors. */
+  /** One shared script library module (`libraries/<outputDigest>.js`), imported by behaviors. */
   | { kind: 'library'; contentId: string; outputDigest: string }
-  /** Phase 12 (c): one scene of a v4 build (`scenes/<sceneId>.json`). */
+  /** One scene of a v4 build (`scenes/<sceneId>.json`). */
   | { kind: 'scene'; contentId: string; sceneId: string }
   | { kind: 'invalid' };
 
@@ -156,7 +152,7 @@ const DIGEST_RE = /^[0-9a-f]{64}$/;
 const ASSET_ID_RE = ID_RE;
 
 /**
- * Classify one URL path against the exact §17.2.1 route set. Anything else
+ * Classify one URL path against the exact locator route set. Anything else
  * (listings, traversal, undeclared paths, other `contentId`s) is `invalid` ⇒
  * `path_rejected` — never a filesystem fallback.
  */
@@ -208,38 +204,38 @@ export function classifyLocatorPath(pathname: string): LocatorPath {
   return { kind: 'invalid' };
 }
 
-/** Replace one locator value with the normative redaction token (§17.4). */
+/** Replace one locator value with the normative redaction token. */
 export function redactContentId(text: string, contentId: string | undefined): string {
   if (contentId === undefined || contentId.length === 0) return text;
   return text.split(contentId).join('<redacted:contentId>');
 }
 
-// ---- bounded input-exercise relay (§18.1) -------------------------------------
+// ---- bounded input-exercise relay -------------------------------------
 
 export type RelayJumpPhase = 'none' | 'pressed' | 'held' | 'released';
-/** Phase 24.8: frame version 2 — named actions and the pointer (no fixed moveX/moveY/jump channels). */
+/** Frame version 2 — named actions and the pointer (no fixed moveX/moveY/jump channels). */
 export interface RelayFrame {
   stepOffset: number;
   /**
-   * Phase 25.15: run length — the frame holds for this many steps (absent: 1).
+   * Run length — the frame holds for this many steps (absent: 1).
    * Its first step has it as written; the rest see its continuation (a
    * `pressed` action is `held`, `released` is `none`; the pointer keeps its
    * place and held buttons without the movement, wheel and edges; the UI
    * edges only on the first step). Steps no frame covers are neutral.
    */
   steps?: number;
-  /** Phase 25.15: a virtual standard-mapped gamepad (absent: the pad at rest). */
+  /** A virtual standard-mapped gamepad (absent: the pad at rest). */
   gamepad?: RelayGamepad;
-  /** Phase 25.15: UI edges on the frame's first step (drive the focused document, the pause, the shell's screens). */
+  /** UI edges on the frame's first step (drive the focused document, the pause, the shell's screens). */
   ui?: RelayUiEdge[];
-  /** Phase 9.8: named input actions this step (`{ v, x?, y?, p }` each; the character reads `move` and `jump` by default). */
+  /** Named input actions this step (`{ v, x?, y?, p }` each; the character reads `move` and `jump` by default). */
   actions?: Record<string, { v: number; x?: number; y?: number; p: RelayJumpPhase }>;
-  /** Phase 23.3: the pointer this step (a frame without one keeps the last position and buttons). */
+  /** The pointer this step (a frame without one keeps the last position and buttons). */
   pointer?: RelayPointer;
 }
 
 /**
- * Phase 23.3: a relay frame's pointer sample — x, y in [0, 1] of the view
+ * A relay frame's pointer sample — x, y in [0, 1] of the view
  * (0,0 top left), dx/dy/wheel in [-10, 10], button masks 0–7 (1 left,
  * 2 right, 4 middle), over/locked booleans.
  */
@@ -257,7 +253,7 @@ export interface RelayPointer {
 }
 
 /**
- * Phase 25.15: a virtual gamepad in the standard layout — `buttons` values
+ * A virtual gamepad in the standard layout — `buttons` values
  * 0–1 by standard index (0 A/cross, 1 B/circle, 9 start, 12–15 the D-pad; a
  * button is down at 0.5 or more), `axes` −1..1 (0/1 the left stick, 2/3 the
  * right; y down). Missing entries are at rest.
@@ -267,7 +263,7 @@ export interface RelayGamepad {
   axes?: number[];
 }
 
-/** Phase 25.15: parse a relay gamepad (null when malformed); values quantized to 1e-4. */
+/** Parse a relay gamepad (null when malformed); values quantized to 1e-4. */
 export function parseRelayGamepad(value: unknown): RelayGamepad | null {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
   const v = value as Record<string, unknown>;
@@ -289,7 +285,7 @@ export function parseRelayGamepad(value: unknown): RelayGamepad | null {
   return { ...(buttons !== undefined ? { buttons } : {}), ...(axes !== undefined ? { axes } : {}) };
 }
 
-/** Phase 25.15: parse a relay frame's UI edges (null when malformed). */
+/** Parse a relay frame's UI edges (null when malformed). */
 export function parseRelayUiEdges(value: unknown): RelayUiEdge[] | null {
   if (!Array.isArray(value) || value.length < 1 || value.length > RELAY_MAX_UI_EDGES) return null;
   for (const e of value) if (typeof e !== 'string' || !(RELAY_UI_EDGES as readonly string[]).includes(e)) return null;
@@ -297,7 +293,7 @@ export function parseRelayUiEdges(value: unknown): RelayUiEdge[] | null {
 }
 
 /**
- * Phase 25.15: check a relay frame's `steps` against the frame before it:
+ * Check a relay frame's `steps` against the frame before it:
  * an integer 1..INPUT_RELAY_MAX_STEPS, the frame starting at or after the
  * previous frame's end, and the whole relay ending by INPUT_RELAY_MAX_STEPS.
  * Returns the frame's end (exclusive) or a reason.
@@ -314,7 +310,7 @@ export function relayFrameEnd(stepOffset: number, steps: unknown, previousEnd: n
 
 const RELAY_POINTER_KEYS = ['x', 'y', 'dx', 'dy', 'wheel', 'buttons', 'pressed', 'released', 'over', 'locked'];
 
-/** Phase 23.3: parse one relay pointer sample (null when it is malformed); x, y, dx, dy and wheel are quantized to 1e-4. */
+/** Parse one relay pointer sample (null when it is malformed); x, y, dx, dy and wheel are quantized to 1e-4. */
 export function parseRelayPointer(value: unknown): RelayPointer | null {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
   const v = value as Record<string, unknown>;
@@ -337,9 +333,9 @@ export function parseRelayPointer(value: unknown): RelayPointer | null {
 export interface InputRelayRequest {
   mode: 'exclusive-test';
   frames: readonly RelayFrame[];
-  /** Phase 25.16: restart the game first (the replay); the frames begin at the new run's first step. */
+  /** Restart the game first (the replay); the frames begin at the new run's first step. */
   restart?: boolean;
-  /** Phase 25.17: hold the game right after the last step, until the next exercise (which begins at exactly the next step). */
+  /** Hold the game right after the last step, until the next exercise (which begins at exactly the next step). */
   hold?: boolean;
 }
 
@@ -361,10 +357,10 @@ const JUMP_SET: readonly string[] = ['none', 'pressed', 'held', 'released'];
 const MAX_STEP_OFFSET = 2 ** 53 - 1;
 
 /**
- * Strict parse of one relay body. Applies the §18.1.1 bounds: exactly the
+ * Strict parse of one relay body. Applies the relay bounds: exactly the
  * accepted mode, 1–600 frames, strictly ascending `stepOffset` with no
- * duplicates, named actions and the pointer only (phase 24.8: frame version
- * 2 — no moveX/moveY/jump), and a body ≤ 16 384 bytes.
+ * duplicates, named actions and the pointer only (frame version 2 has no
+ * moveX/moveY/jump), and a body ≤ 16 384 bytes.
  */
 export function parseInputRelayRequest(
   value: unknown,
@@ -424,7 +420,7 @@ export function parseInputRelayRequest(
       };
     }
     previous = stepOffset;
-    // Phase 25.15: run length, no overlap, the relay's span bounded.
+    // Run length, no overlap, the relay's span bounded.
     const rawSteps = (frameShape.value as Record<string, unknown>)['steps'];
     const span = relayFrameEnd(stepOffset, rawSteps, previousEnd);
     if (!span.ok) {
@@ -457,7 +453,7 @@ export function parseInputRelayRequest(
         ok: false as const,
         error: { code: 'field_value' as const, cls: 'validation' as const, message: 'actions maps up to 64 action names to { v, x?, y? (numbers in [-10, 10]), p: none | pressed | held | released }', path: `/frames/${i}/actions` },
       };
-      if (typeof rawActions !== 'object' || rawActions === null || Array.isArray(rawActions) || Object.keys(rawActions).length > 64) return bad; // phase 23.14: project-model MAX_INPUT_ACTIONS
+      if (typeof rawActions !== 'object' || rawActions === null || Array.isArray(rawActions) || Object.keys(rawActions).length > 64) return bad; // project-model MAX_INPUT_ACTIONS
       actions = {};
       for (const [name, a] of Object.entries(rawActions as Record<string, unknown>)) {
         const v = a as Record<string, unknown> | null;
@@ -513,7 +509,7 @@ export function parseInputRelayRequest(
   return { ok: true, request: { mode: INPUT_RELAY_MODE, frames, ...(restart === true ? { restart: true } : {}), ...(hold === true ? { hold: true } : {}) } };
 }
 
-/** The §18.1.2 result shape (built by the backend). */
+/** The relay result shape (built by the backend). */
 export interface InputRelayResultDoc {
   ok: true;
   mode: 'exclusive-test';
@@ -526,7 +522,7 @@ export interface InputRelayResultDoc {
   clearedAt: string;
 }
 
-// ---- the `tl.input.result` bridge/payload ack (§17.6/§18.1.2) ------------------
+// ---- the `tl.input.result` bridge/payload ack ------------------
 
 /**
  * Validate one preview → editor `tl.input.result` payload (the backend relays

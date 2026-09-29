@@ -1,5 +1,5 @@
 /**
- * Phase 15.4: script property visibility against a real backend (the engine
+ * Script property visibility against a real backend (the engine
  * sample with neutral additions: a plain box carrying a probe script).
  *
  * - Behaviors tab: the declaration editor declares a public number ("speed",

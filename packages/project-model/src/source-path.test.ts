@@ -1,5 +1,5 @@
 /**
- * Phase 10: the optional `sourcePath` of an asset version (a file referenced
+ * The optional `sourcePath` of an asset version (a file referenced
  * in place in the game folder). Syntax only here; containment on disk is the
  * workspace's (referenced-sources.test.ts).
  */

@@ -1,15 +1,14 @@
 /**
- * Packet 31 — fixture replay through the real library
+ * Fixture replay through the real library
  * (`fixtures/m2/physics/cases.json` + the four course fixtures).
  *
  * Every case is driven through the real `@thirdlight/physics-rapier` adapter
  * (the pinned `@dimforge/rapier2d-compat@0.20.0` WASM, not a mock) with the
- * packet-14 canonical character model, and every per-step result is checked
+ * canonical character model, and every per-step result is checked
  * with the runtime's own accepted `validateCharacterMoveResult`.
  *
- * The expectation bands come from `fixtures/m2/physics/**` (frozen packet-14
- * course tolerances and `docs/planning/m2-contracts/physics.md` §7/§8); the
- * measured values are recorded in `docs/acceptance/evidence-m2/31/`.
+ * The expectation bands come from `fixtures/m2/physics/**` (frozen
+ * course tolerances and `docs/planning/m2-contracts/physics.md`).
  */
 import { describe, expect, it } from 'vitest';
 import { createPhysicsPort } from '@thirdlight/physics-rapier';

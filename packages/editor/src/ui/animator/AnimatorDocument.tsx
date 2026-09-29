@@ -1,6 +1,6 @@
 /**
- * Phase 16.2: the "Animator: <controller>" centre tab — the controller's
- * state machine on the graph framework (16.1).
+ * The "Animator: <controller>" centre tab — the controller's
+ * state machine on the graph framework.
  *
  * - The graph: the layer's states (clip, blend tree, empty), the fixed Entry
  *   and Any State nodes and one wire per state pair with transitions (a
@@ -9,13 +9,13 @@
  *   controller; the change is a `setAnimators`, the view is read back from
  *   it — editor/src/graph/animator.ts). The selection shows in the right
  *   dock's Inspector (AnimatorInspector).
- * - Layers (14.6) are tabs above the graph; a blend tree opens as its own
+ * - Layers are tabs above the graph; a blend tree opens as its own
  *   graph (double-click it, or "Open blend tree" in the Inspector) with a
  *   breadcrumb back to its layer.
  * - Left: the controller's parameters and, on an override layer, the
  *   layer's settings (weight, bone mask). Controller-level edits are
  *   `setAnimator` (one undo each).
- * - The live preview (9.7) is a pane inside the tab, docked right or at the
+ * - The live preview is a pane inside the tab, docked right or at the
  *   bottom, or hidden (remembered in the browser); the states it is in are
  *   highlighted in the graph.
  *

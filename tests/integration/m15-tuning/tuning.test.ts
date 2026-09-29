@@ -1,12 +1,12 @@
 /**
- * Phase 15.3: tuning values as data, through the production composition
+ * Tuning values as data, through the production composition
  * (real game host, platformer controller, blocks and primitives, Rapier
  * physics; the physics port built from the character's data as the preview
  * and export hosts build it).
  *
  * - A project that spells out every tuning value at its default plays
- *   bit-for-bit like one that sets none (so every recorded replay made
- *   before the values became data stays valid).
+ *   bit-for-bit like one that sets none (so a recorded replay of a project
+ *   without tuning values stays valid).
  * - Each non-default value changes what happens.
  * - A recorded replay with non-default values (`replay-nondefault.json`)
  *   plays back bit-for-bit.

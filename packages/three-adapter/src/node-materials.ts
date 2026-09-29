@@ -1,6 +1,5 @@
 /**
- * Phase 17.2: the node-material (TSL) side of the project shading; since
- * phase 17.4 the only one (every view draws with three's `WebGPURenderer`,
+ * The node-material (TSL) side of the project shading; the only one (every view draws with three's `WebGPURenderer`,
  * WebGPU or its WebGL 2 backend, which ignores `onBeforeCompile`). Every
  * shader hook of the archived WebGL path has a node equivalent here:
  *
@@ -14,7 +13,7 @@
  *   (the kit's world-X UV shift works per instance).
  * - `setEntityLook` / `setSelectionHighlight`: a script's look override
  *   (`ctx.look`) and the editor's selection tint — per-mesh overrides that
- *   never change a shared project material (phase 9.4 rule).
+ *   never change a shared project material.
  *
  * Pure three.js (`three/webgpu`, `three/tsl`); nothing here needs a GPU until
  * a renderer builds the nodes.
@@ -151,7 +150,7 @@ const interleavedMatrices = new WeakMap<THREE.InstancedBufferAttribute, THREE.In
  * UV shift. Vertex stage.
  */
 export const instanceOrigin = Fn((builder: NodeBuilder) => {
-  // Phase 25.24d: an automatic batch's instances (instance-matrix columns of its geometry).
+  // An automatic batch's instances (instance-matrix columns of its geometry).
   if (buildHasInstanceColumns(builder)) return instanceOriginFromColumns();
   const o = (builder as unknown as { object: THREE.Object3D }).object as THREE.InstancedMesh;
   const im = o !== null && o !== undefined && o.isInstancedMesh === true ? o.instanceMatrix : null;
@@ -196,14 +195,14 @@ export function setSelectionHighlight(material: THREE.Material | THREE.Material[
 const SOURCE_KEY = '__tlSourceMaterial';
 const OWN_KEY = '__tlOwnMaterial';
 /**
- * Phase 21.3: `material.userData[SHARED_MATERIAL_KEY] = true` marks a material
+ * `material.userData[SHARED_MATERIAL_KEY] = true` marks a material
  * several objects draw with (deduplicated box materials, a model's material
  * shared by its placements): a per-object look copies it first.
  */
 export const SHARED_MATERIAL_KEY = '__tlSharedMaterial';
 
 /**
- * Phase 21.5: release the own copies `setEntityLook` made under `root` (the
+ * Release the own copies `setEntityLook` made under `root` (the
  * object leaves the scene; a shared material is never disposed here).
  */
 export function releaseEmissiveLooks(root: THREE.Object3D): void {
@@ -216,11 +215,11 @@ export function releaseEmissiveLooks(root: THREE.Object3D): void {
 }
 
 /**
- * Phase 24.4h: a look override on every mesh under `root` — an emissive
+ * A look override on every mesh under `root` — an emissive
  * colour and intensity and/or a tint multiplied into each material's own
  * colour — or back to each material's own (`look` null; a field left out
  * keeps the material's own value). A mesh wearing a shared project material
- * (or a material marked shared, phase 21.3) first gets its own copy (hooks
+ * (or a material marked shared) first gets its own copy (hooks
  * included), so nothing else changes. Works on
  * both renderers: the node materials read `color`, `emissive` and
  * `emissiveIntensity` as uniforms every frame.
@@ -250,7 +249,7 @@ export function setEntityLook(root: THREE.Object3D, look: { emissive?: string; e
         mat.emissiveIntensity = look.emissiveIntensity ?? 1;
       }
     }
-    // Phase 24.4h: the tint multiplies the material's own colour (the base kept the first time).
+    // The tint multiplies the material's own colour (the base kept the first time).
     const color = (mat as { color?: THREE.Color }).color;
     if (color !== undefined && color.isColor === true) {
       if (look?.tint !== undefined) {

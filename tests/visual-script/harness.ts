@@ -1,5 +1,5 @@
 /**
- * Phase 19.0/19.1: the test harness of visual scripts in the running game —
+ * The test harness of visual scripts in the running game —
  * the one compiler, a bounded `node:vm` evaluator (no code generation, as in
  * tests/browser/m2-behaviors/behavior-host.test.ts) and a neutral level in
  * the production composition (game host, platformer controller, Rapier):

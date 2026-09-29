@@ -1,5 +1,5 @@
 /**
- * Phase 24.5: the GameObject menu's create entries come from the component
+ * The GameObject menu's create entries come from the component
  * descriptors (`create`), not from a hard-coded list. On the neutral starter
  * template: the menu shows the generic entries (a spawn point; platforms,
  * a door, a one-way platform, a trigger, a scene transition, a switch, an
@@ -144,7 +144,7 @@ test('a 3D project\'s create menu shows the entries that fit 3D', async ({ page 
   await expect.poll(async () => (await entities()).filter((e) => e.name === 'Hitbox').map((e) => e.components['hitbox'])).toContainEqual({ size: [1, 1, 1] });
   await menu(page, 'GameObject', 'Gameplay', 'Trigger');
   await expect.poll(async () => (await entities()).filter((e) => e.name === 'Trigger').map((e) => e.components['trigger'])).toContainEqual({ size: [2, 2, 2], signal: 'trigger' });
-  // Phase 25.14: a camera region has a depth in 3D.
+  // A camera region has a depth in 3D.
   await menu(page, 'GameObject', 'Cameras', 'Camera region');
   await expect.poll(async () => (await entities()).filter((e) => e.name === 'Camera region').map((e) => e.components['cameraRegion'])).toContainEqual({ size: [10, 6, 10] });
 });

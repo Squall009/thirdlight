@@ -1,28 +1,25 @@
 /**
- * Packet 60 — the M3 export bundle §5.4.1 re-measurement + production parity
- * (export.md §5.4.1 "M3 addition (packet 42)"; the 58/60 re-measurement duty).
+ * The export bundle's pattern re-measurement + production parity.
  *
- * The §5.4.1 recorded-exception table binds the exact per-pattern counts of the
- * pinned `three` full-core bundle under the §5.3 pinned option set. The
- * packet-42 M3 addition records that `game-host` initiates no fetch and adds 0
- * occurrences for a/b/c/e/g/i and 0 additional for d/f/h/j (content.game/
- * settings/media are embedded in manifest.json, so there is no game.json
- * side-car and no extra fetch). Packets 58/60 must RE-MEASURE the table and the
- * §17.5 fetch list on the real bundles and record the result — if the measured
- * text differs they request a bounded re-review rather than widening an
- * exception.
+ * The recorded-exception table binds the exact per-pattern counts of the
+ * pinned `three` full-core bundle under the export's pinned option set.
+ * `game-host` initiates no fetch and adds 0 occurrences for a/b/c/e/g/i and
+ * 0 additional for d/f/h/j (content.game/settings/media are embedded in
+ * manifest.json, so there is no game.json side-car and no extra fetch). The
+ * table and the fetch list are RE-MEASURED on the real bundles — if the
+ * measured text differs, the exception is re-reviewed, never widened.
  *
  * This test (real esbuild, real three install, real M3 bundle via the
  * production `buildM3Bundle`):
- *   1. re-verifies the §5.4.1 reference full-core three counts against the
- *      current install (binding 3);
+ *   1. re-verifies the reference full-core three counts against the
+ *      current install;
  *   2. builds the REAL M3 export bundle (entry `export-bootstrap-m3.ts`, the
  *      single shared `createGameHost` composition) and asserts the exact counts
  *      = the recorded baseline + the applicable exception rows + the counted
  *      engine call sites — i.e. `game-host` contributes 0 to d/f/h/j and
  *      a/b/c/e/g/i stay 0;
  *   3. proves the export bundle's graph contains the SAME shared composition
- *      (game-host) the preview uses (production parity), and (phase 24.3)
+ *      (game-host) the preview uses (production parity), and
  *      that the page and worker bundles link only the module specs the
  *      manifest names — a project without platformer content ships none;
  *   4. the negative authoring-token/capability/Node/URL scans.
@@ -30,7 +27,7 @@
  * The real-browser standalone playthrough (independent static server under a
  * non-root prefix, backend stopped/unreachable, keyboard/gamepad/audio +
  * recorded network) is the owner-run procedure — UNVERIFIED in-container
- * (tests/browser/m3-export, packet-38 baseline §1).
+ * (tests/browser/m3-export).
  */
 import { build } from 'esbuild';
 import { dirname, join, resolve } from 'node:path';
@@ -45,7 +42,7 @@ const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '
 const BOOTSTRAP = join(REPO_ROOT, 'packages/exporter', 'src', 'export-bootstrap-m3.ts');
 const WORKER = join(REPO_ROOT, 'packages/exporter', 'src', 'export-sim-worker.ts');
 
-/** export.md §5.3 — the pinned esbuild 0.28.2 option set (normative). */
+/** The pinned esbuild 0.28.2 option set (normative). */
 const PINNED_OPTIONS = {
   bundle: true,
   platform: 'browser',
@@ -57,7 +54,7 @@ const PINNED_OPTIONS = {
 
 const CANARY_TOKEN = 'tl-canary-authoring-token-9f3c';
 
-/** The §5.4.1 reference entry (exporter/src/export-m3.ts): phase 17.4 — the WebGPU build of three (core re-exported) and TSL. */
+/** The reference entry (exporter/src/export-m3.ts): the WebGPU build of three (core re-exported) and TSL. */
 const REFERENCE_ENTRY = "import * as WEBGPU from 'three/webgpu';\nimport * as TSL from 'three/tsl';\nconsole.log(WEBGPU.REVISION, Object.keys(TSL).length);\n";
 
 function count(text: string, needle: string): number {
@@ -70,14 +67,14 @@ function count(text: string, needle: string): number {
   return n;
 }
 
-/** The §5.4 normative patterns a–j over one emitted text (the M2 scan shape). */
+/** The normative forbidden patterns a–j over one emitted text. */
 function scanText(text: string, tokenValues: readonly string[]): Record<string, number> {
   return {
     a: tokenValues.reduce((n, v) => n + count(text, v), 0),
     b: 0,
     c: count(text, '/api/v1/'),
     d: count(text, 'fetch('),
-    // Phase 17.1: a Node built-in module specifier (three's node materials have `node:` object keys).
+    // A Node built-in module specifier (three's node materials have `node:` object keys).
     e: (text.match(/["'`]node:/g) ?? []).length,
     f: count(text, '__dirname') + count(text, 'process.'),
     g: count(text, '/mcp'),
@@ -98,8 +95,7 @@ describe('M3 export bundle §5.4.1 re-measurement + production parity (packet 60
   it('re-verifies the §5.4.1 reference full-core three counts against the current install (binding 3)', async () => {
     const reference = await buildStdin(REFERENCE_ENTRY);
     const ref = scanText(reference, []);
-    // The §5.4.1 recorded-exception table (pinned three; phase 17.4:
-    // the WebGPU build — core + three.webgpu + TSL, no three.module.js, so the
+    // The recorded-exception table (pinned three; the WebGPU build — core + three.webgpu + TSL, no three.module.js, so the
     // one `https://` doc link only the WebGL renderer build had is gone:
     // 4 `http://` + 26 `https://`; its six `node:` object keys are not
     // module specifiers).
@@ -150,41 +146,40 @@ describe('M3 export bundle §5.4.1 re-measurement + production parity (packet 60
     // d = the recorded baseline (three core) + the Rapier row (+1) + the
     //    counted engine call sites (one ./manifest.json + one ./scene.json +
     //    one read per unique declared asset path). game-host adds 0. The
-    //    compressed-GLB loaders (2026-09-23) add 1: three's zstddec, pulled in
+    //    compressed-GLB loaders add 1: three's zstddec, pulled in
     //    by KTX2Loader, fetches its own embedded `data:application/wasm` URL
     //    (no network).
     expect(c.d).toBe(ref.d + 1 + 2 + nAssets + 1);
 
     // f/j = exactly the table's counts + 0 from game-host + 0 from the
-    //    GLTFLoader subpath (C64-6: d/f/j/a/b/c/e/g/i +0 for the subpath
+    //    GLTFLoader subpath (d/f/j/a/b/c/e/g/i +0 for the subpath
     //    row — the loader port adds no Node/URL/process surface).
     expect(c.f).toBe(ref.f);
     expect(c.j).toBe(ref.j);
 
-    // h = the table's counts + the §5.4.1 GLTFLoader subpath row (C64-6,
-    //    re-measured packet 70): the `three-adapter` `./gltf-loader` subpath
-    //    entered the M3 export graph (delivery.md (M4) §2 — the wrapper
-    //    builds the loader port the `models` block uses), adding the
+    // h = the table's counts + the GLTFLoader subpath row: the
+    //    `three-adapter` `./gltf-loader` subpath is in the export graph (the
+    //    wrapper builds the loader port the `models` block uses), adding the
     //    pinned `three` GLTFLoader addon's documented URL comments
     //    (+12 `https://`; `GLTFLoader` ×37 in the bundle bytes). The
-    //    compressed-GLB loaders (2026-09-23: DRACOLoader, KTX2Loader and their
+    //    compressed-GLB loaders (DRACOLoader, KTX2Loader and their
     //    helpers, meshopt_decoder) add +1: a documentation URL in a comment
     //    that esbuild keeps (KTX2Loader's gpuweb issue link). No fetch target.
-    //    Phase 23.14: game-host's generic glyph set adds +1 — the SVG
+    //    Game-host's generic glyph set adds +1 — the SVG
     //    namespace (`xmlns="http://www.w3.org/2000/svg"`, like three's XHTML
     //    namespace in the table), an identifier in data: URL images, never fetched.
     expect(c.h).toBe(ref.h + 12 + 1 + 1);
     expect(count(text, 'GLTFLoader')).toBe(37);
 
-    // The C64-6 graph rows: the M3 export graph reaches the `./gltf-loader`
+    // The graph rows: the export graph reaches the `./gltf-loader`
     //    subpath + the pinned three addons listed below.
     const inputs = Object.keys(bundle.metafile.inputs);
     expect(inputs.some((p) => p.includes('packages/three-adapter/src/gltf-loader.ts'))).toBe(true);
     const addons = inputs.filter((p) => p.includes('three/examples/jsm/')).map((p) => p.slice(p.indexOf('three/examples/jsm/') + 'three/examples/jsm/'.length)).sort();
-    // GLTFLoader and its two utils, plus (2026-09-23) three's Draco/KTX2
-    // loaders with their helpers and the meshopt decoder, plus (phase 17.3)
+    // GLTFLoader and its two utils, plus three's Draco/KTX2
+    // loaders with their helpers and the meshopt decoder, plus
     // the TSL sky and node post passes of the WebGPURenderer path (the DOF
-    // node pulls in the Gaussian blur node) — nothing else. Phase 17.4: the
+    // node pulls in the Gaussian blur node) — nothing else. The
     // WebGL sky, EffectComposer passes and shaders are gone with the
     // archived WebGL renderer path.
     expect(addons).toEqual([

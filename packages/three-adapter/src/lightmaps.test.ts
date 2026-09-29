@@ -1,8 +1,8 @@
 /**
- * Phase 17.3: a lightmapped copy made before its project material's texture
+ * A lightmapped copy made before its project material's texture
  * arrived follows the material once the texture lands (the scene adapter
  * wires the library's `onChange` to `LightmapSet.refresh`). Node materials
- * (the only kind since phase 17.4).
+ * (the only kind).
  */
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';

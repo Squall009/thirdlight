@@ -1,5 +1,5 @@
 /**
- * Phase 25.1 (TL-15): one project with the optional manifest keys that
+ * One project with the optional manifest keys that
  * travel together (modes, timelines, event cues, the shell, dialogue, a save
  * schema, tags, collision layers, input and UI documents), built by the real
  * backend, verified by the pages that load it, played and exported:
@@ -12,7 +12,7 @@
  * - Export: the same with the backend stopped, from a plain static server
  *   (the exported page re-derives the buildId the same way).
  *
- * Phase 25.7b (manifest version 4): the materials (only the used ones), the
+ * Manifest version 4: the materials (only the used ones), the
  * UI documents, the dialogue data and the instance buffer table are content
  * files listed in `contentFiles`, not manifest keys. Play reads them from the
  * play's cache root and the export from its own tree (the files are there,
@@ -88,7 +88,7 @@ const METRONOME = [
 
 /** The keys this project authors (beyond the ones every manifest has). */
 const AUTHORED = ['tags', 'input', 'collisionLayers', 'saveSchema', 'modes', 'timelines', 'eventCues', 'shell', 'contentFiles'] as const;
-/** Phase 25.7b: the content files this project has, in their order. */
+/** The content files this project has, in their order. */
 const CONTENT_FILES = ['materials', 'uiDocuments', 'dialogue', 'buffers'] as const;
 /** The instance set's buffer (published in buildProject). */
 let bufferDigest = '';
@@ -111,7 +111,7 @@ async function buildProject(): Promise<void> {
   } } });
   const metronome = String((await cmd('createEntity', { parentId: null, kind: 'group', name: 'Metronome', transform: { position: [0, -5, 0] } }))['createdId']);
   await script('metronome', METRONOME, metronome);
-  // Phase 25.7b: a material an object wears, one nothing names, and an instance set (its buffer table).
+  // A material an object wears, one nothing names, and an instance set (its buffer table).
   await cmd('setMaterial', { material: { materialId: 'mat-used', name: 'Used', shader: 'standard', params: {}, textures: {} } });
   await cmd('setMaterial', { material: { materialId: 'mat-unused', name: 'Unused', shader: 'standard', params: {}, textures: {} } });
   await cmd('setComponent', { entityId: STARTER.groundId, component: 'materials', value: { '*': 'mat-used' } });
@@ -126,7 +126,7 @@ async function buildProject(): Promise<void> {
 }
 
 /**
- * Phase 25.7b: the content files the manifest lists, read through `read` and
+ * The content files the manifest lists, read through `read` and
  * checked against their rows; the blocks are not in the document itself, only
  * the used material ships, and the buffer table names the instance set's buffer.
  */
@@ -210,7 +210,7 @@ test('a manifest with modes, timelines, event cues, the shell, dialogue and the 
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   const manifestRead = page.waitForResponse((r) => r.url().endsWith('/manifest.json') && r.status() === 200);
   const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));
-  // Phase 25.7b: what the Play page read by digest (content files, the instance buffer).
+  // What the Play page read by digest (content files, the instance buffer).
   const playReads = new Map<string, Buffer>();
   page.on('response', (r) => {
     const m = /\/content\/sha256\/([0-9a-f]{64})$/.exec(r.url());

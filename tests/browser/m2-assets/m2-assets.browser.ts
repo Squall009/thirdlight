@@ -1,13 +1,13 @@
 /**
- * Packet 27 — browser-only manual procedure (NOT run by vitest; this file has
+ * Browser-only manual procedure (NOT run by vitest; this file has
  * no `*.test.ts` suffix on purpose and is never imported by a bundle).
  *
  * There is no browser and no WebGL context in this container, so every claim
- * below is **UNVERIFIED**. It is the packet-37/owner procedure for closing the
+ * below is **UNVERIFIED**. It is the owner procedure for closing the
  * browser-only acceptance items (A02/A03/A08 pixels and network recording).
  *
- *  1. Serve the editor bundle (`npm run build`, then the local deployment from
- *     packet 13/37) on the authoring origin with a disposable `m2-course`
+ *  1. Serve the editor bundle (`npm run build`, then the local deployment) on
+ *     the authoring origin with a disposable `m2-course`
  *     project, and open the editor in a named desktop browser. Record OS,
  *     browser name/version, WebGL backend/renderer, window size, and the
  *     authoring + preview origins.
@@ -20,7 +20,7 @@
  *     press `pause`, then scrub the range input. Capture a real PNG (not a
  *     stub) per state and confirm the clip pose visibly changes.
  *  4. Placement: place the imported asset directly twice (the Place control
- *     issues one `createEntity kind:"model"` per press — C27-1 repaired);
+ *     issues one `createEntity kind:"model"` per press);
  *     also place two prefab copies. Confirm distinct entity IDs in the
  *     Hierarchy, move one with the gizmo and confirm the others do not move.
  *  5. Reimport: press `reimport…` with `tiny-v2.glb`. Before/after: the asset

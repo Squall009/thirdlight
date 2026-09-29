@@ -1,18 +1,18 @@
 /**
- * Authoring session registry + bookkeeping — sessions.md §5.1/§5.3/§11.1.
+ * Authoring session registry + bookkeeping.
  *
- * One active authoring session per project (normative, M1). Sessions
+ * One active authoring session per project (normative). Sessions
  * outlive connections: a re-attach (same sessionId) rebinds the session to
  * a fresh connection; the old connection, if still open, is closed by the
  * caller (1000, reason `detached`). The per-session log is a bounded ring
- * of the last 128 entries (§11.1).
+ * of the last 128 entries.
  *
  * `wsToken`s are single-use, TTL-bound, and bound to the
- * `(sessionId, connId)` pair (§4.3).
+ * `(sessionId, connId)` pair.
  */
 import type { WebSocket } from 'ws';
 
-/** §11.1: the session log ring bound. */
+/** The session log ring bound. */
 export const SESSION_LOG_RING = 128;
 
 export type LogKind =
@@ -24,7 +24,7 @@ export type LogKind =
   | 'diagnostics'
   | 'error';
 
-/** One bounded session-log entry (§11.1: no secrets, no absolute paths). */
+/** One bounded session-log entry (no secrets, no absolute paths). */
 export interface LogEntry {
   /** UTC seconds. */
   ts: number;
@@ -52,7 +52,7 @@ export interface SessionRecord {
   /** ms — any request/event. */
   lastActivityAt: number;
   clientInfo?: ClientInfo;
-  /** §7.1 one-shot delivery: a held `play.started` payload. */
+  /** One-shot delivery: a held `play.started` payload. */
   pendingPlayStarted: { playSessionId: string; payload: string } | null;
   /** The session's active/presented play (if any). */
   playSessionId: string | null;
@@ -85,11 +85,11 @@ export class SessionRegistry {
   private tokens = new Map<string, WsToken>();
   /** Sockets the server closed because a re-attach replaced them. Their
    *  `onDetach` must NOT treat this as an owner loss (the owner is
-   *  re-attaching, not gone) — sessions.md §5.1. */
+   *  re-attaching, not gone). */
   private replaced = new Set<WebSocket>();
 
   /**
-   * Establish or re-attach (sessions.md §5.1). The one-active-session rule:
+   * Establish or re-attach. The one-active-session rule:
    * same sessionId ⇒ re-attach; a different sessionId while one is
    * connected ⇒ conflict; a different sessionId while the existing one has
    * no live connection (closed tab, crashed browser) ⇒ the new session
@@ -146,7 +146,7 @@ export class SessionRegistry {
 
   /** Forget a session and every wsToken issued to it. */
   /**
-   * Phase 11: drop a project's session outright (the backend's headless
+   * Drop a project's session outright (the backend's headless
    * editor giving way to the owner's browser). Its socket is closed.
    */
   evictProject(projectId: string): void {
@@ -173,13 +173,13 @@ export class SessionRegistry {
     }
   }
 
-  /** Allocate a single-use wsToken bound to (sessionId, connId) (§4.3). */
+  /** Allocate a single-use wsToken bound to (sessionId, connId). */
   allocateWsToken(token: string, session: SessionRecord, ttlMs: number, nowMs: number): void {
     this.tokens.set(token, { sessionId: session.sessionId, connId: session.connId, expiresAt: nowMs + ttlMs, used: false });
   }
 
   /**
-   * Verify + consume a wsToken (§4.3): valid, unused, unexpired, bound to
+   * Verify + consume a wsToken: valid, unused, unexpired, bound to
    * the session identified by the query `sessionId`.
    */
   consumeWsToken(token: string, querySessionId: string, nowMs: number): TokenOutcome {
@@ -226,7 +226,7 @@ export class SessionRegistry {
     session.lastActivityAt = nowMs;
   }
 
-  /** §11.1 bounded ring (last 128). */
+  /** Bounded ring (last 128). */
   record(session: SessionRecord, kind: LogKind, ref: string, revision: number | undefined, nowMs: number, code?: string): void {
     const entry: LogEntry = { ts: Math.floor(nowMs / 1000), kind, ref };
     if (revision !== undefined) entry.revision = revision;
@@ -235,7 +235,7 @@ export class SessionRegistry {
     while (session.log.length > SESSION_LOG_RING) session.log.shift();
   }
 
-  /** §11.4 log query: the last `limit` entries + the true total. */
+  /** Log query: the last `limit` entries + the true total. */
   logEntries(session: SessionRecord, limit: number): { total: number; entries: LogEntry[] } {
     const total = session.log.length;
     return { total, entries: session.log.slice(-limit) };
@@ -243,7 +243,7 @@ export class SessionRegistry {
 
   /**
    * Count a protocol error and return the count inside the rolling window
-   * (§5.2: ≥ 10 within 60 s ⇒ close 1008 `protocol_error`).
+   * (≥ 10 within 60 s ⇒ close 1008 `protocol_error`).
    */
   noteProtocolError(session: SessionRecord, nowMs: number, windowMs: number): number {
     session.protocolErrorTimes.push(nowMs);

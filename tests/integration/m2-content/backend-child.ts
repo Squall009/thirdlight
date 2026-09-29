@@ -1,5 +1,5 @@
 /**
- * Packet 25 integration-test child: a REAL backend process (its own listeners,
+ * Integration-test child: a REAL backend process (its own listeners,
  * its own workspace on the disposable data root). The parent bundles this file
  * with esbuild and spawns `node <bundle>`; the child prints one JSON line with
  * the bound ports once both listeners are ready, then stays alive until

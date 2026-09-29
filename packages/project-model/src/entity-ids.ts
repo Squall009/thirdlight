@@ -1,13 +1,12 @@
 /**
- * Phase 25.7a: the entity ids the backend assigns.
+ * The entity ids the backend assigns.
  *
  * An assigned id is `<prefix>-N` with N written with at least
  * {@link ENTITY_ID_DIGITS} digits (`box-000001`), unique across the project
  * (every scene's ids are reserved). N runs up to {@link ENTITY_ID_MAX}, the
  * most entities a project can hold (64 scenes × 16,384 entities), so ids of
  * one prefix cannot run out before the entity limits refuse a creation
- * (`id_exhaustion` stays as a guard). Ids assigned before phase 25.7 have
- * four digits (`box-0001`, at most 9,999 per prefix); they still load and
+ * (`id_exhaustion` stays as a guard). Four-digit ids (`box-0001`) load and
  * stay as they are: an id is any string of the id syntax, and the width is
  * only how new ones are written.
  */

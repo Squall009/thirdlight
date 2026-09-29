@@ -1,7 +1,7 @@
 /**
- * Packet 44 — v3 model fixture execution and roundtrip tests.
+ * v3 model fixture execution and roundtrip tests.
  *
- * Executes every committed packet-39 contract fixture through the REAL v3
+ * Executes every committed contract fixture through the REAL v3
  * model implementation (not a re-implementation): `envelope/valid/*`,
  * `envelope/invalid/*`, `catalog/*` and `migration/**`, comparing against the
  * recorded expectations in `fixtures/m3/contracts/index.json` (code / path /
@@ -11,13 +11,9 @@
  * `serializeCanonical` roundtrip (parse→normalize→serialize is idempotent and
  * digest-stable).
  *
- * Phase 24 removed the game layer the packet-39 envelopes were
- * recorded with (`content.game` → null, `cameraFollow`, `gameZone`): phase
- * 24.7 re-recorded the envelopes without it and deleted the invalid envelopes
- * whose subject it was (fixtures/m3/contracts/tools/remove-game-layer.mts).
- * Phase 9.3 removed the v2→v3 scene conversion
- * (`migrateSceneV3`); its cases are archived under
- * archive/removed-v1-v2/project-model/v3-model.migrate-scene-v3.test.ts.
+ * The envelopes carry no game layer (`content.game` is null; no
+ * `cameraFollow` or `gameZone`; fixtures/m3/contracts/tools/remove-game-layer.mts
+ * rewrote them).
  */
 
 import { describe, it, expect } from 'vitest';
@@ -85,7 +81,7 @@ describe('packet 44 — committed contract fixtures are present and indexed', ()
       expect(index.fixtures[f], `index entry for ${f}`).toBeTruthy();
     }
     // Fixture totals executed below are reported in the handoff.
-    // Phase 24.7: 27 after the 11 removed-layer invalid envelopes were deleted.
+    // 27 after the 11 removed-layer invalid envelopes were deleted.
     expect(FILES.length).toBeGreaterThanOrEqual(27);
   });
 });
@@ -127,7 +123,7 @@ describe('packet 44 — valid v3 envelopes through the real implementation', () 
       if (!again.ok) return;
       expect(bytesEqual(canonicalBytesOf(again.normalized), canonical)).toBe(true);
 
-      // The model-owned parts also round-trip through serializeCanonical (§12.1).
+      // The model-owned parts also round-trip through serializeCanonical.
       const sceneBytes = serializeCanonical(validated.normalized.scene);
       expect(sceneBytes.ok).toBe(true);
       if (sceneBytes.ok) {
@@ -201,9 +197,8 @@ describe('packet 44 — catalog fixture through the real v3 content validator', 
 });
 
 describe('packet 44 — migration fixtures: the expected v3 destination loads', () => {
-  // The v2→v3 scene conversion (`migrateSceneV3`) was removed in phase 9.3
-  // (its cases are archived in archive/removed-v1-v2/project-model/); the
-  // committed v3 destination is still a valid storage-v3 project.
+  // The engine has no v2→v3 scene conversion; the committed v3 destination
+  // is still a valid storage-v3 project.
   const srcEnvelope = JSON.parse(m3ContractFixtureText('migration/v2-source/envelope.json')) as Record<string, unknown>;
   const dstEnvelope = JSON.parse(m3ContractFixtureText('migration/expected-v3-destination/envelope.json')) as Record<string, unknown>;
   const dstProject = JSON.parse(m3ContractFixtureText('migration/expected-v3-destination/project.json')) as unknown;
@@ -307,7 +302,7 @@ describe('packet 44 — v3 scene rules and non-destructive refusals', () => {
   });
 
   it('unknown scene versions are refused with schema_version_unsupported', () => {
-    // Known scene versions are [3, 4]: 1/2 (the removed M1/M2 scenes) and 5 are unknown.
+    // Known scene versions are [3, 4]: 1, 2 and 5 are unknown.
     for (const sv of [1, 2, 5]) {
       const res = validateSceneV3({ schemaVersion: sv, sceneId: 'scene-main', revision: 0, entities: [] });
       expect(res.ok).toBe(false);

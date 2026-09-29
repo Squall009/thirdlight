@@ -1,5 +1,5 @@
 /**
- * Packet 30 — browser listener owner acceptance, through injected fakes.
+ * Browser listener owner acceptance, through injected fakes.
  *
  * There is no browser in this container, so every case here drives the real
  * `attachBrowserInput` implementation against fake DOM/gamepad objects that
@@ -345,8 +345,7 @@ describe('gamepad binding', () => {
 
   it('a lower-index takeover with the jump button already held yields no phantom pressed', () => {
     // The lower pad takes over while its face button is already down; no
-    // up→down was observed on that pad, so the takeover must not latch an edge
-    // (input.md §4.4/§5.4).
+    // up→down was observed on that pad, so the takeover must not latch an edge.
     let list: (Gamepad | null)[] = [null, pad({ index: 1, id: 'pad-1', axis0: 1 })];
     const h = harness({ gamepads: () => list });
     expect(h.source.sample(12)).toMatchObject({ moveX: 1, jump: 'none' });

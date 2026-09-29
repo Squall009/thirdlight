@@ -1,11 +1,11 @@
 /**
- * Packet 31 — public surface (dependencies.md §3 `physics-rapier` row) and the
+ * Public surface (the `physics-rapier` row of dependencies.md) and the
  * structural compatibility of the adapter config with the accepted
- * `runtime.md` §12.6 port shapes.
+ * `runtime.md` port shapes.
  *
  * The value exports are exactly the contracted three (`createPhysicsPort`,
  * `RAPIER_PIN`, `PHYSICS_IMPLEMENTATION`); the config/result types are
- * additive type-only exports the host needs (recorded as C31-2). The adapter
+ * additive type-only exports the host needs. The adapter
  * config must accept an accepted `PhysicsInitConfig` unchanged — that is
  * checked structurally here.
  */
@@ -19,7 +19,7 @@ import { AUTOSTEP_DISABLED, DEFAULT_CAPSULE_HALF_HEIGHT, DEFAULT_CAPSULE_RADIUS,
 const RAD = (deg: number): number => (deg * Math.PI) / 180;
 
 /**
- * A local mirror of the accepted runtime.md §12.6 `PhysicsInitConfig` (the
+ * A local mirror of the accepted runtime.md `PhysicsInitConfig` (the
  * runtime package does not export the init-config type — the factory is in
  * this adapter). Assigning it to `createPhysicsPort` is the compile-time
  * check that the adapter config is a structural superset of the accepted
@@ -70,7 +70,7 @@ describe('public exports', () => {
       'PhysicsPortError',
       'RAPIER_PIN',
       'createPhysicsPort',
-      // Phase 22.3: the Rapier WebAssembly memory size (the simulation worker's growth limit).
+      // The Rapier WebAssembly memory size (the simulation worker's growth limit).
       'physicsMemoryBytes',
     ]);
   });
@@ -98,7 +98,7 @@ describe('public exports', () => {
     expect(typeof port.reset).toBe('function');
     expect(typeof port.dispose).toBe('function');
     expect(typeof port.diagnostics).toBe('function');
-    // M3 (gameplay.md §5.2): the restricted reset/clearance operations.
+    // The restricted reset/clearance operations.
     const resetPort = result.port as {
       clearCharacterMotion(): void;
       placeCharacter(c: { x: number; y: number }): { ok: boolean; reason?: string };
@@ -112,7 +112,7 @@ describe('public exports', () => {
       return port.step();
     })();
     expect(Object.keys(moved).sort()).toEqual(
-      // Phase 9.9 adds groundEntityId (the collider under a grounded character).
+      // groundEntityId: the collider under a grounded character.
       ['applied', 'contacts', 'groundEntityId', 'grounded', 'position', 'requested', 'snapped', 'supportNormal'].sort(),
     );
     port.dispose();

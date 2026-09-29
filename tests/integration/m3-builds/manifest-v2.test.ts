@@ -1,5 +1,5 @@
 /**
- * Packet 58 — manifest v2 binding re-derivation (delivery.md §2, §9).
+ * Manifest v2 binding re-derivation.
  *
  * The committed delivery fixtures are the evidence. This suite:
  *   1. re-derives every v2 block digest + `buildId` INDEPENDENTLY with
@@ -12,7 +12,7 @@
  *      `npx tsx fixtures/m3/delivery/tools/derive-manifest.mts`);
  *   3. derives the captured v3 content view and media identity over the real
  *      `demo-0003-media-v3` envelope (re-recorded without the game layer in
- *      phase 24.7: fixtures/m3/contracts/tools/remove-game-layer.mts);
+ *      fixtures/m3/contracts/tools/remove-game-layer.mts);
  *   4. exercises the strict v2 reader's captured-state re-derivation
  *      (media identity, asset kind) and the v1/v2 version-compat rule.
  *
@@ -164,8 +164,7 @@ describe('manifest-v2: captured v3 content view + media identity', () => {
     const view = res.normalized;
     // The reachable assets carry the record kind: the model (via
     // model/modelAnimation). The catalogued audio asset is referenced by
-    // nothing in this envelope (phase 24 removed the game cues), so it is not
-    // captured.
+    // nothing in this envelope, so it is not captured.
     expect(view.assets.map((a) => [a.assetId, a.kind])).toEqual([['asset-model-courier', 'model']]);
     for (const a of view.assets) {
       expect(a.recipe.version).toBe(1);

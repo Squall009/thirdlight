@@ -1,6 +1,6 @@
 /**
- * Phase 18.0/18.1: the "Material: <name>" centre tab — a graph material's
- * node graph on the graph framework (16.1) with the material node catalogue.
+ * The "Material: <name>" centre tab — a graph material's
+ * node graph on the graph framework with the material node catalogue.
  *
  * - The graph: every gesture is one `graphEdit` on owner kind `material`
  *   (owner id = the materialId); the selection shows in the right dock's
@@ -8,9 +8,9 @@
  * - Left: the exposed parameters (key, type, default, range, visibility) —
  *   Parameter nodes read them, objects override the public ones. Each change
  *   is one `setMaterial`.
- * - Phase 18.2: a live preview (sphere, plane, cube or a model of the
+ * - A live preview (sphere, plane, cube or a model of the
  *   project, in the project environment) compiled like the Scene view, Play
- *   and exports draw it (18.3); the compile problems show on their nodes
+ *   and exports draw it; the compile problems show on their nodes
  *   (with the kind's own rules) and in the Problems tab.
  *
  * Browser-only (React).
@@ -41,7 +41,7 @@ export interface MaterialDocumentProps {
   onSelection: (ids: readonly string[]) => void;
   focus: { id: string; nonce: number } | null;
   error: string | null;
-  /** Phase 18.2: the preview's environment (the project's, with its wind); null = a neutral backdrop. */
+  /** The preview's environment (the project's, with its wind); null = a neutral backdrop. */
   environment: (EnvironmentLike & { wind?: WindLike }) | null;
   /** The project's model assets (the preview's "model" shape). */
   models: readonly { assetId: string; displayName: string }[];
@@ -52,14 +52,14 @@ export interface MaterialDocumentProps {
 }
 
 const PARAM_TYPES: readonly MaterialParameter['type'][] = ['float', 'vec2', 'vec3', 'vec4', 'color', 'texture', 'data'];
-/** Phase 23.12: a new data parameter's grid (8 × 8 cells; any size up to MATERIAL_DATA_MAX per side). */
+/** A new data parameter's grid (8 × 8 cells; any size up to MATERIAL_DATA_MAX per side). */
 const NEW_DATA_SIZE: [number, number] = [8, 8];
 
 export function MaterialDocument(p: MaterialDocumentProps): JSX.Element {
   const m = p.materials.find((x) => x.materialId === p.materialId) ?? null;
   const kind = p.kinds['material'];
   const portContext = useMemo(() => materialPortContext(m?.parameters, p.graphs, p.kinds), [m?.parameters, p.graphs, p.kinds]);
-  // Phase 18.2: what the compiler says about this graph (missing textures, functions, parameters; pixel-only inputs in a vertex offset).
+  // What the compiler says about this graph (missing textures, functions, parameters; pixel-only inputs in a vertex offset).
   const textureKey = p.textures.map((t) => t.assetId).join(',');
   const textureIds = useMemo(() => new Set(textureKey === '' ? [] : textureKey.split(',')), [textureKey]);
   const compileProblems = useMemo(
@@ -127,7 +127,7 @@ export function MaterialDocument(p: MaterialDocumentProps): JSX.Element {
 }
 
 /**
- * Phase 18.2: the live preview — the material on a sphere, a plane, a cube
+ * The live preview — the material on a sphere, a plane, a cube
  * or a model of the project, in the project environment; drag to orbit.
  */
 function PreviewPane(p: Pick<MaterialDocumentProps, 'materials' | 'graphs' | 'environment' | 'models' | 'loadTexture' | 'loadModel'> & { materialId: string }): JSX.Element {
@@ -299,7 +299,7 @@ export function ParameterValue({ param, textures, onCommit, label }: { param: Pi
       </select>
     );
   }
-  // Phase 23.12: a data parameter's default is the RGBA bytes every cell starts with.
+  // A data parameter's default is the RGBA bytes every cell starts with.
   const n = param.type === 'float' ? 1 : param.type === 'data' ? 4 : Number(param.type.slice(3));
   const commit = (): void => {
     const parts = draft.split(',').map((s) => Number(s.trim()));
@@ -313,7 +313,7 @@ export function ParameterValue({ param, textures, onCommit, label }: { param: Pi
   return <input className="tl-input tl-input--num" aria-label={name} title={n === 1 ? 'a number' : `${n} numbers, comma separated`} value={draft} onChange={(e) => setDraft(e.target.value)} onBlur={commit} onKeyDown={(e) => e.key === 'Enter' && commit()} />;
 }
 
-/** Phase 23.12: a data parameter's grid size (cells per side, 1–64; committed on blur / Enter). */
+/** A data parameter's grid size (cells per side, 1–64; committed on blur / Enter). */
 function DataSize({ value, name, onCommit }: { value: readonly [number, number]; name: string; onCommit: (v: [number, number]) => void }): JSX.Element {
   const [draft, setDraft] = useState(`${value[0]}, ${value[1]}`);
   const commit = (): void => {

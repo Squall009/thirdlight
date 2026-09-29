@@ -1,5 +1,5 @@
 /**
- * Phase 23.16: the dialogue previewer — plays one conversation outside Play
+ * The dialogue previewer — plays one conversation outside Play
  * with the same parts a game uses: the runtime's dialogue runner, the
  * project UI state and audio intent log (runtime `UiState` / `AudioMixer`),
  * the host's UI layer (the dialogue document drawn as DOM, the same as in

@@ -1,6 +1,6 @@
 /**
- * Packet 36 — the exporter's shared public types (extracted from `export.ts`
- * so the M2 pipeline modules and the injected-IO helpers can reference them
+ * The exporter's shared public types (extracted from `export.ts`
+ * so the pipeline modules and the injected-IO helpers can reference them
  * without an import cycle; `export.ts` re-exports both names unchanged, so the
  * package's public surface is identical).
  */
@@ -9,7 +9,7 @@ import type { WorkspaceService } from '@thirdlight/workspace';
 import type { ContentClosureCompilerPort } from './content-closure';
 
 /**
- * The injected IO facade (export.md §2 dependency-injection style — the
+ * The injected IO facade (export.md dependency-injection style — the
  * backend supplies it from its allowed `node:fs`/`node:path` edges). The
  * exporter never imports Node builtins itself.
  */
@@ -33,12 +33,12 @@ export interface ExportContext {
   projectId: string;
   /**
    * The injected workspace service (types-only edge — the exporter never
-   * constructs one; the backend passes its instance, export.md §2).
+   * constructs one; the backend passes its instance).
    */
   service: WorkspaceService;
   /** The injected IO facade (see `ExportFs`). */
   fs: ExportFs;
-  /** The configured export root (sessions.md §13.7; `<exportRoot>`). */
+  /** The configured export root (`<exportRoot>`). */
   exportRoot: string;
   /** The engine repository tree (a forbidden export target). */
   repoRoot: string;
@@ -50,30 +50,27 @@ export interface ExportContext {
   previewOrigin: string;
   /** i — the configured admin/authoring token VALUES (scan pattern). */
   tokenValues: readonly string[];
-  /** Absolute path of the installed three package.json (the §5.4.1 identity). */
+  /** Absolute path of the installed three package.json (the recorded-exception identity). */
   threePackageJson: string;
   /** Absolute path of the installed typescript package.json (meta.json dependencies). */
   typescriptPackageJson: string;
   /** Absolute path of the workspace lockfile (the recorded registry integrity). */
   lockfile: string;
   /**
-   * Packet 58 — the M3 export bundle entry
-   * (`packages/exporter/src/export-bootstrap-m3.ts`). Required for an M3
-   * (schemaVersion 3 / storageVersion 3) export; the M2 bootstrap is
-   * byte-stable and untouched.
+   * The export bundle entry
+   * (`packages/exporter/src/export-bootstrap-m3.ts`).
    */
   m3BootstrapEntry: string;
   /**
-   * Packet 36 — the injected packet-33 behavior compiler (the shared
-   * `behavior-build` instance the backend also uses for play). Required for an
-   * M2 export (the M2 bundle statically links the compiled outputs).
+   * The injected behavior compiler (the shared `behavior-build` instance the
+   * backend also uses for play).
    */
   compiler: ContentClosureCompilerPort;
   /**
-   * Packet 36 — the injectable wall clock (milliseconds since the epoch) used
-   * for the M2 manifest `capturedAt` and `meta.json.exportedAt`. Defaults to
+   * The injectable wall clock (milliseconds since the epoch) used
+   * for the manifest `capturedAt` and `meta.json.exportedAt`. Defaults to
    * `Date.now`. A fixed clock makes two exports of the same captured state
-   * byte-identical except `exportedAt` (export.md §7); the backend passes no
+   * byte-identical except `exportedAt`; the backend passes no
    * clock, so a real export records the real capture second.
    */
   now?: () => number;

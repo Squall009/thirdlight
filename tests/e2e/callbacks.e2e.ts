@@ -1,5 +1,5 @@
 /**
- * Phase 25.11: behavior callbacks against a real backend — the editor's side
+ * Behavior callbacks against a real backend — the editor's side
  * and the callbacks running in Play.
  *
  * The starter template with a lamp box, a child box below it and a director

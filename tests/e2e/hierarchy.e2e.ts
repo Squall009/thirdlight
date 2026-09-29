@@ -1,5 +1,5 @@
 /**
- * Phase 12 (a) in a real browser against the real backend: folders, drag to
+ * The hierarchy in a real browser against the real backend: folders, drag to
  * reorder / file (keeping world positions), multi-select and dragging a
  * selection, collapse state kept per browser, folder flags passed down
  * (inspector shows inherited values), locked = not pickable, inactive =

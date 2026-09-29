@@ -1,5 +1,5 @@
 /**
- * Phase 19.0/19.1: the editor's copy of the visual-script port context
+ * The editor's copy of the visual-script port context
  * (editor session/behavior-graph.ts) equals project-model's
  * `behaviorGraphContext` — the variable lookup (every variable kind, the
  * script's variables inside a function) and the call targets (the script's

@@ -1,7 +1,7 @@
 /**
- * Inspector (React, decision 0001 §10; packet 10 + packet 28).
+ * Inspector (React).
  *
- * The selected entity's name, flags, tags and gizmo mode, then (phase 15.1)
+ * The selected entity's name, flags, tags and gizmo mode, then
  * one section per component built from its descriptor (`DescriptorFields`),
  * with descriptor-keyed extensions where a custom widget adds something (the
  * capsule's "Fit to model", an exit's editor, the material mapping, the
@@ -31,9 +31,9 @@ interface Props {
   entity: ProjectedEntity | null;
   gizmoMode: GizmoMode;
   onGizmoMode: (m: GizmoMode) => void;
-  /** Phase 15.1: the component descriptors (null until the first game query answered). */
+  /** The component descriptors (null until the first game query answered). */
   registry: DescriptorRegistry | null;
-  /** Phase 15.1: what the reference pickers offer. */
+  /** What the reference pickers offer. */
   fieldContext: FieldContext;
   /** Published declarations (the only schema source), keyed by behaviorId. */
   declarations: ReadonlyMap<string, PropertyDeclaration>;
@@ -43,38 +43,38 @@ interface Props {
   propertyError: ControlErrorView | null;
   componentError: ControlErrorView | null;
   onEditProperty: (entityId: string, key: string, raw: string) => void;
-  /** Phase 15.1: one component edit (a partial top-level value) or, with null, its removal — one command. */
+  /** One component edit (a partial top-level value) or, with null, its removal — one command. */
   onComponentEdit: (entityId: string, component: string, patch: Record<string, unknown> | null) => void;
-  /** Phase 15.1: "+ Add component" with the descriptor's value (or the picked one). */
+  /** "+ Add component" with the descriptor's value (or the picked one). */
   onAddComponent: (entityId: string, component: string, value: Record<string, unknown>) => void;
-  /** Phase 14.0: size the capsule to the entity's models. */
+  /** Size the capsule to the entity's models. */
   onFitCapsule?: (entityId: string) => void;
-  /** Phase 14.0: the name of the player this entity hangs under (it collides with that capsule), else null. */
+  /** The name of the player this entity hangs under (it collides with that capsule), else null. */
   capsuleOwner?: string | null;
   onRename: (entityId: string, name: string) => void;
   onEditTransform: (entityId: string, patch: { position?: number[]; rotation?: number[]; scale?: number[] }) => void;
-  /** Phase 12: the entity's effective (inherited) flags. */
+  /** The entity's effective (inherited) flags. */
   flags: EffectiveEntityFlags | null;
   /** Display name of an entity id (for "inherited from …"). */
   entityName: (id: string) => string;
   /** How many entities are selected in the hierarchy. */
   selectionCount: number;
   onSetFlag: (entityId: string, flag: EntityFlag, value: boolean) => void;
-  /** Phase 12 (b): the project tag registry. */
+  /** The project tag registry. */
   tags: readonly { bit: number; name: string }[];
   onSetTags: (entityId: string, names: string[]) => void;
-  /** Phase 15.1: custom section bodies by component (e.g. the material mapping, which knows the model's material names). */
+  /** Custom section bodies by component (e.g. the material mapping, which knows the model's material names). */
   bodies?: Partial<Record<string, ReactNode>>;
-  /** Phase 15.1: extra widgets after a component's fields (e.g. surface presets). */
+  /** Extra widgets after a component's fields (e.g. surface presets). */
   extensions?: Partial<Record<string, ReactNode>>;
-  /** Phase 15.1: sections shown even while the component is absent (their body adds it). */
+  /** Sections shown even while the component is absent (their body adds it). */
   alwaysShow?: readonly string[];
-  /** Phase 15.2: extra "+ Add component" actions (a collider from the model's outline). */
+  /** Extra "+ Add component" actions (a collider from the model's outline). */
   addExtras?: readonly AddExtra[];
 }
 
 /**
- * Phase 12 (b): the entity's tags. A checkbox is the entity's own tag; a tag
+ * The entity's tags. A checkbox is the entity's own tag; a tag
  * a folder above passes down is marked as inherited (it counts either way).
  */
 function TagControls(props: { entity: ProjectedEntity; flags: EffectiveEntityFlags | null; tags: Props['tags']; onSetTags: Props['onSetTags'] }): JSX.Element {
@@ -122,7 +122,7 @@ const FLAG_ROWS = [
 ] as const;
 
 /**
- * Phase 12: the hierarchy flags. Each checkbox is the entity's own value; an
+ * The hierarchy flags. Each checkbox is the entity's own value; an
  * inherited value (from a folder above, or an inactive parent) is shown next
  * to it and wins.
  */
@@ -181,9 +181,8 @@ function CommitField(props: { value: string; label: string; className: string; o
 }
 
 /**
- * Phase 14.0 (15.1: a descriptor-keyed extension of the controller section):
- * the capsule note, "Fit to model" and "Default" next to the generic capsule
- * fields.
+ * A descriptor-keyed extension of the controller section: the capsule
+ * note, "Fit to model" and "Default" next to the generic capsule fields.
  */
 function CapsuleExtras(props: { stored: boolean; onFit: () => void; onDefault: () => void }): JSX.Element {
   const L = CAPSULE_LIMITS;
@@ -291,7 +290,7 @@ export function Inspector({ entity, gizmoMode, onGizmoMode, registry, fieldConte
                           <PropertyControlList
                             controls={behavior.controls}
                             onCommit={(key, raw) => onEditProperty(entity.id, key, raw)}
-                            // Phase 25.10: object properties pick from the objects of this scene (the command resolves them there).
+                            // Object properties pick from the objects of this scene (the command resolves them there).
                             entityOptions={fieldContext.entities.filter((e) => fieldContext.sceneId === undefined || e.sceneId === undefined || e.sceneId === fieldContext.sceneId).map((e) => ({ id: e.id, label: e.name }))}
                           />
                         )}

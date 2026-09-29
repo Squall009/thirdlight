@@ -1,5 +1,5 @@
 /**
- * Phase 9.9: the gameplay building blocks through the production composition
+ * The gameplay building blocks through the production composition
  * — the real game host, the platformer controller, Rapier physics — on small
  * v4 scenes (every game plays as a scene), driven by a scripted input source:
  * a moving platform carries the character, a one-way platform is jumped
@@ -8,7 +8,7 @@
  * signal, a circle trigger tests the capsule, a face-movement model child
  * faces where its parent goes, and a scene transition's spawn turns it.
  *
- * Phase 22.0: every case runs in both threading modes — the simulation in
+ * Every case runs in both threading modes — the simulation in
  * the page and in the simulation worker (a Node worker thread running the
  * same game-host worker core as the browser bundles).
  */
@@ -187,7 +187,7 @@ describe('gameplay blocks (real host, platformer, Rapier)', () => {
   });
 
   it('phase 9.13: a model child faces where its parent goes (the character, a patroller)', async () => {
-    // (Phase 24.7: a left/right model reads as a velocity facer, offset yawRight − 90°.)
+    // (a left/right model reads as a velocity facer, offset yawRight − 90°.)
     const yawOf = (L: Any, id: string): number => {
       const t = L.rt.getInterpolatedState().state.transforms.find((x: Any) => x.id === id);
       return (2 * Math.atan2(t.rotation[1], t.rotation[3]) * 180) / Math.PI;
@@ -216,8 +216,8 @@ describe('gameplay blocks (real host, platformer, Rapier)', () => {
 });
 
 describe('phase 15.2: a spawn says which way the character faces (on arrival)', () => {
-  // Phase 24.7: only an arrival (a scene transition's spawn) applies a spawn's
-  // facing; phase 24.8: the facing is the spawn's yaw. The character stands still in a
+  // Only an arrival (a scene transition's spawn) applies a spawn's
+  // facing: the spawn's yaw. The character stands still in a
   // transition trigger and arrives, from rest, at a spawn in a second scene.
   const yawOf = (L: Any, id: string): number => {
     const t = L.rt.getInterpolatedState().state.transforms.find((x: Any) => x.id === id);

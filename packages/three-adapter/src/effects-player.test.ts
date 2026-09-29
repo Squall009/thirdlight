@@ -1,5 +1,5 @@
 /**
- * Phase 20.2: the effect player's plumbing (no GPU: the CPU executor draws
+ * The effect player's plumbing (no GPU: the CPU executor draws
  * into node materials; the WebGPU executor's passes are recorded by a stub
  * renderer) — executor choice per backend and per effect, caps, pooling,
  * requests (plays, stops, component signals), diagnostics. Neutral fixtures.

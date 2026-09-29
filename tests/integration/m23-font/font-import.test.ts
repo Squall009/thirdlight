@@ -1,5 +1,5 @@
 /**
- * Phase 23.9a: font assets over the REAL transports — the committed DejaVu Sans
+ * Font assets over the REAL transports — the committed DejaVu Sans
  * ASCII subset (fixtures/fonts, TTF and WOFF2) is uploaded and inspected
  * through the backend content route with kind "font", published through the
  * ordinary `publishAsset` command and listed by `queryAssets`; a PNG under kind

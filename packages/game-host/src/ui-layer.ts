@@ -1,5 +1,5 @@
 /**
- * Phase 23.9a: the project UI layer of the game host — UI documents drawn as
+ * The project UI layer of the game host — UI documents drawn as
  * DOM/CSS over the game view, in Play and in exported games alike (the
  * runtime never draws; nothing here imports the editor).
  *
@@ -53,7 +53,7 @@ export interface UiLayerDeps {
   readonly readArtifact: (path: string) => Promise<ArrayBuffer>;
   /** A UI event for the simulation (the runtime's `queueUiEvent`). */
   readonly queueEvent: (event: UiEventRecord) => void;
-  /** Phase 23.16: a dialogue input for the simulation (the runtime's `queueDialogueInput`). */
+  /** A dialogue input for the simulation (the runtime's `queueDialogueInput`). */
   readonly dialogueInput?: (input: DialogueInputRecord) => void;
   /** An engine action (the host's shell or engine pause: resume, quit to title, save, load, a setting, mute). */
   readonly engineAction: (action: Extract<UiAction, { do: 'engine' }>) => void;
@@ -62,7 +62,7 @@ export interface UiLayerDeps {
   /** Make only these input action maps active (null: every map). */
   readonly setActiveMaps?: (maps: readonly string[] | null) => void;
   /**
-   * Phase 23.14: an input action's glyph for the device used last (a label
+   * An input action's glyph for the device used last (a label
    * and an image URL — the project's texture or the engine's generic SVG);
    * `glyphKey` changes whenever a glyph may have (device, bindings).
    */
@@ -71,7 +71,7 @@ export interface UiLayerDeps {
   /** The view size in CSS px (default: the window's). */
   readonly viewport?: () => { width: number; height: number };
   /**
-   * Phase 23.9b: mark every widget element with its place in the document's
+   * Mark every widget element with its place in the document's
    * tree (`data-tl-path`: `r` for the root, then child indices, `t` for a
    * list's template: `r.0.2.t`) — the UI document editor's preview selects
    * widgets by it. Off in Play and exports.
@@ -84,7 +84,7 @@ export interface UiLayerObservation {
   readonly shown: readonly string[];
   /** The screen document the host shows (null: none). */
   readonly screen: string | null;
-  /** Phase 24.4j: the HUD documents the host shows (the game shell's). */
+  /** The HUD documents the host shows (the game shell's). */
   readonly hud?: readonly string[];
   readonly focus: { readonly doc: string; readonly widget: string; readonly index?: number } | null;
   /** The input action map made active by the focused document (null: every map). */
@@ -92,7 +92,7 @@ export interface UiLayerObservation {
 }
 
 /**
- * Phase 25.15: one element as tl_game_observe lists it — its document and
+ * One element as tl_game_observe lists it — its document and
  * widget, the list item, the rectangle in fractions of the view ([x, y, w, h],
  * 0,0 top left) and whether a pointer press there goes to the UI (`hit`).
  */
@@ -114,7 +114,7 @@ export interface UiLayer {
   applyOutput(out: UiOutput): void;
   /** Draw this document as the host's screen (null: none). */
   showScreen(docId: string | null): void;
-  /** Phase 24.4j: the HUD documents the host shows while the game plays (under the simulation's; never focused). */
+  /** The HUD documents the host shows while the game plays (under the simulation's; never focused). */
   setHud(docIds: readonly string[]): void;
   /** Once per frame: $flow values and the view size. */
   frame(): void;
@@ -125,11 +125,11 @@ export interface UiLayer {
   /** Place the world-anchored widgets (after the frame is rendered). */
   updateAnchors(project: UiProjector): void;
   observe(): UiLayerObservation;
-  /** Phase 25.15: the shown widgets with an id or that take the pointer, with their rectangles (at most `max`, document order, bottom document first). */
+  /** The shown widgets with an id or that take the pointer, with their rectangles (at most `max`, document order, bottom document first). */
   elements(max?: number): UiElementObservation[];
-  /** Phase 25.15: where a pointer press goes to the UI, topmost first (cached for the frame). */
+  /** Where a pointer press goes to the UI, topmost first (cached for the frame). */
   hitTargets(): readonly UiHitTarget[];
-  /** Phase 25.15: a click on the target with this key (a button runs its click, an input takes the focus); false when it is gone. */
+  /** A click on the target with this key (a button runs its click, an input takes the focus); false when it is gone. */
   click(key: string): boolean;
   dispose(): void;
 }
@@ -151,13 +151,13 @@ interface Rec {
   enabled: boolean;
   textKey?: string;
   tokens?: RichToken[];
-  /** Phase 23.16: the content binding's text the tokens were parsed from. */
+  /** The content binding's text the tokens were parsed from. */
   contentText?: string;
   textEl?: UiNode;
   textSpans?: UiNode[];
   barFill?: UiNode;
   barKey?: string;
-  /** Phase 25.22: the size axes bound to the view model ([width, height]) and the last applied values. */
+  /** The size axes bound to the view model ([width, height]) and the last applied values. */
   sizeAxes?: [boolean, boolean];
   sizeKey?: string;
   imageKey?: string;
@@ -214,7 +214,7 @@ class DocView {
   private styleEl: UiNode | null = null;
   private readonly classOf = new Map<string, string>();
   private readonly ownCss = new Map<UiWidget, string>();
-  /** Phase 23.9b: each widget's tree path (only with `annotate`). */
+  /** Each widget's tree path (only with `annotate`). */
   private readonly pathOf = new Map<UiWidget, string>();
   private serial = 0;
   top: Rec | null = null;
@@ -238,7 +238,7 @@ class DocView {
     if (this.backdrop !== null) {
       classes(this.backdrop, ['tl-ui__backdrop']);
       this.root.appendChild(this.backdrop);
-      // Phase 24.6 (D38): a press on the backdrop keeps the keyboard focus on the game surface (the input
+      // A press on the backdrop keeps the keyboard focus on the game surface (the input
       // owner listens there), as a press on a widget does.
       (this.backdrop.addEventListener as ((t: string, h: (e?: unknown) => void) => void) | undefined)?.call(this.backdrop, 'pointerdown', (e?: unknown) => (e as { preventDefault?: () => void } | undefined)?.preventDefault?.());
     }
@@ -488,7 +488,7 @@ class DocView {
   }
 
   private renderText(rec: Rec): void {
-    // Phase 23.16: a content binding is rich text from the view model (braces are text); a reveal shows the first N visible characters.
+    // A content binding is rich text from the view model (braces are text); a reveal shows the first N visible characters.
     const w = rec.w;
     let contentText: string | null = null;
     if (w.type === 'text' && w.content !== undefined) {
@@ -542,7 +542,7 @@ class DocView {
         }
       }
       if (t.t === 'glyph') {
-        // Phase 23.14: the glyph image, its label for readers (and as text when there is no binding image).
+        // The glyph image, its label for readers (and as text when there is no binding image).
         const g = glyphs[i];
         classes(span, ['tl-ui-glyph']);
         span.setAttribute?.('data-action', t.action);
@@ -597,7 +597,7 @@ class DocView {
     }
   }
 
-  /** Phase 25.22: a bound size axis (a number of px from the view model; anything else sizes it to the content). */
+  /** A bound size axis (a number of px from the view model; anything else sizes it to the content). */
   private renderSize(rec: Rec): void {
     const axes = rec.sizeAxes!;
     const size = rec.w.size!;
@@ -623,7 +623,7 @@ class DocView {
     const max = num(this.resolve(w.max, rec.scope), 1);
     const t = max > min ? Math.max(0, Math.min(1, (value - min) / (max - min))) : 0;
     const pct = Math.round(t * 10_000) / 100;
-    // Phase 25.22: the start angle may read the view model.
+    // The start angle may read the view model.
     const a = num(this.resolve(w.startAngle, rec.scope), 0);
     const angle = Math.round(Math.max(-360, Math.min(360, a)) * 100) / 100;
     const key = `${pct}|${angle}`;
@@ -780,13 +780,13 @@ class LayerImpl implements UiLayer {
   private sim: DocView[] = [];
   private screen: DocView | null = null;
   private screenId: string | null = null;
-  /** Phase 24.4j: the HUD documents the host shows (the game shell's), under the simulation's. */
+  /** The HUD documents the host shows (the game shell's), under the simulation's. */
   private hud: DocView[] = [];
   private hudKey = '';
   private idSerial = 0;
   private dirty = true;
   private flowKey = '';
-  /** Phase 23.14: the glyph key last seen (a change redraws texts with glyphs). */
+  /** The glyph key last seen (a change redraws texts with glyphs). */
   private glyphKeyNow = '';
   private flow: Readonly<Record<string, unknown>> | null = null;
   private activeMap: string | null | undefined = undefined;
@@ -1066,7 +1066,7 @@ class LayerImpl implements UiLayer {
     if (this.disposed) return;
     this.targetsCache = null;
     const flow = this.deps.flowValues?.() ?? null;
-    // Phase 23.14: glyphs follow the device used last and the bindings.
+    // Glyphs follow the device used last and the bindings.
     const gk = this.deps.glyphKey?.() ?? '';
     if (gk !== this.glyphKeyNow) {
       this.glyphKeyNow = gk;
@@ -1157,14 +1157,14 @@ class LayerImpl implements UiLayer {
           v.play(a.tween, a.widget);
           break;
         case 'dialogue': {
-          // Phase 23.16: a dialogue input (choose: the action's value, else the list item's index).
+          // A dialogue input (choose: the action's value, else the list item's index).
           const idx = a.input === 'choose' ? (a.value ?? index) : undefined;
           if (a.input === 'choose' && idx === undefined) break;
           this.deps.dialogueInput?.({ kind: a.input, ...(idx !== undefined ? { index: idx } : {}) });
           break;
         }
         case 'mode':
-          // Phase 23.10: a game mode switch rides on the next input frame (applied before that step's scripts).
+          // A game mode switch rides on the next input frame (applied before that step's scripts).
           this.deps.queueEvent({ kind: 'mode', doc, widget, name: '', value: a.mode });
           break;
       }
@@ -1289,7 +1289,7 @@ class LayerImpl implements UiLayer {
     }
   }
 
-  // --- phase 25.15: element rectangles, the pointer hit test, clicks ---------------
+  // --- Element rectangles, the pointer hit test, clicks ---------------
 
   private targetsCache: readonly UiHitTarget[] | null = null;
 

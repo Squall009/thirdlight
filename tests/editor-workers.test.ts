@@ -1,5 +1,5 @@
 /**
- * Phase 22.1: the editor worker — its protocol, the page-side client with
+ * The editor worker — its protocol, the page-side client with
  * its inline fallbacks, and identical results on and off the worker.
  *
  * The worker side is the real `createWorkerHost` over the real job table,
@@ -167,7 +167,7 @@ describe('editor worker protocol and fallbacks', () => {
 
 // ---- the Problems tab's diagnostics ------------------------------------------------------
 
-/** The editor's pre-22.1 computation (App.tsx useMemo), kept here as the reference. */
+/** The straightforward main-thread computation (an App.tsx useMemo), kept here as the reference. */
 function graphIssuesBefore(graphs: readonly GraphDocument[], kinds: Record<string, GraphKindDef>): unknown[] {
   const ctx = graphsPortContext(graphs, kinds);
   return graphs.flatMap((g) => {

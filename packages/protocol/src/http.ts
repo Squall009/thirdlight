@@ -1,12 +1,11 @@
 /**
- * HTTP payload types + strict validators — sessions.md §5.1 (establish /
- * re-attach), §6.1 (command envelope pre-check), §6.3 (admin operations),
- * §10.1 (play start), §12 (screenshot).
+ * HTTP payload types + strict validators: establish / re-attach, the command
+ * envelope pre-check, admin operations, play start and screenshot.
  *
- * All payloads are strict JSON (sessions.md §1: unknown fields rejected).
+ * All payloads are strict JSON (unknown fields rejected).
  * The command envelope is delegated to the workspace pipeline for the
- * authoritative validation (sessions.md §6.1: strict byte parse first,
- * then the commands.md pipeline) — the pre-check here only routes on `op`.
+ * authoritative validation (strict byte parse first, then the command
+ * pipeline) — the pre-check here only routes on `op`.
  *
  * Pure: no I/O.
  */
@@ -30,7 +29,7 @@ import {
   type FieldVerdict,
 } from './strict';
 
-// ---- POST /api/v1/sessions (sessions.md §5.1) --------------------------------
+// ---- POST /api/v1/sessions --------------------------------
 
 export interface EstablishRequest {
   projectId: string;
@@ -83,21 +82,21 @@ export function parseEstablishRequest(value: unknown):
   return { ok: true, request: { projectId: obj.projectId as string, sessionId: obj.sessionId as string, clientInfo } };
 }
 
-// ---- POST /api/v1/projects/:projectId/play (sessions.md §10.1) ---------------
+// ---- POST /api/v1/projects/:projectId/play ---------------
 
 export interface PlayStartRequest {
   demo: boolean;
   /** Optional: the authoring session (browser) the play must run in. */
   sessionId?: string;
-  /** Phase 23.8: a test/debug start (absent: the game starts as it always does). */
+  /** A test/debug start (absent: the game starts as it always does). */
   start?: PlayStartOptions;
 }
 
 /**
- * Phase 23.8: where Play starts and with what — a scene, a game mode, script
+ * Where Play starts and with what — a scene, a game mode, script
  * variables (what the scripts' `ctx.save` holds from step 0) and/or a
- * project save (phase 23.19: a save document, or one of the page's project
- * save slots; phase 24.7: the level flow's own save format was deleted). The
+ * project save (a save document, or one of the page's project save
+ * slots). The
  * backend resolves them against the project (`RuntimeSnapshotDoc.start`).
  */
 export interface PlayStartOptions {
@@ -105,9 +104,9 @@ export interface PlayStartOptions {
   mode?: string;
   variables?: Record<string, unknown>;
   save?: Record<string, unknown>;
-  /** '1'–'99': a project save slot (phase 23.19). */
+  /** '1'–'99': a project save slot. */
   saveSlot?: string;
-  /** Phase 25.17: where this play's simulation runs (a worker or the page's main thread), over the project's `sim_thread`. */
+  /** Where this play's simulation runs (a worker or the page's main thread), over the project's `sim_thread`. */
   threads?: 'worker' | 'single';
 }
 
@@ -117,7 +116,7 @@ export const PLAY_START_VARIABLE_MAX_CHARS = SCRIPT_SAVE_LIMITS.valueChars;
 const PLAY_VARIABLE_KEY_RE = /^[A-Za-z0-9_.:-]{1,64}$/;
 const PLAY_SCENE_ID_RE = ID_RE;
 const PLAY_MODE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$/;
-/** Phase 23.19: a project save document (`format: "thirdlight.save"`) may be as large as a save slot (1 MiB; the request body bound applies too). */
+/** A project save document (`format: "thirdlight.save"`) may be as large as a save slot (1 MiB; the request body bound applies too). */
 export const PLAY_START_PROJECT_SAVE_MAX_BYTES = 1_048_576;
 export const PROJECT_SAVE_FORMAT = 'thirdlight.save';
 const PLAY_SAVE_SLOT_RE = /^[1-9][0-9]?$/;
@@ -136,7 +135,7 @@ const PLAY_OPTIONS_FIELDS = new Map([
   ['threads', '"worker" | "single": where the simulation runs for this play (phase 25.17; absent: the project setting sim_thread)'],
 ]);
 
-/** Phase 23.8: validate the start fields of the play-start options (pure). */
+/** Validate the start fields of the play-start options (pure). */
 function parsePlayStartOptions(o: Record<string, unknown>): { ok: true; start: PlayStartOptions | undefined } | { ok: false; error: import('./errors').SessionError } {
   const bad = (path: string, message: string) => ({ ok: false as const, error: sessionError('field_value', 'validation', message, { path }) });
   const start: PlayStartOptions = {};
@@ -165,7 +164,7 @@ function parsePlayStartOptions(o: Record<string, unknown>): { ok: true; start: P
   }
   if (o.save !== undefined) {
     const s = o.save;
-    // Phase 23.19: a project save document (its content is checked against the project's schema by the backend and the game).
+    // A project save document (its content is checked against the project's schema by the backend and the game).
     if (!isPlainObject(s) || s.format !== PROJECT_SAVE_FORMAT || !Number.isInteger(s.version) || (s.version as number) < 1 || !('doc' in s)) return bad('/options/save', 'options.save must be a project save document { format: "thirdlight.save", version, doc, playSeconds?, sections? }');
     if (new TextEncoder().encode(JSON.stringify(s)).length > PLAY_START_PROJECT_SAVE_MAX_BYTES) return bad('/options/save', `options.save is larger than ${PLAY_START_PROJECT_SAVE_MAX_BYTES} bytes`);
     start.save = s;
@@ -175,7 +174,7 @@ function parsePlayStartOptions(o: Record<string, unknown>): { ok: true; start: P
     start.saveSlot = o.saveSlot;
   }
   if (o.threads !== undefined) {
-    // Phase 25.17: a play-test's threading mode (the page URL flag ?threads= still wins, as over the setting).
+    // A play-test's threading mode (the page URL flag ?threads= still wins, as over the setting).
     if (o.threads !== 'worker' && o.threads !== 'single') return bad('/options/threads', 'options.threads must be "worker" or "single"');
     start.threads = o.threads;
   }
@@ -210,9 +209,9 @@ export function parsePlayStartRequest(value: unknown):
   return { ok: true, request: { demo, ...(typeof sid === 'string' ? { sessionId: sid } : {}), ...(started.start !== undefined ? { start: started.start } : {}) } };
 }
 
-// ---- POST …/play/:playSessionId/screenshot (sessions.md §12) -----------------
+// ---- POST …/play/:playSessionId/screenshot -----------------
 
-/** §11.5: screenshot width bounds (default 1024, max 2048, min 256). */
+/** Screenshot width bounds (default 1024, max 2048, min 256). */
 export const SCREENSHOT_MAX_WIDTH_MIN = 256;
 export const SCREENSHOT_MAX_WIDTH_MAX = 2048;
 export const SCREENSHOT_MAX_WIDTH_DEFAULT = 1024;
@@ -242,7 +241,7 @@ export function parseScreenshotRequest(value: unknown):
   return { ok: true, request: { maxWidth: mw.value as number } };
 }
 
-// ---- POST /api/v1/admin/projects (sessions.md §6.3) ---------------------------
+// ---- POST /api/v1/admin/projects ---------------------------
 
 export interface AdminCreateProjectRequest {
   projectId: string;
@@ -293,36 +292,35 @@ export function parseAdminCreateProjectRequest(value: unknown):
 }
 
 /**
- * Strict no-argument admin body (sessions.md §6.3 routes without
- * arguments): exactly `{}` — no fields (unknown fields rejected). An
+ * Strict no-argument admin body (admin routes without arguments): exactly `{}` — no fields (unknown fields rejected). An
  * empty body is normalized to `{}` by the HTTP layer before this.
  */
 export function parseAdminNoArgsBody(value: unknown): FieldErrorResult {
   return checkShape(value ?? {}, '', new Map(), []);
 }
 
-// ---- POST /api/v1/projects/:projectId/commands (sessions.md §6.1) ------------
+// ---- POST /api/v1/projects/:projectId/commands ------------
 
 /**
- * Command envelope pre-check (sessions.md §6.1): the body is a commands.md
+ * Command envelope pre-check: the body is a commands.md
  * envelope; this pre-check only verifies it is an object carrying a
  * string `op` so the router can dispatch to the workspace pipeline (the
- * authoritative validator — commands.md §6.1). Anything else is a
+ * authoritative validator). Anything else is a
  * session-layer `invalid_request`.
  */
 const MUTATION_OPS: readonly MutationOp[] = [
-  // M1 (unchanged)
+  // entity and history ops
   'createEntity', 'setTransform', 'deleteEntity', 'undo', 'redo',
-  // M2 content/property/prefab ops (commands.md §2/§8.5–§8.12, packets 21/22)
+  // content/property/prefab ops
   'publishAsset', 'publishBehavior', 'setBehaviorProperties', 'setComponent', 'setSettings',
   'acknowledgeBehaviorTrust', 'createPrefab', 'instantiatePrefab',
-  // M3 v3 game/presentation ops (commands.md §2/§8.13/§8.14, packet 45/48)
+  // v3 game/presentation ops
   ...(V3_MUTATION_OPS as readonly MutationOp[]),
 ];
 export const QUERY_OPS = [
   'queryProject', 'queryEntity', 'queryEntities',
   'queryAssets', 'queryPrefabs', 'queryBehaviors',
-  // M3 v3 query (commands.md §4, packet 45/48)
+  // v3 queries
   ...V3_QUERY_OPS,
 ] as const;
 const ALL_OPS: readonly string[] = [...MUTATION_OPS, ...QUERY_OPS];
@@ -356,7 +354,7 @@ export function parseCommandEnvelope(value: unknown):
     };
   }
   // requestId, when present, must at least be a string (syntax is the
-  // pipeline's — commands.md §3).
+  // pipeline's).
   const rid = (value as Record<string, unknown>).requestId;
   if (rid !== undefined && typeof rid !== 'string') {
     return {

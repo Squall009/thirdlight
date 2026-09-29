@@ -1,9 +1,9 @@
 /**
- * Phase 14.0: the player's collision capsule in the Scene view — the pure
+ * The player's collision capsule in the Scene view — the pure
  * geometry of its outline (drawn with the collider outlines, clickable) and
  * "Fit to model".
  *
- * Phase 15.2: dragging sizes moved to the descriptor-driven handle system
+ * Dragging sizes moved to the descriptor-driven handle system
  * (`handles.ts`), which covers the capsule, every area, the colliders and
  * the rest; this file keeps what the outline and "Fit to model" need.
  *

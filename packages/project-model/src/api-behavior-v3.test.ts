@@ -5,12 +5,9 @@
  * quaternion preservation, schema version handling, limits, error shapes and
  * the strict-field rules.
  *
- * Phase 9.3 port of the M1 `api-behavior.test.ts` (archived under
- * archive/removed-v1-v2/project-model/): the scene cases now run through
- * `validateSceneV3`/`normalizeSceneV3`/`parseSceneV3` (and `validateSceneV4`
- * where v4 differs), the project cases through `validateProjectV3`. The M1
- * migration entry points (`migrateScene`/`migrateManifest`) were removed and
- * their cases are not ported.
+ * The scene cases run through `validateSceneV3`/`normalizeSceneV3`/
+ * `parseSceneV3` (and `validateSceneV4` where v4 differs), the project cases
+ * through `validateProjectV3`.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -148,10 +145,10 @@ describe('stable constants (dependencies.md §3 single source of truth)', () => 
         'behavior_output_forbidden_content',
         'behavior_declaration_mismatch',
         'behavior_trust_unacknowledged',
-        // packet 44 v3 additions (§23.9; phase 24.8: the game block and zone codes were deleted)
+        // v3 additions
         'spawn_transform_unsupported',
         'asset_kind_mismatch',
-        // packet 47 media additions (presentation.md §41.7.2 A / §18.9.3)
+        // media additions
         'animation_role_out_of_range',
         'animation_role_duplicate',
         'animation_role_mismatch',
@@ -162,7 +159,7 @@ describe('stable constants (dependencies.md §3 single source of truth)', () => 
     );
   });
 
-  // Phase 9.3: the v1/v2 scene models were removed; the manifest keeps its
+  // The v1/v2 scene models were removed; the manifest keeps its
   // v1 (the storage-v3 project manifest) and scenes are v3 or v4.
   it('KNOWN_VERSIONS / SCHEMA_VERSIONS_BY_DOCUMENT are the per-document v3/v4 structure', () => {
     expect(KNOWN_VERSIONS).toEqual({ manifest: [1], scene: [3, 4] });
@@ -373,7 +370,7 @@ describe('normalization (§12.2)', () => {
     expect(box).toEqual({ size: [1, 1, 1], material: { color: '#b0b0b0' } });
     const camComp = (cam!['components'] as Record<string, unknown>)['camera'] as Record<string, unknown>;
     expect(camComp).toEqual({ type: 'perspective', fovY: 60, near: 0.1, far: 100 });
-    // Key order: id, name?, parentId?, flags?, components (§12.2 rule 4).
+    // Key order: id, name?, parentId?, flags?, components.
     expect(Object.keys(cube!)).toEqual(['id', 'parentId', 'components']);
     expect(Object.keys(root!)).toEqual(['id', 'components']);
     const ser = serializeCanonical(res.normalized);
@@ -437,8 +434,8 @@ describe('normalization (§12.2)', () => {
 describe('schema version handling (§6, §12.3 pass 3)', () => {
   it('unknown version => exactly one schema_version_unsupported with found/knownVersions/hint', () => {
     for (const [sv, hintPart] of [
-      [1, 'older'], // the removed M1 scene
-      [2, 'older'], // the removed M2 scene
+      [1, 'older'], // a scene version the engine does not read
+      [2, 'older'], // a scene version the engine does not read
       [0, 'older'],
       [5, 'newer'],
       [4.5, 'newer'], // above the highest known version

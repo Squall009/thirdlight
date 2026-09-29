@@ -1,5 +1,5 @@
 /**
- * Phase 23.5 (E8): block layers in the running game — the cells of every
+ * Block layers in the running game — the cells of every
  * loaded layer, their colliders on the 3D physics port (one triangle mesh per
  * chunk, rebuilt when cells change), the script API `ctx.grid`, the change
  * events scripts observe, the runtime diff for saves and the chunk changes
@@ -309,7 +309,7 @@ export class RuntimeGrid {
   private current: GridChange[] = [];
   private previous: readonly GridChange[] = Object.freeze([]);
   private writes = 0;
-  /** Phase 23.19: a save's restore is writing (no per-step limit). */
+  /** A save's restore is writing (no per-step limit). */
   private unlimited = false;
   private stepIndex = 0;
   readonly api: BehaviorGrid;
@@ -377,7 +377,7 @@ export class RuntimeGrid {
   }
 
   /**
-   * Phase 23.19: a loaded save's cells (`grid` section, a `diff()`): every
+   * A loaded save's cells (`grid` section, a `diff()`): every
    * layer back to its authored cells, then the saved ones. Atomic — when a
    * cell does not fit (an unknown layer or block, a footprint clash) nothing
    * changes and the reason is returned; null: restored. The restore's writes
@@ -406,7 +406,7 @@ export class RuntimeGrid {
     this.unlimited = true;
     let problem: string | null = null;
     try {
-      // Clears first, so a moved larger block never meets its own old footprint.
+      // Clears first, so a moved larger block never meets its own previous footprint.
       outer: for (const pass of [0, 1]) {
         for (const entry of d.layers) {
           for (const c of entry.cells) {

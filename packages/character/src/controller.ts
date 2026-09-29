@@ -1,29 +1,29 @@
 /**
- * The character controller module — `docs/contracts/runtime.md` §12
- * (promoted from the controller contract §2–§9; packet 32).
+ * The character controller module (`docs/contracts/runtime.md`, with the
+ * controller contract).
  *
  * Pure fixed-step logic over the injected input/physics **ports**: the module
  * holds no reference to the concrete port, the DOM, the clock, the workspace
  * or any storage. It reads `StepContext` and stages exactly one character
  * move per `controller` phase; the runtime commits the port result to the
  * character's `position.x`/`position.y` in the physics phase before any
- * `transform` module runs (`runtime.md` §12.1.1 item 5), so this module never
+ * `transform` module runs, so this module never
  * writes a transform at all.
  *
- * Step algorithm: the controller contract §7 (normative exact order A–K) plus the
- * grounding classification of `physics.md` §8 items 1–4. Every window is an
- * integer-step counter; phase 15.3: the acceleration, deceleration, windows
- * and jump-release factor are the player's `controller` data (absent: the
- * packet-32 values, so recorded replays are unchanged).
+ * Step algorithm: the controller contract's normative exact order A–K plus the
+ * grounding classification of `physics.md`. Every window is an
+ * integer-step counter; the acceleration, deceleration, windows
+ * and jump-release factor are the player's `controller` data (absent:
+ * `CONTROLLER_CONSTANTS`, so recorded replays are unchanged).
  *
- * Gate I repair R-I-2 (`runtime.md` §14.5, C34-3): the controller phase's input
+ * The controller phase's input
  * is the **effective input** `{ stepIndex, moveX: ctx.intents.move ?? the move
  * action's x (else v), jump: ctx.intents.jump ?? the jump action's phase }`.
- * Phase 24.8: the move and jump actions are the controller's `moveAction` /
+ * The move and jump actions are the controller's `moveAction` /
  * `jumpAction` (default `move`, `jump`); the action frame (version 2) has no
  * fixed channels. With an empty `IntentSet` a version 1 recording (its
  * channels upgraded to those actions) gives the same input, so the 178 pinned
- * packet-17 trace rows are unchanged; a committed `control_move`/
+ * trace rows are unchanged; a committed `control_move`/
  * `control_jump` intent replaces only that value for this phase.
  *
  * The step-indexed state (`vx`, `vy`, `airborne`, `coyote`, `buffer`,
@@ -46,7 +46,7 @@ import type {
 import { CONTROLLER_CONSTANTS, CONTROLLER_DEFAULT_SECONDS, CHARACTER_MODULE_ID } from './constants';
 
 /**
- * Phase 15.3: the per-step tuning the algorithm reads — the player's
+ * The per-step tuning the algorithm reads — the player's
  * `controller` data at the module's step rate (windows in whole steps).
  */
 export interface ControllerStepTuning {
@@ -57,7 +57,7 @@ export interface ControllerStepTuning {
   readonly jumpReleaseFactor: number;
 }
 
-/** The defaults (exactly the packet-32 constants: 120 Hz windows). */
+/** The defaults (exactly `CONTROLLER_CONSTANTS`: 120 Hz windows). */
 export const DEFAULT_STEP_TUNING: ControllerStepTuning = Object.freeze({
   moveAccel: CONTROLLER_CONSTANTS.moveAccel,
   moveDecel: CONTROLLER_CONSTANTS.moveDecel,
@@ -67,7 +67,7 @@ export const DEFAULT_STEP_TUNING: ControllerStepTuning = Object.freeze({
 });
 
 /**
- * Phase 15.3: the step tuning a `controller` component describes at
+ * The step tuning a `controller` component describes at
  * `fixedStepHz` (each absent field at its default; a window in seconds
  * becomes the nearest whole number of steps — 0.05 s is 6 steps at 120 Hz,
  * 3 at 60 Hz). The project model validated the ranges; a non-finite value
@@ -89,7 +89,7 @@ export function controllerStepTuning(controller: unknown, fixedStepHz: number): 
 }
 
 /**
- * Phase 25.13: climbing and walls — the controller's climb speed, climb
+ * Climbing and walls — the controller's climb speed, climb
  * action, wall slide and wall jump (the project model's
  * DEFAULT_CONTROLLER_MOVEMENT states the same defaults with their reasons:
  * this package reads the runtime's types only). `wallJumpAway`/`wallJumpUp`
@@ -119,13 +119,13 @@ export const DEFAULT_MOVEMENT_TUNING: ControllerMovementTuning = Object.freeze({
 });
 
 /**
- * Phase 25.13: how far up or down the climb input must be pushed to take
+ * How far up or down the climb input must be pushed to take
  * hold of a climb volume (more than half: a stick's resting drift or a mostly
  * sideways push does not grab; a key or a full push does).
  */
 export const CLIMB_GRAB_INPUT = 0.5;
 
-/** Phase 25.13: the climb and wall tuning a `controller` component describes (each absent field at its default). */
+/** The climb and wall tuning a `controller` component describes (each absent field at its default). */
 export function controllerMovementTuning(controller: unknown): ControllerMovementTuning {
   const c = (typeof controller === 'object' && controller !== null ? controller : {}) as Record<string, unknown>;
   const d = DEFAULT_MOVEMENT_TUNING;
@@ -143,7 +143,7 @@ export function controllerMovementTuning(controller: unknown): ControllerMovemen
   });
 }
 
-/** Phase 25.13: what the controller step needs beyond the packet-32 input: the climb input, the volume it is in, the tuning. */
+/** What the controller step needs beyond `ControllerInput`: the climb input, the volume it is in, the tuning. */
 export interface ControllerMovementInput {
   /** The climb input: up (+1) to down (−1). */
   readonly climbY: number;
@@ -153,13 +153,13 @@ export interface ControllerMovementInput {
 }
 
 /**
- * Ground-contact classification tolerance (`physics.md` §7/§8: compares
+ * Ground-contact classification tolerance (`physics.md`: compares
  * `supportNormal.y` with `cos(max_slope_climb_deg)` within `1e-6`).
  */
 export const GROUND_NORMAL_TOLERANCE = 1e-6;
 
 /**
- * The controller's private per-step state (the controller contract §4). Created at
+ * The controller's private per-step state. Created at
  * `create()` from the authored transform; `coyote` starts at the full window
  * and `buffer` at 0 (the settle pre-roll then runs the normal phases).
  */
@@ -183,18 +183,18 @@ export interface ControllerState {
   charY: number;
   /** Bounded diagnostic counter: steps the slide policy drove the character. */
   slideSteps: number;
-  /** Phase 25.13: the climb volume it holds on to (null: not climbing). */
+  /** The climb volume it holds on to (null: not climbing). */
   climbing: string | null;
-  /** Phase 25.13: the side of the wall it last touched in the air (−1 left, 1 right) and the steps that touch still counts for a wall jump. */
+  /** The side of the wall it last touched in the air (−1 left, 1 right) and the steps that touch still counts for a wall jump. */
   wallSide: -1 | 0 | 1;
   wallCoyote: number;
-  /** Phase 25.13: after a wall jump the input does not steer (until the top of the jump, or for `wallJumpLock`). */
+  /** After a wall jump the input does not steer (until the top of the jump, or for `wallJumpLock`). */
   wallJumped: boolean;
-  /** Phase 25.13: steps the wall jump lock still holds (a timed `wallJumpLock` only). */
+  /** Steps the wall jump lock still holds (a timed `wallJumpLock` only). */
   wallLockSteps: number;
 }
 
-/** the controller contract §7 `approach(v, target, up, down)` — never overshoots. */
+/** The controller contract's `approach(v, target, up, down)` — never overshoots. */
 export function approach(v: number, target: number, up: number, down: number): number {
   if (Math.abs(target - v) <= 1e-9) return target;
   if (v < target) return Math.min(target, v + up);
@@ -202,7 +202,7 @@ export function approach(v: number, target: number, up: number, down: number): n
   return v;
 }
 
-/** Create the state at the authored character transform (the controller contract §4); the coyote window starts full. */
+/** Create the state at the authored character transform; the coyote window starts full. */
 export function createControllerState(charX: number, charY: number, coyoteSteps: number = CONTROLLER_CONSTANTS.coyoteSteps): ControllerState {
   return {
     vx: 0,
@@ -223,7 +223,7 @@ export function createControllerState(charX: number, charY: number, coyoteSteps:
   };
 }
 
-/** Phase 25.13: the side of a wall the last step pushed into in the air (0: none). */
+/** The side of a wall the last step pushed into in the air (0: none). */
 function wallContactSide(p: CharacterMoveResult | undefined, grounded: boolean): -1 | 0 | 1 {
   if (p === undefined || grounded || p.contacts.wall !== true) return 0;
   if (!(Math.abs(p.requested.x) - Math.abs(p.applied.x) > 1e-7)) return 0;
@@ -231,7 +231,7 @@ function wallContactSide(p: CharacterMoveResult | undefined, grounded: boolean):
 }
 
 /**
- * The controller's grounded classification (`physics.md` §8 items 1–4): the
+ * The controller's grounded classification (`physics.md`): the
  * port's `grounded` flag **and** a support normal at or above the maximum
  * climb angle. A normal-flagged ground below the climb limit is `steepSlope`
  * and is treated as not grounded (so gravity applies and no jump starts).
@@ -248,14 +248,12 @@ export function isGrounded(
 }
 
 /**
- * Packet-32 slide policy (contract-change request C32-1; see the evidence
- * manifest).
+ * Slide policy.
  *
- * the controller contract §7's A–K algorithm contains no sliding rule, while
- * `physics.md` §7/§8 declare `min_slope_slide_deg` (30°) as "the minimum
+ * The controller contract's A–K algorithm contains no sliding rule, while
+ * `physics.md` declares `min_slope_slide_deg` (30°) as "the minimum
  * slope angle at which the character slides down the slope, if it is not
- * moving", and packet 31 recorded (C31-4) that the real 0.20.0 adapter does
- * **not** slide a resting character on its own. This is the smallest rule
+ * moving", and the real Rapier adapter does **not** slide a resting character on its own. This is the smallest rule
  * that realises the declared threshold through the accepted port surface:
  *
  * - the support is *slide-steep* when the completed step reported the
@@ -301,17 +299,17 @@ export function slideDirection(
 }
 
 /**
- * One executed controller step (the controller contract §7, exact order). Reads the
+ * One executed controller step (the controller contract's exact order). Reads the
  * previous result from `state.prevResult` and stages exactly one character
  * move; the caller (the runtime) commits the port result afterwards.
  *
  * `dt` is `1 / fixedStepHz` captured at `create()` (the accepted `StepContext`
- * does not carry the step rate; the controller contract §7 defines `dt` as that
+ * does not carry the step rate; the controller contract defines `dt` as that
  * value). `cosMaxSlopeClimb`/`cosMinSlopeSlide` are the resolved settings'
  * angles in radians-precomputed cosine form.
  */
 /**
- * Phase 24.8: the input actions a `controller` component names (`moveAction`,
+ * The input actions a `controller` component names (`moveAction`,
  * `jumpAction`; absent: `move` and `jump`, project-model's
  * CONTROLLER_ACTION_DEFAULTS — the model validated the names).
  */
@@ -330,7 +328,7 @@ function moveOf(frame: ActionFrame, name: string): number {
 }
 
 /**
- * Phase 25.13: the climb input — the climb action's value (or its y, a 2D
+ * The climb input — the climb action's value (or its y, a 2D
  * axis) when the controller names one, else the move action's y; a script's
  * `control_move` intent gives its y instead.
  */
@@ -347,8 +345,8 @@ function phaseOf(frame: ActionFrame, name: string): JumpPhase {
 }
 
 /**
- * Phase 24.8: the controller's own input for one step — the horizontal move
- * (−1..1) and the jump phase (the motor contract the packet-17 traces pin).
+ * The controller's own input for one step — the horizontal move
+ * (−1..1) and the jump phase (the motor contract the recorded traces pin).
  */
 export interface ControllerInput {
   readonly stepIndex: number;
@@ -374,7 +372,7 @@ export function controllerStep(
   const groundedPrev = isGrounded(p, cosMaxSlopeClimb);
   const mv = movement?.tuning ?? DEFAULT_MOVEMENT_TUNING;
 
-  // Phase 25.13: climbing. Inside a climb volume, up/down (and sideways) move it along (and across)
+  // Climbing. Inside a climb volume, up/down (and sideways) move it along (and across)
   // the volume at the climb speed without gravity; a jump press leaves with a jump, and so does
   // moving out of the volume (it keeps its speed and falls). Without climb volumes nothing changes.
   const climb = movement?.climb ?? null;
@@ -399,7 +397,7 @@ export function controllerStep(
     climbStep(state, charId, frame.moveX, movement!.climbY, climb, mv.climbSpeed, dt, physics);
     return;
   }
-  // Phase 25.13: the wall it touches in the air (wall slide and wall jump only; a touch counts for the coyote window).
+  // The wall it touches in the air (wall slide and wall jump only; a touch counts for the coyote window).
   let wallNow: -1 | 0 | 1 = 0;
   if (mv.wallSlide || mv.wallJump) {
     wallNow = wallContactSide(p, groundedPrev);
@@ -424,7 +422,7 @@ export function controllerStep(
       state.coyote = 0;
       state.jumpStarted = true;
     } else if (mv.wallJump && state.buffer > 0 && !groundedPrev && state.wallCoyote > 0 && state.wallSide !== 0) {
-      // Phase 25.13: a wall jump — off the wall it touches (or just touched), away from it and up.
+      // A wall jump — off the wall it touches (or just touched), away from it and up.
       state.vx = -state.wallSide * (mv.wallJumpAway ?? settings.run_speed);
       state.vy = mv.wallJumpUp ?? settings.jump_velocity;
       state.airborne = true;
@@ -438,7 +436,7 @@ export function controllerStep(
       state.jumpStarted = false;
     }
   }
-  // Phase 24.4f: scripts' impulses add to the velocity (up lifts it into an airborne arc; the
+  // scripts' impulses add to the velocity (up lifts it into an airborne arc; the
   // horizontal approach below brings x back to what the input asks at its acceleration).
   if (impulse !== undefined) {
     state.vx += impulse.x;
@@ -454,7 +452,7 @@ export function controllerStep(
   // D. grounded (and not airborne) ⇒ rest vertically; else integrate gravity.
   if (groundedPrev && !state.airborne) state.vy = 0;
   else state.vy = Math.max(state.vy + settings.gravity_y * dt, settings.max_fall_speed);
-  // Phase 25.13: a wall slide — falling in the air while pushing into the wall it touches: no faster than the slide speed.
+  // A wall slide — falling in the air while pushing into the wall it touches: no faster than the slide speed.
   if (mv.wallSlide && wallNow !== 0 && Math.sign(frame.moveX) === wallNow && state.vy < -mv.wallSlideSpeed) state.vy = -mv.wallSlideSpeed;
   // E. head contact clamps upward velocity (no ceiling hover).
   if (p !== undefined && p.contacts.head === true && state.vy > 0) state.vy = 0;
@@ -465,7 +463,7 @@ export function controllerStep(
   }
   // G. landing classification (a grounded step with non-positive vy).
   if (state.airborne && groundedPrev && state.vy <= 0) state.airborne = false;
-  // Phase 25.13: a wall jump keeps its push away from the wall until the top of the jump, or for
+  // A wall jump keeps its push away from the wall until the top of the jump, or for
   // `wallJumpLock` (a landing ends it either way).
   if (state.wallJumped) {
     const landed = groundedPrev && !state.jumpStarted;
@@ -497,7 +495,7 @@ export function controllerStep(
 }
 
 /**
- * Phase 25.13: one climbing step — along the volume's up axis by the climb
+ * One climbing step — along the volume's up axis by the climb
  * input and across it by the move input, at the climb speed, no gravity.
  */
 function climbStep(state: ControllerState, charId: string, moveX: number, climbY: number, v: ClimbVolumeView, speed: number, dt: number, physics: PhysicsStepClient): void {
@@ -527,7 +525,7 @@ export function findControllerEntity(snapshot: RuntimeSnapshot): string {
   return ids[0] as string;
 }
 
-/** Build a controller module instance (the controller contract §4/§12). */
+/** Build a controller module instance. */
 export function createControllerModule(
   snapshot: RuntimeSnapshot,
   cfg: ModuleConfig,
@@ -545,12 +543,12 @@ export function createControllerModule(
   const cosMaxSlopeClimb = Math.cos((cfg.settings.max_slope_climb_deg * Math.PI) / 180);
   const cosMinSlopeSlide = Math.cos((cfg.settings.min_slope_slide_deg * Math.PI) / 180);
   const tanMinSlopeSlide = Math.tan((cfg.settings.min_slope_slide_deg * Math.PI) / 180);
-  // Phase 15.3: the player's tuning (its controller data, else the defaults).
+  // The player's tuning (its controller data, else the defaults).
   const tuning = controllerStepTuning((entity?.components as { controller?: unknown } | undefined)?.controller, cfg.fixedStepHz);
   const state = createControllerState(transform.position[0], transform.position[1], tuning.coyoteSteps);
-  // Phase 24.8: the input actions it reads.
+  // The input actions it reads.
   const names = controllerActionNames((entity?.components as { controller?: unknown } | undefined)?.controller);
-  // Phase 25.13: climbing and walls.
+  // Climbing and walls.
   const movementTuning = controllerMovementTuning((entity?.components as { controller?: unknown } | undefined)?.controller);
 
   return {
@@ -582,7 +580,7 @@ export function createControllerModule(
     },
     step(phase, ctx): void {
       if (phase === 'controller') {
-        // runtime.md §14.5 effective input: a committed intent for a channel
+        // Effective input: a committed intent for a channel
         // replaces the sampled channel for this phase only (`ctx.action`
         // itself stays the sampled frame).
         const effective: ControllerInput = {
@@ -611,7 +609,7 @@ export function createControllerModule(
         return;
       }
       // transform phase: the runtime has already committed the port result
-      // (`runtime.md` §12.1.1 item 5); record it as the next step's
+      // (see `runtime.md`); record it as the next step's
       // `prevResult`. The module writes no transform of its own.
       const result = ctx.physics.characterResult(charId);
       if (result !== undefined) {
@@ -627,9 +625,9 @@ export function createControllerModule(
 }
 
 /**
- * The registered controller module spec (the controller contract §2 inventory):
+ * The registered controller module spec:
  * phases `["controller", "transform"]`, the single `components.controller`
- * entity as its transform owner, mutually exclusive with the M1 demo module
+ * entity as its transform owner, mutually exclusive with the demo box module
  * and requiring the injected physics port.
  */
 export const characterControllerSpec: SimulationModuleSpec = {

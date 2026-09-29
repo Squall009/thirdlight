@@ -1,14 +1,14 @@
 /**
  * This editor's own commands, in the order the user made them.
  *
- * The editor used to learn the result of its own command only from the WS
- * `mutation.applied` event. When the page's main thread is busy (a heavy
- * Scene-view frame, a large redraw), the browser runs input events before
- * network tasks, so a second edit made right after the first (Enter in one
- * field, then the next field) was sent while the first one's result had not
- * been applied yet: an old `expectedRevision` (refused with
- * `revision_conflict`) and args built from the old state (a whole-document
- * setter would also undo the first edit). The fix has three parts:
+ * Learning the result of its own command only from the WS
+ * `mutation.applied` event is not enough: when the page's main thread is busy
+ * (a heavy Scene-view frame, a large redraw), the browser runs input events
+ * before network tasks, so a second edit made right after the first (Enter in
+ * one field, then the next field) would be sent while the first one's result
+ * had not been applied yet: a stale `expectedRevision` (refused with
+ * `revision_conflict`) and args built from the stale state (a whole-document
+ * setter would also undo the first edit). Three parts prevent that:
  *
  * - own commands are sent one at a time, in the order they were made
  *   (`enqueue`), and the HTTP ack's change is applied before the next one is
@@ -38,25 +38,25 @@ export const WHOLE_DOCUMENT_OPS: ReadonlySet<string> = new Set([
   'setAnimator',
   'setInput',
   'setCollisionLayers',
-  // Phase 23.10: game modes and behavior groups (whole lists).
+  // Game modes and behavior groups (whole lists).
   'setModes',
   'setBehaviorGroups',
-  // Phase 24.4i: the event → cue table (whole list).
+  // The event → cue table (whole list).
   'setEventCues',
-  // Phase 24.4j: the game shell (the whole block).
+  // The game shell (the whole block).
   'setShell',
   'setSaveSchema',
   'setStartScenes',
   'setGraph',
   'setEffect',
-  // Phase 23.9a: project UI documents and themes.
+  // Project UI documents and themes.
   'setUiDocument',
   'setUiTheme',
-  // Phase 23.16: dialogue (a conversation's name, a speaker, the settings).
+  // Dialogue (a conversation's name, a speaker, the settings).
   'setDialogue',
   'setSpeaker',
   'setDialogueSettings',
-  // Phase 23.17: timelines.
+  // timelines.
   'setTimeline',
 ]);
 
@@ -118,7 +118,7 @@ export function mergeDocumentEdit<T extends object>(base: T | null, next: T | nu
 }
 
 /**
- * Phase 24.7 (D40): a whole-list edit made on `base`, re-applied onto
+ * A whole-list edit made on `base`, re-applied onto
  * `current` (the list as it is now) — row by row with `mergeDocumentEdit`
  * when the edit kept the number of rows and the list still has that many
  * (an edit of one row's field keeps the others' newer values); an edit that

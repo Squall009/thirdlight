@@ -1,5 +1,5 @@
 /**
- * Phase 16.1: the editor's graph model (editor/src/graph/model.ts — the
+ * The editor's graph model (editor/src/graph/model.ts — the
  * editor may import project-model types only) against project-model:
  *
  * - the editor's projection applies a change's ops exactly as the backend

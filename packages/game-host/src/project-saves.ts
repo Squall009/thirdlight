@@ -1,5 +1,5 @@
 /**
- * Phase 23.19 (E15): the page's side of project save documents — the storage
+ * The page's side of project save documents — the storage
  * owner. The simulation (page or worker) asks for saves, loads and deletes
  * (`Runtime.takeSaveRequests`); this service carries them out against the
  * browser's storage and answers with entries of the next step's input
@@ -91,7 +91,7 @@ export interface ProjectSaveService {
   /** Settled when every request so far is done (tests, a reload). */
   idle(): Promise<void>;
   /**
-   * Phase 24.7: forget every slot of this game in this browser (the editor's
+   * Forget every slot of this game in this browser (the editor's
    * "Clear Play save"; the deleted level flow's own saves were what it cleared
    * before); the simulation gets the empty slot list.
    */

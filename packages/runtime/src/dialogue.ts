@@ -1,5 +1,5 @@
 /**
- * Phase 23.16: the dialogue runner — conversations in the simulation.
+ * The dialogue runner — conversations in the simulation.
  *
  * A script starts a conversation (`ctx.dialogue.start`); the runner walks the
  * compiled dialogue graph (project-model `RuntimeDialogueData`): a Line shows
@@ -20,7 +20,7 @@
  * scripts in the next step.
  *
  * The runner publishes what the dialogue UI binds to under `dialogue.` in
- * the project UI's view model (23.9a) and shows/hides the dialogue document.
+ * the project UI's view model and shows/hides the dialogue document.
  */
 import {
   applyDialogueEffect,
@@ -96,14 +96,14 @@ export interface DialogueUiPort {
   focus?(doc: string, widget: string): boolean;
 }
 
-/** The simulation's audio intent log (phase 23.13 `AudioMixer`). */
+/** The simulation's audio intent log (`AudioMixer`). */
 export interface DialogueAudioPort {
   play(assetId: unknown, options?: AudioPlayOptions): number;
   stop(handle: unknown, fadeSeconds?: unknown): void;
   setDuck(source: string, level: number, fade: number, bus?: 'music' | 'sfx'): void;
 }
 
-/** Phase 23.16: seconds of a duck in or out (short: the voice starts on the word, the music comes back promptly). */
+/** Seconds of a duck in or out (short: the voice starts on the word, the music comes back promptly). */
 const DUCK_IN_SECONDS = 0.15;
 const DUCK_OUT_SECONDS = 0.4;
 /** A voice cut short by an advance fades out this fast (no click). */
@@ -311,7 +311,7 @@ export class DialogueRunner {
   }
 
   /**
-   * Phase 23.17's dialogue track (`TimelineDialoguePort`): run a node (or an
+   * The timeline's dialogue track (`TimelineDialoguePort`): run a node (or an
    * entry of that name, or the start) with the timeline's bindings as
    * `$name` values; the handle is the conversation number (0: refused — no
    * such dialogue, or one is running); the track waits while it runs.

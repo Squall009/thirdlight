@@ -1,8 +1,7 @@
 /**
- * Strict `args` schema validation for the non-prefab M2 mutation ops
- * (commands.md §3.1.1/§3.1.4–§3.1.8, §8.5–§8.12) — packet 21.
+ * Strict `args` schema validation for the non-prefab content mutation ops.
  *
- * Same conventions as the M1 args pass (`validate-request.ts`): unknown
+ * Same conventions as the entity args pass (`validate-request.ts`): unknown
  * fields ⇒ `field_unexpected`; missing ⇒ `field_missing`; wrong JSON type ⇒
  * `field_type`; right type / wrong value ⇒ `field_value`. Structural checks
  * live here; the model remains the authority for document value rules, so
@@ -12,7 +11,7 @@
  *
  * Op-level precondition order (existence, reference resolution, compatibility)
  * is owned by the op implementations (`content-ops.ts`), not by this pass:
- * commands.md §6.1 step 4 checks the revision BEFORE any argument validation.
+ * pipeline step 4 checks the revision BEFORE any argument validation.
  */
 
 import {
@@ -42,10 +41,10 @@ import type {
   SetSettingsArgs,
 } from './types';
 
-/** 64 lowercase hex characters (project-model §18.3/§22.2). */
+/** 64 lowercase hex characters (a SHA-256 digest). */
 const DIGEST_RE = /^[0-9a-f]{64}$/;
 
-/** `^[a-z][a-z0-9_]{0,63}$` — property/settings key syntax (project-model §20.5). */
+/** `^[a-z][a-z0-9_]{0,63}$` — property/settings key syntax. */
 const KEY_RE = /^[a-z][a-z0-9_]{0,63}$/;
 
 const ASSET_ID_EXPECTED = 'project-model ID syntax: [a-z0-9][a-z0-9_-]{0,63}';
@@ -77,10 +76,10 @@ export function validatePublishAssetArgs(
       ),
     };
   }
-  // §3.1.1/§23.3.7: `kind` is required on create for a v3 state and optional
+  // `kind` is required on create for a v3 state and optional
   // on reimport (where it must equal the record's kind). The state-aware
   // requirement is in the op — the accepted v2 fixtures create model
-  // records without it (handoff 45 CC-45-4).
+  // records without it.
   if (args['kind'] !== undefined && args['kind'] !== 'model' && args['kind'] !== 'audio' && args['kind'] !== 'texture' && args['kind'] !== 'music' && args['kind'] !== 'font') {
     return {
       ok: false,
@@ -180,7 +179,7 @@ export function validatePublishAssetArgs(
     }
     out.convertedFrom = args['convertedFrom'] as unknown as PublishAssetArgs['convertedFrom'];
   }
-  // Phase 25.21: a packed texture's channel sources (the model validates them with the version).
+  // A packed texture's channel sources (the model validates them with the version).
   if (args['packedFrom'] !== undefined) {
     if (!isPlainObject(args['packedFrom'])) {
       return { ok: false, error: fieldType('/args/packedFrom', args['packedFrom'], 'object { layers, converter, encoding }') };
@@ -197,7 +196,7 @@ export function validatePublishAssetArgs(
     return { ok: false, error: fieldType('/args/importRecipe', args['importRecipe'], 'object (ImportRecipe)') };
   }
   // Structural only; profile/recipeVersion/toolchain/extensions value rules are
-  // the model's (§18.5, re-checked by the resulting-content validation).
+  // the model's (re-checked by the resulting-content validation).
   out.importRecipe = args['importRecipe'] as unknown as PublishAssetArgs['importRecipe'];
   if (args['metrics'] === undefined) {
     return { ok: false, error: fieldMissing('/args/metrics', 'metrics') };
@@ -213,7 +212,7 @@ export function validatePublishAssetArgs(
     return { ok: false, error: fieldType('/args/importedAt', args['importedAt'], 'string (timestamp)') };
   }
   out.importedAt = args['importedAt'];
-  // §8.5.1: `animation` is permitted only on a model reimport; its presence
+  // `animation` is permitted only on a model reimport; its presence
   // rule and binding are the op's.
   if (args['animation'] !== undefined) {
     if (args['mode'] !== 'reimport' || args['kind'] === 'audio' || args['kind'] === 'texture' || args['kind'] === 'music' || args['kind'] === 'font') {
@@ -253,7 +252,7 @@ export function validatePublishAssetArgs(
   return { ok: true, args: out };
 }
 
-/** `applySurfacePreset` args (commands.md §3.1.9/§8.13). */
+/** `applySurfacePreset` args. */
 export function validateApplySurfacePresetArgs(
   args: Record<string, unknown>,
 ): ArgsOk<ApplySurfacePresetArgs> | { ok: false; error: CommandError } {
@@ -332,7 +331,7 @@ export function validatePublishBehaviorArgs(
   if (mode === 'source' && args['source'] === undefined) {
     return { ok: false, error: fieldMissing('/args/source', 'source') };
   }
-  // Phase 19.0: a new behavior may start as a visual script (its graph; validated by the op).
+  // A new behavior may start as a visual script (its graph; validated by the op).
   if (args['graph'] !== undefined && mode !== 'declaration-create') {
     return { ok: false, error: fieldUnexpected('/args/graph', 'graph', KNOWN, 'graph is only permitted with mode "declaration-create" (edit a visual script with graphEdit)') };
   }
@@ -443,21 +442,21 @@ export function validateSetBehaviorPropertiesArgs(
   return { ok: true, args: out };
 }
 
-/** Component field sets (commands.md §8.10). */
+/** Component field sets. */
 const COMPONENT_FIELDS: Record<string, readonly string[]> = {
   box: ['size', 'material', 'castShadow', 'receiveShadow'],
   camera: ['type', 'fovY', 'near', 'far'],
-  // Phase 15.1: the piece of a multi-piece file is an Inspector field too.
+  // The piece of a multi-piece file is an Inspector field too.
   model: ['asset', 'piece', 'castShadow', 'receiveShadow'],
   collider: ['shape', 'oneWay', 'layers'],
   controller: ['capsule', 'acceleration', 'deceleration', 'coyoteTime', 'jumpBuffer', 'jumpRelease', 'groundSnap', 'skin', 'autostep', 'autostepHeight', 'walkSpeed', 'runSpeed', 'airControl', 'gravityScale', 'jump', 'jumpSpeed', 'slopeLimit', 'stepHeight', 'ledgeClimb', 'ledgeHeight', 'ledgeClimbTime', 'turnSpeed', 'faceMovement', 'moveAction', 'jumpAction', 'climbSpeed', 'climbAction', 'wallSlide', 'wallSlideSpeed', 'wallJump', 'wallJumpAway', 'wallJumpUp', 'wallJumpLock'],
-  // Phase 15.1: an exit zone's scenes and arrival spawn are edited like every other field.
-  // Phase 24.4f: which way the character faces at this spawn (v4; phase 24.8: yaw only).
+  // An exit zone's scenes and arrival spawn are edited like every other field.
+  // Which way the character faces at this spawn (v4; yaw only).
   playerSpawn: ['yaw'],
   light: ['type', 'color', 'intensity', 'direction', 'castShadow', 'range', 'decay', 'angle', 'penumbra', 'groundColor', 'mode', 'shadowMapSize', 'shadowBias', 'shadowNormalBias', 'shadowExtent', 'cookie'],
   surface: ['color', 'roughness', 'metalness', 'emissive', 'emissiveIntensity'],
   modelAnimation: ['assetId', 'version', 'roles'],
-  // Phase 12 (c) / 9.4 (v4 scenes).
+  // v4 scenes only.
   instances: ['asset', 'buffer', 'count', 'castShadow', 'receiveShadow', 'chunkSize'],
   fogVolume: ['size', 'density', 'color', 'falloff', 'heightFalloff'],
   animator: ['controller', 'parameters'],
@@ -467,20 +466,20 @@ const COMPONENT_FIELDS: Record<string, readonly string[]> = {
   trigger: ['size', 'signal', 'once', 'exitSignal', 'shape', 'radius', 'mode', 'height', 'sceneTransition'],
   switch: ['mode', 'signal', 'size', 'once', 'action'],
   health: ['max', 'start'],
-  // Phase 20.0: the effect played from the entity.
+  // The effect played from the entity.
   effect: ['effectId', 'playOnStart', 'params', 'signal', 'stopSignal'],
-  // Phase 23.4: the camera framework.
+  // The camera framework.
   virtualCamera: VIRTUAL_CAMERA_FIELDS,
   cameraPath: CAMERA_PATH_FIELDS,
-  // Phase 23.11: sockets.
+  // sockets.
   socketAttach: SOCKET_ATTACH_FIELDS,
-  // Phase 23.5: a block layer's settings (its cells are editBlocks' data).
+  // A block layer's settings (its cells are editBlocks' data).
   blockLayer: BLOCK_LAYER_FIELDS,
-  // Phase 23.6: a prop's block footprint.
+  // A prop's block footprint.
   blockFootprint: ['layer', 'size', 'set'],
-  // Phase 23.10: the behavior group (game modes tick groups).
+  // The behavior group (game modes tick groups).
   behaviorGroup: ['group'],
-  // Phase 24.4: the generic primitives (project-model blocks.ts field order).
+  // The generic primitives (project-model blocks.ts field order).
   collectible: ['counter', 'amount', 'respawn', 'onCollect', 'size'],
   patrol: ['mode', 'waypoints', 'loop', 'speed', 'wait', 'direction', 'size', 'wallProbe', 'ledgeProbe'],
   hitbox: ['shape', 'size', 'radius', 'damage'],
@@ -524,7 +523,7 @@ const OWNED: readonly OwnedComponent[] = [
   'gravity',
   'cameraRegion',
 ];
-// Phase 15.1: box, camera and model are added (a complete value) and removed
+// Box, camera and model are added (a complete value) and removed
 // like every other component (the Inspector's "+ Add component").
 const REMOVABLE: readonly OwnedComponent[] = [
   'box',
@@ -562,11 +561,11 @@ const REMOVABLE: readonly OwnedComponent[] = [
   'cameraRegion',
 ];
 /** The components whose ADD value may be `{}` (playerSpawn has no fields; the controller's capsule is optional). */
-// Phase 25.13: a gravity body's fields are all optional too (the project's gravity on a 1 m body).
+// A gravity body's fields are all optional too (the project's gravity on a 1 m body).
 const MARKER_COMPONENTS: readonly string[] = ['controller', 'playerSpawn', 'gravity'];
 const UNOWNED = ['transform', 'behavior', 'prefab'];
 
-/** Phase 25.6: whether `setComponent` takes this component (createEntity's refusal names it). */
+/** Whether `setComponent` takes this component (createEntity's refusal names it). */
 export function isSetComponentName(name: string): boolean {
   return (OWNED as readonly string[]).includes(name);
 }
@@ -602,9 +601,9 @@ export function validateSetComponentArgs(
       error: fieldValue(
         '/args/component',
         component,
-        // The committed packet-16 failure fixture pins this string for the
+        // The committed prefab failure fixture pins this string for the
         // unowned names (`transform`/`behavior`/`prefab`); genuinely unknown
-        // names report the full v3 union (handoff 45 CC-45-5).
+        // names report the full v3 union.
         UNOWNED.includes(component)
           ? 'one of "box", "camera", "model", "collider", "controller"'
           : COMPONENT_EXPECTED,
@@ -618,8 +617,8 @@ export function validateSetComponentArgs(
     return { ok: false, error: fieldMissing('/args/value', 'value') };
   }
   const value = args['value'];
-  // `null` removes an add-capable component (every owned component since
-  // phase 15.1, box/camera/model included).
+  // `null` removes an add-capable component (every owned component,
+  // box/camera/model included).
   if (value === null) {
     if (!(REMOVABLE as readonly string[]).includes(component)) {
       return {
@@ -697,13 +696,13 @@ export function validateSetComponentArgs(
     }
   } else if (component === 'collider') {
     const shape = value['shape'];
-    // Phase 15.1: `oneWay` alone edits the flag (the shape stays).
-    // Phase 23.3: `layers` alone edits the collision layers (the shape stays).
+    // `oneWay` alone edits the flag (the shape stays).
+    // `layers` alone edits the collision layers (the shape stays).
     if (shape === undefined && (value['oneWay'] !== undefined || value['layers'] !== undefined)) return { ok: true, args: { entityId: args['entityId'], component: component as OwnedComponent, value } };
     if (!isPlainObject(shape)) {
       return { ok: false, error: fieldType('/args/value/shape', shape, 'object ({ type: "box"|"polygon"|"sphere"|"capsule"|"convex"|"mesh", ... })') };
     }
-    // Phase 23.1: the 3D shapes (the project's physics dimension is the model's rule).
+    // The 3D shapes (the project's physics dimension is the model's rule).
     if (!['box', 'polygon', 'sphere', 'capsule', 'convex', 'mesh'].includes(shape['type'] as string)) {
       return {
         ok: false,
@@ -718,14 +717,14 @@ export function validateSetComponentArgs(
     // Deeper shape rules (ranges, convexity, vertex caps) are the model's,
     // re-checked by the resulting-document validation (`collider_shape_invalid`).
   } else if (component === 'controller') {
-    // Phase 14.0: `capsule` (an object, or null to go back to the default);
+    // `capsule` (an object, or null to go back to the default);
     // its values are the model's (re-checked by the resulting-document validation).
     const capsule = value['capsule'];
     if (capsule !== undefined && capsule !== null && !isPlainObject(capsule)) {
       return { ok: false, error: fieldType('/args/value/capsule', capsule, 'object { radius, height, offset? } or null') };
     }
   } else if (component === 'playerSpawn') {
-    // Phase 24.4f: `yaw` (degrees, or null for none); its range is the model's.
+    // `yaw` (degrees, or null for none); its range is the model's.
     const yaw = value['yaw'];
     if (yaw !== undefined && yaw !== null && typeof yaw !== 'number') {
       return { ok: false, error: fieldType('/args/value/yaw', yaw, 'number (degrees) or null') };
@@ -760,10 +759,10 @@ export function validateSetComponentArgs(
     component === 'cameraRegion'
   ) {
     // The v3 field values (types, ranges, requiredness, the role-binding
-    // stages) are the model's and the §41.3.2 helper's; nothing structural is
+    // stages) are the model's and the role-binding helper's; nothing structural is
     // re-implemented here.
   } else {
-    // Phase 15.1: `piece` alone (a string, or null for the whole file) edits the piece.
+    // `piece` alone (a string, or null for the whole file) edits the piece.
     const piece = value['piece'];
     if (piece !== undefined && piece !== null && typeof piece !== 'string') {
       return { ok: false, error: fieldType('/args/value/piece', piece, 'string (piece name) or null') };
@@ -846,7 +845,7 @@ export function validateSetSettingsArgs(
       spec.min !== undefined && (spec.minExclusive === true ? v <= spec.min : v < spec.min);
     const aboveMax =
       spec.max !== undefined && (spec.maxExclusive === true ? v >= spec.max : v > spec.max);
-    // Phase 15.3: whole numbers / a choice of values (the step rate, the voice count).
+    // Whole numbers / a choice of values (the step rate, the voice count).
     const notAllowed = (spec.integer === true && !Number.isInteger(v)) || (spec.values !== undefined && !spec.values.includes(v));
     if (belowMin || aboveMax || notAllowed) {
       return {

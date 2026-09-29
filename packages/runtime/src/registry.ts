@@ -1,16 +1,12 @@
 /**
- * Simulation-module registry — dependencies.md §6 (narrow; normative).
+ * Simulation-module registry (narrow).
  *
- * The ONLY M1 extension point. Registration happens in engine source, at
+ * The ONLY simulation extension point. Registration happens in engine source, at
  * build time: no string-to-code resolution, no dynamic `import` of
  * project content, no file- or URL-sourced modules. Name syntax:
  * `^thirdlight\.[a-z0-9-]+:[a-z0-9-]+$`. Duplicate registration ⇒
- * `config_invalid` (rejected at registration time).
- *
- * CC-49-3: the first segment admits hyphens (package-style names; widened
- * from the M1 syntax `^thirdlight\.[a-z0-9]+:…` for the M3 modules, which
- * phase 24.7 deleted with the genre layer). Additive: every M1/M2 name still
- * matches.
+ * `config_invalid` (rejected at registration time). The first segment
+ * admits hyphens (package-style names).
  */
 import { clipMessage, type RuntimeError } from './errors';
 import { boxMotionSpec, DEMO_MODULE_ID } from './demo';
@@ -22,16 +18,15 @@ import {
   type SimulationRegistry,
 } from './types';
 
-/** The accepted M2 controller module ID (runtime.md §12.1 inventory; phase 24.7: renamed, phase 24.8: the old id no longer resolves). */
+/** The character controller module ID. */
 export const CHARACTER_MODULE_ID = 'thirdlight.character:controller';
 
 
 /**
  * The built-in M1 demo spec. Its `excludes`/`legacyTransformOwners` metadata
- * implements runtime.md §12.1/§12.4 when the demo participates in an M2 set
- * (the demo owns every `box` entity and cannot coexist with the controller
- * module). The demo's `create` and step math are byte-identical to the
- * accepted M1 implementation.
+ * applies when the demo participates in an M2 set (the demo owns every
+ * `box` entity and cannot coexist with the controller module). The demo's
+ * `create` and step math are byte-identical in both set kinds.
  */
 const demoBuiltinSpec: SimulationModuleSpec = {
   id: DEMO_MODULE_ID,
@@ -41,13 +36,13 @@ const demoBuiltinSpec: SimulationModuleSpec = {
   create: (snapshot, cfg) => boxMotionSpec.create(snapshot, cfg),
 };
 
-/** M1 registry contents: exactly one built-in module (runtime.md §7). */
+/** M1 registry contents: exactly one built-in module. */
 export const BUILTIN_MODULES: readonly SimulationModuleSpec[] = [demoBuiltinSpec];
 
 const MODULE_NAME_RE = /^thirdlight\.[a-z0-9-]+:[a-z0-9-]+$/;
 
 /**
- * Validate a declared phase list (runtime.md §12.1): non-empty, no
+ * Validate a declared phase list: non-empty, no
  * duplicates, canonical order. Returns a reason string on failure.
  */
 export function validatePhaseList(phases: unknown): { ok: true; phases: readonly SimulationPhase[] } | { ok: false; message: string } {
@@ -70,7 +65,7 @@ export function validatePhaseList(phases: unknown): { ok: true; phases: readonly
   return { ok: true, phases: phases as readonly SimulationPhase[] };
 }
 
-/** Create an empty simulation-module registry (dependencies.md §6). */
+/** Create an empty simulation-module registry. */
 export function createSimulationRegistry(): SimulationRegistry {
   return { [SIM_REGISTRY_BRAND]: new Map() };
 }
@@ -86,7 +81,7 @@ export function isSimulationRegistry(value: unknown): value is SimulationRegistr
 
 /**
  * Register a compile-time-linked module spec. Duplicate names and names
- * outside the §6 syntax are rejected at registration time
+ * outside the name syntax are rejected at registration time
  * (`config_invalid`).
  */
 export function registerSimulationModule(

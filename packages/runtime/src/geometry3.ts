@@ -1,6 +1,6 @@
 /**
- * Phase 23.1: 3D geometry for the gameplay blocks (pure, deterministic).
- * Phase 24.4: its own module, shared by the blocks and the generic primitives.
+ * 3D geometry for the gameplay blocks (pure, deterministic).
+ * Its own module, shared by the blocks and the generic primitives.
  */
 
 type Vec3 = [number, number, number];
@@ -32,7 +32,7 @@ export function segmentPointDistance2(a: V3, b: V3, p: V3): number {
   return dot3(d, d);
 }
 
-/** Squared distance between segments `p1`–`q1` and `p2`–`q2` (closest points, Ericson §5.1.9). */
+/** Squared distance between segments `p1`–`q1` and `p2`–`q2` (closest points, Ericson, Real-Time Collision Detection). */
 export function segmentSegmentDistance2(p1: V3, q1: V3, p2: V3, q2: V3): number {
   const d1 = sub3(q1, p1);
   const d2 = sub3(q2, p2);

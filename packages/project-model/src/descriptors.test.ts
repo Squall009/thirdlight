@@ -1,5 +1,5 @@
 /**
- * Phase 15.0: the descriptor registry matches the validators.
+ * The descriptor registry matches the validators.
  *
  * Every component and content block is probed through its real validator
  * from valid base documents (one per variant: each light type,
@@ -129,7 +129,7 @@ const ADJUST: Record<string, (o: Obj, v: number) => void> = {
   'camera:far': (o, v) => {
     o['near'] = Math.min(o['near'] as number, v / 2);
   },
-  // Phase 23.4: the virtual camera's paired limits.
+  // The virtual camera's paired limits.
   'virtualCamera:pitchMin': (o, v) => {
     if (typeof o['pitchMax'] === 'number') o['pitchMax'] = Math.max(o['pitchMax'] as number, v);
   },
@@ -148,14 +148,14 @@ const ADJUST: Record<string, (o: Obj, v: number) => void> = {
   'virtualCamera:far': (o, v) => {
     if (typeof o['near'] === 'number') o['near'] = Math.min(o['near'] as number, v / 2);
   },
-  // Phase 24.4g: the track rig's bounds (the other side moved out of the way).
+  // The track rig's bounds (the other side moved out of the way).
   'virtualCamera:boundsMin': (o) => {
     if (Array.isArray(o['boundsMax'])) o['boundsMax'] = [1e6, 1e6, 1e6];
   },
   'virtualCamera:boundsMax': (o) => {
     if (Array.isArray(o['boundsMin'])) o['boundsMin'] = [-1e6, -1e6, -1e6];
   },
-  // Phase 25.14: a camera region's bounds (the other side moved out of the way).
+  // A camera region's bounds (the other side moved out of the way).
   'cameraRegion:boundsMin': (o) => {
     if (Array.isArray(o['boundsMax'])) o['boundsMax'] = [1e6, 1e6, 1e6];
   },
@@ -175,7 +175,7 @@ const ADJUST: Record<string, (o: Obj, v: number) => void> = {
 
 /** List count probes that cannot run in a minimal base (their items must resolve against other data). */
 const SKIP_COUNT = new Set(['startScenes:']);
-/** Phase 23.9b: optional fields of an exactly-one-of pair (removing the present one leaves none). */
+/** Optional fields of an exactly-one-of pair (removing the present one leaves none). */
 const ONE_OF_REMOVAL = new Set(['uiWidget:worldAnchor.point']);
 
 
@@ -204,7 +204,7 @@ function withValue(root: J, objPtr: string, key: string, value: J, dpath: string
   const o = clone(getAt(root, objPtr)) as Obj;
   o[key] = value;
   const adj = ADJUST[dpath];
-  // Phase 24.4g: a vector's cross-field rule too (the track rig's bounds).
+  // A vector's cross-field rule too (the track rig's bounds).
   if (adj !== undefined && (typeof value === 'number' || Array.isArray(value))) adj(o, value as number);
   return setAt(root, objPtr, o);
 }
@@ -232,7 +232,7 @@ function probeNumberRange(ctx: Ctx, root: J, objPtr: string, key: string, d: { m
     expectErr(ctx, withValue(root, objPtr, key, d.max + (isInt ? 1 : eps(d.max) * 1000), dpath), errAt, `above max ${d.max}`);
   }
   if (d.nonZero) expectErr(ctx, withValue(root, objPtr, key, 0, dpath), errAt, '0 (non-zero)');
-  // Phase 15.3: a choice of numbers — each accepted, a whole number between two refused.
+  // A choice of numbers — each accepted, a whole number between two refused.
   if (d.values !== undefined) {
     for (const v of d.values) expectOk(ctx, withValue(root, objPtr, key, v, dpath), errAt, `value ${v}`);
     for (let v = (d.min ?? d.values[0]!) + 1; v < (d.max ?? d.values[d.values.length - 1]!); v++) {
@@ -302,7 +302,7 @@ function probeField(ctx: Ctx, root: J, objPtr: string, key: string, d: FieldDesc
     case 'vec2':
     case 'vec3': {
       const n = d.type === 'vec2' ? 2 : 3;
-      // Phase 23.0: a vec3 whose last component may be left out is probed at full length (and short).
+      // A vec3 whose last component may be left out is probed at full length (and short).
       const v0 = value as number[];
       const v = d.optionalLast === true && v0.length === n - 1 ? [...v0, 0] : v0;
       if (d.optionalLast === true) expectOk(ctx, set(v.slice(0, n - 1)), errAt, 'the last component left out');
@@ -473,7 +473,7 @@ const COMPONENT_BASES: Record<string, J[]> = {
     { shape: { type: 'box', hx: 0.5, hy: 0.25 }, oneWay: true },
     { shape: { type: 'box', hx: 0.5, hy: 0.25, hz: 1 }, layers: ['default', 'props'] },
     { shape: { type: 'polygon', vertices: [[-1, -1], [1, -1], [1, 1], [-1, 1]] } },
-    // Phase 23.1: the 3D shapes (their dimension rule is the project's, not the scene's).
+    // The 3D shapes (their dimension rule is the project's, not the scene's).
     { shape: { type: 'sphere', radius: 0.5 } },
     { shape: { type: 'capsule', radius: 0.5, height: 100 } },
     { shape: { type: 'convex', points: [[-1, -1, -1], [1, -1, -1], [0, 1, -1], [0, 0, 1]] } },
@@ -481,9 +481,9 @@ const COMPONENT_BASES: Record<string, J[]> = {
   ],
   controller: [{ capsule: { radius: 0.3, height: 1.8, offset: [0, 0.1] }, acceleration: 30, deceleration: 50, coyoteTime: 0.1, jumpBuffer: 0.1, jumpRelease: 0.4, groundSnap: 0.2, skin: 0.02, autostep: true, autostepHeight: 0.3, walkSpeed: 2.5, runSpeed: 6, airControl: 0.3, gravityScale: 1.5, turnSpeed: 360, faceMovement: false, jump: true, jumpSpeed: 5, slopeLimit: 40, stepHeight: 0.5, ledgeClimb: true, ledgeHeight: 1, ledgeClimbTime: 0.4, moveAction: 'walk', jumpAction: 'hop', climbSpeed: 1.5, climbAction: 'climb', wallSlide: true, wallSlideSpeed: 1, wallJump: true, wallJumpAway: 5, wallJumpUp: 6, wallJumpLock: 0.2 }],
   camera: [{ type: 'perspective', fovY: 60, near: 0.1, far: 100 }],
-  // Phase 23.10: the behavior group an object's script belongs to.
+  // The behavior group an object's script belongs to.
   behaviorGroup: [{ group: 'field' }],
-  // Phase 23.11: a socket with its offset, and one a script attaches later.
+  // A socket with its offset, and one a script attaches later.
   socketAttach: [
     { target: 'spawn-0001', node: 'hand_R', position: [0.1, 0, -0.05], rotation: [0, 0.7071067811865476, 0, 0.7071067811865476], scale: [1, 2, 1], attached: false },
     { target: 'spawn-0001', node: 'Armature Bone.001' },
@@ -494,12 +494,12 @@ const COMPONENT_BASES: Record<string, J[]> = {
     { rig: 'topDown', target: 'spawn-0001', distance: 12, yaw: 90, damping: 0 },
     { rig: 'fixed', target: 'spawn-0001', blend: 'eased', blendTime: 2 },
     { rig: 'rail', path: 'path-0001', progress: 0.25, railSpeed: 3, railMode: 'pingpong', target: 'spawn-0001' },
-    // Phase 24.4g: the track rig.
+    // The track rig.
     { rig: 'track', target: 'spawn-0001', trackOffset: [0, 2, 12], deadZone: [2, 1, 2], boundsMin: [-50, -10, -50], boundsMax: [50, 20, 50], damping: 0.2 },
-    // Phase 25.14: look-ahead.
+    // Look-ahead.
     { rig: 'track', target: 'spawn-0001', lookAhead: [0, 0.4, 0], lookAheadMax: [2, 3, 2], lookAheadSmoothing: 0.3 },
   ],
-  // Phase 25.14: a camera region.
+  // A camera region.
   cameraRegion: [
     { size: [20, 8, 4], camera: 'spawn-0001', priority: 2, deadZone: [3, 1, 0], boundsMin: [-5, -2, -1], boundsMax: [5, 2, 1], distance: 15, blendTime: 1 },
     { size: [10, 6, 10] },
@@ -511,22 +511,22 @@ const COMPONENT_BASES: Record<string, J[]> = {
   trigger: [
     { shape: 'box', size: [2, 2, 2], signal: 'enter', exitSignal: 'leave', mode: 'stay', once: true },
     { shape: 'circle', radius: 1.5, signal: 'enter' },
-    // Phase 23.1: the 3D areas.
+    // The 3D areas.
     { shape: 'sphere', radius: 1.5, signal: 'enter' },
     { shape: 'capsule', radius: 0.025, height: 500, signal: 'enter' },
-    // Phase 24.4e: a scene transition.
+    // A scene transition.
     { size: [2, 2, 2], signal: 'door', sceneTransition: { scene: 'scene-b', spawn: 'spawn-0001', unload: ['scene-c'], fade: 0.5, fadeColor: '#101820' } },
   ],
   switch: [{ mode: 'stand', signal: 'open', size: [1, 1], once: true }, { mode: 'interact', signal: 'open', size: [1, 1], action: 'use' }],
   health: [{ max: 5, start: 3 }],
-  // Phase 24.4: the generic primitives.
+  // The generic primitives.
   collectible: [{ counter: 'shards', amount: -2.5, size: [1, 2, 3], onCollect: 'got', respawn: 4 }, { counter: 'items' }],
   patrol: [
     { mode: 'edges', speed: 2, wait: 0.5, direction: [0, 0, -1], size: [1, 2, 1], wallProbe: 0.1, ledgeProbe: 0.6 },
     { mode: 'waypoints', waypoints: [[4, 0, 0], [4, 2, 0]], loop: true, speed: 1, wait: 1 },
   ],
   hitbox: [{ shape: 'box', size: [1, 2, 3], damage: 2 }, { shape: 'sphere', radius: 0.5 }],
-  // Phase 25.13: a climb volume and a gravity body.
+  // A climb volume and a gravity body.
   climbVolume: [{ size: [1, 4, 1] }, { size: [2, 3, 0.5] }],
   gravity: [{ scale: 0.5, size: [1, 2, 1] }, {}],
   audioSource: [{ assetId: 'cue-a', volume: 0.8, range: 12 }, { assetId: 'cue-a', volume: 0.8, range: 12, distanceModel: 'inverse', refDistance: 2, rolloff: 1.5 }],
@@ -536,9 +536,9 @@ const COMPONENT_BASES: Record<string, J[]> = {
   behavior: [{ behaviorId: 'beh-a', values: { speed: 3 } }],
   prefab: [{ prefabId: 'pre-a', localId: 'root' }],
   folder: [{}],
-  // Phase 23.5: a block layer (every optional flag set to its non-default value).
+  // A block layer (every optional flag set to its non-default value).
   blockLayer: [{ cellSize: [1, 0.5, 1], bounds: { min: [0, 0, 0], max: [8, 8, 8] }, metadataOnly: true, collision: false, castShadow: false, receiveShadow: false, maxSlope: 30 }],
-  // Phase 23.6: a prop's block footprint.
+  // A prop's block footprint.
   blockFootprint: [{ layer: 'layer-a', size: [2, 3], set: { blocked: true, cost: 4 } }],
 };
 
@@ -559,7 +559,7 @@ const ENV_BASES: J[] = [
   { sky: { mode: 'gradient', topColor: '#3d7cd6', horizonColor: '#bfe3ff', bottomColor: '#6b7b5a', intensity: 1 }, fog: { mode: 'exp2', color: '#c8d2dc', density: 0.01 } },
   { sky: { mode: 'texture', texture: 'tex-a', cube: ['px', 'nx', 'py', 'ny', 'pz', 'nz'] }, fog: { mode: 'none', color: '#c8d2dc' } },
   { sky: { mode: 'color', color: '#7ec8ff' } },
-  // Phase 23.18: environment presets.
+  // Environment presets.
   {
     presets: [
       {
@@ -582,7 +582,7 @@ const ENV_BASES: J[] = [
 ];
 
 const BINDINGS: { type: string; binding: Obj }[] = [
-  // Phase 23.14: a hold binding.
+  // A hold binding.
   { type: 'button', binding: { kind: 'key', code: 'Space', hold: 0.5 } },
   { type: 'button', binding: { kind: 'gamepadButton', button: 0 } },
   { type: 'axis1d', binding: { kind: 'gamepadAxis', axis: 0 } },
@@ -590,7 +590,7 @@ const BINDINGS: { type: string; binding: Obj }[] = [
   { type: 'axis1d', binding: { kind: 'gamepadButtons1d', negative: 14, positive: 15 } },
   { type: 'axis2d', binding: { kind: 'keys2d', up: 'KeyW', down: 'KeyS', left: 'KeyA', right: 'KeyD' } },
   { type: 'axis2d', binding: { kind: 'gamepadStick', x: 0, y: 1 } },
-  // Phase 23.3: the pointer bindings.
+  // The pointer bindings.
   { type: 'button', binding: { kind: 'pointerButton', button: 'right' } },
   { type: 'axis1d', binding: { kind: 'pointerAxis', axis: 'wheel' } },
   { type: 'axis2d', binding: { kind: 'pointerPosition' } },
@@ -598,11 +598,11 @@ const BINDINGS: { type: string; binding: Obj }[] = [
 ];
 const INPUT_BASES: J[] = [
   ...BINDINGS.map((b, i) => ({ actions: [{ name: 'act', type: b.type, map: 'ui', bindings: [b.binding], deadZone: 0.2, invert: true, scale: 2 }], ...(i === 0 ? { cursor: { gameplay: 'locked', ui: 'free' }, glyphs: { 'xbox:pad-south': 'tex-a' } } : {}) })),
-  // Phase 23.10: the project's own input maps (an action of one).
+  // The project's own input maps (an action of one).
   { actions: [{ name: 'select', type: 'button', map: 'ui', bindings: [{ kind: 'key', code: 'KeyE' }] }], maps: ['tactical', 'build'] },
 ];
 
-// Phase 20.0: an effect with a parameter of every type and one system.
+// An effect with a parameter of every type and one system.
 const EFFECT_GRAPH = { nodes: ['spawn', 'initialize', 'update', 'output'].map((c, i) => ({ id: c, type: c, position: [0, i * 200] })), edges: [] };
 const EFFECT_BASES: J[] = [
   [
@@ -626,7 +626,7 @@ const MATERIAL_BASES: J[] = [
   ...MATERIAL_SHADERS.map((s) => [
     { materialId: 'mat-a', name: 'Material', shader: s, params: Object.fromEntries(Object.entries(MATERIAL_PARAMS[s]).map(([k, t]) => [k, clone(t.default)])), textures: Object.fromEntries(MATERIAL_TEXTURE_SLOTS[s].map((slot) => [slot, 'tex-a'])) },
   ]),
-  // Phase 18.0: a graph material with an exposed parameter.
+  // A graph material with an exposed parameter.
   [
     {
       materialId: 'mat-g',
@@ -638,9 +638,9 @@ const MATERIAL_BASES: J[] = [
       graph: { nodes: [{ id: 'out', type: 'pbr', position: [0, 0] }], edges: [] },
     },
   ],
-  // Phase 25.19: a material instance (checked against its parent with the whole list elsewhere).
+  // A material instance (checked against its parent with the whole list elsewhere).
   [{ materialId: 'mat-i', name: 'Instance', shader: 'standard', params: {}, textures: {}, instanceOf: 'mat-g', values: { speed: 2 } }],
-  // Phase 23.12: a graph material with a data parameter (its grid size).
+  // A graph material with a data parameter (its grid size).
   [
     {
       materialId: 'mat-d',
@@ -678,7 +678,7 @@ function animatorBase(o: { firstParam: 'float' | 'int' | 'bool' | 'trigger'; fir
       transitions: [{ from: 'idle', to: 'run', conditions: [cond], duration: 0.2, exitTime: 0.5, interruption: 'source' }],
       entry: 'idle',
       events: [{ assetId: 'model-a', clip: 'run', time: 0.1, name: 'step' }],
-      // Phase 23.11: a morph target driven by a float parameter.
+      // A morph target driven by a float parameter.
       morphs: [{ target: 'smile', parameter: 'speed' }],
       layers: [
         {
@@ -733,7 +733,7 @@ const comp = (name: string): ComponentDescriptor => DESCRIPTORS.components.find(
 
 // ---- the probes ------------------------------------------------------------------------
 
-// ---- phase 23.9b: UI documents -----------------------------------------------------------
+// ---- UI documents -----------------------------------------------------------
 
 const UI_STYLE_VALUES = { color: '#ffffff', background: '#00000080', opacity: 0.5, backgroundImage: 'tex-a', slice: [2, 2, 2, 2], font: 'sans', fontSize: 16, bold: true, italic: false, align: 'center', lineHeight: 1.2, letterSpacing: 1, textShadow: '#000000', padding: 4, radius: 4, borderWidth: 1, borderColor: '#ffffff', shadow: '#000000' };
 const UI_STYLE = { ...UI_STYLE_VALUES, hover: { ...UI_STYLE_VALUES }, focus: { ...UI_STYLE_VALUES }, pressed: { ...UI_STYLE_VALUES }, disabled: { ...UI_STYLE_VALUES } };
@@ -811,35 +811,35 @@ function runAllProbes(): void {
   probe('behaviorTrust', contentErrors, contentDoc({ behaviorTrust: { entries: [] } }), '/behaviorTrust', block('behaviorTrust'), 'behaviorTrust:');
   probe('lighting', contentErrors, contentDoc({ lighting: {} }), '/lighting', block('lighting'), 'lighting:');
   probe('graphs', contentErrors, contentDoc({ graphs: [{ graphId: 'g-1', kind: 'test', name: 'G', graph: { nodes: [], edges: [] } }] }), '/graphs', block('graphs'), 'graphs:');
-  // Phase 23.7: shared script libraries (the files are free text, the item is json).
+  // Shared script libraries (the files are free text, the item is json).
   probe('scriptLibraries', contentErrors, contentDoc({ scriptLibraries: [{ libraryId: 'lib-a', name: 'Lib', files: [{ path: 'src/index.ts', text: 'export const a = 1;\n' }] }] }), '/scriptLibraries', block('scriptLibraries'), 'scriptLibraries:');
-  // Phase 23.5: block types, cell fields and stamps.
+  // Block types, cell fields and stamps.
   probe('blockTypes', (v) => errorsOf((e) => validateBlockTypes(v, '', e)), [{ blockId: 'grass', name: 'Grass', variants: [{ color: '#55aa55', weight: 2 }], shape: 'full', solid: true, footprint: [1, 1, 1], rotations: [0, 90], metadata: { walkable: true }, materials: { '*': 'mat-a' } }], '', block('blockTypes'), 'blockTypes:');
   probe('blockTypes[1]', (v) => errorsOf((e) => validateBlockTypes(v, '', e)), [{ blockId: 'odd', name: 'Odd', variants: [{ model: { assetId: 'model-a', piece: 'Rock' } }], shape: 'custom', boxes: [[0, 0, 0, 1, 0.5, 1]] }], '', block('blockTypes'), 'blockTypes:');
   probe('cellFields', (v) => errorsOf((e) => validateCellFields(v, '', e)), [{ key: 'terrain', type: 'enum', values: ['grass', 'rock'], color: '#aa5500', label: 'Terrain' }], '', block('cellFields'), 'cellFields:');
   probe('cellFields[1]', (v) => errorsOf((e) => validateCellFields(v, '', e)), [{ key: 'cost', type: 'int', default: 1, min: 0, max: 10 }], '', block('cellFields'), 'cellFields:');
   probe('blockStamps', (v) => errorsOf((e) => validateBlockStamps(v, '', e)), [{ stampId: 'hut', name: 'Hut', size: [2, 1, 2], palette: [{ block: 'grass' }], columns: [[0, 0, 0, 1, 0]] }], '', block('blockStamps'), 'blockStamps:');
-  // Phase 23.9a: UI documents and themes (json items).
+  // UI documents and themes (json items).
   probe('uiDocuments', contentErrors, contentDoc({ uiDocuments: [{ uiDocumentId: 'hud', name: 'HUD', root: { type: 'panel' } }] }), '/uiDocuments', block('uiDocuments'), 'uiDocuments:');
   probe('uiThemes', contentErrors, contentDoc({ uiThemes: [{ uiThemeId: 'base', name: 'Base', styles: {} }] }), '/uiThemes', block('uiThemes'), 'uiThemes:');
-  // Phase 23.16: dialogue (json items; the settings a json block).
+  // Dialogue (json items; the settings a json block).
   probe('dialogues', contentErrors, contentDoc({ dialogues: [{ dialogueId: 'talk', name: 'Talk', graph: { nodes: [{ id: 'start', type: 'start', position: [0, 0] }], edges: [] } }] }), '/dialogues', block('dialogues'), 'dialogues:');
   probe('speakers', contentErrors, contentDoc({ speakers: [{ speakerId: 'guide', name: 'Guide', color: '#80c0ff' }] }), '/speakers', block('speakers'), 'speakers:');
-  // Phase 23.10: game modes (every field, the references present) and behavior groups.
+  // Game modes (every field, the references present) and behavior groups.
   // (The shape validator: the references to documents, maps and groups are the project's check, tested in modes.test.ts.)
   probe('modes', (v) => errorsOf((e) => validateModes(v, '', e)), [{ modeId: 'explore', name: 'Explore', inputMaps: ['gameplay', 'tactical'], camera: 'cam-0001', ui: ['hud'], groups: ['field'], ungrouped: 'pause', pause: false, pauseScreen: 'hud', timeScale: 0.5, physics: 'hold', enter: { blend: 'eased', blendTime: 0.5, fade: 'fade', fadeTime: 0.25 } }], '', block('modes'), 'modes:');
-  // Phase 24.4i: the event → cue table (the shape validator; the sounds' kinds are the project's check).
+  // The event → cue table (the shape validator; the sounds' kinds are the project's check).
   probe('eventCues', (v) => errorsOf((e) => validateEventCues(v, '', e)), [{ on: 'event', name: 'collected', entity: 'spawn-0001', assetId: 'cue-a', volume: 0.5, bus: 'ui' }, { on: 'signal', name: 'door', assetId: 'cue-a' }], '', block('eventCues'), 'eventCues:');
-  // Phase 24.4j: the game shell (the shape validator; its documents, scenes and spawns are the project's check).
+  // The game shell (the shape validator; its documents, scenes and spawns are the project's check).
   probe('shell', (v) => errorsOf((e) => validateShell(v, '', e)), { screens: { title: 'title', pause: 'pause', settings: 'settings', controls: 'controls', save: 'saves', load: 'saves' }, hud: ['hud'], scenes: [{ scene: 'main', spawn: 'spawn-0001', fade: 1, fadeColor: '#000000' }], pause: false, status: true }, '', block('shell'), 'shell:');
   probe('behaviorGroups', contentErrors, contentDoc({ behaviorGroups: ['field', 'board'] }), '/behaviorGroups', block('behaviorGroups'), 'behaviorGroups:');
-  // Phase 23.17: timelines (json items).
+  // Timelines (json items).
   probe('timelines', contentErrors, contentDoc({ timelines: [{ timelineId: 'intro', name: 'Intro', duration: 2, tracks: [{ trackId: 's', type: 'signal', keys: [{ time: 1, name: 'go' }] }] }] }), '/timelines', block('timelines'), 'timelines:');
-  // Phase 23.9b: the UI editor's descriptors (a document's own fields, each widget type, styles, tweens).
+  // The UI editor's descriptors (a document's own fields, each widget type, styles, tweens).
   runUiProbes();
-  // Phase 23.3: the named collision layers.
+  // The named collision layers.
   probe('collisionLayers', contentErrors, contentDoc({ collisionLayers: ['props', 'units'] }), '/collisionLayers', block('collisionLayers'), 'collisionLayers:');
-  // Phase 23.19: the project save schema.
+  // The project save schema.
   probe('saveSchema', contentErrors, contentDoc({ saveSchema: { version: 3, slots: 5, migrations: [{ from: 1, name: 'v1to2' }], sections: ['grid', 'storage'], thumbnail: { width: 160, height: 90, format: 'webp', quality: 0.8 }, settings: [{ key: 'hints', type: 'bool', default: true }] } }), '/saveSchema', block('saveSchema'), 'saveSchema:');
   const prefabDef = { prefabId: 'pre-a', displayName: 'Crate', createdRevision: 1, entityCount: 1, depth: 1, entities: [{ localId: 'root', name: 'Root', parentLocalId: null, components: { transform: T } }] };
   probe('prefabs', (v) => errorsOf((e) => validatePrefabDefinitions(v, '', e, 4)), [prefabDef], '', block('prefabs'), 'prefabs:');
@@ -852,7 +852,7 @@ function runAllProbes(): void {
   const tokens = new Set(probeErrs.flatMap((e) => `${e.expected ?? ''} ${e.message}`.match(/[A-Za-z_][A-Za-z0-9_]*/g) ?? []));
   for (const t of tokens) {
     if (allKeys(contentRoot).has(t) || t === 'zz_probe') continue;
-    // Phase 24.7: `game` stays a stored key that is always null (a block is refused), so it has nothing to describe.
+    // `game` stays a stored key that is always null (a block is refused), so it has nothing to describe.
     if (t === 'game') continue;
     if (!contentErrors({ ...root, [t]: { zz: 1 } }).some((e) => e.path === `/${t}` && isUnknownKey(e))) fail(`content: the validator knows block "${t}" but it has no descriptor`);
   }
@@ -927,11 +927,8 @@ describe('descriptor registry (phase 15.0)', () => {
     expect(new Set(DESCRIPTORS.components.map((c) => c.name)).size).toBe(DESCRIPTORS.components.length);
     expect(JSON.parse(JSON.stringify(DESCRIPTORS))).toEqual(DESCRIPTORS);
     // it travels in every queryGameConfig: keep it small
-    // (phase 23.9b: + the UI document vocabulary, about 20 KB; phase 23.18: + environment presets, which
-    // repeat the sky/fog/post descriptors, about 9 KB; phase 24.4: + collectible, patrol and hitbox, about 6 KB;
-    // phase 24.7: - the game block, the flow and the removed game components)
-    // (phase 24.4e–i: + scene transitions, the track rig, face velocity, event sounds, about 4 KB)
-    // (phase 24.5: + the create menu entries and icons, about 3 KB)
+    // (the UI document vocabulary is about 20 KB; environment presets, which repeat
+    // the sky/fog/post descriptors, about 9 KB)
     expect(JSON.stringify(DESCRIPTORS).length).toBeLessThan(250_000);
     for (const c of DESCRIPTORS.components) expect(c.value.key).toBe(c.name);
   });
@@ -945,7 +942,7 @@ describe('descriptor registry (phase 15.0)', () => {
     for (const b of DESCRIPTORS.content) walk(b.value, all, false);
     for (const d of Object.values(DESCRIPTORS.ui ?? {})) walk(d, all, false);
     walk(DESCRIPTORS.entity, all, false);
-    // Phase 25.10: a runtime-only field is never stored: the validator refuses it (probed below), no base reaches it.
+    // A runtime-only field is never stored: the validator refuses it (probed below), no base reaches it.
     const unreached = all.filter((d) => !visited.has(d) && d.type !== 'json' && d.type !== 'components' && d.runtimeOnly !== true);
     for (const d of DESCRIPTORS.entity.fields.filter((f) => f.runtimeOnly === true)) {
       const stored = sceneErrors({ schemaVersion: 4, sceneId: 'main', revision: 1, entities: [{ id: 'subject-0001', [d.key]: d.default as J, components: { transform: T } }] });
@@ -1020,7 +1017,7 @@ describe('descriptor registry (phase 15.0)', () => {
       }
     }
     expect(entries).toBeGreaterThanOrEqual(12);
-    // Phase 24.7: the removed game components and blocks are not described at all.
+    // The removed game components and blocks are not described at all.
     for (const n of Object.keys(REMOVED_COMPONENTS)) expect(DESCRIPTORS.components.find((c) => c.name === n), n).toBeUndefined();
     for (const n of ['game', 'flow']) expect(DESCRIPTORS.content.find((b) => b.key === n), n).toBeUndefined();
   });

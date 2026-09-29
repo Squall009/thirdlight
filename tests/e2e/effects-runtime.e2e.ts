@@ -1,12 +1,11 @@
 /**
- * Phase 20.2: effects at runtime.
+ * Effects at runtime.
  *
  * - A burst effect started by a signal: a collectible sends its `onCollect`
  *   signal, an effect component where it lies starts on that signal —
  *   walking the character over it plays the burst there: magenta particles
  *   appear in Play (the preview iframe) and in the static export (backend
- *   stopped), none before it is collected (phase 24.7: this was the deleted
- *   pickup's own effect hook). Per renderer:
+ *   stopped), none before it is collected. Per renderer:
  *   `auto` in `default` (the CPU executor on WebGL 2, the compute one where a GPU gives WebGPU), `webgpu` in `webgpu`
  *   (the WebGPU compute executor); the canvas reports the executor.
  * - The Scene view plays the selected object's effect in edit mode (Gizmos →

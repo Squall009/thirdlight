@@ -1,5 +1,5 @@
 /**
- * Phase 15.2: the Scene-view handles against the real descriptor registry
+ * The Scene-view handles against the real descriptor registry
  * and the real command layer, on a neutral v4 fixture (a camera, two lights,
  * two boxes, an empty object):
  *
@@ -10,7 +10,7 @@
  * - polygon corners: drag, add on an edge, delete, a concave drag refused;
  * - a collider from a model outline (hull, corner limit) is a valid collider;
  * - instance copies: the buffer edits (move, delete, brush) keep the layout;
- * - `playerSpawn.yaw` is v4 data (validated, canonical, removable; phase 24.8: it replaced `facing`).
+ * - `playerSpawn.yaw` is v4 data (validated, canonical, removable).
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -73,7 +73,7 @@ function dragAndStore(s: State, id: string, component: string, kind: string, gri
   return after;
 }
 
-/** Phase 23.2: drag a (3D) height shape's grip, store it, one undo restores the component. */
+/** Drag a (3D) height shape's grip, store it, one undo restores the component. */
 function dragAndStore3(s: State, shape: HandleShape, to: P3, stored: (v: Any) => void): void {
   const edit = commitValue(dragGrip(shape, 'height', to, true)) as Any;
   expect(edit?.ok, JSON.stringify(edit)).toBe(true);
@@ -109,10 +109,10 @@ describe('the Scene-view handles over the real registry and commands', () => {
     const colBox = handleShapesOf(projected(s, ledge), DESCRIPTORS).find((x) => x.kind === 'box2')!;
     expect(colBox.frame).toBe('rotationZ');
     s = dragAndStore(s, ledge, 'collider', 'box2', 'side', p3(1.5, 0.1), true, (v) => expect(v.shape).toEqual({ type: 'box', hx: 1.5, hy: 0.25 }));
-    // Phase 23.0: with its depth set (hz) the collider box has three axes and follows the whole rotation.
+    // With its depth set (hz) the collider box has three axes and follows the whole rotation.
     s = must(s, 'setComponent', { entityId: ledge, component: 'collider', value: { shape: { type: 'box', hx: 1.5, hy: 0.25, hz: 0.5 } } }, 'depth');
     const deep = handleShapesOf(projected(s, ledge), DESCRIPTORS).find((x) => x.kind === 'box2')!;
-    // Phase 23.1: the object's whole transform (a 3D collider scales with its object).
+    // The object's whole transform (a 3D collider scales with its object).
     expect(deep.frame).toBe('transform');
     expect(gripsOf(deep).map((g) => g.id)).toContain('depth');
     s = dragAndStore(s, ledge, 'collider', 'box2', 'depth', p3(0, 0, 1.01), true, (v) => expect(v.shape).toEqual({ type: 'box', hx: 1.5, hy: 0.25, hz: 1 }));

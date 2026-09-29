@@ -1,5 +1,5 @@
 /**
- * Phase 9.5: the environment renderer — sky, image-based lighting, fog, fog
+ * The environment renderer — sky, image-based lighting, fog, fog
  * volumes, tone mapping and the post stack — shared by the editor's Scene
  * view and Play/export. It replaces `renderer.render(scene, camera)`.
  *
@@ -14,7 +14,7 @@
  * back to the direct path and `diagnostics().fallback` says why; gameplay
  * never depends on it.
  *
- * Phase 17.3/17.4: three's WebGPURenderer (WebGPU or its WebGL 2 backend)
+ * three's WebGPURenderer (WebGPU or its WebGL 2 backend)
  * draws every part from TSL (`environment-nodes.ts`): the physical sky is
  * three's `SkyMesh`, the gradient dome a node material, PMREM is
  * `three/webgpu`'s generator, and the post stack a `RenderPipeline` (TSL
@@ -73,12 +73,12 @@ export interface EnvironmentLike {
   readonly fog?: FogLike;
   readonly post?: PostLike;
   readonly quality?: 'low' | 'medium' | 'high';
-  /** Phase 23.18: the environment presets (the renderer draws a blend of them through `setBlend`). */
+  /** The environment presets (the renderer draws a blend of them through `setBlend`). */
   readonly presets?: readonly { readonly presetId: string; readonly [field: string]: unknown }[];
 }
 
 /**
- * Phase 23.18: a blended look (runtime `blendEnvironment`): one sky, or
+ * A blended look (runtime `blendEnvironment`): one sky, or
  * several different skies cross-fading (`skyLayers`, null = the background),
  * the blended fog and post.
  */
@@ -86,7 +86,7 @@ export interface EnvironmentBlendLike extends EnvironmentLike {
   readonly skyLayers?: readonly { readonly sky: SkyLike | null; readonly weight: number }[];
 }
 
-/** Phase 14.4: a level's look (`flow.levels[].environment`), laid over the project environment. */
+/** A level's look (`flow.levels[].environment`), laid over the project environment. */
 export interface EnvironmentLayerLike {
   readonly sky?: SkyLike;
   readonly fog?: FogLike;
@@ -95,7 +95,7 @@ export interface EnvironmentLayerLike {
 }
 
 /**
- * Phase 14.4: the project environment with a layer laid over it: each part
+ * The project environment with a layer laid over it: each part
  * the layer gives — `sky`, `fog` and `wind` replace the project's part whole
  * (a sky mode's fields only make sense together), `post` merges per effect
  * (a layer may change only its bloom or its grading). No layer: the base
@@ -122,7 +122,7 @@ export interface FogVolumeLike {
   readonly density: number;
   readonly color: string;
   readonly falloff?: number;
-  /** Phase 14.4: density fades with height above the box bottom (per metre; 0 = even). */
+  /** Density fades with height above the box bottom (per metre; 0 = even). */
   readonly heightFalloff?: number;
 }
 
@@ -145,7 +145,7 @@ export interface EnvironmentRenderer {
   /** The environment (null = none: the scene renders as before). */
   set(env: EnvironmentLike | null): void;
   /**
-   * Phase 23.18: draw a blended look over the environment (null: back to the
+   * Draw a blended look over the environment (null: back to the
    * environment `set` gave). Called per frame while a blend runs: sky colours
    * and parameters, fog, exposure, grading, vignette and bloom numbers change
    * in place (uniforms: no rebuilt pass, no new program); a different sky
@@ -159,26 +159,26 @@ export interface EnvironmentRenderer {
   setQuality(level: QualityLevel | null): void;
   render(camera: THREE.Camera): void;
   /**
-   * Phase 25.24d: build the node programs and pipelines the next `render`
+   * Build the node programs and pipelines the next `render`
    * draws the scene with (its post stack's scene pass, or the canvas), ahead
    * of it (`renderer.compileAsync`; the renderer must be initialised).
    */
   compileAsync(camera: THREE.Camera): Promise<void>;
   /** Canvas size in CSS pixels. */
   resize(width: number, height: number): void;
-  /** Phase 21.3: `samples` = the MSAA samples the scene is drawn with (0: none — the low level, or a post stack with its own anti-aliasing). */
+  /** `samples` = the MSAA samples the scene is drawn with (0: none — the low level, or a post stack with its own anti-aliasing). */
   diagnostics(): { post: boolean; passes: string[]; fallback: string | null; quality: QualityLevel; samples: number; iblRebakes: number };
-  /** Phase 21.3: the MSAA samples of the last frame path (allocation-free, for a per-frame read). */
+  /** The MSAA samples of the last frame path (allocation-free, for a per-frame read). */
   samples(): number;
   dispose(): void;
 }
 
-/** Phase 23.18: a sky's structure (its mode and images): skies with the same one blend field by field. */
+/** A sky's structure (its mode and images): skies with the same one blend field by field. */
 function skyStruct(sky: SkyLike): string {
   return sky.mode === 'texture' ? `texture|${sky.texture ?? ''}|${(sky.cube ?? []).join(',')}` : sky.mode;
 }
 
-/** Phase 23.18: one cross-fade sky layer (null mesh: the background, or an image still loading). */
+/** One cross-fade sky layer (null mesh: the background, or an image still loading). */
 interface SkyLayer {
   mesh: THREE.Mesh | null;
   material: THREE.Material | null;
@@ -202,7 +202,7 @@ interface PmremLike {
 }
 
 /**
- * Phase 25.3: how far a blended sky's inputs must move from the ones the
+ * How far a blended sky's inputs must move from the ones the
  * image-based lighting was last baked from before it is baked again: a
  * colour channel (0–1, sRGB) by more than `color`, a procedural sky number
  * by more than `relative` of itself, the sun by more than `sunDegrees`.
@@ -220,7 +220,7 @@ function srgbInto(hex: string, out: number[], at: number): void {
 }
 
 /**
- * Phase 25.3: whether two skies' bake inputs differ past `SKY_REBAKE_THRESHOLD`
+ * Whether two skies' bake inputs differ past `SKY_REBAKE_THRESHOLD`
  * (gradient: the three colours as sRGB channels; procedural: turbidity,
  * rayleigh, Mie coefficient and direction, then the unit sun direction).
  */
@@ -239,33 +239,33 @@ export function skyInputsDiffer(mode: 'gradient' | 'procedural', a: readonly num
 }
 
 export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE.Scene, options: EnvironmentRendererOptions): EnvironmentRenderer {
-  /** Phase 17.3: the post stack (a RenderPipeline). */
+  /** The post stack (a RenderPipeline). */
   let pipeline: PostPipeline | null = null;
   let env: EnvironmentLike | null = null;
-  /** Phase 23.18: the environment `set` gave (a blend draws over it; `setBlend(null)` goes back). */
+  /** The environment `set` gave (a blend draws over it; `setBlend(null)` goes back). */
   let baseEnv: EnvironmentLike | null = null;
   let blending = false;
-  /** Phase 23.18: the built sky's structure (mode and images): a sky with the same one changes in place. */
+  /** The built sky's structure (mode and images): a sky with the same one changes in place. */
   let builtStruct = '';
   /** The gradient dome's material (its colour uniforms; the image-based lighting is re-baked from it). */
   let gradientMat: THREE.Material | null = null;
   /** Image-based lighting to re-bake (a blend moved the sky past the threshold); frames since the last bake. */
   let iblDirty = false;
   /**
-   * Phase 25.3: the scene the image-based lighting of a gradient or procedural
+   * The scene the image-based lighting of a gradient or procedural
    * sky is baked from, kept while the sky is: a re-bake renders the same
    * objects (their uniforms updated) into the same target, so the scene's
    * environment texture stays the same object (a new one would rebuild every
    * lit material's nodes) and nothing is allocated or compiled per bake.
    */
   let bake: { scene: THREE.Scene; mesh: THREE.Mesh; mode: 'gradient' | 'procedural' } | null = null;
-  /** Phase 25.3: the sky inputs of the last bake, and the sky's inputs now (`skyInputsDiffer`). */
+  /** The sky inputs of the last bake, and the sky's inputs now (`skyInputsDiffer`). */
   let bakedInputs: number[] = [];
   const inputsNow: number[] = [];
   let framesSinceBake = 0;
-  /** Phase 25.3: image-based lighting re-bakes of a sky changed in place (a blend, a moved sun light; diagnostics). */
+  /** Image-based lighting re-bakes of a sky changed in place (a blend, a moved sun light; diagnostics). */
   let iblRebakes = 0;
-  /** Phase 23.18: the cross-fade layers by sky structure (a mesh per sky; null: the background). */
+  /** The cross-fade layers by sky structure (a mesh per sky; null: the background). */
   const layers = new Map<string, SkyLayer>();
   let qualityOverride: QualityLevel | null = null;
   let keyLight: [number, number, number] | null = null;
@@ -275,7 +275,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
   let composerKey = '';
   let fallback: string | null = null;
   let passNames: string[] = [];
-  /** Phase 21.3: the MSAA samples of the last built frame path. */
+  /** The MSAA samples of the last built frame path. */
   let samplesNow = renderer.samples;
   const pmrem: PmremLike = new NodePMREMGenerator(renderer) as unknown as PmremLike;
   let skyMesh: THREE.Mesh | null = null;
@@ -365,7 +365,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       return;
     }
     if (sky.mode === 'procedural') {
-      // Phase 17.3: three's TSL sky, and image-based lighting from a copy of it.
+      // three's TSL sky, and image-based lighting from a copy of it.
       const params = { turbidity: sky.turbidity ?? 6, rayleigh: sky.rayleigh ?? 1.5, mieCoefficient: sky.mieCoefficient ?? 0.005, mieDirectionalG: sky.mieDirectionalG ?? 0.8, sun: sunDirection(sky) };
       skyMesh = createSkyMesh(params);
       scene.background = null;
@@ -380,8 +380,8 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
     if (sky.mode === 'gradient') {
       const top = new THREE.Color(sky.topColor ?? '#3d7cd6');
       const horizon = new THREE.Color(sky.horizonColor ?? '#bfe3ff');
-      const bottom = new THREE.Color(sky.bottomColor ?? '#757575'); // phase 15.5: neutral grey below the horizon (was a grass olive)
-      // On the far plane (phase 17.3): a camera whose far plane is nearer than the dome still sees the sky.
+      const bottom = new THREE.Color(sky.bottomColor ?? '#757575'); // neutral grey below the horizon: no ground colour is assumed
+      // On the far plane: a camera whose far plane is nearer than the dome still sees the sky.
       const mat = gradientSkyMaterial(top, horizon, bottom);
       gradientMat = mat;
       skyDome = new THREE.Mesh(new THREE.SphereGeometry(4000, 32, 16), mat);
@@ -441,9 +441,9 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
     }
   };
 
-  // ---- Phase 23.18: blends (the sky in place, cross-fade layers) ----------------------------
+  // ---- Blends (the sky in place, cross-fade layers) ----------------------------
   const procParams = (sky: SkyLike): Parameters<typeof createSkyMesh>[0] => ({ turbidity: sky.turbidity ?? 6, rayleigh: sky.rayleigh ?? 1.5, mieCoefficient: sky.mieCoefficient ?? 0.005, mieDirectionalG: sky.mieDirectionalG ?? 0.8, sun: sunDirection(sky) });
-  /** Phase 25.3: a gradient or procedural sky's bake inputs into `out` (see `skyInputsDiffer`). */
+  /** A gradient or procedural sky's bake inputs into `out` (see `skyInputsDiffer`). */
   const skyInputs = (sky: SkyLike, out: number[], params?: ReturnType<typeof procParams>): void => {
     out.length = 0;
     if (sky.mode === 'gradient') {
@@ -641,7 +641,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       scene.fog = null;
       return;
     }
-    // Phase 23.18: the same kind of fog changes in place (a new fog object would mean new programs).
+    // The same kind of fog changes in place (a new fog object would mean new programs).
     const cur = scene.fog as THREE.Fog | THREE.FogExp2 | null;
     if (f.mode === 'linear' && cur instanceof THREE.Fog) {
       cur.color.set(f.color);
@@ -674,7 +674,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
 
   const anyPost = (w: ReturnType<typeof wanted>): boolean => w.bloom || w.ssao || w.dof || w.fogVolumes || w.grading || w.aa !== 'none';
 
-  // ---- Phase 17.3: the post stack (a RenderPipeline) ----------------------------------
+  // ---- The post stack (a RenderPipeline) ----------------------------------
   const disposePipeline = (): void => {
     pipeline?.dispose();
     pipeline = null;
@@ -697,7 +697,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
     const bg = scene.background as (THREE.Color | THREE.Texture | null) & { isColor?: boolean; isTexture?: boolean };
     const displayBackground = !isPost && renderer.toneMapping !== THREE.NoToneMapping && bg !== null && (bg.isColor === true || (bg.isTexture === true && (bg as THREE.Texture).colorSpace === THREE.SRGBColorSpace));
     const post = env?.post;
-    // Phase 23.18: the numbers the passes take as uniforms (grading, vignette, bloom) are not part of
+    // The numbers the passes take as uniforms (grading, vignette, bloom) are not part of
     // the key (nor the exposure, a renderer setting): a blend or an edit of them updates the built stack
     // (postParams) instead of rebuilding it.
     const structure = [post?.toneMapping ?? null, post?.grading?.lut ?? null, post?.ssao ?? null, post?.dof ?? null, post?.antialias ?? null];
@@ -759,7 +759,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       fallback = `post-processing is off: ${e instanceof Error ? e.message : String(e)}`.slice(0, 200);
     }
   };
-  /** Phase 23.18: the uniform numbers of the post stack from the drawn environment. */
+  /** The uniform numbers of the post stack from the drawn environment. */
   const postParams = (): Pick<PostPlan, 'grading' | 'bloom'> => {
     const post = env?.post;
     const g = post?.grading;
@@ -835,7 +835,7 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
       const same = JSON.stringify(direction) === JSON.stringify(keyLight);
       keyLight = direction === null ? null : [direction[0], direction[1], direction[2]];
       if (same) return;
-      // Phase 23.18: a sun that follows the light moves in place (no new sky; the lighting is re-baked a little later).
+      // A sun that follows the light moves in place (no new sky; the lighting is re-baked a little later).
       const sky = env?.sky;
       if (sky !== undefined && sky.mode === 'procedural' && sky.sunFromLight !== false && skyMesh !== null && layers.size === 0) updateSkyInPlace(sky);
       else if (layers.size === 0) buildSky();
@@ -851,8 +851,8 @@ export function createEnvironmentRenderer(renderer: WebGPURenderer, scene: THREE
     },
     render(camera) {
       if (disposed) return;
-      // Phase 23.18: the lighting of a sky a blend changed, at most every 30th frame (a PMREM bake is not free: a cube render and blur passes);
-      // phase 25.3: only once the sky moved past SKY_REBAKE_THRESHOLD from the last bake.
+      // The lighting of a sky a blend changed, at most every 30th frame (a PMREM bake is not free: a cube render and blur passes);
+      // Only once the sky moved past SKY_REBAKE_THRESHOLD from the last bake.
       framesSinceBake += 1;
       if (iblDirty && framesSinceBake >= 30) rebakeIbl();
       buildPipeline(camera);

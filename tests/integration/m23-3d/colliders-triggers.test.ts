@@ -1,5 +1,5 @@
 /**
- * Phase 23.1: 3D colliders, movers and triggers through the production game
+ * 3D colliders, movers and triggers through the production game
  * host, in the page and in the simulation worker (the same game-host worker
  * core the browser bundles run).
  *

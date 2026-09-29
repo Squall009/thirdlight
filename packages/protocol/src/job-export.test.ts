@@ -1,5 +1,5 @@
 /**
- * Phase 25.22: the job-export manifest and route body (neutral shape).
+ * The job-export manifest and route body (neutral shape).
  */
 import { describe, expect, it } from 'vitest';
 

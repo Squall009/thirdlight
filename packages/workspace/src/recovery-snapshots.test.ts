@@ -1,41 +1,33 @@
 /**
- * 2026-09-18 review repair — group D (R3 + R16) regression tests.
+ * Recovery snapshots are the only evidence of foreign bytes; they must
+ * never be lost silently.
  *
- * Findings (docs/reviews/2026-09-18-commits.md, group D):
+ *   - A failed snapshot is never ignored: if `detectExternalChange` recorded
+ *     `snapshotState: "ok"` after `snapshotForeignBytes` returned null
+ *     (ENOSPC on the recovery temp-file open), the mutation would report an
+ *     ordinary `external_change_unresolved` and discard would then overwrite
+ *     the foreign bytes with ZERO recovery snapshots.
+ *   - Same-second pruning never deletes the snapshot just created: sorting
+ *     `UTCstamp-sha8` names without the exemption would, within one fixed
+ *     second, keep snapshots by name order — with descending first-8-hex
+ *     content hashes the 17th (just-written, pending) snapshot would be
+ *     pruned immediately and discard would succeed with its evidence gone.
  *
- *   R3 (P1) — failed recovery snapshots are ignored; discard can destroy
- *            the only evidence: `detectExternalChange` ignored
- *            `snapshotForeignBytes` returning null and still recorded
- *            `snapshotState: "ok"`. Inject ENOSPC on the recovery
- *            temp-file open, leave foreign envelope bytes, and trigger a
- *            mutation: the result was ordinary `external_change_unresolved`
- *            (no failure evidence in the payload), and discard then
- *            succeeded — overwriting the foreign bytes with ZERO recovery
- *            snapshots. Violates workspace §5.5 G1.3 and §7.2–§7.4.
- *   R16 (P2) — same-second pruning can delete the snapshot just created:
- *            pruning sorted `UTCstamp-sha8` names without the §7.4
- *            exemption, so within one fixed second it kept snapshots by
- *            name order — with descending first-8-hex content hashes the
- *            17th (just-written, pending) snapshot was pruned immediately
- *            and discard succeeded with its foreign evidence gone.
- *
- * Repairs pinned here (workspace.md §7.2 step 2, §7.3, §7.4, §11; the
- * applied contract diff `dabfcff`):
- *   - the step-2 snapshot result is captured: `null` ⇒ the pending change
- *     records `snapshotState: "snapshot_failed"` (the §7.2 step-2
- *     normative state); the triggering mutation still fails
- *     `external_change_unresolved` — now carrying
+ * Pinned here:
+ *   - the snapshot result is captured: `null` ⇒ the pending change records
+ *     `snapshotState: "snapshot_failed"`; the triggering mutation still
+ *     fails `external_change_unresolved` — carrying
  *     `pendingChange.snapshotState: "snapshot_failed"` — and the project
  *     pauses fail-closed (`paused-snapshot-failed`);
  *   - while `snapshotState === "snapshot_failed"`, accept AND discard are
  *     refused with `external_change_evidence_missing` (nothing written;
  *     the pending change and the pause persist; the refusal re-read does
  *     not silently re-snapshot);
- *   - the §7.3 re-establish path re-runs the §7.2 detection (which
- *     retries the snapshot through the same call): readable + durable
- *     snapshot ⇒ the resolution proceeds in the SAME call; snapshot still
- *     failing ⇒ refused `external_change_evidence_missing`;
- *   - §7.4 exemption: `pruneSnapshots(recoveryDir, ops, exemptHash)`
+ *   - the re-establish path re-runs the detection (which retries the
+ *     snapshot through the same call): readable + durable snapshot ⇒ the
+ *     resolution proceeds in the SAME call; snapshot still failing ⇒
+ *     refused `external_change_evidence_missing`;
+ *   - exemption: `pruneSnapshots(recoveryDir, ops, exemptHash)`
  *     identifies the exempt artifact as the file whose CONTENT SHA-256
  *     equals the pending `externalHash` (reading only the candidates
  *     whose name carries the 8-hex prefix) and keeps at most 16 in total,
@@ -43,11 +35,9 @@
  *     snapshot survives even when it is not the lexicographically newest
  *     name.
  *
- * Ported to storage v4 (phase 9.3 step B): the cases run on a v4
- * project's `scenes/scene-main.json`. The §7.3 "re-read, re-run the
- * detection and proceed in the SAME call" once the snapshot can be taken
- * (cases 3 and 4) holds for v4 too (session-v4.ts rereadForResolutionV4,
- * the 9.3 step B follow-up). The §7.4 exemption cases (R16) hold as is.
+ * The cases run on a v4 project's `scenes/scene-main.json`; "re-read, re-run
+ * the detection and proceed in the SAME call" once the snapshot can be taken
+ * (cases 3 and 4) is session-v4.ts rereadForResolutionV4.
  *
  * Real filesystem, unprivileged host user (case 4 uses a REAL
  * chmod-0500 `.thirdlight/recovery` directory — a real EACCES). Data
@@ -190,7 +180,7 @@ function unresolvedError(m: unknown): Record<string, unknown> {
 
 /**
  * Foreign but VALID envelope bytes: the LKG envelope with one entity name
- * edited (same projectId, same scene shape — passes the full §4.3
+ * edited (same projectId, same scene shape — passes the full load
  * pipeline ⇒ `externalValid: true`).
  */
 function foreignValidEnvelope(lkg: Uint8Array): Uint8Array {
@@ -203,7 +193,7 @@ function foreignValidEnvelope(lkg: Uint8Array): Uint8Array {
 
 /**
  * `n` foreign byte strings whose first-8-hex SHA-256 values are strictly
- * DESCENDING (R16's repro shape: a fixed stamp makes name order = hash
+ * DESCENDING (the same-second pruning shape: a fixed stamp makes name order = hash
  * order, so the just-written snapshot has the SMALLEST name). Each value
  * is rejection-sampled into its own fixed window
  * `[TOP - i*STEP, TOP - i*STEP + WIN)` — windows are disjoint (window =
@@ -276,7 +266,7 @@ describe('2026-09-18 review group D (R3, R16) regressions', () => {
       const m = s.runCommand(request(1));
       expect(m.ok).toBe(false);
       const pc = unresolvedError(m);
-      // §7.2 step 2 normative state: the bytes WERE read (the real hash is
+      // The snapshot-failure state: the bytes WERE read (the real hash is
       // carried) but no snapshot is durable.
       expect(pc['snapshotState']).toBe('snapshot_failed');
       expect(pc['externalHash']).toBe(foreignHash);
@@ -367,7 +357,7 @@ describe('2026-09-18 review group D (R3, R16) regressions', () => {
       expect(s.discardExternalState(PROJECT).ok).toBe(false);
 
       // The disk recovers (the seam stops faulting); the foreign bytes are
-      // still on disk: the §7.3 re-read is readable ⇒ the §7.2 detection
+      // still on disk: the resolution re-read is readable ⇒ the detection
       // re-runs (the snapshot is now durable) ⇒ the discard proceeds in
       // the SAME call (no restart needed).
       flag.on = false;
@@ -482,7 +472,7 @@ describe('2026-09-18 review group D (R3, R16) regressions', () => {
         chmodSync(recDir, 0o755); // restore before cleanup
       }
 
-      // Restored: accept again ⇒ the §7.3 re-read is readable, the
+      // Restored: accept again ⇒ the resolution re-read is readable, the
       // detection re-runs (the snapshot is now durable) and the accept
       // proceeds in the SAME call: the external revision becomes the
       // running revision, the retry records are cleared, nothing pending.

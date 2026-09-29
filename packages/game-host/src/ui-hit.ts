@@ -1,5 +1,5 @@
 /**
- * Phase 25.15: the pointer's UI hit test as plain data — where a pointer
+ * The pointer's UI hit test as plain data — where a pointer
  * press goes to the UI instead of the game, so the simulation worker can test
  * a relayed pointer against the page's list (no DOM here).
  */

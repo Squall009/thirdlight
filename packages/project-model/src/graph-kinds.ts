@@ -1,9 +1,9 @@
 /**
- * Phase 16.1: the registered graph kinds (data).
+ * The registered graph kinds (data).
  *
  * A graph kind is its node catalogue, port types, conversions and rules
- * (see graph.ts). Later phases register theirs here: the animator state graph
- * (16.2), material graphs (18), visual scripts (19) and effect graphs (20).
+ * (see graph.ts). Each kind registers here: the animator state graph,
+ * material graphs, visual scripts and effect graphs.
  *
  * `test` is the framework's own neutral kind: a small numeric data-flow graph
  * (constants, maths, a vector, a select, one output) that exercises every
@@ -53,7 +53,7 @@ export const TEST_GRAPH_KIND: GraphKindDef = {
   sinks: ['output'],
 };
 
-// ---- phase 16.2: the animator controller's graphs (owner kind `animator`) ----------------
+// ---- The animator controller's graphs (owner kind `animator`) ----------------
 //
 // A controller layer is a state machine: state nodes (a clip, a blend tree
 // or — override layers only — nothing), the fixed Entry (its one wire names
@@ -112,7 +112,7 @@ export const ANIMATOR_GRAPH_KIND: GraphKindDef = {
   owner: 'animator',
 };
 
-/** An override layer (phase 14.6): also empty states (the layers under it show through). */
+/** An override layer: also empty states (the layers under it show through). */
 export const ANIMATOR_LAYER_GRAPH_KIND: GraphKindDef = {
   ...ANIMATOR_GRAPH_KIND,
   kind: 'animator-layer',
@@ -155,16 +155,16 @@ export const GRAPH_KINDS: Readonly<Record<string, GraphKindDef>> = {
   [ANIMATOR_GRAPH_KIND.kind]: ANIMATOR_GRAPH_KIND,
   [ANIMATOR_LAYER_GRAPH_KIND.kind]: ANIMATOR_LAYER_GRAPH_KIND,
   [ANIMATOR_BLEND_GRAPH_KIND.kind]: ANIMATOR_BLEND_GRAPH_KIND,
-  // Phase 19.0: visual scripts (owner kind `behavior`).
+  // Visual scripts (owner kind `behavior`).
   [BEHAVIOR_GRAPH_KIND.kind]: BEHAVIOR_GRAPH_KIND,
-  // Phase 19.1: a script's functions (owner kind `behavior`) and shared functions (standalone graphs).
+  // A script's functions (owner kind `behavior`) and shared functions (standalone graphs).
   [BEHAVIOR_FUNCTION_GRAPH_KIND.kind]: BEHAVIOR_FUNCTION_GRAPH_KIND,
   [BEHAVIOR_LIBRARY_GRAPH_KIND.kind]: BEHAVIOR_LIBRARY_GRAPH_KIND,
-  // Phase 18.1: material graphs (owner kind `material`) and material functions (standalone graphs).
+  // Material graphs (owner kind `material`) and material functions (standalone graphs).
   [MATERIAL_GRAPH_KIND.kind]: MATERIAL_GRAPH_KIND,
   [MATERIAL_FUNCTION_GRAPH_KIND.kind]: MATERIAL_FUNCTION_GRAPH_KIND,
-  // Phase 20.1: a particle system of an effect (owner kind `effect`).
+  // A particle system of an effect (owner kind `effect`).
   [EFFECT_GRAPH_KIND.kind]: EFFECT_GRAPH_KIND,
-  // Phase 23.16: a conversation (owner kind `dialogue`).
+  // A conversation (owner kind `dialogue`).
   [DIALOGUE_GRAPH_KIND.kind]: DIALOGUE_GRAPH_KIND,
 };

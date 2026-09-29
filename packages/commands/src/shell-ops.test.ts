@@ -1,5 +1,5 @@
 /**
- * Phase 24.4j through the commands: `setShell` (the whole game shell; its
+ * The game shell through the commands: `setShell` (the whole game shell; its
  * documents must exist; undo/redo; null removes the field). Its listed
  * scenes and spawns are the cross-scene project rule (project-v4.test).
  */

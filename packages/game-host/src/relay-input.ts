@@ -1,11 +1,11 @@
 /**
- * The exclusive-test action source shared by the play previews (sessions.md
- * §18.1): while an input-exercise relay is active the browser binding is not
- * sampled (physical input is suppressed and cleared), the relay frames apply
+ * The exclusive-test action source shared by the play previews: while an
+ * input-exercise relay is active the browser binding is not sampled
+ * (physical input is suppressed and cleared), the relay frames apply
  * at their `stepOffset` positions, and completion reports the applied step
  * range and re-arms the physical source.
  *
- * Phase 25.15: a frame may hold for `steps` steps (run length: its first step
+ * A frame may hold for `steps` steps (run length: its first step
  * as written, the rest its continuation), carry UI edges (handed to the page
  * on the frame's first step, where they drive menus like keys) and its
  * pointer goes through the UI hit test: over a UI element the game reads
@@ -20,18 +20,18 @@ import { continueFrame } from './tick-input';
 /** The UI edges a relay frame may carry (the keys and pad buttons that drive menus). */
 export type RelayUiEdgeName = 'up' | 'down' | 'left' | 'right' | 'submit' | 'cancel' | 'pause';
 
-/** One relay test frame (phase 24.8: frame version 2 — named actions and the pointer, no fixed move/jump channels). */
+/** One relay test frame (frame version 2 — named actions and the pointer, no fixed move/jump channels). */
 export interface RelayTestFrame {
   stepOffset: number;
-  /** Phase 25.15: the frame holds for this many steps (absent: 1). */
+  /** The frame holds for this many steps (absent: 1). */
   steps?: number;
   actions?: ActionFrame['actions'];
   pointer?: ActionFrame['pointer'];
-  /** Phase 25.15: UI edges on the frame's first step. */
+  /** UI edges on the frame's first step. */
   ui?: readonly RelayUiEdgeName[];
 }
 
-/** Phase 25.15: what a relay step hands to the page (it owns the UI). */
+/** What a relay step hands to the page (it owns the UI). */
 export type RelayEffect = { readonly kind: 'ui'; readonly edges: readonly RelayUiEdgeName[] } | { readonly kind: 'click'; readonly key: string };
 
 interface Run {
@@ -58,18 +58,18 @@ export class RelayActionSource implements ActionSource {
     this.browser = browser;
   }
 
-  /** Phase 25.15: the UI hit test (the key of the topmost UI target under x, y; null: the game view). */
+  /** The UI hit test (the key of the topmost UI target under x, y; null: the game view). */
   setUiHit(hit: ((x: number, y: number) => string | null) | null): void {
     this.uiHit = hit;
   }
 
-  /** Phase 25.15: where UI edges and clicks go (the page's UI). */
+  /** Where UI edges and clicks go (the page's UI). */
   setEffectSink(sink: ((e: RelayEffect) => void) | null): void {
     this.effect = sink;
   }
 
   /**
-   * Start an exercise from `firstStep`. Phase 25.16: with `restart` the game
+   * Start an exercise from `firstStep`. With `restart` the game
    * restarts first (the replay: the start scenes, every object as authored)
    * and the frames begin at the new run's first step.
    */
@@ -102,7 +102,7 @@ export class RelayActionSource implements ActionSource {
     if (test === null) return this.browser.sample(stepIndex);
     test.next = stepIndex + 1;
     if (test.restart) {
-      // Phase 25.16: this step asks for the restart; it happens at the next step's boundary, where the frames begin.
+      // This step asks for the restart; it happens at the next step's boundary, where the frames begin.
       test.restart = false;
       test.base = stepIndex + 1;
       return { stepIndex, ui: [{ kind: 'restart', doc: '', widget: '', name: '' }] };
@@ -111,7 +111,7 @@ export class RelayActionSource implements ActionSource {
   }
 
   /**
-   * Phase 25.15: a page frame in which the simulation holds (the game is
+   * A page frame in which the simulation holds (the game is
    * paused: a menu, the pause screen) while the exercise runs — it takes the
    * place of one step, so the frames' UI edges and pointer clicks still reach
    * the UI (a paused game's menu can be driven, and resumed); their actions
@@ -152,7 +152,7 @@ export class RelayActionSource implements ActionSource {
   }
 
   /**
-   * Phase 25.15: the pointer through the UI hit test. A press over a UI
+   * The pointer through the UI hit test. A press over a UI
    * target goes to the UI (the game sees neither it nor its release) and a
    * left press and release on one target clicks it; the game reads `overUi`
    * while the pointer is over one.

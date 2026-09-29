@@ -1,16 +1,15 @@
 /**
- * Restricted cross-origin message bridge (sessions.md §13; packet 10; M2 v2 by
- * packet 35 — delivery.md §7, sessions.md §17.6).
+ * Restricted cross-origin message bridge (message version 2).
  *
  * The editor (authoring origin) and the play preview (a SEPARATE origin) talk
- * only through `postMessage` with the exhaustive §13.5 allowlist. The
- * transport enforces, for EVERY received message (sessions.md §13.3 — the
+ * only through `postMessage` with the exhaustive allowlist. The
+ * transport enforces, for EVERY received message (the
  * origin/source checks cannot be verified from the body):
  *   1. `event.origin === expectedOrigin` (exact string match; a wildcard
  *      `"*"` target is forbidden — we always post to the exact peer origin);
  *   2. `event.source` is the trusted peer window (the iframe's contentWindow
  *      on the editor side; the opener/parent on the preview side);
- *   3. the body parses and passes the §13.5 strict v2 validator for the
+ *   3. the body parses and passes the strict v2 validator for the
  *      direction;
  *   4. the `tl.handshake` nonce is echoed correctly — a `tl.snapshot` whose
  *      nonce does not match the handshake is DROPPED.
@@ -76,12 +75,12 @@ function defaultNonce(): string {
   return s;
 }
 
-/** One bounded relay frame as the editor forwards it (§18.1.1). */
+/** One bounded relay frame as the editor forwards it. */
 export interface BridgeRelayFrame {
   stepOffset: number;
-  /** Named input actions this step (phase 24.8: frame version 2, no fixed move/jump channels). */
+  /** Named input actions this step (frame version 2, no fixed move/jump channels). */
   actions?: Readonly<Record<string, { v: number; x?: number; y?: number; p: 'none' | 'pressed' | 'held' | 'released' }>>;
-  /** Phase 25.15: run length, the pointer, a virtual standard gamepad and UI edges. */
+  /** Run length, the pointer, a virtual standard gamepad and UI edges. */
   steps?: number;
   pointer?: unknown;
   gamepad?: { buttons?: number[]; axes?: number[] };
@@ -149,11 +148,11 @@ export class Bridge {
     this.postLocal({ v: 2, type: 'tl.playContent.expect', playSessionId, contentId, buildId });
   }
 
-  /** Forward one bounded input-exercise sequence (editor side, §18.1). */
+  /** Forward one bounded input-exercise sequence (editor side). */
   requestInput(playSessionId: string, requestId: string, frames: readonly BridgeRelayFrame[], restart = false, hold = false): void {
     if (this.direction !== 'editor') throw new Error('requestInput is editor-side only');
-    // Phase 25.16: `restart` restarts the game first (the frames begin at the new run's first step).
-    // Phase 25.17: `hold` holds the game right after the last step (until the next exercise).
+    // `restart` restarts the game first (the frames begin at the new run's first step).
+    // `hold` holds the game right after the last step (until the next exercise).
     this.postLocal({ v: 2, type: 'tl.input.request', playSessionId, requestId, frames: frames.map((f) => ({ ...f })), ...(restart ? { restart: true } : {}), ...(hold ? { hold: true } : {}) });
   }
 
@@ -163,17 +162,17 @@ export class Bridge {
     this.postLocal({ v: 2, type: 'tl.screenshot.request', playSessionId, relayId, maxWidth });
   }
 
-  /** Forward a game control command (editor side, §20.1). */
+  /** Forward a game control command (editor side). */
   requestGameControl(playSessionId: string, relayId: string, command: string, sceneId?: string, debug?: { name: string; args: Record<string, unknown> }): void {
     if (this.direction !== 'editor') throw new Error('requestGameControl is editor-side only');
-    // Phase 23.8: a debug command carries its name and arguments.
+    // A debug command carries its name and arguments.
     this.postLocal({ v: 2, type: 'tl.game.control', playSessionId, relayId, command, ...(sceneId !== undefined ? { sceneId } : {}), ...(debug !== undefined ? { name: debug.name, args: debug.args } : {}) });
   }
 
-  /** Request a game observation (editor side, §20.1). */
+  /** Request a game observation (editor side). */
   requestGameObserve(playSessionId: string, relayId: string, entityId?: string): void {
     if (this.direction !== 'editor') throw new Error('requestGameObserve is editor-side only');
-    // Phase 15.4: `entityId` adds that entity's script property values.
+    // `entityId` adds that entity's script property values.
     this.postLocal({ v: 2, type: 'tl.game.observe', playSessionId, relayId, ...(entityId !== undefined ? { entityId } : {}) });
   }
 
@@ -189,7 +188,7 @@ export class Bridge {
   }
 
   /**
-   * Phase 19.2: the visual-script debugger's poll (editor side): the behavior
+   * The visual-script debugger's poll (editor side): the behavior
    * (and object) it watches, its breakpoints and an optional pause / resume /
    * step. The preview answers from the running game (`tl.debug.result`).
    */
@@ -207,7 +206,7 @@ export class Bridge {
     });
   }
 
-  /** Phase 19.2: answer a debug request (preview side). */
+  /** Answer a debug request (preview side). */
   sendDebugResult(playSessionId: string, relayId: string, body: { ok: true; result: unknown } | { ok: false; error: { code: string; message?: string } }): void {
     if (this.direction !== 'preview') throw new Error('sendDebugResult is preview-side only');
     this.postLocal({ v: 2, type: 'tl.debug.result', playSessionId, relayId, ...body });
@@ -231,7 +230,7 @@ export class Bridge {
     this.postLocal({ v: 2, type: 'tl.handshake.ack', playSessionId, nonce });
   }
 
-  /** Report the preview is ready (preview side, v2 — delivery §7). */
+  /** Report the preview is ready (preview side, v2). */
   sendReady(
     playSessionId: string,
     snapshotId: string,
@@ -317,8 +316,8 @@ export class Bridge {
   }
 
   /**
-   * Handle one inbound `message` event. Enforces the §13.3 transport checks
-   * (origin + source) and the §13.5 body validation + nonce. Drops (and
+   * Handle one inbound `message` event. Enforces the transport checks
+   * (origin + source) and the body validation + nonce. Drops (and
    * counts) anything that fails.
    */
   handleMessage(event: BridgeMessageEvent): void {
@@ -338,7 +337,7 @@ export class Bridge {
       return;
     }
     const body = event.data as Record<string, unknown>;
-    // 4. §13.5 strict validation for THIS direction's receive allowlist.
+    // 4. Strict validation for THIS direction's receive allowlist.
     const verdict =
       this.direction === 'editor'
         ? validateBridgePreviewToEditor(body)

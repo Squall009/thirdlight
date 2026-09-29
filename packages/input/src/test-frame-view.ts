@@ -1,5 +1,5 @@
 /**
- * Phase 24.8 (tests only): the character controls of a version 2 action
+ * Tests only: the character controls of a version 2 action
  * frame as the version 1 channels (`moveX`, `moveY`, `jump`) the input
  * tests assert — the inverse of `toActionFrame`. The `actions` map is kept
  * when it holds other actions too (then with `move` and `jump`), else dropped.

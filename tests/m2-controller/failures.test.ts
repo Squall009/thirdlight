@@ -1,11 +1,11 @@
 /**
- * Packet 32 — failure-mode coverage for the controller composition:
+ * Failure-mode coverage for the controller composition:
  * long tab stall / dropped wall time (A13), one jump edge across catch-up,
  * no phantom physics steps, fail-stop after a physics-phase mutation (A14),
  * snapshot immutability and clean disposal.
  *
  * Real stack: platformer controller + runtime + real Rapier port + real input
- * mapping. No browser is involved (UNVERIFIED; packet-37 procedure).
+ * mapping. No browser is involved (UNVERIFIED; see the browser procedure).
  */
 import { describe, expect, it } from 'vitest';
 import { createStepInputSource, type StepInputStep } from '@thirdlight/input';

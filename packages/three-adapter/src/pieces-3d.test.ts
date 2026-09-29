@@ -1,5 +1,5 @@
 /**
- * Phase 23.1: 3D colliders from a model — a triangle mesh or a convex hull
+ * 3D colliders from a model — a triangle mesh or a convex hull
  * from a piece's `_COL` node, else its LOD0 geometry (the `_COL` and higher
  * levels skipped), in the file's root space on a 1 mm grid; refused with a
  * reason when too big for a mesh, flat for a hull, or beyond 64 m.

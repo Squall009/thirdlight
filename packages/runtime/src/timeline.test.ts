@@ -1,5 +1,5 @@
 /**
- * Phase 23.17: the sequencer's track evaluation, easing, bindings, wait-for-input,
+ * The sequencer's track evaluation, easing, bindings, wait-for-input,
  * skip end states and events, over a recording fake host.
  */
 import { describe, expect, it } from 'vitest';

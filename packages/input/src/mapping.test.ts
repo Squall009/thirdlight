@@ -1,8 +1,8 @@
 /**
- * Packet 30 — pure mapping acceptance (no browser, no DOM).
+ * Pure mapping acceptance (no browser, no DOM).
  *
  * Establishes the **exact** sampled frames for every mapping/edge case the
- * packet names: keyboard defaults, dead zone including its boundary values,
+ * contract names: keyboard defaults, dead zone including its boundary values,
  * source precedence with no summation, non-standard/absent device, the press
  * latch (including key-repeat coalescing), the press/hold/release chain,
  * fresh activation after suspension, simultaneous sources and deterministic

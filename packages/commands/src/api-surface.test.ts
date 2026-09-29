@@ -1,7 +1,7 @@
 /**
- * Public surface and module-boundary behavior — dependencies.md §3
- * ("types (envelopes), the pure apply/inverse functions, the history
- * model, ERROR_CODES"), totality (never throws), purity (the input state
+ * Public surface and module-boundary behavior — the exports (types
+ * (envelopes), the pure apply/inverse functions, the history model,
+ * ERROR_CODES), totality (never throws), purity (the input state
  * is never mutated), and determinism.
  */
 
@@ -31,9 +31,9 @@ describe('public surface (dependencies.md §3)', () => {
   it('exports the entry points and constants', () => {
     expect(typeof pkg.applyMutation).toBe('function');
     expect(typeof pkg.createCommandState).toBe('function');
-    // Packet 21 extended ERROR_CODES with the commands.md §5.4 M2 rows
-    // (prefab/behavior/property/settings/content codes). The M1 rows are
-    // unchanged and in the same order; the assertion records the full set.
+    // ERROR_CODES holds the entity/history rows followed by the
+    // prefab/behavior/property/settings/content codes, in table order; the
+    // assertion records the full set.
     expect(ERROR_CODES).toEqual([
       'invalid_request',
       'field_missing',
@@ -83,9 +83,8 @@ describe('public surface (dependencies.md §3)', () => {
       'history_empty',
       'history_invalid',
       'write_failed',
-      // Packet 45 appended the commands.md §5.4 v3 game/presentation rows
-      // (and the §41.3.2 animation-role rows); phase 24.8 deleted the game
-      // block and zone rows with the genre layer.
+      // The v3 presentation rows and the animation-role rows; there are no
+      // game-block or zone rows.
       'spawn_transform_unsupported',
       'asset_kind_mismatch',
       'animation_role_out_of_range',

@@ -1,5 +1,5 @@
 /**
- * Phase 25.9: compiled positions back to source files (source map v3, the
+ * Compiled positions back to source files (source map v3, the
  * maps the compiler emits next to each behavior and shared library output).
  *
  * `originalPosition(map, line, column)` decodes only the generated line it is

@@ -1,5 +1,5 @@
 /**
- * Packet 46 crash-test child runner (bundled with esbuild by the parent —
+ * Storage v4 crash-test child runner (bundled with esbuild by the parent —
  * plain node cannot import the workspace package's .ts entry).
  *
  * The project is the committed v3 fixture, already upgraded in place to

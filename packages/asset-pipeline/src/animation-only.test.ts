@@ -1,5 +1,5 @@
 /**
- * Phase 14.6: an animation-only GLB (bones and clips, no mesh) is accepted
+ * An animation-only GLB (bones and clips, no mesh) is accepted
  * as a model asset — its clips play on another model's rig. A file with
  * neither meshes nor animations is still refused, and so is a mesh without
  * geometry.

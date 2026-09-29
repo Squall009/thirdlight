@@ -1,5 +1,5 @@
 /**
- * Phase 10 option B: asset versions that reference a file in the game folder
+ * Asset versions that reference a file in the game folder
  * in place (`sourcePath` + `sourceDigest`) instead of a copied blob.
  *
  * Real service, real filesystem: a folder project is created in a temp game

@@ -1,44 +1,31 @@
 /**
- * 2026-09-18 review repair — group A2 (R11 + R12 + R13) regression tests.
+ * Request and retry-record validation, through the public API only:
  *
- * Converted from docs/reviews/2026-09-18-probes.mjs (the probes pin the
- * BUGGY behavior at the reviewed HEAD; these tests pin the desired
- * post-repair behavior through the public API only):
+ *   - a fresh request with a non-canonicalizable value (undefined optional
+ *     property, BigInt, Date, nested undefined) is rejected with a
+ *     structured validation error BEFORE any record is built: nothing
+ *     written to disk, no `null` digest in the envelope, the same requestId
+ *     re-issues fresh (never `request_id_reused`), and the project reopens
+ *     cleanly. Dedup/pause/revision ordering for VALID requests is
+ *     preserved (identical retry ⇒ duplicated).
+ *   - a persisted retry result whose `change.type` is the JSON object
+ *     `{"toString":0}` (valid JSON, corrupt shape) does NOT abort
+ *     `openWorkspaceService`: the corrupt project is blocked
+ *     (`project_unavailable`, structured load reason), its bytes are
+ *     retained byte-identical, and a healthy project in the same root stays
+ *     fully usable.
+ *   - persisted retry records are strictly validated at load:
+ *     enclosing-project consistency (`result.projectId` equals the project
+ *     id), complete historical entity/change payloads per the model
+ *     authority (strict schema — but NO reference-existence against the
+ *     current scene). Malformed records block the project without
+ *     rewriting disk; a healthy sibling stays usable.
  *
- *   NULL_DIGEST             ⇒  R11 — a fresh request with a non-canonicalizable
- *                              value (undefined optional property, BigInt,
- *                              Date, nested undefined) must be rejected with a
- *                              structured validation error BEFORE any record
- *                              is built: nothing written to disk, no `null`
- *                              digest in the envelope, the same requestId
- *                              re-issues fresh (never `request_id_reused`),
- *                              and the project reopens cleanly. Dedup/pause/
- *                              revision ordering for VALID requests is
- *                              preserved (identical retry ⇒ duplicated).
- *   STARTUP_THROW           ⇒  R12 — a persisted retry result whose
- *                              `change.type` is the JSON object
- *                              `{"toString":0}` (valid JSON, corrupt shape)
- *                              must NOT abort `openWorkspaceService`: the
- *                              corrupt project is blocked per workspace.md
- *                              §7.5 (`project_unavailable`, structured load
- *                              reason), its bytes are retained
- *                              byte-identical, and a healthy project in the
- *                              same root stays fully usable.
- *   INVALID_RECORD_REPLAY   ⇒  R13 — persisted retry records are strictly
- *                              validated at load: enclosing-project
- *                              consistency (`result.projectId` equals the
- *                              project id), complete historical
- *                              entity/change payloads per the model authority
- *                              (strict schema — but NO reference-existence
- *                              against the current scene). Malformed records
- *                              block the project per §7.5 without rewriting
- *                              disk; a healthy sibling stays usable.
- *
- * Ported to storage v4 (phase 9.3 step B): a createEntity edits only the
- * scene, so its retry record is in `scenes/scene-main.json` (store-v4.ts
- * `changedFiles`); the R11 "nothing written" oracle covers the scene file
- * AND content.json, and the R12/R13 corruptions are applied to the record in
- * the scene file (loadV4 validates each file's retry block).
+ * Storage v4: a createEntity edits only the scene, so its retry record is in
+ * `scenes/scene-main.json` (store-v4.ts `changedFiles`); the "nothing
+ * written" oracle covers the scene file AND content.json, and the record
+ * corruptions are applied in the scene file (loadV4 validates each file's
+ * retry block).
  */
 
 import {
@@ -55,7 +42,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 
 import { openWorkspaceService, type QueryResult } from '@thirdlight/workspace';
 
-// ---- disposable roots (ext4, probe convention; cleaned up per test) ----------
+// ---- disposable roots (ext4; cleaned up per test) ----------------------------
 
 const roots: string[] = [];
 
@@ -93,18 +80,18 @@ afterAll(() => {
 // ---- helpers -----------------------------------------------------------------
 
 /** Pinned identity: reopen tests re-open with the SAME process identity
- * (workspace.md §6.2 `own-record`: the durable claim is unchanged). */
+ * (the `own-record` row: the durable claim is unchanged). */
 const BACKEND_ID = 'tb-aa11bb22cc33dd44ee55ff6600112233';
 
 let seq = 0;
 
-/** A fresh, syntactically valid requestId (commands.md §3). */
+/** A fresh, syntactically valid requestId. */
 function nextRequestId(): string {
   seq += 1;
   return `req-${seq.toString(16).padStart(32, '0')}`;
 }
 
-/** A valid createEntity request (the probe's request shape). */
+/** A valid createEntity request. */
 function createEntityRequest(
   projectId: string,
   revision: number,
@@ -153,10 +140,10 @@ interface EnvelopeShape {
   retry: { retention: number; records: Json[] };
 }
 
-// ---- R11: the canonicalizability gate -----------------------------------------
+// ---- the canonicalizability gate ---------------------------------------------
 
 /**
- * One R11 case: the bad request (built by `makeBad`) is rejected with a
+ * One gate case: the bad request (built by `makeBad`) is rejected with a
  * structured validation error; the on-disk envelope is byte-identical
  * (no record appended, no null digest); re-issuing the SAME requestId is a
  * fresh rejection (never `request_id_reused`); the project reopens cleanly
@@ -221,7 +208,7 @@ function assertRejectedClean(
   }
 }
 
-// ---- R12/R13: corrupt-record roots --------------------------------------------
+// ---- corrupt-record roots -----------------------------------------------------
 
 interface CorruptRoot {
   root: string;
@@ -255,7 +242,7 @@ function setupCorruptRoot(tag: string): CorruptRoot {
 
 /**
  * Corrupt the persisted record of the `bad` project, dispose, and reopen.
- * R12: `openWorkspaceService` (which runs the startup scan) must NEVER
+ * `openWorkspaceService` (which runs the startup scan) must NEVER
  * throw from the corrupt project.
  */
 function corruptAndReopen(
@@ -274,7 +261,7 @@ function corruptAndReopen(
 }
 
 /**
- * The §7.5 battery for a corrupt `bad` project next to a healthy `good`
+ * The blocked-project battery for a corrupt `bad` project next to a healthy `good`
  * one: the scan reports the block (no throw); query + replay + fresh
  * mutation on `bad` all fail `project_unavailable` with the specific
  * reason; the on-disk bytes are retained byte-identical; the healthy
@@ -291,7 +278,7 @@ function assertBlockedAndSiblingUsable(
   expect(entry?.code).toBe('retry_records_invalid');
   const goodEntry = s2.lastScan.entries.find((e) => e.projectId === 'good');
   expect(goodEntry?.loadable).toBe(true);
-  // The corrupt project is blocked per workspace.md §7.5.
+  // The corrupt project is blocked.
   const q = s2.query({ op: 'queryProject', projectId: 'bad' }) as QueryResult;
   expect(q.ok).toBe(false);
   if (q.ok !== false) throw new Error(`expected a blocked query, got: ${JSON.stringify(q)}`);
@@ -300,7 +287,7 @@ function assertBlockedAndSiblingUsable(
   // The bytes are retained byte-for-byte (no auto-repair, ever).
   expect(bytesEqual(readFileSync(t.badPath), t.corruptBytes)).toBe(true);
   // A retry of the ORIGINAL request: the project stays blocked — no dedup
-  // replay and no fresh execution (workspace.md §7.5: commands return
+  // replay and no fresh execution (blocked: commands return
   // project_unavailable while the load fails).
   const replay = s2.runCommand(t.original);
   expect(replay.ok).toBe(false);

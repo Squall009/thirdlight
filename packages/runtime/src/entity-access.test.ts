@@ -1,5 +1,5 @@
 /**
- * Phase 25.10: `EntityAccess` on its own — the switched-off set with
+ * `EntityAccess` on its own — the switched-off set with
  * children, a new run, the save record, a conflict with an owned transform
  * intent, the per-step limit, objects that leave.
  */

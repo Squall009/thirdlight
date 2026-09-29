@@ -1,5 +1,5 @@
 /**
- * Phase 23.12 (E9): run-time material values in the renderer — no GPU here
+ * Run-time material values in the renderer — no GPU here
  * (the per-object uniform and the per-object data texture are driven by hand
  * the way three drives them per drawn object; the pixels and the shared
  * program are checked by `tests/e2e/material-runtime.e2e.ts` on WebGL 2 and

@@ -1,5 +1,5 @@
 /**
- * Phase 23.12 (E9): material parameters scripts set per object, through the
+ * Material parameters scripts set per object, through the
  * production game host in the page and in the simulation worker.
  *
  * A neutral scene: two boxes wear one graph material (a colour, a float and

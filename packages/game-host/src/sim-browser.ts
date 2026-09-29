@@ -1,5 +1,5 @@
 /**
- * Phase 22.0: the browser ends of the simulation worker channel — a dedicated
+ * The browser ends of the simulation worker channel — a dedicated
  * `Worker` on the page side, the worker's own global on the other. (Node uses
  * worker_threads with the same `SimEndpoint` shape; see the integration tests.)
  */
@@ -51,7 +51,7 @@ export function workerGlobalEndpoint(): SimEndpoint {
 }
 
 /**
- * Phase 23.0: load the 3D physics backend script (`physics-3d.js`, registered
+ * Load the 3D physics backend script (`physics-3d.js`, registered
  * on the global object — see `physics-3d-global.ts`) once: inside a worker
  * with `importScripts`, on a page with a script element. Only a project whose
  * `physics_dimension` is 3 calls it, so a 2D game never fetches the 3D WASM.

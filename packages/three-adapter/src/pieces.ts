@@ -286,12 +286,12 @@ function dedupe(poly: [number, number][]): [number, number][] {
   return convexHull(out);
 }
 
-// ---- phase 23.1: 3D colliders from `_COL` nodes or a model's geometry -----------
+// ---- 3D colliders from `_COL` nodes or a model's geometry -----------
 
-/** Phase 23.1: the limits of a 3D collider made from a model (the project model's collider limits). */
+/** The limits of a 3D collider made from a model (the project model's collider limits). */
 export const COLLIDER_3D_FROM_MODEL = Object.freeze({ meshVertices: 1024, meshTriangles: 2048, convexPoints: 64, extent: 64 });
 
-/** Phase 23.1: a 3D collider shape made from a model (the project model's `convex` / `mesh` shapes, 1 mm grid). */
+/** A 3D collider shape made from a model (the project model's `convex` / `mesh` shapes, 1 mm grid). */
 export type ModelCollider3D =
   | { ok: true; shape: { type: 'mesh'; vertices: [number, number, number][]; triangles: [number, number, number][] } | { type: 'convex'; points: [number, number, number][] }; source: 'collision' | 'geometry' }
   | { ok: false; message: string };
@@ -306,7 +306,7 @@ function underHigherLod(o: THREE.Object3D, root: THREE.Object3D): boolean {
 }
 
 /**
- * Phase 23.1: the triangles of a piece's collision geometry in the file's
+ * The triangles of a piece's collision geometry in the file's
  * root space (the placement's local space) — its `_COL` node(s) when it has
  * any (the whole file's with `piece` null), else its render geometry at
  * LOD0 (the `_COL` and higher levels skipped). Vertices are rounded to 1 mm
@@ -363,7 +363,7 @@ function modelTriangles(root: THREE.Object3D, piece: string | null): { vertices:
 }
 
 /**
- * Phase 23.1: a 3D collider for a piece (or the whole file) — a triangle
+ * A 3D collider for a piece (or the whole file) — a triangle
  * mesh (static level geometry, exact) or a convex hull — from its `_COL`
  * node(s), else from its LOD0 render geometry, in the placement's local
  * space on a 1 mm grid. A mesh keeps every triangle up to the limits (a

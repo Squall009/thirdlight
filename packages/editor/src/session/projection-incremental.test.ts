@@ -1,5 +1,5 @@
 /**
- * Phase 21.4: the projection updates incrementally — copy-on-write entity
+ * The projection updates incrementally — copy-on-write entity
  * objects, a cached entity list, a structure version for the tree's shape,
  * and the changed ids — so the editor's views redraw only what changed.
  */

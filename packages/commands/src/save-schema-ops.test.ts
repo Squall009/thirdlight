@@ -1,5 +1,5 @@
 /**
- * Phase 23.19: `setSaveSchema` — the project save schema, with undo/redo and
+ * `setSaveSchema` — the project save schema, with undo/redo and
  * the no-change and validation refusals.
  */
 import { describe, expect, it } from 'vitest';

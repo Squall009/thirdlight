@@ -1,14 +1,13 @@
 /**
- * M3 export bundle bootstrap (packet 58; delivery.md §3, export.md §3/§5).
+ * The export bundle bootstrap.
  *
  * Runs in the exported static page (`<script type="module">`, IIFE bundle — no
  * top-level `await`). It is the SAME single production composition as
- * preview/play (delivery.md §1/§3: `game-host` owns the registry /
+ * preview/play (delivery.md: `game-host` owns the registry /
  * `instantiateRuntime` / frame wiring) and links the same pinned outputs.
  * There is no backend, no bridge, no token and no credential in the page.
  *
- * Load order (all relative, all declared; delivery.md (M4) §2.8 export steps,
- * packet 70):
+ * Load order (all relative, all declared; the delivery.md export steps):
  *   1. `fetch("./manifest.json")` — the single manifest read; the manifest's
  *      own v2 `buildId` is re-derived and verified (WebCrypto) before anything
  *      else loads.
@@ -16,27 +15,26 @@
  *      digest-verified against `manifest.sceneDigest`.
  *   3. one `fetch("./<declared asset path>")` per manifest asset, EXACTLY ONCE
  *      each — re-hashed to the manifest `sourceDigest` (L2; the host itself
- *      never fetches). The model-kind bytes feed the §2.1 `models` block's
+ *      never fetches). The model-kind bytes feed the `models` block's
  *      `resolveBytes` (the wrapper-verified map — the adapter never re-hashes).
  *   4. `createGameHost` — the single shared production module composition
  *      (runtime + input + the manifest's module specs + physics-rapier +
- *      three-adapter scene adapter + the packet-54 audio owner). The adapter
+ *      three-adapter scene adapter + the audio owner). The adapter
  *      receives the `models` block (`assets` = the referenced model rows,
  *      `animation` from `manifest.media.animation`) + `modelsLoader` =
  *      `createGltfLoaderPort()` imported from the
  *      `@thirdlight/three-adapter/gltf-loader` subpath (the root stays
- *      loader-free — presentation.md §41.9).
+ *      loader-free).
  *   5. the model prepares run while the game plays and NEVER block it; a hard
  *      prepare failure is a structured on-page error and the game continues
  *      without the failed model's visuals.
  *   6. the three.js/WebGL renderer (the scene adapter); the overlays (project
  *      UI, the game shell) are the host-owned DOM.
  *
- * The resolved `settings` come from the manifest (delivery.md §2.4:
+ * The resolved `settings` come from the manifest (delivery.md:
  * hash-bound through the manifest's self-identity).
  *
- * Browser-only: DOM + WebGL. The real-browser walkthrough is UNVERIFIED in this
- * container (no browser/GPU/audio device — packet-38 baseline §1).
+ * Browser-only: DOM + WebGL.
  */
 import { audioSpatialOf, depthBufferOf, instanceChunkSizeOf, MANIFEST_KEYS_V2, physicsDimensionOf, RUNTIME_CONTENT_MANIFEST_VERSION_4, sha256HexAsync, type SaveSchema } from '@thirdlight/project-model';
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
@@ -76,15 +74,15 @@ import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import type { EffectDefLike, EnvironmentLike, LightingBakeLike, MaterialDefLike, MaterialFunctionLike, SceneAdapter, SceneAdapterModels, WindLike } from '@thirdlight/three-adapter';
 import { modesForRuntime, audioDurationsFromAssetRows, uiDocumentsForRuntime, withDialogueUiDocument, materialCatalogOf, modelBoundsFromAssetRows, physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, resolveSnapshotHierarchy, staticColliderOf, type GameplaySettings, type PhysicsInitConfig3D, type PhysicsPort3D, type RuntimeSnapshot, type SimulationModuleSpec } from '@thirdlight/runtime';
 import { assetPaths, readAsset } from 'thirdlight:export-artifacts';
-// Phase 24.3: the simulation module specs this manifest names (generated per export; nothing else is linked).
+// The simulation module specs this manifest names (generated per export; nothing else is linked).
 import { moduleSpecs } from 'thirdlight:export-modules';
 
-// Phase 25.19: KTX2 texture assets (and GLBs with KHR_texture_basisu) transcode with three's Basis files served at ./decoders/basis/.
+// KTX2 texture assets (and GLBs with KHR_texture_basisu) transcode with three's Basis files served at ./decoders/basis/.
 setKtx2DecoderBase('./decoders/');
 
-/** Phase 22.0: the simulation worker's bundle, next to this one (relative to the page). */
+/** The simulation worker's bundle, next to this one (relative to the page). */
 const EXPORT_SIM_WORKER_PATH = './js/sim-worker.js';
-/** Phase 23.0: the 3D physics backend (`js/physics-3d.js`, only in a 3D project's export). */
+/** The 3D physics backend (`js/physics-3d.js`, only in a 3D project's export). */
 const EXPORT_PHYSICS_3D_PATH = './js/physics-3d.js';
 
 interface ExportManifestV2 {
@@ -100,50 +98,50 @@ interface ExportManifestV2 {
   mediaDigest: string;
   settings: GameplaySettings;
   tags?: { bit: number; name: string }[];
-  /** Phase 9.4: project materials and the environment (bound by the buildId). */
+  /** Project materials and the environment (bound by the buildId). */
   materials?: MaterialDefLike[];
-  /** Phase 18.3: the material functions graph materials call. */
+  /** The material functions graph materials call. */
   materialFunctions?: MaterialFunctionLike[];
-  /** Phase 20.2: the visual effects (particle system graphs). */
+  /** The visual effects (particle system graphs). */
   effects?: EffectDefLike[];
-  /** Phase 23.9a: the project UI documents and themes (the game host draws them). */
+  /** The project UI documents and themes (the game host draws them). */
   uiDocuments?: import('@thirdlight/runtime').UiDocument[];
-  /** Phase 23.17: the timelines. */
+  /** The timelines. */
   timelines?: import('@thirdlight/runtime').TimelineAsset[];
-  /** Phase 24.4i: the event → cue table. */
+  /** The event → cue table. */
   eventCues?: import('@thirdlight/runtime').RuntimeEventCue[];
-  /** Phase 24.4j: the game shell (menus and HUD documents, the scene list). */
+  /** The game shell (menus and HUD documents, the scene list). */
   shell?: import('@thirdlight/game-host').ShellConfigLike;
   uiThemes?: import('@thirdlight/runtime').UiTheme[];
-  /** Phase 23.16: the dialogue runner's data (conversations, speakers, settings). */
+  /** The dialogue runner's data (conversations, speakers, settings). */
   dialogue?: import('@thirdlight/runtime').RuntimeDialogueData;
-  /** Phase 23.10: the game modes (the runtime switches them; the first is the start mode). */
+  /** The game modes (the runtime switches them; the first is the start mode). */
   modes?: import('@thirdlight/runtime').GameMode[];
   environment?: EnvironmentLike & { wind?: WindLike };
-  /** Phase 9.6: the scenes' bakes. */
+  /** The scenes' bakes. */
   lighting?: Record<string, LightingBakeLike>;
-  /** Phase 9.7: the animator controllers. */
+  /** The animator controllers. */
   animators?: unknown[];
-  /** Phase 23.11: model rigs (sockets are resolved on them). */
+  /** Model rigs (sockets are resolved on them). */
   rigs?: Record<string, unknown>;
-  /** Phase 14.1: the prefab definitions scripts spawn. */
+  /** The prefab definitions scripts spawn. */
   prefabs?: unknown[];
-  /** Phase 23.5: the block types and cell fields block layers use. */
+  /** The block types and cell fields block layers use. */
   blockTypes?: unknown[];
   cellFields?: unknown[];
-  /** Phase 9.8: the input actions. */
+  /** The input actions. */
   input?: InputConfigLike;
-  /** Phase 23.3: the named collision layers. */
+  /** The named collision layers. */
   collisionLayers?: readonly string[];
-  /** Phase 23.19: the project save schema. */
+  /** The project save schema. */
   saveSchema?: SaveSchema;
-  /** Phase 12 (c): every scene of a v4 project and the instance-set buffers. */
+  /** Every scene of a v4 project and the instance-set buffers. */
   scenes?: ManifestSceneRow[];
   buffers?: ManifestBufferRow[];
-  /** Phase 25.7b: the content files; materials, materialFunctions, uiDocuments, dialogue and buffers come from them. */
+  /** The content files; materials, materialFunctions, uiDocuments, dialogue and buffers come from them. */
   contentFiles?: ManifestContentFileRowLike[];
   assets: ReadonlyArray<{ assetId: string; version: number; sourceDigest: string; sourceByteLength: number; kind: string; path: string }>;
-  /** The resolved media identity (delivery.md §2.3): cue slots + one
+  /** The resolved media identity: cue slots + one
    * `modelAnimation` row per entity (entityId/assetId/version/profileDigest/
    * roles). */
   media: { cues: Record<string, unknown>; animation: ReadonlyArray<{ entityId: string; assetId: string; version: number; profileDigest: string; roles: Record<string, unknown> }> };
@@ -171,7 +169,7 @@ const sha256Hex = sha256HexAsync;
  * manifest key order — the page re-derives it to verify the single manifest
  * read before anything else loads). */
 function buildIdInput(manifest: Record<string, unknown>): Record<string, unknown> {
-  // Phase 24.8: the model's key order (one list; every key but buildId).
+  // The model's key order (one list; every key but buildId).
   const keys = MANIFEST_KEYS_V2.filter((k) => k !== 'buildId');
   const out: Record<string, unknown> = {};
   for (const k of keys) out[k] = manifest[k];
@@ -188,13 +186,13 @@ function physicsConfigFromSnapshot(snapshot: RuntimeSnapshot, settings: Gameplay
     const components = (entity.components ?? {}) as unknown as Record<string, unknown>;
     const transform = components['transform'] as { position?: number[]; rotation?: number[]; scale?: number[] } | undefined;
     const position = transform?.position ?? [0, 0, 0];
-    // Phase 23.0: the shared rule (world XY, the entity's rotation about Z; movers kinematic; one-way platforms).
+    // The shared rule (world XY, the entity's rotation about Z; movers kinematic; one-way platforms).
     const collider = staticColliderOf(entity.id, components);
     if (collider !== null) statics.push(collider as RapierStaticColliderSpec);
     if (components['controller'] !== undefined) {
-      // Phase 14.0: the player's own capsule (its controller's, else the default).
+      // The player's own capsule (its controller's, else the default).
       const capsule = playerCapsuleOf(components['controller']);
-      // Phase 15.3: its skin, ground snap and autostep (else the defaults).
+      // Its skin, ground snap and autostep (else the defaults).
       tuning = playerPhysicsOf(components['controller']);
       character = {
         x: position[0] ?? 0,
@@ -212,7 +210,7 @@ function physicsConfigFromSnapshot(snapshot: RuntimeSnapshot, settings: Gameplay
   return {
     character,
     statics,
-    // Phase 15.3: the project's step rate and the player's controller tuning.
+    // The project's step rate and the player's controller tuning.
     solver: { hz: settings.fixed_step_hz ?? 120, gravityY: settings.gravity_y },
     controller: {
       offsetSkin: tuning.offsetSkin,
@@ -247,11 +245,11 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
   if ((await sha256Hex(sceneBytes)) !== manifest.sceneDigest) throw new Error('the scene document digest does not match manifest.sceneDigest');
   const scene = JSON.parse(new TextDecoder().decode(sceneBytes));
 
-  // The wrapper's read phase (delivery.md (M4) §2.8, L2), phase 25.24b: every declared asset is read
+  // The wrapper's read phase (L2): every declared asset is read
   // at most once through this reader and re-hashed to the manifest `sourceDigest` before anyone gets its
   // bytes; the start scenes' assets are read BEFORE the runtime composes (L2 = hard failure, no runtime),
   // at most 8 at a time, the others when they are asked for (a scene loaded later, a texture, a sound).
-  // (Phase 22.0: the start reads run below, while the simulation worker starts.)
+  // (the start reads run below, while the simulation worker starts.)
   const assetReader = createVerifiedAssetReader(manifest.assets ?? [], { read: readArtifactBytes, sha256Hex });
   const textureLoader = (assetId: string): Promise<Awaited<ReturnType<typeof decodeTexture>> | null> => {
     const row = (manifest.assets ?? []).find((r) => r.kind === 'texture' && r.assetId === assetId);
@@ -259,14 +257,14 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
   };
 
   const settings = manifest.settings;
-  // Phase 12 (c): the scene catalog (start scenes read once for their
+  // The scene catalog (start scenes read once for their
   // members; the others load on demand through the host).
   const io = { read: readArtifactBytes, sha256Hex };
   const catalog0 = manifest.scenes !== undefined ? await prepareSceneCatalog(manifest.scenes, io) : null;
-  // Phase 25.24e: scene loads are prepared (assets read, models parsed) before the simulation gets them; likely next scenes are read ahead.
+  // Scene loads are prepared (assets read, models parsed) before the simulation gets them; likely next scenes are read ahead.
   const scenes = catalog0 === null ? null : createScenePreloader({ read: catalog0.loadScene });
   const catalog = catalog0 === null || scenes === null ? null : { rows: catalog0.rows, loadScene: scenes.load };
-  // Phase 12: the scene as the game loads it (folders and inactive entities
+  // The scene as the game loads it (folders and inactive entities
   // resolved away) — physics, the renderer and the runtime all use this one.
   const modelBounds = modelBoundsFromAssetRows((manifest.assets ?? []) as readonly { assetId: string; kind?: string; bounds?: unknown }[]);
   const audioDurations = audioDurationsFromAssetRows((manifest.assets ?? []) as readonly { assetId: string; kind?: string; durationMs?: unknown }[]);
@@ -279,51 +277,51 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
     scene,
     ...(manifest.tags !== undefined ? { tags: manifest.tags } : {}),
     ...(catalog !== null ? { scenes: catalog.rows } : {}),
-    // Phase 9.7: the animator controllers (bound by the buildId).
+    // The animator controllers (bound by the buildId).
     ...(manifest.animators !== undefined ? { animators: manifest.animators } : {}),
-    // Phase 14.1: the prefabs scripts spawn (bound by the buildId).
+    // The prefabs scripts spawn (bound by the buildId).
     ...(manifest.prefabs !== undefined ? { prefabs: manifest.prefabs } : {}),
-    // Phase 15.3: the model assets' recorded bounds (a pickup without a size collects over its model's).
+    // The model assets' recorded bounds (a pickup without a size collects over its model's).
     ...(modelBounds !== undefined ? { modelBounds } : {}),
-    // Phase 23.13: the audio assets' recorded durations (script sounds' finished events).
+    // The audio assets' recorded durations (script sounds' finished events).
     ...(audioDurations !== undefined ? { audioDurations } : {}),
-    // Phase 23.11: the model rigs sockets are resolved on (bound by the buildId).
+    // The model rigs sockets are resolved on (bound by the buildId).
     ...(manifest.rigs !== undefined ? { rigs: manifest.rigs } : {}),
-    // Phase 23.5: the block types and cell fields of the block layers (bound by the buildId).
+    // The block types and cell fields of the block layers (bound by the buildId).
     ...(manifest.blockTypes !== undefined ? { blockTypes: manifest.blockTypes } : {}),
     ...(manifest.cellFields !== undefined ? { cellFields: manifest.cellFields } : {}),
-    // Phase 23.12: the graph materials' parameters scripts set per object (ctx.materials).
+    // The graph materials' parameters scripts set per object (ctx.materials).
     ...(materialCatalog !== undefined ? { materialCatalog } : {}),
-    // Phase 23.19: the project save schema (ctx.saves).
+    // The project save schema (ctx.saves).
     ...(manifest.saveSchema !== undefined ? { saveSchema: manifest.saveSchema } : {}),
-    // Phase 23.18: the environment preset ids scripts switch and blend to (ctx.environment).
+    // The environment preset ids scripts switch and blend to (ctx.environment).
     ...((manifest.environment?.presets?.length ?? 0) > 0 ? { environmentPresets: manifest.environment!.presets!.map((p) => p.presetId) } : {}),
-    // Phase 23.9a: the UI documents scripts show and hide (the host draws them from the manifest).
-    // Phase 23.16: plus the engine's dialogue document when the game has conversations.
+    // The UI documents scripts show and hide (the host draws them from the manifest).
+    // Plus the engine's dialogue document when the game has conversations.
     ...(uiDocumentsForRuntime(uiDocs) !== undefined ? { uiDocuments: uiDocumentsForRuntime(uiDocs) } : {}),
-    // Phase 23.16: the dialogue runner's data (conversations, speakers, settings; bound by the buildId).
+    // The dialogue runner's data (conversations, speakers, settings; bound by the buildId).
     ...(manifest.dialogue !== undefined ? { dialogue: manifest.dialogue } : {}),
-    // Phase 23.10: the game modes and each action's input map (bound by the buildId).
+    // The game modes and each action's input map (bound by the buildId).
     ...(manifest.modes !== undefined && manifest.modes.length > 0 ? { modes: modesForRuntime(manifest.modes, manifest.input ?? (physicsDimensionOf(settings) === 3 ? DEFAULT_INPUT_CONFIG_3D : DEFAULT_INPUT_CONFIG)) } : {}),
-    // Phase 23.17: the timelines (ctx.timeline, play-on-start / play-on-signal).
+    // The timelines (ctx.timeline, play-on-start / play-on-signal).
     ...(manifest.timelines !== undefined && manifest.timelines.length > 0 ? { timelines: manifest.timelines } : {}),
-    // Phase 24.4i: the event → cue table.
+    // The event → cue table.
     ...(manifest.eventCues !== undefined && manifest.eventCues.length > 0 ? { eventCues: manifest.eventCues } : {}),
-    // Phase 24.4j: the game shell's scene list.
+    // The game shell's scene list.
     ...(manifest.shell?.scenes !== undefined ? { sceneList: manifest.shell.scenes } : {}),
   } as unknown as RuntimeSnapshot);
-  // Phase 9.11 / 23.19: this game's saves in the player's browser (Play uses its own namespace).
+  // This game's saves in the player's browser (Play uses its own namespace).
   const saveNamespace = `thirdlight:${String((snapshot as unknown as { projectId?: string }).projectId ?? 'game')}`;
 
-  // The §2.1 `models` block (or none — the loader-free M1/M2/M3 surface when
-  // the scene references no model asset): `assets` = the manifest's
+  // The `models` block (or none — the loader-free surface when the scene
+  // references no model asset): `assets` = the manifest's
   // model-kind rows for the REFERENCED assetIds only; `animation` from
   // `manifest.media.animation`; `resolveBytes` = the wrapper-verified map.
   const referenced = new Set<string>();
-  // Phase 12 (c): scenes loaded later may use any model of the build.
+  // Scenes loaded later may use any model of the build.
   if (manifest.scenes !== undefined) for (const a of manifest.assets ?? []) if (a.kind === 'model') referenced.add(a.assetId);
   for (const entity of (scene as { entities?: ReadonlyArray<{ components?: Record<string, unknown> }> }).entities ?? []) {
-    // The v3 `model` component shape (project-model §18.1):
+    // The v3 `model` component shape:
     // `components.model.asset.assetId`.
     const model = (entity.components ?? {})['model'] as { asset?: { assetId?: string } } | undefined;
     if (model !== undefined && typeof model.asset?.assetId === 'string') referenced.add(model.asset.assetId);
@@ -338,9 +336,9 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
     models = {
       assets: modelRows.map((r) => ({ assetId: r.assetId, version: r.version, sourceDigest: r.sourceDigest, ...((r as { vertexColors?: unknown }).vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}), ...((r as { materials?: Record<string, string> }).materials !== undefined ? { materials: (r as unknown as { materials: Record<string, string> }).materials } : {}), ...(typeof (r as { clipsFor?: unknown }).clipsFor === 'string' ? { clipsFor: (r as unknown as { clipsFor: string }).clipsFor } : {}) })),
       animation: (manifest.media?.animation ?? []).map((r) => ({ entityId: r.entityId, roles: r.roles as never, version: r.version })),
-      // Phase 15.3: the project's idle/run/airborne blend time.
+      // The project's idle/run/airborne blend time.
       ...(settings.animation_crossfade_s !== undefined ? { crossfadeSeconds: settings.animation_crossfade_s } : {}),
-      // Phase 25.7d: the project's instance-set chunk size.
+      // The project's instance-set chunk size.
       ...(instanceChunkSizeOf(settings) !== undefined ? { instanceChunkSize: instanceChunkSizeOf(settings) } : {}),
       resolveBytes: (assetId: string, version: number): Promise<ArrayBuffer> => assetReader.bytes(assetId, version),
       ...(manifest.buffers !== undefined ? { resolveBuffer: bufferResolver(manifest.buffers, io) } : {}),
@@ -348,18 +346,18 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
   }
 
   // The physics config (physics-rapier; the manifest's resolved gravity_y drives the solver).
-  // Phase 23.0: a 3D project's physics is the 3D backend (its own config; the 2D one otherwise, unchanged).
+  // A 3D project's physics is the 3D backend (its own config; the 2D one otherwise, unchanged).
   const physicsConfig: RapierPhysicsInitConfig | PhysicsInitConfig3D | null = physicsDimensionOf(settings) === 3 ? physics3DConfigOf(snapshot.scene.entities as never, settings, { layers: manifest.collisionLayers ?? [] }) : physicsConfigFromSnapshot(snapshot, settings);
-  // (no controller: no physics world; a module that needs one says so when the host composes — phase 24.3)
+  // (no controller: no physics world; a module that needs one says so when the host composes)
 
-  // Phase 9.8: the project's input actions (bound by the buildId), else the defaults.
+  // The project's input actions (bound by the buildId), else the defaults.
   const input = attachBrowserInput(canvas, { inputConfig: manifest.input ?? (physicsDimensionOf(settings) === 3 ? DEFAULT_INPUT_CONFIG_3D : DEFAULT_INPUT_CONFIG) });
   focusGameSurface(canvas);
   const behaviorRows = (manifest as unknown as { behaviors?: ManifestBehaviorRow[] }).behaviors ?? [];
   const enginePins = (manifest as unknown as { enginePins?: { id: string; version: string; apiVersion: number }[] }).enginePins ?? [];
   const moduleIds = (manifest as unknown as { modules?: Array<{ id: string }> }).modules?.map((m) => m.id) ?? [];
 
-  // Phase 22.0: the simulation runs in a worker (js/sim-worker.js next to this
+  // The simulation runs in a worker (js/sim-worker.js next to this
   // bundle) unless the page (?threads=off), the project (sim_thread) or the
   // browser says otherwise; its transforms use shared memory only when the
   // host serves the page cross-origin isolated (COOP + COEP), else messages.
@@ -384,7 +382,7 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
             modules: moduleIds,
             behaviors: { rows: behaviorRows, enginePins, urls: Object.fromEntries(behaviorRows.map((r) => [r.path, new URL(r.path, document.baseURI).href])) },
             shared: resolveTransport(globalThis as never) === 'shared',
-            // Phase 23.19: the stored project settings document (the runtime starts with it).
+            // The stored project settings document (the runtime starts with it).
             ...(snapshot.saveSchema !== undefined ? { projectSettings: readProjectSettings(snapshot.saveSchema, browserSaveStorage() ?? undefined, saveNamespace) } : {}),
           },
           input: { sample: (stepIndex) => input.sample(stepIndex), reset: (reason) => input.reset?.(reason) },
@@ -394,7 +392,7 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
       remoteStart.catch(() => undefined); // awaited below
     }
   }
-  // The wrapper's read phase (delivery.md (M4) §2.8, L2): every declared
+  // The wrapper's read phase (L2): every declared
   // asset path is read EXACTLY ONCE (relative) and re-hashed to the manifest
   // `sourceDigest` BEFORE the runtime composes (L2 = hard failure, no
   // runtime). The model-kind bytes feed the `models` block `resolveBytes`.
@@ -430,7 +428,7 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
   // The injected physics port in single-thread mode (in worker mode the worker has its own).
   let physics;
   if (remote === null && physicsConfig !== null && 'dimension' in physicsConfig) {
-    // Phase 23.0: the 3D backend (js/physics-3d.js, shipped only in a 3D project's export).
+    // The 3D backend (js/physics-3d.js, shipped only in a 3D project's export).
     const backend = await loadPhysics3D(new URL(EXPORT_PHYSICS_3D_PATH, location.href).href);
     const init = await backend.createPhysicsPort3D(physicsConfig as never);
     if (!init.ok) throw new Error(`physics init failed: ${init.error.code}`);
@@ -440,7 +438,7 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
     if (!init.ok) throw new Error(`physics init failed: ${init.error.code}`);
     physics = init.port;
   }
-  // Phase 15.3: the project's sound voice count (absent: 8).
+  // The project's sound voice count (absent: 8).
   const audio = createGameAudioOwner({ contextFactory: browserContextFactory() ?? undefined, ...(settings.audio_voices !== undefined ? { maxVoices: settings.audio_voices } : {}) });
   const assetPathsById: Record<string, string> = {};
   for (const asset of manifest.assets ?? []) assetPathsById[asset.assetId] = asset.path;
@@ -468,15 +466,15 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
       const a = createSceneAdapter(canvas, {
         runtime,
         snapshot,
-        // Phase 17.1: the page's ?renderer= flag, else the project's render_backend setting.
+        // The page's ?renderer= flag, else the project's render_backend setting.
         renderer: { ...resolveRendererPreference({ url: pageSearch(), setting: settings.render_backend }), depthBuffer: depthBufferOf(settings) },
-        // Phase 21.3: repeated objects drawn instanced unless the page says ?batching=off (a diagnostic comparison).
+        // Repeated objects drawn instanced unless the page says ?batching=off (a diagnostic comparison).
         batching: batchingFromUrl(pageSearch()),
         ...(models !== null
           ? { models, modelsLoader: createGltfLoaderPort({ decoderBase: './decoders/' }) }
           : {}),
-        // Phase 9.5: sky, fog, fog volumes, post-processing.
-        // Phase 23.18: environment presets need the environment renderer too (scripts blend the look).
+        // Sky, fog, fog volumes, post-processing.
+        // Environment presets need the environment renderer too (scripts blend the look).
         ...(environmentHasLook(manifest.environment) || (manifest.environment?.presets?.length ?? 0) > 0
           ? {
               environment: {
@@ -485,9 +483,9 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
               },
             }
           : {}),
-        // Phase 25.8: spot light cookies (textures from the verified bytes).
+        // Spot light cookies (textures from the verified bytes).
         lights: { loadTexture: textureLoader },
-        // Phase 9.6: lightmaps (atlases from the verified bytes).
+        // Lightmaps (atlases from the verified bytes).
         ...(manifest.lighting !== undefined
           ? {
               lighting: {
@@ -496,7 +494,7 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
               },
             }
           : {}),
-        // Phase 20.2: the visual effects (textures and models from the verified bytes).
+        // The visual effects (textures and models from the verified bytes).
         ...(manifest.effects !== undefined && manifest.effects.length > 0
           ? {
               effects: effectsOptionFrom({
@@ -508,7 +506,7 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
               }),
             }
           : {}),
-        // Phase 9.4: project materials and wind (textures from the verified bytes).
+        // Project materials and wind (textures from the verified bytes).
         ...(manifest.materials !== undefined || manifest.environment !== undefined
           ? {
               materials: {
@@ -525,27 +523,27 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
     },
     input,
     audio,
-    // Phase 25.24b: a declared asset (a sound, a glyph, a UI image) through the checked reader.
+    // A declared asset (a sound, a glyph, a UI image) through the checked reader.
     readArtifact: (path: string) => assetReader.bytesAt(path) ?? readArtifactBytes(path),
     ...(catalog !== null ? { loadScene: catalog.loadScene } : {}),
     ...(scenes !== null ? { scenes } : {}),
     container,
     buildId: manifest.buildId,
     assetPaths: assetPathsById,
-    // Phase 24.4j: the game shell (menus and HUD as UI documents, the scene list).
+    // The game shell (menus and HUD as UI documents, the scene list).
     ...(manifest.shell !== undefined ? { shell: manifest.shell } : {}),
     inputConfig: structuredClone(manifest.input ?? (physicsDimensionOf(settings) === 3 ? DEFAULT_INPUT_CONFIG_3D : DEFAULT_INPUT_CONFIG)) as unknown as NonNullable<GameHostConfig['inputConfig']>,
     setQuality: (level) => adapterRef.current?.setQuality?.(level),
-    // Phase 9.11: the player's settings in this browser's localStorage (Play and exported games keep separate ones).
+    // The player's settings in this browser's localStorage (Play and exported games keep separate ones).
     ...(browserSaveStorage() !== null ? { saveStorage: browserSaveStorage()!, saveNamespace } : {}),
-    // Phase 23.19: project save slots in the player's IndexedDB (no backend: the export runs standalone).
+    // Project save slots in the player's IndexedDB (no backend: the export runs standalone).
     ...(browserProjectSaveBackend() !== null ? { projectSaveBackend: browserProjectSaveBackend()! } : {}),
     assetKinds: Object.fromEntries(((manifest.assets ?? []) as unknown as { assetId: string; kind: string }[]).map((r) => [r.assetId, r.kind])),
-    // Phase 23.13: how audio sources are heard (the audio_spatial setting; 3D: panned).
+    // How audio sources are heard (the audio_spatial setting; 3D: panned).
     audioSpatial: audioSpatialOf(settings),
-    // Phase 23.8: the debug console only when the project turns debug_console on (absent/0: a release game has none).
+    // The debug console only when the project turns debug_console on (absent/0: a release game has none).
     ...((settings as unknown as Record<string, unknown>)['debug_console'] === 1 ? { debugConsole: true, focusGame: () => canvas.focus() } : {}),
-    // Phase 23.9a: the project UI documents and themes (the host draws them).
+    // The project UI documents and themes (the host draws them).
     ...(uiDocs !== undefined && uiDocs.length > 0 ? { ui: { documents: uiDocs, ...(manifest.uiThemes !== undefined ? { themes: manifest.uiThemes } : {}) } } : {}),
   };
   const host = createGameHost(config);
@@ -569,8 +567,8 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
     }),
   );
 
-  // The model prepares run while the game plays and never block it
-  // (delivery.md (M4) §2.8): a hard failure is a structured on-page error and
+  // The model prepares run while the game plays and never block it: a hard
+  // failure is a structured on-page error and
   // the game continues without the failed model's visuals (the host stays
   // alive; the error is surfaced truthfully).
   if (models !== null && adapterRef.current !== null) {
@@ -591,10 +589,10 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
   window.addEventListener('pointerdown', unlockOnce, { once: true });
   window.addEventListener('keydown', unlockOnce, { once: true });
 
-  // Phase 23.0: the game-observe path of the static export (there is no backend
+  // The game-observe path of the static export (there is no backend
   // relay here) — the host's own observation (its step, play state and the
   // character's position); read by tooling and the e2e suite.
-  // Phase 23.19: a project save slot's picture (a data URL) for the page — a game's load screen, tests.
+  // A project save slot's picture (a data URL) for the page — a game's load screen, tests.
   (window as unknown as { __thirdlightSaveThumbnail?: (slot: number) => Promise<string | null> }).__thirdlightSaveThumbnail = (slot: number) => host.projectSaves?.thumbnail(slot) ?? Promise.resolve(null);
   (window as unknown as { __thirdlightObserve?: () => unknown }).__thirdlightObserve = () => {
     const res = host.observe();
@@ -608,7 +606,7 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
       return;
     }
     const obs = res.observation;
-    // Phase 24.6: the debug line names the build and the play state only (no game rules).
+    // The debug line names the build and the play state only (no game rules).
     hud(`${manifest.snapshotId} \u00b7 build ${manifest.buildId.slice(0, 12)} \u00b7 ${obs.state}`, false);
   };
   refresh();
@@ -630,7 +628,7 @@ async function main(): Promise<void> {
     if (manifest.type !== 'thirdlight-runtime-content' || manifest.manifestVersion !== RUNTIME_CONTENT_MANIFEST_VERSION_4) throw new Error('unsupported manifest document');
     const expected = await sha256Hex(new TextEncoder().encode(`${JSON.stringify(buildIdInput(manifest as unknown as Record<string, unknown>), null, 2)}\n`));
     if (expected !== manifest.buildId) throw new Error('manifest buildId does not match its own canonical bytes');
-    // Phase 25.7b: the content files, each checked against its (buildId-bound) row, back under their keys.
+    // The content files, each checked against its (buildId-bound) row, back under their keys.
     await start(canvas, await expandManifestContentFiles(manifest, { read: readArtifactBytes, sha256Hex }));
   } catch (e) {
     hud(`export error: ${(e instanceof Error ? e.message : String(e)).slice(0, 160)}`, true);

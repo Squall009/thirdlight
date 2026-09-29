@@ -1,5 +1,5 @@
 /**
- * Phase 23.1: 3D colliders from a model's `_COL` node, a 3D trigger, a
+ * 3D colliders from a model's `_COL` node, a 3D trigger, a
  * mover carrying the player, and the Scene handle of a new 3D shape — in a
  * real browser against a real backend, then in the static export with the
  * backend stopped.

@@ -1,5 +1,5 @@
 /**
- * Multi-piece models (2026-09-24): the optional `piece` on `components.model`
+ * Multi-piece models: the optional `piece` on `components.model`
  * and on an instance set's asset, and the optional `vertexColors: "tint"` on a
  * model asset record. Both survive canonicalization.
  */

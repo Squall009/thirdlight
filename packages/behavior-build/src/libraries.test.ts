@@ -1,5 +1,5 @@
 /**
- * Phase 23.7: script libraries (`@lib/<id>`) and `.json` data modules in the
+ * Script libraries (`@lib/<id>`) and `.json` data modules in the
  * behavior compiler.
  */
 import { describe, expect, it } from 'vitest';
@@ -26,7 +26,7 @@ function lib(libraryId: string, files: { path: string; text: string }[]): Script
 
 /**
  * Evaluate a compiled output here only as a test of the output (the compiler never runs source): as
- * CommonJS, with its shared library modules (phase 25.9) linked by the digest in their import paths.
+ * CommonJS, with its shared library modules linked by the digest in their import paths.
  */
 async function evaluate(bytes: Uint8Array, modules: readonly SharedLibraryModule[] = []): Promise<Record<string, unknown>> {
   const loaded = new Map<string, Record<string, unknown>>();
@@ -186,7 +186,7 @@ describe('script libraries', () => {
       expect(r.ok).toBe(true);
       transforms = opts.libraryCache?.entries.size ?? 0;
     }
-    // Phase 25.9: one transpiled library and one shared module, whatever the number of dependents.
+    // One transpiled library and one shared module, whatever the number of dependents.
     expect(transforms).toBe(2);
     expect(typeof compiler.checkLibrary).toBe('function');
   });

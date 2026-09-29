@@ -1,12 +1,12 @@
 /**
- * Phase 25.4: internal edges in 2D, through the production composition (the
+ * Internal edges in 2D, through the production composition (the
  * real game host, the character controller, Rapier) on small neutral levels.
  * Static colliders that share a face (a wall of stacked boxes, a floor of
  * tiles, a slope cut in two) behave like the one collider they tile: the
  * character's path is the same, it never grounds or hangs at a seam.
  * A character pressed against a wall on its left falls as on its right
- * (D46: Rapier held it there). Also (plan §2, TL question 2): a polygon mover
- * pushes the character sideways as a box mover does (D47: it fail-stopped).
+ * (Rapier would hold it there). Also: a polygon mover pushes the character
+ * sideways as a box mover does.
  */
 import { describe, expect, it } from 'vitest';
 

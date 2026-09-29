@@ -1,7 +1,7 @@
 /**
- * Three-adapter error model (packet 08; the dependencies.md §3 surface
- * row lists `ERROR_CODES` for the adapter — the code set below is the
- * adapter's stable set, recorded in docs/handoffs/08.md).
+ * Three-adapter error model (the three-adapter row of dependencies.md
+ * lists `ERROR_CODES` for the adapter — the code set below is the
+ * adapter's stable set).
  *
  * Every public call returns a result object and never throws.
  */
@@ -19,11 +19,11 @@ export const ERROR_CODES = [
   'screenshot_failed',
   /** A method was called after `dispose()`. */
   'adapter_disposed',
-  /** The WebGL context is currently lost; the frame was not rendered
-   *  (packet 26). The context is restored lazily by the browser — the
+  /** The WebGL context is currently lost; the frame was not rendered.
+   *  The context is restored lazily by the browser — the
    *  adapter releases nothing on loss and re-renders after restoration. */
   'render_context_lost',
-  // --- packet 26: the shared GLB realization path (visual resources) --------
+  // --- The shared GLB realization path (visual resources) --------
   /** The asset-byte source is missing/not a descriptor + bytes/resolver pair. */
   'asset_source_invalid',
   /** The injected resolver rejected, or returned no bytes (missing asset). */
@@ -46,24 +46,21 @@ export const ERROR_CODES = [
   'asset_disposed',
   /** An invalid preview argument (unknown clip index, non-finite time/delta). */
   'preview_invalid',
-  // --- packet 52: the presentation code-set registration -------------------
-  // presentation.md §41.7.2 D / §41.7.3: the code set is registered in THIS
-  // packet; the `AnimationRoleController` that raises it is packet 53.
+  // --- The presentation code-set registration -------------------
+  // Raised by the `AnimationRoleController` (animation.ts).
   /** The loaded version's clips do not satisfy the committed clip-role
-   *  mapping (presentation.md §41.3.6 rule 7; validation class, hard). */
+   *  mapping (presentation.md rule 7; validation class, hard). */
   'animation_role_unresolved',
-  // --- packet 69: the M4 delivered-rendering `models` block (C64-4) -------
-  // presentation.md §41.7.2 D / §41.9 row: the two new closed-set codes;
-  // the adapter's set otherwise stays unchanged.
+  // --- The delivered-rendering `models` block -------
   /** The `models` block is structurally invalid against the snapshot
    *  (non-v3 scene with a models block, a missing loader port, or an
    *  `animation` entry naming an entity without `modelAnimation` / a
-   *  mismatching `assetId`/`version` — delivery.md (M4) §2.2;
+   *  mismatching `assetId`/`version` — delivery.md;
    *  validation class, hard). */
   'models_config_invalid',
   /** A `model` entity's `assetId` resolves to no declared `assets` row
    *  (defensive residual: unreachable for a well-formed capture — the
-   *  closure includes every reachable asset; delivery.md (M4) §2.3;
+   *  closure includes every reachable asset; delivery.md;
    *  validation class, bounded diagnostic — the entity is realized as a
    *  plain group and the run proceeds). */
   'models_asset_unresolved',

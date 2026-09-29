@@ -1,5 +1,5 @@
 /**
- * Phase 23.11: the `socketAttach` component (v4 scenes) — the entity rides on
+ * The `socketAttach` component (v4 scenes) — the entity rides on
  * a named node (a bone or any node) of another entity's model, with a local
  * offset: equipment in a hand, a rider on a mount, a pilot in a cockpit, a
  * muzzle flash on a barrel.

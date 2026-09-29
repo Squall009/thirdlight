@@ -1,6 +1,6 @@
 /**
  * Templates declare their dependencies; creation refuses a template whose
- * declared modules this engine does not provide (D17).
+ * declared modules this engine does not provide.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -97,7 +97,7 @@ describe('template dependencies at creation', () => {
       headers: { authorization: `Bearer ${ADMIN}`, 'content-type': 'application/json', origin: AUTHORING_ORIGIN },
       body: JSON.stringify({ op: 'queryGameConfig', projectId: 't3' }),
     });
-    // Phase 24.7: there is no game block; the query reports the tag registry only.
+    // There is no game block; the query reports the tag registry only.
     const game = (await q.json()) as { ok: boolean; tags: unknown };
     expect(game.ok, JSON.stringify(game).slice(0, 300)).toBe(true);
     expect(Array.isArray(game.tags)).toBe(true);

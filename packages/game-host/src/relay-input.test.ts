@@ -1,5 +1,5 @@
 /**
- * Phase 25.15: the input exercise's frames — run length (a frame's first step
+ * The input exercise's frames — run length (a frame's first step
  * as written, the rest its continuation), neutral gaps, UI edges handed to
  * the page on a frame's first step, and the pointer through the UI hit test
  * (overUi, presses over the UI kept from the game, a click on release over

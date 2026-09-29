@@ -1,5 +1,5 @@
 /**
- * Packet 38 probe A — browser capability baseline.
+ * Probe A — browser capability baseline.
  *
  * Runs in the real local Chrome. Every value is measured in the browser; the
  * results are read back by `run.mjs` from `window.__probe`. Nothing here is

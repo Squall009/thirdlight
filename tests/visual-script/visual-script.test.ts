@@ -1,5 +1,5 @@
 /**
- * Phase 19.0: visual scripts run like TypeScript behaviors — compiled by the
+ * Visual scripts run like TypeScript behaviors — compiled by the
  * one compiler, executed by the real behavior host inside the production
  * composition (game host, platformer controller, Rapier), with neutral
  * fixtures.

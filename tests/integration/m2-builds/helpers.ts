@@ -1,5 +1,5 @@
 /**
- * Shared helpers for `tests/integration/m2-builds/**` (packet 33).
+ * Shared helpers for `tests/integration/m2-builds/**`.
  *
  * Real temporary data roots on ext4 (`/home/dadmin/.tl07-tmp-*`), the real
  * workspace service, the real commands pipeline and the real injected
@@ -95,8 +95,6 @@ export interface BuildEnv {
  * A disposable project with an empty content block, created through the real
  * workspace service (storage v4: project.json, content.json,
  * scenes/scene-main.json), with the real compiler injected into the service.
- * (Before phase 9.3 step B this migrated the M1 source into a storage v2
- * project; the migration operator is gone.)
  */
 export function makeBuildEnv(tag = 'm2build'): BuildEnv {
   const root = makeRoot(tag);
@@ -129,7 +127,7 @@ export function envelopeBytes(env: BuildEnv): Uint8Array {
 }
 
 /**
- * The durable state in the old envelope's shape: `scene.revision` is the
+ * The durable state in the single-envelope shape: `scene.revision` is the
  * project revision (the highest file revision, store-v4.ts) and `content` is
  * content.json's content block.
  */

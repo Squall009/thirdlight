@@ -1,5 +1,5 @@
 /**
- * Phase 23.18: environment presets as project content — validation (in the
+ * Environment presets as project content — validation (in the
  * environment block), the canonical form, a script's patch, texture refs.
  */
 import { describe, expect, it } from 'vitest';

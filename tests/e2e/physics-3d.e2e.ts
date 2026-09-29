@@ -1,5 +1,5 @@
 /**
- * Phase 23.0: a 3D project (physics_dimension 3) on the Rapier 3D backend,
+ * A 3D project (physics_dimension 3) on the Rapier 3D backend,
  * against a real backend. A neutral scene built through the backend's
  * commands on a blank project — a floor box with a depth (`hz`) and a player
  * capsule 3 m above it, off the origin in x and z — is switched to 3D in the

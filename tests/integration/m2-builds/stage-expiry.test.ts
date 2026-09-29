@@ -1,5 +1,5 @@
 /**
- * Phase 14.9: an expired stage (past the 3600 s TTL — `resolveStage` refuses
+ * An expired stage (past the 3600 s TTL — `resolveStage` refuses
  * it) no longer holds one of the eight open-stage slots. Found with a game
  * level script: publications keep their stages, and eight stages from earlier
  * sessions refused every new upload (`stage_limits_exceeded`, open_stages)
@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest';
 
 import { makeBuildEnv } from './helpers';
 
-// workspace.md §7.6: eight open stages per project, a 3600 s stage TTL.
+// Eight open stages per project, a 3600 s stage TTL.
 const MAX_OPEN_STAGES = 8;
 const STAGE_TTL_SECONDS = 3600;
 const bytes = new TextEncoder().encode('{"hello":"stage"}\n');

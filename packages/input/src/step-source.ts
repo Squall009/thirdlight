@@ -1,7 +1,6 @@
 /**
- * The replayable step-indexed input source for tests/replays (packet 30
- * "separate injectable step-input source"; input.md §6's replay model
- * expressed over *raw* snapshots rather than pre-built frames).
+ * The replayable step-indexed input source for tests/replays (the input.md
+ * replay model expressed over *raw* snapshots rather than pre-built frames).
  *
  * The engine-level frame-level replay source is in `@thirdlight/runtime`
  * (`createRecordedActionSource`). This source is its raw-input counterpart:
@@ -14,7 +13,7 @@
  * else the neutral frame for `n`. A missing index also ends the jump chain,
  * which is exactly how the 12-step settle pre-roll (steps 0–11) is
  * represented. `reset(reason)` is a no-op: a recorded sequence must never
- * silently change on focus events (input.md §6).
+ * silently change on focus events.
  */
 import type { ActionFrame, ActionSource } from '@thirdlight/runtime';
 import { mapRawStep, toActionFrame, type StepState } from './mapping';

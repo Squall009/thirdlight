@@ -1,17 +1,16 @@
 /**
- * Shared value validation — project-model.md §12.3 passes 2–4 and §13.
+ * Shared value validation (passes 2–4 after the strict byte parse).
  *
  * Holds the manifest (schemaVersion 1, the manifest of a storage-v3
  * project, still read by the automatic v3 → v4 upgrade), the shared field
  * helpers, the hierarchy cycle/depth checks and the component
- * canonicalizers the v3/v4 scene validators build on. The M1 standalone
- * scene model (schemaVersion 1) was removed in phase 9.3.
+ * canonicalizers the v3/v4 scene validators build on.
  *
  * Errors are collected, not fail-on-first, in a deterministic order.
- * Success returns the CANONICAL document (§12.2). Pure and total: never
+ * Success returns the CANONICAL document. Pure and total: never
  * reads/writes the filesystem, never throws on malformed data. `found`
  * values are always bounded and JSON-safe so an error payload serialized to
- * text never emits NaN/Infinity tokens (§12.7 R5).
+ * text never emits NaN/Infinity tokens.
  */
 
 import {
@@ -21,7 +20,7 @@ import {
   type ModelResult,
 } from './errors';
 
-/** The error element type shared by the M1 (narrow) and v2 (extended) results. */
+/** The error element type shared by the narrow and v2 (extended) results. */
 type AnyError = ModelError | ModelErrorV2;
 import type {
   BoxComponent,
@@ -32,15 +31,15 @@ import type {
   Quat,
 } from './types';
 
-// ---- §5/§6/§7/§10 constants -------------------------------------------------
+// ---- constants -------------------------------------------------
 
-export const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/; // §5.1
-const SEMVER_RE = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/; // §6
-const TIMESTAMP_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/; // §7.2
-const M1_SCENE_PATH = 'scenes/main.json'; // §3/§5.3/§7.1
-const QUATERNION_TOLERANCE = 1e-4; // §10.1
-export const MAX_LEN = 1e6; // §10.1/§10.2/§10.3 length bound (meters)
-export const MAX_REVISION = Number.MAX_SAFE_INTEGER; // §6 (2^53 - 1)
+export const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+const SEMVER_RE = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
+const TIMESTAMP_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
+const M1_SCENE_PATH = 'scenes/main.json';
+const QUATERNION_TOLERANCE = 1e-4;
+export const MAX_LEN = 1e6; // length bound (meters)
+export const MAX_REVISION = Number.MAX_SAFE_INTEGER; // 2^53 - 1
 /** The deepest an entity may sit in a scene's hierarchy (the root is depth 1). */
 export const MAX_ENTITY_DEPTH = 32;
 export const NAME_MIN = 1;
@@ -63,13 +62,13 @@ export function isPlainObject(v: unknown): v is Record<string, unknown> {
 
 /**
  * RFC 6901 escaping of one JSON Pointer reference token (G3 — Gate B
- * re-review round 1; project-model.md §12.5: `path` is a JSON Pointer to
+ * re-review round 1; `path` is a JSON Pointer to
  * the offending value). DYNAMIC keys (unknown fields) are interpolated
  * into `path` ONLY through this helper: `~` → `~0` FIRST, then `/` →
  * `~1`. Static segment names (`entities`, `components`, `position`, …) and
  * numeric indices never need escaping. Deliberate duplication of the same
  * two-line pure helper (commands' `pointerSegment`, parse-bytes' exported
- * `escapePointer`): the dependency direction (dependencies.md §4.1) keeps
+ * `escapePointer`): the dependency direction keeps
  * validate.ts module-local, and neither helper is a public export.
  */
 export function pointerSegment(segment: string): string {
@@ -95,15 +94,15 @@ function jsonSafe(v: unknown, depth: number): boolean {
 }
 
 /**
- * G1/G2 (Gate B re-review round 1, 2026-09-18): the traversal bound of the
+ * The traversal bound of the
  * `found` mapper. A value used as `found` may be ANY in-process value
- * (project-model.md §12.1: validation is pure and total — it never throws
+ * (validation is pure and total — it never throws
  * on malformed data), so the recursion over nested values must be bounded
  * by construction. The per-level caps below (string ≤ 256 chars, array ≤
  * 16 elements) are WIDTH caps, not a recursion bound: a length-1 nested
- * chain still recursed one stack frame per level, so a persisted
- * 4000-level chain used as `found` overflowed the stack (RangeError)
- * through the public `validate*` entry points. Now, per `found` mapping
+ * chain would recurse one stack frame per level, so a persisted
+ * 4000-level chain used as `found` would overflow the stack (RangeError)
+ * through the public `validate*` entry points. So, per `found` mapping
  * (fresh budget per error):
  *
  *   - depth <= 64 (root = depth 0; children of a depth-64 value are not
@@ -132,7 +131,7 @@ interface FoundBudget {
 }
 
 /**
- * Bound a `found` value (§12.5: "present when it exists and is bounded"):
+ * Bound a `found` value ("present when it exists and is bounded"):
  * long strings are truncated, long arrays summarized, non-JSON-safe values
  * omitted (the error keeps code/path/message/expected), and the whole
  * traversal is bounded (G1/G2). Where the bound is hit ANYWHERE in the
@@ -217,13 +216,13 @@ export function unexpectedField<E extends AnyError = ModelError>(path: string, k
   );
 }
 
-/** §12.3 pass 3: schemaVersion present and known for the document type. */
+/** schemaVersion present and known for the document type. */
 export function isKnownVersion(v: unknown, known: readonly number[]): boolean {
   return typeof v === 'number' && known.includes(v);
 }
 
 /**
- * §6/§12.5: the single `schema_version_unsupported` error. Carries `found`,
+ * The single `schema_version_unsupported` error. Carries `found`,
  * `knownVersions: [1]`, and the action hint naming the known versions.
  * Document validation stops at this error.
  */
@@ -256,7 +255,7 @@ export function schemaVersionUnsupported(
   );
 }
 
-/** §7.2: timestamp regex AND an existing UTC calendar date/time. */
+/** Timestamp regex AND an existing UTC calendar date/time. */
 export function isValidTimestamp(s: string): boolean {
   if (!TIMESTAMP_RE.test(s)) return false;
   const y = Number(s.slice(0, 4));
@@ -285,7 +284,7 @@ export function isValidTimestamp(s: string): boolean {
   return h <= 23 && mi <= 59 && se <= 59;
 }
 
-/** §4/§9.1: name fields — 1–128 chars, no control characters. */
+/** Name fields — 1–128 chars, no control characters. */
 export function isValidName(s: string): boolean {
   if (s.length < NAME_MIN || s.length > NAME_MAX) return false;
   for (let k = 0; k < s.length; k++) {
@@ -302,14 +301,14 @@ export interface NumRange {
   maxExcl?: number;
   /** reject |v| > absMax */
   absMax?: number;
-  /** Phase 15.5: reject v < min (an inclusive lower bound, e.g. 0 for a strength or a factor) */
+  /** Reject v < min (an inclusive lower bound, e.g. 0 for a strength or a factor) */
   min?: number;
   /** reject v <= 0 (no zero or negative lengths/scales) */
   positive?: boolean;
 }
 
 /**
- * One numeric leaf. Finiteness is checked BEFORE range (§12.7 R2): a
+ * One numeric leaf. Finiteness is checked BEFORE range: a
  * non-finite value yields only `number_not_finite`; a finite out-of-range
  * value yields only `number_out_of_range`; checks are independent per
  * element and all are collected.
@@ -369,7 +368,7 @@ export function checkVector(
   expected: string,
   errors: AnyError[],
 ): void {
-  if (v === undefined) return; // defaulted on normalize (§12.2 rule 1)
+  if (v === undefined) return; // defaulted on normalize
   if (!Array.isArray(v)) {
     errors.push(fieldType(path, v, `array of ${len} finite numbers`));
     return;
@@ -385,7 +384,7 @@ export function checkVector(
   }
 }
 
-/** §10.1 quaternion: 4 finite numbers, |‖q‖ − 1| ≤ 1e-4. */
+/** Quaternion: 4 finite numbers, |‖q‖ − 1| ≤ 1e-4. */
 export function checkQuaternion(v: unknown, path: string, errors: AnyError[]): void {
   if (v === undefined) return;
   if (!Array.isArray(v)) {
@@ -437,10 +436,10 @@ export function checkQuaternion(v: unknown, path: string, errors: AnyError[]): v
   }
 }
 
-// ---- cross-entity checks (§11, §10.3, §10.4) ----------------------------------
+// ---- cross-entity checks ----------------------------------
 
 /**
- * §11.2 normative cycle rejection: each node has ≤ 1 parent (functional
+ * Normative cycle rejection: each node has ≤ 1 parent (functional
  * graph), three-state walk (unvisited/visiting/done) started in array
  * order. Reaching a `visiting` node on the current walk ⇒ cycle ⇒
  * `hierarchy_cycle` listing the node IDs of the cycle in walk order
@@ -512,7 +511,7 @@ export function pushDepthError(errors: AnyError[], idx: number, d: number): void
 }
 
 /**
- * §10.4 depth limit (root = 1). Depths are computed only through valid
+ * Depth limit (root = 1). Depths are computed only through valid
  * parent links; chains that hit a missing reference or a cycle are
  * undefined (the document is already invalid for that reason) and are not
  * depth-reported.
@@ -580,13 +579,13 @@ export function checkDepthLimit(
   }
 }
 
-// ---- manifest (§7) -------------------------------------------------------------
+// ---- manifest -------------------------------------------------------------
 
 function validateManifestValue(
   doc: Record<string, unknown>,
 ): { errors: ModelError[]; doc?: Manifest } {
   const errors: ModelError[] = [];
-  // engineVersion (§7.1)
+  // engineVersion
   const ev = doc['engineVersion'];
   if (ev === undefined) {
     errors.push(fieldMissing('/engineVersion', 'engineVersion'));
@@ -595,7 +594,7 @@ function validateManifestValue(
   } else if (!SEMVER_RE.test(ev)) {
     errors.push(fieldValue('/engineVersion', ev, 'semver MAJOR.MINOR.PATCH[-prerelease]', 'engineVersion must be a well-formed semver string'));
   }
-  // id (§5.1)
+  // id
   const id = doc['id'];
   if (id === undefined) {
     errors.push(fieldMissing('/id', 'id'));
@@ -613,7 +612,7 @@ function validateManifestValue(
   } else if (!isValidName(name)) {
     errors.push(fieldValue('/name', name, `string, ${NAME_MIN}-${NAME_MAX} chars, no control characters`, 'project name must be 1-128 characters without control characters'));
   }
-  // createdAt (§7.2)
+  // createdAt
   const createdAt = doc['createdAt'];
   if (createdAt === undefined) {
     errors.push(fieldMissing('/createdAt', 'createdAt'));
@@ -624,7 +623,7 @@ function validateManifestValue(
       fieldValue('/createdAt', createdAt, 'YYYY-MM-DDTHH:mm:ssZ denoting an existing UTC date', 'createdAt must be a UTC timestamp with second precision and must denote an existing calendar date'),
     );
   }
-  // scenes (§7.1: exactly one in M1)
+  // scenes (exactly one)
   const scenes = doc['scenes'];
   if (scenes === undefined) {
     errors.push(fieldMissing('/scenes', 'scenes'));
@@ -662,12 +661,12 @@ function validateManifestValue(
       }
     }
   }
-  // Unknown top-level fields (§7.1 strict).
+  // Unknown top-level fields (strict).
   for (const k of Object.keys(doc)) {
     if (!KNOWN_MANIFEST_FIELDS.has(k)) errors.push(unexpectedField(`/${pointerSegment(k)}`, k, 'schemaVersion, engineVersion, id, name, createdAt, scenes'));
   }
   if (errors.length > 0) return { errors };
-  // All checks passed: build the canonical document (§12.2). The value
+  // All checks passed: build the canonical document. The value
   // below is the same validated `scenes[0]` reference object (the if-chain
   // narrowing does not persist past the block, so re-read and assert the
   // shape the checks just proved).
@@ -689,7 +688,7 @@ function validateManifestValue(
 export function validateManifest(doc: unknown): ModelResult<Manifest> {
   if (!isPlainObject(doc)) return fail([fieldType('', doc, 'object')]);
   if (!isKnownVersion(doc['schemaVersion'], SCHEMA_VERSIONS_BY_DOCUMENT.manifest)) {
-    // §12.3 pass 3: exactly one error; no field-level validation follows.
+    // Exactly one error; no field-level validation follows.
     return fail([schemaVersionUnsupported(doc['schemaVersion'], SCHEMA_VERSIONS_BY_DOCUMENT.manifest)]);
   }
   const { errors, doc: canonical } = validateManifestValue(doc);
@@ -697,21 +696,20 @@ export function validateManifest(doc: unknown): ModelResult<Manifest> {
   return { ok: true, normalized: canonical as Manifest };
 }
 
-/** §12.1: validate, then return the new canonical document (§12.2). */
+/** Validate, then return the new canonical document. */
 export function normalizeManifest(doc: unknown): ModelResult<Manifest> {
   return validateManifest(doc);
 }
 
 /**
- * Canonical component values (§12.2) for the v3/v4 scene canonicalizers.
+ * Canonical component values for the v3/v4 scene canonicalizers.
  * Each builds a NEW object (never mutates the input): defaults filled,
  * negative zero converted to zero, color lowercased, fixed key order,
- * quaternions preserved verbatim (no renormalization, no sign-flip, §12.2
- * rules 2/5).
+ * quaternions preserved verbatim (no renormalization, no sign-flip).
  */
 export function canonNum(v: unknown): number {
   const n = v as number; // validated finite number
-  return n === 0 ? 0 : n; // negative zero → zero (§12.2 rule 2)
+  return n === 0 ? 0 : n; // negative zero → zero
 }
 
 function canonVec3(v: unknown, d0: number, d1: number, d2: number): Vec3 {
@@ -744,7 +742,7 @@ export function canonicalBox(b: unknown): BoxComponent {
   return {
     size: canonVec3(o['size'], 1, 1, 1),
     material: { color: typeof color === 'string' ? color.toLowerCase() : '#b0b0b0' },
-    // Phase 17.4: kept only when set (an existing box keeps its exact canonical bytes).
+    // Kept only when set (an existing box keeps its exact canonical bytes).
     ...(typeof o['castShadow'] === 'boolean' ? { castShadow: o['castShadow'] } : {}),
     ...(typeof o['receiveShadow'] === 'boolean' ? { receiveShadow: o['receiveShadow'] } : {}),
   };

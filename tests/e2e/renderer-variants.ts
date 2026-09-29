@@ -1,24 +1,24 @@
 /**
- * Phase 17.2: renderer variants for the renderer-sensitive specs (materials,
+ * Renderer variants for the renderer-sensitive specs (materials,
  * textures, lightmaps, environment, lights, sky-texture, level-look). Each
  * such test is declared once per variant; a variant runs in one Playwright
  * project:
  *
  *  - `default` (WebGL 2 on SwiftShader, no WebGPU adapter): `auto` (the
- *    default since phase 17.4 — no flag; it takes the WebGL 2 backend here)
+ *    default — no flag; it takes the WebGL 2 backend here)
  *    and `webgl2` (forced by `?renderer=webgl2`);
  *  - `webgpu` (headless WebGPU): `webgpu` (forced by `?renderer=webgpu`).
  *
  * The flag goes on the editor URL (the editor passes it on to Play) and on
  * the export URL; every render canvas reports its backend in
  * `data-tl-renderer`, which the tests check so a variant cannot silently
- * fall back. (Phase 17.4: the `legacy` WebGLRenderer variant is archived.)
+ * fall back.
  */
 import { expect, test, type Locator } from '@playwright/test';
 
 import { gpuAvailable } from './browser-env.mjs';
 
-/** 2026-09-27: the host's GPU is in use (then `default` has a real WebGPU adapter and `auto` takes it). */
+/** The host's GPU is in use (then `default` has a real WebGPU adapter and `auto` takes it). */
 const GPU = gpuAvailable();
 
 export type RendererVariant = 'auto' | 'webgl2' | 'webgpu';
@@ -30,12 +30,12 @@ export function onlyInItsProject(variant: RendererVariant): void {
   test.skip(webgpuProject ? variant !== 'webgpu' : variant === 'webgpu', `the ${variant} variant runs in the ${variant === 'webgpu' ? 'webgpu' : 'default'} project`);
   const all = process.env['TL_E2E_ALL_VARIANTS'] === '1';
   if (GPU) {
-    // 2026-09-27 (owner): one pass by default — on a GPU `default` runs the product's own
+    // The owner's choice: one pass by default — on a GPU `default` runs the product's own
     // renderer (`auto` → WebGPU); the forced WebGL 2 variant and the webgpu project repeat it
     // only for renderer/shader changes (TL_E2E_ALL_VARIANTS=1, the gate's --both-renderers).
     test.skip(!webgpuProject && variant === 'webgl2' && !all, 'one renderer pass on a GPU (TL_E2E_ALL_VARIANTS=1 adds the WebGL 2 variant)');
   } else {
-    // Gate speed (2026-09-26): on a host without a WebGPU adapter `auto` takes the same WebGL 2
+    // Gate speed: on a host without a WebGPU adapter `auto` takes the same WebGL 2
     // path as the `webgl2` variant, so it would repeat it step for step (~6 min per full run).
     // `renderer.e2e.ts` still covers the `auto` default itself; TL_E2E_ALL_VARIANTS=1 runs it here too.
     test.skip(!webgpuProject && variant === 'auto' && !all, 'auto = webgl2 on this host (TL_E2E_ALL_VARIANTS=1 runs it)');

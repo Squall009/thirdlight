@@ -1,5 +1,5 @@
 /**
- * Phase 18.3: the material-graph compiler (no GPU: it builds TSL node trees;
+ * The material-graph compiler (no GPU: it builds TSL node trees;
  * the pixels are checked by the material-graph e2e and the shader-parity
  * harness on WebGL 2 and WebGPU).
  */
@@ -28,7 +28,7 @@ describe('material graph compiler: every node kind', () => {
     it(`${type} compiles in the fragment and the vertex stage`, () => {
       const spec = COMPILER_NODES[type]!;
       const out = spec.outputs[0]!;
-      // Phase 23.15: lighting inputs read light under a Custom-lit output.
+      // Lighting inputs read light under a Custom-lit output.
       const lit = LIGHTING_TYPES.has(type);
       const graph: MaterialGraphLike = {
         nodes: [

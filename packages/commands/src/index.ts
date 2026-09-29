@@ -1,25 +1,22 @@
 /**
- * @thirdlight/commands — public surface (dependencies.md §3;
- * commands.md §2/§5/§8/§9): types (mutation envelopes, results, errors,
+ * @thirdlight/commands — public surface: types (mutation envelopes, results, errors,
  * change/inverse data), the pure apply function (the forward/inverse
  * application core of the mutation pipeline), the history model, the
  * bounded content queries, and `ERROR_CODES`.
  *
- * Packet 21 adds the approved non-prefab M2 request/change/inverse types for
- * assets, components, declared properties, settings, behavior publication and
- * trust acknowledgment, plus `queryAssets`/`queryBehaviors`. Packet 22 adds
- * the prefab M2 request/change/inverse types (`createPrefab`,
- * `instantiatePrefab`, the `removePrefab` undo change) and `queryPrefabs`.
- * Prepared blobs are identifiers/validated data only: this package never
+ * The content ops cover assets, components, declared properties, settings,
+ * behavior publication, trust acknowledgment and prefabs (`createPrefab`,
+ * `instantiatePrefab`, the `removePrefab` undo change), with
+ * `queryAssets`/`queryBehaviors`/`queryPrefabs`. Prepared blobs are identifiers/validated data only: this package never
  * reads files or mutates the workspace.
  *
- * The workspace package (packet 07) is the sole command executor
- * (dependencies.md §4.3): it runs the full commands.md §6.1 pipeline —
+ * The workspace package is the sole command executor: it runs the full
+ * pipeline —
  * project resolution, deduplication, pause check, then `applyMutation`
  * (steps 4–6), then the durability write, publish, and acknowledge.
  *
  * Pure logic: no filesystem, no transport, no UI, no three.js, no Node
- * built-ins (dependencies.md §4.1: the only allowed edge is
+ * built-ins (the only allowed edge is
  * `project-model`, used for scene/content re-validation of resulting
  * documents, the ID syntax, and canonical byte comparison).
  *
@@ -32,8 +29,8 @@
 // no duplicate scene mutation paths).
 export { applyMutation, createCommandState } from './apply';
 
-// Bounded content queries (read-only, commands.md §4/§5.6). Packet 45 adds
-// `queryGameConfig` and the `queryEntities` component filter helper.
+// Bounded content queries (read-only), including `queryGameConfig` and the
+// `queryEntities` component filter helper.
 export {
   contentCounts,
   filterEntitiesByComponent,
@@ -43,7 +40,7 @@ export {
   queryPrefabs,
 } from './queries';
 
-// Error model (§5.4) and constants.
+// Error model and constants.
 export { ERROR_CODES, MAX_REQUEST_BYTES, MAX_REVISION } from './errors';
 export type { CommandErrorCode } from './errors';
 
@@ -226,11 +223,11 @@ export type {
   SetBlockStampArgs,
   DeleteBlockStampArgs,
 } from './types';
-// Phase 23.5: block-layer commands and the helpers queries and projections share.
+// Block-layer commands and the helpers queries and projections share.
 export { blockStampsOf, blockTypesOf, cellFieldsOf, layerDataOf, layerDelta, withLayerData } from './block-ops';
-// Phase 16.1: graph commands (owner kinds and the shared apply used by undo/redo).
+// Graph commands (owner kinds and the shared apply used by undo/redo).
 export { GRAPH_OWNER_KINDS, GRAPH_OWNERS, editOwnerGraph, parseBehaviorOwnerId, type GraphOwnerAdapter } from './graph-ops';
 
-// Phase 25.7c/e: asset and prefab deletion (the in-use refusal the workspace also raises), bulk creation.
+// Asset and prefab deletion (the in-use refusal the workspace also raises), bulk creation.
 export { contentInUse } from './delete-content-ops';
 export { CREATE_ENTITIES_MAX } from './ops';

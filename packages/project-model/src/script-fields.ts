@@ -1,5 +1,5 @@
 /**
- * Phase 25.10: generic component access for scripts (`ctx.entity(ref)`).
+ * Generic component access for scripts (`ctx.entity(ref)`).
  *
  * The component descriptors mark what scripts may read (`scriptReadable`)
  * and write while the game runs (`runtimeWritable`). This module turns the
@@ -202,7 +202,7 @@ function checkValue(f: FieldDescriptor, v: unknown): { ok: true; value: unknown 
       return { ok: true, value: q.map((x) => x / len) };
     }
     case 'map': {
-      // Phase 25.10: a writable map (material parameters) is checked for its shape here and for its values by the runtime.
+      // A writable map (material parameters) is checked for its shape here and for its values by the runtime.
       if (typeof v !== 'object' || v === null || Array.isArray(v)) return { ok: false, expected: `an object: ${f.keyLabel.toLowerCase()} → value` };
       return { ok: true, value: v };
     }

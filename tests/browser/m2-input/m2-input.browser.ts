@@ -1,21 +1,20 @@
 /**
- * Packet 30 — browser/hardware-only manual procedure (NOT run by vitest; this
+ * Browser/hardware-only manual procedure (NOT run by vitest; this
  * file has no `*.test.ts` suffix on purpose and is never imported by a bundle).
  *
  * There is no browser, no WebGL context and no gamepad hardware in this
- * container, so every claim below is **UNVERIFIED**. This is the packet-37 /
- * owner procedure that closes acceptance row A11's real-hardware half
- * (`m2-acceptance.md` §1: "Keyboard and a physical gamepad are both
- * required"; a synthetic trace complements but cannot replace it). The pure
+ * container, so every claim below is **UNVERIFIED**. This is the owner
+ * procedure that closes acceptance row A11's real-hardware half ("Keyboard
+ * and a physical gamepad are both required"; a synthetic trace complements
+ * but cannot replace it). The pure
  * half of A11 and the exact sampled frames are already Node-verified:
  * `packages/input/src/{mapping,browser,step-source}.test.ts` and
  * `fixtures/m2/input/raw-sequences.json` (re-derived by its own checker).
  *
- * BR-3 note (gamepad/secure-context topology, `docs/handoffs/m2-plan-review.md`
- * §BR-3): the intended authoring topology is plain-HTTP LAN (decision 0001 §7).
+ * Gamepad/secure-context topology: the intended authoring topology is plain-HTTP LAN.
  * `navigator.getGamepads()` availability varies by browser in non-secure
- * contexts, and the `gamepad` Permissions-Policy default is `*` (live MDN:
- * Permissions-Policy `gamepad`, 2026-12-28 revision) while a cross-origin
+ * contexts, and the `gamepad` Permissions-Policy default is `*` (MDN:
+ * Permissions-Policy `gamepad`) while a cross-origin
  * iframe needs `allow="gamepad"`. If the pad is not exposed in the
  * separate-origin preview frame on the plain-HTTP topology, A11 cannot pass
  * and the owner must choose the topology (localhost access on the backend host,
@@ -23,7 +22,7 @@
  * services or system packages to force it.
  *
  * Preconditions: the editor + preview bundles built (`npm run build`), the
- * packet-13/37 local deployment with a disposable `m2-course` project, and a
+ * local deployment with a disposable `m2-course` project, and a
  * scene with one `components.controller` entity plus a floor and walls
  * (`fixtures/m2/contracts/platformer/**` course spec). A physical controller
  * must be connected and recognised by the OS before opening the browser.
@@ -35,8 +34,7 @@
  *     `navigator.getGamepads().map(g => g && [g.index, g.id, g.mapping])`),
  *     and the preview iframe's `allow` attribute. Open the editor and press
  *     Play so the separate-origin preview iframe is live and focused.
- *  2. Console instrumentation (packet 35 wires the binding; until then inspect
- *     the preview's exported diagnostics): log `input_unavailable`,
+ *  2. Console instrumentation (or the preview's exported diagnostics): log `input_unavailable`,
  *     `input_mapping_unsupported`, `input_suspend`, `input_activate` and
  *     `input_disconnect` diagnostics, plus every sampled `ActionFrame`. Confirm
  *     the console shows `input_unavailable` (`reason: 'gamepad'`) exactly once
@@ -87,7 +85,7 @@
  *     for repeated `input_suspend`/`input_activate` storms.
  * 10. Capture: a real PNG per state (keyboard move, pad move, jump apex,
  *     post-blur neutral), the console log excerpts for items 2–9, and the
- *     network panel confirming no input traffic beyond the packet-35 relay (if
+ *     network panel confirming no input traffic beyond the input relay (if
  *     used). Screenshots must be real captures, not stubs.
  */
 export const PACKET_30_BROWSER_PROCEDURE =

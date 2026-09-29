@@ -1,5 +1,5 @@
 /**
- * Phase 22.0: the per-frame state of the simulation worker, encoded in the
+ * The per-frame state of the simulation worker, encoded in the
  * worker (`FrameEncoder`) and mirrored in the page (`FrameMirror`).
  *
  * The encoder sends only what changed since the last frame: transforms as one
@@ -38,26 +38,26 @@ export class FrameEncoder {
   private idsDirty = true;
   private readonly pool: ArrayBuffer[] = [];
   private hidden: string[] | null = null;
-  /** Phase 25.10: the switched-off objects and the light overrides last sent. */
+  /** The switched-off objects and the light overrides last sent. */
   private inactive: string[] | null = null;
   private lightsRef: unknown = null;
-  /** Phase 24.4h: the look overrides last sent ('' : none). */
+  /** The look overrides last sent ('': none). */
   private looksKey = '';
   private posesKey = '';
   private countersKey = '';
-  /** Phase 24.4j: the objects' health and the listed scene last sent. */
+  /** The objects' health and the listed scene last sent. */
   private healthsKey = '';
   private listedSent = -2;
-  /** Phase 23.4: the camera pose scratch and whether a camera went out last frame. */
+  /** The camera pose scratch and whether a camera went out last frame. */
   private readonly camPos: number[] = [0, 0, 0];
   private readonly camRot: number[] = [0, 0, 0, 1];
   private camSent = false;
-  /** Phase 23.18: the environment blend last sent. */
+  /** The environment blend last sent. */
   private envRef: unknown = null;
   private envKey = '';
-  /** Phase 23.3: the cursor request and the pointer last sent. */
+  /** The cursor request and the pointer last sent. */
   private cursorSent: 'free' | 'locked' | null = null;
-  /** Phase 23.10: the mode view last sent (the runtime hands out the same object until it changes). */
+  /** The mode view last sent (the runtime hands out the same object until it changes). */
   private modeSent: ModeView | null | undefined = undefined;
   private pointerSent: unknown = null;
   private sceneSetRef: SceneSetView | null = null;
@@ -70,11 +70,11 @@ export class FrameEncoder {
   private diagWanted = true;
   private memoryBytes = -1;
   private debugRevision = 0;
-  /** Phase 23.11: the socket list last sent (the runtime keeps one array while nothing changes). */
+  /** The socket list last sent (the runtime keeps one array while nothing changes). */
   private socketsRef: readonly unknown[] | null = null;
-  /** Phase 23.17: the timeline view last sent (the runtime keeps one object while nothing changes). */
+  /** The timeline view last sent (the runtime keeps one object while nothing changes). */
   private timelineRef: unknown = null;
-  /** Phase 25.24e: the scene loading view last sent (the runtime keeps one object while nothing changes). */
+  /** The scene loading view last sent (the runtime keeps one object while nothing changes). */
   private loadingRef: unknown = null;
   private shared: { sab: SharedArrayBuffer; slotFloats: number; slot: number; fresh: boolean } | null = null;
   private readonly useShared: boolean;
@@ -209,7 +209,7 @@ export class FrameEncoder {
       this.hidden = [...hidden];
       out.hidden = this.hidden;
     }
-    // Phase 25.10: the switched-off objects (audio sources go silent) and the light values scripts wrote.
+    // The switched-off objects (audio sources go silent) and the light values scripts wrote.
     const inactive = rt.inactiveEntities?.();
     if (inactive !== undefined && !sameSet(inactive, this.inactive ?? [])) {
       this.inactive = [...inactive];
@@ -223,7 +223,7 @@ export class FrameEncoder {
         out.lights = [...lights].map(([id, l]) => [id, { ...l }] as const);
       }
     }
-    // Phase 24.4h: the look overrides (only when they changed; never for a game that set none).
+    // The look overrides (only when they changed; never for a game that set none).
     const looks = rt.entityLooks?.();
     if (looks !== undefined && (looks.size > 0 || this.looksKey !== '')) {
       const entries = [...looks].map(([id, l]) => [id, { ...l }] as const).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
@@ -295,26 +295,26 @@ export class FrameEncoder {
     if (audio.length > 0) out.audio = audio;
     const effects = rt.takeEffectRequests?.() ?? [];
     if (effects.length > 0) out.effects = effects;
-    // Phase 23.4: the resolved camera (only while the game has a virtual camera).
+    // The resolved camera (only while the game has a virtual camera).
     const camView = rt.cameraView?.() ?? null;
     if (camView !== null) {
       const lens = rt.readCameraView?.(this.camPos, this.camRot) ?? null;
       if (lens !== null) out.cam = { pose: [...this.camPos, ...this.camRot, lens.fovY, lens.near, lens.far, lens.letterbox], view: camView };
     } else if (this.camSent) out.cam = null;
     this.camSent = camView !== null;
-    // Phase 23.19: project save requests (the page carries them out).
+    // Project save requests (the page carries them out).
     const saveReq = rt.takeSaveRequests?.() ?? [];
     if (saveReq.length > 0) out.saveReq = saveReq;
-    // Phase 23.5: block-layer chunks the simulation changed.
+    // Block-layer chunks the simulation changed.
     const grid = rt.takeGridChanges?.() ?? [];
     if (grid.length > 0) out.grid = grid;
-    // Phase 23.12: material parameters scripts changed (a data grid's bytes travel as a transfer).
+    // Material parameters scripts changed (a data grid's bytes travel as a transfer).
     const mat = rt.takeMaterialChanges?.() ?? [];
     if (mat.length > 0) {
       out.mat = mat;
       for (const c of mat) if (c.op === 'data') transfer.push(c.bytes.buffer as ArrayBuffer);
     }
-    // Phase 23.18: the environment blend (when it changed since the last frame).
+    // The environment blend (when it changed since the last frame).
     const env = rt.readEnvironmentBlend?.() ?? null;
     if (env !== this.envRef) {
       this.envRef = env;
@@ -324,19 +324,19 @@ export class FrameEncoder {
         out.env = env;
       }
     }
-    // Phase 23.14: the scripts' binding requests (the page's host carries them out).
+    // The scripts' binding requests (the page's host carries them out).
     const rb = rt.takeBindingRequests?.();
     if (rb !== undefined && (rb.requests.length > 0 || rb.dropped > 0)) out.rb = rb;
-    // Phase 23.9a: the project UI's diff of the steps since the last frame.
+    // The project UI's diff of the steps since the last frame.
     const ui = rt.takeUiOutput?.() ?? null;
     if (ui !== null) out.ui = ui;
-    // Phase 23.10: the game modes (when they changed).
+    // The game modes (when they changed).
     const mode = rt.modeView?.() ?? null;
     if (mode !== this.modeSent) {
       out.mode = mode;
       this.modeSent = mode;
     }
-    // Phase 23.3: the cursor a script asked for, and the pointer state (each when it changed).
+    // The cursor a script asked for, and the pointer state (each when it changed).
     const cursor = rt.cursorRequest?.() ?? null;
     if (cursor !== this.cursorSent) {
       out.cursor = cursor;
@@ -358,25 +358,25 @@ export class FrameEncoder {
     }
     if (extra.digests !== undefined && extra.digests.length > 0) out.digests = extra.digests;
     if (extra.tickError !== undefined) out.tickError = extra.tickError;
-    // Phase 23.8: the debug commands, when a script declared one or a call ran.
+    // The debug commands, when a script declared one or a call ran.
     const dbg = rt.debugCommandState?.();
     if (dbg !== undefined && dbg.revision !== this.debugRevision) {
       this.debugRevision = dbg.revision;
       out.debugCommands = dbg;
     }
-    // Phase 23.11: the objects riding on sockets (only when the list changed; never for a game without them).
+    // The objects riding on sockets (only when the list changed; never for a game without them).
     const sockets = rt.socketAttachments?.();
     if (sockets !== undefined && sockets !== this.socketsRef && (sockets.length > 0 || this.socketsRef !== null)) {
       this.socketsRef = sockets;
       out.sockets = sockets;
     }
-    // Phase 23.17: the timelines' view (only when it changed; never for a game that played none).
+    // The timelines' view (only when it changed; never for a game that played none).
     const tl = rt.timelineView?.() ?? null;
     if (tl !== this.timelineRef) {
       this.timelineRef = tl;
       out.tl = tl;
     }
-    // Phase 25.24e: scene loading (the scenes loading, a transition waiting, its swap) when it changed.
+    // Scene loading (the scenes loading, a transition waiting, its swap) when it changed.
     const sl = rt.sceneLoadingView?.();
     if (sl !== undefined && sl !== this.loadingRef) {
       this.loadingRef = sl;
@@ -428,14 +428,14 @@ export class FrameMirror {
   index = new Map<string, number>();
   xf: Float64Array<ArrayBufferLike> = new Float64Array(0);
   hidden: ReadonlySet<string> = new Set();
-  /** Phase 25.10: the switched-off objects and the light values scripts wrote. */
+  /** The switched-off objects and the light values scripts wrote. */
   inactive: ReadonlySet<string> = new Set();
   lights: ReadonlyMap<string, import('@thirdlight/runtime').LightOverride> = new Map();
-  /** Phase 24.4h: the look overrides. */
+  /** The look overrides. */
   looks: ReadonlyMap<string, { readonly emissive?: string; readonly emissiveIntensity?: number; readonly tint?: string }> = new Map();
   poses: ReadonlyMap<string, AnimatorPose> = new Map();
   counters: { counters: Record<string, number>; health: { current: number; max: number } | null } = { counters: {}, health: null };
-  /** Phase 24.4j: every object's health; the listed scene entry. */
+  /** Every object's health; the listed scene entry. */
   healths: Readonly<Record<string, { readonly current: number; readonly max: number }>> = {};
   listed = -1;
   sceneSet: SceneSetView | null = null;
@@ -445,36 +445,36 @@ export class FrameMirror {
   private spawnedByToken = new Map<number, SceneEntities[number]>();
   audio: AudioCommand[] = [];
   effects: unknown[] = [];
-  /** Phase 23.4: the resolved camera of the last frame (null: no virtual camera). */
+  /** The resolved camera of the last frame (null: no virtual camera). */
   cam: { readonly pose: readonly number[]; readonly view: CameraViewInfo } | null = null;
-  /** Phase 23.5: block-layer chunk changes not taken yet, the latest per chunk (bounded by the chunks). */
+  /** Block-layer chunk changes not taken yet, the latest per chunk (bounded by the chunks). */
   grid = new Map<string, import('@thirdlight/runtime').GridRenderChange>();
-  /** Phase 23.12: the latest material change per object, material and parameter, until the adapter takes them. */
+  /** The latest material change per object, material and parameter, until the adapter takes them. */
   mat = new Map<string, import('@thirdlight/runtime').MaterialRenderChange>();
-  /** Phase 23.18: the environment blend of the last frame that carried one (null: none yet). */
+  /** The environment blend of the last frame that carried one (null: none yet). */
   env: import('@thirdlight/runtime').EnvironmentBlendView | null = null;
-  /** Phase 23.19: project save requests not carried out yet (the host takes them every frame). */
+  /** Project save requests not carried out yet (the host takes them every frame). */
   saveReq: import('@thirdlight/runtime').SaveRequest[] = [];
-  /** Phase 23.14: binding requests not taken by the host yet (at most 32 wait). */
+  /** Binding requests not taken by the host yet (at most 32 wait). */
   bindingRequests: import('@thirdlight/runtime').InputBindingRequest[] = [];
   bindingDropped = 0;
-  /** Phase 23.9a: the project UI's changes the page host has not taken yet, and the mirrored view model and shown documents. */
+  /** The project UI's changes the page host has not taken yet, and the mirrored view model and shown documents. */
   ui: UiOutput | null = null;
   uiModel: Record<string, unknown> = {};
   uiShown: readonly UiShownDocument[] = [];
-  /** Phase 23.3: the worker's cursor request and pointer. */
+  /** The worker's cursor request and pointer. */
   cursor: 'free' | 'locked' | null = null;
   pointer: PointerSample | null = null;
   diag: RuntimeDiagnostics | null = null;
   memoryBytes = 0;
   debugCommands: DebugCommandState | null = null;
-  /** Phase 23.10: the game modes as of the last frame (null: none). */
+  /** The game modes as of the last frame (null: none). */
   mode: ModeView | null = null;
-  /** Phase 23.11: the objects riding on sockets. */
+  /** The objects riding on sockets. */
   sockets: readonly { readonly entityId: string; readonly target: string; readonly node: string }[] = Object.freeze([]);
-  /** Phase 23.17: the timelines' view. */
+  /** The timelines' view. */
   timeline: import('@thirdlight/runtime').TimelineView | null = null;
-  /** Phase 25.24e: scene loading (absent until the worker sent it). */
+  /** Scene loading (absent until the worker sent it). */
   loading: import('@thirdlight/runtime').SceneLoadingView | undefined = undefined;
   private sharedSab: SharedArrayBuffer | null = null;
   /** The previous full transform buffer (returned to the worker for reuse). */
@@ -533,7 +533,7 @@ export class FrameMirror {
       this.spawnedByToken = tokens;
       this.sceneSet = Object.freeze({ revision: w.revision, batches: Object.freeze(batches), status: Object.freeze({ ...w.status }), spawned: Object.freeze(spawned) }) as unknown as SceneSetView;
     }
-    // Phase 21.5: bounded like the runtime's own queues (phase 23.13: the newest 256 audio commands, the newest
+    // Bounded like the runtime's own queues (the newest 256 audio commands, the newest
     // 256 effect requests): a page that does not take them (headless, no adapter) never grows.
     if (s.audio !== undefined) {
       for (const a of s.audio) this.audio.push(a);
@@ -578,7 +578,7 @@ export class FrameMirror {
   }
 }
 
-/** Phase 21.5: the runtime's own bounds for queued sound and effect requests (runtime.ts). */
+/** The runtime's own bounds for queued sound and effect requests (runtime.ts). */
 export const MIRROR_AUDIO_LIMIT = 256;
 export const MIRROR_EFFECT_LIMIT = 256;
 

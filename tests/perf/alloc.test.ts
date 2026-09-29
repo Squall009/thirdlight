@@ -1,5 +1,5 @@
 /**
- * Phase 21.2 (always on; needs `dist/` — run `npm run build` first): the
+ * Always on; needs `dist/` — run `npm run build` first: the
  * steady simulation step loop stays allocation-light. The medium benchmark
  * (2000 entities, 20 scripts, 200 colliders; tools/perf/generate.ts) is built
  * through the real backend into a throwaway data root, then played headless
@@ -8,8 +8,8 @@
  * per steady step are the used-heap growth over windows of steps that saw no
  * collection.
  *
- * Before 21.2 the loop allocated ~1.4 KiB per entity per step (2.6 MiB per
- * step here); the bound — 64 KiB per step, 32 bytes per entity — fails as soon
+ * A loop that allocates per entity costs ~1.4 KiB per entity per step (2.6
+ * MiB per step here); the bound — 64 KiB per step, 32 bytes per entity — fails as soon
  * as anything per entity comes back, while leaving room for the constant
  * remainder (Rapier's JS glue, physics results, script intents; ~30 KiB).
  */

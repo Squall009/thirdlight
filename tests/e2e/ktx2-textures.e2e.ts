@@ -1,5 +1,5 @@
 /**
- * Phase 25.19: KTX2 texture assets and KTX2 encoding on import, against a
+ * KTX2 texture assets and KTX2 encoding on import, against a
  * real backend on a blank project.
  *
  * - Editor: the Assets panel's "texture import encoding" set to KTX2 colour;

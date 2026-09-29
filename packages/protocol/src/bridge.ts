@@ -1,16 +1,14 @@
 /**
- * Bridge message allowlist + strict validators — sessions.md §13.5 with the
- * packet-35 M2 v2 additions (delivery.md §7, sessions.md §17.6).
+ * Bridge message allowlist + strict validators.
  *
- * All messages are strict JSON with `v: 2` (the M2 bridge discriminator); a
+ * All messages are strict JSON with `v: 2` (the bridge protocol version); a
  * `v: 1` message is rejected exactly like an unknown field. Unknown fields are
  * rejected; anything outside the allowlist is dropped by the transport (the
- * editor/preview) — these validators are the single home of the strict shapes
- * (dependencies.md §3).
+ * editor/preview) — these validators are the single home of the strict shapes.
  *
  * The validators take the PARSED message value plus the transport
  * discriminators the caller supplies (origin/source checks are the transport's
- * job, §13.3 — they cannot be verified from the message body). Pure: no I/O.
+ * job — they cannot be verified from the message body). Pure: no I/O.
  */
 import { ID_RE } from '@thirdlight/project-model/limits';
 import { isContentId, isNonce, isPlaySessionId, isRelayId, isRequestId } from './ids';
@@ -27,7 +25,7 @@ import {
 } from './delivery';
 import { debugCommandCallProblem } from './m3';
 
-/** The exhaustive allowlists (sessions.md §13.5, v2). */
+/** The exhaustive allowlists (v2). */
 export const BRIDGE_EDITOR_TO_PREVIEW_TYPES = [
   'tl.handshake',
   'tl.snapshot',
@@ -59,21 +57,21 @@ export const BRIDGE_PREVIEW_TO_EDITOR_TYPES = [
 ] as const;
 export type BridgePreviewToEditorType = (typeof BRIDGE_PREVIEW_TO_EDITOR_TYPES)[number];
 
-/** The M2 discriminator (all bridge messages carry `v: 2`). */
+/** The bridge protocol version (all bridge messages carry `v: 2`). */
 export const BRIDGE_VERSION = 2;
 
-/** §17.6: the general v2 message cap and the `tl.load.progress` cap (the delivery contract's). */
+/** The general v2 message cap and the `tl.load.progress` cap (the delivery contract's). */
 export { BRIDGE_LOAD_PROGRESS_MAX_BYTES, BRIDGE_MESSAGE_MAX_BYTES };
-/** §17.6: `tl.input.request` frames/bytes cap: an input request carries one relay. */
+/** `tl.input.request` frames/bytes cap: an input request carries one relay. */
 export const BRIDGE_INPUT_MAX_FRAMES = INPUT_RELAY_MAX_FRAMES;
 export const BRIDGE_INPUT_MAX_BYTES = INPUT_RELAY_MAX_BODY_BYTES;
-/** Phase 19.2: breakpoints in one `tl.debug.request` (node ids as the debugger names them, `fn:<id>/<node>` inside a function). */
+/** Breakpoints in one `tl.debug.request` (node ids as the debugger names them, `fn:<id>/<node>` inside a function). */
 export const BRIDGE_DEBUG_MAX_BREAKPOINTS = 64;
-/** Phase 19.2: the `tl.debug.result` body bound. */
+/** The `tl.debug.result` body bound. */
 export const BRIDGE_DEBUG_RESULT_MAX_BYTES = 32_768;
-/** Phase 19.2: what a debug request may ask of the running play besides reading. */
+/** What a debug request may ask of the running play besides reading. */
 export const BRIDGE_DEBUG_COMMANDS = ['pause', 'resume', 'step'] as const;
-/** Phase 19.2: game-control commands (§20.1 plus the debugger's pause / resume / step). */
+/** Game-control commands (play controls plus the debugger's pause / resume / step). */
 const GAME_CONTROL = ['replay', 'mute', 'unmute', 'loadScene', 'unloadScene', 'clearSave', 'debugPause', 'debugResume', 'debugStep', 'debugCommand'];
 const ENTITY_ID_RE = ID_RE;
 /** A debugger node id: a graph item id, optionally scoped (`fn:<functionId>/` or `lib:<graphId>/`). */
@@ -109,12 +107,12 @@ function tooLarge(m: Record<string, unknown>, max: number): { reason: string } |
   return null;
 }
 
-/** `phase ∈ {shell, manifest, assets, behaviors, runtime}` (§17.6). */
+/** `phase ∈ {shell, manifest, assets, behaviors, runtime}`. */
 export const LOAD_PHASES = ['shell', 'manifest', 'assets', 'behaviors', 'runtime'] as const;
 export type LoadPhase = (typeof LOAD_PHASES)[number];
 
 /**
- * Validate one EDITOR → PREVIEW message (sessions.md §13.5, v2).
+ * Validate one EDITOR → PREVIEW message (v2).
  * `type` is the discriminator field of the message body.
  */
 export function validateBridgeEditorToPreview(value: unknown): Verdict {
@@ -145,7 +143,7 @@ export function validateBridgeEditorToPreview(value: unknown): Verdict {
       const s = m['snapshot'];
       if (!isPlainObject(s)) return { ok: false, reason: 'snapshot must be the runtime.md §2 document', path: '/snapshot' };
       for (const k of Object.keys(s)) {
-        // Phase 23.8: `start` — a test/debug start the backend resolved (the preview hands it to the host).
+        // `start` — a test/debug start the backend resolved (the preview hands it to the host).
         if (!['snapshotId', 'projectId', 'revision', 'scene', 'game', 'tags', 'start'].includes(k)) {
           return { ok: false, reason: `unknown snapshot field "${k}"`, path: `/snapshot/${k}` };
         }
@@ -173,9 +171,9 @@ export function validateBridgeEditorToPreview(value: unknown): Verdict {
       if (bad) return { ok: false, reason: bad.reason, path: bad.path };
       if (!isPlaySessionId(m['playSessionId'])) return { ok: false, reason: 'playSessionId must be play- + 32 hex', path: '/playSessionId' };
       if (!isRequestId(m['requestId'])) return { ok: false, reason: 'requestId must be req- + 32 hex', path: '/requestId' };
-      // Phase 25.16: restart the game first.
+      // Restart the game first.
       if (m['restart'] !== undefined && typeof m['restart'] !== 'boolean') return { ok: false, reason: 'restart must be a boolean', path: '/restart' };
-      // Phase 25.17: hold the game right after the last step.
+      // Hold the game right after the last step.
       if (m['hold'] !== undefined && typeof m['hold'] !== 'boolean') return { ok: false, reason: 'hold must be a boolean', path: '/hold' };
       const frames = m['frames'];
       if (!Array.isArray(frames) || frames.length < 1 || frames.length > BRIDGE_INPUT_MAX_FRAMES) {
@@ -186,8 +184,8 @@ export function validateBridgeEditorToPreview(value: unknown): Verdict {
       for (let i = 0; i < frames.length; i += 1) {
         const f = frames[i];
         if (!isPlainObject(f)) return { ok: false, reason: 'every frame must be an object', path: `/frames/${i}` };
-        // Phase 24.8: frame version 2 — named actions and (phase 23.3) the pointer (validated by the relay parser upstream).
-        // Phase 25.15: run length, a virtual gamepad and UI edges.
+        // Frame version 2 — named actions and the pointer (validated by the relay parser upstream).
+        // Run length, a virtual gamepad and UI edges.
         const b2 = rejectUnknown(f, ['stepOffset', 'steps', 'actions', 'pointer', 'gamepad', 'ui']);
         if (b2) return { ok: false, reason: b2.reason, path: `/frames/${i}${b2.path ?? ''}` };
         if (!int(f['stepOffset'], 0, 2 ** 53 - 1)) return { ok: false, reason: 'stepOffset must be an integer ≥ 0', path: `/frames/${i}/stepOffset` };
@@ -230,10 +228,10 @@ export function validateBridgeEditorToPreview(value: unknown): Verdict {
     }
     case 'tl.game.control':
     case 'tl.game.observe': {
-      // Phase 12 (c): loadScene / unloadScene carry the scene id.
+      // loadScene / unloadScene carry the scene id.
       const sceneCommand = m['command'] === 'loadScene' || m['command'] === 'unloadScene';
-      // Phase 15.4: an observation may name an entity (its script property values).
-      // Phase 23.8: a debug command carries its name and arguments.
+      // An observation may name an entity (its script property values).
+      // A debug command carries its name and arguments.
       const debugCommand = m['command'] === 'debugCommand';
       const fields = type === 'tl.game.control' ? ['v', 'type', 'playSessionId', 'relayId', 'command', ...(sceneCommand ? ['sceneId'] : []), ...(debugCommand ? ['name', 'args'] : [])] : ['v', 'type', 'playSessionId', 'relayId', 'entityId'];
       const bad = rejectUnknown(m, fields);
@@ -256,7 +254,7 @@ export function validateBridgeEditorToPreview(value: unknown): Verdict {
       return { ok: true };
     }
     case 'tl.debug.request': {
-      // Phase 19.2: the visual-script debugger — which behavior (and object) it watches, its breakpoints, an optional command.
+      // The visual-script debugger — which behavior (and object) it watches, its breakpoints, an optional command.
       const bad = rejectUnknown(m, ['v', 'type', 'playSessionId', 'relayId', 'behaviorId', 'entityId', 'breakpoints', 'command']);
       if (bad) return { ok: false, reason: bad.reason, path: bad.path };
       if (!isPlaySessionId(m['playSessionId'])) return { ok: false, reason: 'playSessionId must be play- + 32 hex', path: '/playSessionId' };
@@ -282,7 +280,7 @@ export function validateBridgeEditorToPreview(value: unknown): Verdict {
   }
 }
 
-/** Validate one PREVIEW → EDITOR message (sessions.md §13.5, v2). */
+/** Validate one PREVIEW → EDITOR message (v2). */
 export function validateBridgePreviewToEditor(value: unknown): Verdict {
   if (!isPlainObject(value)) return { ok: false, reason: 'message must be a JSON object' };
   const m = value;

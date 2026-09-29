@@ -1,6 +1,5 @@
 /**
- * Content browser import/publish flow (sessions.md §19; commands.md §3.1.1/
- * §4/§8.5; packet 27).
+ * Content browser import/publish flow.
  *
  * Pure state machine for one asset authoring flow:
  *
@@ -33,7 +32,7 @@ import {
   type ContentJobView,
 } from '@thirdlight/protocol';
 
-/** The only import extension M2 accepts (`project-model` §18.7 glTF 2.0 GLB). */
+/** The drop extension the browser accepts (glTF 2.0 binary, GLB). */
 export const ASSET_DROP_EXTENSION = '.glb';
 
 export type ImportPhase =
@@ -127,7 +126,7 @@ export type DropVerdict =
 /**
  * Validate a dropped/selected file **before** any network call: `.glb` only,
  * 1 … 32 MiB (the stage bound). An invalid drop creates no stage and no job
- * (sessions.md §19.1: the route rejects the frame; the editor explains it).
+ * (the route rejects the frame; the editor explains it).
  */
 export function validateDropCandidate(candidate: DropCandidate): DropVerdict {
   const name = candidate.name.trim();
@@ -162,7 +161,7 @@ export interface UploadFrame {
 
 /**
  * Split a source into the bounded upload frames the route accepts
- * (workspace.md §7.6.2: one frame ≤ 1 MiB, sequential `X-Thirdlight-Offset`).
+ * (one frame ≤ 1 MiB, sequential `X-Thirdlight-Offset`).
  */
 export function planUploadFrames(byteLength: number, frameMax: number = CONTENT_UPLOAD_FRAME_MAX): UploadFrame[] {
   if (!Number.isInteger(byteLength) || byteLength < 1 || !Number.isInteger(frameMax) || frameMax < 1) return [];
@@ -301,16 +300,16 @@ export function jobResultTtlMs(): number {
 
 // ---- publish args from a proposal ------------------------------------------------
 
-/** `YYYY-MM-DDTHH:mm:ssZ` (project-model §7.2 second precision). */
+/** `YYYY-MM-DDTHH:mm:ssZ` (second precision, as the project model stores it). */
 export function utcSecondTimestamp(date: Date = new Date()): string {
   return date.toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
 
-/** The strict `publishAsset` args (commands.md §3.1.1/§A3.5) — stage-free facts only. */
+/** The strict `publishAsset` args — stage-free facts only. */
 export interface PublishAssetRequestArgs {
   mode: 'create' | 'reimport';
   assetId: string;
-  /** §A3.5: required on a create; on a reimport it must equal the record's kind. */
+  /** Required on a create; on a reimport it must equal the record's kind. */
   kind: 'model' | 'audio' | 'texture' | 'music' | 'font';
   displayName?: string;
   sourceDigest: string;
@@ -322,7 +321,7 @@ export interface PublishAssetRequestArgs {
   importRecipe: unknown;
   metrics: unknown;
   importedAt: string;
-  /** §8.5.1: the atomic animated reimport (model reimport only). */
+  /** The atomic animated reimport (model reimport only). */
   animation?: { entityId: string; roles: unknown };
 }
 
@@ -335,7 +334,7 @@ export type PublishArgsResult =
  * Only an `ok` proposal can be published (a rejected proposal never reaches
  * this path — the inspect route already returned `import_rejected`), and the
  * digest/byte length/recipe/metrics always come from the proposal rather than
- * from anything the editor recomputed. M3 (packet 43/48 §A3.5): `kind` is
+ * from anything the editor recomputed. `kind` is
  * REQUIRED on a create (the discriminator is immutable at create) and, on a
  * reimport, must equal the record's kind — the caller passes the kind the
  * drop validation decided.

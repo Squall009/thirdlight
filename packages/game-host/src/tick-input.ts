@@ -1,5 +1,5 @@
 /**
- * Phase 22.0: the simulation worker's live input.
+ * The simulation worker's live input.
  *
  * The main thread owns the input devices. On every frame it samples the input
  * owner ONCE (an `ActionFrame`, the same call the runtime makes per step in
@@ -21,7 +21,7 @@
 import { mergeInputStatus, upgradeActionFrameV1, type ActionFrame, type ActionSource, type ActionValue, type JumpPhase, type PointerSample } from '@thirdlight/runtime';
 
 /**
- * Phase 23.3: the pointer on a further step of the same tick — where it is
+ * The pointer on a further step of the same tick — where it is
  * and what is held, without the sample's movement, wheel and edges (they
  * belong to the first step).
  */
@@ -36,7 +36,7 @@ const q4 = (v: number): number => {
   return r === 0 ? 0 : r;
 };
 
-/** Phase 23.3: two pointer samples with no step between them: the newer position and buttons, the movement and wheel added, the edges of both. */
+/** Two pointer samples with no step between them: the newer position and buttons, the movement and wheel added, the edges of both. */
 export function mergePointer(a: PointerSample | undefined, b: PointerSample | undefined): PointerSample | undefined {
   if (a === undefined) return b;
   if (b === undefined) return a;
@@ -60,7 +60,7 @@ export function mergePointer(a: PointerSample | undefined, b: PointerSample | un
   };
 }
 
-/** Phase 23.3: an action value that is an amount per sample (`i`) without its amount — what a further step of the same sample sees. */
+/** An action value that is an amount per sample (`i`) without its amount — what a further step of the same sample sees. */
 function spent(a: ActionValue, p: JumpPhase): ActionValue {
   return { v: 0, ...(a.x !== undefined ? { x: 0 } : {}), ...(a.y !== undefined ? { y: 0 } : {}), p, i: 1 };
 }
@@ -72,14 +72,14 @@ export function continuePhase(p: JumpPhase): JumpPhase {
 
 /** The frame's continuation for a further step in the same tick (no new device events). */
 export function continueFrame(f: ActionFrame): ActionFrame {
-  // Phase 24.8: frame version 2 — only named actions (and the pointer) continue.
+  // Frame version 2 — only named actions (and the pointer) continue.
   const out: ActionFrame = { stepIndex: f.stepIndex };
   if (f.actions !== undefined) {
     const actions: Record<string, ActionValue> = {};
     for (const name of Object.keys(f.actions)) {
       const a = f.actions[name]!;
       const p = continuePhase(a.p);
-      // Phase 23.3: a per-sample amount (pointer movement, wheel) is spent on the first step.
+      // A per-sample amount (pointer movement, wheel) is spent on the first step.
       if (a.i === 1) actions[name] = a.v === 0 && (a.x ?? 0) === 0 && (a.y ?? 0) === 0 && p === a.p ? a : spent(a, p);
       else actions[name] = p === a.p ? a : { v: a.v, ...(a.x !== undefined ? { x: a.x } : {}), ...(a.y !== undefined ? { y: a.y } : {}), p };
     }
@@ -118,7 +118,7 @@ export class TickInputSource implements ActionSource {
 
   push(sampled: ActionFrame | null): void {
     if (sampled === null) return;
-    // Phase 24.8: a version 1 frame (an older input owner or recording) reads as version 2.
+    // A version 1 frame (an older input owner or recording) reads as version 2.
     const frame = upgradeActionFrameV1(sampled) as ActionFrame;
     if (this.consumed || this.pending === null) {
       this.pending = frame;
@@ -135,7 +135,7 @@ export class TickInputSource implements ActionSource {
       for (const name of Object.keys(frame.actions ?? {})) {
         const a0 = frame.actions![name]!;
         const prev = p.actions?.[name];
-        // Phase 23.3: per-sample amounts of two samples before one step add up.
+        // Per-sample amounts of two samples before one step add up.
         const a: ActionValue =
           a0.i === 1 && prev?.i === 1
             ? { v: q4(clamp10(a0.v + prev.v)), ...(a0.x !== undefined ? { x: q4(clamp10(a0.x + (prev.x ?? 0))) } : {}), ...(a0.y !== undefined ? { y: q4(clamp10(a0.y + (prev.y ?? 0))) } : {}), p: a0.p, i: 1 }
@@ -149,7 +149,7 @@ export class TickInputSource implements ActionSource {
     }
     const pointer = mergePointer(p.pointer, frame.pointer);
     if (pointer !== undefined) merged.pointer = pointer;
-    // Phase 23.14: the host's input entries of both samples (the newer device and list, the events of both).
+    // The host's input entries of both samples (the newer device and list, the events of both).
     const input = mergeInputStatus(p.input, frame.input);
     if (input !== undefined) merged.input = input;
     this.pending = merged;

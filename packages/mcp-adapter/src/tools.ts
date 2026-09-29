@@ -1,5 +1,5 @@
 /**
- * The MCP tool surface (charter §7; decision 0001 §5). Six categories,
+ * The MCP tool surface (charter). Six categories,
  * exposed as MCP tools and routed into the backend's `/api/v1` command/query/
  * play services via `BackendClient` (never a second mutation engine).
  *
@@ -73,7 +73,7 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 export interface McpContext {
   readonly client: BackendClient;
   readonly projectId: string;
-  /** The `origin.clientId` recorded on MCP-submitted commands (commands.md §3). */
+  /** The `origin.clientId` recorded on MCP-submitted commands. */
   readonly clientId: string;
 }
 
@@ -85,9 +85,9 @@ export interface ToolDefinition {
   readonly inputSchema: Record<string, unknown>;
 }
 
-/** The M1 command ops (commands.md §2/§4). */
+/** The core scene command ops. */
 const M1_MUTATION_OPS = ['createEntity', 'setTransform', 'deleteEntity', 'undo', 'redo'] as const;
-/** The M2 content/property/prefab mutation ops (commands.md §8.5–§8.12). */
+/** The content/property/prefab mutation ops. */
 const M2_MUTATION_OPS = [
   'publishAsset',
   'publishBehavior',
@@ -98,7 +98,7 @@ const M2_MUTATION_OPS = [
   'createPrefab',
   'instantiatePrefab',
 ] as const;
-/** The M3 v3 game/presentation mutation ops (commands.md §8.13/§8.14, packet 45/48). */
+/** The v3 game/presentation mutation ops. */
 const M3_MUTATION_OPS = ['applySurfacePreset', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setCollisionLayers', 'setSaveSchema', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit', 'setEffect', 'deleteEffect', 'renameEffect', 'setScriptLibrary', 'deleteScriptLibrary', 'editBlocks', 'setBlockType', 'deleteBlockType', 'setCellFields', 'setBlockStamp', 'deleteBlockStamp', 'setUiDocument', 'deleteUiDocument', 'setUiTheme', 'deleteUiTheme', 'setTimeline', 'deleteTimeline', 'setModes', 'setBehaviorGroups', 'setEventCues', 'setShell', 'setDialogue', 'deleteDialogue', 'setSpeaker', 'deleteSpeaker', 'setDialogueSettings', 'deleteAsset', 'deletePrefab', 'createEntities', 'commitScriptLibraryStage'] as const;
 const MUTATION_OPS = [...M1_MUTATION_OPS, ...M2_MUTATION_OPS, ...M3_MUTATION_OPS] as const;
 const QUERY_OPS = ['queryProject', 'queryEntity', 'queryEntities', 'queryAssets', 'queryPrefabs', 'queryBehaviors'] as const;
@@ -854,7 +854,7 @@ async function inspect(ctx: McpContext, a: Record<string, unknown>): Promise<Cal
   const target = a.target;
   if (target === 'selection') return inspectSelection(ctx);
   if (target === 'engine') {
-    // Phase 25.18: the engine the backend runs.
+    // The engine the backend runs.
     const res = await ctx.client.engineInfo();
     return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
   }
@@ -896,7 +896,7 @@ async function inspect(ctx: McpContext, a: Record<string, unknown>): Promise<Cal
 
 async function command(ctx: McpContext, a: Record<string, unknown>): Promise<CallToolResult> {
   const op = a.op;
-  // Phase 25.9: a staged library patch goes to the library stage route (it changes no revision).
+  // A staged library patch goes to the library stage route (it changes no revision).
   if (op === 'stageScriptLibrary') {
     if (!isObj(a.args)) return toolError('args is required for stageScriptLibrary ({stageId?, libraryId, name?, files?} or {stageId, discard: true})');
     const res = await ctx.client.stageScriptLibrary(ctx.projectId, a.args);
@@ -948,7 +948,7 @@ async function sessions(ctx: McpContext): Promise<CallToolResult> {
 }
 
 async function playStart(ctx: McpContext, a: Record<string, unknown>): Promise<CallToolResult> {
-  // sessions.md §10.1: the play-start body is `{ options: { demo } }` (demo
+  // The play-start body is `{ options: { demo } }` (demo
   // boolean, default true) — `demo` nests under `options`, not at the top level.
   const body: Record<string, unknown> = {};
   const options: Record<string, unknown> = {};
@@ -956,8 +956,7 @@ async function playStart(ctx: McpContext, a: Record<string, unknown>): Promise<C
     if (typeof a.demo !== 'boolean') return toolError('demo must be a boolean');
     options.demo = a.demo;
   }
-  // Phase 23.8: the start options go in `options` too (the backend validates and resolves them).
-  // Phase 25.17: and the threading mode.
+  // The start options and the threading mode go in `options` too (the backend validates and resolves them).
   for (const k of ['sceneId', 'mode', 'variables', 'save', 'saveSlot', 'threads'] as const) if (a[k] !== undefined) options[k] = a[k];
   if (Object.keys(options).length > 0) body.options = options;
   if (a.sessionId !== undefined) {
@@ -980,7 +979,7 @@ async function diagnostics(ctx: McpContext, a: Record<string, unknown>): Promise
     if (!isObj(problems.body) || problems.body.ok !== true) return surfaceBackendError(problems);
     const project = await ctx.client.command(ctx.projectId, { op: 'queryProject', args: {} });
     const workspace = isObj(project.body) && project.body.ok === true ? project.body.workspace : null;
-    // Phase 25.18: the graph materials with problems now.
+    // The graph materials that have problems.
     return toolOk({ ok: true, workspace, total: problems.body.total, problems: problems.body.problems, ...(problems.body.materialProblems !== undefined ? { materialProblems: problems.body.materialProblems } : {}) });
   }
   if (typeof a.playSessionId !== 'string' || a.playSessionId.length === 0) return toolError('playSessionId must be a non-empty string');
@@ -999,7 +998,7 @@ async function screenshot(ctx: McpContext, a: Record<string, unknown>): Promise<
   return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
 }
 
-/** sessions.md §18.1: bounded exclusive-test input relay (semantic actions only). */
+/** Bounded exclusive-test input relay (semantic actions only). */
 async function inputExercise(ctx: McpContext, a: Record<string, unknown>): Promise<CallToolResult> {
   if (typeof a.playSessionId !== 'string' || a.playSessionId.length === 0) return toolError('playSessionId is required');
   if (!Array.isArray(a.frames) || a.frames.length < 1 || a.frames.length > 600) {
@@ -1012,7 +1011,7 @@ async function inputExercise(ctx: McpContext, a: Record<string, unknown>): Promi
     const raw = a.frames[i];
     if (!isObj(raw)) return toolError(`frames[${i}] must be an object`);
     const { stepOffset, actions } = raw;
-    // Phase 24.8: frame version 2 has no fixed channels.
+    // Frame version 2 has no fixed channels.
     for (const old of ['moveX', 'moveY', 'jump']) {
       if (raw[old] !== undefined) return toolError(`frames[${i}].${old} is not a frame field (input frame version 2): use actions {move: {v}, jump: {v, p}}`);
     }
@@ -1020,9 +1019,9 @@ async function inputExercise(ctx: McpContext, a: Record<string, unknown>): Promi
     if (stepOffset <= previous) return toolError('frames must be strictly ascending by stepOffset');
     previous = stepOffset;
     if (actions !== undefined && !isObj(actions)) return toolError(`frames[${i}].actions must be an object`);
-    // Phase 23.3: the pointer too.
+    // The pointer too.
     if (raw.pointer !== undefined && !isObj(raw.pointer)) return toolError(`frames[${i}].pointer must be an object { x, y, ... }`);
-    // Phase 25.15: run length (no overlap), a virtual gamepad, UI edges.
+    // Run length (no overlap), a virtual gamepad, UI edges.
     const span = relayFrameEnd(stepOffset, raw.steps, previousEnd);
     if (!span.ok) return toolError(`frames[${i}]: ${span.reason}`);
     previousEnd = span.end;
@@ -1048,9 +1047,9 @@ async function inputExercise(ctx: McpContext, a: Record<string, unknown>): Promi
   return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
 }
 
-// ---- packet 25 content tools --------------------------------------------------
+// ---- content tools ------------------------------------------------------------
 
-/** Bounded M2 content queries (commands.md §4/§5.6 + the content routes). */
+/** Bounded content queries (commands.md and the content routes). */
 async function contentQuery(ctx: McpContext, a: Record<string, unknown>): Promise<CallToolResult> {
   const target = a.target;
   if (target === 'projectFiles') {
@@ -1060,7 +1059,7 @@ async function contentQuery(ctx: McpContext, a: Record<string, unknown>): Promis
     return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
   }
   if (target === 'materials') {
-    // Phase 25.18: the materials and their graph problems (the backend checks them at load and after each change).
+    // The materials and their graph problems (the backend checks them at load and after each change).
     const paged = pageArgs(a);
     if (!paged.ok) return paged.error;
     if (a.materialId !== undefined && typeof a.materialId !== 'string') return toolError('materialId must be a string');
@@ -1072,8 +1071,8 @@ async function contentQuery(ctx: McpContext, a: Record<string, unknown>): Promis
     const res = await ctx.client.contentIntegrity(ctx.projectId);
     return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
   }
-  // Packet 48 repair: the v3 game-config query (commands.md §3.1.11/§A6) over
-  // the same shared command surface; no args.
+  // The v3 game-config query (commands.md) over the same shared command
+  // surface; no args.
   if (target === 'game') {
     if (a.includeDescriptors !== undefined && typeof a.includeDescriptors !== 'boolean') return toolError('includeDescriptors must be a boolean');
     const res = await ctx.client.command(ctx.projectId, { op: 'queryGameConfig', ...(a.includeDescriptors === true ? { args: { descriptors: true } } : {}) });
@@ -1125,7 +1124,7 @@ async function contentQuery(ctx: McpContext, a: Record<string, unknown>): Promis
     const res = await ctx.client.command(ctx.projectId, { op: 'queryBehaviors', args: { ...args, ...paged.args } });
     return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
   }
-  // Phase 23.5: block-layer cells and regions.
+  // Block-layer cells and regions.
   if (target === 'blocks') {
     const args: Record<string, unknown> = {};
     for (const k of ['sceneId', 'entityId', 'chunks', 'box', 'region'] as const) if (a[k] !== undefined) args[k] = a[k];
@@ -1165,7 +1164,7 @@ function decodeBase64(text: string): Uint8Array | null {
 
 /** Stage + upload (bounded frames) + inspect over the real backend routes. */
 async function contentUpload(ctx: McpContext, a: Record<string, unknown>): Promise<CallToolResult> {
-  // Phase 25.21: pack a texture (array) from texture assets.
+  // Pack a texture (array) from texture assets.
   if (a.pack !== undefined) {
     if (a.dataBase64 !== undefined || a.projectPath !== undefined || a.ktx2 !== undefined) return toolError('pack goes alone (no dataBase64, projectPath or ktx2; its encoding is pack.encoding)');
     if (!isObj(a.pack)) return toolError('pack must be an object {layers, encoding}');
@@ -1174,7 +1173,7 @@ async function contentUpload(ctx: McpContext, a: Record<string, unknown>): Promi
     const res = await ctx.client.packTexture(ctx.projectId, body);
     return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
   }
-  // Phase 25.22: an asset tool's job export (a folder or zip: a GLB and manifest.json).
+  // An asset tool's job export (a folder or zip: a GLB and manifest.json).
   if (a.jobExport !== undefined) {
     if (!isObj(a.jobExport)) return toolError('jobExport must be an object {path?}');
     if (a.projectPath !== undefined || a.kind !== undefined || a.ktx2 !== undefined || a.animation !== undefined) return toolError('jobExport goes alone (with dataBase64 of a zip, or its own path; the model is kind "model")');
@@ -1225,8 +1224,8 @@ async function contentUpload(ctx: McpContext, a: Record<string, unknown>): Promi
     const put = await ctx.client.uploadFrame(ctx.projectId, stageId, offset, bytes.length, frame);
     if (!(isObj(put.body) && put.body.ok === true)) return surfaceBackendError(put);
   }
-  // Packet 48: the additive inspect request selects the bounded PCM-WAV
-  // inspector or the role-aware animated GLB profile (presentation.md §41.3.3).
+  // The additive inspect request selects the bounded PCM-WAV
+  // inspector or the role-aware animated GLB profile.
   const inspectBody: Record<string, unknown> = {};
   if (a.kind !== undefined) {
     if (a.kind !== 'model' && a.kind !== 'audio' && a.kind !== 'texture' && a.kind !== 'music' && a.kind !== 'font') return toolError('kind must be "model", "audio", "texture", "music" or "font"');
@@ -1272,9 +1271,9 @@ async function projectFileInspect(ctx: McpContext, a: Record<string, unknown>): 
   return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
 }
 
-// ---- packet 48 §20 game control/observation relay tools -----------------------
+// ---- game control/observation relay tools -------------------------------------
 
-/** Phase 12 (c): publish an instance-set buffer (inline transforms). */
+/** Publish an instance-set buffer (inline transforms). */
 async function instanceBuffer(ctx: McpContext, a: Record<string, unknown>): Promise<CallToolResult> {
   if (a.digest !== undefined) {
     if (a.transforms !== undefined) return toolError('give transforms (publish) or digest (read), not both');
@@ -1294,7 +1293,7 @@ async function instanceBuffer(ctx: McpContext, a: Record<string, unknown>): Prom
   return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
 }
 
-/** sessions.md §20.1: bounded game-control relay (never a simulation). */
+/** Bounded game-control relay (never a simulation). */
 async function gameControl(ctx: McpContext, a: Record<string, unknown>): Promise<CallToolResult> {
   const playSessionId = a.playSessionId;
   if (typeof playSessionId !== 'string' || playSessionId.length === 0) return toolError('playSessionId is required');
@@ -1323,7 +1322,7 @@ async function gameControl(ctx: McpContext, a: Record<string, unknown>): Promise
   } else if (a.sceneId !== undefined) {
     return toolError('sceneId goes with loadScene / unloadScene only');
   }
-  // Phase 23.8: a debug command's name and arguments.
+  // A debug command's name and arguments.
   if (a.command === 'debugCommand') {
     if (typeof a.name !== 'string' || a.name.length === 0) return toolError('name is required for debugCommand');
     body.name = a.name;
@@ -1338,7 +1337,7 @@ async function gameControl(ctx: McpContext, a: Record<string, unknown>): Promise
   return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
 }
 
-/** sessions.md §20.1: bounded read-only observation relay (never a simulation). */
+/** Bounded read-only observation relay (never a simulation). */
 async function gameObserve(ctx: McpContext, a: Record<string, unknown>): Promise<CallToolResult> {
   if (typeof a.playSessionId !== 'string' || a.playSessionId.length === 0) return toolError('playSessionId is required');
   const body: Record<string, unknown> = {};
@@ -1359,7 +1358,7 @@ async function contentJob(ctx: McpContext, a: Record<string, unknown>): Promise<
   const res = await ctx.client.contentJob(ctx.projectId, a.jobId);
   return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
 }
-// ---- phase 25.17: the headless play-test runner ------------------------------
+// ---- the headless play-test runner ------------------------------------------
 
 async function playtest(ctx: McpContext, a: Record<string, unknown>): Promise<CallToolResult> {
   const spec: { -readonly [K in keyof PlaytestSpec]: PlaytestSpec[K] } = {};
@@ -1372,7 +1371,7 @@ async function playtest(ctx: McpContext, a: Record<string, unknown>): Promise<Ca
     spec.mode = a.mode;
   }
   if (a.driver !== undefined) {
-    // The driver is the project's own Node code: this process loads no code by a computed path (dependencies §5.1).
+    // The driver is the project's own Node code: this process loads no code by a computed path (dependencies.md).
     return toolError('a driver script runs from the command line: node tools/playtest.mjs <game folder> --driver <file> (tl_playtest takes an input script: frames)');
   }
   // The runner checks the rest (frames, threads, runs, observe, variables, timeoutMs).

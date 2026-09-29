@@ -1,10 +1,10 @@
 /**
- * Runtime lifecycle tests (runtime.md §3): states, transitions, error
+ * Runtime lifecycle tests: states, transitions, error
  * codes, single-loop ownership (no duplicate loops across start/stop
  * cycles), owned-listener removal on stop/dispose, repeatable disposal,
  * retained state across restart.
  *
- * The rAF "injected driver fake" (m1-acceptance §2.1) is a stubbed
+ * The rAF "injected driver fake" is a stubbed
  * global `requestAnimationFrame`/`cancelAnimationFrame`; it counts live
  * scheduled callbacks so single-loop ownership is observable.
  */
@@ -190,7 +190,7 @@ describe('lifecycle (runtime.md §3)', () => {
     const after = rt.getDiagnostics();
     if (!after.ok) throw new Error('diagnostics failed');
     expect(after.diagnostics.stepIndex).toBe(4);
-    // The demo position follows the §7.1 formula at the CONTINUED
+    // The demo position follows the demo formula at the CONTINUED
     // stepIndex (no reset, no jump): x(4) = x0 + A·sin(2π·5/480).
     const st = rt.getInterpolatedState();
     if (!st.ok) throw new Error('state failed');

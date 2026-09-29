@@ -74,9 +74,8 @@ const METRIC_ORDER: Exclude<keyof AssetMetrics, 'bounds'>[] = [
 ];
 
 /**
- * presentation.md §41.4.1/§41.4.2/§41.4.3: the frozen `pcm-wav` profile
- * constants (the exact arithmetic §18.6 restates for the audio member); the
- * importer reads the same profile.
+ * The frozen `pcm-wav` profile constants; the importer reads the same
+ * profile.
  */
 const AUDIO_PCM_BYTES_MAX = AUDIO_PCM_WAV_PROFILE.maxPcmBytes;
 const AUDIO_FRAMES_MAX = AUDIO_PCM_WAV_PROFILE.maxFrames;
@@ -86,7 +85,7 @@ const AUDIO_SOURCE_FILE_BYTES_MAX = AUDIO_PCM_WAV_PROFILE.maxSourceFileBytes;
 const AUDIO_PIPELINE_NAME = 'asset-pipeline';
 const AUDIO_PIPELINE_VERSION = AUDIO_PCM_WAV_PROFILE.audioPipelineVersion;
 
-/** presentation.md §41.4.3: the `pcm-wav` metrics member key order (exact). */
+/** The `pcm-wav` metrics member key order (exact). */
 const AUDIO_METRIC_ORDER = [
   'container',
   'encoding',
@@ -100,7 +99,7 @@ const AUDIO_METRIC_ORDER = [
   'riffChunkBytes',
 ] as const;
 
-/** §18.5: a `pcm-wav` recipe has no `extensions` key (a WAV has no glTF extensions). */
+/** A `pcm-wav` recipe has no `extensions` key (a WAV has no glTF extensions). */
 const AUDIO_RECIPE_FIELDS = new Set(['profile', 'recipeVersion', 'toolchain']);
 const KNOWN_ASSET_FIELDS = new Set(['assetId', 'kind', 'displayName', 'currentVersion', 'versions', 'vertexColors', 'materials', 'clipsFor']);
 const KNOWN_VERSION_FIELDS = new Set([
@@ -117,7 +116,7 @@ const KNOWN_VERSION_FIELDS = new Set([
 ]);
 const KNOWN_RECIPE_FIELDS = new Set(['profile', 'recipeVersion', 'toolchain', 'extensions']);
 
-// ---- assets (§18.3–§18.6) -----------------------------------------------------
+// ---- assets -----------------------------------------------------
 
 function validateImportRecipe(r: unknown, path: string, errors: ModelErrorV2[], kind: AssetKindV3 = 'model'): void {
   const bad = (message: string, found: unknown): void => {
@@ -164,8 +163,7 @@ function validateImportRecipe(r: unknown, path: string, errors: ModelErrorV2[], 
     return;
   }
   if (kind === 'audio') {
-    // §18.5/§41.4.3 (packet 47, CC-44-2): the promoted `pcm-wav` recipe is
-    // enforced, not merely container-checked. Exactly `asset-pipeline` at the
+    // The `pcm-wav` recipe is enforced, not merely container-checked. Exactly `asset-pipeline` at the
     // repository pin, `recipeVersion` 1, and **no** `extensions` key.
     if (r['profile'] !== 'pcm-wav') bad('an audio import recipe profile must be "pcm-wav"', r['profile']);
     if (r['recipeVersion'] !== AUDIO_PCM_WAV_PROFILE.recipeVersion) {
@@ -185,7 +183,7 @@ function validateImportRecipe(r: unknown, path: string, errors: ModelErrorV2[], 
         );
       }
     }
-    // §18.5/§41.4.3: the key set is exactly profile/recipeVersion/toolchain.
+    // The key set is exactly profile/recipeVersion/toolchain.
     // `extensions` is not merely empty — it must be absent.
     for (const k of Object.keys(r)) {
       if (!AUDIO_RECIPE_FIELDS.has(k)) {
@@ -215,7 +213,7 @@ function validateImportRecipe(r: unknown, path: string, errors: ModelErrorV2[], 
       if (typeof v !== 'string' || !SEMVER_RE.test(v)) bad(`toolchain entry "${n}" must be an exact version string`, v);
     }
     if (names.some((n) => !(n === 'three'))) {
-      // M2 accepts only the pinned loader line; unknown tools are recorded as
+      // Only the pinned loader line is accepted; unknown tools are recorded as
       // unaccepted toolchain names (repository pins are the only accepted values).
     }
   }
@@ -289,7 +287,7 @@ function validateMetrics(
       errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, [...METRIC_ORDER, 'bounds'].join(', ')));
     }
   }
-  // Phase 15.3: the model's axis-aligned bounds in its own space (optional; recorded at import).
+  // The model's axis-aligned bounds in its own space (optional; recorded at import).
   const bounds = m['bounds'];
   if (bounds !== undefined) {
     const vec = (v: unknown): v is number[] => Array.isArray(v) && v.length === 3 && v.every((x) => typeof x === 'number' && Number.isFinite(x) && Math.abs(x) <= MAX_LEN);
@@ -306,12 +304,12 @@ function validateMetrics(
 }
 
 /**
- * presentation.md §41.4.2/§41.4.3 + §18.6: the `PcmWavMetrics` member is
+ * The `PcmWavMetrics` member is
  * re-validated against every cap and against the record's own
  * `sourceByteLength` on every load. A disagreeing record is invalid
  * (`limits_exceeded`/`field_value`) and is **never normalized**.
  */
-/** Phase 9.10: `{format, channels, sampleRate, durationMs}` of a music version. */
+/** `{format, channels, sampleRate, durationMs}` of a music version. */
 function validateMusicMetrics(m: Record<string, unknown>, path: string, errors: ModelErrorV2[]): void {
   if (!['ogg-vorbis', 'ogg-opus', 'mp3', 'wav'].includes(m['format'] as string)) {
     errors.push(fieldValue(`${path}/format`, m['format'], '"ogg-vorbis" | "ogg-opus" | "mp3" | "wav"', 'music is Ogg Vorbis/Opus, MP3 or WAV'));
@@ -326,7 +324,7 @@ function validateMusicMetrics(m: Record<string, unknown>, path: string, errors: 
   }
 }
 
-/** Phase 23.9a: `{format, familyName?}` of a font version. */
+/** `{format, familyName?}` of a font version. */
 function validateFontMetrics(m: Record<string, unknown>, path: string, errors: ModelErrorV2[]): void {
   if (!['ttf', 'otf', 'woff2', 'woff'].includes(m['format'] as string)) {
     errors.push(fieldValue(`${path}/format`, m['format'], '"ttf" | "otf" | "woff2" | "woff"', 'a font is TrueType, OpenType, WOFF2 or WOFF'));
@@ -341,11 +339,11 @@ function validateFontMetrics(m: Record<string, unknown>, path: string, errors: M
 }
 
 /**
- * Phase 9.4: `{format, width, height, decodedBytes}` of a texture version.
- * Phase 25.19: a KTX2 (Basis Universal) texture adds `codec` (etc1s | uastc)
+ * `{format, width, height, decodedBytes}` of a texture version.
+ * A KTX2 (Basis Universal) texture adds `codec` (etc1s | uastc)
  * and `levels` (its mip levels, 1–13); `decodedBytes` stays width × height × 4
  * (the budget counts the uncompressed size, an upper bound of the GPU's).
- * Phase 25.21: a KTX2 texture array adds `layers` (2–{@link MAX_TEXTURE_LAYERS});
+ * A KTX2 texture array adds `layers` (2–{@link MAX_TEXTURE_LAYERS});
  * its `decodedBytes` counts every layer (width × height × 4 × layers).
  */
 function validateTextureMetrics(m: Record<string, unknown>, path: string, errors: ModelErrorV2[]): void {
@@ -399,7 +397,7 @@ function validateAudioMetrics(
     return value;
   };
 
-  // Exact key set (the member is profile-determined, §18.6).
+  // Exact key set (the member is profile-determined).
   for (const key of AUDIO_METRIC_ORDER) {
     if (m[key] === undefined) errors.push(fieldMissing(`${path}/${key}`, key));
   }
@@ -432,7 +430,7 @@ function validateAudioMetrics(
   const dataChunkBytes = int('dataChunkBytes');
   const riffChunkBytes = int('riffChunkBytes');
 
-  // Caps (§41.4.2; the single normative PCM bound names the limit).
+  // Caps (the single normative PCM bound names the limit).
   if (frames !== null && frames > AUDIO_FRAMES_MAX) {
     errors.push(limitsError(`${path}/frames`, 'audio_pcm_bytes', frames, AUDIO_FRAMES_MAX, 'frames exceed the PCM cap'));
   }
@@ -443,7 +441,7 @@ function validateAudioMetrics(
     errors.push(limitsError(`${path}/durationMs`, 'audio_pcm_bytes', durationMs, AUDIO_DURATION_MS_MAX, 'duration exceeds the derived cap'));
   }
 
-  // Exact derived arithmetic (§41.4.2) — a disagreeing record is invalid.
+  // Exact derived arithmetic — a disagreeing record is invalid.
   if (frames !== null && frames < 1) {
     valueError('frames', frames, 'an integer >= 1', 'a pcm-wav carries at least one frame');
   }
@@ -491,12 +489,12 @@ function validateAudioMetrics(
   }
 }
 
-/** Phase 25.21: the KTX2 encodings (color: ETC1S sRGB; normal: UASTC normal map; data: UASTC linear). */
+/** The KTX2 encodings (color: ETC1S sRGB; normal: UASTC normal map; data: UASTC linear). */
 export const KTX2_ENCODINGS = ['color', 'normal', 'data'] as const;
 export type Ktx2Encoding = (typeof KTX2_ENCODINGS)[number];
 
 /**
- * Phase 25.21: `packedFrom` — a KTX2 texture (a texture array when it has
+ * `packedFrom` — a KTX2 texture (a texture array when it has
  * several layers) packed at import from texture assets of the project, channel
  * by channel: per layer the four sources of R, G, B and A, each a channel of a
  * texture asset's version (its id and bytes digest) or a constant 0–255.
@@ -582,7 +580,7 @@ function validateAssetVersion(v: unknown, path: string, errors: ModelErrorV2[], 
   const converted = v['convertedFrom'];
   if (converted !== undefined) {
     const cpath = `${path}/convertedFrom`;
-    // Phase 25.19: a texture version may be a KTX2 encoded from a PNG/JPEG at import.
+    // A texture version may be a KTX2 encoded from a PNG/JPEG at import.
     const texture = kind === 'texture';
     if (kind !== 'model' && !texture) errors.push(unexpectedField(cpath, 'convertedFrom', 'only a model or texture version can be converted'));
     else if (sourcePath !== undefined) errors.push(unexpectedField(cpath, 'convertedFrom', 'a converted version is stored; it cannot also have a sourcePath'));
@@ -735,7 +733,7 @@ export function validateAsset(a: unknown, path: string, errors: ModelErrorV2[], 
       errors.push(fieldValue(`${path}/vertexColors`, vertexColors, '"tint" (absent = data)', 'vertexColors is stored only as "tint"; the default treats COLOR_0 as shader data'));
     }
   }
-  // Phase 14.6: an animation-only model whose clips play on another model's rig (checked against the catalog in v4).
+  // An animation-only model whose clips play on another model's rig (checked against the catalog in v4).
   const clipsFor = a['clipsFor'];
   if (clipsFor !== undefined) {
     if (!v3 || kind !== 'model') errors.push(unexpectedField(`${path}/clipsFor`, 'clipsFor', 'only a v4 model asset has clipsFor'));
@@ -760,14 +758,14 @@ function canonicalRecipe(r: ImportRecipe): ImportRecipe {
   };
 }
 
-/** §18.5/§41.4.3: the `pcm-wav` recipe has no `extensions` key. */
+/** The `pcm-wav` recipe has no `extensions` key. */
 function canonicalAudioRecipe(r: PcmWavRecipe): PcmWavRecipe {
   const toolchain: Record<string, string> = {};
   for (const k of sortedKeys(r.toolchain)) toolchain[k] = r.toolchain[k] as string;
   return { profile: 'pcm-wav', recipeVersion: 1, toolchain };
 }
 
-/** §18.6/§41.4.3: the `PcmWavMetrics` member in its exact canonical key order. */
+/** The `PcmWavMetrics` member in its exact canonical key order. */
 function canonicalAudioMetrics(m: PcmWavMetrics): PcmWavMetrics {
   return {
     container: m.container,
@@ -786,12 +784,12 @@ function canonicalAudioMetrics(m: PcmWavMetrics): PcmWavMetrics {
 function canonicalMetrics(m: AssetMetrics): AssetMetrics {
   const out = {} as AssetMetrics;
   for (const key of METRIC_ORDER) out[key] = m[key];
-  // Phase 15.3: optional, last (a version imported before keeps its exact bytes).
+  // Optional, last (a version imported before keeps its exact bytes).
   if (m.bounds !== undefined) out.bounds = { min: [m.bounds.min[0], m.bounds.min[1], m.bounds.min[2]], max: [m.bounds.max[0], m.bounds.max[1], m.bounds.max[2]] };
   return out;
 }
 
-/** Phase 25.21: canonical key order of a `packedFrom` record. */
+/** Canonical key order of a `packedFrom` record. */
 function canonicalPackedFrom(p: PackedFrom): PackedFrom {
   return {
     layers: p.layers.map((l) => l.map((c) => ('value' in c ? { value: c.value } : { assetId: c.assetId, digest: c.digest, channel: c.channel }))),
@@ -808,15 +806,15 @@ function canonicalConvertedFrom(c: ConvertedFrom): ConvertedFrom {
     sourceByteLength: c.sourceByteLength,
     ...(c.sourcePath !== undefined ? { sourcePath: c.sourcePath } : {}),
     converter: { name: c.converter.name, version: c.converter.version },
-    // Phase 25.19: a KTX2 texture's encoding.
+    // A KTX2 texture's encoding.
     ...('encoding' in c ? { encoding: c.encoding } : {}),
   } as ConvertedFrom;
 }
 
 /**
- * §23.7: the kind-aware v3 version canonicalizer. The `audio` member keeps
+ * The kind-aware v3 version canonicalizer. The `audio` member keeps
  * `PcmWavMetrics`/`pcm-wav` (no `extensions` and no GLB metric fields); the
- * `model` member keeps the accepted M2 field set.
+ * `model` member keeps the v2 field set.
  */
 function canonicalVersionV3(v: AssetVersionV3, kind: AssetKindV3): AssetVersionV3 {
   const head = {
@@ -825,7 +823,7 @@ function canonicalVersionV3(v: AssetVersionV3, kind: AssetKindV3): AssetVersionV
     sourceByteLength: v.sourceByteLength,
     ...(v.sourcePath !== undefined ? { sourcePath: v.sourcePath } : {}),
     ...(v.convertedFrom !== undefined ? { convertedFrom: canonicalConvertedFrom(v.convertedFrom) } : {}),
-    // Phase 25.21: a packed texture's channel sources.
+    // A packed texture's channel sources.
     ...(v.packedFrom !== undefined ? { packedFrom: canonicalPackedFrom(v.packedFrom) } : {}),
   };
   const tail = { importedAt: v.importedAt, publishedRevision: v.publishedRevision };
@@ -855,7 +853,7 @@ function canonicalVersionV3(v: AssetVersionV3, kind: AssetKindV3): AssetVersionV
     return {
       ...head,
       importRecipe: { profile: 'image', recipeVersion: 1, toolchain: { ...r.toolchain } } as unknown as AssetVersionV3['importRecipe'],
-      // Phase 25.19: a KTX2's codec and mip levels last.
+      // A KTX2's codec and mip levels last.
       metrics: { format: m.format, width: m.width, height: m.height, decodedBytes: m.decodedBytes, ...(m.codec !== undefined ? { codec: m.codec } : {}), ...(m.levels !== undefined ? { levels: m.levels } : {}), ...(m.layers !== undefined ? { layers: m.layers } : {}) } as unknown as AssetVersionV3['metrics'],
       ...tail,
     };
@@ -877,7 +875,7 @@ function canonicalVersionV3(v: AssetVersionV3, kind: AssetKindV3): AssetVersionV
   };
 }
 
-/** §23.7: the kind-aware v3 asset canonicalizer (record order is untouched). */
+/** The kind-aware v3 asset canonicalizer (record order is untouched). */
 export function canonicalAssetV3(a: AssetRecordV3): AssetRecordV3 {
   const kind: AssetKindV3 = a.kind === 'audio' ? 'audio' : a.kind === 'texture' ? 'texture' : a.kind === 'music' ? 'music' : a.kind === 'font' ? 'font' : 'model';
   return {

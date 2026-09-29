@@ -1,12 +1,12 @@
 /**
- * Phase 25.24e: scene loads that never show an empty world.
+ * Scene loads that never show an empty world.
  *
  * A game page reads a scene when the game asks for it (`load`, the host's
- * `loadScene`). Before this, the scene's entities went to the simulation as
- * soon as its file was read, and its model files, textures and instance
- * buffers were read and parsed afterwards, on the frames after it attached —
- * so a transition showed the world without them (or, with the old scenes
- * unloaded first, nothing).
+ * `loadScene`). Handing the scene's entities to the simulation as soon as its
+ * file is read, and reading and parsing its model files, textures and
+ * instance buffers afterwards, on the frames after it attached, would make a
+ * transition show the world without them (or, with the old scenes unloaded
+ * first, nothing).
  *
  * The preloader puts a preparation step between the read and the answer: the
  * render side reads and parses what the scene draws (`prepare`, the adapter's
@@ -187,7 +187,7 @@ export interface ScenePreparingAdapter {
 }
 
 /**
- * Phase 25.24e: a game page's preparation of a scene: the declared assets its
+ * A game page's preparation of a scene: the declared assets its
  * objects name (directly or through materials, functions and effects, and its
  * own bakes; the same scan as the start scenes') are read and checked, and
  * the adapter parses its models, decodes its instance buffers and textures.

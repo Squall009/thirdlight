@@ -1,5 +1,5 @@
 /**
- * Phase 12 hierarchy panel logic: visible rows (collapse, filter),
+ * Hierarchy panel logic: visible rows (collapse, filter),
  * multi-selection, drop targets and the projection of `moveEntities` /
  * flag changes.
  */

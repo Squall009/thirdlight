@@ -1,5 +1,5 @@
 /**
- * Phase 21.1 (opt-in: TL_PERF=1): a performance run compared against the
+ * Opt-in (TL_PERF=1): a performance run compared against the
  * checked-in baseline (tests/perf/baseline.json, relative metrics only — see
  * tools/perf/stats.ts). Fails on a regression beyond the tolerance.
  *

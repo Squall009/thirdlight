@@ -1,5 +1,5 @@
 /**
- * Phase 23.3: the project's named collision layers (3D physics), next to the
+ * The project's named collision layers (3D physics), next to the
  * tags. "default" is implicit (every collider that lists no layers); up to 15
  * more names. A collider lists the layers it is in (the Inspector's
  * Collision layers field); script queries filter by layer

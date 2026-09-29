@@ -1,5 +1,5 @@
 /**
- * Phase 25.21: the Blocks panel's Paint mode ("Paint texture") in the real
+ * The Blocks panel's Paint mode ("Paint texture") in the real
  * editor against a real backend. A flat block layer (32 × 16 × 32 cells of
  * 1 × 0.5 × 1 m, its top at y = 0) wears the height-blended layers material
  * (the three texture arrays packed through the pack route; layer 3 blue). A

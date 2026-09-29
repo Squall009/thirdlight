@@ -1,4 +1,4 @@
-/** Phase 25.12: the mover's signal fields and the gravity easing in the model. */
+/** The mover's signal fields and the gravity easing in the model. */
 import { describe, expect, it } from 'vitest';
 
 import { canonicalMover, validateMoverComponent, type MoverComponent } from './blocks';

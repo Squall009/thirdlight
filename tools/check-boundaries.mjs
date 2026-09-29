@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
- * Thirdlight boundary check 1 — static import graph (dependencies.md §5 check 1).
+ * Thirdlight boundary check 1 — static import graph.
  *
  * Scans the .ts/.tsx sources of every implemented workspace package
  * (packages/<name>/package.json) and checks every
  * `import` / `export … from` / dynamic `import()` specifier against the
  * normative edge rules:
  *
- *   dependencies.md §4.1   node-side allowed import edges (exact table),
+ *   allowed edges          node-side allowed import edges (exact table),
  *                          including the types-only edge qualifiers: a
  *                          value import, value re-export, or dynamic
  *                          `import()` of a types-only target fails
@@ -18,38 +18,36 @@
  *                          exporter → workspace ("types only — the service
  *                          instance is injected"), protocol → project-model/commands
  *                          ("(types; pure code, no I/O)").
- *   dependencies.md §4.3   forbidden edges (any plane) — `runtime → three`,
+ *   forbidden edges        forbidden edges (any plane) — `runtime → three`,
  *                          `runtime → Node builtins`, `editor → workspace |
  *                          backend`, `backend → editor`, `mcp-adapter → backend`
  *                          (the `/services` subpath only), `mcp-adapter →
  *                          workspace | editor`, `exporter → backend | editor`,
  *                          relative imports into another package's internals
- *   dependencies.md §3     the public surface is the package.json `exports`
+ *   public surface         the public surface is the package.json `exports`
  *                          map only — a specifier reaching a non-exported
  *                          subpath fails
- *   dependencies.md §2     units are created only when implemented — importing
+ *   implemented units      units are created only when implemented — importing
  *                          a not-yet-implemented `@thirdlight/*` unit fails
- *   dependencies.md §5.6   a package must not declare a dependency on a
+ *   declared deps          a package must not declare a dependency on a
  *                          not-yet-implemented workspace package (checked for
  *                          every package manifest AND the root manifest)
- *   dependencies.md §7     React is scoped to `editor` only — checked for
+ *   React scope            React is scoped to `editor` only — checked for
  *                          source imports AND declared dependencies (incl. the
  *                          React type packages, in every manifest including
  *                          the root)
- *   m1-acceptance.md §2.4  the forbidden web-framework list applies to imports
+ *   web frameworks         the forbidden web-framework list applies to imports
  *                          and to declared dependencies
- *   dependencies.md §4.3   no hidden global services — `globalThis`
+ *   global services        no hidden global services — `globalThis`
  *                          assignments are flagged for review
  *
- * Test-file policy (narrow; the dependencies.md §5.1 contract
- * clarification permitting the approved test runner in designated package
- * test files is pending review — see handoff 04 repair record): designated
- * package test files (`.test.ts(x)` / `.spec.ts(x)`) may import the
- * approved test runner `vitest` (any subpath); every other rule applies to
+ * Test-file policy (narrow): designated package test files
+ * (`.test.ts(x)` / `.spec.ts(x)`) may import the approved test runner
+ * `vitest` (any subpath); every other rule applies to
  * test files unchanged, and a production file importing `vitest` fails
  * (`forbidden-external`). Tests are NOT exempt from boundary checking.
  *
- * Check 2 (phase 24.9, `checkVocabulary`): no genre vocabulary in
+ * Check 2 (`checkVocabulary`): no genre vocabulary in
  * every `packages/<name>/src/` file (the words and the reviewed allowlist are below).
  *
  * Plain Node using the already-pinned TypeScript compiler API; no new
@@ -65,7 +63,7 @@
  * test files retain all other boundary rules.
  *
  * Bounds: `require()` / `import = require()` remain outside the contract's
- * three scanned forms; M1 exports maps are flat (no wildcard patterns).
+ * three scanned forms; the exports maps are flat (no wildcard patterns).
  * The globalThis assignment review scan still runs on raw source (including
  * commented-out assignments). These checks are not a hostile-code sandbox.
  */
@@ -74,11 +72,11 @@ import { existsSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
 import { join, relative, resolve, isAbsolute, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
-import ts from 'typescript'; // already pinned tooling, dependencies.md §7
+import ts from 'typescript'; // already pinned tooling
 
 export const WORKSPACE_SCOPE = '@thirdlight/';
 
-/** The unit list (dependencies.md §2). */
+/** The unit list. */
 export const UNITS = [
   'project-model',
   'commands',
@@ -95,25 +93,22 @@ export const UNITS = [
   'physics-rapier',
   'character',
   'behavior-build',
-  // Phase 20.1: the CPU reference semantics of visual-effect graphs.
+  // The CPU reference semantics of visual-effect graphs.
   'effects',
-  // M3 (dependencies.md §2 row, accepted at Gate K): created at packet 54
-  // with the `.` audio entry (presentation.md §41.9); the delivery.md
-  // §§3–5 composition part lands at packet 55.
+  // The game host and its browser audio owner (the `.` entry).
   'game-host',
 ];
 
 /**
- * Node-side allowed import edges (dependencies.md §4.1, exact).
+ * Node-side allowed import edges (exact).
  * `packages`: allowed `@thirdlight/*` targets. `external`: allowed
  * non-workspace packages. `node`: allowed Node builtins. `subpaths`:
- * per-target subpath restriction (mcp-adapter → backend: `services` only —
- * dependencies.md §3/§4.3). `externalSubpaths`: the same restriction for an
- * approved external package (dependencies.md §4.2/§7 GLTFLoader note:
- * three-adapter may import only the `three` root and its GLTFLoader subpath;
+ * per-target subpath restriction (mcp-adapter → backend: `services` only).
+ * `externalSubpaths`: the same restriction for an approved external package
+ * (three-adapter may import only the `three` root and its GLTFLoader subpath;
  * any other `three/examples/jsm/...` module is a reviewed addition).
  * `typesOnly`: allowed targets whose edge the
- * §4.1 table qualifies as types only — a value import of such a target
+ * allowed-edge table qualifies as types only — a value import of such a target
  * fails (`types-only-edge`). `valueSubpaths`: named subpaths of a types-only
  * target that may be value-imported (pure code that cannot mutate a project).
  */
@@ -124,28 +119,27 @@ export const NODE_SIDE_ALLOWED = {
     packages: ['project-model', 'commands', 'asset-pipeline', 'behavior-build'],
     external: [],
     node: ['fs', 'path', 'crypto', 'os'],
-    // Packet 25/33 (§4.1 additions): the compiler/inspector instances are
+    // The compiler/inspector instances are
     // injected by the backend — workspace holds only their types.
     typesOnly: { 'asset-pipeline': true, 'behavior-build': true },
   },
   runtime: { packages: ['project-model'], external: [], node: [] },
-  // Phase 20.1: the visual-effect evaluator (CPU reference semantics of the
+  // The visual-effect evaluator (CPU reference semantics of the
   // `effect` graph kind). Runtime-safe and pure like the runtime: the kind
   // data and graph helpers of project-model only; no three.js, no Node
   // built-ins. Deliberately NOT inside the runtime: effects are visual only
-  // and never part of the deterministic simulation (phase 20 decision).
+  // and never part of the deterministic simulation.
   effects: { packages: ['project-model'], external: [], node: [] },
   'three-adapter': {
-    // Phase 20.2: + effects — the visual-effect executors (WebGPU compute and
+    // + effects — the visual-effect executors (WebGPU compute and
     // the CPU fallback) compile and step effect graphs with the shared
     // reference semantics of @thirdlight/effects (runtime-safe, pure).
     packages: ['runtime', 'effects'],
     external: ['three', '@types/three'],
-    // dependencies.md §4.2/§7 (the GLTFLoader note): only the pinned
-    // three package's own GLTFLoader subpath is approved; the empty
-    // subpath '' is the bare `three` specifier. Added 2026-09-23 (owner
-    // go-ahead for compressed GLBs): three's own Draco/KTX2 loaders and
-    // meshopt decoder, used only by the gltf-loader port.
+    // Only the pinned three package's own GLTFLoader subpath is approved;
+    // the empty subpath '' is the bare `three` specifier. For compressed
+    // GLBs (owner go-ahead): three's own Draco/KTX2 loaders and meshopt
+    // decoder, used only by the gltf-loader port.
     externalSubpaths: {
       three: [
         '',
@@ -153,19 +147,17 @@ export const NODE_SIDE_ALLOWED = {
         'examples/jsm/loaders/DRACOLoader.js',
         'examples/jsm/loaders/KTX2Loader.js',
         'examples/jsm/libs/meshopt_decoder.module.js',
-        // 2026-09-24: skinned meshes need SkeletonUtils.clone so each
+        // Skinned meshes need SkeletonUtils.clone so each
         // instance gets its own skeleton (gltf-loader port only).
         'examples/jsm/utils/SkeletonUtils.js',
-        // Phase 9.5's WebGL sky, EffectComposer passes and FXAA shader were
-        // removed with the archived WebGL renderer path (phase 17.4).
-        // Phase 17.1 (renderer-factory.ts, environment.ts): three's WebGPURenderer
+        // renderer-factory.ts, environment.ts: three's WebGPURenderer
         // (WebGPU with its WebGL 2 backend) and its node PMREM generator; TSL
-        // for the node materials and post of phases 17.2/17.3. Part of the
+        // for the node materials and post. Part of the
         // pinned three package, not examples; the export scan record
         // (exporter/src/scan.ts) is measured with them.
         'webgpu',
         'tsl',
-        // Phase 17.3 (environment-nodes.ts): the physical sky and the post
+        // environment-nodes.ts: the physical sky and the post
         // stack on WebGPURenderer — three's TSL sky mesh and node passes
         // (GTAO, depth of field, bloom, SMAA, FXAA) inside a RenderPipeline.
         'examples/jsm/objects/SkyMesh.js',
@@ -178,16 +170,15 @@ export const NODE_SIDE_ALLOWED = {
     },
     node: [],
   },
-  // Packet 55 (delivery.md §3.1/§3.2, dependencies.md §4.1 row): the local
-  // composition. runtime (the accepted instantiateRuntime/
+  // The local composition. runtime (the accepted instantiateRuntime/
   // createSimulationRegistry/registerSimulationModule values + BUILTIN_MODULES
-  // for the §3.2 registry + types), input (types only — the injected
+  // for the simulation registry + types), input (types only — the injected
   // owner's MenuSample seam; the attachBrowserInput VALUE edge is permission,
   // not obligation: the owner is injected). three-adapter is NOT imported
   // (the host defines the structural HostRenderAdapter surface; the adapter
-  // instance is injected) — the §4.1 types-only row entry stays unexercised.
+  // instance is injected) — its types-only allowance stays unexercised.
   // The concrete physics-rapier port, three canvas and audio context are
-  // injected (no value edge to them). Phase 24.3: no character edges — the
+  // injected (no value edge to them). No character edges — the
   // simulation module specs are injected by the composition entries (the
   // preview's module-specs.ts, the export's generated thirdlight:export-modules).
   'game-host': {
@@ -196,7 +187,7 @@ export const NODE_SIDE_ALLOWED = {
     node: [],
     typesOnly: { input: true },
   },
-  // §4.1 row: "project-model, commands (types; pure code, no I/O)".
+  // "project-model, commands (types; pure code, no I/O)".
   protocol: {
     packages: ['project-model', 'commands'],
     external: [],
@@ -205,19 +196,18 @@ export const NODE_SIDE_ALLOWED = {
     // The model's limits (plain constants) are defined once in project-model.
     valueSubpaths: { 'project-model': ['limits'] },
   },
-  // §4.1 row: "… project-model (types only — the snapshot document,
-  // sessions.md §10.1)".
+  // "… project-model (types only — the snapshot document)".
   backend: {
-    // Phase 25.18: + three-adapter — the backend runs `materialGraphProblems`
+    // + three-adapter — the backend runs `materialGraphProblems`
     // (a graph material built to TSL nodes without a renderer) on load and
     // after each change, the same check as the editor's Problems tab.
     packages: ['protocol', 'workspace', 'exporter', 'project-model', 'asset-pipeline', 'behavior-build', 'three-adapter'],
-    // playwright-core: the headless editor for MCP play (phase 11, headless.ts).
-    // Phase 25.19: ktx2-encoder + jpeg-js — KTX2 encoding on import (decision 0006).
+    // playwright-core: the headless editor for MCP play (headless.ts).
+    // ktx2-encoder + jpeg-js — KTX2 encoding on import.
     external: ['ws', 'playwright-core', 'ktx2-encoder', 'jpeg-js'],
-    // child_process: FBX import runs headless Blender (fbx.ts; owner go-ahead
-    // 2026-09-23). Nothing else in the backend starts processes.
-    // Phase 25.19: worker_threads (the KTX2 encoder off the event loop) and
+    // child_process: FBX import runs headless Blender (fbx.ts; owner go-ahead).
+    // Nothing else in the backend starts processes.
+    // worker_threads (the KTX2 encoder off the event loop) and
     // zlib (the PNG decoder's inflate).
     node: ['http', 'fs', 'path', 'crypto', 'child_process', 'worker_threads', 'zlib'],
     typesOnly: { 'project-model': true },
@@ -226,7 +216,7 @@ export const NODE_SIDE_ALLOWED = {
     // backend runs.
     valueSubpaths: { 'project-model': ['png', 'limits'] },
   },
-  // §4.1 explicitly reiterates "imports workspace types only"; the
+  // "imports workspace types only"; the
   // project-model/protocol value edges are not injection-only service edges.
   exporter: {
     packages: ['project-model', 'protocol', 'workspace'],
@@ -234,7 +224,7 @@ export const NODE_SIDE_ALLOWED = {
     node: [],
     typesOnly: { workspace: true },
   },
-  // §4.1 row: "asset-pipeline | project-model (types: ImportProposal/recipe/
+  // "asset-pipeline | project-model (types: ImportProposal/recipe/
   // metrics shapes) — pure, no three and no GLTFLoader (it inspects bytes
   // itself)". The proposal/recipe/metrics shapes the importer shares with the
   // model are types only (the importer parses its own JSON and hashes bytes).
@@ -246,7 +236,7 @@ export const NODE_SIDE_ALLOWED = {
     // The importer checks the model's own limits (plain constants).
     valueSubpaths: { 'project-model': ['limits'] },
   },
-  // §4.1 row: "input | runtime (types)" — the pure mapping plus one browser
+  // "input | runtime (types)" — the pure mapping plus one browser
   // attachment entry; it knows runtime types only (no value edge, so the
   // types-only qualifier applies to the whole package).
   input: {
@@ -255,12 +245,12 @@ export const NODE_SIDE_ALLOWED = {
     node: [],
     typesOnly: { runtime: true },
   },
-  // §4.1 row: "physics-rapier | runtime (types) + @dimforge/rapier2d-compat
-  // (the approved pin, §7)". The adapter never imports a concrete runtime
+  // "physics-rapier | runtime (types) + @dimforge/rapier2d-compat
+  // (the approved pin)". The adapter never imports a concrete runtime
   // value (the runtime owns stepping and hands it only the port shape), and it
   // may not reach editor/backend/protocol/workspace/three (of project-model,
   // only its types and the limits subpath).
-  // Phase 23.0: + @dimforge/rapier3d-compat for the `./3d` subpath (decision 0005).
+  // + @dimforge/rapier3d-compat for the `./3d` subpath.
   'physics-rapier': {
     // + project-model's limits subpath only: the ports re-check the model's
     // collider shape limits, which are defined once there.
@@ -270,21 +260,19 @@ export const NODE_SIDE_ALLOWED = {
     typesOnly: { runtime: true, 'project-model': true },
     valueSubpaths: { 'project-model': ['limits'] },
   },
-  // §4.1 row: "platformer | runtime (types)" (phase 24.7: the character package) — the controller algorithm over
-  // the injected input/physics ports; it may not reach the concrete physics
-  // adapter, the input package, three.js, authoring, backend or Node built-ins
-  // (dependencies.md §4.1/§4.3).
+  // The character package: the controller algorithm over the injected
+  // input/physics ports; it may not reach the concrete physics adapter, the
+  // input package, three.js, authoring, backend or Node built-ins.
   character: {
     packages: ['runtime'],
     external: [],
     node: [],
     typesOnly: { runtime: true },
   },
-  // §4.1 row: "behavior-build | project-model (types +
+  // "behavior-build | project-model (types +
   // parseSourceGraphContainer/validateDeclaration), esbuild (the pinned
-  // parser, §7)". Pure and Node-side: no Node builtins, no browser edge, and
-  // never a value edge into runtime/three/editor/backend/workspace/commands
-  // (§4.3).
+  // parser)". Pure and Node-side: no Node builtins, no browser edge, and
+  // never a value edge into runtime/three/editor/backend/workspace/commands.
   'behavior-build': {
     packages: ['project-model'],
     external: ['esbuild'],
@@ -300,12 +288,12 @@ export const NODE_SIDE_ALLOWED = {
     typesOnly: { 'project-model': true },
     valueSubpaths: { 'project-model': ['limits'] },
   },
-  // §4.1 row: "… project-model (types), commands (types) …".
+  // "… project-model (types), commands (types) …".
   editor: {
-    // Phase 23.9b: + game-host, its `./ui-layer` subpath only — the UI
+    // + game-host, its `./ui-layer` subpath only — the UI
     // document preview draws with the very layer Play and exports use.
     packages: ['protocol', 'runtime', 'three-adapter', 'project-model', 'commands', 'game-host'],
-    // Phase 23.16: + its `./dialogue-preview` subpath — the dialogue tab's
+    // + its `./dialogue-preview` subpath — the dialogue tab's
     // previewer plays a conversation with the runtime's runner, the host's UI
     // layer and audio owner (the same code as Play), outside Play.
     subpaths: { 'game-host': ['ui-layer', 'dialogue-preview'] },
@@ -316,7 +304,7 @@ export const NODE_SIDE_ALLOWED = {
       '@types/react',
       '@types/react-dom',
       '@types/three',
-      // Phase 16.3: the script editor (CodeMirror 6). Editor UI only — the
+      // The script editor (CodeMirror 6). Editor UI only — the
       // preview/export bundle graphs never include it.
       '@codemirror/state',
       '@codemirror/view',
@@ -340,8 +328,7 @@ export const NODE_SIDE_ALLOWED = {
 };
 
 /**
- * Forbidden web frameworks (m1-acceptance.md §2.4, the recorded list;
- * dependencies.md §7: no web framework anywhere — node:http only).
+ * Forbidden web frameworks (no web framework anywhere — node:http only).
  */
 export const FORBIDDEN_WEB_FRAMEWORKS = new Set([
   'express',
@@ -357,12 +344,12 @@ export const FORBIDDEN_WEB_FRAMEWORKS = new Set([
 ]);
 
 /**
- * dependencies.md §4.2: the browser-bundle entry files live in their app
+ * The browser-bundle entry files live in their app
  * packages ("one source for the bridge wiring"); their import edges are the
- * §4.2 bundle graph, not the §4.1 node-side table. The TRANSITIVE graph is
+ * bundle graph, not the node-side table. The TRANSITIVE graph is
  * enforced by the esbuild `--metafile` check (the export instance runs at
- * export time — export.md §4 step 4); here the entry file's direct edges are
- * checked against the §4.2 "Allowed graph (exact)" column.
+ * export time); here the entry file's direct edges are checked against the
+ * bundle's exact allowed graph.
  */
 const BUNDLE_ENTRY_EDGES = {
   'packages/exporter/src/export-bootstrap.ts': {
@@ -370,7 +357,7 @@ const BUNDLE_ENTRY_EDGES = {
     external: ['three'],
     node: [],
   },
-  // dependencies.md §4.2 export bundle row (packet 36): the M2 bootstrap's
+  // The export bundle: `export-bootstrap-m2.ts`'s
   // direct edges are the runtime-bundle graph (runtime/three-adapter/
   // project-model/input/character/physics-rapier + three), plus the two
   // per-snapshot virtual modules the export build generates in memory
@@ -381,7 +368,7 @@ const BUNDLE_ENTRY_EDGES = {
     external: ['three', 'thirdlight:export-artifacts', 'thirdlight:export-behaviors'],
     node: [],
   },
-  // The shared composition module (packet 36) is imported by the M2 bootstrap
+  // The shared composition module is imported by `export-bootstrap-m2.ts`
   // and also runs in Node for the play/export trace evidence; it is
   // browser-safe and imports runtime + character only.
   'packages/exporter/src/export-composition.ts': {
@@ -389,15 +376,15 @@ const BUNDLE_ENTRY_EDGES = {
     external: [],
     node: [],
   },
-  // dependencies.md §4.2 M3 export bundle row (packet 58): the M3 bootstrap's
+  // The v3 export bundle: `export-bootstrap-m3.ts`'s
   // direct edges are the single shared production composition graph — the
   // `game-host` composition (which transitively pulls `runtime`,
   // `three-adapter`, `project-model`) + `input`/`character`/
   // `physics-rapier` + the per-snapshot virtual module the export build
   // generates in memory (`thirdlight:export-artifacts` — it has no package;
-  // the esbuild metafile check allows exactly that key for M3). The M2
-  // bootstrap (`export-bootstrap-m2.ts`) stays byte-stable above.
-  // Phase 24.3: no character edge — the module specs come from the generated
+  // the esbuild metafile check allows exactly that key for it).
+  // `export-bootstrap-m2.ts` stays byte-stable above.
+  // No character edge — the module specs come from the generated
   // `thirdlight:export-modules` (only those the manifest names).
   'packages/exporter/src/export-bootstrap-m3.ts': {
     packages: ['runtime', 'three-adapter', 'project-model', 'input', 'physics-rapier', 'game-host'],
@@ -406,18 +393,18 @@ const BUNDLE_ENTRY_EDGES = {
     // Behavior outputs load from manifest-declared `behaviors/<digest>.js` next to index.html.
     computedDynamicImport: 'locator',
   },
-  // Phase 22.0: the exported game's simulation worker entry (`js/sim-worker.js`):
+  // The exported game's simulation worker entry (`js/sim-worker.js`):
   // the game host's worker core + physics-rapier (its WASM inlined). It
   // imports the project's compiled scripts by the absolute URLs the page
   // resolves from manifest-declared `behaviors/<digest>.js` paths.
   'packages/exporter/src/export-sim-worker.ts': {
     packages: ['physics-rapier', 'game-host'],
-    // Phase 24.3: the generated module specs the manifest names.
+    // The generated module specs the manifest names.
     external: ['thirdlight:export-modules'],
     node: [],
     computedDynamicImport: 'locator',
   },
-  // Phase 22.0: the Play preview's simulation worker entry (`dist/preview/sim-worker.js`,
+  // The Play preview's simulation worker entry (`dist/preview/sim-worker.js`,
   // served on the preview origin): the same two edges; scripts load from the locator.
   'packages/editor/src/preview/sim-worker.ts': {
     packages: ['physics-rapier', 'game-host'],
@@ -425,7 +412,7 @@ const BUNDLE_ENTRY_EDGES = {
     node: [],
     computedDynamicImport: 'locator',
   },
-  // Phase 24.3: the host's unit test composes like an entry (it injects the
+  // The host's unit test composes like an entry (it injects the
   // platformer specs its game snapshot's modules name).
   'packages/game-host/src/host.test.ts': {
     packages: ['runtime', 'input', 'character'],
@@ -433,14 +420,14 @@ const BUNDLE_ENTRY_EDGES = {
     node: [],
     typesOnly: { input: true },
   },
-  // Phase 24.3: the preview's simulation module spec table (the composition
+  // The preview's simulation module spec table (the composition
   // registers module specs; the game host imports no module package).
   'packages/editor/src/preview/module-specs.ts': {
     packages: ['runtime', 'character'],
     external: [],
     node: [],
   },
-  // Phase 23.0: the 3D physics backend entries (`js/physics-3d.js` of a 3D
+  // The 3D physics backend entries (`js/physics-3d.js` of a 3D
   // project's export; `dist/preview/physics-3d.js` on the preview origin):
   // physics-rapier's `./3d` port and the dependency-free hand-over module of
   // game-host (`./physics-3d-global`) only.
@@ -454,28 +441,26 @@ const BUNDLE_ENTRY_EDGES = {
     external: [],
     node: [],
   },
-  // dependencies.md §4.2 play-preview bundle row (packet 35): the entry is
+  // The play-preview bundle: the entry is
   // `editor/src/preview/**` and its graph may include protocol, runtime,
   // three-adapter (+ the GLTFLoader subpath), project-model, input, platformer
   // and physics-rapier. The checker validates this file's DIRECT edges against
-  // that §4.2 graph instead of the narrower §4.1 editor row (which names the
-  // editor UI's edges) — a bounded checker alignment recorded as C35-3 in
-  // docs/handoffs/35.md; the transitive graph stays enforced by the esbuild
+  // that bundle graph instead of the narrower editor row (which names the
+  // editor UI's edges); the transitive graph stays enforced by the esbuild
   // metafile check.
   //
   // `computedDynamicImport: 'locator'` records the OTHER accepted exception:
   // the preview loads the pinned behavior outputs from the read-only locator at
-  // runtime (delivery §4.3: `./game.js`-relative behavior outputs are a
+  // runtime (`./game.js`-relative behavior outputs are a
   // permitted engine fetch), so its `import()` specifier is built from the
   // artifact root and cannot be a string literal. The target is always a
   // manifest-declared relative artifact path — never a package/remote specifier.
 
-  // Packet 59 (delivery.md §3.2/§4.3): the M3 preview wrapper composes the
+  // The `preview-m3.ts` wrapper composes the
   // SINGLE shared production host (`createGameHost`) — the only editor file
   // allowed to import `game-host` (the preview wrapper, not the editor UI).
-  // Same §4.2 play-preview graph as preview-bootstrap.ts plus game-host (the
-  // M3 composition; phase 24.7: the platformer-game package was deleted). The M2 preview-bootstrap.ts row
-  // above stays byte-stable.
+  // Same play-preview graph as preview-bootstrap.ts plus game-host. The
+  // preview-bootstrap.ts row above stays byte-stable.
   'packages/editor/src/preview/preview-m3.ts': {
     packages: ['protocol', 'runtime', 'three-adapter', 'project-model', 'input', 'character', 'physics-rapier', 'game-host'],
     external: ['three'],
@@ -483,7 +468,7 @@ const BUNDLE_ENTRY_EDGES = {
     // Behavior outputs load from the locator, as in preview-bootstrap.ts.
     computedDynamicImport: 'locator',
   },
-  // Phase 25.15: the input exercise's frames resolved on the play page (a virtual gamepad read through the
+  // The input exercise's frames resolved on the play page (a virtual gamepad read through the
   // project's bindings) — part of the same play-preview graph as preview-m3.ts.
   'packages/editor/src/preview/relay-frames.ts': {
     packages: ['runtime', 'input', 'game-host'],
@@ -492,10 +477,10 @@ const BUNDLE_ENTRY_EDGES = {
   },
 };
 
-/** React is scoped to `editor` only (dependencies.md §7 React scope rules). */
+/** React is scoped to `editor` only. */
 const REACT_EDITOR_ONLY = new Set(['react', 'react-dom']);
 
-/** React declaration scope (dependencies.md §7): only `editor` may declare these. */
+/** React declaration scope: only `editor` may declare these. */
 const REACT_DECLARABLE = new Set(['react', 'react-dom', '@types/react', '@types/react-dom']);
 
 /** Node builtins (bare and `node:`-prefixed forms), Node 22. */
@@ -510,9 +495,8 @@ const NODE_BUILTINS = new Set([
 ]);
 
 /**
- * Designated package test files (the narrow test-tooling policy — the
- * §5.1 contract clarification is pending review): only these may import the
- * approved test runner `vitest`.
+ * Designated package test files (the narrow test-tooling policy): only these
+ * may import the approved test runner `vitest`.
  */
 const RE_TEST_FILE = /\.(?:test|spec)\.(?:ts|tsx)$/;
 
@@ -679,8 +663,8 @@ function exportTargets(value) {
 
 /**
  * Declared-dependency rules for one manifest (a package, or the workspace
- * root): unknown units, premature wiring (§2/§5.6), the React declaration
- * scope (§7 — only `editor` may declare react/react-dom + their @types/*),
+ * root): unknown units, premature wiring, the React declaration
+ * scope (only `editor` may declare react/react-dom + their @types/*),
  * and forbidden web frameworks.
  */
 function checkDeclaredManifest(relFile, unitName, pkgJson, pkgsByName, addV) {
@@ -784,7 +768,7 @@ export function checkWorkspace(root) {
       continue;
     }
 
-    // declared dependencies: no premature wiring (§2/§5.6), React scope (§7),
+    // declared dependencies: no premature wiring, React scope,
     // no web frameworks.
     checkDeclaredManifest(relPkgJson, pkg.name, pkg.pkgJson, pkgsByName, addV);
     const options = resolutionOptions(pkg.pkgDir);
@@ -801,7 +785,7 @@ export function checkWorkspace(root) {
       const rel = relative(root, file);
       const isTestFile = isTestSource(file);
       filesScanned += 1;
-      // The §4.2 bundle-entry override (if any) replaces the §4.1 node-side
+      // The bundle-entry override (if any) replaces the node-side
       // edges for this file's direct imports.
       const fileAllowed = BUNDLE_ENTRY_EDGES[rel] ?? allowed;
 
@@ -936,9 +920,9 @@ export function checkWorkspace(root) {
                 : `'${spec}' — '${pkg.name} may import only the ${sub.map((x) => `/${x}`).join(', ')} subpath(s) of @thirdlight/${unit}`,
             );
           }
-          // §4.1 types-only qualifiers: a value import of these edges is an
+          // Types-only qualifiers: a value import of these edges is an
           // executable import (for editor → commands/project-model this is the
-          // second mutation path §4.3 forbids).
+          // forbidden second mutation path).
           if (fileAllowed.typesOnly?.[unit] && !typeOnly && !fileAllowed.valueSubpaths?.[unit]?.includes(subpath)) {
             addV(
               rel,
@@ -989,8 +973,8 @@ export function checkWorkspace(root) {
           continue;
         }
         // Approved-subpath restriction for an allowed external package
-        // (dependencies.md §4.2/§7 GLTFLoader note: exactly one
-        // `three/examples/jsm` module is approved for the three-adapter).
+        // (only the listed `three/examples/jsm` modules are approved for the
+        // three-adapter).
         const externalSubpaths = fileAllowed.externalSubpaths?.[pkgName];
         if (externalSubpaths && !externalSubpaths.includes(subpath)) {
           addV(
@@ -1008,7 +992,7 @@ export function checkWorkspace(root) {
         }
       }
 
-      // no hidden global services (dependencies.md §4.3; m1-acceptance §2.4).
+      // No hidden global services.
       // Runs on the raw source (a commented-out assignment is flagged for
       // review — the conservative direction for this review rule).
       RE_GLOBALTHIS.lastIndex = 0;
@@ -1033,7 +1017,7 @@ export function checkWorkspace(root) {
   };
 }
 
-// --- Check 2: genre vocabulary (phase 24.9) ------------------------------------
+// --- Check 2: genre vocabulary ------------------------------------
 //
 // The engine holds capabilities only; game rules live in game repos
 // (docs/roadmap.md principle 1b, docs/plan-phase-24.md). Every text file under
@@ -1196,8 +1180,7 @@ function main() {
 // CLI guard — realpath-based, so it also works when the tool is invoked
 // through a symlinked or relative path. (The naive
 // `pathToFileURL(argv[1]) === import.meta.url` comparison silently skips
-// main() for symlinked tool paths — a silent no-op check, the exact
-// failure mode dependencies.md §9 forbids.)
+// main() for symlinked tool paths — a silent no-op check.)
 function isMain() {
   const invoked = process.argv[1];
   if (!invoked) return false;

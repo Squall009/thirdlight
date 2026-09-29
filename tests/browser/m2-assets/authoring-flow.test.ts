@@ -1,14 +1,14 @@
 /**
- * Packet 27 — Node-runnable asset-authoring integration of the editor's PURE
+ * Node-runnable asset-authoring integration of the editor's PURE
  * modules (vitest; no browser, no backend).
  *
- * This suite wires the packet-27 modules together the way the React app does
- * and asserts the packet acceptance properties at the pure layer:
+ * This suite wires the asset-authoring modules together the way the React app
+ * does and asserts the acceptance properties at the pure layer:
  *
  *  - import → validate drop → bounded frames → bounded job → proposal →
  *    `publishAsset` change → content projection;
  *  - **two placements** with distinct entity IDs and independent transforms —
- *    both the direct whole-GLB `createEntity` model path (C27-1 repaired) and
+ *    both the direct whole-GLB `createEntity` model path and
  *    prefab copies (`instantiatePrefab`);
  *  - a **reimport** that appends a version and moves `currentVersion` while
  *    every referencing entity keeps its ID, transform and `assetId`;

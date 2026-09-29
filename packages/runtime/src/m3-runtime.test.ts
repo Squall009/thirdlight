@@ -1,9 +1,6 @@
 /**
- * Packet 49 (phase 24.7: what stays generic of it) — a playable snapshot's
- * shape at instantiate and the run surface after dispose. The M3 session's
- * own cases (run states, the composition table, run commands, setViewport,
- * the effective-frame overrides, the gameplay port, the event ring) went
- * with the game session in phase 24.
+ * A playable snapshot's shape at instantiate and the run surface after
+ * dispose.
  */
 import { describe, expect, it } from 'vitest';
 import { BUILTIN_MODULES, createSimulationRegistry, instantiateRuntime, registerSimulationModule, type RuntimeError } from './index';
@@ -56,7 +53,7 @@ describe('a playable snapshot (phase 9.3 / 24)', () => {
     expect(rt.dispose()).toEqual({ ok: true });
     const state = rt.getInterpolatedState();
     expect(!state.ok && state.error.code).toBe('runtime_disposed');
-    const diag = rt.getDiagnostics(); // diagnostics work in every state (runtime.md §8)
+    const diag = rt.getDiagnostics(); // diagnostics work in every state
     expect(diag.ok && diag.diagnostics.state).toBe('disposed');
     expect(rt.queueUiEvent!({ kind: 'restart', doc: '', widget: '', name: '' })).toMatchObject({ ok: false, error: { code: 'runtime_disposed' } });
     expect(rt.dispose()).toEqual({ ok: true, alreadyDisposed: true });

@@ -1,5 +1,5 @@
 /**
- * Phase 23.19: `setSaveSchema {schema}` — the project's save schema
+ * `setSaveSchema {schema}` — the project's save schema
  * (`content.saveSchema`: the save document's version and migrations, the slot
  * count, the engine sections saves include, the thumbnail and the project
  * settings document's fields). `null` removes it (no project saves). One undo

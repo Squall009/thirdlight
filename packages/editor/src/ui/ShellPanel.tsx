@@ -1,5 +1,5 @@
 /**
- * Phase 24.4j: the Game shell panel — the menus around a game that plays as
+ * The Game shell panel — the menus around a game that plays as
  * a scene and its HUD, as the project's UI documents (`content.shell`): the
  * title, pause, settings, controls, save and load screens, the HUD documents
  * shown while playing, the scene list New game and Next scene walk, whether
@@ -22,7 +22,7 @@ interface Props {
   shell: GameShell | null;
   fieldContext: FieldContext;
   error: string | null;
-  /** `base`: the shell the edit was made on (phase 24.7: the edit is re-applied onto the shell as it is at send time). */
+  /** `base`: the shell the edit was made on (the edit is re-applied onto the shell as it is at send time). */
   onSetShell: (next: GameShell | null, base: GameShell | null) => void;
 }
 

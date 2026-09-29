@@ -1,5 +1,5 @@
 /**
- * Phase 21.5: the leak tests' probe. After a garbage collection through CDP
+ * The leak tests' probe. After a garbage collection through CDP
  * (`HeapProfiler.collectGarbage`) it reads:
  *
  * - the JS heap of the page's renderer process (`Runtime.getHeapUsage`:
@@ -42,8 +42,8 @@ export interface Tolerance {
 
 /**
  * Default tolerance. Counts: one object per cycle over 50 cycles is far
- * outside it. Heap: the leaks fixed in 21.5 retained 55–110 KiB per cycle
- * (3–5.5 MiB over 50 cycles); after the fixes the editor surfaces still grow
+ * outside it. Heap: a real editor leak retains 55–110 KiB per cycle
+ * (3–5.5 MiB over 50 cycles); without one the editor surfaces still grow
  * 0.2–1.9 MiB over 50 cycles on this shared host (V8's compiled code and the
  * performance timeline grow while the page runs — a Play heap snapshot put
  * ~80 % of its growth there), so 3 MiB keeps a real per-cycle leak out

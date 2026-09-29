@@ -1,6 +1,6 @@
 /**
- * Phase-3 leftovers (2026-09-24): Duplicate a multi-selection with its
- * children in one undo, and Copy/Paste between scenes.
+ * Duplicate a multi-selection with its children in one undo, and
+ * Copy/Paste between scenes.
  */
 import { expect, test, type Page } from '@playwright/test';
 

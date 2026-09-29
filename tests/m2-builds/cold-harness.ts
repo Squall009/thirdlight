@@ -1,6 +1,6 @@
 /**
- * Packet-33 cold-build harness (NOT a vitest test): bundled by
- * `tests/integration/m2-builds/cold-build.test.ts` with the packet-13 deployed
+ * Cold-build harness (NOT a vitest test): bundled by
+ * `tests/integration/m2-builds/cold-build.test.ts` with the deployed
  * backend arrangement (`platform: 'node'`, `packages: 'bundle'`,
  * `external: ['esbuild']`, the `createRequire` banner) and executed in fresh
  * Node processes.
@@ -51,7 +51,7 @@ async function main(): Promise<number> {
   }
   const containerBytes = new Uint8Array(readFileSync(arg1));
   const declaration = JSON.parse(readFileSync(arg2, 'utf8')) as { properties: readonly unknown[] };
-  // Phase 24.3: an optional pin table (the fixture's recorded one; absent: the live table).
+  // An optional pin table (the fixture's recorded one; absent: the live table).
   const pinnedModules = arg3 !== undefined ? (JSON.parse(readFileSync(arg3, 'utf8')) as typeof M2_PINNED_MODULES) : M2_PINNED_MODULES;
   const start = Date.now();
   const result = await compileBehavior({

@@ -1,5 +1,5 @@
 /**
- * Phase 23.2: the 3D character controller replays deterministically — a
+ * The 3D character controller replays deterministically — a
  * recorded input run over a neutral course (a riser, a ledge with the ledge
  * climb on, a wall, a jump, walking and running in several directions) gives
  * identical step digests over two page runs and in the simulation worker,

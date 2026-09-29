@@ -1,5 +1,5 @@
 /**
- * The WS channel — sessions.md §4.3/§5.2/§6.1/§7/§8.4 (packet 09):
+ * The WS channel:
  * upgrade auth (single-use wsToken), `attached`, heartbeat, frame bounds,
  * the protocol-error tolerance (10/60 s), `mutation.applied` delivery,
  * the caller binding (`session_required`), and the duplicate-retry replay.

@@ -1,5 +1,5 @@
 /**
- * Phase 9.6: a scene's bake record (content.lighting).
+ * A scene's bake record (content.lighting).
  */
 import { describe, expect, it } from 'vitest';
 

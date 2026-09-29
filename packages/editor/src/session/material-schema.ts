@@ -1,5 +1,5 @@
 /**
- * Phase 9.4: the editor's copy of the material schema (project-model
+ * The editor's copy of the material schema (project-model
  * `materials.ts`): the shader types, their parameters and texture slots, and
  * the default wind. The editor may use project-model types only (it has no
  * second mutation path), so the table is copied here like the surface

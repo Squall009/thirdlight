@@ -1,5 +1,5 @@
 /**
- * Phase 16.2: an animator controller's graphs (owner kind `animator`).
+ * An animator controller's graphs (owner kind `animator`).
  *
  * The controller data is unchanged (plus optional editor layout); its graphs
  * are views of it, read and written here:

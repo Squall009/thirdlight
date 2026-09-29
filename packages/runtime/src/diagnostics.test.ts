@@ -1,5 +1,5 @@
 /**
- * Structured diagnostics tests (runtime.md §8): the full shape (every
+ * Structured diagnostics tests: the full shape (every
  * field present, types per the contract), values consistent with a
  * known run, defaults (120 Hz, "performance" clock), and operation in
  * every state including disposed.

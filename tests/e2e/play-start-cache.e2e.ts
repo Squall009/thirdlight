@@ -1,5 +1,5 @@
 /**
- * Phase 25.24c/d: what a Play start no longer does twice.
+ * What a Play start does not do twice.
  *
  * (d) Many groups of one repeated model (a detailed sphere in ten world
  * cells: ten automatic batches of one material) are drawn with shared node
@@ -153,7 +153,7 @@ for (const variant of RENDERER_VARIANTS) test(`25.24d (${variant}): the chunks o
   await expect.poll(async () => (await diag()).renderer?.instanced?.meshes ?? 0, { timeout: 60_000 }).toBeGreaterThanOrEqual(3);
   const d = await diag();
   expect(d.renderer!.renderBackend).toBe(backendOf(variant));
-  // Before 25.24d every chunk was an instanced mesh with a program (per pass) of its own; now one per pass (the main pass, the shadow pass).
+  // The chunks share one program per pass (the main pass, the shadow pass), not one per instanced mesh.
   expect(d.renderer!.instanced!.programs, JSON.stringify(d.renderer!.instanced)).toBeGreaterThanOrEqual(1);
   expect(d.renderer!.instanced!.programs).toBeLessThanOrEqual(2);
   const r = await relay('screenshot', { maxWidth: 320 });

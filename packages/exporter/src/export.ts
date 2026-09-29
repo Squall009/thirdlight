@@ -1,7 +1,7 @@
 /**
- * `exportProject(ctx)` — the standalone export operation (sessions.md §6.3).
+ * `exportProject(ctx)` — the standalone export operation.
  *
- * Exports the project's current v3 state through the M3 pipeline
+ * Exports the project's current v3 state through `exportProjectM3`
  * (`export-m3.ts`): the single acknowledged envelope read, the shared
  * runtime-content closure, the bundle, the validation pipeline and the
  * atomic publish. Projects on an older schema version are refused.
@@ -45,7 +45,7 @@ export async function exportProject(ctx: ExportContext): Promise<ExportResult> {
       scene: v3.read.scene,
       content: v3.read.content,
       revision: v3.read.revision,
-      // Phase 12 (c): a v4 project ships every scene.
+      // A v4 project ships every scene.
       ...(v3.read.scenes !== undefined ? { scenes: v3.read.scenes, startScenes: v3.read.startScenes ?? [] } : {}),
     },
     ctx.m3BootstrapEntry,

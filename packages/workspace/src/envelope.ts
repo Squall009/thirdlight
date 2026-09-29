@@ -1,17 +1,16 @@
 /**
  * The single-file authoring-state envelope of a storage v3 project
- * (`scenes/main.json`, workspace.md §4/§16) and the retry-record rules every
+ * (`scenes/main.json`) and the retry-record rules every
  * storage v4 file shares.
  *
  * - A v3 envelope is only READ now: the automatic v3 → v4 upgrade on open
- *   loads it (§4.3/§16.4 pipeline, first failure wins: strict parse → root
+ *   loads it (load pipeline, first failure wins: strict parse → root
  *   object → `storageVersion` → `type` → `projectId` → the six-key set → the
- *   §16.2 combination check → the v3 content block and scene → the retry
+ *   version-combination check → the v3 content block and scene → the retry
  *   block; the manifest cross-checks need the separate manifest file and run
  *   in the session loader).
- * - Storage versions 1 and 2 (the M1/M2 envelopes) were removed in phase
- *   9.3: such an envelope is refused with `storage_version_unsupported`.
- * - `validateRetryBlock` / the record-result shape check (§4.2) are shared
+ * - Storage versions 1 and 2 are not supported: such an envelope is refused with `storage_version_unsupported`.
+ * - `validateRetryBlock` / the record-result shape check are shared
  *   with the v4 files (`store-v4.ts`).
  */
 import { ID_RE } from '@thirdlight/project-model';
@@ -28,41 +27,41 @@ import type { MutationSuccess } from '@thirdlight/commands';
 
 import { isPlainObject, isSafeInt, pointerSegment } from './errors';
 
-/** The constant recorded in every retry block (workspace.md §4.2). */
+/** The constant recorded in every retry block. */
 export const RETRY_RETENTION = 128;
 /**
- * Phase 14.8: the retry-record format a storage-v4 file is written with.
- * Version 1 (no `recordVersion` key in the retry block — every v4 file
- * written before phase 14) stores the commands.md §5.1 payload; version 2
+ * The retry-record format a storage-v4 file is written with.
+ * Version 1 (no `recordVersion` key in the retry block) stores the success
+ * payload; version 2
  * also stores the acknowledged `sceneId` (the scene the command edited;
  * absent for a scene-index change), so an identical retry replays the live
  * acknowledgement. Both are read; only version 2 is written. A v3 envelope's
  * retry block never carries the key.
  */
 export const RETRY_RECORD_VERSION = 2;
-/** The envelope discriminator (workspace.md §4.2). */
+/** The envelope discriminator. */
 export const ENVELOPE_TYPE = 'authoring-state';
 
-/** project-model §5.1 ID syntax (project/scene/entity IDs). */
+/** The project-model ID syntax (project/scene/entity IDs). */
 export { ID_RE };
-/** commands.md §3: `req-` + 32 lowercase hex chars. */
+/** `req-` + 32 lowercase hex chars. */
 const REQUEST_ID_RE = /^req-[0-9a-f]{32}$/;
-/** commands.md §7.1: 64 lowercase hex chars. */
+/** 64 lowercase hex chars. */
 const DIGEST_RE = /^[0-9a-f]{64}$/;
 
-/** One durable retry record (commands.md §7.1; workspace.md §4.2). */
+/** One durable retry record. */
 export interface RetryRecord {
   requestId: string;
   digest: string;
   appliedRevision: number;
   /**
-   * The full §5.1 success payload as originally acked, `duplicated: false`;
-   * in a record-version-2 block also the acked `sceneId` (phase 14.8).
+   * The full success payload as originally acked, `duplicated: false`;
+   * in a record-version-2 block also the acked `sceneId`.
    */
   result: MutationSuccess;
 }
 
-/** §4.3/§16.4 pipeline outcome for one v3 envelope byte blob. */
+/** Load-pipeline outcome for one v3 envelope byte blob. */
 export type EnvelopeLoad =
   | {
       ok: true;
@@ -79,13 +78,13 @@ export type EnvelopeLoad =
     };
 
 /**
- * Run the §4.3/§16.4 load validation pipeline over raw v3 envelope bytes
+ * Run the load validation pipeline over raw v3 envelope bytes
  * (step 8, the manifest + cross-document checks, needs the separate manifest
  * file and runs in the session loader). A storage v1/v2 envelope is refused
- * with `storage_version_unsupported` (removed in phase 9.3).
+ * with `storage_version_unsupported`.
  */
 export function validateEnvelope(bytes: Uint8Array, dirName: string): EnvelopeLoad {
-  // 1. Strict parse (project-model §12.3 pass 1).
+  // 1. Strict parse.
   const parsed = parseDocumentBytes(bytes);
   if (!parsed.ok) {
     return { ok: false, reason: parsed.error.code, errors: [parsed.error], count: 1 };
@@ -159,8 +158,8 @@ export function validateEnvelope(bytes: Uint8Array, dirName: string): EnvelopeLo
 }
 
 /**
- * The `storageVersion` 3 branch (workspace.md §16.3/§16.4). Normative order:
- * the six-key envelope set ⇒ `envelope_invalid`; the §16.2 combination check
+ * The `storageVersion` 3 branch. Normative order:
+ * the six-key envelope set ⇒ `envelope_invalid`; the version-combination check
  * (`scene.schemaVersion` must be 3) **before** any scene/content field
  * validation ⇒ a single `version_combination_unsupported`; then the six-key
  * `content` block (`validateContentV3` — it enforces the canonical
@@ -171,7 +170,7 @@ export function validateEnvelope(bytes: Uint8Array, dirName: string): EnvelopeLo
  * manifest.
  */
 function validateV3Envelope(root: Record<string, unknown>, pid: string): EnvelopeLoad {
-  // §16.3 — the top-level six-key set.
+  // The top-level six-key set.
   const WANT = ['storageVersion', 'type', 'projectId', 'scene', 'content', 'retry'] as const;
   for (const k of WANT) {
     if (!(k in root)) {
@@ -198,7 +197,7 @@ function validateV3Envelope(root: Record<string, unknown>, pid: string): Envelop
       ]);
     }
   }
-  // §16.2 — the version-combination check BEFORE any scene/content field
+  // The version-combination check BEFORE any scene/content field
   // validation: a v3 envelope must carry a schemaVersion 3 scene.
   const sceneRaw = root['scene'];
   const sceneSchema = isPlainObject(sceneRaw) ? sceneRaw['schemaVersion'] : undefined;
@@ -213,7 +212,7 @@ function validateV3Envelope(root: Record<string, unknown>, pid: string): Envelop
       },
     ]);
   }
-  // §16.3 content key set — exactly the six v3 keys; a missing or unknown
+  // The content key set — exactly the six v3 keys; a missing or unknown
   // key is `envelope_invalid` (the envelope's own key-set rule, matching the
   // model's v3 envelope branch).
   const contentRaw = root['content'];
@@ -242,7 +241,7 @@ function validateV3Envelope(root: Record<string, unknown>, pid: string): Envelop
     }
   }
   for (const k of Object.keys(contentRaw)) {
-    // Phase 12 (b): `tags` (the tag registry) is the one optional content key.
+    // `tags` (the tag registry) is the one optional content key.
     if (!(WANT_CONTENT as readonly string[]).includes(k) && k !== 'tags') {
       return fail('envelope_invalid', [
         {
@@ -255,7 +254,7 @@ function validateV3Envelope(root: Record<string, unknown>, pid: string): Envelop
       ]);
     }
   }
-  // §16.4 step 4 — content (six-key v3 block, incl. both byte budgets) and
+  // Content (six-key v3 block, incl. both byte budgets) and
   // scene; both are evaluated and both error sets are reported when both
   // fail.
   const sceneRes = validateSceneV3(sceneRaw);
@@ -278,7 +277,8 @@ function validateV3Envelope(root: Record<string, unknown>, pid: string): Envelop
       count,
     };
   }
-  // §16.4 step 6 — retry block (v3 records may carry the M1/M2/v3 op set).
+  // Retry block (v3 records may carry any op of `M1_MUTATION_OPS`,
+  // `M2_RESULT_OPS` or `V3_RESULT_OPS`).
   const scene = sceneRes.normalized as SceneV3;
   const retryRes = validateRetryBlock(root['retry'], scene.revision, pid, 3);
   if (!retryRes.ok) {
@@ -308,17 +308,17 @@ function bounded(v: unknown): unknown {
   return v;
 }
 
-// ---- retry block (workspace.md §4.2/§4.3 step 7) ---------------------------
+// ---- retry block ---------------------------
 
 /**
  * Validate the retry block: `retention === 128`; `records` an array of
- * well-formed records (fields, types, digest shape, result shape per
- * commands.md §5.1); `appliedRevision` strictly ascending and ≤
+ * well-formed records (fields, types, digest shape, success-payload result
+ * shape); `appliedRevision` strictly ascending and ≤
  * `scene.revision`; `requestId` values unique; ≤ 128 records (over the
  * retention bound ⇒ malformed — the project is blocked, never "repaired").
  * Every discriminator is validated as a PRIMITIVE before any coercion
- * (R12: a JSON object such as `{"toString":0}` used to make `String()`
- * throw a TypeError and abort the whole load).
+ * (a JSON object such as `{"toString":0}` would make `String()` throw a
+ * TypeError and abort the whole load).
  */
 export function validateRetryBlock(
   retry: unknown,
@@ -329,7 +329,7 @@ export function validateRetryBlock(
   if (!isPlainObject(retry)) {
     return bad('retry block must be an object', undefined, 'object', '/retry');
   }
-  // Phase 14.8: a v4 block names its record format (absent = version 1).
+  // A v4 block names its record format (absent = version 1).
   const blockKeys = storageVersion === 4 ? ['recordVersion', 'retention', 'records'] : ['retention', 'records'];
   for (const k of Object.keys(retry)) {
     if (!blockKeys.includes(k)) {
@@ -438,10 +438,10 @@ function bad(message: string, found: unknown, expected: string, path: string): {
   return { ok: false, error: e };
 }
 
-// ---- record result shape (commands.md §5.1) --------------------------------
+// ---- record result shape --------------------------------
 
 const M1_MUTATION_OPS = ['createEntity', 'setTransform', 'deleteEntity', 'undo', 'redo'];
-/** The packet-21/22 content/prefab operation set (commands.md §8.5–§8.12). */
+/** The content/prefab operation set. */
 const M2_RESULT_OPS = [
   'publishAsset',
   'publishBehavior',
@@ -453,9 +453,9 @@ const M2_RESULT_OPS = [
   'instantiatePrefab',
 ];
 
-/** The packet-45 v3 operation set (commands.md §8.13–§8.14). */
+/** The v3 operation set. */
 const V3_RESULT_OPS = ['applySurfacePreset', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setCollisionLayers', 'setSaveSchema', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit', 'setEffect', 'deleteEffect', 'renameEffect', 'setScriptLibrary', 'deleteScriptLibrary', 'editBlocks', 'setBlockType', 'deleteBlockType', 'setCellFields', 'setBlockStamp', 'deleteBlockStamp', 'setUiDocument', 'deleteUiDocument', 'setUiTheme', 'deleteUiTheme', 'setTimeline', 'deleteTimeline', 'setModes', 'setBehaviorGroups', 'setEventCues', 'setShell', 'setDialogue', 'deleteDialogue', 'setSpeaker', 'deleteSpeaker', 'setDialogueSettings', 'deleteAsset', 'deletePrefab', 'createEntities', 'commitScriptLibraryStage'];
-/** Phase 12 (c): the ops only a v4 project records (the scene index). */
+/** The ops only a v4 project records (the scene index). */
 const V4_RESULT_OPS = ['createScene', 'renameScene', 'deleteScene', 'setStartScenes'];
 
 /** The mutation ops a record of a `storageVersion` 3 envelope / 4 file can carry. */
@@ -466,14 +466,14 @@ export function mutationOpsForStorageVersion(storageVersion: 3 | 4): readonly st
 }
 
 /**
- * Strict shape check of a recorded §5.1 success payload (fields and types
- * per commands.md §5.1; unknown fields rejected — envelope strictness).
+ * Strict shape check of a recorded success payload (fields and types;
+ * unknown fields rejected — envelope strictness).
  * Returns a LoadDetail describing the first problem, or null when well-formed.
  *
  * `storageVersion` selects the accepted op set (a v4 file additionally
  * records the scene-index ops) and the scene rules the historical entity
  * payloads are checked against; the content-op payloads are checked
- * structurally (workspace.md §4.2 record well-formedness).
+ * structurally (record well-formedness).
  */
 function validateRecordResult(
   result: unknown,
@@ -487,7 +487,7 @@ function validateRecordResult(
   const keys = Object.keys(result);
   const base = ['ok', 'op', 'projectId', 'requestId', 'revision', 'duplicated', 'change', 'history'];
   const acceptedOps = mutationOpsForStorageVersion(storageVersion);
-  // R12: the op discriminator must be a primitive string BEFORE any
+  // The op discriminator must be a primitive string BEFORE any
   // coercion — a JSON object such as `{"toString":0}` is corrupt shape,
   // not a valid op.
   const opRaw = result['op'];
@@ -499,7 +499,7 @@ function validateRecordResult(
   if (op === 'createEntity' || op === 'pasteEntities' || op === 'createEntities') allowed = [...base, 'createdId'];
   else if (op === 'undo' || op === 'redo') allowed = [...base, 'appliedOf', 'originOfApplied'];
   else allowed = base;
-  // Record version 2 (phase 14.8) also stores the acked scene id.
+  // Record version 2 also stores the acked scene id.
   if (recordVersion >= 2) allowed = [...allowed, 'sceneId'];
   for (const k of keys) {
     if (!allowed.includes(k)) {
@@ -513,7 +513,7 @@ function validateRecordResult(
   if (typeof result['projectId'] !== 'string' || !ID_RE.test(result['projectId'])) {
     return rerr('recorded result projectId must use the project-model ID syntax', result['projectId'], '/result/projectId');
   }
-  // R13: enclosing-project consistency — the recorded result must belong
+  // Enclosing-project consistency — the recorded result must belong
   // to the project this envelope belongs to (a record replayed into another
   // project is malformed, not foreign input to trust).
   if (result['projectId'] !== envelopeProjectId) {
@@ -571,7 +571,7 @@ function validateRecordResult(
       for (const k of okeys) {
         if (k !== 'kind' && k !== 'clientId') return rerr('unknown field in originOfApplied', k, k, `/result/originOfApplied/${pointerSegment(k)}`);
       }
-      // R12: the kind discriminator must be a primitive string before
+      // The kind discriminator must be a primitive string before
       // coercion.
       if (typeof oo['kind'] !== 'string' || !['browser', 'mcp', 'admin'].includes(oo['kind'])) {
         return rerr('originOfApplied kind must be browser|mcp|admin', oo['kind'], '/result/originOfApplied/kind');
@@ -611,7 +611,7 @@ function rerr(
 }
 
 /**
- * Structural change validation of a record result (commands.md §5.3): the
+ * Structural change validation of a record result: the
  * change type, its op correspondence, exact key sets and primitive
  * discriminators; historical entity payloads are checked against the scene
  * rules (`validateHistoricalEntities`). Historical content records
@@ -624,18 +624,17 @@ function validateChangeShape(change: unknown, op: string, storageVersion: 3 | 4)
   if (typeof t !== 'string' || !V2_CHANGE_TYPES.includes(t)) {
     return rerr('recorded change type is not a known change type', t, '/result/change/type');
   }
-  // op ↔ change.type correspondence; undo/redo carry any inverse change type
-  // (commands.md §5.3/§8.4).
+  // op ↔ change.type correspondence; undo/redo carry any inverse change type.
   if (op !== 'undo' && op !== 'redo') {
     const expected = M2_CHANGE_TYPE_BY_OP[op];
-    // Phase 16.2: a graphEdit on an owner that stores its graph as its own data
+    // A graphEdit on an owner that stores its graph as its own data
     // (an animator controller) records that owner's change.
     const alsoOk = op === 'graphEdit' && t === 'setAnimators';
     if (expected !== undefined && expected !== t && !alsoOk) {
       return rerr(`recorded change type does not match the recorded op '${op}'`, t, '/result/change/type');
     }
     if (expected === undefined) {
-      // M1 ops keep their exact correspondence (createEntity/setTransform/
+      // The `M1_MUTATION_OPS` keep their exact correspondence (createEntity/setTransform/
       // deleteEntity); any other op/type pair is corrupt shape.
       const m1Expected: Record<string, string> = {
         createEntity: 'createEntity',
@@ -661,7 +660,7 @@ function validateChangeShape(change: unknown, op: string, storageVersion: 3 | 4)
     }
   }
   if (t === 'createEntity') {
-    // R13: the recorded entity must be the COMPLETE entity value.
+    // The recorded entity must be the COMPLETE entity value.
     const ent = change['entity'];
     if (!isPlainObject(ent)) {
       return rerr('createEntity change entity must be the full entity value', undefined, '/result/change/entity');
@@ -716,22 +715,22 @@ const V2_CHANGE_TYPES: readonly string[] = [
   'setGraph',
   'setEffect',
   'setScriptLibrary',
-  // Phase 23.5: block layers.
+  // Block layers.
   'editBlocks',
   'setBlockType',
   'setCellFields',
   'setBlockStamp',
   'setUi',
-  // Phase 23.16: dialogue.
+  // dialogue.
   'setDialogue',
   'setModes',
   'setBehaviorGroups',
   'setEventCues',
   'setShell',
   'setTimeline',
-  // Phase 25.7c: a deleted asset record.
+  // A deleted asset record.
   'removeAsset',
-  // Phase 25.9: a staged commit of several script libraries.
+  // A staged commit of several script libraries.
   'setScriptLibraries',
 ];
 
@@ -783,14 +782,14 @@ const V2_CHANGE_KEYS: Record<string, readonly string[]> = {
   setScriptLibraries: ['type', 'libraries', 'behaviors'],
 };
 
-/** Optional field names per change type (phase 12: a world-keeping reparent's transform). */
+/** Optional field names per change type (a world-keeping reparent's transform). */
 const V2_CHANGE_OPTIONAL_KEYS: Record<string, readonly string[]> = {
   updateEntity: ['transform'],
   // A folder created with its children in one transaction (a multi-piece model drop).
   createEntity: ['children'],
 };
 
-/** Forward-op → change-type correspondence for the M2 ops. */
+/** Forward-op → change-type correspondence for the `M2_RESULT_OPS`. */
 const M2_CHANGE_TYPE_BY_OP: Record<string, string> = {
   publishAsset: 'publishAsset',
   publishBehavior: 'publishBehavior',
@@ -848,16 +847,14 @@ const M2_CHANGE_TYPE_BY_OP: Record<string, string> = {
   setShell: 'setShell',
   setTimeline: 'setTimeline',
   deleteTimeline: 'setTimeline',
-  // Phase 25.7c/e.
   deleteAsset: 'removeAsset',
   deletePrefab: 'removePrefab',
   createEntities: 'pasteEntities',
-  // Phase 25.9.
   commitScriptLibraryStage: 'setScriptLibraries',
 };
 
 /**
- * R13 (2026-09-18 review): strict validation of historical entity payload(s)
+ * Strict validation of historical entity payload(s)
  * using the MODEL AUTHORITY (`validateSceneV3`/`validateSceneV4` — known
  * entity fields only, `components` present with validated component shapes,
  * cross-entity reference/cycle/order rules). Historical entities need NOT
@@ -866,7 +863,7 @@ const M2_CHANGE_TYPE_BY_OP: Record<string, string> = {
  * synthetic scene instead: a synthetic camera plus one placeholder folder per
  * referenced-but-missing parent id (and a placeholder spawn per referenced
  * spawn). The payload is rejected on ANY model error; nothing is rewritten —
- * a load failure blocks the project per workspace.md §7.5.
+ * a load failure blocks the project.
  */
 const ZERO_TRANSFORM = {
   position: [0, 0, 0],

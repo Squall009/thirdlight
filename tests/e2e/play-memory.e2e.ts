@@ -1,9 +1,8 @@
 /**
  * Play mode must not leak GPU resources frame over frame. With post effects
  * on (bloom, vignette, anti-aliasing), the preview's renderer holds a fixed
- * set of textures, geometries and programs while the game runs; before the
- * fix the post stack was rebuilt every frame and the counts grew until the
- * browser ran out of memory.
+ * set of textures, geometries and programs while the game runs; a post stack rebuilt
+ * every frame grows the counts until the browser runs out of memory.
  */
 import { expect, test } from '@playwright/test';
 

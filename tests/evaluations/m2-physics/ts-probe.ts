@@ -1,21 +1,21 @@
 /**
- * Packet 14 — strict-TS + IIFE-bundle probe for @dimforge/rapier2d-compat@0.20.0.
+ * Strict-TS + IIFE-bundle probe for @dimforge/rapier2d-compat@0.20.0.
  *
- * Standalone by design (plan-review BR-1): NOT typechecked/boundary-checked by the
+ * Standalone by design: NOT typechecked/boundary-checked by the
  * repo toolchain (it imports the candidate, which is not in the repo lockfile).
  * Two evaluation runs over this file:
  *   1. `tsc --noEmit` with the repo's pinned TypeScript 5.9.3 and the repo's
  *      tsconfig.base.json (strict) — proves the candidate's .d.ts work under
  *      Thirdlight's strict settings (see run-eval.mjs).
  *   2. esbuild 0.28.2 (repo-pinned) with the EXACT pinned option set of
- *      export.md §5.3 (bundle/platform-browser/iife/treeShaking-off/sourcemap-off/
- *      minify-off) — proves the distribution builds under M1's browser-bundle
+ *      the export bundle (bundle/platform-browser/iife/treeShaking-off/sourcemap-off/
+ *      minify-off) — proves the distribution builds under that browser-bundle
  *      configuration, including the no-top-level-await constraint (see
  *      build-iife.mjs; candidate resolved from the disposable prefix via nodePaths).
  *
  * The program: init the engine, build a one-collider world + capsule character
  * (the 0.20.0 parentless-collider pattern), run 10 fixed steps, print a marker.
- * Async via main().then — no top-level await (export.md §5.3 IIFE rule).
+ * Async via main().then — no top-level await (an IIFE bundle cannot have one).
  */
 import RAPIER from '@dimforge/rapier2d-compat';
 

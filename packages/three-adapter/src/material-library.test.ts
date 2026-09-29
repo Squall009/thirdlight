@@ -1,5 +1,5 @@
 /**
- * Phase 9.4: the material library's assignment rules (no WebGL needed): a
+ * The material library's assignment rules (no WebGL needed): a
  * mesh material named `n` takes mapping[n], else mapping["*"]; one built
  * material per (material, source) is shared; undo restores the file's; a
  * changed definition rebuilds; textures load once.

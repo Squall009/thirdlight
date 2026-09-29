@@ -1,5 +1,5 @@
 /**
- * Phase 15.1: the generic Inspector widgets. A component section (or a
+ * The generic Inspector widgets. A component section (or a
  * content block form) is built from its descriptor: one widget per field
  * type, grouped, with the descriptor's tooltip on every row and its unit in
  * the label. Every edit is reported as (path, next value | undefined to
@@ -41,14 +41,14 @@ import {
 export interface FieldContext extends PickerData {
   /** Signal names already in use (suggestions). */
   readonly signals: readonly string[];
-  /** Phase 15.2: each animator controller's parameters (an object's starting values are edited from this list). */
+  /** Each animator controller's parameters (an object's starting values are edited from this list). */
   readonly animatorParameters?: Readonly<Record<string, readonly { name: string; type: string; default?: number | boolean }[]>>;
-  /** Phase 20.0: each effect's public parameters (an object's overrides are edited from this list). */
+  /** Each effect's public parameters (an object's overrides are edited from this list). */
   readonly effectParameters?: Readonly<Record<string, readonly { key: string; type: string; default: number | number[] | string; label?: string }[]>>;
-  /** Phase 23.1: the project's physics dimension (absent: the 2D plane) — which presets "+ Add component" offers. */
+  /** The project's physics dimension (absent: the 2D plane) — which presets "+ Add component" offers. */
   readonly physicsDimension?: 2 | 3;
   /**
-   * Phase 23.11: the node names of an object's model, as the game resolves
+   * The node names of an object's model, as the game resolves
    * sockets on them — an array once read, null while it is being read,
    * undefined when the object has no model.
    */
@@ -182,7 +182,7 @@ function VectorWidget(p: RowProps & { shown: readonly number[]; aria: string; la
             if (p.euler !== true && ((f.min !== undefined && n < f.min) || (f.max !== undefined && n > f.max))) return p.onFail(`${p.f.label} ${l}: ${f.min ?? '…'} to ${f.max ?? '…'}`);
             const next = [...p.shown];
             next[i] = n;
-            // Phase 23.1: an optional last component left out (a 2D value of a 3D-capable field) stays out
+            // An optional last component left out (a 2D value of a 3D-capable field) stays out
             // unless it is the one edited, so editing x or y never writes a made-up z or depth.
             const out = p.leaveLast === true && i < next.length - 1 ? next.slice(0, -1) : next;
             p.onEdit(p.path, p.euler === true ? quatOf(out) : out);
@@ -228,7 +228,7 @@ export function FieldRow(p: RowProps): JSX.Element | null {
   switch (kind) {
     case 'number':
     case 'int': {
-      // Phase 15.3: an int with a list of allowed values is a select.
+      // An int with a list of allowed values is a select.
       const choices = intChoices(f);
       if (choices !== null)
         return (
@@ -265,7 +265,7 @@ export function FieldRow(p: RowProps): JSX.Element | null {
     }
     case 'vector': {
       const labels = f.type === 'vec2' || f.type === 'vec3' ? f.labels : [];
-      // Phase 23.0: a left-out last component (an optional z) shows as 0; editing stores all of them.
+      // A left-out last component (an optional z) shows as 0; editing stores all of them.
       const arr = Array.isArray(shown) ? labels.map((_, i) => (shown as number[])[i] ?? 0) : labels.map(() => 0);
       const leaveLast = f.type === 'vec3' && f.optionalLast === true && Array.isArray(shown) && shown.length === 2;
       return (
@@ -332,7 +332,7 @@ export function FieldRow(p: RowProps): JSX.Element | null {
     case 'signal':
     case 'text':
     case 'multiline': {
-      // Phase 23.11: a socket's node is picked from its target's model nodes (typed while they load or without a model).
+      // A socket's node is picked from its target's model nodes (typed while they load or without a model).
       if (f.type === 'string' && f.format === 'socketNode') {
         const target = p.level?.value['target'];
         const nodes = typeof target === 'string' ? p.ctx.modelNodes?.(target) : undefined;
@@ -421,7 +421,7 @@ function ListWidget(p: RowProps & { aria: string }): JSX.Element {
   const items = Array.isArray(p.value) ? (p.value as unknown[]) : Array.isArray(f.default) ? (f.default as unknown[]) : [];
   const max = f.length ?? f.maxItems ?? Infinity;
   const min = f.length ?? f.minItems ?? 0;
-  // Phase 24.4j: a list of references (a HUD's documents) starts a new item at the first choice; a listed scene at the first scene.
+  // A list of references (a HUD's documents) starts a new item at the first choice; a listed scene at the first scene.
   const fresh = (): unknown => startValue(f.item, undefined, { scene: p.ctx.scenes[0]?.sceneId }) ?? (f.item.type === 'ref' ? p.ctx.refs[f.item.target as 'material']?.[0]?.id : undefined) ?? (items.length > 0 ? JSON.parse(JSON.stringify(items[items.length - 1])) : undefined);
   return (
     <div className="tl-desc__list" aria-label={p.aria} title={f.tooltip} data-field={f.key}>
@@ -449,7 +449,7 @@ function ListWidget(p: RowProps & { aria: string }): JSX.Element {
 }
 
 /**
- * Phase 15.2: an object's starting animator parameter values — one row per
+ * An object's starting animator parameter values — one row per
  * parameter of its controller (triggers start unset, so they have none),
  * showing the controller's default until the object sets its own.
  */
@@ -519,7 +519,7 @@ function AnimatorParametersWidget(p: RowProps & { aria: string; params: readonly
 }
 
 /**
- * Phase 20.0: an object's overrides of its effect's public parameters — one
+ * An object's overrides of its effect's public parameters — one
  * row per public parameter, showing the effect's default until the object
  * sets its own (× resets it).
  */
@@ -583,13 +583,13 @@ function MapWidget(p: RowProps & { aria: string }): JSX.Element {
   const f = p.f;
   const [key, setKey] = useState('');
   if (f.type !== 'map') return <></>;
-  // Phase 20.0: an effect's parameter overrides come from its public parameters.
+  // An effect's parameter overrides come from its public parameters.
   if (f.value.type === 'json' && f.value.typedBy === 'effectParameter') {
     const effectId = p.level?.value['effectId'];
     const params = typeof effectId === 'string' ? p.ctx.effectParameters?.[effectId] : undefined;
     if (params !== undefined) return <EffectParametersWidget {...p} params={params} />;
   }
-  // Phase 15.2: an animator's starting values come from its controller's parameter list.
+  // An animator's starting values come from its controller's parameter list.
   if (f.keyRef === 'animatorParameter') {
     const controller = p.level?.value['controller'];
     const params = typeof controller === 'string' ? p.ctx.animatorParameters?.[controller] : undefined;
@@ -649,7 +649,7 @@ export function ObjectFields(p: {
   skip?: readonly string[];
 }): JSX.Element {
   const level: Level = { desc: p.desc, value: p.value, ...(p.parent !== undefined ? { parent: p.parent } : {}) };
-  // Phase 23.2: a field of one physics dimension shows only in a project of that dimension (a 3D character's settings, the 2D plane's autostep).
+  // A field of one physics dimension shows only in a project of that dimension (a 3D character's settings, the 2D plane's autostep).
   const dimension = p.ctx.physicsDimension ?? 2;
   const fields = visibleFields(level).filter((f) => !(p.skip ?? []).includes(f.key) && (f.dimension === undefined || f.dimension === dimension));
   return (
@@ -748,7 +748,7 @@ export function ComponentSection(p: {
  * whose add needs a choice (a model's asset, a script, a controller…) opens
  * a small form with those fields first.
  */
-/** Phase 15.2: an extra "+ Add component" action (listed after its category's entries). */
+/** An extra "+ Add component" action (listed after its category's entries). */
 export interface AddExtra {
   readonly id: string;
   readonly label: string;

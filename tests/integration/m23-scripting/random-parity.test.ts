@@ -1,5 +1,5 @@
 /**
- * Phase 23.7: `ctx.random` (and the other scripting conveniences) draw and
+ * `ctx.random` (and the other scripting conveniences) draw and
  * decide exactly the same in the page and in the simulation worker, and in
  * every replay of a recording.
  *

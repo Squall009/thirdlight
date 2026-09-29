@@ -1,5 +1,6 @@
 /**
- * Phase 24.4e/f/g/i through the editor and observed in Play, on the starter
+ * Scene transitions, spawns, virtual cameras and event sounds through the
+ * editor and observed in Play, on the starter
  * template (a 2D-plane scene without any game session), against a real
  * backend:
  *

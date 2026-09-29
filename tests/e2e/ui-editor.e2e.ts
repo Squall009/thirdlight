@@ -1,5 +1,5 @@
 /**
- * Phase 23.9b: the UI document editor against a real backend and a real
+ * The UI document editor against a real backend and a real
  * browser.
  *
  * Neutral content made through the editor itself: a UI theme (UI list →
@@ -16,7 +16,7 @@
  * without moving it on screen; duplicate / move into / delete in the
  * hierarchy; changing the theme's colour recolours the preview (pixels);
  * undo and redo bring the colour back and forth; the game shell's pause
- * screen (phase 24.6) shows the document in Play with the same text, button
+ * screen shows the document in Play with the same text, button
  * and theme colour.
  */
 import { createHash } from 'node:crypto';

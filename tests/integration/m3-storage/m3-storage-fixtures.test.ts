@@ -1,16 +1,12 @@
 /**
- * Packet 46 — committed storage fixtures executed end to end.
+ * Committed storage fixtures executed end to end.
  *
  * Runs the committed fixture checker (positive + corruption control) as a real
  * process, then drives the real workspace service over the committed v3
  * project: it opens (upgraded in place to storage v4), writes and replays a
- * lost ack. Phase 24 removed the platformer game layer the committed v3
- * project was recorded with; it is seeded without that layer
+ * lost ack. The committed v3 project carries a platformer game layer the
+ * engine does not have; it is seeded without that layer
  * (`seedV3DemoProject`) and the edit is a generic scene edit.
- *
- * The `migrateProjectCopyV3` case (v2 source → contracts destination) was
- * removed with the operator (phase 9.3 step B); the original suite is archived
- * at archive/removed-v1-v2/tests/integration/m3-storage/.
  */
 
 import { spawnSync } from 'node:child_process';

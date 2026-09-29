@@ -1,8 +1,8 @@
 /**
- * Packet 25 — content HTTP services integration (real backend process, real
+ * Content HTTP services integration (real backend process, real
  * filesystem, real stdio MCP SDK client, real WS).
  *
- * Covers the packet's acceptance: real import/query/instantiate/edit/retry
+ * Covers the acceptance: real import/query/instantiate/edit/retry
  * flow; browser-origin and MCP-origin commands producing the same structured
  * results; bounded job errors; and projection convergence where
  * `mutation.applied` frames reconstruct the current projection without
@@ -76,9 +76,7 @@ function publishArgs(
     sourceByteLength: Number(proposal.sourceByteLength),
     importRecipe: proposal.importRecipe,
     metrics: proposal.metrics,
-    // project-model §18.4 `importedAt` (the implementation requires it in the
-    // args; the accepted commands.md §3.1.1 list omits it — recorded in the
-    // packet-25 handoff).
+    // `importedAt`: the implementation requires it in the args.
     importedAt: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
   };
 }
@@ -101,7 +99,7 @@ beforeAll(async () => {
   mcp = await createMcp(bp.origin);
   session = await establish(bp.origin);
   ws = await openWs(bp.origin, session);
-  // The establish full state carries the packet-25 content projection.
+  // The establish full state carries the content projection.
   const content = session.body.content as { assets: Array<{ assetId: string }> } | undefined;
   expect(content).toBeDefined();
   expect(content?.assets.map((a) => a.assetId)).toContain('asset-00000000000000a1');
@@ -395,8 +393,8 @@ describe('packet 25 — content flow (real process + real fs + real stdio MCP)',
         source: { sourceDigest: 'a'.repeat(64), sourceByteLength: 10 },
       },
     });
-    // Packet 33 registers the compiler on the real backend, so the refusal is
-    // now the digest-bound preparation gate (`preparation_missing`), not the
+    // The real backend has a compiler registered, so the refusal is the
+    // digest-bound preparation gate (`preparation_missing`), not the
     // absence of a preparer. The end-to-end publication path is exercised in
     // tests/integration/m2-builds/.
     expect(res.isError).toBe(true);

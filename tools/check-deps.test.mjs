@@ -1,5 +1,5 @@
 /**
- * Check tool test suite — dependency pin check (dependencies.md §5 check 6):
+ * Check tool test suite — dependency pin check:
  * pin drift, unpinned dependencies, and declared-range detection.
  */
 
@@ -140,7 +140,7 @@ describe('check 6 — dependency pinning (dependencies.md §5.6)', () => {
       'playwright-core': '1.62.1',
       '@types/node': '22.20.4',
       '@types/ws': '8.18.1',
-      // Phase 16.3: the script editor (CodeMirror 6).
+      // The script editor (CodeMirror 6).
       '@codemirror/state': '6.7.6',
       '@codemirror/view': '6.43.13',
       '@codemirror/language': '6.12.4',
@@ -153,7 +153,7 @@ describe('check 6 — dependency pinning (dependencies.md §5.6)', () => {
       '@lezer/highlight': '1.2.4',
       '@lezer/lr': '1.4.10',
       '@lezer/javascript': '1.5.5',
-      // Phase 25.19: KTX2 encoding on import (decision 0006).
+      // KTX2 encoding on import.
       'ktx2-encoder': '0.6.0',
       'jpeg-js': '0.4.4',
       // The lint toolchain (root dev only).
@@ -165,7 +165,7 @@ describe('check 6 — dependency pinning (dependencies.md §5.6)', () => {
 });
 
 describe('R6 — npm execution/tree errors fail before pin comparison (04-review R6)', () => {
-  /** The real `npm ls --depth=0 --json` shape from the R6 repro: a package
+  /** A real `npm ls --depth=0 --json` shape: a package
    *  manifest added after `npm ci` without installing the workspace link. */
   const brokenTree = {
     version: '0.0.0',

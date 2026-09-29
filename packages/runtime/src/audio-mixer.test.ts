@@ -1,5 +1,5 @@
 /**
- * Phase 23.13: the audio intent log — handle commands, fade maths, finished
+ * The audio intent log — handle commands, fade maths, finished
  * events (seen the step after), music ownership, duck priorities, stingers,
  * the bus mix, reset and the positional maths the host shares.
  */

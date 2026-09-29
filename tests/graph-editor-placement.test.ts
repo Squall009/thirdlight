@@ -2,13 +2,12 @@
  * The graph editor's placement of a node added from the search catalogue and
  * its handling of a wire dropped on a node body (editor/src/graph/model.ts).
  *
- * Found with the effect-graph e2e (2026-09-25): a block added next to the
- * four effect contexts landed on top of Spawn, its `in` port on Spawn's
- * `then` port. New nodes now keep clear of existing ones. A wire dropped on
- * a node body connects to the best port there, or says why none fits (the
- * editor refuses it, nothing is sent). (The e2e failure itself was a native
- * drag of a leftover text selection cancelling the wire gesture; the stage
- * now blocks that, pinned in tests/e2e/effect-graph.e2e.ts.)
+ * New nodes keep clear of existing ones (a block added next to the four
+ * effect contexts must not land on top of Spawn, its `in` port on Spawn's
+ * `then` port). A wire dropped on a node body connects to the best port
+ * there, or says why none fits (the editor refuses it, nothing is sent).
+ * (A native drag of a leftover text selection would cancel the wire
+ * gesture; the stage blocks that, pinned in tests/e2e/effect-graph.e2e.ts.)
  */
 import { describe, expect, it } from 'vitest';
 

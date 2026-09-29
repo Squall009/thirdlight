@@ -1,5 +1,5 @@
 /**
- * Phase 23.8: the in-game console's line parser (words, typed arguments by
+ * The in-game console's line parser (words, typed arguments by
  * position or name, usage text).
  */
 import { describe, expect, it } from 'vitest';

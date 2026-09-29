@@ -1,5 +1,5 @@
 /**
- * Phase 23.10: game modes as data — shape rules, limits, references to UI
+ * Game modes as data — shape rules, limits, references to UI
  * documents / input maps / behavior groups, the canonical form (field order,
  * absent fields stay absent), the runtime rows (each action's map), the
  * project's own input maps, and the behaviorGroup component.

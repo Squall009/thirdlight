@@ -3,8 +3,7 @@
  * (storage v4: the pure layer runs on the scene file's scene and the
  * content catalog, as the workspace hands them over).
  *
- * The self-contained 9-step human/agent history timeline (commands.md
- * §9/§9.3/§8.4/§5.1/§5.3). The pure layer replays every message from the
+ * The self-contained 9-step human/agent history timeline. The pure layer replays every message from the
  * disk-before state and each result payload must match the fixture `out`
  * VERBATIM apart from the `sceneId` the workspace appends to a v4 ack:
  * create, transform edit, subtree delete, undo (restoreSubtree +

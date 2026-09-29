@@ -14,18 +14,18 @@ export interface InputActionLike {
 }
 export interface InputConfigLike {
   readonly actions: readonly InputActionLike[];
-  /** Phase 23.3: the cursor while each map is active (absent: free). */
+  /** The cursor while each map is active (absent: free). */
   readonly cursor?: { readonly [map: string]: 'free' | 'locked' | undefined };
 }
 
 /**
- * Phase 23.3: the cursor mode in effect — while a menu is open (`'menu'`)
+ * The cursor mode in effect — while a menu is open (`'menu'`)
  * the project's `ui` setting; during play a script's request
  * (`ctx.input.setCursor`), else the project's setting for the active maps;
  * free when nothing says otherwise (a pointer-driven game needs a visible
  * cursor).
  *
- * Phase 25.6: any map may set the cursor. `active` is the input's active
+ * Any map may set the cursor. `active` is the input's active
  * maps in order (a game mode's, or a focused document's); null means every
  * map is active (no game mode), which reads the `gameplay` setting as before.
  * Otherwise the first active map with a setting wins, `ui` after the others
@@ -58,7 +58,7 @@ export function padButtonLabel(button: number): string {
 }
 
 /**
- * Phase 24.4j: an input action's name as words for a prompt — camelCase and
+ * An input action's name as words for a prompt — camelCase and
  * `_` split (`moveX` → "move x", `open_door` → "open door").
  */
 export function actionWords(name: string): string {
@@ -69,7 +69,7 @@ export function actionWords(name: string): string {
     .toLowerCase();
 }
 
-/** Phase 24.4j: a keyboard binding's keys as a player reads them ('' for a binding of another device). */
+/** A keyboard binding's keys as a player reads them ('' for a binding of another device). */
 export function keyBindingLabel(binding: unknown): string {
   const o = binding as Record<string, unknown>;
   switch (kindOf(binding)) {
@@ -84,7 +84,7 @@ export function keyBindingLabel(binding: unknown): string {
   }
 }
 
-/** Phase 24.4j: one generated prompt — the action, its keys (or pad button) and "<keys> <action words>". */
+/** One generated prompt — the action, its keys (or pad button) and "<keys> <action words>". */
 export interface ActionPrompt {
   readonly action: string;
   readonly keys: string;
@@ -92,7 +92,7 @@ export interface ActionPrompt {
 }
 
 /**
- * Phase 24.4j: the input prompts generated from the project's declared
+ * The input prompts generated from the project's declared
  * actions (no action is special): one per action of the given maps (absent:
  * the gameplay map), in declaration order, with the label the input in use
  * shows for it (`label`: the rebinding's glyph for the device used last, else

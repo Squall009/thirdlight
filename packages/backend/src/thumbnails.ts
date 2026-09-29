@@ -27,7 +27,7 @@ const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 export interface ThumbnailCache {
   read(projectId: string, digest: string, piece: string | null): Uint8Array | null;
   /**
-   * Phase 21.4: a validator for one cached thumbnail (changes when the file is
+   * A validator for one cached thumbnail (changes when the file is
    * rewritten), for HTTP revalidation (`ETag` / `If-None-Match` → 304); null
    * when none is cached.
    */
@@ -60,7 +60,7 @@ export function createThumbnailCache(dataRoot: string): ThumbnailCache {
   const root = join(dataRoot, 'cache', 'thumbnails');
   const dirOf = (projectId: string, digest: string): string | null =>
     PROJECT_RE.test(projectId) && DIGEST_RE.test(digest) ? join(root, projectId, digest) : null;
-  // Phase 21.4: the per-project count is walked once, then kept (a write no
+  // The per-project count is walked once, then kept (a write no
   // longer lists the whole cache). Another process adding files is only
   // counted at the next restart — the bound is a disk-use guard, not exact.
   const counts = new Map<string, number>();

@@ -1,4 +1,4 @@
-/** Phase 25.7a: the assigned entity ids (six digits; the project's entity capacity bounds N). */
+/** The assigned entity ids (six digits; the project's entity capacity bounds N). */
 import { describe, expect, it } from 'vitest';
 import { ENTITY_ID_DIGITS, ENTITY_ID_MAX, entityIdAt, nextFreeEntityIdOf } from './entity-ids';
 import { MAX_SCENES } from './content';

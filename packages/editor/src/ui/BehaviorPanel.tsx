@@ -1,6 +1,5 @@
 /**
- * Behavior publication panel (React; packet 34; runtime.md §14.2,
- * project-model §22, commands.md §3.1.4/§3.1.8/§8.8).
+ * Behavior publication panel (React).
  *
  * The editor's trusted-behavior workflow:
  *
@@ -12,9 +11,9 @@
  *  - source bytes are **staged** (non-authoritative) and published through the
  *    ordinary `publishBehavior{mode:"source"}` command; the panel displays the
  *    bounded compile/publication error verbatim instead of faking a build;
- *  - phase 16.0: the same view is the "Script: <behavior>" centre tab
+ *  - the same view is the "Script: <behavior>" centre tab
  *    (`document`: one behavior, no list); double-clicking a tile opens it;
- *  - phase 15.4: a declaration editor (`DeclarationEditor`: every property
+ *  - a declaration editor (`DeclarationEditor`: every property
  *    type, visibility, groups, headers, tooltips) creates or updates the
  *    declared-property schema through the ordinary command path.
  *
@@ -45,13 +44,13 @@ export interface BehaviorPanelProps {
   onStage: () => void;
   onAcknowledge: (sourceDigest: string) => void;
   onPublishSource: () => void;
-  /** Phase 15.4: create or update a declaration (one publishBehavior command). */
+  /** Create or update a declaration (one publishBehavior command). */
   onSaveDeclaration: (save: DeclarationSave) => Promise<boolean>;
-  /** Phase 16.0: document mode — the "Script: <behavior>" centre tab edits `selectedBehaviorId` only. */
+  /** Document mode — the "Script: <behavior>" centre tab edits `selectedBehaviorId` only. */
   document?: boolean;
-  /** Phase 16.0: open a behavior in its own centre tab (double-click its tile). */
+  /** Open a behavior in its own centre tab (double-click its tile). */
   onOpen?: (behaviorId: string) => void;
-  /** Phase 19.0: create a visual script (a behavior whose source is a graph) with this name. */
+  /** Create a visual script (a behavior whose source is a graph) with this name. */
   onCreateVisualScript?: (displayName: string) => void;
 }
 
@@ -124,7 +123,7 @@ export function BehaviorPanel(p: BehaviorPanelProps): JSX.Element {
       {p.document === true && selected === null ? (
         <p className="tl-hint">This behavior no longer exists (deleted or undone). Close the tab.</p>
       ) : (
-      /* Phase 15.4: keyed by the behavior so a selection re-seeds the drafts. */
+      /* Keyed by the behavior so a selection re-seeds the drafts. */
       <DeclarationEditor
         key={selected !== null ? `${selected.behaviorId}@${selected.publishedRevision}` : 'new'}
         behavior={selected}

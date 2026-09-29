@@ -1,9 +1,9 @@
 /**
- * @thirdlight/effects — phase 20.1: the CPU reference semantics of visual
+ * @thirdlight/effects — the CPU reference semantics of visual
  * effect graphs (graph kind `effect`): compile an effect's system graphs
  * (`compileEffect`, with diagnostics) and simulate it deterministically per
  * seed over typed arrays (`EffectInstance`); the Output maths (flipbook,
- * billboard axes, lights, ribbons) for the renderers of phase 20.2.
+ * billboard axes, lights, ribbons) for the renderers.
  *
  * Visual only: never imported by the deterministic runtime simulation.
  */

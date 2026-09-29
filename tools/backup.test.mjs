@@ -189,7 +189,7 @@ describe('backup create / verify / restore', () => {
     const out = join(root, 'backups');
     mkdirSync(out);
     const r = createBackup({ dataRoot: root, projectId: 'old', outRoot: out });
-    // Turn it into the pre-2026-09-23 folder-project shape.
+    // Turn it into the older folder-project shape (folder + marker in the manifest).
     const m = JSON.parse(readFileSync(join(r.dir, 'backup-manifest.json'), 'utf8'));
     m.folder = '/somewhere/old';
     m.marker = { thirdlightProject: 1, projectId: 'old', name: 'Old', projectDir: 'thirdlight' };

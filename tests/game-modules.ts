@@ -1,5 +1,5 @@
 /**
- * Phase 24.3: what a test composition registers, as the real compositions do.
+ * What a test composition registers, as the real compositions do.
  * The game host has no default module set: the Play preview and the export
  * pass the manifest's `modules` (resolved from what the content references)
  * and the spec table they ship. A test that composes a host directly derives

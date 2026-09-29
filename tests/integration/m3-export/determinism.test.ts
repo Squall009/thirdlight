@@ -1,6 +1,5 @@
 /**
- * Packet 60 — the M3 export determinism + preview/export parity
- * (export.md §7; delivery.md §2.4 "one capture, one read" + C35-5).
+ * Export determinism + preview/export parity ("one capture, one read").
  *
  *   1. **Determinism:** two exports of the same captured state (a fixed wall
  *      clock) into two DIFFERENT output trees are byte-identical — the accepted
@@ -12,12 +11,12 @@
  *      `buildId`/`settingsDigest`/`contentDigest`/`sceneDigest` — because both
  *      are derived by the SAME shared closure builder (`buildContentClosureM3`)
  *      from the SAME single captured read. The resolved six-key `settings`
- *      reach BOTH the export host and the preview host (C35-5).
+ *      reach BOTH the export host and the preview host.
  *
  * The real-browser standalone playthrough (independent static server under a
  * non-root prefix, backend stopped/unreachable, keyboard/gamepad/audio +
  * recorded network) is the owner-run procedure — UNVERIFIED in-container
- * (tests/browser/m3-export, packet-38 baseline §1).
+ * (tests/browser/m3-export).
  */
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -136,7 +135,7 @@ describe('M3 export determinism + preview/export parity (packet 60)', () => {
   it('the M3 EXPORT manifest and the v3 PLAY manifest for the same capture are the SAME build (parity)', async () => {
     const service = fakeService({ blobs }) as unknown as WorkspaceService;
 
-    // The PLAY closure (packet 59) — the same shared builder.
+    // The PLAY closure — the same shared builder.
     const play = await buildPlayContentM3({
       service,
       compiler: {} as never,
@@ -170,7 +169,7 @@ describe('M3 export determinism + preview/export parity (packet 60)', () => {
     expect(e.sceneDigest).toBe(p.sceneDigest);
     expect(e.contentDigest).toBe(p.contentDigest);
     expect(e.settingsDigest).toBe(p.settingsDigest);
-    // The resolved six-key settings reach BOTH hosts (C35-5): the manifest's
+    // The resolved six-key settings reach BOTH hosts: the manifest's
     // settings block is the resolved registry map, hash-bound by settingsDigest.
     const settingsKeys = Object.keys(e.settings);
     expect(settingsKeys).toHaveLength(6);

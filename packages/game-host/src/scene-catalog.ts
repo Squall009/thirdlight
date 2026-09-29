@@ -1,5 +1,5 @@
 /**
- * Phase 12 (c): the page side of additive scenes, shared by the editor's Play
+ * The page side of additive scenes, shared by the editor's Play
  * page and the exported game. A v4 build ships every scene as
  * `scenes/<sceneId>.json` (listed in `manifest.scenes` with its digest) and
  * every instance-set buffer as `content/sha256/<digest>` (`manifest.buffers`).
@@ -82,7 +82,7 @@ export function bufferResolver(rows: readonly ManifestBufferRow[], io: SceneCata
   };
 }
 
-/** Phase 25.7b: one `manifest.contentFiles` row (project-model `ManifestContentFileRow`). */
+/** One `manifest.contentFiles` row (project-model `ManifestContentFileRow`). */
 export interface ManifestContentFileRowLike {
   readonly key: string;
   readonly path: string;
@@ -94,7 +94,7 @@ export interface ManifestContentFileRowLike {
 const CONTENT_FILE_KEYS: ReadonlySet<string> = new Set(['materials', 'materialFunctions', 'uiDocuments', 'dialogue', 'buffers']);
 
 /**
- * Phase 25.7b: read a verified manifest's content files (materials, material
+ * Read a verified manifest's content files (materials, material
  * functions, UI documents, dialogue, the instance buffer table: the blocks
  * that grow with a project's content) and put each block back under its key.
  * Each file is read once, in parallel, and checked against its row (length

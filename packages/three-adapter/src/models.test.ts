@@ -1,23 +1,23 @@
 /**
- * Packet 69 — the M4 `models` block: scene realization of `model` entities
- * (delivery.md (M4) §2; presentation.md §41.9 row, C64-4).
+ * The `models` block: scene realization of `model` entities
+ * (presentation.md).
  *
- * Node-side (the packet-08 pattern: a STUB canvas, no GPU). The REAL
+ * Node-side (a STUB canvas, no GPU). The REAL
  * pinned GLTFLoader port (`createGltfLoaderPort`, the `./gltf-loader`
  * subpath) parses REAL synthetic GLB bytes (test-glb.ts), and the REAL
  * `AnimationMixer`/`AnimationRoleController` are driven directly — the
  * browser-visible realization (visible model/pose frames) is the
  * `tests/integration/m4-render/` evidence (numeric mixer tests alone are
- * not sufficient — the packet-69 acceptance boundary).
+ * not sufficient).
  *
- * Covered here: the §2.2 fail-fast validation (the two new closed-set
+ * Covered here: the fail-fast validation (the two new closed-set
  * codes), the attach under the entity holders, the per-instance material
- * independence (§2.3), the independent controllers (two instances at
- * distinct committed states — §2.4), the refcounted resource release
- * (last instance releases the shared LoadedGlb exactly once — §2.5), the
- * L6 static path (a mismatching mapping: `animation_role_unresolved`, the
- * model stays attached, the run proceeds — §2.7), the `models_asset_
- * unresolved` residual (§2.3), and the §2.6 cancellation: a disposed run
+ * independence, the independent controllers (two instances at
+ * distinct committed states), the refcounted resource release
+ * (last instance releases the shared LoadedGlb exactly once), the
+ * static path (a mismatching mapping: `animation_role_unresolved`, the
+ * model stays attached, the run proceeds), the `models_asset_
+ * unresolved` residual, and the cancellation: a disposed run
  * cancels in-flight prepares, a late completion is discarded and released
  * exactly once, and repeated disposal is a no-op (ownership counters at
  * baseline).
@@ -82,9 +82,9 @@ function countingPort(inner: GlbLoaderPort): { port: GlbLoaderPort; loads: numbe
 interface V3SceneOptions {
   /** Give the player + decoration entities the committed mapping. */
   withRoles?: boolean;
-  /** The decoration's mapping is deliberately mismatched (L6 static path). */
+  /** The decoration's mapping is deliberately mismatched (the static path). */
   decorationMismatch?: boolean;
-  /** A `model` entity whose assetId has no `assets` row (§2.3 residual). */
+  /** A `model` entity whose assetId has no `assets` row (the residual case). */
   withUnresolved?: boolean;
 }
 
@@ -182,7 +182,7 @@ function waitSettled(p: Promise<unknown>): Promise<unknown> {
   return p.then((r) => new Promise<unknown>((resolve) => setTimeout(() => resolve(r), 50)));
 }
 
-// ---- §2.2 fail-fast validation (models_config_invalid) ---------------------
+// ---- fail-fast validation (models_config_invalid) --------------------------
 
 describe('models block validation (delivery.md (M4) §2.2)', () => {
   const base = {
@@ -461,7 +461,7 @@ describe('createSceneAdapter with the models block (M4 C64-4)', () => {
     expect(instA.instance.root.position.length()).toBe(0); // holder: identity
     expect(instB.instance.root.position.length()).toBe(0); // holder: identity
     // Disposal: the last instance of each resource releases its shared
-    // load exactly once (the refcount rule, §2.5).
+    // load exactly once (the refcount rule).
     expect(instA.instance.dispose()).toEqual({ ok: true });
     expect(resA.resource.diagnostics().instances).toBe(0);
     expect(instB.instance.dispose()).toEqual({ ok: true });

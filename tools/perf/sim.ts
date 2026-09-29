@@ -1,5 +1,5 @@
 /**
- * Phase 21.1: the headless simulation benchmark (a child process started
+ * The headless simulation benchmark (a child process started
  * with `--expose-gc`, see sim-run.ts). It plays a generated project from its
  * saved files through the production composition — the real game host, the
  * platformer, Rapier and the project's published scripts compiled by the
@@ -41,7 +41,7 @@ interface SimInput {
   window: number;
   windows: number;
   /**
-   * Phase 21.2: write the allocation sites of the steady loop (V8's sampling
+   * Write the allocation sites of the steady loop (V8's sampling
    * heap profiler over `profileSteps` steps after the warm-up, collected
    * objects included) to this JSON file.
    */
@@ -62,7 +62,7 @@ export interface SimResult {
   heapUsedMiB: number;
   state: string;
   counters: unknown;
-  /** Phase 25.24e: the last start scene (not the camera's) unloaded and loaded again: its entities, and the step that attached it. */
+  /** The last start scene (not the camera's) unloaded and loaded again: its entities, and the step that attached it. */
   sceneLoad?: { sceneId: string; entities: number; unloadStepMs: number; attachStepMs: number; steps: number };
 }
 
@@ -109,8 +109,8 @@ export async function runSim(input: SimInput): Promise<SimResult> {
   const t0 = performance.now();
   const content = JSON.parse(readFileSync(join(dir, 'content.json'), 'utf8')).content;
   const scenes: Record<string, Any[]> = Object.fromEntries(content.scenes.map((s: Any) => [s.sceneId, JSON.parse(readFileSync(join(dir, 'scenes', `${s.sceneId}.json`), 'utf8')).scene.entities]));
-  // Phase 25.24e: the last of several start scenes starts unloaded and is loaded after the timed steps
-  // (a scene's load step, measured); its lights stay out (a later scene may not hold lights before 25.8).
+  // The last of several start scenes starts unloaded and is loaded after the timed steps
+  // (a scene's load step, measured); its lights stay out of the load.
   const later: string | undefined = content.startScenes.length > 1 ? content.startScenes[content.startScenes.length - 1] : undefined;
   const start: string[] = content.startScenes.filter((id: string) => id !== later);
   if (later !== undefined) scenes[later] = scenes[later]!.filter((e: Any) => e.components?.light === undefined);
@@ -135,7 +135,7 @@ export async function runSim(input: SimInput): Promise<SimResult> {
   }
   if (character === null) throw new Error('the project has no player (controller)');
   const hz = settings.fixed_step_hz ?? 120;
-  // Phase 23.0: a 3D project (physics_dimension 3) runs on the 3D backend.
+  // A 3D project (physics_dimension 3) runs on the 3D backend.
   const config3d = physicsDimensionOf(content.settings) === 3 ? physics3DConfigOf(entities, settings) : null;
   const physics = config3d !== null ? await createPhysicsPort3D(config3d) : await createPhysicsPort({
     character,
@@ -198,7 +198,7 @@ export async function runSim(input: SimInput): Promise<SimResult> {
     }
   };
   tick();
-  // Phase 24.7: every game plays as a scene, from the first step (nothing to start).
+  // Every game plays as a scene, from the first step (nothing to start).
   const bootMs = performance.now() - t0;
 
   for (let i = 0; i < input.warmup; i += 1) tick();
@@ -244,7 +244,7 @@ export async function runSim(input: SimInput): Promise<SimResult> {
   const mean = times.reduce((a, b) => a + b, 0) / Math.max(1, times.length);
   times.sort();
   perStep.sort((a, b) => a - b);
-  // Phase 25.24e: a scene load's step cost (the scene is fetched at once here: only the simulation's part).
+  // A scene load's step cost (the scene is fetched at once here: only the simulation's part).
   let sceneLoad: SimResult['sceneLoad'];
   if (later !== undefined && rt.requestScene?.('load', later)?.ok === true) {
     let attachStepMs = 0;
@@ -275,7 +275,7 @@ export async function runSim(input: SimInput): Promise<SimResult> {
     bytesPerStep: { median: Math.round(percentile(perStep, 0.5)), min: Math.round(perStep[0] ?? 0), windows: perStep.length, windowSteps: win, discarded },
     calibrationMs: round(calibrationMs),
     heapUsedMiB: round(v8.getHeapStatistics().used_heap_size / 1048576),
-    // Phase 24.7: the runtime's state (running while it steps; the deleted session's 'playing' before).
+    // The runtime's state (running while it steps).
     state: String(diag?.ok === true ? diag.diagnostics.state : 'unknown'),
     counters: rt.gameCounters?.() ?? null,
     ...(sceneLoad !== undefined ? { sceneLoad } : {}),

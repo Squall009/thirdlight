@@ -1,8 +1,8 @@
 /**
- * Status bar (React, decision 0001 §10) — connection status, save status,
+ * Status bar (React) — connection status, save status,
  * revision, and the structured error / revision_conflict explanation
  * (conflict/reconnect handling must EXPLAIN failed edits, never silently
- * lose them — sessions.md §9).
+ * lose them).
  */
 import type { JSX } from 'react';
 import type { RendererInfo } from '@thirdlight/three-adapter';
@@ -11,7 +11,7 @@ import type { ClientUiState } from '../session/client';
 interface Props {
   state: ClientUiState;
   onResync: () => void;
-  /** Phase 17.1: the Scene view's renderer (backend, state, why). */
+  /** The Scene view's renderer (backend, state, why). */
   renderer?: RendererInfo | null;
 }
 

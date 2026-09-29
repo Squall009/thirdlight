@@ -1,8 +1,7 @@
 /**
- * Packet 48 — media publication over the REAL transports. Every §41.4.4 audio
+ * Media publication over the REAL transports. Every audio (PCM-WAV)
  * rejection is driven through the real upload/inspect path and a rejected
- * source is asserted to write nothing. (The v2→v3 operator copy cases went
- * with `migrateProjectCopyV3` before phase 9.3 step B.)
+ * source is asserted to write nothing.
  */
 import { existsSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';

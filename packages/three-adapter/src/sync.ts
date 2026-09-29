@@ -1,26 +1,25 @@
 /**
- * Transform synchronization — runtime.md §6 (the adapter copies the
+ * Transform synchronization — runtime.md (the adapter copies the
  * runtime's interpolated values into Object3Ds and performs no other
  * transform math).
  *
  * Pure mapping helper: writes only to the target Object3D; the input
  * tuples are read, never mutated. Kept as an internal module (not part
  * of the public surface row) so the mapping is unit-testable without a
- * WebGL context (packet 08 test note; recorded in docs/handoffs/08.md).
+ * WebGL context.
  */
 import type { Object3D } from 'three';
 
 /** Three-adapter-local tuple types (structural; the adapter must not
- *  import @thirdlight/project-model — dependencies.md §4.1 edge table). */
+ *  import @thirdlight/project-model — the dependencies.md edge table). */
 export type AdapterVec3 = readonly [number, number, number];
-/** Quaternion in three.js order [x, y, z, w] (project-model §10.1). */
+/** Quaternion in three.js order [x, y, z, w] (as in project-model). */
 export type AdapterQuat = readonly [number, number, number, number];
 
 /**
  * Copy one interpolated transform into an Object3D (local frame):
  * position, quaternion, scale. The parent chain composes world
- * transforms via three.js; no other transform math is done here (§6:
- * the three-adapter copies these values into Object3Ds).
+ * transforms via three.js; no other transform math is done here.
  */
 export function applyTransformToObject3D(
   obj: Object3D,

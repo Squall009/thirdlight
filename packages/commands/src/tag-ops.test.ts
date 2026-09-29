@@ -1,5 +1,5 @@
 /**
- * Phase 12 (b): the tag registry (`setTags`) and entity tags
+ * The tag registry (`setTags`) and entity tags
  * (`updateEntity {tags}`), with undo/redo.
  */
 

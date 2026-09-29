@@ -1,5 +1,5 @@
 /**
- * Phase 23.5 (E8): meshing a block layer chunk — the stand-in shapes (full,
+ * Meshing a block layer chunk — the stand-in shapes (full,
  * half, ramp, stairs, custom boxes), the hidden-face removal between
  * neighbours, and the merged per-chunk geometry the renderer draws (one
  * part per block look and material) and the collision triangles the 3D

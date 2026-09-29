@@ -1,5 +1,5 @@
 /**
- * Packet 35 — the immutable play build + locator store units: manifest
+ * The immutable play build + locator store units: manifest
  * identity (`buildId` recomputation, key order, ordering), the locator path
  * classification, the TTL/terminal-grace lifetime, the closure caps and the
  * leak counters. Fast and deterministic (an injected clock).

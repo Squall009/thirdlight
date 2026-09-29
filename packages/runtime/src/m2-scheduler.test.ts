@@ -1,6 +1,6 @@
 /**
- * Packet 29 — M2 fixed-step scheduling, sampling discipline and
- * initialization cancellation (runtime.md §5 + §12.5 + §13).
+ * M2 fixed-step scheduling, sampling discipline and
+ * initialization cancellation.
  *
  * Proves: at most eight steps per frame; a dropped interval executes (and
  * samples) nothing; a jump edge is delivered exactly once; the 12-step

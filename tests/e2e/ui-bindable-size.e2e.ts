@@ -1,5 +1,5 @@
 /**
- * Phase 25.22: a widget's size and a radial bar's start angle read the view
+ * A widget's size and a radial bar's start angle read the view
  * model, against a real backend and a real browser, on the starter project.
  *
  * Editor: in a UI document made from the Assets panel, a panel's size width

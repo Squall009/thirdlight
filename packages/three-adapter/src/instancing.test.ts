@@ -1,5 +1,5 @@
 /**
- * Phase 21.3: instance sets in chunks — the grid, one THREE.LOD per chunk
+ * Instance sets in chunks — the grid, one THREE.LOD per chunk
  * drawing only the level its distance asks for, picking a copy back from a
  * chunk's instance, bounds and the editor's per-copy preview.
  */
@@ -37,7 +37,7 @@ function lodTemplate(): { template: ModelInstance; near: THREE.BufferGeometry; f
   return { template: { glbRoot: root } as unknown as ModelInstance, near, far };
 }
 
-/** Phase 25.24d: a chunk mesh draws instance-matrix columns of its own geometry (the model's attributes, shared). */
+/** A chunk mesh draws instance-matrix columns of its own geometry (the model's attributes, shared). */
 const columnsOf = (m: THREE.Mesh): THREE.InterleavedBufferAttribute | undefined => m.geometry.getAttribute(`${INSTANCE_MATRIX_ATTRIBUTE}0`) as THREE.InterleavedBufferAttribute | undefined;
 const countOf = (m: THREE.Mesh): number => (m.geometry as THREE.InstancedBufferGeometry).instanceCount;
 const draws = (m: THREE.Mesh, g: THREE.BufferGeometry): boolean => m.geometry.getAttribute('position') === g.getAttribute('position');

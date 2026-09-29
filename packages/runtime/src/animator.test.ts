@@ -1,5 +1,5 @@
 /**
- * Phase 9.7: the animator state machine — transitions, conditions, exit
+ * The animator state machine — transitions, conditions, exit
  * time, crossfade and blend weights, triggers and clip events.
  */
 import { describe, expect, it } from 'vitest';

@@ -1,5 +1,5 @@
 /**
- * Test-only loader-port double for the packet-26 visual-resource tests (NOT
+ * Test-only loader-port double for the visual-resource tests (NOT
  * part of the public surface — imported only by .test.ts files).
  *
  * It returns REAL three.js objects (BufferGeometry/MeshStandardMaterial/

@@ -1,10 +1,9 @@
 /**
- * Content projection (sessions.md §8 "Content projection (M2, additive)";
- * packet 27).
+ * Content projection (additive to the scene projection).
  *
  * The full-state payload carries a bounded `content` object
- * (`{ assets, prefabs, behaviors }` summary pages at the same revision,
- * sessions.md §19.4). This module holds the **asset** part of that projection:
+ * (`{ assets, prefabs, behaviors }` summary pages at the same revision).
+ * This module holds the **asset** part of that projection:
  * the catalog summaries the content browser renders and the version
  * resolution the viewport uses to realize a model placement.
  *
@@ -15,8 +14,7 @@
  *    projection uses; `mutation.applied` never carries bytes;
  *  - a **reimport** appends a version and moves `currentVersion`; it never
  *    touches an entity — referencing placements keep their entity IDs,
- *    transforms and `assetId`, and resolve the new version (project-model
- *    §18.1.5);
+ *    transforms and `assetId`, and resolve the new version;
  *  - a **failed** import/reimport never reaches this projection (only an
  *    applied `publishAsset` change does), so a failure preserves the previous
  *    committed content.
@@ -38,7 +36,7 @@ export interface AssetVersionView {
   sourceByteLength: number;
 }
 
-/** The full-state `content` block (only the additive M2 fields we consume). */
+/** The full-state `content` block (only the additive fields we consume). */
 export interface FullContentState {
   assets?: readonly AssetSummary[];
 }
@@ -59,7 +57,7 @@ export class ContentProjection {
     }
   }
 
-  /** Ascending `assetId` order (commands.md §5.6). */
+  /** Ascending `assetId` order. */
   listAssets(): AssetView[] {
     return [...this.assets.values()].sort((a, b) => (a.assetId < b.assetId ? -1 : a.assetId > b.assetId ? 1 : 0));
   }
@@ -80,7 +78,7 @@ export class ContentProjection {
     switch (change.type) {
       case 'publishAsset':
         return this.applyPublishAsset(change);
-      // Phase 25.7c: `deleteAsset` (and its redo) removes the record.
+      // `deleteAsset` (and its redo) removes the record.
       case 'removeAsset':
         return this.assets.delete(change.assetId);
       case 'setAssetOptions': {
@@ -104,7 +102,7 @@ export class ContentProjection {
   private applyPublishAsset(change: PublishAssetChange): boolean {
     const next = change.next;
     if (next === null) {
-      // An inverse (undo of a create) removes the record (phase 25.7c's
+      // An inverse (undo of a create) removes the record (a
       // `deleteAsset` sends its own `removeAsset` change).
       return this.assets.delete(change.assetId);
     }
@@ -114,7 +112,7 @@ export class ContentProjection {
       | { convertedFrom?: { format: 'fbx' | 'png' | 'jpeg'; sourcePath?: string; encoding?: 'color' | 'normal' | 'data' }; packedFrom?: { encoding: 'color' | 'normal' | 'data'; layers: ({ assetId?: string } | { value: number })[][] }; metrics?: unknown }
       | undefined;
     const image = next.kind === 'texture' ? (current?.metrics as { format: string; width: number; height: number; codec?: 'etc1s' | 'uastc'; levels?: number; layers?: number } | undefined) : undefined;
-    // Phase 25.21: a packed texture's encoding and source assets.
+    // A packed texture's encoding and source assets.
     const packed = current?.packedFrom;
     const packedSources = packed === undefined ? [] : [...new Set(packed.layers.flatMap((l) => l.flatMap((c) => ('assetId' in c && typeof c.assetId === 'string' ? [c.assetId] : []))))].sort();
     const sourcePath = pathOf(current);
@@ -130,7 +128,7 @@ export class ContentProjection {
       ...(typeof (next as { clipsFor?: string }).clipsFor === 'string' ? { clipsFor: (next as unknown as { clipsFor: string }).clipsFor } : {}),
       ...(sourcePath !== undefined ? { sourcePath } : {}),
       ...(convertedFrom !== undefined ? { convertedFrom: { format: convertedFrom.format, ...(convertedFrom.sourcePath !== undefined ? { sourcePath: convertedFrom.sourcePath } : {}), ...(convertedFrom.encoding !== undefined ? { encoding: convertedFrom.encoding } : {}) } } : {}),
-      // Phase 25.19: a texture's image facts (a KTX2's codec and mip levels).
+      // A texture's image facts (a KTX2's codec and mip levels).
       ...(image !== undefined ? { image: { format: image.format, width: image.width, height: image.height, ...(image.codec !== undefined ? { codec: image.codec } : {}), ...(image.levels !== undefined ? { levels: image.levels } : {}), ...(image.layers !== undefined ? { layers: image.layers } : {}) } } : {}),
       ...(packed !== undefined ? { packedFrom: { encoding: packed.encoding, sources: packedSources } } : {}),
       // `change.next` carries the full record, so the version facts (never
@@ -170,7 +168,7 @@ export class ContentProjection {
   /**
    * A placement reference check for the content browser: every referenced
    * `assetId` must resolve in the catalog, else the projection is stale and a
-   * fresh full state is required (never a partial merge — sessions.md §8).
+   * fresh full state is required (never a partial merge).
    */
   unresolvedReferences(entities: readonly ProjectedEntity[]): string[] {
     return this.referencedAssetIds(entities).filter((id) => !this.assets.has(id));

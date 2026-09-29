@@ -1,5 +1,5 @@
 /**
- * Phase 14.2: timers and sensors against a real backend, on the starter
+ * Timers and sensors against a real backend, on the starter
  * template with neutral additions:
  *
  * - Editor: GameObject → Gameplay → Trigger; the Inspector turns it into a
@@ -190,7 +190,7 @@ test('a circle trigger in the Inspector and the Scene view; a timed door script 
   type Obs = { state?: string; counters?: Record<string, number> };
   const observe = async (): Promise<Obs> => (await api(`play/${psid}/observe`, {})).json as Obs;
   const counter = async (name: string): Promise<number> => (await observe()).counters?.[name] ?? 0;
-  // Phase 24.6: a scene plays at once (no run to start), so the door is checked shown after it closes again.
+  // A scene plays at once (no run to start), so the door is checked shown after it closes again.
   await expect.poll(async () => (await observe()).state, { timeout: 30_000 }).toBe('running');
   const frame = page.locator('iframe.tl-app__preview-frame');
 

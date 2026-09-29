@@ -1,5 +1,5 @@
 /**
- * Phase 24.4: the generic gameplay primitives, run by the runtime in the
+ * The generic gameplay primitives, run by the runtime in the
  * fixed step (deterministic: entity order, sorted pairs, step counts) on the
  * 2D plane and in 3D alike:
  *
@@ -42,7 +42,7 @@ export interface PathState {
   speed: number;
   mode: 'loop' | 'pingpong' | 'once';
   wait: number;
-  /** Phase 25.12: how the position follows the distance along a stretch (was `smooth: boolean`). */
+  /** How the position follows the distance along a stretch (was `smooth: boolean`). */
   easing: 'linear' | 'smooth' | 'gravity';
   segment: number;
   along: number;
@@ -62,7 +62,7 @@ export function pathLengths(points: readonly Vec3[], loop: boolean): number[] {
   });
 }
 
-/** Advance along the path by one step of `dt` seconds (the phase 9.9 mover rules). */
+/** Advance along the path by one step of `dt` seconds (the mover rules). */
 export function advancePath(m: PathState, dt: number): void {
   if (m.waiting > 0) {
     m.waiting = Math.max(0, m.waiting - dt);
@@ -82,7 +82,7 @@ export function advancePath(m: PathState, dt: number): void {
     // At a point: wait, then pick the next segment.
     const atEnd = m.dir === 1 ? m.segment === m.lengths.length - 1 : m.segment === 0;
     if (m.mode === 'loop') {
-      // Phase 25.12: a reversed loop goes round the other way.
+      // A reversed loop goes round the other way.
       if (m.dir === 1) {
         m.segment = (m.segment + 1) % m.lengths.length;
         m.along = 0;
@@ -109,7 +109,7 @@ export function advancePath(m: PathState, dt: number): void {
 }
 
 /**
- * Phase 25.12: the share of a stretch's length covered at share `f` of its
+ * The share of a stretch's length covered at share `f` of its
  * distance along it (`along / length`), for the path's easing and direction.
  * Gravity is constant acceleration from the stretch's start point (the one it
  * left: `a` going forward, `b` going back): the distance grows with the square
@@ -121,7 +121,7 @@ function eased(easing: PathState['easing'], dir: 1 | -1, f: number): number {
   return f;
 }
 
-/** Phase 25.12: where a path's state puts it. */
+/** Where a path's state puts it. */
 export function pathPosition(m: PathState): Vec3 {
   const len = m.lengths[m.segment] ?? 0;
   const a = m.points[m.segment]!;
@@ -131,7 +131,7 @@ export function pathPosition(m: PathState): Vec3 {
 }
 
 /**
- * Phase 25.12: turn a path around where it is — back the way it came. A
+ * Turn a path around where it is — back the way it came. A
  * finished `once` path moves again (back to its start). With gravity easing
  * the distance along the stretch is re-read for the new direction so the
  * position does not jump (the motion then carries on from that point of the
@@ -185,7 +185,7 @@ interface Patrol {
   path: PathState | null;
 }
 
-/** Phase 25.13: a gravity body: where it was placed (local), its body's half extents, its gravity scale and fall speed. */
+/** A gravity body: where it was placed (local), its body's half extents, its gravity scale and fall speed. */
 interface Fall {
   id: string;
   start: Vec3;
@@ -196,12 +196,12 @@ interface Fall {
 }
 
 /**
- * Phase 25.13: a gravity body looks for floor from this far above its
+ * A gravity body looks for floor from this far above its
  * underside (the patrol probes' 0.1 m): ground up to 0.1 m higher (a kerb, a
  * slope walked up) lifts it onto it instead of leaving it inside.
  */
 const FALL_LIFT = 0.1;
-/** Phase 25.13: the probes sit this share of the body's half width in from its sides (a body half over an edge still stands). */
+/** The probes sit this share of the body's half width in from its sides (a body half over an edge still stands). */
 const FALL_PROBE_INSET = 0.9;
 
 interface Hitbox {
@@ -236,14 +236,14 @@ export interface PrimitivesHost {
   setHidden(id: string, hidden: boolean): void;
   addCounter(name: string, delta: number): void;
   emit(signal: string): void;
-  /** Phase 24.4i: every event as it happens (the event → cue table listens; absent: nobody). */
+  /** Every event as it happens (the event → cue table listens; absent: nobody). */
   note?(e: PrimitiveEventRecord): void;
-  /** Phase 25.13: the project's gravity (m/s² along Y) and fall speed cap (m/s, negative) for gravity bodies (absent: −19.62, −30). */
+  /** The project's gravity (m/s² along Y) and fall speed cap (m/s, negative) for gravity bodies (absent: −19.62, −30). */
   readonly gravityY?: number;
   readonly maxFallSpeed?: number;
 }
 
-/** Phase 24.4: the `components` save section (plain JSON). */
+/** The `components` save section (plain JSON). */
 export interface PrimitivesSaveState {
   /** Object → its current health. */
   health?: Record<string, number>;
@@ -253,14 +253,14 @@ export interface PrimitivesSaveState {
   patrol?: Record<string, { p: number[]; d: number[]; w: number; a: boolean; s?: number; u?: number; r?: number }>;
   /** Hitboxes scripts switched off. */
   off?: string[];
-  /** Phase 25.13: gravity bodies → [local y, fall speed] (only when the scene has any). */
+  /** Gravity bodies → [local y, fall speed] (only when the scene has any). */
   fall?: Record<string, [number, number]>;
-  /** Phase 24.4h: the look overrides scripts set (object → its override). */
+  /** The look overrides scripts set (object → its override). */
   look?: Record<string, EntityLook>;
 }
 
 /**
- * Phase 24.4h: a per-object look override the simulation or a script sets
+ * A per-object look override the simulation or a script sets
  * (`ctx.look.set`): an emissive colour and intensity, and a tint multiplied
  * into the base colour, on every mesh under the object. The renderer applies
  * it on both backends; clearing it gives the object its own look back.
@@ -274,9 +274,9 @@ export interface EntityLook {
   readonly tint?: string;
 }
 
-/** Phase 24.4h: the brightest emissive a look override may set (the surface's own limit). */
+/** The brightest emissive a look override may set (the surface's own limit). */
 export const LOOK_MAX_EMISSIVE_INTENSITY = 4;
-/** Phase 24.4h: engine limit — objects with a look override at once (a replay-safe bound on the state). */
+/** Engine limit — objects with a look override at once (a replay-safe bound on the state). */
 export const MAX_LOOK_OVERRIDES = 1024;
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 
@@ -324,7 +324,7 @@ export class Primitives {
   private readonly patrols = new Map<string, Patrol>();
   private readonly falls = new Map<string, Fall>();
   private readonly hitboxes = new Map<string, Hitbox>();
-  /** Phase 25.10: objects a script switched off (they do not walk, collect or touch; a hitbox switched off separates). */
+  /** Objects a script switched off (they do not walk, collect or touch; a hitbox switched off separates). */
   private inactive: ReadonlySet<string> = new Set();
   /** The contacts of the last step, by pair key `a\u0000b` (a < b). */
   private contacts = new Map<string, [string, string]>();
@@ -333,7 +333,7 @@ export class Primitives {
   private eventsNow: PrimitiveEventRecord[] = [];
   private eventsPrev: readonly PrimitiveEventRecord[] = NO_EVENTS;
   private step = 0;
-  /** Phase 24.4h: look overrides by object (insertion order is irrelevant: views are sorted). */
+  /** Look overrides by object (insertion order is irrelevant: views are sorted). */
   private readonly looks = new Map<string, EntityLook>();
   /** Bumped on every look change (the renderer and the worker mirror compare it). */
   private looksVersion = 0;
@@ -379,7 +379,7 @@ export class Primitives {
         path = { points, lengths: pathLengths(points, loop), speed: num(p['speed'], 1), mode: loop ? 'loop' : 'pingpong', wait: num(p['wait'], 0), easing: 'linear', segment: 0, along: 0, dir: 1, waiting: 0, done: false, pos: [...start] };
       } else {
         const d = (p['direction'] as number[] | undefined) ?? [1, 0, 0];
-        // Phase 25.13: the 2D plane walks any direction in the plane (x and y; +x when it has neither — before, only
+        // The 2D plane walks any direction in the plane (x and y; +x when it has neither — before, only
         // the sign of x counted, which a direction along x keeps exactly); 3D the direction along the ground.
         const dir: Vec3 = this.host.dimension === 2 ? unit([num(d[0], 1), num(d[1], 0), 0]) : unit([num(d[0], 0), 0, num(d[2], 0)]);
         edges = { dir: [...dir], startDir: dir, half: area(p['size'], [1, 1, 1]), wallProbe: num(p['wallProbe'], 0.05), ledgeProbe: num(p['ledgeProbe'], 0.4), pos: [...start], waiting: 0 };
@@ -431,7 +431,7 @@ export class Primitives {
     }
   }
 
-  // ---- phase 24.4h: look overrides ---------------------------------------------------
+  // ---- Look overrides ---------------------------------------------------
 
   /** Set an object's look override (replacing any it had); false for a bad look, an object not loaded, or past the limit. */
   setLook(id: string, value: unknown): boolean {
@@ -490,7 +490,7 @@ export class Primitives {
   }
 
   /** After physics: patrols walk, collectibles and contacts are tested (`playing`: the character takes part). */
-  /** Phase 25.10: the objects switched off (see `GameplayBlocks.setInactive`). */
+  /** The objects switched off (see `GameplayBlocks.setInactive`). */
   setInactive(ids: ReadonlySet<string>): void {
     this.inactive = ids;
   }
@@ -500,7 +500,7 @@ export class Primitives {
     const dt = 1 / this.host.hz;
     const off = this.inactive;
     for (const p of this.patrols.values()) if (off.size === 0 || !off.has(p.id)) this.walk(p, dt);
-    // Phase 25.13: gravity bodies fall (after a walker's step: it walks, then falls or lands).
+    // Gravity bodies fall (after a walker's step: it walks, then falls or lands).
     for (const f of this.falls.values()) if (off.size === 0 || !off.has(f.id)) this.fall(f, dt);
     const character = playing ? this.host.character() : null;
     for (const k of this.collectibles.values()) if (off.size === 0 || !off.has(k.id)) this.collect(k, character);
@@ -567,7 +567,7 @@ export class Primitives {
       this.push({ type: 'turned', entity: p.id, reason: blocked, direction: frozen3(e.dir), stepIndex: this.step - 1 });
       return;
     }
-    // Phase 25.13: a 2D walker's direction may have a y part (it moves up or down).
+    // A 2D walker's direction may have a y part (it moves up or down).
     e.pos = [e.pos[0] + e.dir[0] * step, e.pos[1] + e.dir[1] * step, e.pos[2] + e.dir[2] * step];
     this.write(p.id, e.pos);
   }
@@ -586,7 +586,7 @@ export class Primitives {
     }
     const port = this.host.physics;
     if (port?.raycast === undefined) return null;
-    // Phase 25.13: along its direction in the plane, from its centre past its body's extent that way; only a walk
+    // Along its direction in the plane, from its centre past its body's extent that way; only a walk
     // along the ground (no y part) looks for ledges — moving up or down it is not walking on a floor.
     const vertical = d[1] !== 0;
     const extent = vertical ? Math.abs(d[0]) * e.half[0] + Math.abs(d[1]) * e.half[1] : e.half[0];
@@ -603,7 +603,7 @@ export class Primitives {
   }
 
   /**
-   * Phase 25.13: a gravity body's step: its fall speed grows by the project's
+   * A gravity body's step: its fall speed grows by the project's
    * gravity (times its scale, capped at the fall speed); rays down from just
    * above its underside (at its centre and near its sides; 3D: its corners
    * too) find the floor, and when this step's fall reaches it the body rests
@@ -736,7 +736,7 @@ export class Primitives {
     return h === undefined ? null : { current: h.current, max: h.max };
   }
 
-  /** Phase 24.4j: every object's health (id order; the HUD's bindings). */
+  /** Every object's health (id order; the HUD's bindings). */
   healthsView(): Record<string, { current: number; max: number }> {
     const out: Record<string, { current: number; max: number }> = {};
     for (const id of [...this.healths.keys()].sort()) {

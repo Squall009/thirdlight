@@ -1,5 +1,5 @@
 /**
- * Phase 20.0/20.1: the editor's effect code (the editor may import
+ * The editor's effect code (the editor may import
  * project-model types only) against project-model:
  *
  * - a new effect and a new system built by the editor are what the backend

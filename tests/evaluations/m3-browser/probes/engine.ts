@@ -1,5 +1,5 @@
 /**
- * Packet 38 probe B — the production engine stack in a real browser.
+ * Probe B — the production engine stack in a real browser.
  *
  * Exercises the pinned production packages exactly as the play/export hosts do
  * (no re-implementation): `@thirdlight/physics-rapier` (real Rapier WASM),
@@ -9,7 +9,7 @@
  *
  * The page is served under the production preview-origin CSP
  * (`default-src 'none'; script-src 'self'; connect-src 'self'; …`) so a
- * WebAssembly/CSP incompatibility is observed here, not in packet 60.
+ * WebAssembly/CSP incompatibility is observed here, not in a later build.
  */
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import { createPhysicsPort } from '@thirdlight/physics-rapier';
@@ -122,7 +122,7 @@ void (async () => {
     //    the two crossfaded clips are empty probe clips built with three's own
     //    clip API: this isolates the mixer/crossfade *mechanics* (weight
     //    interpolation, per-instance mixer) from clip binding. The role-mapped
-    //    multi-clip GLB is a packet-41/47/53 artifact.
+    //    multi-clip GLB is covered by the animation-roles tests.
     {
       const instance2 = loaded.createInstance();
       const idle = new THREE.AnimationClip('probe-idle', 1, []);

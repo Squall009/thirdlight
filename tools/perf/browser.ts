@@ -1,5 +1,5 @@
 /**
- * Phase 21.1: the browser side of the harness — one benchmark project loaded
+ * The browser side of the harness — one benchmark project loaded
  * in Play (the editor's preview iframe), in its standalone export (served
  * statically) and in the editor's Scene view while orbiting, in the pinned
  * Playwright Chromium. Frame times, draw calls, resources and GPU memory come
@@ -56,33 +56,33 @@ export interface SurfaceResult {
   three?: { geometries: number; textures: number; programs: number };
   state?: string;
   /**
-   * Editor only (phase 21.3): the Scene view left alone after it settled —
+   * Editor only: the Scene view left alone after it settled —
    * frames that drew anything (counted at the graphics API) and draw calls
    * over the window; render on demand means both are 0.
    */
   idle?: { windowMs: number; framesDrawn: number; drawCalls: number; settledMs: number };
-  /** Editor only (phase 21.3): what the Scene view's last sync did (its `data-sync`) after the command round trips. */
+  /** Editor only: what the Scene view's last sync did (its `data-sync`) after the command round trips. */
   lastSync?: Record<string, unknown>;
-  /** Phase 22.0: where Play/the export ran its simulation (the page's ?threads= flag). */
+  /** Where Play/the export ran its simulation (the page's ?threads= flag). */
   threads?: 'worker' | 'off';
-  /** Phase 22.0: the page's main-thread task time per rendered frame (ms) and its share of the window. */
+  /** The page's main-thread task time per rendered frame (ms) and its share of the window. */
   mainThread?: { taskMsPerFrame: number; busyShare: number };
-  /** Phase 25.24a (Play): where each Play's start went, the first Play first (a later one runs in the same editor page). */
+  /** Play: where each Play's start went, the first Play first (a later one runs in the same editor page). */
   starts?: PlayStartSplit[];
-  /** Phase 25.24a (Play): a scene loaded during the first Play (a class with scenes that do not start). */
+  /** Play: a scene loaded during the first Play (a class with scenes that do not start). */
   sceneLoad?: SceneLoadTiming & { sceneId: string };
   notes: string[];
   loadavg: number[];
 }
 
-/** Phase 25.24a: `gpu` draws on the host's GPU (ANGLE on Vulkan, a real WebGPU adapter) instead of SwiftShader. */
+/** `gpu` draws on the host's GPU (ANGLE on Vulkan, a real WebGPU adapter) instead of SwiftShader. */
 export async function launch(renderer: RendererName, gpu = false): Promise<Browser> {
   const args = gpu ? [...GPU_ARGS, ...MEASURE_ARGS] : [...GL_ARGS, ...(renderer === 'webgpu' || renderer === 'auto' ? WEBGPU_ARGS : []), ...MEASURE_ARGS];
   return chromium.launch({ env: browserLaunchEnv() as Record<string, string>, args });
 }
 
 /**
- * Phase 25.24a: one Play start split into its stages, every time in ms from
+ * One Play start split into its stages, every time in ms from
  * the click on Play: the request to the backend (its own stages in
  * `backend`), the editor handing the play to a new preview page, and the
  * preview's stages (bundle, manifest, assets, worker, mount, models, ready),
@@ -122,7 +122,7 @@ function splitOf(clickEpoch: number, responseEpoch: number, backend: Record<stri
   };
 }
 
-/** Phase 25.24a: the split in one line for the log. */
+/** The split in one line for the log. */
 export function splitLine(s: PlayStartSplit): string {
   const d = (x: { startMs: number; endMs: number | null }): string => (x.endMs === null ? `${x.startMs}…` : `${Math.round(x.endMs - x.startMs)}`);
   const stages = s.stages.map((x) => `${x.name} ${d(x)}${x.endMs !== null ? `@${Math.round(x.endMs)}` : ''}`).join(', ');
@@ -193,7 +193,7 @@ async function record(target: Page | Frame, opts: SurfaceOptions): Promise<PageS
 }
 
 /**
- * Phase 22.0: the page's main-thread work while recording — the renderer
+ * The page's main-thread work while recording — the renderer
  * process's `TaskDuration` (CDP Performance metrics: every task on its main
  * thread, not its workers) per rendered frame and as a share of the window.
  * A cross-origin iframe in its own process is measured there; one sharing the
@@ -221,7 +221,7 @@ async function recordWithMainThread(page: Page, target: Page | Frame, opts: Surf
 
 /**
  * Play: the editor's isolated preview (iframe), started through the play relay.
- * Phase 25.24a: `plays` Plays in the same editor page (each one's start split
+ * `plays` Plays in the same editor page (each one's start split
  * in `starts`), and `sceneLoad`: a scene loaded during the first one.
  */
 export async function measurePlay(browser: Browser, be: PerfBackend, projectId: string, renderer: RendererName, opts: SurfaceOptions, threads: 'worker' | 'off' = 'worker', extra: { plays?: number; sceneLoad?: string } = {}): Promise<SurfaceResult> {
@@ -267,7 +267,7 @@ export async function measurePlay(browser: Browser, be: PerfBackend, projectId: 
     const { sample, mainThread } = await recordWithMainThread(page, first.frame, opts);
     const la = await loadavg();
     const { split, diag: firstDiag } = await splitFor(first);
-    // Phase 24.7: the benchmark plays as a scene (the play state: running).
+    // The benchmark plays as a scene (the play state: running).
     const observed = (await relay(`${first.psid}/observe`)).json as { state?: string };
     const state = String(observed.state);
     const out = result('play', renderer, sample, { firstFrameMs: first.firstEpoch - first.t0, readyMs: first.readyMs }, notes, la);
@@ -278,7 +278,7 @@ export async function measurePlay(browser: Browser, be: PerfBackend, projectId: 
     if (mainThread !== undefined) out.mainThread = mainThread;
     out.starts = [split];
     if (extra.sceneLoad !== undefined) {
-      // Phase 25.24a: a scene that does not start, loaded like a script's ctx.scenes.load.
+      // A scene that does not start, loaded like a script's ctx.scenes.load.
       const sceneId = extra.sceneLoad;
       const asked = await relay(`${first.psid}/control`, { command: 'loadScene', sceneId });
       if (asked.status !== 200) notes.push(`loadScene ${sceneId} refused: ${JSON.stringify(asked.json).slice(0, 200)}`);
@@ -341,7 +341,7 @@ export async function measureExport(browser: Browser, exportDir: string, rendere
   }
 }
 
-/** Phase 21.3: how long the settled Scene view is watched for frames (ms). */
+/** How long the settled Scene view is watched for frames (ms). */
 const IDLE_WINDOW_MS = 3000;
 
 /** The editor: load to the Scene view's first frame, orbit it, and time commands while it is open. */
@@ -362,7 +362,7 @@ export async function measureEditor(
     const connectedMs = Date.now() - t0;
     const firstEpoch = await poll(async () => page.evaluate(() => (window as unknown as { __tlPerf?: { firstDrawEpoch: number | null } }).__tlPerf?.firstDrawEpoch ?? null), (v) => v !== null, 120_000, 'the first Scene view frame');
     await new Promise((r) => setTimeout(r, opts.warmupMs));
-    // Phase 21.3: render on demand — once the view stops drawing (models, thumbnails and the
+    // Render on demand — once the view stops drawing (models, thumbnails and the
     // environment have arrived), nothing draws while nothing changes.
     const settleStart = Date.now();
     let lastFrames = '';
@@ -425,7 +425,7 @@ export async function measureEditor(
     const surface = result('editor', renderer, sample, { connectedMs, firstFrameMs: firstEpoch! - t0 }, ['heap: the whole editor page (projection, UI, Scene view)'], la);
     surface.idle = idle;
     if (opts.commands <= 0) return { surface, commandMs: summarize([]), commandSamples: [] };
-    // Phase 21.4: the Hierarchy, command round trips (the one mutation path) while the editor shows
+    // The Hierarchy, command round trips (the one mutation path) while the editor shows
     // the project, what each costs the editor and the disk, and one material edit.
     const ops = await measureEditorOps(page, be, be.project(projectId), { commands: opts.commands, entityId: opts.entityId, projectDir: join(be.dataRoot, 'projects', projectId), scrollMs: 1500 });
     const sync = await page.evaluate(() => document.querySelector('canvas.tl-viewport')?.getAttribute('data-sync') ?? null);

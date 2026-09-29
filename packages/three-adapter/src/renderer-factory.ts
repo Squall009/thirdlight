@@ -1,18 +1,18 @@
 /**
- * Phase 17.1: the one renderer factory used by Play/export (the scene
+ * The one renderer factory used by Play/export (the scene
  * adapter), the editor's Scene view and its previews (asset preview,
  * Animator preview, thumbnails) and the browser lightmap baker.
  *
- * Backends (the names are logged in docs/plan-phase-17.md §6), all three's
+ * Backends (the names are logged in docs/plan-phase-17.md), all three's
  * `WebGPURenderer` with the shading written once in TSL:
- *  - `auto` — the DEFAULT since phase 17.4: WebGPU when an adapter and a
+ *  - `auto` — the DEFAULT: WebGPU when an adapter and a
  *    working device initialise, else the WebGL 2 backend (a plain-http LAN
  *    page has no `navigator.gpu`).
  *  - `webgl2` — `WebGPURenderer` forced onto its WebGL 2 backend.
  *  - `webgpu` — `WebGPURenderer` on WebGPU; when WebGPU cannot start here it
  *    runs on the WebGL 2 backend and the reason says why.
  *
- * Phase 17.4: the `THREE.WebGLRenderer` path (`legacy`) is archived
+ * The `THREE.WebGLRenderer` path (`legacy`) is archived
  * (`archive/webgl-renderer-17/`); an old `?renderer=legacy` flag or a stored
  * `render_backend` 0 means `auto`.
  *
@@ -39,17 +39,16 @@ export type RendererState = 'initialising' | 'ready' | 'lost' | 'failed';
 
 export const RENDERER_PREFERENCES: readonly RendererPreference[] = ['auto', 'webgpu', 'webgl2'];
 /**
- * The project setting `render_backend`: its value is the index here. 0 was
- * the archived WebGL renderer (`legacy`, phases 17.1–17.3): a project that
- * stored it gets `auto` (phase 17.4).
+ * The project setting `render_backend`: its value is the index here. 0 is
+ * the archived WebGL renderer (`legacy`): a project that stored it gets `auto`.
  */
 export const RENDER_BACKEND_SETTING_VALUES: readonly RendererPreference[] = ['auto', 'auto', 'webgpu', 'webgl2'];
 /**
- * Phase 17.4: `auto` — WebGPU where the browser can start it, else WebGL 2:
+ * `auto` — WebGPU where the browser can start it, else WebGL 2:
  * every browser with WebGL 2 draws, and the faster API is used where it exists.
  */
 export const DEFAULT_RENDERER_PREFERENCE: RendererPreference = 'auto';
-/** Phase 17.4: the archived WebGL renderer's flag value, still accepted in a URL as `auto`. */
+/** The archived WebGL renderer's flag value, still accepted in a URL as `auto`. */
 const LEGACY_URL_VALUE = 'legacy';
 /** The URL query parameter that forces a backend (`?renderer=webgl2`). */
 export const RENDERER_URL_PARAM = 'renderer';
@@ -147,7 +146,7 @@ function noWebGpuReason(secureContext: boolean): string {
 /**
  * Can WebGPU draw here? An adapter, a device, and one validated command (a
  * device that dies at first use — Dawn without a working Vulkan here — is
- * refused, see §6 of the phase plan). Never rejects.
+ * refused, see docs/plan-phase-17.md). Never rejects.
  */
 export async function probeWebGpu(gpu: GpuLike | undefined, secureContext: boolean, timeoutMs: number = WEBGPU_PROBE_TIMEOUT_MS): Promise<WebGpuProbe> {
   if (!hasWebGpuApi(gpu)) return { ok: false, reason: noWebGpuReason(secureContext) };
@@ -191,7 +190,7 @@ const SOURCE_TEXT: Record<RendererPreferenceSource, string> = {
 
 // ---- the handle ---------------------------------------------------------------------
 
-/** The renderer every view draws with (phase 17.4: only WebGPURenderer). */
+/** The renderer every view draws with (only WebGPURenderer). */
 export type AnyRenderer = WebGPURenderer;
 
 /** True for three's WebGPURenderer (either backend). */
@@ -227,8 +226,8 @@ export interface RendererHandle {
   onChange(listener: () => void): () => void;
   /**
    * Release the renderer (and the WebGPU device the factory probed for it).
-   * `loseContext` overrides `loseContextOnDispose` for this call (phase 21.5:
-   * an owner that knows its canvas is gone — a swapped or unmounted canvas —
+   * `loseContext` overrides `loseContextOnDispose` for this call (an owner
+   * that knows its canvas is gone — a swapped or unmounted canvas —
    * releases the WebGL context at once).
    */
   dispose(options?: { loseContext?: boolean }): void;
@@ -250,11 +249,11 @@ export interface NodeRendererParams {
   powerPreference: 'high-performance' | 'low-power';
   forceWebGL: boolean;
   device?: GpuDeviceLike;
-  /** Phase 17.4: the WebGL 2 context the factory made for the WebGL 2 backend (same attributes as three's own). */
+  /** The WebGL 2 context the factory made for the WebGL 2 backend (same attributes as three's own). */
   context?: unknown;
-  /** Phase 20.3: GPU timestamp queries (where the device offers them). */
+  /** GPU timestamp queries (where the device offers them). */
   trackTimestamp?: boolean;
-  /** Phase 23.4: a logarithmic or reversed-Z depth buffer (absent: standard). */
+  /** A logarithmic or reversed-Z depth buffer (absent: standard). */
   depthBuffer?: 'logarithmic' | 'reversed';
 }
 
@@ -300,13 +299,13 @@ export interface CreateRendererOptions {
    */
   loseContextOnDispose?: boolean;
   /**
-   * Phase 20.3: record GPU timestamp queries for `resolveTimestampsAsync`
+   * Record GPU timestamp queries for `resolveTimestampsAsync`
    * (the Effect tab's GPU time). Only where the device offers them (WebGPU's
    * `timestamp-query` feature, WebGL 2's `EXT_disjoint_timer_query_webgl2`);
    * default false (queries cost a little on every pass).
    */
   trackTimestamp?: boolean;
-  /** Phase 23.4: the depth buffer (the `depth_buffer` setting): standard (absent), logarithmic or reversed Z. */
+  /** The depth buffer (the `depth_buffer` setting): standard (absent), logarithmic or reversed Z. */
   depthBuffer?: 'standard' | 'logarithmic' | 'reversed';
   /** Tests inject stubs; the browser uses three and `navigator.gpu`. */
   deps?: Partial<RendererFactoryDeps>;
@@ -323,7 +322,7 @@ const BROWSER_DEPS: RendererFactoryDeps = {
       powerPreference: p.powerPreference,
       forceWebGL: p.forceWebGL,
       ...(p.trackTimestamp === true ? { trackTimestamp: true } : {}),
-      // Phase 23.4: the depth precision (three falls back to standard where reversed Z is unsupported).
+      // The depth precision (three falls back to standard where reversed Z is unsupported).
       ...(p.depthBuffer === 'logarithmic' ? { logarithmicDepthBuffer: true } : p.depthBuffer === 'reversed' ? { reversedDepthBuffer: true } : {}),
       // The probed device (WebGPUBackend takes it instead of requesting its own).
       ...(p.device !== undefined ? { device: p.device } : {}),
@@ -380,16 +379,16 @@ export function createRenderer(o: CreateRendererOptions): RendererHandle {
   let lost = false;
   let node: NodeRendererLike | null = null;
   /**
-   * Phase 21.5: the device the factory probed for `node`. three's WebGPUBackend
+   * The device the factory probed for `node`. three's WebGPUBackend
    * destroys only a device it requested itself, so the factory destroys the
    * one it passed in once the renderer is disposed — else every disposed
    * WebGPU renderer (each Play stop, preview close, backend swap) kept its
    * device and every buffer on it until the collector found them.
    */
   let nodeDevice: GpuDeviceLike | null = null;
-  /** Phase 21.5: the live-renderer registration of `node` (dispose.ts releases per-object buffers in live renderers). */
+  /** The live-renderer registration of `node` (dispose.ts releases per-object buffers in live renderers). */
   let untrackNode: (() => void) | null = null;
-  /** Phase 21.5: removes `node`'s listeners from the textures it set up (see dispose.ts). */
+  /** Removes `node`'s listeners from the textures it set up (see dispose.ts). */
   let releaseTextureListeners: (() => void) | null = null;
   let loseOnDispose = o.loseContextOnDispose === true;
 
@@ -485,7 +484,7 @@ export function createRenderer(o: CreateRendererOptions): RendererHandle {
     node = r;
     nodeDevice = device;
     untrackNode = trackRenderer(r);
-    // Phase 21.5: the WebGL 2 backend never deletes a vertex array object (see dispose.ts).
+    // The WebGL 2 backend never deletes a vertex array object (see dispose.ts).
     if (device === null) installVaoSweep(r.backend);
     renderer = r as unknown as AnyRenderer;
     generation += 1;
@@ -611,7 +610,7 @@ export function createRenderer(o: CreateRendererOptions): RendererHandle {
 /**
  * The renderer's live GPU resources. `programs` counts the render pipelines
  * WebGPURenderer holds (its `info.memory` has no program count; the archived
- * WebGL renderer reported `info.programs`). Phase 21.5: also the attribute,
+ * WebGL renderer reported `info.programs`). Also the attribute,
  * storage-buffer, render-target and uniform-buffer counts (the leak tests
  * compare every count with its baseline).
  */

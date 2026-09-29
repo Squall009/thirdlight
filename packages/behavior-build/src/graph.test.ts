@@ -1,5 +1,5 @@
 /**
- * Phase 19.0: the visual-script front end — graph → TypeScript → the one
+ * The visual-script front end — graph → TypeScript → the one
  * behavior compiler. Execution of the compiled modules is tested in
  * tests/visual-script (it needs a module evaluator); here: generation,
  * refusals with node ids, determinism of the bytes, the code declaration
@@ -37,7 +37,7 @@ describe('generateGraphSource', () => {
     const r = generateGraphSource(g);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    // Phase 19.1: the entry (properties, events), the shared helpers and the node functions (in files of at most ~40 KB).
+    // The entry (properties, events), the shared helpers and the node functions (in files of at most ~40 KB).
     expect(r.container.files.map((f) => f.path)).toEqual(['src/graph-nodes-1.ts', 'src/graph-runtime.ts', 'src/index.ts']);
     expect(r.container.requiredModules).toEqual([]);
     expect(r.container.ownedTransforms).toEqual([]);
@@ -66,7 +66,7 @@ describe('generateGraphSource', () => {
     expect(unnamed.ok).toBe(false);
     if (!unnamed.ok) expect(unnamed.problems).toEqual([expect.objectContaining({ nodeId: 'emit', message: expect.stringContaining('signal') })]);
     const noVar = generateGraphSource({ nodes: [{ id: 'start', type: 'event.start', position: [0, 0] }], edges: [] });
-    // Phase 19.1: no variable is fine — the script declares no property.
+    // No variable is fine — the script declares no property.
     expect(noVar.ok && noVar.declaration).toEqual({ properties: [] });
   });
 });
@@ -75,8 +75,8 @@ describe('compileBehaviorGraph (the same compiler as TypeScript sources)', () =>
   const compiler = createBehaviorCompiler();
 
   it('compiles the 19.0 starter nodes in one graph; the manifest says sourceKind graph and the declaration comes from the code', async () => {
-    // One graph using every 19.0 starter node type, wired validly (the whole
-    // 19.1 catalogue, one script per node type: tests/visual-script/catalogue.test.ts).
+    // One graph using every starter node type, wired validly (the whole
+    // catalogue, one script per node type: tests/visual-script/catalogue.test.ts).
     const nodes: GraphNode[] = [
       { id: 'start', type: 'event.start', position: [0, 0] },
       { id: 'step', type: 'event.step', position: [0, 300] },

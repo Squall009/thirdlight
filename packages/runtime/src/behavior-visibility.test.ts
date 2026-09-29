@@ -1,5 +1,5 @@
 /**
- * Phase 15.4: a private declared property always reads its declared default
+ * A private declared property always reads its declared default
  * (a stored value left from when it was public is inert); a public one reads
  * the stored value, or its default when absent.
  */

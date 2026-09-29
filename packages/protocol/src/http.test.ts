@@ -1,5 +1,5 @@
 /**
- * HTTP payload validators (sessions.md §5.1/§6/§10.1/§12).
+ * HTTP payload validators.
  */
 import { describe, expect, it } from 'vitest';
 import {

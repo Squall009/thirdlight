@@ -1,5 +1,5 @@
 /**
- * Phase 23.17: timelines against a real backend, on a neutral 3D scene built
+ * Timelines against a real backend, on a neutral 3D scene built
  * by commands on a blank project (a floor, a player capsule, a lamp box,
  * three virtual cameras — two fixed and a rail on a camera path —, two
  * imported WAV sounds, `play` and `skip` key actions).

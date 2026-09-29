@@ -1,5 +1,5 @@
 /**
- * Phase 9.8: the Input window — the game's input actions and their bindings.
+ * The Input window — the game's input actions and their bindings.
  *
  * Actions are grouped by map (gameplay, ui). Each binding is a chip (× removes
  * it). "Listen" captures the next key (a 1D axis asks for two keys, a 2D axis
@@ -7,11 +7,11 @@
  * to defaults" removes the project's own actions. A project without its own
  * actions shows (and plays with) the defaults.
  *
- * Phase 23.3: "+ pointer" binds a mouse button, the pointer's position or
+ * "+ pointer" binds a mouse button, the pointer's position or
  * movement, one movement axis or the wheel (what fits the action type); each
  * map chooses its cursor (free or locked).
  *
- * Phase 23.14: a key, pad button or mouse button binding takes "hold" seconds
+ * A key, pad button or mouse button binding takes "hold" seconds
  * (hold instead of tap); the Glyphs list maps a glyph key (an icon id of the
  * engine's generic set, optionally per pad family or key) to a project
  * texture shown instead of the generic icon.
@@ -27,11 +27,11 @@ interface Props {
   defaults: InputConfig;
   onSave: (input: InputConfig | null) => void;
   error: string | null;
-  /** Phase 23.14: the project's textures (glyph images). */
+  /** The project's textures (glyph images). */
   textures?: readonly { assetId: string; displayName: string }[];
 }
 
-/** Phase 23.14: the binding kinds that take the hold modifier. */
+/** The binding kinds that take the hold modifier. */
 const HOLDABLE = new Set(['key', 'gamepadButton', 'pointerButton']);
 const GLYPH_KEY_RE = /^(?:(?:xbox|playstation|switch|generic):)?[a-z][a-z0-9-]{0,31}(?::[A-Za-z0-9]{1,32})?$/;
 
@@ -62,7 +62,7 @@ export function bindingLabel(b: InputBinding): string {
   }
 }
 
-/** Phase 23.3: the pointer bindings that fit an action type (the "+ pointer" choices). */
+/** The pointer bindings that fit an action type (the "+ pointer" choices). */
 const POINTER_CHOICES: Record<InputActionType, readonly { label: string; binding: InputBinding }[]> = {
   button: [
     { label: 'left button', binding: { kind: 'pointerButton', button: 'left' } },
@@ -97,7 +97,7 @@ export function InputPanel(p: Props): JSX.Element {
   const [newName, setNewName] = useState('');
   const [newType, setNewType] = useState<InputActionType>('button');
   const [newMap, setNewMap] = useState<string>('gameplay');
-  /** Phase 23.10: the project's own input maps (game modes activate maps). */
+  /** The project's own input maps (game modes activate maps). */
   const [newMapName, setNewMapName] = useState('');
   const maps = config.maps ?? [];
   const [glyphKey, setGlyphKey] = useState('');
@@ -105,10 +105,10 @@ export function InputPanel(p: Props): JSX.Element {
   const listenRef = useRef<Listening>(null);
   listenRef.current = listening;
 
-  // Phase 23.3: an edit keeps the cursor settings.
-  // Phase 23.14: … and the glyph images.
+  // An edit keeps the cursor settings.
+  // … and the glyph images.
   const save = (actions: InputAction[]): void => p.onSave({ actions, ...(config.maps !== undefined ? { maps: config.maps } : {}), ...(config.cursor !== undefined ? { cursor: config.cursor } : {}), ...(config.glyphs !== undefined ? { glyphs: config.glyphs } : {}) });
-  // Phase 25.6: any map (gameplay, ui or the project's own) sets its cursor.
+  // Any map (gameplay, ui or the project's own) sets its cursor.
   const setCursor = (map: string, mode: CursorMode): void => {
     const cursor = { ...(config.cursor ?? {}), [map]: mode };
     p.onSave({ actions: config.actions, ...(config.maps !== undefined ? { maps: config.maps } : {}), cursor, ...(config.glyphs !== undefined ? { glyphs: config.glyphs } : {}) });
@@ -122,8 +122,8 @@ export function InputPanel(p: Props): JSX.Element {
     });
     put(a.name, { ...a, bindings });
   };
-  /** Phase 23.10: add or remove one of the project's own maps (an edit keeps the actions and the cursor). */
-  // Phase 25.6: a removed map's cursor setting goes with it.
+  /** Add or remove one of the project's own maps (an edit keeps the actions and the cursor). */
+  // A removed map's cursor setting goes with it.
   const setMaps = (next: string[]): void => {
     const cursor = config.cursor === undefined ? undefined : Object.fromEntries(Object.entries(config.cursor).filter(([m]) => m === 'gameplay' || m === 'ui' || next.includes(m)));
     p.onSave({ actions: config.actions, ...(next.length > 0 ? { maps: next } : {}), ...(cursor !== undefined && Object.keys(cursor).length > 0 ? { cursor } : {}), ...(config.glyphs !== undefined ? { glyphs: config.glyphs } : {}) });

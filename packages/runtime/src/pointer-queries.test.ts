@@ -1,5 +1,5 @@
 /**
- * Phase 23.3: pointer samples in the step's input frame (validation, the
+ * Pointer samples in the step's input frame (validation, the
  * held state and its edges), the cursor request, `ctx.input`'s pointer view,
  * and the 3D script queries (raycast3d, overlaps, picks) with their filters
  * and per-step cap — against a recording 3D port.

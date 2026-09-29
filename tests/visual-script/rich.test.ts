@@ -1,5 +1,5 @@
 /**
- * Phase 19.1: rich visual scripts run exactly like the equivalent TypeScript.
+ * Rich visual scripts run exactly like the equivalent TypeScript.
  *
  * - Collections, a seeded random switch, a script function and a shared
  *   function, a gate, do once and a step-counted delay: the graph and the

@@ -1,5 +1,5 @@
 /**
- * Phase 20.2: the effect executors harness (browser code, bundled by
+ * The effect executors harness (browser code, bundled by
  * `effects-gpu.e2e.ts`). One case per page load:
  *
  *   index.html?backend=webgl2|webgpu&case=parity|render

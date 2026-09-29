@@ -1,27 +1,26 @@
 /**
- * @thirdlight/exporter — public surface (dependencies.md §3 row:
- * `.` — `exportProject(ctx) → result` (export.md §4), `ERROR_CODES`).
+ * @thirdlight/exporter — public surface (dependencies.md row:
+ * `.` — `exportProject(ctx) → result`, `ERROR_CODES`).
  *
  * The `.` subpath is the export operation invoked by the backend
- * (sessions.md §6.3 — `POST /api/v1/admin/projects/:projectId/export`,
- * admin scope). It is NOT an MCP tool in M1 and not a browser command.
+ * (`POST /api/v1/admin/projects/:projectId/export`, admin scope). It is not
+ * a browser command.
  *
- * The browser export bundle entry (`src/export-bootstrap.ts`) is NOT a
- * public export: it is reached by file path at build time (export.md §4.2
- * bundle graph — "that file only"); the `exports` map does not expose it.
+ * The browser export bundle entry (`src/export-bootstrap-m3.ts`) is NOT a
+ * public export: it is reached by file path at build time (the bundle graph
+ * allows "that file only"); the `exports` map does not expose it.
  *
  * Node-side code of this package imports no Node builtins (dependencies.md
- * §4.1: `node: []`): the workspace service AND the IO facade are injected
+ * `node: []`): the workspace service AND the IO facade are injected
  * (types-only `@thirdlight/workspace` edge; `ExportFs` supplied by the
- * backend). The only external runtime dependency is `esbuild` (§7), used
+ * backend). The only external runtime dependency is `esbuild`, used
  * with `write: false` so the built bytes stay in memory.
  */
 
 export { exportProject, type ExportContext, type ExportFs } from './export';
 export { exportProjectM3 } from './export-m3';
-// Packet 36 — the shared M2 closure builder + the export/play runtime
-// composition (dependencies.md §3 `exporter` row: "the shared
-// manifest/closure builder + the packet-19 meta.json fields").
+// The shared closure builder + the export/play runtime composition
+// (dependencies.md `exporter` row: "the shared manifest/closure builder").
 export {
   buildContentClosureM3,
   closureCacheStats,
@@ -57,7 +56,7 @@ export {
   type ExportErrorCode,
   type ExportResult,
 } from './errors';
-// The declared-dependency module resolver (D17), re-exported for the
+// The declared-dependency module resolver, re-exported for the
 // backend (whose project-model edge is types-only): templates resolve their
 // declared modules at creation through the same function the closure uses.
 export { physicsDimensionOf, resolveRequiredModules, type ResolveModulesResult, type UnresolvedModule } from '@thirdlight/project-model';

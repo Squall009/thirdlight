@@ -1,11 +1,11 @@
 /**
- * Packet 28 — prefab capture/instantiation planning (Node; vitest).
+ * Prefab capture/instantiation planning (Node; vitest).
  *
- * Pins the contract's capture rejection order (§8.6.2/§8.6.3), the three and
- * only three instantiation configurables (§8.7.1), override legality against
- * the published declarations (§8.7.3), the atomic instance limits (§8.7.5)
- * and the client recovery for a stale revision / backend-rejected limit
- * (§5.5/§6.4). Nothing here executes behavior code.
+ * Pins the contract's capture rejection order, the three and
+ * only three instantiation configurables, override legality against
+ * the published declarations, the atomic instance limits
+ * and the client recovery for a stale revision / backend-rejected limit.
+ * Nothing here executes behavior code.
  */
 import { describe, expect, it } from 'vitest';
 import type { PrefabDefinition, PropertyDeclaration } from '@thirdlight/project-model';

@@ -1,20 +1,20 @@
 /**
- * Declared-property declaration/value checks — commands.md §8.8/§8.9,
- * project-model.md §20.5/§20.8 (packet 21).
+ * Declared-property declaration/value checks for `publishBehavior` and
+ * `setBehaviorProperties`.
  *
  * The command layer must return the op-level error codes the contract names
  * (`property_unknown`, `property_type`, `property_value`,
  * `property_declaration_incompatible`, `reference_missing`,
- * `asset_reference_missing`) with the carried fields packet 16's fixtures pin.
+ * `asset_reference_missing`) with the carried fields the fixtures pin.
  * The model remains the authority for the *document* rules: every candidate
  * content block is still re-validated by the v3/v4 content and project
  * validators after application, so these checks are the op-level front
  * door, not a second validator.
  *
- * Property shape (project-model §20.5): seven types, canonical field order
- * `key, label, type, default, min, max, step, maxLength, values, bounds`;
- * phase 15.4 adds `visibility` (absent = public; `"public"` is normalized
- * away), `group`, `header` and `tooltip`.
+ * Property shape: seven types, canonical field order
+ * `key, label, type, default, min, max, step, maxLength, values, bounds`,
+ * then `visibility` (absent = public; `"public"` is normalized away),
+ * `group`, `header` and `tooltip`.
  */
 
 import {
@@ -36,7 +36,7 @@ import type {
   PropertyValue,
 } from '@thirdlight/project-model';
 
-/** `^[a-z][a-z0-9_]{0,63}$` (project-model §20.5). */
+/** `^[a-z][a-z0-9_]{0,63}$`: the property key syntax. */
 const KEY_RE = /^[a-z][a-z0-9_]{0,63}$/;
 const TYPES: readonly PropertyType[] = [
   'number',
@@ -48,13 +48,13 @@ const TYPES: readonly PropertyType[] = [
   'assetRef',
 ];
 
-/** The declared-property fields (phase 15.4: visibility, group, header, tooltip). */
+/** The declared-property fields (visibility, group, header, tooltip). */
 const DECLARED_PROPERTY_FIELDS: readonly string[] = ['key', 'label', 'type', 'default', 'min', 'max', 'step', 'maxLength', 'values', 'bounds', 'visibility', 'group', 'header', 'tooltip'];
 
-/** Phase 15.4: the optional Inspector texts of a declared property and their caps. */
+/** The optional Inspector texts of a declared property and their caps. */
 const PROPERTY_TEXTS: readonly (readonly ['group' | 'header' | 'tooltip', number])[] = [['group', 64], ['header', 64], ['tooltip', 256]];
 
-/** Phase 15.4: whether a declared property is private (absent visibility = public). */
+/** Whether a declared property is private (absent visibility = public). */
 export function isPrivateProperty(p: { visibility?: string }): boolean {
   return p.visibility === 'private';
 }
@@ -85,7 +85,7 @@ export function deepEqual(a: unknown, b: unknown): boolean {
   return false;
 }
 
-/** `reference_missing` carrying a property-value failure (commands.md §8.9). */
+/** `reference_missing` carrying a property-value failure. */
 export function referenceMissingValue(found: unknown, expected: string): CommandError {
   return withBoundedFound(
     {
@@ -121,9 +121,9 @@ function declarationValueError(
 }
 
 /**
- * Validate one declared property's own data (§20.5/§20.8.5 step 5): key syntax
+ * Validate one declared property's own data: key syntax
  * and uniqueness, label, type, default and constraint coherence. Limits are
- * enforced by the caller (checkDeclarationLimits) so the order matches §8.8.3.
+ * enforced by the caller (checkDeclarationLimits) so limit errors come first.
  */
 function checkDeclaredProperty(
   prop: unknown,
@@ -263,7 +263,7 @@ function checkDeclaredProperty(
       }
     }
   }
-  // Phase 15.4: visibility and the Inspector texts.
+  // Visibility and the Inspector texts.
   const visibility = p['visibility'];
   if (visibility !== undefined && visibility !== 'public' && visibility !== 'private') {
     return { ok: false, error: declarationValueError(key, visibility, '"public" or "private"', 'property visibility must be "public" or "private"') };
@@ -292,7 +292,7 @@ function checkDeclaredProperty(
  * How one value-rule failure is reported to a caller.
  *
  * `expected`/`message` carry the op-level (`field`) presentation the
- * packet-21 fixtures pin; a caller that wants a different presentation (the
+ * content fixtures pin; a caller that wants a different presentation (the
  * prefab override path uses a constraint-rich `expected`) supplies an
  * override or maps the failure itself. The RULE below is the single place
  * the seven type vocabularies are decided.
@@ -306,7 +306,7 @@ interface ValueRuleFailure {
 }
 
 /**
- * Pure value rule for one property instance (project-model §20.5).
+ * Pure value rule for one property instance.
  * `allowUnresolved` is used for a declaration's own default: an `entityRef`
  * default of `null` is valid; a non-null reference default cannot be checked
  * against a scene and is validated by the model when it is actually stored.
@@ -414,7 +414,7 @@ function checkPropertyValueRule(
   }
 }
 
-/** Field-presentation mapper for a rule failure (packet-21 pinned shapes). */
+/** Field-presentation mapper for a rule failure (fixture-pinned shapes). */
 function fieldValueError(
   key: string,
   value: unknown,
@@ -447,7 +447,7 @@ function checkPropertyValue(
   return { ok: false, error: fieldValueError(key, value, r.failure) };
 }
 
-/** The constraint-rich type description the prefab override fixtures pin (§8.7.3). */
+/** The constraint-rich type description the prefab override fixtures pin. */
 function overrideTypeDescription(prop: DeclaredProperty): string {
   switch (prop.type) {
     case 'number':
@@ -470,7 +470,7 @@ function overrideTypeDescription(prop: DeclaredProperty): string {
 }
 
 /**
- * Instantiation-override value check (commands.md §8.7.3): the same seven-type
+ * Instantiation-override value check: the same seven-type
  * rule, reported with the override presentation. `ctx.entityIds` must be the
  * union of the definition's localIds and the current scene's entity IDs;
  * `ctx.assetIds` is `content.assets`.
@@ -512,7 +512,7 @@ export function checkOverrideValue(
 }
 
 /**
- * Validate a whole declaration for `publishBehavior` (§8.8.3 steps 4–5):
+ * Validate a whole declaration for `publishBehavior`:
  * declaration limits, then every property's data. Returns the canonical
  * declaration value (request field order preserved).
  */
@@ -575,9 +575,8 @@ export function validateDeclaration(
 }
 
 /**
- * Check a provided value map against a declaration and fill defaults
- * (§8.9 step 4/5): every provided key must be declared, public (phase 15.4)
- * and type-check; the result contains every public declared key in
+ * Check a provided value map against a declaration and fill defaults:
+ * every provided key must be declared, public and type-check; the result contains every public declared key in
  * declaration order.
  */
 export function fillDeclaredValues(
@@ -595,17 +594,17 @@ export function fillDeclaredValues(
   for (const key of Object.keys(provided)) {
     const prop = byKey.get(key);
     if (prop === undefined) return { ok: false, error: propertyUnknown(behaviorId, key) };
-    // Phase 15.4: a private property is not settable per object.
+    // A private property is not settable per object.
     if (isPrivateProperty(prop)) return { ok: false, error: propertyPrivate(behaviorId, key) };
   }
   const values: Record<string, PropertyValue> = {};
   for (const prop of declaration.properties) {
-    // Phase 15.4: private properties are never stored (the script reads the
+    // Private properties are never stored (the script reads the
     // default); a value left from when the property was public is dropped.
     if (isPrivateProperty(prop)) continue;
     const providedValue = Object.prototype.hasOwnProperty.call(provided, prop.key);
     // Omitted keys keep the existing stored value when the component already
-    // has one (§20.8.3: changing a default affects NEW values only); a fresh
+    // has one (changing a default affects NEW values only); a fresh
     // attach falls back to the declaration default.
     const previousValue =
       previousValues !== undefined && Object.prototype.hasOwnProperty.call(previousValues, prop.key);
@@ -629,7 +628,7 @@ export function fillDeclaredValues(
 }
 
 /**
- * `declaration-update` compatibility (§8.8.3 step 6 / §20.8.5): every existing
+ * `declaration-update` compatibility: every existing
  * use must still be accepted. Returns the first incompatibility found in use
  * order, carrying the offending `(entityId, key)` pairs.
  */

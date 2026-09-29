@@ -1,5 +1,5 @@
 /**
- * Phase 21.0: the deterministic benchmark generator. A pure function of the
+ * The deterministic benchmark generator. A pure function of the
  * class and the seed: the same inputs give the same plan (every value comes
  * from a seeded PRNG, never Math.random or the clock), so two runs measure the
  * same project. The plan is data only; `build.ts` applies it through the real
@@ -10,7 +10,6 @@
 import { CLASS_SPECS, type BenchClass, type ClassSpec } from './classes';
 
 /** Bump when the generated content changes (it keys the cached projects and the baseline). */
-// Phase 24.7: 3 — the goal zone became a camera track (the game block was deleted).
 export const GENERATOR_VERSION = 3;
 export const DEFAULT_SEED = 21;
 
@@ -30,7 +29,7 @@ export interface BehaviorPlan {
   declaration: { properties: Record<string, unknown>[] };
 }
 
-/** Phase 25.24a: one generated file (a textured sphere model, or a noise texture). */
+/** One generated file (a textured sphere model, or a noise texture). */
 export interface FilePlan {
   assetId: string;
   displayName: string;
@@ -68,9 +67,9 @@ export interface BenchPlan {
   buffers: BufferPlan[];
   /** The model kit: pieces with LODs and collision boxes (tests/e2e/multi-piece-glb.ts builds the GLB). */
   model: { assetId: string; displayName: string; pieces: { name: string; lods: [number, number, number][]; col?: [number, number, number] }[] };
-  /** Phase 25.24a: the class's own model and texture files (tools/perf/assets.ts makes them from the seeds). */
+  /** The class's own model and texture files (tools/perf/assets.ts makes them from the seeds). */
   files: { models: FilePlan[]; textures: FilePlan[] };
-  /** Phase 25.24a: the scenes the game starts with (the rest load on demand). */
+  /** The scenes the game starts with (the rest load on demand). */
   startScenes: string[];
   /** The fixed objects made with createEntity in the first scene (the camera track follows the player). */
   player: { position: [number, number, number]; size: [number, number, number] };
@@ -111,15 +110,14 @@ const SCENE_WIDTH = 120;
 /**
  * Colliders per scene: the model allows 256 in a scene (MAX_COLLIDERS; the
  * start scenes loaded together have no collider limit of their own), so each
- * scene keeps 200 — the 10-scene large class carries 2000 (generator v2; v1
- * kept 200 over all scenes after a misread of the limit in 21.0).
+ * scene keeps 200 — the 10-scene large class carries 2000.
  */
 const COLLIDERS_PER_SCENE = 200;
 /**
  * Scripts that move their object do it on one step in four (their slot from
- * the entity id). Since 21.2 the runtime's per-step intent cap scales with the
- * script instances (5 each), so this is no longer needed to stay under a cap;
- * it stays so the benchmark keeps measuring the same work as its baseline.
+ * the entity id). The runtime's per-step intent cap scales with the script
+ * instances (5 each), so this is not needed to stay under a cap; it keeps the
+ * benchmark measuring the same work as its baseline.
  */
 const HASH_SLOT = '  instantiate(_p: unknown, inst: any) { let h = 0; for (const c of inst.entityId) h = (h * 31 + c.charCodeAt(0)) | 0; return { slot: Math.abs(h) % 4, yaw: 0, y0: null as number | null }; },';
 /** Id numbers per prefix (the backend numbers `<prefix>-0001..9999`). */
@@ -301,7 +299,7 @@ function scatter(count: number, x0: number, rnd: () => number): Float32Array {
 export function generate(className: BenchClass, seed = DEFAULT_SEED): BenchPlan {
   const spec = CLASS_SPECS[className];
   const rnd = prng(seed * 7919 + spec.entities);
-  // Phase 25.24a: the class's own files (none for the classes before it: their plans are unchanged).
+  // The class's own files (none for the other classes, so their plans match their baselines).
   const fileRnd = prng(seed * 104729 + spec.entities);
   const modelFiles: FilePlan[] = Array.from({ length: spec.modelFiles ?? 0 }, (_, i) => ({ assetId: `bench-model-${String(i + 1).padStart(3, '0')}`, displayName: `Bench model ${i + 1}`, seed: Math.floor(fileRnd() * 2 ** 31), segments: spec.modelSegments ?? 32, size: spec.modelTextureSize ?? 128 }));
   const textureFiles: FilePlan[] = Array.from({ length: spec.textureFiles ?? 0 }, (_, i) => ({ assetId: `bench-tex-${String(i + 1).padStart(3, '0')}`, displayName: `Bench texture ${i + 1}`, seed: Math.floor(fileRnd() * 2 ** 31), segments: 0, size: spec.textureSize ?? 256 }));
@@ -326,7 +324,7 @@ export function generate(className: BenchClass, seed = DEFAULT_SEED): BenchPlan 
     };
     add('instances', spec.instanceSets);
     if (spec.startScenes !== undefined) {
-      // Phase 25.24a: a scene loaded later may not hold lights until 25.8, so they stay in the start scenes.
+      // Lights stay in the start scenes, so the benchmark keeps measuring the same work as its baseline.
       for (let n = 0; n < spec.pointLights; n += 1) perScene[n % spec.startScenes]!.push('light');
     } else add('light', spec.pointLights);
     add('effect', spec.effects);
@@ -353,7 +351,7 @@ export function generate(className: BenchClass, seed = DEFAULT_SEED): BenchPlan 
     let colliders = 0;
     let floors = 0;
     let local = 0;
-    // Phase 25.24a: with files of its own, a scene uses the files and materials dealt to it (so a start
+    // With files of its own, a scene uses the files and materials dealt to it (so a start
     // scene needs only its share of them); the other classes keep their plans.
     const picks = new Map<readonly unknown[], number>();
     const dealt = <T>(list: readonly T[]): T => {

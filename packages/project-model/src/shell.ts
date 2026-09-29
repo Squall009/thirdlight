@@ -1,5 +1,5 @@
 /**
- * Phase 24.4j: the game shell (`content.shell`, v4) — the menus around a game
+ * The game shell (`content.shell`, v4) — the menus around a game
  * and its HUD, as project UI documents.
  *
  * - `screens`: the UI documents drawn for the shell's screens — a title
@@ -40,9 +40,9 @@ export interface ShellScene {
   scene: string;
   /** The player spawn the character starts at (a playerSpawn object in that scene; absent: it stays where it is). */
   spawn?: string;
-  /** Phase 25.24e: seconds the view fades out before a move to this scene and back in after it (0–5; absent: no fade). */
+  /** Seconds the view fades out before a move to this scene and back in after it (0–5; absent: no fade). */
   fade?: number;
-  /** Phase 25.24e: the fade's colour (#rrggbb; absent: black). */
+  /** The fade's colour (#rrggbb; absent: black). */
   fadeColor?: string;
 }
 

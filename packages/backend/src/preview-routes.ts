@@ -20,23 +20,23 @@ export interface PreviewRoutesContext {
   readonly locatorBaseHeaders: (res: ServerResponse) => void;
   readonly previewTemplate: () => string;
   readonly previewShellHtml: (playSessionId: string, contentId: string, nonce: string, roots?: { cacheRoot: string; buildRoot: string | null }) => string;
-  /** Phase 25.24c: the prebuilt play scripts at digest-keyed URLs. */
+  /** The prebuilt play scripts at digest-keyed URLs. */
   readonly playBuild: PlayBuildCache;
-  /** Phase 22.0: COOP + COEP when the deployment asks for cross-origin isolation (`embeddable`: the play page itself). */
+  /** COOP + COEP when the deployment asks for cross-origin isolation (`embeddable`: the play page itself). */
   readonly isolationHeaders: (res: ServerResponse, embeddable?: boolean) => void;
 }
 
 export function makePreviewRoutes(ctx: PreviewRoutesContext) {
   const { config, logStartup, playContent, sendJson, parseQuery, serveStatic, previewCsp, locatorBaseHeaders, previewTemplate, previewShellHtml, isolationHeaders, playBuild } = ctx;
 
-  /** Phase 25.24c: the page's stable roots (the project's cache root, the play build). */
+  /** The page's stable roots (the project's cache root, the play build). */
   const rootsOf = (set: PlayContentSet): { cacheRoot: string; buildRoot: string | null } => ({
     cacheRoot: `/play-content/${playContent.cacheIdFor(set.projectId)}/`,
     buildRoot: playBuild.current()?.root ?? null,
   });
 
   /**
-   * Phase 25.24c: one immutable, digest-named response — `ETag` the digest, a
+   * One immutable, digest-named response — `ETag` the digest, a
    * year's `max-age` (the URL can never mean other bytes), 304 for a
    * revalidation that names it.
    */
@@ -94,7 +94,7 @@ export function makePreviewRoutes(ctx: PreviewRoutesContext) {
     };
   };
 
-  /** Send a locator failure with the §17.4 redaction applied to the message/hint. */
+  /** Send a locator failure with the contentId redaction applied to the message/hint. */
   const locatorError = (res: ServerResponse, error: SessionError, status: number): void => {
     for (const contentId of playContent.allContentIds()) {
       error.message = redactContentId(error.message, contentId);
@@ -117,10 +117,10 @@ export function makePreviewRoutes(ctx: PreviewRoutesContext) {
       sendJson(res, 405, { ok: false, error: sessionError('invalid_request', 'validation', 'method not allowed', { expected: 'GET' }) });
       return;
     }
-    // Phase 22.0: every preview-origin response (the play page, its bundle, the worker script, artifacts).
+    // Every preview-origin response (the play page, its bundle, the worker script, artifacts).
     isolationHeaders(res);
     try {
-      // M2 locator shell by play session (sessions.md §17.2.1).
+      // The locator shell by play session.
       if (p === '/play' || p.startsWith('/play/')) {
         const psid = p === '/play' ? '' : p.slice('/play/'.length);
         const contentId = query.get('content');
@@ -147,7 +147,7 @@ export function makePreviewRoutes(ctx: PreviewRoutesContext) {
         res.end(previewShellHtml(psid, contentId, nonce, rootsOf(set)));
         return;
       }
-      // Phase 25.24c: the prebuilt play scripts, by the play build's digest.
+      // The prebuilt play scripts, by the play build's digest.
       if (p.startsWith('/play-build/')) {
         const parsed = parsePlayBuildPath(p);
         const file = parsed === null ? undefined : playBuild.get(parsed.digest)?.files.get(parsed.name);
@@ -158,14 +158,14 @@ export function makePreviewRoutes(ctx: PreviewRoutesContext) {
         sendImmutable(req, res, file, IMMUTABLE_MAX_AGE);
         return;
       }
-      // M2 locator paths (artifact root + shell).
+      // The locator paths (artifact root + shell).
       if (p === '/play-content' || p.startsWith('/play-content/')) {
         const locator = classifyLocatorPath(p);
         if (locator.kind === 'invalid') {
           locatorError(res, sessionError('path_rejected', 'validation', 'no locator route matches this path (listing/traversal/undeclared path rejected)'), 400);
           return;
         }
-        // Phase 25.24c: a project's cache root serves its declared artifacts by digest (the same URL every Play).
+        // A project's cache root serves its declared artifacts by digest (the same URL every Play).
         const cacheProject = playContent.cacheProject(locator.contentId);
         if (cacheProject !== undefined) {
           const digest = locator.kind === 'asset-digest' ? locator.digest : locator.kind === 'behavior' || locator.kind === 'library' ? locator.outputDigest : null;

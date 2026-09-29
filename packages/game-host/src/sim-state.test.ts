@@ -1,5 +1,5 @@
 /**
- * Phase 21.5: the page-side mirror of the simulation worker keeps its queued
+ * The page-side mirror of the simulation worker keeps its queued
  * sound and effect requests bounded like the runtime's own queues, so a page
  * that does not take them (scene mode, headless) never grows.
  */

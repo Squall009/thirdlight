@@ -1,5 +1,5 @@
 /**
- * Phase 12 (c): the pure parts of the runtime's scene set — what one loaded
+ * The pure parts of the runtime's scene set — what one loaded
  * scene contributes (its static colliders), the root offset of a load and the
  * live tag index that follows loads and unloads. No I/O, no three.js.
  */
@@ -8,7 +8,7 @@ import { character3DSettingsOf, controllerCapsuleOf, controllerCapsuleOffsetZ, c
 import type { ColliderShape3D, PhysicsInitConfig3D, StaticColliderSpec, StaticColliderSpec3D, Vec2 } from './ports';
 import type { BehaviorTagQuery, ModelBounds, PlayerCapsule } from './types';
 
-/** What one scene adds to the running game (phase 24.7: its static colliders; the zones went with the session). */
+/** What one scene adds to the running game (its static colliders). */
 export interface SceneContribution {
   colliders: StaticColliderSpec[];
 }
@@ -27,10 +27,10 @@ export function sceneContribution(entities: readonly EntityV3[]): SceneContribut
 }
 
 /**
- * Phase 23.0: the angle about Z (radians) of a transform's `[x, y, z, w]`
+ * The angle about Z (radians) of a transform's `[x, y, z, w]`
  * quaternion — the one rotation a 2D-plane collider takes (the project model
  * keeps a physics entity's rotation about Z only). Exactly 0 for the
- * identity (either sign of `w`), so an unrotated collider keeps its old spec.
+ * identity (either sign of `w`), so an unrotated collider gets rotationZ 0.
  */
 export function colliderRotationZ(rotation: readonly number[] | undefined): number {
   if (rotation === undefined) return 0;
@@ -40,11 +40,10 @@ export function colliderRotationZ(rotation: readonly number[] | undefined): numb
 }
 
 /**
- * Phase 23.0: the static collider spec of one entity's `collider` component
+ * The static collider spec of one entity's `collider` component
  * (null without one) — its world XY, the entity's rotation about Z (the
- * editor draws the collider rotated with the entity; before 23.0 every host
- * read a `collider.rotationZ` field the model never had, so physics always
- * got 0), kinematic for a mover, one-way when set. The single place the
+ * editor draws the collider rotated with the entity, so physics must too),
+ * kinematic for a mover, one-way when set. The single place the
  * runtime, the Play preview, the export and the perf harness derive it.
  */
 export function staticColliderOf(entityId: string, components: Readonly<Record<string, unknown>>): StaticColliderSpec | null {
@@ -52,7 +51,7 @@ export function staticColliderOf(entityId: string, components: Readonly<Record<s
   if (collider === undefined) return null;
   const t = components['transform'] as { position?: readonly number[]; rotation?: readonly number[] } | undefined;
   const position = t?.position ?? [0, 0, 0];
-  // Phase 23.0: a box's depth (`hz`, for a 3D project) is not part of a 2D-plane shape.
+  // A box's depth (`hz`, for a 3D project) is not part of a 2D-plane shape.
   const shape = collider.shape as { type?: unknown; hx?: unknown; hy?: unknown; hz?: unknown } | undefined;
   return {
     entityId,
@@ -85,7 +84,7 @@ export function offsetEntities(entities: readonly EntityV3[], at: readonly [numb
 const nano = (v: number): number => Math.round(v * 1e9) / 1e9;
 
 /**
- * Phase 14.0: the player capsule a `controller` component describes (the
+ * The player capsule a `controller` component describes (the
  * project-model default when it carries none), in the runtime's form.
  */
 export function playerCapsuleOf(controller: unknown): PlayerCapsule {
@@ -98,7 +97,7 @@ export function playerCapsuleOf(controller: unknown): PlayerCapsule {
 }
 
 /**
- * Phase 15.3: the character-controller tuning the physics port takes from the
+ * The character-controller tuning the physics port takes from the
  * player's `controller` (its skin, ground snap and autostep; each absent
  * field at its default: 0.01 m, 0.1 m, off). The preview and export hosts
  * build the port's `controller` config from it.
@@ -109,7 +108,7 @@ export function playerPhysicsOf(controller: unknown): { offsetSkin: number; grou
 }
 
 /**
- * Phase 23.1: the shape a 3D port builds from an authored collider shape and
+ * The shape a 3D port builds from an authored collider shape and
  * the entity's scale (the project model allows a positive scale per axis for
  * a box, hull or mesh and a uniform one for a sphere or capsule): a box's
  * half extents and a hull's or mesh's points scale along the entity's axes;
@@ -151,11 +150,11 @@ export function colliderShape3DOf(shape: unknown, scale: readonly number[] = [1,
 }
 
 /**
- * Phase 23.0: the 3D static collider spec of one entity's `collider` (null
+ * The 3D static collider spec of one entity's `collider` (null
  * without one): its world position and full rotation (a 3D collider turns on
  * any axis; the project model keeps it a root), the shape resolved for the
- * port (phase 23.1: the entity's scale applied, `colliderShape3DOf`); a
- * mover's collider is kinematic (phase 23.1), as is a collider a script
+ * port (the entity's scale applied, `colliderShape3DOf`); a
+ * mover's collider is kinematic, as is a collider a script
  * drives (`kinematic`).
  */
 export function staticColliderOf3D(entityId: string, components: Readonly<Record<string, unknown>>, kinematic = false): StaticColliderSpec3D | null {
@@ -171,18 +170,18 @@ export function staticColliderOf3D(entityId: string, components: Readonly<Record
     position: { x: p[0] ?? 0, y: p[1] ?? 0, z: p[2] ?? 0 },
     rotation: { x: q[0] ?? 0, y: q[1] ?? 0, z: q[2] ?? 0, w: q[3] ?? 1 },
     ...(kinematic || components['mover'] !== undefined ? { kinematic: true } : {}),
-    // Phase 23.3: the collision layers it is in (absent: "default").
+    // The collision layers it is in (absent: "default").
     ...(Array.isArray(collider.layers) ? { layers: [...(collider.layers as string[])] } : {}),
   };
 }
 
 /**
- * Phase 23.0: the 3D physics init config of a scene's (resolved) entities —
+ * The 3D physics init config of a scene's (resolved) entities —
  * every collider but the player's as a static, the controller entity as the
  * character with its capsule (the offset's z included) and its tuning, the
  * project's step rate and gravity along −Y, the slope angles. The one
  * builder the Play preview, the export, the simulation worker's host and the
- * tests use. Phase 23.3: `options.layers` — the project's named collision
+ * tests use. `options.layers` — the project's named collision
  * layers; without a controller entity the world has no character
  * (`noCharacter`: its colliders answer queries and carry movers — a scene
  * picked with the pointer need not have a player); it was null before, so a
@@ -217,14 +216,14 @@ export function physics3DConfigOf(
   }
   const noCharacter = character === null;
   // Nothing to simulate or query: no physics (the module resolution then needs no 3D backend either).
-  // Phase 23.3: a block layer's chunks become colliders at run time (23.5), so it needs a world too.
+  // A block layer's chunks become colliders at run time, so it needs a world too.
   if (character === null && statics.length === 0 && !entities.some((e) => (e.components as Record<string, unknown> | undefined)?.['blockLayer'] !== undefined)) return null;
   if (character === null) {
     // A placeholder the port ignores (the default capsule at the origin).
     const capsule = playerCapsuleOf(undefined);
     character = { position: { x: 0, y: 0, z: 0 }, radius: capsule.radius, halfHeight: capsule.halfHeight, offset: { x: 0, y: 0, z: 0 } };
   }
-  // Phase 23.2: the 3D character's settings — its step-up height (0: off) is
+  // The 3D character's settings — its step-up height (0: off) is
   // the port's autostep, its ground snap at least that height, its slope limit
   // (else the project's) the steepest climb.
   const c3 = character3DPhysicsOf(controller, settings.max_slope_climb_deg);
@@ -247,7 +246,7 @@ export function physics3DConfigOf(
 }
 
 /**
- * Phase 23.2: the parts of a 3D character's settings the physics port and the
+ * The parts of a 3D character's settings the physics port and the
  * runtime's result check use (skin, ground snap, step-up height, slope limit).
  */
 export function character3DPhysicsOf(controller: unknown, maxSlopeClimbDeg: number): { skin: number; groundSnap: number; stepHeight: number; slopeLimit: number } {
@@ -257,7 +256,7 @@ export function character3DPhysicsOf(controller: unknown, maxSlopeClimbDeg: numb
 }
 
 /**
- * Phase 15.3: the model bounds a manifest's asset rows carry (model rows with
+ * The model bounds a manifest's asset rows carry (model rows with
  * recorded `bounds`; the last version per asset), for `RuntimeSnapshot.modelBounds`
  * — `undefined` when none has any (the snapshot stays as it was).
  */
@@ -275,7 +274,7 @@ export function modelBoundsFromAssetRows(rows: readonly { assetId: string; kind?
 }
 
 /**
- * Phase 23.13: the recorded durations a manifest's audio and music rows
+ * The recorded durations a manifest's audio and music rows
  * carry (`durationMs`), for `RuntimeSnapshot.audioDurations` — `undefined`
  * when none has one (the snapshot stays as it was).
  */
@@ -291,7 +290,7 @@ export function audioDurationsFromAssetRows(rows: readonly { assetId: string; ki
   return any ? out : undefined;
 }
 
-/** Phase 14.0: the capsule's half extent along Y (end caps included), nanometre-rounded (0.9 for the default). */
+/** The capsule's half extent along Y (end caps included), nanometre-rounded (0.9 for the default). */
 export function capsuleHalfTotal(capsule: PlayerCapsule): number {
   return nano(capsule.halfHeight + capsule.radius);
 }

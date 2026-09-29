@@ -1,5 +1,5 @@
 /**
- * Phase 21.1 (always on, short): the performance harness end to end on the
+ * Always on, short: the performance harness end to end on the
  * small benchmark — generated and built through the real backend's command
  * API, measured in Play (preview iframe), in the export (served statically)
  * and in the editor's Scene view while orbiting, with command round trips,
@@ -50,7 +50,7 @@ test('the harness measures the small benchmark in Play, the export, the editor a
   expect(play.gpuMiBEstimate).toBeGreaterThan(0);
   expect(play.three?.programs).toBeGreaterThan(0);
   expect(play.heapMiB).toBeGreaterThan(1);
-  // Phase 25.24a: the Play start split into stages (the backend's and the preview's), and the frames after the first.
+  // The Play start split into stages (the backend's and the preview's), and the frames after the first.
   const split = play.starts![0]!;
   expect(split.backend?.['total']).toBeGreaterThan(0);
   expect(split.backend?.['closure']).toBeGreaterThanOrEqual(0);
@@ -80,7 +80,7 @@ test('the harness measures the small benchmark in Play, the export, the editor a
   expect(ed.surface.drawCalls.p50).toBeGreaterThan(0);
   expect(ed.commandMs.n).toBe(5);
   expect(ed.commandMs.p95).toBeGreaterThan(0);
-  // Phase 21.4: the editor-side costs — Hierarchy, change application, bytes on the wire and on disk.
+  // The editor-side costs — Hierarchy, change application, bytes on the wire and on disk.
   const ops = ed.ops!;
   expect(ops.hierarchy.domRows).toBe(100);
   expect(ops.hierarchy.selectMs.n).toBe(5);

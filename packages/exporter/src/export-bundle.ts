@@ -1,27 +1,24 @@
 /**
- * Packet 36 — the M2 export bundle build (export.md §5.1–§5.3, §5.2 graph).
+ * The export bundle build.
  *
- * The bundle is built from the SAME bootstrap source with the SAME pinned
- * esbuild 0.28.2 option set as the M1 export and the play-preview bundle; only
- * the entry file and the allowed graph differ (dependencies.md §4.2). Two
- * in-memory esbuild plugins feed the per-snapshot facts:
+ * The bundle is built with the SAME pinned esbuild 0.28.2 option set as the
+ * play-preview bundle; only the entry file and the allowed graph differ. Two
+ * in-memory virtual modules feed the per-snapshot facts:
  *
  *   `thirdlight:export-artifacts`  — the manifest-declared asset paths and one
  *     relative `fetch("./<declared path>")` call site per path (never a URL,
- *     never an undeclared path). This is the §17.5 export fetch rule.
- *   `thirdlight:export-behaviors`  — the statically linked compiled behavior
- *     outputs of this snapshot (one namespace import per `outputDigest`).
+ *     never an undeclared path). This is the export fetch rule.
+ *   `thirdlight:export-modules`  — the simulation module specs the manifest
+ *     names.
  *
- * Nothing here executes project source: the behavior bytes are the packet-33
- * compiler outputs, linked as static inputs exactly like `runtime` and
- * `three-adapter`.
+ * Nothing here executes project source.
  */
 import { build } from 'esbuild';
 import { ENGINE_MODULES } from '@thirdlight/project-model';
 
 import type { ContentClosureM3 } from './content-closure';
 
-/** export.md §5.3 — the pinned esbuild 0.28.2 option set (normative). */
+/** The pinned esbuild 0.28.2 option set (normative). */
 export const PINNED_OPTIONS = {
   bundle: true,
   platform: 'browser',
@@ -36,12 +33,12 @@ export const PINNED_OPTIONS = {
 } as const;
 
 /**
- * Phase 17.4: every `import … from 'three'` (the engine's and three's own
+ * Every `import … from 'three'` (the engine's and three's own
  * addons': GLTFLoader, KTX2Loader, SkeletonUtils, …) resolves to
  * `three/webgpu`, so a bundle links one three build — the WebGPURenderer
  * build (`three.core.js` + `three.webgpu.js`) — and not `three.module.js`
  * (the WebGLRenderer, its shader chunks and the WebGL PMREM, which nothing
- * uses since the switch-over). `three/webgpu` re-exports the whole core, so
+ * uses). `three/webgpu` re-exports the whole core, so
  * every class is the same object; the seven names only `three` has
  * (WebGLRenderer, WebGLCubeRenderTarget, WebGLUtils, ShaderChunk, ShaderLib,
  * UniformsLib, UniformsUtils) are used by no bundled module.
@@ -75,7 +72,7 @@ export function artifactsModuleSource(assetPaths: readonly string[]): string {
 }
 
 /**
- * Phase 24.3: the generated module-spec module (`thirdlight:export-modules`).
+ * The generated module-spec module (`thirdlight:export-modules`).
  * It imports the `SimulationModuleSpec` of exactly the simulation modules the
  * manifest names (those a package outside the runtime provides), in the
  * engine table's dependency order — a game without them links none of that
@@ -119,10 +116,10 @@ export interface M2BundleFailure {
 }
 
 /**
- * Phase 22.0 — the simulation worker bundle (`js/sim-worker.js`): the same
+ * The simulation worker bundle (`js/sim-worker.js`): the same
  * pinned option set, entry `export-sim-worker.ts` (the game host's worker
  * core + physics-rapier with its inlined WASM). The worker reads nothing
- * itself (the page sends it the scenes and script URLs); phase 24.3: given
+ * itself (the page sends it the scenes and script URLs); given
  * the manifest's module ids it links `thirdlight:export-modules` (the
  * simulation module specs those ids name) — the 3D physics entry needs none.
  */
@@ -145,24 +142,21 @@ export async function buildSimWorkerBundle(entry: string, moduleIds?: readonly s
 }
 
 /**
- * Packet 58 — the M3 export bundle build (delivery.md §3, export.md §5). The
- * same pinned esbuild 0.28.2 option set as M1/M2; the entry is the M3 bootstrap
- * (`export-bootstrap-m3.ts`) and the generated virtual modules are
- * `thirdlight:export-artifacts` (the declared asset paths + one relative fetch
- * each) and, phase 24.3, `thirdlight:export-modules` (the simulation module
- * specs the manifest names). The M3 composition is owned by `game-host` (no second exporter file
- * and no behavior outputs — M3 fails closed on source-bearing behaviors).
+ * The export bundle build: the entry is the bootstrap
+ * (`export-bootstrap-m3.ts`) plus the two virtual modules above. The
+ * composition is owned by `game-host`; compiled behaviors are separate
+ * artifacts the game host links at run time, not part of this bundle.
  */
 export async function buildM3Bundle(input: {
   bootstrapEntry: string;
   closure: ContentClosureM3;
 }): Promise<M2BundleResult | M2BundleFailure> {
-  // Phase 12 (c): the scene files and instance buffers are read the same way.
+  // The scene files and instance buffers are read the same way.
   const assetPaths = [
     ...input.closure.assetArtifacts.map((a) => a.path),
     ...input.closure.sceneArtifacts.map((a) => a.path),
     ...input.closure.bufferArtifacts.map((a) => a.path),
-    // Phase 25.7b: the manifest's content files.
+    // The manifest's content files.
     ...input.closure.contentFileArtifacts.map((a) => a.path),
   ];
   const plugin = {

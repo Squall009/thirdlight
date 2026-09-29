@@ -1,5 +1,5 @@
 /**
- * Phase 14.2: `ctx.timers` — named timers of one script instance.
+ * `ctx.timers` — named timers of one script instance.
  *
  * Deterministic: a timer is a number of fixed steps (`seconds × fixedStepHz`,
  * rounded, at least one step), never wall-clock time, so a replay fires every
@@ -55,7 +55,7 @@ export class InstanceTimers {
   begin(stepIndex: number): void {
     if (stepIndex === this.step) return;
     this.step = stepIndex;
-    // Phase 21.2: cleared in place and walked with one bound callback (no garbage per step).
+    // Cleared in place and walked with one bound callback (no garbage per step).
     // (Set.clear allocates a fresh table even when empty, so only when needed.)
     if (this.firedNow.size > 0) this.firedNow.clear();
     if (this.timers.size > 0) this.timers.forEach(this.fireDue);

@@ -1,5 +1,5 @@
 /**
- * Phase 18.0/18.1: the editor side of graph materials (pure; the editor may
+ * The editor side of graph materials (pure; the editor may
  * import project-model types only).
  *
  * - the port context a material graph (or a material function) is edited in:
@@ -9,7 +9,7 @@
  *   `graphDocumentsContext`);
  * - the graph of a new graph material (one PBR output);
  * - "Convert to graph": a shader-type material as an equivalent graph, and
- *   phase 18.2's built-in templates (every shader type, pixel-tested against
+ *   the built-in templates (every shader type, pixel-tested against
  *   the shader rendering).
  */
 import type { GraphContext, GraphData, GraphDocument, GraphEdge, GraphKindDef, GraphNode, MaterialDef, MaterialParameter } from '@thirdlight/project-model';
@@ -65,12 +65,12 @@ export function parameterDefault(type: MaterialParameter['type']): MaterialParam
     case 'texture':
       return '';
     case 'data':
-      // Phase 23.12: every cell starts transparent black (RGBA bytes).
+      // Every cell starts transparent black (RGBA bytes).
       return [0, 0, 0, 0];
   }
 }
 
-/** Phase 18.2: every shader type converts (the five built-in templates). */
+/** Every shader type converts (the five built-in templates). */
 export const CONVERTIBLE_SHADERS: readonly string[] = ['standard', 'foliage', 'kit', 'unlit', 'water'];
 
 type Data = Record<string, number | string | boolean | number[]>;
@@ -119,7 +119,7 @@ class GraphBuilder {
     this.parameters.push({ key, type, default: value });
     return [this.add(key, 'parameter', { key }), 'value'];
   }
-  /** Phase 25.21: a public texture parameter (a texture array for the layered template); '' = none yet. */
+  /** A public texture parameter (a texture array for the layered template); '' = none yet. */
   textureParam(key: string, value = ''): Out {
     this.taken.add(key);
     this.parameters.push({ key, type: 'texture', default: value });
@@ -155,8 +155,7 @@ function valueOf(p: MaterialDef['params'], key: string, drawn: number): number {
 }
 
 /**
- * A shader-type material as a graph material (the built-in templates of
- * phase 18.2): the same values and textures wired so the graph draws what
+ * A shader-type material as a graph material (the built-in templates): the same values and textures wired so the graph draws what
  * the shader draws — the pixel parity e2e compares both on WebGL 2 and
  * WebGPU. Unset values are what the renderer draws with on a box (three's
  * standard material: roughness 1, emissive intensity 1, normal scale 1; the
@@ -388,7 +387,7 @@ export function convertToGraph(m: MaterialDef): { ok: true; material: MaterialDe
   return { ok: true, material: { ...m, ...(parameters.length > 0 ? { parameters } : {}), graph: { nodes: b.nodes, edges: b.edges } } };
 }
 
-/** Phase 18.2: a new graph material from a shader type's built-in template (the shader's defaults). */
+/** A new graph material from a shader type's built-in template (the shader's defaults). */
 export function templateMaterial(shader: string, materialId: string, name: string): MaterialDef {
   if (shader === 'layers') return layeredMaterial(materialId, name);
   const base: MaterialDef = { materialId, name, shader: (CONVERTIBLE_SHADERS.includes(shader) ? shader : 'standard') as MaterialDef['shader'], params: {}, textures: {} };
@@ -397,7 +396,7 @@ export function templateMaterial(shader: string, materialId: string, name: strin
 }
 
 /**
- * Phase 25.21: the height-blended layers template — a painted terrain (or a
+ * The height-blended layers template — a painted terrain (or a
  * trim-sheet mesh blended by its vertex colours): four PBR layers from three
  * texture arrays (public texture parameters `albedoHeight`: albedo RGB with
  * the height in A, colour; `normals`: normal maps; `orm`: occlusion,

@@ -1,5 +1,5 @@
 /**
- * Phase 23.9b: the UI list (bottom dock) — the project's UI documents and UI
+ * The UI list (bottom dock) — the project's UI documents and UI
  * themes: create (a name → an id), rename, delete and open (the "UI: <name>"
  * and "UI theme: <name>" centre tabs). Each action is one command
  * (setUiDocument / deleteUiDocument, setUiTheme / deleteUiTheme); the

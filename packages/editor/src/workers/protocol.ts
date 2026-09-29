@@ -1,5 +1,5 @@
 /**
- * Phase 22.1: the editor worker's message protocol.
+ * The editor worker's message protocol.
  *
  * Page → worker: `run` (a job with an id; its buffers transferred) and
  * `cancel`. Worker → page: `ready` once (the script loaded), `progress`

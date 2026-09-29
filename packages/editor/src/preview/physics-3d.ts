@@ -1,5 +1,5 @@
 /**
- * Phase 23.0: the Play preview's 3D physics backend entry (built to
+ * The Play preview's 3D physics backend entry (built to
  * `dist/preview/physics-3d.js`, served on the preview origin as
  * `/physics-3d.js`): physics-rapier's `./3d` port with rapier3d's inlined
  * WASM, registered on the global object for the host (`loadPhysics3D`) — a

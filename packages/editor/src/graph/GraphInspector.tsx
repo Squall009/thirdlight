@@ -1,9 +1,9 @@
 /**
- * Phase 16.1: the Inspector for the selected graph item (node, edge, group
+ * The Inspector for the selected graph item (node, edge, group
  * or comment). Node fields come from the node type's schema; every change
  * is one `graphEdit` through the host's `onEdit`.
  *
- * Phase 16.2: a graph kind may extend it — `extension(id)` renders the
+ * A graph kind may extend it — `extension(id)` renders the
  * Inspector for an item the kind knows better (an animator state, a
  * transition wire); it returns null for the rest, which get the generic
  * forms. `empty` replaces the hint shown when nothing is selected.
@@ -19,15 +19,15 @@ interface Props {
   graph: GraphData;
   ids: readonly string[];
   onEdit: (ops: GraphOp[]) => Promise<string | null>;
-  /** Phase 16.2: the kind's own Inspector for an item (null = the generic form). */
+  /** The kind's own Inspector for an item (null = the generic form). */
   extension?: (id: string) => ReactNode | null;
-  /** Phase 16.2: shown when nothing is selected. */
+  /** Shown when nothing is selected. */
   empty?: ReactNode;
-  /** Phase 18.1: what data-dependent ports read outside the graph (see GraphEditor). */
+  /** What data-dependent ports read outside the graph (see GraphEditor). */
   portContext?: GraphContext;
-  /** Phase 18.1: the choices for a field that names an asset (`GraphFieldDef.asset`); absent = a text box. */
+  /** The choices for a field that names an asset (`GraphFieldDef.asset`); absent = a text box. */
   assetOptions?: (assetKind: string) => readonly { id: string; label: string }[];
-  /** Phase 19.2: the choices of a text field the host knows (e.g. a call node's function: the script's functions); undefined = a text box. */
+  /** The choices of a text field the host knows (e.g. a call node's function: the script's functions); undefined = a text box. */
   fieldOptions?: (field: GraphFieldDef, node: GraphNode) => readonly { id: string; label: string }[] | undefined;
 }
 
@@ -142,7 +142,7 @@ function NodeFields({
       {(def?.fields ?? []).map((f) => {
         const v = fieldValue(node, f);
         const choices = f.type === 'string' ? fieldOptions?.(f, node) : undefined;
-        // Phase 20.1: curves and gradients have their own widgets (several inputs: not inside one label).
+        // Curves and gradients have their own widgets (several inputs: not inside one label).
         if (f.type === 'curve' || f.type === 'gradient') {
           return (
             <div key={f.key} className="tl-field tl-field--stack">

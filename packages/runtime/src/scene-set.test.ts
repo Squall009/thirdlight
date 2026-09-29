@@ -1,5 +1,5 @@
 /**
- * Phase 12 (c) — the runtime scene set: start scenes from the snapshot
+ * The runtime scene set: start scenes from the snapshot
  * catalog, loads requested by a script (`ctx.scenes`) and fetched by the host
  * (`takeSceneRequests` / `provideScene`), applied at a step boundary with
  * their colliders, behaviors and tags; unloads releasing all of it;

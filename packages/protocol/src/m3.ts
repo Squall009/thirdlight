@@ -1,23 +1,21 @@
 /**
- * M3 v3 authoring wire + the §20 game control/observation relay (packet 48).
+ * The v3 authoring wire + the game control/observation relay.
  *
- * `protocol` is the **sole home of the shapes** for the M3 game-control and
- * observation relay (sessions.md §20: "protocol is the sole home of the
- * shapes (packet 48 implements the validators …)"), and this module adds the
+ * `protocol` is the **sole home of the shapes** for the game-control and
+ * observation relay, and this module adds the
  * versioned **v3 authoring** wire validators the browser/MCP/HTTP path needs:
  *
  * - the six-key v3 authoring envelope shape + the six-key v3 `content` block
- *   (workspace.md §16.3, project-model.md §23.3) — **structural only**; the
+ *    — **structural only**; the
  *   authoritative deep validation stays in `@thirdlight/project-model` and the
  *   command pipeline (this layer never re-implements it);
- * - the v3 command ops/args surface marker (commands.md §2/§3.1.9/§3.1.10);
+ * - the v3 command ops/args surface marker;
  * - the full-state / `mutation.applied` / query payloads, asserted
- *   **binary-free** (sessions.md §11.6/§17.6: no GLB/WAV bytes, no base64);
- * - the §20 control request/result and observation document, strict and
+ *   **binary-free** (no GLB/WAV bytes, no base64);
+ * - the control request/result and observation document, strict and
  *   bounded, plus the run-identity tuple shape.
  *
- * Pure: no I/O, no Node built-ins, types-only edges to `commands`/`project-model`
- * (dependencies.md §4.1).
+ * Pure: no I/O, no Node built-ins, types-only edges to `commands`/`project-model`.
  */
 import { ID_RE } from '@thirdlight/project-model/limits';
 import { MAX_TEXTURE_LAYERS } from '@thirdlight/project-model/limits';
@@ -28,7 +26,7 @@ import type {
   GameConfigQueryResult,
   ModelAnimationRolesValue,
 } from '@thirdlight/commands';
-/** The v3 mutation ops (commands.md §2; packet 45) — the `commands` package
+/** The v3 mutation ops — the `commands` package
  *  exports the ops in its type module but not from its public entry, so the
  *  wire layer restates exactly the two accepted names. */
 export type V3MutationOp =
@@ -59,7 +57,7 @@ export type V3MutationOp =
   | 'renameEffect'
   | 'setScriptLibrary'
   | 'deleteScriptLibrary'
-  // phase 23.5: block layers
+  // Block layers
   | 'editBlocks'
   | 'setBlockType'
   | 'deleteBlockType'
@@ -70,7 +68,7 @@ export type V3MutationOp =
   | 'deleteUiDocument'
   | 'setUiTheme'
   | 'deleteUiTheme'
-  // phase 23.16: dialogue
+  // Dialogue
   | 'setDialogue'
   | 'deleteDialogue'
   | 'setSpeaker'
@@ -83,11 +81,11 @@ export type V3MutationOp =
   | 'deleteUiTheme'
   | 'setTimeline'
   | 'deleteTimeline'
-  // phase 25.7c/e: asset and prefab deletion, bulk creation
+  // Asset and prefab deletion, bulk creation
   | 'deleteAsset'
   | 'deletePrefab'
   | 'createEntities'
-  // phase 25.9: staged library edits (several patches, one commit)
+  // Staged library edits (several patches, one commit)
   | 'commitScriptLibraryStage';
 import type { AuthoringEnvelopeV3, ContentCatalogV3, SceneV3, SignalDebugCommandName } from '@thirdlight/project-model';
 import { containsBinaryValue } from './content';
@@ -102,11 +100,11 @@ import {
   type FieldErrorResult,
 } from './strict';
 
-// ---- versions, op sets and key order (workspace.md §16.3, commands.md §2) ----
+// ---- versions, op sets and key order ----
 
-/** The v3 storage version (workspace.md §16.3). */
+/** The v3 storage version. */
 export const V3_STORAGE_VERSION = 3 as const;
-/** The v3 scene document `schemaVersion` (project-model.md §23.1). */
+/** The v3 scene document `schemaVersion`. */
 export const V3_SCHEMA_VERSION = 3 as const;
 
 /** The exact six-key v3 envelope key set, in canonical order. */
@@ -119,7 +117,7 @@ export const V3_ENVELOPE_KEYS = [
   'retry',
 ] as const;
 
-/** The exact six-key v3 `content` block, in canonical order (workspace.md §16.3). */
+/** The exact six-key v3 `content` block, in canonical order. */
 export const V3_CONTENT_KEYS = [
   'assets',
   'prefabs',
@@ -132,10 +130,10 @@ export const V3_CONTENT_KEYS = [
 /** The v3 scene document key set, in canonical order. */
 export const V3_SCENE_KEYS = ['schemaVersion', 'sceneId', 'revision', 'entities'] as const;
 
-/** The v3 mutation ops (commands.md §2; packet 45). */
+/** The v3 mutation ops. */
 export const V3_MUTATION_OPS: readonly V3MutationOp[] = ['applySurfacePreset', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setCollisionLayers', 'setSaveSchema', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit', 'setEffect', 'deleteEffect', 'renameEffect', 'setScriptLibrary', 'deleteScriptLibrary', 'editBlocks', 'setBlockType', 'deleteBlockType', 'setCellFields', 'setBlockStamp', 'deleteBlockStamp', 'setUiDocument', 'deleteUiDocument', 'setUiTheme', 'deleteUiTheme', 'setTimeline', 'deleteTimeline', 'setModes', 'setBehaviorGroups', 'setEventCues', 'setShell', 'setDialogue', 'deleteDialogue', 'setSpeaker', 'deleteSpeaker', 'setDialogueSettings', 'deleteAsset', 'deletePrefab', 'createEntities', 'commitScriptLibraryStage'];
-/** The v3 query op (commands.md §4; packet 45). */
-// Phase 23.5: queryBlocks reads block-layer cells and regions.
+/** The v3 query op. */
+// queryBlocks reads block-layer cells and regions.
 export const V3_QUERY_OPS: readonly string[] = ['queryGameConfig', 'queryBlocks'];
 
 /** The change-record types a v3 `mutation.applied` frame may carry. */
@@ -169,24 +167,24 @@ export const CHANGE_TYPES = [
   'setGraph',
   'setEffect',
   'setScriptLibrary',
-  // Phase 23.5: block layers.
+  // Block layers.
   'editBlocks',
   'setBlockType',
   'setCellFields',
   'setBlockStamp',
   'setUi',
-  // Phase 23.16: dialogue.
+  // Dialogue.
   'setDialogue',
   'setModes',
   'setBehaviorGroups',
-  // Phase 24.4i: the event → cue table.
+  // The event → cue table.
   'setEventCues',
   'setShell',
   'setTimeline',
-  // Phase 25.7c: a deleted asset; a deleted prefab (also the undo of a capture).
+  // A deleted asset; a deleted prefab (also the undo of a capture).
   'removeAsset',
   'removePrefab',
-  // Phase 25.9: a staged commit of several script libraries.
+  // A staged commit of several script libraries.
   'setScriptLibraries',
 ] as const;
 
@@ -227,8 +225,8 @@ function exactKeys(
 
 /**
  * Assert a wire payload carries no binary (typed array / ArrayBuffer) at any
- * depth. The state/change frames never carry GLB/WAV bytes or base64 media
- * (sessions.md §11.6/§17.6). Base64 *strings* are a policy matter (the
+ * depth. The state/change frames never carry GLB/WAV bytes or base64 media.
+ * Base64 *strings* are a policy matter (the
  * screenshot ack is the one deliberate exception); this check is about typed
  * binary only.
  */
@@ -242,7 +240,7 @@ function assertBinaryFree(value: unknown, path: string): FieldErrorResult {
 // ---- the v3 authoring envelope / content block --------------------------------
 
 /**
- * Structural check of the six-key v3 authoring envelope (workspace.md §16.3).
+ * Structural check of the six-key v3 authoring envelope.
  * Envelope-level rules only: the key set, `storageVersion`/`type`, the
  * project-id syntax, `scene.schemaVersion` and the six-key `content` block.
  * Field-level/deep validity is the accepted `project-model`/workspace load
@@ -272,7 +270,7 @@ export function validateV3EnvelopeShape(value: unknown, path = ''): FieldErrorRe
   return assertBinaryFree(value, path);
 }
 
-/** Structural check of the v3 scene document (project-model.md §23.1). */
+/** Structural check of the v3 scene document. */
 export function validateV3SceneShape(value: unknown, path = '/scene'): FieldErrorResult {
   if (!isPlainObject(value)) {
     return fieldError('field_type', path, 'the v3 scene must be a JSON object', { expected: 'object' });
@@ -298,16 +296,16 @@ export function validateV3SceneShape(value: unknown, path = '/scene'): FieldErro
 }
 
 /**
- * Structural check of the six-key v3 `content` block (workspace.md §16.3):
- * exactly the six keys, `game` present and null (phase 24.7: the game block
- * was deleted), the remaining five of their block types. Deep content
+ * Structural check of the six-key v3 `content` block:
+ * exactly the six keys, `game` present and null (game config is not part of
+ * the engine's content), the remaining five of their block types. Deep content
  * validity is `project-model`'s.
  */
 export function validateV3ContentBlock(value: unknown, path = '/content'): FieldErrorResult {
   if (!isPlainObject(value)) {
     return fieldError('field_type', path, 'the v3 content block must be a JSON object', { expected: 'object' });
   }
-  // Phase 12 (b): `tags` (the tag registry) is optional.
+  // `tags` (the tag registry) is optional.
   const { tags, ...required } = value;
   const keys = exactKeys(required, V3_CONTENT_KEYS, path);
   if (!keys.ok) return keys;
@@ -341,7 +339,7 @@ export function validateV3ContentBlock(value: unknown, path = '/content'): Field
 
 /**
  * The structural v3 arg markers. The authoritative args validation is the
- * command pipeline's (`commands.md` §3.1.9/§3.1.10/§A3–§A6): this only types
+ * command pipeline's: this only types
  * the shapes the wire layer may forward and asserts they are objects, so a
  * `field_type` failure never reaches the mutation engine as a scene write.
  */
@@ -355,12 +353,12 @@ export function validateV3MutationArgs(op: V3MutationOp, value: unknown, path = 
   return { ok: true, value: value as Record<string, unknown> };
 }
 
-/** The two v3 args types, re-exported (types-only edge, dependencies.md §4.1). */
+/** The two v3 args types, re-exported (types-only edge). */
 export type { ApplySurfacePresetArgs, ModelAnimationRolesValue };
 
 // ---- full-state / projection / change / query frames --------------------------
 
-/** The §5.1 full-state payload key set. */
+/** The full-state payload key set. */
 const FULL_STATE_KEYS = [
   'ok',
   'sessionId',
@@ -375,10 +373,10 @@ const FULL_STATE_KEYS = [
 ] as const;
 
 /**
- * Validate a full-state/projection payload (sessions.md §5.1/§8): the initial
+ * Validate a full-state/projection payload: the initial
  * session projection and the resync payload. For a v3 project the scene is a
  * v3 scene and `content` (present for a v2/v3 envelope) carries the six-key v3
- * block. Always asserted **binary-free** (sessions.md §11.6).
+ * block. Always asserted **binary-free**.
  */
 export function validateFullStateFrame(value: unknown, path = ''): FieldErrorResult {
   if (!isPlainObject(value)) {
@@ -395,9 +393,9 @@ export function validateFullStateFrame(value: unknown, path = ''): FieldErrorRes
     return fieldError('field_type', `${path}/scene`, 'scene must be the normalized scene projection object');
   }
   if (value.content !== undefined) {
-    // §19.4: the full-state `content` is the bounded content PROJECTION
-    // (summary pages), never the six-key envelope content block (phase 24.8:
-    // no `game` summary).
+    // The full-state `content` is the bounded content PROJECTION
+    // (summary pages), never the six-key envelope content block, and has
+    // no `game` summary.
     if (!isPlainObject(value.content)) {
       return fieldError('field_type', `${path}/content`, 'content must be the bounded content projection object');
     }
@@ -413,13 +411,13 @@ export function validateFullStateFrame(value: unknown, path = ''): FieldErrorRes
   return { ok: true, value: value as Record<string, unknown> };
 }
 
-/** §19.4's bounded content projection keys (phase 24.8: the v3 `game` summary went with the game block). */
+/** The bounded content projection keys (no `game` summary: the engine has no game block). */
 export const CONTENT_PROJECTION_KEYS = ['assets', 'prefabs', 'behaviors', 'behaviorTrust'] as const;
 
 /**
- * Validate a `mutation.applied` projection frame (sessions.md §6.2/§7.1):
+ * Validate a `mutation.applied` projection frame:
  * `{ requestId, revision, origin, change, sceneId? }`, binary-free, with a known change
- * type. The change payload itself is the command layer's (`commands.md` §5.3).
+ * type. The change payload itself is the command layer's (`ChangeData`).
  */
 export function validateChangeFrame(value: unknown, path = ''): FieldErrorResult {
   if (!isPlainObject(value)) {
@@ -434,7 +432,7 @@ export function validateChangeFrame(value: unknown, path = ''): FieldErrorResult
       ['revision', 'integer ≥ 0'],
       ['origin', 'the command origin or null'],
       ['change', 'commands.md §5.3 change data'],
-      // Phase 12 (c): the scene a v4 edit touched.
+      // The scene a v4 edit touched.
       ['sceneId', 'the edited scene (v4)'],
     ]),
     ['type', 'requestId', 'revision', 'change'],
@@ -469,7 +467,7 @@ export function validateQueryResultV3(op: string, value: unknown, path = ''): Fi
   const free = assertBinaryFree(value, path);
   if (!free.ok) return free;
   if (value.ok !== true) {
-    // Failure results are the §5.2 shape; nothing further is asserted here.
+    // Failure results are the session error shape; nothing further is asserted here.
     return { ok: true, value: value as Record<string, unknown> };
   }
   if (op === 'queryGameConfig') {
@@ -489,17 +487,17 @@ export function validateQueryResultV3(op: string, value: unknown, path = ''): Fi
 /** Re-export the change-result type (types-only edge). */
 export type { ChangeData, ContentCounts, GameConfigQueryResult, AuthoringEnvelopeV3, ContentCatalogV3, SceneV3 };
 
-// ---- §20 game control and observation relay -----------------------------------
+// ---- game control and observation relay --------------------------------------
 
 /**
- * The §20.1 control commands (closed set). Phase 12 (c) adds `loadScene` /
- * `unloadScene` (with `sceneId`), the same request a script's `ctx.scenes` makes.
- * Phase 19.2 adds the visual-script debugger's `debugPause` / `debugResume` / `debugStep` (Play only).
+ * The control commands (closed set). `loadScene` / `unloadScene` (with
+ * `sceneId`) are the same request a script's `ctx.scenes` makes;
+ * `debugPause` / `debugResume` / `debugStep` drive the visual-script debugger (Play only).
  */
 export const GAME_CONTROL_COMMANDS = ['replay', 'mute', 'unmute', 'loadScene', 'unloadScene', 'clearSave', 'debugPause', 'debugResume', 'debugStep', 'debugCommand'] as const;
 
 /**
- * Phase 23.8: a project debug command call (`debugCommand`): its name and
+ * A project debug command call (`debugCommand`): its name and
  * arguments — at most 8, each a finite number, text of at most 256
  * characters or a boolean (the runtime's input-frame rules).
  */
@@ -518,18 +516,18 @@ export function debugCommandCallProblem(name: unknown, args: unknown): { path: s
 export const SIGNAL_DEBUG_COMMAND_NAME: SignalDebugCommandName = 'signal';
 export type GameControlCommand = (typeof GAME_CONTROL_COMMANDS)[number];
 
-/** §20.1 bounds: request bodies ≤ 4 KiB; control result ≤ 4 KiB; observation ≤ 16 KiB. */
+/** Relay bounds: request bodies ≤ 4 KiB; control result ≤ 4 KiB; observation ≤ 16 KiB. */
 export const GAME_CONTROL_BODY_MAX_BYTES = 4_096;
 export const GAME_OBSERVE_BODY_MAX_BYTES = 4_096;
 export const GAME_CONTROL_RESULT_MAX_BYTES = 4_096;
 export const GAME_OBSERVATION_MAX_BYTES = 16_384;
-/** §20.1 observe timeout: 250–15 000 ms, default 5 000. */
+/** Observe timeout: 250–15 000 ms, default 5 000. */
 export const GAME_OBSERVE_TIMEOUT_MIN_MS = 250;
 export const GAME_OBSERVE_TIMEOUT_MAX_MS = 15_000;
 export const GAME_OBSERVE_TIMEOUT_DEFAULT_MS = 5_000;
 
 /**
- * Phase 24.6: the closed play-state set of an observation and a control
+ * The closed play-state set of an observation and a control
  * result — generic for every game: the simulation runs, or the engine pause
  * holds it (a menu, the pause panel, a game mode's pause). `stopped` is the
  * play's end (a stopped play has no observation to read).
@@ -538,13 +536,13 @@ export const PLAY_STATES = ['running', 'paused', 'stopped'] as const;
 export type PlayState = (typeof PLAY_STATES)[number];
 
 
-/** The closed sound-status set (§20.1/delivery.md §5.2). */
+/** The closed sound-status set. */
 export const GAME_SOUND_STATUSES = ['muted', 'blocked', 'ready', 'unavailable'] as const;
-/** The closed audio-gesture set (§20.1). */
+/** The closed audio-gesture set. */
 export const GAME_GESTURES = ['local', 'none'] as const;
-/** The closed input-mode set (§18.1.2/§20.1). */
+/** The closed input-mode set. */
 export const GAME_INPUT_MODES = ['physical', 'test'] as const;
-/** The closed §20.2 failure set. */
+/** The closed relay failure set. */
 export const GAME_RELAY_ERROR_CODES = [
   'field_value',
   'field_unexpected',
@@ -560,7 +558,7 @@ export const GAME_RELAY_ERROR_CODES = [
   'limits_exceeded',
 ] as const;
 
-/** `${snapshotId}#${replayEpoch}` (delivery.md §5.3). */
+/** `${snapshotId}#${replayEpoch}`. */
 export const RUN_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}@r[0-9]+#[0-9]+$/;
 export function isRunId(v: unknown): v is string {
   return typeof v === 'string' && RUN_ID_RE.test(v);
@@ -569,9 +567,9 @@ export function isRunId(v: unknown): v is string {
 export interface GameControlRequest {
   command: GameControlCommand;
   expectedRunId?: string;
-  /** Phase 12 (c): loadScene / unloadScene only. */
+  /** loadScene / unloadScene only. */
   sceneId?: string;
-  /** Phase 23.8: debugCommand only — the command and its arguments. */
+  /** debugCommand only — the command and its arguments. */
   name?: string;
   args?: Record<string, number | string | boolean>;
 }
@@ -586,7 +584,7 @@ const GAME_CONTROL_REQUEST_FIELDS = new Map([
 const SCENE_ID_RE = ID_RE;
 
 /**
- * Parse the §20 control request body `{ command, expectedRunId? }` strictly
+ * Parse the control request body `{ command, expectedRunId? }` strictly
  * (unknown fields ⇒ `field_unexpected`; anything else ⇒ `field_value`).
  */
 export function parseGameControlRequest(value: unknown): { ok: true; request: GameControlRequest } | { ok: false; error: SessionError } {
@@ -607,7 +605,7 @@ export function parseGameControlRequest(value: unknown): { ok: true; request: Ga
     if (!sid.ok) return { ok: false, error: sid.error };
     sceneId = sid.value as string;
   }
-  // Phase 23.8: a debug command carries its name and arguments (and only it does).
+  // A debug command carries its name and arguments (and only it does).
   const debugCommand = cmd.value === 'debugCommand';
   if (!debugCommand && (shape.value.name !== undefined || shape.value.args !== undefined)) {
     return { ok: false, error: sessionError('field_value', 'validation', 'name and args go with debugCommand only', { path: shape.value.name !== undefined ? '/name' : '/args' }) };
@@ -637,13 +635,13 @@ export function parseGameControlRequest(value: unknown): { ok: true; request: Ga
 
 export interface GameObserveRequest {
   timeoutMs: number;
-  /** Phase 15.4: also read the property values of this entity's running scripts (`behaviors`). */
+  /** Also read the property values of this entity's running scripts (`behaviors`). */
   entityId?: string;
 }
 
 /**
- * Parse the §20 observation request body `{ timeoutMs?, entityId? }`
- * (250–15 000, default 5 000; phase 15.4: `entityId` adds the entity's
+ * Parse the observation request body `{ timeoutMs?, entityId? }`
+ * (250–15 000, default 5 000; `entityId` adds the entity's
  * script property values, public and private, read-only).
  */
 export function parseGameObserveRequest(value: unknown): { ok: true; request: GameObserveRequest } | { ok: false; error: SessionError } {
@@ -679,7 +677,7 @@ function utf8Bytes(value: unknown): number | null {
 }
 
 /**
- * Validate one §20 control result (≤ 4 KiB, binary-free). The identity tuple
+ * Validate one control result (≤ 4 KiB, binary-free). The identity tuple
  * fields are required: `(playSessionId, snapshotId, buildId, runId, command,
  * state, acceptedAtStep, inputMode)`.
  */
@@ -726,8 +724,8 @@ export function validateGameControlResult(value: unknown): FieldErrorResult {
 }
 
 /**
- * Validate one §20 observation document (≤ 16 KiB, binary-free). Phase
- * 24.6/24.7: it is generic (the play state, step, sound, counters, health,
+ * Validate one observation document (≤ 16 KiB, binary-free).
+ * It is generic (the play state, step, sound, counters, health,
  * scenes, …). This validator asserts the wire shape and bounds only.
  */
 export function validateGameObservation(value: unknown): FieldErrorResult {
@@ -784,29 +782,29 @@ export function validateGameObservation(value: unknown): FieldErrorResult {
   if (typeof sound.gesture !== 'string' || !(GAME_GESTURES as readonly string[]).includes(sound.gesture)) {
     return fieldError('field_value', '/sound/gesture', 'sound.gesture must be one of local, none');
   }
-  // Phase 24.6: the named counters and every object's health (generic; at most 32 / 64 entries).
+  // The named counters and every object's health (generic; at most 32 / 64 entries).
   if (value.counters !== undefined && (!isPlainObject(value.counters) || Object.keys(value.counters).length > 32 || !Object.values(value.counters).every((x) => typeof x === 'number' && Number.isFinite(x)))) {
     return fieldError('field_type', '/counters', 'counters maps counter names to numbers (at most 32)');
   }
   if (value.health !== undefined && (!isPlainObject(value.health) || Object.keys(value.health).length > 64 || !Object.values(value.health).every((x) => isPlainObject(x) && typeof x['current'] === 'number' && typeof x['max'] === 'number'))) {
     return fieldError('field_type', '/health', 'health maps object ids to { current, max } (at most 64)');
   }
-  // Phase 24.7: the game session's `legacy` block was deleted with the session.
+  // The engine has no game-session block; a `legacy` field is rejected.
   if (value.legacy !== undefined) return fieldError('field_unexpected', '/legacy', 'the legacy game-session block was removed in phase 24');
-  // Phase 9.7: optional animator states (entity id → state name).
+  // Optional animator states (entity id → state name).
   if (value.animators !== undefined) {
     if (!isPlainObject(value.animators) || Object.keys(value.animators).length > 64 || !Object.values(value.animators).every((x) => typeof x === 'string')) {
       return fieldError('field_type', '/animators', 'animators maps entity ids to state names (at most 64)');
     }
   }
-  // Phase 15.4: the optional script-property block of the requested entity.
+  // The optional script-property block of the requested entity.
   if (value.behaviors !== undefined) {
     const b = value.behaviors;
     if (!isPlainObject(b) || typeof b['entityId'] !== 'string' || !Array.isArray(b['scripts']) || b['scripts'].length > 8) {
       return fieldError('field_type', '/behaviors', 'behaviors is { entityId, scripts: [{ behaviorId, properties: [{ key, label, type, visibility, value }] }] } (at most 8 scripts)');
     }
   }
-  // Phase 23.4: the optional resolved camera (virtual cameras).
+  // The optional resolved camera (virtual cameras).
   if (value.camera !== undefined) {
     const c = value.camera;
     const nums = (v: unknown, n: number): boolean => Array.isArray(v) && v.length === n && v.every((x) => typeof x === 'number' && Number.isFinite(x));
@@ -814,19 +812,19 @@ export function validateGameObservation(value: unknown): FieldErrorResult {
       return fieldError('field_type', '/camera', 'camera is { live: id|null, blend: {from, progress, style}|null, position: [x,y,z], rotation: [x,y,z,w], fovY, near, far, letterbox, shake }');
     }
   }
-  // Phase 23.18: the optional environment preset blend (target, progress, weights by key).
+  // The optional environment preset blend (target, progress, weights by key).
   if (value.environment !== undefined) {
     const e = value.environment;
     if (!isPlainObject(e) || !(e['target'] === null || typeof e['target'] === 'string') || typeof e['progress'] !== 'number' || !isPlainObject(e['weights']) || Object.keys(e['weights']).length > 64 || !Object.values(e['weights']).every((w) => typeof w === 'number' && Number.isFinite(w))) {
       return fieldError('field_type', '/environment', 'environment is { target: presetId|null, progress, weights: { key: 0-1 } } (at most 64 keys)');
     }
   }
-  // Phase 23.11: the optional objects riding on sockets (entity, target, node, world position).
+  // The optional objects riding on sockets (entity, target, node, world position).
   if (value.sockets !== undefined) {
     const ok = Array.isArray(value.sockets) && value.sockets.length <= 64 && value.sockets.every((x: unknown) => isPlainObject(x) && typeof x['entityId'] === 'string' && typeof x['target'] === 'string' && typeof x['node'] === 'string' && Array.isArray(x['position']) && (x['position'] as unknown[]).length === 3 && (x['position'] as unknown[]).every((n) => typeof n === 'number' && Number.isFinite(n)));
     if (!ok) return fieldError('field_type', '/sockets', 'sockets is [{ entityId, target, node, position: [x, y, z] }] (at most 64)');
   }
-  // Phase 23.3: the optional pointer, cursor and hidden objects.
+  // The optional pointer, cursor and hidden objects.
   if (value.pointer !== undefined) {
     const q = value.pointer;
     if (!isPlainObject(q) || typeof q['x'] !== 'number' || typeof q['y'] !== 'number' || typeof q['buttons'] !== 'number' || typeof q['over'] !== 'boolean' || typeof q['locked'] !== 'boolean') {
@@ -842,7 +840,7 @@ export function validateGameObservation(value: unknown): FieldErrorResult {
   if (value.hidden !== undefined && (!Array.isArray(value.hidden) || value.hidden.length > 64 || !value.hidden.every((x) => typeof x === 'string'))) {
     return fieldError('field_type', '/hidden', 'hidden lists at most 64 entity ids');
   }
-  // Phase 23.14: the optional bindings block (device used last, profile, listening, changed actions, glyphs).
+  // The optional bindings block (device used last, profile, listening, changed actions, glyphs).
   if (value.inputBindings !== undefined) {
     const b = value.inputBindings;
     if (!isPlainObject(b) || !isPlainObject(b['device']) || (b['device']['kind'] !== 'keyboardMouse' && b['device']['kind'] !== 'gamepad') || typeof b['profile'] !== 'string' || !Array.isArray(b['changed']) || !isPlainObject(b['glyphs'])) {
@@ -859,17 +857,17 @@ export function validateGameObservation(value: unknown): FieldErrorResult {
   return { ok: true, value: value as Record<string, unknown> };
 }
 
-// ---- the additive stage-inspect request (packet 48) ---------------------------
+// ---- the additive stage-inspect request ---------------------------
 
-/** `idle`/`run`/`airborne` — the exact §41.3.1 role keys. */
+/** `idle`/`run`/`airborne` — the exact animation role keys. */
 export const ANIMATION_ROLE_KEYS = ['idle', 'run', 'airborne'] as const;
 
-/** One §41.3.1 role binding (structurally identical to the pipeline's input). */
+/** One animation role binding (structurally identical to the pipeline's input). */
 export interface AnimationRoleBindingValue {
   clipIndex: number;
   clipName: string;
 }
-/** The exact three-key §41.3.1 role map. */
+/** The exact three-key animation role map. */
 export interface AnimationRolesValue {
   idle: AnimationRoleBindingValue;
   run: AnimationRoleBindingValue;
@@ -880,9 +878,9 @@ export interface StageInspectRequest {
   kind?: 'model' | 'audio' | 'texture' | 'music' | 'font';
   animation?: { entityId?: string; roles: AnimationRolesValue };
   /**
-   * Phase 25.19, textures only: encode a PNG/JPEG to KTX2 on import —
+   * Textures only: encode a PNG/JPEG to KTX2 on import —
    * "color" (ETC1S, sRGB) or "normal" (UASTC, linear, normal-map mips);
-   * phase 25.21: "data" (UASTC, linear, channels kept apart: masks, packed ORM).
+   * "data" (UASTC, linear, channels kept apart: masks, packed ORM).
    */
   ktx2?: 'color' | 'normal' | 'data';
 }
@@ -898,11 +896,10 @@ const ANIMATION_FIELDS = new Map([
 ]);
 
 /**
- * Parse the additive `POST /content/stages/:id/inspect` body (packet 48):
- * `{ kind?, animation? }`. An absent/empty body is the accepted M2 model
- * inspection. `animation` requests the role-aware GLB profile
- * (presentation.md §41.3.3), which is how a real animated reimport reaches
- * stages 5–7 before the ordinary `publishAsset` command commits it.
+ * Parse the additive `POST /content/stages/:id/inspect` body:
+ * `{ kind?, animation? }`. An absent/empty body is the default model
+ * inspection. `animation` requests the role-aware GLB profile, which is how
+ * a real animated reimport reaches stages 5–7 before the ordinary `publishAsset` command commits it.
  */
 export function parseStageInspectRequest(
   value: unknown,
@@ -969,7 +966,7 @@ export function parseStageInspectRequest(
   };
 }
 
-// ---- phase 10: assets referenced in place in a game folder -------------------
+// ---- Assets referenced in place in a game folder -------------------
 
 /**
  * The project-model `isValidSourcePath` rule, restated here because protocol
@@ -1030,11 +1027,11 @@ export function parseProjectFileInspectRequest(
   return { ok: true, request: { ...inspect.request, path, ...(displayName !== undefined ? { displayName: displayName as string } : {}) } };
 }
 
-/** Phase 25.21: one channel of a packed layer: a channel of a texture asset (its current version), or a constant 0–255. */
+/** One channel of a packed layer: a channel of a texture asset (its current version), or a constant 0–255. */
 export type TexturePackChannel = { assetId: string; channel: 'r' | 'g' | 'b' | 'a' } | { value: number };
 
 /**
- * Phase 25.21: `POST /content/textures/pack` — a KTX2 texture packed from the
+ * `POST /content/textures/pack` — a KTX2 texture packed from the
  * project's PNG/JPEG texture assets channel by channel; several layers make a
  * texture array. `layers[i]` = the R, G, B and A sources of layer i.
  */
@@ -1077,12 +1074,12 @@ export function parseTexturePackRequest(value: unknown): { ok: true; request: Te
   return { ok: true, request: { layers: out, encoding, ...(displayName !== undefined ? { displayName: displayName as string } : {}) } };
 }
 
-/** The relay id shape used by the §20 WS forwarding rows. */
+/** The relay id shape used by the game relay WS events. */
 export function isGameRelayId(v: unknown): v is string {
   return isRelayId(v);
 }
 
-// ---- the v2→v3 operator copy route body (workspace.md §16.5/§16.8) -------------
+// ---- the v2→v3 operator copy route body -------------
 
 /** The safe, bounded error a relay surfaces when nothing can cross. */
 export function gameRelayError(code: (typeof GAME_RELAY_ERROR_CODES)[number], message: string, extra?: Record<string, unknown>): SessionError {

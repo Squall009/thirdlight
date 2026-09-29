@@ -1,5 +1,5 @@
 /**
- * Phase 23.17 (E7): the sequencer — timelines played in the simulation step.
+ * The sequencer — timelines played in the simulation step.
  *
  * A timeline (project-model `TimelineAsset`) is played by a script
  * (`ctx.timeline.play(id, bindings)`), by a signal (`playOnSignal`) or when a
@@ -243,23 +243,23 @@ export interface TimelineHost {
   emitSignal(name: string): void;
   signaled(name: string): boolean;
   setMaterial(id: string, param: string, value: number | readonly number[] | string, materialId?: string): boolean;
-  /** Phase 23.16's dialogue runner (absent until it exists): run a dialogue node, poll it, stop it. */
+  /** The dialogue runner (optional): run a dialogue node, poll it, stop it. */
   dialogue?: TimelineDialoguePort;
-  /** Phase 23.10: switch the game mode (the path of `ctx.modes.switch`; false: no such mode). */
+  /** Switch the game mode (the path of `ctx.modes.switch`; false: no such mode). */
   switchMode?(modeId: string, transition: { blend?: 'cut' | 'linear' | 'eased'; blendTime?: number }): boolean;
-  /** Phase 23.18's environment presets (absent until they exist). */
+  /** The environment presets (optional). */
   environment?: TimelineEnvironmentPort;
   warn(message: string): void;
 }
 
-/** The small interface the dialogue track needs (phase 23.16 wires the runtime's dialogue system to it). */
+/** The small interface the dialogue track needs (the runtime's dialogue system implements it). */
 export interface TimelineDialoguePort {
   start(dialogueId: string, node: string | undefined, bindings: ReadonlyMap<string, string>): number;
   running(handle: number): boolean;
   stop(handle: number): void;
 }
 
-/** The small interface the environment track needs (phase 23.18 wires the presets to it). */
+/** The small interface the environment track needs (the environment presets implement it). */
 export interface TimelineEnvironmentPort {
   apply(presetId: string, blendSeconds: number): boolean;
 }

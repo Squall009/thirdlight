@@ -1,6 +1,6 @@
 /**
- * Packet 25 — content transport security negatives (real backend process, real
- * filesystem). Covers the packet's failure list: unauthenticated/cross-project
+ * Content transport security negatives (real backend process, real
+ * filesystem). Covers the failure list: unauthenticated/cross-project
  * upload/read, malformed multipart/chosen binary framing, path escapes, a
  * disconnected client, oversize payloads, replay after an expired stage and
  * restart, and a staged-file read.
@@ -197,8 +197,8 @@ describe('packet 25 — content transport security', () => {
     expect(upload.body.complete).toBe(true);
     const uploadDigest = String(upload.body.digest);
     expect(uploadDigest).toBe(createHash('sha256').update(bad).digest('hex'));
-    // Upload completion stages the bytes but publishes nothing (workspace.md
-    // §13.3.2): publication moved to a successful inspection by GF-5.
+    // Upload completion stages the bytes but publishes nothing: publication
+    // follows a successful inspection.
     expect(existsSync(join(root.projectDir, 'sources', 'sha256', uploadDigest))).toBe(false);
     // Inspection rejects the malformed GLB ...
     const inspect = await http(`${bp.origin}/api/v1/projects/${CONTENT_PROJECT}/content/stages/${stageId}/inspect`, {
@@ -209,7 +209,7 @@ describe('packet 25 — content transport security', () => {
     expect(inspect.status).toBe(400);
     expect(errorCode(inspect.body as Record<string, unknown>)).toBe('import_rejected');
     // ... and the refusal leaves NO durable blob and NO new orphan blob
-    // (workspace.md §13.4 F2: durable effect "none").
+    // (durable effect "none").
     expect(existsSync(join(root.projectDir, 'sources', 'sha256', uploadDigest))).toBe(false);
     const integrity = await mcp.call('tl_content_query', { target: 'integrity' });
     expect((integrity.body.summary as { orphanBlobs?: number }).orphanBlobs).toBe(0);
@@ -217,7 +217,7 @@ describe('packet 25 — content transport security', () => {
     const after = await mcp.call('tl_inspect', { target: 'project' });
     expect(Number(after.body.revision)).toBe(beforeRevision);
     // Positive control for the same existence check: a VALID GLB inspected
-    // through the same route IS published (workspace.md §13.3.2 step 2).
+    // through the same route IS published.
     const good = fixtureBytes('tiny-v1.glb');
     const goodStage = await createStage();
     const goodUpload = await uploadFrame(goodStage, 0, good.length, good);

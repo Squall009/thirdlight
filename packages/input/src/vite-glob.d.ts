@@ -4,9 +4,9 @@
  * `fixtures/m2/input/**` JSON.
  *
  * Why: `@thirdlight/input` is a browser-safe, Node-built-in-free package
- * (dependencies.md §4.1/§4.3 — the boundary check applies to test files too;
+ * (dependencies.md — the boundary check applies to test files too;
  * the only exempted test import is the approved runner `vitest`), and the
- * workspace has no `@types/node` (no new dependency for this packet). Tests
+ * workspace has no `@types/node` (none is added for tests). Tests
  * therefore read the fixture index and sequences through
  * `import.meta.glob(..., { query: '?raw' })`; production code never calls it.
  */

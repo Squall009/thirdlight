@@ -1,8 +1,8 @@
 /**
- * Phase 23.6 (E8): block-layer editing in the real editor against a real
+ * Block-layer editing in the real editor against a real
  * backend.
  *
- * A 64 × 64 × 16 layer (the E8 interactive-editing target) starts with its
+ * A 64 × 64 × 16 layer (the interactive-editing target size) starts with its
  * lower half filled (32,768 cells). The Blocks panel and the Scene view then
  * paint with the single-cell brush, rectangle and box, flood fill, pick with
  * the eyedropper, replace all of a type, raise a column, erase, undo and redo

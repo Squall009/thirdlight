@@ -1,5 +1,5 @@
 /**
- * Phase 23.9a: font import — the committed DejaVu Sans ASCII subset
+ * Font import — the committed DejaVu Sans ASCII subset
  * (fixtures/fonts, TTF and WOFF2) gives its format and family name; an OTF
  * and a WOFF built from the same tables are accepted; truncated, garbage and
  * over-cap bytes are refused.

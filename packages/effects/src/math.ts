@@ -1,5 +1,5 @@
 /**
- * Phase 20.1: small vector maths and the effect origin transform.
+ * Small vector maths and the effect origin transform.
  */
 
 export type Vec3 = [number, number, number];

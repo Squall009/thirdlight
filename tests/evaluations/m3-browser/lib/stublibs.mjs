@@ -1,5 +1,5 @@
 /**
- * Packet 38 — local browser bootstrap for the container.
+ * Local browser bootstrap for the container.
  *
  * There is NO browser installed on this host and no display. A real Chrome for
  * Testing binary and a pre-existing hand-extracted system-library tree are

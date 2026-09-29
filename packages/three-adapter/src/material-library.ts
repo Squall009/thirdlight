@@ -1,11 +1,11 @@
 /**
- * Phase 9.4: project materials at runtime (editor view, Play and export).
+ * Project materials at runtime (editor view, Play and export).
  *
  * A material definition is a shader type plus overrides. On a model it
  * starts from the file's own material (a copy keeps its textures) and
  * changes only what it sets; on a box it starts from the shader defaults.
- * The shader types extend three's standard node material with TSL nodes
- * (phase 17.2), so lighting, shadows and fog stay three's own:
+ * The shader types extend three's standard node material with TSL nodes,
+ * so lighting, shadows and fog stay three's own:
  *
  * - foliage: COLOR_0 drives wind (R bend weight root→tip, G phase, B flutter,
  *   A thinness → a small translucency term). The vertex colour is read as data
@@ -18,23 +18,23 @@
  *
  * Wind and time are one shared uniform block updated by `tick()`.
  *
- * Phase 18.3: a material with a `graph` is a graph material: its node graph
+ * A material with a `graph` is a graph material: its node graph
  * compiles to TSL (`material-graph.ts`) into one shared node material per
  * canonical digest (graph, parameters, the functions it calls — moving a
  * node never recompiles); the file's material is not used. Objects override
  * public parameters per drawn object (uniforms read `mesh.userData`), a
  * texture override gets its own compiled variant; shared materials never
- * change for one object (phase 9.4 rule).
+ * change for one object.
  *
- * Phase 23.12: scripts set public parameters per object while the game runs
+ * Scripts set public parameters per object while the game runs
  * (`setRuntimeValue` / `setRuntimeData`): a number, vector or colour goes on
  * the object for the shared material's per-object uniforms (nothing
  * recompiles, the material stays shared); a texture takes the variant path
  * of a texture override; a data parameter's grid is the object's own data
  * texture, swapped in per drawn object by its Sample data nodes.
  *
- * Phase 17.4: node materials only (every view draws with `WebGPURenderer`);
- * the `onBeforeCompile` twins of phases 9.4–17.3 are archived in
+ * Node materials only (every view draws with `WebGPURenderer`);
+ * the `onBeforeCompile` twins are archived in
  * `archive/webgl-renderer-17/`. The pixel-parity e2e compares the node
  * materials with the reference images those twins drew.
  *
@@ -75,13 +75,13 @@ export interface MaterialDefLike {
   readonly shader: MaterialShaderName;
   readonly params: Readonly<Record<string, number | boolean | string | readonly [number, number]>>;
   readonly textures: Readonly<Record<string, string>>;
-  /** Phase 18.3: the exposed parameters of a graph material. */
+  /** The exposed parameters of a graph material. */
   readonly parameters?: readonly MaterialParameterLike[];
-  /** Phase 18.3: a node graph (a graph material; `shader`/`params`/`textures` are then unused). */
+  /** A node graph (a graph material; `shader`/`params`/`textures` are then unused). */
   readonly graph?: MaterialGraphLike;
-  /** Phase 25.19: a material instance's parent (`resolveMaterialInstancesLike`). */
+  /** A material instance's parent (`resolveMaterialInstancesLike`). */
   readonly instanceOf?: string;
-  /** Phase 25.19: an instance's values for its root graph material's parameters. */
+  /** An instance's values for its root graph material's parameters. */
   readonly values?: Readonly<Record<string, number | readonly number[] | string>>;
 }
 
@@ -89,7 +89,7 @@ export interface MaterialDefLike {
 const MATERIAL_INSTANCE_DEPTH = MAX_MATERIAL_INSTANCE_DEPTH;
 
 /**
- * Phase 25.19: the adapter's copy of project-model `resolveMaterialInstances`
+ * The adapter's copy of project-model `resolveMaterialInstances`
  * (the editor may use project-model types only; `tests/material-instance-parity.test.ts`
  * keeps the two equal). Every material as it draws, in list order: an
  * instance takes its root's shader, graph and parameters, the chain's params
@@ -143,10 +143,10 @@ export function resolveMaterialInstancesLike(list: readonly MaterialDefLike[]): 
   return out;
 }
 
-/** Phase 18.3: an object's values for public parameters, by materialId then parameter key. */
+/** An object's values for public parameters, by materialId then parameter key. */
 export type MaterialOverridesLike = Readonly<Record<string, Readonly<Record<string, number | readonly number[] | string>>>>;
 
-/** Phase 18.3: marks a mesh whose graph material does not cast shadows (the shadow flags respect it). */
+/** Marks a mesh whose graph material does not cast shadows (the shadow flags respect it). */
 export const MATERIAL_NO_SHADOW_KEY = '__tlMaterialNoShadow';
 
 export interface WindLike {
@@ -165,7 +165,7 @@ export interface MaterialLibraryOptions {
 }
 
 export interface MaterialLibrary {
-  /** The project materials and (phase 18.3) the material functions graph materials call. */
+  /** The project materials and the material functions graph materials call. */
   setMaterials(defs: readonly MaterialDefLike[], functions?: readonly MaterialFunctionLike[]): void;
   setWind(wind: WindLike | null): void;
   /** Advance the shared clock (seconds since start). */
@@ -175,25 +175,25 @@ export interface MaterialLibrary {
   /**
    * Use project materials on every mesh under `root`: a mesh material named
    * `n` takes `mapping[n]`, else `mapping["*"]`. Returns a function that
-   * restores the file's materials and stops tracking `root`. Phase 18.3:
+   * restores the file's materials and stops tracking `root`.
    * `overrides` are the object's values for its graph materials' public
    * parameters (the `materialParams` component).
    */
   apply(root: THREE.Object3D, mapping: Readonly<Record<string, string>> | null, overrides?: MaterialOverridesLike | null): () => void;
-  /** Phase 18.3: a graph material's compile problems (null: no such graph material, or not built yet). */
+  /** A graph material's compile problems (null: no such graph material, or not built yet). */
   graphProblems(materialId: string): readonly GraphProblem[] | null;
   /**
-   * Phase 23.12: set (a value) or clear (`undefined`) a run-time value of a
+   * Set (a value) or clear (`undefined`) a run-time value of a
    * public parameter of `materialId` on these meshes (one object's): a
    * number, 2–4 numbers, "#rrggbb" (colour) or a texture asset id.
    */
   setRuntimeValue(meshes: readonly THREE.Object3D[], materialId: string, key: string, value: number | readonly number[] | string | undefined): void;
-  /** Phase 23.12: an object's own data texture for a data parameter (`undefined`: none — the material's starting cells). */
+  /** An object's own data texture for a data parameter (`undefined`: none — the material's starting cells). */
   setRuntimeData(meshes: readonly THREE.Object3D[], materialId: string, key: string, texture: THREE.Texture | undefined): void;
-  /** Phase 23.12: the compiled graph materials alive (objects with different values share one). */
+  /** The compiled graph materials alive (objects with different values share one). */
   graphMaterialCount(): number;
   /**
-   * Phase 25.24e: decode texture assets ahead of the materials that use them
+   * Decode texture assets ahead of the materials that use them
    * (a scene about to load); resolves when each is decoded or unavailable.
    */
   preloadTextures?(textureAssetIds: Iterable<string>): Promise<void>;
@@ -226,7 +226,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
   /** Built materials by `${materialId}|${source uuid or "none"}`. */
   const built = new Map<string, { material: THREE.Material; defKey: string; animated: boolean }>();
   /**
-   * Phase 21.5: meshes wearing each built material (by key) and the keys each
+   * Meshes wearing each built material (by key) and the keys each
    * mesh wears — a built material and its texture copies are released with
    * its last mesh. A source material that is recreated (a shared box material
    * freed with its last box and made again, a model reloaded) has a new uuid,
@@ -234,9 +234,9 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
    */
   const builtRefs = new Map<string, number>();
   const heldKeys = new WeakMap<THREE.Object3D, readonly string[]>();
-  /** Phase 21.5: the texture copies each built material owns (released with it). */
+  /** The texture copies each built material owns (released with it). */
   const ownTextures = new WeakMap<THREE.Material, THREE.Texture[]>();
-  /** Phase 21.5: built materials already released (a texture arriving later is not put on them). */
+  /** Built materials already released (a texture arriving later is not put on them). */
   const retired = new WeakSet<THREE.Material>();
   const ownTexture = (m: THREE.Material, t: THREE.Texture): THREE.Texture => {
     const list = ownTextures.get(m);
@@ -387,7 +387,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     });
   }
 
-  // ---- Phase 17.2: the shader types as node materials (TSL) --------------------------
+  // ---- The shader types as node materials (TSL) --------------------------
   // Each mirrors its archived onBeforeCompile twin line by line (same constants,
   // same order of operations), so the picture matches the parity references.
 
@@ -396,11 +396,11 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
 
   function installFoliageNodes(m: THREE.MeshStandardMaterial, p: MaterialDefLike['params']): void {
     animatedCount += 1;
-    // Phase 15.5: the sway is in absolute metres (about 0.1 m at the tip in the
+    // The sway is in absolute metres (about 0.1 m at the tip in the
     // default breeze) — plant-sized for grass and shrubs; taller foliage raises
     // its material's windBend / windFlutter (0–4×). Kept (changing it would move
     // every existing project's foliage); a size-relative sway is a material-graph
-    // (phase 18) candidate.
+    //  candidate.
     const bend = TSL.uniform(num(p['windBend'], 1));
     const flutter = TSL.uniform(num(p['windFlutter'], 1));
     const flutterFreq = TSL.uniform(num(p['flutterFrequency'], 6));
@@ -526,7 +526,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     nm.colorNode = TSL.vec4(TSL.mix(shallow, c.rgb, TSL.clamp(f.mul(1.5), 0, 1)), c.a);
   }
 
-  // ---- Phase 18.3: graph materials ---------------------------------------------------
+  // ---- Graph materials ---------------------------------------------------
 
   interface GraphEntry {
     readonly canonical: string;
@@ -588,7 +588,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     const old = e.compiled;
     e.compiled = compileEntry(e.def, e.digest);
     applyGraphNodes(e.material as unknown as MeshStandardNodeMaterial, e.compiled);
-    // Phase 23.12: the previous compile's data placeholders go with it.
+    // The previous compile's data placeholders go with it.
     for (const t of old.ownedTextures) t.dispose();
   }
   /** A compiled graph material and what its compile made. */
@@ -643,7 +643,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
   /** Digests in use by applied meshes (the rest are dropped after a material change). */
   let usedDigests = new Set<string>();
 
-  /** Phase 23.12: the apply each mesh was last assigned under (a run-time texture re-assigns just that mesh). */
+  /** The apply each mesh was last assigned under (a run-time texture re-assigns just that mesh). */
   const meshApply = new WeakMap<THREE.Object3D, { mapping: Readonly<Record<string, string>> | null; overrides: MaterialOverridesLike | null }>();
   const assign = (root: THREE.Object3D, mapping: Readonly<Record<string, string>> | null, overrides: MaterialOverridesLike | null = null): void => {
     root.traverse((o) => assignMesh(o, mapping, overrides));
@@ -654,13 +654,13 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
       if (!mesh.isMesh) return;
       meshApply.set(mesh, { mapping, overrides });
       const data = mesh.userData as Record<string, unknown>;
-      /** Phase 23.12: the run-time values scripts set on this object (texture ones choose a variant). */
+      /** The run-time values scripts set on this object (texture ones choose a variant). */
       const runtime = data[RUNTIME_VALUES_KEY] as RuntimeValuesLike | undefined;
       const ids: Record<string, string> = {};
       const original = (data[SOURCE] as THREE.Material | THREE.Material[] | undefined) ?? mesh.material;
       const list = Array.isArray(original) ? original : [original];
       let changed = false;
-      /** Phase 18.3: this mesh's parameter values by compiled digest; whether a graph material casts no shadow. */
+      /** This mesh's parameter values by compiled digest; whether a graph material casts no shadow. */
       const values: Record<string, Readonly<Record<string, unknown>>> = {};
       let noShadow = false;
       const keys: string[] = [];
@@ -685,7 +685,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
         }
         return m ?? src;
       });
-      // Phase 21.5: count the new holds before releasing the old ones (a material kept stays built).
+      // Count the new holds before releasing the old ones (a material kept stays built).
       for (const k of keys) builtRefs.set(k, (builtRefs.get(k) ?? 0) + 1);
       for (const k of heldKeys.get(mesh) ?? []) releaseKey(k);
       if (keys.length > 0) heldKeys.set(mesh, keys);
@@ -712,7 +712,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     }
   };
 
-  /** Phase 23.12: an object's run-time entry (made on first use, dropped when empty). */
+  /** An object's run-time entry (made on first use, dropped when empty). */
   const runtimeOf = (mesh: THREE.Object3D, create: boolean): RuntimeValuesLike | undefined => {
     let rt = mesh.userData[RUNTIME_VALUES_KEY] as RuntimeValuesLike | undefined;
     if (rt === undefined && create) mesh.userData[RUNTIME_VALUES_KEY] = rt = { values: {}, data: {} };
@@ -729,7 +729,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
       return Promise.all([...ids].map((id) => texture(id))).then(() => undefined);
     },
     setMaterials(list, fns) {
-      // Phase 25.19: instances draw as their resolved material (the editor passes the project's list as is).
+      // Instances draw as their resolved material (the editor passes the project's list as is).
       defs = new Map(resolveMaterialInstancesLike(list).map((d) => [d.materialId, d]));
       if (fns !== undefined) functions = new Map(fns.filter((f) => f.kind === 'material-function').map((f) => [f.graphId, f]));
       // Rebuild lazily: drop materials whose definition changed or vanished.
@@ -743,7 +743,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
       }
       usedDigests = new Set();
       for (const [root, a] of applied) assign(root, a.mapping, a.overrides);
-      // Phase 18.3: compiled graphs no applied mesh uses any more (a later apply recompiles).
+      // Compiled graphs no applied mesh uses any more (a later apply recompiles).
       for (const [digest, e] of [...graphEntries]) {
         if (usedDigests.has(digest)) continue;
         disposeEntry(e);
@@ -831,7 +831,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
       builtRefs.clear();
       for (const e of graphEntries.values()) disposeEntry(e);
       graphEntries.clear();
-      // Phase 21.5: the sampler copies are the library's (the loaded textures belong to the loader).
+      // The sampler copies are the library's (the loaded textures belong to the loader).
       for (const t of samplerTextures.values()) t.dispose();
       samplerTextures.clear();
       applied.clear();
@@ -841,7 +841,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
 
 /**
  * Decode a texture asset's verified bytes (PNG/JPEG/WebP) into a texture
- * (browser only). Phase 25.19: a KTX2 becomes a compressed texture with its
+ * (browser only). A KTX2 becomes a compressed texture with its
  * mip levels through the page's Basis transcoder (`setKtx2DecoderBase`).
  */
 export async function decodeTexture(bytes: ArrayBuffer | Uint8Array): Promise<THREE.Texture> {

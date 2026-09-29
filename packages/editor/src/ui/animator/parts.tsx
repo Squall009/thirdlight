@@ -1,5 +1,5 @@
 /**
- * Phase 16.2: pieces shared by the Animator's views — the bottom-dock
+ * Pieces shared by the Animator's views — the bottom-dock
  * controller list, the "Animator: <controller>" tab (graph, layers,
  * parameters, preview pane) and its Inspector extension: clip choices of a
  * controller's model, the clip picker, layer settings (weight, bone mask),
@@ -18,7 +18,7 @@ export interface ClipInfo {
   duration: number;
 }
 
-/** Phase 14.6: one bone of a model's skeleton (for layer masks). */
+/** One bone of a model's skeleton (for layer masks). */
 export interface BoneInfo {
   name: string;
   parent: string | null;
@@ -38,13 +38,13 @@ export interface AnimatorPreview {
   trigger(name: string): void;
   /** The current state's name. */
   state(): string;
-  /** Phase 14.6: every layer's current state (the base layer first). */
+  /** Every layer's current state (the base layer first). */
   layerStates?(): string[];
-  /** Phase 23.11: the playback speed (× every clip and crossfade, as ctx.animator(id).setSpeed sets it in the game). */
+  /** The playback speed (× every clip and crossfade, as ctx.animator(id).setSpeed sets it in the game). */
   setSpeed?(speed: number): void;
-  /** Phase 23.11: seconds into the base layer's (heaviest) clip now. */
+  /** Seconds into the base layer's (heaviest) clip now. */
   clipTime?(): number;
-  /** Phase 23.11: seconds the preview has stepped (before the speed; the clip time runs at speed × this). */
+  /** Seconds the preview has stepped (before the speed; the clip time runs at speed × this). */
   elapsed?(): number;
   dispose(): void;
 }
@@ -130,10 +130,10 @@ export function paramOptions(c: AnimatorController, types: readonly string[]): J
 }
 
 /**
- * Phase 24.5: a character locomotion controller from clips named like
+ * A character locomotion controller from clips named like
  * idle/run (or walk)/jump/fall/land. An opt-in preset driven by the parameters
  * the engine's character controller sets on its animators (speed, grounded,
- * velocityY and landed: the motion's names, no genre), not a default. Thresholds (phase 15.5, genre-neutral
+ * velocityY and landed: the motion's names, no genre), not a default. Thresholds (genre-neutral
  * reasons): run above 0.2 m/s — 5 % of the default 4 m/s run speed, clearly moving
  * rather than drifting at any character scale; jump/fall beyond ±0.5 m/s vertical —
  * above the small vertical motion of ground snap and slopes, far below a 7 m/s jump;
@@ -193,7 +193,7 @@ export function locomotionController(controllerId: string, assetId: string, clip
 }
 
 /**
- * Phase 14.6: an override layer's name, weight (and weight parameter) and its
+ * An override layer's name, weight (and weight parameter) and its
  * bone mask, picked from the model's skeleton. A bone's checkbox toggles that
  * bone; "+ children" sets the bone and every bone under it. An empty mask
  * drives every bone.
@@ -368,7 +368,7 @@ export function LivePreview({ controller, start, onStates }: { controller: Anima
   const [elapsed, setElapsed] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [values, setValues] = useState<Record<string, number | boolean>>({});
-  // Phase 23.11: the preview's playback speed (kept across restarts, like the parameter values).
+  // The preview's playback speed (kept across restarts, like the parameter values).
   const [speed, setSpeed] = useState(1);
   const speedRef = useRef(speed);
   speedRef.current = speed;

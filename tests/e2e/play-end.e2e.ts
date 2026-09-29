@@ -1,5 +1,5 @@
 /**
- * Phase 25.5 (TL-17, E26), against a real backend and the real Play page on
+ * Timeline ends and plays that end early, against a real backend and the real Play page on
  * the Starter template:
  *
  * - A script sees a timeline's `ended` event in Play (the simulation worker):

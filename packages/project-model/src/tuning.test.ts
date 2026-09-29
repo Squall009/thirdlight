@@ -1,5 +1,5 @@
 /**
- * Phase 15.3: tuning values as data in the project model — optional fields
+ * Tuning values as data in the project model — optional fields
  * appended last in the canonical forms (a document without them keeps its
  * exact bytes), their ranges, and the recorded model bounds travelling from
  * the asset metrics into the captured content view.

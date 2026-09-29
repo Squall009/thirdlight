@@ -1,5 +1,5 @@
 /**
- * Phase 16.1: the generic node-graph model.
+ * The generic node-graph model.
  *
  * Every graph in Thirdlight (animator state graphs, material graphs, visual
  * scripts, effect graphs) is the same data: nodes (id, type, position,
@@ -15,8 +15,8 @@
  *
  * This module is pure and total: structural validation (a refusal), the
  * canonical form and the edit-op application with its inverse (the backend's
- * commands and their undo/redo). The editor may import model types only
- * (dependencies.md §4.1): it advances its copy of a graph from the change
+ * commands and their undo/redo). The editor may import model types only:
+ * it advances its copy of a graph from the change
  * data with its own projection (editor/src/graph/model.ts, kept equal by
  * tests/graph-parity.test.ts) and gets the kinds from `queryGameConfig`.
  */
@@ -89,7 +89,7 @@ export interface GraphPortType {
   /** Wire and port colour in the editor (`#rrggbb`). */
   color: string;
   /**
-   * Phase 19.2: a control-flow type (e.g. a visual script's exec): its wires
+   * A control-flow type (e.g. a visual script's exec): its wires
    * say in which order things run, not which value moves, so the editor draws
    * them thicker with arrows along the direction of flow. Presentation only.
    */
@@ -112,26 +112,26 @@ export interface GraphPortDef {
   /** Input only: accepts several edges (outputs fan out unless `single`). */
   multi?: boolean;
   /**
-   * Phase 16.2, output only: at most one edge leaves it (a new wire replaces
-   * the old one) — e.g. a state machine's Entry names exactly one state.
+   * Output only: at most one edge leaves it (a new wire replaces the
+   * existing one) — e.g. a state machine's Entry names exactly one state.
    */
   single?: boolean;
   /** Input only: an unconnected required input is a diagnostic error. */
   required?: boolean;
   /**
-   * Phase 18.1: the port's type comes from the node's data (a data-dependent
+   * The port's type comes from the node's data (a data-dependent
    * port); `type` is then the fallback when the rule gives nothing.
    */
   typeFrom?: GraphPortTypeRule;
   /**
-   * Phase 18.1, input only: what an unconnected input reads — a number or a
+   * Input only: what an unconnected input reads — a number or a
    * vector is a constant; a string names a built-in source of the kind
    * (e.g. a material's `uv0`). Documentation for the kind's compiler and the
    * editor; the framework never refuses an unconnected defaulted input.
    */
   default?: GraphValue;
   /**
-   * Phase 19.2: a repeated port — the port stands for as many ports as the
+   * A repeated port — the port stands for as many ports as the
    * node field `field` says (see `repeatedPorts`), at most `max`: ids
    * `<id>1`, `<id>2`, … (1-based), so a port keeps its id (and wires) while
    * later ones are added or removed. E.g. a switch's cases.
@@ -140,7 +140,7 @@ export interface GraphPortDef {
 }
 
 /**
- * Phase 19.2: how many copies a repeated port has. A number field gives the
+ * How many copies a repeated port has. A number field gives the
  * count (whole, clamped to 0..max; labels "<label> 1", "<label> 2", …); a
  * text field is a comma-separated list — one port per item (empty items
  * included, so "a,,b" keeps three ports), labelled with the item (or
@@ -151,13 +151,13 @@ export interface GraphPortRepeat {
   max: number;
 }
 
-/** Phase 19.2: the items of a repeated port's text field (trimmed, comma separated; "" = none). */
+/** The items of a repeated port's text field (trimmed, comma separated; "" = none). */
 export function repeatItems(value: string): string[] {
   return value.trim() === '' ? [] : value.split(',').map((x) => x.trim());
 }
 
 /**
- * Phase 19.2: the ports a repeated port stands for on a node (see
+ * The ports a repeated port stands for on a node (see
  * `GraphPortRepeat`); a port without `repeat` is itself. Shared by
  * validation, the compilers and (copied) the editor.
  */
@@ -181,7 +181,7 @@ export function repeatedPorts(def: GraphNodeDef, node: GraphNode, port: GraphPor
 }
 
 /**
- * Phase 18.1: how a data-dependent port gets its type from a node field. In
+ * How a data-dependent port gets its type from a node field. In
  * order: `lookup` (the value names an external declaration the context
  * types, e.g. a material parameter), `map`, `byLength` (the value's length,
  * e.g. a swizzle mask "xy" → the 2nd entry), the value `auto` (the widest
@@ -196,15 +196,15 @@ export interface GraphPortTypeRule {
   byLength?: readonly string[];
 }
 
-/** Phase 18.1: the value of a type field that asks for the widest connected type. */
+/** The value of a type field that asks for the widest connected type. */
 export const GRAPH_AUTO_TYPE = 'auto';
 
 export interface GraphFieldDef {
   key: string;
   label: string;
   /**
-   * Phase 18.1: `color` is a `#rrggbb` string (lower case).
-   * Phase 20.1: `curve` is keys `[t0, v0, t1, v1, …]` (2–16 keys, t in 0–1
+   * `color` is a `#rrggbb` string (lower case).
+   * `curve` is keys `[t0, v0, t1, v1, …]` (2–16 keys, t in 0–1
    * ascending, values within min/max, linear between keys, clamped outside);
    * `gradient` is stops `[t0, r0, g0, b0, a0, t1, …]` (1–8 stops, t ascending,
    * every number 0–1, linear between stops).
@@ -219,9 +219,9 @@ export interface GraphFieldDef {
   size?: number;
   /** `string`: the longest value (default 256). */
   maxLength?: number;
-  /** Phase 18.1, `string`: the whole value matches this regular expression (source text). */
+  /** `string`: the whole value matches this regular expression (source text). */
   pattern?: string;
-  /** Phase 18.1, `string`: the value names an asset of this kind (e.g. `texture`); "" = none. Checked against the project's assets. */
+  /** `string`: the value names an asset of this kind (e.g. `texture`); "" = none. Checked against the project's assets. */
   asset?: string;
 }
 
@@ -238,21 +238,21 @@ export interface GraphNodeDef {
   /** A graph without one is a diagnostic error. */
   required?: boolean;
   /**
-   * Phase 16.2: part of every graph of the kind, exactly once (a refusal
+   * Part of every graph of the kind, exactly once (a refusal
    * otherwise): not in the catalogue, not copied, not deleted — e.g. a state
    * machine's Entry and Any State.
    */
   fixed?: boolean;
-  /** Phase 16.2: the field whose (non-empty) value is the node's title instead of the type label. */
+  /** The field whose (non-empty) value is the node's title instead of the type label. */
   titleField?: string;
   /**
-   * Phase 18.1: at most one node among the types sharing this tag (a
+   * At most one node among the types sharing this tag (a
    * refusal beyond) — e.g. a material's PBR and Unlit outputs. A `required`
    * type is satisfied by any node of its tag.
    */
   exclusive?: string;
   /**
-   * Phase 18.1: the node's ports are the interface of another graph — the
+   * The node's ports are the interface of another graph — the
    * standalone graph of kind `kind` whose id is the value of `field` (a
    * sub-graph call). Resolved through the validation context.
    */
@@ -260,7 +260,7 @@ export interface GraphNodeDef {
 }
 
 /**
- * Phase 18.1: a graph kind whose graphs can be called (sub-graphs): the
+ * A graph kind whose graphs can be called (sub-graphs): the
  * nodes of type `input` become the caller's input ports and those of type
  * `output` its output ports, ordered by position (top to bottom, then left
  * to right). A port's id is the interface node's id (so renaming keeps the
@@ -274,7 +274,7 @@ export interface GraphInterfaceDef {
   typeField: string;
 }
 
-/** Phase 18.1: what validation and port resolution may read outside the graph. */
+/** What validation and port resolution may read outside the graph. */
 export interface GraphContext {
   /** A standalone graph of `kind` by id (sub-graph calls), or null. */
   graph?: (kind: string, id: string) => { kind: GraphKindDef; graph: GraphData } | null;
@@ -299,12 +299,12 @@ export interface GraphKindDef {
   /** Node types that are the graph's results; a node reaching none gets a warning. */
   sinks?: readonly string[];
   /**
-   * Phase 16.2: the owner kind whose documents hold graphs of this kind
+   * The owner kind whose documents hold graphs of this kind
    * (e.g. `animator`); absent = standalone graphs (`content.graphs`). A kind
    * with an owner cannot be a standalone graph.
    */
   owner?: string;
-  /** Phase 18.1: graphs of this kind can be called from other graphs (sub-graphs). */
+  /** Graphs of this kind can be called from other graphs (sub-graphs). */
   interface?: GraphInterfaceDef;
 }
 
@@ -329,7 +329,7 @@ export const GRAPH_LIMITS = {
   ops: 512,
 } as const;
 
-/** Phase 20.1: the bounds of the `curve` and `gradient` field types. */
+/** The bounds of the `curve` and `gradient` field types. */
 export const GRAPH_CURVE_LIMITS = { minKeys: 2, maxKeys: 16, minStops: 1, maxStops: 8 } as const;
 
 /** 1-64 characters (64: the longest state/controller id, so an owner's ids can be graph ids). */
@@ -388,7 +388,7 @@ export function nodeFieldValue(node: GraphNode, field: GraphFieldDef): GraphValu
   return v === undefined ? field.default : v;
 }
 
-// ---- phase 18.1: data-dependent ports ----------------------------------------------------
+// ---- Data-dependent ports ----------------------------------------------------
 
 export interface GraphNodePorts {
   inputs: readonly GraphPortDef[];
@@ -445,7 +445,7 @@ function typeOptions(def: GraphNodeDef, field: string): readonly string[] {
 }
 
 /**
- * Every node's ports with their types resolved (phase 18.1): static ports,
+ * Every node's ports with their types resolved: static ports,
  * a sub-graph call's interface (`portsFrom`), types from node data
  * (`typeFrom`) and `auto` types from the wires. Nodes of unknown types have
  * no ports; malformed edges are ignored (validation reports them).
@@ -456,7 +456,7 @@ export function resolveGraphPorts(kind: GraphKindDef, graph: { nodes: readonly G
   for (const node of graph.nodes) {
     const def = nodeDef(kind, node.type);
     if (def === undefined) continue;
-    // Phase 19.2: repeated ports first (their copies are ordinary ports).
+    // Repeated ports first (their copies are ordinary ports).
     let inputs: readonly GraphPortDef[] = def.inputs.some((p) => p.repeat !== undefined) ? def.inputs.flatMap((p) => repeatedPorts(def, node, p)) : def.inputs;
     let outputs: readonly GraphPortDef[] = def.outputs.some((p) => p.repeat !== undefined) ? def.outputs.flatMap((p) => repeatedPorts(def, node, p)) : def.outputs;
     const pf = def.portsFrom;
@@ -523,7 +523,7 @@ export function resolveGraphPorts(kind: GraphKindDef, graph: { nodes: readonly G
 }
 
 /**
- * Phase 18.1: the asset references in a graph's node data (fields with an
+ * The asset references in a graph's node data (fields with an
  * `asset` kind and a non-empty value), with their paths relative to the graph.
  */
 export function graphAssetRefs(kind: GraphKindDef, graph: GraphData): { path: string; asset: string; id: string }[] {
@@ -571,7 +571,7 @@ function fieldValueError(f: GraphFieldDef, v: unknown): string | null {
   }
 }
 
-/** Phase 20.1: a curve value (null = valid; see `GraphFieldDef.type`). */
+/** A curve value (null = valid; see `GraphFieldDef.type`). */
 export function curveValueError(v: unknown, min?: number, max?: number): string | null {
   const L = GRAPH_CURVE_LIMITS;
   const what = `a curve: ${L.minKeys}-${L.maxKeys} keys [t, value, …], t 0–1 ascending, values ${min ?? '-∞'}–${max ?? '∞'}`;
@@ -585,7 +585,7 @@ export function curveValueError(v: unknown, min?: number, max?: number): string 
   return null;
 }
 
-/** Phase 20.1: a gradient value (null = valid; see `GraphFieldDef.type`). */
+/** A gradient value (null = valid; see `GraphFieldDef.type`). */
 export function gradientValueError(v: unknown): string | null {
   const L = GRAPH_CURVE_LIMITS;
   const what = `a gradient: ${L.minStops}-${L.maxStops} stops [t, r, g, b, a, …], every number 0–1, t ascending`;
@@ -661,13 +661,13 @@ export function validateGraphData(kind: GraphKindDef, value: unknown, path: stri
         }
       }
     });
-    // Phase 18.1: at most one node per exclusive tag.
+    // At most one node per exclusive tag.
     const tags = new Map<string, number>();
     for (const def of kind.nodes) if (def.exclusive !== undefined) tags.set(def.exclusive, (tags.get(def.exclusive) ?? 0) + (counts.get(def.type) ?? 0));
     for (const [tag, c] of tags) {
       if (c > 1) err(errors, 'limits_exceeded', `${path}/nodes`, `a ${kind.label} has at most one of ${kind.nodes.filter((d) => d.exclusive === tag).map((d) => `"${d.label}"`).join(', ')}`, c, 'at most 1');
     }
-    // Phase 18.1: a sub-graph call names an existing graph of its kind.
+    // A sub-graph call names an existing graph of its kind.
     goodNodes.forEach((n) => {
       const def = nodeTypes.get(n.id)!;
       const pf = def.portsFrom;
@@ -689,7 +689,7 @@ export function validateGraphData(kind: GraphKindDef, value: unknown, path: stri
   if (!Array.isArray(edges)) err(errors, 'field_type', `${path}/edges`, 'edges is a list', edges);
   else {
     if (edges.length > maxEdges) err(errors, 'limits_exceeded', `${path}/edges`, `a ${kind.label} has at most ${maxEdges} edges`, edges.length, `at most ${maxEdges}`);
-    // Phase 18.1: ports come from the node type, a call's sub-graph and the node data.
+    // Ports come from the node type, a call's sub-graph and the node data.
     const wellFormed = (edges as unknown[]).filter((e): e is GraphEdge => isPlainObject(e) && isPlainObject(e['from']) && isPlainObject(e['to']) && typeof e['from']['node'] === 'string' && typeof e['from']['port'] === 'string' && typeof e['to']['node'] === 'string' && typeof e['to']['port'] === 'string');
     const resolved = resolveGraphPorts(kind, { nodes: goodNodes, edges: wellFormed }, ctx);
     const intoSingle = new Set<string>();
@@ -1181,7 +1181,7 @@ export function validateGraphDocument(kinds: Readonly<Record<string, GraphKindDe
 }
 
 /**
- * Phase 18.1: the context standalone graphs give each other (sub-graph
+ * The context standalone graphs give each other (sub-graph
  * calls): a graph of `kind` by id, read from the list as it is (malformed
  * entries are skipped; their own validation reports them).
  */
@@ -1203,7 +1203,7 @@ export function validateGraphDocuments(kinds: Readonly<Record<string, GraphKindD
   if (!Array.isArray(value) || value.length > MAX_GRAPH_DOCUMENTS) return err(errors, 'field_value', path, `graphs is a list of at most ${MAX_GRAPH_DOCUMENTS}`, value);
   const ids = new Set<string>();
   const ctx = graphDocumentsContext(kinds, value);
-  // Phase 18.1: sub-graph calls between documents must not form a cycle.
+  // Sub-graph calls between documents must not form a cycle.
   const calls = new Map<string, string[]>();
   value.forEach((g) => {
     if (!isPlainObject(g) || typeof g['graphId'] !== 'string' || typeof g['kind'] !== 'string') return;

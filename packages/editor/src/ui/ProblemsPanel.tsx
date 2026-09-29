@@ -8,7 +8,7 @@ import type { JSX } from 'react';
 import type { ProblemView } from '../session/client';
 import type { SourceIssue } from '../session/asset-sources';
 
-/** Phase 16.1: one graph problem (from the graph kind's rules); a click opens the graph at the node. */
+/** One graph problem (from the graph kind's rules); a click opens the graph at the node. */
 export interface GraphIssueView {
   key: string;
   graphId: string;
@@ -17,9 +17,9 @@ export interface GraphIssueView {
   nodeLabel: string | null;
   severity: 'error' | 'warning';
   message: string;
-  /** Phase 19.2: a visual script's compile problem (the click opens its Graph tab at the node; `nodeId` scoped in a function). */
+  /** A visual script's compile problem (the click opens its Graph tab at the node; `nodeId` scoped in a function). */
   behaviorId?: string;
-  /** Phase 18.2: a graph material's problem (the click opens its Material tab at the node). */
+  /** A graph material's problem (the click opens its Material tab at the node). */
   materialId?: string;
 }
 

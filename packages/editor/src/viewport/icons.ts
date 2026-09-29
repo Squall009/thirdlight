@@ -14,14 +14,14 @@ export type IconKind =
   | 'ambient'
   | 'spawn'
   | 'empty'
-  // Phase 9.12: lights by type, sound, fog, sky.
+  // Lights by type, sound, fog, sky.
   | 'point'
   | 'spot'
   | 'hemisphere'
   | 'audio'
   | 'fog'
   | 'sky'
-  // Phase 24.5: the component icons the descriptors name (`ComponentDescriptor.icon`).
+  // The component icons the descriptors name (`ComponentDescriptor.icon`).
   | 'mover'
   | 'switch'
   | 'sensor'
@@ -51,7 +51,7 @@ const GLYPHS: Record<IconKind, { color: string; body: string }> = {
     color: '#9aa3b2',
     body: '<g stroke="C" stroke-width="3.5" stroke-linecap="round"><path d="M32 14v36M14 32h36"/></g><circle cx="32" cy="32" r="5" fill="none" stroke="C" stroke-width="3"/>',
   },
-  // Phase 9.12 fallbacks (the generated artwork normally replaces them).
+  // Fallbacks (the generated artwork normally replaces them).
   point: { color: '#ffe27a', body: '<circle cx="32" cy="28" r="10" fill="C"/><rect x="27" y="38" width="10" height="8" rx="2" fill="C"/>' },
   spot: { color: '#ffe27a', body: '<path d="M26 14h12l10 36H16z" fill="C" opacity=".8"/>' },
   hemisphere: { color: '#8fd3ff', body: '<path d="M14 32a18 18 0 0 1 36 0z" fill="C"/><path d="M14 34a18 18 0 0 0 36 0z" fill="#7cc26b"/>' },
@@ -62,13 +62,13 @@ const GLYPHS: Record<IconKind, { color: string; body: string }> = {
   sensor: { color: '#3ad7ff', body: '<rect x="14" y="14" width="36" height="36" fill="none" stroke="C" stroke-width="3" stroke-dasharray="5 4"/>' },
   fog: { color: '#c8d6e5', body: '<path d="M16 26h32M12 34h40M18 42h28" stroke="C" stroke-width="4" stroke-linecap="round"/>' },
   sky: { color: '#8fd3ff', body: '<circle cx="36" cy="26" r="9" fill="#ffd54a"/><ellipse cx="28" cy="38" rx="14" ry="8" fill="#ffffff"/>' },
-  // Phase 24.5: a body walking back and forth; a burst in a box (contacts); a cross (health).
+  // A body walking back and forth; a burst in a box (contacts); a cross (health).
   patrol: { color: '#b07cf2', body: '<rect x="22" y="24" width="20" height="18" rx="5" fill="C"/><path d="M12 48h40M12 48l5-4M12 48l5 4M52 48l-5-4M52 48l-5 4" stroke="C" stroke-width="3" fill="none"/>' },
   hitbox: { color: '#ff7a59', body: '<rect x="14" y="14" width="36" height="36" rx="3" fill="none" stroke="C" stroke-width="3"/><path d="M32 20l3 8 8-3-5 7 7 4-8 1 1 8-6-6-6 6 1-8-8-1 7-4-5-7 8 3z" fill="C"/>' },
   health: { color: '#5fd47a', body: '<path d="M26 14h12v12h12v12H38v12H26V38H14V26h12z" fill="C"/>' },
 };
 
-/** Phase 24.5: which component shows which icon, most specific first (from the descriptors). */
+/** Which component shows which icon, most specific first (from the descriptors). */
 export type IconTable = readonly { readonly component: string; readonly icon: IconKind }[];
 
 /** The icon table of a descriptor registry: components with an icon, in the registry's icon order. */
@@ -86,8 +86,8 @@ export function iconTableOf(reg: DescriptorRegistry | null): IconTable {
 }
 
 /**
- * Phase 9.12: the icon an entity shows (Scene view billboards, hierarchy
- * rows): lights by type, a camera, else (phase 24.5) the icon its
+ * The icon an entity shows (Scene view billboards, hierarchy
+ * rows): lights by type, a camera, else the icon its
  * components' descriptors name (the table's first match), else a plain
  * empty object.
  */
@@ -142,7 +142,7 @@ export const ICON_FILES: Partial<Record<IconKind, string>> = {
   sky: './icons/sky.png',
 };
 
-/** Phase 24.5: an icon as an image source (its artwork file, else its SVG glyph). */
+/** An icon as an image source (its artwork file, else its SVG glyph). */
 export function iconSrc(kind: IconKind): string {
   return ICON_FILES[kind] ?? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgFor(kind, false))}`;
 }

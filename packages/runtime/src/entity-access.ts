@@ -1,5 +1,5 @@
 /**
- * Phase 25.10 (E38): generic component access — `ctx.entity(ref).get` and
+ * Generic component access — `ctx.entity(ref).get` and
  * `.set`, relaxed transform ownership and the runtime behavior of every
  * field the descriptors mark `runtimeWritable`.
  *
@@ -70,7 +70,7 @@ export interface EntityWriteResult {
 }
 
 /**
- * Phase 25.10: `ctx.entity(ref)` — one loaded object, by id (an `entityRef`
+ * `ctx.entity(ref)` — one loaded object, by id (an `entityRef`
  * property's value, a spawned copy's id, `ctx.entityId`…).
  */
 export interface BehaviorEntityHandle {

@@ -1,7 +1,7 @@
 /**
- * Packet 29 — step-indexed action frames and the recorded replay source
- * (runtime.md §12.5/§12.7). Mirrors the accepted packet-17 invalid-frame set
- * (`fixtures/m2/contracts/input/action-sequences.json`, I1–I8).
+ * Step-indexed action frames and the recorded replay source. Mirrors the
+ * invalid-frame set of `fixtures/m2/contracts/input/action-sequences.json`
+ * (I1–I8).
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -14,7 +14,7 @@ import {
   type ActionFrame,
 } from './index';
 
-/** A version 1 frame (the recorded shape before phase 24.8), typed loosely: it is read through the upgrade. */
+/** A version 1 frame (with the fixed moveX/moveY/jump channels), typed loosely: it is read through the upgrade. */
 const v1 = (f: Record<string, unknown>): ActionFrame => f as unknown as ActionFrame;
 /** The version 2 frame a version 1 frame without actions reads as. */
 const up = (stepIndex: number, moveX: number, jump: string): ActionFrame =>
@@ -97,7 +97,7 @@ describe('createRecordedActionSource (runtime.md §12.7)', () => {
     expectInputFrameError([{ stepIndex: 12, moveX: 0.123456, jump: 'none' }], 'moveX');
     expectInputFrameError([{ stepIndex: 12, moveX: 0, jump: 'down' }], 'jump');
     expectInputFrameError([{ stepIndex: 12, moveX: 0, jump: 'none', device: 'pad' }], 'device');
-    // Phase 24.8: frame version 2 has no fixed jump column, so no phase chain is checked across frames.
+    // Frame version 2 has no fixed jump column, so no phase chain is checked across frames.
     expect(() => createRecordedActionSource([v1({ stepIndex: 12, moveX: 0, jump: 'held' })])).not.toThrow();
   });
 

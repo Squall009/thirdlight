@@ -7,7 +7,7 @@
  * With `{ lightmapUv: true }` every render mesh also gets TEXCOORD_0/1 (UV1)
  * that lays the box's six faces out without overlap, like a kit exported
  * for light baking.
- * Phase 25.2: with `{ texturePng }` the material's base colour is that PNG,
+ * With `{ texturePng }` the material's base colour is that PNG,
  * embedded in the GLB (a bufferView image) and mapped through TEXCOORD_0.
  */
 
@@ -19,7 +19,7 @@ export interface PieceSpec {
   col?: [number, number, number];
   /** Per LOD: its own material of this base colour (linear RGB 0-1); absent: the shared material. */
   colors?: [number, number, number][];
-  /** Phase 25.21: the COLOR_0 of its render meshes (RGBA 0-1; absent: pure red). */
+  /** The COLOR_0 of its render meshes (RGBA 0-1; absent: pure red). */
   vertexColor?: [number, number, number, number];
 }
 

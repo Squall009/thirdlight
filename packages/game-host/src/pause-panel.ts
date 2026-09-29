@@ -1,5 +1,5 @@
 /**
- * Phase 23.10: the engine's pause panel (a game with game modes, or a game
+ * The engine's pause panel (a game with game modes, or a game
  * shell without a pause screen of its own). Shown while the game
  * is paused in a mode whose `pauseScreen` is not set; a project replaces it
  * with its own UI document (the mode's `pauseScreen`, drawn by the UI layer
@@ -20,9 +20,9 @@ export interface PausePanel {
   handleEdges(edges: { up: boolean; down: boolean; submit: boolean; cancel: boolean }): void;
   /** The focused button (observations). */
   readonly focus: 'resume' | 'restart';
-  /** Phase 25.15: where a pointer press goes to the panel while shown (its buttons, then the whole view it covers), topmost first; fractions of the view. */
+  /** Where a pointer press goes to the panel while shown (its buttons, then the whole view it covers), topmost first; fractions of the view. */
   hitTargets(viewport: { width: number; height: number }): { key: string; rect: [number, number, number, number] }[];
-  /** Phase 25.15: a click on one of its targets ('resume', 'restart'; 'backdrop' does nothing). */
+  /** A click on one of its targets ('resume', 'restart'; 'backdrop' does nothing). */
   click(which: string): boolean;
   dispose(): void;
 }

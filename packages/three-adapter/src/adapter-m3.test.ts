@@ -1,11 +1,10 @@
 /**
- * Packet 52 — the M3 light/shadow/surface realization in `createSceneAdapter`
- * (presentation.md §§41.1/41.2; Node unit/mock-level per the packet-08
- * pattern: a STUB canvas, no GPU. The realized THREE light nodes, the real
+ * The light/shadow/surface realization in `createSceneAdapter`
+ * (presentation.md; Node unit/mock-level: a STUB canvas, no GPU. The realized THREE light nodes, the real
  * WebGL-2 gate and the first-render probe are exercised in the browser
  * (`tests/browser/m3-render/`) — UNVERIFIED in this container. What IS
  * proved here: the construction-time shadow decision and the diagnostics
- * fields (the §41.1.4 bounded record), the M1 path staying `off` /
+ * fields (the bounded record), a scene without lights staying `off` /
  * `cast_shadow_false`, the structured (never-throw) render failures, the
  * `animation_role_unresolved` code-set registration, and repeated
  * create/dispose.

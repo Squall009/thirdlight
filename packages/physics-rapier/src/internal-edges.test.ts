@@ -1,5 +1,5 @@
 /**
- * Phase 25.4: internal edges in the 2D port. Where static colliders share a
+ * Internal edges in the 2D port. Where static colliders share a
  * face, a collider's corner on that face is not on the surface of their
  * union; Rapier still grounds the character on it (any contact whose normal
  * tilts up). The port refuses that ground, so stacked or overlapping

@@ -1,5 +1,5 @@
 /**
- * Phase 25.12: mover signals (`stopOn`, `toggleOn`, `reverseOn`, next to
+ * Mover signals (`stopOn`, `toggleOn`, `reverseOn`, next to
  * `startOn`) and the `gravity` easing (constant acceleration from each point,
  * each stretch taking as long as at its speed).
  */

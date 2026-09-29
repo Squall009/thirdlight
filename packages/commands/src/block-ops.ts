@@ -1,5 +1,5 @@
 /**
- * Phase 23.5 (E8): block-layer commands.
+ * Block-layer commands.
  *
  * Scene: `editBlocks {entityId, edits[]}` applies bulk edits (fill a box,
  * set listed cells, set cells from a run-length array, replace a block type,

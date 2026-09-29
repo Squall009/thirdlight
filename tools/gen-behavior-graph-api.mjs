@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Phase 19.1: generate the visual-script API nodes from the runtime typings.
+ * Generate the visual-script API nodes from the runtime typings.
  *
  * Source of truth: `@thirdlight/runtime`'s `BehaviorContext` (what a
  * behavior's `step(state, ctx)` receives). With the pinned TypeScript
@@ -95,7 +95,7 @@ function graphTags(decl) {
       if (text !== 'intent' && text !== 'transform') throw new Error(`gen-behavior-graph-api: @graphPhase is intent or transform (got "${text}")`);
       out.phase = text;
     } else if (name === 'graphType') {
-      // Phase 23.12: `@graphType <arg> list` on a method types one of its parameters (a parameter carries no tags of its own).
+      // `@graphType <arg> list` on a method types one of its parameters (a parameter carries no tags of its own).
       const m = /^(\S+)\s+(list|map)$/.exec(text);
       if (m !== null) out.argTypes.set(m[1], m[2]);
       else out.type = text;
@@ -126,7 +126,7 @@ function words(name) {
     .trim();
 }
 const capital = (s) => (s.length === 0 ? s : s[0].toUpperCase() + s.slice(1));
-/** Phase 23.9a: namespaces whose category is not their capitalized name (an acronym). */
+/** Namespaces whose category is not their capitalized name (an acronym). */
 const CATEGORY_NAMES = { ui: 'UI' };
 
 // ---- types -----------------------------------------------------------------------------
@@ -163,7 +163,7 @@ function describe(checker, type, tags = { type: null }) {
 }
 
 /**
- * Phase 23.13: a literal union's options in the order the declaration writes
+ * A literal union's options in the order the declaration writes
  * them (the checker's union order follows when each literal type was first
  * created, so a literal used earlier elsewhere — `'linear'` — would reorder an
  * unrelated choice and move its default).
@@ -359,7 +359,7 @@ class Builder {
         if (isHandle) {
           // A handle factory (ctx.animator(id)): one node per handle method.
           const { args: prefix, values } = this.params(sig, tags, pathText);
-          // Phase 23.7: a handle inside a namespace (ctx.random.stream(name)) stays in the
+          // A handle inside a namespace (ctx.random.stream(name)) stays in the
           // namespace's category, its labels naming the factory ("Seeded random (stream)").
           const nested = pathNames.length > 0;
           const handleCat = nested ? cat : capital(name);
@@ -451,7 +451,7 @@ class Builder {
         }
         const pd = prop.valueDeclaration ?? prop.declarations?.[0];
         const opt = (prop.flags & ts.SymbolFlags.Optional) !== 0;
-        // Phase 23.7: an optional field tagged `@graphNode skip` is not an input of the node
+        // An optional field tagged `@graphNode skip` is not an input of the node
         // (the node's inputs, and so the code of existing graphs, stay as they were).
         const ptags = graphTags(pd);
         if (opt && ptags.skip !== null) {

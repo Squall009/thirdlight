@@ -1,19 +1,17 @@
 /**
- * Packet 53 — real-loader `setRoles` evidence over the committed media
+ * Real-loader `setRoles` evidence over the committed media
  * fixtures (`tests/m3-animation/**`): the real `three` GLTFLoader
  * port loads the REAL `fixtures/m3/media/glb/courier-roles.glb` /
  * `courier-reordered.glb` bytes, and the role controller re-checks the
  * REAL-ROLES `modelAnimation` components from the committed
- * `fixtures/m3/media/roles/roles-cases.json` (packet 53, CC-47-1 / Gate L P3
- * — the real `AnimationRoleBinding` values the runtime loads) against the
- * LOADED clips (presentation.md §41.3.6 rule 7 / §41.3.2 stages 3, 5–6).
+ * `fixtures/m3/media/roles/roles-cases.json` (the real `AnimationRoleBinding`
+ * values the runtime loads) against the LOADED clips (binding stages 3, 5–6).
  *
  * The committed rows are the evidence input (frozen by the media checker's
  * digest + re-derivation); this test proves the adapter's setRoles path
  * accepts exactly the accepted rows and refuses exactly the rejected one —
- * the reorder-with-new-mapping case (§41.3.4 rule 5) and the stale-mapping
- * refusal (§41.3.4 rule 1/6: a reimport never silently keeps the old
- * mapping) included.
+ * the reorder-with-new-mapping case and the stale-mapping refusal (a
+ * reimport never silently keeps the previous mapping) included.
  *
  * Runs in Node (the repo-root test tree may use Node built-ins; the
  * `packages/**` code it drives does not).
@@ -144,7 +142,7 @@ describe('packet 53 — setRoles over the real courier GLBs (committed real-role
     const set = controller.controller.setRoles(c.component.roles, c.component.version);
     expect(set.ok).toBe(false);
     if (set.ok) throw new Error('unreachable');
-    // The adapter's closed code (§41.7.2 D); the stage-5 mismatch detail is
+    // The adapter's closed code; the stage-5 mismatch detail is
     // bounded in the message (clip 0 is 'Airborne', the mapping claims 'Idle').
     expect(set.error.code).toBe('animation_role_unresolved');
     expect(set.error.message).toContain("clipName 'Idle'");

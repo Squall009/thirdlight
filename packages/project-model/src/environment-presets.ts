@@ -1,5 +1,5 @@
 /**
- * Phase 23.18 (E17): environment presets — named snapshots of the look a
+ * Environment presets — named snapshots of the look a
  * game can switch or blend to at run time (`environment.presets`, project
  * content):
  *
@@ -13,8 +13,8 @@
  *   `type` (e.g. every ambient or hemisphere light), or every light when it
  *   names none; later entries win per
  *   field; a light no entry matches keeps its authored values;
- * - `lightmap`: an intensity and tint multiplier on baked lightmaps (phase
- *   9.6): a bake holds the light of the moment it was baked, so a preset
+ * - `lightmap`: an intensity and tint multiplier on baked lightmaps: a bake
+ *   holds the light of the moment it was baked, so a preset
  *   that darkens the lights darkens the baked surfaces with this.
  *
  * A patch (`ctx.environment.set(id, { override })`) is the same shape

@@ -1,19 +1,19 @@
 /**
- * Packet 48 integration harness — a disposable data root holding the committed
+ * v3 content integration harness — a disposable data root holding the committed
  * v3 project (`fixtures/m3/storage/project-v3-demo-0003`) and a second project
  * seeded from the committed v2 project (`fixtures/m3/storage/project-v2-demo-0002`),
  * a REAL backend process (esbuild-bundled child, real fs + real HTTP/WS), and a
  * REAL `@modelcontextprotocol/sdk` client over a real stdio transport against
  * the out-of-process MCP server.
  *
- * Storage (phase 9.3 step B): the workspace opens only storage v4, upgrades a
+ * Storage: the workspace opens only storage v4, upgrades a
  * v3 project in place on open and refuses v1/v2. Both seeded projects open as
  * v4: demo-0003 is v3 as committed; demo-0002's seeded copy is converted to
  * the equivalent v3 envelope (tests/storage-seed.ts). The committed fixtures
  * are never modified.
  *
- * Nothing is mocked where the packet requires integration: upload, staging,
- * inspection (model + audio + role-aware), blob publication, the §20 relays
+ * Nothing is mocked where integration is under test: upload, staging,
+ * inspection (model + audio + role-aware), blob publication, the game relays
  * and the project writes all run on the real filesystem in the child. Bytes
  * are read from the committed `fixtures/m3/media/**` files.
  */
@@ -117,7 +117,7 @@ export async function ensureBackendBundle(): Promise<string> {
     format: 'esm',
     target: 'node22',
     outfile: out,
-    // Phase 25.21: the KTX2 encoder loads its WASM next to its own file (external, as in the deployment bundle).
+    // The KTX2 encoder loads its WASM next to its own file (external, as in the deployment bundle).
     external: ['ws', 'esbuild', 'playwright-core', 'ktx2-encoder', 'jpeg-js'],
     logLevel: 'silent',
   });
@@ -401,7 +401,7 @@ export const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeou
 /**
  * The full real content route (stage → upload frames → inspect → discard) over
  * plain HTTP. Used where a test sweeps many sources and must not accumulate
- * open stages (the §13.9 8-open-stage bound). The response is the inspect
+ * open stages (the 8-open-stage bound). The response is the inspect
  * route's exact result (a bounded proposal or the structured error).
  */
 export async function inspectViaHttp(

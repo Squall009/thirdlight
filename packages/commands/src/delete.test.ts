@@ -1,5 +1,5 @@
 /**
- * deleteEntity — commands.md §8.3/§9.1: subtree closure, the camera
+ * deleteEntity — subtree closure, the camera
  * invariant, deletedIds in pre-deletion array order, and the
  * restoreSubtree inverse that reconstructs the exact pre-deletion array
  * (hierarchy integrity survives deletion/undo).

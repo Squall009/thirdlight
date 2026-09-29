@@ -1,5 +1,5 @@
 /**
- * Phase 25.2: Play screenshots (the relay behind `tl_screenshot`).
+ * Play screenshots (the relay behind `tl_screenshot`).
  *
  *  - The capture reads back the frame the renderer drew, on each backend
  *    (renderer-variants.ts): a GLB whose base colour is an embedded PNG is

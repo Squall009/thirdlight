@@ -1,5 +1,5 @@
 /**
- * Editor session transport (sessions.md §4/§5/§6/§8/§10): the session
+ * Editor session transport: the session
  * client. `SessionClientCore` (`client-core.ts`) holds the connection, the
  * projection and the command path; this subclass adds the project operations
  * that go over HTTP: gameplay authoring queries and commands, the content
@@ -88,8 +88,7 @@ export class SessionClient extends SessionClientCore {
   }
 
   /**
-   * A bounded `queryEntities` page with the `component` filter (commands.md
-   * §4, packet 45/48): the page contains only entities carrying `component`,
+   * A bounded `queryEntities` page with the `component` filter: the page contains only entities carrying `component`,
    * still in document order. Read-only.
    */
   async queryEntitiesByComponent(
@@ -117,8 +116,8 @@ export class SessionClient extends SessionClientCore {
   }
 
   /**
-   * `setComponent` through the ordinary command path (the v3 union,
-   * commands.md §8.10): `value` is the partial field replacement or `null`
+   * `setComponent` through the ordinary command path (the v3 union):
+   * `value` is the partial field replacement or `null`
    * (remove the add-capable component).
    */
   async setComponent(
@@ -131,7 +130,7 @@ export class SessionClient extends SessionClientCore {
     return this.command('setComponent', { entityId, component, value }, expectedRevision, requestId);
   }
 
-  /** `createEntity` with M3 `components`. */
+  /** `createEntity` with `components`. */
   async createGameEntity(
     args: Record<string, unknown>,
     expectedRevision: number,
@@ -149,11 +148,11 @@ export class SessionClient extends SessionClientCore {
     return this.command('deleteEntity', { entityId }, expectedRevision, requestId);
   }
 
-  // ---- M2 behavior publication (packet 34) --------------------------------
+  // ---- behavior publication -----------------------------------
 
   /**
    * Stage one source container through the EXISTING non-authoritative content
-   * stage route (`POST /content/stages` + the bounded frame PUTs; packet 25).
+   * stage route (`POST /content/stages` + the bounded frame PUTs).
    * Staging writes no authoritative state and advances no revision. The digest
    * is computed client-side over the exact container bytes (the same SHA-256
    * the preparer binds), because no accepted query returns a behavior digest.
@@ -188,7 +187,7 @@ export class SessionClient extends SessionClientCore {
     }
   }
 
-  /** `acknowledgeBehaviorTrust` through the ordinary command path (§3.1.8). */
+  /** `acknowledgeBehaviorTrust` through the ordinary command path. */
   async acknowledgeBehaviorTrust(
     sourceDigest: string,
     expectedRevision: number,
@@ -197,7 +196,7 @@ export class SessionClient extends SessionClientCore {
     return this.command('acknowledgeBehaviorTrust', planAcknowledgeTrust(sourceDigest), expectedRevision, requestId);
   }
 
-  /** `publishBehavior` declaration modes through the ordinary command path (§8.8). */
+  /** `publishBehavior` declaration modes through the ordinary command path. */
   async publishBehaviorDeclaration(
     args: {
       behaviorId: string;
@@ -213,8 +212,8 @@ export class SessionClient extends SessionClientCore {
 
   /**
    * `publishBehavior{mode:"source"}` through the ordinary command path. The
-   * preparation step is the workspace's digest-bound preparation layer
-   * (project-model §22.4.1); until a wire route exists for it the backend
+   * preparation step is the workspace's digest-bound preparation layer;
+   * until a wire route exists for it the backend
    * returns `behavior_publication_unavailable` (`preparation_missing`), which
    * the panel surfaces verbatim instead of faking a build.
    */
@@ -225,14 +224,14 @@ export class SessionClient extends SessionClientCore {
       declaration: PropertyDeclaration;
       sourceDigest: string;
       sourceByteLength: number;
-      /** Phase 15.4: the stage holding the bytes — prepared (compiled) and published by the backend route. */
+      /** The stage holding the bytes — prepared (compiled) and published by the backend route. */
       stageId?: string;
     },
     expectedRevision: number,
     requestId?: string,
   ): Promise<{ ok: true; revision: number } | { ok: false; response: MutationResponse }> {
     if (args.stageId === undefined) return this.command('publishBehavior', planPublishSource(args), expectedRevision, requestId);
-    // Phase 15.4: the preparation route compiles the staged source (deriving
+    // The preparation route compiles the staged source (deriving
     // the declaration when the code declares `export const properties`) and
     // runs the same `publishBehavior{mode:"source"}` command.
     try {
@@ -258,7 +257,7 @@ export class SessionClient extends SessionClientCore {
   }
 
   /**
-   * Phase 16.3: the published source-graph container of one behavior as text
+   * The published source-graph container of one behavior as text
    * (`null` when the behavior has no source yet).
    */
   async behaviorSource(
@@ -276,7 +275,7 @@ export class SessionClient extends SessionClientCore {
   }
 
   /**
-   * Phase 16.3: compile a source-graph container without publishing it (the
+   * Compile a source-graph container without publishing it (the
    * source route's `check` mode — the same backend compiler; nothing is
    * written). Returns the compiler's bounded diagnostics.
    */
@@ -316,7 +315,7 @@ export class SessionClient extends SessionClientCore {
   }
 
   /**
-   * Phase 19.0: compile a visual script's stored graph without publishing
+   * Compile a visual script's stored graph without publishing
    * it (the source route's `check` + `graph` mode). Returns the digest the
    * publication will ask trust for, or the problems (with their nodes).
    */
@@ -340,7 +339,7 @@ export class SessionClient extends SessionClientCore {
   }
 
   /**
-   * Phase 19.0: publish a visual script — the backend generates the source
+   * Publish a visual script — the backend generates the source
    * from the stored graph and runs the ordinary preparation + one
    * `publishBehavior{mode:"source"}` command (trust per exact digest).
    */
@@ -381,13 +380,13 @@ export class SessionClient extends SessionClientCore {
     };
   }
 
-  /** `POST /content/stages` + the bounded frame PUTs + the inspect (the §19.1 upload bounds).
-   * M3 (packet 57): `kind` selects the inspector (`'audio'` = the bounded
-   * PCM-WAV inspector; absent = the accepted M2 GLB inspector, byte-unchanged)
+  /** `POST /content/stages` + the bounded frame PUTs + the inspect (within the upload bounds).
+   * `kind` selects the inspector (`'audio'` = the bounded
+   * PCM-WAV inspector; absent = the GLB inspector)
    * and `animation` requests the role-aware animated GLB profile (stages 3–6
    * validate the bindings against the staged bytes' real clip list). */
   /**
-   * Phase 12 (c): publish an instance-set buffer (10 float32 per copy) and
+   * Publish an instance-set buffer (10 float32 per copy) and
    * return its digest. Small sets go inline; larger ones through a stage.
    */
   async publishInstanceBuffer(floats: Float32Array): Promise<{ ok: true; digest: string; count: number } | { ok: false; error: { code: string; message: string } }> {
@@ -425,7 +424,7 @@ export class SessionClient extends SessionClientCore {
     }
   }
 
-  /** Phase 12 (c): the bytes of an instance-set buffer (the viewport draws the copies from them). */
+  /** The bytes of an instance-set buffer (the viewport draws the copies from them). */
   async instanceBufferBytes(digest: string): Promise<Float32Array> {
     const res = await fetch(`${this.cfg.authoringOrigin}/api/v1/projects/${this.cfg.projectId}/content/buffers/${digest}`, {
       headers: { authorization: `Bearer ${this.cfg.authoringToken}`, origin: this.cfg.authoringOrigin },
@@ -445,7 +444,7 @@ export class SessionClient extends SessionClientCore {
     return res.blob();
   }
 
-  // ---- Phase 9.6: the final light bake (Blender on the bake host) --------------
+  // ---- The final light bake (Blender on the bake host) --------------
 
   /** Whether the backend has a bake host. */
   async bakeHostStatus(): Promise<{ ok: true; host: string } | { ok: false; message: string }> {
@@ -516,7 +515,7 @@ export class SessionClient extends SessionClientCore {
       displayName?: string | null;
       kind?: 'model' | 'audio' | 'texture' | 'music' | 'font';
       animation?: { entityId: string; roles: unknown };
-      /** Phase 25.19: a texture encoded to KTX2 on import (phase 25.21: or as data). */
+      /** A texture encoded to KTX2 on import (or as data). */
       ktx2?: 'color' | 'normal' | 'data';
       onState?: (s: AssetImportState) => void;
     } = {},
@@ -579,7 +578,7 @@ export class SessionClient extends SessionClientCore {
   }
 
   /**
-   * Phase 25.21: pack a KTX2 texture (a texture array with several layers)
+   * Pack a KTX2 texture (a texture array with several layers)
    * from the project's PNG/JPEG texture assets, channel by channel, and
    * publish it as a new texture asset (one `publishAsset`, one undo).
    */
@@ -674,8 +673,8 @@ export class SessionClient extends SessionClientCore {
   }
 
   /**
-   * M3 (packet 57): a second inspect of the SAME stage with the role-aware
-   * animated GLB profile (presentation.md §41.3.3 A1–A6): the staged bytes
+   * A second inspect of the SAME stage with the role-aware
+   * animated GLB profile: the staged bytes
    * stay, the new job validates the supplied role bindings against the real
    * clip list (stages 3–6) and returns the role-aware proposal the publish
    * carries. A stale/expired result never becomes publishable (the accepted
@@ -747,7 +746,7 @@ export class SessionClient extends SessionClientCore {
   }
 
   /**
-   * The authenticated committed asset-byte read (sessions.md §16.1). This is
+   * The authenticated committed asset-byte read. This is
    * the editor's only byte path: the renderer never receives the token and the
    * adapter never fetches (it calls the injected resolver this returns).
    */
@@ -764,7 +763,7 @@ export class SessionClient extends SessionClientCore {
   }
 
   /**
-   * A descriptor resolver for the three-adapter visual path (packet 26): it
+   * A descriptor resolver for the three-adapter visual path: it
    * receives only the immutable version facts and returns the verified bytes.
    */
   assetByteResolver(): (descriptor: { assetId: string; version: number }) => Promise<Uint8Array> {

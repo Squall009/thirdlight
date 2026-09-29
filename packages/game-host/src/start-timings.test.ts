@@ -1,4 +1,4 @@
-/** Phase 25.24a: the start-timings recorder (stages, first frame, slow frames, scene loads). */
+/** The start-timings recorder (stages, first frame, slow frames, scene loads). */
 import { describe, expect, it } from 'vitest';
 
 import { createStartTimings, FRAME_WATCH_MS } from './start-timings';

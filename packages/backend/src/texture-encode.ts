@@ -1,5 +1,5 @@
 /**
- * Phase 25.19: KTX2 encoding on import (decision 0006).
+ * KTX2 encoding on import.
  *
  * A PNG or JPEG texture imported with `ktx2: "color"` or `"normal"` is
  * encoded to a Basis Universal KTX2 with a full mip chain, and the KTX2 is
@@ -11,11 +11,11 @@
  * - `normal` (tangent-space normal maps): UASTC LDR 4×4 with Zstandard
  *   supercompression, linear, the encoder's normal-map preset (mipmaps
  *   renormalized) — keeps the precision normals need;
- * - `data` (phase 25.21: masks, heights, roughness / occlusion / metalness
+ * - `data` (masks, heights, roughness / occlusion / metalness
  *   packed per channel): UASTC LDR 4×4 with Zstandard, linear, mipmaps
  *   filtered in linear space, channels kept apart (ETC1S would mix them).
  *
- * Phase 25.21: packing — a KTX2 texture (a texture array with several
+ * Packing — a KTX2 texture (a texture array with several
  * layers) made from texture assets' PNG/JPEG images channel by channel: each
  * layer's R, G, B and A come from a channel of a source image or a constant.
  * All sources are the same size; the encoder takes at most 12 Mpix across the
@@ -54,9 +54,9 @@ export type Ktx2EncodeResult =
   | { ok: true; ktx2: Uint8Array; source: { format: 'png' | 'jpeg'; width: number; height: number } }
   | { ok: false; code: 'texture_encode_unsupported' | 'texture_encode_failed'; message: string };
 
-/** Phase 25.21: one channel of a packed layer: a channel of source image `source`, or a constant 0–255. */
+/** One channel of a packed layer: a channel of source image `source`, or a constant 0–255. */
 export type PackSource = { source: number; channel: 0 | 1 | 2 | 3 } | { value: number };
-/** Phase 25.21: a packed layer's R, G, B and A sources. */
+/** A packed layer's R, G, B and A sources. */
 export type PackLayer = readonly [PackSource, PackSource, PackSource, PackSource];
 
 export type Ktx2PackResult =
@@ -65,7 +65,7 @@ export type Ktx2PackResult =
 
 export interface TextureEncoder {
   encode(bytes: Uint8Array, mode: Ktx2Mode): Promise<Ktx2EncodeResult>;
-  /** Phase 25.21: pack the layers' channels from the source images (PNG/JPEG bytes) and encode one KTX2 (an array with several layers). */
+  /** Pack the layers' channels from the source images (PNG/JPEG bytes) and encode one KTX2 (an array with several layers). */
   pack(sources: readonly Uint8Array[], layers: readonly PackLayer[], mode: Ktx2Mode): Promise<Ktx2PackResult>;
   dispose?(): void;
 }
@@ -150,7 +150,7 @@ const BASIS_TEX_2D_ARRAY = 1;
 const SOURCE_RAW = 0;
 
 /**
- * Phase 25.21: pack and encode in this thread. Every source is decoded
+ * Pack and encode in this thread. Every source is decoded
  * (PNG/JPEG), all must share one size; each layer's four channels are read
  * from them (or set to a constant), and the layers are encoded together as a
  * 2D array (one image: a plain 2D texture) with the mode's settings — the

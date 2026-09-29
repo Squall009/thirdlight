@@ -1,5 +1,5 @@
 /**
- * Hierarchy panel logic (phase 12), pure: the visible rows of the tree
+ * Hierarchy panel logic, pure: the visible rows of the tree
  * (collapse + filter), multi-selection, where a drag would drop, and the
  * effective (inherited) flags. The panel and the viewport render from these;
  * every edit they lead to is a command (`moveEntities`, `updateEntity`).
@@ -146,7 +146,7 @@ export function dropTarget(
   if (targetId === null) return { parentId: null, beforeId: null, zone: 'after' };
   const target = byId.get(targetId);
   if (target === undefined) return null;
-  // Phase 12 (c): one command edits one scene — no drops across scenes.
+  // One command edits one scene — no drops across scenes.
   if (!sameScene(byId, dragged, target.sceneId)) return null;
   // Not onto a dragged entity or anything inside one.
   const draggedSet = new Set(dragged);
@@ -168,13 +168,13 @@ export function dropTarget(
   return { parentId, beforeId: next?.id ?? null, zone: 'after' };
 }
 
-/** Phase 12 (c): whether every dragged entity is in `sceneId` (always true without scenes). */
+/** Whether every dragged entity is in `sceneId` (always true without scenes). */
 function sameScene(byId: ReadonlyMap<string, ProjectedEntity>, dragged: readonly string[], sceneId: string | undefined): boolean {
   return dragged.every((id) => byId.get(id)?.sceneId === sceneId);
 }
 
 /**
- * Phase 12 (c): whether dropping `dragged` on a scene header (the scene's
+ * Whether dropping `dragged` on a scene header (the scene's
  * root, at the end) is allowed — only within the scene they already live in.
  */
 export function sceneDropAllowed(entities: readonly ProjectedEntity[], dragged: readonly string[], sceneId: string): boolean {

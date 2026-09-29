@@ -1,5 +1,5 @@
 /**
- * Phase 20.2: the WebGPU executor of effect graphs — the same semantics as
+ * The WebGPU executor of effect graphs — the same semantics as
  * the CPU reference (`@thirdlight/effects`), simulated in TSL compute passes.
  *
  * Per system: storage buffers of `capacity` particles (vec4s: position +

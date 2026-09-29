@@ -1,5 +1,5 @@
 /**
- * Phase 19.1: the shape of a visual-script API node (data).
+ * The shape of a visual-script API node (data).
  *
  * Every `ctx` surface a behavior script reaches is offered as a node. The
  * table (`BEHAVIOR_API_NODES`, behavior-api.generated.ts) is GENERATED from

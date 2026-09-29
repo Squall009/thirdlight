@@ -1,5 +1,5 @@
 /**
- * Phase 23.9a: the project UI is simulation state across the worker
+ * The project UI is simulation state across the worker
  * boundary. A neutral scene with a script that publishes view-model values,
  * shows a HUD and a menu, and reacts to UI events; a recorded input carries
  * UI events (a show from a button, clicks, a focus change, a hide). Run in

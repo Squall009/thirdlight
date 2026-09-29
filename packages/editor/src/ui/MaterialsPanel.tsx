@@ -1,5 +1,5 @@
 /**
- * Phase 9.4: the Materials tab — project materials as tiles plus a material
+ * The Materials tab — project materials as tiles plus a material
  * inspector built from the shader-type table (project-model
  * `MATERIAL_PARAMS` / `MATERIAL_TEXTURE_SLOTS`). A parameter that is not set
  * keeps the file's value (on a model) or the shader default; "reset" removes
@@ -10,12 +10,12 @@
  * panel): each of a model's materials, or "*" for all of them, can use a
  * project material.
  *
- * Phase 18.0: graph materials — "+ new graph material" (a PBR output graph),
+ * Graph materials — "+ new graph material" (a PBR output graph),
  * "Convert to graph" (a standard or unlit material as an equivalent graph),
  * and a graph material opens as a "Material: <name>" centre tab (double-click
  * its tile or "Open graph").
  *
- * Phase 25.19: material instances — "+ new instance" makes an instance of
+ * Material instances — "+ new instance" makes an instance of
  * the selected material (or instance): its parent's look with some values
  * changed (a shader material's parameters and texture slots, a graph
  * material's parameters). An instance is a material like any other: object,
@@ -48,7 +48,7 @@ interface Props {
   onSave: (material: MaterialDef) => void;
   onDelete: (materialId: string) => void;
   error: string | null;
-  /** Phase 18.0: open a graph material's tab. */
+  /** Open a graph material's tab. */
   onOpen: (materialId: string) => void;
 }
 
@@ -67,12 +67,12 @@ function newMaterialId(existing: readonly MaterialDef[], name: string): string {
   return id;
 }
 
-/** Phase 25.19: every material as it draws (instances resolved against their parents). */
+/** Every material as it draws (instances resolved against their parents). */
 function resolvedMaterials(list: readonly MaterialDef[]): MaterialDef[] {
   return resolveMaterialInstancesLike(list as unknown as MaterialDefLike[]) as unknown as MaterialDef[];
 }
 
-/** Phase 25.19: `id` and every instance below it (a parent may not be one of them: that would loop). */
+/** `id` and every instance below it (a parent may not be one of them: that would loop). */
 function selfAndDescendants(list: readonly MaterialDef[], id: string): Set<string> {
   const out = new Set([id]);
   for (let grew = true; grew; ) {
@@ -87,7 +87,7 @@ function swatch(m: MaterialDef): string {
   return typeof c === 'string' ? c : m.shader === 'water' ? '#1d5f8a' : '#c8c8c8';
 }
 
-/** Phase 18.2: what "+ new graph material" starts from — an empty PBR output or a shader type's built-in template. */
+/** What "+ new graph material" starts from — an empty PBR output or a shader type's built-in template. */
 const GRAPH_TEMPLATES: readonly { value: string; label: string }[] = [
   { value: '', label: 'empty (PBR output)' },
   { value: 'standard', label: 'template: standard' },
@@ -95,7 +95,7 @@ const GRAPH_TEMPLATES: readonly { value: string; label: string }[] = [
   { value: 'kit', label: 'template: world-aligned kit' },
   { value: 'unlit', label: 'template: unlit' },
   { value: 'water', label: 'template: water' },
-  // Phase 25.21: four PBR layers from texture arrays, mixed by vertex colours / painted terrain through a Height blend.
+  // Four PBR layers from texture arrays, mixed by vertex colours / painted terrain through a Height blend.
   { value: 'layers', label: 'template: height-blended layers (painted terrain)' },
 ];
 
@@ -308,7 +308,7 @@ function MaterialInspector(props: { material: MaterialDef; textures: readonly Te
 }
 
 /**
- * Phase 25.19: a material instance — its parent, and the values it changes:
+ * A material instance — its parent, and the values it changes:
  * a graph material's parameters, or a shader material's parameters and
  * texture slots. Unset = the parent's value (shown); "↺" goes back to it.
  */
@@ -530,7 +530,7 @@ export function MaterialMappingEditor(props: {
   materials: readonly MaterialDef[];
   onChange: (mapping: Record<string, string> | null) => void;
   /**
-   * Phase 18.0: the object's overrides of its graph materials' public
+   * The object's overrides of its graph materials' public
    * parameters (the `materialParams` component) — shown for the graph
    * materials the mapping (or `inherited`, the model asset's default
    * mapping) uses; absent = no override section (e.g. an asset's defaults).
@@ -567,12 +567,12 @@ export function MaterialMappingEditor(props: {
   );
 }
 
-/** Phase 18.0: per-object values for the public parameters of the graph materials an object uses. */
+/** Per-object values for the public parameters of the graph materials an object uses. */
 function ParameterOverrides(p: { mapping: Readonly<Record<string, string>>; materials: readonly MaterialDef[]; value: Readonly<Record<string, Readonly<Record<string, MaterialParameterValue>>>> | null; inherited: Readonly<Record<string, string>> | null; textures: readonly TextureOption[]; onChange: (next: Record<string, Record<string, MaterialParameterValue>> | null) => void }): JSX.Element | null {
   const used = [...new Set([...Object.values(p.inherited ?? {}), ...Object.values(p.mapping)])];
-  // Phase 23.12: a data parameter's cells are written by scripts at run time, never overridden per object here.
+  // A data parameter's cells are written by scripts at run time, never overridden per object here.
   const overridable = (x: { visibility?: string; type: string }): boolean => x.visibility !== 'private' && x.type !== 'data';
-  // Phase 25.19: an instance's parameters are its root graph material's (with the instance's values).
+  // An instance's parameters are its root graph material's (with the instance's values).
   const resolved = resolvedMaterials(p.materials);
   const graphs = used.map((id) => resolved.find((m) => m.materialId === id)).filter((m): m is MaterialDef => m !== undefined && m.graph !== undefined && (m.parameters ?? []).some(overridable));
   if (graphs.length === 0) return null;

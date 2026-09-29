@@ -1,5 +1,5 @@
 /**
- * ID syntax constants + validators (sessions.md §3; commands.md §3).
+ * ID syntax constants + validators.
  */
 import { describe, expect, it } from 'vitest';
 import {

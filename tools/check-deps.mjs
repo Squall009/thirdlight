@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * Thirdlight dependency pin check (dependencies.md §5 check 6).
+ * Thirdlight dependency pin check.
  *
- * One root lockfile (npm, decision 0001 §3). Package `dependencies` use exact
- * pinned versions (no ranges) from the dependencies.md §7 table. This check:
+ * One root lockfile (npm). Package `dependencies` use exact
+ * pinned versions (no ranges) from the `PINS` table. This check:
  *
  *   1. runs `npm ls --depth=0 --json` and FAILS on npm execution or tree
  *      errors before anything else — a non-zero npm exit (e.g. ELSPROBLEMS:
@@ -11,18 +11,17 @@
  *      `problems`/`error` record, and any missing/invalid tree entry
  *      (workspace packages INCLUDED — they are filtered only from the pin
  *      comparison, never from error reporting);
- *   2. compares every installed non-workspace package against the §7 pins —
- *      a version drift fails, and an installed package that is not a §7 pin
- *      at all fails (any addition is an owner-approved decision change —
- *      dependencies.md §9);
+ *   2. compares every installed non-workspace package against the pins —
+ *      a version drift fails, and an installed package that is not a pin
+ *      at all fails (any addition is an owner-approved decision change);
  *   3. checks every declared dependency spec (root + workspace packages,
  *      all dep sections) is an exact version — no `^`, `~`, ranges, `*`,
  *      `file:`, `workspace:` — and, for pinned names, equals the pin;
  *      workspace-internal deps must equal the target's current version.
  *
  * Pins not yet installed are NOT a failure: their consumer package is not
- * implemented yet (dependencies.md §2: the lockfile reflects only implemented
- * packages) — they are reported as pending.
+ * implemented yet (the lockfile reflects only implemented packages) — they
+ * are reported as pending.
  *
  * Plain Node, no new dependency. Any violation ⇒ non-zero exit.
  */
@@ -33,7 +32,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import process from 'node:process';
 
-/** The approved M1 stack pins (dependencies.md §7; decision 0001 §3, incl. the 2026-09-17 React ruling). */
+/** The approved stack pins. */
 export const PINS = {
   typescript: '5.9.3',
   esbuild: '0.28.2',
@@ -48,13 +47,13 @@ export const PINS = {
   '@types/react': '19.3.0',
   '@types/react-dom': '19.3.0',
   '@dimforge/rapier2d-compat': '0.20.0',
-  // Phase 23.0: the 3D backend, the same version as the 2D pin (decision 0005).
+  // The 3D backend, the same version as the 2D pin.
   '@dimforge/rapier3d-compat': '0.20.0',
   '@playwright/test': '1.62.1',
   'playwright-core': '1.62.1',
   '@types/node': '22.20.4',
   '@types/ws': '8.18.1',
-  // Phase 16.3: the script editor (CodeMirror 6, editor bundle only; plan-phase-16 §6).
+  // The script editor (CodeMirror 6, editor bundle only).
   '@codemirror/state': '6.7.6',
   '@codemirror/view': '6.43.13',
   '@codemirror/language': '6.12.4',
@@ -67,7 +66,7 @@ export const PINS = {
   '@lezer/highlight': '1.2.4',
   '@lezer/lr': '1.4.10',
   '@lezer/javascript': '1.5.5',
-  // Phase 25.19: KTX2 encoding on import (decision 0006): the Basis Universal
+  // KTX2 encoding on import: the Basis Universal
   // encoder (its bundled WASM build) and a JPEG decoder for JPEG sources.
   'ktx2-encoder': '0.6.0',
   'jpeg-js': '0.4.4',
@@ -78,7 +77,7 @@ export const PINS = {
   'eslint-plugin-react-hooks': '7.1.1',
 };
 
-/** §7 scope/consumer notes for the pending-pin report. */
+/** Scope/consumer notes for the pending-pin report. */
 const PIN_CONSUMERS = {
   ws: 'backend (packet 09)',
   three: 'three-adapter (packet 08)',
@@ -173,7 +172,7 @@ export function collectInstalled(nodeLsJson) {
 /**
  * Report npm tree health: top-level `problems`/`error` records and
  * missing/invalid entries — workspace packages INCLUDED (they are filtered
- * only from the pin comparison, never from error reporting; 04-review R6).
+ * only from the pin comparison, never from error reporting).
  */
 export function collectTreeIssues(tree) {
   const issues = [];
@@ -272,7 +271,7 @@ export function checkInstalledTree(ls, pins = PINS) {
   return { violations, installed, pending: cmp.pending };
 }
 
-/** Compare installed packages against the §7 pins. */
+/** Compare installed packages against the pins. */
 export function compareInstalled(installed, pins = PINS) {
   const violations = [];
   const seen = new Map(); // name -> [versions]
@@ -415,8 +414,7 @@ function main() {
 // CLI guard — realpath-based, so it also works when the tool is invoked
 // through a symlinked or relative path. (The naive
 // `pathToFileURL(argv[1]) === import.meta.url` comparison silently skips
-// main() for symlinked tool paths — a silent no-op check, the exact
-// failure mode dependencies.md §9 forbids.)
+// main() for symlinked tool paths — a silent no-op check.)
 function isMain() {
   const invoked = process.argv[1];
   if (!invoked) return false;

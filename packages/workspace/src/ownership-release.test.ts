@@ -1,88 +1,84 @@
 /**
- * Packet 07 repair — group E2 (R4 + R5) regression tests (2026-09-18 owner
- * review, docs/reviews/2026-09-18-commits.md).
+ * Ownership release and `new-undurable` operator writes.
  *
- * R4 — P1: a failed or partially-applied ownership release must not leave
- * the releasing session a live writer. The R4 split-brain repro: a
- * dir-fsync fault only for `.thirdlight` during release lets the released
- * ownership record reach disk while the release returns
- * `write_failed { onDiskState: "new-undurable" }`; a second identity
- * claims the released record; the OLD backend must not keep writing
- * (pre-fix it advanced to revision 1 on its cached session while the new
- * owner served revision 0).
+ * A failed or partially-applied ownership release must not leave the
+ * releasing session a live writer. The split-brain case: a dir-fsync fault
+ * only for `.thirdlight` during release lets the released ownership record
+ * reach disk while the release returns
+ * `write_failed { onDiskState: "new-undurable" }`; a second identity claims
+ * the released record; the OLD backend must not keep writing (on its cached
+ * session it would advance to revision 1 while the new owner serves
+ * revision 0).
  *
- * R5 — P1: operator envelope writes (accept/discard/release) ignored
- * `new-undurable` and returned failure WITHOUT publishing the intended
- * state, leaving memory inconsistent with disk (workspace.md §5.1: on
- * `new-undurable` "in-memory state is advanced (with its record) so the
- * running system is self-consistent, durability is flagged unproven;
- * return write_failed { onDiskState: 'new-undurable' }").
+ * Operator envelope writes (accept/discard/release) that end
+ * `new-undurable` publish the intended state: on `new-undurable` "in-memory
+ * state is advanced (with its record) so the running system is
+ * self-consistent, durability is flagged unproven; return write_failed
+ * { onDiskState: 'new-undurable' }".
  *
- * Authority: the amended docs/contracts/workspace.md (dabfcff) — §5.1
- * (W failure classification), §5.2 (lastWrittenHash on new-undurable),
- * §9 (release procedure: record write → own-claim-file unlink → discard
+ * Contract: W failure classification; lastWrittenHash on new-undurable; the
+ * release procedure (record write → own-claim-file unlink → discard
  * in-memory state; "Once the released record is durable, the old session
  * must not issue further writes (its in-memory state is discarded in the
  * same procedure; any later command is a fresh open — step 3 — not a
  * continuation of the released session)"; "A release that fails before
  * the record write leaves the project owned with the old session still
  * the writer — no partial release"; "While released, ... queries fail
- * with project_unavailable { reason: 'workspace_closed' }"), §7.3
- * (resolution writes), §11 (error codes: `ownership_conflict` carries the
- * holder or null; `workspace_closed` = released for maintenance).
+ * with project_unavailable { reason: 'workspace_closed' }"); resolution
+ * writes; error codes (`ownership_conflict` carries the holder or null;
+ * `workspace_closed` = released for maintenance).
  *
  * Fault injection goes through the public `WriteOps` seam only (real fs,
  * mkdtemp data roots, cleanup per test + afterAll backstop). The fault
  * object is mutated synchronously around the operation under test
  * (single-threaded: deterministic).
  *
- * Test ↔ finding map (the prompt's minimum set):
- *   T1  R4-1  failed ownership-record write during release (the W's
- *             `external` outcome: a foreign ownership record lands during
- *             the record W) ⇒ the release reports ownership_conflict (the
- *             foreign holder), the releasing session's NEXT MUTATION IS
- *             REFUSED (non-writer), no scene bytes written.
- *   T2  R4-2  the R4 split-brain repro: record write durably reaches disk
- *             (dir-fsync fault ⇒ new-undurable) ⇒ a second backend claims
- *             (allowed — the record says released); the OLD backend's
- *             next mutation is refused (ownership_conflict, the foreign
- *             live holder) and it has not written scene bytes since the
- *             release attempt.
- *   T3  R4-3  foreign observation: after a FULLY FAILED release (record
- *             write 'previous'), the releasing backend re-reads the record
- *             before its next mutation; if it no longer holds it (record
- *             foreign-owned, claim file gone) the mutation is refused with
- *             the conflict error; a foreign RELEASed record ⇒ the next
- *             command is a fresh open (§9 step 3) — never the cached state.
- *   T4  R5    new-undurable on the operator envelope write: the intended
- *             state becomes the running state (reconciled) while the
- *             operation still reports `write_failed { new-undurable }`
- *             (the §5.1 line — "reconciled-and-reported", not success).
- *             T4(a) accept (query serves the accepted revision; a
- *             subsequent mutation applies at the accepted revision);
- *             T4(b) release (the retry records are cleared from memory
- *             too — a lost-ack retry re-executes ⇒ revision_conflict,
- *             never `duplicated: true` from the stale map; a subsequent
- *             mutation is not treated as a foreign edit of the backend's
- *             own bytes); T4(c) discard (the pending change is resolved —
- *             unpaused — and the LKG is the running state).
- *   T5  R4-4  the release unlinks its OWN claim file, verifying the
- *             holder bytes first (workspace.md §9 step 1): a foreign or
- *             empty claim-<e> is NOT unlinked (recorded, not fatal); the
- *             own claim file is gone after a successful release.
- *   T6  R4-5  no partial release (workspace.md §9): a release that fails
- *             before the record write ('previous') leaves the project
- *             owned and the old session STILL THE WRITER — the next
- *             mutation (after the from-disk re-verification) applies.
+ * Tests:
+ *   T1  failed ownership-record write during release (the W's
+ *       `external` outcome: a foreign ownership record lands during
+ *       the record W) ⇒ the release reports ownership_conflict (the
+ *       foreign holder), the releasing session's NEXT MUTATION IS
+ *       REFUSED (non-writer), no scene bytes written.
+ *   T2  the split-brain case: record write durably reaches disk
+ *       (dir-fsync fault ⇒ new-undurable) ⇒ a second backend claims
+ *       (allowed — the record says released); the OLD backend's
+ *       next mutation is refused (ownership_conflict, the foreign
+ *       live holder) and it has not written scene bytes since the
+ *       release attempt.
+ *   T3  foreign observation: after a FULLY FAILED release (record
+ *       write 'previous'), the releasing backend re-reads the record
+ *       before its next mutation; if it no longer holds it (record
+ *       foreign-owned, claim file gone) the mutation is refused with
+ *       the conflict error; a foreign RELEASed record ⇒ the next
+ *       command is a fresh open — never the cached state.
+ *   T4  new-undurable on the operator envelope write: the intended
+ *       state becomes the running state (reconciled) while the
+ *       operation still reports `write_failed { new-undurable }`
+ *       ("reconciled-and-reported", not success).
+ *       T4(a) accept (query serves the accepted revision; a
+ *       subsequent mutation applies at the accepted revision);
+ *       T4(b) release (the retry records are cleared from memory
+ *       too — a lost-ack retry re-executes ⇒ revision_conflict,
+ *       never `duplicated: true` from the stale map; a subsequent
+ *       mutation is not treated as a foreign edit of the backend's
+ *       own bytes); T4(c) discard (the pending change is resolved —
+ *       unpaused — and the LKG is the running state).
+ *   T5  the release unlinks its OWN claim file, verifying the
+ *       holder bytes first: a foreign or empty claim-<e> is NOT
+ *       unlinked (recorded, not fatal); the own claim file is gone
+ *       after a successful release.
+ *   T6  no partial release: a release that fails before the record
+ *       write ('previous') leaves the project owned and the old
+ *       session STILL THE WRITER — the next mutation (after the
+ *       from-disk re-verification) applies.
  */
 
 /*
- * Ported to storage v4 (phase 9.3 step B): the project's scene file is
- * `scenes/scene-main.json` (a createEntity's retry record is there; the
- * release clears it). T1, T4(b) and T4(c) pin the legacy outcomes for v4
- * too (the 9.3 step B follow-up: ownership_conflict for a foreign record,
- * no release after a new-undurable records-clearing write, write_failed
- * for a new-undurable discard).
+ * Storage v4: the project's scene file is `scenes/scene-main.json` (a
+ * createEntity's retry record is there; the release clears it). T1, T4(b)
+ * and T4(c) pin for v4: ownership_conflict for a foreign record, no release
+ * after a new-undurable records-clearing write, write_failed for a
+ * new-undurable discard.
  */
 
 import {
@@ -105,7 +101,7 @@ import { defaultOps } from './write';
 
 const PROJECT = 'demo-0001';
 
-/** A syntactically valid requestId (commands.md §6: `req-` + 32 hex), unique per tag. */
+/** A syntactically valid requestId (`req-` + 32 hex), unique per tag. */
 function reqId(tag: string): string {
   return `req-${sha256Hex(new TextEncoder().encode(tag)).slice(0, 32)}`;
 }
@@ -139,11 +135,9 @@ function utcNowSecond(): string {
 
 /**
  * A UTC second strictly AFTER this process's start (the liveness pid-reuse
- * rule, workspace.md §6.2: `start > openedAt` ⇒ dead). A floor-second
- * `openedAt` computed inside the same second as the worker's start would
- * trip that rule (the L1 clock sensitivity — group E3 owns
- * `evaluateLiveness`; this test-side guard avoids the window using the
- * process clock): waits out the start second when needed (≤ ~1 s, a no-op
+ * rule: `start > openedAt` ⇒ dead). A floor-second `openedAt` computed
+ * inside the same second as the worker's start could trip that rule; this
+ * test-side guard avoids the window using the process clock: waits out the start second when needed (≤ ~1 s, a no-op
  * once the worker is older than one second).
  */
 async function openedAtAfterProcessStart(): Promise<string> {
@@ -276,7 +270,7 @@ type Svc = ReturnType<typeof openWorkspaceService>;
 /**
  * The faults are keyed by path and armed/disarmed synchronously around the
  * operation under test (single-threaded ⇒ deterministic):
- * - `dirFsyncThrow(dir)`: `fsyncDir` throws EIO (the R4/R5 directory-flush
+ * - `dirFsyncThrow(dir)`: `fsyncDir` throws EIO (the directory-flush
  *   fault: the rename has already landed, the flush fails);
  * - `renameThrow(to)`: `renameFile` throws EIO (the write never lands ⇒ the
  *   W classifies the on-disk state as `previous`);
@@ -317,7 +311,7 @@ function faultedOps(faults: Faults): WriteOps {
   };
 }
 
-/** A foreign OWNED record (B's identity, the live test pid) — the §6.1 shape.
+/** A foreign OWNED record (B's identity, the live test pid) — the record shape.
  * `openedAt` comes from `openedAtAfterProcessStart` so the holder is never
  * misclassified dead by the pid-reuse rule. */
 function foreignOwnedRecordB(openedAt: string): Uint8Array {
@@ -331,9 +325,9 @@ function foreignOwnedRecordB(openedAt: string): Uint8Array {
   });
 }
 
-/** The foreign but VALID envelope at revision 10 (the R5 accept repro
+/** The foreign but VALID envelope at revision 10 (the accept case's
  * shape: the LKG's scene with the revision rolled forward + one edited
- * entity name; passes the full §4.3 pipeline ⇒ externalValid true). */
+ * entity name; passes the full load pipeline ⇒ externalValid true). */
 function externalEnvelopeRev10(root: string): Uint8Array {
   const lkg = readFileSync(scenePath(root));
   const doc = JSON.parse(new TextDecoder().decode(lkg)) as {
@@ -351,7 +345,7 @@ afterAll(() => {
 });
 
 // =============================================================================
-// T1 — R4: failed ownership-record write during release (the W's `external`
+// T1 — failed ownership-record write during release (the W's `external`
 // outcome: foreign ownership observed mid-release) ⇒ the releasing session
 // is a non-writer; its next mutation is refused; no scene bytes are written.
 // =============================================================================
@@ -366,7 +360,7 @@ describe('T1: R4 — release record W observes a foreign ownership record (exter
     // The foreign writer lands during the RELEASE record W (the
     // rename→verify window): the record W's verification read sees B's
     // owned record ⇒ the W's `external` outcome. The record's openedAt is
-    // strictly after the worker's start (the L1 clock window guard, above)
+    // strictly after the worker's start (the clock-window guard, above)
     // so the holder is evaluated live/unknown — never dead.
     const foreignBytes = foreignOwnedRecordB(await openedAtAfterProcessStart());
     faults.foreignReplace = (dir: string) => (dir === thirdlightDir(root) ? foreignBytes : null);
@@ -374,7 +368,7 @@ describe('T1: R4 — release record W observes a foreign ownership record (exter
     faults.foreignReplace = undefined;
 
     // The release reports the foreign-ownership refusal carrying the
-    // holder (§11: ownership_conflict carries the holder) — NOT success.
+    // holder (ownership_conflict carries the holder) — NOT success.
     expect(rel.ok).toBe(false);
     if (rel.ok) throw new Error('unreachable');
     expect(rel.error?.code).toBe('ownership_conflict');
@@ -385,7 +379,7 @@ describe('T1: R4 — release record W observes a foreign ownership record (exter
     expect(rec?.backendId).toBe(B_ID);
     expect(rec?.state).toBe('owned');
 
-    // R4: the releasing session is a NON-WRITER: its next mutation is
+    // The releasing session is a NON-WRITER: its next mutation is
     // refused (the fresh open re-evaluates from disk ⇒ the foreign live
     // owner ⇒ ownership_conflict, carrying the holder) and it has written
     // NO scene bytes — the scene file is still revision 0 with no retry
@@ -407,7 +401,7 @@ describe('T1: R4 — release record W observes a foreign ownership record (exter
 });
 
 // =============================================================================
-// T2 — R4: the split-brain repro. The release record write durably reaches
+// T2 — the split-brain case. The release record write durably reaches
 // disk (dir-fsync fault ⇒ new-undurable); a second backend claims the
 // released record; the OLD backend's next mutation is refused and it has
 // not written scene bytes since the release attempt.
@@ -420,7 +414,7 @@ describe('T2: R4 — split-brain repro (record write new-undurable; second claim
     const svcA = openWorkspaceService({ root, backendId: A_ID, ops: faultedOps(faults) });
     expect(svcA.createProject(PROJECT, 'Demo')).toEqual({ ok: true, created: true, revision: 0 });
 
-    // The R4 repro fault: dir-fsync only for `.thirdlight` during the
+    // The fault: dir-fsync only for `.thirdlight` during the
     // release. The envelope rewrite (scenes dir) is durable; the record
     // W's rename lands (the released record reaches disk) and the
     // directory flush fails ⇒ new-undurable.
@@ -448,8 +442,7 @@ describe('T2: R4 — split-brain repro (record write new-undurable; second claim
     // says released): the claim at epoch 1 succeeds and loads revision 0.
     // B's claim record is stamped with a floor-second `openedAt`: wait out
     // the worker's start second first so the record is never misclassified
-    // dead by the pid-reuse rule (the L1 window — group E3 owns
-    // evaluateLiveness; the test-side guard above).
+    // dead by the pid-reuse rule (the test-side guard above).
     await openedAtAfterProcessStart();
     const svcB = openWorkspaceService({ root, backendId: B_ID });
     const qb = svcB.query(QUERY) as QOut;
@@ -460,10 +453,10 @@ describe('T2: R4 — split-brain repro (record write new-undurable; second claim
     expect(recB?.backendId).toBe(B_ID);
     expect(recB?.lockEpoch).toBe(1);
 
-    // R4: the OLD backend's next mutation is REFUSED (its session is a
+    // The OLD backend's next mutation is REFUSED (its session is a
     // non-writer; the fresh open sees B's live record ⇒
-    // ownership_conflict) — the pre-fix split brain had A advance to
-    // revision 1 on its cached session while B served revision 0.
+    // ownership_conflict) — never A advancing to revision 1 on its cached
+    // session while B serves revision 0.
     const am = svcA.runCommand(mutation(reqId('e2-t2-am'), 0)) as MutOut;
     expect(am.ok).toBe(false);
     if (am.ok) throw new Error('unreachable');
@@ -487,11 +480,11 @@ describe('T2: R4 — split-brain repro (record write new-undurable; second claim
 });
 
 // =============================================================================
-// T3 — R4: foreign observation. After a FULLY FAILED release (record write
+// T3 — foreign observation. After a FULLY FAILED release (record write
 // 'previous'), the releasing backend re-reads the record before its next
 // mutation; if it no longer holds it (or the claim file is gone/foreign)
 // ⇒ the mutation is refused with the conflict error. A foreign RELEASed
-// record ⇒ the next command is a fresh open (workspace.md §9 step 3) —
+// record ⇒ the next command is a fresh open —
 // never a continuation of the cached state.
 // =============================================================================
 
@@ -524,12 +517,12 @@ describe('T3: R4 — after a fully failed release the next mutation re-reads own
     expect(readRec(root)?.backendId).toBe(A_ID);
 
     // A foreign actor rewrites the ownership record (changed underneath;
-    // openedAt strictly after the worker start — the L1 window guard).
+    // openedAt strictly after the worker start — the clock-window guard).
     writeFileSync(recPath(root), foreignOwnedRecordB(await openedAtAfterProcessStart()));
 
-    // R4: the next mutation re-reads the record from disk, sees the
-    // foreign live owner, and is REFUSED with the conflict error — the
-    // pre-fix session acted on its cached ownership and applied.
+    // The next mutation re-reads the record from disk, sees the
+    // foreign live owner, and is REFUSED with the conflict error — never
+    // applied on the cached ownership.
     const m = svcA.runCommand(mutation(reqId('e2-t3a-m'), 0)) as MutOut;
     expect(m.ok).toBe(false);
     if (m.ok) throw new Error('unreachable');
@@ -549,11 +542,11 @@ describe('T3: R4 — after a fully failed release the next mutation re-reads own
     failedReleasePrevious(svcA, root, faults);
     const envBefore = readEnvelope(root);
 
-    // A foreign actor removes the claim file (the token, §6.5).
+    // A foreign actor removes the claim file (the token).
     unlinkSync(claimPath(root, 0));
     expect(readRec(root)?.backendId).toBe(A_ID); // the record is still ours
 
-    // R4: the from-disk re-verification sees the missing claim file ⇒ the
+    // The from-disk re-verification sees the missing claim file ⇒ the
     // session is a non-writer; the fresh open hits the self-reclaim row
     // (record ours + claim file missing ⇒ ownership_conflict, holder
     // null, refuse to serve).
@@ -588,7 +581,7 @@ describe('T3: R4 — after a fully failed release the next mutation re-reads own
     );
     expect(readRec(root)?.state).toBe('released');
 
-    // R4: the next mutation is a FRESH OPEN (the released record is
+    // The next mutation is a FRESH OPEN (the released record is
     // re-claimed at epoch 1; the disk state — revision 1, retry records
     // cleared by the release's step (a) — is loaded from scratch; the
     // cached retry record of m1 is NOT replayed).
@@ -609,8 +602,8 @@ describe('T3: R4 — after a fully failed release the next mutation re-reads own
 });
 
 // =============================================================================
-// T4 — R5: new-undurable on the operator envelope write. The chosen
-// behavior (workspace.md §5.1, the `new-undurable` bullet): the intended
+// T4 — new-undurable on the operator envelope write. The chosen
+// behavior (the `new-undurable` bullet): the intended
 // state becomes the running state (memory reconciled with disk) while the
 // operation still returns `write_failed { onDiskState: "new-undurable" }`
 // — "reconciled-and-reported", never a success ack for an unproven write.
@@ -645,10 +638,10 @@ describe('T4: R5 — operator envelope writes honor new-undurable (memory reconc
     };
     faults.dirFsyncThrow = undefined;
 
-    // R5: the operation reports FAILURE for unproven durability — but the
-    // intended state is now the running state (§5.1: in-memory state is
-    // advanced so the running system is self-consistent). Pre-fix the
-    // query still served the LKG revision and the accepted bytes were
+    // The operation reports FAILURE for unproven durability — but the
+    // intended state is now the running state (in-memory state is
+    // advanced so the running system is self-consistent): the query does
+    // not serve the LKG revision and the accepted bytes are not
     // misdetected as a NEW foreign edit.
     expect(acc.ok).toBe(false);
     if (acc.ok) throw new Error('unreachable');
@@ -661,24 +654,23 @@ describe('T4: R5 — operator envelope writes honor new-undurable (memory reconc
     expect(envDisk.records).toHaveLength(0);
     expect(envDisk.entityNames[0]).toBe('Main Camera (foreign edit)');
 
-    // Memory: the query serves the accepted revision (pre-fix: 0 — the
-    // R5 repro "disk revision 10, queries still serve revision <LKG>").
+    // Memory: the query serves the accepted revision (not the LKG's 0).
     const q = svcA.query(QUERY) as QOut;
     expect(q.ok).toBe(true);
     expect(q.revision).toBe(10);
     expect(q.workspace?.writePaused).toBe(false); // the resolution is applied (disk == accepted)
 
     // Re-issuing the resolution: nothing pending (the foreign bytes are
-    // gone from disk — retained only in the recovery snapshot). Pre-fix
-    // the pending state persisted and the re-issue re-fired the protocol
-    // on the backend's own accepted bytes.
+    // gone from disk — retained only in the recovery snapshot); the
+    // re-issue does not re-fire the protocol on the backend's own accepted
+    // bytes.
     const acc2 = svcA.acceptExternalState(PROJECT) as { ok: boolean; error?: { code: string } };
     expect(acc2.ok).toBe(false);
     expect(acc2.error?.code).toBe('no_pending_change');
 
-    // A subsequent mutation applies at the accepted revision (pre-fix:
-    // the stale lastWrittenHash flagged the backend's own accepted bytes
-    // as a foreign edit ⇒ external_change_unresolved).
+    // A subsequent mutation applies at the accepted revision (a stale
+    // lastWrittenHash would flag the backend's own accepted bytes as a
+    // foreign edit ⇒ external_change_unresolved).
     const m2 = svcA.runCommand(mutation(reqId('e2-t4a-m2'), 10)) as MutOut;
     expect(m2.ok).toBe(true);
     expect(m2.revision).toBe(11);
@@ -702,8 +694,8 @@ describe('T4: R5 — operator envelope writes honor new-undurable (memory reconc
     // new-undurable outcome. The cleared records are not proven durable (a
     // crash could bring them back and let a lost-ack retry replay across
     // the release), so the release does NOT reach the record write: the
-    // project stays owned and the claim file stays (no partial release,
-    // workspace.md §9) — but the in-memory state advances (§5.1).
+    // project stays owned and the claim file stays (no partial release)
+    // — but the in-memory state advances.
     faults.dirFsyncThrow = (dir: string) => dir === scenesDir(root);
     const rel = svcA.releaseWorkspace(PROJECT) as RelOut;
     faults.dirFsyncThrow = undefined;
@@ -721,11 +713,11 @@ describe('T4: R5 — operator envelope writes honor new-undurable (memory reconc
     expect(envDisk.revision).toBe(1);
     expect(envDisk.records).toHaveLength(0);
 
-    // R5: retrying the original request (the same requestId + content,
+    // Retrying the original request (the same requestId + content,
     // the lost-ack retry) must NOT replay from the stale in-memory map:
     // the record is cleared from memory (== disk), the retry re-executes
     // fresh and fails revision_conflict (its expectedRevision 0 is stale)
-    // — which is safe (workspace.md §9).
+    // — which is safe.
     const retry = svcA.runCommand(mutation(r1, 0)) as MutOut;
     expect(retry.ok).toBe(false);
     if (retry.ok) throw new Error('unreachable');
@@ -743,13 +735,13 @@ describe('T4: R5 — operator envelope writes honor new-undurable (memory reconc
     const rel2 = svcA.releaseWorkspace(PROJECT) as RelOut;
     expect(rel2).toEqual({ ok: true, revision: 2, retryCleared: true });
     expect(readRec(root)?.state).toBe('released');
-    expect(fileExists(claimPath(root, 0))).toBe(false); // §9 step 1
+    expect(fileExists(claimPath(root, 0))).toBe(false); // release step 1
     expect(readEnvelope(root).records).toHaveLength(0);
 
-    // Restart behavior (the R5 acceptance): a fresh service on the same
+    // Restart behavior: a fresh service on the same
     // root loads the on-disk state; the lost-ack retry of the original
     // request still re-executes fresh ⇒ revision_conflict, never a replay
-    // (at-most-once, §5.5 G1.2).
+    // (at-most-once).
     svcA.dispose();
     const svcA2 = openWorkspaceService({ root, backendId: A_ID, ops: faultedOps(faults) });
     const retryRestarted = svcA2.runCommand(mutation(r1, 0)) as MutOut;
@@ -789,7 +781,7 @@ describe('T4: R5 — operator envelope writes honor new-undurable (memory reconc
     };
     faults.dirFsyncThrow = undefined;
 
-    // R5/§5.1: the operation reports FAILURE for unproven durability (as
+    // The operation reports FAILURE for unproven durability (as
     // accept does, T4(a)) while memory is reconciled (below).
     expect(dis.ok).toBe(false);
     expect(dis.error?.code).toBe('write_failed');
@@ -798,11 +790,10 @@ describe('T4: R5 — operator envelope writes honor new-undurable (memory reconc
     // Disk: the LKG bytes exactly (revision 1 with m1's record).
     expect(bytesEqual(readEnvelope(root).bytes, lkgBytes)).toBe(true);
 
-    // Memory (R5): the pending change is RESOLVED (the foreign bytes are
+    // Memory: the pending change is RESOLVED (the foreign bytes are
     // gone from disk — retained only in the recovery snapshot): unpaused,
-    // and the LKG is the running state. Pre-fix the pending state
-    // persisted (the query reported writePaused and the next mutation was
-    // refused external_change_unresolved).
+    // and the LKG is the running state (no writePaused, and the next
+    // mutation is not refused external_change_unresolved).
     const q = svcA.query(QUERY) as QOut;
     expect(q.ok).toBe(true);
     expect(q.revision).toBe(1);
@@ -818,9 +809,9 @@ describe('T4: R5 — operator envelope writes honor new-undurable (memory reconc
 });
 
 // =============================================================================
-// T5 — R4: the release unlinks its OWN claim file, verifying the holder
-// bytes first (workspace.md §9 step 1: "unlinks the owner's own claim file
-// (claim-<e>, §6.5)"): a foreign/empty claim-<e> is NOT unlinked (recorded,
+// T5 — the release unlinks its OWN claim file, verifying the holder
+// bytes first (release step 1: "unlinks the owner's own claim file
+// (claim-<e>)"): a foreign/empty claim-<e> is NOT unlinked (recorded,
 // not fatal); the own claim file is gone after a successful release.
 // =============================================================================
 
@@ -836,14 +827,14 @@ describe('T5: R4 — the release unlinks its own claim file (by-path holder veri
     expect(rel.ok).toBe(true);
     if (!rel.ok) throw new Error('unreachable');
 
-    // §9 step 1: the owner's own claim file is unlinked by the release
-    // (pre-fix the residue released@0 + claim-0 was left for the next
-    // claim's superseded-epoch cleanup).
+    // The owner's own claim file is unlinked by the release (no
+    // released@0 + claim-0 residue left for the next claim's
+    // superseded-epoch cleanup).
     expect(readRec(root)?.state).toBe('released');
     expect(readRec(root)?.lockEpoch).toBe(0);
     expect(fileExists(claimPath(root, 0))).toBe(false);
 
-    // While released, queries fail workspace_closed (§9.1).
+    // While released, queries fail workspace_closed.
     const q = svcA.query(QUERY) as QOut;
     expect(q.ok).toBe(false);
     if (q.ok) throw new Error('unreachable');
@@ -900,7 +891,7 @@ describe('T5: R4 — the release unlinks its own claim file (by-path holder veri
 });
 
 // =============================================================================
-// T6 — R4: no partial release (workspace.md §9: "A release that fails
+// T6 — no partial release ("A release that fails
 // before the record write leaves the project owned with the old session
 // still the writer"). The from-disk re-verification (T3's discipline)
 // must not refuse a session that still verifiably holds the project.

@@ -1,5 +1,5 @@
 /**
- * Phase 23.9a — the project UI in the simulation.
+ * The project UI in the simulation.
  *
  * - `UiState` (pure): view-model writes and reads, bounds, clear, the diff
  *   of a step (coalesced by path), show/hide order, frame events, a new run.

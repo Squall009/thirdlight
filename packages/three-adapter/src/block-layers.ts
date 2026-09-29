@@ -1,5 +1,5 @@
 /**
- * Phase 23.5 (E8): drawing block layers — one merged mesh per block look and
+ * Drawing block layers — one merged mesh per block look and
  * material per chunk of 16 × 16 columns (a few draw calls per chunk), the
  * faces hidden by neighbours left out (the project-model mesher), each chunk
  * with its own bounds so three.js culls whole chunks outside the view. The
@@ -19,11 +19,11 @@
  * distances plus the chunk's radius; stand-ins stay at full detail.
  *
  * Materials: a block type's material mapping (`materials`: a source material
- * name or "*" → a project material) applies to model looks and, phase 25.21,
+ * name or "*" → a project material) applies to model looks and
  * to stand-ins too ("*": a stand-in has one material) — a painted terrain
  * material on plain sloped blocks.
  *
- * Paint (phase 25.21): the chunks of a painted layer carry its paint as vertex
+ * Paint: the chunks of a painted layer carry its paint as vertex
  * colours — COLOR_0 the four layer weights, COLOR_1.r the wetness
  * (`chunkPaintColors`) — unless their material draws vertex colours as a tint.
  *
@@ -70,7 +70,7 @@ export interface BlockLayerViewDeps {
   modelLook?(assetId: string, piece: string | undefined, onReady: () => void): BlockModelLook | null;
   /** A prefab's model (its root entity's model), for a prefab variant. */
   prefabModel?(prefabId: string): { assetId: string; piece?: string } | null;
-  /** Apply a block type's material mapping to a chunk mesh of a model look or (phase 25.21, assetId null) a stand-in (the host's material library). */
+  /** Apply a block type's material mapping to a chunk mesh of a model look or (assetId null) a stand-in (the host's material library). */
   applyMaterials?(mesh: THREE.Mesh, type: BlockType, assetId: string | null): void;
   /** Whether a layer's chunks get lightmap UVs (a bake has lightmaps for them). */
   lightmapped?(entityId: string): boolean;
@@ -293,7 +293,7 @@ export class BlockLayerView {
     const painted = layer.grid.hasPaint();
     for (const c of chunks) layer.grid.replaceChunk(c.cx, c.cz, c.chunk);
     for (const k of layer.grid.takeDirty().mesh) layer.dirty.add(k);
-    // Phase 25.21: the first paint (or the last one gone) changes every chunk's colours.
+    // The first paint (or the last one gone) changes every chunk's colours.
     if (layer.grid.hasPaint() !== painted) for (const k of layer.chunks.keys()) layer.dirty.add(k);
   }
 
@@ -494,7 +494,7 @@ export class BlockLayerView {
     }
     const group = new THREE.Group();
     group.name = `block-chunk:${entityId}:${ck}`;
-    // Phase 25.21: a painted layer's chunks carry the paint as vertex colours (every chunk, so they match at the seams).
+    // A painted layer's chunks carry the paint as vertex colours (every chunk, so they match at the seams).
     const painted = layer.grid.hasPaint();
     const lattice = painted ? layer.grid.chunkPaint(cx, cz) : null;
     const build = (p: ChunkMeshPart, level: number): THREE.Mesh | null => {

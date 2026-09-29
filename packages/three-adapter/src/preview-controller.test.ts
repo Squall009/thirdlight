@@ -1,5 +1,5 @@
 /**
- * Packet-26 tests: the local material/animation preview controller.
+ * The local material/animation preview controller.
  *
  * Node-level: the animation mixer's CPU-side pose application is observable
  * (node quaternions), so play/pause/scrub are verified without a renderer.

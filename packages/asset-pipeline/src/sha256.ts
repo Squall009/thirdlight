@@ -3,16 +3,16 @@
  *
  * Why this package carries its own SHA-256 and canonical-JSON text:
  * `asset-pipeline` is a pure leaf whose only allowed edge is
- * `@thirdlight/project-model` **types** (`dependencies.md` §4.1/§4.3: "bytes
- * in, proposal out"; no Node built-ins, no I/O, no `three`). A value import
+ * `@thirdlight/project-model` **types** (`dependencies.md`: "bytes in,
+ * proposal out"; no Node built-ins, no I/O, no `three`). A value import
  * of the model's own digest helpers is therefore not available, and the
- * proposal must still be byte-deterministic (`project-model.md` §18.8.3:
- * the source digest and the recipe digest feed the derived-cache key), so the
+ * proposal must still be byte-deterministic (the source digest and the
+ * recipe digest feed the derived-cache key), so the
  * FIPS 180-4 compression function is implemented here over `Uint8Array`.
  *
- * `canonicalJsonText` is commands.md §6.6 rule 2 (the same definition the
- * model package uses for `contentDigest`): object keys sorted in codepoint
- * order at every level, no insignificant whitespace, shortest JSON string
+ * `canonicalJsonText` is the canonical JSON text of commands.md (the same
+ * definition the model package uses for `contentDigest`): object keys sorted
+ * in codepoint order at every level, no insignificant whitespace, shortest JSON string
  * escapes, JavaScript `JSON.stringify` number semantics.
  *
  * Nothing here reads a clock, a locale, an environment variable or the
@@ -44,8 +44,7 @@ function rotr(x: number, n: number): number {
 
 /**
  * One 64-byte block of the SHA-256 compression function, in place on `h`.
- * `W` is the caller's scratch schedule — no module-level mutable state
- * (dependencies.md §4.3).
+ * `W` is the caller's scratch schedule — no module-level mutable state.
  */
 function block(src: Uint8Array, off: number, h: Uint32Array, W: Uint32Array): void {
   for (let t = 0; t < 16; t++) {
@@ -100,7 +99,7 @@ function block(src: Uint8Array, off: number, h: Uint32Array, W: Uint32Array): vo
 
 const HEX = '0123456789abcdef';
 
-/** SHA-256 of `bytes`, lowercase hex (project-model §18.4/§19.1 syntax). */
+/** SHA-256 of `bytes`, lowercase hex. */
 export function sha256Hex(bytes: Uint8Array): string {
   const h = new Uint32Array([
     0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c,
@@ -149,7 +148,7 @@ function compareCodePoints(a: string, b: string): number {
 }
 
 /**
- * commands.md §6.6 rule 2 canonical JSON text: keys sorted in codepoint order
+ * The commands.md canonical JSON text: keys sorted in codepoint order
  * at every level, no insignificant whitespace, JavaScript `JSON.stringify`
  * number semantics, `-0` serialized as `0`.
  */

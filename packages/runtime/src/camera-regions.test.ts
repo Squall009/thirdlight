@@ -1,5 +1,5 @@
 /**
- * Phase 25.14: the track rig's camera regions (dead zone, bounds and
+ * The track rig's camera regions (dead zone, bounds and
  * distance per region, blended on enter) and look-ahead — the brain alone,
  * on a scripted world.
  */

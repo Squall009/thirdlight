@@ -1,5 +1,5 @@
 /**
- * Phase 20.3: the Effect tab's timeline (no GPU: the CPU executor draws into
+ * The Effect tab's timeline (no GPU: the CPU executor draws into
  * node materials; the WebGPU executor's passes are recorded by a stub
  * renderer) — fixed steps, deterministic seek, restart, counters, disposal
  * (including the compute-only storage buffers). Neutral fixtures.

@@ -1,5 +1,5 @@
 /**
- * Phase 9.6: one bake of a scene, from the editor.
+ * One bake of a scene, from the editor.
  *
  * The Scene view gathers the scene's static objects (world-space meshes with
  * UV1) and its baked lights; `packLightmaps` places each object's lightmap in
@@ -88,7 +88,7 @@ function bakesAsLayer(e: ProjectedEntity): boolean {
   return layer !== undefined && layer.metadataOnly !== true && e.static && e.active;
 }
 
-/** `where`: the preview bake ran in the editor worker or on the page (phase 22.1). */
+/** `where`: the preview bake ran in the editor worker or on the page. */
 export type BakeRunResult = { ok: true; bake: LightingBake; millis: number; skipped: string[]; device?: string; where?: 'worker' | 'page' } | { ok: false; message: string };
 
 interface BakeDeps {
@@ -235,11 +235,11 @@ export async function runBrowserBake(deps: BakeDeps): Promise<BakeRunResult> {
     samples: deps.settings.samples,
     range: deps.settings.range,
     padding: PADDING,
-    // Phase 17.3: the bake draws with the editor's renderer backend (like its previews).
+    // The bake draws with the editor's renderer backend (like its previews).
     renderer: editorRendererChoice().preference,
   };
   const onProgress = (done: number, total: number): void => deps.onProgress(`baking ${done}/${total}`, (done / total) * 0.9);
-  /** On the page, as before 22.1: the renderer on a DOM canvas, then the PNGs. */
+  /** On the page (no worker): the renderer on a DOM canvas, then the PNGs. */
   const onPage = async (): Promise<BakeJobResult> => {
     const r = await bakeLightmapsInBrowser({ ...input, onProgress, ...(deps.signal !== undefined ? { signal: deps.signal } : {}) });
     if (!r.ok) return r;
@@ -247,7 +247,7 @@ export async function runBrowserBake(deps: BakeDeps): Promise<BakeRunResult> {
     for (const atlas of r.atlases) pngs.push(await encodePngOnPage({ pixels: atlas.pixels, width: atlas.width, height: atlas.height }));
     return { ok: true, pngs, millis: r.millis };
   };
-  // Phase 22.1: the whole bake (rendering on an OffscreenCanvas, read-back,
+  // The whole bake (rendering on an OffscreenCanvas, read-back,
   // dilation, encoding) in a worker; on the page when there is none, or when
   // the worker's canvas gets no renderer (then the page's might).
   const workers = editorWorkers();

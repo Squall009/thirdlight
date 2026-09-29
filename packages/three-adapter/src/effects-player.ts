@@ -1,8 +1,8 @@
 /**
- * Phase 20.2: the effect player — plays the project's visual effects in a
+ * The effect player — plays the project's visual effects in a
  * three.js scene (Play, exported games, the Scene view's edit-mode preview).
  *
- * Executors (plan-phase-20 §1: one graph semantics, two executors):
+ * Executors (one graph semantics, two executors):
  * - `webgpu` (the renderer draws on WebGPU): TSL compute passes over storage
  *   buffers (`effects-gpu.ts`), instanced draws from the buffers, GPU
  *   back-to-front sort for alpha blending. Caps: `EFFECT_CAPS.webgpu`.
@@ -641,7 +641,7 @@ export function effectsOptionFrom(input: {
   defs: readonly EffectDefLike[];
   wind: { direction: readonly number[]; strength: number; gust: number; gustFrequency: number; turbulence: number } | null;
   assets: readonly EffectAssetRowLike[];
-  /** Phase 25.24b: may read on demand (a promise), checked by the page. */
+  /** May read on demand (a promise), checked by the page. */
   bytes: (assetId: string, version: number) => ArrayBuffer | undefined | Promise<ArrayBuffer | undefined>;
   /** The GLB loader port (mesh particles, mesh-surface shapes); absent: those draw nothing. */
   loader?: GlbLoaderPort;

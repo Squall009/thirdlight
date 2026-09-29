@@ -1,6 +1,6 @@
 /**
  * Pure digest and canonical-JSON helpers for the behavior build
- * (project-model.md §22.1/§22.2, dependencies.md §4.1: `behavior-build` has
+ * (project-model.md, dependencies.md: `behavior-build` has
  * no Node-builtin edge, so SHA-256 is implemented here in pure TypeScript —
  * the FIPS 180-4 algorithm over `Uint8Array`).
  *
@@ -8,7 +8,7 @@
  *  - the **container** form (2-space indented JSON in the normative field
  *    order, one trailing newline) — the bytes `sourceDigest` covers;
  *  - the **recipe/manifest** digest form (compact JSON, keys sorted in
- *    codepoint order at every level) — commands.md §6.6 rule 2 semantics,
+ *    codepoint order at every level) — the commands.md canonical JSON,
  *    used for `manifestDigest` and the compile recipe digest.
  */
 
@@ -43,24 +43,16 @@ function rotr(x: number, n: number): number {
 /**
  * SHA-256 of `bytes`, lowercase hex.
  *
- * GATE I DEFECT REPAIR (R-I-1, P1): the previous expression
- * `(((len + 9) >> 6) + 1) << 6` allocated an EXTRA zero block whenever
- * `(len + 9) % 64 === 0` (i.e. `len ≡ 55 (mod 64)`) and wrote the 64-bit
- * length field into that extra block, so every input of length 55, 119, 183,
- * … produced a WRONG digest. This is the same padding class packet 36
- * repaired in `project-model/src/sha256.ts`; the `behavior-build` copy was
- * missed. The correct block count is `ceil((len + 9) / 64)`.
- *
- * Consequence before the repair: `prepareBehaviorSource` publishes the
- * immutable container blob under the workspace's `node:crypto` digest but
- * recorded the compiler's wrong `sourceDigest`, so `publishBehavior`
- * (`mode:"source"`) failed `behavior_publication_unavailable` /
- * `reason:"preparation_missing"` for that whole length class.
+ * The block count is `ceil((len + 9) / 64)`. The tempting
+ * `(((len + 9) >> 6) + 1) << 6` adds an extra zero block whenever
+ * `len ≡ 55 (mod 64)` and puts the length field in it, giving a wrong digest
+ * for that whole length class — and then this `sourceDigest` would disagree
+ * with the workspace's `node:crypto` digest of the same container, so
+ * `publishBehavior` (`mode:"source"`) would fail with `preparation_missing`.
  *
  * Regression tests: `tests/m2-builds/canonical.test.ts` (known answers) and
  * `tests/integration/m2-builds/canonical-cross-check.test.ts` (`node:crypto`
- * cross-check; this package has no Node-builtin edge per dependencies.md
- * §4.1).
+ * cross-check; this package has no Node-builtin edge per dependencies.md).
  */
 export function sha256Hex(bytes: Uint8Array): string {
   const bitLen = bytes.length * 8;

@@ -1,21 +1,20 @@
 #!/usr/bin/env node
 /**
- * Thirdlight workspace build (dependencies.md §4.2, §7; export.md §5.3).
+ * Thirdlight workspace build.
  *
- * Builds the editor and play-preview bundles (dependencies.md §4.2) with the
- * pinned esbuild 0.28.2 and the export.md §5.3 pinned option set — every
- * other option at its 0.28.2 default; no additional defines (except, phase
- * 21.4, React's production mode for the editor bundle — see BUNDLES), banners,
+ * Builds the editor and play-preview bundles with the
+ * pinned esbuild 0.28.2 and the pinned option set (`PINNED_OPTIONS`) — every
+ * other option at its 0.28.2 default; no additional defines (except React's
+ * production mode for the editor bundle — see BUNDLES), banners,
  * loaders, aliases, or externals. The editor bundle's .tsx files use
- * esbuild's default TSX loader (decision 0001 §10 — no option change).
+ * esbuild's default TSX loader (no option change).
  *
- * The EXPORT bundle is not built here: the exporter builds it at export time
- * (packet 12; export.md §4/§5.1). With no bundle entries present yet (packet
- * 04 state) there is nothing to build — reported honestly, exit 0.
+ * The EXPORT bundle is not built here: the exporter builds it at export time.
+ * With no bundle entries present there is nothing to build — reported
+ * honestly, exit 0.
  *
  * Bundle output files: dist/editor/main.js and dist/preview/preview.js —
- * served from the configured dist/editor + dist/preview static dirs
- * (sessions.md §13.7); the file names are the packet 04 build choice.
+ * served from the configured dist/editor + dist/preview static dirs.
  */
 
 import esbuild from 'esbuild';
@@ -58,7 +57,7 @@ function emitEditorPage() {
   console.log(`build: editor page: -> ${join('dist/editor/index.html')}`);
 }
 
-/** export.md §5.3 pinned option set (normative — the same set for all three bundles). */
+/** The pinned option set (normative — the same set for all three bundles). */
 const PINNED_OPTIONS = {
   bundle: true,
   platform: 'browser',
@@ -73,7 +72,7 @@ const PINNED_OPTIONS = {
 };
 
 /**
- * Phase 17.4: every `import … from 'three'` (the engine's and three's own
+ * Every `import … from 'three'` (the engine's and three's own
  * addons': GLTFLoader, KTX2Loader, SkeletonUtils, …) resolves to
  * `three/webgpu`, so a browser bundle (the editor page, Play and the export) links one three build — the WebGPURenderer
  * build (`three.core.js` + `three.webgpu.js`) — and not `three.module.js`
@@ -90,19 +89,19 @@ const THREE_WEBGPU_ONLY_PLUGIN = {
   },
 };
 
-/** dependencies.md §4.2 — the two bundles built by the workspace build script. */
+/** The two bundles built by the workspace build script. */
 const BUNDLES = [
   {
     name: 'editor',
     entry: 'packages/editor/src/index.tsx',
     out: 'dist/editor/main.js',
-    // Phase 21.4: React's production build. Unminified, esbuild substitutes
+    // React's production build. Unminified, esbuild substitutes
     // process.env.NODE_ENV = "development", which ships React's development
     // build (dev-only checks and per-render performance logging, several times
     // slower on large trees). The editor bundle only; the play bundles carry no React.
     define: { 'process.env.NODE_ENV': '"production"' },
   },
-  // Phase 22.1: the editor worker (scatter, graph diagnostics, PNG encoding,
+  // The editor worker (scatter, graph diagnostics, PNG encoding,
   // the browser lightmap bake on an OffscreenCanvas), next to the editor page;
   // the page loads it on first use and runs every job inline without it.
   {
@@ -110,15 +109,15 @@ const BUNDLES = [
     entry: 'packages/editor/src/workers/editor-worker.ts',
     out: 'dist/editor/editor-worker.js',
   },
-  // Packet 59 (delivery.md §3.2): the M3 preview wrapper entry — the v3 play
-  // bundle (served as `game.js` at the v3 locator). The M2 `preview.js`
-  // entry above stays byte-stable (binding M2 §5.4.1 bundle-scan evidence).
+  // The `preview-m3` wrapper entry — the v3 play
+  // bundle (served as `game.js` at the v3 locator). The `preview.js`
+  // entry above stays byte-stable (its bundle scan depends on it).
   {
     name: 'preview-m3',
     entry: 'packages/editor/src/preview/preview-m3.ts',
     out: 'dist/preview/preview-m3.js',
   },
-  // Phase 22.0: the Play preview's simulation worker (runtime + physics +
+  // The Play preview's simulation worker (runtime + physics +
   // scripts off the page's main thread), served on the preview origin as
   // /sim-worker.js next to the decoders.
   {
@@ -126,7 +125,7 @@ const BUNDLES = [
     entry: 'packages/editor/src/preview/sim-worker.ts',
     out: 'dist/preview/sim-worker.js',
   },
-  // Phase 23.0: the 3D physics backend (rapier3d, its WASM inlined), served on
+  // The 3D physics backend (rapier3d, its WASM inlined), served on
   // the preview origin as /physics-3d.js and loaded — by the page or the
   // simulation worker — only for a project whose physics_dimension is 3.
   {
@@ -173,7 +172,7 @@ for (const b of BUNDLES) {
 }
 
 /**
- * The MCP stdio server (mcp-adapter, packet 11; decision 0001 §5): a Node
+ * The MCP stdio server (mcp-adapter): a Node
  * PROCESS (not a browser bundle), so it uses Node options, distinct from the
  * browser PINNED_OPTIONS above. The `@modelcontextprotocol/sdk` is bundled in
  * (packages: 'bundle') so `node dist/mcp-adapter/mcp.mjs` is self-contained;
@@ -199,7 +198,7 @@ if (existsSync(join(root, MCP_ENTRY))) {
   });
   console.log(`build: mcp-adapter (stdio server): ${MCP_ENTRY} -> ${MCP_OUT}`);
   built += 1;
-  // Phase 25.17: the play-test runner as a library for the CLI (tools/playtest.mjs), the same code tl_playtest runs.
+  // The play-test runner as a library for the CLI (tools/playtest.mjs), the same code tl_playtest runs.
   const runnerOut = join(root, PLAYTEST_OUT);
   await esbuild.build({
     entryPoints: [join(root, PLAYTEST_ENTRY)],
@@ -217,18 +216,18 @@ if (existsSync(join(root, MCP_ENTRY))) {
 } else {
   // Absent mcp-adapter source (e.g. the disposable build-tooling workspace) is
   // NOT counted in the browser-bundle built/skipped tally — it is a separate
-  // optional Node artifact, not one of the dependencies.md §4.2 browser bundles.
+  // optional Node artifact, not one of the browser bundles.
   console.log(`build: mcp-adapter: entry not present (${MCP_ENTRY}) — not built (packet 11)`);
 }
 
 /**
- * The backend deployment bundle (packet 13 local deployment; decision 0001
- * §6): a Node PROCESS (not a browser bundle), the same Node options as the
+ * The backend deployment bundle (local deployment; decision 0001): a Node
+ * PROCESS (not a browser bundle), the same Node options as the
  * mcp-adapter artifact above. The workspace packages + `ws` are bundled in
  * (packages: 'bundle') so `node dist/backend/backend.mjs` is self-contained;
  * the `node:*` builtins stay external (platform: 'node'). Absent backend
  * source is NOT counted in the browser-bundle tally (separate optional Node
- * artifact, not a dependencies.md §4.2 browser bundle).
+ * artifact, not a browser bundle).
  */
 const BACKEND_ENTRY = 'packages/backend/src/index.ts';
 const BACKEND_OUT = 'dist/backend/backend.mjs';
@@ -252,9 +251,9 @@ if (existsSync(join(root, BACKEND_ENTRY))) {
     // checkout it resolves from node_modules as usual. The artifact is
     // therefore run from the engine checkout (documented in the
     // deployment docs; the mcp-adapter bundle stays fully self-contained).
-    // playwright-core (the headless editor, phase 11) resolves its browser
+    // playwright-core (the headless editor) resolves its browser
     // registry relative to its own files: loaded from node_modules at runtime.
-    // Phase 25.19: ktx2-encoder loads its Basis WASM next to its own file
+    // ktx2-encoder loads its Basis WASM next to its own file
     // (import.meta.url) and jpeg-js is CommonJS: both from node_modules.
     external: ['esbuild', 'playwright-core', 'ktx2-encoder', 'jpeg-js'],
     banner: {
@@ -263,7 +262,7 @@ if (existsSync(join(root, BACKEND_ENTRY))) {
   });
   console.log(`build: backend (deployment bundle): ${BACKEND_ENTRY} -> ${BACKEND_OUT}`);
   built += 1;
-  // Phase 25.19: the KTX2 encoder's worker thread, next to the backend bundle (backend.ts finds it there).
+  // The KTX2 encoder's worker thread, next to the backend bundle (backend.ts finds it there).
   await esbuild.build({
     entryPoints: [join(root, 'packages/backend/src/ktx2-worker.ts')],
     outfile: join(root, 'dist/backend/ktx2-worker.mjs'),
@@ -280,7 +279,7 @@ if (existsSync(join(root, BACKEND_ENTRY))) {
 } else {
   console.log(`build: backend: entry not present (${BACKEND_ENTRY}) — not built (packet 13)`);
 }
-// The static authoring page (only when the editor entry exists — packet 10).
+// The static authoring page (only when the editor entry exists).
 if (existsSync(join(root, 'packages/editor/src/index.tsx'))) {
   emitEditorPage();
 }
@@ -292,7 +291,7 @@ if (built === 0) {
   );
 }
 if (built > 0) {
-  // Phase 25.18: the build stamp the backend reports (`GET /api/v1/engine`, tl_inspect target="engine"):
+  // The build stamp the backend reports (`GET /api/v1/engine`, tl_inspect target="engine"):
   // when dist/ was built and from which commit, so a running backend can say it is older than dist/.
   const git = spawnSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8' });
   const dirty = spawnSync('git', ['-C', root, 'status', '--porcelain', '--untracked-files=no'], { encoding: 'utf8' });

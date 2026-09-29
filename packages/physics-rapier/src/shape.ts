@@ -1,10 +1,10 @@
 /**
  * Collider-shape validation — the adapter's own copy of the accepted
- * vocabulary (project-model §10.7/§21.3).
+ * vocabulary (project-model's `validateColliderShape`).
  *
  * The runtime hands the adapter an opaque `shape: unknown`
- * (`StaticColliderSpec`), and `physics-rapier` has no `project-model` edge
- * (dependencies.md §4.3), so the adapter re-validates before creating a
+ * (`StaticColliderSpec`), and `physics-rapier` has no `project-model` edge,
+ * so the adapter re-validates before creating a
  * Rapier collider: a shape the model would reject must fail init as
  * `physics_init_failed` (`reason: "invalid_shape"`) rather than reach the
  * library. The check order and limits mirror project-model's

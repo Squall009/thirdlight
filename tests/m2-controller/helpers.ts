@@ -1,5 +1,5 @@
 /**
- * Packet 32 — shared helpers for the real-adapter controller course suite
+ * Shared helpers for the real-adapter controller course suite
  * (`tests/m2-controller/**`).
  *
  * Every run composes the accepted pieces for real:
@@ -9,8 +9,8 @@
  *   + `@thirdlight/physics-rapier` (the pinned `@dimforge/rapier2d-compat@0.20.0`)
  *   + `@thirdlight/input` (the pure raw-snapshot → ActionFrame mapping)
  *
- * The course geometry comes from `fixtures/m2/course/**` (the packet-14 frozen
- * course and the packet-31 derived slope/snap courses). Nothing here is a mock:
+ * The course geometry comes from `fixtures/m2/course/**` (the frozen
+ * course and the derived slope/snap courses). Nothing here is a mock:
  * the port is the real WASM adapter and the frames are the real mapping's
  * output. A thin recording wrapper around the real port captures the per-step
  * `CharacterMoveResult` the runtime consumes, so the controller's observable
@@ -69,7 +69,7 @@ export interface CourseFile {
   statics: RapierStaticColliderSpec[];
 }
 
-/** project-model §5.1 ID syntax — `entityId`s of the frozen spec may not fit. */
+/** The project-model ID syntax — `entityId`s of the frozen spec may not fit. */
 function entityId(index: number): string {
   return `col-${String(index).padStart(4, '0')}`;
 }

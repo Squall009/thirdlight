@@ -5,7 +5,7 @@
  * COLOR_0 as shader data that never multiplies the albedo; `tint` restores the
  * glTF behaviour.
  *
- * Phase 14.6: `clipsFor` (model only, v4): marks an animation-only file whose
+ * `clipsFor` (model only, v4): marks an animation-only file whose
  * clips play on another model asset's rig (matched by bone names); null
  * clears it. The resulting-state check refuses a missing or non-model rig,
  * the asset itself and a rig that is itself clips-only.

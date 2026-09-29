@@ -1,5 +1,5 @@
 /**
- * Phase 23.11: a model node's pose in the simulation — the rig (project-model
+ * A model node's pose in the simulation — the rig (project-model
  * `ModelRig`, read from the GLB by the play/export closure) posed by the
  * animator's pose, the way three.js's `AnimationMixer` poses the rendered
  * model (`three-adapter/src/animator-player.ts`), so a socket sits where the
@@ -13,7 +13,7 @@
  *   that animates it is accumulated in clip order as a weighted running mix
  *   (lerp, or slerp for rotations); a total weight under 1 is mixed with the
  *   rest value by the remainder.
- * - Override layers (phase 14.6): a clip of layer i drives only the nodes
+ * - Override layers: a clip of layer i drives only the nodes
  *   the layer covers; a clip's weight is scaled by Π(1 − L_j) over the later
  *   layers j covering the node, L_j = layer weight × min(1, its clip
  *   weights) — the same factors the renderer's layered actions get.

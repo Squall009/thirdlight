@@ -1,5 +1,5 @@
 /**
- * Phase 18.2: the Material tab against the real backend — the live preview
+ * The Material tab against the real backend — the live preview
  * (sphere / plane / cube / a model of the project, in the project
  * environment, compiled on the editor's renderer), a new graph material from
  * a built-in template, "Convert to graph" for the wind, kit and water shaders,

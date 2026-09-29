@@ -1,13 +1,12 @@
 /**
- * Packet-26 tests: the shared GLB realization path (visual.ts) — Node-level,
+ * The shared GLB realization path (visual.ts) — Node-level,
  * with an injected loader port and REAL three.js objects.
  *
  * LABELED per AGENTS.md: no browser exists in this container. What is proved
  * here is the loading/ownership/preview logic (cancellation, stale discard,
  * structured failures, independence, ownership balance, idempotent disposal)
  * through injected ports. Rendered pixels, real GLTFLoader texture decode,
- * screenshot taint and WebGL behaviour remain UNVERIFIED — see the packet-26
- * evidence manifest for the exact packet-37 browser procedure.
+ * screenshot taint and WebGL behaviour remain UNVERIFIED here (browser tests).
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {

@@ -1,5 +1,5 @@
 /**
- * Phase 23.16: the dialogue previewer's host — composes the game host's
+ * The dialogue previewer's host — composes the game host's
  * dialogue preview (`createDialoguePreview`: the runtime's dialogue runner,
  * the host's UI layer and audio owner) in the editor page, so a conversation
  * plays with portraits, the typewriter and voice exactly as in Play, outside

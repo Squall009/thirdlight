@@ -1,5 +1,5 @@
 /**
- * Phase 23.6 (E8): the block-layer brush maths — which cells a stroke
+ * The block-layer brush maths — which cells a stroke
  * covers and the `editBlocks` edits it becomes.
  *
  * A stroke is previewed locally (the same `applyBlockEdits` the backend runs,
@@ -16,7 +16,7 @@
  * - raise / lower: `column` (+1 / −1) at every column the stroke crossed;
  * - height / smooth / flatten (terrain): `sculpt` dabs along the drag, a
  *   round brush over the ground's surface (`sculptEdit`);
- * - paint (phase 25.21): `paint` dabs along the drag — the layer's surface
+ * - paint: `paint` dabs along the drag — the layer's surface
  *   paint (four material layers, wetness) under the paint brush
  *   (`paintEdit`; the brush itself is project-model's `paint-brush`);
  * - replace-all-of-type: `replace` of the pressed cell's block in the layer;
@@ -63,7 +63,7 @@ export function toolAdds(tool: BlockToolId): boolean {
   return tool === 'single' || tool === 'line' || tool === 'rect' || tool === 'box' || tool === 'paste' || tool === 'stamp';
 }
 
-/** Phase 25.21: the paint tool: round, over the ground's surface, sent as `paint` dabs. */
+/** The paint tool: round, over the ground's surface, sent as `paint` dabs. */
 export function toolPaints(tool: BlockToolId): tool is 'paint' {
   return tool === 'paint';
 }
@@ -156,12 +156,12 @@ export interface BrushState {
   radius: number;
   /** Terrain brushes: cells per dab at the centre (height), the blend toward the target per dab (smooth, flatten; at most 1). */
   strength: number;
-  /** Phase 25.21: the paint brush (radius in cells, strength 0-1, falloff, channel 0-3 a material layer, 4 wetness). */
+  /** The paint brush (radius in cells, strength 0-1, falloff, channel 0-3 a material layer, 4 wetness). */
   paint: PaintBrush;
 }
 
 /** A 3-cell brush raising a quarter cell per dab: a few drags make a hill, one pass a gentle bump. */
-/** Phase 25.21: a 3-cell soft brush, a third of the way per dab: a drag or two covers a patch, one pass blends its edge. */
+/** A 3-cell soft brush, a third of the way per dab: a drag or two covers a patch, one pass blends its edge. */
 export const DEFAULT_PAINT_BRUSH: PaintBrush = { radius: 3, strength: 0.35, falloff: 'smooth', channel: 1 };
 
 export const DEFAULT_BRUSH: BrushState = { block: null, rot: 0, variant: null, randomize: true, height: 2, radius: 3, strength: 0.25, paint: DEFAULT_PAINT_BRUSH };

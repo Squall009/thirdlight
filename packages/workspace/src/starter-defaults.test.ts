@@ -1,5 +1,5 @@
 /**
- * Phase 15.5: a new project's starter camera and lights are the same values
+ * A new project's starter camera and lights are the same values
  * the GameObject menu and "+ Add component" create (the descriptor's camera
  * add value and its Directional / Ambient light presets) — one set of
  * genre-neutral defaults, not two drifting copies.

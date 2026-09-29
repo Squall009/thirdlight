@@ -1,16 +1,15 @@
 /**
- * Phase 24.8: the project format after the engine/game separation, at the
+ * The project format after the engine/game separation, at the
  * HTTP boundary. A schemaVersion 2 project (written by hand in
  * `fixtures/phase24`, not copied from a game) is copied into the backend's
  * data root and opened with POST /api/v1/sessions:
  *
  * - generic data is upgraded (pickups → collectibles with the old counter
  *   names, a spawn facing → a yaw, the session player's health fields and
- *   `content.game: null` dropped) and written back as schemaVersion 4
- *   (phase 25.7; it was 3 in phase 24.8);
+ *   `content.game: null` dropped) and written back as schemaVersion 4;
  * - game data is refused: the open fails with problems that name each
- *   removed component and say "removed in phase 24: build it as project
- *   scripts" — nothing is dropped silently, and the files stay as they were.
+ *   removed component and tell the user to build it as project scripts —
+ *   nothing is dropped silently, and the files stay as they were.
  */
 import { cpSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -48,7 +47,7 @@ describe('phase 24.8: a schemaVersion 2 project opened over HTTP', () => {
     expect(comps('box-0002')['collectible']).toEqual({ counter: 'stars', amount: 5 });
     expect(comps('box-0003')['health']).toEqual({ max: 3 });
 
-    // On disk: the manifest says 4 (phase 25.7: 2 → 3 → 4 in one open), content.json has no game key, the scene file the upgraded components.
+    // On disk: the manifest says 4 (2 → 3 → 4 in one open), content.json has no game key, the scene file the upgraded components.
     expect(readJson('legacy-v2-upgradable', 'project.json')['schemaVersion']).toBe(4);
     const content = readJson('legacy-v2-upgradable', 'content.json');
     expect(content['revision']).toBe(4);
@@ -91,7 +90,7 @@ describe('phase 24.8: a schemaVersion 2 project opened over HTTP', () => {
 });
 
 /**
- * Phase 25.7a: a schemaVersion 3 project with the old four-digit ids
+ * A schemaVersion 3 project with the old four-digit ids
  * (`fixtures/phase25/legacy-v3-ids`, written by hand) opens over HTTP, is
  * written back as schemaVersion 4 with every id and reference unchanged, and
  * new objects get six-digit ids, unique across the project's scenes.

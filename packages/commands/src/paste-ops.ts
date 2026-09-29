@@ -1,5 +1,5 @@
 /**
- * `pasteEntities` (phase 3 leftovers, 2026-09-24): create copies of full
+ * `pasteEntities`: create copies of full
  * entity values — the editor's Duplicate and Copy/Paste, also across scenes —
  * in one transaction (one undo).
  *
@@ -57,7 +57,7 @@ export function applyPasteEntities(scene: SceneDocument, args: PasteEntitiesArgs
   const idMap = new Map<string, string>();
   for (const e of ordered) {
     const prefix = e.components['folder'] !== undefined ? 'folder' : derivedPrefix(e.components);
-    // Phase 25.7a: `<prefix>-N` with at least six digits (nextFreeEntityIdOf).
+    // `<prefix>-N` with at least six digits (nextFreeEntityIdOf).
     const id = nextFreeEntityIdOf(taken, prefix);
     if (id === undefined) return { ok: false, error: idExhaustion(prefix) };
     taken.add(id);
@@ -88,7 +88,7 @@ export function applyPasteEntities(scene: SceneDocument, args: PasteEntitiesArgs
     if (comps['camera'] !== undefined) {
       return { ok: false, error: fieldValue('/args/entities', e.id, 'entities without a camera', 'a scene has one camera; copy the objects without it') };
     }
-    // Phase 24.7: a trigger's scene-transition spawn (the deleted exit zone's spawn was remapped the same way).
+    // A trigger's scene-transition spawn.
     const transition = (comps['trigger'] as { sceneTransition?: { spawn?: unknown } } | undefined)?.sceneTransition;
     if (transition?.spawn !== undefined) transition.spawn = remap(transition.spawn);
     const behavior = comps['behavior'] as { values?: Record<string, unknown> } | undefined;

@@ -1,5 +1,5 @@
 /**
- * Phase 21.3: automatic instancing — grouping keys, what stays single, the
+ * Automatic instancing — grouping keys, what stays single, the
  * instance matrices, per-object overrides leaving a group, and restore.
  * Pure three.js scene graph in Node (no renderer): what is drawn is read from
  * the layers and the instanced meshes.
@@ -18,7 +18,7 @@ const camera = (): THREE.PerspectiveCamera => {
   return c;
 };
 
-/** Phase 25.24d: a batch as drawn — a plain mesh whose geometry carries instance-matrix columns. */
+/** A batch as drawn — a plain mesh whose geometry carries instance-matrix columns. */
 interface BatchView {
   readonly mesh: THREE.Mesh;
   /** Instances drawn. */

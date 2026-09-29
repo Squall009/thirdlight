@@ -1,17 +1,16 @@
 /**
- * Packet 33 — the `behavior-build` SHA-256 cross-check against Node's OpenSSL
- * implementation (Gate I repair R-I-1, P1).
+ * The `behavior-build` SHA-256 cross-check against Node's OpenSSL
+ * implementation.
  *
- * `packages/behavior-build/src/canonical.ts` carried the same
- * `len ≡ 55 (mod 64)` padding defect packet 36 repaired in `project-model`:
- * an extra zero block was allocated whenever `(len + 9) % 64 === 0`, so the
- * wrong digest was recorded for that whole length class. The digest is the
+ * A pure SHA-256 is easy to get wrong in the padding: allocating an extra
+ * zero block whenever `(len + 9) % 64 === 0` (`len ≡ 55 (mod 64)`) records
+ * the wrong digest for that whole length class. The digest is the
  * identity of every behavior artifact (`sourceDigest`/`manifestDigest`/
  * `outputDigest`), so a silent divergence between the pure implementation and
  * the platform crypto is exactly the failure this suite exists to catch.
  *
  * This lives under `tests/integration/**` because `behavior-build`'s allowed
- * edges contain no Node builtins (dependencies.md §4.1).
+ * edges contain no Node builtins.
  */
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';

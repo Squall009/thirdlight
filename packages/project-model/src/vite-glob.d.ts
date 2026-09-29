@@ -4,12 +4,11 @@
  * files.
  *
  * Why: the project-model package is the zero-dependency leaf of the
- * node-side graph (dependencies.md §4.1: no project deps, no Node
- * builtins), and the boundary check (dependencies.md §5 check 1) enforces
- * that in every package source — test files included (the only exempted
- * test import is the approved runner, vitest). The workspace also has no
- * `@types/node` or Vite client types (dependencies.md §7 pin table — no
- * new dependency for this packet). So the tests read fixtures through the
+ * node-side graph (no project deps, no Node builtins), and the boundary
+ * check enforces that in every package source — test files included (the
+ * only exempted test import is the approved runner, vitest). The workspace
+ * also has no `@types/node` or Vite client types (and takes no new
+ * dependency for them). So the tests read fixtures through the
  * Vite `import.meta.glob(..., { query: '?raw' })` transform (no import
  * statement, byte-exact text) and this declaration types exactly that
  * surface. Production code never calls `import.meta.glob`.

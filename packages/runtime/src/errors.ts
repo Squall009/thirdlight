@@ -1,14 +1,14 @@
 /**
- * Runtime error model and stable codes — runtime.md §8 (normative).
+ * Runtime error model and stable codes.
  *
  * Every public call returns a result object and never throws on protocol
- * misuse (runtime.md §3). Error entries in diagnostics are bounded
+ * misuse. Error entries in diagnostics are bounded
  * (last 32 kept; `errorCount` cumulative) and messages are ≤ 256 chars,
  * log-safe (no secrets/paths).
  */
 import type { ModelErrorV2 } from '@thirdlight/project-model';
 
-/** The stable runtime error code set (runtime.md §8, normative). */
+/** The stable runtime error code set (normative). */
 export const ERROR_CODES = [
   'config_invalid',
   'snapshot_invalid',
@@ -22,17 +22,15 @@ export const ERROR_CODES = [
   'transform_owner_conflict',
   'transform_owner_forbidden',
   'physics_port_error',
-  // M3 additions (gameplay.md §8.1; runtime.md §8/§15). Additive: no accepted
-  // code changes meaning or carries-shape.
-  // Phase 24.8: the game session's codes (spawn invalid/blocked, session
-  // unavailable) went with the session; "game" here is the running game.
+  // Codes are additive: none changes meaning or shape.
+  // "game" here is the running game.
   'game_command_invalid',
   'camera_viewport_invalid',
-  // Phase 12 (c) scene set: a bad load/unload request, and a scene that could
+  // Scene set: a bad load/unload request, and a scene that could
   // not be loaded (a diagnostic entry; the run continues without it).
   'scene_invalid',
   'scene_load_failed',
-  // Phase 14.1: a spawn an engine limit refused, or one that could not be added
+  // A spawn an engine limit refused, or one that could not be added
   // (a diagnostic entry; the script got null and the run continues).
   'spawn_refused',
 ] as const;
@@ -45,7 +43,7 @@ export interface RuntimeError {
   /** ≤ 256 chars, log-safe, no secrets/paths. */
   message: string;
   /**
-   * `snapshot_invalid` only (runtime.md §2):
+   * `snapshot_invalid` only:
    * `id_mismatch` | `revision_mismatch` | `shape` | `scene_validation`.
    * `config_invalid` carries a short reason string as well.
    */
@@ -54,8 +52,8 @@ export interface RuntimeError {
   path?: string;
   /**
    * `snapshot_invalid` with `reason: "scene_validation"` only: the
-   * project-model validation errors, at most 10 (runtime.md §2: "≤ 10
-   * reported, total count given").
+   * project-model validation errors, at most 10 (`errorTotal` gives the
+   * total count).
    */
   errors?: readonly ModelErrorV2[];
   /** `snapshot_invalid` (`scene_validation`): total project-model error count. */
@@ -68,11 +66,11 @@ export interface RuntimeError {
   phase?: string;
   /** A short contract `detail` string (M2 error table). */
   detail?: string;
-  /** `game_command_invalid` only (gameplay.md §8.1): the rejected command. */
+  /** `game_command_invalid` only: the rejected command. */
   command?: string;
   /** `game_command_invalid` only: the run state that rejected it. */
   state?: string;
-  /** `camera_viewport_invalid` only (gameplay.md §8.1): the rejected size. */
+  /** `camera_viewport_invalid` only: the rejected size. */
   width?: number;
   height?: number;
 }
@@ -87,7 +85,7 @@ export interface Err {
 
 export const MESSAGE_LIMIT = 256;
 
-/** Messages are clipped to 256 chars (runtime.md §8), log-safe. */
+/** Messages are clipped to 256 chars, log-safe. */
 export function clipMessage(message: string): string {
   if (message.length <= MESSAGE_LIMIT) return message;
   return `${message.slice(0, MESSAGE_LIMIT - 1)}…`;

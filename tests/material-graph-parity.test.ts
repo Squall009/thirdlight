@@ -1,5 +1,5 @@
 /**
- * Phase 18.0/18.1: the editor's material-graph code (the editor may import
+ * The editor's material-graph code (the editor may import
  * project-model types only) against project-model:
  *
  * - data-dependent ports: the editor's `resolvePorts` equals project-model's
@@ -125,7 +125,7 @@ describe('material graphs: editor vs project-model', () => {
       expect(r.ok, m.materialId).toBe(true);
       if (!r.ok) continue;
       expect(check(r.material), m.materialId).toEqual([]);
-      // The shader part stays (the fallback render until 18.3); canonical form is stable.
+      // The shader part stays (the fallback render); canonical form is stable.
       expect(r.material.shader).toBe(m.shader);
       expect(canonicalMaterials(canonicalMaterials([r.material]))).toEqual(canonicalMaterials([r.material]));
     }
@@ -137,7 +137,7 @@ describe('material graphs: editor vs project-model', () => {
       for (const port of ['baseColor', 'roughness', 'metalness', 'normal', 'emissive', 'ao', 'opacity', 'alphaClip']) expect(into(port), port).toBe(true);
       expect(s.material.graph!.nodes.find((n) => n.id === 'output')!.data).toEqual({ doubleSided: true });
     }
-    // Phase 18.2: every shader type converts (the built-in templates), with and without textures, and validates.
+    // Every shader type converts (the built-in templates), with and without textures, and validates.
     const textures = { map: 'tex-a', normalMap: 'tex-n', ormMap: 'tex-o', emissiveMap: 'tex-e' };
     const variants: MaterialDef[] = [
       { ...plain, materialId: 'mat-f', shader: 'foliage', params: { windBend: 2, subsurface: 0.5, color: '#44aa33' }, textures },

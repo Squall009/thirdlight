@@ -1,26 +1,25 @@
 /**
- * History model — commands.md §8.4/§9 (M1) extended by the M2 content ops
- * (packets 16/21).
+ * History model, for the entity and the content ops.
  *
- * Per project, in memory only (M1). `entries[0..n-1]` with cursor `c`
- * (§9.1): entries below `c` are applied, entries at or above `c` are the
+ * Per project, in memory only. `entries[0..n-1]` with cursor `c`:
+ * entries below `c` are applied, entries at or above `c` are the
  * redo tail. Fresh edits truncate `entries[c..n-1]` and append; undo
  * applies `entries[c-1].inverse`; redo re-applies `entries[c].change`
- * forward using the recorded values (no ID re-scan, §8.4).
+ * forward using the recorded values (no ID re-scan).
  *
- * Every entry carries a `change` and an `inverse` in the same vocabulary
- * (§5.3/§9.1). The M1 kinds (`createEntity`/`setTransform`/`deleteEntity`)
- * are unchanged: their forward/inverse application touches only the scene.
+ * Every entry carries a `change` and an `inverse` in the same vocabulary.
+ * The entity kinds (`createEntity`/`setTransform`/`deleteEntity`) touch
+ * only the scene.
  * The content/component/property/settings/trust kinds touch the scene and/or
  * the envelope's `content` block; a `restore: null` value means the record or
  * component did not exist, so the inverse removes it.
  *
  * Inverse/forward application passes through the same pure pipeline as
- * forward ops (result-state re-validation, uniform no-change check): in M1 it
- * is provably valid (the state is exactly the state the entry was applied
+ * forward ops (result-state re-validation, uniform no-change check): it
+ * is normally valid (the state is exactly the state the entry was applied
  * from, by LIFO), but if validation ever fails the command returns
  * `history_invalid`, changes nothing, and leaves the stacks untouched
- * (§9.4, defensive).
+ * (defensive).
  */
 
 import type { AnimatorController, EnvironmentConfig, InputConfig, LightingBake, MaterialDef } from '@thirdlight/project-model';
@@ -96,12 +95,12 @@ const COMPONENT_FIELD_ORDER: Record<string, readonly string[]> = {
   effect: ['effectId', 'playOnStart', 'params', 'signal', 'stopSignal'],
 };
 
-/** Read a component value as `null` when absent (commands.md §5.3). */
+/** Read a component value as `null` when absent. */
 function componentOrNull(components: Record<string, unknown>, component: string): unknown | null {
   return components[component] === undefined ? null : deepClone(components[component]);
 }
 
-/** Write/remove one component on a cloned entity (commands.md §8.10). */
+/** Write/remove one component on a cloned entity. */
 function writeComponent(entity: AnyEntity, component: string, value: unknown | null): AnyEntity {
   const cloned = deepClone(entity);
   const components = { ...componentsRecord(cloned) };
@@ -123,13 +122,13 @@ function componentChangedFields(
   );
 }
 
-/** Phase 12 (c): the scene index of a v4 content block. */
+/** The scene index of a v4 content block. */
 function sceneIndexOf(content: ContentDocument): { scenes: { sceneId: string; name: string }[]; startScenes: string[] } {
   const c = content as { scenes?: { sceneId: string; name: string }[]; startScenes?: string[] };
   return { scenes: deepClone(c.scenes ?? []), startScenes: [...(c.startScenes ?? [])] };
 }
 
-/** The next revision for a content-only entry (commands.md §6.1 step 7). */
+/** The next revision for a content-only entry. */
 function bumped(scene: SceneDocument): SceneDocument {
   return { ...scene, revision: scene.revision + 1 };
 }
@@ -171,7 +170,7 @@ function finish(
 ): ApplyResult {
   // A `restore: null` removal deletes a record; deeper reference breakage is
   // caught by the gate, which reports `history_invalid` rather than a
-  // result-scene error (§9.4 defensive).
+  // result-scene error (defensive).
   const gate = gateResultState(
     { scene: state.scene, content: state.content, manifest: state.manifest },
     scene,
@@ -197,7 +196,7 @@ function applyHeader(
   const scene = state.scene;
   const current = scene.entities.find((e) => e.id === id);
   if (current === undefined) return { ok: false, error: historyInvalid(requestId) };
-  // Records written before phase 12 carry a two-field header; the flags default.
+  // Older records carry a two-field header; the flags default.
   const next: EntityHeader = fullHeader(header);
   const result = withEntityHeader(scene, id, next, order, transform);
   if (result === null) return { ok: false, error: historyInvalid(requestId) };
@@ -250,7 +249,7 @@ function applyMove(
 }
 
 /**
- * Apply a history entry's INVERSE (undo, §8.4/§9.1). `state` must be the
+ * Apply a history entry's INVERSE (undo). `state` must be the
  * state AFTER the entry's forward command (the LIFO invariant). Returns the
  * applied result state + the change data in the applied (inverse) direction,
  * or a `history_invalid` error on defensive failure.
@@ -326,7 +325,7 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
       rootId: rootEntry.entity.id,
       entities: inv.entries.map((e) => deepClone(e.entity)),
     };
-    // Phase 23.5: the deleted block layers' cells come back with them.
+    // The deleted block layers' cells come back with them.
     let restored: SceneDocument = scene;
     for (const b of inv.blocks ?? []) restored = withLayerData(restored, b.entityId, b);
     const result = { ...restored, revision: scene.revision + 1, entities: ents };
@@ -341,7 +340,7 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
       ...(after === null ? [] : [after]),
     ]);
     const nextContent: ContentDocument = { ...content, assets: assets as unknown as ContentDocument['assets'] };
-    // §8.5.1: an atomic animated reimport restores the previous FULL
+    // An atomic animated reimport restores the previous FULL
     // `modelAnimation` component in the same transaction; the recorded
     // forward change carries it.
     const anim = entry.change.type === 'publishAsset' ? entry.change.animation : undefined;
@@ -353,11 +352,11 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
       const components = { ...componentsRecord(current) };
       const component = components['modelAnimation'] as Record<string, unknown> | undefined;
       if (component === undefined) return { ok: false, error: historyInvalid(entry.requestId) };
-      // CC-L-1 (Gate L): restore the FULL recorded previous component
+      // Restore the FULL recorded previous component
       // (assetId, version, roles), not roles only — the record is rolled
       // back to the previous `currentVersion` in this same transaction, so
       // the old version binding is exactly what keeps the component a valid
-      // binding (1 ≤ version ≤ currentVersion, project-model §23.3.6);
+      // binding (1 ≤ version ≤ currentVersion);
       // a roles-only restore would leave the NEW version recorded above the
       // rolled-back record (an invalid binding).
       components['modelAnimation'] = deepClone(anim.previous);
@@ -369,7 +368,7 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
       type: 'publishAsset',
       // The mode records the FORWARD direction: a create is undone by removing
       // its record (`restore: null`); a reimport rolls one version back.
-      // Phase 25.7c: the undo of a deleteAsset brings the record back (none before it): a create.
+      // The undo of a deleteAsset brings the record back (none before it): a create.
       mode: inv.restore === null || before === null ? 'create' : 'reimport',
       assetId: inv.assetId,
       previous: before === null ? null : deepClone(before),
@@ -405,7 +404,7 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
   }
 
   if (inv.kind === 'restorePrefab') {
-    // Phase 25.7c: undo of a deletePrefab puts the definition back verbatim.
+    // Undo of a deletePrefab puts the definition back verbatim.
     if (content.prefabs.some((d) => d.prefabId === inv.prefabId)) return { ok: false, error: historyInvalid(entry.requestId) };
     const nextContent: ContentDocument = { ...content, prefabs: sortedPrefabs([...content.prefabs, deepClone(inv.definition)]) };
     const change: CreatePrefabChange = { type: 'createPrefab', prefabId: inv.prefabId, definition: deepClone(inv.definition) };
@@ -414,7 +413,7 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
 
   if (inv.kind === 'removePrefab') {
     // Undo of a createPrefab: remove the definition. By LIFO no later command
-    // exists, so no instance can still reference it (§8.6.4).
+    // exists, so no instance can still reference it.
     const prefabs = content.prefabs.filter((d) => d.prefabId !== inv.prefabId);
     const nextContent: ContentDocument = { ...content, prefabs };
     const change: RemovePrefabChange = { type: 'removePrefab', prefabId: inv.prefabId };
@@ -490,7 +489,7 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
 
 
   if (inv.kind === 'setModes') {
-    // Phase 23.10: the game modes back to what they were.
+    // The game modes back to what they were.
     const before = modesOf(content);
     const change: ChangeData = { type: 'setModes', previous: deepClone(before), next: deepClone(inv.restore) };
     return finish(state, bumped(scene), withModes(content, inv.restore), change, entry.requestId);
@@ -503,14 +502,14 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
   }
 
   if (inv.kind === 'setShell') {
-    // Phase 24.4j: the game shell back to what it was.
+    // The game shell back to what it was.
     const before = shellOf(content);
     const change: ChangeData = { type: 'setShell', previous: before === null ? null : deepClone(before), next: inv.restore === null ? null : deepClone(inv.restore) };
     return finish(state, bumped(scene), withShell(content, inv.restore), change, entry.requestId);
   }
 
   if (inv.kind === 'setEventCues') {
-    // Phase 24.4i: the event → cue table back to what it was.
+    // The event → cue table back to what it was.
     const before = eventCuesOf(content);
     const change: ChangeData = { type: 'setEventCues', previous: deepClone(before), next: deepClone(inv.restore) };
     return finish(state, bumped(scene), withEventCues(content, inv.restore), change, entry.requestId);
@@ -547,7 +546,7 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
   }
 
   if (inv.kind === 'setScriptLibrary') {
-    // Phase 23.7: the library and the dependents recompiled with it move back together.
+    // The library and the dependents recompiled with it move back together.
     const before = scriptLibrariesOf(content).find((l) => l.libraryId === inv.libraryId) ?? null;
     const behaviors = inv.behaviors.map((b) => ({ behaviorId: b.behaviorId, previous: deepClone(content.behaviors.find((x) => x.behaviorId === b.behaviorId) ?? b.restore), next: deepClone(b.restore) }));
     const change: ChangeData = { type: 'setScriptLibrary', libraryId: inv.libraryId, previous: before === null ? null : deepClone(before), next: inv.restore === null ? null : deepClone(inv.restore), behaviors };
@@ -555,7 +554,7 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
   }
 
   if (inv.kind === 'setScriptLibraries') {
-    // Phase 25.9: every library of a staged commit and the dependents recompiled with them move back together.
+    // Every library of a staged commit and the dependents recompiled with them move back together.
     let next = content;
     const libraries = inv.libraries.map((l) => {
       const before = scriptLibrariesOf(content).find((x) => x.libraryId === l.libraryId) ?? null;
@@ -568,21 +567,21 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
   }
 
   if (inv.kind === 'setTimeline') {
-    // Phase 23.17: one timeline back to what it was.
+    // One timeline back to what it was.
     const before = timelineOf(content, inv.timelineId);
     const change: ChangeData = { type: 'setTimeline', timelineId: inv.timelineId, previous: before === null ? null : deepClone(before), next: inv.restore === null ? null : deepClone(inv.restore) };
     return finish(state, bumped(scene), withTimeline(content, inv.timelineId, inv.restore), change, entry.requestId);
   }
 
   if (inv.kind === 'setUi') {
-    // Phase 23.9a: one UI document or theme back to what it was.
+    // One UI document or theme back to what it was.
     const before = uiOf(content, inv.uiKind, inv.id);
     const change: ChangeData = { type: 'setUi', uiKind: inv.uiKind, id: inv.id, previous: before === null ? null : deepClone(before), next: inv.restore === null ? null : deepClone(inv.restore) };
     return finish(state, bumped(scene), withUi(content, inv.uiKind, inv.id, inv.restore), change, entry.requestId);
   }
 
   if (inv.kind === 'setDialogue') {
-    // Phase 23.16: one conversation, speaker or the settings back to what it was.
+    // One conversation, speaker or the settings back to what it was.
     const before = dialogueValueOf(content, inv.dialogueKind, inv.id);
     const change: ChangeData = { type: 'setDialogue', dialogueKind: inv.dialogueKind, id: inv.id, previous: before === null ? null : deepClone(before), next: inv.restore === null ? null : deepClone(inv.restore) };
     return finish(state, bumped(scene), withDialogueValue(content, inv.dialogueKind, inv.id, inv.restore), change, entry.requestId);
@@ -642,7 +641,7 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     return finish(state, bumped(scene), nextContent, change, entry.requestId);
   }
 
-  // Phase 23.5: block layers (cells restored as whole layer entries; content items by id).
+  // Block layers (cells restored as whole layer entries; content items by id).
   if (inv.kind === 'editBlocks') {
     const before = layerDataOf(scene, inv.entityId);
     const delta = layerDelta(before, inv.restore);
@@ -679,8 +678,7 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
 
 /**
  * Keys that differ between two behavior components, in declaration order when
- * the declaration resolves (commands.md §5.3: `changedKeys` in declaration
- * order), else in the component's own key order.
+ * the declaration resolves (`changedKeys` is in declaration order), else in the component's own key order.
  */
 function behaviorChangedKeys(
   content: ContentDocument,
@@ -704,7 +702,7 @@ function behaviorChangedKeys(
 }
 
 /**
- * Re-apply a history entry's FORWARD change (redo, §8.4) using the recorded
+ * Re-apply a history entry's FORWARD change (redo) using the recorded
  * values: a redo of a create re-inserts the recorded entity value at the end
  * of the array with its original ID (no ID re-scan); a redo of a setTransform
  * replaces the recorded fields with the recorded `next` values; a redo of a
@@ -780,7 +778,7 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
       rootId: f.rootId,
       deletedIds: [...f.deletedIds],
     };
-    // Phase 23.5: a deleted block layer takes its cells along.
+    // A deleted block layer takes its cells along.
     const result = { ...withoutLayersOf(scene, gone).scene, revision: scene.revision + 1, entities: nextEntities };
     return finish(state, result, state.content, change, entry.requestId);
   }
@@ -788,7 +786,7 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
   if (f.type === 'instantiatePrefab') {
     // Redo of an instantiation: re-insert the recorded entries at their
     // recorded indices with their recorded IDs — no ID re-scan, no new
-    // allocation (§8.7.6).
+    // allocation.
     const ents = deepClone(scene.entities) as unknown as AnyEntity[];
     const existing = new Set(ents.map((e) => e.id));
     for (const en of f.entries) {
@@ -816,7 +814,7 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
 
   if (f.type === 'createPrefab') {
     // Redo of a capture: re-insert the recorded definition value verbatim
-    // (never re-capture, §8.6.4).
+    // (never re-capture).
     if (content.prefabs.some((d) => d.prefabId === f.prefabId)) {
       return { ok: false, error: historyInvalid(entry.requestId) };
     }
@@ -831,7 +829,7 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
   }
 
   if (f.type === 'removeAsset') {
-    // Phase 25.7c: redo of a deleteAsset.
+    // Redo of a deleteAsset.
     if (!content.assets.some((a) => a.assetId === f.assetId)) return { ok: false, error: historyInvalid(entry.requestId) };
     const nextContent: ContentDocument = { ...content, assets: content.assets.filter((a) => a.assetId !== f.assetId) };
     const change: ChangeData = { type: 'removeAsset', assetId: f.assetId, previous: deepClone(f.previous) };
@@ -839,7 +837,7 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
   }
 
   if (f.type === 'removePrefab') {
-    // Phase 25.7c: redo of a deletePrefab.
+    // Redo of a deletePrefab.
     if (!content.prefabs.some((d) => d.prefabId === f.prefabId)) return { ok: false, error: historyInvalid(entry.requestId) };
     const nextContent: ContentDocument = { ...content, prefabs: content.prefabs.filter((d) => d.prefabId !== f.prefabId) };
     const change: RemovePrefabChange = { type: 'removePrefab', prefabId: f.prefabId };
@@ -861,8 +859,8 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
       const components = { ...componentsRecord(current) };
       const component = components['modelAnimation'] as Record<string, unknown> | undefined;
       if (component === undefined) return { ok: false, error: historyInvalid(entry.requestId) };
-      // CC-L-1 (Gate L): redo re-applies the recorded FULL next component
-      // (recorded-value rule, §9.1) — version and roles together, never a
+      // Redo re-applies the recorded FULL next component
+      // (recorded-value rule) — version and roles together, never a
       // roles-only re-point against whatever version the record now holds.
       components['modelAnimation'] = deepClone(f.animation.next);
       const nextEntities = [...scene.entities];
@@ -1139,7 +1137,7 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     return finish(state, bumped(scene), nextContent, change, entry.requestId);
   }
 
-  // Phase 23.5: block layers — redo re-applies the recorded layer entry / content item.
+  // Block layers — redo re-applies the recorded layer entry / content item.
   if (f.type === 'editBlocks') {
     const inv = entry.inverse as import('./types').EditBlocksInverse;
     const before = layerDataOf(scene, f.entityId);
@@ -1185,7 +1183,7 @@ export interface HistoryOutcome {
 }
 
 /**
- * Execute `undo` on the command state (§8.4/§9.1): requires `c > 0`,
+ * Execute `undo` on the command state: requires `c > 0`,
  * applies `entries[c-1].inverse`, `c--`. Returns the new state + the
  * applied-direction change data, or a structured error.
  */
@@ -1211,7 +1209,7 @@ export function executeUndo(
 }
 
 /**
- * Execute `redo` on the command state (§8.4/§9.1): requires `c < n`,
+ * Execute `redo` on the command state: requires `c < n`,
  * re-applies `entries[c].change` forward (recorded values), `c++`.
  */
 export function executeRedo(
@@ -1238,7 +1236,7 @@ export function executeRedo(
 }
 
 /**
- * Record a fresh forward edit (§9.1 table): truncate the redo tail
+ * Record a fresh forward edit: truncate the redo tail
  * `entries[c..n-1]` (fresh edits invalidate redo), append the entry, `c++`,
  * assign the next diagnostic seq.
  */
@@ -1254,7 +1252,7 @@ export function recordForwardEdit(
   };
 }
 
-/** Empty initial history (a fresh process starts here, §9.2). */
+/** Empty initial history (a fresh process starts here). */
 export function createHistory(): HistoryState {
   return { entries: [], cursor: 0, seq: 1 };
 }

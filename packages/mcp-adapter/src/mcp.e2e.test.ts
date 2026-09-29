@@ -1,11 +1,11 @@
 /**
- * End-to-end MCP test (packet 11): a REAL `@modelcontextprotocol/sdk` Client
+ * End-to-end MCP test: a REAL `@modelcontextprotocol/sdk` Client
  * talks MCP to the Thirdlight MCP server over an in-memory transport, and the
  * server routes every call into a REAL backend (createTestBackend) over its
  * `/api/v1` surface. This is a genuine MCP client↔server↔backend round-trip —
  * not a unit test of the tool functions in isolation.
  *
- * Proves (charter §7 / m1-acceptance §2.2 packet-11 rows):
+ * Proves:
  *   - the MCP protocol handshake + tools/list expose the tool surface;
  *   - command submission creates a box and changes its transform (revision
  *     advances), and the change is observable by inspection (query);
@@ -17,8 +17,7 @@
  *   - session listing returns a structured result.
  *
  * The positive play/screenshot path (a connected preview rendering + a real
- * pixel capture) requires a browser and is UNVERIFIED here (no browser in this
- * container — carried to Gate C), consistent with packets 08/09/10.
+ * pixel capture) requires a browser and is not covered here.
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
@@ -53,7 +52,7 @@ beforeAll(async () => {
     tokens: [{ token: TOKEN, scope: `authoring:${PROJECT}` }],
   });
   backend = tb.backend;
-  // A fresh project starts at revision 0 with the §15 default scene.
+  // A fresh project starts at revision 0 with the default scene.
   backend._test.service.createProject(PROJECT, 'Demo');
 
   const origin = `http://127.0.0.1:${backend.portAuthoring}`;

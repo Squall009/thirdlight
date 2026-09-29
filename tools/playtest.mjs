@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Phase 25.17: the headless play-test runner, from the command line — the
+ * The headless play-test runner, from the command line — the
  * same runner as the MCP tool `tl_playtest` (dist/mcp-adapter/playtest.mjs,
  * built by `npm run build`), against the RUNNING backend. With no editor open
  * the backend plays in its headless editor.

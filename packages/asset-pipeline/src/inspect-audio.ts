@@ -1,17 +1,16 @@
 /**
- * `inspectAudio` — the bounded PCM-WAV inspector (presentation.md §41.4,
- * project-model.md §18.5/§18.6 for the `pcm-wav` recipe and `PcmWavMetrics`
- * member).
+ * `inspectAudio` — the bounded PCM-WAV inspector (the `pcm-wav` recipe and
+ * the `PcmWavMetrics` member).
  *
  * A pure leaf: bytes in, a non-authoritative proposal out. No I/O, no Node
  * built-in, no decoder/codec library, no `three`, no network, no cache write,
  * no asset-ID decision, no source execution and no state mutation
- * (`dependencies.md` §4.1). The 12 stages of §41.4.4 run in order and stop at
+ * (`dependencies.md`). The 12 inspection stages run in order and stop at
  * the first failing stage; every number in `metrics` is re-derived from the
  * exact header bytes, never read from a caller-supplied declaration.
  *
  * Rejection is never driven by a file extension, a caller MIME type or a
- * declared `kind`: the bytes alone decide (§41.4.4). `kind`/profile mismatch is
+ * declared `kind`: the bytes alone decide. `kind`/profile mismatch is
  * a publication error (`asset_kind_mismatch`), not an inspection outcome.
  */
 
@@ -135,7 +134,7 @@ function resolveAudioOptions(options: AudioImportOptions): void {
 }
 
 /**
- * The 12 stages of presentation.md §41.4.4, in order. Returns the rejection
+ * The 12 inspection stages, in order. Returns the rejection
  * diagnostics or the accepted `{ metrics, inspection }`. The injected job's
  * cancellation/deadline is the accepted cancellation path (the same
  * `ImportJobPort` contract the GLB inspector and the workspace use): a
@@ -376,7 +375,7 @@ function inspectStages(
 }
 
 /**
- * Bounded PCM-WAV inspection (presentation.md §41.4.4). Deterministic, pure and
+ * Bounded PCM-WAV inspection. Deterministic, pure and
  * total over hostile bytes: malformed input yields a `rejected` proposal with
  * the first failing stage's diagnostics, never an exception. Invalid *options*
  * throw `TypeError` (a caller programming error).

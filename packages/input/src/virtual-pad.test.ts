@@ -1,5 +1,5 @@
 /**
- * Phase 25.15: the virtual standard gamepad read through the bindings — a
+ * The virtual standard gamepad read through the bindings — a
  * button bound to an action gives pressed then held then released, a stick
  * gives a 2D axis past its dead zone, a hold binding counts after its time,
  * and the D-pad, A, B and start give menu edges on a fresh press.

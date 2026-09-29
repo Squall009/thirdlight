@@ -1,25 +1,24 @@
 /**
- * The bounded semantic menu-control channel (delivery.md §4.1/§4.2) — the
+ * The bounded semantic menu-control channel — the
  * pure state machine the browser input owner feeds from its device events.
  *
- * This module is the "approved menu-control seam" of `packages/input`
- * (packet 55): a second, SEPARATE channel beside the gameplay `ActionFrame`
- * (which it never touches — a menu action never enters a runtime
- * `ActionFrame`, delivery.md §4.1). The browser owner (`browser.ts`) reduces
+ * This module is the "approved menu-control seam" of `packages/input`: a
+ * second, SEPARATE channel beside the gameplay `ActionFrame` (which it never
+ * touches — a menu action never enters a runtime `ActionFrame`). The browser owner (`browser.ts`) reduces
  * real keyboard/gamepad events to plain-data calls here and reads the
  * `MenuSample` out; the game host consumes `confirm`/`mute` and calls
- * `consumeConfirm()` when it consumes a press (the §4.2 fresh-release
+ * `consumeConfirm()` when it consumes a press (the fresh-release
  * state machine is here so the owner can suppress the same physical
  * press from also becoming a jump).
  *
- * Bindings (delivery.md §4.1, hard constants — no remapping):
+ * Bindings (hard constants — no remapping):
  *  - `Enter` OR `Space` OR a fresh primary gamepad button (button 0) →
  *    `menuConfirm`;
  *  - `KeyM` → `mute` toggle.
- * `Enter` is not a gameplay binding (packet-38 probe: `Enter → unbound`).
+ * `Enter` is not a gameplay binding.
  *
  * No DOM, no `KeyboardEvent`/`Gamepad` objects, no clock — plain data in,
- * plain data out (input.md §5: the browser owner is the only module that
+ * plain data out (the browser owner is the only module that
  * touches the environment).
  */
 
@@ -32,15 +31,15 @@ export const MENU_GAMEPAD_CONFIRM_BUTTON = 0;
 
 export type MenuConfirmDevice = 'keyboard' | 'gamepad';
 
-/** One plain-data menu sample (delivery.md §4.1; read + cleared per sample). */
+/** One plain-data menu sample (read + cleared per sample). */
 export interface MenuSample {
   /** A fresh confirm press since the previous sample (latched). */
   readonly confirm: boolean;
   /** A fresh mute press since the previous sample (latched). */
   readonly mute: boolean;
   /**
-   * A consumed confirm press is still physically held (delivery.md §4.2
-   * `consumed(needsRelease)`): both a re-report `menuConfirm` and the jump
+   * A consumed confirm press is still physically held
+   * (`consumed(needsRelease)`): both a re-report `menuConfirm` and the jump
    * from the same physical press are suppressed until the release.
    */
   readonly confirmNeedsRelease: boolean;
@@ -55,9 +54,9 @@ export interface MenuSample {
 /**
  * The pure menu state machine. Presses are first transitions only (the
  * browser owner already drops `event.repeat`); releases and device loss
- * clear the held state. `clear('all')` is the focus/visibility-loss path
- * (delivery.md §4.6); `clear('gamepad')` is the disconnect/index-reuse path
- * (delivery.md §4.3 — keyboard play is unaffected, nothing stays stuck).
+ * clear the held state. `clear('all')` is the focus/visibility-loss path;
+ * `clear('gamepad')` is the disconnect/index-reuse path
+ * (keyboard play is unaffected, nothing stays stuck).
  */
 export interface MenuController {
   /** A keyboard press first transition (the owner already filtered repeat/editable). */
@@ -85,11 +84,11 @@ export function createMenuController(): MenuController {
   const kbConfirmHeld = new Set<string>();
   /** The mute code currently held. */
   let kbMuteHeld = false;
-  /** A consumed confirm is still held on the keyboard (§4.2). */
+  /** A consumed confirm is still held on the keyboard. */
   let kbConfirmConsumed = false;
   /** The pad's primary button is physically held. */
   let padConfirmHeld = false;
-  /** A consumed confirm is still held on the pad (§4.2). */
+  /** A consumed confirm is still held on the pad. */
   let padConfirmConsumed = false;
   /** Fresh-press latches since the previous `sample()`. */
   let confirmLatch = false;
@@ -175,7 +174,7 @@ export function createMenuController(): MenuController {
         confirmDevice: needsKb ? 'keyboard' : needsPad ? 'gamepad' : null,
         // The consumed press may only suppress the jump of the SAME physical
         // source: keyboard Space (the jump key) or the pad primary button
-        // (the pad's M2 jump, button 0).
+        // (the pad's default jump, button 0).
         suppressKeyboardJump: needsKb && kbConfirmHeld.has('Space'),
         suppressGamepadJump: needsPad,
       };

@@ -1,5 +1,5 @@
 /**
- * Phase 23.0: the Rapier 3D port (real rapier3d-compat WASM). A capsule
+ * The Rapier 3D port (real rapier3d-compat WASM). A capsule
  * dropped over a box falls (the test stages the fall the runtime stages:
  * gravity along −Y) and rests on the box's top; on a box rotated about X it
  * rests on the tilted top, higher on the raised side; a ray hits the nearest

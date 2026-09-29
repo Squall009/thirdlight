@@ -1,5 +1,5 @@
 /**
- * Phase 9.6: the final bake service with a fake Blender on the `local` host
+ * The final bake service with a fake Blender on the `local` host
  * (a script that answers like the real bake script: progress lines, one PNG
  * per atlas). The real Cycles script runs in the lightmaps e2e.
  */

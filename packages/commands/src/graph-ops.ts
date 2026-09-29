@@ -1,5 +1,5 @@
 /**
- * Phase 16.1: graph commands.
+ * Graph commands.
  *
  * `graphEdit {owner: {kind, id}, ops}` applies a list of generic graph ops
  * (project-model `GraphOp`: addNodes, removeNodes, moveNodes, setNodeData,
@@ -12,21 +12,21 @@
  *
  * Owner kinds say where a graph is stored. `graph` is a standalone document
  * in `content.graphs` (created with `setGraph`, removed with `deleteGraph`).
- * Phase 16.2: `animator` — an animator controller's layers and blend trees
+ * `animator` — an animator controller's layers and blend trees
  * (project-model animator-graph.ts): the ops are applied to the graph read
  * from the controller and the result is written back into it, so the
  * command records the same controller change `setAnimator` makes
  * (`setAnimators` previous/next, undone by restoring the previous list).
- * Phase 18.0: `material` — a graph material's graph (`content.materials[i].graph`,
+ * `material` — a graph material's graph (`content.materials[i].graph`,
  * owner id = the materialId); the change carries the ops like a standalone
  * graph (a move in a large graph stays a small record). Material functions
- * (18.1) are standalone graphs of kind `material-function`; calls in any
+ *  are standalone graphs of kind `material-function`; calls in any
  * graph resolve their ports through the validation context (the project's
  * standalone graphs and, in a material, its exposed parameters).
- * Phase 19.0: `behavior` — a visual script (`BehaviorRecord.graph`, kind
+ * `behavior` — a visual script (`BehaviorRecord.graph`, kind
  * `behavior`); the change is the generic `graphEdit` with its ops, undone by
  * the inverse ops. Editing the graph does not touch the published source:
- * publishing compiles it (the behavior source route). Phase 19.1: owner id
+ * publishing compiles it (the behavior source route). Owner id
  * `<behaviorId>#<functionId>` is one of the script's functions (kind
  * `behavior-function`, `BehaviorRecord.functions`): a function exists while
  * its graph has nodes — an edit that adds nodes to a new id creates it, one
@@ -34,7 +34,7 @@
  * Calls resolve against the script's functions and the project's shared
  * functions (standalone graphs of kind `behavior-library`).
  * publishing compiles it (the behavior source route).
- * Phase 20.0: `effect` — one particle system's graph (`content.effects[i].systems[j].graph`,
+ * `effect` — one particle system's graph (`content.effects[i].systems[j].graph`,
  * kind `effect`, owner id `<effectId>/<systemId>`); the change carries the ops,
  * undone by the inverse ops. The effect's exposed parameters type its Parameter nodes.
  */
@@ -87,18 +87,18 @@ type WithAnimators = ContentDocument & { animators?: AnimatorController[] };
 
 /** Where an owner kind keeps its graph (and which graph kind it is). */
 export interface GraphOwnerAdapter {
-  /** The owner's graph and kind (and, phase 18.1, the context it validates in), or null when the owner does not exist. */
+  /** The owner's graph and kind (and the context it validates in), or null when the owner does not exist. */
   read(content: ContentDocument, id: string): { kind: GraphKindDef; graph: GraphData; ctx?: GraphContext } | null;
   /** The content with the owner's graph replaced, or why the graph does not fit the owner. */
   write(content: ContentDocument, id: string, graph: GraphData): ContentDocument | { refused: string };
   /**
-   * Phase 16.2: the change and undo an edit records when the owner stores its
+   * The change and undo an edit records when the owner stores its
    * graph as its own data (absent = a `graphEdit` change with the ops, undone
    * by the inverse ops).
    */
   record?(before: ContentDocument, after: ContentDocument): { change: ForwardChange; inverse: InverseSpec };
   /**
-   * Phase 19.0: the context an edited graph validates in when it depends on
+   * The context an edited graph validates in when it depends on
    * the graph itself (absent = the context `read` gave) — a visual script's
    * variables type its Get/Set ports, so an edit that adds a variable and
    * wires it validates against the result.
@@ -106,7 +106,7 @@ export interface GraphOwnerAdapter {
   contextOf?(content: ContentDocument, graph: GraphData, id: string): GraphContext;
 }
 
-/** Phase 19.1: `<behaviorId>` (the script) or `<behaviorId>#<functionId>` (one of its functions). */
+/** `<behaviorId>` (the script) or `<behaviorId>#<functionId>` (one of its functions). */
 export function parseBehaviorOwnerId(id: string): { behaviorId: string; functionId: string | null } {
   const i = id.indexOf('#');
   return i < 0 ? { behaviorId: id, functionId: null } : { behaviorId: id.slice(0, i), functionId: id.slice(i + 1) };
@@ -119,7 +119,7 @@ function withFunction(list: readonly BehaviorFunctionRecord[], functionId: strin
   return rest.sort((a, b) => (a.functionId < b.functionId ? -1 : a.functionId > b.functionId ? 1 : 0));
 }
 
-/** Phase 19.0: the behavior records (a visual script keeps its graph in its record). */
+/** The behavior records (a visual script keeps its graph in its record). */
 const behaviorsOf = (content: ContentDocument): BehaviorRecord[] => (content as ContentDocument & { behaviors?: BehaviorRecord[] }).behaviors ?? [];
 
 const animatorsOf = (content: ContentDocument): AnimatorController[] => (content as WithAnimators).animators ?? [];
@@ -133,13 +133,13 @@ export const GRAPH_OWNERS: Readonly<Record<string, GraphOwnerAdapter>> = {
     },
     write(content, id, graph) {
       const list = ((content as WithGraphs).graphs ?? []).map((g) => (g.graphId === id ? { ...g, graph } : g));
-      // Phase 18.1: graphs that call this one (material functions) must still fit its interface.
+      // Graphs that call this one (material functions) must still fit its interface.
       const why = callersRefusal(content, list);
       if (why !== null) return { refused: why };
       return { ...(content as WithGraphs), graphs: list } as ContentDocument;
     },
   },
-  // Phase 18.0: a graph material's graph (owner id = materialId; a material without a graph has none — convert it with setMaterial).
+  // A graph material's graph (owner id = materialId; a material without a graph has none — convert it with setMaterial).
   material: {
     read(content, id) {
       const m = ((content as WithMaterials).materials ?? []).find((x) => x.materialId === id);
@@ -157,7 +157,7 @@ export const GRAPH_OWNERS: Readonly<Record<string, GraphOwnerAdapter>> = {
       return { ...(content as WithMaterials), materials: canonicalMaterials(list) } as ContentDocument;
     },
   },
-  // Phase 16.2: `<controllerId>` (base layer), `<controllerId>@<n>` (override layer n), `<controllerId>#<stateId>` (a blend tree).
+  // `<controllerId>` (base layer), `<controllerId>@<n>` (override layer n), `<controllerId>#<stateId>` (a blend tree).
   animator: {
     read(content, id) {
       const target = parseAnimatorOwnerId(id);
@@ -180,7 +180,7 @@ export const GRAPH_OWNERS: Readonly<Record<string, GraphOwnerAdapter>> = {
       return { change: { type: 'setAnimators', previous, next: deepClone(animatorsOf(after)) }, inverse: { kind: 'setAnimators', restore: previous } };
     },
   },
-  // Phase 20.0: `<effectId>/<systemId>` — a particle system's graph.
+  // `<effectId>/<systemId>` — a particle system's graph.
   effect: {
     read(content, id) {
       const target = parseEffectSystemOwnerId(id);
@@ -195,8 +195,8 @@ export const GRAPH_OWNERS: Readonly<Record<string, GraphOwnerAdapter>> = {
       return withEffect(content, e.effectId, { ...e, systems: e.systems.map((x) => (x.systemId === target.systemId ? { ...x, graph } : x)) });
     },
   },
-  // Phase 19.0: `<behaviorId>` — a visual script's graph (only behaviors that are visual scripts have one);
-  // phase 19.1: `<behaviorId>#<functionId>` — one of its functions.
+  // `<behaviorId>` — a visual script's graph (only behaviors that are visual scripts have one);
+  // `<behaviorId>#<functionId>` — one of its functions.
   behavior: {
     read(content, id) {
       const target = parseBehaviorOwnerId(id);
@@ -239,7 +239,7 @@ export const GRAPH_OWNERS: Readonly<Record<string, GraphOwnerAdapter>> = {
       return { ...content, behaviors: list } as ContentDocument;
     },
   },
-  // Phase 23.16: `<dialogueId>` — a conversation's graph (kind `dialogue`); conditions and effects must parse.
+  // `<dialogueId>` — a conversation's graph (kind `dialogue`); conditions and effects must parse.
   dialogue: {
     read(content, id) {
       const d = dialoguesOf(content).find((x) => x.dialogueId === id);
@@ -258,7 +258,7 @@ export const GRAPH_OWNERS: Readonly<Record<string, GraphOwnerAdapter>> = {
 export const GRAPH_OWNER_KINDS: readonly string[] = Object.keys(GRAPH_OWNERS);
 
 /**
- * Phase 18.1: why a new list of standalone graphs breaks a caller (a graph
+ * Why a new list of standalone graphs breaks a caller (a graph
  * material or another graph calling a changed material function: a wired
  * port gone, a call cycle), or null. The resulting-state check would refuse
  * it too; this names the caller.
@@ -268,7 +268,7 @@ function callersRefusal(content: ContentDocument, graphs: readonly GraphDocument
   validateGraphDocuments(GRAPH_KINDS, graphs, '/graphs', errors);
   const mats = (content as WithMaterials).materials ?? [];
   if (errors.length === 0 && mats.length > 0) validateMaterials(mats, '/materials', errors, graphDocumentsContext(GRAPH_KINDS, graphs));
-  // Phase 19.1: visual scripts calling a changed shared function.
+  // Visual scripts calling a changed shared function.
   const scripts = behaviorsOf(content);
   if (errors.length === 0) {
     scripts.forEach((b, i) => {
@@ -352,7 +352,7 @@ export function withGraphDocument(content: ContentDocument, graphId: string, doc
 export function applySetGraph(input: OpInput, args: { graph: GraphDocument }): OpOutcome {
   const catalog = contentOf(input.content) as WithGraphs;
   const errors: ModelErrorV2[] = [];
-  // Phase 18.1: calls resolve against the project's graphs with this one in place.
+  // Calls resolve against the project's graphs with this one in place.
   const others = (catalog.graphs ?? []).filter((g) => !(typeof args.graph === 'object' && args.graph !== null && g.graphId === args.graph.graphId));
   validateGraphDocument(GRAPH_KINDS, args.graph, '', errors, graphDocumentsContext(GRAPH_KINDS, [...others, args.graph]));
   if (errors.length > 0) return { ok: false, error: modelError(errors[0]!, '/args/graph') };
@@ -371,7 +371,7 @@ export function applyDeleteGraph(input: OpInput, args: { graphId: string }): OpO
   const catalog = contentOf(input.content) as WithGraphs;
   const previous = (catalog.graphs ?? []).find((g) => g.graphId === args.graphId) ?? null;
   if (previous === null) return { ok: false, error: { ...fieldValue('/args/graphId', args.graphId, 'an existing graphId', 'no graph with this id'), code: 'reference_missing' } };
-  // Phase 18.1: a material function still called somewhere stays.
+  // A material function still called somewhere stays.
   const why = callersRefusal(catalog, (catalog.graphs ?? []).filter((g) => g.graphId !== args.graphId));
   if (why !== null) return { ok: false, error: { ...fieldValue('/args/graphId', args.graphId, 'a graph nothing calls', why), code: 'reference_missing' } };
   return commit(input, withGraphDocument(catalog, args.graphId, null), { type: 'setGraph', graphId: args.graphId, previous: deepClone(previous), next: null }, { kind: 'setGraph', graphId: args.graphId, restore: deepClone(previous) });

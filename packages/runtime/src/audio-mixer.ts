@@ -1,5 +1,5 @@
 /**
- * Phase 23.13: the simulation's audio intent log (`ctx.audio`).
+ * The simulation's audio intent log (`ctx.audio`).
  *
  * Scripts never touch sound. What they ask for is simulation state here —
  * the handle a play gets, each voice's volume/fade, pitch, loop flag and
@@ -20,7 +20,7 @@
  * it calls `releaseMusic` (or the run restarts); meanwhile the game flow's
  * level/title music waits and comes back on release. The music duck is the
  * deepest of every duck request alive — the script's `duck`, each playing
- * stinger's, and (phase 23.16) dialogue voice — and comes back up when the
+ * stinger's, and dialogue voice — and comes back up when the
  * deepest one ends.
  */
 import type { AudioFinishedEvent, AudioMusicState, AudioPlayOptions, AudioStingerOptions } from './types';
@@ -94,7 +94,7 @@ export type AudioCommand =
   | { readonly op: 'set'; readonly stepIndex: number; readonly handle: number; readonly volume?: number; readonly pitch?: number; readonly loop?: boolean }
   /** Music: a track the scripts hold (null: silence), or `release` (back to the game flow's music). */
   | { readonly op: 'music'; readonly stepIndex: number; readonly assetId: string | null; readonly fade: number; readonly release?: true }
-  /** The music duck: the track's level (1 = not ducked), reached over `seconds`. Phase 23.16: `bus: 'sfx'` ducks the SFX bus instead (dialogue voice). */
+  /** The music duck: the track's level (1 = not ducked), reached over `seconds`. `bus: 'sfx'` ducks the SFX bus instead (dialogue voice). */
   | { readonly op: 'duck'; readonly stepIndex: number; readonly level: number; readonly seconds: number; readonly bus?: 'sfx' }
   /** A script's mix on one bus (on top of the player's volume), reached over `seconds`. */
   | { readonly op: 'bus'; readonly stepIndex: number; readonly bus: AudioBusName; readonly volume: number; readonly seconds: number }
@@ -196,7 +196,7 @@ export class AudioMixer {
   /** Duck requests by source (`script`, `stinger:<handle>`, `voice`), each a level 0–1 and its fade. */
   private readonly ducks = new Map<string, { level: number; fade: number }>();
   private duckLevel = 1;
-  /** Phase 23.16: the SFX duck (dialogue voice ducks effects too), like the music's. */
+  /** The SFX duck (dialogue voice ducks effects too), like the music's. */
   private readonly sfxDucks = new Map<string, { level: number; fade: number }>();
   private sfxDuckLevel = 1;
   private readonly busMix = new Map<AudioBusName, Ramp>();
@@ -385,7 +385,7 @@ export class AudioMixer {
     this.push({ op: 'duck', stepIndex: this.stepOf(), level: deepest, seconds: fade, ...(bus === 'sfx' ? { bus: 'sfx' as const } : {}) });
   }
 
-  /** Phase 23.16: the SFX duck now (1 = not ducked). */
+  /** The SFX duck now (1 = not ducked). */
   sfxDuck(): number {
     return this.sfxDuckLevel;
   }
@@ -464,7 +464,7 @@ export class AudioMixer {
       voices: [...this.voices.values()].map((v) => [v.handle, v.assetId, v.bus, v.loop, v.pitch, v.pos, rampValue(v.volume), v.stopping]),
       music: this.musicTrack === undefined ? '<flow>' : this.musicTrack,
       duck: this.duckLevel,
-      // Phase 23.16: only while effects are ducked (the digests of every earlier project stay as they were).
+      // Only while effects are ducked (the digests of every earlier project stay as they were).
       ...(this.sfxDuckLevel !== 1 ? { sfxDuck: this.sfxDuckLevel } : {}),
       buses: [...this.busMix.entries()].map(([b, r]) => [b, rampValue(r)]),
     };

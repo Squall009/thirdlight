@@ -1,5 +1,5 @@
 /**
- * Phase 19.0: publishing a visual script over HTTP — the behavior source
+ * Publishing a visual script over HTTP — the behavior source
  * route with `graph: true` generates the source from the stored graph and
  * runs the same preparation and publication as a TypeScript source: a check
  * reports the digest (and node-attributed problems), the trust acknowledgment
@@ -162,7 +162,7 @@ describe('phase 19.1: a script with a function and a shared function (HTTP)', ()
     const second = await source({ check: true, graph: true, behaviorId: 'caller' });
     expect(second.json).toMatchObject({ ok: true, compiled: true });
     expect(second.json['sourceDigest']).not.toBe(first.json['sourceDigest']);
-    // Phase 19.2: publishing keeps the script's functions (the stored graph still generates the published source).
+    // Publishing keeps the script's functions (the stored graph still generates the published source).
     const digest = String(second.json['sourceDigest']);
     expect((await command('acknowledgeBehaviorTrust', { sourceDigest: digest })).ok).toBe(true);
     const published = await source({ graph: true, behaviorId: 'caller', displayName: 'Caller', expectedRevision: await revision(), requestId: mkRequestId() });

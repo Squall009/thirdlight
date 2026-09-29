@@ -1,7 +1,7 @@
 /**
- * Play session state machine + relay timeouts — sessions.md §10–§12.
+ * Play session state machine + relay timeouts.
  *
- * States (normative, §10.2):
+ * States (normative):
  *   active → presented → stopping → stopped
  *   active → (play.preview.failed) → stopping (reason "preview_failed")
  *   active → (present timeout 15 s) → stopping (reason "preview_timeout")
@@ -9,26 +9,25 @@
  *   any → (owner session lost) → stop path (reason "session_lost")
  *
  * Play revisions are frozen: the record's `revision`/`snapshotId` never
- * change after start (§10.2). The stop path is how `preview_failed`,
+ * change after start. The stop path is how `preview_failed`,
  * `preview_timeout`, `expired`, and `session_lost` terminations are
- * delivered (§10.3); if the owner WS is detached at that moment the play
+ * delivered; if the owner WS is detached at that moment the play
  * is marked `stopped` (unconfirmed) directly — there is no relay path
  * through a dead editor.
  *
- * Interpretations (recorded in docs/handoffs/09.md):
- * - `expiresAt` (the §11.5 inactivity TTL) is computed from `createdAt`
+ * Interpretations:
+ * - `expiresAt` (the inactivity TTL) is computed from `createdAt`
  *   and reset by activity (presented, relay acks, stop ack).
  * - A `*.ack` with `ok: true` but a missing/invalid payload is treated as
  *   a relay failure (`relay_failed`), not a timeout.
  * - The `play.stop.request` payload carries only `"request"` or
- *   `"expired"` (§11.5); other terminations ride on `"request"` when the
+ *   `"expired"`; other terminations ride on `"request"` when the
  *   owner WS is alive.
  */
 import type { RuntimeSnapshotDoc } from '@thirdlight/protocol';
 
 /**
- * The `screenshot.ack` / `play.diagnostics.ack` payload shapes (sessions.md
- * §7.2). Kept local (structural) so this module stays within the backend's
+ * The `screenshot.ack` / `play.diagnostics.ack` payload shapes. Kept local (structural) so this module stays within the backend's
  * edge table; the protocol's strict parser is the authoritative validator.
  */
 export interface ScreenshotAckDoc {
@@ -47,7 +46,7 @@ export interface DiagnosticsAckDoc {
   diagnostics?: unknown;
   error?: { code: string; message?: string };
 }
-/** §7.2/§20.1 `game.control.ack` (the preview's exact control result relayed back). */
+/** `game.control.ack` (the preview's exact control result relayed back). */
 export interface GameControlAckDoc {
   type: 'game.control.ack';
   relayId: string;
@@ -55,7 +54,7 @@ export interface GameControlAckDoc {
   result?: unknown;
   error?: { code: string; message?: string };
 }
-/** §7.2/§20.1 `game.observe.ack` (the preview's exact observation relayed back). */
+/** `game.observe.ack` (the preview's exact observation relayed back). */
 export interface GameObserveAckDoc {
   type: 'game.observe.ack';
   relayId: string;
@@ -76,13 +75,13 @@ export type RelayOutcome =
       kind: 'screenshot' | 'diagnostics';
       code: 'screenshot_timeout' | 'diagnostics_timeout' | 'relay_failed';
       cause?: string;
-      /** Phase 25.2: the preview's own message (why the capture failed), when it sent one. */
+      /** The preview's own message (why the capture failed), when it sent one. */
       reason?: string;
     };
 
-/** One bounded input-exercise relay frame (sessions.md §18.1.1). */export interface InputRelayFrame {
+/** One bounded input-exercise relay frame. */export interface InputRelayFrame {
   stepOffset: number;
-  /** Phase 9.8: named input actions (phase 24.8: frame version 2, no fixed move/jump channels). */
+  /** Named input actions (frame version 2, no fixed move/jump channels). */
   actions?: Record<string, unknown>;
 }
 
@@ -102,7 +101,7 @@ export interface PendingRelay {
   timer?: ReturnType<typeof setTimeout>;
 }
 
-/** The §20 closed failure set a game relay may return (never a fabricated value). */
+/** The closed failure set a game relay may return (never a fabricated value). */
 export type GameRelayCode =
   | 'game_relay_timeout'
   | 'game_relay_rejected'
@@ -117,7 +116,7 @@ export type GameRelayOutcome =
   | { ok: true; kind: 'control' | 'observe'; result: unknown }
   | { ok: false; kind: 'control' | 'observe'; code: GameRelayCode; cause?: string; runId?: string };
 
-/** A pending §20 control/observation relay (it carries no bytes and no capability). */
+/** A pending control/observation relay (it carries no bytes and no capability). */
 export interface PendingGameRelay {
   kind: 'control' | 'observe';
   resolve: (r: GameRelayOutcome) => void;
@@ -131,38 +130,37 @@ export interface PlayRecord {
   revision: number;
   snapshotId: string;
   /**
-   * The frozen runtime snapshot while the play runs. Phase 25.24 (D48): null
+   * The frozen runtime snapshot while the play runs. Null
    * once the play has stopped — an ended record keeps only its `ended`
    * answer, not the scene.
    */
   snapshot: RuntimeSnapshotDoc | null;
-  /** Phase 25.24a: the backend's part of the start (ms per stage: session, state, capture, bundle, closure.*, publish, total). */
+  /** The backend's part of the start (ms per stage: session, state, capture, bundle, closure.*, publish, total). */
   buildTimings?: Record<string, number>;
   /**
-   * Phase 25.9: the play's compiled outputs' source maps by output digest
+   * The play's compiled outputs' source maps by output digest
    * (the diagnostics route maps script error and log locations back to the
    * source files with them; released when the play ends).
    */
   sourceMaps?: ReadonlyMap<string, { behaviorId?: string; libraryId?: string; sourceMap: string }>;
-  /** Phase 21.4: the snapshot as JSON bytes, serialized once for the snapshot route (released with the snapshot). */
+  /** The snapshot as JSON bytes, serialized once for the snapshot route (released with the snapshot). */
   snapshotBytes?: Uint8Array;
   demo: boolean;
-  /** The immutable runtime-content manifest `buildId` (sessions.md §10.5). */
+  /** The immutable runtime-content manifest `buildId`. */
   buildId: string;
   /**
-   * The last-known run identity `${snapshotId}#${replayEpoch}` (delivery.md
-   * §5.3). It starts at `${snapshotId}#0` and only ever advances from an
+   * The last-known run identity `${snapshotId}#${replayEpoch}`. It starts at `${snapshotId}#0` and only ever advances from an
    * accepted control/observation result, so a stale `expectedRunId` is
-   * detectable backend-side without a second channel (sessions.md §20.3).
+   * detectable backend-side without a second channel.
    */
   gameRunId: string;
   state: PlayState;
   reason?: PlayStopReason;
-  /** Phase 25.5: why it ended, in words (a preview failure's code and message; who took the editor over). */
+  /** Why it ended, in words (a preview failure's code and message; who took the editor over). */
   endDetail?: string;
-  /** Phase 25.5: ms — when the stop began. */
+  /** Ms — when the stop began. */
   endedAt?: number;
-  /** Phase 25.5: the preview presented it (play.preview.ready) at some point. */
+  /** The preview presented it (play.preview.ready) at some point. */
   presented: boolean;
   stopUnconfirmed?: boolean;
   /** ms. */
@@ -175,15 +173,15 @@ export interface PlayRecord {
   ttlTimer?: ReturnType<typeof setTimeout>;
   stopAckTimer?: ReturnType<typeof setTimeout>;
   relays: Map<string, PendingRelay>;
-  /** At most one bounded input-exercise relay at a time (§18.1). */
+  /** At most one bounded input-exercise relay at a time. */
   inputRelay?: PendingInputRelay;
-  /** At most one pending §20 control/observation relay at a time. */
+  /** At most one pending control/observation relay at a time. */
   gameRelay?: PendingGameRelay;
   /** The relayId of the pending game relay (ack routing idempotence). */
   gameRelayId?: string;
 }
 
-/** Map a preview-reported failure code into the closed §20 set. */
+/** Map a preview-reported failure code into the closed game-relay set. */
 function mapGameRelayCause(code: string | undefined): GameRelayCode {
   switch (code) {
     case 'game_command_invalid':
@@ -210,16 +208,16 @@ export interface PlayHooks {
   stopAckTimeoutMs: () => number;
   presentTimeoutMs: () => number;
   inputRelayTimeoutMs: () => number;
-  /** A play became terminal (drives the locator grace window, §17.3). */
+  /** A play became terminal (drives the locator grace window). */
   onTerminal?: (playSessionId: string) => void;
-  /** Phase 25.5: a play ended (its record carries the reason, the detail and whether it was presented). */
+  /** A play ended (its record carries the reason, the detail and whether it was presented). */
   onEnded?: (rec: PlayRecord) => void;
   nowMs: () => number;
 }
 
 const DATA_URL_PREFIX = 'data:image/png;base64,';
 
-/** Phase 25.5: how a play ended, as observe / diagnostics / control report it for an ended play. */
+/** How a play ended, as observe / diagnostics / control report it for an ended play. */
 export interface PlayEnd {
   reason: PlayStopReason;
   /** The preview presented the play before it ended. */
@@ -229,7 +227,7 @@ export interface PlayEnd {
   detail?: string;
 }
 
-/** Phase 25.5: the end record of a play that is stopping or stopped (null while it is live). */
+/** The end record of a play that is stopping or stopped (null while it is live). */
 export function playEndOf(rec: PlayRecord): PlayEnd | null {
   if ((rec.state !== 'stopping' && rec.state !== 'stopped') || rec.reason === undefined) return null;
   return {
@@ -240,7 +238,7 @@ export function playEndOf(rec: PlayRecord): PlayEnd | null {
   };
 }
 
-/** Phase 25.5: why a play ended, in one sentence (≤ 256 characters). */
+/** Why a play ended, in one sentence (≤ 256 characters). */
 export function playEndMessage(end: PlayEnd, timeouts: { presentSeconds: number; ttlSeconds: number }): string {
   const why =
     end.reason === 'request'
@@ -256,7 +254,7 @@ export function playEndMessage(end: PlayEnd, timeouts: { presentSeconds: number;
 }
 
 /**
- * Phase 25.24 (D48): how many ended plays keep their `ended` answer, and for
+ * How many ended plays keep their `ended` answer, and for
  * how long. Past either bound the record is dropped and its id answers a bare
  * `play_not_found`. 64 covers any realistic burst of test Plays; an hour
  * covers a tool that polls a play it lost track of. Engine limits, not
@@ -268,17 +266,17 @@ export const ENDED_PLAY_RETENTION_MS = 60 * 60 * 1000;
 export class PlayManager {
   private plays = new Map<string, PlayRecord>();
   private byProject = new Map<string, string>(); // projectId → active/presented playSessionId
-  /** Phase 25.24 (D48): the stopped plays still kept, oldest first. */
+  /** The stopped plays still kept, oldest first. */
   private ended: string[] = [];
 
   constructor(private readonly hooks: PlayHooks) {}
 
-  /** Phase 25.24 (D48): the records held (live and ended), for the retention test. */
+  /** The records held (live and ended), for the retention test. */
   counts(): { records: number; ended: number } {
     return { records: this.plays.size, ended: this.ended.length };
   }
 
-  /** Phase 25.24 (D48): drop ended records past the count or age bound. */
+  /** Drop ended records past the count or age bound. */
   private pruneEnded(): void {
     const cutoff = this.hooks.nowMs() - ENDED_PLAY_RETENTION_MS;
     while (this.ended.length > 0) {
@@ -333,7 +331,7 @@ export class PlayManager {
     return this.plays.get(playSessionId);
   }
 
-  /** Phase 25.5: an ended play's end record and its one-sentence reason (null while live). */
+  /** An ended play's end record and its one-sentence reason (null while live). */
   describeEnd(rec: PlayRecord): { end: PlayEnd; message: string } | null {
     const end = playEndOf(rec);
     if (end === null) return null;
@@ -342,8 +340,7 @@ export class PlayManager {
 
   /**
    * The play owning a pending relay (by relayId) — the relay maps are
-   * authoritative for ack routing (§12 step 6: the ack carries the
-   * relayId).
+   * authoritative for ack routing (the ack carries the relayId).
    */
   findRelay(relayId: string): PlayRecord | undefined {
     for (const rec of this.plays.values()) {
@@ -361,7 +358,7 @@ export class PlayManager {
     return rec;
   }
 
-  /** §10.2: the editor sent `play.preview.ready`. */
+  /** The editor sent `play.preview.ready`. */
   markPresented(playSessionId: string): void {
     const rec = this.plays.get(playSessionId);
     if (rec === undefined || rec.state !== 'active') return;
@@ -375,7 +372,7 @@ export class PlayManager {
   }
 
   /**
-   * Phase 25.24f: the preview reported progress while it starts (a stage
+   * The preview reported progress while it starts (a stage
    * done, bytes read): the present timeout counts from the last progress, so
    * a large project that keeps loading is not stopped while one that hangs
    * still is.
@@ -387,7 +384,7 @@ export class PlayManager {
     rec.presentTimer = setTimeout(() => this.presentTimeoutFired(rec), this.hooks.presentTimeoutMs());
   }
 
-  /** §10.3: a runtime failure reported by the preview path. */
+  /** A runtime failure reported by the preview path. */
   previewFailed(playSessionId: string, code?: string, message?: string): void {
     const rec = this.plays.get(playSessionId);
     if (rec === undefined || rec.state === 'stopped' || rec.state === 'stopping') return;
@@ -405,7 +402,7 @@ export class PlayManager {
   }
 
   /**
-   * The stop sequence (§10.3). Only valid from `active`/`presented`
+   * The stop sequence. Only valid from `active`/`presented`
    * (a second stop ⇒ `play_not_found`, handled by the caller). If the
    * owner WS is unreachable the play is marked `stopped` (unconfirmed)
    * directly.
@@ -454,7 +451,7 @@ export class PlayManager {
 
   /**
    * Relay a screenshot/diagnostics request to the owner and await the ack
-   * (the §11.5 10 s timeout ⇒ `*_timeout`).
+   * (the 10 s timeout ⇒ `*_timeout`).
    */
   relay(
     playSessionId: string,
@@ -565,7 +562,7 @@ export class PlayManager {
     return undefined;
   }
 
-  /** The play owning a pending §20 game relay (by relayId). */
+  /** The play owning a pending game relay (by relayId). */
   findGameRelay(relayId: string): PlayRecord | undefined {
     for (const rec of this.plays.values()) {
       if (rec.gameRelay !== undefined && rec.gameRelayId === relayId) return rec;
@@ -574,7 +571,7 @@ export class PlayManager {
   }
 
   /**
-   * Relay one §20 control or observation request to the owner editor and await
+   * Relay one control or observation request to the owner editor and await
    * the preview's exact ack (never a fabricated value). At most one game relay
    * is pending per play; the caller's bounded `timeoutMs` drives the deadline.
    */
@@ -610,7 +607,7 @@ export class PlayManager {
   }
 
   /**
-   * Resolve a pending §20 game relay from the owner editor's relayed ack
+   * Resolve a pending game relay from the owner editor's relayed ack
    * (`game.control.ack`/`game.observe.ack`). Returns false for an unknown/stale
    * relayId (the ack is dropped and the caller counts it).
    */
@@ -631,7 +628,7 @@ export class PlayManager {
       return true;
     }
     // A malformed/!ok ack never becomes a success: the preview's own code is
-    // mapped through when it is in the closed §20 set, else `game_relay_rejected`.
+    // mapped through when it is in the closed `GameRelayCode` set, else `game_relay_rejected`.
     const code = ack.ok === true ? 'game_relay_rejected' : mapGameRelayCause(ack.error?.code);
     pending.resolve({
       ok: false,
@@ -660,7 +657,7 @@ export class PlayManager {
   }
 
   /**
-   * Relay a bounded input-exercise sequence to the owner editor (§18.1). At
+   * Relay a bounded input-exercise sequence to the owner editor. At
    * most one relay is active per play; a second one is `input_relay_conflict`.
    */
   relayInput(playSessionId: string, requestId: string, payload: string, extraMs = 0): Promise<InputRelayOutcome> {
@@ -765,7 +762,7 @@ export class PlayManager {
     }
     rec.state = 'stopped';
     rec.stopUnconfirmed = unconfirmed;
-    // Fail any pending relays: the play is ending (phase 25.5: the cause says why).
+    // Fail any pending relays: the play is ending (the cause says why).
     const cause = this.describeEnd(rec)?.message ?? 'play stopped';
     for (const p of rec.relays.values()) {
       clearTimeout(p.timer);
@@ -791,7 +788,7 @@ export class PlayManager {
     this.hooks.onEnded?.(rec);
     this.hooks.onTerminal?.(rec.playSessionId);
     this.releaseProjectOwnership(rec);
-    // Phase 25.24 (D48): an ended play keeps its end record, not its scene; the oldest ended records go.
+    // An ended play keeps its end record, not its scene; the oldest ended records go.
     rec.snapshot = null;
     rec.snapshotBytes = undefined;
     delete rec.sourceMaps;

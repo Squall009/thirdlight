@@ -1,5 +1,5 @@
 /**
- * Phase 22.0: the simulation worker — the game's deterministic simulation
+ * The simulation worker — the game's deterministic simulation
  * (runtime + physics + gameplay blocks + animators + timers, spawns, effect
  * and audio requests + the project's scripts) composed by the same
  * `composeGameRuntime` as the in-page host, driven by the page's frames.
@@ -36,7 +36,7 @@ export interface SimWorkerDeps {
   /** Import one compiled script module by URL. */
   importModule(url: string): Promise<unknown>;
   /**
-   * Phase 24.3: the simulation module specs the worker entry provides
+   * The simulation module specs the worker entry provides
    * (keyed by manifest module id, in dependency order); the manifest's
    * `modules` pick from them. The entry imports only what its build ships.
    */
@@ -44,7 +44,7 @@ export interface SimWorkerDeps {
   /** The physics engine's WebAssembly memory in bytes (null: unknown). */
   physicsMemoryBytes?(): number | null;
   /**
-   * Phase 23.0: the 3D backend (physics-rapier/3d) for a project whose
+   * The 3D backend (physics-rapier/3d) for a project whose
    * `physics_dimension` is 3 — loaded on first use (a browser worker entry
    * loads the separate `physics-3d.js`, so a 2D game never carries it).
    */
@@ -67,13 +67,13 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
   let tickInput: TickInputSource | null = null;
   let relay: RelayActionSource | null = null;
   let probe: RunProbe | null = null;
-  /** Phase 25.15: the page's UI hit targets (sent while an input exercise runs). */
+  /** The page's UI hit targets (sent while an input exercise runs). */
   let uiTargets: readonly UiHitTarget[] = [];
   let encoder: FrameEncoder | null = null;
   let debug: PlayDebugger | null = null;
   let stepHz = 120;
   let memoryCap = PHYSICS_MEMORY_CAP_BYTES;
-  /** Phase 23.0: the loaded 3D backend's memory probe (a 3D game), else the 2D one's. */
+  /** The loaded 3D backend's memory probe (a 3D game), else the 2D one's. */
   let memoryProbe: (() => number | null) | undefined = deps.physicsMemoryBytes;
   let memoryStopped = false;
   let digestOn = false;
@@ -131,7 +131,7 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
     if (runtime === null || encoder === null) return;
     const memory = memoryNow();
     if (memory !== null && memory > memoryCap && !memoryStopped) {
-      // 22.3: a physics memory past the cap stops the simulation (it never grows without bound).
+      // A physics memory past the cap stops the simulation (it never grows without bound).
       memoryStopped = true;
       runtime.stop();
       tickError = { code: 'physics_memory_limit', message: `the physics memory grew to ${Math.round(memory / 1048576)} MiB, past the ${Math.round(memoryCap / 1048576)} MiB limit: the simulation stopped` };
@@ -150,7 +150,7 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
     try {
       let port: PhysicsPort | PhysicsPort3D | undefined;
       if (m.physics !== null && m.physics !== undefined && (m.physics as { dimension?: unknown }).dimension === 3) {
-        // Phase 23.0: a 3D game's backend (loaded now, only for it).
+        // A 3D game's backend (loaded now, only for it).
         if (deps.loadPhysics3D === undefined) {
           post({ t: 'failed', error: { code: 'physics_init_failed', message: 'physics init failed: this worker has no 3D physics backend' } });
           phase = 'idle';
@@ -184,7 +184,7 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
         base = tickInput;
       }
       relay = new RelayActionSource(base);
-      // Phase 25.15: a relayed pointer is hit-tested against the page's UI targets; UI edges and clicks go to the page.
+      // A relayed pointer is hit-tested against the page's UI targets; UI edges and clicks go to the page.
       relay.setUiHit((x, y) => hitUiTargets(uiTargets, x, y)?.key ?? null);
       relay.setEffectSink((effect) => post({ t: 'relay.effect', effect }));
       const composed = composeGameRuntime({
@@ -208,7 +208,7 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
         return;
       }
       runtime = composed.runtime;
-      // Phase 25.16: the run digests (its step observer; the digest watcher and the debugger use the step watcher).
+      // The run digests (its step observer; the digest watcher and the debugger use the step watcher).
       probe = new RunProbe(runtime);
       encoder = new FrameEncoder({ shared: m.shared === true });
       digestOn = m.digestSteps === true;
@@ -299,7 +299,7 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
       } catch {
         /* already stopped or failed */
       }
-      // 22.3: the runtime disposes its physics port (the Rapier world is freed).
+      // The runtime disposes its physics port (the Rapier world is freed).
       rt.dispose();
     } else {
       physics?.dispose?.();
@@ -350,7 +350,7 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
         if (m.uiTargets !== undefined) uiTargets = m.uiTargets;
         const restart = m.restart === true;
         const hold = m.hold === true;
-        // Phase 25.17: a game held by the last exercise starts this one at exactly the next step.
+        // A game held by the last exercise starts this one at exactly the next step.
         const held = relay?.testActive !== true && probe?.held === true;
         if (held) probe?.release();
         const d = rt.getDiagnostics();

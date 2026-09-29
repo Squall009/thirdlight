@@ -1,5 +1,5 @@
 /**
- * Phase 22.0: the page's end of the simulation worker.
+ * The page's end of the simulation worker.
  *
  * `startRemoteSimulation` starts the worker's simulation and returns a
  * `Runtime`-shaped mirror of it. The game host presents that mirror exactly
@@ -102,7 +102,7 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
   /** Run commands submitted since the last boundary (the runtime's one-pending rule, mirrored). */
   let relayDone: ((from: number, to: number) => void) | null = null;
   let relayActive = false;
-  /** Phase 25.15: the page's UI for the input exercise, and the targets last sent to the worker. */
+  /** The page's UI for the input exercise, and the targets last sent to the worker. */
   let relayPage: RelayPage | null = null;
   let sentTargets = '';
   const targetsNow = (): readonly UiHitTarget[] | undefined => {
@@ -311,10 +311,10 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
     setStepWatcher: () => undefined,
     behaviorDebug: () => [],
     hiddenEntities: () => mirror.hidden,
-    // Phase 25.10: the switched-off objects and the light values scripts wrote.
+    // The switched-off objects and the light values scripts wrote.
     inactiveEntities: () => mirror.inactive,
     lightOverrides: () => mirror.lights,
-    // Phase 24.4h: the look overrides (ctx.look).
+    // The look overrides (ctx.look).
     entityLooks: () => mirror.looks,
     animatorPoses: (): ReadonlyMap<string, AnimatorPose> => mirror.poses,
     takeAudioRequests: () => {
@@ -327,21 +327,21 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
       mirror.effects = [];
       return out as ReturnType<NonNullable<Runtime['takeEffectRequests']>>;
     },
-    // Phase 23.5: the block-layer chunks the worker changed, in arrival order per chunk.
+    // The block-layer chunks the worker changed, in arrival order per chunk.
     takeGridChanges: () => {
       const out = [...mirror.grid.values()];
       mirror.grid.clear();
       return out;
     },
-    // Phase 23.18: the worker's environment blend (interpolated there with the frame's alpha).
+    // The worker's environment blend (interpolated there with the frame's alpha).
     readEnvironmentBlend: () => (gone() ? null : mirror.env),
-    // Phase 23.12: the material parameters the worker's scripts changed (the latest per parameter).
+    // The material parameters the worker's scripts changed (the latest per parameter).
     takeMaterialChanges: () => {
       const out = [...mirror.mat.values()];
       mirror.mat.clear();
       return out;
     },
-    // Phase 23.19: project saves — the worker's requests (the page owns storage), storage's answers queued there.
+    // Project saves — the worker's requests (the page owns storage), storage's answers queued there.
     takeSaveRequests: () => {
       const out = mirror.saveReq;
       mirror.saveReq = [];
@@ -355,7 +355,7 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
       return { ok: true };
     },
     gameCounters: () => mirror.counters,
-    // Phase 24.4j: the objects' health and the listed scene (mirrored); the shell's save is made in the worker.
+    // The objects' health and the listed scene (mirrored); the shell's save is made in the worker.
     healthsView: () => mirror.healths,
     listedSceneIndex: () => mirror.listed,
     requestSave: (slot: number, meta?: import('@thirdlight/runtime').SaveMeta) => {
@@ -363,7 +363,7 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
       command({ op: 'requestSave', slot, ...(meta !== undefined ? { meta } : {}) });
       return { ok: true };
     },
-    // Phase 23.4: the worker's resolved camera (interpolated there with the frame's alpha).
+    // The worker's resolved camera (interpolated there with the frame's alpha).
     readCameraView: (p: number[], r: number[]) => {
       const c = mirror.cam;
       if (gone() || c === null) return null;
@@ -376,13 +376,13 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
       return camLens;
     },
     cameraView: () => (gone() ? null : (mirror.cam?.view ?? null)),
-    // Phase 23.11: the objects riding on sockets (the worker's list).
+    // The objects riding on sockets (the worker's list).
     socketAttachments: () => mirror.sockets,
-    // Phase 23.17: the worker's timeline view (screen overlay, plays, last events).
+    // The worker's timeline view (screen overlay, plays, last events).
     timelineView: () => (gone() ? null : mirror.timeline),
-    // Phase 25.24e: the worker's scene loading view.
+    // The worker's scene loading view.
     sceneLoadingView: () => mirror.loading ?? NO_LOADING,
-    // Phase 23.9a: the project UI — events go to the worker's runtime (its next sampled frame); its diffs arrive with the frames.
+    // The project UI — events go to the worker's runtime (its next sampled frame); its diffs arrive with the frames.
     queueUiEvent: (event: UiEventRecord) => {
       if (gone()) return { ok: false, error: rtError('runtime_disposed', 'runtime is disposed') };
       const checked = validateUiEvent(event);
@@ -390,7 +390,7 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
       command({ op: 'uiEvent', event: checked.event });
       return { ok: true };
     },
-    // Phase 23.16: dialogue inputs go to the worker's runtime (its next sampled frame).
+    // Dialogue inputs go to the worker's runtime (its next sampled frame).
     queueDialogueInput: (input: DialogueInputRecord) => {
       if (gone()) return { ok: false, error: rtError('runtime_disposed', 'runtime is disposed') };
       const checked = validateDialogueInput(input);
@@ -404,11 +404,11 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
       return out;
     },
     uiView: (): UiStateView => ({ model: mirror.uiModel, shown: mirror.uiShown }),
-    // Phase 23.10: the game modes as the worker's last frame had them.
+    // The game modes as the worker's last frame had them.
     modeView: () => (gone() ? null : mirror.mode),
-    // Phase 23.3: the worker's cursor request and pointer (the host applies the cursor; observers read the pointer).
+    // The worker's cursor request and pointer (the host applies the cursor; observers read the pointer).
     cursorRequest: () => (gone() ? null : mirror.cursor),
-    // Phase 23.14: the scripts' binding requests the worker sent (taken by the page's host).
+    // The scripts' binding requests the worker sent (taken by the page's host).
     takeBindingRequests: () => {
       const out = { requests: mirror.bindingRequests, dropped: mirror.bindingDropped };
       mirror.bindingRequests = [];
@@ -459,7 +459,7 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
       void dispose();
       return { ok: true };
     },
-    // Phase 23.8: debug commands — the worker's registry (mirrored), a call checked here and queued there.
+    // Debug commands — the worker's registry (mirrored), a call checked here and queued there.
     debugCommandState: (): DebugCommandState => mirror.debugCommands ?? NO_DEBUG_STATE,
     queueDebugCommand: (call: DebugCommandCall) => {
       if (gone()) return { ok: false, error: rtError('runtime_disposed', 'runtime is disposed') };

@@ -1,6 +1,5 @@
 /**
- * The validated-intent API — runtime.md §14.4/§14.5/§14.6/§14.8 (the packet-18
- * behavior contract, promoted at Gate E; implemented by packet 34).
+ * The validated-intent API of the behavior contract.
  *
  * A behavior module declares phases (`intent`, and `transform` when it owns
  * entities) and commits **intents** through `ctx.emit`. The runtime owns the
@@ -19,13 +18,12 @@ import { clipMessage } from './errors';
 import type { SimulationPhase } from './types';
 
 /**
- * The intent kinds (runtime.md §14.4). Phase 12 (c) adds `respawn`: the
- * player dies and respawns (a game's own fall/kill rules live in scripts).
+ * The intent kinds. `respawn`: the player dies and respawns (a game's own fall/kill rules live in scripts).
  */
 export type IntentKind = 'control_move' | 'control_jump' | 'transform' | 'pose' | 'respawn' | 'character_move' | 'character_place' | 'character_enable';
 
 /**
- * `−1 ≤ value ≤ 1`, quantized at commit (§14.4).
+ * `−1 ≤ value ≤ 1`, quantized at commit.
  * @graphNode Control move
  * @graphPhase intent
  */
@@ -33,7 +31,7 @@ export interface ControlMoveIntent {
   kind: 'control_move';
   value: number;
   /**
-   * Phase 23.2: the move vector's second axis (forward, like a stick pushed up;
+   * The move vector's second axis (forward, like a stick pushed up;
    * −1..1) — a 3D character walks along (value, y) as along the move input,
    * relative to the camera. Absent: 0.
    * @graphNode skip the node sets the move along one axis (scripts may pass y)
@@ -42,7 +40,7 @@ export interface ControlMoveIntent {
 }
 
 /**
- * One `JumpPhase` value (§14.4).
+ * One `JumpPhase` value.
  * @graphNode Control jump
  * @graphPhase intent
  */
@@ -52,8 +50,8 @@ export interface ControlJumpIntent {
 }
 
 /**
- * A position write on ONE owned entity axis set (§14.4/§14.6).
- * Phase 23.7: it may also set the rotation, as a `quaternion` or a `facing`
+ * A position write on ONE owned entity axis set.
+ * It may also set the rotation, as a `quaternion` or a `facing`
  * direction (fields in the order kind, entityId, position, quaternion, facing, up).
  * @graphNode Move object
  * @graphPhase transform
@@ -63,19 +61,19 @@ export interface TransformIntent {
   entityId: string;
   position: { x?: number; y?: number; z?: number };
   /**
-   * Phase 23.7: the rotation as a quaternion [x, y, z, w] (normalized when applied; not all zero).
+   * The rotation as a quaternion [x, y, z, w] (normalized when applied; not all zero).
    * One rotation form per intent.
    * @graphNode skip a quaternion is set by scripts; the node takes angles
    */
   quaternion?: readonly [number, number, number, number];
   /**
-   * Phase 23.7: turn the entity so its forward axis (+Z, the glTF forward) points along
+   * Turn the entity so its forward axis (+Z, the glTF forward) points along
    * this direction [x, y, z] (not all zero), its top towards `up`. One rotation form per intent.
    * @graphNode skip a facing is set by scripts; the node takes angles
    */
   facing?: readonly [number, number, number];
   /**
-   * Phase 23.7: with `facing`, the direction the entity's top (+Y) leans towards
+   * With `facing`, the direction the entity's top (+Y) leans towards
    * (default [0, 1, 0]; must not be parallel to `facing`).
    * @graphNode skip a facing is set by scripts; the node takes angles
    */
@@ -83,12 +81,12 @@ export interface TransformIntent {
 }
 
 /**
- * Phase 9.9 (wrap-up): an owned entity's rotation (degrees: yaw about +Y,
+ * An owned entity's rotation (degrees: yaw about +Y,
  * pitch about +X, roll about +Z, applied yaw · pitch · roll; missing axes are
  * 0) and/or scale (one number, or [x, y, z]) — transform phase only, visual
  * (colliders keep their shape). Fields in the order kind, entityId,
  * rotation, scale; at least one of rotation and scale.
- * Phase 23.7: the rotation may instead be a `quaternion` or a `facing`
+ * The rotation may instead be a `quaternion` or a `facing`
  * direction (order kind, entityId, rotation, quaternion, facing, up, scale;
  * exactly one of rotation, quaternion and facing when turning).
  * @graphNode Pose object
@@ -99,19 +97,19 @@ export interface PoseIntent {
   entityId: string;
   rotation?: { yaw?: number; pitch?: number; roll?: number };
   /**
-   * Phase 23.7: the rotation as a quaternion [x, y, z, w] (normalized when applied; not all zero).
+   * The rotation as a quaternion [x, y, z, w] (normalized when applied; not all zero).
    * One rotation form per intent.
    * @graphNode skip a quaternion is set by scripts; the node takes angles
    */
   quaternion?: readonly [number, number, number, number];
   /**
-   * Phase 23.7: turn the entity so its forward axis (+Z, the glTF forward) points along
+   * Turn the entity so its forward axis (+Z, the glTF forward) points along
    * this direction [x, y, z] (not all zero), its top towards `up`. One rotation form per intent.
    * @graphNode skip a facing is set by scripts; the node takes angles
    */
   facing?: readonly [number, number, number];
   /**
-   * Phase 23.7: with `facing`, the direction the entity's top (+Y) leans towards
+   * With `facing`, the direction the entity's top (+Y) leans towards
    * (default [0, 1, 0]; must not be parallel to `facing`).
    * @graphNode skip a facing is set by scripts; the node takes angles
    */
@@ -120,7 +118,7 @@ export interface PoseIntent {
 }
 
 /**
- * Phase 12 (c): kill the player (intent phase; ignored unless the run is playing).
+ * Kill the player (intent phase; ignored unless the run is playing).
  * @graphNode Respawn player
  * @graphPhase intent
  */
@@ -129,7 +127,7 @@ export interface RespawnIntent {
 }
 
 /**
- * Phase 23.2 (3D projects): walk the player character this step along a
+ * 3D projects: walk the player character this step along a
  * world direction on the ground (x, z; a length above 1 counts as 1 — its
  * length scales the walk speed), replacing the move input; `run` uses the run
  * speed. Intent phase.
@@ -144,9 +142,9 @@ export interface CharacterMoveIntent {
 }
 
 /**
- * Phase 23.2: teleport the player character (its origin) to a point,
+ * Teleport the player character (its origin) to a point,
  * stopping its motion; it falls from there. Intent phase; it takes effect
- * before the controller runs in the same step. Phase 25.10: on the 2D plane
+ * before the controller runs in the same step. On the 2D plane
  * too (z is ignored there), with the placement of scene arrivals and
  * respawns (from rest: velocity and jump reset).
  * @graphNode Place character
@@ -159,7 +157,7 @@ export interface CharacterPlaceIntent {
 }
 
 /**
- * Phase 23.2 (3D projects): switch the character controller off (the
+ * 3D projects: switch the character controller off (the
  * character stays where it is: no input, no gravity — a cutscene or a
  * dialogue) or back on. Lasts until changed. Intent phase.
  * @graphNode Enable character
@@ -172,14 +170,14 @@ export interface CharacterEnableIntent {
 
 export type BehaviorIntent = ControlMoveIntent | ControlJumpIntent | TransformIntent | PoseIntent | RespawnIntent | CharacterMoveIntent | CharacterPlaceIntent | CharacterEnableIntent;
 
-/** One committed transform write in commit order (§14.5). */
+/** One committed transform write in commit order. */
 export interface IntentTransformWrite {
   moduleId: string;
   entityId: string;
   position: { x?: number; y?: number; z?: number };
 }
 
-/** The runtime's per-step intent set (runtime.md §14.5). */
+/** The runtime's per-step intent set. */
 export interface IntentSet {
   readonly stepIndex: number;
   /** The committed `control_move` (quantized) or `null`. */
@@ -191,22 +189,22 @@ export interface IntentSet {
   readonly jumpWriter: string | null;
   /** Committed transform writes, in commit order. */
   readonly transformWrites: readonly IntentTransformWrite[];
-  /** Phase 23.2: the committed `control_move`'s second axis (0 when it had none), or null. */
+  /** The committed `control_move`'s second axis (0 when it had none), or null. */
   readonly moveY?: number | null;
-  /** Phase 23.2: the committed `character_move` (a world direction on the ground), or null. */
+  /** The committed `character_move` (a world direction on the ground), or null. */
   readonly characterMove?: { readonly x: number; readonly z: number; readonly run: boolean } | null;
-  /** Phase 23.2: the committed `character_place` point, or null. */
+  /** The committed `character_place` point, or null. */
   readonly characterPlace?: { readonly x: number; readonly y: number; readonly z: number } | null;
-  /** Phase 23.2: the committed `character_enable` value, or null. */
+  /** The committed `character_enable` value, or null. */
   readonly characterEnabled?: boolean | null;
-  /** Phase 24.4f: the velocity (m/s) scripts' `ctx.character.impulse` calls add at this controller phase (summed; absent: none). */
+  /** The velocity (m/s) scripts' `ctx.character.impulse` calls add at this controller phase (summed; absent: none). */
   readonly impulse?: { readonly x: number; readonly y: number; readonly z: number };
-  /** Phase 24.4f: the yaw (radians about +Y, 0 facing +Z) a placement this step faces (a spawn's yaw; absent: as it was). */
+  /** The yaw (radians about +Y, 0 facing +Z) a placement this step faces (a spawn's yaw; absent: as it was). */
   readonly characterYaw?: number;
 }
 
 /**
- * The runtime.md §14.8 intent/log bounds. (The per-instance log bound is a
+ * The intent/log bounds. (The per-instance log bound is a
  * per-step count; the retained ring is the behavior host's per-instance ring.)
  */
 export const INTENT_LIMITS = Object.freeze({
@@ -226,7 +224,7 @@ export const INTENT_LIMITS = Object.freeze({
   behaviorModules: 64,
 } as const);
 
-/** The `ctx.log` levels (runtime.md §14.3). */
+/** The `ctx.log` levels. */
 export type BehaviorLogLevel = 'info' | 'warn' | 'error';
 
 export const BEHAVIOR_LOG_LEVELS: readonly BehaviorLogLevel[] = ['info', 'warn', 'error'];
@@ -236,7 +234,7 @@ export const BEHAVIOR_LOG_CODE = 'behavior_log';
 
 /**
  * An intent rejection (`module_error` fail-stop). The `reason`/`detail` pair
- * is the contract's §14.4 table; the message is bounded and log-safe.
+ * is the contract's rejection table; the message is bounded and log-safe.
  */
 export class BehaviorIntentError extends Error {
   readonly code = 'module_error';
@@ -250,7 +248,7 @@ export class BehaviorIntentError extends Error {
   }
 }
 
-/** The canonical key order of each intent shape (§14.4). */
+/** The canonical key order of each intent shape. */
 const INTENT_KEYS: Record<IntentKind, readonly string[]> = {
   control_move: ['kind', 'value'],
   control_jump: ['kind', 'value'],
@@ -262,9 +260,9 @@ const INTENT_KEYS: Record<IntentKind, readonly string[]> = {
   character_enable: ['kind', 'enabled'],
 };
 const ROTATION_KEYS = ['yaw', 'pitch', 'roll'] as const;
-/** Phase 23.7: a transform intent's fields with the optional rotation forms, in order. */
+/** A transform intent's fields with the optional rotation forms, in order. */
 const TRANSFORM_KEYS_ROTATED: readonly string[] = ['kind', 'entityId', 'position', 'quaternion', 'facing', 'up'];
-/** Phase 23.7: bounds of quaternion/direction components, and the smallest length (all-zero is refused). */
+/** Bounds of quaternion/direction components, and the smallest length (all-zero is refused). */
 const MAX_ROTATION_COMPONENT = 1e6;
 const MIN_ROTATION_LENGTH = 1e-9;
 const MAX_DEGREES = 1e6;
@@ -295,10 +293,11 @@ const hasOwn = Object.prototype.hasOwnProperty;
 const isNumber = (v: unknown): boolean => typeof v === 'number';
 
 /**
- * Phase 21.2: the last accepted shape. The behavior host validates a script's
+ * The last accepted shape. The behavior host validates a script's
  * intent and hands the parsed copy (never seen by the script) to the runtime,
- * which validates it again (§14.4 steps 1–4 are repeated); that second call
- * returns the same result instead of copying the copy.
+ * which validates it again (the shape, phase, value and ownership steps are
+ * repeated); that second call returns the same result instead of copying
+ * the copy.
  */
 let lastParsed: BehaviorIntent | null = null;
 let lastResult: IntentShapeResult | null = null;
@@ -310,7 +309,7 @@ function accepted(kind: IntentKind, intent: BehaviorIntent): IntentShapeResult {
   return result;
 }
 
-/** Own enumerable keys, in `Object.keys` order, without making the array (phase 21.2). */
+/** Own enumerable keys, in `Object.keys` order, without making the array. */
 function firstUnknownKey(value: Record<string, unknown>, allowed: readonly string[]): string | null {
   for (const key in value) {
     if (!hasOwn.call(value, key)) continue;
@@ -354,10 +353,10 @@ export function validateIntentShape(value: unknown): IntentShapeResult {
     return { ok: false, error: invalid('shape', `unknown intent kind ${JSON.stringify(String(kind))}`) };
   }
   if (kind === 'pose') return poseShape(value);
-  // Phase 23.2: a control_move with its second axis; the character intents.
+  // A control_move with its second axis; the character intents.
   if (kind === 'control_move' && hasOwn.call(value, 'y')) return controlMoveYShape(value);
   if (kind === 'character_move' || kind === 'character_place' || kind === 'character_enable') return characterShape(kind, value);
-  // Phase 23.7: a transform may carry a rotation form after its position.
+  // A transform may carry a rotation form after its position.
   if (kind === 'transform' && !exactOrder(value, INTENT_KEYS.transform)) return rotatedTransformShape(value);
   const allowed = INTENT_KEYS[kind];
   const unknownKey = firstUnknownKey(value, allowed);
@@ -387,7 +386,7 @@ export function validateIntentShape(value: unknown): IntentShapeResult {
   return accepted(kind, parsed);
 }
 
-/** Phase 23.2: `{kind, value, y}` (both numbers, in that order). */
+/** `{kind, value, y}` (both numbers, in that order). */
 function controlMoveYShape(value: Record<string, unknown>): IntentShapeResult {
   const allowed = ['kind', 'value', 'y'];
   const unknownKey = firstUnknownKey(value, allowed);
@@ -397,7 +396,7 @@ function controlMoveYShape(value: Record<string, unknown>): IntentShapeResult {
   return accepted('control_move', { kind: 'control_move', value: value['value'], y: value['y'] });
 }
 
-/** Phase 23.2: the character intents' shapes (fields in canonical order; `run` optional). */
+/** The character intents' shapes (fields in canonical order; `run` optional). */
 function characterShape(kind: 'character_move' | 'character_place' | 'character_enable', value: Record<string, unknown>): IntentShapeResult {
   const order = INTENT_KEYS[kind];
   const unknownKey = firstUnknownKey(value, order);
@@ -454,7 +453,7 @@ function transformBase(value: Record<string, unknown>): TransformIntent | { ok: 
   return { kind: 'transform', entityId: value['entityId'], position: parsed };
 }
 
-/** Phase 23.7: a transform intent with fields past `position` (a quaternion, or a facing and up). */
+/** A transform intent with fields past `position` (a quaternion, or a facing and up). */
 function rotatedTransformShape(value: Record<string, unknown>): IntentShapeResult {
   const unknownKey = firstUnknownKey(value, TRANSFORM_KEYS_ROTATED);
   if (unknownKey !== null) {
@@ -485,7 +484,7 @@ function numberTuple(v: unknown, n: number): number[] | null {
 }
 
 /**
- * Phase 23.7: the quaternion/facing/up fields of a transform or pose (shape):
+ * The quaternion/facing/up fields of a transform or pose (shape):
  * copied onto `into`; at most one rotation form (`rotation` counts for a pose);
  * `up` only with `facing`.
  */
@@ -558,10 +557,8 @@ export type SimulationPhaseName = 'intent' | 'controller' | 'transform';
 
 /**
  * Step 2: phase applicability. `control_*` is valid only in `intent`,
- * `transform` only in `transform` (runtime.md §14.4). M3 appends the
- * `gameplay`/`camera` phases to `SimulationPhase`; neither accepts an intent
- * here, so a widened `SimulationPhase` argument is safe (any non-`intent`/
- * non-`transform` phase yields the same `phase` rejection).
+ * `transform` only in `transform`. Any other phase (`controller`) yields the
+ * same `phase` rejection.
  */
 export function validateIntentPhase(intent: BehaviorIntent, phase: SimulationPhase): BehaviorIntentError | null {
   if (intent.kind === 'transform' || intent.kind === 'pose') {
@@ -612,7 +609,7 @@ export function validateIntentValue(intent: BehaviorIntent): BehaviorIntentError
       const formError = rotationFormValue(intent, 'pose');
       if (formError !== null) return formError;
     }
-    // Phase 21.2: walked in place (no entries/arrays per intent).
+    // Walked in place (no entries/arrays per intent).
     const rotation = intent.rotation;
     if (rotation !== undefined) {
       for (const axis in rotation) {
@@ -648,7 +645,7 @@ export function validateIntentValue(intent: BehaviorIntent): BehaviorIntentError
   return null;
 }
 
-/** Phase 23.7: the quaternion/facing/up values (finite, bounded, not all zero, up not parallel to facing). */
+/** The quaternion/facing/up values (finite, bounded, not all zero, up not parallel to facing). */
 function rotationFormValue(intent: TransformIntent | PoseIntent, kind: 'transform' | 'pose'): BehaviorIntentError | null {
   const e = vectorError(kind, 'quaternion', intent.quaternion) ?? vectorError(kind, 'facing', intent.facing) ?? vectorError(kind, 'up', intent.up);
   if (e !== null) return e;
@@ -670,7 +667,7 @@ function vectorError(kind: string, name: string, v: readonly number[] | undefine
 }
 
 /**
- * Phase 23.7: the unit quaternion [x, y, z, w] of a (validated, non-zero)
+ * The unit quaternion [x, y, z, w] of a (validated, non-zero)
  * quaternion — each component divided by the length.
  */
 export function normalizedQuaternion(q: readonly number[]): [number, number, number, number] {
@@ -679,7 +676,7 @@ export function normalizedQuaternion(q: readonly number[]): [number, number, num
 }
 
 /**
- * Phase 23.7: the rotation [x, y, z, w] that turns +Z (forward) along
+ * The rotation [x, y, z, w] that turns +Z (forward) along
  * `facing` and +Y (top) towards `up` (default +Y; a facing straight up or
  * down without an `up` leans its top away from / towards +Z, as pitching a
  * +Z-facing object would). `null` when `up` is parallel to `facing` (or
@@ -744,7 +741,7 @@ function scaleOk(v: number): boolean {
   return Number.isFinite(v) && v >= SCALE_MIN && v <= SCALE_MAX;
 }
 
-/** The `control_move` commit quantization (§14.4, matching §12.5.3). */
+/** The `control_move` commit quantization (matching the action frame's `quantizeMove`). */
 export function quantizeIntentMove(v: number): number {
   const clamped = v < -1 ? -1 : v > 1 ? 1 : v;
   const q = Math.round(clamped * 1e4) / 1e4;

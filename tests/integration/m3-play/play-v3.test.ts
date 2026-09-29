@@ -1,6 +1,6 @@
 /**
- * Packet 59 — the v3 play route (real backend process, real filesystem, real
- * HTTP on both origins; B16/B19/B20; delivery.md §2/§3/§5).
+ * The v3 play route (real backend process, real filesystem, real
+ * HTTP on both origins; B16/B19/B20).
  *
  * Drives the `POST /api/v1/projects/:projectId/play` route for a v3 project
  * (the committed `demo-0003` box-based v3 envelope): the backend reads the
@@ -13,7 +13,7 @@
  *
  * Browser-only claims (the real WebGL render, the real audio, the physical
  * gamepad, the real relay round-trip) are UNVERIFIED — see
- * tests/browser/m3-play/README.md (packet-38 baseline §1).
+ * tests/browser/m3-play/README.md.
  */
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -156,8 +156,8 @@ describe('v3 play route (real backend + locator)', () => {
     expect('game' in doc).toBe(false);
     expect(doc.sceneDigest).toMatch(/^[0-9a-f]{64}$/);
 
-    // The v3 scene is NOT served by the locator (the accepted §17.2.1 route
-    // set has no scene route — it arrives via the nonce-verified tl.snapshot
+    // The v3 scene is NOT served by the locator (its route set has no scene
+    // route — it arrives via the nonce-verified tl.snapshot
     // bridge; the manifest's sceneDigest is the identity the preview verifies
     // it against). A locator scene.json read is path_rejected (400).
     const sceneRejected = await locator(`${path}scene.json`);
@@ -186,7 +186,7 @@ describe('v3 play route (real backend + locator)', () => {
 
     // A live authoring edit (setSettings) advances the revision + produces a
     // new settingsDigest/contentDigest/buildId. The pinned play keeps its
-    // snapshotId/buildId/revision (frozen at start — delivery §10.2).
+    // snapshotId/buildId/revision (frozen at start).
     await command('setSettings', { settings: { run_speed: 6 } });
     const after = await queryRevision();
     expect(after).toBe(before + 1);

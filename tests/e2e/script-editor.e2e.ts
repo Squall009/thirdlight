@@ -1,5 +1,5 @@
 /**
- * Phase 16.3: the script editor tab against a real backend (the engine
+ * The script editor tab against a real backend (the engine
  * sample with neutral additions: a plain box carrying a declared behavior).
  *
  * - Double-click the behavior → its script tab: a code editor with the file
@@ -12,7 +12,7 @@
  * - Publish: the trust acknowledgment for the new digest, then the source
  *   route (one publishBehavior command); the backend stores both files.
  * - Play runs it: the script adds its property to a run counter (observed).
- * - Phase 25.6: a forbidden construct the textual import scan finds in a
+ * - A forbidden construct the textual import scan finds in a
  *   comment is marked on its line, and the problem says it is in a comment.
  */
 import { createHash } from 'node:crypto';

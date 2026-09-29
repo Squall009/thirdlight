@@ -1,11 +1,11 @@
 /**
- * Phase 23.2: the 3D kinematic character controller — the simulation module
+ * The 3D kinematic character controller — the simulation module
  * `thirdlight.character3d:controller` of a project whose `physics_dimension`
  * is 3 (the 2D plane keeps `@thirdlight/character` exactly as it was).
  *
  * Pure fixed-step logic over the injected ports, like the character controller module:
  * in the `controller` phase it turns the step's move vector (its controller's
- * move action: x, y — phase 24.8), read relative to the active camera's yaw when a camera
+ * move action: x, y), read relative to the active camera's yaw when a camera
  * provides one, else world axes; or a script's `control_move` /
  * `character_move` intent) into a velocity (walk or run speed, acceleration
  * and deceleration, less of both in the air), adds gravity and jumps, and
@@ -34,11 +34,11 @@ export const CHARACTER_3D_MODULE_ID = 'thirdlight.character3d:controller';
 /** The name of the input action that switches walking to running while held. */
 export const RUN_ACTION = 'run';
 
-/** Phase 23.2: what the controller reports about itself (the runtime's `characterState` reads it). */
+/** What the controller reports about itself (the runtime's `characterState` reads it). */
 export interface Character3DStatus {
   readonly enabled: boolean;
   readonly climbing: boolean;
-  /** Phase 25.13: the climb volume it holds on to (null: none). */
+  /** The climb volume it holds on to (null: none). */
   readonly climbVolume: string | null;
   /** Radians about +Y, 0 facing +Z. */
   readonly yaw: number;
@@ -56,7 +56,7 @@ interface Climb {
 
 const TAU = Math.PI * 2;
 
-/** Phase 25.13: how far the climb input must be pushed to take hold of a climb volume (the 2D controller's `CLIMB_GRAB_INPUT`). */
+/** How far the climb input must be pushed to take hold of a climb volume (the 2D controller's `CLIMB_GRAB_INPUT`). */
 const CLIMB_GRAB_INPUT = 0.5;
 
 /** The shortest signed angle from `a` to `b` (radians, in (−π, π]). */
@@ -100,7 +100,7 @@ export function createCharacter3DModule(snapshot: RuntimeSnapshot, cfg: ModuleCo
   const hz = cfg.fixedStepHz;
   const dt = 1 / hz;
   const S = character3DSettingsOf(controller, cfg.settings);
-  // Phase 24.8: the input actions it reads (frame version 2 has no fixed channels).
+  // The input actions it reads (frame version 2 has no fixed channels).
   const names = controllerActionsOf(controller);
   const capsule = controllerCapsuleOf(controller);
   const radius = capsule.radius;
@@ -113,7 +113,7 @@ export function createCharacter3DModule(snapshot: RuntimeSnapshot, cfg: ModuleCo
   const climbCos = Math.cos((S.slopeLimit * Math.PI) / 180);
   const turnStep = S.turnSpeed > 0 ? ((S.turnSpeed * Math.PI) / 180) * dt : Infinity;
   const queries = cfg.character3D;
-  // Phase 25.13: climbing and walls (wall jump away/up absent: the run and jump speeds).
+  // Climbing and walls (wall jump away/up absent: the run and jump speeds).
   const M = controllerMovementOf(controller);
   const wallJumpAway = M.wallJumpAway ?? S.runSpeed;
   const wallJumpUp = M.wallJumpUp ?? S.jumpSpeed;
@@ -181,7 +181,7 @@ export function createCharacter3DModule(snapshot: RuntimeSnapshot, cfg: ModuleCo
     return { x: c.top.x + (c.to.x - c.top.x) * f, y: c.top.y, z: c.top.z + (c.to.z - c.top.z) * f };
   };
 
-  /** Phase 25.13: the climb input — the climb action's value (or y), else the move action's y (a script's control_move: its y). */
+  /** The climb input — the climb action's value (or y), else the move action's y (a script's control_move: its y). */
   const climbInputOf = (ctx: StepContext): number => {
     if (M.climbAction === null) return ctx.intents.move !== null ? (ctx.intents.moveY ?? 0) : actionAxis(ctx.action, names.move)[1];
     const a = ctx.action.actions?.[M.climbAction];
@@ -207,7 +207,7 @@ export function createCharacter3DModule(snapshot: RuntimeSnapshot, cfg: ModuleCo
       wallJumped = false;
       wallLockSteps = 0;
     }
-    // Phase 24.4f: a placement that faces a spawn's yaw.
+    // A placement that faces a spawn's yaw.
     if (typeof intents.characterYaw === 'number' && Number.isFinite(intents.characterYaw)) yaw = intents.characterYaw;
     const o = originOf(ctx);
     if (!enabled) {
@@ -252,7 +252,7 @@ export function createCharacter3DModule(snapshot: RuntimeSnapshot, cfg: ModuleCo
       const r = action.actions?.[RUN_ACTION]?.p;
       run = r === 'pressed' || r === 'held';
     }
-    // Phase 25.13: climbing — inside a climb volume the climb input moves it along the volume's up axis and the
+    // Climbing — inside a climb volume the climb input moves it along the volume's up axis and the
     // move input across it (its part along the volume's across axis), at the climb speed, without gravity; a
     // jump press leaves (with a jump when it can jump), and so does moving out of the volume.
     const vol = ctx.climb?.volume() ?? null;
@@ -295,7 +295,7 @@ export function createCharacter3DModule(snapshot: RuntimeSnapshot, cfg: ModuleCo
     const cur = Math.hypot(vx, vz);
     const speedingUp = speed > 1e-9 && vx * tx + vz * tz >= 0 && speed >= cur;
     const rate = (speedingUp ? S.acceleration : S.deceleration) * (walkable ? 1 : S.airControl);
-    // Phase 25.13: a wall jump keeps its push away from the wall until the top of the jump, or for
+    // A wall jump keeps its push away from the wall until the top of the jump, or for
     // `wallJumpLock` (a landing ends it either way).
     if (wallJumped) {
       if (walkable || (wallLockTotal === null ? vy <= 0 : wallLockSteps <= 0)) wallJumped = false;
@@ -303,7 +303,7 @@ export function createCharacter3DModule(snapshot: RuntimeSnapshot, cfg: ModuleCo
     }
     if (!wallJumped) [vx, vz] = approach2(vx, vz, tx, tz, rate * dt);
 
-    // Phase 25.13: the wall it touches in the air (a move the wall took part of; wall slide and wall jump only).
+    // The wall it touches in the air (a move the wall took part of; wall slide and wall jump only).
     let wallNow: { x: number; z: number } | null = null;
     if ((M.wallSlide || M.wallJump) && prev !== undefined && !walkable && prev.contacts.wall) {
       const bx = prev.requested.x - prev.applied.x;
@@ -329,7 +329,7 @@ export function createCharacter3DModule(snapshot: RuntimeSnapshot, cfg: ModuleCo
       buffer = 0;
       coyote = 0;
     } else if (M.wallJump && buffer > 0 && !walkable && wallCoyote > 0 && wallNormal !== null) {
-      // Phase 25.13: a wall jump — off the wall it touches (or just touched), away from it and up.
+      // A wall jump — off the wall it touches (or just touched), away from it and up.
       vx = wallNormal.x * wallJumpAway;
       vz = wallNormal.z * wallJumpAway;
       vy = wallJumpUp;
@@ -349,7 +349,7 @@ export function createCharacter3DModule(snapshot: RuntimeSnapshot, cfg: ModuleCo
       jumping = false;
     }
     if (!jumped) vy = Math.max(S.maxFallSpeed, vy + S.gravityY * dt);
-    // Phase 25.13: a wall slide — falling in the air while pushing into the wall it touches: no faster than the slide speed.
+    // A wall slide — falling in the air while pushing into the wall it touches: no faster than the slide speed.
     if (M.wallSlide && wallNow !== null && tx * wallNow.x + tz * wallNow.z < -1e-9 && vy < -M.wallSlideSpeed) vy = -M.wallSlideSpeed;
     // A slope too steep to stand on slides the character down it (gravity along the surface, its horizontal part).
     if (onGround && !walkable && prev !== undefined) {
@@ -360,7 +360,7 @@ export function createCharacter3DModule(snapshot: RuntimeSnapshot, cfg: ModuleCo
     }
     coyote = walkable ? coyoteSteps : Math.max(0, coyote - 1);
     if (buffer > 0) buffer -= 1;
-    // Phase 24.4f: scripts' impulses add to the velocity (the acceleration brings it back to the input's; up lifts it off the ground).
+    // scripts' impulses add to the velocity (the acceleration brings it back to the input's; up lifts it off the ground).
     const imp = intents.impulse;
     if (imp !== undefined) {
       vx += imp.x;

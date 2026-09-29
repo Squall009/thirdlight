@@ -1,5 +1,5 @@
 /**
- * Phase 23.18 (E17): environment presets, against a real backend, on a
+ * Environment presets, against a real backend, on a
  * neutral scene built by commands on a blank project — a grey panel near the
  * camera (lit by the sun), a wall far behind the fog's reach (its pixels are
  * the fog colour), a gradient sky above.

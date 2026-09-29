@@ -1,5 +1,5 @@
 /**
- * Phase 23.9a — UI documents and themes as project data: shape rules,
+ * UI documents and themes as project data: shape rules,
  * engine limits, document-local references, project references (themes,
  * styles, icons, assets, show/hide targets) and the canonical
  * form. Neutral fixtures.

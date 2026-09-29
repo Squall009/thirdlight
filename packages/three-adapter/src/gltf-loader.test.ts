@@ -1,5 +1,5 @@
 /**
- * Packet-26 tests: the pinned `three` GLTFLoader-backed port
+ * The pinned `three` GLTFLoader-backed port
  * (`./gltf-loader` subpath) over real, self-contained GLB bytes.
  *
  * These run in Node against the REAL loader (three's own GLTFLoader module,
@@ -11,7 +11,7 @@
  * structured failures for corrupt/unsupported/embedded-image inputs.
  *
  * NOT verified here (no browser): texture decode of embedded PNG/JPEG, rendered
- * pixels, WebGL state, screenshot taint. See docs/acceptance/evidence-m2/26/.
+ * pixels, WebGL state, screenshot taint.
  */
 import { describe, expect, it, vi } from 'vitest';
 import { MeshStandardMaterial, BufferGeometry, type Mesh } from 'three';
@@ -149,7 +149,7 @@ describe('packet 26 — pinned GLTFLoader port (three, real bytes, Node)', () =>
   it('reports an embedded-image decode failure structurally in Node (browser decode UNVERIFIED)', async () => {
     // Node has no DOM image decoder, so an embedded texture cannot be decoded.
     // This proves the failure is bounded/structured and leaks nothing here; the
-    // successful decode path is a browser-only claim (packet-37 procedure).
+    // successful decode path is a browser-only claim.
     const withImage = buildGlb({ image: true });
     const result = await loadReal(withImage);
     expect(result.ok).toBe(false);

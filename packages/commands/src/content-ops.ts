@@ -1,5 +1,5 @@
 /**
- * Non-prefab M2 mutation ops — commands.md §8.5–§8.12 (packet 21).
+ * Non-prefab content mutation ops.
  *
  * Each op takes the current (valid, canonical) scene/content plus the validated
  * request args and returns either the applied result (new scene/content, change
@@ -8,7 +8,7 @@
  * RESULTING state is re-validated (three-block when a manifest is available)
  * before it is returned. Nothing here reads files, stages blobs or writes the
  * workspace: `publishAsset` takes digest-addressed facts only, and behavior
- * **source** publication is refused before any stage/digest work (§8.8.2).
+ * **source** publication is refused before any stage/digest work.
  */
 import { ID_RE } from '@thirdlight/project-model';
 
@@ -118,13 +118,13 @@ export interface OpInput {
   manifest?: CommandState['manifest'];
   /** The revision this op's result will land at (current + 1). */
   revision: number;
-  /** True when the host registered a behavior-source preparer (packet 33). */
+  /** True when the host registered a behavior-source preparer. */
   behaviorPreparerRegistered?: boolean;
-  /** Phase 12 (c): entity ids used by the project's other scenes (never minted here). */
+  /** Entity ids used by the project's other scenes (never minted here). */
   reservedIds?: ReadonlySet<string>;
   /** The digest-bound prepared facts the preparer derived (never caller input). */
   preparedBehaviorSources?: ReadonlyMap<string, import('./types').PreparedBehaviorSourceFact>;
-  /** Phase 25.9: the host's staged library edit sets (never caller input). */
+  /** The host's staged library edit sets (never caller input). */
   scriptLibraryStages?: ReadonlyMap<string, import('./types').ScriptLibraryStageFact>;
 }
 
@@ -133,7 +133,7 @@ export function contentOf(content: ContentDocument | undefined): ContentDocument
   return content ?? emptyContentCatalog();
 }
 
-/** Reference-resolution context for property values (commands.md §8.9). */
+/** Reference-resolution context for property values. */
 export function valueContext(
   scene: SceneDocument,
   content: ContentDocument,
@@ -149,18 +149,18 @@ function byId<T extends { assetId?: string; behaviorId?: string }>(a: T, b: T): 
   return ka < kb ? -1 : ka > kb ? 1 : 0;
 }
 
-// ---- publishAsset (§8.5) ---------------------------------------------------------
+// ---- publishAsset ---------------------------------------------------------
 
 export function applyPublishAsset(input: OpInput, args: PublishAssetArgs): OpOutcome {
   const catalog = contentOf(input.content);
   const existing = catalog.assets.find((a) => a.assetId === args.assetId) ?? null;
   const existingKind = existing === null ? null : assetKindOf(existing);
 
-  // §3.1.1/§23.3.7: the kind binding is immutable. On create the kind is
+  // The kind binding is immutable. On create the kind is
   // required (args); on reimport a supplied kind must equal the record's.
   if (args.mode === 'create') {
     if (existing !== null) return { ok: false, error: assetIdDuplicate(args.assetId) };
-    // §3.1.1: the kind is required on create (the discriminator is
+    // The kind is required on create (the discriminator is
     // immutable at create).
     if (args.kind === undefined) {
       return { ok: false, error: fieldMissing('/args/kind', 'kind') };
@@ -197,7 +197,7 @@ export function applyPublishAsset(input: OpInput, args: PublishAssetArgs): OpOut
     return { ok: false, error: limitsExceeded('version_records', totalVersions, MAX_VERSION_RECORDS) };
   }
 
-  // §8.5.1: an atomic animated reimport moves the version-local role mapping
+  // An atomic animated reimport moves the version-local role mapping
   // with the bytes; the presence rule is checked before any value work.
   const animatedEntities = input.scene.entities.filter((e) => {
     const anim = (e.components as { modelAnimation?: { assetId?: unknown } }).modelAnimation;
@@ -230,7 +230,7 @@ export function applyPublishAsset(input: OpInput, args: PublishAssetArgs): OpOut
         },
       };
     }
-    // §41.3.2 stages 1–4 against the NEW version's clip count.
+    // Role-binding stages 1–4 against the NEW version's clip count.
     const shapeErrors: ModelErrorV3[] = [];
     validateAnimationRolesShape({ roles: animation.roles }, '/args/animation', shapeErrors);
     if (shapeErrors.length > 0) {
@@ -277,18 +277,16 @@ export function applyPublishAsset(input: OpInput, args: PublishAssetArgs): OpOut
   ].sort(byId) as unknown as CommandAssetRecord[];
   const nextContent: ContentDocument = { ...catalog, assets: assets as unknown as ContentDocument['assets'] };
 
-  // The resulting scene carries the new revision (commands.md §6.1 step 7:
+  // The resulting scene carries the new revision (the durability write:
   // the envelope's embedded scene is written at revision+1, and
   // `publishedRevision <= scene.revision` must hold); an animated reimport
   // additionally moves the entity's FULL `modelAnimation` component in the
   // same transaction: `version` advances to the newly appended version and
   // `roles` is replaced with the submitted mapping. The binding is owned by
-  // that (assetId, version) (project-model §23.3.6, presentation.md
-  // §41.3.1/§41.3.4 — CC-L-1, Gate L): the submitted mapping is only valid
+  // that (assetId, version): the submitted mapping is only valid
   // against the NEW version's clip list, so recording it under the old
   // version would make capture resolve the entity to the previous bytes
-  // (project-model §19.2: the recorded version wins over currentVersion) —
-  // a silent no-op success. Moving both together in one revision keeps the
+  // (the recorded version wins over currentVersion) — a silent no-op success. Moving both together in one revision keeps the
   // component a valid binding (1 ≤ version ≤ currentVersion).
   let nextEntities: unknown[] | undefined;
   let animationPrevious: ModelAnimationComponentValue | undefined;
@@ -352,7 +350,7 @@ export function applyPublishAsset(input: OpInput, args: PublishAssetArgs): OpOut
   };
 }
 
-// ---- publishBehavior (§8.8) --------------------------------------------------------
+// ---- publishBehavior --------------------------------------------------------
 
 /** Every stored use of one behavior in the scene and in prefab definitions. */
 function collectBehaviorUses(
@@ -375,7 +373,7 @@ function collectBehaviorUses(
 }
 
 export function applyPublishBehavior(input: OpInput, args: PublishBehaviorArgs): OpOutcome {
-  // §8.8.3 step 3: behaviorId syntax and existence apply to every mode.
+  // behaviorId syntax and existence apply to every mode.
   if (!ID_RE.test(args.behaviorId)) {
     return {
       ok: false,
@@ -384,7 +382,7 @@ export function applyPublishBehavior(input: OpInput, args: PublishBehaviorArgs):
   }
   const catalog = contentOf(input.content);
   const existing = catalog.behaviors.find((b) => b.behaviorId === args.behaviorId) ?? null;
-  // §8.8.4 (C19-D2/§22.4.1): source mode publishes ONLY from a prepared
+  // Source mode publishes ONLY from a prepared
   // digest-bound fact set the host derived (never a caller-supplied record
   // field), and only after the trust acknowledgment.
   if (args.mode === 'source') {
@@ -415,7 +413,7 @@ export function applyPublishBehavior(input: OpInput, args: PublishBehaviorArgs):
   if (existing === null && catalog.behaviors.length + 1 > MAX_BEHAVIORS) {
     return { ok: false, error: limitsExceeded('behaviors', catalog.behaviors.length + 1, MAX_BEHAVIORS) };
   }
-  // Phase 15.4: a declaration derived from the code is edited in the code.
+  // A declaration derived from the code is edited in the code.
   if (existing !== null && args.mode === 'declaration-update' && existing.source?.declaredInCode === true) {
     return {
       ok: false,
@@ -425,7 +423,7 @@ export function applyPublishBehavior(input: OpInput, args: PublishBehaviorArgs):
       },
     };
   }
-  // Phase 19.0: a visual script's properties are its graph's variables (the
+  // A visual script's properties are its graph's variables (the
   // declaration is derived from them when the graph is published); a rename
   // (same declaration) is still an update.
   if (existing !== null && args.mode === 'declaration-update' && existing.graph !== undefined && !deepEqual(existing.declaration, dv.declaration)) {
@@ -463,13 +461,13 @@ export function applyPublishBehavior(input: OpInput, args: PublishBehaviorArgs):
     behaviorId: args.behaviorId,
     displayName: args.displayName,
     declaration: dv.declaration,
-    // Phase 15.4: an update keeps the published script (its compiled code
+    // An update keeps the published script (its compiled code
     // does not embed the declaration: the host feeds the record's values), so
-    // tuning a declaration no longer detaches the source.
+    // tuning a declaration does not detach the source.
     source: existing !== null && args.mode === 'declaration-update' && existing.source !== null ? deepClone(existing.source) : null,
     publishedRevision: input.revision,
-    // Phase 19.0: a visual script keeps its graph (or starts with the one sent);
-    // phase 19.2: and its functions (a declaration-update sent with no graph keeps them).
+    // A visual script keeps its graph (or starts with the one sent);
+    // And its functions (a declaration-update sent with no graph keeps them).
     ...(graph !== undefined ? { graph } : {}),
     ...(graph !== undefined && args.graph === undefined && existing?.functions !== undefined ? { functions: deepClone(existing.functions) } : {}),
   };
@@ -516,8 +514,7 @@ function finishBehaviorPublication(
 }
 
 /**
- * `publishBehavior{mode:"source"}` (project-model.md §22.4.1, commands.md
- * §8.8.4): the record is built ONLY from the prepared digest-bound fact set the
+ * `publishBehavior{mode:"source"}`: the record is built ONLY from the prepared digest-bound fact set the
  * host derived; the request supplies `{ sourceDigest, sourceByteLength }` and
  * the declaration it wants to bind. The command never compiles, never resolves
  * a stage and never copies a caller-supplied record field.
@@ -564,7 +561,7 @@ function applyPublishBehaviorSource(
   }
   const acknowledged = catalog.behaviorTrust.entries.some((e) => e.sourceDigest === src.sourceDigest);
   if (!acknowledged) return { ok: false, error: behaviorTrustUnacknowledged(src.sourceDigest) };
-  // Phase 23.7: every script library version the output links is acknowledged too
+  // Every script library version the output links is acknowledged too
   // (the resulting-state check refuses a pin that is not the library's current digest).
   for (const pin of prepared.libraries ?? []) {
     if (!catalog.behaviorTrust.entries.some((e) => e.sourceDigest === pin.sourceDigest)) return { ok: false, error: behaviorTrustUnacknowledged(pin.sourceDigest) };
@@ -593,26 +590,26 @@ function applyPublishBehaviorSource(
       outputDigest: prepared.outputDigest,
       outputByteLength: prepared.outputByteLength,
       requiredModules: [...prepared.requiredModules],
-      // Phase 14.1: the owners travel with the record (Play and the export read them).
+      // The owners travel with the record (Play and the export read them).
       ...(prepared.ownedTransforms.length > 0 ? { ownedTransforms: [...prepared.ownedTransforms] } : {}),
-      // Phase 15.4: the declaration comes from the code (editors show it read-only).
+      // The declaration comes from the code (editors show it read-only).
       ...(prepared.declaredInCode === true ? { declaredInCode: true as const } : {}),
-      // Phase 19.0: generated from the behavior's visual-script graph.
+      // Generated from the behavior's visual-script graph.
       ...(prepared.sourceKind === 'graph' ? { kind: 'graph' as const } : {}),
-      // Phase 23.7: the script library versions it links.
+      // The script library versions it links.
       ...(prepared.libraries !== undefined && prepared.libraries.length > 0 ? { libraries: prepared.libraries.map((p) => ({ ...p })) } : {}),
       publishedRevision: input.revision,
     },
     publishedRevision: input.revision,
-    // Phase 19.0: publishing a source keeps the visual script's graph;
-    // phase 19.2: and its functions (19.1 dropped them on publication).
+    // Publishing a source keeps the visual script's graph and its
+    // functions.
     ...(existing.graph !== undefined ? { graph: deepClone(existing.graph) } : {}),
     ...(existing.graph !== undefined && existing.functions !== undefined ? { functions: deepClone(existing.functions) } : {}),
   };
   return finishBehaviorPublication(input, catalog, record, existing);
 }
 
-// ---- setBehaviorProperties (§8.9) --------------------------------------------------
+// ---- setBehaviorProperties --------------------------------------------------
 
 function declarationOrderChangedKeys(
   declarationKeys: readonly string[],
@@ -717,20 +714,20 @@ export function applySetBehaviorProperties(
   };
 }
 
-// ---- setComponent (§8.10) ----------------------------------------------------------
+// ---- setComponent ----------------------------------------------------------
 
 const COMPONENT_FIELD_ORDER: Record<OwnedComponent, readonly string[]> = {
-  // Phase 17.4: the shadow flags (optional; `null` goes back to the default, true).
+  // The shadow flags (optional; `null` goes back to the default, true).
   box: ['size', 'material', 'castShadow', 'receiveShadow'],
   camera: ['type', 'fovY', 'near', 'far'],
   model: ['asset', 'piece', 'castShadow', 'receiveShadow'],
   collider: ['shape'],
-  // Phase 14.0 / 15.3: the capsule, then the movement tuning (all optional; `null` goes back to the default).
+  // The capsule, then the movement tuning (all optional; `null` goes back to the default).
   controller: ['capsule', 'acceleration', 'deceleration', 'coyoteTime', 'jumpBuffer', 'jumpRelease', 'groundSnap', 'skin', 'autostep', 'autostepHeight', 'walkSpeed', 'runSpeed', 'airControl', 'gravityScale', 'jump', 'jumpSpeed', 'slopeLimit', 'stepHeight', 'ledgeClimb', 'ledgeHeight', 'ledgeClimbTime', 'turnSpeed', 'faceMovement', 'moveAction', 'jumpAction', 'climbSpeed', 'climbAction', 'wallSlide', 'wallSlideSpeed', 'wallJump', 'wallJumpAway', 'wallJumpUp', 'wallJumpLock'],
   ...COMPONENT_FIELD_ORDER_V3,
 };
 
-/** Whether the component supports `add`/`remove` (commands.md §8.10). */
+/** Whether the component supports `add`/`remove`. */
 function componentIsRemovable(component: OwnedComponent): boolean {
   return REMOVABLE_COMPONENTS.includes(component);
 }
@@ -761,7 +758,7 @@ export function applySetComponent(input: OpInput, args: SetComponentArgs): OpOut
   }
 
   // Removal (`value: null`) is available for every owned component (phase
-  // 15.1: box/camera/model too; the resulting scene is validated as always).
+  // box/camera/model too; the resulting scene is validated as always).
   if (args.value === null) {
     const previous = deepClone(currentComponent);
     const newEntity = withComponent(entity, args.component, null);
@@ -805,7 +802,7 @@ export function applySetComponent(input: OpInput, args: SetComponentArgs): OpOut
     : (deepClone(currentComponent) as Record<string, unknown>);
   const changedFields: string[] = [];
   if (args.component === 'materials' || args.component === 'materialParams') {
-    // Phase 9.4: a material mapping is replaced whole (its keys are material names); phase 18.0: so are the parameter overrides (keys are materialIds).
+    // A material mapping is replaced whole (its keys are material names); so are the parameter overrides (keys are materialIds).
     for (const k of Object.keys(candidate)) delete candidate[k];
     Object.assign(candidate, deepClone(args.value));
     const before = (currentComponent ?? {}) as Record<string, unknown>;
@@ -813,19 +810,19 @@ export function applySetComponent(input: OpInput, args: SetComponentArgs): OpOut
       if (before[k] !== (args.value as Record<string, unknown>)[k]) changedFields.push(k);
     }
   }
-  // Phase 9.9 (v4): a collider's `oneWay` flag (not in the M2 field order).
-  // Phase 23.3: and its collision layers.
+  // v4: a collider's `oneWay` flag and its collision layers (not in the
+  // base field order).
   const fieldOrder = args.component === 'collider' ? [...COMPONENT_FIELD_ORDER.collider, 'oneWay', 'layers'] : COMPONENT_FIELD_ORDER[args.component];
   for (const f of fieldOrder) {
     if (Object.prototype.hasOwnProperty.call(args.value, f)) {
-      // Phase 12 (c): `null` removes an optional field (e.g. v4 camera bounds);
+      // `null` removes an optional field (e.g. v4 camera bounds);
       // the model validation below refuses removing a required one.
       if (args.value[f] === null && (isV3Component(args.component) || (args.component === 'collider' && (f === 'oneWay' || f === 'layers')) || args.component === 'controller' || (args.component === 'model' && f === 'piece') || ((args.component === 'box' || args.component === 'model') && (f === 'castShadow' || f === 'receiveShadow')))) delete candidate[f];
       else candidate[f] = deepClone(args.value[f]);
       changedFields.push(f);
     }
   }
-  // §23.3/§41.3.2: the six v3 components are validated before application —
+  // The six v3 components are validated before application —
   // the model owns field values, the command layer owns the role stages 2–4.
   if (isV3Component(args.component)) {
     const errors = validateV3ComponentValue(args.component, candidate, '/args/value', input.scene.schemaVersion === 4 ? 4 : 3);
@@ -871,14 +868,14 @@ export function applySetComponent(input: OpInput, args: SetComponentArgs): OpOut
   };
 }
 
-// ---- setSettings (§8.11) -----------------------------------------------------------
+// ---- setSettings -----------------------------------------------------------
 
 export function applySetSettings(input: OpInput, args: SetSettingsArgs): OpOutcome {
   const catalog = contentOf(input.content);
   const previous = deepClone(catalog.settings);
   const next: Record<string, number | boolean | string> = { ...deepClone(catalog.settings) };
   for (const [k, v] of Object.entries(args.settings)) next[k] = v;
-  // §20.9 cross-key check against the RESULTING map.
+  // Cross-key check against the RESULTING map.
   const climb = next['max_slope_climb_deg'];
   const slide = next['min_slope_slide_deg'];
   if (
@@ -923,7 +920,7 @@ export function applySetSettings(input: OpInput, args: SetSettingsArgs): OpOutco
   };
 }
 
-// ---- acknowledgeBehaviorTrust (§8.12) -----------------------------------------------
+// ---- acknowledgeBehaviorTrust -----------------------------------------------
 
 export function applyAcknowledgeBehaviorTrust(
   input: OpInput,

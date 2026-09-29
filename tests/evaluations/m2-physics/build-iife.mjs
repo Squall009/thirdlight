@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * Packet 14 — build ts-probe.ts with the repo's PINNED esbuild under the exact
- * pinned option set of export.md §5.3 (every other option at esbuild 0.28.2
+ * Build ts-probe.ts with the repo's PINNED esbuild under the exact
+ * pinned option set of the export bundle (every other option at esbuild 0.28.2
  * default; no defines/banners/loaders/aliases/externals). The candidate package
  * is resolved from the DISPOSABLE prefix via nodePaths (env EVAL_PREFIX), never
- * from the repo lockfile (plan-review BR-1).
+ * from the repo lockfile.
  *
  * Usage: node build-iife.mjs <outDir>
  */
@@ -34,7 +34,7 @@ if (esbuild.version !== '0.28.2') {
 const t0 = process.hrtime.bigint();
 const result = await esbuild.build({
   entryPoints: [join(here, 'ts-probe.ts')],
-  // --- exact pinned option set (export.md §5.3); all others at default ---
+  // --- exact pinned option set; all others at default ---
   bundle: true,
   platform: 'browser',
   format: 'iife',

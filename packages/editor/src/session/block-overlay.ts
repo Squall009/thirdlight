@@ -1,5 +1,5 @@
 /**
- * Phase 23.6 (E8): the metadata overlay — which colour a cell shows for a
+ * The metadata overlay — which colour a cell shows for a
  * cell field, the legend, and parsing a typed value.
  *
  * Colours come from the schema: a field's `color` (bool, int, float, string

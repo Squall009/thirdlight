@@ -1,12 +1,11 @@
 /**
- * Public types of `@thirdlight/behavior-build` (project-model.md §22,
- * behaviors.md §5; dependencies.md §3 export row).
+ * Public types of `@thirdlight/behavior-build` (project-model.md,
+ * behaviors.md, dependencies.md).
  *
  * `BehaviorCompileInput`, `BehaviorCompileResult`, `BehaviorManifest`,
- * `CompileDiagnostic` and `PinnedModuleRef` follow the contract shapes; the
- * packet-33 additions (`BehaviorCompiler`, `PreparedBehaviorSource`,
- * `BehaviorCompileOptions`, `SourceGraphContainer`/`SourceGraphAnalysis`) are
- * additive and recorded in the packet-33 handoff.
+ * `CompileDiagnostic` and `PinnedModuleRef` follow the contract shapes;
+ * `BehaviorCompiler`, `PreparedBehaviorSource`, `BehaviorCompileOptions` and
+ * `SourceGraphContainer`/`SourceGraphAnalysis` are additive.
  */
 
 import type { DeclaredProperty } from '@thirdlight/project-model';
@@ -21,7 +20,7 @@ export interface PinnedModuleRef {
   readonly apiVersion: number;
 }
 
-/** The compiler resource bounds (project-model.md §22.4 / behaviors.md §6). */
+/** The compiler resource bounds. */
 export interface BehaviorCompilerLimits {
   /** files per source graph. */
   files: number;
@@ -41,7 +40,7 @@ export interface BehaviorCompilerLimits {
   timeoutMs: number;
   /** output bytes. */
   outputBytes: number;
-  /** properties per declaration (re-checked here; owned by properties.md §4). */
+  /** properties per declaration (re-checked here; owned by properties.md). */
   properties: number;
   /** canonical declaration bytes (re-checked here). */
   declarationBytes: number;
@@ -55,14 +54,14 @@ export interface CompileDiagnostic {
   line?: number;
   column?: number;
   message: string;
-  /** Phase 19.0: the visual-script node the diagnostic is about (graph sources only). */
+  /** The visual-script node the diagnostic is about (graph sources only). */
   nodeId?: string;
-  /** Phase 23.7: the script library whose file `path` names (absent: the behavior's own file). */
+  /** The script library whose file `path` names (absent: the behavior's own file). */
   library?: string;
 }
 
 /**
- * Phase 23.7: one script library the compiler may link (`@lib/<libraryId>`):
+ * One script library the compiler may link (`@lib/<libraryId>`):
  * its canonical source-graph container bytes (project-model
  * `scriptLibraryContainerText`, same format and bounds as a behavior source).
  */
@@ -71,20 +70,20 @@ export interface ScriptLibraryInput {
   readonly containerBytes: Uint8Array;
 }
 
-/** Phase 23.7: one library version an output was compiled against. */
+/** One library version an output was compiled against. */
 export interface LibraryPin {
   libraryId: string;
   sourceDigest: string;
 }
 
-/** The `compileBehavior` input (behaviors.md §5.1). */
+/** The `compileBehavior` input. */
 export interface BehaviorCompileInput {
-  /** ID syntax (project-model.md §5.1). */
+  /** ID syntax. */
   readonly behaviorId: string;
   /**
-   * The digest-bound declaration the publication will assert. Phase 15.4:
-   * ignored when src/index.ts declares its properties in code (the derived
-   * declaration is used; it may then be `{ properties: [] }`).
+   * The digest-bound declaration the publication will assert. Ignored when
+   * src/index.ts declares its properties in code (the derived declaration is
+   * used; it may then be `{ properties: [] }`).
    */
   readonly declaration: { readonly properties: readonly DeclaredProperty[] };
   /** The exact canonical source-graph container bytes. */
@@ -96,28 +95,28 @@ export interface BehaviorCompileInput {
   /**
    * Host-supplied literal patterns (the configured authoring/preview origins
    * and token values) scanned in the output as letters `a`/`b`/`i`; absent in
-   * the pure compiler default (export.md §5.4 owns those host strings).
+   * the pure compiler default (export.md owns those host strings).
    */
   readonly forbiddenStrings?: readonly string[];
   /**
-   * Phase 23.7: the project's script libraries (`@lib/<id>` imports resolve
+   * The project's script libraries (`@lib/<id>` imports resolve
    * only against these). Absent = none: an `@lib/` import then fails as a
    * missing library. Only the libraries the source reaches are compiled in
    * and pinned.
    */
   readonly libraries?: readonly ScriptLibraryInput[];
   /**
-   * Phase 25.9: how the libraries are linked. `shared` (the default): each
+   * How the libraries are linked. `shared` (the default): each
    * library is its own compiled module (`libraries/<outputDigest>.js`,
    * minified and tree-shaken, compiled once) that the behavior imports;
-   * `bundle`: the phase 23.7 form, the libraries' code inside the behavior's
-   * own output (kept to check records published before 25.9).
+   * `bundle`: the libraries' code inside the behavior's own output (kept so
+   * records published in that form still check).
    */
   readonly libraryLinking?: 'shared' | 'bundle';
 }
 
 /**
- * Phase 25.9: one script library compiled as a shared runtime module
+ * One script library compiled as a shared runtime module
  * (`libraries/<outputDigest>.js`): minified and tree-shaken ESM that other
  * libraries import as `./<outputDigest>.js` and behaviors as
  * `../libraries/<outputDigest>.js`.
@@ -135,7 +134,7 @@ export interface SharedLibraryModule {
   sourceMap: string;
 }
 
-/** The canonical, digest-bound compile result (behaviors.md §5.2). */
+/** The canonical, digest-bound compile result. */
 export interface BehaviorManifest {
   manifestVersion: 1;
   behaviorId: string;
@@ -147,13 +146,13 @@ export interface BehaviorManifest {
   ownedTransforms: string[];
   enginePins: { id: string; version: string; apiVersion: number }[];
   declaration: { properties: DeclaredProperty[] };
-  /** Phase 15.4: `true` when the declaration was derived from `export const properties` (absent otherwise). */
+  /** `true` when the declaration was derived from `export const properties` (absent otherwise). */
   declaredInCode?: true;
-  /** Phase 19.0: `'graph'` when src/index.ts was generated from a visual-script graph (absent otherwise). */
+  /** `'graph'` when src/index.ts was generated from a visual-script graph (absent otherwise). */
   sourceKind?: 'graph';
-  /** Phase 23.7: the script libraries linked in, ascending by id (absent when none). */
+  /** The script libraries linked in, ascending by id (absent when none). */
   libraries?: LibraryPin[];
-  /** Phase 25.9: the shared library modules the output imports (directly or through each other), ascending by id (absent when none or bundled). */
+  /** The shared library modules the output imports (directly or through each other), ascending by id (absent when none or bundled). */
   libraryModules?: { libraryId: string; outputDigest: string }[];
   apiVersion: number;
   compiler: { id: string; version: string; esbuild: string; typescript: string };
@@ -175,9 +174,9 @@ export interface BehaviorCompileSuccess {
   /** Digest of the canonical declaration bytes. */
   declarationDigest: string;
   diagnostics: readonly CompileDiagnostic[];
-  /** Phase 25.9: the output's source map (JSON text, no sources content; absent from an injected build). */
+  /** The output's source map (JSON text, no sources content; absent from an injected build). */
   sourceMap?: string;
-  /** Phase 25.9: the shared library modules the output links (absent when none). */
+  /** The shared library modules the output links (absent when none). */
   libraryModules?: readonly SharedLibraryModule[];
 }
 
@@ -198,7 +197,7 @@ export interface BehaviorCompileFailure {
 
 export type BehaviorCompileResult = BehaviorCompileSuccess | BehaviorCompileFailure;
 
-/** One file of the canonical source-graph container (§22.1). */
+/** One file of the canonical source-graph container. */
 export interface SourceGraphFile {
   path: string;
   text: string;
@@ -225,7 +224,7 @@ export interface SourceGraphAnalysis {
   importDepth: number;
   typeOnlyImports: number;
   acceptedImports: number;
-  /** Phase 23.7: the script libraries imported (`@lib/<id>`), ascending (absent when none). */
+  /** The script libraries imported (`@lib/<id>`), ascending (absent when none). */
   libraryImports?: string[];
 }
 
@@ -234,10 +233,9 @@ export type SourceGraphParseResult =
   | { ok: false; failure: BehaviorCompileFailure };
 
 /**
- * The digest-bound prepared result of one successful preparation
- * (project-model.md §22.4.1 step 5). The workspace persists it as a derived
- * cache entry and the `publishBehavior` source branch consumes it; it is the
- * only source the record fields are derived from.
+ * The digest-bound prepared result of one successful preparation. The
+ * workspace persists it as a derived cache entry and the `publishBehavior`
+ * source branch consumes it; it is the only source the record fields are derived from.
  */
 export interface PreparedBehaviorSource {
   behaviorId: string;
@@ -252,11 +250,11 @@ export interface PreparedBehaviorSource {
   ownedTransforms: string[];
   /** The canonical declaration the manifest was compiled with. */
   declaration: { properties: DeclaredProperty[] };
-  /** Phase 15.4: the declaration was derived from the code (absent otherwise). */
+  /** The declaration was derived from the code (absent otherwise). */
   declaredInCode?: true;
-  /** Phase 19.0: generated from a visual-script graph (absent otherwise). */
+  /** Generated from a visual-script graph (absent otherwise). */
   sourceKind?: 'graph';
-  /** Phase 23.7: the script library versions linked in (absent when none). */
+  /** The script library versions linked in (absent when none). */
   libraries?: LibraryPin[];
   declarationDigest: string;
   recipeDigest: string;
@@ -269,15 +267,15 @@ export interface BehaviorCompiler {
   readonly pinnedModules: readonly PinnedModuleRef[];
   compile(input: BehaviorCompileInput): Promise<BehaviorCompileResult>;
   /**
-   * Phase 23.7: check one script library on its own (parse, imports, cycles,
+   * Check one script library on its own (parse, imports, cycles,
    * syntax, bounds) against the given library set; nothing is produced.
    */
   checkLibrary?(input: ScriptLibraryCheckInput): Promise<ScriptLibraryCheckResult>;
-  /** Phase 25.24c: the compile cache (a repeated compile of the same input is not run again). */
+  /** The compile cache (a repeated compile of the same input is not run again). */
   cacheStats?(): { hits: number; misses: number; entries: number };
 }
 
-/** Phase 23.7: `checkScriptLibrary` input. */
+/** `checkScriptLibrary` input. */
 export interface ScriptLibraryCheckInput {
   readonly libraryId: string;
   /** Every library of the (proposed) project state, the checked one included. */
@@ -299,18 +297,18 @@ export interface BehaviorCompileOptions {
   now?: () => number;
   /**
    * The build implementation (defaults to the pinned esbuild `buildSync`). A
-   * test seam only: content never supplies a plugin/hook (behaviors.md §5.4).
+   * test seam only: content never supplies a plugin/hook.
    */
   build?: (options: unknown) => Promise<{ outputFiles?: { contents: Uint8Array }[] }>;
   /**
-   * Phase 23.7: a cache of compiled script libraries shared by the compiles
+   * A cache of compiled script libraries shared by the compiles
    * of one compiler instance, so a library is parsed, checked and transpiled
    * once per build however many behaviors import it (keyed by its digest).
    */
   libraryCache?: LibraryCache;
 }
 
-/** Phase 23.7: the compiled-library cache (opaque; `createLibraryCache`). */
+/** The compiled-library cache (opaque; `createLibraryCache`). */
 export interface LibraryCache {
   readonly entries: Map<string, unknown>;
   readonly max: number;

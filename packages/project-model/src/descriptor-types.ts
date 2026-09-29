@@ -23,20 +23,20 @@ export type HandleKind = (typeof HANDLE_KINDS)[number];
  * (a `box2` edits a `[w, h]` size, or half extents `hx`/`hy`).
  */
 export const HANDLE_ROLES: Readonly<Record<HandleKind, readonly (readonly string[])[]>> = {
-  // Phase 23.0: half extents with an optional depth (a collider box: three axes once hz is set).
+  // Half extents with an optional depth (a collider box: three axes once hz is set).
   box2: [['size'], ['halfX', 'halfY'], ['halfX', 'halfY', 'halfZ']],
   box3: [['size']],
   radius: [['radius']],
-  // Phase 23.1: a centred capsule (a collider or trigger) has no offset.
+  // A centred capsule (a collider or trigger) has no offset.
   capsule: [['radius', 'height', 'offset'], ['radius', 'height']],
   cone: [['direction', 'angle', 'range']],
   direction: [['direction']],
   path: [['points']],
   polygon: [['vertices']],
   point: [['point']],
-  // Phase 23.2: a height above the object's origin (or above the feet of a capsule, `from`), dragged up and down.
+  // A height above the object's origin (or above the feet of a capsule, `from`), dragged up and down.
   height: [['height']],
-  // Phase 25.14: an axis-aligned box between two corners (a track camera's bounds), each corner dragged.
+  // An axis-aligned box between two corners (a track camera's bounds), each corner dragged.
   bounds: [['min', 'max']],
 };
 
@@ -77,23 +77,23 @@ interface FieldBase {
   readonly unit?: DescriptorUnit;
   /** The Scene-view handle that edits this field (see the component's `handles`). */
   readonly handle?: HandleKind;
-  /** Phase 23.2: the project physics dimension the field applies in (absent: both); the Inspector shows the project's. */
+  /** The project physics dimension the field applies in (absent: both); the Inspector shows the project's. */
   readonly dimension?: 2 | 3;
   /**
-   * Phase 25.10: scripts read it (`ctx.entity(ref).get(component)`: a
+   * Scripts read it (`ctx.entity(ref).get(component)`: a
    * read-only snapshot of the step-start state). The marks are versioned with
    * the project schema (`SCRIPT_ACCESS_SCHEMA_VERSION`): renaming a marked
    * field is a schema change.
    */
   readonly scriptReadable?: true;
   /**
-   * Phase 25.10: scripts may write it while the game runs
+   * Scripts may write it while the game runs
    * (`ctx.entity(ref).set(component, patch)`, applied at the end of the step);
    * each such field has defined runtime behavior. Every other field is fixed
    * at run time and a write to it is refused naming the field.
    */
   readonly runtimeWritable?: true;
-  /** Phase 25.10: exists only while the game runs (never stored; starts at `default`). */
+  /** Exists only while the game runs (never stored; starts at `default`). */
   readonly runtimeOnly?: true;
 }
 
@@ -114,9 +114,9 @@ export interface IntFieldDescriptor extends FieldBase {
   readonly min?: number;
   readonly max?: number;
   readonly step?: number;
-  /** Phase 15.3: only these values (a choice of numbers, e.g. a step rate). */
+  /** Only these values (a choice of numbers, e.g. a step rate). */
   readonly values?: readonly number[];
-  /** Phase 17.1: what each of `values` is called (same order; shown instead of the number). */
+  /** What each of `values` is called (same order; shown instead of the number). */
   readonly valueLabels?: readonly string[];
 }
 export interface BoolFieldDescriptor extends FieldBase {
@@ -143,7 +143,7 @@ export interface VecFieldDescriptor extends FieldBase {
   readonly ascending?: boolean;
   /** Not every component 0 (a direction). */
   readonly nonZero?: boolean;
-  /** Phase 23.0: a vec3 whose last component may be left out (`[x, y]` reads as `[x, y, 0]`). */
+  /** A vec3 whose last component may be left out (`[x, y]` reads as `[x, y, 0]`). */
   readonly optionalLast?: boolean;
 }
 export interface QuatFieldDescriptor extends FieldBase {
@@ -219,7 +219,7 @@ export interface JsonFieldDescriptor extends FieldBase {
   readonly type: 'json';
   /** Where its type comes from, when it is typed elsewhere. */
   readonly typedBy?: 'behaviorDeclaration' | 'animatorParameter' | 'propertyType' | 'materialParameter' | 'effectParameter' | 'uiBinding' | 'uiAction' | 'uiStyleRef' | 'uiWidget' | 'uiPadding' | 'uiStyle' | 'uiStyleState';
-  /** Phase 23.9b (`uiBinding`): the plain value a binding stands in for (the editor offers it or a view-model path). */
+  /** `uiBinding`: the plain value a binding stands in for (the editor offers it or a view-model path). */
   readonly valueType?: 'number' | 'text' | 'bool' | 'texture' | 'entity';
 }
 
@@ -255,25 +255,25 @@ export interface HandleDescriptor {
   /** Conditions on the component's fields (pointers relative to the component, e.g. `shape/type`). */
   readonly when?: FieldCondition | readonly FieldCondition[];
   /**
-   * Phase 15.2: how a `local` handle's frame follows the object, as the engine
+   * How a `local` handle's frame follows the object, as the engine
    * reads the data: its position only (absent — areas, paths, ranges), its
    * rotation about Z too (`rotationZ`: a collider), its whole rotation
    * (`rotation`: a spot light's direction) or its whole transform, scale
    * included (`transform`: a box mesh's size).
    */
   readonly follows?: 'position' | 'rotationZ' | 'rotation' | 'transform';
-  /** Phase 15.2 (`radius`): measured along X only (the engine compares horizontal distance) instead of in the X/Y plane. */
+  /** `radius`: measured along X only (the engine compares horizontal distance) instead of in the X/Y plane. */
   readonly along?: 'x';
-  /** Phase 15.2 (`radius` along X): a field (pointer) giving the half height of the band drawn with it (read, not dragged). */
+  /** `radius` along X: a field (pointer) giving the half height of the band drawn with it (read, not dragged). */
   readonly band?: string;
-  /** Phase 15.2 (`path`): the path closes back to its start while this holds. */
+  /** `path`: the path closes back to its start while this holds. */
   readonly loop?: FieldCondition;
-  /** Phase 23.2: the project physics dimension the handle applies in (absent: both). */
+  /** The project physics dimension the handle applies in (absent: both). */
   readonly dimension?: 2 | 3;
-  /** Phase 23.2 (`height`): a capsule field (pointer to its object) whose feet the height is measured from (read, not dragged). */
+  /** `height`: a capsule field (pointer to its object) whose feet the height is measured from (read, not dragged). */
   readonly from?: string;
   /**
-   * Phase 25.14: the frame's origin is another object — the one an entity
+   * The frame's origin is another object — the one an entity
    * field (pointer) names, plus an optional offset field — instead of this
    * object (a track camera's dead zone sits around its target). Without that
    * object the handle is not shown.
@@ -293,7 +293,7 @@ export type ComponentAdd =
   | { readonly kind: 'never'; readonly reason: string };
 
 /**
- * Phase 24.5: the icon an object carrying the component shows in the Scene
+ * The icon an object carrying the component shows in the Scene
  * view and the hierarchy (the editor draws the artwork). When an object
  * carries several components with icons, the one earliest in this list wins
  * (the most specific first).
@@ -302,7 +302,7 @@ export const COMPONENT_ICONS = ['camera', 'spawn', 'audio', 'fog', 'patrol', 'mo
 export type ComponentIcon = (typeof COMPONENT_ICONS)[number];
 
 /**
- * Phase 24.5: a GameObject menu entry that creates a new object carrying the
+ * A GameObject menu entry that creates a new object carrying the
  * component (the menus render from these; no hard-coded list).
  */
 export interface CreateEntryDescriptor {
@@ -337,7 +337,7 @@ export interface ComponentDescriptor {
   readonly value: FieldDescriptor;
   readonly add: ComponentAdd;
   /** Ready-made values (a light per type, a zone per role). */
-  /** Phase 23.1: `dimension` — the project physics dimension a preset fits (absent: both; the "+ Add component" list shows the project's). */
+  /** `dimension` — the project physics dimension a preset fits (absent: both; the "+ Add component" list shows the project's). */
   readonly presets?: readonly { readonly label: string; readonly value: DescriptorJson; readonly dimension?: 2 | 3 }[];
   readonly handles: readonly HandleDescriptor[];
   /** Needs one of these on the same entity. */
@@ -350,9 +350,9 @@ export interface ComponentDescriptor {
   readonly legacy?: boolean;
   /** Placement rules the validator enforces (a physics body is a root at unit scale…). */
   readonly rules?: readonly string[];
-  /** Phase 24.5: the GameObject menu entries that create an object with it. */
+  /** The GameObject menu entries that create an object with it. */
   readonly create?: readonly CreateEntryDescriptor[];
-  /** Phase 24.5: the object's icon (see `COMPONENT_ICONS`). */
+  /** The object's icon (see `COMPONENT_ICONS`). */
   readonly icon?: ComponentIcon;
 }
 
@@ -376,10 +376,10 @@ export interface DescriptorRegistry {
   readonly entity: ObjectFieldDescriptor;
   /** Every v4 component, in "+ Add component" order within its category. */
   readonly components: readonly ComponentDescriptor[];
-  /** Phase 24.5: the component icons, most specific first (an object shows the first its components name). */
+  /** The component icons, most specific first (an object shows the first its components name). */
   readonly icons?: readonly ComponentIcon[];
   /** Every v4 content block. */
   readonly content: readonly ContentBlockDescriptor[];
-  /** Phase 23.9b: the fields of a UI document, a widget, a style and a tween (the UI document editor's Inspector). */
+  /** The fields of a UI document, a widget, a style and a tween (the UI document editor's Inspector). */
   readonly ui?: UiDescriptors;
 }

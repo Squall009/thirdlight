@@ -12,17 +12,17 @@ interface Props {
   gizmoMode: GizmoMode;
   onGizmoMode: (mode: GizmoMode) => void;
   playing: boolean;
-  /** The local snapping gesture option (never persisted — sessions.md §9). */
+  /** The local snapping gesture option (never persisted). */
   snapping: boolean;
   onToggleSnapping: () => void;
-  /** Phase 9.5: the Scene view's lighting — the fixed editor rig or the scene's own lights. */
+  /** The Scene view's lighting — the fixed editor rig or the scene's own lights. */
   lighting?: 'editor' | 'game';
   onToggleLighting?: () => void;
   onPlay: () => void;
-  /** Phase 23.8: open the "Play from…" dialog (a scene, variables, a save slot). */
+  /** Open the "Play from…" dialog (a scene, variables, a save slot). */
   onPlayFrom?: () => void;
   onStop: () => void;
-  /** Phase 23.10: the running Play's game mode (a project with modes). */
+  /** The running Play's game mode (a project with modes). */
   playMode?: { current: string; name: string };
 }
 

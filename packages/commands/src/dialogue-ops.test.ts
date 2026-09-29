@@ -1,5 +1,5 @@
 /**
- * Phase 23.16: dialogue through the commands — conversations (create with a
+ * Dialogue through the commands — conversations (create with a
  * Start node, rename keeps the graph, delete refused while a Jump names it),
  * graph edits on owner kind `dialogue` (expressions must parse), speakers
  * (delete refused while a line names one), settings, and undo/redo.

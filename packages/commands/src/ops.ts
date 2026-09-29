@@ -1,10 +1,11 @@
 /**
- * Pure forward-op application — commands.md §8.1/§8.2/§8.3.
+ * Pure forward-op application for the entity ops (create, transform,
+ * delete).
  *
  * Each op takes the validated request args plus the current (valid,
  * canonical) scene and either returns the applied result (new scene,
  * change data, inverse spec) or a structured error. Application happens on
- * an in-memory copy (pipeline step 5, commands.md §6.1): the input scene
+ * an in-memory copy (pipeline step 5): the input scene
  * is never mutated, and the RESULTING scene is re-validated by the
  * project-model; any failure means no state change, no revision change.
  */
@@ -125,8 +126,8 @@ function entitiesById(scene: SceneDocument): Map<string, AnyEntity> {
 }
 
 /**
- * Full descendant closure of `rootId` (project-model §11.3: M1 deletion is
- * always subtree deletion). Returns null when the root does not exist.
+ * Full descendant closure of `rootId` (deletion is always subtree
+ * deletion). Returns null when the root does not exist.
  */
 export function subtreeClosure(scene: SceneDocument, rootId: string): string[] | null {
   const byId = entitiesById(scene);
@@ -169,7 +170,7 @@ function cameraIdOf(scene: SceneDocument): string | null {
 }
 
 /**
- * `no_change` check (commands.md §6.5): canonical-serialize both scenes
+ * `no_change` check: canonical-serialize both scenes
  * with `revision` masked to `0` and byte-compare. Only `setTransform` can
  * reach this (create/delete change structure; undo/redo always restore a
  * different state), but the pipeline runs the check uniformly.
@@ -182,7 +183,7 @@ export function isNoChange(current: SceneDocument, result: SceneDocument): boole
 }
 
 /**
- * Phase 21.4: the canonical bytes of a scene with `revision` masked, cached
+ * The canonical bytes of a scene with `revision` masked, cached
  * per entity array. Scene documents are immutable values here: an edit builds
  * a new entity array, so the scene a command starts from is usually the one
  * the previous command produced (and serialized) — its bytes are not built
@@ -204,23 +205,23 @@ function maskedSceneBytes(scene: SceneDocument): Uint8Array | null {
 }
 
 /**
- * §8.1 step 2: backend-assigned ID — the smallest N from 1 such that
- * `<kind>-N` (phase 25.7a: at least six digits, `entityIdAt`) exists
+ * Backend-assigned ID — the smallest N from 1 such that
+ * `<kind>-N` (at least six digits, `entityIdAt`) exists
  * neither in the current scene nor in `reserved` (the project's other
  * scenes). Undefined on exhaustion (⇒ `id_exhaustion`; unreachable before
  * the entity limits). The v3 derived prefixes (`zone`, `spawn`, `light`)
- * use the same rule (authoring §A4.1).
+ * use the same rule.
  */
 export type EntityIdPrefix = 'box' | 'group' | 'model' | 'zone' | 'spawn' | 'light' | 'folder' | 'instances';
 
 export function nextEntityId(scene: SceneDocument, kind: EntityIdPrefix, reserved?: ReadonlySet<string>): string | undefined {
-  // Phase 12 (c): ids are unique across the project — the other scenes' ids are reserved.
+  // Ids are unique across the project — the other scenes' ids are reserved.
   const existing = new Set([...scene.entities.map((e) => e.id), ...(reserved ?? [])]);
   return nextFreeEntityIdOf(existing, kind);
 }
 
 /**
- * §8.1 step 2 / authoring §A4.1: the derived ID prefix of a created entity is
+ * The derived ID prefix of a created entity is
  * the FIRST match in the order `model` → `box` → `spawn` (playerSpawn) →
  * `light` → `group`. `camera` is never allocatable.
  */
@@ -237,7 +238,7 @@ export function derivedPrefix(components: Record<string, unknown>): EntityIdPref
 
 export interface OpSuccess {
   scene: SceneDocument; // the applied, re-validated (canonical) result scene
-  /** The applied content block when this op changed it (M2/M3); absent = unchanged. */
+  /** The applied content block when this op changed it; absent = unchanged. */
   content?: ContentDocument;
   change: ForwardChange;
   inverse: InverseSpec;
@@ -248,7 +249,7 @@ export type OpOutcome =
   | { ok: true; op: OpSuccess }
   | { ok: false; error: CommandError };
 
-/** Canonical bytes of the content block (project-model §12.2), or null. */
+/** Canonical bytes of the content block, or null. */
 function contentBytes(content: ContentDocument | undefined): Uint8Array | null {
   if (content === undefined) return null;
   const s = serializeCanonical(content);
@@ -256,7 +257,7 @@ function contentBytes(content: ContentDocument | undefined): Uint8Array | null {
 }
 
 /**
- * Pipeline steps 5–6 for the v3 branch (project-model §23.8): the resulting
+ * Pipeline steps 5–6 for the v3 branch: the resulting
  * scene and content are validated together (composition included) by the
  * model-owned v3 envelope branch, then the whole durable state is compared
  * (canonical scene bytes with `revision` masked AND canonical content bytes).
@@ -265,7 +266,8 @@ function contentBytes(content: ContentDocument | undefined): Uint8Array | null {
  * the command layer supplies the minimal envelope wrapper (the `retry` block
  * and `projectId` are carried through unchanged and are not part of the
  * validated state). Envelope-relative error paths are mapped back to
- * document-relative paths so the `details` objects keep the §12.5 shape.
+ * document-relative paths so the `details` objects keep the model's error
+ * shape.
  */
 function gateResultV3(
   current: { scene: SceneDocument; content?: ContentDocument; manifest?: Manifest },
@@ -300,7 +302,7 @@ function gateResultV3(
 }
 
 /**
- * Phase 12 (c): steps 5–6 for a v4 scene — the edited scene (v4 rules) and
+ * Steps 5–6 for a v4 scene — the edited scene (v4 rules) and
  * the project content block (v4 rules), plus the per-scene cross-block rules
  * (`composeSceneV4`). The rules that span scenes (ids unique across the
  * project, the start set, exit targets) are checked by the workspace over the
@@ -341,12 +343,11 @@ function envelopeErrorToModel(e: { path: string; code: string; message: string; 
 }
 
 /**
- * Pipeline steps 5–6 (commands.md §6.1 step 5/§6.5): validate the resulting
+ * Pipeline steps 5–6: validate the resulting
  * **scene and content** — a v4 scene by the v4 rules (`gateResultV4`), a v3
  * scene by the model-owned v3 envelope branch (`gateResultV3`) — then compare
  * the whole durable state (canonical scene bytes with `revision` masked
- * **and** canonical content bytes). Any other scene version is refused (the
- * v1/v2 scene models were removed in phase 9.3).
+ * **and** canonical content bytes). Any other scene version is refused.
  */
 export function gateResultState(
   current: { scene: SceneDocument; content?: ContentDocument; manifest?: Manifest },
@@ -376,7 +377,7 @@ export function gateResultState(
   };
 }
 
-/** §6.5: canonical scene bytes (revision masked) AND canonical content bytes. */
+/** Canonical scene bytes (revision masked) AND canonical content bytes. */
 export function stateIsNoChange(
   current: { scene: SceneDocument; content?: ContentDocument },
   resultScene: SceneDocument,
@@ -399,14 +400,14 @@ export function contentIsNoChange(
 }
 
 /**
- * The canonical empty v3 content block (project-model §18/§23.4): what a
+ * The canonical empty v3 content block: what a
  * command state without a content block is compared and edited against.
  */
 export function emptyContentCatalog(): ContentDocument {
   return { assets: [], prefabs: [], behaviors: [], settings: {}, behaviorTrust: { entries: [] }, game: null };
 }
 
-// ---- createEntity (§8.1) ----------------------------------------------------------
+// ---- createEntity ----------------------------------------------------------
 
 export function applyCreateEntity(
   scene: SceneDocument,
@@ -435,11 +436,11 @@ export function applyCreateEntity(
   };
 }
 
-/** Phase 25.7e: the most entities one `createEntities` may create (folders' children included; the 64 KiB request cap bounds it too). */
+/** The most entities one `createEntities` may create (folders' children included; the 64 KiB request cap bounds it too). */
 export const CREATE_ENTITIES_MAX = 1024;
 
 /**
- * Phase 25.7e: `createEntities {entities}` — several creates in one
+ * `createEntities {entities}` — several creates in one
  * transaction: one revision, one undo (the created entities go as a
  * `pasteEntities` change, undone by removing them). Each item is checked like
  * a `createEntity`; an item's `ref` lets a later item name it as `parentId`.
@@ -489,7 +490,7 @@ function committedOf(result: SceneDocument, created: readonly Record<string, unk
 }
 
 /**
- * Phase 25.7e: what a create builds on: the scene's entities plus the ones
+ * What a create builds on: the scene's entities plus the ones
  * created earlier in the same transaction (a folder's children, a batch).
  */
 interface CreateWork {
@@ -503,12 +504,12 @@ interface CreateWork {
 
 function createWork(scene: SceneDocument, reservedIds?: ReadonlySet<string>): CreateWork {
   const byId = entitiesById(scene);
-  // Phase 12 (c): ids are unique across the project — the other scenes' ids are reserved.
+  // Ids are unique across the project — the other scenes' ids are reserved.
   const taken = new Set<string>([...byId.keys(), ...(reservedIds ?? [])]);
   return { byId, taken, nextN: new Map(), created: [], sceneCount: scene.entities.length };
 }
 
-/** The smallest free `<prefix>-N` (phase 25.7a width), from where the last one of this prefix stopped. */
+/** The smallest free `<prefix>-N` (`entityIdAt` width), from where the last one of this prefix stopped. */
 function allocateId(work: CreateWork, prefix: string): string | undefined {
   for (let n = work.nextN.get(prefix) ?? 1; n <= ENTITY_ID_MAX; n += 1) {
     const id = entityIdAt(prefix, n);
@@ -538,7 +539,7 @@ function atBase(error: CommandError, base: string): CommandError {
 }
 
 /**
- * The §8.1 precondition checks of one create and its candidate entity (and,
+ * The precondition checks of one create and its candidate entity (and,
  * for a folder, its children's), added to `work.created`. Nothing is
  * validated as a whole here: the caller gates the result once.
  */
@@ -552,8 +553,8 @@ function stageCreate(
   const fail = (error: CommandError): { ok: false; error: CommandError } => ({ ok: false, error: atBase(error, base) });
   const parentId = args.parentId ?? null;
 
-  // §8.1 precondition order: parentId resolves, then the model asset
-  // reference resolves, then the v3 component VALUES (authoring §A3.1), the
+  // Precondition order: parentId resolves, then the model asset
+  // reference resolves, then the v3 component VALUES, the
   // limits, then the derived-ID scan.
   if (parentId !== null && !work.byId.has(parentId)) {
     return fail(referenceMissing(parentId));
@@ -586,7 +587,7 @@ function stageCreate(
   if (newDepth > MAX_ENTITY_DEPTH) {
     return fail(limitsExceeded('depth', newDepth, MAX_ENTITY_DEPTH));
   }
-  // Phase 25.7e: the hierarchy flags and tags (named in the request, stored as the mask).
+  // The hierarchy flags and tags (named in the request, stored as the mask).
   let tags = 0;
   if (args.tags !== undefined) {
     const mask = tagMaskOf(args.tags, content?.tags ?? []);
@@ -608,7 +609,7 @@ function stageCreate(
   };
 
   if (args.kind === 'folder') {
-    // Phase 12: a folder is organisation only; it sits at the root or in a folder.
+    // A folder is organisation only; it sits at the root or in a folder.
     if (parentId !== null && !isFolder(work.byId.get(parentId))) return fail(folderParentError('/args/parentId', parentId));
     const id = allocateId(work, 'folder');
     if (id === undefined) return fail(idExhaustion('folder'));
@@ -624,7 +625,7 @@ function stageCreate(
     return { ok: true, id };
   }
 
-  // §8.3: defaults per field; a provided field replaces that field only.
+  // Defaults per field; a provided field replaces that field only.
   // The candidate entity is a plain object: vector values are checked by
   // the result-scene validation (the model is the value authority).
   const transform = {
@@ -649,7 +650,7 @@ function stageCreate(
   for (const [component, value] of Object.entries(provided)) {
     candidateComponents[component] = deepClone(value);
   }
-  // §3.1: `surfacePreset` copies the frozen row; `components.surface` is
+  // `surfacePreset` copies the frozen row; `components.surface` is
   // mutually excluded (args validation), so this is the only writer.
   if (args.surfacePreset !== undefined && candidateComponents['surface'] === undefined) {
     candidateComponents['surface'] = deepClone(SURFACE_PRESETS[args.surfacePreset]);
@@ -657,13 +658,13 @@ function stageCreate(
   const prefix = derivedPrefix(candidateComponents);
   const id = allocateId(work, prefix);
   if (id === undefined) return fail(idExhaustion(prefix));
-  // §3.1 step 4: appended at the END (leaf ⇒ parent-before-child preserved).
+  // Appended at the END (leaf ⇒ parent-before-child preserved).
   add(writeHeader({ id, components: candidateComponents }, header()));
   return { ok: true, id };
 }
 
 /**
- * §41.3.2 stages 3–4 for a `modelAnimation` value: range against the named
+ * Role-binding stages 3–4 for a `modelAnimation` value: range against the named
  * immutable version's clip count and duplicate clip indices. The asset/version
  * resolution itself is the resulting-state gate's job, so an unresolvable
  * version is left to it.
@@ -682,7 +683,7 @@ function animationRoleError(
   return validateAnimationRoleRange(v['roles'], clips, path);
 }
 
-// ---- setTransform (§8.2) ------------------------------------------------------------
+// ---- setTransform ------------------------------------------------------------
 
 const FIELD_ORDER: readonly ChangedField[] = ['position', 'rotation', 'scale'];
 
@@ -692,7 +693,7 @@ export function applySetTransform(scene: SceneDocument, args: SetTransformArgs, 
   if (index < 0) return { ok: false, error: entityNotFound(args.entityId) };
   const current = scene.entities[index] as AnyEntity;
 
-  // §8.2: a provided field REPLACES the whole field (no component-wise
+  // A provided field REPLACES the whole field (no component-wise
   // merge); absent fields are unchanged. `previous` is the entity's
   // canonical transform; `next` is the candidate (values checked by the
   // result-scene validation below).
@@ -746,14 +747,14 @@ export function applySetTransform(scene: SceneDocument, args: SetTransformArgs, 
     op: {
       scene: gate.scene,
       change,
-      // §9.1: restore the FULL previous transform (all three fields).
+      // Restore the FULL previous transform (all three fields).
       inverse: { kind: 'setTransform', id: args.entityId, restore: deepClone(previous) },
     },
   };
 }
 
 /**
- * §8.3 step 2b/§20.10: entity IDs outside `closure` that own an `entityRef`
+ * Entity IDs outside `closure` that own an `entityRef`
  * property value naming an entity inside it, in scene document order. Values
  * inside the closure are fine (both disappear) and a value naming an entity
  * outside the closure is unaffected. Without a content block there are no
@@ -792,7 +793,7 @@ export function referencingEntitiesInUse(
   return out;
 }
 
-// ---- deleteEntity (§8.3) -------------------------------------------------------------
+// ---- deleteEntity -------------------------------------------------------------
 
 export function applyDeleteEntity(
   scene: SceneDocument,
@@ -807,13 +808,13 @@ export function applyDeleteEntity(
   if (closure === null) {
     return { ok: false, error: entityNotFound(args.entityId) };
   }
-  // §8.3 step 2: the closure may not contain the scene's only camera.
+  // The closure may not contain the scene's only camera.
   const camId = cameraIdOf(scene);
   if (camId !== null && closure.includes(camId)) {
     return { ok: false, error: cameraCountInvalid(camId) };
   }
 
-  // §8.3 step 2b (project-model §20.10): an `entityRef` property value owned
+  // An `entityRef` property value owned
   // by an entity OUTSIDE the closure may not name an entity inside it.
   const closureSet0 = new Set(closure);
   const referencing = referencingEntitiesInUse(scene, content, closureSet0);
@@ -826,7 +827,7 @@ export function applyDeleteEntity(
 
   const deletedIds = closureInArrayOrder(scene, closure);
   const indexOf = new Map(scene.entities.map((e, i) => [e.id, i]));
-  // §9.1 inverse: entries in pre-deletion array order with indices.
+  // The inverse: entries in pre-deletion array order with indices.
   const entries = deletedIds.map((id) => ({
     index: indexOf.get(id) as number,
     entity: deepClone(byId.get(id) as EntityV3),
@@ -834,11 +835,11 @@ export function applyDeleteEntity(
 
   const closureSet = new Set(closure);
   const nextEntities = scene.entities.filter((e) => !closureSet.has(e.id));
-  // Phase 23.5: a deleted block layer takes its cells along (and its undo brings them back).
+  // A deleted block layer takes its cells along (and its undo brings them back).
   const layers = withoutLayersOf(scene, closureSet);
   const result = { ...layers.scene, revision: scene.revision + 1, entities: nextEntities };
   // The result is validated together with the (unchanged) content block so
-  // the §23.5 game composition rules run.
+  // the composition rules run.
   const gate = gateResultState({ scene, content }, result, content);
   if (!gate.ok) return gate;
 
@@ -997,7 +998,7 @@ export function applyUpdateEntity(scene: SceneDocument, args: UpdateEntityArgs, 
     tags: previous.tags,
   };
   if (args.tags !== undefined) {
-    // Phase 12 (b): tags are named in the request and stored as the mask.
+    // Tags are named in the request and stored as the mask.
     const mask = tagMaskOf(args.tags, content?.tags ?? []);
     if (!mask.ok) return { ok: false, error: mask.error };
     next.tags = mask.mask;
@@ -1029,7 +1030,7 @@ export function applyUpdateEntity(scene: SceneDocument, args: UpdateEntityArgs, 
         order = { previous: ids, next: [...rest.slice(0, at), ...moving, ...rest.slice(at)] };
       }
     }
-    // Phase 12: a reparent keeps the entity where it is in the world.
+    // A reparent keeps the entity where it is in the world.
     const local = entity.components.transform;
     const kept = worldKeepingLocal(byId as ReadonlyMap<string, HierarchyNode>, args.entityId, next.parentId);
     if (local !== undefined && kept !== null && kept !== local) transform = { previous: deepClone(local), next: kept };
@@ -1057,7 +1058,7 @@ export function applyUpdateEntity(scene: SceneDocument, args: UpdateEntityArgs, 
   return { ok: true, op: { scene: gate.scene, change, inverse } };
 }
 
-// ---- moveEntities (phase 12) --------------------------------------------------------
+// ---- moveEntities --------------------------------------------------------
 
 /**
  * The candidate scene for a move: `order` applied, then each entry's parent

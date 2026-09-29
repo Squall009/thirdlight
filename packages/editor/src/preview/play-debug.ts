@@ -1,7 +1,7 @@
 /**
- * Phase 19.2: the visual-script debugger's bridge shapes as the editor UI sees
+ * The visual-script debugger's bridge shapes as the editor UI sees
  * them (`tl.debug.request` → `tl.debug.result`). The debugger itself runs
- * where the simulation runs — since phase 22.0 in the game host
+ * where the simulation runs — in the game host
  * (`@thirdlight/game-host` `PlayDebugger`, in the page or in the simulation
  * worker); the editor UI never runs game code and may not import the game
  * host, so it keeps these structural types (the same shapes).

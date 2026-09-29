@@ -1,5 +1,5 @@
 /**
- * Phase 19.2: the Play preview's visual-script debugger over a fake runtime
+ * The Play preview's visual-script debugger over a fake runtime
  * (the real runtime's hold/step/watcher are covered by
  * tests/visual-script/debug.test.ts).
  */

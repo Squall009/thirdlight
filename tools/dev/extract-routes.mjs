@@ -1,5 +1,5 @@
 /**
- * Dev tool (D21): move a range of createBackend's closures into a module.
+ * Dev tool: move a range of createBackend's closures into a module.
  *
  *   node tools/dev/extract-routes.mjs <startMarker> <endMarker> <module> <factory>
  *

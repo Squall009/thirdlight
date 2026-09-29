@@ -1,10 +1,9 @@
 /**
- * Manifest v2 — the immutable M3 runtime-content identity (delivery.md §2,
- * sessions.md §17.1.1, packet 58).
+ * Manifest v2 — the immutable runtime-content identity.
  *
  * `captureManifestV2` is the pure derivation of the v2 delivery manifest from
- * ONE already-captured authoring state (the single acknowledged envelope read,
- * delivery.md §2.6): the captured v3 scene, the captured content block
+ * ONE already-captured authoring state (the single acknowledged envelope
+ * read): the captured v3 scene, the captured content block
  * (resolved settings, the reachable kind-tagged assets),
  * the resolved media identity and the reachable source-bearing behaviors. It
  * has no I/O, no clock and no randomness — the caller supplies `capturedAt` —
@@ -13,16 +12,15 @@
  * v2 moves `manifestVersion` 1 → 2: `assets` rows gain a required
  * `kind ∈ {model, audio}`, and six required keys appear (`gameDigest`,
  * `settingsDigest`, `mediaDigest`, `settings`, `game`, `media`). A v1 document
- * remains readable under its old meaning; a v1 reader must reject a v2 document
+ * remains readable under its own meaning; a v1 reader must reject a v2 document
  * with `manifest_invalid` (`reason: "manifest_version"`), never silently ignore
  * the new keys.
  *
- * Phase 24.8 moves `manifestVersion` 2 → 3: the deleted game block's `game`
- * and `gameDigest` keys and the media block's five `cues` slots (all null
- * since phase 24.7) are gone; `media` is `{ animation }` and the captured
- * content view is `{assets, prefabs, behaviors, settings, behaviorTrust}`.
+ * `manifestVersion` 3 has no `game`/`gameDigest` keys and no media `cues`
+ * slots: `media` is `{ animation }` and the captured content view is
+ * `{assets, prefabs, behaviors, settings, behaviorTrust}`.
  *
- * Phase 25.7b moves `manifestVersion` 3 → 4: the blocks that grow with a
+ * `manifestVersion` 4: the blocks that grow with a
  * project's content — `materials` (only the ones the game uses),
  * `materialFunctions`, `uiDocuments`, `dialogue` and the instance `buffers`
  * table — leave the capped document for their own content files
@@ -32,16 +30,16 @@
  * its key (`expandManifestContentFiles` in game-host). A reader refuses any
  * other version.
  *
- * **Canonical ordering (normative, delivery.md §2.4).** Every block digest and
+ * **Canonical ordering (normative).** Every block digest and
  * the `buildId` hash `JSON.stringify(value, null, 2) + "\n"` in the owning
  * contract's key order — NOT sorted-key canonicalization. `settings` is in
- * registry order, `media` in the §2.2 order, the content view in `{assets,
+ * registry order, `media` in its declared order, the content view in `{assets,
  * prefabs, behaviors, settings, behaviorTrust}` order and the manifest in `MANIFEST_KEYS_V2` order
  * (`buildId` last). A `null` block hashes its own four canonical bytes (`null`).
  *
  * This module is in the zero-dependency `project-model` leaf (the single
- * pure owner of the manifest derivation, C36-2); it reuses the M2 canonical
- * helpers and the `./sha256` digest primitives.
+ * pure owner of the manifest derivation); it reuses the canonical helpers
+ * and the `./sha256` digest primitives.
  */
 import { canonicalSaveSchema, validateSaveSchema, type SaveSchema } from './save-schema';
 import { canonicalBlockTypes, canonicalCellFields, validateBlockTypes, validateCellFields, type BlockType, type CellField } from './block-layers';
@@ -84,21 +82,21 @@ import {
   type ManifestBehaviorInput,
 } from './manifest';
 // ---------------------------------------------------------------------------
-// Constants (delivery.md §2.2 / v1-v2-rules.json)
+// Constants (see v1-v2-rules.json)
 // ---------------------------------------------------------------------------
 
-/** The manifest shape version (delivery.md §2.1; phase 24.8: 3, without the game block and cue slots; phase 25.7b: 4, content files). */
+/** The manifest shape version (3, without the game block and cue slots; 4, content files). */
 export const RUNTIME_CONTENT_MANIFEST_VERSION_4 = 4 as const;
 
 /**
- * Phase 25.7b: the blocks that ride in their own content files, in their
+ * The blocks that ride in their own content files, in their
  * `contentFiles` order. Each file is the block's canonical JSON bytes
  * (`JSON.stringify(block, null, 2) + "\n"`) at `content/sha256/<digest>`.
  */
 export const MANIFEST_CONTENT_FILE_KEYS = ['materials', 'materialFunctions', 'uiDocuments', 'dialogue', 'buffers'] as const;
 export type ManifestContentFileKey = (typeof MANIFEST_CONTENT_FILE_KEYS)[number];
 
-/** Phase 25.7b: one `contentFiles` row. */
+/** One `contentFiles` row. */
 export interface ManifestContentFileRow {
   key: ManifestContentFileKey;
   path: string;
@@ -106,7 +104,7 @@ export interface ManifestContentFileRow {
   byteLength: number;
 }
 
-/** Phase 25.7b: a content file of a capture (its row and its bytes). */
+/** A content file of a capture (its row and its bytes). */
 export interface ManifestContentFile extends ManifestContentFileRow {
   bytes: Uint8Array;
 }
@@ -118,7 +116,7 @@ export interface ManifestContentFile extends ManifestContentFileRow {
 export const MANIFEST_CONTENT_FILE_MAX_BYTES = 33_554_432;
 
 /**
- * Phase 25.9: one shared script library module (`libraries/<outputDigest>.js`)
+ * One shared script library module (`libraries/<outputDigest>.js`)
  * the behaviors import by that path; listed so the buildId covers its bytes
  * and hosts serve and ship it.
  */
@@ -130,7 +128,7 @@ export interface ManifestLibraryRow {
   path: string;
 }
 
-/** Phase 12 (c): one scene artifact of a v4 project. */
+/** One scene artifact of a v4 project. */
 export interface ManifestSceneRow {
   sceneId: string;
   path: string;
@@ -140,7 +138,7 @@ export interface ManifestSceneRow {
   start: boolean;
 }
 
-/** Keys present only when they apply (phase 12): tags, scenes, buffers. */
+/** Keys present only when they apply: tags, scenes, buffers. */
 const OPTIONAL_MANIFEST_KEYS = new Set(['tags', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'saveSchema', 'uiThemes', 'timelines', 'eventCues', 'shell', 'modes', 'scenes', 'contentFiles', 'libraries']);
 
 /** The v2 manifest keys in their exact canonical order (`buildId` last). */
@@ -157,41 +155,41 @@ export const MANIFEST_KEYS_V2 = [
   'mediaDigest',
   'settings',
   'tags',
-  // Phase 25.7b: materials (9.4) and material functions (18.3) are content files (`contentFiles`).
-  // Phase 20.2: the visual effects (particle system graphs) the game plays.
+  // Materials and material functions are content files (`contentFiles`).
+  // The visual effects (particle system graphs) the game plays.
   'effects',
   'environment',
   'lighting',
   'animators',
-  // Phase 23.11: model rigs (nodes and node animation channels) sockets are resolved on — only in a project that uses sockets.
+  // Model rigs (nodes and node animation channels) sockets are resolved on — only in a project that uses sockets.
   'rigs',
   'prefabs',
-  // Phase 23.5: the block types and the cell metadata schema block layers use.
+  // The block types and the cell metadata schema block layers use.
   'blockTypes',
   'cellFields',
   'input',
-  // Phase 23.3: the named collision layers (3D physics; only when the project names some).
+  // The named collision layers (3D physics; only when the project names some).
   'collisionLayers',
-  // Phase 23.19: the project save schema (only when the project declares one).
+  // The project save schema (only when the project declares one).
   'saveSchema',
-  // Phase 23.9a: the project UI themes the game host draws (phase 25.7b: the documents are a content file).
+  // The project UI themes the game host draws (the documents are a content file).
   'uiThemes',
-  // Phase 23.10: the game modes (the runtime switches them; the host reads their pause screens).
+  // The game modes (the runtime switches them; the host reads their pause screens).
   'modes',
-  // Phase 23.17: the timelines (sequencer assets) the game plays.
+  // The timelines (sequencer assets) the game plays.
   'timelines',
-  // Phase 24.4i: the event → cue table (sounds the host plays for signals and events; only when the project has one).
+  // The event → cue table (sounds the host plays for signals and events; only when the project has one).
   'eventCues',
-  // Phase 24.4j: the game shell (menus and HUD documents, the ordered scene list; only when the project has one).
+  // The game shell (menus and HUD documents, the ordered scene list; only when the project has one).
   'shell',
-  // Phase 23.16's dialogue data is a content file since phase 25.7b.
+  // The scene artifacts (dialogue data is a content file, under `contentFiles`).
   'scenes',
-  // Phase 25.7b: the blocks in their own content files (materials, materialFunctions, uiDocuments, dialogue, buffers).
+  // The blocks in their own content files (materials, materialFunctions, uiDocuments, dialogue, buffers).
   'contentFiles',
   'assets',
   'media',
   'behaviors',
-  // Phase 25.9: the script libraries as shared modules (`libraries/<outputDigest>.js`) the behaviors import.
+  // The script libraries as shared modules (`libraries/<outputDigest>.js`) the behaviors import.
   'libraries',
   'modules',
   'enginePins',
@@ -203,30 +201,29 @@ export const MANIFEST_KEYS_V2 = [
 
 
 /**
- * The M3 shared-composition engine pins (delivery.md §2.2 / K-5). The
- * identity values are the accepted pin table for the shared production
- * composition; the closure builder re-derives the emitted set from the real
- * lockfile pin table at build time and passes it explicitly (K-5/FU-5).
- * Ascending by `id`.
+ * The shared-composition engine pins. The identity values are the pin table
+ * for the shared production composition; the closure builder re-derives the
+ * emitted set from the real lockfile pin table at build time and passes it
+ * explicitly. Ascending by `id`.
  */
 export const M3_ENGINE_PINS: ReadonlyArray<{ id: string; version: string; apiVersion: number }> = Object.freeze([
   Object.freeze({ id: '@thirdlight/runtime', version: '0.1.0', apiVersion: 2 }),
   Object.freeze({ id: '@thirdlight/three', version: '0.186.1', apiVersion: 0 }),
 ]);
 
-/** The package a known M3 module id belongs to (the manifest `modules` rows). */
+/** The package a known module id belongs to (the manifest `modules` rows). */
 export const M3_MODULE_PACKAGES: Readonly<Record<string, string>> = Object.freeze({
   'thirdlight.character:controller': '@thirdlight/character',
-  // Phase 23.0: the 3D physics backend (physics_dimension 3).
+  // The 3D physics backend (physics_dimension 3).
   'thirdlight.physics-rapier:3d': '@thirdlight/physics-rapier',
-  // Phase 23.2: the 3D character controller (a runtime built-in).
+  // The 3D character controller (a runtime built-in).
   'thirdlight.character3d:controller': '@thirdlight/runtime',
 });
 
-/** The engine module IDs this model version knows for M3 (ascending). */
+/** The engine module IDs this model version knows (ascending). */
 export const M3_KNOWN_MODULE_IDS: readonly string[] = Object.freeze(Object.keys(M3_MODULE_PACKAGES).sort());
 
-/** The v2 recipe table (delivery.md §2.3: `pcm-wav` is added for M3). */
+/** The v2 recipe table (with `pcm-wav`). */
 export const M3_RECIPE_VERSIONS: Readonly<Record<string, number>> = Object.freeze({
   'behavior-source': 1,
   'gltf-glb': 1,
@@ -249,15 +246,15 @@ export interface CapturedAssetV3 {
   metricsDigest: string;
   /** Model only: COLOR_0 multiplies the albedo (absent = shader data). */
   vertexColors?: 'tint';
-  /** Model only (phase 9.4): the default material mapping. */
+  /** Model only: the default material mapping. */
   materials?: Record<string, string>;
-  /** Model only (phase 14.6): an animation-only file whose clips play on this model asset's rig. */
+  /** Model only: an animation-only file whose clips play on this model asset's rig. */
   clipsFor?: string;
-  /** Model only (phase 15.3): the version's recorded bounds (absent for versions imported before). */
+  /** Model only: the version's recorded bounds (absent for versions imported before). */
   bounds?: { min: [number, number, number]; max: [number, number, number] };
 }
 
-/** The captured v3 content view (delivery.md §2.3 `contentDigest` preimage). */
+/** The captured v3 content view (the `contentDigest` preimage). */
 export interface CapturedContentViewV3 {
   assets: CapturedAssetV3[];
   prefabs: unknown[];
@@ -279,7 +276,7 @@ export interface MediaAnimationRow {
   roles: Record<string, unknown>;
 }
 
-/** The resolved media identity block (delivery.md §2.3 `media`). */
+/** The resolved media identity block (`media`). */
 export interface MediaBlock {
   animation: MediaAnimationRow[];
 }
@@ -301,13 +298,13 @@ export interface ManifestAssetInputV2 {
   metricsDigest: string;
   /** Model only: COLOR_0 multiplies the albedo (absent = shader data). */
   vertexColors?: 'tint';
-  /** Model only (phase 9.4): the default material mapping. */
+  /** Model only: the default material mapping. */
   materials?: Record<string, string>;
-  /** Model only (phase 14.6): an animation-only file whose clips play on this model asset's rig. */
+  /** Model only: an animation-only file whose clips play on this model asset's rig. */
   clipsFor?: string;
-  /** Model only (phase 15.3): the version's recorded bounds (the runtime's pickups without a size read them). */
+  /** Model only: the version's recorded bounds (the runtime's pickups without a size read them). */
   bounds?: { min: [number, number, number]; max: [number, number, number] };
-  /** Audio and music (phase 23.13): the version's recorded duration, ms (script sounds' ends are computed from it). */
+  /** Audio and music: the version's recorded duration, ms (script sounds' ends are computed from it). */
   durationMs?: number;
 }
 
@@ -324,30 +321,30 @@ export interface RuntimeContentManifestV2 {
   settingsDigest: string;
   mediaDigest: string;
   settings: GameplaySettings;
-  /** Phase 12 (b): the tag registry, present only when non-empty. */
+  /** The tag registry, present only when non-empty. */
   tags?: TagDefinition[];
-  /** Phase 20.2: the visual effects (present only when the project has some). */
+  /** The visual effects (present only when the project has some). */
   effects?: EffectDef[];
-  /** Phase 23.9a: the project UI themes (present only when the project has some). */
+  /** The project UI themes (present only when the project has some). */
   uiThemes?: UiTheme[];
-  /** Phase 23.10: the game modes (present only when the project has some). */
+  /** The game modes (present only when the project has some). */
   modes?: GameMode[];
-  /** Phase 23.17: the timelines (present only when the project has some). */
+  /** The timelines (present only when the project has some). */
   timelines?: TimelineAsset[];
-  /** Phase 24.4i: the event → cue table (present only when the project has one). */
+  /** The event → cue table (present only when the project has one). */
   eventCues?: EventCue[];
-  /** Phase 24.4j: the game shell (present only when the project has one). */
+  /** The game shell (present only when the project has one). */
   shell?: GameShell;
-  /** Phase 14.1: the prefab definitions scripts spawn. */
+  /** The prefab definitions scripts spawn. */
   prefabs?: PrefabDefinition[];
-  /** Phase 12 (c): a v4 project's scene artifacts. */
+  /** A v4 project's scene artifacts. */
   scenes?: ManifestSceneRow[];
-  /** Phase 25.7b: the content files (present only when the game has one of their blocks). */
+  /** The content files (present only when the game has one of their blocks). */
   contentFiles?: ManifestContentFileRow[];
   assets: ReadonlyArray<Record<string, unknown>>;
   media: MediaBlock;
   behaviors: ReadonlyArray<Record<string, unknown>>;
-  /** Phase 25.9: the shared script library modules (present only when a behavior imports a library). */
+  /** The shared script library modules (present only when a behavior imports a library). */
   libraries?: ManifestLibraryRow[];
   modules: ReadonlyArray<Record<string, unknown>>;
   enginePins: ReadonlyArray<Record<string, unknown>>;
@@ -367,7 +364,7 @@ export interface ManifestErrorV2 {
 }
 
 /**
- * Phase 25.7b: a manifest with its content files read back under their keys
+ * A manifest with its content files read back under their keys
  * (what a reader works with after `expandManifestContentFiles`).
  */
 export type ExpandedRuntimeContentManifest = RuntimeContentManifestV2 & {
@@ -389,7 +386,7 @@ export type CaptureManifestV2Result =
 const DIGEST_RE = /^[0-9a-f]{64}$/;
 
 /**
- * delivery.md §2.4 rule 1 — the block digest: `sha256(JSON.stringify(value,
+ * The block digest: `sha256(JSON.stringify(value,
  * null, 2) + "\n")` in the value's own key order. A `null` value serializes to
  * the four bytes `null`, so a null block hashes `null\n`.
  */
@@ -397,7 +394,7 @@ export function blockDigest(value: unknown): string {
   return sha256HexOfText(`${JSON.stringify(value, null, 2)}\n`);
 }
 
-/** The `profileDigest` of a canonical roles map (the §2.3 media animation row). */
+/** The `profileDigest` of a canonical roles map (the media animation row). */
 export function mediaProfileDigest(roles: Record<string, unknown>): string {
   return blockDigest(roles);
 }
@@ -419,12 +416,12 @@ function manifestError(code: string, message: string, reason?: string, found?: u
   };
 }
 
-/** Phase 15.3: a copy of recorded model bounds (canonical key order). */
+/** A copy of recorded model bounds (canonical key order). */
 function boundsCopy(b: { min: readonly number[]; max: readonly number[] }): { min: [number, number, number]; max: [number, number, number] } {
   return { min: [b.min[0]!, b.min[1]!, b.min[2]!], max: [b.max[0]!, b.max[1]!, b.max[2]!] };
 }
 
-/** The six resolved settings keys in registry order (delivery.md §2.3). */
+/** The six resolved settings keys in registry order. */
 export const M3_SETTINGS_KEYS = [
   'gravity_y',
   'run_speed',
@@ -435,19 +432,19 @@ export const M3_SETTINGS_KEYS = [
 ] as const;
 
 /**
- * Phase 15.3: the optional engine settings that may follow the six (only
+ * The optional engine settings that may follow the six (only
  * when the project sets them), in registry order — a project that never sets
  * one keeps its exact settings block and digests.
  */
 export const M3_OPTIONAL_SETTINGS_KEYS = ['fixed_step_hz', 'audio_voices', 'music_fade_s', 'animation_crossfade_s', 'render_backend', 'physics_dimension', 'sim_thread', 'debug_console', 'random_seed', 'depth_buffer', 'audio_spatial'] as const;
 
 // ---------------------------------------------------------------------------
-// Media identity (delivery.md §2.3 `media`)
+// Media identity (`media`)
 // ---------------------------------------------------------------------------
 
 /**
  * `resolveMediaIdentityV3(scene, content)` — the resolved media identity of ONE
- * captured v3 state (delivery.md §2.3, the C35-2 rationale). Pure over the
+ * captured v3 state (the C35-2 rationale). Pure over the
  * normalized (or raw, validated here) scene + content:
  *
  *   - `animation`: one row per `modelAnimation` entity, ascending by
@@ -461,7 +458,7 @@ export const M3_OPTIONAL_SETTINGS_KEYS = ['fixed_step_hz', 'audio_voices', 'musi
  */
 export function resolveMediaIdentityV3(scene: unknown, content: unknown, allScenes?: readonly unknown[]): ModelResultV2<MediaBlock> {
   const v4 = (scene as { schemaVersion?: unknown } | null)?.schemaVersion === 4;
-  // Phase 21.2: with the project's scenes given, `scene` is the start scenes
+  // With the project's scenes given, `scene` is the start scenes
   // merged (what the game starts with): the per-scene limits (colliders,
   // zones, spawns, the entity cap) apply to each scene below, not to their sum.
   const s = v4 ? (allScenes !== undefined ? validateMergedSceneV4(scene) : validateSceneV4(scene)) : validateSceneV3(scene);
@@ -515,31 +512,31 @@ function mediaIdentityFrom(scene: SceneV3, content: ContentCatalogV3 | ContentCa
   if (errors.length > 0) return fail(errors);
   rows.sort((a, b) => (a.entityId < b.entityId ? -1 : a.entityId > b.entityId ? 1 : a.assetId < b.assetId ? -1 : a.assetId > b.assetId ? 1 : 0));
 
-  // Phase 24.8: the media block is the animation rows (the cue slots went with the game block).
+  // The media block is the animation rows (the cue slots went with the game block).
   const media: MediaBlock = { animation: rows };
   return { ok: true, normalized: media };
 }
 
 // ---------------------------------------------------------------------------
-// Captured v3 content view (delivery.md §2.3 `contentDigest` preimage)
+// Captured v3 content view (the `contentDigest` preimage)
 // ---------------------------------------------------------------------------
 
 /**
  * `captureContentViewV3(scene, content, ctx)` — the captured v3 content view
  * (the six-key `contentDigest` preimage: `{assets, prefabs, behaviors,
  * settings, behaviorTrust}`). Pure: validates the v3 pair, resolves the
- * reachable kind-tagged asset versions (project-model §19 v3 closure), the
+ * reachable kind-tagged asset versions (the v3 capture closure), the
  * resolved six-key settings, and derives the digest.
  */
 export function captureContentViewV3(
   scene: unknown,
   content: unknown,
   ctx: { projectId: string; revision: number },
-  /** Phase 12 (c), v4: every scene of the project (the view covers them all). */
+  /** v4: every scene of the project (the view covers them all). */
   allScenes?: readonly unknown[],
 ): ModelResultV2<CapturedContentViewV3> {
   const v4 = (scene as { schemaVersion?: unknown } | null)?.schemaVersion === 4;
-  // Phase 21.2: with the project's scenes given, `scene` is the start scenes
+  // With the project's scenes given, `scene` is the start scenes
   // merged (what the game starts with): the per-scene limits (colliders,
   // zones, spawns, the entity cap) apply to each scene below, not to their sum.
   const s = v4 ? (allScenes !== undefined ? validateMergedSceneV4(scene) : validateSceneV4(scene)) : validateSceneV3(scene);
@@ -589,7 +586,7 @@ export function captureContentViewV3(
       ...(record.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}),
       ...(record.materials !== undefined ? { materials: { ...record.materials } } : {}),
       ...(record.clipsFor !== undefined ? { clipsFor: record.clipsFor } : {}),
-      // Phase 15.3: a model version's recorded bounds (absent before; the digests of older captures are unchanged).
+      // A model version's recorded bounds (absent before; the digests of older captures are unchanged).
       ...(record.kind === 'model' && (version.metrics as { bounds?: CapturedAssetV3['bounds'] }).bounds !== undefined ? { bounds: boundsCopy((version.metrics as { bounds: NonNullable<CapturedAssetV3['bounds']> }).bounds) } : {}),
     });
   }
@@ -614,68 +611,68 @@ export function captureContentViewV3(
 export interface CaptureManifestV2Input {
   projectId: string;
   revision: number;
-  /** UTC second at capture (project-model §7.2), e.g. `2026-09-19T10:00:00Z`. */
+  /** UTC second at capture, `YYYY-MM-DDThh:mm:ssZ`. */
   capturedAt: string;
   /** The captured v3 scene document, or a precomputed `sceneDigest`. */
   scene?: unknown;
   sceneDigest?: string;
   /** The resolved kind-tagged asset rows (from `captureContentViewV3`). */
   assets: readonly ManifestAssetInputV2[];
-  /** The reachable source-bearing behaviors (M2 row shape). */
+  /** The reachable source-bearing behaviors (the v1 manifest's row shape). */
   behaviors: readonly ManifestBehaviorInput[];
-  /** Phase 25.9: the shared library modules the behaviors import (only when there are some). */
+  /** The shared library modules the behaviors import (only when there are some). */
   libraries?: readonly Omit<ManifestLibraryRow, 'path'>[];
   /** The resolved six-key settings, in registry order. */
   settings: GameplaySettings;
-  /** Phase 12 (b): the project tag registry; the manifest carries it only when non-empty. */
+  /** The project tag registry; the manifest carries it only when non-empty. */
   tags?: readonly TagDefinition[];
-  /** Phase 9.4: the project materials (only when non-empty) and the environment (only when set). */
+  /** The project materials (only when non-empty) and the environment (only when set). */
   materials?: readonly MaterialDef[];
-  /** Phase 18.3: the material functions the graph materials call (only when some are called). */
+  /** The material functions the graph materials call (only when some are called). */
   materialFunctions?: readonly GraphDocument[];
-  /** Phase 20.2: the visual effects (only when the project has some; `effectsForRuntime`). */
+  /** The visual effects (only when the project has some; `effectsForRuntime`). */
   effects?: readonly EffectDef[];
-  /** Phase 23.9a: the project UI themes and documents (only when the project has some). */
+  /** The project UI themes and documents (only when the project has some). */
   uiThemes?: readonly UiTheme[];
   uiDocuments?: readonly UiDocument[];
-  /** Phase 23.16: the dialogue runner's data (`dialogueForRuntime`; only when the project has conversations). */
+  /** The dialogue runner's data (`dialogueForRuntime`; only when the project has conversations). */
   dialogue?: RuntimeDialogueData | null;
-  /** Phase 23.10: the game modes (only when the project has some). */
+  /** The game modes (only when the project has some). */
   modes?: readonly GameMode[];
-  /** Phase 23.17: the timelines (only when the project has some). */
+  /** The timelines (only when the project has some). */
   timelines?: readonly TimelineAsset[];
-  /** Phase 24.4i: the event → cue table (only when the project has one). */
+  /** The event → cue table (only when the project has one). */
   eventCues?: readonly EventCue[];
-  /** Phase 24.4j: the game shell (only when the project has one). */
+  /** The game shell (only when the project has one). */
   shell?: GameShell;
   environment?: EnvironmentConfig;
-  /** Phase 9.6: the scenes' bakes (only when some scene has one). */
+  /** The scenes' bakes (only when some scene has one). */
   lighting?: LightingMap;
-  /** Phase 9.7: the animator controllers (only when there are some). */
+  /** The animator controllers (only when there are some). */
   animators?: readonly AnimatorController[];
-  /** Phase 23.11: model assetId -> its rig (only when the project uses sockets). */
+  /** Model assetId -> its rig (only when the project uses sockets). */
   rigs?: Readonly<Record<string, ModelRig>>;
-  /** Phase 14.1: the prefab definitions scripts spawn (only when there are some). */
+  /** The prefab definitions scripts spawn (only when there are some). */
   prefabs?: readonly PrefabDefinition[];
-  /** Phase 23.5: the block types and cell fields (only when there are some). */
+  /** The block types and cell fields (only when there are some). */
   blockTypes?: readonly BlockType[];
   cellFields?: readonly CellField[];
-  /** Phase 9.8: the project's input actions (only when it has its own). */
+  /** The project's input actions (only when it has its own). */
   input?: InputConfig;
-  /** Phase 23.3: the project's named collision layers (only when it names some). */
+  /** The project's named collision layers (only when it names some). */
   collisionLayers?: readonly string[];
-  /** Phase 23.19: the project save schema (only when the project declares one). */
+  /** The project save schema (only when the project declares one). */
   saveSchema?: SaveSchema;
   /**
-   * Phase 12 (c): a v4 project's scenes — one artifact each, loaded at start
+   * A v4 project's scenes — one artifact each, loaded at start
    * (`start`) or on demand by the game; present only for a v4 project.
    */
   scenes?: readonly ManifestSceneRow[];
-  /** Phase 12 (c): instance-set transform buffers (artifacts `content/sha256/<digest>`). */
+  /** Instance-set transform buffers (artifacts `content/sha256/<digest>`). */
   buffers?: readonly { digest: string; byteLength: number }[];
   /** The resolved media identity (from `resolveMediaIdentityV3`). */
   media: MediaBlock;
-  /** The required engine module IDs (the M3 shared-composition set). */
+  /** The required engine module IDs (the shared-composition set). */
   moduleIds: readonly string[];
   /** The captured-view digest (from `captureContentViewV3`) — required for v2. */
   contentDigest?: string;
@@ -685,7 +682,7 @@ export interface CaptureManifestV2Input {
   recipes?: Record<string, number>;
 }
 
-/** The combined M2+M3 module → package table (M3 ids win on overlap). */
+/** `M2_MODULE_PACKAGES` and `M3_MODULE_PACKAGES` combined (the latter wins on overlap). */
 const MODULE_PACKAGE_LOOKUP: Readonly<Record<string, string>> = {
   ...M2_MODULE_PACKAGES,
   ...M3_MODULE_PACKAGES,
@@ -694,7 +691,7 @@ const MODULE_PACKAGE_LOOKUP: Readonly<Record<string, string>> = {
 /**
  * `captureManifestV2(input)` — the pure v2 manifest derivation. Every field is
  * derived from the arguments; `capturedAt` is caller-supplied. The block
- * digests and `buildId` use the §2.4 canonical ordering (owning-contract key
+ * digests and `buildId` use the canonical ordering (owning-contract key
  * order, not sorted keys).
  */
 export function captureManifestV2(input: CaptureManifestV2Input): CaptureManifestV2Result {
@@ -759,7 +756,7 @@ export function captureManifestV2(input: CaptureManifestV2Input): CaptureManifes
   const mediaDigest = blockDigest(input.media);
   const buildOptionsDigest = sha256Hex(buildOptionsRecordBytes());
 
-  // Phase 25.7b: the blocks that grow with the content go to their own files (canonical bytes, by digest).
+  // The blocks that grow with the content go to their own files (canonical bytes, by digest).
   const fileBlocks: Partial<Record<ManifestContentFileKey, unknown>> = {
     ...(input.materials !== undefined && input.materials.length > 0 ? { materials: canonicalMaterials(input.materials) } : {}),
     ...(input.materialFunctions !== undefined && input.materialFunctions.length > 0 ? { materialFunctions: canonicalGraphDocuments(input.materialFunctions) } : {}),
@@ -830,7 +827,7 @@ export function captureManifestV2(input: CaptureManifestV2Input): CaptureManifes
     return { ok: false, error: manifestError('internal', 'the v2 manifest document could not be serialized') };
   }
   const buildId = sha256Hex(preimage);
-  // Phase 25.1 (D45): the document itself follows MANIFEST_KEYS_V2 (the literal above had dialogue before modes).
+  // The document itself follows MANIFEST_KEYS_V2 (the literal above had dialogue before modes).
   const ordered: Record<string, unknown> = {};
   for (const key of MANIFEST_KEYS_V2) if (key !== 'buildId' && key in withoutBuildId) ordered[key] = withoutBuildId[key];
   const manifest = { ...ordered, buildId } as unknown as RuntimeContentManifestV2;
@@ -845,7 +842,7 @@ export function captureManifestV2(input: CaptureManifestV2Input): CaptureManifes
 }
 
 /**
- * The exact bytes `buildId` covers for a v2 manifest (delivery.md §2.4 rule 2):
+ * The exact bytes `buildId` covers for a v2 manifest:
  * the document serialization of the manifest without `buildId`, key order
  * exactly `MANIFEST_KEYS_V2` with `buildId` last (excluded). Returns `null` if
  * any non-`buildId` key is absent.
@@ -854,7 +851,7 @@ export function manifestBuildIdInputV2(manifest: Record<string, unknown>): Uint8
   const without: Record<string, unknown> = {};
   for (const key of MANIFEST_KEYS_V2) {
     if (key === 'buildId') continue;
-    if (OPTIONAL_MANIFEST_KEYS.has(key) && !(key in manifest)) continue; // phase 12: optional
+    if (OPTIONAL_MANIFEST_KEYS.has(key) && !(key in manifest)) continue; // optional
     if (!(key in manifest)) return null;
     without[key] = manifest[key];
   }
@@ -862,7 +859,7 @@ export function manifestBuildIdInputV2(manifest: Record<string, unknown>): Uint8
 }
 
 // ---------------------------------------------------------------------------
-// Validation (strict v2 reader) + version-compat (delivery.md §2.1)
+// Validation (strict v2 reader) + version-compat
 // ---------------------------------------------------------------------------
 
 export interface ValidateManifestV2Options {
@@ -871,7 +868,7 @@ export interface ValidateManifestV2Options {
   /** The captured v3 content block (re-derives the media identity and asset kinds). */
   content?: unknown;
   /**
-   * Phase 25.7b: the content files' blocks by key (parsed from their bytes).
+   * The content files' blocks by key (parsed from their bytes).
    * Given, each must match its row's digest and validate as its block does
    * (materials with the material functions, UI documents with the input
    * maps, the dialogue data, the buffer rows); a row without a block here is
@@ -891,7 +888,7 @@ function isDigest(v: unknown): v is string {
 }
 
 /**
- * `validateManifestV2(doc, opts?)` — the strict v2 reader (delivery.md §2).
+ * `validateManifestV2(doc, opts?)` — the strict v2 reader.
  * Rejects a v1 document (`manifest_version`), unknown/missing keys
  * (`manifest_invalid`), a digest/`buildId` mismatch (`manifest_invalid`), a
  * non-registry settings order or a non-`{model,audio}` kind
@@ -916,7 +913,7 @@ export function validateManifestV2(doc: unknown, opts?: ValidateManifestV2Option
     }
   }
   for (const key of MANIFEST_KEYS_V2) {
-    if (OPTIONAL_MANIFEST_KEYS.has(key)) continue; // phase 12: optional
+    if (OPTIONAL_MANIFEST_KEYS.has(key)) continue; // optional
     if (!(key in d)) return { ok: false, error: manifestError('manifest_invalid', `missing manifest key "${key}"`, 'missing_key', undefined, key) };
   }
   if (d['rigs'] !== undefined) {
@@ -932,19 +929,19 @@ export function validateManifestV2(doc: unknown, opts?: ValidateManifestV2Option
     validateTagRegistry(d['tags'], '/tags', tagErrors);
     if (tagErrors.length > 0) return { ok: false, error: manifestError('manifest_invalid', 'tags is not a valid tag registry', 'field_value') };
   }
-  // Phase 23.17: the timelines validate as content.timelines does (their own rules).
+  // The timelines validate as content.timelines does (their own rules).
   if (d['timelines'] !== undefined) {
     const tlErrors: ModelErrorV2[] = [];
     validateTimelines(d['timelines'], '/timelines', tlErrors);
     if (tlErrors.length > 0) return { ok: false, error: manifestError('manifest_invalid', 'timelines are not valid', 'field_value') };
   }
-  // Phase 24.4i: the event → cue table validates as content.eventCues does.
+  // The event → cue table validates as content.eventCues does.
   if (d['eventCues'] !== undefined) {
     const ecErrors: ModelErrorV2[] = [];
     validateEventCues(d['eventCues'], '/eventCues', ecErrors);
     if (ecErrors.length > 0) return { ok: false, error: manifestError('manifest_invalid', 'eventCues are not valid', 'field_value') };
   }
-  // Phase 24.4j: the game shell validates as content.shell does.
+  // The game shell validates as content.shell does.
   if (d['shell'] !== undefined) {
     const shErrors: ModelErrorV2[] = [];
     validateShell(d['shell'], '/shell', shErrors);
@@ -952,7 +949,7 @@ export function validateManifestV2(doc: unknown, opts?: ValidateManifestV2Option
   }
   if (d['effects'] !== undefined || d['environment'] !== undefined || d['lighting'] !== undefined || d['animators'] !== undefined || d['prefabs'] !== undefined || d['input'] !== undefined || d['collisionLayers'] !== undefined || d['uiThemes'] !== undefined || d['modes'] !== undefined) {
     const matErrors: ModelErrorV2[] = [];
-    // Phase 20.2: the effects validate as content.effects does.
+    // The effects validate as content.effects does.
     if (d['effects'] !== undefined) validateEffects(d['effects'], '/effects', matErrors);
     if (d['environment'] !== undefined) validateEnvironment(d['environment'], '/environment', matErrors);
     if (d['lighting'] !== undefined) validateLighting(d['lighting'], '/lighting', matErrors);
@@ -960,9 +957,9 @@ export function validateManifestV2(doc: unknown, opts?: ValidateManifestV2Option
     if (d['prefabs'] !== undefined) validatePrefabDefinitions(d['prefabs'], '/prefabs', matErrors, 4);
     if (d['input'] !== undefined) validateInput(d['input'], '/input', matErrors);
     if (d['collisionLayers'] !== undefined) validateCollisionLayers(d['collisionLayers'], '/collisionLayers', matErrors);
-    // Phase 23.9a: the UI themes validate as content.uiThemes does (the documents are a content file).
+    // The UI themes validate as content.uiThemes does (the documents are a content file).
     if (d['uiThemes'] !== undefined) validateUiThemes(d['uiThemes'], '/uiThemes', matErrors);
-    // Phase 23.10: the game modes validate as content.modes does.
+    // The game modes validate as content.modes does.
     if (d['modes'] !== undefined) validateModes(d['modes'], '/modes', matErrors);
     if (matErrors.length > 0) return { ok: false, error: manifestError('manifest_invalid', 'effects/environment/lighting are not valid', 'field_value') };
   }
@@ -973,7 +970,7 @@ export function validateManifestV2(doc: unknown, opts?: ValidateManifestV2Option
     if (d['cellFields'] !== undefined) validateCellFields(d['cellFields'], '/cellFields', blockErrors);
     if (blockErrors.length > 0) return { ok: false, error: manifestError('manifest_invalid', 'blockTypes/cellFields are not valid', 'field_value') };
   }
-  // Phase 25.7b: the content file rows (and, when given, their blocks).
+  // The content file rows (and, when given, their blocks).
   if (d['contentFiles'] !== undefined) {
     const rowsRes = contentFileRowsProblem(d['contentFiles']);
     if (rowsRes !== null) return { ok: false, error: manifestError('manifest_invalid', `contentFiles: ${rowsRes}`.slice(0, 256), 'field_value') };
@@ -1032,7 +1029,7 @@ export function validateManifestV2(doc: unknown, opts?: ValidateManifestV2Option
     return { ok: false, error: manifestError('manifest_invalid', 'mediaDigest does not match the media block', 'digest_mismatch', d['mediaDigest'], blockDigest(media)) };
   }
 
-  // media shape — exactly the animation rows (phase 24.8: no cue slots).
+  // media shape — exactly the animation rows (no cue slots).
   const mediaKeys = Object.keys(media);
   if (mediaKeys.length !== 1 || !Array.isArray((media as Record<string, unknown>)['animation'])) {
     return { ok: false, error: manifestError('manifest_invalid', 'media must carry exactly the animation rows', 'field_value', mediaKeys) };
@@ -1058,7 +1055,7 @@ export function validateManifestV2(doc: unknown, opts?: ValidateManifestV2Option
     }
   }
 
-  // Phase 25.9: the shared library rows (ascending ids, digest-named paths).
+  // The shared library rows (ascending ids, digest-named paths).
   if (d['libraries'] !== undefined) {
     const why = libraryRowsProblem(d['libraries']);
     if (why !== null) return { ok: false, error: manifestError('manifest_invalid', `libraries: ${why}`.slice(0, 256), 'field_value') };
@@ -1101,7 +1098,7 @@ export function validateManifestV2(doc: unknown, opts?: ValidateManifestV2Option
   return { ok: true, manifest: doc as unknown as RuntimeContentManifestV2 };
 }
 
-/** Phase 25.9: why a `libraries` value is not a list of shared library rows (null: it is). */
+/** Why a `libraries` value is not a list of shared library rows (null: it is). */
 function libraryRowsProblem(v: unknown): string | null {
   if (!Array.isArray(v) || v.length === 0) return 'a non-empty list of rows';
   let last = '';
@@ -1120,7 +1117,7 @@ function libraryRowsProblem(v: unknown): string | null {
   return null;
 }
 
-/** Phase 25.7b: why a `contentFiles` value is not a list of rows in key order (null: it is). */
+/** Why a `contentFiles` value is not a list of rows in key order (null: it is). */
 function contentFileRowsProblem(v: unknown): string | null {
   if (!Array.isArray(v) || v.length === 0) return 'a non-empty list of rows';
   let last = -1;
@@ -1140,7 +1137,7 @@ function contentFileRowsProblem(v: unknown): string | null {
   return null;
 }
 
-/** Phase 25.7b: why the content files' blocks do not match their rows or do not validate (null: they do). */
+/** Why the content files' blocks do not match their rows or do not validate (null: they do). */
 function contentFileBlocksProblem(rows: readonly ManifestContentFileRow[], blocks: Partial<Record<ManifestContentFileKey, unknown>>, input: unknown): string | null {
   for (const key of Object.keys(blocks)) {
     if (!rows.some((r) => r.key === key)) return `content file ${key} is not listed in contentFiles`;
@@ -1153,7 +1150,7 @@ function contentFileBlocksProblem(rows: readonly ManifestContentFileRow[], block
     if (bytes.length !== row.byteLength || sha256Hex(bytes) !== row.digest) return `content file ${row.key} does not match its digest`;
     switch (row.key) {
       case 'materialFunctions':
-        // Phase 18.3: the functions validate as graph documents (kind material-function only); graph materials call them.
+        // The functions validate as graph documents (kind material-function only); graph materials call them.
         validateGraphDocuments(GRAPH_KINDS, block, '/materialFunctions', errors);
         if (Array.isArray(block) && (block as unknown[]).some((g) => (g as { kind?: unknown } | null)?.kind !== 'material-function')) {
           errors.push({ code: 'field_value', path: '/materialFunctions', message: 'materialFunctions holds material functions only' } as ModelErrorV2);
@@ -1182,10 +1179,10 @@ function contentFileBlocksProblem(rows: readonly ManifestContentFileRow[], block
 }
 
 /**
- * delivery.md §2.1 — the version-compatibility rule. A v1 reader must reject a
+ * The version-compatibility rule. A v1 reader must reject a
  * v2 document with `manifest_invalid` (`reason: "manifest_version"`) and a v2
  * reader must reject a v1 document; an in-place upgrade is forbidden. Phase
- * 24.8: the reader was v3; phase 25.7b: it is v4 (it refuses v1–v3 alike).
+ * The reader was v3; It is v4 (it refuses v1–v3 alike).
  */
 export function manifestVersionCompat(
   doc: unknown,

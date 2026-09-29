@@ -1,5 +1,5 @@
 /**
- * Phase 23.9b: the UI document preview — the document drawn by the game
+ * The UI document preview — the document drawn by the game
  * host's own project UI layer (`@thirdlight/game-host/ui-layer`, the code
  * Play and exports run), inside a box of the chosen resolution scaled to fit
  * the tab, fed with the mock view-model values. On top: the selection box

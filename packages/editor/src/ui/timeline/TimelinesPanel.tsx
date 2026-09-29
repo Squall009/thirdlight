@@ -1,5 +1,5 @@
 /**
- * Phase 23.17: the Timelines list (bottom dock) — the project's timelines;
+ * The Timelines list (bottom dock) — the project's timelines;
  * create (a name → an id), delete and open (the "Timeline: <name>" centre
  * tab). Each action is one command (setTimeline, deleteTimeline).
  *

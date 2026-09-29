@@ -1,5 +1,5 @@
 /**
- * Phase 23.18: the blend maths — weights (simulation) → look values
+ * The blend maths — weights (simulation) → look values
  * (renderer), and the blend state stepped by the director.
  */
 import { describe, expect, it } from 'vitest';

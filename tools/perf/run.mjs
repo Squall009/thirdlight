@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Phase 21.1: run the performance harness.
+ * Run the performance harness.
  *
  *   npm run build                       # the harness drives dist/ (backend, editor, preview)
  *   node tools/perf/run.mjs [options]   # see tools/perf/cli.ts for the options

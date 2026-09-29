@@ -1,14 +1,14 @@
 /**
- * Packet 31 — shared fixture-replay helpers for the real-library physics
+ * Shared fixture-replay helpers for the real-library physics
  * tests (`tests/m2-physics/**`).
  *
- * These helpers implement the packet-14 canonical character model
- * (`tests/evaluations/m2-physics/probe-rapier2d.mjs`) as the temporary driver:
+ * These helpers implement the canonical character model
+ * (`tests/evaluations/m2-physics/probe-rapier2d.mjs`) as the driver:
  * game logic owns gravity/jump intent/velocity, the adapter owns collision
- * correction. The platformer controller module itself is packet 32.
+ * correction (the platformer controller module is tested elsewhere).
  *
  * Nothing here is a fixture of its own: the expectations come from
- * `fixtures/m2/physics/**` (frozen packet-14 tolerances + the accepted
+ * `fixtures/m2/physics/**` (frozen tolerances + the accepted
  * physics contract), and every result is validated with the runtime's own
  * `validateCharacterMoveResult` (the accepted port result rule).
  */
@@ -133,7 +133,7 @@ export interface RunResult {
 }
 
 /**
- * Drive one case through the real port with the packet-14 canonical model.
+ * Drive one case through the real port with the canonical model.
  * Every returned result is checked with the runtime's accepted
  * `validateCharacterMoveResult`.
  */
@@ -339,7 +339,7 @@ export function evaluate(
   if (expect.snappedWhileAirborneNever) {
     // A ground-contact correction may only be reported with a ground contact:
     // grounded, or a normal-flagged ground the controller classifies as
-    // steepSlope (physics.md §8 item 4). Never for a truly airborne step.
+    // steepSlope. Never for a truly airborne step.
     const bad = results.findIndex(
       (r) => r.snapped && !r.grounded && !r.contacts.steepSlope,
     );

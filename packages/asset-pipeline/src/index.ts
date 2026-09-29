@@ -1,8 +1,7 @@
 /**
- * `@thirdlight/asset-pipeline` — public surface (dependencies.md §3/§4.1).
+ * `@thirdlight/asset-pipeline` — public surface.
  *
- * Pure bounded media inspection over supplied bytes
- * (project-model.md §18.7/§18.8; presentation.md §41.3/§41.4). Bytes in, an
+ * Pure bounded media inspection over supplied bytes. Bytes in, an
  * immutable non-authoritative `ImportProposal`/`AudioImportProposal` out: no
  * I/O, no Node built-ins, no `three`/GLTFLoader, no decoder, no cache writes,
  * no asset-ID decisions, no URL fetch (external and `data:` URIs are rejected,
@@ -29,7 +28,7 @@ export {
   type ImageRecipe,
   type TextureFormat,
 } from './inspect-image';
-// Phase 25.19: a Basis Universal KTX2's facts (size, mip levels, codec).
+// A Basis Universal KTX2's facts (size, mip levels, codec).
 export { ktx2Info } from './images';
 export {
   inspectMusic,

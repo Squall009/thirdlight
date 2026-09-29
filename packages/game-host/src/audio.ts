@@ -1,14 +1,8 @@
 /**
- * @thirdlight/game-host — packet 54: the injected browser audio owner
- * (presentation.md §41.4.7, delivery request C41-5/6).
+ * @thirdlight/game-host — the injected browser audio owner, exported from
+ * the `.` entry next to `createGameHost`.
  *
- * This is the unit's first and only implemented part at packet 54 (the
- * §41.9 row: the `.` audio entry, created only in packet 54 after Gate K
- * accepted the dependencies.md rows). The delivery.md §§3–5 composition
- * (HUD, controls, `createGameHost`) lands in packet 55 on the same entry —
- * no stubs for those parts exist here.
- *
- * Binding surface (presentation.md §41.4.7): `GameCueEvent`, `GameAudioStatus`,
+ * Binding surface: `GameCueEvent`, `GameAudioStatus`,
  * `GameAudioOwner` (registerCue / submit / unlock / setMuted / setHidden /
  * status / dispose), `GameAudioError` (closed codes: audio_decode_failed,
  * audio_unsupported, audio_disposed, audio_invalid_bytes; message ≤ 256
@@ -36,7 +30,7 @@
  *     setHidden(false) attempts resume() only when already unlocked; a
  *     rejected resume degrades to blocked status, not an error.
  *  7. Local gesture unlock only — unlock() is the host's real-gesture call
- *     (the browser wiring checks `event.isTrusted` at packet 55/62); the
+ *     (the browser wiring checks `event.isTrusted`); the
  *     owner never trusts anything by itself and never unlocks on
  *     registerCue/submit. Gameplay never waits for audio.
  *  8. Close on dispose — dispose() closes exactly the contexts it created,
@@ -60,11 +54,11 @@
 import { AUDIO_VOICE_CAP, AUDIO_VOICES_DEFAULT, MAX_AUDIO_ASSETS, MAX_MUSIC_ASSETS, distanceGain, listenerRelative } from '@thirdlight/runtime';
 
 /**
- * Rule 3 — the concurrent voice cap: phase 15.3, the default of the project's
+ * Rule 3 — the concurrent voice cap: the default of the project's
  * `audio_voices` setting (`maxVoices`), which may go up to `AUDIO_VOICE_LIMIT`.
  */
 export const AUDIO_MAX_VOICES = AUDIO_VOICES_DEFAULT;
-/** Phase 15.3: the engine limit on concurrent voices (`audio_voices` at most). */
+/** The engine limit on concurrent voices (`audio_voices` at most). */
 export const AUDIO_VOICE_LIMIT = AUDIO_VOICE_CAP;
 /** The bounded diagnostic ring size (drop-oldest). */
 export const AUDIO_MAX_DIAGNOSTICS = 64;
@@ -142,18 +136,18 @@ export interface BufferSourceLike {
   connect(target: AudioNodeLike): void;
   start(): void;
   stop(when?: number): void;
-  /** Phase 9.10: music loops. */
+  /** Music loops. */
   loop?: boolean;
-  /** Phase 23.13: pitch (the playback rate). */
+  /** Pitch (the playback rate). */
   readonly playbackRate?: { value: number };
 }
 
-/** Phase 23.13: an automatable parameter (Web Audio AudioParam). */
+/** An automatable parameter (Web Audio AudioParam). */
 export interface AudioParamLike {
   value: number;
 }
 
-/** Phase 23.13: the positional sound's panner (Web Audio PannerNode). */
+/** The positional sound's panner (Web Audio PannerNode). */
 export interface PannerNodeLike extends AudioNodeLike {
   panningModel: string;
   distanceModel: string;
@@ -167,7 +161,7 @@ export interface PannerNodeLike extends AudioNodeLike {
   disconnect?(): void;
 }
 
-/** Phase 23.13: the context's listener (Web Audio AudioListener). */
+/** The context's listener (Web Audio AudioListener). */
 export interface AudioListenerLike {
   readonly positionX?: AudioParamLike;
   readonly positionY?: AudioParamLike;
@@ -191,28 +185,28 @@ export interface AudioContextLike {
   createBufferSource(): BufferSourceLike;
   createGain(): GainNodeLike;
   readonly destination: AudioNodeLike;
-  /** Phase 9.10: the clock the music crossfades on (absent: gains jump). */
+  /** The clock the music crossfades on (absent: gains jump). */
   readonly currentTime?: number;
-  /** Phase 23.13: positional sound (absent: positional sounds play unpanned). */
+  /** Positional sound (absent: positional sounds play unpanned). */
   createPanner?(): PannerNodeLike;
   readonly listener?: AudioListenerLike;
 }
 
-/** Phase 9.10: the mixer buses (phase 14.5: `ui`, the menu sounds; phase 23.13: `voice`, dialogue). */
+/** The mixer buses (`ui`, the menu sounds; `voice`, dialogue). */
 export type AudioBus = 'master' | 'music' | 'sfx' | 'ui' | 'voice';
 
 /**
- * Phase 23.13: the panning model of every positional sound. Equal-power:
+ * The panning model of every positional sound. Equal-power:
  * the same on every browser (HRTF's impulse responses differ per browser),
  * cheap enough for every voice at once, and right on speakers as well as
- * headphones. Logged in the phase 23 decision log.
+ * headphones.
  */
 export const AUDIO_PANNING_MODEL = 'equalpower';
 
-/** Phase 23.13: voices listed in the audio observation (a tl_game_observe document stays within 16 KiB). */
+/** Voices listed in the audio observation (a tl_game_observe document stays within 16 KiB). */
 export const AUDIO_OBSERVED_VOICES = 24;
 
-/** Phase 23.13: how a positional sound fades (the simulation's `AudioSpatial`). */
+/** How a positional sound fades (the simulation's `AudioSpatial`). */
 export interface AudioSpatialLike {
   readonly distanceModel: 'linear' | 'inverse' | 'exponential';
   readonly refDistance: number;
@@ -220,7 +214,7 @@ export interface AudioSpatialLike {
   readonly rolloff: number;
 }
 
-/** Phase 23.13: one command of the simulation's audio intent log (runtime `AudioCommand`, structurally). */
+/** One command of the simulation's audio intent log (runtime `AudioCommand`, structurally). */
 export type AudioCommandLike =
   | { readonly op: 'play'; readonly stepIndex: number; readonly handle: number; readonly assetId: string; readonly bus: 'sfx' | 'music' | 'voice' | 'ui'; readonly volume: number; readonly loop: boolean; readonly pitch: number; readonly fadeIn: number; readonly stinger?: true; readonly entityId?: string; readonly position?: readonly [number, number, number]; readonly spatial?: AudioSpatialLike }
   | { readonly op: 'stop'; readonly stepIndex: number; readonly handle: number; readonly fade: number }
@@ -231,7 +225,7 @@ export type AudioCommandLike =
   | { readonly op: 'bus'; readonly stepIndex: number; readonly bus: 'sfx' | 'music' | 'voice' | 'ui'; readonly volume: number; readonly seconds: number }
   | { readonly op: 'reset'; readonly stepIndex: number };
 
-/** Phase 23.13: one live voice as the Web Audio graph has it (observation; not what is heard). */
+/** One live voice as the Web Audio graph has it (observation; not what is heard). */
 export interface AudioVoiceInfo {
   /** A script sound's handle (0: an audio source's loop, see `key`). */
   readonly handle: number;
@@ -252,14 +246,14 @@ export interface AudioVoiceInfo {
   readonly position?: readonly [number, number, number];
 }
 
-/** Phase 23.13: the audio observation (voices, music, buses, listener). */
+/** The audio observation (voices, music, buses, listener). */
 export interface AudioObservation {
   /** The first `AUDIO_OBSERVED_VOICES` voices (the observation stays bounded). */
   readonly voices: readonly AudioVoiceInfo[];
   /** Every live voice (script sounds and panned audio sources). */
   readonly voiceCount: number;
   readonly music: { readonly owner: 'script' | 'host'; readonly assetId: string | null; readonly playing: boolean; readonly duck: number };
-  /** Phase 23.16: the SFX duck node's value now (a dialogue voice ducks effects; 1 = not ducked). */
+  /** The SFX duck node's value now (a dialogue voice ducks effects; 1 = not ducked). */
   readonly sfxDuck: number;
   /** Each bus gain node's value (the player's volume × the scripts' mix). */
   readonly buses: Readonly<Record<'sfx' | 'music' | 'voice' | 'ui', number>>;
@@ -276,12 +270,12 @@ export interface GameAudioOwnerConfig {
    * The environment's AudioContext producer, injected by the browser entry.
    * Invoked on each `unlock()` until it yields a context; the owner then
    * creates exactly ONE context (never at load, never on registerCue — the
-   * autoplay-policy-safe creation point, §41.4.7 intro). Returning `null`
+   * autoplay-policy-safe creation point). Returning `null`
    * reports status `unsupported`/`no_audio_context` (the game plays
    * silently; a later gesture may retry with a recovered environment).
    */
   readonly contextFactory?: () => AudioContextLike | null;
-  /** Phase 15.3: the project's `audio_voices` (1–32; absent: `AUDIO_MAX_VOICES`). */
+  /** The project's `audio_voices` (1–32; absent: `AUDIO_MAX_VOICES`). */
   readonly maxVoices?: number;
 }
 
@@ -304,7 +298,7 @@ function clipMessage(message: string): string {
   return message.length > 256 ? `${message.slice(0, 253)}...` : message;
 }
 
-/** The owner (the §41.4.7 interface + the additive `diagnostics()` read). */
+/** The owner (the audio owner interface + the additive `diagnostics()` read). */
 export interface GameAudioOwner {
   registerCue(
     assetId: string,
@@ -316,47 +310,47 @@ export interface GameAudioOwner {
   setHidden(hidden: boolean): GameAudioStatus;
   status(): GameAudioStatus;
   dispose(): { readonly ok: true; readonly alreadyDisposed?: true };
-  /** Additive observation surface (not a binding §41.4.7 member): the bounded
+  /** Additive observation surface (not a binding owner member): the bounded
    * diagnostic ring, newest last. */
   diagnostics(): readonly GameAudioDiagnostic[];
-  /** Additive observation surface (packet 55, delivery.md §3.1
+  /** Additive observation surface (the host observation's
    * `sound.voices`): the live concurrent voice count (0..8). */
   liveVoices(): number;
-  /** Phase 9.10: register a music track (decoded when it first plays). */
+  /** Register a music track (decoded when it first plays). */
   registerMusic?(assetId: string, bytes: Uint8Array): { ok: true } | { ok: false; error: GameAudioError };
-  /** Phase 9.10: loop a track (null: silence), crossfading from the current one. */
+  /** Loop a track (null: silence), crossfading from the current one. */
   playMusic?(assetId: string | null, fadeSeconds?: number): void;
-  /** Phase 9.10: a bus volume, 0–1. */
+  /** A bus volume, 0–1. */
   setVolume?(bus: AudioBus, value: number): void;
   volumes?(): Readonly<Record<AudioBus, number>>;
-  /** Phase 9.10: the wanted track, whether it sounds, and the music bus gain node's value. */
+  /** The wanted track, whether it sounds, and the music bus gain node's value. */
   musicStatus?(): { readonly assetId: string | null; readonly playing: boolean; readonly gain: number };
   /**
-   * Phase 9.10: a one-shot sound (a registered cue) at a volume (a script's
-   * ctx.audio.play). Phase 14.5: `bus` 'ui' plays it on the menu-sound bus
+   * A one-shot sound (a registered cue) at a volume (a script's
+   * ctx.audio.play). `bus` 'ui' plays it on the menu-sound bus
    * (default 'sfx').
    */
   playSound?(assetId: string, volume: number, bus?: 'sfx' | 'ui'): boolean;
-  /** Phase 14.5: one-shot sounds started per bus since creation (observation). */
+  /** One-shot sounds started per bus since creation (observation). */
   soundsPlayed?(): Readonly<Record<'sfx' | 'ui', number>>;
-  /** Phase 9.10: a looping emitter (an audio source) at a gain; null stops it. */
+  /** A looping emitter (an audio source) at a gain; null stops it. */
   setLoop?(key: string, assetId: string | null, gain: number): void;
-  /** Phase 9.10: the live loops (key → gain), for observation. */
+  /** The live loops (key → gain), for observation. */
   loops?(): Readonly<Record<string, number>>;
   /**
-   * Phase 23.13: execute one command of the simulation's audio intent log
+   * Execute one command of the simulation's audio intent log
    * (handles, fades, pitch, loop, music, stingers, duck, bus mix, reset).
    */
   command?(c: AudioCommandLike): void;
   /**
-   * Phase 23.13: once per frame — the listener (the active camera's pose; null:
+   * Once per frame — the listener (the active camera's pose; null:
    * unchanged) and where each positional voice's entity is now (null: gone,
    * the voice stays where it was). Also starts voices waiting for bytes.
    */
   spatialFrame?(listener: { readonly position: readonly number[]; readonly rotation: readonly number[] } | null, positionOf: (entityId: string) => readonly number[] | null): void;
-  /** Phase 23.13: a positional loop (an audio source in the panner model) — `setLoop` with a place. */
+  /** A positional loop (an audio source in the panner model) — `setLoop` with a place. */
   setSpatialLoop?(key: string, assetId: string | null, gain: number, position: readonly number[], spatial: AudioSpatialLike): void;
-  /** Phase 23.13: the audio observation, or null before scripts used audio and while nothing positional plays. */
+  /** The audio observation, or null before scripts used audio and while nothing positional plays. */
   observeAudio?(): AudioObservation | null;
 }
 
@@ -384,19 +378,19 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
   const assets = new Map<string, AssetState>();
   const voices = new Set<Voice>();
   const diagnostics: GameAudioDiagnostic[] = [];
-  // Phase 9.10: buses (created with the context) and music.
+  // Buses (created with the context) and music.
   const volumes: Record<AudioBus, number> = { master: 1, music: 0.8, sfx: 1, ui: 1, voice: 1 };
   const played: Record<'sfx' | 'ui', number> = { sfx: 0, ui: 0 };
   let buses: Record<AudioBus, GainNodeLike> | null = null;
-  /** Phase 23.13: the music duck, between the tracks and the music bus. */
+  /** The music duck, between the tracks and the music bus. */
   let duckNode: GainNodeLike | null = null;
   let duckLevel = 1;
-  /** Phase 23.16: the SFX duck (a dialogue voice ducks effects) — a factor of the SFX bus gain (no extra node: the graph stays as it was). */
+  /** The SFX duck (a dialogue voice ducks effects) — a factor of the SFX bus gain (no extra node: the graph stays as it was). */
   let sfxDuckLevel = 1;
-  /** Phase 23.13: the scripts' mix per bus (each bus gain = the player's volume × this). */
+  /** The scripts' mix per bus (each bus gain = the player's volume × this). */
   const mix: Record<'sfx' | 'music' | 'voice' | 'ui', number> = { sfx: 1, music: 1, voice: 1, ui: 1 };
   const music = new Map<string, { bytes: Uint8Array; buffer: AudioBufferLike | null; decoding: boolean; failed: boolean }>();
-  /** Phase 23.13: the host's track (`playMusic`) and the scripts' (undefined: the host owns the music). */
+  /** The host's track (`playMusic`) and the scripts' (undefined: the host owns the music). */
   let hostMusic: string | null = null;
   let scriptMusic: string | null | undefined = undefined;
   let wantedMusic: string | null = null;
@@ -440,13 +434,13 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
     g.gain.linearRampToValueAtTime(to, now + seconds);
   }
 
-  // Phase 9.10: looping emitters (audio sources) by key.
+  // Looping emitters (audio sources) by key.
   const loopVoices = new Map<string, { assetId: string; source: BufferSourceLike; gain: GainNodeLike }>();
   const loopGains = new Map<string, number>();
-  /** Phase 23.13: positional loops' panners and places (key → ...). */
+  /** Positional loops' panners and places (key → ...). */
   const loopSpatial = new Map<string, { panner: PannerNodeLike | null; position: [number, number, number]; spatial: AudioSpatialLike }>();
 
-  // ---- Phase 23.13: script sounds by handle ----------------------------------
+  // ---- Script sounds by handle ----------------------------------
   interface HandleVoice {
     readonly handle: number;
     readonly assetId: string;
@@ -813,7 +807,7 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
     }
     let entry = music.get(wantedMusic);
     if (entry === undefined) {
-      // Phase 23.13: a script may pick an audio (cue) asset as its track.
+      // A script may pick an audio (cue) asset as its track.
       const cue = assets.get(wantedMusic);
       if (cue !== undefined && cue.state !== 'failed') {
         if (cue.state !== 'ready') {
@@ -984,7 +978,7 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
     }
     if (!factory) return { state: 'unsupported', reason: 'no_audio_context' };
     // Honest pre-gesture state: an autoplay policy would deny resume()
-    // before a real local gesture (§41.4.6 row: autoplay denial → blocked).
+    // before a real local gesture (autoplay denial → blocked).
     return { state: 'blocked', reason: 'autoplay_denied' };
   }
 
@@ -998,12 +992,12 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
         return error('audio_invalid_bytes', 'cue bytes must be a non-empty Uint8Array (bytes in only — rule 1)');
       }
       if (!assets.has(assetId) && assets.size >= AUDIO_MAX_REGISTERED_ASSETS) {
-        // §41.4.5: the catalog holds ≤ 64 audio records; the owner's store
+        // The catalog holds ≤ 64 audio records; the owner's store
         // caps at the same bound (never grows unboundedly).
         return error('audio_invalid_bytes', `registered asset store full (cap ${AUDIO_MAX_REGISTERED_ASSETS}); re-register an existing asset instead`);
       }
       assets.set(assetId, { state: 'pending', bytes, token: 0 });
-      // Rule 2/§41.4.6: nothing is decoded while muted; with a live context
+      // Rule 2: nothing is decoded while muted; with a live context
       // and sound on, decode eagerly (a cue must not wait for the first
       // submit after unlock — the "late decode" failure mode).
       if (!muted && context) startDecode(assetId);
@@ -1092,7 +1086,7 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
         // Rule 7: the only creation point — a real local gesture call.
         const created = factory();
         if (!created) {
-          // §41.4.6: absent AudioContext / no device → soft sound-off. The
+          // Absent AudioContext / no device → soft sound-off. The
           // factory is NOT marked consumed: a later gesture retries (the
           // environment may recover).
           return { state: 'unsupported', reason: 'no_audio_context' };
@@ -1112,7 +1106,7 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
         await ctx.resume();
       } catch {
         // Autoplay policy denial / no device: soft blocked, not an error
-        // (rule 7; §41.4.6). A later local gesture may retry.
+        // (rule 7). A later local gesture may retry.
         blockedReason = 'autoplay_denied';
         return currentStatus();
       }
@@ -1139,7 +1133,7 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
       muted = next;
       if (buses !== null) buses.master.gain.value = muted ? 0 : volumes.master;
       if (muted) {
-        // §41.4.6: nothing is decoded or played while muted — current
+        // Nothing is decoded or played while muted — current
         // voices stop now; pending decodes are deferred (startDecode is a
         // no-op while muted, via the register/unlock/mute paths' guard).
         stopAllVoices();
@@ -1222,7 +1216,7 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
 
     playMusic(assetId, fadeSeconds = 1) {
       if (disposed) return;
-      // Phase 23.13: the host's track; a script holding the music keeps it until it releases.
+      // The host's track; a script holding the music keeps it until it releases.
       hostMusic = assetId;
       if (scriptMusic !== undefined) return;
       refreshWantedMusic(fadeSeconds);
@@ -1293,7 +1287,7 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
       const gainNode = ctx.createGain();
       gainNode.gain.value = g;
       source.connect(gainNode);
-      // Phase 23.13: a positional loop (the panner model) goes through its panner.
+      // A positional loop (the panner model) goes through its panner.
       const sp = loopSpatial.get(key);
       if (sp !== undefined) {
         sp.panner = makePanner(ctx, sp.spatial, sp.position);

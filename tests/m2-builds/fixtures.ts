@@ -1,6 +1,6 @@
 /**
- * Shared fixture access for the behavior-build tests (packet 33,
- * `fixtures/m2/behaviors/expected.json`).
+ * Shared fixture access for the behavior-build tests
+ * (`fixtures/m2/behaviors/expected.json`).
  */
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';

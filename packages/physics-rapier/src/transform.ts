@@ -1,5 +1,5 @@
 /**
- * Physics-transform validation — project-model §21.2 for the facts the port
+ * Physics-transform validation — project-model's physics-transform rules for the facts the port
  * input can carry.
  *
  * The accepted contract refuses an unsupported authored transform as a
@@ -34,7 +34,7 @@ function isIdentityQuaternion(q: readonly [number, number, number, number]): boo
   return q[0] === 0 && q[1] === 0 && q[2] === 0 && Math.abs(q[3]) === 1;
 }
 
-/** Validate one static collider's authored transform (physics.md §4). */
+/** Validate one static collider's authored transform. */
 export function validateStaticTransform(
   spec: RapierStaticColliderSpec,
   label: string,
@@ -97,7 +97,7 @@ export function validateStaticTransform(
 
 /**
  * Validate the controller entity's authored transform: root, unit scale,
- * identity rotation (physics.md §4 rule 3: the capsule is never tilted).
+ * identity rotation (physics.md: the capsule is never tilted).
  */
 export function validateControllerTransform(authored: {
   x: number;

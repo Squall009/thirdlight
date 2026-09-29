@@ -1,11 +1,11 @@
 /**
- * Editor app root (React, decision 0001 §10). Wires the session client
+ * Editor app root (React). Wires the session client
  * (backend transport), the imperative three.js viewport (framework-free), the
  * React panels, and the isolated play preview (separate-origin iframe + the
- * checked §13.5 bridge). React renders the panels + the canvas element; it
+ * checked message bridge). React renders the panels + the canvas element; it
  * never instantiates or mutates Object3Ds (the viewport owns those).
  *
- * Packet 28 adds the prefab (copy) authoring path and the schema-driven
+ * It also carries the prefab (copy) authoring path and the schema-driven
  * declared-property inspector. Every authoring decision is delegated to the
  * pure `session/*` modules; React renders controls and issues ordinary typed
  * commands through the same single client path.
@@ -158,8 +158,8 @@ interface UiError {
 
 /** The bounded backend error for a failed command (the panels explain it, never lose it). */
 
-/** Poll `get` each animation frame (up to ~2 s) until it yields a value (phase 12 c: a change arriving over the socket). */
-// Phase 25.19: KTX2 textures (and GLBs with KHR_texture_basisu) transcode with three's Basis files next to the editor page.
+/** Poll `get` each animation frame (up to ~2 s) until it yields a value (a change arriving over the socket). */
+// KTX2 textures (and GLBs with KHR_texture_basisu) transcode with three's Basis files next to the editor page.
 setKtx2DecoderBase('./decoders/');
 
 function waitFor<T>(get: () => T | null): Promise<T | null> {
@@ -180,7 +180,7 @@ function commandError(res: { response: MutationResponse }): GameplayBackendError
   return { code: r.code, message: r.message ?? r.code };
 }
 
-/** The capture preflight view of one projected entity (packet 28). */
+/** The capture preflight view of one projected entity. */
 function toCaptureView(e: ProjectedEntity): CaptureEntityView {
   return {
     id: e.id,
@@ -197,28 +197,28 @@ interface PlayInfo {
   snapshot: unknown | null;
   snapshotId: string;
   revision: number;
-  /** Packet 35: the immutable locator capability + build identity. */
+  /** The immutable locator capability + build identity. */
   contentId: string | null;
   buildId: string | null;
   contentPath: string | null;
 }
 
-/** Phase 22.1: the Problems tab's graph diagnostics before the first worker result. */
+/** The Problems tab's graph diagnostics before the first worker result. */
 const NO_GRAPH_ISSUES: readonly GraphIssue[] = [];
 const NO_MATERIAL_ISSUES: readonly MaterialIssue[] = [];
 
-/** Phase 21.4: the pickers' option per projected entity object (see fieldContextBase). */
+/** The pickers' option per projected entity object (see fieldContextBase). */
 const entityOptionCache = new WeakMap<ProjectedEntity, { id: string; name: string; sceneId?: string; components: string[] }>();
 
 function EditorApp(): JSX.Element {
   const cfg = useRef(readEditorConfig());
-  /** Phase 17.1: the Scene view's canvas is in this host (the Viewport replaces it on a renderer backend change). */
+  /** The Scene view's canvas is in this host (the Viewport replaces it on a renderer backend change). */
   const viewportHostRef = useRef<HTMLDivElement | null>(null);
-  /** Phase 17.1: the page's ?renderer= flag (it overrides the project setting everywhere, Play included). */
+  /** The page's ?renderer= flag (it overrides the project setting everywhere, Play included). */
   const urlRenderer = useRef(rendererPreferenceFromUrl(pageSearch()));
-  /** Phase 22.0: the page's ?threads= flag (where Play runs its simulation), passed on to the play page. */
+  /** The page's ?threads= flag (where Play runs its simulation), passed on to the play page. */
   const urlThreads = useRef(/[?&]threads=([A-Za-z0-9]{1,16})(?:[&#]|$)/.exec(pageSearch())?.[1] ?? null);
-  /** Phase 17.1: the Scene view's renderer (backend, state, reason) and the play's, from its observation. */
+  /** The Scene view's renderer (backend, state, reason) and the play's, from its observation. */
   const [sceneRenderer, setSceneRenderer] = useState<RendererInfo | null>(null);
   const [playRenderer, setPlayRenderer] = useState<Record<string, unknown> | null>(null);
   const clientRef = useRef<SessionClient | null>(null);
@@ -232,9 +232,9 @@ function EditorApp(): JSX.Element {
     cfg.current.ok || cfg.current.needs === 'page' ? null : { kind: cfg.current.needs === 'token' ? 'token' : 'projects' },
   );
   const [entities, setEntities] = useState<ProjectedEntity[]>([]);
-  /** Phase 21.4: the transform a Scene-view gesture shows while it runs (the Inspector readout), until the change lands. */
+  /** The transform a Scene-view gesture shows while it runs (the Inspector readout), until the change lands. */
   const [liveTransform, setLiveTransform] = useState<{ id: string; position: number[]; rotation: number[]; scale: number[] } | null>(null);
-  /** Phase 12: the hierarchy selection (several ids) and its primary entity (inspector, gizmo). */
+  /** The hierarchy selection (several ids) and its primary entity (inspector, gizmo). */
   const [selection, setSelection] = useState<{ ids: string[]; primary: string | null }>({ ids: [], primary: null });
   const selectedId = selection.primary;
   const setSelectedId = useCallback((id: string | null) => setSelection({ ids: id === null ? [] : [id], primary: id }), []);
@@ -243,7 +243,7 @@ function EditorApp(): JSX.Element {
   /** The bottom dock's active panel. */
   const [bottomTab, setBottomTab] = useState<BottomTab>('assets');
   /**
-   * Phase 16.0: the centre workspace — Scene, Game and the open document tabs
+   * The centre workspace — Scene, Game and the open document tabs
    * (remembered per project in the layout storage).
    */
   const [workspace, workspaceDispatch] = useWorkspace(cfg.current.ok ? cfg.current.config.projectId : null);
@@ -252,7 +252,7 @@ function EditorApp(): JSX.Element {
   /** The centre view: the editor scene, the running game or a document. */
   const centerTab: 'scene' | 'game' | 'document' = workspace.active === 'scene' || workspace.active === 'game' ? workspace.active : 'document';
   const setCenterTab = useCallback((key: 'scene' | 'game') => workspaceDispatch({ type: 'activate', key }), [workspaceDispatch]);
-  // Phase 16.1: standalone graphs; each opens as a `graph` document tab.
+  // Standalone graphs; each opens as a `graph` document tab.
   const [graphs, setGraphs] = useState<readonly GraphDocument[]>([]);
   const [graphKinds, setGraphKinds] = useState<Readonly<Record<string, GraphKindDef>>>({});
   /** False until the first projection is applied (remembered graph tabs must not close before). */
@@ -269,16 +269,16 @@ function EditorApp(): JSX.Element {
   const openGraph = activeGraphId !== null ? (graphs.find((g) => g.graphId === activeGraphId) ?? null) : null;
   // A different graph in front starts with an empty selection.
   useEffect(() => setGraphSelection([]), [activeGraphId]);
-  // Phase 19.0: the visual script in front (a behavior with a graph), its selection and a focus request.
-  // Phase 19.2: the selection with the graph it belongs to (owner id): a tab switch shows no stale selection.
+  // The visual script in front (a behavior with a graph), its selection and a focus request.
+  // The selection with the graph it belongs to (owner id): a tab switch shows no stale selection.
   const [visualSelectionOf, setVisualSelectionOf] = useState<{ owner: string; ids: readonly string[] }>({ owner: '', ids: [] });
-  // Phase 19.2: a focus request names its script (a Problems click may open another script's tab first).
+  // A focus request names its script (a Problems click may open another script's tab first).
   const [visualFocus, setVisualFocus] = useState<{ behaviorId?: string; id: string; nonce: number } | null>(null);
   const activeVisualId = (() => {
     const d = activeDoc(workspace);
     return d !== null && d.kind === 'visual-script' ? d.id : null;
   })();
-  // Phase 19.2: per script — the graph in front ("" = event graph, else a function id), the latest
+  // Per script — the graph in front ("" = event graph, else a function id), the latest
   // compile problems (the Problems tab), breakpoints (scoped node ids) and watched variables.
   const [visualTargets, setVisualTargets] = useState<Readonly<Record<string, string>>>({});
   const [visualProblems, setVisualProblems] = useState<Readonly<Record<string, readonly VisualScriptProblem[]>>>({});
@@ -289,7 +289,7 @@ function EditorApp(): JSX.Element {
   const onVisualProblems = useCallback((behaviorId: string, problems: readonly VisualScriptProblem[]) => setVisualProblems((m) => ({ ...m, [behaviorId]: problems })), []);
   const activeVisualOwner = activeVisualId === null ? '' : activeVisualTarget === '' ? activeVisualId : `${activeVisualId}#${activeVisualTarget}`;
   const visualSelection = visualSelectionOf.owner === activeVisualOwner ? visualSelectionOf.ids : [];
-  // Phase 16.2: the Animator tabs — which graph of each controller is shown
+  // The Animator tabs — which graph of each controller is shown
   // (an animator owner id: base layer, `@n` layer, `#state` blend tree), the
   // selection of the one in front (the Inspector shows it) and a focus request.
   const [animatorTargets, setAnimatorTargets] = useState<Readonly<Record<string, string>>>({});
@@ -303,9 +303,9 @@ function EditorApp(): JSX.Element {
     setAnimatorSelection({ ownerId: '', ids: [] });
     setAnimatorFocus(null);
   }, [activeAnimatorId]);
-  // Phase 18.1: sub-graph calls (material functions) read their ports from the project's graphs.
+  // Sub-graph calls (material functions) read their ports from the project's graphs.
   const graphsContext = useMemo(() => graphsPortContext(graphs, graphKinds), [graphs, graphKinds]);
-  // Phase 18.0: the graph material of the active centre tab (its node inspector shows in the right dock).
+  // The graph material of the active centre tab (its node inspector shows in the right dock).
   const [materialSelection, setMaterialSelection] = useState<readonly string[]>([]);
   const [materialFocus, setMaterialFocus] = useState<{ id: string; nonce: number; materialId?: string } | null>(null);
   const activeMaterialId = (() => {
@@ -317,7 +317,7 @@ function EditorApp(): JSX.Element {
     // A focus request for the tab being opened (a Problems click) survives the switch.
     setMaterialFocus((f) => (f !== null && f.materialId === activeMaterialId ? f : null));
   }, [activeMaterialId]);
-  // Phase 20.0: the effect of the active centre tab (the selected node of its shown system shows in the right dock).
+  // The effect of the active centre tab (the selected node of its shown system shows in the right dock).
   const [effectSelection, setEffectSelection] = useState<readonly string[]>([]);
   const [effectFocus, setEffectFocus] = useState<{ id: string; nonce: number } | null>(null);
   const activeEffectId = (() => {
@@ -328,7 +328,7 @@ function EditorApp(): JSX.Element {
     setEffectSelection([]);
     setEffectFocus(null);
   }, [activeEffectId]);
-  // Phase 23.16: the conversation of the active centre tab (its selected node shows in the right dock).
+  // The conversation of the active centre tab (its selected node shows in the right dock).
   const [dialogueSelection, setDialogueSelection] = useState<readonly string[]>([]);
   const [dialogueFocus, setDialogueFocus] = useState<{ id: string; nonce: number } | null>(null);
   const activeDialogueId = (() => {
@@ -340,7 +340,7 @@ function EditorApp(): JSX.Element {
     setDialogueFocus(null);
   }, [activeDialogueId]);
   // Every graph's problems (the kind's rules), for the Problems tab.
-  // Phase 22.1: computed in the editor worker (inline without one).
+  // Computed in the editor worker (inline without one).
   const graphIssues = useWorkerJob('graphIssues', () => ({ graphs, kinds: graphKinds }), (i) => graphIssuesOf(i.graphs, i.kinds), NO_GRAPH_ISSUES, [graphs, graphKinds]);
   // A graph that went away (deleted here, by MCP or undone) closes its tab.
   useEffect(() => {
@@ -354,11 +354,11 @@ function EditorApp(): JSX.Element {
   const [notice, setNotice] = useState<string | null>(null);
   /** The open modal (File → Export…, Help → Shortcuts / About). */
   const [dialog, setDialog] = useState<'export' | 'shortcuts' | 'about' | 'instances' | 'playFrom' | 'snapping' | null>(null);
-  /** Phase 23.8: the "Play from…" form (a scene, script variables as JSON, a save slot). */
+  /** The "Play from…" form (a scene, script variables as JSON, a save slot). */
   const [playFromForm, setPlayFromForm] = useState({ sceneId: '', variables: '', saveSlot: '', mode: '', busy: false, error: null as string | null });
   /**
-   * Phase 12 (c): the scatter dialog's form (an instance set of one model).
-   * Phase 15.5: a 20 × 20 m square (it was a 40 × 8 m side-scroller strip) —
+   * The scatter dialog's form (an instance set of one model).
+   * A 20 × 20 m square (it was a 40 × 8 m side-scroller strip) —
    * no view direction assumed; 200 copies at 0.7–1.3× with a random turn read
    * as a natural scatter of props at any scale.
    */
@@ -393,7 +393,7 @@ function EditorApp(): JSX.Element {
   }, [playInfo]);
 
   /**
-   * Phase 15.4: one observation of the running Play with `entityId`'s script
+   * One observation of the running Play with `entityId`'s script
    * property values (the Play debug view) — over the preview bridge, answered
    * by the preview from the running game; null when nothing answers in 2 s.
    */
@@ -418,7 +418,7 @@ function EditorApp(): JSX.Element {
   );
 
   /**
-   * Phase 19.2: one poll of the visual-script debugger in the running Play —
+   * One poll of the visual-script debugger in the running Play —
    * over the preview bridge, answered by the preview from the running game
    * (the editor runs no game code); null when nothing answers in 2 s.
    */
@@ -442,7 +442,7 @@ function EditorApp(): JSX.Element {
     [playInfo],
   );
 
-  // Phase 17.1: the play's renderer (backend, state, reason) for the Play label, from its
+  // The play's renderer (backend, state, reason) for the Play label, from its
   // diagnostics (every play has them; the observation needs a game).
   const playDiagnostics = useCallback(
     (): Promise<Record<string, unknown> | null> =>
@@ -481,36 +481,36 @@ function EditorApp(): JSX.Element {
       window.clearInterval(timer);
     };
   }, [playing, playInfo, playDiagnostics]);
-  // ---- packet 56: M3 gameplay authoring (game config / camera / settings) ---
+  // ---- Gameplay authoring (game config / camera / settings) ------
   const [gameplayError, setGameplayError] = useState<GameplayBackendError | null>(null);
   const [settings, setSettings] = useState<Record<string, unknown> | null>(null);
-  // Phase 25.7d: the chunks each drawn instance set was split into (by entity id).
+  // The chunks each drawn instance set was split into (by entity id).
   const [instanceChunks, setInstanceChunks] = useState<Record<string, number>>({});
-  /** Phase 12 (b): the project tag registry and the last setTags error. */
+  /** The project tag registry and the last setTags error. */
   const [tags, setTags] = useState<{ bit: number; name: string }[]>([]);
-  /** Phase 12 (c): the open scenes' headers and the closed scenes (a v4 project with scenes). */
+  /** The open scenes' headers and the closed scenes (a v4 project with scenes). */
   const [sceneHeaders, setSceneHeaders] = useState<SceneHeaderView[] | null>(null);
   const [closedScenes, setClosedScenes] = useState<{ sceneId: string; name: string }[]>([]);
   const [tagsError, setTagsError] = useState<string | null>(null);
-  /** Phase 23.3: the named collision layers and the last setCollisionLayers error. */
+  /** The named collision layers and the last setCollisionLayers error. */
   const [collisionLayers, setCollisionLayers] = useState<string[]>([]);
-  /** Phase 23.19: the project save schema and the last setSaveSchema error. */
+  /** The project save schema and the last setSaveSchema error. */
   const [saveSchema, setSaveSchema] = useState<SaveSchema | null>(null);
   const [saveSchemaError, setSaveSchemaError] = useState<string | null>(null);
   const [layersError, setLayersError] = useState<string | null>(null);
-  /** Phase 23.10: the game modes, the behavior groups and the last setModes / setBehaviorGroups error. */
+  /** The game modes, the behavior groups and the last setModes / setBehaviorGroups error. */
   const [modes, setModes] = useState<GameMode[]>([]);
   const [behaviorGroups, setBehaviorGroups] = useState<string[]>([]);
   const [modesError, setModesError] = useState<string | null>(null);
-  /** Phase 24.4j: the game shell and the last setShell error. */
+  /** The game shell and the last setShell error. */
   const [shell, setShell] = useState<GameShell | null>(null);
   const [shellError, setShellError] = useState<string | null>(null);
-  /** Phase 24.4i: the event → cue table and the last setEventCues error. */
+  /** The event → cue table and the last setEventCues error. */
   const [eventCues, setEventCues] = useState<EventCue[]>([]);
   const [eventCuesError, setEventCuesError] = useState<string | null>(null);
-  /** Phase 23.10: the running Play's current game mode (the toolbar shows it; null: none or not playing). */
+  /** The running Play's current game mode (the toolbar shows it; null: none or not playing). */
   const [playMode, setPlayMode] = useState<{ current: string; name: string } | null>(null);
-  // Phase 23.10: the running Play's game mode for the toolbar (from its diagnostics; a project with modes).
+  // The running Play's game mode for the toolbar (from its diagnostics; a project with modes).
   useEffect(() => {
     if (!playing || playInfo === null || modes.length === 0) {
       setPlayMode(null);
@@ -530,7 +530,7 @@ function EditorApp(): JSX.Element {
     };
   }, [playing, playInfo, playDiagnostics, modes.length]);
 
-  // ---- packet 27: content browser + local snapping -------------------------
+  // ---- Content browser + local snapping -------------------------
   const [assets, setAssets] = useState<AssetView[]>([]);
   /** Tile previews (`${assetId}|${piece}` → object URL) and each model file's pieces. */
   const [assetThumbs, setAssetThumbs] = useState<ReadonlyMap<string, string>>(new Map());
@@ -541,60 +541,60 @@ function EditorApp(): JSX.Element {
   const environmentKeyRef = useRef('');
   const lightingKeyRef = useRef('');
   const loadTextureRef = useRef<((assetId: string) => Promise<THREE.Texture | null>) | null>(null);
-  /** Phase 9.4: the project materials and the environment, for the panels. */
+  /** The project materials and the environment, for the panels. */
   const [materials, setMaterials] = useState<MaterialDef[]>([]);
   const [environment, setEnvironment] = useState<EnvironmentConfig | null>(null);
   const [lighting, setLighting] = useState<Record<string, LightingBake>>({});
-  // Phase 9.7: the animator controllers.
+  // The animator controllers.
   const [animators, setAnimators] = useState<AnimatorController[]>([]);
-  // Phase 20.0: the visual effects, the system each Effect tab shows, and the list's last refusal.
+  // The visual effects, the system each Effect tab shows, and the list's last refusal.
   const [effects, setEffects] = useState<readonly EffectDef[]>([]);
   const [effectSystems, setEffectSystems] = useState<Readonly<Record<string, string | null>>>({});
   const [effectError, setEffectError] = useState<string | null>(null);
-  // Phase 23.16: conversations, speakers, the dialogue settings, the project UI (the previewer draws with it) and the last refusal.
+  // Conversations, speakers, the dialogue settings, the project UI (the previewer draws with it) and the last refusal.
   const [dialogues, setDialogues] = useState<readonly DialogueDoc[]>([]);
   const [speakers, setSpeakers] = useState<readonly DialogueSpeaker[]>([]);
   const [dialogueSettings, setDialogueSettings] = useState<DialogueSettings | null>(null);
   const [projectUiDocs, setProjectUiDocs] = useState<readonly ProjectUiDocument[]>([]);
   const [projectUiThemes, setProjectUiThemes] = useState<readonly ProjectUiTheme[]>([]);
   const [dialogueError, setDialogueError] = useState<string | null>(null);
-  // Phase 23.16: a conversation that went away closes its tab (after the first full state).
+  // A conversation that went away closes its tab (after the first full state).
   useEffect(() => {
     if (!graphsLoaded) return;
     const ids = new Set(dialogues.map((d) => d.dialogueId));
     for (const d of workspace.docs) if (d.kind === 'dialogue' && !ids.has(d.id)) workspaceDispatch({ type: 'close', key: docKey(d) });
   }, [graphsLoaded, dialogues, workspace.docs, workspaceDispatch]);
-  // Phase 23.17: the timelines and the list's / tab's last refusal.
+  // The timelines and the list's / tab's last refusal.
   const [timelines, setTimelines] = useState<readonly TimelineAsset[]>([]);
   const [timelineError, setTimelineError] = useState<string | null>(null);
-  // Phase 23.7: the shared script libraries and the Libraries list's last refusal.
+  // The shared script libraries and the Libraries list's last refusal.
   const [scriptLibraries, setScriptLibraries] = useState<readonly ScriptLibrary[]>([]);
   const [libraryError, setLibraryError] = useState<string | null>(null);
-  // Phase 23.9b: the project UI documents and themes (the UI list and their tabs) and the last refusal.
+  // The project UI documents and themes (the UI list and their tabs) and the last refusal.
   const [uiDocuments, setUiDocuments] = useState<readonly UiDocument[]>([]);
   const [uiThemes, setUiThemes] = useState<readonly UiTheme[]>([]);
   const [uiError, setUiError] = useState<string | null>(null);
-  // Phase 15.1: the component and content descriptors the Inspector is built from.
+  // The component and content descriptors the Inspector is built from.
   const [registry, setRegistry] = useState<DescriptorRegistry | null>(null);
-  /** Phase 15.2: the selected copy of the selected instance set, and the copy brush. */
+  /** The selected copy of the selected instance set, and the copy brush. */
   const [selectedCopy, setSelectedCopy] = useState<number | null>(null);
   const [brushOn, setBrushOn] = useState(false);
   const [animatorError, setAnimatorError] = useState<string | null>(null);
-  // Phase 9.8: the input actions (null = the defaults).
+  // The input actions (null = the defaults).
   const [inputConfig, setInputConfig] = useState<InputConfig | null>(null);
   const [inputDefaults, setInputDefaults] = useState<InputConfig>({ actions: [] });
   const [inputError, setInputError] = useState<string | null>(null);
   // The note of the editor's own Play control (clearing the Play save).
   const [playSaveNote, setPlaySaveNote] = useState<string | null>(null);
-  // Phase 9.12: the Scene view's helpers (Gizmos menu).
+  // The Scene view's helpers (Gizmos menu).
   const [gizmos, setGizmos] = useState({ icons: true, lights: true, colliders: true, gameplay: true });
   useEffect(() => viewportRef.current?.setGizmos(gizmos), [gizmos]);
-  // Phase 20.2: the Scene view plays the selected object's effect (edit mode; the Gizmos menu toggles it).
+  // The Scene view plays the selected object's effect (edit mode; the Gizmos menu toggles it).
   const [effectPreview, setEffectPreview] = useState(false);
   const localRelaysRef = useRef(new Set<string>());
-  /** Phase 15.4: the editor's own observation requests (the Play debug view), by relay id. */
+  /** The editor's own observation requests (the Play debug view), by relay id. */
   const debugWaitersRef = useRef(new Map<string, (r: Record<string, unknown> | null) => void>());
-  // Phase 9.6: the Lighting window (bake settings, a running bake, its outcome).
+  // The Lighting window (bake settings, a running bake, its outcome).
   const [bakeSettings, setBakeSettings] = useState<BakeSettings>(DEFAULT_BAKE_SETTINGS);
   const [bakeBusy, setBakeBusy] = useState<{ text: string; fraction: number } | null>(null);
   const [bakeMessage, setBakeMessage] = useState<string | null>(null);
@@ -614,10 +614,10 @@ function EditorApp(): JSX.Element {
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
   const [assetPreview, setAssetPreview] = useState<AssetPreviewView | null>(null);
   const [snapping, setSnapping] = useState(true);
-  // Phase 23.6: the snapping steps and cell-top snapping (editor settings per project, in this browser).
+  // The snapping steps and cell-top snapping (editor settings per project, in this browser).
   const [snapSettings, setSnapSettingsState] = useState<SnapSettings>({ ...DEFAULT_SNAP_SETTINGS });
   const [snapDraft, setSnapDraft] = useState<{ translateM: string; rotateDeg: string; scale: string; cellTops: boolean } | null>(null);
-  // Phase 23.6: block-layer editing (the Blocks panel and the Scene view's block tools).
+  // Block-layer editing (the Blocks panel and the Scene view's block tools).
   const [blockEditor, setBlockEditor] = useState<BlockEditor | null>(null);
   const [blockRows, setBlockRows] = useState<readonly BlockLayerRow[]>([]);
   const [blockTypes, setBlockTypes] = useState<readonly BlockType[]>([]);
@@ -633,7 +633,7 @@ function EditorApp(): JSX.Element {
   const previewSessionRef = useRef<AssetPreviewSession | null>(null);
   const previewStageRef = useRef<PreviewStage | null>(null);
   const previewCanvasRef = useCallback((canvas: HTMLCanvasElement | null) => {
-    // Phase 21.5: the asset browser mounts a new canvas each time: the old one's context goes with it.
+    // The asset browser mounts a new canvas each time: the old one's context goes with it.
     previewStageRef.current?.dispose(true);
     previewStageRef.current = null;
     if (canvas === null) {
@@ -645,9 +645,9 @@ function EditorApp(): JSX.Element {
     previewStageRef.current = new PreviewStage(canvas);
   }, []);
   const pendingProposalRef = useRef<{ proposal: Parameters<typeof publishArgsFromProposal>[0]; target: ImportTarget } | null>(null);
-  // M3 (packet 57): the media import context the panel shows between the
+  // The media import context the panel shows between the
   // inspect and the publish — the kind the drop decided, the inspected clip
-  // names (a model proposal) and the §8.5.1 animated-reimport obligation.
+  // names (a model proposal) and the animated-reimport obligation.
   const mediaPendingRef = useRef<{ kind: 'model' | 'audio' | 'texture' | 'music' | 'font'; clipNames: string[] | null; referencingEntityIds: string[] } | null>(null);
   const [reimportRoles, setReimportRoles] = useState<Record<AnimationRoleKey, string>>({ idle: '', run: '', airborne: '' });
   const [reimportEntity, setReimportEntity] = useState('');
@@ -666,23 +666,23 @@ function EditorApp(): JSX.Element {
     snappingRef.current = snapping;
   }, [snapping]);
 
-  // ---- packet 28: prefab copies + declared-property controls ---------------
+  // ---- Prefab copies + declared-property controls ---------------
   const [prefabSummaries, setPrefabSummaries] = useState<PrefabSummaryView[]>([]);
   const [declarations, setDeclarations] = useState<Map<string, PropertyDeclaration>>(() => new Map());
   const [selectedPrefabId, setSelectedPrefabId] = useState<string | null>(null);
   const [captureName, setCaptureName] = useState('');
   const [captureError, setCaptureError] = useState<UiError | null>(null);
   const [copyError, setCopyError] = useState<UiError | null>(null);
-  // Phase 25.7c: why the last asset / prefab delete was refused.
+  // Why the last asset / prefab delete was refused.
   const [assetDeleteError, setAssetDeleteError] = useState<string | null>(null);
   const [prefabDeleteError, setPrefabDeleteError] = useState<string | null>(null);
   const [placementError, setPlacementError] = useState<UiError | null>(null);
   const [propertyError, setPropertyError] = useState<UiError | null>(null);
   const [componentError, setComponentError] = useState<UiError | null>(null);
   const [overrideDrafts, setOverrideDrafts] = useState<Record<string, string>>({});
-  // Packet 34: behavior publication workflow (trust, staging, publication).
+  // Behavior publication workflow (trust, staging, publication).
   const [behaviorViews, setBehaviorViews] = useState<BehaviorDeclarationView[]>([]);
-  // Phase 19.2: visual scripts' compile problems (from the last check of each open script), for the Problems tab.
+  // Visual scripts' compile problems (from the last check of each open script), for the Problems tab.
   const scriptIssues = useMemo(
     () =>
       Object.entries(visualProblems).flatMap(([behaviorId, list]) => {
@@ -709,8 +709,8 @@ function EditorApp(): JSX.Element {
       }),
     [visualProblems, behaviorViews, graphKinds],
   );
-  // Phase 18.2: graph materials' problems (the kind's rules and the compiler's), for the Problems tab.
-  // Phase 22.1: computed in the editor worker (inline without one).
+  // Graph materials' problems (the kind's rules and the compiler's), for the Problems tab.
+  // Computed in the editor worker (inline without one).
   const materialIssues = useWorkerJob(
     'materialIssues',
     () => ({ materials, graphs, kinds: graphKinds, textureIds: assets.filter((a) => a.kind === 'texture').map((a) => a.assetId) }),
@@ -745,7 +745,7 @@ function EditorApp(): JSX.Element {
     setCaptureError(null);
   }, [selectedId]);
 
-  /** Phase 14.4: the environment the Scene view shows (the project's). */
+  /** The environment the Scene view shows (the project's). */
   const applyEnvironmentView = useCallback(() => {
     const c = clientRef.current;
     if (!c) return;
@@ -759,7 +759,7 @@ function EditorApp(): JSX.Element {
     }
   }, []);
 
-  // Phase 21.4: a refresh after every applied change must not hand React new
+  // A refresh after every applied change must not hand React new
   // objects for what did not change — every panel keyed on them would redraw
   // (and effects such as the asset thumbnails and the Scene view sync would
   // rerun). A slice keeps its previous object while its content is the same.
@@ -773,10 +773,10 @@ function EditorApp(): JSX.Element {
   const refreshEntities = useCallback(() => {
     const c = clientRef.current;
     if (!c) return;
-    // The projection hands out the same array until an entity changes (phase 21.4).
+    // The projection hands out the same array until an entity changes.
     setEntities(c.visibleEntities());
     setLiveTransform(null);
-    // Phase 12 (c): the scene headers (open scenes) and the closed scenes.
+    // The scene headers (open scenes) and the closed scenes.
     const scenes = c.projection.scenes;
     if (scenes.length === 0) {
       setSceneHeaders(null);
@@ -795,7 +795,7 @@ function EditorApp(): JSX.Element {
     setPrefabSummaries(stable('prefabSummaries', c.prefabs.listSummaries()));
     setDeclarations(stable('declarations', c.prefabs.declarationMap()));
     setBehaviorViews(stable('behaviorViews', [...c.prefabs.listDeclarations()]));
-    // M3 (packet 56): the settings map converges from the client state (full
+    // The settings map converges from the client state (full
     // states + the applied change records — the backend stays the sole
     // authority).
     setRegistry(c.getDescriptors());
@@ -811,7 +811,7 @@ function EditorApp(): JSX.Element {
     const env = stable('environment', c.getEnvironment());
     setMaterials(mats);
     setEnvironment(env);
-    // Phase 18.3: graph materials compile to TSL in the Scene view too (the library recompiles only when a
+    // Graph materials compile to TSL in the Scene view too (the library recompiles only when a
     // graph's compile input changes — moving a node does not), with the material functions they call.
     const libFunctions = c.getGraphs().filter((g) => g.kind === 'material-function');
     const matsKey = JSON.stringify([mats, libFunctions]);
@@ -821,7 +821,7 @@ function EditorApp(): JSX.Element {
       // A material that animates (wind, water) keeps the Scene view drawing from this frame on.
       viewportRef.current?.requestRender();
     }
-    // Phase 14.4: the project environment (wind included).
+    // The project environment (wind included).
     applyEnvironmentView();
     setAnimators(stable('animators', c.getAnimators()));
     setEffects(c.getEffects());
@@ -840,7 +840,7 @@ function EditorApp(): JSX.Element {
     setGraphsLoaded(c.getContentLoaded());
     setInputConfig(stable('inputConfig', c.getInput()));
     setInputDefaults(stable('inputDefaults', c.getInputDefaults()));
-    // Phase 9.6: the scenes' bakes (lightmaps in the Scene view with game lighting).
+    // The scenes' bakes (lightmaps in the Scene view with game lighting).
     const lit = c.getLighting();
     const lightingKey = JSON.stringify(lit);
     const lighting = stable('lighting', lit, lightingKey);
@@ -849,16 +849,16 @@ function EditorApp(): JSX.Element {
       lightingKeyRef.current = lightingKey;
       viewportRef.current?.setLightmaps(lighting as unknown as Record<string, LightingBakeLike>, loadTextureRef.current);
     }
-    // Phase 23.5: the block layers (cells, block types) at their entities' positions.
+    // The block layers (cells, block types) at their entities' positions.
     const blockLayers = c.getBlockLayers();
     if (blockLayers.size > 0 || c.getBlockRevision() > 0) {
       const byId = new Map(c.projection.listEntities().map((e) => [e.id, e]));
       const layers = new Map([...blockLayers].filter(([id]) => byId.has(id)).map(([id, l]) => [id, { component: l.component, chunks: l.chunks, origin: byId.get(id)!.position }]));
-      // Phase 23.6: an inactive layer object is not drawn.
+      // An inactive layer object is not drawn.
       const flags = effectiveFlagsOf(c.projection.listEntities());
       for (const [id, l] of layers) (l as { hidden?: boolean }).hidden = flags.get(id)?.active === false;
       viewportRef.current?.setBlockLayers(c.getBlockTypes(), layers, c.getBlockRevision());
-      // Phase 23.6: the Blocks panel's layer list and the Scene view's selected layer.
+      // The Blocks panel's layer list and the Scene view's selected layer.
       const rows: BlockLayerRow[] = [...blockLayers]
         .filter(([id]) => byId.has(id))
         .map(([id, l]) => ({ entityId: id, name: byId.get(id)!.name ?? id, component: l.component, regions: l.regions, active: flags.get(id)?.active !== false, locked: flags.get(id)?.locked === true }));
@@ -910,7 +910,7 @@ function EditorApp(): JSX.Element {
     });
     clientRef.current = client;
 
-    // Phase 17.1: the Viewport owns its canvas (a renderer backend change swaps it for a fresh one).
+    // The Viewport owns its canvas (a renderer backend change swaps it for a fresh one).
     const canvas = document.createElement('canvas');
     canvas.className = 'tl-viewport';
     viewportHostRef.current!.replaceChildren(canvas);
@@ -928,7 +928,7 @@ function EditorApp(): JSX.Element {
       onGestureFrame: (id, t) => {
         // The viewport already moved the Object3D (local preview, no traffic);
         // mirror the live transform into the inspector readout.
-        // Phase 21.4: only the readout changes (the entity list keeps its identity, so nothing else redraws).
+        // Only the readout changes (the entity list keeps its identity, so nothing else redraws).
         setLiveTransform({ id, position: t.position, rotation: t.rotation, scale: t.scale });
       },
       onGestureEnd: async (id, transform) => {
@@ -947,7 +947,7 @@ function EditorApp(): JSX.Element {
         const before = client.entityTransform(id);
         const res = await client.command('setTransform', { entityId: id, transform: outcome.command.args.transform }, outcome.command.expectedRevision);
         if (res.ok) {
-          // Phase 23.6: a prop's block footprint follows it (its metadata leaves the old cells, lands on the new).
+          // A prop's block footprint follows it (its metadata leaves the old cells, lands on the new).
           void writeFootprintRef.current(id, before, outcome.command.args.transform as { position: number[]; rotation: number[] });
           return;
         }
@@ -967,7 +967,7 @@ function EditorApp(): JSX.Element {
         }
         restore();
       },
-      // Phase 15.2: a dragged handle (any descriptor handle: sizes, radii, capsules, ranges, cones,
+      // A dragged handle (any descriptor handle: sizes, radii, capsules, ranges, cones,
       // directions, paths, polygon corners) — one setComponent on release, one undo step.
       onHandleEdit: (entityId, component, value) => {
         const c = clientRef.current;
@@ -979,7 +979,7 @@ function EditorApp(): JSX.Element {
         });
       },
       onHandleRefused: (message) => setNotice(`Not stored: ${message}`),
-      // Phase 15.2: one copy of an instance set.
+      // One copy of an instance set.
       onCopyPick: (_entityId, index) => {
         viewportRef.current?.setSelectedCopy(index);
         setSelectedCopy(index);
@@ -990,7 +990,7 @@ function EditorApp(): JSX.Element {
     }, { snapping: () => snappingRef.current && !shiftRef.current, renderer: initialRenderer });
     setSceneRenderer(viewport.rendererInfo());
     viewportRef.current = viewport;
-    // Phase 23.6: the block tools (a stroke is one editBlocks, sent on release).
+    // The block tools (a stroke is one editBlocks, sent on release).
     const blockEd = viewport.blockEditor({
       onCommit: async (entityId, edits) => {
         const r = await client.command('editBlocks', { entityId, edits }, client.projection.revision);
@@ -1006,15 +1006,15 @@ function EditorApp(): JSX.Element {
     });
     setBlockEditor(blockEd);
     setSnapSettingsState(loadSnapSettings(typeof window !== 'undefined' ? window.localStorage : null, config.projectId));
-    // Packet 27: one shared GLB realization path for placements + preview. The
+    // One shared GLB realization path for placements + preview. The
     // resolver is the editor's authenticated byte read; the renderer never
-    // receives the token (sessions.md §16.1).
-    // Phase 9.4: project materials (shared by boxes, models and instance sets).
+    // receives the token.
+    // Project materials (shared by boxes, models and instance sets).
     const loadTextureAsset = async (assetId: string): Promise<THREE.Texture | null> => {
       const v = client.content.resolveVersion(assetId);
       if (v === null) return null;
       const bytes = await client.assetBytes(assetId, v.version);
-      // Phase 25.19: a KTX2 texture transcodes with three's Basis files next to the editor page.
+      // A KTX2 texture transcodes with three's Basis files next to the editor page.
       if (isKtx2(bytes)) return decodeTexture(bytes);
       const bitmap = await createImageBitmap(new Blob([bytes as BlobPart]), { imageOrientation: 'none', premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
       const t = new THREE.Texture(bitmap as unknown as HTMLImageElement);
@@ -1022,7 +1022,7 @@ function EditorApp(): JSX.Element {
       return t;
     };
     loadTextureRef.current = loadTextureAsset;
-    // Phase 25.8: spot light cookies in the Scene view.
+    // Spot light cookies in the Scene view.
     viewport.setTextureSource(loadTextureAsset);
     const materialLibrary = createMaterialLibrary({
       loadTexture: loadTextureAsset,
@@ -1046,7 +1046,7 @@ function EditorApp(): JSX.Element {
       vertexColorsFor: (assetId) => (client.content.getAsset(assetId)?.vertexColors === 'tint' ? 'tint' : 'data'),
       materialLibrary,
       assetMaterialsFor: (assetId) => client.content.getAsset(assetId)?.materials ?? null,
-      // Phase 25.7d: the project's instance chunk size; the Inspector shows each set's chunk count.
+      // The project's instance chunk size; the Inspector shows each set's chunk count.
       instanceChunkSize: () => {
         const v = client.getSettings()?.['instance_chunk_m'];
         return typeof v === 'number' && v > 0 ? v : undefined;
@@ -1087,13 +1087,13 @@ function EditorApp(): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the viewport and session client are made once per mount
   }, []);
 
-  // Phase 25.7d: a changed project chunk size rebuilds the instance sets that use it.
+  // A changed project chunk size rebuilds the instance sets that use it.
   const instanceChunkSetting = settings?.['instance_chunk_m'];
   useEffect(() => {
     modelInstancesRef.current?.refreshSets();
   }, [instanceChunkSetting]);
 
-  // Phase 17.1: the project's render_backend setting (under the page's ?renderer= flag) picks the
+  // The project's render_backend setting (under the page's ?renderer= flag) picks the
   // Scene view's backend and the one previews and thumbnails create their renderer with.
   const renderBackendSetting = settings?.['render_backend'];
   useEffect(() => {
@@ -1112,7 +1112,7 @@ function EditorApp(): JSX.Element {
     selectedIdRef.current = selectedId;
   }, [selectedId]);
 
-  // Push the projection into the viewport (packet 27: placements must be
+  // Push the projection into the viewport (placements must be
   // visible; the viewport renders the projection, never the reverse). The
   // first non-empty scene is framed so a large level is in view on open.
   // Model assets: load each file once to learn its pieces, and fetch (or
@@ -1135,12 +1135,12 @@ function EditorApp(): JSX.Element {
         textureTilesRef.current.add(tile);
         void c.assetBytes(a.assetId, v.version).then(
           (bytes) => {
-            // Phase 21.5: a superseded run forgets the tile so the next run fetches it (it was skipped for good).
+            // A superseded run forgets the tile so the next run fetches it (it was skipped for good).
             if (cancelled) {
               textureTilesRef.current.delete(tile);
               return;
             }
-            // Phase 25.19: a KTX2 is no image the page can show (the tile keeps its icon).
+            // A KTX2 is no image the page can show (the tile keeps its icon).
             if (isKtx2(bytes)) return;
             const url = URL.createObjectURL(new Blob([bytes as BlobPart]));
             setAssetThumbs((prev) => {
@@ -1175,13 +1175,13 @@ function EditorApp(): JSX.Element {
     };
   }, [assets]);
 
-  // Phase 9.4: animated materials (wind, water) need frames while they are in view — phase 21.3:
+  // Animated materials (wind, water) need frames while they are in view:
   // the Scene view ticks them with its own frames and keeps drawing only while one is animated
   // (render on demand: no animation-frame loop while nothing changes).
 
   const framedRef = useRef(false);
   useEffect(() => {
-    // Phase 21.3: only what changed since the last sync (the projection's dirty ids; a hydrate syncs all).
+    // Only what changed since the last sync (the projection's dirty ids; a hydrate syncs all).
     viewportRef.current?.syncEntities(entities, clientRef.current?.projection.takeDirty());
     const lit = viewportRef.current?.getLighting();
     if (lit !== undefined) setLightingMode(lit);
@@ -1192,7 +1192,7 @@ function EditorApp(): JSX.Element {
   }, [entities]);
 
   // Local snapping is a gesture option: default on, Shift disables it for the
-  // gesture in flight (never persisted — sessions.md §9). Esc cancels the
+  // gesture in flight (never persisted). Esc cancels the
   // gesture and sends nothing.
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent): void => {
@@ -1204,7 +1204,7 @@ function EditorApp(): JSX.Element {
       // Editor shortcuts — never while typing into a field.
       const t = e.target as HTMLElement | null;
       const typing = t !== null && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable);
-      // Phase 16.0: with a document tab in front, the scene's shortcuts (delete,
+      // With a document tab in front, the scene's shortcuts (delete,
       // tools, frame, copy/paste) stay off; undo/redo remain global.
       const sceneHidden = activeDoc(workspaceRef.current) !== null;
       if (!typing && sceneHidden && (e.ctrlKey || e.metaKey) && ['z', 'y'].includes(e.key.toLowerCase())) {
@@ -1276,7 +1276,7 @@ function EditorApp(): JSX.Element {
   useEffect(() => {
     viewportRef.current?.setSelected(selectedId, gizmoMode);
   }, [selectedId, gizmoMode]);
-  // Phase 15.2: another selection drops the selected copy and the brush.
+  // Another selection drops the selected copy and the brush.
   useEffect(() => {
     setSelectedCopy(null);
     setBrushOn(false);
@@ -1284,18 +1284,18 @@ function EditorApp(): JSX.Element {
   useEffect(() => {
     viewportRef.current?.setBrush(brushOn ? selectedId : null);
   }, [brushOn, selectedId]);
-  // Phase 15.2: the descriptors drive the Scene-view handles.
+  // The descriptors drive the Scene-view handles.
   useEffect(() => {
     viewportRef.current?.setDescriptors(registry);
   }, [registry]);
-  // Phase 24.5: the hierarchy's row icons come from the descriptors too.
+  // The hierarchy's row icons come from the descriptors too.
   const iconTable = useMemo(() => iconTableOf(registry), [registry]);
-  // Phase 23.2: handles of one physics dimension (a 3D character's heights) follow the project's.
+  // Handles of one physics dimension (a 3D character's heights) follow the project's.
   const physicsDimension = settings?.['physics_dimension'] === 3 ? 3 : 2;
   useEffect(() => {
     viewportRef.current?.setPhysicsDimension(physicsDimension);
   }, [physicsDimension]);
-  // Phase 15.2: the cameras' frustums use the game view's aspect: the preview while it plays, else the window (an export fills it).
+  // The cameras' frustums use the game view's aspect: the preview while it plays, else the window (an export fills it).
   useEffect(() => {
     const update = (): void => {
       const frame = document.querySelector('iframe.tl-app__preview-frame');
@@ -1371,13 +1371,13 @@ function EditorApp(): JSX.Element {
     bridge.on('tl.ready', (m) => {
       const r = m as { snapshotId?: string; revision?: number };
       setPlayInfo((p) => (p ? { ...p, snapshotId: r.snapshotId ?? p.snapshotId, revision: r.revision ?? p.revision } : p));
-      // M4 (packet 70, D-63-4 repair): the editor presented the preview and
+      // The editor presented the preview and
       // received its `tl.ready` → send the WS `play.preview.ready` exactly
-      // once (sessions.md §10.2); the backend marks the play `presented`
+      // once; the backend marks the play `presented`
       // (lifting the 15 s present-timeout).
       clientRef.current?.sendPlayPreviewReady(playInfo.playSessionId);
     });
-    // Phase 25.24f: load progress keeps the backend's present timeout from firing while the preview still moves.
+    // Load progress keeps the backend's present timeout from firing while the preview still moves.
     bridge.on('tl.load.progress', () => {
       clientRef.current?.sendPlayPreviewProgress(playInfo.playSessionId);
     });
@@ -1385,8 +1385,8 @@ function EditorApp(): JSX.Element {
       setPlaying(false);
       setPlayInfo(null);
     });
-    // M4 (packet 70, D-63-4 repair — failure side): the preview could not
-    // start → relay it over WS (`play.preview.failed`, sessions.md §10.2);
+    // The preview could not
+    // start → relay it over WS (`play.preview.failed`);
     // the backend stops the play `preview_failed` (truthful + immediate, not
     // the 15 s present-timeout). The editor also surfaces the code locally.
     bridge.on('tl.error', (m) => {
@@ -1410,7 +1410,7 @@ function EditorApp(): JSX.Element {
     });
     bridge.on('tl.diagnostics.result', (m) => {
       const r = m as Record<string, unknown>;
-      // Phase 17.1: the Play label's own diagnostics requests are not the backend's relays.
+      // The Play label's own diagnostics requests are not the backend's relays.
       const waiter = debugWaitersRef.current.get(String(r.relayId));
       if (waiter !== undefined) {
         debugWaitersRef.current.delete(String(r.relayId));
@@ -1425,7 +1425,7 @@ function EditorApp(): JSX.Element {
     });
     bridge.on('tl.game.control.result', (m) => {
       const r = m as Record<string, unknown>;
-      // Phase 9.11: the editor's own requests (clear the Play save) are not the backend's relays.
+      // The editor's own requests (clear the Play save) are not the backend's relays.
       if (localRelaysRef.current.delete(String(r.relayId))) {
         setPlaySaveNote(r.ok === true ? 'The Play save was cleared (restart Play to start without it).' : 'Clearing the Play save failed.');
         return;
@@ -1434,7 +1434,7 @@ function EditorApp(): JSX.Element {
     });
     bridge.on('tl.game.observe.result', (m) => {
       const r = m as Record<string, unknown>;
-      // Phase 15.4: the Play debug view's own observations are not the backend's relays.
+      // The Play debug view's own observations are not the backend's relays.
       const waiter = debugWaitersRef.current.get(String(r.relayId));
       if (waiter !== undefined) {
         debugWaitersRef.current.delete(String(r.relayId));
@@ -1443,7 +1443,7 @@ function EditorApp(): JSX.Element {
       }
       ack({ type: 'game.observe.ack', relayId: r.relayId, ...outcome(r, ['result']) });
     });
-    // Phase 19.2: the visual-script debugger's polls (the editor's own; never a backend relay).
+    // The visual-script debugger's polls (the editor's own; never a backend relay).
     bridge.on('tl.debug.result', (m) => {
       const r = m as Record<string, unknown>;
       const waiter = debugWaitersRef.current.get(String(r.relayId));
@@ -1453,7 +1453,7 @@ function EditorApp(): JSX.Element {
     });
 
     const onLoad = (): void => {
-      // §13.4: the editor holds the retained play.started snapshot; on the
+      // The editor holds the retained play.started snapshot; on the
       // iframe load it runs the handshake, then sends the snapshot. The v2
       // handshake also carries the locator capability + build identity.
       bridge.beginHandshake(playInfo.playSessionId, false, playInfo.contentId ?? '', playInfo.buildId ?? '');
@@ -1495,13 +1495,13 @@ function EditorApp(): JSX.Element {
   const del = useCallback(async () => {
     const c = clientRef.current;
     if (!c || !selectedIdRef.current) return;
-    // Phase 15.2: a selected copy of an instance set is deleted from its set (the object stays).
+    // A selected copy of an instance set is deleted from its set (the object stays).
     const copy = viewportRef.current?.getSelectedCopy() ?? null;
     if (copy !== null) {
       await editCopiesRef.current.remove(copy.entityId, copy.index);
       return;
     }
-    // Phase 12: every selected subtree (one deleteEntity each; a child of a
+    // Every selected subtree (one deleteEntity each; a child of a
     // selected entity goes with it).
     const ids = draggedRoots(c.projection.listEntities(), selectionRef.current.length > 0 ? selectionRef.current : [selectedIdRef.current]);
     for (const entityId of ids) {
@@ -1538,7 +1538,7 @@ function EditorApp(): JSX.Element {
     [reportFailure, setSelectedId],
   );
   const createEmpty = useCallback(() => createEntityAt('Create empty', { kind: 'group', name: `entity-${Date.now() % 10000}` }), [createEntityAt]);
-  // Phase 15.5: the camera and the lights are the descriptor's add value and
+  // The camera and the lights are the descriptor's add value and
   // presets (one table for this menu and "+ Add component").
   const createCamera = useCallback(() => {
     const camera = presetValue(registry, 'camera');
@@ -1548,7 +1548,7 @@ function EditorApp(): JSX.Element {
     // 4 m in front of the point the Scene view looks at, facing it — the starter camera's framing of the origin.
     const focus = viewportRef.current?.focusPoint() ?? [0, 0.5, 0];
     const at = focus.map((v) => Math.round(v * 4) / 4);
-    // createEntity does not add cameras (its component set is closed): an object, then its camera (phase 15.1's setComponent add).
+    // createEntity does not add cameras (its component set is closed): an object, then its camera (a setComponent add).
     void (async () => {
       const made = await c.command('createEntity', { parentId: null, kind: 'group', name: 'Camera', transform: { position: [at[0]!, at[1]!, at[2]! + 4] } }, c.projection.revision);
       if (!made.ok || made.createdId === undefined) return reportFailure('Create camera', made);
@@ -1626,7 +1626,7 @@ function EditorApp(): JSX.Element {
   editRef.current = { duplicate, copySelection, paste };
 
   /**
-   * Phase 15.2: edit an instance set's copies — the new copy list is
+   * Edit an instance set's copies — the new copy list is
    * published through the buffer route (the one `tl_instance_buffer` uses)
    * and stored with one `setComponent instances` (one undo step).
    */
@@ -1703,7 +1703,7 @@ function EditorApp(): JSX.Element {
       setExportState((st) => ({ ...st, error: e instanceof Error ? e.message : String(e) }));
     }
   }, []);
-  /** Phase 12: file entities (with their subtrees) under a parent, before a sibling or at the end. */
+  /** File entities (with their subtrees) under a parent, before a sibling or at the end. */
   const move = useCallback(async (entityIds: string[], parentId: string | null, beforeId: string | null) => {
     const c = clientRef.current;
     if (!c || entityIds.length === 0) return;
@@ -1712,7 +1712,7 @@ function EditorApp(): JSX.Element {
     if (!res.ok && (res.response as { code?: string }).code === 'no_change') return;
     reportFailure('Move', res);
   }, [reportFailure]);
-  /** Phase 12 (c): scatter copies of one model into a new instance set at the point the camera looks at. */
+  /** Scatter copies of one model into a new instance set at the point the camera looks at. */
   const createInstanceSet = useCallback(async () => {
     const c = clientRef.current;
     if (!c) return;
@@ -1731,7 +1731,7 @@ function EditorApp(): JSX.Element {
       return;
     }
     setScatter((f) => ({ ...f, busy: true, error: null }));
-    // Phase 22.1: the placements are computed in the editor worker (inline without one: the same function).
+    // The placements are computed in the editor worker (inline without one: the same function).
     let floats: Float32Array;
     try {
       floats = await editorWorkers().run('scatter', () => ({ input: opts }), { inline: () => scatterTransforms(opts) });
@@ -1749,7 +1749,7 @@ function EditorApp(): JSX.Element {
     setScatter((f) => ({ ...f, busy: false }));
     setDialog(null);
   }, [scatter, createEntityAt]);
-  /** Phase 12 (c): the scene controls (headers, new/open) — index ops are commands, open/active are local. */
+  /** The scene controls (headers, new/open) — index ops are commands, open/active are local. */
   const sceneAction = useCallback(async (action: SceneAction) => {
     const c = clientRef.current;
     if (!c) return;
@@ -1795,7 +1795,7 @@ function EditorApp(): JSX.Element {
       }
     }
   }, [reportFailure]);
-  /** Phase 12 (b): replace the tag registry (one setTags command). */
+  /** Replace the tag registry (one setTags command). */
   const saveTags = useCallback(async (next: { bit?: number; name: string }[]) => {
     const c = clientRef.current;
     if (!c) return;
@@ -1803,7 +1803,7 @@ function EditorApp(): JSX.Element {
     if (res.ok) setTagsError(null);
     else setTagsError((res.response as { message?: string }).message ?? 'the tags could not be saved');
   }, []);
-  /** Phase 23.3: replace the named collision layers (one setCollisionLayers command). */
+  /** Replace the named collision layers (one setCollisionLayers command). */
   const saveCollisionLayers = useCallback(async (next: string[]) => {
     const c = clientRef.current;
     if (!c) return;
@@ -1811,7 +1811,7 @@ function EditorApp(): JSX.Element {
     if (res.ok) setLayersError(null);
     else setLayersError((res.response as { message?: string }).message ?? 'the collision layers could not be saved');
   }, []);
-  /** Phase 23.10: replace the game modes (one setModes command) or the behavior groups (one setBehaviorGroups). */
+  /** Replace the game modes (one setModes command) or the behavior groups (one setBehaviorGroups). */
   const saveModes = useCallback(async (next: GameMode[]) => {
     const c = clientRef.current;
     if (!c) return;
@@ -1827,8 +1827,8 @@ function EditorApp(): JSX.Element {
     else setModesError((res.response as { message?: string }).message ?? 'the behavior groups could not be saved');
   }, []);
   /**
-   * Phase 24.4j: replace the game shell (one setShell command; null removes it). Phase 24.7 (D40):
-   * the args are built at send time on top of the shell as it is then (an edit made while an earlier
+   * Replace the game shell (one setShell command; null removes it). The
+   * args are built at send time on top of the shell as it is then (an edit made while an earlier
    * one's result is still on its way keeps both).
    */
   const saveShell = useCallback(async (next: GameShell | null, base: GameShell | null) => {
@@ -1839,7 +1839,7 @@ function EditorApp(): JSX.Element {
     if (res.ok) setShellError(null);
     else setShellError((res.response as { message?: string }).message ?? 'the game shell could not be saved');
   }, []);
-  /** Phase 24.4i: replace the event → cue table (one setEventCues command; phase 24.7, D40: built at send time, row by row on the table as it is then). */
+  /** Replace the event → cue table (one setEventCues command; built at send time, row by row on the table as it is then). */
   const saveEventCues = useCallback(async (next: EventCue[], base: EventCue[]) => {
     const c = clientRef.current;
     if (!c) return;
@@ -1848,7 +1848,7 @@ function EditorApp(): JSX.Element {
     if (res.ok) setEventCuesError(null);
     else setEventCuesError((res.response as { message?: string }).message ?? 'the event sounds could not be saved');
   }, []);
-  /** Phase 23.19: replace the project save schema (one setSaveSchema command; null removes it). */
+  /** Replace the project save schema (one setSaveSchema command; null removes it). */
   const saveSaveSchema = useCallback(async (next: SaveSchema | null) => {
     const c = clientRef.current;
     if (!c) return;
@@ -1856,19 +1856,19 @@ function EditorApp(): JSX.Element {
     if (res.ok) setSaveSchemaError(null);
     else setSaveSchemaError((res.response as { message?: string }).message ?? 'the save schema could not be saved');
   }, []);
-  /** Phase 12 (b): set an entity's own tags, by name. */
+  /** Set an entity's own tags, by name. */
   const setEntityTags = useCallback(async (entityId: string, names: string[]) => {
     const c = clientRef.current;
     if (!c) return;
     reportFailure('Set tags', await c.command('updateEntity', { entityId, tags: names }, c.projection.revision));
   }, [reportFailure]);
-  /** Phase 12: set one hierarchy flag (active / locked / static) on an entity. */
+  /** Set one hierarchy flag (active / locked / static) on an entity. */
   const setFlag = useCallback(async (entityId: string, flag: EntityFlag, value: boolean) => {
     const c = clientRef.current;
     if (!c) return;
     reportFailure(`Set ${flag}`, await c.command('updateEntity', { entityId, [flag]: value }, c.projection.revision));
   }, [reportFailure]);
-  // ---- Phase 23.6: block layers -------------------------------------------------
+  // ---- Block layers -------------------------------------------------
   /** The block layers props sit on (their cells as grids, rebuilt when the client's cells change). */
   const propLayers = useCallback((only?: string): PropLayer[] => {
     const c = clientRef.current;
@@ -1987,7 +1987,7 @@ function EditorApp(): JSX.Element {
     }));
   }, []);
   /**
-   * Phase 23.8: "Play from…" — the same play start as the Play button with
+   * "Play from…" — the same play start as the Play button with
    * start options (the backend resolves them; `tl_play_start` sends the same).
    */
   const playFrom = useCallback(async () => {
@@ -2007,7 +2007,7 @@ function EditorApp(): JSX.Element {
       ...(f.sceneId !== '' ? { sceneId: f.sceneId } : {}),
       ...(variables !== undefined ? { variables } : {}),
       ...(f.saveSlot !== '' ? { saveSlot: f.saveSlot } : {}),
-      // Phase 23.10: the game mode the run starts in.
+      // The game mode the run starts in.
       ...(f.mode !== '' ? { mode: f.mode } : {}),
     };
     setPlayFromForm((x) => ({ ...x, busy: true, error: null }));
@@ -2035,7 +2035,7 @@ function EditorApp(): JSX.Element {
     void c.fullResync().then(() => refreshEntities());
   }, [refreshEntities]);
 
-  // ---- packet 56: M3 gameplay authoring actions (all delegated to the
+  // ---- Gameplay authoring actions (all delegated to the
   // backend through the ordinary command path; one command per action) ------
 
   const saveSettings = useCallback(
@@ -2053,8 +2053,8 @@ function EditorApp(): JSX.Element {
     [refreshEntities],
   );
 
-  // ---- packet 57: M3 media / lighting / animation authoring -----------------
-  // The cue PREVIEW owner (the packet's "injected owner"): one per session,
+  // ---- Media / lighting / animation authoring -----------------
+  // The cue PREVIEW owner: one per session,
   // disposed on teardown; the panel renders its status + bounded diagnostics.
   const previewOwnerRef = useRef<PreviewAudioOwner | null>(null);
   if (previewOwnerRef.current === null) previewOwnerRef.current = createPreviewAudioOwner();
@@ -2104,7 +2104,7 @@ function EditorApp(): JSX.Element {
     }
   }, []);
 
-  // ---- phase 10: assets referenced in place in the game folder -------------
+  // ---- Assets referenced in place in the game folder -------------
   // A folder project can import files where they are; Problems shows the ones
   // whose bytes changed since import. The check runs when the editor connects,
   // when the window gets focus back (e.g. after a Blender rebuild), after each
@@ -2154,7 +2154,7 @@ function EditorApp(): JSX.Element {
     return () => window.removeEventListener('focus', onFocus);
   }, [folderProject, checkFiles]);
 
-  /** After an inspect: remember the proposal and the §8.5.1 role-mapping obligation.
+  /** After an inspect: remember the proposal and the role-mapping obligation.
    * Returns whether the publish needs no role mapping. */
   const acceptProposal = useCallback((proposal: Parameters<typeof publishArgsFromProposal>[0], target: ImportTarget, kind: 'model' | 'audio' | 'texture' | 'music' | 'font'): boolean => {
     const c = clientRef.current;
@@ -2162,7 +2162,7 @@ function EditorApp(): JSX.Element {
     pendingProposalRef.current = { proposal, target };
     const inspection = (proposal.proposal as { inspection?: { clipNames?: unknown } } | null)?.inspection;
     const clipNames = Array.isArray(inspection?.clipNames) ? (inspection.clipNames as unknown[]).filter((x): x is string => typeof x === 'string') : null;
-    // §8.5.1: a model reimport whose asset is referenced by modelAnimation
+    // A model reimport whose asset is referenced by modelAnimation
     // components MUST carry the atomic `animation` — the panel collects the
     // new version's role bindings before the publish is enabled.
     const referencingEntityIds =
@@ -2178,7 +2178,7 @@ function EditorApp(): JSX.Element {
     return referencingEntityIds.length === 0;
   }, []);
 
-  // Phase 25.19: how PNG/JPEG textures are imported (as is, or encoded to KTX2); an editor preference, not project data.
+  // How PNG/JPEG textures are imported (as is, or encoded to KTX2); an editor preference, not project data.
   const [textureEncoding, setTextureEncoding] = useState<'none' | 'color' | 'normal' | 'data'>('none');
   const textureEncodingRef = useRef(textureEncoding);
   textureEncodingRef.current = textureEncoding;
@@ -2186,7 +2186,7 @@ function EditorApp(): JSX.Element {
   const importFile = useCallback(async (file: File, mode: 'create' | 'reimport') => {
     const c = clientRef.current;
     if (!c) return;
-    // M3 (packet 57): the extension decides the kind (`.glb` model / `.wav`
+    // The extension decides the kind (`.glb` model / `.wav`
     // audio); an invalid drop creates no stage and no job.
     const candidate = validateMediaDrop(file.name, file.size);
     if (!candidate.ok) {
@@ -2198,7 +2198,7 @@ function EditorApp(): JSX.Element {
       mode === 'reimport'
         ? { mode: 'reimport', assetId: selectedAssetIdRef.current, displayName: null }
         : { mode: 'create', assetId: makeAssetId(), displayName: candidate.displayName };
-    // Phase 25.19: a PNG/JPEG texture encoded to KTX2 when the Assets panel says so (a KTX2 or WebP is imported as is).
+    // A PNG/JPEG texture encoded to KTX2 when the Assets panel says so (a KTX2 or WebP is imported as is).
     const ktx2 = candidate.kind === 'texture' && textureEncodingRef.current !== 'none' && /\.(png|jpe?g)$/i.test(file.name) ? textureEncodingRef.current : undefined;
     const res = await c.uploadAsset(bytes, { target, displayName: candidate.displayName, kind: candidate.kind, ...(ktx2 !== undefined ? { ktx2 } : {}), onState: setImportState });
     if (res.ok) {
@@ -2240,7 +2240,7 @@ function EditorApp(): JSX.Element {
     return acceptProposal(res.proposal, target, candidate.kind);
   }, [acceptProposal]);
 
-  /** M3 (packet 57): the §8.5.1 `animation` args for the pending reimport, or
+  /** The `animation` args for the pending reimport, or
    * `null` (a create / an audio reimport / a model reimport with no referencing
    * entities). `complete` reports whether the role draft is ready (all three
    * bindings named) — the publish is disabled until it is. */
@@ -2336,13 +2336,13 @@ function EditorApp(): JSX.Element {
     }
   }, []);
 
-  // Phase 9.7: the Animator window's live preview — the controller's model in
+  // The Animator window's live preview — the controller's model in
   // its own small stage, posed every frame by the runtime's state machine.
   const previewAnimator = useCallback(async (controller: AnimatorController, canvas: HTMLCanvasElement): Promise<AnimatorPreview | string> => {
     const c = clientRef.current;
     const m = modelInstancesRef.current;
     if (!c || !m) return 'the editor is not ready';
-    // The model the clips are for: the first clip's asset, or the rig of an animation-only asset (phase 14.6).
+    // The model the clips are for: the first clip's asset, or the rig of an animation-only asset.
     const clipAssets = new Set<string>();
     for (const g of [controller, ...(controller.layers ?? [])]) {
       for (const x of g.states) {
@@ -2389,7 +2389,7 @@ function EditorApp(): JSX.Element {
       trigger: (name) => void machine.trigger(name),
       state: () => machine.stateName(),
       layerStates: () => Array.from({ length: machine.layerCount() }, (_, i) => machine.stateName(i)),
-      // Phase 23.11: the preview plays at the speed a script would set (the same machine the game steps).
+      // The preview plays at the speed a script would set (the same machine the game steps).
       setSpeed: (speed) => void machine.setSpeed(speed),
       elapsed: () => elapsed,
       clipTime: () => {
@@ -2480,11 +2480,11 @@ function EditorApp(): JSX.Element {
 
   const placement = selectedAssetId !== null ? planAssetPlacement(selectedAssetId) : null;
 
-  // ---- packet 28: prefab capture / copy / property edit ---------------------
+  // ---- Prefab capture / copy / property edit ---------------------
 
   /**
    * Issue one typed prefab/property command with the contract's client
-   * recovery (commands.md §5.5/§6.4): a `revision_conflict` re-reads the state
+   * recovery: a `revision_conflict` re-reads the state
    * and re-issues ONCE with a fresh requestId; a backend-rejected instance
    * limit or any other failure is surfaced with its exact bound (never
    * swallowed).
@@ -2512,7 +2512,7 @@ function EditorApp(): JSX.Element {
           refreshEntities();
           continue;
         }
-        // Phase 15.1: the Inspector says which rule refused the edit (the first detail).
+        // The Inspector says which rule refused the edit (the first detail).
         const detail = withDetail ? (r as { details?: { message?: string }[] }).details?.[0]?.message : undefined;
         onError({ code: r.code, message: detail !== undefined ? `${recovery.message} — ${detail}` : recovery.message });
         return false;
@@ -2558,7 +2558,7 @@ function EditorApp(): JSX.Element {
         const b = resource.bounds(piece);
         return b.isEmpty() ? null : { min: [b.min.x, b.min.y, b.min.z], max: [b.max.x, b.max.y, b.max.z] };
       };
-      // Phase 23.1: in a 3D project a `_COL` node becomes a triangle-mesh collider (exact static geometry),
+      // In a 3D project a `_COL` node becomes a triangle-mesh collider (exact static geometry),
       // or a convex hull when it is too big for a mesh; the 2D plane keeps its outline polygon.
       const threeD = (clientRef.current?.getSettings() ?? {})['physics_dimension'] === 3;
       const collider3D = (piece: string | null): PieceFacts['collider'] => {
@@ -2588,7 +2588,7 @@ function EditorApp(): JSX.Element {
     [reportFailure, setSelectedId],
   );
 
-  // ---- phase 9.4: materials, their assignment, the environment ---------------
+  // ---- Materials, their assignment, the environment ---------------
   const refusal = (res: Awaited<ReturnType<SessionClient['command']>>): string | null =>
     res.ok ? null : ((res.response as { message?: string; code?: string }).message ?? (res.response as { code?: string }).code ?? 'the edit was refused');
   // Edits made on `base` (what the panel showed) are re-applied onto the
@@ -2679,7 +2679,7 @@ function EditorApp(): JSX.Element {
     if (!c) return;
     setInputError(refusal(await c.command('setInput', { input }, c.projection.revision)));
   }, []);
-  // Phase 23.16: dialogue commands (one undo step each).
+  // Dialogue commands (one undo step each).
   const dialogueCommand = useCallback(async (op: 'setDialogue' | 'deleteDialogue' | 'setSpeaker' | 'deleteSpeaker' | 'setDialogueSettings', args: Record<string, unknown>): Promise<boolean> => {
     const c = clientRef.current;
     if (!c) return false;
@@ -2687,7 +2687,7 @@ function EditorApp(): JSX.Element {
     setDialogueError(err);
     return err === null;
   }, []);
-  // Phase 20.0: effect commands (one undo step each).
+  // Effect commands (one undo step each).
   const effectCommand = useCallback(async (op: 'setEffect' | 'deleteEffect' | 'renameEffect', args: Record<string, unknown>): Promise<boolean> => {
     const c = clientRef.current;
     if (!c) return false;
@@ -2695,7 +2695,7 @@ function EditorApp(): JSX.Element {
     setEffectError(err);
     return err === null;
   }, []);
-  // Phase 23.17: timeline commands (one undo step each; a key drag is one setTimeline).
+  // Timeline commands (one undo step each; a key drag is one setTimeline).
   const timelineCommand = useCallback(async (op: 'setTimeline' | 'deleteTimeline', args: Record<string, unknown>): Promise<boolean> => {
     const c = clientRef.current;
     if (!c) return false;
@@ -2703,11 +2703,11 @@ function EditorApp(): JSX.Element {
     setTimelineError(err);
     return err === null;
   }, []);
-  // Phase 23.17: the timeline tab's scrub preview in the Scene view.
+  // The timeline tab's scrub preview in the Scene view.
   const onTimelinePreview = useCallback((p: TimelinePreviewValue | null) => {
     viewportRef.current?.setTimelinePreview(p);
   }, []);
-  // Phase 23.9b: UI document/theme commands go out one at a time (each after the previous is applied
+  // UI document/theme commands go out one at a time (each after the previous is applied
   // here), so a queued edit is always made on the latest stored value. Resolves with a refusal or null.
   const uiQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const uiCommand = useCallback((op: 'setUiDocument' | 'deleteUiDocument' | 'setUiTheme' | 'deleteUiTheme', args: Record<string, unknown>): Promise<string | null> => {
@@ -2740,7 +2740,7 @@ function EditorApp(): JSX.Element {
     if (!c) return;
     setAnimatorError(refusal(await c.command('setAnimator', { controller }, c.projection.revision)));
   }, []);
-  // Phase 16.1: graph edits go out one at a time (each after the previous is
+  // Graph edits go out one at a time (each after the previous is
   // applied here), so a burst of gestures never races its own revision.
   const sendGraphEdit = useCallback((owner: { kind: string; id: string }, ops: GraphOp[]): Promise<string | null> => {
     const run = async (): Promise<string | null> => {
@@ -2779,8 +2779,8 @@ function EditorApp(): JSX.Element {
     const r = await modelInstancesRef.current?.prepared(assetId);
     return (r?.clips ?? []).map((x) => ({ name: x.name, duration: x.durationSeconds }));
   }, []);
-  // Phase 14.6: a model's skeleton (the Animator's bone mask picker).
-  // Phase 23.11: the node names of the models socket targets carry (the Inspector's node list), read once per version.
+  // A model's skeleton (the Animator's bone mask picker).
+  // The node names of the models socket targets carry (the Inspector's node list), read once per version.
   const [modelNodeNames, setModelNodeNames] = useState<Readonly<Record<string, readonly string[] | 'failed'>>>({});
   const modelNodeLoads = useRef(new Set<string>());
   const modelNodesOf = useCallback(
@@ -2803,7 +2803,7 @@ function EditorApp(): JSX.Element {
     const r = await modelInstancesRef.current?.prepared(assetId);
     return r === null || r === undefined ? [] : r.skeleton().map((b) => ({ name: b.name, parent: b.parent, depth: b.depth }));
   }, []);
-  // Phase 14.6: mark an animation-only file as clips for another model's rig (null clears it).
+  // Mark an animation-only file as clips for another model's rig (null clears it).
   const setAssetClipsFor = useCallback(async (assetId: string, rig: string | null) => {
     const c = clientRef.current;
     if (!c) return;
@@ -2839,7 +2839,7 @@ function EditorApp(): JSX.Element {
     if (!c) return;
     reportFailure('Materials', await c.setComponent(entityId, 'materials', mapping, c.projection.revision));
   }, [reportFailure]);
-  // Phase 18.0: an object's overrides of its graph materials' public parameters (one setComponent, whole value).
+  // An object's overrides of its graph materials' public parameters (one setComponent, whole value).
   const setEntityMaterialParams = useCallback(async (entityId: string, next: Record<string, Record<string, number | number[] | string>> | null) => {
     const c = clientRef.current;
     if (!c) return;
@@ -2860,7 +2860,7 @@ function EditorApp(): JSX.Element {
     [reportFailure],
   );
 
-  // Phase 25.7c: delete an asset / a prefab definition (the backend refuses while anything uses it; one undo restores).
+  // Delete an asset / a prefab definition (the backend refuses while anything uses it; one undo restores).
   const deleteAsset = useCallback(async (assetId: string) => {
     const c = clientRef.current;
     if (!c) return;
@@ -2993,7 +2993,7 @@ function EditorApp(): JSX.Element {
   );
 
   /**
-   * Phase 15.1: one Inspector component edit — a partial top-level value, or
+   * One Inspector component edit — a partial top-level value, or
    * null to remove the component — as one typed command (one undo step): the
    * script through `setBehaviorProperties`, everything else `setComponent`.
    */
@@ -3009,7 +3009,7 @@ function EditorApp(): JSX.Element {
     },
     [runTypedCommand],
   );
-  /** Phase 15.1: "+ Add component" (the descriptor's value, a preset, or the picked value) — one command. */
+  /** "+ Add component" (the descriptor's value, a preset, or the picked value) — one command. */
   const addComponentTo = useCallback(
     async (entityId: string, component: string, value: Record<string, unknown>) => {
       setComponentError(null);
@@ -3022,7 +3022,7 @@ function EditorApp(): JSX.Element {
     [runTypedCommand],
   );
 
-  // Phase 14.0: "Fit to model" sizes the player's capsule to its models (one setComponent).
+  // "Fit to model" sizes the player's capsule to its models (one setComponent).
   const fitCapsuleToModel = useCallback(
     async (entityId: string) => {
       const bounds = viewportRef.current?.modelBounds(entityId) ?? null;
@@ -3037,7 +3037,7 @@ function EditorApp(): JSX.Element {
   );
 
   /**
-   * Phase 23.1 (a 3D project): a collider from the object's own model — a
+   * A 3D project: a collider from the object's own model — a
    * box from its bounds (a convex hull of the corners when off-centre), a
    * convex hull or a triangle mesh from its `_COL` node(s), else its LOD0
    * geometry — in the object's frame (its scale applies in physics).
@@ -3074,7 +3074,7 @@ function EditorApp(): JSX.Element {
     [editComponent, addComponentTo],
   );
 
-  /** Phase 15.2: a collider from the model's outline on the play plane (a box, or a polygon of at most 8 corners). */
+  /** A collider from the model's outline on the play plane (a box, or a polygon of at most 8 corners). */
   const colliderFromModel = useCallback(
     async (entityId: string, kind: 'box' | 'polygon') => {
       const points = viewportRef.current?.modelOutline(entityId) ?? null;
@@ -3103,7 +3103,7 @@ function EditorApp(): JSX.Element {
     setAssets(c.content.listAssets());
   }, [assetQuery]);
 
-  // ---- packet 34: behavior publication workflow ----------------------------
+  // ---- Behavior publication workflow ----------------------------
 
   const stageBehaviorSource = useCallback(async () => {
     const c = clientRef.current;
@@ -3178,7 +3178,7 @@ function EditorApp(): JSX.Element {
     refreshEntities();
   }, [behaviorViews, selectedBehaviorId, publication, refreshEntities]);
 
-  // ---- phase 16.3: the script editor tab ------------------------------------
+  // ---- The script editor tab ------------------------------------
 
   /** Unpublished script edits per behavior (survive tab switches; not project data). */
   const scriptDrafts = useRef(new Map<string, ScriptDraft>()).current;
@@ -3207,7 +3207,7 @@ function EditorApp(): JSX.Element {
     [behaviorViews, refreshEntities],
   );
 
-  // ---- phase 23.7: shared script libraries --------------------------------------
+  // ---- Shared script libraries --------------------------------------
 
   /** Unsaved library edits per library (survive tab switches; not project data). */
   const libraryDrafts = useRef(new Map<string, LibraryDraft>()).current;
@@ -3228,7 +3228,7 @@ function EditorApp(): JSX.Element {
    * command) and the save retried.
    */
   /**
-   * Phase 25.9: stage these patches (several requests, nothing changes yet)
+   * Stage these patches (several requests, nothing changes yet)
    * and commit them as one change: one revision, one undo, each script that
    * imports a changed library compiled once. A digest those scripts will
    * link that is not acknowledged yet asks first (the stage is dropped and
@@ -3282,7 +3282,7 @@ function EditorApp(): JSX.Element {
     async (libraryId: string, files: { path: string; text: string | null }[], acknowledge: boolean): Promise<LibrarySaveOutcome> => {
       const c = clientRef.current;
       if (!c) return { kind: 'failed', message: 'not connected' };
-      // Phase 25.9: a change larger than one request goes in several staged patches, committed once.
+      // A change larger than one request goes in several staged patches, committed once.
       if (!fitsOneRequest(files)) return commitLibraryPatches(libraryStagePatches(libraryId, files), acknowledge);
       const recompiled = libraryDependents(libraryId);
       for (let attempt = 0; attempt < 3; attempt++) {
@@ -3311,9 +3311,9 @@ function EditorApp(): JSX.Element {
     [libraryDependents, refreshEntities, commitLibraryPatches],
   );
 
-  /** Phase 25.9: a source position to show in a script or library tab (the Console's locations). */
+  /** A source position to show in a script or library tab (the Console's locations). */
   const [sourceFocus, setSourceFocus] = useState<SourceFocus | null>(null);
-  /** Phase 25.9: bumped when a library draft becomes dirty or clean (the Libraries panel's "Save all"). */
+  /** Bumped when a library draft becomes dirty or clean (the Libraries panel's "Save all"). */
   const [libraryDraftsVersion, setLibraryDraftsVersion] = useState(0);
   const onLibraryDraftChange = useCallback(() => setLibraryDraftsVersion((v) => v + 1), []);
   const [saveAllOutcome, setSaveAllOutcome] = useState<LibrarySaveOutcome | { kind: 'working' } | null>(null);
@@ -3324,7 +3324,7 @@ function EditorApp(): JSX.Element {
     [scriptLibraries, libraryDraftsVersion],
   );
   /**
-   * Phase 25.9: "Save all" — every library with unsaved edits staged in one
+   * "Save all" — every library with unsaved edits staged in one
    * stage (several patches) and committed once: one revision, one undo, the
    * scripts that import any of them compiled once each.
    */
@@ -3352,7 +3352,7 @@ function EditorApp(): JSX.Element {
     [scriptLibraries, libraryDrafts, commitLibraryPatches],
   );
 
-  /** Phase 15.4: the declaration editor's save — one ordinary publishBehavior command. */
+  /** The declaration editor's save — one ordinary publishBehavior command. */
   const saveDeclaration = useCallback(
     async (save: DeclarationSave): Promise<boolean> => {
       const c = clientRef.current;
@@ -3371,7 +3371,7 @@ function EditorApp(): JSX.Element {
     [refreshEntities],
   );
 
-  // ---- phase 19.0: visual scripts ------------------------------------------------
+  // ---- Visual scripts ------------------------------------------------
 
   const checkVisualScript = useCallback(async (behaviorId: string): Promise<VisualScriptCheckResult> => {
     const c = clientRef.current;
@@ -3417,7 +3417,7 @@ function EditorApp(): JSX.Element {
 
   /**
    * A new visual script: a behavior created with a graph holding one On start
-   * node (phase 19.1: no variable needed — a behavior may declare no
+   * node (no variable needed — a behavior may declare no
    * property). One publishBehavior command.
    */
   const createVisualScript = useCallback(
@@ -3455,7 +3455,7 @@ function EditorApp(): JSX.Element {
     }
   }, [ui.connection, ui.error]);
 
-  // Phase 9.4: the material names of the selected object's model file / the selected asset.
+  // The material names of the selected object's model file / the selected asset.
   // (before the early returns below: hooks must run on every render)
   const selectedForMaterials = entities.find((e) => e.id === selectedId) ?? null;
   const selectedModelKey = selectedForMaterials !== null ? `${selectedForMaterials.assetId ?? selectedForMaterials.instances?.assetId ?? ''}|${selectedForMaterials.piece ?? selectedForMaterials.instances?.piece ?? ''}` : '';
@@ -3490,7 +3490,7 @@ function EditorApp(): JSX.Element {
     };
   }, [selectedAssetId, assets]);
 
-  // Phase 16.0: a script tab in front selects its behavior (the source
+  // A script tab in front selects its behavior (the source
   // stage/acknowledge/publish flow acts on the selected behavior).
   const activeScript = (() => {
     const d = activeDoc(workspace);
@@ -3502,7 +3502,7 @@ function EditorApp(): JSX.Element {
 
   // The Animator and Behaviors panels: the bottom dock and the centre document tabs share these.
   const openDocument = (kind: string, id: string): void => workspaceDispatch({ type: 'open', doc: { kind, id } });
-  /** Phase 25.9: a script or library position (from the Console) opened in its code editor tab at the line. */
+  /** A script or library position (from the Console) opened in its code editor tab at the line. */
   const openSource = (loc: SourceLocation): void => {
     const id = loc.libraryId ?? loc.behaviorId;
     if (id === undefined) return;
@@ -3537,7 +3537,7 @@ function EditorApp(): JSX.Element {
     onAcknowledge: (digest) => void acknowledgeDigest(digest),
     onPublishSource: () => void publishStagedSource(),
     onSaveDeclaration: saveDeclaration,
-    // Phase 19.0: a visual script opens as a Graph tab, any other behavior as a Script tab.
+    // A visual script opens as a Graph tab, any other behavior as a Script tab.
     onOpen: (id) => openDocument(behaviorViews.find((b) => b.behaviorId === id)?.graph !== undefined ? 'visual-script' : 'script', id),
     onCreateVisualScript: (name) => void createVisualScript(name),
   };
@@ -3605,7 +3605,7 @@ function EditorApp(): JSX.Element {
       onSelection: setMaterialSelection,
       focus: materialFocus,
       error: materialError,
-      // Phase 18.2: the live preview (the project environment, its models, the editor's texture bytes).
+      // The live preview (the project environment, its models, the editor's texture bytes).
       environment: environment as unknown as MaterialDocumentProps['environment'],
       models: assets.filter((a) => a.kind === 'model').map((a) => ({ assetId: a.assetId, displayName: a.displayName })),
       loadTexture: (assetId) => loadTextureRef.current?.(assetId) ?? Promise.resolve(null),
@@ -3630,7 +3630,7 @@ function EditorApp(): JSX.Element {
       onSelection: setEffectSelection,
       focus: effectFocus,
       error: effectError,
-      // Phase 20.3: the preview pane (the project environment, the editor's texture bytes, its models).
+      // The preview pane (the project environment, the editor's texture bytes, its models).
       environment: environment as unknown as EffectDocumentProps['environment'],
       loadTexture: (assetId) => loadTextureRef.current?.(assetId) ?? Promise.resolve(null),
       loadModel: async (assetId) => {
@@ -3736,9 +3736,9 @@ function EditorApp(): JSX.Element {
     close: (doc) => workspaceDispatch({ type: 'close', key: docKey(doc) }),
   };
 
-  // Phase 21.4: what every render derived from all entities is memoised on
+  // What every render derived from all entities is memoised on
   // the entity list (the same array until an entity changes), so a selection,
-  // a panel toggle or a gesture frame no longer walks 16k entities.
+  // a panel toggle or a gesture frame does not walk 16k entities.
   const selectedEntity = useMemo(() => {
     const base = selectedId === null ? null : (entities.find((e) => e.id === selectedId) ?? null);
     if (base === null || liveTransform === null || liveTransform.id !== base.id) return base;
@@ -3746,7 +3746,7 @@ function EditorApp(): JSX.Element {
     return { ...base, ...t, components: base.components['transform'] !== undefined ? { ...base.components, transform: t } : base.components };
   }, [entities, selectedId, liveTransform]);
   // The tree's shape (entities added or removed, parents, order, names, flags, kinds) and the open scenes.
-  // Phase 20.2: the edit-mode effect preview follows the toggle, the selection's effect component and the effects.
+  // The edit-mode effect preview follows the toggle, the selection's effect component and the effects.
   const selectedEffect = selectedEntity !== null ? (selectedEntity.components['effect'] as EffectComponent | undefined) : undefined;
   const selectedEffectKey = selectedEffect !== undefined && selectedEntity !== null ? `${selectedEntity.id}|${JSON.stringify(selectedEffect)}` : '';
   useEffect(() => {
@@ -3766,7 +3766,7 @@ function EditorApp(): JSX.Element {
     }
     return usage;
   }, [entities]);
-  /** Phase 23.3: how many colliders list each collision layer ("default": those listing none). */
+  /** How many colliders list each collision layer ("default": those listing none). */
   const layerUsageMemo = useMemo(() => {
     const usage = new Map<string, number>();
     for (const e of entities) {
@@ -3797,20 +3797,20 @@ function EditorApp(): JSX.Element {
         behavior: behaviorViews.map((b) => ({ id: b.behaviorId, name: b.displayName })),
         prefab: prefabSummaries.map((p) => ({ id: p.prefabId, name: p.displayName })),
         effect: effects.map((e) => ({ id: e.effectId, name: e.name })),
-        // Phase 23.10: what a game mode names (UI documents, behavior groups, input maps, modes).
+        // What a game mode names (UI documents, behavior groups, input maps, modes).
         uiDocument: (clientRef.current?.getUiDocuments() ?? []).map((d) => ({ id: d.uiDocumentId, name: d.name })),
         behaviorGroup: behaviorGroups.map((g) => ({ id: g, name: g })),
         inputMap: ['gameplay', 'ui', ...(clientRef.current?.getInput()?.maps ?? [])].map((m) => ({ id: m, name: m })),
         mode: modes.map((m) => ({ id: m.modeId, name: m.name })),
       },
-      // Phase 20.0: an object's effect overrides are edited from its effect's public parameters.
+      // An object's effect overrides are edited from its effect's public parameters.
       effectParameters: Object.fromEntries(effects.map((e) => [e.effectId, (e.parameters ?? []).filter((x) => x.visibility !== 'private')])),
       signals: registry === null ? [] : collectSignals(registry, allEntitiesMemo.map((e) => e.components)),
-      // Phase 15.2: an animator's starting values are edited from its controller's parameters.
+      // An animator's starting values are edited from its controller's parameters.
       animatorParameters: Object.fromEntries(animators.map((a) => [a.controllerId, a.parameters])),
-      // Phase 23.1: the "+ Add component" presets follow the project's physics dimension.
+      // The "+ Add component" presets follow the project's physics dimension.
       physicsDimension: settings?.['physics_dimension'] === 3 ? (3 as const) : (2 as const),
-      // Phase 23.11: a socket's node list comes from its target's model.
+      // A socket's node list comes from its target's model.
       modelNodes: (entityId: string) => {
         const e = allEntitiesMemo.find((x) => x.id === entityId);
         const assetId = (e?.components as { model?: { asset?: { assetId?: unknown } } } | undefined)?.model?.asset?.assetId;
@@ -3819,7 +3819,7 @@ function EditorApp(): JSX.Element {
     }),
     [assets, allEntitiesMemo, projectScenes, materials, animators, behaviorViews, prefabSummaries, effects, registry, settings, modelNodesOf, behaviorGroups, modes],
   );
-  /** Phase 23.10: how many objects carry each behavior group. */
+  /** How many objects carry each behavior group. */
   const groupUsageMemo = useMemo(() => {
     const usage = new Map<string, number>();
     for (const e of allEntitiesMemo) {
@@ -3834,7 +3834,7 @@ function EditorApp(): JSX.Element {
     [fieldContextBase, selectedSceneId],
   );
 
-  // Phase 23.9b (a hook: before the early returns below): the UI preview reads texture and font bytes through the editor's authenticated asset path.
+  // A hook, so before the early returns below: the UI preview reads texture and font bytes through the editor's authenticated asset path.
   const uiAssetKey = assets.filter((a) => a.kind === 'texture' || a.kind === 'font').map((a) => `${a.assetId}@${a.currentVersion}`).join('|');
   const uiPreviewAssets = useMemo(
     () => ({
@@ -3871,15 +3871,15 @@ function EditorApp(): JSX.Element {
   const selected = selectedEntity;
   const hierarchyFlags = hierarchyFlagsMemo;
   const tagUsage = tagUsageMemo;
-  /** Phase 15.1: the components the selection carries (the Component menu's add/remove state). */
+  /** The components the selection carries (the Component menu's add/remove state). */
   const selectedComponents = new Set<string>(selected === null ? [] : Object.keys(selected.components));
-  /** Phase 15.1: what the Inspector's pickers offer. */
+  /** What the Inspector's pickers offer. */
   const allEntities = allEntitiesMemo;
   const fieldContext: FieldContext = fieldContextMemo;
   // The game block's pickers name objects in any scene.
   const { sceneId: _selectedScene, ...gameFieldContext } = fieldContext;
   // The play loads from its own content locator on the preview origin.
-  // Phase 17.1: the editor page's ?renderer= flag is passed on to the play page (phase 21.3: and ?batching=off; phase 22.0: and ?threads=).
+  // The editor page's ?renderer= flag is passed on to the play page (and ?batching=off; and ?threads=).
   const previewSrc =
     playInfo?.playBase && playInfo.contentId !== null && playInfo.contentPath !== null
       ? `${playInfo.playBase.replace(/\/$/, '')}${playInfo.contentPath}?play=${playInfo.playSessionId}&content=${playInfo.contentId}${urlRenderer.current !== null ? `&${RENDERER_URL_PARAM}=${urlRenderer.current}` : ''}${batchingFromUrl(pageSearch()) ? '' : `&${BATCHING_URL_PARAM}=off`}${urlThreads.current !== null ? `&threads=${urlThreads.current}` : ''}`
@@ -3894,11 +3894,11 @@ function EditorApp(): JSX.Element {
   const selComponents = selectedComponents;
   const noSelection = selectedId === null;
   const need = 'select an entity in the hierarchy first';
-  // Phase 12: a folder carries no components.
+  // A folder carries no components.
   const noComponentTarget = noSelection || selected?.kind === 'folder';
   const needObject = noSelection ? need : 'a folder has no components';
   /**
-   * Phase 24.5: the GameObject menu's create entries come from the component
+   * The GameObject menu's create entries come from the component
    * descriptors (`create`): top-level items, and one submenu per `menu` name
    * (an existing submenu of that name, such as Light, takes its entries).
    */
@@ -3976,7 +3976,7 @@ function EditorApp(): JSX.Element {
           { label: 'Hemisphere light', disabled: entities.some((e) => e.light?.type === 'hemisphere'), reason: 'the scene already has a hemisphere light', onSelect: () => void createLight('hemisphere') },
           ...(createMenu.into.get('Light') ?? []),
         ] },
-        // Phase 24.5: the create entries of the component descriptors (a submenu of the same name gains its entries).
+        // The create entries of the component descriptors (a submenu of the same name gains its entries).
         ...createMenu.top,
         'separator',
         { label: 'Model from asset…', onSelect: () => setBottomTab('assets') },
@@ -3986,7 +3986,7 @@ function EditorApp(): JSX.Element {
     },
     {
       label: 'Component',
-      // Phase 15.1: the same list as the Inspector's "+ Add component" (the descriptors):
+      // The same list as the Inspector's "+ Add component" (the descriptors):
       // one item per component, presets as a submenu, and why an item cannot be added.
       items: (() => {
         if (registry === null) return [{ label: 'Loading components…', disabled: true, reason: 'the component descriptions are not loaded yet', onSelect: () => undefined }];
@@ -4006,10 +4006,10 @@ function EditorApp(): JSX.Element {
           };
           if (mine.length > 1) {
             const items: MenuEntry[] = mine.map((e) => ({ label: e.label.slice(c.label.length + 2), onSelect: () => add(e.value) }));
-            // Phase 15.2: a collider from the model's outline.
+            // A collider from the model's outline.
             if (c.name === 'collider' && selectedId !== null) {
               const id = selectedId;
-              // Phase 23.1: a 3D project makes 3D colliders from the model.
+              // A 3D project makes 3D colliders from the model.
               if (settings?.['physics_dimension'] === 3) items.push({ label: 'Box from model', onSelect: () => void colliderFromModel3D(id, 'box') }, { label: 'Convex hull from model', onSelect: () => void colliderFromModel3D(id, 'convex') }, { label: 'Mesh from model', onSelect: () => void colliderFromModel3D(id, 'mesh') });
               else items.push({ label: 'Box from model', onSelect: () => void colliderFromModel(id, 'box') }, { label: 'Polygon from model outline', onSelect: () => void colliderFromModel(id, 'polygon') });
             }
@@ -4365,11 +4365,11 @@ function EditorApp(): JSX.Element {
               graphIssues={[...graphIssues, ...scriptIssues, ...materialIssues]}
               onGraphIssue={(i) => {
                 if (i.materialId !== undefined) {
-                  // Phase 18.2: a graph material's problem opens its Material tab at the node.
+                  // A graph material's problem opens its Material tab at the node.
                   if (i.nodeId !== undefined) setMaterialFocus({ id: i.nodeId, nonce: Date.now(), materialId: i.materialId });
                   openDocument('material', i.materialId);
                 } else if (i.behaviorId !== undefined) {
-                  // Phase 19.2: a visual script's problem opens its Graph tab at the node (its function's tab inside a function).
+                  // A visual script's problem opens its Graph tab at the node (its function's tab inside a function).
                   workspaceDispatch({ type: 'open', doc: { kind: 'visual-script', id: i.behaviorId } });
                   if (i.nodeId !== undefined) setVisualFocus({ behaviorId: i.behaviorId, id: i.nodeId, nonce: Date.now() });
                 } else showGraph(i.graphId, i.nodeId);
@@ -4663,7 +4663,7 @@ function EditorApp(): JSX.Element {
           <div className="tl-inspector" aria-label="visual script inspector">
             <div className="tl-panel__title">Inspector</div>
             {(() => {
-              // Phase 19.2: the graph in front — the event graph or one of the script's functions.
+              // The graph in front — the event graph or one of the script's functions.
               const fn = activeVisualTarget !== '' ? activeVisual.functions?.find((f) => f.functionId === activeVisualTarget) : undefined;
               const kindDef = fn !== undefined ? graphKinds['behavior-function'] : graphKinds['behavior'];
               const g = fn !== undefined ? fn.graph : activeVisual.graph!;
@@ -4769,7 +4769,7 @@ function EditorApp(): JSX.Element {
           onAddComponent={(entityId, component, value) => void addComponentTo(entityId, component, value)}
           onFitCapsule={(entityId) => void fitCapsuleToModel(entityId)}
           capsuleOwner={(() => {
-            // Phase 14.0: a child of the player collides with the player's capsule.
+            // A child of the player collides with the player's capsule.
             let parent = selected?.parentId ?? null;
             for (let depth = 0; parent !== null && depth < 64; depth++) {
               const p = entities.find((e) => e.id === parent);
@@ -4787,11 +4787,11 @@ function EditorApp(): JSX.Element {
           onSetFlag={(entityId, flag, value) => void setFlag(entityId, flag, value)}
           tags={tags}
           onSetTags={(entityId, names) => void setEntityTags(entityId, names)}
-          // Phase 15.1: descriptor-keyed custom widgets — the material mapping knows the
+          // Descriptor-keyed custom widgets — the material mapping knows the
           // model's own material names; a surface offers the built-in presets.
           alwaysShow={selected !== null && (selected.kind === 'model' || selected.kind === 'box' || selected.instances !== undefined) ? ['materials'] : []}
           addExtras={(() => {
-            // Phase 15.2: "Add collider → box / polygon from model outline" (where a collider may be added).
+            // "Add collider → box / polygon from model outline" (where a collider may be added).
             if (selected === null || registry === null || selected.components['collider'] !== undefined) return [];
             const entry = addEntries(registry, new Set(Object.keys(selected.components)), { dimension: settings?.['physics_dimension'] === 3 ? 3 : 2 }).find((x) => x.component === 'collider');
             const enabled = entry?.enabled === true;
@@ -4799,7 +4799,7 @@ function EditorApp(): JSX.Element {
             return [
               ...(settings?.['physics_dimension'] === 3
                 ? [
-                    // Phase 23.1: a 3D project's colliders from the model.
+                    // A 3D project's colliders from the model.
                     { id: 'collider-box-model', label: 'Collider: Box from model', category: 'Physics' as const, enabled, reason, run: () => void colliderFromModel3D(selected.id, 'box') },
                     { id: 'collider-convex-model', label: 'Collider: Convex hull from model', category: 'Physics' as const, enabled, reason, run: () => void colliderFromModel3D(selected.id, 'convex') },
                     { id: 'collider-mesh-model', label: 'Collider: Mesh from model', category: 'Physics' as const, enabled, reason, run: () => void colliderFromModel3D(selected.id, 'mesh') },
@@ -4829,7 +4829,7 @@ function EditorApp(): JSX.Element {
                       }}
                     />
                   ),
-                  // Phase 18.0: the overrides are edited in the Materials section above.
+                  // The overrides are edited in the Materials section above.
                   materialParams: <p className="tl-inspector__hint">Edited in the Materials section (per graph material, public parameters only).</p>,
                 }
           }
@@ -4837,7 +4837,7 @@ function EditorApp(): JSX.Element {
             selected === null
               ? {}
               : {
-                  // Phase 23.6: write the footprint's metadata into the cells beneath, or land the object on the cell tops.
+                  // Write the footprint's metadata into the cells beneath, or land the object on the cell tops.
                   blockFootprint: (
                     <div className="tl-inspector__modes">
                       <button className="tl-btn tl-btn--small" title="Write the footprint's metadata into the block cells beneath the object" onClick={() => void writeFootprint(selected.id, null, { position: selected.position, rotation: selected.rotation })}>
@@ -4863,7 +4863,7 @@ function EditorApp(): JSX.Element {
                       </button>
                     </div>
                   ),
-                  // Phase 15.2: one copy of an instance set, and the copy brush.
+                  // One copy of an instance set, and the copy brush.
                   instances: (
                     <div className="tl-inspector__copies" data-copy={selectedCopy ?? ''}>
                       {instanceChunks[selected.id] !== undefined && (
@@ -4895,11 +4895,11 @@ function EditorApp(): JSX.Element {
                       </button>
                     </div>
                   ),
-                  // Phase 15.2: a collider from the model's outline; how to edit a polygon in the Scene view.
+                  // A collider from the model's outline; how to edit a polygon in the Scene view.
                   collider: (
                     <>
                       {settings?.['physics_dimension'] === 3 ? (
-                        // Phase 23.1: a 3D project's colliders from the model (its _COL node, else its geometry).
+                        // A 3D project's colliders from the model (its _COL node, else its geometry).
                         <div className="tl-inspector__modes">
                           <button className="tl-btn" onClick={() => void colliderFromModel3D(selected.id, 'box')}>
                             Box from model
@@ -5163,27 +5163,27 @@ const BOTTOM_TABS: ReadonlyArray<{ id: BottomTab; label: string }> = [
   { id: 'behaviors', label: 'Behaviors' },
   { id: 'gameplay', label: 'Gameplay' },
   { id: 'tags', label: 'Tags' },
-  // Phase 23.19: the project save schema.
+  // The project save schema.
   { id: 'saves', label: 'Saves' },
   { id: 'media', label: 'Media' },
   { id: 'graphs', label: 'Graphs' },
-  // Phase 20.0: visual effects.
+  // Visual effects.
   { id: 'effects', label: 'Effects' },
-  // Phase 23.16: conversations, speakers, dialogue settings.
+  // Conversations, speakers, dialogue settings.
   { id: 'dialogue', label: 'Dialogue' },
-  // Phase 23.17: timelines (sequencer).
+  // Timelines (sequencer).
   { id: 'timelines', label: 'Timelines' },
-  // Phase 23.7: shared script libraries.
+  // Shared script libraries.
   { id: 'libraries', label: 'Libraries' },
-  // Phase 25.9: Play script logs and errors at their source locations.
+  // Play script logs and errors at their source locations.
   { id: 'console', label: 'Console' },
-  // Phase 23.9b: project UI documents and themes.
+  // Project UI documents and themes.
   { id: 'ui', label: 'UI' },
-  // Phase 23.10: game modes and behavior groups.
+  // Game modes and behavior groups.
   { id: 'modes', label: 'Game modes' },
-  // Phase 24.4j: the game shell (menus and HUD as UI documents, the scene list).
+  // The game shell (menus and HUD as UI documents, the scene list).
   { id: 'shell', label: 'Game shell' },
-  // Phase 23.6: block-layer editing.
+  // Block-layer editing.
   { id: 'blocks', label: 'Blocks' },
   { id: 'problems', label: 'Problems' },
 ];

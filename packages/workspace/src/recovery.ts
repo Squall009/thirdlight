@@ -1,5 +1,5 @@
 /**
- * Recovery snapshots of external/foreign bytes — workspace.md §7.2/§7.4.
+ * Recovery snapshots of external/foreign bytes.
  *
  * Any on-disk content the backend did not write is SHA-256-snapshotted
  * byte-for-byte to `.thirdlight/recovery/scene-<UTCstamp>-<sha8>.json`
@@ -39,15 +39,15 @@ function ensureDir(dir: string, ops: WriteOps): void {
 
 /**
  * Snapshot foreign bytes (byte-for-byte) and prune to the newest 16 (the
- * just-written snapshot is the §7.4 exempt one). Returns the snapshot file
+ * just-written snapshot is the exempt one). Returns the snapshot file
  * name (basename) actually written, or `null` when the snapshot could not
- * be durably written. A `null` result is the §7.2 step-2 failure state —
+ * be durably written. A `null` result is the snapshot-failure state —
  * it is NEVER silent: the caller (`detectExternalChange`) records the
  * pending change with `snapshotState: "snapshot_failed"` (the fail-closed
  * `paused-snapshot-failed` pause: the triggering command fails
  * `external_change_unresolved` with that state, and the operator
  * resolutions are refused with `external_change_evidence_missing` until a
- * durable snapshot exists, workspace.md §7.2/§7.3/§11).
+ * durable snapshot exists).
  */
 export function snapshotForeignBytes(
   thirdlightDir: string,
@@ -55,7 +55,7 @@ export function snapshotForeignBytes(
   ops: WriteOps,
   stamp: () => string = utcStamp,
 ): string | null {
-  // R7: the caller passes the project's VERIFIED `.thirdlight` directory
+  // The caller passes the project's VERIFIED `.thirdlight` directory
   // (containment-checked at open) — no re-join from the raw project id.
   const recoveryDir = join(thirdlightDir, 'recovery');
   try {
@@ -103,7 +103,7 @@ export function snapshotForeignBytes(
     ops,
   });
   if (!res.ok) return null;
-  // §7.4 exemption: the snapshot just written is the pending change's
+  // Exemption: the snapshot just written is the pending change's
   // evidence — it is exempt from its own pruning (its content hash equals
   // the pending externalHash; the original bytes are never re-read).
   pruneSnapshots(recoveryDir, ops, hash);
@@ -112,7 +112,7 @@ export function snapshotForeignBytes(
 
 /**
  * Prune the recovery snapshots to at most `RECOVERY_MAX` total — always
- * including the exempt one (workspace.md §7.4, normative).
+ * including the exempt one (normative).
  *
  * `exemptHash` is the content SHA-256 of the pending change's snapshot
  * (the pending `externalHash` — the bytes were snapshotted byte-for-byte
@@ -122,7 +122,7 @@ export function snapshotForeignBytes(
  * `scene-<UTCstamp>-<sha8>[-n].json` and the UTCstamp contains no dashes,
  * so normally ≤ a handful of small reads; the content check disambiguates
  * suffix-collision siblings). This read is PRUNING BOOKKEEPING — it is not
- * the §7.4 "never read automatically" evidence path, which is about never
+ * the "never read automatically" evidence path, which is about never
  * auto-LOADING recovery bytes as scene state (snapshots never re-establish
  * the running state; they are only compared by an operator).
  *

@@ -1,5 +1,5 @@
 /**
- * Phase 25.24e through the production composition (the real game host and
+ * Scene loading through the production composition (the real game host and
  * Rapier, both threading modes): a scene transition's loading state as a
  * project UI document reads it (`$flow.scenes`), the host's fade over the
  * view, and the page's preloader answering the load only once the scene is

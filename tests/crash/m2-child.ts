@@ -1,5 +1,5 @@
 /**
- * Packet 23 crash-test child runner (bundled with esbuild by the parent test —
+ * Blob-publication crash-test child runner (bundled with esbuild by the parent test —
  * plain node cannot import the workspace package's .ts entry).
  *
  * Modes (argv: <mode> <root> <projectId> <backendId>):

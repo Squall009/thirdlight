@@ -1,5 +1,5 @@
 /**
- * Phase 16.3: the script editor's code view — CodeMirror 6 (pinned; editor
+ * The script editor's code view — CodeMirror 6 (pinned; editor
  * bundle only) with TypeScript syntax highlighting, the behavior API
  * completion, inline diagnostics (squiggles + gutter markers) and Ctrl+S.
  *
@@ -62,7 +62,7 @@ function behaviorApiCompletion(context: CompletionContext): CompletionResult | n
       validFor: /^[\w$]*$/,
     };
   }
-  // Phase 25.11: a member name directly inside `export default { … }` (step and the callbacks).
+  // A member name directly inside `export default { … }` (step and the callbacks).
   const spec = specMemberCompletion(context.state.doc.sliceString(0, context.pos), BEHAVIOR_API_TYPES);
   if (spec !== null && (spec.prefix.length > 0 || context.explicit)) {
     return {

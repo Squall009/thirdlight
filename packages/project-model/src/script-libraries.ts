@@ -1,5 +1,5 @@
 /**
- * Phase 23.7: shared script libraries (`content.scriptLibraries[]`, v4).
+ * Shared script libraries (`content.scriptLibraries[]`, v4).
  *
  * A script library is TypeScript (and JSON data) that any behavior imports
  * with `import { … } from '@lib/<libraryId>'` — shared rules, tables and

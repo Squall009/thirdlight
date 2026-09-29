@@ -1,5 +1,5 @@
 /**
- * Phase 25.5: scripts see a timeline's `ended` event — on the main thread
+ * Scripts see a timeline's `ended` event — on the main thread
  * and in the simulation worker.
  *
  * A neutral scene and three scripts:

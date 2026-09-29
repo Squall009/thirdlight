@@ -1,5 +1,5 @@
 /**
- * Phase 23.1: the runtime's 3D blocks with a scripted 3D port (the
+ * The runtime's 3D blocks with a scripted 3D port (the
  * character moves exactly as staged and stands on y = 0) — the exact
  * capsule-vs-volume geometry, 3D triggers (box turned with its entity,
  * sphere, capsule) entering and leaving as the player falls through them,

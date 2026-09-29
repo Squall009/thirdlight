@@ -1,5 +1,5 @@
 /**
- * Phase 23.14: the hold modifier in the action evaluator, and the browser
+ * The hold modifier in the action evaluator, and the browser
  * owner's listen-for-input capture, device detection (with the pad id) and
  * the host's frame entry.
  */

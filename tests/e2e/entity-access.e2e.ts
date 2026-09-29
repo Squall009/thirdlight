@@ -1,5 +1,5 @@
 /**
- * Phase 25.10: generic component access against a real backend — the
+ * Generic component access against a real backend — the
  * editor's side and a script changing a light and an object's `active` in
  * Play, checked in pixels (under each renderer variant; the forced WebGL 2
  * one with TL_E2E_ALL_VARIANTS=1).

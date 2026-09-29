@@ -1,9 +1,9 @@
 /**
- * Packet 48 — v3 authoring/content parity over the REAL transports: a real
+ * v3 authoring/content parity over the REAL transports: a real
  * backend process, the real filesystem, a real WS and a real stdio MCP SDK
  * client. Covers v3 mutation/query/undo/retry/stale convergence, the additive
- * `{ kind?, animation? }` inspection path (presentation.md §41.3.2 stages 5–7
- * and §41.3.3 A1–A6) driven through the ordinary `publishAsset` command, and
+ * `{ kind?, animation? }` inspection path (animation stages 5–7 and checks
+ * A1–A6) driven through the ordinary `publishAsset` command, and
  * the binary-free state/projection frames.
  */
 import { existsSync, readdirSync, rmSync } from 'node:fs';
@@ -124,7 +124,7 @@ describe('packet 48 — v3 command parity over the real transports', () => {
   it('edits the content (the tag registry) through tl_command (one revision, one binary-free change frame)', async () => {
     const before = await currentRevision();
     const seen = ws.events.length;
-    // Phase 24.7: the game block (setGameConfig) was removed; the content edit
+    // The game block (setGameConfig) was removed; the content edit
     // is the tag registry, which the same `queryGameConfig` query serves.
     const res = await command(mcp, 'setTags', { tags: [{ name: 'marker' }, { name: 'ground' }] }, before);
     expect(res.isError, JSON.stringify(res.body)).toBe(false);
@@ -139,13 +139,12 @@ describe('packet 48 — v3 command parity over the real transports', () => {
     expect(text).not.toContain('base64');
     expect(JSON.stringify(frame)).not.toMatch(/"\d+,/);
 
-    // Packet 48 coordinator repair: the v3 `queryGameConfig` query now serves
-    // over the shared command surface. Both transports read the same state.
+    // The v3 `queryGameConfig` query serves over the shared command surface. Both transports read the same state.
     const viaMcp = await mcp.call('tl_content_query', { target: 'game' });
     expect(viaMcp.isError, JSON.stringify(viaMcp.body)).toBe(false);
     expect((viaMcp.body.tags as { name: string }[]).map((t) => t.name)).toEqual(['marker', 'ground']);
     expect(viaMcp.body).not.toHaveProperty('game');
-    // Phase 15.0: the descriptor registry only when asked for.
+    // The descriptor registry only when asked for.
     expect(viaMcp.body).not.toHaveProperty('descriptors');
     const withDescriptors = await mcp.call('tl_content_query', { target: 'game', includeDescriptors: true });
     expect(withDescriptors.isError, JSON.stringify(withDescriptors.body)).toBe(false);
@@ -214,9 +213,8 @@ describe('packet 48 — v3 command parity over the real transports', () => {
       schemaVersion: number;
       entities: Array<{ id: string; components: Record<string, unknown> }>;
     };
-    // C35-5 / CC-48-3 (promoted at Gate L): the scene projection reports the
-    // SCENE document's version — 4 once the backend upgraded the v3 fixture
-    // (phase 12 c), not the manifest's.
+    // The scene projection reports the SCENE document's version — 4 once the
+    // backend upgraded the v3 fixture — not the manifest's.
     expect(scene.schemaVersion).toBe(4);
     // The v3 fixture's v3-only components cross the wire (playerSpawn/light).
     expect(scene.entities.find((e) => e.id === 'spawn-0001')?.components['playerSpawn']).toBeDefined();
@@ -307,15 +305,15 @@ describe('packet 48 — role-aware animated reimport reaches §41.3.2 stages 5�
       };
     };
     expect(change.animation).toBeDefined();
-    // CC-L-1 (Gate L): the change carries the FULL `modelAnimation` component
+    // The change carries the FULL `modelAnimation` component
     // in both directions — `version` advances to the newly appended version
     // together with the mapping (the binding is owned by that
     // (assetId, version)); a roles-only change would leave the entity
-    // recording the old version, so capture would keep delivering the
-    // previous bytes (project-model §19.2) — a silent no-op success.
+    // recording the previous version, so capture would keep delivering the
+    // previous bytes — a silent no-op success.
     expect(change.animation?.previous).toEqual({ assetId: 'asset-courier-0001', version: 1, roles: VALID_ROLES });
     expect(change.animation?.next).toEqual({ assetId: 'asset-courier-0001', version: 2, roles: REORDERED_ROLES });
-    // Regression (CC-L-1): the entity's recorded version advanced with the
+    // The entity's recorded version advanced with the
     // mapping — the reimported bytes are now what capture resolves the
     // entity to.
     const entityAfter = await mcp.call('tl_inspect', { target: 'entity', entityId: animatedEntityId });
@@ -328,10 +326,9 @@ describe('packet 48 — role-aware animated reimport reaches §41.3.2 stages 5�
     expect(undone.isError).toBe(false);
     const asset = await mcp.call('tl_content_query', { target: 'asset', assetId: 'asset-courier-0001' });
     expect((asset.body.asset as { currentVersion: number }).currentVersion).toBe(1);
-    // Regression (CC-L-1): the entity's component is the FULL previous
+    // The entity's component is the FULL previous
     // component after undo — version 1 is a valid binding against the
-    // rolled-back record (1 ≤ version ≤ currentVersion, project-model
-    // §23.3.6); a roles-only restore would have left version 2 recorded
+    // rolled-back record (1 ≤ version ≤ currentVersion); a roles-only restore would have left version 2 recorded
     // above currentVersion 1 (an invalid binding).
     const entityUndone = await mcp.call('tl_inspect', { target: 'entity', entityId: animatedEntityId });
     expect(entityUndone.isError).toBe(false);

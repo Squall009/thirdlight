@@ -1,6 +1,6 @@
 /**
- * Viewport model realization (packet 27) — the editor-side consumer of the
- * packet-26 shared GLB path.
+ * Viewport model realization — the editor-side consumer of the
+ * shared GLB path.
  *
  * One resource-owner path is shared by placements and by asset preview:
  * `@thirdlight/three-adapter`'s visual resource store (an injected async byte
@@ -9,14 +9,14 @@
  * pinned `three` GLTFLoader port from the `./gltf-loader` subpath.
  *
  * The renderer never receives the authoring token and never fetches: the
- * injected resolver is the editor's authenticated byte read (sessions.md
- * §16.1). Reimport is handled by the store: a newer version of an asset
+ * injected resolver is the editor's authenticated byte read.
+ * Reimport is handled by the store: a newer version of an asset
  * supersedes the older one without mixing versions, and a late completion of
  * the superseded load is discarded. Nothing here mutates the projection or the
  * backend — the projection is the only source of entity IDs and transforms.
  *
  * Browser-only (three.js + WebGL). All pixel/WebGL behavior is UNVERIFIED in
- * this container (packet-37 manual procedure).
+ * this container.
  */
 
 import * as THREE from 'three';
@@ -61,16 +61,16 @@ export interface ModelInstancesOptions {
   parentFor?: (entityId: string) => THREE.Object3D | null;
   /** Called when the set of realization failures changes (the editor shows them in Problems). */
   onFailuresChanged?: (failures: ReadonlyMap<string, { code: string; message: string }>) => void;
-  /** Phase 12 (c): read an instance-set buffer by digest (absent: instance sets stay empty). */
+  /** Read an instance-set buffer by digest (absent: instance sets stay empty). */
   resolveBuffer?: (digest: string) => Promise<Float32Array>;
   /** How an asset's COLOR_0 is used (default: shader data). */
   vertexColorsFor?: (assetId: string) => VertexColorMode;
-  /** Phase 9.4: project materials, and an asset's default material mapping. */
+  /** Project materials, and an asset's default material mapping. */
   materialLibrary?: MaterialLibrary;
   assetMaterialsFor?: (assetId: string) => Readonly<Record<string, string>> | null;
-  /** Phase 25.7d: the project's instance-set chunk size (m; `instance_chunk_m`, absent: the engine default). */
+  /** The project's instance-set chunk size (m; `instance_chunk_m`, absent: the engine default). */
   instanceChunkSize?: () => number | undefined;
-  /** Phase 25.7d: an instance set was (re)built with this many chunks (the Inspector shows it). */
+  /** An instance set was (re)built with this many chunks (the Inspector shows it). */
   onSetBuilt?: (entityId: string, chunks: number) => void;
 }
 
@@ -84,7 +84,7 @@ interface LiveInstance {
   undoMaterials: (() => void) | null;
 }
 
-/** Bounded failed-load guard: attempts per `(assetId, version)` before backing off (GG-8). */
+/** Bounded failed-load guard: attempts per `(assetId, version)` before backing off. */
 const FAILED_LOAD_RETRY_LIMIT = 2;
 
 /** One asset preview session (a temporary instance + its local controller). */
@@ -117,16 +117,16 @@ export class ModelInstances {
   private readonly live = new Map<string, LiveInstance>();
   private readonly loading = new Set<string>();
   /**
-   * Bounded failed-load guard (GG-8): at most `FAILED_LOAD_RETRY_LIMIT`
+   * Bounded failed-load guard: at most `FAILED_LOAD_RETRY_LIMIT`
    * attempts per `(assetId, version)`; a projection update never re-issues a
    * load for a version that already exhausted its attempts (a reimport bumps
    * the version and clears the guard).
    */
   private readonly failed = new Map<string, { version: number; attempts: number }>();
   private entities: readonly ProjectedEntity[] = [];
-  /** Phase 12 (c): prepared resources by assetId (instance sets draw from them). */
+  /** Prepared resources by assetId (instance sets draw from them). */
   private readonly resources = new Map<string, { version: number; resource: PreparedVisualResource }>();
-  /** Phase 12 (c): realized instance sets by entity id. */
+  /** Realized instance sets by entity id. */
   private readonly sets = new Map<string, { key: string; template: ModelInstance; built: BuiltInstanceSet; undoMaterials: (() => void) | null }>();
   private readonly buffers = new Map<string, Float32Array>();
   private readonly bufferLoads = new Set<string>();
@@ -153,7 +153,7 @@ export class ModelInstances {
     this.entities = entities;
     this.byId = null;
     const wanted = new Set<string>();
-    // Phase 21.3: with a delta only the changed entities are looked at (the rest kept their objects).
+    // With a delta only the changed entities are looked at (the rest kept their objects).
     const list: readonly ProjectedEntity[] = delta === undefined ? entities : [...delta.changed].map((id) => this.entityById(id)).filter((e): e is ProjectedEntity => e !== undefined);
     for (const e of list) {
       const assetId = e.assetId ?? e.instances?.assetId;
@@ -195,7 +195,7 @@ export class ModelInstances {
     this.syncSets();
   }
 
-  /** Phase 21.3: the projected entity by id (a map made once per entity list). */
+  /** The projected entity by id (a map made once per entity list). */
   private byId: Map<string, ProjectedEntity> | null = null;
   private entityById(id: string): ProjectedEntity | undefined {
     if (this.byId === null) this.byId = new Map(this.entities.map((e) => [e.id, e]));
@@ -213,7 +213,7 @@ export class ModelInstances {
   private syncMaterials(live: LiveInstance, e: ProjectedEntity): void {
     const lib = this.options.materialLibrary;
     const mapping = this.mappingFor(e);
-    // Phase 18.3: with the object's values for its graph materials' public parameters.
+    // With the object's values for its graph materials' public parameters.
     const overrides = materialOverridesOf(e);
     const key = mapping === null ? '' : JSON.stringify([mapping, overrides]);
     if (live.materialsKey === key) return;
@@ -251,7 +251,7 @@ export class ModelInstances {
   }
 
   /**
-   * Phase 23.11: the node names of an asset's current version, read from its
+   * The node names of an asset's current version, read from its
    * GLB exactly as the game reads the rig sockets are resolved on (so the
    * Inspector offers the names the game finds). Null when it cannot be read.
    */
@@ -278,7 +278,7 @@ export class ModelInstances {
     for (const w of list) w(resource);
   }
 
-  /** Phase 12 (c): fetch an instance buffer once (then draw the sets that use it). */
+  /** Fetch an instance buffer once (then draw the sets that use it). */
   private ensureBuffer(digest: string): void {
     const resolve = this.options.resolveBuffer;
     if (resolve === undefined || this.buffers.has(digest) || this.bufferLoads.has(digest)) return;
@@ -298,7 +298,7 @@ export class ModelInstances {
     );
   }
 
-  /** Phase 12 (c): one set of instanced meshes per instance-set entity whose model and buffer are here. */
+  /** One set of instanced meshes per instance-set entity whose model and buffer are here. */
   private syncSets(): void {
     const wanted = new Set<string>();
     for (const e of this.entities) {
@@ -334,27 +334,27 @@ export class ModelInstances {
     }
   }
 
-  /** Phase 25.7d: rebuild the sets whose chunk size changed (the project's `instance_chunk_m` was edited). */
+  /** Rebuild the sets whose chunk size changed (the project's `instance_chunk_m` was edited). */
   refreshSets(): void {
     if (!this.disposed) this.syncSets();
   }
 
-  /** Phase 15.2: the drawn copies of an instance set (picking one copy). */
+  /** The drawn copies of an instance set (picking one copy). */
   instanceSetMeshes(entityId: string): readonly THREE.Mesh[] {
     return this.sets.get(entityId)?.built.meshes ?? [];
   }
 
-  /** Phase 21.3: the built instance set (its chunks map a picked instance back to a copy). */
+  /** The built instance set (its chunks map a picked instance back to a copy). */
   instanceSet(entityId: string): BuiltInstanceSet | null {
     return this.sets.get(entityId)?.built ?? null;
   }
 
-  /** Phase 15.2: a loaded instance buffer (the copies' transforms), if here. */
+  /** A loaded instance buffer (the copies' transforms), if here. */
   instanceBuffer(digest: string): Float32Array | undefined {
     return this.buffers.get(digest);
   }
 
-  /** Phase 15.2: preview one copy at a transform while it is dragged (the stored buffer is untouched). */
+  /** Preview one copy at a transform while it is dragged (the stored buffer is untouched). */
   previewCopy(entityId: string, index: number, transform: readonly number[]): void {
     this.sets.get(entityId)?.built.setCopy(index, transform);
     this.options.onChanged?.();
@@ -363,7 +363,7 @@ export class ModelInstances {
   private detachSet(entityId: string): void {
     const set = this.sets.get(entityId);
     if (set === undefined) return;
-    // Phase 21.5: the chunks first (a material released with its last user would take their render objects).
+    // The chunks first (a material released with its last user would take their render objects).
     set.built.dispose();
     set.undoMaterials?.();
     set.template.dispose();
@@ -413,7 +413,7 @@ export class ModelInstances {
     const holder = created.instance.root;
     holder.name = entityId;
     (holder as { entityId?: string }).entityId = entityId;
-    // Phase 21.3: placements of the same piece and material are drawn instanced (the Scene view's batcher).
+    // Placements of the same piece and material are drawn instanced (the Scene view's batcher).
     markBatchable(holder);
     const parent = this.options.parentFor?.(entityId) ?? null;
     (parent ?? this.scene).add(holder);
@@ -431,7 +431,7 @@ export class ModelInstances {
     live.undoMaterials?.();
     live.instance.dispose();
     live.holder.parent?.remove(live.holder);
-    // Phase 21.5: the holder's own render objects (the instance released its nodes).
+    // The holder's own render objects (the instance released its nodes).
     disposeObjectTree(live.holder);
     this.live.delete(entityId);
     this.failedKeys.delete(entityId);
@@ -467,8 +467,8 @@ export class ModelInstances {
     /** Where the preview instance attaches (the preview stage's scene). */
     parent: THREE.Object3D = this.scene,
   ): Promise<{ ok: true; session: AssetPreviewSession } | { ok: false; code: string; message: string }> {
-    // A superseded preview's late completion must be discarded AND disposed
-    // (GG-4): the sequence token below makes the stale branch release anything
+    // A superseded preview's late completion must be discarded AND disposed:
+    // the sequence token below makes the stale branch release anything
     // the late load produced instead of overwriting the live preview.
     const sequence = ++this.previewSequence;
     this.previewHandle?.cancel();
@@ -546,7 +546,7 @@ export class ModelInstances {
   }
 }
 
-/** Phase 18.3: an entity's `materialParams` component (overrides of its graph materials' public parameters). */
+/** An entity's `materialParams` component (overrides of its graph materials' public parameters). */
 export function materialOverridesOf(e: { components: Readonly<Record<string, unknown>> }): MaterialOverridesLike | null {
   const v = e.components['materialParams'];
   return v !== null && typeof v === 'object' && !Array.isArray(v) ? (v as MaterialOverridesLike) : null;

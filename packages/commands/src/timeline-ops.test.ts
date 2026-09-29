@@ -1,5 +1,5 @@
 /**
- * Phase 23.17: timelines through the commands — create, replace (keys come
+ * Timelines through the commands — create, replace (keys come
  * back sorted by time), delete, references to audio assets / effects,
  * validation errors with paths, no_change, and undo/redo.
  */

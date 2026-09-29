@@ -1,47 +1,45 @@
 /**
- * Local gesture snapping (sessions.md §9, "Snapping (M2, local preview only;
- * normative)"; packet 27).
+ * Local gesture snapping (local preview only).
  *
  * Snapping is a **local preview option**, never a second authority: it is
  * applied to the local preview transform only, it changes no server message,
  * it adds no command, and nothing about it is observable to another client
  * before the single release commit.
  *
- * Phase 23.6 (E8): the increments are editor settings (Edit → Snapping
+ * The increments are editor settings (Edit → Snapping
  * settings…), remembered per project in this browser (`localStorage`); they
  * are editor preferences, not project data, so they never reach the game,
- * its build id or other users. The defaults are the contract's M2 constants
+ * its build id or other users. The defaults are the contract's constants
  * below, and `getSnapSettings()` is what the gizmo, drops, handles and the
  * gesture maths read.
  *
- * The default increments/spaces/rounding (acceptance A08 and the packet-27
- * tests reference their exact values):
+ * The default increments/spaces/rounding (the tests pin their exact values):
  *
  *  - translate: `SNAP_TRANSLATE_M = 0.25` independently per **world axis**;
  *    the gesture **delta** is snapped, not the absolute position, so repeated
  *    moves do not accumulate drift;
  *  - rotate: `SNAP_ROTATE_DEG = 15°` about the gizmo axis; the accumulated
  *    gesture angle is snapped and the quaternion is rebuilt from the snapped
- *    angle and re-normalized (project-model §12.2);
+ *    angle and re-normalized;
  *  - scale: `SNAP_SCALE = 0.25` on the uniform scale factor, clamped to
  *    `[SCALE_MIN 0.01, SCALE_MAX 100]` (never zero/negative/non-finite);
  *  - rounding: `snapped = clamp(round(value / increment) * increment)` with
  *    round-half-away-from-zero, then quantized to `1e-4`;
- *  - no parent-space or local-space snapping in M2.
+ *  - no parent-space or local-space snapping.
  *
  * Pure: no DOM, no I/O, no Node builtins.
  */
 
-/** sessions.md §9: the fixed translate increment in metres (world axes). */
+/** The fixed translate increment in metres (world axes). */
 export const SNAP_TRANSLATE_M = 0.25;
-/** sessions.md §9: the fixed rotate increment in degrees (about the gizmo axis). */
+/** The fixed rotate increment in degrees (about the gizmo axis). */
 export const SNAP_ROTATE_DEG = 15;
-/** sessions.md §9: the fixed uniform scale-factor increment. */
+/** The fixed uniform scale-factor increment. */
 export const SNAP_SCALE = 0.25;
-/** project-model §10.1 scale bounds (a snap never produces a zero scale). */
+/** The project model's scale bounds (a snap never produces a zero scale). */
 export const SCALE_MIN = 0.01;
 export const SCALE_MAX = 100;
-/** sessions.md §9: the committed/displayed quantum. */
+/** The committed/displayed quantum. */
 export const SNAP_QUANTUM = 1e-4;
 
 /** `SNAP_ROTATE_DEG` in radians (three.js/`project-model` quaternion axis-angle). */
@@ -76,7 +74,7 @@ export function snapValue(value: number, increment: number): number {
 /**
  * Translate: snap a **world-axis** gesture delta (metres) independently per
  * axis. Snapping the delta (not the absolute position) is what keeps repeated
- * moves drift-free (sessions.md §9).
+ * moves drift-free.
  */
 export function snapTranslateDelta(delta: readonly number[]): number[] {
   return delta.map((d) => snapValue(d, current.translateM));
@@ -99,7 +97,7 @@ export interface SnappedRotation {
 
 /**
  * Rotate: snap the accumulated gesture angle about the gizmo axis, then rebuild
- * the quaternion from the snapped angle and re-normalize it (sessions.md §9).
+ * the quaternion from the snapped angle and re-normalize it.
  * The snapped angle is quantized to `1e-4` (radians) so the committed value is
  * the displayed value.
  */
@@ -180,7 +178,7 @@ export function snapGesture(raw: RawGesture, active: boolean): RawGesture | null
 
 /**
  * The snapping increment table exactly as the contract fixes it — exported so
- * the packet evidence can verify it mechanically against sessions.md §9.
+ * the tests can verify it mechanically.
  */
 export const SNAP_INCREMENTS = {
   translateM: SNAP_TRANSLATE_M,
@@ -192,7 +190,7 @@ export const SNAP_INCREMENTS = {
   quantum: SNAP_QUANTUM,
 } as const;
 
-// ---- Phase 23.6: the snapping settings ----------------------------------------------------
+// ---- The snapping settings ----------------------------------------------------
 
 /** The editor's snapping settings (per project, in this browser). */
 export interface SnapSettings {
@@ -206,7 +204,7 @@ export interface SnapSettings {
   cellTops: boolean;
 }
 
-/** The defaults: the contract's M2 constants; cell-top snapping off (an object keeps the height it is moved to). */
+/** The defaults: the contract's constants; cell-top snapping off (an object keeps the height it is moved to). */
 export const DEFAULT_SNAP_SETTINGS: Readonly<SnapSettings> = Object.freeze({ translateM: SNAP_TRANSLATE_M, rotateDeg: SNAP_ROTATE_DEG, scale: SNAP_SCALE, cellTops: false });
 
 /** The accepted ranges (a millimetre to 100 m, a tenth of a degree to 180°, 0.001 to 10). */

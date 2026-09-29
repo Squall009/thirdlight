@@ -1,5 +1,5 @@
 /**
- * Phase 24.4j: the game shell through the production composition — the real
+ * The game shell through the production composition — the real
  * game host, the character controller and Rapier physics, a scene without
  * any game session — on the 2D plane and in 3D, in both threading modes:
  *
@@ -12,7 +12,7 @@
  *   its buttons save to a project save slot, load it back (the counter and
  *   the collectible are restored) and move on to the next listed scene (it
  *   loads and the character stands at its spawn);
- * - phase 24.8: a save carries where the play stands — a load puts the
+ * - a save carries where the play stands — a load puts the
  *   character back where it was saved (and with its velocity), unloads a
  *   scene the save did not have and loads one it had (after a restart).
  *
@@ -213,7 +213,7 @@ async function run(mode: Mode, dim: 2 | 3): Promise<Record<string, Any>> {
   await until(() => (obs().scenes?.loaded ?? []).includes('scene-two') && px() > 40, 'next scene');
   await frames(30);
   out.next = { scene: obs().shell.scene, x: px(), loaded: obs().scenes.loaded };
-  // Phase 24.8: save here (the second scene), then Load the first save's world back: scene-two unloads, the character is where slot 1 had it.
+  // Save here (the second scene), then Load the first save's world back: scene-two unloads, the character is where slot 1 had it.
   // (Save to slot 1 again first so the later load needs scene-two loaded: keep slot 1's world of scene-two.)
   await press({ pause: true });
   await press({ down: true });
@@ -263,7 +263,7 @@ describe.each([2, 3] as const)('the game shell (dimension %s)', (dim) => {
     expect(o.second.hidden).toEqual(['token-a', 'token-b']);
     expect(o.second.x).toBeGreaterThan(5);
     expect({ ...o.loaded, x: undefined }).toEqual({ items: 1, hidden: ['token-a'], screen: 'playing', paused: false, x: undefined });
-    // Phase 24.8: the save (format version 2) carries where the play stood, and the load put the character back there
+    // The save (format version 2) carries where the play stood, and the load put the character back there
     // (not where it walked to since); it saved walking, so it keeps its velocity and eases to a stop just ahead.
     expect(o.saved.formatVersion).toBe(2);
     expect(o.saved.world.scenes).toEqual(['scene-main']);
@@ -276,7 +276,7 @@ describe.each([2, 3] as const)('the game shell (dimension %s)', (dim) => {
     expect(o.next.loaded).toContain('scene-two');
     expect(o.next.x).toBeGreaterThan(40);
     expect(o.next.x).toBeLessThan(44);
-    // Phase 24.8: a save in the second scene, a restart (the start set only), a load: scene-two loads and the character stands where it was saved.
+    // A save in the second scene, a restart (the start set only), a load: scene-two loads and the character stands where it was saved.
     expect(o.savedTwo.world.scenes).toEqual(['scene-main', 'scene-two']);
     expect(o.savedTwo.world.listedScene).toBe(1);
     expect(o.restarted.loaded).not.toContain('scene-two');

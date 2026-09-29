@@ -1,5 +1,5 @@
 /**
- * Phase 15.4: the Behaviors tab's declaration editor (React).
+ * The Behaviors tab's declaration editor (React).
  *
  * Edits every declared-property field — key, label, type (all seven), default,
  * visibility (public: shown and set per object in the Inspector; private: not

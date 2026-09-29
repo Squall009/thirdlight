@@ -1,5 +1,5 @@
 /**
- * Phase 9.4: project materials, the per-object material assignment and the
+ * Project materials, the per-object material assignment and the
  * project environment (global wind).
  *
  * A material is a shader type plus overrides. On a model it starts from the
@@ -111,20 +111,20 @@ export interface MaterialDef {
   params: Record<string, MaterialParamValue>;
   textures: Record<string, string>;
   /**
-   * Phase 18.0: the exposed parameters of a graph material (read by its
+   * The exposed parameters of a graph material (read by its
    * Parameter nodes; objects may override the public ones with the
    * `materialParams` component). Absent = none.
    */
   parameters?: MaterialParameter[];
   /**
-   * Phase 18.0: a node graph (graph kind `material`). A material with a graph
+   * A node graph (graph kind `material`). A material with a graph
    * is a graph material: at render time the graph replaces `shader`, `params`
-   * and `textures` (phase 18.3 compiles it to TSL; the shader part stays for
-   * "Remove graph").
+   * and `textures` (it compiles to TSL; the shader part stays for "Remove
+   * graph").
    */
   graph?: GraphData;
   /**
-   * Phase 25.19: a material instance — this material is its parent's (another
+   * A material instance — this material is its parent's (another
    * material or instance, by materialId) with some values changed: `params`
    * and `textures` over the parent's (a shader material), `values` over the
    * parent's parameter defaults (a graph material). An instance has no graph
@@ -134,38 +134,38 @@ export interface MaterialDef {
    * resolved (`resolveMaterialInstances`).
    */
   instanceOf?: string;
-  /** Phase 25.19, instances of graph materials: parameter key → value (see `MaterialParameter.default`). */
+  /** Instances of graph materials: parameter key → value (see `MaterialParameter.default`). */
   values?: Record<string, MaterialParameterValue>;
 }
 
-/** Phase 18.0: an exposed parameter of a graph material. */
+/** An exposed parameter of a graph material. */
 export interface MaterialParameter {
   /** The name Parameter nodes and overrides use (an identifier). */
   key: string;
   type: MaterialParameterType;
   /**
    * float: a number; vec2–4: 2–4 numbers; color: "#rrggbb"; texture: a texture asset id or "" (none);
-   * data (phase 23.12): the RGBA bytes (4 integers 0–255) every cell starts with.
+   * data: the RGBA bytes (4 integers 0–255) every cell starts with.
    */
   default: number | number[] | string;
-  /** Phase 23.12, data only (required there): the grid's cells [width, height], 1–64 each. */
+  /** Data only (required there): the grid's cells [width, height], 1–64 each. */
   size?: [number, number];
   /** float / vec2–4: the range the value (every component) stays in. */
   min?: number;
   max?: number;
-  /** Like script properties (15.4): public (absent) = objects may override it; private = the material's own value only. */
+  /** Like script properties: public (absent) = objects may override it; private = the material's own value only. */
   visibility?: 'public' | 'private';
   label?: string;
   group?: string;
   tooltip?: string;
 }
 
-/** Phase 18.0: the value an object stores to override a public parameter (see `MaterialParameter.default`). */
+/** The value an object stores to override a public parameter (see `MaterialParameter.default`). */
 export type MaterialParameterValue = number | number[] | string;
 
 /** Most exposed parameters of one material. */
 export const MAX_MATERIAL_PARAMETERS = 64;
-/** Phase 18.0: a parameter key — an identifier (it names the value in the graph and in overrides). */
+/** A parameter key — an identifier (it names the value in the graph and in overrides). */
 export const MATERIAL_PARAMETER_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
 const PARAM_BOUND = 1e6;
 
@@ -212,7 +212,7 @@ export function materialParameterPortType(type: string): string | null {
 }
 
 /**
- * Phase 18.1: the context a material's graph validates in — the project's
+ * The context a material's graph validates in — the project's
  * standalone graphs (material-function calls) and its own parameters (the
  * Parameter node's port type).
  */
@@ -253,7 +253,7 @@ export function materialParameterValueError(p: Pick<MaterialParameter, 'type' | 
 
 const shortText = (v: unknown, max: number): boolean => typeof v === 'string' && v.length >= 1 && v.length <= max && !/[\u0000-\u001f\u007f]/.test(v);
 
-/** Phase 18.0: a graph material's exposed parameters. */
+/** A graph material's exposed parameters. */
 export function validateMaterialParameters(value: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!Array.isArray(value) || value.length > MAX_MATERIAL_PARAMETERS) {
     err(errors, 'field_value', path, `parameters is a list of at most ${MAX_MATERIAL_PARAMETERS}`, Array.isArray(value) ? value.length : value);
@@ -282,7 +282,7 @@ export function validateMaterialParameters(value: unknown, path: string, errors:
       else if (typeof v !== 'number' || !Number.isFinite(v) || Math.abs(v) > PARAM_BOUND) err(errors, 'field_value', `${pp}/${k}`, `${k} is a number within ±${PARAM_BOUND}`, v);
     }
     if (typeof p['min'] === 'number' && typeof p['max'] === 'number' && p['min'] > p['max']) err(errors, 'field_value', `${pp}/max`, 'max is at least min', p['max']);
-    // Phase 23.12: a data parameter's grid size (and only there).
+    // A data parameter's grid size (and only there).
     if (type === 'data') {
       const size = p['size'];
       if (size === undefined) err(errors, 'field_missing', `${pp}/size`, 'a data parameter needs its size [width, height]', undefined, 'size');
@@ -301,7 +301,7 @@ export function validateMaterialParameters(value: unknown, path: string, errors:
 }
 
 /**
- * Phase 18.0: a material's graph against the material kind (catalogue, port
+ * A material's graph against the material kind (catalogue, port
  * types, cycles, the node budget) in its context, plus the material rule:
  * every Parameter node names a declared parameter.
  */
@@ -337,7 +337,7 @@ export function validateMaterials(value: unknown, path: string, errors: ModelErr
     for (const k of Object.keys(m)) {
       if (!['materialId', 'name', 'shader', 'params', 'textures', 'parameters', 'graph', 'instanceOf', 'values'].includes(k)) err(errors, 'field_unexpected', `${p}/${k}`, `unknown material field "${k}"`, k, 'materialId, name, shader, params, textures, parameters, graph, instanceOf, values');
     }
-    // Phase 25.19: a material instance (its parent is checked with the whole list, `validateMaterialInstances`).
+    // A material instance (its parent is checked with the whole list, `validateMaterialInstances`).
     if (m['instanceOf'] !== undefined) {
       if (typeof m['instanceOf'] !== 'string' || !ID_RE.test(m['instanceOf'])) err(errors, 'id_invalid', `${p}/instanceOf`, 'instanceOf names the parent materialId', m['instanceOf']);
       for (const k of ['graph', 'parameters'] as const) if (m[k] !== undefined) err(errors, 'field_unexpected', `${p}/${k}`, `a material instance has no ${k} of its own (it uses its parent's)`, k, 'instanceOf, values');
@@ -377,14 +377,14 @@ export function validateMaterials(value: unknown, path: string, errors: ModelErr
         else if (typeof v !== 'string' || !ID_RE.test(v)) err(errors, 'id_invalid', `${p}/textures/${k}`, 'a texture slot names a texture asset id', v);
       }
     }
-    // Phase 18.0: a graph material.
+    // A graph material.
     if (m['parameters'] !== undefined) validateMaterialParameters(m['parameters'], `${p}/parameters`, errors);
     // Parameters without a graph are kept (inert) so a graph can be removed and added back.
     if (m['graph'] !== undefined) validateMaterialGraph(m, p, errors, graphs);
   });
 }
 
-/** Phase 25.19: the longest chain of instances (an instance of an instance of … a material). */
+/** The longest chain of instances (an instance of an instance of … a material). */
 export const MAX_MATERIAL_INSTANCE_DEPTH = 8;
 
 function validateMaterialInstanceValues(value: unknown, path: string, errors: ModelErrorV2[]): void {
@@ -402,7 +402,7 @@ function validateMaterialInstanceValues(value: unknown, path: string, errors: Mo
 type MaterialLike = Record<string, unknown>;
 
 /**
- * Phase 25.19: the chain from an instance up to its root material (the
+ * The chain from an instance up to its root material (the
  * instance first), or why it has none.
  */
 function instanceChain(byId: ReadonlyMap<unknown, MaterialLike>, start: MaterialLike): { chain: MaterialLike[] } | { problem: 'missing' | 'loop' | 'depth'; at: unknown } {
@@ -420,7 +420,7 @@ function instanceChain(byId: ReadonlyMap<unknown, MaterialLike>, start: Material
 }
 
 /**
- * Phase 25.19: the rules between materials and their instances (the whole
+ * The rules between materials and their instances (the whole
  * list): the parent exists, the chain ends at a material within
  * `MAX_MATERIAL_INSTANCE_DEPTH` steps without a loop, the instance's shader is
  * its root's, and its `values` name the root graph material's parameters with
@@ -467,7 +467,7 @@ export function validateMaterialInstances(value: unknown, path: string, errors: 
 }
 
 /**
- * Phase 25.19: one material as it draws — an instance resolved against its
+ * One material as it draws — an instance resolved against its
  * chain (the root's shader, graph and parameters; the parents' params and
  * textures under the instance's own; each level's `values` as the parameter
  * defaults), a material unchanged. Null when the id names nothing or the
@@ -509,7 +509,7 @@ function resolveFrom(byId: ReadonlyMap<unknown, MaterialLike>, start: MaterialLi
 }
 
 /**
- * Phase 25.19: every material as it draws (`resolveMaterial`), in list order;
+ * Every material as it draws (`resolveMaterial`), in list order;
  * an instance whose chain is broken is left out. The editor's views, Play and
  * the export draw from this list: the runtime never sees an instance.
  */
@@ -524,7 +524,7 @@ export function resolveMaterialInstances(list: readonly MaterialDef[]): Material
   return out;
 }
 
-/** Phase 18.0: parameters in canonical form (list order kept: it is the Inspector's order). */
+/** Parameters in canonical form (list order kept: it is the Inspector's order). */
 export function canonicalMaterialParameters(list: readonly MaterialParameter[]): MaterialParameter[] {
   return list.map((p) => ({
     key: p.key,
@@ -533,7 +533,7 @@ export function canonicalMaterialParameters(list: readonly MaterialParameter[]):
     ...(p.min !== undefined ? { min: p.min } : {}),
     ...(p.max !== undefined ? { max: p.max } : {}),
     ...(p.size !== undefined ? { size: [p.size[0], p.size[1]] as [number, number] } : {}),
-    // Public is the default and omitted (like script properties, 15.4).
+    // Public is the default and omitted (like script properties).
     ...(p.visibility === 'private' ? { visibility: 'private' as const } : {}),
     ...(p.label !== undefined ? { label: p.label } : {}),
     ...(p.group !== undefined ? { group: p.group } : {}),
@@ -552,10 +552,10 @@ export function canonicalMaterials(list: readonly MaterialDef[]): MaterialDef[] 
       shader: m.shader,
       params: sortKeys(Object.fromEntries(Object.entries(m.params).map(([k, v]) => [k, Array.isArray(v) ? [v[0], v[1]] as [number, number] : v]))),
       textures: sortKeys(m.textures),
-      // Phase 18.0: after the 9.4 fields, so a shader material keeps its exact bytes.
+      // After the 9.4 fields, so a shader material keeps its exact bytes.
       ...(m.parameters !== undefined && m.parameters.length > 0 ? { parameters: canonicalMaterialParameters(m.parameters) } : {}),
       ...(m.graph !== undefined ? { graph: canonicalGraphData(m.graph) } : {}),
-      // Phase 25.19: last, so every other material keeps its exact bytes.
+      // Last, so every other material keeps its exact bytes.
       ...(m.instanceOf !== undefined ? { instanceOf: m.instanceOf } : {}),
       ...(m.instanceOf !== undefined && m.values !== undefined && Object.keys(m.values).length > 0
         ? { values: Object.fromEntries(Object.keys(m.values).sort().map((k) => { const v = m.values![k]!; return [k, Array.isArray(v) ? [...v] : typeof v === 'string' && COLOR_RE.test(v.toLowerCase()) ? v.toLowerCase() : v]; })) }
@@ -576,17 +576,16 @@ export function graphForRuntime(g: GraphData): GraphData {
 }
 
 /**
- * The materials as the runtime gets them. Phase 18.0 stripped graphs until
- * the compiler existed; phase 18.3: a graph material carries its graph (the
- * runtime compiles it to TSL) and its parameters, without the editor-only
- * graph text (comments, group titles).
+ * The materials as the runtime gets them. A graph material carries its
+ * graph (the runtime compiles it to TSL) and its parameters, without the
+ * editor-only graph text (comments, group titles).
  */
 export function materialsForRuntime(list: readonly MaterialDef[]): MaterialDef[] {
   return list.map((m) => (m.graph !== undefined ? { ...m, graph: graphForRuntime(m.graph) } : m));
 }
 
 /**
- * Phase 18.3: the material functions (standalone graphs of kind
+ * The material functions (standalone graphs of kind
  * `material-function`) the graph materials call, directly or through other
  * functions, as the runtime gets them (`graphForRuntime`).
  */
@@ -608,7 +607,7 @@ export function materialFunctionsForRuntime(materials: readonly MaterialDef[], g
 }
 
 /**
- * Phase 18.3: the texture assets a material uses — its slots, and for a
+ * The texture assets a material uses — its slots, and for a
  * graph material its graph's texture fields and its texture parameters'
  * defaults (the functions it calls are counted with the graphs).
  */
@@ -641,7 +640,7 @@ export function canonicalMaterialMapping(m: Record<string, string>): Record<stri
   return Object.fromEntries(Object.keys(m).sort().map((k) => [k, m[k] as string]));
 }
 
-// ---- environment (global wind; sky/fog/post arrive in 9.5) ----------------------
+// ---- environment (global wind, sky, fog, post) ----------------------
 
 export interface WindConfig {
   /** Horizontal direction [x, z] (normalized by the runtime; not both zero). */
@@ -656,7 +655,7 @@ export interface WindConfig {
   turbulence: number;
 }
 
-/** Phase 9.5: the sky (background + image-based lighting). */
+/** The sky (background + image-based lighting). */
 export interface SkyConfig {
   /** procedural: physically based (Preetham); gradient: three colours; texture: an equirect or six-face image; color: solid. */
   mode: 'procedural' | 'gradient' | 'texture' | 'color';
@@ -695,7 +694,7 @@ export interface PostConfig {
   exposure?: number;
   bloom?: { enabled: boolean; strength?: number; radius?: number; threshold?: number };
   /**
-   * Colour grading. Phase 14.4: lift (raises the blacks, −0.5–0.5, default 0),
+   * Colour grading. Lift (raises the blacks, −0.5–0.5, default 0),
    * gamma (mid-tones, 0.2–5, default 1: >1 brightens) and gain (scales the
    * whites, 0–4, default 1) — the defaults leave the image unchanged.
    */
@@ -713,11 +712,11 @@ export interface EnvironmentConfig {
   post?: PostConfig;
   /** The project's default quality level (players can change it in the settings menu). */
   quality?: 'low' | 'medium' | 'high';
-  /** Phase 23.18: named looks scripts switch or blend to at run time (environment-presets.ts). */
+  /** Named looks scripts switch or blend to at run time (environment-presets.ts). */
   presets?: EnvironmentPreset[];
 }
 
-/** Phase 15.5: the wind when a project sets none — a light breeze along +X (0.5 with 0.4 gusts every ~3 s, a little turbulence): foliage moves a little in any scene; 0 strength stills it. */
+/** The wind when a project sets none — a light breeze along +X (0.5 with 0.4 gusts every ~3 s, a little turbulence): foliage moves a little in any scene; 0 strength stills it. */
 export const DEFAULT_WIND: Readonly<WindConfig> = Object.freeze({ direction: [1, 0] as [number, number], strength: 0.5, gust: 0.4, gustFrequency: 0.3, turbulence: 0.3 });
 
 export function validateEnvironment(value: unknown, path: string, errors: ModelErrorV2[]): void {
@@ -735,7 +734,7 @@ export function validateEnvironment(value: unknown, path: string, errors: ModelE
 }
 
 /**
- * Phase 14.4: a level's look (`flow.levels[].environment`) — the parts of the
+ * A level's look (`flow.levels[].environment`) — the parts of the
  * environment a level may lay over the project's while it plays. Quality is
  * the player's setting and stays project-wide.
  */
@@ -804,12 +803,12 @@ export function canonicalEnvironment(e: EnvironmentConfig): EnvironmentConfig {
     ...(e.fog !== undefined ? { fog: canonicalObject(e.fog) } : {}),
     ...(e.post !== undefined ? { post: canonicalObject(e.post) } : {}),
     ...(e.quality !== undefined ? { quality: e.quality } : {}),
-    // Phase 23.18: last, so an environment without presets keeps its exact bytes.
+    // Last, so an environment without presets keeps its exact bytes.
     ...(e.presets !== undefined && e.presets.length > 0 ? { presets: canonicalEnvironmentPresets(e.presets) } : {}),
   };
 }
 
-// ---- phase 9.5: sky, fog, post-processing ----------------------------------------
+// ---- Sky, fog, post-processing ----------------------------------------
 
 /** `other`: a known field the caller checks itself (arrays, nested shapes). */
 type FieldRule = { kind: 'num'; min: number; max: number } | { kind: 'color' } | { kind: 'bool' } | { kind: 'enum'; values: readonly string[] } | { kind: 'id' } | { kind: 'other' };
@@ -936,7 +935,7 @@ export function validatePost(value: unknown, path: string, errors: ModelErrorV2[
   }
 }
 
-/** Phase 9.5: a fog volume (box) the post pass fills with fog. */
+/** A fog volume (box) the post pass fills with fog. */
 export interface FogVolumeComponent {
   size: [number, number, number];
   density: number;
@@ -944,7 +943,7 @@ export interface FogVolumeComponent {
   /** Soft edges: 0 = hard box, 1 = fades from the centre. */
   falloff?: number;
   /**
-   * Phase 14.4: how fast the density fades with height above the box's
+   * How fast the density fades with height above the box's
    * bottom, per metre (density × e^(−heightFalloff × height); 0–10). Absent
    * or 0: the same density at every height, as before.
    */
@@ -966,7 +965,7 @@ export function canonicalFogVolume(v: FogVolumeComponent): FogVolumeComponent {
   return { size: [v.size[0], v.size[1], v.size[2]], density: v.density, color: v.color.toLowerCase(), ...(v.falloff !== undefined ? { falloff: v.falloff } : {}), ...(v.heightFalloff !== undefined ? { heightFalloff: v.heightFalloff } : {}) };
 }
 
-// ---- phase 18.0: per-object overrides of exposed parameters -------------------------
+// ---- Per-object overrides of exposed parameters -------------------------
 
 /**
  * The `materialParams` component: overrides of graph-material parameters on
@@ -1016,7 +1015,7 @@ export function canonicalMaterialParams(c: MaterialParamsComponent): MaterialPar
 export function materialOverrideErrors(overrides: MaterialParamsComponent, materials: readonly MaterialDef[]): { path: string; code: string; message: string; found: unknown }[] {
   const out: { path: string; code: string; message: string; found: unknown }[] = [];
   for (const [id, values] of Object.entries(overrides)) {
-    // Phase 25.19: an instance's parameters are its root graph material's.
+    // An instance's parameters are its root graph material's.
     const m = materials.some((x) => x.materialId === id) ? (resolveMaterial(materials, id) ?? materials.find((x) => x.materialId === id)) : undefined;
     if (m === undefined) {
       out.push({ path: `/${id}`, code: 'reference_missing', message: 'the overrides name no material of this project', found: id });
@@ -1030,7 +1029,7 @@ export function materialOverrideErrors(overrides: MaterialParamsComponent, mater
       const p = (m.parameters ?? []).find((x) => x.key === k);
       if (p === undefined) out.push({ path: `/${id}/${k}`, code: 'reference_missing', message: `material "${m.name}" has no parameter "${k}"`, found: k });
       else if (p.visibility === 'private') out.push({ path: `/${id}/${k}`, code: 'field_value', message: `parameter "${k}" of material "${m.name}" is private: objects cannot override it`, found: k });
-      // Phase 23.12: a data parameter's cells are written by scripts while the game runs.
+      // A data parameter's cells are written by scripts while the game runs.
       else if (p.type === 'data') out.push({ path: `/${id}/${k}`, code: 'field_value', message: `parameter "${k}" of material "${m.name}" is a data parameter: scripts write its cells while the game runs (ctx.materials.setData)`, found: k });
       else {
         const bad = materialParameterValueError(p, v);

@@ -1,13 +1,13 @@
 /**
- * Packet-24 acceptance: the committed GLB fixture index.
+ * The committed GLB fixture index.
  *
  * Every entry of `fixtures/m2/assets/expected.json` is re-derived here from the
  * exact committed bytes (base64 sidecar → bytes; the digest of the committed
  * `.glb` is re-checked), with a fixed injected job port, and compared field by
  * field against the index: status, ordered diagnostics (code/path/limit), the
- * §18.6 metrics of an accepted model, the §18.5 recipe digest and the packet-24
- * metadata digest. This is acceptance rows A02/A04's "import recipe/source
- * hashes" and "adversarial fixture outputs" evidence at the unit level.
+ * metrics of an accepted model, the recipe digest and the metadata digest.
+ * This is the unit-level evidence for import recipe/source hashes and
+ * adversarial fixture outputs.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -81,17 +81,17 @@ describe('fixture index', () => {
       expect(importRecipeDigest(proposal.importRecipe)).toBe(entry.recipeDigest);
       expect(importMetadataDigest(proposal)).toBe(entry.metadataDigest);
 
-      // §8: `kind`/`metrics` are present exactly when the proposal is accepted.
+      // `kind`/`metrics` are present exactly when the proposal is accepted.
       expect(proposal.kind).toBe(entry.status === 'ok' ? 'model' : undefined);
       expect(proposal.metrics === undefined).toBe(entry.status !== 'ok');
 
-      // §18.5: the recipe is fixed apart from the source's used extensions.
+      // The recipe is fixed apart from the source's used extensions.
       expect(proposal.importRecipe.profile).toBe('gltf-glb');
       expect(proposal.importRecipe.recipeVersion).toBe(1);
       expect(proposal.importRecipe.toolchain).toEqual({ three: '0.186.0' });
       expect(proposal.importRecipe.extensions).toEqual(entry.file === 'compression.glb' ? ['KHR_draco_mesh_compression'] : []);
 
-      // §8 job identity and the applied caps come from the injected job port.
+      // The job identity and the applied caps come from the injected job port.
       expect(proposal.proposalId).toBe(index.job.proposalId);
       expect(proposal.stageId).toBe(index.job.stageId);
       expect(proposal.expiresAt).toBe(index.job.expiresAt);
@@ -101,7 +101,7 @@ describe('fixture index', () => {
       expect(proposal.limits.caps).toEqual(M2_GLTF_PROFILE_LIMITS);
       expect(proposal.limits.timeoutMs).toBe(30_000);
 
-      // Immutable, validated data only (§18.8.3 + packet instruction).
+      // Immutable, validated data only.
       expect(Object.isFrozen(proposal)).toBe(true);
       expect(Object.isFrozen(proposal.importRecipe)).toBe(true);
       expect(Object.isFrozen(proposal.importRecipe.toolchain)).toBe(true);
@@ -111,7 +111,7 @@ describe('fixture index', () => {
       expect(Object.isFrozen(proposal.diagnostics)).toBe(true);
 
       // The proposal never carries authoring identity or a placed reference
-      // (§18.1: whole-model references only — the importer decides no asset ID).
+      // (whole-model references only — the importer decides no asset ID).
       expect('assetId' in proposal).toBe(false);
       expect(Object.keys(proposal)).not.toContain('source');
       expect(Object.keys(proposal)).not.toContain('uri');
@@ -219,7 +219,7 @@ describe('reimport of the same whole model (acceptance A02/A03 identity)', () =>
     expect(v2.metrics?.vertices).toBe(4);
 
     // Internal glTF names/indices are *display only* — never part of the
-    // recipe, the metrics or the proposal identity (§18.1 rule 3).
+    // recipe, the metrics or the proposal identity.
     expect(v1.inspection.nodeNames).toEqual(['Root', 'Tri']);
     expect(v2.inspection.nodeNames).toEqual(['Tri', 'Root']);
     expect(v1.inspection.materialNames).toEqual(['MatA', 'MatB']);

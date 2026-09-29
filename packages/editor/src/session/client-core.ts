@@ -1,5 +1,5 @@
 /**
- * Editor session transport, its core (sessions.md §4/§5/§6/§8/§10; packet 10).
+ * Editor session transport, its core.
  *
  * The browser's connection to the backend: establish the authoring session,
  * upgrade the WS channel, issue commands (delegated to the backend — the
@@ -101,7 +101,7 @@ export interface ProblemView {
   message: string;
 }
 
-/** A play-start result (sessions.md §10.1 + §17.2). */
+/** A play-start result. */
 export interface PlayStartResult {
   playSessionId: string;
   /** The preview iframe base (the backend's preview origin). */
@@ -109,7 +109,7 @@ export interface PlayStartResult {
   snapshotId: string;
   revision: number;
   expiresAt: number;
-  /** Packet 35: the immutable play-content locator (capability + build id). */
+  /** The immutable play-content locator (capability + build id). */
   playContent?: {
     contentId: string;
     buildId: string;
@@ -161,14 +161,14 @@ function tabSessionId(projectId: string): string {
   }
 }
 
-/** A caller-assigned opaque `assetId` (project-model §18.1.1 ID syntax). */
+/** A caller-assigned opaque `assetId` (in the project model's ID syntax). */
 export function makeAssetId(rng: () => number = Math.random): string {
   let hex = '';
   for (let i = 0; i < 16; i++) hex += Math.floor(rng() * 16).toString(16);
   return `asset-${hex}`;
 }
 
-/** The bounded `queryAssets` result (commands.md §5.6). */
+/** The bounded `queryAssets` result. */
 export interface AssetQueryResult {
   ok: true;
   projectId: string;
@@ -179,7 +179,7 @@ export interface AssetQueryResult {
   assets: AssetView[];
 }
 
-/** The bounded `queryPrefabs` result (commands.md §5.6, packet 28). */
+/** The bounded `queryPrefabs` result. */
 export interface PrefabQueryResult {
   ok: true;
   projectId: string;
@@ -190,7 +190,7 @@ export interface PrefabQueryResult {
   prefabs: PrefabDefinition[];
 }
 
-/** The bounded `queryBehaviors` result with `includeDeclaration` (packet 28). */
+/** The bounded `queryBehaviors` result with `includeDeclaration`. */
 export interface BehaviorQueryResult {
   ok: true;
   projectId: string;
@@ -201,7 +201,7 @@ export interface BehaviorQueryResult {
   behaviors: BehaviorRecord[];
 }
 
-/** A command's answer (phase 25.9: a staged library commit also says which scripts it recompiled). */
+/** A command's answer (a staged library commit also says which scripts it recompiled). */
 export interface CommandResultOk {
   ok: true;
   revision: number;
@@ -212,10 +212,10 @@ export type CommandResult = CommandResultOk | { ok: false; response: MutationRes
 
 export class SessionClientCore {
   readonly projection = new Projection();
-  /** The additive M2 content projection (asset summaries; sessions.md §8/§19.4). */
+  /** The additive content projection (asset summaries). */
   readonly content = new ContentProjection();
   /**
-   * M2 (packet 28): the prefix/declaration projection. Definitions are the
+   * The prefix/declaration projection. Definitions are the
    * capture/instantiation source; declarations are the only schema source for
    * the property controls (never behavior code).
    */
@@ -237,81 +237,81 @@ export class SessionClientCore {
   private historyRefreshQueued = false;
   /** Active play (the retained `play.started` snapshot + preview bridge). */
   private activePlay: (PlayStartResult & { snapshot: unknown }) | null = null;
-  /** M4 (packet 70, D-63-4 repair): the playSessionId the WS
+  /** The playSessionId the WS
    * `play.preview.ready` was already sent for (sent exactly once per play
-   * session — sessions.md §10.2). */
+   * session). */
   private playReadySentFor: string | null = null;
-  /** M4 (packet 70, D-63-4 repair): the §5.2 heartbeat timer (a WS `ping`
+  /** The heartbeat timer (a WS `ping`
    * at least every 20 s; the server drops a 60 s-silent connection). */
   private heartbeatTimer: number | null = null;
   private reconnectTimer: number | null = null;
   /** Whether the last full state read the project content (`queryGameConfig`). */
   private contentLoaded = false;
   /**
-   * M3 (packet 56): the last-known `content.settings` map. No accepted query
+   * The last-known `content.settings` map. No accepted query
    * returns settings VALUES (the `queryProject` summary carries only the
-   * `settingsKeys` count — commands.md §5.6), so the baseline is `null`
+   * `settingsKeys` count), so the baseline is `null`
    * (unknown) until the session observes an applied `setSettings` change
-   * (whose `next` is the full map, commands.md §5.3/§8.11). The settings
+   * (whose `next` is the full map). The settings
    * panel seeds from the registry defaults in the unknown case and submits
    * only the touched keys (partial semantics preserve the rest).
    */
   private settings: Record<string, unknown> | null = null;
-  /** Phase 12 (b): the project tag registry (from `queryGameConfig`, then `setTags` changes). */
+  /** The project tag registry (from `queryGameConfig`, then `setTags` changes). */
   private tags: { bit: number; name: string }[] = [];
-  /** Phase 9.4: the project materials and the environment (from queryGameConfig, then changes). */
+  /** The project materials and the environment (from queryGameConfig, then changes). */
   private materials: MaterialDef[] = [];
   private environment: EnvironmentConfig | null = null;
-  /** Phase 9.6: each scene's bake (from queryGameConfig, then setLighting changes). */
+  /** Each scene's bake (from queryGameConfig, then setLighting changes). */
   private lighting: Record<string, LightingBake> = {};
-  /** Phase 9.7: the animator controllers. */
+  /** The animator controllers. */
   private animators: AnimatorController[] = [];
-  /** Phase 16.1: the standalone graph documents and the registered graph kinds (from queryGameConfig, then changes). */
+  /** The standalone graph documents and the registered graph kinds (from queryGameConfig, then changes). */
   private graphs: GraphDocument[] = [];
   private graphKinds: Record<string, GraphKindDef> = {};
-  /** Phase 20.0: the visual effects (from queryGameConfig, then setEffect / graphEdit changes). */
+  /** The visual effects (from queryGameConfig, then setEffect / graphEdit changes). */
   private effects: EffectDef[] = [];
-  /** Phase 23.7: the shared script libraries (from queryGameConfig, then setScriptLibrary changes). */
+  /** The shared script libraries (from queryGameConfig, then setScriptLibrary changes). */
   private scriptLibraries: ScriptLibrary[] = [];
-  /** Phase 23.5: block types, the cell metadata schema and stamps (from queryGameConfig, then changes). */
+  /** Block types, the cell metadata schema and stamps (from queryGameConfig, then changes). */
   private blockTypes: BlockType[] = [];
   private cellFields: CellField[] = [];
   private blockStamps: BlockStamp[] = [];
-  /** Phase 23.5: every block layer's cells (queryBlocks; the chunks a change names are read again). */
+  /** Every block layer's cells (queryBlocks; the chunks a change names are read again). */
   private blockLayers = new Map<string, BlockLayerView>();
   /** Bumped whenever a layer's cells or the layer list change (the Scene view re-meshes). */
   private blockRevision = 0;
-  /** Phase 23.9a: the project UI documents and themes (from queryGameConfig, then setUi changes). */
+  /** The project UI documents and themes (from queryGameConfig, then setUi changes). */
   private uiDocuments: UiDocument[] = [];
   private uiThemes: UiTheme[] = [];
-  /** Phase 23.16: conversations, the speaker registry and the dialogue settings (from queryGameConfig, then setDialogue / graphEdit changes). */
+  /** Conversations, the speaker registry and the dialogue settings (from queryGameConfig, then setDialogue / graphEdit changes). */
   private dialogues: DialogueDocument[] = [];
   private speakers: DialogueSpeaker[] = [];
   private dialogueSettings: DialogueSettings | null = null;
-  /** Phase 23.17: the timelines (from queryGameConfig, then setTimeline changes). */
+  /** The timelines (from queryGameConfig, then setTimeline changes). */
   private timelines: TimelineAsset[] = [];
-  /** Phase 9.8: the project's input actions (null = the defaults). */
+  /** The project's input actions (null = the defaults). */
   private input: InputConfig | null = null;
-  /** Phase 23.3: the project's named collision layers (from `queryGameConfig`, then `setCollisionLayers` changes). */
+  /** The project's named collision layers (from `queryGameConfig`, then `setCollisionLayers` changes). */
   private collisionLayers: string[] = [];
-  /** Phase 23.10: the game modes and behavior groups (from `queryGameConfig`, then setModes / setBehaviorGroups changes). */
+  /** The game modes and behavior groups (from `queryGameConfig`, then setModes / setBehaviorGroups changes). */
   private modes: GameMode[] = [];
   private behaviorGroups: string[] = [];
-  /** Phase 24.4i: the event → cue table (from `queryGameConfig`, then `setEventCues` changes). */
+  /** The event → cue table (from `queryGameConfig`, then `setEventCues` changes). */
   private eventCues: EventCue[] = [];
-  /** Phase 24.4j: the game shell (from `queryGameConfig`, then `setShell` changes; null: none). */
+  /** The game shell (from `queryGameConfig`, then `setShell` changes; null: none). */
   private shell: GameShell | null = null;
-  /** Phase 23.19: the project save schema (from `queryGameConfig`, then `setSaveSchema` changes). */
+  /** The project save schema (from `queryGameConfig`, then `setSaveSchema` changes). */
   private saveSchema: SaveSchema | null = null;
   private inputDefaults: InputConfig = { actions: [] };
   /**
-   * Phase 15.0: the component and content descriptor registry (the editor
+   * The component and content descriptor registry (the editor
    * may import project-model types only, so it arrives with the first
    * `queryGameConfig`; it is static, fetched once).
    */
   private descriptors: DescriptorRegistry | null = null;
   /**
-   * Phase 12 (c): the scenes open in this browser (the hierarchy and the
+   * The scenes open in this browser (the hierarchy and the
    * viewport show them) and the active one (new root entities go there).
    * Remembered per project in localStorage; never part of the project.
    */
@@ -387,7 +387,7 @@ export class SessionClientCore {
     return (text.length === 0 ? null : JSON.parse(text)) as T;
   }
 
-  /** Establish the authoring session + upgrade the WS (§5.1/§4.3). */
+  /** Establish the authoring session + upgrade the WS. */
   async connect(): Promise<void> {
     if (this.disposed) return;
     this.connection = this.connection === 'reconnecting' ? 'reconnecting' : 'connecting';
@@ -413,14 +413,14 @@ export class SessionClientCore {
     }
   }
 
-  /** The WS upgrade (§4.3): single-use wsToken. */
+  /** The WS upgrade: single-use wsToken. */
   private upgradeWs(wsToken: string): Promise<void> {
     return new Promise((resolve, reject) => {
       const url = `${this.cfg.authoringOrigin.replace(/^http/, 'ws')}/api/v1/ws?sessionId=${this.sessionId}&wsToken=${wsToken}`;
       const ws = new WebSocket(url);
       this.ws = ws;
       ws.onopen = () => {
-        this.startHeartbeat(); // §5.2: the client pings at least every 20 s
+        this.startHeartbeat(); // the client pings at least every 20 s
         if (this.selection.length > 0) this.sendRelayAck({ type: 'selection.changed', entityIds: this.selection });
         resolve();
       };
@@ -455,7 +455,7 @@ export class SessionClientCore {
 
   /** A full-state resync (queryEntities is the authoritative scene source). */
   async fullResync(): Promise<void> {
-    // Phase 12 (c): a v4 project lists its scenes; its entities are read in
+    // A v4 project lists its scenes; its entities are read in
     // pages (each names its scene).
     const proj = await this.api<{ ok: boolean; revision?: number; scenes?: { sceneId: string; name: string }[]; startScenes?: string[] }>(
       `/projects/${this.cfg.projectId}/commands`,
@@ -500,7 +500,7 @@ export class SessionClientCore {
     } catch {
       // the log is advisory; live entries still arrive over the socket
     }
-    // M3 (packet 56): the project content re-reads on every full state
+    // The project content re-reads on every full state
     // (reopening the editor retains what was authored).
     try {
       const g = await this.queryGameConfig({ descriptors: this.descriptors === null });
@@ -534,7 +534,7 @@ export class SessionClientCore {
         this.saveSchema = saveSchema !== undefined && saveSchema !== null ? structuredClone(saveSchema) : null;
         const defaults = (g as { inputDefaults?: InputConfig }).inputDefaults;
         if (defaults !== undefined) this.inputDefaults = structuredClone(defaults);
-        // Phase 17.1: the settings map travels with the content (null before: only changes carried it).
+        // The settings map travels with the content (null before: only changes carried it).
         const settings = (g as { settings?: Record<string, unknown> }).settings;
         if (settings !== undefined && settings !== null && typeof settings === 'object') this.settings = { ...settings };
         const graphs = (g as { graphs?: GraphDocument[] }).graphs;
@@ -543,7 +543,7 @@ export class SessionClientCore {
         this.effects = Array.isArray(effects) ? structuredClone(effects) : [];
         const libraries = (g as { scriptLibraries?: ScriptLibrary[] }).scriptLibraries;
         this.scriptLibraries = Array.isArray(libraries) ? structuredClone(libraries) : [];
-        // Phase 23.5: block types, cell fields and stamps.
+        // Block types, cell fields and stamps.
         const blockTypes = (g as { blockTypes?: BlockType[] }).blockTypes;
         this.blockTypes = Array.isArray(blockTypes) ? structuredClone(blockTypes) : [];
         const cellFields = (g as { cellFields?: CellField[] }).cellFields;
@@ -554,7 +554,7 @@ export class SessionClientCore {
         this.uiDocuments = Array.isArray(uiDocs) ? structuredClone(uiDocs) : [];
         const uiThemes = (g as { uiThemes?: UiTheme[] }).uiThemes;
         this.uiThemes = Array.isArray(uiThemes) ? structuredClone(uiThemes) : [];
-        // Phase 23.16: dialogue content.
+        // Dialogue content.
         const dialogues = (g as { dialogues?: DialogueDocument[] }).dialogues;
         this.dialogues = Array.isArray(dialogues) ? structuredClone(dialogues) : [];
         const speakers = (g as { speakers?: DialogueSpeaker[] }).speakers;
@@ -570,14 +570,14 @@ export class SessionClientCore {
       // A missing game page is resolved by the next full state; it never
       // corrupts the scene projection.
     }
-    // Phase 23.5: the block layers' cells (a full state re-reads them all).
+    // The block layers' cells (a full state re-reads them all).
     try {
       await this.refreshBlockLayers();
     } catch {
       // resolved by the next full state
     }
-    // The additive content projection is rebuilt from the same full state
-    // (sessions.md §8): a bounded `queryAssets` page, never a partial merge.
+    // The additive content projection is rebuilt from the same full state:
+    // a bounded `queryAssets` page, never a partial merge.
     try {
       const assets = await this.queryAssets({ limit: 128, offset: 0, includeVersions: true });
       if (assets.ok) this.content.hydrate({ assets: assets.assets });
@@ -585,7 +585,7 @@ export class SessionClientCore {
       // A missing content page is resolved by the next full state; it never
       // corrupts the scene projection.
     }
-    // M2 (packet 28): reopening rebuilds definitions and published
+    // Reopening rebuilds definitions and published
     // declarations from bounded queries — no in-memory assumption.
     try {
       const [defs, behaviors] = await Promise.all([
@@ -654,7 +654,7 @@ export class SessionClientCore {
     }
   }
 
-  /** Handle one WS message (sessions.md §7). */
+  /** Handle one WS message. */
   private onWsMessage(raw: string): void {
     let m: Record<string, unknown>;
     try {
@@ -714,7 +714,7 @@ export class SessionClientCore {
   }
 
   private applyMutationApplied(ev: { requestId: string; revision: number; change: unknown; sceneId?: string }): void {
-    // Phase 21.4: a keyed-list change arrives as a delta; rebuild it from our copy (a copy that does not fit resyncs).
+    // A keyed-list change arrives as a delta; rebuild it from our copy (a copy that does not fit resyncs).
     const full = fromWireChange(ev.change as Record<string, unknown>, { setMaterials: this.materials as unknown as Record<string, unknown>[], setAnimators: this.animators as unknown as Record<string, unknown>[] });
     if (full === null) {
       void this.fullResync().then(() => this.cb.onSceneChanged());
@@ -735,12 +735,12 @@ export class SessionClientCore {
     }
     if (res.applied) {
       // The content projection advances from the SAME applied change records
-      // the scene projection uses (sessions.md §8); a failed or stale job
+      // the scene projection uses; a failed or stale job
       // never reaches this path, so previous committed content is preserved.
       this.content.applyChange(ev.change as ChangeData);
-      // M2 (packet 28): definitions/declarations converge from the same
+      // definitions/declarations converge from the same
       // records, so an MCP-origin edit is visible without a reload.
-      // Phase 19.0: a visual-script edit that does not fit the copy is
+      // A visual-script edit that does not fit the copy is
       // stale — re-read everything.
       try {
         this.prefabs.applyChange(ev.change as ChangeData);
@@ -748,9 +748,8 @@ export class SessionClientCore {
         void this.fullResync().then(() => this.cb.onSceneChanged());
         return;
       }
-      // M3 (packet 56): the content converges from the same records (the
-      // `setSettings` change carries the full next map — commands.md
-      // §5.3/§8.11). An MCP-origin edit is visible without a reload.
+      // The content converges from the same records (the
+      // `setSettings` change carries the full next map). An MCP-origin edit is visible without a reload.
       const change = ev.change as ChangeData;
       if (change.type === 'setSettings') {
         this.settings = { ...(change.next as Record<string, unknown>) };
@@ -780,11 +779,11 @@ export class SessionClientCore {
         const rest = this.graphs.filter((g) => g.graphId !== change.graphId);
         this.graphs = change.next === null ? rest : [...rest, structuredClone(change.next)].sort((a, b) => (a.graphId < b.graphId ? -1 : 1));
       } else if (change.type === 'setScriptLibrary') {
-        // Phase 23.7: one library before/after (null = none); its dependents' records travel in the same change.
+        // One library before/after (null = none); its dependents' records travel in the same change.
         const rest = this.scriptLibraries.filter((l) => l.libraryId !== change.libraryId);
         this.scriptLibraries = change.next === null ? rest : [...rest, structuredClone(change.next)].sort((a, b) => (a.libraryId < b.libraryId ? -1 : 1));
       } else if (change.type === 'setScriptLibraries') {
-        // Phase 25.9: a staged commit - several libraries before/after at once.
+        // A staged commit - several libraries before/after at once.
         let list = this.scriptLibraries;
         for (const l of change.libraries) {
           const rest = list.filter((x) => x.libraryId !== l.libraryId);
@@ -792,11 +791,11 @@ export class SessionClientCore {
         }
         this.scriptLibraries = [...list].sort((a, b) => (a.libraryId < b.libraryId ? -1 : 1));
       } else if (change.type === 'setTimeline') {
-        // Phase 23.17: one timeline before/after (null = none).
+        // One timeline before/after (null = none).
         const rest = this.timelines.filter((t) => t.timelineId !== change.timelineId);
         this.timelines = change.next === null ? rest : [...rest, structuredClone(change.next)].sort((a, b) => (a.timelineId < b.timelineId ? -1 : 1));
       } else if (change.type === 'setUi') {
-        // Phase 23.9a: one UI document or theme before/after (null = none).
+        // One UI document or theme before/after (null = none).
         if (change.uiKind === 'document') {
           const rest = this.uiDocuments.filter((d) => d.uiDocumentId !== change.id);
           this.uiDocuments = change.next === null ? rest : [...rest, structuredClone(change.next as UiDocument)].sort((a, b) => (a.uiDocumentId < b.uiDocumentId ? -1 : 1));
@@ -805,7 +804,7 @@ export class SessionClientCore {
           this.uiThemes = change.next === null ? rest : [...rest, structuredClone(change.next as UiTheme)].sort((a, b) => (a.uiThemeId < b.uiThemeId ? -1 : 1));
         }
       } else if (change.type === 'setDialogue') {
-        // Phase 23.16: one conversation, speaker or the settings before/after (null = none).
+        // One conversation, speaker or the settings before/after (null = none).
         if (change.dialogueKind === 'dialogue') {
           const rest = this.dialogues.filter((d) => d.dialogueId !== change.id);
           this.dialogues = change.next === null ? rest : [...rest, structuredClone(change.next as DialogueDocument)].sort((a, b) => (a.dialogueId < b.dialogueId ? -1 : 1));
@@ -814,11 +813,11 @@ export class SessionClientCore {
           this.speakers = change.next === null ? rest : [...rest, structuredClone(change.next as DialogueSpeaker)].sort((a, b) => (a.speakerId < b.speakerId ? -1 : 1));
         } else this.dialogueSettings = change.next === null ? null : structuredClone(change.next as DialogueSettings);
       } else if (change.type === 'setEffect') {
-        // Phase 20.0: one effect before/after (null = none).
+        // One effect before/after (null = none).
         const rest = this.effects.filter((e) => e.effectId !== change.effectId);
         this.effects = change.next === null ? rest : [...rest, structuredClone(change.next)].sort((a, b) => (a.effectId < b.effectId ? -1 : 1));
       } else if (change.type === 'graphEdit') {
-        // Phase 16.1: advance the owner's graph from the change's ops (the
+        // Advance the owner's graph from the change's ops (the
         // backend applied and validated the same ops); a copy that does not
         // fit is stale — re-read everything.
         if (change.owner.kind === 'graph') {
@@ -830,7 +829,7 @@ export class SessionClientCore {
           }
           this.graphs = this.graphs.map((g) => (g === doc ? { ...g, graph: next } : g));
         } else if (change.owner.kind === 'material') {
-          // Phase 18.0: a graph material's graph.
+          // A graph material's graph.
           const m = this.materials.find((x) => x.materialId === change.owner.id);
           const next = m?.graph !== undefined ? applyGraphOpsLocal(m.graph, change.ops) : null;
           if (m === undefined || next === null) {
@@ -839,7 +838,7 @@ export class SessionClientCore {
           }
           this.materials = this.materials.map((x) => (x === m ? { ...x, graph: next } : x));
         } else if (change.owner.kind === 'dialogue') {
-          // Phase 23.16: a conversation's graph.
+          // A conversation's graph.
           const d = this.dialogues.find((x) => x.dialogueId === change.owner.id);
           const next = d !== undefined ? applyGraphOpsLocal(d.graph, change.ops) : null;
           if (d === undefined || next === null) {
@@ -848,7 +847,7 @@ export class SessionClientCore {
           }
           this.dialogues = this.dialogues.map((x) => (x === d ? { ...x, graph: next } : x));
         } else if (change.owner.kind === 'effect') {
-          // Phase 20.0: one system's graph (owner id "<effectId>/<systemId>").
+          // One system's graph (owner id "<effectId>/<systemId>").
           const [effectId, systemId] = change.owner.id.split('/');
           const e = this.effects.find((x) => x.effectId === effectId);
           const sys = e?.systems.find((x) => x.systemId === systemId);
@@ -863,7 +862,7 @@ export class SessionClientCore {
         if (change.next === null) delete this.lighting[change.sceneId];
         else this.lighting[change.sceneId] = structuredClone(change.next);
       } else if (change.type === 'setBlockType') {
-        // Phase 23.5: one block type before/after (null = none); the Scene view re-meshes.
+        // One block type before/after (null = none); the Scene view re-meshes.
         const rest = this.blockTypes.filter((t) => t.blockId !== change.blockId);
         this.blockTypes = change.next === null ? rest : [...rest, structuredClone(change.next)].sort((a, b) => (a.blockId < b.blockId ? -1 : 1));
         this.blockRevision += 1;
@@ -873,7 +872,7 @@ export class SessionClientCore {
         const rest = this.blockStamps.filter((x) => x.stampId !== change.stampId);
         this.blockStamps = change.next === null ? rest : [...rest, structuredClone(change.next)].sort((a, b) => (a.stampId < b.stampId ? -1 : 1));
       } else if (change.type === 'editBlocks') {
-        // Phase 23.5: read the chunks (and regions) the change names, then redraw.
+        // Read the chunks (and regions) the change names, then redraw.
         void this.refreshBlockChunks(change.entityId, change.chunks).then(() => this.cb.onSceneChanged());
       }
       if (blockLayerListTouched(change, this.blockLayers)) void this.refreshBlockLayers().then(() => this.cb.onSceneChanged());
@@ -885,7 +884,7 @@ export class SessionClientCore {
   }
 
   /**
-   * Phase 21.4: a `play.started` carries the snapshot inline, or — when it
+   * A `play.started` carries the snapshot inline, or — when it
    * does not fit one WebSocket frame (1 MiB) — a `snapshotRef` to fetch it by
    * from the play's snapshot route over HTTP. A failed fetch is shown and the
    * play is stopped (`play.preview.failed`), never left waiting.
@@ -912,7 +911,7 @@ export class SessionClientCore {
   }
 
   private handlePlayStarted(m: { playSessionId: string; snapshot: unknown; playContent?: PlayStartResult['playContent'] }): void {
-    // The retained `play.started` (§7.1 one-shot delivery). The editor stores
+    // The retained `play.started` (delivered once). The editor stores
     // it and, on the preview iframe load, hands it across the bridge.
     const base = this.activePlay ?? ({} as PlayStartResult);
     this.activePlay = {
@@ -921,7 +920,7 @@ export class SessionClientCore {
       snapshotId: base.snapshotId ?? '',
       revision: base.revision ?? 0,
       expiresAt: base.expiresAt ?? 0,
-      // M4 (packet 70, D-63-7 repair): the play-content locator (contentId /
+      // The play-content locator (contentId /
       // buildId / path) is retained — the preview bootstrap's handshake +
       // `tl.playContent.expect` gate read it from the onPlayStarted result.
       playContent: m.playContent ?? base.playContent,
@@ -972,7 +971,7 @@ export class SessionClientCore {
     origin: Origin,
   ): Promise<CommandResult> {
     const rid = requestId ?? makeRequestId();
-    // Phase 12 (c): a new root entity goes into the active scene (with a
+    // A new root entity goes into the active scene (with a
     // parent, the parent's scene decides).
     if ((op === 'createEntity' || op === 'instantiatePrefab' || op === 'pasteEntities') && this.activeScene !== null && typeof args === 'object' && args !== null) {
       const a = args as Record<string, unknown>;
@@ -984,7 +983,7 @@ export class SessionClientCore {
     let outcome = await this.postCommand(env);
     // A lost ack retries ONCE with the same requestId (idempotent; the backend
     // either replays `duplicated:true` or executes fresh — the revision
-    // advances exactly once, commands.md §7.2).
+    // advances exactly once).
     if (outcome.status === 'lost') {
       this.save = 'pending';
       this.emit();
@@ -1023,7 +1022,7 @@ export class SessionClientCore {
         this.conflict = null;
         this.emit();
         const createdId = (r as { createdId?: unknown }).createdId;
-        // Phase 25.9: a staged library commit says which scripts it recompiled (once each).
+        // A staged library commit says which scripts it recompiled (once each).
         const libraryStage = (r as { libraryStage?: CommandResultOk['libraryStage'] }).libraryStage;
         return { ok: true, revision: r.revision, ...(typeof createdId === 'string' ? { createdId } : {}), ...(libraryStage !== undefined ? { libraryStage } : {}) };
       }
@@ -1064,8 +1063,8 @@ export class SessionClientCore {
             response: { ok: false, code: 'revision_conflict', currentRevision: (body.error as { currentRevision?: number }).currentRevision ?? 0 },
           };
         }
-        // `limits_exceeded` carries the declared bound (limit/current/max,
-        // commands.md §5.4) so the UI can surface the exact rejected limit
+        // `limits_exceeded` carries the declared bound (limit/current/max)
+        // so the UI can surface the exact rejected limit
         // instead of a generic message.
         const details = body.error as { limit?: string; current?: number; max?: number; sourceDigest?: string; behaviorId?: string; diagnostics?: CompileDiagnosticView[] };
         return {
@@ -1077,7 +1076,7 @@ export class SessionClientCore {
             ...(details.limit !== undefined ? { limit: details.limit } : {}),
             ...(details.current !== undefined ? { current: details.current } : {}),
             ...(details.max !== undefined ? { max: details.max } : {}),
-            // Phase 23.7: the digest to acknowledge / the dependent script that failed and why.
+            // The digest to acknowledge / the dependent script that failed and why.
             ...(typeof details.sourceDigest === 'string' ? { sourceDigest: details.sourceDigest } : {}),
             ...(typeof details.behaviorId === 'string' ? { behaviorId: details.behaviorId } : {}),
             ...(Array.isArray(details.diagnostics) ? { diagnostics: details.diagnostics } : {}),
@@ -1090,7 +1089,7 @@ export class SessionClientCore {
   }
 
   /**
-   * Start an isolated play (sessions.md §10.1). Phase 23.8: `start` — Play
+   * Start an isolated play. `start` — Play
    * from a scene, with script variables or a project save (slot 1-99; the same body
    * `tl_play_start` sends; the backend resolves it).
    */
@@ -1101,7 +1100,7 @@ export class SessionClientCore {
     return r;
   }
 
-  /** Stop the active play (sessions.md §10.3). */
+  /** Stop the active play. */
   async playStop(playSessionId: string): Promise<void> {
     await this.api(`/projects/${this.cfg.projectId}/play/${playSessionId}/stop`, {});
     this.activePlay = null;
@@ -1109,8 +1108,8 @@ export class SessionClientCore {
   }
 
   /**
-   * M4 (packet 70, D-63-4 repair): send the WS `play.preview.ready` EXACTLY
-   * ONCE per play session (sessions.md §10.2 — the editor presented the
+   * Send the WS `play.preview.ready` EXACTLY
+   * ONCE per play session (the editor presented the
    * preview and received the preview's `tl.ready`; the backend marks the play
    * `presented`, lifting the 15 s present-timeout). Idempotent per
    * playSessionId; a closed socket drops the frame (the play is then bounded
@@ -1124,7 +1123,7 @@ export class SessionClientCore {
   }
 
   /**
-   * Phase 25.24f: the preview reported load progress (`tl.load.progress`)
+   * The preview reported load progress (`tl.load.progress`)
    * before it is ready: tell the backend at most once a second, so its
    * present timeout counts from the last progress. Nothing after `ready`.
    */
@@ -1138,9 +1137,9 @@ export class SessionClientCore {
   }
   private progressSent: { id: string; at: number } | null = null;
 
-  /** M4 (packet 70, D-63-4 repair — failure side): send the WS
-   * `play.preview.failed` when the preview could not start (sessions.md
-   * §10.2 — the editor relays the preview's `tl.error`; the backend stops the
+  /** Send the WS
+   * `play.preview.failed` when the preview could not start (the editor
+   * relays the preview's `tl.error`; the backend stops the
    * play `preview_failed` instead of waiting out the 15 s present-timeout).
    * The message is truncated to the accepted ≤ 256 bound. */
   sendPlayPreviewFailed(playSessionId: string, code: string, message?: string): boolean {
@@ -1152,7 +1151,7 @@ export class SessionClientCore {
     });
   }
 
-  /** The one WS client→server send path (sessions.md §5.2): a strict JSON
+  /** The one WS client→server send path: a strict JSON
    * text frame on the live socket. Returns false when no live socket exists
    * (the caller treats a dropped frame as bounded by the session's accepted
    * timeouts — never a fabricated ack). */
@@ -1166,9 +1165,9 @@ export class SessionClientCore {
     }
   }
 
-  /** The §5.2 heartbeat: a WS `ping` at least every 20 s while the socket is
+  /** The heartbeat: a WS `ping` at least every 20 s while the socket is
    * live (the server replies `pong`; a 60 s-silent connection is dropped
-   * `heartbeat_timeout`). M4 (packet 70, D-63-4 repair). */
+   * `heartbeat_timeout`). */
   private startHeartbeat(): void {
     this.stopHeartbeat();
     this.heartbeatTimer = window.setInterval(() => {
@@ -1194,7 +1193,7 @@ export class SessionClientCore {
     return { position: e.position, rotation: e.rotation, scale: e.scale };
   }
 
-  // ---- M3 gameplay authoring (packet 56) ---------------------------------
+  // ---- gameplay authoring ------------------------------------
 
   /** Whether the project content has been read from the backend (vs unknown). */
   getContentLoaded(): boolean {
@@ -1207,12 +1206,12 @@ export class SessionClientCore {
    * returns settings values, so a fresh session seeds the panel from the
    * registry defaults). See the `settings` field note above.
    */
-  /** Phase 12 (b): the project tag registry, ascending bit. */
-  /** Phase 12 (c): the entities of the open scenes (all of them for a single-scene project). */
+  /** The project tag registry, ascending bit. */
+  /** The entities of the open scenes (all of them for a single-scene project). */
   visibleEntities(): ProjectedEntity[] {
     const all = this.projection.listEntities();
     if (this.projection.scenes.length === 0) return all;
-    // Phase 21.4: the same array until the projection or the open scenes change,
+    // The same array until the projection or the open scenes change,
     // so views keyed on it (the Hierarchy, the Scene view sync) skip unchanged updates.
     const c = this.visibleCache;
     if (c !== null && c.all === all && c.open === this.openSceneIds) return c.list;
@@ -1223,12 +1222,12 @@ export class SessionClientCore {
   }
   private visibleCache: { all: ProjectedEntity[]; open: readonly string[]; list: ProjectedEntity[] } | null = null;
 
-  /** Phase 12 (c): the open scenes (in index order) and the active one; empty for a single-scene project. */
+  /** The open scenes (in index order) and the active one; empty for a single-scene project. */
   getSceneView(): { open: readonly string[]; active: string | null } {
     return { open: this.openSceneIds, active: this.activeScene };
   }
 
-  /** Phase 12 (c): open or close a scene in this browser (the last open scene stays open). */
+  /** Open or close a scene in this browser (the last open scene stays open). */
   setSceneOpen(sceneId: string, open: boolean): void {
     const known = this.projection.scenes.some((r) => r.sceneId === sceneId);
     if (!known) return;
@@ -1238,7 +1237,7 @@ export class SessionClientCore {
     this.cb.onSceneChanged();
   }
 
-  /** Phase 12 (c): make a scene the active one (it is opened if needed). */
+  /** Make a scene the active one (it is opened if needed). */
   setActiveScene(sceneId: string): void {
     if (!this.projection.scenes.some((r) => r.sceneId === sceneId)) return;
     if (!this.openSceneIds.includes(sceneId)) this.openSceneIds = [...this.openSceneIds, sceneId];
@@ -1283,108 +1282,108 @@ export class SessionClientCore {
     return this.tags.map((t) => ({ ...t }));
   }
 
-  /** Phase 9.4: the project materials. */
+  /** The project materials. */
   getMaterials(): MaterialDef[] {
     return structuredClone(this.materials);
   }
 
-  /** Phase 9.4: the environment (null = defaults). */
+  /** The environment (null = defaults). */
   getEnvironment(): EnvironmentConfig | null {
     return this.environment === null ? null : structuredClone(this.environment);
   }
 
-  /** Phase 23.19: the project save schema (null: no project saves). */
+  /** The project save schema (null: no project saves). */
   getSaveSchema(): SaveSchema | null {
     return this.saveSchema === null ? null : structuredClone(this.saveSchema);
   }
 
-  /** Phase 23.3: the project's named collision layers ("default" is implicit). */
+  /** The project's named collision layers ("default" is implicit). */
   getCollisionLayers(): string[] {
     return [...this.collisionLayers];
   }
 
-  /** Phase 23.10: the game modes (the first is the start mode). */
+  /** The game modes (the first is the start mode). */
   getModes(): GameMode[] {
     return structuredClone(this.modes);
   }
 
-  /** Phase 23.10: the behavior group names. */
+  /** The behavior group names. */
   getBehaviorGroups(): string[] {
     return [...this.behaviorGroups];
   }
 
-  /** Phase 24.4i: the event → cue table. */
+  /** The event → cue table. */
   getEventCues(): EventCue[] {
     return structuredClone(this.eventCues);
   }
 
-  /** Phase 24.4j: the game shell (null: none). */
+  /** The game shell (null: none). */
   getShell(): GameShell | null {
     return this.shell === null ? null : structuredClone(this.shell);
   }
 
-  /** Phase 9.8: the project's input actions (null = the defaults). */
+  /** The project's input actions (null = the defaults). */
   getInput(): InputConfig | null {
     return this.input === null ? null : structuredClone(this.input);
   }
 
-  /** Phase 15.0: the descriptor registry (null until the first full state). */
+  /** The descriptor registry (null until the first full state). */
   getDescriptors(): DescriptorRegistry | null {
     return this.descriptors;
   }
 
-  /** Phase 9.8: the default input actions (what a project without its own uses). */
+  /** The default input actions (what a project without its own uses). */
   getInputDefaults(): InputConfig {
     return structuredClone(this.inputDefaults);
   }
 
-  /** Phase 16.1: the standalone graph documents (the editor treats them as read-only values). */
+  /** The standalone graph documents (the editor treats them as read-only values). */
   getGraphs(): readonly GraphDocument[] {
     return this.graphs;
   }
 
-  /** Phase 20.0: the visual effects (the editor treats them as read-only values). */
+  /** The visual effects (the editor treats them as read-only values). */
   getEffects(): readonly EffectDef[] {
     return this.effects;
   }
 
-  /** Phase 23.9a: the project UI documents (the editor treats them as read-only values). */
+  /** The project UI documents (the editor treats them as read-only values). */
   getUiDocuments(): readonly UiDocument[] {
     return this.uiDocuments;
   }
 
-  /** Phase 23.9a: the project UI themes. */
+  /** The project UI themes. */
   getUiThemes(): readonly UiTheme[] {
     return this.uiThemes;
   }
 
-  /** Phase 23.16: the conversations (read-only values). */
+  /** The conversations (read-only values). */
   getDialogues(): readonly DialogueDocument[] {
     return this.dialogues;
   }
 
-  /** Phase 23.16: the speaker registry. */
+  /** The speaker registry. */
   getSpeakers(): readonly DialogueSpeaker[] {
     return this.speakers;
   }
 
-  /** Phase 23.16: the dialogue settings (null: the defaults). */
+  /** The dialogue settings (null: the defaults). */
   getDialogueSettings(): DialogueSettings | null {
     return this.dialogueSettings;
   }
 
-  /** Phase 23.17: the timelines (the editor treats them as read-only values). */
+  /** The timelines (the editor treats them as read-only values). */
   getTimelines(): readonly TimelineAsset[] {
     return this.timelines;
   }
 
-  /** Phase 23.7: the shared script libraries (the editor treats them as read-only values). */
+  /** The shared script libraries (the editor treats them as read-only values). */
   getScriptLibraries(): readonly ScriptLibrary[] {
     return this.scriptLibraries;
   }
 
   /**
-   * Phase 23.7: compile a script library draft without saving it (`POST
+   * Compile a script library draft without saving it (`POST
    * content/libraries/check`; nothing is written). Also names the published
    * scripts that import it.
    */
@@ -1409,7 +1408,7 @@ export class SessionClientCore {
   }
 
   /**
-   * Phase 25.9: add one patch to a staged library edit set (`POST
+   * Add one patch to a staged library edit set (`POST
    * content/libraries/stage`; a new stage without stageId). Nothing changes
    * in the project until `commitScriptLibraryStage` commits the stage.
    */
@@ -1430,7 +1429,7 @@ export class SessionClientCore {
   }
 
   /**
-   * Phase 25.9: a running Play's diagnostics (the backend relays the request to
+   * A running Play's diagnostics (the backend relays the request to
    * the preview and maps script error and log locations back to the sources).
    */
   async playDiagnostics(playSessionId: string): Promise<{ ok: true; diagnostics: unknown } | { ok: false; message: string }> {
@@ -1447,43 +1446,43 @@ export class SessionClientCore {
     }
   }
 
-  /** Phase 16.1: the registered graph kinds (node catalogues, port types, rules), by kind id. */
+  /** The registered graph kinds (node catalogues, port types, rules), by kind id. */
   getGraphKinds(): Readonly<Record<string, GraphKindDef>> {
     return this.graphKinds;
   }
 
-  /** Phase 9.7: the animator controllers. */
+  /** The animator controllers. */
   getAnimators(): AnimatorController[] {
     return structuredClone(this.animators);
   }
 
-  /** Phase 9.6: each scene's bake. */
-  /** Phase 23.5: the block types (content.blockTypes). */
+  /** Each scene's bake. */
+  /** The block types (content.blockTypes). */
   getBlockTypes(): readonly BlockType[] {
     return this.blockTypes;
   }
 
-  /** Phase 23.5: the cell metadata schema (content.cellFields). */
+  /** The cell metadata schema (content.cellFields). */
   getCellFields(): readonly CellField[] {
     return this.cellFields;
   }
 
-  /** Phase 23.5: the saved stamps (content.blockStamps). */
+  /** The saved stamps (content.blockStamps). */
   getBlockStamps(): readonly BlockStamp[] {
     return this.blockStamps;
   }
 
-  /** Phase 23.5: every block layer's component, chunks and regions (entity id → layer). */
+  /** Every block layer's component, chunks and regions (entity id → layer). */
   getBlockLayers(): ReadonlyMap<string, BlockLayerView> {
     return this.blockLayers;
   }
 
-  /** Phase 23.5: bumped whenever a layer's cells, the layer list or the block types change. */
+  /** Bumped whenever a layer's cells, the layer list or the block types change. */
   getBlockRevision(): number {
     return this.blockRevision;
   }
 
-  /** Phase 23.5: `queryBlocks` (the layers, one layer's chunks, a box of cells or a region). */
+  /** `queryBlocks` (the layers, one layer's chunks, a box of cells or a region). */
   async queryBlocks(args: Record<string, unknown>): Promise<Record<string, unknown> & { ok: boolean }> {
     try {
       return await this.api<Record<string, unknown> & { ok: boolean }>(`/projects/${this.cfg.projectId}/commands`, { op: 'queryBlocks', projectId: this.cfg.projectId, args });
@@ -1492,7 +1491,7 @@ export class SessionClientCore {
     }
   }
 
-  /** Phase 23.5: re-read every layer (the layer list and all cells). */
+  /** Re-read every layer (the layer list and all cells). */
   async refreshBlockLayers(): Promise<void> {
     const list = await this.queryBlocks({});
     if (list.ok !== true) return;
@@ -1508,7 +1507,7 @@ export class SessionClientCore {
     this.blockRevision += 1;
   }
 
-  /** Phase 23.5: re-read some chunks of one layer (the chunks an editBlocks change named). */
+  /** Re-read some chunks of one layer (the chunks an editBlocks change named). */
   private async refreshBlockChunks(entityId: string, chunks: readonly (readonly [number, number])[]): Promise<void> {
     const one = await this.queryBlocks({ entityId, chunks: chunks.map((c) => [c[0], c[1]]) });
     if (one.ok !== true) return;
@@ -1533,7 +1532,7 @@ export class SessionClientCore {
   }
 
   /**
-   * A bounded `queryGameConfig` (commands.md §4/§5.6, authoring §A6): the
+   * A bounded `queryGameConfig`: the
    * project content (tags, scenes, materials, environment, …); read-only.
    */
   async queryGameConfig(opts: { descriptors?: boolean } = {}): Promise<{ ok: true; revision: number } | { ok: false; error: { code: string; message: string } }> {
@@ -1549,10 +1548,10 @@ export class SessionClientCore {
     }
   }
 
-  // ---- M2 content browser (packet 27) -------------------------------------
+  // ---- content browser ----------------------------------------
 
   /**
-   * A bounded `queryAssets` (commands.md §4/§5.6). Read-only: it carries no
+   * A bounded `queryAssets`. Read-only: it carries no
    * `expectedRevision`/`requestId` and is never deduplicated.
    */
   async queryAssets(options: { limit?: number; offset?: number; includeVersions?: boolean; assetId?: string } = {}): Promise<AssetQueryResult> {
@@ -1569,7 +1568,7 @@ export class SessionClientCore {
   }
 
   /**
-   * A bounded `queryPrefabs` (commands.md §4/§5.6). Read-only. With
+   * A bounded `queryPrefabs`. Read-only. With
    * `includeEntities` the entries are full `PrefabDefinition` values — the
    * capture/instantiation source; never bytes and never a projection.
    */
@@ -1588,7 +1587,7 @@ export class SessionClientCore {
   }
 
   /**
-   * A bounded `queryBehaviors` (commands.md §4/§5.6). With `includeDeclaration`
+   * A bounded `queryBehaviors`. With `includeDeclaration`
    * the entries are the exact published records — the declaration data the
    * property controls are derived from. Source bytes are never returned.
    */
@@ -1631,7 +1630,7 @@ export class SessionClientCore {
   }
 }
 
-/** Phase 11: the backend's own headless editor opens the page with `headless=1`. */
+/** The backend's own headless editor opens the page with `headless=1`. */
 function headlessEditor(): boolean {
   try {
     return new URLSearchParams(window.location.search).get('headless') === '1';
@@ -1640,14 +1639,14 @@ function headlessEditor(): boolean {
   }
 }
 
-/** Phase 23.5: one block layer as the editor holds it (queryBlocks). */
+/** One block layer as the editor holds it (queryBlocks). */
 export interface BlockLayerView {
   component: BlockLayerComponent;
   chunks: Map<string, BlockChunk>;
   regions: BlockRegion[];
 }
 
-/** Phase 23.5: whether a change adds, removes or re-shapes a block layer (the layer list is read again). */
+/** Whether a change adds, removes or re-shapes a block layer (the layer list is read again). */
 function blockLayerListTouched(change: ChangeData, layers: ReadonlyMap<string, BlockLayerView>): boolean {
   const has = (e: unknown): boolean => typeof e === 'object' && e !== null && (e as { components?: { blockLayer?: unknown } }).components?.blockLayer !== undefined;
   switch (change.type) {

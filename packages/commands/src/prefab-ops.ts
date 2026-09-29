@@ -1,16 +1,15 @@
 /**
- * Prefab M2 mutation ops — commands.md §8.6 (`createPrefab`) and §8.7
- * (`instantiatePrefab`), packet 22.
+ * Prefab mutation ops — `createPrefab` and `instantiatePrefab`.
  *
  * `createPrefab` captures a selected scene subtree into an immutable
- * `PrefabDefinition` (project-model §20.2); `instantiatePrefab` materializes
+ * `PrefabDefinition`; `instantiatePrefab` materializes
  * independent copies in **one transaction** — a complete subtree, every
  * local entity/reference ID remapped exactly once, with the exact mapping
- * recorded in the durable result. Both ops run the accepted §6.1 pipeline and
+ * recorded in the durable result. Both ops run the mutation pipeline and
  * the shared pure history engine: nothing here reads files, mutates the
  * workspace, or provides a second mutation path.
  *
- * Copy semantics are explicit (project-model §20.1): definitions are
+ * Copy semantics are explicit: definitions are
  * materialized, never inherited; there is no live link, no propagation, no
  * variants and no structural overrides. `components.prefab` is informational
  * provenance written only here.
@@ -87,14 +86,14 @@ function canonicalBytes(value: unknown): number {
   return utf8Length(JSON.stringify(value, null, 2) + '\n');
 }
 
-/** §8.7.2 prefix derivation: model, else box, else group. */
+/** Instance ID prefix derivation: model, else box, else group. */
 function idPrefix(components: PrefabComponentsV2): 'model' | 'box' | 'group' {
   if (components.model !== undefined) return 'model';
   if (components.box !== undefined) return 'box';
   return 'group';
 }
 
-/** §8.7.2: the smallest free `<prefix>-N` (phase 25.7a: six digits) for `prefix`, scoped to the used set. */
+/** The smallest free `<prefix>-N` (six digits) for `prefix`, scoped to the used set. */
 export function nextFreeEntityId(
   used: ReadonlySet<string>,
   prefix: string,
@@ -102,7 +101,7 @@ export function nextFreeEntityId(
   return nextFreeEntityIdOf(used, prefix);
 }
 
-/** §20.2 definition depth (definition root = 1). */
+/** Definition depth (definition root = 1). */
 function prefabDepth(entities: readonly PrefabEntity[]): number {
   const byLocal = new Map(entities.map((e) => [e.localId, e]));
   const depth = new Map<string, number>();
@@ -158,11 +157,11 @@ function subtreeInDocumentOrder(scene: SceneDocument, rootId: string): string[] 
     const kids = children.get(id);
     if (kids !== undefined) for (const k of kids) stack.push(k);
   }
-  // Document order (== parent-before-child for a valid scene, §11.1).
+  // Document order (== parent-before-child for a valid scene).
   return scene.entities.filter((e) => set.has(e.id)).map((e) => e.id);
 }
 
-/** §8.6.3: the first external `entityRef` value in the closure, or null. */
+/** The first external `entityRef` value in the closure, or null. */
 function findExternalReference(
   closure: readonly EntityV3[],
   closureSet: ReadonlySet<string>,
@@ -172,7 +171,7 @@ function findExternalReference(
   for (const b of catalog.behaviors) {
     refKeys.set(
       b.behaviorId,
-      // Phase 15.4: a private property's stored value is inert (never read).
+      // A private property's stored value is inert (never read).
       b.declaration.properties.filter((p) => p.type === 'entityRef' && !isPrivateProperty(p)).map((p) => p.key),
     );
   }
@@ -199,13 +198,13 @@ function cloneTransform(t: EntityV3['components']['transform']): Record<string, 
   };
 }
 
-// ---- createPrefab (§8.6) ----------------------------------------------------------
+// ---- createPrefab ----------------------------------------------------------
 
 export function applyCreatePrefab(input: OpInput, args: CreatePrefabArgs): OpOutcome {
   const catalog = contentOf(input.content);
   const scene = input.scene;
 
-  // §8.6.2 step 2: prefabId syntax and uniqueness.
+  // prefabId syntax and uniqueness.
   if (!ID_RE.test(args.prefabId)) {
     return { ok: false, error: idInvalid('/args/prefabId', args.prefabId, ID_EXPECTED) };
   }
@@ -260,9 +259,9 @@ export function applyCreatePrefab(input: OpInput, args: CreatePrefabArgs): OpOut
       ),
     };
   }
-  // A definition entity may carry transform/model/box/behavior only (§20.2):
-  // collider/controller are not part of the definition vocabulary in M2 and
-  // are rejected rather than silently dropped. Phase 14.1: a v4 definition
+  // A definition entity may carry transform/model/box/behavior only:
+  // collider/controller are not part of the base definition vocabulary and
+  // are rejected rather than silently dropped. A v4 definition
   // also keeps the gameplay components (`PREFAB_V4_COMPONENTS`, a collider
   // included) so a spawned or placed copy collides and plays like the source.
   const v4 = scene.schemaVersion === 4;
@@ -358,14 +357,14 @@ export function applyCreatePrefab(input: OpInput, args: CreatePrefabArgs): OpOut
   };
 }
 
-// ---- instantiatePrefab (§8.7) ------------------------------------------------------
+// ---- instantiatePrefab ------------------------------------------------------
 
 const pairKey = (localId: string, key: string): string => `${localId}\u0000${key}`;
 
 /**
  * Materialize one definition entity: definition document order, root-parent
  * and internal-reference remap, root-only transform, declared overrides and
- * the informational provenance component (§8.7.2–§8.7.4).
+ * the informational provenance component.
  */
 function buildInstanceEntity(
   de: PrefabEntity,
@@ -388,13 +387,13 @@ function buildInstanceEntity(
   components['transform'] = t;
   if (de.components.model !== undefined) components['model'] = deepClone(de.components.model);
   if (de.components.box !== undefined) components['box'] = deepClone(de.components.box);
-  // Phase 14.1: the v4 gameplay components travel with the copy.
+  // The v4 gameplay components travel with the copy.
   const source = de.components as unknown as Record<string, unknown>;
   for (const name of PREFAB_V4_COMPONENTS) if (source[name] !== undefined) components[name] = deepClone(source[name]);
   const recorded = de.components.behavior;
   if (recorded !== undefined) {
     const declaration = declarations.get(recorded.behaviorId);
-    // Phase 15.4: private properties are never stored on the copy.
+    // Private properties are never stored on the copy.
     const keys =
       declaration !== undefined ? declaration.filter((p) => !isPrivateProperty(p)).map((p) => p.key) : Object.keys(recorded.values);
     const byKey = new Map((declaration ?? []).map((p) => [p.key, p]));
@@ -407,14 +406,14 @@ function buildInstanceEntity(
       if (override !== undefined) value = override;
       if (typeof value === 'string') {
         const prop = byKey.get(key);
-        // §20.5: a definition entityRef names a localId; remap it once.
+        // A definition entityRef names a localId; remap it once.
         if (prop?.type === 'entityRef' && mapping.has(value)) value = mapping.get(value) as string;
       }
       values[key] = value;
     }
     components['behavior'] = { behaviorId: recorded.behaviorId, values };
   }
-  // §8.7.4 step 4: informational provenance, written only here.
+  // Informational provenance, written only here.
   components['prefab'] = { prefabId: definition.prefabId, localId: de.localId };
 
   const newId = mapping.get(de.localId) as string;
@@ -432,7 +431,7 @@ export function applyInstantiatePrefab(input: OpInput, args: InstantiatePrefabAr
   const catalog = contentOf(input.content);
   const scene = input.scene;
 
-  // §8.7.5 step 2: the definition resolves.
+  // The definition resolves.
   const definition = catalog.prefabs.find((d) => d.prefabId === args.prefabId);
   if (definition === undefined) return { ok: false, error: prefabNotFound(args.prefabId) };
 
@@ -465,7 +464,7 @@ export function applyInstantiatePrefab(input: OpInput, args: InstantiatePrefabAr
     if (prop === undefined) {
       return { ok: false, error: propertyOverrideUnknown(behavior?.behaviorId, override.key) };
     }
-    // Phase 15.4: a private property is not overridable per copy.
+    // A private property is not overridable per copy.
     if (isPrivateProperty(prop)) return { ok: false, error: propertyPrivate(behavior?.behaviorId, override.key) };
     const checked = checkOverrideValue(prop, override.key, override.value, ctx, args.prefabId);
     if (!checked.ok) return checked;
@@ -540,7 +539,7 @@ export function applyInstantiatePrefab(input: OpInput, args: InstantiatePrefabAr
       scene: gate.scene,
       // Content is unchanged (provenance is in the scene).
       change,
-      // §8.7.6/§9.1: one undo removes the whole subtree; redo re-inserts the
+      // One undo removes the whole subtree; redo re-inserts the
       // recorded entries with their recorded IDs (no re-allocation).
       inverse: { kind: 'delete', rootId },
     },

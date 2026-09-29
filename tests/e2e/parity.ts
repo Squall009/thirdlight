@@ -1,8 +1,8 @@
 /**
- * Phase 17.2/17.3: pixel parity helpers shared by the shader parity spec
+ * Pixel parity helpers shared by the shader parity spec
  * (`shader-parity.e2e.ts`) and the environment/post parity spec
  * (`env-parity.e2e.ts`): the comparison, the tolerance rules (logged in
- * docs/plan-phase-17.md §6), a visual diff for failure reports, and a tiny
+ * docs/plan-phase-17.md), a visual diff for failure reports, and a tiny
  * localhost server for a bundled browser harness.
  */
 import { createServer, type Server } from 'node:http';
@@ -29,7 +29,7 @@ export interface Tolerance {
 }
 
 /**
- * The 17.2 rule: mean ≤ 1.5 (of 255) and ≤ 0.5 % of the pixels off by more
+ * The strict rule: mean ≤ 1.5 (of 255) and ≤ 0.5 % of the pixels off by more
  * than 32 in some channel — about twice the SwiftShader noise between three's
  * GLSL chunks and its node code, far below a lost shader hook.
  */

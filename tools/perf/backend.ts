@@ -1,5 +1,5 @@
 /**
- * Phase 21.1: the real backend bundle (dist/backend/backend.mjs) on free
+ * The real backend bundle (dist/backend/backend.mjs) on free
  * ports over a given data root (under ~/.cache/thirdlight-perf/, never /tmp:
  * the large benchmark is big), with small HTTP helpers for the command API
  * and the content routes. The same process shape as tests/e2e/backend.ts.
@@ -21,14 +21,14 @@ export interface PerfBackend {
   token: string;
   dataRoot: string;
   exportRoot: string;
-  /** The backend process id (phase 21.4: its /proc/<pid>/io write counter). */
+  /** The backend process id (its /proc/<pid>/io write counter). */
   pid: number;
   /** POST JSON to a path under the origin (project token, editor origin). */
   post(path: string, body: unknown): Promise<{ status: number; json: Record<string, unknown> }>;
   get(path: string): Promise<{ status: number; body: Buffer }>;
   /** Upload bytes into a new stage in frames of at most 1 MiB; returns the stage id. */
   stage(projectId: string, bytes: Uint8Array): Promise<string>;
-  /** Phase 25.24a: close a stage once its file is published (at most 8 are open at once). */
+  /** Close a stage once its file is published (at most 8 are open at once). */
   discardStage(projectId: string, stageId: string): Promise<void>;
   project(projectId: string): ProjectClient;
   stop(): Promise<void>;

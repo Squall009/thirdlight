@@ -1,5 +1,5 @@
 /**
- * Phase 23.1: the 3D collider shapes (sphere, capsule, convex hull, triangle
+ * The 3D collider shapes (sphere, capsule, convex hull, triangle
  * mesh), the 3D trigger areas (box with depth, sphere, capsule), and the
  * rules that follow the project's physics dimension: 3D shapes only in a 3D
  * project, a mesh never on a mover, no one-way collider in 3D, a 3D

@@ -1,10 +1,10 @@
 /**
- * WS event catalog — sessions.md §7 (normative, exhaustive for M1).
+ * WS event catalog (exhaustive).
  *
- * Server → client (§7.1): builders emit strict JSON strings with the exact
- * field sets. Client → server (§7.2): strict validators (unknown `type` ⇒
+ * Server → client: builders emit strict JSON strings with the exact
+ * field sets. Client → server: strict validators (unknown `type` ⇒
  * `unknown_event`; malformed/shape failure ⇒ `protocol_error` — both
- * counted by the connection's protocol-error tolerance, §5.2).
+ * counted by the connection's protocol-error tolerance).
  *
  * Every event carries `type`; unknown fields are rejected.
  * Pure: no I/O.
@@ -23,9 +23,9 @@ import {
 import { validateGameControlResult, validateGameObservation } from './m3';
 import type { SessionError } from './errors';
 
-// ---- catalog constants (the exhaustive allowlists, sessions.md §7) -----------
+// ---- catalog constants (the exhaustive allowlists) -----------
 
-/** §7.1: the complete server → client event type set. */
+/** The complete server → client event type set. */
 export const SERVER_EVENT_TYPES = [
   'attached',
   'pong',
@@ -36,26 +36,25 @@ export const SERVER_EVENT_TYPES = [
   'screenshot.request',
   'play.diagnostics.request',
   'input.request',
-  // sessions.md §7.1/§20.1 (packet 42 promoted; packet 48 implements): the M3
-  // game control/observation relays forwarded to the owner editor.
+  // The game control/observation relays forwarded to the owner editor.
   'game.control.request',
   'game.observe.request',
   'error',
 ] as const;
 export type ServerEventType = (typeof SERVER_EVENT_TYPES)[number];
 
-/** §7.2: the complete client → server event type set. */
+/** The complete client → server event type set. */
 export const CLIENT_EVENT_TYPES = [
   'ping',
   'play.preview.ready',
   'play.preview.failed',
-  // Phase 25.24f: the preview made progress while it starts (the present timeout counts from the last).
+  // The preview made progress while it starts (the present timeout counts from the last).
   'play.preview.progress',
   'play.stopped.ack',
   'screenshot.ack',
   'play.diagnostics.ack',
   'input.result',
-  // sessions.md §7.2/§20.1 (packet 42 promoted; packet 48 implements).
+  // The owner editor's answers to the game control/observation relays.
   'game.control.ack',
   'game.observe.ack',
   // The editor's current selection (so tools can inspect "what is selected").
@@ -63,7 +62,7 @@ export const CLIENT_EVENT_TYPES = [
 ] as const;
 export type ClientEventType = (typeof CLIENT_EVENT_TYPES)[number];
 
-/** The §7.1 `play.stopped` reason set. */
+/** The `play.stopped` reason set. */
 export const PLAY_STOP_REASONS = [
   'request',
   'preview_failed',
@@ -76,9 +75,9 @@ export const PLAY_STOP_REQUEST_REASONS = ['request', 'expired'] as const;
 export type PlayStopRequestReason = (typeof PLAY_STOP_REQUEST_REASONS)[number];
 
 /**
- * The runtime snapshot document (runtime.md §2) — structural type, kept
- * local so the protocol stays within its edge table (dependencies.md §4.1:
- * project-model + commands only; the runtime is NOT an allowed edge).
+ * The runtime snapshot document — structural type, kept
+ * local so the protocol stays within its dependency edges (project-model +
+ * commands only; the runtime is NOT an allowed edge).
  */
 export interface RuntimeSnapshotDoc {
   snapshotId: string;
@@ -93,14 +92,14 @@ export interface RuntimeSnapshotDoc {
   /** v3: the project's game block (null = scene mode). */
   game?: unknown;
   /**
-   * Phase 23.8: a test/debug start, resolved by the backend against the
+   * A test/debug start, resolved by the backend against the
    * project (a level, or start scenes and a spawn; a save; variables; a mode).
    * The preview hands it to the host; it is not part of the runtime snapshot.
    */
   start?: PlayStartResolved;
 }
 
-/** Phase 23.8: the resolved start of a play (`RuntimeSnapshotDoc.start`). */
+/** The resolved start of a play (`RuntimeSnapshotDoc.start`). */
 export interface PlayStartResolved {
   /** The scene asked for (as given). */
   sceneId?: string;
@@ -108,16 +107,16 @@ export interface PlayStartResolved {
   scenes?: string[];
   spawnId?: string;
   variables?: Record<string, unknown>;
-  /** Phase 23.19: a project save document to load at the first step, or a project save slot (1–99) of the page. */
+  /** A project save document to load at the first step, or a project save slot (1–99) of the page. */
   projectSave?: Record<string, unknown>;
   projectSaveSlot?: number;
   /** A game mode (validated when the project defines modes). */
   mode?: string;
-  /** Phase 25.17: where this play's simulation runs, over the project setting `sim_thread`. */
+  /** Where this play's simulation runs, over the project setting `sim_thread`. */
   threads?: 'worker' | 'single';
 }
 
-// ---- server → client builders (§7.1) ------------------------------------------
+// ---- server → client builders ------------------------------------------
 
 function emit(obj: Record<string, unknown>): string {
   return JSON.stringify(obj);
@@ -147,7 +146,7 @@ export function makeMutationApplied(payload: {
 }
 
 /**
- * Phase 21.4: where a snapshot too large for one WebSocket frame is fetched
+ * Where a snapshot too large for one WebSocket frame is fetched
  * (GET, owner token): `play.started` carries this reference instead of the
  * snapshot, so a large project's Play starts instead of waiting on a frame
  * the backend cannot send (`WS_OUT_FRAME_MAX`).
@@ -167,7 +166,7 @@ export function playSnapshotPath(projectId: string, playSessionId: string): stri
 export function makePlayStarted(payload: {
   playSessionId: string;
   startedBy: Origin | null;
-  /** The snapshot inline, or (phase 21.4) a reference to fetch it by when it does not fit one frame. */
+  /** The snapshot inline, or a reference to fetch it by when it does not fit one frame. */
   snapshot: RuntimeSnapshotDoc | { ref: PlaySnapshotRef };
   /** The play-content locator, so an editor can present a play another client started. */
   playContent?: { contentId: string; buildId: string; path: string };
@@ -211,8 +210,7 @@ export function makeDiagnosticsRequest(relayId: string): string {
 }
 
 /**
- * The bounded input-exercise relay request (sessions.md §18.1; the WS event
- * name is a packet-35 contract-change request — §7's catalog predates §18).
+ * The bounded input-exercise relay request.
  * Step-indexed semantic frames only: never DOM events, never `eval`.
  */
 export function makeInputRelayRequest(
@@ -224,12 +222,11 @@ export function makeInputRelayRequest(
   return emit({
     type: 'input.request',
     requestId,
-    // Phase 25.16: restart the game first (the frames begin at the new run's first step).
+    // Restart the game first (the frames begin at the new run's first step).
     ...(restart ? { restart: true } : {}),
-    // Phase 25.17: hold the game right after the last step (until the next exercise).
+    // Hold the game right after the last step (until the next exercise).
     ...(hold ? { hold: true } : {}),
-    // Phase 23.2: the second move axis and the named actions (and, phase 23.3, the pointer) travel too (absent: as before).
-    // Phase 25.15: run length, the virtual gamepad and UI edges.
+    // Optional frame fields (run length, actions, pointer, gamepad, UI edges) travel only when present.
     frames: frames.map((f) => ({
       stepOffset: f.stepOffset,
       ...(f.steps !== undefined ? { steps: f.steps } : {}),
@@ -242,14 +239,14 @@ export function makeInputRelayRequest(
 }
 
 /**
- * §20.1 control request forwarded to the owner editor (packet-42 §7.1 row;
- * this catalog's M1 set predates §20). Never carries bytes or a capability.
+ * Game control request forwarded to the owner editor. Never carries bytes
+ * or a capability.
  */
 export function makeGameControlRequest(relayId: string, command: string, expectedRunId?: string, sceneId?: string, debug?: { name: string; args: Record<string, number | string | boolean> }): string {
   const obj: Record<string, unknown> = { type: 'game.control.request', relayId, command };
   if (expectedRunId !== undefined) obj.expectedRunId = expectedRunId;
   if (sceneId !== undefined) obj.sceneId = sceneId;
-  // Phase 23.8: a debug command's name and arguments.
+  // A debug command's name and arguments.
   if (debug !== undefined) {
     obj.name = debug.name;
     obj.args = debug.args;
@@ -257,7 +254,7 @@ export function makeGameControlRequest(relayId: string, command: string, expecte
   return emit(obj);
 }
 
-/** §20.1 observation request forwarded to the owner editor. */
+/** Game observation request forwarded to the owner editor. */
 export function makeGameObserveRequest(relayId: string, timeoutMs: number, entityId?: string): string {
   return emit({ type: 'game.observe.request', relayId, timeoutMs, ...(entityId !== undefined ? { entityId } : {}) });
 }
@@ -271,7 +268,7 @@ export function makeErrorEvent(
   return emit(obj);
 }
 
-// ---- client → server validation (§7.2) ----------------------------------------
+// ---- client → server validation ----------------------------------------
 
 export type InboundEvent =
   | { type: 'ping' }
@@ -320,9 +317,9 @@ export type InboundEvent =
     };
 
 /**
- * Validate one strict client → server event (sessions.md §7.2).
+ * Validate one strict client → server event.
  * - unknown `type` ⇒ `{ ok: false, kind: 'unknown_event', type }`
- *   (the connection SURVIVES — the robustness rule, §7);
+ *   (the connection SURVIVES — the robustness rule);
  * - malformed shape / unknown field ⇒ `{ ok: false, kind: 'protocol_error' }`.
  */
 export function parseInboundEvent(value: unknown):
@@ -457,7 +454,7 @@ export function parseInboundEvent(value: unknown):
       const err = checkAckFields(s.value, event);
       if (!err.ok) return { ok: false, kind: 'protocol_error', error: err.error };
       // Carry the capture payload through (the backend does the semantic
-      // validation — data: URL prefix, dimensions — sessions.md §7.2/§12).
+      // validation — data: URL prefix, dimensions).
       if (event.ok) {
         const v = s.value as Record<string, unknown>;
         const ev = event as { dataUrl?: string; width?: number; height?: number };
@@ -609,8 +606,8 @@ export function parseInboundEvent(value: unknown):
         ? { type: 'game.control.ack', relayId: rid.value as string, ok: okf.value as boolean }
         : { type: 'game.observe.ack', relayId: rid.value as string, ok: okf.value as boolean };
       if (event.ok) {
-        // The editor relays the preview's exact result (never fabricates,
-        // §7.2): the §20 shapes are validated here so a malformed result is a
+        // The editor relays the preview's exact result (never fabricates):
+        // the control/observation shapes are validated here so a malformed result is a
         // bounded protocol_error, not a silent success.
         const verdict = isControl ? validateGameControlResult(s.value.result) : validateGameObservation(s.value.result);
         if (!verdict.ok) return { ok: false, kind: 'protocol_error', error: verdict.error };
@@ -625,7 +622,7 @@ export function parseInboundEvent(value: unknown):
   }
 }
 
-/** Shared ok/error payload rules for the relay acks (§7.2). */
+/** Shared ok/error payload rules for the relay acks. */
 function isPosInt(v: unknown): boolean {
   return typeof v === 'number' && Number.isInteger(v) && v >= 1;
 }
@@ -686,7 +683,7 @@ function checkAckFields(
 }
 
 /**
- * §5.2 frame bounds: incoming ≤ 64 KiB, EXCEPT `screenshot.ack` ≤ 1.5 MiB.
+ * Frame bounds: incoming ≤ 64 KiB, EXCEPT `screenshot.ack` ≤ 1.5 MiB.
  * The check runs on the raw frame before validation: over the 64 KiB bound
  * only a `screenshot.ack`-shaped frame may proceed; anything else is
  * `frame_too_big` (close 1009).
@@ -695,7 +692,7 @@ export const WS_IN_FRAME_MAX = 64 * 1024;
 export const WS_SCREENSHOT_ACK_MAX = 1.5 * 1024 * 1024;
 /**
  * Outgoing (server → client) frames are at most 1 MiB — a documented limit
- * that keeps one message from stalling the socket. Phase 21.4: nothing is
+ * that keeps one message from stalling the socket. Nothing is
  * silently held over it: a large Play snapshot goes by reference
  * (`PlaySnapshotRef`, fetched over HTTP), an oversized change record is
  * replaced by `workspace.resync` (the editor re-reads over HTTP), and any

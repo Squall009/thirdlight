@@ -1,5 +1,5 @@
 /**
- * Phase 25.14: the track camera's look-ahead, bounds and dead zone and a
+ * The track camera's look-ahead, bounds and dead zone and a
  * camera region, set up in the editor and seen in Play, on the starter
  * template (a 2D-plane scene) against a real backend.
  *

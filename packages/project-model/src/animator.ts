@@ -1,5 +1,5 @@
 /**
- * Phase 9.7: animator controllers (state machines for model animation) and
+ * Animator controllers (state machines for model animation) and
  * the `animator` component that puts one on a model entity.
  *
  * A controller (`content.animators[]`) has parameters (float, int, bool,
@@ -9,7 +9,7 @@
  * Clips are named clips of model assets (`{assetId, clip, duration}`; the
  * editor fills the duration from the file).
  *
- * Phase 14.6: the controller's own states are the base layer; `layers` adds
+ * The controller's own states are the base layer; `layers` adds
  * override layers on top (e.g. an upper-body attack while running). Each
  * layer has its own states, transitions and entry state, shares the
  * controller's parameters and events, and drives only the bones of its
@@ -22,7 +22,7 @@ import type { ModelErrorV2 } from './errors';
 import type { GraphComment, GraphGroup } from './graph';
 
 /**
- * Phase 16.2: editor-only layout of one graph of a controller (a layer's
+ * Editor-only layout of one graph of a controller (a layer's
  * state machine or a blend tree's clips) in the graph editor: where its
  * fixed nodes sit, its groups and comments, and its collapsed nodes. Optional
  * (absent = auto-layout); the game never reads it and exports drop it.
@@ -64,12 +64,12 @@ export type AnimatorMotion =
   | {
       kind: 'blend1d';
       parameter: string;
-      /** `position`: phase 16.2, where the graph editor draws the clip (editor-only). */
+      /** `position`: where the graph editor draws the clip (editor-only). */
       children: { threshold: number; clip: AnimatorClipRef; position?: [number, number] }[];
-      /** Phase 16.2: the blend tree graph's layout (editor-only). */
+      /** The blend tree graph's layout (editor-only). */
       layout?: AnimatorLayout;
     }
-  /** Phase 14.6, override layers only: nothing plays (the layers under it show through). */
+  /** Override layers only: nothing plays (the layers under it show through). */
   | { kind: 'empty' };
 
 export interface AnimatorState {
@@ -111,7 +111,7 @@ export interface AnimatorEvent {
   name: string;
 }
 
-/** Phase 14.6: an override layer (drawn over the base layer and the layers before it). */
+/** An override layer (drawn over the base layer and the layers before it). */
 export interface AnimatorLayer {
   name: string;
   /** The bone (node) names this layer drives, as the model's skeleton names them; empty = every bone. */
@@ -123,7 +123,7 @@ export interface AnimatorLayer {
   states: AnimatorState[];
   transitions: AnimatorTransition[];
   entry: string;
-  /** Phase 16.2: this layer's graph layout (editor-only). */
+  /** This layer's graph layout (editor-only). */
   layout?: AnimatorLayout;
 }
 
@@ -136,18 +136,18 @@ export interface AnimatorController {
   transitions: AnimatorTransition[];
   entry: string;
   events: AnimatorEvent[];
-  /** Phase 14.6: override layers over the base layer (absent = the base layer only). */
+  /** Override layers over the base layer (absent = the base layer only). */
   layers?: AnimatorLayer[];
   /**
-   * Phase 23.11: morph targets (blend shapes) whose weight follows a float
+   * Morph targets (blend shapes) whose weight follows a float
    * parameter, clamped to 0–1 (absent = none; scripts may set others).
    */
   morphs?: AnimatorMorphBinding[];
-  /** Phase 16.2: the base layer's graph layout (editor-only). */
+  /** The base layer's graph layout (editor-only). */
   layout?: AnimatorLayout;
 }
 
-/** Phase 23.11: one morph target driven by a parameter. */
+/** One morph target driven by a parameter. */
 export interface AnimatorMorphBinding {
   /** The morph target's name in the model's meshes. */
   target: string;
@@ -168,11 +168,11 @@ export const MAX_ANIMATOR_TRANSITIONS = 256;
 export const MAX_ANIMATOR_CONDITIONS = 8;
 export const MAX_ANIMATOR_EVENTS = 64;
 export const MAX_BLEND_CHILDREN = 16;
-/** Phase 14.6: override layers besides the base layer. */
+/** Override layers besides the base layer. */
 export const MAX_ANIMATOR_LAYERS = 3;
-/** Phase 14.6: bone names in one layer mask (the import cap on joints per skin). */
+/** Bone names in one layer mask (the import cap on joints per skin). */
 export const MAX_LAYER_MASK = 128;
-/** Phase 23.11: morph bindings per controller (a face rig's expression set). */
+/** Morph bindings per controller (a face rig's expression set). */
 export const MAX_ANIMATOR_MORPHS = 32;
 const PARAM_RE = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
 
@@ -196,7 +196,7 @@ const pos2 = (v: unknown): v is [number, number] => Array.isArray(v) && v.length
 const LAYOUT_ITEM_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const COLOR_RE = /^#[0-9a-f]{6}$/;
 /**
- * Phase 16.2: ids the controller's graphs give their own items (animator-graph.ts):
+ * Ids the controller's graphs give their own items (animator-graph.ts):
  * the fixed nodes, the entry wire, transition wires (T + hash), blend clips and
  * their wires (C<i>, W<i>). A group or comment id may not take one.
  */
@@ -204,7 +204,7 @@ export const ANIMATOR_RESERVED_GRAPH_ID_RE = /^(ENTRY|ANY|OUT|ENTRY-WIRE|T[0-9a-
 const FIXED_IDS = ['ENTRY', 'ANY', 'OUT'];
 
 /**
- * Phase 16.2: a graph layout (editor-only data). `taken` holds the graph's
+ * A graph layout (editor-only data). `taken` holds the graph's
  * node ids (state ids or blend clip ids), which a group or comment id may
  * not reuse.
  */
@@ -406,7 +406,7 @@ export function validateAnimatorController(value: unknown, path: string, errors:
       });
   }
 
-  // Phase 23.11: morph targets driven by float parameters.
+  // Morph targets driven by float parameters.
   const morphs = v['morphs'];
   if (morphs !== undefined) {
     if (!Array.isArray(morphs) || morphs.length > MAX_ANIMATOR_MORPHS) err(errors, 'field_value', `${path}/morphs`, `morphs is a list of at most ${MAX_ANIMATOR_MORPHS} { target, parameter }`, morphs);
@@ -470,7 +470,7 @@ const clipOf = (c: AnimatorClipRef): AnimatorClipRef => ({ assetId: c.assetId, c
 
 const p2 = (p: readonly number[]): [number, number] => [p[0]!, p[1]!];
 const byItemId = <T extends { id: string }>(a: T, b: T): number => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
-/** Phase 16.2: a layout in canonical form (empty parts dropped; undefined when nothing is left). */
+/** A layout in canonical form (empty parts dropped; undefined when nothing is left). */
 function canonicalLayout(l: AnimatorLayout | undefined): AnimatorLayout | undefined {
   if (l === undefined) return undefined;
   const out: AnimatorLayout = {
@@ -523,7 +523,7 @@ export function canonicalAnimatorController(c: AnimatorController): AnimatorCont
     transitions: canonicalTransitions(c.transitions),
     entry: c.entry,
     events: c.events.map((e) => ({ assetId: e.assetId, clip: e.clip, time: e.time, name: e.name })),
-    // Phase 14.6: override layers (a controller without them keeps its exact old form).
+    // Override layers (a controller without them keeps its exact old form).
     ...(c.layers !== undefined && c.layers.length > 0
       ? {
           layers: c.layers.map((l) => ({
@@ -538,14 +538,14 @@ export function canonicalAnimatorController(c: AnimatorController): AnimatorCont
           })),
         }
       : {}),
-    // Phase 23.11: morph bindings (a controller without them keeps its exact old form).
+    // Morph bindings (a controller without them keeps its exact old form).
     ...(c.morphs !== undefined && c.morphs.length > 0 ? { morphs: c.morphs.map((m) => ({ target: m.target, parameter: m.parameter })) } : {}),
     ...withLayout(c.layout),
   };
 }
 
 /**
- * Phase 16.2: the controllers as the game gets them — without the graph
+ * The controllers as the game gets them — without the graph
  * editor's layout (groups, comments, fixed-node and blend-clip positions),
  * which the game never reads (and whose free text must not reach an export).
  */
@@ -590,7 +590,7 @@ export function animatorAssetIds(c: AnimatorController): string[] {
   return [...ids].sort();
 }
 
-/** Phase 14.6: every state of a controller, the base layer's first, then each override layer's. */
+/** Every state of a controller, the base layer's first, then each override layer's. */
 export function animatorStates(c: AnimatorController): AnimatorState[] {
   return [...c.states, ...(c.layers ?? []).flatMap((l) => l.states)];
 }

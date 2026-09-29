@@ -1,13 +1,12 @@
 /**
- * Step-indexed action frames and the injected input port — runtime.md §12.5
- * (promoted from `input.md` §2/§3/§6).
+ * Step-indexed action frames and the injected input port.
  *
  * `ActionFrame` is the ONLY input vocabulary the runtime core and modules
  * see: numbers plus one string enum, never a raw DOM/Gamepad object. The
  * runtime samples a frame exactly once per executed fixed step
  * (`ActionSource.sample(stepIndex)`), before any module phase.
  *
- * Phase 24.8: frame version 2. A frame carries only named actions
+ * Frame version 2. A frame carries only named actions
  * (`actions`); the fixed `moveX`/`moveY`/`jump` channels of version 1 are
  * gone — the character controller reads the actions it is configured with
  * (`move` and `jump` by default). A version 1 frame (one with `moveX` or
@@ -15,61 +14,61 @@
  * become the `move` and `jump` actions, so a recording made before replays
  * the same.
  *
- * `createRecordedActionSource` is the engine-level replay source
- * (runtime.md §12.7): construction validates every frame and the strict
+ * `createRecordedActionSource` is the engine-level replay source:
+ * construction validates every frame and the strict
  * ascent of `stepIndex`, so a recorded fixture replays identically in the
  * Node harness, the preview bundle and the export bundle.
  */
 import { clipMessage } from './errors';
-// Phase 24.8: the action names a character controller reads (re-exported for the controller modules).
+// The action names a character controller reads (re-exported for the controller modules).
 export { controllerActionsOf } from '@thirdlight/project-model';
 import { validateSaveEvents, type SaveEvent } from './project-saves';
 import { validateInputStatus, type InputStatusEntry } from './input-status';
 import { validateUiEvents, type UiEventRecord } from './ui';
 import { validateDialogueInputs, type DialogueInputRecord } from './dialogue';
 
-/** The four jump phases (input.md §2). */
+/** The four jump phases. */
 export type JumpPhase = 'none' | 'pressed' | 'held' | 'released';
 
-/** Canonical `JumpPhase` order (input.md §2 table order). */
+/** Canonical `JumpPhase` order. */
 export const JUMP_PHASES: readonly JumpPhase[] = ['none', 'pressed', 'held', 'released'];
 
-/** Phase 24.8: the action frame format version (2: named actions only; 1 had the fixed moveX/moveY/jump channels). */
+/** The action frame format version (2: named actions only; 1 had the fixed moveX/moveY/jump channels). */
 export const ACTION_FRAME_VERSION = 2;
 
-/** One self-describing action frame (runtime.md §12.5; phase 24.8: version 2). */
+/** One self-describing action frame (version 2). */
 export interface ActionFrame {
   /** Integer, `0 ≤ v ≤ 2^53−1` — the executed fixed-step index. */
   stepIndex: number;
   /**
-   * Phase 9.8, optional: every named input action this step — `v` its value
+   * Optional: every named input action this step — `v` its value
    * (a button 0/1, an axis −1..1 after its processors), `x`/`y` for a 2D
    * axis, `p` the button phase. Absent: no action has a value (all neutral).
    */
   actions?: Readonly<Record<string, ActionValue>>;
   /**
-   * Phase 23.3, optional: the pointer (mouse, pen, touch) this step. Absent:
+   * Optional: the pointer (mouse, pen, touch) this step. Absent:
    * no new sample — the runtime keeps the last position, buttons and
    * over/locked state (no movement, no edges).
    */
   pointer?: PointerSample;
   /**
-   * Phase 23.8, optional: the debug commands run in this step (a tool, the
+   * Optional: the debug commands run in this step (a tool, the
    * in-game console) — part of the input so a recording replays them exactly.
-   * Absent: none (every older frame and recording is unchanged).
+   * Absent: none.
    * @graphNode skip a script receives its debug commands with ctx.debug.command
    */
   commands?: readonly DebugCommandCall[];
   /**
-   * Phase 23.19, optional: storage's answers this step (the slot list, save and
+   * Optional: storage's answers this step (the slot list, save and
    * delete outcomes, a loaded save document) — part of the input so a
    * recording replays them and the worker applies them at the same step.
-   * Absent: none (every older frame and recording is unchanged).
+   * Absent: none.
    * @graphNode skip a script reads them through ctx.saves
    */
   saves?: readonly SaveEvent[];
   /**
-   * Phase 23.14, optional: the host's input status for scripts — the device
+   * Optional: the host's input status for scripts — the device
    * used last, the player's bindings with their glyphs (each only when it
    * changed) and the outcome of binding requests. Part of the input so a
    * replay shows scripts what they saw live. Absent: nothing changed.
@@ -77,24 +76,22 @@ export interface ActionFrame {
    */
   input?: InputStatusEntry;
   /**
-   * Phase 23.9a, optional: the UI events of this step (a click, a submit, a
+   * Optional: the UI events of this step (a click, a submit, a
    * focus change, a custom event, a document shown or hidden by a button) —
-   * part of the input so a recording replays them exactly. Absent: none
-   * (every older frame and recording is unchanged).
+   * part of the input so a recording replays them exactly. Absent: none.
    * @graphNode skip a script reads its UI events with ctx.ui.events / ctx.ui.event
    */
   ui?: readonly UiEventRecord[];
   /**
-   * Phase 23.16, optional: the dialogue inputs of this step (advance, choose,
+   * Optional: the dialogue inputs of this step (advance, choose,
    * skip, auto, backlog — from the dialogue UI's buttons) — part of the input
-   * so a recording replays them exactly. Absent: none (every older frame and
-   * recording is unchanged).
+   * so a recording replays them exactly. Absent: none.
    * @graphNode skip scripts drive conversations with ctx.dialogue
    */
   dialogue?: readonly DialogueInputRecord[];
 }
 
-/** Phase 23.8: one debug command call carried by an input frame. */
+/** One debug command call carried by an input frame. */
 export interface DebugCommandCall {
   /** The command a script registered (`ctx.debug.command(name, …)`). */
   readonly name: string;
@@ -103,21 +100,21 @@ export interface DebugCommandCall {
 }
 export type DebugCommandArg = number | string | boolean;
 
-/** Phase 23.8: engine limits of debug commands (per frame; arguments per call). */
+/** Engine limits of debug commands (per frame; arguments per call). */
 export const MAX_FRAME_COMMANDS = 8;
 export const MAX_COMMAND_ARGS = 8;
 export const MAX_COMMAND_TEXT = 256;
 /** A debug command or argument name. */
 export const DEBUG_COMMAND_NAME_RE = /^[A-Za-z_][A-Za-z0-9_.:-]{0,31}$/;
 
-/** Phase 9.8: one input action's value in a step. */
+/** One input action's value in a step. */
 export interface ActionValue {
   readonly v: number;
   readonly x?: number;
   readonly y?: number;
   readonly p: JumpPhase;
   /**
-   * Phase 23.3: 1 when the value is an amount per sample (pointer movement,
+   * 1 when the value is an amount per sample (pointer movement,
    * wheel) rather than a level: a further step of the same sample sees 0,
    * and two samples merged before a step add up.
    */
@@ -125,7 +122,7 @@ export interface ActionValue {
 }
 
 /**
- * Phase 23.3: one pointer sample. Positions are fractions of the game view
+ * One pointer sample. Positions are fractions of the game view
  * (x 0 left → 1 right, y 0 top → 1 bottom — the camera's screen
  * coordinates), quantized to 1e-4; with a locked cursor the position is the
  * view's centre and only the movement counts. Buttons are bits: 1 left,
@@ -149,14 +146,14 @@ export interface PointerSample {
   /** The cursor is locked (hidden, held in the view); absent false. */
   readonly locked?: boolean;
   /**
-   * Phase 25.15: the pointer is over a UI element that takes it (a project UI
+   * The pointer is over a UI element that takes it (a project UI
    * document's button, input or modal backdrop, the engine pause panel) — a
    * press there went to the UI, not the game; absent false.
    */
   readonly overUi?: boolean;
 }
 
-/** Phase 23.3: the pointer's button bits (DOM `buttons`). */
+/** The pointer's button bits (DOM `buttons`). */
 export const POINTER_BUTTON_BITS = Object.freeze({ left: 1, right: 2, middle: 4 } as const);
 const POINTER_KEYS = new Set(['x', 'y', 'dx', 'dy', 'wheel', 'buttons', 'pressed', 'released', 'over', 'locked', 'overUi']);
 
@@ -164,7 +161,7 @@ const POINTER_KEYS = new Set(['x', 'y', 'dx', 'dy', 'wheel', 'buttons', 'pressed
 export const MAX_FRAME_ACTIONS = 64;
 const ACTION_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
 
-/** Movement quantization (input.md §3.3). */
+/** Movement quantization. */
 export const MOVE_QUANTUM = 1e-4;
 /** `maxRelaySteps`-independent upper bound for a step index. */
 const MAX_STEP_INDEX = 2 ** 53 - 1;
@@ -172,7 +169,7 @@ const FRAME_KEYS = new Set(['stepIndex']);
 /** The version 1 channels (`upgradeActionFrameV1`). */
 const V1_CHANNELS = new Set(['moveX', 'moveY', 'jump']);
 
-/** Input-source lifecycle/diagnostic counters a binding may expose (input.md §5). */
+/** Input-source lifecycle/diagnostic counters a binding may expose. */
 export interface ActionSourceDiagnostics {
   suspendCount?: number;
   activateCount?: number;
@@ -181,7 +178,7 @@ export interface ActionSourceDiagnostics {
 }
 
 /**
- * The injected per-step input port (runtime.md §12.5.1). Strict shape: not a
+ * The injected per-step input port. Strict shape: not a
  * raw DOM/Gamepad object. `sample(n)` is called exactly once per executed
  * step; `reset`/`diagnostics` are optional host hooks.
  */
@@ -191,13 +188,13 @@ export interface ActionSource {
   diagnostics?(): ActionSourceDiagnostics;
 }
 
-/** The neutral frame for a step index (input.md §2, normative; phase 24.8: no action has a value). */
+/** The neutral frame for a step index (no action has a value). */
 export function neutralFrame(stepIndex: number): ActionFrame {
   return { stepIndex };
 }
 
 /**
- * Phase 24.8: read a version 1 frame (one with the fixed `moveX`/`moveY`/
+ * Read a version 1 frame (one with the fixed `moveX`/`moveY`/
  * `jump` channels) as version 2. The channels become the `move` action (`v`
  * = moveX; with moveY also `x`, `y`) and the `jump` action (`v` 1 while
  * pressed or held, `p` the phase), replacing those actions' values if the
@@ -223,7 +220,7 @@ export function upgradeActionFrameV1(raw: unknown): unknown {
   return { ...rest, actions };
 }
 
-/** Phase 24.8: the version 1 channel rules (moveX and jump required together; moveX/moveY in [−1, 1] quantized to 1e-4; jump a phase). */
+/** The version 1 channel rules (moveX and jump required together; moveX/moveY in [−1, 1] quantized to 1e-4; jump a phase). */
 function checkV1Channels(raw: unknown): { ok: false; field: string; message: string } | null {
   if (!isPlainObject(raw) || !(hasOwn.call(raw, 'moveX') || hasOwn.call(raw, 'jump') || hasOwn.call(raw, 'moveY'))) return null;
   for (const key of ['moveX', 'jump']) {
@@ -241,7 +238,7 @@ function checkV1Channels(raw: unknown): { ok: false; field: string; message: str
 }
 
 /**
- * Phase 24.8: the move vector of the action `name` in a frame — `x` (a 2D
+ * The move vector of the action `name` in a frame — `x` (a 2D
  * axis) else `v`, and `y` (0 without a second axis); [0, 0] when absent.
  */
 export function actionAxis(frame: ActionFrame, name: string): [number, number] {
@@ -250,7 +247,7 @@ export function actionAxis(frame: ActionFrame, name: string): [number, number] {
   return [a.x ?? a.v, a.y ?? 0];
 }
 
-/** Phase 24.8: the button phase of the action `name` in a frame ('none' when absent). */
+/** The button phase of the action `name` in a frame ('none' when absent). */
 export function actionPhase(frame: ActionFrame, name: string): JumpPhase {
   return frame.actions?.[name]?.p ?? 'none';
 }
@@ -263,7 +260,7 @@ export const NEUTRAL_ACTION_SOURCE: ActionSource = Object.freeze({
   sample: (stepIndex: number): ActionFrame => neutralFrame(stepIndex),
 });
 
-/** The malformed-frame failure (input.md §2): `input_frame_invalid`. */
+/** The malformed-frame failure: `input_frame_invalid`. */
 export class InputFrameError extends Error {
   readonly code = 'input_frame_invalid';
   readonly field: string;
@@ -278,7 +275,7 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
-/** `round(v·1e4)/1e4`, negative zero normalized to `0` (input.md §3.3). */
+/** `round(v·1e4)/1e4`, negative zero normalized to `0`. */
 export function quantizeMove(v: number): number {
   const q = Math.round(v * 1e4) / 1e4;
   return q === 0 ? 0 : q;
@@ -294,7 +291,7 @@ export function validateActionFrame(
   expectedStepIndex?: number,
   previous?: ActionFrame,
 ): { ok: true; frame: ActionFrame } | { ok: false; field: string; message: string } {
-  // Phase 24.8: a version 1 frame is read as version 2 (its channels become the move/jump actions),
+  // A version 1 frame is read as version 2 (its channels become the move/jump actions),
   // after its channels pass the version 1 rules.
   const v1 = checkV1Channels(raw);
   if (v1 !== null) return v1;
@@ -329,42 +326,42 @@ export function validateActionFrame(
       message: `frame stepIndex ${stepIndex} does not match the sampled step ${expectedStepIndex}`,
     };
   }
-  // Phase 23.3: the pointer sample (optional; old frames have none).
+  // The pointer sample (optional; a frame may carry none).
   let pointer: PointerSample | undefined;
   if (value['pointer'] !== undefined) {
     const checked = validatePointerSample(value['pointer']);
     if (!checked.ok) return { ok: false, field: `pointer${checked.field === '' ? '' : `/${checked.field}`}`, message: checked.message };
     pointer = checked.pointer;
   }
-  // Phase 23.8: the frame's debug commands (validated and frozen; absent keeps the frame as it was).
+  // The frame's debug commands (validated and frozen; absent keeps the frame as it was).
   let commands: readonly DebugCommandCall[] | undefined;
   if (value['commands'] !== undefined) {
     const c = validateDebugCommands(value['commands']);
     if (!c.ok) return c;
     commands = c.commands;
   }
-  // Phase 23.19: storage's answers (validated and frozen; absent keeps the frame as it was).
+  // storage's answers (validated and frozen; absent keeps the frame as it was).
   let saves: readonly SaveEvent[] | undefined;
   if (value['saves'] !== undefined) {
     const sv = validateSaveEvents(value['saves']);
     if (!sv.ok) return sv;
     saves = sv.events;
   }
-  // Phase 23.14: the host's input status (validated and frozen).
+  // The host's input status (validated and frozen).
   let input: InputStatusEntry | undefined;
   if (value['input'] !== undefined) {
     const c = validateInputStatus(value['input']);
     if (!c.ok) return c;
     input = c.input;
   }
-  // Phase 23.9a: the frame's UI events (validated and frozen; absent keeps the frame as it was).
+  // The frame's UI events (validated and frozen; absent keeps the frame as it was).
   let uiEvents: readonly UiEventRecord[] | undefined;
   if (value['ui'] !== undefined) {
     const u = validateUiEvents(value['ui']);
     if (!u.ok) return u;
     uiEvents = u.events;
   }
-  // Phase 23.16: the frame's dialogue inputs (validated and frozen; absent keeps the frame as it was).
+  // The frame's dialogue inputs (validated and frozen; absent keeps the frame as it was).
   let dialogueInputs: readonly DialogueInputRecord[] | undefined;
   if (value['dialogue'] !== undefined) {
     const d = validateDialogueInputs(value['dialogue']);
@@ -374,12 +371,12 @@ export function validateActionFrame(
   const withExtras = <F extends ActionFrame>(f: F): F => (dialogueInputs === undefined ? withExtras0(f) : { ...withExtras0(f), dialogue: dialogueInputs });
   const withExtras0 = <F extends ActionFrame>(f: F): F => (pointer === undefined && commands === undefined && uiEvents === undefined && saves === undefined && input === undefined ? f : { ...f, ...(commands !== undefined ? { commands } : {}), ...(saves !== undefined ? { saves } : {}), ...(pointer !== undefined ? { pointer } : {}), ...(uiEvents !== undefined ? { ui: uiEvents } : {}), ...(input !== undefined ? { input } : {}) });
   const rawActions = value['actions'];
-  // Phase 23.8 / 23.3 / 23.9a: commands, the pointer and UI events only when present (a frame without them stays as it was).
+  // Commands, the pointer and UI events only when present (a frame without them stays as it was).
   if (rawActions === undefined) return { ok: true, frame: withExtras({ stepIndex }) };
   if (!isPlainObject(rawActions) || ownKeyCount(rawActions) > MAX_FRAME_ACTIONS) {
     return { ok: false, field: 'actions', message: `actions must map at most ${MAX_FRAME_ACTIONS} action names to values` };
   }
-  // Phase 21.2: the frozen action values (and the whole frozen map) of the
+  // The frozen action values (and the whole frozen map) of the
   // previous frame are reused when they are equal — they are immutable, so
   // sharing them is invisible, and steady input makes no objects per step.
   const prevActions = previous?.actions;
@@ -410,7 +407,7 @@ export function validateActionFrame(
 }
 
 /**
- * Phase 23.3: validate one pointer sample strictly (numbers finite; x, y in
+ * Validate one pointer sample strictly (numbers finite; x, y in
  * [0, 1]; movement and wheel in [-10, 10]; button masks 0–7; booleans).
  * Returns a frozen copy with only the fields given.
  */
@@ -432,7 +429,7 @@ export function validatePointerSample(value: unknown): { ok: true; pointer: Poin
 }
 
 /**
- * Phase 23.8: validate a frame's `commands` (at most 8 calls, each
+ * Validate a frame's `commands` (at most 8 calls, each
  * `{ name, args }` with at most 8 arguments: finite numbers, text up to 256
  * characters, or booleans). Returns frozen copies.
  */
@@ -447,7 +444,7 @@ export function validateDebugCommands(raw: unknown): { ok: true; commands: reado
   return { ok: true, commands: Object.freeze(out) };
 }
 
-/** Phase 23.8: validate one debug command call (see `validateDebugCommands`). */
+/** Validate one debug command call (see `validateDebugCommands`). */
 export function validateDebugCommandCall(raw: unknown): { ok: true; call: DebugCommandCall } | { ok: false; field: string; message: string } {
   if (!isPlainObject(raw)) return { ok: false, field: '', message: 'a debug command call is { name, args }' };
   for (const k in raw) if (hasOwn.call(raw, k) && k !== 'name' && k !== 'args') return { ok: false, field: k, message: `unknown debug command field "${k}"` };
@@ -498,11 +495,11 @@ function sameActionValue(prev: ActionValue | undefined, a: unknown): boolean {
 }
 
 /**
- * Build the engine-level replay source (runtime.md §12.7/`input.md` §6).
+ * Build the engine-level replay source.
  *
  * Construction is strict: every frame is validated (a version 1 frame is
- * upgraded) and `stepIndex` must strictly ascend (phase 24.8: there is no
- * fixed jump column to chain-check). A violation throws an `InputFrameError` (code
+ * upgraded) and `stepIndex` must strictly ascend (there is no fixed jump
+ * column to chain-check). A violation throws an `InputFrameError` (code
  * `input_frame_invalid`) — the host maps it to `config_invalid` when it
  * builds the config. `sample(n)` is a pure lookup: a recorded frame, else the
  * neutral frame for `n`. `reset()` is a no-op (recorded sequences never

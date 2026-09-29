@@ -1,12 +1,12 @@
 /**
- * Declared-property controls (React; packet 28; phase 15.1: component fields
+ * Declared-property controls (React; Component fields
  * are the descriptor-built Inspector sections, `DescriptorFields`).
  *
  * Display + intent only. Every control is derived from published declaration
  * data (`PropertyControl`); a value edit is parsed and issued by the app as an
  * ordinary typed command — this file never touches scene state, never
  * evaluates behavior code and never offers apply/revert/variant/link
- * affordances (project-model §20.1.2/§20.1.5).
+ * affordances.
  *
  * Browser-only (React).
  */
@@ -20,7 +20,7 @@ export interface ControlErrorView {
 }
 
 /**
- * Phase 25.10: the objects an object (`entityRef`) property may name — the
+ * The objects an object (`entityRef`) property may name — the
  * picker's choices (the Inspector: the objects of the scene; a prefab's
  * override: the prefab's own objects). Absent: a text field takes an id.
  */
@@ -77,7 +77,7 @@ function PropertyRow({
           ))}
         </select>
       ) : control.type === 'entityRef' && entityOptions !== undefined ? (
-        // Phase 25.10: an object property is picked from the objects it may name ("none": null).
+        // An object property is picked from the objects it may name ("none": null).
         <select
           className="tl-prop__input"
           data-entity-ref={control.key}
@@ -138,14 +138,14 @@ export function PropertyControlList({
 }: {
   controls: readonly PropertyControl[];
   onCommit: (key: string, raw: string) => void;
-  /** Phase 25.10: the objects object properties may name (a picker instead of an id field). */
+  /** The objects object properties may name (a picker instead of an id field). */
   entityOptions?: readonly EntityRefOption[];
 }): JSX.Element {
   if (controls.length === 0) return <div className="tl-inspector__empty">no public properties</div>;
   // Remount on a committed value change so the input re-seeds from the
   // authoritative value (the row keeps local draft state while typing).
   const row = (c: PropertyControl): JSX.Element => <PropertyRow key={`${c.key}:${formatPropertyValue(c.current)}`} control={c} onCommit={(raw) => onCommit(c.key, raw)} {...(entityOptions !== undefined ? { entityOptions } : {})} />;
-  // Phase 15.4: ungrouped properties first, then one foldable section per
+  // Ungrouped properties first, then one foldable section per
   // group (in the order the groups first appear in the declaration).
   const groups: string[] = [];
   for (const c of controls) if (c.group !== undefined && !groups.includes(c.group)) groups.push(c.group);

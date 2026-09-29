@@ -1,5 +1,5 @@
 /**
- * Phase 23.5 (E8): block layers — the data model, the grid and its bulk
+ * Block layers — the data model, the grid and its bulk
  * edits, the ray pick, the meshing (hidden faces) and the PNG heightmap
  * decoder. Neutral fixtures only.
  */

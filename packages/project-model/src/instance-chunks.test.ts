@@ -1,4 +1,4 @@
-/** Phase 25.7d: an instance set's chunk size (the component field and the project setting). */
+/** An instance set's chunk size (the component field and the project setting). */
 import { describe, expect, it } from 'vitest';
 
 import { instanceChunkSizeOf, M2_SETTINGS_KEYS } from './content';

@@ -1,5 +1,5 @@
 /**
- * Phase 23.14: rebinding as data — targets, conflicts under each policy,
+ * Rebinding as data — targets, conflicts under each policy,
  * composites, fitting, reset and the saved changes.
  */
 import { describe, expect, it } from 'vitest';

@@ -1,5 +1,5 @@
 /**
- * Phase 23.17: a timeline's centre tab ("Timeline: <name>").
+ * A timeline's centre tab ("Timeline: <name>").
  *
  * - The timeline's own fields (name, duration, skip action, play on start /
  *   on a signal) and its binding slots (a name and a default object).
@@ -46,7 +46,7 @@ export interface TimelineDocumentProps {
   /** The project's input action names (wait keys, the skip action). */
   actions: readonly string[];
   animators: readonly AnimatorController[];
-  /** Phase 23.10: the project's game mode ids (mode keys). */
+  /** The project's game mode ids (mode keys). */
   modes: readonly string[];
   error: string | null;
   onSave: (timeline: TimelineAsset) => Promise<boolean>;

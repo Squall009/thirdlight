@@ -22,9 +22,8 @@ import {
 } from './snapping';
 
 /**
- * Packet 27 — sessions.md §9 snapping constants and math. The increment table
- * is asserted mechanically against the contract's fixed values (acceptance A08
- * and the packet-27 tests reference their exact values).
+ * Snapping constants and math. The increment table
+ * is asserted mechanically against the contract's fixed values.
  */
 describe('snapping — the contract increment table (sessions.md §9)', () => {
   it('fixes the exact approved constants', () => {

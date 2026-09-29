@@ -1,5 +1,5 @@
 /**
- * Phase 23.8: the in-game debug console — a small overlay that lists the
+ * The in-game debug console — a small overlay that lists the
  * project's debug commands (the ones its scripts declared with
  * `ctx.debug.command`) and runs one from a typed line.
  *

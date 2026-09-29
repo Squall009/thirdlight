@@ -1,5 +1,5 @@
 /**
- * Phase 9.7: skinned model caps — at most 4 skins per file, 128 joints per
+ * Skinned model caps — at most 4 skins per file, 128 joints per
  * skin and 32 morph targets per primitive (more than 4 influences cannot
  * be expressed: only JOINTS_0/WEIGHTS_0 are allowed attributes).
  */

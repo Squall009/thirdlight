@@ -1,5 +1,5 @@
 /**
- * Phase 14.0: the character's collision capsule is data (`controller.capsule`)
+ * The character's collision capsule is data (`controller.capsule`)
  * and every system uses it — through the production composition (the real
  * game host, the platformer controller, Rapier physics), with the physics
  * init config built from the character entity as the hosts build it
@@ -168,7 +168,7 @@ describe('the character capsule (real host, platformer, Rapier)', () => {
     expect(x).toBeCloseTo(2, 6);
     expect(y).toBeGreaterThanOrEqual(0);
     expect(y).toBeLessThan(0.02);
-    // The default capsule at its old spawn height rests centred 0.91 m up (unchanged).
+    // The default capsule at its usual spawn height rests centred 0.91 m up.
     const D = await level([2, 0.91], {}, [], still);
     D.tick(60);
     expect(D.pos('player-0001')[1]).toBeCloseTo(0.91, 2);

@@ -1,12 +1,12 @@
 /**
  * The canonical source-graph container parse and the static source rules
- * (project-model.md §22.1, §22.3, §22.3.3 steps 1–7).
+ * (source rules steps 1–7).
  *
  * Steps owned here: strict parse + unknown-field rejection + canonical-form
  * check (`container`), lone-surrogate rejection (`encoding`), `graphVersion`,
  * `entryPath`/`entry_missing`, per-path grammar and `.ts` extension, ascending
- * order, duplicate paths and the step-7 bounds (phase 23.7: `.json` data
- * files are accepted beside `.ts`). Nothing here is executed: the
+ * order, duplicate paths and the step-7 bounds (`.json` data files are
+ * accepted beside `.ts`). Nothing here is executed: the
  * container is data and is parsed with the accepted strict byte parser.
  */
 import { ID_RE } from '@thirdlight/project-model';
@@ -17,10 +17,10 @@ import { COMPILER_LIMITS, ENTRY_PATH } from './limits';
 import { utf8Decode } from './canonical';
 import { compareCodePoints } from './canonical';
 
-/** §22.1 rule 2: stored-path grammar. */
+/** The stored-path grammar. */
 const PATH_RE = /^[a-z0-9][a-z0-9._-]*(\/[a-z0-9][a-z0-9._-]*)*$/;
 /**
- * Phase 14.1: the `ownedTransforms` entry that means "the entity carrying this
+ * The `ownedTransforms` entry that means "the entity carrying this
  * behavior" — each instance may move its own entity (a spawned copy included,
  * whose runtime id is not known when the script is published). The runtime's
  * `BEHAVIOR_SELF_OWNER` is the same token.
@@ -28,7 +28,6 @@ const PATH_RE = /^[a-z0-9][a-z0-9._-]*(\/[a-z0-9][a-z0-9._-]*)*$/;
 const SELF_OWNER = '@self';
 const KNOWN_CONTAINER_FIELDS = new Set(['graphVersion', 'entryPath', 'requiredModules', 'ownedTransforms', 'files']);
 const KNOWN_FILE_FIELDS = new Set(['path', 'text']);
-/** project-model.md §5.1 ID syntax (reused for `ownedTransforms` entries). */
 
 export interface ContainerParseOk {
   ok: true;
@@ -56,7 +55,7 @@ function hasLoneSurrogate(s: string): boolean {
   return false;
 }
 
-/** The canonical container bytes (2-space JSON in the §22.1 field order + `\n`). */
+/** The canonical container bytes (2-space JSON in the container field order + `\n`). */
 export function canonicalContainerText(container: SourceGraphContainer): string {
   const out = {
     graphVersion: container.graphVersion,
@@ -100,7 +99,7 @@ export function parseSourceGraphContainer(
   limits: BehaviorCompilerLimits = COMPILER_LIMITS,
 ): ContainerParseResult {
   // Step 7's `graph_bytes` pre-check: the raw container bytes are bounded
-  // before the file text they hold is parsed (project-model.md §22.4).
+  // before the file text they hold is parsed.
   if (containerBytes.length > limits.graphBytes) {
     return containerFailure('behavior_source_limits_exceeded', 'graph_bytes', {
       limit: 'graph_bytes',
@@ -233,7 +232,7 @@ export function parseSourceGraphContainer(
     if (f.path.length < 1 || f.path.length > 128 || !PATH_RE.test(f.path)) {
       return containerFailure('behavior_source_invalid', 'path', { path: f.path, detail: f.path, message: `stored path "${f.path}" violates the path grammar` });
     }
-    // Phase 23.7: `.json` files are data modules (imported as their parsed value).
+    // `.json` files are data modules (imported as their parsed value).
     if (!f.path.endsWith('.ts') && !f.path.endsWith('.json')) {
       return containerFailure('behavior_source_invalid', 'extension', { path: f.path, detail: f.path, message: `stored path "${f.path}" is not a .ts or .json file` });
     }
@@ -264,7 +263,7 @@ export function parseSourceGraphContainer(
     }
   }
   for (const id of ownedTransforms) {
-    // Phase 14.1: "@self" (never an entity id) = each carrier's own transform.
+    // "@self" (never an entity id) = each carrier's own transform.
     if (!ID_RE.test(id) && id !== SELF_OWNER) {
       return containerFailure('behavior_source_invalid', 'container', { path: '/ownedTransforms', detail: id, message: `ownedTransforms entry "${id}" is not an ID (or "@self")` });
     }

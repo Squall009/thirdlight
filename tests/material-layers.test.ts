@@ -1,5 +1,5 @@
 /**
- * Phase 25.21: height-blended layers in the material graph — the editor's
+ * Height-blended layers in the material graph — the editor's
  * "height-blended layers (painted terrain)" template validates in the model
  * and compiles without problems against texture arrays; the sampling nodes
  * read a texture array at their layer (a depth read, clamped to the array)

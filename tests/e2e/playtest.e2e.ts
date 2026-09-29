@@ -1,5 +1,5 @@
 /**
- * Phase 25.17: the headless play-test runner — the CLI (`tools/playtest.mjs`)
+ * The headless play-test runner — the CLI (`tools/playtest.mjs`)
  * against a real backend with no editor open (the backend plays in its
  * headless editor), and `tl_playtest` through the real MCP stdio adapter.
  *
@@ -17,7 +17,7 @@
  * is split into exercises that hold the game in between); the start's
  * variables apply at every start: each run's restart and a game shell's New
  * game; the driver's runs agree too; the two walks of one run, each from
- * rest, cover the same distance (the walk-distance question from 25.15).
+ * rest, cover the same distance.
  */
 import { spawn } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
@@ -179,7 +179,7 @@ test('the CLI plays an input script twice in the worker and on a single thread: 
   }
   const [at60, at400, at700, at900] = result.runs[0]!.observations as [Observation, Observation, Observation, Observation];
   expect(x(at900)).toBeGreaterThan(x(at700));
-  // Walk-distance question (25.15): two walks of one run, each from rest (a restart only before the first). The runs above agree to the
+  // Walk-distance question: two walks of one run, each from rest (a restart only before the first). The runs above agree to the
   // bit, so the simulation is deterministic; two walks from different rests are not the same start — the character's height on the
   // ground differs (measured y 0.90982 sixty steps after the restart's placement, 0.91000 after the first walk) and so does x — so
   // they cover the same distance only to within a millimetre (measured 0.6 mm in 2.9 m), not to the bit.

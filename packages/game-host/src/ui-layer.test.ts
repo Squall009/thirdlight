@@ -1,5 +1,5 @@
 /**
- * Phase 23.9a — the game host's project UI layer on a small fake DOM: rich
+ * The game host's project UI layer on a small fake DOM: rich
  * text parsing, spatial navigation, bindings (text, bar, list, visibility),
  * UI events and engine actions from buttons, keyboard focus navigation,
  * action-map switching, host screen documents and world anchors.

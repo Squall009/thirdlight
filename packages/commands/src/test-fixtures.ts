@@ -6,12 +6,11 @@
  * Fixture files under `fixtures/commands/` are read through the Vite
  * `import.meta.glob` `?raw` transform (eager, raw text) because this
  * package's boundary rules forbid Node builtin imports in package sources
- * (dependencies.md §4.1/§5 check 1; the only exempted test import is
- * vitest). Every fixture file is valid UTF-8 (packet 02 verification),
- * so the raw text round-trips to the exact file bytes via `TextEncoder`.
+ * (the only exempted test import is vitest). Every fixture file is valid
+ * UTF-8, so the raw text round-trips to the exact file bytes via `TextEncoder`.
  *
- * The fixtures are the normative examples of commands.md §12, in storage v4
- * since phase 9.3: self-contained scenarios whose `disk-before`/`disk-after`
+ * The fixtures are the normative command examples, in storage v4:
+ * self-contained scenarios whose `disk-before`/`disk-after`
  * are whole v4 projects (`project.json`, `content.json`,
  * `scenes/scene-main.json`) and `messages.json` request/result pairs. The
  * scenario `out` payloads are the workspace's acknowledgements; the pure
@@ -69,7 +68,7 @@ export function fixtureProjectV4(dir: string): { scene: SceneV4; content: Conten
   };
 }
 
-/** A workspace acknowledgement without the `sceneId` a v4 project appends (the pure §5.1 payload). */
+/** A workspace acknowledgement without the `sceneId` a v4 project appends (the pure success payload). */
 export function withoutSceneId(out: Record<string, unknown>): Record<string, unknown> {
   const { sceneId: _sceneId, ...rest } = out;
   return rest;
@@ -83,7 +82,7 @@ export function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
   }
   return true;
 }
-// ---- packet 21: M2 command fixtures (fixtures/m2/{commands,contracts/commands,prefabs}) --
+// ---- command fixtures (fixtures/m2/{commands,contracts/commands,prefabs}) --
 // Only the command scenarios the v4 ports replay (content-ops-v4,
 // prefab-ops-v4, model-authoring-v4) are loaded.
 
@@ -113,11 +112,11 @@ export function m2FixtureJson<T = unknown>(rel: string): T {
 }
 
 /**
- * The state of an M2 command envelope under `fixtures/m2/<rel>` lifted to
- * one v4 project scene (phase 9.3 removed the v2 scene model): the scene is
+ * The state of a command envelope under `fixtures/m2/<rel>` lifted to
+ * one v4 project scene (the command layer edits no v2 scene): the scene is
  * re-labelled `schemaVersion 4` and the content block gains the v4 keys
  * (`game: null`, the one scene `scene-main` as the index and start set).
- * Both are validated by the v4 model rules, so a fixture that is no longer a
+ * Both are validated by the v4 model rules, so a fixture that is not a
  * valid v4 state fails loudly here instead of inside a test.
  */
 export function m2EnvelopeV4(rel: string): { projectId: string; scene: SceneV4; content: ContentDocument } {
@@ -137,7 +136,7 @@ export function m2EnvelopeV4(rel: string): { projectId: string; scene: SceneV4; 
   };
 }
 
-// ---- packet 45: M3 v3 contract fixtures (fixtures/m3/contracts/**) ---------------
+// ---- v3 contract fixtures (fixtures/m3/contracts/**) ---------------
 
 const M3_CONTRACT_RAW = import.meta.glob('../../../fixtures/m3/contracts/**', {
   eager: true,
@@ -163,8 +162,8 @@ export function m3ContractJson<T = unknown>(rel: string): T {
 }
 
 /**
- * Phase 24.7: the packet-39 contract envelopes were recorded against the
- * removed game layer (the `cameraFollow` and `gameZone` components and
+ * The `fixtures/m3` contract envelopes were recorded against a game layer
+ * the engine does not have (the `cameraFollow` and `gameZone` components and
  * the `content.game` block). A neutral copy for the generic suites: every
  * `cameraFollow` is dropped, every `gameZone` entity is removed, and
  * `content.game` is `null`. Everything else (ids, revision, assets, spawns,

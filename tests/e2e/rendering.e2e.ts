@@ -1,5 +1,5 @@
 /**
- * Phase 21.3: rendering costs, observed in the real page against a real backend.
+ * Rendering costs, observed in the real page against a real backend.
  *
  *  - Automatic instancing: a field of 121 boxes (one colour and size, one
  *    project material on a few) is drawn in a handful of draw calls in the

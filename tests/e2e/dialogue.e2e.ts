@@ -1,5 +1,5 @@
 /**
- * Phase 23.16: dialogue with voice against a real backend and a real browser
+ * Dialogue with voice against a real backend and a real browser
  * — the editor's previewer, Play (the simulation worker) and the static
  * export (backend stopped).
  *

@@ -1,5 +1,5 @@
 /**
- * Phase 23.17: timelines are simulation state across the worker boundary.
+ * Timelines are simulation state across the worker boundary.
  *
  * A neutral scene (the scene camera, three virtual cameras — two fixed and a
  * rail on a camera path —, a box) and a director script: at step 30 it plays

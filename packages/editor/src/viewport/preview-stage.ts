@@ -2,7 +2,7 @@
  * The asset preview stage: a separate small renderer + scene for previewing
  * an asset (model/material/animation) without touching the edited scene.
  *
- * Phase 17.1: the renderer comes from the three-adapter factory with the
+ * The renderer comes from the three-adapter factory with the
  * editor's backend choice (frames wait until WebGPURenderer is ready).
  *
  * Browser-only: uses a canvas + WebGL/WebGPU via three.js.
@@ -81,7 +81,7 @@ export class PreviewStage {
   }
 
   /**
-   * Release the stage. Phase 21.5: a canvas that left the page (the preview
+   * Release the stage. A canvas that left the page (the preview
    * pane closed) also gives up its WebGL context at once — browsers keep ~16
    * and drop the oldest past that, possibly the Scene view's; a restart on
    * the same canvas (an edited controller) keeps it for the next stage.

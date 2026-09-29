@@ -1,5 +1,5 @@
 /**
- * Phase 25.12: mover signals and the gravity easing through the production
+ * Mover signals and the gravity easing through the production
  * composition (the real game host, the character controller and Rapier), on
  * the 2D plane and in 3D, on the main thread and in the simulation worker.
  *

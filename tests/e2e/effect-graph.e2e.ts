@@ -1,5 +1,5 @@
 /**
- * Phase 20.0/20.1: visual effects in the browser against the real backend.
+ * Visual effects in the browser against the real backend.
  * The Effects tab creates an effect, which opens as an "Effect: <name>"
  * centre tab; "+ System" adds a system whose graph holds the four contexts;
  * blocks come from the search catalogue and are chained: Spawn → Burst,

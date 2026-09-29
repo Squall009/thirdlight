@@ -1,16 +1,16 @@
 /**
- * Phase 20.0: visual effects (`content.effects[]`) and the `effect` component.
+ * Visual effects (`content.effects[]`) and the `effect` component.
  *
  * An effect is a set of particle systems simulated together from one origin
- * (the entity carrying the `effect` component, or a script/gameplay trigger
- * in phase 20.2). Each system is a node graph of kind `effect`
+ * (the entity carrying the `effect` component, or a script/gameplay
+ * trigger). Each system is a node graph of kind `effect`
  * (effect-graph-kinds.ts) with the four contexts Spawn, Initialize, Update
  * and Output, plus its capacity (max particles) and its simulation space
  * (local: particles move with the origin; world: they stay where they were
  * born). The effect carries what all its systems share: the cycle duration
  * and whether it loops, the random seed (same seed, same particles on the
  * CPU reference evaluator), the culling bounds (a box around the origin)
- * and the exposed parameters (like material parameters, 15.4 visibility:
+ * and the exposed parameters (like material parameters, by visibility:
  * public ones may be overridden per object by the component, private ones
  * are the effect's own values).
  *
@@ -78,9 +78,9 @@ export interface EffectComponent {
   playOnStart?: boolean;
   /** Overrides of public parameters (absent = none). */
   params?: Record<string, number | number[] | string>;
-  /** Phase 20.2: (re)starts the effect when this signal is emitted (a switch, trigger or script sends it). */
+  /** (re)starts the effect when this signal is emitted (a switch, trigger or script sends it). */
   signal?: string;
-  /** Phase 20.2: stops spawning when this signal is emitted (living particles finish their lifetimes). */
+  /** Stops spawning when this signal is emitted (living particles finish their lifetimes). */
   stopSignal?: string;
 }
 
@@ -89,7 +89,7 @@ export const EFFECT_LIMITS = {
   effects: 128,
   systems: 16,
   parameters: 32,
-  /** Data bound of one system's capacity (2^20); executors cap lower (the CPU fallback's cap is documented in 20.2). */
+  /** Data bound of one system's capacity (2^20); executors cap lower (the CPU fallback has its own documented cap). */
   maxParticles: 1_048_576,
   duration: 3600,
   seed: 4_294_967_295,
@@ -262,7 +262,7 @@ export function canonicalEffectParameters(list: readonly EffectParameter[]): Eff
     default: Array.isArray(p.default) ? [...p.default] : typeof p.default === 'string' ? p.default.toLowerCase() : p.default,
     ...(p.min !== undefined ? { min: p.min } : {}),
     ...(p.max !== undefined ? { max: p.max } : {}),
-    // Public is the default and omitted (15.4).
+    // Public is the default and omitted.
     ...(p.visibility === 'private' ? { visibility: 'private' as const } : {}),
     ...(p.label !== undefined ? { label: p.label } : {}),
     ...(p.group !== undefined ? { group: p.group } : {}),
@@ -336,7 +336,7 @@ export function canonicalEffectComponent(c: EffectComponent): EffectComponent {
     // true is the default and omitted.
     ...(c.playOnStart === false ? { playOnStart: false } : {}),
     ...(params !== undefined && Object.keys(params).length > 0 ? { params } : {}),
-    // Phase 20.2: last, so an existing component keeps its exact canonical bytes.
+    // Last, so an existing component keeps its exact canonical bytes.
     ...(c.signal !== undefined ? { signal: c.signal } : {}),
     ...(c.stopSignal !== undefined ? { stopSignal: c.stopSignal } : {}),
   };
@@ -363,7 +363,7 @@ export function effectComponentErrors(c: EffectComponent, effects: readonly Effe
   return out;
 }
 
-// ---- Phase 20.2: the runtime view and gameplay hooks ----------------------------------------
+// ---- The runtime view and gameplay hooks ----------------------------------------
 
 /**
  * The effects a game carries (the manifest's `effects`): every system graph

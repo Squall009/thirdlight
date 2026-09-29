@@ -1,5 +1,5 @@
 /**
- * Phase 15.1: the generic Inspector's model — pure functions over the
+ * The generic Inspector's model — pure functions over the
  * component and content descriptors (`queryGameConfig {descriptors:true}`).
  *
  * - `widgetFor`: one widget per field type (number/int with unit, range and
@@ -21,7 +21,7 @@
  * - `addEntries`: the "+ Add component" list with the descriptor defaults and
  *   presets; components that cannot be added say why (already present,
  *   excluded by another component, needs another component, made by a tool).
- * - `createEntries` (phase 24.5): the GameObject menu's create entries, from
+ * - `createEntries`: the GameObject menu's create entries, from
  *   the descriptors' `create` lists.
  *
  * Types only from project-model (the editor never imports its values); no
@@ -129,12 +129,12 @@ export function sliderRange(f: FieldDescriptor): { min: number; max: number; ste
   return { min: f.min, max: f.max, step };
 }
 
-/** Phase 15.3: an `int` limited to a list of values (e.g. the step rate) is a choice, not a free number. */
+/** An `int` limited to a list of values (e.g. the step rate) is a choice, not a free number. */
 export function intChoices(f: FieldDescriptor): readonly number[] | null {
   return f.type === 'int' && f.values !== undefined && f.values.length > 0 ? f.values : null;
 }
 
-/** Phase 17.1: the option text of one allowed int value (its value label, else the number and unit). */
+/** The option text of one allowed int value (its value label, else the number and unit). */
 export function intChoiceLabel(f: FieldDescriptor, value: number): string {
   if (f.type === 'int' && f.values !== undefined && f.valueLabels !== undefined) {
     const label = f.valueLabels[f.values.indexOf(value)];
@@ -236,7 +236,7 @@ export function groupFields(fields: readonly FieldDescriptor[]): { group: string
   return out.filter((b) => b.fields.length > 0);
 }
 
-/** Phase 24.4e: project references a starting value may use (a required scene reference: this scene). */
+/** Project references a starting value may use (a required scene reference: this scene). */
 export interface StartRefs {
   scene?: string;
 }
@@ -282,7 +282,7 @@ export function startValue(f: FieldDescriptor, parent?: Level, refs?: StartRefs)
     case 'string':
     case 'signal':
       return f.required === true ? f.key : undefined;
-    // Phase 24.4e: a required scene reference starts at a scene the caller offers (a scene transition's target).
+    // A required scene reference starts at a scene the caller offers (a scene transition's target).
     case 'sceneRef':
       return f.required === true ? refs?.scene : undefined;
     default:
@@ -492,7 +492,7 @@ export interface AddEntry {
  * names). Every component but the transform is listed; one entry per preset.
  */
 export function addEntries(reg: DescriptorRegistry, present: ReadonlySet<string>, opts: { folder?: boolean; dimension?: 2 | 3 } = {}): AddEntry[] {
-  // Phase 23.1: only the presets that fit the project's physics dimension (absent: the 2D plane).
+  // Only the presets that fit the project's physics dimension (absent: the 2D plane).
   const dimension = opts.dimension ?? 2;
   const out: AddEntry[] = [];
   const labelOf = (name: string): string => reg.components.find((c) => c.name === name)?.label ?? name;
@@ -520,7 +520,7 @@ export function addEntries(reg: DescriptorRegistry, present: ReadonlySet<string>
   return out;
 }
 
-/** Phase 24.5: a GameObject menu entry that creates an object, from a component's descriptor. */
+/** A GameObject menu entry that creates an object, from a component's descriptor. */
 export interface CreateMenuEntry {
   readonly id: string;
   readonly component: string;
@@ -534,7 +534,7 @@ export interface CreateMenuEntry {
 }
 
 /**
- * Phase 24.5: the GameObject menu's create entries — every component's
+ * The GameObject menu's create entries — every component's
  * `create` list (descriptor order) that fits the project's physics dimension:
  * a box or an empty object carrying the component (its entry value, else its
  * "+ Add component" value) and the entry's other components.
@@ -559,7 +559,7 @@ export function createEntries(reg: DescriptorRegistry, opts: { dimension?: 2 | 3
   return out;
 }
 
-/** Phase 24.5: an entry's args with its scene pointers set to `sceneId` (a copy). */
+/** An entry's args with its scene pointers set to `sceneId` (a copy). */
 export function withOtherScene(entry: CreateMenuEntry, sceneId: string): Obj {
   const args = JSON.parse(JSON.stringify(entry.args)) as Obj;
   const value = (args['components'] as Obj)[entry.component] as Obj;
@@ -576,7 +576,7 @@ export function withOtherScene(entry: CreateMenuEntry, sceneId: string): Obj {
 }
 
 /**
- * Phase 15.5: a component's ready-made value for the GameObject menu — the
+ * A component's ready-made value for the GameObject menu — the
  * preset with this label, else (no label) its "+ Add component" value — so
  * the menu and the Inspector create the same thing from one table. A deep
  * copy; null when the registry has not arrived or has no such value.
@@ -609,7 +609,7 @@ export function collectSignals(reg: DescriptorRegistry, bags: readonly Obj[]): s
 }
 
 /**
- * Phase 21.4: one component bag's signals, cached per bag object (the
+ * One component bag's signals, cached per bag object (the
  * editor's projection replaces a bag only when it changes), so collecting
  * over thousands of entities after an edit re-walks only the edited one.
  */

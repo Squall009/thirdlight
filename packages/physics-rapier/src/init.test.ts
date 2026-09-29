@@ -1,5 +1,5 @@
 /**
- * Packet 31 — the real-library adapter lifecycle and behavior
+ * The real-library adapter lifecycle and behavior
  * (`@dimforge/rapier2d-compat@0.20.0`, the approved pin).
  *
  * These tests run the actual WASM library in Node (the pin is exercised for
@@ -64,7 +64,7 @@ async function makePort(cfg = config()): Promise<{ port: RapierPhysicsPort }> {
   return { port: r.port };
 }
 
-/** The packet-14 canonical character model (probe-rapier2d.mjs). */
+/** The canonical character model (probe-rapier2d.mjs). */
 class Probe {
   vy = 0;
   airborne = false;
@@ -347,7 +347,7 @@ describe('capsule against static geometry (real library)', () => {
     probe.settle(1);
     const r = probe.last!;
     expect(Object.keys(r).sort()).toEqual(
-      // Phase 9.9 adds groundEntityId (the collider under a grounded character).
+      // groundEntityId: the collider under a grounded character.
       ['applied', 'contacts', 'groundEntityId', 'grounded', 'position', 'requested', 'snapped', 'supportNormal'].sort(),
     );
     for (const vec of [r.requested, r.applied, r.position, r.supportNormal]) {
@@ -423,7 +423,7 @@ describe('failure surface', () => {
 });
 
 // `process` is Node-only and the package tsconfig keeps `types: []` (the
-// production adapter uses no Node built-in — dependencies.md §4.1).
+// production adapter uses no Node built-in, per dependencies.md).
 declare const process: { memoryUsage(): { rss: number; heapUsed: number; external: number } };
 
 describe('resource release over many create/dispose cycles', () => {

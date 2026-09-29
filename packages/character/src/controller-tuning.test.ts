@@ -1,8 +1,8 @@
 /**
- * Phase 15.3: the controller's acceleration, deceleration, coyote time, jump
+ * The controller's acceleration, deceleration, coyote time, jump
  * buffer and jump-release factor are the player's `controller` data; the
  * windows are seconds converted to whole steps at the module's step rate. A
- * controller without them gets exactly the packet-32 values (the replays).
+ * controller without them gets exactly `CONTROLLER_CONSTANTS` (the replays).
  */
 import { describe, expect, it } from 'vitest';
 import type { ControllerInput } from './controller';

@@ -1,6 +1,5 @@
 /**
- * Packet 33 — the backend behavior-source publication facade
- * (project-model.md §22.6/§22.4.1, sessions.md §19/§10.5).
+ * The backend behavior-source publication facade.
  *
  * This is the ONE publication facade for behavior source: it runs the
  * preparation layer (stage read + trust gate + injected compile + immutable
@@ -15,10 +14,9 @@
  * and revision untouched (`behavior_publication_unavailable` /
  * `behavior_declaration_mismatch` / `behavior_trust_unacknowledged`).
  *
- * The wire surface (an authoring route / MCP tool / UI panel) is not part of
- * packet 33 (sessions.md §19.1 lists no behavior-build route); packets 34/35
- * own the editor/MCP wiring. The facade is exposed on the `/services` surface
- * and exercised by `tests/integration/m2-builds/**`.
+ * Wire surfaces (the authoring route in backend.ts) call this facade; it is
+ * exposed on the `/services` surface and exercised by
+ * `tests/integration/m2-builds/**`.
  */
 
 import type { PropertyDeclaration } from '@thirdlight/project-model';
@@ -27,7 +25,7 @@ import type { CommandError, MutationSuccess, WorkspaceService } from '@thirdligh
 
 export interface PublishBehaviorSourceRequest {
   projectId: string;
-  /** The staged canonical container (workspace.md §13.3.1). */
+  /** The staged canonical container. */
   stageId?: string;
   /** Directly supplied canonical container bytes (harness/CLI path). */
   bytes?: Uint8Array;
@@ -72,7 +70,7 @@ export async function publishBehaviorSource(
       behaviorId: request.behaviorId,
       displayName: request.displayName,
       mode: 'source',
-      // Phase 15.4: the prepared declaration — the request's, or the one the
+      // The prepared declaration — the request's, or the one the
       // compiler derived from `export const properties` (code wins).
       declaration: prepared.prepared.declaration,
       source: {

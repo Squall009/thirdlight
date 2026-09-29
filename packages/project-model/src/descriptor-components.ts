@@ -64,7 +64,7 @@ export const model: ComponentDescriptor = {
   value: obj('model', 'Model', 'The model asset and, for a multi-piece file, the piece.', [
     obj('asset', 'Asset', 'The model asset.', [asset('assetId', 'Model', 'The imported model file.', ['model'], { required: true })], { required: true }),
     str('piece', 'Piece', 'One named piece of a multi-piece file (absent: the whole file).', NAME),
-    // Phase 17.4: true by default — solid geometry blocks the light and shows the shadows falling on it in any genre.
+    // True by default — solid geometry blocks the light and shows the shadows falling on it in any genre.
     bool('castShadow', 'Casts shadows', 'Blocks the directional light: casts a realtime shadow (off for decals, glows, backdrops).', { default: true, omitDefault: true }),
     bool('receiveShadow', 'Receives shadows', 'Shows the realtime shadows falling on it.', { default: true, omitDefault: true }),
   ]),
@@ -87,7 +87,7 @@ export const box: ComponentDescriptor = {
   value: obj('box', 'Box', 'A box mesh.', [
     vec3('size', 'Size', 'Width, height and depth in metres.', { min: 0, minExclusive: true, max: POSITION_LIMIT, step: 0.1, unit: 'm', default: [1, 1, 1], handle: 'box3', labels: ['w', 'h', 'd'] }),
     obj('material', 'Material', 'The box colour (a project material overrides it).', [color('color', 'Colour', 'The box colour.', { default: '#b0b0b0' })], { default: { color: '#b0b0b0' } }),
-    // Phase 17.4: true by default — solid geometry blocks the light and shows the shadows falling on it in any genre.
+    // True by default — solid geometry blocks the light and shows the shadows falling on it in any genre.
     bool('castShadow', 'Casts shadows', 'Blocks the directional light: casts a realtime shadow (off for decals, glows, backdrops).', { default: true, omitDefault: true }),
     bool('receiveShadow', 'Receives shadows', 'Shows the realtime shadows falling on it.', { default: true, omitDefault: true }),
   ]),
@@ -113,7 +113,7 @@ export const camera: ComponentDescriptor = {
     num('near', 'Near', 'Nothing closer than this is drawn.', { min: 0, minExclusive: true, max: POSITION_LIMIT, step: 0.01, unit: 'm', default: 0.1 }),
     num('far', 'Far', 'Nothing farther than this is drawn (beyond near).', { min: 0, minExclusive: true, max: POSITION_LIMIT, step: 1, unit: 'm', default: 100 }),
   ], { rules: ['far > near'] }),
-  // Phase 15.5: 60° vertical (the common game default, three.js's too), 0.1–100 m (from arm's length to a large level; far is a field).
+  // 60° vertical (the common game default, three.js's too), 0.1–100 m (from arm's length to a large level; far is a field).
   add: { kind: 'menu', value: { type: 'perspective', fovY: 60, near: 0.1, far: 100 } },
   handles: [],
   excludes: [
@@ -167,7 +167,7 @@ export const collider: ComponentDescriptor = {
       enm('type', 'Shape', 'Box or convex polygon (2D plane); box, sphere, capsule, convex hull or mesh (3D project).', ['box', 'polygon', 'sphere', 'capsule', 'convex', 'mesh'], { required: true, default: 'box' }),
       num('hx', 'Half width', 'Half the box width.', { required: true, when: when('type', 'box'), min: 0, minExclusive: true, max: POSITION_LIMIT, step: 0.05, unit: 'm', default: 0.5, handle: 'box2' }),
       num('hy', 'Half height', 'Half the box height.', { required: true, when: when('type', 'box'), min: 0, minExclusive: true, max: POSITION_LIMIT, step: 0.05, unit: 'm', default: 0.5, handle: 'box2' }),
-      // Phase 23.0: the depth. Absent in a 2D plane (which ignores it); required by a 3D project (no guessed depth).
+      // The depth. Absent in a 2D plane (which ignores it); required by a 3D project (no guessed depth).
       num('hz', 'Half depth', 'Half the box depth along Z (needed in a 3D project; a 2D plane ignores it).', { when: when('type', 'box'), min: 0, minExclusive: true, max: POSITION_LIMIT, step: 0.05, unit: 'm', handle: 'box2' }),
       list('vertices', 'Vertices', `3–${MAX_POLYGON_VERTICES} corners [x, y], counter-clockwise, convex.`, vec2('*', 'Vertex', 'A corner [x, y] from the object origin.', { min: -POSITION_LIMIT, max: POSITION_LIMIT, step: 0.05, unit: 'm' }), {
         required: true,
@@ -176,7 +176,7 @@ export const collider: ComponentDescriptor = {
         maxItems: MAX_POLYGON_VERTICES,
         handle: 'polygon',
       }),
-      // Phase 23.1: the 3D shapes (a 3D project). A capsule stands along the object's Y, its height the controller's convention (end caps included).
+      // The 3D shapes (a 3D project). A capsule stands along the object's Y, its height the controller's convention (end caps included).
       num('radius', 'Radius', 'The sphere\'s radius.', { required: true, when: when('type', 'sphere'), min: 0, minExclusive: true, max: MAX_COLLIDER_EXTENT, step: 0.05, unit: 'm', default: 0.5, handle: 'radius' }),
       num('radius', 'Radius', 'The capsule\'s radius.', { required: true, when: when('type', 'capsule'), min: 0, minExclusive: true, max: MAX_COLLIDER_EXTENT, step: 0.05, unit: 'm', default: 0.5, handle: 'capsule' }),
       num('height', 'Height', 'The capsule\'s total height along the object\'s Y (end caps included; at least twice the radius).', { required: true, when: when('type', 'capsule'), min: 0, minExclusive: true, max: 2 * MAX_COLLIDER_EXTENT, step: 0.05, unit: 'm', default: 2, handle: 'capsule' }),
@@ -204,16 +204,16 @@ export const collider: ComponentDescriptor = {
       }),
     ], { required: true, rules: ['A polygon is convex, counter-clockwise, has no repeated corner, an area of at least 1e-6 m² and stays within 64 m of the origin.', 'Sphere, capsule, convex hull and mesh are 3D shapes (physics_dimension 3); a mesh is static level geometry (not on a mover).'] }),
     bool('oneWay', 'One-way', 'The player can jump up through it and land on top (a platform).', { default: false, omitDefault: true }),
-    // Phase 23.3: absent = the implicit "default" layer (every collider is in one layer; none has to be named).
+    // Absent = the implicit "default" layer (every collider is in one layer; none has to be named).
     list('layers', 'Collision layers', `The collision layers it is in (3D; absent: "default"). Script queries filter by layer; name layers in the project's collision layers.`, str('*', 'Layer', 'A collision layer: "default" or one the project names.', { format: 'identifier', minLength: 1, maxLength: 32 }), { minItems: 1, maxItems: 16, unique: true }),
   ]),
   add: { kind: 'menu', value: { shape: { type: 'box', hx: 0.5, hy: 0.5 } } },
-  // Phase 24.5: a 3 × 0.2 m shelf (a platform to land on, thin enough to jump up through), 2D only (a 3D project has no one-way colliders).
+  // A 3 × 0.2 m shelf (a platform to land on, thin enough to jump up through), 2D only (a 3D project has no one-way colliders).
   create: [{ label: 'One-way platform', menu: 'Gameplay', box: { size: [3, 0.2, 2], color: '#8fb573' }, value: { shape: { type: 'box', hx: 1.5, hy: 0.1 }, oneWay: true }, dimension: 2 }],
   presets: [
     { label: 'Box', value: { shape: { type: 'box', hx: 0.5, hy: 0.5 } }, dimension: 2 },
     { label: 'Polygon', value: { shape: { type: 'polygon', vertices: [[-0.5, -0.5], [0.5, -0.5], [0, 0.5]] } }, dimension: 2 },
-    // Phase 23.1 (3D projects): a 1 m box, a 0.5 m sphere, a 2 m capsule, a 1 m cube's hull and a 1 m floor quad as starting shapes.
+    // 3D projects: a 1 m box, a 0.5 m sphere, a 2 m capsule, a 1 m cube's hull and a 1 m floor quad as starting shapes.
     { label: 'Box (3D)', value: { shape: { type: 'box', hx: 0.5, hy: 0.5, hz: 0.5 } }, dimension: 3 },
     { label: 'Sphere', value: { shape: { type: 'sphere', radius: 0.5 } }, dimension: 3 },
     { label: 'Capsule', value: { shape: { type: 'capsule', radius: 0.5, height: 2 } }, dimension: 3 },
@@ -223,7 +223,7 @@ export const collider: ComponentDescriptor = {
   handles: [
     { kind: 'box2', label: 'Box size', bind: { halfX: 'shape/hx', halfY: 'shape/hy', halfZ: 'shape/hz' }, space: 'local', when: when('shape/type', 'box'), follows: 'rotationZ' },
     { kind: 'polygon', label: 'Polygon', bind: { vertices: 'shape/vertices' }, space: 'local', when: when('shape/type', 'polygon'), follows: 'rotationZ' },
-    // Phase 23.1: the 3D shapes turn and scale with the object (a 3D collider takes its whole transform).
+    // The 3D shapes turn and scale with the object (a 3D collider takes its whole transform).
     { kind: 'radius', label: 'Sphere radius', bind: { radius: 'shape/radius' }, space: 'local', when: when('shape/type', 'sphere'), follows: 'transform' },
     { kind: 'capsule', label: 'Capsule', bind: { radius: 'shape/radius', height: 'shape/height' }, space: 'local', when: when('shape/type', 'capsule'), follows: 'transform' },
   ],
@@ -258,10 +258,10 @@ export const controller: ComponentDescriptor = {
     obj('capsule', 'Capsule', `The collision capsule (absent: ${DEFAULT_CONTROLLER_CAPSULE.radius} m radius, ${DEFAULT_CONTROLLER_CAPSULE.height} m tall — an adult human).`, [
       num('radius', 'Radius', 'Half the capsule width.', { required: true, min: CAPSULE_LIMITS.minRadius, max: CAPSULE_LIMITS.maxRadius, step: 0.01, unit: 'm', default: DEFAULT_CONTROLLER_CAPSULE.radius, handle: 'capsule' }),
       num('height', 'Height', 'Total height, both end caps included.', { required: true, min: CAPSULE_LIMITS.minHeight, max: CAPSULE_LIMITS.maxHeight, step: 0.01, unit: 'm', default: DEFAULT_CONTROLLER_CAPSULE.height, handle: 'capsule' }),
-      // Phase 23.0: [x, y] or [x, y, z] — z places the capsule in depth in a 3D project (a 2D plane ignores it).
+      // [x, y] or [x, y, z] — z places the capsule in depth in a 3D project (a 2D plane ignores it).
       vec3('offset', 'Offset', 'The capsule centre from the object origin (z: in a 3D project).', { min: -CAPSULE_LIMITS.maxOffset, max: CAPSULE_LIMITS.maxOffset, step: 0.01, unit: 'm', default: [...DEFAULT_CONTROLLER_CAPSULE.offset], handle: 'capsule', optionalLast: true }),
     ], { group: 'Collision', rules: ['height ≥ 2 × radius'] }),
-    // Phase 15.3: the movement tuning (absent: the engine defaults, the values every project played with before).
+    // The movement tuning (absent: the engine defaults, the values every project played with before).
     num('acceleration', 'Acceleration', 'How fast it speeds up toward the run speed (40: a 4 m/s run in 0.1 s).', { group: 'Movement', ...TL.acceleration, step: 1, unit: 'm/s²', default: CT.acceleration }),
     num('deceleration', 'Deceleration', 'How fast it slows down when the input eases or stops.', { group: 'Movement', ...TL.deceleration, step: 1, unit: 'm/s²', default: CT.deceleration }),
     num('coyoteTime', 'Coyote time', 'A jump still starts this long after walking off an edge.', { group: 'Jump', ...TL.coyoteTime, step: 0.01, unit: 's', default: CT.coyoteTime }),
@@ -269,10 +269,10 @@ export const controller: ComponentDescriptor = {
     num('jumpRelease', 'Jump release', 'Share of the upward speed kept when jump is released early (1: a fixed jump height).', { group: 'Jump', ...TL.jumpRelease, step: 0.05, unit: '×', default: CT.jumpRelease }),
     num('groundSnap', 'Ground snap', 'Pulls the character down onto ground this close below it (walking down slopes and bumps).', { group: 'Collision', ...TL.groundSnap, step: 0.01, unit: 'm', default: CT.groundSnap }),
     num('skin', 'Skin', 'The small gap the character keeps from walls and floors.', { group: 'Collision', ...TL.skin, step: 0.001, unit: 'm', default: CT.skin }),
-    // Phase 23.2: the 2D plane's autostep; a 3D character steps up with `stepHeight` instead.
+    // The 2D plane's autostep; a 3D character steps up with `stepHeight` instead.
     bool('autostep', 'Autostep', 'Climb low steps without jumping.', { group: 'Collision', default: CT.autostep, dimension: 2 }),
     num('autostepHeight', 'Step height', 'The highest step it climbs.', { group: 'Collision', when: when('autostep', true), ...TL.autostepHeight, step: 0.01, unit: 'm', default: CT.autostepHeight, dimension: 2 }),
-    // Phase 23.2: the 3D character (physics_dimension 3; a 2D plane ignores these).
+    // The 3D character (physics_dimension 3; a 2D plane ignores these).
     num('walkSpeed', 'Walk speed', 'Speed with the move input fully pushed (2: a brisk walk).', { group: 'Movement', ...C3L.walkSpeed, step: 0.1, unit: 'm/s', default: C3.walkSpeed, dimension: 3 }),
     num('runSpeed', 'Run speed', 'Speed while the "run" input action is held (absent: the project run speed setting).', { group: 'Movement', ...C3L.runSpeed, step: 0.1, unit: 'm/s', dimension: 3 }),
     num('airControl', 'Air control', 'Share of the acceleration it has in the air (0: no steering mid-jump, 1: as on the ground).', { group: 'Movement', ...C3L.airControl, step: 0.05, unit: '×', default: C3.airControl, dimension: 3 }),
@@ -286,10 +286,10 @@ export const controller: ComponentDescriptor = {
     bool('ledgeClimb', 'Ledge climb', 'Pushing against a ledge higher than a step pulls the character up onto it.', { group: 'Collision', default: C3.ledgeClimb, dimension: 3 }),
     num('ledgeHeight', 'Ledge height', 'The highest ledge it climbs (above its feet).', { group: 'Collision', when: when('ledgeClimb', true), ...C3L.ledgeHeight, step: 0.05, unit: 'm', default: C3.ledgeHeight, dimension: 3, handle: 'height' }),
     num('ledgeClimbTime', 'Climb time', 'How long a ledge climb takes.', { group: 'Collision', when: when('ledgeClimb', true), ...C3L.ledgeClimbTime, step: 0.05, unit: 's', default: C3.ledgeClimbTime, dimension: 3 }),
-    // Phase 24.8: the input actions it reads (the input frame has no fixed move/jump channels).
+    // The input actions it reads (the input frame has no fixed move/jump channels).
     str('moveAction', 'Move action', 'The input action (an axis) that moves it.', { format: 'identifier', minLength: 1, maxLength: 32, group: 'Input', default: CONTROLLER_ACTION_DEFAULTS.moveAction }),
     str('jumpAction', 'Jump action', 'The input action (a button) that makes it jump.', { format: 'identifier', minLength: 1, maxLength: 32, group: 'Input', default: CONTROLLER_ACTION_DEFAULTS.jumpAction }),
-    // Phase 25.13: climbing (inside a climb volume) and walls (both off by default), both dimensions.
+    // Climbing (inside a climb volume) and walls (both off by default), both dimensions.
     num('climbSpeed', 'Climb speed', 'How fast it moves inside a climb volume (up/down along it, sideways across it; jump leaves).', { group: 'Climbing and walls', ...CML.climbSpeed, step: 0.1, unit: 'm/s', default: CMD.climbSpeed }),
     str('climbAction', 'Climb action', 'The input action (an axis) that climbs: its value, or a 2D axis\' up/down (absent: the move action\'s up/down — a 2D project whose move is left/right only names another action here).', { format: 'identifier', minLength: 1, maxLength: 32, group: 'Climbing and walls' }),
     bool('wallSlide', 'Wall slide', 'Falling while pushing into a wall, it slides down no faster than the wall slide speed.', { group: 'Climbing and walls', default: CMD.wallSlide }),
@@ -302,7 +302,7 @@ export const controller: ComponentDescriptor = {
   add: { kind: 'menu', value: {} },
   handles: [
     { kind: 'capsule', label: 'Capsule', bind: { radius: 'capsule/radius', height: 'capsule/height', offset: 'capsule/offset' }, space: 'local' },
-    // Phase 23.2 (3D): the step-up and ledge heights above the capsule's feet.
+    // 3D: the step-up and ledge heights above the capsule's feet.
     { kind: 'height', label: 'Step-up height', bind: { height: 'stepHeight' }, space: 'local', from: 'capsule', dimension: 3 },
     { kind: 'height', label: 'Ledge height', bind: { height: 'ledgeHeight' }, space: 'local', from: 'capsule', when: when('ledgeClimb', true), dimension: 3 },
   ],
@@ -328,7 +328,7 @@ export const playerSpawn: ComponentDescriptor = {
   tooltip: 'Where the player starts (a level names its spawn).',
   category: 'Gameplay',
   value: obj('playerSpawn', 'Player spawn', 'A spawn marker.', [
-    // Phase 24.4f: a facing in any direction (3D too): the character's yaw on arrival (phase 24.8: replaces the left/right facing).
+    // A facing in any direction (3D too): the character's yaw on arrival (replaces the left/right facing).
     num('yaw', 'Yaw', 'The way the character faces on arrival, degrees about +Y (0: facing +Z; absent: as it was).', { min: -360, max: 360, step: 5, unit: 'deg' }),
   ]),
   add: { kind: 'menu', value: {} },
@@ -344,10 +344,10 @@ export const playerSpawn: ComponentDescriptor = {
   rules: MARKER_RULES,
 };
 
-// Phase 23.4: the camera framework (defaults and their reasons: project-model VIRTUAL_CAMERA_DEFAULTS).
+// The camera framework (defaults and their reasons: project-model VIRTUAL_CAMERA_DEFAULTS).
 const ORBITING = when('rig', 'follow', 'orbitPoint');
 const TRACKING = when('rig', 'follow', 'orbitPoint', 'topDown');
-/** Phase 24.4g: the rigs that lag behind a target by `damping` (the track rig's smoothing). */
+/** The rigs that lag behind a target by `damping` (the track rig's smoothing). */
 const DAMPED = when('rig', 'follow', 'orbitPoint', 'topDown', 'track');
 const TRACK = when('rig', 'track');
 const ACTION_NAME = { format: 'identifier' as const, minLength: 1, maxLength: 32 };
@@ -381,12 +381,12 @@ export const virtualCamera: ComponentDescriptor = {
     vec3('point', 'Point', 'The world point it circles (absent: the target, else where the camera is placed).', { when: when('rig', 'orbitPoint'), min: VCL.point.min, max: VCL.point.max, step: 0.5, unit: 'm', handle: 'point' }),
     bool('collision', 'Collision', 'Pulled in front of colliders between it and the target (3D projects).', { when: when('rig', 'follow'), default: VCD.collision }),
     num('collisionRadius', 'Collision radius', 'The clearance it keeps from what it is pulled in by.', { when: when('rig', 'follow'), min: VCL.collisionRadius.min, max: VCL.collisionRadius.max, step: 0.05, unit: 'm', default: VCD.collisionRadius }),
-    // Phase 24.4g: the track rig — its offset from the framed point, the dead zone and the bounds (world axes).
+    // The track rig — its offset from the framed point, the dead zone and the bounds (world axes).
     vec3('trackOffset', 'Offset', 'Where the camera sits relative to the point it frames (absent: where it is placed relative to the target at the start).', { when: TRACK, min: VCL.offset.min, max: VCL.offset.max, step: 0.5, unit: 'm' }),
     vec3('deadZone', 'Dead zone', 'The box (width, height, depth) around the framed point the target moves in before the camera follows (0: always follows).', { when: TRACK, min: VCL.deadZone.min, max: VCL.deadZone.max, step: 0.1, unit: 'm', default: [0, 0, 0], labels: ['w', 'h', 'd'], handle: 'box3' }),
     vec3('boundsMin', 'Bounds min', 'The framed point never goes below this on any axis (absent: no limit).', { when: TRACK, min: VCL.bounds.min, max: VCL.bounds.max, step: 0.5, unit: 'm', handle: 'bounds' }),
     vec3('boundsMax', 'Bounds max', 'The framed point never goes above this on any axis (absent: no limit).', { when: TRACK, min: VCL.bounds.min, max: VCL.bounds.max, step: 0.5, unit: 'm', handle: 'bounds' }),
-    // Phase 25.14: look-ahead (per axis; a vertical look-ahead is [0, t, 0]).
+    // Look-ahead (per axis; a vertical look-ahead is [0, t, 0]).
     vec3('lookAhead', 'Look-ahead', 'Frames this many seconds of the target\'s movement ahead of it, per axis (0: none; a vertical look-ahead [0, t, 0] shows the ground below a fall).', { when: TRACK, min: VCL.lookAhead.min, max: VCL.lookAhead.max, step: 0.05, unit: 's', default: [0, 0, 0], labels: ['x', 'y', 'z'] }),
     vec3('lookAheadMax', 'Look-ahead max', 'The farthest it looks ahead, per axis.', { when: TRACK, min: VCL.lookAheadMax.min, max: VCL.lookAheadMax.max, step: 0.5, unit: 'm', default: [...VCD.lookAheadMax], labels: ['x', 'y', 'z'] }),
     num('lookAheadSmoothing', 'Look-ahead smoothing', 'How long a change of the target\'s speed takes to show in the look-ahead (0: at once).', { when: TRACK, min: VCL.lookAheadSmoothing.min, max: VCL.lookAheadSmoothing.max, step: 0.05, unit: 's', default: VCD.lookAheadSmoothing }),
@@ -412,15 +412,15 @@ export const virtualCamera: ComponentDescriptor = {
     { label: 'Orbit a point (snapped turns)', value: { rig: 'orbitPoint', distance: 15, pitch: 45 } },
     { label: 'Top-down', value: { rig: 'topDown', distance: 15 } },
     { label: 'Fixed / look-at', value: { rig: 'fixed' } },
-    // Phase 24.4g: frames its target as placed, following once it leaves a 2 × 1 m box (about a body's reach), with a short 0.2 s lag.
+    // Frames its target as placed, following once it leaves a 2 × 1 m box (about a body's reach), with a short 0.2 s lag.
     { label: 'Track (dead zone)', value: { rig: 'track', deadZone: [2, 1, 2], damping: 0.2 } },
   ],
-  // Phase 24.5: the track rig's shot as its own object (the target is picked in the Inspector; without one it frames where it is placed).
+  // The track rig's shot as its own object (the target is picked in the Inspector; without one it frames where it is placed).
   create: [{ label: 'Camera track', menu: 'Cameras', value: { rig: 'track', deadZone: [2, 1, 2], damping: 0.2 } }],
   icon: 'camera',
   handles: [
     { kind: 'point', label: 'Orbit point', bind: { point: 'point' }, space: 'world', when: when('rig', 'orbitPoint') },
-    // Phase 25.14: the track rig's dead zone (around its target, where it frames it at the start) and bounds (world corners).
+    // The track rig's dead zone (around its target, where it frames it at the start) and bounds (world corners).
     { kind: 'box3', label: 'Dead zone', bind: { size: 'deadZone' }, space: 'local', when: TRACK, anchor: { entity: 'target', offset: 'targetOffset' } },
     { kind: 'bounds', label: 'Bounds', bind: { min: 'boundsMin', max: 'boundsMax' }, space: 'world', when: TRACK },
   ],
@@ -447,7 +447,7 @@ export const cameraPath: ComponentDescriptor = {
   prefab: false,
 };
 
-// Phase 25.14: a place where track cameras frame differently.
+// A place where track cameras frame differently.
 const CRD = CAMERA_REGION_DEFAULTS;
 const CRL = CAMERA_REGION_LIMITS;
 export const cameraRegion: ComponentDescriptor = {
@@ -481,7 +481,7 @@ export const cameraRegion: ComponentDescriptor = {
   prefab: false,
 };
 
-// Phase 23.11: an object riding on a node of another object's model.
+// An object riding on a node of another object's model.
 export const socketAttach: ComponentDescriptor = {
   name: 'socketAttach',
   label: 'Socket',
@@ -516,7 +516,7 @@ export const light: ComponentDescriptor = {
     vec3('direction', 'Direction', 'Where the light shines (need not be unit length; not all 0).', { required: true, when: when('type', 'directional'), min: -1, max: 1, step: 0.05, nonZero: true, handle: 'direction', default: [0.4, -1, -0.3] }),
     vec3('direction', 'Direction', 'Where the spot points (not all 0).', { required: true, when: when('type', 'spot'), min: -1, max: 1, step: 0.05, nonZero: true, handle: 'cone', default: [0, -1, 0] }),
     bool('castShadow', 'Cast shadows', 'The light casts shadows.', { when: when('type', 'directional', 'point', 'spot'), default: false }),
-    // Phase 17.4: the sun's shadow map as data (defaults and their reasons: project-model DIRECTIONAL_SHADOW_DEFAULTS).
+    // The sun's shadow map as data (defaults and their reasons: project-model DIRECTIONAL_SHADOW_DEFAULTS).
     int('shadowMapSize', 'Shadow map size', 'Shadow resolution in texels per side (sharper, more memory).', { when: when('type', 'directional'), values: [...DIRECTIONAL_SHADOW_LIMITS.mapSizes], default: DIRECTIONAL_SHADOW_DEFAULTS.mapSize, omitDefault: true }),
     num('shadowBias', 'Shadow bias', 'Depth offset of the shadow test (more negative: less acne, shadows may detach).', { when: when('type', 'directional'), min: DIRECTIONAL_SHADOW_LIMITS.bias.min, max: DIRECTIONAL_SHADOW_LIMITS.bias.max, step: 0.0001, default: DIRECTIONAL_SHADOW_DEFAULTS.bias, omitDefault: true }),
     num('shadowNormalBias', 'Shadow normal bias', 'Offset along the surface normal (removes stripes on grazing surfaces).', { when: when('type', 'directional'), min: DIRECTIONAL_SHADOW_LIMITS.normalBias.min, max: DIRECTIONAL_SHADOW_LIMITS.normalBias.max, step: 0.005, unit: 'm', default: DIRECTIONAL_SHADOW_DEFAULTS.normalBias, omitDefault: true }),
@@ -526,13 +526,13 @@ export const light: ComponentDescriptor = {
     num('decay', 'Decay', 'How fast it fades with distance (2: physically correct).', { when: when('type', 'point', 'spot'), min: 0, max: 4, step: 0.1, default: 2 }),
     num('angle', 'Angle', 'Half-angle of the spot cone.', { when: when('type', 'spot'), min: 1, max: 89, step: 1, unit: 'deg', default: 30, handle: 'cone' }),
     num('penumbra', 'Soft edge', 'How soft the cone edge is (0: hard).', { when: when('type', 'spot'), min: 0, max: 1, step: 0.05, default: 0.2 }),
-    // Phase 25.8: a spot light's cookie (directional lights get none).
+    // A spot light's cookie (directional lights get none).
     asset('cookie', 'Cookie', 'A texture projected through the cone (the light is tinted and masked by it: a window frame, leaves, a logo).', ['texture'], { when: when('type', 'spot') }),
     color('groundColor', 'Ground colour', 'The colour from below.', { when: when('type', 'hemisphere'), default: '#444444' }),
     enm('mode', 'Mode', 'Realtime, baked into lightmaps, or both (mixed).', ['realtime', 'baked', 'mixed'], { default: 'realtime', omitDefault: true }),
   ]),
   add: { kind: 'menu', value: { type: 'point', color: '#ffd9a0', intensity: 30, range: 8, decay: 2 } },
-  // Phase 15.5 (genre-neutral reasons; the GameObject menu creates these too):
+  // Genre-neutral reasons (the GameObject menu creates these too):
   // - directional and ambient = a new project's starter lights: a white key from
   //   above-front at 1.2 casting shadows (a lone key without shadows flattens any
   //   scene) over a cool fill at 0.6 (shadowed sides stay readable, not black).
@@ -628,10 +628,10 @@ export const instances: ComponentDescriptor = {
     ], { required: true }),
     str('buffer', 'Buffer', 'The SHA-256 of the copies\' transforms (written by the brush and import tools).', { format: 'sha256', minLength: 64, maxLength: 64, required: true, readOnly: true }),
     int('count', 'Copies', 'How many copies the buffer holds.', { min: 1, max: MAX_INSTANCES, required: true, readOnly: true }),
-    // Phase 17.4: true by default — solid geometry blocks the light and shows the shadows falling on it in any genre.
+    // True by default — solid geometry blocks the light and shows the shadows falling on it in any genre.
     bool('castShadow', 'Casts shadows', 'Blocks the directional light: casts a realtime shadow (off for decals, glows, backdrops).', { default: true, omitDefault: true }),
     bool('receiveShadow', 'Receives shadows', 'Shows the realtime shadows falling on it.', { default: true, omitDefault: true }),
-    // Phase 25.7d: absent = the project's Instance chunk size (32 m unless set).
+    // Absent = the project's Instance chunk size (32 m unless set).
     num('chunkSize', 'Chunk size', 'The copies are drawn in chunks about this wide, each hidden when out of view and given its level of detail on its own (absent: the project\'s Instance chunk size).', { min: 1, max: 4096, step: 1, unit: 'm' }),
   ]),
   add: { kind: 'tool', tool: 'instance brush or instance import' },
@@ -656,7 +656,7 @@ export const materials: ComponentDescriptor = {
   prefab: true,
 };
 
-// Phase 18.0: per-object overrides of graph-material parameters (extends the material mapping).
+// Per-object overrides of graph-material parameters (extends the material mapping).
 export const materialParams: ComponentDescriptor = {
   name: 'materialParams',
   label: 'Material parameters',
@@ -677,7 +677,7 @@ export const materialParams: ComponentDescriptor = {
   prefab: true,
 };
 
-// Phase 20.0: a visual effect played from the entity.
+// A visual effect played from the entity.
 export const effectComponent: ComponentDescriptor = {
   name: 'effect',
   label: 'Effect',
@@ -687,7 +687,7 @@ export const effectComponent: ComponentDescriptor = {
     ref('effectId', 'Effect', 'The project effect.', 'effect', { required: true }),
     bool('playOnStart', 'Play on start', 'Starts when the scene starts (off: a trigger or script plays it).', { default: true, omitDefault: true }),
     map('params', 'Parameters', 'Values for the effect\'s public parameters (absent: the effect\'s defaults).', 'Parameter', json('*', 'Value', 'A value of the parameter\'s type (a number, 3 numbers or "#rrggbb").', { typedBy: 'effectParameter' }), { keyFormat: 'identifier', maxEntries: EFFECT_LIMITS.parameters }),
-    // Phase 20.2: triggers.
+    // triggers.
     signal('signal', 'Play on signal', 'Starts (or restarts) the effect when this signal is sent (a switch, trigger or script).'),
     signal('stopSignal', 'Stop on signal', 'Stops spawning when this signal is sent; living particles finish.'),
   ]),
@@ -709,7 +709,7 @@ export const fogVolume: ComponentDescriptor = {
     num('falloff', 'Soft edges', '0: a hard box, 1: fades from the centre.', { min: 0, max: 1, step: 0.05, default: 0.5 }),
     num('heightFalloff', 'Height falloff', 'How fast the fog thins with height above the bottom (0: even).', { min: 0, max: 10, step: 0.05, unit: '1/m', default: 0 }),
   ]),
-  // Phase 15.5: a room-sized 6 × 3 × 4 m box of light grey-blue haze at a quarter density with soft edges — visible
+  // A room-sized 6 × 3 × 4 m box of light grey-blue haze at a quarter density with soft edges — visible
   // at once, easy to resize; no setting assumed (valley mist, room smoke, steam).
   add: { kind: 'menu', value: { size: [6, 3, 4], density: 0.25, color: '#dfe7ef', falloff: 0.5 } },
   create: [{ label: 'Fog volume', menu: 'Light' }],
@@ -720,7 +720,7 @@ export const fogVolume: ComponentDescriptor = {
   rules: ['At most 16 fog volumes per scene.'],
 };
 
-// Phase 23.10: the behavior group an object's behavior belongs to (game modes tick groups).
+// The behavior group an object's behavior belongs to (game modes tick groups).
 export const behaviorGroupC: ComponentDescriptor = {
   name: 'behaviorGroup',
   label: 'Behavior group',
@@ -736,7 +736,7 @@ export const behaviorGroupC: ComponentDescriptor = {
   prefab: true,
 };
 
-// Phase 23.10: one game mode (the Game modes panel edits it; setModes stores the whole list).
+// One game mode (the Game modes panel edits it; setModes stores the whole list).
 const MODE_TRANSITION_FIELDS: readonly FieldDescriptor[] = [
   enm('blend', 'Camera blend', 'How the view moves to the mode\'s camera (absent: the camera\'s own blend).', MODE_BLENDS),
   num('blendTime', 'Blend time', 'Seconds of the camera blend (absent: the camera\'s own).', { min: 0, max: MODE_LIMITS.blendTimeMax, step: 0.05, unit: 's' }),
@@ -780,24 +780,24 @@ export const mover: ComponentDescriptor = {
   tooltip: 'Moves the object along waypoints (a moving platform, a door); with a collider it carries the player.',
   category: 'Gameplay',
   value: obj('mover', 'Mover', 'Waypoint movement.', [
-    list('waypoints', 'Waypoints', '1–16 points, as offsets from where the object is placed (the start is not listed).', vec3('*', 'Point', 'An offset [x, y, z].', { min: -1000, max: 1000, step: 0.1, unit: 'm' }), { required: true, minItems: 1, maxItems: 16, handle: 'path', default: [[4, 0, 0]] }), // phase 15.5: the add value's 4 m (it said 2 m) — a few character widths, visibly a trip
+    list('waypoints', 'Waypoints', '1–16 points, as offsets from where the object is placed (the start is not listed).', vec3('*', 'Point', 'An offset [x, y, z].', { min: -1000, max: 1000, step: 0.1, unit: 'm' }), { required: true, minItems: 1, maxItems: 16, handle: 'path', default: [[4, 0, 0]] }), // 4 m: a few character widths, visibly a trip
     num('speed', 'Speed', 'Travel speed.', { required: true, min: 0.01, max: 50, step: 0.1, unit: 'm/s', default: 2 }),
     enm('mode', 'Mode', 'Loop back to the start, go back and forth, or move once.', MOVER_MODES, { required: true, default: 'pingpong', labels: { pingpong: 'Back and forth' } }),
     num('wait', 'Wait', 'Pause at each point.', { min: 0, max: 60, step: 0.1, unit: 's', default: 0 }),
-    // Phase 25.12: gravity — constant acceleration from each point (the stretch takes as long as at its speed).
+    // Gravity — constant acceleration from each point (the stretch takes as long as at its speed).
     enm('easing', 'Easing', 'Constant speed, smooth starts and stops, or gravity: from rest at each point, speeding up evenly until the next (each stretch takes as long as at its speed).', MOVER_EASINGS, { default: 'linear' }),
     signal('startOn', 'Start on signal', 'Wait for this signal before moving (absent: moves from the start).'),
     num('maxPush', 'Max push', 'The fastest it shoves a player out of its way (a safety limit that keeps the player out of the platform).', { ...BL.maxPush, step: 1, unit: 'm/s', default: BD.maxPush }),
-    // Phase 25.10: a held mover stays where it is (it still collides and carries) until a script switches it on.
+    // A held mover stays where it is (it still collides and carries) until a script switches it on.
     bool('active', 'Moving', 'Off: it holds where it is (still solid) until a script, its start signal or its toggle signal moves it.', { default: true, omitDefault: true }),
-    // Phase 25.12: more signals (seen one step after they are sent, like startOn).
+    // More signals (seen one step after they are sent, like startOn).
     signal('stopOn', 'Stop on signal', 'This signal holds it where it is (still solid); its start or toggle signal moves it again.'),
     signal('toggleOn', 'Toggle on signal', 'This signal moves it if it is held, and holds it if it moves.'),
     signal('reverseOn', 'Reverse on signal', 'This signal turns it around, back the way it came (a finished once-mover goes back to its start).'),
   ], { rules: ['startOn, stopOn and toggleOn name different signals.'] }),
-  // Phase 15.5: a new mover goes 4 m sideways and back at 2 m/s (a brisk walk), pausing 0.5 s at each end (reads as a stop, not a bounce).
+  // A new mover goes 4 m sideways and back at 2 m/s (a brisk walk), pausing 0.5 s at each end (reads as a stop, not a bounce).
   add: { kind: 'menu', value: { waypoints: [[4, 0, 0]], speed: 2, mode: 'pingpong', wait: 0.5 } },
-  // Phase 24.5: placeholder boxes against the engine's default 1.8 m character: a 2 m platform to stand on and a 3 m door
+  // Placeholder boxes against the engine's default 1.8 m character: a 2 m platform to stand on and a 3 m door
   // to walk through (it rises 3 m when "open" is sent — the switch's default signal); each with its box collider.
   create: [
     { label: 'Moving platform', menu: 'Gameplay', box: { size: [2, 0.4, 2], color: '#c9a36a' }, with: { collider: { shape: { type: 'box', hx: 1, hy: 0.2 } } }, dimension: 2 },
@@ -818,7 +818,7 @@ export const trigger: ComponentDescriptor = {
   category: 'Gameplay',
   value: obj('trigger', 'Trigger', 'An area that emits signals.', [
     enm('shape', 'Shape', 'Box or circle (2D plane); box, sphere or capsule (3D project).', TRIGGER_SHAPES, { default: 'box' }),
-    // Phase 23.1: the depth (d) is the third component, needed in a 3D project (a 2D plane ignores it).
+    // The depth (d) is the third component, needed in a 3D project (a 2D plane ignores it).
     vec3('size', 'Size', 'Width and height of the box (and its depth in a 3D project).', { required: true, when: when('shape', 'box'), min: 0.05, max: 500, step: 0.1, unit: 'm', default: [2, 2], labels: ['w', 'h', 'd'], handle: 'box2', optionalLast: true }),
     num('radius', 'Radius', 'Radius of the circle or sphere.', { required: true, when: when('shape', 'circle', 'sphere'), min: TRIGGER_RADIUS.min, max: TRIGGER_RADIUS.max, step: 0.05, unit: 'm', default: 1, handle: 'radius' }),
     num('radius', 'Radius', 'Radius of the capsule.', { required: true, when: when('shape', 'capsule'), min: TRIGGER_RADIUS.min, max: TRIGGER_RADIUS.max, step: 0.05, unit: 'm', default: 0.5, handle: 'capsule' }),
@@ -827,25 +827,25 @@ export const trigger: ComponentDescriptor = {
     signal('exitSignal', 'Exit signal', 'Sent when the player leaves (absent: none).'),
     enm('mode', 'Mode', 'Enter: once per entry. Stay: every step while inside.', TRIGGER_MODES, { default: 'enter' }),
     bool('once', 'Once', 'Only the first time.', { default: false }),
-    // Phase 24.4e: the generic scene exit — a trigger that moves the character to another scene.
+    // The generic scene exit — a trigger that moves the character to another scene.
     obj('sceneTransition', 'Scene transition', 'Entering loads a scene and moves the character to a spawn in it (absent: no transition).', [
       scene('scene', 'Load scene', 'The scene loaded when the character enters.', { required: true }),
       entity('spawn', 'Arrive at', 'The player spawn the character is moved to once the scene is loaded (in that scene or this one; absent: it stays where it is).', { component: 'playerSpawn', anyScene: true }),
       list('unload', 'Unload scenes', 'Scenes unloaded once the loaded scene is in (they stay in view until then).', scene('*', 'Scene', 'A scene to unload.'), { maxItems: MAX_TRANSITION_UNLOADS, unique: true }),
-      // Phase 25.24e: an optional fade over the swap.
+      // An optional fade over the swap.
       num('fade', 'Fade', 'Seconds the view fades out before the swap and back in after it (absent or 0: no fade; the old scene stays in view until the new one is drawn).', { min: 0, max: MAX_TRANSITION_FADE, step: 0.05 }),
       color('fadeColor', 'Fade colour', 'The colour the view fades to (absent: black).'),
     ]),
   ]),
-  // Phase 15.5: a 2 m square (the default 1.8 m character fits inside) sending the neutral signal name "trigger".
+  // A 2 m square (the default 1.8 m character fits inside) sending the neutral signal name "trigger".
   add: { kind: 'menu', value: { size: [2, 2], signal: 'trigger' } },
-  // Phase 23.1 (3D projects; a 2D plane keeps the single entry above): a 2 m cube, a 1 m sphere and a 2 m capsule — the default 1.8 m character fits in each.
+  // 3D projects (a 2D plane keeps the single entry above): a 2 m cube, a 1 m sphere and a 2 m capsule — the default 1.8 m character fits in each.
   presets: [
     { label: 'Box (3D)', value: { size: [2, 2, 2], signal: 'trigger' }, dimension: 3 },
     { label: 'Sphere', value: { shape: 'sphere', radius: 1, signal: 'trigger' }, dimension: 3 },
     { label: 'Capsule', value: { shape: 'capsule', radius: 0.5, height: 2, signal: 'trigger' }, dimension: 3 },
   ],
-  // Phase 24.5: an area, and an area that moves the character to another scene (its first spawn picked in the Inspector).
+  // An area, and an area that moves the character to another scene (its first spawn picked in the Inspector).
   create: [
     { label: 'Trigger', menu: 'Gameplay', dimension: 2 },
     { label: 'Trigger', menu: 'Gameplay', value: { size: [2, 2, 2], signal: 'trigger' }, dimension: 3 },
@@ -856,7 +856,7 @@ export const trigger: ComponentDescriptor = {
   handles: [
     { kind: 'box2', label: 'Size', bind: { size: 'size' }, space: 'local', when: when('shape', 'box') },
     { kind: 'radius', label: 'Radius', bind: { radius: 'radius' }, space: 'local', when: when('shape', 'circle') },
-    // Phase 23.1: the 3D areas turn with the object (its own rotation; a trigger ignores scale).
+    // The 3D areas turn with the object (its own rotation; a trigger ignores scale).
     { kind: 'radius', label: 'Sphere radius', bind: { radius: 'radius' }, space: 'local', when: when('shape', 'sphere'), follows: 'rotation' },
     { kind: 'capsule', label: 'Capsule', bind: { radius: 'radius', height: 'height' }, space: 'local', when: when('shape', 'capsule'), follows: 'rotation' },
   ],
@@ -874,12 +874,12 @@ export const switchC: ComponentDescriptor = {
     signal('signal', 'Signal', 'Sent when used.', { required: true, default: 'open' }),
     vec2('size', 'Size', 'The area the player must be in.', { required: true, min: 0.05, max: 100, step: 0.1, unit: 'm', default: [1, 1], labels: ['w', 'h'], handle: 'box2' }),
     bool('once', 'Once', 'Only the first time.', { default: false }),
-    // Phase 24.4f: the input action that works an interact switch (absent: interact).
+    // The input action that works an interact switch (absent: interact).
     str('action', 'Action', 'The input action pressed nearby to use it.', { ...ACTION_NAME, when: when('mode', 'interact'), default: SWITCH_DEFAULT_ACTION }),
   ]),
-  // Phase 15.5: a 1 m square pressed with the interact action, sending "open" (the door preset waits for it).
+  // A 1 m square pressed with the interact action, sending "open" (the door preset waits for it).
   add: { kind: 'menu', value: { mode: 'interact', signal: 'open', size: [1, 1] } },
-  // Phase 24.5: a 0.6 m pad (2D plane only: a 3D project refuses switches).
+  // A 0.6 m pad (2D plane only: a 3D project refuses switches).
   create: [{ label: 'Switch', menu: 'Gameplay', box: { size: [0.6, 0.2, 0.6], color: '#d9534f' }, dimension: 2 }],
   icon: 'switch',
   handles: [{ kind: 'box2', label: 'Size', bind: { size: 'size' }, space: 'local' }],
@@ -890,16 +890,16 @@ export const switchC: ComponentDescriptor = {
 export const health: ComponentDescriptor = {
   name: 'health',
   label: 'Health',
-  // Phase 24.4b: any object's health; scripts take and give it (ctx.health) and read its damaged/died events.
+  // Any object's health; scripts take and give it (ctx.health) and read its damaged/died events.
   tooltip: 'The object\'s health (any object): scripts damage and heal it and hear when it is damaged or reaches 0; a hitbox with damage takes some on contact.',
   category: 'Gameplay',
   value: obj('health', 'Health', 'Health.', [
     int('max', 'Maximum', 'The most health it can have.', { required: true, min: 1, max: 1000, default: 3 }),
     int('start', 'Start', 'Health at the start of a run (absent: the maximum).', { min: 1, max: 1000 }),
   ], { rules: ['start ≤ max'] }),
-  // Phase 15.5: 3 hits (the common small health pool).
+  // 3 hits (the common small health pool).
   add: { kind: 'menu', value: { max: 3 } },
-  // Phase 24.5: a 1 m box that can be damaged (scripts or a hitbox with damage take its health).
+  // A 1 m box that can be damaged (scripts or a hitbox with damage take its health).
   create: [{ label: 'Object with health', menu: 'Gameplay', box: { size: [1, 1, 1], color: '#b0b7c3' }, value: { max: 3 } }],
   icon: 'health',
   handles: [],
@@ -907,7 +907,7 @@ export const health: ComponentDescriptor = {
   prefab: true,
 };
 
-// ---- phase 24.4: generic primitives -------------------------------------------------
+// ---- Generic primitives -------------------------------------------------
 
 const PD = PRIMITIVE_DEFAULTS;
 const PL = PRIMITIVE_LIMITS;
@@ -927,7 +927,7 @@ export const collectible: ComponentDescriptor = {
   ]),
   // A neutral counter name; one of something over the default 1 m area.
   add: { kind: 'menu', value: { counter: 'items' } },
-  // Phase 24.5: a 0.4 m token (small enough to read as an item next to the default 1.8 m character).
+  // A 0.4 m token (small enough to read as an item next to the default 1.8 m character).
   create: [{ label: 'Collectible', menu: 'Gameplay', box: { size: [0.4, 0.4, 0.4], color: '#f2c230' } }],
   icon: 'collectible',
   handles: [{ kind: 'box2', label: 'Size', bind: { size: 'size' }, space: 'local' }],
@@ -953,7 +953,7 @@ export const patrol: ComponentDescriptor = {
   ]),
   // 1.5 m/s: an unhurried walk; edge to edge needs no further setup.
   add: { kind: 'menu', value: { mode: 'edges', speed: 1.5 } },
-  // Phase 24.5: a 0.8 m body walking edge to edge.
+  // A 0.8 m body walking edge to edge.
   create: [{ label: 'Patrolling object', menu: 'Gameplay', box: { size: [0.8, 0.8, 0.8], color: '#8e3fb0' } }],
   icon: 'patrol',
   presets: [
@@ -973,7 +973,7 @@ export const patrol: ComponentDescriptor = {
   prefab: true,
 };
 
-// ---- phase 25.13: climb volumes and gravity bodies --------------------------------
+// ---- Climb volumes and gravity bodies --------------------------------
 
 export const climbVolume: ComponentDescriptor = {
   name: 'climbVolume',
@@ -1057,12 +1057,12 @@ export const audioSource: ComponentDescriptor = {
     asset('assetId', 'Sound', 'An audio or music asset.', ['audio', 'music'], { required: true }),
     num('volume', 'Volume', 'Volume at full strength.', { required: true, min: 0, max: 1, step: 0.05, default: 0.8 }),
     num('range', 'Range', 'Heard within this distance (full volume within a quarter of it). Panned: its max distance.', { required: true, min: 0.5, max: 500, step: 0.5, unit: 'm', default: 12, handle: 'radius' }),
-    // Phase 23.13: the panner model's distance fade (the project's Audio sources setting; 3D projects by default).
+    // The panner model's distance fade (the project's Audio sources setting; 3D projects by default).
     enm('distanceModel', 'Distance model', 'Panned: how the volume falls with distance — linear (silent at the range), inverse or exponential (natural falloff, quieter but never silent within the range).', ['linear', 'inverse', 'exponential'], { default: 'linear', group: 'Panned' }),
     num('refDistance', 'Full volume within', 'Panned: full volume within this distance (absent: a quarter of the range).', { min: 0.01, max: 500, step: 0.25, unit: 'm', default: 3, group: 'Panned' }),
     num('rolloff', 'Rolloff', 'Panned: how fast the volume falls (1: the model\'s natural rate).', { min: 0, max: 10, step: 0.1, default: 1, group: 'Panned' }),
   ]),
-  // Phase 15.5: 0.8 volume (headroom under the effects) heard within 12 m (about a screen width at the default camera).
+  // 0.8 volume (headroom under the effects) heard within 12 m (about a screen width at the default camera).
   add: { kind: 'pick', value: { volume: 0.8, range: 12 }, pick: ['assetId'] },
   icon: 'audio',
   handles: [{ kind: 'radius', label: 'Range', bind: { radius: 'range' }, space: 'local', along: 'x' }],
@@ -1076,18 +1076,18 @@ export const faceMovement: ComponentDescriptor = {
   tooltip: 'Turns this model to face where its parent (or, at the top, itself) is going: to one of two yaws by the side it moves to, or toward its motion in any direction.',
   category: 'Animation',
   value: obj('faceMovement', 'Face movement', 'Yaw from the motion.', [
-    // Phase 24.4f: `velocity` faces the horizontal motion in any direction (3D too); `sides` (absent) picks one of two yaws by the sign of X.
+    // `velocity` faces the horizontal motion in any direction (3D too); `sides` (absent) picks one of two yaws by the sign of X.
     enm('mode', 'Mode', 'Sides: one yaw moving right, another moving left. Velocity: faces the way it moves, in any direction.', FACE_MOVEMENT_MODES, { default: 'sides', omitDefault: true, labels: { sides: 'Two sides', velocity: 'Face velocity' } }),
     num('yawRight', 'Yaw moving right', 'Rotation about +Y while the parent moves right.', { required: true, when: when('mode', 'sides'), min: -360, max: 360, step: 5, unit: 'deg', default: 90 }),
     num('yawLeft', 'Yaw moving left', 'Rotation about +Y while the parent moves left.', { required: true, when: when('mode', 'sides'), min: -360, max: 360, step: 5, unit: 'deg', default: -90 }),
     num('yawOffset', 'Yaw offset', 'Added to the motion\'s yaw (0: the model is authored facing +Z).', { when: when('mode', 'velocity'), min: -360, max: 360, step: 5, unit: 'deg', default: 0 }),
     num('turnSeconds', 'Turn time', 'Time to turn around (a half turn).', { min: 0, max: 5, step: 0.01, unit: 's', default: 0.12 }),
   ]),
-  // Phase 15.5: a model authored facing +Z turns ±90° to face +X / −X, turning around in 0.12 s (quick, still visible).
+  // A model authored facing +Z turns ±90° to face +X / −X, turning around in 0.12 s (quick, still visible).
   add: { kind: 'menu', value: { yawRight: 90, yawLeft: -90, turnSeconds: 0.12 } },
   presets: [
     { label: 'Two sides', value: { yawRight: 90, yawLeft: -90, turnSeconds: 0.12 } },
-    // Phase 24.4f: a model authored facing +Z faces its motion (a 3D walker, a top-down character).
+    // A model authored facing +Z faces its motion (a 3D walker, a top-down character).
     { label: 'Face velocity', value: { mode: 'velocity', turnSeconds: 0.12 } },
   ],
   handles: [],

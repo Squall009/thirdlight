@@ -1,7 +1,7 @@
 /**
- * Packet 32 — CPU cost of the composed fixed step, measured on the packet-14
- * fixture/reference setup (`tests/evaluations/m2-physics/course-spec.json`,
- * 64 static colliders + 1 kinematic capsule at 120 Hz) with the packet-14
+ * CPU cost of the composed fixed step, measured on the reference
+ * fixture setup (`tests/evaluations/m2-physics/course-spec.json`,
+ * 64 static colliders + 1 kinematic capsule at 120 Hz) with the reference
  * protocol: 3 runs × (5 s warmup + 30 s measure), `process.hrtime.bigint()`,
  * percentiles of the whole fixed step the runtime executes
  * (`controller → physics → transform`), i.e. `runtime.tick()` for one step.
@@ -85,7 +85,7 @@ describe('directional container CPU cost (packet-14 protocol, BR-2)', () => {
     console.log(`[cpu] ${JSON.stringify(summary)}`);
     for (const r of runs) {
       expect(r.samples).toBe(measureSteps);
-      // Sanity only: the whole 120 Hz tick budget is 8.333 ms (packet-14 §7).
+      // Sanity only: the whole 120 Hz tick budget is 8.333 ms.
       expect(r.p99).toBeLessThan(8.333333333333334);
     }
   }, 600_000);

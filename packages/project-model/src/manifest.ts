@@ -1,38 +1,33 @@
 /**
- * The immutable runtime-content manifest (sessions.md §17.1.1, packet 36).
+ * The immutable runtime-content manifest.
  *
  * `captureManifest` is the pure derivation of the delivery manifest from ONE
  * already-captured authoring state: the captured scene document, the resolved
- * asset versions (project-model §19), the reachable source-bearing behaviors
+ * asset versions, the reachable source-bearing behaviors
  * and the required engine module IDs. It has no I/O, no clock and no
  * randomness — the caller supplies `capturedAt` — so two captures of the same
- * state produce byte-identical documents (export.md §7 / project-model §19.3).
+ * state produce byte-identical documents.
  *
  * The document is the play/export structural input; `buildId` is its
- * self-identifying digest (sessions.md §17.1.1), never an engine-independent
+ * self-identifying digest, never an engine-independent
  * binary hash.
  *
  * This module is in the zero-dependency `project-model` leaf because the
- * canonical JSON text and the SHA-256 helpers (`./sha256`) already live here
- * (dependencies.md §3 lists `captureManifest` on the project-model row). The
- * contract's duplicate constants on the `protocol` row (`RUNTIME_CONTENT_TYPE`,
- * `MANIFEST_KEYS`, `buildOptionsRecordBytes`) are cross-checked against these
- * values by the packet-36 integration evidence; see the contract-change
- * request C36-2 in docs/handoffs/36.md.
+ * canonical JSON text and the SHA-256 helpers (`./sha256`) already live here.
  */
 import { resolveRequiredModules } from './modules';
 import { canonicalJsonText, sha256Hex, sha256HexOfText } from './sha256';
 
-/** The manifest discriminator (sessions.md §17.1.1). */
+/** The manifest discriminator. */
 export const RUNTIME_CONTENT_TYPE = 'thirdlight-runtime-content' as const;
 
-/** The manifest shape version (sessions.md §17.1.1). */
+/** The manifest shape version. */
 export const RUNTIME_CONTENT_MANIFEST_VERSION = 1 as const;
 
-/** The manifest document cap (sessions.md §17.1.3 numeric bounds). */
+/** The manifest document cap. */
 export const RUNTIME_CONTENT_MANIFEST_MAX_BYTES = 262_144;
 
-/** The exact canonical option-set record (delivery.md §4.2 / export.md §5.3). */
+/** The exact canonical option-set record. */
 export const BUILD_OPTIONS_RECORD = Object.freeze({
   bundler: 'esbuild@0.28.2',
   bundle: true,
@@ -71,10 +66,8 @@ export const MANIFEST_KEYS = [
 ] as const;
 
 /**
- * The pinned engine table recorded in `enginePins` (behaviors.md §5.3),
- * ascending by `id`. Identical to the packet-35 table (asserted by the
- * packet-36 evidence); a version change is an owner-approved decision change
- * (dependencies.md §9).
+ * The pinned engine table recorded in `enginePins`, ascending by `id`. A
+ * version change is an owner-approved decision change.
  */
 export const M2_ENGINE_PINS: ReadonlyArray<{ id: string; version: string; apiVersion: number }> = Object.freeze([
   Object.freeze({ id: '@thirdlight/input', version: '0.1.0', apiVersion: 1 }),
@@ -97,7 +90,7 @@ export const M2_MODULE_PACKAGES: Readonly<Record<string, string>> = Object.freez
 /** The engine module IDs this model version knows (ascending). */
 export const M2_KNOWN_MODULE_IDS: readonly string[] = Object.freeze(Object.keys(M2_MODULE_PACKAGES).sort());
 
-/** One resolved asset version of the captured view (project-model §19.1). */
+/** One resolved asset version of the captured view. */
 export interface ManifestAssetInput {
   assetId: string;
   version: number;
@@ -105,13 +98,13 @@ export interface ManifestAssetInput {
   sourceByteLength: number;
   /** The import recipe the deprecated `recipeDigest` is derived from. */
   importRecipe?: unknown;
-  /** A caller-supplied `recipeDigest` (packet-35 play capture compatibility). */
+  /** A caller-supplied `recipeDigest` (play capture compatibility). */
   recipeDigest?: string;
-  /** A caller-supplied `metricsDigest` (packet-35 play capture compatibility). */
+  /** A caller-supplied `metricsDigest` (play capture compatibility). */
   metricsDigest?: string;
 }
 
-/** One reachable source-bearing behavior (project-model §22.2). */
+/** One reachable source-bearing behavior. */
 export interface ManifestBehaviorInput {
   behaviorId: string;
   sourceDigest: string;
@@ -128,7 +121,7 @@ export interface ManifestBehaviorInput {
 export interface CaptureManifestInput {
   projectId: string;
   revision: number;
-  /** UTC second at capture (project-model §7.2), e.g. `2026-09-19T10:00:00Z`. */
+  /** UTC second at capture, `YYYY-MM-DDThh:mm:ssZ`. */
   capturedAt: string;
   /** The canonical runtime scene document (`{schemaVersion, sceneId, revision, entities}`). */
   scene?: unknown;
@@ -142,7 +135,7 @@ export interface CaptureManifestInput {
   contentDigest?: string;
 }
 
-/** The manifest document (field order = §17.1.1 key order; `buildId` last). */
+/** The manifest document (field order = `MANIFEST_KEYS` order; `buildId` last). */
 export interface RuntimeContentManifest {
   manifestVersion: number;
   type: string;
@@ -191,7 +184,7 @@ function manifestError(code: string, message: string, reason?: string, limit?: s
 }
 
 /**
- * The `contentDigest` of a captured content view (project-model §19.1): the
+ * The `contentDigest` of a captured content view: the
  * canonical JSON of `{contentVersion, projectId, revision, assets}` with the
  * per-entry key order `assetId, version, sourceDigest, sourceByteLength,
  * importRecipe`. `canonicalJsonText` sorts keys, so the view's own key order is
@@ -218,12 +211,12 @@ export function capturedViewDigest(input: {
   return sha256HexOfText(canonicalJsonText(withoutDigest));
 }
 
-/** `recipeDigest` for one import recipe (project-model §18.5). */
+/** `recipeDigest` for one import recipe. */
 export function recipeDigestOf(importRecipe: unknown): string {
   return sha256HexOfText(canonicalJsonText(importRecipe));
 }
 
-/** The digest of one version's bounded record facts (packet-35 `metricsDigest`). */
+/** The digest of one version's bounded record facts (`metricsDigest`). */
 export function versionFactsDigest(v: {
   assetId: string;
   version: number;
@@ -241,7 +234,7 @@ export function versionFactsDigest(v: {
 }
 
 /**
- * The required engine module IDs for one captured M2 scene (ascending) —
+ * The required engine module IDs for one captured scene (ascending) —
  * the declared-dependency resolver over the scene's referenced content
  * (see `modules.ts`); a plain scene resolves to no modules.
  */
@@ -256,7 +249,7 @@ export function requiredModuleIds(
 }
 
 /**
- * Capture the §17.1.1 manifest from one captured state. Pure: every field is
+ * Capture the manifest from one captured state. Pure: every field is
  * derived from the arguments; `capturedAt` is caller-supplied.
  */
 export function captureManifest(input: CaptureManifestInput): CaptureManifestResult {
@@ -355,10 +348,10 @@ export function captureManifest(input: CaptureManifestInput): CaptureManifestRes
 }
 
 /**
- * The exact bytes `buildId` covers (sessions.md §17.1.1): the canonical
+ * The exact bytes `buildId` covers: the canonical
  * document serialization of the manifest without `buildId`, key order exactly
- * as §17.1.1 writes it. Identical to `protocol`'s `manifestBuildIdInput` for
- * the same document (asserted by the packet-36 evidence).
+ * `MANIFEST_KEYS`. Identical to `protocol`'s `manifestBuildIdInput` for the
+ * same document.
  */
 export function manifestBuildIdInput(manifest: Record<string, unknown>): Uint8Array | null {
   const without: Record<string, unknown> = {};
@@ -378,7 +371,7 @@ export interface EmittedArtifactDigest {
 }
 
 /**
- * `meta.json.outputDigest` (export.md §6): the SHA-256 record of the emitted
+ * `meta.json.outputDigest`: the SHA-256 record of the emitted
  * closure. Deterministic over the emitted artifact listing (sorted by path,
  * excluding `meta.json` itself — it carries `exportedAt` and this value):
  *

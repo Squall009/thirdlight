@@ -1,5 +1,5 @@
 /**
- * Phase 25.24e — scene transitions never leave an empty world: a
+ * Scene transitions never leave an empty world: a
  * transition's unloads wait for its scene and leave in the step it arrives
  * (one scene set revision), an optional fade runs out before the swap, the
  * loading state is readable by scripts (`ctx.scenes.loading()`,

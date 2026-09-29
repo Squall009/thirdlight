@@ -1,5 +1,5 @@
 /**
- * Phase 15.4: an observation may name an entity (its running scripts'
+ * An observation may name an entity (its running scripts'
  * property values, for the Play debug view and tl_game_observe).
  */
 import { describe, expect, it } from 'vitest';

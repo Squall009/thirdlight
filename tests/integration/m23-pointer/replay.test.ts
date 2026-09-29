@@ -1,5 +1,5 @@
 /**
- * Phase 23.3: pointer samples are part of the recorded input, so a replay
+ * Pointer samples are part of the recorded input, so a replay
  * reproduces what a script did with them — in the page and in the
  * simulation worker alike. A neutral 3D scene without a player (a world
  * without a character: colliders answer queries), three boxes in front of

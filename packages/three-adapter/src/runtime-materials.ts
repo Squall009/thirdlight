@@ -1,5 +1,5 @@
 /**
- * Phase 23.12 (E9): the renderer's side of `ctx.materials` — the material
+ * The renderer's side of `ctx.materials` — the material
  * parameter changes the simulation sends each frame (runtime
  * `takeMaterialChanges`, through the worker frame in threaded Play) put on
  * the objects' meshes through the material library:

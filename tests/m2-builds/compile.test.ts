@@ -1,6 +1,6 @@
 /**
- * Packet 33 — `compileBehavior` over the real pinned esbuild 0.28.2
- * (project-model.md §22.3.3 steps 13–15, §22.4; behaviors.md §5).
+ * `compileBehavior` over the real pinned esbuild 0.28.2 (the compile steps
+ * of the behavior build).
  *
  * The valid fixtures compile reproducibly; every hostile container and every
  * bound fails with the committed code; the injected build/clock seams prove
@@ -30,9 +30,9 @@ const DECLARATION = fixtureDeclaration();
 const BEHAVIOR_ID = index.behaviorId;
 
 /**
- * The pin table the packet-33 digests were recorded under (the fixture's own
- * `pinnedModules`). Phase 24.3 unpinned `@thirdlight/character` from the
- * live table; the fixture keeps reproducing byte-identically under its record.
+ * The pin table the fixture's digests were recorded under (its own
+ * `pinnedModules`, which still pins `@thirdlight/character` while the live
+ * table does not); the fixture reproduces byte-identically under its record.
  */
 const FIXTURE_PINS = index.pinnedModules;
 
@@ -140,7 +140,7 @@ describe('packet 33 — compileBehavior (project-model.md §22.3.3 steps 13–15
         pinnedModules: M2_PINNED_MODULES,
         limits: RUN_LIMITS,
       });
-      // Phase 19.1: a behavior may declare no property (the packet-33 "empty" case compiles now).
+      // A behavior may declare no property (the "empty" case compiles).
       if (c.declaration === 'empty') {
         expect(result.ok, c.caseId).toBe(true);
         continue;

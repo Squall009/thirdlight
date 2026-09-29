@@ -1,5 +1,5 @@
 /**
- * Standalone texture inspection (phase 9.4): PNG/JPEG/WebP by magic bytes,
+ * Standalone texture inspection: PNG/JPEG/WebP by magic bytes,
  * the declared size bounded, never decoded.
  */
 import { describe, expect, it } from 'vitest';

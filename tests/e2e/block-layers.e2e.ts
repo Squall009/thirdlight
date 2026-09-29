@@ -1,5 +1,5 @@
 /**
- * Phase 23.5 (E8): block layers against a real backend.
+ * Block layers against a real backend.
  *
  * A small map is built with the bulk commands over HTTP (the commands MCP's
  * tl_command sends): a 3D project, block types (coloured stand-ins), a cell

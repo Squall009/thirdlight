@@ -1,5 +1,5 @@
 /**
- * Phase 15.4: properties declared in code — the compiler derives the
+ * Properties declared in code — the compiler derives the
  * declaration from `export const properties = { … }` in src/index.ts (code
  * wins over the supplied JSON declaration), marks the manifest
  * `declaredInCode`, and rewrites the statement to plain data so the module

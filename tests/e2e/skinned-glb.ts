@@ -135,7 +135,7 @@ export function skinnedGlb(extraClips: readonly ExtraClip[] = []): Buffer {
 }
 
 /**
- * Phase 14.6: an animation-only GLB for the rig above — the same two bones
+ * An animation-only GLB for the rig above — the same two bones
  * (`root`, `upper` at 1 m), no mesh, one clip `wave`: the upper half bent
  * 80° the other way (to the right, seen from the front).
  */

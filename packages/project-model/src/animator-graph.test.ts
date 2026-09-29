@@ -1,5 +1,5 @@
 /**
- * Phase 16.2: an animator controller's layers and blend trees as graphs —
+ * An animator controller's layers and blend trees as graphs —
  * read (auto-layout, pairs as one wire, fixed nodes), write (states, entry,
  * transitions kept in order, layout) and their round trip.
  */

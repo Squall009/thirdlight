@@ -1,8 +1,8 @@
 /**
- * Packet 35/36 — the immutable runtime-content manifest and the scoped
- * play-content locator store (sessions.md §10.5/§17, export.md §2).
+ * The immutable runtime-content manifest and the scoped
+ * play-content locator store.
  *
- * Packet 36 makes this module a THIN consumer of the shared closure builder in
+ * This module is a THIN consumer of the shared closure builder in
  * `@thirdlight/exporter` (`buildContentClosure`) — the SAME implementation the
  * export pipeline uses. There is one manifest/closure derivation for play and
  * export; this module owns only the play-specific wrapper (the prebuilt play
@@ -10,7 +10,7 @@
  *
  * - `buildPlayContent` wraps the shared closure and appends `game.js`.
  * - `PlayContentStore` holds one immutable artifact set per play start and
- *   serves reads only through the exact §17.2.1 route set; a set is unreachable
+ *   serves reads only through the exact locator route set; a set is unreachable
  *   after `PLAY_CONTENT_TTL` (or `PLAY_CONTENT_GRACE` after a terminal play),
  *   and the contentId is a redacted secret-equivalent.
  * - `captureRuntimeContentManifest` is a compatibility adapter over
@@ -98,7 +98,7 @@ export function randomContentId(): string {
 
 const B64URL_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
 
-/** Unpadded base64url of a byte string (sessions.md §17.2 `contentId`). */
+/** Unpadded base64url of a byte string (the `contentId` form). */
 export function base64Url(bytes: Uint8Array): string {
   let out = '';
   for (let i = 0; i < bytes.length; i += 3) {
@@ -123,12 +123,12 @@ export class PlayContentStore {
   private readonly sets = new Map<string, PlayContentSet>();
   private readonly byPlay = new Map<string, string>();
   /**
-   * Phase 25.24c: every artifact once by its digest (a Play of unchanged
+   * Every artifact once by its digest (a Play of unchanged
    * content shares the bytes of the Plays before it instead of holding a
    * copy), with the sets that declare it.
    */
   private readonly blobs = new Map<string, { artifact: PlayArtifact; holders: Set<string> }>();
-  /** Phase 25.24c: the per-project cache root ids (a keyed hash of the project id) → the project. */
+  /** The per-project cache root ids (a keyed hash of the project id) → the project. */
   private readonly cacheIds = new Map<string, string>();
   private readonly cacheSecret = nodeRandomBytes(32);
   private sweepTimer: ReturnType<typeof setInterval> | undefined;
@@ -176,7 +176,7 @@ export class PlayContentStore {
     while (this.sets.has(contentId)) contentId = this.randomId();
     const artifacts = new Map<string, PlayArtifact>();
     for (const a of input.artifacts) {
-      // Phase 25.24c: the bytes already held under this digest are shared, not kept twice.
+      // The bytes already held under this digest are shared, not kept twice.
       const held = this.blobs.get(a.digest);
       if (held !== undefined && held.artifact.bytes.length === a.bytes.length) {
         artifacts.set(a.path, held.artifact.path === a.path && held.artifact.contentType === a.contentType ? held.artifact : { ...a, bytes: held.artifact.bytes });
@@ -211,11 +211,11 @@ export class PlayContentStore {
   }
 
   /**
-   * Phase 25.24c: the project's cache root id — a keyed hash of the project
+   * The project's cache root id — a keyed hash of the project
    * id (43 base64url characters, the contentId shape), the same for every
    * Play of the project while this backend runs, unguessable without the
    * store's secret. Under it the project's declared artifacts are served by
-   * digest (`content/sha256/<digest>`, `behaviors/<digest>.js`, phase 25.9 `libraries/<digest>.js`) at URLs that
+   * digest (`content/sha256/<digest>`, `behaviors/<digest>.js`, `libraries/<digest>.js`) at URLs that
    * stay the same from Play to Play, so the browser's cache hits.
    */
   cacheIdFor(projectId: string): string {
@@ -230,7 +230,7 @@ export class PlayContentStore {
   }
 
   /**
-   * Phase 25.24c: an artifact by its digest under a project's cache root —
+   * An artifact by its digest under a project's cache root —
    * only while a set of that project that declares it can still be read
    * (live, or in its grace window).
    */
@@ -321,7 +321,7 @@ export class PlayContentStore {
     return dropped;
   }
 
-  /** Phase 25.24c: a dropped set no longer holds its blobs (a blob no set holds is let go). */
+  /** A dropped set no longer holds its blobs (a blob no set holds is let go). */
   private release(contentId: string, set: PlayContentSet): void {
     for (const a of set.artifacts.values()) {
       const held = this.blobs.get(a.digest);
@@ -331,7 +331,7 @@ export class PlayContentStore {
     }
   }
 
-  /** Leak/accounting counters for the lifecycle tests (phase 25.24c: `bytes` counts each blob once; `blobs` held). */
+  /** Leak/accounting counters for the lifecycle tests (`bytes` counts each blob once; `blobs` held). */
   counters(): { sets: number; plays: number; bytes: number; blobs: number; timers: number; published: number; pruned: number; reads: number } {
     let bytes = 0;
     for (const set of this.sets.values()) bytes += set.manifestBytes.length;

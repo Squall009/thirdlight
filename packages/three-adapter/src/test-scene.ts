@@ -2,11 +2,11 @@
  * Test-only scene fixture for the three-adapter test suite (NOT part of
  * the public surface — not exported from index.ts, imported only by
  * .test.ts files). Local by design: no package may consume another
- * package's tests/fixtures (dependencies.md §3).
+ * package's tests/fixtures.
  */
 
 /** A valid v4 scene: one camera, one group, one
- *  box under the group (parent before child, §11 order). */
+ *  box under the group (parent before child). */
 export function baseScene(): { schemaVersion: 4; sceneId: string; revision: number; entities: unknown[] } {
   return {
     schemaVersion: 4,

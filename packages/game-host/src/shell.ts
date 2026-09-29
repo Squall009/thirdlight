@@ -1,5 +1,5 @@
 /**
- * Phase 24.4j: the game shell in the game host — the menus around a game
+ * The game shell in the game host — the menus around a game
  * (every game plays as a scene), drawn with the project's
  * UI documents (`content.shell`): a title before play, the pause screen (or
  * the engine's pause panel), settings, controls, save and load screens, and
@@ -8,7 +8,7 @@
  * The shell changes the game only through the host's seams: the engine pause
  * (no steps while a menu is open), a restart and a move along the scene list
  * (UI events on the next input frame, so replays hold), and project saves
- * (23.19: a save made by the simulation, a slot loaded by the save service).
+ * (a save made by the simulation, a slot loaded by the save service).
  * It knows no game rules.
  *
  * The values it gives UI documents (`$flow.shell`): the screen, the listed

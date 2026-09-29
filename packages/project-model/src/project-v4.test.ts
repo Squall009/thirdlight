@@ -1,6 +1,6 @@
 /**
- * Phase 12 (c): v4 scenes (instance sets, at most one camera), the v4 content
- * block (startScenes; phase 24: no game block, no flow), the cross-scene
+ * v4 scenes (instance sets, at most one camera), the v4 content
+ * block (startScenes; no game block, no flow), the cross-scene
  * project rules and the v3 → v4 migration (run on the neutral starter
  * template).
  */
@@ -59,7 +59,7 @@ describe('scene v4', () => {
     expect(bad([{ id: 'g-1', components: { transform: T, instances: { asset: { assetId: GRASS }, buffer: 'nope', count: 1 } } }]).ok).toBe(false);
     expect(bad([{ id: 'g-1', components: { transform: T, instances: { asset: { assetId: GRASS }, buffer: DIGEST, count: 70000 } } }]).ok).toBe(false);
     expect(bad([{ id: 'g-1', components: { transform: T, box: { size: [1, 1, 1], material: { color: '#ffffff' } }, instances: { asset: { assetId: GRASS }, buffer: DIGEST, count: 3 } } }]).ok).toBe(false);
-    // Phase 24: gameZone and cameraFollow are no components any more.
+    // gameZone and cameraFollow are no components any more.
     for (const removed of [{ gameZone: { role: 'exit', size: [1, 1], load: ['scene-a'] } }, { cameraFollow: { deadZone: { x: 0.5, y: 0.5 }, smoothing: 0.2 } }]) {
       const r = bad([{ id: 'z-1', components: { transform: T, ...removed } }]);
       expect(r.ok).toBe(false);
@@ -96,7 +96,7 @@ describe('content v4', () => {
       expect(e, JSON.stringify(withFlow.errors)).toBeDefined();
       expect(e!.message).toContain('removed in phase 24');
     }
-    // Phase 24.8: v4 content has no game key at all (a null one is refused too; the loader drops it from a schemaVersion 2 project).
+    // v4 content has no game key at all (a null one is refused too; the loader drops it from a schemaVersion 2 project).
     expect('game' in content()).toBe(false);
     expect(validateContentV4(content({ game: null })).ok).toBe(false);
   });
@@ -152,14 +152,14 @@ describe('project v4', () => {
     expect(validateProjectV4(MANIFEST, content({ startScenes: ['scene-nope'] }), [core]).ok).toBe(false);
     const noCam = scene('scene-core', []);
     expect(JSON.stringify(validateProjectV4(MANIFEST, content(), [noCam]))).toContain('camera_count_invalid');
-    // Phase 24.4e: a trigger's scene transition names existing scenes and a player spawn in the scene it loads (or its own).
+    // A trigger's scene transition names existing scenes and a player spawn in the scene it loads (or its own).
     const door = (t: Record<string, unknown>) => scene('scene-exit', [{ id: 'door-0001', components: { transform: T, trigger: { size: [1, 1], signal: 'door', sceneTransition: t } } }]);
     expect(validateProjectV4(MANIFEST, content(), [core, level, door({ scene: 'scene-level', spawn: 'spawn-0002', unload: ['scene-exit'] })]).ok).toBe(true);
     expect(JSON.stringify(validateProjectV4(MANIFEST, content(), [core, level, door({ scene: 'scene-gone' })]))).toContain('a scene transition names no scene');
     expect(JSON.stringify(validateProjectV4(MANIFEST, content(), [core, level, door({ scene: 'scene-level', unload: ['scene-gone'] })]))).toContain('a scene transition unloads no scene');
     expect(JSON.stringify(validateProjectV4(MANIFEST, content(), [core, level, door({ scene: 'scene-core', spawn: 'spawn-0002' })]))).toContain('a scene transition\'s spawn must be');
     expect(JSON.stringify(validateProjectV4(MANIFEST, content(), [core, level, door({ scene: 'scene-level', spawn: 'box-0001' })]))).toContain('a scene transition\'s spawn must be');
-    // Phase 24.4j: the shell's listed scenes are scenes of the project, each spawn a player spawn in its scene.
+    // The shell's listed scenes are scenes of the project, each spawn a player spawn in its scene.
     const hudDoc = { uiDocumentId: 'hud', name: 'HUD', root: { type: 'panel' } };
     const shell = (scenes: unknown[]) => content({ uiDocuments: [hudDoc], shell: { hud: ['hud'], scenes } });
     const good = validateProjectV4(MANIFEST, shell([{ scene: 'scene-core' }, { scene: 'scene-level', spawn: 'spawn-0002' }]), [core, level, scene('scene-exit', [])]);

@@ -1,5 +1,5 @@
 /**
- * Phase 23.19 (E15): the project's save schema (`content.saveSchema`, v4) —
+ * The project's save schema (`content.saveSchema`, v4) —
  * the shape of the project-defined save document and the project settings
  * document, both project data:
  *
@@ -12,9 +12,9 @@
  * - `sections`: engine state included in every save automatically (opt-in):
  *   `grid` (the block-layer cells scripts changed), `materials` (material
  *   parameters scripts set), `spawned` (the spawned prefab copies),
- *   `storage` (the scripts' `ctx.save` values), `environment` (phase 23.18:
- *   the environment preset blend scripts set), `dialogue`, `components`
- *   (phase 24.4: objects' current health, collected collectibles, where
+ *   `storage` (the scripts' `ctx.save` values), `environment` (the
+ *   environment preset blend scripts set), `dialogue`, `components`
+ *   (objects' current health, collected collectibles, where
  *   patrollers are and which primitives scripts switched off);
  * - `thumbnail`: the size and format of a slot's optional picture of the view;
  * - `settings`: the fields of the project settings document the game's own
@@ -51,8 +51,8 @@ export const SAVE_LIMITS = Object.freeze({
   metaText: 128,
 });
 
-// Phase 23.16: + dialogue (the dialogue variables and the seen-lines set).
-// Phase 24.4: + components (the state of objects' health, collectibles, patrols and hitboxes).
+// + dialogue (the dialogue variables and the seen-lines set).
+// + components (the state of objects' health, collectibles, patrols and hitboxes).
 export const SAVE_SECTIONS = ['grid', 'materials', 'spawned', 'storage', 'environment', 'dialogue', 'components'] as const;
 export type SaveSection = (typeof SAVE_SECTIONS)[number];
 

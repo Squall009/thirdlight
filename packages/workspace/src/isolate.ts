@@ -1,17 +1,17 @@
 /**
- * Deep isolation for the public API boundary (2026-09-18 review, R10).
+ * Deep isolation for the public API boundary.
  *
  * The workspace publishes authoritative in-memory state — scene entities,
  * the manifest, retry-record results, history change data, validation
  * details — inside query and mutation results. A returned reference that
  * aliases that state is a second mutation path next to `runCommand`
- * (the contract's single mutation path, commands.md §6.1): the R10 probes
- * showed a caller rewriting `queryEntity(...).entity.name` or an ack's
- * `history.undoDepth` corrupting the durable state.
+ * (the contract's single mutation path): a caller rewriting
+ * `queryEntity(...).entity.name` or an ack's `history.undoDepth` would
+ * corrupt the durable state.
  *
- * Chosen isolation (R10 repair): a DEEP FREEZE at the public boundary,
- * not a deep copy. Queries are the hot path (immediate in-memory reads,
- * workspace.md §5.3); a boundary copy would re-allocate up to 1024
+ * Chosen isolation: a DEEP FREEZE at the public boundary,
+ * not a deep copy. Queries are the hot path (immediate in-memory reads);
+ * a boundary copy would re-allocate up to 1024
  * entities on every query, while a freeze touches each shared object
  * once (the first export) and every later export/ack/replay is an O(1)
  * `Object.isFrozen` skip per already-frozen node. The freeze is

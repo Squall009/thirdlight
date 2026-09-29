@@ -1,5 +1,5 @@
 /**
- * Phase 25.21: a painted terrain material, against a real backend on a
+ * A painted terrain material, against a real backend on a
  * blank project, in the Scene view, Play and the static export.
  *
  * - Three texture arrays of four layers: albedo + height (packed in the

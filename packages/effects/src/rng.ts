@@ -1,10 +1,10 @@
 /**
- * Phase 20.1: deterministic random numbers for effects.
+ * Deterministic random numbers for effects.
  *
  * Everything random in an effect derives from the effect seed through
  * integer hashing, so the same seed, graph and step sequence give the same
  * particles on every run (the CPU reference; the GPU executor uses the same
- * hash in 20.2). No Math.random, no clock.
+ * hash). No Math.random, no clock.
  */
 
 /** A 32-bit integer hash of several 32-bit values (murmur3-style mixing). */

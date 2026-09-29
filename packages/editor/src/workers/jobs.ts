@@ -1,5 +1,5 @@
 /**
- * Phase 22.1: the editor's off-thread jobs — one table, run by the editor
+ * The editor's off-thread jobs — one table, run by the editor
  * worker (`editor-worker.ts`) and, where no worker is available, by the page
  * itself: the same functions on both sides, so the results are the same.
  *

@@ -1,5 +1,5 @@
 /**
- * Phase 24.4i: the event → cue table (`content.eventCues`, v4): project data
+ * The event → cue table (`content.eventCues`, v4): project data
  * that maps named things happening in the simulation to sounds the host
  * plays — the generic form of fixed cue slots.
  *

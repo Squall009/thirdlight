@@ -1,6 +1,6 @@
 /**
- * Texture import (phase 9.4): a standalone PNG, JPEG or WebP image; phase
- * 25.19: or a Basis Universal KTX2 (ETC1S or UASTC, 2D, with its mip levels).
+ * Texture import: a standalone PNG, JPEG or WebP image, or a Basis Universal
+ * KTX2 (ETC1S or UASTC, 2D, with its mip levels).
  *
  * Like the GLB and WAV inspectors: bytes in, a bounded non-authoritative
  * proposal out, no decoding. The magic bytes decide the format (never the
@@ -34,11 +34,11 @@ export interface ImageMetrics {
   readonly height: number;
   /** width × height × 4. */
   readonly decodedBytes: number;
-  /** Phase 25.19, KTX2 only: the Basis Universal codec. */
+  /** KTX2 only: the Basis Universal codec. */
   readonly codec?: 'etc1s' | 'uastc';
-  /** Phase 25.19, KTX2 only: the mip levels in the file. */
+  /** KTX2 only: the mip levels in the file. */
   readonly levels?: number;
-  /** Phase 25.21, KTX2 only: a texture array's layers (absent: a plain texture). */
+  /** KTX2 only: a texture array's layers (absent: a plain texture). */
   readonly layers?: number;
 }
 
@@ -87,7 +87,7 @@ function inspectStages(bytes: Uint8Array): ImageMetrics | ImportDiagnostic[] {
     if (info.width > TEXTURE_EDGE_MAX || info.height > TEXTURE_EDGE_MAX) {
       return [diag('asset_limits_exceeded', 'the texture is larger than the edge limit', `${info.width}x${info.height}`, `<= ${TEXTURE_EDGE_MAX} px per edge`)];
     }
-    // Phase 25.21: an array's decoded size counts every layer.
+    // An array's decoded size counts every layer.
     const layers = info.layers ?? 1;
     return { format: 'ktx2', width: info.width, height: info.height, decodedBytes: decodedImageBytes(info) * layers, codec: info.codec, levels: info.levels, ...(info.layers !== undefined ? { layers: info.layers } : {}) };
   }

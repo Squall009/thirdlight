@@ -1,9 +1,9 @@
 /**
- * Packet 28 — Node-runnable prefab/property authoring integration of the
+ * Node-runnable prefab/property authoring integration of the
  * editor's PURE modules (vitest; no browser, no backend).
  *
- * This suite replays the **accepted** packet-16/22 fixtures through the exact
- * modules the React app uses and asserts the packet-28 acceptance properties at
+ * This suite replays the **accepted** prefab fixtures through the exact
+ * modules the React app uses and asserts the prefab acceptance properties at
  * the pure layer:
  *
  *  - capture preflight + `createPrefab` request construction;
@@ -14,7 +14,7 @@
  *  - one-undo subtree removal and exact-ID redo, and reopening rebuilt from
  *    queries rather than in-memory assumptions;
  *  - an MCP-origin `mutation.applied` converges the projection without a
- *    reload (dedup + the gap rule are the M1 rules, unchanged);
+ *    reload (dedup + the gap rule);
  *  - the declaration/definition projection never rewrites a copy's values;
  *  - no script evaluation anywhere in the authoring modules/panels and no
  *    apply/revert/variant/link affordance in the UI.

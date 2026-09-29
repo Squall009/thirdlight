@@ -1,10 +1,10 @@
 /**
- * Phase 9.5: point, spot and hemisphere lights. A red point light next to a
+ * Point, spot and hemisphere lights. A red point light next to a
  * box tints it in the Scene view (game lighting) and in Play; the light is
  * edited in the Inspector; the Scene view toggles between the editor rig and
  * the scene's own lights.
  *
- * Phase 17.3: runs once per renderer variant (renderer-variants.ts).
+ * Runs once per renderer variant (renderer-variants.ts).
  */
 import { randomBytes } from 'node:crypto';
 
@@ -105,7 +105,7 @@ function mostBrightRuns(img: Image): number {
 }
 
 /**
- * Phase 25.8: a spot light's cookie (three's SpotLight.map) is set in the
+ * A spot light's cookie (three's SpotLight.map) is set in the
  * Inspector (a texture field on spot lights only) and shows in the Scene
  * view: the spot's patch on a dark floor is one bright disc before and
  * striped after. Play draws it too (scene-lights.e2e.ts checks its pixels).

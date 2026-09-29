@@ -1,5 +1,5 @@
 /**
- * Phase 19.0: visual scripts through the commands — a behavior created with
+ * Visual scripts through the commands — a behavior created with
  * a graph (publishBehavior declaration-create + graph), edited with the
  * generic graphEdit on owner kind `behavior` (one revision, one undo step),
  * the exec/data wiring rules refused by the kind, and the declaration of a
@@ -193,7 +193,7 @@ describe('phase 19.1: functions of a visual script and shared functions', () => 
     }).state;
     const r = refusal(s, 'graphEdit', { owner: { kind: 'graph', id: 'shared' }, ops: [{ op: 'removeNodes', ids: ['y'] }] });
     expect(r.message).toContain('script "Visual"');
-    // A visual script may declare no variable at all (phase 19.1).
+    // A visual script may declare no variable at all.
     ok(fresh(), 'publishBehavior', { behaviorId: 'bare', displayName: 'Bare', mode: 'declaration-create', declaration: { properties: [] }, graph: { nodes: [{ id: 'start', type: 'event.start', position: [0, 0] }], edges: [] } });
   });
 });

@@ -1,5 +1,5 @@
 /**
- * Phase 9.7: the animator state machine (one per entity with an `animator`).
+ * The animator state machine (one per entity with an `animator`).
  *
  * Pure and deterministic: the runtime steps it with the fixed simulation
  * step, so a replay gives the same poses and the same clip events. The
@@ -16,7 +16,7 @@
  *   blend-weighted length), so blended clips stay in step.
  * - Clip events fire when a playing clip (weight > 0) passes their time.
  *
- * Phase 14.6: override layers. Each layer is its own state machine over the
+ * Override layers. Each layer is its own state machine over the
  * shared parameters (the base layer is the controller's own states). In a
  * step every layer picks its transition first and then they all fire, so a
  * trigger tested by two layers is seen by both before it resets. The pose
@@ -63,7 +63,7 @@ interface GraphLike {
   readonly entry: string;
 }
 
-/** Phase 14.6: an override layer. */
+/** An override layer. */
 export interface AnimatorLayerLike extends GraphLike {
   readonly name: string;
   readonly mask: readonly string[];
@@ -75,9 +75,9 @@ export interface AnimatorControllerLike extends GraphLike {
   readonly controllerId: string;
   readonly parameters: readonly { readonly name: string; readonly type: 'float' | 'int' | 'bool' | 'trigger'; readonly default?: AnimatorValue }[];
   readonly events: readonly { readonly assetId: string; readonly clip: string; readonly time: number; readonly name: string }[];
-  /** Phase 14.6: override layers over the base layer. */
+  /** Override layers over the base layer. */
   readonly layers?: readonly AnimatorLayerLike[];
-  /** Phase 23.11: morph targets whose weight follows a float parameter (clamped to 0–1). */
+  /** Morph targets whose weight follows a float parameter (clamped to 0–1). */
   readonly morphs?: readonly { readonly target: string; readonly parameter: string }[];
 }
 
@@ -89,7 +89,7 @@ export interface AnimatorPoseClip {
   readonly weight: number;
 }
 
-/** Phase 14.6: one override layer's part of the pose. */
+/** One override layer's part of the pose. */
 export interface AnimatorPoseLayer {
   readonly name: string;
   /** The bones it drives (empty = every bone). */
@@ -105,23 +105,23 @@ export interface AnimatorPose {
   /** The current state's name (the target's once a crossfade is over). */
   readonly state: string;
   readonly clips: readonly AnimatorPoseClip[];
-  /** Phase 14.6: the override layers (only when the controller has them). */
+  /** The override layers (only when the controller has them). */
   readonly layers?: readonly AnimatorPoseLayer[];
   /**
-   * Phase 23.11: morph target weights (0–1) by target name — the controller's
+   * Morph target weights (0–1) by target name — the controller's
    * parameter-bound targets and the ones scripts set (only when there are some).
    */
   readonly morphs?: Readonly<Record<string, number>>;
 }
 
 /**
- * Phase 23.11: the playback speed range of one animator (a multiplier on
+ * The playback speed range of one animator (a multiplier on
  * every layer's clip time and crossfade). 0 holds the pose (a freeze frame);
  * 10× is far past any fast-forward a game shows. Negative speeds are not
  * offered: crossfades and exit times only run forwards.
  */
 export const ANIMATOR_SPEED_LIMITS = Object.freeze({ min: 0, max: 10 });
-/** Phase 23.11: how many morph targets scripts may set on one animator (a face rig's worth). */
+/** How many morph targets scripts may set on one animator (a face rig's worth). */
 export const MAX_SCRIPT_MORPHS = 64;
 
 export interface AnimatorEventFired {
@@ -210,7 +210,7 @@ class LayerGraph {
   }
 
   /**
-   * Phase 23.17: go to the state named `name` (by name, then id) over `fade`
+   * Go to the state named `name` (by name, then id) over `fade`
    * seconds (0: at once) — a transition made on the spot. False: no such state.
    */
   play(name: string, fade: number): boolean {
@@ -333,7 +333,7 @@ export class AnimatorMachine {
   /** The base layer, then the override layers. */
   private readonly graphs: LayerGraph[];
   private readonly layers: readonly AnimatorLayerLike[];
-  /** Phase 23.11: the per-instance playback speed (1 = as authored). */
+  /** The per-instance playback speed (1 = as authored). */
   private speedMul = 1;
   private readonly morphBindings: readonly { readonly target: string; readonly parameter: string }[];
   private readonly scriptMorphs = new Map<string, number>();
@@ -355,7 +355,7 @@ export class AnimatorMachine {
   }
 
   /**
-   * Phase 23.11: set the playback speed multiplier (every layer's clip time and
+   * Set the playback speed multiplier (every layer's clip time and
    * crossfades; transitions still test every step). False for a value outside
    * {@link ANIMATOR_SPEED_LIMITS} or not a finite number.
    */
@@ -365,13 +365,13 @@ export class AnimatorMachine {
     return true;
   }
 
-  /** Phase 23.11: the playback speed multiplier. */
+  /** The playback speed multiplier. */
   speed(): number {
     return this.speedMul;
   }
 
   /**
-   * Phase 23.11: set a morph target's weight by its name (clamped to 0–1). It
+   * Set a morph target's weight by its name (clamped to 0–1). It
    * overrides a parameter binding of the same target. False for a bad name or
    * value, or past {@link MAX_SCRIPT_MORPHS} names.
    */
@@ -382,7 +382,7 @@ export class AnimatorMachine {
     return true;
   }
 
-  /** Phase 23.11: a morph target's weight now (a script's value, else its parameter binding's; 0 when neither). */
+  /** A morph target's weight now (a script's value, else its parameter binding's; 0 when neither). */
   morph(name: string): number {
     const own = this.scriptMorphs.get(name);
     if (own !== undefined) return own;
@@ -422,7 +422,7 @@ export class AnimatorMachine {
     return this.params.get(name);
   }
 
-  /** Phase 23.17: go to a state of layer `layer` (0: the base layer) by name, crossfading over `fade` seconds (timeline animator keys). */
+  /** Go to a state of layer `layer` (0: the base layer) by name, crossfading over `fade` seconds (timeline animator keys). */
   play(state: string, fade = 0, layer = 0): boolean {
     const g = this.graphs[layer];
     return g !== undefined && typeof state === 'string' && g.play(state, fade);
@@ -461,7 +461,7 @@ export class AnimatorMachine {
       if (t !== null) this.graphs[i]!.fire(t);
     });
     const events: AnimatorEventFired[] = [];
-    // Phase 23.11: the playback speed scales the time every layer advances by (×1 keeps dt exact).
+    // The playback speed scales the time every layer advances by (×1 keeps dt exact).
     const d = this.speedMul === 1 ? dt : dt * this.speedMul;
     this.graphs.forEach((g, i) => g.advance(d, events, i === 0 || this.layerWeight(this.layers[i - 1]!) > 0));
     return events;
@@ -481,7 +481,7 @@ export class AnimatorMachine {
     };
   }
 
-  /** Phase 23.11: the morph weights (bindings, then script values over them), or null when there are none. */
+  /** The morph weights (bindings, then script values over them), or null when there are none. */
   private morphWeights(): Record<string, number> | null {
     if (this.morphBindings.length === 0 && this.scriptMorphs.size === 0) return null;
     const out: Record<string, number> = {};

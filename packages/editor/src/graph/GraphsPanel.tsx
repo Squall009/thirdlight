@@ -1,5 +1,5 @@
 /**
- * Phase 16.1: the Graphs list (bottom dock) — the project's standalone graph
+ * The Graphs list (bottom dock) — the project's standalone graph
  * documents with their kind and problem counts; create, rename, delete and
  * open (the graph opens in the centre area). Graphs owned by other
  * documents (animator controllers, materials, behaviors, effects) open from
@@ -22,7 +22,7 @@ interface Props {
 }
 
 export function GraphsPanel({ graphs, kinds, openId, error, onOpen, onCreate, onRename, onDelete }: Props): JSX.Element {
-  // Kinds owned by another document (phase 16.2: the animator's) open from that document, never as standalone graphs.
+  // Kinds owned by another document (the animator's) open from that document, never as standalone graphs.
   const kindIds = Object.keys(kinds).filter((k) => kinds[k]!.owner === undefined);
   const [kind, setKind] = useState<string>(kindIds[0] ?? '');
   const [name, setName] = useState('');

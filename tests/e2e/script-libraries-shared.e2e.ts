@@ -1,5 +1,5 @@
 /**
- * Phase 25.9: shared script libraries, staged library edits and
+ * Shared script libraries, staged library edits and
  * source-mapped script errors, against a real backend (the Starter template
  * with neutral additions: plain boxes carrying scripts).
  *

@@ -3,9 +3,7 @@
  * the package's public surface — not exported from index.ts, imported only
  * by .test.ts files).
  *
- * Phase 9.3 replacement for the M1 interchange fixture corpus
- * (archived to archive/removed-v1-v2/fixtures-project-model/): the same
- * documents, as the storage-v3 project parts — the v1 manifest, a
+ * The documents are storage-v3 project parts — the v1 manifest, a
  * schemaVersion 3 scene and an empty v3 content block. Texts are
  * deliberately non-canonical (inline arrays) so byte parsing sees real
  * authoring-style input.

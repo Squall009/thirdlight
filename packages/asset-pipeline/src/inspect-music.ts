@@ -1,5 +1,5 @@
 /**
- * Music import (phase 9.10): a long sound — Ogg (Vorbis or Opus), MP3 or a
+ * Music import: a long sound — Ogg (Vorbis or Opus), MP3 or a
  * PCM WAV (mono or stereo, 8–48 kHz, 16-bit) — for level music, title music
  * and ambience loops.
  *

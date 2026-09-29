@@ -1,7 +1,7 @@
 /**
- * Phase 14.7: two physics fixes in the port.
- * - A kinematic body rising beside the character (a gate opening) no longer
- *   drags it up the wall; one the character stands on still moves it.
+ * Two physics fixes in the port.
+ * - A kinematic body rising beside the character (a gate opening) does not
+ *   drag it up the wall; one the character stands on still moves it.
  * - One-way platforms are ignored by the spawn clearance probe (a spawn inside
  *   one is free); they support only feet on their top.
  */

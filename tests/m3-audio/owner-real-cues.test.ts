@@ -1,16 +1,16 @@
 /**
- * Packet 54 — the audio owner over the REAL committed cue bytes
+ * The audio owner over the REAL committed cue bytes
  * (`tests/m3-audio/**`): the five `fixtures/m3/media/wav/cue-*.wav` cues
  * (digest-verified against the media `index.json`) drive the owner end to
  * end — registration, the real PCM decode (a pure re-derivation of the
- * §41.4.4 arithmetic; the container has no Web Audio decoder in Node), the
+ * PCM-WAV arithmetic; the container has no Web Audio decoder in Node), the
  * committed-cue submission, the voice cap under a flood, mute/hidden, and
  * dispose — plus a real rejected byte string
  * (`wav/rejections/bad-magic.wav`) taking the malformed-decode path.
  *
  * The environment is the owner's injected context factory (a
  * deterministic fake whose `decodeAudioData` really parses the committed
- * WAV bytes — audibility itself stays UNVERIFIED per packet 38 baseline §1:
+ * WAV bytes — audibility itself stays UNVERIFIED:
  * no audio device in this container). Runs in Node (the repo-root test
  * tree may use Node built-ins; the `packages/**` code it drives does not).
  */
@@ -57,7 +57,7 @@ function cueBytes(path: string): Uint8Array {
   return new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 }
 
-/** The §41.4.4 arithmetic re-derived (stages 2/8/9/10): strict 44+data
+/** The PCM-WAV arithmetic re-derived: strict 44+data
  * PCM-WAV only — exactly the committed-cue shape. Throws on anything else
  * (a real decoder would reject these too). */
 function pcmWavDurationSeconds(data: Uint8Array): number {

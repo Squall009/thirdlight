@@ -1,5 +1,5 @@
 /**
- * Packet 36 — the SHA-256 padding regression test (bounded defect repair).
+ * The SHA-256 padding regression test (bounded defect repair).
  *
  * `packages/project-model/src/sha256.ts` padded the message with
  * `(((len + 9) >> 6) + 1) << 6` bytes, which allocates an EXTRA zero block

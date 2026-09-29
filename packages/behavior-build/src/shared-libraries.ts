@@ -1,5 +1,5 @@
 /**
- * Phase 25.9: script libraries as shared runtime modules.
+ * Script libraries as shared runtime modules.
  *
  * Each script library a build reaches is compiled once, on its own, into one
  * ES module (`libraries/<outputDigest>.js`): bundled from its own files,

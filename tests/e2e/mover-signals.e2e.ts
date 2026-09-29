@@ -1,5 +1,5 @@
 /**
- * Phase 25.12: mover signals and the gravity easing, set up in the editor and
+ * Mover signals and the gravity easing, set up in the editor and
  * played, on the starter template (a 2D-plane scene) against a real backend.
  *
  * Editor: GameObject → Gameplay → Moving platform, 1 m above the ground left

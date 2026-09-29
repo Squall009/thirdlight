@@ -1,5 +1,5 @@
 /**
- * Phase 18.3: the material-graph render harness (browser code, bundled by
+ * The material-graph render harness (browser code, bundled by
  * `material-graph-render.e2e.ts` with esbuild). One case per page load:
  *
  *   index.html?backend=webgl2|webgpu&case=kinds|values|lit
@@ -14,7 +14,7 @@
  * - `values`: known pictures — an unlit constant colour, an unlit nearest-
  *   sampled texture, one shared material with a public parameter overridden
  *   on one object, a fresnel emissive rim and a vertex offset;
- * - `lit` (phase 23.15): Custom-lit outputs reading the lighting inputs —
+ * - `lit`: Custom-lit outputs reading the lighting inputs —
  *   two N·L bands, the shadow input, the diffuse light with a point light,
  *   the main light's colour, fog.
  *
@@ -84,7 +84,7 @@ const cases: Record<string, () => void> = {
       defs.push(
         graphDef(`k-${type}`, {
           nodes: [
-            // Phase 23.15: lighting inputs read light under a Custom-lit output.
+            // Lighting inputs read light under a Custom-lit output.
             { id: 'out', type: LIGHTING_TYPES.has(type) ? 'customLit' : 'pbr', position: [0, 0] },
             { id: 'vo', type: 'vertexOffset', position: [0, 0] },
             { id: 'x', type, position: [0, 0], ...(SAMPLING.has(type) ? { data: { texture: 'checker' } } : {}) },
@@ -202,7 +202,7 @@ const cases: Record<string, () => void> = {
     probe('liftedFrom', new THREE.Vector3(0, -3.4 - 0.6, 0));
   },
   /**
-   * Phase 23.15: Custom-lit outputs reading the lighting inputs (neutral
+   * Custom-lit outputs reading the lighting inputs (neutral
    * greys, one sun casting shadows, a brighter red fill that casts none).
    */
   lit() {
@@ -289,7 +289,7 @@ const cases: Record<string, () => void> = {
     // Ambient 0.4 on the diffuse scale.
     mesh(new THREE.PlaneGeometry(0.6, 0.6), 'ambient-out', new THREE.Vector3(0, 0.3, 0));
     probe('ambient', new THREE.Vector3(0, 0.3, 0));
-    // A baked lightmap (phase 9.6: UV1, linear 0.5 at intensity pi) on a lightmapped copy of the custom-lit material.
+    // A baked lightmap (UV1, linear 0.5 at intensity pi) on a lightmapped copy of the custom-lit material.
     const lmGeo = new THREE.PlaneGeometry(0.6, 0.6);
     lmGeo.setAttribute('uv1', lmGeo.getAttribute('uv').clone());
     const lmQuad = mesh(lmGeo, 'lightmap-out', new THREE.Vector3(3.4, 0.6, 0));
@@ -302,7 +302,7 @@ const cases: Record<string, () => void> = {
     probe('lightmap', new THREE.Vector3(3.4, 0.6, 0));
     extra = { disc, mainLight: mainLightIndex([sun, fill]) };
   },
-  /** Phase 23.15: a custom-lit surface in a scene without lights still draws its graph (every term at "no light"). */
+  /** A custom-lit surface in a scene without lights still draws its graph (every term at "no light"). */
   dark() {
     scene.clear();
     const graph: MaterialGraphLike = {

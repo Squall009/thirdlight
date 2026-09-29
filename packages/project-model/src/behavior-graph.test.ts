@@ -1,5 +1,5 @@
 /**
- * Phase 19.0: visual scripts in the model — the `behavior` graph kind's
+ * Visual scripts in the model — the `behavior` graph kind's
  * wiring rules (generic validator over the kind's data), the record's
  * `graph` and `source.kind` (validation and canonical form: the
  * canonicalizer must keep both), and the compile checks and declaration a
@@ -53,7 +53,7 @@ describe('the behavior graph kind', () => {
 
   it('compile checks: variable names and uniqueness, Get/Set naming a variable, Set values, required names; unreached flow is a warning', () => {
     const v = n('v', 'var.number', { name: 'count' });
-    // Phase 19.1: a script without variables is fine (a behavior may declare no property).
+    // A script without variables is fine (a behavior may declare no property).
     expect(checkBehaviorGraph({ nodes: [n('s', 'event.start')], edges: [] })).toEqual([]);
     const p = checkBehaviorGraph({
       nodes: [v, n('v2', 'var.boolean', { name: 'count' }), n('v3', 'var.string', { name: 'Bad Name' }), n('g', 'var.get'), n('g2', 'var.get', { variable: 'ghost' }), n('g3', 'var.set', { variable: 'count', value: 'lots' }), n('e', 'api.signals.emit')],
@@ -138,7 +138,7 @@ describe('the behavior record: graph and source.kind', () => {
   });
 });
 
-// ---- phase 19.1 -------------------------------------------------------------------------
+// ---- ------------------------------------------------------------------------
 
 const FN: GraphData = {
   nodes: [n('start', 'fn.entry', { name: 'double' }), n('x', 'fn.input', { name: 'x', type: 'number' }, [0, 100]), n('twice', 'math.multiply', { b: 2 }), n('y', 'fn.output', { name: 'y', type: 'number' }, [0, 200]), n('get', 'var.get', { variable: 'count' })],
@@ -227,7 +227,7 @@ describe('phase 19.1: variables, functions, phases and moved objects', () => {
     const withCall = { nodes: [...GRAPH.nodes, { id: 'c', type: 'fn.call', position: [0, 200], data: { function: 'alpha' } }], edges: [] };
     expect(paths(content({ graph: withCall, functions: [{ functionId: 'alpha', graph: FN }] }))).toEqual([]);
     expect(paths(content({ graph: withCall }))).toEqual(['/behaviors/0/graph/nodes/2/data/function']);
-    // A declaration may be empty (phase 19.1).
+    // A declaration may be empty.
     expect(paths(content({ declaration: { properties: [] } }))).toEqual([]);
   });
 });

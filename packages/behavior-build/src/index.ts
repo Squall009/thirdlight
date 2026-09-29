@@ -1,10 +1,10 @@
 /**
- * @thirdlight/behavior-build — public surface (dependencies.md §3 row:
+ * @thirdlight/behavior-build — public surface (dependencies.md:
  * `.` → `compileBehavior`, `COMPILER_LIMITS`, `COMPILER_ID`,
  * `BehaviorCompileInput`, `BehaviorCompileResult`, `BehaviorManifest`,
  * `CompileDiagnostic`, `PinnedModuleRef`).
  *
- * Packet-33 additive exports (recorded in the packet-33 handoff):
+ * Also exported:
  * `createBehaviorCompiler`, `prepareBehavior`, `preparedSourceFrom`,
  * `parseSourceGraphContainer`, `analyzeSourceGraph`, `manifestBytesOf`,
  * `compileRecipeDigest`, `scanOutput`, `M2_PINNED_MODULES`,
@@ -39,18 +39,18 @@ export {
   scanOutput,
 } from './compile';
 export { prepareBehavior, preparedSourceFrom } from './prepare';
-// Phase 23.7: script libraries (`@lib/<id>` imports) and `.json` data modules.
+// Script libraries (`@lib/<id>` imports) and `.json` data modules.
 export { createLibraryCache } from './libraries';
-// Phase 25.9: shared library modules and compiled positions back to sources.
+// Shared library modules and compiled positions back to sources.
 export { LINK_NAMESPACE, SHARED_LIBRARY_DIR, SHARED_LIBRARY_OPTIONS, linkStubText, sharedLibraryPath } from './shared-libraries';
 export { originalPosition, sourceFileOf } from './source-map';
 export type { OriginalPosition } from './source-map';
 export { LIBRARY_SPECIFIER_RE } from './scan';
-// Phase 15.4: properties declared in code (`export const properties = { … }`).
+// Properties declared in code (`export const properties = { … }`).
 export { labelOfKey, readCodeDeclaration } from './declare';
 export type { CodeDeclarationResult } from './declare';
 export type { BehaviorPrepareResult } from './prepare';
-// Phase 19.0: visual scripts (behavior graph → TypeScript → the same compiler).
+// Visual scripts (behavior graph → TypeScript → the same compiler).
 export { compileBehaviorGraph, diagnosticsWithNodes, generateGraphSource, graphProblemsFailure, GRAPH_SOURCE_BANNER } from './graph';
 export type { BehaviorGraphCompileResult, GraphSourceOptions, GraphSourceResult } from './graph';
 export { canonicalJsonText, sha256Hex, sha256HexOfText } from './canonical';

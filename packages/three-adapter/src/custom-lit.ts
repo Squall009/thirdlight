@@ -1,5 +1,5 @@
 /**
- * Phase 23.15: the Custom-lit surface of a material graph — a node material
+ * The Custom-lit surface of a material graph — a node material
  * whose colour the graph computes from the lights, drawn through three's
  * normal lighting pipeline so fog, tone mapping and the post stack apply.
  *
@@ -24,7 +24,7 @@
  *   colour × intensity × max(N·L, 0) × shadow × falloff;
  * - ambient: ambient + hemisphere + light probes; environment: the scene's
  *   image-based light (three's `EnvironmentNode`); lightmap: a baked
- *   lightmap (phase 9.6, `lightMap × lightMapIntensity`) — added to the
+ *   lightmap (`lightMap × lightMapIntensity`) — added to the
  *   total, never to `ambient`;
  * - total = direct + ambient + environment + lightmap; luminance(total);
  * - main light: the brightest shadow-casting directional light, else the
@@ -210,7 +210,7 @@ export class MeshCustomLitNodeMaterial extends NodeMaterial {
   /** The per-object looks (selection tint, a look override) write these; three adds them after the lights. */
   emissive = new THREE.Color(0x000000);
   emissiveIntensity = 1;
-  /** Phase 9.6: a baked lightmap (UV1) goes into the lightmap term. */
+  /** A baked lightmap (UV1) goes into the lightmap term. */
   lightMap: THREE.Texture | null = null;
   lightMapIntensity = 1;
 

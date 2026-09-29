@@ -1,5 +1,5 @@
 /**
- * Phase 14.5: the character controller's pad controls come from the project's `move`
+ * The character controller's pad controls come from the project's `move`
  * and `jump` actions (rebindable in the game's settings), read through a fake
  * pad. The standard layout (A jumps, D-pad and left stick move) stays for
  * every config without pad bindings of a kind.

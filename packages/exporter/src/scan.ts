@@ -1,7 +1,7 @@
 /**
- * Forbidden-content scan (export.md §5.4 — normative patterns a–j) over
- * every emitted byte of the four output files, with the §5.4.1
- * recorded-exception table for the pinned three.
+ * Forbidden-content scan (normative patterns a–j) over
+ * every emitted byte of the output files, with the recorded-exception table
+ * for the pinned three.
  *
  * The patterns are absolute for ENGINE CODE. The pinned three carries inert
  * occurrences of four patterns (d `fetch(`, f `process.`, h URL literals,
@@ -10,19 +10,19 @@
  * binding conditions hold:
  *   1. Identity — the bundled three is exactly the recorded version (package version +
  *      the lockfile registry integrity equal to the recorded sha512).
- *   2. Flags — the build used exactly the export.md §5.3 pinned option set
+ *   2. Flags — the build used exactly the export.md pinned option set
  *      (enforced by the exporter's build call, not re-checkable here).
- *   3. Reference build — a reference full three bundle (phase 17.4: the
- *      entry imports `three/webgpu` (the core re-exported) and `three/tsl`,
+ *   3. Reference build — a reference full three bundle (the entry imports
+ *      `three/webgpu` (the core re-exported) and `three/tsl`,
  *      the one three build the engine links — same pinned options, `three`
  *      resolved to `three/webgpu` as in the bundle) re-scans to exactly the
  *      table's counts (re-verifies the record against the current install
  *      before the real bundle is judged).
  *   4. Real-bundle exact counts — as recorded below.
  * Any hit outside the binding conditions is a failure, not an exception
- * (export.md §5.4.1 "No silent exceptions").
+ * (export.md: "No silent exceptions").
  *
- * Pattern e (`node:`) — phase 17.1: a Node built-in MODULE SPECIFIER, i.e. a
+ * Pattern e (`node:`): a Node built-in MODULE SPECIFIER, i.e. a
  * string literal that starts with `node:` (`import 'node:fs'`,
  * `from "node:path"`, `require('node:fs')`, `import(`node:os`)`). three's
  * node-material code has object keys named `node` (`{ node: this }`), which
@@ -31,10 +31,13 @@
  * Pure string/byte processing: no I/O (the bytes are passed in).
  */
 
-/** The §5.4.1 recorded-exception table (pinned three, pinned flags; phase 17.4: the WebGPU build — three/webgpu (core re-exported) + three/tsl, `three` resolved to three/webgpu). */
+/**
+ * The recorded-exception table (pinned three, pinned flags; the WebGPU build —
+ * three/webgpu (core re-exported) + three/tsl, `three` resolved to three/webgpu).
+ */
 export const THREE_RECORD = {
   version: '0.186.1',
-  /** dependencies.md §7 / export.md §5.4.1: npm registry integrity of that version (the lockfile's). */
+  /** Npm registry integrity of that version (the lockfile's). */
   integrity: 'sha512-blFeqb49wRCSGUGj7gtpfnSGHy2lwDk94RhUmS1c/hTby70kvChbWpkJ4Pm1390LqzzvTmzgXKHPEafJwCb8jA==',
   /** d — `fetch(` in the pinned three code (two loader fetches + one warn literal). */
   fetch: 3,
@@ -42,7 +45,7 @@ export const THREE_RECORD = {
   processDot: 16,
   /** h — `http://` (XHTML namespace + two doc comments; one more doc comment in the WebGPU renderer). */
   http: 4,
-  /** h — `https://` (22 doc-comment reference links in three core; 4 more in the WebGPU renderer and TSL; phase 17.4: the WebGL renderer build's one is gone). */
+  /** h — `https://` (22 doc-comment reference links in three core; 4 more in the WebGPU renderer and TSL). */
   https: 26,
   /** h — `file://`: absent. */
   file: 0,
@@ -51,7 +54,7 @@ export const THREE_RECORD = {
   ws: 0,
 } as const;
 
-/** The export bundle's single engine-initiated fetch (export.md §5.3). */
+/** The export bundle's single engine-initiated fetch. */
 const SNAPSHOT_FETCH_LITERAL = 'fetch("./snapshot.json")';
 
 export interface ScanFile {
@@ -59,7 +62,7 @@ export interface ScanFile {
   bytes: Uint8Array;
 }
 
-/** One reported hit (export.md §4.1 step 5: ≤ 4 reported). */
+/** One reported hit (≤ 4 reported). */
 export interface ScanHit {
   pattern: string;
   byteOffset: number;
@@ -68,7 +71,7 @@ export interface ScanHit {
 }
 
 export interface ScanPatterns {
-  /** a — the configured authoring origin (sessions.md §13.7). */
+  /** a — the configured authoring origin. */
   authoringOrigin: string;
   /** b — the configured preview origin. */
   previewOrigin: string;
@@ -80,9 +83,9 @@ export interface ScanReport {
   ok: boolean;
   /** Hits OUTSIDE the recorded-exception scope (must be 0 for a success). */
   scanHits: number;
-  /** First ≤ 4 out-of-scope hits (bounded, export.md §4.1). */
+  /** First ≤ 4 out-of-scope hits (bounded). */
   hits: ScanHit[];
-  /** The §5.4.1 binding conditions (identity + reference check). */
+  /** The binding conditions (identity + reference check). */
   binding: { identityOk: boolean; referenceOk: boolean; reason?: string };
 }
 
@@ -125,7 +128,7 @@ function patternCounts(haystack: string, patterns: readonly string[]): Map<strin
 }
 
 /**
- * Run the §5.4 scan over the four emitted files.
+ * Run the forbidden-content scan over the emitted files.
  *
  * @param files the emitted output files (index.html, js/main.js, snapshot.json, meta.json)
  * @param p the configured scan patterns (origins, token values)

@@ -1,6 +1,6 @@
 /**
- * Phase 20.1: the pure maths of the Output blocks, shared by the executors
- * (the renderers themselves are phase 20.2): which flipbook frame a particle
+ * The pure maths of the Output blocks, shared by the executors and the
+ * renderers: which flipbook frame a particle
  * shows, how a billboard is oriented, which particles carry the limited
  * lights, and the order a ribbon joins particles in.
  */

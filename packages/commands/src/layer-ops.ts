@@ -1,5 +1,5 @@
 /**
- * Phase 23.3: `setCollisionLayers {layers}` — the project's named collision
+ * `setCollisionLayers {layers}` — the project's named collision
  * layers (`content.collisionLayers`, 3D physics; "default" is implicit and
  * never listed). One undo step; the change carries the whole list before and
  * after. Removing a layer a collider still lists is refused by the

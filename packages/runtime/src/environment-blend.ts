@@ -1,5 +1,5 @@
 /**
- * Phase 23.18 (E17): the environment a blend of presets looks like — pure
+ * The environment a blend of presets looks like — pure
  * maths shared by the renderer (Play, export) and the editor's preview.
  *
  * The simulation (`environment-director.ts`) owns only the blend state: a

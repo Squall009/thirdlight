@@ -1,5 +1,5 @@
 /**
- * Phase 20.3: the Effect tab's preview pane against the real backend.
+ * The Effect tab's preview pane against the real backend.
  *
  * - Per renderer (`auto` in `default`: WebGL 2 and the CPU executor without a GPU, WebGPU compute on a GPU host; `webgpu`
  *   in `webgpu`, WebGPU compute): an effect tab shows particles in its

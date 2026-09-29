@@ -1,5 +1,5 @@
 /**
- * Phase 22.1: a value computed by an editor-worker job from React state.
+ * A value computed by an editor-worker job from React state.
  *
  * The inputs are captured when the dependencies change; the job runs in the
  * worker (or inline, `editorWorkers()`), and its output becomes the value.

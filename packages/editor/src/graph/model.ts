@@ -1,7 +1,7 @@
 /**
- * Phase 16.1: the graph editor's pure model.
+ * The graph editor's pure model.
  *
- * The editor may import project-model types only (dependencies.md §4.1), so
+ * The editor may import project-model types only, so
  * this module holds the editor side of the graph framework:
  *
  * - `applyGraphOpsLocal`: advances the editor's copy of a graph from a
@@ -15,7 +15,7 @@
  * - geometry (node sizes, port positions, wires, hit tests, fit/zoom);
  * - edit builders (copy/paste with id remapping, duplicate, delete,
  *   alignment, grouping), each returning the op list of ONE graphEdit;
- * - phase 18.1: data-dependent ports (`resolvePorts`: a sub-graph call's
+ * - data-dependent ports (`resolvePorts`: a sub-graph call's
  *   interface, types from node data, `auto` widths from the wires), the
  *   same rules as project-model's `resolveGraphPorts` (parity-tested). Every
  *   port lookup takes an optional `PortsOf` (default: the node type's ports
@@ -180,7 +180,7 @@ export function compatibility(kind: GraphKindDef, from: string, to: string): { c
   return c !== undefined ? { conversion: c } : null;
 }
 
-// ---- phase 18.1: data-dependent ports ---------------------------------------------------------
+// ---- Data-dependent ports ---------------------------------------------------------
 
 export interface NodePorts {
   inputs: readonly GraphPortDef[];
@@ -214,13 +214,13 @@ export function graphInterface(kind: GraphKindDef, graph: GraphData): NodePorts 
   return { inputs: side(itf.input), outputs: side(itf.output) };
 }
 
-/** Phase 19.2: the items of a repeated port's text field (project-model `repeatItems`). */
+/** The items of a repeated port's text field (project-model `repeatItems`). */
 export function repeatItems(value: string): string[] {
   return value.trim() === '' ? [] : value.split(',').map((x) => x.trim());
 }
 
 /**
- * Phase 19.2: the ports a repeated port stands for on a node (project-model
+ * The ports a repeated port stands for on a node (project-model
  * `repeatedPorts`, parity-tested): a number field is the count, a text field
  * a comma-separated list (one port per item, labelled with it); ids
  * `<id>1`, `<id>2`, …
@@ -274,7 +274,7 @@ export function resolvePorts(kind: GraphKindDef, graph: { nodes: readonly GraphN
   for (const node of graph.nodes) {
     const def = nodeDefOf(kind, node.type);
     if (def === undefined) continue;
-    // Phase 19.2: repeated ports first (their copies are ordinary ports).
+    // Repeated ports first (their copies are ordinary ports).
     let inputs: readonly GraphPortDef[] = def.inputs.some((p) => p.repeat !== undefined) ? def.inputs.flatMap((p) => repeatedPorts(def, node, p)) : def.inputs;
     let outputs: readonly GraphPortDef[] = def.outputs.some((p) => p.repeat !== undefined) ? def.outputs.flatMap((p) => repeatedPorts(def, node, p)) : def.outputs;
     const pf = def.portsFrom;
@@ -414,7 +414,7 @@ export function planConnection(
   if (!kind.allowCycles && wouldCycle(graph, out.node, inp.node)) return { ok: false, reason: 'this would make a cycle' };
   if (graph.edges.some((e) => e.from.node === out.node && e.from.port === out.port && e.to.node === inp.node && e.to.port === inp.port)) return { ok: false, reason: 'already connected' };
   const replaces = pi.multi === true ? [] : graph.edges.filter((e) => e.to.node === inp.node && e.to.port === inp.port).map((e) => e.id);
-  // Phase 16.2: a single output (e.g. a state machine's Entry) keeps one wire: the new one replaces it.
+  // A single output (e.g. a state machine's Entry) keeps one wire: the new one replaces it.
   if (po.single === true) for (const e of graph.edges) if (e.from.node === out.node && e.from.port === out.port && !replaces.includes(e.id)) replaces.push(e.id);
   return { ok: true, from: { node: out.node, port: out.port }, to: { node: inp.node, port: inp.port }, replaces, conversion: c.conversion };
 }
@@ -478,7 +478,7 @@ export function compatibleNodeDefs(kind: GraphKindDef, type: string, side: 'in' 
 /** Catalogue search: entries matching every word of `query` (label, type, category, description), in category order. */
 export function searchCatalogue(kind: GraphKindDef, query: string, only?: readonly GraphNodeDef[]): GraphNodeDef[] {
   const words = query.toLowerCase().split(/\s+/).filter((w) => w.length > 0);
-  // Fixed nodes (phase 16.2) are part of every graph of the kind: never added from the catalogue.
+  // Fixed nodes are part of every graph of the kind: never added from the catalogue.
   const pool = (only ?? kind.nodes).filter((d) => d.fixed !== true);
   const hits = pool.filter((d) => {
     const hay = `${d.label} ${d.type} ${d.category} ${d.description ?? ''}`.toLowerCase();
@@ -496,7 +496,7 @@ export function fieldValue(node: GraphNode, f: GraphFieldDef): GraphValue {
   return v === undefined ? f.default : v;
 }
 
-/** Phase 16.2: a node's title — its title field's value when the type has one and it is set, else the type's label. */
+/** A node's title — its title field's value when the type has one and it is set, else the type's label. */
 export function nodeTitle(kind: GraphKindDef, node: GraphNode): string {
   const def = nodeDefOf(kind, node.type);
   if (def === undefined) return node.type;
@@ -542,7 +542,7 @@ export function diagnoseGraph(kind: GraphKindDef, graph: GraphData, portsOf?: Po
   }
   for (const def of kind.nodes) {
     if (def.required !== true) continue;
-    // Phase 18.1: any node of the same exclusive tag satisfies a required type (e.g. an Unlit instead of a PBR output).
+    // Any node of the same exclusive tag satisfies a required type (e.g. an Unlit instead of a PBR output).
     const satisfies = (t: string): boolean => t === def.type || (def.exclusive !== undefined && nodeDefOf(kind, t)?.exclusive === def.exclusive);
     if (!graph.nodes.some((n) => satisfies(n.type))) {
       const alts = def.exclusive !== undefined ? kind.nodes.filter((d) => d.exclusive === def.exclusive && d.type !== def.type).map((d) => `"${d.label}"`) : [];
@@ -790,7 +790,7 @@ export interface GraphClipboard {
   comments: GraphComment[];
 }
 
-/** `fixedTypes`: node types that are part of every graph of the kind (phase 16.2) — never copied. */
+/** `fixedTypes`: node types that are part of every graph of the kind — never copied. */
 export function copyItems(kind: string, graph: GraphData, ids: ReadonlySet<string>, fixedTypes: ReadonlySet<string> = new Set()): GraphClipboard {
   const nodes = graph.nodes.filter((n) => ids.has(n.id) && !fixedTypes.has(n.type)).map(clone);
   const kept = new Set(nodes.map((n) => n.id));
@@ -909,7 +909,7 @@ export function itemsInGroup(kind: GraphKindDef, graph: GraphData, g: GraphGroup
   return [...graph.nodes.filter((n) => contains(r, nodeRect(kind, n, n.position, portsOf))).map((n) => n.id), ...(graph.comments ?? []).filter((c) => contains(r, commentRect(c))).map((c) => c.id)];
 }
 
-/** Phase 16.2: the kind's fixed node types (in every graph once; never added, copied or deleted). */
+/** The kind's fixed node types (in every graph once; never added, copied or deleted). */
 export function fixedTypesOf(kind: GraphKindDef): ReadonlySet<string> {
   return new Set(kind.nodes.filter((d) => d.fixed === true).map((d) => d.type));
 }

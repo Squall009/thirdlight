@@ -1,5 +1,5 @@
 /**
- * Phase 19.0/19.1: the visual-script compiler front end (graph → TypeScript).
+ * The visual-script compiler front end (graph → TypeScript).
  *
  * A behavior graph (project-model `BEHAVIOR_GRAPH_KIND`) with its functions
  * and the shared functions it calls is turned into TypeScript files in an
@@ -12,7 +12,7 @@
  * hand-written source — the same limits, output scan, engine pins, trust
  * gate and publication. The file declares its properties in code
  * (`export const properties`), derived from the graph's variables, so the
- * published declaration always matches the graph (15.4's "code wins"), and
+ * published declaration always matches the graph ("code wins"), and
  * its `ownedTransforms` are the objects its Move/Pose nodes move (`@self`
  * for "this object").
  *
@@ -94,7 +94,7 @@ import { GRAPH_SOURCE_BANNER } from './graph-banner';
 
 export { GRAPH_SOURCE_BANNER };
 
-/** Phase 19.2: generator options. */
+/** Generator options. */
 export interface GraphSourceOptions {
   /**
    * A Play debug build: the module also records, per instance, the nodes it
@@ -173,14 +173,14 @@ function zero(type: string): string {
   }
 }
 
-/** Phase 19.2 (Play debug builds only): `r.n = "<id>";` — where the generated code enters a node. */
+/** Play debug builds only: `r.n = "<id>";` — where the generated code enters a node. */
 const ENTER_RE = /^(\s*)r\.n = ("(?:[^"\\]|\\.)*");$/;
 
 class Emitter {
   readonly lines: string[] = [];
   readonly nodes: (string | null)[] = [];
   bytes = 0;
-  /** Phase 19.2: a Play debug build — every node entry also records the node in the instance's trace. */
+  /** A Play debug build — every node entry also records the node in the instance's trace. */
   constructor(readonly debug = false) {}
   line(text: string, nodeId: string | null = null): void {
     if (this.debug) {
@@ -379,7 +379,7 @@ function rint(s: S, a: number, b: number): number {
 }`;
 
 /**
- * Phase 19.2: the helpers a Play debug build adds (never in a published or
+ * The helpers a Play debug build adds (never in a published or
  * exported module — those are generated without `debug`). Per instance, in
  * its state (`s.db`): the node ids entered in the current step, in order
  * (at most DBG_TRACE, then only counted), the last step each node ran, the
@@ -520,7 +520,7 @@ class GraphCode {
     const src = this.byId.get(from.node)!;
     const out = this.portsOf(src).outputs.find((p) => p.id === from.port)!;
     const raw = this.readOutput(src, out);
-    // Phase 19.2 (Play debug builds): the value that moved along the wire (before any conversion).
+    // Play debug builds: the value that moved along the wire (before any conversion).
     const expr = this.gen.debug ? `W(s, ${q(this.sid(from.edge))}, ${raw})` : raw;
     if (out.type === port.type) return expr;
     if (portCompatibility(this.sg.kind, out.type, port.type) === null) return expr; // refused by the structural check
@@ -1010,7 +1010,7 @@ class GraphCode {
         const int = this.field(n, 'on', 'text') === 'int';
         em.line(`  const v = ${int ? `Math.trunc(${a.get('value')})` : a.get('value')};`, sid);
         let first = true;
-        // Phase 19.2: one output per listed case (ports case1…caseN).
+        // One output per listed case (ports case1…caseN).
         repeatItems(this.str(n, 'cases'))
           .slice(0, BEHAVIOR_GRAPH_LIMITS.switchCases)
           .forEach((c, i) => {
@@ -1032,7 +1032,7 @@ class GraphCode {
         const a = open('in');
         const vname = this.str(n, 'variable');
         em.line(`  ${this.varRef(vname)} = ${a.get('value')};`, sid);
-        // Phase 19.2 (Play debug builds): a local's last value for the watch list (per-object variables are in the state).
+        // Play debug builds: a local's last value for the watch list (per-object variables are in the state).
         if (this.gen.debug && this.locals.has(vname)) em.line(`  LV(s, ${q(this.sid(vname))}, ${a.get('value')});`, sid);
         store('value', a.get('value')!);
         this.follow(n, 'then', '  ', em);
@@ -1088,7 +1088,7 @@ class GraphCode {
     const L = `N.${this.prefix}L([])`;
     em.boundary();
     em.line('');
-    // Phase 25.11: a callback event gets the callback's event (`ev`).
+    // A callback event gets the callback's event (`ev`).
     em.line(`N.${this.name(n)} = function (s: S, c: any, r: R${CALLBACK_EVENT_NODES[n.type] !== undefined ? ', ev: any' : ''}): void {`, sid);
     em.line(`  r.n = ${id};`, sid);
     const fire = (indent: string, outputs: [string, string][] = []): void => {
@@ -1197,7 +1197,7 @@ class GraphCode {
         em.line('  }', sid);
         break;
       }
-      // Phase 25.11: the callback events (run from the spec's onEnable … onUiEvent).
+      // The callback events (run from the spec's onEnable … onUiEvent).
       case 'event.enable':
       case 'event.disable':
       case 'event.destroy':
@@ -1262,7 +1262,7 @@ class ScriptCode {
   readonly functionNames = new Map<string, string>();
   readonly delayNames = new Map<string, string>();
 
-  /** `debug`: phase 19.2's Play debug build (trace, wire values, locals). */
+  /** `debug`: the Play debug build (trace, wire values, locals). */
   constructor(
     graphs: BehaviorScriptGraph[],
     readonly debug = false,
@@ -1366,20 +1366,20 @@ export function generateGraphSource(graph: GraphData, env: BehaviorScriptEnv = {
     if (debug) em.line('      db: { k: -1, t: [], x: 0, l: {}, w: {}, lv: {} },');
     em.line('    };');
     em.line('  },');
-    // Phase 25.11: a new step starts the loop budget (and the debug trace) — in a callback or the step, whichever runs first.
+    // A new step starts the loop budget (and the debug trace) — in a callback or the step, whichever runs first.
     const beginStep = (): void => {
       em.line('    if (s.k !== c.stepIndex) {');
       em.line('      s.k = c.stepIndex;');
       em.line('      s.it = 0;');
       if (debug) {
-        // Phase 19.2: a new step starts the instance's trace again.
+        // A new step starts the instance's trace again.
         em.line('      s.db.k = c.stepIndex;');
         em.line('      s.db.t = [];');
         em.line('      s.db.x = 0;');
       }
       em.line('    }');
     };
-    // Phase 25.11: the callback events, one spec method per callback (its nodes in id order).
+    // The callback events, one spec method per callback (its nodes in id order).
     const callbackNodes = main.nodes.filter((n) => CALLBACK_EVENT_NODES[n.type] !== undefined).sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
     for (const cb of ['onEnable', 'onDisable', 'onDestroy', 'onContact', 'onUiEvent'] as const) {
       const list = callbackNodes.filter((n) => CALLBACK_EVENT_NODES[n.type] === cb);
@@ -1432,7 +1432,7 @@ export function generateGraphSource(graph: GraphData, env: BehaviorScriptEnv = {
     em.line('    }');
     em.line('  },');
     if (debug) {
-      // Phase 19.2: what Play's debugger reads (the runtime's behaviorDebug); never called by a step.
+      // What Play's debugger reads (the runtime's behaviorDebug); never called by a step.
       em.line('  debug(s: S): unknown {');
       em.line('    return { step: s.db.k, trace: s.db.t, dropped: s.db.x, last: s.db.l, wires: s.db.w, locals: s.db.lv, vars: s.v };');
       em.line('  },');

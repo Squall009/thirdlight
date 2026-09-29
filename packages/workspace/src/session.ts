@@ -1,16 +1,16 @@
 /**
- * Per-project sessions — the on-demand open pipeline (workspace.md §6.2),
- * ownership (claim, takeover, release §9) and the dispatch to the storage v4
+ * Per-project sessions — the on-demand open pipeline,
+ * ownership (claim, takeover, release) and the dispatch to the storage v4
  * session (`session-v4.ts`: load, external changes and their resolutions,
  * queries).
  *
  * Only storage v4 projects are opened. A storage v3 project (one envelope,
- * `scenes/main.json`) is upgraded to v4 on open; a storage v1/v2 (M1/M2)
+ * `scenes/main.json`) is upgraded to v4 on open; a storage v1/v2
  * project is refused with `project_unavailable { reason:
- * "storage_version_unsupported" }` and left untouched (phase 9.3).
+ * "storage_version_unsupported" }` and left untouched.
  *
- * A session holds the last acknowledged in-memory state (commands.md §10:
- * queries read exactly this), the durable retry records and the pending
+ * A session holds the last acknowledged in-memory state (queries read
+ * exactly this), the durable retry records and the pending
  * external change (when writes are paused).
  */
 
@@ -85,10 +85,10 @@ import { PROJECT_SCHEMA_VERSION, isUpgradedProjectSchemaVersion, validateManifes
 
 // ---- internal state ------------------------------------------------------------
 
-/** A pending external change (workspace.md §7.2 step 4). */
+/** A pending external change. */
 export interface PendingChange {
   /**
-   * §7.2 step 4: the recovery snapshot's durable state — "ok" (the step-2
+   * The recovery snapshot's durable state — "ok" (the step-2
    * snapshot is durable), "snapshot_failed" (the bytes were read and
    * validated but no snapshot is durable), "unreadable" (step 1 failed
    * with a non-ENOENT error: the bytes were never read — externalHash /
@@ -105,9 +105,9 @@ export interface PendingChange {
   externalContent: ContentCatalogV4 | null;
   /** The external project's storageVersion (null while unreadable). */
   externalStorageVersion: 4 | null;
-  /** Phase 12 (c), v4: the whole external project when it validates. */
+  /** v4: the whole external project when it validates. */
   externalV4?: V4State | null;
-  /** Phase 12 (c), v4: the project file found changed. */
+  /** v4: the project file found changed. */
   externalFile?: string;
 }
 
@@ -115,7 +115,7 @@ export interface ProjectSession {
   projectId: string;
   dir: string;
   /**
-   * The VERIFIED child artifact directories (R7, 2026-09-18 review):
+   * The VERIFIED child artifact directories:
    * resolved + containment-checked at open with `resolveContained` (a
    * symlink escaping the data root ⇒ the project is not a project of
    * this backend ⇒ the not-found outcome). All subsequent path building
@@ -136,14 +136,14 @@ export interface ProjectSession {
   content: ContentCatalogV4 | null;
   /** The whole v4 project (scenes, files, per-file records); null while blocked. */
   v4?: V4State | null;
-  /** Phase 12 (c): what the automatic v3 → v4 upgrade did at this open (for the problems log). */
+  /** What the automatic v3 → v4 upgrade did at this open (for the problems log). */
   upgradeNotes?: string[];
   /** === scene.revision (0 while blocked). */
   revision: number;
   /** Published retry records (ascending appliedRevision). */
   records: RetryRecord[];
   recordMap: Map<string, RetryRecord>;
-  /** One digest over the last known good project files (workspace.md §5.2). */
+  /** One digest over the last known good project files. */
   lastWrittenHash: string;
   /** Unused since storage v4 (the files are in `v4.files`); always empty. */
   envelopeBytes: Uint8Array;
@@ -152,15 +152,15 @@ export interface ProjectSession {
   ownership: OwnershipRecord | null;
   mode: 'open' | 'released' | 'blocked';
   /**
-   * R4 (2026-09-18 review): set when a release attempt did NOT durably
+   * Set when a release attempt did NOT durably
    * complete (a failed/incomplete record write left the session in mode
-   * 'open' — workspace.md §9 "no partial release"). The session must
+   * 'open' — "no partial release"). The session must
    * not act on the cached ownership: before serving any operation the
    * ownership record AND the claim file are re-read from disk
    * (`stillHoldsOwnership`); if the session no longer holds the project
    * (record changed underneath us, or the claim file is gone/foreign)
    * the session is dropped and every later operation is a fresh open
-   * re-evaluating from disk (the R4 split-brain bound: a failed or
+   * re-evaluating from disk (the split-brain bound: a failed or
    * partially-applied release must not leave a live writer). Fresh
    * sessions start `false`.
    */
@@ -169,23 +169,23 @@ export interface ProjectSession {
   pendingChange: PendingChange | null;
   /**
    * The digest-bound prepared behavior-source facts for this project
-   * (packet 33; a derived cache, never authoritative). Loaded at open from
+   * (a derived cache, never authoritative). Loaded at open from
    * the project's `.thirdlight/derived` prepared records and extended by
    * `prepareBehaviorSource`. The command layer reads ONLY these facts for a
    * `publishBehavior{mode:"source"}` request.
    */
   preparedSources: Map<string, import('@thirdlight/behavior-build').PreparedBehaviorSource>;
   /**
-   * Phase 25.9: staged script library edits (several patches, one commit) by
+   * Staged script library edits (several patches, one commit) by
    * stageId, oldest first; never authoritative and never persisted (a
    * restart drops them). `commitScriptLibraryStage` reads only these.
    */
   libraryStages?: Map<string, LibraryStage>;
-  /** Phase 25.9: the last stage number handed out for this project. */
+  /** The last stage number handed out for this project. */
   libraryStageSeq?: number;
 }
 
-/** Phase 25.9: one staged set of script library edits. */
+/** One staged set of script library edits. */
 export interface LibraryStage {
   readonly stageId: string;
   /** Each staged library's whole value and the digest of the stored one it was staged on (null: new). */
@@ -208,7 +208,7 @@ export interface Core {
   utcNow: () => string;
   ops: WriteOps;
   sessions: Map<string, ProjectSession>;
-  /** Content-storage configuration (workspace.md §13.9): quota, device-space
+  /** Content-storage configuration: quota, device-space
    * reserve and the clock/TTL seam. */
   content: ContentConfig;
 }
@@ -232,17 +232,17 @@ function livenessFn(core: Core): (pid: number, openedAt: string) => Liveness {
     evaluateLiveness(pid, openedAt, core.procRoot, core.processMarker);
 }
 
-/** The configured engine version (M1 baseline, workspace.md §8.2). */
+/** The configured engine version. */
 export const ENGINE_VERSION = '0.1.0';
 
 /**
- * The ONE containment policy (R7, 2026-09-18 review): `projectsRoot` +
+ * The ONE containment policy: `projectsRoot` +
  * `segs` is a project of this backend only if every component exists and
  * the realpath of the FULL path stays inside the realpath of the data
  * root — any symlink component escaping the data root makes the path NOT
  * a project of this backend. It is verified BEFORE any content-acting
  * read or any write; a hostile unlink-replace race AFTER verification is
- * the workspace.md §7.1 bypassing-actor class (documented bound, not
+ * the bypassing-actor class (documented bound, not
  * solved by checking only the outer directory).
  */
 export function resolveContained(
@@ -305,11 +305,11 @@ export function projectBaseDir(core: Core, projectId: string): string {
 
 /**
  * Verify a project's child artifact path for a project whose directory
- * already passed `resolveProjectDir` (R7, 2026-09-18 review):
+ * already passed `resolveProjectDir`:
  * - the final component ABSENT ⇒ `absent` — nothing can escape, and the
  *   existing open behavior applies (a missing envelope blocks until the
- *   scan completes it, workspace.md §8.3/§10; an absent ownership record
- *   is claimed, creating the directory, §6.2);
+ *   scan completes it; an absent ownership record is claimed, creating
+ *   the directory);
  * - present but escaping the data root (a symlink component outside the
  *   data root) ⇒ `escape` — NOT a project of this backend;
  * - present and contained ⇒ `ok` with the verified path (all later path
@@ -328,8 +328,7 @@ export function verifyChildDir(
 
 /**
  * Resolve a project directory inside the configured data root, enforcing
- * the supported policy: the project ID is the only addressing (charter §4 —
- * arbitrary absolute paths are never accepted), the ID syntax excludes
+ * the supported policy: the project ID is the only addressing (arbitrary absolute paths are never accepted), the ID syntax excludes
  * traversal by construction, and the single containment check
  * (`resolveContained`) rejects symlink escapes out of the data root (an
  * escaped directory is not a project of this backend ⇒ `project_not_found`).
@@ -388,14 +387,14 @@ export function loadManifest(
 
 /**
  * Validate a parsed manifest value: a v4 project's manifest (schemaVersion
- * 4; 3 before phase 25.7, 2 before phase 24.8; no scene list — returned as its v1-shaped view) or a v3 project's
+ * 4, or an older 2/3 the project load upgrades; no scene list — returned as its v1-shaped view) or a v3 project's
  * manifest (schemaVersion 1, read for the upgrade). At most 10 errors.
  */
 export function validateAnyManifest(
   value: unknown,
 ): { ok: true; manifest: Manifest } | { ok: false; errors: readonly LoadDetail[] } {
   const sv = (value as { schemaVersion?: unknown } | null)?.schemaVersion;
-  // Phase 25.7: schemaVersion 4; a 3 (phase 24) or 2 (before the phase 24 upgrade) reads the same way (the project load upgrades it).
+  // schemaVersion 4; a 3 or 2 reads the same way (the project load upgrades it).
   if (sv === PROJECT_SCHEMA_VERSION || isUpgradedProjectSchemaVersion(sv)) {
     const v2 = validateManifestV2Project(isUpgradedProjectSchemaVersion(sv) ? { ...(value as object), schemaVersion: PROJECT_SCHEMA_VERSION } : value);
     if (!v2.ok) return { ok: false, errors: v2.errors.slice(0, 10) as unknown as readonly LoadDetail[] };
@@ -418,13 +417,13 @@ type LoadOutcome =
   | { kind: 'blocked'; reason: UnavailableReason; errors: readonly LoadDetail[]; count: number };
 
 /**
- * The §4.3/§16.4 load pipeline over a storage v3 project's envelope
+ * The load pipeline over a storage v3 project's envelope
  * (`scenes/main.json`), then the v3 cross-block composition and the
  * manifest cross-document checks (step 8, against the manifest already
  * loaded at resolution). First failure wins; a storage v1/v2 envelope is
  * `storage_version_unsupported`. READ-ONLY: no session, no ownership, no
- * writes — the open pipeline upgrades a loaded v3 project to v4; the §8.1
- * idempotent createProject probe (R15) only reads.
+ * writes — the open pipeline upgrades a loaded v3 project to v4; the
+ * idempotent createProject probe only reads.
  */
 export function loadEnvelopeV3(
   core: Core,
@@ -432,7 +431,7 @@ export function loadEnvelopeV3(
   projectId: string,
   manifest: Manifest,
 ): LoadOutcome {
-  // R7: the caller passes the VERIFIED scenes directory — no re-join from
+  // The caller passes the VERIFIED scenes directory — no re-join from
   // the raw project id (the open pipeline verifies containment first).
   const p = join(sceneDir, 'main.json');
   if (!core.ops.fileExists(p)) return { kind: 'envelope-missing' };
@@ -446,8 +445,8 @@ export function loadEnvelopeV3(
   if (!env.ok) {
     return { kind: 'blocked', reason: env.reason, errors: env.errors, count: env.count };
   }
-  // §16.4 step 5 — the v3 cross-block composition: the §13.1 cross-block
-  // check plus the §23.5/§23.8-step-6 game/cue/animation reference checks
+  // The v3 cross-block composition: the cross-block
+  // check plus the game/cue/animation reference checks
   // (`validateProjectV3`). A failure is reported with its model code
   // (`asset_kind_mismatch`, `reference_missing`, …).
   {
@@ -462,8 +461,8 @@ export function loadEnvelopeV3(
       };
     }
   }
-  // Step 8 — cross-document checks (project-model §13 + the workspace
-  // -enforced directory-name rule, §13.3).
+  // Step 8 — cross-document checks (the model's plus the
+  // workspace-enforced directory-name rule).
   if (manifest.scenes[0].id !== env.scene.sceneId) {
     return {
       kind: 'blocked',
@@ -544,7 +543,7 @@ function blockSession(
   };
 }
 
-/** Open-time artifact hygiene (workspace.md §5.4/§7.6.2): the owner removes
+/** Open-time artifact hygiene: the owner removes
  * leftover envelope temps and abandoned staging directories (mtime older than
  * 24 h). The staging cleanup only ever removes directories under
  * `.thirdlight/staging/` — never an authoritative path. */
@@ -552,26 +551,26 @@ function cleanOpenArtifacts(core: Core, projectDir: string, sceneDir: string, th
   cleanLeftoverTemps(sceneDir, 'main.json', core.ops);
   // Storage v4: the temps of content.json / project.json, every scene file and the journal.
   cleanLeftoverTempsV4(core.ops, projectDir, sceneDir, thirdlightDir);
-  // §5.4 extended to blob temps (§13.2 rule 5): the owner removes every
+  // Blob temps too: the owner removes every
   // leftover `sources/sha256/.<digest>.tmp-*`.
   cleanBlobTemps(projectDir);
   cleanupStages(core, projectDir, thirdlightDir, core.content.now());
 }
 
 /**
- * The on-demand open pipeline (commands.md §6.1 step 1; workspace.md §6.2):
+ * The on-demand open pipeline:
  * resolution + manifest loadability → ownership evaluation/claim → temp
- * cleanup (§5.4) → the §4.3 load. A previously blocked session re-runs the
+ * cleanup → the load. A previously blocked session re-runs the
  * load on every access (repair-the-file-and-reopen without a process
  * restart; the ownership is already held).
  */
 /**
- * On-demand open (workspace.md §6.2) with caller awareness:
+ * On-demand open with caller awareness:
  * - `command` — the next command on a RELEASED project is the on-demand
- *   re-open (workspace.md §9.3): the released record is re-claimed and the
+ *   re-open: the released record is re-claimed and the
  *   (edited) disk state is re-validated from scratch;
  * - `query` — queries never trigger a re-open of a released project: they
- *   fail `project_unavailable { reason: "workspace_closed" }` (§9.1).
+ *   fail `project_unavailable { reason: "workspace_closed" }`.
  */
 export function ensureSession(
   core: Core,
@@ -597,7 +596,7 @@ function ensureSessionOnce(
   const existing = core.sessions.get(projectId);
   if (existing !== undefined) {
     if (existing.mode === 'open') {
-      // R4 (2026-09-18 review): a session that attempted a release which
+      // A session that attempted a release which
       // did not durably complete must not act on the cached ownership:
       // before serving anything, re-read the ownership record AND the
       // claim file from disk; if the session no longer holds the project
@@ -605,9 +604,9 @@ function ensureSessionOnce(
       // unreadable — or the claim file is gone/foreign) the session is a
       // non-writer: its in-memory state is discarded and the session is
       // dropped, so every later operation is a fresh open re-evaluating
-      // from disk (never a continuation of the old session — the R4
+      // from disk (never a continuation of the old session — the
       // split-brain bound). A session that still verifiably holds the
-      // project serves as usual (workspace.md §9: a release that failed
+      // project serves as usual (a release that failed
       // before the record write leaves the old session still the writer).
       if (
         existing.ownershipReverify === true &&
@@ -621,14 +620,14 @@ function ensureSessionOnce(
     } else if (existing.mode === 'released') {
       if (caller === 'query') return { kind: 'released' };
       core.sessions.delete(projectId); // fall through: the fresh open below
-      // re-claims the released record at epoch + 1 (workspace.md §9.3).
+      // re-claims the released record at epoch + 1.
     } else {
     // blocked: re-validate from disk (the operator repairs the file by
-    // hand and retries; §7.5). The ownership is already ours.
+    // hand and retries). The ownership is already ours.
     const man = loadManifest(core, existing.dir);
     if (!man.ok) {
       // The manifest became unloadable (an external edit — the manifest is
-      // detected at the next open, workspace.md §8.2): the project is no
+      // detected at the next open): the project is no
       // longer a loadable project.
       return { kind: 'not-found' };
     }
@@ -648,7 +647,7 @@ function ensureSessionOnce(
   if (!res.ok) return { kind: 'not-found' };
   const dir = res.dir;
 
-  // R7 (2026-09-18 review): the child artifact directories are verified
+  // The child artifact directories are verified
   // with the SAME containment policy BEFORE any read/write through them —
   // a PRESENT scenes/.thirdlight that escapes the data root (symlink)
   // ⇒ the project is not a project of this backend ⇒ the same not-found
@@ -666,34 +665,32 @@ function ensureSessionOnce(
   const thirdlightDir = thirdCheck.kind === 'ok' ? thirdCheck.dir : join(dir, '.thirdlight');
 
   // Manifest loadability. An ABSENT manifest ⇒ the directory is not a
-  // project at all (commands.md §5.4: `project_not_found` = "no project
+  // project at all (`project_not_found` = "no project
   // directory with a loadable manifest exists at the data root"). A
   // manifest that EXISTS but fails to load is a project that exists on
-  // disk yet cannot load ⇒ the workspace.md §7.5 block with the §4.3
-  // step-8 code: `project_unavailable { reason: 'manifest_invalid' }`
-  // (workspace.md §11: `manifest_invalid` is a permitted
-  // `project_unavailable.reason`; "a project that exists on disk but
+  // disk yet cannot load ⇒ blocked with the manifest load-failure code:
+  // `project_unavailable { reason: 'manifest_invalid' }` (`manifest_invalid`
+  // is a permitted `project_unavailable.reason`; "a project that exists on disk but
   // cannot load is exactly what project_unavailable reports"). Never a
-  // throw — the model's `validateManifest` is pure and total
-  // (project-model.md §12.1), so `loadManifest` always returns structured
-  // errors (Gate B re-review round 1, G2).
+  // throw — the model's `validateManifest` is pure and total, so
+  // `loadManifest` always returns structured errors.
   const man = loadManifest(core, dir);
   if (!man.ok) {
     if (!core.ops.fileExists(join(dir, MANIFEST_REL))) return { kind: 'not-found' };
     return { kind: 'unavailable', reason: 'manifest_invalid', holder: null, errors: man.errors };
   }
 
-  // Ownership evaluation + claim (workspace.md §6.2/§6.3) — bounded re-
+  // Ownership evaluation + claim — bounded re-
   // evaluation: a claim that fails against a MOVED record re-evaluates.
   let claim: ClaimOutcome | null = null;
   for (let round = 0; round < 3 && claim === null; round++) {
     const recRead = readOwnershipRecord(thirdlightDir, core.ops);
     if (recRead.kind === 'unreadable') {
-      // R8a (2026-09-18 review; workspace.md §6.2/§11): a non-ENOENT
+      // A non-ENOENT
       // ownership read failure — the record's state is UNKNOWN, never
       // absent ⇒ the conservative rule resolves it to live ⇒ REFUSE
       // (no claim — a claim would overwrite unknown bytes; a live foreign
-      // owner may hold the project). §11: `ownership_conflict` carries
+      // owner may hold the project). `ownership_conflict` carries
       // holder null when no parseable owned record exists.
       return { kind: 'unavailable', reason: 'ownership_conflict', holder: null };
     }
@@ -715,7 +712,7 @@ function ensureSessionOnce(
     if (c.ok) {
       claim = c;
     } else if ('inconsistent' in c) {
-      // The §6.3 orphan-recovery rule cannot resolve the claim file at
+      // The orphan-recovery rule cannot resolve the claim file at
       // the target epoch (content unparseable/unreadable, or the holder
       // not proven dead): the documented stuck state — the open fails
       // with claim_inconsistent (holder null; nothing was claimed). The
@@ -739,7 +736,7 @@ function ensureSessionOnce(
     return { kind: 'unavailable', reason: 'ownership_conflict', holder: null };
   }
 
-  // §5.4: the owner cleans leftover temps on open, before any command.
+  // The owner cleans leftover temps on open, before any command.
   cleanOpenArtifacts(core, dir, sceneDir, thirdlightDir);
 
   // A v4 project (or a v3 one, upgraded on the spot).
@@ -755,7 +752,7 @@ function ensureSessionOnce(
 
 /**
  * Open a project directory: a v4 project, or a valid v3 project upgraded to
- * v4 on the spot (storage v3 → v4, phase 12 c). A v3 project that does not
+ * v4 on the spot (storage v3 → v4). A v3 project that does not
  * load, a storage v1/v2 project (`storage_version_unsupported`) or a
  * directory with neither `content.json` nor `scenes/main.json` (an
  * interrupted creation, completed by the startup scan) is blocked; nothing is
@@ -806,7 +803,7 @@ function evalToUnavailable(ev: OwnershipEval): OpenOutcome {
 
 /**
  * The `claim_inconsistent` payload carried by the open-path error
- * (workspace.md §11: carries the claim file path, the holder content if
+ * (carries the claim file path, the holder content if
  * parseable, and the liveness outcome — mapped into the `project_
  * unavailable` detail fields the open path surfaces).
  */
@@ -823,8 +820,8 @@ function claimInconsistentDetail(info: ClaimInconsistentInfo): LoadDetail {
 }
 
 /** Ensure the project's VERIFIED `.thirdlight` directory exists (0755)
- * before the first ownership write (it is containment-checked at open,
- * R7 — this only closes the post-verification creation race). */
+ * before the first ownership write (it is containment-checked at open;
+ * this only closes the post-verification creation race). */
 function ensureThirdlightDir(p: string, ops: WriteOps): void {
   if (ops.dirExists(p)) return;
   try {
@@ -851,7 +848,7 @@ function releasedRecord(core: Core): OwnershipRecord {
   };
 }
 
-// ---- external change protocol (workspace.md §7) ----------------------------------
+// ---- external change protocol ----------------------------------
 
 export function pendingInfo<T extends PendingChange>(pc: T): {
   snapshotState: T['snapshotState'];
@@ -867,7 +864,7 @@ export function pendingInfo<T extends PendingChange>(pc: T): {
   };
 }
 
-/** The `workspace` block of queryProject (§5.6). */
+/** The `workspace` block of queryProject. */
 export function workspaceBlock(s: ProjectSession):
   | { writePaused: false }
   | {
@@ -890,7 +887,7 @@ export function workspaceBlock(s: ProjectSession):
   };
 }
 
-/** `acceptExternalState` (§7.3): the files on disk become the project (`session-v4.ts`). */
+/** `acceptExternalState`: the files on disk become the project (`session-v4.ts`). */
 export function acceptExternal(
   core: Core,
   s: ProjectSession,
@@ -898,7 +895,7 @@ export function acceptExternal(
   return acceptExternalV4(core, s);
 }
 
-/** `discardExternalState` (§7.3): this backend's last known files go back on disk (`session-v4.ts`). */
+/** `discardExternalState`: this backend's last known files go back on disk (`session-v4.ts`). */
 export function discardExternal(
   core: Core,
   s: ProjectSession,
@@ -907,7 +904,7 @@ export function discardExternal(
 }
 
 /**
- * `takeoverWorkspace` (workspace.md §6.4 — the explicit stale-owner
+ * `takeoverWorkspace` (the explicit stale-owner
  * recovery; no automatic takeover, ever). Works on a fresh open (the
  * normal case) and on a released session of this backend.
  */
@@ -924,7 +921,7 @@ export function takeover(
 
   const existing = core.sessions.get(projectId);
   if (existing !== undefined && existing.mode === 'open') {
-    // R4 (2026-09-18 review): a session that attempted a release which
+    // A session that attempted a release which
     // did not durably complete must not claim "we own it" from the cached
     // record: re-verify ownership from disk first (the record AND the
     // claim file); if the session no longer holds the project, drop it
@@ -940,7 +937,7 @@ export function takeover(
       core.sessions.delete(projectId); // fall through: the fresh path below
     } else {
       // We own it and our process is live: a live owner ⇒ conflict
-      // (workspace.md §6.2 — no takeover of a live owner, even our own).
+      // (no takeover of a live owner, even our own).
       const holder: Holder | null = existing.ownership
         ? {
             backendId: existing.ownership.backendId,
@@ -971,7 +968,7 @@ export function takeover(
     };
   }
 
-  // R7 (2026-09-18 review): the fresh-takeover path reads/writes the
+  // The fresh-takeover path reads/writes the
   // ownership record and the envelope — verify the child artifact
   // directories with the containment policy FIRST (a PRESENT child that
   // escapes the data root ⇒ the project is not a project of this backend
@@ -984,15 +981,15 @@ export function takeover(
   const sceneDir = scenesCheck.kind === 'ok' ? scenesCheck.dir : join(dir, 'scenes');
   const thirdlightDir = thirdCheck.kind === 'ok' ? thirdCheck.dir : join(dir, '.thirdlight');
 
-  // Fresh (or released-session) takeover: the §6.4 procedure.
+  // Fresh (or released-session) takeover: the takeover procedure.
   const lf = livenessFn(core);
   for (let round = 0; round < 3; round++) {
     const recRead = readOwnershipRecord(thirdlightDir, core.ops);
     if (recRead.kind === 'unreadable') {
-      // R8a (2026-09-18 review; workspace.md §6.2/§11): the record's
+      // The record's
       // state is UNKNOWN, never absent ⇒ it cannot evaluate stale; the
       // conservative rule resolves it to live ⇒ REFUSE (no takeover —
-      // only PROVEN death permits one, §6.4). §11: holder null.
+      // only PROVEN death permits one). Holder null.
       return { ok: false, error: ownershipConflict(null) };
     }
     const recBytes = recRead.kind === 'absent' ? null : recRead.bytes;
@@ -1005,7 +1002,7 @@ export function takeover(
     if (ev.action === 'conflict') {
       return { ok: false, error: ownershipConflict(ev.holder) };
     }
-    // stale — the §6.4 procedure:
+    // stale — the takeover procedure:
     // (1) re-read: byte-identical to the record that evaluated stale,
     //     otherwise re-evaluate from scratch (a concurrent takeover may
     //     have landed). An unreadable re-read is NOT byte-identical (the
@@ -1030,7 +1027,7 @@ export function takeover(
     });
     if (!claim.ok) {
       if ('inconsistent' in claim) {
-        // The §6.3 orphan-recovery rule cannot resolve the claim file at
+        // The orphan-recovery rule cannot resolve the claim file at
         // the target epoch: claim_inconsistent (holder null; nothing was
         // claimed) — the operator removes the orphan file and re-issues.
         return {
@@ -1053,7 +1050,7 @@ export function takeover(
             : ownershipConflict(e2.holder),
       };
     }
-    // (4) load the project (§4.3) — plus the owner temp cleanup (§5.4).
+    // (4) load the project — plus the owner temp cleanup.
     cleanOpenArtifacts(core, dir, sceneDir, thirdlightDir);
     // A v4 project (or a v3 one, upgraded on the spot) — the same branch as
     // the fresh open and `performClaimAndLoad`.
@@ -1069,8 +1066,8 @@ export function takeover(
   // writer): report the current evaluation.
   const recRead = readOwnershipRecord(thirdlightDir, core.ops);
   if (recRead.kind === 'unreadable') {
-    // R8a (workspace.md §6.2/§11): unknown record state ⇒ refuse
-    // (never absent — §11: holder null).
+    // Unknown record state ⇒ refuse
+    // (never absent; holder null).
     return { ok: false, error: ownershipConflict(null) };
   }
   const ev = evaluateOwnership(recRead.kind === 'absent' ? null : recRead.bytes, core.self, lf);
@@ -1109,7 +1106,7 @@ function performClaimAndLoad(
       break;
     }
     if ('inconsistent' in c) {
-      // The §6.3 orphan-recovery rule cannot resolve the claim file at
+      // The orphan-recovery rule cannot resolve the claim file at
       // the target epoch: claim_inconsistent (holder null; nothing was
       // claimed).
       return {
@@ -1149,18 +1146,18 @@ function bytesEqual(a: Uint8Array | null, b: Uint8Array | null): boolean {
   return true;
 }
 
-// ---- release (workspace.md §9.1) ---------------------------------------------------
+// ---- release ---------------------------------------------------
 
 /**
- * `releaseWorkspace` (§9.1): the current state is already durable (every
- * acked command is written, §5.3) — rewrite the envelope with the same
+ * `releaseWorkspace`: the current state is already durable (every
+ * acked command is written) — rewrite the envelope with the same
  * scene/revision but retry.records: [] (a lost-ack retry of a pre-release
  * command must not replay across the boundary), then rewrite the
  * ownership record with state "released" (the same W primitive; the file
  * is never deleted), then unlink the owner's own claim file (verified by
- * path — workspace.md §9 step 1) and discard the in-memory state.
+ * path) and discard the in-memory state.
  *
- * R4 (2026-09-18 review): every ownership-write outcome is handled
+ * Every ownership-write outcome is handled
  * explicitly (ok / failed / external / unreadable / new-undurable). The
  * moment the released record is on disk (`ok` or `new-undurable` — the
  * rename took effect) or foreign ownership is observed (`external`, or an
@@ -1168,8 +1165,8 @@ function bytesEqual(a: Uint8Array | null, b: Uint8Array | null): boolean {
  * in-memory state is discarded and, in the foreign-observation case, the
  * session is dropped so every later operation is a fresh open
  * re-evaluating from disk (never a continuation of the released session —
- * the R4 split-brain bound). The failure for unproven durability is still
- * reported (`write_failed { onDiskState: "new-undurable" }`, §5.1). A
+ * the split-brain bound). The failure for unproven durability is still
+ * reported (`write_failed { onDiskState: "new-undurable" }`). A
  * release that fails before the record write (`previous`) leaves the
  * project owned with the old session still the writer (no partial
  * release) — but the session is flagged so the next operation re-verifies
@@ -1246,7 +1243,7 @@ export function releaseOnShutdown(core: Core, s: ProjectSession): void {
   }
 }
 
-// ---- query serving (commands.md §5.6) ------------------------------------------------
+// ---- query serving ------------------------------------------------
 
 function echoOp(v: unknown): string | undefined {
   if (typeof v !== 'string') return undefined;
@@ -1257,16 +1254,15 @@ const QUERY_OPS = [
   'queryProject',
   'queryEntity',
   'queryEntities',
-  // packet 25: the bounded M2 content queries (commands.md §4) are served
+  // The bounded content queries are served
   // through the same query path (last acknowledged state, never a mutation).
   'queryAssets',
   'queryPrefabs',
   'queryBehaviors',
-  // packet 48 / authoring §A6 (commands.md §3.1.11): the v3 game-config query
-  // is the same read path (wiring completed by the coordinator repair; the
-  // pure function is `commands`' single implementation).
+  // The v3 game-config query is the same read path (the pure function is
+  // `commands`' single implementation).
   'queryGameConfig',
-  // Phase 23.5: block-layer cells and regions.
+  // Block-layer cells and regions.
   'queryBlocks',
 ] as const;
 type QueryOp = (typeof QUERY_OPS)[number];
@@ -1284,9 +1280,8 @@ function queryFailure(
 }
 
 /**
- * Serve one query from the published in-memory state (commands.md §10:
- * no mutation lock; always a complete state at one acknowledged revision —
- * while paused, the last known good projection, §5.6/workspace.md §5).
+ * Serve one query from the published in-memory state (no mutation lock; always a complete state at one acknowledged revision —
+ * while paused, the last known good projection).
  */
 export function serveQuery(
   core: Core,
@@ -1297,10 +1292,10 @@ export function serveQuery(
   if (!ID_RE.test(projectId)) {
     return queryFailure(op, projectId, invalidRequest('/projectId', projectId, 'project-model ID syntax', 'projectId must use the project-model ID syntax'));
   }
-  // Project resolution precedes argument validation (the commands.md §6.1
+  // Project resolution precedes argument validation (the command pipeline's
   // step-1 order, applied to queries: a missing/unavailable project is
   // reported before any args error). Queries never trigger a re-open of a
-  // released project (workspace.md §9.1) — `caller: 'query'`.
+  // released project — `caller: 'query'`.
   const o = ensureSession(core, projectId, 'query');
   if (o.kind === 'not-found') return queryFailure(op, projectId, projectNotFound(projectId));
   if (o.kind === 'released') {
@@ -1311,7 +1306,7 @@ export function serveQuery(
   }
   const s = o.session;
   if (s.mode !== 'open' || s.scene === null) {
-    // Blocked (a fresh process, no last known good — workspace.md §7.5):
+    // Blocked (a fresh process, no last known good):
     // queries fail the same way as commands.
     const b = s.blocked;
     return queryFailure(op, projectId, projectUnavailable(b?.reason ?? 'envelope_invalid', null, b?.errors ?? []));

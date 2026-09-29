@@ -1,5 +1,5 @@
 /**
- * Phase 9.10: sounds through the production composition — a script's
+ * Sounds through the production composition — a script's
  * `ctx.audio.play` reaches the audio owner (the host plays it after the
  * step; the simulation never waits), and an audio source's loop gets louder
  * as the character walks towards it (full volume within a quarter of its range,

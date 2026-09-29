@@ -1,5 +1,5 @@
 /**
- * Phase 9.9: the gameplay building blocks, run by the runtime every fixed
+ * The gameplay building blocks, run by the runtime every fixed
  * step (deterministic; a replay plays the same):
  *
  * - movers (and doors: movers that start on a signal) follow their waypoints;
@@ -7,21 +7,20 @@
  *   on it moves with it;
  * - triggers and switches emit signals (seen by movers and scripts in the
  *   next step);
- * - the generic primitives (phase 24.4: health, collectibles, patrols,
- *   hitboxes) run in `primitives.ts`.
+ * - the generic primitives (health, collectibles, patrols, hitboxes) run in
+ *   `primitives.ts`.
  *
- * Phase 24.7: the removed game components, their damage and the
- * session player's health, knockback and bounce were deleted; the blocks test
- * the character (the controller's object) in both dimensions.
+ * The blocks test the character (the controller's object) in both
+ * dimensions.
  *
  * Boxes (triggers, switches) are centred on their entity.
  *
- * Phase 14.2: a trigger may be a circle (centred on its entity, tested
+ * A trigger may be a circle (centred on its entity, tested
  * against the player's capsule itself), may emit its signal every step while
  * the player is inside (`mode: "stay"`), and records `enter`/`exit` events
  * that the scripts owning it read in the next step (`ctx.events`).
  *
- * Phase 23.1 (a 3D project, `host.physics3d`): movers are posed on the 3D
+ * In a 3D project (`host.physics3d`) movers are posed on the 3D
  * port (their full position and their entity's rotation) and carry and push
  * the player in 3D; colliders scripts drive are posed with them; triggers are
  * 3D volumes — a box (turned with its entity), a sphere or a capsule standing
@@ -38,7 +37,7 @@ import { rotate3, segmentBoxDistance2, segmentPointDistance2, segmentSegmentDist
 import { advancePath, Primitives, reversePath, type PathState } from './primitives';
 
 /**
- * Phase 19.1: script messages per step (`ctx.messages.send`): far above what
+ * Script messages per step (`ctx.messages.send`): far above what
  * game logic sends in one step, small enough to bound the per-step lists.
  */
 export const MAX_MESSAGES_PER_STEP = 256;
@@ -46,37 +45,37 @@ export const MAX_MESSAGES_PER_STEP = 256;
 export const MAX_SIGNAL_NAME = 64;
 
 /**
- * Phase 15.3: the mover's tuning is its data; `BLOCK_DEFAULTS` are the values
+ * The mover's tuning is its data; `BLOCK_DEFAULTS` are the values
  * used when a field is absent (the constants every project played with before).
  */
 const D = BLOCK_DEFAULTS;
 
 type Vec3 = [number, number, number];
 
-/** Phase 24.4: the path fields (points, lengths, speed, mode, wait, easing and the position along it) are shared with the waypoint patrol. */
+/** The path fields (points, lengths, speed, mode, wait, easing and the position along it) are shared with the waypoint patrol. */
 interface Mover extends PathState {
   id: string;
   startOn: string | null;
-  /** Phase 25.12: the signals that hold it, toggle it and turn it around (null: none). */
+  /** The signals that hold it, toggle it and turn it around (null: none). */
   stopOn: string | null;
   toggleOn: string | null;
   reverseOn: string | null;
-  /** Phase 25.10: the authored speed and moving flag (a new run restores them; scripts write `speed` and `active`). */
+  /** The authored speed and moving flag (a new run restores them; scripts write `speed` and `active`). */
   authoredSpeed: number;
   authoredActive: boolean;
   // state
   started: boolean;
-  /** Phase 25.10: false — it holds where it is (still posed and solid). */
+  /** False — it holds where it is (still posed and solid). */
   active: boolean;
   /** The box collider's half extents (a mover without a box or polygon collider never pushes). */
   half: Vec2 | null;
-  /** Phase 25.4: a polygon collider's vertices, turned by its rotation, around the mover's position. */
+  /** A polygon collider's vertices, turned by its rotation, around the mover's position. */
   poly: readonly Vec2[] | null;
-  /** Phase 15.3: the most it pushes a player per step (its `maxPush` m/s over the step rate). */
+  /** The most it pushes a player per step (its `maxPush` m/s over the step rate). */
   pushStep: number;
-  /** Phase 23.0: its collider's rotation about Z (the entity's; a mover translates, it does not turn). */
+  /** Its collider's rotation about Z (the entity's; a mover translates, it does not turn). */
   rotationZ: number;
-  /** Phase 23.1 (3D): the entity's rotation, and its collider's box around its position (null: no collider). */
+  /** 3D: the entity's rotation, and its collider's box around its position (null: no collider). */
   rotation: [number, number, number, number];
   aabb: { min: Vec3; max: Vec3 } | null;
 }
@@ -90,24 +89,24 @@ interface Trigger extends Box {
   signal: string;
   exitSignal: string | null;
   once: boolean;
-  /** Phase 14.2: a circle's radius (null: the box `half`). */
+  /** A circle's radius (null: the box `half`). */
   radius: number | null;
-  /** Phase 14.2: emit the signal every step while inside. */
+  /** Emit the signal every step while inside. */
   stay: boolean;
   inside: boolean;
   spent: boolean;
-  /** Phase 23.1 (3D): the volume — a box's half extents with depth, a sphere, or a capsule (its centre-segment half length). */
+  /** 3D: the volume — a box's half extents with depth, a sphere, or a capsule (its centre-segment half length). */
   volume: { kind: 'box'; half: Vec3 } | { kind: 'sphere'; radius: number } | { kind: 'capsule'; radius: number; halfSegment: number };
-  /** Phase 24.4e: the scene transition an entry starts (null: none). */
+  /** The scene transition an entry starts (null: none). */
   transition: SceneTransitionRequest | null;
 }
 
-/** Phase 24.4e: a trigger's scene transition, as the runtime carries it out. */
+/** A trigger's scene transition, as the runtime carries it out. */
 export interface SceneTransitionRequest {
   readonly scene: string;
   readonly spawn: string | null;
   readonly unload: readonly string[];
-  /** Phase 25.24e: seconds the view fades out before the swap and back in after it (0: none), and its colour. */
+  /** Seconds the view fades out before the swap and back in after it (0: none), and its colour. */
   readonly fade?: number;
   readonly fadeColor?: string;
 }
@@ -128,27 +127,27 @@ function transitionOf(v: unknown): SceneTransitionRequest | null {
 interface Switch extends Box {
   signal: string;
   mode: 'interact' | 'stand';
-  /** Phase 24.4f: the input action an interact switch reads. */
+  /** The input action an interact switch reads. */
   action: string;
   once: boolean;
   inside: boolean;
   spent: boolean;
 }
 
-/** Phase 25.13: a climb volume the character is in: its object and its world up and across axes (unit vectors). */
+/** A climb volume the character is in: its object and its world up and across axes (unit vectors). */
 export interface ClimbVolumeView {
   readonly id: string;
   readonly up: readonly [number, number, number];
   readonly across: readonly [number, number, number];
 }
 
-/** Phase 25.13: the rotation about Z alone of a quaternion (the 2D plane turns objects about Z only). */
+/** The rotation about Z alone of a quaternion (the 2D plane turns objects about Z only). */
 function planeRotation(r: readonly number[]): [number, number, number, number] {
   const z = colliderRotationZ(r);
   return [0, 0, Math.sin(z / 2), Math.cos(z / 2)];
 }
 
-/** Phase 20.2: a request to the renderer's effect player (presentation only). */
+/** A request to the renderer's effect player (presentation only). */
 export interface BlocksEffectRequest {
   op: 'play' | 'stop';
   effectId: string;
@@ -161,10 +160,10 @@ export interface BlocksHost {
   readonly hz: number;
   readonly physics: PhysicsPort | undefined;
   readonly curr: Map<string, TransformState>;
-  /** Phase 24.4/24.7: the character the blocks test — the controller's object ('' without one). */
+  /** The character the blocks test — the controller's object ('' without one). */
   readonly characterId: string;
   /**
-   * Phase 14.0: the character's capsule. The blocks test its bounding box:
+   * The character's capsule. The blocks test its bounding box:
    * half width `radius`, half height `halfHeight + radius`, centred at the
    * character's position plus `offset`.
    */
@@ -173,30 +172,30 @@ export interface BlocksHost {
   character(): Vec2 | null;
   /** The collider entity the character stands on, or null. */
   groundEntityId(): string | null;
-  /** Phase 20.2: play or stop a visual effect (presentation only; the simulation never reads it back). */
+  /** Play or stop a visual effect (presentation only; the simulation never reads it back). */
   effect?(request: BlocksEffectRequest): void;
-  /** Phase 15.3: the gap the character's controller keeps from the world (its `skin`; default 0.01 m). */
+  /** The gap the character's controller keeps from the world (its `skin`; default 0.01 m). */
   readonly characterSkin?: number;
-  /** Phase 23.1: the 3D port (a 3D project) — movers are posed on it and the blocks work in 3D. */
+  /** The 3D port (a 3D project) — movers are posed on it and the blocks work in 3D. */
   readonly physics3d?: PhysicsPort3D;
-  /** Phase 25.13: the project's gravity (m/s² along Y) and fall speed cap (m/s) for gravity bodies (absent: −19.62, −30). */
+  /** The project's gravity (m/s² along Y) and fall speed cap (m/s) for gravity bodies (absent: −19.62, −30). */
   readonly gravityY?: number;
   readonly maxFallSpeed?: number;
-  /** Phase 23.1 (3D): the character's committed position (the entity origin), or null. */
+  /** 3D: the character's committed position (the entity origin), or null. */
   character3?(): Vec3 | null;
-  /** Phase 23.1 (3D): the character's capsule centre offset along Z. */
+  /** 3D: the character's capsule centre offset along Z. */
   readonly characterOffsetZ?: number;
-  /** Phase 23.1 (3D): the colliders scripts drive, where they are now (posed as kinematic bodies with the movers). */
+  /** 3D: the colliders scripts drive, where they are now (posed as kinematic bodies with the movers). */
   scriptColliders3D?(): readonly { entityId: string; position: Vec3; rotation: readonly number[] }[];
-  /** Phase 24.4e: the character entered a trigger with a scene transition (the runtime loads, unloads and moves it). */
+  /** The character entered a trigger with a scene transition (the runtime loads, unloads and moves it). */
   sceneTransition?(triggerId: string, transition: SceneTransitionRequest): void;
 }
 
-// ---- phase 23.1: 3D geometry (phase 24.4: in geometry3.ts) ---------------------
+// ---- 3D geometry (in geometry3.ts) ---------------------
 
 export { segmentBoxDistance2, segmentPointDistance2, segmentSegmentDistance2 } from './geometry3';
 
-/** Phase 23.1: the box around a resolved 3D collider shape turned by `q` (offsets from the body origin). */
+/** The box around a resolved 3D collider shape turned by `q` (offsets from the body origin). */
 function shapeAabb3(shape: ColliderShape3D, q: readonly number[]): { min: Vec3; max: Vec3 } {
   const pts: V3[] = [];
   switch (shape.type) {
@@ -235,7 +234,7 @@ function boxHalf(col: Record<string, unknown> | undefined): Vec2 | null {
   return shape?.type === 'box' && typeof shape.hx === 'number' && typeof shape.hy === 'number' ? { x: shape.hx, y: shape.hy } : null;
 }
 
-/** Phase 25.4: a polygon collider's vertices turned by `rotationZ`, or null for another shape. */
+/** A polygon collider's vertices turned by `rotationZ`, or null for another shape. */
 function polygonAround(col: Record<string, unknown> | undefined, rotationZ: number): Vec2[] | null {
   const shape = col?.['shape'] as { type?: string; vertices?: unknown } | undefined;
   if (shape?.type !== 'polygon' || !Array.isArray(shape.vertices)) return null;
@@ -250,7 +249,7 @@ function polygonAround(col: Record<string, unknown> | undefined, rotationZ: numb
 }
 
 /**
- * Phase 25.4: the extent of a convex polygon along one axis inside a slab of
+ * The extent of a convex polygon along one axis inside a slab of
  * the other (`axis` 'x': the x range of the part with lo <= y <= hi), or null
  * when the polygon misses the slab.
  */
@@ -276,12 +275,12 @@ function slabExtent(poly: readonly Vec2[], axis: 'x' | 'y', lo: number, hi: numb
   return min <= max ? { min, max } : null;
 }
 
-/** The margin a pushing mover keeps beyond the controller's skin (0.01 + 0.001 = the old 0.011 m gap). */
+/** The margin a pushing mover keeps beyond the controller's skin (0.01 + 0.001 = a 0.011 m gap). */
 const PUSH_MARGIN = 0.001;
 
 const num = (v: unknown, d: number): number => (typeof v === 'number' && Number.isFinite(v) ? v : d);
 
-/** Phase 21.2: the shared frozen empties of a quiet step. */
+/** The shared frozen empties of a quiet step. */
 const NO_TRIGGER_EVENTS: readonly TriggerEventRecord[] = Object.freeze([]);
 const NO_QUEUED_MESSAGES: readonly { message: BehaviorMessage; to: string | null }[] = Object.freeze([]);
 const NO_MESSAGES: readonly BehaviorMessage[] = Object.freeze([]);
@@ -289,11 +288,10 @@ const NO_CARRY: Vec2 = Object.freeze({ x: 0, y: 0 });
 const NO_CARRY3: Readonly<Vec3> = Object.freeze([0, 0, 0]) as unknown as Readonly<Vec3>;
 
 /**
- * Phase 9.13 / 24.4f: a model facing where it goes — the yaw of the
+ * A model facing where it goes — the yaw of the
  * horizontal motion of what it follows (its parent, else itself) about +Y,
- * plus an offset, turning at `rate` rad/s. Phase 24.7: the two-sided mode's
- * own path was deleted; its data reads as this with the offset `yawRight − 90°`
- * (24.8 upgrades the stored data).
+ * plus an offset, turning at `rate` rad/s. Two-sided facing data reads as
+ * this with the offset `yawRight − 90°` (the stored data is upgraded).
  */
 interface Facer {
   yaw: number;
@@ -309,39 +307,39 @@ export class GameplayBlocks {
   private readonly triggers = new Map<string, Trigger>();
   private readonly switches = new Map<string, Switch>();
   private readonly oneWay = new Set<string>();
-  /** Phase 25.13: climb volumes (half extents of their box, in their object's frame). */
+  /** Climb volumes (half extents of their box, in their object's frame). */
   private readonly climbVolumes = new Map<string, { half: Vec3 }>();
   private readonly parents = new Map<string, string>();
   private readonly hidden = new Set<string>();
   /** Loaded objects authored hidden (`visible: false`): every run starts with them hidden. */
   private readonly startHidden = new Set<string>();
-  /** Phase 25.10: the hidden set as it stood at the start of the step, kept once something changed it in the step (null: unchanged). */
+  /** The hidden set as it stood at the start of the step, kept once something changed it in the step (null: unchanged). */
   private hiddenStart: Set<string> | null = null;
-  /** Phase 25.10: objects a script switched off (with their children): no mover, trigger, switch, primitive or facing steps. */
+  /** Objects a script switched off (with their children): no mover, trigger, switch, primitive or facing steps. */
   private inactive: ReadonlySet<string> = new Set();
-  /** Phase 9.13 / 24.4f: models that face where they go (yaw about +Y, radians). */
+  /** Models that face where they go (yaw about +Y, radians). */
   private readonly facers = new Map<string, Facer>();
   private readonly counters = new Map<string, number>();
-  /** Phase 20.2: entities whose `effect` component (re)starts or stops on a signal. */
+  /** Entities whose `effect` component (re)starts or stops on a signal. */
   private readonly effectTriggers = new Map<string, { effectId: string; signal: string | null; stop: string | null }>();
   /** The gap a pushing mover keeps from the character (the controller's skin plus a margin). */
   private readonly pushSkin: number;
   private signalsNow = new Set<string>();
   private signalsPrev = new Set<string>();
-  /** Phase 14.2: triggers entered/left in this step, and in the previous one (what scripts see). */
+  /** Triggers entered/left in this step, and in the previous one (what scripts see). */
   private triggerEventsNow: TriggerEventRecord[] = [];
   private triggerEventsPrev: readonly TriggerEventRecord[] = Object.freeze([]);
-  /** Phase 19.1: script messages sent in this step, and in the previous one (what scripts see); `to` null = every script. */
+  /** Script messages sent in this step, and in the previous one (what scripts see); `to` null = every script. */
   private messagesNow: { message: BehaviorMessage; to: string | null }[] = [];
   private messagesPrev: readonly { message: BehaviorMessage; to: string | null }[] = Object.freeze([]);
   private carry: Vec2 = { x: 0, y: 0 };
-  /** Phase 23.1 (3D): the carried platform's motion (and pushes) this step, and where each script-driven collider was posed last. */
+  /** 3D: the carried platform's motion (and pushes) this step, and where each script-driven collider was posed last. */
   private carry3: Readonly<Vec3> = NO_CARRY3;
   private readonly scriptPosed = new Map<string, Vec3>();
   private step = 0;
-  /** Phase 14.0: the character capsule's box — centre offset from the character's position, half width, half height. */
+  /** The character capsule's box — centre offset from the character's position, half width, half height. */
   private readonly pc: { ox: number; oy: number; hw: number; hh: number };
-  /** Phase 24.4: the generic primitives (health on any object, collectibles, patrols, hitbox contacts). */
+  /** The generic primitives (health on any object, collectibles, patrols, hitbox contacts). */
   readonly primitives: Primitives;
 
   constructor(
@@ -373,7 +371,7 @@ export class GameplayBlocks {
     this.add(entities);
   }
 
-  /** Phase 24.4: the character's capsule box (centre and half extents), or null without a character. */
+  /** The character's capsule box (centre and half extents), or null without a character. */
   private characterBox(): { id: string; centre: Vec3; half: Vec3 } | null {
     const id = this.host.characterId;
     const t = id !== '' ? this.host.curr.get(id) : undefined;
@@ -396,7 +394,7 @@ export class GameplayBlocks {
       if (col !== undefined && col['oneWay'] === true) this.oneWay.add(e.id);
       const face = c['faceMovement'];
       if (face !== undefined) {
-        // Phase 24.7: a two-sided model (no mode) reads as a velocity one: moving +X faces yawRight (24.8 upgrades the data).
+        // A two-sided model (no mode) reads as a velocity one: moving +X faces yawRight (the stored data is upgraded).
         const offsetDeg = face['mode'] === 'velocity' ? num(face['yawOffset'], 0) : num(face['yawRight'], 90) - 90;
         const turn = num(face['turnSeconds'], 0.12);
         const q = e.components.transform.rotation;
@@ -453,7 +451,7 @@ export class GameplayBlocks {
         const circle = t['shape'] === 'circle';
         const radius = circle ? num(t['radius'], 0.5) : null;
         const size = (t['size'] as number[] | undefined) ?? [2 * (radius ?? 0.5), 2 * (radius ?? 0.5)];
-        // Phase 23.1: the 3D volume (a 3D project; the model gives a box its depth, a capsule its height).
+        // The 3D volume (a 3D project; the model gives a box its depth, a capsule its height).
         const r3 = num(t['radius'], 0.5);
         const volume: Trigger['volume'] =
           t['shape'] === 'sphere' || t['shape'] === 'circle'
@@ -481,14 +479,14 @@ export class GameplayBlocks {
         this.switches.set(e.id, { id: e.id, half: { x: size[0]! / 2, y: size[1]! / 2 }, signal: String(s['signal']), mode: s['mode'] as Switch['mode'], action: typeof s['action'] === 'string' ? (s['action'] as string) : SWITCH_DEFAULT_ACTION, once: s['once'] === true, inside: false, spent: false });
       }
       const h = c['health'];
-      // Phase 20.2: an effect component that a signal starts or stops.
+      // An effect component that a signal starts or stops.
       const fx = c['effect'];
       if (fx !== undefined && (typeof fx['signal'] === 'string' || typeof fx['stopSignal'] === 'string')) {
         this.effectTriggers.set(e.id, { effectId: String(fx['effectId']), signal: typeof fx['signal'] === 'string' ? (fx['signal'] as string) : null, stop: typeof fx['stopSignal'] === 'string' ? (fx['stopSignal'] as string) : null });
       }
-      // Phase 24.4: health on any object, collectibles, patrols, hitboxes.
+      // Health on any object, collectibles, patrols, hitboxes.
       if (h !== undefined || c['collectible'] !== undefined || c['patrol'] !== undefined || c['hitbox'] !== undefined || c['gravity'] !== undefined) this.primitives.add(e.id, c, p);
-      // Phase 25.13: a volume the character climbs in.
+      // A volume the character climbs in.
       const climb = c['climbVolume'];
       if (climb !== undefined) {
         const size = Array.isArray(climb['size']) ? (climb['size'] as number[]) : [1, 4];
@@ -498,7 +496,7 @@ export class GameplayBlocks {
     }
   }
 
-  /** Phase 23.1: a mover's 3D data — its entity's rotation and its collider's box (a 2D plane never reads them). */
+  /** A mover's 3D data — its entity's rotation and its collider's box (a 2D plane never reads them). */
   private mover3(e: EntityV3, col: Record<string, unknown> | undefined): Pick<Mover, 'rotation' | 'aabb'> {
     const q = e.components.transform.rotation;
     const rotation: [number, number, number, number] = [q[0] ?? 0, q[1] ?? 0, q[2] ?? 0, q[3] ?? 1];
@@ -546,12 +544,12 @@ export class GameplayBlocks {
     this.carry = { x: 0, y: 0 };
     this.carry3 = NO_CARRY3;
     this.scriptPosed.clear();
-    // Phase 24.4: health back to its start, collectibles back, patrols at their start.
+    // Health back to its start, collectibles back, patrols at their start.
     this.primitives.resetRun();
   }
 
   /**
-   * Phase 24.7: the character was placed (a spawn, a respawn, a teleport) —
+   * The character was placed (a spawn, a respawn, a teleport) —
    * the face-movement models under `rootId` forget their last position, so
    * the placement is not read as motion (they keep their yaw).
    */
@@ -569,7 +567,7 @@ export class GameplayBlocks {
   }
 
   /**
-   * Phase 15.2 / 24.4f: a spawn's facing — the face-movement models under
+   * A spawn's facing — the face-movement models under
    * `rootId` (the character's) turn at once to `yaw` (radians about +Y) plus
    * their offset, as if the character had just moved that way.
    */
@@ -591,7 +589,7 @@ export class GameplayBlocks {
   // ---- queries ------------------------------------------------------------------
 
   /**
-   * Phase 25.13: the climb volume the character's capsule centre is in now
+   * The climb volume the character's capsule centre is in now
    * (the first in load order; null: none, or no character): its object, and
    * its up and across axes in the world (its object's +Y and +X, turned with
    * the object's rotation — about Z only on the 2D plane).
@@ -624,23 +622,23 @@ export class GameplayBlocks {
     else this.hidden.add(entityId);
   }
 
-  /** Phase 25.10: whether an object was hidden at the start of this step (`ctx.entity(id).get('object').visible`). */
+  /** Whether an object was hidden at the start of this step (`ctx.entity(id).get('object').visible`). */
   hiddenAtStepStart(entityId: string): boolean {
     return (this.hiddenStart ?? this.hidden).has(entityId);
   }
 
-  /** Phase 25.10: a step begins (the hidden set's step-start copy is dropped). */
+  /** A step begins (the hidden set's step-start copy is dropped). */
   beginScriptStep(): void {
     this.hiddenStart = null;
   }
 
-  /** Phase 25.10: a mover's speed and moving flag now (null: no mover). */
+  /** A mover's speed and moving flag now (null: no mover). */
   moverState(entityId: string): { speed: number; active: boolean } | null {
     const m = this.movers.get(entityId);
     return m === undefined ? null : { speed: m.speed, active: m.active };
   }
 
-  /** Phase 25.10: a script's mover write (speed in m/s, moving or held), from the next step on. */
+  /** A script's mover write (speed in m/s, moving or held), from the next step on. */
   setMover(entityId: string, patch: { speed?: number; active?: boolean }): void {
     const m = this.movers.get(entityId);
     if (m === undefined) return;
@@ -649,7 +647,7 @@ export class GameplayBlocks {
   }
 
   /**
-   * Phase 25.10: the objects switched off (a script's `active: false`, with
+   * The objects switched off (a script's `active: false`, with
    * their children). Their movers, triggers, switches, primitives and facing
    * models do not step; a trigger or switch switched off forgets that the
    * character was inside (switched on again, an entry is an entry).
@@ -682,13 +680,13 @@ export class GameplayBlocks {
     this.counters.set(name, (this.counters.get(name) ?? 0) + delta);
   }
 
-  /** Phase 24.4j: the named counters set from a project save's components section (every other counter is cleared). */
+  /** The named counters set from a project save's components section (every other counter is cleared). */
   setCounters(values: Readonly<Record<string, number>>): void {
     this.counters.clear();
     for (const [k, v] of Object.entries(values)) if (/^[A-Za-z_][A-Za-z0-9_]{0,31}$/.test(k) && Number.isFinite(v)) this.counters.set(k, v);
   }
 
-  /** Phase 24.7: the character's health (ctx.game.health), or null when it has none. */
+  /** The character's health (ctx.game.health), or null when it has none. */
   healthView(): { current: number; max: number } | null {
     const id = this.host.characterId;
     return id !== '' ? this.primitives.healthOf(id) : null;
@@ -704,7 +702,7 @@ export class GameplayBlocks {
     this.cueLog?.signals.push(name);
   }
 
-  // ---- phase 24.4i: what the event → cue table listens to ----------------------------
+  // ---- What the event → cue table listens to ----------------------------
 
   /** This step's signals and events, in the order they happened (null: the project has no event sounds). */
   private cueLog: { signals: string[]; events: { name: string; entity: string }[] } | null = null;
@@ -722,28 +720,28 @@ export class GameplayBlocks {
     return log;
   }
 
-  /** Phase 14.2: the triggers the player entered or left in the previous step (in trigger order). */
+  /** The triggers the player entered or left in the previous step (in trigger order). */
   triggerEvents(): readonly TriggerEventRecord[] {
     return this.triggerEventsPrev;
   }
 
-  /** Phase 19.1: queue a script message for the next step; false at the step's limit. */
+  /** Queue a script message for the next step; false at the step's limit. */
   sendMessage(message: BehaviorMessage, to: string | null): boolean {
     if (this.messagesNow.length >= MAX_MESSAGES_PER_STEP) return false;
     this.messagesNow.push({ message: Object.freeze({ ...message }), to });
     return true;
   }
 
-  /** Phase 19.1: the messages of `name` sent in the previous step to every script or to `to`, in send order. */
+  /** The messages of `name` sent in the previous step to every script or to `to`, in send order. */
   messagesFor(to: string, name: string): readonly BehaviorMessage[] {
-    // Phase 21.2: no messages last step (the usual case) answers with one shared empty list.
+    // No messages last step (the usual case) answers with one shared empty list.
     if (this.messagesPrev.length === 0) return NO_MESSAGES;
     const out: BehaviorMessage[] = [];
     for (const m of this.messagesPrev) if (m.message.name === name && (m.to === null || m.to === to)) out.push(m.message);
     return Object.freeze(out);
   }
 
-  /** Phase 25.11: every message sent in the previous step to every script or to `to`, in send order. */
+  /** Every message sent in the previous step to every script or to `to`, in send order. */
   messagesTo(to: string): readonly BehaviorMessage[] {
     if (this.messagesPrev.length === 0) return NO_MESSAGES;
     const out: BehaviorMessage[] = [];
@@ -756,7 +754,7 @@ export class GameplayBlocks {
     return this.carry;
   }
 
-  /** Phase 23.1 (3D): the carried platform's motion (and a mover's push) this step, added to the player's move. */
+  /** 3D: the carried platform's motion (and a mover's push) this step, added to the player's move. */
   carryDelta3(): Readonly<Vec3> {
     return this.carry3;
   }
@@ -770,9 +768,9 @@ export class GameplayBlocks {
   /** Start of a step: signals turn over, movers advance (their colliders are posed for physics). */
   beforeStep(stepIndex: number): void {
     this.step = stepIndex;
-    // Phase 24.4: the primitives' events turn over with the trigger events.
+    // The primitives' events turn over with the trigger events.
     this.primitives.turnover(stepIndex);
-    // Phase 21.2: the two signal sets swap (the new current one is cleared only
+    // The two signal sets swap (the new current one is cleared only
     // when it holds something), and an empty step's events and messages are one
     // shared frozen empty list — a quiet step makes no collections.
     const signals = this.signalsPrev;
@@ -789,7 +787,7 @@ export class GameplayBlocks {
       this.messagesPrev = Object.freeze(this.messagesNow);
       this.messagesNow = [];
     }
-    // Phase 20.2: effect components started or stopped by last step's signals (entity order: deterministic).
+    // Effect components started or stopped by last step's signals (entity order: deterministic).
     if (this.effectTriggers.size > 0 && this.signalsPrev.size > 0) {
       for (const [id, t] of this.effectTriggers) {
         if (this.inactive.has(id)) continue;
@@ -817,7 +815,7 @@ export class GameplayBlocks {
     // correct beyond its contracted bound).
     const player = this.host.character();
     const pushed = { x: 0, y: 0 };
-    // Phase 14.7: a mover moving mostly upward pushes a player beside or
+    // A mover moving mostly upward pushes a player beside or
     // under it (the capsule's centre below the mover's top) out sideways, away
     // from the mover, never up — a rising gate or pillar does not lift a
     // player pressing against it; only a player above it is scooped up.
@@ -838,7 +836,7 @@ export class GameplayBlocks {
       if (oy <= ox && !sideways) pushed.y += Math.min(m.pushStep, oy) * (py >= m.pos[1] ? 1 : -1);
       else pushed.x += Math.min(m.pushStep, ox) * (px >= m.pos[0] ? 1 : -1);
     };
-    // Phase 25.4: the same rule for a polygon collider, with its exact extent
+    // The same rule for a polygon collider, with its exact extent
     // across the character's box (the part of the polygon beside the box for
     // the horizontal overlap, the part above or below it for the vertical one)
     // instead of a box's half extents. A box keeps the rule above unchanged.
@@ -877,7 +875,7 @@ export class GameplayBlocks {
   }
 
   /**
-   * Phase 23.1: the 3D mover step. Movers advance and are posed on the 3D
+   * The 3D mover step. Movers advance and are posed on the 3D
    * port with their entity's rotation (a mover translates, it does not turn),
    * together with the colliders scripts drive (where the last step's
    * transform phase left them). The player moves with what it stands on; a
@@ -943,13 +941,12 @@ export class GameplayBlocks {
   }
 
   /**
-   * Phase 25.12: a mover reads last step's signals, in a fixed order: its
+   * A mover reads last step's signals, in a fixed order: its
    * start signal starts it (and moves a held one: `active`), its stop signal
    * holds it, its toggle signal moves a held one and holds a moving one, and
    * its reverse signal turns it around (a finished once-mover travels back).
-   * Before 25.12 only `startOn` existed and it only started a waiting mover
-   * (`active` was a script's alone); `stopOn`/`toggleOn` hold and move through
-   * the same `active` flag a script writes, so `get('mover').active` shows it.
+   * `stopOn`/`toggleOn` hold and move through the same `active` flag a
+   * script writes, so `get('mover').active` shows it.
    */
   private moverSignals(m: Mover): void {
     const sig = this.signalsPrev;
@@ -973,7 +970,7 @@ export class GameplayBlocks {
    * After the transform phase (both dimensions): the generic primitives
    * (patrols walk; collectibles and hitbox contacts test the character),
    * face-movement models turn, and the triggers (and, on the 2D plane, the
-   * switches) test the character. Phase 24.7: one path with or without a
+   * switches) test the character. One path with or without a
    * game mode; the deleted session's game components and damage are gone.
    */
   afterPhysics(frame: ActionFrame): void {
@@ -990,7 +987,7 @@ export class GameplayBlocks {
       if (this.inactive.has(s.id)) continue;
       const at = this.worldOf(s.id);
       const inside = at !== null && Math.abs(player.x + this.pc.ox - at[0]) < s.half.x + this.pc.hw && Math.abs(player.y + this.pc.oy - at[1]) < s.half.y + this.pc.hh;
-      // Phase 24.4f: an interact switch reads its own action (absent: interact).
+      // An interact switch reads its own action (absent: interact).
       const fire = s.mode === 'stand' ? inside && !s.inside : inside && frame.actions?.[s.action]?.p === 'pressed';
       if (fire && !s.spent) {
         this.emit(s.signal);
@@ -1000,7 +997,7 @@ export class GameplayBlocks {
     }
   }
 
-  /** Phase 24.4: a 2D-plane plain step (no simulation modules): the primitives' events turn over and they step. */
+  /** A 2D-plane plain step (no simulation modules): the primitives' events turn over and they step. */
   stepPrimitivesOnly(stepIndex: number): void {
     if (!this.primitives.active && this.facers.size === 0) return;
     this.step = stepIndex;
@@ -1011,7 +1008,7 @@ export class GameplayBlocks {
 
   /**
    * The 2D-plane triggers against the character at `player` (its origin): a
-   * box against the capsule's box; phase 14.2: a circle against the capsule
+   * box against the capsule's box; A circle against the capsule
    * itself (a segment of half length halfHeight − radius, swept by the
    * radius) — the distance from the circle's centre to the segment is under
    * the two radii.
@@ -1034,21 +1031,21 @@ export class GameplayBlocks {
     }
   }
 
-  /** Phase 24.4: the primitives' events of the previous step (every object's; the behavior host gives each script those it owns). */
+  /** The primitives' events of the previous step (every object's; the behavior host gives each script those it owns). */
   primitiveEvents(): readonly PrimitiveEventRecord[] {
     return this.primitives.events();
   }
 
   /** A trigger's signals and events for this step's inside test (the 2D plane's and 3D's shared rules). */
   private updateTrigger(t: Trigger, inside: boolean): void {
-    // Phase 24.4e: an entry starts the trigger's scene transition (as its signal, only once with `once`).
+    // An entry starts the trigger's scene transition (as its signal, only once with `once`).
     if (inside && !t.inside && t.transition !== null && !t.spent) this.host.sceneTransition?.(t.id, t.transition);
     if (inside && (!t.inside || t.stay) && !t.spent) {
       this.emit(t.signal);
       if (t.once) t.spent = true;
     }
     if (!inside && t.inside && t.exitSignal !== null) this.emit(t.exitSignal);
-    // Phase 14.2: every real entry and exit (whatever `once` says about the signal).
+    // Every real entry and exit (whatever `once` says about the signal).
     // `stepIndex` counts as scripts' `ctx.stepIndex` does (this.step is the 1-based ordinal).
     if (inside !== t.inside) {
       this.triggerEventsNow.push(Object.freeze({ type: inside ? 'enter' : 'exit', trigger: t.id, stepIndex: this.step - 1 }));
@@ -1058,7 +1055,7 @@ export class GameplayBlocks {
   }
 
   /**
-   * Phase 23.1: the 3D triggers after physics. The player is its capsule —
+   * The 3D triggers after physics. The player is its capsule —
    * a segment of half length `halfHeight` along Y through its centre, swept
    * by its radius — tested exactly against each volume at its entity's world
    * position (the parents' offsets summed, as in 2D): a sphere by the
@@ -1101,13 +1098,13 @@ export class GameplayBlocks {
     t.position[2] = pos[2]!;
   }
 
-  /** Phase 9.13 / 24.4f: each facing model turns toward the horizontal motion of what it follows. */
+  /** Each facing model turns toward the horizontal motion of what it follows. */
   private turnFacers(dt: number): void {
     for (const [id, f] of this.facers) if (!this.inactive.has(id)) this.turnVelocityFacer(id, f, dt);
   }
 
   /**
-   * Phase 24.4f: a velocity model turns toward the yaw of the horizontal
+   * A velocity model turns toward the yaw of the horizontal
    * motion of what it follows (its parent, else itself) — atan2(dx, dz) about
    * +Y, 0 facing +Z, plus its offset — by the shorter way at its turn rate;
    * it keeps its yaw while standing (below 0.1 mm per step).

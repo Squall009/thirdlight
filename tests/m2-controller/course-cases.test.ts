@@ -1,17 +1,17 @@
 /**
- * Packet 32 — the real-adapter diagnostic-course suite.
+ * The real-adapter diagnostic-course suite.
  *
  * Every case runs the **real** stack in Node:
  * `@thirdlight/character` controller + `@thirdlight/runtime` phases/pre-roll +
  * `@thirdlight/physics-rapier` (the pinned `@dimforge/rapier2d-compat@0.20.0`
  * WASM) + `@thirdlight/input`'s pure raw-snapshot mapping, over
  * `fixtures/m2/course/**`. The tolerance bands come from the frozen
- * `tolerances.json` (packet-14 T-numbers and the accepted contracts), not from
+ * `tolerances.json` (the T-numbers and the accepted contracts), not from
  * the observations.
  *
  * The browser course (keyboard + physical gamepad) and all device/visual/CPU
  * claims are UNVERIFIED in this container: no browser/hardware exists. The
- * packet-37 procedure is `tests/browser/m2-controller/m2-controller.browser.ts`.
+ * browser procedure is `tests/browser/m2-controller/m2-controller.browser.ts`.
  */
 import { describe, expect, it } from 'vitest';
 import { createStepInputSource, mapRawInput, type StepInputStep } from '@thirdlight/input';
@@ -323,7 +323,7 @@ describe('wall, ceiling and ledge (real Rapier + controller)', () => {
       // The corridor from the authored start to the face is shorter than the
       // distance the 40 m/s2 acceleration needs to reach 12 m/s from rest, so
       // the achieved approach speed is recorded (the T9 12 m/s figure is the
-      // packet-14 instantaneous-velocity probe; C32-4).
+      // instantaneous-velocity probe).
       const approach = Math.max(...steps.slice(0, Math.max(1, contactIndex)).map((s) => s.vx));
       console.log(`[high-speed-wall] maxX=${maxX} contact@${contactIndex} stop@${stopIndex} approach=${approach}`);
       expect(approach).toBeGreaterThanOrEqual(8.0);
@@ -454,13 +454,13 @@ describe('slope limit, sliding and snapping (real Rapier + controller)', () => {
       try {
         const steps = gameplay(run);
         // The slope support is established by the first step's downward probe
-        // (packet 31's declared 1-step settle); the second executed step is the
+        // (the declared 1-step settle); the second executed step is the
         // first measured contact normal.
         const measured = run.records[1] ?? steps[0]!;
         const normalY = measured.result.supportNormal.y;
         const declared = (c.expect.supportNormalY as { value: number; tolerance: number });
         expect(Math.abs(normalY - declared.value)).toBeLessThanOrEqual(declared.tolerance);
-        // The controller's classification (physics.md §8.2): grounded ⇔ raw
+        // The controller's classification: grounded ⇔ raw
         // grounded AND supportNormal.y ≥ cos(45°).
         const cosMax = Math.cos((45 * Math.PI) / 180);
         const controllerGrounded = measured.result.grounded && normalY >= cosMax - 1e-6;
@@ -470,7 +470,7 @@ describe('slope limit, sliding and snapping (real Rapier + controller)', () => {
         const driftY = last.position.y - steps[0]!.position.y;
         const driftX = last.position.x - steps[0]!.position.x;
         console.log(`[slope ${row.angle}] normalY=${normalY} rawGrounded=${measured.result.grounded} steep=${measured.result.contacts.steepSlope} controllerGrounded=${controllerGrounded} slideDrift=(${driftX},${driftY})`);
-        // C32-1 slide policy: at/below the minimum slide angle the character
+        // The slide policy: at/below the minimum slide angle the character
         // holds; at/above it slides down the face while idle.
         if (row.angle === 29.9) {
           expect(Math.abs(driftY)).toBeLessThanOrEqual(0.01);
@@ -511,7 +511,7 @@ describe('slope limit, sliding and snapping (real Rapier + controller)', () => {
       const steps = gameplay(run);
       const deepSteps = steps.filter((s) => s.position.x > 10);
       expect(deepSteps.length).toBeGreaterThan(60);
-      // The measured 0.20.0 behaviour (packet-31 C31-3): the snap chains across
+      // The measured 0.20.0 behaviour: the snap chains across
       // steps, so the 0.50 m drop is descended over several grounded, snapped
       // steps rather than one free-fall; no single step may exceed the bounded
       // ground-contact correction (snap 0.1 + skin 0.01).
@@ -690,7 +690,7 @@ describe('packet-30 mapping drives the controller (keyboard + gamepad raw snapsh
   it('a jump held across a focus suspension is never a phantom press (loss of focus)', async () => {
     const course = courses.get('course.json')!;
     // The suspension semantics live in the browser owner's `awaitingRelease`
-    // state (packet 30, input.md §5.3/§5.4); the step source cannot express
+    // state; the step source cannot express
     // them, so the real mapping (`mapRawInput`) is threaded with the previous
     // state and the produced frames are replayed through the runtime's
     // recorded source — a real mapping + real controller combination.
@@ -708,7 +708,7 @@ describe('packet-30 mapping drives the controller (keyboard + gamepad raw snapsh
         jumpAwaitingRelease: awaiting,
       });
       frames.push(frame);
-      // The mapping's own state rule (input.md §5.3): while awaiting release a
+      // The mapping's own state rule: while awaiting release a
       // down control is 'held' and further sampling resumes after an up.
       if (awaiting) {
         down = i >= 21 && i <= 25;
@@ -720,7 +720,7 @@ describe('packet-30 mapping drives the controller (keyboard + gamepad raw snapsh
     }
     // The runtime's recorded source validates the jump phase chain strictly,
     // and a post-suspension 'held' legitimately has no preceding press (the
-    // browser owner's activation rule, packet-30 C30-6); the live runtime only
+    // browser owner's activation rule); the live runtime only
     // validates each frame, so the frames are replayed through a plain source.
     const actions: ActionSource = {
       sample: (n) => frames[n - 12] ?? { stepIndex: n, moveX: 0, jump: 'none' },

@@ -1,5 +1,5 @@
 /**
- * Phase 21.5: OrbitControls disposed after its canvas left the page must not
+ * OrbitControls disposed after its canvas left the page must not
  * leave its Control-key listeners on the document (they would keep the
  * controls, the canvas and the closed pane's whole tree alive).
  */

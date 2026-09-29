@@ -1,5 +1,5 @@
 /**
- * Phase 12 hierarchy semantics over a validated v3 scene: folders and the
+ * Hierarchy semantics over a validated v3 scene: folders and the
  * inherited entity flags.
  *
  * - A folder is organisation only. It has no transform and sits at the root
@@ -29,7 +29,7 @@ export interface EffectiveEntityFlags {
   active: boolean;
   locked: boolean;
   static: boolean;
-  /** Phase 12 (b): the effective tag mask — own mask OR every folder above's mask. */
+  /** The effective tag mask — own mask OR every folder above's mask. */
   tags: number;
   /** The tag bits that come from folders above (not set on the entity itself). */
   inheritedTags: number;
@@ -132,7 +132,7 @@ export function resolveSceneHierarchy(scene: SceneV3 | ResolvedSceneV3 | SceneV4
         return p !== undefined && isFolderEntity(p);
       },
     );
-    // Phase 23.5: the game reads a layer's cells from its component (`data`).
+    // The game reads a layer's cells from its component (`data`).
     const data = blocks?.get(e.id);
     out.push({
       id: e.id,

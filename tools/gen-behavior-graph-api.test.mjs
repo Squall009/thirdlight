@@ -1,5 +1,5 @@
 /**
- * Phase 19.1: the visual-script API nodes stay generated from the runtime
+ * The visual-script API nodes stay generated from the runtime
  * typings (parity): a change to `BehaviorContext` (a new member, a new
  * parameter, a changed doc tag) without `node tools/gen-behavior-graph-api.mjs`
  * fails here. The graph kind builds its API nodes from this table, so new

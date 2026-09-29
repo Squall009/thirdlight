@@ -1,19 +1,19 @@
 /**
- * The M1 backend — sessions.md §4–§13 (packet 09).
+ * The backend: HTTP API, WebSocket sessions and static origins.
  *
- * One process, two listeners (sessions.md §2):
+ * One process, two listeners:
  * - the authoring origin `O_A`: the HTTP API (`/api/v1/…`), the WS channel
  *   (`/api/v1/ws`), and the editor static bundle;
  * - the preview origin `O_P`: the static preview page only — a small HTML
- *   template injecting the checked message-bridge config (§13.2) + the
+ *   template injecting the checked message-bridge config + the
  *   static bundle. No API endpoints, no WS, no credentials.
  *
  * All persistent changes delegate to the workspace service (the sole
- * command executor — dependencies.md §4.3). The transport never mutates
+ * command executor). The transport never mutates
  * files independently.
  *
  * Exported as `@thirdlight/backend/services` (the stable surface the MCP
- * adapter, packet 11, imports); the default subpath is the executable
+ * adapter imports); the default subpath is the executable
  * bootstrap (the owner-deployment entry point).
  */
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
@@ -31,7 +31,7 @@ import { ContentRoutes, createAssetInspector, createBehaviorCompilerPort } from 
 import { createFbxConverter } from './fbx';
 import { createInlineTextureEncoder, createWorkerTextureEncoder } from './texture-encode';
 
-/** Phase 25.19: the KTX2 encoder's worker script, when this runs as the built bundle. */
+/** The KTX2 encoder's worker script, when this runs as the built bundle. */
 const KTX2_WORKER: URL | null = (() => {
   const url = new URL('./ktx2-worker.mjs', import.meta.url);
   return url.protocol === 'file:' && existsSync(decodeURIComponent(url.pathname)) ? url : null;
@@ -105,7 +105,7 @@ export function createBackend(
   const timeouts = mergeTimeouts(config.timeouts);
   const nowMs = (): number => Date.now();
 
-  // Startup static checks (sessions.md §13.7: missing bundle ⇒ structured
+  // Startup static checks (missing bundle ⇒ structured
   // startup error, recorded in the bounded log).
   const missing: string[] = [];
   if (!existsSync(config.editorStaticDir) || !statSync(config.editorStaticDir).isDirectory()) missing.push('editorStaticDir');
@@ -125,18 +125,18 @@ export function createBackend(
   mkdirSync(config.dataRoot, { recursive: true });
   if (config.exportRoot !== undefined) mkdirSync(config.exportRoot, { recursive: true });
 
-  // Packet 35: one compiler instance for both the injected workspace path and
+  // One compiler instance for both the injected workspace path and
   // the play build's deterministic behavior-output recompilation.
   const behaviorCompiler = createBehaviorCompilerPort(nowMs);
   const service: WorkspaceService = openWorkspaceService({
     root: config.dataRoot,
     backendId: config.backendId,
     processMarker: config.processMarker,
-    // Packet 25: the backend constructs the pure `asset-pipeline` inspector
-    // and injects it into the workspace (dependencies.md §4.1). The
+    // The backend constructs the pure `asset-pipeline` inspector
+    // and injects it into the workspace. The
     // workspace owns the staged-byte read; the transport never touches a file.
     assetInspector: createAssetInspector(),
-    // Packet 33: the backend constructs the pinned behavior-source compiler
+    // The backend constructs the pinned behavior-source compiler
     // (`behavior-build`) and injects it — the workspace's preparation layer
     // drives it; the compiler never reads a path or executes project source.
     behaviorCompiler,
@@ -149,7 +149,7 @@ export function createBackend(
     `starting: dataRoot=${config.dataRoot} authoring=${config.authoringOrigin} preview=${config.previewOrigin}`,
   );
 
-  // Packet 35: the immutable play-content artifact store (sessions.md §17).
+  // The immutable play-content artifact store.
   const playContent = new PlayContentStore({ now: nowMs });
 
   const plays = new PlayManager({
@@ -157,7 +157,7 @@ export function createBackend(
       const s = sessions.sessionForSessionId(ownerSessionId);
       if (!s || !s.connected || !s.socket) return false;
       if (utf8Len(payload) > WS_OUT_FRAME_MAX) {
-        // Phase 21.4: never silent — the owner's project shows a problem (the relay then fails or times out visibly).
+        // Never silent — the owner's project shows a problem (the relay then fails or times out visibly).
         logStartup(`outbound frame exceeds the 1 MiB bound (play=${ownerSessionId}); dropped`);
         recordProblem(s.projectId, 'play', 'ws_frame_too_large', `A ${utf8Len(payload)}-byte message to the editor exceeds the 1 MiB WebSocket frame bound and was not sent.`);
         return false;
@@ -179,10 +179,10 @@ export function createBackend(
     presentTimeoutMs: () => timeouts.presentTimeoutSeconds * 1000,
     inputRelayTimeoutMs: () => 10_000,
     onTerminal: (playSessionId) => playContent.markTerminal(playSessionId),
-    // Phase 25.5: a play that ended before it was presented is a project problem saying why
+    // A play that ended before it was presented is a project problem saying why
     // (a Stop is the user's own choice; a preview failure is recorded where it is reported).
     onEnded: (rec) => {
-      // Phase 25.24 (D48): a play.started held for a detached owner is dropped with its play (it carries the snapshot).
+      // A play.started held for a detached owner is dropped with its play (it carries the snapshot).
       const owner = sessions.sessionForSessionId(rec.ownerSessionId);
       if (owner?.pendingPlayStarted?.playSessionId === rec.playSessionId) owner.pendingPlayStarted = null;
       if (rec.presented || rec.reason === 'request' || rec.reason === 'preview_failed') return;
@@ -192,10 +192,10 @@ export function createBackend(
     nowMs,
   });
 
-  /** The §11.5 relay ack timeout (the §20 control relay shares it). */
+  /** The relay ack timeout (the game control relay shares it). */
   const relayTimeoutMs = (): number => timeouts.relayTimeoutSeconds * 1000;
 
-  // Phase 11: MCP play without the owner's browser (a headless editor).
+  // MCP play without the owner's browser (a headless editor).
   const ownerToken = config.tokens.find((t) => t.scope === 'admin')?.token ?? '';
   const headless = createHeadlessEditors({
     // Off unless configured (the process entry turns it on; tests and embeddings do not).
@@ -222,9 +222,8 @@ export function createBackend(
   };
 
   const sendError = (res: ServerResponse, error: SessionError, statusOverride?: number): void => {
-    // §11.2 normative mapping, with the contract's explicit exceptions:
-    // unauthorized ⇒ 401 (§4.1), bad_origin / session_required ⇒ 403
-    // (§4.2/§6.1).
+    // The error-class status mapping, with the contract's explicit exceptions:
+    // unauthorized ⇒ 401, bad_origin / session_required ⇒ 403.
     let status = statusFor(error.cls);
     if (error.code === 'unauthorized') status = 401;
     if (error.code === 'bad_origin' || error.code === 'session_required') status = 403;
@@ -252,7 +251,7 @@ export function createBackend(
     return req !== undefined && trustedRequest(req) ? 'admin' : null;
   };
 
-  /** §4.2: absent `Origin` header ⇒ not checked; present ⇒ exact match. */
+  /** Absent `Origin` header ⇒ not checked; present ⇒ exact match. */
   const originRejected = (req: IncomingMessage): string | null => {
     const o = req.headers.origin;
     if (typeof o !== 'string') return null;
@@ -277,7 +276,7 @@ export function createBackend(
     return sessionError('unauthorized', 'validation', 'the token scope does not cover this project');
   };
 
-  // Packet 25 content transport (bounded uploads, jobs, content queries and
+  // Content transport (bounded uploads, jobs, content queries and
   // the authenticated asset-byte read). It delegates every write/read to the
   // injected workspace service and performs no filesystem work itself.
   const contentRoutes = new ContentRoutes({
@@ -289,7 +288,7 @@ export function createBackend(
     log: logStartup,
     onJobFailed: (projectId, kind, code, message) => recordProblem(projectId, 'import', code, `Import ${kind} failed: ${message}`),
     fbx: createFbxConverter({ blender: config.blenderPath ?? 'blender', workRoot: join(config.dataRoot, '.convert') }),
-    // Phase 25.19: KTX2 encoding on import — a worker thread next to the deployment bundle
+    // KTX2 encoding on import — a worker thread next to the deployment bundle
     // (dist/backend/ktx2-worker.mjs), in this thread when run from source (tests).
     textureEncoder: KTX2_WORKER !== null ? createWorkerTextureEncoder(KTX2_WORKER) : createInlineTextureEncoder(),
     thumbnails: createThumbnailCache(config.dataRoot),
@@ -359,7 +358,7 @@ export function createBackend(
    * transport never reads files directly).
    */
   /**
-   * The bounded content projection for the full-state payload (packet 25):
+   * The bounded content projection for the full-state payload:
    * summary pages only (never definitions, declarations, versions or bytes),
    * composed from the workspace's public query surface. Returns undefined for
    * a project whose queries fail (the scene full state is still served).
@@ -379,7 +378,7 @@ export function createBackend(
     };
   };
 
-  /** Phase 12 (c): the editor session's entity bound (all scenes) and page size. */
+  /** The editor session's entity bound (all scenes) and page size. */
   const SESSION_ENTITY_BOUND = 65_536;
   const SESSION_PAGE = 16_384;
   const fullState = (projectId: string):
@@ -397,7 +396,7 @@ export function createBackend(
     if (!q.ok) {
       return { ok: false, error: workspaceError(q.error), status: statusFor(q.error.cls) };
     }
-    // Phase 25.18: an editor loading the project: its materials are checked (once; after that, after each change).
+    // An editor loading the project: its materials are checked (once; after that, after each change).
     if (materialChecker.last(projectId) === null) {
       try {
         checkMaterials(projectId);
@@ -410,7 +409,7 @@ export function createBackend(
       // guard so the code below narrows to `QueryProjectResult`.
       return { ok: false, status: 500, error: sessionError('invalid_request', 'internal', 'unexpected query shape') };
     }
-    // Phase 12 (c): paged (16384 per page) up to the session bound; a v4
+    // Paged (16384 per page) up to the session bound; a v4
     // project also names each entity's scene and lists its scenes.
     const v4 = (q as { scenes?: unknown }).scenes !== undefined;
     const page = v4 ? SESSION_PAGE : 1024; // a legacy (v1–v3) session reads one 1024 page
@@ -439,7 +438,7 @@ export function createBackend(
       if (entities.length >= total || e.entities.length === 0) break;
     }
     const scene: Record<string, unknown> = {
-      // C35-5 / sessions.md §19.x: the SCENE document's `schemaVersion`
+      // The SCENE document's `schemaVersion`
       // (1/2/3/4) — never the manifest's.
       schemaVersion: q.scene.schemaVersion,
       sceneId: q.scene.sceneId,
@@ -460,15 +459,14 @@ export function createBackend(
   };
 
   /** Surface a workspace/command error through the session layer unchanged
-   * (sessions.md §11.3: "Workspace codes … surface through these operations
-   * unchanged"). */
+   * (workspace codes surface through the session operations unchanged). */
   const workspaceError = (e: CommandError): SessionError =>
     sessionError(e.code as SessionError['code'], e.cls as SessionError['cls'], e.message, {
       ...(e.hint !== undefined ? { hint: e.hint } : {}),
       ...(e.projectId !== undefined ? { projectId: e.projectId } : {}),
       ...(e.reason !== undefined ? { reason: e.reason } : {}),
       ...(e.holder !== undefined ? { holder: e.holder } : {}),
-      // Phase 24.8: why a project does not load (the model's problems, at most 10) reaches the caller.
+      // Why a project does not load (the model's problems, at most 10) reaches the caller.
       ...(e.details !== undefined ? { details: e.details } : {}),
     });
 
@@ -497,7 +495,7 @@ export function createBackend(
     return s;
   };
 
-  /** `session_unavailable` with the §10.4 hint. */
+  /** `session_unavailable` with a hint. */
   const unavailableError = (playSessionId: string | undefined, hint: string): SessionError =>
     sessionError('session_unavailable', 'unavailable', hint, {
       ...(playSessionId !== undefined ? { playSessionId } : {}),
@@ -505,8 +503,8 @@ export function createBackend(
     });
 
   /**
-   * Deliver `mutation.applied` to the project's registered session (§6.2:
-   * every applied mutation, of any origin). No-op when absent/disconnected.
+   * Deliver `mutation.applied` to the project's registered session (every
+   * applied mutation, of any origin). No-op when absent/disconnected.
    */
   // ---------- project problems log (editor Problems tab + MCP) ----------
   const PROBLEMS_PER_PROJECT = 200;
@@ -529,7 +527,7 @@ export function createBackend(
     }
   };
 
-  // ---------- phase 25.18: graph materials' problems (checked on load and after every change) ----------
+  // ---------- Graph materials' problems (checked on load and after every change) ----------
   const materialChecker = createMaterialProblemChecker();
   const materialCheckTimers = new Map<string, ReturnType<typeof setTimeout>>();
   /** Check a project's materials now; problems that appeared or changed go to the problems log. Null: the project cannot be read. */
@@ -562,7 +560,7 @@ export function createBackend(
     (t as { unref?: () => void }).unref?.();
     materialCheckTimers.set(projectId, t);
   };
-  // ---------- phase 25.18: the engine this process runs ----------
+  // ---------- The engine this process runs ----------
   const engineInfo = makeEngineInfo({ engineRoot: config.engineRoot, distDir: dirname(config.editorStaticDir), startedAtMs: Date.now() - process.uptime() * 1000 });
 
   const notifyMutationApplied = (
@@ -573,16 +571,16 @@ export function createBackend(
     change: unknown,
     sceneId?: string,
   ): void => {
-    // Phase 25.18: materials are checked again after every applied change.
+    // Materials are checked again after every applied change.
     scheduleMaterialCheck(projectId);
     const s = sessions.sessionForProject(projectId);
     if (!s || !s.connected || !s.socket) return;
-    // §11.6/§17.6: a full-state/change frame never carries GLB or source bytes.
-    // Phase 12 (c): `sceneId` names the scene a v4 edit touched.
-    // Phase 21.4: the change without its previous side, keyed lists as deltas (protocol wire-change.ts).
+    // A full-state/change frame never carries GLB or source bytes.
+    // `sceneId` names the scene a v4 edit touched.
+    // The change without its previous side, keyed lists as deltas (protocol wire-change.ts).
     const payload = encodeBinaryFreeStateFrame({ type: 'mutation.applied', requestId, revision, origin, change: toWireChange(change as Parameters<typeof toWireChange>[0]), ...(sceneId !== undefined ? { sceneId } : {}) }, WS_OUT_FRAME_MAX);
     if (payload === null) {
-      // Phase 21.4: an oversized change record is not dropped silently: the
+      // An oversized change record is not dropped silently: the
       // editor is told to re-read the project over HTTP (the authoritative
       // full state), and the project shows why.
       logStartup('mutation.applied frame contained binary data or exceeded the 1 MiB bound; sent workspace.resync');
@@ -612,7 +610,7 @@ export function createBackend(
     }
     sessions.bindSocket(session, ws);
     ws.send(makeAttached(session.connId, state.revision));
-    // One-shot `play.started` delivery (sessions.md §7.1).
+    // One-shot `play.started` delivery.
     if (session.pendingPlayStarted !== null) {
       const held = session.pendingPlayStarted;
       session.pendingPlayStarted = null;
@@ -632,7 +630,7 @@ export function createBackend(
       const s = sessions.sessionForSessionId(session.sessionId);
       // Only the connection currently bound to the session detaches it —
       // a re-attach race may leave a stale socket closing after the new
-      // one bound (§5.1).
+      // one bound.
       if (!s || s.socket !== ws) return;
       detached = true;
       const replaced = sessions.isReplaced(ws);
@@ -645,7 +643,7 @@ export function createBackend(
     ws.on('error', onDetach);
   };
 
-  /** Count a protocol error; close 1008 at the 10/60 s bound (§5.2). */
+  /** Count a protocol error; close 1008 at the 10/60 s bound. */
   const countProtocolError = (ws: WebSocket, session: SessionRecord): void => {
     const count = sessions.noteProtocolError(session, nowMs(), timeouts.protocolErrorWindowSeconds * 1000);
     if (count >= timeouts.protocolErrorLimit) {
@@ -654,7 +652,7 @@ export function createBackend(
   };
 
   const handleMessage = (ws: WebSocket, session: SessionRecord, data: Uint8Array): void => {
-    // Frame bounds (§5.2/§11.5): hard cap 1.5 MiB (the screenshot.ack
+    // Frame bounds: hard cap 1.5 MiB (the screenshot.ack
     // bound); the 64 KiB default applies to everything else.
     if (data.length > WS_SCREENSHOT_ACK_MAX) {
       ws.close(1009, 'frame_too_big');
@@ -672,7 +670,7 @@ export function createBackend(
       return;
     }
     // Re-validate as a catalog event (the strict shape check; unknown
-    // types are a distinct, survivable outcome — §7).
+    // types are a distinct, survivable outcome).
     const verdict = parseInboundEvent(parsed.value);
     if (!verdict.ok) {
       if (verdict.kind === 'unknown_event') {
@@ -703,7 +701,7 @@ export function createBackend(
           sessions.record(session, 'error', inbound.playSessionId, undefined, nowMs(), 'event for unknown play');
           return;
         }
-        // Phase 25.24f: the preview is still starting and moving: the present timeout counts from now.
+        // The preview is still starting and moving: the present timeout counts from now.
         if (inbound.type === 'play.preview.progress') {
           plays.progressed(rec.playSessionId);
           return;
@@ -725,7 +723,7 @@ export function createBackend(
       case 'play.diagnostics.ack': {
         const kind = inbound.type === 'screenshot.ack' ? 'screenshot' : 'diagnostics';
         // The ack carries the relayId; the relay map is authoritative for
-        // routing (§12 step 6).
+        // routing.
         const target = plays.findRelay(inbound.relayId);
         if (target === undefined || target.ownerSessionId !== session.sessionId) {
           sessions.record(session, kind, inbound.relayId, undefined, nowMs(), 'unknown_relay');
@@ -747,7 +745,7 @@ export function createBackend(
       }
       case 'game.control.ack':
       case 'game.observe.ack': {
-        // §20.1: the editor relays the preview's EXACT result (never fabricates).
+        // The editor relays the preview's EXACT result (never fabricates).
         // The relay map is authoritative for routing by relayId; an
         // unknown/wrong-session ack is dropped and counted (it never resolves a
         // pending relay owned by another session).
@@ -769,7 +767,7 @@ export function createBackend(
     }
   };
 
-  // The upgrade path (sessions.md §4.3): the token is verified at upgrade;
+  // The upgrade path: the token is verified at upgrade;
   // any failure ⇒ close 1008 with the reason code.
   authoringServer.on('upgrade', (req: IncomingMessage, socket: Parameters<WebSocketServer['handleUpgrade']>[1], head: Buffer) => {
     const sock = socket;
@@ -783,7 +781,7 @@ export function createBackend(
       return;
     }
     // Upgrade first, then verify and close 1008 with the reason code on
-    // failure (the contract's failure shape — §4.3 step 2).
+    // failure (the contract's failure shape).
     const closeAfter = (reason: string): void => {
       wss.handleUpgrade(req, socket, head, (ws) => ws.close(1008, reason));
     };
@@ -810,7 +808,7 @@ export function createBackend(
     const oldSocket = session.socket;
     if (oldSocket !== null) {
       // Re-attach: the old connection, if still open, is closed and
-      // logged (1000, reason `detached`) — §5.1. Mark it replaced so its
+      // logged (1000, reason `detached`). Mark it replaced so its
       // onDetach does NOT treat this as an owner loss (the owner is
       // re-attaching, not gone).
       sessions.markReplaced(oldSocket);
@@ -829,11 +827,9 @@ export function createBackend(
 
   /**
    * `POST /api/v1/projects/:projectId/content/behaviors/source` — the additive
-   * behavior-source preparation+publication route (packet 35; contract-change
-   * request C35-4: sessions.md §19.1 lists no behavior-build route, so the
-   * packet-34 editor path could only surface `behavior_publication_unavailable`).
+   * behavior-source preparation+publication route.
    *
-   * It runs the EXISTING packet-33 facade: stage read → trust gate → injected
+   * It runs the behavior-source facade: stage read → trust gate → injected
    * compile → immutable blob, then the ordinary `publishBehavior{mode:'source'}`
    * command through `workspace.runCommand` (the sole executor). No second
    * commit path, no code evaluation.
@@ -861,7 +857,7 @@ export function createBackend(
         return;
       }
     }
-    // Phase 16.3: `check: true` — compile only (the script editor's save and
+    // `check: true` — compile only (the script editor's save and
     // idle check). The same pinned compiler instance as publication; nothing
     // is written (no stage, no blob, no derived cache, no revision) and no
     // code runs, so the per-digest trust gate (which guards the runnable
@@ -870,7 +866,7 @@ export function createBackend(
       await behaviorCheck(res, projectId, value);
       return;
     }
-    // Phase 19.0: `graph: true` — the source is generated from the behavior's
+    // `graph: true` — the source is generated from the behavior's
     // visual-script graph (as stored now); then the same preparation and
     // publication as any source (trust per exact digest, one command).
     let graphSource: { bytes: Uint8Array; lineNodes: Record<string, (string | null)[]> } | null = null;
@@ -906,7 +902,7 @@ export function createBackend(
       sendError(res, sessionError('field_value', 'validation', 'displayName must be a 1–128 character string', { path: '/displayName' }));
       return;
     }
-    // Phase 15.4: optional when the source declares its properties in code
+    // Optional when the source declares its properties in code
     // (`export const properties`); a declaration sent along is then ignored.
     if (declaration !== undefined && (typeof declaration !== 'object' || declaration === null || Array.isArray(declaration))) {
       sendError(res, sessionError('field_type', 'validation', 'declaration must be a property-declaration object', { path: '/declaration' }));
@@ -934,15 +930,15 @@ export function createBackend(
       origin,
     });
     if (outcome.ok) {
-      // Phase 19.0: the editor follows this publication like any command
-      // (it was not told before, so its behavior list stayed stale until a resync).
+      // The editor follows this publication like any command, so its
+      // behavior list stays current without a resync.
       if (outcome.result.duplicated === false) notifyMutationApplied(projectId, outcome.result.requestId, outcome.result.revision, origin, outcome.result.change);
       sendJson(res, 200, {
         ok: true,
         behaviorId,
         sourceDigest: outcome.prepared.sourceDigest,
         outputDigest: outcome.prepared.outputDigest,
-        // Phase 15.4: the published declaration and where it came from.
+        // The published declaration and where it came from.
         declaration: outcome.prepared.declaration,
         ...(outcome.prepared.declaredInCode === true ? { declaredInCode: true } : {}),
         ...(outcome.prepared.sourceKind === 'graph' ? { sourceKind: 'graph' } : {}),
@@ -969,7 +965,7 @@ export function createBackend(
   };
 
   /**
-   * Phase 19.0: the source generated from one behavior's stored visual-script
+   * The source generated from one behavior's stored visual-script
    * graph (the generator is pure: the same graph gives the same bytes, so a
    * check's digest is the digest the publication will ask trust for).
    */
@@ -985,18 +981,18 @@ export function createBackend(
     const record = found.behaviors?.find((b) => b.behaviorId === behaviorId);
     if (record === undefined) return { error: sessionError('field_value', 'not_found', `no behavior "${behaviorId}"`, { path: '/behaviorId' }), status: 404 };
     if (record.graph === undefined) return { error: sessionError('field_value', 'validation', `behavior "${behaviorId}" is not a visual script (it has no graph)`, { path: '/graph' }) };
-    // Phase 19.1: with the script's functions and the project's shared functions (their code is part of the digest-bound source).
+    // With the script's functions and the project's shared functions (their code is part of the digest-bound source).
     const config = service.query({ op: 'queryGameConfig', projectId }) as unknown as { graphs?: unknown };
     return { result: generateGraphSource(record.graph as Parameters<typeof generateGraphSource>[0], { functions: record.functions, graphs: config.graphs ?? [] }) };
   };
 
-  /** Phase 16.3: the compile-only check of `POST …/content/behaviors/source` (`check: true`). */
+  /** The compile-only check of `POST …/content/behaviors/source` (`check: true`). */
   const behaviorCheck = async (res: ServerResponse, projectId: string, value: Record<string, unknown>): Promise<void> => {
     if (value.check !== true) {
       sendError(res, sessionError('field_value', 'validation', 'check must be true', { path: '/check' }));
       return;
     }
-    // Phase 19.0: `{check: true, graph: true, behaviorId}` compiles the behavior's stored graph.
+    // `{check: true, graph: true, behaviorId}` compiles the behavior's stored graph.
     if (value.graph !== undefined) {
       for (const key of Object.keys(value)) {
         if (!['check', 'graph', 'behaviorId'].includes(key)) {
@@ -1067,7 +1063,7 @@ export function createBackend(
       return;
     }
     const bytes = new Uint8Array(Buffer.from(b64, 'base64'));
-    // Phase 23.7: `@lib/<id>` imports link the project's script libraries.
+    // `@lib/<id>` imports link the project's script libraries.
     const libraries = service.scriptLibraryInputs(projectId);
     let result;
     try {
@@ -1106,7 +1102,7 @@ export function createBackend(
   };
 
   /**
-   * Phase 23.7: `POST …/content/libraries/check {libraryId, files}` — compile
+   * `POST …/content/libraries/check {libraryId, files}` — compile
    * one script library draft on its own (the script editor's idle check and
    * Compile): its files replace the stored library of that id (or add one)
    * and the other libraries are the project's. Nothing is written and no code
@@ -1156,7 +1152,7 @@ export function createBackend(
   };
 
   /**
-   * Phase 25.9: `POST …/content/libraries/stage` — staged library edits.
+   * `POST …/content/libraries/stage` — staged library edits.
    * `{stageId?, libraryId, name?, files?}` adds one patch (`setScriptLibrary`'s
    * shape, each under the request cap; a file's text may come in pieces,
    * `{path, text, append: true}`) to a stage (a new one without
@@ -1246,7 +1242,7 @@ export function createBackend(
   };
 
   /**
-   * Phase 16.3: `GET …/content/behaviors/:behaviorId/source` — the published
+   * `GET …/content/behaviors/:behaviorId/source` — the published
    * source-graph container of one behavior (the script editor loads it). The
    * digest comes from the behavior record; the bytes are the verified
    * immutable blob (`readSourceBlob`).
@@ -1301,7 +1297,7 @@ export function createBackend(
 
     try {
       if (parts[0] === 'api' && parts[1] === 'v1') {
-        // Packet 35: the additive behavior-source preparation route (before the
+        // The additive behavior-source preparation route (before the
         // content route table so it is never shadowed).
         if (parts.length === 7 && parts[2] === 'projects' && parts[4] === 'content' && parts[5] === 'behaviors' && parts[6] === 'source') {
           if (method === 'POST') {
@@ -1319,7 +1315,7 @@ export function createBackend(
           sendError(res, sessionError('invalid_request', 'validation', 'method not allowed', { expected: 'GET' }), 405);
           return;
         }
-        // Phase 25.9: staged library edits (several patches; committed by commitScriptLibraryStage).
+        // Staged library edits (several patches; committed by commitScriptLibraryStage).
         if (parts.length === 7 && parts[2] === 'projects' && parts[4] === 'content' && parts[5] === 'libraries' && parts[6] === 'stage') {
           if (method === 'POST') {
             await libraryStageRoute(req, res, parts[3]!);
@@ -1328,7 +1324,7 @@ export function createBackend(
           sendError(res, sessionError('invalid_request', 'validation', 'method not allowed', { expected: 'POST' }), 405);
           return;
         }
-        // Phase 23.7: the script library check (compile only; nothing is written).
+        // The script library check (compile only; nothing is written).
         if (parts.length === 7 && parts[2] === 'projects' && parts[4] === 'content' && parts[5] === 'libraries' && parts[6] === 'check') {
           if (method === 'POST') {
             await libraryCheckRoute(req, res, parts[3]!);
@@ -1337,7 +1333,7 @@ export function createBackend(
           sendError(res, sessionError('invalid_request', 'validation', 'method not allowed', { expected: 'POST' }), 405);
           return;
         }
-        // Packet 25 content routes (before the M1-length dispatch table).
+        // Content routes (before the fixed-length dispatch table).
         if (parts[2] === 'projects' && parts[4] === 'content') {
           const handled = await contentRoutes.handle(req, res, method, parts, query);
           if (handled) return;
@@ -1364,7 +1360,7 @@ export function createBackend(
           sendError(res, sessionError('invalid_request', 'validation', 'method not allowed', { expected: 'GET' }), 405);
           return;
         }
-        // GET /api/v1/engine — phase 25.18: the engine this backend runs (commit, build, start, whether dist/ is newer)
+        // GET /api/v1/engine — the engine this backend runs (commit, build, start, whether dist/ is newer)
         if (parts.length === 3 && parts[2] === 'engine') {
           if (method !== 'GET') {
             sendError(res, sessionError('invalid_request', 'validation', 'method not allowed', { expected: 'GET' }), 405);
@@ -1377,7 +1373,7 @@ export function createBackend(
           sendJson(res, 200, { ok: true, engine: engineInfo() });
           return;
         }
-        // GET /api/v1/projects/:projectId/content/materials — phase 25.18: the materials and their graph problems (paged)
+        // GET /api/v1/projects/:projectId/content/materials — the materials and their graph problems (paged)
         if (parts.length === 6 && parts[2] === 'projects' && parts[4] === 'content' && parts[5] === 'materials') {
           if (method !== 'GET') {
             sendError(res, sessionError('invalid_request', 'validation', 'method not allowed', { expected: 'GET' }), 405);
@@ -1551,7 +1547,7 @@ export function createBackend(
             sendError(res, authError);
             return;
           }
-          // Phase 25.18: the graph materials with problems now (checked at the project's load and after each change).
+          // The graph materials with problems now (checked at the project's load and after each change).
           const rows = materialRows(projectId);
           const list = problems.get(projectId) ?? [];
           sendJson(res, 200, { ok: true, projectId, total: list.length, problems: list.slice(-50), ...(rows !== null ? { materialProblems: rows.filter((r) => r.problems.length > 0).slice(0, 64) } : {}) });
@@ -1589,7 +1585,7 @@ export function createBackend(
           const projectId = parts[3]!;
           const psid = parts[5]!;
           const action = parts[6]!;
-          // Phase 21.4: GET …/play/:playSessionId/snapshot — a snapshot too large for one WS frame.
+          // GET …/play/:playSessionId/snapshot — a snapshot too large for one WS frame.
           if (action === 'snapshot') {
             if (method === 'GET') {
               playSnapshotRoute(req, res, projectId, psid);
@@ -1614,7 +1610,7 @@ export function createBackend(
             await inputRelayRoute(req, res, projectId, psid);
             return;
           }
-          // Packet 48: the §20 bounded game control/observation relay.
+          // The bounded game control/observation relay.
           if (action === 'control') {
             await gameControlRoute(req, res, projectId, psid);
             return;
@@ -1668,7 +1664,7 @@ export function createBackend(
 
     // Fallback: static editor bundle. The page gets its (non-secret) config
     // injected here; access tokens are never part of any served page.
-    // Phase 22.0: cross-origin isolated when configured (Play may then share memory with its worker).
+    // Cross-origin isolated when configured (Play may then share memory with its worker).
     isolationHeaders(res);
     if (p === '/' || p === '/index.html') {
       serveEditorPage(res, trustedRequest(req));
@@ -1725,7 +1721,7 @@ export function createBackend(
     sendJson(res, 200, result);
   };
 
-  // The §11.5 silent-drop sweeper (60 s ⇒ close 1000 `heartbeat_timeout`).
+  // The silent-drop sweeper (60 s ⇒ close 1000 `heartbeat_timeout`).
   const sweepIntervalMs = Math.max(250, (timeouts.silentDropSeconds * 1000) / 4);
   sweepTimer = setInterval(() => {
     const now = nowMs();
@@ -1740,7 +1736,7 @@ export function createBackend(
     }
   }, sweepIntervalMs);
 
-  // Phase 25.24c: the prebuilt play scripts (bundle, worker, physics), read once per build, at digest-keyed URLs.
+  // The prebuilt play scripts (bundle, worker, physics), read once per build, at digest-keyed URLs.
   const playBuild = createPlayBuildCache(config.previewStaticDir);
   const { playStartRoute, playStopRoute, playSnapshotRoute, relayRoute, inputRelayRoute, gameControlRoute, gameObserveRoute } = makePlayRoutes({ config, nowMs, logStartup, behaviorCompiler, service, sessions, playContent, plays, relayTimeoutMs, sendJson, sendError, bearerToken, tokenScope, badOriginError, requireAuth, readBody, fullState, workspaceError, connectedOwner, unavailableError, recordProblem, headless, playBuild });
 
@@ -1796,7 +1792,7 @@ export function createBackend(
           return;
         }
         closed = true;
-        // Phase 25.18: no material check after close (it would open the project again).
+        // No material check after close (it would open the project again).
         for (const t of materialCheckTimers.values()) clearTimeout(t);
         materialCheckTimers.clear();
         void headless.dispose();
@@ -1836,7 +1832,7 @@ function bindHost(bind: string): string {
   return idx === -1 ? bind : bind.slice(0, idx);
 }
 
-/** The configured port (port 0 ⇒ ephemeral — test behavior, sessions.md §13.7). */
+/** The configured port (port 0 ⇒ ephemeral — test behavior). */
 function bindPort(bind: string): number {
   const idx = bind.lastIndexOf(':');
   return idx === -1 ? 0 : Number(bind.slice(idx + 1));

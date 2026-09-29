@@ -1,5 +1,5 @@
 /**
- * Phase 23.11: sockets and per-instance animation speed against a real
+ * Sockets and per-instance animation speed against a real
  * backend, with a neutral model built in the test (tests/e2e/socket-glb.ts:
  * a node `arm` that an animator slides 1 m/s along +X, its child `hand`).
  *

@@ -1,5 +1,5 @@
 /**
- * Phase 23.7 — scripting conveniences.
+ * Scripting conveniences.
  *
  * - `ctx.random`: the pure streams (same seed and ids → the same numbers,
  *   another seed / script / object / stream → others; sub-streams are
@@ -9,8 +9,8 @@
  * - `ctx.world.find / findAll / withComponent`: load order, spawned copies
  *   included, bad calls fail-stop.
  * - Rotation forms on `transform` / `pose` intents: a quaternion (normalized)
- *   or a facing (+Z forward, optional up) — exactly one form, validated; the
- *   old forms parse and apply exactly as before.
+ *   or a facing (+Z forward, optional up) — exactly one form, validated;
+ *   the degree form stays valid.
  *
  * Neutral fixtures; the physics port keeps the player at the origin.
  */

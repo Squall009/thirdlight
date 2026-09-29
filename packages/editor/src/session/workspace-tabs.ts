@@ -1,5 +1,5 @@
 /**
- * Phase 16.0: the centre workspace's tab model — Scene and Game (always
+ * The centre workspace's tab model — Scene and Game (always
  * there, never closable) followed by any number of document tabs (an
  * animator controller, a behavior's script, later materials, effects,
  * graphs). Pure state + reducer, no DOM: the tab strip renders it and the

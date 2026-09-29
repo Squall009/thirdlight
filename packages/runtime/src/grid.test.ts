@@ -1,5 +1,5 @@
 /**
- * Phase 23.5 (E8): the runtime grid — `ctx.grid` reads and writes, the
+ * The runtime grid — `ctx.grid` reads and writes, the
  * validation of writes, footprints, the ray pick, regions, change events,
  * the diff for saves, and the chunk colliders rebuilt on the 3D port.
  */

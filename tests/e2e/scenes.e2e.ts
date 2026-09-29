@@ -1,5 +1,5 @@
 /**
- * Phase 12 (c) in a real browser against the real backend:
+ * Several scenes in a real browser against the real backend:
  *
  * - the editor with several scenes: a header per open scene, a new scene
  *   becomes the active one and new objects go there, rename, the start set,
@@ -213,7 +213,7 @@ test('Play: a script loads a scene with ctx.scenes and acts once it is loaded', 
 test('Play: a scene transition trigger loads its scene and moves the player there; MCP unloads it', async ({ page }) => {
   be = await startBackend('exits-e2e', 'starter');
   await buildCave();
-  // Phase 24.6: a trigger with a scene transition (was the game session's exit zone). It sits on the
+  // A trigger with a scene transition. It sits on the
   // start spawn: the character starts inside it, so the scene plays straight into the transition.
   const caveSpawn = String(((await query('queryEntities', { sceneId: 'scene-cave' })).entities as { id: string; name?: string }[]).find((e) => e.name === 'Cave spawn')!.id);
   await cmd('createEntity', { kind: 'group', name: 'To the cave', transform: { position: [3, 1, 0] }, components: { trigger: { size: [1, 2], signal: 'to-cave', sceneTransition: { scene: 'scene-cave', spawn: caveSpawn } } } });
@@ -239,7 +239,7 @@ test('a project whose recent commands include scene edits and a scene transition
   await cmd('createScene', { sceneId: 'scene-extra', name: 'Extra' });
   await cmd('renameScene', { sceneId: 'scene-extra', name: 'Extra room' });
   await cmd('setStartScenes', { sceneIds: ['scene-main', 'scene-extra'] });
-  // A scene transition names a spawn (phase 24.7: it replaced the checkpoint zone of this test): its
+  // A scene transition names a spawn: its
   // recorded creation must load without the spawn beside it.
   const spawn = String((await cmd('createEntity', { sceneId: 'scene-extra', kind: 'group', name: 'Arrival', transform: { position: [70, 1, 0] }, components: { playerSpawn: {} } })).createdId);
   await cmd('createEntity', { sceneId: 'scene-main', kind: 'group', name: 'Door', transform: { position: [69, 1, 0] }, components: { trigger: { size: [1, 2], signal: 'door', sceneTransition: { scene: 'scene-extra', spawn } } } });

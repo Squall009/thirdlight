@@ -1,10 +1,10 @@
 /**
- * Image container facts for the import profile (project-model.md §18.7.2
- * step 11 and §18.6 `decodedImageBytes`).
+ * Image container facts for the import profile (the image validation step
+ * and the `decodedImageBytes` metric).
  *
  * The profile never trusts the glTF `mimeType`, a file extension or a caller
  * declaration: the actual magic bytes decide. It also never decodes pixel
- * data (no decoder exists in M2 and none may be added here) — it reads the
+ * data (this package has no image decoder and none may be added here) — it reads the
  * container header's declared dimensions to compute the decoded pixel budget,
  * which is exactly the bounded resource the cap exists to protect. A header
  * that declares oversized dimensions is therefore rejected even when the
@@ -194,14 +194,14 @@ export function ktx2Dimensions(bytes: Uint8Array): ImageDimensions | null {
 }
 
 /**
- * Phase 25.19: a Basis Universal KTX2's facts for a texture asset — its size,
+ * A Basis Universal KTX2's facts for a texture asset — its size,
  * mip levels (a level count of 0, "generate at load", is refused: a
  * compressed texture cannot make its own) and codec: ETC1S (BasisLZ
  * supercompression, or the DFD colour model 163) or UASTC (model 166).
  * `null` for anything else.
  */
 export function ktx2Info(bytes: Uint8Array): { width: number; height: number; levels: number; codec: 'etc1s' | 'uastc'; layers?: number } | null {
-  // Phase 25.21: a 2D array (layerCount ≥ 2) is a texture array; the rest of the header as for a 2D texture.
+  // A 2D array (layerCount ≥ 2) is a texture array; the rest of the header as for a 2D texture.
   const layerCount = hasKtx2Signature(bytes) && bytes.length >= 80 ? u32le(bytes, 32) : 0;
   if (layerCount === 1 || layerCount > KTX2_LAYERS_MAX) return null;
   const dims = layerCount === 0 ? ktx2Dimensions(bytes) : ktx2Dimensions(withoutLayerCount(bytes));

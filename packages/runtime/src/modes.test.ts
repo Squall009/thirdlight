@@ -1,5 +1,5 @@
 /**
- * Phase 23.10 — game modes in the simulation.
+ * Game modes in the simulation.
  *
  * - `ModeState` (pure): the start mode, a script's switch applying at the
  *   next step boundary, a UI mode action applying at once, the enter/exit
@@ -137,7 +137,7 @@ describe('ModeState (pure)', () => {
     expect(m.ticksAll).toBe(false);
     m.request('tactical');
     m.beginStep(2);
-    // Phase 24.8: the controller's move and jump actions read released with gameplay off.
+    // The controller's move and jump actions read released with gameplay off.
     const t = m.mask(frame, ['move', 'jump']);
     expect(t.actions!['jump']).toEqual({ v: 0, p: 'none' });
     expect(t.actions!['move']).toEqual({ v: 0, x: 0, y: 0, p: 'none' });

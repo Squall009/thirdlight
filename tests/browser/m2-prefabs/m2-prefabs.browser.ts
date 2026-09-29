@@ -1,13 +1,13 @@
 /**
- * Packet 28 — browser-only manual procedure (NOT run by vitest; this file has
+ * Browser-only manual procedure (NOT run by vitest; this file has
  * no `*.test.ts` suffix on purpose and is never imported by a bundle).
  *
  * There is no browser and no WebGL context in this container, so every claim
- * below is **UNVERIFIED**. It is the packet-37/owner procedure for closing the
+ * below is **UNVERIFIED**. It is the owner procedure for closing the
  * browser-only acceptance items (A05 capture/two instances/edit one/undo/redo/
  * reopen, A07 inspector + MCP convergence, and the panel pixels).
  *
- *  1. Serve the editor bundle (`npm run build`, then the packet-13/37 local
+ *  1. Serve the editor bundle (`npm run build`, then the local
  *     deployment) on the authoring origin with a disposable `m2-course`
  *     project, and open the editor in a named desktop browser. Record OS,
  *     browser name/version, WebGL backend/renderer, window size, and the
@@ -53,7 +53,7 @@
  *     confirm the backend-rejected `limits_exceeded` (`entities`) is shown with
  *     its current/max.
  *  9. Screenshot the Prefabs panel and the Inspector property/component
- *     controls, including the now-editable collider/controller controls (add
+ *     controls, including the editable collider/controller controls (add
  *     collider/controller, edit a box collider's hx/hy, remove either) and
  *     confirm the resulting `setComponent` commands round-trip. Confirm no
  *     decorative/graph UI was added.

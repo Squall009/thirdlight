@@ -1,5 +1,5 @@
 /**
- * Phase 23.16: dialogue data rules — the expression language (conditions and
+ * Dialogue data rules — the expression language (conditions and
  * effects), line text (values, pauses, visible characters), validation and
  * references, the compiled form, and the engine's default dialogue document.
  */

@@ -1,4 +1,4 @@
-/** Phase 25.24b: the verified asset reader (bounded parallel, once per asset, checked) and the start-scene asset set. */
+/** The verified asset reader (bounded parallel, once per asset, checked) and the start-scene asset set. */
 import { describe, expect, it } from 'vitest';
 
 import { AssetReadError, createVerifiedAssetReader, startSceneAssets, type DeclaredAssetRow } from './asset-reader';

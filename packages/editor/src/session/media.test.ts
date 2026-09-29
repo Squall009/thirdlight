@@ -1,8 +1,7 @@
 /**
- * M3 media authoring planning tests (packet 57) — the pure session layer:
- * the drop validation (row 18/21), the light create/edit (rows 13/14), the
- * surface values + presets (rows 15/16) and the model animation profile
- * (row 17). Pure Node (no DOM, no clock, no Node built-ins — the boundary
+ * Media authoring planning tests — the pure session layer:
+ * the drop validation, the light create/edit, the surface values + presets
+ * and the model animation profile. Pure Node (no DOM, no clock, no Node built-ins — the boundary
  * row's `node: []` holds for tests too).
  */
 import { describe, expect, it } from 'vitest';
@@ -36,7 +35,7 @@ import { CONTENT_STAGE_MAX } from '@thirdlight/protocol';
 const STAGE_MAX = CONTENT_STAGE_MAX;
 
 // ---------------------------------------------------------------------------
-// validateMediaDrop (row 18/21)
+// validateMediaDrop
 // ---------------------------------------------------------------------------
 
 describe('validateMediaDrop — the extension decides the kind before any network call', () => {
@@ -221,7 +220,7 @@ describe('lightCounts — the §23.10 scene limit is one directional + one ambie
 });
 
 // ---------------------------------------------------------------------------
-// Surface (rows 15/16)
+// Surface
 // ---------------------------------------------------------------------------
 
 describe('parseSurfaceForm — the §23.3.5 table', () => {
@@ -306,7 +305,7 @@ describe('the built-in presets are the frozen §23.3.1a rows (display mirror)', 
 });
 
 // ---------------------------------------------------------------------------
-// Model animation (row 17) + the §8.5.1 animated reimport
+// Model animation + the animated reimport
 // ---------------------------------------------------------------------------
 
 describe('parseModelAnimationForm — the profile shape + byte bound', () => {

@@ -1,5 +1,5 @@
 /**
- * Phase 20.1: the visual-effects node catalogue (graph-kind data).
+ * The visual-effects node catalogue (graph-kind data).
  *
  * One graph kind, `effect` (owner kind `effect`): the graph of ONE particle
  * system of an effect (`content.effects[].systems[].graph`, owner id
@@ -22,7 +22,7 @@
  * colour a vector (its RGB).
  *
  * Semantics (the CPU reference evaluator, package `@thirdlight/effects`, and
- * the WebGPU compute executor of phase 20.2 implement the same):
+ * the WebGPU compute executor implement the same):
  * - positions of shapes are added to the particle's base position (the
  *   effect origin, or the source particle for an event spawn), velocities
  *   to its base velocity (zero, or the inherited share of the source's);
@@ -68,7 +68,7 @@ export const EFFECT_ATTRIBUTE_TYPES: Readonly<Record<(typeof EFFECT_ATTRIBUTES)[
   random: 'float',
 };
 export const EFFECT_BLEND_MODES = ['alpha', 'additive', 'premultiplied', 'multiply', 'opaque'] as const;
-/** Lighting of an output: built-in unlit/lit particle materials, or a project material (a material graph, phase 18). */
+/** Lighting of an output: built-in unlit/lit particle materials, or a project material (a material graph). */
 export const EFFECT_SHADING = ['unlit', 'lit', 'material'] as const;
 
 // ---- builders -----------------------------------------------------------------------------
@@ -134,7 +134,7 @@ const AXIS = fixed(enm('axis', 'Axis', ['x', 'y', 'z'], 'y'));
 const PLANE_NORMAL = vec3('normal', 'Normal', [0, 1, 0], 1);
 const BLEND = fixed(enm('blend', 'Blending', EFFECT_BLEND_MODES, 'alpha'));
 const SHADING = fixed(enm('shading', 'Shading', EFFECT_SHADING, 'unlit'));
-/** A project material (used when shading is `material`): its graph (phase 18) shades the particles. */
+/** A project material (used when shading is `material`): its graph shades the particles. */
 const MATERIAL: GraphFieldDef = { key: 'material', label: 'Material', type: 'string', default: '', maxLength: 64, pattern: ID_PATTERN };
 const SOFT = fixed(bool('soft', 'Soft particles', false));
 /** 0.25 m: fades a quad over a quarter metre where it meets geometry. */

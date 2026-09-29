@@ -1,5 +1,5 @@
 /**
- * Phase 21.3: the Scene view's incremental sync plan — only the changed
+ * The Scene view's incremental sync plan — only the changed
  * entities are looked at, and the flags, the helper overlay and the selection
  * are re-derived only when something they read changed.
  */

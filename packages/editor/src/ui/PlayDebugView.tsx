@@ -1,5 +1,5 @@
 /**
- * Phase 15.4: the Play debug view (React).
+ * The Play debug view (React).
  *
  * While Play runs, the selected object's scripts show the property values
  * the running game reads — public and private — read-only. The values come

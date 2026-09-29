@@ -1,9 +1,9 @@
 /**
- * Phase 22.0: run a game through the production game host in either
+ * Run a game through the production game host in either
  * threading mode, from Node:
  *
  * - `single`: the page composition — the host composes the runtime with a
- *   Rapier port made here (as Play did before phase 22);
+ *   Rapier port made here;
  * - `worker`: the simulation worker — the same game-host worker core the
  *   browser bundles run, in a Node worker_threads Worker (the integration
  *   suites need no browser); the host presents the worker's mirror.
@@ -107,18 +107,18 @@ export interface HarnessConfig {
   readonly enginePins?: readonly { id: string; version: string; apiVersion: number }[];
   readonly loadScene?: (sceneId: string) => Promise<Any>;
   readonly digestSteps?: boolean;
-  /** Phase 23.2: the manifest's module list (absent: the host's default set). */
+  /** The manifest's module list (absent: the host's default set). */
   readonly modules?: readonly string[];
   /** Extra host config (flow, audio, …). */
   readonly host?: Record<string, unknown>;
-  /** Phase 23.8: script variables injected at the start (ctx.save from step 0), in both modes. */
+  /** Script variables injected at the start (ctx.save from step 0), in both modes. */
   readonly variables?: Record<string, unknown>;
-  /** Phase 23.10: the game mode the run starts in (the host's start option; the worker's init). */
+  /** The game mode the run starts in (the host's start option; the worker's init). */
   readonly startMode?: string;
-  /** Phase 23.5, single mode only: wrap the physics port (a test observes its calls). */
+  /** Single mode only: wrap the physics port (a test observes its calls). */
   readonly wrapPhysics?: (port: Any) => Any;
   /**
-   * Phase 24.7: read the scripts' `ctx.save` values with `storage()` — a
+   * Read the scripts' `ctx.save` values with `storage()` — a
    * project save (the game's save schema, or a one-slot `storage` schema
    * added here) made through the runtime and written by the host.
    */
@@ -133,12 +133,12 @@ export interface Harness {
   readonly digests: string[];
   /** Sounds the host played (script `ctx.audio`), in order. */
   readonly sounds: string[];
-  /** Phase 23.13: the audio commands the host received from the simulation, in order. */
+  /** The audio commands the host received from the simulation, in order. */
   readonly audioCommands: Any[];
   /** One frame at `now` seconds. */
   tick(now: number): Promise<void>;
   /**
-   * Phase 24.7 (config `storage`): the scripts' `ctx.save` values now — the
+   * The scripts' `ctx.save` values now (config `storage`) — the
    * `storage` section of a save the runtime makes between steps (in the
    * worker, in worker mode), carried out by the host into its storage.
    */
@@ -177,10 +177,10 @@ export async function startHarness(mode: Mode, cfg: HarnessConfig): Promise<Harn
     audioCommands.push(c);
     if (c.op === 'play') sounds.push(c.assetId);
   };
-  // Phase 24.3: the manifest modules the snapshot references (the host has no default set).
+  // The manifest modules the snapshot references (the host has no default set).
   const modules = cfg.modules ?? modulesOf(cfg.snapshot, cfg.settings);
   const snapshot = cfg.storage === true ? withStorageSchema(cfg.snapshot) : cfg.snapshot;
-  // Phase 24.7: the host's save storage, watched (the save bodies it writes, by key).
+  // The host's save storage, watched (the save bodies it writes, by key).
   const bodies = new Map<string, string>();
   const innerBackend: ProjectSaveBackend = ((cfg.host ?? {}) as Any).projectSaveBackend ?? memoryProjectSaveBackend();
   const saveBackend: ProjectSaveBackend = {
@@ -242,7 +242,7 @@ export async function startHarness(mode: Mode, cfg: HarnessConfig): Promise<Harn
   if (mode === 'single') {
     let physics: Any;
     if (cfg.physics !== null) {
-      // Phase 23.0: a 3D config (dimension 3) makes the 3D port.
+      // A 3D config (dimension 3) makes the 3D port.
       const made = cfg.physics.dimension === 3 ? await createPhysicsPort3D(cfg.physics) : await createPhysicsPort(cfg.physics);
       if (!made.ok) throw new Error(JSON.stringify(made.error));
       physics = cfg.wrapPhysics !== undefined ? cfg.wrapPhysics(made.port) : made.port;

@@ -1,5 +1,5 @@
 /**
- * Phase 20.2: the effect executors (harness `effects-gpu/harness.ts`, the
+ * The effect executors (harness `effects-gpu/harness.ts`, the
  * real three-adapter player and executors):
  *
  * - `webgpu` project: the WebGPU compute executor and the CPU reference agree

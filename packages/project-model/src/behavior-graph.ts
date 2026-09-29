@@ -1,5 +1,5 @@
 /**
- * Phase 19.0/19.1: visual scripts — the `behavior` graph kinds, their
+ * Visual scripts — the `behavior` graph kinds, their
  * validation context and the compile checks.
  *
  * A visual script is a behavior record whose `graph` holds a node graph of
@@ -53,7 +53,7 @@ const ENTITY_ID_RE = ID_RE;
 
 // ---- records -------------------------------------------------------------------------------
 
-/** Phase 19.1: one function inside a visual script (`BehaviorRecord.functions`). */
+/** One function inside a visual script (`BehaviorRecord.functions`). */
 export interface BehaviorFunctionRecord {
   functionId: string;
   graph: GraphData;
@@ -311,7 +311,7 @@ export function calleeScope(n: GraphNode): string | null {
 
 function execOutputs(sg: BehaviorScriptGraph, n: GraphNode): Set<string> {
   const d = nodeDef(sg.kind, n.type);
-  // Phase 19.2: a repeated exec output stands for its copies.
+  // A repeated exec output stands for its copies.
   return new Set((d?.outputs ?? []).flatMap((p) => (p.type === 'exec' ? repeatedPorts(d!, n, p) : [])).map((p) => p.id));
 }
 
@@ -553,7 +553,7 @@ function checkOne(sg: BehaviorScriptGraph, outer: Map<string, GraphNode>, out: B
   if (inFunction && !graph.nodes.some((n) => n.type === 'fn.entry')) out.push({ severity: 'error', message: `function "${scope.slice(scope.indexOf(':') + 1)}" needs a Function start node` });
 
   // An `any` port (a Get/Set naming no variable) must not join the exec flow.
-  // Resolved ports: a repeated port's copies (phase 19.2) are exec ports too; exec is never data-dependent.
+  // Resolved ports: a repeated port's copies are exec ports too; exec is never data-dependent.
   const resolved = resolveGraphPorts(sg.kind, graph, sg.ctx);
   for (const e of graph.edges) {
     const fromExec = resolved.get(e.from.node)?.outputs.find((p) => p.id === e.from.port)?.type === 'exec';

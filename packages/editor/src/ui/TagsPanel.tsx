@@ -1,5 +1,5 @@
 /**
- * Project tags (phase 12 b; project settings): up to 32 named tags, each with
+ * Project tags (project settings): up to 32 named tags, each with
  * a fixed bit. Renaming keeps the bit; a new tag takes the lowest free bit; a
  * tag an object still carries cannot be removed. Every edit is one `setTags`
  * command (the whole registry), issued by the app.

@@ -1,5 +1,5 @@
 /**
- * Phase 22.1: PNG encoding on the page — the inline side of the `encodePng`
+ * PNG encoding on the page — the inline side of the `encodePng`
  * job (the same OffscreenCanvas encoder as the worker where the page has
  * one, else a DOM canvas).
  */

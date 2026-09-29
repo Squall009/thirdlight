@@ -1,5 +1,5 @@
 /**
- * Phase 23.2: the 3D kinematic character controller on the real Rapier 3D
+ * The 3D kinematic character controller on the real Rapier 3D
  * backend through the production game host (page composition), driven by a
  * recorded input — neutral graybox fixtures: a floor, risers, a wall, ramps,
  * a ledge and a staircase.

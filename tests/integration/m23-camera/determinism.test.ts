@@ -1,5 +1,5 @@
 /**
- * Phase 23.4: the camera framework is simulation state — a neutral 3D scene
+ * The camera framework is simulation state — a neutral 3D scene
  * (physics_dimension 3) with a follow camera on the player (pulled in by a
  * wall behind it), an orbit-a-point camera turned in snapped steps by a
  * recorded input action, and a rail camera on a camera path, directed by a

@@ -1,10 +1,9 @@
 /**
- * Packet 55 — the game host (delivery.md §3.1/§3.2/§4, B04/B08/B09/B13/
- * B15), exercised in Node against injected fakes: a structural DOM, a
+ * The game host, exercised in Node against injected fakes: a structural DOM, a
  * deterministic fixed-floor physics port (the character controller module
  * runs for real), a fake input owner (the menu seam), a fake render adapter
- * (the frame hook), and the REAL packet-54 audio owner over a fake Web Audio
- * context (the sound-status mapping). Phase 24.7: every game plays as a
+ * (the frame hook), and the REAL audio owner over a fake Web Audio
+ * context (the sound-status mapping). Every game plays as a
  * scene — there is no game session, run state or classic HUD.
  */
 import { describe, expect, it } from 'vitest';
@@ -25,7 +24,7 @@ import {
 } from './host';
 import type { HostDom, HostDomNode } from './dom';
 import { createSettingsStore } from './storage';
-// Phase 24.3: the host imports no module package; like a composition entry,
+// The host imports no module package; like a composition entry,
 // the test injects the spec table and names the modules its snapshot references.
 import { characterControllerSpec } from '@thirdlight/character';
 
@@ -91,7 +90,7 @@ function fakeDom(): HostDom {
 }
 
 // ---------------------------------------------------------------------------
-// The deterministic fixed-floor physics port (the M3 reset port surface).
+// The deterministic fixed-floor physics port (with the reset port surface).
 // ---------------------------------------------------------------------------
 
 interface FakePhysics {
@@ -129,8 +128,8 @@ function fakePhysics(base: { x: number; y: number }): FakePhysics {
         snapped: false,
       };
     },
-    // The M3 reset-barrier surface (PhysicsResetPort — the runtime requires
-    // it for the M3 module set; the host's config type is the base port).
+    // The reset-barrier surface (PhysicsResetPort — the runtime requires
+    // it for the modules it runs; the host's config type is the base port).
     clearCharacterMotion(): void {
       pending = { x: 0, y: 0 };
       off = { x: 0, y: 0 };
@@ -396,7 +395,7 @@ function observed(host: Harness['host']): { state: string; stepIndex: number } {
 describe('the §3.1 surface constants', () => {
   it('the version, actions and message names are the delivery.md rows', () => {
     expect(GAME_HOST_API_VERSION).toBe(1);
-    // Phase 9.11 adds clearSave; phase 24.7 drops start (there is no run to start).
+    // No start action: every game plays as a scene, there is no run to start.
     expect(GAME_CONTROL_ACTIONS).toEqual(['replay', 'mute', 'unmute', 'clearSave']);
     expect(GAME_HOST_MESSAGES).toEqual([
       'tl.game.control',
@@ -570,7 +569,7 @@ describe('observe and the identity (B08/B09)', () => {
     if (res.ok) {
       expect(res.observation.snapshotId).toBe('host-demo@r1');
       expect(res.observation.buildId).toBe('test-build-id'); // the wrapper's verified manifest buildId
-      expect(res.observation.state).toBe('running'); // phase 24.6: the generic play state
+      expect(res.observation.state).toBe('running'); // the generic play state
       expect(res.observation.inputMode).toBe('physical');
       expect(res.observation.sound.status).toBe('ready'); // the spy owner is ready
       expect(res.observation.sound.gesture).toBe('local');

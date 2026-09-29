@@ -1,5 +1,5 @@
 /**
- * Phase 17.3: the neutral environment/post test scene (browser code, bundled
+ * The neutral environment/post test scene (browser code, bundled
  * by `env-parity.e2e.ts` with esbuild). One case per page load:
  *
  *   index.html?backend=webgl2|webgpu|auto&case=<name>
@@ -137,7 +137,7 @@ const CASES: Record<string, Case> = {
     env: { sky: colour },
     volumes: [
       { center: [-1.5, 1, 0.5], size: [3, 2, 2.5], density: 0.9, color: '#e0e8f0', falloff: 0.5 },
-      // Phase 14.4: a height falloff — thick at the bottom, thin above.
+      // A height falloff — thick at the bottom, thin above.
       { center: [3, 2, -8], size: [8, 4, 6], density: 0.8, color: '#f0d8c0', falloff: 0.2, heightFalloff: 1.2 },
     ],
   },

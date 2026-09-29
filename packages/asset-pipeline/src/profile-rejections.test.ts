@@ -1,10 +1,9 @@
 /**
- * Packet-24 adversarial profile coverage: one synthetic case per normative
- * validation step of project-model.md §18.7.2 (steps 1–16) and per §18.8
+ * Adversarial profile coverage: one synthetic case per normative validation
+ * step of the import profile (project-model.md, steps 1–16) and per
  * diagnostic code, built from the committed `tiny-v1.glb` fixture so the input
  * is a real GLB container that differs from a valid file only in the field
- * under test. Acceptance row A04 ("bad GLB … is rejected") at the unit level;
- * the rejection is always a `rejected` proposal, never a thrown error.
+ * under test. The rejection is always a `rejected` proposal, never a thrown error.
  */
 
 import { describe, expect, it } from 'vitest';

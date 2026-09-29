@@ -1,13 +1,11 @@
 /**
- * `@thirdlight/physics-rapier` — public surface (dependencies.md §3
- * `physics-rapier` row: `createPhysicsPort`, `RAPIER_PIN`,
+ * `@thirdlight/physics-rapier` — public surface (the `physics-rapier` row of
+ * dependencies.md: `createPhysicsPort`, `RAPIER_PIN`,
  * `PHYSICS_IMPLEMENTATION`; the config/result types below are additive
- * type-only exports the host needs to construct an init config — recorded as
- * a bounded additive note (not one of the numbered C31-n requests) in the
- * packet-31 handoff/evidence).
+ * type-only exports the host needs to construct an init config).
  *
- * Packet 31 (docs/contracts/runtime.md §12.6, promoted from `physics.md`;
- * decision 0002 §1): the approved collision port backed by the selected real
+ * The approved collision port (docs/contracts/runtime.md, with `physics.md`;
+ * decision 0002) backed by the selected real
  * library, `@dimforge/rapier2d-compat@0.20.0`.
  *
  * - **Async initialization before runtime start** — `createPhysicsPort(config,
@@ -15,7 +13,7 @@
  *   `physics_init_cancelled` / `physics_init_failed` result. Cancellation
  *   releases everything; no partial world and no adapter module state escapes.
  * - **Static collider creation** — one `World` per game; boxes and
- *   bounded convex polygons (validated to the project-model §21.3 vocabulary)
+ *   bounded convex polygons (validated to the project-model vocabulary)
  *   on fixed bodies, in snapshot document order.
  * - **Character movement correction/support results** — the parentless
  *   kinematic capsule (`createCharacterController(offset)` +
@@ -29,7 +27,7 @@
  * No second frame driver: the runtime owns stepping and calls `step()` once per
  * executed fixed step. XY only: no port method accepts or returns Z.
  *
- * Module ownership (dependencies.md §4.1/§4.3): imports `@thirdlight/runtime`
+ * Module ownership: imports `@thirdlight/runtime`
  * types and the approved Rapier pin only — no project-model internals, editor,
  * backend, protocol, workspace, commands, three or three-adapter edge.
  */

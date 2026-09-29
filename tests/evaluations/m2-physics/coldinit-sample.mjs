@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Packet 14 — cold-init sample (ONE fresh Node process per invocation).
+ * Cold-init sample (ONE fresh Node process per invocation).
  * Times: ESM import -> RAPIER.init() -> world build + first fixed step.
  *
  * Standalone by design (plan-review BR-1): NOT typechecked/boundary-checked by

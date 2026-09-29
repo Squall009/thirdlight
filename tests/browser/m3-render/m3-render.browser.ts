@@ -1,27 +1,27 @@
 /**
- * Packet 52 — temporary browser test host for the M3 light/shadow/surface
+ * Temporary browser test host for the light/shadow/surface
  * realization.
  *
  * NOT a production bootstrap and NOT part of any shipped bundle: this file
  * is a manual test host that the owner builds with the pinned esbuild (the
- * packet-32/37 procedure, `tests/browser/m3-render/README.md`) and serves
+ * procedure in `tests/browser/m3-render/README.md`) and serves
  * statically. It composes the real packages (`@thirdlight/runtime` +
  * `@thirdlight/physics-rapier` + `@thirdlight/character` +
  * `@thirdlight/three-adapter`) over a v3
  * scene with an authored key/fill light and surface boxes, and records the
- * B11 named checklist (Gate K: "same preset id → same colour/roughness
- * values and the same visible key-light direction/hazard contrast"; phase 24
- * renamed two presets `signal-red` and `emissive-accent`; the fixture still
- * records them under their pre-phase-24 ids, compared row by row in order) — the
- * authored values, the derived parameters via the pure §41.1.3/§41.2 math,
+ * named checklist ("same preset id → same colour/roughness values and the
+ * same visible key-light direction/hazard contrast"; the fixture records
+ * `signal-red` and `emissive-accent` under other ids, so rows are compared in
+ * order) — the authored values, the derived parameters via the pure
+ * light/shadow math,
  * the realized diagnostics, real screenshots at two canvas sizes, a
  * synthetic context-loss/recovery cycle, and repeated create/dispose.
  *
  * It is named `.browser.ts` (not `.test.ts`) so vitest never picks it up.
  * In this container there is no browser and no GPU: every visual/WebGL claim
- * of packet 52 is UNVERIFIED until the README procedure is run.
+ * here is UNVERIFIED until the README procedure is run.
  *
- * No GPU-memory claim from JS object counts (packet 52 evidence rule): the
+ * No GPU-memory claim from JS object counts: the
  * evidence is the rendered pixels, the named-checklist values and the
  * diagnostics.
  */
@@ -107,7 +107,7 @@ const evidence: Evidence = {
 const T = { rotation: [0, 0, 0, 1] as [number, number, number, number], scale: [1, 1, 1] as [number, number, number] };
 
 /** The shared v3 scene (one camera, one key + one fill light, three
- * surface boxes; phase 24.7: no game block — the controller entity is the
+ * surface boxes; No game block — the controller entity is the
  * character). `castShadow` selects the shadow-on/off-by-author scene. */
 function v3Snapshot(castShadow: boolean): unknown {
   return {
@@ -224,7 +224,7 @@ async function main(): Promise<void> {
   const fillCase = fixture?.lights.find((c) => c.id === 'fill-ok');
   evidence.checklist.authoredKeyLight = { authored: KEY, fixture: keyCase?.value ?? null };
   evidence.checklist.authoredFillLight = { authored: FILL, fixture: fillCase?.value ?? null };
-  // The derived parameters (the pure §41.1.3 math) — these are exactly the
+  // The derived parameters (the pure shadow-camera math) — these are exactly the
   // values the adapter realizes (same functions, same inputs).
   const plan = deriveShadowCamera(LEVEL, KEY_DIRECTION);
   const lightPlans = planSceneLights([KEY, FILL], LEVEL, { ok: true, shadows: 'on', plan });
@@ -288,7 +288,7 @@ async function main(): Promise<void> {
   runtimeOff.dispose();
   log(`diagnostics: shadowOn=${JSON.stringify(evidence.checklist.diagnosticsShadowOn)} shadowOff=${JSON.stringify(evidence.checklist.diagnosticsShadowOff)}`);
 
-  // 4. Synthetic context loss + recovery (the accepted packet-26 behavior):
+  // 4. Synthetic context loss + recovery:
   //    fire the real canvas events; the adapter must report
   //    `render_context_lost` while lost and resume after restoration.
   {
@@ -329,7 +329,7 @@ async function main(): Promise<void> {
     log(`repeatedDispose: ${JSON.stringify(evidence.repeatedDispose)}`);
   }
 
-  // 6. Material independence (value-level, §41.2.3): two scenes where
+  // 6. Material independence (value-level): two scenes where
   //    entity A gets the `signal-red` row and entity B the `matte-ground` row;
   //    then a second realization where A is edited to `emissive-accent` — only A's
   //    values change; B keeps its own row. The committed `surface` values

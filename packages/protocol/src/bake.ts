@@ -1,5 +1,5 @@
 /**
- * Phase 9.6: the pieces of light baking the editor and the backend share —
+ * The pieces of light baking the editor and the backend share —
  * lightmap atlas packing and the hashes that tell whether a bake is stale.
  *
  * Pure: values in, values out.

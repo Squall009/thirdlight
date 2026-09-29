@@ -1,18 +1,15 @@
 /**
- * The packet-05 document cases on the live v3 model (phase 9.3 port of the
- * M1 fixture-index driver, archived with its corpus under
- * archive/removed-v1-v2/). Each case is a schemaVersion 3 scene (or a
+ * The document cases on the live v3 model. Each case is a schemaVersion 3 scene (or a
  * storage-v3 project: v1 manifest + v3 scene + v3 content) built inline and
  * run through the strict byte parsers (`parseManifest`/`parseSceneV3`) and
  * `validateProjectV3`. Invalid cases pin the EXACT set of error codes (plus
  * count / ordered code+path where it matters); valid cases run revalidation,
- * repeated normalization and the serialized round-trip (idempotence, §12.2
- * rule 7), with a golden canonical text for the quaternion case.
+ * repeated normalization and the serialized round-trip (idempotence), with
+ * a golden canonical text for the quaternion case.
  *
- * Differences from the M1 corpus, all real v3 behaviour: `light` is a v3
- * component, so the unknown-component case uses `teleporter`; the known scene
- * versions are [3, 4], so the "future" version is 5 and the "past" ones 2
- * and 0.
+ * `light` is a v3 component, so the unknown-component case uses
+ * `teleporter`; the known scene versions are [3, 4], so the "future" version
+ * is 5 and the "past" ones 2 and 0.
  */
 
 import { describe, it, expect } from 'vitest';

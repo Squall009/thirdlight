@@ -1,5 +1,5 @@
 /**
- * Phase 23.16: dialogue content (`content.dialogues`, `content.speakers`,
+ * Dialogue content (`content.dialogues`, `content.speakers`,
  * `content.dialogueSettings`).
  *
  * `setDialogue {dialogue: {dialogueId, name, graph?}}` creates or replaces

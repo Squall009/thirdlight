@@ -1,7 +1,7 @@
 /**
- * Phase 16.1: the graph editor's canvas renderer.
+ * The graph editor's canvas renderer.
  *
- * Measured choice (docs/plan-phase-16.md §6, tools/bench-graph-render.mjs):
+ * Measured choice (tools/bench-graph-render.mjs):
  * one 2D canvas draws the grid, groups, comments, wires and nodes, culled to
  * the view; a DOM layer on top carries focusable elements for the nodes and
  * ports in view (keyboard, screen readers, tests). Redrawn only when
@@ -48,15 +48,15 @@ export interface Scene {
   wire: { from: GraphPoint; to: GraphPoint; color: string; ok: boolean | null } | null;
   box: Rect | null;
   hoverEdge: string | null;
-  /** Phase 16.2: a short label drawn on a wire (e.g. "×2" for two transitions of one pair). */
+  /** A short label drawn on a wire (e.g. "×2" for two transitions of one pair). */
   edgeLabels?: ReadonlyMap<string, string>;
-  /** Phase 16.2: nodes drawn highlighted (e.g. the live preview's current state). */
+  /** Nodes drawn highlighted (e.g. the live preview's current state). */
   highlighted?: ReadonlySet<string>;
-  /** Phase 18.1: every node's resolved ports (data-dependent ports). */
+  /** Every node's resolved ports (data-dependent ports). */
   portsOf: PortsOf;
-  /** Phase 19.2: nodes carrying a breakpoint (a red dot on the header). */
+  /** Nodes carrying a breakpoint (a red dot on the header). */
   breakpoints?: ReadonlySet<string>;
-  /** Phase 19.2: the node a paused debugger stands on (a thick outline and a ▶). */
+  /** The node a paused debugger stands on (a thick outline and a ▶). */
   current?: string | null;
 }
 
@@ -79,7 +79,7 @@ const COLORS = {
   current: '#46d18a',
 };
 
-/** Phase 19.2: a port type drawn as control flow (thicker wires with arrows). */
+/** A port type drawn as control flow (thicker wires with arrows). */
 function isFlowType(kind: GraphKindDef, type: string): boolean {
   return kind.portTypes.find((t) => t.id === type)?.flow === true;
 }
@@ -198,13 +198,13 @@ export function drawGraph(ctx: CanvasRenderingContext2D, scene: Scene, dpr: numb
     if (!overlaps(bb, viewRect)) continue;
     const outDef = scene.portsOf(a).outputs.find((p) => p.id === e.from.port);
     const flow = isFlowType(kind, outDef?.type ?? '');
-    // Phase 19.2: a flow wire between two nodes that just ran (Play debugging) glows.
+    // A flow wire between two nodes that just ran (Play debugging) glows.
     const active = flow && scene.highlighted?.has(a.id) === true && scene.highlighted.has(b.id);
     const color = active ? COLORS.lit : portTypeColor(kind, outDef?.type ?? '');
     const conv = edgeConversion(kind, graph, e, scene.portsOf);
     const hot = scene.selected.has(e.id) || scene.hoverEdge === e.id || scene.selected.has(a.id) || scene.selected.has(b.id);
     ctx.strokeStyle = scene.selected.has(e.id) ? COLORS.select : color;
-    // Phase 19.2: control-flow wires are thicker than data wires, with arrows along the flow.
+    // Control-flow wires are thicker than data wires, with arrows along the flow.
     ctx.lineWidth = (flow ? (hot ? 4.5 : 3.5) : hot ? 3 : 2) * Math.max(px, 1);
     ctx.setLineDash(conv !== null ? [8, 5] : []);
     ctx.beginPath();
@@ -296,7 +296,7 @@ function drawNode(ctx: CanvasRenderingContext2D, scene: Scene, n: GraphNode, r: 
   ctx.lineWidth = (current ? 4 : selected || lit ? 2.5 : 1) * px;
   ctx.strokeRect(r.x, r.y, r.w, r.h);
   if (current) {
-    // Phase 19.2: where the paused debugger stands.
+    // Where the paused debugger stands.
     ctx.fillStyle = COLORS.current;
     ctx.beginPath();
     ctx.moveTo(r.x - 16, r.y + 4);
@@ -314,7 +314,7 @@ function drawNode(ctx: CanvasRenderingContext2D, scene: Scene, n: GraphNode, r: 
     ctx.fillText(clip(nodeTitle(kind, n), 20), r.x + 18, r.y + 17);
   }
   if (scene.breakpoints?.has(n.id) === true) {
-    // Phase 19.2: a breakpoint — a red dot on the header's right, left of the problem badge.
+    // A breakpoint — a red dot on the header's right, left of the problem badge.
     ctx.fillStyle = COLORS.breakpoint;
     ctx.beginPath();
     ctx.arc(r.x + r.w - (problems.length > 0 ? 28 : 12), r.y + HEADER / 2, 6, 0, Math.PI * 2);

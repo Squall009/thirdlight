@@ -1,6 +1,6 @@
 /**
- * The atomic write procedure `W(bytes, target, dir)` — workspace.md §5.1 —
- * plus the pre-write external-change check (§5.2) and the bounded-retry
+ * The atomic write procedure `W(bytes, target, dir)`,
+ * plus the pre-write external-change check and the bounded-retry
  * failure classification.
  *
  *   1. tmp = `<dir>/.<basename(target)>.tmp-<pid>-<nonce>` (nonce: a
@@ -22,7 +22,7 @@
  * state is advanced so the running system is self-consistent), or
  * `foreign` (neither — the external-change protocol).
  *
- * The §5.2 pre-write check is the first statement of EVERY attempt (the
+ * The pre-write check is the first statement of EVERY attempt (the
  * immediately-preceding-check guarantee is per attempt, not once before
  * the loop): a retry re-reads the target before touching it. The
  * per-attempt allowed set is `allowedPreHashes` PLUS the intended hash —
@@ -32,7 +32,7 @@
  * backend's own bytes as foreign.
  *
  * A read failure other than ENOENT means the bytes are UNKNOWN, never
- * absent (workspace.md §7.2 step 1): the pre-write check and the final
+ * absent: the pre-write check and the final
  * classification both fail closed with the `unreadable` outcome — never
  * a zero-byte/fabricated snapshot, never a `previous`/`new-undurable`
  * misclassification. A close failure aborts the attempt (the sequence
@@ -41,7 +41,7 @@
  * error never masks an earlier write/fsync errno).
  *
  * `WriteOps` is a seam for controlled fault injection in tests (the
- * packet-07 persistence tests inject EACCES/EIO at specific steps); the
+ * persistence tests inject EACCES/EIO at specific steps); the
  * default implementation is the real filesystem. Nothing here is part of
  * the public surface (index.ts) — the service owns the protocol decisions.
  */
@@ -65,7 +65,7 @@ import { sha256Hex } from './digest';
 export const EMPTY_BYTES = new Uint8Array(0);
 export const EMPTY_HASH = sha256Hex(EMPTY_BYTES);
 
-/** Max attempts of the whole W sequence (workspace.md §5.1). */
+/** Max attempts of the whole W sequence. */
 export const WRITE_MAX_ATTEMPTS = 3;
 
 /**
@@ -118,7 +118,7 @@ const realOps: WriteOps = {
     try {
       unlinkSync(p);
     } catch {
-      // best effort (workspace.md §5.1: residue is cleaned at the next open)
+      // best effort (residue is cleaned at the next open)
     }
   },
   fileExists(p) {
@@ -147,13 +147,13 @@ const realOps: WriteOps = {
 export const defaultOps: WriteOps = realOps;
 
 /**
- * Pre-write expectation (workspace.md §5.2):
+ * Pre-write expectation:
  * - `null`          — the target must not exist yet (creation's first
  *                      envelope write); an unexpected appearance is an
  *                      unexpected external modification;
  * - `[]`            — no pre-write check (ownership claim writes and
  *                      manifest writes: races are handled by the
- *                      verification re-read / reload, §6.3/§8.3);
+ *                      verification re-read / reload);
  * - `[hash]`        — established write: the on-disk hash must equal the
  *                      last written/loaded hash;
  * - `[h1, h2]`      — resolution write (accept/discard): the on-disk hash
@@ -202,13 +202,13 @@ export interface WriteOutcome {
   /**
    * The on-disk bytes are UNKNOWN (a non-ENOENT read failure in the
    * pre-write check or the final classification): never absent, never
-   * fabricated (workspace.md §7.2 step 1). No other outcome may be
+   * fabricated. No other outcome may be
    * produced from an unreadable read.
    */
   unreadable?: { errno?: string };
 }
 
-/** Process-unique nonce counter (workspace.md §5.1 step 1). */
+/** Process-unique nonce counter. */
 let nonceCounter = 0;
 
 function nextNonce(): number {
@@ -221,7 +221,7 @@ function nextNonce(): number {
  * errors carry the string name on `code` and the NUMERIC errno on `errno`
  * (`-2` = ENOENT — `errno` is a number, not a string, on Node ≥ 20);
  * fault-injected seam errors may carry a string `errno` directly. The name
- * is the only thing the §5.2/§7.2 ENOENT-vs-unknown distinction keys on,
+ * is the only thing the ENOENT-vs-unknown distinction keys on,
  * so it is resolved: `code` (string) → `errno` (string) → `errno`
  * (number, via the small table below) → undefined.
  */
@@ -262,14 +262,14 @@ export function errnoOf(e: unknown): string | undefined {
   return undefined;
 }
 
-/** The outcome of one §5.2 pre-write check (per attempt). */
+/** The outcome of one pre-write check (per attempt). */
 type PreCheck =
   | { kind: 'proceed' }
   | { kind: 'external'; bytes: Uint8Array; hash: string }
   | { kind: 'unreadable'; errno?: string };
 
 /**
- * §5.2 pre-write check — the first statement of EVERY W attempt, before
+ * Pre-write check — the first statement of EVERY W attempt, before
  * any temp file (the immediately-preceding-check guarantee):
  * - `allowedPreHashes === null`  → creation semantics: the target must
  *   stay absent; an appearance is evaluated against the allowed set below
@@ -283,14 +283,14 @@ type PreCheck =
  *   semantics); ENOENT is the only read result that means absence;
  * - `allowedPreHashes.length === 0` → no pre-write check (ownership and
  *   manifest writes: races are handled by the verification re-read /
- *   reload, §6.3/§8.3) — the write proceeds unconditionally.
+ *   reload) — the write proceeds unconditionally.
  *
  * Per-attempt allowed set: `allowedPreHashes` PLUS the intended hash —
  * the known intermediate state where a PREVIOUS attempt of this W already
  * installed its own intended bytes (its rename succeeded before its
  * directory flush/verification failed); retrying must not flag the
  * backend's own bytes as foreign. A read failure other than ENOENT means
- * the bytes are UNKNOWN, never absent (workspace.md §7.2 step 1) — the
+ * the bytes are UNKNOWN, never absent — the
  * check returns `unreadable` and no other outcome may be produced from
  * it (no zero-byte "foreign" snapshot, no absence assumption).
  */
@@ -347,7 +347,7 @@ export function writeAtomic(opts: WriteAtomicOptions): WriteOutcome {
 
   let lastErrno: string | undefined;
   for (let attempt = 0; attempt < WRITE_MAX_ATTEMPTS; attempt++) {
-    // §5.2 pre-write check — the first statement of EVERY attempt,
+    // Pre-write check — the first statement of EVERY attempt,
     // immediately before step 1 and before any temp file: the hash check
     // runs before every attempt, not once before the loop. A failed
     // attempt's retry re-reads the target it is about to overwrite.
@@ -360,7 +360,7 @@ export function writeAtomic(opts: WriteAtomicOptions): WriteOutcome {
     }
     if (pre.kind === 'unreadable') {
       // A non-ENOENT read failure: the bytes are UNKNOWN, never absent —
-      // fail closed (workspace.md §7.2 step 1).
+      // fail closed.
       return { ok: false, unreadable: pre.errno === undefined ? {} : { errno: pre.errno } };
     }
 
@@ -370,7 +370,7 @@ export function writeAtomic(opts: WriteAtomicOptions): WriteOutcome {
     try {
       fd = ops.openTempFile(tmp);
       // Step 2 — write all bytes; fsync; close. A CLOSE FAILURE ABORTS
-      // THE ATTEMPT (workspace.md §5.1 step 2): the sequence never reaches
+      // THE ATTEMPT: the sequence never reaches
       // rename with a possibly-unclosed (or possibly-reused) fd. The FIRST
       // failure of the attempt wins: a close error never masks an earlier
       // write/fsync errno.
@@ -414,7 +414,7 @@ export function writeAtomic(opts: WriteAtomicOptions): WriteOutcome {
     if (attempt + 1 < WRITE_MAX_ATTEMPTS) opts.betweenAttempts?.(attempt + 1);
   }
 
-  // Bounded retries exhausted — classify the on-disk state (workspace.md §5.1).
+  // Bounded retries exhausted — classify the on-disk state.
   let onDisk: Uint8Array | null = null;
   try {
     onDisk = ops.readFile(target);
@@ -422,8 +422,8 @@ export function writeAtomic(opts: WriteAtomicOptions): WriteOutcome {
     const en = errnoOf(e);
     if (en !== 'ENOENT') {
       // A non-ENOENT read failure: the bytes are UNKNOWN, never absent —
-      // never a `previous`/`new-undurable` misclassification (workspace.md
-      // §7.2 step 1; nothing was read, so nothing is fabricated).
+      // never a `previous`/`new-undurable` misclassification (nothing was
+      // read, so nothing is fabricated).
       return { ok: false, unreadable: en === undefined ? {} : { errno: en } };
     }
     // ENOENT: absence — the existing absent classification below.
@@ -449,7 +449,7 @@ export function writeAtomic(opts: WriteAtomicOptions): WriteOutcome {
   return { ok: false, external: { bytes: EMPTY_BYTES, hash: EMPTY_HASH } };
 }
 
-/** Leftover temp files of one target file (§5.4: `.main.json.tmp-*` etc.). */
+/** Leftover temp files of one target file (`.main.json.tmp-*` etc.). */
 export function listLeftoverTemps(dir: string, targetBase: string, ops: WriteOps = defaultOps): string[] {
   const prefix = `.${targetBase}.tmp-`;
   return ops
@@ -458,7 +458,7 @@ export function listLeftoverTemps(dir: string, targetBase: string, ops: WriteOps
     .sort();
 }
 
-/** §5.4: delete every leftover temp file for `target` (owner only). */
+/** Delete every leftover temp file for `target` (owner only). */
 export function cleanLeftoverTemps(dir: string, targetBase: string, ops: WriteOps = defaultOps): number {
   let n = 0;
   for (const name of listLeftoverTemps(dir, targetBase, ops)) {

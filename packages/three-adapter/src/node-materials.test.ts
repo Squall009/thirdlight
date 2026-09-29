@@ -1,5 +1,5 @@
 /**
- * Phase 17.2: the node-material side of the project shading (no GPU: node
+ * The node-material side of the project shading (no GPU: node
  * construction and the per-mesh rules; the pixels are checked by the
  * shader-parity e2e on WebGL 2 and WebGPU).
  */

@@ -1,5 +1,5 @@
 /**
- * Phase 9.6: the final light bake — Blender Cycles on a bake host.
+ * The final light bake — Blender Cycles on a bake host.
  *
  * The editor sends a bake package (its scene's static meshes in world space,
  * where each lightmap goes, the baked/mixed lights). One bake runs at a time:

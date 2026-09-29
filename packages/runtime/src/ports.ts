@@ -1,7 +1,6 @@
 /**
- * The injected physics port — runtime.md §12.6 (promoted from `physics.md`
- * §5). The concrete adapter (`physics-rapier`, packet 31) implements this
- * surface; the runtime core never imports it. The runtime owns the instance
+ * The injected physics port. The concrete adapter (`physics-rapier`)
+ * implements this surface; the runtime core never imports it. The runtime owns the instance
  * and hands modules only the restricted `PhysicsStepClient`.
  *
  * These are pure types plus the runtime's strict result validation: no
@@ -13,7 +12,7 @@ export interface Vec2 {
   y: number;
 }
 
-/** One static collider the runtime derives from the snapshot (physics.md §5). */
+/** One static collider the runtime derives from the snapshot. */
 export interface StaticColliderSpec {
   entityId: string;
   /** Validated `components.collider.shape` value (opaque to the runtime core). */
@@ -22,23 +21,23 @@ export interface StaticColliderSpec {
   position: Vec2;
   /** Radians, derived from the normalized z/w quaternion copy. */
   rotationZ: number;
-  /** Phase 9.9: a mover's collider (posed every step with `setKinematicPositions`). */
+  /** A mover's collider (posed every step with `setKinematicPositions`). */
   kinematic?: boolean;
-  /** Phase 9.9: the character passes from below and the sides and lands from above. */
+  /** The character passes from below and the sides and lands from above. */
   oneWay?: boolean;
 }
 
-/** Phase 9.9: a ray hit (`raycast`). */
+/** A ray hit (`raycast`). */
 export interface RaycastHit {
   entityId: string;
   distance: number;
   normal: Vec2;
 }
 
-/** Phase 9.9: a shape for overlap queries (half extents / radius, meters). */
+/** A shape for overlap queries (half extents / radius, meters). */
 export type OverlapShape = { type: 'box'; hx: number; hy: number } | { type: 'circle'; radius: number };
 
-/** The port's per-step character result (physics.md §5). */
+/** The port's per-step character result. */
 export interface CharacterMoveResult {
   requested: Vec2;
   applied: Vec2;
@@ -47,20 +46,20 @@ export interface CharacterMoveResult {
   supportNormal: Vec2;
   contacts: { ground: boolean; wall: boolean; head: boolean; steepSlope: boolean };
   snapped: boolean;
-  /** Phase 9.9: the collider entity the character stands on (grounded), when the port knows it. */
+  /** The collider entity the character stands on (grounded), when the port knows it. */
   groundEntityId?: string | null;
-  /** Phase 9.13: how far a moving (kinematic) body moved into the character this step; the correction may exceed the request by this much. */
+  /** How far a moving (kinematic) body moved into the character this step; the correction may exceed the request by this much. */
   kinematicSlack?: number;
 }
 
-/** Counters a port may expose (physics.md §10). */
+/** Counters a port may expose. */
 export interface PhysicsDiagnostics {
   stallSteps?: number;
   penetrationCorrectedCount?: number;
 }
 
 /**
- * The injected physics port (physics.md §5). Initialization happens before
+ * The injected physics port. Initialization happens before
  * `instantiateRuntime` — the runtime only ever receives an already-initialized
  * port (`createPhysicsPort(config, signal?)` is in the concrete adapter).
  */
@@ -71,24 +70,24 @@ export interface PhysicsPort {
   reset?(character: Vec2): void;
   diagnostics?(): PhysicsDiagnostics;
   /**
-   * Phase 12 (c): add the static colliders of a loaded scene / remove those
+   * Add the static colliders of a loaded scene / remove those
    * of an unloaded one. Called by the runtime at a step boundary only. A port
    * without them cannot run a game whose loaded scenes carry colliders.
    */
   addStaticColliders?(specs: readonly StaticColliderSpec[]): void;
   removeStaticColliders?(entityIds: readonly string[]): void;
-  /** Phase 9.9: where the kinematic (mover) colliders are after this step's move. */
+  /** Where the kinematic (mover) colliders are after this step's move. */
   setKinematicPositions?(poses: readonly { entityId: string; position: Vec2; rotationZ: number }[]): void;
-  /** Phase 9.9: ignore one-way colliders for the next `steps` steps (drop through). */
+  /** Ignore one-way colliders for the next `steps` steps (drop through). */
   dropThrough?(steps: number): void;
-  /** Phase 9.9: the nearest collider hit by a ray (the character excluded). */
+  /** The nearest collider hit by a ray (the character excluded). */
   raycast?(origin: Vec2, direction: Vec2, maxDistance: number): RaycastHit | null;
-  /** Phase 9.9: the entities whose colliders overlap `shape` at `center` (the character excluded), sorted, at most 64. */
+  /** The entities whose colliders overlap `shape` at `center` (the character excluded), sorted, at most 64. */
   overlap?(shape: OverlapShape, center: Vec2): string[];
   dispose(): void;
 }
 
-/** The restricted view handed to modules in `StepContext` (physics.md §5). */
+/** The restricted view handed to modules in `StepContext`. */
 export interface PhysicsStepClient {
   /**
    * Controller phase only; a second stage for one entity is `duplicate_move`.
@@ -102,26 +101,26 @@ export interface PhysicsStepClient {
    */
   characterResult(entityId: string): CharacterMoveResult | undefined;
   /**
-   * Phase 9.9: a ray against the level's colliders (bounded per step; null when nothing is hit).
+   * A ray against the level's colliders (bounded per step; null when nothing is hit).
    * @graphNode Raycast
    * @graphDefault direction [1, 0, 0]
    * @graphDefault maxDistance 10
    */
   raycast?(origin: Vec2, direction: Vec2, maxDistance: number): RaycastHit | null;
   /**
-   * Phase 9.9: the entities whose colliders overlap a box (center, half extents) — counted with the rays.
+   * The entities whose colliders overlap a box (center, half extents) — counted with the rays.
    * @graphNode Overlap box
    * @graphDefault half [0.5, 0.5, 0]
    */
   overlapBox?(center: Vec2, half: Vec2): string[];
   /**
-   * Phase 9.9: the entities whose colliders overlap a circle — counted with the rays.
+   * The entities whose colliders overlap a circle — counted with the rays.
    * @graphNode Overlap circle
    * @graphDefault radius 0.5
    */
   overlapCircle?(center: Vec2, radius: number): string[];
   /**
-   * Phase 23.2 (3D projects): the player character's state after the last
+   * 3D projects: the player character's state after the last
    * completed step — position, velocity, grounding, contacts, whether its
    * controller is on and whether it is climbing a ledge — or undefined (a 2D
    * plane, or before the first step).
@@ -130,33 +129,33 @@ export interface PhysicsStepClient {
    */
   characterState?(entityId: string): CharacterState3D | undefined;
   /**
-   * Phase 23.3 (3D projects): the nearest collider a ray from `origin` along `direction` hits within `maxDistance` metres (default 100), or null — its object, the point, the surface normal and the distance. Counted with the other queries (at most 64 a step).
+   * 3D projects: the nearest collider a ray from `origin` along `direction` hits within `maxDistance` metres (default 100), or null — its object, the point, the surface normal and the distance. Counted with the other queries (at most 64 a step).
    * @graphNode Raycast 3D
    * @graphDefault direction [0, -1, 0]
    * @graphDefault maxDistance 100
    */
   raycast3d?(origin: readonly number[], direction: readonly number[], maxDistance?: number, filter?: PhysicsQueryFilter): PhysicsHit | null;
   /**
-   * Phase 23.3 (3D projects): the objects whose colliders overlap a sphere (sorted ids, at most 64).
+   * 3D projects: the objects whose colliders overlap a sphere (sorted ids, at most 64).
    * @graphNode Overlap sphere
    * @graphDefault radius 0.5
    */
   overlapSphere?(center: readonly number[], radius: number, filter?: PhysicsQueryFilter): string[];
   /**
-   * Phase 23.3 (3D projects): the objects whose colliders overlap a box — centre, half extents [x, y, z] and an optional rotation quaternion [x, y, z, w].
+   * 3D projects: the objects whose colliders overlap a box — centre, half extents [x, y, z] and an optional rotation quaternion [x, y, z, w].
    * @graphNode Overlap box 3D
    * @graphDefault half [0.5, 0.5, 0.5]
    */
   overlapBox3d?(center: readonly number[], half: readonly number[], rotation?: readonly number[], filter?: PhysicsQueryFilter): string[];
   /**
-   * Phase 23.3 (3D projects): the objects whose colliders overlap an upright capsule (total height, end caps included), optionally turned by a quaternion [x, y, z, w].
+   * 3D projects: the objects whose colliders overlap an upright capsule (total height, end caps included), optionally turned by a quaternion [x, y, z, w].
    * @graphNode Overlap capsule
    * @graphDefault radius 0.3
    * @graphDefault height 1.8
    */
   overlapCapsule?(center: readonly number[], radius: number, height: number, rotation?: readonly number[], filter?: PhysicsQueryFilter): string[];
   /**
-   * Phase 23.3 (3D projects): what is under a screen point (x, y 0–1 from the top left): the ray from the active camera (`ctx.camera.screenToRay`) cast into the colliders, within `maxDistance` (default 1000 m).
+   * 3D projects: what is under a screen point (x, y 0–1 from the top left): the ray from the active camera (`ctx.camera.screenToRay`) cast into the colliders, within `maxDistance` (default 1000 m).
    * @graphNode Pick at screen point
    * @graphDefault x 0.5
    * @graphDefault y 0.5
@@ -164,14 +163,14 @@ export interface PhysicsStepClient {
    */
   pickAt?(x: number, y: number, maxDistance?: number, filter?: PhysicsQueryFilter): PhysicsHit | null;
   /**
-   * Phase 23.3 (3D projects): what is under the pointer this step (null while the pointer is outside the view or never moved); with a locked cursor, what is at the view's centre.
+   * 3D projects: what is under the pointer this step (null while the pointer is outside the view or never moved); with a locked cursor, what is at the view's centre.
    * @graphNode Pick at pointer
    * @graphDefault maxDistance 1000
    */
   pickAtPointer?(maxDistance?: number, filter?: PhysicsQueryFilter): PhysicsHit | null;
 }
 
-/** Phase 23.2: the 3D player character's state (`ctx.physics.characterState`). */
+/** The 3D player character's state (`ctx.physics.characterState`). */
 export interface CharacterState3D {
   /** Its origin (m). */
   readonly position: PhysicsVec3;
@@ -193,7 +192,7 @@ export interface CharacterState3D {
   readonly facing: number;
 }
 
-/** Phase 23.3: which objects a 3D query sees (every part optional; absent: all colliders). */
+/** Which objects a 3D query sees (every part optional; absent: all colliders). */
 export interface PhysicsQueryFilter {
   /** Only objects carrying at least one of these tags. */
   tags?: readonly string[];
@@ -203,7 +202,7 @@ export interface PhysicsQueryFilter {
   exclude?: readonly string[];
 }
 
-/** Phase 23.3: a 3D ray or pick hit. */
+/** A 3D ray or pick hit. */
 export interface PhysicsHit {
   /** The object whose collider was hit. */
   entityId: string;
@@ -220,7 +219,7 @@ export interface PhysicsHit {
   cell?: [number, number, number];
 }
 
-/** The result of a spawn clearance probe/reset placement (gameplay.md §5.2). */
+/** The result of a spawn clearance probe/reset placement. */
 export interface CharacterClearanceResult {
   ok: boolean;
   reason?: 'blocked' | 'no_support' | 'out_of_bounds' | 'query_failed';
@@ -230,14 +229,12 @@ export interface CharacterClearanceResult {
 }
 
 /**
- * The M3 restricted reset/clearance port (gameplay.md §5.2 / runtime.md
- * §15.4). The accepted `PhysicsPort.reset(character)` stays
+ * The restricted reset/clearance port. `PhysicsPort.reset(character)` stays
  * tests/diagnostics-only and is never called by the runtime, a module, a
  * behavior or the editor. The three operations below are callable by the
  * runtime only at the reset barrier — they are NOT on `PhysicsStepClient`
- * (game code never receives a physics handle, physics.md §5
- * one-mutation-path).
- * The concrete implementation is `physics-rapier` (packet 50); the runtime
+ * (game code never receives a physics handle: one mutation path).
+ * The concrete implementation is `physics-rapier`; the runtime
  * core carries the type only.
  */
 export interface PhysicsResetPort extends PhysicsPort {
@@ -268,7 +265,7 @@ function vec2(v: unknown): v is Vec2 {
 }
 
 /**
- * Strict result validation (runtime.md §12.6). Returns a failure describing
+ * Strict result validation. Returns a failure describing
  * the first violation instead of throwing; an invalid result is never
  * partially applied.
  */
@@ -322,21 +319,21 @@ export function validateCharacterMoveResult(
 }
 
 // ---------------------------------------------------------------------------
-// Phase 23.0: the 3D physics port. A project whose `physics_dimension` is 3
+// The 3D physics port. A project whose `physics_dimension` is 3
 // runs on a separate 3D backend (physics-rapier's `./3d` subpath, rapier3d);
 // the runtime holds this port instead of the 2D `PhysicsPort` above, which —
 // with its fakes, the character controller and the graph codegen — stays
 // exactly as it was. Positions are PhysicsVec3, rotations unit quaternions.
 // ---------------------------------------------------------------------------
 
-/** Phase 23.0: a 3D vector (m). */
+/** A 3D vector (m). */
 export interface PhysicsVec3 {
   x: number;
   y: number;
   z: number;
 }
 
-/** Phase 23.0: a unit quaternion. */
+/** A unit quaternion. */
 export interface PhysicsQuat {
   x: number;
   y: number;
@@ -344,20 +341,20 @@ export interface PhysicsQuat {
   w: number;
 }
 
-/** Phase 23.0: one static collider of a 3D world (the entity's full transform; root, unit scale). */
+/** One static collider of a 3D world (the entity's full transform; root, unit scale). */
 export interface StaticColliderSpec3D {
   entityId: string;
   /**
-   * The collider's shape as the port takes it (phase 23.1: a resolved
+   * The collider's shape as the port takes it (a resolved
    * `ColliderShape3D` — the entity's scale applied, a model's collision
    * geometry turned into points or triangles; opaque to the runtime core).
    */
   shape: unknown;
   position: PhysicsVec3;
   rotation: PhysicsQuat;
-  /** Phase 23.1: a mover's collider (a kinematic body posed every step with `setKinematicPoses`). */
+  /** A mover's collider (a kinematic body posed every step with `setKinematicPoses`). */
   kinematic?: boolean;
-  /** Phase 23.3: the collision layers the collider is in (absent: "default"); names the config's `layers` resolve. */
+  /** The collision layers the collider is in (absent: "default"); names the config's `layers` resolve. */
   layers?: readonly string[];
   /**
    * Radians: the steepest part of this collider the character walks up — a
@@ -368,7 +365,7 @@ export interface StaticColliderSpec3D {
 }
 
 /**
- * Phase 23.3: what a 3D query sees. `layers`: only colliders in at least one
+ * What a 3D query sees. `layers`: only colliders in at least one
  * of these collision layers ("default" — colliders without layers; a name
  * the project does not have matches nothing); `accept`: called with each
  * candidate collider's entity, false skips it (tags, exclusions — the
@@ -380,7 +377,7 @@ export interface PhysicsQueryFilter3D {
 }
 
 /**
- * Phase 23.1: the 3D shapes a port builds (metres, in the collider's own
+ * The 3D shapes a port builds (metres, in the collider's own
  * frame; a capsule stands along its local Y). `convex` is the hull of its
  * points and `mesh` a triangle mesh (a static collider only), both flat
  * `[x, y, z, ...]` lists.
@@ -392,20 +389,20 @@ export type ColliderShape3D =
   | { type: 'convex'; points: readonly number[] }
   | { type: 'mesh'; vertices: readonly number[]; indices: readonly number[] };
 
-/** Phase 23.1: a shape for 3D overlap queries (half extents / radius / capsule half height, metres). */
+/** A shape for 3D overlap queries (half extents / radius / capsule half height, metres). */
 export type OverlapShape3D =
   | { type: 'box'; hx: number; hy: number; hz: number }
   | { type: 'sphere'; radius: number }
   | { type: 'capsule'; radius: number; halfHeight: number };
 
-/** Phase 23.1: where a kinematic (mover) collider is after this step's move. */
+/** Where a kinematic (mover) collider is after this step's move. */
 export interface KinematicPose3D {
   entityId: string;
   position: PhysicsVec3;
   rotation: PhysicsQuat;
 }
 
-/** Phase 23.1: the 3D clearance of the character capsule at a point (the 2D result's fields). */
+/** The 3D clearance of the character capsule at a point (the 2D result's fields). */
 export interface CharacterClearanceResult3D {
   ok: boolean;
   reason?: 'blocked' | 'no_support';
@@ -414,7 +411,7 @@ export interface CharacterClearanceResult3D {
   penetration?: number;
 }
 
-/** Phase 23.0: the 3D port's per-step character result (the 2D result's fields in 3D). */
+/** The 3D port's per-step character result (the 2D result's fields in 3D). */
 export interface CharacterMoveResult3D {
   requested: PhysicsVec3;
   applied: PhysicsVec3;
@@ -424,21 +421,21 @@ export interface CharacterMoveResult3D {
   contacts: { ground: boolean; wall: boolean; head: boolean; steepSlope: boolean };
   snapped: boolean;
   groundEntityId?: string | null;
-  /** Phase 23.1: how far a moving (kinematic) body moved into the character this step; the correction may exceed the request by this much. */
+  /** How far a moving (kinematic) body moved into the character this step; the correction may exceed the request by this much. */
   kinematicSlack?: number;
 }
 
-/** Phase 23.0: a ray hit in 3D. */
+/** A ray hit in 3D. */
 export interface RaycastHit3D {
   entityId: string;
   distance: number;
   normal: PhysicsVec3;
-  /** Phase 23.3: where the ray hit (origin + unit direction × distance). */
+  /** Where the ray hit (origin + unit direction × distance). */
   point?: PhysicsVec3;
 }
 
 /**
- * Phase 23.0: what a 3D port is created from (built by the hosts from the
+ * What a 3D port is created from (built by the hosts from the
  * snapshot and settings — game-host `physics3DConfigOf`). `dimension: 3`
  * tells a host (and the simulation worker) which backend to load.
  */
@@ -452,12 +449,12 @@ export interface PhysicsInitConfig3D {
   /** The character controller's tuning (the 2D controller's fields: skin, snap, slope angles, autostep). */
   controller: { offsetSkin: number; groundSnap: number; maxSlopeClimbRad: number; minSlopeSlideRad: number; autostep: boolean; autostepHeight?: number };
   /**
-   * Phase 23.3: the project's named collision layers, in order (bit 1 + index;
+   * The project's named collision layers, in order (bit 1 + index;
    * bit 0 is "default"). Absent: only "default".
    */
   layers?: readonly string[];
   /**
-   * Phase 23.3: the scene has no controller entity — the world holds colliders
+   * The scene has no controller entity — the world holds colliders
    * for queries (picking, rays, overlaps) and movers, but no character capsule
    * (`character` is then a placeholder the port ignores; its step moves nothing).
    */
@@ -465,7 +462,7 @@ export interface PhysicsInitConfig3D {
 }
 
 /**
- * Phase 23.0: the injected 3D physics port — initialized before
+ * The injected 3D physics port — initialized before
  * `instantiateRuntime` like the 2D one, stepped once per fixed step by the
  * runtime. The character is a kinematic capsule swept by the backend's
  * character controller.
@@ -480,15 +477,15 @@ export interface PhysicsPort3D {
   /** A loaded / unloaded scene's static colliders (at a step boundary). */
   addStaticColliders?(specs: readonly StaticColliderSpec3D[]): void;
   removeStaticColliders?(entityIds: readonly string[]): void;
-  /** The nearest collider hit by a ray (the character excluded; phase 23.3: only those the filter lets through). */
+  /** The nearest collider hit by a ray (the character excluded; only those the filter lets through). */
   raycast?(origin: PhysicsVec3, direction: PhysicsVec3, maxDistance: number, filter?: PhysicsQueryFilter3D): RaycastHit3D | null;
-  /** Phase 23.1: where the kinematic (mover) colliders go with this step's world update (after the character's sweep). */
+  /** Where the kinematic (mover) colliders go with this step's world update (after the character's sweep). */
   setKinematicPoses?(poses: readonly KinematicPose3D[]): void;
-  /** Phase 23.1: the entities whose colliders overlap `shape` at `center` turned by `rotation` (the character excluded), sorted, at most 64. */
+  /** The entities whose colliders overlap `shape` at `center` turned by `rotation` (the character excluded), sorted, at most 64. */
   overlap?(shape: OverlapShape3D, center: PhysicsVec3, rotation?: PhysicsQuat, filter?: PhysicsQueryFilter3D): string[];
-  /** Phase 23.1: query only — the clearance of the character capsule if its origin were at `origin`. */
+  /** Query only — the clearance of the character capsule if its origin were at `origin`. */
   characterClearance?(origin: PhysicsVec3): CharacterClearanceResult3D;
-  /** Phase 23.1: re-place the character (its origin) and return its clearance there; clears its motion caches. */
+  /** Re-place the character (its origin) and return its clearance there; clears its motion caches. */
   placeCharacter?(origin: PhysicsVec3): CharacterClearanceResult3D;
   dispose(): void;
 }
@@ -498,7 +495,7 @@ function isVec3(v: unknown): v is PhysicsVec3 {
 }
 
 /**
- * Phase 23.0: the 3D counterpart of `validateCharacterMoveResult` — the same
+ * The 3D counterpart of `validateCharacterMoveResult` — the same
  * rules on three axes (finite vectors, a unit support normal pointing up
  * while grounded, `applied == position − previousPosition` within 1e-9, the
  * correction bounded by the request plus the snap allowance).
@@ -508,9 +505,9 @@ export function validateCharacterMoveResult3D(
   previousPosition: PhysicsVec3,
   requested: PhysicsVec3,
   /**
-   * Phase 23.2: the character's step-up height and ground snap (m) — a step
+   * The character's step-up height and ground snap (m) — a step
    * climbed or a snap down a stair may move it that much beyond the request
-   * (absent: the 23.0 allowance only).
+   * (absent: the fixed snap allowance only).
    */
   climb?: { stepHeight: number; groundSnap: number },
 ): { ok: true; result: CharacterMoveResult3D } | { ok: false; failure: CharacterMoveResultFailure } {
@@ -536,7 +533,7 @@ export function validateCharacterMoveResult3D(
   if (Math.abs(a.x - (p.x - previousPosition.x)) > 1e-9 || Math.abs(a.y - (p.y - previousPosition.y)) > 1e-9 || Math.abs(a.z - (p.z - previousPosition.z)) > 1e-9) {
     return bad('applied != position - previousPosition within 1e-9');
   }
-  // Phase 23.1: a mover that moved into the character may push it by up to that move (as in 2D).
+  // A mover that moved into the character may push it by up to that move (as in 2D).
   const ks = (result as { kinematicSlack?: unknown }).kinematicSlack;
   const slack = typeof ks === 'number' && Number.isFinite(ks) ? Math.min(0.5, Math.max(0, ks)) : 0;
   const step = climb !== undefined && Number.isFinite(climb.stepHeight) ? Math.min(2, Math.max(0, climb.stepHeight)) : 0;

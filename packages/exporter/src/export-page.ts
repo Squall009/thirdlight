@@ -1,16 +1,15 @@
 /**
- * The exported page's fixed engine text (packet 36) — import-free so both the
+ * The exported page's fixed engine text — import-free so both the
  * browser bootstrap and the export scan can use it.
  */
 
 /**
- * The exported page's fixed engine text (packet 36): the mandatory
- * `behaviors.md` §2.3 trust notice presented before the run starts
- * (export.md §6). Kept in its own import-free module so the export scan can
- * count its exact §5.4 pattern contributions (the notice deliberately names the
- * network/global APIs a behavior can reach — `XMLHttpRequest`, `WebSocket` —
- * so its measured contribution is part of the expectation, never a blanket
- * allowance; contract-change request C36-6).
+ * The exported page's fixed engine text: the mandatory
+ * `behaviors.md` trust notice presented before the run starts. Kept in its
+ * own import-free module so the export scan can count its exact pattern
+ * contributions (the notice deliberately names the network/global APIs a
+ * behavior can reach — `XMLHttpRequest`, `WebSocket` — so its measured
+ * contribution is part of the expectation, never a blanket allowance).
  */
 export const BEHAVIOR_TRUST_NOTICE: readonly string[] = [
   'Behavior code is trusted personal project code. It runs on this page\u2019s main thread, in the same JavaScript context as the renderer and the runtime step loop.',

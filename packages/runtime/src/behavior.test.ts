@@ -1,5 +1,5 @@
 /**
- * Packet 34 — the trusted behavior host (runtime.md §14).
+ * The trusted behavior host.
  *
  * The `BehaviorSpec` lifecycle, the validated-intent API (shape/phase/value/
  * ownership/duplicate/writer/caps), the per-instance log ring and flood
@@ -611,7 +611,7 @@ describe('create-time failures (runtime.md §14.3.1/§14.6)', () => {
     expect(() =>
       createBehaviorModuleSpec({ declaration: { properties: 'none' } as never, artifact: art }),
     ).toThrow(BehaviorHostError);
-    // Phase 19.1: no property at all is a valid declaration.
+    // No property at all is a valid declaration.
     expect(() => createBehaviorModuleSpec({ declaration: { properties: [] }, artifact: art })).not.toThrow();
     const res = instantiateRuntime({
       snapshot: snapshot(sceneWithBehaviors([{ entityId: 'box-0001', behaviorId: 'behavior-0001' }])),

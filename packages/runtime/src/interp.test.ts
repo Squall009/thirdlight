@@ -1,5 +1,5 @@
 /**
- * Render interpolation policy tests (runtime.md §6): lerp math,
+ * Render interpolation policy tests: lerp math,
  * slerp math (sign alignment, near-identity nlerp shortcut, standard
  * constant-rate slerp), derived-copy normalization (inputs never
  * mutated), the prev==curr / alpha==0 short-circuits, and the read-only

@@ -1,5 +1,5 @@
 /**
- * Phase 23.10: game modes are simulation state across the worker boundary
+ * Game modes are simulation state across the worker boundary
  * and in replays. A neutral 3D scene (physics_dimension 3, the 3D character
  * module) with two modes — "explore" (gameplay + ui maps, a follow camera,
  * a HUD, the "field" group ticking) and "tactical" (a project "tactical" map

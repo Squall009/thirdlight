@@ -1,5 +1,5 @@
 /**
- * Phase 23.6 (E8 "prop integration"): props on block layers.
+ * Props on block layers.
  *
  * - Snap to cell tops: a free-placed prop lands on the top of the column
  *   under it — x/z at the centre of its footprint (a cell centre for an odd

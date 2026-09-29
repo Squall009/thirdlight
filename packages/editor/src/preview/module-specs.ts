@@ -1,5 +1,5 @@
 /**
- * Phase 24.3: the simulation module specs the Play preview provides beyond the
+ * The simulation module specs the Play preview provides beyond the
  * runtime's built-ins, keyed by manifest module id and in dependency order
  * (a module after those it needs). The game host imports no module package;
  * this composition entry registers them, and each game's manifest `modules`

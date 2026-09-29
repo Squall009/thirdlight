@@ -1,5 +1,5 @@
 /**
- * Phase 20.1: the CPU reference evaluator of effect graphs.
+ * The CPU reference evaluator of effect graphs.
  *
  * One `EffectInstance` simulates one playing effect: every system keeps its
  * particles in typed arrays (structure of arrays, `capacity` slots, living
@@ -60,7 +60,7 @@ export interface EffectMesh {
 
 export interface EffectInstanceOptions extends CompileOptions {
   /**
-   * Phase 20.2: plan births only (the WebGPU executor): each step computes
+   * Plan births only (the WebGPU executor): each step computes
    * how many particles each system's origin spawn blocks give (rates with
    * their carried fractions, bursts, per metre moved) in chain order, and
    * hands out serial numbers for them — without simulating particles on
@@ -83,7 +83,7 @@ export interface StepInput {
 }
 
 /**
- * Phase 20.2: one step's origin births of a system, in chain order (the
+ * One step's origin births of a system, in chain order (the
  * WebGPU executor initialises them on the GPU): consecutive runs of births
  * — `distance` runs are spread along the path the origin moved (birth k of n
  * at (k + 1) / n), the others are born at the current origin.
@@ -694,7 +694,7 @@ export class EffectInstance {
 
   // ---- spawn ----------------------------------------------------------------------------------
 
-  /** Phase 20.2: the last step's origin births per system (plan-only instances). */
+  /** The last step's origin births per system (plan-only instances). */
   plans(): readonly SpawnPlan[] {
     return this.lastPlans;
   }
@@ -704,13 +704,13 @@ export class EffectInstance {
     return { current: this.origin, previous: this.prevOrigin };
   }
 
-  /** Phase 20.2: a public parameter's value as the graphs read it (linear colour; null = not declared). */
+  /** A public parameter's value as the graphs read it (linear colour; null = not declared). */
   parameter(key: string): readonly number[] | null {
     return this.params.get(key) ?? null;
   }
 
   /**
-   * Phase 20.2: an Output block's number / vector / colour input (its field,
+   * An Output block's number / vector / colour input (its field,
    * or its wire read once for the whole system — like a Spawn input: no
    * particle, the effect time, parameters). The renderers read Output inputs
    * this way, once per frame.

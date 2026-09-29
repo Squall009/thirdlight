@@ -1,5 +1,5 @@
 /**
- * Phase 23.7: script libraries in the compiler.
+ * Script libraries in the compiler.
  *
  * A behavior (or another library) imports a project script library with
  * `@lib/<libraryId>`, which names that library's `src/index.ts`. The
@@ -43,7 +43,7 @@ export interface CompiledLibrary {
   modules: Map<string, { contents: string; loader: 'js' | 'json' }>;
   /** Its own `@lib/` imports (ascending). */
   imports: string[];
-  /** Phase 25.9: stored path → source text (the shared module is built from the sources, so its map points at them). */
+  /** Stored path → source text (the shared module is built from the sources, so its map points at them). */
   sources: Map<string, string>;
 }
 

@@ -1,11 +1,11 @@
 /**
- * The stable backend surface (dependencies.md §3: `@thirdlight/backend` →
+ * The stable backend surface (`@thirdlight/backend` →
  * `openWorkspaceService`-style bootstrap + the `/services` subpath).
  *
- * `createBackend(config)` is what the MCP adapter (packet 11) and the
+ * `createBackend(config)` is what the MCP adapter and the
  * integration tests import from `@thirdlight/backend/services`. The
  * default subpath (`.`) is the executable bootstrap (the owner-deployment
- * process entry) — no package imports it (dependencies.md §4.3).
+ * process entry) — no package imports it.
  */
 export {
   createBackend,
@@ -39,5 +39,5 @@ export {
   type PlayStopReason,
   type RelayOutcome,
   PlayManager,
-} from '../play';// Phase 25.9: script error and log locations mapped back to the project's sources.
+} from '../play';// Script error and log locations mapped back to the project's sources.
 export { mapCompiledLocation, withSourceLocations, type CompiledLocation, type SourceLocation, type SourceMapTable } from '../source-locations';

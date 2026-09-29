@@ -1,5 +1,5 @@
 /**
- * Dev tool (D21): remove unused named imports from the given files, using
+ * Dev tool: remove unused named imports from the given files, using
  * TypeScript's own unused-identifier diagnostics (6133/6192/6196).
  *   node tools/dev/prune-imports.mjs <tsconfig> <file>...
  */

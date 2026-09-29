@@ -1,6 +1,5 @@
 /**
- * Behavior-source preparation — project-model.md §22.4.1, workspace.md
- * §13.3.1 "Behavior-source preparation profile".
+ * Behavior-source preparation.
  *
  * The workspace's preparation layer for the `behavior-source` staging profile:
  * it resolves the stage (or accepts supplied bytes), hashes **the bytes on
@@ -11,8 +10,8 @@
  * state changes here: no revision, no envelope write, no mutation lock.
  *
  * The prepared record is the only source the `publishBehavior{mode:"source"}`
- * command may build a `BehaviorSourceRecord` from (project-model.md §22.2
- * rule 2); this module never accepts a caller-supplied record field.
+ * command may build a `BehaviorSourceRecord` from; this module never accepts
+ * a caller-supplied record field.
  */
 import { ID_RE } from '@thirdlight/project-model';
 
@@ -48,7 +47,7 @@ import {
 import { ensureSession, type Core, type LibraryStage } from './session';
 
 export interface PrepareBehaviorSourceRequest {
-  /** The staged canonical container to prepare (workspace.md §13.3.1). */
+  /** The staged canonical container to prepare. */
   stageId?: string;
   /** Directly supplied canonical container bytes (harness/CLI path). */
   bytes?: Uint8Array;
@@ -72,8 +71,7 @@ export type PrepareBehaviorSourceResult =
   | { ok: false; kind: 'compile'; failure: BehaviorCompileFailure };
 
 /**
- * `prepareBehaviorSource(projectId, request)` (workspace.md §13.3.1,
- * project-model.md §22.4.1): read the bytes, apply the trust gate, run the
+ * `prepareBehaviorSource(projectId, request)`: read the bytes, apply the trust gate, run the
  * injected compiler, publish the immutable container blob and store the
  * digest-bound prepared record. On any failure nothing authoritative is
  * written; a compile failure produces no bytes and no artifact.
@@ -129,7 +127,7 @@ export async function prepareBehaviorSource(
     };
   }
   const sourceDigest = sha256Hex(bytes);
-  // §22.4.1 step 6: the trust acknowledgment must precede the first compile.
+  // The trust acknowledgment must precede the first compile.
   if (!s.content.behaviorTrust.entries.some((e) => e.sourceDigest === sourceDigest)) {
     return { ok: false, kind: 'error', error: behaviorTrustUnacknowledged(sourceDigest) };
   }
@@ -141,7 +139,7 @@ export async function prepareBehaviorSource(
       error: behaviorPublicationUnavailable(request.behaviorId, 'source', 'preparer_unavailable'),
     };
   }
-  // Phase 23.7: the project's script libraries (an `@lib/<id>` import links the one it names).
+  // The project's script libraries (an `@lib/<id>` import links the one it names).
   const libraries = scriptLibrariesOfContent(s.content);
   let compiled;
   try {
@@ -173,7 +171,7 @@ export async function prepareBehaviorSource(
   }
   if (!compiled.ok) return { ok: false, kind: 'compile', failure: compiled };
   const prepared = preparedSourceFromCompile(compiled);
-  // Phase 23.7: every library version the output links is acknowledged too (trust per digest).
+  // Every library version the output links is acknowledged too (trust per digest).
   for (const pin of prepared.libraries ?? []) {
     if (!s.content.behaviorTrust.entries.some((e) => e.sourceDigest === pin.sourceDigest)) {
       return { ok: false, kind: 'error', error: behaviorTrustUnacknowledged(pin.sourceDigest) };
@@ -189,7 +187,7 @@ export async function prepareBehaviorSource(
   const w = writeDerivedPrepared(core, s, sourceDigest, prepared.recipeDigest, prepared);
   if (!w.ok) return { ok: false, kind: 'error', error: w.error };
   s.preparedSources.set(sourceDigest, prepared);
-  // Phase 23.7: also filed under the library set it was compiled against.
+  // Also filed under the library set it was compiled against.
   if (prepared.libraries !== undefined) s.preparedSources.set(`${sourceDigest}|${scriptLibrarySetKey(libraries)}`, prepared);
   return {
     ok: true,
@@ -208,7 +206,7 @@ export async function prepareBehaviorSource(
  * Map a successful compile into the workspace's prepared fact set. Deliberately
  * mirrors `behavior-build`'s `preparedSourceFrom` (that unit is a types-only
  * edge here, so its value helper cannot be called); the two are kept in sync by
- * the packet-33 integration test, which compares every field of both.
+ * an integration test that compares every field of both.
  */
 function preparedSourceFromCompile(compiled: BehaviorCompileSuccess): PreparedBehaviorSource {
   const m = compiled.manifest;
@@ -233,12 +231,12 @@ function preparedSourceFromCompile(compiled: BehaviorCompileSuccess): PreparedBe
   };
 }
 
-/** Phase 23.7: the script libraries of a content block (absent = none). */
+/** The script libraries of a content block (absent = none). */
 export function scriptLibrariesOfContent(content: unknown): ScriptLibrary[] {
   return ((content as { scriptLibraries?: ScriptLibrary[] } | null)?.scriptLibraries ?? []) as ScriptLibrary[];
 }
 
-/** Phase 23.7: the compiler inputs of a library set (each library's canonical container bytes). */
+/** The compiler inputs of a library set (each library's canonical container bytes). */
 export function libraryInputs(libraries: readonly ScriptLibrary[]): ScriptLibraryInput[] {
   return libraries.map((l) => ({ libraryId: l.libraryId, containerBytes: new TextEncoder().encode(scriptLibraryContainerText(l)) }));
 }
@@ -257,7 +255,7 @@ export type PrepareLibraryDependentsResult =
   | { ok: false; kind: 'compile'; behaviorId: string; failure: BehaviorCompileFailure };
 
 /**
- * Phase 23.7: before a `setScriptLibrary` command, compile every published
+ * Before a `setScriptLibrary` command, compile every published
  * behavior that imports the library against the library set the command
  * will commit, and file the digest-bound prepared facts under
  * `<sourceDigest>|<librarySetKey>` — the only facts the command builds the
@@ -332,7 +330,7 @@ export function preparedFactsOf(
   return prepared as unknown as ReadonlyMap<string, PreparedBehaviorSourceFact>;
 }
 
-/** Phase 23.7: the compiler inputs of a project's script libraries as stored now (empty for a v3 project). */
+/** The compiler inputs of a project's script libraries as stored now (empty for a v3 project). */
 export function projectScriptLibraryInputs(core: Core, projectId: string): ScriptLibraryInput[] {
   if (typeof projectId !== 'string' || !ID_RE.test(projectId)) return [];
   const o = ensureSession(core, projectId);
@@ -346,7 +344,7 @@ export type ScriptLibraryDraftCheckResult =
   | { ok: false; error: CommandError };
 
 /**
- * Phase 23.7: compile one script library draft on its own (the script
+ * Compile one script library draft on its own (the script
  * editor's check): its files replace the stored library of that id (or add
  * one) among the project's libraries. Nothing is written, no code runs.
  * Also names the published scripts that import it (recompiled on save).
@@ -381,7 +379,7 @@ export async function checkScriptLibraryDraft(core: Core, projectId: string, dra
 }
 
 // ---------------------------------------------------------------------------
-// Phase 25.9: staged library edits (several patches, one commit)
+// Staged library edits (several patches, one commit)
 // ---------------------------------------------------------------------------
 
 /** At most this many open stages per project (the oldest goes first). */
@@ -390,7 +388,7 @@ export const LIBRARY_STAGES_PER_PROJECT = 8;
 export const LIBRARY_STAGE_MAX_BYTES = 2 * 1024 * 1024;
 
 /**
- * Phase 25.9: a stage patch — `setScriptLibrary`'s patch, and a file may be
+ * A stage patch — `setScriptLibrary`'s patch, and a file may be
  * sent in pieces: `append: true` adds the text to the file as staged so far
  * (a file larger than one request).
  */
@@ -437,7 +435,7 @@ function stageSummary(stage: { stageId: string; patches: number; libraries: Map<
 }
 
 /**
- * Phase 25.9: add one patch (`setScriptLibrary`'s shape: files added or
+ * Add one patch (`setScriptLibrary`'s shape: files added or
  * replaced, `text: null` removes one, `name`) to a stage, opening one when no
  * stageId is given. The patch applies to the stage's value of that library
  * (the stored library when the stage first touches it). Nothing
@@ -492,7 +490,7 @@ export function stageScriptLibraryPatch(core: Core, projectId: string, request: 
   return { ok: true, stage: stageSummary(stage) };
 }
 
-/** Phase 25.9: drop a stage (nothing else changes). */
+/** Drop a stage (nothing else changes). */
 export function discardScriptLibraryStage(core: Core, projectId: string, stageId: string): { ok: true } | { ok: false; error: CommandError } {
   const opened = openSession(core, projectId);
   if (!opened.ok) return opened;
@@ -502,7 +500,7 @@ export function discardScriptLibraryStage(core: Core, projectId: string, stageId
   return { ok: true };
 }
 
-/** Phase 25.9: the stages as the command layer reads them (whole staged values and their bases). */
+/** The stages as the command layer reads them (whole staged values and their bases). */
 export function libraryStageFacts(s: { libraryStages?: Map<string, { libraries: Map<string, { base: string | null; library: ScriptLibrary }> }> }): ReadonlyMap<string, import('@thirdlight/commands').ScriptLibraryStageFact> | undefined {
   if (s.libraryStages === undefined || s.libraryStages.size === 0) return undefined;
   const out = new Map<string, import('@thirdlight/commands').ScriptLibraryStageFact>();
@@ -518,7 +516,7 @@ export type PrepareLibraryStageResult =
   | { ok: false; kind: 'compile'; behaviorId: string; failure: BehaviorCompileFailure };
 
 /**
- * Phase 25.9: before `commitScriptLibraryStage`, compile each published
+ * Before `commitScriptLibraryStage`, compile each published
  * script that imports any changed library of the stage — once, against the
  * whole committed set — and file the facts the command reads (as
  * `prepareScriptLibraryDependents` does for one patch). The changed

@@ -1,5 +1,5 @@
 /**
- * Phase 25.21: the paint brush (any target) and a block layer's surface
+ * The paint brush (any target) and a block layer's surface
  * paint — weights that always sum to 255, a standalone wetness, the falloffs,
  * vertices shared by chunks painted alike, the stored form (canonical, round
  * trip, validation), the colours a chunk mesh takes, and determinism.

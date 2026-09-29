@@ -1,5 +1,5 @@
 /**
- * Phase 23.15: a Custom-lit graph material in the editor against the real
+ * A Custom-lit graph material in the editor against the real
  * backend — the Material tab's preview, the Scene view, Play and the static
  * export all draw the graph's own shading from the lights.
  *
@@ -167,7 +167,7 @@ for (const variant of VARIANTS) test(`a Custom-lit graph (two N·L bands) shades
   const res = await be.admin(`projects/${be.projectId}/export`);
   expect(res.status, JSON.stringify(res.json)).toBe(200);
   const out = join(be.exportRoot, String(res.json.outputDir));
-  // Phase 25.7b: the materials are a content file the manifest lists by digest; only the used one ships.
+  // The materials are a content file the manifest lists by digest; only the used one ships.
   const doc = JSON.parse(readFileSync(join(out, 'manifest.json'), 'utf8')) as { contentFiles: { key: string; path: string }[] };
   const manifest = { materials: JSON.parse(readFileSync(join(out, doc.contentFiles.find((r) => r.key === 'materials')!.path), 'utf8')) } as { materials: { materialId: string; graph?: { nodes: { type: string }[] } }[] };
   expect(manifest.materials.find((m) => m.materialId === 'mat-cel')?.graph?.nodes.some((x) => x.type === 'customLit')).toBe(true);

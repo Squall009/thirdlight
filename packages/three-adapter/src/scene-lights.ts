@@ -1,5 +1,5 @@
 /**
- * Phase 25.8: which lights of the loaded scenes are on.
+ * Which lights of the loaded scenes are on.
  *
  * Lights belong to scenes: any scene may hold any light kind (each scene at
  * most one directional, one ambient and one hemisphere light, and 16 point

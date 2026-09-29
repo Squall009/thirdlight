@@ -1,5 +1,5 @@
 /**
- * Phase 19.2: the visual-script editor and debugging in Play, against a real
+ * The visual-script editor and debugging in Play, against a real
  * backend (the engine sample with neutral additions).
  *
  * - Open a script graph: its compile problem is on its node and in the

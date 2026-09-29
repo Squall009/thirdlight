@@ -106,7 +106,7 @@ export function ownershipState(projectDir, procRoot = '/proc') {
 }
 
 function readEnvelopeRevision(projectDir) {
-  // Phase 12 (c): a v4 project is several files; its revision is the highest.
+  // A v4 project is several files; its revision is the highest.
   if (existsSync(join(projectDir, 'content.json'))) {
     try {
       let rev = JSON.parse(readFileSync(join(projectDir, 'content.json'), 'utf8'))?.revision ?? null;
@@ -243,7 +243,7 @@ export function verifyBackup(backupDir) {
   }
   for (const r of present) if (!listed.has(r)) problems.push(`not in the inventory: ${r}`);
   const pre = whole ? `${manifest.projectDir}/` : '';
-  // v1–v3: scenes/main.json; v4 (phase 12 c): content.json plus one file per scene.
+  // v1–v3: scenes/main.json; v4: content.json plus one file per scene.
   if (!listed.has(`${pre}project.json`) || (!listed.has(`${pre}scenes/main.json`) && !listed.has(`${pre}content.json`))) {
     problems.push(`the backup lacks ${pre}project.json or its scene files (scenes/main.json, or content.json + scenes/)`);
   }

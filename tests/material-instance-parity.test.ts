@@ -1,5 +1,5 @@
 /**
- * Phase 25.19: material instances resolve the same way in project-model (the
+ * Material instances resolve the same way in project-model (the
  * manifest Play and the export ship) and in three-adapter (the editor's views,
  * which may use project-model types only).
  */

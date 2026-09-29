@@ -1,5 +1,5 @@
 /**
- * Phase 9.7 on a rigged character: a generated skinned GLB (skinned-glb.ts)
+ * The Animator on a rigged character: a generated skinned GLB (skinned-glb.ts)
  * with idle, run, jump, fall and land clips rides on the starter template's player; a
  * "Character locomotion" controller built from its clips in the Animator window gets
  * the player's speed, grounding and vertical velocity automatically. Driven
@@ -65,12 +65,12 @@ test("a rigged character's clips play on the starter's player: idle, run, airbor
   await page.getByRole('tab', { name: 'Animator', exact: true }).click();
   await page.getByLabel('animator model').selectOption(character);
   await page.getByRole('button', { name: 'New from clips: Character locomotion' }).click();
-  // Phase 16.2: the new controller opens as a centre tab (its state graph).
+  // The new controller opens as a centre tab (its state graph).
   const graph = page.getByRole('tabpanel', { name: 'Animator: Character locomotion' }).getByLabel('animator graph');
   for (const s of ['Idle', 'Run', 'Jump', 'Fall', 'Land']) await expect(graph.getByRole('group', { name: new RegExp(`^State ${s} node `) })).toBeVisible();
   await page.getByRole('tab', { name: 'Scene', exact: true }).click();
   await page.locator(`.tl-hierarchy__list li[data-entity-id="${model}"]`).click();
-  // Phase 15.1: the Inspector's animator section (added from "+ Add component" when absent).
+  // The Inspector's animator section (added from "+ Add component" when absent).
   const inspector = page.locator('.tl-inspector');
   if ((await inspector.locator('[data-component="animator"]').count()) === 0) {
     await inspector.getByLabel('add component', { exact: true }).selectOption({ label: 'Animator' });

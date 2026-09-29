@@ -1,5 +1,5 @@
 /**
- * Phase 17.1: the renderer factory's backend choice, async readiness and
+ * The renderer factory's backend choice, async readiness and
  * loss handling, with stubbed renderers and a stubbed `navigator.gpu` (Node
  * has no WebGPU; the real backends are covered by tests/e2e/renderer.e2e.ts).
  */
@@ -66,7 +66,7 @@ describe('renderer preference (URL flag over project setting over default)', () 
     expect(rendererPreferenceFromUrl('?a=1&renderer=webgpu')).toBe('webgpu');
     expect(rendererPreferenceFromUrl('?renderer=vulkan')).toBeNull();
     expect(rendererPreferenceFromUrl('')).toBeNull();
-    // Phase 17.4: the archived WebGL renderer's values mean auto (old URLs, old stored settings).
+    // The archived WebGL renderer's values mean auto (old URLs, old stored settings).
     expect(rendererPreferenceFromUrl('?renderer=legacy')).toBe('auto');
     expect(rendererPreferenceFromSetting(0)).toBe('auto');
     expect(rendererPreferenceFromSetting(1)).toBe('auto');

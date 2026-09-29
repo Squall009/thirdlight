@@ -1,10 +1,10 @@
 /**
- * End-to-end export test (packet 12): the REAL backend + REAL workspace
+ * End-to-end export test: the REAL backend + REAL workspace
  * service + REAL filesystem + the admin export route
- * (`POST /api/v1/admin/projects/:projectId/export`, sessions.md §6.3)
+ * (`POST /api/v1/admin/projects/:projectId/export`)
  * driving `exportProject` (the exporter's injected-service + injected-fs
  * design). The export bundle is built for real (esbuild + the real
- * installed three), so the §5.4.1 recorded-exception record is
+ * installed three), so the recorded-exception record is
  * re-verified against the current install here as well (independently of
  * the exporter's unit tests).
  *
@@ -175,7 +175,7 @@ describe('POST /api/v1/admin/projects/:projectId/export (real backend e2e)', () 
       // --- the game runs without the editor: no server/editor/MCP/credentials --
       const bundle = onDisk['js/main.js'] as string;
       expect(count(bundle, 'WebSocket')).toBe(0);
-      // Phase 17.1: no Node built-in module specifier (three's node materials have `node:` object keys).
+      // No Node built-in module specifier (three's node materials have `node:` object keys).
       expect(bundle.match(/["'`]node:/g) ?? []).toEqual([]);
       expect(count(bundle, '/api/v1/')).toBe(0);
       expect(count(bundle, 'modelcontextprotocol')).toBe(0);
@@ -188,7 +188,7 @@ describe('POST /api/v1/admin/projects/:projectId/export (real backend e2e)', () 
       const scene = JSON.parse(onDisk['scene.json'] as string) as { entities: Array<{ name?: string }> };
       expect(scene.entities.map((e) => e.name)).toContain('Exported Box');
 
-      // --- reproducibility (export.md §7): re-export the same snapshot ---------
+      // --- reproducibility: re-export the same snapshot ---------
       const res2 = await fetch(`${ctx.base}/api/v1/admin/projects/${PROJECT}/export`, {
         method: 'POST',
         headers: { authorization: `Bearer ${ADMIN_TOKEN}`, 'content-type': 'application/json' },

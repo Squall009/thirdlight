@@ -1,5 +1,5 @@
 /**
- * Phase 23.11: reading a model's rig from GLB bytes — the node hierarchy with
+ * Reading a model's rig from GLB bytes — the node hierarchy with
  * rest transforms and three.js's node names, and the node animation channels.
  */
 import { describe, expect, it } from 'vitest';

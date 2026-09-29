@@ -1,5 +1,5 @@
 /**
- * Phase 14.6: "clips for rig of <asset>" on a model asset — an
+ * "clips for rig of <asset>" on a model asset — an
  * animation-only file (clips, no mesh needed) whose clips play on another
  * model with the same bone names. The editor lists the animated bones the
  * chosen rig does not have (they stay still on it); the choice is one

@@ -1,13 +1,13 @@
 /**
- * @thirdlight/exporter tests (packet 12).
+ * @thirdlight/exporter tests.
  *
  * The pipeline is exercised with an INJECTED fake workspace service and an
  * INJECTED in-memory `ExportFs` (the exporter's own edge set has no Node
  * builtins — the real-fs + real-service + real-HTTP end-to-end is in the
  * backend package's export.test.ts, where `node:fs` is allowed). The esbuild
- * build is REAL: the actual `export-bootstrap.ts` entry is bundled against
- * the real installed `three`, so the graph check and the §5.4 scan
- * (incl. the §5.4.1 recorded-exception counts) run against genuine bytes.
+ * build is REAL: the real installed `three` is bundled, so the graph check
+ * and the forbidden-content scan (incl. the recorded-exception counts) run
+ * against genuine bytes.
  */
 import { describe, it, expect } from 'vitest';
 
@@ -180,7 +180,7 @@ describe('pattern e: Node built-in module specifiers (phase 17.1)', () => {
   const scan = (extra: string) => scanExportFiles([{ name: 'js/main.js', bytes: bundle(extra) }], patterns, 'js/main.js', identity, reference());
 
   it('does not match object keys named node (three\'s node-material code, minified or not)', () => {
-    // The six shapes the 17.0 spike found in three/webgpu, plus minified and JSON keys.
+    // The six shapes found in three/webgpu, plus minified and JSON keys.
     const keys = [
       'const bufferData = { node: this };',
       'return { previousInstanceMatrix, node: createInstanceMatrixNode(mesh) };',

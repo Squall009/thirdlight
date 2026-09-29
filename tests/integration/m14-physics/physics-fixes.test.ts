@@ -1,5 +1,5 @@
 /**
- * Phase 14.7: physics fixes through the production composition (the real
+ * Physics fixes through the production composition (the real
  * game host, the platformer controller, Rapier) on small neutral v4 levels.
  */
 import { describe, expect, it } from 'vitest';

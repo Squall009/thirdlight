@@ -1,5 +1,5 @@
 /**
- * Phase 21.4: the change record on the WS — no previous side, keyed lists as
+ * The change record on the WS — no previous side, keyed lists as
  * deltas — and the editor's rebuild of the full list.
  */
 import { describe, expect, it } from 'vitest';

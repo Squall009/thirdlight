@@ -1,5 +1,5 @@
 /**
- * Phase 21.4: editor and backend costs beyond the Scene view — measured on an
+ * Editor and backend costs beyond the Scene view — measured on an
  * open editor page (the harness's `measureEditor`), renderer-independent, so
  * once per class:
  *

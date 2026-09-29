@@ -1,6 +1,6 @@
 /**
- * The digest-bound preparation result builder (project-model.md §22.4.1 step 5,
- * behaviors.md §8.4): one successful `compileBehavior` becomes the
+ * The digest-bound preparation result builder (project-model.md,
+ * behaviors.md): one successful `compileBehavior` becomes the
  * `PreparedBehaviorSource` fact set the workspace persists as a derived cache
  * and the `publishBehavior` source branch consumes. Every field is derived
  * from the compiler's own manifest/output — no caller-supplied source field is

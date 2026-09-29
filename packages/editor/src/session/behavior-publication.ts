@@ -1,11 +1,10 @@
 /**
- * Behavior publication workflow (packet 34; runtime.md §14.1/§14.2,
- * project-model §22, commands.md §3.1.4/§3.1.8/§8.8/§8.12).
+ * Behavior publication workflow.
  *
  * The editor's pure, Node-testable publication state machine. It owns:
  *
  *  - the **normative trust notice** the UI must present before offering an
- *    acknowledgment (runtime.md §14.2.2): no hard runtime timeout, no
+ *    acknowledgment: no hard runtime timeout, no
  *    hostile-code sandbox, and scripts observe their game origin's globals
  *    while no credentials enter the preview;
  *  - the staged-source facts (digest + byte length) and the bounded
@@ -17,7 +16,7 @@
  *    sourceByteLength }` and never a caller-supplied manifest/output.
  *
  * It NEVER evaluates, imports or interprets behavior source: a source
- * evaluator is not part of the editor (packet 34's public-surface rule). The
+ * evaluator is not part of the editor's public surface. The
  * state machine deliberately has no field that a staged edit can write except
  * `staged`, so "staged edits do not change active play or the published
  * revision" is structural, not a convention.
@@ -29,7 +28,7 @@ import { MAX_BEHAVIOR_DIAGNOSTICS } from '@thirdlight/project-model/limits';
 export const COMPILE_DIAGNOSTIC_LIMIT = MAX_BEHAVIOR_DIAGNOSTICS;
 
 /**
- * The normative trust notice (runtime.md §14.1.1/§14.2.2). The UI must render
+ * The normative trust notice. The UI must render
  * every line before enabling the acknowledgment button. The wording states
  * the three limitations explicitly and makes no safety claim.
  */
@@ -43,7 +42,7 @@ export const BEHAVIOR_TRUST_NOTICE: readonly string[] = Object.freeze([
 /** The acknowledgment button label (a reader must accept the notice). */
 export const BEHAVIOR_TRUST_ACKNOWLEDGE_LABEL = 'I understand the limits and acknowledge this exact source digest';
 
-/** The source digest algorithm binding (project-model §22.1/§22.2). */
+/** The source digest shape: 64 lowercase hex digits. */
 export const SOURCE_DIGEST_PATTERN = /^[0-9a-f]{64}$/;
 
 export interface BehaviorStageView {
@@ -60,9 +59,9 @@ export interface CompileDiagnosticView {
   path?: string;
   line?: number;
   column?: number;
-  /** Phase 19.0: the visual-script node the diagnostic is about. */
+  /** The visual-script node the diagnostic is about. */
   nodeId?: string;
-  /** Phase 23.7: the script library whose file `path` names (absent: the script's own file). */
+  /** The script library whose file `path` names (absent: the script's own file). */
   library?: string;
 }
 
@@ -130,7 +129,7 @@ export function trustObserved(
   };
 }
 
-/** Bounded compile failure (project-model §22.4: ≤ 32 diagnostics, `truncated`). */
+/** Bounded compile failure (≤ 32 diagnostics, `truncated`). */
 export function compileFailed(
   state: BehaviorPublicationState,
   failure: { code: string; reason: string; diagnostics?: readonly CompileDiagnosticView[] },
@@ -173,7 +172,7 @@ export function published(
   return { ...state, status: 'published', publishedRevision: result.revision, error: null, compileFailure: null };
 }
 
-/** Is the current staged digest acknowledged (the §14.2 gate)? */
+/** Is the current staged digest acknowledged (the trust gate before publishing)? */
 export function isStagedDigestAcknowledged(state: BehaviorPublicationState): boolean {
   return state.staged !== null && state.acknowledgedDigests.includes(state.staged.digest);
 }
@@ -196,7 +195,7 @@ export function stageSourceEdit(
   return sourceStaged(state, stage);
 }
 
-/** The exact `acknowledgeBehaviorTrust` args (commands.md §3.1.8/§8.12). */
+/** The exact `acknowledgeBehaviorTrust` args. */
 export function planAcknowledgeTrust(sourceDigest: string): { sourceDigest: string } {
   if (!SOURCE_DIGEST_PATTERN.test(sourceDigest)) {
     throw new Error(`invalid source digest ${JSON.stringify(sourceDigest)}`);
@@ -205,7 +204,7 @@ export function planAcknowledgeTrust(sourceDigest: string): { sourceDigest: stri
 }
 
 /**
- * The exact `publishBehavior{mode:"source"}` args (commands.md §3.1.4/§8.8).
+ * The exact `publishBehavior{mode:"source"}` args.
  * The published record is derived server-side from the preparation result;
  * the client supplies only the digest-bound facts.
  */
@@ -234,7 +233,7 @@ export function planPublishSource(args: {
   };
 }
 
-/** The exact `publishBehavior` declaration-mode args (commands.md §3.1.4/§8.8). */
+/** The exact `publishBehavior` declaration-mode args. */
 export function planPublishDeclaration(args: {
   behaviorId: string;
   displayName: string;

@@ -1,47 +1,46 @@
 /**
- * Packet 69 — scene realization of `model` entities (the M4 delivered
- * rendering, delivery.md (M4) §2; presentation.md §41.9 row, C64-4).
+ * Scene realization of `model` entities (the delivered rendering,
+ * delivery.md; presentation.md).
  *
  * The `models` block is the adapter's injected attach surface: the
  * wrapper-read-and-digest-verified bytes (via `resolveBytes`), the resolved
  * model-asset rows and the committed per-`modelAnimation`-entity mappings.
- * This module reuses the packet-26 substrate UNCHANGED as the
- * implementation substrate (the `createVisualResourceStore` resource
- * owner, the cancellable `prepareVisualResource` loads, the
- * `ModelInstance` handles, the ownership ledger) and the packet-53
- * `AnimationRoleController`:
+ * This module builds on the shared GLB realization path (`visual.ts`: the
+ * `createVisualResourceStore` resource owner, the cancellable
+ * `prepareVisualResource` loads, the `ModelInstance` handles, the ownership
+ * ledger) and the `AnimationRoleController`:
  *
  *   - every `model` entity gets its prepared `ModelInstance` root attached
- *     as a CHILD of the entity's existing holder Object3D (§2.3); the
+ *     as a CHILD of the entity's existing holder Object3D; the
  *     runtime's interpolated transform moves the holder (the adapter's
  *     transform sync), the model's internal node transforms are
  *     holder-relative;
- *   - per-instance material independence (§2.3): each attached instance
+ *   - per-instance material independence: each attached instance
  *     draws with CLONED material instances, released by the instance
  *     disposal path (the shared `PreparedVisualResource` is never touched).
- *     Phase 21.3: the placements of a realization share one clone per
+ *     The placements of a realization share one clone per
  *     resource material (counted; marked shared, so a per-instance look —
  *     a look override — copies it first), so equal pieces can
  *     be drawn instanced;
  *   - one `AnimationRoleController` per `modelAnimation` entity with a
- *     prepared instance (§2.4) — independent mixers/actions, no shared
+ *     prepared instance — independent mixers/actions, no shared
  *     clock; the view provider returns the committed `playerMotion` for
  *     the player's own animated model and the constant neutral motion for
- *     every non-player animated entity (delivery.md (M4) §2.4 /
- *     presentation.md §41.3.6 rule 7 clarification);
- *   - one host-driven update per rendered frame (§2.4): the adapter
+ *     every non-player animated entity (delivery.md /
+ *     presentation.md rule 7);
+ *   - one host-driven update per rendered frame: the adapter
  *     `renderFrame` advances every live controller once with the real
  *     frame delta clamped to `[0, 0.25]` (no fast-forward, no second
  *     loop);
- *   - refcounted resources (§2.5): the LAST live `ModelInstance` of an
+ *   - refcounted resources: the LAST live `ModelInstance` of an
  *     asset releases the shared `LoadedGlb` exactly once;
- *   - stale-load cancellation (§2.6): disposal cancels every in-flight
+ *   - stale-load cancellation: disposal cancels every in-flight
  *     prepare; a late completion after cancellation is discarded and
  *     released (never applied, never counted as a success).
  *
  * The module never fetches, never holds a token/URL, never re-validates
  * the (runtime-validated) scene, and never throws across the module edge
- * (result objects only). The two new closed-set codes (C64-4) are
+ * (result objects only). Its two closed-set codes are
  * `models_config_invalid` (fail-fast block validation) and
  * `models_asset_unresolved` (a `model` entity whose `assetId` resolves to
  * no `assets` row — the defensive residual: a plain group + one bounded
@@ -75,13 +74,13 @@ import {
 } from './animation';
 
 /** The committed role mapping of one `modelAnimation` entity
- * (presentation.md §41.3.1 — the adapter-local structural copy of
+ * (presentation.md — the adapter-local structural copy of
  * `ModelAnimationRoles`: exactly the `idle`/`run`/`airborne` bindings the
  * controller's stage 3 / stage 5–6 re-check validates). */
 export type ModelAnimationRoles = AnimationRolesInput;
 
-/** One resolved model-asset row of the `models` block (delivery.md (M4)
- * §2.2 — the manifest `assets` row facts, additive; the wrapper has
+/** One resolved model-asset row of the `models` block (delivery.md
+ * The manifest `assets` row facts, additive; the wrapper has
  * already read the bytes and re-hashed them against `sourceDigest`). */
 export interface SceneAdapterModelAsset {
   readonly assetId: string;
@@ -90,13 +89,13 @@ export interface SceneAdapterModelAsset {
   readonly sourceDigest: string;
   /** COLOR_0 multiplies the albedo (absent = shader data). */
   readonly vertexColors?: 'tint';
-  /** Phase 9.4: the asset's default material mapping. */
+  /** The asset's default material mapping. */
   readonly materials?: Readonly<Record<string, string>>;
-  /** Phase 14.6: an animation-only file whose clips play on this model asset's rig. */
+  /** An animation-only file whose clips play on this model asset's rig. */
   readonly clipsFor?: string;
 }
 
-/** One committed `modelAnimation` entity mapping (delivery.md (M4) §2.2). */
+/** One committed `modelAnimation` entity mapping. */
 export interface SceneAdapterModelAnimation {
   /** An entity carrying `components.modelAnimation`. */
   readonly entityId: string;
@@ -105,7 +104,7 @@ export interface SceneAdapterModelAnimation {
   readonly version: number;
 }
 
-/** The adapter's injected model surface (delivery.md (M4) §2.2;
+/** The adapter's injected model surface (delivery.md;
  * `SceneAdapterOptions.models`). */
 export interface SceneAdapterModels {
   /** The resolved model assets for this snapshot (manifest `assets` rows,
@@ -120,17 +119,17 @@ export interface SceneAdapterModels {
    *  fetch); the Promise shape matches AssetByteSource. */
   readonly resolveBytes: (assetId: string, version: number) => Promise<ArrayBuffer>;
   /**
-   * Phase 12 (c): resolves an instance-set buffer (SHA-256 digest) to the
+   * Resolves an instance-set buffer (SHA-256 digest) to the
    * wrapper-verified bytes (`count × 40`). Absent: instance sets stay empty.
    */
   readonly resolveBuffer?: (digest: string) => Promise<ArrayBuffer>;
-  /** Phase 15.3: the idle/run/airborne blend time (the project's `animation_crossfade_s`; absent: 0.2 s). */
+  /** The idle/run/airborne blend time (the project's `animation_crossfade_s`; absent: 0.2 s). */
   readonly crossfadeSeconds?: number;
-  /** Phase 25.7d: the project's instance-set chunk size (m, `instance_chunk_m`; absent: INSTANCE_CHUNK_METERS). */
+  /** The project's instance-set chunk size (m, `instance_chunk_m`; absent: INSTANCE_CHUNK_METERS). */
   readonly instanceChunkSize?: number;
 }
 
-/** The bounded `models` diagnostics block (delivery.md (M4) §2.5 —
+/** The bounded `models` diagnostics block (delivery.md —
  * counters only: no paths, tokens, asset IDs or byte lengths). */
 export interface SceneAdapterModelsDiagnostics {
   /** Prepared resources (ready + pending + failed). */
@@ -141,11 +140,11 @@ export interface SceneAdapterModelsDiagnostics {
   readonly pending: number;
   /** Live role controllers. */
   readonly animations: number;
-  /** Hard-failed prepares (delivery.md (M4) §2.7 L2–L5). */
+  /** Hard-failed prepares (delivery.md). */
   readonly failed: number;
 }
 
-/** The settle result (delivery.md (M4) §2.8 step 10: the wrapper posts
+/** The settle result (delivery.md: the wrapper posts
  * `tl.ready`/`tl.error` when the prepares have settled). */
 export type ModelsSettledResult =
   | {
@@ -155,7 +154,7 @@ export type ModelsSettledResult =
       readonly animations: number;
       /** `model` entities whose `assetId` resolved to no `assets` row
        * (each carried one bounded `models_asset_unresolved` diagnostic;
-       * the run proceeds — §2.3). */
+       * the run proceeds). */
       readonly unresolved: number;
     }
   | {
@@ -174,14 +173,14 @@ interface AttachedModel {
   /** The cloned per-instance materials (released by `disposeAttached`). */
   readonly clonedMaterials: THREE.Material[];
   /** The live role controller, or `null` (absent `modelAnimation`, or the
-   *  stage 5–6 re-check failed — the model renders statically, L6). */
+   *  stage 5–6 re-check failed — the model renders statically). */
   controller: AnimationRoleController | null;
   /** `true` once the stage 5–6 re-check failed (one bounded diagnostic;
    *  the code is recorded in `diagnosticCode`). */
   roleUnresolved: boolean;
   diagnosticCode: string | null;
   disposed: boolean;
-  /** Phase 9.4: restores the file's materials. */
+  /** Restores the file's materials. */
   undoMaterials?: (() => void) | null;
 }
 
@@ -189,13 +188,13 @@ interface AttachedModel {
  * adapter; the module stores no global state). */
 export interface ModelsRealizationContext {
   /** The snapshot's scene `schemaVersion` (the adapter reads it from the
-   * runtime-validated snapshot — the §2.2 fail-fast check). */
+   * runtime-validated snapshot — the fail-fast check). */
   readonly schemaVersion: number;
   /** The models block (already structurally present). */
   readonly models: SceneAdapterModels;
   /** The injected loader port (the wrapper-built `createGltfLoaderPort`
    * from the `./gltf-loader` subpath — the root stays loader-free).
-   *  Absent ⇒ the §2.2 fail-fast `models_config_invalid`. */
+   *  Absent ⇒ the fail-fast `models_config_invalid`. */
   readonly loader: GlbLoaderPort | undefined;
   /** The snapshot's `model` entities: `entityId` → `assetId`
    * (`components.model.asset.assetId`). */
@@ -203,18 +202,18 @@ export interface ModelsRealizationContext {
   /** The snapshot's `modelAnimation` entities: `entityId` →
    * `{ assetId, version }` (`components.modelAnimation`). */
   readonly modelAnimationEntities: ReadonlyMap<string, { readonly assetId: string; readonly version: number }>;
-  /** Phase 12 (c): the snapshot's instance-set entities (`components.instances`). */
+  /** The snapshot's instance-set entities (`components.instances`). */
   readonly instanceEntities?: ReadonlyMap<string, InstanceSetRef>;
   /** `model` entities that show one piece of their file: `entityId` → piece name. */
   readonly modelPieces?: ReadonlyMap<string, string>;
-  /** Phase 9.4: project materials, and an entity's own material mapping. */
+  /** Project materials, and an entity's own material mapping. */
   readonly materialLibrary?: MaterialLibrary | null;
   readonly entityMaterials?: (entityId: string) => Readonly<Record<string, string>> | null;
-  /** Phase 18.3: an entity's values for its graph materials' public parameters (`materialParams`). */
+  /** An entity's values for its graph materials' public parameters (`materialParams`). */
   readonly entityMaterialParams?: (entityId: string) => MaterialOverridesLike | null;
-  /** Phase 12 (c): more entities may arrive later (a scene catalog). */
+  /** More entities may arrive later (a scene catalog). */
   readonly allowAbsent?: boolean;
-  /** Phase 9.6: a model instance (phase 17.4: or an instance set) is attached to its entity (lightmaps and shadow flags go on here). */
+  /** A model instance (or an instance set) is attached to its entity (lightmaps and shadow flags go on here). */
   readonly onAttached?: (entityId: string, root: THREE.Object3D) => void;
   /** The entity holders (the adapter's `objects` map entries); `null` when
    * the entity has no holder (defensive: the entity is skipped). */
@@ -222,7 +221,7 @@ export interface ModelsRealizationContext {
   /** The committed view accessor for one entity (the adapter builds it
    * from `runtime.getGameView()`: the player's own animated model gets the
    * committed `playerMotion`, every non-player animated entity gets the
-   * constant neutral motion — delivery.md (M4) §2.4). `null` when the
+   * constant neutral motion — delivery.md). `null` when the
    * runtime has no committed view (pre-commit: the controller idles). */
   readonly viewFor: (entityId: string) => AnimationRoleView | null;
 }
@@ -232,13 +231,13 @@ export interface ModelsRealization {
   /** Advance every live role controller by `deltaSeconds` (already
    * clamped to `[0, 0.25]` by the caller). Returns `true` on success. */
   update(deltaSeconds: number): boolean;
-  /** The §2.5 counters block (the `diagnostics` `models` field). */
+  /** The counters block (the `diagnostics` `models` field). */
   counters(): SceneAdapterModelsDiagnostics;
   /** Resolves when every prepare has settled (all ready, or the first hard
    *  failure, or the adapter disposed). Never rejects. */
   settled(): Promise<ModelsSettledResult>;
   /**
-   * Phase 12 (c): realize the model / instance-set entities of a loaded
+   * Realize the model / instance-set entities of a loaded
    * scene (their holders exist). Assets load on first use.
    */
   addEntities(entities: {
@@ -248,27 +247,27 @@ export interface ModelsRealization {
     readonly instances: ReadonlyMap<string, InstanceSetRef>;
   }): void;
   /**
-   * Phase 12 (c): release the models of unloaded entities; an asset no
+   * Release the models of unloaded entities; an asset no
    * entity uses any more is disposed (its GPU data freed).
    */
   removeEntities(entityIds: ReadonlySet<string>): void;
   /**
-   * Phase 25.24e: prepare model assets and instance-set buffers ahead of the
+   * Prepare model assets and instance-set buffers ahead of the
    * entities that will use them (a scene about to load): they are read,
    * parsed and kept until `release` (entities attached meanwhile keep them
    * on). `ready` resolves once each has loaded or failed; never rejects.
    */
   hold?(assetIds: Iterable<string>, bufferDigests: Iterable<string>): { readonly ready: Promise<void>; release(): void };
-  /** Phase 9.7: the entity's attached model instance (its asset id and root), or null. */
+  /** The entity's attached model instance (its asset id and root), or null. */
   instanceOf(entityId: string): { assetId: string; instance: ModelInstance } | null;
   /**
-   * Phase 23.5: a model instance a block look is built from (one per asset and
+   * A model instance a block look is built from (one per asset and
    * piece, kept while the realization exists) — null while the asset loads
    * (`onReady` runs once when it is ready) or when it is not a model row.
    */
   blockInstance?(assetId: string, piece: string | undefined, onReady: () => void): ModelInstance | null;
   /**
-   * Phase 14.6: the clips of `clipAssetId` for a model of `rigAssetId`: its
+   * The clips of `clipAssetId` for a model of `rigAssetId`: its
    * own clips, or an animation-only asset's marked "clips for" that rig
    * (loaded on first ask; null until it is ready, or when the asset is
    * neither).
@@ -280,7 +279,7 @@ export interface ModelsRealization {
   dispose(): void;
 }
 
-/** Phase 12 (c): one instance-set entity (`components.instances`). */
+/** One instance-set entity (`components.instances`). */
 export interface InstanceSetRef {
   readonly assetId: string;
   /** One piece of the model file (absent: the whole file). */
@@ -288,13 +287,13 @@ export interface InstanceSetRef {
   /** SHA-256 of the transform buffer. */
   readonly buffer: string;
   readonly count: number;
-  /** Phase 25.7d: the set's own chunk size (m); absent: the project's (`SceneAdapterModels.instanceChunkSize`). */
+  /** The set's own chunk size (m); absent: the project's (`SceneAdapterModels.instanceChunkSize`). */
   readonly chunkSize?: number;
 }
 
 
 
-// ---- block validation (fail-fast; delivery.md (M4) §2.2) ------------------
+// ---- block validation (fail-fast) ------------------
 
 /** Validate the `models` block against the snapshot. `null` = valid. */
 export function validateModelsBlock(ctx: {
@@ -303,7 +302,7 @@ export function validateModelsBlock(ctx: {
   readonly hasLoader: boolean;
   readonly modelEntities: ReadonlyMap<string, string>;
   readonly modelAnimationEntities: ReadonlyMap<string, { readonly assetId: string; readonly version: number }>;
-  /** Phase 12 (c): entries may name entities of scenes that are not loaded yet (checked when they load). */
+  /** Entries may name entities of scenes that are not loaded yet (checked when they load). */
   readonly allowAbsent?: boolean;
 }): AdapterError | null {
   if (ctx.schemaVersion !== 3 && ctx.schemaVersion !== 4) {
@@ -393,12 +392,12 @@ export function validateModelsBlock(ctx: {
   return null;
 }
 
-// ---- per-instance material cloning (§2.3) ---------------------------------
+// ---- per-instance material cloning ---------------------------------
 
 /**
  * Give one attached instance its own material instances: every mesh
  * material (single or array) is cloned so a per-instance material change
- * (a look override, §41.5.3) never reaches the shared
+ * (a look override) never reaches the shared
  * `PreparedVisualResource` or another instance. The clones share the
  * resource's textures (released with the resource, once); the CLONES are
  * owned by the attached instance and released by its disposal path.
@@ -433,7 +432,7 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
   readonly ok: true;
   readonly realization: ModelsRealization;
 } | { readonly ok: false; readonly error: AdapterError } {
-  // Fail-fast block validation (§2.2) — before any bytes are read.
+  // Fail-fast block validation — before any bytes are read.
   const configError = validateModelsBlock({
     schemaVersion: ctx.schemaVersion,
     models: ctx.models,
@@ -446,7 +445,7 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
   const loader = ctx.loader as GlbLoaderPort;
 
   const store: VisualResourceStore = createVisualResourceStore();
-  /** Phase 21.3: one clone per resource material, shared by the placements (counted). */
+  /** One clone per resource material, shared by the placements (counted). */
   const sharedClones = new Map<THREE.Material, { clone: THREE.Material; refs: number }>();
   const cloneSources = new Map<THREE.Material, THREE.Material>();
   const cloneOf = (m: THREE.Material): THREE.Material => {
@@ -474,13 +473,13 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
     cloneSources.delete(clone);
     clone.dispose();
   };
-  // Phase 12 (c): the entity maps grow and shrink with scene loads.
+  // The entity maps grow and shrink with scene loads.
   const modelEntities = new Map(ctx.modelEntities);
   const modelAnimationEntities = new Map(ctx.modelAnimationEntities);
   const instanceEntities = new Map(ctx.instanceEntities ?? []);
   const modelPieces = new Map(ctx.modelPieces ?? []);
   /** The instance options for an entity: its piece and the asset's vertex-colour mode. */
-  /** Phase 9.4: an entity's material mapping (the asset's default under its own). */
+  /** An entity's material mapping (the asset's default under its own). */
   const mappingFor = (entityId: string, assetId: string): Record<string, string> | null => {
     const base = rowsByAsset.get(assetId)?.materials;
     const own = ctx.entityMaterials?.(entityId) ?? null;
@@ -504,14 +503,14 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
   const resources = new Map<string, PreparedVisualResource>();
   /** Assets being prepared (bytes resolving or the store load running). */
   const loading = new Set<string>();
-  /** Phase 23.5: model assets block looks use (kept loaded), their instances and the looks waiting for them. */
+  /** Model assets block looks use (kept loaded), their instances and the looks waiting for them. */
   const blockAssets = new Set<string>();
   const blockInstances = new Map<string, ModelInstance>();
   const blockWaiters = new Map<string, (() => void)[]>();
   /** Instance-set buffers by digest (decoded once, dropped when unused). */
   const buffers = new Map<string, Float32Array>();
   const bufferLoads = new Set<string>();
-  /** Phase 25.24e: assets and buffers held ahead of their entities, and the holds waiting for them. */
+  /** Assets and buffers held ahead of their entities, and the holds waiting for them. */
   const holds = new Set<{ readonly assets: ReadonlySet<string>; readonly buffers: ReadonlySet<string> }>();
   const holdWaiters = new Set<() => boolean>();
   const notifyHolds = (): void => {
@@ -580,11 +579,11 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
 
   // One row per assetId (validated above): one load per (assetId, version)
   // through the shared store. The bytes are already re-hashed against
-  // `sourceDigest` by the wrapper (delivery.md (M4) §2.1).
+  // `sourceDigest` by the wrapper.
   const rowsByAsset = new Map<string, SceneAdapterModelAsset>();
   for (const row of ctx.models.assets) rowsByAsset.set(row.assetId, row);
 
-  /** Phase 14.6: animation-only assets asked for by an animator (kept while the realization exists). */
+  /** Animation-only assets asked for by an animator (kept while the realization exists). */
   const clipAssets = new Set<string>();
   /** Whether any live entity still uses the asset. */
   function assetInUse(assetId: string): boolean {
@@ -639,7 +638,7 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
       attached.set(entityId, rec);
       rec.undoMaterials = applyMaterials(entityId, assetId, instance.root);
       ctx.onAttached?.(entityId, instance.root);
-      // The committed mapping's stage 5–6 re-check (§41.3.6 rule 7; L6):
+      // The committed mapping's stage 5–6 re-check (rule 7):
       // a mismatching mapping is the hard `animation_role_unresolved` —
       // the model renders statically at its committed transform, one
       // bounded diagnostic, the run proceeds.
@@ -648,7 +647,7 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
         const entry = ctx.models.animation.find((a) => a.entityId === entityId);
         if (entry !== undefined && entry.version === anim.version) {
           // Pre-commit (no committed view yet): the constant neutral motion —
-          // the accepted pure selector then yields `idle` (delivery.md (M4) §2.4).
+          // the accepted pure selector then yields `idle`.
           const controllerRes = createAnimationRoleController(
             instance,
             () => ctx.viewFor(entityId) ?? { stepIndex: 0, playerMotion: { speed: 0, grounded: true } },
@@ -660,7 +659,7 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
               rec.controller = controllerRes.controller;
               liveControllers.add(controllerRes.controller);
             } else {
-              // L6: the model stays attached, static; the (action-less)
+              // Mismatch: the model stays attached, static; the (action-less)
               // controller is released.
               rec.roleUnresolved = true;
               rec.diagnosticCode = setRes.error.code;
@@ -683,7 +682,7 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
   }
 
   /**
-   * Phase 12 (c): one instance set = one instanced mesh per mesh of the
+   * One instance set = one instanced mesh per mesh of the
    * model (sharing its geometry and materials), placed by the buffer's
    * transforms times the mesh's own offset inside the model.
    */
@@ -703,7 +702,7 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
   }
 
   function disposeInstanceSet(set: AttachedInstanceSet): void {
-    // Phase 21.5: the chunks go before their materials may (a material released with its last user takes the
+    // The chunks go before their materials may (a material released with its last user takes the
     // chunks' render objects, and with them the way to their instance buffers).
     set.built.dispose(); // the instance matrices (geometry/materials belong to the resource)
     set.undoMaterials?.();
@@ -740,7 +739,7 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
   function disposeAttached(rec: AttachedModel): void {
     if (rec.disposed) return;
     rec.disposed = true;
-    // Phase 21.5: a glow's own material copies go first (the material undo below restores the shared ones).
+    // A glow's own material copies go first (the material undo below restores the shared ones).
     releaseEmissiveLooks(rec.instance.root);
     rec.undoMaterials?.();
     if (rec.controller !== null) {
@@ -795,8 +794,8 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
       loading.delete(assetId);
       if (gates) pendingCount -= 1;
     };
-    // Two-phase prepare: the wrapper-verified bytes first (no second fetch,
-    // §2.2), then the cancellable store load. A dispose between the two
+    // Two-phase prepare: the wrapper-verified bytes first (no second
+    // fetch), then the cancellable store load. A dispose between the two
     // discards the late bytes (nothing prepared).
     void ctx.models.resolveBytes(row.assetId, row.version).then(
       (bytes) => {
@@ -824,7 +823,7 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
           }
           if (res.ok === false) {
             const code = res.error.code;
-            // Cancellation/stale are not errors (§2.7 L9).
+            // Cancellation/stale are not errors.
             if (code !== 'asset_load_cancelled' && code !== 'asset_load_stale') {
               if (!failedCodes.has(row.assetId)) failedCodes.set(row.assetId, code);
             }
@@ -834,7 +833,7 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
           } else {
             resources.set(row.assetId, res.resource);
             attachForAsset(row.assetId, res.resource);
-            // Phase 23.5: block looks waiting for this model.
+            // Block looks waiting for this model.
             const waiting = blockWaiters.get(row.assetId);
             blockWaiters.delete(row.assetId);
             for (const cb of waiting ?? []) cb();
@@ -847,7 +846,7 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
         done();
         if (disposed) return;
         // The wrapper's resolver rejected for a manifest-declared row:
-        // a hard assets-phase failure (L2 class).
+        // a hard assets-phase failure.
         const message = e instanceof Error ? e.message : String(e);
         failedCodes.set(row.assetId, 'asset_missing');
         pendingHandles.delete(row.assetId);
@@ -1012,7 +1011,7 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
     dispose(): void {
       if (disposed) return;
       disposed = true;
-      // §2.6: cancel every in-flight prepare before releasing; a late
+      // Cancel every in-flight prepare before releasing; a late
       // completion is discarded and released (never applied).
       try {
         store.dispose();
@@ -1052,7 +1051,7 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
   return { ok: true, realization };
 }
 
-/** Phase 12 (c): one realized instance set. */
+/** One realized instance set. */
 interface AttachedInstanceSet {
   readonly entityId: string;
   /** The model instance the meshes' geometry/materials come from (holds the resource reference). */

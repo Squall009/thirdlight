@@ -1,5 +1,5 @@
 /**
- * Phase 16.1: the graph editor framework in a real browser against the real
+ * The graph editor framework in a real browser against the real
  * backend, on the framework's neutral test graph kind. Every gesture must
  * land in the backend as one graphEdit (checked through the command route
  * the MCP adapter uses), and an MCP edit must show up in the open editor.

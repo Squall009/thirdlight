@@ -1,5 +1,5 @@
 /**
- * Phase 20.3: one effect on a timeline — the Effect tab's preview.
+ * One effect on a timeline — the Effect tab's preview.
  *
  * The same executors as Play (`chooseEffectExecutor` / `buildEffectPlay`:
  * WebGPU compute where the renderer draws on WebGPU and the graph allows
@@ -11,7 +11,7 @@
  * and scrubbing are deterministic: the same t gives the same particles and
  * the same spawn counters.
  *
- * Visual only (plan-phase-20 §1): nothing here feeds the game simulation.
+ * Visual only: nothing here feeds the game simulation.
  */
 import * as THREE from 'three/webgpu';
 

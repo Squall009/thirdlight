@@ -1,5 +1,5 @@
 /**
- * Phase 16.2: the editor's copy of the animator controller → graph read
+ * The editor's copy of the animator controller → graph read
  * (project-model animator-graph.ts; the editor may import project-model
  * types only). The Animator tab shows a controller's layer or blend tree
  * through this; edits go to the backend as `graphEdit` on owner kind

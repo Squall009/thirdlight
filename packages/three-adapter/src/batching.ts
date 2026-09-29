@@ -1,5 +1,5 @@
 /**
- * Phase 21.3: automatic instancing of repeated objects (Play, export and the
+ * Automatic instancing of repeated objects (Play, export and the
  * editor Scene view).
  *
  * Objects that draw the same geometry with the same material and the same
@@ -32,7 +32,7 @@
  * mesh a shared draw geometry and a scale (`{ geometry, scale }`): every box
  * draws the one unit box scaled by its size, so boxes of any size batch.
  *
- * Phase 25.24d: a group is drawn through instance-matrix columns of its own
+ * A group is drawn through instance-matrix columns of its own
  * geometry (`attribute-instancing.ts`), not a `THREE.InstancedMesh`: three
  * builds a node program for every instanced object on its own, while groups
  * drawn through columns share one per material and vertex layout (the large
@@ -96,14 +96,14 @@ export function batchRefusal(mesh: THREE.Mesh): string | null {
   if (Array.isArray(mat) || mat === undefined || mat === null) return 'several materials';
   if (mat.transparent === true) return 'transparent';
   if (mat.visible === false) return 'material hidden';
-  // Phase 25.24d: the columns are applied before three's displacement (batches draw no displaced mesh).
+  // The columns are applied before three's displacement (batches draw no displaced mesh).
   if ((mat as { displacementMap?: unknown }).displacementMap != null) return 'displacement map';
   if (mesh.renderOrder !== 0) return 'render order';
   if (mesh.onBeforeRender !== DEFAULT_ON_BEFORE_RENDER) return 'custom onBeforeRender';
   const layers = (mesh.userData[LAYERS_KEY] as number | undefined) ?? mesh.layers.mask;
   if (layers !== 1) return 'layers';
   if (mesh.userData[OVERRIDES_KEY] !== undefined) return 'per-object material parameters';
-  // Phase 23.12: values a script set on this object (per-object uniforms, its own data texture).
+  // Values a script set on this object (per-object uniforms, its own data texture).
   if (mesh.userData[RUNTIME_VALUES_KEY] !== undefined) return 'run-time material parameters';
   const geometry = hint === true ? mesh.geometry : hint.geometry;
   if (geometry === undefined || geometry.getAttribute('position') === undefined) return 'no geometry';
@@ -169,7 +169,7 @@ export function instanceCapacity(n: number): number {
   return c;
 }
 
-/** Phase 25.24d: fewest slots of an automatic batch (its columns share the program at any size). */
+/** Fewest slots of an automatic batch (its columns share the program at any size). */
 export const MIN_BATCH_CAPACITY = 16;
 
 /** The slots a batch of `n` gets: at least {@link MIN_BATCH_CAPACITY}, doubling beyond it. */
@@ -226,7 +226,7 @@ interface Group {
   members: THREE.Mesh[];
   scales: (readonly number[] | null)[];
   seen: number;
-  /** Phase 21.5: stops listening to the batch material's `dispose`. */
+  /** Stops listening to the batch material's `dispose`. */
   unlisten: () => void;
 }
 
@@ -267,7 +267,7 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
   };
   const release = (g: Group): void => {
     g.unlisten();
-    // Phase 21.5: its render objects and its instance buffer go too (the source geometry stays its owner's).
+    // Its render objects and its instance buffer go too (the source geometry stays its owner's).
     g.inst.dispose();
   };
 
@@ -352,7 +352,7 @@ export function createAutoBatcher(scene: THREE.Scene, options: AutoBatcherOption
           // Picking goes to the members (they keep their entity ids); the batch is drawn only.
           mesh.raycast = () => undefined;
           if (g !== undefined) release(g);
-          // Phase 21.5: a material disposed before the next frame (its last box went) takes the batch's
+          // A material disposed before the next frame (its last box went) takes the batch's
           // render objects with it; the batch's own geometry and instance buffer go right after.
           const material = p.parts.material;
           const created: Group = { key, inst, members: [], scales: [], seen: frame, unlisten: () => undefined };

@@ -1,8 +1,8 @@
 /**
- * Packet 32 — temporary browser test host for the M2 controller course.
+ * Temporary browser test host for the controller course.
  *
  * NOT a production bootstrap and NOT part of any shipped bundle: this file is
- * a manual test host that the packet-37 desktop procedure builds with esbuild
+ * a manual test host that the desktop procedure builds with esbuild
  * and serves statically. It composes the real packages
  * (`@thirdlight/character` + `@thirdlight/runtime` + `@thirdlight/physics-rapier`
  * + `@thirdlight/input`) exactly as the preview will, renders the frozen
@@ -12,7 +12,7 @@
  *
  * It is named `.browser.ts` (not `.test.ts`) so vitest never picks it up.
  * In this container there is no browser and no hardware: every browser /
- * gamepad / visual claim of packet 32 is UNVERIFIED until a human runs the
+ * gamepad / visual claim here is UNVERIFIED until a human runs the
  * procedure in `tests/browser/m2-controller/README.md`.
  */
 import * as THREE from 'three';

@@ -1,21 +1,17 @@
 /**
- * 2026-09-18 review repair — group A1 (R10 + R17) regression tests.
+ * Public results never alias authoritative state, and error results always
+ * serialize. Through the public API only:
  *
- * Converted from docs/reviews/2026-09-18-probes.mjs (the probes pin the
- * BUGGY behavior at the reviewed HEAD; these tests pin the desired
- * post-repair behavior through the public API only):
- *
- *   QUERY_ALIAS  ⇒  R10a — caller mutation of a queryEntity result must
- *                not corrupt authoritative state (query / unrelated
- *                mutation / reopen all unaffected);
- *   ACK_ALIAS    ⇒  R10b — caller mutation of a success ack's history must
- *                not corrupt the dedup retry or the durable retry records
- *                (retry returns the original undoDepth; reopen loads and
- *                replays identically, no `retry_records_invalid`);
- *   ERROR_JSON   ⇒  R17 — arbitrary public input (BigInt, self-referencing
- *                object) must yield a validation-class failure whose
- *                `JSON.stringify(result)` does not throw and whose
- *                serialized form is bounded.
+ *   - caller mutation of a queryEntity result does not corrupt
+ *     authoritative state (query / unrelated mutation / reopen all
+ *     unaffected);
+ *   - caller mutation of a success ack's history does not corrupt the dedup
+ *     retry or the durable retry records (retry returns the original
+ *     undoDepth; reopen loads and replays identically, no
+ *     `retry_records_invalid`);
+ *   - arbitrary public input (BigInt, self-referencing object) yields a
+ *     validation-class failure whose `JSON.stringify(result)` does not
+ *     throw and whose serialized form is bounded.
  *
  * Mutation attempts: a strict-mode consumer (this file) throws a
  * TypeError when writing a frozen value; a sloppy-mode consumer would
@@ -38,7 +34,7 @@ import {
   type QueryResult,
 } from '@thirdlight/workspace';
 
-// ---- disposable roots (ext4, probe convention; cleaned up per test) ----------
+// ---- disposable roots (ext4; cleaned up per test) ----------------------------
 
 const roots: string[] = [];
 
@@ -86,7 +82,7 @@ function attempt(fn: () => void): void {
 
 let sequence = 0;
 
-/** The probe's request shape: a createEntity at the given revision. */
+/** The request shape: a createEntity at the given revision. */
 function request(revision: number): {
   op: 'createEntity';
   projectId: string;
@@ -105,7 +101,7 @@ function request(revision: number): {
 }
 
 /**
- * Serialized-size ceiling for R17 assertions, derived from the bounded
+ * Serialized-size ceiling for the serialization assertions, derived from the bounded
  * `found` conversion limits: 64 total nodes × (≤ 200-char strings +
  * marker + syntax ≈ 240) + 64 keys/object × (≤ 200-char keys + syntax ≈
  * 210) ≈ 30 KB, plus the fixed error envelope (code/cls/path/
@@ -115,8 +111,8 @@ function request(revision: number): {
 const BOUNDED = 32768;
 
 /** Pinned identity: the dispose + reopen tests re-open with the SAME
- * process identity (workspace.md §6.2 `own-record`: in-memory state was
- * discarded, the durable claim is unchanged — the probe's semantics). */
+ * process identity (the `own-record` row: in-memory state was
+ * discarded, the durable claim is unchanged). */
 const BACKEND_ID = 'tb-11112222333344445555666677778888';
 
 // ---- tests ---------------------------------------------------------------------
@@ -290,9 +286,9 @@ describe('2026-09-18 review group A1 (R10, R17) regressions', () => {
     try {
       const s = openWorkspaceService({ root });
       expect(s.createProject('demo', 'Demo').ok).toBe(true);
-      // The SAME caller object is passed to both queries: pre-repair the
-      // raw value was echoed by reference (error.found === argValue), so
-      // the attempt below rewrote the CALLER's input object.
+      // The SAME caller object is passed to both queries: were the raw
+      // value echoed by reference (error.found === argValue), the attempt
+      // below would rewrite the CALLER's input object.
       const argValue = { nested: { deep: 1 } };
       const bad1 = s.query({ op: 'queryEntity', projectId: 'demo', args: { entityId: argValue } }) as QueryResult;
       expect(bad1.ok).toBe(false);
@@ -326,7 +322,7 @@ describe('2026-09-18 review group A1 (R10, R17) regressions', () => {
       if (result.ok !== false) throw new Error('expected a validation failure');
       expect(result.error.cls).toBe('validation');
       expect(result.error.code).toBe('field_type');
-      // R17: JSON.stringify(result) must not throw.
+      // JSON.stringify(result) must not throw.
       let serialized = '';
       expect(() => {
         serialized = JSON.stringify(result);
@@ -355,8 +351,8 @@ describe('2026-09-18 review group A1 (R10, R17) regressions', () => {
       expect(r1.error.cls).toBe('validation');
       expect(() => JSON.stringify(r1)).not.toThrow();
       expect(JSON.stringify(r1).length).toBeLessThanOrEqual(BOUNDED);
-      // queryEntity echoes the CYCLIC VALUE itself in `found` (the R17
-      // mechanism: the raw value was copied into the error).
+      // queryEntity echoes the CYCLIC VALUE itself in `found` (copying
+      // the raw value into the error would make it unserializable).
       const r2 = s.query({ op: 'queryEntity', projectId: 'demo', args: { entityId: cycle } });
       expect(r2.ok).toBe(false);
       if (r2.ok !== false) throw new Error('expected a validation failure');

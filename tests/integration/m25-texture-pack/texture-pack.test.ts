@@ -1,5 +1,5 @@
 /**
- * Phase 25.21: packing texture assets into one KTX2 texture (a texture
+ * Packing texture assets into one KTX2 texture (a texture
  * array with several layers) over the REAL transports — two PNG textures
  * published through the content route, packed channel by channel with the
  * MCP upload tool's `pack` (the backend's pack route), published with the

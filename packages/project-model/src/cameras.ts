@@ -1,5 +1,5 @@
 /**
- * Phase 23.4: the camera framework's data (v4 components).
+ * The camera framework's data (v4 components).
  *
  * - `virtualCamera`: one shot the game can cut or blend to. A camera brain in
  *   the runtime picks the live one (the highest `priority` among the enabled
@@ -16,13 +16,13 @@
  *   - `fixed`: where it is placed; with a target it looks at it;
  *   - `rail`: rides a `cameraPath` (a `progress` 0–1 along it, moving at
  *     `railSpeed`), looking at the target or along the path;
- *   - `track` (phase 24.4g): keeps its placed rotation and follows a target
+ *   - `track`: keeps its placed rotation and follows a target
  *     at an offset (`trackOffset`; absent: where it is placed relative to the
  *     target), moving only once the target leaves a dead zone around the
  *     point it frames, smoothed by `damping`, kept inside optional bounds
  *     (`boundsMin`/`boundsMax`, per axis) — a side view, a fixed-angle
  *     top-down or isometric view, a 3D chase that does not turn.
- *   Phase 25.14: a track camera may look ahead of a moving target
+ *   A track camera may look ahead of a moving target
  *   (`lookAhead` seconds per axis — a vertical look-ahead is `[0, t, 0]` —
  *   capped at `lookAheadMax`, its velocity eased over `lookAheadSmoothing`),
  *   and camera regions change its dead zone, bounds and distance while the
@@ -30,7 +30,7 @@
  *   Each camera also sets how the view blends to it (cut, linear, eased over
  *   `blendTime`), its lens (`fovY`, `near`, `far`: absent = the scene camera's),
  *   a letterbox amount and a constant shake.
- * - `cameraRegion` (phase 25.14): an axis-aligned box (centred on its object;
+ * - `cameraRegion`: an axis-aligned box (centred on its object;
  *   the object's rotation is not used) that, while a track camera's target is
  *   inside it, gives that camera its own dead zone, bounds (offsets from the
  *   region's position, so the region carries them when it is moved or
@@ -136,11 +136,11 @@ export const VIRTUAL_CAMERA_LIMITS = Object.freeze({
   shakeAmplitude: { min: 0, max: 10 },
   shakeFrequency: { min: 0.1, max: 60 },
   shakeRotation: { min: 0, max: 45 },
-  /** Phase 24.4g: a track camera's dead zone per axis (m). */
+  /** A track camera's dead zone per axis (m). */
   deadZone: { min: 0, max: 1000 },
-  /** Phase 24.4g: a track camera's bounds (m). */
+  /** A track camera's bounds (m). */
   bounds: { min: -1e6, max: 1e6 },
-  /** Phase 25.14: a track camera's look-ahead (s of the target's velocity, per axis), its cap (m) and smoothing (s). */
+  /** A track camera's look-ahead (s of the target's velocity, per axis), its cap (m) and smoothing (s). */
   lookAhead: { min: 0, max: 10 },
   lookAheadMax: { min: 0, max: 1000 },
   lookAheadSmoothing: { min: 0, max: 10 },
@@ -193,19 +193,19 @@ export interface VirtualCameraComponent {
   shakeAmplitude?: number;
   shakeFrequency?: number;
   shakeRotation?: number;
-  /** Phase 24.4g, track: the camera's position relative to the point it frames (absent: as placed relative to the target). */
+  /** Track: the camera's position relative to the point it frames (absent: as placed relative to the target). */
   trackOffset?: [number, number, number];
-  /** Phase 24.4g, track: the box (w, h, d; centred on the framed point) the target moves in before the camera follows (absent: none). */
+  /** Track: the box (w, h, d; centred on the framed point) the target moves in before the camera follows (absent: none). */
   deadZone?: [number, number, number];
-  /** Phase 24.4g, track: the framed point stays at or above this, per axis (absent: no limit). */
+  /** Track: the framed point stays at or above this, per axis (absent: no limit). */
   boundsMin?: [number, number, number];
-  /** Phase 24.4g, track: the framed point stays at or below this, per axis (absent: no limit). */
+  /** Track: the framed point stays at or below this, per axis (absent: no limit). */
   boundsMax?: [number, number, number];
-  /** Phase 25.14, track: seconds of the target's velocity it looks ahead, per axis (absent: none; a vertical look-ahead is [0, t, 0]). */
+  /** Track: seconds of the target's velocity it looks ahead, per axis (absent: none; a vertical look-ahead is [0, t, 0]). */
   lookAhead?: [number, number, number];
-  /** Phase 25.14, track: the most it looks ahead, per axis (m; absent: 3). */
+  /** Track: the most it looks ahead, per axis (m; absent: 3). */
   lookAheadMax?: [number, number, number];
-  /** Phase 25.14, track: how long the target's velocity takes to ease in (s; absent: 0.2; 0: at once). */
+  /** Track: how long the target's velocity takes to ease in (s; absent: 0.2; 0: at once). */
   lookAheadSmoothing?: number;
 }
 
@@ -257,12 +257,12 @@ export const VIRTUAL_CAMERA_FIELDS = [
   'shakeAmplitude',
   'shakeFrequency',
   'shakeRotation',
-  // Phase 24.4g: last, so every existing camera keeps its exact canonical bytes.
+  // Last, so every existing camera keeps its exact canonical bytes.
   'trackOffset',
   'deadZone',
   'boundsMin',
   'boundsMax',
-  // Phase 25.14: last again.
+  // Last again.
   'lookAhead',
   'lookAheadMax',
   'lookAheadSmoothing',
@@ -329,7 +329,7 @@ export function validateVirtualCameraComponent(value: unknown, path: string, err
   // A rail without a path is allowed (it is picked after the rig in the Inspector); it stays where it is placed.
   if (value['targetOffset'] !== undefined && !vec3(value['targetOffset'], VIRTUAL_CAMERA_LIMITS.offset.min, VIRTUAL_CAMERA_LIMITS.offset.max)) err(errors, 'field_value', `${path}/targetOffset`, 'targetOffset is [x, y, z] metres, each −1000–1000', value['targetOffset']);
   if (value['point'] !== undefined && !vec3(value['point'], VIRTUAL_CAMERA_LIMITS.point.min, VIRTUAL_CAMERA_LIMITS.point.max)) err(errors, 'field_value', `${path}/point`, 'point is [x, y, z] metres', value['point']);
-  // Phase 24.4g: the track rig's offset, dead zone and bounds (only a track camera reads them).
+  // The track rig's offset, dead zone and bounds (only a track camera reads them).
   const track = rig === 'track';
   for (const k of ['trackOffset', 'deadZone', 'boundsMin', 'boundsMax', 'lookAhead', 'lookAheadMax', 'lookAheadSmoothing'] as const) {
     if (value[k] !== undefined && !track) err(errors, 'field_unexpected', `${path}/${k}`, `only a track camera has ${k}`, value[k]);
@@ -343,7 +343,7 @@ export function validateVirtualCameraComponent(value: unknown, path: string, err
     const lo = value['boundsMin'];
     const hi = value['boundsMax'];
     if (vec3(lo, -Infinity, Infinity) && vec3(hi, -Infinity, Infinity) && (lo as number[]).some((x, i) => x > (hi as number[])[i]!)) err(errors, 'field_value', `${path}/boundsMax`, 'boundsMax is at least boundsMin on every axis', hi);
-    // Phase 25.14: look-ahead.
+    // Look-ahead.
     const L = VIRTUAL_CAMERA_LIMITS;
     if (value['lookAhead'] !== undefined && !vec3(value['lookAhead'], L.lookAhead.min, L.lookAhead.max)) err(errors, 'field_value', `${path}/lookAhead`, `lookAhead is [x, y, z] seconds, each ${L.lookAhead.min}–${L.lookAhead.max}`, value['lookAhead']);
     if (value['lookAheadMax'] !== undefined && !vec3(value['lookAheadMax'], L.lookAheadMax.min, L.lookAheadMax.max)) err(errors, 'field_value', `${path}/lookAheadMax`, `lookAheadMax is [x, y, z] metres, each ${L.lookAheadMax.min}–${L.lookAheadMax.max}`, value['lookAheadMax']);
@@ -400,7 +400,7 @@ export function canonicalCameraPath(c: CameraPathComponent): CameraPathComponent
   };
 }
 
-// ---- Phase 25.14: camera regions -------------------------------------------------
+// ---- Camera regions -------------------------------------------------
 
 /** Blend 0.5 s: the camera blend's own default (a region change reads as a camera move). */
 export const CAMERA_REGION_DEFAULTS = Object.freeze({ priority: 0, blendTime: VIRTUAL_CAMERA_DEFAULTS.blendTime });

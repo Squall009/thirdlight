@@ -1,5 +1,5 @@
 /**
- * Phase 20.2: drawing effect particles — the Output blocks of a system as
+ * Drawing effect particles — the Output blocks of a system as
  * three.js node materials, fed by either executor:
  *
  * - `CpuParticleSource`: the CPU evaluator's typed arrays copied each frame

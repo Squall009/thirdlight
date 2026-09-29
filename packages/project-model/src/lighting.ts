@@ -1,5 +1,5 @@
 /**
- * Phase 9.6: baked lighting (lightmaps).
+ * Baked lighting (lightmaps).
  *
  * `content.lighting` maps a sceneId to that scene's bake: the lightmap atlases
  * (texture assets), where each static entity's lightmap sits in its atlas

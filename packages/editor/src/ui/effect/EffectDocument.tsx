@@ -1,5 +1,5 @@
 /**
- * Phase 20.0/20.1: the "Effect: <name>" centre tab — an effect's particle
+ * The "Effect: <name>" centre tab — an effect's particle
  * systems, each a node graph (graph kind `effect`) on the graph framework.
  *
  * - Left: the effect's settings (duration, loop, seed, culling bounds), its
@@ -10,7 +10,7 @@
  *   kind `effect` (owner id `<effectId>/<systemId>`); the selection shows in
  *   the right dock's Inspector (GraphInspector with curve and gradient
  *   widgets).
- * - Phase 20.3: the looping preview pane (right column, `EffectPreviewPane`):
+ * - The looping preview pane (right column, `EffectPreviewPane`):
  *   the effect on its own renderer with the executor Play would use, a
  *   timeline (play/pause, restart, scrub), spawn counters, the frame cost and
  *   preview-only parameter sliders; it follows every edit live.
@@ -43,7 +43,7 @@ export interface EffectDocumentProps {
   onSelection: (ids: readonly string[]) => void;
   focus: { id: string; nonce: number } | null;
   error: string | null;
-  /** Phase 20.3: the preview's environment (the project's, with its wind; null = a neutral backdrop). */
+  /** The preview's environment (the project's, with its wind; null = a neutral backdrop). */
   environment: EffectPreviewPaneProps['environment'];
   /** A texture asset's texture (particle textures in the preview). */
   loadTexture: EffectPreviewPaneProps['loadTexture'];

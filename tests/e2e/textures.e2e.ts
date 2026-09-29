@@ -1,8 +1,8 @@
 /**
- * Phase 9.4: standalone textures. A PNG imports as a `texture` asset whose tile
+ * Standalone textures. A PNG imports as a `texture` asset whose tile
  * shows the image itself.
  *
- * Phase 17.2: a texture on a material shows on a box in the Scene view and in
+ * A texture on a material shows on a box in the Scene view and in
  * Play with every renderer variant (renderer-variants.ts): node materials on
  * WebGPURenderer (auto and WebGL 2 / WebGPU).
  */
@@ -101,7 +101,7 @@ for (const variant of RENDERER_VARIANTS) {
     await expect(frame).toBeVisible();
     await expectRendererBackend(page.frameLocator('iframe.tl-app__preview-frame').locator('canvas').first(), variant);
     await expect.poll(() => reds(frame), { timeout: 20_000 }).toBeGreaterThan(100);
-    // Phase 25.2: the screenshot relay captures the same textured frame with the same backend.
+    // The screenshot relay captures the same textured frame with the same backend.
     const r = await fetch(`${be.origin}/api/v1/projects/${be.projectId}/play/${psid}/screenshot`, {
       method: 'POST',
       headers: { authorization: `Bearer ${be.token}`, 'content-type': 'application/json', origin: be.origin },

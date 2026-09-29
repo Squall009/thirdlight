@@ -1,6 +1,6 @@
 /**
  * Multi-piece GLBs by node name: pieces, LOD groups, `_COL` colliders and the
- * vertex-colour mode (2026-09-24).
+ * vertex-colour mode.
  */
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';

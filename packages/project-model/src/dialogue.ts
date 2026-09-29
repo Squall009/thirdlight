@@ -1,8 +1,8 @@
 /**
- * Phase 23.16: dialogue as project content (v4).
+ * Dialogue as project content (v4).
  *
  * - `content.dialogues[]` — conversations, each a node graph of kind
- *   `dialogue` on the phase 16 graph framework (owner kind `dialogue`,
+ *   `dialogue` on the graph framework (owner kind `dialogue`,
  *   edited with `graphEdit`; created/renamed with `setDialogue`). Nodes:
  *   Start (fixed), named Entries, Lines (speaker, expression, text, voice
  *   clip, auto-advance), Choices with Option nodes (text, condition,
@@ -20,7 +20,7 @@
  * Conditions and effects are a small expression language over the
  * dialogue variables (`ctx.dialogue.get/set`, saved by the opt-in `dialogue`
  * save section) and the conversation's bindings (`$name`). Line text is the
- * subtitle: 23.9a rich text (`[b]`, `[color=#…]`, `[icon=…]`), `{name}` /
+ * subtitle: UI rich text (`[b]`, `[color=#…]`, `[icon=…]`), `{name}` /
  * `{$name}` values and `[pause=0.5]` pauses of the typewriter reveal.
  *
  * Localization: a line's text is addressed by `<dialogueId>.<nodeId>` (node
@@ -137,7 +137,7 @@ const NEXT = { id: 'next', label: 'next', type: 'flow', single: true } as const;
 const CONDITION_FIELD: GraphFieldDef = { key: 'condition', label: 'Condition', type: 'string', default: '', maxLength: DIALOGUE_LIMITS.exprChars };
 const EFFECTS_FIELD: GraphFieldDef = { key: 'effects', label: 'Effects', type: 'string', default: '', maxLength: DIALOGUE_LIMITS.exprChars };
 
-/** Phase 23.16: a conversation's graph (owner kind `dialogue`). */
+/** A conversation's graph (owner kind `dialogue`). */
 export const DIALOGUE_GRAPH_KIND: GraphKindDef = {
   kind: 'dialogue',
   label: 'Dialogue',
@@ -495,7 +495,7 @@ export function applyDialogueEffect(before: DialogueValue, eff: DialogueEffect, 
 /**
  * A line's text as shown: `{name}` / `{$name}` replaced by values (`{{` stays
  * a literal brace for the rich-text parser), `[pause=s]` removed and noted at
- * the visible character it follows. `display` is 23.9a rich text read with
+ * the visible character it follows. `display` is UI rich text read with
  * `values: false` (braces are text); `visible` counts its characters.
  */
 export interface DialogueLineText {
@@ -734,7 +734,7 @@ export function validateDialogueReferences(
     });
   });
   speakers.forEach((s, i) => {
-    // Phase 25.19: a KTX2 texture (a GPU texture) reads as its own kind: the page draws portraits as images.
+    // A KTX2 texture (a GPU texture) reads as its own kind: the page draws portraits as images.
     for (const [expr, id] of Object.entries(s.portraits ?? {})) {
       const k = assetKind(id);
       if (typeof k === 'string' && k.startsWith('texture (KTX2')) errors.push(withFound({ code: 'field_value', path: `/speakers/${i}/portraits/${expr}`, message: 'a portrait is drawn by the page: it cannot be a KTX2 texture (import a PNG, JPEG or WebP)', expected: 'a PNG, JPEG or WebP texture' }, id));
@@ -907,7 +907,7 @@ export function compileDialogue(d: DialogueDocument): RuntimeDialogue {
  * The runner's data from the project's dialogue content (null: no
  * conversations — the snapshot has no `dialogue` field and nothing changes
  * for projects without dialogue). Voice clip lengths come from the
- * snapshot's `audioDurations` (phase 23.13), like every script sound's.
+ * snapshot's `audioDurations`, like every script sound's.
  */
 export function dialogueForRuntime(content: { dialogues?: readonly DialogueDocument[]; speakers?: readonly DialogueSpeaker[]; dialogueSettings?: DialogueSettings }): RuntimeDialogueData | null {
   const dialogues = content.dialogues ?? [];
@@ -946,7 +946,7 @@ export function runtimeDialogueDataProblem(v: unknown): string | null {
 // ---------------------------------------------------------------------------
 
 /**
- * The engine-provided dialogue UI (a 23.9a UI document, id `tl-dialogue`):
+ * The engine-provided dialogue UI (a UI document, id `tl-dialogue`):
  * a box at the bottom with the portrait, the name plate (the speaker's
  * colour), the typewriter text (a text widget with `content` + `reveal`),
  * the choices (a list of buttons), Auto / Skip / Log buttons and a backlog

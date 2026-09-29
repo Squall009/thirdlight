@@ -1,5 +1,5 @@
 /**
- * Hierarchy panel (React, decision 0001 §10; phase 12) — the entity tree.
+ * Hierarchy panel (React) — the entity tree.
  *
  * - Rows collapse and expand (the arrow); which rows are collapsed is kept in
  *   this browser per project (localStorage), never in the project.
@@ -11,7 +11,7 @@
  *   the command.
  * - Double-click renames.
  *
- * - Phase 12 (c), several scenes: each open scene is a header with its own
+ * - Several scenes: each open scene is a header with its own
  *   tree. Clicking a header makes it the active scene (new objects go
  *   there); the header renames (double-click), toggles "start scene",
  *   deletes an empty scene and closes it. "New scene" and "open scene…"
@@ -21,7 +21,7 @@
  * Every edit is a command issued by the app (`moveEntities`, `updateEntity`,
  * the scene-index ops).
  *
- * Phase 21.4: rows are memoised, rebuilt only when the tree's shape changes,
+ * Rows are memoised, rebuilt only when the tree's shape changes,
  * and a long list is windowed (see HIERARCHY_WINDOW_MIN_ROWS).
  */
 import { memo, useEffect, useMemo, useRef, useState, type DragEvent, type JSX, type MouseEvent } from 'react';
@@ -44,7 +44,7 @@ import { ASSET_DRAG_TYPE, parseAssetDrag, type AssetDragPayload } from '../sessi
 interface Props {
   entities: ProjectedEntity[];
   /**
-   * Phase 21.4: changes whenever the tree's shape or labels change (entities
+   * Changes whenever the tree's shape or labels change (entities
    * added or removed, parents, order, names, flags, kinds). Absent: the rows
    * are rebuilt whenever `entities` changes.
    */
@@ -58,9 +58,9 @@ interface Props {
   onSelect: (ids: string[], primary: string | null) => void;
   onRename: (id: string, name: string) => void;
   onMove: (ids: string[], parentId: string | null, beforeId: string | null) => void;
-  /** Phase 12 (c): the open scenes (absent: a single-scene project, one plain tree). */
+  /** The open scenes (absent: a single-scene project, one plain tree). */
   scenes?: readonly SceneHeaderView[];
-  /** Phase 12 (c): the scenes that are not open in this browser. */
+  /** The scenes that are not open in this browser. */
   closedScenes?: readonly { sceneId: string; name: string }[];
   onSceneAction?: (action: SceneAction) => void;
   /**
@@ -69,13 +69,13 @@ interface Props {
    * the root (of the row's scene).
    */
   onAssetDrop?: (asset: AssetDragPayload, parentId: string | null, sceneId: string | null) => void;
-  /** Phase 24.5: which component shows which row icon (from the descriptors; absent: none yet). */
+  /** Which component shows which row icon (from the descriptors; absent: none yet). */
   icons?: IconTable;
 }
 
 const NO_ICONS: IconTable = [];
 
-/** Phase 12 (c): one open scene's header. */
+/** One open scene's header. */
 export interface SceneHeaderView {
   sceneId: string;
   name: string;
@@ -84,7 +84,7 @@ export interface SceneHeaderView {
   entityCount: number;
 }
 
-/** Phase 12 (c): what the scene controls ask the app to do. */
+/** What the scene controls ask the app to do. */
 export type SceneAction =
   | { kind: 'activate'; sceneId: string }
   | { kind: 'open'; sceneId: string }
@@ -111,7 +111,7 @@ function loadCollapsed(projectId: string): Set<string> {
 }
 
 /**
- * Phase 21.4: a long list is windowed — only the rows in view (plus an
+ * A long list is windowed — only the rows in view (plus an
  * overscan) are in the DOM, between two spacers, so a project with thousands
  * of objects scrolls, selects and renames as fast as a small one. Rows have a
  * fixed height in that mode. Short lists (the common case) render every row.
@@ -263,8 +263,8 @@ export function Hierarchy({ entities, structureKey, flags, projectId, selectedId
     });
   };
 
-  // Phase 12 (c): one tree per open scene (a collapsed scene hides its tree).
-  // Phase 21.4: rebuilt only when the tree's shape changes (`structureKey`),
+  // One tree per open scene (a collapsed scene hides its tree).
+  // Rebuilt only when the tree's shape changes (`structureKey`),
   // not when an object moves or a component value changes.
   const shapeKey = structureKey ?? entities;
   const sceneTrees = useMemo(
@@ -353,7 +353,7 @@ export function Hierarchy({ entities, structureKey, flags, projectId, selectedId
     setDrop(null);
     setHint(null);
   };
-  /** Phase 12 (c): a drop on a scene header files the dragged objects at that scene's root. */
+  /** A drop on a scene header files the dragged objects at that scene's root. */
   const isAssetDrag = (ev: DragEvent): boolean => onAssetDrop !== undefined && ev.dataTransfer.types.includes(ASSET_DRAG_TYPE);
   const overScene = (ev: DragEvent<HTMLLIElement>, sceneId: string): void => {
     if (isAssetDrag(ev)) {

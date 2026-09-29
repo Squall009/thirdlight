@@ -1,5 +1,5 @@
 /**
- * Phase 15.2: editing one copy of an instance set — the pure part.
+ * Editing one copy of an instance set — the pure part.
  *
  * An instance set stores its copies in a content-addressed buffer (10
  * float32 per copy: position xyz, rotation quaternion xyzw, scale xyz, local

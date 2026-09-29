@@ -1,5 +1,5 @@
 /**
- * `setTags` (phase 12 b): the project tag registry — up to 32 named tags,
+ * `setTags`: the project tag registry — up to 32 named tags,
  * each with a fixed bit. The request names the whole registry:
  *
  * - an entry with `bit` keeps that bit (renaming a tag keeps its bit, so

@@ -1,22 +1,21 @@
 /**
- * The shared M2 content/gameplay closure builder (packet 36; export.md §2/§4,
- * sessions.md §17.1.3, dependencies.md §3 `exporter` row: "the shared
- * manifest/closure builder").
+ * The shared content/gameplay closure builder (export.md, sessions.md,
+ * dependencies.md `exporter` row: "the shared manifest/closure builder").
  *
  * ONE implementation composes the immutable runtime-content manifest and the
  * declared artifact bytes for both delivery paths:
  *
  *   - the play path (`backend/play-content.ts` → `buildPlayContent`) wraps this
  *     closure and adds the prebuilt play bundle as `game.js`;
- *   - the export path (`export.ts` → the M2 pipeline) wraps it and writes the
+ *   - the export path (`export.ts` → `exportProjectM3`) wraps it and writes the
  *     declared artifacts into the export output tree.
  *
  * All authoring reads go through the INJECTED workspace service (the exporter
  * and the backend never touch files directly — no second authority), and the
- * behavior compilation goes through the INJECTED packet-33 compiler port (the
+ * behavior compilation goes through the INJECTED compiler port (the
  * structural `ContentClosureCompilerPort` below — the real
  * `@thirdlight/behavior-build` compiler is supplied by the backend, so this
- * package keeps its allowed node-side edge set, dependencies.md §4.1).
+ * package keeps its allowed node-side edge set, dependencies.md).
  *
  * No evaluation of project source happens here: `compile` is a pure
  * bytes-in/bytes-out call on the injected compiler; the returned behavior
@@ -31,7 +30,7 @@ import { animatorsForRuntime, effectsForRuntime, type EffectDef, materialFunctio
 import { MODEL_RIG_LIMITS, readModelRig, type ModelRig } from '@thirdlight/project-model';
 import type { WorkspaceService } from '@thirdlight/workspace';
 
-/** The injected packet-33 compiler port (structural; no behavior-build edge). */
+/** The injected compiler port (structural; no behavior-build edge). */
 export interface ContentClosureCompilerPort {
   /** The pinned engine module table the compiler compiles against. */
   readonly pinnedModules: unknown;
@@ -40,24 +39,24 @@ export interface ContentClosureCompilerPort {
     declaration: unknown;
     containerBytes: Uint8Array;
     pinnedModules: unknown;
-    /** Phase 23.7: the script libraries the source's `@lib/<id>` imports link. */
+    /** The script libraries the source's `@lib/<id>` imports link. */
     libraries?: readonly { libraryId: string; containerBytes: Uint8Array }[];
-    /** Phase 25.9: `bundle` re-derives the 23.7 form (checking a record published before shared libraries). */
+    /** `bundle` re-derives the bundled form (checking a record published in that form). */
     libraryLinking?: 'shared' | 'bundle';
   }): Promise<
     | {
         ok: true;
         outputBytes: Uint8Array;
         outputDigest: string;
-        /** Phase 25.9: the output's source map (JSON text). */
+        /** The output's source map (JSON text). */
         sourceMap?: string;
-        /** Phase 25.9: the shared library modules the output imports. */
+        /** The shared library modules the output imports. */
         libraryModules?: readonly ClosureLibraryModule[];
       }
     | { ok: false; reason: string; diagnostics?: readonly unknown[] }
   >;
   /**
-   * Phase 19.2, Play builds only (exports never pass it): the Play debug
+   * Play builds only (exports never pass it): the Play debug
    * build of a visual script — the same graph compiled with the debugger's
    * recording (trace, wire values, locals) — used instead of the ordinary
    * module after that one was verified; null keeps the ordinary module (not
@@ -66,7 +65,7 @@ export interface ContentClosureCompilerPort {
   debugVariant?(input: { behaviorId: string; sourceDigest: string; row: Readonly<Record<string, unknown>> }): Promise<{ outputBytes: Uint8Array; outputDigest: string } | null>;
 }
 
-/** Phase 25.9: one shared script library module a compiled behavior imports. */
+/** One shared script library module a compiled behavior imports. */
 export interface ClosureLibraryModule {
   libraryId: string;
   sourceDigest: string;
@@ -76,7 +75,7 @@ export interface ClosureLibraryModule {
 }
 
 /**
- * Phase 25.9: what a compiled output's positions map back to (Play only uses
+ * What a compiled output's positions map back to (Play only uses
  * it; nothing of it is served or exported): a behavior's or a library's
  * source map, by the output's digest.
  */
@@ -142,50 +141,50 @@ function fromCommandError(e: {
 }
 
 // ---------------------------------------------------------------------------
-// M3 shared closure builder (packet 58; delivery.md §2/§3, export.md §3)
+// The shared closure builder
 // ---------------------------------------------------------------------------
 
-/** The MIME type of one declared asset artifact by kind (export.md §6.3). */
+/** The MIME type of one declared asset artifact by kind. */
 const ASSET_CONTENT_TYPE: Record<'model' | 'audio' | 'texture' | 'music' | 'font', string> = {
   model: 'model/gltf-binary',
   audio: 'audio/wav',
-  // Phase 9.4: PNG/JPEG/WebP; the runtime decodes by magic bytes.
+  // PNG/JPEG/WebP; the runtime decodes by magic bytes.
   texture: 'image/x-texture',
-  // Phase 9.10: Ogg Vorbis/Opus, MP3 or WAV; the browser decodes it.
+  // Ogg Vorbis/Opus, MP3 or WAV; the browser decodes it.
   music: 'audio/x-music',
-  // Phase 23.9a: TTF, OTF, WOFF2 or WOFF; the page loads it through FontFace by its bytes.
+  // TTF, OTF, WOFF2 or WOFF; the page loads it through FontFace by its bytes.
   font: 'font/x-font',
 };
 
 export interface ContentClosureM3Input {
   /** The injected workspace service (types-only edge). */
   service: WorkspaceService;
-  /** The injected behavior compiler (packet 33). */
+  /** The injected behavior compiler. */
   compiler: ContentClosureCompilerPort;
   projectId: string;
   revision: number;
-  /** UTC second at capture (project-model §7.2). */
+  /** UTC second at capture. */
   capturedAt: string;
   /** The captured v3 scene document (the acknowledged state's scene half). */
   scene: unknown;
   /** The captured v3 content block (the acknowledged state's content half). */
   content: unknown;
   /**
-   * Phase 12 (c), a v4 project: every scene (index order). Each becomes an
+   * A v4 project: every scene (index order). Each becomes an
    * artifact `scenes/<sceneId>.json` the game loads at start or on demand;
    * `scene` is then the start scenes merged into one runtime scene.
    */
   scenes?: readonly unknown[];
-  /** Phase 12 (c): the scenes the game starts with. */
+  /** The scenes the game starts with. */
   startScenes?: readonly string[];
   /**
-   * Phase 25.24a: where the build's time goes (Play's start timings). The
+   * Where the build's time goes (Play's start timings). The
    * caller's clock: the closure itself reads none, and the output never
    * depends on it. Stages: view, behaviors, assets, scenes, rigs, manifest.
    */
   timings?: { readonly now: () => number; readonly add: (stage: string, ms: number) => void };
   /**
-   * Phase 25.24c: SHA-256 (lowercase hex) for the scene files' bytes — a
+   * SHA-256 (lowercase hex) for the scene files' bytes — a
    * host's native hash (the backend's), else project-model's portable one.
    * The digests are the same either way.
    */
@@ -204,25 +203,25 @@ export interface ContentClosureM3 {
   moduleIds: readonly string[];
   /** The resolved six-key settings (registry order) the composition consumes. */
   settings: GameplaySettings;
-  /** The resolved media identity (the animation rows; phase 24.8: no cue slots). */
+  /** The resolved media identity (the animation rows; no cue slots). */
   media: MediaBlock;
   /** The reachable asset artifacts (`content/sha256/<digest>`), sorted by path. */
   assetArtifacts: readonly ClosureArtifact[];
   /** The reachable behavior artifacts (`behaviors/<outputDigest>.js`), sorted. */
   behaviorArtifacts: readonly ClosureArtifact[];
-  /** Phase 12 (c): one artifact per scene of a v4 project (`scenes/<sceneId>.json`). */
+  /** One artifact per scene of a v4 project (`scenes/<sceneId>.json`). */
   sceneArtifacts: readonly ClosureArtifact[];
-  /** Phase 12 (c): the instance-set buffers (`content/sha256/<digest>`). */
+  /** The instance-set buffers (`content/sha256/<digest>`). */
   bufferArtifacts: readonly ClosureArtifact[];
   /**
-   * Phase 25.7b: the manifest's content files (`content/sha256/<digest>`,
+   * The manifest's content files (`content/sha256/<digest>`,
    * JSON: materials, material functions, UI documents, dialogue, the buffer
    * table), in `contentFiles` order.
    */
   contentFileArtifacts: readonly ClosureArtifact[];
-  /** Phase 25.9: the shared script library modules (`libraries/<outputDigest>.js`), by library id. */
+  /** The shared script library modules (`libraries/<outputDigest>.js`), by library id. */
   libraryArtifacts: readonly ClosureArtifact[];
-  /** Phase 25.9: the compiled outputs' source maps (Play maps error and log locations with them; never served). */
+  /** The compiled outputs' source maps (Play maps error and log locations with them; never served). */
   sourceMaps: readonly ClosureSourceMap[];
   behaviors: readonly ClosureBehavior[];
   /** Every manifest-declared artifact path, sorted and deduplicated. */
@@ -232,7 +231,7 @@ export interface ContentClosureM3 {
 /**
  * Recompile every reachable source-bearing behavior from its immutable
  * container blob through the injected compiler (the recorded outputDigest is
- * an assertion, never a substitute). Shared by the M2 and M3 closures.
+ * an assertion, never a substitute).
  */
 async function compileReachableBehaviors(
   service: WorkspaceService,
@@ -249,10 +248,10 @@ async function compileReachableBehaviors(
   const behaviorArtifacts: ClosureArtifact[] = [];
   const behaviorInputs: ManifestBehaviorInput[] = [];
   const behaviors: ClosureBehavior[] = [];
-  // Phase 25.9: the shared library modules the compiled behaviors import (one each, by output digest).
+  // The shared library modules the compiled behaviors import (one each, by output digest).
   const libraryModules = new Map<string, ClosureLibraryModule>();
   const sourceMaps: ClosureSourceMap[] = [];
-  // Phase 23.7: the script libraries (canonical containers), built once for every behavior of the build.
+  // The script libraries (canonical containers), built once for every behavior of the build.
   const libraryInputs = scriptLibraries.map((l) => ({ libraryId: l.libraryId, containerBytes: new TextEncoder().encode(scriptLibraryContainerText(l)) }));
   const libraryDigests = new Map(scriptLibraries.map((l) => [l.libraryId, scriptLibraryDigest(l)] as const));
   for (const row of behaviorRows) {
@@ -260,7 +259,7 @@ async function compileReachableBehaviors(
     if (source === null || source === undefined) continue;
     const behaviorId = String(row['behaviorId']);
     const sourceDigest = String(source['sourceDigest']);
-    // Phase 23.7: a behavior compiled against another version of a library than the project's is stale.
+    // A behavior compiled against another version of a library than the project's is stale.
     const pins = (source['libraries'] as { libraryId: string; sourceDigest: string }[] | undefined) ?? [];
     const stale = pins.find((p) => libraryDigests.get(p.libraryId) !== p.sourceDigest);
     if (stale !== undefined) {
@@ -311,7 +310,7 @@ async function compileReachableBehaviors(
         },
       };
     }
-    // Phase 25.9: a record published before shared libraries recorded the bundled output. It is
+    // A record published in the bundled form recorded the bundled output. It is
     // still an assertion: the bundled form must re-derive to it; the build then ships the shared form.
     let bundledRecord = false;
     if (compiled.outputDigest !== source['outputDigest'] && pins.length > 0) {
@@ -334,7 +333,7 @@ async function compileReachableBehaviors(
         },
       };
     }
-    // Phase 19.2: a Play build may swap in the visual script's debug build (never an export: no debugVariant there).
+    // A Play build may swap in the visual script's debug build (never an export: no debugVariant there).
     let outputBytes = compiled.outputBytes;
     let outputDigest = compiled.outputDigest;
     if (compiler.debugVariant !== undefined) {
@@ -392,11 +391,11 @@ async function compileReachableBehaviors(
   return { ok: true, behaviorArtifacts, behaviorInputs, behaviors, libraryArtifacts, libraryRows, sourceMaps };
 }
 
-/** Phase 25.9: one manifest `libraries` row input. */
+/** One manifest `libraries` row input. */
 type ManifestLibraryInput = { libraryId: string; sourceDigest: string; outputDigest: string; outputByteLength: number };
 
 /**
- * Phase 25.24c: what a closure derives from the captured project alone — the
+ * What a closure derives from the captured project alone — the
  * content view, the media identity, the scene files and their digests, the
  * instance buffers and the start scenes' merged file — kept for the next
  * build of the same capture. A Play of an unchanged project (the same
@@ -424,7 +423,7 @@ type CapturedView = Extract<ReturnType<typeof captureContentViewV3>, { ok: true 
 /** One remembered derivation per captured content object (a changed project has a new one). */
 const derivedCaptures = new WeakMap<object, DerivedCapture>();
 
-/** Phase 25.24c: derivations reused / made (tests). */
+/** Derivations reused / made (tests). */
 export const closureCacheStats = { hits: 0, misses: 0 };
 
 /** The identities a derivation depends on, or null when an input is not frozen (never remembered). */
@@ -461,26 +460,26 @@ function sameIdentities(a: readonly unknown[], b: readonly unknown[]): boolean {
 }
 
 /**
- * `buildContentClosureM3(input)` — the M3 shared closure builder (packet 58):
+ * `buildContentClosureM3(input)` — the shared closure builder:
  * ONE captured input (the single acknowledged envelope read's v3 scene +
  * content halves) → the v2 manifest + the declared artifact bytes, for BOTH
- * delivery hosts (the preview/play path and the export path — delivery.md §3).
+ * delivery hosts (the preview/play path and the export path — delivery.md).
  *
  * It derives the captured v3 content view and the media identity (project-model,
  * the single pure owner), reads every reachable asset's immutable bytes through
  * the injected service (digest-verified), and assembles the v2 manifest
  * (self-identifying `buildId`, the resolved settings / media
- * identity hash-bound through it — delivery.md §2.4).
+ * identity hash-bound through it — delivery.md).
  *
- * Source-bearing behaviors are recompiled and declared like the M2 closure;
- * the game host links them as runtime modules.
+ * Source-bearing behaviors are recompiled and declared; the game host links
+ * them as runtime modules.
  *
  * Pure derivation + verified injected reads; no authoritative write, no
  * project source evaluation, no clock read (the caller supplies `capturedAt`).
  */
 export async function buildContentClosureM3(input: ContentClosureM3Input): Promise<{ ok: true; closure: ContentClosureM3 } | { ok: false; error: ContentClosureError }> {
   const { service, projectId } = input;
-  // Phase 25.24a: stage times on the caller's clock (none when it gives none).
+  // Stage times on the caller's clock (none when it gives none).
   let stageAt = input.timings?.now() ?? 0;
   const stage = (name: string): void => {
     if (input.timings === undefined) return;
@@ -490,7 +489,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
   };
 
   const hash = input.sha256 ?? sha256Hex;
-  // Phase 25.24c: the derivation of this very capture, when a build before this one made it.
+  // The derivation of this very capture, when a build before this one made it.
   const contentKey = typeof input.content === 'object' && input.content !== null && Object.isFrozen(input.content) ? (input.content as object) : null;
   const identities = contentKey !== null ? captureIdentities(input.scene, input.scenes) : null;
   const startKey = (input.startScenes ?? []).join('\u0000');
@@ -499,7 +498,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
   if (derived !== null) closureCacheStats.hits += 1;
   else closureCacheStats.misses += 1;
 
-  // 1. The captured v3 content view (project-model §19 v3) — reachable
+  // 1. The captured v3 content view (project-model) — reachable
   //    kind-tagged assets, the resolved settings, contentDigest.
   let view: CapturedView;
   let media: MediaBlock;
@@ -514,7 +513,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
     }
     view = viewRes.normalized;
 
-    // 2. The media identity (delivery.md §2.3, the C35-2 rationale).
+    // 2. The media identity.
     const mediaRes = resolveMediaIdentityV3(input.scene, input.content, input.scenes);
     if (!mediaRes.ok) {
       const e = mediaRes.errors[0]!;
@@ -535,12 +534,12 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
       requiredModules: (((row['source'] as Record<string, unknown>)['requiredModules'] as string[] | undefined) ?? []),
     }));
   // A v4 project: the modules every scene needs (a scene loaded later too).
-  // Phase 14.1: and every prefab a script may spawn (a spawned model needs the loader).
+  // And every prefab a script may spawn (a spawned model needs the loader).
   const prefabDefs = input.scenes !== undefined ? ((input.content as { prefabs?: PrefabDefinition[] } | null)?.prefabs ?? []) : [];
   const moduleScene = input.scenes !== undefined
     ? { entities: [...input.scenes.flatMap((sc) => ((sc as { entities?: Record<string, unknown>[] }).entities ?? [])), ...prefabDefs.flatMap((d) => d.entities as unknown as Record<string, unknown>[])] }
     : (input.scene as { entities?: Record<string, unknown>[] });
-  // Phase 23.0: the project's physics dimension picks the 2D or 3D backend.
+  // The project's physics dimension picks the 2D or 3D backend.
   const modulesRes = resolveRequiredModules({ scene: moduleScene, behaviors: behaviorDeps, physicsDimension: physicsDimensionOf((input.content as { settings?: unknown } | null)?.settings) });
   if (!modulesRes.ok) {
     return { ok: false, error: { code: 'module_unresolved', cls: 'validation', reason: 'module_unresolved', message: modulesRes.message.slice(0, 256) } };
@@ -548,7 +547,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
   const moduleIds = modulesRes.moduleIds;
 
   stage('view');
-  // 4. The reachable source-bearing behaviors (compiled like the M2 closure);
+  // 4. The reachable source-bearing behaviors (recompiled);
   //    the game host links them as runtime modules.
   const compiledBehaviors = await compileReachableBehaviors(service, input.compiler, projectId, ((input.content as { scriptLibraries?: ScriptLibrary[] }).scriptLibraries ?? []) as ScriptLibrary[]);
   if (!compiledBehaviors.ok) return compiledBehaviors;
@@ -558,13 +557,13 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
   // 5. The declared asset bytes (verified digest-addressed reads, kind-aware MIME).
   const assetArtifacts: ClosureArtifact[] = [];
   const assets: ManifestAssetInputV2[] = [];
-  // Phase 23.13: each audio/music version's recorded duration (the simulation computes script sounds' ends from it).
+  // Each audio/music version's recorded duration (the simulation computes script sounds' ends from it).
   const durationOf = (assetId: string, version: number): number | undefined => {
     const rec = ((input.content as { assets?: { assetId: string; versions?: { version: number; metrics?: { durationMs?: unknown } }[] }[] } | null)?.assets ?? []).find((r) => r.assetId === assetId);
     const ms = rec?.versions?.find((v) => v.version === version)?.metrics?.durationMs;
     return typeof ms === 'number' && Number.isInteger(ms) && ms >= 1 ? ms : undefined;
   };
-  /** Phase 23.11: the model bytes, for the rigs sockets are resolved on (read once below when the project uses sockets). */
+  /** The model bytes, for the rigs sockets are resolved on (read once below when the project uses sockets). */
   const modelBytes = new Map<string, Uint8Array>();
   for (const a of view.assets) {
     const read = service.readBlob(projectId, { assetId: a.assetId, version: a.version });
@@ -613,7 +612,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
   }
 
   stage('assets');
-  // 5b. Phase 12 (c): every scene of a v4 project as its own artifact, and the
+  // 5b. Every scene of a v4 project as its own artifact, and the
   //     instance-set buffers (verified digest-addressed reads).
   const sceneArtifacts: ClosureArtifact[] = derived !== null ? [...derived.sceneArtifacts] : [];
   const sceneRows: ManifestSceneRow[] = derived !== null ? [...derived.sceneRows] : [];
@@ -644,7 +643,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
   }
 
   stage('scenes');
-  // 5c. Phase 23.11: the model rigs, only when the project uses sockets (a socketAttach component in a scene
+  // 5c. The model rigs, only when the project uses sockets (a socketAttach component in a scene
   //     or prefab, or a script that names ctx.sockets) — every other project's manifest stays byte-identical.
   const rigs = usesSockets(input.scenes, prefabDefs, [...behaviorArtifacts, ...libraryArtifacts]) ? modelRigs(view.assets, modelBytes) : undefined;
 
@@ -656,7 +655,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
     derivedCaptures.set(contentKey, { projectId, revision: input.revision, startScenes: startKey, identities, view, media, sceneArtifacts: [...sceneArtifacts], sceneRows: [...sceneRows], bufferArtifacts: [...bufferArtifacts], sceneBytes, sceneDigest });
   }
 
-  // 6b. Phase 25.7b: only the materials the game uses (an object, a prefab, a shipped model's default
+  // 6b. Only the materials the game uses (an object, a prefab, a shipped model's default
   //     mapping, a block type, an effect or a timeline names them), and the functions those call.
   const allMaterials = (input.content as { materials?: MaterialDef[] } | null)?.materials;
   const usedMaterials = allMaterials === undefined
@@ -672,7 +671,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
           effects: (input.content as { effects?: EffectDef[] }).effects ?? [],
           timelines: (input.content as { timelines?: TimelineAsset[] }).timelines ?? [],
         });
-        // Phase 25.19: a named instance ships resolved (its chain's graph, parameters and values folded
+        // A named instance ships resolved (its chain's graph, parameters and values folded
         // in), so the runtime never sees an instance; its parents ship only when something names them.
         return resolveMaterialInstances(allMaterials).filter((m) => used.has(m.materialId));
       })();
@@ -686,50 +685,50 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
     contentDigest: view.contentDigest,
     assets,
     behaviors: behaviorInputs,
-    // Phase 25.9: the shared script library modules the behaviors import.
+    // The shared script library modules the behaviors import.
     ...(libraryRows.length > 0 ? { libraries: libraryRows } : {}),
     settings: view.settings,
-    // Phase 12 (b): the tag registry rides in the manifest (scripts query by tag).
+    // The tag registry rides in the manifest (scripts query by tag).
     tags: ((input.content as { tags?: { bit: number; name: string }[] } | null)?.tags ?? []),
-    // Phase 9.4: project materials and the environment (the renderer's; bound by the buildId).
-    // Phase 18.3: graph materials carry their graphs and parameters (the runtime compiles them to TSL), and the
+    // Project materials and the environment (the renderer's; bound by the buildId).
+    // Graph materials carry their graphs and parameters (the runtime compiles them to TSL), and the
     // manifest the material functions they call — without editor-only graph text (comments, groups).
-    // Phase 25.7b: the used ones only (6b); both ride in content files.
+    // The used ones only (6b); both ride in content files.
     ...(usedMaterials !== undefined ? { materials: materialsForRuntime(usedMaterials) } : {}),
     ...(usedMaterials !== undefined
       ? { materialFunctions: materialFunctionsForRuntime(usedMaterials, (input.content as { graphs?: GraphDocument[] }).graphs ?? []) }
       : {}),
-    // Phase 20.2: the visual effects (particle system graphs without editor-only text); the runtime's executors compile them.
+    // The visual effects (particle system graphs without editor-only text); the runtime's executors compile them.
     ...((input.content as { effects?: EffectDef[] } | null)?.effects !== undefined ? { effects: effectsForRuntime((input.content as { effects: EffectDef[] }).effects) } : {}),
     ...((input.content as { environment?: EnvironmentConfig } | null)?.environment !== undefined ? { environment: (input.content as { environment: EnvironmentConfig }).environment } : {}),
-    // Phase 9.6: the scenes' bakes (lightmap atlases are texture assets, captured above).
+    // The scenes' bakes (lightmap atlases are texture assets, captured above).
     ...((input.content as { lighting?: LightingMap } | null)?.lighting !== undefined ? { lighting: (input.content as { lighting: LightingMap }).lighting } : {}),
-    // Phase 23.9a: the project UI (the game host draws the documents; themes hold their shared styles).
+    // The project UI (the game host draws the documents; themes hold their shared styles).
     ...((input.content as { uiThemes?: UiTheme[] } | null)?.uiThemes !== undefined ? { uiThemes: (input.content as { uiThemes: UiTheme[] }).uiThemes } : {}),
     ...((input.content as { uiDocuments?: UiDocument[] } | null)?.uiDocuments !== undefined ? { uiDocuments: (input.content as { uiDocuments: UiDocument[] }).uiDocuments } : {}),
-    // Phase 23.16: the compiled conversations, speakers and settings (the runtime's dialogue runner; only with conversations).
+    // The compiled conversations, speakers and settings (the runtime's dialogue runner; only with conversations).
     ...(input.content !== null ? { dialogue: dialogueForRuntime(input.content as { dialogues?: DialogueDocument[]; speakers?: DialogueSpeaker[]; dialogueSettings?: DialogueSettings }) } : {}),
-    // Phase 23.10: the game modes (the runtime switches them; the host reads their pause screens).
+    // The game modes (the runtime switches them; the host reads their pause screens).
     ...((input.content as { modes?: GameMode[] } | null)?.modes !== undefined ? { modes: (input.content as { modes: GameMode[] }).modes } : {}),
-    // Phase 23.17: the timelines (the runtime plays them in the simulation step).
+    // The timelines (the runtime plays them in the simulation step).
     ...((input.content as { timelines?: TimelineAsset[] } | null)?.timelines !== undefined ? { timelines: (input.content as { timelines: TimelineAsset[] }).timelines } : {}),
-    // Phase 24.4i: the event → cue table (the runtime plays its sounds through the audio intent log).
+    // The event → cue table (the runtime plays its sounds through the audio intent log).
     ...((input.content as { eventCues?: EventCue[] } | null)?.eventCues !== undefined ? { eventCues: (input.content as { eventCues: EventCue[] }).eventCues } : {}),
-    // Phase 24.4j: the game shell (the game host draws its screens and HUD; the runtime walks its scene list).
+    // The game shell (the game host draws its screens and HUD; the runtime walks its scene list).
     ...((input.content as { shell?: GameShell } | null)?.shell !== undefined ? { shell: (input.content as { shell: GameShell }).shell } : {}),
-    // Phase 9.8: the input actions (the game's input binding reads them).
+    // The input actions (the game's input binding reads them).
     ...((input.content as { input?: InputConfig } | null)?.input !== undefined ? { input: (input.content as { input: InputConfig }).input } : {}),
-    // Phase 23.3: the named collision layers (the 3D physics world resolves colliders' and queries' layers with them).
+    // The named collision layers (the 3D physics world resolves colliders' and queries' layers with them).
     ...(((input.content as { collisionLayers?: string[] } | null)?.collisionLayers ?? []).length > 0 ? { collisionLayers: (input.content as { collisionLayers: string[] }).collisionLayers } : {}),
-    // Phase 23.19: the project save schema (the runtime builds and restores save documents with it; the host keeps the slots).
+    // The project save schema (the runtime builds and restores save documents with it; the host keeps the slots).
     ...((input.content as { saveSchema?: SaveSchema } | null)?.saveSchema !== undefined ? { saveSchema: (input.content as { saveSchema: SaveSchema }).saveSchema } : {}),
-    // Phase 9.7: the animator controllers (the game's runtime steps them); phase 16.2: without the editor-only graph layout.
+    // The animator controllers (the game's runtime steps them), without the editor-only graph layout.
     ...((input.content as { animators?: AnimatorController[] } | null)?.animators !== undefined ? { animators: animatorsForRuntime((input.content as { animators: AnimatorController[] }).animators) } : {}),
-    // Phase 23.11: the rigs sockets are resolved on (the runtime never loads a model).
+    // The rigs sockets are resolved on (the runtime never loads a model).
     ...(rigs !== undefined ? { rigs } : {}),
-    // Phase 14.1: a v4 game's prefabs (scripts spawn them at run time).
+    // A v4 game's prefabs (scripts spawn them at run time).
     ...(prefabDefs.length > 0 ? { prefabs: prefabDefs } : {}),
-    // Phase 23.5: the block types and the cell metadata schema (the runtime and the renderer read them).
+    // The block types and the cell metadata schema (the runtime and the renderer read them).
     ...((input.content as { blockTypes?: BlockType[] } | null)?.blockTypes !== undefined ? { blockTypes: (input.content as { blockTypes: BlockType[] }).blockTypes } : {}),
     ...((input.content as { cellFields?: CellField[] } | null)?.cellFields !== undefined ? { cellFields: (input.content as { cellFields: CellField[] }).cellFields } : {}),
     ...(input.scenes !== undefined ? { scenes: sceneRows, buffers: bufferArtifacts.map((b) => ({ digest: b.digest, byteLength: b.bytes.length })) } : {}),
@@ -742,7 +741,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
   }
 
   stage('manifest');
-  // Phase 25.7b: the content files the manifest lists (JSON, by digest).
+  // The content files the manifest lists (JSON, by digest).
   const contentFileArtifacts: ClosureArtifact[] = captured.contentFiles.map((f) => ({ path: f.path, bytes: f.bytes, digest: f.digest, contentType: 'application/json' }));
   assetArtifacts.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   behaviorArtifacts.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
@@ -775,7 +774,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
 }
 
 /**
- * Phase 23.11: whether a game uses sockets — an entity of a scene or a prefab
+ * Whether a game uses sockets — an entity of a scene or a prefab
  * carries `socketAttach`, or a compiled script names `sockets` (the
  * `ctx.sockets` API; a false positive only ships the rigs).
  */
@@ -788,7 +787,7 @@ function usesSockets(scenes: readonly unknown[] | undefined, prefabs: readonly P
 }
 
 /**
- * Phase 23.11: every model's rig (nodes and node animation channels read from
+ * Every model's rig (nodes and node animation channels read from
  * its GLB), with the clips of animation-only files ("clips for" a model)
  * added to that model's rig. Within the engine's key budgets
  * (`MODEL_RIG_LIMITS`): clips past them are left out and the rig is marked

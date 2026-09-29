@@ -1,9 +1,9 @@
 /**
- * Phase 12 (c): the v4 project — several scenes, one file each — and the
+ * The v4 project — several scenes, one file each — and the
  * pure v3 → v4 migration.
  *
  * Layout (storage v4, workspace): `project.json` (manifest schemaVersion 3;
- * 2 before phase 24.8), `content.json` (the project-wide content block:
+ * a 2 is upgraded on load), `content.json` (the project-wide content block:
  * assets, prefabs, behaviors, settings, trust, tags, startScenes…) and
  * `scenes/<sceneId>.json` (one v4 scene each). This module holds the rules
  * that span documents:
@@ -17,8 +17,8 @@
  * - every scene's asset, cue, tag and behavior references resolve against
  *   the content block (the v3 per-scene cross-block rules, reused).
  *
- * Level bounds and a kill height are gone in v4: rules like these are a
- * game's own logic (scripts). Pure: no I/O.
+ * v4 has no level bounds or kill height: rules like these are a game's own
+ * logic (scripts). Pure: no I/O.
  */
 
 import { composeBlockLayers, type BlockContentView } from './block-layers';
@@ -39,9 +39,9 @@ import { PROJECT_SCHEMA_VERSION, PROJECT_SCHEMA_VERSION_UPGRADED, isUpgradedProj
 import { nextFreeEntityIdOf } from './entity-ids';
 
 /**
- * Phase 12 (c): `project.json` — scenes are the files in `scenes/`.
- * schemaVersion 2 until phase 24.8; 3 since (the format without the genre
- * layer, `upgrade-v24.ts`: the loader upgrades a 2 before validating).
+ * `project.json` — scenes are the files in `scenes/`. schemaVersion 3 (the
+ * format without the genre layer; `upgrade-v24.ts`: the loader upgrades a 2
+ * before validating).
  */
 export interface ProjectManifestV2 {
   schemaVersion: typeof PROJECT_SCHEMA_VERSION;
@@ -147,7 +147,7 @@ export function composeV4(
   content.startScenes.forEach((id, i) => {
     if (!sceneIds.has(id)) errors.push(projectError(`/startScenes/${i}`, 'reference_missing', 'a start scene names no scene of the project', 'an existing scene id', { document: 'content', reason: 'scene' } as never, id));
   });
-  // Phase 25.8: lights belong to scenes — any light kind may sit in any scene (each scene's own limits:
+  // Lights belong to scenes — any light kind may sit in any scene (each scene's own limits:
   // one directional, one ambient, one hemisphere, 16 point/spot). The camera and the controller stay start-scene only.
   let cameras = 0;
   let controllers = 0;
@@ -180,7 +180,7 @@ export function composeV4(
   if (cameras !== 1) errors.push(projectError('/startScenes', 'camera_count_invalid', 'the start scenes together hold exactly one active camera', 'exactly 1 camera', { document: 'content' } as never, cameras));
   if (controllers > 1) errors.push(projectError('/startScenes', 'controller_count_invalid', 'the start scenes hold at most one player controller', 'at most 1 controller', { document: 'content' } as never, controllers));
 
-  // Phase 24.4j: the shell's listed scenes are scenes of the project, each spawn a player spawn in its scene.
+  // The shell's listed scenes are scenes of the project, each spawn a player spawn in its scene.
   const shell = (content as { shell?: { scenes?: { scene: string; spawn?: string }[] } }).shell;
   if (shell?.scenes !== undefined) {
     const sceneIds = new Set(scenes.map((sc) => sc.sceneId));
@@ -196,13 +196,13 @@ export function composeV4(
     });
   }
 
-  // Phase 9.10: an audio source plays an audio or music asset of this project.
-  // Phase 25.21: a cookie is one plain texture (a texture array is read by graph materials only).
+  // An audio source plays an audio or music asset of this project.
+  // A cookie is one plain texture (a texture array is read by graph materials only).
   const arrays = arrayTextureIds(content as unknown as Record<string, unknown>);
   const soundKinds = new Map((content.assets as { assetId: string; kind?: string }[]).map((a) => [a.assetId, arrays.has(a.assetId) ? TEXTURE_ARRAY_KIND : a.kind]));
   for (const s of scenes) {
     s.entities.forEach((e, i) => {
-      // Phase 25.8: a spot light's cookie is a texture asset of this project.
+      // A spot light's cookie is a texture asset of this project.
       const cookie = (e.components as { light?: { cookie?: string } }).light?.cookie;
       if (cookie !== undefined && soundKinds.get(cookie) !== 'texture') {
         errors.push(sceneError(s.sceneId, withFound({ code: 'asset_reference_missing', path: `/entities/${i}/components/light/cookie`, message: 'a spot light\'s cookie is a texture asset of this project', expected: 'a texture assetId' }, cookie)));
@@ -214,7 +214,7 @@ export function composeV4(
     });
   }
 
-  // Phase 9.9: a pickup's collect sound is an audio asset of this project.
+  // A pickup's collect sound is an audio asset of this project.
   for (const s of scenes) {
     s.entities.forEach((e, i) => {
       const cue = (e.components as { pickup?: { cue?: string } }).pickup?.cue;
@@ -224,7 +224,7 @@ export function composeV4(
     });
   }
 
-  // Phase 9.7: an animator names a controller of this project.
+  // An animator names a controller of this project.
   const controllerIds = new Set((content.animators ?? []).map((c) => c.controllerId));
   for (const s of scenes) {
     s.entities.forEach((e, i) => {
@@ -235,7 +235,7 @@ export function composeV4(
     });
   }
 
-  // Phase 9.4: an object's material mapping names project materials.
+  // An object's material mapping names project materials.
   const materialIds = new Set((content.materials ?? []).map((m) => m.materialId));
   for (const s of scenes) {
     s.entities.forEach((e, i) => {
@@ -249,7 +249,7 @@ export function composeV4(
     });
   }
 
-  // Phase 18.0: overrides name public parameters of the project's graph materials.
+  // Overrides name public parameters of the project's graph materials.
   for (const s of scenes) {
     s.entities.forEach((e, i) => {
       const o = e.components.materialParams;
@@ -260,7 +260,7 @@ export function composeV4(
     });
   }
 
-  // Phase 20.0: an effect component names a project effect and overrides only its public parameters.
+  // An effect component names a project effect and overrides only its public parameters.
   for (const s of scenes) {
     s.entities.forEach((e, i) => {
       const c = e.components.effect;
@@ -270,7 +270,7 @@ export function composeV4(
       }
     });
   }
-  // Phase 14.1: a prefab's gameplay components name project things too.
+  // A prefab's gameplay components name project things too.
   (content.prefabs ?? []).forEach((d, di) => {
     d.entities.forEach((e, ei) => {
       const p = `/prefabs/${di}/entities/${ei}/components`;
@@ -286,7 +286,7 @@ export function composeV4(
     });
   });
 
-  // Phase 24.4e: triggers' scene transitions (the scenes exist; the spawn is a player spawn the character can reach).
+  // triggers' scene transitions (the scenes exist; the spawn is a player spawn the character can reach).
   for (const s of scenes) {
     s.entities.forEach((e, i) => {
       const t = (e.components as { trigger?: { sceneTransition?: { scene: string; spawn?: string; unload?: string[] } } }).trigger?.sceneTransition;
@@ -309,13 +309,13 @@ export function composeV4(
   // Per-scene references against the content block.
   for (const s of scenes) composeSceneV4(s, content, errors, projectRevision);
 
-  // Phase 23.0: a prefab's collider follows the project's physics dimension too.
+  // A prefab's collider follows the project's physics dimension too.
   const dimension = physicsDimensionOf(content.settings);
   (content.prefabs ?? []).forEach((d, di) => {
     d.entities.forEach((e, ei) => {
       const local: ModelErrorV3[] = [];
       physicsDimensionErrors(e.components as unknown as Record<string, unknown>, `/prefabs/${di}/entities/${ei}`, dimension, local, `/prefabs/${di}/entities/${ei}/components`, content.collisionLayers ?? []);
-      // Phase 23.10: a copy's behavior group is one of the project's.
+      // A copy's behavior group is one of the project's.
       behaviorGroupErrors(e.components as unknown as Record<string, unknown>, `/prefabs/${di}/entities/${ei}`, content.behaviorGroups ?? [], local as never);
       for (const x of local) errors.push({ ...x, document: 'content' } as ModelErrorV3);
     });
@@ -323,25 +323,25 @@ export function composeV4(
 }
 
 /**
- * Phase 23.0: the rules of one physics-bearing entity (scene entity or prefab
+ * The rules of one physics-bearing entity (scene entity or prefab
  * entity; `path` is the entity's pointer) that depend on the project's
- * physics dimension. A 2D plane: the rotation about Z only rules (as before).
- * 3D: any collider rotation, the controller upright; every box collider
- * needs its half depth `hz` (no guessed depth); a polygon collider is a
- * 2D-plane shape (3D shapes and mesh colliders are phase 23.1).
+ * physics dimension. A 2D plane: rotation about Z only. 3D: any collider
+ * rotation, the controller upright; every box collider needs its half depth
+ * `hz` (no guessed depth); a polygon collider is a 2D-plane shape (3D uses
+ * the 3D shapes and mesh colliders).
  */
 export function physicsDimensionErrors(comps: Record<string, unknown>, path: string, dimension: 2 | 3, errors: ModelErrorV3[], rotationBase: string = path, collisionLayers: readonly string[] = []): void {
   blockDimensionErrors(comps, path, dimension, errors);
   const collider = comps['collider'] as { shape?: { type?: string; hz?: number } } | undefined;
   const hasController = comps['controller'] !== undefined;
   if (collider === undefined && !hasController) return;
-  // Phase 23.1: the scale rule follows the dimension too (a 3D collider may be scaled).
+  // The scale rule follows the dimension too (a 3D collider may be scaled).
   physicsScaleErrors(comps, rotationBase, hasController, dimension, errors);
   physicsRotationErrors(comps, rotationBase, hasController, dimension, errors);
   if (collider === undefined) return;
   const shape = collider.shape;
   const type = shape?.type;
-  // Phase 23.3: collision layers are 3D physics (the 2D plane is unchanged); each must be the implicit
+  // Collision layers are 3D physics (the 2D plane is unchanged); each must be the implicit
   // "default" or one the project names.
   const layers = (collider as { layers?: unknown }).layers;
   if (Array.isArray(layers)) {
@@ -351,7 +351,7 @@ export function physicsDimensionErrors(comps: Record<string, unknown>, path: str
     });
   }
   if (dimension !== 3) {
-    // Phase 23.1: the 3D shapes need a 3D project.
+    // The 3D shapes need a 3D project.
     if (type === 'sphere' || type === 'capsule' || type === 'convex' || type === 'mesh') {
       errors.push(withFound({ code: 'collider_shape_invalid', path: `${path}/components/collider/shape/type`, message: `a ${type} collider is a 3D shape; a 2D-plane project uses box or polygon colliders (or set physics_dimension to 3)`, expected: '"box" | "polygon"' } as ModelErrorV3, type));
     }
@@ -371,7 +371,7 @@ export function physicsDimensionErrors(comps: Record<string, unknown>, path: str
 }
 
 /**
- * Phase 23.1: the gameplay blocks' rules that follow the project's physics
+ * The gameplay blocks' rules that follow the project's physics
  * dimension. A trigger's `sphere` and `capsule` are 3D areas (a 2D plane has
  * `box` and `circle`); in 3D a box trigger needs its depth (`size` [w, h, d])
  * and a circle is a sphere. A switch tests the character on the 2D plane
@@ -413,16 +413,16 @@ export function composeSceneV4(s: SceneV4, content: ContentCatalogV4, errors: Mo
   const asV3 = { ...s, schemaVersion: 3, revision: projectRevision } as unknown as SceneV3;
   composeV3(asV3, { ...content, game: null }, local);
   for (const e of local) errors.push(e.document === 'content' ? e : sceneError(s.sceneId, e));
-  // Phase 23.0: the rules that follow the project's physics dimension.
+  // The rules that follow the project's physics dimension.
   const dimension = physicsDimensionOf(content.settings);
   s.entities.forEach((e, i) => {
     const local3: ModelErrorV3[] = [];
     physicsDimensionErrors(e.components as unknown as Record<string, unknown>, `/entities/${i}`, dimension, local3, `/entities/${i}`, content.collisionLayers ?? []);
-    // Phase 23.10: an entity's behavior group is one of the project's.
+    // An entity's behavior group is one of the project's.
     behaviorGroupErrors(e.components as unknown as Record<string, unknown>, `/entities/${i}`, content.behaviorGroups ?? [], local3 as never);
     for (const x of local3) errors.push(sceneError(s.sceneId, x));
   });
-  // Phase 23.5: the cells against the block types and the metadata schema.
+  // The cells against the block types and the metadata schema.
   if (s.blocks !== undefined) {
     const local5: ModelErrorV3[] = [];
     composeBlockLayers(s.blocks, s.entities as unknown as { id: string; components: Record<string, unknown> }[], content as unknown as BlockContentView, local5);
@@ -486,7 +486,7 @@ export interface MigrationV4Result {
 }
 
 function nextId(taken: Set<string>, prefix: string): string {
-  // Phase 25.7a: the assigned ids' width (at least six digits).
+  // The assigned ids' width (at least six digits).
   const id = nextFreeEntityIdOf(taken, prefix);
   if (id === undefined) throw new Error(`no free ${prefix} id`);
   return id;
@@ -494,10 +494,10 @@ function nextId(taken: Set<string>, prefix: string): string {
 
 /**
  * Pure v3 → v4: the one v3 scene becomes scene v4 (same id, name "Main") and
- * the content block gains `startScenes: [that scene]`. Phase 24.7: a v3 game
- * block no longer validates (the game block was deleted), so
- * `content.game` is always null here; phase 24.8: v4 content has no `game`. Retry records are not carried over (the
- * upgrade is a history boundary, charter §6).
+ * the content block gains `startScenes: [that scene]`. A non-null v3 game
+ * block does not validate, so `content.game` is always null here; v4 content
+ * has no `game`. Retry records are not carried over (the upgrade is a
+ * history boundary).
  */
 export function migrateProjectV3ToV4(manifest: M1Manifest, scene: SceneV3, content: ContentCatalogV3): MigrationV4Result {
   const notes: string[] = [];

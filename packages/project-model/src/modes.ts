@@ -1,5 +1,5 @@
 /**
- * Phase 23.10: game modes (`content.modes[]`) and behavior groups
+ * Game modes (`content.modes[]`) and behavior groups
  * (`content.behaviorGroups[]`), v4.
  *
  * A game mode is a named state of the running game that decides, in one

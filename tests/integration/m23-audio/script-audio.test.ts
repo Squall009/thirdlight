@@ -1,5 +1,5 @@
 /**
- * Phase 23.13: script audio is simulation state. A neutral 3D scene (scene
+ * Script audio is simulation state. A neutral 3D scene (scene
  * mode, physics_dimension 3) with a script that starts a positional loop on
  * a moving entity, plays a one-shot, changes the loop's pitch, fades and
  * stops it, sets music, plays a stinger (the music ducks under it) and

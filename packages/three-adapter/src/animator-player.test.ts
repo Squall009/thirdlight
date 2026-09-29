@@ -1,5 +1,5 @@
 /**
- * Phase 14.6: the animator player masks override layers by bone and plays
+ * The animator player masks override layers by bone and plays
  * clips of an animation-only asset on the model's bones (matched by name).
  */
 import * as THREE from 'three';

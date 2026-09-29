@@ -1,5 +1,5 @@
 /**
- * World transforms over the scene hierarchy (phase 12), for moves that keep
+ * World transforms over the scene hierarchy, for moves that keep
  * an entity where it is in the world.
  *
  * Folders have no transform (identity). A world-keeping move sets the new

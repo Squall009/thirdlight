@@ -24,7 +24,7 @@ export interface SessionRoutesContext {
   readonly sessionView: (s: SessionRecord) => SessionView;
   readonly recordProblem: (projectId: string, source: Problem["source"], code: string, message: string) => void;
   readonly notifyMutationApplied: (projectId: string, requestId: string, revision: number, origin: OriginDoc | null, change: unknown, sceneId?: string) => void;
-  /** Phase 11: the backend's headless editors (the owner's browser evicts them). */
+  /** The backend's headless editors (the owner's browser evicts them). */
   readonly headless: HeadlessEditors;
   /** The owner of a play went away (its play is stopped after the grace period). */
   readonly onOwnerLost: (sessionId: string, detail?: string) => void;
@@ -59,13 +59,13 @@ export function makeSessionRoutes(ctx: SessionRoutesContext) {
       sendError(res, sessionError('unauthorized', 'validation', 'the token scope does not cover this project'));
       return;
     }
-    // The project must be loadable (§5.1 outcomes).
+    // The project must be loadable.
     const probe = service.query({ op: 'queryProject', projectId }) as QueryResult;
     if (!probe.ok) {
       sendError(res, workspaceError(probe.error), statusFor(probe.error.cls));
       return;
     }
-    // Phase 11: the owner's browser takes the project over from a headless editor.
+    // The owner's browser takes the project over from a headless editor.
     const current = sessions.sessionForProject(projectId);
     if (current !== undefined && current.sessionId !== sessionId && clientInfo?.label !== 'headless' && current.clientInfo?.label === 'headless') {
       const old = current.sessionId;
@@ -154,7 +154,7 @@ export function makeSessionRoutes(ctx: SessionRoutesContext) {
       sendError(res, body.error);
       return;
     }
-    // §6.1: strict parse of the bytes first, then the commands.md pipeline.
+    // Strict parse of the bytes first, then the commands.md pipeline.
     const strict = parseStrictJsonBytes(body.bytes.length === 0 ? new TextEncoder().encode('{}') : body.bytes);
     if (!strict.ok) {
       sendError(res, strict.error);
@@ -170,7 +170,7 @@ export function makeSessionRoutes(ctx: SessionRoutesContext) {
       typeof env.origin === 'object' && env.origin !== null && !Array.isArray(env.origin)
         ? (env.origin as OriginDoc)
         : null;
-    // §6.1 caller binding: a browser-origin command must come from the
+    // Caller binding: a browser-origin command must come from the
     // project's registered authoring session.
     if (envOrigin?.kind === 'browser' && sessions.sessionForProject(projectId) === undefined) {
       sendError(res, sessionError('session_required', 'validation', 'a browser-origin command requires a registered authoring session for the project'), 403);
@@ -178,12 +178,12 @@ export function makeSessionRoutes(ctx: SessionRoutesContext) {
     }
     const session = sessions.sessionForProject(projectId);
     if (session) sessions.touch(session, nowMs());
-    // §6.1: mutation envelopes go through the commands.md pipeline; query
+    // Mutation envelopes go through the commands.md pipeline; query
     // envelopes are served by the workspace query path (never a mutation,
     // no revision advance, no mutation.applied, no history).
     const isMut = isMutationOp(envelope.op);
     if (isMut) {
-      // Phase 23.7: a script library change republishes the published scripts
+      // A script library change republishes the published scripts
       // that import it in the same command; compile them against the library
       // set it will commit first (the command reads only those prepared facts).
       if (envelope.op === 'setScriptLibrary' && typeof env.args === 'object' && env.args !== null && !Array.isArray(env.args)) {
@@ -204,7 +204,7 @@ export function makeSessionRoutes(ctx: SessionRoutesContext) {
           }
         }
       }
-      // Phase 25.9: a staged commit compiles the dependents of every changed library once, against the committed set.
+      // A staged commit compiles the dependents of every changed library once, against the committed set.
       let stagePrep: { dependents: { behaviorId: string; outputDigest: string }[]; compiled: number } | null = null;
       if (envelope.op === 'commitScriptLibraryStage' && typeof env.args === 'object' && env.args !== null && !Array.isArray(env.args) && typeof (env.args as Record<string, unknown>)['stageId'] === 'string') {
         const prep = await service.prepareScriptLibraryStage(projectId, (env.args as Record<string, string>)['stageId']!);
@@ -238,7 +238,7 @@ export function makeSessionRoutes(ctx: SessionRoutesContext) {
         sendJson(res, 200, result);
         return;
       }
-      // §6.1: the response is exactly the commands.md result — pass the
+      // The response is exactly the commands.md result — pass the
       // raw commands.md error through (it carries `currentRevision` etc.;
       // a SessionError re-wrap would drop those fields).
       if (result.error.code !== 'no_change') {

@@ -1,5 +1,5 @@
 /**
- * Phase 16.3: compile failures carry located diagnostics (path, 1-based line
+ * Compile failures carry located diagnostics (path, 1-based line
  * and column) so the script editor can mark them inline.
  */
 import { describe, expect, it } from 'vitest';

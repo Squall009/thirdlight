@@ -1,17 +1,16 @@
 /**
- * Content storage — workspace.md §13 (layout, immutable blob publication,
- * staging §7.6, reads/integrity §13.5, derived caches §13.6, quota §13.9) and
- * project-model.md §19 (`captureContent`).
+ * Content storage: layout, immutable blob publication, staging,
+ * reads/integrity, derived caches, quota and `captureContent`.
  *
- * Ownership (workspace.md §13.0): this module owns every project-relative
+ * Ownership: this module owns every project-relative
  * content path, immutable blob publication, staging, quota accounting, the
  * integrity report, derived-cache paths and the captured content view. It
  * never accepts a caller-supplied path or digest as authoritative, and it
  * never holds the project mutation lock (the synchronous service call is the
  * lock scope for the command pipeline only; preparation and blob publication
- * run outside it — §13.3.3).
+ * run outside it).
  *
- * Derived caches are regenerable and never authoritative (§13.6): a write to
+ * Derived caches are regenerable and never authoritative: a write to
  * `.thirdlight/derived/**` changes no revision, no envelope and no catalog.
  */
 import { ID_RE } from '@thirdlight/project-model';
@@ -66,11 +65,11 @@ import {
 import type { CommandError } from '@thirdlight/commands';
 import { writeAtomic, type WriteOps } from './write';
 
-// ---- bounds (workspace.md §13.9) --------------------------------------------
+// ---- bounds --------------------------------------------
 
 /** The staged source / authoritative source blob bound, open stages and staged bytes per project (the model's). */
 export { MAX_OPEN_STAGES, MAX_SOURCE_BYTES, MAX_STAGED_BYTES_PER_PROJECT };
-/** Stage TTL: 3 600 s (workspace.md §7.6.2). */
+/** Stage TTL: 3 600 s. */
 export const STAGE_TTL_SECONDS = 3_600;
 /** Default authoritative-bytes quota per project (512 MiB). */
 export const DEFAULT_MAX_SOURCE_BYTES_PER_PROJECT = 536_870_912;
@@ -78,11 +77,11 @@ export const DEFAULT_MAX_SOURCE_BYTES_PER_PROJECT = 536_870_912;
 export const DEFAULT_DEVICE_SPACE_RESERVE_BYTES = 67_108_864;
 /** Abandoned-stage retention: 24 h by directory mtime (non-authoritative). */
 export const ABANDONED_STAGE_RETENTION_SECONDS = 86_400;
-/** The bounded inspection job budget (sessions.md §11.5 / delivery.md §11). */
+/** The bounded inspection job budget. */
 export const INSPECT_TIMEOUT_MS = 30_000;
 /** 64 lowercase hex. */
 const DIGEST_RE = /^[0-9a-f]{64}$/;
-/** project-model §5.1 ID syntax. */
+/** The project-model ID syntax. */
 
 /** The content-storage configuration (a subspace of the service core). */
 export interface ContentConfig {
@@ -91,7 +90,7 @@ export interface ContentConfig {
   freeSpaceBytes: () => number;
   now: () => number;
   /**
-   * The injected GLB inspector (dependencies.md §4.1: `backend` constructs
+   * The injected GLB inspector (`backend` constructs
    * the `asset-pipeline` inspector and injects it; `workspace` holds only
    * its type). Absent ⇒ `inspectStage` is structurally unavailable
    * (`derived_cache_unavailable`) rather than faked.
@@ -100,8 +99,8 @@ export interface ContentConfig {
   /** The bounded inspection budget (default `INSPECT_TIMEOUT_MS`). */
   inspectTimeoutMs?: number;
   /**
-   * The injected behavior-source compiler (packet 33; dependencies.md §4.1:
-   * `backend` constructs the `behavior-build` compiler and injects it). The
+   * The injected behavior-source compiler (`backend` constructs the
+   * `behavior-build` compiler and injects it). The
    * workspace holds only its type and calls `compile` from the preparation
    * layer — no hidden global service, no source evaluation by the workspace.
    */
@@ -109,14 +108,14 @@ export interface ContentConfig {
 }
 
 /**
- * One typed inspection request (packet 48): the staged bytes' declared `kind`
+ * One typed inspection request: the staged bytes' declared `kind`
  * and, for a role-aware GLB publication, the requested animation roles. The
  * workspace only forwards this to the injected inspector — it never inspects
  * bytes itself and makes no role or profile decision.
  */
 export interface InspectorRequest {
   readonly kind?: 'model' | 'audio' | 'texture' | 'music' | 'font';
-  /** presentation.md §41.3.3: request the animated-model profile. */
+  /** Request the animated-model profile. */
   readonly animation?: AnimationProfileRequest;
 }
 
@@ -127,8 +126,8 @@ export type ImportedProposal = ImportProposal | AudioImportProposal | ImageImpor
  * The injected inspector surface (asset-pipeline's `inspectGlb`/`inspectAudio`
  * bound with the pinned profile/recipe/toolchain by the backend). The workspace
  * supplies the job port so the importer never reads a clock or a PRNG itself
- * (project-model §18.8.3), and forwards the caller's typed `request` (packet 48:
- * the additive third parameter — existing two-parameter inspectors stay valid).
+ * (import must be deterministic), and forwards the caller's typed `request`
+ * (an optional third parameter, so two-parameter inspectors stay valid).
  */
 export type StageInspector = (
   bytes: Uint8Array,
@@ -161,14 +160,14 @@ export interface ContentContext {
 
 /**
  * The workspace-side typed **prepared-media facts** of one catalog asset
- * version (project-model §18.4/§23.3.7; workspace.md §16.6 item 4): the
+ * version: the
  * resolved `(version, sourceDigest, sourceByteLength, importRecipe)` tuple
  * the captured view pins, plus the `kind` discriminator so a caller never
  * has to guess whether a version is a model or an audio byte string. Every
  * field is derived from the last acknowledged catalog — this is a typed read
  * of authoritative state, not a new persisted shape (no contract field is
  * invented). Used by the workspace's own content readers and available to
- * the packet-48 inspector wiring.
+ * the inspector wiring.
  */
 export interface PreparedMediaFacts {
   readonly assetId: string;
@@ -181,7 +180,7 @@ export interface PreparedMediaFacts {
   readonly importRecipe: ModelImportRecipe;
 }
 
-// ---- artifact path rules (workspace.md §13.1 rule 5) -------------------------
+// ---- artifact path rules ----------------------------------------------------
 
 export type ContentPathResult =
   | { ok: true; dir: string }
@@ -261,8 +260,8 @@ export function sourcesDir(projectDir: string): ContentPathResult {
 }
 
 /**
- * Remove leftover blob-publication temps (`sources/sha256/.<digest>.tmp-*`,
- * workspace.md §5.4/§13.2 rule 5). Only the owner writes them (the previous
+ * Remove leftover blob-publication temps (`sources/sha256/.<digest>.tmp-*`).
+ * Only the owner writes them (the previous
  * owner is gone by ownership semantics), so the cleanup is safe on open.
  */
 export function cleanBlobTemps(projectDir: string): number {
@@ -291,7 +290,7 @@ export function stagingRoot(projectDir: string, thirdlightDir: string): ContentP
   return verifyArtifactDir(projectDir, ['.thirdlight', 'staging'], true);
 }
 
-// ---- staging (workspace.md §7.6) --------------------------------------------
+// ---- staging --------------------------------------------
 
 export interface StageRequest {
   stageId: string;
@@ -375,7 +374,7 @@ function stagedBytes(root: string): number {
 /**
  * Remove abandoned staging directories (mtime older than 24 h) and leftover
  * staging temps. Non-authoritative cleanup only — it never touches an
- * authoritative path. Runs on a successful open (workspace.md §7.6.2).
+ * authoritative path. Runs on a successful open.
  */
 export function cleanupStages(core: { ops: WriteOps }, projectDir: string, thirdlightDir: string, nowMs: number): number {
   const root = join(thirdlightDir, 'staging');
@@ -411,7 +410,7 @@ export function cleanupStages(core: { ops: WriteOps }, projectDir: string, third
   return removed;
 }
 
-/** `stageContent(projectId, { stageId, bytes, displayName? })` (workspace.md §11). */
+/** `stageContent(projectId, { stageId, bytes, displayName? })`. */
 export function stageContent(
   core: { ops: WriteOps; content: ContentConfig },
   ctx: ContentContext,
@@ -438,7 +437,7 @@ export function stageContent(
   const rootRes = stagingRoot(ctx.dir, ctx.thirdlightDir);
   if (!rootRes.ok) return { ok: false, error: rootRes.error };
   const root = rootRes.dir;
-  // Phase 14.9: a stage past its TTL can never be used again (`resolveStage`
+  // A stage past its TTL can never be used again (`resolveStage`
   // refuses it as `stage_expired`), so it no longer counts as open: remove
   // the expired ones (another stage than this one) before counting. Before,
   // a publication (which keeps its stage) or an abandoned upload held one of
@@ -470,7 +469,7 @@ export function stageContent(
     dir: stageDir,
     target,
     bytes,
-    // Staging is a supported edit path (workspace.md §7.6.1): no pre-write
+    // Staging is a supported edit path: no pre-write
     // check, no pause, no recovery snapshot — replacing/truncating a staged
     // file is expected (BR-4).
     allowedPreHashes: [],
@@ -573,7 +572,7 @@ export function resolveStage(
   return { ok: true, stage: { stageId, dir, bytes, digest: sha256Hex(bytes) } };
 }
 
-/** `discardStage(projectId, stageId)` (workspace.md §11). */
+/** `discardStage(projectId, stageId)`. */
 export function discardStage(
   core: { ops: WriteOps; content: ContentConfig },
   ctx: ContentContext,
@@ -590,7 +589,7 @@ export function discardStage(
   return { ok: true, discarded: true };
 }
 
-// ---- immutable blob publication (workspace.md §13.2) ------------------------
+// ---- immutable blob publication ------------------------
 
 export type BlobSource = { kind: 'stage'; stageId: string } | { kind: 'bytes'; bytes: Uint8Array };
 
@@ -669,8 +668,8 @@ function defaultFreeSpace(p: string): number {
 export { defaultFreeSpace };
 
 /**
- * `publishBlob(projectId, { digest, byteLength, source })` (workspace.md §11):
- * exactly the §5.1 `W` procedure with `target = sources/sha256/<digest>`.
+ * `publishBlob(projectId, { digest, byteLength, source })`:
+ * exactly the `writeAtomic` procedure with `target = sources/sha256/<digest>`.
  * Write-once: an existing path whose content matches is idempotent
  * (`alreadyPresent: true`); a mismatch is `blob_corrupt` and **no overwrite**.
  * Publication changes no authoritative state and needs no mutation lock.
@@ -704,7 +703,7 @@ export function publishBlob(
     return { ok: false, error: stageLimitError('stage_bytes', bytes.length, MAX_SOURCE_BYTES) };
   }
   const actual = sha256Hex(bytes);
-  // A caller-supplied digest/byteLength is never authoritative (§13.2 rule 1).
+  // A caller-supplied digest/byteLength is never authoritative.
   if (actual !== digest || bytes.length !== byteLength) {
     return { ok: false, error: blobCorrupt(digest, `sources/sha256/${digest}`, actual) };
   }
@@ -733,7 +732,7 @@ export function publishBlob(
     if (h === digest) return { ok: true, digest, byteLength: bytes.length, published: false, alreadyPresent: true };
     return { ok: false, error: blobCorrupt(digest, target, h) };
   }
-  // Quota pre-flight: project quota and device free space (§13.3.2 step 3).
+  // Quota pre-flight: project quota and device free space.
   const used = authoritativeBytes(ctx.dir);
   if (used + bytes.length > core.content.maxSourceBytesPerProject) {
     return {
@@ -753,7 +752,7 @@ export function publishBlob(
     target,
     bytes,
     // The target must stay absent: an appearance races in as `external` and
-    // is classified below (never silently overwritten — §13.2 rule 2).
+    // is classified below (never silently overwritten).
     allowedPreHashes: null,
     previousHash: null,
     ops: core.ops,
@@ -771,7 +770,7 @@ export function publishBlob(
   return { ok: false, error: contentPublishFailed('write') };
 }
 
-// ---- verified reads (workspace.md §13.5) ------------------------------------
+// ---- verified reads ------------------------------------
 
 export interface BlobReadRequest {
   assetId: string;
@@ -791,9 +790,7 @@ export type BlobReadResult = BlobReadResultOk | { ok: false; error: CommandError
 
 /**
  * The catalog-version fact shape both `ContentCatalog` and `ContentCatalogV3`
- * satisfy (`project-model` §18.4/§23.3.7). Structural so the reader stays
- * kind-agnostic (`readBlob` is unchanged and kind-agnostic, workspace.md
- * §16.6 item 3).
+ * satisfy. Structural so the reader (`readBlob`) stays kind-agnostic.
  */
 interface CatalogVersionLike {
   readonly version: number;
@@ -935,16 +932,14 @@ export type SourceBlobReadResult =
 
 /**
  * `readSourceBlob` — a digest-addressed verified read of one immutable
- * `sources/sha256/<digest>` blob (packet 35; the behavior-container delivery
- * read). Same path rules, `O_NOFOLLOW` open and digest-verification discipline
- * as `readBlob` (workspace.md §13.5); a non-64-hex value is `path_rejected`
+ * `sources/sha256/<digest>` blob (the behavior-container delivery read). Same path rules, `O_NOFOLLOW` open and digest-verification discipline
+ * as `readBlob`; a non-64-hex value is `path_rejected`
  * before any storage call. The blob bytes are never substituted or degraded:
  * mismatch ⇒ `blob_corrupt`, missing ⇒ `blob_missing`.
  *
- * Contract-change request C35-1 (docs/handoffs/35.md): the accepted §3 public
- * surface names only `readBlob(assetId, version)`; play/export delivery needs
- * the digest-addressed read for behavior source containers, which are not
- * catalog assets.
+ * `readBlob(assetId, version)` reads catalog assets only; play/export delivery
+ * needs the digest-addressed read for behavior source containers, which are
+ * not catalog assets.
  */
 export function readSourceBlob(
   core: { ops: WriteOps },
@@ -977,7 +972,7 @@ export function readSourceBlob(
   return { ok: true, digest, byteLength: r.bytes.length, bytes: r.bytes, verified: true };
 }
 
-// ---- files referenced in place in the game folder (phase 10, option B) -------
+// ---- files referenced in place in the game folder (option B) -------
 
 /**
  * Resolve a project-relative `sourcePath` to a real file inside the game
@@ -1265,7 +1260,7 @@ export function inspectProjectFile(
   return { ok: true, sourcePath: path, proposal };
 }
 
-// ---- integrity (workspace.md §13.5) -----------------------------------------
+// ---- integrity -----------------------------------------
 
 export interface ContentIntegrityEntry {
   assetId: string;
@@ -1304,8 +1299,7 @@ export type ContentIntegrityResult =
   | { ok: true; entries: ContentIntegrityEntry[]; summary: ContentIntegritySummary }
   | { ok: false; error: CommandError };
 
-/** `inspectStage(projectId, stageId)` (workspace.md §11/§13.3.1; project-model
- * §18.7/§18.8): reads the staged bytes through the workspace's own path rules,
+/** `inspectStage(projectId, stageId)`: reads the staged bytes through the workspace's own path rules,
  * runs the injected bounded inspector with a caller-owned job identity, and
  * returns the immutable non-authoritative proposal. A rejected proposal is
  * `import_rejected` (with the ordered diagnostics); no authoritative state is
@@ -1323,13 +1317,13 @@ export interface InspectStageOptions {
   displayName?: string;
   /** Test seam: deterministic proposal identity. */
   proposalId?: () => string;
-  /** Packet 48: the declared kind of the staged bytes (default `model`). */
+  /** The declared kind of the staged bytes (default `model`). */
   kind?: 'model' | 'audio' | 'texture' | 'music' | 'font';
-  /** Packet 48: the requested animated GLB profile (presentation.md §41.3.3). */
+  /** The requested animated GLB profile. */
   animation?: AnimationProfileRequest;
 }
 
-/** `p-` + 32 lowercase hex (project-model §18.8 `proposalId`). */
+/** `p-` + 32 lowercase hex (the import `proposalId`). */
 function defaultProposalId(): string {
   const b = randomBytes(16);
   let s = '';
@@ -1337,7 +1331,7 @@ function defaultProposalId(): string {
   return `p-${s}`;
 }
 
-/** `resolveStage` + the injected inspector (workspace.md §11 `inspectStage`). */
+/** `resolveStage` + the injected inspector (`inspectStage`). */
 export function inspectStage(
   core: { ops: WriteOps; content: ContentConfig },
   ctx: ContentContext,
@@ -1421,7 +1415,7 @@ export function contentIntegrity(
       }
     }
   }
-  // Orphan blobs (retained, harmless, reported only — §13.7).
+  // Orphan blobs (retained, harmless, reported only).
   let orphanBlobs = 0;
   const dir = join(ctx.dir, 'sources', 'sha256');
   try {
@@ -1461,7 +1455,7 @@ function blobStatus(ctx: ContentContext, digest: string, byteLength: number): Co
   return 'ok';
 }
 
-// ---- commit-time verification (workspace.md §13.3.2 step 4) -----------------
+// ---- commit-time verification -----------------
 
 /**
  * Verify that the referenced authoritative blob exists and matches its
@@ -1500,15 +1494,14 @@ export function verifyReferencedBlob(
   return { ok: true };
 }
 
-// ---- captured project read (workspace.md §16, packet 58) ---------------------
+// ---- captured project read ---------------------
 
 /**
- * The captured project read (packet 58, delivery.md §2.6 "one capture, one
- * read"): the single acknowledged state's scenes + content, for the shared
+ * The captured project read ("one capture, one read"): the single acknowledged state's scenes + content, for the shared
  * closure builder. A pure read — no lock, no mutation, served from the last
  * acknowledged in-memory state (never a partial state). The caller (the
  * exporter's closure builder) derives the runtime-content manifest from
- * these; the workspace does NOT duplicate the derivation (delivery.md §1).
+ * these; the workspace does NOT duplicate the derivation.
  */
 export interface CapturedV3Read {
   projectId: string;
@@ -1531,7 +1524,7 @@ export function readCapturedV3(ctx: ContentContext): CapturedV3ReadResult {
     const content = ctx.content as ContentCatalogV4;
     const byId = new Map(ctx.scenes.map((sc) => [sc.sceneId, sc]));
     const entities = content.startScenes.flatMap((id) => byId.get(id)?.entities ?? []);
-    // Phase 23.5: the start scenes' block-layer cells travel with them.
+    // The start scenes' block-layer cells travel with them.
     const blocks = content.startScenes.flatMap((id) => byId.get(id)?.blocks ?? []);
     const ordered = content.scenes.map((e) => byId.get(e.sceneId)).filter((x): x is SceneV4 => x !== undefined);
     return {
@@ -1557,7 +1550,7 @@ export function readCapturedV3(ctx: ContentContext): CapturedV3ReadResult {
   };
 }
 
-// ---- derived caches (workspace.md §13.6) ------------------------------------
+// ---- derived caches ------------------------------------
 
 /** `.thirdlight/derived/<sourceDigest>/<recipeDigest>/` (path only). */
 export function derivedCachePath(thirdlightDir: string, sourceDigest: string, recipeDigest: string): string {
@@ -1611,7 +1604,7 @@ export function writeDerivedImport(
   return { ok: true, path: target };
 }
 
-// ---- prepared behavior sources (packet 33; derived cache) ---------------------
+// ---- prepared behavior sources (derived cache) ---------------------
 
 const PREPARED_DIGEST_RE = /^[0-9a-f]{64}$/;
 const PREPARED_ID_RE = ID_RE;
@@ -1629,8 +1622,7 @@ function isPlainRecord(v: unknown): v is Record<string, unknown> {
 
 /**
  * Shape-validate one persisted prepared record. Derived data: an invalid or
- * corrupt entry is skipped, never repaired and never authoritative
- * (workspace.md §13.6).
+ * corrupt entry is skipped, never repaired and never authoritative.
  */
 export function parsePreparedRecord(value: unknown): PreparedBehaviorSource | null {
   if (!isPlainRecord(value)) return null;
@@ -1699,7 +1691,7 @@ export function loadPreparedSources(thirdlightDir: string): Map<string, Prepared
 
 /**
  * Write the prepared record into the derived cache (non-authoritative: no
- * lock, no envelope write, no revision change; workspace.md §13.6).
+ * lock, no envelope write, no revision change).
  */
 export function writeDerivedPrepared(
   core: { ops: WriteOps },

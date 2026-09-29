@@ -1,6 +1,6 @@
 /**
- * Packet 07 — crash-recovery on the REAL filesystem with REAL subprocess
- * termination (workspace.md §5.1/§5.2, §6.2, §9.4).
+ * Crash-recovery on the REAL filesystem with REAL subprocess
+ * termination.
  *
  * The child runner (tests/crash/child.ts, esbuild-bundled) runs the
  * workspace service with a fault seam at the exact crash point, then
@@ -13,8 +13,8 @@
  *     assertion with the real /proc liveness rules).
  *
  * These live under the repo-root tests/ (not a package) because
- * node:child_process is a forbidden edge for package code
- * (dependencies.md §4.1). Temp roots are on ext4 (/home/dadmin).
+ * node:child_process is a forbidden edge for package code.
+ * Temp roots are on ext4 (/home/dadmin).
  *
  * Process-crash guarantees are proven here; POWER-LOSS durability is a
  * stronger property (directory-flush ordering) that this suite exercises
@@ -167,7 +167,7 @@ describe('crash recovery with real subprocess termination (workspace.md §5/§6)
     expect(q.ok).toBe(true);
 
     // The crashed request left NO durable record: re-sending it executes
-    // fresh (commands.md §7.3) — exactly once.
+    // fresh — exactly once.
     const r = svc.runCommand({
       op: 'setTransform',
       projectId: 'demo-0001',
@@ -180,8 +180,8 @@ describe('crash recovery with real subprocess termination (workspace.md §5/§6)
     expect(r.revision).toBe(6);
     expect(r.duplicated).toBe(false);
 
-    // The takeover's open cleaned the leftover temp (owner cleans at
-    // open, §5.4); the disk carries the applied state with the record.
+    // The takeover's open cleaned the leftover temp (the owner cleans at
+    // open); the disk carries the applied state with the record.
     const tempsAfter = readdirSync(join(dir, 'scenes')).filter((n) => n.startsWith(SCENE_TEMP_PREFIX));
     expect(tempsAfter).toEqual([]);
     const disk = envJson(envPath);
@@ -224,7 +224,7 @@ describe('crash recovery with real subprocess termination (workspace.md §5/§6)
     if (!r.ok) throw new Error(`retry failed: ${JSON.stringify(r)}`);
     expect(r.duplicated).toBe(true);
     expect(r.revision).toBe(6);
-    // Phase 14.8: the replay is the live acknowledgement, the edited scene included.
+    // The replay is the live acknowledgement, the edited scene included.
     expect(r.sceneId).toBe('scene-main');
     expect(readFileSync(envPath).equals(frozen)).toBe(true);
     svc.dispose();

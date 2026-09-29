@@ -1,5 +1,5 @@
 /**
- * Packet 38 — minimal Chrome DevTools Protocol driver.
+ * Minimal Chrome DevTools Protocol driver.
  *
  * No new dependency: it speaks CDP over the repository's already-pinned `ws`
  * (backend transport) and launches the local Chrome resolved by
@@ -174,7 +174,7 @@ async function connect(wsUrl, { pageDomains = true } = {}) {
       const r = await send('Page.captureScreenshot', { format: 'png' });
       return Buffer.from(r.data, 'base64');
     },
-    /** A real rendered canvas PNG read from inside the page (M2 relay path). */
+    /** A real rendered canvas PNG read from inside the page (the relay path). */
     async canvasPng(selector) {
       const dataUrl = await this.evaluate(
         `(() => { const c = document.querySelector(${JSON.stringify(selector)}); return c ? c.toDataURL('image/png') : null; })()`,

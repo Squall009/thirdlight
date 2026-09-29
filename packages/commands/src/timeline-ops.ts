@@ -1,5 +1,5 @@
 /**
- * Phase 23.17: timelines (`content.timelines`, sequencer assets).
+ * Timelines (`content.timelines`, sequencer assets).
  *
  * `setTimeline {timeline}` creates or replaces one timeline (by timelineId —
  * its whole value: slots, markers, tracks and keys); `deleteTimeline

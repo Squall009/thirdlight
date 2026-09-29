@@ -1,10 +1,10 @@
 /**
- * Phase 9.4: materials, textures and wind in the browser. A foliage material
+ * Materials, textures and wind in the browser. A foliage material
  * (COLOR_0 as wind data) set as an asset's default makes its pieces move in
  * the Scene view, in Play and in the export; a standard material with a
  * texture shows the texture on a box.
  *
- * Phase 17.2/17.4: runs once per renderer variant (renderer-variants.ts):
+ * Runs once per renderer variant (renderer-variants.ts):
  * node materials on WebGPURenderer — auto (the default) and forced WebGL 2 in
  * the default project, WebGPU in the webgpu project.
  */

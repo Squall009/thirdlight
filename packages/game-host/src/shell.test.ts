@@ -1,5 +1,5 @@
 /**
- * Phase 24.4j: the game shell controller — its screens and their return
+ * The game shell controller — its screens and their return
  * path, the engine pause it holds, New game / Continue / Next scene through
  * the host's seams, saves and loads of numbered slots, the volumes a player
  * sets (kept in storage), and a game mode that forbids the pause.

@@ -1,5 +1,5 @@
 /**
- * Phase 23.11: sockets are simulation state. A neutral model (the socket
+ * Sockets are simulation state. A neutral model (the socket
  * fixture: a node `arm` sliding 1 m/s along +X under an animator, a child
  * node `hand`) carries an authored socket (a gem on `hand`, offset up
  * 0.25 m); a director script attaches a second object to `arm` by

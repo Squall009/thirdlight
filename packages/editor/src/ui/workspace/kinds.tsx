@@ -1,5 +1,5 @@
 /**
- * Phase 16.0: the document-kind registry of the centre workspace.
+ * The document-kind registry of the centre workspace.
  *
  * A document kind says how one kind of document appears as a centre tab:
  * its label ("Animator"), its icon, the tab title for a document id and the
@@ -37,15 +37,15 @@ import { UiThemeDocument, type UiThemeDocumentProps } from '../uidoc/UiThemeDocu
 export interface WorkspaceHost {
   /** The Animator's props (the bottom-dock panel uses the same). */
   animator: AnimatorPanelProps;
-  /** Phase 16.2: the props of one controller's tab (graph, layers, preview pane). */
+  /** The props of one controller's tab (graph, layers, preview pane). */
   animatorDocument: (controllerId: string) => AnimatorDocumentProps;
   /** The Behaviors panel's props (the bottom-dock panel uses the same). */
   behavior: BehaviorPanelProps;
-  /** Phase 16.3: the script editor's data and actions (all behaviors share them). */
+  /** The script editor's data and actions (all behaviors share them). */
   script: Omit<ScriptDocumentProps, 'behaviorId' | 'behavior'>;
-  /** Phase 23.7: the shared script libraries and the library editor's actions. */
+  /** The shared script libraries and the library editor's actions. */
   library: Omit<LibraryDocumentProps, 'libraryId' | 'library'> & { libraries: readonly ScriptLibrary[] };
-  /** Phase 16.1: standalone graph documents, their kinds and the graph edit path. */
+  /** Standalone graph documents, their kinds and the graph edit path. */
   graph: {
     graphs: readonly GraphDocument[];
     kinds: Readonly<Record<string, GraphKindDef>>;
@@ -55,20 +55,20 @@ export interface WorkspaceHost {
     onSelection: (ids: readonly string[]) => void;
     /** A node to frame and focus (e.g. from the Problems tab). */
     focus: { id: string; nonce: number } | null;
-    /** Phase 18.1: sub-graph calls in a standalone graph (material functions calling functions) read their ports here. */
+    /** Sub-graph calls in a standalone graph (material functions calling functions) read their ports here. */
     portContext: GraphContext;
   };
-  /** Phase 19.0: visual scripts (behaviors with a graph) — everything but the behavior itself. */
+  /** Visual scripts (behaviors with a graph) — everything but the behavior itself. */
   visualScript: Omit<VisualScriptDocumentProps, 'behaviorId' | 'behavior'>;
-  /** Phase 18.0: the props of one graph material's tab (all materials share them). */
+  /** The props of one graph material's tab (all materials share them). */
   material: Omit<MaterialDocumentProps, 'materialId'>;
-  /** Phase 20.0: the props of one effect's tab (all effects share them). */
+  /** The props of one effect's tab (all effects share them). */
   effect: Omit<EffectDocumentProps, 'effectId'>;
-  /** Phase 23.16: the props of one conversation's tab (all conversations share them). */
+  /** The props of one conversation's tab (all conversations share them). */
   dialogue: Omit<DialogueDocumentProps, 'dialogueId'>;
-  /** Phase 23.17: the props of one timeline's tab (all timelines share them). */
+  /** The props of one timeline's tab (all timelines share them). */
   timeline: Omit<TimelineDocumentProps, 'timelineId'>;
-  /** Phase 23.9b: the project UI documents and themes, and the props of one document's / theme's tab. */
+  /** The project UI documents and themes, and the props of one document's / theme's tab. */
   ui: {
     documents: readonly UiDocument[];
     themes: readonly UiTheme[];
@@ -97,7 +97,7 @@ const animatorKind: DocumentKind = {
   label: 'Animator',
   icon: './icons/model.png',
   name: (id, host) => host.animator.controllers.find((c) => c.controllerId === id)?.name ?? id,
-  // Phase 16.2: the controller's state machine on the graph framework (AnimatorDocument).
+  // The controller's state machine on the graph framework (AnimatorDocument).
   render: (id, host) => {
     const props = host.animatorDocument(id);
     return (
@@ -118,7 +118,7 @@ const scriptKind: DocumentKind = {
   label: 'Script',
   icon: './icons/script.png',
   name: (id, host) => host.behavior.behaviors.find((b) => b.behaviorId === id)?.displayName ?? id,
-  // Phase 16.3: the code editor (files, compile diagnostics, publish) with
+  // The code editor (files, compile diagnostics, publish) with
   // the declaration editor docked beside it. Keyed by the behavior so a
   // different behavior never inherits another's view state.
   render: (id, host) => (
@@ -138,7 +138,7 @@ const graphKind: DocumentKind = {
   label: 'Graph',
   icon: GRAPH_ICON,
   name: (id, host) => host.graph.graphs.find((g) => g.graphId === id)?.name ?? id,
-  // Phase 16.1: a standalone graph document in the generic graph editor.
+  // A standalone graph document in the generic graph editor.
   // Keyed by the graph so view state (pan, zoom, selection) is per graph.
   render: (id, host) => {
     const g = host.graph.graphs.find((x) => x.graphId === id);
@@ -170,12 +170,12 @@ const materialKind: DocumentKind = {
   label: 'Material',
   icon: MATERIAL_ICON,
   name: (id, host) => host.material.materials.find((m) => m.materialId === id)?.name ?? id,
-  // Phase 18.0: a graph material's node graph (MaterialDocument). Keyed by the material.
+  // A graph material's node graph (MaterialDocument). Keyed by the material.
   render: (id, host) => <MaterialDocument key={id} {...host.material} materialId={id} />,
 };
 
 /**
- * Phase 19.0: a visual script — a behavior whose source is a graph — in the
+ * A visual script — a behavior whose source is a graph — in the
  * generic graph editor with the `behavior` kind ("Graph: <behavior>").
  */
 const visualScriptKind: DocumentKind = {
@@ -191,7 +191,7 @@ const EFFECT_ICON =
   'data:image/svg+xml,' +
   encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M8 1l1.6 4.4L14 7l-4.4 1.6L8 13l-1.6-4.4L2 7l4.4-1.6z" fill="#f2b544"/><circle cx="13" cy="13" r="1.6" fill="#ff7f9e"/><circle cx="3" cy="13.5" r="1.1" fill="#8fb4ff"/></svg>');
 
-/** Phase 20.0: an effect's particle systems, each a graph of kind `effect` ("Effect: <name>"). */
+/** An effect's particle systems, each a graph of kind `effect` ("Effect: <name>"). */
 const effectKind: DocumentKind = {
   kind: 'effect',
   label: 'Effect',
@@ -200,7 +200,7 @@ const effectKind: DocumentKind = {
   render: (id, host) => <EffectDocument key={id} {...host.effect} effectId={id} />,
 };
 
-/** Phase 23.7: a shared script library's files in the code editor ("Library: <name>"). */
+/** A shared script library's files in the code editor ("Library: <name>"). */
 const libraryKind: DocumentKind = {
   kind: 'script-library',
   label: 'Library',
@@ -217,7 +217,7 @@ const DIALOGUE_ICON =
   'data:image/svg+xml,' +
   encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M2 3h12v7H7l-3 3v-3H2z" fill="#8fb4ff"/><rect x="4" y="5" width="8" height="1.2" fill="#1b1f2a"/><rect x="4" y="7.2" width="5" height="1.2" fill="#1b1f2a"/></svg>');
 
-/** Phase 23.16: a conversation's node graph and its previewer ("Dialogue: <name>"). */
+/** A conversation's node graph and its previewer ("Dialogue: <name>"). */
 const dialogueKind: DocumentKind = {
   kind: 'dialogue',
   label: 'Dialogue',
@@ -230,7 +230,7 @@ const TIMELINE_ICON =
   'data:image/svg+xml,' +
   encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect x="1" y="3" width="14" height="2" fill="#8fb4ff"/><rect x="1" y="7" width="14" height="2" fill="#5e81ac"/><rect x="1" y="11" width="14" height="2" fill="#5e81ac"/><path d="M5 6.5l1.5 1.5L5 9.5 3.5 8z" fill="#f2b544"/><path d="M11 10.5l1.5 1.5-1.5 1.5L9.5 12z" fill="#f2b544"/><rect x="7.5" y="1" width="1" height="14" fill="#ff7f9e"/></svg>');
 
-/** Phase 23.17: a timeline's tracks on a time ruler ("Timeline: <name>"). */
+/** A timeline's tracks on a time ruler ("Timeline: <name>"). */
 const timelineKind: DocumentKind = {
   kind: 'timeline',
   label: 'Timeline',
@@ -244,7 +244,7 @@ const UI_ICON =
   'data:image/svg+xml,' +
   encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect x="1" y="2" width="14" height="12" rx="1.5" fill="none" stroke="#8fb4ff" stroke-width="1.4"/><rect x="3" y="4" width="6" height="2" fill="#7ed491"/><rect x="3" y="8" width="10" height="2" rx="1" fill="#f2b544"/></svg>');
 
-/** Phase 23.9b: a UI document's visual editor ("UI: <name>"). */
+/** A UI document's visual editor ("UI: <name>"). */
 const uiDocumentKind: DocumentKind = {
   kind: 'ui-document',
   label: 'UI',
@@ -253,7 +253,7 @@ const uiDocumentKind: DocumentKind = {
   render: (id, host) => <UiDocumentEditor key={id} {...host.ui.document(id)} />,
 };
 
-/** Phase 23.9b: a UI theme's styles and icons ("UI theme: <name>"). */
+/** A UI theme's styles and icons ("UI theme: <name>"). */
 const uiThemeKind: DocumentKind = {
   kind: 'ui-theme',
   label: 'UI theme',

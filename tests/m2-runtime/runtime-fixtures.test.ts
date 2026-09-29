@@ -1,12 +1,12 @@
 /**
- * Packet 29 — runtime fixture replay (integration of the fixture tree with
+ * Runtime fixture replay (integration of the fixture tree with
  * the real `@thirdlight/runtime` build).
  *
- * This suite reads the accepted packet-17 fixture
- * (`fixtures/m2/contracts/runtime/catchup.json`) and the new packet-29
+ * This suite reads the accepted catch-up fixture
+ * (`fixtures/m2/contracts/runtime/catchup.json`) and the runtime
  * fixtures (`fixtures/m2/runtime/**`) from disk and replays every case
  * through the runtime: the fixed-step/sampling arithmetic, the ownership and
- * unsupported-combination table, the frozen M1 §7.1 demo points and the
+ * unsupported-combination table, the frozen demo points and the
  * fail-stop outcomes. The fixtures are the expectations; nothing here invents
  * a result.
  */
@@ -61,7 +61,7 @@ function snapshot(scene: any, projectId = 'demo-0001'): any {
   return { snapshotId: `${projectId}@r${scene.revision}`, projectId, revision: scene.revision, scene };
 }
 
-/** The M1 demo scene (camera + box), now as a v4 scene (phase 9.3). */
+/** The demo scene (camera + box) as a v4 scene. */
 function v1Scene(): any {
   const transform = (position: number[]): any => ({ position, rotation: [0, 0, 0, 1], scale: [1, 1, 1] });
   return {
@@ -237,7 +237,7 @@ describe('accepted packet-17 scheduler fixture (fixtures/m2/contracts/runtime/ca
   it('ownership/combination table (O1–O8)', () => {
     for (const c of doc.ownershipCases) {
       const specs: SimulationModuleSpec[] = [];
-      // Phase 24.8: the fixture names the controller by its current id (rewritten when the alias was dropped).
+      // The fixture names the controller by its current id (rewritten when the alias was dropped).
       const owners = (c.owners ?? {}) as Record<string, string[]>;
       const caseModules = c.modules as string[];
       for (const [moduleId, entityIds] of Object.entries(owners)) {
@@ -282,8 +282,8 @@ describe('accepted packet-17 scheduler fixture (fixtures/m2/contracts/runtime/ca
         ...(caseModules.includes(CHARACTER_MODULE_ID) ? { physics: fakePort() } : {}),
       });
       if (c.reason === 'scene_version') {
-        // Phase 9.3: a v1 scene is no longer a snapshot at all; the
-        // M2-module-on-v1 refusal it pinned cannot happen.
+        // A v1 scene is not a snapshot at all, so the module-on-v1
+        // refusal this case describes cannot happen.
         continue;
       }
       if (c.outcome === 'ok') {
@@ -704,7 +704,6 @@ describe('fail-stop fixture cases (fixtures/m2/runtime/failstop.json)', () => {
       expect(resTarget.error.reason).toBe(target.expect.reason);
     }
 
-    // (The scene_version case pinned an M2 module on a v1 scene; v1 scenes were removed in phase 9.3.)
   });
 
   it('dispose_idempotent / restart_after_failure', () => {

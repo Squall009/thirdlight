@@ -1,5 +1,5 @@
 /**
- * Phase 25.10: generic component access through the production composition,
+ * Generic component access through the production composition,
  * on the main thread and in the simulation worker, on the 2D plane and in 3D.
  *
  * A neutral level and five scripts. The director reads and writes components

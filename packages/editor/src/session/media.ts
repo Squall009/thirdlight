@@ -1,11 +1,9 @@
 /**
- * M3 media/lighting/animation authoring planning (packet 57; authoring.md
- * §A8 rows 5/11/13/14/15/16/17/18/21).
+ * Media/lighting/animation authoring planning.
  *
  * Pure: no DOM, no I/O, no Node builtins. The planning layer decides WHAT
  * command to issue (or `noop`); the backend remains the sole authority. The
- * bounds tables are local mirrors of the accepted contract values
- * (project-model §23.3.4/§23.3.5/§23.10; commands.md §3.1.9/§3.1.10/§8.5.1) —
+ * bounds tables are local mirrors of the accepted contract values —
  * the editor's boundary row keeps project-model types-only, so the frozen
  * numbers are mirrored here.
  */
@@ -14,18 +12,18 @@ import { CONTENT_STAGE_MAX } from '@thirdlight/protocol';
 import { MAX_EMISSIVE_INTENSITY, MAX_INTENSITY, SCENE_LIMITS_V3 } from '@thirdlight/project-model/limits';
 
 // ---------------------------------------------------------------------------
-// Drop validation (row 18/21: `.glb` model, `.wav` audio)
+// Drop validation (`.glb` model, `.wav` audio)
 // ---------------------------------------------------------------------------
 
 export const MODEL_DROP_EXTENSION = '.glb';
 /** An FBX is converted to GLB by the backend (headless Blender) at import. */
 export const FBX_DROP_EXTENSION = '.fbx';
 export const AUDIO_DROP_EXTENSION = '.wav';
-/** Phase 9.4: standalone textures (the magic bytes are checked again at import). */
+/** Standalone textures (the magic bytes are checked again at import). */
 export const TEXTURE_DROP_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp', '.ktx2'] as const;
-/** Phase 9.10: music (Ogg Vorbis/Opus, MP3; a long WAV imports with kind "music" through MCP). */
+/** Music (Ogg Vorbis/Opus, MP3; a long WAV imports with kind "music" through MCP). */
 export const MUSIC_DROP_EXTENSIONS = ['.ogg', '.opus', '.mp3'] as const;
-/** Phase 23.9a: fonts for the project UI (TrueType, OpenType, WOFF2, WOFF; the magic bytes are checked again at import). */
+/** Fonts for the project UI (TrueType, OpenType, WOFF2, WOFF; the magic bytes are checked again at import). */
 export const FONT_DROP_EXTENSIONS = ['.ttf', '.otf', '.woff2', '.woff'] as const;
 
 export type AssetKind = 'model' | 'audio' | 'texture' | 'music' | 'font';
@@ -38,7 +36,7 @@ export interface MediaDropVerdict {
 
 /**
  * Validate a dropped/selected media file BEFORE any network call (the
- * packet's "invalid drop" failure mode): the extension decides the kind,
+ * "invalid drop" failure mode): the extension decides the kind,
  * 1 … 32 MiB (the stage bound). An invalid drop creates no stage and no job.
  */
 export function validateMediaDrop(name: string, byteLength: number): MediaDropVerdict | { ok: false; error: { code: string; message: string } } {
@@ -90,7 +88,7 @@ export function validateMediaDrop(name: string, byteLength: number): MediaDropVe
 }
 
 // ---------------------------------------------------------------------------
-// Light components (rows 13/14/16: the §23.3.4 rules)
+// Light components
 // ---------------------------------------------------------------------------
 
 export const LIGHT_INTENSITY_MAX = MAX_INTENSITY;
@@ -124,7 +122,7 @@ export function canonicalColor(raw: string): string | null {
 }
 
 /**
- * Parse + validate the light form (the §23.3.4 table): `#hex` color (canonical
+ * Parse + validate the light form: `#hex` color (canonical
  * lowercase), `0 <= intensity <= 8`; a directional light requires a direction
  * with each `|v| <= 1` and `||v|| >= 1e-6`; an ambient light carries neither a
  * direction nor `castShadow`. The directional default `castShadow` is `false`.
@@ -211,7 +209,7 @@ export function planSetLight(
   return { kind: 'commit', args: { entityId, component: 'light', value: value as Partial<LightView> } };
 }
 
-/** The scene limit is one directional + one ambient light (§23.10). */
+/** The scene limit is one directional + one ambient light. */
 export function lightCounts(entities: readonly ProjectedEntity[]): { directional: number; ambient: number } {
   let directional = 0;
   let ambient = 0;
@@ -223,7 +221,7 @@ export function lightCounts(entities: readonly ProjectedEntity[]): { directional
 }
 
 // ---------------------------------------------------------------------------
-// Surface components + presets (rows 15/16: the §23.3.5 rules)
+// Surface components + presets
 // ---------------------------------------------------------------------------
 
 export const SURFACE_ROUGHNESS_MAX = 1;
@@ -246,24 +244,24 @@ export interface SurfaceForm {
   emissiveIntensity: string;
 }
 
-/** The three built-in preset names (§3.1.9, commands.md). */
+/** The three built-in preset names (commands.md). */
 export const SURFACE_PRESET_NAMES = ['matte-ground', 'signal-red', 'emissive-accent'] as const;
 export type SurfacePresetName = (typeof SURFACE_PRESET_NAMES)[number];
 
 /**
- * The frozen preset rows (a display mirror of project-model §23.3.1a's
+ * The frozen preset rows (a display mirror of project-model's
  * `SURFACE_PRESETS` — the backend applies the authoritative row on
  * `applySurfacePreset`; the panel shows what will be applied).
  */
 export const SURFACE_PRESETS: Readonly<Record<SurfacePresetName, SurfaceView>> = Object.freeze({
-  // Phase 15.5: these had drifted from the authoritative rows; they are the model's rows again (media.test.ts pins them).
+  // They must equal the authoritative rows (media.test.ts pins them).
   'matte-ground': Object.freeze({ color: '#6f6f6f', roughness: 0.95, metalness: 0, emissive: '#000000', emissiveIntensity: 0 }),
   'signal-red': Object.freeze({ color: '#d42a1e', roughness: 0.55, metalness: 0, emissive: '#3a0703', emissiveIntensity: 0.35 }),
   'emissive-accent': Object.freeze({ color: '#2f7fd4', roughness: 0.4, metalness: 0.1, emissive: '#1bc8ff', emissiveIntensity: 1.2 }),
 });
 
 /**
- * Parse + validate the surface form (the §23.3.5 table): two `#hex` colors,
+ * Parse + validate the surface form: two `#hex` colors,
  * `0 <= roughness <= 1`, `0 <= metalness <= 1`, `0 <= emissiveIntensity <= 4`.
  */
 export function parseSurfaceForm(form: SurfaceForm): { ok: true; value: SurfaceView } | { ok: false; errors: string[] } {
@@ -290,7 +288,7 @@ export function parseSurfaceForm(form: SurfaceForm): { ok: true; value: SurfaceV
 
 /**
  * Plan the `setComponent(surface, …)`: an ADD sends the complete value (the
- * §23.7 normalizer would fill defaults, but the panel always carries all five);
+ * normalizer would fill defaults, but the panel always carries all five);
  * an EDIT sends the changed fields only.
  */
 export function planSetSurface(
@@ -315,7 +313,7 @@ export function planSetSurface(
 }
 
 // ---------------------------------------------------------------------------
-// Model animation profiles (rows 17/21: the §23.3.6 + §8.5.1 rules)
+// Model animation profiles and the animated reimport
 // ---------------------------------------------------------------------------
 
 export const ANIMATION_ROLE_KEYS = ['idle', 'run', 'airborne'] as const;
@@ -336,7 +334,7 @@ export interface ModelAnimationForm {
  * Parse + validate the animation profile form: an integer `1 <= version <=
  * maxVersion`; each role binds `clipIndex` (a non-negative integer) + a
  * non-empty `clipName`; the serialized `roles` object stays within the
- * §23.10 `animation_profile_bytes` bound.
+ * `animation_profile_bytes` bound.
  */
 export function parseModelAnimationForm(
   form: ModelAnimationForm,
@@ -374,8 +372,8 @@ export function parseModelAnimationForm(
 
 /**
  * Plan the `setComponent(modelAnimation, …)` for a model entity. The
- * `assetId` is fixed to the entity's model asset (the §23.8 step-5 conflict
- * rule — a mismatch is an `noop` here; the backend raises
+ * `assetId` is fixed to the entity's model asset (the conflict rule — a
+ * mismatch is an `noop` here; the backend raises
  * `component_conflict/animation_asset`). The value is always the complete
  * component (three canonical fields).
  */
@@ -386,7 +384,7 @@ export function planSetModelAnimation(
   maxVersion: number,
 ): { kind: 'noop' } | { kind: 'commit'; args: { entityId: string; component: 'modelAnimation'; value: { assetId: string; version: number; roles: Record<AnimationRoleKey, AnimationRoleBinding> } } } {
   // The component sits only on a model entity and its assetId is fixed to the
-  // entity's model asset (the §23.8 step-5 conflict rule — a non-model entity
+  // entity's model asset (the conflict rule — a non-model entity
   // is an `noop` here; the backend raises the structured conflict).
   const modelAssetId = entity.kind === 'model' ? entity.assetId ?? null : null;
   if (modelAssetId === null) return { kind: 'noop' };
@@ -406,7 +404,7 @@ export function planSetModelAnimation(
 }
 
 /**
- * The §8.5.1 atomic animated reimport args: when the asset being reimported
+ * The atomic animated reimport args: when the asset being reimported
  * is referenced by modelAnimation components, the `publishAsset` command
  * carries `animation: { entityId, roles }` for ONE of the referencing
  * entities (the command moves that entity's full component to the new

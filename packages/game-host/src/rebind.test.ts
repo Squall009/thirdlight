@@ -1,5 +1,5 @@
 /**
- * Phase 23.14: glyph resolution (families, labels, project images, the
+ * Glyph resolution (families, labels, project images, the
  * generic SVG set), device detection and the bindings controller (listening
  * with a cancel key and a timeout, requests, profiles, the frame entry).
  */

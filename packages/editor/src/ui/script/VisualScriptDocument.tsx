@@ -1,5 +1,5 @@
 /**
- * Phase 19.0/19.2: a visual script (a behavior whose source is a graph) as a
+ * A visual script (a behavior whose source is a graph) as a
  * "Graph: <behavior>" centre tab.
  *
  * - Tabs inside the document: the **event graph** and one tab per function
@@ -70,7 +70,7 @@ export interface VisualScriptDocumentProps {
   behavior: BehaviorDeclarationView | null;
   /** The `behavior` graph kind (from the backend's kind table). */
   kind: GraphKindDef | undefined;
-  /** Phase 19.1: the project's standalone graphs (shared functions) and the kind table (call nodes read their ports from them). */
+  /** The project's standalone graphs (shared functions) and the kind table (call nodes read their ports from them). */
   graphs: readonly GraphDocument[];
   kinds: Readonly<Record<string, GraphKindDef>>;
   activePlay: { snapshotId: string; revision: number } | null;
@@ -84,22 +84,22 @@ export interface VisualScriptDocumentProps {
   onFocus: (nodeId: string) => void;
   check: (behaviorId: string) => Promise<VisualScriptCheckResult>;
   publish: (behaviorId: string, acknowledge: boolean) => Promise<ScriptPublishOutcome>;
-  /** Phase 19.2: the graph in front per script ("" = the event graph, else a function id) and its setter. */
+  /** The graph in front per script ("" = the event graph, else a function id) and its setter. */
   targets: Readonly<Record<string, string>>;
   onTarget: (behaviorId: string, target: string) => void;
-  /** Phase 19.2: the latest compile problems of the script (the Problems tab lists them). */
+  /** The latest compile problems of the script (the Problems tab lists them). */
   onProblems: (behaviorId: string, problems: readonly VisualScriptProblem[]) => void;
-  /** Phase 19.2: breakpoints (scoped node ids) and watched variables (names; scoped for a function's locals), per script. */
+  /** Breakpoints (scoped node ids) and watched variables (names; scoped for a function's locals), per script. */
   breakpoints: Readonly<Record<string, readonly string[]>>;
   onBreakpoints: (behaviorId: string, ids: readonly string[]) => void;
   watches: Readonly<Record<string, readonly string[]>>;
   onWatches: (behaviorId: string, names: readonly string[]) => void;
-  /** Phase 19.2: the objects carrying each script (the debugger's object choice) and the scene selection. */
+  /** The objects carrying each script (the debugger's object choice) and the scene selection. */
   carriers: (behaviorId: string) => readonly { id: string; name: string }[];
   selectedEntityId: string | null;
-  /** Phase 19.2: one debugger poll of the running Play (null: nothing answered). */
+  /** One debugger poll of the running Play (null: nothing answered). */
   debugRequest: (req: DebugRequest) => Promise<DebugResult | null>;
-  /** Phase 19.2: shared functions — open one in its Graph tab, create one (resolves to its graph id or null). */
+  /** Shared functions — open one in its Graph tab, create one (resolves to its graph id or null). */
   onOpenGraph: (graphId: string) => void;
   onCreateSharedFunction: (name: string) => Promise<string | null>;
 }

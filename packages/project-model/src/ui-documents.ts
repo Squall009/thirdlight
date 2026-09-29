@@ -1,5 +1,5 @@
 /**
- * Phase 23.9a: project UI documents (`content.uiDocuments[]`) and themes
+ * Project UI documents (`content.uiDocuments[]`) and themes
  * (`content.uiThemes[]`), v4.
  *
  * A UI document is a tree of widgets drawn by the game host as DOM/CSS over
@@ -110,11 +110,11 @@ export type UiEngineAction =
   | 'setSetting'
   | 'mute'
   | 'unmute'
-  // Phase 23.14: rebinding (the host's bindings API): listen for an action's input, stop listening, reset one action or all.
+  // Rebinding (the host's bindings API): listen for an action's input, stop listening, reset one action or all.
   | 'rebind'
   | 'cancelRebind'
   | 'resetBindings'
-  // Phase 24.4j: the game shell — open one of its screens (`screen`), move on to the next listed scene.
+  // The game shell — open one of its screens (`screen`), move on to the next listed scene.
   | 'open'
   | 'nextScene';
 
@@ -128,10 +128,10 @@ export type UiAction =
   | { do: 'show' | 'hide' | 'toggle'; doc: string }
   /** Play a tween of this document (presentation only). */
   | { do: 'play'; tween: string; widget?: string }
-  /** Phase 23.10: switch to a game mode (through the input frame, so replays hold). */
+  /** Switch to a game mode (through the input frame, so replays hold). */
   | { do: 'mode'; mode: string }
   /**
-   * Phase 23.16: a dialogue input (on the next input frame, so replays hold):
+   * A dialogue input (on the next input frame, so replays hold):
    * advance (or reveal the rest of the line), choose (the list item's index,
    * or `value`), skip (toggle skipping seen lines), auto (toggle
    * auto-advance), backlog (toggle the backlog view).
@@ -164,7 +164,7 @@ export interface UiWidget {
   anchor?: [number, number];
   pivot?: [number, number];
   offset?: [number, number];
-  /** Phase 25.22: each axis a number, null (sized to the content) or a view-model binding. */
+  /** Each axis a number, null (sized to the content) or a view-model binding. */
   size?: [UiBindable<number> | null, UiBindable<number> | null];
   stretch?: 'x' | 'y' | 'both';
   margin?: [number, number, number, number];
@@ -189,11 +189,11 @@ export interface UiWidget {
   // text / button / input
   text?: string;
   /**
-   * Phase 23.16, text: the widget's text is the rich text at this view-model
+   * Text: the widget's text is the rich text at this view-model
    * path (markup parsed, braces are plain text) instead of `text`.
    */
   content?: UiBinding;
-  /** Phase 23.16, text: only the first N visible characters show (a typewriter; the rest keeps its place, hidden). */
+  /** Text: only the first N visible characters show (a typewriter; the rest keeps its place, hidden). */
   reveal?: UiBindable<number>;
   // image
   image?: UiBindable<string>;
@@ -207,7 +207,7 @@ export interface UiWidget {
   shape?: 'linear' | 'radial';
   fillColor?: UiColor;
   fillStyle?: string;
-  /** Phase 25.22: a number or a view-model binding (degrees, 0 = up). */
+  /** A number or a view-model binding (degrees, 0 = up). */
   startAngle?: UiBindable<number>;
   // button
   onClick?: UiAction | UiAction[];
@@ -289,7 +289,7 @@ export const UI_ENGINE_ACTIONS: readonly UiEngineAction[] = ['resume', 'pause', 
 export const UI_TWEEN_KINDS: readonly UiTweenKind[] = ['fade', 'slide', 'scale', 'stamp'];
 export const UI_EASINGS: readonly UiEasing[] = ['linear', 'easeIn', 'easeOut', 'easeInOut', 'back'];
 export const UI_GENERIC_FONTS = ['sans', 'serif', 'mono', 'rounded'] as const;
-/** Phase 24.4j: the shell screens an engine `open` action names (project-model `SHELL_SCREENS`). */
+/** The shell screens an engine `open` action names (project-model `SHELL_SCREENS`). */
 export const UI_SHELL_SCREENS = ['title', 'pause', 'settings', 'controls', 'save', 'load'] as const;
 /** The save slots an engine load/save action names (the game host's). */
 export const UI_SAVE_SLOTS = ['auto', '1', '2', '3'] as const;
@@ -461,10 +461,10 @@ function validateActions(errors: ModelErrorV2[], v: unknown, path: string, refs:
         break;
       case 'engine': {
         only(a, ['do', 'action', 'screen', 'slot', 'setting', 'value', 'step', 'input', 'device', 'index', 'part', 'policy'], p, errors, 'engine action');
-        // Phase 24.4j: open names the shell screen it opens.
+        // Open names the shell screen it opens.
         oneOf(errors, a['screen'], `${p}/screen`, UI_SHELL_SCREENS, 'screen');
         if (a['action'] === 'open' && a['screen'] === undefined) err(errors, 'field_missing', `${p}/screen`, 'open names the shell screen it opens', undefined, UI_SHELL_SCREENS.join(' | '));
-        // Phase 23.14: rebind names the input action (and optionally the device, binding index, composite part and conflict policy).
+        // Rebind names the input action (and optionally the device, binding index, composite part and conflict policy).
         if (a['input'] !== undefined && !(typeof a['input'] === 'string' && /^[A-Za-z_][A-Za-z0-9_]{0,31}$/.test(a['input']))) err(errors, 'field_value', `${p}/input`, 'input names an input action', a['input'], 'an action name');
         if (a['action'] === 'rebind' && a['input'] === undefined) err(errors, 'field_missing', `${p}/input`, 'rebind names its input action', undefined, 'an action name');
         oneOf(errors, a['device'], `${p}/device`, ['keyboardMouse', 'gamepad'], 'device');
@@ -503,7 +503,7 @@ function validateActions(errors: ModelErrorV2[], v: unknown, path: string, refs:
         if (a['value'] !== undefined && !(Number.isInteger(a['value']) && isNum(a['value'], 0, 255))) err(errors, 'field_value', `${p}/value`, 'a dialogue action value is an option index 0–255', a['value'], '0..255');
         break;
       case 'mode':
-        // Phase 23.10: switch to a game mode (the project's modes: validateUiReferences).
+        // Switch to a game mode (the project's modes: validateUiReferences).
         only(a, ['do', 'mode'], p, errors, 'mode action');
         if (typeof a['mode'] !== 'string' || !ID_RE.test(a['mode'])) err(errors, 'field_value', `${p}/mode`, 'names a game mode', a['mode'], 'a modeId');
         else refs.modes.push({ id: a['mode'], path: `${p}/mode` });
@@ -596,7 +596,7 @@ function validateWidget(errors: ModelErrorV2[], v: unknown, path: string, refs: 
   tuple(errors, v['anchor'], `${path}/anchor`, 2, 0, 1, 'anchor');
   tuple(errors, v['pivot'], `${path}/pivot`, 2, 0, 1, 'pivot');
   tuple(errors, v['offset'], `${path}/offset`, 2, -P, P, 'offset');
-  // Phase 25.22: an axis of the size may read the view model.
+  // An axis of the size may read the view model.
   const size = v['size'];
   if (size !== undefined) {
     if (!Array.isArray(size) || size.length !== 2) err(errors, 'field_value', `${path}/size`, `size is [2 numbers 0–${P}, null or { "bind": "path" }]`, size, '2 numbers');
@@ -678,7 +678,7 @@ function validateWidget(errors: ModelErrorV2[], v: unknown, path: string, refs: 
       break;
     case 'text':
       if (text === undefined && v['content'] === undefined) err(errors, 'field_missing', `${path}/text`, 'a text widget has a text (or a content binding)', undefined, 'text');
-      // Phase 23.16: rich text from the view model, and a typewriter reveal.
+      // Rich text from the view model, and a typewriter reveal.
       if (v['content'] !== undefined) {
         if (!isPlainObject(v['content'])) err(errors, 'field_value', `${path}/content`, 'content is { "bind": "path" }', v['content'], '{ bind }');
         else binding(errors, v['content'], `${path}/content`);
@@ -738,7 +738,7 @@ const DOC_KEYS = ['uiDocumentId', 'name', 'layer', 'modal', 'focus', 'actionMap'
 /** What a document references outside itself (checked against the project by `validateUiReferences`). */
 export interface UiDocumentRefs {
   readonly docs: readonly { id: string; path: string }[];
-  /** Phase 23.10: the game modes the document's mode actions name. */
+  /** The game modes the document's mode actions name. */
   readonly modes?: readonly { id: string; path: string }[];
   readonly styles: readonly { name: string; path: string }[];
   readonly images: readonly { id: string; path: string }[];
@@ -882,14 +882,14 @@ export function validateUiReferences(content: Record<string, unknown>, errors: M
   const docs = Array.isArray(content['uiDocuments']) ? (content['uiDocuments'] as unknown[]) : [];
   const themes = Array.isArray(content['uiThemes']) ? (content['uiThemes'] as unknown[]) : [];
   const docIds = new Set(docs.filter(isPlainObject).map((d) => d['uiDocumentId']));
-  // Phase 23.10: the project's input maps (a document may activate one of input.maps) and its game modes.
+  // The project's input maps (a document may activate one of input.maps) and its game modes.
   const maps = projectInputMaps(content['input']);
   const modeIds = new Set((Array.isArray(content['modes']) ? (content['modes'] as unknown[]) : []).filter(isPlainObject).map((m) => m['modeId']));
   const themeById = new Map(themes.filter(isPlainObject).map((t) => [t['uiThemeId'], t] as const));
   const assetRefs = (r: UiDocumentRefs, at: string): void => {
     for (const img of r.images) {
       const k = kindOf(img.id);
-      // Phase 25.19: a KTX2 texture is a GPU texture; the page draws UI images itself.
+      // A KTX2 texture is a GPU texture; the page draws UI images itself.
       if (typeof k === 'string' && k.startsWith('texture (KTX2')) err(errors, 'field_value', `${at}${img.path}`, 'a UI image is drawn by the page: it cannot be a KTX2 texture (import a PNG, JPEG or WebP)', img.id, 'a PNG, JPEG or WebP texture');
       else if (k !== 'texture') err(errors, 'asset_reference_missing', `${at}${img.path}`, 'this image must name a texture asset of this project', img.id, 'a texture assetId');
     }

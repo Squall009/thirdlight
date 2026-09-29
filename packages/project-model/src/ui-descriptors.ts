@@ -1,5 +1,5 @@
 /**
- * Phase 23.9b: field descriptors of the project UI vocabulary (23.9a) — a UI
+ * Field descriptors of the project UI vocabulary — a UI
  * document's own fields, a widget (per widget type through `when`), a style
  * (with its hover / focus / pressed / disabled states) and a tween. The UI
  * document editor's Inspector builds its sections from them; they travel in
@@ -145,7 +145,7 @@ const WIDGET: ObjectFieldDescriptor = obj('widget', 'Widget', 'One element of a 
   // Text.
   str('text', 'Text', 'Rich text: [b] [i] [color=#…] [size=N] [icon=name], and {path} for view-model values.', { group: 'Text', format: 'multiline', maxLength: UI_LIMITS.textChars, when: when('type', 'text'), required: true, default: 'Text' }),
   str('text', 'Label', 'The button\'s rich text (same markup as a text widget).', { group: 'Text', format: 'multiline', maxLength: UI_LIMITS.textChars, when: when('type', 'button') }),
-  // Phase 23.16: rich text from the view model, and a typewriter reveal.
+  // Rich text from the view model, and a typewriter reveal.
   binding('content', 'Content', 'Rich text read from a view-model path instead of Text (markup parsed, braces are text) — e.g. dialogue.line.text.', 'text', { group: 'Text', when: when('type', 'text') }),
   binding('reveal', 'Reveal', 'Show only the first N visible characters (a typewriter; the rest keeps its place) — a number or a view-model path such as dialogue.line.reveal.', 'number', { group: 'Text', when: when('type', 'text') }),
   // Image.

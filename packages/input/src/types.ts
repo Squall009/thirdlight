@@ -1,16 +1,16 @@
 /**
- * `@thirdlight/input` public data shapes and M2 mapping constants
- * (docs/contracts/runtime.md §12.5, promoted from `input.md` §4/§9).
+ * `@thirdlight/input` public data shapes and mapping constants (from
+ * `input.md`).
  *
  * `RawInputSnapshot` is **plain data**: no `KeyboardEvent`, no `Gamepad`, no
- * DOM node and no wall-clock value ever crosses this boundary (runtime.md
- * §12.5). The browser owner (`browser.ts`) is the only module in the package
+ * DOM node and no wall-clock value ever crosses this boundary (runtime.md).
+ * The browser owner (`browser.ts`) is the only module in the package
  * that touches `window`/`document`/`navigator`; it reduces those objects to a
  * snapshot and hands it to the pure mapping.
  */
 
 /**
- * The M2 keyboard map (input.md §4.1, normative default; no remapping UI).
+ * The default keyboard map (input.md, normative default).
  * Values are `KeyboardEvent.code` values, so the map is layout-independent
  * and testable without a browser.
  */
@@ -24,17 +24,16 @@ export const DEFAULT_KEYBOARD_MAP: Readonly<{
   jump: Object.freeze(['Space']),
 });
 
-/** The M2 radial gamepad dead zone (`input.md` §4.2/§9, hard constant). */
+/** The radial gamepad dead zone (`input.md`, hard constant). */
 export const GAMEPAD_DEAD_ZONE = 0.2;
 
-/** `moveX` quantization (`input.md` §3.3, hard constant). */
+/** `moveX` quantization (`input.md`, hard constant). */
 export const MOVE_QUANTUM = 1e-4;
 
 /**
- * One plain-data snapshot of the raw device state at a single sampling moment
- * (input.md §4). `gamepad` is the *active* standard-mapped pad only
- * (input.md §4.4); non-standard-mapped pads never appear here — the browser
- * owner ignores them and reports `input_mapping_unsupported`.
+ * One plain-data snapshot of the raw device state at a single sampling
+ * moment. `gamepad` is the *active* standard-mapped pad only;
+ * non-standard-mapped pads never appear here — the browser owner ignores them and reports `input_mapping_unsupported`.
  */
 export interface RawInputSnapshot {
   /** A mapped move-left keyboard control is held. */
@@ -45,7 +44,7 @@ export interface RawInputSnapshot {
   keyboardJump: boolean;
   /**
    * A jump down-transition observed since the previous sample (the press
-   * latch, runtime.md §12.5.2). `true` only when a keydown / button-down
+   * latch). `true` only when a keydown / button-down
    * transition happened in the window; a keyup never sets it. Cleared by the
    * owner immediately after the sample is produced.
    */
@@ -54,16 +53,16 @@ export interface RawInputSnapshot {
   gamepad?: {
     /** `Gamepad.index`; the stable key while connected (MDN Gamepad API guide). */
     index: number;
-    /** `Gamepad.id`, clipped before it reaches a diagnostic (input.md §4.1). */
+    /** `Gamepad.id`, clipped before it reaches a diagnostic. */
     id: string;
-    /** `Gamepad.mapping`; only exactly `'standard'` contributes (input.md §4.1). */
+    /** `Gamepad.mapping`; only exactly `'standard'` contributes. */
     mapping: string;
     /**
      * The move stick axis, raw (axis 0 unless the project's `move` action
-     * binds other axes — phase 14.5); dead-zone rescaling happens in the mapping.
+     * binds other axes); dead-zone rescaling happens in the mapping.
      */
     axis0: number;
-    /** The jump button(s) held (standard: `buttons[0]`, A/cross; phase 14.5: the `jump` action's pad buttons when bound). */
+    /** The jump button(s) held (standard: `buttons[0]`, A/cross; the `jump` action's pad buttons when bound). */
     button0: boolean;
     /** Move left held (standard: D-pad left, `buttons[14]`; or the `move` action's rebound button). */
     button14: boolean;
@@ -92,16 +91,16 @@ export interface InputBindingOptions {
    */
   getGamepads?: (() => ArrayLike<Gamepad | null>) | null;
   /**
-   * Structured diagnostic sink (bounded event codes, input.md §7). Never
+   * Structured diagnostic sink (bounded event codes). Never
    * throws into the binding — a throwing sink is swallowed.
    */
   /**
-   * Phase 9.8: the project's input actions. Its `move`/`jump` keyboard
+   * The project's input actions. Its `move`/`jump` keyboard
    * bindings drive the character controller; every action is sampled into the frame's
-   * `actions`. Absent: the M2 keys only.
+   * `actions`. Absent: the default keys only.
    */
   inputConfig?: InputConfigLike;
-  /** Phase 23.14: the clock (milliseconds) hold bindings measure with; defaults to `performance.now`. */
+  /** The clock (milliseconds) hold bindings measure with; defaults to `performance.now`. */
   now?: () => number;
   onDiagnostic?: (event: {
     code:
@@ -112,7 +111,7 @@ export interface InputBindingOptions {
       | 'input_disconnect';
     reason?: string;
     message?: string;
-    /** Clipped to 64 log-safe characters (input.md §4.1). */
+    /** Clipped to 64 log-safe characters. */
     deviceId?: string;
   }) => void;
 }

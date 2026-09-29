@@ -1,16 +1,16 @@
 /**
- * Phase 22.0: where the game's simulation runs.
+ * Where the game's simulation runs.
  *
  * - `worker` (the default): runtime, physics, gameplay blocks and scripts run
  *   in a dedicated worker; the page keeps input, audio, the DOM and
  *   rendering, so a long simulation step never delays a frame or an input
  *   event. Every game gains from it and none depends on running in the page.
- * - `single`: everything in the page (as before phase 22). The fallback when
+ * - `single`: everything in the page. The fallback when
  *   the browser cannot start the worker, and a choice for debugging.
  *
  * The page URL flag `?threads=off` (or `single`/`main`) forces single-thread
  * mode, `?threads=on`/`worker` asks for the worker; otherwise a play's
- * start option `threads` (phase 25.17: a play-test), then the project
+ * start option `threads` (a play-test), then the project
  * setting `sim_thread` (1 worker, 2 main thread) decides; absent: worker.
  *
  * The transform stream uses a SharedArrayBuffer only where the page is
@@ -41,7 +41,7 @@ export function threadingFromUrl(search: string): ThreadingMode | null {
 export function resolveThreadingMode(input: { url: string; setting?: number | undefined; workerAvailable: boolean; start?: ThreadingMode }): { mode: ThreadingMode; reason: string } {
   const fromUrl = threadingFromUrl(input.url);
   const fromSetting = typeof input.setting === 'number' ? (SIM_THREAD_SETTING_VALUES[input.setting] ?? null) : null;
-  // Phase 25.17: a play's start option (a play-test asks for a mode) comes between the URL flag and the setting.
+  // A play's start option (a play-test asks for a mode) comes between the URL flag and the setting.
   const fromStart = input.start === 'worker' || input.start === 'single' ? input.start : null;
   const wanted: ThreadingMode = fromUrl ?? fromStart ?? fromSetting ?? 'worker';
   const source = fromUrl !== null ? `the page URL (?${THREADS_URL_PARAM}=)` : fromStart !== null ? 'the play start (threads)' : fromSetting !== null ? 'the project setting sim_thread' : 'the default';

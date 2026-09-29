@@ -1,5 +1,5 @@
 /**
- * Phase 25.16: the run digest — steps counted from the run's start, spawned
+ * The run digest — steps counted from the run's start, spawned
  * copies named by their number in the run, loaded scenes instead of the
  * scene set's revision — and the probe that takes it right after an input
  * exercise's last step; the relay's restart (the replay) asks for it on the

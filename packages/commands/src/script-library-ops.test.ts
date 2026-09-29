@@ -1,5 +1,5 @@
 /**
- * Phase 23.7: shared script libraries through the commands — setScriptLibrary
+ * Shared script libraries through the commands — setScriptLibrary
  * (create, patch, rename), deleteScriptLibrary (refused while imported), the
  * dependents republished in the same command from prepared facts only (trust
  * per library digest), and undo/redo moving library and dependents together.

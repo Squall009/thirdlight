@@ -1,5 +1,5 @@
 /**
- * Phase 23.8 — test and debug entry points in the runtime.
+ * Test and debug entry points in the runtime.
  *
  * - Injected variables (`InstantiateConfig.variables`) are the scripts'
  *   `ctx.save` values from step 0, under ctx.save's own rules.

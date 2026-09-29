@@ -1,5 +1,5 @@
 /**
- * Phase 23.11: a model's rig as simulation data — its node hierarchy (rest
+ * A model's rig as simulation data — its node hierarchy (rest
  * transforms) and the node animation channels of its clips, read from the
  * GLB bytes.
  *

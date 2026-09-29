@@ -1,5 +1,5 @@
 /**
- * Phase 23.5 (E8): block layers in the running game — through the production
+ * Block layers in the running game — through the production
  * game host, in the page and in the simulation worker.
  *
  * A neutral 3D scene: a block layer (1 × 0.5 × 1 m cells) holding an 8 × 8
@@ -147,8 +147,8 @@ describe('phase 23.5: block layers in the running game (page and worker)', () =>
       expect(events[removal + 2]).toEqual({ kind: 'step', grounded: false });
       // In digests: the marker script moves its entity in the digging step (its first differing digest
       // names that step); the player's position differs in that same step — the 3D character module
-      // (the manifest's `thirdlight.character3d:controller`, which the harness now registers as Play and
-      // export do; phase 24.3) sweeps after the collider rebuild and finds no support.
+      // (the manifest's `thirdlight.character3d:controller`, which the harness registers as Play and
+      // export do) sweeps after the collider rebuild and finds no support.
       const firstDiff = (x: string[]): number => x.slice(0, Math.min(x.length, idle.digests.length)).findIndex((d, k) => d !== idle.digests[k]);
       const digStepDigest = firstDiff(marker.digests);
       expect(digStepDigest).toBeGreaterThan(0);

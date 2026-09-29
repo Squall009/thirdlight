@@ -1,7 +1,6 @@
 /**
- * M3 media panel preview audio (packet 57; the packet surface "Preview audio
- * uses explicit local gesture and injected owner, no authoring token in
- * resources").
+ * Media panel preview audio: an explicit local gesture, an injected owner,
+ * no authoring token in resources.
  *
  * The media panel's cue PREVIEW plays committed cue bytes in the editor page.
  * The owner is INJECTED into the panel (the App creates exactly one per
@@ -11,8 +10,7 @@
  * never embedded in a resource, data URL or static path).
  *
  * This is the editor's preview utility, NOT the binding game-host audio owner
- * (presentation.md §41.4.7 — that owner serves the game runtime and the play
- * host; the editor package's boundary row cannot import game-host). It keeps
+ * (that owner serves the game runtime and the play host; the editor package's boundary row cannot import game-host). It keeps
  * the same safety laws the panel needs:
  *
  *  - RULE 1 (gesture): the `AudioContext` is created only by an explicit

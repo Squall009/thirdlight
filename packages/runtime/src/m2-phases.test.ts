@@ -1,6 +1,5 @@
 /**
- * Packet 29 — M2 module phases, transform ownership and the write guard
- * (runtime.md §12).
+ * M2 module phases, transform ownership and the write guard.
  *
  * Synthetic, dependency-free modules prove the canonical phase order, the
  * one-owner-per-transform rule, the phase-scoped write guard and the
@@ -240,7 +239,7 @@ describe('M2 phase order (runtime.md §12.1.1)', () => {
       }),
     ).toMatchObject({ code: 'config_invalid', reason: 'controller_target' });
 
-    // Phase 9.3: a v1/v2 scene is no longer a playable snapshot at all.
+    // A v1/v2 scene is not a playable snapshot at all.
     expect(
       instantiateError([controller.id], [controller], undefined, makeFakePort(), snapshotOf({ ...cloneJson(baseScene()), schemaVersion: 2 } as { revision: number })),
     ).toMatchObject({ code: 'snapshot_invalid' });

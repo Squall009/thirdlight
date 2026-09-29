@@ -1,5 +1,5 @@
 /**
- * Phase 15.4: script property visibility (public/private) at the command
+ * Script property visibility (public/private) at the command
  * level — a private property is never stored and never settable per object
  * or per prefab copy; `"public"` is normalized away; groups/headers/tooltips
  * are kept; a declaration update keeps the published source; a declaration

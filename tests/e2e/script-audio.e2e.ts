@@ -1,5 +1,5 @@
 /**
- * Phase 23.13: script audio and 3D audio against a real backend, on a
+ * Script audio and 3D audio against a real backend, on a
  * neutral 3D scene built by commands on a blank project (a floor, a player
  * capsule, two imported WAV sounds, an audio source to the camera's left).
  *

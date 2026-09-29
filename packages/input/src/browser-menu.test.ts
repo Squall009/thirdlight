@@ -1,6 +1,5 @@
 /**
- * Packet 55 — the browser input owner's menu seam (delivery.md
- * §4.1/§4.2), through injected fakes (no browser in this container).
+ * The browser input owner's menu seam (delivery.md), through injected fakes (no browser in this container).
  *
  * The real `attachBrowserInput` implementation is driven against a fake
  * target/window/navigator: menu keys (Enter/Space/KeyM) and the pad
@@ -149,7 +148,7 @@ describe('the §4.2 fresh-release state machine (delivery.md)', () => {
     // Release clears the needsRelease state...
     key('Space', false);
     expect(source.sample(2).jump).toBe('none');
-    // ...and a fresh press (the release-then-press cycle, case C2) is a
+    // ...and a fresh press (the release-then-press cycle) is a
     // confirm latch AND — in play, where the host does not act on the
     // confirm as a menu action — a legitimate jump of the same press.
     key('Space');
@@ -198,7 +197,7 @@ describe('environment transitions (delivery.md §4.3/§4.6)', () => {
     const s = source.sampleMenu();
     expect(s.confirm).toBe(false);
     expect(s.mute).toBe(false);
-    // The held keyboard jump is also cleared (the M2 suspend behavior).
+    // The held keyboard jump is also cleared (the suspend behavior).
     expect(source.sample(0)).toEqual({ stepIndex: 0, moveX: 0, jump: 'none' });
   });
 

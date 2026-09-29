@@ -1,4 +1,4 @@
-/** Phase 25.13: climb volumes, gravity bodies and the controller's climb and wall fields in the model. */
+/** Climb volumes, gravity bodies and the controller's climb and wall fields in the model. */
 import { describe, expect, it } from 'vitest';
 
 import { canonicalController, controllerMovementOf, validateControllerComponent } from './components';

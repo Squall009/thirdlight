@@ -1,6 +1,5 @@
 /**
- * Packet 53 — the runtime role selector and the bounded crossfade
- * (presentation.md §41.3.6/§41.3.7/§41.9; acceptance B14).
+ * The runtime role selector and the bounded crossfade.
  *
  * Runs in Node against the REAL `three` animation stack
  * (`AnimationMixer`/`AnimationAction`) over real, self-contained GLB bytes
@@ -13,7 +12,7 @@
  *
  * NOT verified here (no browser): rendered poses/pixels — the browser host
  * `tests/browser/m3-animation/m3-animation.browser.ts` names the rendered
- * B14 checklist (UNVERIFIED in-container).
+ * checklist (UNVERIFIED in-container).
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -35,7 +34,7 @@ import {
 import { createGltfLoaderPort } from './gltf-loader';
 import { buildGlb, descriptorFor } from './test-glb';
 
-// ---- shared fixtures (the packet-41 role names, in stored order) ----
+// ---- shared fixtures (the role clip names, in stored order) ----
 
 const CLIP_NAMES = ['Idle', 'Run', 'Airborne'] as const;
 const REORDERED_NAMES = ['Airborne', 'Run', 'Idle'] as const;
@@ -62,8 +61,8 @@ async function prepareResource(clipNames: readonly string[]): Promise<PreparedVi
 }
 
 /**
- * A host-owned committed view slice (the `Runtime.getGameView()` facts,
- * §41.3.7): the tests commit `motion`/`step` the way a runtime commit does,
+ * A host-owned committed view slice (the `Runtime.getGameView()` facts):
+ * the tests commit `motion`/`step` the way a runtime commit does,
  * and the controller reads the current values through the accessor.
  */
 function hostView(): { host: { motion: AnimationRoleMotion; step: number }; view: () => AnimationRoleView } {
@@ -505,7 +504,7 @@ describe('packet 53 — the role controller (real three mixers, real GLB clips)'
     if (!after.ok) expect(after.error.code).toBe('asset_disposed');
     // The controller's own dispose is already consumed by the instance.
     expect(controller.dispose()).toEqual({ ok: true, alreadyDisposed: true });
-    // A second instance of the same resource stays fully usable (§41.6 rule 2).
+    // A second instance of the same resource stays fully usable.
     const other = resource.createInstance();
     expect(other.ok).toBe(true);
     if (other.ok) {

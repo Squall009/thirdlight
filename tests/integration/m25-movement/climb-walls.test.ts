@@ -1,5 +1,5 @@
 /**
- * Phase 25.13: climbing, wall slide and wall jump, gravity bodies and the 2D
+ * Climbing, wall slide and wall jump, gravity bodies and the 2D
  * patrol's any-axis walk, through the production composition (the real game
  * host, the character controllers and Rapier), on the 2D plane and in 3D,
  * on the main thread and in the simulation worker, driven by recorded input.
@@ -12,7 +12,7 @@
  *   tall wall and keeps pushing into it: its fall is held at the slide speed;
  *   a jump press there pushes it off (away from the wall, up). With both off
  *   (the default) the same input falls at full speed and the press does
- *   nothing: the defaults keep the old behaviour.
+ *   nothing: the defaults leave the character as it is without them.
  * - Gravity bodies: an edge-walking patroller placed in the air falls onto the
  *   floor and walks on it; a plain body with gravity lands and rests.
  * - 2D only: a patroller walking along +y turns at the ceiling.

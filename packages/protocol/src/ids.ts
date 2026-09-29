@@ -1,27 +1,26 @@
 /**
- * ID and token syntax constants — sessions.md §3 (normative) +
- * commands.md §3 (`requestId`) + project-model §5.1 (project IDs).
+ * ID and token syntax constants for sessions, `requestId` and project IDs.
  *
  * Deliberate duplicates of the project-model ID pattern: the dependency
  * direction (protocol → project-model) means the protocol cannot import an
  * internal pattern; the syntaxes are stable contract text (same record as
- * the runtime snapshot validator, handoff 08).
+ * the runtime snapshot validator).
  */
 import { ID_RE } from '@thirdlight/project-model/limits';
 
-/** project-model §5.1: all project/entity/scene IDs. */
+/** All project/entity/scene IDs (the project-model ID syntax). */
 export const PROJECT_ID_RE = ID_RE;
-/** sessions.md §3: `sess-` + 32 lowercase hex (client-generated). */
+/** `sess-` + 32 lowercase hex (client-generated). */
 export const SESSION_ID_RE = /^sess-[0-9a-f]{32}$/;
-/** sessions.md §3: `conn-` + 32 lowercase hex (server-generated). */
+/** `conn-` + 32 lowercase hex (server-generated). */
 export const CONN_ID_RE = /^conn-[0-9a-f]{32}$/;
-/** sessions.md §3: `play-` + 32 lowercase hex (server-generated). */
+/** `play-` + 32 lowercase hex (server-generated). */
 export const PLAY_SESSION_ID_RE = /^play-[0-9a-f]{32}$/;
-/** sessions.md §3: 64 lowercase hex (server-generated, single-use, TTL). */
+/** 64 lowercase hex (server-generated, single-use, TTL). */
 export const WSTOKEN_RE = /^[0-9a-f]{64}$/;
-/** sessions.md §3: `relay-` + 32 lowercase hex (server-generated). */
+/** `relay-` + 32 lowercase hex (server-generated). */
 export const RELAY_ID_RE = /^relay-[0-9a-f]{32}$/;
-/** commands.md §3: `req-` + 32 hex (client-generated, dedup lease). */
+/** `req-` + 32 hex (client-generated, dedup lease). */
 export const REQUEST_ID_RE = /^req-[0-9a-f]{32}$/;
 
 export function isProjectId(v: unknown): v is string {
@@ -47,7 +46,7 @@ export function isRequestId(v: unknown): v is string {
 }
 
 /**
- * sessions.md §17.2: the play-content locator capability — 32 random bytes as
+ * The play-content locator capability — 32 random bytes as
  * unpadded base64url (43 chars). A secret-equivalent that is redacted in logs
  * (`<redacted:contentId>`) and excluded from exports.
  */
@@ -56,14 +55,14 @@ export function isContentId(v: unknown): v is string {
   return typeof v === 'string' && CONTENT_ID_RE.test(v);
 }
 
-/** sessions.md §3: 16-hex handshake nonce (fresh per handshake). */
+/** 16-hex handshake nonce (fresh per handshake). */
 export const NONCE_RE = /^[0-9a-f]{16}$/;
 export function isNonce(v: unknown): v is string {
   return typeof v === 'string' && NONCE_RE.test(v);
 }
 
 /**
- * sessions.md §4.2: the only M1 session kind. MCP and admin clients never
+ * The only session kind. MCP and admin clients never
  * establish sessions; any other `kind` ⇒ `field_value`.
  */
 export const SESSION_KINDS = ['browser'] as const;

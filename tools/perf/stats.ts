@@ -1,5 +1,5 @@
 /**
- * Phase 21.1: percentiles, the relative metrics a report is judged by, the
+ * Percentiles, the relative metrics a report is judged by, the
  * budget check and the comparison against a stored baseline.
  *
  * This server renders on the CPU and shares its cores with other work, so

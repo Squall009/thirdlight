@@ -1,5 +1,5 @@
 /**
- * Phase 14.1: the pure parts of `ctx.spawn` / `ctx.destroy` — the engine
+ * The pure parts of `ctx.spawn` / `ctx.destroy` — the engine
  * limits, the spawn options a script passes, and the expansion of a project
  * prefab definition into fresh runtime entities. A spawned copy is in the
  * running game only (never in the project, never in a save). No I/O.
@@ -78,7 +78,7 @@ export function parseSpawnOptions(def: PrefabDefinition, options: unknown): { ok
  * references inside the prefab) are remapped to the copy's ids, as the
  * editor's `instantiatePrefab` does. Each carries `prefab` provenance.
  *
- * Phase 25.10: typed — with `entityRefKeys` (a behavior's `entityRef`
+ * Typed — with `entityRefKeys` (a behavior's `entityRef`
  * property keys, from its declaration) only those values are remapped, so a
  * text property that happens to spell a localId stays as written. Without
  * it (a behavior the game does not know) every value naming a localId is,

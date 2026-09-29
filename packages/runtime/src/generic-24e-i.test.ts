@@ -1,7 +1,7 @@
 /**
- * Phase 24.4e–i on their own: triggers (enter/exit events and a scene
- * transition per entry), a switch's configurable action (phase 24.7: on the
- * 2D plane too, in the one step path every game runs),
+ * Generic gameplay pieces on their own: triggers (enter/exit events and a
+ * scene transition per entry), a switch's configurable action (on the 2D
+ * plane too, in the one step path every game runs),
  * velocity face-movement (the yaw of the motion, in 3D too) and a spawn's
  * yaw, the event → cue log, look overrides (set, clear, a new run, the save
  * section) and the track camera rig (offset, dead zone, damping, bounds).
@@ -190,7 +190,7 @@ describe('face velocity and a spawn yaw (phase 24.4f)', () => {
       ent('look', { faceMovement: { yawRight: 90, yawLeft: -90 } }, 'actor'),
       ent('tilted', { faceMovement: { yawRight: 120, yawLeft: -120 } }, 'actor'),
     ]);
-    // A spawn yaw is the yaw itself plus the offset (no longer snapped to a side).
+    // A spawn yaw is the yaw itself plus the offset (not snapped to a side).
     h.blocks.faceSpawn('actor', -Math.PI / 2);
     expect(h.yawOf('look')).toBeCloseTo(-90, 6);
     expect(h.yawOf('tilted')).toBeCloseTo(-60, 6);

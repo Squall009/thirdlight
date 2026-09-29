@@ -1,12 +1,7 @@
 /**
- * Component-level validators shared by the v3/v4 scene and content models —
- * project-model.md §10.5–§10.8, §12.2/§12.3, §21 (model, behavior, prefab
- * provenance, collider/controller and their physics transform rules; the
- * transform/box/camera field rules).
- *
- * These were the schemaVersion 2 scene's component rules; the v2 scene
- * validator itself was removed in phase 9.3 (only v4 projects load, v3 ones
- * upgrade on open), and what the v3/v4 validators reuse is here.
+ * Component-level validators shared by the v3/v4 scene and content models
+ * (model, behavior, prefab provenance, collider/controller and their physics
+ * transform rules; the transform/box/camera field rules).
  *
  * Pure and total: same input → same result, never throws, never reads files.
  */
@@ -32,15 +27,15 @@ import type { ModelErrorV2 } from './errors';
 import type { ColliderShape, ControllerComponent, TransformComponent } from './types-v2';
 
 export const ID_RE_V2 = ID_RE;
-export const PROPERTY_KEY_RE = /^[a-z][a-z0-9_]{0,63}$/; // §20.5
+export const PROPERTY_KEY_RE = /^[a-z][a-z0-9_]{0,63}$/;
 
-export const MAX_ENTITIES_V2 = 1024; // §10.4
-export const MAX_COLLIDERS = 256; // §10.7
-export const MAX_POLYGON_VERTICES = 8; // §10.7
-export const MAX_POLYGON_VERTICES_TOTAL = 1024; // §10.7
-export const MAX_COLLIDER_EXTENT = 64; // §10.7
-export const MIN_POLYGON_AREA = 1e-6; // §10.7
-export const CONVEX_TOL = 1e-9; // §10.7
+export const MAX_ENTITIES_V2 = 1024;
+export const MAX_COLLIDERS = 256;
+export const MAX_POLYGON_VERTICES = 8;
+export const MAX_POLYGON_VERTICES_TOTAL = 1024;
+export const MAX_COLLIDER_EXTENT = 64;
+export const MIN_POLYGON_AREA = 1e-6;
+export const CONVEX_TOL = 1e-9;
 
 const KNOWN_MODEL_FIELDS = new Set(['asset', 'piece', 'castShadow', 'receiveShadow']);
 const KNOWN_MODEL_ASSET_FIELDS = new Set(['assetId']);
@@ -55,7 +50,7 @@ const KNOWN_CONVEX_SHAPE_FIELDS = new Set(['type', 'points']);
 const KNOWN_MESH_SHAPE_FIELDS = new Set(['type', 'vertices', 'triangles']);
 
 /**
- * Phase 23.1: the limits of the 3D collider shapes. A hull of 64 points and
+ * The limits of the 3D collider shapes. A hull of 64 points and
  * a mesh of 1,024 vertices / 2,048 triangles are far beyond a collision
  * proxy (a `_COL` node is a handful of boxes' worth of triangles) and keep
  * one collider inside a command request (64 KiB); a scene holds at most
@@ -63,7 +58,7 @@ const KNOWN_MESH_SHAPE_FIELDS = new Set(['type', 'vertices', 'triangles']);
  * collider extent, like a polygon's.
  */
 export const COLLIDER_3D_LIMITS = Object.freeze({ convexPoints: 64, meshVertices: 1024, meshTriangles: 2048, pointsTotal: 32768 });
-/** Phase 23.1: the 3D collider shape types (a 3D project only; a 2D plane uses box and polygon). */
+/** The 3D collider shape types (a 3D project only; a 2D plane uses box and polygon). */
 export const COLLIDER_3D_SHAPES = ['sphere', 'capsule', 'convex', 'mesh'] as const;
 const KNOWN_TRANSFORM_FIELDS = new Set(['position', 'rotation', 'scale']);
 const KNOWN_BOX_FIELDS = new Set(['size', 'material', 'castShadow', 'receiveShadow']);
@@ -138,7 +133,7 @@ export function validateModelComponent(c: unknown, path: string, errors: ModelEr
 }
 
 /**
- * Phase 17.4: optional `castShadow` / `receiveShadow` booleans of a visible
+ * Optional `castShadow` / `receiveShadow` booleans of a visible
  * object (box, model, instance set). Absent = true: solid geometry blocks the
  * light and shows the shadows falling on it in any genre; a decal, a glow or a
  * distant backdrop turns them off.
@@ -248,7 +243,7 @@ function validateColliderShape(shape: unknown, path: string, errors: ModelErrorV
     else checkFiniteNumber(shape['hx'], `${path}/hx`, { positive: true, absMax: MAX_LEN }, `0 < hx <= ${MAX_LEN}`, errors);
     if (shape['hy'] === undefined) errors.push(fieldMissing(`${path}/hy`, 'hy'));
     else checkFiniteNumber(shape['hy'], `${path}/hy`, { positive: true, absMax: MAX_LEN }, `0 < hy <= ${MAX_LEN}`, errors);
-    // Phase 23.0: the half depth along Z (optional; a 3D project requires it, a 2D plane ignores it).
+    // The half depth along Z (optional; a 3D project requires it, a 2D plane ignores it).
     if (shape['hz'] !== undefined) checkFiniteNumber(shape['hz'], `${path}/hz`, { positive: true, absMax: MAX_LEN }, `0 < hz <= ${MAX_LEN}`, errors);
     for (const k of Object.keys(shape)) {
       if (!KNOWN_BOX_SHAPE_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'type, hx, hy, hz'));
@@ -344,7 +339,7 @@ function validateColliderShape(shape: unknown, path: string, errors: ModelErrorV
     return;
   }
   if (type === 'sphere' || type === 'capsule') {
-    // Phase 23.1: 3D shapes (the project's physics dimension is checked with the content).
+    // 3D shapes (the project's physics dimension is checked with the content).
     if (shape['radius'] === undefined) errors.push(fieldMissing(`${path}/radius`, 'radius'));
     else checkFiniteNumber(shape['radius'], `${path}/radius`, { positive: true, absMax: MAX_COLLIDER_EXTENT }, `0 < radius <= ${MAX_COLLIDER_EXTENT}`, errors);
     if (type === 'capsule') {
@@ -407,7 +402,7 @@ function validateColliderShape(shape: unknown, path: string, errors: ModelErrorV
   );
 }
 
-/** Phase 23.1: a list of [x, y, z] points (each within the collider extent), or null after recording why not. */
+/** A list of [x, y, z] points (each within the collider extent), or null after recording why not. */
 function point3List(list: unknown, path: string, min: number, max: number, errors: ModelErrorV2[]): [number, number, number][] | null {
   if (list === undefined) {
     errors.push(fieldMissing(path, path.slice(path.lastIndexOf('/') + 1)));
@@ -434,7 +429,7 @@ function point3List(list: unknown, path: string, min: number, max: number, error
   return out;
 }
 
-/** Phase 23.1: whether points span a volume (not all on one plane, within 1 mm³ of tolerance). */
+/** Whether points span a volume (not all on one plane, within 1 mm³ of tolerance). */
 function hasVolume(pts: readonly (readonly [number, number, number])[]): boolean {
   const a = pts[0]!;
   let b = a;
@@ -462,7 +457,7 @@ function hasVolume(pts: readonly (readonly [number, number, number])[]): boolean
 }
 
 /**
- * Phase 23.3: collision layers. A 3D project names up to
+ * Collision layers. A 3D project names up to
  * `MAX_COLLISION_LAYERS` layers in `content.collisionLayers`; together with
  * the implicit "default" layer (every collider without `layers`) they are the
  * 16 membership bits of the physics engine's collision groups. A collider
@@ -473,7 +468,7 @@ export const DEFAULT_COLLISION_LAYER = 'default';
 export const MAX_COLLISION_LAYERS = 15;
 const LAYER_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
 
-/** Phase 23.3: the project's layer list (`content.collisionLayers`). */
+/** The project's layer list (`content.collisionLayers`). */
 export function validateCollisionLayers(v: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!Array.isArray(v)) {
     errors.push(fieldType(path, v, 'array'));
@@ -492,7 +487,7 @@ export function validateCollisionLayers(v: unknown, path: string, errors: ModelE
   });
 }
 
-/** Phase 23.3: a collider's `layers` (1–16 unique names; whether they exist is the project composition's check). */
+/** A collider's `layers` (1–16 unique names; whether they exist is the project composition's check). */
 export function validateColliderLayers(v: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!Array.isArray(v) || v.length < 1 || v.length > MAX_COLLISION_LAYERS + 1) {
     errors.push(withFound({ code: 'field_value', path, message: `layers lists 1–${MAX_COLLISION_LAYERS + 1} collision layer names`, expected: 'a list of layer names' }, v));
@@ -506,7 +501,7 @@ export function validateColliderLayers(v: unknown, path: string, errors: ModelEr
   });
 }
 
-/** Phase 23.3: the collider value without its v4 extras (`oneWay`, `layers`), for the shape validation. */
+/** The collider value without its v4 extras (`oneWay`, `layers`), for the shape validation. */
 export function colliderCore(col: unknown): unknown {
   if (!isPlainObject(col) || (col['oneWay'] === undefined && col['layers'] === undefined)) return col;
   return Object.fromEntries(Object.entries(col).filter(([k]) => k !== 'oneWay' && k !== 'layers'));
@@ -529,7 +524,7 @@ export function validateColliderComponent(c: unknown, path: string, errors: Mode
 }
 
 /**
- * Phase 14.0: the default character capsule when a controller carries none —
+ * The default character capsule when a controller carries none —
  * 0.3 m radius and 1.8 m total height (an adult human standing: about 0.6 m
  * across the shoulders, 1.8 m tall), centred on the entity. Every project
  * made before the capsule became data plays with exactly this shape.
@@ -540,17 +535,17 @@ export const DEFAULT_CONTROLLER_CAPSULE: Readonly<{ radius: number; height: numb
   offset: Object.freeze([0, 0]) as readonly [number, number],
 });
 
-/** Phase 14.0: the capsule ranges (m) — far beyond any character, small enough to keep the solver sane. */
+/** The capsule ranges (m) — far beyond any character, small enough to keep the solver sane. */
 export const CAPSULE_LIMITS = Object.freeze({ minRadius: 0.05, maxRadius: 5, minHeight: 0.1, maxHeight: 20, maxOffset: 5 });
 
-/** Phase 23.0: the capsule centre's offset along Z (a 3D project; the offset's optional third component, else 0). */
+/** The capsule centre's offset along Z (a 3D project; the offset's optional third component, else 0). */
 export function controllerCapsuleOffsetZ(controller: unknown): number {
   const c = isPlainObject(controller) ? controller['capsule'] : undefined;
   const o = isPlainObject(c) && Array.isArray(c['offset']) ? (c['offset'] as unknown[]) : [];
   return typeof o[2] === 'number' && Number.isFinite(o[2]) ? o[2] : 0;
 }
 
-/** Phase 14.0: the capsule a controller component describes (the default when it has none). */
+/** The capsule a controller component describes (the default when it has none). */
 export function controllerCapsuleOf(controller: unknown): { radius: number; height: number; offset: [number, number] } {
   const c = isPlainObject(controller) ? controller['capsule'] : undefined;
   if (!isPlainObject(c)) return { radius: DEFAULT_CONTROLLER_CAPSULE.radius, height: DEFAULT_CONTROLLER_CAPSULE.height, offset: [0, 0] };
@@ -564,9 +559,9 @@ export function controllerCapsuleOf(controller: unknown): { radius: number; heig
 }
 
 /**
- * Phase 15.3: the character's movement tuning when a controller carries none —
- * exactly the values every project played with before they became data (the
- * packet-32 contract constants; recorded replays stay valid). Generic
+ * The character's movement tuning when a controller carries none —
+ * exactly the values every project played with before they became data (so
+ * recorded replays stay valid). Generic
  * reasons: 40 / 60 m/s² reach a 4 m/s run in 0.1 s and stop in under 0.07 s
  * (responsive but not instant, any walking character); 0.05 s coyote time
  * and a 1/15 s (8 steps at 120 Hz) jump buffer are the usual few-frame
@@ -600,7 +595,7 @@ export const DEFAULT_CONTROLLER_TUNING: Readonly<{
 
 type TuningNumberKey = 'acceleration' | 'deceleration' | 'coyoteTime' | 'jumpBuffer' | 'jumpRelease' | 'groundSnap' | 'skin' | 'autostepHeight';
 
-/** Phase 15.3: the tuning ranges — wide enough for any character, narrow enough to keep the solver and the step counters sane. */
+/** The tuning ranges — wide enough for any character, narrow enough to keep the solver and the step counters sane. */
 export const CONTROLLER_TUNING_LIMITS: Readonly<Record<TuningNumberKey, { readonly min: number; readonly max: number }>> = Object.freeze({
   acceleration: { min: 0.1, max: 1000 },
   deceleration: { min: 0.1, max: 1000 },
@@ -612,10 +607,10 @@ export const CONTROLLER_TUNING_LIMITS: Readonly<Record<TuningNumberKey, { readon
   autostepHeight: { min: 0.01, max: 2 },
 });
 
-/** Phase 15.3: the controller's tuning fields, in canonical order. */
+/** The controller's tuning fields, in canonical order. */
 export const CONTROLLER_TUNING_FIELDS = ['acceleration', 'deceleration', 'coyoteTime', 'jumpBuffer', 'jumpRelease', 'groundSnap', 'skin', 'autostep', 'autostepHeight'] as const;
 /**
- * Phase 23.2: the 3D character's settings when a controller carries none
+ * The 3D character's settings when a controller carries none
  * (read only in a 3D project, physics_dimension 3; a 2D plane ignores them).
  * Genre-neutral reasons: a 2 m/s walk is a brisk human walk (people walk at
  * 1.2–1.5 m/s; a game walks a little faster so a map never drags); half the
@@ -656,7 +651,7 @@ export const DEFAULT_CHARACTER_3D: Readonly<{
 
 type Character3DNumberKey = 'walkSpeed' | 'runSpeed' | 'airControl' | 'gravityScale' | 'jumpSpeed' | 'slopeLimit' | 'stepHeight' | 'ledgeHeight' | 'ledgeClimbTime' | 'turnSpeed';
 
-/** Phase 23.2: the 3D settings' ranges (a step-up below 0.01 m is off; a turn speed of 0 turns at once). */
+/** The 3D settings' ranges (a step-up below 0.01 m is off; a turn speed of 0 turns at once). */
 export const CHARACTER_3D_LIMITS: Readonly<Record<Character3DNumberKey, { readonly min: number; readonly max: number }>> = Object.freeze({
   walkSpeed: { min: 0, max: 50 },
   runSpeed: { min: 0, max: 50 },
@@ -670,12 +665,12 @@ export const CHARACTER_3D_LIMITS: Readonly<Record<Character3DNumberKey, { readon
   turnSpeed: { min: 0, max: 36000 },
 });
 
-/** Phase 23.2: the 3D character fields, in canonical order (after the tuning fields). */
+/** The 3D character fields, in canonical order (after the tuning fields). */
 export const CONTROLLER_3D_FIELDS = ['walkSpeed', 'runSpeed', 'airControl', 'gravityScale', 'jump', 'jumpSpeed', 'slopeLimit', 'stepHeight', 'ledgeClimb', 'ledgeHeight', 'ledgeClimbTime', 'turnSpeed', 'faceMovement'] as const;
 const CONTROLLER_3D_BOOLEANS: readonly string[] = ['jump', 'ledgeClimb', 'faceMovement'];
 
 /**
- * Phase 24.8: the input actions the controller reads (frame version 2 has no
+ * The input actions the controller reads (frame version 2 has no
  * fixed move/jump channels). Defaults `move` and `jump`: the names of the
  * default input actions every new project has (any genre's walking
  * character moves and jumps with them); a project may point its character at
@@ -685,7 +680,7 @@ export const CONTROLLER_ACTION_FIELDS = ['moveAction', 'jumpAction'] as const;
 export const CONTROLLER_ACTION_DEFAULTS = Object.freeze({ moveAction: 'move', jumpAction: 'jump' });
 const CONTROLLER_ACTION_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
 
-/** Phase 24.8: the action names a controller reads (each absent field at its default). */
+/** The action names a controller reads (each absent field at its default). */
 export function controllerActionsOf(controller: unknown): { move: string; jump: string } {
   const c = isPlainObject(controller) ? controller : {};
   const name = (k: 'moveAction' | 'jumpAction'): string => (typeof c[k] === 'string' && CONTROLLER_ACTION_RE.test(c[k] as string) ? (c[k] as string) : CONTROLLER_ACTION_DEFAULTS[k]);
@@ -693,7 +688,7 @@ export function controllerActionsOf(controller: unknown): { move: string; jump: 
 }
 
 /**
- * Phase 25.13: climbing and walls (both dimensions). Climbing needs no switch:
+ * Climbing and walls (both dimensions). Climbing needs no switch:
  * a character climbs only inside a `climbVolume` (a scene without one plays
  * as before). Wall slide and wall jump are off by default (not every game
  * clings to walls). Genre-neutral reasons: a 2 m/s climb is the default 3D
@@ -708,7 +703,7 @@ export const DEFAULT_CONTROLLER_MOVEMENT: Readonly<{ climbSpeed: number; wallSli
   wallSlideSpeed: 2,
   wallJump: false,
 });
-/** Phase 25.13: the climb and wall fields' ranges (m/s). */
+/** The climb and wall fields' ranges (m/s). */
 export const CONTROLLER_MOVEMENT_LIMITS: Readonly<Record<'climbSpeed' | 'wallSlideSpeed' | 'wallJumpAway' | 'wallJumpUp' | 'wallJumpLock', { readonly min: number; readonly max: number }>> = Object.freeze({
   climbSpeed: { min: 0.1, max: 50 },
   wallSlideSpeed: { min: 0, max: 50 },
@@ -717,11 +712,11 @@ export const CONTROLLER_MOVEMENT_LIMITS: Readonly<Record<'climbSpeed' | 'wallSli
   /** s: how long a wall jump keeps the input from steering (absent: until the top of the jump). */
   wallJumpLock: { min: 0, max: 5 },
 });
-/** Phase 25.13: the climb and wall fields, in canonical order (after the action names). */
+/** The climb and wall fields, in canonical order (after the action names). */
 export const CONTROLLER_MOVEMENT_FIELDS = ['climbSpeed', 'climbAction', 'wallSlide', 'wallSlideSpeed', 'wallJump', 'wallJumpAway', 'wallJumpUp', 'wallJumpLock'] as const;
 const CONTROLLER_MOVEMENT_BOOLEANS: readonly string[] = ['wallSlide', 'wallJump'];
 
-/** Phase 25.13: the resolved climb and wall settings (`wallJumpAway`/`wallJumpUp` absent: the caller's run and jump speeds). */
+/** The resolved climb and wall settings (`wallJumpAway`/`wallJumpUp` absent: the caller's run and jump speeds). */
 export interface ControllerMovementSettings {
   climbSpeed: number;
   /** The input action whose value (an axis1d) or y (an axis2d) climbs; null: the move action's y. */
@@ -735,7 +730,7 @@ export interface ControllerMovementSettings {
   wallJumpLock: number | null;
 }
 
-/** Phase 25.13: the climb and wall settings a controller describes (each absent field at its default). */
+/** The climb and wall settings a controller describes (each absent field at its default). */
 export function controllerMovementOf(controller: unknown): ControllerMovementSettings {
   const c = isPlainObject(controller) ? controller : {};
   const d = DEFAULT_CONTROLLER_MOVEMENT;
@@ -756,7 +751,7 @@ export function controllerMovementOf(controller: unknown): ControllerMovementSet
 /** Every v4 controller field, in canonical order. */
 export const CONTROLLER_FIELDS: readonly string[] = ['capsule', ...CONTROLLER_TUNING_FIELDS, ...CONTROLLER_3D_FIELDS, ...CONTROLLER_ACTION_FIELDS, ...CONTROLLER_MOVEMENT_FIELDS];
 
-/** Phase 23.2: the resolved 3D character settings (the controller's data, else the defaults and the project settings). */
+/** The resolved 3D character settings (the controller's data, else the defaults and the project settings). */
 export interface Character3DSettings {
   walkSpeed: number;
   runSpeed: number;
@@ -788,7 +783,7 @@ export interface Character3DSettings {
 }
 
 /**
- * Phase 23.2: the 3D character settings a controller describes, with the
+ * The 3D character settings a controller describes, with the
  * project settings it defers to (`run_speed`, `jump_velocity`, `gravity_y`,
  * `max_fall_speed`, `max_slope_climb_deg`).
  */
@@ -827,7 +822,7 @@ export function character3DSettingsOf(controller: unknown, settings: { run_speed
   };
 }
 
-/** Phase 15.3: the tuning a controller component describes (each absent field at its default). */
+/** The tuning a controller component describes (each absent field at its default). */
 export function controllerTuningOf(controller: unknown): { -readonly [K in keyof typeof DEFAULT_CONTROLLER_TUNING]: (typeof DEFAULT_CONTROLLER_TUNING)[K] } {
   const c = isPlainObject(controller) ? controller : {};
   const d = DEFAULT_CONTROLLER_TUNING;
@@ -848,7 +843,7 @@ export function controllerTuningOf(controller: unknown): { -readonly [K in keyof
   };
 }
 
-/** Phase 14.0/15.3: the canonical controller, rebuilt field by field (the capsule's radius, height and optional offset, then the tuning fields present). */
+/** The canonical controller, rebuilt field by field (the capsule's radius, height and optional offset, then the tuning fields present). */
 export function canonicalController(controller: unknown): ControllerComponent {
   const src = isPlainObject(controller) ? controller : {};
   const c = src['capsule'];
@@ -862,11 +857,11 @@ export function canonicalController(controller: unknown): ControllerComponent {
     };
   }
   for (const k of CONTROLLER_TUNING_FIELDS) if (src[k] !== undefined) out[k] = src[k];
-  // Phase 23.2: the 3D character fields (absent keeps the old canonical bytes).
+  // The 3D character fields (absent keeps the old canonical bytes).
   for (const k of CONTROLLER_3D_FIELDS) if (src[k] !== undefined) out[k] = src[k];
-  // Phase 24.8: the action names (absent keeps the old canonical bytes).
+  // The action names (absent keeps the old canonical bytes).
   for (const k of CONTROLLER_ACTION_FIELDS) if (src[k] !== undefined) out[k] = src[k];
-  // Phase 25.13: climbing and walls (absent keeps the old canonical bytes).
+  // Climbing and walls (absent keeps the old canonical bytes).
   for (const k of CONTROLLER_MOVEMENT_FIELDS) if (src[k] !== undefined) out[k] = src[k];
   return out as ControllerComponent;
 }
@@ -881,7 +876,7 @@ export function validateControllerComponent(c: unknown, path: string, errors: Mo
     errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, version === 4 ? CONTROLLER_FIELDS.join(', ') : '{} (no fields before v4)'));
   }
   if (version !== 4) return;
-  // Phase 15.3: the movement tuning.
+  // The movement tuning.
   for (const [key, lim] of Object.entries(CONTROLLER_TUNING_LIMITS)) {
     const v = c[key];
     if (v === undefined) continue;
@@ -890,7 +885,7 @@ export function validateControllerComponent(c: unknown, path: string, errors: Mo
     }
   }
   if (c['autostep'] !== undefined && typeof c['autostep'] !== 'boolean') errors.push(fieldType(`${path}/autostep`, c['autostep'], 'boolean'));
-  // Phase 23.2: the 3D character settings (validated in every project; only a 3D project reads them).
+  // The 3D character settings (validated in every project; only a 3D project reads them).
   for (const [key, lim] of Object.entries(CHARACTER_3D_LIMITS)) {
     const v = c[key];
     if (v === undefined) continue;
@@ -899,7 +894,7 @@ export function validateControllerComponent(c: unknown, path: string, errors: Mo
     }
   }
   for (const key of CONTROLLER_3D_BOOLEANS) if (c[key] !== undefined && typeof c[key] !== 'boolean') errors.push(fieldType(`${path}/${key}`, c[key], 'boolean'));
-  // Phase 25.13: climbing and walls.
+  // Climbing and walls.
   for (const [key, lim] of Object.entries(CONTROLLER_MOVEMENT_LIMITS)) {
     const v = c[key];
     if (v === undefined) continue;
@@ -909,7 +904,7 @@ export function validateControllerComponent(c: unknown, path: string, errors: Mo
   }
   for (const key of CONTROLLER_MOVEMENT_BOOLEANS) if (c[key] !== undefined && typeof c[key] !== 'boolean') errors.push(fieldType(`${path}/${key}`, c[key], 'boolean'));
   if (c['climbAction'] !== undefined && (typeof c['climbAction'] !== 'string' || !CONTROLLER_ACTION_RE.test(c['climbAction']))) errors.push(fieldValue(`${path}/climbAction`, c['climbAction'], 'an input action name (a letter or _, then up to 31 letters, digits or _)', 'controller climbAction names an input action'));
-  // Phase 24.8: the input actions it reads.
+  // The input actions it reads.
   for (const key of CONTROLLER_ACTION_FIELDS) {
     const v = c[key];
     if (v !== undefined && (typeof v !== 'string' || !CONTROLLER_ACTION_RE.test(v))) errors.push(fieldValue(`${path}/${key}`, v, 'an input action name (a letter or _, then up to 31 letters, digits or _)', `controller ${key} names an input action`));
@@ -944,7 +939,7 @@ export function validateControllerComponent(c: unknown, path: string, errors: Mo
   }
   const offset = capsule['offset'];
   if (offset !== undefined) {
-    // Phase 23.0: an optional third component (z) for a 3D project; a 2D plane ignores it.
+    // An optional third component (z) for a 3D project; a 2D plane ignores it.
     const ok = Array.isArray(offset) && (offset.length === 2 || offset.length === 3) && offset.every((v) => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= L.maxOffset);
     if (!ok) errors.push(fieldValue(`${cp}/offset`, offset, `[x, y] or [x, y, z], each within ±${L.maxOffset} m`, 'capsule offset is [x, y] (or [x, y, z]) in metres from the entity origin'));
   }
@@ -963,14 +958,14 @@ export function validatePhysicsTransform(
   hasController: boolean,
   errors: ModelErrorV2[],
   /**
-   * Phase 23.0: `false` defers the rotation rules to the project level
+   * `false` defers the rotation rules to the project level
    * (`physicsRotationErrors` with the project's `physics_dimension`), so a v4
    * scene's collider may turn freely in a 3D project. v2/v3 documents (2D
    * only) keep the rules here.
    */
   checkRotation = true,
   /**
-   * Phase 23.1: `false` defers the scale rule to the project level too
+   * `false` defers the scale rule to the project level too
    * (`physicsScaleErrors`): a 3D collider may be scaled where its shape can
    * take it. Defaults to `checkRotation` (v4 defers both).
    */
@@ -996,7 +991,7 @@ export function validatePhysicsTransform(
 }
 
 /**
- * Phase 23.1: the scale rule of a physics-bearing entity for the project's
+ * The scale rule of a physics-bearing entity for the project's
  * physics dimension. A 2D plane (and every controller): unit scale, as
  * before. 3D: a box, hull or mesh collider takes any positive scale per axis
  * (applied to its shape along the entity's axes), a sphere or capsule a
@@ -1041,12 +1036,11 @@ export function physicsScaleErrors(comps: Record<string, unknown>, path: string,
 }
 
 /**
- * Phase 23.0: the rotation rules of a physics-bearing entity for the
+ * The rotation rules of a physics-bearing entity for the
  * project's physics dimension. A 2D-plane project (2): rotated about Z only
- * and the controller upright (identity) — the rules every project had
- * before. A 3D project (3): a collider takes any rotation; the controller
- * stays upright (identity: the capsule stands along Y; turning the
- * character is phase 23.2).
+ * and the controller upright (identity). A 3D project (3): a collider takes
+ * any rotation; the controller stays upright (identity: the capsule stands
+ * along Y).
  */
 export function physicsRotationErrors(comps: Record<string, unknown>, path: string, hasController: boolean, dimension: 2 | 3, errors: ModelErrorV2[]): void {
   const t = effectiveTransform(comps);
@@ -1098,7 +1092,7 @@ export function physicsRotationErrors(comps: Record<string, unknown>, path: stri
   }
 }
 
-/** `transform` field validation for the v2 registry (identical rules to §10.1). */
+/** `transform` field validation for the v2 registry (the same rules as the scene transform). */
 export function validateTransformV2(t: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(t)) {
     errors.push(fieldType(path, t, 'object'));
@@ -1163,7 +1157,7 @@ export function validateCameraV2(c: unknown, path: string, errors: ModelErrorV2[
   }
 }
 
-// ---- canonicalization (§12.2) -------------------------------------------------
+// ---- canonicalization -------------------------------------------------
 
 function canonNum(v: unknown): number {
   const n = v as number;
@@ -1176,7 +1170,7 @@ export function canonicalCollider(c: unknown): ColliderShape {
   if (shape['type'] === 'box') {
     return { type: 'box', hx: canonNum(shape['hx']), hy: canonNum(shape['hy']), ...(shape['hz'] !== undefined ? { hz: canonNum(shape['hz']) } : {}) };
   }
-  // Phase 23.1: the 3D shapes.
+  // The 3D shapes.
   const p3 = (q: unknown): [number, number, number] => {
     const a = q as unknown[];
     return [canonNum(a[0]), canonNum(a[1]), canonNum(a[2])];

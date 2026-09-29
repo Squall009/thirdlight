@@ -1,5 +1,5 @@
 /**
- * Phase 25.21: shared fixture of the painted-terrain e2e specs — four layer
+ * Shared fixture of the painted-terrain e2e specs — four layer
  * textures (flat colours with a height each), a flat normal map and an ORM
  * image as plain PNG texture assets; the three texture arrays packed from
  * them through the real pack route (as MCP does); and the colour tests the

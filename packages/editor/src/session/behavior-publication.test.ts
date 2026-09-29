@@ -1,9 +1,9 @@
 /**
- * Packet 34 — the behavior publication workflow (pure state machine,
+ * The behavior publication workflow (pure state machine,
  * editor-side) and the trust/declaration projection.
  *
  * No browser: the DOM transport (`session/client.ts`) is exercised by the
- * packet-37 browser procedure; these tests pin the pure decisions — the
+ * browser tests; these tests pin the pure decisions — the
  * normative trust notice, the typed command args, the bounded diagnostics,
  * and the structural "staged edits do not change active play or the published
  * revision" guarantee.

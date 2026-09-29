@@ -1,11 +1,11 @@
 /**
- * Phase 17.2: shader parity. Each shader type of the project material
+ * Shader parity. Each shader type of the project material
  * library (standard, foliage wind, kit world-X UV + macro normal, unlit,
  * water), lightmaps (UV1, range scaling, no-ambient) and the per-mesh looks
  * (selection highlight, a look override) render in a neutral test scene
  * (`shader-parity/harness.ts`) and are compared with the WebGL reference
  * images captured from the WebGLRenderer path before the port
- * (`shader-parity/refs/*.png`). Phase 17.4: that path is archived
+ * (`shader-parity/refs/*.png`). That path is archived
  * (`archive/webgl-renderer-17/`, with its capture script): the references
  * are frozen as the contract.
  *
@@ -16,11 +16,11 @@
  * - A control: the cases without their shader nodes (what WebGPURenderer drew
  *   while the archived hooks were ignored) do NOT match.
  *
- * - Phase 18.2: every shader type converted to a graph material ("Convert
+ * - Every shader type converted to a graph material ("Convert
  *   to graph", the built-in templates) and drawn by the graph compiler
  *   matches the same references with the same rule, on both backends.
  *
- * The tolerance rule is logged in docs/plan-phase-17.md §6 (17.2).
+ * The tolerance rule is logged in docs/plan-phase-17.md.
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -99,14 +99,14 @@ for (const name of CASES) {
     expect(got.backend).toBe('webgl2');
     expect(within(compare(name, 'webgl2', got)), `webgl2 ${name}`).toBe(true);
     // The default backend: auto takes WebGL 2 here without a WebGPU adapter (SwiftShader); on the
-    // host's GPU (2026-09-27) the default project has one, and auto takes WebGPU.
+    // host's GPU the default project has one, and auto takes WebGPU.
     const auto = await render(page, 'auto', name);
     expect(auto.backend).toBe(gpuAvailable() ? 'webgpu' : 'webgl2');
     expect(within(compare(name, 'auto', auto)), `auto ${name}`).toBe(true);
   });
 }
 
-/** Phase 18.2: the shader types whose materials convert to graphs. */
+/** The shader types whose materials convert to graphs. */
 const GRAPH_CASES = ['standard', 'foliage', 'kit', 'unlit', 'water'] as const;
 
 for (const name of GRAPH_CASES) {

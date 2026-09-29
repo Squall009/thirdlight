@@ -1,7 +1,7 @@
 /**
  * Shared helpers for the backend integration tests: an ephemeral-backend
  * factory (disposable data root + static dirs), a `ws` client wrapper with
- * message queuing, and ID allocators matching the sessions.md §3 syntaxes.
+ * message queuing, and ID allocators matching the protocol's ID syntaxes.
  */
 import { randomBytes } from 'node:crypto';
 import { WebSocket } from 'ws';
@@ -15,7 +15,7 @@ export function hex(n: number): string {
   return out;
 }
 
-/** sessions.md §3 syntaxes (client/server generators for tests). */
+/** Protocol ID syntaxes (client/server generators for tests). */
 export const mkSessionId = (): string => `sess-${hex(16)}`;
 export const mkRequestId = (): string => `req-${hex(16)}`;
 export const mkNonce = (): string => hex(8);
@@ -44,7 +44,7 @@ export interface BackendTestOptions {
   tokens?: Array<{ token: string; scope: string }>;
   /** The project id the default authoring token is bound to. */
   projectId?: string;
-  /** Phase 19.2: exports (the admin export route) — where they are written and the engine root they build from. */
+  /** Exports (the admin export route) — where they are written and the engine root they build from. */
   exportRoot?: string;
   engineRoot?: string;
 }

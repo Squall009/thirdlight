@@ -1,5 +1,5 @@
 /**
- * M3 preview audio owner tests (packet 57) — the editor-page preview
+ * Preview audio owner tests — the editor-page preview
  * utility: gesture gating (RULE 1), bounded decode (RULE 2), bounded voices
  * (RULE 3), per-cue dedupe (RULE 4), idempotent dispose (RULE 5).
  *

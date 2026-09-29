@@ -1,5 +1,5 @@
 /**
- * Phase 15.1: every component the Inspector's "+ Add component" offers is
+ * Every component the Inspector's "+ Add component" offers is
  * added and removed through `setComponent` — box, camera and model included
  * (a complete value adds, `null` removes; the resulting scene is validated as
  * always) — and every top-level field a component descriptor lists is a field

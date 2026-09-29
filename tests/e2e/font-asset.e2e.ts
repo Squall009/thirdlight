@@ -1,5 +1,5 @@
 /**
- * Phase 23.9a: a font file chosen in the Asset browser imports as a `font`
+ * A font file chosen in the Asset browser imports as a `font`
  * asset (real page, real backend): the TTF fixture (a DejaVu Sans ASCII
  * subset, fixtures/fonts) is staged, inspected and published, and its tile
  * shows the kind with the generic icon. A WOFF2 of the same font imports too.

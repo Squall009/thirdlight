@@ -1,5 +1,5 @@
 /**
- * Phase 14.0: the character capsule is data. A small capsule (radius 0.25 m,
+ * The character capsule is data. A small capsule (radius 0.25 m,
  * 1 m tall) walks under a 1.2 m ceiling that stops the default 1.8 m capsule;
  * with its offset putting the entity origin at the feet it lands with the
  * origin on the ground; the clearance probe, `placeCharacter` and one-way

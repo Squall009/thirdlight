@@ -179,10 +179,10 @@ export function makeAdminRoutes(ctx: AdminRoutesContext) {
   };
 
 
-  // ---------- export (sessions.md §6.3; export.md §2/§4) ----------
+  // ---------- export ----------
 
   /**
-   * The export IO facade (export.md §2 dependency injection — the exporter
+   * The export IO facade (dependency injection — the exporter
    * package's own edge set has no Node builtins; the backend, which is
    * allowed `node:fs`/`node:path`, supplies the facade).
    */
@@ -200,10 +200,10 @@ export function makeAdminRoutes(ctx: AdminRoutesContext) {
   };
 
   /**
-   * POST /api/v1/admin/projects/:projectId/export (sessions.md §6.3) —
+   * POST /api/v1/admin/projects/:projectId/export —
    * exportProject via the INJECTED workspace service (the same service the
    * authoring routes use — the exporter never opens a second authority).
-   * Admin scope only; never a browser command, not an MCP tool (M1).
+   * Admin scope only; never a browser command, not an MCP tool.
    */
   const adminExportRoute = async (req: IncomingMessage, res: ServerResponse, projectId: string): Promise<void> => {
     const authError = requireAuth(req, projectId, true);

@@ -1,20 +1,20 @@
 /**
- * Bounded glTF 2.0 GLB inspection — project-model.md §18.7/§18.8, the M2
- * import profile.
+ * Bounded glTF 2.0 GLB inspection — the GLB import profile of
+ * project-model.md.
  *
- * `inspectGlb(bytes, options)` runs the §18.7.2 normative validation order and
+ * `inspectGlb(bytes, options)` runs the normative validation order and
  * stops at the first failing step, returning an `ImportProposal` with
  * `status: "rejected"` and that step's diagnostics (earlier steps' diagnostics
  * are never re-reported). A step may report several independent diagnostics;
  * at most `M2_GLTF_MAX_DIAGNOSTICS` are returned plus the true count.
  *
- * Purity (dependencies.md §4.1/§4.3): bytes in, proposal out. No I/O, no
+ * Purity: bytes in, proposal out. No I/O, no
  * Node built-ins, no `three`/GLTFLoader (the profile *is* the inspector), no
  * cache writes, no asset-ID decisions, no plugin registry, no URL fetch —
  * external/`data:` URIs are rejected, never resolved. The result is
  * deep-frozen validated data.
  *
- * Determinism (§18.8.3): for fixed `(bytes, profile, recipeVersion,
+ * Determinism: for fixed `(bytes, profile, recipeVersion,
  * toolchain, job values)` the result is byte-identical. The only clock reads
  * are the injected job port's `now()` calls for the bounded timeout, and no
  * wall-clock value is ever persisted in the proposal.
@@ -139,7 +139,7 @@ const CORE_MATERIAL_FIELDS = new Set([
   'alphaCutoff',
   'doubleSided',
   'extensions',
-  // Phase 25.6: application data (glTF allows it on every object); accepted and ignored.
+  // Application data (glTF allows it on every object); accepted and ignored.
   'extras',
 ]);
 
@@ -172,7 +172,7 @@ type ExtensionPlace =
 /**
  * Where each allowlisted extension may carry an object. An allowlisted
  * extension in any other place is refused: it would be ignored there, and
- * ignoring an extension changes what the file means (§18.8.1).
+ * ignoring an extension changes what the file means.
  * `KHR_mesh_quantization` is a declaration only (it widens attribute types).
  */
 const EXTENSION_PLACES: Readonly<Record<string, readonly ExtensionPlace[]>> = {
@@ -264,7 +264,7 @@ function deepFreeze<T>(value: T): T {
   return Object.freeze(value) as T;
 }
 
-/** §8 `suggestedDisplayName`: 1–128 chars, no control characters, never an id. */
+/** `suggestedDisplayName`: 1–128 chars, no control characters, never an id. */
 export function sanitizeDisplayName(input: unknown): string {
   if (typeof input !== 'string') return '';
   let out = '';
@@ -300,7 +300,7 @@ export function resolveImportJob(
   if (job === undefined) {
     // Pure inspection mode: no clock, no cancellation, deterministic identity
     // derived from the source digest (the proposal is non-authoritative and is
-    // never persisted, §18.1/§18.4).
+    // never persisted).
     return {
       now: () => 0,
       isCancelled: () => false,
@@ -361,7 +361,7 @@ function resolveToolchain(options: ImportOptions): Readonly<Record<string, strin
   return { three: M2_GLTF_TOOLCHAIN.three };
 }
 
-// --- role-aware animation profile (presentation.md §41.3) ---------------------
+// --- role-aware animation profile ---------------------
 
 /** The caller-validated role mapping the proposal is checked against. */
 interface ResolvedAnimation {
@@ -373,8 +373,8 @@ const RE_CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f]/;
 
 /**
  * Validate the supplied animated-profile request. Malformed *options* are a
- * caller programming error (stage 1–2 binding-field validation is the model's,
- * per §41.3.2), so they throw `TypeError` like every other option here; the
+ * caller programming error (stage 1–2 binding-field validation is the
+ * model's), so they throw `TypeError` like every other option here; the
  * stages the pipeline does own (3–6 and A1–A6) report diagnostics.
  */
 function resolveAnimation(options: ImportOptions): ResolvedAnimation | null {
@@ -525,7 +525,7 @@ class Inspector {
     return Array.isArray(value) ? value : [];
   }
 
-  /** The used, allowlisted extensions of this source (sorted, §18.5). */
+  /** The used, allowlisted extensions of this source (sorted). */
   private usedExtensions(): string[] {
     const used = this.json['extensionsUsed'];
     if (!Array.isArray(used)) return [];
@@ -703,9 +703,9 @@ class Inspector {
       ]);
     }
 
-    // 16b — animated-model profile (presentation.md §41.3.2 stages 3–6 and
-    // §41.3.3 A1–A6), only when the caller requested it. The accepted M2
-    // proposal above is unchanged for every other caller.
+    // 16b — animated-model profile (stages 3–6 and checks A1–A6), only when
+    // the caller requested it. The proposal above is unchanged for every
+    // other caller.
     if (this.animation !== null) {
       g = this.guard();
       if (g !== null) return g;
@@ -971,7 +971,7 @@ class Inspector {
   }
 
   /**
-   * §18.8.1: "Extensions are never silently ignored, because ignoring one
+   * "Extensions are never silently ignored, because ignoring one
    * changes what the file means." Every `extensions` member the profile visits
    * must therefore be empty or allowlisted.
    */
@@ -1180,8 +1180,8 @@ class Inspector {
         continue;
       }
       // glTF 2.0 alignment: a bufferView consumed by accessors must start at a
-      // 4-byte boundary (see the packet-24 contract-change request C24-2 for
-      // the literal "byteOffset <= 3" wording in §18.7.2 step 7).
+      // 4-byte boundary (stricter than a literal "byteOffset <= 3" reading of
+      // the profile's bufferView step).
       if (referencedByAccessor.has(i) && byteOffset % 4 !== 0) {
         out.push(
           diag('asset_buffer_invalid', `${path}/byteOffset`, 'an accessor-backed bufferView must be 4-byte aligned', {
@@ -1403,7 +1403,7 @@ class Inspector {
   }
 
   /**
-   * Phase 14.6: an animation-only file — no meshes (the key absent or an
+   * An animation-only file — no meshes (the key absent or an
    * empty list) but at least one animation. It is imported as a model asset
    * whose clips play on another model's rig (`clipsFor`).
    */
@@ -2163,7 +2163,7 @@ class Inspector {
   }
 
   /**
-   * presentation.md §41.3.2 stages 3–6 and §41.3.3 A1–A6, in the contract
+   * The animated-model profile's stages 3–6 and checks A1–A6, in the contract
    * order, against this proposal's real clip list. Only reached when the
    * caller requested the animated profile (`options.animation`).
    */
@@ -2243,7 +2243,7 @@ class Inspector {
     return this.checkAnimatedGlbProfile(roles);
   }
 
-  /** presentation.md §41.3.3 A1–A6, in the stated order (fail-fast per check). */
+  /** The animated GLB profile checks A1–A6, in the stated order (fail-fast per check). */
   private checkAnimatedGlbProfile(
     roles: ResolvedAnimation['roles'],
   ): ImportDiagnostic[] | null {
@@ -2435,7 +2435,7 @@ class Inspector {
     return out;
   }
 
-  /** Phase 9.7: ≤ MODEL_MAX_SKINS skins, ≤ MODEL_MAX_SKIN_JOINTS joints each, ≤ MODEL_MAX_MORPH_TARGETS morph targets per primitive. */
+  /** ≤ MODEL_MAX_SKINS skins, ≤ MODEL_MAX_SKIN_JOINTS joints each, ≤ MODEL_MAX_MORPH_TARGETS morph targets per primitive. */
   private checkRigCaps(): ImportDiagnostic[] | null {
     const out: ImportDiagnostic[] = [];
     const skins = this.collection('skins');
@@ -2713,13 +2713,13 @@ class Inspector {
       clipDurationMs: this.clipDurationMs,
       decodedGeometryBytes: decodedGeometry,
       decodedImageBytes: this.imageDecodedBytes,
-      // Phase 15.3: the model's bounds (what the runtime uses for a pickup without a size).
+      // The model's bounds (what the runtime uses for a pickup without a size).
       ...(bounds !== null ? { bounds } : {}),
     };
   }
 
   /**
-   * Phase 15.3: the axis-aligned box of the default scene's meshes in model
+   * The axis-aligned box of the default scene's meshes in model
    * space (metres, node transforms applied) — from each POSITION accessor's
    * `min`/`max` (required by glTF; normalized integers dequantized), so no
    * vertex is read. `<piece>_COL` collision nodes are left out (never drawn).
@@ -2830,11 +2830,11 @@ function accessorBufferViewReferences(
   return out;
 }
 
-/** §18.6/§18.7.2 step 15: compare metrics with every cap, in table order. */
-/** Phase 15.3: the column-major 4x4 identity (glTF matrices are column-major). */
+/** Compare metrics with every cap, in table order. */
+/** The column-major 4x4 identity (glTF matrices are column-major). */
 const IDENTITY_4: readonly number[] = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
 
-/** Phase 15.3: a node's local matrix — its `matrix`, else translation × rotation × scale. */
+/** A node's local matrix — its `matrix`, else translation × rotation × scale. */
 function nodeMatrix(node: Record<string, unknown>): number[] {
   const m = node['matrix'];
   if (Array.isArray(m) && m.length === 16 && m.every((v) => typeof v === 'number' && Number.isFinite(v))) return [...(m as number[])];
@@ -2851,7 +2851,7 @@ function nodeMatrix(node: Record<string, unknown>): number[] {
   ];
 }
 
-/** Phase 15.3: `a × b` for column-major 4x4 matrices. */
+/** `a × b` for column-major 4x4 matrices. */
 function mat4Multiply(a: readonly number[], b: readonly number[]): number[] {
   const out = new Array<number>(16).fill(0);
   for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) {
@@ -2941,7 +2941,7 @@ function prepare(bytes: Uint8Array, options: ImportOptions): ImportProposal {
 }
 
 /**
- * Bounded GLB inspection (project-model.md §18.7.2). Deterministic, pure and
+ * Bounded GLB inspection. Deterministic, pure and
  * total over hostile bytes: malformed input yields a `rejected` proposal with
  * ordered diagnostics, never an exception. Invalid *options* (a caller
  * programming error: unknown profile/recipe version, a non-pinned toolchain,
@@ -2952,15 +2952,10 @@ export function inspectGlb(bytes: Uint8Array, options: ImportOptions): ImportPro
 }
 
 /**
- * The job-bound preparation entry (packet 24: "over bytes and injected job
- * ports"): identical validation, but the injected job port is required, so the
+ * The job-bound preparation entry (over bytes and an injected job port):
+ * identical validation, but the injected job port is required, so the
  * proposal always carries a real job identity, a real bounded deadline and
  * caller cancellation.
- *
- * Contract note C24-1 (recorded in the packet-24 handoff): dependencies.md
- * §3's `asset-pipeline` row lists `inspectGlb(bytes, options)`; this entry is
- * the packet instruction's `prepareImport` and is proposed for addition to
- * that row.
  */
 export function prepareImport(bytes: Uint8Array, options: PrepareImportOptions): ImportProposal {
   if (!isPlainObject(options) || !isPlainObject(options.job)) {
@@ -2969,7 +2964,7 @@ export function prepareImport(bytes: Uint8Array, options: PrepareImportOptions):
   return prepare(bytes, options);
 }
 
-/** §18.5/§41.4.3 `recipeDigest` = SHA-256 of the canonical JSON of the recipe. */
+/** `recipeDigest` = SHA-256 of the canonical JSON of the recipe. */
 export function importRecipeDigest(recipe: ImportRecipe | PcmWavRecipe): string {
   return sha256HexOfText(canonicalJsonText(recipe));
 }
@@ -2980,7 +2975,7 @@ export function importRecipeDigest(recipe: ImportRecipe | PcmWavRecipe): string 
  * `sourceByteLength`, `importRecipe`, `metrics` when present). Job identity,
  * stage id, expiry, display name and the non-persistent `inspection` display
  * lists are deliberately excluded, so re-inspecting the same bytes yields the
- * same digest regardless of the job that carried them (§18.8.3).
+ * same digest regardless of the job that carried them.
  */
 export function importMetadataDigest(
   proposal: ImportMetadataFacts | ImportProposal | AudioImportProposal,

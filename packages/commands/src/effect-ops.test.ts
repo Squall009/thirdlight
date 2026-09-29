@@ -1,5 +1,5 @@
 /**
- * Phase 20.0: visual effects through the commands — `setEffect` (create,
+ * Visual effects through the commands — `setEffect` (create,
  * replace, add a system), `renameEffect`, `deleteEffect`, `graphEdit` on
  * owner kind `effect` (a system's chains, one revision, one undo step,
  * refusals change nothing) and the `effect` component (public parameter

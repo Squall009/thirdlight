@@ -1,5 +1,5 @@
 /**
- * Phase 25.21: packing texture assets' channels into one KTX2 (a texture
+ * Packing texture assets' channels into one KTX2 (a texture
  * array with several layers) — decoded back with three's own Basis
  * transcoder (the file the pages load), so the channels land where the
  * packing says; the "data" encoding keeps channels apart. In-process

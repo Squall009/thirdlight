@@ -1,5 +1,5 @@
 /**
- * Phase 20.0/20.1: effect data — the catalogue's shape (contexts, chains,
+ * Effect data — the catalogue's shape (contexts, chains,
  * field ports), validation (curves, gradients, parameters, systems), the
  * canonical form (the canonicalizer keeps every field), the component and
  * the content block (asset references of system graphs).

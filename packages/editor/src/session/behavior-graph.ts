@@ -1,7 +1,7 @@
 /**
- * Phase 19.0/19.1: the editor's side of visual scripts (behavior graphs).
+ * The editor's side of visual scripts (behavior graphs).
  *
- * The editor may import project-model types only (dependencies.md §4.1), so
+ * The editor may import project-model types only, so
  * the port context of a script graph is repeated here (project-model
  * `behaviorGraphContext`): the `variable` lookup types Get/Set variable
  * ports (the graph's own first declaration of a name, else — in one of the
@@ -66,7 +66,7 @@ function byPosition(a: GraphNode, b: GraphNode): number {
 }
 
 /**
- * A new visual script: one On start node and no variable (phase 19.1: a
+ * A new visual script: one On start node and no variable (a
  * behavior may declare no property), and the (empty) declaration it makes.
  */
 export function newBehaviorGraph(): { graph: GraphData; declaration: { properties: { key: string; label: string; type: 'number'; default: number }[] } } {
@@ -76,7 +76,7 @@ export function newBehaviorGraph(): { graph: GraphData; declaration: { propertie
   };
 }
 
-/** Phase 19.1: `<behaviorId>` or `<behaviorId>#<functionId>` (a graph edit's owner id) — commands `parseBehaviorOwnerId`. */
+/** `<behaviorId>` or `<behaviorId>#<functionId>` (a graph edit's owner id) — commands `parseBehaviorOwnerId`. */
 export function parseBehaviorOwnerId(id: string): { behaviorId: string; functionId: string | null } {
   const i = id.indexOf('#');
   return i < 0 ? { behaviorId: id, functionId: null } : { behaviorId: id.slice(0, i), functionId: id.slice(i + 1) };

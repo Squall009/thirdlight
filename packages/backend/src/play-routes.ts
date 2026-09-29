@@ -14,7 +14,7 @@ import { resolvePlayStart } from './play-start';
 import { withSourceLocations } from './source-locations';
 import type { PlayBuildCache } from './play-build';
 
-// ---- ID / token allocation (sessions.md §3: hex, CSPRNG) ----------------------
+// ---- ID / token allocation (hex, CSPRNG) ----------------------
 
 import type { Problem } from './backend';
 import { MAX_DIAGNOSTICS, MAX_SCREENSHOT, hex, newPlaySessionId, newRelayId, utf8Len, type OriginDoc } from './util';
@@ -41,9 +41,9 @@ export interface PlayRoutesContext {
   readonly connectedOwner: (rec: PlayRecord) => SessionRecord | undefined;
   readonly unavailableError: (playSessionId: string | undefined, hint: string) => SessionError;
   readonly recordProblem: (projectId: string, source: Problem["source"], code: string, message: string) => void;
-  /** Phase 11: opens a headless editor when no browser is connected. */
+  /** Opens a headless editor when no browser is connected. */
   readonly headless: HeadlessEditors;
-  /** Phase 25.24c: the prebuilt play scripts (the bundle served as `game.js`). */
+  /** The prebuilt play scripts (the bundle served as `game.js`). */
   readonly playBuild: PlayBuildCache;
 }
 
@@ -52,7 +52,7 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
 
   /**
    * The project's live (active or presented) play with this id, or null after
-   * sending `play_not_found`. Phase 25.5: for a play that ended, the error
+   * sending `play_not_found`. For a play that ended, the error
    * says why and when (`ended: {reason, presented, at, detail?}`), not only
    * that there is no such play.
    */
@@ -70,19 +70,19 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
 
   /**
    * The prebuilt play bundle bytes served as `game.js`, and their digest.
-   * Phase 25.24g/c: from the play build (read and hashed once while the file
+   * From the play build (read and hashed once while the file
    * is unchanged — a rebuild of `dist/` is read again on the next Play).
    */
   const readGameBundle = (): { bytes: Uint8Array; digest: string } | null => playBuild.current()?.files.get('game.js') ?? null;
 
-  /** Phase 21.4: each play's snapshot as JSON bytes, serialized once (the snapshot is frozen with the play; 25.24: released when it ends). */
+  /** Each play's snapshot as JSON bytes, serialized once (the snapshot is frozen with the play; released when it ends). */
   const snapshotBytesOf = (rec: PlayRecord): Uint8Array => {
     if (rec.snapshotBytes === undefined) rec.snapshotBytes = new TextEncoder().encode(JSON.stringify(rec.snapshot));
     return rec.snapshotBytes;
   };
 
   /**
-   * Phase 21.4: `GET /api/v1/projects/:projectId/play/:playSessionId/snapshot`
+   * `GET /api/v1/projects/:projectId/play/:playSessionId/snapshot`
    * — the running play's frozen runtime snapshot (owner token), for a
    * `play.started` that carries a `snapshotRef` because the snapshot does not
    * fit one WebSocket frame. The editor hands it to the preview through the
@@ -104,7 +104,7 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
     res.end(bytes);
   };
 
-  /** A UTC second stamp in the project-model §7.2 format. */
+  /** A UTC second stamp in the project model's timestamp format. */
   const utcSecond = (ms: number): string => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
 
   const playStartRoute = async (req: IncomingMessage, res: ServerResponse, projectId: string): Promise<void> => {
@@ -114,7 +114,7 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
       return;
     }
     const scope = tokenScope(bearerToken(req), req);
-    // Phase 25.24a: where the backend's part of a Play start goes (ms per stage; the closure's stages are `closure.*`).
+    // Where the backend's part of a Play start goes (ms per stage; the closure's stages are `closure.*`).
     const buildTimings: Record<string, number> = {};
     const tStart = performance.now();
     let tMark = tStart;
@@ -138,13 +138,13 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
       sendError(res, parsedReq.error);
       return;
     }
-    // Preconditions (§10.1), in order.
+    // Preconditions, in order.
     const probe = service.query({ op: 'queryProject', projectId }) as QueryResult;
     if (!probe.ok) {
       sendError(res, workspaceError(probe.error), statusFor(probe.error.cls));
       return;
     }
-    // Phase 11: no browser connected → the backend opens its own headless editor.
+    // No browser connected → the backend opens its own headless editor.
     if (sessions.sessionForProject(projectId)?.connected !== true && parsedReq.request.sessionId === undefined) {
       const opened = await headless.ensure(projectId);
       if (!opened.ok) logStartup(`headless: ${opened.reason}`);
@@ -171,15 +171,15 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
       return;
     }
     // Build the runtime snapshot at the CURRENT revision (the play's
-    // revision is frozen from here — §10.2).
+    // revision is frozen from here).
     const state = fullState(projectId);
     if (!state.ok) {
       sendError(res, state.error, state.status);
       return;
     }
     const snapshotId = `${projectId}@r${state.revision}`;
-    // C35-5 / sessions.md §19.x: the SCENE document's `schemaVersion` (1/2/3).
-    // The full-state projection now carries it directly.
+    // The SCENE document's `schemaVersion` (1/2/3).
+    // The full-state projection carries it.
     const sceneSchemaVersion =
       typeof state.scene.schemaVersion === 'number'
         ? state.scene.schemaVersion
@@ -199,13 +199,13 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
     };
     const playSessionId = newPlaySessionId();
     const now = nowMs();
-    // Packet 35: build the immutable runtime-content manifest + artifact set
+    // Build the immutable runtime-content manifest + artifact set
     // BEFORE the play record exists (a failed build writes nothing and leaves
-    // the previous artifact/locator untouched — delivery §2.2). Each branch
-    // reads its own prebuilt play bundle (M2 `preview.js` / M3 `preview-m3.js`).
-    // Play builds the SHARED M3 closure from the captured v3 content (the
+    // the previous artifact/locator untouched). Each branch
+    // reads its own prebuilt play bundle (`preview.js` / `preview-m3.js`).
+    // Play builds the SHARED closure from the captured v3 content (the
     // single acknowledged envelope read — readCapturedV3).
-    // Only current (v3) projects play; older schema versions are no longer supported.
+    // Only current (v3) projects play; older schema versions are refused.
     if (sceneSchemaVersion !== 3 && sceneSchemaVersion !== 4) {
       sendError(
         res,
@@ -215,7 +215,7 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
       return;
     }
     let builtCore: { buildId: string; contentDigest: string; manifestBytes: Uint8Array; artifacts: readonly PlayArtifact[] };
-    // Phase 25.9: the compiled outputs' source maps (kept on the play record, never served).
+    // The compiled outputs' source maps (kept on the play record, never served).
     let playSourceMaps: ReadonlyMap<string, { behaviorId?: string; libraryId?: string; sourceMap: string }> | undefined;
     let startNotes: string[] = [];
     {
@@ -226,7 +226,7 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
         sendError(res, workspaceError(captured.error), statusFor(captured.error.cls));
         return;
       }
-      // Phase 23.8: a test/debug start (scene, mode, variables, save), checked against the project.
+      // A test/debug start (scene, mode, variables, save), checked against the project.
       if (parsedReq.request.start !== undefined) {
         const resolved = resolvePlayStart(parsedReq.request.start, {
           content: captured.read.content as Record<string, unknown>,
@@ -249,7 +249,7 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
         );
         return;
       }
-      // The v3 play bundle (the M3 preview wrapper entry — the single shared
+      // The v3 play bundle (the `preview-m3` wrapper entry — the single shared
       // createGameHost composition), served as the locator's game.js.
       const gameBundleM3 = readGameBundle();
       mark('bundle');
@@ -263,7 +263,7 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
         );
         return;
       }
-      // Phase 12 (c): a v4 project plays its start scenes (merged) and ships
+      // A v4 project plays its start scenes (merged) and ships
       // every scene for on-demand loading.
       const v4 = captured.read.scenes !== undefined;
       if (v4) snapshot.scene = captured.read.scene as RuntimeSnapshotDoc['scene'];
@@ -295,7 +295,7 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
         sendError(res, builtM3.error, statusFor(builtM3.error.cls));
         return;
       }
-      // Phase 12 (b): the tag registry, when the project defines tags (the
+      // The tag registry, when the project defines tags (the
       // preview checks it against the manifest).
       const tags = (captured.read.content as { tags?: unknown[] }).tags;
       if (Array.isArray(tags) && tags.length > 0) (snapshot as { tags?: unknown }).tags = tags;
@@ -333,10 +333,10 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
     const startedBy: OriginDoc | null =
       scope === 'admin' && req.headers.origin === undefined ? { kind: 'admin', clientId: 'operator' } : { kind: 'browser', clientId: session.sessionId };
     const playContentRef = { contentId: published.contentId, buildId: builtCore.buildId, path: `/play-content/${published.contentId}/` };
-    // Phase 21.4: a snapshot that does not fit one WebSocket frame (1 MiB,
+    // A snapshot that does not fit one WebSocket frame (1 MiB,
     // WS_OUT_FRAME_MAX) goes by reference: the editor fetches it from the
     // play's snapshot route over HTTP. Nothing is held on the frame bound.
-    // Phase 25.24c: a snapshot over the bound on its own is not serialized into a message first.
+    // A snapshot over the bound on its own is not serialized into a message first.
     const inline = snapshotBytesOf(rec).length <= WS_OUT_FRAME_MAX;
     let payload = inline ? makePlayStarted({ playSessionId, startedBy, snapshot, playContent: playContentRef }) : '';
     if (!inline || utf8Len(payload) > WS_OUT_FRAME_MAX) {
@@ -354,7 +354,7 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
       }
     }
     if (!delivered) {
-      // Held for one-shot delivery on the owner's (re)attach (§7.1).
+      // Held for one-shot delivery on the owner's (re)attach.
       session.pendingPlayStarted = { playSessionId, payload };
     }
     sessions.record(session, 'play', playSessionId, rec.revision, now, 'started');
@@ -365,10 +365,10 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
       snapshotId,
       revision: rec.revision,
       demo: rec.demo,
-      // Phase 23.8: the resolved start (and what was ignored, e.g. a mode before the project has modes).
+      // The resolved start (and what was ignored, e.g. a mode before the project has modes).
       ...(snapshot.start !== undefined ? { start: { ...snapshot.start, ...(startNotes.length > 0 ? { notes: startNotes } : {}) } } : {}),
       expiresAt: new Date(rec.expiresAt).toISOString(),
-      // Phase 25.24a: the backend's part of the start (ms per stage).
+      // The backend's part of the start (ms per stage).
       timings: buildTimings,
       playContent: {
         contentId: published.contentId,
@@ -450,7 +450,7 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
         return;
       }
     }
-    // Preconditions (§12 step 2), in order: exists → presented → owner WS
+    // Preconditions, in order: exists → presented → owner WS
     // connected.
     const rec = livePlay(res, projectId, playSessionId);
     if (rec === null) return;
@@ -494,9 +494,9 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
         playSessionId,
         snapshotId: rec.snapshotId,
         revision: rec.revision,
-        // Phase 25.9: script error and log locations mapped back to the project's source files.
+        // Script error and log locations mapped back to the project's source files.
         diagnostics: withSourceLocations(outcome.diagnostics, rec.sourceMaps),
-        // Phase 25.24a: the backend's part of this play's start (the preview's is diagnostics.startTimings).
+        // The backend's part of this play's start (the preview's is diagnostics.startTimings).
         ...(rec.buildTimings !== undefined ? { buildTimings: rec.buildTimings } : {}),
       });
       return;
@@ -507,7 +507,7 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
         : 'relay_failed';
     sendError(
       res,
-      // Phase 25.2: the preview's reason, when it gave one (e.g. why the capture failed).
+      // The preview's reason, when it gave one (e.g. why the capture failed).
       sessionError(code, 'unavailable', outcome.reason !== undefined ? `${kind} failed in the preview: ${outcome.reason}` : `${kind} relay ${outcome.code === 'relay_failed' ? 'failed' : 'timed out'}`, {
         relayId,
         ...(outcome.cause !== undefined ? { cause: outcome.cause } : {}),
@@ -518,7 +518,7 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
 
   /**
    * `POST /api/v1/projects/:projectId/play/:playSessionId/input` — the bounded
-   * input-exercise relay (sessions.md §18.1). The mode is exclusive: the frame
+   * input-exercise relay. The mode is exclusive: the frame
    * sequence is applied by the preview through the checked bridge, and the
    * result reports the applied step range plus the pinned snapshot/build
    * identity. No browser ⇒ the structured `session_unavailable` outcome.
@@ -539,7 +539,7 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
       sendError(res, body.error);
       return;
     }
-    // The 16 KiB body bound is checked before the strict parse (§18.1.1).
+    // The 16 KiB body bound is checked before the strict parse.
     if (body.bytes.length > 16_384) {
       sendError(
         res,
@@ -571,7 +571,7 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
     }
     const requestId = `req-${hex(16)}`;
     const payload = makeInputRelayRequest(requestId, parsedReq.request.frames, parsedReq.request.restart === true, parsedReq.request.hold === true);
-    // Phase 25.15: run-length frames cover up to INPUT_RELAY_MAX_STEPS steps; the wait grows with the span
+    // Run-length frames cover up to INPUT_RELAY_MAX_STEPS steps; the wait grows with the span
     // (at least 30 steps a second: a quarter of the default 120 Hz step, half of 60 Hz).
     const last = parsedReq.request.frames[parsedReq.request.frames.length - 1]!;
     const span = last.stepOffset + (last.steps ?? 1);
@@ -603,8 +603,7 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
   };
 
   /**
-   * Surface a §20 relay failure as the closed-set session error (sessions.md
-   * §20.2). Unknown codes never leak through: they collapse to
+   * Surface a game relay failure as the closed-set session error. Unknown codes never leak through: they collapse to
    * `game_relay_rejected` (dropped and counted). No credential, capability,
    * absolute path or binary crosses.
    */
@@ -639,7 +638,7 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
     );
   };
 
-  /** Resolve the play + its presented owner for a §20 relay (or send the error). */
+  /** Resolve the play + its presented owner for a game relay (or send the error). */
   const resolveGameRelayPlay = (
     res: ServerResponse,
     projectId: string,
@@ -671,7 +670,7 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
   };
 
   /**
-   * `POST …/play/:playSessionId/control` — the bounded §20 game-control relay.
+   * `POST …/play/:playSessionId/control` — the bounded game-control relay.
    * The request is forwarded to the owner editor (which relays it to the
    * verified preview) and only the preview's exact result is returned. Without
    * a connected, presenting browser the contracted structured
@@ -710,7 +709,7 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
     const found = resolveGameRelayPlay(res, projectId, playSessionId);
     if (found === null) return;
     const { rec, owner } = found;
-    // §20.3: a stale expectedRunId is refused with the current run identity and
+    // A stale expectedRunId is refused with the current run identity and
     // NO command is applied (409 conflict).
     if (parsedReq.request.expectedRunId !== undefined && parsedReq.request.expectedRunId !== rec.gameRunId) {
       sendGameRelayFailure(res, 'game_run_stale', `${parsedReq.request.expectedRunId} != ${rec.gameRunId}`, rec.gameRunId);
@@ -728,7 +727,7 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
   };
 
   /**
-   * `POST …/play/:playSessionId/observe` — the bounded §20 observation relay.
+   * `POST …/play/:playSessionId/observe` — the bounded observation relay.
    * The observation is read by the preview from the committed read-only
    * `GameView`; the backend performs no gameplay or observation math and only
    * validates the returned document's shape/bounds.

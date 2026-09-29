@@ -1,5 +1,5 @@
 /**
- * Phase 12 (c): a loaded scene's static colliders are added to the live
+ * A loaded scene's static colliders are added to the live
  * world and an unloaded scene's are freed (the library's own counters), and
  * the character collides with a floor that arrived after creation.
  */

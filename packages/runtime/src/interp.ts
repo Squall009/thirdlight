@@ -1,18 +1,18 @@
 /**
- * Pure transform math — runtime.md §6 (render interpolation policy).
+ * Pure transform math (the render interpolation policy).
  *
  * Read-only, normatively: every function returns FRESH derived values;
  * inputs (the snapshot, `prev`, `curr`, module state) are never mutated.
- * Quaternion inputs are normalized on derived COPIES only (project-model
- * §10.1 — accepted near-unit quaternions are never written back).
+ * Quaternion inputs are normalized on derived COPIES only (accepted
+ * near-unit quaternions are never written back).
  *
- * Phase 21.2: the `…Into` forms write the same values into a caller's array
+ * The `…Into` forms write the same values into a caller's array
  * (the render path reuses its arrays); the fresh-array forms call them, so
  * both are the same arithmetic.
  */
 import type { Quat, Vec3 } from '@thirdlight/project-model';
 
-/** runtime.md §6: the near-identity slerp shortcut threshold. */
+/** The near-identity slerp shortcut threshold. */
 const NEAR_UNIT_DOT = 1 - 1e-9;
 
 /** Component-wise lerp of two Vec3 into `out` (may not alias the inputs' use after writing). */
@@ -32,7 +32,7 @@ export function lerpVec3(prev: Vec3, curr: Vec3, alpha: number): Vec3 {
   return out;
 }
 
-/** Component-wise equality (the §6 `prev == curr` short-circuit). */
+/** Component-wise equality (the interpolation's `prev == curr` short-circuit). */
 export function vec3Equal(a: Vec3, b: Vec3): boolean {
   return a[0] === b[0] && a[1] === b[1] && a[2] === b[2];
 }
@@ -59,7 +59,7 @@ function normalize4Into(out: number[], x: number, y: number, z: number, w: numbe
 }
 
 /**
- * Quaternion slerp into `out` (runtime.md §6, normative):
+ * Quaternion slerp into `out` (normative):
  * - inputs are derived copies (normalized copies — never written back);
  * - sign-align first (if dot < 0, negate the second — shortest arc);
  * - when dot > 1 − 1e-9 use the normalized linear lerp (avoids the

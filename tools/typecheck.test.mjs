@@ -1,6 +1,6 @@
 /**
- * Check tool test suite — root typecheck (dependencies.md §5 check 5;
- * 04-review R7: required base inheritance + effective strictness).
+ * Check tool test suite — root typecheck (required base inheritance +
+ * effective strictness).
  *
  * The config-validation tests run `validatePackageTsconfig` / `extendsChain`
  * directly against temporary workspaces (no tsc needed). The CLI regression

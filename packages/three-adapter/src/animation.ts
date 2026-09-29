@@ -1,6 +1,5 @@
 /**
- * Packet 53 — the runtime role selector and the bounded crossfade
- * (presentation.md §41.3.6/§41.3.7/§41.9; acceptance B14).
+ * The runtime role selector and the bounded crossfade.
  *
  * A `createAnimationRoleController(instance, view)` controller drives ONE
  * `ModelInstance`'s rigid-node animation from the committed game state:
@@ -9,13 +8,13 @@
  *     (rule 5: independent pose/mixer per copy — no global mixer, no shared
  *     action, no shared clock);
  *   - three `THREE.AnimationAction`s (one per role), installed by
- *     `setRoles(roles, version)` after the §41.3.2 stage 3 / stage 5–6
+ *     `setRoles(roles, version)` after the stage 3 / stage 5–6
  *     re-check against the LOADED clips (rule 7: a mismatching mapping is
  *     the hard `animation_role_unresolved`, never a fallback);
  *   - the fixed role selection of rule 3 (airborne iff !grounded; run iff
  *     speed > RUN_SPEED_EPS; else idle) from the committed view the host
  *     passes in — the selector reads `Runtime.getGameView()` facts only
- *     (gameplay.md §6 C41-1), never authoring state, never input;
+ *     (gameplay.md), never authoring state, never input;
  *   - the bounded 0.2 s crossfade of rule 4 (`crossFadeTo`, `warp = false`),
  *     host-driven: `update(deltaSeconds)` is called once per rendered frame
  *     with the real frame delta (0 ≤ delta ≤ 0.25); this module installs no
@@ -26,7 +25,7 @@
  *     transforms stay owned by the adapter's transform sync.
  *
  * The controller is tracked by its instance: `ModelInstance.dispose()`
- * disposes it exactly once (presentation.md §41.6 ownership table — the
+ * disposes it exactly once (presentation.md ownership table — the
  * mixer row; the controller's own `dispose()` is idempotent, rule 8, and
  * safe mid-blend).
  */
@@ -35,14 +34,14 @@ import { adapterError, type AdapterError } from './errors';
 import { roleControllerAttachError, trackRoleController, untrackRoleController } from './visual';
 import type { ModelInstance } from './visual';
 
-// ---- Constants (presentation.md §41.3.6/§41.7.1; phase 15.3: the crossfade is the default of the project's `animation_crossfade_s`, the rest are fixed) ----
+// ---- Constants (the crossfade is the default of the project's `animation_crossfade_s`, the rest are fixed) ----
 
 /** Rule 3: `run` iff committed `speed > RUN_SPEED_EPS` m/s. */
 export const RUN_SPEED_EPS = 0.05;
 
 /**
- * Rule 4 / §41.7.1: the bounded crossfade duration (seconds) — phase 15.3:
- * the default of the project's `animation_crossfade_s` setting.
+ * Rule 4: the bounded crossfade duration (seconds) — the default of the
+ * project's `animation_crossfade_s` setting.
  */
 export const ANIMATION_CROSSFADE_SECONDS = 0.2;
 
@@ -56,27 +55,27 @@ export type AnimationRoleName = 'idle' | 'run' | 'airborne';
 /** The fixed role order (canonical; deterministic first-failure order). */
 export const ANIMATION_ROLES: readonly AnimationRoleName[] = ['idle', 'run', 'airborne'];
 
-/** §41.3.1 one committed role binding (the `AnimationRoleBinding` shape). */
+/** One committed role binding (the `AnimationRoleBinding` shape). */
 export interface AnimationRoleBindingInput {
   readonly clipIndex: number;
   readonly clipName: string;
 }
 
-/** §41.3.1 the committed mapping: exactly these three keys, all required. */
+/** The committed mapping: exactly these three keys, all required. */
 export interface AnimationRolesInput {
   readonly idle: AnimationRoleBindingInput;
   readonly run: AnimationRoleBindingInput;
   readonly airborne: AnimationRoleBindingInput;
 }
 
-/** The committed motion facts the selector reads (gameplay.md §6, C41-1). */
+/** The committed motion facts the selector reads. */
 export interface AnimationRoleMotion {
   readonly speed: number;
   readonly grounded: boolean;
 }
 
 /**
- * The committed view slice the selector consumes (presentation.md §41.3.7):
+ * The committed view slice the selector consumes:
  * the host reads it from `Runtime.getGameView()` (`stepIndex` +
  * `playerMotion`) and passes it in — the controller never references the
  * runtime itself, never samples input and never writes any transform
@@ -106,7 +105,7 @@ export interface AnimationRoleController {
   dispose(): { readonly ok: true; readonly alreadyDisposed?: true } | { readonly ok: false; readonly error: AdapterError };
 }
 
-// ---- Pure helpers (exported for the named B14 checklist and the fixture replay) ----
+// ---- Pure helpers (exported for the browser checklist and the fixture replay) ----
 
 /**
  * Rule 3 — the fixed role selection (no tuning key): `airborne` iff
@@ -137,13 +136,12 @@ export type AnimationRoleValidationFailure =
   | { readonly stage: 'range' | 'name' | 'ambiguous'; readonly role: AnimationRoleName; readonly detail: string };
 
 /**
- * Rule 7 / §41.3.2 stage 3 + stage 5–6 re-check: validate the committed
+ * Rule 7 / stage 3 + stage 5–6 re-check: validate the committed
  * mapping against the clips of the loaded version.
  *
  * - `version` must equal the loaded version (stale-load guard: a mapping
  *   recorded against a different version is not this instance's mapping —
- *   "the runtime loads the new version against the new mapping", §41.3.4
- *   rule 6; authored bytes stay pinned during active play);
+ *   "the runtime loads the new version against the new mapping"; authored bytes stay pinned during active play);
  * - each role's `clipIndex` must index the loaded clip list (stage 3);
  * - each binding's `clipName` must equal the loaded clip's real name
  *   (stage 5);
@@ -207,9 +205,9 @@ export function validateAnimationRoles(
 // ---- The controller ----
 
 /**
- * Create one role controller for one model instance (presentation.md
- * §41.3.6; §41.9 root-subpath addition). `view` is the host-owned committed
- * view accessor (the `Runtime.getGameView()` slice of §41.3.7); the
+ * Create one role controller for one model instance (presentation.md;
+ * on the root subpath). `view` is the host-owned committed
+ * view accessor (the `Runtime.getGameView()` slice); the
  * controller never owns a clock, a loop or a runtime reference. The
  * controller is tracked by the instance: `ModelInstance.dispose()` disposes
  * it exactly once, and creating one for a disposed instance is
@@ -222,7 +220,7 @@ export function createAnimationRoleController(
 ): { readonly ok: true; readonly controller: AnimationRoleController } | { readonly ok: false; readonly error: AdapterError } {
   const bad = roleControllerAttachError(instance);
   if (bad !== null) return { ok: false, error: bad };
-  // Phase 15.3: the project's blend time (0–2 s; a bad value falls back to the default).
+  // The project's blend time (0–2 s; a bad value falls back to the default).
   const fade = Number.isFinite(crossfadeSeconds) && crossfadeSeconds >= 0 && crossfadeSeconds <= 2 ? crossfadeSeconds : ANIMATION_CROSSFADE_SECONDS;
   const controller = createRoleController(instance, view, fade);
   trackRoleController(instance, controller);
@@ -294,7 +292,7 @@ function createRoleController(
       current = null;
       // The current role is (re-)selected at the next `update` from the
       // committed view; the install itself starts no fade and plays nothing
-      // (frame ordering: step → onFrame update → render, runtime.md §6).
+      // (frame ordering: step → onFrame update → render).
       return { ok: true };
     },
 

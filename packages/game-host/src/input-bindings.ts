@@ -1,5 +1,5 @@
 /**
- * Phase 23.14: rebinding as data — pure functions over an input config.
+ * Rebinding as data — pure functions over an input config.
  *
  * - `resolveTarget`: which binding (index, part) a rebind addresses.
  * - `bindingFrom`: the binding a captured input makes for a target (or why it

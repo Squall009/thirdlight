@@ -1,4 +1,4 @@
-/** Phase 24.4j: the game shell block — its shape, and its documents. */
+/** The game shell block — its shape, and its documents. */
 import { describe, expect, it } from 'vitest';
 
 import type { ModelErrorV2 } from './errors';

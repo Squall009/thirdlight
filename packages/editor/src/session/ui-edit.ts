@@ -1,5 +1,5 @@
 /**
- * Phase 23.9b: the pure editing model of the UI document editor — widget
+ * The pure editing model of the UI document editor — widget
  * tree operations (add, delete, reorder, reparent, duplicate), the layout
  * and drag maths of the preview's direct manipulation (move and resize of
  * anchored rects with snapping, anchor presets), the view-model mock values
@@ -380,7 +380,7 @@ export type PlacementPatch = Pick<UiWidget, 'anchor' | 'pivot' | 'offset' | 'siz
 
 const stretchX = (w: UiWidget): boolean => w.stretch === 'x' || w.stretch === 'both';
 const stretchY = (w: UiWidget): boolean => w.stretch === 'y' || w.stretch === 'both';
-/** Phase 25.22: a size axis given as a number (null: sized to the content, or read from the view model — the preview measures it). */
+/** A size axis given as a number (null: sized to the content, or read from the view model — the preview measures it). */
 const fixedSize = (w: UiWidget, a: 0 | 1): number | null => {
   const v = w.size?.[a];
   return typeof v === 'number' ? v : null;

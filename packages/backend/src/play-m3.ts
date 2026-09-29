@@ -1,14 +1,12 @@
 /**
- * Packet 59 — the v3 play-content build (sessions.md §10/§17, delivery.md
- * §2/§3; B16/B19).
+ * The v3 play-content build.
  *
- * `buildPlayContentM3` is the v3 counterpart of `buildPlayContent` (packet
- * 35/36, M2): it is a THIN consumer of the shared M3 closure builder
+ * `buildPlayContentM3` is the v3 counterpart of `buildPlayContent`: it is a THIN consumer of the shared closure builder
  * `buildContentClosureM3` in `@thirdlight/exporter` — the SAME implementation
- * the M3 export pipeline uses (packet 58). There is one v2
+ * the export pipeline uses. There is one v2
  * manifest/closure derivation for play and export; this module owns only the
  * play-specific artifact assembly (the manifest v2 document, the v3 scene, the
- * declared assets and the prebuilt M3 play bundle served as the entry).
+ * declared assets and the prebuilt play bundle served as the entry).
  *
  * - The content is the captured v3 `scene` + `content` block (the single
  *   acknowledged envelope read — `readCapturedV3`), passed by the caller.
@@ -29,7 +27,7 @@ import { generateGraphSource, type BehaviorCompiler } from '@thirdlight/behavior
 import { sha256HexBytes, type PlayArtifact } from './play-content';
 
 /**
- * Phase 19.2: the Play debug build of a visual script (the closure's
+ * The Play debug build of a visual script (the closure's
  * `debugVariant`): its stored graph generated with the debugger's recording
  * and compiled by the same compiler — only while that graph still generates
  * exactly the published source (same digest), so the nodes the debugger
@@ -65,14 +63,14 @@ export interface BuildPlayContentM3Input {
   scene: { schemaVersion: number; sceneId: string; revision: number; entities: ReadonlyArray<Record<string, unknown>> };
   /** The captured v3 `content` block (assets/settings/behaviors/game). */
   content: Record<string, unknown>;
-  /** The prebuilt M3 play bundle bytes served as the entry (`game.js`). */
+  /** The prebuilt play bundle bytes served as the entry (`game.js`). */
   gameBundle: Uint8Array;
-  /** Phase 25.24g: its digest when the caller already has it (the bundle is read and hashed once, not per Play). */
+  /** Its digest when the caller already has it (the bundle is read and hashed once, not per Play). */
   gameBundleDigest?: string;
-  /** Phase 12 (c), a v4 project: every scene, and the start set. */
+  /** A v4 project: every scene, and the start set. */
   scenes?: readonly unknown[];
   startScenes?: readonly string[];
-  /** Phase 25.24a: the closure's stage times (ms) are added here. */
+  /** The closure's stage times (ms) are added here. */
   timings?: Record<string, number>;
 }
 
@@ -86,7 +84,7 @@ export interface BuiltPlayContentM3 {
   moduleIds: readonly string[];
   /** The immutable play artifact set (locator-relative paths). */
   artifacts: readonly PlayArtifact[];
-  /** Phase 25.9: the compiled outputs' source maps (error and log locations map back to sources; never served). */
+  /** The compiled outputs' source maps (error and log locations map back to sources; never served). */
   sourceMaps: readonly ClosureSourceMap[];
 }
 
@@ -103,9 +101,9 @@ function sessionErrorFromM3Closure(e: { code: string; cls: string; message: stri
 }
 
 /**
- * Build the immutable v3 play artifact set for one play start: the SHARED M3
+ * Build the immutable v3 play artifact set for one play start: the SHARED
  * closure (`buildContentClosureM3` — the same builder the export pipeline uses)
- * plus the prebuilt M3 play bundle served as `game.js`.
+ * plus the prebuilt play bundle served as `game.js`.
  *
  * The build performs no authoritative write and never executes project source.
  */
@@ -123,7 +121,7 @@ export async function buildPlayContentM3(input: BuildPlayContentM3Input): Promis
       },
     };
   }
-  // Phase 19.2: Play runs visual scripts as debug builds (trace, wire values) when their graph matches the publication.
+  // Play runs visual scripts as debug builds (trace, wire values) when their graph matches the publication.
   const playCompiler = { pinnedModules: compiler.pinnedModules, compile: (input: Parameters<BehaviorCompiler['compile']>[0]) => compiler.compile(input), debugVariant: playDebugVariant(service, compiler, projectId) };
   const built = await buildContentClosureM3({
     service,
@@ -135,7 +133,7 @@ export async function buildPlayContentM3(input: BuildPlayContentM3Input): Promis
     content: input.content,
     ...(input.scenes !== undefined ? { scenes: input.scenes, startScenes: input.startScenes ?? [] } : {}),
     ...(input.timings !== undefined ? { timings: { now: () => performance.now(), add: (stage: string, ms: number) => void (input.timings![stage] = Math.round(ms)) } } : {}),
-    // Phase 25.24c: Node's native SHA-256 for the scene files (the same digests as the portable one).
+    // Node's native SHA-256 for the scene files (the same digests as the portable one).
     sha256: sha256HexBytes,
   });
   if (!built.ok) {
@@ -169,19 +167,19 @@ export async function buildPlayContentM3(input: BuildPlayContentM3Input): Promis
     contentType: 'application/json; charset=utf-8',
   });
   // NOTE: no scene.json artifact — the v3 scene arrives through the
-  // nonce-verified `tl.snapshot` bridge (the accepted §17.2.1 locator route set
-  // has no scene route; the manifest's sceneDigest is the identity the preview
+  // nonce-verified `tl.snapshot` bridge (the locator route set has no scene
+  // route; the manifest's sceneDigest is the identity the preview
   // verifies the bridge snapshot against). The sceneBytes re-hash above is a
   // captured-state integrity check only.
   // The declared assets (at their manifest-declared digest-addressed path).
-  // Phase 12 (c): a v4 project's scene files and instance buffers (loaded by the game on demand).
-  // Phase 25.7b: and the manifest's content files (materials, UI documents, dialogue, the buffer table).
-  // Phase 25.9: and the shared script library modules the behaviors import (`libraries/<digest>.js`).
+  // A v4 project's scene files and instance buffers (loaded by the game on demand).
+  // And the manifest's content files (materials, UI documents, dialogue, the buffer table).
+  // And the shared script library modules the behaviors import (`libraries/<digest>.js`).
   for (const a of [...closure.assetArtifacts, ...closure.behaviorArtifacts, ...closure.libraryArtifacts, ...closure.sceneArtifacts, ...closure.bufferArtifacts, ...closure.contentFileArtifacts]) {
     artifacts.push({ path: a.path, bytes: a.bytes, digest: a.digest, contentType: a.contentType });
   }
-  // The M3 play entry: the prebuilt bundle served as game.js (the page
-  // bootstrap's import target — the same role as the M2 game.js).
+  // The play entry: the prebuilt bundle served as game.js (the page
+  // bootstrap's import target).
   artifacts.push({ path: 'game.js', bytes: input.gameBundle, digest: input.gameBundleDigest ?? sha256HexBytes(input.gameBundle), contentType: 'text/javascript; charset=utf-8' });
 
   return {

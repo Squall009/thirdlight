@@ -1,5 +1,5 @@
 /**
- * Phase 12 (b) in a real browser against the real backend: the project tag
+ * Tags in a real browser against the real backend: the project tag
  * registry in project settings (add, rename keeps the bit, a used tag cannot
  * be removed), tags on objects in the inspector with folder tags shown as
  * inherited, and a real script that queries objects by tag in Play.

@@ -1,5 +1,5 @@
 /**
- * The Gameplay panel (packet 56; phase 24.5/24.7: generic) over the projected
+ * The Gameplay panel (generic) over the projected
  * backend state:
  *  - **Settings** — the project settings (the character's physics and the
  *    engine settings), built from their descriptor; each edit is one partial
@@ -29,9 +29,9 @@ export interface GameplayBackendError {
 interface Props {
   entities: readonly ProjectedEntity[];
   settings: Record<string, unknown> | null;
-  /** Phase 15.1: select an object (the Camera tab points at the camera's Inspector sections). */
+  /** Select an object (the Camera tab points at the camera's Inspector sections). */
   onSelectEntity: (entityId: string) => void;
-  /** Phase 15.1: the descriptors (the settings are built from them). */
+  /** The descriptors (the settings are built from them). */
   registry: DescriptorRegistry | null;
   fieldContext: FieldContext;
   onSaveSettings: (settings: Record<string, number>) => void;
@@ -51,7 +51,7 @@ function BackendError({ error }: { error: GameplayBackendError | null }): JSX.El
 }
 
 // ---------------------------------------------------------------------------
-// Camera tab (phase 15.1: the camera and its rig are Inspector sections of
+// Camera tab (the camera and its rig are Inspector sections of
 // the camera object; this tab points there)
 // ---------------------------------------------------------------------------
 

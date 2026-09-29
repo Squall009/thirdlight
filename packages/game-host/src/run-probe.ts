@@ -1,5 +1,5 @@
 /**
- * Phase 25.16: the run digest for tools (tl_game_observe) — the digest of
+ * The run digest for tools (tl_game_observe) — the digest of
  * the world now, and the digest right after the last input exercise's last
  * step, taken by a step observer in the simulation's own realm (the page's
  * runtime or the worker's), so it is the state after exactly that step
@@ -7,7 +7,7 @@
  * a run and its replay comparable: the same input from the run's first step
  * gives the same digest at the same run step.
  *
- * Phase 25.17: an exercise with `hold` holds the simulation right after its
+ * An exercise with `hold` holds the simulation right after its
  * last step (the debugger's hold, set by the same observer), so the next
  * exercise starts at exactly the following step: a tool (the play-test
  * runner, a project's driver script) can observe, decide and go on in
@@ -29,7 +29,7 @@ export interface InputRunDigest extends RunDigestNow {
   readonly toStep: number;
   /** It restarted the game first (its frames began at the run's first step). */
   readonly restarted: boolean;
-  /** Phase 25.17: the game holds right after it (the exercise asked for `hold`) and still does. */
+  /** The game holds right after it (the exercise asked for `hold`) and still does. */
   readonly held?: boolean;
 }
 
@@ -41,7 +41,7 @@ export interface RunDigests {
 export class RunProbe {
   private pending: { from: number; to: number; restarted: boolean; hold: boolean } | null = null;
   private last: InputRunDigest | null = null;
-  /** Phase 25.17: this probe holds the simulation (after an exercise with `hold`). */
+  /** This probe holds the simulation (after an exercise with `hold`). */
   private holding = false;
 
   constructor(private readonly rt: Runtime) {
@@ -51,7 +51,7 @@ export class RunProbe {
       this.pending = null;
       this.last = { ...runDigest(this.rt), fromStep: p.from, toStep: p.to, restarted: p.restarted };
       if (p.hold) {
-        // Phase 25.17: hold right here (the runtime stops the frame's remaining steps).
+        // Hold right here (the runtime stops the frame's remaining steps).
         this.rt.setDebugHold?.(true);
         this.holding = true;
       }
@@ -64,14 +64,14 @@ export class RunProbe {
     this.pending = { from, to, restarted, hold };
   }
 
-  /** Phase 25.17: a new exercise begins: let go of this probe's hold (the next step is its first). */
+  /** A new exercise begins: let go of this probe's hold (the next step is its first). */
   release(): void {
     if (!this.holding) return;
     this.holding = false;
     if (this.rt.debugHeld === true) this.rt.setDebugHold?.(false);
   }
 
-  /** Phase 25.17: whether the game still holds after the last exercise (the debugger's resume lets it go too). */
+  /** Whether the game still holds after the last exercise (the debugger's resume lets it go too). */
   get held(): boolean {
     if (this.holding && this.rt.debugHeld !== true) this.holding = false;
     return this.holding;

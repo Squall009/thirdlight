@@ -1,5 +1,5 @@
 /**
- * Phase 25.21: paint and wetness of a block layer — what a painted terrain
+ * Paint and wetness of a block layer — what a painted terrain
  * material reads.
  *
  * A chunk may carry `paint`: for each of its 17 × 17 lattice vertices (the

@@ -1,14 +1,12 @@
 /**
- * Content catalog validation, normalization and settings resolution —
- * project-model.md §18 (content catalog / asset records / import profile),
- * §19 (`captureContent`), §20 (prefabs, declared properties, settings
- * container), §21.4/§21.5 (the six-key gameplay settings registry) and
- * §22 (behavior source records and trust).
+ * Content catalog validation, normalization and settings resolution: the
+ * content catalog (asset records, import profile), prefabs, declared
+ * properties, the settings container and the six-key gameplay settings
+ * registry, and behavior source records and trust.
  *
  * Pure value validation: no I/O, no three.js, no Node built-ins. There is
  * deliberately no `parseContent(bytes)`: the content block has no standalone
- * file, so its bytes are governed by the envelope's strict parse (workspace
- * §4.3).
+ * file, so its bytes are governed by the envelope's strict parse.
  */
 
 import { canonicalEventCues, validateEventCueReferences, validateEventCues } from './event-cues';
@@ -87,25 +85,24 @@ export type { SettingsKeySpec, PhysicsDimension } from './content-settings';
 
 export * from './content-limits';
 
-/** §23.4: a v3 content block carries the five accepted keys plus `game` (phase 24.8: v4 content has no `game`). */
+/** A v3 content block carries the five accepted keys plus `game` (v4 content has no `game`). */
 const KNOWN_CONTENT_FIELDS_V3 = new Set(['assets', 'prefabs', 'behaviors', 'settings', 'behaviorTrust', 'game']);
 const KNOWN_CONTENT_FIELDS_V4 = ['assets', 'prefabs', 'behaviors', 'settings', 'behaviorTrust', 'scenes', 'startScenes'];
 /**
- * Phase 15.3: engine timing every project played with before it became data
+ * Engine timing every project played with before it became data
  * (recorded replays stay valid). Generic reasons: falling through a one-way
  * platform ignores it for 0.125 s (enough to clear a thin platform at any
  * normal fall speed); the world settles for 0.1 s before the first frame so
- * resting bodies start at rest. Phase 24.7: these were the character controller game
- * block's fields; with the block deleted they are engine defaults.
+ * resting bodies start at rest.
  */
 export const ENGINE_TIMING_DEFAULTS = Object.freeze({ dropThroughTime: 0.125, settleTime: 0.1 });
 
-// ---- content schemaVersion 3: `audio` kind and `content.game` (§23.4) ---------
+// ---- content schemaVersion 3: `audio` kind and `content.game` ---------
 
 /**
- * Phase 24.7: the game block (`content.game`: the session's player, camera,
+ * The game block (`content.game`: the session's player, camera,
  * spawn, cues and timing) was deleted. A v3 envelope keeps the key as
- * `null`; phase 24.8: v4 content has no `game` key (the loader drops a null
+ * `null`; V4 content has no `game` key (the loader drops a null
  * one from a schemaVersion 2 project and refuses a block).
  */
 export function validateGameConfig(g: unknown, path: string, errors: ModelErrorV2[]): void {
@@ -114,14 +111,14 @@ export function validateGameConfig(g: unknown, path: string, errors: ModelErrorV
 }
 
 /**
- * §23.4/§23.10: the six-key v3 content block. Validated with the accepted
+ * The six-key v3 content block. Validated with the accepted
  * v2 inner validators (prefabs/behaviors/settings/trust), the v3 asset-kind
  * discriminator and the bounded `game` block.
  */
 function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3): { errors: ModelErrorV2[]; doc?: ContentCatalogV3 | ContentCatalogV4 } {
   const errors: ModelErrorV2[] = [];
   const required = version === 4 ? KNOWN_CONTENT_FIELDS_V4 : [...KNOWN_CONTENT_FIELDS_V3];
-  // Phase 24.8: a v4 content block has no `game` key.
+  // A v4 content block has no `game` key.
   if (version === 4 && doc['game'] !== undefined) {
     errors.push(withFound({ code: 'field_unexpected', path: '/game', message: `content.game (the game block: player, camera, spawn, cues and timing) was ${REMOVED_IN_PHASE_24}`, expected: 'no game key' } as ModelErrorV2, 'game'));
   }
@@ -134,7 +131,7 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
     }
   }
   if (version === 4 && doc['scenes'] !== undefined) {
-    // Phase 12 (c): the scene index — one entry per scene file.
+    // The scene index — one entry per scene file.
     const scenes = doc['scenes'];
     if (!Array.isArray(scenes)) errors.push(fieldType('/scenes', scenes, 'array of { sceneId, name }'));
     else {
@@ -157,7 +154,7 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
     }
   }
   if (version === 4 && doc['startScenes'] !== undefined) {
-    // Phase 12 (c): the scenes loaded when the game starts.
+    // The scenes loaded when the game starts.
     const start = doc['startScenes'];
     if (!Array.isArray(start)) errors.push(fieldType('/startScenes', start, 'array of scene ids'));
     else {
@@ -271,26 +268,26 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
 
   if (doc['tags'] !== undefined) validateTagRegistry(doc['tags'], '/tags', errors);
 
-  // Phase 9.4 (v4): project materials, the asset default mappings and the environment.
-  // Phase 18.1: a graph material may call material functions (standalone graphs).
+  // v4: project materials, the asset default mappings and the environment.
+  // A graph material may call material functions (standalone graphs).
   if (doc['materials'] !== undefined) {
     validateMaterials(doc['materials'], '/materials', errors, graphDocumentsContext(GRAPH_KINDS, doc['graphs']));
-    // Phase 25.19: instances against their parents (the whole list).
+    // Instances against their parents (the whole list).
     validateMaterialInstances(doc['materials'], '/materials', errors);
   }
   if (doc['environment'] !== undefined) validateEnvironment(doc['environment'], '/environment', errors);
   if (doc['lighting'] !== undefined) validateLighting(doc['lighting'], '/lighting', errors);
   if (doc['animators'] !== undefined) validateAnimators(doc['animators'], '/animators', errors);
   if (doc['input'] !== undefined) validateInput(doc['input'], '/input', errors);
-  // Phase 24.7: the level flow was deleted (the game shell, content.shell, is the generic menus and scene list).
+  // The level flow was deleted (the game shell, content.shell, is the generic menus and scene list).
   if (doc['flow'] !== undefined) errors.push(withFound({ code: 'field_unexpected', path: '/flow', message: `content.flow (the level flow and its menus) was ${REMOVED_IN_PHASE_24} (menus: the game shell, content.shell)`, expected: 'no flow' } as ModelErrorV2, 'flow'));
-  // Phase 16.1: standalone graph documents.
+  // Standalone graph documents.
   if (doc['graphs'] !== undefined) validateGraphDocuments(GRAPH_KINDS, doc['graphs'], '/graphs', errors);
-  // Phase 20.0: visual effects.
+  // Visual effects.
   if (doc['effects'] !== undefined) validateEffects(doc['effects'], '/effects', errors);
-  // Phase 23.7: shared script libraries (v4) and the behavior pins that name them.
+  // Shared script libraries (v4) and the behavior pins that name them.
   if (version === 4 && doc['scriptLibraries'] !== undefined) validateScriptLibraries(doc['scriptLibraries'], '/scriptLibraries', errors);
-  // Phase 23.5: block types, the cell metadata schema and stamps (v4), and their references.
+  // Block types, the cell metadata schema and stamps (v4), and their references.
   if (version === 4) {
     const before = errors.length;
     if (doc['blockTypes'] !== undefined) validateBlockTypes(doc['blockTypes'], '/blockTypes', errors);
@@ -298,26 +295,26 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
     if (doc['blockStamps'] !== undefined) validateBlockStamps(doc['blockStamps'], '/blockStamps', errors);
     if (errors.length === before && (doc['blockTypes'] !== undefined || doc['blockStamps'] !== undefined)) composeBlockContent(doc as unknown as BlockContentView, errors);
   }
-  // Phase 23.3: the named collision layers (v4).
+  // The named collision layers (v4).
   if (version === 4 && doc['collisionLayers'] !== undefined) validateCollisionLayers(doc['collisionLayers'], '/collisionLayers', errors);
-  // Phase 23.19: the project save schema (v4).
+  // The project save schema (v4).
   if (version === 4 && doc['saveSchema'] !== undefined) validateSaveSchema(doc['saveSchema'], '/saveSchema', errors);
   validateLibraryPinReferences(doc, errors);
-  // Phase 23.9a: project UI documents and themes (v4), and what they reference.
-  // Phase 23.10: a document's action map may be one of the project's own maps (input.maps).
+  // Project UI documents and themes (v4), and what they reference.
+  // A document's action map may be one of the project's own maps (input.maps).
   if (version === 4 && doc['uiDocuments'] !== undefined) validateUiDocuments(doc['uiDocuments'], '/uiDocuments', errors, projectInputMaps(doc['input']));
   if (version === 4 && doc['uiThemes'] !== undefined) validateUiThemes(doc['uiThemes'], '/uiThemes', errors);
-  // Phase 23.16: dialogue (v4): conversations, the speaker registry, the settings.
+  // Dialogue (v4): conversations, the speaker registry, the settings.
   if (version === 4 && doc['dialogues'] !== undefined) validateDialogues(doc['dialogues'], '/dialogues', errors);
   if (version === 4 && doc['speakers'] !== undefined) validateSpeakers(doc['speakers'], '/speakers', errors);
   if (version === 4 && doc['dialogueSettings'] !== undefined) validateDialogueSettings(doc['dialogueSettings'], '/dialogueSettings', errors);
   if (version === 4 && errors.length === 0) {
-    // Phase 25.19: the page draws UI images and portraits (<img>), which cannot show a KTX2 (a GPU texture).
+    // The page draws UI images and portraits (<img>), which cannot show a KTX2 (a GPU texture).
     const kinds = new Map((Array.isArray(doc['assets']) ? (doc['assets'] as unknown[]) : []).filter(isPlainObject).map((a) => [a['assetId'], ktx2TextureIds(doc).has(a['assetId'] as string) ? KTX2_TEXTURE_KIND : a['kind']] as const));
     validateUiReferences(doc, errors, (id) => kinds.get(id));
     if (doc['dialogues'] !== undefined || doc['speakers'] !== undefined || doc['dialogueSettings'] !== undefined) validateDialogueReferences(doc, errors, (id) => kinds.get(id));
   }
-  // Phase 24.4i: the event → cue table (v4) and its sounds.
+  // The event → cue table (v4) and its sounds.
   if (version === 4 && doc['eventCues'] !== undefined) {
     const before = errors.length;
     validateEventCues(doc['eventCues'], '/eventCues', errors);
@@ -326,20 +323,20 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
       validateEventCueReferences(doc, errors, (id) => kinds.get(id));
     }
   }
-  // Phase 24.4j: the game shell (v4): its screens' and HUD's UI documents.
+  // The game shell (v4): its screens' and HUD's UI documents.
   if (version === 4 && doc['shell'] !== undefined) {
     const before = errors.length;
     validateShell(doc['shell'], '/shell', errors);
     if (errors.length === before) validateShellReferences(doc, errors);
   }
-  // Phase 23.10: game modes and behavior groups (v4), and what the modes reference.
+  // Game modes and behavior groups (v4), and what the modes reference.
   if (version === 4 && doc['behaviorGroups'] !== undefined) validateBehaviorGroups(doc['behaviorGroups'], '/behaviorGroups', errors);
   if (version === 4 && doc['modes'] !== undefined) {
     const before = errors.length;
     validateModes(doc['modes'], '/modes', errors);
     if (errors.length === before) validateModeReferences(doc, errors);
   }
-  // Phase 23.17: timelines (v4) and what their keys name (audio assets, effects, materials).
+  // Timelines (v4) and what their keys name (audio assets, effects, materials).
   if (version === 4 && doc['timelines'] !== undefined) {
     const before = errors.length;
     validateTimelines(doc['timelines'], '/timelines', errors);
@@ -351,7 +348,7 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
   }
   if (version === 4) validateMaterialReferences(doc, errors);
   else if (Array.isArray(doc['assets'])) {
-    // Phase 14.6: clips-only assets are v4 data (v3 projects upgrade on open).
+    // Clips-only assets are v4 data (v3 projects upgrade on open).
     (doc['assets'] as unknown[]).forEach((a, i) => {
       if (isPlainObject(a) && a['clipsFor'] !== undefined) errors.push(unexpectedField(`/assets/${i}/clipsFor`, 'clipsFor', 'clipsFor is v4 data'));
     });
@@ -369,11 +366,11 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
   return { errors, doc: canonical };
 }
 
-/** Phase 12 (b): a tag name — a letter, then letters, digits, `_` or `-`; 1–32 characters. */
+/** A tag name — a letter, then letters, digits, `_` or `-`; 1–32 characters. */
 export const TAG_NAME_RE = /^[A-Za-z][A-Za-z0-9_-]{0,31}$/;
 
 /**
- * Phase 12 (b): the tag registry — at most 32 `{ bit, name }` entries, each
+ * The tag registry — at most 32 `{ bit, name }` entries, each
  * bit 0–31 used once, names unique ignoring case.
  */
 export function validateTagRegistry(tags: unknown, path: string, errors: ModelErrorV2[]): void {
@@ -411,7 +408,7 @@ export function validateTagRegistry(tags: unknown, path: string, errors: ModelEr
   });
 }
 
-/** §23.7: canonical v3 content block (fixed six-key order, `game` last; phase 24.8: v4 content has no `game`). */
+/** Canonical v3 content block (fixed six-key order, `game` last; v4 content has no `game`). */
 export function canonicalContentV3<T extends ContentCatalogV3 | ContentCatalogV4>(c: T): T {
   const v4 = (c as ContentCatalogV4).scenes !== undefined;
   return {
@@ -421,62 +418,62 @@ export function canonicalContentV3<T extends ContentCatalogV3 | ContentCatalogV4
     settings: canonicalSettings(c.settings),
     behaviorTrust: canonicalTrust(c.behaviorTrust),
     ...(v4 ? {} : { game: null }),
-    // Phase 12 (c): v4 only — the scene index and the start set.
+    // v4 only — the scene index and the start set.
     ...((c as ContentCatalogV4).scenes !== undefined ? { scenes: (c as ContentCatalogV4).scenes.map((e) => ({ sceneId: e.sceneId, name: e.name })) } : {}),
     ...((c as ContentCatalogV4).startScenes !== undefined ? { startScenes: [...(c as ContentCatalogV4).startScenes] } : {}),
-    // Phase 12 (b): present only when the project defines tags.
+    // Present only when the project defines tags.
     ...(c.tags !== undefined && c.tags.length > 0
       ? { tags: [...c.tags].sort((a, b) => a.bit - b.bit).map((t) => ({ bit: t.bit, name: t.name })) }
       : {}),
-    // Phase 9.4: present only when there are materials / environment settings.
+    // Present only when there are materials / environment settings.
     ...((c as ContentCatalogV4).materials !== undefined && (c as ContentCatalogV4).materials!.length > 0 ? { materials: canonicalMaterials((c as ContentCatalogV4).materials!) } : {}),
     ...((c as ContentCatalogV4).environment !== undefined ? { environment: canonicalEnvironment((c as ContentCatalogV4).environment!) } : {}),
-    // Phase 9.7: present only when there are controllers.
+    // Present only when there are controllers.
     ...((c as ContentCatalogV4).animators !== undefined && (c as ContentCatalogV4).animators!.length > 0 ? { animators: canonicalAnimators((c as ContentCatalogV4).animators!) } : {}),
-    // Phase 9.8: present only when the project has its own input actions.
+    // Present only when the project has its own input actions.
     ...((c as ContentCatalogV4).input !== undefined ? { input: canonicalInput((c as ContentCatalogV4).input!) } : {}),
-    // Phase 16.1: present only when there are standalone graphs.
+    // Present only when there are standalone graphs.
     ...((c as ContentCatalogV4).graphs !== undefined && (c as ContentCatalogV4).graphs!.length > 0 ? { graphs: canonicalGraphDocuments((c as ContentCatalogV4).graphs!) } : {}),
-    // Phase 20.0: present only when there are effects.
+    // Present only when there are effects.
     ...((c as ContentCatalogV4).effects !== undefined && (c as ContentCatalogV4).effects!.length > 0 ? { effects: canonicalEffects((c as ContentCatalogV4).effects!) } : {}),
-    // Phase 23.7: present only when there are script libraries.
+    // Present only when there are script libraries.
     ...((c as ContentCatalogV4).scriptLibraries !== undefined && (c as ContentCatalogV4).scriptLibraries!.length > 0 ? { scriptLibraries: canonicalScriptLibraries((c as ContentCatalogV4).scriptLibraries!) } : {}),
-    // Phase 23.5: present only when there are block types / cell fields / stamps.
+    // Present only when there are block types / cell fields / stamps.
     ...((c as ContentCatalogV4).blockTypes !== undefined && (c as ContentCatalogV4).blockTypes!.length > 0 ? { blockTypes: canonicalBlockTypes((c as ContentCatalogV4).blockTypes!) } : {}),
     ...((c as ContentCatalogV4).cellFields !== undefined && (c as ContentCatalogV4).cellFields!.length > 0 ? { cellFields: canonicalCellFields((c as ContentCatalogV4).cellFields!) } : {}),
     ...((c as ContentCatalogV4).blockStamps !== undefined && (c as ContentCatalogV4).blockStamps!.length > 0 ? { blockStamps: canonicalBlockStamps((c as ContentCatalogV4).blockStamps!) } : {}),
-    // Phase 23.9a: present only when there are UI documents / themes.
+    // Present only when there are UI documents / themes.
     ...((c as ContentCatalogV4).uiDocuments !== undefined && (c as ContentCatalogV4).uiDocuments!.length > 0 ? { uiDocuments: canonicalUiDocuments((c as ContentCatalogV4).uiDocuments!) } : {}),
     ...((c as ContentCatalogV4).uiThemes !== undefined && (c as ContentCatalogV4).uiThemes!.length > 0 ? { uiThemes: canonicalUiThemes((c as ContentCatalogV4).uiThemes!) } : {}),
-    // Phase 23.10: present only when the project has game modes / behavior groups.
+    // Present only when the project has game modes / behavior groups.
     ...((c as ContentCatalogV4).modes !== undefined && (c as ContentCatalogV4).modes!.length > 0 ? { modes: canonicalModes((c as ContentCatalogV4).modes!) } : {}),
     ...((c as ContentCatalogV4).behaviorGroups !== undefined && (c as ContentCatalogV4).behaviorGroups!.length > 0 ? { behaviorGroups: [...(c as ContentCatalogV4).behaviorGroups!] } : {}),
-    // Phase 23.3: present only when the project names collision layers.
+    // Present only when the project names collision layers.
     ...((c as ContentCatalogV4).collisionLayers !== undefined && (c as ContentCatalogV4).collisionLayers!.length > 0 ? { collisionLayers: [...(c as ContentCatalogV4).collisionLayers!] } : {}),
-    // Phase 23.19: present only when the project declares a save schema.
+    // Present only when the project declares a save schema.
     ...((c as ContentCatalogV4).saveSchema !== undefined ? { saveSchema: canonicalSaveSchema((c as ContentCatalogV4).saveSchema!) } : {}),
-    // Phase 23.16: present only when there are conversations / speakers / dialogue settings.
+    // Present only when there are conversations / speakers / dialogue settings.
     ...((c as ContentCatalogV4).dialogues !== undefined && (c as ContentCatalogV4).dialogues!.length > 0 ? { dialogues: canonicalDialogues((c as ContentCatalogV4).dialogues!) } : {}),
     ...((c as ContentCatalogV4).speakers !== undefined && (c as ContentCatalogV4).speakers!.length > 0 ? { speakers: canonicalSpeakers((c as ContentCatalogV4).speakers!) } : {}),
     ...((c as ContentCatalogV4).dialogueSettings !== undefined ? { dialogueSettings: canonicalDialogueSettings((c as ContentCatalogV4).dialogueSettings!) } : {}),
-    // Phase 24.4i: present only when the project maps events to cues.
+    // Present only when the project maps events to cues.
     ...((c as ContentCatalogV4).eventCues !== undefined && (c as ContentCatalogV4).eventCues!.length > 0 ? { eventCues: canonicalEventCues((c as ContentCatalogV4).eventCues!) } : {}),
-    // Phase 24.4j: present only when the project has a shell.
+    // Present only when the project has a shell.
     ...((c as ContentCatalogV4).shell !== undefined ? { shell: canonicalShell((c as ContentCatalogV4).shell as GameShell) } : {}),
-    // Phase 23.17: present only when there are timelines.
+    // Present only when there are timelines.
     ...((c as ContentCatalogV4).timelines !== undefined && (c as ContentCatalogV4).timelines!.length > 0 ? { timelines: canonicalTimelines((c as ContentCatalogV4).timelines!) } : {}),
-    // Phase 9.6: present only when a scene has a bake.
+    // Present only when a scene has a bake.
     ...((c as ContentCatalogV4).lighting !== undefined && Object.keys((c as ContentCatalogV4).lighting!).length > 0 ? { lighting: canonicalLighting((c as ContentCatalogV4).lighting!) } : {}),
   } as unknown as T;
 }
 
 /**
- * Phase 9.4: a material's texture slots name texture assets; an asset's
+ * A material's texture slots name texture assets; an asset's
  * default material mapping (and only a model asset has one) names existing
  * materials.
  */
 /**
- * Phase 23.7: every library a published behavior pins exists with exactly the
+ * Every library a published behavior pins exists with exactly the
  * pinned digest (a library change republishes its dependents in the same
  * command, so a stale or dangling pin never reaches a document; deleting a
  * library a behavior still imports is refused here).
@@ -519,12 +516,12 @@ function validateLibraryPinReferences(doc: Record<string, unknown>, errors: Mode
 }
 
 /**
- * Phase 25.19: what an image the page draws (a UI image, a portrait, a glyph)
+ * What an image the page draws (a UI image, a portrait, a glyph)
  * sees for a KTX2 texture asset — a GPU texture no <img> can show.
  */
 export const KTX2_TEXTURE_KIND = 'texture (KTX2: a GPU texture the page cannot draw as an image; import a PNG, JPEG or WebP for it)';
 
-/** Phase 25.19: the texture assets whose current version is a KTX2. */
+/** The texture assets whose current version is a KTX2. */
 function ktx2TextureIds(doc: Record<string, unknown>): Set<string> {
   const out = new Set<string>();
   for (const a of Array.isArray(doc['assets']) ? (doc['assets'] as unknown[]) : []) {
@@ -536,13 +533,13 @@ function ktx2TextureIds(doc: Record<string, unknown>): Set<string> {
 }
 
 /**
- * Phase 25.21: what a reference that reads one plain (2D) texture sees for a
+ * What a reference that reads one plain (2D) texture sees for a
  * texture array — only a graph material's texture nodes and parameters sample
  * a layer of an array.
  */
 export const TEXTURE_ARRAY_KIND = 'texture (a texture array: only graph materials read its layers; name a plain texture here)';
 
-/** Phase 25.21: the texture assets whose current version is a texture array (KTX2 with layers). */
+/** The texture assets whose current version is a texture array (KTX2 with layers). */
 export function arrayTextureIds(doc: { assets?: readonly unknown[] } | Record<string, unknown>): Set<string> {
   const out = new Set<string>();
   const list = (doc as Record<string, unknown>)['assets'];
@@ -557,7 +554,7 @@ export function arrayTextureIds(doc: { assets?: readonly unknown[] } | Record<st
 function validateMaterialReferences(doc: Record<string, unknown>, errors: ModelErrorV2[]): void {
   const assets = Array.isArray(doc['assets']) ? (doc['assets'] as unknown[]).filter(isPlainObject) : [];
   const kindOf = new Map(assets.map((a) => [a['assetId'], a['kind']]));
-  // Phase 25.21: where one plain texture is read, a texture array is not one.
+  // Where one plain texture is read, a texture array is not one.
   const arrays = arrayTextureIds(doc);
   const plainKindOf = new Map(assets.map((a) => [a['assetId'], arrays.has(a['assetId'] as string) ? TEXTURE_ARRAY_KIND : a['kind']]));
   const graphRefs = (kind: GraphKindDef, graph: GraphData, at: string): void => {
@@ -577,12 +574,12 @@ function validateMaterialReferences(doc: Record<string, unknown>, errors: ModelE
         if (kindOf.get(id) !== 'texture') {
           errors.push(withFound({ code: 'asset_reference_missing', path: `/materials/${i}/textures/${pointerSegment(slot)}`, message: 'a material texture slot must name a texture asset of this project', expected: 'a texture assetId' }, id));
         } else if (arrays.has(id as string) && m['graph'] === undefined && (typeof m['materialId'] !== 'string' || resolveMaterial(materials as unknown as MaterialDef[], m['materialId'])?.graph === undefined)) {
-          // Phase 25.21: a shader material's slot reads one plain texture.
+          // A shader material's slot reads one plain texture.
           errors.push(withFound({ code: 'field_value', path: `/materials/${i}/textures/${pointerSegment(slot)}`, message: 'a material texture slot reads one plain texture: a texture array is read by a graph material\'s texture nodes', expected: 'a plain texture assetId' }, id));
         }
       }
     }
-    // Phase 18.0: a graph's texture fields and texture parameters name texture assets.
+    // A graph's texture fields and texture parameters name texture assets.
     if (isPlainObject(m['graph']) && Array.isArray(m['graph']['nodes'])) graphRefs(GRAPH_KINDS['material']!, m['graph'] as unknown as GraphData, `/materials/${i}/graph`);
     if (Array.isArray(m['parameters'])) {
       (m['parameters'] as unknown[]).forEach((p, j) => {
@@ -591,7 +588,7 @@ function validateMaterialReferences(doc: Record<string, unknown>, errors: ModelE
         }
       });
     }
-    // Phase 25.19: an instance's value for a texture parameter names a texture asset.
+    // An instance's value for a texture parameter names a texture asset.
     if (typeof m['instanceOf'] === 'string' && isPlainObject(m['values']) && typeof m['materialId'] === 'string') {
       const root = resolveMaterial(materials as unknown as MaterialDef[], m['materialId']);
       for (const p of root?.parameters ?? []) {
@@ -602,14 +599,14 @@ function validateMaterialReferences(doc: Record<string, unknown>, errors: ModelE
       }
     }
   });
-  // Phase 18.1: standalone graphs (material functions) reference assets the same way.
+  // Standalone graphs (material functions) reference assets the same way.
   if (Array.isArray(doc['graphs'])) {
     (doc['graphs'] as unknown[]).forEach((g, i) => {
       const k = isPlainObject(g) && typeof g['kind'] === 'string' ? GRAPH_KINDS[g['kind']] : undefined;
       if (k !== undefined && isPlainObject(g) && isPlainObject(g['graph']) && Array.isArray(g['graph']['nodes'])) graphRefs(k, g['graph'] as unknown as GraphData, `/graphs/${i}/graph`);
     });
   }
-  // Phase 20.1: effect system graphs name textures and models the same way.
+  // Effect system graphs name textures and models the same way.
   if (Array.isArray(doc['effects'])) {
     (doc['effects'] as unknown[]).forEach((e, i) => {
       if (!isPlainObject(e) || !Array.isArray(e['systems'])) return;
@@ -618,7 +615,7 @@ function validateMaterialReferences(doc: Record<string, unknown>, errors: ModelE
       });
     });
   }
-  // Phase 9.5: sky images and the grading LUT are texture assets too.
+  // Sky images and the grading LUT are texture assets too.
   const env = doc['environment'];
   if (isPlainObject(env)) {
     const refs: [string, unknown][] = [];
@@ -629,7 +626,7 @@ function validateMaterialReferences(doc: Record<string, unknown>, errors: ModelE
     }
     const post = env['post'];
     if (isPlainObject(post) && isPlainObject(post['grading']) && post['grading']['lut'] !== undefined) refs.push(['/environment/post/grading/lut', post['grading']['lut']]);
-    // Phase 23.18: the presets' sky images and LUTs.
+    // The presets' sky images and LUTs.
     if (Array.isArray(env['presets'])) {
       (env['presets'] as unknown[]).forEach((pr, i) => {
         if (!isPlainObject(pr)) return;
@@ -646,16 +643,16 @@ function validateMaterialReferences(doc: Record<string, unknown>, errors: ModelE
       if (plainKindOf.get(id) !== 'texture') errors.push(withFound({ code: 'asset_reference_missing', path: p, message: 'this environment image must name a (plain) texture asset of this project', expected: 'a texture assetId' }, id));
     }
   }
-  // Phase 23.14: the input's glyph images are texture assets.
+  // The input's glyph images are texture assets.
   const input = doc['input'];
   if (isPlainObject(input) && isPlainObject(input['glyphs'])) {
     for (const [k, id] of Object.entries(input['glyphs'])) {
       if (kindOf.get(id as string) !== 'texture') errors.push(withFound({ code: 'asset_reference_missing', path: `/input/glyphs/${k}`, message: 'a glyph image must name a texture asset of this project', expected: 'a texture assetId' }, id));
-      // Phase 25.19: glyphs are drawn by the page as images.
+      // Glyphs are drawn by the page as images.
       else if (ktx2TextureIds(doc).has(id as string)) errors.push(withFound({ code: 'field_value', path: `/input/glyphs/${k}`, message: 'a glyph image is drawn by the page: it cannot be a KTX2 texture (import a PNG, JPEG or WebP)', expected: 'a PNG, JPEG or WebP texture' }, id));
     }
   }
-  // Phase 9.7: a controller's clips come from model assets of this project.
+  // A controller's clips come from model assets of this project.
   if (Array.isArray(doc['animators'])) {
     (doc['animators'] as unknown[]).forEach((c, i) => {
       if (!isPlainObject(c) || !Array.isArray(c['states'])) return;
@@ -664,7 +661,7 @@ function validateMaterialReferences(doc: Record<string, unknown>, errors: ModelE
       }
     });
   }
-  // Phase 9.6: a bake belongs to a scene of the index; its atlases are texture assets.
+  // A bake belongs to a scene of the index; its atlases are texture assets.
   const lighting = doc['lighting'];
   if (isPlainObject(lighting)) {
     const sceneIds = new Set(Array.isArray(doc['scenes']) ? (doc['scenes'] as unknown[]).map((e) => (isPlainObject(e) ? e['sceneId'] : undefined)) : []);
@@ -676,7 +673,7 @@ function validateMaterialReferences(doc: Record<string, unknown>, errors: ModelE
       });
     }
   }
-  // Phase 14.6: "clips for rig of <asset>" names another model of this project that is not itself a clips-only asset.
+  // "clips for rig of <asset>" names another model of this project that is not itself a clips-only asset.
   assets.forEach((a, i) => {
     const rig = a['clipsFor'];
     if (typeof rig !== 'string') return;
@@ -700,7 +697,7 @@ function validateMaterialReferences(doc: Record<string, unknown>, errors: ModelE
   });
 }
 
-/** §12.1/§23.4: the explicit v3 content validator. */
+/** The explicit v3 content validator. */
 export function validateContentV3(doc: unknown): ModelResultV3<ContentCatalogV3> {
   if (!isPlainObject(doc)) return fail([fieldType('', doc, 'object')]);
   const { errors, doc: canonical } = validateContentV3Value(doc);
@@ -709,8 +706,8 @@ export function validateContentV3(doc: unknown): ModelResultV3<ContentCatalogV3>
 }
 
 /**
- * Phase 12 (c): the v4 project content block (`content.json`): v3's keys plus
- * the scene index and the required `startScenes` (phase 24.8: no `game`).
+ * The v4 project content block (`content.json`): v3's keys plus
+ * the scene index and the required `startScenes` (no `game`).
  */
 export function validateContentV4(doc: unknown): ModelResultV3<ContentCatalogV4> {
   if (!isPlainObject(doc)) return fail([fieldType('', doc, 'object')]);
@@ -719,14 +716,14 @@ export function validateContentV4(doc: unknown): ModelResultV3<ContentCatalogV4>
   return { ok: true, normalized: canonical as ContentCatalogV4 };
 }
 
-/** §12.1: validate, then return the new canonical v3 content block (§23.7). */
+/** Validate, then return the new canonical v3 content block. */
 export function normalizeContentV3(doc: unknown): ModelResultV3<ContentCatalogV3> {
   return validateContentV3(doc);
 }
 
-// ---- settings resolution (§21.5) ---------------------------------------------
+// ---- settings resolution ---------------------------------------------
 
-/** §21.5: `defaults ⊕ content.settings`, validated and deep-frozen. */
+/** `defaults ⊕ content.settings`, validated and deep-frozen. */
 export function resolveGameplaySettings(content: unknown): ModelResultV2<GameplaySettings> {
   const errors: ModelErrorV2[] = [];
   const isContentBlock =

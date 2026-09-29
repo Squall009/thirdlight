@@ -1,5 +1,5 @@
 /**
- * Phase 11: MCP plays without the owner's browser. With no editor connected,
+ * MCP plays without the owner's browser. With no editor connected,
  * `tl_play_start` makes the backend open its own headless editor; screenshots,
  * input and observations work through it; the owner's browser takes over.
  */
@@ -65,7 +65,7 @@ test('with no editor open, MCP plays, observes, moves and screenshots the game t
   const shot = await call('tl_screenshot', { playSessionId, maxWidth: 512 });
   expect(shot.isError, JSON.stringify(shot.body).slice(0, 300)).toBe(false);
   expect(String(shot.body.dataUrl)).toMatch(/^data:image\/png;base64,/);
-  // Phase 25.2: the headless editor's capture is a drawn frame (the scene, not one flat colour).
+  // The headless editor's capture is a drawn frame (the scene, not one flat colour).
   const img = decodePng(Buffer.from(String(shot.body.dataUrl).slice('data:image/png;base64,'.length), 'base64'));
   const colours = new Set<string>();
   for (let y = 0; y < img.height; y += 8) for (let x = 0; x < img.width; x += 8) colours.add(img.pixel(x, y).slice(0, 3).join(','));

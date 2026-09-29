@@ -1,5 +1,5 @@
 /**
- * Phase 23.8: test and debug entry points through the production game host,
+ * Test and debug entry points through the production game host,
  * in the page (single thread) and in the simulation worker.
  *
  * A neutral level with one scripted box. Its script — TypeScript compiled by

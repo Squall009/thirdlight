@@ -1,5 +1,5 @@
 /**
- * Phase 23.11: sockets — entities riding on named nodes of other entities'
+ * Sockets — entities riding on named nodes of other entities'
  * models, resolved in the simulation step.
  *
  * An attachment is (entity, target, node, offset). Every fixed step, after

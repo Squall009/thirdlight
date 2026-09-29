@@ -1,5 +1,5 @@
 /**
- * Phase 24.4: the generic primitives through the production composition —
+ * The generic primitives through the production composition —
  * the real game host, the character controller and Rapier physics, a scene
  * without any game session — on the 2D plane and in 3D, in both threading
  * modes, driven by a recorded input:

@@ -1,6 +1,6 @@
 /**
- * Phase 14.0: the player's capsule outline and "Fit to model" (pure
- * geometry). Dragging sizes is the phase 15.2 handle system (`handles.ts`,
+ * The player's capsule outline and "Fit to model" (pure
+ * geometry). Dragging sizes is the handle system (`handles.ts`,
  * tested against the real descriptors in `tests/integration/m15-handles`).
  */
 import { describe, expect, it } from 'vitest';

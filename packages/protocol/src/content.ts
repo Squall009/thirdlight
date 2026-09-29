@@ -1,18 +1,14 @@
 /**
- * M2 content transport wire shapes + strict validators (packet 25).
+ * Content transport wire shapes + strict validators.
  *
- * The single home of the content route/message/error shapes added by packet
- * 25 (dependencies.md §3 `protocol` row: "the packet-19 route/message/error
- * types + strict validators (asset-byte reads, content/job/query ...) — the
- * sole wire-shape home"). Everything here is a **pure** validator/builder:
- * no I/O, no filesystem, no workspace/backend import. The M1 exports in
- * `http.ts`/`ws-events.ts` are unchanged; the packet-25 additions are
- * additive and versioned by their own constant set.
+ * The single home of the content route/message/error shapes (asset-byte
+ * reads, uploads/stages, content jobs, asset queries). Everything here is a
+ * **pure** validator/builder: no I/O, no filesystem, no workspace/backend
+ * import. These shapes sit beside the ones in `http.ts`/`ws-events.ts` and are
+ * versioned by their own constant set.
  *
- * Sources: sessions.md §11.3/§11.5/§16.1 (asset-byte reads, error codes,
- * bounds); workspace.md §13.9/§7.6.2 (upload/stage bounds); delivery.md §15
- * and `fixtures/m2/contracts/delivery/{protocol-surface,upload-bounds}.json`
- * (content/job/query routes and the re-derived upload-bound cases).
+ * `fixtures/m2/contracts/delivery/{protocol-surface,upload-bounds}.json` hold
+ * the content/job/query routes and the re-derived upload-bound cases.
  */
 import { ID_RE } from '@thirdlight/project-model/limits';
 import { isProjectId } from './ids';
@@ -20,43 +16,43 @@ import { ASSET_QUERY_PAGE_DEFAULT, ASSET_QUERY_PAGE_MAX, MAX_OPEN_STAGES, MAX_SO
 import { checkField, checkShape, isPlainObject, type FieldErrorResult } from './strict';
 import { sessionError, type SessionError } from './errors';
 
-// ---- constants (sessions.md §11.5; workspace.md §13.9) ------------------------
+// ---- constants ------------------------
 
-/** §11.5: one upload frame ≤ 1 MiB. */
+/** One upload frame ≤ 1 MiB. */
 export const CONTENT_UPLOAD_FRAME_MAX = 1_048_576;
-/** §11.5/§13.9: one staged source (and one authoritative source blob): the model's source bound. */
+/** One staged source (and one authoritative source blob): the model's source bound. */
 export const CONTENT_STAGE_MAX = MAX_SOURCE_BYTES;
-/** §13.9: staged bytes per project. */
+/** Staged bytes per project. */
 export const CONTENT_STAGED_BYTES_PER_PROJECT = MAX_STAGED_BYTES_PER_PROJECT;
-/** §7.6.2: open stages per project. */
+/** Open stages per project. */
 export const CONTENT_OPEN_STAGES = MAX_OPEN_STAGES;
-/** §11.5: the asset byte-read response cap (32 MiB). */
+/** The asset byte-read response cap (32 MiB). */
 export const CONTENT_ASSET_BYTES_MAX = 33_554_432;
-/** §15: proposal response ≤ 256 KiB. */
+/** Proposal response ≤ 256 KiB. */
 export const CONTENT_PROPOSAL_MAX_BYTES = 262_144;
-/** §11.5/§18: inspection job budget 30 s. */
+/** Inspection job budget 30 s. */
 export const CONTENT_INSPECT_TIMEOUT_MS = 30_000;
-/** §11.5: publish job budget 120 s. */
+/** Publish job budget 120 s. */
 export const CONTENT_PUBLISH_TIMEOUT_MS = 120_000;
-/** §13.9: ≤ 2 concurrent publishes per project. */
+/** ≤ 2 concurrent publishes per project. */
 export const CONTENT_PUBLISH_CONCURRENCY_PER_PROJECT = 2;
-/** §13.9: ≤ 4 concurrent publishes globally. */
+/** ≤ 4 concurrent publishes globally. */
 export const CONTENT_PUBLISH_CONCURRENCY_GLOBAL = 4;
 /** The bounded lifetime of a completed job record (late results are refused). */
 export const CONTENT_JOB_RESULT_TTL_MS = 900_000;
-/** The asset-list/query page ceiling (commands.md §4 `queryAssets`). */
+/** The asset-list/query page ceiling (the `queryAssets` command's). */
 export const CONTENT_ASSETS_LIMIT_MAX = ASSET_QUERY_PAGE_MAX;
 export const CONTENT_ASSETS_LIMIT_DEFAULT = ASSET_QUERY_PAGE_DEFAULT;
 
-/** A `stageId` is a project-model §5.1 ID (workspace.md §7.6.1). */
+/** A `stageId` is a project-model ID (`ID_RE`). */
 /** The response `Content-Length` bound for a JSON route. */
 export const CONTENT_STAGE_CREATE_RESPONSE_MAX = 4096;
 /** The most instance-set copies one request carries inline (the buffer route, reads included); larger sets upload through a stage. */
 export const INSTANCE_BUFFER_INLINE_MAX = 4_096;
-/** Asset-byte read cache rule (sessions.md §16.1). */
+/** Asset-byte read cache rule. */
 export const CONTENT_ASSET_BYTES_CACHE = 'private, max-age=31536000, immutable';
 
-// ---- upload framing (workspace.md §7.6.2; upload-bounds.json) -----------------
+// ---- upload framing (upload-bounds.json) -----------------
 
 export interface UploadFrameCheckInput {
   /** The frame body length in bytes. */
@@ -82,7 +78,7 @@ export type UploadFrameVerdict =
     };
 
 /**
- * The bounded upload-frame decision (workspace.md §13.9 + the re-derived
+ * The bounded upload-frame decision (the re-derived
  * `fixtures/m2/contracts/delivery/upload-bounds.json` cases; the order is the
  * checker's derived order: frame cap → offset → declared total → open stages →
  * project staged-bytes cap). Pure.
@@ -111,7 +107,7 @@ export function checkUploadFrame(input: UploadFrameCheckInput): UploadFrameVerdi
   return { accepted: true, complete: offset + frameBytes === declaredTotal };
 }
 
-/** The strict upload-frame headers (sessions.md §11.3 `content_frame_invalid`). */
+/** The strict upload-frame headers (a bad header is `content_frame_invalid`). */
 export function parseUploadFrameHeaders(
   headers: Readonly<Record<string, string | string[] | undefined>>,
   bodyLength: number,
@@ -156,7 +152,7 @@ function parseNonNegInt(v: string | undefined): number | null {
   return Number.isSafeInteger(n) ? n : null;
 }
 
-// ---- asset-byte reads (sessions.md §16.1) -------------------------------------
+// ---- asset-byte reads -------------------------------------
 
 export interface AssetByteParams {
   projectId: string;
@@ -164,7 +160,7 @@ export interface AssetByteParams {
   version: number;
 }
 
-/** A path-shaped identifier segment is rejected before any storage call (§16.1). */
+/** A path-shaped identifier segment is rejected before any storage call. */
 function pathShaped(raw: string): boolean {
   return raw.includes('/') || raw.includes('\\') || raw.includes('..') || raw.includes('%');
 }
@@ -230,7 +226,7 @@ export function parseStageCreateRequest(value: unknown): FieldErrorResult {
   return { ok: true, value: shape.value };
 }
 
-/** A `stageId` path segment (`project-model` §5.1 ID syntax). */
+/** A `stageId` path segment (`project-model` ID syntax). */
 export function parseStageId(raw: string): { ok: true; stageId: string } | { ok: false; error: SessionError } {
   if (pathShaped(raw)) {
     return {
@@ -269,7 +265,7 @@ export interface ContentAssetsQuery {
   offset: number;
 }
 
-/** `GET .../content/assets?limit&offset` (commands.md §4 `queryAssets` bounds). */
+/** `GET .../content/assets?limit&offset` (the `queryAssets` bounds). */
 export function parseContentAssetsQuery(
   params: ReadonlyMap<string, string>,
 ):
@@ -307,7 +303,7 @@ function fieldValue(path: string, found: unknown, expected: string): SessionErro
   });
 }
 
-// ---- content jobs (delivery.md §15 `GET .../content/jobs/:jobId`) ------------
+// ---- content jobs (`GET .../content/jobs/:jobId`) ------------
 
 export const CONTENT_JOB_KINDS = ['inspect', 'publish'] as const;
 export type ContentJobKind = (typeof CONTENT_JOB_KINDS)[number];
@@ -354,12 +350,12 @@ export function validateContentJobView(value: unknown): value is ContentJobView 
   return true;
 }
 
-// ---- full-state/change binary exclusion (sessions.md §11.6/§17.6) -------------
+// ---- full-state/change binary exclusion -------------
 
 /**
  * True when a value embeds raw binary (a typed array / ArrayBuffer) anywhere.
  * The WS full-state frame and `mutation.applied` must never carry GLB or
- * compiled-behavior bytes (sessions.md §11.6; delivery.md §10.1 N18).
+ * compiled-behavior bytes.
  */
 export function containsBinaryValue(value: unknown, depth = 0): boolean {
   if (depth > 64) return true;

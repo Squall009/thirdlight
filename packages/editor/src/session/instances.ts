@@ -1,5 +1,5 @@
 /**
- * Phase 12 (c): the scatter tool's pure part — placements for an instance set
+ * The scatter tool's pure part — placements for an instance set
  * (one model drawn many times). Copies are spread over a rectangle on the
  * ground plane (XZ) around the entity origin, with an optional random turn
  * about Y and a uniform random scale. The same seed gives the same layout.

@@ -13,14 +13,14 @@ import { SIGNAL_DEBUG_COMMAND_NAME } from '@thirdlight/project-model';
 import { MAX_SIGNAL_NAME } from './blocks';
 import type { DebugCommandArgs, DebugCommandArgSpec, DebugCommandOptions, DebugCommandSpec, DebugCommandState } from './types';
 
-/** Phase 23.8: engine limits of debug commands (per game; queued calls; the applied log kept). */
+/** Engine limits of debug commands (per game; queued calls; the applied log kept). */
 export const MAX_DEBUG_COMMANDS = 32;
 export const MAX_DEBUG_QUEUE = 16;
 export const MAX_DEBUG_APPLIED = 16;
 export const MAX_DEBUG_DESCRIPTION = 120;
 export const NO_DEBUG_CALLS: readonly DebugCommandArgs[] = Object.freeze([]);
 
-/** Phase 23.8: a script's bad `ctx.debug.command` call (the behavior host turns it into a module error). */
+/** A script's bad `ctx.debug.command` call (the behavior host turns it into a module error). */
 export class DebugCallError extends Error {
   readonly reason: 'behavior_debug_invalid' | 'behavior_debug_limit';
   constructor(reason: DebugCallError['reason'], message: string) {
@@ -30,7 +30,7 @@ export class DebugCallError extends Error {
   }
 }
 
-/** Phase 23.8: a declaration's normalized spec (throws `DebugCallError` on a bad shape). */
+/** A declaration's normalized spec (throws `DebugCallError` on a bad shape). */
 export function debugSpecOf(name: string, options: DebugCommandOptions | undefined): DebugCommandSpec {
   if (options !== undefined && (typeof options !== 'object' || options === null || Array.isArray(options))) throw new DebugCallError('behavior_debug_invalid', `debug command "${name}": options must be { description?, args? }`);
   const description = options?.description ?? '';
@@ -49,7 +49,7 @@ export function debugSpecOf(name: string, options: DebugCommandOptions | undefin
   return Object.freeze({ name, description, args: Object.freeze(args) });
 }
 
-/** Phase 23.8: why a call does not match its command's declaration (null: it does). */
+/** Why a call does not match its command's declaration (null: it does). */
 export function debugCallProblem(spec: DebugCommandSpec, args: DebugCommandArgs): string | null {
   for (const k of Object.keys(args)) if (!spec.args.some((a) => a.name === k)) return `"${spec.name}" has no argument "${k}"`;
   for (const a of spec.args) {

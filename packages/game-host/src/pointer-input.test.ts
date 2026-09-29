@@ -1,5 +1,5 @@
 /**
- * Phase 23.3: the worker's per-tick input with pointer samples — the
+ * The worker's per-tick input with pointer samples — the
  * movement, wheel and edges belong to the first step of a tick, two samples
  * merged before a step add their amounts and keep both edges — and the
  * cursor mode the host resolves (input map, a script's request), plus the

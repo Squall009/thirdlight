@@ -1,5 +1,5 @@
 /**
- * Runtime snapshot validation tests (runtime.md §2).
+ * Runtime snapshot validation tests.
  */
 import { describe, expect, it } from 'vitest';
 import {

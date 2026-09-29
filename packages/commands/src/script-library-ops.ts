@@ -1,5 +1,5 @@
 /**
- * Phase 23.7: shared script libraries (`content.scriptLibraries`, v4).
+ * Shared script libraries (`content.scriptLibraries`, v4).
  *
  * `setScriptLibrary {libraryId, name?, files?}` creates a library or patches
  * one (files listed are added or replaced, `text: null` removes one, files
@@ -93,7 +93,7 @@ function commit(
 
 /**
  * The dependents' records recompiled against `nextLibraries` (from the
- * prepared facts only). Phase 25.9: the scripts that import any of the
+ * prepared facts only). The scripts that import any of the
  * changed libraries, each once.
  */
 function republishDependents(
@@ -169,7 +169,7 @@ export function applyDeleteScriptLibrary(input: OpInput, args: { libraryId: stri
 }
 
 /**
- * Phase 25.9: `commitScriptLibraryStage {stageId}` — the libraries a host
+ * `commitScriptLibraryStage {stageId}` — the libraries a host
  * staged over several patches (each under the request cap), committed as one
  * change: every staged library replaced at once, the published scripts that
  * import any of them republished once from the facts compiled against the

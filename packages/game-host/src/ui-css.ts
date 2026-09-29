@@ -1,5 +1,5 @@
 /**
- * Phase 23.9a: project UI styles, layout and tweens as CSS — pure functions
+ * Project UI styles, layout and tweens as CSS — pure functions
  * from validated document data to CSS declarations and Web Animations
  * keyframes. Every value comes from the closed style vocabulary (numbers,
  * validated colours, generated font-family names and blob: URLs the host
@@ -144,7 +144,7 @@ export function placementProps(w: UiWidget, parentFlows: boolean): CssProp[] {
 }
 
 /**
- * Phase 25.22: the axes of a widget's size that read the view model and
+ * The axes of a widget's size that read the view model and
  * apply (a stretched axis of a panel child ignores its size), as [width, height].
  */
 export function boundSizeAxes(w: UiWidget, parentFlows: boolean): [boolean, boolean] {

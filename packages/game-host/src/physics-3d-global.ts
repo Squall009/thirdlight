@@ -1,5 +1,5 @@
 /**
- * Phase 23.0: the hand-over of the 3D physics backend between separately
+ * The hand-over of the 3D physics backend between separately
  * built bundles. The 3D backend (rapier3d with its inlined WASM, a few MB) is
  * its own script file (`physics-3d.js`) loaded only by a project whose
  * `physics_dimension` is 3 — the play/export bundles are IIFE scripts (the

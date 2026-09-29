@@ -10,7 +10,7 @@ declare module 'thirdlight:export-artifacts' {
 }
 
 /**
- * Phase 24.3: the simulation module specs the manifest names (export-bundle.ts
+ * The simulation module specs the manifest names (export-bundle.ts
  * `modulesModuleSource`), in dependency order — the composition's spec table.
  */
 declare module 'thirdlight:export-modules' {

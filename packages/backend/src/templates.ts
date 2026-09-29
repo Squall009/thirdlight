@@ -25,7 +25,7 @@ export interface TemplateSource {
   blobs: ReadonlyMap<string, Uint8Array>;
   requiredModules: string[];
 }
-/** Phase 24.7: the engine ships templates only (no sample games). */
+/** The engine ships templates only (no sample games). */
 const ROOTS = ['templates'];
 
 function templateDir(engineRoot: string, id: string): string | null {
@@ -111,7 +111,7 @@ export function resolveTemplateModules(source: TemplateSource): ReturnType<typeo
     scene: source.scene as { entities?: Record<string, unknown>[] },
     behaviors,
     declared: source.requiredModules,
-    // Phase 23.0: a 3D template needs the 3D backend.
+    // A 3D template needs the 3D backend.
     physicsDimension: physicsDimensionOf(content.settings),
   });
 }

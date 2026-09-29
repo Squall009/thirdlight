@@ -1,5 +1,5 @@
 /**
- * Phase 22.0: one surface for what the page asks of the simulation beyond the
+ * One surface for what the page asks of the simulation beyond the
  * synchronous `Runtime` reads — script property values, the visual-script
  * debugger, fresh diagnostics, the MCP input exercise and physics queries —
  * the same in both threading modes. In single-thread mode the answers come
@@ -32,26 +32,26 @@ export interface SimAccess {
   debugObservation(): Promise<unknown>;
   diagnostics(): Promise<ReturnType<Runtime['getDiagnostics']>>;
   /** Start an exclusive input exercise (per-step frames from the next step); false while one runs. */
-  /** Phase 24.8: frames carry named actions and (phase 23.3) the pointer (version 2: no fixed move/jump channels). */
-  /** Phase 25.17: `hold` holds the game right after the last step (until the next exercise); an exercise on a game held so starts at exactly the next step. */
+  /** Frames carry named actions and the pointer (version 2: no fixed move/jump channels). */
+  /** `hold` holds the game right after the last step (until the next exercise); an exercise on a game held so starts at exactly the next step. */
   beginInputTest(frames: readonly RelayTestFrame[], onComplete: (from: number, to: number) => void, options?: { readonly restart?: boolean; readonly hold?: boolean }): boolean;
-  /** Phase 25.16: the run digest now and after the last exercise's last step (null: nothing to observe). */
+  /** The run digest now and after the last exercise's last step (null: nothing to observe). */
   runDigests(): Promise<RunDigests | null>;
   readonly inputTestActive: boolean;
   /**
-   * Phase 25.15: the page's UI for the input exercise — its hit targets (a
+   * The page's UI for the input exercise — its hit targets (a
    * relayed pointer is tested against them) and where the relay's UI edges
    * and clicks go (the page applies them at its next frame).
    */
   setRelayPage(page: RelayPage | null): void;
-  /** Phase 25.15: a page frame in which the game is paused while an exercise runs (it takes one step's place: UI edges and clicks still apply). */
+  /** A page frame in which the game is paused while an exercise runs (it takes one step's place: UI edges and clicks still apply). */
   relayIdle(): void;
   /** Rays against the scene's colliders (the character excluded), as the physics port answers them. */
   raycast(rays: readonly SimRay[]): Promise<({ distance: number } | null)[]>;
   overlap(shape: unknown, at: { x: number; y: number }): Promise<string[]>;
 }
 
-/** Phase 25.15: the page side of the input exercise (its UI). */
+/** The page side of the input exercise (its UI). */
 export interface RelayPage {
   targets(): readonly UiHitTarget[];
   effect(e: RelayEffect): void;
@@ -85,7 +85,7 @@ export function createLocalSimAccess(opts: { runtime: Runtime; relay?: RelayActi
       if (opts.relay.testActive) return false;
       const restart = options?.restart === true;
       const hold = options?.hold === true;
-      // Phase 25.17: a game held by the last exercise starts this one at exactly the next step.
+      // A game held by the last exercise starts this one at exactly the next step.
       const held = probe.held;
       probe.release();
       const d = rt.getDiagnostics();

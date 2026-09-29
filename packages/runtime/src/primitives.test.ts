@@ -1,5 +1,5 @@
 /**
- * Phase 24.4: the generic primitives on their own (a fake host: transforms,
+ * The generic primitives on their own (a fake host: transforms,
  * hierarchy, counters, signals, a scripted ray port) — health on any object,
  * collectibles, waypoint and edge patrols, hitbox contacts and their normals,
  * the script controls, a new run, and the `components` save section.

@@ -1,10 +1,9 @@
 /**
- * Packet 31 — module-boundary evidence: the runtime core imports no Rapier
+ * Module-boundary evidence: the runtime core imports no Rapier
  * implementation, and the approved pin is reachable from exactly one package.
  *
- * `tools/check-boundaries.mjs` is the enforced check (dependencies.md §4.1/
- * §4.3); these assertions are the readable, greppable version of the same
- * claim for the packet-31 evidence manifest.
+ * `tools/check-boundaries.mjs` is the enforced check; these assertions are
+ * the readable, greppable version of the same claim.
  */
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -79,7 +78,7 @@ describe('runtime core imports no physics implementation', () => {
       for (const specifier of imports) {
         const allowed =
           specifier.startsWith('./') || specifier.startsWith('../') || specifier === '@dimforge/rapier2d-compat' ||
-          // Phase 23.0: the 3D backend (the `./3d` subpath; decision 0005).
+          // The 3D backend (the `./3d` subpath).
           specifier === '@dimforge/rapier3d-compat' ||
           specifier === '@thirdlight/runtime' ||
           // The model's collider limits, defined once in project-model (constants only).

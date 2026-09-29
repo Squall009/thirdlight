@@ -1,6 +1,5 @@
 /**
- * The pure raw-snapshot → `ActionFrame` mapping (input.md §4/§9; runtime.md
- * §12.5.2/§12.5.3).
+ * The pure raw-snapshot → `ActionFrame` mapping (input.md; runtime.md).
  *
  * Pure and deterministic: identical `(snapshot, options)` inputs always
  * produce an identical frame. No DOM, no clock, no randomness, no module
@@ -9,21 +8,20 @@
  * `next` state so both the browser owner and the replayable step source can
  * thread it identically.
  *
- * Semantics, in order (input.md §4.3, no summation anywhere):
+ * Semantics, in order (no summation anywhere):
  *  1. keyboard digital: exactly one of left/right held ⇒ `-1`/`+1`; both or
  *     neither ⇒ no keyboard contribution;
  *  2. else D-pad: exactly one of buttons 14/15 ⇒ `-1`/`+1`; both ⇒ none;
  *  3. else the rescaled stick value of the standard-mapped active pad;
  *  4. else `0`.
- * A pad whose `mapping` is not `'standard'` contributes nothing at all
- * (input.md §4.1). Jump is the logical OR of the mapped controls across the
- * active sources; its phase chain is computed once, on that OR.
+ * A pad whose `mapping` is not `'standard'` contributes nothing at all. Jump
+ * is the logical OR of the mapped controls across the active sources; its phase chain is computed once, on that OR.
  */
 import type { ActionFrame, ActionValue, JumpPhase } from '@thirdlight/runtime';
 import { GAMEPAD_DEAD_ZONE, type RawInputSnapshot } from './types';
 
 /**
- * Phase 24.8: the character controls a raw snapshot maps to — the move axis
+ * The character controls a raw snapshot maps to — the move axis
  * and the jump phase of the `move` and `jump` actions, with the input.md
  * rules (opposing keys cancel, the stick dead zone, the press latch, a fresh
  * activation waits for a release). The action frame (version 2) carries them
@@ -39,7 +37,7 @@ export interface CharacterChannels {
 }
 
 /**
- * Phase 24.8: the action frame of mapped character controls plus the
+ * The action frame of mapped character controls plus the
  * evaluated actions: the controls are the `move` and `jump` actions (their
  * device rules win over the evaluator's value for those two names).
  */
@@ -61,14 +59,14 @@ export function toActionFrame(channels: CharacterChannels, extra: Omit<ActionFra
 /** The nested gamepad shape, addressed from the public snapshot type. */
 type GamepadSnapshot = NonNullable<RawInputSnapshot['gamepad']>;
 
-/** The per-source sampling state threaded across samples (input.md §3.2/§5.3). */
+/** The per-source sampling state threaded across samples. */
 export interface StepState {
   /** Jump control down as of the previous produced frame (`prevDown`). */
   down: boolean;
   /**
    * `true` after a suspension / hot disconnect until the jump control has
    * been observed up once: a physically down control then yields `held`,
-   * never `pressed` (fresh activation, input.md §5.3/§5.4).
+   * never `pressed` (fresh activation).
    */
   awaitingRelease: boolean;
 }
@@ -85,7 +83,7 @@ export interface MapRawOptions {
 
 /**
  * The standard-mapped gamepad contribution, or `null` (absent or
- * non-standard mapping — ignored, input.md §4.1).
+ * non-standard mapping — ignored).
  */
 function standardGamepad(raw: RawInputSnapshot): GamepadSnapshot | null {
   const gp = raw.gamepad;
@@ -93,7 +91,7 @@ function standardGamepad(raw: RawInputSnapshot): GamepadSnapshot | null {
   return gp;
 }
 
-/** Radial dead zone with linear rescaling to `[-1, 1]` (input.md §4.2). */
+/** Radial dead zone with linear rescaling to `[-1, 1]`. */
 export function rescaleStick(axis0: number): number {
   if (!Number.isFinite(axis0)) return 0;
   const a = Math.abs(axis0);
@@ -104,7 +102,7 @@ export function rescaleStick(axis0: number): number {
 
 /**
  * `round(v·1e4)/1e4` after clamping to `[-1, 1]`, with negative zero
- * normalized to `0` (input.md §3.3). The rounding direction matches the
+ * normalized to `0`. The rounding direction matches the
  * runtime's frame validator (`@thirdlight/runtime` `quantizeMove`, which uses
  * `Math.round`) so every frame this package emits passes `validateActionFrame`
  * unchanged.
@@ -115,7 +113,7 @@ export function quantizeMove(v: number): number {
   return q === 0 ? 0 : q;
 }
 
-/** Exactly one of two opposing controls held (input.md §4.3 cancel rule). */
+/** Exactly one of two opposing controls held (the cancel rule). */
 function opposing(left: boolean, right: boolean): -1 | 0 | 1 {
   if (left && !right) return -1;
   if (right && !left) return 1;
@@ -148,7 +146,7 @@ export function mapRawStep(
   let jump: JumpPhase;
   let next: StepState;
   if (awaitingRelease) {
-    // Fresh activation (input.md §5.3/§5.4): a down control is `held`, never
+    // Fresh activation: a down control is `held`, never
     // `pressed`; normal sampling resumes only after the control is up once.
     jump = downNow ? 'held' : 'none';
     next = { down: downNow, awaitingRelease: downNow };
@@ -165,9 +163,9 @@ export function mapRawStep(
 }
 
 /**
- * The pure mapping entry point (dependencies.md §3 `input` row): the
- * character controls of one raw snapshot (phase 24.8: `toActionFrame` makes
- * them the frame's `move` and `jump` actions). `options` carries the executed step
+ * The pure mapping entry point (dependencies.md `input` row): the
+ * character controls of one raw snapshot (`toActionFrame` makes them the
+ * frame's `move` and `jump` actions). `options` carries the executed step
  * index and the caller's previous sampling state; the caller clears the
  * snapshot's press latch and stores the returned state after the call.
  */

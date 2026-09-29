@@ -1,8 +1,7 @@
 /**
- * Strict `args` schema validation for the prefab M2 mutation ops
- * (commands.md §3.1.2/§3.1.3, §8.6–§8.7) — packet 22.
+ * Strict `args` schema validation for the prefab mutation ops.
  *
- * Same conventions as the M1 / packet-21 args passes: unknown fields ⇒
+ * Same conventions as the entity and content args passes: unknown fields ⇒
  * `field_unexpected`; missing ⇒ `field_missing`; wrong JSON type ⇒
  * `field_type`; right type / wrong value ⇒ `field_value`. Structural checks
  * live here; the model remains the authority for document value rules, so
@@ -11,7 +10,7 @@
  *
  * Op-level precondition order (existence, reference resolution, forbidden
  * capture contents, overrides) is owned by the op implementations
- * (`prefab-ops.ts`): commands.md §6.1 step 4 checks the revision BEFORE any
+ * (`prefab-ops.ts`): pipeline step 4 checks the revision BEFORE any
  * argument validation.
  */
 
@@ -69,7 +68,7 @@ function validateTransform(
       };
     }
     // Element values (finiteness, ranges, quaternion norm) are checked by the
-    // project-model validation of the resulting scene (commands.md §3.1).
+    // project-model validation of the resulting scene.
     if (f === 'position') out.position = v.slice() as readonly number[];
     else if (f === 'rotation') out.rotation = v.slice() as readonly number[];
     else out.scale = v.slice() as readonly number[];
@@ -77,7 +76,7 @@ function validateTransform(
   return out;
 }
 
-/** §3.1.2/§8.6.1 `createPrefab` args. */
+/** `createPrefab` args. */
 export function validateCreatePrefabArgs(
   args: Record<string, unknown>,
 ): PrefabArgsOk<CreatePrefabArgs> | { ok: false; error: CommandError } {
@@ -118,7 +117,7 @@ export function validateCreatePrefabArgs(
   };
 }
 
-/** §3.1.3/§8.7.1 `instantiatePrefab` args (overrides ≤ 64, pairs unique). */
+/** `instantiatePrefab` args (overrides ≤ 64, pairs unique). */
 export function validateInstantiatePrefabArgs(
   args: Record<string, unknown>,
 ): PrefabArgsOk<InstantiatePrefabArgs> | { ok: false; error: CommandError } {

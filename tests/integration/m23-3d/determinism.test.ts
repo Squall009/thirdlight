@@ -1,5 +1,5 @@
 /**
- * Phase 23.0: a neutral 3D scene (physics_dimension 3) on the Rapier 3D
+ * A neutral 3D scene (physics_dimension 3) on the Rapier 3D
  * backend through the production game host — a camera, a player capsule
  * dropped from 3 m, a floor box with depth, a box tilted about X on one side
  * and one turned about Y — run twice in the page and once in the simulation

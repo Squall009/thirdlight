@@ -1,5 +1,5 @@
 /**
- * Packet 47 — committed media fixtures through the real `@thirdlight/asset-pipeline`.
+ * Committed media fixtures through the real `@thirdlight/asset-pipeline`.
  *
  * The committed `.wav`/`.glb` bytes and the committed case files are the
  * evidence; this suite drives the real `inspectAudio` / role-aware `inspectGlb`
@@ -43,7 +43,7 @@ const bytesOf = (rel: string): Buffer => readFileSync(join(MEDIA, rel));
 const sha256 = (buf: Uint8Array): string => createHash('sha256').update(buf).digest('hex');
 const json = <T>(p: string): T => JSON.parse(readFileSync(p, 'utf8')) as T;
 
-/** commands.md §6.6 rule 2 canonical JSON (independent of the package's copy). */
+/** Canonical JSON (independent of the package's copy). */
 function canonicalJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
   if (value !== null && typeof value === 'object') {
@@ -104,7 +104,7 @@ interface ProfileCases {
 const wavCases = json<WavCases>(join(MEDIA, 'wav', 'wav-cases.json'));
 const profileCases = json<ProfileCases>(join(MEDIA, 'glb', 'profile-cases.json'));
 
-/** The §41.4.2 arithmetic, re-derived here (never read from the proposal). */
+/** The PCM-WAV metrics arithmetic, re-derived here (never read from the proposal). */
 function deriveMetrics(bytes: Buffer): PcmWavMetrics {
   const dataBytes = bytes.readUInt32LE(40);
   const frames = dataBytes / 2;
@@ -130,8 +130,8 @@ describe('packet 47 — committed media fixture checker', () => {
     expect(ok.stdout).toContain('all checks passed');
     const control = spawnSync(process.execPath, [checker, '--corrupt-control'], { encoding: 'utf8' });
     expect(control.status, control.stdout + control.stderr).toBe(0);
-    // Packet 53 added the `roles-case-expectation` corruption (the new
-    // real-roles fixture group) to the media control: 9 → 10.
+    // Ten corruptions, one of them `roles-case-expectation` (the real-roles
+    // fixture group).
     expect(control.stdout).toContain('10/10 detected');
     const gen = spawnSync(process.execPath, [join(MEDIA, 'tools', 'generate-fixtures.mjs'), '--check'], { encoding: 'utf8' });
     expect(gen.status, gen.stdout + gen.stderr).toBe(0);
@@ -283,7 +283,7 @@ describe('packet 47 — cancellation through the accepted job port', () => {
 describe('packet 47 — role-aware GLB proposal (§41.3.2/§41.3.3)', () => {
   it('reproduces every committed profile case through the real pipeline', () => {
     expect(profileCases.cases.length).toBeGreaterThanOrEqual(20);
-    // §41.3.2 stages 1–2 (binding container/fields) are model-owned, so the
+    // The animation binding stages 1–2 (container/fields) are model-owned, so the
     // pipeline reports stages 3–6 + A1–A6 only; a structurally malformed
     // request is a caller programming error here (and a `field_*` error at the
     // model boundary).
@@ -397,7 +397,6 @@ describe('packet 47 — recipe and metadata digests over supplied records', () =
     for (const rel of [
       'catalog/audio-asset-record-v3.json',
       'envelope/valid/demo-0003-media-v3.json',
-      // Phase 24.7: envelope/invalid/cue-kind-mismatch.json (a game-cue rule) was deleted with the game layer.
     ]) {
       const doc = json<{ content: { assets: { kind: string; versions: { sourceDigest: string; sourceByteLength: number; importRecipe: unknown; metrics: unknown }[] }[] } }>(
         join(CONTRACTS, rel),
@@ -453,7 +452,7 @@ describe('packet 47 — project-model loads the promoted pcm-wav record (CC-44-2
       fn(copy.content.assets[0]!.versions[0]!);
       return validateContentV3(copy.content);
     };
-    // §41.4.3: sourceByteLength === 44 + pcmBytes, every cap, exact keys.
+    // sourceByteLength === 44 + pcmBytes, every cap, exact keys.
     const arithmetic = mutate((v) => {
       v['sourceByteLength'] = 237;
     });

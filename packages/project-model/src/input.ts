@@ -1,5 +1,5 @@
 /**
- * Phase 9.8: input actions (`content.input`).
+ * Input actions (`content.input`).
  *
  * The game reads named actions instead of keys: `move` (a 1D axis), `jump`,
  * `attack`, `interact`, `pause`, `submit`, `cancel` (buttons), `navigate`
@@ -23,7 +23,7 @@ export type InputBinding =
   | { kind: 'keys2d'; up: string; down: string; left: string; right: string }
   | { kind: 'gamepadButtons1d'; negative: number; positive: number }
   | { kind: 'gamepadStick'; x: number; y: number }
-  // Phase 23.3: the pointer (mouse, pen or touch). A button, the position in
+  // The pointer (mouse, pen or touch). A button, the position in
   // the view (x, y 0–1 from the top left), the movement this step (a 2D axis,
   // up positive like a stick) or one axis of it (x, y up positive, or the wheel).
   | { kind: 'pointerButton'; button: PointerButtonName; hold?: number }
@@ -31,20 +31,20 @@ export type InputBinding =
   | { kind: 'pointerDelta' }
   | { kind: 'pointerAxis'; axis: PointerAxisName };
 
-/** Phase 23.3: the pointer buttons an action binds. */
+/** The pointer buttons an action binds. */
 export type PointerButtonName = 'left' | 'right' | 'middle';
 export const POINTER_BUTTONS = ['left', 'right', 'middle'] as const;
-/** Phase 23.3: one axis of the pointer's movement (x, y) or the wheel. */
+/** One axis of the pointer's movement (x, y) or the wheel. */
 export type PointerAxisName = 'x' | 'y' | 'wheel';
 export const POINTER_AXES = ['x', 'y', 'wheel'] as const;
-/** Phase 23.3: the cursor while a map is active — free (visible, moves) or locked (hidden, held in the view; the movement still counts). */
+/** The cursor while a map is active — free (visible, moves) or locked (hidden, held in the view; the movement still counts). */
 export type CursorMode = 'free' | 'locked';
 export const CURSOR_MODES = ['free', 'locked'] as const;
 
 export interface InputAction {
   name: string;
   type: InputActionType;
-  /** The map it belongs to: gameplay, ui, or (phase 23.10) one of the project's `maps`. */
+  /** The map it belongs to: gameplay, ui, or one of the project's `maps`. */
   map: InputMapName;
   bindings: InputBinding[];
   /** Axis values within this are 0 (then rescaled); default 0.2 for stick axes. */
@@ -53,37 +53,37 @@ export interface InputAction {
   scale?: number;
 }
 
-/** Phase 23.10: an input map name — the engine's gameplay and ui, or one the project declares in `input.maps`. */
+/** An input map name — the engine's gameplay and ui, or one the project declares in `input.maps`. */
 export type InputMapName = 'gameplay' | 'ui' | (string & {});
 
-/** Phase 23.10: at most this many project maps besides gameplay and ui (an engine limit). */
+/** At most this many project maps besides gameplay and ui (an engine limit). */
 export const MAX_INPUT_MAPS = 8;
 
 export interface InputConfig {
   actions: InputAction[];
   /**
-   * Phase 23.10: the project's own input maps besides gameplay and ui (a
+   * The project's own input maps besides gameplay and ui (a
    * game mode activates maps; absent: none). A map name is a letter or _,
    * then up to 31 letters, digits or _.
    */
   maps?: string[];
   /**
-   * Phase 23.14: the project's own glyph images — a glyph key (an icon id of
+   * The project's own glyph images — a glyph key (an icon id of
    * the engine's generic set such as `pad-south`, `mouse-left` or `key`,
    * optionally for one gamepad family `xbox:pad-south` or one key
    * `key:Space`) → a texture asset shown instead of the generic icon.
    */
   glyphs?: Record<string, string>;
   /**
-   * Phase 23.3: the cursor while each map is active (absent: free —
+   * The cursor while each map is active (absent: free —
    * a pointer-driven game needs a visible cursor; mouse-look opts in to locked).
-   * Phase 25.6: keyed by any map — gameplay, ui or one of `maps`.
+   * Keyed by any map — gameplay, ui or one of `maps`.
    */
   cursor?: { gameplay?: CursorMode; ui?: CursorMode; [map: string]: CursorMode | undefined };
 }
 
 /**
- * Phase 23.10: every input map a project has — the engine's gameplay and ui,
+ * Every input map a project has — the engine's gameplay and ui,
  * then its own `input.maps` (an unvalidated value reads as none of its own).
  */
 export function projectInputMaps(input: unknown): string[] {
@@ -91,23 +91,23 @@ export function projectInputMaps(input: unknown): string[] {
   return [...INPUT_MAPS, ...own.filter((m) => !(INPUT_MAPS as readonly string[]).includes(m))];
 }
 
-/** Phase 23.14: 64 (was 32) — a game with many abilities or hotbar slots names more actions; the frame bound follows. */
+/** 64: a game with many abilities or hotbar slots names more actions; the frame bound follows. */
 export const MAX_INPUT_ACTIONS = 64;
 export const MAX_INPUT_BINDINGS = 8;
 
 /**
- * Phase 23.14: a binding's hold modifier — the binding counts only after it
+ * A binding's hold modifier — the binding counts only after it
  * has been held this long (seconds): a hold instead of a tap. 0.05 s is
  * about three frames at 60 Hz (shorter is indistinguishable from a tap);
  * 10 s bounds a deliberate long hold.
  */
 export const INPUT_HOLD_MIN = 0.05;
 export const INPUT_HOLD_MAX = 10;
-/** Phase 23.14: the binding kinds that take the hold modifier (the single on/off ones). */
+/** The binding kinds that take the hold modifier (the single on/off ones). */
 export const HOLD_BINDING_KINDS = ['key', 'gamepadButton', 'pointerButton'] as const;
-/** Phase 23.14: the gamepad families glyphs distinguish (detected from the pad's id). */
+/** The gamepad families glyphs distinguish (detected from the pad's id). */
 export const GAMEPAD_FAMILIES = ['xbox', 'playstation', 'switch', 'generic'] as const;
-/** Phase 23.14: a glyph key — `[family:]icon[:code]` (see `InputConfig.glyphs`). */
+/** A glyph key — `[family:]icon[:code]` (see `InputConfig.glyphs`). */
 export const GLYPH_KEY_RE = /^(?:(?:xbox|playstation|switch|generic):)?[a-z][a-z0-9-]{0,31}(?::[A-Za-z0-9]{1,32})?$/;
 export const MAX_INPUT_GLYPHS = 128;
 
@@ -129,7 +129,7 @@ export const DEFAULT_INPUT: Readonly<InputConfig> = Object.freeze({
 } as InputConfig);
 
 /**
- * Phase 23.2: the default actions of a 3D project (physics_dimension 3)
+ * The default actions of a 3D project (physics_dimension 3)
  * without its own input — the 2D defaults with `move` as a 2D axis (W/A/S/D,
  * the arrow keys and the left stick: forward, back and sideways) and a `run`
  * button (Shift, the left-stick press — the usual sprint controls), which
@@ -143,7 +143,7 @@ export const DEFAULT_INPUT_3D: Readonly<InputConfig> = Object.freeze({
   ],
 } as InputConfig);
 
-/** Phase 23.2: the default actions of a project of this physics dimension (absent: the 2D plane). */
+/** The default actions of a project of this physics dimension (absent: the 2D plane). */
 export function defaultInputFor(dimension: 2 | 3 | undefined): Readonly<InputConfig> {
   return dimension === 3 ? DEFAULT_INPUT_3D : DEFAULT_INPUT;
 }
@@ -181,7 +181,7 @@ const FITS: Record<InputActionType, readonly InputBinding['kind'][]> = {
 export function validateInput(value: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(value)) return err(errors, 'field_type', path, 'input is { actions }', value);
   for (const k of Object.keys(value)) if (k !== 'actions' && k !== 'cursor' && k !== 'glyphs' && k !== 'maps') err(errors, 'field_unexpected', `${path}/${k}`, `unknown field "${k}"`, k, 'actions, maps, cursor, glyphs');
-  // Phase 23.10: the project's own maps (unique names, not gameplay/ui).
+  // The project's own maps (unique names, not gameplay/ui).
   const maps = value['maps'];
   const mapNames = new Set<string>(INPUT_MAPS);
   if (maps !== undefined) {
@@ -207,7 +207,7 @@ export function validateInput(value: unknown, path: string, errors: ModelErrorV2
     if (!isPlainObject(cursor)) err(errors, 'field_type', `${path}/cursor`, 'cursor maps input maps (gameplay, ui or the project\'s own) to free or locked', cursor);
     else
       for (const [k, v] of Object.entries(cursor)) {
-        // Phase 25.6: any map the project has (the engine's and its own).
+        // Any map the project has (the engine's and its own).
         if (!mapNames.has(k)) err(errors, 'field_unexpected', `${path}/cursor/${k}`, `"${k}" is not an input map of this project`, k, [...mapNames].join(', '));
         else if (!(CURSOR_MODES as readonly unknown[]).includes(v)) err(errors, 'field_value', `${path}/cursor/${k}`, 'the cursor is free or locked', v);
       }
@@ -268,9 +268,9 @@ export function canonicalInput(c: InputConfig): InputConfig {
       ...(a.scale !== undefined ? { scale: a.scale } : {}),
     })),
     ...(c.maps !== undefined && c.maps.length > 0 ? { maps: [...c.maps] } : {}),
-    // Phase 25.6: gameplay, ui, then the project's own maps in their order.
+    // Gameplay, ui, then the project's own maps in their order.
     ...(c.cursor !== undefined ? { cursor: Object.fromEntries([...INPUT_MAPS, ...(c.maps ?? [])].filter((m) => c.cursor![m] !== undefined).map((m) => [m, c.cursor![m]!])) } : {}),
-    // Phase 23.14: glyph images by key (sorted, so the canonical bytes do not depend on insertion order).
+    // Glyph images by key (sorted, so the canonical bytes do not depend on insertion order).
     ...(c.glyphs !== undefined ? { glyphs: Object.fromEntries(Object.keys(c.glyphs).sort().map((k) => [k, c.glyphs![k]!])) } : {}),
   };
 }

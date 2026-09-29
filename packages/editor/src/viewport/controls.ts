@@ -1,5 +1,5 @@
 /**
- * Phase 21.5: releasing three's OrbitControls for good.
+ * Releasing three's OrbitControls for good.
  *
  * OrbitControls (three 0.186) adds its Control-key listeners to
  * `domElement.getRootNode()` — the document while the canvas is in the page —

@@ -1,6 +1,5 @@
 /**
- * Prefab panel (React; packet 28; project-model §20.1/§20.5,
- * commands.md §8.6–§8.7).
+ * Prefab panel (React).
  *
  * The authoring UI for prefab **copies**:
  *
@@ -10,9 +9,9 @@
  *    (`instantiatePrefab`), optionally with one or more **declared-property**
  *    initial overrides.
  *
- * The terminology is the contract's (§20.1.5): copies, never linked prefabs.
+ * The terminology is the contract's: copies, never linked prefabs.
  * There is deliberately no Link, Apply, Revert, variant or propagation control
- * anywhere in this panel — definitions are immutable in M2 and a definition
+ * anywhere in this panel — definitions are immutable and a definition
  * change never rewrites a copy.
  *
  * Display + intent only: every action is an ordinary typed command issued by
@@ -41,9 +40,9 @@ export interface PrefabPanelProps {
   onCapture: () => void;
   onSelect: (prefabId: string) => void;
   onPlaceCopy: (prefabId: string) => void;
-  /** Phase 25.7c: delete a definition (`deletePrefab`; refused while a copy or anything else uses it). */
+  /** Delete a definition (`deletePrefab`; refused while a copy or anything else uses it). */
   onDelete?: (prefabId: string) => void;
-  /** Phase 25.7c: why the last delete was refused, or null. */
+  /** Why the last delete was refused, or null. */
   deleteError?: string | null;
   onOverrideCommit: (localId: string, key: string, raw: string) => void;
 }

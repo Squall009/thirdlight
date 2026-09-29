@@ -3,8 +3,8 @@
  * package's public surface — not exported from index.ts, imported only by
  * `*.test.ts` files).
  *
- * `packages/asset-pipeline` is a pure leaf: no Node built-ins, no I/O
- * (dependencies.md §4.1/§4.3), enforced for test files too (the only exempted
+ * `packages/asset-pipeline` is a pure leaf: no Node built-ins, no I/O,
+ * enforced for test files too (the only exempted
  * test import is the approved runner `vitest`). The committed GLB fixtures are
  * therefore read as base64 text through the Vite `import.meta.glob(..., {
  * query: '?raw' })` transform and decoded here; `expected.json` records the

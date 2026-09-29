@@ -1,11 +1,10 @@
 /**
- * Phase 25.4: internal edges in 2D, observed in a real Play. On the Starter
+ * Internal edges in 2D, observed in a real Play. On the Starter
  * template's ground a neutral wall of five stacked 1 m boxes is added (its
  * right face at x = 1.5). The player walks left into it, jumps and keeps
  * pressing into the wall: it rises past the seams between the boxes and falls
- * back down to the ground, never held at a seam (before the fix it stayed
- * "grounded" on the first seam it reached for as long as it pressed; with the
- * seams fixed it still crept down a wall on its left, D46).
+ * back down to the ground, never held at a seam (not "grounded" on the
+ * first seam it reaches, and not creeping down a wall on its left).
  */
 import { expect, test } from '@playwright/test';
 

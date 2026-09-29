@@ -1,10 +1,9 @@
 /**
- * Packet 53 — M3 animation-roles browser verification (manual, the
- * packet-32/37 procedure; the m3-render host's structure).
+ * Animation-roles browser verification (manual; the m3-render host's
+ * structure).
  *
  * STATUS: UNVERIFIED in-container — no browser, no WebGL context, no GPU.
- * Nothing in this directory was executed; every rendered statement of packet
- * 53 (rendered poses, the 0.2 s crossfade in pixels, the independent mixers
+ * Nothing in this directory was executed; every rendered statement (rendered poses, the 0.2 s crossfade in pixels, the independent mixers
  * on screen) is UNVERIFIED until the owner runs this procedure. The verified
  * halves are: the real-loader + real-fixture `setRoles` evidence
  * (`tests/m3-animation/roles-real-loader.test.ts`), the controller behavior
@@ -20,7 +19,7 @@
  * two independent role controllers, a third for the dispose-while-blending
  * check, and renders real screenshots. The host owns the frame loop
  * (`requestAnimationFrame`); the controllers install no loop, no clock and
- * no mixer listener (presentation.md §41.3.6 rule 2) — each `update` receives
+ * no mixer listener — each `update` receives
  * the real frame delta.
  *
  * Named `.browser.ts` so vitest never collects it.
@@ -125,7 +124,7 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-/** One host-owned committed view slice (the §41.3.7 accessor). */
+/** One host-owned committed view slice (the controllers' view accessor). */
 function hostView() {
   const host = { motion: { speed: 0, grounded: true } as AnimationRoleMotion, step: 0 };
   return { host, view: () => ({ stepIndex: host.step, playerMotion: host.motion }) };

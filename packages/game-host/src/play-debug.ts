@@ -1,7 +1,7 @@
 /**
- * Phase 19.2: the visual-script debugger inside the Play preview (phase 22.0:
- * moved to the game host — it runs where the simulation runs, in the page or
- * in the simulation worker).
+ * The visual-script debugger inside the Play preview. It lives in the game
+ * host because it runs where the simulation runs, in the page or in the
+ * simulation worker.
  *
  * The editor never runs game code: it polls this object over the preview
  * bridge (`tl.debug.request` → `tl.debug.result`) with the behavior it shows,
@@ -22,7 +22,7 @@
  * runtime is passed in, so this is unit-testable.
  */
 
-/** The runtime surface the debugger uses (the runtime's phase 19.2 members). */
+/** The runtime surface the debugger uses (the runtime's debug members). */
 export interface DebugRuntime {
   readonly debugHeld?: boolean;
   setDebugHold?(hold: boolean): void;

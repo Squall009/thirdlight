@@ -1,5 +1,5 @@
 /**
- * Phase 15.3 integration harness: one neutral scene played through the real
+ * Tuning integration harness: one neutral scene played through the real
  * production composition — the game host, the platformer controller, the
  * blocks and primitives, Rapier physics — with the physics port built from
  * the character's data exactly as the preview and export hosts build it

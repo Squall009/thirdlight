@@ -1,12 +1,12 @@
 /**
- * Fixed-step scheduling tests (runtime.md §5): exact step counts,
+ * Fixed-step scheduling tests: exact step counts,
  * bounded catch-up (n = min(rawN, 8)), drop-and-resync with
  * `droppedSteps`, zero-step frames, the non-monotonic clock warning,
- * and the first-frame anchor (§5.6: time before start is never
+ * and the first-frame anchor (time before start is never
  * simulated).
  *
- * All tests use the manual driver + an injected clock (runtime.md §9:
- * the Node test harness runs the same code with injected fakes).
+ * All tests use the manual driver + an injected clock (the Node test
+ * harness runs the same code with injected fakes).
  */
 import { describe, expect, it } from 'vitest';
 import { BUILTIN_MODULES, createSimulationRegistry, instantiateRuntime, registerSimulationModule } from './index';
@@ -64,7 +64,7 @@ describe('fixed steps with bounded catch-up (runtime.md §5)', () => {
     expect(h.diag().stepIndex).toBe(0);
     expect(h.diag().frameCount).toBe(1);
     // A LATE first tick at t=100 must not burst 12000 steps: the anchor
-    // is set at that frame (§5.6).
+    // is set at that frame.
     const h2 = makeManual();
     h2.rt.tick(100); // first frame at t=100
     expect(h2.diag().stepIndex).toBe(0);
@@ -132,7 +132,7 @@ describe('fixed steps with bounded catch-up (runtime.md §5)', () => {
     expect(d.stepIndex).toBe(2);
     expect(d.frameCount).toBe(3);
     expect(d.droppedSteps).toBe(0);
-    // The frame renders the current state with a fractional alpha (§5.5/§6).
+    // The frame renders the current state with a fractional alpha.
     const st = h.rt.getInterpolatedState();
     expect(st.ok).toBe(true);
     if (st.ok) {
@@ -170,7 +170,7 @@ describe('fixed steps with bounded catch-up (runtime.md §5)', () => {
     }
     const d = h.diag();
     expect(d.stepIndex).toBe(50);
-    expect(d.simTime).toBe(50 / 120); // exact — the §4 invariant
+    expect(d.simTime).toBe(50 / 120); // exact — simTime = stepIndex / hz
     h.rt.stop();
   });
 });

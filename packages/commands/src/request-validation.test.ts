@@ -1,5 +1,5 @@
 /**
- * Strict request validation — commands.md §3/§3.1/§5.4: envelope-level
+ * Strict request validation: envelope-level
  * failures are `invalid_request` (path/found/expected); args-level
  * failures are the `field_*` codes. Nothing is silently dropped.
  */
@@ -317,19 +317,16 @@ describe('failure payload echo rules (§5.2)', () => {
   });
 });
 
-// ---- O1 + O2 (2026-09-18 repair, inherited from packet 06) ---------------------
+// ---- deep nesting and pointer escaping ---------------------
 //
-// O1: the diagnostic `found` mapper's recursion over nested values was
-// unbounded (errors.ts:82–89), so a JSON-parsed 12,000-level nested array
-// as `found` threw RangeError (stack overflow) out of the public
-// `applyMutation` — violating the contract's total claim (commands.md §6.1
-// / §3: validation is total, never throws). Pre-fix RED: RangeError escapes
-// the public call.
+// The diagnostic `found` mapper must not recurse without bound: a
+// JSON-parsed 12,000-level nested array as `found` must not throw
+// RangeError (stack overflow) out of the public `applyMutation`, since
+// validation is total and never throws.
 //
-// O2: dynamic unknown keys were interpolated into the `path` (a JSON
-// Pointer into the request, commands.md §3) without RFC 6901 escaping, so
-// a key `a/b` reported `/args/a/b` instead of `/args/a~1b`. Pre-fix RED:
-// the unescaped pointer shape.
+// Dynamic unknown keys are interpolated into the `path` (a JSON Pointer
+// into the request) with RFC 6901 escaping, so a key `a/b` reports
+// `/args/a~1b`, not `/args/a/b`.
 
 /** Fresh, never-mutated state (the O1/O2 requests all fail validation). */
 const ST_O = v4State(scene(0, [cameraEntity()]));
@@ -357,7 +354,7 @@ function parsePointer(p: string): string[] {
 }
 
 describe('O1 (2026-09-18 repair): bounded diagnostic traversal — total applyMutation', () => {
-  /** The review's exact construction: a 12,000-level nested JSON array. */
+  /** A 12,000-level nested JSON array. */
   const DEEP = JSON.parse('['.repeat(12000) + '0' + ']'.repeat(12000));
 
   /** The bounded-`found` marker errors.ts emits where the traversal bound is hit. */

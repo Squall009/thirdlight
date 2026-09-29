@@ -1,5 +1,5 @@
 /**
- * Phase 14.6: a project whose model entity carries the old `modelAnimation`
+ * A project whose model entity carries the old `modelAnimation`
  * idle/run/airborne profile is moved to an animator controller when it is
  * opened (the clip lengths come from the model file), written as one new
  * revision; until then the old component is read as before.
@@ -118,7 +118,7 @@ describe('the old modelAnimation profile moves to an animator on open', () => {
       expect(after.revision).toBe(before.revision + 1);
       const cfg = service.query({ op: 'queryGameConfig', projectId: 'game' }) as unknown as { animators: { controllerId: string; name: string; states: { id: string; motion: { clip: { assetId: string; clip: string; duration: number } } }[] }[] };
       expect(cfg.animators).toHaveLength(1);
-      // Phase 17.1: the settings map travels with the game block (the editor reads render_backend at load).
+      // The settings map travels with the game block (the editor reads render_backend at load).
       expect((cfg as unknown as { settings?: Record<string, unknown> }).settings).toEqual(expect.any(Object));
       expect(cfg.animators[0]!.name).toBe('Idle/run/airborne (Hero)');
       expect(cfg.animators[0]!.states.map((s) => [s.id, s.motion.clip.clip, s.motion.clip.duration])).toEqual([

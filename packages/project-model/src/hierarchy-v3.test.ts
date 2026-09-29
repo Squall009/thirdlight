@@ -1,5 +1,5 @@
 /**
- * Phase 12: folders and the inherited hierarchy flags in the v3 scene model —
+ * Folders and the inherited hierarchy flags in the v3 scene model —
  * validation, canonical form, effective flags and the runtime resolve.
  */
 

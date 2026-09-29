@@ -1,6 +1,5 @@
 /**
- * Phase-scoped write guard — runtime.md §12.2 (promoted from the controller contract
- * §2.2).
+ * Phase-scoped write guard.
  *
  * The runtime passes a write-only `state.curr` during the `transform` phase
  * and a throwing read-only view during `intent`, `controller` and `physics`.
@@ -9,7 +8,7 @@
  * `PhaseViolationError`, which the runtime turns into a fail-stop
  * `module_error` (`reason: "phase_violation"`).
  *
- * Phase 21.2: the views are made once per module and phase and reused every
+ * The views are made once per module and phase and reused every
  * step (`liveScopedState`), and each guarded transform or array has one
  * guard proxy for its lifetime, so a steady step makes no new views.
  */
@@ -170,7 +169,7 @@ export function phaseScopedState(args: {
   return new Proxy(state as SimState, stateGuard);
 }
 
-/** Phase 21.2: where a reused state view reads the step's current values. */
+/** Where a reused state view reads the step's current values. */
 export interface LiveStateSource {
   /** A frozen copy of the entity order (the same array while the order is unchanged). */
   order(): readonly string[];
@@ -184,7 +183,7 @@ export interface LiveStateSource {
 }
 
 /**
- * Phase 21.2: a `SimState` made once per module and phase and reused every
+ * A `SimState` made once per module and phase and reused every
  * step — the guards of `phaseScopedState`, reading the current values from
  * `source` at each access.
  */

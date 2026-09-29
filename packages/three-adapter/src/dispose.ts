@@ -1,5 +1,5 @@
 /**
- * Phase 21.5: releasing three.js objects that leave the scene for good.
+ * Releasing three.js objects that leave the scene for good.
  *
  * In three 0.186's WebGPURenderer (both backends) removing an object from
  * the scene is not enough:
@@ -157,7 +157,7 @@ interface WebGlBackendInternals {
 const VAO_SWEEP_EVERY = 32;
 
 /**
- * Phase 21.5: three 0.186's WebGL 2 backend caches one vertex array object
+ * Three 0.186's WebGL 2 backend caches one vertex array object
  * per attribute set (`vaoCache`, keyed by the attributes' ids) and never
  * deletes one — every geometry that ever drew leaves its VAO behind (the
  * Scene view: ~9 per closed/opened scene; a preview shape switch: one each).
@@ -165,10 +165,9 @@ const VAO_SWEEP_EVERY = 32;
  * guarded: without it nothing changes) to remember each VAO's attributes
  * weakly, and before the next VAO is made after an attribute was destroyed
  * (a geometry disposed; else every 32 creations) deletes the VAOs one of
- * whose attributes is gone — a live attribute set keeps its VAO. Phase 21.6:
- * a destroyed or collected attribute also schedules a sweep in its own task,
- * so the last VAOs of a closed scene go without waiting for a new VAO (the
- * leak test read 20–31 instead of 18 when none followed). Returns whether it
+ * whose attributes is gone — a live attribute set keeps its VAO. A destroyed
+ * or collected attribute also schedules a sweep in its own task, so the last
+ * VAOs of a closed scene go without waiting for a new VAO. Returns whether it
  * was installed.
  */
 export function installVaoSweep(backend: unknown): boolean {
@@ -251,7 +250,7 @@ interface TexturesInternals {
 }
 
 /**
- * Phase 21.5: three 0.186's `Textures` component adds a `dispose` listener to
+ * Three 0.186's `Textures` component adds a `dispose` listener to
  * every texture and render target a renderer uploads, and its own `dispose()`
  * only drops its map — the listeners stay. A texture that outlives the
  * renderer (a module-level placeholder, the editor's shared texture cache, a
@@ -313,7 +312,7 @@ interface ProgramInternals {
 }
 
 /**
- * Phase 21.5: three 0.186's WebGL 2 backend never deletes a linked program or
+ * Three 0.186's WebGL 2 backend never deletes a linked program or
  * a compiled shader: releasing an unused pipeline or shader stage only drops
  * three's cache entry, and the GL objects wait for the collector to find
  * their wrappers (which it does late: it does not see GPU memory). This makes
@@ -358,7 +357,7 @@ export function installProgramRelease(renderer: unknown): boolean {
 }
 
 /**
- * Phase 21.5: forget the render contexts drawn with an MRT setup that is gone
+ * Forget the render contexts drawn with an MRT setup that is gone
  * (a post pipeline rebuilt: its scene pass had its own MRT node). three 0.186
  * keys render contexts by the attachment state and the MRT's id, so every
  * rebuilt pipeline made new contexts — for the scene pass and for every

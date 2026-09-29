@@ -1,5 +1,5 @@
 /**
- * Phase 12 (c): the scene index of a v4 project (`content.scenes`,
+ * The scene index of a v4 project (`content.scenes`,
  * `content.startScenes`) — create, rename and delete scenes, and choose the
  * scenes the game starts with. Each is one content change (`setSceneIndex`,
  * undone by restoring the previous index); the workspace keeps the scene
@@ -99,7 +99,7 @@ export function applySceneIndexOp(input: OpInput, args: SceneIndexArgs): OpOutco
   if (index === null || input.scene.schemaVersion !== 4) return { ok: false, error: notV4() };
   const next = nextIndex(index, args);
   if ('error' in next) return { ok: false, error: next.error };
-  // Phase 9.6: a scene's bake goes first (one undo each, nothing dropped silently).
+  // A scene's bake goes first (one undo each, nothing dropped silently).
   if (args.op === 'deleteScene' && (catalog as { lighting?: Record<string, unknown> }).lighting?.[args.sceneId] !== undefined) {
     return { ok: false, error: fieldValue('/args/sceneId', args.sceneId, 'a scene without baked lighting', 'this scene has baked lighting; clear it first (Lighting window or setLighting {sceneId, lighting: null})') };
   }

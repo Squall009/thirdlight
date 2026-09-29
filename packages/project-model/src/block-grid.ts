@@ -1,5 +1,5 @@
 /**
- * Phase 23.5 (E8): the in-memory block grid — decode a layer's chunks, read
+ * The in-memory block grid — decode a layer's chunks, read
  * and write cells, encode the touched chunks back, and the bulk edits the
  * `editBlocks` command applies (fill, cells, array, replace, metadata paint,
  * flood fill, raise/lower column, stamp, copy/move/mirror, regions,
@@ -77,7 +77,7 @@ export class BlockGrid {
   private readonly chunks = new Map<string, Map<number, Column>>();
   /** The regions (id → boxes). */
   readonly regions = new Map<string, number[][]>();
-  /** Phase 25.21: each chunk's paint lattice (`block-paint.ts`); absent: unpainted. */
+  /** Each chunk's paint lattice (`block-paint.ts`); absent: unpainted. */
   private readonly paints = new Map<string, Uint8Array>();
   /** Chunks written since the last `takeDirty` (keys). */
   private dirty = new Set<string>();
@@ -246,7 +246,7 @@ export class BlockGrid {
       const [x, y, z] = cellOfKey(k);
       this.setIndex(x, y, z, idx);
     }
-    // Phase 25.21: the chunk's paint follows too (only this chunk's meshes read it).
+    // The chunk's paint follows too (only this chunk's meshes read it).
     const paint = chunk !== null ? decodeChunkPaint(chunk.paint) : null;
     const had = this.paints.get(ck) ?? null;
     const same = paint === null ? had === null || isUnpainted(had) : had !== null && had.length === paint.length && had.every((v, i) => v === paint[i]);
@@ -258,7 +258,7 @@ export class BlockGrid {
     }
   }
 
-  // ---- Phase 25.21: paint ------------------------------------------------------------
+  // ---- Paint ------------------------------------------------------------
 
   /** A chunk's paint lattice (null: unpainted). */
   chunkPaint(cx: number, cz: number): Uint8Array | null {
@@ -398,7 +398,7 @@ export class BlockGrid {
       const c = this.encodeChunk(ck);
       if (c === null) {
         byKey.delete(ck);
-        // Phase 25.21: a chunk without cells keeps no paint.
+        // A chunk without cells keeps no paint.
         this.paints.delete(ck);
       } else byKey.set(ck, c);
     }
@@ -530,7 +530,7 @@ export type BlockEdit =
    */
   | { kind: 'sculpt'; op: SculptOp; at: number[]; radius: number; strength: number; height?: number; cell?: BlockCell }
   /**
-   * Phase 25.21: a paint brush dab on the layer's surface paint: `channel`
+   * A paint brush dab on the layer's surface paint: `channel`
    * 0-3 paints that material layer (its weight grows, the others give way),
    * 4 the wetness; `erase` takes it away. At `at` (x, z in columns;
    * lattice vertices at whole numbers), `radius` cells, `strength` the blend
@@ -1146,7 +1146,7 @@ export function applyBlockEdits(g: BlockGrid, edits: readonly BlockEdit[], ctx: 
         break;
       }
       case 'paint': {
-        // Phase 25.21: the layer's surface paint (the cells stay as they are).
+        // The layer's surface paint (the cells stay as they are).
         if (g.metadataOnly) return fail(p, 'a metadata-only layer has no surface to paint');
         changed += paintDab(g.paintSurface(), [e.at[0]!, e.at[1]!], { radius: e.radius, strength: e.strength, falloff: e.falloff ?? 'smooth', channel: e.channel, ...(e.erase === true ? { erase: true } : {}) });
         break;

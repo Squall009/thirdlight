@@ -1,5 +1,5 @@
 /**
- * Phase 9.7 / 16.2: the bottom-dock Animator — the project's animator
+ * The bottom-dock Animator — the project's animator
  * controllers as a list. A controller opens as a centre tab
  * ("Animator: <controller>", the state-graph editor: AnimatorDocument) with
  * a double-click, Enter or **Open**; "New controller" and "New from clips:
@@ -23,10 +23,10 @@ export interface AnimatorPanelProps {
   onOpen: (controllerId: string) => void;
   /** Start a live preview of `controller` in `canvas`, or say why not. */
   preview?: StartPreview;
-  /** Model assets; `clipsFor` marks an animation-only file whose clips play on that model (phase 14.6). */
+  /** Model assets; `clipsFor` marks an animation-only file whose clips play on that model. */
   models: AnimatorModels;
   clipsOf: (assetId: string) => Promise<ClipInfo[]>;
-  /** Phase 14.6: the model's skeleton (its bones, or its nodes when it has none). */
+  /** The model's skeleton (its bones, or its nodes when it has none). */
   skeletonOf?: (assetId: string) => Promise<BoneInfo[]>;
   onSave: (controller: AnimatorController) => void;
   onDelete: (controllerId: string) => void;

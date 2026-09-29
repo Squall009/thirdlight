@@ -1,5 +1,5 @@
 /**
- * Phase 23.8: test and debug entry points against a real backend and a real
+ * Test and debug entry points against a real backend and a real
  * browser (the starter template with the game session, a v4 game without levels, plus a neutral second
  * scene, "Cave": a floor far to the right, a player spawn on it and a marker).
  *
@@ -10,7 +10,7 @@
  * - The editor's "Play from…" dialog starts Play at Cave with variables: the
  *   game starts at the cave's spawn with the cave loaded and the bonus counted.
  * - The in-game console (the backquote key in the Play frame) runs `grant`;
- *   so does the §20 control route (`debugCommand`, what `tl_game_control`
+ *   so does the game control route (`debugCommand`, what `tl_game_control`
  *   sends); both are listed with their steps in the observation.
  * - MCP's `tl_play_start` takes the same scene and variables (and notes a
  *   mode as ignored while the project has no game modes);
@@ -167,7 +167,7 @@ test('the editor plays from a scene with variables; the in-game console and the 
   await page.keyboard.press('Backquote');
   await expect(consoleRoot).toHaveAttribute('data-open', 'false');
 
-  // The §20 control route (tl_game_control's): the same command, recorded with its step.
+  // The game control route (tl_game_control's): the same command, recorded with its step.
   const ran = await api(`play/${startedBody.playSessionId}/control`, { command: 'debugCommand', name: 'grant', args: { amount: 2 } });
   expect(ran.status, JSON.stringify(ran.json)).toBe(200);
   await expect.poll(async () => (await observe()).counters?.['granted'], { timeout: 10_000 }).toBe(7);
@@ -294,7 +294,7 @@ function serve(dir: string): Promise<{ server: Server; url: string }> {
 async function startExport(game: Page, url: string): Promise<void> {
   await game.bringToFront();
   await game.goto(url);
-  // Phase 24.6: a scene plays at once (no run to start); the click gives the page the keyboard.
+  // A scene plays at once (no run to start); the click gives the page the keyboard.
   const state = (): Promise<unknown> => game.evaluate(() => ((window as unknown as { __thirdlightObserve?: () => { state?: string } | null }).__thirdlightObserve?.() ?? null)?.state ?? null);
   await expect.poll(state, { timeout: 30_000 }).toBe('running');
   await game.locator('canvas#game').click();

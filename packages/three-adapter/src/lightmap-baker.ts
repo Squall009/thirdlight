@@ -1,5 +1,5 @@
 /**
- * Phase 9.6: the browser lightmap baker ("Bake preview").
+ * The browser lightmap baker ("Bake preview").
  *
  * Every static mesh with UV1 is drawn in lightmap space (its UV1, moved into
  * its atlas rectangle, becomes the screen position) with a white Lambert
@@ -15,7 +15,7 @@
  * match), divided by `range`, sRGB-encoded and dilated into the padding.
  * No bounce light: that is the Blender bake's job.
  *
- * Browser-only. Phase 17.3/17.4: `renderer` picks the backend like every
+ * Browser-only. `renderer` picks the backend like every
  * other view (the factory's `auto | webgpu | webgl2`); WebGPURenderer on
  * WebGPU or WebGL 2 with half-float targets (blendable everywhere; float32
  * blending is an optional WebGPU feature) and the bake material as a node
@@ -24,7 +24,7 @@
  * WebGLRenderer version (float targets, a GLSL hook) is archived
  * (`archive/webgl-renderer-17/`).
  *
- * Phase 22.1: DOM-free apart from the default canvas — the editor runs it in
+ * DOM-free apart from the default canvas — the editor runs it in
  * a worker on an `OffscreenCanvas` (`canvas`).
  */
 import * as THREE from 'three';
@@ -79,10 +79,10 @@ export interface BrowserBakeInput {
   readonly softness?: number;
   readonly onProgress?: (done: number, total: number) => void;
   readonly signal?: AbortSignal;
-  /** Phase 17.3: the renderer backend to bake with (default: the factory's default, `auto`). */
+  /** The renderer backend to bake with (default: the factory's default, `auto`). */
   readonly renderer?: RendererPreference;
   /**
-   * Phase 22.1: the surface to render with (default: a new DOM canvas). An
+   * The surface to render with (default: a new DOM canvas). An
    * `OffscreenCanvas` lets the whole bake run in a worker (WebGPURenderer
    * takes one on its WebGPU and WebGL 2 backends); the bake is the same.
    */

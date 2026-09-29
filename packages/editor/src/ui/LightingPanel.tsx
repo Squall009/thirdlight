@@ -1,5 +1,5 @@
 /**
- * Phase 9.6: the Lighting window — bake the active scene's lightmaps.
+ * The Lighting window — bake the active scene's lightmaps.
  *
  * "Bake preview" runs in this browser (direct light and sky occlusion from
  * the lights set to "baked"; no bounce light). "Bake final" sends the scene

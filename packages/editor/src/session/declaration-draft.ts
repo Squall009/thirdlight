@@ -1,5 +1,5 @@
 /**
- * Phase 15.4: the Behaviors tab's declaration editor model.
+ * The Behaviors tab's declaration editor model.
  *
  * A declaration is edited as text drafts (one per property: every declared
  * field as the user types it) and turned back into a `PropertyDeclaration`

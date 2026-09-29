@@ -1,5 +1,5 @@
 /**
- * Phase 20.1: compiling an effect's system graphs for evaluation.
+ * Compiling an effect's system graphs for evaluation.
  *
  * A system graph (kind `effect`) becomes: the four context chains (the
  * blocks in execution order, walked from each context's `then` output), each

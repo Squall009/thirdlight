@@ -1,5 +1,5 @@
 /**
- * Phase 17.3: the environment on three's `WebGPURenderer` (its WebGPU and
+ * The environment on three's `WebGPURenderer` (its WebGPU and
  * WebGL 2 backends) — the TSL twins of the WebGL-only pieces of
  * `environment.ts`:
  *
@@ -114,18 +114,18 @@ export function gradientSkyMaterial(top: THREE.Color, horizon: THREE.Color, bott
   m.side = THREE.BackSide;
   m.depthWrite = false;
   m.fog = false;
-  // Phase 23.18: the colours are uniforms — a blend changes them without a new program.
+  // The colours are uniforms — a blend changes them without a new program.
   m.userData['skyUniforms'] = { top: uTop, horizon: uHorizon, bottom: uBottom };
   return m;
 }
 
-/** Phase 23.18: the gradient dome's colour uniforms (null: not a gradient dome material). */
+/** The gradient dome's colour uniforms (null: not a gradient dome material). */
 export function gradientSkyUniforms(m: THREE.Material): { top: { value: THREE.Color }; horizon: { value: THREE.Color }; bottom: { value: THREE.Color } } | null {
   return (m.userData['skyUniforms'] as { top: { value: THREE.Color }; horizon: { value: THREE.Color }; bottom: { value: THREE.Color } } | undefined) ?? null;
 }
 
 /**
- * Phase 23.18: a sky dome drawing a colour, an equirect image or a cube map
+ * A sky dome drawing a colour, an equirect image or a cube map
  * (a cross-fade layer; `opacity` is the layer's share — a material uniform, no
  * new program per frame). Drawn as a display colour (not tone mapped), like
  * the background these skies are when shown alone; on the far plane like the
@@ -200,11 +200,11 @@ export interface PostPipeline {
   setLut(lut: THREE.Texture | null): void;
   /** The canvas size in CSS pixels (the depth of field's blur is in pixels). */
   setSize(width: number, height: number, pixelRatio: number): void;
-  /** Phase 23.18: new grading / vignette / bloom numbers for the built passes (uniforms: no rebuild, no new program). */
+  /** New grading / vignette / bloom numbers for the built passes (uniforms: no rebuild, no new program). */
   setParams(params: Pick<PostPlan, 'grading' | 'bloom'>): void;
   render(): void;
   /**
-   * Phase 25.24d: build the scene pass's node programs and pipelines ahead of
+   * Build the scene pass's node programs and pipelines ahead of
    * its first draw (`renderer.compileAsync` into the pass's own target and
    * outputs, so the programs are the ones the pass draws with).
    */
@@ -230,7 +230,7 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
   disposables.push(scenePass);
   if (plan.resolutionScale !== 1) scenePass.setResolutionScale(plan.resolutionScale);
   const wantsAo = plan.ssao !== null && perspective;
-  // Phase 21.5: the MRT node is kept so the render contexts drawn with it can be released with the pipeline.
+  // The MRT node is kept so the render contexts drawn with it can be released with the pipeline.
   const sceneMrt: unknown = wantsAo ? mrt({ output, normal: normalView }) : null;
   if (wantsAo) scenePass.setMRT(sceneMrt);
   const depth: N = scenePass.getTextureNode('depth');
@@ -504,7 +504,7 @@ export function buildPostPipeline(renderer: WebGPURenderer, scene: THREE.Scene, 
 }
 
 /**
- * Phase 25.24d: `renderer.compileAsync(scene, camera)` for a pass that draws
+ * `renderer.compileAsync(scene, camera)` for a pass that draws
  * into `target` with `mrt`. Once the renderer is initialised, compileAsync
  * collects its work (with the render context of the current target) before
  * its first await, so the target and outputs are set only around that call —

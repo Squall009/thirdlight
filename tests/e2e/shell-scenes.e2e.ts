@@ -1,6 +1,5 @@
 /**
- * Phase 24.7: the generic parts of the deleted level flow's e2e test, on the
- * game shell (phase 24.4j) — the starter template gets a second scene far to
+ * Scenes and settings through the game shell — the starter template gets a second scene far to
  * the right (a spawn and a floor) and a shell with a title (Start), a pause
  * screen (Next scene, Settings, Resume) and a settings screen (music volume
  * down, its value bound to `$flow.shell.volumes.music`, Back). In Play and in the

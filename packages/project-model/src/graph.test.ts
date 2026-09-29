@@ -1,5 +1,5 @@
 /**
- * Phase 16.1: the generic graph model — connection rules, cycles, budgets,
+ * The generic graph model — connection rules, cycles, budgets,
  * op application with exact inverses (copy/paste id remapping and the
  * diagnostics live in the editor: editor/src/graph/model.test.ts).
  */

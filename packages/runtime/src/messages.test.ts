@@ -1,5 +1,5 @@
 /**
- * Phase 19.1 — `ctx.messages`: named messages between scripts.
+ * `ctx.messages`: named messages between scripts.
  *
  * A message sent in a step is seen in the next step (like signals), by every
  * script or only by the scripts on its target entity, in send order, with its

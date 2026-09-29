@@ -30,7 +30,7 @@ export function saveChecksum(text: string): string {
 /** The player's settings of one game (its namespace in the injected storage). */
 export interface SettingsStore {
   /**
-   * Phase 23.14: a player profile's changed bindings (action → its bindings;
+   * A player profile's changed bindings (action → its bindings;
    * null when the profile saved none or the entry is unreadable).
    */
   readBindings(profile: string): Record<string, unknown[]> | null;

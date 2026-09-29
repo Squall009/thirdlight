@@ -1,14 +1,11 @@
 /**
- * Packet 54 — browser audio owner verification host (manual, the
- * packet-32/37 procedure). TEMPORARY TEST HOST, not a production bootstrap
+ * Browser audio owner verification host (manual). TEMPORARY TEST HOST, not a production bootstrap
  * and not a shipped bundle; named `.browser.ts` so vitest never collects it.
  *
- * What it exercises (the packet 54 evidence lines — B12/B13 resource /
- * activation scope):
+ * What it exercises (resource and activation scope):
  *  - the REAL committed cue bytes (`fixtures/m3/media/wav/cue-*.wav`,
  *    SHA-256 verified against `fixtures/m3/media/index.json`) registered
- *    bytes-in with the REAL `AudioContext` (software WebAudio counts —
- *    packet 38 baseline §1);
+ *    bytes-in with the REAL `AudioContext` (software WebAudio counts);
  *  - a REAL local user gesture (a real `pointerdown` with
  *    `event.isTrusted === true`) driving `unlock()` — the pre-gesture
  *    sound-off state is recorded first (no source is ever created before
@@ -24,8 +21,8 @@
  *    wrapper around the REAL context that counts decodes/sources — every
  *    real audio-graph operation still runs; the wrapper only observes).
  *
- * Audibility itself stays UNVERIFIED (packet 38 baseline §1: no audio
- * device in this container; §41.4.8 rule 9). Counters + the real context
+ * Audibility itself stays UNVERIFIED (no audio device in this
+ * container). Counters + the real context
  * state prove the graph, not the ear.
  */
 import {
@@ -131,7 +128,7 @@ function instrumentedFactory(): { factory: () => AudioContextLike | null; counts
     return { factory, counts };
   }
 
-/** The §41.4.4 arithmetic over the fetched bytes (the committed cues are
+/** The PCM-WAV duration arithmetic over the fetched bytes (the committed cues are
  * strict 44+data PCM-WAV): the expected decoded duration. */
 function expectedDurationSeconds(bytes: Uint8Array): number {
   const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);

@@ -1,5 +1,5 @@
 /**
- * Phase 15.2: Scene-view handles for every descriptor handle kind, in a real
+ * Scene-view handles for every descriptor handle kind, in a real
  * browser against a real backend. The starter template is only
  * the stage: every object a test edits is a neutral one added by command
  * away from the level. For each handle kind a grip of the selected object is
@@ -134,7 +134,7 @@ test('sizes and radii: box3, box2, capsule, radius — drag, stored snapped, one
   await undo(page);
   await expect.poll(async () => (await comp(ring, 'trigger'))!['radius']).toBe(1);
 
-  // box2: an edge walker's body (phase 24.7: the patrol's own body box).
+  // box2: an edge walker's body (the patrol's own body box).
   await select(page, walker);
   await drag(page, await grip(page, 'patrol', 'box2', 'top'), 0, -40);
   await expect.poll(async () => ((await comp(walker, 'patrol'))!['size'] as number[])[1]).toBeGreaterThan(0.85);
@@ -268,7 +268,7 @@ test('a spawn\'s yaw, the camera\'s real frustum, an animator\'s starting parame
   await open(page);
   const inspector = page.locator('.tl-inspector');
 
-  // playerSpawn.yaw (phase 24.8: the left/right facing became it): a number field; undo removes it.
+  // playerSpawn.yaw (the character's facing): a number field; undo removes it.
   await select(page, 'spawn-0001', false);
   const yaw = inspector.getByLabel('playerSpawn yaw', { exact: true });
   await yaw.fill('-90');

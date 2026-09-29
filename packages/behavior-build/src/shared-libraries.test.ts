@@ -1,6 +1,6 @@
 /**
- * Phase 25.9: script libraries compiled as shared modules (minified,
- * tree-shaken, compiled once) that behaviors import by digest, the 23.7
+ * Script libraries compiled as shared modules (minified,
+ * tree-shaken, compiled once) that behaviors import by digest, the
  * bundled form kept for older records, and compiled positions mapped back to
  * the sources.
  */

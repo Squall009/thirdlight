@@ -1,5 +1,5 @@
 /**
- * Phase 23.12 (E9): `ctx.materials` — the catalogue, value checks, the data
+ * `ctx.materials` — the catalogue, value checks, the data
  * grid, the per-step limit, the renderer's diffs and the digest text.
  */
 import { describe, expect, it } from 'vitest';

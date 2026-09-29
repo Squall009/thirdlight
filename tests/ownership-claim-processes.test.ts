@@ -1,9 +1,6 @@
 /**
- * Packet 07 group E1 (R9) — real two-process barriers (T2) and real
- * SIGKILL crash-point tests (T3) for the amended §6.3 exclusive claim-file
- * primitive (workspace.md §6.2/§6.3/§6.4, applied diff `dabfcff`).
- *
- * Mandatory tests per docs/handoffs/2026-09-18-contract-request.md §5:
+ * Real two-process barriers (T2) and real SIGKILL crash-point tests (T3)
+ * for the exclusive claim-file primitive:
  *  T2 — two REAL node processes, file-gated so both act after the gate,
  *       sharing a disposable root (not mocks), for each of:
  *       - the ABSENT claim (fresh project, record absent),
@@ -30,14 +27,13 @@
  *       files) is asserted — nothing else.
  *
  * These live under the repo-root tests/ (not a package) because
- * node:child_process is a forbidden edge for package code
- * (dependencies.md §4.1). The child runner
+ * node:child_process is a forbidden edge for package code. The child runner
  * (tests/crash/ownership-child.ts, esbuild-bundled) drives the crash
  * points through the public WriteOps seam and the barrier through a gate
  * file. Never run against repo/user paths — always disposable mkdtemp
  * roots on ext4 (/home/dadmin), cleaned in finally (afterAll backstop).
  *
- * Loser-code nuance (recorded in the handoff): for the absent/released
+ * Loser-code nuance: for the absent/released
  * scenarios the loser's open may surface `claim_inconsistent` when the
  * winner's record W has not yet landed at the loser's EEXIST re-read
  * (record still absent/released + the winner's claim file is held by a
@@ -286,8 +282,8 @@ describe('T2: two real processes race the claim-file gate (workspace.md §6.3 si
     writeFileSync(gate, ''); // both act now
     const [r1, r2] = [await c1.done, await c2.done];
 
-    // Exactly one active writer — the old rename+verify claim let BOTH
-    // open (the CLAIM_RACE double-claim is the failing regression).
+    // Exactly one active writer — a rename+verify claim would let BOTH
+    // open (the CLAIM_RACE double-claim this guards against).
     const oks = [r1.openOk, r2.openOk];
     expect(oks.filter(Boolean)).toHaveLength(1);
     const w = r1.openOk ? r1 : r2;
@@ -336,15 +332,11 @@ describe('T2: two real processes race the claim-file gate (workspace.md §6.3 si
     const owner = openWorkspaceService({ root, backendId: OWNER_ID });
     expect(owner.createProject(PROJECT, 'Demo')).toEqual({ ok: true, created: true, revision: 0 });
     expect(owner.releaseWorkspace(PROJECT)).toEqual({ ok: true, revision: 0, retryCleared: true });
-    // Group E2 (R4, 2026-09-18 review) amended workspace.md §9 step 1:
-    // the release now "unlinks the owner's own claim file (claim-<e>,
-    // §6.5)" — the real release removes its own claim-0 (verified by
-    // path), leaving released@0 with no residue. This assertion was
-    // flipped from `toBe(true)` (the pre-E2 residue, pinned here while
-    // the release-side unlink was deferred to group E2) to `toBe(false)`
-    // on that contract line; the assertion itself is retained.
+    // The release unlinks the owner's own claim file (claim-<e>): the
+    // real release removes its own claim-0 (verified by path), leaving
+    // released@0 with no residue.
     expect(readRec(root)?.state).toBe('released');
-    expect(fileExists(claimPath(root, 0))).toBe(false); // unlinked by the release (§9 step 1)
+    expect(fileExists(claimPath(root, 0))).toBe(false); // unlinked by the release
     owner.dispose();
 
     const gate = join(root, 'gate');
@@ -539,8 +531,8 @@ describe('T3: SIGKILL at the claim-file crash points (workspace.md §6.3/§6.5)'
     expect(stamp?.backendId).toBe(CRASH_ID);
     expect(stamp?.pid).toBe(ex.pid);
 
-    // The next claim reclaims (the holder is proven dead under the §6.2
-    // rules — /proc/<pid> is gone) and succeeds without an operator step.
+    // The next claim reclaims (the holder is proven dead under the
+    // stale-claim rules — /proc/<pid> is gone) and succeeds without an operator step.
     const svc = openWorkspaceService({ root });
     const q = svc.query({ op: 'queryProject', projectId: PROJECT }) as { ok: boolean };
     expect(q.ok).toBe(true);

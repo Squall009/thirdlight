@@ -1,5 +1,5 @@
 /**
- * Phase 23.11: the simulation's rig poser agrees with what the renderer
+ * The simulation's rig poser agrees with what the renderer
  * draws. The same GLB is read by project-model's `readModelRig` (the data
  * the runtime resolves sockets on) and loaded by the real three.js
  * GLTFLoader; the renderer's own `createAnimatorPlayer` poses the loaded

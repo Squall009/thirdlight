@@ -4,7 +4,7 @@
  */
 import { randomBytes } from 'node:crypto';
 
-// ---- ID / token allocation (sessions.md §3: hex, CSPRNG) ----------------------
+// ---- ID / token allocation (hex, CSPRNG) ----------------------
 
 /** Lowercase hex of a byte string (Uint8Array has no `toString('hex')`). */
 export function toHex(bytes: Uint8Array): string {
@@ -22,20 +22,20 @@ export const newPlaySessionId = (): string => `play-${hex(16)}`;
 export const newWsToken = (): string => hex(32);
 export const newRelayId = (): string => `relay-${hex(16)}`;
 
-/** The commands.md §3 origin (structural local type — the backend's edge
+/** The command envelope's origin (structural local type — the backend's edge
  * table has no commands edge; the envelope is pipeline-validated). */
 export interface OriginDoc {
   kind: 'browser' | 'mcp' | 'admin';
   clientId: string;
 }
 
-// ---- bounds (sessions.md §11.5) ------------------------------------------------
+// ---- bounds ------------------------------------------------
 
-/** §11.5: HTTP body bound (in). */
+/** HTTP body bound (in). */
 export const MAX_HTTP_BODY = 1024 * 1024;
-/** §11.5: diagnostics relay payload bound. */
+/** Diagnostics relay payload bound. */
 export const MAX_DIAGNOSTICS = 16 * 1024;
-/** §11.5: screenshot image bound (the dataUrl length, in bytes). */
+/** Screenshot image bound (the dataUrl length, in bytes). */
 export const MAX_SCREENSHOT = 1024 * 1024;
 
 export const TEXT_ENCODER = new TextEncoder();
@@ -43,7 +43,7 @@ export const TEXT_ENCODER = new TextEncoder();
 export function utf8Len(s: string): number {
   return TEXT_ENCODER.encode(s).length;
 }
-/** §11.4: the session listing bound. */
+/** The session listing bound. */
 export const SESSION_LIST_MAX = 20;
 /** The bounded startup log ring. */
 export const STARTUP_LOG_RING = 256;

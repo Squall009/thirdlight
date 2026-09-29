@@ -1,7 +1,7 @@
 /**
- * Phase 17.3: environment and post parity. The sky modes (colour, physical,
+ * Environment and post parity. The sky modes (colour, physical,
  * gradient, texture equirect and cube, each with its image-based lighting),
- * fog (linear, exp2), fog volumes (with the 14.4 height falloff), shadows
+ * fog (linear, exp2), fog volumes (with the height falloff), shadows
  * (and the follow-camera shadow: the light moved with its target between
  * frames, 200 m from the origin),
  * tone mapping (ACES, Neutral, none; AgX everywhere else), grading +
@@ -9,14 +9,14 @@
  * field, SMAA, FXAA and a low quality level render in a neutral scene
  * (`env-parity/harness.ts`) and are compared with the WebGL reference images
  * captured from the WebGLRenderer path before the port (`env-parity/refs/*.png`).
- * Phase 17.4: that path is archived (`archive/webgl-renderer-17/`); the
+ * That path is archived (`archive/webgl-renderer-17/`); the
  * references are frozen as the contract.
  *
  * - `default` project: WebGPURenderer's WebGL 2 backend (TSL sky/fog
  *   volumes/post) matches them, with the archived stack's pass list.
  * - `webgpu` project: WebGPU matches them.
  *
- * Tolerances (logged in docs/plan-phase-17.md §6, 17.3): the 17.2 rule for
+ * Tolerances (logged in docs/plan-phase-17.md): the strict rule for
  * everything three ports one to one; a looser, block-averaged rule for the
  * effects whose node pass is a different algorithm (see `TOLERANCE`). For
  * every post case the render must also differ from the plain picture by
@@ -85,7 +85,7 @@ const PLAIN: Partial<Record<CaseName, CaseName>> = {
 };
 
 /**
- * Per-case tolerance (default: the 17.2 rule). The looser rules (§6, 17.3):
+ * Per-case tolerance (default: the strict rule). The looser rules:
  * - scene fog: three's node materials mix the fog in linear light before the
  *   frame's tone mapping (as the legacy post stack does); the legacy renderer
  *   drawing straight to the canvas mixes it after tone mapping and sRGB
@@ -111,7 +111,7 @@ const tolerance = (name: CaseName): Tolerance => TOLERANCE[name] ?? STRICT;
 
 /**
  * The post passes of each case — the pass list the archived WebGL stack
- * reported for it (17.3 checked WebGL 2 against it case by case); no entry:
+ * reported for it (WebGL 2 is checked against it case by case); no entry:
  * no post stack (a plain frame).
  */
 const PASSES: Partial<Record<CaseName, string[]>> = {

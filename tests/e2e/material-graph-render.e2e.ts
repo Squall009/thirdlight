@@ -1,5 +1,5 @@
 /**
- * Phase 18.3: material graphs render on both backends (harness:
+ * Material graphs render on both backends (harness:
  * `material-graph-render/harness.ts`, through the real three-adapter
  * library and renderer factory).
  *
@@ -11,7 +11,7 @@
  *   object of a shared material (both colours, one material object), a
  *   fresnel emissive rim, a world-space vertex offset.
  *
- * - phase 23.15, Custom-lit outputs and the lighting inputs: N·L of the
+ * - Custom-lit outputs and the lighting inputs: N·L of the
  *   main light quantized into two bands (two tones on a sphere), the main
  *   light's shadow input (a caster's shadow on a wall), a point light in the
  *   accumulated diffuse light (a warm glow on one box), the main light's

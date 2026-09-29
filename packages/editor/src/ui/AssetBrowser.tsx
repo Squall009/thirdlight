@@ -1,11 +1,11 @@
 /**
- * Asset/content browser panel (React, decision 0001 §10; packet 27).
+ * Asset/content browser panel (React).
  *
  * Display + intent only: every action issues the typed backend command / route
  * through the session client (the sole mutation path). The panel shows the
  * bounded query page, the import flow's job/failure/cancel status, the local
  * clip preview controls and the placement availability. No decorative or graph
- * UI (decision 0001 §10 scope guard).
+ * UI (decision 0001 scope guard).
  *
  * Browser-only (React).
  */
@@ -51,7 +51,7 @@ interface Props {
   onPreviewPause: () => void;
   onPreviewScrub: (seconds: number) => void;
   onPlace: () => void;
-  /** M3 (packet 57): the §8.5.1 animated-reimport mapping for a pending model
+  /** The animated-reimport mapping for a pending model
    * reimport (`null` when the pending publish has no obligation). */
   roleMapping: { clipNames: string[]; referencingEntityIds: string[] } | null;
   roleEntity: string;
@@ -63,18 +63,18 @@ interface Props {
   /** The pieces of each loaded model file (a file with 2+ pieces expands into piece tiles). */
   pieces: ReadonlyMap<string, readonly { name: string }[]>;
   onVertexColors: (assetId: string, mode: 'data' | 'tint') => void;
-  /** Phase 25.19: how an imported PNG/JPEG texture is stored — as is, or encoded to KTX2 (colour: ETC1S, normal map: UASTC; phase 25.21: data, UASTC linear). */
+  /** How an imported PNG/JPEG texture is stored — as is, or encoded to KTX2 (colour: ETC1S, normal map: UASTC; data, UASTC linear). */
   textureEncoding?: 'none' | 'color' | 'normal' | 'data';
   onTextureEncoding?: (v: 'none' | 'color' | 'normal' | 'data') => void;
-  /** Phase 25.21: pack a KTX2 texture (array) from texture assets; resolves to an error message or null. */
+  /** Pack a KTX2 texture (array) from texture assets; resolves to an error message or null. */
   onPackTexture?: (req: PackRequest) => Promise<string | null>;
-  /** Phase 9.4: extra sections for the selected asset (its default materials). */
+  /** Extra sections for the selected asset (its default materials). */
   sideExtra?: ReactNode;
-  /** Phase 23.9b: create a UI document and open its tab. */
+  /** Create a UI document and open its tab. */
   onNewUiDocument?: () => void;
-  /** Phase 25.7c: delete the selected asset (`deleteAsset`; refused while anything uses it). */
+  /** Delete the selected asset (`deleteAsset`; refused while anything uses it). */
   onDelete?: (assetId: string) => void;
-  /** Phase 25.7c: why the last delete was refused (the uses it names), or null. */
+  /** Why the last delete was refused (the uses it names), or null. */
   deleteError?: string | null;
 }
 
@@ -95,7 +95,7 @@ export function AssetBrowser(p: Props): JSX.Element {
     ev.dataTransfer.setData(ASSET_DRAG_TYPE, JSON.stringify(piece === null ? { assetId } : { assetId, piece }));
     ev.dataTransfer.effectAllowed = 'copy';
   };
-  // M3 (packet 57): the publish is disabled until the §8.5.1 role mapping is
+  // The publish is disabled until the role mapping is
   // complete (every role bound + the entity chosen) — the command would be
   // `field_missing` / stage-3 refused otherwise.
   const roleIncomplete =

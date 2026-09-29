@@ -1,5 +1,5 @@
 /**
- * Phase 24.8: the pure schemaVersion 2 → 3 upgrade (`upgradeProjectDocsV24`)
+ * The pure schemaVersion 2 → 3 upgrade (`upgradeProjectDocsV24`)
  * and the validators' refusal of removed game data.
  */
 import { describe, it, expect } from 'vitest';

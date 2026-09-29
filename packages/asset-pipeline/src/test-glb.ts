@@ -111,7 +111,7 @@ export function uint32(values: readonly number[]): Uint8Array {
   return out;
 }
 
-/** The §18.6 metric shape with every cap satisfied (the accepted-model baseline). */
+/** The metric shape with every cap satisfied (the accepted-model baseline). */
 export function metricBaseline(overrides: Partial<AssetMetrics>): AssetMetrics {
   return {
     nodes: 1,

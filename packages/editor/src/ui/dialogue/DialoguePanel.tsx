@@ -1,5 +1,5 @@
 /**
- * Phase 23.16: the Dialogue window (bottom dock) — the project's
+ * The Dialogue window (bottom dock) — the project's
  * conversations (create, rename, delete, open the "Dialogue: <name>" tab),
  * the speaker registry (name, name-plate colour, portraits per expression,
  * default expression, voice profile, text blip) and the dialogue settings

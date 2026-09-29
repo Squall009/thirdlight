@@ -1,5 +1,5 @@
 /**
- * Phase 14.6: `setAssetOptions {clipsFor}` marks an animation-only model as
+ * `setAssetOptions {clipsFor}` marks an animation-only model as
  * clips for another model's rig (null clears it), one undo step; the
  * resulting-state check refuses the asset itself, a missing rig, a rig that
  * is itself clips-only and a bad value.

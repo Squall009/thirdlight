@@ -1,9 +1,9 @@
 /**
- * Phase 23.7: the Libraries list (bottom dock) — the project's shared script
+ * The Libraries list (bottom dock) — the project's shared script
  * libraries: create (a name → an id, imported as `@lib/<id>`), rename, delete
  * and open (the "Library: <name>" centre tab). Each action is one command
  * (setScriptLibrary, deleteScriptLibrary — refused while a published script
- * imports the library). Phase 25.9: "Save all" commits every library with
+ * imports the library). "Save all" commits every library with
  * unsaved edits at once (staged in several patches, one commit: one
  * revision, one undo, each importing script compiled once).
  *
@@ -21,9 +21,9 @@ interface Props {
   dependents: (libraryId: string) => readonly string[];
   openId: string | null;
   error: string | null;
-  /** Phase 25.9: the libraries with unsaved edits in their tabs. */
+  /** The libraries with unsaved edits in their tabs. */
   dirty: readonly string[];
-  /** Phase 25.9: the last "Save all" outcome. */
+  /** The last "Save all" outcome. */
   saveAll: LibrarySaveOutcome | { kind: 'working' } | null;
   onSaveAll: (acknowledge: boolean) => void;
   onOpen: (libraryId: string) => void;

@@ -1,11 +1,10 @@
 /**
- * Transform-mapping tests (pure; runtime.md §6).
+ * Transform-mapping tests (pure).
  *
  * Unit-level: exercises the adapter's sync helper against real three.js
  * Object3Ds WITHOUT a WebGL context — it proves the mapping math
  * (position/quaternion/scale copy, three.js [x,y,z,w] quaternion order),
- * not rendering (mocks alone do not establish integration success —
- * the browser step is recorded separately in docs/handoffs/08.md).
+ * not rendering (mocks alone do not establish integration success).
  */
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';

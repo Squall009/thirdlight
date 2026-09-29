@@ -1,21 +1,21 @@
 /**
- * Public types — commands.md §2–§9 (M1).
+ * Public types.
  *
- * These are the command-layer wire shapes: the mutation request envelope
- * (§3), the mutation success/failure results (§5.1/§5.2), the structured
- * error model (§5.4), the change data (§5.3), the inverse specs and the
- * in-memory history model (§9.1), and the per-project command state the
+ * These are the command-layer wire shapes: the mutation request envelope,
+ * the mutation success/failure results, the structured
+ * error model, the change data, the inverse specs and the
+ * in-memory history model, and the per-project command state the
  * pure apply function works on.
  *
- * Ownership (commands.md §1, workspace.md §1): this package owns command
- * semantics only. Request canonicalization/digests (§6.6), durable retry
- * records (§7.1), the revision's durable storage, and project resolution
- * belong to the workspace package (packet 07). Nothing here touches the
- * filesystem, transport, UI, or three.js (dependencies.md §4.1: the only
- * allowed edge is project-model).
+ * Ownership: this package owns command
+ * semantics only. Request canonicalization/digests, durable retry
+ * records, the revision's durable storage, and project resolution
+ * belong to the workspace package. Nothing here touches the
+ * filesystem, transport, UI, or three.js (the only allowed edge is
+ * project-model).
  *
  * Runtime inputs to the public entry points are `unknown` where marked:
- * the strict validators re-check every rule (contract strictness, §3);
+ * the strict validators re-check every rule (contract strictness);
  * TypeScript types alone never make a value safe.
  */
 
@@ -66,7 +66,7 @@ export type { EntityHeader, EntityHeaderField, PartialTransformArgs, BoxArgs, Mo
 
 // ---- ops and origins --------------------------------------------------------
 
-/** The five M1 mutation ops (commands.md §2). Queries are workspace-served (packet 07). */
+/** The five entity/history mutation ops. Queries are workspace-served. */
 export type M1MutationOp =
   | 'createEntity'
   | 'setTransform'
@@ -75,8 +75,8 @@ export type M1MutationOp =
   | 'redo';
 
 /**
- * The non-prefab M2 content/property mutation ops (commands.md §2/§8.5–§8.12,
- * packet 21). Prefab ops (`createPrefab`, `instantiatePrefab`) are packet 22.
+ * The non-prefab content/property mutation ops. Prefab ops (`createPrefab`,
+ * `instantiatePrefab`) are listed separately.
  */
 export type ContentMutationOp =
   | 'publishAsset'
@@ -87,16 +87,15 @@ export type ContentMutationOp =
   | 'acknowledgeBehaviorTrust';
 
 /**
- * The prefab M2 mutation ops (commands.md §2/§8.6–§8.7, packet 22).
+ * The prefab mutation ops.
  * `createPrefab` captures an immutable definition; `instantiatePrefab`
  * materializes independent copies in ONE transaction.
  */
 export type PrefabMutationOp = 'createPrefab' | 'instantiatePrefab';
 
 /**
- * The v3 presentation mutation ops (commands.md §2/§8.13, packet 45):
- * `applySurfacePreset` copies a preset row. Phase 24.7: `setGameConfig` and
- * `setFlow` were deleted with the game block and the level flow.
+ * The v3 presentation mutation ops:
+ * `applySurfacePreset` copies a preset row.
  */
 export type V3MutationOp =
   | 'applySurfacePreset'
@@ -112,68 +111,68 @@ export type V3MutationOp =
   | 'setAnimator'
   | 'deleteAnimator'
   | 'setInput'
-  // phase 23.3: named collision layers (3D physics)
+  // Named collision layers (3D physics)
   | 'setCollisionLayers'
-  // phase 23.19: the project save schema
+  // The project save schema
   | 'setSaveSchema'
-  // phase 12 (c): the scene index of a v4 project
+  // the scene index of a v4 project
   | 'createScene'
   | 'renameScene'
   | 'deleteScene'
   | 'setStartScenes'
-  // phase 16.1: graphs (standalone graph documents and the generic graph edit)
+  // Graphs (standalone graph documents and the generic graph edit)
   | 'setGraph'
   | 'deleteGraph'
   | 'graphEdit'
-  // phase 20.0: visual effects
+  // Visual effects
   | 'setEffect'
   | 'deleteEffect'
   | 'renameEffect'
-  // phase 23.7: shared script libraries
+  // Shared script libraries
   | 'setScriptLibrary'
   | 'deleteScriptLibrary'
-  // phase 25.9: staged library edits (several patches, one commit)
+  // Staged library edits (several patches, one commit)
   | 'commitScriptLibraryStage'
-  // phase 23.5: block layers
+  // Block layers
   | 'editBlocks'
   | 'setBlockType'
   | 'deleteBlockType'
   | 'setCellFields'
   | 'setBlockStamp'
   | 'deleteBlockStamp'
-  // phase 23.9a: project UI documents and themes
+  // Project UI documents and themes
   | 'setUiDocument'
   | 'deleteUiDocument'
   | 'setUiTheme'
   | 'deleteUiTheme'
-  // phase 23.16: dialogue (conversations, speakers, settings)
+  // Dialogue (conversations, speakers, settings)
   | 'setDialogue'
   | 'deleteDialogue'
   | 'setSpeaker'
   | 'deleteSpeaker'
   | 'setDialogueSettings'
-  // phase 23.10: game modes and behavior groups
+  // Game modes and behavior groups
   | 'setModes'
   | 'setBehaviorGroups'
-  // phase 24.4i: the event → cue table
+  // The event → cue table
   | 'setEventCues'
-  // phase 24.4j: the game shell
+  // The game shell
   | 'setShell'
   | 'deleteUiTheme'
-  // phase 23.17: timelines
+  // timelines
   | 'setTimeline'
   | 'deleteTimeline'
-  // phase 25.7c: remove an asset record / a prefab definition (refused while anything references it)
+  // Remove an asset record / a prefab definition (refused while anything references it)
   | 'deleteAsset'
   | 'deletePrefab'
-  // phase 25.7e: many entities in one transaction (one revision, one undo)
+  // Many entities in one transaction (one revision, one undo)
   | 'createEntities';
 
 /** Every implemented mutation op. */
 export type MutationOp = M1MutationOp | ContentMutationOp | PrefabMutationOp | V3MutationOp;
 
 /**
- * The forward ops that create history entries (undo/redo never do, §9.1).
+ * The forward ops that create history entries (undo/redo never do).
  * Every content/prefab mutation op is forward; its inverse is recorded in the
  * entry.
  */
@@ -185,16 +184,16 @@ export type ForwardOp =
   | PrefabMutationOp
   | V3MutationOp;
 
-/** Request origin (§3): absent ⇒ recorded as `null` in the history entry. */
+/** Request origin: absent ⇒ recorded as `null` in the history entry. */
 export interface Origin {
   kind: 'browser' | 'mcp' | 'admin';
   /** 1–128 chars, no control characters. */
   clientId: string;
 }
 
-// ---- error model (§5.2/§5.4) --------------------------------------------------
+// ---- error model --------------------------------------------------
 
-/** Client policy classes (§5.5). */
+/** Client policy classes. */
 export type ErrorClass =
   | 'conflict'
   | 'validation'
@@ -203,14 +202,14 @@ export type ErrorClass =
   | 'internal';
 
 /**
- * One structured error (§5.2/§5.4).
+ * One structured error.
  *
  * Key order in emitted payloads: `code`, `cls`, then the code-specific
- * fields in §5.4 table order, then (result-scene failures)
+ * fields in error table order, then (result-scene failures)
  * `detailDocument`, `details`, `detailCount`, `detailsTruncated`, then
  * `message`, `hint` — the byte-exact scenario fixtures pin this order.
  *
- * Code-specific fields (present only per the §5.4 "Carries" column):
+ * Code-specific fields (present only where the error table lists them):
  * - `invalid_request`, `field_missing`/`field_unexpected`/`field_type`/
  *   `field_value`: `path` (JSON Pointer into the request), `found`
  *   (bounded), `expected`.
@@ -224,13 +223,13 @@ export type ErrorClass =
  * - `history_empty`: `which` ("undo" | "redo").
  * - `history_invalid`: `requestId` (of the history entry).
  * - result-scene validation failure: `detailDocument: "result-scene"`,
- *   `details` (project-model §12.5 error objects in document order, capped
+ *   `details` (project-model error objects in document order, capped
  *   at 32), `detailCount` (true total), `detailsTruncated` (when capped).
  *
  * The workspace-level codes (`project_not_found`, `project_unavailable`,
  * `workspace_closed`, `request_id_reused`, `external_change_unresolved`,
  * `write_failed`, …) are in `ERROR_CODES` but are constructed by the
- * workspace package (packet 07), never by this pure layer.
+ * workspace package, never by this pure layer.
  */
 export interface CommandError {
   code: string;
@@ -256,7 +255,7 @@ export interface CommandError {
   which?: 'undo' | 'redo';
   /** `history_invalid` only: the requestId of the failed history entry. */
   requestId?: string;
-  // content/property ops (§5.4 rows added by packet 16):
+  // content/property ops:
   assetId?: string;
   assetVersion?: number;
   behaviorId?: string;
@@ -267,7 +266,7 @@ export interface CommandError {
   component?: string;
   entityIds?: readonly string[];
   referencingEntityIds?: readonly string[];
-  // v3 presentation rows (packet 45):
+  // v3 presentation rows:
   /** `animation_role_*` rows: the role key the diagnostic names. */
   role?: string;
   /** `animation_role_out_of_range`/`animation_role_duplicate` rows. */
@@ -277,7 +276,7 @@ export interface CommandError {
   /** `animation_role_duplicate` only: the roles sharing one clip index. */
   roles?: readonly string[];
   sourceDigest?: string;
-  // prefab ops (§5.4 rows, packet 22):
+  // prefab ops:
   prefabId?: string;
   sourceEntityId?: string;
   localId?: string;
@@ -291,13 +290,13 @@ export interface CommandError {
   errno?: unknown;
 }
 
-// ---- change data (§5.3) --------------------------------------------------------
+// ---- change data --------------------------------------------------------
 
 /** `position`/`rotation`/`scale` in canonical order. */
 export type ChangedField = 'position' | 'rotation' | 'scale';
 
 /**
- * The six v3 add-capable components (commands.md §8.10, project-model §23.3).
+ * The six v3 add-capable components.
  * `playerSpawn` is a field-less marker; the rest are partial-replaceable.
  */
 export type V3OwnedComponent =
@@ -305,47 +304,47 @@ export type V3OwnedComponent =
   | 'light'
   | 'surface'
   | 'modelAnimation'
-  /** Phase 12 (c), v4 scenes only: an instance set. */
+  /** v4 scenes only: an instance set. */
   | 'instances'
-  /** Phase 9.4, v4 scenes only: the object's material mapping. */
+  /** v4 scenes only: the object's material mapping. */
   | 'materials'
-  /** Phase 9.5, v4 scenes only: a fog volume. */
+  /** v4 scenes only: a fog volume. */
   | 'fogVolume'
-  /** Phase 23.5, v4 scenes only: a grid of blocks. */
+  /** v4 scenes only: a grid of blocks. */
   | 'blockLayer'
-  /** Phase 23.6, v4 scenes only: the metadata a prop writes into the block cells beneath it. */
+  /** v4 scenes only: the metadata a prop writes into the block cells beneath it. */
   | 'blockFootprint'
-  /** Phase 9.7, v4 scenes only: an animator controller on a model. */
+  /** v4 scenes only: an animator controller on a model. */
   | 'animator'
-  /** Phase 9.9, v4 scenes only: gameplay building blocks. */
+  /** v4 scenes only: gameplay building blocks. */
   | 'mover'
   | 'trigger'
   | 'switch'
   | 'health'
   | 'audioSource'
   | 'faceMovement'
-  /** Phase 18.0, v4 scenes only: overrides of graph-material parameters. */
+  /** v4 scenes only: overrides of graph-material parameters. */
   | 'materialParams'
-  /** Phase 20.0, v4 scenes only: a visual effect played from the entity. */
+  /** v4 scenes only: a visual effect played from the entity. */
   | 'effect'
-  /** Phase 23.4, v4 scenes only: a virtual camera shot and a camera path. */
+  /** v4 scenes only: a virtual camera shot and a camera path. */
   | 'virtualCamera'
   | 'cameraPath'
-  /** Phase 23.11, v4 scenes only: rides on a node of another entity's model. */
+  /** v4 scenes only: rides on a node of another entity's model. */
   | 'socketAttach'
-  /** Phase 23.10, v4 scenes only: the behavior group the entity's behavior belongs to. */
+  /** v4 scenes only: the behavior group the entity's behavior belongs to. */
   | 'behaviorGroup'
-  /** Phase 24.4, v4 scenes only: generic primitives. */
+  /** v4 scenes only: generic primitives. */
   | 'collectible'
   | 'patrol'
   | 'hitbox'
-  /** Phase 25.13, v4 scenes only: a climb volume and a gravity body. */
+  /** v4 scenes only: a climb volume and a gravity body. */
   | 'climbVolume'
   | 'gravity'
-  /** Phase 25.14, v4 scenes only: a camera region. */
+  /** v4 scenes only: a camera region. */
   | 'cameraRegion';
 
-/** Every `setComponent`-owned component (the M2 five plus the six v3 ones). */
+/** Every `setComponent`-owned component (the base five plus the six v3 ones). */
 export type OwnedComponent =
   | 'box'
   | 'camera'
@@ -354,13 +353,13 @@ export type OwnedComponent =
   | 'controller'
   | V3OwnedComponent;
 
-/** The three built-in surface-preset names (project-model §23.3.5). */
+/** The three built-in surface-preset names. */
 export type SurfacePresetName = 'matte-ground' | 'signal-red' | 'emissive-accent';
 
 /**
  * The command layer's asset-version value: the v2 record with the v3
- * `pcm-wav` recipe shape permitted (project-model §23.3.7; the WAV profile
- * itself is packet 41/47's).
+ * `pcm-wav` recipe shape permitted (the WAV profile itself is checked by
+ * the model's audio rules).
  */
 export type CommandAssetVersion = Omit<AssetVersion, 'importRecipe'> & {
   importRecipe: ImportRecipe | ImportRecipeV3;
@@ -368,7 +367,7 @@ export type CommandAssetVersion = Omit<AssetVersion, 'importRecipe'> & {
 
 /**
  * The command layer's asset record: the v2 record widened to the v3 `kind`
- * discriminator (`model` | `audio`, project-model §23.3.7). A v2 record and a
+ * discriminator (`model` | `audio`). A v2 record and a
  * v3 record are both assignable to it, so one command state carries either.
  */
 export type CommandAssetRecord = Omit<AssetRecord, 'kind' | 'versions'> & {
@@ -382,30 +381,29 @@ export type CommandAssetRecord = Omit<AssetRecord, 'kind' | 'versions'> & {
  * The command layer's per-project content block: the accepted v2
  * {@link ContentCatalog} plus the optional v3 `game` key. The v3 envelope's
  * content block always carries `game` (possibly `null`); its absence is how
- * `serializeCanonical` distinguishes the v2 catalog (project-model
- * §12.2/§23.7). Both directions are assignable, so the workspace's v2 state
+ * `serializeCanonical` distinguishes the v2 catalog. Both directions are assignable, so the workspace's v2 state
  * and a v3 state share this one type.
  *
- * The v3 `AssetRecord.kind` discr iminator and the `pcm-wav` recipe shape are
+ * The v3 `AssetRecord.kind` discriminator and the `pcm-wav` recipe shape are
  * carried by {@link CommandAssetRecord}/{@link CommandAssetVersion}; the v3
  * ops view `assets` through those types (`assetsOf`), so audio records are
  * typed end to end without changing the accepted v2 catalog shape.
  */
 export interface ContentDocument extends ContentCatalog {
-  /** Phase 24.7: the deleted game block (always null; the key goes with the 24.8 format bump). */
+  /** The game block key (always null when present; the engine has no game block). */
   game?: null;
-  /** Phase 12 (b): the project tag registry (ascending bit; absent = none). */
+  /** The project tag registry (ascending bit; absent = none). */
   tags?: TagDefinition[];
 }
 
-/** Phase 12 (c): the scene index (`content.scenes` + `content.startScenes`) before and after. */
+/** The scene index (`content.scenes` + `content.startScenes`) before and after. */
 export interface SetSceneIndexChange {
   type: 'setSceneIndex';
   previous: { scenes: SceneIndexEntry[]; startScenes: string[] };
   next: { scenes: SceneIndexEntry[]; startScenes: string[] };
 }
 
-/** Phase 12 (c): the args of the four scene-index ops, tagged with the op. */
+/** The args of the four scene-index ops, tagged with the op. */
 export type SceneIndexArgs =
   | { op: 'createScene'; sceneId?: string; name: string }
   | { op: 'renameScene'; sceneId: string; name: string }
@@ -426,7 +424,7 @@ export interface SetEnvironmentChange {
   next: EnvironmentConfig | null;
 }
 
-/** Phase 9.7: `setAnimator`/`deleteAnimator` change data (the whole list before and after). */
+/** `setAnimator`/`deleteAnimator` change data (the whole list before and after). */
 export interface SetAnimatorsChange {
   type: 'setAnimators';
   previous: AnimatorController[];
@@ -434,7 +432,7 @@ export interface SetAnimatorsChange {
 }
 
 /**
- * Phase 16.1: the graph a `graphEdit` addresses — an owner kind (where the
+ * The graph a `graphEdit` addresses — an owner kind (where the
  * graph is stored) and the owning document's id. Owner kinds: `graph` (a
  * standalone document in `content.graphs`); later phases add animator
  * controllers, materials, behaviors and effects.
@@ -472,7 +470,7 @@ export interface SetGraphChange {
   next: GraphDocument | null;
 }
 
-/** Phase 20.0: `setEffect`/`deleteEffect`/`renameEffect` change data: one effect before and after (null = none). */
+/** `setEffect`/`deleteEffect`/`renameEffect` change data: one effect before and after (null = none). */
 export interface SetEffectChange {
   type: 'setEffect';
   effectId: string;
@@ -481,7 +479,7 @@ export interface SetEffectChange {
 }
 
 /**
- * Phase 23.7: `setScriptLibrary`/`deleteScriptLibrary` change data: the library
+ * `setScriptLibrary`/`deleteScriptLibrary` change data: the library
  * before and after (null = none) and the published behaviors recompiled
  * against it in the same command (their records before and after).
  */
@@ -494,7 +492,7 @@ export interface SetScriptLibraryChange {
 }
 
 /**
- * Phase 25.9: `commitScriptLibraryStage` change data: every staged library
+ * `commitScriptLibraryStage` change data: every staged library
  * before and after (null = none) and the published behaviors recompiled
  * against the committed set (once each, whatever the number of patches).
  */
@@ -505,7 +503,7 @@ export interface SetScriptLibrariesChange {
 }
 
 /**
- * Phase 23.5: `editBlocks` change data — the layer, the chunks [cx, cz] and
+ * `editBlocks` change data — the layer, the chunks [cx, cz] and
  * regions whose contents changed, and how many cells changed. Compact on
  * purpose (a large fill stays small in events and retry records); clients
  * read the chunks back with `queryBlocks`.
@@ -518,7 +516,7 @@ export interface EditBlocksChange {
   cells: number;
 }
 
-/** Phase 23.5: undo/redo of `editBlocks` — the layer's whole entry before and after (null = none). */
+/** undo/redo of `editBlocks` — the layer's whole entry before and after (null = none). */
 export interface EditBlocksInverse {
   kind: 'editBlocks';
   entityId: string;
@@ -526,7 +524,7 @@ export interface EditBlocksInverse {
   next: import('@thirdlight/project-model').BlockLayerData | null;
 }
 
-/** Phase 23.5: `setBlockType`/`deleteBlockType` change data. */
+/** `setBlockType`/`deleteBlockType` change data. */
 export interface SetBlockTypeChange {
   type: 'setBlockType';
   blockId: string;
@@ -539,7 +537,7 @@ export interface SetBlockTypeInverse {
   restore: import('@thirdlight/project-model').BlockType | null;
 }
 
-/** Phase 23.5: `setCellFields` change data (the whole schema before and after). */
+/** `setCellFields` change data (the whole schema before and after). */
 export interface SetCellFieldsChange {
   type: 'setCellFields';
   previous: import('@thirdlight/project-model').CellField[];
@@ -550,7 +548,7 @@ export interface SetCellFieldsInverse {
   restore: import('@thirdlight/project-model').CellField[];
 }
 
-/** Phase 23.5: `setBlockStamp`/`deleteBlockStamp` change data. */
+/** `setBlockStamp`/`deleteBlockStamp` change data. */
 export interface SetBlockStampChange {
   type: 'setBlockStamp';
   stampId: string;
@@ -563,7 +561,7 @@ export interface SetBlockStampInverse {
   restore: import('@thirdlight/project-model').BlockStamp | null;
 }
 
-/** Phase 23.7: undo of a library op: restore the library and its dependents' records. */
+/** Undo of a library op: restore the library and its dependents' records. */
 export interface SetScriptLibraryInverse {
   kind: 'setScriptLibrary';
   libraryId: string;
@@ -571,7 +569,7 @@ export interface SetScriptLibraryInverse {
   behaviors: { behaviorId: string; restore: BehaviorRecord }[];
 }
 
-/** Phase 25.9: undo of a staged commit: restore every library and the dependents' records. */
+/** Undo of a staged commit: restore every library and the dependents' records. */
 export interface SetScriptLibrariesInverse {
   kind: 'setScriptLibraries';
   libraries: { libraryId: string; restore: import('@thirdlight/project-model').ScriptLibrary | null }[];
@@ -579,7 +577,7 @@ export interface SetScriptLibrariesInverse {
 }
 
 /**
- * Phase 23.9a: `setUiDocument`/`deleteUiDocument`/`setUiTheme`/`deleteUiTheme`
+ * `setUiDocument`/`deleteUiDocument`/`setUiTheme`/`deleteUiTheme`
  * change data: one document or theme before and after (null = none).
  */
 export interface SetUiChange {
@@ -590,53 +588,53 @@ export interface SetUiChange {
   next: UiDocument | UiTheme | null;
 }
 
-/** Phase 23.10: `setModes` change data (the whole list; empty = no modes). */
+/** `setModes` change data (the whole list; empty = no modes). */
 export interface SetModesChange {
   type: 'setModes';
   previous: GameMode[];
   next: GameMode[];
 }
-/** Phase 23.10: undo of `setModes`: restore the previous list. */
+/** Undo of `setModes`: restore the previous list. */
 export interface SetModesInverse {
   kind: 'setModes';
   restore: GameMode[];
 }
-/** Phase 23.10: `setBehaviorGroups` change data (the whole list). */
+/** `setBehaviorGroups` change data (the whole list). */
 export interface SetBehaviorGroupsChange {
   type: 'setBehaviorGroups';
   previous: string[];
   next: string[];
 }
-/** Phase 23.10: undo of `setBehaviorGroups`: restore the previous list. */
+/** Undo of `setBehaviorGroups`: restore the previous list. */
 export interface SetBehaviorGroupsInverse {
   kind: 'setBehaviorGroups';
   restore: string[];
 }
-/** Phase 24.4i: `setEventCues` change data (the whole table). */
+/** `setEventCues` change data (the whole table). */
 export interface SetEventCuesChange {
   type: 'setEventCues';
   previous: import('@thirdlight/project-model').EventCue[];
   next: import('@thirdlight/project-model').EventCue[];
 }
-/** Phase 24.4j: `setShell` change data (null = no shell). */
+/** `setShell` change data (null = no shell). */
 export interface SetShellChange {
   type: 'setShell';
   previous: import('@thirdlight/project-model').GameShell | null;
   next: import('@thirdlight/project-model').GameShell | null;
 }
-/** Phase 24.4j: undo of `setShell`: restore the previous shell (null = none). */
+/** Undo of `setShell`: restore the previous shell (null = none). */
 export interface SetShellInverse {
   kind: 'setShell';
   restore: import('@thirdlight/project-model').GameShell | null;
 }
-/** Phase 24.4i: undo of `setEventCues`: restore the previous table. */
+/** Undo of `setEventCues`: restore the previous table. */
 export interface SetEventCuesInverse {
   kind: 'setEventCues';
   restore: import('@thirdlight/project-model').EventCue[];
 }
 
 
-/** Phase 23.17: `setTimeline`/`deleteTimeline` change data: one timeline before and after (null = none). */
+/** `setTimeline`/`deleteTimeline` change data: one timeline before and after (null = none). */
 export interface SetTimelineChange {
   type: 'setTimeline';
   timelineId: string;
@@ -644,14 +642,14 @@ export interface SetTimelineChange {
   next: TimelineAsset | null;
 }
 
-/** Phase 23.17: undo of a timeline op: restore the previous timeline (null = remove it). */
+/** Undo of a timeline op: restore the previous timeline (null = remove it). */
 export interface SetTimelineInverse {
   kind: 'setTimeline';
   timelineId: string;
   restore: TimelineAsset | null;
 }
 
-/** Phase 23.9a: undo of a UI op: restore the previous document or theme (null = remove it). */
+/** Undo of a UI op: restore the previous document or theme (null = remove it). */
 export interface SetUiInverse {
   kind: 'setUi';
   uiKind: 'document' | 'theme';
@@ -659,12 +657,12 @@ export interface SetUiInverse {
   restore: UiDocument | UiTheme | null;
 }
 
-/** Phase 23.16: what a dialogue op changes: one conversation, one speaker, or the dialogue settings (id ''). */
+/** What a dialogue op changes: one conversation, one speaker, or the dialogue settings (id ''). */
 export type DialogueKind = 'dialogue' | 'speaker' | 'settings';
 type DialogueValueOf = import('@thirdlight/project-model').DialogueDocument | import('@thirdlight/project-model').DialogueSpeaker | import('@thirdlight/project-model').DialogueSettings;
 
 /**
- * Phase 23.16: `setDialogue`/`deleteDialogue`/`setSpeaker`/`deleteSpeaker`/
+ * `setDialogue`/`deleteDialogue`/`setSpeaker`/`deleteSpeaker`/
  * `setDialogueSettings` change data: the value before and after (null = none).
  */
 export interface SetDialogueChange {
@@ -675,7 +673,7 @@ export interface SetDialogueChange {
   next: DialogueValueOf | null;
 }
 
-/** Phase 23.16: undo of a dialogue op: restore the previous value (null = remove it). */
+/** Undo of a dialogue op: restore the previous value (null = remove it). */
 export interface SetDialogueInverse {
   kind: 'setDialogue';
   dialogueKind: DialogueKind;
@@ -683,7 +681,7 @@ export interface SetDialogueInverse {
   restore: DialogueValueOf | null;
 }
 
-/** Phase 20.0: undo of an effect op: restore the previous effect (null = remove it). */
+/** Undo of an effect op: restore the previous effect (null = remove it). */
 export interface SetEffectInverse {
   kind: 'setEffect';
   effectId: string;
@@ -698,28 +696,28 @@ export interface SetGraphInverse {
 }
 
 
-/** Phase 23.3: `setCollisionLayers` change data (the whole list; empty = only "default"). */
+/** `setCollisionLayers` change data (the whole list; empty = only "default"). */
 export interface SetCollisionLayersChange {
   type: 'setCollisionLayers';
   previous: string[];
   next: string[];
 }
 
-/** Phase 23.19: `setSaveSchema` change data (the whole schema; null = no project saves). */
+/** `setSaveSchema` change data (the whole schema; null = no project saves). */
 export interface SetSaveSchemaChange {
   type: 'setSaveSchema';
   previous: import('@thirdlight/project-model').SaveSchema | null;
   next: import('@thirdlight/project-model').SaveSchema | null;
 }
 
-/** Phase 9.8: `setInput` change data (null = the defaults). */
+/** `setInput` change data (null = the defaults). */
 export interface SetInputChange {
   type: 'setInput';
   previous: InputConfig | null;
   next: InputConfig | null;
 }
 
-/** Phase 9.6: `setLighting` change data — one scene's bake (null = none). */
+/** `setLighting` change data — one scene's bake (null = none). */
 export interface SetLightingChange {
   type: 'setLighting';
   sceneId: string;
@@ -734,7 +732,7 @@ export interface PasteEntitiesChange {
 }
 
 /**
- * Phase 25.7c: `deleteAsset` change data: the removed record (the undo puts it
+ * `deleteAsset` change data: the removed record (the undo puts it
  * back as a `publishAsset` change with `previous: null`).
  */
 export interface RemoveAssetChange {
@@ -758,7 +756,7 @@ export interface SetTagsChange {
   next: TagDefinition[];
 }
 
-/** `publishAsset` change data (commands.md §5.3/§8.5). */
+/** `publishAsset` change data. */
 export interface PublishAssetChange {
   type: 'publishAsset';
   mode: 'create' | 'reimport';
@@ -767,17 +765,17 @@ export interface PublishAssetChange {
   previous: CommandAssetRecord | null;
   next: CommandAssetRecord | null;
   /**
-   * `publishAsset{animation}` only (commands.md §8.5.1): the entity's full
+   * `publishAsset{animation}` only: the entity's full
    * `modelAnimation` component (assetId, version, roles) moved atomically
    * with the record — on reimport `version` advances to the newly appended
    * version and `roles` is replaced with the submitted mapping. Full
    * components (not roles only) so the inverse restores the previous version
-   * binding exactly and the recorded-value rule (§9.1) re-applies it.
+   * binding exactly and the recorded-value rule re-applies it.
    */
   animation?: { entityId: string; previous: ModelAnimationComponentValue; next: ModelAnimationComponentValue };
 }
 
-/** `publishBehavior` change data (commands.md §5.3/§8.8). */
+/** `publishBehavior` change data. */
 export interface PublishBehaviorChange {
   type: 'publishBehavior';
   behaviorId: string;
@@ -786,7 +784,7 @@ export interface PublishBehaviorChange {
   next: BehaviorRecord | null;
 }
 
-/** `setBehaviorProperties` change data (commands.md §5.3/§8.9). */
+/** `setBehaviorProperties` change data. */
 export interface SetBehaviorPropertiesChange {
   type: 'setBehaviorProperties';
   id: string;
@@ -797,7 +795,7 @@ export interface SetBehaviorPropertiesChange {
   changedKeys: readonly string[];
 }
 
-/** `setComponent` change data (commands.md §5.3/§8.10). */
+/** `setComponent` change data. */
 export interface SetComponentChange {
   type: 'setComponent';
   id: string;
@@ -809,7 +807,7 @@ export interface SetComponentChange {
   changedFields: readonly string[];
 }
 
-/** `applySurfacePreset` change data (commands.md §5.3/§8.13, authoring §A4.2). */
+/** `applySurfacePreset` change data. */
 export interface ApplySurfacePresetChange {
   type: 'applySurfacePreset';
   id: string;
@@ -822,7 +820,7 @@ export interface ApplySurfacePresetChange {
 }
 
 
-/** `setSettings` change data (commands.md §5.3/§8.11). */
+/** `setSettings` change data. */
 export interface SetSettingsChange {
   type: 'setSettings';
   /** Full maps. */
@@ -832,7 +830,7 @@ export interface SetSettingsChange {
   changedKeys: readonly string[];
 }
 
-/** `acknowledgeBehaviorTrust` change data (commands.md §5.3/§8.12). */
+/** `acknowledgeBehaviorTrust` change data. */
 export interface AcknowledgeBehaviorTrustChange {
   type: 'acknowledgeBehaviorTrust';
   sourceDigest: string;
@@ -841,7 +839,7 @@ export interface AcknowledgeBehaviorTrustChange {
   next: readonly TrustEntry[];
 }
 
-/** `createPrefab` change data (commands.md §5.3/§8.6.4). */
+/** `createPrefab` change data. */
 export interface CreatePrefabChange {
   type: 'createPrefab';
   prefabId: string;
@@ -849,13 +847,13 @@ export interface CreatePrefabChange {
   definition: PrefabDefinition;
 }
 
-/** Undo of a `createPrefab` (never a forward operation, §5.3). */
+/** Undo of a `createPrefab` (never a forward operation). */
 export interface RemovePrefabChange {
   type: 'removePrefab';
   prefabId: string;
 }
 
-/** One created entity of an instantiation, at its insertion index (§8.7.6). */
+/** One created entity of an instantiation, at its insertion index. */
 export interface InstantiatePrefabEntry {
   /** The pre-insertion `entities` length plus this entry's document-order offset. */
   index: number;
@@ -863,7 +861,7 @@ export interface InstantiatePrefabEntry {
   entity: EntityV3;
 }
 
-/** `instantiatePrefab` change data (commands.md §5.3/§8.7.6). */
+/** `instantiatePrefab` change data. */
 export interface InstantiatePrefabChange {
   type: 'instantiatePrefab';
   prefabId: string;
@@ -901,7 +899,7 @@ export interface SetTransformChange {
  * (parent-before-child order), `order` carries the full entity-id order
  * before and after; otherwise it is null. A reparent keeps the entity's
  * world transform: when that changes its local transform, `transform`
- * carries both (absent otherwise, and in records written before phase 12).
+ * carries both (absent otherwise, and in older records).
  */
 export interface UpdateEntityChange {
   type: 'updateEntity';
@@ -921,7 +919,7 @@ export interface MovedEntity {
 }
 
 /**
- * `moveEntities` (phase 12): file one or more entities (with their subtrees)
+ * `moveEntities`: file one or more entities (with their subtrees)
  * under a parent, before a sibling or at the end, keeping world transforms.
  * `order` is the full entity-id order before and after.
  */
@@ -947,7 +945,7 @@ export interface RestoreSubtreeChange {
   entities: readonly EntityV3[];
 }
 
-/** Structured change data (§5.3). A client projection updates from this alone. */
+/** Structured change data. A client projection updates from this alone. */
 export type ChangeData =
   | CreateEntityChange
   | SetTransformChange
@@ -1042,7 +1040,7 @@ export type ForwardChange =
   | SetUiChange
   | SetTimelineChange;
 
-// ---- inverse specs (§9.1) --------------------------------------------------------
+// ---- inverse specs --------------------------------------------------------
 
 export interface DeleteInverse {
   kind: 'delete';
@@ -1069,7 +1067,7 @@ export interface RestoreSubtreeInverse {
   entries: readonly RestoreSubtreeEntry[];
   /** The root's parent (or null); the parent always survives subtree deletion. */
   restoredParentId: string | null;
-  /** Phase 23.5: the deleted block layers' cells and regions (absent: none). */
+  /** The deleted block layers' cells and regions (absent: none). */
   blocks?: import('@thirdlight/project-model').BlockLayerData[];
 }
 
@@ -1116,20 +1114,20 @@ export interface AcknowledgeBehaviorTrustInverse {
   restore: readonly TrustEntry[];
 }
 
-/** Phase 25.7c: `deletePrefab` inverse: put the removed definition back (its undo is a `createPrefab` change). */
+/** `deletePrefab` inverse: put the removed definition back (its undo is a `createPrefab` change). */
 export interface RestorePrefabInverse {
   kind: 'restorePrefab';
   prefabId: string;
   definition: PrefabDefinition;
 }
 
-/** `createPrefab` inverse: remove the created definition (§9.1). */
+/** `createPrefab` inverse: remove the created definition. */
 export interface RemovePrefabInverse {
   kind: 'removePrefab';
   prefabId: string;
 }
 
-/** The inverse of a forward entry (§9.1). */
+/** The inverse of a forward entry. */
 /** Undo of an `updateEntity`: restore the header (and the entity order). */
 export interface UpdateEntityInverse {
   kind: 'updateEntity';
@@ -1166,13 +1164,13 @@ export interface SetAnimatorsInverse {
 }
 
 
-/** Phase 23.3: undo of `setCollisionLayers`: restore the previous list. */
+/** Undo of `setCollisionLayers`: restore the previous list. */
 export interface SetCollisionLayersInverse {
   kind: 'setCollisionLayers';
   restore: string[];
 }
 
-/** Phase 23.19: undo of `setSaveSchema`: restore the previous schema (null = none). */
+/** Undo of `setSaveSchema`: restore the previous schema (null = none). */
 export interface SetSaveSchemaInverse {
   kind: 'setSaveSchema';
   restore: import('@thirdlight/project-model').SaveSchema | null;
@@ -1259,10 +1257,10 @@ export type InverseSpec =
   | RestorePrefabInverse
 ;
 
-// ---- history model (§9.1) --------------------------------------------------------
+// ---- history model --------------------------------------------------------
 
 /**
- * One history entry. Per project, in memory only (M1, §9.1/§9.2); `seq` is a
+ * One history entry. Per project, in memory only; `seq` is a
  * per-session diagnostic counter, not part of any durable record.
  */
 export interface HistoryEntry {
@@ -1274,19 +1272,19 @@ export interface HistoryEntry {
   origin: Origin | null;
   /** The revision this forward command produced. */
   appliedRevision: number;
-  /** Forward change data (§5.3). */
+  /** Forward change data. */
   change: ForwardChange;
-  /** Inverse spec (§9.1). */
+  /** Inverse spec. */
   inverse: InverseSpec;
   /**
-   * Phase 12 (c): the scene the entry edited in a v4 project (set by the
+   * The scene the entry edited in a v4 project (set by the
    * workspace; absent for content-only entries and in v1–v3).
    */
   sceneId?: string;
 }
 
 /**
- * The history stack (§9.1): `entries[0..n-1]` with cursor `c`;
+ * The history stack: `entries[0..n-1]` with cursor `c`;
  * entries below `c` are applied, entries at or above `c` are undone (the
  * redo tail). Fresh edits truncate `entries[c..n-1]`.
  */
@@ -1298,7 +1296,7 @@ export interface HistoryState {
   seq: number;
 }
 
-/** Depths reported in results and queries (§5.1, §5.6). */
+/** Depths reported in results and queries. */
 export interface HistoryDepths {
   undoDepth: number;
   redoDepth: number;
@@ -1310,26 +1308,25 @@ export interface HistoryDepths {
  * A scene document the command layer can carry: a v4 scene (one of a
  * project's scene files — what the workspace edits) or a v3 scene (edited
  * the same way; kept for the v3 test corpus and the v3 → v4 upgrade path).
- * The M1/M2 scenes were removed in phase 9.3.
  */
 export type SceneDocument = SceneV3 | SceneV4;
 
 /**
  * The per-project in-memory state the pure apply function operates on.
- * `scene` must be a VALID canonical scene (project-model §12.2) — the
- * workspace service (packet 07) guarantees this at load and after every
+ * `scene` must be a VALID canonical scene — the
+ * workspace service guarantees this at load and after every
  * published mutation; the command layer re-validates only RESULT documents.
  *
- * `content` is the project's content block (project-model §18/§23.4; for a v4
- * project the whole project's block). When absent it is treated as the empty
+ * `content` is the project's content block (for a v4 project the whole
+ * project's block). When absent it is treated as the empty
  * v3 catalog. `manifest` is the v1 manifest of a v3 state when the caller
  * has one: with it, a v3 result is validated by the three-block
- * `validateProjectV3` (project-model §13.2).
+ * `validateProjectV3`.
  */
 export interface CommandState<S extends SceneDocument = SceneDocument> {
   scene: S;
   /**
-   * Phase 12 (c): in a v4 project `scene` is the one scene an edit touches;
+   * In a v4 project `scene` is the one scene an edit touches;
    * these are the entity ids of the project's other scenes (ids are unique
    * across the project, so none of them is ever minted).
    */
@@ -1338,25 +1335,25 @@ export interface CommandState<S extends SceneDocument = SceneDocument> {
   manifest?: Manifest;
   history: HistoryState;
   /**
-   * True when the host has registered a behavior-source preparer (packet 33;
-   * the workspace injects a compiler). Absent/false keeps the §22.6
-   * structural refusal `behavior_publication_unavailable`
+   * True when the host has registered a behavior-source preparer (the
+   * workspace injects a compiler). Absent/false keeps the structural
+   * refusal `behavior_publication_unavailable`
    * (`reason: "preparer_unavailable"`).
    */
   behaviorPreparerRegistered?: boolean;
   /**
-   * The digest-bound prepared results the preparer derived from durable bytes
-   * (project-model.md §22.4.1), keyed by `sourceDigest`. The `publishBehavior`
+   * The digest-bound prepared results the preparer derived from durable
+   * bytes, keyed by `sourceDigest`. The `publishBehavior`
    * source branch reads ONLY these facts — never a caller-supplied record
    * field — so no unchecked write path exists.
    */
   preparedBehaviorSources?: ReadonlyMap<string, PreparedBehaviorSourceFact>;
-  /** Phase 25.9: the host's staged library edit sets by stageId (`commitScriptLibraryStage` reads only these). */
+  /** The host's staged library edit sets by stageId (`commitScriptLibraryStage` reads only these). */
   scriptLibraryStages?: ReadonlyMap<string, ScriptLibraryStageFact>;
 }
 
 /**
- * One prepared behavior-source fact set (project-model.md §22.4.1): every
+ * One prepared behavior-source fact set: every
  * field is derived by the preparer from the durable container bytes and the
  * compiled output. Structurally identical to `behavior-build`'s
  * `PreparedBehaviorSource` (commands holds no edge to that Node-side unit).
@@ -1373,18 +1370,18 @@ export interface PreparedBehaviorSourceFact {
   requiredModules: string[];
   ownedTransforms: string[];
   declaration: PropertyDeclaration;
-  /** Phase 15.4: the declaration was derived from `export const properties` in the code. */
+  /** The declaration was derived from `export const properties` in the code. */
   declaredInCode?: true;
-  /** Phase 19.0: the source was generated from a visual-script graph. */
+  /** The source was generated from a visual-script graph. */
   sourceKind?: 'graph';
-  /** Phase 23.7: the script library versions the output links (absent when none). */
+  /** The script library versions the output links (absent when none). */
   libraries?: { libraryId: string; sourceDigest: string }[];
   declarationDigest: string;
   recipeDigest: string;
   compiler: { id: string; version: string; esbuild: string; typescript: string };
 }
 
-// ---- mutation request envelopes (§3) ----------------------------------------------
+// ---- mutation request envelopes ----------------------------------------------
 
 /**
  * `setAssetOptions`: per-asset render options. `vertexColors` (model only):
@@ -1406,9 +1403,9 @@ export interface PasteEntitiesArgs {
 export interface SetAssetOptionsArgs {
   assetId: string;
   vertexColors?: 'data' | 'tint';
-  /** Phase 9.4: the default material mapping of every placement (null = none). */
+  /** The default material mapping of every placement (null = none). */
   materials?: Record<string, string> | null;
-  /** Phase 14.6: an animation-only file whose clips play on this model asset's rig (null = its clips are its own). */
+  /** An animation-only file whose clips play on this model asset's rig (null = its clips are its own). */
   clipsFor?: string | null;
 }
 
@@ -1422,7 +1419,7 @@ export interface DeleteEntityArgs {
 }
 
 /**
- * `setTags` (phase 12 b): the whole tag registry. An entry with `bit` keeps
+ * `setTags`: the whole tag registry. An entry with `bit` keeps
  * that bit (a rename keeps the bit); an entry without one gets the lowest
  * free bit. A tag an entity still carries cannot be left out.
  */
@@ -1431,7 +1428,7 @@ export interface SetTagsArgs {
 }
 
 /**
- * `moveEntities` (phase 12): up to 64 entities, moved with their subtrees
+ * `moveEntities`: up to 64 entities, moved with their subtrees
  * under `parentId` (null = root), just before the sibling `beforeId` or
  * (absent/null) after the parent's last child. World transforms are kept.
  */
@@ -1446,13 +1443,13 @@ export interface EmptyArgs {
   // intentionally empty — any field is rejected (field_unexpected)
 }
 
-/** §41.3.1 one rigid animation role binding. */
+/** One rigid animation role binding. */
 export interface AnimationRoleBindingValue {
   clipIndex: number;
   clipName: string;
 }
 
-/** §41.3.1 the three role keys, all required, in canonical order. */
+/** The three role keys, all required, in canonical order. */
 export interface ModelAnimationRolesValue {
   idle: AnimationRoleBindingValue;
   run: AnimationRoleBindingValue;
@@ -1460,11 +1457,10 @@ export interface ModelAnimationRolesValue {
 }
 
 /**
- * project-model §23.3.6 the full `components.modelAnimation` component.
+ * The full `components.modelAnimation` component.
  * The binding is owned by that `(assetId, version)`: a `roles` value is only
  * valid against the clip list of the version it is recorded with, so the
- * atomic reimport moves `version` and `roles` together (commands.md §8.5.1,
- * presentation.md §41.3.1/§41.3.4 — CC-L-1 repair, Gate L).
+ * atomic reimport moves `version` and `roles` together.
  */
 export interface ModelAnimationComponentValue {
   assetId: string;
@@ -1472,13 +1468,13 @@ export interface ModelAnimationComponentValue {
   roles: ModelAnimationRolesValue;
 }
 
-/** commands.md §8.5.1: the version-local mapping moved with a reimport. */
+/** The version-local mapping moved with a reimport. */
 export interface PublishAssetAnimation {
   entityId: string;
   roles: ModelAnimationRolesValue;
 }
 
-/** `publishAsset` args (commands.md §3.1.1/§8.5; workspace.md §13.3.1). */
+/** `publishAsset` args. */
 export interface PublishAssetArgs {
   mode: 'create' | 'reimport';
   assetId: string;
@@ -1493,29 +1489,29 @@ export interface PublishAssetArgs {
   sourcePath?: string;
   /** The original a converted model was made from (FBX). */
   convertedFrom?: ConvertedFrom;
-  /** Phase 25.21: a texture packed from texture assets (channel by channel, layer by layer). */
+  /** A texture packed from texture assets (channel by channel, layer by layer). */
   packedFrom?: PackedFrom;
   importRecipe: ImportRecipe | ImportRecipeV3;
   metrics: AssetMetrics;
-  /** project-model §7.2 timestamp; a prepared fact (see handoff 21 C21-2). */
+  /** A project-model timestamp; a prepared fact. */
   importedAt: string;
-  /** Atomic version-local role mapping (commands.md §8.5.1). */
+  /** Atomic version-local role mapping. */
   animation?: PublishAssetAnimation;
 }
 
-/** `publishBehavior` args (commands.md §3.1.4/§8.8). */
+/** `publishBehavior` args. */
 export interface PublishBehaviorArgs {
   behaviorId: string;
   displayName: string;
   mode: 'declaration-create' | 'declaration-update' | 'source';
   declaration: PropertyDeclaration;
-  /** Only with `mode: "source"` (unavailable in M2). */
+  /** Only with `mode: "source"`. */
   source?: { sourceDigest: string; sourceByteLength: number };
-  /** Phase 19.0: only with `mode: "declaration-create"` — the new behavior is a visual script with this graph. */
+  /** Only with `mode: "declaration-create"` — the new behavior is a visual script with this graph. */
   graph?: GraphData;
 }
 
-/** `setBehaviorProperties` args (commands.md §3.1.5/§8.9). */
+/** `setBehaviorProperties` args. */
 export interface SetBehaviorPropertiesArgs {
   entityId: string;
   /** `null` removes the component. */
@@ -1524,34 +1520,34 @@ export interface SetBehaviorPropertiesArgs {
   values?: Record<string, PropertyValue>;
 }
 
-/** `setComponent` args (commands.md §3.1.6/§8.10). */
+/** `setComponent` args. */
 export interface SetComponentArgs {
   entityId: string;
   component: OwnedComponent;
   /** Non-empty partial object of that component's fields; `null` removes an
-   *  add-capable component (the M2 physics pair and the six v3 ones) and is
+   *  add-capable component (the collider/controller pair and the six v3 ones) and is
    *  never a removal for `box`/`camera`/`model`. */
   value: Record<string, unknown> | null;
 }
 
-/** `applySurfacePreset` args (commands.md §3.1.9/§8.13). */
+/** `applySurfacePreset` args. */
 export interface ApplySurfacePresetArgs {
   entityId: string;
   preset: SurfacePresetName;
 }
 
-/** `setSettings` args (commands.md §3.1.7/§8.11). */
+/** `setSettings` args. */
 export interface SetSettingsArgs {
   /** Non-empty partial map over the declared keys. */
   settings: SettingsMap;
 }
 
-/** `acknowledgeBehaviorTrust` args (commands.md §3.1.8/§8.12). */
+/** `acknowledgeBehaviorTrust` args. */
 export interface AcknowledgeBehaviorTrustArgs {
   sourceDigest: string;
 }
 
-/** `createPrefab` args (commands.md §3.1.2/§8.6.1). */
+/** `createPrefab` args. */
 export interface CreatePrefabArgs {
   /** ID syntax; not already in `content.prefabs`. */
   prefabId: string;
@@ -1561,14 +1557,14 @@ export interface CreatePrefabArgs {
   sourceEntityId: string;
 }
 
-/** One declared-property override at instantiation (commands.md §8.7.3). */
+/** One declared-property override at instantiation. */
 export interface PropertyOverride {
   localId: string;
   key: string;
   value: PropertyValue;
 }
 
-/** `instantiatePrefab` args (commands.md §3.1.3/§8.7.1). */
+/** `instantiatePrefab` args. */
 export interface InstantiatePrefabArgs {
   /** Existing definition. */
   prefabId: string;
@@ -1580,30 +1576,30 @@ export interface InstantiatePrefabArgs {
   overrides?: readonly PropertyOverride[];
 }
 
-/** Phase 16.1: `setGraph` creates or replaces one standalone graph document (by graphId). */
+/** `setGraph` creates or replaces one standalone graph document (by graphId). */
 export interface SetGraphArgs {
   graph: GraphDocument;
 }
 
-/** Phase 16.1: `deleteGraph` removes one standalone graph document. */
+/** `deleteGraph` removes one standalone graph document. */
 export interface DeleteGraphArgs {
   graphId: string;
 }
 
 /**
- * Phase 23.7: `setScriptLibrary` creates a library or patches one: `files`
+ * `setScriptLibrary` creates a library or patches one: `files`
  * lists the files to add or replace (`text: null` removes one; files not
  * mentioned are kept); `name` is required for a new library.
  */
 export type SetScriptLibraryArgs = import('@thirdlight/project-model').ScriptLibraryPatch;
 
-/** Phase 23.7: `deleteScriptLibrary` removes one (refused while a published behavior imports it). */
+/** `deleteScriptLibrary` removes one (refused while a published behavior imports it). */
 export interface DeleteScriptLibraryArgs {
   libraryId: string;
 }
 
 /**
- * Phase 25.9: `commitScriptLibraryStage` commits a staged set of library
+ * `commitScriptLibraryStage` commits a staged set of library
  * edits (built from several patches held by the host, see
  * `ScriptLibraryStageFact`) as one change: one revision, one undo, the
  * dependents recompiled once against the committed set.
@@ -1613,7 +1609,7 @@ export interface CommitScriptLibraryStageArgs {
 }
 
 /**
- * Phase 25.9: one staged edit set as the host holds it (never caller input
+ * One staged edit set as the host holds it (never caller input
  * to the command): each library's whole staged value and the digest of the
  * stored library it was staged on (null: a new library). A library changed
  * since it was staged refuses the commit.
@@ -1622,79 +1618,79 @@ export interface ScriptLibraryStageFact {
   readonly libraries: readonly { readonly libraryId: string; readonly base: string | null; readonly library: import('@thirdlight/project-model').ScriptLibrary }[];
 }
 
-/** Phase 23.9a: `setUiDocument` creates or replaces one UI document (by uiDocumentId). */
+/** `setUiDocument` creates or replaces one UI document (by uiDocumentId). */
 export interface SetUiDocumentArgs {
   document: UiDocument;
 }
-/** Phase 23.9a: `deleteUiDocument` removes one (refused while another document or flow.screens names it). */
+/** `deleteUiDocument` removes one (refused while another document or flow.screens names it). */
 export interface DeleteUiDocumentArgs {
   uiDocumentId: string;
 }
-/** Phase 23.9a: `setUiTheme` creates or replaces one UI theme (by uiThemeId). */
+/** `setUiTheme` creates or replaces one UI theme (by uiThemeId). */
 export interface SetUiThemeArgs {
   theme: UiTheme;
 }
-/** Phase 23.9a: `deleteUiTheme` removes one (refused while a document uses it). */
+/** `deleteUiTheme` removes one (refused while a document uses it). */
 export interface DeleteUiThemeArgs {
   uiThemeId: string;
 }
-/** Phase 23.10: `setModes` replaces the game modes (the first is the start mode). */
+/** `setModes` replaces the game modes (the first is the start mode). */
 export interface SetModesArgs {
   modes: GameMode[];
 }
-/** Phase 23.10: `setBehaviorGroups` replaces the behavior group names. */
+/** `setBehaviorGroups` replaces the behavior group names. */
 export interface SetBehaviorGroupsArgs {
   groups: string[];
 }
-/** Phase 24.4j: `setShell` replaces the game shell (null: none). */
+/** `setShell` replaces the game shell (null: none). */
 export interface SetShellArgs {
   shell: import('@thirdlight/project-model').GameShell | null;
 }
-/** Phase 24.4i: `setEventCues` replaces the event → cue table. */
+/** `setEventCues` replaces the event → cue table. */
 export interface SetEventCuesArgs {
   cues: import('@thirdlight/project-model').EventCue[];
 }
 
-/** Phase 23.16: `setDialogue` creates or replaces one conversation (by dialogueId; absent graph = a new one's Start node, or the stored graph when renaming). */
+/** `setDialogue` creates or replaces one conversation (by dialogueId; absent graph = a new one's Start node, or the stored graph when renaming). */
 export interface SetDialogueArgs {
   dialogue: { dialogueId: string; name: string; graph?: import('@thirdlight/project-model').GraphData };
 }
-/** Phase 23.16: `deleteDialogue` removes one (refused while a Jump names it). */
+/** `deleteDialogue` removes one (refused while a Jump names it). */
 export interface DeleteDialogueArgs {
   dialogueId: string;
 }
-/** Phase 23.16: `setSpeaker` creates or replaces one speaker (by speakerId). */
+/** `setSpeaker` creates or replaces one speaker (by speakerId). */
 export interface SetSpeakerArgs {
   speaker: import('@thirdlight/project-model').DialogueSpeaker;
 }
-/** Phase 23.16: `deleteSpeaker` removes one (refused while a line names it). */
+/** `deleteSpeaker` removes one (refused while a line names it). */
 export interface DeleteSpeakerArgs {
   speakerId: string;
 }
-/** Phase 23.16: `setDialogueSettings` replaces the dialogue settings (null = the defaults). */
+/** `setDialogueSettings` replaces the dialogue settings (null = the defaults). */
 export interface SetDialogueSettingsArgs {
   settings: import('@thirdlight/project-model').DialogueSettings | null;
 }
 
-/** Phase 23.17: `setTimeline` creates or replaces one timeline (by timelineId). */
+/** `setTimeline` creates or replaces one timeline (by timelineId). */
 export interface SetTimelineArgs {
   timeline: TimelineAsset;
 }
-/** Phase 23.17: `deleteTimeline` removes one timeline. */
+/** `deleteTimeline` removes one timeline. */
 export interface DeleteTimelineArgs {
   timelineId: string;
 }
 
-/** Phase 25.7c: `deleteAsset` removes one asset record (refused while anything references it; its stored bytes stay). */
+/** `deleteAsset` removes one asset record (refused while anything references it; its stored bytes stay). */
 export interface DeleteAssetArgs {
   assetId: string;
 }
-/** Phase 25.7c: `deletePrefab` removes one prefab definition (refused while a copy or anything else references it). */
+/** `deletePrefab` removes one prefab definition (refused while a copy or anything else references it). */
 export interface DeletePrefabArgs {
   prefabId: string;
 }
 /**
- * Phase 25.7e: `createEntities` creates several entities in one transaction
+ * `createEntities` creates several entities in one transaction
  * (one revision, one undo). Each item is a `createEntity` request's args
  * without `children`; `ref` (unique in the batch) lets a later item name an
  * earlier one as its `parentId`.
@@ -1703,39 +1699,39 @@ export interface CreateEntitiesArgs {
   entities: (CreateEntityArgs & { ref?: string })[];
 }
 
-/** Phase 20.0: `setEffect` creates or replaces one effect (by effectId). */
+/** `setEffect` creates or replaces one effect (by effectId). */
 export interface SetEffectArgs {
   effect: EffectDef;
 }
 
-/** Phase 20.0: `deleteEffect` removes one effect. */
+/** `deleteEffect` removes one effect. */
 export interface DeleteEffectArgs {
   effectId: string;
 }
 
-/** Phase 20.0: `renameEffect` changes one effect's name. */
+/** `renameEffect` changes one effect's name. */
 export interface RenameEffectArgs {
   effectId: string;
   name: string;
 }
 
-/** Phase 23.5: `editBlocks` — bulk edits of one block layer (`entityId`) as one undo step. */
+/** `editBlocks` — bulk edits of one block layer (`entityId`) as one undo step. */
 export interface EditBlocksArgs {
   entityId: string;
   edits: import('@thirdlight/project-model').BlockEdit[];
 }
-/** Phase 23.5: `setBlockType` creates or replaces one block type. */
+/** `setBlockType` creates or replaces one block type. */
 export interface SetBlockTypeArgs {
   block: import('@thirdlight/project-model').BlockType;
 }
 export interface DeleteBlockTypeArgs {
   blockId: string;
 }
-/** Phase 23.5: `setCellFields` replaces the cell metadata schema. */
+/** `setCellFields` replaces the cell metadata schema. */
 export interface SetCellFieldsArgs {
   fields: import('@thirdlight/project-model').CellField[];
 }
-/** Phase 23.5: `setBlockStamp` stores a stamp, or saves a layer selection (`entityId` + `box`) as one. */
+/** `setBlockStamp` stores a stamp, or saves a layer selection (`entityId` + `box`) as one. */
 export interface SetBlockStampArgs {
   stamp?: import('@thirdlight/project-model').BlockStamp;
   stampId?: string;
@@ -1800,7 +1796,7 @@ export type MutationArgs =
   | ApplySurfacePresetArgs;
 
 /**
- * The M1 mutation request envelope (§3). This type documents the wire
+ * The mutation request envelope. This type documents the wire
  * shape; `applyMutation` accepts `unknown` and validates strictly.
  */
 export interface MutationRequest {
@@ -1813,22 +1809,22 @@ export interface MutationRequest {
   args: MutationArgs;
 }
 
-// ---- results (§5.1/§5.2) ----------------------------------------------------------
+// ---- results ----------------------------------------------------------
 
-/** Mutation success (§5.1); canonical key order in emitted payloads. */
+/** Mutation success; canonical key order in emitted payloads. */
 export interface MutationSuccess {
   ok: true;
-  // M2 content ops use the same success payload (commands.md §5.1).
+  // Content ops use the same success payload.
   op: MutationOp;
   projectId: string;
   requestId: string;
-  /** expectedRevision + 1 (every successful M1 mutation advances by exactly 1). */
+  /** expectedRevision + 1 (every successful mutation advances by exactly 1). */
   revision: number;
-  /** Always `false` from the pure layer; workspace replays set `true` (§6.3). */
+  /** Always `false` from the pure layer; workspace replays set `true`. */
   duplicated: false;
   /** createEntity only. */
   createdId?: string;
-  /** Phase 12 (c), v4 projects: the scene the command edited (absent for scene-index changes). */
+  /** v4 projects: the scene the command edited (absent for scene-index changes). */
   sceneId?: string;
   change: ChangeData;
   /** undo/redo only: the requestId of the original forward command. */
@@ -1839,7 +1835,7 @@ export interface MutationSuccess {
 }
 
 /**
- * Mutation failure (§5.2). `op`/`projectId`/`requestId` are echoed only
+ * Mutation failure. `op`/`projectId`/`requestId` are echoed only
  * when parseable (strings; `op` capped at 32 chars, `requestId` at 64).
  */
 export interface MutationFailure {
@@ -1860,9 +1856,9 @@ export type MutationResult = MutationSuccess | MutationFailure;
 export type ApplyOutcome<S extends SceneDocument = SceneDocument> =
   | { ok: true; result: MutationSuccess; state: CommandState<S> }
   | { ok: false; result: MutationFailure };
-// ---- content queries (commands.md §4/§5.6, packet 21 non-prefab subset) -----------
+// ---- content queries -----------
 
-/** One `queryAssets` summary (commands.md §5.6). */
+/** One `queryAssets` summary. */
 export interface AssetSummary {
   assetId: string;
   kind: AssetKind;
@@ -1871,17 +1867,17 @@ export interface AssetSummary {
   versionCount: number;
   /** The current version's file in the game folder, when it is referenced in place. */
   sourcePath?: string;
-  /** The current version's original when it was converted at import (FBX; phase 25.19: a PNG/JPEG encoded to KTX2). */
+  /** The current version's original when it was converted at import (FBX; a PNG/JPEG encoded to KTX2). */
   convertedFrom?: { format: 'fbx' | 'png' | 'jpeg'; sourcePath?: string; encoding?: 'color' | 'normal' | 'data' };
-  /** Phase 25.21: the current version was packed from texture assets: its encoding and the source assets. */
+  /** The current version was packed from texture assets: its encoding and the source assets. */
   packedFrom?: { encoding: 'color' | 'normal' | 'data'; sources: string[] };
-  /** Phase 25.19, texture only: the current version's image facts (a KTX2's codec and mip levels; phase 25.21: a texture array's layers). */
+  /** Texture only: the current version's image facts (a KTX2's codec and mip levels; a texture array's layers). */
   image?: { format: string; width: number; height: number; codec?: 'etc1s' | 'uastc'; levels?: number; layers?: number };
   /** Model only: `tint` = COLOR_0 multiplies the albedo (absent = shader data). */
   vertexColors?: 'tint';
-  /** Model only (phase 9.4): the default material mapping of every placement. */
+  /** Model only: the default material mapping of every placement. */
   materials?: Record<string, string>;
-  /** Model only (phase 14.6): an animation-only file whose clips play on this model asset's rig. */
+  /** Model only: an animation-only file whose clips play on this model asset's rig. */
   clipsFor?: string;
   /** Present only with `includeVersions: true` (never bytes, never metrics). */
   versions?: readonly { version: number; sourceDigest: string; sourceByteLength: number; sourcePath?: string }[];
@@ -1890,7 +1886,7 @@ export interface AssetSummary {
 /** One `queryBehaviors` element: a summary, or the full record with `includeDeclaration`. */
 export type BehaviorQueryEntry = BehaviorSummary | BehaviorRecord;
 
-/** One `queryBehaviors` summary (commands.md §5.6). */
+/** One `queryBehaviors` summary. */
 export interface BehaviorSummary {
   behaviorId: string;
   displayName: string;
@@ -1901,7 +1897,7 @@ export interface BehaviorSummary {
   declaration?: PropertyDeclaration;
 }
 
-/** One `queryPrefabs` summary (commands.md §5.6, packet 22). */
+/** One `queryPrefabs` summary. */
 export interface PrefabSummary {
   prefabId: string;
   displayName: string;
@@ -1914,7 +1910,7 @@ export interface PrefabSummary {
 export type PrefabQueryEntry = PrefabSummary | PrefabDefinition;
 
 /**
- * A query result (commands.md §5.6). Queries are read-only: no
+ * A query result. Queries are read-only: no
  * `expectedRevision`/`requestId`, never deduplicated, never mutating.
  */
 export type QueryResult<T> =
@@ -1932,7 +1928,7 @@ export type QueryResult<T> =
   | { ok: false; op?: string; projectId?: string; error: CommandError };
 
 /**
- * The `queryProject` content count summary (commands.md §5.6/§4, packet 45):
+ * The `queryProject` content count summary:
  * counts only, except `game` which is a boolean (`content.game !== null`).
  */
 export interface ContentCounts {
@@ -1940,18 +1936,18 @@ export interface ContentCounts {
   prefabs: number;
   behaviors: number;
   settingsKeys: number;
-  /** v3 only: `assets` records with `kind === "audio"` (authoring §A6). */
+  /** v3 only: `assets` records with `kind === "audio"`. */
   audioAssets?: number;
   /** v3 only: entities carrying `components.playerSpawn`. */
   spawns?: number;
 }
 
-/** `queryGameConfig` result (commands.md §3.1.11/§A6; phase 24.7: the tags, no game block). */
+/** `queryGameConfig` result (the tags, no game block). */
 export type GameConfigQueryResult =
   | { ok: true; projectId: string; revision: number; tags: TagDefinition[] }
   | { ok: false; op?: string; projectId?: string; error: CommandError };
 
-/** One `queryEntities` page (commands.md §4/§5.6): filtered, document order. */
+/** One `queryEntities` page: filtered, document order. */
 export interface EntitiesQueryResult {
   ok: true;
   projectId: string;

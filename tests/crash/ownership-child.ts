@@ -1,5 +1,5 @@
 /**
- * Packet 07 group E1 — ownership claim-file crash/barrier child runner
+ * Ownership claim-file crash/barrier child runner
  * (bundled with esbuild by the parent test — plain node cannot import the
  * workspace package's .ts entry; the same pattern as
  * tests/crash/child.ts).
@@ -14,7 +14,7 @@
  *                    On open failure: still attempt one mutation (the
  *                    end-to-end refusal) and print the summary.
  *   contend-takeover wait for the gate file, then takeoverWorkspace (the
- *                    explicit §6.4 stale-owner recovery); the same
+ *                    explicit stale-owner recovery); the same
  *                    mutation/hold behavior.
  *   claim-hold       open (claim) the project, print READY, and hold
  *                    until the parent kills the process (a second, live
@@ -101,7 +101,7 @@ function mutation(projectId: string, requestId: string, expectedRevision: number
   };
 }
 
-/** Syntactically valid requestIds (commands.md §6: req- + 32 hex). */
+/** Syntactically valid requestIds (req- + 32 hex). */
 const REQ_W1 = 'req-00000000000000000000000000000001';
 const REQ_W2 = 'req-00000000000000000000000000000002';
 const REQ_L1 = 'req-000000000000000000000000000000ff';

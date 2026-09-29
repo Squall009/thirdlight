@@ -1,15 +1,15 @@
 /**
- * Session-layer error model — sessions.md §11.2/§11.3 (normative).
+ * Session-layer error model.
  *
  * Error shape: `{ code, cls, message (≤ 256 chars, log-safe, no secrets),
- * hint?, …code-specific fields }`. HTTP status mapping (normative, §11.2):
+ * hint?, …code-specific fields }`. HTTP status mapping (normative):
  * validation→400, conflict→409, not_found→404, unavailable→500→503,
- * internal→500; success→200. WS close codes per §4.3/§5.2.
+ * internal→500; success→200. WS close codes: the `WS_CLOSE_*` constants below.
  *
  * Pure: no I/O.
  */
 
-/** The stable session-layer error codes (sessions.md §11.3, normative). */
+/** The stable session-layer error codes (normative). */
 export const ERROR_CODES = [
   'unauthorized',
   'bad_origin',
@@ -33,9 +33,8 @@ export const ERROR_CODES = [
   'screenshot_timeout',
   'diagnostics_timeout',
   'relay_failed',
-  // M2 content transport (sessions.md §11.3 + §16.1; workspace.md §11 codes
-  // surface through the routes unchanged). Additive: the M1 codes above are
-  // unchanged.
+  // Content transport (workspace codes surface through the routes
+  // unchanged).
   'content_frame_invalid',
   'job_not_found',
   'job_expired',
@@ -51,7 +50,7 @@ export const ERROR_CODES = [
   // FBX import (headless Blender conversion).
   'converter_unavailable',
   'conversion_failed',
-  // Phase 9.6: the final light bake (Blender on the bake host).
+  // The final light bake (Blender on the bake host).
   'bake_unavailable',
   'bake_busy',
   'bake_package_invalid',
@@ -64,7 +63,7 @@ export const ERROR_CODES = [
   'content_publish_failed',
   'content_invalid',
   'derived_cache_unavailable',
-  // M2 play delivery + bounded input relay (sessions.md §11.3/§17.2/§18.1).
+  // Play delivery + bounded input relay.
   'play_locator_invalid',
   'play_locator_expired',
   'play_content_not_ready',
@@ -73,20 +72,19 @@ export const ERROR_CODES = [
   'input_relay_limits_exceeded',
   'input_relay_timeout',
   'scan_forbidden_content',
-  // M3 §20 game control/observation relay (sessions.md §20.2, packet 42
-  // promoted; packet 48 implements). Additive: no accepted code changed.
+  // Game control/observation relay.
   'game_command_invalid',
   'game_run_stale',
   'game_relay_rejected',
   'game_relay_timeout',
   'limits_exceeded',
-  // M3 v2→v3 operator copy (workspace.md §16.8, packet 48 route). Additive.
+  // v2→v3 operator copy.
   'migration_version_unsupported',
   'migration_source_invalid',
   'migration_destination_exists',
   'migration_marker_conflict',
   'migration_resume_required',
-  // D17: a declared dependency (template/behavior/content) no module provides.
+  // A declared dependency (template/behavior/content) no module provides.
   'module_unresolved',
 ] as const;
 export type SessionErrorCode = (typeof ERROR_CODES)[number];
@@ -113,33 +111,31 @@ export interface SessionError {
   expected?: string;
   /** `unknown_event`: the offending type (clipped ≤ 64). */
   type?: string;
-  /** `session_conflict` (§5.1). */
+  /** `session_conflict`. */
   activeSessionId?: string;
   lastActivityAt?: number;
-  /** `session_not_found` (§11.3). */
+  /** `session_not_found`. */
   sessionId?: string;
-  /** `play_already_active` (§10.1). */
+  /** `play_already_active`. */
   activePlaySessionId?: string;
-  /** `project_not_found` (§11.3). */
+  /** `project_not_found`. */
   projectId?: string;
-  /** `project_unavailable` (§11.3 — a permitted reason, workspace.md §11). */
+  /** `project_unavailable` (a permitted reason). */
   reason?: string;
   holder?: unknown;
   details?: unknown;
-  /** `session_unavailable` (§11.3). */
+  /** `session_unavailable`. */
   playSessionId?: string;
-  /** Phase 25.5, `play_not_found` for a play that ended: why and when, and whether it was presented first. */
+  /** `play_not_found` for a play that ended: why and when, and whether it was presented first. */
   ended?: { reason: string; presented: boolean; at: string; detail?: string };
-  /** `play_locator_expired` (§17.2): the locator deadline (truthful UI). */
+  /** `play_locator_expired`: the locator deadline (truthful UI). */
   expiresAt?: string;
-  /** `screenshot_timeout` / `diagnostics_timeout` (§11.3). */
+  /** `screenshot_timeout` / `diagnostics_timeout`. */
   relayId?: string;
-  /** `relay_failed` (§11.3): the preview/bridge cause. The §11.3 table
-   *  lists the carried field as `code?`; the top-level `code` is fixed to
-   *  `relay_failed` by the same row + §7.2, so the cause travels under
-   *  `cause` (interpretation recorded in docs/handoffs/09.md). */
+  /** `relay_failed`: the preview/bridge cause. The top-level `code` is
+   *  fixed to `relay_failed`, so the cause travels under `cause`. */
   cause?: string;
-  // ---- M2 content transport code-specific fields (packet 25) -----------------
+  // ---- content transport code-specific fields -----------------
   /** `stage_*`, `import_rejected`, `job_*`: the stage/job identity. */
   stageId?: string;
   jobId?: string;
@@ -160,7 +156,7 @@ export interface SessionError {
   kind?: string;
   used?: number;
   needed?: number;
-  /** `game_run_stale` (§20.2): the current run identity, so a stale control is
+  /** `game_run_stale`: the current run identity, so a stale control is
    *  refused with the run the caller must re-derive against. Never a capability. */
   runId?: string;
 }
@@ -183,7 +179,7 @@ export function sessionError(
 }
 
 /**
- * §11.2 HTTP status mapping (normative): validation→400, conflict→409,
+ * HTTP status mapping (normative): validation→400, conflict→409,
  * not_found→404, unavailable→503, internal→500.
  */
 export function statusFor(cls: ErrorClass): number {
@@ -202,7 +198,7 @@ export function statusFor(cls: ErrorClass): number {
 }
 
 /**
- * The §4.3/§5.2 WS close mapping for the upgrade-time failure codes.
+ * The WS close mapping for the upgrade-time failure codes.
  * (Runtime protocol closes: 1009 frame_too_big, 1008 protocol_error,
  * 1000 heartbeat_timeout — see ws-events.ts.)
  */

@@ -1,8 +1,8 @@
 /**
- * Phase 14.4: a look laid over the project environment.
+ * A look laid over the project environment.
  * Pure (no renderer): the merge rule the renderer, Play, the export and the
  * editor's Scene view share. (The post pipeline's lifetime — no rebuild on a
- * same-size frame — is covered by environment-nodes.test.ts since phase 17.4.)
+ * same-size frame — is covered by environment-nodes.test.ts.)
  */
 import { describe, expect, it } from 'vitest';
 

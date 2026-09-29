@@ -1,5 +1,5 @@
 /**
- * Phase 19.1: every node of the visual-script catalogue compiles and runs.
+ * Every node of the visual-script catalogue compiles and runs.
  *
  * Generated over the whole catalogue (core nodes and the API nodes generated
  * from the runtime typings): for each node type a minimal script uses it —
@@ -68,9 +68,9 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
       raycast: rec('physics.raycast', { entityId: 'wall-1', distance: 2, normal: { x: -1, y: 0 } }),
       overlapBox: rec('physics.overlapBox', () => ['crate-1']),
       overlapCircle: rec('physics.overlapCircle', () => ['crate-1']),
-      // Phase 23.2: the 3D character's state.
+      // The 3D character's state.
       characterState: rec('physics.characterState', { position: { x: 1, y: 2, z: 3 }, velocity: { x: 0, y: 0, z: 2 }, grounded: true, contacts: { ground: true, wall: false, head: false, steepSlope: false }, supportNormal: { x: 0, y: 1, z: 0 }, groundEntityId: null, enabled: true, climbing: false, facing: 0 }),
-      // Phase 23.3: 3D queries.
+      // 3D queries.
       raycast3d: rec('physics.raycast3d', { entityId: 'box-1', point: [0, 1, 0], normal: [0, 1, 0], distance: 4 }),
       overlapSphere: rec('physics.overlapSphere', () => ['crate-1']),
       overlapBox3d: rec('physics.overlapBox3d', () => ['crate-1']),
@@ -95,7 +95,7 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
     input: { value: rec('input.value', 1), vector: rec('input.vector', () => [1, 0]), pressed: rec('input.pressed', true), released: rec('input.released', true), held: rec('input.held', true), pointer: rec('input.pointer', () => ({ x: 0.5, y: 0.5, dx: 0, dy: 0, wheel: 0, over: true, entered: false, left: false, locked: false })), pointerPressed: rec('input.pointerPressed', true), pointerReleased: rec('input.pointerReleased', false), pointerHeld: rec('input.pointerHeld', true), setCursor: rec('input.setCursor'), usingGamepad: rec('input.usingGamepad', true), glyphLabel: rec('input.glyphLabel', 'A'), glyphIcon: rec('input.glyphIcon', 'pad-south'), rebinding: rec('input.rebinding', () => ({ action: 'jump', index: 0 })), cancelRebind: rec('input.cancelRebind'), resetBindings: rec('input.resetBindings'), useBindingProfile: rec('input.useBindingProfile'), bindingProfile: rec('input.bindingProfile', 'default') },
     animator: (id: string) => {
       calls.push('animator');
-      // Phase 23.11: per-instance speed and morph weights.
+      // Per-instance speed and morph weights.
       return id === '' ? null : { set: rec('animator.set', true), trigger: rec('animator.trigger', true), get: rec('animator.get', 1), state: rec('animator.state', 'idle'), setSpeed: rec('animator.setSpeed', true), speed: rec('animator.speed', 1), setMorph: rec('animator.setMorph', true), morph: rec('animator.morph', 0.5) };
     },
     events: [
@@ -107,15 +107,15 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
     signals: { emit: rec('signals.emit'), on: rec('signals.on', true) },
     messages: { send: rec('messages.send', true), received: rec('messages.received', () => [{ name: 'x', value: 2, from: 'box-2', stepIndex: stepIndex - 1 }]) },
     game: { counter: rec('game.counter', 3), add: rec('game.add'), health: rec('game.health', { current: 2, max: 3 }), setVisible: rec('game.setVisible') },
-    // Phase 24.4: the generic primitives.
+    // The generic primitives.
     health: { get: rec('health.get', { current: 2, max: 3 }), damage: rec('health.damage', true), heal: rec('health.heal', true), events: rec('health.events', []) },
     patrol: { get: rec('patrol.get', { direction: [1, 0, 0], active: true }), setActive: rec('patrol.setActive', true), turn: rec('patrol.turn', true) },
     hitbox: { setActive: rec('hitbox.setActive', true), touching: rec('hitbox.touching', ['box-2']) },
     collectible: { collected: rec('collectible.collected', false), restore: rec('collectible.restore', true) },
-    // Phase 24.4f/h: the character's impulse and the look overrides.
+    // The character's impulse and the look overrides.
     character: { impulse: rec('character.impulse', true) },
     look: { set: rec('look.set', true), clear: rec('look.clear', true), get: rec('look.get', { emissive: '#ff0000', emissiveIntensity: 1 }) },
-    // Phase 23.13: playback handles, music, duck, bus mix.
+    // Playback handles, music, duck, bus mix.
     audio: {
       play: rec('audio.play', 1),
       stop: rec('audio.stop'),
@@ -138,7 +138,7 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
     },
     effects: { play: (...a: unknown[]) => { rec('effects.play')(...a); return 1; }, stop: rec('effects.stop') },
     save: { get: rec('save.get', 4), set: rec('save.set', true), remove: rec('save.remove'), keys: rec('save.keys', () => ['k']) },
-    // Phase 23.5: block layers.
+    // Block layers.
     grid: {
       layers: rec('grid.layers', () => ['layer-1']),
       get: rec('grid.get', { block: 'stone', rot: 0, variant: 0, meta: { walkable: true } }),
@@ -164,7 +164,7 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
     destroy: rec('destroy', true),
     emit: rec('emit'),
     log: rec('log'),
-    // Phase 23.4: the virtual cameras.
+    // The virtual cameras.
     camera: {
       activate: rec('camera.activate', true),
       deactivate: rec('camera.deactivate', true),
@@ -179,14 +179,14 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
       worldToScreen: rec('camera.worldToScreen', () => ({ x: 0.5, y: 0.5, depth: 5, onScreen: true })),
       screenToRay: rec('camera.screenToRay', () => ({ origin: [0, 0, 5], direction: [0, 0, -1] })),
     },
-    // Phase 23.11: sockets.
+    // Sockets.
     sockets: {
       attach: rec('sockets.attach', true),
       detach: rec('sockets.detach', true),
       attachedTo: rec('sockets.attachedTo', () => ({ target: 'box-2', nodeName: 'hand' })),
       nodePose: rec('sockets.nodePose', () => ({ position: [1, 2, 3], rotation: [0, 0, 0, 1] })),
     },
-    // Phase 23.12: graph-material parameters per object.
+    // Graph-material parameters per object.
     materials: {
       set: rec('materials.set', true),
       get: rec('materials.get', '#ff0000'),
@@ -194,7 +194,7 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
       setData: rec('materials.setData', true),
       getData: rec('materials.getData', () => [255, 0, 0, 255]),
     },
-    // Phase 23.19: project saves.
+    // Project saves.
     saves: {
       version: 2,
       slotCount: 3,
@@ -212,7 +212,7 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
       settings: rec('saves.settings', () => ({ hints: true })),
       setSetting: rec('saves.setSetting', true),
     },
-    // Phase 23.9a: the project UI.
+    // The project UI.
     ui: {
       set: rec('ui.set', true),
       get: rec('ui.get', 7),
@@ -225,7 +225,7 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
       events: rec('ui.events', () => [{ kind: 'click', doc: 'hud', widget: 'buy', name: 'buy', value: 1 }]),
       event: rec('ui.event', () => ({ kind: 'click', doc: 'hud', widget: 'buy', name: 'buy', value: 1 })),
     },
-    // Phase 23.16: conversations.
+    // conversations.
     dialogue: {
       start: rec('dialogue.start', 1),
       stop: rec('dialogue.stop', true),
@@ -245,7 +245,7 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
       seen: rec('dialogue.seen', true),
       history: rec('dialogue.history', () => []),
     },
-    // Phase 23.10: the game modes and the run lifecycle.
+    // The game modes and the run lifecycle.
     modes: {
       current: rec('modes.current', 'explore'),
       previous: rec('modes.previous', ''),
@@ -262,7 +262,7 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
       spawnPoint: rec('lifecycle.spawnPoint', 'spawn-0001'),
       restart: rec('lifecycle.restart', true),
     },
-    // Phase 23.17: timelines.
+    // timelines.
     timeline: {
       play: rec('timeline.play', 1),
       pause: rec('timeline.pause', true),
@@ -277,7 +277,7 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
       ended: rec('timeline.ended', false),
       marker: rec('timeline.marker', true),
     },
-    // Phase 23.18: environment presets.
+    // Environment presets.
     environment: {
       set: rec('environment.set', true),
       blend: rec('environment.blend', true),
@@ -285,7 +285,7 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
       weight: rec('environment.weight', 0.5),
       presets: rec('environment.presets', () => ['day', 'night']),
     },
-    // Phase 25.10: generic component access (a handle per object) and the shell's scene list.
+    // Generic component access (a handle per object) and the shell's scene list.
     entity: (id: string) => {
       calls.push('entity');
       return id === '' ? null : { get: rec('entity.get', () => ({ intensity: 2 })), set: rec('entity.set', () => ({ ok: true, field: '', code: '', message: '' })) };
@@ -377,7 +377,7 @@ function scriptFor(def: GraphNodeDef): GraphData {
   return { nodes, edges };
 }
 
-/** Phase 25.11: a sample event per callback (undefined: a lifecycle callback without one). */
+/** A sample event per callback (undefined: a lifecycle callback without one). */
 const CALLBACK_SAMPLES: readonly [string, unknown][] = [
   ['onEnable', undefined],
   ['onDisable', undefined],
@@ -394,7 +394,7 @@ async function run(graph: GraphData, steps = 3): Promise<{ calls: string[]; erro
   const state = spec.instantiate(undefined, { entityId: 'box-1', properties: { v: 1 } });
   try {
     for (let i = 1; i <= steps; i++) {
-      // Phase 25.11: the callbacks a script has run in the intent phase, before its step.
+      // The callbacks a script has run in the intent phase, before its step.
       for (const [cb, ev] of CALLBACK_SAMPLES) if (typeof spec[cb] === 'function') (ev === undefined ? spec[cb](state, recordingContext(calls, 'intent', i)) : spec[cb](state, ev, recordingContext(calls, 'intent', i)));
       for (const phase of ['intent', 'transform'] as const) spec.step(state, recordingContext(calls, phase, i));
     }
@@ -412,25 +412,25 @@ describe('the visual-script catalogue (every node type compiles and runs)', () =
     for (const m of ['game.add', 'game.counter', 'game.health', 'game.setVisible', 'signals.emit', 'signals.on', 'messages.send', 'messages.received', 'timers.after', 'timers.every', 'timers.fired', 'timers.cancel', 'physics.raycast', 'physics.overlapBox', 'physics.overlapCircle', 'physics.characterResult', 'tags.mask', 'tags.has', 'tags.query', 'tags.of', 'world.transform', 'world.find', 'world.findAll', 'world.withComponent', 'random.next', 'random.range', 'random.int', 'random.chance', 'random.stream.next', 'random.stream.range', 'random.stream.int', 'random.stream.chance', 'scenes.load', 'scenes.unload', 'scenes.status', 'scenes.loaded', 'scenes.loading', 'scenes.transition', 'input.pressed', 'input.released', 'input.held', 'input.value', 'input.vector', 'animator.set', 'animator.trigger', 'animator.get', 'animator.state', 'audio.play', 'audio.stop', 'audio.fade', 'audio.setPitch', 'audio.finished', 'audio.music', 'audio.stinger', 'audio.duck', 'save.get', 'save.set', 'save.remove', 'save.keys', 'spawn', 'destroy', 'emit', 'entityId', 'stepIndex']) {
       expect(members, m).toContain(m);
     }
-    // Phase 23.7: pick (a list's random item is Seeded random integer + Get item) and the
+    // Pick (a list's random item is Seeded random integer + Get item) and the
     // script-only rotation forms of the intents (the nodes keep their inputs).
-    // Phase 23.8: debug commands are declared and received in code (a typed spec, an optional handler).
-    // Phase 23.14: the bindings list, the device record, the glyph object, rebind (an options object) and its events are read in code.
+    // Debug commands are declared and received in code (a typed spec, an optional handler).
+    // The bindings list, the device record, the glyph object, rebind (an options object) and its events are read in code.
     expect(BEHAVIOR_API_SKIPPED.map((s) => s.path).sort()).toEqual([
       'action.commands',
-      // Phase 23.16: a frame's dialogue inputs (scripts drive conversations with ctx.dialogue); the variable map and the backlog records are read in code.
+      // A frame's dialogue inputs (scripts drive conversations with ctx.dialogue); the variable map and the backlog records are read in code.
       'action.dialogue',
       'action.input',
-      // Phase 23.19: storage's answers arrive with the input; a migration is a function.
+      // storage's answers arrive with the input; a migration is a function.
       'action.saves',
-      // Phase 23.9a: a frame's UI events are read with ctx.ui.events / ctx.ui.event.
+      // A frame's UI events are read with ctx.ui.events / ctx.ui.event.
       'action.ui',
-      // Phase 23.13: the finished events as a list (the Sound finished node checks one handle).
+      // The finished events as a list (the Sound finished node checks one handle).
       'audio.events',
       'debug.command',
       'dialogue.history',
       'dialogue.variables',
-      // Phase 23.2: control_move's second axis is script-only (the node keeps its one input).
+      // control_move's second axis is script-only (the node keeps its one input).
       'emit(control_move).y',
       'emit(pose).facing',
       'emit(pose).quaternion',
@@ -439,7 +439,7 @@ describe('the visual-script catalogue (every node type compiles and runs)', () =
       'emit(transform).quaternion',
       'emit(transform).up',
       'events',
-      // Phase 23.5: the grid's change list and save diff are read as data by scripts.
+      // The grid's change list and save diff are read as data by scripts.
       'grid.applyDiff',
       'grid.changes',
       'grid.diff',
@@ -453,7 +453,7 @@ describe('the visual-script catalogue (every node type compiles and runs)', () =
       'random.pick',
       'random.stream().pick',
       'saves.migration',
-      // Phase 23.17: the timeline events as a list (Timeline ended / marker check one).
+      // The timeline events as a list (Timeline ended / marker check one).
       'timeline.events',
     ]);
     // Intents: one node per kind, with its phase.
@@ -464,7 +464,7 @@ describe('the visual-script catalogue (every node type compiles and runs)', () =
       ['api.emit.transform', 'transform'],
       ['api.emit.pose', 'transform'],
       ['api.emit.respawn', 'intent'],
-      // Phase 23.2: the 3D character intents.
+      // The 3D character intents.
       ['api.emit.character_move', 'intent'],
       ['api.emit.character_place', 'intent'],
       ['api.emit.character_enable', 'intent'],

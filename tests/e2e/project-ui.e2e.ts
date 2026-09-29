@@ -1,5 +1,5 @@
 /**
- * Phase 23.9a: project UI documents against a real backend and a real
+ * Project UI documents against a real backend and a real
  * browser — Play and the static export (backend stopped).
  *
  * The engine sample gets neutral project content, all made with plain
@@ -170,7 +170,7 @@ async function setUp(page: Page): Promise<{ fontId: string }> {
       { id: 'quit', type: 'button', style: 'btn', text: 'Quit to title', onClick: { do: 'engine', action: 'quitToTitle' } },
     ] },
   } });
-  // Phase 24.6: the game shell's pause screen (the level flow is gone).
+  // The game shell's pause screen (the level flow is gone).
   await cmd('setShell', { shell: { screens: { pause: 'pause' } } });
   // MCP reads them back.
   const cfg = await query('queryGameConfig');
@@ -236,7 +236,7 @@ test('project UI in Play: bound bar, click to script, keyboard and gamepad focus
   const observe = async (): Promise<Record<string, unknown>> => (await api(`play/${psid}/observe`, {})).json;
   await expect.poll(async () => (await observe())['ok'], { timeout: 30_000 }).toBe(true);
   const frame = page.frameLocator('iframe.tl-app__preview-frame');
-  // Phase 24.6: the scene plays at once (the shell has no title here).
+  // The scene plays at once (the shell has no title here).
   await expect.poll(async () => (await observe())['state'], { timeout: 20_000 }).toBe('running');
   await page.locator('iframe.tl-app__preview-frame').click();
   const playFrame = page.frames().find((f) => f !== page.mainFrame() && f.url().includes('/play'))!;

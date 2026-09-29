@@ -1,5 +1,5 @@
 /**
- * Phase 17.3: the environment renderer on WebGPURenderer (no GPU: the node
+ * The environment renderer on WebGPURenderer (no GPU: the node
  * construction and the decisions — which sky, which post plan, when the
  * pipeline is rebuilt). The pixels are checked by the environment parity e2e
  * (`tests/e2e/env-parity.e2e.ts`) on WebGL 2 and WebGPU. three's node PMREM
@@ -13,7 +13,7 @@ import type { WebGPURenderer } from 'three/webgpu';
 
 import type { FogVolumeBox, PostPlan } from './environment-nodes';
 
-/** Phase 25.3: each PMREM scene bake — into a new target or the one given. */
+/** Each PMREM scene bake — into a new target or the one given. */
 const pmremBakes: ('new' | 'reused')[] = [];
 const built: { plan: PostPlan; updates: FogVolumeBox[][]; renders: number; disposed: boolean; luts: (THREE.Texture | null)[]; params: Pick<PostPlan, 'grading' | 'bloom'>[] }[] = [];
 

@@ -1,18 +1,16 @@
 /**
- * Whole-model placement planning (packet 27; C27-1 repair).
+ * Whole-model placement planning.
  *
  * Placement is a **typed command**, never a direct state write: this module
  * only decides which `commands.md` operation the editor must issue and with
  * what strict `args`; the client transports it and the workspace executes it
  * (the sole mutation path).
  *
- * M2 placement has two contracted forms:
+ * Placement has two contracted forms:
  *  - a whole GLB is placed by `createEntity` with `kind: "model"` and a
- *    resolving `model.asset.assetId` reference (commands.md §3.1/§8.1, the
- *    C27-1 repair): one placement = one undoable transaction with a
+ *    resolving `model.asset.assetId` reference: one placement = one undoable transaction with a
  *    backend-assigned `model-N` ID and an independent transform;
- *  - a prefab copy is placed by `instantiatePrefab` (commands.md
- *    §3.1.3/§8.7): a definition may carry `components.model` references and
+ *  - a prefab copy is placed by `instantiatePrefab`: a definition may carry `components.model` references and
  *    instantiation materializes independent copies.
  *
  * Pure: no DOM, no I/O, no Node builtins.
@@ -29,7 +27,7 @@ export interface PrefabPlacementCommand {
   };
 }
 
-/** A typed whole-GLB placement command (commands.md §8.1 `kind: "model"`). */
+/** A typed whole-GLB placement command (`createEntity` with `kind: "model"`). */
 export interface ModelPlacementCommand {
   op: 'createEntity';
   args: {
@@ -57,7 +55,7 @@ export interface PlacementOptions {
 /**
  * Plan exactly one whole-model placement as the contracted `createEntity`
  * command with `kind: "model"` and a resolving asset reference. One placement
- * = one undoable transaction (§8.1), so two placements are two calls with
+ * = one undoable transaction, so two placements are two calls with
  * distinct, backend-assigned `model-N` IDs.
  */
 export function planAssetPlacement(assetId: string, options: PlacementOptions = {}): ModelPlacementCommand {
@@ -75,7 +73,7 @@ export function planAssetPlacement(assetId: string, options: PlacementOptions = 
 
 /**
  * Plan exactly one prefab-copy placement as the contracted `instantiatePrefab`
- * command. One placement = one undoable transaction (§8.7), so two placements
+ * command. One placement = one undoable transaction, so two placements
  * are two calls with distinct, backend-assigned IDs.
  */
 export function planPrefabPlacement(prefabId: string, options: PlacementOptions = {}): PrefabPlacementCommand {
@@ -91,7 +89,7 @@ export function planPrefabPlacement(prefabId: string, options: PlacementOptions 
   };
 }
 
-// ---- drag and drop of model assets (2026-09-24) ------------------------------
+// ---- drag and drop of model assets ------------------------------
 
 /** The DataTransfer type an asset tile drags. */
 export const ASSET_DRAG_TYPE = 'application/x-thirdlight-asset';
@@ -117,7 +115,7 @@ export interface PieceFacts {
   name: string;
   /** LOD0 bounds in the file's root space (null when empty). */
   bounds: { min: [number, number, number]; max: [number, number, number] } | null;
-  /** The 2D collider from the piece's `_COL` node (null: none); phase 23.1: in a 3D project its 3D shape (`{ shape }`). */
+  /** The 2D collider from the piece's `_COL` node (null: none); In a 3D project its 3D shape (`{ shape }`). */
   collider: DropCollider;
   skinned: boolean;
 }
@@ -139,7 +137,7 @@ export interface ModelDropInput {
   parentId: string | null;
 }
 
-/** A drop's collider: the 2D plane's polygon corners, or (phase 23.1, a 3D project) a 3D shape made from the `_COL` node. */
+/** A drop's collider: the 2D plane's polygon corners, or (a 3D project) a 3D shape made from the `_COL` node. */
 export type DropCollider = [number, number][] | { shape: Record<string, unknown> } | null;
 
 const colliderComponents = (c: DropCollider, skinned: boolean): { components?: Record<string, unknown> } => {
@@ -207,7 +205,7 @@ function round3(v: number): number {
   return r === 0 ? 0 : r;
 }
 
-/** Whether an asset can be placed directly (the `model` kind exists — C27-1 closed). */
+/** Whether an asset can be placed directly (the `model` entity kind exists). */
 export function assetPlacementAvailable(): boolean {
   return true;
 }

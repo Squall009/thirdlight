@@ -1,5 +1,5 @@
 /**
- * Phase 21.1: build the simulation benchmark (sim.ts) into one Node bundle
+ * Build the simulation benchmark (sim.ts) into one Node bundle
  * under dist/perf/ (workspace packages bundled, third-party packages resolved
  * from the repository's node_modules) and run it in a child process with
  * `--expose-gc` and a large young generation (fewer collections inside the

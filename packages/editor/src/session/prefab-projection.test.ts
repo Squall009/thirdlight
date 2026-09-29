@@ -1,10 +1,10 @@
 /**
- * Packet 28 — prefab/declaration projection (Node; vitest).
+ * prefab/declaration projection (Node; vitest).
  *
- * Pins the "copies, not links" property (project-model §20.1.4): definition and
+ * Pins the "copies, not links" property: definition and
  * declaration changes converge the content projection and never rewrite a
  * materialized copy; `change.next` records are applied whole; a declaration
- * update leaves stored values untouched (§20.8.3).
+ * update leaves stored values untouched.
  */
 import { describe, expect, it } from 'vitest';
 import type { BehaviorRecord, PrefabDefinition, PropertyDeclaration } from '@thirdlight/project-model';

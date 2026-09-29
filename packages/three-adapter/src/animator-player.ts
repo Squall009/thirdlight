@@ -1,5 +1,5 @@
 /**
- * Phase 9.7: plays an animator pose on a model instance.
+ * Plays an animator pose on a model instance.
  *
  * The runtime's animator (a deterministic state machine stepped with the
  * simulation) decides which clips play, at which time and with which
@@ -7,7 +7,6 @@
  * instance, every action enabled with its time and weight set directly (no
  * time integration here, so Play and a replay look the same).
  *
- * Phase 14.6:
  * - Override layers with bone masks. The tracks of every clip are split by
  *   which layers cover their bone (a layer covers the bones of its mask, or
  *   every bone when the mask is empty) and each part gets its own action, so
@@ -30,9 +29,9 @@ export interface AnimatorPoseClipLike {
 
 export interface AnimatorPoseLike {
   readonly clips: readonly AnimatorPoseClipLike[];
-  /** Phase 14.6: override layers, in order (absent = the base layer only). */
+  /** Override layers, in order (absent = the base layer only). */
   readonly layers?: readonly { readonly mask: readonly string[]; readonly weight: number; readonly clips: readonly AnimatorPoseClipLike[] }[];
-  /** Phase 23.11: morph target weights by target name (the model's meshes that have that target). */
+  /** Morph target weights by target name (the model's meshes that have that target). */
   readonly morphs?: Readonly<Record<string, number>>;
 }
 
@@ -42,7 +41,7 @@ export interface AnimatorPlayer {
 }
 
 export interface AnimatorPlayerOptions {
-  /** Phase 14.6: the clips of another asset for this model (null = not available, or not yet). */
+  /** The clips of another asset for this model (null = not available, or not yet). */
   readonly clipsOf?: (assetId: string) => readonly THREE.AnimationClip[] | null;
 }
 
@@ -66,7 +65,7 @@ export function createAnimatorPlayer(root: THREE.Object3D, clips: readonly THREE
     actions.set(clip.name, action);
   }
 
-  // ---- phase 14.6: layered poses ------------------------------------------------
+  // ---- Layered poses ------------------------------------------------
   /** The masks the layered actions were built for (a change rebuilds them). */
   let layoutKey: string | null = null;
   /** Layer masks as sets (null = every bone). */
@@ -169,7 +168,7 @@ export function createAnimatorPlayer(root: THREE.Object3D, clips: readonly THREE
     mixer.update(0);
   };
 
-  // ---- phase 23.11: morph target weights ----------------------------------------------
+  // ---- Morph target weights ----------------------------------------------
   let applyMorphsAfter: Readonly<Record<string, number>> | undefined;
   /** The meshes with morph targets (found once). */
   let morphMeshes: THREE.Mesh[] | null = null;
@@ -208,7 +207,7 @@ export function createAnimatorPlayer(root: THREE.Object3D, clips: readonly THREE
         layoutKey = null;
       }
       const weights = new Map<string, { time: number; weight: number }>();
-      /** Phase 14.6: clips of an animation-only asset (no layers): whole-clip actions. */
+      /** Clips of an animation-only asset (no layers): whole-clip actions. */
       const foreign = new Map<THREE.AnimationAction, { time: number; weight: number }>();
       for (const c of pose.clips) {
         if (c.assetId !== assetId) {

@@ -1,5 +1,5 @@
 /**
- * Strict JSON payload discipline (sessions.md §1/§6.1/§11.2) — pass-1 byte
+ * Strict JSON payload discipline — pass-1 byte
  * rules via project-model, strict shape helpers (unknown fields rejected).
  */
 import { describe, expect, it } from 'vitest';

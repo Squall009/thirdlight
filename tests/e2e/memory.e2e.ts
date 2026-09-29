@@ -1,5 +1,5 @@
 /**
- * Phase 21.5: leak tests against the real backend in a real browser. Each
+ * Leak tests against the real backend in a real browser. Each
  * test repeats one open/close (or load/unload) many times on small neutral
  * fixtures and checks that the page comes back to its baseline (taken after
  * two warm-up cycles): the JS heap after a garbage collection (CDP), the
@@ -23,7 +23,7 @@
  *
  * Renderer-specific tests run in both projects (`default`: WebGL 2,
  * `webgpu`: WebGPU); the rest only in `default`. Numbers go to the log
- * (`[memory] …` lines) and docs/plan-phase-21.md §4.
+ * (`[memory] …` lines) and docs/plan-phase-21.md.
  */
 import { createHash } from 'node:crypto';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -524,7 +524,7 @@ for (const threads of ['off', 'worker'] as const) {
       await expect.poll(loaded, { timeout: 30_000 }).toContain('scene-side');
       const r = await relay('control', { command: 'replay' });
       expect(r.json['ok'], JSON.stringify(r.json)).toBe(true);
-      // Phase 24.6: a scene restart (no game session) is seen by the later load going away.
+      // A scene restart (no game session) is seen by the later load going away.
       await expect.poll(loaded, { timeout: 30_000 }).not.toContain('scene-side');
     }, frame, playTol);
     await checkGpu('Play: level restarted with a scene loaded', base);

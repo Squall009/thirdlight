@@ -1,18 +1,15 @@
 /**
- * @thirdlight/project-model — public surface (dependencies.md §3;
- * project-model.md §12.1): types, parse*, validate*, normalize*,
- * serializeCanonical, ERROR_CODES, KNOWN_VERSIONS.
+ * @thirdlight/project-model — public surface: types, parse*, validate*,
+ * normalize*, serializeCanonical, ERROR_CODES, KNOWN_VERSIONS.
  *
  * Only storage v4 projects load (`validateProjectV4`); a v3 project is read
  * (`validateEnvelopeV3`/`validateProjectV3`) and upgraded on open
- * (`migrateProjectV3ToV4`). The v1/v2 (M1/M2) scene models were removed in
- * phase 9.3; their component rules live on in `components.ts`. Strict byte
- * parsing with duplicate-key rejection, total value validation,
- * normalization to the §12.2 canonical form and canonical byte
- * serialization are unchanged.
+ * (`migrateProjectV3ToV4`). Shared component rules live in `components.ts`.
+ * Strict byte parsing with duplicate-key rejection, total value validation,
+ * normalization to the canonical form and canonical byte serialization.
  *
  * Pure data and logic: no I/O, no three.js, no Node built-ins — the leaf
- * unit of the node-side graph (dependencies.md §4.1). All entry points are
+ * unit of the node-side graph. All entry points are
  * pure and total: same input → same result; malformed data yields error
  * results, never thrown exceptions.
  */
@@ -90,9 +87,9 @@ export type {
   TrustEntry,
 } from './types-v2';
 
-// Phase 14.0: the character capsule (default, limits, resolved form).
+// The character capsule (default, limits, resolved form).
 export { CAPSULE_LIMITS, COLLIDER_3D_LIMITS, COLLIDER_3D_SHAPES, CONTROLLER_FIELDS, CONTROLLER_TUNING_FIELDS, CONTROLLER_TUNING_LIMITS, DEFAULT_CONTROLLER_CAPSULE, DEFAULT_CONTROLLER_TUNING, controllerCapsuleOf, controllerCapsuleOffsetZ, controllerTuningOf, CHARACTER_3D_LIMITS, CONTROLLER_3D_FIELDS, DEFAULT_CHARACTER_3D, character3DSettingsOf, CONTROLLER_ACTION_FIELDS, CONTROLLER_ACTION_DEFAULTS, controllerActionsOf, type Character3DSettings, CONTROLLER_MOVEMENT_FIELDS, CONTROLLER_MOVEMENT_LIMITS, DEFAULT_CONTROLLER_MOVEMENT, controllerMovementOf, type ControllerMovementSettings } from './components';
-// Phase 23.3: collision layers.
+// Collision layers.
 export { DEFAULT_COLLISION_LAYER, MAX_COLLISION_LAYERS, validateCollisionLayers } from './components';
 export { parseDocumentBytes, type ByteParse } from './parse-bytes';
 export { parseEnvelopeV3, parseManifest, parseSceneV3 } from './parse-api';
@@ -122,11 +119,9 @@ export {
   type SettingsKeySpec,
 } from './content';
 
-// Packet 44: the explicit v3 model surface (project-model.md §23;
-// workspace.md §16.9): the versioned scene/content entry points, the v3
-// registry/limits/preset constants and the v3 types. The additive
-// component-level validators and `validateGameConfig` are recorded in the
-// packet-44 handoff (CC-44-1).
+// The explicit v3 model surface: the versioned scene/content entry points,
+// the v3 registry/limits/preset constants, the v3 types and the
+// component-level validators.
 export {
   normalizeSceneV3,
   validateLightComponent,
@@ -185,7 +180,7 @@ export {
 
 export { captureContent, collectAssetRefsV3 } from './capture';
 
-// Packet 36: the pure runtime-content manifest capture (sessions.md §17.1.1)
+// The pure runtime-content manifest capture
 // plus the canonical/digest helpers the export closure needs. Additive public
 // surface recorded as contract-change request C36-2 (docs/handoffs/36.md).
 export {
@@ -217,11 +212,9 @@ export {
 export { canonicalJsonText, sha256Hex, sha256HexOfText,
   sha256HexAsync, sha256Hex as sha256HexBytes } from './sha256';
 
-// Packet 58: the pure manifest v2 derivation (delivery.md §2, sessions.md §17.1.1)
-// — the M3 immutable runtime-content identity, the captured v3 content view, the
-// media identity and the strict v2 reader + version-compat rule. Additive public
-// surface (reopens the packet-44-owned project-model manifest-derivation section,
-// plan-review PR-2; recorded in docs/handoffs/58.md).
+// The pure manifest v2 derivation — the immutable runtime-content identity,
+// the captured v3 content view, the media identity and the strict v2 reader
+// + version-compat rule.
 export {
   blockDigest,
   captureContentViewV3,
@@ -239,7 +232,7 @@ export {
   mediaProfileDigest,
   resolveMediaIdentityV3,
   RUNTIME_CONTENT_MANIFEST_VERSION_4,
-  // Phase 25.7b: the manifest's content files.
+  // The manifest's content files.
   MANIFEST_CONTENT_FILE_KEYS,
   MANIFEST_CONTENT_FILE_MAX_BYTES,
   type ManifestContentFileKey,
@@ -262,7 +255,7 @@ export {
 
 export { serializeCanonical } from './normalize';
 
-// The engine module registry + the declared-dependency resolver (D17).
+// The engine module registry + the declared-dependency resolver.
 export {
   BEHAVIOR_PACKAGE_MODULES,
   ENGINE_MODULES,
@@ -274,7 +267,7 @@ export {
   type UnresolvedModule,
 } from './modules';
 
-// Phase 12 (c): v4 projects — several scenes, one file each.
+// v4 projects — several scenes, one file each.
 export {
   composeV4,
   composeSceneV4,
@@ -286,7 +279,7 @@ export {
   type ProjectManifestV2,
   type ProjectV4,
 } from './project-v4';
-// Phase 24.8: the project format after the engine/game separation (the loader's upgrade).
+// The project format after the engine/game separation (the loader's upgrade).
 export {
   PROJECT_SCHEMA_VERSION,
   PROJECT_SCHEMA_VERSION_UPGRADED,
@@ -299,17 +292,17 @@ export {
   upgradeProjectDocsV24,
   type UpgradeV24Result,
 } from './upgrade-v24';
-// Phase 25.7: project.json schemaVersion 4 (a 3 is upgraded on load without changing a document).
+// project.json schemaVersion 4 (a 3 is upgraded on load without changing a document).
 export { upgradeProjectDocsV25, type UpgradeV25Result } from './upgrade-v25';
-// Phase 25.7b: the materials a game uses (the manifest leaves the others out).
+// The materials a game uses (the manifest leaves the others out).
 export { materialsInUse, type MaterialUseInput } from './material-use';
-// Phase 25.7a: the assigned entity ids (at least six digits; four-digit ids still load).
+// The assigned entity ids (at least six digits; four-digit ids still load).
 export { ENTITY_ID_DIGITS, ENTITY_ID_MAX, entityIdAt, nextFreeEntityIdOf } from './entity-ids';
 export { validateSceneV4, validateMergedSceneV4, validateInstancesComponent, DIRECTIONAL_SHADOW_DEFAULTS, DIRECTIONAL_SHADOW_LIMITS, ENTITY_FLAGS, MAX_ENTITIES_V4, V4_REGISTRY } from './scene-v3';
 export { validateContentV4, MAX_SCENES, ENGINE_TIMING_DEFAULTS, MAX_AUDIO_ASSETS } from './content';
-// Phase 25.21: texture arrays and packed textures.
+// Texture arrays and packed textures.
 export { arrayTextureIds, TEXTURE_ARRAY_KIND, MAX_TEXTURE_LAYERS, KTX2_ENCODINGS, type Ktx2Encoding } from './content';
-// Phase 14.1: prefabs spawned into a running game (the snapshot/manifest carry them).
+// Prefabs spawned into a running game (the snapshot/manifest carry them).
 export { PREFAB_V4_COMPONENTS, canonicalPrefabs, validatePrefabDefinitions } from './content';
 export {
   INSTANCE_FLOATS,
@@ -319,27 +312,27 @@ export {
   type InstancesComponent,
   type SceneV4,
 } from './types-v3';
-// Phase 9.9: gameplay building blocks.
+// Gameplay building blocks.
 export {
   BLOCK_COMPONENT_NAMES,
   BLOCK_COMPONENTS,
-  // Phase 15.3: the blocks' tuning defaults and ranges.
+  // The blocks' tuning defaults and ranges.
   BLOCK_DEFAULTS,
   BLOCK_TUNING_LIMITS,
   MOVER_MODES,
   SWITCH_MODES,
-  // Phase 14.2: trigger shapes and modes.
+  // Trigger shapes and modes.
   TRIGGER_MODES,
   TRIGGER_RADIUS,
   TRIGGER_SHAPES,
   TRIGGER_HEIGHT,
-  // Phase 24.4: the generic primitives.
+  // The generic primitives.
   PATROL_MODES,
   HITBOX_SHAPES,
   PRIMITIVE_DEFAULTS,
   PRIMITIVE_LIMITS,
   type CollectibleComponent,
-  // Phase 24.4e/f: scene transitions, switch actions, face-velocity models.
+  // Scene transitions, switch actions, face-velocity models.
   FACE_MOVEMENT_MODES,
   MAX_TRANSITION_UNLOADS,
   MAX_TRANSITION_FADE,
@@ -347,7 +340,7 @@ export {
   type SceneTransitionAction,
   type PatrolComponent,
   type HitboxComponent,
-  // Phase 25.13: climb volumes and gravity bodies.
+  // Climb volumes and gravity bodies.
   GRAVITY_SCALE,
   type ClimbVolumeComponent,
   type GravityComponent,
@@ -359,7 +352,7 @@ export {
   type SwitchComponent,
   type TriggerComponent,
 } from './blocks';
-// Phase 16.1: the generic node-graph model and the registered graph kinds.
+// The generic node-graph model and the registered graph kinds.
 export {
   applyGraphOps,
   canonicalGraphData,
@@ -413,7 +406,7 @@ export {
   type GraphValue,
 } from './graph';
 export { ANIMATOR_BLEND_GRAPH_KIND, ANIMATOR_GRAPH_KIND, ANIMATOR_LAYER_GRAPH_KIND, GRAPH_KINDS, TEST_GRAPH_KIND } from './graph-kinds';
-// Phase 19.0/19.1: visual scripts (the `behavior` graph kinds, their node catalogue and compile checks).
+// Visual scripts (the `behavior` graph kinds, their node catalogue and compile checks).
 export {
   BEHAVIOR_API_NODES,
   CALLBACK_EVENT_NODES,
@@ -461,7 +454,7 @@ export {
 } from './behavior-graph';
 export { BEHAVIOR_API_SKIPPED } from './behavior-api.generated';
 export type { BehaviorApiArg, BehaviorApiNodeSpec, BehaviorApiOutput, BehaviorApiStep, BehaviorApiValue, BehaviorDataType } from './behavior-api';
-// Phase 23.7: shared script libraries (content.scriptLibraries) and behavior library pins.
+// Shared script libraries (content.scriptLibraries) and behavior library pins.
 export {
   SCRIPT_LIBRARY_ENTRY,
   SCRIPT_LIBRARY_IMPORT_PREFIX,
@@ -479,7 +472,7 @@ export {
   validateScriptLibrary,
 } from './script-libraries';
 export type { BehaviorLibraryPin, ScriptLibrary, ScriptLibraryFile, ScriptLibraryPatch } from './script-libraries';
-// Phase 23.9a: project UI documents and themes (content.uiDocuments / uiThemes, shell.screens).
+// Project UI documents and themes (content.uiDocuments / uiThemes, shell.screens).
 export {
   UI_EASINGS,
   UI_ENGINE_ACTIONS,
@@ -506,7 +499,7 @@ export {
 } from './ui-documents';
 export type { RuntimeUiDocumentRow, UiAction, UiBindable, UiBinding, UiColor, UiDocument, UiDocumentRefs, UiEasing, UiEngineAction, UiIcon, UiScalar, UiStyle, UiStyleValues, UiTheme, UiTween, UiTweenKind, UiWidget, UiWidgetType, UiWorldAnchor } from './ui-documents';
 export { UI_DESCRIPTORS, type UiDescriptors } from './ui-descriptors';
-// Phase 20.0/20.1: visual effects (content.effects, the effect component) and the effect graph kind.
+// Visual effects (content.effects, the effect component) and the effect graph kind.
 export {
   EFFECT_ATTRIBUTES,
   EFFECT_ATTRIBUTE_TYPES,
@@ -550,7 +543,7 @@ export {
   type EffectParameterType,
   type EffectSystem,
 } from './effects';
-// Phase 23.4: the camera framework's data (virtual cameras and camera paths).
+// The camera framework's data (virtual cameras and camera paths).
 export {
   CAMERA_BLENDS,
   CAMERA_PATH_FIELDS,
@@ -576,7 +569,7 @@ export {
   type VirtualCameraComponent,
   type VirtualCameraRig,
 } from './cameras';
-// Phase 23.11: sockets (an entity on a node of another entity's model) and model rigs as simulation data.
+// Sockets (an entity on a node of another entity's model) and model rigs as simulation data.
 export {
   SOCKET_ATTACH_CONFLICTS,
   SOCKET_ATTACH_FIELDS,
@@ -599,11 +592,11 @@ export {
   type RigInterpolation,
   type RigPath,
 } from './model-rig';
-// Phase 18.1: the material node catalogue (material graphs and material functions).
+// The material node catalogue (material graphs and material functions).
 export { MATERIAL_BUILTIN_SOURCES, MATERIAL_DATA_MAX, MATERIAL_FUNCTION_GRAPH_KIND, MATERIAL_GRAPH_KIND, MATERIAL_PARAMETER_TYPES, MATERIAL_VALUE_TYPES, type MaterialParameterType } from './material-graph-kinds';
-// Phase 16.2: an animator controller's layers and blend trees as graphs (owner kind `animator`).
+// An animator controller's layers and blend trees as graphs (owner kind `animator`).
 export { animatorGraphOf, animatorTransitionPairs, applyAnimatorGraph, parseAnimatorOwnerId, type AnimatorGraphWrite, type AnimatorOwnerTarget } from './animator-graph';
-// Phase 9.8: input actions.
+// Input actions.
 export {
   canonicalInput,
   DEFAULT_INPUT,
@@ -617,18 +610,18 @@ export {
   type InputActionType,
   type InputBinding,
   type InputConfig,
-  // Phase 23.3: pointer bindings and the cursor per map.
+  // Pointer bindings and the cursor per map.
   CURSOR_MODES,
   POINTER_AXES,
   POINTER_BUTTONS,
   type CursorMode,
   type PointerAxisName,
   type PointerButtonName,
-  // Phase 23.10: the project's own input maps.
+  // The project's own input maps.
   MAX_INPUT_MAPS,
   projectInputMaps,
   type InputMapName,
-  // Phase 23.14: the hold modifier and the project's glyph images.
+  // The hold modifier and the project's glyph images.
   GAMEPAD_FAMILIES,
   GLYPH_KEY_RE,
   HOLD_BINDING_KINDS,
@@ -636,7 +629,7 @@ export {
   INPUT_HOLD_MIN,
   MAX_INPUT_GLYPHS,
 } from './input';
-// Phase 23.10: game modes (content.modes), behavior groups and the behaviorGroup component.
+// Game modes (content.modes), behavior groups and the behaviorGroup component.
 export {
   MODE_BLENDS,
   MODE_DEFAULTS,
@@ -657,12 +650,12 @@ export {
   validateModeTransition,
 } from './modes';
 export type { BehaviorGroupComponent, GameMode, ModeBlend, ModePhysics, ModeTransition, ModeUngrouped, RuntimeModes } from './modes';
-// Phase 24.4i: the event → cue table.
+// The event → cue table.
 export { ENGINE_EVENT_TYPES, EVENT_CUE_BUSES, EVENT_CUE_FIELDS, EVENT_CUE_LIMITS, EVENT_CUE_SOURCES, canonicalEventCue, canonicalEventCues, validateEventCue, validateEventCueReferences, validateEventCues, type EventCue } from './event-cues';
 export { SHELL_FIELDS, SHELL_LIMITS, SHELL_SCREENS, canonicalShell, validateShell, validateShellReferences, type GameShell, type ShellScene, type ShellScreen } from './shell';
-// Phase 14.6: the old modelAnimation profile becomes an animator controller on open.
+// The old modelAnimation profile becomes an animator controller on open.
 export { glbClipDurations, LEGACY_CROSSFADE_SECONDS, LEGACY_RUN_SPEED_EPS, migrateModelAnimations, type ClipDurationOf, type ModelAnimationMigration } from './animator-migrate';
-// Phase 9.7: animator controllers.
+// Animator controllers.
 export {
   ANIMATOR_CONDITION_OPS,
   ANIMATOR_PARAMETER_TYPES,
@@ -692,7 +685,7 @@ export {
   type AnimatorState,
   type AnimatorTransition,
 } from './animator';
-// Phase 9.6: baked lighting.
+// Baked lighting.
 export {
   canonicalLighting,
   LIGHTMAP_SOURCES,
@@ -705,7 +698,7 @@ export {
   type LightingEntry,
   type LightingMap,
 } from './lighting';
-// Phase 9.4: materials, material mappings and the environment (wind).
+// Materials, material mappings and the environment (wind).
 export {
   canonicalEnvironment,
   canonicalMaterialMapping,
@@ -716,7 +709,7 @@ export {
   MATERIAL_SLOT_ALL,
   MATERIAL_TEXTURE_SLOTS,
   materialParamError,
-  // Phase 18.0: graph materials (exposed parameters, the graph, the runtime view).
+  // Graph materials (exposed parameters, the graph, the runtime view).
   canonicalMaterialParameters,
   MATERIAL_PARAMETER_KEY_RE,
   materialGraphContext,
@@ -740,7 +733,7 @@ export {
   validateEnvironment,
   validateMaterialMapping,
   validateMaterials,
-  // Phase 25.19: material instances.
+  // Material instances.
   MAX_MATERIAL_INSTANCE_DEPTH,
   resolveMaterial,
   resolveMaterialInstances,
@@ -763,7 +756,7 @@ export {
   type WindConfig,
 } from './materials';
 
-// Phase 23.18: environment presets (named looks scripts switch or blend to).
+// Environment presets (named looks scripts switch or blend to).
 export {
   ENVIRONMENT_LIGHT_TYPES,
   ENVIRONMENT_PRESET_LIMITS,
@@ -778,7 +771,7 @@ export {
   type EnvironmentPresetLightmap,
 } from './environment-presets';
 
-// Phase 15.0: the component and content descriptor registry (pure data).
+// The component and content descriptor registry (pure data).
 export {
   ASSET_KINDS,
   COMPONENT_ICONS,
@@ -824,7 +817,7 @@ export {
   type VecFieldDescriptor,
 } from './descriptors';
 
-// Phase 25.10: generic component access for scripts (ctx.entity): the table and the write check.
+// Generic component access for scripts (ctx.entity): the table and the write check.
 export {
   SCRIPT_ACCESS_SCHEMA_VERSION,
   SCRIPT_OBJECT_COMPONENT,
@@ -839,7 +832,7 @@ export {
   type ScriptWriteProblem,
 } from './script-fields';
 
-// Phase 23.5 (E8): block layers — data model, grid, edits, meshing, PNG heightmaps.
+// Block layers — data model, grid, edits, meshing, PNG heightmaps.
 export {
   BLOCK_LAYER_DEFAULT,
   BLOCK_LIMITS,
@@ -937,7 +930,7 @@ export {
   type CollisionMeshPiece,
 } from './block-mesh';
 export { SCULPT_LIMITS, SCULPT_OPS, columnHeights, sculptHeights, setColumnSurface, type ColumnHeights, type SculptDab, type SculptOp } from './block-sculpt';
-// Phase 25.21: the paint brush (any paint target) and a block layer's surface paint.
+// The paint brush (any paint target) and a block layer's surface paint.
 export { BRUSH_FALLOFFS, PAINT_BRUSH_LIMITS, brushFalloff, paintBrushError, paintPoint, type BrushFalloff, type PaintBrush, type PaintLayout } from './paint-brush';
 export { BLOCK_PAINT_LAYOUT, PAINT_BYTES, PAINT_CHANNELS, PAINT_CHUNK_SIZE, PAINT_VERTICES, PAINT_WETNESS_CHANNEL, chunkPaintColors, chunkPaintError, chunksOfVertex, decodeChunkPaint, encodeChunkPaint, isUnpainted, paintDab, paintOffset, unpaintedChunk, type PaintSurface } from './block-paint';
 export { chunkLightmapLayout, type ChunkLightmapLayout } from './block-lightmap';
@@ -955,7 +948,7 @@ export {
   type SurfaceHit,
 } from './block-surface';
 export { PNG_DECODE_MAX_PIXELS, decodeBase64, decodePngRgba, encodeBase64, inflateZlib, type DecodedPng, type PngDecodeOptions } from './png-decode';
-// Phase 23.19: the project save schema (save document, slots, sections, settings document).
+// The project save schema (save document, slots, sections, settings document).
 export {
   SAVE_LIMITS,
   SAVE_SECTIONS,
@@ -974,7 +967,7 @@ export {
   type SettingsField,
   type SettingsFieldValue,
 } from './save-schema';
-// Phase 23.16: dialogue (content.dialogues / speakers / dialogueSettings), its graph kind, expressions and the runtime form.
+// Dialogue (content.dialogues / speakers / dialogueSettings), its graph kind, expressions and the runtime form.
 export {
   DIALOGUE_DEFAULTS,
   DIALOGUE_DOCUMENT_ID,
@@ -1021,7 +1014,7 @@ export {
 } from './dialogue';
 export { codePointLength, parseRichText, richTextVisibleLength, uiValueText, type RichStyle, type RichToken } from './rich-text';
 export { UI_DIALOGUE_INPUTS, type UiDialogueInput } from './ui-documents';
-// Phase 23.17: timelines (sequencer assets).
+// Timelines (sequencer assets).
 export {
   TIMELINE_LIMITS,
   TIMELINE_TRACK_TYPES,

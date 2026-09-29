@@ -1,5 +1,5 @@
 /**
- * Phase 18.3: material graphs → three.js TSL node materials.
+ * Material graphs → three.js TSL node materials.
  *
  * A graph material (project-model `MaterialDef.graph`, graph kind
  * `material`) is compiled here from its data, in the browser, by the editor
@@ -22,9 +22,9 @@
  * - Exposed parameters are uniforms. A public parameter reads an object's
  *   override (the `materialParams` component) per drawn object
  *   (`onObjectUpdate`), so one shared material serves every object and no
- *   override ever changes it (phase 9.4 rule); texture overrides need their
+ *   override ever changes it; texture overrides need their
  *   own material (the library compiles a variant).
- * - Phase 23.12: scripts set public parameters per object while the game
+ * - Scripts set public parameters per object while the game
  *   runs (runtime `ctx.materials`); the renderer puts them on the object
  *   ({@link RUNTIME_VALUES_KEY}) and the same per-object uniforms read them
  *   before the authored override — one shared material, no recompile. A
@@ -38,7 +38,7 @@
  * - Textures come from the host through `texture(assetId, sampler)` (asset
  *   ids from the content closure, never URLs); one still loading draws as
  *   its fallback until the library recompiles on arrival.
- * - Phase 23.15: a Custom-lit output becomes a `MeshCustomLitNodeMaterial`
+ * - A Custom-lit output becomes a `MeshCustomLitNodeMaterial`
  *   (`custom-lit.ts`): its colour, emissive (and alpha when it reads light)
  *   are evaluated after three has gathered every light, and the Lighting
  *   input nodes read the gathered terms. Under a PBR or Unlit output, or in
@@ -86,7 +86,7 @@ export interface MaterialParameterLike {
   readonly type: string;
   readonly default: number | readonly number[] | string;
   readonly visibility?: string;
-  /** Phase 23.12, data parameters: the grid's cells [width, height]. */
+  /** Data parameters: the grid's cells [width, height]. */
   readonly size?: readonly number[];
 }
 /** A standalone graph document (only `material-function` ones are called). */
@@ -98,7 +98,7 @@ export interface MaterialFunctionLike {
 }
 
 export type ValueType = 'float' | 'vec2' | 'vec3' | 'vec4';
-/** Phase 23.12: `data` — a data parameter's cell grid (feeds only Sample data). */
+/** `data` — a data parameter's cell grid (feeds only Sample data). */
 export type PortType = ValueType | 'texture' | 'data';
 const VALUE_TYPES: readonly ValueType[] = ['float', 'vec2', 'vec3', 'vec4'];
 const WIDTH: Readonly<Record<ValueType, number>> = { float: 1, vec2: 2, vec3: 3, vec4: 4 };
@@ -156,7 +156,7 @@ export interface CompiledMaterialGraph {
     readonly opacity: N | null;
     readonly alphaTest: N | null;
     readonly position: N | null;
-    /** Phase 23.15, Custom-lit: the graph's colour and emissive (computed after the lights are gathered). */
+    /** Custom-lit: the graph's colour and emissive (computed after the lights are gathered). */
     readonly litColor: N | null;
     readonly litEmissive: N | null;
     /** Custom-lit alpha that reads lighting inputs (then `opacity`/`alphaTest` are null). */
@@ -166,7 +166,7 @@ export interface CompiledMaterialGraph {
   readonly flags: { readonly doubleSided: boolean; readonly transparent: boolean; readonly castShadows: boolean };
   /** Reads the clock or the wind (the host keeps rendering). */
   readonly animated: boolean;
-  /** Phase 23.15: reads a Lighting input under a Custom-lit output. */
+  /** Reads a Lighting input under a Custom-lit output. */
   readonly usesLight: boolean;
   /** Texture assets it samples (loaded or not). */
   readonly textures: readonly string[];
@@ -175,7 +175,7 @@ export interface CompiledMaterialGraph {
   readonly problems: readonly GraphProblem[];
   /** The number of catalogue nodes compiled (function bodies once per call). */
   readonly nodeCount: number;
-  /** Phase 23.12: textures the compile made (data parameters' placeholders); released with the compile. */
+  /** Textures the compile made (data parameters' placeholders); released with the compile. */
   readonly ownedTextures: readonly THREE.Texture[];
 }
 
@@ -183,21 +183,21 @@ export interface CompiledMaterialGraph {
 export const OVERRIDES_KEY = '__tlMaterialParams';
 
 /**
- * Phase 23.12: which material each compiled digest an object wears stands
+ * Which material each compiled digest an object wears stands
  * for (`mesh.userData[MATERIAL_IDS_KEY][digest] = materialId`; the library
  * keeps it) — run-time values are kept by material id.
  */
 export const MATERIAL_IDS_KEY = '__tlMaterialIds';
 
 /**
- * Phase 23.12: the values scripts set on an object while the game runs
+ * The values scripts set on an object while the game runs
  * (`mesh.userData[RUNTIME_VALUES_KEY]`), by material id: `values[materialId][key]`
  * (numbers; a colour as linear [r, g, b]) and `data[materialId][key]` (the
  * object's data texture). Read before the authored override.
  */
 export const RUNTIME_VALUES_KEY = '__tlMaterialRuntime';
 
-/** Phase 23.12: what {@link RUNTIME_VALUES_KEY} holds. */
+/** What {@link RUNTIME_VALUES_KEY} holds. */
 export interface RuntimeValuesLike {
   values: Record<string, Record<string, number | readonly number[] | string>>;
   data: Record<string, Record<string, THREE.Texture>>;
@@ -213,7 +213,7 @@ function runtimeEntry(object: THREE.Object3D | null | undefined, digest: string,
 }
 
 /**
- * Phase 23.12: a texel load whose texture is chosen per drawn object (an
+ * A texel load whose texture is chosen per drawn object (an
  * object's own data texture, else the placeholder). Its update runs per
  * object like the per-object uniforms (the object group is per render object
  * on both backends, so each object's texture binding stays its own).
@@ -239,18 +239,18 @@ Object.defineProperty(ObjectTextureNode.prototype, 'updateType', {
   configurable: true,
 });
 
-/** Phase 25.21: a texture array (its layers sampled by a layer index): KTX2 arrays and data arrays alike. */
+/** A texture array (its layers sampled by a layer index): KTX2 arrays and data arrays alike. */
 export function isArrayTexture(t: THREE.Texture): boolean {
   const x = t as THREE.Texture & { isCompressedArrayTexture?: boolean; isDataArrayTexture?: boolean; isArrayTexture?: boolean };
   return x.isCompressedArrayTexture === true || x.isDataArrayTexture === true || x.isArrayTexture === true;
 }
-/** Phase 25.21: the layers of a texture array (1 for a plain texture). */
+/** The layers of a texture array (1 for a plain texture). */
 export function arrayLayers(t: THREE.Texture): number {
   const d = (t.image as { depth?: number } | undefined)?.depth;
   return isArrayTexture(t) && typeof d === 'number' && d > 0 ? d : 1;
 }
 
-/** Phase 23.12: a data grid as a texture (RGBA8, exact texels, no mipmaps). */
+/** A data grid as a texture (RGBA8, exact texels, no mipmaps). */
 export function makeDataTexture(bytes: Uint8Array, width: number, height: number): THREE.DataTexture {
   const t = new THREE.DataTexture(bytes, width, height, THREE.RGBAFormat, THREE.UnsignedByteType);
   t.colorSpace = THREE.NoColorSpace;
@@ -508,7 +508,7 @@ export function functionInterface(graph: MaterialGraphLike): ResolvedPorts {
 type Val =
   | { readonly t: ValueType; readonly n: N }
   | { readonly t: 'texture'; readonly asset: string }
-  /** Phase 23.12: a data parameter (key '' = none). */
+  /** A data parameter (key '' = none). */
   | { readonly t: 'data'; readonly key: string; readonly size: readonly [number, number]; readonly fill: readonly number[]; readonly perObject: boolean };
 const NO_DATA: Val = { t: 'data', key: '', size: [1, 1], fill: [0, 0, 0, 0], perObject: false };
 const isValue = (x: Val | undefined): x is { t: ValueType; n: N } => x !== undefined && x.t !== 'texture' && x.t !== 'data';
@@ -576,7 +576,7 @@ function scopeOf(graph: MaterialGraphLike, ports: Map<string, ResolvedPorts>, bo
 /** How deep function calls may nest (validation refuses cycles; this guards malformed data). */
 const MAX_CALL_DEPTH = 16;
 
-/** Phase 23.15: the Lighting input node types (they read light only under a Custom-lit output). */
+/** The Lighting input node types (they read light only under a Custom-lit output). */
 export const LIGHTING_TYPES: ReadonlySet<string> = new Set(['mainLight', 'lightShadow', 'diffuseLight', 'ambientLight']);
 
 /**
@@ -590,7 +590,7 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
   const pending = new Set<string>();
   let animated = false;
   let nodeCount = 0;
-  /** Phase 23.15: the surface is Custom-lit (Lighting inputs read light), set before any slot compiles. */
+  /** The surface is Custom-lit (Lighting inputs read light), set before any slot compiles. */
   let litSurface = false;
   let usesLight = false;
   const problem = (scope: Scope, nodeId: string | undefined, severity: GraphProblem['severity'], message: string): void => {
@@ -614,7 +614,7 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
     let v: Val;
     if (p.type === 'texture') v = { t: 'texture', asset: typeof p.default === 'string' ? p.default : '' };
     else if (p.type === 'data') {
-      // Phase 23.12: a data parameter; its cells come per object when objects may carry their own.
+      // A data parameter; its cells come per object when objects may carry their own.
       const w = Math.max(1, Math.min(64, Math.round(Number(p.size?.[0] ?? 1)) || 1));
       const h = Math.max(1, Math.min(64, Math.round(Number(p.size?.[1] ?? 1)) || 1));
       const fill = Array.isArray(p.default) ? [0, 1, 2, 3].map((i) => Number((p.default as number[])[i] ?? 0)) : [0, 0, 0, 0];
@@ -629,7 +629,7 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
         const isColor = p.type === 'color';
         (u as N).onObjectUpdate(({ object }: { object: THREE.Object3D | null }) => {
           const all = object?.userData?.[OVERRIDES_KEY] as Record<string, Record<string, unknown>> | undefined;
-          // Phase 23.12: a value a script set on this object comes first (a colour arrives as linear [r, g, b]).
+          // A value a script set on this object comes first (a colour arrives as linear [r, g, b]).
           const o = runtimeEntry(object, okey, 'values', key) ?? all?.[okey]?.[key];
           const src: number[] | null = o === undefined ? null : isColor && typeof o === 'string' ? linearColor(o) : typeof o === 'number' ? [o] : Array.isArray(o) ? (o as number[]) : null;
           const vals = src ?? base;
@@ -756,7 +756,7 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
   };
 
   const v = (x: Val | undefined): N => (isValue(x) ? x.n : T.float(0));
-  /** Phase 23.12: textures this compile made (data placeholders). */
+  /** Textures this compile made (data placeholders). */
   const ownedTextures: THREE.Texture[] = [];
   const texOf = (x: Val | undefined): string => (x !== undefined && x.t === 'texture' ? x.asset : '');
 
@@ -776,7 +776,7 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
     return texNode(scope, node.id, asset, samplerOf(node, colour));
   };
   /**
-   * A texture read at a UV; of a texture array (phase 25.21), at `layer`
+   * A texture read at a UV; of a texture array, at `layer`
    * (rounded, kept within the array; a plain texture ignores it).
    */
   const sample = (t: THREE.Texture, uv: N, stage: Stage, layer?: N): N => {
@@ -883,7 +883,7 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
         return one('uv', T.uv(str(field(node, 'set'), 'uv0') === 'uv1' ? 1 : 0));
       case 'vertexColor': {
         const absent = str(field(node, 'absent'), 'white');
-        // Phase 25.21: COLOR_1 is three's `color_1` (glTF's second set; a painted block layer's wetness).
+        // COLOR_1 is three's `color_1` (glTF's second set; a painted block layer's wetness).
         const name = str(field(node, 'set'), 'COLOR_0') === 'COLOR_1' ? 'color_1' : 'color';
         const missing = (): N => (absent === 'zero' ? T.vec4(0, 0, 0, 1) : absent === 'first' ? T.vec4(1, 0, 0, 0) : T.vec4(1, 1, 1, 1));
         const c = T.Fn((builder: { geometry?: THREE.BufferGeometry }) => (builder.geometry?.hasAttribute(name) === true ? T.attribute(name, 'vec4') : missing()))();
@@ -924,7 +924,7 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
         animated = true;
         return { direction: { t: 'vec3', n: T.vec3(dir.x, 0, dir.y) }, strength: { t: 'float', n: windStrength(stage) }, turbulence: { t: 'float', n: g.turb } };
       }
-      // ---- lighting (phase 23.15)
+      // ---- lighting
       case 'mainLight':
       case 'lightShadow':
       case 'diffuseLight':
@@ -1025,7 +1025,7 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
         return { rgba: { t: 'vec4', n: s }, rgb: { t: 'vec3', n: s.xyz }, r: { t: 'float', n: s.x }, g: { t: 'float', n: s.y }, b: { t: 'float', n: s.z }, a: { t: 'float', n: s.w } };
       }
       case 'sampleData': {
-        // Phase 23.12: one cell of a data parameter, loaded exactly (no filtering), clamped to the grid.
+        // One cell of a data parameter, loaded exactly (no filtering), clamped to the grid.
         const d = inp['data'];
         const zero = T.vec4(0, 0, 0, 0);
         let s: N = zero;
@@ -1097,7 +1097,7 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
         return one('rgb', T.mix(T.vec3(...a), T.vec3(...b), k));
       }
       case 'heightBlend': {
-        // Phase 25.21: height-based blending (the "height lerp" of terrain and trim-sheet shaders).
+        // Height-based blending (the "height lerp" of terrain and trim-sheet shaders).
         // The weights, normalized (all zero: the first layer); each layer's height lifted by its weight; the layers
         // within `depth` of the highest show, in proportion to how far above that line they reach — times their
         // weight, so a layer of weight 0 never shows and the result follows the weights where the heights agree.
@@ -1207,7 +1207,7 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
   const surfaceNode = surfaces[0] ?? null;
   if (surfaceNode === null) problems.push({ severity: 'warning', message: 'no surface output (add a PBR, Unlit or Custom-lit output); it draws as a plain white surface' });
   litSurface = surfaceNode?.type === 'customLit';
-  /** Phase 23.15: whether a surface input reads a Lighting input (through wires, and into called functions). */
+  /** Whether a surface input reads a Lighting input (through wires, and into called functions). */
   const graphHasLight = (g: MaterialGraphLike, depth: number): boolean =>
     g.nodes.some((n) => LIGHTING_TYPES.has(n.type) || (n.type === 'call' && depth < MAX_CALL_DEPTH && ((f) => f !== null && graphHasLight(f.graph, depth + 1))(fnOf(str(field(n, 'function'), '')))));
   const readsLight = (nodeId: string, portId: string): boolean => {

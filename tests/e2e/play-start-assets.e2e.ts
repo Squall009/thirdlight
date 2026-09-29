@@ -1,5 +1,5 @@
 /**
- * Phase 25.24b: a Play start reads only its start scenes' assets; a scene
+ * A Play start reads only its start scenes' assets; a scene
  * loaded later reads its own when it loads, checked the same way, and shows
  * them. A two-scene project built through the real API: the start scene has
  * one model file; the other scene (not a start scene) a second model file

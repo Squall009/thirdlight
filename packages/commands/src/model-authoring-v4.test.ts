@@ -1,16 +1,13 @@
 /**
- * Packet-27 repair (GG-1/GG-2) — whole-GLB placement and collider/controller
- * authoring (commands.md §3.1/§5.3/§8.1/§8.10).
+ * Whole-GLB placement and collider/controller authoring.
  *
  * Byte-exact replay of `fixtures/m2/commands/model-authoring.messages.json`
- * plus focused boundary tests for the repaired `createEntity` `model` kind and
+ * plus focused boundary tests for the `createEntity` `model` kind and
  * the `setComponent` add/edit/remove semantics.
  *
- * Phase 9.3 (v1/v2 scene model removed): ported from `m2-*.test.ts` (archived
- * under archive/removed-v1-v2/commands/). Every state is a v4 project scene:
- * the M2 fixture envelopes are lifted in memory by `m2EnvelopeV4` (scene
+ * Every state is a v4 project scene: the `fixtures/m2` envelopes are lifted in memory by `m2EnvelopeV4` (scene
  * relabelled schemaVersion 4, content given the v4 scene index), and the
- * recorded M2 results are asserted against the v4 engine; where v4 differs
+ * recorded results are asserted against the v4 engine; where v4 differs
  * the difference is stated at the assertion.
  */
 
@@ -66,10 +63,10 @@ function failCode(r: ReturnType<typeof applyMutation>): string {
 }
 
 /**
- * The recorded M2 result as the v4 gate reports it: a single-scene v4 result
+ * The recorded result as the v4 gate reports it: a single-scene v4 result
  * is validated by `validateSceneV4`, whose details carry no `document` label
- * (the v2 project validation tagged them `document: "scene"`). Everything
- * else is asserted verbatim.
+ * (the fixture's v2 project validation tagged them `document: "scene"`).
+ * Everything else is asserted verbatim.
  */
 function v4Result(out: Record<string, unknown>): Record<string, unknown> {
   const error = out['error'] as { details?: Record<string, unknown>[] } | undefined;
@@ -210,7 +207,7 @@ describe('fixtures/m2/commands/model-authoring.messages.json replay (C27-1/C28-1
   });
 
   it('rejects empty values for the field edits, and a bad shape; box/camera/model are removable (phase 15.1)', () => {
-    // Phase 15.1: a model is removed like any component (the "+ Add component" Inspector).
+    // A model is removed like any component (the "+ Add component" Inspector).
     const removed = ok(mutation(baseState(), 'setComponent', { entityId: 'model-0001', component: 'model', value: null }));
     expect((removed.result.change as { next: unknown }).next).toBeNull();
     expect(
@@ -234,7 +231,7 @@ describe('fixtures/m2/commands/model-authoring.messages.json replay (C27-1/C28-1
         }),
       ),
     ).toBe('number_out_of_range');
-    // Phase 15.1: adding a model next to a box is refused by the scene rules (one model, box or camera).
+    // Adding a model next to a box is refused by the scene rules (one model, box or camera).
     expect(
       failCode(mutation(baseState(), 'setComponent', { entityId: 'box-0001', component: 'model', value: { asset: { assetId: 'asset-2b11d4a76c9f0e35' } } })),
     ).toMatch(/^[a-z_]+$/);

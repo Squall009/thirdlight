@@ -1,24 +1,24 @@
 /**
  * Test-run hygiene — reaper for disposable test roots.
  *
- * Why residue accumulated (owner-reported 2026-09-21: ~9,900 orphan roots
- * under /home/dadmin): every disposable root is cleaned up ONLY by
+ * Why residue accumulates (thousands of orphan roots under /home/dadmin
+ * otherwise): every disposable root is cleaned up ONLY by
  * in-process mechanisms — per-test rmSync, afterAll hooks, and the
  * `process.on('exit')` backstops in packages/workspace/tests/helpers.ts and
  * tests/integration/m2-builds/helpers.ts. None of those run when the
  * process is killed by a signal (supervisor restart, orchestrator/model
- * timeout, Ctrl+C escalating to SIGKILL), so every killed run left every
- * root it had created behind, forever, and nothing ever reaped them.
+ * timeout, Ctrl+C escalating to SIGKILL), so a killed run leaves every
+ * root it created behind.
  *
- * The fix is EXTERNAL reaping, wired in via vitest.config.mts
+ * Hence EXTERNAL reaping, wired in via vitest.config.mts
  * (globalSetup/globalTeardown): before a run starts and after it finishes,
  * stale disposable roots are removed here, outside any worker process.
  * Roots embed pid + timestamp, so a directory is never shared between
  * runs. Both sweeps only remove roots whose mtime is older than
  * MIN_AGE_MS: a root a live suite is still writing to stays fresh and is
- * never touched. (An age-0 teardown sweep was tried first and rejected —
- * it destroyed the in-flight roots of a concurrent run when an orphaned
- * earlier run finished during it, 2026-09-21.) SIGKILLed runs are
+ * never touched. (An age-0 teardown sweep would destroy the in-flight roots
+ * of a concurrent run when an orphaned earlier run finishes during it.)
+ * SIGKILLed runs are
  * therefore reaped by the next `vitest` invocation, at latest, once their
  * roots are older than MIN_AGE_MS.
  *
@@ -27,8 +27,7 @@
  * `contend-*` gate waiters, the real backend + MCP stdio children); the
  * parent worker kills them on the normal path, but a SIGKILLed worker
  * reparents them to pid 1 where they wait forever, holding the ownership
- * records of their (deleted) roots. 21 were found on 2026-09-21, the
- * oldest 3.5 days old. They are reaped the same way: a child is touched
+ * records of their (deleted) roots. They are reaped the same way: a child is touched
  * only when it is orphaned (ppid == 1) AND its command line references one
  * of the disposable bundle directories below. A live run's children are
  * attached to their live worker (ppid != 1) and are never touched.
@@ -36,7 +35,7 @@
  * DISPOSABLE_PREFIXES is the COMPLETE set of disposable prefixes the suite
  * creates under ROOT_BASE (each comment names its creation site).
  *
- * Third garbage class: /tmp itself (found 2026-09-22: 9.4 GB). On this host
+ * Third garbage class: /tmp itself (gigabytes of leaked directories). On this host
  * /tmp is a tmpfs, i.e. RAM, cleared only at reboot — not "ephemeral".
  * - Vitest 5's forks pool copies every transformed module into
  *   `<tmpdir>/<21-char nanoid>/ssr/` and never removes that directory, not

@@ -1,6 +1,6 @@
 /**
- * Phase 16.2: the right-dock Inspector while an "Animator: <controller>" tab
- * is in front — the GraphInspector (16.1) with the animator's extension:
+ * The right-dock Inspector while an "Animator: <controller>" tab
+ * is in front — the GraphInspector with the animator's extension:
  *
  * - a state: name, clip (or blend parameter + "Open blend tree"), speed and
  *   its × parameter, loop, "Set as entry state", clip events, its outgoing

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Packet 14 — bounded FUNCTIONAL comparison probe: cannon-es@0.20.0 (JS 3D,
+ * Bounded FUNCTIONAL comparison probe: cannon-es@0.20.0 (JS 3D,
  * no WASM) against the same static-course requirements, constrained to the XY
  * plane (Z=0) per the 2.5D proposal. Controller-work comparison, NOT a
  * browser benchmark (m2-physics.md experiment 6).

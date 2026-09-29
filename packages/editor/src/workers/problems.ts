@@ -1,5 +1,5 @@
 /**
- * Phase 22.1: the Problems tab's graph diagnostics as pure functions of the
+ * The Problems tab's graph diagnostics as pure functions of the
  * project data (they ran as `useMemo`s in the editor's main component).
  *
  * - standalone graphs: each kind's rules with data-dependent ports
@@ -10,7 +10,7 @@
  *
  * Plain data in, plain data out, so they run in the editor worker (the
  * result is the same object inline and off-thread; tests compare both).
- * Node labels are looked up through a map (the old per-problem `find` was
+ * Node labels are looked up through a map (a per-problem `find` would be
  * quadratic in a large graph whose every node has a warning).
  */
 import type { GraphDocument, GraphKindDef, GraphNode, MaterialDef } from '@thirdlight/project-model';

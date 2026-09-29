@@ -1,5 +1,5 @@
 /**
- * Phase 25.22: the bounded zip reader of job exports — stored and deflated
+ * The bounded zip reader of job exports — stored and deflated
  * entries, CRC and size checks, and the archives it refuses.
  */
 import { crc32, deflateRawSync } from 'node:zlib';

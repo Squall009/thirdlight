@@ -6,7 +6,7 @@
 
 import { type HealthEventRecord } from './types-behavior';
 
-/** Phase 23.4: a blend a script names for the camera change it makes (absent: the camera's own). */
+/** A blend a script names for the camera change it makes (absent: the camera's own). */
 export interface CameraBlendOptions {
   /** `cut`, `linear` or `eased`. */
   blend?: 'cut' | 'linear' | 'eased';
@@ -14,7 +14,7 @@ export interface CameraBlendOptions {
   time?: number;
 }
 
-/** Phase 23.4: a virtual camera's live rig values (`ctx.camera.get`). */
+/** A virtual camera's live rig values (`ctx.camera.get`). */
 export interface BehaviorCameraState {
   readonly rig: 'follow' | 'orbitPoint' | 'topDown' | 'fixed' | 'rail';
   readonly enabled: boolean;
@@ -34,7 +34,7 @@ export interface BehaviorCameraState {
   readonly letterbox: number;
 }
 
-/** Phase 23.9a: one UI event of this step (from the input frame). */
+/** One UI event of this step (from the input frame). */
 export interface BehaviorUiEvent {
   /** click (a button's event action), submit (an input), focus (the focus moved to `widget`), custom, show, hide, toggle; mode (a mode action: `value` is the mode), restart (the engine's restart), scene (the game shell's move along its scene list: `value` is the entry). */
   readonly kind: 'click' | 'submit' | 'focus' | 'custom' | 'show' | 'hide' | 'toggle' | 'mode' | 'restart' | 'scene';
@@ -51,14 +51,14 @@ export interface BehaviorUiEvent {
 }
 
 /**
- * Phase 23.9a: `ctx.ui` — the project UI. Scripts publish view-model values
+ * `ctx.ui` — the project UI. Scripts publish view-model values
  * that UI documents bind to (`{ "bind": "hud.hp" }`, `{hud.hp}` in a text),
  * show and hide documents, and read the UI events of the step (clicks,
  * submits, focus changes: part of the input frame, so replays hold). The
  * game host draws the documents; the view model and the shown documents are
  * simulation state.
  */
-/** Phase 23.18: how a change to an environment preset happens (`ctx.environment.set`). */
+/** How a change to an environment preset happens (`ctx.environment.set`). */
 export interface EnvironmentChangeOptions {
   /** Seconds the blend takes (0–600; 0 or absent: at once). */
   blend?: number;
@@ -69,7 +69,7 @@ export interface EnvironmentChangeOptions {
 }
 
 /**
- * Phase 23.18 (E17): `ctx.environment` — switch or blend the look (sky, fog,
+ * `ctx.environment` — switch or blend the look (sky, fog,
  * light colours and intensities, exposure and grading) between the project's
  * environment presets at run time. `''` names the base look (the project
  * environment with the level's look). The blend is simulation state: it
@@ -173,10 +173,10 @@ export interface BehaviorUi {
   event(name: string): BehaviorUiEvent | null;
 }
 
-/** Phase 23.16: a value of a dialogue variable or binding. */
+/** A value of a dialogue variable or binding. */
 export type DialogueVariableValue = number | string | boolean | null;
 
-/** Phase 23.16: one dialogue event (seen by scripts in the step after it happened). */
+/** One dialogue event (seen by scripts in the step after it happened). */
 export interface BehaviorDialogueEvent {
   /** start, lineStart, lineEnd, choice (options shown), chosen, signal, end. */
   readonly kind: 'start' | 'lineStart' | 'lineEnd' | 'choice' | 'chosen' | 'signal' | 'end';
@@ -197,7 +197,7 @@ export interface BehaviorDialogueEvent {
   readonly index: number;
 }
 
-/** Phase 23.16: the conversation now. */
+/** The conversation now. */
 export interface BehaviorDialogueState {
   readonly conversation: number;
   readonly dialogueId: string;
@@ -214,7 +214,7 @@ export interface BehaviorDialogueState {
   readonly options: readonly string[];
 }
 
-/** Phase 23.16: one line (or a chosen option) in the backlog. */
+/** One line (or a chosen option) in the backlog. */
 export interface BehaviorDialogueHistoryEntry {
   readonly dialogueId: string;
   readonly nodeId: string;
@@ -227,7 +227,7 @@ export interface BehaviorDialogueHistoryEntry {
 }
 
 /**
- * Phase 23.16: `ctx.dialogue` — conversations (dialogue graphs of the
+ * `ctx.dialogue` — conversations (dialogue graphs of the
  * project). A script starts one; the engine runs it in the simulation (the
  * typewriter reveal, voice clips on the voice bus with music and effects
  * ducked, auto-advance, skip-if-seen, choices, conditions and effects on the
@@ -331,7 +331,7 @@ export interface BehaviorDialogue {
   history(): readonly BehaviorDialogueHistoryEntry[];
 }
 
-/** Phase 23.10: one enter or exit of a game mode switch (`ctx.modes.events()`). */
+/** One enter or exit of a game mode switch (`ctx.modes.events()`). */
 export interface BehaviorModeEvent {
   /** enter (the mode became current) or exit (it ended). */
   readonly kind: 'enter' | 'exit';
@@ -341,7 +341,7 @@ export interface BehaviorModeEvent {
   readonly other: string;
 }
 
-/** Phase 23.10: how a switch looks (absent fields: the target mode's own transition, then the camera's blend). */
+/** How a switch looks (absent fields: the target mode's own transition, then the camera's blend). */
 export interface BehaviorModeTransition {
   /** The camera blend into the mode's camera: cut, linear or eased. */
   blend?: 'cut' | 'linear' | 'eased';
@@ -354,7 +354,7 @@ export interface BehaviorModeTransition {
 }
 
 /**
- * Phase 23.10: `ctx.modes` — the project's game modes. A mode decides the
+ * `ctx.modes` — the project's game modes. A mode decides the
  * active input maps, the live camera, the UI documents shown and the behavior
  * groups that tick; a switch changes them together in one step, without a
  * scene load. `switch` applies at the next step boundary; the enter/exit
@@ -416,9 +416,9 @@ export interface BehaviorModes {
 }
 
 /**
- * Phase 23.10: `ctx.lifecycle` — the engine's run lifecycle: respawn the
+ * `ctx.lifecycle` — the engine's run lifecycle: respawn the
  * character at a player spawn and restart the run. Winning, losing and what a
- * death means are the game's own rules (scripts); this is only the mechanism. Phase 24.7: it
+ * death means are the game's own rules (scripts); this is only the mechanism. It
  * works on the 2D plane too (the character controller session that owned it is gone).
  */
 export interface BehaviorLifecycle {
@@ -447,7 +447,7 @@ export interface BehaviorLifecycle {
   restart(): boolean;
 }
 
-/** Phase 23.17: one timeline event (seen in the step after it happened). */
+/** One timeline event (seen in the step after it happened). */
 export interface BehaviorTimelineEvent {
   /** started, ended or marker (a marker of the timeline was reached). */
   readonly kind: 'started' | 'ended' | 'marker';
@@ -462,7 +462,7 @@ export interface BehaviorTimelineEvent {
 }
 
 /**
- * Phase 23.17: `ctx.timeline` — play project timelines (sequences of camera
+ * `ctx.timeline` — play project timelines (sequences of camera
  * cuts, moves, animation, sound, dialogue, effects, signals, fades) as an
  * engine system in the simulation step. Calls take effect at the end of the
  * step; events (started, ended, marker) are seen in the next step, so a
@@ -541,7 +541,7 @@ export interface BehaviorTimeline {
 }
 
 /**
- * Phase 23.4: `ctx.camera` — the virtual cameras (the `virtualCamera`
+ * `ctx.camera` — the virtual cameras (the `virtualCamera`
  * component): which is live, their rig values, shake and screen↔world
  * projection. Changes take effect at the end of the step (the camera brain
  * resolves the live camera after every script has run); reads and the
@@ -648,7 +648,7 @@ export interface BehaviorCamera {
 }
 
 /**
- * Phase 23.11: `ctx.sockets` — objects riding on named nodes (bones or any
+ * `ctx.sockets` — objects riding on named nodes (bones or any
  * node) of other objects' models. The simulation places an attached object
  * at the end of every step, after the animators, so it follows the target's
  * animation in Play, the worker and the export alike.
@@ -686,7 +686,7 @@ export interface BehaviorSockets {
   nodePose(targetId: string, node: string): { readonly position: readonly [number, number, number]; readonly rotation: readonly [number, number, number, number] } | null;
 }
 
-/** Phase 9.9: `ctx.signals`. */
+/** `ctx.signals`. */
 export interface BehaviorSignals {
   /**
    * Send a named signal; switches, doors and scripts see it in the next step.
@@ -703,7 +703,7 @@ export interface BehaviorSignals {
   on(name: string): boolean;
 }
 
-/** Phase 9.9: `ctx.game`. */
+/** `ctx.game`. */
 export interface BehaviorGameState {
   /**
    * The current value of one of the run's counters (0 when it was never added to).
@@ -734,7 +734,7 @@ export interface BehaviorGameState {
 }
 
 /**
- * Phase 24.4b: `ctx.health` — the health of any object with a Health
+ * `ctx.health` — the health of any object with a Health
  * component. Changes apply at once (a later `get` in the same step sees them);
  * each is an event (`damaged`, `healed`, and `died` when it reaches 0) that
  * scripts owning the object read in the next step's `ctx.events` (all of them:
@@ -771,7 +771,7 @@ export interface BehaviorHealth {
   events(): readonly HealthEventRecord[];
 }
 
-/** Phase 24.4c: `ctx.patrol` — objects with a Patrol component. */
+/** `ctx.patrol` — objects with a Patrol component. */
 export interface BehaviorPatrol {
   /**
    * The way a patroller walks now (a unit vector) and whether it walks at all; null for an object without a patrol.
@@ -795,7 +795,7 @@ export interface BehaviorPatrol {
   turn(entityId: string): boolean;
 }
 
-/** Phase 24.4d: `ctx.hitbox` — objects with a Hitbox component. */
+/** `ctx.hitbox` — objects with a Hitbox component. */
 export interface BehaviorHitbox {
   /**
    * Switch a hitbox off (it touches nothing: its contacts end) or on again. False for an object without a hitbox.
@@ -813,7 +813,7 @@ export interface BehaviorHitbox {
   touching(entityId: string): readonly string[];
 }
 
-/** Phase 24.4a: `ctx.collectible` — objects with a Collectible component. */
+/** `ctx.collectible` — objects with a Collectible component. */
 export interface BehaviorCollectible {
   /**
    * Whether a collectible has been collected (and not come back yet).
@@ -830,7 +830,7 @@ export interface BehaviorCollectible {
   restore(entityId: string): boolean;
 }
 
-/** Phase 24.4f: `ctx.character` — the character (the object with the Character controller). */
+/** `ctx.character` — the character (the object with the Character controller). */
 export interface BehaviorCharacter {
   /**
    * Add `velocity` [x, y, z] (m/s, each at most 100 either way) to the character's velocity at its next move — a push, a launch, a knock back or a bounce; its own acceleration then brings it back to what the input asks. A positive y lifts it off the ground. The 2D plane ignores z. Impulses in one step add up. False without a character or for a bad vector.
@@ -841,7 +841,7 @@ export interface BehaviorCharacter {
 }
 
 /**
- * Phase 24.4h: a look override (`ctx.look.set`): an emissive glow and a tint
+ * A look override (`ctx.look.set`): an emissive glow and a tint
  * multiplied into the object's own colour, on every mesh under the object.
  */
 export interface BehaviorLookValue {
@@ -853,7 +853,7 @@ export interface BehaviorLookValue {
   tint?: string;
 }
 
-/** Phase 24.4h: `ctx.look` — per-object look overrides the renderer applies (both renderers). */
+/** `ctx.look` — per-object look overrides the renderer applies (both renderers). */
 export interface BehaviorLook {
   /**
    * Give an object (and every mesh under it) a look override — a glow (emissive colour and intensity) and/or a tint — replacing any it had, until cleared or a new run. False for an object not loaded or a bad value.
@@ -876,7 +876,7 @@ export interface BehaviorLook {
   get(entityId: string): BehaviorLookValue | null;
 }
 
-/** Phase 9.7: one entity's animator, as a script sees it. */
+/** One entity's animator, as a script sees it. */
 export interface BehaviorAnimatorHandle {
   /**
    * Set a float/int/bool parameter; false for an unknown name or a wrong type.
@@ -898,31 +898,31 @@ export interface BehaviorAnimatorHandle {
    */
   get(name: string): number | boolean | undefined;
   /**
-   * The current state's name (of the base layer, or of override layer `layer` — 1 is the first; phase 14.6).
+   * The current state's name (of the base layer, or of override layer `layer` — 1 is the first).
    * @graphPure
    * @graphNode Animator state
    */
   state(layer?: number): string;
   /**
-   * Phase 23.11: set this animator's playback speed (× every clip and crossfade; 1 as authored, 0.5 half speed, 0 holds the pose; 0–10). False for a value outside 0–10.
+   * Set this animator's playback speed (× every clip and crossfade; 1 as authored, 0.5 half speed, 0 holds the pose; 0–10). False for a value outside 0–10.
    * @graphNode Set animation speed
    * @graphDefault speed 1
    */
   setSpeed(speed: number): boolean;
   /**
-   * Phase 23.11: this animator's playback speed.
+   * This animator's playback speed.
    * @graphPure
    * @graphNode Animation speed
    */
   speed(): number;
   /**
-   * Phase 23.11: set a morph target's weight (0–1) by its name in the model (over the controller's parameter binding of that target, if any).
+   * Set a morph target's weight (0–1) by its name in the model (over the controller's parameter binding of that target, if any).
    * @graphNode Set morph weight
    * @graphLabel name morph target
    */
   setMorph(name: string, weight: number): boolean;
   /**
-   * Phase 23.11: a morph target's weight now (0 when nothing sets it).
+   * A morph target's weight now (0 when nothing sets it).
    * @graphPure
    * @graphNode Morph weight
    * @graphLabel name morph target
@@ -935,7 +935,7 @@ export interface BehaviorAnimatorControl {
   of(entityId: string): BehaviorAnimatorHandle | null;
 }
 
-/** Phase 9.7: a clip event an animator passed. */
+/** A clip event an animator passed. */
 export interface AnimatorEventRecord {
   readonly entityId: string;
   readonly name: string;
@@ -945,7 +945,7 @@ export interface AnimatorEventRecord {
 }
 
 /**
- * Phase 12 (b): what a behavior script can ask about tags (`ctx.tags`, in
+ * What a behavior script can ask about tags (`ctx.tags`, in
  * `instantiate` and every `step`). Built once when the scene loads from the
  * effective masks (own mask OR every folder above's); calls never allocate
  * per frame beyond the first query of a given mask.

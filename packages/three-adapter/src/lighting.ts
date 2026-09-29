@@ -1,23 +1,22 @@
 /**
- * M3 light, shadow and surface realization math —
- * `docs/contracts/presentation.md` §§41.1/41.2 (packet 52).
+ * Light, shadow and surface realization math —
+ * `docs/contracts/presentation.md`.
  *
  * Pure by contract: no three.js, no DOM, no Node built-ins, no clock. The
- * adapter (§41.9: "shadow/light realization options on the accepted
+ * adapter ("shadow/light realization options on the accepted
  * `createSceneAdapter` options") maps these plans onto THREE objects; the
- * browser checklist (B11, named checklist per Gate K) compares the realized
+ * browser checklist compares the realized
  * values against the promoted fixture
  * `fixtures/m3/media/render/light-surface-cases.json` (whose digests the
  * media checker pins and whose rules it re-derives independently).
  *
  * The authored document is never rewritten: only **derived copies** of the
- * authored `direction` are normalized (same rule as accepted project-model
- * §10.1 quaternions, presentation.md §41.1.2 rule 2).
+ * authored `direction` are normalized (same rule as project-model
+ * quaternions, presentation.md rule 2).
  */
 
-/** §41.1.2 — the single conservative shadow profile. Changing a value is a
- * contract change (presentation.md §41.10); the frozen packet-38 executed
- * configuration (real-browser probe, baseline.md §1). */
+/** The single conservative shadow profile. Changing a value is a
+ * contract change; the frozen configuration a real-browser probe ran. */
 export const SHADOW_PROFILE = Object.freeze({
   /** `SHADOW_MAP_SIZE` — shadow map width = height, texels. */
   mapSize: 512,
@@ -36,7 +35,7 @@ export const SHADOW_PROFILE = Object.freeze({
 } as const);
 
 /**
- * Phase 17.4: the directional light's shadow settings when its data sets
+ * The directional light's shadow settings when its data sets
  * none (`light.shadowMapSize`, `shadowBias`, `shadowNormalBias`,
  * `shadowExtent`; the same values and their genre-neutral reasons as
  * project-model `DIRECTIONAL_SHADOW_DEFAULTS`). They replace the frozen
@@ -67,9 +66,9 @@ export function directionalShadowSettings(l: AuthoredLight | null): { mapSize: n
 }
 
 /**
- * §41.2.1 — the three frozen preset rows (a **value row**, never a resource).
- * Single change point per package (dependencies.md §4.2 pattern):
- * `three-adapter` has no `project-model` edge (§4.1), so it keeps its own
+ * The three frozen preset rows (a **value row**, never a resource).
+ * Single change point per package (the dependencies.md pattern):
+ * `three-adapter` has no `project-model` edge, so it keeps its own
  * copy of the closed table; `lighting.test.ts` pins it bit-equal against the
  * contract rows, and the media checker pins the promoted fixture against the
  * model table — the two are transitively equal.
@@ -106,7 +105,7 @@ export interface ShadowRegion {
   readonly maxY: number;
 }
 
-/** The §41.1.3 derivation output. The `direction` input is used through a
+/** The shadow camera derivation output. The `direction` input is used through a
  * derived normalized copy only; the document value is never rewritten. */
 export interface ShadowPlan {
   /** `c = ((minX + maxX) / 2, (minY + maxY) / 2, 0)`. */
@@ -127,19 +126,19 @@ export interface ShadowPlan {
     far: number;
   }>;
   /** `false` iff `halfExtent > SHADOW_HALF_EXTENT_MAX` (the shadow is not
-   * allocated for that scene; §41.1.4 degradation with reason
+   * allocated for that scene; a degradation with reason
    * `shadow_bounds_exceeded`). */
   readonly withinBounds: boolean;
 }
 
 /**
- * §41.1.3 — the exact shadow camera derivation. Normative inputs: the
+ * The exact shadow camera derivation. Normative inputs: the
  * shadow region and the directional `direction` `d` (let
  * `n = d / ‖d‖`). Z is presentation depth only: the shadow camera covers the
  * XY region, not the whole scene.
  *
  * Defensive note: a runtime-validated v3 snapshot guarantees each
- * `|v| ≤ 1`, `‖v‖ ≥ 1e-6` (project-model §23.3.4); a non-finite or
+ * `|v| ≤ 1`, `‖v‖ ≥ 1e-6` (project-model); a non-finite or
  * degenerate direction cannot reach this function from that path. If it
  * did, `lightPosition` degrades to `centre` (the zero normalized copy) —
  * still a finite, bounded result.
@@ -190,13 +189,13 @@ export function deriveShadowCamera(
   };
 }
 
-/** The §41.1.4 closed shadow-reason set (present iff `shadows === 'off'`). */
+/** The closed shadow-reason set (present iff `shadows === 'off'`). */
 export type ShadowReason =
   | 'cast_shadow_false'
   | 'shadow_bounds_exceeded'
   | 'shadow_unsupported';
 
-/** The §41.1.4 decision. The hard outcome (`render_unsupported`) is the
+/** The shadow decision. The hard outcome (`render_unsupported`) is the
  * unplayable case: no WebGL 2 at all. */
 export type ShadowOutcome =
   | { readonly ok: true; readonly shadows: 'on'; readonly plan: ShadowPlan }
@@ -209,11 +208,11 @@ export type ShadowOutcome =
   | { readonly ok: false; readonly error: 'render_unsupported' };
 
 /**
- * §41.1.4 — the capability/degradation decision, in the exact priority the
+ * The capability/degradation decision, in the exact priority the
  * promoted fixture's reference re-derivation uses (media checker, the
  * `shadow` group):
  *
- * 1. no WebGL 2 ⇒ hard `render_unsupported` (the M3 target is WebGL 2);
+ * 1. no WebGL 2 ⇒ hard `render_unsupported` (the minimum target is WebGL 2);
  * 2. the author wrote `castShadow: false` (or no shadow-casting light) ⇒
  *    `off` / `cast_shadow_false` (the author's own choice — not an error);
  * 3. the renderer cannot allocate the shadow map (the probe failed) ⇒
@@ -221,9 +220,9 @@ export type ShadowOutcome =
  *    light only);
  * 4. `halfExtent > SHADOW_HALF_EXTENT_MAX` ⇒ `off` /
  *    `shadow_bounds_exceeded` (soft);
- * 5. otherwise ⇒ `on` with the §41.1.3 plan.
+ * 5. otherwise ⇒ `on` with the `deriveShadowCamera` plan.
  *
- * The `plan` is present on every `ok: true` outcome — §41.1.2 rule 2 derives
+ * The `plan` is present on every `ok: true` outcome — rule 2 derives
  * the directional light position (`target − n · SHADOW_DISTANCE`) and target
  * (the shadow centre) regardless of the shadow state.
  */
@@ -247,7 +246,7 @@ export function decideShadows(input: {
 
 /**
  * The structural shape of the authored `components.light` value
- * (project-model §23.3.4; `three-adapter` has no `project-model` edge, so
+ * (project-model; `three-adapter` has no `project-model` edge, so
  * the adapter reads it structurally — the runtime-validated snapshot
  * guarantees the full shape).
  */
@@ -259,9 +258,9 @@ export interface AuthoredLight {
   readonly intensity: number;
   /** Required iff `type === 'directional'`; each `|v| ≤ 1`, `‖v‖ ≥ 1e-6`. */
   readonly direction?: readonly [number, number, number];
-  /** Directional only; defaulted to `false` by the §23.7 normalizer. */
+  /** Directional only; defaulted to `false` by the project-model normalizer. */
   readonly castShadow?: boolean;
-  /** Phase 17.4 (directional, optional): the shadow map settings (see DIRECTIONAL_SHADOW_DEFAULTS). */
+  /** Directional, optional: the shadow map settings (see DIRECTIONAL_SHADOW_DEFAULTS). */
   readonly shadowMapSize?: number;
   readonly shadowBias?: number;
   readonly shadowNormalBias?: number;
@@ -269,7 +268,7 @@ export interface AuthoredLight {
 }
 
 /** The structural shape of the authored `components.surface` value
- * (project-model §23.3.5 copied value row). */
+ * (a copy of the project-model value row). */
 export interface AuthoredSurface {
   readonly color: string;
   readonly roughness: number;
@@ -279,9 +278,9 @@ export interface AuthoredSurface {
 }
 
 /**
- * §41.1.2 rule 1/2 — the per-authored-light realization plan. `ambient` →
+ * Rules 1/2 — the per-authored-light realization plan. `ambient` →
  * `(color, intensity)` with no position dependence; `directional` →
- * `(color, intensity)` + the derived position/target (the §41.1.3 centre and
+ * `(color, intensity)` + the derived position/target (the shadow plan's centre and
  * `c − n · SHADOW_DISTANCE`), with `castShadow` exactly the decided
  * realization state. The light entities' own `transform` is irrelevant
  * (rule 3): only the component value is read.
@@ -315,7 +314,7 @@ export function planSceneLights(
         readonly castShadow: boolean;
       }
   > = [];
-  // §41.1.2 rule 4: exactly one directional node and one ambient node per
+  // Rule 4: exactly one directional node and one ambient node per
   // realized scene (the model caps both at 1); the first of each kind wins.
   let ambientTaken = false;
   let directionalTaken = false;

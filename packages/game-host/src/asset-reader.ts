@@ -1,7 +1,7 @@
 /**
- * Phase 25.24b: the verified asset reader of a game page (Play's preview;
- * the export can use the same one). Before 25.24 the page read and re-hashed
- * every declared asset of every scene, one at a time, before it mounted. Now:
+ * The verified asset reader of a game page (Play's preview;
+ * the export can use the same one). The page does not read every declared
+ * asset before it mounts:
  *
  * - `startSceneAssets` names the assets the start scenes need (what their
  *   objects reference, through the materials, material functions and
@@ -12,7 +12,7 @@
  *   same reader.
  *
  * Each asset is read at most once and its bytes are checked against the
- * manifest's length and digest before anyone gets them, as before; a failed
+ * manifest's length and digest before anyone gets them; a failed
  * check is an `asset_source_invalid` error naming the asset.
  */
 
@@ -166,7 +166,7 @@ export interface StartAssetSources {
 }
 
 /**
- * Phase 25.24b: the assets the start scenes need before the first frame —
+ * The assets the start scenes need before the first frame —
  * every declared asset id their objects name, directly or through the
  * materials (a model's own material map too), material functions and effects
  * they use; the environment's (sky, presets); and the start scenes' bakes.

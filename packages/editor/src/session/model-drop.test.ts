@@ -1,5 +1,5 @@
 /**
- * Dropping a model asset (2026-09-24): the one createEntity a drop issues.
+ * Dropping a model asset: the one createEntity a drop issues.
  */
 import { describe, expect, it } from 'vitest';
 

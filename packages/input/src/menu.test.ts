@@ -1,7 +1,6 @@
 /**
- * Packet 55 — pure tests for the menu-control channel (delivery.md
- * §4.1/§4.2). No DOM, no gamepad objects — the plain-data state machine
- * only (input.md §5: the browser owner is the only module that touches the
+ * Pure tests for the menu-control channel (delivery.md). No DOM, no gamepad
+ * objects — the plain-data state machine only (the browser owner is the only module that touches the
  * environment).
  */
 import { describe, expect, it } from 'vitest';

@@ -1,5 +1,5 @@
 /**
- * Phase 23.7: the "Library: <name>" centre tab — the code editor for a shared
+ * The "Library: <name>" centre tab — the code editor for a shared
  * script library (TypeScript and JSON modules every script imports as
  * `@lib/<libraryId>`).
  *
@@ -11,7 +11,7 @@
  *   (nothing is written); diagnostics are marked in the code and listed.
  * - Save sends one `setScriptLibrary` command with only the changed files;
  *   the backend recompiles every published script that imports the library
- *   in the same command (one undo step). Phase 25.9: changes larger than one
+ *   in the same command (one undo step). Changes larger than one
  *   request are staged in several patches (a large file in pieces) and
  *   committed once (`commitScriptLibraryStage`: one revision, one undo, each
  *   dependent compiled once); the Libraries panel's "Save all" commits every
@@ -48,7 +48,7 @@ export type LibraryCheckResult =
   | { ok: false; error: { code: string; message: string } };
 
 export type LibrarySaveOutcome =
-  /** Phase 25.9: `patches` when the save was staged (several patches, one commit). */
+  /** `patches` when the save was staged (several patches, one commit). */
   | { kind: 'saved'; revision: number; recompiled: string[]; patches?: number }
   | { kind: 'needs-ack'; digest: string }
   | { kind: 'failed'; message: string; diagnostics?: CompileDiagnosticView[] };
@@ -60,11 +60,11 @@ export interface LibraryDocumentProps {
   activePlay: { snapshotId: string; revision: number } | null;
   check: (libraryId: string, files: readonly ScriptFile[]) => Promise<LibraryCheckResult>;
   save: (libraryId: string, files: { path: string; text: string | null }[], acknowledge: boolean) => Promise<LibrarySaveOutcome>;
-  /** Phase 25.9: a draft changed (the Libraries panel lists the libraries with unsaved edits). */
+  /** A draft changed (the Libraries panel lists the libraries with unsaved edits). */
   onDraftChange?: () => void;
-  /** Phase 25.9: bumped when drafts change outside this tab (the panel's "Save all" marks them saved). */
+  /** Bumped when drafts change outside this tab (the panel's "Save all" marks them saved). */
   draftsVersion?: number;
-  /** Phase 25.9: a position to show (the Console's source locations; for this library when its id matches). */
+  /** A position to show (the Console's source locations; for this library when its id matches). */
   focus?: SourceFocus | null;
 }
 
@@ -78,7 +78,7 @@ type CheckState =
 const byPath = (a: ScriptFile, b: ScriptFile): number => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
 const filesText = (files: readonly ScriptFile[]): string => JSON.stringify([...files].sort(byPath).map((f) => [f.path, f.text]));
 
-/** Phase 25.9: a draft whose files were saved elsewhere (the Libraries panel's "Save all"). */
+/** A draft whose files were saved elsewhere (the Libraries panel's "Save all"). */
 export function savedDraft(draft: LibraryDraft): LibraryDraft {
   return { ...draft, base: filesText(draft.files), dirty: false };
 }
@@ -112,7 +112,7 @@ export function LibraryDocument(p: LibraryDocumentProps): JSX.Element {
     if (library === null || storedText === null) return;
     const existing = drafts.get(libraryId);
     if (existing !== undefined && (existing.dirty || existing.base === storedText)) {
-      // Phase 25.9: a draft saved from the Libraries panel ("Save all") is shown as saved here too.
+      // A draft saved from the Libraries panel ("Save all") is shown as saved here too.
       setDraftState(existing);
       return;
     }
@@ -154,7 +154,7 @@ export function LibraryDocument(p: LibraryDocumentProps): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the check restarts on text edits only; its other inputs are read when it fires
   }, [draftText]);
 
-  // Phase 25.9: a Console location opens its file and puts the cursor on the line.
+  // A Console location opens its file and puts the cursor on the line.
   useSourceFocus(libraryId, p.focus ?? null, draft === null ? null : { openPath: draft.openPath, has: (path) => draft.files.some((f) => f.path === path), open: (path) => setDraft({ ...draft, openPath: path }) }, codeRef);
 
   if (library === null) return <p className="tl-hint">This script library no longer exists (deleted or undone). Close the tab.</p>;

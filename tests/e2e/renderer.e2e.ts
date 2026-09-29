@@ -1,5 +1,5 @@
 /**
- * Phase 17.1: the renderer backend choice — the project setting
+ * The renderer backend choice — the project setting
  * (`render_backend`, from the settings form) and the page URL flag
  * (`?renderer=`) pick the backend of the Scene view, Play and the standalone
  * export; each reports the backend and why (the canvas `data-tl-renderer*`
@@ -8,7 +8,7 @@
  *
  * Runs in both Playwright projects: `default` has no WebGPU (a forced or
  * automatic WebGPU choice runs on the WebGL 2 backend and says why); `webgpu`
- * launches Chromium with headless WebGPU (Dawn on SwiftShader). Phase 17.4:
+ * launches Chromium with headless WebGPU (Dawn on SwiftShader).
  * `auto` is the default everywhere; the archived WebGL renderer's `legacy`
  * flag value and setting value 0 mean `auto`.
  */
@@ -42,7 +42,7 @@ async function backend(template?: string): Promise<E2EBackend> {
   return be;
 }
 
-/** Does this Playwright project give the page a working WebGPU adapter? (2026-09-27: every project does on a GPU.) */
+/** Does this Playwright project give the page a working WebGPU adapter? (every project does on a GPU.) */
 const hasWebGpu = (): boolean => test.info().project.name === 'webgpu' || gpuAvailable();
 /** The backend a preference ends up on in this project. */
 const expected = (preference: 'auto' | 'webgpu' | 'webgl2'): string => (preference === 'webgl2' ? 'webgl2' : hasWebGpu() ? 'webgpu' : 'webgl2');

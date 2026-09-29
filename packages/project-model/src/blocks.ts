@@ -1,16 +1,16 @@
 /**
- * Phase 9.9: gameplay building blocks (v4 components).
+ * Gameplay building blocks (v4 components).
  *
  * - `mover`: the entity moves along waypoints (offsets from where it is
  *   placed); with a collider it is a moving platform that carries the player.
  *   `startOn` makes it wait for a signal (a door: `mode: "once"`).
- * - `trigger`: a box (or, phase 14.2, a circle) that emits a signal when the
+ * - `trigger`: a box (or, a circle) that emits a signal when the
  *   player enters it (`mode: "stay"`: every step while the player is inside).
  * - `switch`: a lever/button (`interact` + the interact action) or a pressure
  *   plate (`stand`) that emits a signal.
- * - `health`: an object's health (phase 24.4b: any object; `ctx.health`).
+ * - `health`: an object's health (any object; `ctx.health`).
  *
- * Phase 24.7: the removed game components and the session
+ * The removed game components and the session
  * player's grace time, knockback and hit bounce were deleted (collectible,
  * patrol and hitbox are the generic primitives below).
  */
@@ -19,25 +19,25 @@ import type { ModelErrorV2 } from './errors';
 
 export const MOVER_MODES = ['loop', 'pingpong', 'once'] as const;
 /**
- * Phase 25.12: `gravity` — constant acceleration: it leaves each point from
+ * `gravity` — constant acceleration: it leaves each point from
  * rest and speeds up evenly until the next (a falling or dropping motion),
  * taking as long per stretch as it would at `speed` (so `speed` stays the
  * average and a path keeps its timing).
  */
 export const MOVER_EASINGS = ['linear', 'smooth', 'gravity'] as const;
-/** Phase 25.12: the mover's signal fields (each a signal name; at most one of them names a given signal, `reverseOn` aside). */
+/** The mover's signal fields (each a signal name; at most one of them names a given signal, `reverseOn` aside). */
 export const MOVER_SIGNAL_FIELDS = ['startOn', 'stopOn', 'toggleOn', 'reverseOn'] as const;
 export const SWITCH_MODES = ['interact', 'stand'] as const;
-/** Phase 14.2: a trigger's area (absent: box) and when it emits (absent: enter). */
+/** A trigger's area (absent: box) and when it emits (absent: enter). */
 export const TRIGGER_SHAPES = ['box', 'circle', 'sphere', 'capsule'] as const;
-/** Phase 23.1: a capsule trigger's total height range (m, end caps included; at least twice its radius). */
+/** A capsule trigger's total height range (m, end caps included; at least twice its radius). */
 export const TRIGGER_HEIGHT = { min: 0.05, max: 500 } as const;
 export const TRIGGER_MODES = ['enter', 'stay'] as const;
-/** Phase 14.2: a circle trigger's radius range (m) — the same extent a box trigger may have (0.05–500 m across). */
+/** A circle trigger's radius range (m) — the same extent a box trigger may have (0.05–500 m across). */
 export const TRIGGER_RADIUS = { min: 0.025, max: 250 } as const;
 
 /**
- * Phase 15.3: the gameplay blocks' tuning when a component carries none. A
+ * The gameplay blocks' tuning when a component carries none. A
  * mover shoves a character out of its way at up to 60 m/s (0.5 m per step at
  * 120 Hz — a safety limit, not a feel).
  */
@@ -45,7 +45,7 @@ export const BLOCK_DEFAULTS = Object.freeze({
   maxPush: 60,
 });
 
-/** Phase 15.3: the ranges of the blocks' tuning fields. */
+/** The ranges of the blocks' tuning fields. */
 export const BLOCK_TUNING_LIMITS = Object.freeze({
   maxPush: { min: 1, max: 1000 },
 });
@@ -61,46 +61,46 @@ export interface MoverComponent {
   easing?: (typeof MOVER_EASINGS)[number];
   /** Wait for this signal before moving (absent: moves from the start). */
   startOn?: string;
-  /** Phase 15.3: the fastest (m/s) it shoves a player out of its way (absent: 60). */
+  /** The fastest (m/s) it shoves a player out of its way (absent: 60). */
   maxPush?: number;
   /**
-   * Phase 25.10: false — it holds where it is (it still collides and carries)
+   * False — it holds where it is (it still collides and carries)
    * until a script switches it on (`ctx.entity(id).set('mover', { active: true })`);
    * absent: true. Stored only when false.
    */
   active?: boolean;
-  /** Phase 25.12: this signal holds it where it is (as `active: false`; a start or toggle signal moves it again). */
+  /** This signal holds it where it is (as `active: false`; a start or toggle signal moves it again). */
   stopOn?: string;
-  /** Phase 25.12: this signal moves it if it is held and holds it if it moves. */
+  /** This signal moves it if it is held and holds it if it moves. */
   toggleOn?: string;
-  /** Phase 25.12: this signal turns it around: back the way it came (a finished `once` mover travels back to its start). */
+  /** This signal turns it around: back the way it came (a finished `once` mover travels back to its start). */
   reverseOn?: string;
 }
 
 export interface TriggerComponent {
-  /** A box's [w, h] (required for a box, refused for the round shapes); phase 23.1: [w, h, d] in a 3D project. */
+  /** A box's [w, h] (required for a box, refused for the round shapes); [w, h, d] in a 3D project. */
   size?: [number, number] | [number, number, number];
   signal: string;
   once?: boolean;
   /** Emitted when the player leaves the area. */
   exitSignal?: string;
-  /** Phase 14.2: the area's shape (absent: box). */
+  /** The area's shape (absent: box). */
   shape?: (typeof TRIGGER_SHAPES)[number];
-  /** Phase 14.2: a circle's radius in meters (required for a circle, refused for a box); phase 23.1: a sphere's or capsule's too. */
+  /** A circle's radius in meters (required for a circle, refused for a box); A sphere's or capsule's too. */
   radius?: number;
-  /** Phase 23.1: a capsule's total height (m, end caps included), standing along the entity's local Y. */
+  /** A capsule's total height (m, end caps included), standing along the entity's local Y. */
   height?: number;
-  /** Phase 14.2: `enter` (absent) emits once per entry, `stay` every step while the player is inside. */
+  /** `enter` (absent) emits once per entry, `stay` every step while the player is inside. */
   mode?: (typeof TRIGGER_MODES)[number];
   /**
-   * Phase 24.4e: entering the area moves the character to another scene: `scene` is loaded,
+   * Entering the area moves the character to another scene: `scene` is loaded,
    * `unload` scenes are unloaded, and once `scene` is loaded the character stands at `spawn`
    * (a player spawn in that scene or the trigger's own; absent: it stays where it is).
    */
   sceneTransition?: SceneTransitionAction;
 }
 
-/** Phase 24.4e: a trigger's scene transition (the generic form of a scene exit). */
+/** A trigger's scene transition (the generic form of a scene exit). */
 export interface SceneTransitionAction {
   /** The scene loaded. */
   scene: string;
@@ -108,16 +108,16 @@ export interface SceneTransitionAction {
   spawn?: string;
   /** Scenes unloaded once `scene` is in, in the same step (absent: none). */
   unload?: string[];
-  /** Phase 25.24e: seconds the view fades out before the swap and back in after it (0–5; absent: no fade). */
+  /** Seconds the view fades out before the swap and back in after it (0–5; absent: no fade). */
   fade?: number;
-  /** Phase 25.24e: the fade's colour (#rrggbb; absent: black). */
+  /** The fade's colour (#rrggbb; absent: black). */
   fadeColor?: string;
 }
 
-/** Phase 24.4e: at most this many scenes a transition unloads (the exit zone's limit). */
+/** At most this many scenes a transition unloads (the exit zone's limit). */
 export const MAX_TRANSITION_UNLOADS = 16;
 export const SCENE_TRANSITION_FIELDS = ['scene', 'spawn', 'unload', 'fade', 'fadeColor'] as const;
-/** Phase 25.24e: the longest transition fade (seconds, each way). */
+/** The longest transition fade (seconds, each way). */
 export const MAX_TRANSITION_FADE = 5;
 
 export interface SwitchComponent {
@@ -125,11 +125,11 @@ export interface SwitchComponent {
   signal: string;
   size: [number, number];
   once?: boolean;
-  /** Phase 24.4f: `interact` mode: the input action that works it (absent: `interact`). */
+  /** `interact` mode: the input action that works it (absent: `interact`). */
   action?: string;
 }
 
-/** Phase 24.4f: the input action an `interact` switch reads when it names none. */
+/** The input action an `interact` switch reads when it names none. */
 export const SWITCH_DEFAULT_ACTION = 'interact';
 
 export interface HealthComponent {
@@ -158,7 +158,7 @@ function fields(v: Record<string, unknown>, allowed: readonly string[], required
 const MOVER_FIELDS = ['waypoints', 'speed', 'mode', 'wait', 'easing', 'startOn', 'maxPush', 'active', 'stopOn', 'toggleOn', 'reverseOn'] as const;
 const HEALTH_FIELDS = ['max', 'start'] as const;
 
-/** Phase 15.3: optional tuning numbers within their `BLOCK_TUNING_LIMITS` range. */
+/** Optional tuning numbers within their `BLOCK_TUNING_LIMITS` range. */
 function tuning(value: Record<string, unknown>, keys: readonly (keyof typeof BLOCK_TUNING_LIMITS)[], path: string, errors: ModelErrorV2[]): void {
   for (const k of keys) {
     const v = value[k];
@@ -182,7 +182,7 @@ export function validateMoverComponent(value: unknown, path: string, errors: Mod
   for (const k of MOVER_SIGNAL_FIELDS) {
     if (value[k] !== undefined && (typeof value[k] !== 'string' || !NAME_RE.test(value[k] as string))) err(errors, 'field_value', `${path}/${k}`, `${k} is a signal name`, value[k]);
   }
-  // Phase 25.12: one signal both starting and stopping (or toggling) a mover would undo itself in the same step.
+  // One signal both starting and stopping (or toggling) a mover would undo itself in the same step.
   const seen = new Map<unknown, string>();
   for (const k of ['startOn', 'stopOn', 'toggleOn'] as const) {
     const v = value[k];
@@ -196,7 +196,7 @@ export function validateMoverComponent(value: unknown, path: string, errors: Mod
 
 export function validateTriggerComponent(value: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(value)) return err(errors, 'field_type', path, 'trigger is an object', value);
-  // Phase 23.1: sphere and capsule are round like a circle (a radius, no size); a capsule has a height.
+  // Sphere and capsule are round like a circle (a radius, no size); a capsule has a height.
   const shape = value['shape'];
   const round = shape === 'circle' || shape === 'sphere' || shape === 'capsule';
   const capsule = shape === 'capsule';
@@ -220,9 +220,9 @@ export function validateTriggerComponent(value: unknown, path: string, errors: M
   if (value['once'] !== undefined && typeof value['once'] !== 'boolean') err(errors, 'field_type', `${path}/once`, 'once is true or false', value['once']);
 }
 
-/** Phase 24.4e: a scene id (the `content.scenes[]` id syntax) and an entity id. */
+/** A scene id (the `content.scenes[]` id syntax) and an entity id. */
 const SCENE_OR_ENTITY_RE = ID_RE;
-/** Phase 24.4f: an input action name. */
+/** An input action name. */
 const ACTION_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
 export const TRIGGER_FIELDS = ['size', 'signal', 'once', 'exitSignal', 'shape', 'radius', 'mode', 'height', 'sceneTransition'] as const;
 export const SWITCH_FIELDS = ['mode', 'signal', 'size', 'once', 'action'] as const;
@@ -271,18 +271,18 @@ export const canonicalMover = (c: MoverComponent): MoverComponent => ({
   ...(c.wait !== undefined ? { wait: c.wait } : {}),
   ...(c.easing !== undefined ? { easing: c.easing } : {}),
   ...(c.startOn !== undefined ? { startOn: c.startOn } : {}),
-  // Phase 15.3: the tuning comes last (an existing component keeps its exact canonical bytes).
+  // The tuning comes last (an existing component keeps its exact canonical bytes).
   ...(c.maxPush !== undefined ? { maxPush: c.maxPush } : {}),
-  // Phase 25.10: stored only when off (an existing mover keeps its exact canonical bytes).
+  // Stored only when off (an existing mover keeps its exact canonical bytes).
   ...(c.active === false ? { active: false } : {}),
-  // Phase 25.12: the signals last (an existing mover keeps its exact canonical bytes).
+  // The signals last (an existing mover keeps its exact canonical bytes).
   ...(c.stopOn !== undefined ? { stopOn: c.stopOn } : {}),
   ...(c.toggleOn !== undefined ? { toggleOn: c.toggleOn } : {}),
   ...(c.reverseOn !== undefined ? { reverseOn: c.reverseOn } : {}),
 });
-// Phase 14.2: the new fields come last (an existing trigger keeps its exact canonical bytes).
+// The new fields come last (an existing trigger keeps its exact canonical bytes).
 export const canonicalTrigger = (c: TriggerComponent): TriggerComponent => ({
-  // Phase 23.1: a 3D box keeps its depth.
+  // A 3D box keeps its depth.
   ...(c.size !== undefined ? { size: c.size.length === 3 ? [c.size[0], c.size[1], c.size[2]] : copy2(c.size as [number, number]) } : {}),
   signal: c.signal,
   ...(c.once !== undefined ? { once: c.once } : {}),
@@ -291,12 +291,12 @@ export const canonicalTrigger = (c: TriggerComponent): TriggerComponent => ({
   ...(c.radius !== undefined ? { radius: c.radius } : {}),
   ...(c.mode !== undefined ? { mode: c.mode } : {}),
   ...(c.height !== undefined ? { height: c.height } : {}),
-  // Phase 24.4e: last, so an existing trigger keeps its exact canonical bytes.
+  // Last, so an existing trigger keeps its exact canonical bytes.
   ...(c.sceneTransition !== undefined
     ? { sceneTransition: { scene: c.sceneTransition.scene, ...(c.sceneTransition.spawn !== undefined ? { spawn: c.sceneTransition.spawn } : {}), ...(c.sceneTransition.unload !== undefined ? { unload: [...c.sceneTransition.unload] } : {}), ...(c.sceneTransition.fade !== undefined ? { fade: c.sceneTransition.fade } : {}), ...(c.sceneTransition.fadeColor !== undefined ? { fadeColor: c.sceneTransition.fadeColor } : {}) } }
     : {}),
 });
-// Phase 24.4f: `action` last (an existing switch keeps its exact canonical bytes).
+// `action` last (an existing switch keeps its exact canonical bytes).
 export const canonicalSwitch = (c: SwitchComponent): SwitchComponent => ({ mode: c.mode, signal: c.signal, size: copy2(c.size), ...(c.once !== undefined ? { once: c.once } : {}), ...(c.action !== undefined ? { action: c.action } : {}) });
 export const canonicalHealth = (c: HealthComponent): HealthComponent => ({
   max: c.max,
@@ -305,8 +305,8 @@ export const canonicalHealth = (c: HealthComponent): HealthComponent => ({
 
 /** Every block component, with its validator and canonical form (v4 scenes). */
 /**
- * Phase 9.10: a sound that loops where the entity is, louder as the player
- * comes near (along X). Phase 23.13: in the panner model (the project's
+ * A sound that loops where the entity is, louder as the player
+ * comes near (along X). In the panner model (the project's
  * `audio_spatial`) it plays through a panner, the listener on the active
  * camera, fading by its distance model; `range` is then the max distance.
  */
@@ -317,11 +317,11 @@ export interface AudioSourceComponent {
   volume: number;
   /** Heard within this many meters (full volume within a quarter of it). */
   range: number;
-  /** Phase 23.13 (panner model): linear (absent), inverse or exponential. */
+  /** Panner model: linear (absent), inverse or exponential. */
   distanceModel?: 'linear' | 'inverse' | 'exponential';
-  /** Phase 23.13 (panner model): full volume within this distance (absent: a quarter of the range). */
+  /** Panner model: full volume within this distance (absent: a quarter of the range). */
   refDistance?: number;
-  /** Phase 23.13 (panner model): how fast it fades (absent: 1). */
+  /** Panner model: how fast it fades (absent: 1). */
   rolloff?: number;
 }
 
@@ -348,23 +348,23 @@ export const canonicalAudioSource = (c: AudioSourceComponent): AudioSourceCompon
 });
 
 /**
- * Phase 9.13: a model that turns to face where its parent is going (the
+ * A model that turns to face where its parent is going (the
  * player's model, a creature's model under its patroller): yaw (degrees about +Y) when the
  * parent moves right or left, reached over `turnSeconds`.
  */
 export interface FaceMovementComponent {
-  /** `sides` (absent): `yawRight`/`yawLeft` by the sign of the motion along X; phase 24.4f: `velocity`: the yaw of the horizontal motion (any direction, 3D too). */
+  /** `sides` (absent): `yawRight`/`yawLeft` by the sign of the motion along X; `velocity`: the yaw of the horizontal motion (any direction, 3D too). */
   mode?: (typeof FACE_MOVEMENT_MODES)[number];
   /** `sides` only (required there). */
   yawRight?: number;
   yawLeft?: number;
   /** `sides`: time to turn from one side to the other; `velocity`: time for a half turn (180°). */
   turnSeconds?: number;
-  /** Phase 24.4f, `velocity`: added to the motion's yaw (degrees; a model authored facing +X uses −90). */
+  /** `velocity`: added to the motion's yaw (degrees; a model authored facing +X uses −90). */
   yawOffset?: number;
 }
 
-/** Phase 24.4f: how a face-movement model picks its yaw. */
+/** How a face-movement model picks its yaw. */
 export const FACE_MOVEMENT_MODES = ['sides', 'velocity'] as const;
 export const FACE_MOVEMENT_FIELDS = ['yawRight', 'yawLeft', 'turnSeconds', 'mode', 'yawOffset'] as const;
 
@@ -385,7 +385,7 @@ export function validateFaceMovementComponent(value: unknown, path: string, erro
   if (value['turnSeconds'] !== undefined && !num(value['turnSeconds'], 0, 5)) err(errors, 'field_value', `${path}/turnSeconds`, 'turnSeconds is 0–5', value['turnSeconds']);
 }
 
-// Phase 24.4f: `mode` and `yawOffset` last (an existing component keeps its exact canonical bytes).
+// `mode` and `yawOffset` last (an existing component keeps its exact canonical bytes).
 export const canonicalFaceMovement = (c: FaceMovementComponent): FaceMovementComponent => ({
   ...(c.yawRight !== undefined ? { yawRight: c.yawRight } : {}),
   ...(c.yawLeft !== undefined ? { yawLeft: c.yawLeft } : {}),
@@ -394,20 +394,20 @@ export const canonicalFaceMovement = (c: FaceMovementComponent): FaceMovementCom
   ...(c.yawOffset !== undefined ? { yawOffset: c.yawOffset } : {}),
 });
 
-// ---- phase 24.4: generic primitives (both physics dimensions) ------------------------
+// ---- Generic primitives (both physics dimensions) ------------------------
 
 /**
- * Phase 24.4a: `collectible` — the character touching its area adds `amount`
+ * `collectible` — the character touching its area adds `amount`
  * to a named counter (any name), hides it and stops it collecting, sends the
  * `onCollect` signal, and brings it back after `respawn` seconds (absent or
  * 0: never; scripts may bring it back with `ctx.collectible.restore`).
  *
- * Phase 24.4c: `patrol` — the object walks by itself: along waypoints
+ * `patrol` — the object walks by itself: along waypoints
  * (offsets from where it is placed, back and forth or in a loop), or straight
  * ahead turning around at walls and ledges (`edges`: a ray ahead at the middle
  * of its body, a ray down just past its front). It keeps its placed height.
  *
- * Phase 24.4d: `hitbox` — an area (a box or a sphere, a circle on the 2D
+ * `hitbox` — an area (a box or a sphere, a circle on the 2D
  * plane) whose contacts with other hitboxes and with the character are
  * events for scripts (the other object and the contact normal). With
  * `damage`, a new contact takes that much from the other object's health.
@@ -419,7 +419,7 @@ export const PATROL_MODES = ['waypoints', 'edges'] as const;
 export const HITBOX_SHAPES = ['box', 'sphere'] as const;
 
 /**
- * Phase 24.4: the primitives' values when a component leaves them out, with
+ * The primitives' values when a component leaves them out, with
  * genre-neutral reasons: a collectible adds 1 (one of something) over a 1 m
  * area (about a hand's reach around an object a person picks up); a patroller
  * is a 1 m body (a person-sized walker's width) that looks 0.05 m ahead for a
@@ -436,7 +436,7 @@ export const PRIMITIVE_DEFAULTS = Object.freeze({
   ledgeProbe: 0.4,
 });
 
-/** Phase 24.4: the primitives' value ranges. */
+/** The primitives' value ranges. */
 export const PRIMITIVE_LIMITS = Object.freeze({
   /** A collectible's amount (negative takes away). */
   amount: { min: -1_000_000, max: 1_000_000 },
@@ -479,7 +479,7 @@ export interface PatrolComponent {
   speed: number;
   /** Seconds it waits at each waypoint or after turning around. */
   wait?: number;
-  /** `edges`: the way it starts walking (phase 25.13: a 2D plane any direction in its plane — x and y; 3D the direction on the ground). */
+  /** `edges`: the way it starts walking (a 2D plane any direction in its plane — x and y; 3D the direction on the ground). */
   direction?: [number, number, number];
   /** `edges`: its body [w, h] or [w, h, d], centred on its position (where the probes look from). */
   size?: [number, number] | [number, number, number];
@@ -559,14 +559,14 @@ export function validateHitboxComponent(value: unknown, path: string, errors: Mo
 }
 
 /**
- * Phase 25.13: `climbVolume` — a box (centred on the object, turned with it)
+ * `climbVolume` — a box (centred on the object, turned with it)
  * the character climbs in: while its capsule's centre is inside, up/down on
  * its move input moves it along the box's up axis (the object's +Y) and
  * sideways input across it, at its controller's `climbSpeed`, with no
  * gravity; jump leaves (with a jump), and so does moving out of the box. A
  * ladder, a vine, a net, a climbing wall: the size says which.
  *
- * Phase 25.13: `gravity` — an object that is not a character (a patroller, an
+ * `gravity` — an object that is not a character (a patroller, an
  * item, anything without its own physics body) falls under the project's
  * gravity (times `scale`, capped at the project's fall speed) until its body
  * rests on a collider below it; it falls again when the floor goes. The body
@@ -574,7 +574,7 @@ export function validateHitboxComponent(value: unknown, path: string, errors: Mo
  */
 export const CLIMB_VOLUME_FIELDS = ['size'] as const;
 export const GRAVITY_FIELDS = ['scale', 'size'] as const;
-/** Phase 25.13: a gravity body's scale range (0: it does not fall; 10: ten times the project's gravity). */
+/** A gravity body's scale range (0: it does not fall; 10: ten times the project's gravity). */
 export const GRAVITY_SCALE = { min: 0, max: 10 } as const;
 
 export interface ClimbVolumeComponent {
@@ -641,11 +641,11 @@ export const BLOCK_COMPONENTS = {
   health: { validate: validateHealthComponent, canonical: canonicalHealth, fields: HEALTH_FIELDS },
   audioSource: { validate: validateAudioSourceComponent, canonical: canonicalAudioSource, fields: AUDIO_SOURCE_FIELDS },
   faceMovement: { validate: validateFaceMovementComponent, canonical: canonicalFaceMovement, fields: FACE_MOVEMENT_FIELDS },
-  // Phase 24.4: last, so every existing entity keeps its exact canonical bytes.
+  // Last, so every existing entity keeps its exact canonical bytes.
   collectible: { validate: validateCollectibleComponent, canonical: canonicalCollectible, fields: COLLECTIBLE_FIELDS },
   patrol: { validate: validatePatrolComponent, canonical: canonicalPatrol, fields: PATROL_FIELDS },
   hitbox: { validate: validateHitboxComponent, canonical: canonicalHitbox, fields: HITBOX_FIELDS },
-  // Phase 25.13: last, so every existing entity keeps its exact canonical bytes.
+  // Last, so every existing entity keeps its exact canonical bytes.
   climbVolume: { validate: validateClimbVolumeComponent, canonical: canonicalClimbVolume, fields: CLIMB_VOLUME_FIELDS },
   gravity: { validate: validateGravityComponent, canonical: canonicalGravity, fields: GRAVITY_FIELDS },
 } as const;

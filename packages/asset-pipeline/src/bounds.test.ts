@@ -1,5 +1,5 @@
 /**
- * Phase 15.3: an accepted model records its bounds in its metrics (the
+ * An accepted model records its bounds in its metrics (the
  * runtime never loads a model: a pickup without a size collects over them).
  * The box comes from the POSITION accessors' `min`/`max` through the default
  * scene's node transforms; `<piece>_COL` collision nodes are left out; a file

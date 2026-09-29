@@ -1,5 +1,5 @@
 /**
- * Phase 23.12 (E9): material parameters set per object by a script, against
+ * Material parameters set per object by a script, against
  * a real backend, on a neutral fixture built by commands on a blank project.
  *
  * - Editor: a data parameter is declared in the material document (type
@@ -11,7 +11,7 @@
  *   every 60 steps) and writes a 4 × 4 checker (red / transparent) into box
  *   B's grid. Pixels: A is blue without green, B keeps its green tint with
  *   red cells exactly where the checker puts them (cell [0, 0] at the bottom
- *   left, UV (0, 0)). The phase 21 counters: one compiled graph material for
+ *   left, UV (0, 0)). The renderer counters: one compiled graph material for
  *   both objects, and the program count and draw calls do not move while the
  *   values keep changing (no recompile per value).
  * - The static export (backend stopped) draws the same.

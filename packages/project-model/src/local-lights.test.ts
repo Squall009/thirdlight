@@ -1,5 +1,5 @@
 /**
- * Phase 9.5 (v4): point, spot and hemisphere lights and the light mode.
+ * v4: point, spot and hemisphere lights and the light mode.
  */
 import { describe, expect, it } from 'vitest';
 

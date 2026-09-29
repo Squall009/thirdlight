@@ -1,5 +1,5 @@
 /**
- * Phase 23.14: rebinding happens on the host; the simulation sees only action
+ * Rebinding happens on the host; the simulation sees only action
  * values. A neutral scene with a script that counts `jump` presses (and hides
  * a marker per press) and shows a second marker while the jump glyph it reads
  * is "K". Live input comes from the real browser owner (fake DOM events).

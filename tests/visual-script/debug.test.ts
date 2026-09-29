@@ -1,5 +1,5 @@
 /**
- * Phase 19.2: the plumbing of visual-script debugging in Play.
+ * The plumbing of visual-script debugging in Play.
  *
  * - The Play debug build of a graph (`generateGraphSource(…, {debug: true})`)
  *   records per instance the nodes it enters in the current step (bounded),

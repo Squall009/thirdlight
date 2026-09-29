@@ -41,7 +41,7 @@ import { limitsError, sortedRecord } from './content-helpers';
 const KNOWN_PREFAB_DEF_FIELDS = new Set(['prefabId', 'displayName', 'createdRevision', 'entityCount', 'depth', 'entities']);
 const KNOWN_PREFAB_ENTITY_FIELDS = new Set(['localId', 'name', 'parentLocalId', 'components']);
 
-// ---- prefabs (§20.2/§20.3) ----------------------------------------------------
+// ---- prefabs ----------------------------------------------------
 
 function prefabDepth(entities: Record<string, unknown>[]): number {
   const byLocal = new Map<string, Record<string, unknown>>();
@@ -72,19 +72,19 @@ function prefabDepth(entities: Record<string, unknown>[]): number {
 }
 
 /**
- * Phase 14.1: the components a v4 prefab entity may carry besides transform,
+ * The components a v4 prefab entity may carry besides transform,
  * model, box and behavior — what a spawned (`ctx.spawn`) or placed copy needs
  * to collide, look right and take part in the game (a crate, a collectible,
  * a walker, a moving projectile). Scene-only components (camera, controller,
  * lights, zones, spawn markers, instance sets, fog volumes) stay out: a copy
- * is never the character, the camera or level wiring. Phase 24.4: health is
+ * is never the character, the camera or level wiring. Health is
  * any object's, so a copy may carry it.
  */
-// Phase 18.0: `materialParams` (overrides of graph-material parameters) travels with the materials.
-// Phase 20.0: `effect` (a copy plays its effect, e.g. a torch's flame).
-// Phase 23.6: `blockFootprint` (a placed copy writes its footprint into the block cells beneath it).
-// Phase 23.10: `behaviorGroup` (a copy's behavior ticks with its group).
-// Phase 24.4: generic `health` (any object, not only the player) and the primitives `collectible`, `patrol`, `hitbox`.
+// `materialParams` (overrides of graph-material parameters) travels with the materials.
+// `effect` (a copy plays its effect, e.g. a torch's flame).
+// `blockFootprint` (a placed copy writes its footprint into the block cells beneath it).
+// `behaviorGroup` (a copy's behavior ticks with its group).
+// Generic `health` (any object, not only the player) and the primitives `collectible`, `patrol`, `hitbox`.
 export const PREFAB_V4_COMPONENTS = ['collider', 'surface', 'materials', 'animator', 'mover', 'trigger', 'switch', 'audioSource', 'faceMovement', 'materialParams', 'effect', 'blockFootprint', 'behaviorGroup', 'health', 'collectible', 'patrol', 'hitbox', 'climbVolume', 'gravity'] as const;
 const PREFAB_BLOCKS = ['mover', 'trigger', 'switch', 'audioSource', 'faceMovement', 'health', 'collectible', 'patrol', 'hitbox', 'climbVolume', 'gravity'] as const;
 
@@ -93,11 +93,11 @@ function validatePrefabExtras(comps: Record<string, unknown>, parentLocalId: unk
   if (col !== undefined) {
     const oneWay = isPlainObject(col) ? col['oneWay'] : undefined;
     if (oneWay !== undefined && oneWay !== true) errors.push(fieldValue(`${path}/collider/oneWay`, oneWay, 'true', 'oneWay is true or absent'));
-    // Phase 23.3: the collision layers the collider is in.
+    // The collision layers the collider is in.
     if (isPlainObject(col) && col['layers'] !== undefined) validateColliderLayers(col['layers'], `${path}/collider/layers`, errors);
     validateColliderComponent(colliderCore(col), `${path}/collider`, errors);
     // A collider sits on the definition root at unit scale (as on a scene entity);
-    // phase 23.0: its rotation rule follows the project's physics dimension (composeV4).
+    // Its rotation rule follows the project's physics dimension (composeV4).
     validatePhysicsTransform(comps, typeof parentLocalId === 'string' ? parentLocalId : undefined, path, false, errors, false);
   }
   if (comps['surface'] !== undefined) {
@@ -122,7 +122,7 @@ function validatePrefabExtras(comps: Record<string, unknown>, parentLocalId: unk
   for (const name of PREFAB_BLOCKS) {
     if (comps[name] !== undefined) (BLOCK_COMPONENTS[name].validate as (c: unknown, p: string, e: ModelErrorV2[]) => void)(comps[name], `${path}/${name}`, errors);
   }
-  // Phase 24.4: a patroller moves itself (as on a scene entity).
+  // A patroller moves itself (as on a scene entity).
   if (comps['patrol'] !== undefined) {
     const clash = (['mover', 'collider'] as const).filter((c) => comps[c] !== undefined);
     if (clash.length > 0) errors.push(withFound({ code: 'component_conflict', path, message: `a patrol moves the object by itself: it cannot also carry ${clash.join(', ')}`, expected: 'patrol without mover or collider' }, ['patrol', ...clash]));
@@ -209,7 +209,7 @@ function validatePrefabEntity(e: unknown, idx: number, path: string, errors: Mod
     }
     if (comps['model'] !== undefined) validateModelComponent(comps['model'], `${path}/components/model`, errors);
     if (comps['box'] !== undefined) {
-      // box uses the M1 rules (size/material); canonicalization reuses §10.2.
+      // box has only size/material; canonicalization reuses `canonicalBox`.
       void canonicalBox;
     }
     if (comps['behavior'] !== undefined) validateBehaviorComponent(comps['behavior'], `${path}/components/behavior`, errors);
@@ -271,7 +271,7 @@ export function validatePrefabDefinition(d: unknown, path: string, errors: Model
 }
 
 /**
- * Phase 14.1: validate a list of prefab definitions on their own (the runtime
+ * Validate a list of prefab definitions on their own (the runtime
  * snapshot's `prefabs`, the manifest's): each definition by the content rules
  * (`version` 4 allows `PREFAB_V4_COMPONENTS`), ids unique, at most `MAX_PREFABS`.
  */
@@ -292,7 +292,7 @@ export function validatePrefabDefinitions(value: unknown, path: string, errors: 
   });
 }
 
-/** Phase 14.1: the canonical form of a prefab definition list (sorted by id). */
+/** The canonical form of a prefab definition list (sorted by id). */
 export function canonicalPrefabs(defs: readonly PrefabDefinition[]): PrefabDefinition[] {
   return sortedRecord([...defs], (d) => d.prefabId).map(canonicalPrefab);
 }
@@ -312,7 +312,7 @@ function canonicalPrefabEntity(e: PrefabEntity): PrefabEntity {
     }
     components.behavior = { behaviorId: e.components.behavior.behaviorId, values };
   }
-  // Phase 14.1 (v4): the gameplay components, canonical as on a scene entity.
+  // v4: the gameplay components, canonical as on a scene entity.
   const x = e.components;
   if (x.collider !== undefined) components.collider = { shape: canonicalCollider(x.collider), ...(x.collider.oneWay === true ? { oneWay: true as const } : {}), ...(Array.isArray(x.collider.layers) ? { layers: [...x.collider.layers] } : {}) };
   if (x.surface !== undefined) components.surface = canonicalSurface(x.surface);

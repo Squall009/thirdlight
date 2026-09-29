@@ -1,5 +1,5 @@
 /**
- * Phase 14.1: `ctx.spawn` / `ctx.destroy` through the production composition
+ * `ctx.spawn` / `ctx.destroy` through the production composition
  * (the real game host, the platformer controller, Rapier physics) with
  * neutral prefabs:
  *

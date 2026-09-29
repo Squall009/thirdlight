@@ -1,13 +1,13 @@
 /**
- * Canonical JSON serialization (export.md §3 "canonical serialization,
- * project-model §12.2 style"): fixed key order (the object's own insertion
+ * Canonical JSON serialization (export.md, in the project-model style):
+ * fixed key order (the object's own insertion
  * order — callers build documents in the normative field order), 2-space
  * indent, LF line endings, one trailing newline, no BOM.
  *
  * Used for `snapshot.json` (the runtime snapshot document: wrapper fields in
- * the runtime.md §2 order, then the normalized scene — which is already in
- * the project-model canonical field order) and `meta.json` (export.md §6
- * field order). Pure string processing: no I/O.
+ * the runtime.md order, then the normalized scene — which is already in
+ * the project-model canonical field order) and `meta.json` (export.md field
+ * order). Pure string processing: no I/O.
  */
 
 /**

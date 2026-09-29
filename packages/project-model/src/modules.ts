@@ -1,9 +1,9 @@
 /**
- * Engine modules and their resolution (charter §3 "Genre templates": builds
- * derive required modules from declared dependencies and referenced content;
- * unresolved dependencies fail validation).
+ * Engine modules and their resolution: builds derive required modules from
+ * declared dependencies and referenced content; unresolved dependencies fail
+ * validation.
  *
- * Phase 24.3: modules come only from what the project declares or
+ * Modules come only from what the project declares or
  * references — there is no module set a project gets for being a game. The
  * dependencies are:
  *   - referenced content: each component or content block references the
@@ -29,7 +29,7 @@ export interface EngineModule {
   /** Modules this one needs (closed transitively at resolution). */
   requires: readonly string[];
   /**
-   * Phase 24.3: a simulation module outside the runtime — the name its
+   * A simulation module outside the runtime — the name its
    * package exports its `SimulationModuleSpec` under. A composition (the
    * export build, a Play preview) imports exactly the specs its manifest's
    * modules name; the runtime's own built-ins have none.
@@ -41,9 +41,9 @@ export const ENGINE_MODULES: readonly EngineModule[] = Object.freeze(([
   { id: 'thirdlight.demo:box-motion', package: '@thirdlight/runtime', kind: 'simulation', requires: [] },
   { id: 'thirdlight.input:keyboard-gamepad', package: '@thirdlight/input', kind: 'port', requires: [] },
   { id: 'thirdlight.physics-rapier:2d', package: '@thirdlight/physics-rapier', kind: 'port', requires: [] },
-  // Phase 23.0: the 3D backend (a project whose physics_dimension is 3).
+  // The 3D backend (a project whose physics_dimension is 3).
   { id: 'thirdlight.physics-rapier:3d', package: '@thirdlight/physics-rapier', kind: 'port', requires: [] },
-  // Phase 23.2: the 3D kinematic character controller (a runtime built-in, like the demo module).
+  // The 3D kinematic character controller (a runtime built-in, like the demo module).
   { id: 'thirdlight.character3d:controller', package: '@thirdlight/runtime', kind: 'simulation', requires: ['thirdlight.physics-rapier:3d', 'thirdlight.input:keyboard-gamepad'] },
   // Listed in dependency order (a module after the modules it needs): a
   // composition registers the selected specs in this order.
@@ -59,8 +59,8 @@ export const ENGINE_MODULE_IDS: readonly string[] = Object.freeze([...BY_ID.keys
 /**
  * What a behavior may require, by engine package id → the modules that
  * dependency implies. `@thirdlight/runtime` is the behavior API itself
- * (always present). Phase 24.3: the character package are not a behavior
- * dependency (the compiler no longer pins them); a script that needs the
+ * (always present). The character package is not a behavior
+ * dependency (the compiler does not pin it); a script that needs the
  * character controller references it through a `controller` component.
  */
 export const BEHAVIOR_PACKAGE_MODULES: Readonly<Record<string, readonly string[]>> = Object.freeze({
@@ -71,7 +71,7 @@ export const BEHAVIOR_PACKAGE_MODULES: Readonly<Record<string, readonly string[]
 });
 
 /**
- * Phase 24.3: the module a scene component references, by the project's
+ * The module a scene component references, by the project's
  * physics dimension. Presence of the component is the reference; nothing
  * else about a project selects a module.
  */
@@ -80,14 +80,13 @@ export const COMPONENT_MODULES: Readonly<Record<string, { readonly plane2d: stri
   controller: Object.freeze({ plane2d: 'thirdlight.character:controller', world3d: 'thirdlight.character3d:controller' }),
   // A glTF model needs the loader port.
   model: Object.freeze({ plane2d: 'thirdlight.three-adapter:gltf-loader', world3d: 'thirdlight.three-adapter:gltf-loader' }),
-  // Phase 23.3: in 3D a collider alone needs the backend (rays and picks without a character); the 2D plane builds its world from the controller.
+  // In 3D a collider alone needs the backend (rays and picks without a character); the 2D plane builds its world from the controller.
   collider: Object.freeze({ plane2d: null, world3d: 'thirdlight.physics-rapier:3d' }),
   blockLayer: Object.freeze({ plane2d: null, world3d: 'thirdlight.physics-rapier:3d' }),
 });
 
 /**
- * Phase 24.3: the modules a content block references (phase 24.7: none — the
- * game block and its session and camera modules were deleted).
+ * The modules a content block references (none at present).
  */
 export const CONTENT_BLOCK_MODULES: Readonly<Record<string, readonly string[]>> = Object.freeze({});
 
@@ -98,10 +97,10 @@ export interface ResolveModulesInput {
   behaviors?: ReadonlyArray<{ behaviorId: string; requiredModules: readonly string[] }>;
   /** Explicitly declared module ids (e.g. a template's `requiredModules`). */
   declared?: readonly string[];
-  /** The M2 demo module (box motion) is selected. */
+  /** The demo module (box motion) is selected. */
   demo?: boolean;
   /**
-   * Phase 23.0: the project's physics dimension (absent: 2, the 2D plane). In
+   * The project's physics dimension (absent: 2, the 2D plane). In
    * 3D a `controller` needs the 3D backend (`thirdlight.physics-rapier:3d`),
    * not the 2D plane controller.
    */
@@ -144,7 +143,7 @@ export function resolveRequiredModules(input: ResolveModulesInput): ResolveModul
         unresolved.push({ id: pkg, requiredBy: `behavior:${b.behaviorId}` });
         continue;
       }
-      // Phase 23.0: a 3D project's physics is the 3D backend.
+      // A 3D project's physics is the 3D backend.
       for (const id of ids) want(threeD && id === 'thirdlight.physics-rapier:2d' ? 'thirdlight.physics-rapier:3d' : id, `behavior:${b.behaviorId}`);
     }
   }

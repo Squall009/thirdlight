@@ -66,7 +66,7 @@ export async function startBackend(projectId = 'e2e-0001', template?: string, ex
     THIRDLIGHT_OWNER_TOKEN: token,
     THIRDLIGHT_EXPORT_ROOT: exportRoot,
     THIRDLIGHT_ENGINE_ROOT: REPO,
-    // Phase 11: no headless editor unless a test asks for one.
+    // No headless editor unless a test asks for one.
     THIRDLIGHT_HEADLESS: 'off',
     ...extraEnv,
   };
@@ -148,20 +148,19 @@ export async function startBackend(projectId = 'e2e-0001', template?: string, ex
 }
 
 /**
- * Phase 24.2: the starter template's fixed ids (templates/starter; the
+ * The starter template's fixed ids (templates/starter; the
  * character is `model-0001`, its spawn `spawn-0001`, the camera `cam-main`).
  */
 export const STARTER = { playerId: 'model-0001', spawnId: 'spawn-0001', cameraId: 'cam-main', groundId: 'box-0001', pillarId: 'model-0002' } as const;
 
 /**
- * Phase 24.6: the generic "wait for the player to start": a game shell whose
+ * The generic "wait for the player to start": a game shell whose
  * title screen (a small corner panel with a Start button, so the scene stays
  * visible) holds the engine pause until Start (`[data-tl-ui-doc="start-title"]
  * [data-widget="start"]`). With `hud`, a HUD document shows that text (its
  * `{$flow.counters.<name>}` bindings read the named counters) as
- * `[data-tl-ui-doc="start-hud"] [data-widget="line"]`. Replaces the game
- * deleted game session's awaiting-start state and classic HUD in tests whose
- * subject is generic.
+ * `[data-tl-ui-doc="start-hud"] [data-widget="line"]`. For tests whose
+ * subject is generic and that need a start screen or a HUD.
  */
 export async function addTitleShell(be: E2EBackend, hud?: string): Promise<void> {
   const run = async (op: string, args: Record<string, unknown>): Promise<void> => {
@@ -182,7 +181,7 @@ export async function addTitleShell(be: E2EBackend, hud?: string): Promise<void>
 }
 
 /**
- * Phase 24.2: publish one of the WAV fixtures (`fixtures/m3/media/wav/<file>`)
+ * Publish one of the WAV fixtures (`fixtures/m3/media/wav/<file>`)
  * as a project audio asset through the real content route (stage, upload,
  * inspect, publishAsset); returns the asset id. The starter has no audio.
  */
@@ -190,7 +189,7 @@ export async function publishWav(be: E2EBackend, file: string, assetId: string, 
   return publishBytes(be, readFileSync(join(REPO, 'fixtures', 'm3', 'media', 'wav', file)), 'audio', assetId, displayName);
 }
 
-/** Phase 25.24e: publish bytes as a project asset of `kind` (model, texture, audio …) through the real content route; returns the asset id. */
+/** Publish bytes as a project asset of `kind` (model, texture, audio …) through the real content route; returns the asset id. */
 export async function publishBytes(be: E2EBackend, bytes: Uint8Array, kind: string, assetId: string, displayName = assetId): Promise<string> {
   const headers = { authorization: `Bearer ${be.token}`, origin: be.origin };
   const base = `${be.origin}/api/v1/projects/${be.projectId}/content/stages`;
@@ -214,7 +213,7 @@ export async function publishBytes(be: E2EBackend, bytes: Uint8Array, kind: stri
 }
 
 /**
- * Phase 24.8: an input-exercise frame's character controls as named actions
+ * An input-exercise frame's character controls as named actions
  * (input frame version 2 has no fixed moveX/moveY/jump channels): `move`
  * ({v}, or {v, x, y} with a forward axis) and `jump` ({v, p}), the actions
  * the character controller reads by default.

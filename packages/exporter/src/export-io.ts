@@ -1,9 +1,8 @@
 /**
- * Packet 36 — the shared export output-target resolution and atomic
- * publication (export.md §3 "Output location"/"Replacement semantics",
- * §4 step 3/step 6). Extracted so the M1 and M2 pipelines share exactly one
- * implementation of the source/derived separation check and the
- * temp-directory + atomic-replacement discipline.
+ * The shared export output-target resolution and atomic
+ * publication (export.md "Output location"/"Replacement semantics", steps 3
+ * and 6): the one implementation of the source/derived separation check and
+ * the temp-directory + atomic-replacement discipline.
  *
  * Pure injected-IO: no Node builtins (the `ExportFs` facade is injected).
  */
@@ -74,7 +73,7 @@ export interface TreeFile {
  * Step 6 — write the files into a fresh temp directory under `<exportRoot>`
  * and atomically replace the target tree. A failed write removes the temp
  * directory and restores the previous tree; a failed export therefore leaves
- * the previous output byte-untouched (export.md §3/§4).
+ * the previous output byte-untouched.
  */
 export type PublishTreeResult = { ok: true; files: Record<string, number> } | { ok: false; error: ExportError };
 

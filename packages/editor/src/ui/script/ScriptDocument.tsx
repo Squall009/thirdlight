@@ -1,5 +1,5 @@
 /**
- * Phase 16.3: the "Script: <behavior>" centre tab — a code editor for a
+ * The "Script: <behavior>" centre tab — a code editor for a
  * behavior's source.
  *
  * - The source-graph container's files as a file list (add, rename, delete;
@@ -13,7 +13,7 @@
  * - Publish stages the container, asks for the trust acknowledgment of that
  *   exact digest when it is new, and publishes through the ordinary source
  *   route (one `publishBehavior` command, one undo step).
- * - The declaration editor (15.4) and the owned transforms dock beside the code.
+ * - The declaration editor and the owned transforms dock beside the code.
  *
  * Display + intent: every write is an ordinary command issued by the app.
  * Browser-only (React).
@@ -75,12 +75,12 @@ export interface ScriptDocumentProps {
   loadSource: (behaviorId: string) => Promise<{ ok: true; source: string | null; sourceDigest: string | null } | { ok: false; error: { code: string; message: string } }>;
   check: (behaviorId: string, bytes: Uint8Array, declaration: PropertyDeclaration | null) => Promise<ScriptCheckResult>;
   publish: (behaviorId: string, bytes: Uint8Array, acknowledge: boolean) => Promise<ScriptPublishOutcome>;
-  /** Phase 25.9: a position to show (the Console's source locations; for this script when its id matches). */
+  /** A position to show (the Console's source locations; for this script when its id matches). */
   focus?: SourceFocus | null;
 }
 
 /**
- * Phase 25.9: show a requested source position (the Console's locations):
+ * Show a requested source position (the Console's locations):
  * once the document's files are loaded, open the file and put the cursor on
  * the line. Each request (nonce) is shown once.
  */
@@ -123,7 +123,7 @@ function withRequiredModules(c: ScriptContainer): ScriptContainer {
 }
 
 function fileOfDiagnostic(d: CompileDiagnosticView): string | null {
-  // Phase 23.7: a diagnostic in an imported script library is not about this script's files.
+  // A diagnostic in an imported script library is not about this script's files.
   if (d.library !== undefined) return null;
   if (d.path !== undefined) return d.path;
   return d.line !== undefined ? ENTRY_PATH : null;
@@ -221,7 +221,7 @@ export function ScriptDocument(p: ScriptDocumentProps): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the check restarts on text edits only; its other inputs are read when it fires
   }, [text]);
 
-  // Phase 25.9: a Console location opens its file and puts the cursor on the line.
+  // A Console location opens its file and puts the cursor on the line.
   useSourceFocus(behaviorId, p.focus ?? null, draft === null ? null : { openPath: draft.openPath, has: (path) => draft.container.files.some((f) => f.path === path), open: (path) => setDraft({ ...draft, openPath: path }) }, codeRef);
 
   if (behavior === null) {

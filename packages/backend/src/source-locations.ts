@@ -1,5 +1,5 @@
 /**
- * Phase 25.9: script error and log locations back to the project's sources.
+ * Script error and log locations back to the project's sources.
  *
  * The runtime records where a script error was thrown and where a `ctx.log`
  * was called as positions in the compiled modules it ran

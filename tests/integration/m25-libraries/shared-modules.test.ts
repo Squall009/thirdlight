@@ -1,5 +1,5 @@
 /**
- * Phase 25.9: script libraries as shared runtime modules, run by the
+ * Script libraries as shared runtime modules, run by the
  * production game host in the page (single thread) and in the simulation
  * worker (a Node worker thread running the game-host worker core).
  *

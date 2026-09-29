@@ -1,5 +1,5 @@
 /**
- * Phase 16.2: the editor's controller → graph read (editor/src/graph/animator.ts —
+ * The editor's controller → graph read (editor/src/graph/animator.ts —
  * the editor may import project-model types only) against project-model's
  * (the backend's `graphEdit` on owner kind `animator` applies ops to that
  * graph). Both must derive the same graph from the same controller, or the

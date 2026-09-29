@@ -1,5 +1,5 @@
 /**
- * Phase 23.11: a small neutral GLB with an animated node hierarchy, built in
+ * A small neutral GLB with an animated node hierarchy, built in
  * the test (no binary fixture in the repo):
  *
  *   base  (a grey slab 1 × 0.2 × 1 m at the origin)

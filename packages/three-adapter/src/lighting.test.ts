@@ -1,6 +1,5 @@
 /**
- * Packet 52 — light/shadow/surface realization math (presentation.md
- * §§41.1/41.2).
+ * light/shadow/surface realization math (presentation.md).
  *
  * Pure, Node-runnable (no WebGL, no three, no DOM, no Node built-ins).
  * The `shadowCases` replay below mirrors the promoted fixture
@@ -8,7 +7,7 @@
  * re-derives the same rules independently and pins the file's digest) —
  * the inputs and expected outcomes are pinned here verbatim, so a
  * regression in the derivation or the priority order fails both places.
- * The visual half (real WebGL realization, screenshots, the named B11
+ * The visual half (real WebGL realization, screenshots, the named
  * checklist) is `tests/browser/m3-render/` — UNVERIFIED in this container.
  */
 import { describe, expect, it } from 'vitest';
@@ -23,7 +22,7 @@ import {
   type ShadowRegion,
 } from './lighting';
 
-// The fixture's shadow block (presentation.md §41.1.2 frozen profile).
+// The fixture's shadow block (the frozen profile in presentation.md).
 const FIXTURE_SHADOW = {
   mapSize: 512,
   type: 'PCFShadowMap',
@@ -34,7 +33,7 @@ const FIXTURE_SHADOW = {
   farMax: 200,
 };
 
-// The fixture's preset table (presentation.md §41.2.1 frozen rows).
+// The fixture's preset table (the frozen rows in presentation.md).
 const FIXTURE_PRESETS = {
   'matte-ground': { color: '#6f6f6f', roughness: 0.95, metalness: 0, emissive: '#000000', emissiveIntensity: 0 },
   'signal-red': { color: '#d42a1e', roughness: 0.55, metalness: 0, emissive: '#3a0703', emissiveIntensity: 0.35 },
@@ -248,7 +247,7 @@ describe('packet 52 — the §41.1.2 light realization plans', () => {
     expect(key.kind).toBe('directional');
     if (key.kind === 'directional') {
       expect(key.castShadow).toBe(false);
-      // the position is still derived (§41.1.2 rule 2 — shadow state or not)
+      // the position is still derived (rule 2 — shadow state or not)
       expect(key.target).toEqual([24, 2, 0]);
     }
   });

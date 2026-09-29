@@ -1,5 +1,5 @@
 /**
- * Phase 21.2: the collider limit is per scene. Play and the export capture the
+ * The collider limit is per scene. Play and the export capture the
  * start scenes merged into one runtime scene; the per-scene limits (256
  * colliders) apply to each scene, not to their sum — a world of several start
  * scenes may carry more colliders than one scene can.

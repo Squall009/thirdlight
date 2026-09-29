@@ -1,48 +1,32 @@
 /**
- * 2026-09-18 review repair — group E1 (R9) regression tests: the amended
- * §6.3 exclusive claim-file primitive replaces the rename+verify claim.
+ * The exclusive claim-file primitive. Rename + verification alone does not
+ * establish exclusive ownership: with A paused before its ownership rename,
+ * B claims and verifies, A resumes and overwrites B — both opens would
+ * succeed. The exclusive gate is the epoch-scoped claim file
+ * `.thirdlight/claim-<e>` created with O_CREAT|O_EXCL (serialized by the
+ * kernel per path — the ONLY exclusion gate); the record is the
+ * identity/audit layer. The claim is the six-step sequence (acquire /
+ * durable stamp / pre-record verification / record W / verification re-read
+ * of BOTH files / consistency), with the self-reclaim row, the
+ * orphan-recovery rule (the only liveness-referenced path: a parseable claim
+ * file whose holder pid is proven dead may be reclaimed; anything else ⇒
+ * `claim_inconsistent`), and the superseded-epoch cleanup (a successful
+ * claim at e+1 unlinks claim-e best-effort after its record W is durable).
  *
- * Finding (docs/reviews/2026-09-18-commits.md, R9, CONTRACT BLOCKER):
- * rename + verification does not establish exclusive ownership.
- * Deterministic interleaving through the public WriteOps seam: A pauses
- * before its ownership rename, B claims and verifies, A resumes and
- * overwrites B — BOTH opens succeed and both sessions remain open
- * (`CLAIM_RACE {a:true,b:true}`). The repaired mechanism (workspace.md
- * §6.2/§6.3, applied diff `dabfcff`): the exclusive gate is the
- * epoch-scoped claim file `.thirdlight/claim-<e>` created with
- * O_CREAT|O_EXCL (serialized by the kernel per path — the ONLY exclusion
- * gate); the record is the identity/audit layer. The claim is the
- * six-step sequence (acquire / durable stamp / pre-record verification /
- * record W / verification re-read of BOTH files / consistency), with the
- * §6.2 self-reclaim row, the §6.3 orphan-recovery rule (the only
- * liveness-referenced path: a parseable claim file whose holder pid is
- * proven dead may be reclaimed; anything else ⇒ `claim_inconsistent`),
- * and the superseded-epoch cleanup (a successful claim at e+1 unlinks
- * claim-e best-effort after its record W is durable).
- *
- * These are the single-process seam tests (mandatory tests T1, T4, T5,
- * T6 of docs/handoffs/2026-09-18-contract-request.md §5). The interleaving
- * is driven through the public `ops` (WriteOps) seam exactly like the
- * §1 probe's `openTempFile` hook: the claim-file open is the
- * O_CREAT|O_EXCL call of the same primitive (`openTempFile`), and the
+ * These are the single-process seam tests (T1, T4, T5, T6). The interleaving
+ * is driven through the public `ops` (WriteOps) seam: the claim-file open is
+ * the O_CREAT|O_EXCL call of the same primitive (`openTempFile`), and the
  * post-stamp / post-record-rename windows are hooked through
  * `writeAll`/`renameFile`. Real filesystem, disposable `mkdtemp` roots.
- * The real two-process barrier tests (T2) and the real SIGKILL crash
- * tests (T3) live in tests/ownership-claim-2026-09-18.test.ts (node:
- * child_process is a forbidden package edge — dependencies.md §4.1).
+ * The real two-process barrier tests and the real SIGKILL crash tests live
+ * in tests/ownership-claim-processes.test.ts (node:child_process is a
+ * forbidden package edge).
  *
- * Contract-vs-§5 wording discrepancies (recorded; the §6.3 text wins):
- *  - Request doc §5.1(a) says B re-reads "the record (A's, live)" and
- *    fails `ownership_conflict` (holder A); in schedule (a) A has NOT
- *    written the record (it pauses before its content stamp) — the §6.3
- *    orphan-recovery rule applies instead: absent record + empty
- *    (unparseable) claim file ⇒ `claim_inconsistent` (holder null).
- *  - The task's T1(b) wording expects `ownership_conflict` (holder A) for
- *    "A stamped claim-0, record absent, B attempts"; the §6.2 absent row
- *    + §6.3 orphan-recovery rule prescribe `claim_inconsistent` (holder
- *    null) for a parseable claim file whose holder is NOT proven dead
- *    (A's pid is the live test process). The tests assert the §6.3
- *    outcome.
+ * In schedules T1(a) and T1(b) the record is still absent when B tries, so
+ * the orphan-recovery rule decides (not the owned-record row): an empty
+ * (unparseable) claim file, or a parseable one whose holder is not proven
+ * dead (A's pid is the live test process), ⇒ `claim_inconsistent` (holder
+ * null), not `ownership_conflict`.
  */
 
 import { mkdtempSync, openSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
@@ -58,7 +42,7 @@ import { sha256Hex } from './digest';
 
 const PROJECT = 'demo-0001';
 
-/** A syntactically valid requestId (commands.md §6: `req-` + 32 hex), unique per tag. */
+/** A syntactically valid requestId (`req-` + 32 hex), unique per tag. */
 function reqId(tag: string): string {
   return `req-${sha256Hex(new TextEncoder().encode(tag)).slice(0, 32)}`;
 }
@@ -85,7 +69,7 @@ function seedProject(root: string): string {
   // project (record absent, no claim file) — the same on-disk state the
   // root crash tests' fixture seed produces, without a fixture-path
   // dependency (node:url is not an allowed package edge, even for test
-  // files — dependencies.md §4.1). The created project is at revision 0.
+  // files). The created project is at revision 0.
   const s = openWorkspaceService({ root });
   expect(s.createProject(PROJECT, 'Demo')).toEqual({ ok: true, created: true, revision: 0 });
   s.dispose();
@@ -152,15 +136,13 @@ function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
 }
 
 /**
- * Test-side L1 clock-window guard (group E2, 2026-09-18): a UTC second
+ * Test-side clock-window guard: a UTC second
  * strictly AFTER this process's start (the liveness pid-reuse rule,
- * workspace.md §6.2: `start > openedAt` ⇒ dead). These tests' records are
+ * `start > openedAt` ⇒ dead). These tests' records are
  * stamped with floor-second `openedAt` by the real open/claim path; a
  * stamp computed inside the same second as the vitest worker's start
- * would be evaluated DEAD (the known false-dead L1 defect — group E3 (R8)
- * owns the source path and is NOT modified here) and flip the asserted
- * `ownership_conflict` into `stale_ownership` (observed twice in full-suite
- * runs: T1(a)/(b)/(c) + T4). Waiting out the start second (≤ ~1 s, a no-op
+ * could be evaluated DEAD and flip the asserted `ownership_conflict` into
+ * `stale_ownership` (T1(a)/(b)/(c) + T4). Waiting out the start second (≤ ~1 s, a no-op
  * once the worker is older than one second) keeps the liveness outcome
  * deterministic without touching `evaluateLiveness`.
  */
@@ -226,7 +208,7 @@ afterAll(() => {
 
 describe('T1: claim-file open seam interleaving (workspace.md §6.3 single-winner)', () => {
   it('T1(a): A acquires claim-0, B full-claims before A stamps ⇒ B claim_inconsistent (holder null); A owns; the loser is refused end-to-end', async () => {
-    // L1 clock-window guard (above): A's record openedAt must be strictly
+    // Clock-window guard (above): A's record openedAt must be strictly
     // after the worker's start or its own pid is misclassified dead.
     await openedAtAfterProcessStart();
     const root = makeRoot('t1a');
@@ -251,16 +233,12 @@ describe('T1: claim-file open seam interleaving (workspace.md §6.3 single-winne
     const svcA = openWorkspaceService({ root, backendId: A_ID, ops: opsA });
     const a = svcA.query({ op: 'queryProject', projectId: PROJECT }) as QueryOut;
 
-    // Exactly one winner — the old probe's CLAIM_RACE {a:true,b:true} is the
-    // failing regression (expected {a:true,b:false}).
+    // Exactly one winner ({a:true,b:false}; both succeeding is the race).
     expect(a.ok).toBe(true);
     const b = bQuery as QueryOut;
     expect(b.ok).toBe(false);
-    // §6.3 orphan-recovery rule: the record is ABSENT and A's claim file is
+    // Orphan-recovery rule: the record is ABSENT and A's claim file is
     // empty (unstamped) ⇒ unparseable ⇒ claim_inconsistent (holder null).
-    // (The request doc §5.1(a) wording — "the record (A's, live)" ⇒
-    // ownership_conflict — disagrees with the §6.3 text for this schedule;
-    // the §6.3 text wins, recorded in the handoff.)
     expect(b.error?.code).toBe('project_unavailable');
     expect(b.error?.reason).toBe('claim_inconsistent');
     expect(b.error?.holder ?? null).toBeNull();
@@ -290,7 +268,7 @@ describe('T1: claim-file open seam interleaving (workspace.md §6.3 single-winne
   }, 30000);
 
   it('T1(b): A acquires + stamps, pauses before the record W ⇒ B refuses (contract: claim_inconsistent — the holder is not proven dead); A owns', async () => {
-    // L1 clock-window guard (above): A's claim stamp's openedAt must be
+    // Clock-window guard (above): A's claim stamp's openedAt must be
     // strictly after the worker's start or the stamp is misclassified
     // dead (the holder would be proven dead ⇒ reclaim instead of refuse).
     await openedAtAfterProcessStart();
@@ -327,13 +305,10 @@ describe('T1: claim-file open seam interleaving (workspace.md §6.3 single-winne
     const b = bQuery as QueryOut;
     expect(b.ok).toBe(false);
     expect(b.error?.code).toBe('project_unavailable');
-    // §6.2 absent row + §6.3 orphan-recovery rule: the record is absent
+    // Absent-record row + orphan-recovery rule: the record is absent
     // and claim-0's content parses to A's identity — a LIVE pid (the test's
     // own process) — so the holder is NOT proven dead ⇒ refuse ⇒
     // claim_inconsistent (holder null; the liveness outcome is reported).
-    // (The task's T1(b) wording expected ownership_conflict (holder A);
-    // the §6.3 text prescribes claim_inconsistent for this schedule — the
-    // discrepancy is recorded in the handoff.)
     expect(b.error?.reason).toBe('claim_inconsistent');
     expect(b.error?.holder ?? null).toBeNull();
 
@@ -353,7 +328,7 @@ describe('T1: claim-file open seam interleaving (workspace.md §6.3 single-winne
   }, 30000);
 
   it('T1(c): A completes fully before B attempts ⇒ B EEXISTs, the record is A (live) ⇒ ownership_conflict (holder A)', async () => {
-    // L1 clock-window guard (above): A's record openedAt must be strictly
+    // Clock-window guard (above): A's record openedAt must be strictly
     // after the worker's start (the "record is A (live)" premise).
     await openedAtAfterProcessStart();
     const root = makeRoot('t1c');
@@ -397,7 +372,7 @@ describe('T1: claim-file open seam interleaving (workspace.md §6.3 single-winne
 
 describe('T4: superseded-epoch cleanup over a released@e + claim-e residue (workspace.md §6.3/§6.5)', () => {
   it('a released record with its claim-file residue is claimed at e+1; claim-e is unlinked; the released session refuses', async () => {
-    // L1 clock-window guard (above): A's and B's claim records are stamped
+    // Clock-window guard (above): A's and B's claim records are stamped
     // floor-second; both must be strictly after the worker's start or
     // the liveness check misclassifies the (test's own) pid dead.
     await openedAtAfterProcessStart();
@@ -406,18 +381,14 @@ describe('T4: superseded-epoch cleanup over a released@e + claim-e residue (work
     expect(svcA.createProject(PROJECT, 'Demo')).toEqual({ ok: true, created: true, revision: 0 });
     expect(svcA.releaseWorkspace(PROJECT)).toEqual({ ok: true, revision: 0, retryCleared: true });
 
-    // Group E2 (R4, 2026-09-18 review) amended workspace.md §9 step 1:
-    // the release now "unlinks the owner's own claim file (claim-<e>,
-    // §6.5)" — the real release removes its own claim-0 (verified by
-    // path), leaving released@0 with no residue. This assertion was
-    // flipped from `toBe(true)` (the pre-E2 residue, pinned here while
-    // the release-side unlink was deferred to group E2) to `toBe(false)`
-    // on that contract line; the assertion itself is retained.
+    // The release "unlinks the owner's own claim file (claim-<e>)" — the
+    // real release removes its own claim-0 (verified by path), leaving
+    // released@0 with no residue.
     const rec0 = readRec(root);
     expect(rec0?.state).toBe('released');
     expect(rec0?.lockEpoch).toBe(0);
     expect(rec0?.backendId).toBe(A_ID);
-    expect(fileExists(claimPath(root, 0))).toBe(false); // unlinked by the release (§9 step 1)
+    expect(fileExists(claimPath(root, 0))).toBe(false); // unlinked by the release
 
     // The next claim at epoch 1 succeeds and unlinks the superseded claim-0.
     const svcB = openWorkspaceService({ root, backendId: B_ID });
@@ -512,7 +483,7 @@ describe('T5: self-reclaim (workspace.md §6.2 row)', () => {
 // =============================================================================
 // T6 — hostile unlink-recreate: a foreign actor unlinks and recreates
 // claim-e with foreign content between our O_EXCL and our record write ⇒
-// the §6.3 step-3 pre-record verification (foreign content before the
+// the claim's step-3 pre-record verification (foreign content before the
 // check) — or, if it lands after that check, the step-5 final verification
 // re-read — finds the claim file is not ours ⇒ the claim aborts with
 // ownership_conflict; no double writer (the hostile actor completed no
@@ -557,7 +528,7 @@ describe('T6: hostile unlink-recreate of the claim file (workspace.md §6.3 step
     expect(a.error?.code).toBe('project_unavailable');
     expect(a.error?.reason).toBe('ownership_conflict');
     expect(a.error?.holder ?? null).toBeNull();
-    // §6.3 step 3: NO record is written.
+    // NO record is written.
     expect(readRec(root)).toBeNull();
     // The claim file holds the foreign content (the hostile actor's).
     expect(readStamp(root, 0)?.backendId).toBe(B_ID);
@@ -604,7 +575,7 @@ describe('T6: hostile unlink-recreate of the claim file (workspace.md §6.3 step
     expect(a.error?.code).toBe('project_unavailable');
     expect(a.error?.reason).toBe('ownership_conflict');
     expect(a.error?.holder ?? null).toBeNull();
-    // The documented residual state (§6.3 step 5): record@0 with A's
+    // The documented residual state: record@0 with A's
     // identity + the foreign claim-0. A holds no ownership.
     const rec = readRec(root);
     expect(rec?.state).toBe('owned');

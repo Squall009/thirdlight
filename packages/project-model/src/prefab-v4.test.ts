@@ -1,5 +1,5 @@
 /**
- * Phase 14.1: a v4 prefab definition may carry the gameplay components a
+ * A v4 prefab definition may carry the gameplay components a
  * spawned or placed copy needs (collider, collectible, patrol, hitbox,
  * health, mover, trigger, switch, surface, materials, animator, audio source, face movement); v3
  * content keeps the transform/model/box/behavior vocabulary; the canonical
@@ -43,7 +43,7 @@ describe('v4 prefab components (phase 14.1)', () => {
 
   it('keeps the scene rules: scene-only components, a parented collider, a patrol with a collider, bad values', () => {
     expect(codes([def({ controller: {} })])).toContain('component_unknown');
-    // Phase 24: the removed game components are unknown in a prefab too.
+    // The removed game components are unknown in a prefab too.
     for (const name of Object.keys(REMOVED_COMPONENTS)) expect(codes([def({ [name]: { size: [1, 1] } })]), name).toContain('component_unknown');
     expect(codes([def({ camera: { type: 'perspective', fovY: 45, near: 0.1, far: 100 } })])).toContain('prefab_component_forbidden');
     const child = { localId: 'box-0002', parentLocalId: 'box-0001', components: { transform: T, collider: { shape: { type: 'box', hx: 0.5, hy: 0.5 } } } };

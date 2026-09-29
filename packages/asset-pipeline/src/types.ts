@@ -1,12 +1,11 @@
 /**
- * Public shapes of the bounded GLB importer (project-model.md §18.5–§18.8;
- * assets.md §8 as promoted into the accepted contract; dependencies.md §3).
+ * Public shapes of the bounded GLB importer (project-model.md, assets.md,
+ * dependencies.md).
  *
  * Everything here is **validated, immutable data only**: no file handle, no
  * URL, no staged bytes, no `three.js` object, and no asset identity. The
  * proposal is explicitly non-authoritative — it is never persisted, and no
- * envelope/scene/catalog/history/export value may reference a proposal id
- * (project-model.md §18.1, §18.4).
+ * envelope/scene/catalog/history/export value may reference a proposal id.
  */
 
 import type { AssetMetrics, ImportRecipe } from '@thirdlight/project-model';
@@ -14,7 +13,7 @@ import type { AssetMetrics, ImportRecipe } from '@thirdlight/project-model';
 export type { AssetMetrics, ImportRecipe };
 
 /**
- * presentation.md §41.4.3: the `pcm-wav` recipe member of `ImportRecipeV3`.
+ * The `pcm-wav` recipe member of `ImportRecipeV3`.
  * `profile`/`recipeVersion`/`toolchain` only — no `extensions` key (a WAV has
  * no glTF extensions).
  */
@@ -24,7 +23,7 @@ export interface PcmWavRecipe {
   readonly toolchain: Readonly<Record<string, string>>;
 }
 
-/** presentation.md §41.4.3: the bounded PCM-WAV metrics member (exact key order). */
+/** The bounded PCM-WAV metrics member (exact key order). */
 export interface PcmWavMetrics {
   readonly container: 'riff-wave';
   readonly encoding: 'pcm-s16le';
@@ -38,7 +37,7 @@ export interface PcmWavMetrics {
   readonly riffChunkBytes: number;
 }
 
-/** §18.8.2 stable diagnostic code set (closed), plus the packet-47 additions. */
+/** The stable diagnostic code set (closed). */
 export type ImportDiagnosticCode =
   | 'asset_size_exceeded'
   | 'asset_container_invalid'
@@ -62,7 +61,7 @@ export type ImportDiagnosticCode =
   | 'asset_limits_exceeded'
   | 'asset_empty_model'
   | 'asset_timeout'
-  // presentation.md §41.4.4 (packet 47): the `inspectAudio` rejection codes.
+  // The `inspectAudio` rejection codes.
   | 'audio_source_bytes_exceeded'
   | 'audio_container_invalid'
   | 'audio_chunk_invalid'
@@ -72,8 +71,8 @@ export type ImportDiagnosticCode =
   | 'audio_bit_depth_unsupported'
   | 'audio_data_size_invalid'
   | 'audio_empty'
-  // presentation.md §41.7.2 A (packet 47): the §41.3.2 stages 3–6 and the
-  // §41.3.3 A1–A6 profile, reported by the role-aware `inspectGlb` proposal.
+  // The animated-model profile's stages 3–6 and checks A1–A6, reported by
+  // the role-aware `inspectGlb` proposal.
   | 'animation_role_out_of_range'
   | 'animation_role_duplicate'
   | 'animation_role_mismatch'
@@ -82,10 +81,9 @@ export type ImportDiagnosticCode =
   | 'animation_root_motion';
 
 /**
- * `limits_exceeded` limit vocabulary (project-model.md §18.9.3), plus the two
- * profile byte caps §18.7.2 steps 4/11 and the workspace.md §14 byte table
- * report (`json_chunk_bytes`, `image_bytes`) — see the packet-24
- * contract-change request C24-3.
+ * `limits_exceeded` limit vocabulary, plus the two profile byte caps the JSON
+ * and image steps and the workspace.md byte table report
+ * (`json_chunk_bytes`, `image_bytes`).
  */
 export type ImportLimitName =
   | 'entities'
@@ -109,13 +107,13 @@ export type ImportLimitName =
   | 'animation_channels'
   | 'clip_duration'
   | 'decoded_bytes'
-  // presentation.md §41.7.1 (packet 47): the animation-profile caps (A1/A3/A4/A5)
-  // and the single normative PCM byte bound (§41.4.4 stage 11).
+  // The animation-profile caps (A1/A3/A4/A5)
+  // and the single normative PCM byte bound (audio stage 11).
   | 'animation_clips'
   | 'animation_tracks'
   | 'animation_track_times'
   | 'animation_clip_duration'
-  // phase 9.7: skinned model caps
+  // Skinned model caps
   | 'skins'
   | 'skin_joints'
   | 'morph_targets'
@@ -124,10 +122,10 @@ export type ImportLimitName =
 /**
  * One import diagnostic. `path` is a JSON Pointer into the GLB JSON chunk
  * (`""` for container-level facts); diagnostics never contain file paths,
- * staged bytes or credentials (§18.8.2).
+ * staged bytes or credentials.
  *
  * The media carry fields below are the documented ones of presentation.md
- * §41.3.2/§41.7.2 A — `animation_role_*` carries `role`/`clipIndex`/`clips`/
+ * — `animation_role_*` carries `role`/`clipIndex`/`clips`/
  * `matches`, `animation_root_motion` carries `role`/`nodeIndex`/`nodeName`.
  */
 export interface ImportDiagnostic {
@@ -153,7 +151,7 @@ export interface ImportDiagnostic {
   readonly nodeName?: string;
 }
 
-/** The bounded, explicitly non-persistent display summary (§8 `inspection`). */
+/** The bounded, explicitly non-persistent display summary (`inspection`). */
 export interface ImportInspection {
   readonly nodeNames: readonly string[];
   readonly materialNames: readonly string[];
@@ -162,7 +160,7 @@ export interface ImportInspection {
   readonly truncated: boolean;
 }
 
-/** The caps that were applied to this proposal (§8 `limits`). */
+/** The caps that were applied to this proposal (`limits`). */
 export interface ImportLimits {
   readonly profile: 'gltf-glb';
   readonly recipeVersion: 1;
@@ -174,7 +172,7 @@ export interface ImportLimits {
 }
 
 /**
- * The bounded result of inspecting staged bytes (assets.md §8). Transient,
+ * The bounded result of inspecting staged bytes. Transient,
  * non-authoritative and never persisted.
  */
 export interface ImportProposal {
@@ -204,10 +202,10 @@ export interface ImportProposal {
 }
 
 /**
- * Injected job port (packet 24: "over bytes and injected job ports"). The
+ * Injected job port ("over bytes and injected job ports"). The
  * caller — the workspace service — owns the clock, the proposal identity and
  * cancellation; the importer never reads a clock, a PRNG or an environment
- * variable itself (§18.8.3). Wall time appears only in the bounded timeout
+ * variable itself. Wall time appears only in the bounded timeout
  * and is never persisted.
  */
 export interface ImportJobPort {
@@ -227,13 +225,13 @@ export interface ImportJobPort {
   suggestedDisplayName?: string;
 }
 
-/** presentation.md §41.3.1: one requested role binding (the input shape). */
+/** One requested role binding (the input shape). */
 export interface AnimationRoleBindingInput {
   readonly clipIndex: number;
   readonly clipName: string;
 }
 
-/** presentation.md §41.3.1: the three required role bindings, in fixed key order. */
+/** The three required role bindings, in fixed key order. */
 export interface AnimationRolesInput {
   readonly idle: AnimationRoleBindingInput;
   readonly run: AnimationRoleBindingInput;
@@ -241,11 +239,10 @@ export interface AnimationRolesInput {
 }
 
 /**
- * presentation.md §41.3.4: the animated-profile request. The caller supplies
+ * The animated-profile request. The caller supplies
  * the new version-local mapping; the proposal validates it against the real
- * clip list (stages 3–6 of §41.3.2) and then applies the §41.3.3 A1–A6 GLB
- * profile. `entityId` is carried for the caller's reimport context and never
- * interpreted here.
+ * clip list (stages 3–6) and then applies the A1–A6 GLB profile. `entityId`
+ * is carried for the caller's reimport context and never interpreted here.
  */
 export interface AnimationProfileRequest {
   readonly entityId?: string;
@@ -256,15 +253,15 @@ export interface AnimationProfileRequest {
 export interface ImportOptions {
   readonly profile: 'gltf-glb';
   readonly recipeVersion: 1;
-  /** The tools whose version can change the decoded result (§18.5). */
+  /** The tools whose version can change the decoded result. */
   readonly toolchain: Readonly<Record<string, string>>;
   /** Injected job port. */
   readonly job?: ImportJobPort;
   /** Caller display name used when the job port does not supply one. */
   readonly displayName?: string;
   /**
-   * presentation.md §41.3.3: request the animated-model profile. When absent
-   * the accepted M2 GLB proposal shape and its `gltf-glb` recipe are
+   * Request the animated-model profile. When absent
+   * the plain GLB proposal shape and its `gltf-glb` recipe are
    * byte-unchanged (no role or profile diagnostics are produced).
    */
   readonly animation?: AnimationProfileRequest;
@@ -275,8 +272,7 @@ export type PrepareImportOptions = ImportOptions & { readonly job: ImportJobPort
 
 /**
  * The persistable proposal facts the metadata digest is taken over — the same
- * shape for a `gltf-glb` and a `pcm-wav` proposal
- * (project-model.md §18.5, presentation.md §41.4.3). Job identity, stage id,
+ * shape for a `gltf-glb` and a `pcm-wav` proposal. Job identity, stage id,
  * expiry, display name and the non-persistent `inspection` lists are excluded.
  */
 export interface ImportMetadataFacts {
@@ -288,9 +284,9 @@ export interface ImportMetadataFacts {
   readonly metrics?: unknown;
 }
 
-// --- audio (`inspectAudio`, presentation.md §41.4) -----------------------------
+// --- audio (`inspectAudio`) -----------------------------
 
-/** §41.4.4 stage 12: the bounded inspection summary (no sample data). */
+/** Audio stage 12: the bounded inspection summary (no sample data). */
 export interface AudioImportInspection {
   readonly container: 'riff-wave';
   readonly encoding: 'pcm-s16le';
@@ -300,7 +296,7 @@ export interface AudioImportInspection {
   readonly durationMs: number;
 }
 
-/** §41.4.2 caps applied to this proposal, plus the injected job budget. */
+/** The caps applied to this proposal, plus the injected job budget. */
 export interface AudioImportLimits {
   readonly profile: 'pcm-wav';
   readonly recipeVersion: 1;
@@ -311,7 +307,7 @@ export interface AudioImportLimits {
 }
 
 /**
- * The bounded result of `inspectAudio` (presentation.md §41.4.4). Transient,
+ * The bounded result of `inspectAudio`. Transient,
  * non-authoritative and never persisted — bytes in, a proposal out.
  */
 export interface AudioImportProposal {
@@ -339,7 +335,7 @@ export interface AudioImportProposal {
 export interface AudioImportOptions {
   readonly profile: 'pcm-wav';
   readonly recipeVersion: 1;
-  /** Exactly `{ "asset-pipeline": "<the repository pin>" }` (§41.4.3). */
+  /** Exactly `{ "asset-pipeline": "<the repository pin>" }`. */
   readonly toolchain: Readonly<Record<string, string>>;
   /** Injected job port (cancellation/deadline); optional in pure mode. */
   readonly job?: ImportJobPort;

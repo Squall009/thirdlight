@@ -1,5 +1,5 @@
 /**
- * Phase 20.1: the editor widgets of the framework's `curve` and `gradient`
+ * The editor widgets of the framework's `curve` and `gradient`
  * field types (GraphInspector uses them for any graph kind).
  *
  * - Curve: keys [t0, v0, t1, v1, …] (t 0–1 ascending, values within the

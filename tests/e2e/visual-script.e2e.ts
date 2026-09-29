@@ -1,11 +1,11 @@
 /**
- * Phase 19.0/19.1: visual scripts built in the editor against a real backend
+ * Visual scripts built in the editor against a real backend
  * (the starter template with neutral additions; the run states and the HUD
  * come from the game session the tests add).
  *
  * - Behaviors → "+ Visual script" creates a behavior whose source is a graph
  *   and opens it as a "Graph: <name>" centre tab (the generic graph editor
- *   with the `behavior` kind): On start is there (19.1: no variable needed).
+ *   with the `behavior` kind): On start is there (no variable needed).
  * - Build "On start → Add to counter": the node from the catalogue, the exec
  *   wire port to port, the counter's name and amount in the Inspector — each
  *   gesture one graphEdit on owner {kind: "behavior"} (checked in the backend).
@@ -14,13 +14,13 @@
  *   publishes (source.kind "graph").
  * - Play runs it: the run's counter shows the amount (observed through the
  *   play observation route).
- * - 19.1: "on trigger enter → after a timer, hide the door, count it, play
+ * - "on trigger enter → after a timer, hide the door, count it, play
  *   a sound" built from the catalogue search (an entity variable naming the
  *   trigger, On trigger, Start timer, On timer, Set visible, Add to counter,
  *   Play sound with the sound picked from the project's audio), published and
  *   played: the opening is counted and the magenta door disappears (pixels). The
  *   sound request itself is not observable headless (unverified).
- * - 19.3: the same project exported and served statically with the backend
+ * - The same project exported and served statically with the backend
  *   stopped: the door disappears (pixels) and the HUD shows "Opened 1".
  */
 import { createHash } from 'node:crypto';
@@ -94,7 +94,7 @@ test('visual script: build On start → Add to counter in the Graph tab, publish
   // Add "Add to counter" from the catalogue (right click on empty space).
   const stage = page.locator('.tl-graph__stage');
   const box = (await stage.boundingBox())!;
-  // Phase 19.2: the graph shares the tab with the variable list: add the node left of the minimap.
+  // The graph shares the tab with the variable list: add the node left of the minimap.
   await page.mouse.click(box.x + box.width * 0.55, box.y + box.height * 0.45, { button: 'right' });
   const popup = page.getByRole('dialog', { name: 'Add node' });
   await expect(popup.getByRole('group', { name: 'Game' })).toBeVisible();
@@ -278,7 +278,7 @@ test('visual script from the catalogue search: on trigger enter → timer → hi
   expect((await observe()).state).toBe('running');
   await page.getByTitle('Stop the play preview').click();
 
-  // 19.3: the export runs the same graph, served statically with the backend stopped:
+  // The export runs the same graph, served statically with the backend stopped:
   // the door disappears (pixels) and the HUD shows the counter.
   const exported = await be.admin(`projects/${be.projectId}/export`);
   expect(exported.status, JSON.stringify(exported.json)).toBe(200);

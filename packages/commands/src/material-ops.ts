@@ -1,5 +1,5 @@
 /**
- * Phase 9.4: project materials and the environment.
+ * Project materials and the environment.
  *
  * `setMaterial {material}` creates or replaces one material (by materialId);
  * `deleteMaterial {materialId}` removes one (refused while an object or an
@@ -7,7 +7,7 @@
  * `setEnvironment {environment}` replaces the environment block. Each is one
  * undo; the change records carry the whole block before and after.
  *
- * Phase 9.6: `setLighting {sceneId, lighting}` sets or clears one scene's
+ * `setLighting {sceneId, lighting}` sets or clears one scene's
  * bake (`content.lighting[sceneId]`); the change carries that bake before and
  * after.
  */
@@ -47,7 +47,7 @@ function commit(
 export function applySetMaterial(input: OpInput, args: { material: MaterialDef }): OpOutcome {
   const catalog = contentOf(input.content) as WithMaterials;
   const errors: ModelErrorV2[] = [];
-  // Phase 18.0: a graph material's calls resolve against the project's material functions.
+  // A graph material's calls resolve against the project's material functions.
   validateMaterials([args.material], '', errors, graphDocumentsContext(GRAPH_KINDS, (catalog as { graphs?: GraphDocument[] }).graphs));
   if (errors.length > 0) return { ok: false, error: modelError(errors[0] as ModelErrorV2, '/args/material') };
   const previous = deepClone(catalog.materials ?? []);
@@ -98,7 +98,7 @@ export function applySetLighting(input: OpInput, args: { sceneId: string; lighti
   return commit(input, withLighting(catalog, args.sceneId, next) as WithMaterials, { type: 'setLighting', sceneId: args.sceneId, previous, next }, { kind: 'setLighting', sceneId: args.sceneId, restore: previous });
 }
 
-/** Phase 9.7: create or replace one animator controller (by controllerId). */
+/** Create or replace one animator controller (by controllerId). */
 export function applySetAnimator(input: OpInput, args: { controller: AnimatorController }): OpOutcome {
   const catalog = contentOf(input.content) as WithMaterials;
   const errors: ModelErrorV2[] = [];
@@ -109,7 +109,7 @@ export function applySetAnimator(input: OpInput, args: { controller: AnimatorCon
   return commit(input, withAnimators(catalog, next) as WithMaterials, { type: 'setAnimators', previous, next }, { kind: 'setAnimators', restore: previous });
 }
 
-/** Phase 9.7: remove a controller (refused while an animator still uses it — the resulting-state check reports it). */
+/** Remove a controller (refused while an animator still uses it — the resulting-state check reports it). */
 export function applyDeleteAnimator(input: OpInput, args: { controllerId: string }): OpOutcome {
   const catalog = contentOf(input.content) as WithMaterials;
   const previous = deepClone(catalog.animators ?? []);
@@ -120,7 +120,7 @@ export function applyDeleteAnimator(input: OpInput, args: { controllerId: string
   return commit(input, withAnimators(catalog, next) as WithMaterials, { type: 'setAnimators', previous, next }, { kind: 'setAnimators', restore: previous });
 }
 
-/** Phase 9.8: replace the input actions (null = back to the defaults). */
+/** Replace the input actions (null = back to the defaults). */
 export function applySetInput(input: OpInput, args: { input: InputConfig | null }): OpOutcome {
   const catalog = contentOf(input.content) as WithMaterials;
   let next: InputConfig | null = null;

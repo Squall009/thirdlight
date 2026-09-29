@@ -1,19 +1,18 @@
 /**
- * @thirdlight/protocol — public surface (dependencies.md §3 row:
- * "HTTP payload types + strict validators, WS event types + strict
- * validators, bridge message types + strict validators (sessions.md
- * §7/§13.5), ID syntax constants, allowlist constants").
+ * @thirdlight/protocol — public surface: HTTP payload types, WS event types
+ * and bridge message types with strict validators, ID syntax constants and
+ * allowlist constants.
  *
- * Thirdlight M1 wire protocol (docs/contracts/sessions.md, packet 09):
- * the strict JSON payload discipline (project-model §12.3 pass-1 byte
- * rules + unknown-field rejection), the session-layer error model
- * (§11.2/§11.3), the exhaustive WS event catalog with builders and
- * validators (§7), and the exhaustive bridge message allowlist with
- * strict validators (§13.5). Pure: no I/O, no Node built-ins, no DOM
- * (dependencies.md §4.1: project-model values + commands types only).
+ * Thirdlight wire protocol (docs/contracts/sessions.md):
+ * the strict JSON payload discipline (project-model byte rules +
+ * unknown-field rejection), the session-layer error model, the
+ * exhaustive WS event catalog with builders and
+ * validators, and the exhaustive bridge message allowlist with
+ * strict validators. Pure: no I/O, no Node built-ins, no DOM
+ * (project-model values + commands types only).
  */
 
-// ID syntax constants + validators (sessions.md §3; commands.md §3).
+// ID syntax constants + validators.
 export {
   CONN_ID_RE,
   CONTENT_ID_RE,
@@ -37,7 +36,7 @@ export {
   type SessionKind,
 } from './ids';
 
-// Session-layer error model (sessions.md §11.2/§11.3).
+// Session-layer error model.
 export {
   ERROR_CODES,
   MESSAGE_LIMIT,
@@ -53,7 +52,7 @@ export {
   type SessionErrorCode,
 } from './errors';
 
-// Strict JSON payload discipline (sessions.md §1/§6.1/§11.2).
+// Strict JSON payload discipline.
 export {
   checkField,
   checkOptionalObject,
@@ -67,7 +66,7 @@ export {
   type StrictParseResult,
 } from './strict';
 
-// HTTP payload types + strict validators (sessions.md §5.1/§6/§10.1/§12).
+// HTTP payload types + strict validators.
 export {
   ALL_COMMAND_OPS,
   QUERY_OPS,
@@ -85,7 +84,7 @@ export {
   type EstablishRequest,
   type PlayStartRequest,
   type ScreenshotRequest,
-  // Phase 23.8: test/debug start options.
+  // test/debug start options.
   type PlayStartOptions,
   PLAY_START_PROJECT_SAVE_MAX_BYTES,
   PROJECT_SAVE_FORMAT,
@@ -93,8 +92,7 @@ export {
   PLAY_START_VARIABLE_MAX_CHARS,
 } from './http';
 
-// M2 content transport wire shapes + strict validators (packet 25:
-// sessions.md §11.3/§16.1, workspace.md §7.6/§13.9, delivery.md §15).
+// Content transport wire shapes + strict validators.
 export {
   CONTENT_ASSETS_LIMIT_DEFAULT,
   CONTENT_ASSETS_LIMIT_MAX,
@@ -133,7 +131,7 @@ export {
   type UploadFrameVerdict,
 } from './content';
 
-// WS event catalog (sessions.md §7, exhaustive for M1).
+// WS event catalog (exhaustive).
 export {
   CLIENT_EVENT_TYPES,
   PLAY_STOP_REASONS,
@@ -168,7 +166,7 @@ export {
   type ClientEventType,
 } from './ws-events';
 
-// Bridge message allowlist + strict validators (sessions.md §13.5).
+// Bridge message allowlist + strict validators.
 export {
   BRIDGE_EDITOR_TO_PREVIEW_TYPES,
   BRIDGE_INPUT_MAX_BYTES,
@@ -188,8 +186,7 @@ export {
   type LoadPhase,
 } from './bridge';
 
-// M2 play delivery: locator/manifest identity + bounded input relay
-// (sessions.md §17/§18, delivery.md §2/§4/§8).
+// Play delivery: locator/manifest identity + bounded input relay.
 export {
   BUILD_OPTIONS_RECORD,
   INPUT_RELAY_ACK_TIMEOUT_MS,
@@ -232,8 +229,7 @@ export {
   type RelayJumpPhase,
 } from './delivery';
 
-// M3 v3 authoring wire + the §20 game control/observation relay (packet 48;
-// workspace.md §16.3, sessions.md §19/§20, delivery.md §5).
+// v3 authoring wire + the game control/observation relay.
 export {
   CHANGE_TYPES,
   GAME_CONTROL_BODY_MAX_BYTES,
@@ -291,7 +287,7 @@ export {
   type GameControlRequest,
   type GameObserveRequest,
   type PlayState,
-} from './m3';// Phase 9.6: light baking shared by the editor and the backend.
+} from './m3';// Light baking shared by the editor and the backend.
 export {
   bakeHashes,
   bakeLightMode,
@@ -306,10 +302,10 @@ export {
   type LightmapPlacement,
 } from './bake';
 
-// Phase 21.4: the change record on the WS (no previous side; keyed lists as deltas).
+// The change record on the WS (no previous side; keyed lists as deltas).
 export { WIRE_LIST_KEYS, fromWireChange, toWireChange, type WireListDelta } from './wire-change';
 
-// Phase 25.22: importing an asset tool's job export (a folder or zip: a GLB and manifest.json).
+// Importing an asset tool's job export (a folder or zip: a GLB and manifest.json).
 export {
   JOB_EXPORT_LIMITS,
   JOB_EXPORT_MANIFEST,

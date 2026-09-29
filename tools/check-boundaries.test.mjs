@@ -1,9 +1,8 @@
 /**
- * Check tool test suite — boundary check 1 (dependencies.md §5.1;
- * m1-acceptance.md §2.4: "per-edge negative fixtures in the check tool's
- * test suite"). Runs the boundary check against temporary fixture workspaces
- * in the OS temp dir; every forbidden edge of dependencies.md §4.3 has a
- * negative fixture, and the §4.1 allowed edges have positive fixtures.
+ * Check tool test suite — the boundary check ("per-edge negative fixtures
+ * in the check tool's test suite"). Runs the boundary check against
+ * temporary fixture workspaces in the OS temp dir; every forbidden edge has a negative fixture, and the
+ * allowed edges have positive fixtures.
  */
 
 import { afterEach, describe, it, expect } from 'vitest';
@@ -140,7 +139,7 @@ describe('check 1 — static import graph (dependencies.md §5.1)', () => {
     expect(v[0].line).toBe(1);
     expect(v[0].message).toContain('examples/jsm');
 
-    // Other packages keep their own §4.1 external edges (no incidental change).
+    // Other packages keep their own allowed external edges (no incidental change).
     const editor = makeRoot();
     addPkg(editor, 'editor', {
       files: { 'src/index.ts': "import * as THREE from 'three';\nexport const s = THREE.Scene;\n" },

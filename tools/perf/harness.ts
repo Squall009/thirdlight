@@ -1,5 +1,5 @@
 /**
- * Phase 21.1: the performance harness. For each benchmark class it generates
+ * The performance harness. For each benchmark class it generates
  * the project (generate.ts), builds it through the real backend (build.ts),
  * measures Play, the export and the editor Scene view in Chromium for each
  * renderer (browser.ts), editor command round trips, and the headless
@@ -31,7 +31,7 @@ export interface HarnessOptions {
   classes: BenchClass[];
   renderers: RendererName[];
   surfaces: Surface[];
-  /** Phase 22.0: where Play and the export run their simulation (worker = the default; off = ?threads=off). */
+  /** Where Play and the export run their simulation (worker = the default; off = ?threads=off). */
   threads: ('worker' | 'off')[];
   seed: number;
   warmupMs: number;
@@ -39,9 +39,9 @@ export interface HarnessOptions {
   commands: number;
   simSteps: number;
   viewport: { width: number; height: number };
-  /** Phase 25.24a: Plays per class and renderer (the second and later reuse the editor page); each start is split into stages. */
+  /** Plays per class and renderer (the second and later reuse the editor page); each start is split into stages. */
   plays: number;
-  /** Phase 25.24a: draw on the host's GPU instead of SwiftShader. */
+  /** Draw on the host's GPU instead of SwiftShader. */
   gpu: boolean;
   keep: boolean;
   out?: string;
@@ -57,7 +57,7 @@ export interface BenchReport {
   exportMs?: number;
   surfaces: SurfaceResult[];
   commandMs?: Summary;
-  /** Phase 21.4: the Hierarchy, command costs in the editor and on disk, WebSocket sizes. */
+  /** The Hierarchy, command costs in the editor and on disk, WebSocket sizes. */
   editorOps?: EditorOpsResult;
   sim?: SimResult | { ok: false; error: string };
   errors: string[];
@@ -95,7 +95,7 @@ export function parseArgs(argv: readonly string[]): Omit<HarnessOptions, 'log'> 
   const [vw, vh] = (get('viewport') ?? '1280x720').split('x').map(Number);
   return {
     classes: list('classes', BENCH_CLASSES, BENCH_CLASSES),
-    renderers: list<RendererName>('renderers', ['legacy', 'webgl2', 'webgpu', 'auto'], ['webgl2']), // 21.6: `legacy` is WebGPURenderer on WebGL 2 since 17.4 (kept to re-run old reports)
+    renderers: list<RendererName>('renderers', ['legacy', 'webgl2', 'webgpu', 'auto'], ['webgl2']), // `legacy` is WebGPURenderer on WebGL 2 (kept to re-run old reports)
     surfaces: list('surfaces', SURFACES, SURFACES),
     threads: list<'worker' | 'off'>('threads', ['worker', 'off'], ['worker']),
     seed: Number(get('seed') ?? DEFAULT_SEED),
@@ -133,7 +133,7 @@ export function metricsOf(report: Pick<Report, 'benchmarks' | 'calibration'>): R
       }
       if (s.load['firstFrameMs'] !== undefined) m[`${k}.firstFrame/cpu`] = { value: r3(s.load['firstFrameMs'] / cpu), kind: 'ratio' };
       if (s.surface !== 'editor') m[`${k}.drawCalls`] = { value: s.drawCalls.p50, kind: 'count' };
-      // Phase 21.3: the editor's orbit draw calls, and frames drawn by the idle Scene view (render on demand: 0).
+      // The editor's orbit draw calls, and frames drawn by the idle Scene view (render on demand: 0).
       if (s.surface === 'editor' && s.drawCalls.n > 0) m[`${k}.drawCalls`] = { value: s.drawCalls.p50, kind: 'count' };
       if (s.idle !== undefined) m[`${k}.idleFrames`] = { value: s.idle.framesDrawn, kind: 'count' };
       m[`${k}.programs`] = { value: s.live.programs + s.live.pipelines, kind: 'count' };
@@ -271,7 +271,7 @@ export async function runHarness(opts: HarnessOptions): Promise<{ report: Report
           for (const threads of opts.threads) {
             if (opts.surfaces.includes('play')) {
               await attempt(`play threads=${threads}`, async () => {
-                // Phase 25.24a: a scene that does not start is loaded once during the first Play.
+                // A scene that does not start is loaded once during the first Play.
                 const later = plan.scenes.find((sc) => !plan.startScenes.includes(sc.sceneId))?.sceneId;
                 const s = await measurePlay(browser, be, 'bench', r, surf, threads, { plays: opts.plays, ...(later !== undefined ? { sceneLoad: later } : {}) });
                 bench.surfaces.push(s);

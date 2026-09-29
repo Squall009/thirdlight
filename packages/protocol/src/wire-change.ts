@@ -1,10 +1,9 @@
 /**
- * Phase 21.4: the change record as it travels in a WS `mutation.applied`.
+ * The change record as it travels in a WS `mutation.applied`.
  *
  * The HTTP result, the retry records and the undo history keep the full
  * change (before and after). The editor's projection advances from the
- * "after" side alone (sessions.md §8: "a client projection updates from this
- * alone"), so on the socket:
+ * "after" side alone, so on the socket:
  *
  * - every `previous` (top level, per moved entity, the entity order, the
  *   header transform) is left out — about half of every set-style change,

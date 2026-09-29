@@ -1,9 +1,9 @@
 /**
- * Test-only synthetic GLB builder for the packet-26 loader tests (NOT part of
+ * Test-only synthetic GLB builder for the loader tests (NOT part of
  * the public surface — not exported from index.ts; imported only by .test.ts
  * files, like `test-scene.ts`).
  *
- * The packet-24 fixture GLBs live in `fixtures/m2/assets/**`; the boundary
+ * The fixture GLBs live in `fixtures/m2/assets/**`; the boundary
  * rules forbid a package test from reading repo files (`node:fs` is not in
  * three-adapter's allowed edges) or importing another package's fixtures, so
  * this helper emits real, self-contained glTF 2.0 GLB bytes instead: header,
@@ -31,9 +31,9 @@ export interface TestGlbOptions {
   /** Include a rotation animation clip (default true). */
   readonly clip?: boolean;
   /**
-   * Packet 53: the clip names, in stored order (overrides `clip`). Each entry
+   * The clip names, in stored order (overrides `clip`). Each entry
    * builds one rotation clip on the 'Rotor' node with that name — the
-   * packet-53 role tests need a real three-clip GLB (`Idle`/`Run`/`Airborne`)
+   * role tests need a real three-clip GLB (`Idle`/`Run`/`Airborne`)
    * and the reordered-clip variant; an empty array means no clips.
    */
   readonly clipNames?: readonly string[];
@@ -210,7 +210,7 @@ export function packGlb(jsonText: string, bin: Uint8Array): Uint8Array {
   return out;
 }
 
-/** A descriptor for `bytes` (the adapter does not re-verify the digest: the workspace owns that, sessions.md §16.1). */
+/** A descriptor for `bytes` (the adapter does not re-verify the digest: the workspace owns that). */
 export function descriptorFor(
   bytes: Uint8Array,
   overrides: Partial<{ assetId: string; version: number; sourceDigest: string; sourceByteLength: number }> = {},

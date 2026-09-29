@@ -1,9 +1,9 @@
 /**
- * Phase 9.8: named input actions from raw device state.
+ * Named input actions from raw device state.
  *
  * Pure apart from each action's previous "down" bit (for its phase), which
  * the evaluator keeps. Bindings never add up: an action takes the binding
- * with the largest magnitude (like the move mapping of M2). A 1D axis from
+ * with the largest magnitude (like the character move mapping). A 1D axis from
  * a stick gets a radial dead zone (default 0.2) and is rescaled; 2D axes are
  * clipped to length 1. `invert` and `scale` apply last. A button — or an axis
  * past 0.5 — is "down"; its phase is pressed / held / released / none.
@@ -23,14 +23,14 @@ export interface InputBindingLike {
   readonly right?: string;
   readonly x?: number;
   readonly y?: number;
-  /** Phase 23.14: hold instead of tap — seconds a key/button binding must be held before it counts. */
+  /** Hold instead of tap — seconds a key/button binding must be held before it counts. */
   readonly hold?: number;
 }
 
 export interface InputActionLike {
   readonly name: string;
   readonly type: 'button' | 'axis1d' | 'axis2d';
-  /** gameplay, ui or (phase 23.10) one of the project's own maps. */
+  /** gameplay, ui or one of the project's own maps. */
   readonly map: string;
   readonly bindings: readonly InputBindingLike[];
   readonly deadZone?: number;
@@ -40,12 +40,12 @@ export interface InputActionLike {
 
 export interface InputConfigLike {
   readonly actions: readonly InputActionLike[];
-  /** Phase 23.3: the cursor while each map is active (absent: free). */
+  /** The cursor while each map is active (absent: free). */
   readonly cursor?: { readonly [map: string]: 'free' | 'locked' | undefined };
 }
 
 /**
- * Phase 23.3: the pointer as one sample reads it — the position (fractions of
+ * The pointer as one sample reads it — the position (fractions of
  * the view, 0,0 top left), the movement and wheel since the previous sample,
  * the held buttons and those pressed since the previous sample (bits: 1
  * left, 2 right, 4 middle).
@@ -68,10 +68,10 @@ export interface RawDeviceState {
   readonly pressedKeys: ReadonlySet<string>;
   /** The active standard-mapped pad, or null. */
   readonly gamepad: { readonly buttons: readonly boolean[]; readonly axes: readonly number[] } | null;
-  /** Phase 23.3: the pointer (absent/null: none seen yet). */
+  /** The pointer (absent/null: none seen yet). */
   readonly pointer?: RawPointerState | null;
   /**
-   * Phase 23.14: the sample's time in milliseconds (any monotonic clock) —
+   * The sample's time in milliseconds (any monotonic clock) —
    * hold bindings measure how long they have been held with it. Absent: a
    * hold binding never counts.
    */
@@ -80,7 +80,7 @@ export interface RawDeviceState {
 
 const POINTER_BUTTON_BIT: Readonly<Record<string, number>> = Object.freeze({ left: 1, right: 2, middle: 4 });
 /**
- * Phase 23.3: a pointer movement axis in an action is the movement since the
+ * A pointer movement axis in an action is the movement since the
  * last step in percent of the view (moving a tenth of the view in a step is
  * 10, the most an action value holds) — a stick's full push is 1, so 1% of
  * the view per step drives like a full stick; `scale` tunes it.
@@ -113,18 +113,18 @@ export function actionKeys(action: InputActionLike): string[] {
 }
 
 export function createActionEvaluator(config: InputConfigLike): {
-  /** Phase 23.9a: `active` (absent: all) — an inactive action reads as released (its map is switched off). */
+  /** `active` (absent: all) — an inactive action reads as released (its map is switched off). */
   sample(raw: RawDeviceState, active?: (action: InputActionLike) => boolean): Record<string, ActionValue>;
   /** Forget every previous state (a suspension). */
   reset(): void;
-  /** Phase 23.9a: every action down at the next sample reads neutral until it is released once (a map switched back on). */
+  /** Every action down at the next sample reads neutral until it is released once (a map switched back on). */
   holdUntilReleased(): void;
 } {
   const prevDown = new Map<string, boolean>();
-  /** Phase 23.14: when each hold binding (action#index) went down (absent: up). */
+  /** When each hold binding (action#index) went down (absent: up). */
   const holdSince = new Map<string, number>();
   /**
-   * Phase 23.14: a hold binding counts once it has been held `hold` seconds
+   * A hold binding counts once it has been held `hold` seconds
    * (only held state: a tap between two samples never completes a hold).
    */
   const holdValue = (raw: RawDeviceState, id: string, down: boolean, hold: number): number => {
@@ -174,7 +174,7 @@ export function createActionEvaluator(config: InputConfigLike): {
   const evaluate = (a: InputActionLike, raw: RawDeviceState): { v: number; x?: number; y?: number; i?: 1 } => {
     if (a.type === 'axis2d') {
       let best: [number, number] = [0, 0];
-      // Phase 23.3: a pointer position / movement is taken as it is (no length clip) and a movement is per sample.
+      // A pointer position / movement is taken as it is (no length clip) and a movement is per sample.
       let bestKind = '';
       for (const b of a.bindings) {
         let x = 0;
@@ -278,7 +278,7 @@ export function createActionEvaluator(config: InputConfigLike): {
 }
 
 /**
- * Phase 23.3: what the browser does with the cursor — lock it (pointer lock)
+ * What the browser does with the cursor — lock it (pointer lock)
  * in locked mode; hide it when locked or while a gamepad is the device the
  * player used last (it shows again when the pointer or a key is used).
  */
@@ -286,17 +286,17 @@ export function cursorPresentation(mode: 'free' | 'locked', device: 'keyboard' |
   return { lock: mode === 'locked', hide: mode === 'locked' || device === 'gamepad' };
 }
 
-/** Phase 23.3: whether an action binds a pointer button (right: the view's context menu is suppressed then). */
+/** Whether an action binds a pointer button (right: the view's context menu is suppressed then). */
 export function bindsPointerButton(config: InputConfigLike, button: 'left' | 'right' | 'middle'): boolean {
   return config.actions.some((a) => a.bindings.some((b) => b.kind === 'pointerButton' && (b as { button?: unknown }).button === button));
 }
 
-/** Phase 23.3: whether an action binds the wheel (the view then keeps the wheel from scrolling the page). */
+/** Whether an action binds the wheel (the view then keeps the wheel from scrolling the page). */
 export function bindsWheel(config: InputConfigLike): boolean {
   return config.actions.some((a) => a.bindings.some((b) => b.kind === 'pointerAxis' && (b as { axis?: unknown }).axis === 'wheel'));
 }
 
-/** The keyboard codes the character controller's move and jump come from (the M2 mapping reads these). */
+/** The keyboard codes the character controller's move and jump come from (the character mapping reads these). */
 export function characterKeys(config: InputConfigLike): { left: string[]; right: string[]; jump: string[] } {
   const move = config.actions.find((a) => a.name === 'move');
   const jump = config.actions.find((a) => a.name === 'jump');
@@ -308,12 +308,12 @@ export function characterKeys(config: InputConfigLike): { left: string[]; right:
       if (typeof b.positive === 'string') right.push(b.positive);
     } else if (b.kind === 'key' && typeof b.code === 'string' && b.hold === undefined) right.push(b.code);
   }
-  // Phase 23.14: a hold binding counts in the action values only (the character controller reads its keys directly).
+  // A hold binding counts in the action values only (the character controller reads its keys directly).
   const jumpKeys = (jump?.bindings ?? []).filter((b) => b.kind === 'key' && typeof b.code === 'string' && b.hold === undefined).map((b) => b.code as string);
   return { left, right, jump: jumpKeys };
 }
 
-/** Phase 14.5: the pad controls the character controller's move and jump come from. */
+/** The pad controls the character controller's move and jump come from. */
 export interface CharacterPad {
   /** Buttons that jump (any held = jump down). */
   readonly jump: readonly number[];
@@ -331,7 +331,7 @@ const PAD_BUTTON_MAX = 31;
 const padIndex = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= PAD_BUTTON_MAX;
 
 /**
- * Phase 14.5: the pad buttons and axes of the project's `move` and `jump`
+ * The pad buttons and axes of the project's `move` and `jump`
  * actions (`gamepadButton`, `gamepadButtons1d`, `gamepadAxis` bindings). A
  * part with no pad binding of its kind keeps the standard layout — so every
  * project made before pad rebinding (whose pad bindings were never read)
@@ -360,7 +360,7 @@ export function characterPad(config: InputConfigLike): CharacterPad {
 }
 
 /**
- * Phase 14.5: reduce one pad's buttons and axes to the character controller's jump,
+ * Reduce one pad's buttons and axes to the character controller's jump,
  * left, right and stick values through `pad` (pure; the fake pads of the
  * tests and the browser owner both go through here).
  */
@@ -394,7 +394,7 @@ export const DEFAULT_INPUT_CONFIG: InputConfigLike = Object.freeze({
 } as InputConfigLike);
 
 /**
- * Phase 23.2: the default actions of a 3D project (a copy of project-model's
+ * The default actions of a 3D project (a copy of project-model's
  * `DEFAULT_INPUT_3D`; tests/input-defaults-parity.test.ts keeps them equal):
  * `move` is a 2D axis (W/A/S/D, arrows, left stick) and `run` a button.
  */

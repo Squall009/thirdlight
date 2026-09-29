@@ -1,10 +1,10 @@
 /**
- * Packet 25 integration harness: a disposable data root, a REAL backend
+ * Content integration harness: a disposable data root, a REAL backend
  * process (esbuild-bundled child, real fs + real HTTP/WS), a real MCP SDK
  * client over a real stdio transport talking to the out-of-process MCP server,
  * which routes every call into the real backend's `/api/v1` surface.
  *
- * Nothing is mocked where the packet requires integration: the content bytes,
+ * Nothing is mocked where integration is under test: the content bytes,
  * the staged upload, the blob publication, the asset-byte read, the path
  * rules and the retry records all run on the real filesystem in the child.
  */
@@ -52,8 +52,8 @@ export interface DisposableRoot {
 
 /**
  * A disposable root with the static bundles and (optionally) the seeded
- * project. The committed M2 storage fixture is storage v2, which the
- * workspace refuses since phase 9.3 step B; the seeded copy is converted to
+ * project. The committed `m2` storage fixture is storage v2, which the
+ * workspace refuses; the seeded copy is converted to
  * the equivalent storage v3 envelope (tests/storage-seed.ts), which the
  * backend upgrades in place to storage v4 when it first opens the project.
  */

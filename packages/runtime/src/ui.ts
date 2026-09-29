@@ -1,5 +1,5 @@
 /**
- * Phase 23.9a: project UI in the simulation — the scripts' view model, the
+ * Project UI in the simulation — the scripts' view model, the
  * stack of shown UI documents and the UI events of a step.
  *
  * The runtime never draws: the game host draws the documents (DOM/CSS) from
@@ -21,10 +21,10 @@ import { ID_RE } from '@thirdlight/project-model';
 import type { RuntimeUiDocumentRow } from '@thirdlight/project-model';
 
 /** What a UI event is. */
-// Phase 23.10: `mode` (a button's mode action: switch to the game mode named by `value`) and
+// `mode` (a button's mode action: switch to the game mode named by `value`) and
 // `restart` (the engine's restart of the run) are applied by
 // the runtime when the frame is sampled; their `doc` may be '' (the engine's pause panel).
-// Phase 24.4j: `scene` (the shell's move to an entry of its scene list: `value` is the entry's index),
+// `scene` (the shell's move to an entry of its scene list: `value` is the entry's index),
 // applied by the runtime at the next step boundary.
 export type UiEventKind = 'click' | 'submit' | 'focus' | 'custom' | 'show' | 'hide' | 'toggle' | 'mode' | 'restart' | 'scene';
 export const UI_EVENT_KINDS: readonly UiEventKind[] = ['click', 'submit', 'focus', 'custom', 'show', 'hide', 'toggle', 'mode', 'restart', 'scene'];

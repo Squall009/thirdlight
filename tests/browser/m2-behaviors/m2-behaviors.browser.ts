@@ -1,12 +1,12 @@
 /**
- * Packet 34 — manual browser host for trusted behavior execution.
+ * Manual browser host for trusted behavior execution.
  *
- * NOT a production bootstrap and NOT part of any shipped bundle: the packet-37
- * desktop procedure builds this file with esbuild and serves it statically
+ * NOT a production bootstrap and NOT part of any shipped bundle: the desktop
+ * procedure builds this file with esbuild and serves it statically
  * together with `fixtures/m2/behaviors/valid/sample.output.js`. It is named
  * `.browser.ts` (not `.test.ts`) so vitest never picks it up.
  *
- * In this container there is no browser: every browser claim of packet 34 is
+ * In this container there is no browser: every browser claim here is
  * UNVERIFIED until a human runs the procedure in
  * `tests/browser/m2-behaviors/README.md`. The Node test host
  * (`behavior-host.test.ts`, `node:vm`) is the in-container execution evidence.
@@ -20,9 +20,8 @@
  *     state (the box's x position) after a FRESH instantiation;
  *  3. the normative trust notice renders verbatim before any acknowledgment.
  *
- * It deliberately contains NO unbounded-loop behavior: runtime.md §14.1.1
- * documents that a same-thread loop cannot be preempted, and no packet may run
- * one in a live user's browser.
+ * It deliberately contains NO unbounded-loop behavior: a same-thread loop
+ * cannot be preempted, and no test may run one in a live user's browser.
  */
 import * as THREE from 'three';
 import {

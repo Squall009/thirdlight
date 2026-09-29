@@ -1,12 +1,12 @@
 /**
- * Packet 30 — public surface and the module-boundary guarantees the accepted
- * `dependencies.md` §3 `input` row and §4.1 edge state.
+ * Public surface and the module-boundary guarantees `dependencies.md` states
+ * for `input`.
  *
  * The package exports the contracted names, a frame carries only the three
  * contracted plain fields (no DOM/Gamepad object), and the browser owner
  * exposes the documented lifecycle hooks. The negative boundary probe for the
- * forbidden edges is run separately against `tools/check-boundaries.mjs` (see
- * the packet-30 evidence manifest); this suite checks the runtime surface.
+ * forbidden edges is `tools/check-boundaries.mjs`; this suite checks the
+ * runtime surface.
  */
 import { describe, expect, it } from 'vitest';
 import { viewSource } from './test-frame-view';
@@ -24,10 +24,9 @@ describe('public exports (dependencies.md §3 input row)', () => {
     expect(typeof input.DEFAULT_KEYBOARD_MAP).toBe('object');
     expect(typeof input.GAMEPAD_DEAD_ZONE).toBe('number');
     // RawInputSnapshot / InputBindingOptions are type-only exports.
-    // Packet 55 (delivery.md §4.1/§4.2) adds the menu-control channel
-    // constants + the pure controller (additive — the contracted names above
-    // are unchanged).
-    // Phase 9.8 adds the named input actions (additive); phase 14.5 the character controller's pad controls; phase 23.2 the 3D defaults; phase 23.3 the pointer/cursor helpers; phase 25.15 the virtual gamepad.
+    // Beside the contracted names: the menu-control channel, the named input
+    // actions, the character controller's pad controls, the 3D defaults, the
+    // pointer/cursor helpers and the virtual gamepad.
     expect(Object.keys(input).sort()).toEqual([
       'DEFAULT_INPUT_CONFIG',
       'DEFAULT_INPUT_CONFIG_3D',

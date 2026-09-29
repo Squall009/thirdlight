@@ -1,5 +1,5 @@
 /**
- * Phase 23.0: the `physics_dimension` setting (2 the 2D plane, absent = 2;
+ * The `physics_dimension` setting (2 the 2D plane, absent = 2;
  * 3 the 3D backend) and the data rules that follow it: a box collider's
  * optional depth `hz` and the capsule offset's optional third component
  * (both kept by the canonical form; absent keeps the old bytes); in a 2D

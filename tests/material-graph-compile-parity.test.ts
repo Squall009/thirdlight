@@ -1,5 +1,5 @@
 /**
- * Phase 18.3: the graph compiler's copy of the material catalogue
+ * The graph compiler's copy of the material catalogue
  * (three-adapter does not import project-model) against the catalogue:
  * every node type of both material graph kinds is compiled, with the same
  * port ids, types (`dyn` = the node's Type field), defaults and field

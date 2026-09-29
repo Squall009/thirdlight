@@ -1,5 +1,5 @@
 /**
- * Phase 25.13: climb volumes, the controller's climb and wall fields and
+ * Climb volumes, the controller's climb and wall fields and
  * gravity bodies in the editor, and climbing in Play, on the starter template
  * (a 2D-plane scene) against a real backend.
  *

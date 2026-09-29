@@ -1,11 +1,11 @@
 /**
- * Phase 9.5: the Environment window. A solid sky colour fills the Scene view's
+ * The Environment window. A solid sky colour fills the Scene view's
  * background, the physical sky draws a sky, a vignette darkens the corners,
- * bloom brightens the view, a fog volume fills its box with fog (14.4: and thins
+ * bloom brightens the view, a fog volume fills its box with fog (and thins
  * with height) — and Play and
  * the export render the same environment.
  *
- * Phase 17.3/17.4: runs once per renderer variant (renderer-variants.ts):
+ * Runs once per renderer variant (renderer-variants.ts):
  * WebGPURenderer with the TSL sky, fog volumes and post stack — auto (the
  * default) and forced WebGL 2 in the default project, WebGPU in the webgpu
  * project.
@@ -137,7 +137,7 @@ for (const variant of RENDERER_VARIANTS) test(`sky, vignette, bloom and a fog vo
   await page.keyboard.press('End');
   await viewport.click({ position: { x: 5, y: 5 } });
   await expect.poll(async () => bright(avg(await shot(viewport), 0.35, 0.45, 0.65, 0.7)), { timeout: 10_000 }).toBeGreaterThan(middle + 40);
-  // Phase 14.4: the fog thins with height — at the fastest falloff almost none is left above the box bottom.
+  // The fog thins with height — at the fastest falloff almost none is left above the box bottom.
   const foggy = bright(avg(await shot(viewport), 0.35, 0.45, 0.65, 0.7));
   await page.locator('.tl-hierarchy__list li.tl-row').filter({ hasText: 'Fog volume' }).click();
   await page.getByRole('slider', { name: 'fogVolume heightFalloff slider' }).focus();

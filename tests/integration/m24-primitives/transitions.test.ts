@@ -1,5 +1,5 @@
 /**
- * Phase 24.4e–i: the second set of generic primitives through the production
+ * Triggers, scene transitions, impulses, looks and event cues through the production
  * composition — the real game host, the character controller and Rapier
  * physics, a scene without any game session — on the 2D plane and in 3D, in
  * both threading modes, driven by a recorded input:

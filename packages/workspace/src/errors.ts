@@ -1,6 +1,6 @@
 /**
- * Workspace error model — workspace.md §11 (workspace code table) on top of
- * the commands.md §5.4 code set.
+ * Workspace error model: the workspace code table on top of the commands
+ * code set.
  *
  * The commands package constructs the pure-layer codes (its own
  * constructors); this module constructs the codes only the workspace
@@ -14,7 +14,7 @@
  * `cls` for the workspace-only operator codes (`no_pending_change`,
  * `external_change_invalid`, `project_exists_invalid`, `ownership_conflict`,
  * `stale_ownership`) is not pinned by the contracts: it follows the
- * commands.md §5.5 client policy (validation = wrong preconditions/args;
+ * commands-layer client policy (validation = wrong preconditions/args;
  * unavailable = operator-gated state; not_found = missing project).
  */
 
@@ -22,9 +22,8 @@ import { ERROR_CODES as COMMAND_ERROR_CODES } from '@thirdlight/commands';
 import type { CommandError } from '@thirdlight/commands';
 import type { ErrorCode, LimitName, ModelError } from '@thirdlight/project-model';
 
-/** The workspace.md §11 workspace code table (stable). The packet-23
- * content-storage additions (workspace.md §11/§13) are appended in contract
- * table order. */
+/** The workspace code table (stable). The content-storage codes follow in
+ * contract table order. */
 export const WORKSPACE_ERROR_CODES = [
   'envelope_invalid',
   'storage_version_unsupported',
@@ -41,7 +40,7 @@ export const WORKSPACE_ERROR_CODES = [
   'external_change_evidence_missing',
   'no_pending_change',
   'project_exists_invalid',
-  // packet 23 content storage (workspace.md §11 §13):
+  // content storage:
   'content_invalid',
   'version_combination_unsupported',
   'stage_not_found',
@@ -62,14 +61,14 @@ export const WORKSPACE_ERROR_CODES = [
   'migration_marker_conflict',
   'migration_resume_required',
   'migration_version_unsupported',
-  // Phase 10: asset versions referenced in place in a game folder.
+  // Asset versions referenced in place in a game folder.
   'asset_source_missing',
   'asset_source_changed',
 ] as const;
 
 /**
- * Every code this service can surface: the commands.md §5.4 set (21) plus
- * the workspace.md §11 table. `workspace_closed` appears in both tables —
+ * Every code this service can surface: the commands code set (21) plus
+ * the workspace table. `workspace_closed` appears in both tables —
  * the union has no duplicates.
  */
 const commandCodes: readonly string[] = COMMAND_ERROR_CODES;
@@ -79,7 +78,7 @@ export const ERROR_CODES: readonly string[] = [
   ...workspaceCodes.filter((c) => !commandCodes.includes(c)),
 ];
 
-/** The `holder` object of ownership errors (workspace.md §11). */
+/** The `holder` object of ownership errors. */
 export interface Holder {
   backendId: string;
   pid: number;
@@ -90,13 +89,13 @@ export interface Holder {
 
 /**
  * `project_unavailable.reason` values this service raises: every
- * load-failure code (workspace.md §4.3 — the model error codes plus the
+ * load-failure code (the model error codes plus the
  * envelope-level codes) and the availability/ownership codes. `manifest_invalid`
- * is the §4.3 step-8 load-failure code for a manifest that exists on disk
- * but fails strict parse / `validateManifest` (workspace.md §11 lists it
- * in the code table and permits it as a `project_unavailable.reason` —
+ * is the load-failure code for a manifest that exists on disk
+ * but fails strict parse / `validateManifest` (the code table lists it and
+ * permits it as a `project_unavailable.reason` —
  * "a project that exists on disk but cannot load is exactly what
- * project_unavailable reports", §7.5 block semantics).
+ * project_unavailable reports" — block semantics).
  */
 export type UnavailableReason =
   | ErrorCode
@@ -122,18 +121,18 @@ function reasonHint(reason: UnavailableReason): string {
       // Pinned by fixtures/commands/scenarios/09 (messages.json step 1).
       return 'another live backend owns this project; stop it or wait for an operator takeover';
     case 'claim_inconsistent':
-      // workspace.md §11 hint (the §6.3 stuck state: the claim file is
+      // The stuck state: the claim file is
       // unresolvable — operator file operation, no backend command).
       return 'the claim file at the target epoch cannot be reclaimed: confirm the holder is dead, remove the orphan claim file, and re-issue the open (operator file operation — no backend command, workspace.md §6.3/§11)';
     case 'stale_ownership':
-      // Not pinned by the corpus: since the automatic reclaim, scenario 09's step 2 is served (no stale error).
+      // Not pinned by the corpus: the automatic reclaim serves scenario 09's step 2 (no stale error).
       return 'the previous owner is gone but the automatic reclaim failed; run takeoverWorkspace';
     case 'workspace_closed':
       return 'the project is released for external maintenance; finish the external edit — the next open re-claims it (workspace.md §9)';
     case 'external_change_unresolved':
       return 'an operator must resolve the pending external change (acceptExternalState or discardExternalState)';
     case 'storage_version_unsupported':
-      // Phase 9.3: storage v1/v2 (M1/M2) projects are no longer opened; the bytes are left untouched.
+      // Storage v1/v2 projects are no longer opened; the bytes are left untouched.
       return 'the project files use a storage version this version does not open (storage v1/v2, removed in phase 9.3, or a newer one); the files are left untouched — convert a v1/v2 project to storage v3 with an earlier Thirdlight version (migrateProjectCopy / migrateProjectCopyV3), then open it here (v3 is upgraded to v4 on open)';
     default:
       return 'the authoring state on disk is invalid or unreadable; the bytes are retained untouched — repair the file by hand (a recovery snapshot or backup, if available) and re-open';
@@ -159,7 +158,7 @@ export type LoadDetail = {
   document?: unknown;
 };
 
-/** `project_not_found` (commands.md §5.4: cls not_found). */
+/** `project_not_found` (cls not_found). */
 export function projectNotFound(projectId: string): CommandError {
   return {
     code: 'project_not_found',
@@ -170,7 +169,7 @@ export function projectNotFound(projectId: string): CommandError {
   };
 }
 
-/** `project_unavailable` (commands.md §5.4: cls unavailable). */
+/** `project_unavailable` (cls unavailable). */
 export function projectUnavailable(
   reason: UnavailableReason,
   holder: Holder | null,
@@ -180,7 +179,7 @@ export function projectUnavailable(
   // holder?, details?, detailCount?, message, hint. For
   // ownership_conflict the `holder` field is ALWAYS present — the holder
   // object when a parseable owned record exists, strict `null` when it
-  // does not (workspace.md §11 line 934).
+  // does not.
   const e: Record<string, unknown> = {
     code: 'project_unavailable',
     cls: 'unavailable',
@@ -196,7 +195,7 @@ export function projectUnavailable(
   return e as unknown as CommandError;
 }
 
-/** `workspace_closed` (commands.md §5.4: cls unavailable) — mutations only. */
+/** `workspace_closed` (cls unavailable) — mutations only. */
 export function workspaceClosed(): CommandError {
   return {
     code: 'workspace_closed',
@@ -206,7 +205,7 @@ export function workspaceClosed(): CommandError {
   };
 }
 
-/** `request_id_reused` (commands.md §5.4/§6.2; payload pinned by scenario 02). */
+/** `request_id_reused` (payload pinned by scenario 02). */
 export function requestIdReused(currentRevision: number): CommandError {
   return {
     code: 'request_id_reused',
@@ -217,14 +216,13 @@ export function requestIdReused(currentRevision: number): CommandError {
   };
 }
 
-/** `external_change_unresolved` (commands.md §5.4; payload pinned by scenario 08).
- * `pendingChange.snapshotState` is the §7.2 step-2 outcome of the
+/** `external_change_unresolved` (payload pinned by scenario 08).
+ * `pendingChange.snapshotState` is the snapshot-step outcome of the
  * detection that set the pending change — "ok" (the recovery snapshot is
  * durable; the scenario-08 pinning) or "snapshot_failed" (the bytes were
- * read and validated but no snapshot is durable, workspace.md §7.2 step 2
- * / §11 `paused-snapshot-failed`). Every call site passes a pending change
+ * read and validated but no snapshot is durable, `paused-snapshot-failed`). Every call site passes a pending change
  * established over READABLE bytes (the `external_change_unreadable` code
- * covers the step-1 failure), so the narrower state type holds. The
+ * covers the read failure), so the narrower state type holds. The
  * `externalHash`/`externalValid`/`externalErrorCount` fields are nullable
  * because the pending state carries them as nulls in the `snapshot_failed`
  * producer's payloads; every call site today passes the readable (non-null)
@@ -249,11 +247,11 @@ export function externalChangeUnresolved(pending: {
   };
 }
 
-/** `external_change_unreadable` (workspace.md §11; the §7.2 step-1 payload).
+/** `external_change_unreadable` (the read-step payload).
  * Carries `projectId`, `snapshotState: "unreadable"`, and `pendingChange`
  * with `externalHash: null` (the bytes were never read — nothing was
  * snapshotted). Mirrors the `externalChangeUnresolved` wrapper/pendingChange
- * shape with the §11 additions (`snapshotState` is not on the commands
+ * shape with the workspace additions (`snapshotState` is not on the commands
  * `CommandError` interface — the record-and-cast convention the other
  * workspace-level constructors use). */
 export function externalChangeUnreadable(projectId: string): CommandError {
@@ -275,8 +273,7 @@ export function externalChangeUnreadable(projectId: string): CommandError {
   return e as unknown as CommandError;
 }
 
-/** `external_change_evidence_missing` (workspace.md §11; the §7.2 step-2
- * payload). The pending change is readable (the real `pendingChange` info is
+/** `external_change_evidence_missing` (the snapshot-step payload). The pending change is readable (the real `pendingChange` info is
  * carried) but not durably snapshotted: `paused-snapshot-failed`; accept/
  * discard are refused until the snapshot is durable. Carries `projectId` and
  * `snapshotState: "snapshot_failed"`. */
@@ -306,7 +303,7 @@ export function externalChangeEvidenceMissing(
   return e as unknown as CommandError;
 }
 
-/** `write_failed` (commands.md §5.4/§7.3: cls internal). */
+/** `write_failed` (cls internal). */
 export function writeFailed(
   onDiskState: 'previous' | 'new-undurable',
   errno: string | undefined,
@@ -327,7 +324,7 @@ export function writeFailed(
   return e as unknown as CommandError;
 }
 
-/** Operator-result error: `no_pending_change` (workspace.md §7.3/§11). */
+/** Operator-result error: `no_pending_change`. */
 export function noPendingChange(): CommandError {
   return {
     code: 'no_pending_change',
@@ -337,7 +334,7 @@ export function noPendingChange(): CommandError {
   };
 }
 
-/** Operator-result error: `external_change_invalid` (workspace.md §7.2/§11). */
+/** Operator-result error: `external_change_invalid`. */
 export function externalChangeInvalid(): CommandError {
   return {
     code: 'external_change_invalid',
@@ -347,7 +344,7 @@ export function externalChangeInvalid(): CommandError {
   };
 }
 
-/** Operator-result error: `project_exists_invalid` (workspace.md §8.1/§11). */
+/** Operator-result error: `project_exists_invalid`. */
 export function projectExistsInvalid(
   details: readonly LoadDetail[],
 ): CommandError {
@@ -364,10 +361,9 @@ export function projectExistsInvalid(
   return e as unknown as CommandError;
 }
 
-/** Operator-result error: `ownership_conflict` (workspace.md §6.2/§11).
+/** Operator-result error: `ownership_conflict`.
  * Carries `holder` — the identity object of the parseable owned record —
- * or strict `null` when no parseable owned record exists (§11 line 934:
- * `holder` is `null` in that case, e.g. the unreadable-record refusal,
+ * or strict `null` when no parseable owned record exists (e.g. the unreadable-record refusal,
  * the claim file existing with foreign/absent content at the target
  * epoch, incl. the self-reclaim refusal). The field is always present. */
 export function ownershipConflict(holder: Holder | null): CommandError {
@@ -375,7 +371,7 @@ export function ownershipConflict(holder: Holder | null): CommandError {
     code: 'ownership_conflict',
     cls: 'unavailable',
   };
-  e['holder'] = holder; // strict null when absent (§11 line 934)
+  e['holder'] = holder; // strict null when absent
   e['message'] =
     holder === null
       ? 'the ownership record is unreadable; another writer may hold the project — no takeover was performed'
@@ -384,11 +380,11 @@ export function ownershipConflict(holder: Holder | null): CommandError {
   return e as unknown as CommandError;
 }
 
-/** Operator-result error: `claim_inconsistent` (workspace.md §6.3/§11).
+/** Operator-result error: `claim_inconsistent`.
  * The claim file exists at the target epoch but cannot be reclaimed:
  * its content is unparseable/unreadable, or its holder's pid is not
- * proven dead under the §6.2 liveness rules (the §6.3 orphan-recovery
- * rule — the only liveness-referenced path). `cls: "unavailable"`;
+ * proven dead under the liveness rules (the orphan-recovery rule — the
+ * only liveness-referenced path). `cls: "unavailable"`;
  * carries `projectId`, the claim file path, the holder content if
  * parseable, and the liveness outcome; nothing is claimed. The operator
  * confirms the holder is dead, removes the orphan claim file, and
@@ -417,7 +413,7 @@ export function claimInconsistent(
   return e as unknown as CommandError;
 }
 
-/** Operator-result error: `stale_ownership` (workspace.md §6.2/§6.4/§11). */
+/** Operator-result error: `stale_ownership`. */
 export function staleOwnership(holder: Holder | null): CommandError {
   const e: Record<string, unknown> = {
     code: 'stale_ownership',
@@ -500,7 +496,7 @@ export function fieldValueType(
   return e as unknown as CommandError;
 }
 
-/** `entity_not_found` for queries (commands.md §5.4: cls validation). */
+/** `entity_not_found` for queries (cls validation). */
 export function entityNotFound(entityId: string): CommandError {
   return {
     code: 'entity_not_found',
@@ -511,7 +507,7 @@ export function entityNotFound(entityId: string): CommandError {
   };
 }
 
-// ---- bounded, JSON-safe diagnostic conversion (2026-09-18 review, R17) ------
+// ---- bounded, JSON-safe diagnostic conversion ------
 //
 // Public-input validation failures echo the offending value in `found`.
 // The public API accepts arbitrary in-process values (BigInt, functions,
@@ -608,8 +604,7 @@ export function isSafeInt(v: unknown): v is number {
 }
 
 /**
- * RFC 6901 escaping of one JSON Pointer reference token (2026-09-18 repair,
- * packet 07 O2 — workspace audit; commands.md §3: error `path` values are
+ * RFC 6901 escaping of one JSON Pointer reference token (Error `path` values are
  * "a JSON Pointer into the request"/envelope; RFC 6901 is the JSON Pointer
  * standard). `~` → `~0` FIRST, then `/` → `~1`. Every DYNAMIC key
  * interpolated into a `path` goes through this helper; static segment
@@ -618,16 +613,16 @@ export function isSafeInt(v: unknown): v is number {
 export function pointerSegment(segment: string): string {
   return segment.replace(/~/g, '~0').replace(/\//g, '~1');
 }
-// ---- packet 23 content-storage errors (workspace.md §11/§13) -----------------
+// ---- content-storage errors -----------------
 
-/** A `limits_exceeded`-style staging bound (workspace.md §7.6.2/§13.9). */
+/** A `limits_exceeded`-style staging bound. */
 export type StageLimit =
   | 'stage_bytes'
   | 'frame_bytes'
   | 'open_stages'
   | 'staged_bytes_per_project';
 
-/** `stage_limits_exceeded` (workspace.md §11/§13.9). */
+/** `stage_limits_exceeded`. */
 export function stageLimitsExceeded(
   limit: StageLimit,
   current: number,
@@ -645,7 +640,7 @@ export function stageLimitsExceeded(
   return e as unknown as CommandError;
 }
 
-/** `stage_not_found` (workspace.md §11). */
+/** `stage_not_found`. */
 export function stageNotFound(stageId: string): CommandError {
   return {
     code: 'stage_not_found',
@@ -655,7 +650,7 @@ export function stageNotFound(stageId: string): CommandError {
   };
 }
 
-/** `stage_expired` (workspace.md §11/§7.6.2: the 3 600 s stage TTL). */
+/** `stage_expired` (the 3 600 s stage TTL). */
 export function stageExpired(stageId: string, ageSeconds: number, ttlSeconds: number): CommandError {
   return {
     code: 'stage_expired',
@@ -665,7 +660,7 @@ export function stageExpired(stageId: string, ageSeconds: number, ttlSeconds: nu
   };
 }
 
-/** `path_rejected` (workspace.md §11/§13.1 rule 5): a symlinked artifact
+/** `path_rejected`: a symlinked artifact
  * directory, a path escaping the project root, or a non-directory artifact
  * component. The backend never follows, repairs or deletes it. */
 export function pathRejected(path: string, message: string): CommandError {
@@ -678,7 +673,7 @@ export function pathRejected(path: string, message: string): CommandError {
   };
 }
 
-/** `blob_missing` (workspace.md §11/§13.4 F10). */
+/** `blob_missing`. */
 export function blobMissing(
   digest: string,
   path: string,
@@ -699,7 +694,7 @@ export function blobMissing(
   return e as unknown as CommandError;
 }
 
-/** `blob_corrupt` (workspace.md §11/§13.4 F11): the bytes do not match the
+/** `blob_corrupt`: the bytes do not match the
  * content-addressed name. The bytes are retained byte-for-byte. */
 export function blobCorrupt(
   digest: string,
@@ -760,7 +755,7 @@ export function assetSourceChanged(
   return e as unknown as CommandError;
 }
 
-/** `content_quota_exceeded` (workspace.md §11/§13.9): project quota or
+/** `content_quota_exceeded`: project quota or
  * device free space is insufficient; nothing is written. */
 export function contentQuotaExceeded(
   kind: 'project_quota' | 'device_space',
@@ -783,7 +778,7 @@ export function contentQuotaExceeded(
   };
 }
 
-/** `content_publish_failed` (workspace.md §11/§13.4 F8): a non-envelope
+/** `content_publish_failed`: a non-envelope
  * publication phase failed; the envelope is unchanged. */
 export function contentPublishFailed(
   reason: 'write' | 'timeout' | 'busy',
@@ -803,7 +798,7 @@ export function contentPublishFailed(
   return e as unknown as CommandError;
 }
 
-/** `derived_cache_unavailable` (workspace.md §11/§13.6): a derived cache is
+/** `derived_cache_unavailable`: a derived cache is
  * missing/corrupt and could not be regenerated. Never fatal to the project. */
 export function derivedCacheUnavailable(sourceDigest: string, path: string): CommandError {
   return {
@@ -817,7 +812,7 @@ export function derivedCacheUnavailable(sourceDigest: string, path: string): Com
 }
 
 /**
- * `behavior_publication_unavailable` (project-model.md §22.6/§22.4.1): the
+ * `behavior_publication_unavailable`: the
  * behavior-source publication path is not available for this request —
  * `preparer_unavailable` (no compiler registered) or `preparation_missing`
  * (no prepared artifact for the supplied digest).
@@ -841,7 +836,7 @@ export function behaviorPublicationUnavailable(
   };
 }
 
-/** `behavior_trust_unacknowledged` (project-model.md §22.3.2/§22.5). */
+/** `behavior_trust_unacknowledged`. */
 export function behaviorTrustUnacknowledged(sourceDigest: string): CommandError {
   return {
     code: 'behavior_trust_unacknowledged',
@@ -852,8 +847,7 @@ export function behaviorTrustUnacknowledged(sourceDigest: string): CommandError 
   };
 }
 
-/** `import_rejected` (workspace.md §11/§13.3.1; project-model §18.8): the M2
- * import profile rejected the staged bytes; carries the ordered `asset_*`
+/** `import_rejected`: the import profile rejected the staged bytes; carries the ordered `asset_*`
  * diagnostics (≤ 10) plus the true count. */
 export function importRejected(
   sourceDigest: string,
@@ -872,7 +866,7 @@ export function importRejected(
   return e as unknown as CommandError;
 }
 
-/** `content_invalid` (workspace.md §11/§4.3 step 6d): the v2 envelope's
+/** `content_invalid`: the envelope's
  * `content` block fails validation; carries ≤ 10 model errors + the true count. */
 export function contentInvalid(
   details: readonly LoadDetail[],

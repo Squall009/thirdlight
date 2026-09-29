@@ -49,7 +49,7 @@ const WIND = obj('wind', 'Wind', 'The global wind foliage and cloth sway in.', [
   num('turbulence', 'Turbulence', 'Small-scale variation over space.', { required: true, min: 0, max: 1, step: 0.05, default: DEFAULT_WIND.turbulence }),
 ]);
 
-// Phase 15.5: the sky defaults are the three.js Sky example's physically based
+// The sky defaults are the three.js Sky example's physically based
 // clear day (haze 6, Rayleigh 1.5, Mie 0.005 / 0.8), the sun from the scene's
 // key light (else 35° up), and plain blues for the gradient and colour modes;
 // below the horizon a neutral grey (no ground is assumed). A project that wants
@@ -67,7 +67,7 @@ const SKY = obj('sky', 'Sky', 'The background and the light it gives (image-base
   num('sunAzimuth', 'Sun azimuth', 'Sun direction around the horizon.', { when: [PROCEDURAL, when('sunFromLight', false)], min: -180, max: 180, step: 1, unit: 'deg', default: 160 }),
   color('topColor', 'Top colour', 'The sky overhead.', { when: when('mode', 'gradient'), default: '#3d7cd6' }),
   color('horizonColor', 'Horizon colour', 'The sky at the horizon.', { when: when('mode', 'gradient'), default: '#bfe3ff' }),
-  color('bottomColor', 'Bottom colour', 'Below the horizon.', { when: when('mode', 'gradient'), default: '#757575' }), // phase 15.5: a neutral grey of the old olive's brightness — no ground (grass, sand, water, a floor) is assumed
+  color('bottomColor', 'Bottom colour', 'Below the horizon.', { when: when('mode', 'gradient'), default: '#757575' }), // a neutral mid grey — no ground (grass, sand, water, a floor) is assumed
   color('color', 'Colour', 'The one sky colour.', { when: when('mode', 'color'), default: '#7ec8ff' }),
   asset('texture', 'Image', 'An equirectangular sky image.', ['texture'], { when: when('mode', 'texture') }),
   list('cube', 'Cube faces', 'Six images +x, −x, +y, −y, +z, −z (instead of one image).', asset('*', 'Face', 'A cube face.', ['texture']), { when: when('mode', 'texture'), length: 6 }),
@@ -75,7 +75,7 @@ const SKY = obj('sky', 'Sky', 'The background and the light it gives (image-base
   num('environmentIntensity', 'Sky lighting', 'How much the sky lights the scene (0: none).', { min: 0, max: 8, step: 0.05, default: 1 }),
 ], { rules: ['A texture sky needs an image or six cube faces.'] });
 
-// Phase 15.5: fog is off by default; turned on it starts as a light grey-blue haze from 10 m to 120 m (a level's far end fades) or density 0.01.
+// Fog is off by default; turned on it starts as a light grey-blue haze from 10 m to 120 m (a level's far end fades) or density 0.01.
 const FOG = obj('fog', 'Fog', 'Distance fog.', [
   enm('mode', 'Fog', 'None, linear (near to far) or exponential (density).', ['none', 'linear', 'exp2'], { required: true, default: 'none', labels: { exp2: 'Exponential' } }),
   color('color', 'Colour', 'The fog colour.', { required: true, default: '#c8d2dc' }),
@@ -87,7 +87,7 @@ const FOG = obj('fog', 'Fog', 'Distance fog.', [
 const effect = (key: string, label: string, tooltip: string, fields: readonly FieldDescriptor[]): ObjectFieldDescriptor =>
   obj(key, label, tooltip, [bool('enabled', 'On', `Turns ${label.toLowerCase()} on.`, { required: true, default: true }), ...fields]);
 
-// Phase 15.5: every post effect starts neutral or off; AgX tone mapping at exposure 1 keeps bright lights from clipping in any palette.
+// Every post effect starts neutral or off; AgX tone mapping at exposure 1 keeps bright lights from clipping in any palette.
 const POST = obj('post', 'Post-processing', 'Tone mapping, exposure and screen effects.', [
   enm('toneMapping', 'Tone mapping', 'How bright colours are mapped to the screen.', ['none', 'aces', 'agx', 'neutral'], { default: 'agx', labels: { aces: 'ACES', agx: 'AgX' } }),
   num('exposure', 'Exposure', 'Overall brightness.', { min: 0, max: 8, step: 0.05, default: 1 }),
@@ -122,7 +122,7 @@ const POST = obj('post', 'Post-processing', 'Tone mapping, exposure and screen e
   ]),
 ]);
 
-// Phase 23.18: environment presets — named looks scripts switch or blend to (a part a preset leaves out is the base look's).
+// Environment presets — named looks scripts switch or blend to (a part a preset leaves out is the base look's).
 const PRESET_LIGHT = obj('*', 'Light', 'The values this preset gives the lights it names (one of entity, tag or type; none: every light).', [
   entity('entity', 'Entity', 'One light by its entity.', { component: 'light' }),
   str('tag', 'Tag', 'Every light with this tag.', { format: 'identifier', minLength: 1, maxLength: 32 }),
@@ -160,7 +160,7 @@ const INPUT: FieldDescriptor = obj('input', 'Input', 'The game\'s actions and th
   list('actions', 'Actions', `Up to ${MAX_INPUT_ACTIONS} named actions.`, obj('*', 'Action', 'A named action and its bindings.', [
     str('name', 'Name', 'The action name scripts and blocks read (a letter or _, then letters, digits or _).', { required: true, format: 'identifier', minLength: 1, maxLength: 32 }),
     enm('type', 'Type', 'A button, a 1D axis (left/right) or a 2D axis.', INPUT_ACTION_TYPES, { required: true, default: 'button', labels: { axis1d: 'Axis (1D)', axis2d: 'Axis (2D)' } }),
-    // Phase 23.10: gameplay, ui or one of the project's own maps (game modes activate maps).
+    // Gameplay, ui or one of the project's own maps (game modes activate maps).
     ref('map', 'Map', 'Read by the game (gameplay), the menus (ui) or one of the project\'s maps.', 'inputMap', { required: true, default: 'gameplay' }),
     list('bindings', 'Bindings', `Up to ${MAX_INPUT_BINDINGS} keys, buttons, axes or composites.`, obj('*', 'Binding', 'One binding (it must fit the action type).', [
       enm('kind', 'Kind', 'What is bound.', BINDING_KINDS, { required: true, default: 'key', labels: { gamepadButton: 'Gamepad button', gamepadAxis: 'Gamepad axis', keys1d: 'Two keys (1D)', keys2d: 'Four keys (2D)', gamepadButtons1d: 'Two gamepad buttons (1D)', gamepadStick: 'Gamepad stick', pointerButton: 'Pointer button', pointerPosition: 'Pointer position (2D)', pointerDelta: 'Pointer movement (2D)', pointerAxis: 'Pointer axis (1D)' } }),
@@ -179,19 +179,19 @@ const INPUT: FieldDescriptor = obj('input', 'Input', 'The game\'s actions and th
       int('y', 'Y axis', 'The stick\'s vertical axis index.', { required: true, when: when('kind', 'gamepadStick'), min: 0, max: 7 }),
       enm('button', 'Pointer button', 'The mouse (or pen/touch) button.', POINTER_BUTTONS, { required: true, when: when('kind', 'pointerButton'), default: 'left' }),
       enm('axis', 'Pointer axis', 'The pointer\'s movement along x or y (up positive; percent of the view per step), or the wheel (notches, positive towards the user).', POINTER_AXES, { required: true, when: when('kind', 'pointerAxis'), default: 'x' }),
-      // Phase 23.14: absent = a tap counts at once; 0.5 s is a deliberate hold most players read as "hold" (a starting value the designer tunes).
+      // Absent = a tap counts at once; 0.5 s is a deliberate hold most players read as "hold" (a starting value the designer tunes).
       num('hold', 'Hold', 'Hold instead of tap: the binding counts only after it has been held this long.', { when: when('kind', 'key', 'gamepadButton', 'pointerButton'), min: INPUT_HOLD_MIN, max: INPUT_HOLD_MAX, step: 0.05, unit: 's', default: 0.5 }),
     ], { rules: ['A button takes keys, buttons and pointer buttons; a 1D axis also two-key, two-button, axis and pointer-axis bindings; a 2D axis four keys, a stick, the pointer position or the pointer movement.'] }), { required: true, maxItems: MAX_INPUT_BINDINGS }),
     num('deadZone', 'Dead zone', 'Axis values within this count as 0 (then rescaled).', { min: 0, max: 1, maxExclusive: true, step: 0.05, default: 0.2 }),
     bool('invert', 'Invert', 'Flip the axis.', { default: false }),
     num('scale', 'Scale', 'Multiply the value.', { min: 0, minExclusive: true, max: 10, step: 0.1, unit: '×', default: 1 }),
   ]), { required: true, maxItems: MAX_INPUT_ACTIONS }),
-  // Phase 23.10: the project's own input maps (a game mode activates maps; gameplay and ui always exist).
+  // The project's own input maps (a game mode activates maps; gameplay and ui always exist).
   list('maps', 'Project maps', `Up to ${MAX_INPUT_MAPS} input maps besides gameplay and ui (game modes activate maps).`, str('*', 'Map', 'A letter or _, then letters, digits or _.', { format: 'identifier', minLength: 1, maxLength: 32 }), { maxItems: MAX_INPUT_MAPS, unique: true }),
-  // Phase 23.3: free by default — a pointer-driven game needs a visible cursor; mouse-look opts in to locked.
-  // Phase 25.6: keyed by any map (gameplay, ui or the project's own).
+  // Free by default — a pointer-driven game needs a visible cursor; mouse-look opts in to locked.
+  // Keyed by any map (gameplay, ui or the project's own).
   map('cursor', 'Cursor', 'The cursor while each map is active (absent: free): free, or locked (hidden and held in the view; its movement still counts, its position is the view\'s centre). The ui map\'s applies while a menu is open; during play the first of the active maps that sets one (a game mode\'s maps in their order). It is hidden while a gamepad drives the game.', 'Map', enm('*', 'Cursor', 'Free or locked while this map is active.', CURSOR_MODES, { default: 'free' }), { keyRef: 'inputMap', maxEntries: MAX_INPUT_MAPS + 2 }),
-  // Phase 23.14: the project's own glyph images (absent: the engine's generic icons).
+  // The project's own glyph images (absent: the engine's generic icons).
   map('glyphs', 'Glyphs', 'Glyph key → an image shown instead of the engine\'s generic icon. A key is an icon id (pad-south, pad-shoulder-left, mouse-left, key, …), optionally for one gamepad family (xbox:pad-south) or one key (key:Space).', 'Glyph', asset('*', 'Image', 'The texture shown for this glyph.', ['texture']), { maxEntries: MAX_INPUT_GLYPHS }),
 ], { default: JSON.parse(JSON.stringify(DEFAULT_INPUT)) as DescriptorJson, rules: ['Action names are unique.'] });
 
@@ -220,14 +220,14 @@ const MATERIAL_ITEM = obj('*', 'Material', 'A project material: a shader and ove
   enm('shader', 'Shader', 'Standard, foliage (wind), kit (world-space detail), unlit or water.', MATERIAL_SHADERS, { required: true, default: 'standard' }),
   obj('params', 'Parameters', 'Shader parameter overrides.', MATERIAL_SHADERS.flatMap((s) => Object.entries(MATERIAL_PARAMS[s]).map(([k, t]) => paramField(k, t, s))), { required: true, default: {} }),
   obj('textures', 'Textures', 'Texture slots.', MATERIAL_SHADERS.flatMap((s) => MATERIAL_TEXTURE_SLOTS[s].map((slot) => asset(slot, slot.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase()), `The ${s} shader\'s ${slot} texture.`, ['texture'], { when: when('../shader', s) }))), { required: true, default: {} }),
-  // Phase 18.0: a graph material's exposed parameters and its node graph.
+  // A graph material's exposed parameters and its node graph.
   list('parameters', 'Exposed parameters', `Up to ${MAX_MATERIAL_PARAMETERS} parameters the graph reads (Parameter nodes); objects may override the public ones.`, obj('*', 'Parameter', 'An exposed parameter.', [
     str('key', 'Key', 'The name Parameter nodes and overrides use.', { required: true, format: 'identifier', minLength: 1, maxLength: 32 }),
     enm('type', 'Type', 'The value type (colour is a vec3 edited as a colour; a texture names a texture asset).', MATERIAL_PARAMETER_TYPES, { required: true, default: 'float' }),
     json('default', 'Default', 'The material\'s own value (a number, 2–4 numbers, "#rrggbb", a texture asset id / "", or a data parameter\'s starting RGBA bytes).', { required: true, typedBy: 'materialParameter' }),
     num('min', 'Min', 'The lowest value, within ±1e6 (numbers and vectors).', { when: when('type', 'float', 'vec2', 'vec3', 'vec4') }),
     num('max', 'Max', 'The highest value, within ±1e6 and at least min (numbers and vectors).', { when: when('type', 'float', 'vec2', 'vec3', 'vec4') }),
-    // Phase 23.12: a data parameter's grid (cells per side; 64 is the engine limit).
+    // A data parameter's grid (cells per side; 64 is the engine limit).
     vec2('size', 'Size', `A data parameter's cells [width, height], 1–${MATERIAL_DATA_MAX} each.`, { required: true, when: when('type', 'data'), labels: ['width', 'height'], min: 1, max: MATERIAL_DATA_MAX, step: 1, default: [8, 8] }),
     enm('visibility', 'Visibility', 'Public: objects may override it. Private: the material\'s value only.', ['public', 'private'], { default: 'public', omitDefault: true }),
     str('label', 'Label', 'Shown instead of the key.', { minLength: 1, maxLength: 64 }),
@@ -235,12 +235,12 @@ const MATERIAL_ITEM = obj('*', 'Material', 'A project material: a shader and ove
     str('tooltip', 'Tooltip', 'Help text.', { minLength: 1, maxLength: 256 }),
   ]), { maxItems: MAX_MATERIAL_PARAMETERS }),
   json('graph', 'Graph', 'The node graph (graph kind "material"): nodes, wires, groups and comments, edited in the Material tab with graph edits.', { readOnly: true }),
-  // Phase 25.19: a material instance (its parent's look with some values changed).
+  // A material instance (its parent's look with some values changed).
   str('instanceOf', 'Instance of', 'A material instance: the parent material (or instance) whose look it takes.', { ...ID }),
   json('values', 'Parameter values', "An instance of a graph material: its values for the parent's parameters (parameter key → value)."),
 ]);
 
-// Phase 20.0: a visual effect (systems of particles, each a graph of kind "effect").
+// A visual effect (systems of particles, each a graph of kind "effect").
 const EFFECT_ITEM = obj('*', 'Effect', 'A visual effect: particle systems simulated from one origin.', [
   str('effectId', 'Id', 'The stable effect id.', { ...ID, required: true, readOnly: true }),
   str('name', 'Name', 'Shown in pickers and the Effects list.', { ...NAME, required: true }),
@@ -288,14 +288,14 @@ const STATES = (allowEmpty: boolean): ListFieldDescriptor =>
       list('children', 'Clips', `2–${MAX_BLEND_CHILDREN} clips by threshold (increasing).`, obj('*', 'Blend clip', 'A clip and its threshold.', [
         num('threshold', 'Threshold', 'The parameter value where this clip plays fully.', { required: true, min: -1e6, max: 1e6, step: 0.1 }),
         { ...CLIP, required: true },
-        // Phase 16.2: editor-only (the blend tree graph).
+        // Editor-only (the blend tree graph).
         vec2('position', 'Graph position', 'Where the blend tree graph draws the clip (editor only).', { min: -1e6, max: 1e6, step: 1 }),
       ]), { required: true, when: when('kind', 'blend1d'), minItems: 2, maxItems: MAX_BLEND_CHILDREN }),
     ], { required: true }),
     num('speed', 'Speed', 'Playback speed (× the speed parameter when set).', { required: true, min: 0, max: 10, step: 0.05, unit: '×', default: 1 }),
     ref('speedParameter', 'Speed parameter', 'A float parameter the speed is multiplied by.', 'animatorParameter', { paramTypes: ['float'] }),
     bool('loop', 'Loop', 'Loops (else holds the last frame).', { required: true, default: true }),
-    // Phase 16.2: the graph editor's coordinate bound (GRAPH_LIMITS.coordinate).
+    // The graph editor's coordinate bound (GRAPH_LIMITS.coordinate).
     vec2('position', 'Graph position', 'Where the editor draws the state.', { min: -1e6, max: 1e6, step: 1 }),
   ]), { required: true, minItems: 1, maxItems: MAX_ANIMATOR_STATES });
 
@@ -360,7 +360,7 @@ const DECLARED_PROPERTY = obj('*', 'Property', 'A property the script declares (
     vec3('min', 'Min', 'Smallest per axis.', { required: true, min: -1e6, max: 1e6 }),
     vec3('max', 'Max', 'Largest per axis.', { required: true, min: -1e6, max: 1e6 }),
   ], { when: when('type', 'vec3'), rules: ['min ≤ max per axis'] }),
-  // Phase 15.4: public (shown and set per object) or private (the script reads the default).
+  // Public (shown and set per object) or private (the script reads the default).
   enm('visibility', 'Visibility', 'Public: shown in the Inspector of every object with this script and set per object. Private: not shown, not settable; the script reads the default.', ['public', 'private'], { default: 'public' }),
   str('group', 'Group', 'The Inspector section the property is listed in.', { minLength: 1, maxLength: 64 }),
   str('header', 'Header', 'A heading shown above the property in the Inspector.', { minLength: 1, maxLength: 64 }),
@@ -393,11 +393,11 @@ export const CONTENT: readonly ContentBlockDescriptor[] = [
   { key: 'input', label: 'Input', tooltip: 'Actions and their bindings.', required: false, value: INPUT, ops: ['setInput'] },
   { key: 'materials', label: 'Materials', tooltip: 'Project materials.', required: false, value: list('materials', 'Materials', `Up to ${MAX_MATERIALS} materials.`, MATERIAL_ITEM, { maxItems: MAX_MATERIALS, default: [] }), ops: ['setMaterial', 'deleteMaterial'] },
   { key: 'animators', label: 'Animator controllers', tooltip: 'State machines for model animation.', required: false, value: list('animators', 'Animator controllers', `Up to ${MAX_ANIMATORS} controllers.`, ANIMATOR_ITEM, { maxItems: MAX_ANIMATORS, default: [] }), ops: ['setAnimator', 'deleteAnimator'] },
-  // Phase 20.0: visual effects; each system's graph is edited in the Effect tab (graphEdit ops).
+  // Visual effects; each system's graph is edited in the Effect tab (graphEdit ops).
   { key: 'effects', label: 'Effects', tooltip: 'Visual effects: particle systems authored as node graphs.', required: false, value: list('effects', 'Effects', `Up to ${EFFECT_LIMITS.effects} effects.`, EFFECT_ITEM, { maxItems: EFFECT_LIMITS.effects, default: [] }), ops: ['setEffect', 'deleteEffect', 'renameEffect', 'graphEdit'] },
-  // Phase 23.7: shared script libraries; their files are edited in the script editor (Library tab).
+  // Shared script libraries; their files are edited in the script editor (Library tab).
   { key: 'scriptLibraries', label: 'Script libraries', tooltip: 'Shared TypeScript and JSON modules every script can import as @lib/<id>.', required: false, value: list('scriptLibraries', 'Script libraries', `Up to ${SCRIPT_LIBRARY_LIMITS.libraries} libraries.`, json('*', 'Library', 'A script library: { libraryId, name, files: [{ path, text }] }.', { readOnly: true }), { maxItems: SCRIPT_LIBRARY_LIMITS.libraries, default: [] }), ops: ['setScriptLibrary', 'deleteScriptLibrary'] },
-  // Phase 23.5 (E8): block types, the cell metadata schema and stamps for block layers.
+  // Block types, the cell metadata schema and stamps for block layers.
   {
     key: 'blockTypes',
     label: 'Block types',
@@ -413,7 +413,7 @@ export const CONTENT: readonly ContentBlockDescriptor[] = [
       vec3('footprint', 'Footprint', 'Cells along x, y and z (a 2 × 1 × 2 well); the cells it covers stay empty.', { min: 1, max: BLOCK_LIMITS.footprint, step: 1, default: [1, 1, 1], labels: ['x', 'y', 'z'] }),
       json('rotations', 'Rotations', 'The allowed rotations in degrees: a set of 0, 90, 180, 270 (absent: all).'),
       json('metadata', 'Default metadata', 'Cell metadata every cell of this block starts with (field key → value).'),
-      // Phase 25.21: a picker per slot (as a model asset's default materials); "*" also maps a stand-in's one material.
+      // A picker per slot (as a model asset's default materials); "*" also maps a stand-in's one material.
       map('materials', 'Materials', 'Material slot → project material: a model look\'s source material name, or "*" for every slot (a coloured stand-in has one: "*" gives it a material, e.g. a painted terrain material).', 'Slot', ref('*', 'Material', 'A project material.', 'material'), { keyFormat: 'materialSlot', minEntries: 1, maxEntries: 32 }),
     ]), { maxItems: BLOCK_LIMITS.blockTypes, default: [] }),
     ops: ['setBlockType', 'deleteBlockType'],
@@ -449,12 +449,12 @@ export const CONTENT: readonly ContentBlockDescriptor[] = [
     ]), { maxItems: BLOCK_LIMITS.stamps, default: [] }),
     ops: ['setBlockStamp', 'deleteBlockStamp'],
   },
-  // Phase 23.9a: project UI documents and themes (JSON widget trees; the visual editor is 23.9b).
+  // Project UI documents and themes (JSON widget trees, also edited in the visual UI editor).
   { key: 'uiDocuments', label: 'UI documents', tooltip: 'HUDs, menus and screens drawn by the game over the view (widget trees bound to script values).', required: false, value: list('uiDocuments', 'UI documents', `Up to ${UI_LIMITS.documents} documents.`, json('*', 'Document', 'A UI document: { uiDocumentId, name, root, styles?, tweens?, … }.', { readOnly: true }), { maxItems: UI_LIMITS.documents, default: [] }), ops: ['setUiDocument', 'deleteUiDocument'] },
-  // Phase 23.10: game modes (the first is the start mode) and the behavior groups modes tick.
+  // Game modes (the first is the start mode) and the behavior groups modes tick.
   { key: 'modes', label: 'Game modes', tooltip: 'Named states of the running game: the input maps, camera, UI documents and ticking behavior groups of each, switched in one transition without a scene load (explore and tactical, on foot and driving, build and play…). The first mode is the one a run starts in.', required: false, value: list('modes', 'Game modes', `Up to ${MODE_LIMITS.modes} modes; the first is the start mode.`, MODE_ITEM, { maxItems: MODE_LIMITS.modes, default: [] }), ops: ['setModes'] },
   { key: 'behaviorGroups', label: 'Behavior groups', tooltip: 'Names an object\'s behavior can belong to (its Behavior group component); a game mode lists the groups that tick while it is active.', required: false, value: list('behaviorGroups', 'Behavior groups', `Up to ${MODE_LIMITS.behaviorGroups} names.`, str('*', 'Group', 'A letter or _, then letters, digits or _.', { format: 'identifier', minLength: 1, maxLength: 32 }), { maxItems: MODE_LIMITS.behaviorGroups, unique: true, default: [] }), ops: ['setBehaviorGroups'] },
-  // Phase 24.4j: the game shell — menus and HUD as UI documents, the ordered scene list (a game that plays as a scene).
+  // The game shell — menus and HUD as UI documents, the ordered scene list (a game that plays as a scene).
   {
     key: 'shell',
     label: 'Game shell',
@@ -473,7 +473,7 @@ export const CONTENT: readonly ContentBlockDescriptor[] = [
       list('scenes', 'Scene list', `The game's scenes in order: New game begins a fresh run at the first, Next scene moves on to the next (up to ${SHELL_LIMITS.scenes}).`, obj('*', 'Listed scene', 'A scene and where the character starts in it.', [
         scene('scene', 'Scene', 'A scene of the project.', { required: true }),
         entity('spawn', 'Spawn', 'The player spawn the character starts at (in that scene; absent: it stays where it is).', { component: 'playerSpawn', anyScene: true }),
-        // Phase 25.24e: the fade of a move to this scene.
+        // The fade of a move to this scene.
         num('fade', 'Fade', 'Seconds the view fades out before a move to this scene and back in after it (absent or 0: no fade; the previous scene stays in view until this one is drawn).', { min: 0, max: MAX_TRANSITION_FADE, step: 0.05 }),
         color('fadeColor', 'Fade colour', 'The colour the view fades to (absent: black).'),
       ]), { maxItems: SHELL_LIMITS.scenes }),
@@ -482,7 +482,7 @@ export const CONTENT: readonly ContentBlockDescriptor[] = [
     ]),
     ops: ['setShell'],
   },
-  // Phase 24.4i: the event → cue table (the generic replacement for fixed cue slots).
+  // The event → cue table (the generic replacement for fixed cue slots).
   {
     key: 'eventCues',
     label: 'Event sounds',
@@ -499,18 +499,18 @@ export const CONTENT: readonly ContentBlockDescriptor[] = [
     ops: ['setEventCues'],
   },
   { key: 'uiThemes', label: 'UI themes', tooltip: 'Named styles and icons UI documents share.', required: false, value: list('uiThemes', 'UI themes', `Up to ${UI_LIMITS.themes} themes.`, json('*', 'Theme', 'A UI theme: { uiThemeId, name, styles, icons? }.', { readOnly: true }), { maxItems: UI_LIMITS.themes, default: [] }), ops: ['setUiTheme', 'deleteUiTheme'] },
-  // Phase 23.16: dialogue — conversations (dialogue graphs, edited in the Dialogue tab with graphEdit), the speaker registry, the settings.
+  // Dialogue — conversations (dialogue graphs, edited in the Dialogue tab with graphEdit), the speaker registry, the settings.
   { key: 'dialogues', label: 'Dialogues', tooltip: 'Conversations: node graphs of lines (speaker, expression, text, voice clip), choices, conditions and effects, signals and jumps.', required: false, value: list('dialogues', 'Dialogues', `Up to ${DIALOGUE_LIMITS.dialogues} conversations.`, json('*', 'Dialogue', 'A conversation: { dialogueId, name, graph } (graph kind dialogue).', { readOnly: true }), { maxItems: DIALOGUE_LIMITS.dialogues, default: [] }), ops: ['setDialogue', 'deleteDialogue', 'graphEdit'] },
   { key: 'speakers', label: 'Speakers', tooltip: 'Who speaks in conversations: name, name-plate colour, portraits per expression, voice profile, text blip.', required: false, value: list('speakers', 'Speakers', `Up to ${DIALOGUE_LIMITS.speakers} speakers.`, json('*', 'Speaker', 'A speaker: { speakerId, name, color?, portraits? {expression: texture}, defaultExpression?, voiceProfile?, blip?, blipEvery?, blipVolume? }.', { readOnly: true }), { maxItems: DIALOGUE_LIMITS.speakers, default: [] }), ops: ['setSpeaker', 'deleteSpeaker'] },
   { key: 'dialogueSettings', label: 'Dialogue settings', tooltip: 'Text speed, auto-advance and its delay, the music/SFX duck under a voice, the backlog length, the dialogue UI document and theme.', required: false, value: json('dialogueSettings', 'Dialogue settings', '{ textSpeed? (chars/s, 0 instant), autoAdvance?, autoDelay? (s), duck? (0–1), backlog? (1–100), document? (uiDocumentId), theme? (uiThemeId) }.', { readOnly: true }), ops: ['setDialogueSettings'] },
-  // Phase 23.17: timelines (tracks of keys on a time ruler; edited in the Timeline tab).
+  // Timelines (tracks of keys on a time ruler; edited in the Timeline tab).
   { key: 'timelines', label: 'Timelines', tooltip: 'Sequences of camera cuts, moves, animation, sound, dialogue, effects, signals and fades on a time ruler, played by scripts or signals.', required: false, value: list('timelines', 'Timelines', `Up to ${TIMELINE_LIMITS.timelines} timelines.`, json('*', 'Timeline', 'A timeline: { timelineId, name, duration, slots?, markers?, tracks, … }.', { readOnly: true }), { maxItems: TIMELINE_LIMITS.timelines, default: [] }), ops: ['setTimeline', 'deleteTimeline'] },
-  // Phase 16.1: standalone node graphs; their body is edited in the graph editor (graphEdit ops).
+  // Standalone node graphs; their body is edited in the graph editor (graphEdit ops).
   { key: 'graphs', label: 'Graphs', tooltip: 'Standalone node graphs, edited in the graph editor.', required: false, value: list('graphs', 'Graphs', `Up to ${MAX_GRAPH_DOCUMENTS} graphs.`, json('*', 'Graph', 'A graph document: { graphId, kind, name, graph }.', { readOnly: true }), { maxItems: MAX_GRAPH_DOCUMENTS, default: [] }), ops: ['setGraph', 'deleteGraph', 'graphEdit'] },
   { key: 'tags', label: 'Tags', tooltip: 'Named tag bits objects carry.', required: false, value: list('tags', 'Tags', `Up to ${MAX_TAGS} tags.`, obj('*', 'Tag', 'A named bit.', [int('bit', 'Bit', 'The bit (0–31).', { required: true, min: 0, max: 31 }), str('name', 'Name', 'A letter, then letters, digits, _ or - (unique ignoring case).', { required: true, format: 'identifier', minLength: 1, maxLength: 32 })]), { maxItems: MAX_TAGS, default: [] }), ops: ['setTags'] },
-  // Phase 23.3: named collision layers (3D physics); "default" is implicit.
+  // Named collision layers (3D physics); "default" is implicit.
   { key: 'collisionLayers', label: 'Collision layers', tooltip: 'Named collision layers colliders are in and script queries filter by (3D; "default" is implicit).', required: false, value: list('collisionLayers', 'Collision layers', `Up to ${MAX_COLLISION_LAYERS} names ("default" is implicit).`, str('*', 'Layer', 'A letter or _, then letters, digits or _.', { format: 'identifier', minLength: 1, maxLength: 32 }), { maxItems: MAX_COLLISION_LAYERS, unique: true, default: [] }), ops: ['setCollisionLayers'] },
-  // Phase 23.19: the project save schema (save document version + migrations, slots, sections, picture, settings document).
+  // The project save schema (save document version + migrations, slots, sections, picture, settings document).
   {
     key: 'saveSchema',
     label: 'Project saves',

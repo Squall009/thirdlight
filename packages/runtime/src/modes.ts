@@ -1,5 +1,5 @@
 /**
- * Phase 23.10: game modes in the simulation.
+ * Game modes in the simulation.
  *
  * The project's modes (`content.modes`, the snapshot's `modes`) are
  * simulation state: which mode is current, since which step, the switch a
@@ -289,7 +289,7 @@ export class ModeState {
 
   /**
    * The frame modules and scripts read: actions of inactive maps read as
-   * released (the recorded frame is untouched). Phase 24.8: with the gameplay
+   * released (the recorded frame is untouched). With the gameplay
    * map off, the character controller's actions (`controllerActions`, its
    * move and jump) read released too, as its fixed channels did.
    */

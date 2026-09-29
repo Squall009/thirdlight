@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Packet 14 — standalone evaluation probe: @dimforge/rapier2d-compat (0.20.0)
+ * Standalone evaluation probe: @dimforge/rapier2d-compat (0.20.0)
  * against the frozen course-spec.json fixture (m2-physics.md experiment 1/4).
  *
  * Standalone by design (plan-review BR-1): this file is NOT a vitest test, is
@@ -82,7 +82,7 @@ function settle(sim) {
   for (let i = 0; i < 12; i++) stepCharacter(sim, 0, false);
 }
 
-/** One fixed step. Game logic owns gravity/jump intent/velocity (plan §3.4).
+/** One fixed step. Game logic owns gravity/jump intent/velocity.
  * Grounded and not airborne ⇒ vy = 0 (canonical pattern: gravity integrates only
  * while airborne; official example: movement.y = isGrounded() ? 0 : vy - g*dt).
  * `airborne` bridges the window after a jump where the CC still reports grounded

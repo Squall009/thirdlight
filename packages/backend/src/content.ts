@@ -1,18 +1,17 @@
 /**
- * Packet 25 — content HTTP services (sessions.md §11.3/§16.1, workspace.md
- * §7.6/§13, delivery.md §15).
+ * Content HTTP services.
  *
- * The transport layer for M2 content: bounded upload framing, the bounded
+ * The transport layer for content: bounded upload framing, the bounded
  * inspection/publish job coordinator, the read-only content queries, and the
  * authenticated immutable-version asset-byte read. It performs **no
  * filesystem writes and no authoritative state mutation** — every write and
  * every byte read goes through the injected `WorkspaceService`, and the
  * immutable blob publication is the workspace's non-authoritative preparation
- * step, performed only after a *successful* inspection (workspace.md §13.3.2). The pure asset inspector
+ * step, performed only after a *successful* inspection. The pure asset inspector
  * (`@thirdlight/asset-pipeline`) is constructed here and injected into the
- * workspace, which owns the staged-byte read (dependencies.md §4.1).
+ * workspace, which owns the staged-byte read.
  *
- * Behavior-build jobs/publication are structurally unavailable (packet 33):
+ * Behavior-build jobs/publication are structurally unavailable:
  * this module has no behavior-build kind, and the command pipeline already
  * refuses `publishBehavior{mode:"source"}` with
  * `behavior_publication_unavailable`.
@@ -72,9 +71,9 @@ import { THUMBNAIL_BYTES_MAX, type ThumbnailCache } from './thumbnails';
 import { BAKE_PACKAGE_BYTES_MAX, type BakeService } from './bake';
 import { zipEntries, zipRead, type ZipEntry } from './zip-read';
 
-/** Phase 25.22: the largest file of a job export read (the FBX/KTX2 conversion source bound). */
+/** The largest file of a job export read (the FBX/KTX2 conversion source bound). */
 const MAX_JOB_EXPORT_FILE_BYTES = 134_217_728;
-/** Phase 25.22: what the job-export route reads of a proposal (model, or any kind the inspector returned). */
+/** What the job-export route reads of a proposal (model, or any kind the inspector returned). */
 type ImportedProposalView = { readonly proposalId: string; readonly status: string; readonly sourceDigest: string; readonly metrics?: { readonly triangles?: number }; readonly inspection: unknown };
 
 // ---- error surfacing (workspace/command codes → session-layer shape) ----------
@@ -106,10 +105,9 @@ const CARRIED_FIELDS = [
 ] as const;
 
 /**
- * Surface a workspace/command error unchanged (sessions.md §11.3) with its
- * code-specific fields. Two accepted route-level class fixes are applied
- * (delivery.md §10.1 / sessions.md §16.1, and the packet-19 fixture's class
- * table): `blob_corrupt` is `internal` (HTTP 500) and
+ * Surface a workspace/command error unchanged with its
+ * code-specific fields. Two route-level class fixes are applied:
+ * `blob_corrupt` is `internal` (HTTP 500) and
  * `asset_not_found`/`asset_version_not_found` are `not_found` (HTTP 404).
  */
 const CLS_OVERRIDE: Record<string, SessionError['cls']> = {
@@ -146,17 +144,15 @@ function frameLimit(limit: string, current: number, max: number): SessionError {
 // ---- the injected inspector ---------------------------------------------------
 
 /**
- * Build the workspace-injected inspector (packet 48): asset-pipeline's
- * `inspectGlb`/`inspectAudio` bound to the pinned profile/recipe/toolchain
- * (project-model §18.5/§18.7, presentation.md §41.3.3/§41.4.3). The workspace
- * supplies the job port (clock, cancellation, proposal identity) and forwards
+ * Build the workspace-injected inspector: asset-pipeline's
+ * `inspectGlb`/`inspectAudio` bound to the pinned profile/recipe/toolchain.
+ * The workspace supplies the job port (clock, cancellation, proposal identity) and forwards
  * the caller's typed request; the importer never reads a clock, PRNG or
  * environment variable itself.
  *
  * `request.kind === 'audio'` selects the bounded PCM-WAV inspector;
- * `request.animation` requests the role-aware animated GLB profile
- * (presentation.md §41.3.3 A1–A6). Without either, the accepted M2 model
- * proposal is byte-unchanged.
+ * `request.animation` requests the role-aware animated GLB profile.
+ * Without either, the static model proposal is byte-unchanged.
  */
 export function createAssetInspector(): StageInspector {
   return (bytes, job, request) => {
@@ -188,10 +184,9 @@ export function createAssetInspector(): StageInspector {
 }
 
 /**
- * Build the workspace-injected behavior-source compiler (packet 33;
- * dependencies.md §4.1: `backend` constructs the `behavior-build` compiler and
- * injects it). The injected clock is the only time source the cooperative
- * compile bound uses; the compiler itself reads no clock (project-model §5.4).
+ * Build the workspace-injected behavior-source compiler (`backend`
+ * constructs the `behavior-build` compiler and injects it). The injected clock is the only time source the cooperative
+ * compile bound uses; the compiler itself reads no clock.
  * The pinned module table travels with the instance, so the prepared manifest
  * records the host's actual pins.
  */
@@ -222,8 +217,8 @@ function hex(bytes: Uint8Array): string {
 }
 
 /**
- * Bounded in-memory job coordinator (the packet instruction's "bounded job
- * coordination with cancellation/expiry and late-result handling"). Records
+ * Bounded in-memory job coordinator with cancellation/expiry and late-result
+ * handling. Records
  * are bounded summaries only — never proposal/byte payloads. A caller
  * disconnect cancels a job; a result that arrives after cancellation/expiry
  * is discarded and reported as `lateResultDiscarded` (never resurrected).
@@ -240,7 +235,7 @@ export class ContentJobs {
 
   /**
    * Begin a job. Publish jobs honour the concurrency bound (2/project,
-   * 4/global — workspace.md §13.9); exceeding it is `content_publish_failed`
+   * 4/global); exceeding it is `content_publish_failed`
    * (`busy`, unavailable) before any work starts.
    */
   begin(kind: ContentJobKind, projectId: string):
@@ -551,11 +546,11 @@ export interface ContentRouteDeps {
   onJobFailed?: (projectId: string, kind: string, code: string, message: string) => void;
   /** FBX → GLB conversion (headless Blender); without it an FBX import is `converter_unavailable`. */
   fbx?: FbxConverter;
-  /** Phase 25.19: KTX2 encoding on import; without it a `ktx2` texture import is `converter_unavailable`. */
+  /** KTX2 encoding on import; without it a `ktx2` texture import is `converter_unavailable`. */
   textureEncoder?: TextureEncoder;
   /** The asset thumbnail cache (absent: thumbnail routes answer 404). */
   thumbnails?: ThumbnailCache;
-  /** Phase 9.6: the final light bake (absent: the bake routes answer "unavailable"). */
+  /** The final light bake (absent: the bake routes answer "unavailable"). */
   bakes?: BakeService;
 }
 
@@ -565,7 +560,7 @@ type FbxSource = { kind: 'file'; path: string } | { kind: 'stage'; stageId: stri
 const FRAME_BOUND_MS = CONTENT_JOB_RESULT_TTL_MS;
 
 /**
- * The packet-25 content routes. `handle()` returns true when it served the
+ * The content routes. `handle()` returns true when it served the
  * request (parts are the `/api/v1/projects/<pid>/content/...` segments).
  */
 export class ContentRoutes {
@@ -620,13 +615,13 @@ export class ContentRoutes {
       this.discardStage(req, res, projectId, parts[6] ?? '');
       return true;
     }
-    // Phase 25.21: POST /api/v1/projects/:projectId/content/textures/pack (a KTX2 texture / texture array packed from texture assets)
+    // POST /api/v1/projects/:projectId/content/textures/pack (a KTX2 texture / texture array packed from texture assets)
     if (n === 7 && parts[5] === 'textures' && parts[6] === 'pack') {
       if (method !== 'POST') return this.methodNotAllowed(res, 'POST');
       await this.packTexture(req, res, projectId);
       return true;
     }
-    // Phase 25.22: POST /api/v1/projects/:projectId/content/job-exports/inspect (an asset tool's job export: a GLB + manifest.json)
+    // POST /api/v1/projects/:projectId/content/job-exports/inspect (an asset tool's job export: a GLB + manifest.json)
     if (n === 7 && parts[5] === 'job-exports' && parts[6] === 'inspect') {
       if (method !== 'POST') return this.methodNotAllowed(res, 'POST');
       await this.inspectJobExport(req, res, projectId);
@@ -668,19 +663,19 @@ export class ContentRoutes {
       this.integrity(req, res, projectId);
       return true;
     }
-    // Phase 12 (c): POST /api/v1/projects/:projectId/content/buffers (an instance-set buffer)
+    // POST /api/v1/projects/:projectId/content/buffers (an instance-set buffer)
     if (n === 6 && parts[5] === 'buffers') {
       if (method !== 'POST') return this.methodNotAllowed(res, 'POST');
       await this.publishBuffer(req, res, projectId);
       return true;
     }
-    // Phase 12 (c): GET /api/v1/projects/:projectId/content/buffers/:digest
+    // GET /api/v1/projects/:projectId/content/buffers/:digest
     if (n === 7 && parts[5] === 'buffers') {
       if (method !== 'GET') return this.methodNotAllowed(res, 'GET');
       this.bufferBytes(req, res, projectId, parts[6] ?? '');
       return true;
     }
-    // Phase 9.6: the final light bake —
+    // The final light bake —
     //   GET    …/content/bake/host                      is a bake host configured?
     //   POST   …/content/bake/jobs                      start (body: the bake package)
     //   GET    …/content/bake/jobs/:jobId               progress / outcome
@@ -774,11 +769,11 @@ export class ContentRoutes {
       return this.deps.sendError(res, commandErrorToSession(staged.error));
     }
     // The immutable blob publication is deliberately NOT performed here: it is
-    // the last step of a *successful* inspection (workspace.md §13.3.2 order:
+    // the last step of a *successful* inspection (order:
     // stage ⇒ refusal/caps ⇒ read ⇒ digest ⇒ import-profile validation ⇒
     // `publishBlob`). Publishing at upload completion would give a malformed
     // GLB a durable `sources/sha256/<digest>` blob, contradicting
-    // workspace.md §13.4 F2 ("none"). The completed upload session is retained
+    // the no-durable-effect rule for a refused import. The completed upload session is retained
     // (its displayName feeds the inspect proposal) until the caller discards it
     // or the TTL cleanup runs.
     if (this.jobs.overDeadline(job.jobId)) {
@@ -812,10 +807,9 @@ export class ContentRoutes {
     if (!sid.ok) return this.deps.sendError(res, sid.error);
     const body = await this.readJsonBody(req, res);
     if (body === null) return;
-    // Packet 48: the additive `{ kind?, animation? }` inspect body requests the
-    // bounded PCM-WAV inspector or the role-aware animated GLB profile
-    // (presentation.md §41.3.3). An absent/empty body is the accepted M2 model
-    // inspection, byte-unchanged.
+    // The additive `{ kind?, animation? }` inspect body requests the
+    // bounded PCM-WAV inspector or the role-aware animated GLB profile.
+    // An absent/empty body is the static model inspection, byte-unchanged.
     const inspected0 = parseStageInspectRequest(body);
     if (!inspected0.ok) return this.deps.sendError(res, inspected0.error);
     const upload = this.uploads.get(sid.stageId);
@@ -824,7 +818,7 @@ export class ContentRoutes {
     if (staged0.ok && isFbx(staged0.bytes)) {
       return this.inspectConverted(res, projectId, { kind: 'stage', stageId: sid.stageId, bytes: staged0.bytes }, inspected0.request, upload?.displayName);
     }
-    // Phase 25.19: a texture to encode to KTX2 first; the KTX2 is what gets inspected.
+    // A texture to encode to KTX2 first; the KTX2 is what gets inspected.
     if (inspected0.request.ktx2 !== undefined) {
       if (!staged0.ok) return this.deps.sendError(res, commandErrorToSession(staged0.error));
       return this.inspectEncoded(res, projectId, { kind: 'stage', stageId: sid.stageId, bytes: staged0.bytes }, inspected0.request.ktx2, upload?.displayName);
@@ -841,9 +835,9 @@ export class ContentRoutes {
       this.jobs.fail(job.jobId, result.error.code, result.error.message);
       return this.deps.sendError(res, commandErrorToSession(result.error));
     }
-    // Step 2 of workspace.md §13.3.2: only an accepted import profile reaches
+    // Only an accepted import profile reaches
     // the immutable publication. A rejected (malformed) GLB therefore leaves no
-    // durable blob (workspace.md §13.4 F2 durable effect "none"); its staged
+    // durable blob; its staged
     // input stays non-authoritative and TTL-bounded. The transport still writes
     // nothing itself — the workspace owns every byte of this write.
     const pubJob = this.jobs.begin('publish', projectId);
@@ -976,7 +970,7 @@ export class ContentRoutes {
   }
 
   /**
-   * Phase 25.22: inspect an asset tool's job export — a folder or a zip (in
+   * Inspect an asset tool's job export — a folder or a zip (in
    * the game folder, or an uploaded stage) holding a GLB and `manifest.json`
    * (`@thirdlight/protocol` job-export: name, files with role and digest,
    * triangles?, lods?). Every listed file is checked against its digest; the
@@ -1246,7 +1240,7 @@ export class ContentRoutes {
   }
 
   /**
-   * Phase 25.19: KTX2 encoding on import — encode the PNG/JPEG (the worker
+   * KTX2 encoding on import — encode the PNG/JPEG (the worker
    * thread), stage the KTX2 like an upload, inspect it through the texture
    * profile and publish it as a blob (the version's stored bytes). As with an
    * FBX, the response carries `convertedFrom` for the `publishAsset` args: the
@@ -1324,7 +1318,7 @@ export class ContentRoutes {
   }
 
   /**
-   * Phase 25.21: pack a KTX2 texture (a texture array with several layers)
+   * Pack a KTX2 texture (a texture array with several layers)
    * from the project's texture assets, channel by channel. The sources are the
    * named assets' current versions (PNG/JPEG, one size); the worker thread
    * decodes, packs and encodes; the KTX2 is staged, inspected through the
@@ -1465,7 +1459,7 @@ export class ContentRoutes {
     this.deps.sendJson(res, 200, { ok: true, job: got.job });
   }
 
-  // ---- Phase 12 (c): instance-set buffers ------------------------------------
+  // ---- instance-set buffers ------------------------------------------------
 
   /**
    * Publish one instance-set buffer (10 little-endian float32 per copy:
@@ -1542,7 +1536,7 @@ export class ContentRoutes {
     res.end(read.bytes);
   }
 
-  // ---- the final light bake (phase 9.6) ------------------------------------------
+  // ---- the final light bake ------------------------------------------
 
   private async bakeRoute(req: IncomingMessage, res: ServerResponse, projectId: string, method: string, rest: string[]): Promise<void> {
     const auth = this.deps.requireAuth(req, projectId, method !== 'GET');
@@ -1605,7 +1599,7 @@ export class ContentRoutes {
     if (auth !== null) return this.deps.sendError(res, auth);
     const piece = this.thumbnailPiece(res, query);
     if (piece === undefined) return;
-    // Phase 21.4: revalidation — an unchanged cached thumbnail answers 304 without its bytes.
+    // Revalidation — an unchanged cached thumbnail answers 304 without its bytes.
     const etag = this.deps.thumbnails?.etag(projectId, digest, piece) ?? null;
     if (etag !== null && req.headers['if-none-match'] === etag) {
       res.statusCode = 304;
@@ -1645,7 +1639,7 @@ export class ContentRoutes {
     this.deps.sendJson(res, 200, { ok: true, digest, piece });
   }
 
-  // ---- authenticated committed asset bytes (sessions.md §16.1) ---------------
+  // ---- authenticated committed asset bytes ---------------
 
   private assetBytes(req: IncomingMessage, res: ServerResponse, projectIdRaw: string, rawAssetId: string, rawVersion: string): void {
     const auth = this.deps.requireAuth(req, projectIdRaw, false);
@@ -1675,8 +1669,8 @@ export class ContentRoutes {
   private async readJsonBody(req: IncomingMessage, res: ServerResponse): Promise<unknown | null> {
     const bytes = await this.readBounded(req, res, 1024 * 1024, 'invalid_request');
     if (bytes === null) return null;
-    // The same strict byte discipline as the command route (sessions.md §6.1:
-    // BOM-free UTF-8, strict JSON, no duplicate keys).
+    // The same strict byte discipline as the command route (BOM-free
+    // UTF-8, strict JSON, no duplicate keys).
     const strict = parseStrictJsonBytes(bytes.length === 0 ? new TextEncoder().encode('{}') : bytes);
     if (!strict.ok) {
       this.deps.sendError(res, strict.error);

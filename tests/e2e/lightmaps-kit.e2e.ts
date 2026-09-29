@@ -1,5 +1,5 @@
 /**
- * Phase 9.6 on a kit: a generated multi-piece GLB (multi-piece-glb.ts; pieces
+ * Light baking on a kit: a generated multi-piece GLB (multi-piece-glb.ts; pieces
  * `<piece>_LOD<n>` with their own lightmap UV1) is imported as one asset, a
  * strip of ground pieces with a floating ledge is placed as static objects,
  * and the scene is baked: in the browser (always), and by Blender Cycles when

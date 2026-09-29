@@ -1,5 +1,5 @@
 /**
- * Phase 23.3: pointer input and 3D queries against a real backend, on a
+ * Pointer input and 3D queries against a real backend, on a
  * neutral 3D scene built by commands on a blank project — three coloured
  * boxes (colliders in the collision layer "pickable") in front of the scene
  * camera, a small lamp above each, no player. A script lights the lamp of

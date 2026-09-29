@@ -1,5 +1,5 @@
 /**
- * Phase 23.19 (E15): project-defined save documents through the production
+ * Project-defined save documents through the production
  * game host, in the page and in the simulation worker.
  *
  * A neutral scene: a block layer and one script. The script changes a cell,

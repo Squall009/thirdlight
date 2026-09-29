@@ -1,11 +1,11 @@
 /**
- * Phase 15.0: the component and content descriptor registry.
+ * The component and content descriptor registry.
  *
  * One table, pure data, that says for every entity component and every
  * content block what its fields are: type, unit, range and step, default,
  * group, label, tooltip, when a field applies, and which Scene-view handle
- * edits it. The generic Inspector (15.1) builds its sections from it, the
- * handle system (15.2) finds its handles in it, MCP and the editor read it
+ * edits it. The generic Inspector builds its sections from it, the
+ * handle system finds its handles in it, MCP and the editor read it
  * over `queryGameConfig` (the editor may import project-model types only).
  *
  * The validators stay the rules; this table describes them. A unit test
@@ -86,7 +86,7 @@ const COMPONENTS: readonly ComponentDescriptor[] = [
   behaviorGroupC,
 ];
 
-// ---- phase 25.10: what scripts read and write (ctx.entity) --------------------------
+// ---- What scripts read and write (ctx.entity) --------------------------
 
 /**
  * Components scripts never read: a folder is not in the game, an instance

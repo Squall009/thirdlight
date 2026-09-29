@@ -1,5 +1,5 @@
 /**
- * Phase 25.2: the preview's answer to a screenshot relay. It always answers:
+ * The preview's answer to a screenshot relay. It always answers:
  * a capture that fails or throws becomes `screenshot_failed` (or the
  * adapter's own code) with the reason, never a missing reply that the
  * backend can only report as `screenshot_timeout`.
@@ -11,7 +11,7 @@
  * answer reports the width it has); at the smallest width it is an error.
  */
 
-/** The backend's screenshot bound (`MAX_SCREENSHOT`, sessions.md §11.5): data URL characters. */
+/** The backend's screenshot bound (`MAX_SCREENSHOT`): data URL characters. */
 export const SCREENSHOT_DATA_URL_MAX = 1024 * 1024;
 /** The smallest width a too-large capture is retried at (the MCP tool's lower maxWidth bound). */
 export const SCREENSHOT_MIN_RETRY_WIDTH = 256;

@@ -85,7 +85,7 @@ test('a multi-piece GLB: tile preview, piece tiles, drag into the scene and a fo
   const digest = (asset.asset?.versions ?? asset.versions ?? [])[0]!.sourceDigest;
   const thumb = await fetch(`${be.origin}/api/v1/projects/${be.projectId}/content/thumbnails/${digest}`, { headers: { authorization: `Bearer ${be.token}` } });
   expect(thumb.status).toBe(200);
-  // Phase 21.4: revalidation — the cached thumbnail's ETag answers 304 without the bytes.
+  // Revalidation — the cached thumbnail's ETag answers 304 without the bytes.
   const etag = thumb.headers.get('etag');
   expect(etag).toMatch(/^"t-/);
   const again = await fetch(`${be.origin}/api/v1/projects/${be.projectId}/content/thumbnails/${digest}`, { headers: { authorization: `Bearer ${be.token}`, 'if-none-match': etag! } });

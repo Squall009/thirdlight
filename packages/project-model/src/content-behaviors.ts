@@ -39,7 +39,7 @@ import { canonicalDocBytes, DIGEST_RE, digestError, limitsError, sortedRecord } 
 const KNOWN_BEHAVIOR_FIELDS = new Set(['behaviorId', 'displayName', 'declaration', 'source', 'publishedRevision', 'graph', 'functions']);
 const KNOWN_DECLARATION_FIELDS = new Set(['properties']);
 const KNOWN_PROPERTY_FIELDS = new Set(['key', 'label', 'type', 'default', 'min', 'max', 'step', 'maxLength', 'values', 'bounds', 'visibility', 'group', 'header', 'tooltip']);
-/** Phase 15.4: the optional presentation texts of a declared property and their length caps. */
+/** The optional presentation texts of a declared property and their length caps. */
 const PROPERTY_TEXT_FIELDS = [['group', 64], ['header', 64], ['tooltip', 256]] as const;
 const KNOWN_BOUNDS_FIELDS = new Set(['min', 'max']);
 const KNOWN_SOURCE_FIELDS = new Set([
@@ -61,7 +61,7 @@ const KNOWN_TRUST_FIELDS = new Set(['entries']);
 const KNOWN_TRUST_ENTRY_FIELDS = new Set(['sourceDigest', 'acknowledgedRevision']);
 const PROPERTY_TYPES = new Set(['number', 'boolean', 'string', 'enum', 'vec3', 'entityRef', 'assetRef']);
 
-// ---- declared properties and behaviors (§20.5/§20.8/§22.2) ---------------------
+// ---- declared properties and behaviors ---------------------
 
 function checkPropertyValueShape(
   type: string,
@@ -127,7 +127,7 @@ function checkPropertyValueShape(
   }
 }
 
-/** Phase 15.4: no C0 control character or DEL (the declared text fields). */
+/** No C0 control character or DEL (the declared text fields). */
 function isControlFreeText(v: string): boolean {
   for (let i = 0; i < v.length; i++) {
     const c = v.charCodeAt(i);
@@ -214,7 +214,7 @@ function validateDeclaredProperty(p: unknown, path: string, errors: ModelErrorV2
       }
     }
   }
-  // Phase 15.4: visibility (absent = public) and the Inspector texts.
+  // Visibility (absent = public) and the Inspector texts.
   const visibility = p['visibility'];
   if (visibility !== undefined && visibility !== 'public' && visibility !== 'private') {
     errors.push(fieldValue(`${path}/visibility`, visibility, '"public" or "private"', 'property visibility must be "public" or "private"'));
@@ -280,7 +280,7 @@ function validateBehaviorSource(s: unknown, path: string, errors: ModelErrorV2[]
   }
   const owned = s['ownedTransforms'];
   if (owned !== undefined) {
-    // Phase 14.1: entity ids or "@self", ascending, unique, 1..16 (the container's rules).
+    // Entity ids or "@self", ascending, unique, 1..16 (the container's rules).
     if (!Array.isArray(owned) || owned.length < 1 || owned.length > MAX_OWNED_TRANSFORMS) errors.push(fieldValue(`${path}/ownedTransforms`, owned, `1-${MAX_OWNED_TRANSFORMS} entity ids or "@self"`, `ownedTransforms is absent or lists 1-${MAX_OWNED_TRANSFORMS} entries`));
     else {
       owned.forEach((id, i) => {
@@ -289,23 +289,22 @@ function validateBehaviorSource(s: unknown, path: string, errors: ModelErrorV2[]
       });
     }
   }
-  // Phase 15.4: present only as `true` (the declaration was derived from the code).
+  // Present only as `true` (the declaration was derived from the code).
   if (s['declaredInCode'] !== undefined && s['declaredInCode'] !== true) {
     errors.push(fieldValue(`${path}/declaredInCode`, s['declaredInCode'], 'true or absent', 'declaredInCode is absent or true'));
   }
-  // Phase 19.0: present only as "graph" (generated from the behavior's visual script).
+  // Present only as "graph" (generated from the behavior's visual script).
   if (s['kind'] !== undefined && s['kind'] !== 'graph') {
     errors.push(fieldValue(`${path}/kind`, s['kind'], '"graph" or absent', 'a source kind is "graph" or absent (TypeScript)'));
   }
-  // Phase 23.7: the script library versions the source was compiled against (absent = none).
+  // The script library versions the source was compiled against (absent = none).
   if (s['libraries'] !== undefined) validateLibraryPins(s['libraries'], `${path}/libraries`, errors);
   const published = s['publishedRevision'];
   if (published === undefined) errors.push(fieldMissing(`${path}/publishedRevision`, 'publishedRevision'));
   else if (typeof published !== 'number' || !Number.isInteger(published) || published < 0) {
-    // `project-model.md` §12 step 5 / §22.2 rule 4: a stored source record
-    // written by the preparation path carries the revision it landed at
-    // (`>= 1`), while the `workspace.md` §16.5.2 copy resets it to `0` for the
-    // new project identity. A document cannot tell the two provenances apart,
+    // A stored source record written by the preparation path carries the
+    // revision it landed at (`>= 1`), while a project copy resets it to `0`
+    // for the new project identity. A document cannot tell the two provenances apart,
     // so the load bound is the union: `>= 0`. The preparation/publication
     // command still writes `>= 1`.
     errors.push(withFound({ code: 'number_out_of_range', path: `${path}/publishedRevision`, message: 'a source record publishedRevision must be an integer >= 0', expected: 'integer >= 0' }, published));
@@ -338,7 +337,7 @@ export function validateBehaviorRecord(b: unknown, path: string, errors: ModelEr
     if (props === undefined) errors.push(fieldMissing(`${path}/declaration/properties`, 'properties'));
     else if (!Array.isArray(props)) errors.push(fieldType(`${path}/declaration/properties`, props, 'array'));
     else {
-      // Phase 19.1: 0–32 (a script may declare no property).
+      // 0–32 (a script may declare no property).
       if (props.length > MAX_PROPERTIES) {
         errors.push(limitsError(`${path}/declaration/properties`, 'properties', props.length, MAX_PROPERTIES, `a declaration has at most ${MAX_PROPERTIES} properties`));
       }
@@ -370,8 +369,8 @@ export function validateBehaviorRecord(b: unknown, path: string, errors: ModelEr
   else if (typeof published !== 'number' || !Number.isInteger(published) || published < 0 || published > Number.MAX_SAFE_INTEGER) {
     errors.push(withFound({ code: 'number_out_of_range', path: `${path}/publishedRevision`, message: 'publishedRevision must be an integer in [0, 2^53-1]', expected: 'integer in [0, 2^53-1]' }, published));
   }
-  // Phase 19.0 (v4): the visual script graph; phase 19.1: its functions (calls resolve
-  // against them and the project's shared functions).
+  // v4: the visual script graph and its functions (calls resolve against
+  // them and the project's shared functions).
   const graph = b['graph'];
   const functions = b['functions'];
   if (graph !== undefined) {
@@ -403,7 +402,7 @@ export function validateBehaviorRecord(b: unknown, path: string, errors: ModelEr
   }
 }
 
-// ---- trust (§22.5) ------------------------------------------------------------
+// ---- trust ------------------------------------------------------------
 
 export function validateTrust(trust: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(trust)) {
@@ -466,7 +465,7 @@ function canonicalProperty(p: DeclaredProperty): DeclaredProperty {
   if (p.maxLength !== undefined) out.maxLength = p.maxLength;
   if (p.values !== undefined) out.values = [...p.values];
   if (p.bounds !== undefined) out.bounds = { min: [...p.bounds.min], max: [...p.bounds.max] };
-  // Phase 15.4: public is the default and is omitted (older declarations stay byte-identical).
+  // Public is the default and is omitted (older declarations stay byte-identical).
   if (p.visibility === 'private') out.visibility = 'private';
   if (p.group !== undefined) out.group = p.group;
   if (p.header !== undefined) out.header = p.header;
@@ -494,14 +493,14 @@ export function canonicalBehavior(b: BehaviorRecord): BehaviorRecord {
             ...(b.source.ownedTransforms !== undefined && b.source.ownedTransforms.length > 0 ? { ownedTransforms: [...b.source.ownedTransforms] } : {}),
             ...(b.source.declaredInCode === true ? { declaredInCode: true as const } : {}),
             ...(b.source.kind === 'graph' ? { kind: 'graph' as const } : {}),
-            // Phase 23.7: present only for a source that imports script libraries.
+            // Present only for a source that imports script libraries.
             ...(b.source.libraries !== undefined && b.source.libraries.length > 0 ? { libraries: b.source.libraries.map((p) => ({ libraryId: p.libraryId, sourceDigest: p.sourceDigest })) } : {}),
             publishedRevision: b.source.publishedRevision,
           },
     publishedRevision: b.publishedRevision,
-    // Phase 19.0: the visual script (absent for other behaviors: older records stay byte-identical).
+    // The visual script (absent for other behaviors: older records stay byte-identical).
     ...(b.graph !== undefined ? { graph: canonicalGraphData(b.graph) } : {}),
-    // Phase 19.1: its functions (sorted by id; absent when there are none).
+    // Its functions (sorted by id; absent when there are none).
     ...(b.functions !== undefined && b.functions.length > 0
       ? { functions: [...b.functions].sort((x, y) => (x.functionId < y.functionId ? -1 : x.functionId > y.functionId ? 1 : 0)).map((f) => ({ functionId: f.functionId, graph: canonicalGraphData(f.graph) })) }
       : {}),
