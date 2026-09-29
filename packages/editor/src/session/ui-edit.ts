@@ -9,7 +9,7 @@
  * the caller sends the result as one `setUiDocument` / `setUiTheme` (one
  * undo step). No DOM, no React.
  */
-import type { UiDocument, UiStyle, UiTheme, UiWidget, UiWidgetType } from '@thirdlight/project-model';
+import type { UiBindable, UiDocument, UiStyle, UiTheme, UiWidget, UiWidgetType } from '@thirdlight/project-model';
 
 // ---------------------------------------------------------------------------
 // Paths
@@ -380,6 +380,11 @@ export type PlacementPatch = Pick<UiWidget, 'anchor' | 'pivot' | 'offset' | 'siz
 
 const stretchX = (w: UiWidget): boolean => w.stretch === 'x' || w.stretch === 'both';
 const stretchY = (w: UiWidget): boolean => w.stretch === 'y' || w.stretch === 'both';
+/** Phase 25.22: a size axis given as a number (null: sized to the content, or read from the view model — the preview measures it). */
+const fixedSize = (w: UiWidget, a: 0 | 1): number | null => {
+  const v = w.size?.[a];
+  return typeof v === 'number' ? v : null;
+};
 
 /**
  * The rect an anchored widget occupies in its parent (parent-local px), from
@@ -397,7 +402,7 @@ export function placedRect(w: UiWidget, parent: { w: number; h: number }, measur
     x = margin[0];
     width = Math.max(0, parent.w - margin[0] - margin[2]);
   } else {
-    width = w.size?.[0] ?? measured.w;
+    width = fixedSize(w, 0) ?? measured.w;
     x = anchor[0] * parent.w + offset[0] - pivot[0] * width;
   }
   let y: number;
@@ -406,7 +411,7 @@ export function placedRect(w: UiWidget, parent: { w: number; h: number }, measur
     y = margin[1];
     height = Math.max(0, parent.h - margin[1] - margin[3]);
   } else {
-    height = w.size?.[1] ?? measured.h;
+    height = fixedSize(w, 1) ?? measured.h;
     y = anchor[1] * parent.h + offset[1] - pivot[1] * height;
   }
   return { x: round(x), y: round(y), w: round(width), h: round(height) };
@@ -467,7 +472,7 @@ export function resizeWidgetBy(w: UiWidget, rect: Rect, handle: ResizeHandle, dx
   const anchor = w.anchor ?? [0, 0];
   const pivot = w.pivot ?? anchor;
   const patch: PlacementPatch = {};
-  const size: [number | null, number | null] = [w.size?.[0] ?? null, w.size?.[1] ?? null];
+  const size: [UiBindable<number> | null, UiBindable<number> | null] = [w.size?.[0] ?? null, w.size?.[1] ?? null];
   const offset = [...(w.offset ?? [0, 0])] as [number, number];
   const margin = [...(w.margin ?? [0, 0, 0, 0])] as [number, number, number, number];
   let sizeChanged = false;
@@ -570,7 +575,7 @@ export function applyAnchorPreset(w: UiWidget, preset: AnchorPreset, rect: Rect,
   const ay = preset.y ?? 0;
   out.anchor = sx && sy ? undefined : [ax, ay];
   out.pivot = sx && sy ? undefined : [ax, ay];
-  const size: [number | null, number | null] = [w.size?.[0] ?? null, w.size?.[1] ?? null];
+  const size: [UiBindable<number> | null, UiBindable<number> | null] = [w.size?.[0] ?? null, w.size?.[1] ?? null];
   // A pinned axis leaving a stretch keeps its drawn size.
   if (!sx && stretchX(w)) size[0] = rect.w;
   if (!sy && stretchY(w)) size[1] = rect.h;
@@ -668,14 +673,14 @@ export function setStyleValue(style: UiStyle, state: 'hover' | 'focus' | 'presse
 // ---------------------------------------------------------------------------
 
 /** The paths a document reads from the view model, with what kind of value each wants. */
-export function bindingPaths(doc: UiDocument): { path: string; kind: 'number' | 'text' | 'bool' | 'list' | 'value' }[] {
-  const out = new Map<string, 'number' | 'text' | 'bool' | 'list' | 'value'>();
-  const add = (raw: string, kind: 'number' | 'text' | 'bool' | 'list' | 'value'): void => {
+export function bindingPaths(doc: UiDocument): { path: string; kind: 'number' | 'px' | 'text' | 'bool' | 'list' | 'value' }[] {
+  const out = new Map<string, 'number' | 'px' | 'text' | 'bool' | 'list' | 'value'>();
+  const add = (raw: string, kind: 'number' | 'px' | 'text' | 'bool' | 'list' | 'value'): void => {
     const p = raw.startsWith('!') ? raw.slice(1) : raw;
     if (p.startsWith('$item') || p.startsWith('$index')) return;
     if (!out.has(p)) out.set(p, kind);
   };
-  const bind = (v: unknown, kind: 'number' | 'text' | 'bool' | 'list' | 'value'): void => {
+  const bind = (v: unknown, kind: 'number' | 'px' | 'text' | 'bool' | 'list' | 'value'): void => {
     if (typeof v === 'object' && v !== null && typeof (v as { bind?: unknown }).bind === 'string') add((v as { bind: string }).bind, kind);
   };
   const go = (w: UiWidget): void => {
@@ -685,7 +690,10 @@ export function bindingPaths(doc: UiDocument): { path: string; kind: 'number' | 
       bind(w.value, 'number');
       bind(w.min, 'number');
       bind(w.max, 'number');
+      bind(w.startAngle, 'number');
     } else bind(w.value, 'text');
+    bind(w.size?.[0], 'px');
+    bind(w.size?.[1], 'px');
     bind(w.image, 'text');
     bind(w.items, 'list');
     bind(w.worldAnchor?.entity, 'text');
@@ -709,13 +717,13 @@ function writeMock(obj: Record<string, unknown>, segs: readonly string[], value:
   if (!(last in cur)) cur[last] = value;
 }
 
-/** Add a sample value for every bound path the mock lacks (a bar gets 0.5, a list three items, a text its path). */
+/** Add a sample value for every bound path the mock lacks (a bar gets 0.5, a bound size 100 px, a list three items, a text its path). */
 export function fillMock(doc: UiDocument, mock: Record<string, unknown>): Record<string, unknown> {
   const out = structuredClone(mock);
   for (const b of bindingPaths(doc)) {
     const segs = b.path.split('.');
     if (segs.length === 0 || segs.some((s) => s === '')) continue;
-    const sample = b.kind === 'number' ? 0.5 : b.kind === 'bool' ? true : b.kind === 'list' ? ['One', 'Two', 'Three'] : b.kind === 'text' ? segs[segs.length - 1]! : 7;
+    const sample = b.kind === 'number' ? 0.5 : b.kind === 'px' ? 100 : b.kind === 'bool' ? true : b.kind === 'list' ? ['One', 'Two', 'Three'] : b.kind === 'text' ? segs[segs.length - 1]! : 7;
     writeMock(out, segs, sample);
   }
   return out;

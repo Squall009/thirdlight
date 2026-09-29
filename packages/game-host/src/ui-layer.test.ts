@@ -286,3 +286,38 @@ describe('phase 23.16: content text, typewriter reveal and dialogue actions', ()
     expect(inputs).toEqual([{ kind: 'advance' }, { kind: 'choose', index: 1 }]);
   });
 });
+
+describe('phase 25.22: a bindable size and start angle', () => {
+  it('a bound size axis follows the view model (a non-number sizes it to the content); a radial bar\'s start angle binds', () => {
+    const DOC2: UiDocument = {
+      uiDocumentId: 'gauge',
+      name: 'Gauge',
+      root: {
+        type: 'panel',
+        children: [
+          { id: 'box', type: 'panel', anchor: [0, 0], size: [{ bind: 'hud.w' }, 20] },
+          { id: 'wide', type: 'panel', stretch: 'x', size: [{ bind: 'hud.w' }, { bind: 'hud.h' }] },
+          { id: 'ring', type: 'bar', shape: 'radial', size: [40, 40], value: 0.25, startAngle: { bind: 'hud.a' }, fillColor: '#ff0000' },
+        ],
+      },
+    };
+    const container = new El('div');
+    const l = createUiLayer({ dom: fakeDom as never, container: container as never, documents: [DOC2], readArtifact: async () => new ArrayBuffer(0), queueEvent: () => undefined, engineAction: () => undefined, viewport: () => ({ width: 800, height: 450 }) });
+    l.applyOutput({ set: [['hud', { w: 120, h: 30, a: 90 }]], commands: [], shown: [{ doc: 'gauge', layer: 0, modal: false }] });
+    l.frame();
+    expect(widget(container, 'box').style['width']).toBe('120px');
+    expect(widget(container, 'box').style['height']).toBe('20px');
+    // A stretched axis keeps its stretch; the other bound axis applies.
+    expect(widget(container, 'wide').style['width']).toBeUndefined();
+    expect(widget(container, 'wide').style['height']).toBe('30px');
+    const fill = () => widget(container, 'ring').children[0]!.style['background'];
+    expect(fill()).toContain('from 90deg');
+    l.applyOutput({ set: [['hud.w', 64], ['hud.a', -45]], commands: [] });
+    l.frame();
+    expect(widget(container, 'box').style['width']).toBe('64px');
+    expect(fill()).toContain('from -45deg');
+    l.applyOutput({ set: [['hud.w', 'wide']], commands: [] });
+    l.frame();
+    expect(widget(container, 'box').style['width']).toBe('');
+  });
+});

@@ -25,7 +25,7 @@ import type { DialogueInputRecord } from '@thirdlight/runtime';
 import { applyUiOutputToModel, readUiPath, uiPathSegments, type UiAction, type UiDocument, type UiEventRecord, type UiOutput, type UiShownDocument, type UiStyle, type UiTheme, type UiTween, type UiWidget } from '@thirdlight/runtime';
 import type { UiEdges } from './dom';
 import type { HostDom, HostDomNode } from './dom';
-import { GENERIC_FONTS, UI_BASE_CSS, childrenFlow, containerProps, fontFamilyOf, placementProps, styleRules, tweenKeyframes, type CssAssets, type CssProp } from './ui-css';
+import { GENERIC_FONTS, UI_BASE_CSS, boundSizeAxes, childrenFlow, containerProps, fontFamilyOf, placementProps, styleRules, tweenKeyframes, type CssAssets, type CssProp } from './ui-css';
 import { orderPick, spatialPick, type NavDirection, type NavRect } from './ui-nav';
 import { parseRichText, uiValueText, type RichToken } from './ui-text';
 import type { UiHitTarget } from './ui-hit';
@@ -157,6 +157,9 @@ interface Rec {
   textSpans?: UiNode[];
   barFill?: UiNode;
   barKey?: string;
+  /** Phase 25.22: the size axes bound to the view model ([width, height]) and the last applied values. */
+  sizeAxes?: [boolean, boolean];
+  sizeKey?: string;
   imageKey?: string;
   anchorEntity?: string | null;
   indicator?: Rec;
@@ -340,11 +343,13 @@ class DocView {
     if (scope.index !== undefined) el.setAttribute?.('data-index', String(scope.index));
     if (tag === 'button') el.setAttribute?.('type', 'button');
     if (anchored) {
-      setProps(el, [['position', 'absolute'], ['left', '0px'], ['top', '0px'], ...(w.size?.[0] != null ? [['width', `${w.size[0]}px`] as const] : []), ...(w.size?.[1] != null ? [['height', `${w.size[1]}px`] as const] : [])]);
+      setProps(el, [['position', 'absolute'], ['left', '0px'], ['top', '0px'], ...(typeof w.size?.[0] === 'number' ? [['width', `${w.size[0]}px`] as const] : []), ...(typeof w.size?.[1] === 'number' ? [['height', `${w.size[1]}px`] as const] : [])]);
       const pivot = w.pivot ?? [0.5, 0.5];
       setProp(el, 'transform', `translate(${-pivot[0] * 100}%, ${-pivot[1] * 100}%)`);
       rec.anchorEntity = null;
     } else setProps(el, placementProps(w, parentFlows));
+    const sizeAxes = boundSizeAxes(w, parentFlows);
+    if (sizeAxes[0] || sizeAxes[1]) rec.sizeAxes = sizeAxes;
     setProps(el, containerProps(w));
     // A world-anchored widget is placed in the document's own box (not its parent's), whatever its parent lays out.
     (anchored ? this.content : parent).appendChild(el);
@@ -465,6 +470,7 @@ class DocView {
         else rec.el.setAttribute?.('disabled', '');
       }
     }
+    if (rec.sizeAxes !== undefined) this.renderSize(rec);
     if (rec.tokens !== undefined && rec.textEl !== undefined) this.renderText(rec);
     if (w.type === 'image') this.renderImage(rec);
     if (w.type === 'bar') this.renderBar(rec);
@@ -591,6 +597,24 @@ class DocView {
     }
   }
 
+  /** Phase 25.22: a bound size axis (a number of px from the view model; anything else sizes it to the content). */
+  private renderSize(rec: Rec): void {
+    const axes = rec.sizeAxes!;
+    const size = rec.w.size!;
+    const px = (i: 0 | 1): string | null => {
+      if (!axes[i]) return null;
+      const v = this.resolve(size[i], rec.scope);
+      return typeof v === 'number' && Number.isFinite(v) ? `${Math.max(0, Math.min(16_384, v))}px` : null;
+    };
+    const w = px(0);
+    const h = px(1);
+    const key = `${w}|${h}`;
+    if (rec.sizeKey === key) return;
+    rec.sizeKey = key;
+    if (axes[0]) setProp(rec.el, 'width', w);
+    if (axes[1]) setProp(rec.el, 'height', h);
+  }
+
   private renderBar(rec: Rec): void {
     const w = rec.w;
     const num = (v: unknown, d: number): number => (typeof v === 'number' && Number.isFinite(v) ? v : d);
@@ -599,7 +623,10 @@ class DocView {
     const max = num(this.resolve(w.max, rec.scope), 1);
     const t = max > min ? Math.max(0, Math.min(1, (value - min) / (max - min))) : 0;
     const pct = Math.round(t * 10_000) / 100;
-    const key = String(pct);
+    // Phase 25.22: the start angle may read the view model.
+    const a = num(this.resolve(w.startAngle, rec.scope), 0);
+    const angle = Math.round(Math.max(-360, Math.min(360, a)) * 100) / 100;
+    const key = `${pct}|${angle}`;
     if (rec.barKey === key) return;
     rec.barKey = key;
     const fill = rec.barFill!;
@@ -607,7 +634,7 @@ class DocView {
     if (w.shape === 'radial') {
       const color = w.fillColor ?? '#ffffff';
       const ccw = w.direction === 'left';
-      setProps(fill, [['background', `conic-gradient(from ${w.startAngle ?? 0}deg, ${color} ${pct}%, transparent 0)`], ['border-radius', '50%'], ['transform', ccw ? 'scaleX(-1)' : 'none']]);
+      setProps(fill, [['background', `conic-gradient(from ${angle}deg, ${color} ${pct}%, transparent 0)`], ['border-radius', '50%'], ['transform', ccw ? 'scaleX(-1)' : 'none']]);
       return;
     }
     switch (w.direction ?? 'right') {

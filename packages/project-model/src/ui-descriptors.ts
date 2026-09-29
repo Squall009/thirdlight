@@ -126,7 +126,7 @@ const WIDGET: ObjectFieldDescriptor = obj('widget', 'Widget', 'One element of a 
   vec2('anchor', 'Anchor', 'Where in its parent the widget is pinned (0,0 top left – 1,1 bottom right).', { group: 'Layout', min: 0, max: 1, step: 0.05, default: [0, 0] }),
   vec2('pivot', 'Pivot', 'The point of the widget placed at the anchor (absent: the anchor).', { group: 'Layout', min: 0, max: 1, step: 0.05 }),
   vec2('offset', 'Offset', 'Distance from the anchor.', { group: 'Layout', min: -P, max: P, step: 1, unit: 'px', default: [0, 0] }),
-  vec2('size', 'Size', 'Width and height (a missing value sizes to the content).', { group: 'Layout', min: 0, max: P, step: 1, unit: 'px', labels: ['w', 'h'] }),
+  vec2('size', 'Size', 'Width and height (a missing value sizes to the content; an axis may be { "bind": "path" }, a number the view model holds).', { group: 'Layout', min: 0, max: P, step: 1, unit: 'px', labels: ['w', 'h'] }),
   enm('stretch', 'Stretch', 'Fill the parent along an axis (between the margins) instead of a size.', ['x', 'y', 'both'], { group: 'Layout', labels: { x: 'Width', y: 'Height', both: 'Both' } }),
   four('margin', 'Margin', 'Insets from the parent\'s edges while stretched: left, top, right, bottom (px).', -P, P, { group: 'Layout' }),
   num('grow', 'Grow', 'Share of the free space in a stack or list.', { group: 'Layout', min: 0, max: 100, step: 1 }),
@@ -161,7 +161,7 @@ const WIDGET: ObjectFieldDescriptor = obj('widget', 'Widget', 'One element of a 
   enm('direction', 'Fill direction', 'The way the bar fills (radial: right clockwise, left counter-clockwise).', ['right', 'left', 'up', 'down'], { group: 'Bar', when: when('type', 'bar'), default: 'right' }),
   color('fillColor', 'Fill colour', 'The filled part\'s colour.', { group: 'Bar', when: when('type', 'bar') }),
   json('fillStyle', 'Fill style', 'Styles of the filled part.', { group: 'Bar', when: when('type', 'bar'), typedBy: 'uiStyleRef' }),
-  num('startAngle', 'Start angle', 'Where a radial gauge starts (0 = up).', { group: 'Bar', when: when('type', 'bar'), min: -360, max: 360, step: 5, unit: 'deg' }),
+  binding('startAngle', 'Start angle', 'Where a radial gauge starts, degrees −360–360 (0 = up) — a number or a view-model path.', 'number', { group: 'Bar', when: when('type', 'bar') }),
   // List.
   binding('items', 'Items', 'The view-model array the template repeats for ($item and $index inside it).', undefined, { group: 'List', when: when('type', 'list'), required: true }),
   json('template', 'Template', 'The widget repeated for each item (edited in the hierarchy).', { when: when('type', 'list'), required: true, typedBy: 'uiWidget' }),

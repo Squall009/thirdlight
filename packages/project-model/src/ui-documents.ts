@@ -163,7 +163,8 @@ export interface UiWidget {
   anchor?: [number, number];
   pivot?: [number, number];
   offset?: [number, number];
-  size?: [number | null, number | null];
+  /** Phase 25.22: each axis a number, null (sized to the content) or a view-model binding. */
+  size?: [UiBindable<number> | null, UiBindable<number> | null];
   stretch?: 'x' | 'y' | 'both';
   margin?: [number, number, number, number];
   grow?: number;
@@ -205,7 +206,8 @@ export interface UiWidget {
   shape?: 'linear' | 'radial';
   fillColor?: UiColor;
   fillStyle?: string;
-  startAngle?: number;
+  /** Phase 25.22: a number or a view-model binding (degrees, 0 = up). */
+  startAngle?: UiBindable<number>;
   // button
   onClick?: UiAction | UiAction[];
   // list
@@ -595,7 +597,14 @@ function validateWidget(errors: ModelErrorV2[], v: unknown, path: string, refs: 
   tuple(errors, v['anchor'], `${path}/anchor`, 2, 0, 1, 'anchor');
   tuple(errors, v['pivot'], `${path}/pivot`, 2, 0, 1, 'pivot');
   tuple(errors, v['offset'], `${path}/offset`, 2, -P, P, 'offset');
-  tuple(errors, v['size'], `${path}/size`, 2, 0, P, 'size', true);
+  // Phase 25.22: an axis of the size may read the view model.
+  const size = v['size'];
+  if (size !== undefined) {
+    if (!Array.isArray(size) || size.length !== 2) err(errors, 'field_value', `${path}/size`, `size is [2 numbers 0–${P}, null or { "bind": "path" }]`, size, '2 numbers');
+    else size.forEach((x, i) => {
+      if (x !== null) bindable(errors, x, `${path}/size/${i}`, (n) => isNum(n, 0, P), `a size is a number 0–${P} or null`);
+    });
+  }
   oneOf(errors, v['stretch'], `${path}/stretch`, ['x', 'y', 'both'], 'stretch');
   tuple(errors, v['margin'], `${path}/margin`, 4, -P, P, 'margin');
   num(errors, v['grow'], `${path}/grow`, 0, 100, 'grow');
@@ -697,7 +706,7 @@ function validateWidget(errors: ModelErrorV2[], v: unknown, path: string, refs: 
       oneOf(errors, v['shape'], `${path}/shape`, ['linear', 'radial'], 'shape');
       color(errors, v['fillColor'], `${path}/fillColor`, 'fillColor');
       if (v['fillStyle'] !== undefined) styleRefs(errors, v['fillStyle'], `${path}/fillStyle`, refs);
-      num(errors, v['startAngle'], `${path}/startAngle`, -360, 360, 'startAngle');
+      bindable(errors, v['startAngle'], `${path}/startAngle`, (x) => isNum(x, -360, 360), 'startAngle is a number −360–360');
       break;
     case 'list': {
       const items = v['items'];

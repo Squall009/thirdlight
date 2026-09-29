@@ -112,8 +112,8 @@ export function placementProps(w: UiWidget, parentFlows: boolean): CssProp[] {
   const size = w.size ?? [null, null];
   if (parentFlows) {
     out.push(['position', 'relative']);
-    if (size[0] !== null) out.push(['width', px(size[0])]);
-    if (size[1] !== null) out.push(['height', px(size[1])]);
+    if (typeof size[0] === 'number') out.push(['width', px(size[0])]);
+    if (typeof size[1] === 'number') out.push(['height', px(size[1])]);
     if (w.grow !== undefined) out.push(['flex-grow', String(w.grow)]);
     if (w.stretch === 'x' || w.stretch === 'both') out.push(['align-self', 'stretch']);
     return out;
@@ -130,17 +130,31 @@ export function placementProps(w: UiWidget, parentFlows: boolean): CssProp[] {
   if (stretchX) out.push(['left', px(margin[0])], ['right', px(margin[2])]);
   else {
     out.push(['left', `calc(${anchor[0] * 100}% + ${px(offset[0])})`]);
-    if (size[0] !== null) out.push(['width', px(size[0])]);
+    if (typeof size[0] === 'number') out.push(['width', px(size[0])]);
     tx = `${-pivot[0] * 100}%`;
   }
   if (stretchY) out.push(['top', px(margin[1])], ['bottom', px(margin[3])]);
   else {
     out.push(['top', `calc(${anchor[1] * 100}% + ${px(offset[1])})`]);
-    if (size[1] !== null) out.push(['height', px(size[1])]);
+    if (typeof size[1] === 'number') out.push(['height', px(size[1])]);
     ty = `${-pivot[1] * 100}%`;
   }
   if (tx !== '0px' || ty !== '0px') out.push(['transform', `translate(${tx}, ${ty})`]);
   return out;
+}
+
+/**
+ * Phase 25.22: the axes of a widget's size that read the view model and
+ * apply (a stretched axis of a panel child ignores its size), as [width, height].
+ */
+export function boundSizeAxes(w: UiWidget, parentFlows: boolean): [boolean, boolean] {
+  const size = w.size;
+  if (size === undefined) return [false, false];
+  const bound = (v: unknown): boolean => typeof v === 'object' && v !== null && typeof (v as { bind?: unknown }).bind === 'string';
+  const anchored = w.worldAnchor !== undefined;
+  const sx = !parentFlows && !anchored && (w.stretch === 'x' || w.stretch === 'both');
+  const sy = !parentFlows && !anchored && (w.stretch === 'y' || w.stretch === 'both');
+  return [bound(size[0]) && !sx, bound(size[1]) && !sy];
 }
 
 const ALIGN: Readonly<Record<string, string>> = { start: 'flex-start', center: 'center', end: 'flex-end', stretch: 'stretch' };

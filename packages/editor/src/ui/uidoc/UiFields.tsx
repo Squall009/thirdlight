@@ -120,21 +120,32 @@ export function StyleRefField(p: { label: string; aria: string; value: unknown; 
   );
 }
 
-/** A widget's size: each axis a number, or empty for "fit the content". */
-export function SizeField(p: { value: [number | null, number | null] | undefined; aria: string; disabledAxes: readonly boolean[]; onChange: (v: [number | null, number | null] | undefined) => void }): JSX.Element {
-  const v = p.value ?? [null, null];
+/** A size axis: px, null (the content) or a view-model binding. */
+type SizeAxis = number | null | { bind: string };
+
+/**
+ * A widget's size: each axis a number, empty for "fit the content", or
+ * (phase 25.22) a view-model path whose number is the px size (`hud.width`).
+ */
+export function SizeField(p: { value: readonly unknown[] | undefined; aria: string; disabledAxes: readonly boolean[]; onChange: (v: [SizeAxis, SizeAxis] | undefined) => void }): JSX.Element {
+  const axisOf = (x: unknown): SizeAxis => (typeof x === 'number' ? x : isBinding(x) ? { bind: x.bind } : null);
+  const v: [SizeAxis, SizeAxis] = [axisOf(p.value?.[0]), axisOf(p.value?.[1])];
   const commit = (i: 0 | 1, raw: string): void => {
-    const next: [number | null, number | null] = [v[0], v[1]];
-    const n = Number(raw);
-    next[i] = raw.trim() === '' ? null : Number.isFinite(n) && n >= 0 && n <= 16_384 ? n : v[i];
+    const next: [SizeAxis, SizeAxis] = [v[0], v[1]];
+    const t = raw.trim();
+    const n = Number(t);
+    if (t === '') next[i] = null;
+    else if (Number.isFinite(n)) next[i] = n >= 0 && n <= 16_384 ? n : v[i];
+    else next[i] = /^[$A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*$/.test(t) ? { bind: t } : v[i];
     p.onChange(next[0] === null && next[1] === null ? undefined : next);
   };
+  const shown = (x: SizeAxis): string => (x === null ? '' : typeof x === 'number' ? String(x) : x.bind);
   return (
-    <div className="tl-desc__row tl-vec" data-field="size" title="Width and height in px; empty: sized to the content.">
+    <div className="tl-desc__row tl-vec" data-field="size" title="Width and height in px; empty: sized to the content; a view-model path (e.g. hud.width): the number it holds.">
       <span className="tl-field__label">Size (px)</span>
       <span className="tl-vec__nums">
         {(['w', 'h'] as const).map((l, i) => (
-          <CommitText key={l} aria={`${p.aria} ${l}`} placeholder={p.disabledAxes[i] === true ? 'stretch' : 'auto'} value={v[i] === null || v[i] === undefined ? '' : String(v[i])} onCommit={(raw) => commit(i as 0 | 1, raw)} />
+          <CommitText key={l} aria={`${p.aria} ${l}`} placeholder={p.disabledAxes[i] === true ? 'stretch' : 'auto'} value={shown(v[i]!)} onCommit={(raw) => commit(i as 0 | 1, raw)} />
         ))}
       </span>
     </div>

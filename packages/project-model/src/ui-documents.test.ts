@@ -67,8 +67,17 @@ describe('UI documents: shape and limits', () => {
       ['bad engine action', doc({ root: { type: 'button', onClick: { do: 'engine', action: 'explode' } as never } })],
       ['tinted 9-slice', doc({ root: { type: 'image', image: 'tex', slice: [4, 4, 4, 4], tint: '#fff' } })],
       ['bad action map', doc({ actionMap: 'combat' })],
+      ['size axis out of range', doc({ root: { type: 'panel', size: [-1, null] } })],
+      ['size of one axis', doc({ root: { type: 'panel', size: [10] as never } })],
+      ['bad size binding', doc({ root: { type: 'panel', size: [{ bind: 'a b' }, null] } })],
+      ['start angle out of range', doc({ root: { type: 'bar', value: 1, startAngle: 400 } })],
+      ['bad start angle binding', doc({ root: { type: 'bar', value: 1, startAngle: { bind: '' } } })],
     ];
     for (const [what, v] of cases) expect(errs(v).length, what).toBeGreaterThan(0);
+  });
+
+  it('phase 25.22: a size axis and a bar\'s start angle may read the view model', () => {
+    expect(errs(doc({ root: { type: 'panel', children: [{ type: 'panel', size: [{ bind: 'hud.w' }, 12] }, { type: 'bar', value: 0.5, shape: 'radial', startAngle: { bind: 'hud.angle' }, size: [null, { bind: '$item.h' }] }] } }))).toEqual([]);
   });
 
   it('keeps the engine limits: widgets, depth and bytes', () => {
