@@ -14,7 +14,7 @@
  * No I/O, no transport, no renderer: values in, values out.
  */
 
-import { CAMERA_PATH_FIELDS, VIRTUAL_CAMERA_FIELDS, validateCameraPathComponent, validateVirtualCameraComponent } from '@thirdlight/project-model';
+import { CAMERA_PATH_FIELDS, CAMERA_REGION_FIELDS, VIRTUAL_CAMERA_FIELDS, validateCameraPathComponent, validateCameraRegionComponent, validateVirtualCameraComponent } from '@thirdlight/project-model';
 import { validateBlockLayerComponent, validateBlockFootprintComponent } from '@thirdlight/project-model';
 import { validateBehaviorGroupComponent } from '@thirdlight/project-model';
 import { SOCKET_ATTACH_FIELDS, validateSocketAttachComponent } from '@thirdlight/project-model';
@@ -77,6 +77,8 @@ export const COMPONENT_FIELD_ORDER_V3: Record<V3OwnedComponent, readonly string[
   hitbox: ['shape', 'size', 'radius', 'damage'],
   climbVolume: ['size'],
   gravity: ['scale', 'size'],
+  // Phase 25.14: a camera region (project-model cameras.ts field order).
+  cameraRegion: CAMERA_REGION_FIELDS,
 };
 
 /** §8.13: `applySurfacePreset`'s `changedFields` (the surface field order). */
@@ -128,6 +130,8 @@ export const V3_COMPONENTS: readonly V3OwnedComponent[] = [
   // Phase 25.13: v4 scenes only.
   'climbVolume',
   'gravity',
+  // Phase 25.14: v4 scenes only.
+  'cameraRegion',
 ];
 
 /** Every component `setComponent` may address (commands.md §8.10). */
@@ -212,6 +216,9 @@ export function validateV3ComponentValue(
       break;
     case 'cameraPath':
       validateCameraPathComponent(value, path, errors as unknown as Parameters<typeof validateCameraPathComponent>[2]);
+      break;
+    case 'cameraRegion':
+      validateCameraRegionComponent(value, path, errors as unknown as Parameters<typeof validateCameraRegionComponent>[2]);
       break;
     case 'socketAttach':
       validateSocketAttachComponent(value, path, errors as unknown as Parameters<typeof validateSocketAttachComponent>[2]);

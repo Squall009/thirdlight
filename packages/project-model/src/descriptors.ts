@@ -57,7 +57,7 @@ import { DEFAULT_WIND, MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS
 import { MATERIAL_DATA_MAX, MATERIAL_PARAMETER_TYPES } from './material-graph-kinds';
 import { SOCKET_ATTACH_CONFLICTS, SOCKET_ATTACH_LIMITS } from './sockets';
 import { MODE_BLENDS, MODE_DEFAULTS, MODE_LIMITS, MODE_PHYSICS, MODE_UNGROUPED } from './modes';
-import { CAMERA_BLENDS, CAMERA_PATH_LIMITS, CAMERA_RAIL_MODES, VIRTUAL_CAMERA_DEFAULTS as VCD, VIRTUAL_CAMERA_LIMITS as VCL, VIRTUAL_CAMERA_RIGS } from './cameras';
+import { CAMERA_BLENDS, CAMERA_PATH_LIMITS, CAMERA_RAIL_MODES, CAMERA_REGION_DEFAULTS, CAMERA_REGION_LIMITS, VIRTUAL_CAMERA_DEFAULTS as VCD, VIRTUAL_CAMERA_LIMITS as VCL, VIRTUAL_CAMERA_RIGS } from './cameras';
 import { DIRECTIONAL_SHADOW_DEFAULTS, DIRECTIONAL_SHADOW_LIMITS, MAX_EMISSIVE_INTENSITY, MAX_INTENSITY, MAX_LOCAL_INTENSITY, SURFACE_DEFAULTS } from './scene-v3';
 import { MAX_INSTANCES, MAX_TAGS } from './types-v3';
 
@@ -71,7 +71,7 @@ export type DescriptorScalar = string | number | boolean;
 export type DescriptorUnit = 'm' | 'm/s' | 'm/s²' | 's' | 'deg' | 'deg/s' | 'cd' | '1/m' | 'points' | 'points/s' | '×' | 'Hz' | 'voices' | 'px';
 
 /** The Scene-view handle kinds (15.2 draws and drags them). */
-export const HANDLE_KINDS = ['box2', 'box3', 'radius', 'capsule', 'cone', 'direction', 'path', 'polygon', 'point', 'height'] as const;
+export const HANDLE_KINDS = ['box2', 'box3', 'radius', 'capsule', 'cone', 'direction', 'path', 'polygon', 'point', 'height', 'bounds'] as const;
 export type HandleKind = (typeof HANDLE_KINDS)[number];
 
 /**
@@ -92,6 +92,8 @@ export const HANDLE_ROLES: Readonly<Record<HandleKind, readonly (readonly string
   point: [['point']],
   // Phase 23.2: a height above the object's origin (or above the feet of a capsule, `from`), dragged up and down.
   height: [['height']],
+  // Phase 25.14: an axis-aligned box between two corners (a track camera's bounds), each corner dragged.
+  bounds: [['min', 'max']],
 };
 
 export const ASSET_KINDS = ['model', 'audio', 'texture', 'music', 'font'] as const;
@@ -315,7 +317,7 @@ export interface HandleDescriptor {
    * (`rotation`: a spot light's direction) or its whole transform, scale
    * included (`transform`: a box mesh's size).
    */
-  readonly follows?: 'rotationZ' | 'rotation' | 'transform';
+  readonly follows?: 'position' | 'rotationZ' | 'rotation' | 'transform';
   /** Phase 15.2 (`radius`): measured along X only (the engine compares horizontal distance) instead of in the X/Y plane. */
   readonly along?: 'x';
   /** Phase 15.2 (`radius` along X): a field (pointer) giving the half height of the band drawn with it (read, not dragged). */
@@ -326,6 +328,13 @@ export interface HandleDescriptor {
   readonly dimension?: 2 | 3;
   /** Phase 23.2 (`height`): a capsule field (pointer to its object) whose feet the height is measured from (read, not dragged). */
   readonly from?: string;
+  /**
+   * Phase 25.14: the frame's origin is another object — the one an entity
+   * field (pointer) names, plus an optional offset field — instead of this
+   * object (a track camera's dead zone sits around its target). Without that
+   * object the handle is not shown.
+   */
+  readonly anchor?: { readonly entity: string; readonly offset?: string };
 }
 
 /**
@@ -814,9 +823,13 @@ const virtualCamera: ComponentDescriptor = {
     num('collisionRadius', 'Collision radius', 'The clearance it keeps from what it is pulled in by.', { when: when('rig', 'follow'), min: VCL.collisionRadius.min, max: VCL.collisionRadius.max, step: 0.05, unit: 'm', default: VCD.collisionRadius }),
     // Phase 24.4g: the track rig — its offset from the framed point, the dead zone and the bounds (world axes).
     vec3('trackOffset', 'Offset', 'Where the camera sits relative to the point it frames (absent: where it is placed relative to the target at the start).', { when: TRACK, min: VCL.offset.min, max: VCL.offset.max, step: 0.5, unit: 'm' }),
-    vec3('deadZone', 'Dead zone', 'The box (width, height, depth) around the framed point the target moves in before the camera follows (0: always follows).', { when: TRACK, min: VCL.deadZone.min, max: VCL.deadZone.max, step: 0.1, unit: 'm', default: [0, 0, 0], labels: ['w', 'h', 'd'] }),
-    vec3('boundsMin', 'Bounds min', 'The framed point never goes below this on any axis (absent: no limit).', { when: TRACK, min: VCL.bounds.min, max: VCL.bounds.max, step: 0.5, unit: 'm' }),
-    vec3('boundsMax', 'Bounds max', 'The framed point never goes above this on any axis (absent: no limit).', { when: TRACK, min: VCL.bounds.min, max: VCL.bounds.max, step: 0.5, unit: 'm' }),
+    vec3('deadZone', 'Dead zone', 'The box (width, height, depth) around the framed point the target moves in before the camera follows (0: always follows).', { when: TRACK, min: VCL.deadZone.min, max: VCL.deadZone.max, step: 0.1, unit: 'm', default: [0, 0, 0], labels: ['w', 'h', 'd'], handle: 'box3' }),
+    vec3('boundsMin', 'Bounds min', 'The framed point never goes below this on any axis (absent: no limit).', { when: TRACK, min: VCL.bounds.min, max: VCL.bounds.max, step: 0.5, unit: 'm', handle: 'bounds' }),
+    vec3('boundsMax', 'Bounds max', 'The framed point never goes above this on any axis (absent: no limit).', { when: TRACK, min: VCL.bounds.min, max: VCL.bounds.max, step: 0.5, unit: 'm', handle: 'bounds' }),
+    // Phase 25.14: look-ahead (per axis; a vertical look-ahead is [0, t, 0]).
+    vec3('lookAhead', 'Look-ahead', 'Frames this many seconds of the target\'s movement ahead of it, per axis (0: none; a vertical look-ahead [0, t, 0] shows the ground below a fall).', { when: TRACK, min: VCL.lookAhead.min, max: VCL.lookAhead.max, step: 0.05, unit: 's', default: [0, 0, 0], labels: ['x', 'y', 'z'] }),
+    vec3('lookAheadMax', 'Look-ahead max', 'The farthest it looks ahead, per axis.', { when: TRACK, min: VCL.lookAheadMax.min, max: VCL.lookAheadMax.max, step: 0.5, unit: 'm', default: [...VCD.lookAheadMax], labels: ['x', 'y', 'z'] }),
+    num('lookAheadSmoothing', 'Look-ahead smoothing', 'How long a change of the target\'s speed takes to show in the look-ahead (0: at once).', { when: TRACK, min: VCL.lookAheadSmoothing.min, max: VCL.lookAheadSmoothing.max, step: 0.05, unit: 's', default: VCD.lookAheadSmoothing }),
     num('damping', 'Damping', 'How long it lags behind a moving target (0: rigid; the track rig\'s smoothing).', { when: DAMPED, min: VCL.damping.min, max: VCL.damping.max, step: 0.05, unit: 's', default: VCD.damping }),
     entity('path', 'Path', 'The object carrying the camera path it rides (none: it stays where it is placed).', { when: when('rig', 'rail'), component: 'cameraPath', anyScene: true }),
     num('progress', 'Progress', 'Where along the path it starts (0: the first point, 1: the end).', { when: when('rig', 'rail'), min: VCL.progress.min, max: VCL.progress.max, step: 0.01, default: VCD.progress }),
@@ -845,7 +858,12 @@ const virtualCamera: ComponentDescriptor = {
   // Phase 24.5: the track rig's shot as its own object (the target is picked in the Inspector; without one it frames where it is placed).
   create: [{ label: 'Camera track', menu: 'Cameras', value: { rig: 'track', deadZone: [2, 1, 2], damping: 0.2 } }],
   icon: 'camera',
-  handles: [{ kind: 'point', label: 'Orbit point', bind: { point: 'point' }, space: 'world', when: when('rig', 'orbitPoint') }],
+  handles: [
+    { kind: 'point', label: 'Orbit point', bind: { point: 'point' }, space: 'world', when: when('rig', 'orbitPoint') },
+    // Phase 25.14: the track rig's dead zone (around its target, where it frames it at the start) and bounds (world corners).
+    { kind: 'box3', label: 'Dead zone', bind: { size: 'deadZone' }, space: 'local', when: TRACK, anchor: { entity: 'target', offset: 'targetOffset' } },
+    { kind: 'bounds', label: 'Bounds', bind: { min: 'boundsMin', max: 'boundsMax' }, space: 'world', when: TRACK },
+  ],
   excludes: [
     { component: 'camera', reason: 'a virtual camera is a shot; the scene camera draws whichever shot is live' },
   ],
@@ -865,6 +883,40 @@ const cameraPath: ComponentDescriptor = {
   // A new path is a 6 m straight run sideways (a dolly move across a small set).
   add: { kind: 'menu', value: { points: [[0, 0, 0], [6, 0, 0]] } },
   handles: [{ kind: 'path', label: 'Path', bind: { points: 'points' }, space: 'local', loop: when('closed', true) }],
+  excludes: [],
+  prefab: false,
+};
+
+// Phase 25.14: a place where track cameras frame differently.
+const CRD = CAMERA_REGION_DEFAULTS;
+const CRL = CAMERA_REGION_LIMITS;
+const cameraRegion: ComponentDescriptor = {
+  name: 'cameraRegion',
+  label: 'Camera region',
+  tooltip: 'While a track camera\'s target is inside this box, the camera uses the region\'s dead zone, bounds and distance (each absent: the camera\'s own); entering or leaving blends between them. A room, a corridor, an arena, a vista: any place that frames differently.',
+  category: 'Camera',
+  value: obj('cameraRegion', 'Camera region', 'How track cameras frame while their target is inside.', [
+    vec3('size', 'Size', 'Width, height (and depth; absent: every depth), centred on the object along the world axes (its rotation is not used).', { required: true, min: CRL.size.min, max: CRL.size.max, step: 0.5, unit: 'm', default: [10, 6], labels: ['w', 'h', 'd'], handle: 'box2', optionalLast: true }),
+    entity('camera', 'Camera', 'The track camera it applies to (none: every track camera).', { component: 'virtualCamera', anyScene: true }),
+    int('priority', 'Priority', 'Where regions overlap the highest wins (on a tie: the one entered last).', { min: VCL.priority.min, max: VCL.priority.max, default: CRD.priority }),
+    vec3('deadZone', 'Dead zone', 'The camera\'s dead zone in here (absent: its own).', { min: VCL.deadZone.min, max: VCL.deadZone.max, step: 0.1, unit: 'm', labels: ['w', 'h', 'd'], handle: 'box3' }),
+    vec3('boundsMin', 'Bounds min', 'The framed point stays at or above this in here, from the region\'s position (absent: the camera\'s own).', { min: VCL.bounds.min, max: VCL.bounds.max, step: 0.5, unit: 'm', handle: 'bounds' }),
+    vec3('boundsMax', 'Bounds max', 'The framed point stays at or below this in here, from the region\'s position (absent: the camera\'s own).', { min: VCL.bounds.min, max: VCL.bounds.max, step: 0.5, unit: 'm', handle: 'bounds' }),
+    num('distance', 'Distance', 'The camera\'s distance from the framed point in here, along its offset (absent: its own offset).', { min: VCL.distance.min, max: VCL.distance.max, step: 0.5, unit: 'm' }),
+    num('blendTime', 'Blend time', 'How long entering or leaving blends the camera to its new framing (0: at once).', { min: VCL.blendTime.min, max: VCL.blendTime.max, step: 0.1, unit: 's', default: CRD.blendTime }),
+  ]),
+  // 10 × 6 m: a room about two storeys high (the default 1.8 m character several strides from wall to wall).
+  add: { kind: 'menu', value: { size: [10, 6] } },
+  create: [
+    { label: 'Camera region', menu: 'Cameras', dimension: 2 },
+    { label: 'Camera region', menu: 'Cameras', value: { size: [10, 6, 10] }, dimension: 3 },
+  ],
+  icon: 'camera',
+  handles: [
+    { kind: 'box2', label: 'Size', bind: { size: 'size' }, space: 'local', follows: 'position' },
+    { kind: 'bounds', label: 'Bounds', bind: { min: 'boundsMin', max: 'boundsMax' }, space: 'local' },
+    { kind: 'box3', label: 'Dead zone', bind: { size: 'deadZone' }, space: 'local' },
+  ],
   excludes: [],
   prefab: false,
 };
@@ -2105,6 +2157,7 @@ const COMPONENTS: readonly ComponentDescriptor[] = [
   camera,
   virtualCamera,
   cameraPath,
+  cameraRegion,
   socketAttach,
   light,
   playerSpawn,

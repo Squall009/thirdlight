@@ -28,7 +28,7 @@ import {
   limitsExceeded,
   settingUnknown,
 } from './errors';
-import { CAMERA_PATH_FIELDS, SOCKET_ATTACH_FIELDS, VIRTUAL_CAMERA_FIELDS, isValidSourcePath, type PropertyValue, type SettingsKeySpec } from '@thirdlight/project-model';
+import { CAMERA_PATH_FIELDS, CAMERA_REGION_FIELDS, SOCKET_ATTACH_FIELDS, VIRTUAL_CAMERA_FIELDS, isValidSourcePath, type PropertyValue, type SettingsKeySpec } from '@thirdlight/project-model';
 import { SURFACE_PRESET_NAMES } from './v3';
 import type {
   AcknowledgeBehaviorTrustArgs,
@@ -476,6 +476,7 @@ const COMPONENT_FIELDS: Record<string, readonly string[]> = {
   hitbox: ['shape', 'size', 'radius', 'damage'],
   climbVolume: ['size'],
   gravity: ['scale', 'size'],
+  cameraRegion: CAMERA_REGION_FIELDS,
 };
 
 const OWNED: readonly OwnedComponent[] = [
@@ -511,6 +512,7 @@ const OWNED: readonly OwnedComponent[] = [
   'hitbox',
   'climbVolume',
   'gravity',
+  'cameraRegion',
 ];
 // Phase 15.1: box, camera and model are added (a complete value) and removed
 // like every other component (the Inspector's "+ Add component").
@@ -547,6 +549,7 @@ const REMOVABLE: readonly OwnedComponent[] = [
   'hitbox',
   'climbVolume',
   'gravity',
+  'cameraRegion',
 ];
 /** The components whose ADD value may be `{}` (playerSpawn has no fields; the controller's capsule is optional). */
 // Phase 25.13: a gravity body's fields are all optional too (the project's gravity on a 1 m body).
@@ -743,7 +746,8 @@ export function validateSetComponentArgs(
     component === 'patrol' ||
     component === 'hitbox' ||
     component === 'climbVolume' ||
-    component === 'gravity'
+    component === 'gravity' ||
+    component === 'cameraRegion'
   ) {
     // The v3 field values (types, ranges, requiredness, the role-binding
     // stages) are the model's and the §41.3.2 helper's; nothing structural is

@@ -234,6 +234,8 @@ const CREATE_COMPONENTS: readonly string[] = [
   'gravity',
   // Phase 24.5: v4 scenes only (the GameObject menu's camera track is one createEntity).
   'virtualCamera',
+  // Phase 25.14: v4 scenes only (the GameObject menu's camera region).
+  'cameraRegion',
 ];
 
 /** Expected-text constants (the `expected` strings are log-safe, stable). */

@@ -4,7 +4,7 @@
  *
  * Every component of the selected object whose descriptor lists a handle
  * (`box2`, `box3`, `radius`, `capsule`, `cone`, `direction`,
- * `path`, `polygon`, `point`) and whose `when` holds becomes one
+ * `path`, `polygon`, `point`, `height`, `bounds`) and whose `when` holds becomes one
  * `HandleShape`: the bound fields read into a small geometric model, in the
  * handle's frame (world, or the object's position / rotation about Z /
  * rotation / whole transform — `follows`). The Scene view draws the model,
@@ -67,7 +67,9 @@ export type HandleModel =
   | { type: 'points'; pts: P3[]; dims: 2 | 3; closed: boolean; start: boolean; minItems: number; maxItems: number }
   | { type: 'point'; p: P3; dims: 2 | 3 }
   /** Phase 23.2: a height `h` above `base` (the capsule's feet, or the origin), along the frame's Y; `r` the drawn ring's radius. */
-  | { type: 'height'; base: P3; h: number; r: number };
+  | { type: 'height'; base: P3; h: number; r: number }
+  /** Phase 25.14: an axis-aligned box between two corners; `dims` 2 draws and drags it on the 2D plane (z kept). */
+  | { type: 'bounds'; min: P3; max: P3; dims: 2 | 3 };
 
 export interface HandleShape {
   entityId: string;
@@ -86,6 +88,8 @@ export interface HandleShape {
   value: Record<string, unknown>;
   bind: Readonly<Record<string, string>>;
   root: ObjectFieldDescriptor;
+  /** Phase 25.14: the frame sits on this object (plus `offset`) instead of the handle's own object. */
+  anchor?: { entityId: string; offset: P3 };
 }
 
 // ---- small helpers ------------------------------------------------------------
@@ -171,14 +175,24 @@ export function handleShapesOf(e: ProjectedEntity, reg: DescriptorRegistry | nul
       // Phase 23.2: a handle of one physics dimension shows only in a project of that dimension.
       if (h.dimension !== undefined && h.dimension !== dimension) return;
       if (!conditionsHold(root, raw, h.when)) return;
-      const shape = readShape(e.id, c.name, handleIndex, h, root, raw);
-      if (shape !== null) out.push(shape);
+      const shape = readShape(e.id, c.name, handleIndex, h, root, raw, dimension);
+      if (shape === null) return;
+      if (h.anchor !== undefined) {
+        // Phase 25.14: on another object (a track camera's target); none named: no handle.
+        const id = effective(root, raw, h.anchor.entity).v;
+        if (typeof id !== 'string' || id === '') return;
+        const o = h.anchor.offset !== undefined ? effective(root, raw, h.anchor.offset).v : undefined;
+        const off = Array.isArray(o) ? p3(N(o[0]), N(o[1]), N(o[2])) : p3(0, 0, 0);
+        out.push({ ...shape, anchor: { entityId: id, offset: off } });
+        return;
+      }
+      out.push(shape);
     });
   }
   return out;
 }
 
-function readShape(entityId: string, component: string, handleIndex: number, h: HandleDescriptor, root: ObjectFieldDescriptor, value: Obj): HandleShape | null {
+function readShape(entityId: string, component: string, handleIndex: number, h: HandleDescriptor, root: ObjectFieldDescriptor, value: Obj, dimension: 2 | 3): HandleShape | null {
   const at = (role: string): { v: unknown; f: FieldDescriptor | null } => effective(root, value, h.bind[role] ?? '');
   const limits: Record<string, Range> = {};
   const lim = (role: string, f: FieldDescriptor | null): void => {
@@ -199,7 +213,8 @@ function readShape(entityId: string, component: string, handleIndex: number, h: 
         if (v === null) return null;
         lim('size', s.f);
         const half = p3(v[0]! / 2, v[1]! / 2, dims === 3 ? v[2]! / 2 : 0);
-        return { ...base, ...(deep ? { frame: 'rotation' as const } : {}), model: { type: 'box', dims, roles: 'size', center: p3(0, 0, 0), half } };
+        // A deep box turns with the object unless the handle says it keeps to the world axes (Phase 25.14: `follows: 'position'`).
+        return { ...base, ...(deep && h.follows === undefined ? { frame: 'rotation' as const } : {}), model: { type: 'box', dims, roles: 'size', center: p3(0, 0, 0), half } };
       }
       if (h.bind['halfX'] !== undefined) {
         const hx = at('halfX');
@@ -291,8 +306,22 @@ function readShape(entityId: string, component: string, handleIndex: number, h: 
       }
       return { ...base, model: { type: 'height', base: feet, h: N(hv.v), r } };
     }
+    case 'bounds': {
+      // Phase 25.14: both corners set (one side alone has no box to draw).
+      const lo = at('min');
+      const hi = at('max');
+      const a = vec(lo.v, 3);
+      const b = vec(hi.v, 3);
+      if (a === null || b === null) return null;
+      lim('min', lo.f);
+      lim('max', hi.f);
+      return { ...base, model: { type: 'bounds', min: p3(a[0]!, a[1]!, a[2]!), max: p3(b[0]!, b[1]!, b[2]!), dims: dimension } };
+    }
   }
 }
+
+/** Phase 25.14: where a bounds box is drawn along z on the 2D plane (the plane itself, when the box spans it). */
+const planeZ = (m: { min: P3; max: P3 }): number => Math.min(m.max.z, Math.max(m.min.z, 0));
 
 // ---- grips --------------------------------------------------------------------
 
@@ -356,6 +385,20 @@ export function gripsOf(s: HandleShape): Grip[] {
       return [{ id: 'point', at: m.p, drag: 'plane', role: 'vertex' }];
     case 'height':
       return [{ id: 'height', at: p3(m.base.x + m.r, m.base.y + m.h, m.base.z), drag: 'axis', axis: p3(0, 1, 0), role: 'size' }];
+    case 'bounds': {
+      const z = m.dims === 2 ? planeZ(m) : null;
+      const g: Grip[] = [
+        { id: 'min', at: p3(m.min.x, m.min.y, z ?? m.min.z), drag: 'plane', role: 'size' },
+        { id: 'max', at: p3(m.max.x, m.max.y, z ?? m.max.z), drag: 'plane', role: 'size' },
+      ];
+      if (m.dims === 3) {
+        const cx = (m.min.x + m.max.x) / 2;
+        const cy = (m.min.y + m.max.y) / 2;
+        g.push({ id: 'minZ', at: p3(cx, cy, m.min.z), drag: 'axis', axis: p3(0, 0, 1), role: 'size' });
+        g.push({ id: 'maxZ', at: p3(cx, cy, m.max.z), drag: 'axis', axis: p3(0, 0, 1), role: 'size' });
+      }
+      return g;
+    }
   }
 }
 
@@ -468,6 +511,16 @@ export function dragGrip(s: HandleShape, id: string, p: P3, snap: boolean): Hand
     }
     case 'height':
       return { ...s, model: { ...m, h: round3(clamp(size(p.y - m.base.y), L['height'])) } };
+    case 'bounds': {
+      // Corners land on the translate grid, inside the fields' ranges, never past the other corner.
+      const step = getSnapSettings().translateM;
+      const put = (v: number, r: Range | undefined, lo: number, hi: number): number => round3(Math.min(hi, Math.max(lo, clamp(snapTo(v, step, snap), r))));
+      if (id === 'min') return { ...s, model: { ...m, min: p3(put(p.x, L['min'], -Infinity, m.max.x), put(p.y, L['min'], -Infinity, m.max.y), m.min.z) } };
+      if (id === 'max') return { ...s, model: { ...m, max: p3(put(p.x, L['max'], m.min.x, Infinity), put(p.y, L['max'], m.min.y, Infinity), m.max.z) } };
+      if (id === 'minZ') return { ...s, model: { ...m, min: { ...m.min, z: put(p.z, L['min'], -Infinity, m.max.z) } } };
+      if (id === 'maxZ') return { ...s, model: { ...m, max: { ...m.max, z: put(p.z, L['max'], m.min.z, Infinity) } } };
+      return s;
+    }
   }
 }
 
@@ -526,6 +579,8 @@ function fieldWrites(s: HandleShape): [string, DescriptorJson][] {
       return [[b['point']!, r3(m.p, m.dims)]];
     case 'height':
       return [[b['height']!, round3(m.h)]];
+    case 'bounds':
+      return [[b['min']!, r3(m.min, 3)], [b['max']!, r3(m.max, 3)]];
   }
 }
 
@@ -616,6 +671,14 @@ export function linesOf(s: HandleShape): P3[][] {
       const y = m.base.y + m.h;
       const ring = Array.from({ length: 33 }, (_, i) => p3(m.base.x + m.r * Math.cos((i / 32) * 2 * Math.PI), y, m.base.z + m.r * Math.sin((i / 32) * 2 * Math.PI)));
       return [ring, [p3(m.base.x + m.r, m.base.y, m.base.z), p3(m.base.x + m.r, y, m.base.z)]];
+    }
+    case 'bounds': {
+      const { min: a, max: b } = m;
+      if (m.dims === 2) return [rect(a.x, a.y, b.x, b.y, planeZ(m))];
+      const front = rect(a.x, a.y, b.x, b.y, b.z);
+      const back = rect(a.x, a.y, b.x, b.y, a.z);
+      const edges = [[a.x, a.y], [b.x, a.y], [b.x, b.y], [a.x, b.y]].map(([x, y]) => [p3(x!, y!, a.z), p3(x!, y!, b.z)]);
+      return [front, back, ...edges];
     }
   }
 }

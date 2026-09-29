@@ -247,6 +247,40 @@ describe('the Scene-view handles over the real registry and commands', () => {
     s = dragAndStore(s, track, 'cameraPath', 'path', 'p1', p3(5.9, 1.1), true, (v) => expect(v.points).toEqual([[0, 0, 0], [6, 1, 0]]));
   });
 
+  it('bounds, an anchored dead zone and a region box (phase 25.14): the track camera\'s and a camera region\'s handles', () => {
+    let s = fresh();
+    s = must(s, 'createEntity', { parentId: null, kind: 'group', name: 'Hero', transform: { position: [2, 1, 0] }, components: {} }, 'hero');
+    const hero = s.scene.entities.at(-1).id;
+    s = must(s, 'createEntity', { parentId: null, kind: 'group', name: 'Tracker', transform: { position: [2, 3, 12] }, components: { virtualCamera: { rig: 'track', target: hero, targetOffset: [0, 0.5, 0], deadZone: [2, 1, 0], boundsMin: [-4, -1, -2], boundsMax: [10, 6, 2] } } }, 'tracker');
+    const cam = s.scene.entities.at(-1).id;
+    const shapes = handleShapesOf(projected(s, cam), DESCRIPTORS, 2);
+    // The dead zone sits on the target (plus its offset), not on the camera.
+    const dz = shapes.find((x) => x.kind === 'box3')!;
+    expect(dz.anchor).toEqual({ entityId: hero, offset: p3(0, 0.5, 0) });
+    s = dragAndStore(s, cam, 'virtualCamera', 'box3', 'side', p3(1.52, 0, 0), true, (v) => expect(v.deadZone).toEqual([3.05, 1, 0]));
+    // Bounds: world corners on the translate grid, never past the other corner; z is kept on the 2D plane.
+    const b = shapes.find((x) => x.kind === 'bounds')!;
+    expect(b.frame).toBe('world');
+    expect(gripsOf(b).map((g) => g.id)).toEqual(['min', 'max']);
+    s = dragAndStore(s, cam, 'virtualCamera', 'bounds', 'max', p3(12.2, 5.1), true, (v) => expect([v.boundsMin, v.boundsMax]).toEqual([[-4, -1, -2], [12.25, 5, 2]]));
+    const past = commitValue(dragGrip(b, 'min', p3(40, 40), true)) as Any;
+    expect(past.value.boundsMin).toEqual([10, 6, -2]);
+    // 3D: depth grips move z.
+    const b3 = handleShapesOf(projected(s, cam), DESCRIPTORS, 3).find((x) => x.kind === 'bounds')!;
+    expect(gripsOf(b3).map((g) => g.id)).toEqual(['min', 'max', 'minZ', 'maxZ']);
+    expect((commitValue(dragGrip(b3, 'maxZ', p3(0, 0, 4), true)) as Any).value.boundsMax).toEqual([12.25, 5, 4]);
+    // Without both bounds, or without a target, those handles are not shown.
+    s = must(s, 'setComponent', { entityId: cam, component: 'virtualCamera', value: { boundsMax: null, target: null } }, 'no bounds max, no target');
+    expect(handleShapesOf(projected(s, cam), DESCRIPTORS, 2).map((x) => x.kind)).toEqual([]);
+    // A region: its size on the world axes (a deep one too), its bounds and dead zone from its position.
+    s = must(s, 'createEntity', { parentId: null, kind: 'group', name: 'Room', transform: { position: [20, 2, 0], rotation: [0, 0, 0.3826834, 0.9238795] }, components: { cameraRegion: { size: [10, 6, 4], boundsMin: [-3, -1, -1], boundsMax: [3, 1, 1], deadZone: [1, 1, 1] } } }, 'room');
+    const room = s.scene.entities.at(-1).id;
+    const rs = handleShapesOf(projected(s, room), DESCRIPTORS, 3);
+    expect(rs.map((x) => [x.kind, x.frame])).toEqual([['box2', 'position'], ['bounds', 'position'], ['box3', 'position']]);
+    s = dragAndStore(s, room, 'cameraRegion', 'box2', 'side', p3(6.02, 0, 0), true, (v) => expect(v.size).toEqual([12.05, 6, 4]));
+    s = dragAndStore(s, room, 'cameraRegion', 'bounds', 'min', p3(-4.1, -1, 0), true, (v) => expect(v.boundsMin).toEqual([-4, -1, -1]));
+  });
+
   it('polygon: corners drag, add on an edge, delete; a concave or inside-out shape is refused before any command', () => {
     let s = fresh();
     s = must(s, 'setComponent', { entityId: 'group-000001', component: 'collider', value: { shape: { type: 'polygon', vertices: [[-1, 0], [1, 0], [0, 1]] } } }, 'polygon');

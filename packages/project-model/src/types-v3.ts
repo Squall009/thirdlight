@@ -163,6 +163,8 @@ export interface EntityComponentsV3 extends EntityComponentsV2 {
   virtualCamera?: import('./cameras').VirtualCameraComponent;
   /** Phase 23.4, v4 only: a path rail cameras ride (offsets from the entity). */
   cameraPath?: import('./cameras').CameraPathComponent;
+  /** Phase 25.14, v4 only: a camera region (a track camera's dead zone, bounds and distance while its target is inside). */
+  cameraRegion?: import('./cameras').CameraRegionComponent;
   /** Phase 23.11, v4 only: rides on a named node of another entity's model (with an offset). */
   socketAttach?: import('./sockets').SocketAttachComponent;
   /** Phase 9.7, v4 only: the animator controller that plays the model's clips. */

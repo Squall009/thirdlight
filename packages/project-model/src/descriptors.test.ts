@@ -155,6 +155,13 @@ const ADJUST: Record<string, (o: Obj, v: number) => void> = {
   'virtualCamera:boundsMax': (o) => {
     if (Array.isArray(o['boundsMin'])) o['boundsMin'] = [-1e6, -1e6, -1e6];
   },
+  // Phase 25.14: a camera region's bounds (the other side moved out of the way).
+  'cameraRegion:boundsMin': (o) => {
+    if (Array.isArray(o['boundsMax'])) o['boundsMax'] = [1e6, 1e6, 1e6];
+  },
+  'cameraRegion:boundsMax': (o) => {
+    if (Array.isArray(o['boundsMin'])) o['boundsMin'] = [-1e6, -1e6, -1e6];
+  },
   'behaviors:*.declaration.properties.*.min': (o, v) => {
     o['max'] = Math.max(o['max'] as number, v);
   },
@@ -489,6 +496,13 @@ const COMPONENT_BASES: Record<string, J[]> = {
     { rig: 'rail', path: 'path-0001', progress: 0.25, railSpeed: 3, railMode: 'pingpong', target: 'spawn-0001' },
     // Phase 24.4g: the track rig.
     { rig: 'track', target: 'spawn-0001', trackOffset: [0, 2, 12], deadZone: [2, 1, 2], boundsMin: [-50, -10, -50], boundsMax: [50, 20, 50], damping: 0.2 },
+    // Phase 25.14: look-ahead.
+    { rig: 'track', target: 'spawn-0001', lookAhead: [0, 0.4, 0], lookAheadMax: [2, 3, 2], lookAheadSmoothing: 0.3 },
+  ],
+  // Phase 25.14: a camera region.
+  cameraRegion: [
+    { size: [20, 8, 4], camera: 'spawn-0001', priority: 2, deadZone: [3, 1, 0], boundsMin: [-5, -2, -1], boundsMax: [5, 2, 1], distance: 15, blendTime: 1 },
+    { size: [10, 6, 10] },
   ],
   cameraPath: [{ points: [[0, 0, 0], [4, 1, 0], [8, 0, 2]], closed: true, smooth: false }],
   light: LIGHTS,

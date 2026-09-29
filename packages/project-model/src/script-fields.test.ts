@@ -16,7 +16,7 @@ describe('phase 25.10: script access marks', () => {
     // A field renamed, unmarked or newly marked changes this digest. A rename or an unmarked field is a
     // schema change (bump the project schemaVersion with an upgrade, then re-pin here for the new version);
     // a new optional field or component (phase 25.12: the mover's signals; 25.13: the controller's climb and
-    // wall fields, climbVolume, gravity; the wall jump lock) only adds to what scripts
+    // wall fields, climbVolume, gravity; the wall jump lock; 25.14: look-ahead, cameraRegion) only adds to what scripts
     // read — nothing they read before changes — and re-pins for the same version.
     const digest = fnv(JSON.stringify(t));
     expect({ schemaVersion: t.schemaVersion, digest }).toEqual({ schemaVersion: 4, digest: PINNED_V4 });
@@ -79,7 +79,7 @@ describe('phase 25.10: script access marks', () => {
   });
 });
 
-const PINNED_V4 = 'aed5726f9aec526e';
+const PINNED_V4 = '9f6be6087632d259';
 
 /** 64-bit FNV-1a (two 32-bit lanes) of a text (project-model tests use no Node builtins). */
 function fnv(text: string): string {

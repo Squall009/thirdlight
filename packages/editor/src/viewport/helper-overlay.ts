@@ -29,7 +29,7 @@ const COLLIDER_COLOR = 0x7cfc00;
 const SIZE_HANDLE_COLOR = 0xffffff;
 
 /** Phase 9.9: gameplay block helpers (mover paths, trigger/switch/collectible/hitbox/patrol areas). */
-const BLOCK_COLORS = { mover: 0xffa53a, trigger: 0x3ad7ff, switch: 0xff5a8c, audioSource: 0x7fe0a0, collectible: 0xf2c230, hitbox: 0xff6a3a, patrol: 0xb05aff, climbVolume: 0x5ad18c, gravity: 0x9aa3b2 } as const;
+const BLOCK_COLORS = { mover: 0xffa53a, trigger: 0x3ad7ff, switch: 0xff5a8c, audioSource: 0x7fe0a0, collectible: 0xf2c230, hitbox: 0xff6a3a, patrol: 0xb05aff, climbVolume: 0x5ad18c, gravity: 0x9aa3b2, cameraRegion: 0xd0d6e0 } as const;
 
 /** Safe numeric read (positions are always 3-element). */
 const N = (v: number | undefined): number => v ?? 0;
@@ -186,6 +186,13 @@ export class HelperOverlay {
       return new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineDashedMaterial({ color, dashSize: 0.2, gapSize: 0.1 })).computeLineDistances();
     };
     for (const e of entities) {
+      // Phase 25.14: a camera region's box (dashed; its handles when selected).
+      const region = e.components['cameraRegion'] as { size?: number[] } | undefined;
+      if (Array.isArray(region?.size)) {
+        const box = rect(N(e.position[0]), N(e.position[1]), N(region.size[0]), N(region.size[1]), BLOCK_COLORS.cameraRegion);
+        box.name = `camera-region:${e.id}`;
+        this.blocks.add(box);
+      }
       const b = e.blocks;
       if (b === undefined) continue;
       const x = N(e.position[0]);
@@ -303,6 +310,11 @@ export class HelperOverlay {
   /** A handle's frame → world matrix: world, the object's position, + rotation about Z, + rotation, or its whole transform. */
   private frameMatrix(s: HandleShape): THREE.Matrix4 {
     const m = new THREE.Matrix4();
+    if (s.anchor !== undefined) {
+      // Phase 25.14: on another object's world position plus an offset (a track camera's target).
+      const at = this.anchorPosition(s.anchor.entityId) ?? new THREE.Vector3();
+      return m.makeTranslation(at.x + s.anchor.offset.x, at.y + s.anchor.offset.y, at.z + s.anchor.offset.z);
+    }
     if (s.frame === 'world') return m;
     const node = this.nodeFor(s.entityId);
     const e = this.entities.find((x) => x.id === s.entityId);
@@ -317,6 +329,17 @@ export class HelperOverlay {
     if (s.frame === 'position') return m.makeTranslation(pos.x, pos.y, pos.z);
     if (s.frame === 'rotationZ') return m.makeRotationZ(new THREE.Euler().setFromQuaternion(quat, 'ZYX').z).setPosition(pos);
     return m.compose(pos, quat, new THREE.Vector3(1, 1, 1));
+  }
+
+  /** Phase 25.14: an object's world position (its scene node, else its projected transform; null: not in the open scene). */
+  private anchorPosition(entityId: string): THREE.Vector3 | null {
+    const node = this.nodeFor(entityId);
+    if (node !== null) {
+      node.updateWorldMatrix(true, false);
+      return new THREE.Vector3().setFromMatrixPosition(node.matrixWorld);
+    }
+    const e = this.entities.find((x) => x.id === entityId);
+    return e === undefined ? null : new THREE.Vector3(N(e.position[0]), N(e.position[1]), N(e.position[2]));
   }
 
   private toWorld(i: number, p: P3): THREE.Vector3 {
@@ -346,7 +369,8 @@ export class HelperOverlay {
     this.handleFrames = [];
     const e = this.selectedId === null ? undefined : this.entities.find((x) => x.id === this.selectedId);
     if (e === undefined || !e.active || e.locked) return;
-    this.handleShapes = handleShapesOf(e, this.registry, this.physicsDimension);
+    // A handle anchored on an object that is not in the open scene is not shown.
+    this.handleShapes = handleShapesOf(e, this.registry, this.physicsDimension).filter((sh) => sh.anchor === undefined || this.anchorPosition(sh.anchor.entityId) !== null);
     this.handleFrames = this.handleShapes.map((s) => this.frameMatrix(s));
     this.handleShapes.forEach((shape, shapeIndex) => {
       this.handleOutlines.add(this.linesObject(shape, this.handleFrames[shapeIndex]!, SIZE_HANDLE_COLOR, 0.35));

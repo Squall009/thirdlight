@@ -68,7 +68,7 @@ test('the create menu lists the descriptors\' generic entries; each creates its 
   expect(top).toEqual(expect.arrayContaining(['Spawn point', 'Gameplay', 'Cameras', 'Light']));
   const gameplay = await submenu(page, 'Gameplay');
   expect(gameplay).toEqual(GAMEPLAY_2D);
-  expect(await submenu(page, 'Cameras')).toEqual(['Camera track']);
+  expect(await submenu(page, 'Cameras')).toEqual(['Camera track', 'Camera region']);
   expect(await submenu(page, 'Light')).toContain('Fog volume');
   for (const l of [...top, ...gameplay]) expect(l, l).not.toMatch(GENRE);
 
@@ -99,6 +99,7 @@ test('the create menu lists the descriptors\' generic entries; each creates its 
     [['Gameplay', 'Hitbox'], 'Hitbox', 'hitbox', 'hitbox'],
     [['Gameplay', 'Climb volume'], 'Climb volume', 'climbVolume', 'sensor'],
     [['Cameras', 'Camera track'], 'Camera track', 'virtualCamera', 'camera'],
+    [['Cameras', 'Camera region'], 'Camera region', 'cameraRegion', 'camera'],
     [['Light', 'Fog volume'], 'Fog volume', 'fogVolume', 'fog'],
   ];
   for (const [path, name, component] of expected) {
@@ -116,6 +117,7 @@ test('the create menu lists the descriptors\' generic entries; each creates its 
   expect(one('Collectible').components['collectible']).toEqual({ counter: 'items' });
   expect(one('Patrolling object').components['patrol']).toMatchObject({ mode: 'edges' });
   expect(one('Camera track').components['virtualCamera']).toMatchObject({ rig: 'track' });
+  expect(one('Camera region').components['cameraRegion']).toEqual({ size: [10, 6] });
   // No genre components were made.
   for (const e of all) for (const c of ['gameZone', 'pickup', 'enemy']) expect(e.components[c], `${e.name} ${c}`).toBeUndefined();
 
@@ -142,4 +144,7 @@ test('a 3D project\'s create menu shows the entries that fit 3D', async ({ page 
   await expect.poll(async () => (await entities()).filter((e) => e.name === 'Hitbox').map((e) => e.components['hitbox'])).toContainEqual({ size: [1, 1, 1] });
   await menu(page, 'GameObject', 'Gameplay', 'Trigger');
   await expect.poll(async () => (await entities()).filter((e) => e.name === 'Trigger').map((e) => e.components['trigger'])).toContainEqual({ size: [2, 2, 2], signal: 'trigger' });
+  // Phase 25.14: a camera region has a depth in 3D.
+  await menu(page, 'GameObject', 'Cameras', 'Camera region');
+  await expect.poll(async () => (await entities()).filter((e) => e.name === 'Camera region').map((e) => e.components['cameraRegion'])).toContainEqual({ size: [10, 6, 10] });
 });

@@ -1595,7 +1595,7 @@ platform (2D plane), a moving platform, a door (opens on the signal
 `open`), a trigger, a scene transition (a trigger that moves the character
 to another scene; needs a second scene), a switch (2D plane), an object
 with health, a collectible, a patrolling object and a hitbox; **Cameras**
-→ a camera track; **Light** → a fog volume. A 3D project gets the 3D forms
+→ a camera track and a camera region; **Light** → a fog volume. A 3D project gets the 3D forms
 (colliders, hitboxes and triggers with a depth). The hierarchy and Scene
 view icons come from the descriptors too. Any object can get these in the Inspector
 ("+ Add component", Gameplay):
@@ -1725,6 +1725,21 @@ Generic again: both dimensions.
   follows its target at its placed offset (or **Offset**), moving only when
   the target leaves the **Dead zone** box, lagging by **Damping**, and keeping
   the framed point inside **Bounds min/max**. No fixed camera distance.
+  Phase 25.14: **Look-ahead** frames that many seconds of the target's
+  movement ahead of it, per axis (a vertical look-ahead `[0, t, 0]` shows the
+  ground below a fall), capped by **Look-ahead max** (3 m) and eased by
+  **Look-ahead smoothing** (0.2 s). With the camera selected the Scene view
+  shows the dead zone around its target and the bounds box, each dragged by
+  its grips (one undo step).
+- **Camera region** (phase 25.14; GameObject → Cameras → Camera region): a
+  box on the world axes (no depth: every depth). While a track camera's
+  target is inside, the camera uses the region's **Dead zone**, **Bounds**
+  (from the region's position) and **Distance** (along its offset), each
+  absent one keeping the camera's own; entering or leaving blends over the
+  region's **Blend time** (0.5 s). **Camera** limits it to one track camera;
+  overlapping regions: the highest **Priority**, then the one entered last.
+  Scene handles for its size, bounds and dead zone. `tl_game_observe`
+  reports the live camera's `region`.
 - **Look overrides**: `ctx.look.set(id, {emissive, emissiveIntensity, tint})`
   glows and tints an object on both renderers until `ctx.look.clear(id)` or a
   new run (`ctx.look.get(id)` reads it; saved in the `components` section).

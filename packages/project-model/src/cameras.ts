@@ -22,9 +22,22 @@
  *     point it frames, smoothed by `damping`, kept inside optional bounds
  *     (`boundsMin`/`boundsMax`, per axis) — a side view, a fixed-angle
  *     top-down or isometric view, a 3D chase that does not turn.
+ *   Phase 25.14: a track camera may look ahead of a moving target
+ *   (`lookAhead` seconds per axis — a vertical look-ahead is `[0, t, 0]` —
+ *   capped at `lookAheadMax`, its velocity eased over `lookAheadSmoothing`),
+ *   and camera regions change its dead zone, bounds and distance while the
+ *   target is inside one.
  *   Each camera also sets how the view blends to it (cut, linear, eased over
  *   `blendTime`), its lens (`fovY`, `near`, `far`: absent = the scene camera's),
  *   a letterbox amount and a constant shake.
+ * - `cameraRegion` (phase 25.14): an axis-aligned box (centred on its object;
+ *   the object's rotation is not used) that, while a track camera's target is
+ *   inside it, gives that camera its own dead zone, bounds (offsets from the
+ *   region's position, so the region carries them when it is moved or
+ *   placed from a prefab) and distance (along the camera's offset), each
+ *   absent field keeping the camera's own. Entering or leaving blends the
+ *   change over the region's `blendTime`. Overlapping regions: the highest
+ *   `priority`, then the one entered last, then the first loaded.
  * - `cameraPath`: points (offsets from the entity, like a mover's waypoints)
  *   a rail camera rides — a separate object so several cameras (and later the
  *   sequencer) can share one path; drawn and edited with the path handle.
@@ -59,7 +72,11 @@ export type CameraRailMode = (typeof CAMERA_RAIL_MODES)[number];
  * - collisionRadius 0.2 m: a head's width of clearance from walls;
  * - damping 0 s: rigid (the camera sits exactly where its rig says);
  * - blend eased over 0.5 s: reads as a camera move without holding up play;
- * - shakeFrequency 8 Hz: a handheld/impact tremor, not a vibration.
+ * - shakeFrequency 8 Hz: a handheld/impact tremor, not a vibration;
+ * - lookAheadMax 3 m per axis: about a storey or a few strides — the ground
+ *   below a fall or the way ahead shows, the target never leaves the view;
+ * - lookAheadSmoothing 0.2 s: a take-off or a landing eases the look-ahead in
+ *   and out instead of snapping the view.
  */
 export const VIRTUAL_CAMERA_DEFAULTS = Object.freeze({
   priority: 0,
@@ -88,6 +105,8 @@ export const VIRTUAL_CAMERA_DEFAULTS = Object.freeze({
   shakeAmplitude: 0,
   shakeFrequency: 8,
   shakeRotation: 0,
+  lookAheadMax: Object.freeze([3, 3, 3]) as readonly [number, number, number],
+  lookAheadSmoothing: 0.2,
 });
 
 /** The ranges of the numeric fields (engine limits that keep the maths sane). */
@@ -120,6 +139,10 @@ export const VIRTUAL_CAMERA_LIMITS = Object.freeze({
   deadZone: { min: 0, max: 1000 },
   /** Phase 24.4g: a track camera's bounds (m). */
   bounds: { min: -1e6, max: 1e6 },
+  /** Phase 25.14: a track camera's look-ahead (s of the target's velocity, per axis), its cap (m) and smoothing (s). */
+  lookAhead: { min: 0, max: 10 },
+  lookAheadMax: { min: 0, max: 1000 },
+  lookAheadSmoothing: { min: 0, max: 10 },
 });
 
 export interface VirtualCameraComponent {
@@ -177,6 +200,12 @@ export interface VirtualCameraComponent {
   boundsMin?: [number, number, number];
   /** Phase 24.4g, track: the framed point stays at or below this, per axis (absent: no limit). */
   boundsMax?: [number, number, number];
+  /** Phase 25.14, track: seconds of the target's velocity it looks ahead, per axis (absent: none; a vertical look-ahead is [0, t, 0]). */
+  lookAhead?: [number, number, number];
+  /** Phase 25.14, track: the most it looks ahead, per axis (m; absent: 3). */
+  lookAheadMax?: [number, number, number];
+  /** Phase 25.14, track: how long the target's velocity takes to ease in (s; absent: 0.2; 0: at once). */
+  lookAheadSmoothing?: number;
 }
 
 export interface CameraPathComponent {
@@ -232,6 +261,10 @@ export const VIRTUAL_CAMERA_FIELDS = [
   'deadZone',
   'boundsMin',
   'boundsMax',
+  // Phase 25.14: last again.
+  'lookAhead',
+  'lookAheadMax',
+  'lookAheadSmoothing',
 ] as const;
 export const CAMERA_PATH_FIELDS = ['points', 'closed', 'smooth'] as const;
 export const CAMERA_PATH_LIMITS = Object.freeze({ minPoints: 2, maxPoints: 64, coordinate: 1e6 });
@@ -297,7 +330,7 @@ export function validateVirtualCameraComponent(value: unknown, path: string, err
   if (value['point'] !== undefined && !vec3(value['point'], VIRTUAL_CAMERA_LIMITS.point.min, VIRTUAL_CAMERA_LIMITS.point.max)) err(errors, 'field_value', `${path}/point`, 'point is [x, y, z] metres', value['point']);
   // Phase 24.4g: the track rig's offset, dead zone and bounds (only a track camera reads them).
   const track = rig === 'track';
-  for (const k of ['trackOffset', 'deadZone', 'boundsMin', 'boundsMax'] as const) {
+  for (const k of ['trackOffset', 'deadZone', 'boundsMin', 'boundsMax', 'lookAhead', 'lookAheadMax', 'lookAheadSmoothing'] as const) {
     if (value[k] !== undefined && !track) err(errors, 'field_unexpected', `${path}/${k}`, `only a track camera has ${k}`, value[k]);
   }
   if (track) {
@@ -309,6 +342,11 @@ export function validateVirtualCameraComponent(value: unknown, path: string, err
     const lo = value['boundsMin'];
     const hi = value['boundsMax'];
     if (vec3(lo, -Infinity, Infinity) && vec3(hi, -Infinity, Infinity) && (lo as number[]).some((x, i) => x > (hi as number[])[i]!)) err(errors, 'field_value', `${path}/boundsMax`, 'boundsMax is at least boundsMin on every axis', hi);
+    // Phase 25.14: look-ahead.
+    const L = VIRTUAL_CAMERA_LIMITS;
+    if (value['lookAhead'] !== undefined && !vec3(value['lookAhead'], L.lookAhead.min, L.lookAhead.max)) err(errors, 'field_value', `${path}/lookAhead`, `lookAhead is [x, y, z] seconds, each ${L.lookAhead.min}–${L.lookAhead.max}`, value['lookAhead']);
+    if (value['lookAheadMax'] !== undefined && !vec3(value['lookAheadMax'], L.lookAheadMax.min, L.lookAheadMax.max)) err(errors, 'field_value', `${path}/lookAheadMax`, `lookAheadMax is [x, y, z] metres, each ${L.lookAheadMax.min}–${L.lookAheadMax.max}`, value['lookAheadMax']);
+    if (value['lookAheadSmoothing'] !== undefined && !num(value['lookAheadSmoothing'], L.lookAheadSmoothing.min, L.lookAheadSmoothing.max)) err(errors, 'field_value', `${path}/lookAheadSmoothing`, `lookAheadSmoothing is ${L.lookAheadSmoothing.min}–${L.lookAheadSmoothing.max} s`, value['lookAheadSmoothing']);
   }
   for (const [k, lim] of NUMBER_FIELDS) {
     const v = value[k];
@@ -359,4 +397,67 @@ export function canonicalCameraPath(c: CameraPathComponent): CameraPathComponent
     ...(c.closed !== undefined ? { closed: c.closed } : {}),
     ...(c.smooth !== undefined ? { smooth: c.smooth } : {}),
   };
+}
+
+// ---- Phase 25.14: camera regions -------------------------------------------------
+
+/** Blend 0.5 s: the camera blend's own default (a region change reads as a camera move). */
+export const CAMERA_REGION_DEFAULTS = Object.freeze({ priority: 0, blendTime: VIRTUAL_CAMERA_DEFAULTS.blendTime });
+/** A region spans 5 cm (a doorway's sliver) to 100 km (a whole world). */
+export const CAMERA_REGION_LIMITS = Object.freeze({ size: { min: 0.05, max: 100000 } });
+
+export interface CameraRegionComponent {
+  /** Width, height (and depth; absent: every depth), centred on the object, along the world axes. */
+  size: [number, number] | [number, number, number];
+  /** The track camera it applies to (absent: every track camera). */
+  camera?: string;
+  /** Overlapping regions: the highest wins (absent: 0). */
+  priority?: number;
+  /** The camera's dead zone while its target is inside (absent: the camera's own). */
+  deadZone?: [number, number, number];
+  /** Bounds of the framed point, offsets from the region's position (absent: the camera's own). */
+  boundsMin?: [number, number, number];
+  boundsMax?: [number, number, number];
+  /** The camera's distance from the framed point, along its offset (absent: the camera's own offset). */
+  distance?: number;
+  /** How long entering or leaving blends (s; absent: 0.5; 0: at once). */
+  blendTime?: number;
+}
+
+export const CAMERA_REGION_FIELDS = ['size', 'camera', 'priority', 'deadZone', 'boundsMin', 'boundsMax', 'distance', 'blendTime'] as const;
+
+export function validateCameraRegionComponent(value: unknown, path: string, errors: ModelErrorV2[]): void {
+  if (!isPlainObject(value)) return err(errors, 'field_type', path, 'a cameraRegion component is an object { size, … }', value);
+  for (const k of Object.keys(value)) {
+    if (!(CAMERA_REGION_FIELDS as readonly string[]).includes(k)) err(errors, 'field_unexpected', `${path}/${k}`, `unknown field "${k}"`, k, CAMERA_REGION_FIELDS.join(', '));
+  }
+  const L = VIRTUAL_CAMERA_LIMITS;
+  const size = value['size'];
+  const S = CAMERA_REGION_LIMITS.size;
+  if (size === undefined) err(errors, 'field_missing', `${path}/size`, '"size" is required', undefined, 'size');
+  else if (!(Array.isArray(size) && (size.length === 2 || size.length === 3) && size.every((x) => num(x, S.min, S.max)))) err(errors, 'field_value', `${path}/size`, `size is [w, h] or [w, h, d] metres, each ${S.min}–${S.max}`, size);
+  const cam = value['camera'];
+  if (cam !== undefined && (typeof cam !== 'string' || !ENTITY_ID_RE.test(cam))) err(errors, 'field_value', `${path}/camera`, 'camera names an entity (an entity id)', cam);
+  const p = value['priority'];
+  if (p !== undefined && !(num(p, L.priority.min, L.priority.max) && Number.isInteger(p))) err(errors, 'field_value', `${path}/priority`, 'priority is a whole number −1000–1000', p);
+  if (value['deadZone'] !== undefined && !vec3(value['deadZone'], L.deadZone.min, L.deadZone.max)) err(errors, 'field_value', `${path}/deadZone`, 'deadZone is [w, h, d] metres, each 0–1000', value['deadZone']);
+  for (const k of ['boundsMin', 'boundsMax'] as const) {
+    if (value[k] !== undefined && !vec3(value[k], L.bounds.min, L.bounds.max)) err(errors, 'field_value', `${path}/${k}`, `${k} is [x, y, z] metres from the region's position`, value[k]);
+  }
+  const lo = value['boundsMin'];
+  const hi = value['boundsMax'];
+  if (vec3(lo, -Infinity, Infinity) && vec3(hi, -Infinity, Infinity) && (lo as number[]).some((x, i) => x > (hi as number[])[i]!)) err(errors, 'field_value', `${path}/boundsMax`, 'boundsMax is at least boundsMin on every axis', hi);
+  if (value['distance'] !== undefined && !num(value['distance'], L.distance.min, L.distance.max)) err(errors, 'field_value', `${path}/distance`, `distance is ${L.distance.min}–${L.distance.max}`, value['distance']);
+  if (value['blendTime'] !== undefined && !num(value['blendTime'], L.blendTime.min, L.blendTime.max)) err(errors, 'field_value', `${path}/blendTime`, `blendTime is ${L.blendTime.min}–${L.blendTime.max}`, value['blendTime']);
+}
+
+export function canonicalCameraRegion(c: CameraRegionComponent): CameraRegionComponent {
+  const out: Record<string, unknown> = {};
+  const src = c as unknown as Record<string, unknown>;
+  for (const k of CAMERA_REGION_FIELDS) {
+    const v = src[k];
+    if (v === undefined) continue;
+    out[k] = Array.isArray(v) ? [...(v as number[])] : v;
+  }
+  return out as unknown as CameraRegionComponent;
 }

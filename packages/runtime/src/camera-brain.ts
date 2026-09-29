@@ -89,7 +89,37 @@ export interface VirtualCameraData {
   readonly deadZone?: readonly number[];
   readonly boundsMin?: readonly number[];
   readonly boundsMax?: readonly number[];
+  /** Phase 25.14 (track): look-ahead seconds per axis, its cap (m) and smoothing (s). */
+  readonly lookAhead?: readonly number[];
+  readonly lookAheadMax?: readonly number[];
+  readonly lookAheadSmoothing?: number;
 }
+
+/** Phase 25.14: the cameraRegion component as the brain reads it (project-model `CameraRegionComponent`). */
+export interface CameraRegionData {
+  readonly size: readonly number[];
+  readonly camera?: string;
+  readonly priority?: number;
+  readonly deadZone?: readonly number[];
+  readonly boundsMin?: readonly number[];
+  readonly boundsMax?: readonly number[];
+  readonly distance?: number;
+  readonly blendTime?: number;
+}
+
+/**
+ * Phase 25.14: the track settings a region changes — the dead zone's half
+ * size, the bounds of the framed point (±Infinity: none) and the distance
+ * along the offset (null: the offset as it is).
+ */
+interface TrackParams {
+  readonly half: V3;
+  readonly lo: V3;
+  readonly hi: V3;
+  readonly dist: number | null;
+}
+/** Where a region blend starts: settings, or a blend frozen where it was interrupted. */
+type TrackSource = { readonly p: TrackParams } | { readonly from: TrackSource; readonly to: TrackParams; readonly w: number };
 
 /** The cameraPath component as the brain reads it. */
 export interface CameraPathData {
@@ -117,6 +147,8 @@ const D = {
   railSpeed: 0,
   blendTime: 0.5,
   shakeFrequency: 8,
+  lookAheadMax: 3,
+  lookAheadSmoothing: 0.2,
 } as const;
 
 /** Engine limit: live shake impulses at once (the oldest is dropped past it). */
@@ -165,6 +197,8 @@ export interface CameraViewInfo {
   readonly letterbox: number;
   /** The shake applied this step (m). */
   readonly shake: number;
+  /** Phase 25.14: the camera region the live track camera is in (null: none; absent: no region loaded, or not a track camera). */
+  readonly region?: string | null;
 }
 
 interface CamState {
@@ -193,6 +227,16 @@ interface CamState {
   pivot: V3 | null;
   /** Phase 24.4g (track): the offset from the framed point (resolved on its first evaluation when not authored). */
   trackOffset: V3 | null;
+  /** Phase 25.14 (track): the camera region its target is in, when each region was entered, the settings in force and a blend between them. */
+  region: string | null;
+  readonly regionEntered: Map<string, number>;
+  regionParams: TrackParams | null;
+  /** The camera's own settings (its data does not change during a run). */
+  ownParams: TrackParams | null;
+  regionBlend: { from: TrackSource; steps: number; total: number } | null;
+  /** Phase 25.14 (track): the target's last point and its eased velocity (look-ahead). */
+  lookLast: V3 | null;
+  readonly lookVel: V3;
   readonly pose: CameraPose;
 }
 
@@ -222,6 +266,12 @@ export class CameraBrain {
   private readonly hz: number;
   private stepCount = 0;
   private readonly cams = new Map<string, CamState>();
+  /** Phase 25.14: the loaded camera regions, in load order. */
+  private readonly regions = new Map<string, CameraRegionData>();
+  private regionSerial = 0;
+  private readonly regionPos: number[] = [0, 0, 0];
+  private readonly regionRot: number[] = [0, 0, 0, 1];
+  private readonly aimAt: V3 = [0, 0, 0];
   private readonly paths = new Map<string, { data: CameraPathData; sampled: SampledPath }>();
   private order = 0;
   private serialCounter = 0;
@@ -273,7 +323,7 @@ export class CameraBrain {
     this.hz = hz;
   }
 
-  /** Any virtual camera loaded (the runtime steps the brain only then). */
+  /** Any virtual camera loaded (the runtime steps the brain only then; regions alone do nothing). */
   get active(): boolean {
     return this.cams.size > 0;
   }
@@ -281,7 +331,8 @@ export class CameraBrain {
   /** Entities came in (scene loads, the start set): their cameras and paths. */
   add(entities: readonly { id: string; components: unknown }[]): void {
     for (const e of entities) {
-      const c = e.components as { virtualCamera?: VirtualCameraData; cameraPath?: CameraPathData };
+      const c = e.components as { virtualCamera?: VirtualCameraData; cameraPath?: CameraPathData; cameraRegion?: CameraRegionData };
+      if (c.cameraRegion !== undefined && Array.isArray(c.cameraRegion.size) && c.cameraRegion.size.length >= 2) this.regions.set(e.id, c.cameraRegion);
       if (c.cameraPath !== undefined && Array.isArray(c.cameraPath.points) && c.cameraPath.points.length >= 2) {
         this.paths.set(e.id, { data: c.cameraPath, sampled: samplePath(c.cameraPath.points, c.cameraPath.closed === true, c.cameraPath.smooth !== false) });
       }
@@ -294,6 +345,7 @@ export class CameraBrain {
     for (const id of ids) {
       this.cams.delete(id);
       this.paths.delete(id);
+      this.regions.delete(id);
     }
   }
 
@@ -308,6 +360,7 @@ export class CameraBrain {
     this.started = false;
     this.serialCounter = 0;
     this.impulseSerial = 0;
+    this.regionSerial = 0;
     this.stepCount = 0;
     this.time = 0;
     this.overrideId = null;
@@ -360,6 +413,13 @@ export class CameraBrain {
       letterbox: num(d.letterbox, 0),
       pivot: null,
       trackOffset: Array.isArray(d.trackOffset) && d.trackOffset.length === 3 ? [num(d.trackOffset[0], 0), num(d.trackOffset[1], 0), num(d.trackOffset[2], 0)] : null,
+      region: null,
+      regionEntered: new Map(),
+      regionParams: null,
+      ownParams: null,
+      regionBlend: null,
+      lookLast: null,
+      lookVel: [0, 0, 0],
       pose: newPose(),
     };
   }
@@ -812,7 +872,7 @@ export class CameraBrain {
       return;
     }
     if (d.rig === 'track') {
-      this.evaluateTrack(s, haveTarget, target, haveSelf, selfPos, selfRot, dt);
+      this.evaluateTrack(s, haveTarget, target, haveSelf, selfPos, selfRot, world, dt);
       return;
     }
     // follow / orbitPoint / topDown: around a pivot.
@@ -866,8 +926,18 @@ export class CameraBrain {
    * it first evaluated (so a camera placed 12 m in front of a character keeps
    * that framing, whatever the depth). Without a target it stays where it is
    * placed.
+   *
+   * Phase 25.14: with `lookAhead` the dead zone follows a point ahead of the
+   * target — its velocity (eased over `lookAheadSmoothing`) times the
+   * look-ahead seconds, per axis, capped at `lookAheadMax`. A camera region
+   * the target is in replaces the dead zone, the bounds and the distance
+   * along the offset; entering or leaving one blends the old settings into
+   * the new (eased over the region's blend time: the entered region's, or
+   * the left one's when entering none). Bounds blend as the two clamped
+   * points, so a bound that appears or goes away moves the view smoothly.
+   * Without look-ahead and regions the maths is the 24.4g rig's, bit for bit.
    */
-  private evaluateTrack(s: CamState, haveTarget: boolean, target: V3, haveSelf: boolean, selfPos: readonly number[], selfRot: readonly number[], dt: number): void {
+  private evaluateTrack(s: CamState, haveTarget: boolean, target: V3, haveSelf: boolean, selfPos: readonly number[], selfRot: readonly number[], world: CameraWorld, dt: number): void {
     const d = s.data;
     const pose = s.pose;
     for (let k = 0; k < 4; k += 1) pose.rotation[k] = selfRot[k]!;
@@ -878,31 +948,193 @@ export class CameraBrain {
       return;
     }
     if (s.trackOffset === null) s.trackOffset = haveSelf ? [selfPos[0]! - target[0], selfPos[1]! - target[1], selfPos[2]! - target[2]] : [0, 0, D.distance];
-    const lo = d.boundsMin;
-    const hi = d.boundsMax;
-    const clampAxis = (v: number, k: number): number => {
-      const a = Array.isArray(lo) && lo.length === 3 && Number.isFinite(lo[k]) ? lo[k]! : -Infinity;
-      const b = Array.isArray(hi) && hi.length === 3 && Number.isFinite(hi[k]) ? hi[k]! : Infinity;
-      return v < a ? a : v > b ? b : v;
-    };
-    if (s.pivot === null) {
-      // Going live (or the first step): frame the target at once.
-      s.pivot = [clampAxis(target[0], 0), clampAxis(target[1], 1), clampAxis(target[2], 2)];
+    // Going live (or the first step, or an editor preview): frame the target at once, no blend.
+    const going = s.pivot === null;
+    // The region the target is in, and the settings in force.
+    const rid = this.regions.size > 0 ? this.regionFor(s, target, world) : null;
+    if (rid !== s.region) {
+      const left = s.region;
+      s.region = rid;
+      const bt = num((rid !== null ? this.regions.get(rid) : left !== null ? this.regions.get(left) : undefined)?.blendTime, D.blendTime);
+      const total = Math.round(Math.max(0, bt) * this.hz);
+      s.regionBlend = going || total <= 0 || s.regionParams === null ? null : { from: this.freezeSource(s), steps: 0, total };
+    }
+    const to = this.trackParams(s, rid, world);
+    s.regionParams = to;
+    let src: TrackSource = { p: to };
+    const rb = s.regionBlend;
+    if (rb !== null) {
+      rb.steps += 1;
+      const t = clampNum(rb.steps / rb.total, 0, 1);
+      if (t >= 1) s.regionBlend = null;
+      else src = { from: rb.from, to, w: easeInOut(t) };
+    }
+    // Look-ahead: the point the dead zone follows.
+    const aim = this.aimAt;
+    aim[0] = target[0];
+    aim[1] = target[1];
+    aim[2] = target[2];
+    const la = d.lookAhead;
+    if (Array.isArray(la) && la.length === 3 && (num(la[0], 0) > 0 || num(la[1], 0) > 0 || num(la[2], 0) > 0)) {
+      if (going || s.lookLast === null) {
+        s.lookLast = [target[0], target[1], target[2]];
+        s.lookVel[0] = 0;
+        s.lookVel[1] = 0;
+        s.lookVel[2] = 0;
+      } else {
+        const sm = num(d.lookAheadSmoothing, D.lookAheadSmoothing);
+        const k = sm > 0 ? 1 - Math.exp(-dt / sm) : 1;
+        for (let i = 0; i < 3; i += 1) {
+          const raw = (target[i]! - s.lookLast[i]!) / dt;
+          s.lookVel[i] = s.lookVel[i]! + (raw - s.lookVel[i]!) * k;
+          s.lookLast[i] = target[i]!;
+        }
+      }
+      const mx = d.lookAheadMax;
+      for (let i = 0; i < 3; i += 1) {
+        const cap = Array.isArray(mx) && mx.length === 3 ? Math.max(0, num(mx[i], D.lookAheadMax)) : D.lookAheadMax;
+        aim[i] = target[i]! + clampNum(s.lookVel[i]! * Math.max(0, num(la[i], 0)), -cap, cap);
+      }
+    } else s.lookLast = null;
+    if (going) {
+      s.pivot = [this.clampSource(src, aim[0], 0), this.clampSource(src, aim[1], 1), this.clampSource(src, aim[2], 2)];
     } else {
-      const dz = d.deadZone;
       const damping = num(d.damping, D.damping);
       const k = damping > 0 ? 1 - Math.exp(-dt / damping) : 1;
+      const pv = s.pivot!;
       for (let i = 0; i < 3; i += 1) {
-        const half = Array.isArray(dz) && dz.length === 3 ? Math.max(0, num(dz[i], 0)) / 2 : 0;
-        const off = target[i]! - s.pivot[i]!;
-        const want = off > half ? target[i]! - half : off < -half ? target[i]! + half : s.pivot[i]!;
-        s.pivot[i] = clampAxis(s.pivot[i]! + (want - s.pivot[i]!) * k, i);
+        const half = this.halfSource(src, i);
+        const off = aim[i]! - pv[i]!;
+        const want = off > half ? aim[i]! - half : off < -half ? aim[i]! + half : pv[i]!;
+        pv[i] = this.clampSource(src, pv[i]! + (want - pv[i]!) * k, i);
       }
     }
     const o = s.trackOffset;
-    pose.position[0] = s.pivot[0]! + o[0];
-    pose.position[1] = s.pivot[1]! + o[1];
-    pose.position[2] = s.pivot[2]! + o[2];
+    const pv = s.pivot!;
+    const dist = this.distSource(src, o);
+    if (dist === null) {
+      pose.position[0] = pv[0]! + o[0];
+      pose.position[1] = pv[1]! + o[1];
+      pose.position[2] = pv[2]! + o[2];
+    } else {
+      // Along the offset's direction (straight back along +Z for a camera placed on its target).
+      const len = Math.hypot(o[0], o[1], o[2]);
+      const u0 = len > 1e-9 ? o[0] / len : 0;
+      const u1 = len > 1e-9 ? o[1] / len : 0;
+      const u2 = len > 1e-9 ? o[2] / len : 1;
+      pose.position[0] = pv[0]! + u0 * dist;
+      pose.position[1] = pv[1]! + u1 * dist;
+      pose.position[2] = pv[2]! + u2 * dist;
+    }
+  }
+
+  /**
+   * Phase 25.14: the region a track camera's target point is in — among the
+   * regions for this camera (or for every track camera), the highest
+   * priority, then the one entered last, then the first loaded. Entering is
+   * noted per camera, so a region re-entered counts as entered last again.
+   */
+  private regionFor(s: CamState, target: V3, world: CameraWorld): string | null {
+    let best: string | null = null;
+    let bestPriority = -Infinity;
+    let bestSerial = -1;
+    const pos = this.regionPos;
+    for (const [id, r] of this.regions) {
+      if (r.camera !== undefined && r.camera !== s.id) continue;
+      let inside = world.worldOf(id, pos, this.regionRot);
+      if (inside) {
+        for (let i = 0; i < 3 && inside; i += 1) {
+          const size = r.size[i];
+          // A region without a depth holds every depth.
+          if (i === 2 && typeof size !== 'number') break;
+          inside = Math.abs(target[i]! - pos[i]!) <= Math.max(0, num(size, 0)) / 2;
+        }
+      }
+      if (!inside) {
+        s.regionEntered.delete(id);
+        continue;
+      }
+      let serial = s.regionEntered.get(id);
+      if (serial === undefined) {
+        serial = ++this.regionSerial;
+        s.regionEntered.set(id, serial);
+      }
+      const pr = num(r.priority, 0);
+      if (pr > bestPriority || (pr === bestPriority && serial > bestSerial)) {
+        best = id;
+        bestPriority = pr;
+        bestSerial = serial;
+      }
+    }
+    for (const id of s.regionEntered.keys()) if (!this.regions.has(id)) s.regionEntered.delete(id);
+    return best;
+  }
+
+  /** Phase 25.14: the camera's own track settings, with a region's in their place (its bounds from where it is now). */
+  private trackParams(s: CamState, rid: string | null, world: CameraWorld): TrackParams {
+    const d = s.data;
+    const r = rid !== null ? this.regions.get(rid) : undefined;
+    if (r === undefined && s.ownParams !== null) return s.ownParams;
+    const v3 = (v: readonly number[] | undefined): readonly number[] | null => (Array.isArray(v) && v.length === 3 ? v : null);
+    const dz = v3(r?.deadZone) ?? v3(d.deadZone);
+    const half: V3 = [0, 0, 0];
+    for (let i = 0; i < 3; i += 1) half[i] = dz !== null ? Math.max(0, num(dz[i], 0)) / 2 : 0;
+    const lo: V3 = [-Infinity, -Infinity, -Infinity];
+    const hi: V3 = [Infinity, Infinity, Infinity];
+    const at = this.regionPos;
+    const haveAt = r !== undefined && rid !== null && world.worldOf(rid, at, this.regionRot);
+    const fill = (out: V3, own: readonly number[] | null, region: readonly number[] | null): void => {
+      for (let i = 0; i < 3; i += 1) {
+        if (region !== null && haveAt) out[i] = Number.isFinite(region[i]) ? at[i]! + region[i]! : out[i]!;
+        else if (own !== null && Number.isFinite(own[i])) out[i] = own[i]!;
+      }
+    };
+    fill(lo, v3(d.boundsMin), v3(r?.boundsMin));
+    fill(hi, v3(d.boundsMax), v3(r?.boundsMax));
+    const dist = r !== undefined && typeof r.distance === 'number' && Number.isFinite(r.distance) ? Math.max(0.1, r.distance) : null;
+    const out = { half, lo, hi, dist };
+    if (r === undefined) s.ownParams = out;
+    return out;
+  }
+
+  /** Phase 25.14: where a new region blend starts — what is in force now (a blend in flight frozen where it is; at most two deep). */
+  private freezeSource(s: CamState): TrackSource {
+    const rb = s.regionBlend;
+    const now = s.regionParams!;
+    if (rb === null) return { p: now };
+    const w = easeInOut(clampNum(rb.steps / rb.total, 0, 1));
+    const from: TrackSource = 'from' in rb.from ? { p: rb.from.to } : rb.from;
+    return { from, to: now, w };
+  }
+
+  private clampSource(src: TrackSource, v: number, i: number): number {
+    if ('p' in src) {
+      const a = src.p.lo[i]!;
+      const b = src.p.hi[i]!;
+      return v < a ? a : v > b ? b : v;
+    }
+    const x = this.clampSource(src.from, v, i);
+    const a = src.to.lo[i]!;
+    const b = src.to.hi[i]!;
+    const y = v < a ? a : v > b ? b : v;
+    return x + (y - x) * src.w;
+  }
+
+  private halfSource(src: TrackSource, i: number): number {
+    if ('p' in src) return src.p.half[i]!;
+    const x = this.halfSource(src.from, i);
+    return x + (src.to.half[i]! - x) * src.w;
+  }
+
+  /** The distance along the offset (null: the offset itself, as authored or placed). */
+  private distSource(src: TrackSource, o: V3): number | null {
+    if ('p' in src) return src.p.dist;
+    const x = this.distSource(src.from, o);
+    const y = src.to.dist;
+    if (x === null && y === null) return null;
+    const len = Math.hypot(o[0], o[1], o[2]);
+    const a = x ?? len;
+    return a + ((y ?? len) - a) * src.w;
   }
 
   /**
@@ -953,7 +1185,15 @@ export class CameraBrain {
       far: c.far,
       letterbox: c.letterbox,
       shake: this.lastShake,
+      ...this.regionView(),
     };
+  }
+
+  /** Phase 25.14: the live track camera's region, while regions are loaded. */
+  private regionView(): { region?: string | null } {
+    if (this.regions.size === 0 || this.liveId === null) return {};
+    const s = this.cams.get(this.liveId);
+    return s !== undefined && s.data.rig === 'track' ? { region: s.region } : {};
   }
 
   /** The viewport the host reported (0 × 0 until it does). */

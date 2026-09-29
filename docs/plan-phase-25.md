@@ -179,7 +179,8 @@ boundary it changes (Playwright for any editor surface).
 | 25.11 | done 2026-09-29: callbacks on the behavior spec (`onEnable/onDisable/onDestroy`, `onTriggerEnter/Exit`, `onContact`, `onMessage`, `onUiEvent`, `onAnimatorEvent`; `step` optional), run in the intent phase before the script's step in a fixed order; lifecycle follows the object's switched-on state (25.10's `active`, spawns, scene loads/unloads, destroys; a restart sends onEnable again, no onDestroy); the event lists stay; typings with completion of the callbacks and their event fields; visual-script nodes On enable/disable/destroy, On contact, On UI event; `m25-callbacks` (2D/3D, page and worker, replay digests), `callbacks.e2e.ts` |
 | 25.12 | done 2026-09-29: mover `stopOn`, `toggleOn`, `reverseOn` (with `startOn`, read in that order from last step's signals, through the same `active` flag scripts write; a reversed loop goes round the other way, a finished once-mover travels back) and a `gravity` easing (from rest at each point, constant acceleration, each stretch as long as at its speed; a reverse part-way keeps the position); Inspector fields; `mover-signals.test.ts` (unit, model, `m25-movement` 2D/3D page and worker, replay digests), `mover-signals.e2e.ts`; D50 fixed |
 | 25.13 | done 2026-09-29: `climbVolume` component (a box turned with its object; Scene size handle, create menu) climbed in by both controllers (up/down along its +Y, sideways across, `climbSpeed`, no gravity; jump lets go with a jump, leaving lets go; optional `climbAction`), `wallSlide`/`wallSlideSpeed` and `wallJump`/`wallJumpAway`/`wallJumpUp` (off by default) in 2D and 3D; `gravity` component (non-character bodies fall under the project gravity onto colliders, saved); 2D edge patrols walk any direction of the plane; Inspector fields; `climb-walls.test.ts` (`m25-movement` 2D/3D page and worker, replay digests), unit and model tests, `climb-walls.e2e.ts` |
-| 25.14–25.22 | — |
+| 25.14 | done 2026-09-29: `cameraRegion` component (a world-axis box; dead zone, bounds from the region, distance along the camera offset, blended on enter and leave, priority then entered last; one or every track camera), track `lookAhead`/`lookAheadMax`/`lookAheadSmoothing` (per axis, vertical = `[0, t, 0]`); Scene handles: the dead zone around the target (handle `anchor`), a new `bounds` corner handle, the region's size; Inspector, create menu, observation `camera.region`; brain unit tests, `m25-movement/camera-regions.test.ts` (2D/3D page/worker/replay digests), handle tests, `camera-regions.e2e.ts` (editor, Play position and pixels) |
+| 25.15–25.22 | — |
 | 25.23 | moved to phase 26 (26.13), owner 2026-09-29 |
 | 25.25 | — |
 
@@ -1087,3 +1088,37 @@ boundary it changes (Playwright for any editor surface).
   E43's effect lights are phase 27 (scalable lighting). 25.10's decision that
   `visible` is runtime-only stands for scripts; 25.25 adds the authored
   starting value.
+- 2026-09-29 (25.14): **camera regions are objects** (a `cameraRegion`
+  component), not a list inside the camera: they load and unload with their
+  scene (a level scene brings its own regions for a camera in a persistent
+  scene), are moved, duplicated and placed from prefabs like any object, and
+  apply to one named track camera or to every one. The box keeps to the
+  world axes (the dead zone and bounds are per world axis; the object's
+  rotation is not used); without a depth it holds every depth (2D). A
+  region's bounds are offsets from its position, so they travel with it;
+  the camera's own bounds stay world coordinates (the camera moves). Each
+  absent region field keeps the camera's own. Overlaps: the highest
+  priority, then the region entered last, then load order.
+- 2026-09-29 (25.14): **the blend on enter** eases over the region's
+  `blendTime` (the entered region's; leaving to no region: the left one's;
+  default 0.5 s, the camera blend's). The dead zone and distance blend as
+  numbers; bounds blend as the two clamped points (so a bound that appears
+  or goes away moves the view smoothly, with no infinite numbers). A blend
+  interrupted by another region change continues from where it was (kept
+  at most two deep). The distance is along the camera's offset (absent: the
+  offset as authored or placed). With no region and no look-ahead the maths
+  is the 24.4g rig's bit for bit, so recorded replays are unchanged.
+- 2026-09-29 (25.14): **look-ahead** is the target's velocity (from its
+  positions, eased over `lookAheadSmoothing`, 0.2 s) times `lookAhead`
+  seconds per axis, capped at `lookAheadMax` (3 m); a vertical look-ahead
+  is `[0, t, 0]` and a platformer's run look-ahead `[t, 0, 0]` (principle 1:
+  the axis is data). A look up/down on a button is a script moving
+  `targetOffset` (`ctx.camera.set`), not a rig field. The cap keeps a
+  respawn's jump from throwing the view.
+- 2026-09-29 (25.14): **Scene handles** for what 24.4g left open: a new
+  `bounds` handle kind (two corners; on the 2D plane drawn where the box
+  crosses it, depth grips in 3D; a corner never passes the other) and an
+  `anchor` on handle descriptors (the frame on another object named by an
+  entity field, plus an offset field): the dead zone is drawn around the
+  target plus `targetOffset`, where the camera frames it at the start. The
+  handles show once both bounds, or a target, are set.

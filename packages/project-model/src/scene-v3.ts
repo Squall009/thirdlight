@@ -21,7 +21,7 @@ import { BLOCK_COMPONENT_NAMES, BLOCK_COMPONENTS } from './blocks';
 import { canonicalEffectComponent, validateEffectComponent, type EffectComponent } from './effects';
 import { canonicalSocketAttach, SOCKET_ATTACH_CONFLICTS, validateSocketAttachComponent, type SocketAttachComponent } from './sockets';
 import { canonicalBehaviorGroup, validateBehaviorGroupComponent, type BehaviorGroupComponent } from './modes';
-import { canonicalCameraPath, canonicalVirtualCamera, validateCameraPathComponent, validateVirtualCameraComponent, type CameraPathComponent, type VirtualCameraComponent } from './cameras';
+import { canonicalCameraPath, canonicalCameraRegion, canonicalVirtualCamera, validateCameraPathComponent, validateCameraRegionComponent, validateVirtualCameraComponent, type CameraPathComponent, type CameraRegionComponent, type VirtualCameraComponent } from './cameras';
 import { canonicalAnimatorComponent, validateAnimatorComponent, type AnimatorComponent } from './animator';
 import { canonicalFogVolume, canonicalMaterialMapping, canonicalMaterialParams, MAX_FOG_VOLUMES, validateFogVolumeComponent, validateMaterialMapping, validateMaterialParamsComponent, type FogVolumeComponent, type MaterialParamsComponent } from './materials';
 import {
@@ -126,7 +126,8 @@ const ENTITY_FLAGS = ['active', 'locked', 'static'] as const;
 /** Phase 12 (c): the v4 component registry (v3's plus `instances`). */
 // Phase 18.0: `materialParams` (per-object overrides of graph-material parameters) is appended last.
 // Phase 20.0: `effect` (plays a visual effect from the entity) is appended after it.
-export const V4_REGISTRY: readonly string[] = [...V3_REGISTRY, 'instances', 'materials', 'fogVolume', 'animator', ...BLOCK_COMPONENT_NAMES, 'materialParams', 'effect', 'virtualCamera', 'cameraPath', 'blockLayer', 'blockFootprint', 'socketAttach', 'behaviorGroup'];
+export const V4_REGISTRY: readonly string[] = [...V3_REGISTRY, 'instances', 'materials', 'fogVolume', 'animator', ...BLOCK_COMPONENT_NAMES, 'materialParams', 'effect', 'virtualCamera', 'cameraPath', 'blockLayer', 'blockFootprint', 'socketAttach', 'behaviorGroup', 'cameraRegion'];
+// Phase 25.14: `cameraRegion` (a track camera's dead zone, bounds and distance while its target is inside) last.
 // Phase 23.5: `blockLayer` (a grid of blocks; its cells are the scene's `blocks`) is appended after it.
 // Phase 23.6: `blockFootprint` (the metadata a prop writes into the block cells beneath it) after that.
 // Phase 23.11: `socketAttach` (rides on a node of another entity's model) after that.
@@ -745,6 +746,8 @@ function validateEntityComponentsV3(
   // Phase 23.4: a virtual camera shot and a path rail cameras ride (any entity may carry them).
   if (comps['virtualCamera'] !== undefined) validateVirtualCameraComponent(comps['virtualCamera'], `${path}/virtualCamera`, errors);
   if (comps['cameraPath'] !== undefined) validateCameraPathComponent(comps['cameraPath'], `${path}/cameraPath`, errors);
+  // Phase 25.14: a camera region (any entity may carry one).
+  if (comps['cameraRegion'] !== undefined) validateCameraRegionComponent(comps['cameraRegion'], `${path}/cameraRegion`, errors);
   // Phase 23.11: the entity rides on a node of another entity's model.
   if (comps['socketAttach'] !== undefined) validateSocketAttachComponent(comps['socketAttach'], `${path}/socketAttach`, errors);
   // Phase 23.10: the behavior group (whether the group exists is the project composition's check).
@@ -1022,6 +1025,8 @@ function canonicalEntityV3(e: Record<string, unknown>): SceneEntityV3 {
   if (comps['socketAttach'] !== undefined) (components as { socketAttach?: SocketAttachComponent }).socketAttach = canonicalSocketAttach(comps['socketAttach'] as SocketAttachComponent);
   // Phase 23.10: after that (existing entities keep their bytes).
   if (comps['behaviorGroup'] !== undefined) (components as { behaviorGroup?: BehaviorGroupComponent }).behaviorGroup = canonicalBehaviorGroup(comps['behaviorGroup'] as BehaviorGroupComponent);
+  // Phase 25.14: after that (existing entities keep their bytes).
+  if (comps['cameraRegion'] !== undefined) (components as { cameraRegion?: CameraRegionComponent }).cameraRegion = canonicalCameraRegion(comps['cameraRegion'] as CameraRegionComponent);
   if (comps['instances'] !== undefined) {
     const i = comps['instances'] as { asset: { assetId: string; piece?: string }; buffer: string; count: number; castShadow?: boolean; receiveShadow?: boolean; chunkSize?: number };
     components.instances = {
