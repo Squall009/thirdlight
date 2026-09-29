@@ -1920,6 +1920,28 @@ and the export carry the project's prefabs with the game.
 - Visual scripts have the same as nodes: **Get component**, **Set
   component** (category Entity) and **Next scene** (Shell).
 
+### Callbacks on a script (phase 25.11)
+
+- Besides `step(state, ctx)` (now optional), a script's `export default` may
+  have callbacks: `onEnable(state, ctx)` (the object is in the game and on:
+  its first step, a scene load, a spawned copy, and each time it is switched
+  on again), `onDisable` (switched off, itself or an object above it, or
+  leaving), `onDestroy` (it left the game: destroyed or its scene unloaded;
+  the object is already gone; not on a restart), and with the event as the
+  second argument `onTriggerEnter`/`onTriggerExit` (triggers the script owns),
+  `onContact` (its hitboxes: `type` contact or separate), `onMessage`
+  (messages to every script or to this object), `onUiEvent` (the step's UI
+  events) and `onAnimatorEvent` (clip events of animators it owns).
+- They run inside the step's intent phase, before the script's `step`, in a
+  fixed order: leaving objects' onDisable/onDestroy first, then per script
+  onEnable/onDisable, triggers, contacts, messages, UI events, animator
+  events. `ctx.events`, `ctx.messages.received` and `ctx.ui.events()` still
+  list the same events. Page, worker and replays run them alike.
+- The script editor completes the callbacks inside `export default { … }`
+  and the fields of their event parameter. Visual scripts have **On enable**,
+  **On disable**, **On destroy**, **On contact** and **On UI event**
+  (category Events).
+
 ### Random numbers, finding objects and facing (phase 23.7)
 
 - `ctx.random` gives each object's script its own seeded random numbers:

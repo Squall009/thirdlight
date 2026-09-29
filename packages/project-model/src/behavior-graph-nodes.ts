@@ -211,7 +211,38 @@ const EVENT_NODES: readonly GraphNodeDef[] = [
     titleField: 'message',
     fields: [textField('message', 'Message'), typeField('type', 'Value type', ['number', 'boolean', 'string'], 'number'), PHASE_FIELD],
   },
+  // Phase 25.11: the callback events (the script's onEnable … onUiEvent; always in the intent phase, before On step).
+  { type: 'event.enable', label: 'On enable', category: 'Events', description: "Runs when this object comes into the game switched on (a run's first step, its scene loading, a spawned copy) and each time it is switched on again — before the step's other events.", inputs: [], outputs: [THEN] },
+  { type: 'event.disable', label: 'On disable', category: 'Events', description: 'Runs when this object is switched off (itself or an object above it) or leaves the game.', inputs: [], outputs: [THEN] },
+  { type: 'event.destroy', label: 'On destroy', category: 'Events', description: 'Runs when this object has left the game (destroyed, or its scene unloaded), after On disable. The object is already gone; a restart does not run it.', inputs: [], outputs: [THEN] },
+  {
+    type: 'event.contact',
+    label: 'On contact',
+    category: 'Events',
+    description: 'Runs once per contact (or separation) of a hitbox this script owns — on its object, below it, or named by one of its entity variables — with another hitbox or the character, in the step after it happened.',
+    inputs: [],
+    outputs: [THEN, port('entity', 'entity', 'string'), port('other', 'other', 'string'), port('normal', 'normal', 'vector')],
+    fields: [typeField('when', 'When', ['contact', 'separate'], 'contact'), textField('entity', 'Only hitbox (empty: any)')],
+  },
+  {
+    type: 'event.ui',
+    label: 'On UI event',
+    category: 'Events',
+    description: "Runs once per UI event of this step (a button's event, a submitted input, a document shown or hidden), filtered by event name when set.",
+    inputs: [],
+    outputs: [THEN, port('kind', 'kind', 'string'), port('doc', 'document', 'string'), port('widget', 'widget', 'string'), port('name', 'name', 'string'), typedPort('value', 'value'), port('index', 'index', 'number')],
+    fields: [textField('name', 'Only event (empty: any)'), typeField('type', 'Value type', ['number', 'boolean', 'string'], 'number')],
+  },
 ];
+
+/** Phase 25.11: event nodes that are behavior callbacks (the compiler emits them as the spec's methods), by callback. */
+export const CALLBACK_EVENT_NODES: Readonly<Record<string, 'onEnable' | 'onDisable' | 'onDestroy' | 'onContact' | 'onUiEvent'>> = {
+  'event.enable': 'onEnable',
+  'event.disable': 'onDisable',
+  'event.destroy': 'onDestroy',
+  'event.contact': 'onContact',
+  'event.ui': 'onUiEvent',
+};
 
 // ---- flow ---------------------------------------------------------------------------------
 

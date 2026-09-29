@@ -20,7 +20,7 @@ import { EditorState, type Extension } from '@codemirror/state';
 import { drawSelection, EditorView, highlightActiveLine, highlightActiveLineGutter, keymap, lineNumbers } from '@codemirror/view';
 import { tags } from '@lezer/highlight';
 
-import { exportedTypeNames, memberCompletion } from '../../session/script-sources';
+import { exportedTypeNames, memberCompletion, specMemberCompletion } from '../../session/script-sources';
 import { BEHAVIOR_API_DTS, BEHAVIOR_API_TYPES } from './behavior-api.generated';
 
 /** One diagnostic to mark in the open file (1-based line/column; column optional). */
@@ -57,6 +57,20 @@ function behaviorApiCompletion(context: CompletionContext): CompletionResult | n
         label: m.name,
         type: m.kind === 'method' ? 'method' : 'property',
         detail: m.optional === true ? `?: ${m.detail}` : m.detail,
+        ...(m.doc !== undefined ? { info: m.doc } : {}),
+      })),
+      validFor: /^[\w$]*$/,
+    };
+  }
+  // Phase 25.11: a member name directly inside `export default { … }` (step and the callbacks).
+  const spec = specMemberCompletion(context.state.doc.sliceString(0, context.pos), BEHAVIOR_API_TYPES);
+  if (spec !== null && (spec.prefix.length > 0 || context.explicit)) {
+    return {
+      from: context.pos - spec.prefix.length,
+      options: spec.members.map((m) => ({
+        label: m.name,
+        type: 'method',
+        detail: m.detail,
         ...(m.doc !== undefined ? { info: m.doc } : {}),
       })),
       validFor: /^[\w$]*$/,

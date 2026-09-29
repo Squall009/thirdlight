@@ -116,7 +116,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       '(below). Exec ports (type exec) carry the flow from events along one wire per exec output (flow.sequence has several outputs). Events (field phase: intent, or ' +
       'transform for scripts that move objects): event.start (first step of every run), event.step, event.signal {signal}, event.trigger {when: enter|exit, trigger?} (triggers ' +
       'the script owns), event.overlap / event.raycast (a query around this object every step: enter|exit|each), event.input {action, when: pressed|released|held}, ' +
-      'event.animator {event?, entity?}, event.timer {timer}, event.message {message, type} (sent with api.messages.send). Flow: flow.branch, sequence, for, foreach, while ' +
+      'event.animator {event?, entity?}, event.timer {timer}, event.message {message, type} (sent with api.messages.send); callback events (intent phase, before the others): event.enable, event.disable, event.destroy (the object switched on, off, gone), event.contact {when: contact|separate, entity?} (hitboxes the script owns), event.ui {name?, type} (the step\'s UI events). Flow: flow.branch, sequence, for, foreach, while ' +
       '(loops: at most 10000 iterations per step in all, more is a script error with the node id), gate (enter/open/close/toggle), doonce (in/reset), delay {seconds} ' +
       '(step-counted, a timer "vs.delay.<n>"), switch {on: text|int, cases: "a, b, c" (comma separated, up to 32; outputs case1..caseN)} (+ default), select. Data ports: number, boolean, string, vector [x,y,z], list and map ' +
       '(bounded: 1024 items, 256 entries; list/map nodes return new values) with conversions number→string, boolean→string, boolean→number, number→vector, vector→string; ' +

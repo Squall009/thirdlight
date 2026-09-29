@@ -239,6 +239,23 @@ function memberTable(checker, exports) {
     const s = resolveSymbol(checker, exports.get(name));
     addType(name, checker.getDeclaredTypeOfSymbol(s));
   }
+  // Phase 25.11: the spec's members (completed inside `export default { … }`) and the types of the
+  // callbacks' event parameters (`onTriggerEnter(state, event, ctx)`: `event.` completes).
+  const spec = checker.getDeclaredTypeOfSymbol(resolveSymbol(checker, exports.get('BehaviorSpec')));
+  addType('BehaviorSpec', spec);
+  for (const p of checker.getPropertiesOfType(spec)) {
+    const decl = p.valueDeclaration ?? p.declarations?.[0];
+    if (decl === undefined) continue;
+    for (const sig of checker.getNonNullableType(checker.getTypeOfSymbolAtLocation(p, decl)).getCallSignatures()) {
+      for (const param of sig.getParameters()) {
+        const pdecl = param.valueDeclaration ?? param.declarations?.[0];
+        if (pdecl === undefined) continue;
+        const ptype = checker.getTypeOfSymbolAtLocation(param, pdecl);
+        const key = keyOf(ptype, null);
+        if (key !== null) addType(key, ptype);
+      }
+    }
+  }
   return table;
 }
 

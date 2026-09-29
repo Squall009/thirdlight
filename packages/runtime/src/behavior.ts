@@ -58,9 +58,12 @@ import {
   type BehaviorLogLevel,
   type IntentSet,
 } from './intents';
+import type { UiEventRecord } from './ui';
 import type {
   AnimatorEventRecord,
   BehaviorAnimatorHandle,
+  BehaviorMessage,
+  ContactEventRecord,
   BehaviorAudio,
   BehaviorCamera,
   BehaviorEnvironment,
@@ -301,14 +304,47 @@ export interface BehaviorInstanceInfo {
 }
 
 /**
- * A behavior module's `export default`: only `step` is required; it must be
- * synchronous and return nothing. State is per entity (from `instantiate`).
+ * A behavior module's `export default`: `step` and/or any of the callbacks
+ * (phase 25.11); every one must be synchronous and return nothing. State is
+ * per entity (from `instantiate`).
+ *
+ * Callbacks run inside the step's intent phase, before the instance's `step`,
+ * in a fixed order: `onEnable`/`onDisable`, then `onTriggerEnter`/`onTriggerExit`,
+ * `onContact`, `onMessage`, `onUiEvent`, `onAnimatorEvent` (each in the
+ * order the events happened); the scripts of objects that left the game get
+ * `onDisable` and `onDestroy` first. They report the same events `ctx.events`,
+ * `ctx.messages` and `ctx.ui` list (those lists stay), so a replay runs them alike.
  */
 export interface BehaviorSpec<State = unknown, Prepared = unknown> {
   prepare?(cfg: BehaviorPrepareConfig): Prepared;
   instantiate?(prepared: Prepared, inst: BehaviorInstanceInfo): State;
-  step(state: State, ctx: BehaviorContext): void;
+  /** Every fixed step, once per phase the behavior runs in (optional when the script has callbacks). */
+  step?(state: State, ctx: BehaviorContext): void;
   dispose?(prepared: Prepared, state: State): void;
+  /**
+   * Phase 25.11: the object is in the game and switched on — its first step (a run's start, a scene load,
+   * a spawned copy) and each time it is switched on again (`set('object', { active: true })`).
+   */
+  onEnable?(state: State, ctx: BehaviorContext): void;
+  /** Phase 25.11: the object was switched off (itself or an object above it), or it is leaving the game. */
+  onDisable?(state: State, ctx: BehaviorContext): void;
+  /**
+   * Phase 25.11: the object left the game (destroyed, or its scene unloaded) — in the step it left, after
+   * `onDisable`; the object is already gone (`ctx.entity(ctx.entityId)` is null). Not called when a run restarts.
+   */
+  onDestroy?(state: State, ctx: BehaviorContext): void;
+  /** Phase 25.11: the player entered a trigger this script owns (on its object, below it, or named by one of its object properties) in the last step. */
+  onTriggerEnter?(state: State, event: TriggerEventRecord, ctx: BehaviorContext): void;
+  /** Phase 25.11: the player left a trigger this script owns in the last step. */
+  onTriggerExit?(state: State, event: TriggerEventRecord, ctx: BehaviorContext): void;
+  /** Phase 25.11: a hitbox this script owns began (`type: 'contact'`) or stopped (`'separate'`) touching something in the last step. */
+  onContact?(state: State, event: ContactEventRecord, ctx: BehaviorContext): void;
+  /** Phase 25.11: a message sent in the last step to every script or to this object (`ctx.messages.send`). */
+  onMessage?(state: State, message: BehaviorMessage, ctx: BehaviorContext): void;
+  /** Phase 25.11: a UI event of this step (a button, a submitted input, a document shown or hidden). */
+  onUiEvent?(state: State, event: UiEventRecord, ctx: BehaviorContext): void;
+  /** Phase 25.11: a clip event an animator this script owns passed in the last step. */
+  onAnimatorEvent?(state: State, event: AnimatorEventRecord, ctx: BehaviorContext): void;
   /**
    * Phase 19.2: what a debugger may read of an instance's state (Play's
    * visual-script debugger: the trace of the step, wire values, variables).
@@ -704,6 +740,8 @@ interface BehaviorInstance {
   random: InstanceRandom | null;
   /** Phase 25.10: `ctx.entity` of this instance (it writes as this script on its object). */
   entity: { src: StepContext; fn: (ref: string | null) => BehaviorEntityHandle | null } | null;
+  /** Phase 25.11: `onEnable` was the last lifecycle callback it got (its object is on, as far as the script knows). */
+  enabled: boolean;
 }
 
 /**
@@ -728,6 +766,13 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
   const selfOwned = declaredOwned.includes(BEHAVIOR_SELF_OWNER);
   const ownedTransforms = declaredOwned.filter((id) => id !== BEHAVIOR_SELF_OWNER);
   const spec = behaviorSpecOf(artifact.namespace);
+  // Phase 25.11: which callbacks the script has (a script without any steps exactly as before).
+  const has = (name: BehaviorCallbackName): boolean => typeof spec[name] === 'function';
+  const lifecycleCallbacks = has('onEnable') || has('onDisable') || has('onDestroy');
+  const leaveCallbacks = has('onDisable') || has('onDestroy');
+  const triggerCallbacks = has('onTriggerEnter') || has('onTriggerExit');
+  const eventCallbacks = triggerCallbacks || has('onContact') || has('onMessage') || has('onUiEvent') || has('onAnimatorEvent');
+  const hasStep = typeof spec.step === 'function';
   const prepareConfig = Object.freeze({
     behaviorId,
     sourceDigest: artifact.sourceDigest,
@@ -826,7 +871,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         } catch (e) {
           throw withFrames(new BehaviorHostError('config_invalid', 'behavior_instantiate_failed', `behavior "${behaviorId}" instantiate("${entityId}") threw: ${messageOf(e)}`), e);
         }
-        return { entityId, properties, state, logs: [], counterStep: -1, stepLogs: 0, stepIntents: 0, committed: new Map(), committedKinds: new Map(), timers: new InstanceTimers(cfg.fixedStepHz), events: null, eventsStep: -1, contexts: new Map(), log: null, messages: null, random: null, entity: null };
+        return { entityId, properties, state, logs: [], counterStep: -1, stepLogs: 0, stepIntents: 0, committed: new Map(), committedKinds: new Map(), timers: new InstanceTimers(cfg.fixedStepHz), events: null, eventsStep: -1, contexts: new Map(), log: null, messages: null, random: null, entity: null, enabled: false };
       };
       for (const entityId of [...entityIds].sort((a, b) => orderOf(snapshot, a) - orderOf(snapshot, b))) {
         try {
@@ -1094,39 +1139,104 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         return instance.messages.view;
       };
 
+      /** A script error thrown by `step` or a callback (`what`), as the host's failure. */
+      const scriptFailure = (e: unknown, what: string): Error => {
+        if (e instanceof BehaviorHostIntentLimit || e instanceof BehaviorIntentError || e instanceof BehaviorHostError) {
+          return e;
+        }
+        // Phase 19.0: a visual script's error keeps the node it came from.
+        // Phase 25.9: and every error where in the compiled script it was thrown.
+        const withNode = (err: BehaviorHostError): BehaviorHostError => {
+          const nodeId = graphNodeIdOf(e);
+          if (nodeId !== undefined) err.nodeId = nodeId;
+          const frames = compiledFramesOf(e);
+          if (frames.length > 0) err.frames = frames;
+          return err;
+        };
+        if (e instanceof TimerCallError || e instanceof RandomCallError || e instanceof DebugCallError || e instanceof EntityAccessError) {
+          return withNode(new BehaviorHostError('module_error', e.reason, `behavior "${behaviorId}" ${e.message}`));
+        }
+        if (e instanceof FrozenPreparedError) {
+          return withNode(new BehaviorHostError('module_error', 'behavior_state_shared', `behavior "${behaviorId}" mutated its prepare() result: ${messageOf(e)}`));
+        }
+        const detail = graphNodeIdOf(e) !== undefined ? (e as { detail?: unknown }).detail : undefined;
+        return withNode(new BehaviorHostError('module_error', 'behavior_step_failed', `behavior "${behaviorId}" ${what} threw: ${messageOf(e)}`, typeof detail === 'string' && GRAPH_DETAIL_RE.test(detail) ? detail : undefined));
+      };
+      const resultFailure = (result: unknown, what: string): BehaviorHostError =>
+        isThenable(result)
+          ? new BehaviorHostError('module_error', 'behavior_step_async', `behavior "${behaviorId}" ${what === 'step' ? '' : `${what} `}returned a thenable (${what} must be synchronous)`)
+          : new BehaviorHostError('module_error', 'behavior_step_async', `behavior "${behaviorId}" ${what === 'step' ? '' : `${what} `}returned a value (${what} must return undefined)`);
+
       const stepBehavior = (instance: BehaviorInstance, phase: SimulationPhase, ctx: StepContext): void => {
         beginInstanceStep(instance, ctx.stepIndex);
+        if (!hasStep) return;
         const behaviorCtx = contextFor(instance, phase, ctx);
         let result: unknown;
         try {
-          result = spec.step(instance.state, behaviorCtx);
+          result = spec.step!(instance.state, behaviorCtx);
         } catch (e) {
-          if (e instanceof BehaviorHostIntentLimit || e instanceof BehaviorIntentError || e instanceof BehaviorHostError) {
-            throw e;
-          }
-          // Phase 19.0: a visual script's error keeps the node it came from.
-          // Phase 25.9: and every error where in the compiled script it was thrown.
-          const withNode = (err: BehaviorHostError): BehaviorHostError => {
-            const nodeId = graphNodeIdOf(e);
-            if (nodeId !== undefined) err.nodeId = nodeId;
-            const frames = compiledFramesOf(e);
-            if (frames.length > 0) err.frames = frames;
-            return err;
-          };
-          if (e instanceof TimerCallError || e instanceof RandomCallError || e instanceof DebugCallError || e instanceof EntityAccessError) {
-            throw withNode(new BehaviorHostError('module_error', e.reason, `behavior "${behaviorId}" ${e.message}`));
-          }
-          if (e instanceof FrozenPreparedError) {
-            throw withNode(new BehaviorHostError('module_error', 'behavior_state_shared', `behavior "${behaviorId}" mutated its prepare() result: ${messageOf(e)}`));
-          }
-          const detail = graphNodeIdOf(e) !== undefined ? (e as { detail?: unknown }).detail : undefined;
-          throw withNode(new BehaviorHostError('module_error', 'behavior_step_failed', `behavior "${behaviorId}" step threw: ${messageOf(e)}`, typeof detail === 'string' && GRAPH_DETAIL_RE.test(detail) ? detail : undefined));
+          throw scriptFailure(e, 'step');
         }
-        if (result !== undefined) {
-          if (isThenable(result)) {
-            throw new BehaviorHostError('module_error', 'behavior_step_async', `behavior "${behaviorId}" returned a thenable (step must be synchronous)`);
+        if (result !== undefined) throw resultFailure(result, 'step');
+      };
+
+      /** Phase 25.11: run one callback of an instance (in the intent phase; `event` for the event callbacks). */
+      const callback = (instance: BehaviorInstance, name: BehaviorCallbackName, src: StepContext, event?: unknown): void => {
+        const fn = spec[name];
+        if (typeof fn !== 'function') return;
+        beginInstanceStep(instance, src.stepIndex);
+        const behaviorCtx = contextFor(instance, 'intent', src);
+        let result: unknown;
+        try {
+          result = event === undefined ? (fn as (s: unknown, c: unknown) => unknown).call(spec, instance.state, behaviorCtx) : (fn as (s: unknown, e: unknown, c: unknown) => unknown).call(spec, instance.state, event, behaviorCtx);
+        } catch (e) {
+          throw scriptFailure(e, name);
+        }
+        if (result !== undefined) throw resultFailure(result, name);
+      };
+      /** Phase 25.11: the object's switched-on state changed since the script last heard: onEnable / onDisable. */
+      const lifecycle = (instance: BehaviorInstance, src: StepContext): void => {
+        const on = src.inactiveEntities?.has(instance.entityId) !== true;
+        if (on === instance.enabled) return;
+        instance.enabled = on;
+        callback(instance, on ? 'onEnable' : 'onDisable', src);
+      };
+      /** Phase 25.11: the event callbacks of one ticking instance, in their fixed order. */
+      const dispatchEvents = (instance: BehaviorInstance, src: StepContext): void => {
+        if (triggerCallbacks) {
+          const list = src.triggerEvents;
+          if (list !== undefined) for (let i = 0; i < list.length; i += 1) {
+            const t = list[i]!;
+            if (ownsTrigger(instance, t.trigger)) callback(instance, t.type === 'enter' ? 'onTriggerEnter' : 'onTriggerExit', src, t);
           }
-          throw new BehaviorHostError('module_error', 'behavior_step_async', `behavior "${behaviorId}" returned a value (step must return undefined)`);
+        }
+        if (spec.onContact !== undefined) {
+          const list = src.primitiveEvents;
+          if (list !== undefined) for (let i = 0; i < list.length; i += 1) {
+            const e = list[i]!;
+            if ((e.type === 'contact' || e.type === 'separate') && ownsTrigger(instance, e.entity)) callback(instance, 'onContact', src, e);
+          }
+        }
+        if (spec.onMessage !== undefined) {
+          const list = src.messages?.all?.(instance.entityId);
+          if (list !== undefined) for (let i = 0; i < list.length; i += 1) callback(instance, 'onMessage', src, list[i]);
+        }
+        if (spec.onUiEvent !== undefined) {
+          const list = src.ui?.events();
+          if (list !== undefined) for (let i = 0; i < list.length; i += 1) callback(instance, 'onUiEvent', src, list[i]);
+        }
+        if (spec.onAnimatorEvent !== undefined) {
+          const list = src.animatorEvents;
+          if (list !== undefined) for (let i = 0; i < list.length; i += 1) if (ownsTrigger(instance, list[i]!.entityId)) callback(instance, 'onAnimatorEvent', src, list[i]);
+        }
+      };
+      /** Phase 25.11: the instances whose objects left the game since the last intent phase (onDisable, onDestroy, then dispose). */
+      const leaving: BehaviorInstance[] = [];
+      const disposeInstance = (instance: BehaviorInstance): void => {
+        try {
+          spec.dispose?.(readonlyResult, instance.state);
+        } catch (e) {
+          cfg.behaviorLog?.('error', `behavior "${behaviorId}" dispose threw: ${messageOf(e)}`, compiledFramesOf(e, 1)[0]);
         }
       };
 
@@ -1148,7 +1258,10 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
          */
         reset(rctx): void {
           if (rctx.reason !== 'replay') return;
+          // Phase 25.11: objects that left with the old run get no callbacks; every instance hears onEnable again.
+          for (const instance of leaving.splice(0)) disposeInstance(instance);
           for (const instance of instances) {
+            instance.enabled = false;
             instance.timers.clear();
             // Phase 23.7: every random stream starts over with the run.
             instance.random?.reset();
@@ -1170,9 +1283,35 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
           if (disposed) {
             throw new BehaviorHostError('module_error', 'behavior_step_failed', `behavior "${behaviorId}" was stepped after dispose`);
           }
+          // Phase 25.11: the scripts of objects that left the game hear it first (one at a time: after a
+          // failure the rest are still disposed with the module).
+          if (phase === 'intent') {
+            while (leaving.length > 0) {
+              const instance = leaving[0]!;
+              if (instance.enabled) {
+                instance.enabled = false;
+                callback(instance, 'onDisable', ctx);
+              }
+              callback(instance, 'onDestroy', ctx);
+              leaving.shift();
+              disposeInstance(instance);
+            }
+          }
           if (instances.length === 0) return;
           // Phase 23.10: a behavior whose group the game mode pauses does not run this step.
           const ticks = ctx.behaviorTicks;
+          if (phase === 'intent' && (lifecycleCallbacks || eventCallbacks)) {
+            // Phase 25.11: per instance, the lifecycle callbacks (whatever the game mode ticks), then the
+            // event callbacks and the step of a ticking one.
+            for (let i = 0; i < instances.length; i += 1) {
+              const instance = instances[i]!;
+              if (lifecycleCallbacks) lifecycle(instance, ctx);
+              if (ticks !== undefined && !ticks(instance.entityId)) continue;
+              if (eventCallbacks) dispatchEvents(instance, ctx);
+              stepBehavior(instance, phase, ctx);
+            }
+            return;
+          }
           if (ticks === undefined) {
             for (let i = 0; i < instances.length; i += 1) stepBehavior(instances[i]!, phase, ctx);
           } else {
@@ -1205,16 +1344,17 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
           }
         },
         sceneUnloaded(ids): void {
+          const left: BehaviorInstance[] = [];
           for (let i = instances.length - 1; i >= 0; i -= 1) {
             const instance = instances[i]!;
             if (!ids.has(instance.entityId)) continue;
-            try {
-              spec.dispose?.(readonlyResult, instance.state);
-            } catch (e) {
-              cfg.behaviorLog?.('error', `behavior "${behaviorId}" dispose threw: ${messageOf(e)}`, compiledFramesOf(e, 1)[0]);
-            }
             instances.splice(i, 1);
+            // Phase 25.11: a script with onDisable/onDestroy hears it in the next intent phase (then it is disposed).
+            if (leaveCallbacks) left.push(instance);
+            else disposeInstance(instance);
           }
+          // In instance order (the loop above ran backwards).
+          for (let i = left.length - 1; i >= 0; i -= 1) leaving.push(left[i]!);
           for (const id of ids) {
             entityIds.delete(id);
             cameraIds.delete(id);
@@ -1226,6 +1366,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         dispose(): void {
           if (disposed) return;
           disposed = true;
+          for (const instance of leaving.splice(0)) disposeInstance(instance);
           for (const instance of instances) {
             try {
               spec.dispose?.(readonlyResult, instance.state);
@@ -1384,21 +1525,29 @@ export function createTagQuery(snapshot: RuntimeSnapshot): BehaviorTagQuery & Li
 function behaviorSpecOf(namespace: unknown): LoadedBehaviorSpec {
   const ns = namespace as { default?: unknown } | null;
   const candidate = isPlainObject(ns) && 'default' in ns ? ns.default : ns;
-  if (!isPlainObject(candidate) || typeof candidate['step'] !== 'function') {
+  const callbacks = isPlainObject(candidate) ? BEHAVIOR_CALLBACKS.filter((k) => candidate[k] !== undefined) : [];
+  if (!isPlainObject(candidate) || (typeof candidate['step'] !== 'function' && callbacks.length === 0) || (candidate['step'] !== undefined && typeof candidate['step'] !== 'function')) {
     throw new BehaviorHostError(
       'config_invalid',
       'behavior_artifact_invalid',
-      'the compiled artifact namespace must export a spec with a step() function',
+      'the compiled artifact namespace must export a spec with a step() function or callbacks',
     );
   }
+  // Phase 25.11: a callback key holds a function.
+  const bad = callbacks.find((k) => typeof candidate[k] !== 'function');
+  if (bad !== undefined) throw new BehaviorHostError('config_invalid', 'behavior_artifact_invalid', `the spec's ${bad} must be a function`);
   return candidate as unknown as LoadedBehaviorSpec;
 }
 
+/** Phase 25.11: the callbacks a behavior spec may have (their dispatch order in a step is described on `BehaviorSpec`). */
+export const BEHAVIOR_CALLBACKS = ['onEnable', 'onDisable', 'onDestroy', 'onTriggerEnter', 'onTriggerExit', 'onContact', 'onMessage', 'onUiEvent', 'onAnimatorEvent'] as const;
+export type BehaviorCallbackName = (typeof BEHAVIOR_CALLBACKS)[number];
+
 /** The authored `export default` program as loaded (unchecked; runtime.md §14.3). */
-interface LoadedBehaviorSpec {
+interface LoadedBehaviorSpec extends Partial<Record<BehaviorCallbackName, (...args: unknown[]) => unknown>> {
   prepare?(cfg: unknown): unknown;
   instantiate?(prepared: unknown, inst: unknown): unknown;
-  step(state: unknown, ctx: unknown): unknown;
+  step?(state: unknown, ctx: unknown): unknown;
   dispose?(prepared: unknown, state: unknown): void;
   debug?(state: unknown): unknown;
 }

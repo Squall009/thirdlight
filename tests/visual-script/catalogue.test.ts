@@ -376,6 +376,15 @@ function scriptFor(def: GraphNodeDef): GraphData {
   return { nodes, edges };
 }
 
+/** Phase 25.11: a sample event per callback (undefined: a lifecycle callback without one). */
+const CALLBACK_SAMPLES: readonly [string, unknown][] = [
+  ['onEnable', undefined],
+  ['onDisable', undefined],
+  ['onDestroy', undefined],
+  ['onContact', { type: 'contact', entity: 'box-1', other: 'crate-1', normal: [1, 0, 0], stepIndex: 1 }],
+  ['onUiEvent', { kind: 'click', doc: 'hud', widget: 'go', name: 'go', value: 3 }],
+];
+
 async function run(graph: GraphData, steps = 3): Promise<{ calls: string[]; error: unknown }> {
   const r = await compileBehaviorGraph(compiler, { behaviorId: 'script', graph, env: ENV, limits: { timeoutMs: 30_000 } });
   if (!r.ok) throw new Error(JSON.stringify(r.failure.diagnostics));
@@ -384,6 +393,8 @@ async function run(graph: GraphData, steps = 3): Promise<{ calls: string[]; erro
   const state = spec.instantiate(undefined, { entityId: 'box-1', properties: { v: 1 } });
   try {
     for (let i = 1; i <= steps; i++) {
+      // Phase 25.11: the callbacks a script has run in the intent phase, before its step.
+      for (const [cb, ev] of CALLBACK_SAMPLES) if (typeof spec[cb] === 'function') (ev === undefined ? spec[cb](state, recordingContext(calls, 'intent', i)) : spec[cb](state, ev, recordingContext(calls, 'intent', i)));
       for (const phase of ['intent', 'transform'] as const) spec.step(state, recordingContext(calls, phase, i));
     }
   } catch (e) {

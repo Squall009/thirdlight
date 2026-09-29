@@ -11,6 +11,7 @@ import {
   parseContainer,
   pathProblem,
   renameFile,
+  specMemberCompletion,
   typeOfIdentifier,
 } from './script-sources';
 
@@ -65,6 +66,30 @@ describe('script sources (phase 16.3)', () => {
     expect(memberCompletion('a.ctx.', text, BEHAVIOR_API_TYPES)).toBeNull();
     // An annotation names the type of any identifier.
     expect(memberCompletion('info.', 'instantiate(p: unknown, info: BehaviorInstanceInfo) {}', BEHAVIOR_API_TYPES)?.members.map((m) => m.name)).toContain('entityId');
+  });
+});
+
+describe('callback completion (phase 25.11)', () => {
+  it('completes the spec members inside export default, and a callback event parameter by its position', () => {
+    const top = 'export default {\n  step(s, ctx) { if (ctx.phase === "x") { const o = { a: "}" }; } },\n  onTri';
+    const spec = specMemberCompletion(top, BEHAVIOR_API_TYPES);
+    expect(spec?.prefix).toBe('onTri');
+    expect(spec?.members.map((m) => m.name)).toEqual(['onTriggerEnter', 'onTriggerExit']);
+    expect(specMemberCompletion('export default {\n  on', BEHAVIOR_API_TYPES)?.members.map((m) => m.name)).toEqual(
+      expect.arrayContaining(['onEnable', 'onDisable', 'onDestroy', 'onContact', 'onMessage', 'onUiEvent', 'onAnimatorEvent']),
+    );
+    // Not inside a method body or a nested object, nor without export default.
+    expect(specMemberCompletion('export default {\n  step(s, ctx) {\n    onTri', BEHAVIOR_API_TYPES)).toBeNull();
+    expect(specMemberCompletion('const x = {\n  onTri', BEHAVIOR_API_TYPES)).toBeNull();
+
+    const text = 'export default {\n  onTriggerEnter(state, event, ctx) {\n    event.\n  },\n  onMessage(s, m: BehaviorMessage, c) { m. },\n};';
+    expect(typeOfIdentifier('event', text, BEHAVIOR_API_TYPES)).toBe('TriggerEventRecord');
+    expect(memberCompletion('    event.tr', text, BEHAVIOR_API_TYPES)?.members.map((m) => m.name)).toEqual(['trigger']);
+    expect(typeOfIdentifier('m', text, BEHAVIOR_API_TYPES)).toBe('BehaviorMessage');
+    expect(typeOfIdentifier('c', text, BEHAVIOR_API_TYPES)).toBe('BehaviorContext');
+    expect(typeOfIdentifier('e', 'export default { onUiEvent(_s, e, _c) {} };', BEHAVIOR_API_TYPES)).toBe('UiEventRecord');
+    expect(typeOfIdentifier('e', 'export default { onContact(_s, e, _c) {} };', BEHAVIOR_API_TYPES)).toBe('ContactEventRecord');
+    expect(typeOfIdentifier('e', 'export default { onAnimatorEvent(_s, e, _c) {} };', BEHAVIOR_API_TYPES)).toBe('AnimatorEventRecord');
   });
 });
 

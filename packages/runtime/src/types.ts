@@ -613,6 +613,11 @@ export interface StepContext {
   /** Phase 19.1: messages between scripts (the behavior host gives each script its own `ctx.messages`). */
   readonly messages?: BehaviorMessageControl;
   /**
+   * Phase 25.11: the objects switched off now (by a script, with their children) — the behavior host
+   * sends `onEnable`/`onDisable` when an instance's object changes side.
+   */
+  readonly inactiveEntities?: ReadonlySet<string>;
+  /**
    * Phase 23.2 (3D projects): the active camera's yaw this step — radians
    * about +Y, 0 looking along −Z (three.js' default camera) — when a camera
    * rig provides one; the 3D character reads its move input relative to it.
@@ -728,6 +733,8 @@ export interface BehaviorMessages {
 export interface BehaviorMessageControl {
   send(from: string, name: unknown, value: unknown, target: unknown): boolean;
   received(to: string, name: unknown): readonly BehaviorMessage[];
+  /** Phase 25.11: every message sent in the previous step to every script or to `to`, in send order (`onMessage`). */
+  all?(to: string): readonly BehaviorMessage[];
 }
 
 /**

@@ -46,6 +46,7 @@
  */
 import {
   BEHAVIOR_GRAPH_LIMITS,
+  CALLBACK_EVENT_NODES,
   axesOptions,
   behaviorApiSpec,
   behaviorFunctionInterface,
@@ -1087,7 +1088,8 @@ class GraphCode {
     const L = `N.${this.prefix}L([])`;
     em.boundary();
     em.line('');
-    em.line(`N.${this.name(n)} = function (s: S, c: any, r: R): void {`, sid);
+    // Phase 25.11: a callback event gets the callback's event (`ev`).
+    em.line(`N.${this.name(n)} = function (s: S, c: any, r: R${CALLBACK_EVENT_NODES[n.type] !== undefined ? ', ev: any' : ''}): void {`, sid);
     em.line(`  r.n = ${id};`, sid);
     const fire = (indent: string, outputs: [string, string][] = []): void => {
       em.line(`${indent}{`, sid);
@@ -1193,6 +1195,36 @@ class GraphCode {
           ['from', 'String(m.from)'],
         ]);
         em.line('  }', sid);
+        break;
+      }
+      // Phase 25.11: the callback events (run from the spec's onEnable … onUiEvent).
+      case 'event.enable':
+      case 'event.disable':
+      case 'event.destroy':
+        fire('  ');
+        break;
+      case 'event.contact': {
+        const only = this.str(n, 'entity');
+        em.line(`  if (ev.type !== ${q(when === 'separate' ? 'separate' : 'contact')}${only !== '' ? ` || ev.entity !== ${q(only)}` : ''}) return;`, sid);
+        fire('  ', [
+          ['entity', 'String(ev.entity)'],
+          ['other', 'String(ev.other)'],
+          ['normal', 'cv(ev.normal, "vector")'],
+        ]);
+        break;
+      }
+      case 'event.ui': {
+        const only = this.str(n, 'name');
+        const t = this.portsOf(n).outputs.find((p) => p.id === 'value')?.type ?? 'number';
+        if (only !== '') em.line(`  if (ev.name !== ${q(only)}) return;`, sid);
+        fire('  ', [
+          ['kind', 'String(ev.kind)'],
+          ['doc', 'String(ev.doc)'],
+          ['widget', 'String(ev.widget)'],
+          ['name', 'String(ev.name)'],
+          ['value', `cv(ev.value ?? null, ${q(t)})`],
+          ['index', 'cv(ev.index ?? -1, "number")'],
+        ]);
         break;
       }
       default:
@@ -1334,22 +1366,42 @@ export function generateGraphSource(graph: GraphData, env: BehaviorScriptEnv = {
     if (debug) em.line('      db: { k: -1, t: [], x: 0, l: {}, w: {}, lv: {} },');
     em.line('    };');
     em.line('  },');
+    // Phase 25.11: a new step starts the loop budget (and the debug trace) — in a callback or the step, whichever runs first.
+    const beginStep = (): void => {
+      em.line('    if (s.k !== c.stepIndex) {');
+      em.line('      s.k = c.stepIndex;');
+      em.line('      s.it = 0;');
+      if (debug) {
+        // Phase 19.2: a new step starts the instance's trace again.
+        em.line('      s.db.k = c.stepIndex;');
+        em.line('      s.db.t = [];');
+        em.line('      s.db.x = 0;');
+      }
+      em.line('    }');
+    };
+    // Phase 25.11: the callback events, one spec method per callback (its nodes in id order).
+    const callbackNodes = main.nodes.filter((n) => CALLBACK_EVENT_NODES[n.type] !== undefined).sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    for (const cb of ['onEnable', 'onDisable', 'onDestroy', 'onContact', 'onUiEvent'] as const) {
+      const list = callbackNodes.filter((n) => CALLBACK_EVENT_NODES[n.type] === cb);
+      if (list.length === 0) continue;
+      const withEvent = cb === 'onContact' || cb === 'onUiEvent';
+      em.line(`  ${cb}(s: S, ${withEvent ? 'ev: any, ' : ''}c: any): void {`);
+      beginStep();
+      em.line("    const r: R = { n: '' };");
+      em.line('    try {');
+      for (const n of list) em.line(`      N.${main.name(n)}(s, c, r${withEvent ? ', ev' : ''});`, n.id);
+      em.line('    } catch (e) {');
+      em.line('      throw tag(e, r.n);');
+      em.line('    }');
+      em.line('  },');
+    }
     em.line('  step(s: S, c: any): void {');
     em.line("    if (c.phase !== 'intent' && c.phase !== 'transform') return;");
-    em.line('    if (s.k !== c.stepIndex) {');
-    em.line('      s.k = c.stepIndex;');
-    em.line('      s.it = 0;');
-    if (debug) {
-      // Phase 19.2: a new step starts the instance's trace again.
-      em.line('      s.db.k = c.stepIndex;');
-      em.line('      s.db.t = [];');
-      em.line('      s.db.x = 0;');
-    }
-    em.line('    }');
+    beginStep();
     em.line("    const r: R = { n: '' };");
     em.line('    try {');
     for (const phase of ['intent', 'transform'] as const) {
-      const events = main.nodes.filter((n) => main.isEvent(n) && eventPhase(n) === phase);
+      const events = main.nodes.filter((n) => main.isEvent(n) && CALLBACK_EVENT_NODES[n.type] === undefined && eventPhase(n) === phase);
       const delays = main.nodes.filter((n) => n.type === 'flow.delay' && phases.get(n.id)?.has(phase) === true);
       if (events.length === 0 && delays.length === 0) continue;
       em.line(`      if (c.phase === ${q(phase)}) {`);

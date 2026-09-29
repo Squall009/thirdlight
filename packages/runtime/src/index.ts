@@ -177,6 +177,7 @@ export { DROP_THROUGH_STEPS, MAX_CATCHUP_STEPS, SETTLE_PREROLL_STEPS, engineTimi
 export { QUERY_LIMIT_3D, type HeldPointer } from './runtime';
 export {
   BEHAVIOR_MODULE_PREFIX,
+  BEHAVIOR_CALLBACKS,
   BEHAVIOR_SELF_OWNER,
   BehaviorHostError,
   BehaviorHostIntentLimit,
@@ -189,6 +190,7 @@ export {
   type BehaviorInstanceInfo,
   type BehaviorPrepareConfig,
   type BehaviorSpec,
+  type BehaviorCallbackName,
   type BehaviorEnginePin,
   type BehaviorHostInput,
   type BehaviorLogEntry,

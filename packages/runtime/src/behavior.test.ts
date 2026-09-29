@@ -656,3 +656,55 @@ describe('public surface', () => {
     );
   });
 });
+
+describe('phase 25.11: callbacks on the behavior spec', () => {
+  const namespaceArtifact = (spec: Record<string, unknown>): BehaviorArtifact => ({
+    behaviorId: 'behavior-0001',
+    sourceDigest: 'a'.repeat(64),
+    manifestDigest: 'b'.repeat(64),
+    outputDigest: 'c'.repeat(64),
+    ownedTransforms: [],
+    requiredModules: [],
+    enginePins: [],
+    namespace: { default: spec },
+  });
+
+  it('accepts a spec with callbacks and no step; onEnable runs once per instance, in the first step, before any step', () => {
+    const seen: string[] = [];
+    const h = boot(
+      [namespaceArtifact({ instantiate: () => ({}), onEnable: (_s: unknown, ctx: { entityId: string; stepIndex: number; phase: string }) => { seen.push(`${ctx.entityId}@${ctx.stepIndex}:${ctx.phase}`); } })],
+      sceneWithBehaviors([
+        { entityId: 'box-0001', behaviorId: 'behavior-0001' },
+        { entityId: 'box-0002', behaviorId: 'behavior-0001' },
+      ]),
+    );
+    h.boot();
+    expect(h.diag().state).not.toBe('failed');
+    expect(seen).toEqual(['box-0001@0:intent', 'box-0002@0:intent']);
+  });
+
+  it('refuses a spec with neither step nor callbacks, and a callback that is not a function', () => {
+    expect(() => createBehaviorModuleSpec({ declaration: { properties: [] }, artifact: namespaceArtifact({ instantiate: () => ({}) }) })).toThrow(/step\(\) function or callbacks/);
+    expect(() => createBehaviorModuleSpec({ declaration: { properties: [] }, artifact: namespaceArtifact({ step: () => undefined, onMessage: 3 }) })).toThrow(/onMessage must be a function/);
+  });
+
+  it('fail-stops on a throwing callback (the callback named) and on a callback returning a value', () => {
+    const h = boot(
+      [namespaceArtifact({ step: () => undefined, onEnable: () => { throw new Error('boom'); } })],
+      sceneWithBehaviors([{ entityId: 'box-0001', behaviorId: 'behavior-0001' }]),
+    );
+    h.boot();
+    const d = h.diag();
+    expect(d.state).toBe('failed');
+    expect(d.errors[0]?.reason).toBe('behavior_step_failed');
+    expect(d.errors[0]?.message).toMatch(/onEnable threw: boom/);
+
+    const h2 = boot(
+      [namespaceArtifact({ step: () => undefined, onEnable: () => 1 })],
+      sceneWithBehaviors([{ entityId: 'box-0001', behaviorId: 'behavior-0001' }]),
+    );
+    h2.boot();
+    expect(h2.diag().errors[0]?.reason).toBe('behavior_step_async');
+    expect(h2.diag().errors[0]?.message).toMatch(/onEnable returned a value/);
+  });
+});

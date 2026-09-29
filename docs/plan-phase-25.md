@@ -96,8 +96,8 @@ services.
 ## 4. Items
 
 Order: bugs → Play-start speed (25.24) → limits → scene lighting →
-scripting → movement → tools → rendering and terrain → the project window
-(25.23). Each item keeps the gate green and has tests at the
+scripting → movement → tools → rendering and terrain (the project window,
+25.23, moved to phase 26). Each item keeps the gate green and has tests at the
 boundary it changes (Playwright for any editor surface).
 
 | Item | What | Requests |
@@ -133,7 +133,7 @@ boundary it changes (Playwright for any editor surface).
 | 25.21 | A painted terrain material: 4 height-blended PBR slots packed into 3 compressed texture arrays, paint and wetness stored with the layer, and an editor Paint mode. Needs 25.19 and 25.20. | E40 |
 | 25.22 | Small UI and content items: a bindable `startAngle` and `size` on UI widgets, and an art-factory import route. The route reads a job's export, not the art-factory repo. | E32, E18 |
 | **Editor quality of life** | | |
-| 25.23 | **A project window with folders.** Today the asset browser is one flat list with no search, filter or sort. Materials, prefabs, scripts, UI documents, timelines, dialogue, effects and animators each live in their own panel.<br>• **Folders** for every project resource kind (assets, prefabs, materials and functions, behaviors and libraries, graphs, UI documents and themes, timelines, dialogue, effects, animators). They are nested and can be renamed.<br>• **Drag and drop:** resources and folders can be dragged between folders; multi-select, cut, paste and "new folder" work too. The existing drop targets stay: Scene view, Inspector fields, Hierarchy.<br>• **Browsing:** search by name, filter by kind, sort, grid or list view with a tile-size slider, a breadcrumb, and a virtualized list so thousands of items scroll smoothly.<br>• **Opening items:** a double-click opens the resource's editor (material, timeline, UI document and so on); the per-kind panels remain as views.<br>• **Imports** from a game folder default to a folder mirroring the file's path.<br>• **Storage:** folders are organization data only. They live in the project content and change through commands (`setResourceFolders` and a `moveResources` op) with undo, so MCP can organize them too. They are left out of the play manifest and the buildId, so moving an item never changes a build.<br>A Playwright test covers creating a folder, dragging an asset into it, search, and reload. | owner |
+| 25.23 | **Moved to phase 26** (owner, 2026-09-29): the project window is built on phase 26's storage, where folders are real directories of the game folder (26.3) instead of organization data in the content; its scope is in `docs/plan-phase-26.md` item 26.12. Not done in phase 25. | owner |
 | 25.24 | **Faster Play start and scene loads.** Today every Play starts cold. The backend recompiles every behavior with esbuild and re-reads and re-hashes every asset. A new iframe re-downloads the 8.8 MB game bundle under a per-Play URL. `readDeclaredAssets` (`preview-m3.ts:252`) fetches and hashes **every asset of every scene, one at a time**, before mount. No pipelines are precompiled (no `compileAsync`), so the first frames stall; the large bench shows a 3.3 s frame. A runtime scene load does all its `addBatch` work in one step, then parses GLBs and compiles pipelines on first draw, with no preloading and no loading state. The large bench measured 4.5 s to first frame; asset-heavy real projects are unmeasured and likely much worse. In order:<br>a. **Stage timings** in play diagnostics and the perf harness: backend build, bundle load, asset read, worker start, mount, models settled, first frame, and the slow frames after it. Timings per scene load too. Add an asset-heavy class to the perf harness (many distinct GLBs and textures; the bench has one model). Measure before any fix, and record the split in §6.<br>b. **Asset reads:** only the start scenes' assets, read in parallel (bounded, e.g. 8 at a time). Other scenes' assets load when their scene does.<br>c. **Caching across Plays:** compiled behaviors keyed by source, compiler and library digests; blobs kept by digest instead of copied per Play; the bundle, worker and physics scripts and content served at stable, digest-keyed URLs with `immutable`/`ETag` headers, so the browser's HTTP and code caches hit. The digests are still verified.<br>d. **Pipeline precompile:** `renderer.compileAsync` before the first present and after each scene attach, in both renderers.<br>e. **Scene loads:** preload the scenes named in the shell scene list and in `trigger.sceneTransition` targets (fetch, parse, colliders prepared); spread `addBatch` over steps when it is over budget; a loading state scripts and UI can read, and an optional fade, so a transition never shows an empty world.<br>f. **Progressive presentation:** present once the start scene's blocking assets are in, and stream the rest. The 15 s present-timeout counts from the last progress, not from the start.<br>g. **Small items:** read the game bundle from disk once, not per Play; drop the page's second pretty-JSON serialize and hash of the scene (the buildId already binds it).<br>h. **Warm preview page:** keep a preloaded iframe (bundles parsed, worker and physics started) for the next Play. Only done if (a)'s split shows boot is still a large share after (b)–(g).<br>Acceptance: the before/after split in §6. On the GPU host, Play of an unchanged large project reaches its first frame in under 3 s from the second Play on, with no frame over 250 ms after it. A scene transition shows no empty frames. The exact targets are fixed from (a)'s numbers. | owner |
 
 **Done when:**
@@ -175,7 +175,9 @@ boundary it changes (Playwright for any editor surface).
 | 25.8 | done 2026-09-28: lights belong to scenes: any kind in any scene (model and runtime; per scene one directional, ambient, hemisphere, 16 point/spot); the most recently loaded scene's directional, ambient and hemisphere light on (each kind on its own), the previous back on unload; point/spot of all loaded scenes share the budget of 16 (most recent scenes first); the key light's own shadow settings follow the switch; spot cookies (`light.cookie`, a texture; `SpotLight.map`) in the Scene view, Play and export on both backends, Inspector field; `renderer.lights` in Play diagnostics; `scene-lights.e2e.ts` (pixels: 12 point lights, sun colours on load/unload, cookie; Play and export, auto/webgl2/webgpu), `lights.e2e.ts` (Inspector cookie, Scene view pixels); D49 fixed |
 | 25.9 | done 2026-09-28: each script library compiled once into its own minified, tree-shaken module (`libraries/<digest>.js`, manifest `libraries` rows under the buildId) that scripts import by digest instead of bundling (Play worker and page, export with the backend stopped; one module instance per realm, tested); records published before it still build (bundled digest re-derived, shared form shipped); staged library edits (`stageScriptLibrary` route/MCP op, files in pieces, `commitScriptLibraryStage`: one revision, one undo, each dependent compiled once; the Libraries panel's Save all, large saves staged); source maps for every compiled output, runtime errors and `ctx.log` record compiled frames, Play diagnostics map them to `{behaviorId|libraryId, path, line, column}`, the Console tab opens the line; `script-libraries-shared.e2e.ts`, `m25-libraries` integration, unit tests |
 | 25.10 | done 2026-09-29: `ctx.entity(id).get(component)` (step-start snapshot of the descriptor-marked script-readable fields; the marks are pinned for schemaVersion 4) and `.set(component, patch)` (queued, applied at the end of the step in script order; refusals name the field; a field written twice: later wins, conflict in diagnostics); writable: object `active` (not drawn, no collision, triggers or ticking) and `visible`, transform (relaxed ownership: not physics bodies, the camera, static or system-driven objects), light colour/intensity/range, mover speed/`active` (new stored field), material parameters; `character_place` on the 2D plane (from rest); `ctx.shell.nextScene()`; typed prefab-local references in spawned copies; object pickers for script object properties; typings and visual-script nodes; `m25-entity-access` (2D/3D, page and worker, replay digests), `entity-access.e2e.ts` (Inspector, typings, pixels on both backends) |
-| 25.11–25.23 | — |
+| 25.11 | done 2026-09-29: callbacks on the behavior spec (`onEnable/onDisable/onDestroy`, `onTriggerEnter/Exit`, `onContact`, `onMessage`, `onUiEvent`, `onAnimatorEvent`; `step` optional), run in the intent phase before the script's step in a fixed order; lifecycle follows the object's switched-on state (25.10's `active`, spawns, scene loads/unloads, destroys; a restart sends onEnable again, no onDestroy); the event lists stay; typings with completion of the callbacks and their event fields; visual-script nodes On enable/disable/destroy, On contact, On UI event; `m25-callbacks` (2D/3D, page and worker, replay digests), `callbacks.e2e.ts` |
+| 25.12–25.22 | — |
+| 25.23 | moved to phase 26 (26.12), owner 2026-09-29 |
 
 ## 6. Decision log
 
@@ -957,3 +959,51 @@ boundary it changes (Playwright for any editor surface).
   component" with ok/field/code/message outputs; the object input defaults
   to this object) and Shell nodes (Next scene, Scene list entry, Scene list
   length).
+- 2026-09-29 (25.11): **the callbacks' shape.** `onX(state, ctx)` for the
+  lifecycle, `onX(state, event, ctx)` for the events (the record the lists
+  already carry: `TriggerEventRecord`, `ContactEventRecord`,
+  `BehaviorMessage`, `UiEventRecord`, `AnimatorEventRecord`); like `step`
+  they are synchronous and return nothing (else the same fail-stop, the
+  callback named). `step` became optional for a script with callbacks; a spec
+  with neither, or a callback key that is not a function, is refused.
+- 2026-09-29 (25.11): **when they run.** Inside the step's intent phase, per
+  script module in module order and per instance in instance order, before
+  the instance's `step`: first the instances whose objects left the game
+  since the last intent phase (onDisable if enabled, then onDestroy, then
+  dispose), then per instance onEnable/onDisable, then (only while it ticks)
+  triggers, contacts, messages, UI events, animator events in the order they
+  happened, then `step`. The events are the ones the lists already give
+  (last step's triggers, contacts, messages and clip events; this step's UI
+  events), so nothing new enters the step's state and a script without
+  callbacks steps exactly as before; replays and the worker stay identical.
+- 2026-09-29 (25.11): **enable follows the object, not the game mode.**
+  onEnable/onDisable follow whether the object is switched on (25.10's
+  effective `active`, children included), compared at each intent phase, so
+  every path (a script's write, a restart, a loaded save's `fields`) counts
+  and a switch within one step that ends where it began sends nothing. They
+  are sent while a game mode pauses the script's group too; the event
+  callbacks are not (they belong to the tick, like `ctx.events`).
+- 2026-09-29 (25.11): **onDestroy** is sent in the step the object left
+  (removals happen at the step boundary, before the intent phase), after
+  onDisable; the object is gone (`ctx.entity(ctx.entityId)` is null). A
+  restart clears spawned copies without onDestroy and sends every instance
+  onEnable again (it starts fresh, as its state does); stopping the game only
+  disposes.
+- 2026-09-29 (25.11): **ownership.** onTriggerEnter/Exit, onContact and
+  onAnimatorEvent get the events of what the script owns (its object, below
+  it, its object properties — the `ctx.events` rule); for clip events this is
+  narrower than `ctx.events`, which lists every clip event. onContact gets
+  both `contact` and `separate` (the record's `type`). onMessage gets every
+  message to all scripts or to this object; onUiEvent every UI event.
+- 2026-09-29 (25.11): **editor and visual scripts.** The typings generator
+  also puts `BehaviorSpec` and the callbacks' event types in the completion
+  table: inside `export default { … }` the callbacks complete, and an event
+  parameter completes by its position in the callback (no annotation needed).
+  Visual scripts get hand-written core event nodes for the callbacks the
+  existing nodes did not cover — On enable, On disable, On destroy, On
+  contact, On UI event — compiled into the spec's callback methods; On
+  trigger, On message and On animator event keep reading the lists.
+- 2026-09-29: 25.23 (the project window) moved to phase 26 (owner). Phase
+  26 stores assets and resources as files in real folders of the game folder,
+  so 25.23's folders-as-content-data would be thrown away; the window is built
+  once, on that storage (26.12).

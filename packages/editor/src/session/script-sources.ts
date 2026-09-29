@@ -172,9 +172,72 @@ export function typeOfIdentifier(name: string, text: string, types: Readonly<Rec
     const t = m[1] as string;
     if (types[t] !== undefined) return t;
   }
+  // Phase 25.11: a spec method's parameter by its position (`onTriggerEnter(state, event, ctx)`: `event` is
+  // the trigger event), from the method's signature in the table.
+  for (const m of types[SPEC_TYPE] ?? []) {
+    if (m.kind !== 'method') continue;
+    const params = parameterTypesOf(m.detail);
+    for (const call of text.matchAll(new RegExp(`(?:^|[^\\w$.])${m.name}\\s*\\(([^()]*)\\)\\s*(?::[^{]*)?\\{`, 'g'))) {
+      const at = (call[1] as string).split(',').map((p) => p.trim().replace(/[?:=].*$/s, '').trim()).indexOf(name);
+      const t = at < 0 ? undefined : params[at];
+      if (t !== undefined && types[t] !== undefined) return t;
+    }
+  }
   // The documented convention: `step(state, ctx)` — `ctx` is the behavior context.
   if (name === 'ctx' && types['BehaviorContext'] !== undefined) return 'BehaviorContext';
   return null;
+}
+
+/** Phase 25.11: the type key of the behavior spec (`export default { … }`) in the member table. */
+export const SPEC_TYPE = 'BehaviorSpec';
+
+/** The parameter types of a method's signature text (`(state: State, event: X): void` → State, X). */
+function parameterTypesOf(detail: string): string[] {
+  const m = /^\(([^()]*)\)/.exec(detail);
+  if (m === null || (m[1] as string).trim() === '') return [];
+  return (m[1] as string).split(',').map((p) => p.slice(p.indexOf(':') + 1).trim());
+}
+
+/**
+ * Phase 25.11: the spec members to complete when the cursor is at a member
+ * name directly inside the script's `export default { … }` (`onTri` →
+ * `onTriggerEnter`, …). `textBefore` is the whole text up to the cursor.
+ * Null elsewhere (a nested object, a statement, a string or comment).
+ */
+export function specMemberCompletion(textBefore: string, types: Readonly<Record<string, readonly ApiMember[]>>): { prefix: string; members: readonly ApiMember[] } | null {
+  const members = types[SPEC_TYPE];
+  if (members === undefined) return null;
+  const start = textBefore.lastIndexOf('export default {');
+  if (start < 0) return null;
+  const m = /(?:^|[{,])\s*([A-Za-z_$][\w$]*)?$/.exec(textBefore.slice(start + 'export default {'.length));
+  if (m === null) return null;
+  // Depth 0 inside the literal: count braces outside strings and comments.
+  const body = textBefore.slice(start + 'export default {'.length, textBefore.length - (m[1]?.length ?? 0));
+  let depth = 0;
+  for (let i = 0; i < body.length; i += 1) {
+    const c = body[i]!;
+    if (c === '/' && body[i + 1] === '/') {
+      const nl = body.indexOf('\n', i);
+      if (nl < 0) return null;
+      i = nl;
+    } else if (c === '/' && body[i + 1] === '*') {
+      const end = body.indexOf('*/', i + 2);
+      if (end < 0) return null;
+      i = end + 1;
+    } else if (c === "'" || c === '"' || c === '`') {
+      let j = i + 1;
+      while (j < body.length && body[j] !== c) j += body[j] === '\\' ? 2 : 1;
+      if (j >= body.length) return null;
+      i = j;
+    } else if (c === '{') depth += 1;
+    else if (c === '}') {
+      depth -= 1;
+      if (depth < 0) return null;
+    }
+  }
+  if (depth !== 0) return null;
+  const prefix = m[1] ?? '';
+  return { prefix, members: members.filter((x) => x.name.startsWith(prefix)) };
 }
 
 /**

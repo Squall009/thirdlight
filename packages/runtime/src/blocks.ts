@@ -673,6 +673,14 @@ export class GameplayBlocks {
     return Object.freeze(out);
   }
 
+  /** Phase 25.11: every message sent in the previous step to every script or to `to`, in send order. */
+  messagesTo(to: string): readonly BehaviorMessage[] {
+    if (this.messagesPrev.length === 0) return NO_MESSAGES;
+    const out: BehaviorMessage[] = [];
+    for (const m of this.messagesPrev) if (m.to === null || m.to === to) out.push(m.message);
+    return out.length === 0 ? NO_MESSAGES : Object.freeze(out);
+  }
+
   /** The carried platform's motion this step (added to the player's staged move). */
   carryDelta(): Vec2 {
     return this.carry;

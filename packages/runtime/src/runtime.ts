@@ -1512,6 +1512,7 @@ class RuntimeInstance implements Runtime {
       return this.blocks?.sendMessage({ name, value: v, from, stepIndex: this.stepIndex }, to) ?? false;
     },
     received: (to: string, name: unknown): readonly BehaviorMessage[] => (typeof name === 'string' ? (this.blocks?.messagesFor(to, name) ?? []) : []),
+    all: (to: string): readonly BehaviorMessage[] => this.blocks?.messagesTo(to) ?? [],
   });
   private readonly gameControl = Object.freeze({
     counter: (name: string): number => this.blocks?.counter(String(name)) ?? 0,
@@ -4888,6 +4889,8 @@ class RuntimeInstance implements Runtime {
       fields['modes'] = { value: this.modeControlFor(phase), enumerable: true };
       fields['lifecycle'] = { value: this.lifecycleControl, enumerable: true };
       fields['behaviorTicks'] = { get: () => rt.behaviorTicks(), enumerable: true };
+      // Phase 25.11: the switched-off objects (the behavior host's onEnable/onDisable).
+      fields['inactiveEntities'] = { get: () => rt.entityAccess.inactive(), enumerable: true };
       // Phase 23.17: timelines (ctx.timeline).
       fields['timeline'] = { value: this.timelineControl, enumerable: true };
       // Phase 23.18: the environment presets (ctx.environment).

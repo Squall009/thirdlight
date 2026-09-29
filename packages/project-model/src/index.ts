@@ -407,6 +407,7 @@ export { ANIMATOR_BLEND_GRAPH_KIND, ANIMATOR_GRAPH_KIND, ANIMATOR_LAYER_GRAPH_KI
 // Phase 19.0/19.1: visual scripts (the `behavior` graph kinds, their node catalogue and compile checks).
 export {
   BEHAVIOR_API_NODES,
+  CALLBACK_EVENT_NODES,
   BEHAVIOR_DATA_TYPES,
   BEHAVIOR_FUNCTION_GRAPH_KIND,
   BEHAVIOR_FUNCTION_ID_RE,
