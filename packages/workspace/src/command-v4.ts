@@ -1,0 +1,338 @@
+/**
+ * A mutation on a v4 project, after the service resolved the project,
+ * deduplicated the request and checked the pause: the pure command on the
+ * scene it touches, the commit-time checks of the bytes it references, the
+ * cross-scene rules over the resulting project, the write of the files that
+ * changed, and the publish of the new state.
+ */
+
+import { applyMutation, contentInUse } from '@thirdlight/commands';
+import type { CommandError, CommandState, ContentDocument, HistoryEntry, HistoryState, MutationResult, MutationSuccess, SceneDocument } from '@thirdlight/commands';
+import type { ModelErrorV3, SceneV4 } from '@thirdlight/project-model';
+import { composeV4, INSTANCE_FLOATS } from '@thirdlight/project-model';
+
+import type { RetryRecord } from './envelope';
+import { authoritativeBytes, readSourceBlob, verifyConvertedOriginal, verifyImported, verifyReferencedBlob } from './content-store';
+import { checkAssetFolder, planPlacement, syncAssetFiles, type ConvertedLike } from './asset-files';
+import { mintImportItems } from './folder-import';
+import { contentCtx } from './service-content';
+import { libraryStageFacts, preparedFactsOf } from './behavior';
+import { contentQuotaExceeded, externalChangeUnreadable, externalChangeUnresolved, pathRejected, writeFailed } from './errors';
+import { writeTransaction, type V4State } from './store-v4';
+import { changedFiles, detectExternalChangeV4, publishV4, setPendingUnreadableV4 } from './session-v4';
+import { pendingInfo, type Core, type ProjectSession } from './session';
+import { envelopeRequestId, failRequest } from './request-envelope';
+import { catalogV4Of, commandContentOf, crossSceneEntities, projectRuleError, sceneMissing, sceneNotEmpty, sceneV4Of } from './content-shapes';
+
+/**
+ * The scripts whose source names `id` as a string literal
+ * (`'crate'`, `"crate"`, `` `crate` ``): each published behavior's source
+ * container (a visual script's generated source too) and each script
+ * library's files. A reference only code can hold, so a delete is refused
+ * while it is there. An unreadable source is skipped (the delete then rests on
+ * the model's references alone).
+ */
+function scriptsNaming(read: (digest: string) => Uint8Array | null, content: ContentDocument, id: string): { path: string; document: string }[] {
+  const escaped = id.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&');
+  // The quote may be escaped inside the container's JSON text (`\"crate\"`).
+  const literal = new RegExp(`['"\`]${escaped}\\\\?['"\`]`);
+  const out: { path: string; document: string }[] = [];
+  const decoder = new TextDecoder();
+  content.behaviors.forEach((b, i) => {
+    const digest = b.source?.sourceDigest;
+    if (digest === undefined) return;
+    const bytes = read(digest);
+    if (bytes !== null && literal.test(decoder.decode(bytes))) out.push({ document: 'content', path: `/behaviors/${i} (script ${b.behaviorId})` });
+  });
+  const libraries = (content as { scriptLibraries?: { libraryId: string; files: { path: string; text: string }[] }[] }).scriptLibraries ?? [];
+  libraries.forEach((lib, i) => {
+    lib.files.forEach((f, j) => {
+      if (literal.test(f.text)) out.push({ document: 'content', path: `/scriptLibraries/${i}/files/${j} (library ${lib.libraryId}, ${f.path})` });
+    });
+  });
+  return out;
+}
+
+/**
+ * The bytes a successful publication references (the new version's
+ * digest/length and where they are), or null for a non-publication or a
+ * history op. Commit-time verification uses it. Undo and redo restore a
+ * version recorded (and verified) earlier: the workspace puts back the file
+ * bytes it holds, a file changed since is reported by the file check, and
+ * reads refuse it, but it never blocks the undo.
+ */
+function publishedBlobRefs(
+  result: MutationSuccess,
+): { digest: string; byteLength: number; sourcePath?: string; convertedFrom?: ConvertedLike }[] {
+  const ch = result.change;
+  if (ch.type === 'publishBehavior') {
+    // A source publication references the immutable container blob
+    // exactly like an asset version does.
+    const src = ch.next === null ? null : ch.next.source;
+    if (src === null) return [];
+    return [{ digest: src.sourceDigest, byteLength: src.sourceByteLength }];
+  }
+  if (result.op === 'undo' || result.op === 'redo') return [];
+  const records = ch.type === 'publishAsset' ? (ch.next === null ? [] : [ch.next]) : ch.type === 'importAssets' ? ch.added : [];
+  const out: { digest: string; byteLength: number; sourcePath?: string; convertedFrom?: ConvertedLike }[] = [];
+  for (const record of records) {
+    const last = record.versions[record.versions.length - 1];
+    if (last === undefined) continue;
+    const sourcePath = (last as { sourcePath?: string }).sourcePath;
+    const convertedFrom = (last as { convertedFrom?: ConvertedLike }).convertedFrom;
+    out.push({
+      digest: last.sourceDigest,
+      byteLength: last.sourceByteLength,
+      ...(sourcePath !== undefined ? { sourcePath } : {}),
+      ...(convertedFrom !== undefined ? { convertedFrom } : {}),
+    });
+  }
+  return out;
+}
+
+/**
+ * Steps 4–9 for a v4 project. The command runs on the one
+ * scene it touches (found from its entity ids, or `args.sceneId` for a
+ * create), with the other scenes' ids reserved; the resulting whole project
+ * is checked against the cross-scene rules; only the changed files are
+ * written (one `W`, or a journaled transaction for several).
+ */
+export function runCommandV4(core: Core, s: ProjectSession, request: unknown, D: string): MutationResult {
+  const state = s.v4 as V4State;
+  const req = request as { op?: unknown; args?: unknown };
+  const op = typeof req.op === 'string' ? req.op : '';
+  const args = (req.args !== null && typeof req.args === 'object' && !Array.isArray(req.args) ? req.args : {}) as Record<string, unknown>;
+  const target = targetSceneV4(state, s.history, op, args);
+  if (!target.ok) return failRequest(request, target.error);
+  // `sceneId` on a create names the scene; the pure layer never sees it.
+  let pureRequest = request;
+  if ((op === 'createEntity' || op === 'instantiatePrefab' || op === 'pasteEntities' || op === 'createEntities') && 'sceneId' in args) {
+    const { sceneId: _s, ...rest } = args;
+    pureRequest = { ...(request as object), args: rest };
+  }
+  const carrierId = target.sceneId ?? primarySceneIdV4(state);
+  const carrier = state.scenes.get(carrierId);
+  if (carrier === undefined) return failRequest(request, sceneMissing(carrierId));
+  if (op === 'deleteScene') {
+    const doomed = state.scenes.get(String(args['sceneId']));
+    if (doomed !== undefined && doomed.entities.length > 0) {
+      return failRequest(request, sceneNotEmpty(args['sceneId'], doomed.entities.length));
+    }
+  }
+  // An asset or prefab a script names as a string literal (`ctx.spawn("crate")`) is in use too.
+  if ((op === 'deleteAsset' || op === 'deletePrefab') && typeof args[op === 'deleteAsset' ? 'assetId' : 'prefabId'] === 'string') {
+    const id = args[op === 'deleteAsset' ? 'assetId' : 'prefabId'] as string;
+    const named = scriptsNaming((digest) => {
+      const r = readSourceBlob(core, contentCtx(s), { digest });
+      return r.ok ? r.bytes : null;
+    }, commandContentOf(state.content), id);
+    if (named.length > 0) return failRequest(request, contentInUse(op === 'deleteAsset' ? 'asset' : 'prefab', id, named));
+  }
+  const reserved = new Set<string>();
+  for (const [id, sc] of state.scenes) if (id !== carrierId) for (const e of sc.entities) reserved.add(e.id);
+  const commandState: CommandState<SceneDocument> = {
+    scene: { ...carrier, revision: state.revision },
+    content: commandContentOf(state.content),
+    history: s.history,
+    reservedIds: reserved,
+  };
+  if (core.content.behaviorCompiler !== undefined) commandState.behaviorPreparerRegistered = true;
+  if (s.preparedSources.size > 0) commandState.preparedBehaviorSources = preparedFactsOf(s.preparedSources);
+  // The staged library edit sets (a commit reads only these).
+  const stages = libraryStageFacts(s);
+  if (stages !== undefined) commandState.scriptLibraryStages = stages;
+  // Bytes uploaded to the backend name no file yet: the workspace chooses
+  // where in the game folder they go (`folder`: where the user dropped them),
+  // and the command records that path.
+  let folder: string | undefined;
+  if (op === 'publishAsset' && 'folder' in args) {
+    const { folder: f, ...rest } = args;
+    if (typeof f !== 'string') return failRequest(request, pathRejected(String(f), 'folder names a folder of the game folder, e.g. assets/props'));
+    const vetted = checkAssetFolder(contentCtx(s), f);
+    if (!vetted.ok) return failRequest(request, vetted.error);
+    folder = f;
+    pureRequest = { ...(pureRequest as object), args: rest };
+  }
+  const placement = op === 'publishAsset' ? planPlacement(core, contentCtx(s), (pureRequest as { args: Record<string, unknown> }).args, state.content, (digest) => {
+    const r = readSourceBlob(core, contentCtx(s), { digest });
+    return r.ok ? r.bytes : null;
+  }, folder) : null;
+  if (folder !== undefined && placement === null) return failRequest(request, pathRejected(folder, 'folder places uploaded bytes; this asset names its file already'));
+  if (placement !== null) pureRequest = { ...(pureRequest as object), args: placement.args };
+  // A folder import reads the files the backend inspected for it (once), each given its id now.
+  if (op === 'importAssets' && typeof args['folder'] === 'string') {
+    const files = s.preparedImports?.get(args['folder']);
+    s.preparedImports?.delete(args['folder']);
+    if (files !== undefined) commandState.preparedAssetImport = { folder: args['folder'], items: mintImportItems(state.content, files) };
+  }
+  const outcome = applyMutation(commandState, pureRequest);
+  if (!outcome.ok) return outcome.result;
+  // Remember which scene the new history entry edited (undo/redo route by it).
+  const entries = outcome.state.history.entries;
+  if (op !== 'undo' && op !== 'redo' && entries.length > 0) {
+    const last = entries[entries.length - 1] as HistoryEntry;
+    if (target.sceneId !== null) (last as { sceneId?: string }).sceneId = target.sceneId;
+  }
+
+  // Commit-time blob checks: a published asset version; an instance buffer.
+  // Uploaded bytes are filed into the game folder now that the command's own checks passed.
+  const refuse = (error: CommandError): MutationResult => {
+    placement?.rollback();
+    return failRequest(request, error);
+  };
+  if (placement !== null) {
+    const placed = placement.write();
+    if (placed !== null) return refuse(placed);
+  }
+  for (const ref of publishedBlobRefs(outcome.result)) {
+    // A converted version: its file first (the original), then what the importer made from it.
+    if (ref.convertedFrom !== undefined) {
+      const o = verifyConvertedOriginal(contentCtx(s), ref.convertedFrom);
+      if (!o.ok) return refuse(o.error);
+    }
+    const v = ref.convertedFrom !== undefined ? verifyImported(contentCtx(s), ref.convertedFrom, ref.digest) : verifyReferencedBlob(contentCtx(s), ref.digest, ref.byteLength, ref.sourcePath);
+    if (!v.ok) return refuse(v.error);
+  }
+  if (publishedBlobRefs(outcome.result).length > 0) {
+    const used = authoritativeBytes(s.dir);
+    if (used > core.content.maxSourceBytesPerProject) {
+      return refuse(contentQuotaExceeded('project_quota', used, core.content.maxSourceBytesPerProject, 0));
+    }
+  }
+  const resultScene = sceneV4Of(outcome.state.scene);
+  for (const e of resultScene.entities) {
+    const inst = e.components.instances;
+    if (inst === undefined) continue;
+    const before = carrier.entities.find((x) => x.id === e.id)?.components.instances;
+    if (before !== undefined && before.buffer === inst.buffer && before.count === inst.count) continue;
+    const v = verifyReferencedBlob(contentCtx(s), inst.buffer, inst.count * INSTANCE_FLOATS * 4);
+    if (!v.ok) return refuse(v.error);
+  }
+
+  // The whole resulting project: scenes (the index may have changed) and content.
+  const newRevision = outcome.result.revision;
+  const nextContent = outcome.state.content !== undefined ? catalogV4Of(outcome.state.content) : state.content;
+  const nextScenes = new Map<string, SceneV4>();
+  for (const entry of nextContent.scenes) {
+    if (entry.sceneId === carrierId) nextScenes.set(entry.sceneId, { ...resultScene, sceneId: carrierId });
+    else nextScenes.set(entry.sceneId, state.scenes.get(entry.sceneId) ?? { schemaVersion: 4, sceneId: entry.sceneId, revision: newRevision, entities: [] });
+  }
+  const errors: ModelErrorV3[] = [];
+  composeV4([...nextScenes.values()], nextContent, errors, newRevision);
+  if (errors.length > 0 && (op === 'deleteAsset' || op === 'deletePrefab')) {
+    // What no longer resolves in the other scenes names it.
+    return refuse(contentInUse(op === 'deleteAsset' ? 'asset' : 'prefab', String(args[op === 'deleteAsset' ? 'assetId' : 'prefabId']), errors));
+  }
+  if (errors.length > 0) return refuse(projectRuleError(errors));
+  // The acknowledgement names the edited scene (the editor
+  // files new entities under it); a scene-index change names none.
+  // The record stores that acknowledgement, so a replay carries it.
+  const ack: MutationSuccess = outcome.result.change.type !== 'setSceneIndex' ? { ...outcome.result, sceneId: carrierId } : outcome.result;
+  const record: RetryRecord = { requestId: envelopeRequestId(request)!, digest: D, appliedRevision: newRevision, result: ack };
+  const plan = changedFiles(s.projectId, state, { content: nextContent, scenes: nextScenes, revision: newRevision }, record);
+  const res = writeTransaction(core.ops, s.dir, s.thirdlightDir, s.projectId, state.files, plan.writes);
+  const nextState: V4State = { manifest: state.manifest, content: nextContent, scenes: nextScenes, revision: newRevision, files: plan.files, fileRecords: plan.fileRecords };
+  if (!res.ok) {
+    if ('unreadable' in res) {
+      setPendingUnreadableV4(s, res.unreadable.rel);
+      placement?.rollback();
+      return failRequest(request, externalChangeUnreadable(s.projectId));
+    }
+    if ('external' in res) {
+      const pc = detectExternalChangeV4(core, s, res.external);
+      placement?.rollback();
+      return failRequest(request, externalChangeUnresolved(pendingInfo(pc)));
+    }
+    if (res.failed.onDiskState === 'previous') return refuse(writeFailed('previous', res.failed.errno));
+    publishV4(s, nextState);
+    s.history = outcome.state.history;
+    return failRequest(request, writeFailed('new-undurable', res.failed.errno));
+  }
+  publishV4(s, nextState);
+  s.history = outcome.state.history;
+  // A committed stage is done (committing it again is refused).
+  if (op === 'commitScriptLibraryStage' && typeof args['stageId'] === 'string') s.libraryStages?.delete(args['stageId']);
+  // The game folder follows what the command did to an asset: its sidecar, a delete, a move, an undone replace.
+  const fileProblems = syncAssetFiles(core, contentCtx(s), outcome.result.change, nextContent);
+  if (fileProblems.length > 0) s.fileProblems = [...(s.fileProblems ?? []), ...fileProblems].slice(-32);
+  return ack;
+}
+
+/** The id of a v4 project's first start scene. */
+function primarySceneIdV4(state: V4State): string {
+  return state.content.startScenes[0] ?? state.content.scenes[0]?.sceneId ?? '';
+}
+
+/**
+ * The scene a v4 command edits — from the entity ids it names
+ * (ids are unique across scenes), `args.sceneId` or the parent for a create,
+ * the history entry for undo/redo; null for a content-only command. A command
+ * spanning two scenes is refused (one transaction touches one scene).
+ */
+function targetSceneV4(
+  state: V4State,
+  history: HistoryState,
+  op: string,
+  args: Record<string, unknown>,
+): { ok: true; sceneId: string | null } | { ok: false; error: CommandError } {
+  const sceneOf = (id: unknown): string | null => {
+    if (typeof id !== 'string') return null;
+    for (const [sid, sc] of state.scenes) if (sc.entities.some((e) => e.id === id)) return sid;
+    return null;
+  };
+  const cross = (path: string): { ok: false; error: CommandError } => ({ ok: false, error: crossSceneEntities(path) });
+  if (op === 'undo' || op === 'redo') {
+    const entry = op === 'undo' ? history.entries[history.cursor - 1] : history.entries[history.cursor];
+    return { ok: true, sceneId: (entry as { sceneId?: string } | undefined)?.sceneId ?? null };
+  }
+  if (op === 'createEntity' || op === 'instantiatePrefab' || op === 'pasteEntities') {
+    const explicit = args['sceneId'];
+    if (explicit !== undefined) {
+      if (typeof explicit !== 'string' || !state.scenes.has(explicit)) {
+        return { ok: false, error: sceneMissing(explicit) };
+      }
+      const parentScene = sceneOf(args['parentId']);
+      if (typeof args['parentId'] === 'string' && parentScene !== null && parentScene !== explicit) return cross('/args/parentId');
+      return { ok: true, sceneId: explicit };
+    }
+    return { ok: true, sceneId: sceneOf(args['parentId']) ?? primarySceneIdV4(state) };
+  }
+  if (op === 'createEntities') {
+    // Every item lands in one scene: `sceneId`, else the scene of the items' existing parents, else the primary one.
+    const items = Array.isArray(args['entities']) ? (args['entities'] as unknown[]) : [];
+    const parents = new Set(items.map((it) => sceneOf((it as { parentId?: unknown } | null)?.parentId)).filter((x): x is string => x !== null));
+    const explicit = args['sceneId'];
+    if (explicit !== undefined) {
+      if (typeof explicit !== 'string' || !state.scenes.has(explicit)) {
+        return { ok: false, error: sceneMissing(explicit) };
+      }
+      if ([...parents].some((p) => p !== explicit)) return cross('/args/entities');
+      return { ok: true, sceneId: explicit };
+    }
+    if (parents.size > 1) return cross('/args/entities');
+    return { ok: true, sceneId: [...parents][0] ?? primarySceneIdV4(state) };
+  }
+  if (op === 'moveEntities') {
+    const ids = Array.isArray(args['entityIds']) ? (args['entityIds'] as unknown[]) : [];
+    const scenes = new Set(ids.map(sceneOf).filter((x): x is string => x !== null));
+    const parent = sceneOf(args['parentId']);
+    if (parent !== null) scenes.add(parent);
+    const before = sceneOf(args['beforeId']);
+    if (before !== null) scenes.add(before);
+    if (scenes.size > 1) return cross('/args/entityIds');
+    return { ok: true, sceneId: [...scenes][0] ?? primarySceneIdV4(state) };
+  }
+  if (op === 'updateEntity') {
+    const own = sceneOf(args['entityId']);
+    const parent = sceneOf(args['parentId']);
+    if (own !== null && parent !== null && own !== parent) return cross('/args/parentId');
+    return { ok: true, sceneId: own ?? primarySceneIdV4(state) };
+  }
+  if (op === 'createPrefab') return { ok: true, sceneId: sceneOf(args['sourceEntityId']) ?? primarySceneIdV4(state) };
+  if (op === 'publishAsset') {
+    const anim = args['animation'] as { entityId?: unknown } | undefined;
+    return { ok: true, sceneId: anim !== undefined ? sceneOf(anim.entityId) : null };
+  }
+  if ('entityId' in args) return { ok: true, sceneId: sceneOf(args['entityId']) ?? primarySceneIdV4(state) };
+  return { ok: true, sceneId: null };
+}

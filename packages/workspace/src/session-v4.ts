@@ -6,7 +6,7 @@
  */
 
 import { createCommandState, filterEntitiesByComponent, queryAssets, queryBehaviors, queryGameConfig, queryPrefabs } from '@thirdlight/commands';
-import type { ContentDocument, HistoryState } from '@thirdlight/commands';
+import type { HistoryState } from '@thirdlight/commands';
 import { BlockGrid, boxContains, effectiveCellMeta, regionCells, regionContains, type BlockCell, type BlockLayerComponent, type BlockLayerData, type BlockType, type CellField } from '@thirdlight/project-model';
 import { composeV4, defaultInputFor, DESCRIPTORS, physicsDimensionOf, effectiveEntityFlags, GRAPH_KINDS, glbClipDurations, migrateModelAnimations, validateContentV4, validateSceneV4, type ContentCatalogV3, type Manifest, type ModelErrorV3, type ProjectManifestV2, type SceneV3, type SceneV4 } from '@thirdlight/project-model';
 
@@ -59,6 +59,7 @@ import {
   type V4State,
 } from './store-v4';
 import { EMPTY_BYTES } from './write';
+import { commandContentOf } from './content-shapes';
 import type { OwnershipRecord } from './ownership';
 import type { QueryResult } from './types';
 
@@ -111,7 +112,7 @@ export function publishV4(s: ProjectSession, state: V4State): void {
 
 /** A fresh history for a v4 state (a history boundary). */
 export function freshHistoryV4(state: V4State): HistoryState {
-  return createCommandState(primaryScene(state), state.content as unknown as ContentDocument).history;
+  return createCommandState(primaryScene(state), commandContentOf(state.content)).history;
 }
 
 function makeSessionV4(
@@ -651,7 +652,7 @@ export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, 
   const state = s.v4 as V4State;
   const tags = (state.content.tags ?? []).map((t) => ({ bit: t.bit, name: t.name }));
   if (op === 'queryAssets' || op === 'queryPrefabs' || op === 'queryBehaviors' || op === 'queryGameConfig') {
-    const cs = createCommandState({ ...primaryScene(state), revision: state.revision }, state.content as unknown as ContentDocument);
+    const cs = createCommandState({ ...primaryScene(state), revision: state.revision }, commandContentOf(state.content));
     const request: Record<string, unknown> = { op, projectId };
     // `queryGameConfig {descriptors: true}` adds the component and
     // content descriptor registry (asked for once; it is static and ~120 KB).

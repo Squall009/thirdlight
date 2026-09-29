@@ -38,6 +38,7 @@ import type {
   LimitName,
   Manifest,
   ModelError,
+  ModelErrorV3,
   PrefabDefinition,
   PropertyDeclaration,
   PropertyValue,
@@ -244,8 +245,9 @@ export interface CommandError {
   path?: string;
   found?: unknown;
   expected?: string;
-  detailDocument?: 'result-scene';
-  details?: readonly ModelError[];
+  /** `project`: the workspace's rules across the scenes of a v4 project. */
+  detailDocument?: 'result-scene' | 'project';
+  details?: readonly (ModelError | ModelErrorV3)[];
   detailCount?: number;
   detailsTruncated?: boolean;
   expectedRevision?: number;
