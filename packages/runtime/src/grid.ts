@@ -19,6 +19,8 @@ import {
   BlockGrid,
   CHUNK_SIZE,
   autoVariant,
+  blockTypeSlopes,
+  cellCorners,
   cellOfKey,
   canonicalBlockCell,
   cellCenter,
@@ -30,6 +32,7 @@ import {
   regionCells,
   regionContains,
   rotatedFootprint,
+  surfaceBelow,
   validateBlockCell,
   worldToCell,
   type BlockCell,
@@ -65,6 +68,11 @@ export interface GridCell {
   readonly meta: Readonly<Record<string, number | string | boolean>>;
   /** For a cell covered by a larger block's footprint: that block's anchor cell (absent otherwise). */
   readonly anchor?: GridVec3;
+  /**
+   * A sloped top: the heights of its corners (−x−z, +x−z, +x+z, −x+z) as fractions of the cell height (absent: a flat full top).
+   * @graphType list
+   */
+  readonly corners?: readonly number[];
 }
 
 /** What `ctx.grid.set` writes: a block (with rotation and variant) and/or metadata overrides. */
@@ -76,10 +84,34 @@ export interface GridCellInput {
   /** A variant index (absent: picked from the weights by position). */
   variant?: number;
   /**
+   * A sloped top (a single-cell full block): the heights of its corners −x−z, +x−z, +x+z, −x+z as fractions of the cell height, in steps of 1/64 (absent: flat).
+   * @graphType list
+   */
+  corners?: readonly number[];
+  /**
    * Metadata overrides (field key → value).
    * @graphType map
    */
   meta?: Record<string, number | string | boolean>;
+}
+
+/** The ground of a layer at a point (`ctx.grid.surface`, `columnSurface`). */
+export interface GridSurface {
+  readonly layer: string;
+  /** The cell whose top it is. */
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+  /** The world height of the surface there (metres). */
+  readonly height: number;
+  /** The surface point in world space. */
+  readonly point: GridVec3;
+  /** The surface's unit normal. */
+  readonly normal: GridVec3;
+  /** Degrees from level. */
+  readonly slope: number;
+  /** Whether the slope is at most the layer's maxSlope (absent: the project's steepest walkable slope). */
+  readonly walkable: boolean;
 }
 
 /** One cell written by a script (`ctx.grid.changes()`). */
@@ -151,6 +183,18 @@ export interface BehaviorGrid {
    * @graphNode Column top
    */
   columnTop(layer: string, x: number, z: number): number | null;
+  /**
+   * The ground straight down from a world position: the top of the layer's blocks at or below it (sloped tops, ramps and half blocks included; inside the blocks: the top of the blocks there), with its height, normal, slope and whether it is walkable; null when the column holds no block.
+   * @graphPure
+   * @graphNode Surface below
+   */
+  surface(layer: string, position: readonly [number, number, number]): GridSurface | null;
+  /**
+   * The top surface of a column at its centre (cell x, z): the highest block's top, its height, normal, slope and whether it is walkable; null when the column holds no block.
+   * @graphPure
+   * @graphNode Column surface
+   */
+  columnSurface(layer: string, x: number, z: number): GridSurface | null;
   /**
    * The cell holding a world position (it may lie outside the layer's bounds), or null for no such layer.
    * @graphPure
@@ -270,11 +314,15 @@ export class RuntimeGrid {
   private stepIndex = 0;
   readonly api: BehaviorGrid;
 
-  constructor(types: readonly BlockType[], fields: readonly CellField[], collide: boolean) {
+  /** Degrees: what surface queries call walkable on a layer without its own maxSlope (the project's steepest walkable slope). */
+  private readonly defaultMaxSlope: number;
+
+  constructor(types: readonly BlockType[], fields: readonly CellField[], collide: boolean, defaultMaxSlope = 45) {
     this.types = new Map(types.map((t) => [t.blockId, t]));
     this.fields = fields;
     this.fieldByKey = new Map(fields.map((f) => [f.key, f]));
     this.collide = collide;
+    this.defaultMaxSlope = defaultMaxSlope;
     this.api = this.buildApi();
   }
 
@@ -418,7 +466,13 @@ export class RuntimeGrid {
         pieces.forEach((p, i) => {
           const id = gridColliderId(entityId, ck, i);
           ids.push(id);
-          add.push({ entityId: id, shape: { type: 'mesh', vertices: p.vertices, indices: p.indices }, position: { x: layer.origin.x, y: layer.origin.y, z: layer.origin.z }, rotation: { x: 0, y: 0, z: 0, w: 1 } });
+          add.push({
+            entityId: id,
+            shape: { type: 'mesh', vertices: p.vertices, indices: p.indices },
+            position: { x: layer.origin.x, y: layer.origin.y, z: layer.origin.z },
+            rotation: { x: 0, y: 0, z: 0, w: 1 },
+            ...(layer.component.maxSlope !== undefined ? { maxSlope: (layer.component.maxSlope * Math.PI) / 180 } : {}),
+          });
         });
         if (ids.length > 0) layer.colliders.set(ck, ids);
         else layer.colliders.delete(ck);
@@ -511,6 +565,7 @@ export class RuntimeGrid {
       if (t === undefined) return 'an unknown block type';
       if (!(t.rotations ?? [0, 90, 180, 270]).includes(cell.rot ?? 0)) return 'a rotation the block does not allow';
       if (cell.variant !== undefined && cell.variant >= t.variants.length) return 'no such variant';
+      if (cell.corners !== undefined && !blockTypeSlopes(t)) return 'corners on a block that cannot slope (a single-cell full block can)';
     }
     for (const [k, v] of Object.entries(cell.meta ?? {})) {
       const f = this.fieldByKey.get(k);
@@ -569,7 +624,31 @@ export class RuntimeGrid {
     const t = cell.block !== undefined ? this.types.get(cell.block) : undefined;
     const variant = cell.variant ?? (t !== undefined ? autoVariant(t, ax, ay, az) : 0);
     const meta = Object.freeze(effectiveCellMeta(cell, this.types, this.fields));
-    return Object.freeze({ block: cell.block ?? null, rot: cell.rot ?? 0, variant, meta, ...(anchor !== undefined ? { anchor } : {}) });
+    const corners = cellCorners(cell);
+    return Object.freeze({ block: cell.block ?? null, rot: cell.rot ?? 0, variant, meta, ...(anchor !== undefined ? { anchor } : {}), ...(corners !== null ? { corners: Object.freeze([...corners]) } : {}) });
+  }
+
+  /** The ground of a layer at or below a world point (null: none). */
+  private surfaceOf(layer: Layer, x: number, y: number, z: number): GridSurface | null {
+    const o = layer.origin;
+    const hit = surfaceBelow(layer.grid, this.types, x - o.x, y - o.y, z - o.z, (cx, cy, cz) => {
+      const a = layer.covers.get(cellKeyOf(cx, cy, cz));
+      return a === undefined ? null : cellOfKey(a);
+    });
+    if (hit === null || layer.component.metadataOnly === true) return null;
+    const height = o.y + hit.height;
+    const max = layer.component.maxSlope ?? this.defaultMaxSlope;
+    return Object.freeze({
+      layer: layer.entityId,
+      x: hit.cell[0],
+      y: hit.cell[1],
+      z: hit.cell[2],
+      height,
+      point: freezeVec(x, height, z),
+      normal: freezeVec(hit.normal[0], hit.normal[1], hit.normal[2]),
+      slope: hit.slope,
+      walkable: hit.slope <= max + 1e-9,
+    });
   }
 
   private buildApi(): BehaviorGrid {
@@ -584,6 +663,10 @@ export class RuntimeGrid {
       if (o.block !== undefined) out.block = o.block;
       if (o.rot !== undefined && o.rot !== 0) out.rot = o.rot as 90;
       if (o.variant !== undefined) out.variant = o.variant;
+      if (o.corners !== undefined) {
+        if (!Array.isArray(o.corners)) return undefined;
+        out.corners = [...o.corners] as [number, number, number, number];
+      }
       if (o.meta !== undefined) out.meta = { ...o.meta };
       return out;
     };
@@ -608,6 +691,18 @@ export class RuntimeGrid {
         const l = layerOf(layer);
         if (l === undefined || !int(x) || !int(z)) return null;
         return l.grid.columnTop(x, z);
+      },
+      surface(layer, position) {
+        const l = layerOf(layer);
+        if (l === undefined || !vec(position)) return null;
+        return g.surfaceOf(l, position[0], position[1], position[2]);
+      },
+      columnSurface(layer, x, z) {
+        const l = layerOf(layer);
+        if (l === undefined || !int(x) || !int(z)) return null;
+        const cs = l.grid.cellSize;
+        const o = l.origin;
+        return g.surfaceOf(l, o.x + (x + 0.5) * cs[0]!, o.y + l.grid.max[1] * cs[1]!, o.z + (z + 0.5) * cs[2]!);
       },
       worldToCell(layer, position) {
         const l = layerOf(layer);

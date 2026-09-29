@@ -1760,7 +1760,7 @@ class RuntimeInstance implements Runtime {
     this.prefabs = new Map(args.prefabs.map((d) => [d.prefabId, d]));
     this.spawnControl = this.buildSpawnControl();
     // Phase 23.5: the start scenes' block layers; in 3D their chunks collide (a 2D plane draws them only).
-    this.grid = new RuntimeGrid(args.blockTypes, args.cellFields, args.physics3d !== undefined);
+    this.grid = new RuntimeGrid(args.blockTypes, args.cellFields, args.physics3d !== undefined, args.settings.max_slope_climb_deg);
     this.grid.addLayers(args.initialEntities);
     this.grid.flushCollision(args.physics3d);
     // Phase 23.12: the start set's graph materials (the values scripts set per object).

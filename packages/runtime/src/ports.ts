@@ -359,6 +359,12 @@ export interface StaticColliderSpec3D {
   kinematic?: boolean;
   /** Phase 23.3: the collision layers the collider is in (absent: "default"); names the config's `layers` resolve. */
   layers?: readonly string[];
+  /**
+   * Radians: the steepest part of this collider the character walks up — a
+   * block layer's `maxSlope`. Only stricter than the character's own limit
+   * matters (absent: the character's own limit alone).
+   */
+  maxSlope?: number;
 }
 
 /**

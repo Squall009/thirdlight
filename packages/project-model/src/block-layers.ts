@@ -46,6 +46,17 @@ export interface BlockCell {
   rot?: 90 | 180 | 270;
   /** The variant index; absent = picked from the weights by the cell coordinates. */
   variant?: number;
+  /**
+   * The heights of the block's top corners — −x−z, +x−z, +x+z, −x+z in the
+   * layer's axes, whatever the rotation — in cell heights above the cell's
+   * bottom, 0–2 in steps of 1/64 (absent: a flat full top, all 1). A
+   * single-cell `full` block only: sloped terrain. Up to 2, so a slope that
+   * crosses a row boundary inside one column stays one smooth surface (the
+   * cell reaches into the cell above it, which then stays empty). The top is
+   * two triangles split along one diagonal (`splitsMainDiagonal`); the sides
+   * follow the corners.
+   */
+  corners?: [number, number, number, number];
   /** Metadata overrides (field key → value); the block's defaults and the schema's fill the rest. */
   meta?: Record<string, CellMetaValue>;
 }
@@ -85,6 +96,14 @@ export interface BlockLayerComponent {
   castShadow?: boolean;
   /** Shows shadows falling on it (absent: true; stored only when false). */
   receiveShadow?: boolean;
+  /**
+   * Degrees: the steepest part of the layer's surface that counts as ground —
+   * characters do not walk up steeper slopes whatever their own slope limit,
+   * and `ctx.grid` surface queries call steeper surfaces not walkable (absent:
+   * each character's own slope limit; queries use the project's
+   * `max_slope_climb_deg`).
+   */
+  maxSlope?: number;
 }
 
 export type BlockShape = 'full' | 'half' | 'ramp' | 'stairs' | 'custom' | 'none';
@@ -184,6 +203,18 @@ export const BLOCK_LIMITS = Object.freeze({
   cellSizeMax: 64,
 });
 
+/**
+ * A sloped cell's corner heights are multiples of 1/64 of the cell height:
+ * exact in binary, so stored values, diffs and replays never drift, and fine
+ * enough for smooth hills (1.6 cm on a 1 m cell).
+ */
+export const BLOCK_CORNER_STEPS = 64;
+/** The highest corner of a sloped cell, in cell heights: one row into the cell above, so any slope up to one cell per column is smooth. */
+export const BLOCK_CORNER_MAX = 2;
+
+/** The steepest and flattest `maxSlope` a layer may set (degrees). */
+export const BLOCK_MAX_SLOPE_RANGE = Object.freeze({ min: 1, max: 89 });
+
 const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 export const CELL_FIELD_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
 export const REGION_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/;
@@ -216,11 +247,18 @@ function isIntVec3(v: unknown, lo: number, hi: number): v is [number, number, nu
 
 /** Validate one cell value (shape only; references are checked with the content). */
 export function validateBlockCell(v: unknown, path: string, errors: ModelErrorV2[]): void {
-  if (!isPlainObject(v)) return err(errors, 'field_type', path, 'a cell is an object {block?, rot?, variant?, meta?}', v, 'object');
-  onlyKeys(v, ['block', 'rot', 'variant', 'meta'], path, errors, 'cell');
+  if (!isPlainObject(v)) return err(errors, 'field_type', path, 'a cell is an object {block?, rot?, variant?, corners?, meta?}', v, 'object');
+  onlyKeys(v, ['block', 'rot', 'variant', 'corners', 'meta'], path, errors, 'cell');
   if (v['block'] !== undefined && (typeof v['block'] !== 'string' || !ID_RE.test(v['block']))) err(errors, 'id_invalid', `${path}/block`, 'a block id uses the id syntax', v['block']);
   if (v['rot'] !== undefined && v['rot'] !== 0 && v['rot'] !== 90 && v['rot'] !== 180 && v['rot'] !== 270) err(errors, 'field_value', `${path}/rot`, 'rot is 0, 90, 180 or 270 (degrees about +Y)', v['rot'], '0 | 90 | 180 | 270');
   if (v['variant'] !== undefined && (!isInt(v['variant']) || v['variant'] < 0 || v['variant'] >= BLOCK_LIMITS.variants)) err(errors, 'field_value', `${path}/variant`, `variant is an index 0-${BLOCK_LIMITS.variants - 1}`, v['variant']);
+  if (v['corners'] !== undefined) {
+    const c = v['corners'];
+    if (!Array.isArray(c) || c.length !== 4 || !c.every((x) => finite(x) && x >= 0 && x <= BLOCK_CORNER_MAX && Number.isInteger(x * BLOCK_CORNER_STEPS))) {
+      err(errors, 'field_value', `${path}/corners`, `corners is 4 heights (−x−z, +x−z, +x+z, −x+z) in 0-${BLOCK_CORNER_MAX} cell heights, in steps of 1/${BLOCK_CORNER_STEPS}`, c);
+    } else if (c.every((x) => x === 0)) err(errors, 'field_value', `${path}/corners`, 'a sloped cell has at least one corner above 0 (a cell without height is empty)', c);
+    if (v['block'] === undefined) err(errors, 'field_value', `${path}/corners`, 'corners belong to a block cell', c);
+  }
   if (v['meta'] !== undefined) validateMetaMap(v['meta'], `${path}/meta`, errors);
   const hasMeta = isPlainObject(v['meta']) && Object.keys(v['meta']).length > 0;
   if (v['block'] === undefined && !hasMeta) err(errors, 'field_value', path, 'a cell holds a block, metadata or both (an empty cell is not stored)', v, '{block} or {meta}');
@@ -246,6 +284,7 @@ export function canonicalBlockCell(c: BlockCell): BlockCell {
   if (c.block !== undefined) out.block = c.block;
   if (c.block !== undefined && c.rot !== undefined && (c.rot as number) !== 0) out.rot = c.rot;
   if (c.block !== undefined && c.variant !== undefined) out.variant = c.variant;
+  if (c.block !== undefined && c.corners !== undefined && !c.corners.every((x) => x === 1)) out.corners = [canonNum(c.corners[0]), canonNum(c.corners[1]), canonNum(c.corners[2]), canonNum(c.corners[3])];
   if (c.meta !== undefined) {
     const keys = sortedKeys(c.meta);
     if (keys.length > 0) {
@@ -494,6 +533,11 @@ export function blockTypeSolid(t: Pick<BlockType, 'shape' | 'solid' | 'footprint
   return t.solid ?? t.shape === 'full';
 }
 
+/** Whether a block type's cells may carry corner heights (a sloped top): a single-cell full shape. */
+export function blockTypeSlopes(t: Pick<BlockType, 'shape' | 'footprint'>): boolean {
+  return t.shape === 'full' && (t.footprint === undefined || (t.footprint[0] === 1 && t.footprint[1] === 1 && t.footprint[2] === 1));
+}
+
 /** The footprint in cells after a rotation (90/270 swap x and z). */
 export function rotatedFootprint(t: Pick<BlockType, 'footprint'>, rot: number | undefined): [number, number, number] {
   const f = t.footprint ?? [1, 1, 1];
@@ -633,9 +677,12 @@ export function canonicalBlockStamps(list: readonly BlockStamp[]): BlockStamp[] 
  */
 export const BLOCK_LAYER_DEFAULT: BlockLayerComponent = Object.freeze({ cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [64, 16, 64] } }) as BlockLayerComponent;
 
+/** The stored fields of the `blockLayer` component, in canonical order. */
+export const BLOCK_LAYER_FIELDS = ['cellSize', 'bounds', 'metadataOnly', 'collision', 'castShadow', 'receiveShadow', 'maxSlope'] as const;
+
 export function validateBlockLayerComponent(v: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(v)) return err(errors, 'field_type', path, 'blockLayer is an object', v, 'object');
-  onlyKeys(v, ['cellSize', 'bounds', 'metadataOnly', 'collision', 'castShadow', 'receiveShadow'], path, errors, 'blockLayer');
+  onlyKeys(v, BLOCK_LAYER_FIELDS, path, errors, 'blockLayer');
   const cs = v['cellSize'];
   if (!Array.isArray(cs) || cs.length !== 3 || !cs.every((x) => finite(x) && x >= BLOCK_LIMITS.cellSizeMin && x <= BLOCK_LIMITS.cellSizeMax)) {
     err(errors, 'field_value', `${path}/cellSize`, `cellSize is [x, y, z] metres, each ${BLOCK_LIMITS.cellSizeMin}-${BLOCK_LIMITS.cellSizeMax}`, cs);
@@ -659,6 +706,8 @@ export function validateBlockLayerComponent(v: unknown, path: string, errors: Mo
     }
   }
   for (const k of ['metadataOnly', 'collision', 'castShadow', 'receiveShadow']) if (v[k] !== undefined && typeof v[k] !== 'boolean') err(errors, 'field_type', `${path}/${k}`, `${k} is a boolean`, v[k], 'boolean');
+  const ms = v['maxSlope'];
+  if (ms !== undefined && (!finite(ms) || ms < BLOCK_MAX_SLOPE_RANGE.min || ms > BLOCK_MAX_SLOPE_RANGE.max)) err(errors, 'field_value', `${path}/maxSlope`, `maxSlope is degrees in ${BLOCK_MAX_SLOPE_RANGE.min}-${BLOCK_MAX_SLOPE_RANGE.max}`, ms);
 }
 
 export function canonicalBlockLayerComponent(c: BlockLayerComponent): BlockLayerComponent {
@@ -669,6 +718,7 @@ export function canonicalBlockLayerComponent(c: BlockLayerComponent): BlockLayer
     ...(c.collision === false ? { collision: false as const } : {}),
     ...(c.castShadow === false ? { castShadow: false as const } : {}),
     ...(c.receiveShadow === false ? { receiveShadow: false as const } : {}),
+    ...(c.maxSlope !== undefined ? { maxSlope: canonNum(c.maxSlope) } : {}),
   };
 }
 
@@ -872,6 +922,7 @@ function composeCells(palette: readonly BlockCell[], path: string, content: Bloc
       else {
         if (!(t.rotations ?? ROTATIONS).includes(c.rot ?? 0)) err(errors, 'field_value', `${p}/rot`, `block "${t.blockId}" allows the rotations ${(t.rotations ?? ROTATIONS).join(', ')}`, c.rot ?? 0);
         if (c.variant !== undefined && c.variant >= t.variants.length) err(errors, 'field_value', `${p}/variant`, `block "${t.blockId}" has ${t.variants.length} variant(s)`, c.variant);
+        if (c.corners !== undefined && !blockTypeSlopes(t)) err(errors, 'field_value', `${p}/corners`, `corners slope the top of a single-cell full block; block "${t.blockId}" is ${t.shape}${t.footprint !== undefined ? ` with a footprint of ${t.footprint.join(' × ')}` : ''}`, c.corners);
       }
     }
     for (const [key, x] of Object.entries(c.meta ?? {})) {

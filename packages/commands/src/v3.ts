@@ -15,7 +15,7 @@
  */
 
 import { CAMERA_PATH_FIELDS, CAMERA_REGION_FIELDS, VIRTUAL_CAMERA_FIELDS, validateCameraPathComponent, validateCameraRegionComponent, validateVirtualCameraComponent } from '@thirdlight/project-model';
-import { validateBlockLayerComponent, validateBlockFootprintComponent } from '@thirdlight/project-model';
+import { BLOCK_LAYER_FIELDS, validateBlockLayerComponent, validateBlockFootprintComponent } from '@thirdlight/project-model';
 import { validateBehaviorGroupComponent } from '@thirdlight/project-model';
 import { SOCKET_ATTACH_FIELDS, validateSocketAttachComponent } from '@thirdlight/project-model';
 import { BLOCK_COMPONENTS, validateAnimatorComponent, validateFogVolumeComponent, validateMaterialMapping, validateMaterialParamsComponent, validateEffectComponent } from '@thirdlight/project-model';
@@ -66,7 +66,7 @@ export const COMPONENT_FIELD_ORDER_V3: Record<V3OwnedComponent, readonly string[
   // Phase 23.11: sockets (project-model sockets.ts field order).
   socketAttach: SOCKET_ATTACH_FIELDS,
   // Phase 23.5: a block layer's settings (its cells are editBlocks' data).
-  blockLayer: ['cellSize', 'bounds', 'metadataOnly', 'collision', 'castShadow', 'receiveShadow'],
+  blockLayer: BLOCK_LAYER_FIELDS,
   // Phase 23.6: a prop's block footprint (`set` is replaced whole).
   blockFootprint: ['layer', 'size', 'set'],
   // Phase 23.10: the behavior group an entity's behavior belongs to (game modes tick groups).

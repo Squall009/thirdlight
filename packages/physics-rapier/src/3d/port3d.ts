@@ -211,6 +211,7 @@ function validateSpec(spec: StaticColliderSpec3D, label: string): { reason: 'inv
   if (spec.kinematic !== undefined && typeof spec.kinematic !== 'boolean') return { reason: 'invalid_config', message: `${label}: kinematic must be true, false or absent` };
   if (spec.layers !== undefined && !(Array.isArray(spec.layers) && spec.layers.length >= 1 && spec.layers.length <= 16 && spec.layers.every((n) => typeof n === 'string'))) return { reason: 'invalid_config', message: `${label}: layers must be 1-16 layer names or absent` };
   if (spec.kinematic === true && shape.shape.type === 'mesh') return { reason: 'invalid_shape', message: `${label}: a mesh collider is static (a moving collider uses box, sphere, capsule or convex)` };
+  if (spec.maxSlope !== undefined && (!finite(spec.maxSlope) || spec.maxSlope <= 0 || spec.maxSlope >= Math.PI / 2)) return { reason: 'invalid_config', message: `${label}: maxSlope must be a finite angle in (0, pi/2) or absent` };
   return null;
 }
 
@@ -321,6 +322,8 @@ interface Collider3DInfo {
   kinematic: boolean;
   /** Phase 23.1: the shape's highest point above its body origin (for the kinematic-drag rule). */
   top: number;
+  /** The cosine of the steepest slope of this collider a character walks up, when its spec sets one (a block layer's maxSlope). */
+  climbCos?: number;
 }
 
 /** Rotate `p` by the unit quaternion `q`. */
@@ -413,7 +416,7 @@ function addStaticBody(world: RAPIER.World, spec: StaticColliderSpec3D, bits: La
   const bodyDesc = kinematic ? RAPIER.RigidBodyDesc.kinematicPositionBased() : RAPIER.RigidBodyDesc.fixed();
   const body = world.createRigidBody(bodyDesc.setTranslation(spec.position.x, spec.position.y, spec.position.z).setRotation(rotation));
   const collider = world.createCollider(desc.setCollisionGroups(colliderGroups(bits, spec.layers)), body);
-  return { body, collider, info: { entityId: spec.entityId, body, kinematic, top: topOf(shape.shape, rotation) } };
+  return { body, collider, info: { entityId: spec.entityId, body, kinematic, top: topOf(shape.shape, rotation), ...(spec.maxSlope !== undefined ? { climbCos: Math.cos(spec.maxSlope) } : {}) } };
 }
 
 function createAdapter(world: RAPIER.World, characterCollider: RAPIER.Collider, controller: RAPIER.KinematicCharacterController, config: PhysicsInitConfig3D, bodies: Map<string, RAPIER.RigidBody>, infoByHandle: Map<number, Collider3DInfo>, bits: LayerBits): RapierPhysicsPort3D {
@@ -468,15 +471,40 @@ function createAdapter(world: RAPIER.World, characterCollider: RAPIER.Collider, 
     const hit = world.castRay(new RAPIER.Ray(probeFrom(p), down), 0.2, true, undefined, undefined, characterCollider);
     return hit === null ? null : (infoByHandle.get(hit.collider.handle)?.entityId ?? null);
   };
-  const floorNormalUnder = (p: PhysicsVec3): PhysicsVec3 | null => {
+  /** The cosine of the steepest slope the character walks up on a collider: its own, or the collider's stricter one (a block layer's maxSlope). */
+  const climbCosOf = (collider: RAPIER.Collider | null | undefined): number => {
+    const own = collider === null || collider === undefined ? undefined : infoByHandle.get(collider.handle)?.climbCos;
+    return own !== undefined && own > climbCos ? own : climbCos;
+  };
+  const floorUnder = (p: PhysicsVec3): { normal: PhysicsVec3; climbCos: number } | null => {
     const hit = world.castRayAndGetNormal(new RAPIER.Ray(probeFrom(p), down), 0.2, true, undefined, undefined, characterCollider);
     if (hit === null) return null;
     const len = Math.hypot(hit.normal.x, hit.normal.y, hit.normal.z);
-    return len > 0 ? { x: hit.normal.x / len, y: hit.normal.y / len, z: hit.normal.z / len } : null;
+    return len > 0 ? { normal: { x: hit.normal.x / len, y: hit.normal.y / len, z: hit.normal.z / len }, climbCos: climbCosOf(hit.collider) } : null;
   };
   const walkableFloorUnder = (p: PhysicsVec3): boolean => {
-    const f = floorNormalUnder(p);
-    return f !== null && f.y >= climbCos - GROUND_NORMAL_TOLERANCE;
+    const f = floorUnder(p);
+    return f !== null && f.normal.y >= f.climbCos - GROUND_NORMAL_TOLERANCE;
+  };
+  /**
+   * The strictest climb cosine among the sweep's contacts that the character
+   * would walk up but their collider forbids (a slope steeper than a block
+   * layer's maxSlope, gentler than the character's own limit); null: none.
+   */
+  const stricterClimb = (): number | null => {
+    let out: number | null = null;
+    const collisions = controller.numComputedCollisions();
+    for (let i = 0; i < collisions; i += 1) {
+      const hit = controller.computedCollision(i);
+      const limit = hit?.collider?.handle !== undefined ? infoByHandle.get(hit.collider.handle)?.climbCos : undefined;
+      if (hit === null || limit === undefined || limit <= climbCos) continue;
+      const n = hit.normal1;
+      const len = Math.hypot(n.x, n.y, n.z);
+      if (!(len > 0)) continue;
+      const y = n.y / len;
+      if (y >= climbCos - GROUND_NORMAL_TOLERANCE && y < limit - GROUND_NORMAL_TOLERANCE && (out === null || limit > out)) out = limit;
+    }
+    return out;
   };
   /**
    * Phase 23.2: whether the character at `from`, pushing along the unit
@@ -627,6 +655,14 @@ function createAdapter(world: RAPIER.World, characterCollider: RAPIER.Collider, 
         controller.enableSnapToGround(snapDistance);
       } else {
         controller.computeColliderMovement(characterCollider, commanded);
+        // A slope the character could climb but whose collider sets a stricter limit (a block layer's maxSlope):
+        // swept again with that limit, so the slope is a wall to it. Colliders without a limit never get here.
+        const stricter = stricterClimb();
+        if (stricter !== null) {
+          controller.setMaxSlopeClimbAngle(Math.acos(stricter));
+          controller.computeColliderMovement(characterCollider, commanded);
+          controller.setMaxSlopeClimbAngle(config.controller.maxSlopeClimbRad);
+        }
       }
       let swept = { x: controller.computedMovement().x, y: controller.computedMovement().y, z: controller.computedMovement().z };
       // The support normal comes from the collision results (the obstacle's outward normal), never from a floor constant.
@@ -723,15 +759,17 @@ function createAdapter(world: RAPIER.World, characterCollider: RAPIER.Collider, 
       }
       if (best !== null && rawGrounded) retainedSupport = best;
       let support: PhysicsVec3 = rawGrounded ? retainedSupport : (best ?? { x: 0, y: 1, z: 0 });
+      let supportClimbCos = climbCos;
       if (rawGrounded) {
-        const floor = floorNormalUnder(next);
-        if (floor !== null && floor.y > 0) {
-          support = floor;
-          retainedSupport = floor;
+        const floor = floorUnder(next);
+        if (floor !== null && floor.normal.y > 0) {
+          support = floor.normal;
+          retainedSupport = floor.normal;
+          supportClimbCos = floor.climbCos;
         }
         if (!(support.y > 0)) support = { x: 0, y: 1, z: 0 };
       }
-      const climbable = support.y >= climbCos - GROUND_NORMAL_TOLERANCE;
+      const climbable = support.y >= supportClimbCos - GROUND_NORMAL_TOLERANCE;
       const verticalExtra = movement.y - commanded.y;
       const snapped = rawGrounded && Math.abs(verticalExtra) > 1e-6 && Math.abs(verticalExtra) <= snapDistance + skin + 1e-6;
       const blocked = Math.abs(movement.x - commanded.x) > 1e-9 || Math.abs(movement.z - commanded.z) > 1e-9 || movement.y > commanded.y + 1e-9;

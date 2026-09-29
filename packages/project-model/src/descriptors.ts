@@ -53,6 +53,7 @@ import { TIMELINE_LIMITS } from './timelines';
 import { UI_DESCRIPTORS, type UiDescriptors } from './ui-descriptors';
 import { SCRIPT_LIBRARY_LIMITS } from './script-libraries';
 import { BLOCK_LIMITS } from './block-layers';
+import { blockFootprint, blockLayer } from './block-descriptors';
 import { DEFAULT_WIND, MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS, MAX_MATERIAL_PARAMETERS, MAX_MATERIAL_SLOTS, MAX_MATERIALS, type MaterialParamType } from './materials';
 import { MATERIAL_DATA_MAX, MATERIAL_PARAMETER_TYPES } from './material-graph-kinds';
 import { SOCKET_ATTACH_CONFLICTS, SOCKET_ATTACH_LIMITS } from './sockets';
@@ -1160,28 +1161,6 @@ const fogVolume: ComponentDescriptor = {
   rules: ['At most 16 fog volumes per scene.'],
 };
 
-// Phase 23.5 (E8): a grid of blocks (its cells are scene data written by editBlocks).
-const blockLayer: ComponentDescriptor = {
-  name: 'blockLayer',
-  label: 'Block layer',
-  tooltip: 'A grid of blocks for building levels (terrain, buildings, a tactics map); its cells are painted and edited with block commands.',
-  category: 'Rendering',
-  value: obj('blockLayer', 'Block layer', 'The grid: cell size and bounds. The object\'s position is the min corner of cell [0, 0, 0].', [
-    vec3('cellSize', 'Cell size', 'Metres per cell along x, y and z (a half-metre step: [1, 0.5, 1]).', { required: true, min: 0.05, max: 64, step: 0.05, unit: 'm', default: [1, 1, 1], labels: ['x', 'y', 'z'] }),
-    json('bounds', 'Bounds', 'The cells the layer may hold: {min: [x, y, z], max: [x, y, z]} (max exclusive; at most 1024 × 256 × 1024 cells, within ±4096 / ±1024).', { required: true }),
-    bool('metadataOnly', 'Metadata only', 'Cells carry data only (deploy zones, no-walk areas, trigger ids): no blocks, nothing drawn.', { default: false }),
-    bool('collision', 'Collision', 'The blocks\' collision shapes are colliders (3D projects).', { default: true }),
-    bool('castShadow', 'Cast shadows', 'The blocks cast the directional light\'s shadow.', { default: true }),
-    bool('receiveShadow', 'Receive shadows', 'Shadows fall on the blocks.', { default: true }),
-  ]),
-  // Phase 23.5: 1 m cells over 64 × 16 × 64 — a common kit module over the E8 interactive-editing target; no genre assumed.
-  add: { kind: 'menu', value: { cellSize: [1, 1, 1], bounds: { min: [0, 0, 0], max: [64, 16, 64] } } },
-  handles: [],
-  excludes: ['model', 'box', 'camera', 'collider', 'controller', 'instances'].map((c) => ({ component: c, reason: 'a block layer is its own level geometry' })),
-  prefab: false,
-  rules: ['A block layer is a root object (a folder may hold it) at identity rotation and unit scale; at most 16 layers with cells per scene.'],
-};
-
 // Phase 23.10: the behavior group an object's behavior belongs to (game modes tick groups).
 const behaviorGroupC: ComponentDescriptor = {
   name: 'behaviorGroup',
@@ -1219,25 +1198,6 @@ const MODE_ITEM: FieldDescriptor = obj('*', 'Game mode', 'One game mode.', [
   enm('physics', 'Physics', 'Physics, the character, movers and triggers step (run) or stand still (hold).', MODE_PHYSICS, { default: MODE_DEFAULTS.physics }),
   obj('enter', 'Transition in', 'How entering this mode looks (a script\'s switch may pass its own).', MODE_TRANSITION_FIELDS),
 ]);
-
-// Phase 23.6 (E8): a prop's occupancy footprint (the editor writes it into the block cells beneath the prop).
-const blockFootprint: ComponentDescriptor = {
-  name: 'blockFootprint',
-  label: 'Block footprint',
-  tooltip: 'The cell metadata this object writes into the block-layer cells beneath it when it is placed or moved (a house marks its cells blocked).',
-  category: 'Gameplay',
-  value: obj('blockFootprint', 'Block footprint', 'Which cells (a rectangle centred on the object, turned with it) take which metadata.', [
-    entity('layer', 'Layer', 'The block layer written (none: every layer under the object).', { component: 'blockLayer' }),
-    vec2('size', 'Size', 'Cells along x and z, centred on the object and turned with its quarter turns.', { min: 1, max: 64, step: 1, default: [1, 1], labels: ['x', 'z'] }),
-    json('set', 'Metadata', 'The metadata the cells take: field key → value (fields of the project\'s cell schema).', { required: true }),
-  ]),
-  // Starts empty (writes nothing) until its metadata is chosen.
-  add: { kind: 'menu', value: { set: {} } },
-  handles: [],
-  excludes: [],
-  prefab: true,
-  rules: ['The cells are written when the object is placed or moved in the editor (one metadata edit of the layer); moving it clears the fields it wrote where it stood.'],
-};
 
 const animator: ComponentDescriptor = {
   name: 'animator',

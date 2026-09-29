@@ -28,7 +28,7 @@ import {
   limitsExceeded,
   settingUnknown,
 } from './errors';
-import { CAMERA_PATH_FIELDS, CAMERA_REGION_FIELDS, SOCKET_ATTACH_FIELDS, VIRTUAL_CAMERA_FIELDS, isValidSourcePath, type PropertyValue, type SettingsKeySpec } from '@thirdlight/project-model';
+import { BLOCK_LAYER_FIELDS, CAMERA_PATH_FIELDS, CAMERA_REGION_FIELDS, SOCKET_ATTACH_FIELDS, VIRTUAL_CAMERA_FIELDS, isValidSourcePath, type PropertyValue, type SettingsKeySpec } from '@thirdlight/project-model';
 import { SURFACE_PRESET_NAMES } from './v3';
 import type {
   AcknowledgeBehaviorTrustArgs,
@@ -465,7 +465,7 @@ const COMPONENT_FIELDS: Record<string, readonly string[]> = {
   // Phase 23.11: sockets.
   socketAttach: SOCKET_ATTACH_FIELDS,
   // Phase 23.5: a block layer's settings (its cells are editBlocks' data).
-  blockLayer: ['cellSize', 'bounds', 'metadataOnly', 'collision', 'castShadow', 'receiveShadow'],
+  blockLayer: BLOCK_LAYER_FIELDS,
   // Phase 23.6: a prop's block footprint.
   blockFootprint: ['layer', 'size', 'set'],
   // Phase 23.10: the behavior group (game modes tick groups).

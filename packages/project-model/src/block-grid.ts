@@ -14,6 +14,7 @@ import {
   BLOCK_LIMITS,
   CHUNK_SIZE,
   REGION_ID_RE,
+  blockTypeSlopes,
   validateBlockCell,
   blockCellKey,
   canonicalBlockCell,
@@ -672,18 +673,24 @@ function transformCell(
     D = t2;
   }
   let r = rotAdd(cell.rot, rot);
+  let corners = cell.corners;
+  for (let i = 0; corners !== undefined && i < turns; i++) corners = [corners[1], corners[2], corners[3], corners[0]];
   if (mirror === 'x') {
     const n0 = W - x1;
     x1 = W - x0;
     x0 = n0;
     r = mirroredRot(r, 'x');
+    if (corners !== undefined) corners = [corners[1], corners[0], corners[3], corners[2]];
   } else if (mirror === 'z') {
     const n0 = D - z1;
     z1 = D - z0;
     z0 = n0;
     r = mirroredRot(r, 'z');
+    if (corners !== undefined) corners = [corners[3], corners[2], corners[1], corners[0]];
   }
-  return { x: x0, z: z0, cell: withRot(cell, r) };
+  const turned = withRot(cell, r);
+  // The corners are in the layer's axes: they turn and mirror with the pattern (a quarter turn moves −x−z to −x+z).
+  return { x: x0, z: z0, cell: corners !== undefined ? { ...turned, corners } : turned };
 }
 
 function mergeMeta(cell: BlockCell | null, set: Record<string, CellMetaValue | null>): BlockCell | null {
@@ -698,16 +705,26 @@ function mergeMeta(cell: BlockCell | null, set: Record<string, CellMetaValue | n
   return out.block === undefined && out.meta === undefined ? null : out;
 }
 
-function replaceBlock(cell: BlockCell, next: BlockCell | null): BlockCell | null {
+function replaceBlock(cell: BlockCell, next: BlockCell | null, types: ReadonlyMap<string, BlockType>): BlockCell | null {
   const meta = { ...(cell.meta ?? {}), ...(next?.meta ?? {}) };
   const out: BlockCell = {};
   if (next?.block !== undefined) {
     out.block = next.block;
     if (next.rot !== undefined) out.rot = next.rot;
     if (next.variant !== undefined) out.variant = next.variant;
+    // A replaced block keeps the terrain's slope when the new type can carry it.
+    const corners = next.corners ?? cell.corners;
+    const t = types.get(next.block);
+    if (corners !== undefined && t !== undefined && blockTypeSlopes(t)) out.corners = corners;
   }
   if (Object.keys(meta).length > 0) out.meta = meta;
   return out.block === undefined && out.meta === undefined ? null : out;
+}
+
+function withoutCorners(cell: BlockCell): BlockCell {
+  if (cell.corners === undefined) return cell;
+  const { corners: _c, ...rest } = cell;
+  return rest;
 }
 
 function matchesBlock(cell: BlockCell, match: { block: string | null; rot?: number; variant?: number }): boolean {
@@ -818,7 +835,7 @@ export function applyBlockEdits(g: BlockGrid, edits: readonly BlockEdit[], ctx: 
         });
         const over = budget(hits.length, p);
         if (over) return over;
-        for (const [x, y, z, cell] of hits) put(x, y, z, replaceBlock(cell, e.cell));
+        for (const [x, y, z, cell] of hits) put(x, y, z, replaceBlock(cell, e.cell, ctx.types));
         break;
       }
       case 'meta': {
@@ -899,8 +916,11 @@ export function applyBlockEdits(g: BlockGrid, edits: readonly BlockEdit[], ctx: 
           const o = outside(g, x, g.min[1], z, `${p}/at/${k}`);
           if (o) return o;
           const top = g.columnTop(x, z);
+          const topCell = top !== null ? g.get(x, top, z) : null;
+          // A sloped top moves with the column's top: raising and lowering keep the slope's shape.
+          const slope = topCell?.corners ?? null;
           if (e.delta > 0) {
-            const cell = e.cell ?? (top !== null ? g.get(x, top, z) : null);
+            const cell = e.cell ?? (topCell !== null ? withoutCorners(topCell) : null);
             if (cell === null) continue;
             const base = top === null ? g.min[1] : top + 1;
             for (let y = base; y < base + e.delta; y++) {
@@ -908,11 +928,22 @@ export function applyBlockEdits(g: BlockGrid, edits: readonly BlockEdit[], ctx: 
               if (oo) return oo;
               put(x, y, z, cell);
             }
+            if (slope !== null && top !== null) {
+              put(x, top, z, withoutCorners(topCell!));
+              const t = cell.block !== undefined ? ctx.types.get(cell.block) : undefined;
+              if (t !== undefined && blockTypeSlopes(t)) put(x, base + e.delta - 1, z, { ...cell, corners: slope });
+            }
           } else if (top !== null) {
             for (let y = top; y > top + e.delta && y >= g.min[1]; y--) {
               const cur = g.get(x, y, z);
               if (cur === null) continue;
               put(x, y, z, cur.meta !== undefined ? { meta: cur.meta } : null);
+            }
+            const now = slope !== null ? g.columnTop(x, z) : null;
+            if (now !== null) {
+              const below = g.get(x, now, z)!;
+              const t = below.block !== undefined ? ctx.types.get(below.block) : undefined;
+              if (t !== undefined && blockTypeSlopes(t)) put(x, now, z, { ...below, corners: slope! });
             }
           }
         }

@@ -21,6 +21,7 @@
  */
 import { CHUNK_SIZE, blockTypeSolid, rotatedFootprint, type BlockCell, type BlockShape, type BlockType } from './block-layers';
 import { autoVariant, chunkKeyOf, type BlockGrid } from './block-grid';
+import { cellCorners, cornerGradientAt, cornerHeightAt, diagonalSide, rotateXZ, type CellCorners } from './block-surface';
 
 /** Indexed triangles in the block-local frame; `groups` split the index list by material. */
 export interface BlockMeshSource {
@@ -157,19 +158,6 @@ interface Classified {
   profile: string[];
 }
 
-function rotateXZ(x: number, z: number, rot: number): [number, number] {
-  switch (rot) {
-    case 90:
-      return [z, -x];
-    case 180:
-      return [-x, -z];
-    case 270:
-      return [-z, x];
-    default:
-      return [x, z];
-  }
-}
-
 const classifiedCache = new WeakMap<BlockMeshSource, Map<string, Classified>>();
 
 function classify(src: BlockMeshSource, rot: number, w: number, h: number, d: number): Classified {
@@ -228,6 +216,146 @@ function classify(src: BlockMeshSource, rot: number, w: number, h: number, d: nu
   return out;
 }
 
+// ---- sloped cells ------------------------------------------------------------------------
+
+const slopedCache = new WeakMap<BlockMeshSource, Map<string, { source: BlockMeshSource; classified: Classified }>>();
+
+/**
+ * A single-cell look with a sloped top: its turned geometry warped so every
+ * height y becomes y × the corner surface at the vertex (the bottom stays,
+ * the top follows the corners, the sides become trapezoids). Triangles are
+ * cut along the top's split diagonal first, so each piece lies in one planar half
+ * and the warped mesh is exactly the surface `block-surface.ts` describes;
+ * normals are transformed with the warp (the inverse transpose of its
+ * Jacobian), and pieces that shrink to nothing (a side whose corners are both
+ * 0) are dropped. The result is in the cell's frame at rotation 0 (the
+ * rotation is already applied), classified for hidden faces like any look.
+ */
+function slopedLook(src: BlockMeshSource, rot: number, w: number, h: number, d: number, corners: CellCorners): { source: BlockMeshSource; classified: Classified } {
+  let byKey = slopedCache.get(src);
+  if (byKey === undefined) {
+    byKey = new Map();
+    slopedCache.set(src, byKey);
+  }
+  const key = `${rot}|${w}|${h}|${d}|${corners.join(',')}`;
+  const hit = byKey.get(key);
+  if (hit !== undefined) return hit;
+  if (byKey.size > 4096) byKey.clear();
+  const base = classify(src, rot, w, h, d);
+  // A quarter turn swaps the look's x and z extents; stretched back to the cell's, so a sloped look fills its cell whatever its rotation.
+  const sx = rot === 90 || rot === 270 ? w / d : 1;
+  const sz = rot === 90 || rot === 270 ? d / w : 1;
+  const turned = { positions: base.positions.map((p, i) => (i % 3 === 0 ? p * sx : i % 3 === 2 ? p * sz : p)), normals: base.normals.map((n, i) => (i % 3 === 0 ? n / sx : i % 3 === 2 ? n / sz : n)) };
+  const hasUv = src.uvs !== undefined;
+  const positions: number[] = [];
+  const normals: number[] = [];
+  const uvs: number[] = [];
+  const groups: BlockMeshSource['groups'] = [];
+  type V = { p: [number, number, number]; n: [number, number, number]; t: [number, number] };
+  const vertex = (i: number): V => {
+    const n: [number, number, number] = [turned.normals[i * 3]!, turned.normals[i * 3 + 1]!, turned.normals[i * 3 + 2]!];
+    const len = Math.hypot(n[0], n[1], n[2]) || 1;
+    return {
+    p: [turned.positions[i * 3]!, turned.positions[i * 3 + 1]!, turned.positions[i * 3 + 2]!],
+    n: [n[0] / len, n[1] / len, n[2] / len],
+    t: hasUv ? [src.uvs![i * 2]!, src.uvs![i * 2 + 1]!] : [0, 0],
+    };
+  };
+  const lerp = (a: V, b: V, k: number): V => ({
+    p: [a.p[0] + (b.p[0] - a.p[0]) * k, a.p[1] + (b.p[1] - a.p[1]) * k, a.p[2] + (b.p[2] - a.p[2]) * k],
+    n: [a.n[0] + (b.n[0] - a.n[0]) * k, a.n[1] + (b.n[1] - a.n[1]) * k, a.n[2] + (b.n[2] - a.n[2]) * k],
+    t: [a.t[0] + (b.t[0] - a.t[0]) * k, a.t[1] + (b.t[1] - a.t[1]) * k],
+  });
+  const uOf = (v: V): number => Math.min(1, Math.max(0, v.p[0] / w + 0.5));
+  const vOf = (v: V): number => Math.min(1, Math.max(0, v.p[2] / d + 0.5));
+  // The signed distance to the split diagonal's vertical plane (cells).
+  const side = (v: V): number => {
+    const s = diagonalSide(corners, uOf(v), vOf(v));
+    return Math.abs(s) < 1e-7 ? 0 : s;
+  };
+  let out = 0;
+  const emit = (tri: V[]): void => {
+    const cu = (uOf(tri[0]!) + uOf(tri[1]!) + uOf(tri[2]!)) / 3;
+    const cv = (vOf(tri[0]!) + vOf(tri[1]!) + vOf(tri[2]!)) / 3;
+    const [gu, gv] = cornerGradientAt(corners, cu, cv);
+    const warped = tri.map((v) => {
+      const f = cornerHeightAt(corners, uOf(v), vOf(v));
+      const y = v.p[1];
+      const a = (y * gu) / w;
+      const b = (y * gv) / d;
+      let n: [number, number, number] = [f * v.n[0] - a * v.n[1], v.n[1], f * v.n[2] - b * v.n[1]];
+      const len = Math.hypot(n[0], n[1], n[2]);
+      n = len > 1e-9 ? [n[0] / len, n[1] / len, n[2] / len] : v.n;
+      return { p: [v.p[0], y * f, v.p[2]] as [number, number, number], n, t: v.t };
+    });
+    const [A, B, C] = warped as [V, V, V];
+    const ex = [B.p[0] - A.p[0], B.p[1] - A.p[1], B.p[2] - A.p[2]];
+    const fx = [C.p[0] - A.p[0], C.p[1] - A.p[1], C.p[2] - A.p[2]];
+    const cross = Math.hypot(ex[1]! * fx[2]! - ex[2]! * fx[1]!, ex[2]! * fx[0]! - ex[0]! * fx[2]!, ex[0]! * fx[1]! - ex[1]! * fx[0]!);
+    if (cross < 1e-10 * Math.max(w, h, d) ** 2) return;
+    for (const v of warped) {
+      positions.push(v.p[0], v.p[1], v.p[2]);
+      normals.push(v.n[0], v.n[1], v.n[2]);
+      if (hasUv) uvs.push(v.t[0], v.t[1]);
+    }
+    out += 3;
+  };
+  for (const g of src.groups) {
+    const start = out;
+    for (let i = g.start; i < g.start + g.count; i += 3) {
+      const tri = [vertex(src.indices[i]!), vertex(src.indices[i + 1]!), vertex(src.indices[i + 2]!)];
+      const s = tri.map(side);
+      if (!(s.some((x) => x > 0) && s.some((x) => x < 0))) {
+        emit(tri);
+        continue;
+      }
+      // Cut along the diagonal: the lone vertex on one side makes a triangle, the other two a quad (two triangles).
+      const pos = s.filter((x) => x > 0).length;
+      const lone = s.findIndex((x) => (pos === 1 ? x > 0 : x < 0));
+      if (s.some((x) => x === 0)) {
+        // One vertex on the diagonal: the edge opposite it crosses it once.
+        const on = s.findIndex((x) => x === 0);
+        const a = tri[(on + 1) % 3]!;
+        const b = tri[(on + 2) % 3]!;
+        const sa = s[(on + 1) % 3]!;
+        const sb = s[(on + 2) % 3]!;
+        const m = lerp(a, b, sa / (sa - sb));
+        emit([tri[on]!, a, m]);
+        emit([tri[on]!, m, b]);
+        continue;
+      }
+      const L = tri[lone]!;
+      const P = tri[(lone + 1) % 3]!;
+      const Q = tri[(lone + 2) % 3]!;
+      const sl = s[lone]!;
+      const m1 = lerp(L, P, sl / (sl - s[(lone + 1) % 3]!));
+      const m2 = lerp(L, Q, sl / (sl - s[(lone + 2) % 3]!));
+      emit([L, m1, m2]);
+      emit([m1, P, Q]);
+      emit([m1, Q, m2]);
+    }
+    if (out > start) groups.push({ start, count: out - start, material: g.material });
+  }
+  const source: BlockMeshSource = {
+    positions: new Float32Array(positions),
+    normals: new Float32Array(normals),
+    ...(hasUv ? { uvs: new Float32Array(uvs) } : {}),
+    indices: Uint32Array.from({ length: out }, (_, i) => i),
+    groups,
+  };
+  const result = { source, classified: classify(source, 0, w, h, d) };
+  byKey.set(key, result);
+  return result;
+}
+
+/** The corners on each side (by the side index): +X, −X, +Y, −Y, +Z, −Z. */
+const SIDE_CORNERS: readonly (readonly number[])[] = [[1, 2], [0, 3], [], [], [2, 3], [0, 1]];
+
+/** Whether a cell's face on side `s` stays inside the cell's side square (a flat cell's always does). */
+function sideInside(corners: CellCorners | null, s: number): boolean {
+  return corners === null || SIDE_CORNERS[s]!.every((i) => corners[i]! <= 1);
+}
+
 // ---- chunk meshing --------------------------------------------------------------------
 
 /** One merged part of a chunk mesh (a block look × material), in layer-local metres. */
@@ -256,6 +384,10 @@ interface CellLook {
   variant: number;
   rot: number;
   single: boolean;
+  /** Fills its cell and hides the faces of neighbours touching it (a sloped cell never does). */
+  solid: boolean;
+  /** A sloped top's corners (null: flat); a side whose corners rise above 1 reaches out of the cell's side square. */
+  corners: CellCorners | null;
   classified: Classified | null;
   key: string | null;
   source: BlockMeshSource | null;
@@ -275,6 +407,7 @@ class Accumulator {
  */
 export function meshBlockChunk(grid: BlockGrid, cx: number, cz: number, types: ReadonlyMap<string, BlockType>, looks: BlockLookResolver): ChunkMeshPart[] {
   const cs = grid.cellSize;
+  const solidOf = (t: BlockType): boolean => (looks.solid !== undefined ? looks.solid(t) : blockTypeSolid(t));
   const lookCache = new Map<number, CellLook | null>();
   const lookOf = (x: number, y: number, z: number): CellLook | null => {
     const idx = grid.indexAt(x, y, z);
@@ -292,11 +425,15 @@ export function meshBlockChunk(grid: BlockGrid, cx: number, cz: number, types: R
     const single = f[0] === 1 && f[1] === 1 && f[2] === 1;
     const src = looks.source(t, variant, fm);
     const rot = cell.rot ?? 0;
-    const look: CellLook = { type: t, variant, rot, single, classified: src !== null && single ? classify(src.source, rot, fm[0], fm[1], fm[2]) : null, key: src?.key ?? null, source: src?.source ?? null };
+    const corners = single ? cellCorners(cell) : null;
+    const sloped = src !== null && corners !== null ? slopedLook(src.source, rot, fm[0], fm[1], fm[2], corners) : null;
+    const look: CellLook =
+      sloped !== null
+        ? { type: t, variant, rot: 0, single, solid: false, corners, classified: sloped.classified, key: src!.key, source: sloped.source }
+        : { type: t, variant, rot, single, solid: corners === null && solidOf(t), corners: null, classified: src !== null && single ? classify(src.source, rot, fm[0], fm[1], fm[2]) : null, key: src?.key ?? null, source: src?.source ?? null };
     if (!auto) lookCache.set(cacheKey, look);
     return look;
   };
-  const solidOf = (t: BlockType): boolean => (looks.solid !== undefined ? looks.solid(t) : blockTypeSolid(t));
   const parts = new Map<string, { acc: Accumulator; blockId: string; variant: number; material: number }>();
   grid.forEachInChunk(chunkKeyOf(cx, cz), (x, y, z, idx) => {
     const cell: BlockCell = grid.valueOf(idx);
@@ -317,7 +454,8 @@ export function meshBlockChunk(grid: BlockGrid, cx: number, cz: number, types: R
         const o = SIDE_OFFSET[s]!;
         const nb = lookOf(x + o[0], y + o[1], z + o[2]);
         if (nb === null || !nb.single) continue;
-        if (solidOf(nb.type)) hidden[s] = true;
+        // A solid neighbour covers a face only where the face stays inside the cell's side.
+        if (nb.solid && sideInside(look.corners, s)) hidden[s] = true;
         else if (nb.classified !== null && nb.classified.profile[OPPOSITE[s]!] === look.classified.profile[s]) hidden[s] = true;
       }
     }

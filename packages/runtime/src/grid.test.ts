@@ -176,3 +176,60 @@ describe('runtime grid (phase 23.5)', () => {
     expect(grid.api.layers()).toEqual([]);
   });
 });
+
+describe('sloped terrain in ctx.grid', () => {
+  const ramped = (g: BlockGrid): void => {
+    floor(g);
+    // A 1-cell rise over 2 cells along +x (cells are 0.5 m tall: 0.25 m per metre, 14.04°).
+    applyBlockEdits(g, [{ kind: 'cells', at: [4, 1, 4], cell: { block: 'grass', corners: [0, 0.5, 0.5, 0] } }, { kind: 'cells', at: [5, 1, 4], cell: { block: 'grass', corners: [0.5, 1, 1, 0.5] } }], { types: new Map(TYPES.map((t) => [t.blockId, t])), stamps: new Map() });
+  };
+
+  it('get shows the corners; set writes them on a full block and refuses them on others', () => {
+    const grid = new RuntimeGrid(TYPES, FIELDS, false);
+    grid.addLayers([layerEntity('ground', [0, 0, 0], ramped)]);
+    expect(grid.api.get('ground', 4, 1, 4)!.corners).toEqual([0, 0.5, 0.5, 0]);
+    expect(grid.api.get('ground', 4, 0, 4)!.corners).toBeUndefined();
+    expect(grid.api.set('ground', 6, 1, 4, { block: 'stone', corners: [1, 1, 0.5, 0.5] })).toBe(true);
+    expect(grid.api.get('ground', 6, 1, 4)!.corners).toEqual([1, 1, 0.5, 0.5]);
+    expect(grid.api.set('ground', 7, 1, 4, { block: 'slab', corners: [1, 1, 0.5, 0.5] })).toBe(false);
+    expect(grid.api.set('ground', 7, 1, 4, { block: 'stone', corners: [1, 1, 0.3, 0.5] })).toBe(false);
+    // The diff keeps the corners (saves restore sloped cells).
+    expect(JSON.stringify(grid.api.diff())).toContain('"corners":[1,1,0.5,0.5]');
+  });
+
+  it('surface and columnSurface: height, normal, slope and walkable against maxSlope', () => {
+    const grid = new RuntimeGrid(TYPES, FIELDS, false, 10);
+    grid.addLayers([layerEntity('ground', [10, 2, 10], ramped)]);
+    // Halfway up the first sloped cell: 0.5 (floor) + 0.25 × 0.5 of a 0.5 m cell, plus the origin's 2 m.
+    const s = grid.api.surface('ground', [10 + 4.5, 20, 10 + 4.5])!;
+    expect(s.height).toBeCloseTo(2 + 0.5 + 0.125, 12);
+    expect([s.x, s.y, s.z]).toEqual([4, 1, 4]);
+    expect(s.slope).toBeCloseTo((Math.atan(0.25) * 180) / Math.PI, 9);
+    expect(s.normal.x).toBeLessThan(0);
+    // The project default here is 10°: a 14° slope is not walkable; a flat floor is.
+    expect(s.walkable).toBe(false);
+    expect(grid.api.columnSurface('ground', 1, 1)).toEqual(expect.objectContaining({ height: 2.5, slope: 0, walkable: true, y: 0 }));
+    expect(grid.api.columnSurface('ground', 20, 20)).toBeNull();
+    // A position below the floor finds nothing; one inside the floor reads its top.
+    expect(grid.api.surface('ground', [11, 0, 11])).toBeNull();
+    expect(grid.api.surface('ground', [11, 2.1, 11])!.height).toBeCloseTo(2.5, 12);
+  });
+
+  it('a layer maxSlope decides walkable and reaches the port as the colliders\' limit', () => {
+    const grid = new RuntimeGrid(TYPES, FIELDS, true, 10);
+    const e = layerEntity('ground', [0, 0, 0], ramped);
+    (e.components as unknown as { blockLayer: BlockLayerComponent }).blockLayer.maxSlope = 20;
+    grid.addLayers([e]);
+    expect(grid.api.surface('ground', [4.5, 9, 4.5])!.walkable).toBe(true);
+    const port = fakePort();
+    grid.flushCollision(port);
+    expect(port.added.length).toBeGreaterThan(0);
+    expect(port.added.every((c) => Math.abs(c.maxSlope! - (20 * Math.PI) / 180) < 1e-12)).toBe(true);
+    // Without the field the colliders carry no limit (the character's own applies, as before).
+    const plain = new RuntimeGrid(TYPES, FIELDS, true);
+    plain.addLayers([layerEntity('ground', [0, 0, 0], ramped)]);
+    const p2 = fakePort();
+    plain.flushCollision(p2);
+    expect(p2.added.every((c) => c.maxSlope === undefined)).toBe(true);
+  });
+});

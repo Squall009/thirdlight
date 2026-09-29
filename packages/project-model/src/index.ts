@@ -864,6 +864,11 @@ export {
   composeBlockContent,
   composeBlockLayers,
   rotatedFootprint,
+  blockTypeSlopes,
+  BLOCK_CORNER_STEPS,
+  BLOCK_CORNER_MAX,
+  BLOCK_LAYER_FIELDS,
+  BLOCK_MAX_SLOPE_RANGE,
   validateBlockCell,
   validateBlockLayerComponent,
   validateBlockRegion,
@@ -925,6 +930,19 @@ export {
   type ChunkMeshPart,
   type CollisionMeshPiece,
 } from './block-mesh';
+export {
+  FLAT_CORNERS,
+  blockTopAt,
+  cellCorners,
+  cornerGradientAt,
+  cornerHeightAt,
+  rotateXZ,
+  surfaceBelow,
+  type BlockTopSample,
+  type CellCorners,
+  type SurfaceGrid,
+  type SurfaceHit,
+} from './block-surface';
 export { PNG_DECODE_MAX_PIXELS, decodeBase64, decodePngRgba, encodeBase64, inflateZlib, type DecodedPng } from './png-decode';
 // Phase 23.19: the project save schema (save document, slots, sections, settings document).
 export {
