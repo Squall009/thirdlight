@@ -133,6 +133,19 @@ interface Switch extends Box {
   spent: boolean;
 }
 
+/** Phase 25.13: a climb volume the character is in: its object and its world up and across axes (unit vectors). */
+export interface ClimbVolumeView {
+  readonly id: string;
+  readonly up: readonly [number, number, number];
+  readonly across: readonly [number, number, number];
+}
+
+/** Phase 25.13: the rotation about Z alone of a quaternion (the 2D plane turns objects about Z only). */
+function planeRotation(r: readonly number[]): [number, number, number, number] {
+  const z = colliderRotationZ(r);
+  return [0, 0, Math.sin(z / 2), Math.cos(z / 2)];
+}
+
 /** Phase 20.2: a request to the renderer's effect player (presentation only). */
 export interface BlocksEffectRequest {
   op: 'play' | 'stop';
@@ -164,6 +177,9 @@ export interface BlocksHost {
   readonly characterSkin?: number;
   /** Phase 23.1: the 3D port (a 3D project) — movers are posed on it and the blocks work in 3D. */
   readonly physics3d?: PhysicsPort3D;
+  /** Phase 25.13: the project's gravity (m/s² along Y) and fall speed cap (m/s) for gravity bodies (absent: −19.62, −30). */
+  readonly gravityY?: number;
+  readonly maxFallSpeed?: number;
   /** Phase 23.1 (3D): the character's committed position (the entity origin), or null. */
   character3?(): Vec3 | null;
   /** Phase 23.1 (3D): the character's capsule centre offset along Z. */
@@ -291,6 +307,8 @@ export class GameplayBlocks {
   private readonly triggers = new Map<string, Trigger>();
   private readonly switches = new Map<string, Switch>();
   private readonly oneWay = new Set<string>();
+  /** Phase 25.13: climb volumes (half extents of their box, in their object's frame). */
+  private readonly climbVolumes = new Map<string, { half: Vec3 }>();
   private readonly parents = new Map<string, string>();
   private readonly hidden = new Set<string>();
   /** Phase 25.10: the hidden set as it stood at the start of the step, kept once something changed it in the step (null: unchanged). */
@@ -346,6 +364,8 @@ export class GameplayBlocks {
       addCounter: (name, delta) => blocks.addCounter(name, delta),
       emit: (signal) => blocks.emit(signal),
       note: (e) => blocks.cueLog?.events.push({ name: e.type, entity: e.entity }),
+      ...(host.gravityY !== undefined ? { gravityY: host.gravityY } : {}),
+      ...(host.maxFallSpeed !== undefined ? { maxFallSpeed: host.maxFallSpeed } : {}),
     });
     this.add(entities);
   }
@@ -460,7 +480,14 @@ export class GameplayBlocks {
         this.effectTriggers.set(e.id, { effectId: String(fx['effectId']), signal: typeof fx['signal'] === 'string' ? (fx['signal'] as string) : null, stop: typeof fx['stopSignal'] === 'string' ? (fx['stopSignal'] as string) : null });
       }
       // Phase 24.4: health on any object, collectibles, patrols, hitboxes.
-      if (h !== undefined || c['collectible'] !== undefined || c['patrol'] !== undefined || c['hitbox'] !== undefined) this.primitives.add(e.id, c, p);
+      if (h !== undefined || c['collectible'] !== undefined || c['patrol'] !== undefined || c['hitbox'] !== undefined || c['gravity'] !== undefined) this.primitives.add(e.id, c, p);
+      // Phase 25.13: a volume the character climbs in.
+      const climb = c['climbVolume'];
+      if (climb !== undefined) {
+        const size = Array.isArray(climb['size']) ? (climb['size'] as number[]) : [1, 4];
+        const w = num(size[0], 1);
+        this.climbVolumes.set(e.id, { half: [w / 2, num(size[1], w) / 2, num(size[2], w) / 2] });
+      }
     }
   }
 
@@ -480,6 +507,7 @@ export class GameplayBlocks {
       this.movers.delete(id);
       this.triggers.delete(id);
       this.switches.delete(id);
+      this.climbVolumes.delete(id);
       this.oneWay.delete(id);
       this.hidden.delete(id);
       this.parents.delete(id);
@@ -552,6 +580,32 @@ export class GameplayBlocks {
   }
 
   // ---- queries ------------------------------------------------------------------
+
+  /**
+   * Phase 25.13: the climb volume the character's capsule centre is in now
+   * (the first in load order; null: none, or no character): its object, and
+   * its up and across axes in the world (its object's +Y and +X, turned with
+   * the object's rotation — about Z only on the 2D plane).
+   */
+  climbVolume(): ClimbVolumeView | null {
+    if (this.climbVolumes.size === 0) return null;
+    const ch = this.characterBox();
+    if (ch === null) return null;
+    const flat = this.host.physics3d === undefined;
+    for (const [id, v] of this.climbVolumes) {
+      if (this.inactive.has(id)) continue;
+      const at = this.worldOf(id);
+      const t = this.host.curr.get(id);
+      if (at === null || t === undefined) continue;
+      const r = t.rotation;
+      const q: [number, number, number, number] = flat ? planeRotation(r) : [r[0] ?? 0, r[1] ?? 0, r[2] ?? 0, r[3] ?? 1];
+      const inv: [number, number, number, number] = [-q[0], -q[1], -q[2], q[3]];
+      const local = rotate3(inv, sub3(ch.centre, at));
+      if (Math.abs(local[0]) > v.half[0] || Math.abs(local[1]) > v.half[1] || (!flat && Math.abs(local[2]) > v.half[2])) continue;
+      return { id, up: rotate3(q, [0, 1, 0]) as Vec3, across: rotate3(q, [1, 0, 0]) as Vec3 };
+    }
+    return null;
+  }
 
   /** A script shows or hides an entity (a new run shows everything again). */
   setVisible(entityId: string, visible: boolean): void {

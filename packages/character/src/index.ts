@@ -8,7 +8,8 @@
  *
  * - **Algorithm** — the controller contract §7's exact order A–K: one jump per press,
  *   variable height on release, the integer-step coyote (6) and jump-buffer
- *   (8) windows, no air/wall jump, no automatic stair climbing and the
+ *   (8) windows, no air jump (phase 25.13: optional wall slide and wall jump,
+ *   climbing in climb volumes), no automatic stair climbing and the
  *   horizontal `approach()` arrival rule.
  * - **Grounding** — `physics.md` §8: from the port's collision result and
  *   support normal, never from `position.y` or `vy`; a support below the

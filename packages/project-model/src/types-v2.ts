@@ -190,6 +190,20 @@ export interface ControllerComponent {
   moveAction?: string;
   /** Phase 24.8: the input action that makes it jump (absent: `jump`). */
   jumpAction?: string;
+  /** Phase 25.13: m/s it moves inside a climb volume (absent: 2). */
+  climbSpeed?: number;
+  /** Phase 25.13: the input action (an axis) that climbs: its value, or a 2D axis' y (absent: the move action's y). */
+  climbAction?: string;
+  /** Phase 25.13: falling while pushing into a wall slides down it at `wallSlideSpeed` at most (absent: false). */
+  wallSlide?: boolean;
+  /** Phase 25.13: m/s (absent: 2). */
+  wallSlideSpeed?: number;
+  /** Phase 25.13: jump in the air off a wall it touches (absent: false). */
+  wallJump?: boolean;
+  /** Phase 25.13: m/s away from the wall at a wall jump (absent: the run speed). */
+  wallJumpAway?: number;
+  /** Phase 25.13: m/s upward at a wall jump (absent: the jump speed). */
+  wallJumpUp?: number;
 }
 
 /** v2 component registry order: transform, model, box, camera, behavior, prefab, collider, controller. */
@@ -361,6 +375,8 @@ export interface PrefabComponentsV4Extra {
   collectible?: EntityComponentsV3['collectible'];
   patrol?: EntityComponentsV3['patrol'];
   hitbox?: EntityComponentsV3['hitbox'];
+  climbVolume?: EntityComponentsV3['climbVolume'];
+  gravity?: EntityComponentsV3['gravity'];
   audioSource?: { assetId: string; volume: number; range: number; distanceModel?: 'linear' | 'inverse' | 'exponential'; refDistance?: number; rolloff?: number };
   faceMovement?: import('./blocks').FaceMovementComponent;
 }

@@ -776,6 +776,14 @@ function validateEntityComponentsV3(
     if (clash.length > 0) errors.push(collisionConflict(path, `a patrol moves the object by itself: it cannot also carry ${clash.join(', ')}`, ['patrol', ...clash]));
   }
   if (comps['collectible'] !== undefined && comps['controller'] !== undefined) errors.push(collisionConflict(path, 'the character collects; it is not collected', ['collectible', 'controller']));
+  // Phase 25.13: a gravity body falls by itself (not a character, a mover or a physics body; a waypoint patrol sets its height itself).
+  if (comps['gravity'] !== undefined) {
+    const clash = (['controller', 'mover', 'collider'] as const).filter((c) => comps[c] !== undefined);
+    if (clash.length > 0) errors.push(collisionConflict(path, `a gravity body falls by itself: it cannot also carry ${clash.join(', ')}`, ['gravity', ...clash]));
+    const patrol = comps['patrol'];
+    if (isPlainObject(patrol) && patrol['mode'] === 'waypoints') errors.push(collisionConflict(path, 'a waypoint patrol sets its own height: only an edge-to-edge patrol falls with gravity', ['gravity', 'patrol']));
+  }
+  if (comps['climbVolume'] !== undefined && comps['controller'] !== undefined) errors.push(collisionConflict(path, 'the character climbs in a climb volume; it is not one', ['climbVolume', 'controller']));
   if (comps['animator'] !== undefined) {
     validateAnimatorComponent(comps['animator'], `${path}/animator`, errors);
     if (comps['model'] === undefined) errors.push(componentMissing(`${path}/animator`, 'model', 'an animator sits only on an entity with a model'));

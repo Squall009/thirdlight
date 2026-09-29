@@ -478,7 +478,7 @@ export interface PatrolComponent {
   speed: number;
   /** Seconds it waits at each waypoint or after turning around. */
   wait?: number;
-  /** `edges`: the way it starts walking (a 2D plane uses the sign of x; 3D the direction on the ground). */
+  /** `edges`: the way it starts walking (phase 25.13: a 2D plane any direction in its plane — x and y; 3D the direction on the ground). */
   direction?: [number, number, number];
   /** `edges`: its body [w, h] or [w, h, d], centred on its position (where the probes look from). */
   size?: [number, number] | [number, number, number];
@@ -557,6 +557,50 @@ export function validateHitboxComponent(value: unknown, path: string, errors: Mo
   if (value['damage'] !== undefined && !(Number.isInteger(value['damage']) && num(value['damage'], L.damage.min, L.damage.max))) err(errors, 'field_value', `${path}/damage`, `damage is an integer ${L.damage.min}–${L.damage.max}`, value['damage']);
 }
 
+/**
+ * Phase 25.13: `climbVolume` — a box (centred on the object, turned with it)
+ * the character climbs in: while its capsule's centre is inside, up/down on
+ * its move input moves it along the box's up axis (the object's +Y) and
+ * sideways input across it, at its controller's `climbSpeed`, with no
+ * gravity; jump leaves (with a jump), and so does moving out of the box. A
+ * ladder, a vine, a net, a climbing wall: the size says which.
+ *
+ * Phase 25.13: `gravity` — an object that is not a character (a patroller, an
+ * item, anything without its own physics body) falls under the project's
+ * gravity (times `scale`, capped at the project's fall speed) until its body
+ * rests on a collider below it; it falls again when the floor goes. The body
+ * is a box centred on its position (absent: 1 m, a patroller's default).
+ */
+export const CLIMB_VOLUME_FIELDS = ['size'] as const;
+export const GRAVITY_FIELDS = ['scale', 'size'] as const;
+/** Phase 25.13: a gravity body's scale range (0: it does not fall; 10: ten times the project's gravity). */
+export const GRAVITY_SCALE = { min: 0, max: 10 } as const;
+
+export interface ClimbVolumeComponent {
+  /** [w, h] or [w, h, d] (m): the box it is climbed in (a 2D plane ignores the depth; absent depth in 3D: the width). */
+  size: [number, number] | [number, number, number];
+}
+
+export interface GravityComponent {
+  /** Multiplies the project's gravity (absent: 1). */
+  scale?: number;
+  /** Its body [w, h] or [w, h, d] (m), centred on its position (absent: 1 m each). */
+  size?: [number, number] | [number, number, number];
+}
+
+export function validateClimbVolumeComponent(value: unknown, path: string, errors: ModelErrorV2[]): void {
+  if (!isPlainObject(value)) return err(errors, 'field_type', path, 'climbVolume is an object', value);
+  fields(value, CLIMB_VOLUME_FIELDS, ['size'], path, errors);
+  if (value['size'] !== undefined && !area(value['size'])) err(errors, 'field_value', `${path}/size`, `size is [w, h] or [w, h, d], each ${L.size.min}–${L.size.max} m`, value['size']);
+}
+
+export function validateGravityComponent(value: unknown, path: string, errors: ModelErrorV2[]): void {
+  if (!isPlainObject(value)) return err(errors, 'field_type', path, 'gravity is an object', value);
+  fields(value, GRAVITY_FIELDS, [], path, errors);
+  limited(value, 'scale', GRAVITY_SCALE, '', path, errors);
+  if (value['size'] !== undefined && !area(value['size'])) err(errors, 'field_value', `${path}/size`, `size is [w, h] or [w, h, d], each ${L.size.min}–${L.size.max} m`, value['size']);
+}
+
 const copyArea = (v: [number, number] | [number, number, number]): [number, number] | [number, number, number] => (v.length === 3 ? [v[0], v[1], v[2]] : [v[0], v[1]]);
 
 export const canonicalCollectible = (c: CollectibleComponent): CollectibleComponent => ({
@@ -577,6 +621,11 @@ export const canonicalPatrol = (c: PatrolComponent): PatrolComponent => ({
   ...(c.wallProbe !== undefined ? { wallProbe: c.wallProbe } : {}),
   ...(c.ledgeProbe !== undefined ? { ledgeProbe: c.ledgeProbe } : {}),
 });
+export const canonicalClimbVolume = (c: ClimbVolumeComponent): ClimbVolumeComponent => ({ size: copyArea(c.size) });
+export const canonicalGravity = (c: GravityComponent): GravityComponent => ({
+  ...(c.scale !== undefined ? { scale: c.scale } : {}),
+  ...(c.size !== undefined ? { size: copyArea(c.size) } : {}),
+});
 export const canonicalHitbox = (c: HitboxComponent): HitboxComponent => ({
   ...(c.shape !== undefined ? { shape: c.shape } : {}),
   ...(c.size !== undefined ? { size: copyArea(c.size) } : {}),
@@ -595,6 +644,9 @@ export const BLOCK_COMPONENTS = {
   collectible: { validate: validateCollectibleComponent, canonical: canonicalCollectible, fields: COLLECTIBLE_FIELDS },
   patrol: { validate: validatePatrolComponent, canonical: canonicalPatrol, fields: PATROL_FIELDS },
   hitbox: { validate: validateHitboxComponent, canonical: canonicalHitbox, fields: HITBOX_FIELDS },
+  // Phase 25.13: last, so every existing entity keeps its exact canonical bytes.
+  climbVolume: { validate: validateClimbVolumeComponent, canonical: canonicalClimbVolume, fields: CLIMB_VOLUME_FIELDS },
+  gravity: { validate: validateGravityComponent, canonical: canonicalGravity, fields: GRAVITY_FIELDS },
 } as const;
 export type BlockComponentName = keyof typeof BLOCK_COMPONENTS;
 export const BLOCK_COMPONENT_NAMES = Object.keys(BLOCK_COMPONENTS) as BlockComponentName[];

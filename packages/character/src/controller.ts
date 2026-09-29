@@ -32,6 +32,7 @@
  */
 import type {
   ActionFrame,
+  ClimbVolumeView,
   JumpPhase,
   CharacterMoveResult,
   GameplaySettings,
@@ -88,6 +89,66 @@ export function controllerStepTuning(controller: unknown, fixedStepHz: number): 
 }
 
 /**
+ * Phase 25.13: climbing and walls — the controller's climb speed, climb
+ * action, wall slide and wall jump (the project model's
+ * DEFAULT_CONTROLLER_MOVEMENT states the same defaults with their reasons:
+ * this package reads the runtime's types only). `wallJumpAway`/`wallJumpUp`
+ * null: the run speed and the jump velocity.
+ */
+export interface ControllerMovementTuning {
+  readonly climbSpeed: number;
+  readonly climbAction: string | null;
+  readonly wallSlide: boolean;
+  readonly wallSlideSpeed: number;
+  readonly wallJump: boolean;
+  readonly wallJumpAway: number | null;
+  readonly wallJumpUp: number | null;
+}
+
+export const DEFAULT_MOVEMENT_TUNING: ControllerMovementTuning = Object.freeze({
+  climbSpeed: 2,
+  climbAction: null,
+  wallSlide: false,
+  wallSlideSpeed: 2,
+  wallJump: false,
+  wallJumpAway: null,
+  wallJumpUp: null,
+});
+
+/**
+ * Phase 25.13: how far up or down the climb input must be pushed to take
+ * hold of a climb volume (more than half: a stick's resting drift or a mostly
+ * sideways push does not grab; a key or a full push does).
+ */
+export const CLIMB_GRAB_INPUT = 0.5;
+
+/** Phase 25.13: the climb and wall tuning a `controller` component describes (each absent field at its default). */
+export function controllerMovementTuning(controller: unknown): ControllerMovementTuning {
+  const c = (typeof controller === 'object' && controller !== null ? controller : {}) as Record<string, unknown>;
+  const d = DEFAULT_MOVEMENT_TUNING;
+  const num = (k: string): number | null => (typeof c[k] === 'number' && Number.isFinite(c[k]) ? (c[k] as number) : null);
+  const bool = (k: string, f: boolean): boolean => (typeof c[k] === 'boolean' ? (c[k] as boolean) : f);
+  return Object.freeze({
+    climbSpeed: num('climbSpeed') ?? d.climbSpeed,
+    climbAction: typeof c['climbAction'] === 'string' ? (c['climbAction'] as string) : null,
+    wallSlide: bool('wallSlide', d.wallSlide),
+    wallSlideSpeed: num('wallSlideSpeed') ?? d.wallSlideSpeed,
+    wallJump: bool('wallJump', d.wallJump),
+    wallJumpAway: num('wallJumpAway'),
+    wallJumpUp: num('wallJumpUp'),
+  });
+}
+
+/** Phase 25.13: what the controller step needs beyond the packet-32 input: the climb input, the volume it is in, the tuning. */
+export interface ControllerMovementInput {
+  /** The climb input: up (+1) to down (−1). */
+  readonly climbY: number;
+  /** The climb volume the character is in now (null: none). */
+  readonly climb: ClimbVolumeView | null;
+  readonly tuning: ControllerMovementTuning;
+}
+
+/**
  * Ground-contact classification tolerance (`physics.md` §7/§8: compares
  * `supportNormal.y` with `cos(max_slope_climb_deg)` within `1e-6`).
  */
@@ -118,6 +179,13 @@ export interface ControllerState {
   charY: number;
   /** Bounded diagnostic counter: steps the slide policy drove the character. */
   slideSteps: number;
+  /** Phase 25.13: the climb volume it holds on to (null: not climbing). */
+  climbing: string | null;
+  /** Phase 25.13: the side of the wall it last touched in the air (−1 left, 1 right) and the steps that touch still counts for a wall jump. */
+  wallSide: -1 | 0 | 1;
+  wallCoyote: number;
+  /** Phase 25.13: rising from a wall jump — the input does not steer until the top of the jump. */
+  wallJumped: boolean;
 }
 
 /** the controller contract §7 `approach(v, target, up, down)` — never overshoots. */
@@ -141,7 +209,18 @@ export function createControllerState(charX: number, charY: number, coyoteSteps:
     charX,
     charY,
     slideSteps: 0,
+    climbing: null,
+    wallSide: 0,
+    wallCoyote: 0,
+    wallJumped: false,
   };
+}
+
+/** Phase 25.13: the side of a wall the last step pushed into in the air (0: none). */
+function wallContactSide(p: CharacterMoveResult | undefined, grounded: boolean): -1 | 0 | 1 {
+  if (p === undefined || grounded || p.contacts.wall !== true) return 0;
+  if (!(Math.abs(p.requested.x) - Math.abs(p.applied.x) > 1e-7)) return 0;
+  return p.requested.x > 0 ? 1 : -1;
 }
 
 /**
@@ -243,6 +322,18 @@ function moveOf(frame: ActionFrame, name: string): number {
   return a === undefined ? 0 : (a.x ?? a.v);
 }
 
+/**
+ * Phase 25.13: the climb input — the climb action's value (or its y, a 2D
+ * axis) when the controller names one, else the move action's y; a script's
+ * `control_move` intent gives its y instead.
+ */
+function climbInput(ctx: { readonly action: ActionFrame; readonly intents: { readonly move: number | null; readonly moveY?: number | null } }, move: string, climbAction: string | null): number {
+  if (ctx.intents.move !== null && climbAction === null) return ctx.intents.moveY ?? 0;
+  const a = ctx.action.actions?.[climbAction ?? move];
+  if (a === undefined) return 0;
+  return climbAction !== null ? (a.y ?? a.v) : (a.y ?? 0);
+}
+
 /** The button phase of an action ('none' when absent). */
 function phaseOf(frame: ActionFrame, name: string): JumpPhase {
   return frame.actions?.[name]?.p ?? 'none';
@@ -270,23 +361,74 @@ export function controllerStep(
   physics: PhysicsStepClient,
   tuning: ControllerStepTuning = DEFAULT_STEP_TUNING,
   impulse?: { readonly x: number; readonly y: number },
+  movement?: ControllerMovementInput,
 ): void {
   const p = state.prevResult;
   const groundedPrev = isGrounded(p, cosMaxSlopeClimb);
+  const mv = movement?.tuning ?? DEFAULT_MOVEMENT_TUNING;
 
-  // A. jump press edge refreshes the buffer window.
-  if (frame.jump === 'pressed') state.buffer = tuning.jumpBufferSteps;
-  // B. a grounded step refreshes the coyote window.
-  if (groundedPrev) state.coyote = tuning.coyoteSteps;
-  // C. one jump start per press: grounded or inside coyote, never airborne.
-  if (state.buffer > 0 && (groundedPrev || state.coyote > 0) && !state.airborne) {
-    state.vy = settings.jump_velocity;
-    state.airborne = true;
-    state.buffer = 0;
-    state.coyote = 0;
-    state.jumpStarted = true;
-  } else {
-    state.jumpStarted = false;
+  // Phase 25.13: climbing. Inside a climb volume, up/down (and sideways) move it along (and across)
+  // the volume at the climb speed without gravity; a jump press leaves with a jump, and so does
+  // moving out of the volume (it keeps its speed and falls). Without climb volumes nothing changes.
+  const climb = movement?.climb ?? null;
+  let leapt = false;
+  if (state.climbing !== null) {
+    if (climb === null) state.climbing = null;
+    else if (frame.jump === 'pressed') {
+      state.climbing = null;
+      state.vy = settings.jump_velocity;
+      state.airborne = true;
+      state.buffer = 0;
+      state.coyote = 0;
+      leapt = true;
+    } else {
+      climbStep(state, charId, frame.moveX, movement!.climbY, climb, mv.climbSpeed, dt, physics);
+      return;
+    }
+  } else if (climb !== null && Math.abs(movement!.climbY) >= CLIMB_GRAB_INPUT && !(state.airborne && state.vy > 0)) {
+    // Take hold (not while still rising from a jump: a jump off a climb volume leaves it).
+    state.climbing = climb.id;
+    state.airborne = false;
+    climbStep(state, charId, frame.moveX, movement!.climbY, climb, mv.climbSpeed, dt, physics);
+    return;
+  }
+  // Phase 25.13: the wall it touches in the air (wall slide and wall jump only; a touch counts for the coyote window).
+  let wallNow: -1 | 0 | 1 = 0;
+  if (mv.wallSlide || mv.wallJump) {
+    wallNow = wallContactSide(p, groundedPrev);
+    if (wallNow !== 0) {
+      state.wallSide = wallNow;
+      state.wallCoyote = tuning.coyoteSteps + 1;
+    } else if (groundedPrev) state.wallCoyote = 0;
+    else state.wallCoyote = Math.max(0, state.wallCoyote - 1);
+  }
+
+  if (leapt) state.jumpStarted = true;
+  else {
+    // A. jump press edge refreshes the buffer window.
+    if (frame.jump === 'pressed') state.buffer = tuning.jumpBufferSteps;
+    // B. a grounded step refreshes the coyote window.
+    if (groundedPrev) state.coyote = tuning.coyoteSteps;
+    // C. one jump start per press: grounded or inside coyote, never airborne.
+    if (state.buffer > 0 && (groundedPrev || state.coyote > 0) && !state.airborne) {
+      state.vy = settings.jump_velocity;
+      state.airborne = true;
+      state.buffer = 0;
+      state.coyote = 0;
+      state.jumpStarted = true;
+    } else if (mv.wallJump && state.buffer > 0 && !groundedPrev && state.wallCoyote > 0 && state.wallSide !== 0) {
+      // Phase 25.13: a wall jump — off the wall it touches (or just touched), away from it and up.
+      state.vx = -state.wallSide * (mv.wallJumpAway ?? settings.run_speed);
+      state.vy = mv.wallJumpUp ?? settings.jump_velocity;
+      state.airborne = true;
+      state.buffer = 0;
+      state.coyote = 0;
+      state.wallCoyote = 0;
+      state.wallJumped = true;
+      state.jumpStarted = true;
+    } else {
+      state.jumpStarted = false;
+    }
   }
   // Phase 24.4f: scripts' impulses add to the velocity (up lifts it into an airborne arc; the
   // horizontal approach below brings x back to what the input asks at its acceleration).
@@ -304,6 +446,8 @@ export function controllerStep(
   // D. grounded (and not airborne) ⇒ rest vertically; else integrate gravity.
   if (groundedPrev && !state.airborne) state.vy = 0;
   else state.vy = Math.max(state.vy + settings.gravity_y * dt, settings.max_fall_speed);
+  // Phase 25.13: a wall slide — falling in the air while pushing into the wall it touches: no faster than the slide speed.
+  if (mv.wallSlide && wallNow !== 0 && Math.sign(frame.moveX) === wallNow && state.vy < -mv.wallSlideSpeed) state.vy = -mv.wallSlideSpeed;
   // E. head contact clamps upward velocity (no ceiling hover).
   if (p !== undefined && p.contacts.head === true && state.vy > 0) state.vy = 0;
   // F. variable height: a release while ascending halves vy exactly once.
@@ -313,6 +457,8 @@ export function controllerStep(
   }
   // G. landing classification (a grounded step with non-positive vy).
   if (state.airborne && groundedPrev && state.vy <= 0) state.airborne = false;
+  // Phase 25.13: a wall jump keeps its push away from the wall until the top of the jump (or a landing).
+  if (state.wallJumped && (state.vy <= 0 || groundedPrev && !state.jumpStarted)) state.wallJumped = false;
   // H. horizontal approach (no smoothing, exact arrival at the target).
   const commanded = frame.moveX * settings.run_speed;
   let target = commanded;
@@ -323,7 +469,7 @@ export function controllerStep(
       state.slideSteps += 1;
     }
   }
-  state.vx = approach(
+  if (!state.wallJumped) state.vx = approach(
     state.vx,
     target,
     tuning.moveAccel * dt,
@@ -335,6 +481,22 @@ export function controllerStep(
   if (!groundedPrev) state.coyote = Math.max(0, state.coyote - 1);
   // K. buffer bookkeeping (a consumed press is not decremented).
   if (!state.jumpStarted) state.buffer = Math.max(0, state.buffer - 1);
+}
+
+/**
+ * Phase 25.13: one climbing step — along the volume's up axis by the climb
+ * input and across it by the move input, at the climb speed, no gravity.
+ */
+function climbStep(state: ControllerState, charId: string, moveX: number, climbY: number, v: ClimbVolumeView, speed: number, dt: number, physics: PhysicsStepClient): void {
+  const along = Math.max(-1, Math.min(1, climbY));
+  const across = Math.max(-1, Math.min(1, moveX));
+  state.vx = (v.up[0] * along + v.across[0] * across) * speed;
+  state.vy = (v.up[1] * along + v.across[1] * across) * speed;
+  state.buffer = 0;
+  state.coyote = 0;
+  state.jumpStarted = false;
+  state.wallCoyote = 0;
+  physics.stageCharacterMove(charId, { x: state.vx * dt, y: state.vy * dt });
 }
 
 /** The single `components.controller` entity id of a v2 snapshot. */
@@ -375,6 +537,8 @@ export function createControllerModule(
   const state = createControllerState(transform.position[0], transform.position[1], tuning.coyoteSteps);
   // Phase 24.8: the input actions it reads.
   const names = controllerActionNames((entity?.components as { controller?: unknown } | undefined)?.controller);
+  // Phase 25.13: climbing and walls.
+  const movementTuning = controllerMovementTuning((entity?.components as { controller?: unknown } | undefined)?.controller);
 
   return {
     transformOwners: [charId],
@@ -397,6 +561,10 @@ export function createControllerModule(
       state.prevResult = undefined; // clears grounding/groundedPrev/support normal
       state.charX = ctx.playerCenter.x;
       state.charY = ctx.playerCenter.y;
+      state.climbing = null;
+      state.wallSide = 0;
+      state.wallCoyote = 0;
+      state.wallJumped = false;
     },
     step(phase, ctx): void {
       if (phase === 'controller') {
@@ -420,6 +588,11 @@ export function createControllerModule(
           ctx.physics,
           tuning,
           ctx.intents.impulse,
+          {
+            climbY: climbInput(ctx, names.move, movementTuning.climbAction),
+            climb: ctx.climb?.volume() ?? null,
+            tuning: movementTuning,
+          },
         );
         return;
       }

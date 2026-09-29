@@ -29,7 +29,7 @@ const COLLIDER_COLOR = 0x7cfc00;
 const SIZE_HANDLE_COLOR = 0xffffff;
 
 /** Phase 9.9: gameplay block helpers (mover paths, trigger/switch/collectible/hitbox/patrol areas). */
-const BLOCK_COLORS = { mover: 0xffa53a, trigger: 0x3ad7ff, switch: 0xff5a8c, audioSource: 0x7fe0a0, collectible: 0xf2c230, hitbox: 0xff6a3a, patrol: 0xb05aff } as const;
+const BLOCK_COLORS = { mover: 0xffa53a, trigger: 0x3ad7ff, switch: 0xff5a8c, audioSource: 0x7fe0a0, collectible: 0xf2c230, hitbox: 0xff6a3a, patrol: 0xb05aff, climbVolume: 0x5ad18c, gravity: 0x9aa3b2 } as const;
 
 /** Safe numeric read (positions are always 3-element). */
 const N = (v: number | undefined): number => v ?? 0;
@@ -244,6 +244,11 @@ export class HelperOverlay {
       } else if (hit?.size !== undefined) this.blocks.add(rect(x, y, N(hit.size[0]), N(hit.size[1]), BLOCK_COLORS.hitbox));
       const walker = b.patrol as { mode?: string; size?: number[] } | undefined;
       if (walker !== undefined && walker.mode === 'edges') this.blocks.add(rect(x, y, N(walker.size?.[0] ?? 1), N(walker.size?.[1] ?? walker.size?.[0] ?? 1), BLOCK_COLORS.patrol));
+      // Phase 25.13: a climb volume's box and a gravity body's body.
+      const climb = b.climbVolume as { size?: number[] } | undefined;
+      if (climb?.size !== undefined) this.blocks.add(rect(x, y, N(climb.size[0]), N(climb.size[1]), BLOCK_COLORS.climbVolume));
+      const fall = b.gravity as { size?: number[] } | undefined;
+      if (fall !== undefined) this.blocks.add(rect(x, y, N(fall.size?.[0] ?? 1), N(fall.size?.[1] ?? fall.size?.[0] ?? 1), BLOCK_COLORS.gravity));
       // Phase 9.10: an audio source's hearing range along X (full volume in the inner quarter).
       const sound = b.audioSource as { range?: number } | undefined;
       if (sound?.range !== undefined) {

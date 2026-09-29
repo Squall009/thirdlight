@@ -41,8 +41,8 @@ import { SHELL_LIMITS } from './shell';
 import { SAVE_LIMITS, SAVE_SECTIONS } from './save-schema';
 import { MAX_ANIMATOR_MORPHS } from './animator';
 import { ANIMATOR_CONDITION_OPS, ANIMATOR_PARAMETER_TYPES, MAX_ANIMATOR_CONDITIONS, MAX_ANIMATOR_EVENTS, MAX_ANIMATOR_LAYERS, MAX_ANIMATOR_PARAMETERS, MAX_ANIMATOR_STATES, MAX_ANIMATOR_TRANSITIONS, MAX_ANIMATORS, MAX_BLEND_CHILDREN, MAX_LAYER_MASK } from './animator';
-import { BLOCK_DEFAULTS, BLOCK_TUNING_LIMITS, HITBOX_SHAPES, MOVER_EASINGS, MOVER_MODES, PATROL_MODES, PRIMITIVE_DEFAULTS, PRIMITIVE_LIMITS, SWITCH_MODES, SWITCH_DEFAULT_ACTION, FACE_MOVEMENT_MODES, MAX_TRANSITION_FADE, MAX_TRANSITION_UNLOADS, TRIGGER_HEIGHT, TRIGGER_MODES, TRIGGER_RADIUS, TRIGGER_SHAPES } from './blocks';
-import { CAPSULE_LIMITS, CHARACTER_3D_LIMITS, COLLIDER_3D_LIMITS, CONTROLLER_ACTION_DEFAULTS, CONTROLLER_TUNING_LIMITS, DEFAULT_CHARACTER_3D, DEFAULT_CONTROLLER_CAPSULE, DEFAULT_CONTROLLER_TUNING, MAX_COLLIDER_EXTENT, MAX_COLLISION_LAYERS, MAX_POLYGON_VERTICES } from './components';
+import { BLOCK_DEFAULTS, BLOCK_TUNING_LIMITS, HITBOX_SHAPES, GRAVITY_SCALE, MOVER_EASINGS, MOVER_MODES, PATROL_MODES, PRIMITIVE_DEFAULTS, PRIMITIVE_LIMITS, SWITCH_MODES, SWITCH_DEFAULT_ACTION, FACE_MOVEMENT_MODES, MAX_TRANSITION_FADE, MAX_TRANSITION_UNLOADS, TRIGGER_HEIGHT, TRIGGER_MODES, TRIGGER_RADIUS, TRIGGER_SHAPES } from './blocks';
+import { CAPSULE_LIMITS, CHARACTER_3D_LIMITS, COLLIDER_3D_LIMITS, CONTROLLER_ACTION_DEFAULTS, CONTROLLER_MOVEMENT_LIMITS, DEFAULT_CONTROLLER_MOVEMENT, CONTROLLER_TUNING_LIMITS, DEFAULT_CHARACTER_3D, DEFAULT_CONTROLLER_CAPSULE, DEFAULT_CONTROLLER_TUNING, MAX_COLLIDER_EXTENT, MAX_COLLISION_LAYERS, MAX_POLYGON_VERTICES } from './components';
 import { M2_SETTINGS_KEYS, MAX_BEHAVIORS, MAX_ENUM_VALUES, MAX_PREFAB_ENTITIES, MAX_PREFABS, MAX_PROPERTIES, MAX_SCENES, PREFAB_V4_COMPONENTS } from './content';
 import { CURSOR_MODES, DEFAULT_INPUT, INPUT_ACTION_TYPES, INPUT_HOLD_MAX, INPUT_HOLD_MIN, INPUT_MAPS, MAX_INPUT_ACTIONS, MAX_INPUT_BINDINGS, MAX_INPUT_MAPS, MAX_INPUT_GLYPHS, POINTER_AXES, POINTER_BUTTONS } from './input';
 import { MAX_GRAPH_DOCUMENTS } from './graph';
@@ -665,6 +665,7 @@ const collider: ComponentDescriptor = {
     { component: 'playerSpawn', reason: 'a player spawn is a marker' },
     { component: 'instances', reason: 'an instance set is scenery without its own body' },
     { component: 'patrol', reason: 'a patroller is not a physics body (give it a hitbox)' },
+    { component: 'gravity', reason: 'a gravity body is not a physics body (give it a hitbox)' },
   ],
   prefab: true,
   rules: PHYSICS_RULES,
@@ -674,6 +675,8 @@ const CT = DEFAULT_CONTROLLER_TUNING;
 const TL = CONTROLLER_TUNING_LIMITS;
 const C3 = DEFAULT_CHARACTER_3D;
 const C3L = CHARACTER_3D_LIMITS;
+const CML = CONTROLLER_MOVEMENT_LIMITS;
+const CMD = DEFAULT_CONTROLLER_MOVEMENT;
 const BD = BLOCK_DEFAULTS;
 const BL = BLOCK_TUNING_LIMITS;
 
@@ -717,6 +720,14 @@ const controller: ComponentDescriptor = {
     // Phase 24.8: the input actions it reads (the input frame has no fixed move/jump channels).
     str('moveAction', 'Move action', 'The input action (an axis) that moves it.', { format: 'identifier', minLength: 1, maxLength: 32, group: 'Input', default: CONTROLLER_ACTION_DEFAULTS.moveAction }),
     str('jumpAction', 'Jump action', 'The input action (a button) that makes it jump.', { format: 'identifier', minLength: 1, maxLength: 32, group: 'Input', default: CONTROLLER_ACTION_DEFAULTS.jumpAction }),
+    // Phase 25.13: climbing (inside a climb volume) and walls (both off by default), both dimensions.
+    num('climbSpeed', 'Climb speed', 'How fast it moves inside a climb volume (up/down along it, sideways across it; jump leaves).', { group: 'Climbing and walls', ...CML.climbSpeed, step: 0.1, unit: 'm/s', default: CMD.climbSpeed }),
+    str('climbAction', 'Climb action', 'The input action (an axis) that climbs: its value, or a 2D axis\' up/down (absent: the move action\'s up/down — a 2D project whose move is left/right only names another action here).', { format: 'identifier', minLength: 1, maxLength: 32, group: 'Climbing and walls' }),
+    bool('wallSlide', 'Wall slide', 'Falling while pushing into a wall, it slides down no faster than the wall slide speed.', { group: 'Climbing and walls', default: CMD.wallSlide }),
+    num('wallSlideSpeed', 'Wall slide speed', 'The fastest it slides down a wall.', { group: 'Climbing and walls', when: when('wallSlide', true), ...CML.wallSlideSpeed, step: 0.1, unit: 'm/s', default: CMD.wallSlideSpeed }),
+    bool('wallJump', 'Wall jump', 'In the air, jump pushes it off a wall it touches (away from the wall and up).', { group: 'Climbing and walls', default: CMD.wallJump }),
+    num('wallJumpAway', 'Wall jump away', 'Speed away from the wall at a wall jump (absent: its run speed).', { group: 'Climbing and walls', when: when('wallJump', true), ...CML.wallJumpAway, step: 0.1, unit: 'm/s' }),
+    num('wallJumpUp', 'Wall jump up', 'Upward speed at a wall jump (absent: its jump speed).', { group: 'Climbing and walls', when: when('wallJump', true), ...CML.wallJumpUp, step: 0.1, unit: 'm/s' }),
   ], { rules: ['The steepest walkable slope is the project setting max_slope_climb_deg; run speed, jump speed and gravity are project settings too (a 3D character may override them).'] }),
   add: { kind: 'menu', value: {} },
   handles: [
@@ -734,6 +745,8 @@ const controller: ComponentDescriptor = {
     { component: 'instances', reason: 'an instance set is scenery' },
     { component: 'collectible', reason: 'the character collects; it is not collected' },
     { component: 'patrol', reason: 'the character moves by input, not by itself' },
+    { component: 'climbVolume', reason: 'the character climbs in a climb volume; it is not one' },
+    { component: 'gravity', reason: 'the character falls under its own controller' },
   ],
   prefab: false,
   rules: PHYSICS_RULES,
@@ -1222,7 +1235,7 @@ const mover: ComponentDescriptor = {
   ],
   icon: 'mover',
   handles: [{ kind: 'path', label: 'Waypoints', bind: { points: 'waypoints' }, space: 'local', loop: when('mode', 'loop') }],
-  excludes: [{ component: 'controller', reason: 'the player moves by input, not along waypoints' }, { component: 'socketAttach', reason: 'a socket poses the object every step; a mover follows its waypoints' }, { component: 'patrol', reason: 'a mover and a patrol would both move it' }],
+  excludes: [{ component: 'controller', reason: 'the player moves by input, not along waypoints' }, { component: 'socketAttach', reason: 'a socket poses the object every step; a mover follows its waypoints' }, { component: 'patrol', reason: 'a mover and a patrol would both move it' }, { component: 'gravity', reason: 'a mover sets its position itself' }],
   prefab: true,
 };
 
@@ -1361,7 +1374,7 @@ const patrol: ComponentDescriptor = {
     bool('loop', 'Loop', 'From the last point straight back to the start (off: back and forth).', { when: when('mode', 'waypoints'), default: false }),
     num('speed', 'Speed', 'Walking speed.', { required: true, ...PL.speed, step: 0.1, unit: 'm/s', default: 1.5 }),
     num('wait', 'Wait', 'Pause at each waypoint, or after turning around.', { ...PL.wait, step: 0.1, unit: 's', default: 0 }),
-    vec3('direction', 'Start direction', 'The way it starts walking (the 2D plane uses the sign of x; a 3D project the direction along the ground).', { when: when('mode', 'edges'), min: -1, max: 1, step: 0.1, default: [...PD.patrolDirection], nonZero: true, handle: 'direction' }),
+    vec3('direction', 'Start direction', 'The way it starts walking (the 2D plane: any direction in the plane — with a y part it moves up or down and does not look for ledges; a 3D project: the direction along the ground).', { when: when('mode', 'edges'), min: -1, max: 1, step: 0.1, default: [...PD.patrolDirection], nonZero: true, handle: 'direction' }),
     vec3('size', 'Body', 'Its body, centred on its position: width, height (and depth in 3D); the probes look from its front and underside.', { when: when('mode', 'edges'), min: PL.size.min, max: PL.size.max, step: 0.05, unit: 'm', default: [...PD.patrolSize], labels: ['w', 'h', 'd'], handle: 'box2', optionalLast: true }),
     num('wallProbe', 'Wall probe', 'How far past its front it looks for a wall to turn at.', { group: 'Probes', when: when('mode', 'edges'), ...PL.wallProbe, step: 0.01, unit: 'm', default: PD.wallProbe }),
     num('ledgeProbe', 'Ledge probe', 'How far down, from 0.1 m above its underside, it looks for floor just past its front (0.4: a drop deeper than 0.3 m is a ledge).', { group: 'Probes', when: when('mode', 'edges'), ...PL.ledgeProbe, step: 0.05, unit: 'm', default: PD.ledgeProbe }),
@@ -1384,6 +1397,49 @@ const patrol: ComponentDescriptor = {
     { component: 'controller', reason: 'the character moves by input, not by itself' },
     { component: 'mover', reason: 'a mover and a patrol would both move it' },
     { component: 'collider', reason: 'a patroller is not a physics body (give it a hitbox)' },
+  ],
+  prefab: true,
+};
+
+// ---- phase 25.13: climb volumes and gravity bodies --------------------------------
+
+const climbVolume: ComponentDescriptor = {
+  name: 'climbVolume',
+  label: 'Climb volume',
+  tooltip: 'A box the character climbs in (a ladder, a vine, a net, a climbing wall): up/down moves it along the box\'s up axis, sideways across it, at its climb speed and without gravity; jump or moving out leaves.',
+  category: 'Gameplay',
+  value: obj('climbVolume', 'Climb volume', 'Climbed in.', [
+    // Its depth (d) counts in a 3D project (absent: the width); a 2D plane ignores it. It turns with the object (its +Y is "up").
+    vec3('size', 'Size', 'Width, height (and depth in a 3D project; absent: the width), centred on the object and turned with it.', { required: true, min: PL.size.min, max: PL.size.max, step: 0.05, unit: 'm', default: [1, 4], labels: ['w', 'h', 'd'], handle: 'box2', optionalLast: true }),
+  ]),
+  // 1 m wide and 4 m tall: a ladder up one storey (about 3 m) and a little over the top, for the default 1.8 m character.
+  add: { kind: 'menu', value: { size: [1, 4] } },
+  create: [
+    { label: 'Climb volume', menu: 'Gameplay', dimension: 2 },
+    { label: 'Climb volume', menu: 'Gameplay', value: { size: [1, 4, 1] }, dimension: 3 },
+  ],
+  icon: 'sensor',
+  handles: [{ kind: 'box2', label: 'Size', bind: { size: 'size' }, space: 'local', follows: 'rotation' }],
+  excludes: [{ component: 'controller', reason: 'the character climbs in a climb volume; it is not one' }],
+  prefab: true,
+};
+
+const gravityC: ComponentDescriptor = {
+  name: 'gravity',
+  label: 'Gravity',
+  tooltip: 'The object (not a character: a patroller, an item) falls under the project\'s gravity until its body rests on a collider below it, and falls again when the floor goes.',
+  category: 'Gameplay',
+  value: obj('gravity', 'Gravity', 'Falls onto colliders.', [
+    num('scale', 'Scale', 'Multiplies the project gravity (0: it does not fall).', { ...GRAVITY_SCALE, step: 0.1, unit: '×', default: 1 }),
+    vec3('size', 'Body', 'Its body, centred on its position: width, height (and depth in 3D); its underside rests on the floor.', { min: PL.size.min, max: PL.size.max, step: 0.05, unit: 'm', default: [...PD.patrolSize], labels: ['w', 'h', 'd'], handle: 'box2', optionalLast: true }),
+  ]),
+  // The project's gravity on a 1 m body (a patroller's default body).
+  add: { kind: 'menu', value: {} },
+  handles: [{ kind: 'box2', label: 'Body', bind: { size: 'size' }, space: 'local' }],
+  excludes: [
+    { component: 'controller', reason: 'the character falls under its own controller' },
+    { component: 'mover', reason: 'a mover sets its position itself' },
+    { component: 'collider', reason: 'a gravity body is not a physics body (give it a hitbox)' },
   ],
   prefab: true,
 };
@@ -2058,6 +2114,8 @@ const COMPONENTS: readonly ComponentDescriptor[] = [
   collectible,
   patrol,
   hitbox,
+  climbVolume,
+  gravityC,
   audioSource,
   animator,
   faceMovement,

@@ -691,8 +691,64 @@ export function controllerActionsOf(controller: unknown): { move: string; jump: 
   return { move: name('moveAction'), jump: name('jumpAction') };
 }
 
+/**
+ * Phase 25.13: climbing and walls (both dimensions). Climbing needs no switch:
+ * a character climbs only inside a `climbVolume` (a scene without one plays
+ * as before). Wall slide and wall jump are off by default (not every game
+ * clings to walls). Genre-neutral reasons: a 2 m/s climb is the default 3D
+ * walk (half the default run: a ladder or a net is slower than running on the
+ * ground); a 2 m/s wall slide is a controlled slip, a fifteenth of the
+ * default 30 m/s fall cap; a wall jump leaves at the run speed and the jump
+ * speed (absent: the character's own, so it matches its normal jump).
+ */
+export const DEFAULT_CONTROLLER_MOVEMENT: Readonly<{ climbSpeed: number; wallSlide: boolean; wallSlideSpeed: number; wallJump: boolean }> = Object.freeze({
+  climbSpeed: 2,
+  wallSlide: false,
+  wallSlideSpeed: 2,
+  wallJump: false,
+});
+/** Phase 25.13: the climb and wall fields' ranges (m/s). */
+export const CONTROLLER_MOVEMENT_LIMITS: Readonly<Record<'climbSpeed' | 'wallSlideSpeed' | 'wallJumpAway' | 'wallJumpUp', { readonly min: number; readonly max: number }>> = Object.freeze({
+  climbSpeed: { min: 0.1, max: 50 },
+  wallSlideSpeed: { min: 0, max: 50 },
+  wallJumpAway: { min: 0, max: 50 },
+  wallJumpUp: { min: 0, max: 50 },
+});
+/** Phase 25.13: the climb and wall fields, in canonical order (after the action names). */
+export const CONTROLLER_MOVEMENT_FIELDS = ['climbSpeed', 'climbAction', 'wallSlide', 'wallSlideSpeed', 'wallJump', 'wallJumpAway', 'wallJumpUp'] as const;
+const CONTROLLER_MOVEMENT_BOOLEANS: readonly string[] = ['wallSlide', 'wallJump'];
+
+/** Phase 25.13: the resolved climb and wall settings (`wallJumpAway`/`wallJumpUp` absent: the caller's run and jump speeds). */
+export interface ControllerMovementSettings {
+  climbSpeed: number;
+  /** The input action whose value (an axis1d) or y (an axis2d) climbs; null: the move action's y. */
+  climbAction: string | null;
+  wallSlide: boolean;
+  wallSlideSpeed: number;
+  wallJump: boolean;
+  wallJumpAway: number | null;
+  wallJumpUp: number | null;
+}
+
+/** Phase 25.13: the climb and wall settings a controller describes (each absent field at its default). */
+export function controllerMovementOf(controller: unknown): ControllerMovementSettings {
+  const c = isPlainObject(controller) ? controller : {};
+  const d = DEFAULT_CONTROLLER_MOVEMENT;
+  const num = (k: string): number | null => (typeof c[k] === 'number' && Number.isFinite(c[k]) ? (c[k] as number) : null);
+  const bool = (k: string, fallback: boolean): boolean => (typeof c[k] === 'boolean' ? (c[k] as boolean) : fallback);
+  return {
+    climbSpeed: num('climbSpeed') ?? d.climbSpeed,
+    climbAction: typeof c['climbAction'] === 'string' && CONTROLLER_ACTION_RE.test(c['climbAction'] as string) ? (c['climbAction'] as string) : null,
+    wallSlide: bool('wallSlide', d.wallSlide),
+    wallSlideSpeed: num('wallSlideSpeed') ?? d.wallSlideSpeed,
+    wallJump: bool('wallJump', d.wallJump),
+    wallJumpAway: num('wallJumpAway'),
+    wallJumpUp: num('wallJumpUp'),
+  };
+}
+
 /** Every v4 controller field, in canonical order. */
-export const CONTROLLER_FIELDS: readonly string[] = ['capsule', ...CONTROLLER_TUNING_FIELDS, ...CONTROLLER_3D_FIELDS, ...CONTROLLER_ACTION_FIELDS];
+export const CONTROLLER_FIELDS: readonly string[] = ['capsule', ...CONTROLLER_TUNING_FIELDS, ...CONTROLLER_3D_FIELDS, ...CONTROLLER_ACTION_FIELDS, ...CONTROLLER_MOVEMENT_FIELDS];
 
 /** Phase 23.2: the resolved 3D character settings (the controller's data, else the defaults and the project settings). */
 export interface Character3DSettings {
@@ -804,6 +860,8 @@ export function canonicalController(controller: unknown): ControllerComponent {
   for (const k of CONTROLLER_3D_FIELDS) if (src[k] !== undefined) out[k] = src[k];
   // Phase 24.8: the action names (absent keeps the old canonical bytes).
   for (const k of CONTROLLER_ACTION_FIELDS) if (src[k] !== undefined) out[k] = src[k];
+  // Phase 25.13: climbing and walls (absent keeps the old canonical bytes).
+  for (const k of CONTROLLER_MOVEMENT_FIELDS) if (src[k] !== undefined) out[k] = src[k];
   return out as ControllerComponent;
 }
 
@@ -835,6 +893,16 @@ export function validateControllerComponent(c: unknown, path: string, errors: Mo
     }
   }
   for (const key of CONTROLLER_3D_BOOLEANS) if (c[key] !== undefined && typeof c[key] !== 'boolean') errors.push(fieldType(`${path}/${key}`, c[key], 'boolean'));
+  // Phase 25.13: climbing and walls.
+  for (const [key, lim] of Object.entries(CONTROLLER_MOVEMENT_LIMITS)) {
+    const v = c[key];
+    if (v === undefined) continue;
+    if (typeof v !== 'number' || !Number.isFinite(v) || v < lim.min || v > lim.max) {
+      errors.push(fieldValue(`${path}/${key}`, v, `a number ${lim.min}-${lim.max}`, `controller ${key} must be ${lim.min}-${lim.max}`));
+    }
+  }
+  for (const key of CONTROLLER_MOVEMENT_BOOLEANS) if (c[key] !== undefined && typeof c[key] !== 'boolean') errors.push(fieldType(`${path}/${key}`, c[key], 'boolean'));
+  if (c['climbAction'] !== undefined && (typeof c['climbAction'] !== 'string' || !CONTROLLER_ACTION_RE.test(c['climbAction']))) errors.push(fieldValue(`${path}/climbAction`, c['climbAction'], 'an input action name (a letter or _, then up to 31 letters, digits or _)', 'controller climbAction names an input action'));
   // Phase 24.8: the input actions it reads.
   for (const key of CONTROLLER_ACTION_FIELDS) {
     const v = c[key];

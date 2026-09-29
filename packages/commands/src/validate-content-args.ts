@@ -440,7 +440,7 @@ const COMPONENT_FIELDS: Record<string, readonly string[]> = {
   // Phase 15.1: the piece of a multi-piece file is an Inspector field too.
   model: ['asset', 'piece', 'castShadow', 'receiveShadow'],
   collider: ['shape', 'oneWay', 'layers'],
-  controller: ['capsule', 'acceleration', 'deceleration', 'coyoteTime', 'jumpBuffer', 'jumpRelease', 'groundSnap', 'skin', 'autostep', 'autostepHeight', 'walkSpeed', 'runSpeed', 'airControl', 'gravityScale', 'jump', 'jumpSpeed', 'slopeLimit', 'stepHeight', 'ledgeClimb', 'ledgeHeight', 'ledgeClimbTime', 'turnSpeed', 'faceMovement', 'moveAction', 'jumpAction'],
+  controller: ['capsule', 'acceleration', 'deceleration', 'coyoteTime', 'jumpBuffer', 'jumpRelease', 'groundSnap', 'skin', 'autostep', 'autostepHeight', 'walkSpeed', 'runSpeed', 'airControl', 'gravityScale', 'jump', 'jumpSpeed', 'slopeLimit', 'stepHeight', 'ledgeClimb', 'ledgeHeight', 'ledgeClimbTime', 'turnSpeed', 'faceMovement', 'moveAction', 'jumpAction', 'climbSpeed', 'climbAction', 'wallSlide', 'wallSlideSpeed', 'wallJump', 'wallJumpAway', 'wallJumpUp'],
   // Phase 15.1: an exit zone's scenes and arrival spawn are edited like every other field.
   // Phase 24.4f: which way the character faces at this spawn (v4; phase 24.8: yaw only).
   playerSpawn: ['yaw'],
@@ -474,6 +474,8 @@ const COMPONENT_FIELDS: Record<string, readonly string[]> = {
   collectible: ['counter', 'amount', 'respawn', 'onCollect', 'size'],
   patrol: ['mode', 'waypoints', 'loop', 'speed', 'wait', 'direction', 'size', 'wallProbe', 'ledgeProbe'],
   hitbox: ['shape', 'size', 'radius', 'damage'],
+  climbVolume: ['size'],
+  gravity: ['scale', 'size'],
 };
 
 const OWNED: readonly OwnedComponent[] = [
@@ -507,6 +509,8 @@ const OWNED: readonly OwnedComponent[] = [
   'collectible',
   'patrol',
   'hitbox',
+  'climbVolume',
+  'gravity',
 ];
 // Phase 15.1: box, camera and model are added (a complete value) and removed
 // like every other component (the Inspector's "+ Add component").
@@ -541,9 +545,12 @@ const REMOVABLE: readonly OwnedComponent[] = [
   'collectible',
   'patrol',
   'hitbox',
+  'climbVolume',
+  'gravity',
 ];
 /** The components whose ADD value may be `{}` (playerSpawn has no fields; the controller's capsule is optional). */
-const MARKER_COMPONENTS: readonly string[] = ['controller', 'playerSpawn'];
+// Phase 25.13: a gravity body's fields are all optional too (the project's gravity on a 1 m body).
+const MARKER_COMPONENTS: readonly string[] = ['controller', 'playerSpawn', 'gravity'];
 const UNOWNED = ['transform', 'behavior', 'prefab'];
 
 /** Phase 25.6: whether `setComponent` takes this component (createEntity's refusal names it). */
@@ -734,7 +741,9 @@ export function validateSetComponentArgs(
     component === 'faceMovement' ||
     component === 'collectible' ||
     component === 'patrol' ||
-    component === 'hitbox'
+    component === 'hitbox' ||
+    component === 'climbVolume' ||
+    component === 'gravity'
   ) {
     // The v3 field values (types, ranges, requiredness, the role-binding
     // stages) are the model's and the §41.3.2 helper's; nothing structural is

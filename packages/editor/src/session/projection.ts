@@ -148,7 +148,7 @@ function boxOf(b: { size?: number[]; material?: { color?: string } }): { size: [
 }
 
 /** Phase 9.9: the gameplay block component names (project-model BLOCK_COMPONENT_NAMES). */
-export const BLOCK_NAMES = ['mover', 'trigger', 'switch', 'health', 'audioSource', 'faceMovement', 'collectible', 'patrol', 'hitbox'] as const;
+export const BLOCK_NAMES = ['mover', 'trigger', 'switch', 'health', 'audioSource', 'faceMovement', 'collectible', 'patrol', 'hitbox', 'climbVolume', 'gravity'] as const;
 export type BlockName = (typeof BLOCK_NAMES)[number];
 
 function blocksOf(components: Record<string, unknown>): Partial<Record<BlockName, Record<string, unknown>>> | undefined {

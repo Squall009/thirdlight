@@ -1664,7 +1664,26 @@ project's scripts' decision.
   probe distances; needs the physics world) or **Waypoints** (offsets from
   its start, back and forth or a **loop**), waiting **wait** seconds at each
   turn. Scripts: `ctx.patrol.get(id)` → `{direction, active}`,
-  `ctx.patrol.setActive(id, on)`, `ctx.patrol.turn(id)`.
+  `ctx.patrol.setActive(id, on)`, `ctx.patrol.turn(id)`. Phase 25.13: on the
+  2D plane the start direction may point anywhere in the plane (a y part walks
+  it up or down, turning at a wall that way; only a walk along the ground
+  looks for ledges).
+- **Gravity** (phase 25.13) — an object that is not a character (a patroller,
+  an item, a prop without a collider) falls under the project's gravity
+  (times its **scale**, capped at the project's fall speed) until its
+  **body** (a box centred on it, 1 m by default) rests on a collider below;
+  it falls again when the floor goes. An edge patroller with gravity walks
+  off nothing it did not before but follows the ground's height. Not with a
+  mover, a collider or a waypoint patrol. Saves keep its height and fall.
+- **Climb volume** (phase 25.13) — a box (centred on the object, turned with
+  it) the character climbs in: while its capsule's centre is inside, pushing
+  up or down (the move action's up/down, or the controller's **Climb
+  action**) takes hold and moves it along the box's up axis, sideways input
+  moves it across, at the controller's **Climb speed** (2 m/s), with no
+  gravity; a jump press lets go with a jump, and leaving the box lets go. A
+  2D project whose move action is left/right only names an up/down axis as
+  the controller's climb action. Scene-view size handle; GameObject →
+  Gameplay → Climb volume.
 - **Hitbox** — a box or sphere (a circle on the 2D plane). A hitbox touching
   another hitbox or the character sends both a `contact` event (the other
   object and the contact **normal**, a unit vector toward the other: `[0, 1,
@@ -2717,6 +2736,15 @@ any genre:
 
 The step-up and ledge heights have Scene-view handles above the capsule's
 feet (drag up or down; 5 cm snapping; one undo).
+
+**Climbing and walls** (phase 25.13, both dimensions, the player controller's
+group of that name): **Climb speed** and **Climb action** (see Climb volume);
+**Wall slide** (off; when on, falling in the air while pushing into a wall
+slides down it no faster than **Wall slide speed**, 2 m/s) and **Wall jump**
+(off; when on, jump in the air next to a wall it touches — or touched within
+the coyote time — pushes it off at **Wall jump away** (absent: the run speed)
+and **Wall jump up** (absent: the jump speed); the input does not steer until
+the top of that jump). With both off a character plays exactly as before.
 
 **Input.** The move is a 2D vector: a project without its own input actions
 gets the 3D defaults (W/A/S/D and the arrow keys or the left stick move,

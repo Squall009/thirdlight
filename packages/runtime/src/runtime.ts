@@ -37,6 +37,7 @@ import type { BlockType, CellField } from '@thirdlight/project-model';
 import {
   ENGINE_TIMING_DEFAULTS,
   controllerActionsOf,
+  controllerMovementOf,
   controllerTuningOf,
   controllerCapsuleOffsetZ,
   resolveGameplaySettings,
@@ -91,6 +92,7 @@ import { DialogueRunner, validateDialogueInput, type DialogueInputRecord } from 
 import { CameraBrain, type CameraViewInfo } from './camera-brain';
 import { EnvironmentDirector, type EnvironmentSaveState } from './environment-director';
 import type { EnvironmentBlendView } from './environment-blend';
+import type { ClimbQuery } from './types';
 import { SocketSystem } from './sockets';
 import { TimelineSystem, type TimelineView } from './timeline';
 import type { TimelineAsset } from '@thirdlight/project-model';
@@ -1548,6 +1550,8 @@ class RuntimeInstance implements Runtime {
     collected: (entityId: string): boolean => (typeof entityId === 'string' ? (this.blocks?.primitives.isCollected(entityId) ?? false) : false),
     restore: (entityId: string): boolean => (typeof entityId === 'string' ? (this.blocks?.primitives.restore(entityId) ?? false) : false),
   });
+  /** Phase 25.13: the climb volume the character's capsule centre is in (read by the character controllers in the controller phase). */
+  private readonly climbQuery: ClimbQuery = Object.freeze({ volume: () => this.blocks?.climbVolume() ?? null });
   /** Phase 24.4f: the character (`ctx.character`): an impulse (m/s added to its velocity) for its next controller phase. */
   private readonly characterControl = Object.freeze({
     impulse: (v: unknown): boolean => {
@@ -1803,7 +1807,9 @@ class RuntimeInstance implements Runtime {
     const rt = this;
     const characterComponents = args.initialEntities.find((e) => e.id === args.controllerEntityId)?.components.controller;
     this.characterActions = controllerActionsOf(characterComponents);
-    this.characterActionNames = Object.freeze([this.characterActions.move, this.characterActions.jump]);
+    // Phase 25.13: and its climb action (a game mode that switches gameplay off holds it too).
+    const climbAction = controllerMovementOf(characterComponents).climbAction;
+    this.characterActionNames = Object.freeze([this.characterActions.move, this.characterActions.jump, ...(climbAction !== null ? [climbAction] : [])]);
     this.blocks = new GameplayBlocks(
       {
         hz: this.hz,
@@ -1814,6 +1820,9 @@ class RuntimeInstance implements Runtime {
         characterCapsule: playerCapsuleOf(characterComponents),
         // Phase 15.3: the character's skin (a pushing mover keeps it).
         characterSkin: controllerTuningOf(characterComponents).skin,
+        // Phase 25.13: gravity bodies fall under the project's gravity, capped at its fall speed.
+        gravityY: this.settings.gravity_y,
+        maxFallSpeed: this.settings.max_fall_speed,
         character: () => {
           const t = rt.controllerEntityId !== undefined ? rt.curr.get(rt.controllerEntityId) : undefined;
           return t === undefined ? null : { x: t.position[0], y: t.position[1] };
@@ -4900,6 +4909,8 @@ class RuntimeInstance implements Runtime {
       if (blocks !== null) fields['triggerEvents'] = { get: () => blocks.triggerEvents(), enumerable: true };
       // Phase 24.4: the primitives' events of the last step (each script gets those of the objects it owns).
       if (blocks !== null) fields['primitiveEvents'] = { get: () => blocks.primitiveEvents(), enumerable: true };
+      // Phase 25.13: the climb volume the character is in (the character controllers read it).
+      if (blocks !== null) fields['climb'] = { value: this.climbQuery, enumerable: true };
       // Phase 23.2 (3D): the active camera's yaw for the character's move input (absent: world axes).
       if (this.physics3d !== undefined) fields['cameraYaw'] = { get: () => rt.cameraYaw3D(), enumerable: true };
       views.ctx = frozenContext(Object.defineProperties({}, fields) as StepContext);

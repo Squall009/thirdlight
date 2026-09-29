@@ -943,8 +943,8 @@ function prefabDepth(entities: Record<string, unknown>[]): number {
 // Phase 23.6: `blockFootprint` (a placed copy writes its footprint into the block cells beneath it).
 // Phase 23.10: `behaviorGroup` (a copy's behavior ticks with its group).
 // Phase 24.4: generic `health` (any object, not only the player) and the primitives `collectible`, `patrol`, `hitbox`.
-export const PREFAB_V4_COMPONENTS = ['collider', 'surface', 'materials', 'animator', 'mover', 'trigger', 'switch', 'audioSource', 'faceMovement', 'materialParams', 'effect', 'blockFootprint', 'behaviorGroup', 'health', 'collectible', 'patrol', 'hitbox'] as const;
-const PREFAB_BLOCKS = ['mover', 'trigger', 'switch', 'audioSource', 'faceMovement', 'health', 'collectible', 'patrol', 'hitbox'] as const;
+export const PREFAB_V4_COMPONENTS = ['collider', 'surface', 'materials', 'animator', 'mover', 'trigger', 'switch', 'audioSource', 'faceMovement', 'materialParams', 'effect', 'blockFootprint', 'behaviorGroup', 'health', 'collectible', 'patrol', 'hitbox', 'climbVolume', 'gravity'] as const;
+const PREFAB_BLOCKS = ['mover', 'trigger', 'switch', 'audioSource', 'faceMovement', 'health', 'collectible', 'patrol', 'hitbox', 'climbVolume', 'gravity'] as const;
 
 function validatePrefabExtras(comps: Record<string, unknown>, parentLocalId: unknown, path: string, errors: ModelErrorV2[]): void {
   const col = comps['collider'];

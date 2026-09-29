@@ -662,6 +662,14 @@ export interface StepContext {
   readonly entities?: import('./entity-access').BehaviorEntityControl;
   /** Phase 25.10: the shell's scene list (`ctx.shell`). */
   readonly shell?: BehaviorShell;
+  /** Phase 25.13: the climb volume the character is in (the character controllers; not the scripts' context). */
+  readonly climb?: ClimbQuery;
+}
+
+/** Phase 25.13: where the character may climb. */
+export interface ClimbQuery {
+  /** The climb volume the character's capsule centre is in now (its object, world up and across axes), or null. */
+  volume(): import('./blocks').ClimbVolumeView | null;
 }
 
 /**

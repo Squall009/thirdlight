@@ -334,7 +334,10 @@ export type V3OwnedComponent =
   /** Phase 24.4, v4 scenes only: generic primitives. */
   | 'collectible'
   | 'patrol'
-  | 'hitbox';
+  | 'hitbox'
+  /** Phase 25.13, v4 scenes only: a climb volume and a gravity body. */
+  | 'climbVolume'
+  | 'gravity';
 
 /** Every `setComponent`-owned component (the M2 five plus the six v3 ones). */
 export type OwnedComponent =

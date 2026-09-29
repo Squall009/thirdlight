@@ -75,6 +75,8 @@ export const COMPONENT_FIELD_ORDER_V3: Record<V3OwnedComponent, readonly string[
   collectible: ['counter', 'amount', 'respawn', 'onCollect', 'size'],
   patrol: ['mode', 'waypoints', 'loop', 'speed', 'wait', 'direction', 'size', 'wallProbe', 'ledgeProbe'],
   hitbox: ['shape', 'size', 'radius', 'damage'],
+  climbVolume: ['size'],
+  gravity: ['scale', 'size'],
 };
 
 /** §8.13: `applySurfacePreset`'s `changedFields` (the surface field order). */
@@ -123,6 +125,9 @@ export const V3_COMPONENTS: readonly V3OwnedComponent[] = [
   'collectible',
   'patrol',
   'hitbox',
+  // Phase 25.13: v4 scenes only.
+  'climbVolume',
+  'gravity',
 ];
 
 /** Every component `setComponent` may address (commands.md §8.10). */
@@ -235,6 +240,8 @@ export function validateV3ComponentValue(
     case 'collectible':
     case 'patrol':
     case 'hitbox':
+    case 'climbVolume':
+    case 'gravity':
       BLOCK_COMPONENTS[component].validate(value, path, errors as unknown as Parameters<typeof validateAnimatorComponent>[2]);
       break;
     case 'light':

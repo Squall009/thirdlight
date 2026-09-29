@@ -472,7 +472,7 @@ const COMPONENT_BASES: Record<string, J[]> = {
     { shape: { type: 'convex', points: [[-1, -1, -1], [1, -1, -1], [0, 1, -1], [0, 0, 1]] } },
     { shape: { type: 'mesh', vertices: [[-1, 0, -1], [1, 0, -1], [1, 0, 1], [-1, 0, 1]], triangles: [[0, 2, 1], [0, 3, 2]] } },
   ],
-  controller: [{ capsule: { radius: 0.3, height: 1.8, offset: [0, 0.1] }, acceleration: 30, deceleration: 50, coyoteTime: 0.1, jumpBuffer: 0.1, jumpRelease: 0.4, groundSnap: 0.2, skin: 0.02, autostep: true, autostepHeight: 0.3, walkSpeed: 2.5, runSpeed: 6, airControl: 0.3, gravityScale: 1.5, turnSpeed: 360, faceMovement: false, jump: true, jumpSpeed: 5, slopeLimit: 40, stepHeight: 0.5, ledgeClimb: true, ledgeHeight: 1, ledgeClimbTime: 0.4, moveAction: 'walk', jumpAction: 'hop' }],
+  controller: [{ capsule: { radius: 0.3, height: 1.8, offset: [0, 0.1] }, acceleration: 30, deceleration: 50, coyoteTime: 0.1, jumpBuffer: 0.1, jumpRelease: 0.4, groundSnap: 0.2, skin: 0.02, autostep: true, autostepHeight: 0.3, walkSpeed: 2.5, runSpeed: 6, airControl: 0.3, gravityScale: 1.5, turnSpeed: 360, faceMovement: false, jump: true, jumpSpeed: 5, slopeLimit: 40, stepHeight: 0.5, ledgeClimb: true, ledgeHeight: 1, ledgeClimbTime: 0.4, moveAction: 'walk', jumpAction: 'hop', climbSpeed: 1.5, climbAction: 'climb', wallSlide: true, wallSlideSpeed: 1, wallJump: true, wallJumpAway: 5, wallJumpUp: 6 }],
   camera: [{ type: 'perspective', fovY: 60, near: 0.1, far: 100 }],
   // Phase 23.10: the behavior group an object's script belongs to.
   behaviorGroup: [{ group: 'field' }],
@@ -512,6 +512,9 @@ const COMPONENT_BASES: Record<string, J[]> = {
     { mode: 'waypoints', waypoints: [[4, 0, 0], [4, 2, 0]], loop: true, speed: 1, wait: 1 },
   ],
   hitbox: [{ shape: 'box', size: [1, 2, 3], damage: 2 }, { shape: 'sphere', radius: 0.5 }],
+  // Phase 25.13: a climb volume and a gravity body.
+  climbVolume: [{ size: [1, 4, 1] }, { size: [2, 3, 0.5] }],
+  gravity: [{ scale: 0.5, size: [1, 2, 1] }, {}],
   audioSource: [{ assetId: 'cue-a', volume: 0.8, range: 12 }, { assetId: 'cue-a', volume: 0.8, range: 12, distanceModel: 'inverse', refDistance: 2, rolloff: 1.5 }],
   animator: [{ controller: 'ctl-a', parameters: { speed: 1, grounded: true } }],
   faceMovement: [{ yawRight: 90, yawLeft: -90, turnSeconds: 0.12 }, { mode: 'velocity', yawOffset: -90, turnSeconds: 0.2 }],

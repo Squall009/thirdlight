@@ -178,7 +178,8 @@ boundary it changes (Playwright for any editor surface).
 | 25.10 | done 2026-09-29: `ctx.entity(id).get(component)` (step-start snapshot of the descriptor-marked script-readable fields; the marks are pinned for schemaVersion 4) and `.set(component, patch)` (queued, applied at the end of the step in script order; refusals name the field; a field written twice: later wins, conflict in diagnostics); writable: object `active` (not drawn, no collision, triggers or ticking) and `visible`, transform (relaxed ownership: not physics bodies, the camera, static or system-driven objects), light colour/intensity/range, mover speed/`active` (new stored field), material parameters; `character_place` on the 2D plane (from rest); `ctx.shell.nextScene()`; typed prefab-local references in spawned copies; object pickers for script object properties; typings and visual-script nodes; `m25-entity-access` (2D/3D, page and worker, replay digests), `entity-access.e2e.ts` (Inspector, typings, pixels on both backends) |
 | 25.11 | done 2026-09-29: callbacks on the behavior spec (`onEnable/onDisable/onDestroy`, `onTriggerEnter/Exit`, `onContact`, `onMessage`, `onUiEvent`, `onAnimatorEvent`; `step` optional), run in the intent phase before the script's step in a fixed order; lifecycle follows the object's switched-on state (25.10's `active`, spawns, scene loads/unloads, destroys; a restart sends onEnable again, no onDestroy); the event lists stay; typings with completion of the callbacks and their event fields; visual-script nodes On enable/disable/destroy, On contact, On UI event; `m25-callbacks` (2D/3D, page and worker, replay digests), `callbacks.e2e.ts` |
 | 25.12 | done 2026-09-29: mover `stopOn`, `toggleOn`, `reverseOn` (with `startOn`, read in that order from last step's signals, through the same `active` flag scripts write; a reversed loop goes round the other way, a finished once-mover travels back) and a `gravity` easing (from rest at each point, constant acceleration, each stretch as long as at its speed; a reverse part-way keeps the position); Inspector fields; `mover-signals.test.ts` (unit, model, `m25-movement` 2D/3D page and worker, replay digests), `mover-signals.e2e.ts`; D50 fixed |
-| 25.13–25.22 | — |
+| 25.13 | done 2026-09-29: `climbVolume` component (a box turned with its object; Scene size handle, create menu) climbed in by both controllers (up/down along its +Y, sideways across, `climbSpeed`, no gravity; jump lets go with a jump, leaving lets go; optional `climbAction`), `wallSlide`/`wallSlideSpeed` and `wallJump`/`wallJumpAway`/`wallJumpUp` (off by default) in 2D and 3D; `gravity` component (non-character bodies fall under the project gravity onto colliders, saved); 2D edge patrols walk any direction of the plane; Inspector fields; `climb-walls.test.ts` (`m25-movement` 2D/3D page and worker, replay digests), unit and model tests, `climb-walls.e2e.ts` |
+| 25.14–25.22 | — |
 | 25.23 | moved to phase 26 (26.13), owner 2026-09-29 |
 | 25.25 | — |
 
@@ -1033,6 +1034,47 @@ boundary it changes (Playwright for any editor surface).
   carry while the port poses movers after the sweep, so each step ended
   inside the risen platform. While the carry lifts it, the character's own
   fall is cancelled (2D never had the fall on the ground).
+- 2026-09-29 (25.13): **climbing is a volume, not a switch.** A
+  `climbVolume` component (a box centred on its object, turned with it; its
+  +Y is "up") is what a character climbs; the controller carries only the
+  climb speed (2 m/s, the default 3D walk: slower than running) and an
+  optional `climbAction`. A scene without volumes plays as before, so no
+  on/off field was added. Up/down past half the input takes hold (a stick's
+  drift or a sideways push does not), sideways input moves across the box
+  (a ladder is narrow, a net wide: the size says which), leaving the box or
+  a jump press lets go, and a character still rising from a jump does not
+  take hold (a jump off a volume leaves it). The 2D plane's default move
+  action is left/right only, so a 2D project either makes `move` a 2D axis
+  or names an up/down axis as `climbAction` (the default input was not
+  changed: that would change every project's manifest). A climb volume's
+  depth counts in 3D; in 3D the climb input is the move's forward/back.
+- 2026-09-29 (25.13): **walls.** Wall slide and wall jump are off by
+  default. A wall is what the last step's move pushed into in the air (the
+  port's wall contact, the side from the blocked part of the move; 3D: the
+  blocked horizontal part gives the wall's normal). Slide holds the fall at
+  `wallSlideSpeed` (2 m/s: a controlled slip) while pushing into the wall;
+  wall jump works while touching it or within the coyote time after, leaves
+  at `wallJumpAway` (absent: the run speed) and `wallJumpUp` (absent: the
+  jump speed), and the input does not steer until the top of that jump —
+  without that the 2D ground deceleration (60 m/s²) ate the push in 0.08 s
+  (found by the integration test). No lock-time field was added.
+- 2026-09-29 (25.13): **gravity for bodies that aren't characters** is a
+  `gravity` component on objects without a physics body (not with a mover,
+  a collider or a waypoint patrol — those set their own position): it
+  falls under the project's `gravity_y` × scale, capped at `max_fall_speed`,
+  onto colliders found by rays down from 0.1 m above its body's underside
+  (centre and near its sides; 3D its corners too), landing on the highest.
+  A falling solid (a collider that falls and carries the character) is not
+  in it: the engine has no dynamic bodies and a kinematic falling collider
+  would need the mover push rules; revisit if a game needs it. The height
+  and fall speed are saved in the `components` section (`fall`, only when a
+  scene has gravity bodies).
+- 2026-09-29 (25.13): **2D patrol direction.** An edge patrol's direction
+  on the 2D plane is now its x and y (unit); before only the sign of x
+  counted. Directions along x walk exactly as before; one with a y part
+  moves up or down (wall probe that way, no ledge probe). A stored
+  direction with a y part in an existing 2D project now walks diagonally
+  (such a value did nothing before; none of the engine's fixtures has one).
 - 2026-09-29: 25.23 (the project window) moved to phase 26 (owner). Phase
   26 stores assets and resources as files in real folders of the game folder,
   so 25.23's folders-as-content-data would be thrown away; the window is built

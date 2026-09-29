@@ -185,6 +185,25 @@ interface Patrol {
   path: PathState | null;
 }
 
+/** Phase 25.13: a gravity body: where it was placed (local), its body's half extents, its gravity scale and fall speed. */
+interface Fall {
+  id: string;
+  start: Vec3;
+  half: Vec3;
+  scale: number;
+  /** m/s along Y (negative: falling). */
+  vy: number;
+}
+
+/**
+ * Phase 25.13: a gravity body looks for floor from this far above its
+ * underside (the patrol probes' 0.1 m): ground up to 0.1 m higher (a kerb, a
+ * slope walked up) lifts it onto it instead of leaving it inside.
+ */
+const FALL_LIFT = 0.1;
+/** Phase 25.13: the probes sit this share of the body's half width in from its sides (a body half over an edge still stands). */
+const FALL_PROBE_INSET = 0.9;
+
 interface Hitbox {
   id: string;
   /** Box half extents, or null for a sphere. */
@@ -219,6 +238,9 @@ export interface PrimitivesHost {
   emit(signal: string): void;
   /** Phase 24.4i: every event as it happens (the event → cue table listens; absent: nobody). */
   note?(e: PrimitiveEventRecord): void;
+  /** Phase 25.13: the project's gravity (m/s² along Y) and fall speed cap (m/s, negative) for gravity bodies (absent: −19.62, −30). */
+  readonly gravityY?: number;
+  readonly maxFallSpeed?: number;
 }
 
 /** Phase 24.4: the `components` save section (plain JSON). */
@@ -231,6 +253,8 @@ export interface PrimitivesSaveState {
   patrol?: Record<string, { p: number[]; d: number[]; w: number; a: boolean; s?: number; u?: number; r?: number }>;
   /** Hitboxes scripts switched off. */
   off?: string[];
+  /** Phase 25.13: gravity bodies → [local y, fall speed] (only when the scene has any). */
+  fall?: Record<string, [number, number]>;
   /** Phase 24.4h: the look overrides scripts set (object → its override). */
   look?: Record<string, EntityLook>;
 }
@@ -298,6 +322,7 @@ export class Primitives {
   private readonly healths = new Map<string, HealthRecord>();
   private readonly collectibles = new Map<string, Collectible>();
   private readonly patrols = new Map<string, Patrol>();
+  private readonly falls = new Map<string, Fall>();
   private readonly hitboxes = new Map<string, Hitbox>();
   /** Phase 25.10: objects a script switched off (they do not walk, collect or touch; a hitbox switched off separates). */
   private inactive: ReadonlySet<string> = new Set();
@@ -317,7 +342,7 @@ export class Primitives {
 
   /** Whether any primitive (besides health) runs in the step. */
   get active(): boolean {
-    return this.collectibles.size > 0 || this.patrols.size > 0 || this.hitboxes.size > 0;
+    return this.collectibles.size > 0 || this.patrols.size > 0 || this.hitboxes.size > 0 || this.falls.size > 0;
   }
 
   // ---- loading -----------------------------------------------------------------
@@ -354,11 +379,16 @@ export class Primitives {
         path = { points, lengths: pathLengths(points, loop), speed: num(p['speed'], 1), mode: loop ? 'loop' : 'pingpong', wait: num(p['wait'], 0), easing: 'linear', segment: 0, along: 0, dir: 1, waiting: 0, done: false, pos: [...start] };
       } else {
         const d = (p['direction'] as number[] | undefined) ?? [1, 0, 0];
-        // The 2D plane walks along x only (the sign of the direction's x; +x when it has none).
-        const dir: Vec3 = this.host.dimension === 2 ? [num(d[0], 1) < 0 ? -1 : 1, 0, 0] : unit([num(d[0], 0), 0, num(d[2], 0)]);
+        // Phase 25.13: the 2D plane walks any direction in the plane (x and y; +x when it has neither — before, only
+        // the sign of x counted, which a direction along x keeps exactly); 3D the direction along the ground.
+        const dir: Vec3 = this.host.dimension === 2 ? unit([num(d[0], 1), num(d[1], 0), 0]) : unit([num(d[0], 0), 0, num(d[2], 0)]);
         edges = { dir: [...dir], startDir: dir, half: area(p['size'], [1, 1, 1]), wallProbe: num(p['wallProbe'], 0.05), ledgeProbe: num(p['ledgeProbe'], 0.4), pos: [...start], waiting: 0 };
       }
       this.patrols.set(id, { id, start, speed: num(p['speed'], 1), waitSteps: Math.max(0, Math.round(num(p['wait'], 0) * this.host.hz)), active: true, edges, path });
+    }
+    const g = c['gravity'];
+    if (g !== undefined) {
+      this.falls.set(id, { id, start: [num(position[0], 0), num(position[1], 0), num(position[2], 0)], half: area(g['size'], [1, 1, 1]), scale: num(g['scale'], 1), vy: 0 });
     }
     const hb = c['hitbox'];
     if (hb !== undefined) {
@@ -374,6 +404,7 @@ export class Primitives {
       this.collectibles.delete(id);
       this.patrols.delete(id);
       this.hitboxes.delete(id);
+      this.falls.delete(id);
       this.lastCentre.delete(id);
       if (this.looks.delete(id)) this.looksVersion += 1;
     }
@@ -386,6 +417,10 @@ export class Primitives {
     for (const k of this.collectibles.values()) Object.assign(k, { collected: false, timer: -1 });
     for (const p of this.patrols.values()) this.resetPatrol(p);
     for (const b of this.hitboxes.values()) b.active = true;
+    for (const f of this.falls.values()) {
+      f.vy = 0;
+      if (!this.patrols.has(f.id)) this.write(f.id, f.start);
+    }
     this.contacts = new Map();
     this.lastCentre = new Map();
     this.eventsNow = [];
@@ -465,6 +500,8 @@ export class Primitives {
     const dt = 1 / this.host.hz;
     const off = this.inactive;
     for (const p of this.patrols.values()) if (off.size === 0 || !off.has(p.id)) this.walk(p, dt);
+    // Phase 25.13: gravity bodies fall (after a walker's step: it walks, then falls or lands).
+    for (const f of this.falls.values()) if (off.size === 0 || !off.has(f.id)) this.fall(f, dt);
     const character = playing ? this.host.character() : null;
     for (const k of this.collectibles.values()) if (off.size === 0 || !off.has(k.id)) this.collect(k, character);
     if (this.hitboxes.size > 0) this.touch(character);
@@ -530,7 +567,8 @@ export class Primitives {
       this.push({ type: 'turned', entity: p.id, reason: blocked, direction: frozen3(e.dir), stepIndex: this.step - 1 });
       return;
     }
-    e.pos = [e.pos[0] + e.dir[0] * step, e.pos[1], e.pos[2] + e.dir[2] * step];
+    // Phase 25.13: a 2D walker's direction may have a y part (it moves up or down).
+    e.pos = [e.pos[0] + e.dir[0] * step, e.pos[1] + e.dir[1] * step, e.pos[2] + e.dir[2] * step];
     this.write(p.id, e.pos);
   }
 
@@ -548,8 +586,12 @@ export class Primitives {
     }
     const port = this.host.physics;
     if (port?.raycast === undefined) return null;
-    if (port.raycast({ x: c[0], y: c[1] }, { x: d[0], y: 0 }, reach) !== null) return 'wall';
-    if (port.raycast({ x: front[0], y: front[1] }, { x: 0, y: -1 }, e.ledgeProbe) === null) return 'ledge';
+    // Phase 25.13: along its direction in the plane, from its centre past its body's extent that way; only a walk
+    // along the ground (no y part) looks for ledges — moving up or down it is not walking on a floor.
+    const vertical = d[1] !== 0;
+    const extent = vertical ? Math.abs(d[0]) * e.half[0] + Math.abs(d[1]) * e.half[1] : e.half[0];
+    if (port.raycast({ x: c[0], y: c[1] }, { x: d[0], y: d[1] }, extent + step + e.wallProbe) !== null) return 'wall';
+    if (!vertical && port.raycast({ x: front[0], y: front[1] }, { x: 0, y: -1 }, e.ledgeProbe) === null) return 'ledge';
     return null;
   }
 
@@ -558,6 +600,49 @@ export class Primitives {
     const b = m.points[(m.segment + 1) % m.points.length]!;
     const v: Vec3 = [(b[0] - a[0]) * m.dir, (b[1] - a[1]) * m.dir, (b[2] - a[2]) * m.dir];
     return Math.hypot(v[0], v[1], v[2]) > 0 ? unit(v) : [0, 0, 0];
+  }
+
+  /**
+   * Phase 25.13: a gravity body's step: its fall speed grows by the project's
+   * gravity (times its scale, capped at the fall speed); rays down from just
+   * above its underside (at its centre and near its sides; 3D: its corners
+   * too) find the floor, and when this step's fall reaches it the body rests
+   * on it (speed 0), else it falls. An edge walker's own height follows.
+   */
+  private fall(f: Fall, dt: number): void {
+    const t = this.host.curr.get(f.id);
+    const c = this.host.worldOf(f.id);
+    if (t === undefined || c === null) return;
+    const g = (this.host.gravityY ?? -19.62) * f.scale;
+    f.vy = Math.max(this.host.maxFallSpeed ?? -30, f.vy + g * dt);
+    const drop = Math.max(0, -f.vy * dt);
+    const fromY = c[1] - f.half[1] + FALL_LIFT;
+    const reach = FALL_LIFT + drop;
+    const hx = f.half[0] * FALL_PROBE_INSET;
+    const hz = f.half[2] * FALL_PROBE_INSET;
+    let best: number | null = null;
+    const ray = (x: number, z: number): void => {
+      let d: number | null = null;
+      if (this.host.dimension === 3) d = this.host.physics3d?.raycast?.({ x, y: fromY, z }, { x: 0, y: -1, z: 0 }, reach)?.distance ?? null;
+      else d = this.host.physics?.raycast?.({ x, y: fromY }, { x: 0, y: -1 }, reach)?.distance ?? null;
+      if (d !== null && (best === null || d < best)) best = d;
+    };
+    ray(c[0], c[2]);
+    ray(c[0] - hx, c[2]);
+    ray(c[0] + hx, c[2]);
+    if (this.host.dimension === 3) {
+      for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) ray(c[0] + sx * hx, c[2] + sz * hz);
+    }
+    let dy: number;
+    if (best !== null) {
+      // Landed (or resting): the underside on the highest floor found.
+      dy = FALL_LIFT - (best as number);
+      f.vy = 0;
+    } else dy = -drop;
+    if (dy === 0) return;
+    t.position[1] += dy;
+    const p = this.patrols.get(f.id);
+    if (p?.edges != null) p.edges.pos[1] = t.position[1];
   }
 
   private write(id: string, pos: readonly number[]): void {
@@ -761,6 +846,7 @@ export class Primitives {
     const off = [...sorted(this.hitboxes).filter(([, b]) => !b.active).map(([id]) => id)];
     if (off.length > 0) out.off = off;
     if (this.looks.size > 0) out.look = Object.fromEntries(sorted(this.looks).map(([id, l]) => [id, { ...l }]));
+    if (this.falls.size > 0) out.fall = Object.fromEntries(sorted(this.falls).map(([id, f]) => [id, [this.host.curr.get(id)?.position[1] ?? f.start[1], f.vy]]));
     return out;
   }
 
@@ -770,10 +856,11 @@ export class Primitives {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) return 'the components section is an object';
     const v = value as Record<string, unknown>;
     const isMap = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x);
-    for (const k of Object.keys(v)) if (!['health', 'collected', 'patrol', 'off', 'look'].includes(k)) return `unknown key "${k.slice(0, 32)}"`;
+    for (const k of Object.keys(v)) if (!['health', 'collected', 'patrol', 'off', 'look', 'fall'].includes(k)) return `unknown key "${k.slice(0, 32)}"`;
     if (v['look'] !== undefined && (!isMap(v['look']) || !Object.values(v['look']).every((l) => entityLookOf(l) !== null))) return 'look maps objects to a look override {emissive?, emissiveIntensity?, tint?}';
     if (v['health'] !== undefined && (!isMap(v['health']) || !Object.values(v['health']).every((x) => typeof x === 'number' && Number.isFinite(x) && x >= 0))) return 'health maps objects to a health ≥ 0';
     if (v['collected'] !== undefined && (!isMap(v['collected']) || !Object.values(v['collected']).every((x) => Number.isInteger(x) && (x as number) >= -1))) return 'collected maps objects to whole steps (-1: never back)';
+    if (v['fall'] !== undefined && (!isMap(v['fall']) || !Object.values(v['fall']).every((x) => Array.isArray(x) && x.length === 2 && x.every((n) => typeof n === 'number' && Number.isFinite(n))))) return 'fall maps objects to [height, fall speed]';
     if (v['off'] !== undefined && !(Array.isArray(v['off']) && v['off'].every((x) => typeof x === 'string'))) return 'off lists object ids';
     if (v['patrol'] !== undefined) {
       if (!isMap(v['patrol'])) return 'patrol maps objects to their state';
@@ -814,6 +901,15 @@ export class Primitives {
     }
     const off = new Set(v.off ?? []);
     for (const b of this.hitboxes.values()) b.active = !off.has(b.id);
+    for (const [id, [y, vy]] of Object.entries(v.fall ?? {})) {
+      const f = this.falls.get(id);
+      const t = this.host.curr.get(id);
+      if (f === undefined || t === undefined) continue;
+      f.vy = Math.min(0, vy);
+      t.position[1] = y;
+      const p = this.patrols.get(id);
+      if (p?.edges != null) p.edges.pos[1] = y;
+    }
     this.looks.clear();
     for (const [id, l] of Object.entries(v.look ?? {})) {
       const look = entityLookOf(l);

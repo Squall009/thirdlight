@@ -308,3 +308,52 @@ describe('the components save section', () => {
     expect(JSON.parse(JSON.stringify(p.saveState()))).toEqual(saved);
   });
 });
+
+describe('phase 25.13: gravity bodies and the 2D patrol in any direction', () => {
+  /** A floor whose top is at y 0 everywhere (a ray down from above it hits at its distance to 0). */
+  const floor = (): PhysicsPort =>
+    ({ raycast: (o: { x: number; y: number }, d: { x: number; y: number }, max: number) => (d.y < 0 && o.y >= 0 && o.y <= max ? { entityId: 'floor', distance: o.y, normal: { x: 0, y: 1 } } : null) }) as unknown as PhysicsPort;
+
+  it('falls with the project gravity (times its scale), lands with its underside on the floor, is saved and restored', () => {
+    const f = fakeHost(2, { physics: floor() });
+    const p = new Primitives({ ...f.host, gravityY: -20, maxFallSpeed: -30 });
+    f.place('rock', [0, 3, 0]);
+    p.add('rock', { gravity: { scale: 1, size: [1, 1] } }, [0, 3, 0]);
+    step(p, 1);
+    // One step: v = −20/120, down v/120.
+    expect(f.curr.get('rock')!.position[1]).toBeCloseTo(3 - 20 / 120 / 120, 12);
+    for (let i = 2; i < 200; i++) step(p, i);
+    expect(f.curr.get('rock')!.position[1]).toBeCloseTo(0.5, 9);
+    const saved = p.saveState();
+    expect(saved.fall).toEqual({ rock: [f.curr.get('rock')!.position[1], 0] });
+    expect(p.checkState(saved)).toBeNull();
+    expect(p.checkState({ fall: { rock: [1] } })).toMatch(/fall/);
+    f.curr.get('rock')!.position[1] = 9;
+    p.restoreState({ fall: { rock: [2, -1] } });
+    expect(f.curr.get('rock')!.position[1]).toBe(2);
+    p.resetRun();
+    expect(f.curr.get('rock')!.position[1]).toBe(3);
+    // Scale 0: it does not fall.
+    const g = fakeHost(2, { physics: floor() });
+    const q = new Primitives(g.host);
+    g.place('leaf', [0, 3, 0]);
+    q.add('leaf', { gravity: { scale: 0 } }, [0, 3, 0]);
+    for (let i = 1; i < 50; i++) step(q, i);
+    expect(g.curr.get('leaf')!.position[1]).toBe(3);
+  });
+
+  it('a 2D edge patrol walks along its direction in the plane (a y part moves it up or down)', () => {
+    const f = fakeHost(2);
+    const p = new Primitives(f.host);
+    f.place('riser', [0, 0, 0]);
+    p.add('riser', { patrol: { mode: 'edges', speed: 1.2, direction: [0, 1, 0] } }, [0, 0, 0]);
+    f.place('diag', [0, 0, 0]);
+    p.add('diag', { patrol: { mode: 'edges', speed: 1.2, direction: [-1, 1, 0] } }, [0, 0, 0]);
+    for (let i = 1; i <= 100; i++) step(p, i);
+    expect(f.curr.get('riser')!.position[0]).toBe(0);
+    expect(f.curr.get('riser')!.position[1]).toBeCloseTo(1, 9);
+    expect(f.curr.get('diag')!.position[0]).toBeCloseTo(-Math.SQRT1_2, 9);
+    expect(f.curr.get('diag')!.position[1]).toBeCloseTo(Math.SQRT1_2, 9);
+    expect(p.patrolOf('diag')?.direction[1]).toBeCloseTo(Math.SQRT1_2, 12);
+  });
+});

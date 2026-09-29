@@ -53,7 +53,7 @@ async function submenu(page: Page, name: string): Promise<string[]> {
   return out;
 }
 
-const GAMEPLAY_2D = ['One-way platform', 'Moving platform', 'Door (opens on "open")', 'Trigger', 'Scene transition', 'Switch', 'Object with health', 'Collectible', 'Patrolling object', 'Hitbox'];
+const GAMEPLAY_2D = ['One-way platform', 'Moving platform', 'Door (opens on "open")', 'Trigger', 'Scene transition', 'Switch', 'Object with health', 'Collectible', 'Patrolling object', 'Hitbox', 'Climb volume'];
 const GENRE = /coin|enemy|zone|hazard|checkpoint|goal|exit|pickup|gem|heart|life|lives|stomp|score/i;
 
 test('the create menu lists the descriptors\' generic entries; each creates its component; no genre entries', async ({ page }) => {
@@ -97,6 +97,7 @@ test('the create menu lists the descriptors\' generic entries; each creates its 
     [['Gameplay', 'Collectible'], 'Collectible', 'collectible', 'box'],
     [['Gameplay', 'Patrolling object'], 'Patrolling object', 'patrol', 'box'],
     [['Gameplay', 'Hitbox'], 'Hitbox', 'hitbox', 'hitbox'],
+    [['Gameplay', 'Climb volume'], 'Climb volume', 'climbVolume', 'sensor'],
     [['Cameras', 'Camera track'], 'Camera track', 'virtualCamera', 'camera'],
     [['Light', 'Fog volume'], 'Fog volume', 'fogVolume', 'fog'],
   ];
@@ -134,7 +135,7 @@ test('a 3D project\'s create menu shows the entries that fit 3D', async ({ page 
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   // No one-way platform or switch (2D-plane components); the platform collider and the hitbox have a depth.
-  await expect.poll(async () => submenu(page, 'Gameplay')).toEqual(['Moving platform', 'Door (opens on "open")', 'Trigger', 'Scene transition', 'Object with health', 'Collectible', 'Patrolling object', 'Hitbox']);
+  await expect.poll(async () => submenu(page, 'Gameplay')).toEqual(['Moving platform', 'Door (opens on "open")', 'Trigger', 'Scene transition', 'Object with health', 'Collectible', 'Patrolling object', 'Hitbox', 'Climb volume']);
   await menu(page, 'GameObject', 'Gameplay', 'Moving platform');
   await expect.poll(async () => (await entities()).filter((e) => e.name === 'Moving platform').map((e) => e.components['collider'])).toContainEqual({ shape: { type: 'box', hx: 1, hy: 0.2, hz: 1 } });
   await menu(page, 'GameObject', 'Gameplay', 'Hitbox');

@@ -341,6 +341,9 @@ export type { BehaviorLifecycle, BehaviorModeEvent, BehaviorModes, BehaviorModeT
 // Phase 25.10: generic component access (ctx.entity) and the shell's scene list (ctx.shell).
 export { MAX_ENTITY_WRITES_PER_STEP, type BehaviorEntityControl, type BehaviorEntityHandle, type EntityFieldsSave, type EntityWriteCode, type EntityWriteResult, type LightOverride } from './entity-access';
 export type { BehaviorShell } from './types';
+// Phase 25.13: where the character may climb (read by the character controller modules).
+export type { ClimbQuery } from './types';
+export type { ClimbVolumeView } from './blocks';
 export { ModeState, type ModeEffects, type ModeEventRecord, type ModeTransitionSpec, type ModeView } from './modes';
 export { modesForRuntime } from '@thirdlight/project-model';
 export type { GameMode, RuntimeModes } from '@thirdlight/project-model';

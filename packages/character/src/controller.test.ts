@@ -136,6 +136,11 @@ describe('contract constants (dependencies.md §3 character row)', () => {
       charX: 1.5,
       charY: 0.91,
       slideSteps: 0,
+      // Phase 25.13: not climbing, no wall touched.
+      climbing: null,
+      wallSide: 0,
+      wallCoyote: 0,
+      wallJumped: false,
     });
   });
 

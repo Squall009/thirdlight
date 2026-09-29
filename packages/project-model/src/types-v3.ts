@@ -176,6 +176,9 @@ export interface EntityComponentsV3 extends EntityComponentsV2 {
   collectible?: import('./blocks').CollectibleComponent;
   patrol?: import('./blocks').PatrolComponent;
   hitbox?: import('./blocks').HitboxComponent;
+  /** Phase 25.13, v4 only: a volume the character climbs in, and a body that falls. */
+  climbVolume?: import('./blocks').ClimbVolumeComponent;
+  gravity?: import('./blocks').GravityComponent;
   playerSpawn?: PlayerSpawnComponent;
   light?: LightComponent;
   surface?: SurfaceComponent;
