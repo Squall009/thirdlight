@@ -150,10 +150,11 @@ export class Bridge {
   }
 
   /** Forward one bounded input-exercise sequence (editor side, §18.1). */
-  requestInput(playSessionId: string, requestId: string, frames: readonly BridgeRelayFrame[], restart = false): void {
+  requestInput(playSessionId: string, requestId: string, frames: readonly BridgeRelayFrame[], restart = false, hold = false): void {
     if (this.direction !== 'editor') throw new Error('requestInput is editor-side only');
     // Phase 25.16: `restart` restarts the game first (the frames begin at the new run's first step).
-    this.postLocal({ v: 2, type: 'tl.input.request', playSessionId, requestId, frames: frames.map((f) => ({ ...f })), ...(restart ? { restart: true } : {}) });
+    // Phase 25.17: `hold` holds the game right after the last step (until the next exercise).
+    this.postLocal({ v: 2, type: 'tl.input.request', playSessionId, requestId, frames: frames.map((f) => ({ ...f })), ...(restart ? { restart: true } : {}), ...(hold ? { hold: true } : {}) });
   }
 
   /** Request a bounded screenshot (editor side). */

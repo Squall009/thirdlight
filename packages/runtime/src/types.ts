@@ -2261,6 +2261,13 @@ export interface Runtime {
    * entity (draw order) handed to `visit` in reused arrays. False when disposed.
    */
   forEachInterpolated?(visit: InterpolatedVisitor): boolean;
+  /**
+   * Phase 25.17 (D51): visit every entity's committed transform — the state
+   * after the last step, not blended with the step before by the last frame's
+   * interpolation alpha (which depends on when frames came). What digests of
+   * the simulation hash.
+   */
+  forEachCommitted?(visit: InterpolatedVisitor): boolean;
   /** Phase 21.2: one entity's interpolated transform into the caller's arrays; false when disposed or unknown. */
   readInterpolated?(id: string, position: number[], rotation: number[], scale: number[]): boolean;
   /**

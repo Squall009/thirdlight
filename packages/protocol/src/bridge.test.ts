@@ -164,6 +164,18 @@ describe('editor → preview validators', () => {
     }
   });
 
+  it('phase 25.17: hold travels with the relay (a boolean)', () => {
+    const r = parseInputRelayRequest({ mode: 'exclusive-test', hold: true, restart: true, frames: [{ stepOffset: 0 }] });
+    expect(r.ok && r.request).toMatchObject({ hold: true, restart: true });
+    expect(parseInputRelayRequest({ mode: 'exclusive-test', hold: 1, frames: [{ stepOffset: 0 }] }).ok).toBe(false);
+    const plain = parseInputRelayRequest({ mode: 'exclusive-test', hold: false, frames: [{ stepOffset: 0 }] });
+    expect(plain.ok && plain.request.hold).toBeUndefined();
+    expect((JSON.parse(makeInputRelayRequest('req-1', [{ stepOffset: 0 }], false, true)) as { hold?: boolean }).hold).toBe(true);
+    expect((JSON.parse(makeInputRelayRequest('req-1', [{ stepOffset: 0 }], true)) as { hold?: boolean }).hold).toBeUndefined();
+    expect(validateBridgeEditorToPreview({ v: 2, type: 'tl.input.request', playSessionId: play, requestId: req, hold: true, frames: [{ stepOffset: 0 }] }).ok).toBe(true);
+    expect(validateBridgeEditorToPreview({ v: 2, type: 'tl.input.request', playSessionId: play, requestId: req, hold: 'yes', frames: [{ stepOffset: 0 }] }).ok).toBe(false);
+  });
+
   it('phase 25.16: restart travels with the relay (a boolean)', () => {
     const r = parseInputRelayRequest({ mode: 'exclusive-test', restart: true, frames: [{ stepOffset: 0 }] });
     expect(r.ok && r.request.restart).toBe(true);

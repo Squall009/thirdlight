@@ -100,6 +100,16 @@ export class BackendClient {
     return this.request('POST', `/api/v1/projects/${encodeURIComponent(projectId)}/commands`, body);
   }
 
+  /** Phase 25.17: the same client with another per-request timeout (a long input exercise waits for its span). */
+  withTimeout(timeoutMs: number): BackendClient {
+    return new BackendClient({ authoringOrigin: this.origin, token: this.token, timeoutMs });
+  }
+
+  /** Phase 25.17: GET the projects (a folder project's `folder`). */
+  listProjects(): Promise<BackendResponse> {
+    return this.request('GET', '/api/v1/projects');
+  }
+
   /** Which registered folder project a server path belongs to (the backend walks up to thirdlight.json). */
   resolveFolder(path: string): Promise<BackendResponse> {
     return this.request('GET', `/api/v1/projects/resolve?path=${encodeURIComponent(path)}`);

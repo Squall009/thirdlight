@@ -180,6 +180,8 @@ for (const b of BUNDLES) {
  */
 const MCP_ENTRY = 'packages/mcp-adapter/src/bin.ts';
 const MCP_OUT = 'dist/mcp-adapter/mcp.mjs';
+const PLAYTEST_ENTRY = 'packages/mcp-adapter/src/playtest.ts';
+const PLAYTEST_OUT = 'dist/mcp-adapter/playtest.mjs';
 if (existsSync(join(root, MCP_ENTRY))) {
   const out = join(root, MCP_OUT);
   mkdirSync(dirname(out), { recursive: true });
@@ -195,6 +197,21 @@ if (existsSync(join(root, MCP_ENTRY))) {
     minify: false,
   });
   console.log(`build: mcp-adapter (stdio server): ${MCP_ENTRY} -> ${MCP_OUT}`);
+  built += 1;
+  // Phase 25.17: the play-test runner as a library for the CLI (tools/playtest.mjs), the same code tl_playtest runs.
+  const runnerOut = join(root, PLAYTEST_OUT);
+  await esbuild.build({
+    entryPoints: [join(root, PLAYTEST_ENTRY)],
+    outfile: runnerOut,
+    bundle: true,
+    platform: 'node',
+    format: 'esm',
+    packages: 'bundle',
+    treeShaking: true,
+    sourcemap: false,
+    minify: false,
+  });
+  console.log(`build: mcp-adapter (play-test runner): ${PLAYTEST_ENTRY} -> ${PLAYTEST_OUT}`);
   built += 1;
 } else {
   // Absent mcp-adapter source (e.g. the disposable build-tooling workspace) is

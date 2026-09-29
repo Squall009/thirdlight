@@ -41,7 +41,9 @@ export function stepDigest(rt: Runtime): string {
   const h = new Fnv();
   const d = rt.getDiagnostics();
   h.num(d.ok ? d.diagnostics.stepIndex : -1);
-  rt.forEachInterpolated?.((id, p, r, s) => {
+  // D51 (phase 25.17): the committed transforms (interpolated ones hold the last frame's timing).
+  const visit = rt.forEachCommitted !== undefined ? rt.forEachCommitted.bind(rt) : rt.forEachInterpolated?.bind(rt);
+  visit?.((id, p, r, s) => {
     h.text(id);
     for (let k = 0; k < 3; k += 1) h.num(p[k]!);
     for (let k = 0; k < 4; k += 1) h.num(r[k]!);
@@ -119,7 +121,8 @@ export function stepDigest(rt: Runtime): string {
  * objects, the fields scripts wrote, the looks, the animator poses, the
  * loaded scenes and spawned copies, the resolved camera, the UI's view model
  * and shown documents, the material values, the environment blend and the
- * game mode. It leaves out the logs of when things happened (sounds,
+ * game mode (the committed transforms: D51, the interpolated ones hold the
+ * last frame's timing). It leaves out the logs of when things happened (sounds,
  * timelines, dialogue, saves, a mode's switch step), which hold absolute
  * step numbers; ids inside values scripts wrote are hashed as they are.
  */
@@ -137,7 +140,9 @@ export function runDigest(rt: Runtime): { readonly stepIndex: number; readonly r
   const byId = <T>(entries: Iterable<[string, T]>): [string, T][] => [...entries].map(([k, v]) => [rel(k), v] as [string, T]).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
   h.num(runStep);
   const transforms: [string, number[]][] = [];
-  rt.forEachInterpolated?.((id, p, r, sc) => {
+  // D51 (phase 25.17): the committed transforms — interpolated ones depend on the last frame's timing.
+  const visit = rt.forEachCommitted !== undefined ? rt.forEachCommitted.bind(rt) : rt.forEachInterpolated?.bind(rt);
+  visit?.((id, p, r, sc) => {
     transforms.push([rel(id), [p[0]!, p[1]!, p[2]!, r[0]!, r[1]!, r[2]!, r[3]!, sc[0]!, sc[1]!, sc[2]!]]);
   });
   transforms.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));

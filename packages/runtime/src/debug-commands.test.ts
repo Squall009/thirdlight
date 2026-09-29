@@ -129,7 +129,7 @@ function harness(behaviors: Record<string, (ctx: Ctx) => void>, entities: unknow
     }
   };
   const diag = () => (rt.getDiagnostics() as { diagnostics: { state: string; stepIndex: number; errors: { code: string; reason?: string; message: string }[] } }).diagnostics;
-  return { rt, tick, diag };
+  return { rt, tick, diag, now };
 }
 
 describe('phase 23.8: injected variables', () => {
@@ -154,12 +154,58 @@ describe('phase 23.8: injected variables', () => {
     expect(seen).toEqual([[]]);
   });
 
+  it('phase 25.17: every start begins with them — a restart (a replay, a shell\'s new game) sets them again; other saved values stay', () => {
+    const seen: string[] = [];
+    const counter = (ctx: Ctx): void => {
+      if (ctx.phase !== 'intent') return;
+      const k = ctx.save!.get('k') as number;
+      seen.push(`${ctx.stepIndex}:${k}:${JSON.stringify(ctx.save!.get('mine') ?? null)}`);
+      ctx.save!.set('k', k + 1);
+      ctx.save!.set('mine', ctx.stepIndex);
+    };
+    const { rt, tick } = harness({ counter }, [carrier('box-0001', 'counter')], { variables: { k: 5 } });
+    tick(10);
+    expect(Number(seen[seen.length - 1]!.split(':')[1])).toBeGreaterThan(10);
+    seen.length = 0;
+    expect(rt.queueUiEvent!({ kind: 'restart', doc: '', widget: '', name: '' }).ok).toBe(true);
+    tick(4);
+    // The step that asked for the restart still counts on; the run after it begins with k = 5 again, `mine` kept.
+    const restartedAt = seen.findIndex((l) => l.split(':')[1] === '5');
+    expect(restartedAt, seen.join(' ')).toBeGreaterThan(0);
+    const [step, k, mine] = seen[restartedAt]!.split(':');
+    expect(k).toBe('5');
+    expect(Number(mine)).toBe(Number(step) - 1);
+    expect(seen[restartedAt + 1]!.split(':')[1]).toBe('6');
+  });
+
   it('variables break ctx.save rules: config_invalid', () => {
     for (const bad of [{ 'bad key': 1 }, { big: 'x'.repeat(5000) }, Object.fromEntries(Array.from({ length: 65 }, (_, i) => [`k${i}`, i])), 'text', [1]]) {
       const { res } = instantiate({ idle: () => undefined }, [carrier('box-0001', 'idle')], { variables: bad });
       expect(res.ok).toBe(false);
       if (!res.ok) expect(res.error.code).toBe('config_invalid');
     }
+  });
+});
+
+describe('phase 25.17: a step observer that holds', () => {
+  it('holds right after the step it observed (the frame\'s other steps do not run) and goes on from there when let go, without catching up', () => {
+    const { rt, tick, diag, now } = harness({ idle: () => undefined }, [carrier('box-0001', 'idle')]);
+    tick(3);
+    const from = diag().stepIndex;
+    const target = from + 5;
+    rt.setStepObserver!((s) => {
+      if (s === target) rt.setDebugHold!(true);
+    });
+    // One late frame worth 12 steps: it stops right after the observed one.
+    now.t += 12 * DT;
+    expect(rt.tick(now.t).ok).toBe(true);
+    expect(diag().stepIndex).toBe(target);
+    tick(5);
+    expect(rt.debugHeld).toBe(true);
+    rt.setStepObserver!(null);
+    rt.setDebugHold!(false);
+    tick(2);
+    expect(diag().stepIndex).toBe(target + 2);
   });
 });
 

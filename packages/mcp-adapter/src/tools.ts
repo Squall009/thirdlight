@@ -20,6 +20,7 @@
  */
 
 import { BackendClient, makeRequestId } from './backend-client';
+import { playtestBackend, runPlaytest, type PlaytestSpec } from './playtest';
 import { parseRelayGamepad, parseRelayUiEdges, relayFrameEnd } from '@thirdlight/protocol';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
@@ -428,7 +429,9 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'a frame without one: the pad at rest; explicit actions win over the pad\'s. ui (phase 25.15): 1-8 of up|down|left|right|submit|cancel|pause - ' +
       'menu edges on the frame\'s first step, as the keys: they move the focused UI document\'s focus, submit/cancel it, and pause (a game shell or a game mode). ' +
       'restart (phase 25.16): true restarts the game first (the replay: start scenes, every object as authored) and the frames begin at the new run\'s first step - ' +
-      'run the same frames with restart twice and compare tl_game_observe run.lastInput.digest (the run digest right after the last applied step) to check a run against its replay. Returns the applied ' +
+      'run the same frames with restart twice and compare tl_game_observe run.lastInput.digest (the run digest right after the last applied step) to check a run against its replay. ' +
+      'hold (phase 25.17): true holds the game right after the last step (run.lastInput.held) until the next exercise, which begins at exactly the next step - ' +
+      'observe, decide and go on step-exactly whatever the time between calls (tl_game_control debugResume lets it go too). Returns the applied ' +
       'step range plus the pinned snapshotId/buildId, or the structured session_unavailable outcome when no browser is ' +
       'connected (never a simulated success). No DOM injection, no eval.',
     inputSchema: {
@@ -487,6 +490,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
           },
         },
         restart: { type: 'boolean', description: 'phase 25.16: restart the game first; the frames begin at the new run\'s first step' },
+        hold: { type: 'boolean', description: 'phase 25.17: hold the game right after the last step until the next exercise, which then begins at exactly the next step (lockstep)' },
       },
       required: ['playSessionId', 'frames'],
       additionalProperties: false,
@@ -546,7 +550,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'session: `state` running|paused (the engine pause holds the simulation: a menu, the pause panel, a game mode), stepIndex, simTime, `player` {x, y, z} (the controller object\'s position), ' +
       '`scenes` {loaded, loading}; the observation is bounded and carries no ' +
       'GLB/WAV bytes, base64 media, authoring token or locator capability; `animators` maps each animated entity to its ' +
-      'current animator state; `counters` the named counters (collectibles and scripts add to them); `health` every object\'s health {objectId: {current, max}}; `shell` {screen, scene, hud} the game shell; `spawned` {count, ids (first 64)} the live entities scripts spawned; `audio` (once scripts used ctx.audio or a panned audio source plays; the Web Audio graph state, not heard sound) voices [{handle (0: an audio source, see key), assetId, bus, state playing|pending|stopping, loop, gain, rate, pan? (-1 left..1 right of the listener), distanceGain?, distance?, position?}] (first 24; voiceCount all), music {owner script|shell, assetId, playing, duck}, buses {sfx, music, voice, ui}, listener {position, rotation} (the active camera), panningModel; with entityId, `behaviors` {entityId, scripts: [{behaviorId, properties: [{key, label, type, visibility, value}]}]} — the values the entity\'s running scripts read, private ones included (read-only); `renderer` {requested, source, backend, api, state, reason} the renderer backend that draws the play and why; `effects` {executor: webgpu|cpu, caps {particlesPerSystem, particlesTotal, instances, lights, sortLimit}, playing, particles, refused, lights} the visual-effect player (WebGPU compute on WebGPU, the CPU fallback on WebGL 2; presentation only); `simulation` {mode: worker|single, transport: message|shared|null, isolated} where the play runs its simulation (phase 22); `saves` (a project with a save schema) {slotCount, storage, slots: [{slot, title, chapter, location, playSeconds, savedAt, version, bytes, thumbnail? {type, width, height, bytes}, damaged?}] (the first 32 used slots), settings (the project settings document)}; `run` (phase 25.16) {stepIndex, runStep (steps since this run began: the start or the last restart), digest (the run digest now: transforms, counters, hidden and switched-off objects, script-written fields, looks, poses, loaded scenes and spawned copies, the camera, the UI model, materials, environment, mode), lastInput? {fromStep, toStep, runStep, digest, restarted} (the run digest right after the last tl_input_exercise\'s last step)} - the same input after a restart gives the same lastInput digest at the same runStep; `pointer` {x, y, buttons, over, locked, overUi?} the pointer the simulation read last (overUi: over a UI element, phase 25.15); `ui` (a project with UI documents) {shown, screen, hud?, focus, actionMap, values|valueKeys, elements: [{doc, widget, type, index?, rect: [x, y, w, h] (fractions of the view, 0,0 top left), hit? (a pointer press there goes to the UI: buttons, inputs), disabled?, focused?}] (the shown widgets with an id or that take the pointer, first 48 within 4 KiB) - aim tl_input_exercise pointer clicks at a rect\'s centre}. timeoutMs 250-15000 (default 5000). ' +
+      'current animator state; `counters` the named counters (collectibles and scripts add to them); `health` every object\'s health {objectId: {current, max}}; `shell` {screen, scene, hud} the game shell; `spawned` {count, ids (first 64)} the live entities scripts spawned; `audio` (once scripts used ctx.audio or a panned audio source plays; the Web Audio graph state, not heard sound) voices [{handle (0: an audio source, see key), assetId, bus, state playing|pending|stopping, loop, gain, rate, pan? (-1 left..1 right of the listener), distanceGain?, distance?, position?}] (first 24; voiceCount all), music {owner script|shell, assetId, playing, duck}, buses {sfx, music, voice, ui}, listener {position, rotation} (the active camera), panningModel; with entityId, `behaviors` {entityId, scripts: [{behaviorId, properties: [{key, label, type, visibility, value}]}]} — the values the entity\'s running scripts read, private ones included (read-only); `renderer` {requested, source, backend, api, state, reason} the renderer backend that draws the play and why; `effects` {executor: webgpu|cpu, caps {particlesPerSystem, particlesTotal, instances, lights, sortLimit}, playing, particles, refused, lights} the visual-effect player (WebGPU compute on WebGPU, the CPU fallback on WebGL 2; presentation only); `simulation` {mode: worker|single, transport: message|shared|null, isolated} where the play runs its simulation (phase 22); `saves` (a project with a save schema) {slotCount, storage, slots: [{slot, title, chapter, location, playSeconds, savedAt, version, bytes, thumbnail? {type, width, height, bytes}, damaged?}] (the first 32 used slots), settings (the project settings document)}; `run` (phase 25.16) {stepIndex, runStep (steps since this run began: the start or the last restart), digest (the run digest now: transforms, counters, hidden and switched-off objects, script-written fields, looks, poses, loaded scenes and spawned copies, the camera, the UI model, materials, environment, mode), lastInput? {fromStep, toStep, runStep, digest, restarted, held? (the game holds there: an exercise with hold)} (the run digest right after the last tl_input_exercise\'s last step)} - the same input after a restart gives the same lastInput digest at the same runStep; `pointer` {x, y, buttons, over, locked, overUi?} the pointer the simulation read last (overUi: over a UI element, phase 25.15); `ui` (a project with UI documents) {shown, screen, hud?, focus, actionMap, values|valueKeys, elements: [{doc, widget, type, index?, rect: [x, y, w, h] (fractions of the view, 0,0 top left), hit? (a pointer press there goes to the UI: buttons, inputs), disabled?, focused?}] (the shown widgets with an id or that take the pointer, first 48 within 4 KiB) - aim tl_input_exercise pointer clicks at a rect\'s centre}. timeoutMs 250-15000 (default 5000). ' +
       'With no connected/presenting browser the contracted session_unavailable is returned; a relay that exceeds ' +
       'timeoutMs is game_relay_timeout (503) - never a simulated value. A play that ended answers play_not_found with ended {reason, presented, at, detail?} and a message saying why (e.g. it ended before it was presented because the editor page reloaded).',
     inputSchema: {
@@ -576,6 +580,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'variables - {key: JSON value} the scripts read with ctx.save from step 0 (<= 64 keys, <= 4 KB each); ' +
       'save - a project save document {format: "thirdlight.save", formatVersion: 2, version, playSeconds?, doc, sections?, world: {scenes, activeSpawn, listedScene, character: {position, velocity} | null}} (a project with a save schema; <= 1 MiB; loaded at the first step, older versions migrated; world puts the character back where it was saved; a formatVersion 1 document without world still loads) or saveSlot 1-99 (a project slot of the Play page); ' +
       'mode - the game mode the run starts in (checked against content.modes; ignored and noted in start.notes when the project has none). ' +
+      'Variables apply at the start and again at every restart (replay, a shell\'s new game; phase 25.17). threads - worker|single: where this play\'s simulation runs (phase 25.17). ' +
       'The result echoes the resolved start; tl_game_observe reports start {ok, applied | reason}.',
     inputSchema: {
       type: 'object',
@@ -587,6 +592,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
         variables: { type: 'object', description: 'script variables: what ctx.save holds from step 0' },
         save: { type: 'object', description: 'a project save document (format "thirdlight.save") to continue from' },
         saveSlot: { type: 'string', pattern: '^[1-9][0-9]?$', description: 'continue from this project save slot of the Play page (1-99)' },
+        threads: { type: 'string', enum: ['worker', 'single'], description: 'phase 25.17: where this play\'s simulation runs (a worker or the page\'s main thread), over the project setting sim_thread' },
       },
       additionalProperties: false,
     },
@@ -616,6 +622,44 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     inputSchema: {
       type: 'object',
       properties: { playSessionId: { type: 'string' } },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'tl_playtest',
+    description:
+      'Phase 25.17: a headless play-test - play the game from its start with an input script and report what happened as JSON ' +
+      '(node tools/playtest.mjs <game folder> runs the same from the command line, and also runs a driver: the project\'s own Node module that plays step by step). ' +
+      'With no editor open the backend plays in its headless editor. ' +
+      'Each run begins with a restart of the game (start scenes, every object as authored, the start variables set again) and every exercise holds the game after it, so runs are step-exact; ' +
+      'runs per threading mode (runs 1-8, default 2) and threads (project: the project setting (default), worker, single, both) - runs with the same input must agree, in the worker and on a single thread alike. ' +
+      'frames: the input script - tl_input_exercise frames {stepOffset (from the run\'s first step, 0), steps?, actions?, pointer?, gamepad?, ui?}, ascending, over up to 432000 steps ' +
+      '(sent as several exercises split between frames; gaps are neutral; a pad or pointer button held across a split presses again). ' +
+      'observe: {fields? (dot paths into the tl_game_observe document; default state, player, counters, scenes, ui.values), atSteps? (also right after these run steps; not inside a frame\'s run), entityId?}. ' +
+      'sceneId, mode, variables: the start (as tl_play_start). The game runs at its step rate (a minute of play takes a minute); timeoutMs bounds the whole test (default 600000). ' +
+      'Returns {ok, input, runs: [{threads, run, simulation, playSessionId, observations: [{runStep, digest (the run digest), fields}], runStep, digest, errors (script errors and logs), errorCount}], deterministic, mismatches}; ' +
+      'a failure {ok: false, error {code, message}, runs (finished before it)}. A game that starts paused (a title screen) is refused: start it past the title (sceneId).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sceneId: { type: 'string' },
+        mode: { type: 'string' },
+        variables: { type: 'object' },
+        threads: { type: 'string', enum: ['project', 'worker', 'single', 'both'] },
+        runs: { type: 'integer', minimum: 1, maximum: 8 },
+        frames: { type: 'array', minItems: 1, maxItems: 20000, items: { type: 'object' } },
+        driver: { type: 'string', description: 'not taken here: a driver (the project\'s own Node module) runs from node tools/playtest.mjs <game folder> --driver <file>' },
+        observe: {
+          type: 'object',
+          properties: {
+            fields: { type: 'array', maxItems: 32, items: { type: 'string' } },
+            atSteps: { type: 'array', maxItems: 64, items: { type: 'integer', minimum: 1 } },
+            entityId: { type: 'string' },
+          },
+          additionalProperties: false,
+        },
+        timeoutMs: { type: 'integer', minimum: 10000, maximum: 3600000 },
+      },
       additionalProperties: false,
     },
   },
@@ -696,6 +740,8 @@ export async function handleToolCall(
         return await contentUpload(ctx, a);
       case 'tl_content_job':
         return await contentJob(ctx, a);
+      case 'tl_playtest':
+        return await playtest(ctx, a);
       default:
         return toolError(`unknown tool "${String(name).slice(0, 64)}"`);
     }
@@ -809,7 +855,8 @@ async function playStart(ctx: McpContext, a: Record<string, unknown>): Promise<C
     options.demo = a.demo;
   }
   // Phase 23.8: the start options go in `options` too (the backend validates and resolves them).
-  for (const k of ['sceneId', 'mode', 'variables', 'save', 'saveSlot'] as const) if (a[k] !== undefined) options[k] = a[k];
+  // Phase 25.17: and the threading mode.
+  for (const k of ['sceneId', 'mode', 'variables', 'save', 'saveSlot', 'threads'] as const) if (a[k] !== undefined) options[k] = a[k];
   if (Object.keys(options).length > 0) body.options = options;
   if (a.sessionId !== undefined) {
     if (typeof a.sessionId !== 'string') return toolError('sessionId must be a string');
@@ -890,7 +937,8 @@ async function inputExercise(ctx: McpContext, a: Record<string, unknown>): Promi
     });
   }
   if (a.restart !== undefined && typeof a.restart !== 'boolean') return toolError('restart must be true or false');
-  const request = { mode: 'exclusive-test', frames, ...(a.restart === true ? { restart: true } : {}) };
+  if (a.hold !== undefined && typeof a.hold !== 'boolean') return toolError('hold must be true or false');
+  const request = { mode: 'exclusive-test', frames, ...(a.restart === true ? { restart: true } : {}), ...(a.hold === true ? { hold: true } : {}) };
   const body = JSON.stringify(request);
   if (body.length > 16_384) return toolError('the relay body exceeds the 16384-byte bound');
   const res = await ctx.client.inputRelay(ctx.projectId, a.playSessionId, request);
@@ -1146,4 +1194,30 @@ async function contentJob(ctx: McpContext, a: Record<string, unknown>): Promise<
   if (typeof a.jobId !== 'string' || !/^job-[0-9a-f]{32}$/.test(a.jobId)) return toolError('jobId must be job- + 32 hex');
   const res = await ctx.client.contentJob(ctx.projectId, a.jobId);
   return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
+}
+// ---- phase 25.17: the headless play-test runner ------------------------------
+
+async function playtest(ctx: McpContext, a: Record<string, unknown>): Promise<CallToolResult> {
+  const spec: { -readonly [K in keyof PlaytestSpec]: PlaytestSpec[K] } = {};
+  if (a.sceneId !== undefined) {
+    if (typeof a.sceneId !== 'string') return toolError('sceneId must be a string');
+    spec.sceneId = a.sceneId;
+  }
+  if (a.mode !== undefined) {
+    if (typeof a.mode !== 'string') return toolError('mode must be a string');
+    spec.mode = a.mode;
+  }
+  if (a.driver !== undefined) {
+    // The driver is the project's own Node code: this process loads no code by a computed path (dependencies §5.1).
+    return toolError('a driver script runs from the command line: node tools/playtest.mjs <game folder> --driver <file> (tl_playtest takes an input script: frames)');
+  }
+  // The runner checks the rest (frames, threads, runs, observe, variables, timeoutMs).
+  if (a.variables !== undefined) spec.variables = a.variables as Record<string, unknown>;
+  if (a.threads !== undefined) spec.threads = a.threads as PlaytestSpec['threads'];
+  if (a.runs !== undefined) spec.runs = a.runs as number;
+  if (a.frames !== undefined) spec.frames = a.frames as PlaytestSpec['frames'];
+  if (a.observe !== undefined) spec.observe = a.observe as PlaytestSpec['observe'];
+  if (a.timeoutMs !== undefined) spec.timeoutMs = a.timeoutMs as number;
+  const result = await runPlaytest(playtestBackend(ctx.client, ctx.projectId), ctx.projectId, spec);
+  return result.ok ? toolOk(result) : { content: [{ type: 'text', text: JSON.stringify(result) }], isError: true };
 }

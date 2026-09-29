@@ -64,6 +64,10 @@ describe('threading mode (phase 22.0)', () => {
     expect(resolveThreadingMode({ url: '', setting: 2, workerAvailable: true }).mode).toBe('single');
     expect(resolveThreadingMode({ url: '?threads=on', setting: 2, workerAvailable: true }).mode).toBe('worker');
     expect(resolveThreadingMode({ url: '?threads=off', setting: 1, workerAvailable: true }).mode).toBe('single');
+    // Phase 25.17: a play's start option (a play-test) comes after the URL flag, before the setting.
+    expect(resolveThreadingMode({ url: '', setting: 1, start: 'single', workerAvailable: true })).toEqual({ mode: 'single', reason: 'the play start (threads)' });
+    expect(resolveThreadingMode({ url: '', setting: 2, start: 'worker', workerAvailable: true }).mode).toBe('worker');
+    expect(resolveThreadingMode({ url: '?threads=off', start: 'worker', workerAvailable: true }).mode).toBe('single');
     const fallback = resolveThreadingMode({ url: '', workerAvailable: false });
     expect(fallback.mode).toBe('single');
     expect(fallback.reason).toContain('cannot start one');

@@ -17,6 +17,9 @@ describe('play start options (phase 23.8)', () => {
     const doc = { format: 'thirdlight.save', version: 2, doc: { big: 'x'.repeat(100_000) } };
     const p = parsePlayStartRequest({ options: { save: doc } });
     expect(p.ok && p.request.start?.save).toEqual(doc);
+    // Phase 25.17: a play-test's threading mode.
+    expect(parsePlayStartRequest({ options: { threads: 'single' } })).toEqual({ ok: true, request: { demo: true, start: { threads: 'single' } } });
+    expect(parsePlayStartRequest({ options: { threads: 'worker', variables: { a: 1 } } })).toEqual({ ok: true, request: { demo: true, start: { variables: { a: 1 }, threads: 'worker' } } });
   });
 
   it('refuses bad values and conflicting options', () => {
@@ -38,6 +41,8 @@ describe('play start options (phase 23.8)', () => {
       { save: { format: 'thirdlight.save', version: 1, doc: {} }, saveSlot: '1' },
       { sceneId: 'scene-a', saveSlot: 'auto' },
       { unknown: 1 },
+      { threads: 'both' },
+      { threads: 2 },
     ]) {
       expect(parsePlayStartRequest({ options }).ok, JSON.stringify(options).slice(0, 80)).toBe(false);
     }

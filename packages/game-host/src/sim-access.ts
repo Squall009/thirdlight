@@ -33,7 +33,8 @@ export interface SimAccess {
   diagnostics(): Promise<ReturnType<Runtime['getDiagnostics']>>;
   /** Start an exclusive input exercise (per-step frames from the next step); false while one runs. */
   /** Phase 24.8: frames carry named actions and (phase 23.3) the pointer (version 2: no fixed move/jump channels). */
-  beginInputTest(frames: readonly RelayTestFrame[], onComplete: (from: number, to: number) => void, options?: { readonly restart?: boolean }): boolean;
+  /** Phase 25.17: `hold` holds the game right after the last step (until the next exercise); an exercise on a game held so starts at exactly the next step. */
+  beginInputTest(frames: readonly RelayTestFrame[], onComplete: (from: number, to: number) => void, options?: { readonly restart?: boolean; readonly hold?: boolean }): boolean;
   /** Phase 25.16: the run digest now and after the last exercise's last step (null: nothing to observe). */
   runDigests(): Promise<RunDigests | null>;
   readonly inputTestActive: boolean;
@@ -81,13 +82,18 @@ export function createLocalSimAccess(opts: { runtime: Runtime; relay?: RelayActi
     diagnostics: () => Promise.resolve(rt.getDiagnostics()),
     beginInputTest: (frames, onComplete, options) => {
       if (opts.relay === undefined) return false;
-      const d = rt.getDiagnostics();
+      if (opts.relay.testActive) return false;
       const restart = options?.restart === true;
+      const hold = options?.hold === true;
+      // Phase 25.17: a game held by the last exercise starts this one at exactly the next step.
+      const held = probe.held;
+      probe.release();
+      const d = rt.getDiagnostics();
       return opts.relay.beginTest(
         frames,
-        (d.ok ? d.diagnostics.stepIndex : 0) + 1,
+        (d.ok ? d.diagnostics.stepIndex : 0) + (held ? 0 : 1),
         (from, to) => {
-          probe.exerciseDone(from, to, restart);
+          probe.exerciseDone(from, to, restart, hold);
           onComplete(from, to);
         },
         restart,

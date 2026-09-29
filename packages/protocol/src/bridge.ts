@@ -160,12 +160,14 @@ export function validateBridgeEditorToPreview(value: unknown): Verdict {
       return { ok: true };
     }
     case 'tl.input.request': {
-      const bad = rejectUnknown(m, ['v', 'type', 'playSessionId', 'requestId', 'frames', 'restart']);
+      const bad = rejectUnknown(m, ['v', 'type', 'playSessionId', 'requestId', 'frames', 'restart', 'hold']);
       if (bad) return { ok: false, reason: bad.reason, path: bad.path };
       if (!isPlaySessionId(m['playSessionId'])) return { ok: false, reason: 'playSessionId must be play- + 32 hex', path: '/playSessionId' };
       if (!isRequestId(m['requestId'])) return { ok: false, reason: 'requestId must be req- + 32 hex', path: '/requestId' };
       // Phase 25.16: restart the game first.
       if (m['restart'] !== undefined && typeof m['restart'] !== 'boolean') return { ok: false, reason: 'restart must be a boolean', path: '/restart' };
+      // Phase 25.17: hold the game right after the last step.
+      if (m['hold'] !== undefined && typeof m['hold'] !== 'boolean') return { ok: false, reason: 'hold must be a boolean', path: '/hold' };
       const frames = m['frames'];
       if (!Array.isArray(frames) || frames.length < 1 || frames.length > BRIDGE_INPUT_MAX_FRAMES) {
         return { ok: false, reason: `frames must contain 1–${BRIDGE_INPUT_MAX_FRAMES} entries`, path: '/frames' };

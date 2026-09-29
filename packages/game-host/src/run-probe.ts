@@ -6,6 +6,13 @@
  * whatever the frame timing. An exercise that restarts the game first makes
  * a run and its replay comparable: the same input from the run's first step
  * gives the same digest at the same run step.
+ *
+ * Phase 25.17: an exercise with `hold` holds the simulation right after its
+ * last step (the debugger's hold, set by the same observer), so the next
+ * exercise starts at exactly the following step: a tool (the play-test
+ * runner, a project's driver script) can observe, decide and go on in
+ * lockstep, whatever the wall-clock time between its calls. The next
+ * exercise lets it go; so does the debugger's resume.
  */
 import type { Runtime } from '@thirdlight/runtime';
 import { runDigest } from './step-digest';
@@ -22,6 +29,8 @@ export interface InputRunDigest extends RunDigestNow {
   readonly toStep: number;
   /** It restarted the game first (its frames began at the run's first step). */
   readonly restarted: boolean;
+  /** Phase 25.17: the game holds right after it (the exercise asked for `hold`) and still does. */
+  readonly held?: boolean;
 }
 
 export interface RunDigests {
@@ -30,8 +39,10 @@ export interface RunDigests {
 }
 
 export class RunProbe {
-  private pending: { from: number; to: number; restarted: boolean } | null = null;
+  private pending: { from: number; to: number; restarted: boolean; hold: boolean } | null = null;
   private last: InputRunDigest | null = null;
+  /** Phase 25.17: this probe holds the simulation (after an exercise with `hold`). */
+  private holding = false;
 
   constructor(private readonly rt: Runtime) {
     rt.setStepObserver?.((stepIndex) => {
@@ -39,17 +50,36 @@ export class RunProbe {
       if (p === null || stepIndex <= p.to) return;
       this.pending = null;
       this.last = { ...runDigest(this.rt), fromStep: p.from, toStep: p.to, restarted: p.restarted };
+      if (p.hold) {
+        // Phase 25.17: hold right here (the runtime stops the frame's remaining steps).
+        this.rt.setDebugHold?.(true);
+        this.holding = true;
+      }
     });
   }
 
-  /** An exercise finished sampling its last step (`to`): the digest is taken right after that step runs. */
-  exerciseDone(from: number, to: number, restarted: boolean): void {
+  /** An exercise finished sampling its last step (`to`): the digest is taken right after that step runs (and, with `hold`, the game holds there). */
+  exerciseDone(from: number, to: number, restarted: boolean, hold = false): void {
     if (from < 0) return;
-    this.pending = { from, to, restarted };
+    this.pending = { from, to, restarted, hold };
+  }
+
+  /** Phase 25.17: a new exercise begins: let go of this probe's hold (the next step is its first). */
+  release(): void {
+    if (!this.holding) return;
+    this.holding = false;
+    if (this.rt.debugHeld === true) this.rt.setDebugHold?.(false);
+  }
+
+  /** Phase 25.17: whether the game still holds after the last exercise (the debugger's resume lets it go too). */
+  get held(): boolean {
+    if (this.holding && this.rt.debugHeld !== true) this.holding = false;
+    return this.holding;
   }
 
   read(): RunDigests {
-    return { now: runDigest(this.rt), input: this.last };
+    const input = this.last === null ? null : this.held ? { ...this.last, held: true } : this.last;
+    return { now: runDigest(this.rt), input };
   }
 
   dispose(): void {

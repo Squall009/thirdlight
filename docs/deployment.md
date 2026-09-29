@@ -549,7 +549,7 @@ Optional: `THIRDLIGHT_MCP_CLIENT_ID` (recorded as the command origin),
 (`tl_inspect`, `tl_command`, `tl_diagnostics`, `tl_sessions`,
 `tl_play_start`/`tl_play_stop`, `tl_input_exercise`, `tl_game_control`,
 `tl_game_observe`, `tl_screenshot`, `tl_content_upload`, `tl_content_job`,
-`tl_content_query`, `tl_instance_buffer`).
+`tl_content_query`, `tl_instance_buffer`, `tl_playtest`).
 
 `tl_input_exercise` (phase 25.15) drives a play step by step. A frame may
 hold for `steps` steps (up to 7,200 in one call; its first step as written,
@@ -564,7 +564,30 @@ project's bindings. `tl_game_observe` lists the shown widgets' rectangles in
 game and applies its frames from the new run's first step;
 `tl_game_observe`'s `run.lastInput.digest` is the world's digest right after
 its last step, so the same frames run twice give the same digest when the game
-is deterministic.
+is deterministic. With `hold: true` (phase 25.17) the game holds right after
+the exercise's last step until the next exercise, which begins at exactly the
+next step: a tool can observe, decide and go on step for step, whatever the
+time between its calls. `tl_play_start {threads: "worker"|"single"}` picks
+where one play's simulation runs; start `variables` apply at the start and
+again at every restart (a replay, a shell's New game).
+
+**Headless play-tests (phase 25.17).** `node tools/playtest.mjs <game folder>
+--input script.json` (or the MCP tool `tl_playtest {frames}`) plays the game
+from its start with an input script — `tl_input_exercise` frames counted from
+the run's first step, as long as an hour — and prints JSON: per run the run
+digest and the observed fields (`--fields player,ui.values`, `--at 60,400`
+for observations inside the run) and whether the runs agreed. `--runs N`
+plays it N times, `--threads both` in the simulation worker and on a single
+thread; every run begins with a restart and the script is sent as exercises
+that hold the game in between, so the runs of a deterministic game give the
+same digests. `--driver bot.mjs` runs the project's own driver instead: a
+Node module of the game folder whose default export `async (game) => result`
+plays each run with `game.step(frames)` (returns the observation after them),
+`game.wait(n)`, `game.observe()` and `game.log()` — a genre's test bot is
+game code and lives in the game's repository; the engine ships none. Drivers
+run from the command line only (the MCP process runs no project code). With
+no editor open the backend plays in its headless editor; the game runs at its
+step rate. The exit status is 0 when every run finished and they agreed.
 
 `tl_screenshot` always answers: a capture the preview cannot make comes back
 as `relay_failed` with the preview's code in `cause` (`screenshot_failed`,

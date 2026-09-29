@@ -11,7 +11,9 @@
  *   save slot 1–99, in a project with a save schema (`content.saveSchema`) —
  *   loaded at the first step (the game migrates an older version); a
  *   document newer than the schema is refused;
- * - variables pass through (the runtime puts them in `ctx.save` at step 0);
+ * - variables pass through (the runtime puts them in `ctx.save` at step 0,
+ *   and again at every restart: phase 25.17);
+ * - phase 25.17: `threads` (worker | single) passes through;
  * - a mode is checked against `content.modes` when the project defines game
  *   modes, and noted as ignored otherwise (modes arrive with phase 23.10).
  *
@@ -77,6 +79,8 @@ export function resolvePlayStart(options: PlayStartOptions, project: PlayStartPr
   }
 
   if (options.variables !== undefined) out.variables = options.variables;
+  // Phase 25.17: a play-test's threading mode passes through (the page applies it over sim_thread).
+  if (options.threads !== undefined) out.threads = options.threads;
 
   if (options.mode !== undefined) {
     const modes = project.content['modes'];

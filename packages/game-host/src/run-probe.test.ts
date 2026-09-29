@@ -16,7 +16,14 @@ import { runDigest } from './step-digest';
 /** A runtime as the digest reads it: a step count, a run start, transforms, loaded scenes and spawned copies. */
 function fakeRuntime(state: { step: number; start: number; spawnBase: number; revision: number; objects: Record<string, number>; spawned: string[] }): Runtime & { step(): void } {
   let observer: ((s: number) => void) | null = null;
+  let held = false;
   return {
+    setDebugHold: (h: boolean) => {
+      held = h;
+    },
+    get debugHeld() {
+      return held;
+    },
     getDiagnostics: () => ({ ok: true, diagnostics: { stepIndex: state.step } }),
     runStart: () => ({ step: state.start, spawnBase: state.spawnBase }),
     forEachInterpolated: (fn: (id: string, p: number[], r: number[], s: number[]) => void) => {
@@ -66,6 +73,45 @@ describe('run digest (phase 25.16)', () => {
     const at5 = fakeRuntime({ ...state, step: 11, objects: { 'box-000001': 5 } });
     expect(read.input!.digest).toBe(runDigest(at5).digest);
     expect(read.now.digest).not.toBe(read.input!.digest);
+  });
+
+  it('phase 25.17: with hold the probe holds the game right after the last step; the next exercise lets go, the debugger\'s resume too', () => {
+    const state = { step: 10, start: 0, spawnBase: 0, revision: 1, objects: { 'box-000001': 0 }, spawned: [] as string[] };
+    const rt = fakeRuntime(state);
+    const probe = new RunProbe(rt);
+    probe.exerciseDone(8, 10, false, true);
+    rt.step(); // step 10 runs: the count is 11, the probe holds
+    expect(rt.debugHeld).toBe(true);
+    expect(probe.held).toBe(true);
+    expect(probe.read().input).toMatchObject({ toStep: 10, stepIndex: 11, held: true });
+    probe.release();
+    expect(rt.debugHeld).toBe(false);
+    expect(probe.held).toBe(false);
+    expect(probe.read().input!.held).toBeUndefined();
+    // Held again, then the debugger resumes: no longer held (and a later release leaves the debugger's hold alone).
+    probe.exerciseDone(11, 12, false, true);
+    rt.step();
+    rt.step();
+    expect(probe.held).toBe(true);
+    rt.setDebugHold!(false);
+    expect(probe.held).toBe(false);
+    rt.setDebugHold!(true);
+    probe.release();
+    expect(rt.debugHeld).toBe(true);
+    // Without hold nothing holds.
+    rt.setDebugHold!(false);
+    probe.exerciseDone(14, 14, false);
+    rt.step();
+    rt.step();
+    expect(rt.debugHeld).toBe(false);
+  });
+
+  it('D51 (phase 25.17): the run digest hashes the committed transforms, not the frame-timed interpolated ones', () => {
+    const state = { step: 40, start: 0, spawnBase: 0, revision: 1, objects: { 'box-000001': 1.5 }, spawned: [] as string[] };
+    const committed = fakeRuntime(state);
+    // The same state drawn at another interpolation alpha (a frame came at another time).
+    const blended = { ...committed, forEachCommitted: committed.forEachInterpolated, forEachInterpolated: (fn: (id: string, p: number[], r: number[], s: number[]) => void) => fn('box-000001', [1.2, 0, 0], [0, 0, 0, 1], [1, 1, 1]) } as unknown as Runtime;
+    expect(runDigest(blended).digest).toBe(runDigest(committed).digest);
   });
 
   it('the relay\'s restart: the first step asks for it, the frames begin at the next (the new run\'s first step)', () => {

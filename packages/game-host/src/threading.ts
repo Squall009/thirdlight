@@ -9,7 +9,8 @@
  *   the browser cannot start the worker, and a choice for debugging.
  *
  * The page URL flag `?threads=off` (or `single`/`main`) forces single-thread
- * mode, `?threads=on`/`worker` asks for the worker; otherwise the project
+ * mode, `?threads=on`/`worker` asks for the worker; otherwise a play's
+ * start option `threads` (phase 25.17: a play-test), then the project
  * setting `sim_thread` (1 worker, 2 main thread) decides; absent: worker.
  *
  * The transform stream uses a SharedArrayBuffer only where the page is
@@ -37,11 +38,13 @@ export function threadingFromUrl(search: string): ThreadingMode | null {
 }
 
 /** Decide the mode (and say why — the page logs it). */
-export function resolveThreadingMode(input: { url: string; setting?: number | undefined; workerAvailable: boolean }): { mode: ThreadingMode; reason: string } {
+export function resolveThreadingMode(input: { url: string; setting?: number | undefined; workerAvailable: boolean; start?: ThreadingMode }): { mode: ThreadingMode; reason: string } {
   const fromUrl = threadingFromUrl(input.url);
   const fromSetting = typeof input.setting === 'number' ? (SIM_THREAD_SETTING_VALUES[input.setting] ?? null) : null;
-  const wanted: ThreadingMode = fromUrl ?? fromSetting ?? 'worker';
-  const source = fromUrl !== null ? `the page URL (?${THREADS_URL_PARAM}=)` : fromSetting !== null ? 'the project setting sim_thread' : 'the default';
+  // Phase 25.17: a play's start option (a play-test asks for a mode) comes between the URL flag and the setting.
+  const fromStart = input.start === 'worker' || input.start === 'single' ? input.start : null;
+  const wanted: ThreadingMode = fromUrl ?? fromStart ?? fromSetting ?? 'worker';
+  const source = fromUrl !== null ? `the page URL (?${THREADS_URL_PARAM}=)` : fromStart !== null ? 'the play start (threads)' : fromSetting !== null ? 'the project setting sim_thread' : 'the default';
   if (wanted === 'worker' && !input.workerAvailable) return { mode: 'single', reason: `${source} asks for the worker, but this browser cannot start one: single thread` };
   return { mode: wanted, reason: source };
 }

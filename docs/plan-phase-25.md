@@ -182,7 +182,8 @@ boundary it changes (Playwright for any editor surface).
 | 25.14 | done 2026-09-29: `cameraRegion` component (a world-axis box; dead zone, bounds from the region, distance along the camera offset, blended on enter and leave, priority then entered last; one or every track camera), track `lookAhead`/`lookAheadMax`/`lookAheadSmoothing` (per axis, vertical = `[0, t, 0]`); Scene handles: the dead zone around the target (handle `anchor`), a new `bounds` corner handle, the region's size; Inspector, create menu, observation `camera.region`; brain unit tests, `m25-movement/camera-regions.test.ts` (2D/3D page/worker/replay digests), handle tests, `camera-regions.e2e.ts` (editor, Play position and pixels) |
 | 25.15 | done 2026-09-29: relay frames `{stepOffset, steps?, actions?, pointer?, gamepad?, ui?}`: run length (≤ 7,200 steps a call, no overlap; the backend waits by the span), gaps neutral (tool text); `ui` edges drive menus, pause and resume (frames of a paused game take steps' places); the pointer through the UI hit test (a click on a UI button clicks it, the game never sees that press; `pointer().overUi`, real mouse too); `ui.elements` rectangles in `tl_game_observe`; a virtual standard gamepad read through the bindings on the page; unit tests, `relay-input.e2e.ts` (MCP stdio → HTTP relay → editor, worker and single thread) |
 | 25.16 | done 2026-09-29: `tl_game_observe` `run {stepIndex, runStep, digest, lastInput?}` — the run digest (steps from the run's start, a run's spawned copies by their number in it, loaded scenes instead of the set's revision) now and right after the last exercise's last step (a step observer in the simulation's realm); `tl_input_exercise {restart: true}` restarts the game and applies the frames from the new run's first step; `relay-input.e2e.ts`: the same frames after a restart give the same digest at the same run step, other frames another, and the worker and a single thread agree; unit tests |
-| 25.17–25.22 | — |
+| 25.17 | done 2026-09-29: the headless play-test runner (`tools/playtest.mjs` and `tl_playtest`, one runner in `mcp-adapter/src/playtest.ts`): a game folder, a start (scene, mode, variables), an input script (relay frames up to an hour, sent as exercises that hold the game in between) or a driver module of the game folder (CLI), an observation spec (fields, steps); JSON per run (run digests, fields, script errors) and whether runs agree; `tl_input_exercise {hold}`, `tl_play_start {threads}`; start variables set again at every restart (replay, New game); D51 fixed (digests hashed interpolated transforms); `playtest.e2e.ts` (CLI headless against a real backend, both threading modes; MCP stdio), unit tests |
+| 25.18–25.22 | — |
 | 25.23 | moved to phase 26 (26.13), owner 2026-09-29 |
 | 25.25 | — |
 
@@ -1181,3 +1182,43 @@ boundary it changes (Playwright for any editor surface).
   its brush a module (owner): trim-sheet environment pieces blend by vertex
   colour with the same node; painting mesh vertex colours in the editor and
   decals are a later phase (roadmap).
+- 2026-09-29 (25.17): **the runner is a client of the play routes, in lockstep.**
+  One runner (`mcp-adapter/src/playtest.ts`, no Node builtins) serves the
+  MCP tool and the CLI (built to `dist/mcp-adapter/playtest.mjs`). A run is
+  an exercise with `restart`; every exercise asks for the new `hold` (the
+  run probe holds the simulation right after the exercise's last step, the
+  runtime stops that frame's remaining steps, and the next exercise begins at
+  exactly the next step instead of one step later), so a script longer than
+  one relay (7,200 steps, 600 frames, 16 KiB) is split into exercises
+  between frames with nothing inserted (tested: split and whole give the
+  same digest), observations at requested run steps are exact, and a driver
+  decides step by step whatever the wall-clock time between its calls. The
+  game still runs at its step rate while an exercise runs (no fast-forward:
+  the browser's clock drives the steps; not done). A pad or pointer button
+  held across a split presses again (each exercise's pad and pointer start at
+  rest); splits prefer frame starts. A game that starts paused (a title
+  screen) is refused (a restart waits for a running step).
+- 2026-09-29 (25.17): **drivers run from the command line only.** A driver is
+  the project's own Node module (`--driver bot.mjs`, default export
+  `async (game) => result`, `game.step/wait/observe/log`); the CLI loads it.
+  `tl_playtest` takes input scripts and refuses a driver with the CLI's
+  command: packages load no code by a computed path (dependencies §5.1, the
+  boundary check) and the MCP process runs no project code outside the
+  game's own sandbox. For review: a driver in the game's sandbox (a script
+  that makes the next step's input) would bring drivers to MCP.
+- 2026-09-29 (25.17): **start variables apply at every start.** Since 24.7
+  every start is one path, but a restart (the replay, a shell's New game or
+  Restart, `ctx.lifecycle.restart`) kept `ctx.save` as the run left it, so a
+  test start's variables held only for the first run. A restart now sets the
+  start's variables again (other saved values stay, as across a replay).
+  `tl_play_start`/the start option `threads` (`worker`|`single`) picks a
+  play's simulation thread over `sim_thread` (the page URL flag still wins).
+- 2026-09-29 (25.17): **the walk-distance question from 25.15** was not a
+  simulation defect. Measured with the runner: runs restarted from the same
+  state agree to the bit in both threading modes; two walks of one run from
+  different rests (the starter's step at x 6-7 stopped the second in the
+  25.15 test; without it the character's height on the ground still differs:
+  0.90982 m after the restart's placement, 0.91000 m after a walk) differ by
+  0.6 mm in 2.9 m — a different start, not a different result for the same
+  start. Looking at it found D51: the run digest hashed interpolated
+  transforms, so equal runs gave different digests while something moved.

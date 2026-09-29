@@ -569,7 +569,8 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
 
     // Phase 22.0: the simulation runs in a worker unless the page (?threads=off),
     // the project (sim_thread) or the browser says otherwise.
-    const threading = resolveThreadingMode({ url: pageSearch(), setting: settings.sim_thread, workerAvailable: browserWorkerAvailable() });
+    // Phase 25.17: a play-test start may ask for a mode (over the setting; the URL flag still wins).
+    const threading = resolveThreadingMode({ url: pageSearch(), setting: settings.sim_thread, workerAvailable: browserWorkerAvailable(), ...(startBlock?.threads !== undefined ? { start: startBlock.threads } : {}) });
     let threadMode = threading.mode;
     let threadReason = threading.reason;
     const isolated = (globalThis as { crossOriginIsolated?: unknown }).crossOriginIsolated === true;
@@ -1058,7 +1059,7 @@ export function bootstrapPreviewM3(): void {
   });
 
   bridge.on('tl.input.request', (m) => {
-    const body = m as { requestId: string; frames: readonly IncomingRelayFrame[]; restart?: boolean };
+    const body = m as { requestId: string; frames: readonly IncomingRelayFrame[]; restart?: boolean; hold?: boolean };
     if (handle === null) {
       bridge.sendInputResult(playId, body.requestId, notReady);
       return;
@@ -1071,7 +1072,8 @@ export function bootstrapPreviewM3(): void {
         bridge.sendInputResult(playId, body.requestId, { ok: true, appliedFromStep: from, appliedToStep: to });
       },
       // Phase 25.16: restart the game first (the replay); the frames begin at the new run's first step.
-      { restart: body.restart === true },
+      // Phase 25.17: hold the game right after the last step (lockstep tools: the next exercise begins at the next step).
+      { restart: body.restart === true, hold: body.hold === true },
     );
     if (!accepted) bridge.sendInputResult(playId, body.requestId, { ok: false, error: { code: 'input_relay_conflict', message: 'a relay is already active' } });
   });
@@ -1288,6 +1290,8 @@ interface PlayStartBlock {
   projectSave?: Record<string, unknown>;
   projectSaveSlot?: number;
   mode?: string;
+  /** Phase 25.17: where this play's simulation runs (over the project setting). */
+  threads?: 'worker' | 'single';
 }
 
 /** Phase 23.8: the host's start options from the resolved block (variables go to the runtime separately). */

@@ -348,15 +348,19 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
         return;
       case 'relay': {
         if (m.uiTargets !== undefined) uiTargets = m.uiTargets;
-        const d = rt.getDiagnostics();
-        const first = (d.ok ? d.diagnostics.stepIndex : 0) + 1;
         const restart = m.restart === true;
+        const hold = m.hold === true;
+        // Phase 25.17: a game held by the last exercise starts this one at exactly the next step.
+        const held = relay?.testActive !== true && probe?.held === true;
+        if (held) probe?.release();
+        const d = rt.getDiagnostics();
+        const first = (d.ok ? d.diagnostics.stepIndex : 0) + (held ? 0 : 1);
         const accepted =
           relay?.beginTest(
             m.frames,
             first,
             (from, to) => {
-              probe?.exerciseDone(from, to, restart);
+              probe?.exerciseDone(from, to, restart, hold);
               post({ t: 'relay.done', from, to });
             },
             restart,

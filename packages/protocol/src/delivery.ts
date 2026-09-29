@@ -337,6 +337,8 @@ export interface InputRelayRequest {
   frames: readonly RelayFrame[];
   /** Phase 25.16: restart the game first (the replay); the frames begin at the new run's first step. */
   restart?: boolean;
+  /** Phase 25.17: hold the game right after the last step, until the next exercise (which begins at exactly the next step). */
+  hold?: boolean;
 }
 
 const RELAY_FRAME_FIELDS = new Map<string, string>([
@@ -351,6 +353,7 @@ const RELAY_BODY_FIELDS = new Map<string, string>([
   ['mode', '"exclusive-test"'],
   ['frames', '1–600 ascending step-indexed frames'],
   ['restart', 'optional boolean: restart the game first; the frames begin at the new run\'s first step (phase 25.16)'],
+  ['hold', 'optional boolean: hold the game right after the last step until the next exercise, which begins at exactly the next step (phase 25.17)'],
 ]);
 const JUMP_SET: readonly string[] = ['none', 'pressed', 'held', 'released'];
 const MAX_STEP_OFFSET = 2 ** 53 - 1;
@@ -501,7 +504,11 @@ export function parseInputRelayRequest(
   if (restart !== undefined && typeof restart !== 'boolean') {
     return { ok: false, error: { code: 'field_type', cls: 'validation', message: 'restart must be true or false', path: '/restart', found: typeof restart, expected: 'boolean' } };
   }
-  return { ok: true, request: { mode: INPUT_RELAY_MODE, frames, ...(restart === true ? { restart: true } : {}) } };
+  const hold = (shape.value as Record<string, unknown>)['hold'];
+  if (hold !== undefined && typeof hold !== 'boolean') {
+    return { ok: false, error: { code: 'field_type', cls: 'validation', message: 'hold must be true or false', path: '/hold', found: typeof hold, expected: 'boolean' } };
+  }
+  return { ok: true, request: { mode: INPUT_RELAY_MODE, frames, ...(restart === true ? { restart: true } : {}), ...(hold === true ? { hold: true } : {}) } };
 }
 
 /** The §18.1.2 result shape (built by the backend). */

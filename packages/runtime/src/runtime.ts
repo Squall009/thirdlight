@@ -1386,6 +1386,8 @@ class RuntimeInstance implements Runtime {
   private stepWatcher: ((stepIndex: number) => boolean) | null = null;
   /** Phase 25.16: told after every executed step (tools: the run digest after an input exercise); never holds. */
   private stepObserver: ((stepIndex: number) => void) | null = null;
+  /** Phase 23.8: the start's injected script variables (phase 25.17: applied again at every restart). */
+  private startVariables: Readonly<Record<string, unknown>> | undefined;
   /** Phase 25.16: the step count when this run began (0; a restart's boundary) and the last spawned copy's number then. */
   private runStartStep = 0;
   private runSpawnBase = 0;
@@ -1706,7 +1708,9 @@ class RuntimeInstance implements Runtime {
     this.timing = args.timing;
     this.actions = args.actions;
     // Phase 23.8: injected variables are the scripts' saved values from step 0.
-    if (args.variables !== undefined) for (const [k, v] of Object.entries(args.variables)) this.saveControl.set(k, v);
+    // Phase 25.17: and again at every restart (a replay, a shell's new game), so every start begins with them.
+    this.startVariables = args.variables;
+    this.applyStartVariables();
     this.physics = args.physics;
     if (args.physics3d !== undefined) {
       this.physics3d = args.physics3d;
@@ -2665,6 +2669,19 @@ class RuntimeInstance implements Runtime {
     return true;
   }
 
+  /** Phase 25.17 (D51): every entity's committed transform (the last step's state; no interpolation). */
+  forEachCommitted(visit: InterpolatedVisitor): boolean {
+    if (this.stateName === 'disposed') return false;
+    const curr = this.stateName === 'failed' && this.committed !== null ? this.committed : this.curr;
+    const order = this.order;
+    for (let i = 0; i < order.length; i += 1) {
+      const id = order[i]!;
+      // alpha 0 reads the committed transform as it is.
+      if (this.interpolateInto(id, curr, curr, 0)) visit(id, this.interpPosition, this.interpRotation, this.interpScale);
+    }
+    return true;
+  }
+
   /**
    * Phase 21.2: one entity's interpolated transform into the caller's arrays
    * (no allocation). False when the runtime is disposed or has no such entity.
@@ -3107,6 +3124,12 @@ class RuntimeInstance implements Runtime {
         return; // phase 23.0: a 3D physics fail-stop (the only way a plain step stops)
       }
       this.stepObserver?.(this.stepIndex);
+      // Phase 25.17: an observer that held the simulation (an input exercise with `hold`) stops the frame's steps right there.
+      if (this.debugHold) {
+        this.debugSteps = 0;
+        held = true;
+        break;
+      }
       // Phase 19.2: a breakpoint holds right after the step it hit.
       if (this.stepWatcher !== null && this.stepWatcher(this.stepIndex)) {
         this.debugHold = true;
@@ -3600,6 +3623,11 @@ class RuntimeInstance implements Runtime {
     });
   }
 
+  /** Phase 23.8 / 25.17: the start's injected variables into ctx.save (at the start and at every restart). */
+  private applyStartVariables(): void {
+    if (this.startVariables !== undefined) for (const [k, v] of Object.entries(this.startVariables)) this.saveControl.set(k, v);
+  }
+
   /**
    * Phase 23.10: restart the run, at
    * a step boundary: the start scenes (later loads unloaded, spawned copies
@@ -3607,10 +3635,13 @@ class RuntimeInstance implements Runtime {
    * (their reset hook, as a replay), cameras, animators, sockets, blocks,
    * cells, material values, the UI and the start mode as at the start, the
    * character placed where it started (from rest). `ctx.save` values stay (as
-   * across a replay). Returns false after a fail-stop.
+   * across a replay), except that the start's variables are set again (phase
+   * 25.17). Returns false after a fail-stop.
    */
   private restartRun(ordinal: number): boolean {
     this.pendingRestart = false;
+    // Phase 25.17: every start begins with the start's variables (other ctx.save values stay, as across a replay).
+    this.applyStartVariables();
     // Phase 25.16: a new run — its steps count from here (tools compare a run with its replay by run step).
     this.runStartStep = ordinal - 1;
     this.listedScene = null;

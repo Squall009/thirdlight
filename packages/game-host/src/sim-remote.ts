@@ -542,7 +542,7 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
       };
       sentTargets = '';
       const uiTargets = targetsNow();
-      post({ t: 'relay', frames, ...(uiTargets !== undefined ? { uiTargets } : {}), ...(options?.restart === true ? { restart: true } : {}) });
+      post({ t: 'relay', frames, ...(uiTargets !== undefined ? { uiTargets } : {}), ...(options?.restart === true ? { restart: true } : {}), ...(options?.hold === true ? { hold: true } : {}) });
       return true;
     },
     get inputTestActive() {
