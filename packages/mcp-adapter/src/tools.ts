@@ -284,9 +284,9 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'actionMap? (gameplay|ui: the only input map active while it has focus), theme? (uiThemeId), scale? {reference: [w, h], mode: fit|width|height}, styles? {name: style}, icons? {name: {asset: texture, rect?: [x, y, w, h]}}, ' +
       'tweens? {name: {kind: fade|slide|scale|stamp, duration 0.01-10 s, delay?, easing?: linear|easeIn|easeOut|easeInOut|back, from?, to?, direction?: left|right|up|down, distance?}}, showTween?, hideTween?, initialFocus? (widget id), onCancel? (action), root: widget}} ' +
       'creates or replaces one (whole JSON, ≤ 48 KiB, ≤ 512 widgets, depth ≤ 16); deleteUiDocument {uiDocumentId}; setUiTheme {theme: {uiThemeId, name, styles, icons?}}; deleteUiTheme {uiThemeId}. ' +
-      'A widget: {type: panel|stack|grid|text|image|bar|button|list|input, id?, anchor? [0-1, 0-1], pivot?, offset? [px, px], size? [w|null, h|null], stretch?: x|y|both, margin? [l, t, r, b], grow?, style?: name|[names], css?: style, ' +
+      'A widget: {type: panel|stack|grid|text|image|bar|button|list|input, id?, anchor? [0-1, 0-1], pivot?, offset? [px, px], size? [w|null|{bind}, h|null|{bind}] (a bound axis is the px number the view model holds), stretch?: x|y|both, margin? [l, t, r, b], grow?, style?: name|[names], css?: style, ' +
       'visible?/enabled?: bool|{bind}, focusable?, nav? {up, down, left, right, next, prev: widget ids}, worldAnchor? {entity: id|{bind} | point: [x, y, z], offset?, clamp?, margin?, indicator?: child id}, onFocus?, children? (panel anchors them; stack direction row|column, gap, align, justify, wrap; grid columns, cellSize), ' +
-      'text (rich: [b] [i] [color=#hex] [size=N] [icon=name], {path} values, {action:name} the glyph of an input action), image {image: texture|{bind}, slice? [t, r, b, l], fit?, tint?}, bar {value, min?, max? (numbers or {bind}), direction?: right|left|up|down, shape?: linear|radial, fillColor?, fillStyle?}, ' +
+      'text (rich: [b] [i] [color=#hex] [size=N] [icon=name], {path} values, {action:name} the glyph of an input action), image {image: texture|{bind}, slice? [t, r, b, l], fit?, tint?}, bar {value, min?, max? (numbers or {bind}), direction?: right|left|up|down, shape?: linear|radial, fillColor?, fillStyle?, startAngle? (radial, degrees, 0 = up: a number or {bind})}, ' +
       'button {text?, children?, onClick}, list {items: {bind}, template: widget ($item.x, $index in its bindings), direction?: row|column|grid}, input {value?, placeholder?, maxLength?, onSubmit}}. ' +
       'A style (never raw CSS): color, background, backgroundImage (texture) + slice, opacity, font (a font asset or sans|serif|mono|rounded), fontSize, bold, italic, align, lineHeight, letterSpacing, padding, radius, borderWidth, borderColor, textShadow, shadow, and hover|focus|pressed|disabled variants. ' +
       'An action: {do: "event", name, value?} (a UI event for scripts on the next input frame), {do: "engine", action: resume|pause|restartLevel|newGame|continue|quitToTitle|settings|load|save|back|setSetting|mute|unmute|rebind|cancelRebind|resetBindings|open|nextScene, screen? (open: title|pause|settings|controls|save|load), slot?, setting?, value?, step?, input? (rebind/resetBindings: the input action), device?, index?, part?, policy? swap|refuse|allow}, ' +
@@ -387,7 +387,10 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'kind "texture" takes a PNG, JPEG, WebP or a Basis Universal KTX2 (ETC1S/UASTC with its mips; a 2D array is a texture array); ktx2 "color"|"normal"|"data" encodes a PNG/JPEG to KTX2 first. ' +
       'pack (instead of dataBase64/projectPath) makes a KTX2 texture from PNG/JPEG texture assets already in the project, channel by channel — ' +
       'several layers make a texture array (graph materials sample a layer: Sample texture / Normal map / Triplanar "layer"); the result carries packedFrom, which the publishAsset args (kind "texture") must include. ' +
-      'kind "font" inspects a TrueType (.ttf), OpenType (.otf), WOFF2 or WOFF font (<= 4 MiB; at most 16 fonts per project) for the project UI; publish it with kind "font".',
+      'kind "font" inspects a TrueType (.ttf), OpenType (.otf), WOFF2 or WOFF font (<= 4 MiB; at most 16 fonts per project) for the project UI; publish it with kind "font". ' +
+      'jobExport (phase 25.22) imports an asset tool\'s job export: a folder or a .zip holding a GLB and manifest.json {name, files: [{path, role, digest (sha256 hex)}], triangles?, lods?} ' +
+      '(exactly one file with role "model", a .glb; every listed file is checked against its digest; other roles are checked, not imported). jobExport {path} names a folder or .zip in the game folder; ' +
+      'jobExport {} with dataBase64 uploads a zip. The result is the model\'s proposal (plus sourcePath for a folder: include it in the publishAsset args) and jobExport {name, files, triangles?, lods?, inspected {triangles}, warnings}; commit with publishAsset kind "model".',
     inputSchema: {
       type: 'object',
       properties: {
@@ -416,6 +419,12 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
             encoding: { type: 'string', enum: ['color', 'normal', 'data'] },
           },
           required: ['layers', 'encoding'],
+          additionalProperties: false,
+        },
+        jobExport: {
+          type: 'object',
+          description: 'an asset tool\'s job export: {path} a folder or .zip relative to the game folder, or {} with dataBase64 of a zip',
+          properties: { path: { type: 'string' } },
           additionalProperties: false,
         },
         animation: {
@@ -1114,6 +1123,31 @@ async function contentUpload(ctx: McpContext, a: Record<string, unknown>): Promi
     const body: Record<string, unknown> = { layers: a.pack.layers, encoding: a.pack.encoding };
     if (a.displayName !== undefined) body.displayName = a.displayName;
     const res = await ctx.client.packTexture(ctx.projectId, body);
+    return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
+  }
+  // Phase 25.22: an asset tool's job export (a folder or zip: a GLB and manifest.json).
+  if (a.jobExport !== undefined) {
+    if (!isObj(a.jobExport)) return toolError('jobExport must be an object {path?}');
+    if (a.projectPath !== undefined || a.kind !== undefined || a.ktx2 !== undefined || a.animation !== undefined) return toolError('jobExport goes alone (with dataBase64 of a zip, or its own path; the model is kind "model")');
+    const body: Record<string, unknown> = {};
+    if (a.displayName !== undefined) body.displayName = a.displayName;
+    if (a.jobExport.path !== undefined) {
+      if (a.dataBase64 !== undefined) return toolError('give jobExport.path or dataBase64 (a zip), not both');
+      body.path = a.jobExport.path;
+    } else {
+      if (typeof a.dataBase64 !== 'string' || a.dataBase64.length === 0) return toolError('jobExport needs a path, or dataBase64 of a zip');
+      const zip = decodeBase64(a.dataBase64);
+      if (zip === null || zip.length === 0) return toolError('dataBase64 is not valid base64');
+      if (zip.length > CONTENT_STAGE_MAX) return toolError(`dataBase64 exceeds the ${CONTENT_STAGE_MAX}-byte stage cap`);
+      const created = await ctx.client.createStage(ctx.projectId, {});
+      if (!(isObj(created.body) && created.body.ok === true && typeof created.body.stageId === 'string')) return surfaceBackendError(created);
+      for (let offset = 0; offset < zip.length; offset += CONTENT_UPLOAD_FRAME_MAX) {
+        const put = await ctx.client.uploadFrame(ctx.projectId, created.body.stageId, offset, zip.length, zip.subarray(offset, Math.min(offset + CONTENT_UPLOAD_FRAME_MAX, zip.length)));
+        if (!(isObj(put.body) && put.body.ok === true)) return surfaceBackendError(put);
+      }
+      body.stageId = created.body.stageId;
+    }
+    const res = await ctx.client.inspectJobExport(ctx.projectId, body);
     return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
   }
   if (a.projectPath !== undefined) {

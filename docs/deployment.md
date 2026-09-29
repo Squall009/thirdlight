@@ -855,6 +855,49 @@ shows `KTX2 · … · n layers` and the textures it was packed from. MCP:
 encoding}}`, then `publishAsset` with the returned `packedFrom`. The encoder
 takes at most 12 Mpix across the layers (four layers of 1024²).
 
+### Job exports from asset tools (phase 25.22)
+
+An asset tool (an art pipeline, a generator, a hand-made delivery) can hand
+over a model as a **job export**: a folder, or a zip of one, holding a GLB and
+a `manifest.json` at its root (a zip may wrap it in one top folder). The
+engine reads only this shape, never the tool:
+
+```json
+{
+  "name": "Crate",
+  "files": [
+    { "path": "crate.glb",   "role": "model",   "digest": "<sha256 hex>" },
+    { "path": "preview.png", "role": "preview", "digest": "sha256:<hex>" }
+  ],
+  "triangles": 1180,
+  "lods": [1180, 560, 210]
+}
+```
+
+- `name` is the asset's suggested name; `files` lists 1–64 files by path
+  inside the export, a role (a lowercase word) and the SHA-256 of their bytes.
+  Exactly one file has the role `model` and is a `.glb`: it becomes the
+  asset. Every listed file must be there with its digest (an incomplete or
+  changed export is refused, `content_invalid`); other roles are checked and
+  listed, not imported. `triangles` (the model's triangle count) and `lods`
+  (triangles per level, LOD0 first) are optional claims: the response puts the
+  inspected count next to them and warns when they differ. Other keys are
+  ignored and listed back (`ignoredKeys`).
+- Route: `POST /api/v1/projects/<id>/content/job-exports/inspect` with
+  `{path}` (a folder or `.zip` relative to the game folder) or `{stageId}` (a
+  zip uploaded to a stage), `displayName?`. The model goes through the
+  ordinary import: from a folder it is referenced in place (the response has
+  `sourcePath`), from a zip it is stored like an upload. Nothing is recorded
+  until `publishAsset` (the same command as any import), with `sourcePath`
+  when given.
+- MCP: `tl_content_upload {jobExport: {path: "exports/crate"}}` (or a `.zip`
+  path), or `{jobExport: {}, dataBase64: <zip>}`; then `tl_command
+  publishAsset`. There is no editor button for it yet: the Assets tab's
+  "from project folder…" still imports the GLB itself.
+- Limits: a manifest up to 64 KiB, files up to 128 MB in a folder, an
+  uploaded zip up to the 32 MB stage limit; zips are read with stored or
+  deflated entries (no zip64, no encryption).
+
 ### FBX
 
 An `.fbx` can be imported like a `.glb` (upload, "from project folder…", or
@@ -3674,6 +3717,11 @@ exported games.
   engine actions (resume, quit to title, save, load, a setting…).
 - Fonts (TTF, OTF, WOFF2, WOFF) import as `font` assets and are used by name
   in a style's `font`.
+- Bound size and gauge angle (phase 25.22): each axis of a widget's `size`
+  may be `{ "bind": "path" }` — the px number the view model holds (anything
+  else sizes that axis to its content; a stretched axis keeps its stretch) —
+  and a radial bar's `startAngle` may be bound the same way. In the UI editor,
+  type a path into the size field's w or h box, or tick "bind" by Start angle.
 - Engine limits: 64 documents, 48 KiB and 512 widgets per document, a 64 KiB
   view model.
 

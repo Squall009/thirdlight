@@ -41,8 +41,12 @@ import {
   checkUploadFrame,
   parseAssetByteParams,
   parseContentAssetsQuery,
+  parseJobExportManifest,
+  parseJobExportRequest,
   parseJobId,
   parseProjectFileInspectRequest,
+  JOB_EXPORT_LIMITS,
+  JOB_EXPORT_MANIFEST,
   parseProjectFilesQuery,
   parseStageCreateRequest,
   parseStageId,
@@ -65,6 +69,12 @@ import { isFbx, type FbxConverter } from './fbx';
 import { KTX2_ENCODER, type Ktx2Mode, type PackLayer, type PackSource, type TextureEncoder } from './texture-encode';
 import { THUMBNAIL_BYTES_MAX, type ThumbnailCache } from './thumbnails';
 import { BAKE_PACKAGE_BYTES_MAX, type BakeService } from './bake';
+import { zipEntries, zipRead, type ZipEntry } from './zip-read';
+
+/** Phase 25.22: the largest file of a job export read (the FBX/KTX2 conversion source bound). */
+const MAX_JOB_EXPORT_FILE_BYTES = 134_217_728;
+/** Phase 25.22: what the job-export route reads of a proposal (model, or any kind the inspector returned). */
+type ImportedProposalView = { readonly proposalId: string; readonly status: string; readonly sourceDigest: string; readonly metrics?: { readonly triangles?: number }; readonly inspection: unknown };
 
 // ---- error surfacing (workspace/command codes → session-layer shape) ----------
 
@@ -615,7 +625,13 @@ export class ContentRoutes {
       await this.packTexture(req, res, projectId);
       return true;
     }
-    // GET /api/v1/projects/:projectId/content/project-files?dir=
+    // Phase 25.22: POST /api/v1/projects/:projectId/content/job-exports/inspect (an asset tool's job export: a GLB + manifest.json)
+    if (n === 7 && parts[5] === 'job-exports' && parts[6] === 'inspect') {
+      if (method !== 'POST') return this.methodNotAllowed(res, 'POST');
+      await this.inspectJobExport(req, res, projectId);
+      return true;
+    }
+        // GET /api/v1/projects/:projectId/content/project-files?dir=
     if (n === 6 && parts[5] === 'project-files') {
       if (method !== 'GET') return this.methodNotAllowed(res, 'GET');
       this.listProjectFiles(req, res, projectId, query);
@@ -956,6 +972,181 @@ export class ContentRoutes {
         ? { ...p, inspection: { nodeNames: [], materialNames: [], clipNames: [], sceneCount: (p.inspection as { sceneCount: number }).sceneCount, truncated: true } }
         : p;
     this.deps.sendJson(res, 200, { ok: true, sourcePath: result.sourcePath, proposal, truncated: proposal !== p, jobId: job.jobId });
+  }
+
+  /**
+   * Phase 25.22: inspect an asset tool's job export — a folder or a zip (in
+   * the game folder, or an uploaded stage) holding a GLB and `manifest.json`
+   * (`@thirdlight/protocol` job-export: name, files with role and digest,
+   * triangles?, lods?). Every listed file is checked against its digest; the
+   * one `model` file goes through the ordinary inspection: in a folder it is
+   * referenced in place (the proposal carries `sourcePath`), from a zip it is
+   * staged, inspected and published as a blob, as an upload is. Nothing else
+   * is written: the caller commits it with the ordinary `publishAsset`
+   * command. The response carries `jobExport` (the manifest's facts, the
+   * checked files and the inspected triangle count next to the claimed one).
+   */
+  private async inspectJobExport(req: IncomingMessage, res: ServerResponse, projectId: string): Promise<void> {
+    const auth = this.deps.requireAuth(req, projectId, false);
+    if (auth !== null) return this.deps.sendError(res, auth);
+    const body = await this.readJsonBody(req, res);
+    if (body === null) return;
+    const parsed = parseJobExportRequest(body);
+    if (!parsed.ok) return this.deps.sendError(res, parsed.error);
+    const request = parsed.request;
+    const refused = (message: string, path = '/path'): void => {
+      this.deps.onJobFailed?.(projectId, 'inspect', 'content_invalid', message);
+      this.deps.sendError(res, sessionError('content_invalid', 'validation', `job export: ${message}`, { path }));
+    };
+    type Read = { ok: true; digest: string; byteLength: number; bytes?: Uint8Array } | { ok: false; error: SessionError };
+    /** A file of the export: its digest and size (a zip entry's bytes too). */
+    let fileOf: (path: string, maxBytes: number, wantBytes: boolean) => Read;
+    // A folder: the game-folder path the model is referenced from in place.
+    let folder: string | null = null;
+    const sha = (b: Uint8Array): string => createHash('sha256').update(b).digest('hex');
+    if (request.path !== undefined && !/\.zip$/i.test(request.path)) {
+      const dir = request.path;
+      folder = dir;
+      fileOf = (path, maxBytes, wantBytes) => {
+        const src = this.deps.service.conversionSource(projectId, `${dir}/${path}`);
+        if (!src.ok) return { ok: false, error: commandErrorToSession(src.error) };
+        if (src.byteLength > maxBytes) return { ok: false, error: sessionError('content_invalid', 'validation', `job export: ${path} is ${src.byteLength} bytes (at most ${maxBytes})`, { path: '/path' }) };
+        if (!wantBytes) return { ok: true, digest: src.digest, byteLength: src.byteLength };
+        let bytes: Uint8Array;
+        try {
+          bytes = new Uint8Array(readFileSync(src.real));
+        } catch {
+          return { ok: false, error: sessionError('path_rejected', 'validation', `job export: ${path} could not be read`, { path: '/path' }) };
+        }
+        const digest = sha(bytes);
+        if (digest !== src.digest) return { ok: false, error: sessionError('asset_source_changed', 'conflict', `job export: ${path} changed while it was read; try again`, { path: '/path' }) };
+        return { ok: true, digest, byteLength: bytes.length, bytes };
+      };
+    } else {
+      let zip: Uint8Array;
+      if (request.path !== undefined) {
+        const src = this.deps.service.conversionSource(projectId, request.path);
+        if (!src.ok) return this.deps.sendError(res, commandErrorToSession(src.error));
+        try {
+          zip = new Uint8Array(readFileSync(src.real));
+        } catch {
+          return this.deps.sendError(res, sessionError('path_rejected', 'validation', `job export: ${request.path} could not be read`, { path: '/path' }));
+        }
+      } else {
+        const staged = this.deps.service.readStage(projectId, request.stageId!);
+        if (!staged.ok) return this.deps.sendError(res, commandErrorToSession(staged.error));
+        zip = staged.bytes;
+      }
+      const listed = zipEntries(zip);
+      if (!listed.ok) return refused(listed.message, request.path !== undefined ? '/path' : '/stageId');
+      const byName = new Map<string, ZipEntry>();
+      for (const e of listed.value) if (!e.name.endsWith('/')) byName.set(e.name, e);
+      // The manifest at the root, or in the zip's one top folder.
+      let prefix = '';
+      if (!byName.has(JOB_EXPORT_MANIFEST)) {
+        const tops = [...byName.keys()].filter((k) => /^[^/]+\/manifest\.json$/.test(k));
+        if (tops.length !== 1) return refused(`the zip has no ${JOB_EXPORT_MANIFEST} at its root (or in its one top folder)`, request.path !== undefined ? '/path' : '/stageId');
+        prefix = tops[0]!.slice(0, -JOB_EXPORT_MANIFEST.length);
+      }
+      fileOf = (path, maxBytes) => {
+        const e = byName.get(prefix + path);
+        if (e === undefined) return { ok: false, error: sessionError('content_invalid', 'validation', `job export: ${path} is not in the zip`, { path: '/path' }) };
+        const r = zipRead(zip, e, maxBytes);
+        if (!r.ok) return { ok: false, error: sessionError('content_invalid', 'validation', `job export: ${r.message}`, { path: '/path' }) };
+        return { ok: true, digest: sha(r.value), byteLength: r.value.length, bytes: r.value };
+      };
+    }
+    // The manifest.
+    const m = fileOf(JOB_EXPORT_MANIFEST, JOB_EXPORT_LIMITS.manifestBytes, true);
+    if (!m.ok) return this.deps.sendError(res, m.error);
+    let json: unknown;
+    try {
+      json = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(m.bytes!));
+    } catch {
+      return refused(`${JOB_EXPORT_MANIFEST} is not UTF-8 JSON`);
+    }
+    const man = parseJobExportManifest(json);
+    if (!man.ok) return this.deps.sendError(res, man.error);
+    const manifest = man.manifest;
+    // Every listed file, with its digest.
+    const files: { path: string; role: string; digest: string; byteLength: number }[] = [];
+    let modelBytes: Uint8Array | undefined;
+    for (let i = 0; i < manifest.files.length; i += 1) {
+      const f = manifest.files[i]!;
+      const isModel = f.role === 'model';
+      const r = fileOf(f.path, MAX_JOB_EXPORT_FILE_BYTES, false);
+      if (!r.ok) return this.deps.sendError(res, { ...r.error, path: `/files/${i}` });
+      if (r.digest !== f.digest) return refused(`${f.path} does not have its listed digest (the export is incomplete or changed)`, `/files/${i}/digest`);
+      if (isModel) modelBytes = r.bytes;
+      files.push({ path: f.path, role: f.role, digest: f.digest, byteLength: r.byteLength });
+    }
+    const model = manifest.files.find((f) => f.role === 'model')!;
+    const displayName = request.displayName ?? manifest.name;
+    const job = this.jobs.begin('inspect', projectId);
+    if (!job.ok) return this.deps.sendError(res, job.error);
+    let proposal: ImportedProposalView;
+    let sourcePath: string | undefined;
+    if (folder !== null) {
+      const result = this.deps.service.inspectProjectFile(projectId, `${folder}/${model.path}`, { isCancelled: () => this.jobs.isCancelled(job.jobId), displayName, kind: 'model' });
+      if (!result.ok) {
+        this.jobs.fail(job.jobId, result.error.code, result.error.message);
+        return this.deps.sendError(res, commandErrorToSession(result.error));
+      }
+      if (result.proposal.sourceDigest !== model.digest) {
+        this.jobs.fail(job.jobId, 'asset_source_changed', 'the model changed while it was read');
+        return this.deps.sendError(res, sessionError('asset_source_changed', 'conflict', `job export: ${model.path} changed while it was read; try again`, { path: '/path' }));
+      }
+      proposal = result.proposal as ImportedProposalView;
+      sourcePath = result.sourcePath;
+    } else {
+      // Stage the GLB (a fresh stage id), inspect it and publish it as a blob, as an upload is.
+      const begun = this.uploads.begin(projectId, displayName);
+      if (!begun.ok) {
+        this.jobs.fail(job.jobId, begun.error.code, begun.error.message);
+        return this.deps.sendError(res, begun.error);
+      }
+      this.uploads.discard(begun.stageId);
+      const glbStage = begun.stageId;
+      const staged = this.deps.service.stageContent(projectId, { stageId: glbStage, bytes: modelBytes!, displayName });
+      if (!staged.ok) {
+        this.jobs.fail(job.jobId, staged.error.code, staged.error.message);
+        return this.deps.sendError(res, commandErrorToSession(staged.error));
+      }
+      try {
+        const result = this.deps.service.inspectStage(projectId, glbStage, { isCancelled: () => this.jobs.isCancelled(job.jobId), displayName, kind: 'model' });
+        if (!result.ok) {
+          this.jobs.fail(job.jobId, result.error.code, result.error.message);
+          return this.deps.sendError(res, commandErrorToSession(result.error));
+        }
+        const blob = this.deps.service.publishBlob(projectId, { digest: result.proposal.sourceDigest, byteLength: result.proposal.sourceByteLength, source: { kind: 'stage', stageId: glbStage } });
+        if (!blob.ok) {
+          this.jobs.fail(job.jobId, blob.error.code, blob.error.message);
+          return this.deps.sendError(res, commandErrorToSession(blob.error));
+        }
+        proposal = result.proposal as ImportedProposalView;
+      } finally {
+        this.deps.service.discardStage(projectId, glbStage);
+      }
+    }
+    this.jobs.finish(job.jobId, { proposalId: proposal.proposalId, status: proposal.status });
+    const inspectedTriangles = proposal.metrics?.triangles;
+    const warnings: string[] = [];
+    if (manifest.triangles !== undefined && inspectedTriangles !== undefined && manifest.triangles !== inspectedTriangles) {
+      warnings.push(`the manifest says ${manifest.triangles} triangles; the model has ${inspectedTriangles}`);
+    }
+    const jobExport = {
+      name: manifest.name,
+      files,
+      ...(manifest.triangles !== undefined ? { triangles: manifest.triangles } : {}),
+      ...(manifest.lods !== undefined ? { lods: manifest.lods } : {}),
+      inspected: { ...(inspectedTriangles !== undefined ? { triangles: inspectedTriangles } : {}) },
+      ignoredKeys: manifest.ignoredKeys,
+      warnings,
+    };
+    const full = { ok: true, ...(sourcePath !== undefined ? { sourcePath } : {}), proposal, jobExport, truncated: false, jobId: job.jobId };
+    if (new TextEncoder().encode(JSON.stringify(full)).length <= CONTENT_PROPOSAL_MAX_BYTES) return this.deps.sendJson(res, 200, full);
+    const sceneCount = (proposal.inspection as { sceneCount?: number }).sceneCount ?? 0;
+    this.deps.sendJson(res, 200, { ...full, proposal: { ...proposal, inspection: { nodeNames: [], materialNames: [], clipNames: [], sceneCount, truncated: true } }, truncated: true });
   }
 
   /**

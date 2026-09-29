@@ -187,7 +187,7 @@ boundary it changes (Playwright for any editor surface).
 | 25.19 | done 2026-09-29: material instances (`instanceOf` + `params`/`textures` or graph `values`; chains ≤ 8, checked against the parent with the whole list; any mapping, override, effect or timeline names one; a used instance ships resolved, its parents only when named); KTX2 texture assets (Basis Universal ETC1S/UASTC with mip levels; metrics `codec`, `levels`; one shared KTX2Loader per page; the export ships the transcoder); KTX2 encoding on import (`ktx2: "color"` ETC1S sRGB, `"normal"` UASTC + Zstandard, linear, normal-map mips; PNG/JPEG sources, `convertedFrom` records the original; editor Assets option, MCP `tl_content_upload {ktx2}`); `material-instances.e2e.ts`, `ktx2-textures.e2e.ts` (pixels in the Scene view, Play and the export, auto/webgl2/webgpu), commands and encoder unit tests |
 | 25.20 | done 2026-09-29: sloped terrain — cell `corners` (0–4 cell heights, 1/64 steps; single-cell `full` blocks), the look warped onto the corner surface (render and collision on it exactly; walls where edges differ), `blockLayer.maxSlope` enforced on the chunk colliders by the 3D port, `ctx.grid.surface`/`columnSurface`, `surface`/`sculpt` edits and the Height/Smooth/Flatten brushes; block-layer lightmaps (chunk UV1 layouts, chunk bake entries with a layout digest; browser and Blender bakes; Play, export, Scene view); chunk LOD from the models' own levels; unit tests, `m25-terrain` (page/worker), `terrain.e2e.ts`, `terrain-brushes.e2e.ts`, `block-lightmaps.e2e.ts`, `block-lod.e2e.ts` (auto/webgl2); D52 logged (open) |
 | 25.21 | done 2026-09-29: painted terrain — texture arrays and packed textures (`pack texture…` / pack route / MCP `pack`: PNG/JPEG assets' channels per layer into one KTX2, `packedFrom`; `ktx2: "data"` UASTC linear), Sample texture / Normal map / Triplanar `layer` input (TSL `depth`, both backends), Height blend and Weighted mix nodes, Vertex colour set COLOR_1 and `first`; block-layer paint (4 layer weights + wetness per lattice vertex, stored per chunk; `paint` edits of the paint-brush module; chunk meshes carry COLOR_0/COLOR_1), stand-ins take a block type's `*` material, the height-blended layers template; Paint texture mode in the Blocks panel; `painted-terrain.e2e.ts` (Scene view, Play, export; auto/webgl2/webgpu), `terrain-paint.e2e.ts`, unit and integration tests |
-| 25.22 | — |
+| 25.22 | done 2026-09-29: bindable widget `size` (per axis `{bind}`: the px number; a non-number sizes to content, a stretched axis keeps its stretch) and radial bar `startAngle` (validator, game host, UI editor size box takes a path, Start angle bind box, mock samples); job-export import (`POST …/content/job-exports/inspect` {path: folder or .zip in the game folder \| stageId: uploaded zip}; `manifest.json` {name, files [{path, role, digest}], triangles?, lods?}; digests checked, the one `model` GLB through the ordinary inspection, then `publishAsset`; MCP `tl_content_upload {jobExport}`); `ui-bindable-size.e2e.ts` (editor + Play: `ui.elements` rects and gauge pixels), `job-export-import.e2e.ts` (HTTP + MCP, generated exports), unit tests |
 | 25.23 | moved to phase 26 (26.13), owner 2026-09-29 |
 | 25.25 | — |
 
@@ -1417,3 +1417,23 @@ boundary it changes (Playwright for any editor surface).
   coloured stand-ins through `*` (a stand-in has one material), so painted
   terrain works on plain sloped blocks; the block type form edits the mapping
   with material pickers instead of JSON.
+- 2026-09-29 (25.22): a bound `size` is **per axis** (`[{bind:'hud.w'}, 24]`),
+  not a whole `[w, h]` binding: a bar or panel usually grows along one axis,
+  and a script then writes one number. A bound value that is not a number
+  sizes the axis to its content (as `null` does); a stretched axis keeps its
+  stretch. Dragging a grip over a bound axis writes a number (the drag is the
+  author's explicit choice); the size field shows the path and takes one.
+- 2026-09-29 (25.22): the art-factory route is a **generic job-export
+  import**: the engine defines the shape (a folder or zip with a GLB and
+  `manifest.json` {name, files [{path, role, digest}], triangles?, lods?}) and
+  never reads the art-factory repo, so any tool can produce it. It is a
+  preparation route like the other inspections (digests checked, the `model`
+  GLB inspected: referenced in place from a folder, stored as a blob from a
+  zip); the mutation is the ordinary `publishAsset`, so there is no second
+  path. Other roles (previews, textures, sources) are checked, listed and not
+  imported; `triangles` is compared with the inspected model as a warning, not
+  a refusal (the GLB is authoritative); unknown manifest keys are ignored and
+  listed so a tool can carry its own data. Zips are read by a small bounded
+  reader in the backend (stored/deflate, CRC-checked; no zip64/encryption),
+  not a new dependency. No editor button yet (HTTP and MCP only): the Assets
+  tab's "from project folder…" still imports the GLB itself.

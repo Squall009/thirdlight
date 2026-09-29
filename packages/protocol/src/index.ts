@@ -306,3 +306,15 @@ export {
 
 // Phase 21.4: the change record on the WS (no previous side; keyed lists as deltas).
 export { WIRE_LIST_KEYS, fromWireChange, toWireChange, type WireListDelta } from './wire-change';
+
+// Phase 25.22: importing an asset tool's job export (a folder or zip: a GLB and manifest.json).
+export {
+  JOB_EXPORT_LIMITS,
+  JOB_EXPORT_MANIFEST,
+  isJobExportPath,
+  parseJobExportManifest,
+  parseJobExportRequest,
+  type JobExportFile,
+  type JobExportManifest,
+  type JobExportRequest,
+} from './job-export';

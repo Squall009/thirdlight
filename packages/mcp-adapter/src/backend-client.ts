@@ -234,6 +234,11 @@ export class BackendClient {
     return this.request('POST', `/api/v1/projects/${encodeURIComponent(projectId)}/content/project-files/inspect`, body);
   }
 
+  /** Phase 25.22: POST inspect an asset tool's job export (`{ path | stageId, displayName? }`: a folder or zip with a GLB and manifest.json). */
+  inspectJobExport(projectId: string, body: Record<string, unknown>): Promise<BackendResponse> {
+    return this.request('POST', `/api/v1/projects/${encodeURIComponent(projectId)}/content/job-exports/inspect`, body);
+  }
+
   /** Phase 25.21: POST pack a KTX2 texture (array) from texture assets (`{ layers, encoding, displayName? }`). */
   packTexture(projectId: string, body: Record<string, unknown>): Promise<BackendResponse> {
     return this.request('POST', `/api/v1/projects/${encodeURIComponent(projectId)}/content/textures/pack`, body);
