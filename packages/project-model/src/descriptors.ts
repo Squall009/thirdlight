@@ -1925,7 +1925,8 @@ const CONTENT: readonly ContentBlockDescriptor[] = [
       vec3('footprint', 'Footprint', 'Cells along x, y and z (a 2 × 1 × 2 well); the cells it covers stay empty.', { min: 1, max: BLOCK_LIMITS.footprint, step: 1, default: [1, 1, 1], labels: ['x', 'y', 'z'] }),
       json('rotations', 'Rotations', 'The allowed rotations in degrees: a set of 0, 90, 180, 270 (absent: all).'),
       json('metadata', 'Default metadata', 'Cell metadata every cell of this block starts with (field key → value).'),
-      json('materials', 'Materials', 'Model material mapping: source material name (or "*") → materialId.'),
+      // Phase 25.21: a picker per slot (as a model asset's default materials); "*" also maps a stand-in's one material.
+      map('materials', 'Materials', 'Material slot → project material: a model look\'s source material name, or "*" for every slot (a coloured stand-in has one: "*" gives it a material, e.g. a painted terrain material).', 'Slot', ref('*', 'Material', 'A project material.', 'material'), { keyFormat: 'materialSlot', minEntries: 1, maxEntries: 32 }),
     ]), { maxItems: BLOCK_LIMITS.blockTypes, default: [] }),
     ops: ['setBlockType', 'deleteBlockType'],
   },

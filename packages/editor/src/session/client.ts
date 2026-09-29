@@ -2101,8 +2101,8 @@ export class SessionClient {
       displayName?: string | null;
       kind?: 'model' | 'audio' | 'texture' | 'music' | 'font';
       animation?: { entityId: string; roles: unknown };
-      /** Phase 25.19: a texture encoded to KTX2 on import. */
-      ktx2?: 'color' | 'normal';
+      /** Phase 25.19: a texture encoded to KTX2 on import (phase 25.21: or as data). */
+      ktx2?: 'color' | 'normal' | 'data';
       onState?: (s: AssetImportState) => void;
     } = {},
   ): Promise<{ ok: true; stageId: string; proposal: ImportProposal } | { ok: false; error: { code: string; message: string } }> {
@@ -2164,6 +2164,33 @@ export class SessionClient {
   }
 
   /**
+   * Phase 25.21: pack a KTX2 texture (a texture array with several layers)
+   * from the project's PNG/JPEG texture assets, channel by channel, and
+   * publish it as a new texture asset (one `publishAsset`, one undo).
+   */
+  async packTexture(req: { layers: ({ assetId: string; channel: 'r' | 'g' | 'b' | 'a' } | { value: number })[][]; encoding: 'color' | 'normal' | 'data'; displayName: string }): Promise<{ ok: true; assetId: string } | { ok: false; error: { code: string; message: string } }> {
+    try {
+      const packed = await this.request<{ ok: true; packedFrom?: unknown; proposal: { status?: string; sourceDigest?: string; sourceByteLength?: number; importRecipe?: unknown; metrics?: unknown } }>(`/projects/${this.cfg.projectId}/content/textures/pack`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(req),
+      });
+      const p = packed.proposal;
+      if (p.status !== 'ok' || packed.packedFrom === undefined) return { ok: false, error: { code: 'import_rejected', message: 'the packed texture was not accepted by the texture inspector' } };
+      const assetId = makeAssetId();
+      const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+      const res = await this.command('publishAsset', { mode: 'create', assetId, kind: 'texture', displayName: req.displayName, sourceDigest: p.sourceDigest, sourceByteLength: p.sourceByteLength, packedFrom: packed.packedFrom, importRecipe: p.importRecipe, metrics: p.metrics, importedAt: now }, this.projection.revision);
+      if (!res.ok) {
+        const r = res.response;
+        return { ok: false, error: r.ok === false ? { code: r.code, message: r.message ?? r.code } : { code: 'network', message: 'the command response was lost' } };
+      }
+      return { ok: true, assetId };
+    } catch (e) {
+      return { ok: false, error: this.describeError(e) };
+    }
+  }
+
+  /**
    * One folder of the game folder (import from project folder). A project in
    * the data root has no game folder: the backend answers `path_rejected`.
    */
@@ -2184,7 +2211,7 @@ export class SessionClient {
    */
   async importProjectFile(
     sourcePath: string,
-    options: { target: ImportTarget; kind: 'model' | 'audio' | 'texture' | 'music' | 'font'; displayName?: string; ktx2?: 'color' | 'normal'; onState?: (s: AssetImportState) => void },
+    options: { target: ImportTarget; kind: 'model' | 'audio' | 'texture' | 'music' | 'font'; displayName?: string; ktx2?: 'color' | 'normal' | 'data'; onState?: (s: AssetImportState) => void },
   ): Promise<{ ok: true; proposal: ImportProposal } | { ok: false; error: { code: string; message: string } }> {
     let state = beginProjectFileImport(initialImportState, options.target, sourcePath);
     const emit = (): void => options.onState?.(state);

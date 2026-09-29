@@ -5,12 +5,13 @@
  */
 import { parentPort } from 'node:worker_threads';
 
-import { encodeKtx2, type Ktx2Mode } from './texture-encode';
+import { encodeKtx2, packKtx2, type Ktx2Mode, type PackLayer } from './texture-encode';
 
 let queue: Promise<void> = Promise.resolve();
-parentPort?.on('message', (m: { id: number; bytes: Uint8Array; mode: Ktx2Mode }) => {
+// Phase 25.21: `{id, pack: {sources, layers}, mode}` packs and encodes several images into one KTX2.
+parentPort?.on('message', (m: { id: number; bytes?: Uint8Array; pack?: { sources: Uint8Array[]; layers: PackLayer[] }; mode: Ktx2Mode }) => {
   queue = queue.then(async () => {
-    const result = await encodeKtx2(m.bytes, m.mode);
+    const result = m.pack !== undefined ? await packKtx2(m.pack.sources, m.pack.layers, m.mode) : await encodeKtx2(m.bytes!, m.mode);
     if (result.ok) parentPort!.postMessage({ id: m.id, result }, [result.ktx2.buffer as ArrayBuffer]);
     else parentPort!.postMessage({ id: m.id, result });
   });

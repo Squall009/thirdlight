@@ -39,3 +39,27 @@ in a worker thread of the backend (`dist/backend/ktx2-worker.mjs`).
 refused with the reason), no "data" (linear, uncompressed-channel) mode: the
 wrapper exposes no linear-mip preset. Changing either pin changes encoded
 bytes: a new pin is a new decision.
+
+## 4. Addendum (phase 25.21): data encoding, packing, texture arrays
+
+No new pin: the same `ktx2-encoder` 0.6.0 and its Basis Universal build.
+
+- `ktx2: "data"` → UASTC LDR 4×4 with Zstandard, linear, no normal-map
+  preset, not perceptual: channels stay apart (ETC1S would mix them), so
+  masks, heights and packed occlusion/roughness/metalness keep their values.
+  This closes §3's "no data mode".
+- **Packing** (`POST …/content/textures/pack`, MCP `tl_content_upload
+  {pack}`): the backend reads the named PNG/JPEG texture assets' current
+  versions, decodes them (the same decoders), builds each layer's RGBA from
+  per-channel sources (a channel of a source, or a constant), and encodes all
+  layers as one KTX2 — a Basis 2D array (`cBASISTexType2DArray`) when there
+  are several, a 2D texture for one. The wrapper's own encode entry always
+  sets a 2D type, so the packer drives the wrapper's Basis module directly
+  (through the package's exported `NodeBasisEncoder` loader, with the same
+  settings the colour/normal imports use). The version records `packedFrom`
+  (each channel's asset id, the source version's digest and channel, or the
+  constant; the encoder and version; the encoding) instead of `convertedFrom`.
+- Limits: all sources one size; at most 12 Mpix across the layers (the
+  encoder's cap: four 1024² layers, two 2048²); at most 256 layers (the
+  guaranteed array depth of WebGL 2 and WebGPU). A KTX2 or WebP source is
+  refused (it cannot be unpacked on the server).

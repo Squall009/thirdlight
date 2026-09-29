@@ -20,7 +20,7 @@
  */
 import { useEffect, useMemo, useState, type JSX } from 'react';
 import type { BlockCell, BlockEdit, BlockLayerComponent, BlockRegion, BlockStamp, BlockType, CellField, CellMetaValue, DescriptorRegistry, ObjectFieldDescriptor } from '@thirdlight/project-model';
-import { SCULPT_LIMITS } from '@thirdlight/runtime';
+import { BRUSH_FALLOFFS, PAINT_BRUSH_LIMITS, SCULPT_LIMITS, type BrushFalloff } from '@thirdlight/runtime';
 import { ObjectFields, type FieldContext } from './DescriptorFields';
 import { componentPatch } from '../session/descriptor-fields';
 import {
@@ -364,7 +364,37 @@ export function BlocksPanel(p: Props): JSX.Element {
             </label>
           </>
         )}
-        <label title="Lower columns (raise/lower), lower the ground (height) or remove from the region (region); Ctrl held flips it for one stroke.">
+        {tool === 'paint' && (
+          <>
+            <label title="What the brush paints: one of the four material layers of a painted terrain material (its weight grows, the others give way), or the wetness (darker, glossier ground).">
+              Paint{' '}
+              <select aria-label="paint channel" value={brush.paint.channel} onChange={(e) => setBrush((b) => ({ ...b, paint: { ...b.paint, channel: Number(e.target.value) } }))}>
+                <option value={0}>Layer 1</option>
+                <option value={1}>Layer 2</option>
+                <option value={2}>Layer 3</option>
+                <option value={3}>Layer 4</option>
+                <option value={4}>Wetness</option>
+              </select>
+            </label>
+            <label title="The paint brush's radius in cells.">
+              Radius <input aria-label="paint radius" type="number" className="tl-blocks__num" min={PAINT_BRUSH_LIMITS.radiusMin} max={PAINT_BRUSH_LIMITS.radiusMax} step={0.5} value={brush.paint.radius} onChange={(e) => setBrush((b) => ({ ...b, paint: { ...b.paint, radius: Math.max(PAINT_BRUSH_LIMITS.radiusMin, Math.min(PAINT_BRUSH_LIMITS.radiusMax, Number(e.target.value) || b.paint.radius)) } }))} />
+            </label>
+            <label title="How far toward the painted layer (or full wetness) one dab goes at the centre (0-1).">
+              Strength <input aria-label="paint strength" type="number" className="tl-blocks__num" min={0.01} max={PAINT_BRUSH_LIMITS.strengthMax} step={0.05} value={brush.paint.strength} onChange={(e) => setBrush((b) => ({ ...b, paint: { ...b.paint, strength: Math.max(0.01, Math.min(PAINT_BRUSH_LIMITS.strengthMax, Number(e.target.value) || b.paint.strength)) } }))} />
+            </label>
+            <label title="How the brush fades toward its edge: smooth, linear, or constant (a hard edge).">
+              Falloff{' '}
+              <select aria-label="paint falloff" value={brush.paint.falloff} onChange={(e) => setBrush((b) => ({ ...b, paint: { ...b.paint, falloff: e.target.value as BrushFalloff } }))}>
+                {BRUSH_FALLOFFS.map((f) => (
+                  <option key={f} value={f}>
+                    {f}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </>
+        )}
+        <label title="Lower columns (raise/lower), lower the ground (height), erase paint (paint texture) or remove from the region (region); Ctrl held flips it for one stroke.">
           <input type="checkbox" aria-label="lower or remove" checked={invert} onChange={(e) => setInvert(e.target.checked)} /> Lower / remove
         </label>
       </div>

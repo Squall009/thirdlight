@@ -186,7 +186,8 @@ boundary it changes (Playwright for any editor surface).
 | 25.18 | done 2026-09-29: `GET /api/v1/engine` and `tl_inspect target="engine"` (version, commit and lockfile as the process started, the dist/ build stamp `dist/build-info.json` at start and now, `startedAt`, `dist.newerThanProcess` with its reason, the checkout's commit when it moved on); the backend runs `materialGraphProblems` when it loads a project and after every change (cached per compile input), a material whose problems appear is logged once (`material_graph_problems`), current ones in `tl_diagnostics` `materialProblems` and `tl_content_query target="materials"` (`GET …/content/materials`); backend and MCP tests |
 | 25.19 | done 2026-09-29: material instances (`instanceOf` + `params`/`textures` or graph `values`; chains ≤ 8, checked against the parent with the whole list; any mapping, override, effect or timeline names one; a used instance ships resolved, its parents only when named); KTX2 texture assets (Basis Universal ETC1S/UASTC with mip levels; metrics `codec`, `levels`; one shared KTX2Loader per page; the export ships the transcoder); KTX2 encoding on import (`ktx2: "color"` ETC1S sRGB, `"normal"` UASTC + Zstandard, linear, normal-map mips; PNG/JPEG sources, `convertedFrom` records the original; editor Assets option, MCP `tl_content_upload {ktx2}`); `material-instances.e2e.ts`, `ktx2-textures.e2e.ts` (pixels in the Scene view, Play and the export, auto/webgl2/webgpu), commands and encoder unit tests |
 | 25.20 | done 2026-09-29: sloped terrain — cell `corners` (0–4 cell heights, 1/64 steps; single-cell `full` blocks), the look warped onto the corner surface (render and collision on it exactly; walls where edges differ), `blockLayer.maxSlope` enforced on the chunk colliders by the 3D port, `ctx.grid.surface`/`columnSurface`, `surface`/`sculpt` edits and the Height/Smooth/Flatten brushes; block-layer lightmaps (chunk UV1 layouts, chunk bake entries with a layout digest; browser and Blender bakes; Play, export, Scene view); chunk LOD from the models' own levels; unit tests, `m25-terrain` (page/worker), `terrain.e2e.ts`, `terrain-brushes.e2e.ts`, `block-lightmaps.e2e.ts`, `block-lod.e2e.ts` (auto/webgl2); D52 logged (open) |
-| 25.21–25.22 | — |
+| 25.21 | done 2026-09-29: painted terrain — texture arrays and packed textures (`pack texture…` / pack route / MCP `pack`: PNG/JPEG assets' channels per layer into one KTX2, `packedFrom`; `ktx2: "data"` UASTC linear), Sample texture / Normal map / Triplanar `layer` input (TSL `depth`, both backends), Height blend and Weighted mix nodes, Vertex colour set COLOR_1 and `first`; block-layer paint (4 layer weights + wetness per lattice vertex, stored per chunk; `paint` edits of the paint-brush module; chunk meshes carry COLOR_0/COLOR_1), stand-ins take a block type's `*` material, the height-blended layers template; Paint texture mode in the Blocks panel; `painted-terrain.e2e.ts` (Scene view, Play, export; auto/webgl2/webgpu), `terrain-paint.e2e.ts`, unit and integration tests |
+| 25.22 | — |
 | 25.23 | moved to phase 26 (26.13), owner 2026-09-29 |
 | 25.25 | — |
 
@@ -1356,4 +1357,63 @@ boundary it changes (Playwright for any editor surface).
   (the same projection), so baked chunks keep their light at every level.
   No other terrain LOD was built (merged, hidden-face-culled chunks measured
   cheap in 23.5; a coarser stand-in mesh would change silhouettes).
-
+- 2026-09-29 (25.21): **the height blend is two general nodes**: Height
+  blend (weights × heights → weights: each layer's height is lifted by its
+  weight, the layers within `depth` of the highest show in proportion to how
+  far they reach above that line, times their weight — so a layer of weight 0
+  never shows and equal heights give the weights back) and Weighted mix (four
+  values of any width by four weights). The terrain material is one graph of
+  them (the *height-blended layers* template); any mesh uses the same graph
+  with its own vertex colours as weights (tested with a GLB). The weights
+  are normalized; all zero means the first layer. Vertex colour gained a
+  `set` field (COLOR_1, three's `color_1`) and an `absent: "first"` option
+  (1, 0, 0, 0) so an unpainted mesh shows its first layer — both appended, so
+  existing graphs keep their meaning.
+- 2026-09-29 (25.21): **4 slots in 3 compressed arrays**: albedo RGB + height
+  in A (ETC1S colour — alpha is linear in sRGB formats), normal maps (UASTC
+  normal preset), occlusion/roughness/metalness (UASTC, the new linear
+  `data` encoding). Arrays are texture assets whose KTX2 has layers
+  (`metrics.layers`, `decodedBytes` counts every layer): three's KTX2Loader
+  makes a `CompressedArrayTexture`, both backends upload it (WebGPU
+  `texture_2d_array`, WebGL 2 `sampler2DArray`, checked in r186's sources)
+  and the sampling nodes read a layer with `texture(...).depth(layer)`
+  (rounded, clamped to the array; a plain texture ignores the input). The
+  encoder cannot merge separately encoded files (ETC1S codebooks, Zstandard
+  per level), so arrays are packed on the server from the project's PNG/JPEG
+  textures, channel by channel (`packedFrom` records the sources); packing
+  in the page was rejected because a canvas premultiplies alpha (a height in
+  A would destroy the colour where it is low). Where one plain texture is
+  read (shader-material slots, sky, cookies, lightmap atlases, effects, UI)
+  an array is refused by the model.
+- 2026-09-29 (25.21): **paint lives on the chunk** (`paint`: base64 of 17 ×
+  17 lattice vertices × 5 bytes — four layer weights summing to 255 and a
+  wetness), the seam 25.20 left: it is stored, copied between page and
+  worker, saved and undone with the cells it belongs to, with no new storage.
+  Vertex resolution (one sample per cell corner, blended across the cell and
+  sharpened by the height blend) was chosen over a finer splat map: it rides
+  on the chunk meshes as vertex colours, so any look — stand-in or kit model —
+  takes it, and a GLB uses the same material with its own vertex colours.
+  Edge vertices are stored in every chunk sharing them and painted alike (a
+  chunk is drawn from its own data); only chunks holding cells are painted,
+  and a chunk emptied of cells drops its paint. The paint belongs to the
+  surface, not to cells: copies and stamps do not move it. A layer's chunk
+  meshes carry COLOR_0/COLOR_1 only once any chunk is painted (then every
+  chunk, so they match), so unpainted projects draw exactly as before; a
+  material that tints by vertex colours keeps none.
+- 2026-09-29 (25.21): **the brush is its own module** (project-model
+  `paint-brush.ts`: radius, strength, falloff smooth/linear/constant, a target
+  channel, erase; a target is points with bytes, the first N a partition of
+  255) so painting mesh vertex colours later reuses it. Block paint is its
+  first target (`block-paint.ts`, the `paint` edit); the editor's Paint mode
+  ("Paint texture" — the Blocks panel's cell tool is already called Paint)
+  sends a stroke as its dabs in one `editBlocks`, previewed on the layer copy
+  like the terrain brushes. Byte results, squared distances (the linear
+  falloff's one square root is exact): the same dabs give the same bytes.
+- 2026-09-29 (25.21): **paint and wetness are visual**: no script API reads
+  or writes them, so determinism and replays are unaffected and no 25.10
+  descriptor mark was added. Rain is the template's public `wetness`
+  parameter, which scripts already set through material parameters.
+- 2026-09-29 (25.21): a block type's material mapping now reaches its
+  coloured stand-ins through `*` (a stand-in has one material), so painted
+  terrain works on plain sloped blocks; the block type form edits the mapping
+  with material pickers instead of JSON.

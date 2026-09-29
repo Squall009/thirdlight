@@ -107,6 +107,8 @@ export default defineConfig({
         // Phase 25.19: material instances and KTX2 textures (Scene view, Play, export) on WebGPU.
         '**/material-instances.e2e.ts',
         '**/ktx2-textures.e2e.ts',
+        // Phase 25.21: height-blended layers from texture arrays on a painted block layer and a GLB (Scene view, Play, export) on WebGPU.
+        '**/painted-terrain.e2e.ts',
       ],
       use: { launchOptions: { env: browserLaunchEnv(), args: [...GL_ARGS, ...WEBGPU_ARGS] } },
     },

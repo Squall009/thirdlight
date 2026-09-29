@@ -55,6 +55,7 @@ import type {
   AssetVersion,
   BehaviorRecord,
   ConvertedFrom,
+  PackedFrom,
   BehaviorTrust,
   DeclaredProperty,
   GameplaySettings,
@@ -246,6 +247,7 @@ const KNOWN_VERSION_FIELDS = new Set([
   'sourceByteLength',
   'sourcePath',
   'convertedFrom',
+  'packedFrom',
   'importRecipe',
   'metrics',
   'importedAt',
@@ -569,6 +571,8 @@ function validateFontMetrics(m: Record<string, unknown>, path: string, errors: M
  * Phase 25.19: a KTX2 (Basis Universal) texture adds `codec` (etc1s | uastc)
  * and `levels` (its mip levels, 1–13); `decodedBytes` stays width × height × 4
  * (the budget counts the uncompressed size, an upper bound of the GPU's).
+ * Phase 25.21: a KTX2 texture array adds `layers` (2–{@link MAX_TEXTURE_LAYERS});
+ * its `decodedBytes` counts every layer (width × height × 4 × layers).
  */
 function validateTextureMetrics(m: Record<string, unknown>, path: string, errors: ModelErrorV2[]): void {
   const ktx2 = m['format'] === 'ktx2';
@@ -579,17 +583,22 @@ function validateTextureMetrics(m: Record<string, unknown>, path: string, errors
     if (m['codec'] !== 'etc1s' && m['codec'] !== 'uastc') errors.push(fieldValue(`${path}/codec`, m['codec'], '"etc1s" | "uastc"', 'a KTX2 texture is Basis Universal ETC1S or UASTC'));
     const levels = m['levels'];
     if (typeof levels !== 'number' || !Number.isInteger(levels) || levels < 1 || levels > 13) errors.push(fieldValue(`${path}/levels`, levels, 'integer 1..13', 'a KTX2 texture has 1-13 mip levels'));
-  }
+    const layers = m['layers'];
+    if (layers !== undefined && (typeof layers !== 'number' || !Number.isInteger(layers) || layers < 2 || layers > MAX_TEXTURE_LAYERS)) {
+      errors.push(fieldValue(`${path}/layers`, layers, `integer 2..${MAX_TEXTURE_LAYERS}`, `a texture array has 2-${MAX_TEXTURE_LAYERS} layers (absent: a plain texture)`));
+    }
+  } else if (m['layers'] !== undefined) errors.push(unexpectedField(`${path}/layers`, 'layers', 'only a KTX2 texture can be a texture array'));
   for (const k of ['width', 'height'] as const) {
     const v = m[k];
     if (typeof v !== 'number' || !Number.isInteger(v) || v < 1 || v > MAX_TEXTURE_EDGE) {
       errors.push(fieldValue(`${path}/${k}`, v, `integer 1..${MAX_TEXTURE_EDGE}`, `texture ${k} must be 1-${MAX_TEXTURE_EDGE} pixels`));
     }
   }
-  if (typeof m['width'] === 'number' && typeof m['height'] === 'number' && m['decodedBytes'] !== m['width'] * m['height'] * 4) {
-    errors.push(fieldValue(`${path}/decodedBytes`, m['decodedBytes'], 'width × height × 4', 'decodedBytes is derived from the size'));
+  const layerCount = ktx2 && typeof m['layers'] === 'number' ? m['layers'] : 1;
+  if (typeof m['width'] === 'number' && typeof m['height'] === 'number' && m['decodedBytes'] !== m['width'] * m['height'] * 4 * layerCount) {
+    errors.push(fieldValue(`${path}/decodedBytes`, m['decodedBytes'], layerCount > 1 ? 'width × height × 4 × layers' : 'width × height × 4', 'decodedBytes is derived from the size'));
   }
-  const known = ktx2 ? ['format', 'width', 'height', 'decodedBytes', 'codec', 'levels'] : ['format', 'width', 'height', 'decodedBytes'];
+  const known = ktx2 ? ['format', 'width', 'height', 'decodedBytes', 'codec', 'levels', 'layers'] : ['format', 'width', 'height', 'decodedBytes'];
   for (const k of Object.keys(m)) {
     if (!known.includes(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, known.join(', ')));
   }
@@ -708,6 +717,53 @@ function validateAudioMetrics(
   }
 }
 
+/** Phase 25.21: the layers of a texture array (engine limit: WebGL 2 and WebGPU both guarantee 256). */
+export const MAX_TEXTURE_LAYERS = 256;
+/** Phase 25.21: the KTX2 encodings (color: ETC1S sRGB; normal: UASTC normal map; data: UASTC linear). */
+export const KTX2_ENCODINGS = ['color', 'normal', 'data'] as const;
+export type Ktx2Encoding = (typeof KTX2_ENCODINGS)[number];
+
+/**
+ * Phase 25.21: `packedFrom` — a KTX2 texture (a texture array when it has
+ * several layers) packed at import from texture assets of the project, channel
+ * by channel: per layer the four sources of R, G, B and A, each a channel of a
+ * texture asset's version (its id and bytes digest) or a constant 0–255.
+ */
+function validatePackedFrom(v: Record<string, unknown>, path: string, errors: ModelErrorV2[], kind: AssetKindV3): void {
+  const pf = v['packedFrom'];
+  if (kind !== 'texture') return void errors.push(unexpectedField(path, 'packedFrom', 'only a texture version can be packed'));
+  if (v['convertedFrom'] !== undefined || v['sourcePath'] !== undefined) return void errors.push(unexpectedField(path, 'packedFrom', 'a packed version is stored; it has no convertedFrom or sourcePath'));
+  if (!isPlainObject(pf)) return void errors.push(fieldType(path, pf, 'object'));
+  for (const k of Object.keys(pf)) if (!['layers', 'converter', 'encoding'].includes(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'layers, converter, encoding'));
+  if (!(KTX2_ENCODINGS as readonly unknown[]).includes(pf['encoding'])) errors.push(fieldValue(`${path}/encoding`, pf['encoding'], '"color" | "normal" | "data"', 'the KTX2 encoding is "color" (ETC1S), "normal" or "data" (UASTC)'));
+  const c = pf['converter'];
+  if (!isPlainObject(c) || c['name'] !== 'ktx2-encoder' || typeof c['version'] !== 'string' || !/^\d+\.\d+(\.\d+)?$/.test(c['version']) || Object.keys(c).length !== 2) {
+    errors.push(fieldValue(`${path}/converter`, c, '{ name: "ktx2-encoder", version: "X.Y.Z" }', 'the converter must name ktx2-encoder and its exact version'));
+  }
+  const layers = pf['layers'];
+  if (!Array.isArray(layers) || layers.length < 1 || layers.length > MAX_TEXTURE_LAYERS) return void errors.push(fieldValue(`${path}/layers`, layers, `1-${MAX_TEXTURE_LAYERS} layers`, 'packedFrom.layers lists each layer\'s four channel sources'));
+  layers.forEach((layer, i) => {
+    const lp = `${path}/layers/${i}`;
+    if (!Array.isArray(layer) || layer.length !== 4) return void errors.push(fieldValue(lp, layer, '[R, G, B, A] sources', 'a layer lists its R, G, B and A sources'));
+    layer.forEach((src, j) => {
+      const sp = `${lp}/${j}`;
+      const ok =
+        isPlainObject(src) &&
+        ((Object.keys(src).length === 1 && Number.isInteger(src['value']) && (src['value'] as number) >= 0 && (src['value'] as number) <= 255) ||
+          (Object.keys(src).length === 3 && typeof src['assetId'] === 'string' && ID_RE_ASSET.test(src['assetId']) && typeof src['digest'] === 'string' && DIGEST_RE.test(src['digest']) && ['r', 'g', 'b', 'a'].includes(src['channel'] as string)));
+      if (!ok) errors.push(fieldValue(sp, src, '{assetId, digest, channel: r|g|b|a} | {value: 0-255}', 'a channel source is a texture version\'s channel or a constant'));
+    });
+  });
+  const m = v['metrics'];
+  if (isPlainObject(m)) {
+    if (m['format'] !== 'ktx2') errors.push(fieldValue(`${path}`, m['format'], 'metrics.format "ktx2"', 'a packed texture version holds the KTX2'));
+    else if ((typeof m['layers'] === 'number' ? m['layers'] : 1) !== layers.length) errors.push(fieldValue(`${path}/layers`, layers.length, `metrics.layers (${String(m['layers'] ?? 1)})`, 'packedFrom lists one entry per layer of the texture'));
+  }
+}
+
+/** An asset id (the id syntax of every asset). */
+const ID_RE_ASSET = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+
 function validateAssetVersion(v: unknown, path: string, errors: ModelErrorV2[], kind: AssetKindV3 = 'model'): void {
   if (!isPlainObject(v)) {
     errors.push(fieldType(path, v, 'object'));
@@ -762,7 +818,7 @@ function validateAssetVersion(v: unknown, path: string, errors: ModelErrorV2[], 
     else {
       if (!texture && converted['format'] !== 'fbx') errors.push(fieldValue(`${cpath}/format`, converted['format'], '"fbx"', 'the converted format must be "fbx"'));
       if (texture && converted['format'] !== 'png' && converted['format'] !== 'jpeg') errors.push(fieldValue(`${cpath}/format`, converted['format'], '"png" | "jpeg"', 'a texture is encoded from a PNG or JPEG'));
-      if (texture && converted['encoding'] !== 'color' && converted['encoding'] !== 'normal') errors.push(fieldValue(`${cpath}/encoding`, converted['encoding'], '"color" | "normal"', 'the KTX2 encoding is "color" (ETC1S) or "normal" (UASTC)'));
+      if (texture && !(KTX2_ENCODINGS as readonly unknown[]).includes(converted['encoding'])) errors.push(fieldValue(`${cpath}/encoding`, converted['encoding'], '"color" | "normal" | "data"', 'the KTX2 encoding is "color" (ETC1S), "normal" or "data" (UASTC)'));
       if (texture && isPlainObject(v['metrics']) && v['metrics']['format'] !== 'ktx2') errors.push(fieldValue(`${cpath}/format`, v['metrics']['format'], 'metrics.format "ktx2"', 'an encoded texture version holds the KTX2'));
       const d = converted['sourceDigest'];
       if (typeof d !== 'string') errors.push(fieldType(`${cpath}/sourceDigest`, d, 'string'));
@@ -788,6 +844,7 @@ function validateAssetVersion(v: unknown, path: string, errors: ModelErrorV2[], 
       }
     }
   }
+  if (v['packedFrom'] !== undefined) validatePackedFrom(v, `${path}/packedFrom`, errors, kind);
   if (v['importRecipe'] === undefined) errors.push(fieldMissing(`${path}/importRecipe`, 'importRecipe'));
   else validateImportRecipe(v['importRecipe'], `${path}/importRecipe`, errors, kind);
   if (v['metrics'] === undefined) errors.push(fieldMissing(`${path}/metrics`, 'metrics'));
@@ -1826,6 +1883,15 @@ function canonicalMetrics(m: AssetMetrics): AssetMetrics {
   return out;
 }
 
+/** Phase 25.21: canonical key order of a `packedFrom` record. */
+function canonicalPackedFrom(p: PackedFrom): PackedFrom {
+  return {
+    layers: p.layers.map((l) => l.map((c) => ('value' in c ? { value: c.value } : { assetId: c.assetId, digest: c.digest, channel: c.channel }))),
+    converter: { name: p.converter.name, version: p.converter.version },
+    encoding: p.encoding,
+  };
+}
+
 /** Canonical key order of a `convertedFrom` record. */
 function canonicalConvertedFrom(c: ConvertedFrom): ConvertedFrom {
   return {
@@ -1851,6 +1917,8 @@ function canonicalVersionV3(v: AssetVersionV3, kind: AssetKindV3): AssetVersionV
     sourceByteLength: v.sourceByteLength,
     ...(v.sourcePath !== undefined ? { sourcePath: v.sourcePath } : {}),
     ...(v.convertedFrom !== undefined ? { convertedFrom: canonicalConvertedFrom(v.convertedFrom) } : {}),
+    // Phase 25.21: a packed texture's channel sources.
+    ...(v.packedFrom !== undefined ? { packedFrom: canonicalPackedFrom(v.packedFrom) } : {}),
   };
   const tail = { importedAt: v.importedAt, publishedRevision: v.publishedRevision };
   if (kind === 'font') {
@@ -1875,12 +1943,12 @@ function canonicalVersionV3(v: AssetVersionV3, kind: AssetKindV3): AssetVersionV
   }
   if (kind === 'texture') {
     const r = v.importRecipe as unknown as { toolchain: Record<string, string> };
-    const m = v.metrics as unknown as { format: string; width: number; height: number; decodedBytes: number; codec?: string; levels?: number };
+    const m = v.metrics as unknown as { format: string; width: number; height: number; decodedBytes: number; codec?: string; levels?: number; layers?: number };
     return {
       ...head,
       importRecipe: { profile: 'image', recipeVersion: 1, toolchain: { ...r.toolchain } } as unknown as AssetVersionV3['importRecipe'],
       // Phase 25.19: a KTX2's codec and mip levels last.
-      metrics: { format: m.format, width: m.width, height: m.height, decodedBytes: m.decodedBytes, ...(m.codec !== undefined ? { codec: m.codec } : {}), ...(m.levels !== undefined ? { levels: m.levels } : {}) } as unknown as AssetVersionV3['metrics'],
+      metrics: { format: m.format, width: m.width, height: m.height, decodedBytes: m.decodedBytes, ...(m.codec !== undefined ? { codec: m.codec } : {}), ...(m.levels !== undefined ? { levels: m.levels } : {}), ...(m.layers !== undefined ? { layers: m.layers } : {}) } as unknown as AssetVersionV3['metrics'],
       ...tail,
     };
   }
@@ -2470,13 +2538,37 @@ function ktx2TextureIds(doc: Record<string, unknown>): Set<string> {
   return out;
 }
 
+/**
+ * Phase 25.21: what a reference that reads one plain (2D) texture sees for a
+ * texture array — only a graph material's texture nodes and parameters sample
+ * a layer of an array.
+ */
+export const TEXTURE_ARRAY_KIND = 'texture (a texture array: only graph materials read its layers; name a plain texture here)';
+
+/** Phase 25.21: the texture assets whose current version is a texture array (KTX2 with layers). */
+export function arrayTextureIds(doc: { assets?: readonly unknown[] } | Record<string, unknown>): Set<string> {
+  const out = new Set<string>();
+  const list = (doc as Record<string, unknown>)['assets'];
+  for (const a of Array.isArray(list) ? (list as unknown[]) : []) {
+    if (!isPlainObject(a) || a['kind'] !== 'texture' || !Array.isArray(a['versions'])) continue;
+    const current = (a['versions'] as unknown[]).find((v) => isPlainObject(v) && v['version'] === a['currentVersion']) as Record<string, unknown> | undefined;
+    if (isPlainObject(current?.['metrics']) && typeof current['metrics']['layers'] === 'number') out.add(a['assetId'] as string);
+  }
+  return out;
+}
+
 function validateMaterialReferences(doc: Record<string, unknown>, errors: ModelErrorV2[]): void {
   const assets = Array.isArray(doc['assets']) ? (doc['assets'] as unknown[]).filter(isPlainObject) : [];
   const kindOf = new Map(assets.map((a) => [a['assetId'], a['kind']]));
+  // Phase 25.21: where one plain texture is read, a texture array is not one.
+  const arrays = arrayTextureIds(doc);
+  const plainKindOf = new Map(assets.map((a) => [a['assetId'], arrays.has(a['assetId'] as string) ? TEXTURE_ARRAY_KIND : a['kind']]));
   const graphRefs = (kind: GraphKindDef, graph: GraphData, at: string): void => {
     const nodes = graph.nodes.filter((n) => isPlainObject(n) && typeof n.type === 'string' && (n.data === undefined || isPlainObject(n.data)));
+    // A material graph samples array layers; an effect graph reads plain textures.
+    const kinds = kind.kind === 'material' || kind.kind === 'material-function' ? kindOf : plainKindOf;
     for (const r of graphAssetRefs(kind, { nodes, edges: [] })) {
-      if (kindOf.get(r.id) !== r.asset) errors.push(withFound({ code: 'asset_reference_missing', path: `${at}${r.path}`, message: `this node field must name a ${r.asset} asset of this project`, expected: `a ${r.asset} assetId` }, r.id));
+      if (kinds.get(r.id) !== r.asset) errors.push(withFound({ code: 'asset_reference_missing', path: `${at}${r.path}`, message: `this node field must name a ${r.asset} asset of this project`, expected: `a ${r.asset} assetId` }, r.id));
     }
   };
   const materials = Array.isArray(doc['materials']) ? (doc['materials'] as unknown[]).filter(isPlainObject) : [];
@@ -2487,6 +2579,9 @@ function validateMaterialReferences(doc: Record<string, unknown>, errors: ModelE
       for (const [slot, id] of Object.entries(textures)) {
         if (kindOf.get(id) !== 'texture') {
           errors.push(withFound({ code: 'asset_reference_missing', path: `/materials/${i}/textures/${pointerSegment(slot)}`, message: 'a material texture slot must name a texture asset of this project', expected: 'a texture assetId' }, id));
+        } else if (arrays.has(id as string) && m['graph'] === undefined && (typeof m['materialId'] !== 'string' || resolveMaterial(materials as unknown as MaterialDef[], m['materialId'])?.graph === undefined)) {
+          // Phase 25.21: a shader material's slot reads one plain texture.
+          errors.push(withFound({ code: 'field_value', path: `/materials/${i}/textures/${pointerSegment(slot)}`, message: 'a material texture slot reads one plain texture: a texture array is read by a graph material\'s texture nodes', expected: 'a plain texture assetId' }, id));
         }
       }
     }
@@ -2551,7 +2646,7 @@ function validateMaterialReferences(doc: Record<string, unknown>, errors: ModelE
       });
     }
     for (const [p, id] of refs) {
-      if (kindOf.get(id) !== 'texture') errors.push(withFound({ code: 'asset_reference_missing', path: p, message: 'this environment image must name a texture asset of this project', expected: 'a texture assetId' }, id));
+      if (plainKindOf.get(id) !== 'texture') errors.push(withFound({ code: 'asset_reference_missing', path: p, message: 'this environment image must name a (plain) texture asset of this project', expected: 'a texture assetId' }, id));
     }
   }
   // Phase 23.14: the input's glyph images are texture assets.
@@ -2580,7 +2675,7 @@ function validateMaterialReferences(doc: Record<string, unknown>, errors: ModelE
       if (!sceneIds.has(sceneId)) errors.push(withFound({ code: 'reference_missing', reason: 'scene', path: `/lighting/${pointerSegment(sceneId)}`, message: 'a bake belongs to a scene of this project', expected: 'a sceneId of content.scenes' }, sceneId));
       if (!isPlainObject(bake) || !Array.isArray(bake['atlases'])) continue;
       bake['atlases'].forEach((id, i) => {
-        if (kindOf.get(id) !== 'texture') errors.push(withFound({ code: 'asset_reference_missing', path: `/lighting/${pointerSegment(sceneId)}/atlases/${i}`, message: 'a lightmap atlas must name a texture asset of this project', expected: 'a texture assetId' }, id));
+        if (plainKindOf.get(id) !== 'texture') errors.push(withFound({ code: 'asset_reference_missing', path: `/lighting/${pointerSegment(sceneId)}/atlases/${i}`, message: 'a lightmap atlas must name a texture asset of this project', expected: 'a texture assetId' }, id));
       });
     }
   }

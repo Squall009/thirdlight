@@ -240,6 +240,17 @@ Object.defineProperty(ObjectTextureNode.prototype, 'updateType', {
   configurable: true,
 });
 
+/** Phase 25.21: a texture array (its layers sampled by a layer index): KTX2 arrays and data arrays alike. */
+export function isArrayTexture(t: THREE.Texture): boolean {
+  const x = t as THREE.Texture & { isCompressedArrayTexture?: boolean; isDataArrayTexture?: boolean; isArrayTexture?: boolean };
+  return x.isCompressedArrayTexture === true || x.isDataArrayTexture === true || x.isArrayTexture === true;
+}
+/** Phase 25.21: the layers of a texture array (1 for a plain texture). */
+export function arrayLayers(t: THREE.Texture): number {
+  const d = (t.image as { depth?: number } | undefined)?.depth;
+  return isArrayTexture(t) && typeof d === 'number' && d > 0 ? d : 1;
+}
+
 /** Phase 23.12: a data grid as a texture (RGBA8, exact texels, no mipmaps). */
 export function makeDataTexture(bytes: Uint8Array, width: number, height: number): THREE.DataTexture {
   const t = new THREE.DataTexture(bytes, width, height, THREE.RGBAFormat, THREE.UnsignedByteType);
@@ -319,14 +330,16 @@ export const COMPILER_NODES: Readonly<Record<string, NodeSpec>> = {
   sin: unary(),
   cos: unary(),
   oneMinus: unary(),
+  weightedMix: { inputs: [P('a', 'dyn', 0), P('b', 'dyn', 0), P('c', 'dyn', 0), P('d', 'dyn', 0), P('weights', 'vec4', [1, 0, 0, 0])], outputs: [P('out', 'dyn')] },
   remap: { inputs: [P('in', 'dyn', 0), P('inMin', 'dyn', 0), P('inMax', 'dyn', 1), P('outMin', 'dyn', 0), P('outMax', 'dyn', 1)], outputs: [P('out', 'dyn')] },
   split: { inputs: [P('in', 'vec4', [0, 0, 0, 0])], outputs: [P('x', 'float'), P('y', 'float'), P('z', 'float'), P('w', 'float')] },
   combine: { inputs: [P('x', 'float', 0), P('y', 'float', 0), P('z', 'float', 0), P('w', 'float', 1)], outputs: [P('xyzw', 'vec4'), P('xyz', 'vec3'), P('xy', 'vec2')] },
   swizzle: { inputs: [P('in', 'vec4', [0, 0, 0, 0])], outputs: [P('out', 'vec3')] },
-  sampleTexture: { inputs: [P('tex', 'texture'), P('uv', 'vec2', 'uv0')], outputs: SAMPLE_OUT },
+  sampleTexture: { inputs: [P('tex', 'texture'), P('uv', 'vec2', 'uv0'), P('layer', 'float', 0)], outputs: SAMPLE_OUT },
   sampleData: { inputs: [P('data', 'data'), P('uv', 'vec2', 'uv0'), P('cell', 'vec2', [0, 0])], outputs: SAMPLE_OUT },
-  normalMap: { inputs: [P('tex', 'texture'), P('uv', 'vec2', 'uv0'), P('strength', 'float', 1)], outputs: [P('normal', 'vec3')] },
-  triplanar: { inputs: [P('tex', 'texture'), P('position', 'vec3', 'positionWorld'), P('normal', 'vec3', 'normalWorld'), P('scale', 'float', 1), P('sharpness', 'float', 4)], outputs: [P('rgba', 'vec4'), P('rgb', 'vec3')] },
+  normalMap: { inputs: [P('tex', 'texture'), P('uv', 'vec2', 'uv0'), P('strength', 'float', 1), P('layer', 'float', 0)], outputs: [P('normal', 'vec3')] },
+  triplanar: { inputs: [P('tex', 'texture'), P('position', 'vec3', 'positionWorld'), P('normal', 'vec3', 'normalWorld'), P('scale', 'float', 1), P('sharpness', 'float', 4), P('layer', 'float', 0)], outputs: [P('rgba', 'vec4'), P('rgb', 'vec3')] },
+  heightBlend: { inputs: [P('weights', 'vec4', [1, 0, 0, 0]), P('heights', 'vec4', [0, 0, 0, 0]), P('depth', 'float', 0.2)], outputs: [P('weights', 'vec4')] },
   flipbook: { inputs: [P('uv', 'vec2', 'uv0'), P('frame', 'float', 0)], outputs: [P('uv', 'vec2')] },
   noise: { inputs: [P('uv', 'vec2', 'uv0'), P('scale', 'float', 10)], outputs: [P('value', 'float'), P('cell', 'float')] },
   gradient: { inputs: [P('uv', 'vec2', 'uv0')], outputs: [P('value', 'float')] },
@@ -360,7 +373,7 @@ export const COMPILER_FIELD_DEFAULTS: Readonly<Record<string, Readonly<Record<st
   color: { color: '#ffffff', alpha: 1 },
   parameter: { key: '' },
   uv: { set: 'uv0' },
-  vertexColor: { absent: 'white' },
+  vertexColor: { absent: 'white', set: 'COLOR_0' },
   position: { space: 'world' },
   normal: { space: 'world' },
   viewDirection: { space: 'world' },
@@ -763,8 +776,16 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
     }
     return texNode(scope, node.id, asset, samplerOf(node, colour));
   };
-  const sample = (t: THREE.Texture, uv: N, stage: Stage): N => {
-    const s = T.texture(t, uv);
+  /**
+   * A texture read at a UV; of a texture array (phase 25.21), at `layer`
+   * (rounded, kept within the array; a plain texture ignores it).
+   */
+  const sample = (t: THREE.Texture, uv: N, stage: Stage, layer?: N): N => {
+    let s = T.texture(t, uv);
+    if (isArrayTexture(t)) {
+      const last = Math.max(0, arrayLayers(t) - 1);
+      s = s.depth(T.int(T.clamp(T.floor((layer ?? T.float(0)).add(0.5)), 0, last)));
+    }
     return stage === 'vertex' ? s.level(0) : s;
   };
 
@@ -862,8 +883,11 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
       case 'uv':
         return one('uv', T.uv(str(field(node, 'set'), 'uv0') === 'uv1' ? 1 : 0));
       case 'vertexColor': {
-        const zero = str(field(node, 'absent'), 'white') === 'zero';
-        const c = T.Fn((builder: { geometry?: THREE.BufferGeometry }) => (builder.geometry?.hasAttribute('color') === true ? T.attribute('color', 'vec4') : zero ? T.vec4(0, 0, 0, 1) : T.vec4(1, 1, 1, 1)))();
+        const absent = str(field(node, 'absent'), 'white');
+        // Phase 25.21: COLOR_1 is three's `color_1` (glTF's second set; a painted block layer's wetness).
+        const name = str(field(node, 'set'), 'COLOR_0') === 'COLOR_1' ? 'color_1' : 'color';
+        const missing = (): N => (absent === 'zero' ? T.vec4(0, 0, 0, 1) : absent === 'first' ? T.vec4(1, 0, 0, 0) : T.vec4(1, 1, 1, 1));
+        const c = T.Fn((builder: { geometry?: THREE.BufferGeometry }) => (builder.geometry?.hasAttribute(name) === true ? T.attribute(name, 'vec4') : missing()))();
         return { rgba: { t: 'vec4', n: c }, rgb: { t: 'vec3', n: c.xyz }, alpha: { t: 'float', n: c.w } };
       }
       case 'position': {
@@ -966,6 +990,10 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
         return one('out', T.cos(v(inp['in'])));
       case 'oneMinus':
         return one('out', T.float(1).sub(v(inp['in'])));
+      case 'weightedMix': {
+        const w = v(inp['weights']);
+        return one('out', v(inp['a']).mul(w.x).add(v(inp['b']).mul(w.y)).add(v(inp['c']).mul(w.z)).add(v(inp['d']).mul(w.w)));
+      }
       case 'remap': {
         const x = v(inp['in']);
         const a = v(inp['inMin']);
@@ -994,7 +1022,7 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
       // ---- textures
       case 'sampleTexture': {
         const t = textureFor(scope, node, inp, true);
-        const s = t !== null ? sample(t, v(inp['uv']), stage) : T.vec4(1, 1, 1, 1);
+        const s = t !== null ? sample(t, v(inp['uv']), stage, v(inp['layer'])) : T.vec4(1, 1, 1, 1);
         return { rgba: { t: 'vec4', n: s }, rgb: { t: 'vec3', n: s.xyz }, r: { t: 'float', n: s.x }, g: { t: 'float', n: s.y }, b: { t: 'float', n: s.z }, a: { t: 'float', n: s.w } };
       }
       case 'sampleData': {
@@ -1023,7 +1051,7 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
         const t = textureFor(scope, node, inp, false);
         if (t === null) return one('normal', T.vec3(0, 0, 1));
         // As three's normal map: decode, scale xy by the strength (tangent space).
-        const n = sample(t, v(inp['uv']), stage).xyz.mul(2).sub(1);
+        const n = sample(t, v(inp['uv']), stage, v(inp['layer'])).xyz.mul(2).sub(1);
         return one('normal', T.vec3(n.xy.mul(v(inp['strength'])), n.z));
       }
       case 'triplanar': {
@@ -1032,7 +1060,8 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
         const p = v(inp['position']).mul(v(inp['scale']));
         const w0 = T.pow(T.abs(T.normalize(v(inp['normal']))), T.vec3(v(inp['sharpness'])));
         const w = w0.div(w0.x.add(w0.y).add(w0.z).add(1e-5));
-        const s = sample(t, p.zy, stage).mul(w.x).add(sample(t, p.xz, stage).mul(w.y)).add(sample(t, p.xy, stage).mul(w.z));
+        const layer = v(inp['layer']);
+        const s = sample(t, p.zy, stage, layer).mul(w.x).add(sample(t, p.xz, stage, layer).mul(w.y)).add(sample(t, p.xy, stage, layer).mul(w.z));
         return { rgba: { t: 'vec4', n: s }, rgb: { t: 'vec3', n: s.xyz } };
       }
       case 'flipbook': {
@@ -1067,6 +1096,20 @@ export function compileMaterialGraph(input: { graph: MaterialGraphLike; paramete
         const mode = str(field(node, 'interpolation'), 'linear');
         const k = mode === 'smooth' ? T.smoothstep(0, 1, t) : mode === 'constant' ? T.step(0.5, t) : t;
         return one('rgb', T.mix(T.vec3(...a), T.vec3(...b), k));
+      }
+      case 'heightBlend': {
+        // Phase 25.21: height-based blending (the "height lerp" of terrain and trim-sheet shaders).
+        // The weights, normalized (all zero: the first layer); each layer's height lifted by its weight; the layers
+        // within `depth` of the highest show, in proportion to how far above that line they reach — times their
+        // weight, so a layer of weight 0 never shows and the result follows the weights where the heights agree.
+        const w0 = T.max(v(inp['weights']), T.vec4(0, 0, 0, 0));
+        const sum = T.dot(w0, T.vec4(1, 1, 1, 1));
+        const w = sum.greaterThan(1e-5).select(w0.div(sum), T.vec4(1, 0, 0, 0));
+        const h = v(inp['heights']).add(w);
+        const top = T.max(T.max(h.x, h.y), T.max(h.z, h.w)).sub(T.max(v(inp['depth']), 1e-4));
+        const b = T.max(h.sub(top), T.vec4(0, 0, 0, 0)).mul(w);
+        const bs = T.dot(b, T.vec4(1, 1, 1, 1));
+        return one('weights', bs.greaterThan(1e-5).select(b.div(bs), w));
       }
       // ---- utility
       case 'fresnel': {

@@ -20,7 +20,8 @@
  * The terrain brushes (height, smooth, flatten) aim at the ground itself
  * (the layer's drawn surface under the pointer) and drop `sculpt` dabs along
  * the drag — each previewed on the layer copy as it lands, all of them sent
- * as one `editBlocks` on release.
+ * as one `editBlocks` on release. Phase 25.21: the Paint mode (the `paint`
+ * tool) works the same way with `paint` dabs of the paint brush.
  *
  * Browser-only (three.js); the maths is `session/block-brush.ts`.
  */
@@ -39,11 +40,12 @@ import {
   lineCells,
   rectBetween,
   sculptEdit,
+  paintEdit,
   strokeEdits,
   toolAdds,
   toolFreehand,
   toolRect,
-  toolSculpts,
+  toolDabs,
   type BlockToolId,
   type BrushState,
   type Cell3,
@@ -167,7 +169,7 @@ export class BlockEditor {
   private previewMs = 0;
   private target: { cell: Cell3; value: BlockCell | null } | null = null;
   /** A terrain brush stroke: its dabs (sent on release), the last dab's centre (columns) and the flatten height (rows). */
-  private sculpt: { tool: 'height' | 'smooth' | 'flatten'; dabs: BlockEdit[]; last: [number, number]; level: number; invert: boolean } | null = null;
+  private sculpt: { tool: 'height' | 'smooth' | 'flatten' | 'paint'; dabs: BlockEdit[]; last: [number, number]; level: number; invert: boolean } | null = null;
   private readonly ring: THREE.LineLoop;
   /** Measured stroke timings (tests read them from the canvas). */
   private lastStroke: { tool: BlockToolId; cells: number; previewMs: number; commitMs: number | null } | null = null;
@@ -249,7 +251,7 @@ export class BlockEditor {
   setOptions(o: BlockToolOptions): void {
     this.opts = o;
     // The terrain brushes show their round footprint instead of a cell.
-    if (toolSculpts(o.tool)) this.placeBox(this.hover, null);
+    if (toolDabs(o.tool)) this.placeBox(this.hover, null);
     else this.ring.visible = false;
     if (this.active) this.host.canvas.setAttribute('data-block-tool', o.tool);
     this.rebuildRegions();
@@ -328,7 +330,7 @@ export class BlockEditor {
       this.cb.onRefused('The layer is hidden (show it to edit it).');
       return true;
     }
-    if (toolSculpts(this.opts.tool)) {
+    if (toolDabs(this.opts.tool)) {
       const at = this.surfaceUnder(e.clientX, e.clientY);
       if (at === null) return true;
       this.strokeInvert = this.opts.invert !== (e.ctrlKey || e.metaKey);
@@ -355,13 +357,13 @@ export class BlockEditor {
 
   pointerMove(e: PointerEvent): boolean {
     if (!this.active) return false;
-    if (toolSculpts(this.opts.tool) || this.sculpt !== null) {
+    if (toolDabs(this.opts.tool) || this.sculpt !== null) {
       const at = this.surfaceUnder(e.clientX, e.clientY);
       this.drawRing(at);
       const k = this.sculpt;
       if (k === null || at === null) return k !== null;
       // Dabs every quarter radius along the drag (a fast drag leaves no gaps).
-      const step = dabSpacing(this.opts.brush.radius);
+      const step = dabSpacing(this.brushRadius());
       const dx = at.x - k.last[0];
       const dz = at.z - k.last[1];
       const n = Math.floor(Math.hypot(dx, dz) / step);
@@ -447,6 +449,11 @@ export class BlockEditor {
     return { x, z, rows: (p.y - o.y) / cs[1] };
   }
 
+  /** The round brush's radius in cells: the paint brush's for the paint tool, else the terrain brush's. */
+  private brushRadius(): number {
+    return this.opts.tool === 'paint' || this.sculpt?.tool === 'paint' ? this.opts.brush.paint.radius : this.opts.brush.radius;
+  }
+
   private drawRing(at: { x: number; z: number; rows: number } | null): void {
     const layer = this.layer;
     this.host.canvas.setAttribute('data-block-brush', at === null ? '' : `${at.x.toFixed(3)},${at.z.toFixed(3)},${at.rows.toFixed(3)}`);
@@ -455,7 +462,8 @@ export class BlockEditor {
     } else {
       const cs = layer.component.cellSize;
       this.ring.position.set(at.x * cs[0], at.rows * cs[1] + 0.02, at.z * cs[2]);
-      this.ring.scale.set(this.opts.brush.radius * cs[0], 1, this.opts.brush.radius * cs[2]);
+      const r = this.brushRadius();
+      this.ring.scale.set(r * cs[0], 1, r * cs[2]);
       this.ring.visible = true;
       this.ring.updateMatrixWorld(true);
     }
@@ -469,7 +477,8 @@ export class BlockEditor {
     const b = this.opts.brush;
     // The brush block grows empty ground (raising where nothing stands yet).
     const cell = brushCell(b, b.block !== null ? this.types.get(b.block) : undefined);
-    const dab = sculptEdit(k.tool, [x, z], b, k.invert, k.level, cell);
+    // Phase 25.21: the paint tool paints the surface under the paint brush (invert: erase).
+    const dab = k.tool === 'paint' ? paintEdit([x, z], b.paint, k.invert) : sculptEdit(k.tool, [x, z], b, k.invert, k.level, cell);
     k.dabs.push(dab);
     this.previewEdits([dab]);
   }

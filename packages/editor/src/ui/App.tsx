@@ -2178,7 +2178,7 @@ function EditorApp(): JSX.Element {
   }, []);
 
   // Phase 25.19: how PNG/JPEG textures are imported (as is, or encoded to KTX2); an editor preference, not project data.
-  const [textureEncoding, setTextureEncoding] = useState<'none' | 'color' | 'normal'>('none');
+  const [textureEncoding, setTextureEncoding] = useState<'none' | 'color' | 'normal' | 'data'>('none');
   const textureEncodingRef = useRef(textureEncoding);
   textureEncodingRef.current = textureEncoding;
 
@@ -4456,6 +4456,15 @@ function EditorApp(): JSX.Element {
               onImport={(f) => void importFile(f, 'create')}
               textureEncoding={textureEncoding}
               onTextureEncoding={setTextureEncoding}
+              onPackTexture={async (req) => {
+                const c = clientRef.current;
+                if (c === null) return 'not connected';
+                const res = await c.packTexture(req);
+                if (!res.ok) return res.error.message;
+                await c.fullResync();
+                setSelectedAssetId(res.assetId);
+                return null;
+              }}
               onReimport={(f) => void importFile(f, 'reimport')}
               folderImport={folderProject}
               onImportFromFolder={() => setFilePicker('create')}

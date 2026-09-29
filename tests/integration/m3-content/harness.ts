@@ -117,7 +117,8 @@ export async function ensureBackendBundle(): Promise<string> {
     format: 'esm',
     target: 'node22',
     outfile: out,
-    external: ['ws', 'esbuild', 'playwright-core'],
+    // Phase 25.21: the KTX2 encoder loads its WASM next to its own file (external, as in the deployment bundle).
+    external: ['ws', 'esbuild', 'playwright-core', 'ktx2-encoder', 'jpeg-js'],
     logLevel: 'silent',
   });
   childBundle = out;

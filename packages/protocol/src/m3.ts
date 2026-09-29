@@ -877,14 +877,15 @@ export interface StageInspectRequest {
   animation?: { entityId?: string; roles: AnimationRolesValue };
   /**
    * Phase 25.19, textures only: encode a PNG/JPEG to KTX2 on import —
-   * "color" (ETC1S, sRGB) or "normal" (UASTC, linear, normal-map mips).
+   * "color" (ETC1S, sRGB) or "normal" (UASTC, linear, normal-map mips);
+   * phase 25.21: "data" (UASTC, linear, channels kept apart: masks, packed ORM).
    */
-  ktx2?: 'color' | 'normal';
+  ktx2?: 'color' | 'normal' | 'data';
 }
 
 const INSPECT_REQUEST_FIELDS = new Map([
   ['kind', '"model" | "audio" | "texture" | "music" | "font" (default "model")'],
-  ['ktx2', '"color" | "normal" (a texture only: encode it to KTX2)'],
+  ['ktx2', '"color" | "normal" | "data" (a texture only: encode it to KTX2)'],
   ['animation', '{ entityId?, roles: { idle, run, airborne } } — the §41.3.3 animated profile'],
 ]);
 const ANIMATION_FIELDS = new Map([
@@ -946,8 +947,8 @@ export function parseStageInspectRequest(
   }
   let ktx2: StageInspectRequest['ktx2'];
   if (shape.value.ktx2 !== undefined) {
-    if (shape.value.ktx2 !== 'color' && shape.value.ktx2 !== 'normal') {
-      return { ok: false, error: sessionError('field_value', 'validation', 'ktx2 must be "color" or "normal"', { path: '/ktx2', found: String(shape.value.ktx2).slice(0, 64), expected: '"color" | "normal"' }) };
+    if (shape.value.ktx2 !== 'color' && shape.value.ktx2 !== 'normal' && shape.value.ktx2 !== 'data') {
+      return { ok: false, error: sessionError('field_value', 'validation', 'ktx2 must be "color", "normal" or "data"', { path: '/ktx2', found: String(shape.value.ktx2).slice(0, 64), expected: '"color" | "normal" | "data"' }) };
     }
     if (kind !== 'texture') {
       return { ok: false, error: sessionError('field_value', 'validation', 'ktx2 encoding is for a texture (kind "texture")', { path: '/ktx2', expected: 'kind: "texture"' }) };
@@ -1023,6 +1024,53 @@ export function parseProjectFileInspectRequest(
   const inspect = parseStageInspectRequest(rest);
   if (!inspect.ok) return inspect;
   return { ok: true, request: { ...inspect.request, path, ...(displayName !== undefined ? { displayName: displayName as string } : {}) } };
+}
+
+/** Phase 25.21: one channel of a packed layer: a channel of a texture asset (its current version), or a constant 0–255. */
+export type TexturePackChannel = { assetId: string; channel: 'r' | 'g' | 'b' | 'a' } | { value: number };
+
+/**
+ * Phase 25.21: `POST /content/textures/pack` — a KTX2 texture packed from the
+ * project's PNG/JPEG texture assets channel by channel; several layers make a
+ * texture array. `layers[i]` = the R, G, B and A sources of layer i.
+ */
+export interface TexturePackRequest {
+  layers: TexturePackChannel[][];
+  encoding: 'color' | 'normal' | 'data';
+  displayName?: string;
+}
+
+/** Phase 25.21: the most layers a packed texture may have (the model's texture-array limit). */
+export const TEXTURE_PACK_LAYERS_MAX = 256;
+
+export function parseTexturePackRequest(value: unknown): { ok: true; request: TexturePackRequest } | { ok: false; error: SessionError } {
+  const bad = (path: string, message: string, expected?: string): { ok: false; error: SessionError } => ({ ok: false, error: sessionError('field_value', 'validation', message, { path, ...(expected !== undefined ? { expected } : {}) }) });
+  if (!isPlainObject(value)) return { ok: false, error: sessionError('field_type', 'validation', 'the body must be an object', { path: '', found: typeof value }) };
+  for (const k of Object.keys(value)) if (!['layers', 'encoding', 'displayName'].includes(k)) return { ok: false, error: sessionError('field_unexpected', 'validation', `unknown field "${k}"`, { path: `/${k}`, expected: 'layers, encoding, displayName' }) };
+  const { layers, encoding, displayName } = value;
+  if (encoding !== 'color' && encoding !== 'normal' && encoding !== 'data') return bad('/encoding', 'encoding must be "color" (ETC1S, sRGB), "normal" or "data" (UASTC, linear)', '"color" | "normal" | "data"');
+  if (displayName !== undefined && (!isStringNoControl(displayName) || displayName.length < 1 || displayName.length > 128)) return bad('/displayName', 'displayName must be 1–128 characters without control characters');
+  if (!Array.isArray(layers) || layers.length < 1 || layers.length > TEXTURE_PACK_LAYERS_MAX) return bad('/layers', `layers is a list of 1-${TEXTURE_PACK_LAYERS_MAX} layers, each its [R, G, B, A] sources`);
+  const out: TexturePackChannel[][] = [];
+  for (let i = 0; i < layers.length; i++) {
+    const l = layers[i];
+    if (!Array.isArray(l) || l.length !== 4) return bad(`/layers/${i}`, 'a layer is its [R, G, B, A] sources');
+    const row: TexturePackChannel[] = [];
+    for (let c = 0; c < 4; c++) {
+      const src = l[c];
+      const p = `/layers/${i}/${c}`;
+      if (isPlainObject(src) && Object.keys(src).length === 1 && src.value !== undefined) {
+        if (!Number.isInteger(src.value) || (src.value as number) < 0 || (src.value as number) > 255) return bad(`${p}/value`, 'a constant channel is an integer 0-255');
+        row.push({ value: src.value as number });
+      } else if (isPlainObject(src) && Object.keys(src).length === 2 && typeof src.assetId === 'string' && typeof src.channel === 'string') {
+        if (!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(src.assetId)) return bad(`${p}/assetId`, 'assetId uses the asset id syntax');
+        if (!['r', 'g', 'b', 'a'].includes(src.channel)) return bad(`${p}/channel`, 'channel is "r", "g", "b" or "a"');
+        row.push({ assetId: src.assetId, channel: src.channel as 'r' | 'g' | 'b' | 'a' });
+      } else return bad(p, 'a channel source is {assetId, channel} or {value}', '{assetId, channel: "r"|"g"|"b"|"a"} | {value: 0-255}');
+    }
+    out.push(row);
+  }
+  return { ok: true, request: { layers: out, encoding, ...(displayName !== undefined ? { displayName: displayName as string } : {}) } };
 }
 
 /** The relay id shape used by the §20 WS forwarding rows. */

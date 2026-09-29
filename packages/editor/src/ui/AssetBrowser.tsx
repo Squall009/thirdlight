@@ -14,6 +14,7 @@ import type { AssetView } from '../session/content-projection';
 import { ASSET_DRAG_TYPE } from '../session/placement';
 import type { AssetImportState, AssetQueryState } from '../session/asset-browser';
 import type { AnimationRoleKey } from '../session/media';
+import { TexturePackForm, type PackRequest } from './TexturePackForm';
 
 export interface AssetPreviewView {
   assetId: string;
@@ -62,9 +63,11 @@ interface Props {
   /** The pieces of each loaded model file (a file with 2+ pieces expands into piece tiles). */
   pieces: ReadonlyMap<string, readonly { name: string }[]>;
   onVertexColors: (assetId: string, mode: 'data' | 'tint') => void;
-  /** Phase 25.19: how an imported PNG/JPEG texture is stored — as is, or encoded to KTX2 (colour: ETC1S, normal map: UASTC). */
-  textureEncoding?: 'none' | 'color' | 'normal';
-  onTextureEncoding?: (v: 'none' | 'color' | 'normal') => void;
+  /** Phase 25.19: how an imported PNG/JPEG texture is stored — as is, or encoded to KTX2 (colour: ETC1S, normal map: UASTC; phase 25.21: data, UASTC linear). */
+  textureEncoding?: 'none' | 'color' | 'normal' | 'data';
+  onTextureEncoding?: (v: 'none' | 'color' | 'normal' | 'data') => void;
+  /** Phase 25.21: pack a KTX2 texture (array) from texture assets; resolves to an error message or null. */
+  onPackTexture?: (req: PackRequest) => Promise<string | null>;
   /** Phase 9.4: extra sections for the selected asset (its default materials). */
   sideExtra?: ReactNode;
   /** Phase 23.9b: create a UI document and open its tab. */
@@ -87,6 +90,7 @@ export function AssetBrowser(p: Props): JSX.Element {
   const reimportInput = useRef<HTMLInputElement | null>(null);
   const selected = p.assets.find((a) => a.assetId === p.selectedAssetId) ?? null;
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+  const [packing, setPacking] = useState(false);
   const dragStart = (ev: DragEvent<HTMLLIElement>, assetId: string, piece: string | null): void => {
     ev.dataTransfer.setData(ASSET_DRAG_TYPE, JSON.stringify(piece === null ? { assetId } : { assetId, piece }));
     ev.dataTransfer.effectAllowed = 'copy';
@@ -223,12 +227,18 @@ export function AssetBrowser(p: Props): JSX.Element {
         {p.onTextureEncoding !== undefined && (
           <label className="tl-field tl-field--inline" title="How a PNG or JPEG texture is imported: as is, or encoded to KTX2 with mipmaps — colour art as ETC1S (small), normal maps as UASTC (precise, linear). A KTX2 stays compressed on the GPU.">
             <span className="tl-field__label">textures</span>
-            <select className="tl-input tl-input--small" aria-label="texture import encoding" value={p.textureEncoding ?? 'none'} onChange={(e) => p.onTextureEncoding?.(e.target.value as 'none' | 'color' | 'normal')}>
+            <select className="tl-input tl-input--small" aria-label="texture import encoding" value={p.textureEncoding ?? 'none'} onChange={(e) => p.onTextureEncoding?.(e.target.value as 'none' | 'color' | 'normal' | 'data')}>
               <option value="none">keep the image</option>
               <option value="color">KTX2 colour (ETC1S)</option>
               <option value="normal">KTX2 normal map (UASTC)</option>
+              <option value="data">KTX2 data (UASTC, linear)</option>
             </select>
           </label>
+        )}
+        {p.onPackTexture !== undefined && (
+          <button className="tl-btn" aria-pressed={packing} onClick={() => setPacking((v) => !v)} title="Pack channels of PNG/JPEG textures into one KTX2 texture — several layers make a texture array (a painted terrain's layers)">
+            pack texture…
+          </button>
         )}
         {p.onNewUiDocument !== undefined && (
           <button className="tl-btn" onClick={p.onNewUiDocument} title="Create a UI document (a HUD, menu or screen) and open its editor tab; the UI tab lists them">
@@ -251,6 +261,8 @@ export function AssetBrowser(p: Props): JSX.Element {
           </>
         )}
       </div>
+
+      {packing && p.onPackTexture !== undefined && <TexturePackForm textures={p.assets} onPack={p.onPackTexture} onClose={() => setPacking(false)} />}
 
       <div className={`tl-assets__status tl-assets__status--${p.importState.phase}`}>
         <span>import: {p.importState.phase}</span>
@@ -329,14 +341,19 @@ export function AssetBrowser(p: Props): JSX.Element {
               title={selected.convertedFrom.format === 'fbx' ? 'Converted to glTF by Blender at import; the game loads the converted GLB' : 'Encoded to KTX2 at import; the game loads the KTX2'}
             >
               from {selected.convertedFrom.format === 'fbx' ? 'FBX' : selected.convertedFrom.format.toUpperCase()}
-              {selected.convertedFrom.encoding !== undefined ? ` (${selected.convertedFrom.encoding === 'normal' ? 'normal map' : 'colour'})` : ''}
+              {selected.convertedFrom.encoding !== undefined ? ` (${selected.convertedFrom.encoding === 'normal' ? 'normal map' : selected.convertedFrom.encoding === 'data' ? 'data' : 'colour'})` : ''}
               {selected.convertedFrom.sourcePath !== undefined ? `: ${selected.convertedFrom.sourcePath}` : ' (uploaded)'}
+            </div>
+          )}
+          {selected.packedFrom !== undefined && (
+            <div className="tl-assets__source" title="Packed at import from these texture assets' channels; the game loads the KTX2">
+              packed from {selected.packedFrom.sources.map((id) => p.assets.find((a) => a.assetId === id)?.displayName ?? id).join(', ')} ({selected.packedFrom.encoding === 'normal' ? 'normal map' : selected.packedFrom.encoding === 'data' ? 'data' : 'colour'})
             </div>
           )}
           {selected.image !== undefined && (
             <div className="tl-assets__source" data-testid="texture-facts" title={selected.image.format === 'ktx2' ? 'A GPU-compressed texture (Basis Universal): transcoded on the player’s GPU to its own compressed format' : 'An image the page decodes to RGBA'}>
               {selected.image.format === 'ktx2'
-                ? `KTX2 · ${selected.image.codec === 'uastc' ? 'UASTC' : 'ETC1S'} · ${selected.image.levels ?? 1} mip level${selected.image.levels === 1 ? '' : 's'}`
+                ? `KTX2 · ${selected.image.codec === 'uastc' ? 'UASTC' : 'ETC1S'} · ${selected.image.levels ?? 1} mip level${selected.image.levels === 1 ? '' : 's'}${selected.image.layers !== undefined ? ` · ${selected.image.layers} layers` : ''}`
                 : selected.image.format.toUpperCase()}{' '}
               · {selected.image.width}×{selected.image.height}
             </div>

@@ -237,6 +237,7 @@ export function applyPublishAsset(input: OpInput, args: PublishAssetArgs): OpOut
     sourceByteLength: args.sourceByteLength,
     ...(args.sourcePath !== undefined ? { sourcePath: args.sourcePath } : {}),
     ...(args.convertedFrom !== undefined ? { convertedFrom: deepClone(args.convertedFrom) } : {}),
+    ...(args.packedFrom !== undefined ? { packedFrom: deepClone(args.packedFrom) } : {}),
     importRecipe: deepClone(args.importRecipe),
     metrics: deepClone(args.metrics),
     importedAt: args.importedAt,

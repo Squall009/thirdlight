@@ -124,11 +124,16 @@ const INPUT_NODES: readonly GraphNodeDef[] = [
     type: 'vertexColor',
     label: 'Vertex colour',
     category: 'Inputs',
-    description: 'The mesh\'s COLOR_0 attribute; a mesh without one reads white (a neutral tint) or zero with alpha 1 (vertex colours used as data, e.g. wind weights).',
+    description:
+      'A vertex colour set of the mesh (COLOR_0, or COLOR_1: a second set, e.g. a painted block layer\'s wetness); a mesh without it reads white (a neutral tint), zero with alpha 1 (vertex colours used as data, e.g. wind weights) or first — (1, 0, 0, 0), all weight on the first channel (vertex colours used as layer weights: an unpainted mesh shows its first layer).',
     inputs: [],
     outputs: [port('rgba', 'rgba', 'vec4'), port('rgb', 'rgb', 'vec3'), port('alpha', 'alpha', 'float')],
     // Phase 18.2: white multiplies to no change (a tint); zero means "no effect" for data channels.
-    fields: [{ key: 'absent', label: 'Without COLOR_0', type: 'enum', options: ['white', 'zero'], default: 'white' }],
+    // Phase 25.21: `set` (a second colour set) and `first` (layer weights) appended; existing graphs keep their meaning.
+    fields: [
+      { key: 'absent', label: 'Without the set', type: 'enum', options: ['white', 'zero', 'first'], default: 'white' },
+      { key: 'set', label: 'Set', type: 'enum', options: ['COLOR_0', 'COLOR_1'], default: 'COLOR_0' },
+    ],
   },
   { type: 'position', label: 'Position', category: 'Inputs', description: 'The surface position in object, world or view space.', inputs: [], outputs: [port('position', 'position', 'vec3')], fields: [SPACE_FIELD(['object', 'world', 'view'], 'world')] },
   { type: 'normal', label: 'Normal', category: 'Inputs', description: 'The surface normal in object, world or view space.', inputs: [], outputs: [port('normal', 'normal', 'vec3')], fields: [SPACE_FIELD(['object', 'world', 'view'], 'world')] },
@@ -225,6 +230,16 @@ const MATH_NODES: readonly GraphNodeDef[] = [
   unary('cos', 'Cosine', 'cos(x), x in radians.'),
   unary('oneMinus', 'One minus', '1 − x.'),
   {
+    // Phase 25.21: four layers' values by their weights (after a Height blend, or any weights).
+    type: 'weightedMix',
+    label: 'Weighted mix',
+    category: 'Maths',
+    description: 'a × w.x + b × w.y + c × w.z + d × w.w: four layers\' values (colours, normals, roughness…) mixed by weights that sum to 1 (a Height blend\'s, vertex colours, a mask).',
+    inputs: [dyn('a', 'a', 0), dyn('b', 'b', 0), dyn('c', 'c', 0), dyn('d', 'd', 0), port('weights', 'weights', 'vec4', [1, 0, 0, 0])],
+    outputs: [dyn('out', 'out')],
+    fields: [TYPE_FIELD],
+  },
+  {
     type: 'remap',
     label: 'Remap',
     category: 'Maths',
@@ -273,13 +288,21 @@ const SAMPLER_FIELDS: readonly GraphFieldDef[] = [
 const TEX_IN = port('tex', 'texture', 'texture');
 const SAMPLE_OUTPUTS: readonly GraphPortDef[] = [port('rgba', 'rgba', 'vec4'), port('rgb', 'rgb', 'vec3'), port('r', 'r', 'float'), port('g', 'g', 'float'), port('b', 'b', 'float'), port('a', 'a', 'float')];
 
+/**
+ * Phase 25.21: the layer of a texture array a sampling node reads (0 = the
+ * first; rounded to the nearest layer and kept within the array). A plain
+ * texture has one layer and ignores it. Appended last, so existing wires keep
+ * their ports.
+ */
+const LAYER_IN = port('layer', 'layer', 'float', 0);
+
 const TEXTURE_NODES: readonly GraphNodeDef[] = [
   {
     type: 'sampleTexture',
     label: 'Sample texture',
     category: 'Textures',
-    description: 'Reads a texture (its field, or a texture wire such as a parameter) at a UV.',
-    inputs: [TEX_IN, port('uv', 'uv', 'vec2', 'uv0')],
+    description: 'Reads a texture (its field, or a texture wire such as a parameter) at a UV; of a texture array, the given layer.',
+    inputs: [TEX_IN, port('uv', 'uv', 'vec2', 'uv0'), LAYER_IN],
     outputs: SAMPLE_OUTPUTS,
     fields: SAMPLER_FIELDS,
   },
@@ -287,8 +310,8 @@ const TEXTURE_NODES: readonly GraphNodeDef[] = [
     type: 'normalMap',
     label: 'Normal map',
     category: 'Textures',
-    description: 'Reads a tangent-space normal map and scales its strength (feeds a surface normal).',
-    inputs: [TEX_IN, port('uv', 'uv', 'vec2', 'uv0'), port('strength', 'strength', 'float', 1)],
+    description: 'Reads a tangent-space normal map (of a texture array, the given layer) and scales its strength (feeds a surface normal).',
+    inputs: [TEX_IN, port('uv', 'uv', 'vec2', 'uv0'), port('strength', 'strength', 'float', 1), LAYER_IN],
     outputs: [port('normal', 'normal', 'vec3')],
     fields: [TEXTURE_FIELD, SAMPLER_FIELDS[1]!, SAMPLER_FIELDS[2]!],
   },
@@ -296,10 +319,20 @@ const TEXTURE_NODES: readonly GraphNodeDef[] = [
     type: 'triplanar',
     label: 'Triplanar',
     category: 'Textures',
-    description: 'Projects a texture along the three axes and blends by the normal (no UVs needed).',
-    inputs: [TEX_IN, port('position', 'position', 'vec3', 'positionWorld'), port('normal', 'normal', 'vec3', 'normalWorld'), port('scale', 'scale', 'float', 1), port('sharpness', 'sharpness', 'float', 4)],
+    description: 'Projects a texture (of a texture array, the given layer) along the three axes and blends by the normal (no UVs needed).',
+    inputs: [TEX_IN, port('position', 'position', 'vec3', 'positionWorld'), port('normal', 'normal', 'vec3', 'normalWorld'), port('scale', 'scale', 'float', 1), port('sharpness', 'sharpness', 'float', 4), LAYER_IN],
     outputs: [port('rgba', 'rgba', 'vec4'), port('rgb', 'rgb', 'vec3')],
     fields: SAMPLER_FIELDS,
+  },
+  {
+    // Phase 25.21: layers mixed by their height maps (terrain, trim sheets: clean → dirt → moss).
+    type: 'heightBlend',
+    label: 'Height blend',
+    category: 'Textures',
+    description:
+      'Blend weights for up to four layers shaped by their height maps: where layers meet, the higher one shows through (stones poke out of sand, moss fills the cracks) instead of a soft cross-fade. Weights come from any input (vertex colours, painted layers, a mask, noise); heights are the layers\' height maps (0–1, one per component); depth is how far below the highest layer another still shows (0: a hard edge by height). A layer of weight 0 never shows. Feed the weights to Weighted mix nodes.',
+    inputs: [port('weights', 'weights', 'vec4', [1, 0, 0, 0]), port('heights', 'heights', 'vec4', [0, 0, 0, 0]), port('depth', 'depth', 'float', 0.2)],
+    outputs: [port('weights', 'weights', 'vec4')],
   },
   {
     // Phase 23.12: reads a data parameter (a grid of RGBA8 cells scripts write per object).

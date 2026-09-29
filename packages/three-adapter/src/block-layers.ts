@@ -18,6 +18,15 @@
  * level, or its last), switching at the farthest of those models' own
  * distances plus the chunk's radius; stand-ins stay at full detail.
  *
+ * Materials: a block type's material mapping (`materials`: a source material
+ * name or "*" → a project material) applies to model looks and, phase 25.21,
+ * to stand-ins too ("*": a stand-in has one material) — a painted terrain
+ * material on plain sloped blocks.
+ *
+ * Paint (phase 25.21): the chunks of a painted layer carry its paint as vertex
+ * colours — COLOR_0 the four layer weights, COLOR_1.r the wetness
+ * (`chunkPaintColors`) — unless their material draws vertex colours as a tint.
+ *
  * Baked lighting: the chunks of a layer a bake covers get lightmap UVs (one
  * square layout per chunk, `chunkLightmapLayout`), and the host puts each
  * chunk's lightmap on when the chunk's layout is the one the bake was made
@@ -28,6 +37,7 @@ import {
   BlockGrid,
   CHUNK_SIZE,
   chunkLightmapLayout,
+  chunkPaintColors,
   meshBlockChunk,
   shapeSource,
   type BlockChunk,
@@ -60,8 +70,8 @@ export interface BlockLayerViewDeps {
   modelLook?(assetId: string, piece: string | undefined, onReady: () => void): BlockModelLook | null;
   /** A prefab's model (its root entity's model), for a prefab variant. */
   prefabModel?(prefabId: string): { assetId: string; piece?: string } | null;
-  /** Apply a block type's material mapping to a chunk mesh of a model look (the host's material library). */
-  applyMaterials?(mesh: THREE.Mesh, type: BlockType, assetId: string): void;
+  /** Apply a block type's material mapping to a chunk mesh of a model look or (phase 25.21, assetId null) a stand-in (the host's material library). */
+  applyMaterials?(mesh: THREE.Mesh, type: BlockType, assetId: string | null): void;
   /** Whether a layer's chunks get lightmap UVs (a bake has lightmaps for them). */
   lightmapped?(entityId: string): boolean;
   /** A chunk was (re)built with lightmap UVs: its group and its layout digest (the host puts the lightmap on). */
@@ -280,8 +290,11 @@ export class BlockLayerView {
   replaceChunks(entityId: string, chunks: readonly { cx: number; cz: number; chunk: BlockChunk | null }[]): void {
     const layer = this.layers.get(entityId);
     if (layer === undefined) return;
+    const painted = layer.grid.hasPaint();
     for (const c of chunks) layer.grid.replaceChunk(c.cx, c.cz, c.chunk);
     for (const k of layer.grid.takeDirty().mesh) layer.dirty.add(k);
+    // Phase 25.21: the first paint (or the last one gone) changes every chunk's colours.
+    if (layer.grid.hasPaint() !== painted) for (const k of layer.chunks.keys()) layer.dirty.add(k);
   }
 
   /** The simulation's chunk changes (the runtime's `takeGridChanges`). */
@@ -481,6 +494,9 @@ export class BlockLayerView {
     }
     const group = new THREE.Group();
     group.name = `block-chunk:${entityId}:${ck}`;
+    // Phase 25.21: a painted layer's chunks carry the paint as vertex colours (every chunk, so they match at the seams).
+    const painted = layer.grid.hasPaint();
+    const lattice = painted ? layer.grid.chunkPaint(cx, cz) : null;
     const build = (p: ChunkMeshPart, level: number): THREE.Mesh | null => {
       const look = looks.get(p.key.slice(0, p.key.lastIndexOf('#')));
       if (look === undefined) return null;
@@ -501,6 +517,13 @@ export class BlockLayerView {
       m.updateMatrix();
       if (level > 0) m.userData[COARSE_LEVEL] = level;
       if (look.assetId !== null) this.deps.applyMaterials?.(m, look.type, look.assetId);
+      else if (look.type.materials !== undefined && Object.keys(look.type.materials).length > 0) this.deps.applyMaterials?.(m, look.type, null);
+      // A material that tints by vertex colours would be tinted by the paint: its chunks keep none.
+      if (painted && (m.material as THREE.Material & { vertexColors?: boolean }).vertexColors !== true) {
+        const colours = chunkPaintColors(lattice, cx, cz, layer.grid.cellSize, p.positions);
+        geometry.setAttribute('color', new THREE.BufferAttribute(colours.weights, 4, true));
+        geometry.setAttribute('color_1', new THREE.BufferAttribute(colours.wetness, 4, true));
+      }
       return m;
     };
     const detailed = new THREE.Group();

@@ -56,7 +56,9 @@ describe('KTX2 texture versions (phase 25.19)', () => {
 
   it('refuses a converted texture that is not KTX2, an unknown encoding, missing codec facts', () => {
     expect(message(run(fresh(), 'publishAsset', publish({ metrics: { format: 'png', width: 64, height: 64, decodedBytes: 64 * 64 * 4 } })))).toMatch(/holds the KTX2/);
-    expect(message(run(fresh(), 'publishAsset', publish({ convertedFrom: { ...CONVERTED, encoding: 'data' } })))).toMatch(/color.*normal/);
+    expect(message(run(fresh(), 'publishAsset', publish({ convertedFrom: { ...CONVERTED, encoding: 'raw' } })))).toMatch(/color.*normal.*data/);
+    // Phase 25.21: "data" (UASTC, linear) is an encoding.
+    expect(run(fresh(), 'publishAsset', publish({ convertedFrom: { ...CONVERTED, encoding: 'data' } })).ok).toBe(true);
     expect(message(run(fresh(), 'publishAsset', publish({ convertedFrom: { ...CONVERTED, converter: { name: 'blender', version: '4.2' } } })))).toMatch(/ktx2-encoder/);
     expect(message(run(fresh(), 'publishAsset', publish({ metrics: { ...METRICS, levels: 0 } })))).toMatch(/mip levels/);
   });
@@ -67,5 +69,68 @@ describe('KTX2 texture versions (phase 25.19)', () => {
     const refused = run(s, 'setUiDocument', doc('tex-k'));
     expect(refused.ok).toBe(false);
     expect(message(refused)).toMatch(/cannot be a KTX2/);
+  });
+});
+
+describe('packed textures and texture arrays (phase 25.21)', () => {
+  const ARRAY = { format: 'ktx2', width: 64, height: 64, decodedBytes: 64 * 64 * 4 * 3, codec: 'uastc', levels: 7, layers: 3 };
+  const src = (assetId: string, channel: string): Record<string, unknown> => ({ assetId, digest: 'c'.repeat(64), channel });
+  const PACKED = {
+    layers: [
+      [src('alb', 'r'), src('alb', 'g'), src('alb', 'b'), src('hgt', 'r')],
+      [src('alb', 'r'), { value: 0 }, { value: 0 }, { value: 255 }],
+      [{ value: 10 }, { value: 20 }, { value: 30 }, { value: 40 }],
+    ],
+    converter: { name: 'ktx2-encoder', version: '0.6.0' },
+    encoding: 'data',
+  };
+  const packed = (extra: Record<string, unknown> = {}): Record<string, unknown> => publish({ assetId: 'tex-arr', convertedFrom: undefined, metrics: ARRAY, packedFrom: PACKED, ...extra });
+
+  it('publishes a texture array with its layers and channel sources; queryAssets names them', () => {
+    const r = run(fresh(), 'publishAsset', packed());
+    expect(r.ok, JSON.stringify(r.result)).toBe(true);
+    const rec = (r.state.content as unknown as { assets: { assetId: string; versions: { metrics: unknown; packedFrom?: unknown }[] }[] }).assets.find((a) => a.assetId === 'tex-arr')!;
+    expect(rec.versions[0]!.metrics).toEqual(ARRAY);
+    expect(rec.versions[0]!.packedFrom).toEqual(PACKED);
+  });
+
+  it('refuses a layer count that does not match, a bad channel, packedFrom with convertedFrom, a derived size that ignores the layers', () => {
+    expect(message(run(fresh(), 'publishAsset', packed({ metrics: { ...ARRAY, layers: 2, decodedBytes: 64 * 64 * 4 * 2 } })))).toMatch(/one entry per layer/);
+    expect(message(run(fresh(), 'publishAsset', packed({ packedFrom: { ...PACKED, layers: [[src('alb', 'x'), { value: 0 }, { value: 0 }, { value: 0 }], ...PACKED.layers.slice(1)] } })))).toMatch(/channel source/);
+    expect(run(fresh(), 'publishAsset', packed({ convertedFrom: CONVERTED })).ok).toBe(false);
+    expect(message(run(fresh(), 'publishAsset', packed({ metrics: { ...ARRAY, decodedBytes: 64 * 64 * 4 } })))).toMatch(/derived/);
+    const one = run(fresh(), 'publishAsset', packed({ metrics: { ...ARRAY, layers: 1 } }));
+    expect(JSON.stringify(one.result)).toMatch(/2-256 layers/);
+  });
+
+  it('a texture array is read by graph materials only (not a shader material slot, a cookie or the sky)', () => {
+    const s = run(fresh(), 'publishAsset', packed()).state;
+    const shader = run(s, 'setMaterial', { material: { materialId: 'mat-s', name: 'S', shader: 'standard', params: {}, textures: { map: 'tex-arr' } } });
+    expect(shader.ok).toBe(false);
+    expect(message(shader)).toMatch(/texture array/);
+    const graph = run(s, 'setMaterial', {
+      material: {
+        materialId: 'mat-g',
+        name: 'G',
+        shader: 'standard',
+        params: {},
+        textures: {},
+        parameters: [{ key: 'layers', type: 'texture', default: 'tex-arr' }],
+        graph: {
+          nodes: [
+            { id: 'p', type: 'parameter', position: [0, 0], data: { key: 'layers' } },
+            { id: 's', type: 'sampleTexture', position: [200, 0], data: { texture: 'tex-arr' } },
+            { id: 'o', type: 'pbr', position: [400, 0] },
+          ],
+          edges: [
+            { id: 'e1', from: { node: 'p', port: 'value' }, to: { node: 's', port: 'tex' } },
+            { id: 'e2', from: { node: 's', port: 'rgb' }, to: { node: 'o', port: 'baseColor' } },
+          ],
+        },
+      },
+    });
+    expect(graph.ok, JSON.stringify(graph.result).slice(0, 400)).toBe(true);
+    const sky = run(s, 'setEnvironment', { environment: { sky: { mode: 'texture', texture: 'tex-arr' } } });
+    expect(sky.ok).toBe(false);
   });
 });

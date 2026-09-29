@@ -110,8 +110,13 @@ export class ContentProjection {
     }
     const previous = this.assets.get(change.assetId);
     const pathOf = (v: unknown): string | undefined => (v as { sourcePath?: string } | undefined)?.sourcePath;
-    const current = next.versions.find((v) => v.version === next.currentVersion) as { convertedFrom?: { format: 'fbx' | 'png' | 'jpeg'; sourcePath?: string; encoding?: 'color' | 'normal' }; metrics?: unknown } | undefined;
-    const image = next.kind === 'texture' ? (current?.metrics as { format: string; width: number; height: number; codec?: 'etc1s' | 'uastc'; levels?: number } | undefined) : undefined;
+    const current = next.versions.find((v) => v.version === next.currentVersion) as
+      | { convertedFrom?: { format: 'fbx' | 'png' | 'jpeg'; sourcePath?: string; encoding?: 'color' | 'normal' | 'data' }; packedFrom?: { encoding: 'color' | 'normal' | 'data'; layers: ({ assetId?: string } | { value: number })[][] }; metrics?: unknown }
+      | undefined;
+    const image = next.kind === 'texture' ? (current?.metrics as { format: string; width: number; height: number; codec?: 'etc1s' | 'uastc'; levels?: number; layers?: number } | undefined) : undefined;
+    // Phase 25.21: a packed texture's encoding and source assets.
+    const packed = current?.packedFrom;
+    const packedSources = packed === undefined ? [] : [...new Set(packed.layers.flatMap((l) => l.flatMap((c) => ('assetId' in c && typeof c.assetId === 'string' ? [c.assetId] : []))))].sort();
     const sourcePath = pathOf(current);
     const convertedFrom = current?.convertedFrom;
     this.assets.set(change.assetId, {
@@ -126,7 +131,8 @@ export class ContentProjection {
       ...(sourcePath !== undefined ? { sourcePath } : {}),
       ...(convertedFrom !== undefined ? { convertedFrom: { format: convertedFrom.format, ...(convertedFrom.sourcePath !== undefined ? { sourcePath: convertedFrom.sourcePath } : {}), ...(convertedFrom.encoding !== undefined ? { encoding: convertedFrom.encoding } : {}) } } : {}),
       // Phase 25.19: a texture's image facts (a KTX2's codec and mip levels).
-      ...(image !== undefined ? { image: { format: image.format, width: image.width, height: image.height, ...(image.codec !== undefined ? { codec: image.codec } : {}), ...(image.levels !== undefined ? { levels: image.levels } : {}) } } : {}),
+      ...(image !== undefined ? { image: { format: image.format, width: image.width, height: image.height, ...(image.codec !== undefined ? { codec: image.codec } : {}), ...(image.levels !== undefined ? { levels: image.levels } : {}), ...(image.layers !== undefined ? { layers: image.layers } : {}) } } : {}),
+      ...(packed !== undefined ? { packedFrom: { encoding: packed.encoding, sources: packedSources } } : {}),
       // `change.next` carries the full record, so the version facts (never
       // bytes) are recomputed locally rather than re-queried.
       versions: next.versions.map((v) => {
@@ -184,6 +190,7 @@ function cloneSummary(a: AssetSummary): AssetSummary {
     ...(a.sourcePath !== undefined ? { sourcePath: a.sourcePath } : {}),
     ...(a.convertedFrom !== undefined ? { convertedFrom: { ...a.convertedFrom } } : {}),
     ...(a.image !== undefined ? { image: { ...a.image } } : {}),
+    ...(a.packedFrom !== undefined ? { packedFrom: { encoding: a.packedFrom.encoding, sources: [...a.packedFrom.sources] } } : {}),
     ...(a.versions ? { versions: a.versions.map((v) => ({ ...v })) } : {}),
   };
 }

@@ -95,6 +95,8 @@ const GRAPH_TEMPLATES: readonly { value: string; label: string }[] = [
   { value: 'kit', label: 'template: world-aligned kit' },
   { value: 'unlit', label: 'template: unlit' },
   { value: 'water', label: 'template: water' },
+  // Phase 25.21: four PBR layers from texture arrays, mixed by vertex colours / painted terrain through a Height blend.
+  { value: 'layers', label: 'template: height-blended layers (painted terrain)' },
 ];
 
 export function MaterialsPanel(p: Props): JSX.Element {

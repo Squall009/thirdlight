@@ -50,6 +50,8 @@ export type {
   AssetRecord,
   AssetVersion,
   ConvertedFrom,
+  PackedChannel,
+  PackedFrom,
   BehaviorComponent,
   BehaviorRecord,
   BehaviorSourceRecord,
@@ -304,6 +306,8 @@ export { materialsInUse, type MaterialUseInput } from './material-use';
 export { ENTITY_ID_DIGITS, ENTITY_ID_MAX, entityIdAt, nextFreeEntityIdOf } from './entity-ids';
 export { validateSceneV4, validateMergedSceneV4, validateInstancesComponent, DIRECTIONAL_SHADOW_DEFAULTS, DIRECTIONAL_SHADOW_LIMITS, MAX_ENTITIES_V4, V4_REGISTRY } from './scene-v3';
 export { validateContentV4, MAX_SCENES, ENGINE_TIMING_DEFAULTS, MAX_AUDIO_ASSETS } from './content';
+// Phase 25.21: texture arrays and packed textures.
+export { arrayTextureIds, TEXTURE_ARRAY_KIND, MAX_TEXTURE_LAYERS, KTX2_ENCODINGS, type Ktx2Encoding } from './content';
 // Phase 14.1: prefabs spawned into a running game (the snapshot/manifest carry them).
 export { PREFAB_V4_COMPONENTS, canonicalPrefabs, validatePrefabDefinitions } from './content';
 export {
@@ -932,6 +936,9 @@ export {
   type CollisionMeshPiece,
 } from './block-mesh';
 export { SCULPT_LIMITS, SCULPT_OPS, columnHeights, sculptHeights, setColumnSurface, type ColumnHeights, type SculptDab, type SculptOp } from './block-sculpt';
+// Phase 25.21: the paint brush (any paint target) and a block layer's surface paint.
+export { BRUSH_FALLOFFS, PAINT_BRUSH_LIMITS, brushFalloff, paintBrushError, paintPoint, type BrushFalloff, type PaintBrush, type PaintLayout } from './paint-brush';
+export { BLOCK_PAINT_LAYOUT, PAINT_BYTES, PAINT_CHANNELS, PAINT_CHUNK_SIZE, PAINT_VERTICES, PAINT_WETNESS_CHANNEL, chunkPaintColors, chunkPaintError, chunksOfVertex, decodeChunkPaint, encodeChunkPaint, isUnpainted, paintDab, paintOffset, unpaintedChunk, type PaintSurface } from './block-paint';
 export { chunkLightmapLayout, type ChunkLightmapLayout } from './block-lightmap';
 export {
   FLAT_CORNERS,

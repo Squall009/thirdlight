@@ -276,6 +276,8 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       '{kind:"heightmap", png: base64 greyscale PNG, origin: [x,z], y, scale (cells for white), cell, keepAbove?, colors?: {png, map: [{color, cell}]}} (import a heightmap; the colour map picks each column\'s cell), ' +
       '{kind:"surface", columns: [x, z, h, h, h, h, ...] (column top corner heights −x−z, +x−z, +x+z, −x+z in rows: 3.25 = a quarter cell over row 3\'s bottom), cell?} (sloped terrain: each column grows or shrinks to its corners), ' +
       '{kind:"sculpt", op: raise|lower|smooth|flatten, at: [x, z] (columns; vertices at whole numbers), radius (0.5-32 cells), strength (raise/lower: cells at the centre; smooth/flatten: blend 0-1), height? (flatten: rows), cell? (grows empty columns)} (a terrain brush dab; the editor sends a stroke as its dabs). ' +
+      '{kind:"paint", at: [x, z] (columns), radius (0.25-64 cells), strength (0-1 per dab at the centre), channel (0-3: a material layer, its weight grows and the others give way; 4: wetness), falloff?: smooth|linear|constant, erase?} ' +
+      '(the layer\'s surface paint, stored per chunk; a painted layer\'s chunk meshes carry it as COLOR_0 = the four layer weights and COLOR_1.r = wetness, which a graph material reads — e.g. the height-blended layers template on a block type mapped {"*": materialId}). ' +
       'The change names the chunks [cx,cz] (16×16 columns) and regions touched; read cells back with tl_content_query target="blocks". Keep each request under 64 KiB (use boxes and runs). ' +
       'setBlockStamp {stamp} or {stampId, name, entityId, box} (save a selection) / deleteBlockStamp {stampId}. ' +
       'Project UI (drawn by the game host over the view, in Play and exports): setUiDocument {document: {uiDocumentId, name, layer? (-100..100), modal?, focus? (takes keyboard/gamepad focus; default modal), ' +
@@ -382,7 +384,9 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'is copied): the result carries sourcePath, which the publishAsset args must include so the version references ' +
       'the file. Give exactly one of dataBase64 or projectPath. An FBX (either way) is converted to GLB by Blender on ' +
       'the server first: the result then carries convertedFrom (not sourcePath), which the publishAsset args must include. ' +
-      'kind "texture" takes a PNG, JPEG, WebP or a Basis Universal KTX2 (ETC1S/UASTC with its mips); ktx2 "color"|"normal" encodes a PNG/JPEG to KTX2 first. ' +
+      'kind "texture" takes a PNG, JPEG, WebP or a Basis Universal KTX2 (ETC1S/UASTC with its mips; a 2D array is a texture array); ktx2 "color"|"normal"|"data" encodes a PNG/JPEG to KTX2 first. ' +
+      'pack (instead of dataBase64/projectPath) makes a KTX2 texture from PNG/JPEG texture assets already in the project, channel by channel — ' +
+      'several layers make a texture array (graph materials sample a layer: Sample texture / Normal map / Triplanar "layer"); the result carries packedFrom, which the publishAsset args (kind "texture") must include. ' +
       'kind "font" inspects a TrueType (.ttf), OpenType (.otf), WOFF2 or WOFF font (<= 4 MiB; at most 16 fonts per project) for the project UI; publish it with kind "font".',
     inputSchema: {
       type: 'object',
@@ -396,10 +400,23 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
         kind: { type: 'string', enum: ['model', 'audio', 'texture', 'music', 'font'] },
         ktx2: {
           type: 'string',
-          enum: ['color', 'normal'],
+          enum: ['color', 'normal', 'data'],
           description:
-            'kind "texture" only: encode a PNG/JPEG to KTX2 (Basis Universal, with mipmaps) on the server — "color" (ETC1S, sRGB: albedo, emissive) or ' +
-            '"normal" (UASTC, linear: normal maps). The result carries convertedFrom (the original), which the publishAsset args must include.',
+            'kind "texture" only: encode a PNG/JPEG to KTX2 (Basis Universal, with mipmaps) on the server — "color" (ETC1S, sRGB: albedo, emissive), ' +
+            '"normal" (UASTC, linear: normal maps) or "data" (UASTC, linear, channels kept apart: masks, heights, packed occlusion/roughness/metalness). The result carries convertedFrom (the original), which the publishAsset args must include.',
+        },
+        pack: {
+          type: 'object',
+          description:
+            'Pack a KTX2 texture (a texture array with several layers) from texture assets of the project: layers = per layer its [R, G, B, A] sources, each ' +
+            '{assetId, channel: "r"|"g"|"b"|"a"} (a PNG/JPEG texture asset, its current version) or {value: 0-255}; all sources one size; at most 12 Mpix across the layers ' +
+            '(e.g. 4 layers of 1024²). encoding as ktx2. E.g. terrain: albedo RGB + height in A ("color"), normals ("normal"), occlusion/roughness/metalness ("data").',
+          properties: {
+            layers: { type: 'array', items: { type: 'array', items: { type: 'object' } } },
+            encoding: { type: 'string', enum: ['color', 'normal', 'data'] },
+          },
+          required: ['layers', 'encoding'],
+          additionalProperties: false,
         },
         animation: {
           type: 'object',
@@ -1090,6 +1107,15 @@ function decodeBase64(text: string): Uint8Array | null {
 
 /** Stage + upload (bounded frames) + inspect over the real backend routes. */
 async function contentUpload(ctx: McpContext, a: Record<string, unknown>): Promise<CallToolResult> {
+  // Phase 25.21: pack a texture (array) from texture assets.
+  if (a.pack !== undefined) {
+    if (a.dataBase64 !== undefined || a.projectPath !== undefined || a.ktx2 !== undefined) return toolError('pack goes alone (no dataBase64, projectPath or ktx2; its encoding is pack.encoding)');
+    if (!isObj(a.pack)) return toolError('pack must be an object {layers, encoding}');
+    const body: Record<string, unknown> = { layers: a.pack.layers, encoding: a.pack.encoding };
+    if (a.displayName !== undefined) body.displayName = a.displayName;
+    const res = await ctx.client.packTexture(ctx.projectId, body);
+    return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
+  }
   if (a.projectPath !== undefined) {
     if (a.dataBase64 !== undefined) return toolError('give either dataBase64 or projectPath, not both');
     return projectFileInspect(ctx, a);
@@ -1130,7 +1156,7 @@ async function contentUpload(ctx: McpContext, a: Record<string, unknown>): Promi
     inspectBody.animation = a.animation;
   }
   if (a.ktx2 !== undefined) {
-    if (a.ktx2 !== 'color' && a.ktx2 !== 'normal') return toolError('ktx2 must be "color" or "normal"');
+    if (a.ktx2 !== 'color' && a.ktx2 !== 'normal' && a.ktx2 !== 'data') return toolError('ktx2 must be "color", "normal" or "data"');
     inspectBody.ktx2 = a.ktx2;
   }
   const inspected = await ctx.client.inspectStage(ctx.projectId, stageId, inspectBody);
@@ -1156,7 +1182,7 @@ async function projectFileInspect(ctx: McpContext, a: Record<string, unknown>): 
     body.animation = a.animation;
   }
   if (a.ktx2 !== undefined) {
-    if (a.ktx2 !== 'color' && a.ktx2 !== 'normal') return toolError('ktx2 must be "color" or "normal"');
+    if (a.ktx2 !== 'color' && a.ktx2 !== 'normal' && a.ktx2 !== 'data') return toolError('ktx2 must be "color", "normal" or "data"');
     body.ktx2 = a.ktx2;
   }
   const res = await ctx.client.inspectProjectFile(ctx.projectId, body);

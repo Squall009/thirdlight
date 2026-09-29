@@ -97,3 +97,61 @@ describe('block view: chunk levels of detail', () => {
     }
   });
 });
+
+describe('block view: paint and stand-in materials (phase 25.21)', () => {
+  const soil: BlockType = { blockId: 'soil', name: 'Soil', variants: [{ color: '#886644' }], shape: 'full', materials: { '*': 'mat-terrain' } };
+  const ground = (paint: boolean): { entityId: string; chunks: ReturnType<BlockGrid['encodeChunk']>[] } => {
+    const g = new BlockGrid(LAYER);
+    const types = new Map([[soil.blockId, soil]]);
+    applyBlockEdits(g, [{ kind: 'fill', box: [0, 0, 0, 32, 1, 16], cell: { block: 'soil' } }, ...(paint ? [{ kind: 'paint' as const, at: [4, 4], radius: 1, strength: 1, channel: 2, falloff: 'constant' as const }] : [])], { types, stamps: new Map() });
+    return { entityId: 'ground', chunks: g.chunkKeys().map((k) => g.encodeChunk(k)) };
+  };
+  const meshesOf = (v: BlockLayerView): THREE.Mesh[] => v.layerMeshes('ground');
+
+  it('an unpainted layer carries no paint colours; once one chunk is painted every chunk does (COLOR_0 weights, COLOR_1 wetness)', () => {
+    const v = new BlockLayerView({});
+    v.setTypes([soil]);
+    v.setLayer('ground', LAYER, [0, 0, 0], ground(false) as never);
+    v.update();
+    expect(meshesOf(v).some((m) => m.geometry.getAttribute('color') !== undefined)).toBe(false);
+    const painted = ground(true);
+    v.replaceChunks('ground', painted.chunks.map((c) => ({ cx: c!.cx, cz: c!.cz, chunk: c })));
+    v.update();
+    const meshes = meshesOf(v);
+    expect(meshes).toHaveLength(2);
+    for (const m of meshes) {
+      const c = m.geometry.getAttribute('color') as THREE.BufferAttribute;
+      expect(c.itemSize).toBe(4);
+      expect(c.normalized).toBe(true);
+      expect(m.geometry.getAttribute('color_1')).toBeDefined();
+    }
+    // The painted vertex (4, 4) (top corner at y = 1) is all layer 3; the unpainted chunk is all layer 1.
+    const first = meshes.find((m) => m.name.length > 0 && (m.geometry.getAttribute('position') as THREE.BufferAttribute).getX(0) < 16)!;
+    const pos = first.geometry.getAttribute('position') as THREE.BufferAttribute;
+    const col = first.geometry.getAttribute('color') as THREE.BufferAttribute;
+    let found = false;
+    for (let i = 0; i < pos.count; i++) {
+      if (pos.getX(i) === 4 && pos.getY(i) === 1 && pos.getZ(i) === 4) {
+        found = true;
+        expect([col.getX(i), col.getY(i), col.getZ(i), col.getW(i)]).toEqual([0, 0, 1, 0]);
+      }
+    }
+    expect(found).toBe(true);
+  });
+
+  it('a stand-in takes the block type\'s "*" material (the host applies it); a tinting material keeps no paint colours', () => {
+    const applied: (string | null)[] = [];
+    const tint = new THREE.MeshLambertMaterial({ vertexColors: true });
+    const v = new BlockLayerView({
+      applyMaterials: (mesh, _type, assetId) => {
+        applied.push(assetId);
+        mesh.material = tint;
+      },
+    });
+    v.setTypes([soil]);
+    v.setLayer('ground', LAYER, [0, 0, 0], ground(true) as never);
+    v.update();
+    expect(applied).toEqual([null, null]);
+    expect(meshesOf(v).some((m) => m.geometry.getAttribute('color') !== undefined)).toBe(false);
+  });
+});

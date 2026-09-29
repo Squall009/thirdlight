@@ -144,7 +144,16 @@ test('terrain brushes: Height raises and lowers, Smooth softens, Flatten levels;
   await expect.poll(() => chunks(layer), { timeout: 20_000 }).toBe(hill);
 
   // ---- Reload: the stored terrain comes back (the backend's cells, the same mesh in the Scene view).
-  const meshBefore = JSON.parse((await view(page).getAttribute('data-block-layers'))!) as { triangles: number };
+  // The Scene view follows the redo a moment after the backend has it: read its mesh once it has settled.
+  const triangles = async (): Promise<number> => (JSON.parse((await view(page).getAttribute('data-block-layers')) ?? '{"triangles":0}') as { triangles: number }).triangles;
+  let last = -1;
+  await expect.poll(async () => {
+    const now = await triangles();
+    const settled = now === last;
+    last = now;
+    return settled;
+  }, { timeout: 20_000, intervals: [500] }).toBe(true);
+  const meshBefore = { triangles: last };
   await page.reload();
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   await expect.poll(async () => (JSON.parse((await view(page).getAttribute('data-block-layers')) ?? '{"triangles":0}') as { triangles: number }).triangles, { timeout: 30_000 }).toBe(meshBefore.triangles);

@@ -553,6 +553,8 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-problem__source--asset { color: var(--warn); }
 .tl-problem .tl-btn { margin-left: auto; flex: none; }
 .tl-assets__source { font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
+.tl-assets__pack { border-top: 1px solid var(--line); padding: 6px 0; display: flex; flex-direction: column; gap: 4px; }
+.tl-assets__pack-layer { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
 .tl-files { display: flex; flex-direction: column; gap: 8px; min-width: 420px; }
 .tl-files__crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; }
 .tl-files__list { list-style: none; margin: 0; padding: 0; max-height: 50vh; overflow: auto; border: 1px solid var(--border); }

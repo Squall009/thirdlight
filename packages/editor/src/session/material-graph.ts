@@ -119,6 +119,12 @@ class GraphBuilder {
     this.parameters.push({ key, type, default: value });
     return [this.add(key, 'parameter', { key }), 'value'];
   }
+  /** Phase 25.21: a public texture parameter (a texture array for the layered template); '' = none yet. */
+  textureParam(key: string, value = ''): Out {
+    this.taken.add(key);
+    this.parameters.push({ key, type: 'texture', default: value });
+    return [this.add(key, 'parameter', { key }), 'value'];
+  }
   layout(): void {
     // Column = the longest path from the node to an output (outputs in column 0, on the right).
     const outgoing = new Map<string, string[]>();
@@ -384,7 +390,91 @@ export function convertToGraph(m: MaterialDef): { ok: true; material: MaterialDe
 
 /** Phase 18.2: a new graph material from a shader type's built-in template (the shader's defaults). */
 export function templateMaterial(shader: string, materialId: string, name: string): MaterialDef {
+  if (shader === 'layers') return layeredMaterial(materialId, name);
   const base: MaterialDef = { materialId, name, shader: (CONVERTIBLE_SHADERS.includes(shader) ? shader : 'standard') as MaterialDef['shader'], params: {}, textures: {} };
   const r = convertToGraph(base);
   return r.ok ? r.material : { ...base, graph: newMaterialGraph() };
+}
+
+/**
+ * Phase 25.21: the height-blended layers template — a painted terrain (or a
+ * trim-sheet mesh blended by its vertex colours): four PBR layers from three
+ * texture arrays (public texture parameters `albedoHeight`: albedo RGB with
+ * the height in A, colour; `normals`: normal maps; `orm`: occlusion,
+ * roughness, metalness, data), layer i sampled at array layer i on UV0 ×
+ * `tiling`; the weights are COLOR_0 (a painted block layer's paint, a mesh's
+ * vertex colours; without them all first layer), shaped by the layers'
+ * heights through a Height blend (`blendDepth`); every layer value is a
+ * Weighted mix. Wetness — COLOR_1.r (painted) or the `wetness` parameter
+ * (rain on everything), the larger — darkens the albedo and smooths the
+ * surface (wet ground: the albedo × 0.55, roughness toward 0.1).
+ */
+export function layeredMaterial(materialId: string, name: string): MaterialDef {
+  const b = new GraphBuilder([]);
+  const out = b.add('output', 'pbr');
+  const albedoArr = b.textureParam('albedoHeight');
+  const normalArr = b.textureParam('normals');
+  const ormArr = b.textureParam('orm');
+  const uv = b.op('multiply', 'uvTiled', [b.add('uv', 'uv'), 'uv'], b.param('tiling', 'float', 1));
+  const weights: Out = [b.add('paint', 'vertexColor', { absent: 'first' }), 'rgba'];
+  const wetSplit = b.add('wetSplit', 'split');
+  b.wire([b.add('paintWet', 'vertexColor', { set: 'COLOR_1', absent: 'zero' }), 'rgba'], wetSplit, 'in');
+  const layers = [0, 1, 2, 3];
+  const layerNodes = layers.map((i) => b.float(`layer${i + 1}`, i));
+  const layerIndex = (i: number): Out => layerNodes[i]!;
+  const albedos = layers.map((i) => {
+    const s = b.add(`albedo${i + 1}`, 'sampleTexture');
+    b.wire(albedoArr, s, 'tex');
+    b.wire(uv, s, 'uv');
+    b.wire(layerIndex(i), s, 'layer');
+    return s;
+  });
+  const heights = b.add('heights', 'combine');
+  ['x', 'y', 'z', 'w'].forEach((c, i) => b.wire([albedos[i]!, 'a'], heights, c));
+  const blend = b.add('heightBlend', 'heightBlend');
+  b.wire(weights, blend, 'weights');
+  b.wire([heights, 'xyzw'], blend, 'heights');
+  b.wire(b.param('blendDepth', 'float', 0.2), blend, 'depth');
+  const mix = (id: string, values: Out[]): Out => {
+    const m = b.add(id, 'weightedMix');
+    ['a', 'b', 'c', 'd'].forEach((port, i) => b.wire(values[i]!, m, port));
+    b.wire([blend, 'weights'], m, 'weights');
+    return [m, 'out'];
+  };
+  const albedo = mix('albedoMix', albedos.map((s) => [s, 'rgb'] as Out));
+  const strength = b.param('normalStrength', 'float', 1);
+  const normals = layers.map((i) => {
+    const n = b.add(`normal${i + 1}`, 'normalMap');
+    b.wire(normalArr, n, 'tex');
+    b.wire(uv, n, 'uv');
+    b.wire(strength, n, 'strength');
+    b.wire(layerIndex(i), n, 'layer');
+    return [n, 'normal'] as Out;
+  });
+  const orms = layers.map((i) => {
+    const s = b.add(`orm${i + 1}`, 'sampleTexture', { colorSpace: 'linear' });
+    b.wire(ormArr, s, 'tex');
+    b.wire(uv, s, 'uv');
+    b.wire(layerIndex(i), s, 'layer');
+    return [s, 'rgb'] as Out;
+  });
+  const orm = b.add('ormSplit', 'split');
+  b.wire(mix('ormMix', orms), orm, 'in');
+  // Wetness: the painted one or the parameter (rain), whichever is larger.
+  const wet = b.op('max', 'wet', [wetSplit, 'x'], b.param('wetness', 'float', 0));
+  const darken = b.add('wetDarken', 'lerp');
+  b.wire(b.float('dry', 1), darken, 'a');
+  b.wire(b.float('wetAlbedo', 0.55), darken, 'b');
+  b.wire(wet, darken, 't');
+  b.wire(b.op('multiply', 'wetColour', albedo, [darken, 'out']), out, 'baseColor');
+  const gloss = b.add('wetGloss', 'lerp');
+  b.wire([orm, 'y'], gloss, 'a');
+  b.wire(b.float('wetRoughness', 0.1), gloss, 'b');
+  b.wire(wet, gloss, 't');
+  b.wire([gloss, 'out'], out, 'roughness');
+  b.wire([orm, 'z'], out, 'metalness');
+  b.wire([orm, 'x'], out, 'ao');
+  b.wire(mix('normalMix', normals), out, 'normal');
+  b.layout();
+  return { materialId, name, shader: 'standard', params: {}, textures: {}, parameters: b.parameters, graph: { nodes: b.nodes, edges: b.edges } };
 }

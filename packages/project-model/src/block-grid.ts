@@ -32,6 +32,8 @@ import {
 } from './block-layers';
 import { decodeBase64, decodePngRgba } from './png-decode';
 import { SCULPT_LIMITS, SCULPT_OPS, sculptHeights, setColumnSurface, type SculptOp } from './block-sculpt';
+import { PAINT_CHANNELS, decodeChunkPaint, encodeChunkPaint, isUnpainted, paintDab, unpaintedChunk, type PaintSurface } from './block-paint';
+import { paintBrushError, type BrushFalloff } from './paint-brush';
 
 // ---- keys ---------------------------------------------------------------------------
 
@@ -75,6 +77,8 @@ export class BlockGrid {
   private readonly chunks = new Map<string, Map<number, Column>>();
   /** The regions (id → boxes). */
   readonly regions = new Map<string, number[][]>();
+  /** Phase 25.21: each chunk's paint lattice (`block-paint.ts`); absent: unpainted. */
+  private readonly paints = new Map<string, Uint8Array>();
   /** Chunks written since the last `takeDirty` (keys). */
   private dirty = new Set<string>();
   /** Chunks whose meshes (render, collision) changed: the written ones and their neighbours across a written border cell. */
@@ -116,6 +120,8 @@ export class BlockGrid {
         }
         chunk.set(col[1]! * CHUNK_SIZE + col[0]!, { y0: lo, data: colData });
       }
+      const paint = decodeChunkPaint(c.paint);
+      if (paint !== null) g.paints.set(ck, paint);
     }
     for (const r of data?.regions ?? []) g.regions.set(r.regionId, r.boxes.map((b) => [...b]));
     g.dirty.clear();
@@ -240,6 +246,51 @@ export class BlockGrid {
       const [x, y, z] = cellOfKey(k);
       this.setIndex(x, y, z, idx);
     }
+    // Phase 25.21: the chunk's paint follows too (only this chunk's meshes read it).
+    const paint = chunk !== null ? decodeChunkPaint(chunk.paint) : null;
+    const had = this.paints.get(ck) ?? null;
+    const same = paint === null ? had === null || isUnpainted(had) : had !== null && had.length === paint.length && had.every((v, i) => v === paint[i]);
+    if (!same) {
+      if (paint === null) this.paints.delete(ck);
+      else this.paints.set(ck, paint);
+      this.dirty.add(ck);
+      this.meshDirty.add(ck);
+    }
+  }
+
+  // ---- Phase 25.21: paint ------------------------------------------------------------
+
+  /** A chunk's paint lattice (null: unpainted). */
+  chunkPaint(cx: number, cz: number): Uint8Array | null {
+    return this.paints.get(chunkKeyOf(cx, cz)) ?? null;
+  }
+
+  /** Whether any chunk of the layer is painted (its chunk meshes then carry paint colours). */
+  hasPaint(): boolean {
+    for (const p of this.paints.values()) if (!isUnpainted(p)) return true;
+    return false;
+  }
+
+  /** The paint surface of `paintDab`: chunks with cells, their lattices made on first write. */
+  paintSurface(): PaintSurface {
+    return {
+      minX: this.min[0],
+      maxX: this.max[0],
+      minZ: this.min[2],
+      maxZ: this.max[2],
+      lattice: (cx, cz) => {
+        const ck = chunkKeyOf(cx, cz);
+        if (!this.chunkHasCells(ck)) return null;
+        let l = this.paints.get(ck);
+        if (l === undefined) this.paints.set(ck, (l = unpaintedChunk()));
+        return l;
+      },
+      touched: (cx, cz) => {
+        const ck = chunkKeyOf(cx, cz);
+        this.dirty.add(ck);
+        this.meshDirty.add(ck);
+      },
+    };
   }
 
   /** The highest cell of a column holding a block (or any cell with `anyCell`), or null. */
@@ -318,7 +369,8 @@ export class BlockGrid {
       if (row.length > 2) columns.push(row);
     }
     if (columns.length === 0) return null;
-    return markCanonicalChunk({ cx, cz, palette, columns });
+    const paint = this.paints.get(ck);
+    return markCanonicalChunk({ cx, cz, palette, columns, ...(paint !== undefined && !isUnpainted(paint) ? { paint: encodeChunkPaint(paint) } : {}) });
   }
 
   /** The chunks written since the last call (keys, sorted), the chunks to re-mesh, and the regions changed. */
@@ -344,8 +396,11 @@ export class BlockGrid {
     for (const c of previous?.chunks ?? []) byKey.set(chunkKeyOf(c.cx, c.cz), c);
     for (const ck of changed) {
       const c = this.encodeChunk(ck);
-      if (c === null) byKey.delete(ck);
-      else byKey.set(ck, c);
+      if (c === null) {
+        byKey.delete(ck);
+        // Phase 25.21: a chunk without cells keeps no paint.
+        this.paints.delete(ck);
+      } else byKey.set(ck, c);
     }
     const chunks = [...byKey.values()].sort((a, b) => a.cz - b.cz || a.cx - b.cx);
     const regions: BlockRegion[] = [...this.regions.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([regionId, boxes]) => ({ regionId, boxes: boxes.map((b) => [...b]) }));
@@ -473,9 +528,18 @@ export type BlockEdit =
    * (raise/lower) or the blend toward the target (smooth/flatten, 0-1).
    * Empty columns grow only with `cell`.
    */
-  | { kind: 'sculpt'; op: SculptOp; at: number[]; radius: number; strength: number; height?: number; cell?: BlockCell };
+  | { kind: 'sculpt'; op: SculptOp; at: number[]; radius: number; strength: number; height?: number; cell?: BlockCell }
+  /**
+   * Phase 25.21: a paint brush dab on the layer's surface paint: `channel`
+   * 0-3 paints that material layer (its weight grows, the others give way),
+   * 4 the wetness; `erase` takes it away. At `at` (x, z in columns;
+   * lattice vertices at whole numbers), `radius` cells, `strength` the blend
+   * toward the target per dab at the centre (0-1], `falloff` smooth (default),
+   * linear or constant. Only chunks holding cells are painted.
+   */
+  | { kind: 'paint'; at: number[]; radius: number; strength: number; channel: number; falloff?: BrushFalloff; erase?: boolean };
 
-export const BLOCK_EDIT_KINDS = ['fill', 'cells', 'array', 'replace', 'meta', 'flood', 'column', 'stamp', 'copy', 'region', 'heightmap', 'surface', 'sculpt'] as const;
+export const BLOCK_EDIT_KINDS = ['fill', 'cells', 'array', 'replace', 'meta', 'flood', 'column', 'stamp', 'copy', 'region', 'heightmap', 'surface', 'sculpt', 'paint'] as const;
 
 const EDIT_KEYS: Record<(typeof BLOCK_EDIT_KINDS)[number], { required: string[]; optional: string[] }> = {
   fill: { required: ['box', 'cell'], optional: ['mode'] },
@@ -491,6 +555,7 @@ const EDIT_KEYS: Record<(typeof BLOCK_EDIT_KINDS)[number], { required: string[];
   heightmap: { required: ['png', 'origin', 'y', 'scale', 'cell'], optional: ['keepAbove', 'colors'] },
   surface: { required: ['columns'], optional: ['cell'] },
   sculpt: { required: ['op', 'at', 'radius', 'strength'], optional: ['height', 'cell'] },
+  paint: { required: ['at', 'radius', 'strength', 'channel'], optional: ['falloff', 'erase'] },
 };
 
 /**
@@ -527,7 +592,7 @@ export function blockEditsShapeError(edits: unknown): { path: string; message: s
     if (e['mode'] !== undefined && !(kind === 'fill' ? ['set', 'keep', 'replace'] : ['set', 'keep']).includes(e['mode'] as string)) return bad('mode', kind === 'fill' ? 'mode is set, keep or replace' : 'mode is set or keep');
     if (e['rot'] !== undefined && ![0, 90, 180, 270].includes(e['rot'] as number)) return bad('rot', 'rot is 0, 90, 180 or 270');
     if (e['mirror'] !== undefined && e['mirror'] !== 'x' && e['mirror'] !== 'z') return bad('mirror', 'mirror is "x" or "z"');
-    for (const k of ['move', 'occupiedOnly', 'keepAbove']) if (e[k] !== undefined && typeof e[k] !== 'boolean') return bad(k, `${k} is a boolean`);
+    for (const k of ['move', 'occupiedOnly', 'keepAbove', 'erase']) if (e[k] !== undefined && typeof e[k] !== 'boolean') return bad(k, `${k} is a boolean`);
     switch (kind) {
       case 'cells':
       case 'meta':
@@ -603,6 +668,14 @@ export function blockEditsShapeError(edits: unknown): { path: string; message: s
         if (typeof st !== 'number' || !Number.isFinite(st) || st <= 0 || st > SCULPT_LIMITS.strengthMax) return bad('strength', `strength is in (0, ${SCULPT_LIMITS.strengthMax}] (cells for raise/lower, a 0-1 blend for smooth/flatten)`);
         if (e['op'] === 'flatten' && (typeof e['height'] !== 'number' || !Number.isFinite(e['height']) || Math.abs(e['height']) > BLOCK_LIMITS.coordinateY)) return { path: `${p}/height`, message: 'a flatten dab needs height (rows)', code: 'field_missing' };
         if (e['op'] !== 'flatten' && e['height'] !== undefined) return { path: `${p}/height`, message: 'height belongs to a flatten dab', code: 'field_unexpected' };
+        break;
+      }
+      case 'paint': {
+        const at = e['at'];
+        if (!Array.isArray(at) || at.length !== 2 || !at.every((v) => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= BLOCK_LIMITS.coordinateXZ)) return bad('at', 'at is the brush centre [x, z] in columns');
+        const be = paintBrushError(e);
+        if (be !== null) return bad(be.field, be.message);
+        if (!Number.isInteger(e['channel']) || (e['channel'] as number) < 0 || (e['channel'] as number) >= PAINT_CHANNELS) return bad('channel', 'channel is 0-3 (a material layer) or 4 (wetness)');
         break;
       }
       case 'heightmap': {
@@ -1070,6 +1143,12 @@ export function applyBlockEdits(g: BlockGrid, edits: readonly BlockEdit[], ctx: 
           const n = setColumnSurface(g, ctx.types, cols[k]!, cols[k + 1]!, cols.slice(k + 2, k + 6), e.cell);
           if (n > 0) changed += n;
         }
+        break;
+      }
+      case 'paint': {
+        // Phase 25.21: the layer's surface paint (the cells stay as they are).
+        if (g.metadataOnly) return fail(p, 'a metadata-only layer has no surface to paint');
+        changed += paintDab(g.paintSurface(), [e.at[0]!, e.at[1]!], { radius: e.radius, strength: e.strength, falloff: e.falloff ?? 'smooth', channel: e.channel, ...(e.erase === true ? { erase: true } : {}) });
         break;
       }
       case 'sculpt': {

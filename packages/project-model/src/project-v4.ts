@@ -23,7 +23,7 @@
 
 import { composeBlockLayers, type BlockContentView } from './block-layers';
 import { composeV3 } from './project-v3';
-import { validateContentV4, MAX_SCENES, physicsDimensionOf } from './content';
+import { validateContentV4, MAX_SCENES, physicsDimensionOf, arrayTextureIds, TEXTURE_ARRAY_KIND } from './content';
 import { effectiveEntityFlags } from './hierarchy-v3';
 import { validateSceneV4 } from './scene-v3';
 import { ID_RE_V2, physicsRotationErrors, physicsScaleErrors } from './components';
@@ -197,7 +197,9 @@ export function composeV4(
   }
 
   // Phase 9.10: an audio source plays an audio or music asset of this project.
-  const soundKinds = new Map((content.assets as { assetId: string; kind?: string }[]).map((a) => [a.assetId, a.kind]));
+  // Phase 25.21: a cookie is one plain texture (a texture array is read by graph materials only).
+  const arrays = arrayTextureIds(content as unknown as Record<string, unknown>);
+  const soundKinds = new Map((content.assets as { assetId: string; kind?: string }[]).map((a) => [a.assetId, arrays.has(a.assetId) ? TEXTURE_ARRAY_KIND : a.kind]));
   for (const s of scenes) {
     s.entities.forEach((e, i) => {
       // Phase 25.8: a spot light's cookie is a texture asset of this project.

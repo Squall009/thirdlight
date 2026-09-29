@@ -269,9 +269,23 @@ export type ConvertedFrom =
       sourceByteLength: number;
       sourcePath?: string;
       converter: { name: 'ktx2-encoder'; version: string };
-      /** color: ETC1S, sRGB; normal: UASTC, linear, normal-map mips. */
-      encoding: 'color' | 'normal';
+      /** color: ETC1S, sRGB; normal: UASTC, linear, normal-map mips; data (phase 25.21): UASTC, linear. */
+      encoding: 'color' | 'normal' | 'data';
     };
+
+/** Phase 25.21: one channel of a packed texture: a channel of a texture asset's version, or a constant. */
+export type PackedChannel = { assetId: string; digest: string; channel: 'r' | 'g' | 'b' | 'a' } | { value: number };
+
+/**
+ * Phase 25.21: a KTX2 texture (an array when it has several layers) packed at
+ * import from texture assets, channel by channel: per layer its R, G, B and A
+ * sources.
+ */
+export interface PackedFrom {
+  layers: PackedChannel[][];
+  converter: { name: 'ktx2-encoder'; version: string };
+  encoding: 'color' | 'normal' | 'data';
+}
 
 export interface AssetVersion {
   version: number;
@@ -291,6 +305,8 @@ export interface AssetVersion {
    * converter, so a changed original can be re-imported.
    */
   convertedFrom?: ConvertedFrom;
+  /** Phase 25.21: a texture packed from texture assets (channel by channel, layer by layer). */
+  packedFrom?: PackedFrom;
   importRecipe: ImportRecipe;
   metrics: AssetMetrics;
   importedAt: string;

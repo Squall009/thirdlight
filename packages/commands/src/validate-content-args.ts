@@ -59,9 +59,9 @@ export function validatePublishAssetArgs(
   args: Record<string, unknown>,
 ): ArgsOk<PublishAssetArgs> | { ok: false; error: CommandError } {
   const KNOWN =
-    'mode, assetId, kind (required on create), displayName (optional), sourceDigest, sourceByteLength, sourcePath (optional), convertedFrom (optional), importRecipe, metrics, importedAt, animation (reimport only)';
+    'mode, assetId, kind (required on create), displayName (optional), sourceDigest, sourceByteLength, sourcePath (optional), convertedFrom (optional), packedFrom (optional), importRecipe, metrics, importedAt, animation (reimport only)';
   for (const key of Object.keys(args)) {
-    if (!['mode', 'assetId', 'kind', 'displayName', 'sourceDigest', 'sourceByteLength', 'sourcePath', 'convertedFrom', 'importRecipe', 'metrics', 'importedAt', 'animation'].includes(key)) {
+    if (!['mode', 'assetId', 'kind', 'displayName', 'sourceDigest', 'sourceByteLength', 'sourcePath', 'convertedFrom', 'packedFrom', 'importRecipe', 'metrics', 'importedAt', 'animation'].includes(key)) {
       return { ok: false, error: fieldUnexpected(`/args/${key}`, key, KNOWN) };
     }
   }
@@ -179,6 +179,16 @@ export function validatePublishAssetArgs(
       return { ok: false, error: fieldUnexpected('/args/convertedFrom', 'convertedFrom', KNOWN, 'a converted version is stored; it cannot also have a sourcePath') };
     }
     out.convertedFrom = args['convertedFrom'] as unknown as PublishAssetArgs['convertedFrom'];
+  }
+  // Phase 25.21: a packed texture's channel sources (the model validates them with the version).
+  if (args['packedFrom'] !== undefined) {
+    if (!isPlainObject(args['packedFrom'])) {
+      return { ok: false, error: fieldType('/args/packedFrom', args['packedFrom'], 'object { layers, converter, encoding }') };
+    }
+    if (out.sourcePath !== undefined || out.convertedFrom !== undefined) {
+      return { ok: false, error: fieldUnexpected('/args/packedFrom', 'packedFrom', KNOWN, 'a packed version is stored; it has no sourcePath or convertedFrom') };
+    }
+    out.packedFrom = args['packedFrom'] as unknown as PublishAssetArgs['packedFrom'];
   }
   if (args['importRecipe'] === undefined) {
     return { ok: false, error: fieldMissing('/args/importRecipe', 'importRecipe') };

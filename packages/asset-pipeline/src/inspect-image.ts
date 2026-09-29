@@ -37,6 +37,8 @@ export interface ImageMetrics {
   readonly codec?: 'etc1s' | 'uastc';
   /** Phase 25.19, KTX2 only: the mip levels in the file. */
   readonly levels?: number;
+  /** Phase 25.21, KTX2 only: a texture array's layers (absent: a plain texture). */
+  readonly layers?: number;
 }
 
 export interface ImageImportOptions {
@@ -80,11 +82,13 @@ function inspectStages(bytes: Uint8Array): ImageMetrics | ImportDiagnostic[] {
   }
   if (mime === 'image/ktx2') {
     const info = ktx2Info(bytes);
-    if (info === null) return [diag('asset_image_invalid', 'the KTX2 is not a 2D Basis Universal texture (ETC1S or UASTC) with its mip levels', undefined, 'a 2D Basis Universal KTX2 (e.g. encoded at import)')];
+    if (info === null) return [diag('asset_image_invalid', 'the KTX2 is not a 2D Basis Universal texture or texture array (ETC1S or UASTC) with its mip levels', undefined, 'a 2D Basis Universal KTX2 (e.g. encoded at import)')];
     if (info.width > TEXTURE_EDGE_MAX || info.height > TEXTURE_EDGE_MAX) {
       return [diag('asset_limits_exceeded', 'the texture is larger than the edge limit', `${info.width}x${info.height}`, `<= ${TEXTURE_EDGE_MAX} px per edge`)];
     }
-    return { format: 'ktx2', width: info.width, height: info.height, decodedBytes: decodedImageBytes(info), codec: info.codec, levels: info.levels };
+    // Phase 25.21: an array's decoded size counts every layer.
+    const layers = info.layers ?? 1;
+    return { format: 'ktx2', width: info.width, height: info.height, decodedBytes: decodedImageBytes(info) * layers, codec: info.codec, levels: info.levels, ...(info.layers !== undefined ? { layers: info.layers } : {}) };
   }
   const dims = imageDimensions(bytes, mime);
   if (dims === null || dims.width < 1 || dims.height < 1) {

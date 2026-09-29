@@ -19,6 +19,8 @@ export interface PieceSpec {
   col?: [number, number, number];
   /** Per LOD: its own material of this base colour (linear RGB 0-1); absent: the shared material. */
   colors?: [number, number, number][];
+  /** Phase 25.21: the COLOR_0 of its render meshes (RGBA 0-1; absent: pure red). */
+  vertexColor?: [number, number, number, number];
 }
 
 function box(size: [number, number, number]): { positions: number[]; normals: number[]; uv1: number[]; indices: number[] } {
@@ -67,7 +69,7 @@ export function multiPieceGlb(pieces: readonly PieceSpec[], options: { lightmapU
     return bufferViews.length - 1;
   };
   const extraMaterials: Record<string, unknown>[] = [];
-  const addMesh = (name: string, size: [number, number, number], render: boolean, color?: [number, number, number]): number => {
+  const addMesh = (name: string, size: [number, number, number], render: boolean, color?: [number, number, number], vertexColor: [number, number, number, number] = [1, 0, 0, 1]): number => {
     const g = box(size);
     const count = g.positions.length / 3;
     const pos = addView(Buffer.from(new Float32Array(g.positions).buffer), 34962);
@@ -82,7 +84,7 @@ export function multiPieceGlb(pieces: readonly PieceSpec[], options: { lightmapU
     const attributes: Record<string, number> = { POSITION: posA, NORMAL: nrmA };
     if (render) {
       const colors = new Float32Array(count * 4);
-      for (let i = 0; i < count; i += 1) colors.set([1, 0, 0, 1], i * 4);
+      for (let i = 0; i < count; i += 1) colors.set(vertexColor, i * 4);
       const col = addView(Buffer.from(colors.buffer), 34962);
       accessors.push({ bufferView: col, componentType: 5126, count, type: 'VEC4' });
       attributes['COLOR_0'] = accessors.length - 1;
@@ -105,7 +107,7 @@ export function multiPieceGlb(pieces: readonly PieceSpec[], options: { lightmapU
   for (const p of pieces) {
     p.lods.forEach((size, i) => {
       const name = p.lods.length === 1 ? p.name : `${p.name}_LOD${i}`;
-      nodes.push({ name, mesh: addMesh(name, size, true, p.colors?.[i]) });
+      nodes.push({ name, mesh: addMesh(name, size, true, p.colors?.[i], p.vertexColor) });
     });
     if (p.col !== undefined) nodes.push({ name: `${p.name}_COL`, mesh: addMesh(`${p.name}_COL`, p.col, false) });
   }

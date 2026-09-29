@@ -199,8 +199,11 @@ export function ktx2Dimensions(bytes: Uint8Array): ImageDimensions | null {
  * supercompression, or the DFD colour model 163) or UASTC (model 166).
  * `null` for anything else.
  */
-export function ktx2Info(bytes: Uint8Array): { width: number; height: number; levels: number; codec: 'etc1s' | 'uastc' } | null {
-  const dims = ktx2Dimensions(bytes);
+export function ktx2Info(bytes: Uint8Array): { width: number; height: number; levels: number; codec: 'etc1s' | 'uastc'; layers?: number } | null {
+  // Phase 25.21: a 2D array (layerCount ≥ 2) is a texture array; the rest of the header as for a 2D texture.
+  const layerCount = hasKtx2Signature(bytes) && bytes.length >= 80 ? u32le(bytes, 32) : 0;
+  if (layerCount === 1 || layerCount > KTX2_LAYERS_MAX) return null;
+  const dims = layerCount === 0 ? ktx2Dimensions(bytes) : ktx2Dimensions(withoutLayerCount(bytes));
   if (dims === null) return null;
   const levels = u32le(bytes, 40);
   const supercompression = u32le(bytes, 44);
@@ -212,7 +215,20 @@ export function ktx2Info(bytes: Uint8Array): { width: number; height: number; le
     const model = bytes[dfdOffset + 12];
     codec = model === 166 ? 'uastc' : model === 163 ? 'etc1s' : null;
   }
-  return codec === null ? null : { ...dims, levels, codec };
+  return codec === null ? null : { ...dims, levels, codec, ...(layerCount >= 2 ? { layers: layerCount } : {}) };
+}
+
+/** Phase 25.21: the most layers a KTX2 texture array may have (WebGL 2 and WebGPU both guarantee 256). */
+export const KTX2_LAYERS_MAX = 256;
+
+/** The first 80 header bytes with the layer count zeroed (the 2D header checks then apply to an array too). */
+function withoutLayerCount(bytes: Uint8Array): Uint8Array {
+  const head = bytes.slice(0, 80);
+  head[32] = 0;
+  head[33] = 0;
+  head[34] = 0;
+  head[35] = 0;
+  return head;
 }
 
 /** Declared dimensions for an accepted container; `null` when unreadable. */

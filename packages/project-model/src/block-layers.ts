@@ -32,6 +32,7 @@
  * `block-mesh.ts`.
  */
 import type { ModelErrorV2 } from './errors';
+import { chunkPaintError, decodeChunkPaint, encodeChunkPaint, isUnpainted } from './block-paint';
 
 // ---- types -----------------------------------------------------------------------
 
@@ -67,6 +68,13 @@ export interface BlockChunk {
   cz: number;
   palette: BlockCell[];
   columns: number[][];
+  /**
+   * Phase 25.21: the layer's paint over this chunk — base64 of its 17 × 17
+   * lattice vertices × (four layer weights summing to 255, a wetness), what
+   * a painted terrain material reads (`block-paint.ts`). Absent: unpainted
+   * (all first layer, dry).
+   */
+  paint?: string;
 }
 
 /** A named set of cells: boxes `[x0, y0, z0, x1, y1, z1]` (min inclusive, max exclusive). */
@@ -788,8 +796,13 @@ export function validateSceneBlocks(value: unknown, entities: readonly unknown[]
         const keys = new Set<string>();
         chunks.forEach((c, j) => {
           const cp = `${p}/chunks/${j}`;
-          if (!isPlainObject(c)) return err(errors, 'field_type', cp, 'a chunk is {cx, cz, palette, columns}', c, 'object');
-          onlyKeys(c, ['cx', 'cz', 'palette', 'columns'], cp, errors, 'chunk');
+          if (!isPlainObject(c)) return err(errors, 'field_type', cp, 'a chunk is {cx, cz, palette, columns, paint?}', c, 'object');
+          onlyKeys(c, ['cx', 'cz', 'palette', 'columns', 'paint'], cp, errors, 'chunk');
+          // Phase 25.21: the chunk's paint lattice.
+          if (c['paint'] !== undefined) {
+            const pe = chunkPaintError(c['paint']);
+            if (pe !== null) err(errors, 'field_value', `${cp}/paint`, pe, typeof c['paint'] === 'string' ? `${c['paint'].length} characters` : c['paint']);
+          }
           const cx = c['cx'];
           const cz = c['cz'];
           const lim = BLOCK_LIMITS.coordinateXZ / CHUNK_SIZE;
@@ -864,7 +877,9 @@ export function canonicalBlockChunk(c: BlockChunk): BlockChunk | null {
   if (canonicalChunks.has(c)) return c;
   const runs = canonicalRuns(c.palette, c.columns);
   if (runs.columns.length === 0) return null;
-  const out: BlockChunk = { cx: c.cx, cz: c.cz, palette: runs.palette, columns: runs.columns };
+  // Phase 25.21: an all-unpainted lattice is not stored.
+  const paint = c.paint !== undefined ? decodeChunkPaint(c.paint) : null;
+  const out: BlockChunk = { cx: c.cx, cz: c.cz, palette: runs.palette, columns: runs.columns, ...(paint !== null && !isUnpainted(paint) ? { paint: encodeChunkPaint(paint) } : {}) };
   canonicalChunks.add(out);
   return out;
 }

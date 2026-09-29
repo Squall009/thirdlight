@@ -836,7 +836,24 @@ and data maps (ORM, masks) stay images. The selected asset shows
 `KTX2 · ETC1S · n mip levels` and the original it was encoded from. UI
 images, portraits and input glyphs are drawn by the page and need a PNG,
 JPEG or WebP. The encoder is the pinned `ktx2-encoder` package
-(decision 0006).
+(decision 0006). Phase 25.21 adds *KTX2 data (UASTC, linear)* for masks,
+heights and packed occlusion/roughness/metalness (MCP `ktx2: "data"`).
+
+### Packed textures and texture arrays (phase 25.21)
+
+Assets panel → **pack texture…** makes one KTX2 from PNG/JPEG texture assets
+already in the project, channel by channel: each layer's R, G, B and A come
+from a channel of a texture (or a constant 0 / 128 / 255; "RGBA of…" fills a
+layer from one texture), all sources one size; the encoding is colour
+(ETC1S, sRGB — alpha stays linear, so a height map fits there), normal map
+or data (UASTC). Several layers make a **texture array**, which graph
+materials sample by layer (the Sample texture, Normal map and Triplanar
+nodes' **layer** input); shader-material slots, skies, cookies, lightmaps,
+UI images and effects read plain textures and refuse an array. The asset
+shows `KTX2 · … · n layers` and the textures it was packed from. MCP:
+`tl_content_upload {pack: {layers: [[{assetId, channel} | {value}, ×4], …],
+encoding}}`, then `publishAsset` with the returned `packedFrom`. The encoder
+takes at most 12 Mpix across the layers (four layers of 1024²).
 
 ### FBX
 
@@ -1100,7 +1117,10 @@ A material can be built as a node graph (phase 18). Bottom dock →
 **+ new graph material** makes one and opens it as a **Material: <name>**
 centre tab — from the menu beside it, an empty graph (a **PBR output**) or a
 built-in template: *standard*, *foliage wind*, *world-aligned kit*, *unlit*
-or *water* (the shader types as graphs, with their defaults). Any shader
+or *water* (the shader types as graphs, with their defaults), or (25.21)
+*height-blended layers (painted terrain)* — four layers from texture arrays,
+weighted by vertex colours (a painted block layer's paint, or a mesh's own:
+trim sheets blending clean → dirt → moss). Any shader
 material's **Convert to graph** rebuilds it as a graph that looks the same:
 its values and textures wired in, and for foliage, kit and water their wind,
 UV period / macro normal and water values as public exposed parameters
@@ -1182,18 +1202,22 @@ them. The Material tab's preview, the Scene view, Play and exports draw
 custom-lit graphs with their lights.
 
 **The catalogue** (generic, any genre): *Inputs* — Float, Vector 2/3/4,
-Colour, Parameter, Time, UV (set 0/1), Vertex colour (a mesh without
-COLOR_0 reads white, or zero with alpha 1 when its field says so — for
-vertex colours used as data), Position and Normal (object/world/view), View
+Colour, Parameter, Time, UV (set 0/1), Vertex colour (set COLOR_0 or
+COLOR_1; a mesh without it reads white, zero with alpha 1 — for vertex
+colours used as data — or `first`, all weight on the first channel — for
+layer weights), Position and Normal (object/world/view), View
 direction, Object position (the object's or instance's origin in the
 world), Camera distance, Screen UV, Instance index, Global wind (direction,
 strength with gusts travelling across the world, turbulence); *Lighting*
 — Main light, Shadow, Diffuse light, Ambient light (Custom-lit only, see
 above); *Maths* — add, subtract, multiply, divide, min, max,
 power, dot, cross, normalize, length, lerp, clamp, saturate, smoothstep,
-step, abs, floor, fraction, sin, cos, one minus, remap; *Vectors* — split,
+step, abs, floor, fraction, sin, cos, one minus, remap, Weighted mix (four
+values by four weights, 25.21); *Vectors* — split,
 combine, swizzle (mask `xyzw`/`rgba`); *Textures* — Sample texture (wrap,
-filter, colour space), Normal map, Triplanar, Flipbook, Noise (value,
+filter, colour space; a texture array's layer), Normal map, Triplanar, Height
+blend (25.21: up to four layers' weights shaped by their height maps — the
+higher layer shows through where they meet; depth sets how soft), Flipbook, Noise (value,
 gradient, Voronoi), Gradient (linear/radial/angular), Colour ramp, Sample data (a data parameter's cell);
 *Utility* — Fresnel, Rim, Posterize, Dither, World-aligned UV, Parallax,
 Vertex displacement, Alpha clip; *Functions* — Function call; *Output* —
@@ -3103,6 +3127,19 @@ brushes, overlays and stamp UI are below (23.6).
 - **Levels of detail** (25.20): blocks shown by a model with `_LOD1..n`
   levels switch per chunk — each chunk's models at their coarser level past
   the models' own distance plus the chunk's size; stand-ins stay detailed.
+- **Paint and wetness** (25.21): a layer's ground carries a paint of four
+  material layers and a wetness per lattice vertex, stored with each chunk
+  (`paint` edits: a round brush with radius, strength, falloff smooth /
+  linear / constant and a channel — layer 1–4 or wetness — or `erase`). A
+  painted layer's chunks carry it as vertex colours (COLOR_0 = the four
+  layer weights, COLOR_1.r = wetness), so any graph material can read it; the
+  **height-blended layers (painted terrain)** material template does: four
+  PBR layers from three texture arrays (albedo + height, normal maps,
+  occlusion/roughness/metalness) mixed by a Height blend, wet ground darker
+  and glossier (a `wetness` parameter wets everything, e.g. rain from a
+  script). Map it to a block type with **Materials** `*` → the material —
+  since 25.21 a coloured stand-in takes the `*` material too. The paint is
+  visual: scripts do not read it, replays do not depend on it.
 
 ## Block layer editing (phase 23.6)
 
@@ -3123,7 +3160,9 @@ stroke or button is one undo step, and MCP can do the same.
   (terrain, 25.20: a round brush over the ground with Radius and Strength —
   Height raises or, with Ctrl, lowers the ground with sloped tops, Smooth
   evens it out, Flatten levels it to the height where the drag starts; a
-  drag is one undo step), Pick (the eyedropper takes a
+  drag is one undo step), Paint texture (the Paint mode, 25.21: a round
+  brush painting material layer 1–4 or wetness with Radius, Strength and
+  Falloff; Ctrl or "Lower / remove" erases; a drag is one undo step), Pick (the eyedropper takes a
   cell's block, rotation and look), Replace all (every block of the clicked
   type becomes the brush block), Metadata, Select, Paste, Stamp and Region.
   Adding tools place on the face under the pointer. A stroke previews at once
@@ -3504,9 +3543,9 @@ page needs no extra headers for this (no SharedArrayBuffer is used). Numbers
   player's level also in projects without an environment.
 - *Textures.* Decoded textures get mipmaps (three's default trilinear
   filtering); imported GLB files may carry KTX2/Basis textures (read by the
-  importer and transcoded in the browser). Encoding textures to KTX2 on
-  import is not available: no pinned encoder is installed (three ships only
-  the transcoder).
+  importer and transcoded in the browser). Since 25.19 the backend encodes
+  PNG/JPEG textures to KTX2 on import and (25.21) packs texture arrays; see
+  "KTX2 textures".
 - *What the view reports.* The Scene view's canvas carries `data-frames`
   (frames drawn), `data-draw-calls` and `data-triangles` (the last frame),
   `data-batches` (instanced groups, objects drawn through them, marked

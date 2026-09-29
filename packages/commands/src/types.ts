@@ -25,6 +25,7 @@ import type {
   AssetRecord,
   AssetVersion,
   ConvertedFrom,
+  PackedFrom,
   BehaviorComponent,
   BehaviorRecord,
   BehaviorTrust,
@@ -1575,6 +1576,8 @@ export interface PublishAssetArgs {
   sourcePath?: string;
   /** The original a converted model was made from (FBX). */
   convertedFrom?: ConvertedFrom;
+  /** Phase 25.21: a texture packed from texture assets (channel by channel, layer by layer). */
+  packedFrom?: PackedFrom;
   importRecipe: ImportRecipe | ImportRecipeV3;
   metrics: AssetMetrics;
   /** project-model §7.2 timestamp; a prepared fact (see handoff 21 C21-2). */
@@ -1952,9 +1955,11 @@ export interface AssetSummary {
   /** The current version's file in the game folder, when it is referenced in place. */
   sourcePath?: string;
   /** The current version's original when it was converted at import (FBX; phase 25.19: a PNG/JPEG encoded to KTX2). */
-  convertedFrom?: { format: 'fbx' | 'png' | 'jpeg'; sourcePath?: string; encoding?: 'color' | 'normal' };
-  /** Phase 25.19, texture only: the current version's image facts (a KTX2's codec and mip levels). */
-  image?: { format: string; width: number; height: number; codec?: 'etc1s' | 'uastc'; levels?: number };
+  convertedFrom?: { format: 'fbx' | 'png' | 'jpeg'; sourcePath?: string; encoding?: 'color' | 'normal' | 'data' };
+  /** Phase 25.21: the current version was packed from texture assets: its encoding and the source assets. */
+  packedFrom?: { encoding: 'color' | 'normal' | 'data'; sources: string[] };
+  /** Phase 25.19, texture only: the current version's image facts (a KTX2's codec and mip levels; phase 25.21: a texture array's layers). */
+  image?: { format: string; width: number; height: number; codec?: 'etc1s' | 'uastc'; levels?: number; layers?: number };
   /** Model only: `tint` = COLOR_0 multiplies the albedo (absent = shader data). */
   vertexColors?: 'tint';
   /** Model only (phase 9.4): the default material mapping of every placement. */

@@ -16,6 +16,9 @@
  * - raise / lower: `column` (+1 / −1) at every column the stroke crossed;
  * - height / smooth / flatten (terrain): `sculpt` dabs along the drag, a
  *   round brush over the ground's surface (`sculptEdit`);
+ * - paint (phase 25.21): `paint` dabs along the drag — the layer's surface
+ *   paint (four material layers, wetness) under the paint brush
+ *   (`paintEdit`; the brush itself is project-model's `paint-brush`);
  * - replace-all-of-type: `replace` of the pressed cell's block in the layer;
  * - metadata paint: `meta` at the crossed cells or over a rectangle;
  * - region paint: `region` add / remove of the rectangle;
@@ -24,14 +27,14 @@
  *
  * Pure: no DOM, no three.js.
  */
-import type { BlockCell, BlockEdit, BlockLayerComponent, BlockRotation, BlockType, CellMetaValue } from '@thirdlight/project-model';
+import type { BlockCell, BlockEdit, BlockLayerComponent, BlockRotation, BlockType, CellMetaValue, PaintBrush } from '@thirdlight/project-model';
 
 export type Cell3 = [number, number, number];
 
 /** A box `[x0, y0, z0, x1, y1, z1]` (min inclusive, max exclusive), as edits take it. */
 export type CellBox = [number, number, number, number, number, number];
 
-export type BlockToolId = 'single' | 'line' | 'rect' | 'box' | 'flood' | 'column' | 'height' | 'smooth' | 'flatten' | 'erase' | 'eyedropper' | 'replace' | 'meta' | 'select' | 'paste' | 'stamp' | 'region';
+export type BlockToolId = 'single' | 'line' | 'rect' | 'box' | 'flood' | 'column' | 'height' | 'smooth' | 'flatten' | 'paint' | 'erase' | 'eyedropper' | 'replace' | 'meta' | 'select' | 'paste' | 'stamp' | 'region';
 
 /** The tools the Blocks panel offers (label, key, what it does). */
 export const BLOCK_TOOLS: readonly { id: BlockToolId; label: string; hint: string }[] = [
@@ -44,6 +47,7 @@ export const BLOCK_TOOLS: readonly { id: BlockToolId; label: string; hint: strin
   { id: 'height', label: 'Height', hint: 'Terrain: raise the ground smoothly under a round brush as you drag (lower: Ctrl held or the Lower toggle); the tops slope.' },
   { id: 'smooth', label: 'Smooth', hint: 'Terrain: even out the ground under the brush as you drag (slopes soften, cliffs wear down).' },
   { id: 'flatten', label: 'Flatten', hint: 'Terrain: level the ground under the brush to the height where the drag starts.' },
+  { id: 'paint', label: 'Paint texture', hint: 'Terrain (the Paint mode): paint a material layer (1-4) or wetness onto the ground under a round brush as you drag (erase: Ctrl held or the Lower / remove toggle); a painted terrain material shows it.' },
   { id: 'erase', label: 'Erase', hint: 'Erase cells (drag).' },
   { id: 'eyedropper', label: 'Pick', hint: 'Take the clicked cell\'s block, rotation and variant as the brush.' },
   { id: 'replace', label: 'Replace all', hint: 'Replace every block of the clicked cell\'s type in the layer with the brush block.' },
@@ -57,6 +61,16 @@ export const BLOCK_TOOLS: readonly { id: BlockToolId; label: string; hint: strin
 /** Tools that add cells (their target is the empty cell in front of the face under the pointer). */
 export function toolAdds(tool: BlockToolId): boolean {
   return tool === 'single' || tool === 'line' || tool === 'rect' || tool === 'box' || tool === 'paste' || tool === 'stamp';
+}
+
+/** Phase 25.21: the paint tool: round, over the ground's surface, sent as `paint` dabs. */
+export function toolPaints(tool: BlockToolId): tool is 'paint' {
+  return tool === 'paint';
+}
+
+/** The round brushes over the ground (terrain sculpting and paint): they aim at the drawn surface and drop dabs along the drag. */
+export function toolDabs(tool: BlockToolId): tool is 'height' | 'smooth' | 'flatten' | 'paint' {
+  return toolSculpts(tool) || toolPaints(tool);
 }
 
 /** The terrain brushes: round, over the ground's surface, sent as `sculpt` dabs. */
@@ -142,16 +156,26 @@ export interface BrushState {
   radius: number;
   /** Terrain brushes: cells per dab at the centre (height), the blend toward the target per dab (smooth, flatten; at most 1). */
   strength: number;
+  /** Phase 25.21: the paint brush (radius in cells, strength 0-1, falloff, channel 0-3 a material layer, 4 wetness). */
+  paint: PaintBrush;
 }
 
 /** A 3-cell brush raising a quarter cell per dab: a few drags make a hill, one pass a gentle bump. */
-export const DEFAULT_BRUSH: BrushState = { block: null, rot: 0, variant: null, randomize: true, height: 2, radius: 3, strength: 0.25 };
+/** Phase 25.21: a 3-cell soft brush, a third of the way per dab: a drag or two covers a patch, one pass blends its edge. */
+export const DEFAULT_PAINT_BRUSH: PaintBrush = { radius: 3, strength: 0.35, falloff: 'smooth', channel: 1 };
+
+export const DEFAULT_BRUSH: BrushState = { block: null, rot: 0, variant: null, randomize: true, height: 2, radius: 3, strength: 0.25, paint: DEFAULT_PAINT_BRUSH };
 
 /** One terrain brush dab at `at` (columns): the `sculpt` edit; `level` is the flatten height (rows). */
 export function sculptEdit(tool: 'height' | 'smooth' | 'flatten', at: readonly [number, number], brush: BrushState, invert: boolean, level: number, cell: BlockCell | null): BlockEdit {
   const op = tool === 'height' ? (invert ? 'lower' : 'raise') : tool;
   const strength = tool === 'height' ? brush.strength : Math.min(1, brush.strength);
   return { kind: 'sculpt', op, at: [at[0], at[1]], radius: brush.radius, strength, ...(op === 'flatten' ? { height: level } : {}), ...(cell !== null && op !== 'lower' ? { cell } : {}) };
+}
+
+/** One paint dab at `at` (columns): the `paint` edit (`erase` takes the channel away). */
+export function paintEdit(at: readonly [number, number], brush: PaintBrush, erase: boolean): BlockEdit {
+  return { kind: 'paint', at: [at[0], at[1]], radius: brush.radius, strength: brush.strength, channel: brush.channel, ...(brush.falloff !== 'smooth' ? { falloff: brush.falloff } : {}), ...(erase ? { erase: true } : {}) };
 }
 
 /** How far the brush centre moves (columns) before the next dab: a quarter of the radius, at least half a column. */
@@ -338,7 +362,8 @@ export function strokeEdits(s: Stroke, ctx: StrokeContext): BlockEdit[] | null {
     case 'height':
     case 'smooth':
     case 'flatten':
-      // The terrain brushes send the dabs they collected (`sculptEdit`), not cells.
+    case 'paint':
+      // The terrain brushes send the dabs they collected (`sculptEdit`, `paintEdit`), not cells.
       return null;
   }
 }

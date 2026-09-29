@@ -48,6 +48,7 @@ import {
   parseStageId,
   parseStageInspectRequest,
   parseStrictJsonBytes,
+  parseTexturePackRequest,
   parseUploadFrameHeaders,
   sessionError,
   type ContentJobKind,
@@ -61,7 +62,7 @@ import { createBehaviorCompiler } from '@thirdlight/behavior-build';
 import type { BehaviorCompiler } from '@thirdlight/behavior-build';
 import type { CommandError, MutationSuccess, StageInspector, WorkspaceService } from '@thirdlight/workspace';
 import { isFbx, type FbxConverter } from './fbx';
-import { KTX2_ENCODER, type Ktx2Mode, type TextureEncoder } from './texture-encode';
+import { KTX2_ENCODER, type Ktx2Mode, type PackLayer, type PackSource, type TextureEncoder } from './texture-encode';
 import { THUMBNAIL_BYTES_MAX, type ThumbnailCache } from './thumbnails';
 import { BAKE_PACKAGE_BYTES_MAX, type BakeService } from './bake';
 
@@ -608,6 +609,12 @@ export class ContentRoutes {
       this.discardStage(req, res, projectId, parts[6] ?? '');
       return true;
     }
+    // Phase 25.21: POST /api/v1/projects/:projectId/content/textures/pack (a KTX2 texture / texture array packed from texture assets)
+    if (n === 7 && parts[5] === 'textures' && parts[6] === 'pack') {
+      if (method !== 'POST') return this.methodNotAllowed(res, 'POST');
+      await this.packTexture(req, res, projectId);
+      return true;
+    }
     // GET /api/v1/projects/:projectId/content/project-files?dir=
     if (n === 6 && parts[5] === 'project-files') {
       if (method !== 'GET') return this.methodNotAllowed(res, 'GET');
@@ -1121,6 +1128,93 @@ export class ContentRoutes {
       this.deps.sendJson(res, 200, { ok: true, proposal: p, convertedFrom, truncated: false, jobId: job.jobId });
     } finally {
       this.deps.service.discardStage(projectId, ktxStage);
+    }
+  }
+
+  /**
+   * Phase 25.21: pack a KTX2 texture (a texture array with several layers)
+   * from the project's texture assets, channel by channel. The sources are the
+   * named assets' current versions (PNG/JPEG, one size); the worker thread
+   * decodes, packs and encodes; the KTX2 is staged, inspected through the
+   * texture profile and published as a blob like an encoded import. The
+   * response carries `packedFrom` (each channel's asset, version digest and
+   * channel) for the `publishAsset` args.
+   */
+  private async packTexture(req: IncomingMessage, res: ServerResponse, projectId: string): Promise<void> {
+    const auth = this.deps.requireAuth(req, projectId, false);
+    if (auth !== null) return this.deps.sendError(res, auth);
+    const body = await this.readJsonBody(req, res);
+    if (body === null) return;
+    const parsed = parseTexturePackRequest(body);
+    if (!parsed.ok) return this.deps.sendError(res, parsed.error);
+    const { layers, encoding, displayName } = parsed.request;
+    const failed = (code: string, cls: SessionError['cls'], message: string, extra: Partial<SessionError> = {}): void => {
+      this.deps.onJobFailed?.(projectId, 'inspect', code, message);
+      this.deps.sendError(res, sessionError(code as SessionError['code'], cls, message, extra));
+    };
+    const encoder = this.deps.textureEncoder;
+    if (encoder === undefined) return failed('converter_unavailable', 'unavailable', 'KTX2 encoding is not available on this server');
+    // Each named asset's current version, read and verified once.
+    const sourceIndex = new Map<string, number>();
+    const sources: Uint8Array[] = [];
+    const digests: string[] = [];
+    for (const layer of layers) {
+      for (const c of layer) {
+        if (!('assetId' in c) || sourceIndex.has(c.assetId)) continue;
+        const q = this.deps.service.query({ op: 'queryAssets', projectId, args: { assetId: c.assetId, limit: 1, offset: 0 } }) as { ok: boolean; assets?: { kind: string; currentVersion: number; image?: { format: string } }[] };
+        const a = q.assets?.[0];
+        if (!q.ok || a === undefined) return failed('asset_not_found', 'validation', `no texture asset "${c.assetId}" in this project`, { path: '/layers' });
+        if (a.kind !== 'texture') return failed('asset_not_found', 'validation', `"${c.assetId}" is a ${a.kind} asset, not a texture`, { path: '/layers' });
+        if (a.image !== undefined && a.image.format !== 'png' && a.image.format !== 'jpeg') return failed('conversion_failed', 'validation', `"${c.assetId}" is a ${a.image.format.toUpperCase()} texture: packing reads PNG or JPEG textures (import the source image)`, { path: '/layers' });
+        const blob = this.deps.service.readBlob(projectId, { assetId: c.assetId, version: a.currentVersion });
+        if (!blob.ok) return this.deps.sendError(res, commandErrorToSession(blob.error));
+        sourceIndex.set(c.assetId, sources.length);
+        sources.push(blob.bytes);
+        digests.push(blob.digest);
+      }
+    }
+    const channelIndex = { r: 0, g: 1, b: 2, a: 3 } as const;
+    const packLayers: PackLayer[] = layers.map((l) => l.map((c): PackSource => ('value' in c ? { value: c.value } : { source: sourceIndex.get(c.assetId)!, channel: channelIndex[c.channel] })) as unknown as PackLayer);
+    const packed = await encoder.pack(sources, packLayers, encoding as Ktx2Mode);
+    if (!packed.ok) return failed('conversion_failed', 'validation', packed.message, { path: '/layers' });
+    const name = displayName ?? `packed-${layers.length > 1 ? 'array' : 'texture'}`;
+    const begun = this.uploads.begin(projectId, name);
+    if (!begun.ok) return this.deps.sendError(res, begun.error);
+    this.uploads.discard(begun.stageId);
+    const stageId = begun.stageId;
+    const staged = this.deps.service.stageContent(projectId, { stageId, bytes: packed.ktx2, displayName: name });
+    if (!staged.ok) return this.deps.sendError(res, commandErrorToSession(staged.error));
+    const job = this.jobs.begin('inspect', projectId);
+    if (!job.ok) {
+      this.deps.service.discardStage(projectId, stageId);
+      return this.deps.sendError(res, job.error);
+    }
+    try {
+      const result = this.deps.service.inspectStage(projectId, stageId, { isCancelled: () => this.jobs.isCancelled(job.jobId), displayName: name, kind: 'texture' });
+      if (!result.ok) {
+        this.jobs.fail(job.jobId, result.error.code, result.error.message);
+        return this.deps.sendError(res, commandErrorToSession(result.error));
+      }
+      const p = result.proposal;
+      if (p.status !== 'ok') {
+        this.jobs.finish(job.jobId, { proposalId: p.proposalId, status: p.status });
+        this.deps.sendJson(res, 200, { ok: true, proposal: p, truncated: false, jobId: job.jobId });
+        return;
+      }
+      const blob = this.deps.service.publishBlob(projectId, { digest: p.sourceDigest, byteLength: p.sourceByteLength, source: { kind: 'stage', stageId } });
+      if (!blob.ok) {
+        this.jobs.fail(job.jobId, blob.error.code, blob.error.message);
+        return this.deps.sendError(res, commandErrorToSession(blob.error));
+      }
+      this.jobs.finish(job.jobId, { proposalId: p.proposalId, status: p.status });
+      const packedFrom = {
+        layers: layers.map((l) => l.map((c) => ('value' in c ? { value: c.value } : { assetId: c.assetId, digest: digests[sourceIndex.get(c.assetId)!]!, channel: c.channel }))),
+        converter: { name: KTX2_ENCODER.name, version: KTX2_ENCODER.version },
+        encoding,
+      };
+      this.deps.sendJson(res, 200, { ok: true, proposal: p, packedFrom, truncated: false, jobId: job.jobId });
+    } finally {
+      this.deps.service.discardStage(projectId, stageId);
     }
   }
 
