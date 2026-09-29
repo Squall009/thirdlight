@@ -54,6 +54,12 @@ export interface MoverComponent {
   startOn?: string;
   /** Phase 15.3: the fastest (m/s) it shoves a player out of its way (absent: 60). */
   maxPush?: number;
+  /**
+   * Phase 25.10: false — it holds where it is (it still collides and carries)
+   * until a script switches it on (`ctx.entity(id).set('mover', { active: true })`);
+   * absent: true. Stored only when false.
+   */
+  active?: boolean;
 }
 
 export interface TriggerComponent {
@@ -134,7 +140,7 @@ function fields(v: Record<string, unknown>, allowed: readonly string[], required
   for (const k of required) if (v[k] === undefined) err(errors, 'field_missing', `${path}/${k}`, `"${k}" is required`, undefined, k);
 }
 
-const MOVER_FIELDS = ['waypoints', 'speed', 'mode', 'wait', 'easing', 'startOn', 'maxPush'] as const;
+const MOVER_FIELDS = ['waypoints', 'speed', 'mode', 'wait', 'easing', 'startOn', 'maxPush', 'active'] as const;
 const HEALTH_FIELDS = ['max', 'start'] as const;
 
 /** Phase 15.3: optional tuning numbers within their `BLOCK_TUNING_LIMITS` range. */
@@ -159,6 +165,7 @@ export function validateMoverComponent(value: unknown, path: string, errors: Mod
   if (value['wait'] !== undefined && !num(value['wait'], 0, 60)) err(errors, 'field_value', `${path}/wait`, 'wait is 0–60 s', value['wait']);
   if (value['easing'] !== undefined && !(MOVER_EASINGS as readonly unknown[]).includes(value['easing'])) err(errors, 'field_value', `${path}/easing`, 'easing is linear or smooth', value['easing']);
   if (value['startOn'] !== undefined && (typeof value['startOn'] !== 'string' || !NAME_RE.test(value['startOn']))) err(errors, 'field_value', `${path}/startOn`, 'startOn is a signal name', value['startOn']);
+  if (value['active'] !== undefined && typeof value['active'] !== 'boolean') err(errors, 'field_type', `${path}/active`, 'active is true or false', value['active']);
 }
 
 export function validateTriggerComponent(value: unknown, path: string, errors: ModelErrorV2[]): void {
@@ -240,6 +247,8 @@ export const canonicalMover = (c: MoverComponent): MoverComponent => ({
   ...(c.startOn !== undefined ? { startOn: c.startOn } : {}),
   // Phase 15.3: the tuning comes last (an existing component keeps its exact canonical bytes).
   ...(c.maxPush !== undefined ? { maxPush: c.maxPush } : {}),
+  // Phase 25.10: stored only when off (an existing mover keeps its exact canonical bytes).
+  ...(c.active === false ? { active: false } : {}),
 });
 // Phase 14.2: the new fields come last (an existing trigger keeps its exact canonical bytes).
 export const canonicalTrigger = (c: TriggerComponent): TriggerComponent => ({

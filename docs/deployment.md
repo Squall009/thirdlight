@@ -1875,6 +1875,51 @@ and the export carry the project's prefabs with the game.
   `{behaviorId | libraryId, path, line, column}`. Exports carry no source
   maps or sources; an exported game's errors keep their compiled positions.
 
+### Reading and writing any component: `ctx.entity` (phase 25.10)
+
+- `ctx.entity(id)` is one loaded object (an object property's value, a
+  spawned copy's id, `ctx.entityId`; null for no id or an object that is not
+  loaded). `.get(component)` is a read-only snapshot of the component's
+  fields as they stood at the start of the step (`'object'`: the object's
+  own id, name, parentId, active, visible, static and tags); null when the
+  object has no such component. Which fields scripts read is marked in the
+  component descriptors (`queryGameConfig`: `scriptReadable`) and belongs to
+  the project schema.
+- `.set(component, patch)` writes fields while the game runs; the writes of
+  a step are applied at its end, in script order, identically in the page,
+  the simulation worker and a replay. Writable now (`runtimeWritable`):
+  - `object`: `active` — off, the object and its children are not drawn,
+    collide with nothing, fire no trigger or switch and do not tick (scripts,
+    movers, patrols, hitboxes, collectibles, animators, audio sources); on
+    again, everything comes back where the object is. `visible` — drawn or
+    not (the state `ctx.game.setVisible` uses). Not for the camera, the
+    character or objects above them, nor static objects. An object switched
+    off in the editor is still not in the game.
+  - `transform`: `position`, `rotation`, `scale` of any object that is not a
+    physics body, the camera, static, or moved every step by its mover,
+    patrol, socket or facing — no `ownedTransforms` needed.
+  - `light`: `color`, `intensity`, `range` (point and spot); presets blend
+    from the written values.
+  - `mover`: `speed` and `active` (the Inspector's new **Moving** switch: a
+    mover that is off holds where it is, still solid).
+  - `materialParams`: `{ materialId: { parameter: value } }` for the graph
+    materials the object wears (`null`: back to the authored value).
+  Any other field is refused: the answer `{ok, field, code, message}` names
+  it, nothing of the patch is written, and the refusal shows in the Console
+  and `tl_diagnostics` (`entity_write`). A field two scripts write in one
+  step takes the later write; the conflict is reported there too. A new run
+  puts every written field back; a save's `components` section keeps them.
+- Object properties of a script (type object, `entityRef`) are pickers of
+  the scene's objects in the Inspector. In a spawned prefab copy they name
+  the copy's own objects.
+- `ctx.emit({ kind: 'character_place', position: [x, y, z] })` also works on
+  the 2D plane (z ignored): the character is placed from rest in that step.
+- `ctx.shell.nextScene()` moves to the next entry of the shell's scene list
+  (the same move as the shell's Next scene action); `sceneIndex()` and
+  `sceneCount()` read the list.
+- Visual scripts have the same as nodes: **Get component**, **Set
+  component** (category Entity) and **Next scene** (Shell).
+
 ### Random numbers, finding objects and facing (phase 23.7)
 
 - `ctx.random` gives each object's script its own seeded random numbers:

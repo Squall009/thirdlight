@@ -294,6 +294,9 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
     setStepWatcher: () => undefined,
     behaviorDebug: () => [],
     hiddenEntities: () => mirror.hidden,
+    // Phase 25.10: the switched-off objects and the light values scripts wrote.
+    inactiveEntities: () => mirror.inactive,
+    lightOverrides: () => mirror.lights,
     // Phase 24.4h: the look overrides (ctx.look).
     entityLooks: () => mirror.looks,
     animatorPoses: (): ReadonlyMap<string, AnimatorPose> => mirror.poses,

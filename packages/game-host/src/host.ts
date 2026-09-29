@@ -1169,7 +1169,10 @@ export function createGameHost(config: GameHostConfig): GameHost {
     characterId ??= config.snapshot.scene.entities.find((e) => ((e.components ?? {}) as unknown as Record<string, unknown>)['controller'] !== undefined)?.id ?? null;
     const player = characterId !== null && readTransform(rt, characterId, playerAt) ? playerAt : undefined;
     const seen = new Set<string>();
+    // Phase 25.10: a switched-off object's audio source is silent (it plays again when switched on).
+    const off = rt.inactiveEntities?.();
     for (const s of sources) {
+      if (off !== undefined && off.size > 0 && off.has(s.id)) continue;
       if (!readTransform(rt, s.id, sourceAt)) continue;
       const t = sourceAt;
       if (panner && config.audio.setSpatialLoop !== undefined) {

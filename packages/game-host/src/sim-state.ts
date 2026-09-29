@@ -38,6 +38,9 @@ export class FrameEncoder {
   private idsDirty = true;
   private readonly pool: ArrayBuffer[] = [];
   private hidden: string[] | null = null;
+  /** Phase 25.10: the switched-off objects and the light overrides last sent. */
+  private inactive: string[] | null = null;
+  private lightsRef: unknown = null;
   /** Phase 24.4h: the look overrides last sent ('' : none). */
   private looksKey = '';
   private posesKey = '';
@@ -205,6 +208,20 @@ export class FrameEncoder {
     if (hidden !== undefined && !sameSet(hidden, this.hidden)) {
       this.hidden = [...hidden];
       out.hidden = this.hidden;
+    }
+    // Phase 25.10: the switched-off objects (audio sources go silent) and the light values scripts wrote.
+    const inactive = rt.inactiveEntities?.();
+    if (inactive !== undefined && !sameSet(inactive, this.inactive ?? [])) {
+      this.inactive = [...inactive];
+      out.inactive = this.inactive;
+    }
+    const lights = rt.lightOverrides?.();
+    if (lights !== undefined && (lights.size > 0 || this.lightsRef !== null)) {
+      const key = lights.size === 0 ? null : JSON.stringify([...lights]);
+      if (key !== this.lightsRef) {
+        this.lightsRef = key;
+        out.lights = [...lights].map(([id, l]) => [id, { ...l }] as const);
+      }
     }
     // Phase 24.4h: the look overrides (only when they changed; never for a game that set none).
     const looks = rt.entityLooks?.();
@@ -411,6 +428,9 @@ export class FrameMirror {
   index = new Map<string, number>();
   xf: Float64Array<ArrayBufferLike> = new Float64Array(0);
   hidden: ReadonlySet<string> = new Set();
+  /** Phase 25.10: the switched-off objects and the light values scripts wrote. */
+  inactive: ReadonlySet<string> = new Set();
+  lights: ReadonlyMap<string, import('@thirdlight/runtime').LightOverride> = new Map();
   /** Phase 24.4h: the look overrides. */
   looks: ReadonlyMap<string, { readonly emissive?: string; readonly emissiveIntensity?: number; readonly tint?: string }> = new Map();
   poses: ReadonlyMap<string, AnimatorPose> = new Map();
@@ -485,6 +505,8 @@ export class FrameMirror {
       if (this.sharedSab !== null) this.xf = new Float64Array(this.sharedSab, s.xfShared.slot * s.xfShared.slotFloats * 8, s.xfShared.count * TRANSFORM_STRIDE);
     }
     if (s.hidden !== undefined) this.hidden = new Set(s.hidden);
+    if (s.inactive !== undefined) this.inactive = new Set(s.inactive);
+    if (s.lights !== undefined) this.lights = new Map(s.lights);
     if (s.looks !== undefined) this.looks = new Map(s.looks);
     if (s.poses !== undefined) this.poses = new Map(s.poses);
     if (s.counters !== undefined) this.counters = s.counters;

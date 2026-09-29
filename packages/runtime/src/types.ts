@@ -653,6 +653,37 @@ export interface StepContext {
   readonly timeline?: BehaviorTimeline;
   /** Phase 23.18: environment presets (`ctx.environment`). */
   readonly environment?: BehaviorEnvironment;
+  /** Phase 25.10: generic component access (`ctx.entity(ref)`; the behavior host names the writing script). */
+  readonly entities?: import('./entity-access').BehaviorEntityControl;
+  /** Phase 25.10: the shell's scene list (`ctx.shell`). */
+  readonly shell?: BehaviorShell;
+}
+
+/**
+ * Phase 25.10: `ctx.shell` — the game shell's scene list (`content.shell`,
+ * phase 24.4j) from scripts.
+ */
+export interface BehaviorShell {
+  /**
+   * Move to the next entry of the shell's scene list at the next step boundary — the same move as the
+   * shell's `nextScene` UI action (the previous listed scene unloads unless it is a start scene, the
+   * entry's scene loads, the character arrives at its spawn). False when the list has no next entry.
+   * Calling it again in the same step asks for the same move.
+   * @graphNode Next scene
+   */
+  nextScene(): boolean;
+  /**
+   * The scene list entry the run is at (-1: none).
+   * @graphPure
+   * @graphNode Scene list entry
+   */
+  sceneIndex(): number;
+  /**
+   * How many entries the shell's scene list has (0: the project has none).
+   * @graphPure
+   * @graphNode Scene list length
+   */
+  sceneCount(): number;
 }
 
 /** Phase 19.1: one message a script sent (`ctx.messages`). */
@@ -2173,6 +2204,12 @@ export interface Runtime {
   hiddenEntities?(): ReadonlySet<string>;
   /** Phase 24.4h: the per-object look overrides scripts set (ctx.look; the renderer applies them). */
   entityLooks?(): ReadonlyMap<string, import('./primitives').EntityLook>;
+  /** Phase 25.10: the objects scripts switched off, with their children (also in `hiddenEntities`; audio sources are silent). */
+  inactiveEntities?(): ReadonlySet<string>;
+  /** Phase 25.10: the light values scripts wrote (`ctx.entity(id).set('light', …)`); the renderer applies them. */
+  lightOverrides?(): ReadonlyMap<string, import('./entity-access').LightOverride>;
+  /** Phase 25.10: the fields scripts wrote as digest text (null while none). */
+  entityFieldsState?(): string | null;
   /** Phase 9.10: the sounds scripts played since the last call. Phase 23.13: the audio intent log's commands. */
   takeAudioRequests?(): import('./audio-mixer').AudioCommand[];
   /** Phase 23.13: the audio intent log's deterministic state (digests; null while scripts never used audio). */
@@ -2337,8 +2374,8 @@ export interface CameraInfo {
 
 /** One bounded diagnostic error entry (runtime.md §8). */
 export interface DiagnosticErrorEntry {
-  /** `behavior_log` is a diagnostics-only entry code (runtime.md §14.8.1). */
-  code: ErrorCode | 'behavior_log';
+  /** `behavior_log` is a diagnostics-only entry code (runtime.md §14.8.1); phase 25.10: `entity_write` (a refused or conflicting component write). */
+  code: ErrorCode | 'behavior_log' | 'entity_write';
   message: string;
   stepIndex?: number;
   /** M2 fail-stop entries only. */
@@ -2414,5 +2451,12 @@ export interface RuntimeDiagnostics {
   logCount?: number;
   /** Behavior `ctx.log` calls rejected by the per-step bound. */
   logDropped?: number;
+  /**
+   * Phase 25.10: `ctx.entity(id).set` writes — applied, refused (each noted in
+   * `errors` as `entity_write`/`refused` once per step and field), conflicts
+   * (a field written twice in a step; `entity_write`/`conflict`) and the
+   * objects switched off now. Present once a script wrote.
+   */
+  entityWrites?: { applied: number; refused: number; conflicts: number; inactive: number };
 
 }

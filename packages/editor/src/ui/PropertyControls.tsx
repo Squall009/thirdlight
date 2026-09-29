@@ -19,6 +19,16 @@ export interface ControlErrorView {
   message: string;
 }
 
+/**
+ * Phase 25.10: the objects an object (`entityRef`) property may name — the
+ * picker's choices (the Inspector: the objects of the scene; a prefab's
+ * override: the prefab's own objects). Absent: a text field takes an id.
+ */
+export interface EntityRefOption {
+  readonly id: string;
+  readonly label: string;
+}
+
 function inputMode(control: PropertyControl): string {
   switch (control.type) {
     case 'number':
@@ -33,9 +43,11 @@ function inputMode(control: PropertyControl): string {
 function PropertyRow({
   control,
   onCommit,
+  entityOptions,
 }: {
   control: PropertyControl;
   onCommit: (raw: string) => void;
+  entityOptions?: readonly EntityRefOption[];
 }): JSX.Element {
   const [draft, setDraft] = useState(() => formatPropertyValue(control.current));
   const shown = control.error;
@@ -61,6 +73,25 @@ function PropertyRow({
           {(control.constraints.values ?? []).map((v) => (
             <option key={v} value={v}>
               {v}
+            </option>
+          ))}
+        </select>
+      ) : control.type === 'entityRef' && entityOptions !== undefined ? (
+        // Phase 25.10: an object property is picked from the objects it may name ("none": null).
+        <select
+          className="tl-prop__input"
+          data-entity-ref={control.key}
+          value={formatPropertyValue(control.current)}
+          onChange={(e) => commit(e.target.value)}
+          title={control.constraintText}
+        >
+          <option value="">none</option>
+          {typeof control.current === 'string' && !entityOptions.some((o) => o.id === control.current) && (
+            <option value={control.current}>{control.current} (missing)</option>
+          )}
+          {entityOptions.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.label}
             </option>
           ))}
         </select>
@@ -103,14 +134,17 @@ function PropertyRow({
 export function PropertyControlList({
   controls,
   onCommit,
+  entityOptions,
 }: {
   controls: readonly PropertyControl[];
   onCommit: (key: string, raw: string) => void;
+  /** Phase 25.10: the objects object properties may name (a picker instead of an id field). */
+  entityOptions?: readonly EntityRefOption[];
 }): JSX.Element {
   if (controls.length === 0) return <div className="tl-inspector__empty">no public properties</div>;
   // Remount on a committed value change so the input re-seeds from the
   // authoritative value (the row keeps local draft state while typing).
-  const row = (c: PropertyControl): JSX.Element => <PropertyRow key={`${c.key}:${formatPropertyValue(c.current)}`} control={c} onCommit={(raw) => onCommit(c.key, raw)} />;
+  const row = (c: PropertyControl): JSX.Element => <PropertyRow key={`${c.key}:${formatPropertyValue(c.current)}`} control={c} onCommit={(raw) => onCommit(c.key, raw)} {...(entityOptions !== undefined ? { entityOptions } : {})} />;
   // Phase 15.4: ungrouped properties first, then one foldable section per
   // group (in the order the groups first appear in the declaration).
   const groups: string[] = [];

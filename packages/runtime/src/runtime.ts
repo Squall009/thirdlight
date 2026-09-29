@@ -66,7 +66,7 @@ import { DebugCallError, MAX_DEBUG_APPLIED, MAX_DEBUG_COMMANDS, MAX_DEBUG_QUEUE,
 import { MAX_FRAME_UI_EVENTS, UiState, validateUiEvent, type UiEventRecord, type UiOutput, type UiStateView } from './ui';
 import { ModeState, type ModeView } from './modes';
 import { BehaviorHostError, BehaviorHostIntentLimit, BEHAVIOR_MODULE_PREFIX, compiledFramesOf, createTagQuery, graphNodeIdOf, type BehaviorDebugView, type BehaviorPropertyView, type CompiledFrame } from './behavior';
-import { character3DPhysicsOf, offsetEntities, playerCapsuleOf, sceneContribution, staticColliderOf3D, type LiveTagIndex, type SceneContribution } from './scene-set';
+import { character3DPhysicsOf, offsetEntities, playerCapsuleOf, sceneContribution, staticColliderOf, staticColliderOf3D, type LiveTagIndex, type SceneContribution } from './scene-set';
 import {
   BehaviorIntentError,
   INTENT_LIMITS,
@@ -96,6 +96,7 @@ import { TimelineSystem, type TimelineView } from './timeline';
 import type { TimelineAsset } from '@thirdlight/project-model';
 import { screenToRay as poseScreenToRay, worldToScreen as poseWorldToScreen, type CameraPose } from './camera-rig';
 import { GameplayBlocks, type SceneTransitionRequest } from './blocks';
+import { EntityAccess, type EntityFieldsSave, type LightOverride } from './entity-access';
 import { MAX_LIVE_SPAWNED, MAX_SPAWNS_PER_STEP, SPAWN_ID_PREFIX, expandPrefab, parseSpawnOptions } from './spawn';
 import { TransformMirror } from './step-buffers';
 import {
@@ -1236,6 +1237,7 @@ const FADE_COLOR_RE = /^#[0-9a-f]{6}$/;
 /** Phase 24.4f: the largest impulse component a script may give the character (m/s; a safety limit, far above a jump). */
 export const CHARACTER_IMPULSE_MAX = 100;
 const NO_LOOKS: ReadonlyMap<string, import('./primitives').EntityLook> = new Map();
+const NO_IDS: ReadonlySet<string> = new Set();
 
 class RuntimeInstance implements Runtime {
   private stateName: RuntimeStateName;
@@ -1469,6 +1471,12 @@ class RuntimeInstance implements Runtime {
   private readonly grid: RuntimeGrid;
   /** Phase 23.12: graph-material parameters scripts set per object (`ctx.materials`). */
   private readonly materials: RuntimeMaterials;
+  /** Phase 25.10: `ctx.entity(ref).get/set` — the written fields, the switched-off objects and the end-of-step writes. */
+  private readonly entityAccess: EntityAccess;
+  /** Phase 25.10: the step's pre-step transforms (what `get('transform')` reads during the step). */
+  private stepStart: Map<string, TransformState> | null = null;
+  /** Phase 25.10: `ctx.shell` (the shell's scene list from scripts). */
+  private readonly shellControl: import('./types').BehaviorShell;
   /** Phase 23.19: project saves (`ctx.saves`). */
   private readonly saves: RuntimeSaves;
   /** Phase 23.18: the environment preset blend (`ctx.environment`; inert until a script uses it). */
@@ -1743,6 +1751,8 @@ class RuntimeInstance implements Runtime {
     this.grid.flushCollision(args.physics3d);
     // Phase 23.12: the start set's graph materials (the values scripts set per object).
     this.materials = new RuntimeMaterials(args.materialCatalog);
+    this.entityAccess = this.buildEntityAccess();
+    this.shellControl = this.buildShellControl();
     this.materials.addEntities(args.initialEntities);
     // Phase 23.18: the environment preset blend (before the saves, whose sections read it).
     this.environment = new EnvironmentDirector(this.hz, args.environmentPresets, (message) => this.recordBehaviorLog('thirdlight.runtime:environment', 'warn', message));
@@ -1991,7 +2001,10 @@ class RuntimeInstance implements Runtime {
     this.animatorWasGrounded = grounded;
     const fired: AnimatorEventRecord[] = [];
     const dt = 1 / this.hz;
+    const off = this.entityAccess.inactive();
     for (const [id, { machine }] of this.animatorMachines) {
+      // Phase 25.10: a switched-off object's animator holds its pose.
+      if (off.size > 0 && off.has(id)) continue;
       if (this.isPlayerOrChild(id)) {
         machine.set('speed', speed);
         machine.set('grounded', grounded);
@@ -2127,7 +2140,9 @@ class RuntimeInstance implements Runtime {
             // Phase 24.4j: the named counters travel with the objects' state (a collectible's total with it being collected).
             const state = rt.blocks?.primitives.saveState() ?? {};
             const counters = rt.blocks?.countersView() ?? {};
-            return Object.keys(counters).length > 0 ? { ...state, counters } : state;
+            // Phase 25.10: the fields scripts wrote (ctx.entity(id).set), only when there are any.
+            const fields = rt.entityAccess.saveState();
+            return { ...state, ...(Object.keys(counters).length > 0 ? { counters } : {}), ...(Object.keys(fields).length > 0 ? { fields } : {}) };
           }
         }
       },
@@ -2149,6 +2164,12 @@ class RuntimeInstance implements Runtime {
           case 'environment':
             return rt.environment.checkState(value);
           case 'components': {
+            if (typeof value === 'object' && value !== null && !Array.isArray(value) && 'fields' in value) {
+              const { fields, ...others } = value as Record<string, unknown>;
+              const problem = rt.entityAccess.checkState(fields);
+              if (problem !== null) return problem;
+              value = others;
+            }
             if (typeof value === 'object' && value !== null && !Array.isArray(value) && 'counters' in value) {
               const { counters, ...rest } = value as Record<string, unknown>;
               if (typeof counters !== 'object' || counters === null || Array.isArray(counters) || Object.keys(counters).length > 256) return 'the components section\'s counters map at most 256 names to numbers';
@@ -2184,9 +2205,10 @@ class RuntimeInstance implements Runtime {
             rt.environment.restoreState(value as EnvironmentSaveState | undefined);
             return null;
           case 'components': {
-            const { counters, ...rest } = (value ?? {}) as Record<string, unknown>;
+            const { counters, fields, ...rest } = (value ?? {}) as Record<string, unknown>;
             rt.blocks?.primitives.restoreState(rest as import('./primitives').PrimitivesSaveState);
             rt.blocks?.setCounters((counters ?? {}) as Record<string, number>);
+            rt.entityAccess.restoreState(fields as EntityFieldsSave | undefined);
             return null;
           }
         }
@@ -2264,7 +2286,7 @@ class RuntimeInstance implements Runtime {
         const n = Number(id.slice(SPAWN_ID_PREFIX.length));
         if (n > this.spawnSerial) this.spawnSerial = n;
       }
-      this.spawnOps.push({ op: 'spawn', entities: expandPrefab(def, c.ids, parsed.placement) });
+      this.spawnOps.push({ op: 'spawn', entities: expandPrefab(def, c.ids, parsed.placement, this.entityRefKeysOf) });
     }
   }
 
@@ -2330,9 +2352,146 @@ class RuntimeInstance implements Runtime {
     this.stepWatcher = watcher;
   }
 
-  /** Phase 9.9: entities hidden (collected collectibles, ctx.game.setVisible; the renderer hides them). */
+  /**
+   * Phase 9.9: entities hidden (collected collectibles, ctx.game.setVisible; the renderer hides them).
+   * Phase 25.10: with the objects scripts switched off (and their children), which are not drawn either.
+   */
   hiddenEntities(): ReadonlySet<string> {
-    return this.blocks?.hiddenEntities() ?? new Set();
+    const hidden = this.blocks?.hiddenEntities() ?? NO_IDS;
+    const off = this.entityAccess.inactive();
+    if (off.size === 0) return hidden;
+    if (hidden.size === 0) return off;
+    if (this.hiddenUnion === null || this.hiddenUnion.hidden !== hidden || this.hiddenUnion.off !== off || this.hiddenUnion.size !== hidden.size) {
+      this.hiddenUnion = { hidden, off, size: hidden.size, set: new Set([...hidden, ...off]) };
+    }
+    return this.hiddenUnion.set;
+  }
+  private hiddenUnion: { hidden: ReadonlySet<string>; off: ReadonlySet<string>; size: number; set: ReadonlySet<string> } | null = null;
+
+  /** Phase 25.10: the objects scripts switched off, with their children (not drawn, no collision, no triggers, no ticking; audio sources silent). */
+  inactiveEntities(): ReadonlySet<string> {
+    return this.entityAccess.inactive();
+  }
+
+  /** Phase 25.10: the light values scripts wrote (`ctx.entity(id).set('light', …)`), by object; the renderer applies them. */
+  lightOverrides(): ReadonlyMap<string, LightOverride> {
+    return this.entityAccess.lightOverrides();
+  }
+
+  /** Phase 25.10: the fields scripts wrote, as digest text (null while none: every other digest is unchanged). */
+  entityFieldsState(): string | null {
+    return this.entityAccess.digestText();
+  }
+
+  /** Phase 25.10: `ctx.entity` — what the generic component access reads and writes in this runtime. */
+  private buildEntityAccess(): EntityAccess {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const rt = this;
+    return new EntityAccess({
+      doc: (id) => rt.entityDocument(id),
+      stepStartTransform: (id) => rt.stepStart?.get(id) ?? rt.curr.get(id),
+      get curr() {
+        return rt.curr;
+      },
+      order: () => rt.order,
+      parentOf: (id) => rt.entities.get(id)?.parentId ?? undefined,
+      get cameraId() {
+        return rt.cameraInfo.id ?? undefined;
+      },
+      get controllerId() {
+        return rt.controllerEntityId;
+      },
+      isPhysicsBody: (id) => id === rt.controllerEntityId || rt.entities.get(id)?.hasCollider === true,
+      transformIntentWrote: (id) => {
+        const stored = rt.intents.axes.get(id);
+        const tag = rt.intents.axesTag * 64;
+        return stored !== undefined && stored >= tag && stored < tag + 64 && stored !== tag;
+      },
+      hiddenAtStepStart: (id) => rt.blocks?.hiddenAtStepStart(id) ?? false,
+      setVisible: (id, visible) => rt.blocks?.setVisible(id, visible),
+      moverState: (id) => rt.blocks?.moverState(id) ?? null,
+      setMover: (id, patch) => rt.blocks?.setMover(id, patch),
+      get materials() {
+        return rt.materials;
+      },
+      inactiveChanged: (off, on) => rt.onInactiveChanged(off, on),
+      record: (entry) => rt.recordError(entry),
+      stepIndex: () => rt.stepIndex,
+    });
+  }
+
+  /**
+   * Phase 25.10: objects were switched off or on (with their children): the
+   * blocks skip them, their colliders leave the physics world (and come back
+   * where they are now), their scripts and animators stop ticking (read per
+   * step), the renderer hides them (`hiddenEntities`).
+   */
+  private onInactiveChanged(off: readonly string[], on: readonly string[]): void {
+    const set = this.entityAccess.inactive();
+    this.blocks?.setInactive(set);
+    this.behaviorTicksFn = undefined;
+    this.behaviorTicksOff = null;
+    const colliderOf = (id: string): boolean => id !== this.controllerEntityId && this.entities.get(id)?.hasCollider === true;
+    const leaving = off.filter(colliderOf);
+    const coming = on.filter(colliderOf);
+    if (leaving.length === 0 && coming.length === 0) return;
+    try {
+      if (leaving.length > 0) {
+        this.physics3d?.removeStaticColliders?.(leaving);
+        this.physics?.removeStaticColliders?.(leaving);
+        for (const id of leaving) this.scriptColliders3D.delete(id);
+      }
+      if (coming.length > 0) {
+        const at = (id: string): Record<string, unknown> => {
+          const c = (this.entityDocument(id)?.components ?? {}) as unknown as Record<string, unknown>;
+          const t = this.curr.get(id);
+          return t === undefined ? c : { ...c, transform: { position: [...t.position], rotation: [...t.rotation], scale: [...t.scale] } };
+        };
+        if (this.physics3d !== undefined) {
+          const specs = coming.map((id) => staticColliderOf3D(id, at(id))).filter((x): x is StaticColliderSpec3D => x !== null);
+          if (specs.length > 0) this.physics3d.addStaticColliders?.(specs);
+          // A collider a script owns becomes kinematic again at the next boundary.
+          this.scriptCollidersDirty = true;
+        } else if (this.physics !== undefined) {
+          const specs = coming.map((id) => staticColliderOf(id, at(id))).filter((x): x is NonNullable<typeof x> => x !== null);
+          if (specs.length > 0) this.physics.addStaticColliders?.(specs);
+        }
+      }
+    } catch (e) {
+      this.failStop('physics_port_error', 'entity_active', `switching the colliders of ${[...leaving, ...coming].slice(0, 4).join(', ')} failed: ${messageOf(e)}`, this.stepIndex);
+    }
+  }
+
+  /**
+   * Phase 25.10: a behavior's `entityRef` property keys (its module's
+   * declaration), for the typed remap of prefab-local references in spawned
+   * copies; undefined for a behavior this game has no module for.
+   */
+  private readonly entityRefKeysOf = (behaviorId: string): readonly string[] | undefined => {
+    const entry = this.entries.find((e) => e.id === `thirdlight.behavior:${behaviorId}`);
+    const probe = entry?.instance as { behaviorEntityRefKeys?: () => readonly string[] } | undefined;
+    return typeof probe?.behaviorEntityRefKeys === 'function' ? probe.behaviorEntityRefKeys() : undefined;
+  };
+
+  /** Phase 25.10: `ctx.shell` — the shell's scene list (the same move as the shell's nextScene UI action). */
+  private buildShellControl(): import('./types').BehaviorShell {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const rt = this;
+    return Object.freeze({
+      nextScene(): boolean {
+        // From the entry the run is at (calling it twice in a step asks for the same move).
+        const next = rt.listedSceneIndex() + 1;
+        if (rt.sceneList.length === 0 || next >= rt.sceneList.length) return false;
+        rt.pendingListedScene = next;
+        return true;
+      },
+      sceneIndex(): number {
+        return rt.listedSceneIndex();
+      },
+      sceneCount(): number {
+        return rt.sceneList.length;
+      },
+    });
   }
 
   /** Phase 9.9: the run's named counters and the character's health. */
@@ -3141,6 +3300,9 @@ class RuntimeInstance implements Runtime {
     const backupMirror = this.stepMirrors[this.stepMirrors[0].map === this.prev ? 1 : 0];
     backupMirror.copyFrom(this.curr, this.currShape);
     const backup = backupMirror.map;
+    // Phase 25.10: `ctx.entity(id).get('transform')` reads the step-start transforms; the hidden set's step-start copy starts over.
+    this.stepStart = backup;
+    this.blocks?.beginScriptStep();
     if (this.staged.size > 0) this.staged.clear();
     this.currentPhase = undefined;
     this.currentModuleId = undefined;
@@ -3167,6 +3329,13 @@ class RuntimeInstance implements Runtime {
       }
       // Phase 23.2: a script's character_place takes effect before the controller runs.
       if (this.physics3d !== undefined && this.intents.characterPlace !== null) this.applyCharacterPlace3D();
+      // Phase 25.10: on the 2D plane too — the 2D placement of arrivals and respawns (from rest, the controller reset),
+      // before the controller runs; a respawn asked for in this step gives way to it (as in 3D).
+      if (this.physics3d === undefined && this.intents.characterPlace !== null) {
+        this.pendingRespawn = null;
+        this.pendingFacing = null;
+        this.placeCharacter2D(this.intents.characterPlace.x, this.intents.characterPlace.y, ordinal);
+      }
       if (!held) {
         this.runPhase('controller', action);
         // Phase 24.4f: the impulses reached the controller (a held step keeps them for the next one).
@@ -3184,6 +3353,9 @@ class RuntimeInstance implements Runtime {
       this.failStopFromError(e, stepIndex);
       return false;
     }
+    // Phase 25.10: the component writes scripts queued in this step, in script order.
+    this.entityAccess.applyQueued();
+    if (this.stateName === 'failed') return false;
     // Phase 23.17: the timelines, after every script phase and before the camera brain (on this step's input frame).
     if (this.timelines.active) {
       try {
@@ -3322,10 +3494,17 @@ class RuntimeInstance implements Runtime {
    * every group; one function per runtime).
    */
   private behaviorTicks(): ((entityId: string) => boolean) | undefined {
-    if (!this.modes.active || this.modes.ticksAll) return undefined;
-    if (this.behaviorTicksFn === undefined) this.behaviorTicksFn = (entityId: string): boolean => this.modes.ticks(this.behaviorGroupOf.get(entityId));
+    // Phase 25.10: a switched-off object's scripts do not tick.
+    const off = this.entityAccess.inactive();
+    if (!this.modes.active || this.modes.ticksAll) {
+      if (off.size === 0) return undefined;
+      if (this.behaviorTicksOff === null || this.behaviorTicksOff.set !== off) this.behaviorTicksOff = { set: off, fn: (entityId: string): boolean => !off.has(entityId) };
+      return this.behaviorTicksOff.fn;
+    }
+    if (this.behaviorTicksFn === undefined) this.behaviorTicksFn = (entityId: string): boolean => !this.entityAccess.inactive().has(entityId) && this.modes.ticks(this.behaviorGroupOf.get(entityId));
     return this.behaviorTicksFn;
   }
+  private behaviorTicksOff: { set: ReadonlySet<string>; fn: (entityId: string) => boolean } | null = null;
 
   /** `ctx.modes` for one phase (the enter/exit events are read in the intent phase only, once per step). */
   private modeControlFor(phase: SimulationPhase): import('./types').BehaviorModes {
@@ -3422,6 +3601,8 @@ class RuntimeInstance implements Runtime {
     this.sockets.reset();
     this.settleSockets();
     this.blocks?.resetRun();
+    // Phase 25.10: every field scripts wrote back as authored (switched-off objects come back, colliders included).
+    this.entityAccess.reset();
     this.grid.reset();
     this.grid.flushCollision(this.physics3d);
     this.materials.reset();
@@ -4282,6 +4463,8 @@ class RuntimeInstance implements Runtime {
     this.cameras.add(frozen);
     // Phase 23.11: their models and authored sockets (resolved at the end of the step).
     this.sockets.add(frozen);
+    // Phase 25.10: children of a switched-off object arrive switched off.
+    this.entityAccess.added();
   }
 
   /** Tell the phased modules (the behavior host) about attached entities. Returns false after a fail-stop. */
@@ -4395,6 +4578,8 @@ class RuntimeInstance implements Runtime {
     this.removeAnimators(ids);
     this.blocks?.remove(ids);
     this.cameras.remove(ids);
+    // Phase 25.10: their written fields go with them.
+    this.entityAccess.removed(ids);
   }
 
   /** Remove one scene and release what belongs to it. */
@@ -4436,7 +4621,7 @@ class RuntimeInstance implements Runtime {
         }
         rt.spawnsThisStep += 1;
         const ids = def.entities.map(() => rt.allocateSpawnId());
-        rt.spawnOps.push({ op: 'spawn', entities: expandPrefab(def, ids, parsed.placement) });
+        rt.spawnOps.push({ op: 'spawn', entities: expandPrefab(def, ids, parsed.placement, rt.entityRefKeysOf) });
         return ids[0]!;
       },
       destroy(entityId: string): boolean {
@@ -4690,6 +4875,9 @@ class RuntimeInstance implements Runtime {
       fields['grid'] = { value: this.grid.api, enumerable: true };
       // Phase 23.12: graph-material parameters per object.
       fields['materials'] = { value: this.materials.api, enumerable: true };
+      // Phase 25.10: generic component access (the behavior host names the writing script) and the shell's scene list.
+      fields['entities'] = { value: this.entityAccess.control, enumerable: true };
+      fields['shell'] = { value: this.shellControl, enumerable: true };
       // Phase 23.19: project saves (ctx.saves).
       fields['saves'] = { value: this.saves.api, enumerable: true };
       // Phase 23.9a: the project UI (the step's UI events in the intent phase).
@@ -4773,8 +4961,9 @@ class RuntimeInstance implements Runtime {
     }
     if (intent.kind === 'character_move' || intent.kind === 'character_place' || intent.kind === 'character_enable') {
       // Phase 23.2: the 3D character controller's channels (one writer each per step).
-      if (this.physics3d === undefined) {
-        throw new BehaviorIntentError('behavior_intent_invalid', 'value', `a ${intent.kind} intent needs a 3D project (physics_dimension 3)`);
+      // Phase 25.10: character_place on the 2D plane too (a character with a physics port).
+      if (this.physics3d === undefined && (intent.kind !== 'character_place' || this.controllerEntityId === undefined || this.resetPort() === null)) {
+        throw new BehaviorIntentError('behavior_intent_invalid', 'value', intent.kind === 'character_place' ? 'a character_place intent needs a character (a controller) with physics' : `a ${intent.kind} intent needs a 3D project (physics_dimension 3)`);
       }
       const writer = this.intents.characterWriters.get(intent.kind);
       if (writer !== undefined) {
@@ -5334,7 +5523,8 @@ class RuntimeInstance implements Runtime {
     const port = this.physics3d;
     if (port === undefined) return true;
     const owned = new Set<string>();
-    for (const entry of this.entries) for (const id of entry.owners) if (scriptDrivableCollider(this.colliderComponents3D.get(id))) owned.add(id);
+    const off = this.entityAccess.inactive();
+    for (const entry of this.entries) for (const id of entry.owners) if (!off.has(id) && scriptDrivableCollider(this.colliderComponents3D.get(id))) owned.add(id);
     const add: StaticColliderSpec3D[] = [];
     for (const id of [...owned].sort()) {
       if (this.scriptColliders3D.has(id)) continue;
@@ -5602,6 +5792,9 @@ class RuntimeInstance implements Runtime {
       logCount: logs.logCount,
       logDropped: logs.logDropped,
     };
+    // Phase 25.10: generic component writes (only once a script used them: every other diagnostics frame keeps its shape).
+    const ea = this.entityAccess;
+    if (ea.applied + ea.refused + ea.conflicts > 0) m2.entityWrites = { applied: ea.applied, refused: ea.refused, conflicts: ea.conflicts, inactive: ea.inactive().size };
     if (this.failedModuleId !== undefined) m2.failedModuleId = this.failedModuleId;
     if (this.failedPhase !== undefined) m2.failedPhase = this.failedPhase;
     if (this.failedStepIndex !== undefined) m2.failedStepIndex = this.failedStepIndex;

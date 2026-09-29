@@ -143,14 +143,17 @@ export interface CharacterMoveIntent {
 }
 
 /**
- * Phase 23.2 (3D projects): teleport the player character (its origin) to a
- * point, stopping its motion; it falls from there. Intent phase.
+ * Phase 23.2: teleport the player character (its origin) to a point,
+ * stopping its motion; it falls from there. Intent phase; it takes effect
+ * before the controller runs in the same step. Phase 25.10: on the 2D plane
+ * too (z is ignored there), with the placement of scene arrivals and
+ * respawns (from rest: velocity and jump reset).
  * @graphNode Place character
  * @graphPhase intent
  */
 export interface CharacterPlaceIntent {
   kind: 'character_place';
-  /** Where its origin goes, [x, y, z] (m). */
+  /** Where its origin goes, [x, y, z] (m; on the 2D plane z is ignored). */
   position: readonly [number, number, number];
 }
 

@@ -55,8 +55,13 @@ type Vec3 = [number, number, number];
 interface Mover extends PathState {
   id: string;
   startOn: string | null;
+  /** Phase 25.10: the authored speed and moving flag (a new run restores them; scripts write `speed` and `active`). */
+  authoredSpeed: number;
+  authoredActive: boolean;
   // state
   started: boolean;
+  /** Phase 25.10: false — it holds where it is (still posed and solid). */
+  active: boolean;
   /** The box collider's half extents (a mover without a box or polygon collider never pushes). */
   half: Vec2 | null;
   /** Phase 25.4: a polygon collider's vertices, turned by its rotation, around the mover's position. */
@@ -284,6 +289,10 @@ export class GameplayBlocks {
   private readonly oneWay = new Set<string>();
   private readonly parents = new Map<string, string>();
   private readonly hidden = new Set<string>();
+  /** Phase 25.10: the hidden set as it stood at the start of the step, kept once something changed it in the step (null: unchanged). */
+  private hiddenStart: Set<string> | null = null;
+  /** Phase 25.10: objects a script switched off (with their children): no mover, trigger, switch, primitive or facing steps. */
+  private inactive: ReadonlySet<string> = new Set();
   /** Phase 9.13 / 24.4f: models that face where they go (yaw about +Y, radians). */
   private readonly facers = new Map<string, Facer>();
   private readonly counters = new Map<string, number>();
@@ -384,6 +393,9 @@ export class GameplayBlocks {
           points,
           lengths,
           speed: num(m['speed'], 1),
+          authoredSpeed: num(m['speed'], 1),
+          authoredActive: m['active'] !== false,
+          active: m['active'] !== false,
           mode,
           wait: num(m['wait'], 0),
           smooth: m['easing'] === 'smooth',
@@ -473,12 +485,13 @@ export class GameplayBlocks {
   /** A new run (start/replay): everything back as authored. */
   resetRun(): void {
     for (const m of this.movers.values()) {
-      Object.assign(m, { started: m.startOn === null, segment: 0, along: 0, dir: 1, waiting: 0, done: false, pos: [...m.points[0]!] });
+      Object.assign(m, { started: m.startOn === null, segment: 0, along: 0, dir: 1, waiting: 0, done: false, pos: [...m.points[0]!], speed: m.authoredSpeed, active: m.authoredActive });
       this.writeTransform(m.id, m.pos);
     }
     for (const t of this.triggers.values()) Object.assign(t, { inside: false, spent: false });
     for (const s of this.switches.values()) Object.assign(s, { inside: false, spent: false });
     this.hidden.clear();
+    this.hiddenStart = null;
     this.counters.clear();
     this.signalsNow.clear();
     this.signalsPrev.clear();
@@ -535,8 +548,51 @@ export class GameplayBlocks {
 
   /** A script shows or hides an entity (a new run shows everything again). */
   setVisible(entityId: string, visible: boolean): void {
+    if (visible === !this.hidden.has(entityId)) return;
+    if (this.hiddenStart === null) this.hiddenStart = new Set(this.hidden);
     if (visible) this.hidden.delete(entityId);
     else this.hidden.add(entityId);
+  }
+
+  /** Phase 25.10: whether an object was hidden at the start of this step (`ctx.entity(id).get('object').visible`). */
+  hiddenAtStepStart(entityId: string): boolean {
+    return (this.hiddenStart ?? this.hidden).has(entityId);
+  }
+
+  /** Phase 25.10: a step begins (the hidden set's step-start copy is dropped). */
+  beginScriptStep(): void {
+    this.hiddenStart = null;
+  }
+
+  /** Phase 25.10: a mover's speed and moving flag now (null: no mover). */
+  moverState(entityId: string): { speed: number; active: boolean } | null {
+    const m = this.movers.get(entityId);
+    return m === undefined ? null : { speed: m.speed, active: m.active };
+  }
+
+  /** Phase 25.10: a script's mover write (speed in m/s, moving or held), from the next step on. */
+  setMover(entityId: string, patch: { speed?: number; active?: boolean }): void {
+    const m = this.movers.get(entityId);
+    if (m === undefined) return;
+    if (patch.speed !== undefined) m.speed = patch.speed;
+    if (patch.active !== undefined) m.active = patch.active;
+  }
+
+  /**
+   * Phase 25.10: the objects switched off (a script's `active: false`, with
+   * their children). Their movers, triggers, switches, primitives and facing
+   * models do not step; a trigger or switch switched off forgets that the
+   * character was inside (switched on again, an entry is an entry).
+   */
+  setInactive(ids: ReadonlySet<string>): void {
+    this.inactive = ids;
+    for (const id of ids) {
+      const t = this.triggers.get(id);
+      if (t !== undefined) t.inside = false;
+      const sw = this.switches.get(id);
+      if (sw !== undefined) sw.inside = false;
+    }
+    this.primitives.setInactive(ids);
   }
 
   hiddenEntities(): ReadonlySet<string> {
@@ -658,6 +714,7 @@ export class GameplayBlocks {
     // Phase 20.2: effect components started or stopped by last step's signals (entity order: deterministic).
     if (this.effectTriggers.size > 0 && this.signalsPrev.size > 0) {
       for (const [id, t] of this.effectTriggers) {
+        if (this.inactive.has(id)) continue;
         if (t.stop !== null && this.signalsPrev.has(t.stop)) this.host.effect?.({ op: 'stop', effectId: '', entityId: id, position: [0, 0, 0], source: 'component' });
         if (t.signal !== null && this.signalsPrev.has(t.signal)) this.host.effect?.({ op: 'play', effectId: t.effectId, entityId: id, position: [0, 0, 0], source: 'component' });
       }
@@ -728,9 +785,10 @@ export class GameplayBlocks {
       else pushed.x += Math.min(m.pushStep, ox) * (right ? 1 : -1);
     };
     for (const m of this.movers.values()) {
+      if (this.inactive.has(m.id)) continue;
       const before: Vec3 = [...m.pos];
       if (!m.started && m.startOn !== null && this.signalsPrev.has(m.startOn)) m.started = true;
-      if (m.started && !m.done) this.advance(m, dt);
+      if (m.started && m.active && !m.done) this.advance(m, dt);
       this.writeTransform(m.id, m.pos);
       poses.push({ entityId: m.id, position: { x: m.pos[0], y: m.pos[1] }, rotationZ: m.rotationZ });
       if (ground === m.id) this.carry = { x: m.pos[0] - before[0], y: m.pos[1] - before[1] };
@@ -775,9 +833,10 @@ export class GameplayBlocks {
       pushed[axis] = pushed[axis] + Math.min(m.pushStep, over[axis]) * (pc[axis] >= centre[axis] ? 1 : -1);
     };
     for (const m of this.movers.values()) {
+      if (this.inactive.has(m.id)) continue;
       const before: Vec3 = [...m.pos];
       if (!m.started && m.startOn !== null && this.signalsPrev.has(m.startOn)) m.started = true;
-      if (m.started && !m.done) this.advance(m, dt);
+      if (m.started && m.active && !m.done) this.advance(m, dt);
       this.writeTransform(m.id, m.pos);
       poses.push({ entityId: m.id, position: { x: m.pos[0], y: m.pos[1], z: m.pos[2] }, rotation: { x: m.rotation[0], y: m.rotation[1], z: m.rotation[2], w: m.rotation[3] } });
       if (ground === m.id) {
@@ -823,6 +882,7 @@ export class GameplayBlocks {
     if (player === null) return;
     this.triggers2D(player);
     for (const s of this.switches.values()) {
+      if (this.inactive.has(s.id)) continue;
       const at = this.worldOf(s.id);
       const inside = at !== null && Math.abs(player.x + this.pc.ox - at[0]) < s.half.x + this.pc.hw && Math.abs(player.y + this.pc.oy - at[1]) < s.half.y + this.pc.hh;
       // Phase 24.4f: an interact switch reads its own action (absent: interact).
@@ -856,6 +916,7 @@ export class GameplayBlocks {
     const cx = player.x + this.pc.ox;
     const cy = player.y + this.pc.oy;
     for (const t of this.triggers.values()) {
+      if (this.inactive.has(t.id)) continue;
       const at = this.worldOf(t.id);
       let inside = false;
       if (at !== null) {
@@ -910,6 +971,7 @@ export class GameplayBlocks {
     const b: Vec3 = [c[0], c[1] + seg, c[2]];
     const r = this.pc.hw;
     for (const t of this.triggers.values()) {
+      if (this.inactive.has(t.id)) continue;
       const at = this.worldOf(t.id);
       if (at === null) continue;
       const q = this.host.curr.get(t.id)?.rotation ?? [0, 0, 0, 1];
@@ -936,7 +998,7 @@ export class GameplayBlocks {
 
   /** Phase 9.13 / 24.4f: each facing model turns toward the horizontal motion of what it follows. */
   private turnFacers(dt: number): void {
-    for (const [id, f] of this.facers) this.turnVelocityFacer(id, f, dt);
+    for (const [id, f] of this.facers) if (!this.inactive.has(id)) this.turnVelocityFacer(id, f, dt);
   }
 
   /**

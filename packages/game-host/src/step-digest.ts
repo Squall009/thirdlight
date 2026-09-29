@@ -51,6 +51,9 @@ export function stepDigest(rt: Runtime): string {
   if (c !== undefined) h.text(JSON.stringify(c));
   const hidden = rt.hiddenEntities?.();
   if (hidden !== undefined) h.text([...hidden].sort().join(','));
+  // Phase 25.10: the fields scripts wrote through ctx.entity (only while any is, so every other digest is unchanged).
+  const fields = rt.entityFieldsState?.() ?? null;
+  if (fields !== null) h.text(fields);
   // Phase 24.4h: the look overrides (only while any is set, so every other digest is unchanged).
   const looks = rt.entityLooks?.();
   if (looks !== undefined && looks.size > 0) h.text(JSON.stringify([...looks].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))));

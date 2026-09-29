@@ -268,6 +268,8 @@ export class RuntimeMaterials {
   private readonly pending = new Map<string, { op: 'set' | 'clear' | 'data'; entityId: string; materialId: string; key: string }>();
   private writesStep = -1;
   private writes = 0;
+  /** Phase 25.10: the values changed in this step as they stood at its start (`scriptSnapshot` reads the step-start state). */
+  private readonly stepBefore = new Map<string, MaterialParamValue | undefined>();
   readonly api: BehaviorMaterials;
 
   constructor(catalog: RuntimeMaterialCatalog | undefined) {
@@ -307,11 +309,77 @@ export class RuntimeMaterials {
     if (this.writesStep !== stepIndex) {
       this.writesStep = stepIndex;
       this.writes = 0;
+      if (this.stepBefore.size > 0) this.stepBefore.clear();
     }
+  }
+
+  // ---- phase 25.10: the generic component path (ctx.entity(id).get/set('materialParams')) ----------
+
+  /**
+   * The object's public (non-data) parameters of every graph material it
+   * wears, as they stood at the start of the step (what scripts set, else the
+   * authored override, else the default): material → parameter → value. Null
+   * when it wears none.
+   */
+  scriptSnapshot(entityId: string): Readonly<Record<string, Readonly<Record<string, MaterialParamValue>>>> | null {
+    const w = this.worn.get(entityId);
+    if (w === undefined) return null;
+    const out: Record<string, Readonly<Record<string, MaterialParamValue>>> = {};
+    for (const materialId of w.materials) {
+      const params = this.params.get(materialId);
+      if (params === undefined) continue;
+      const values: Record<string, MaterialParamValue> = {};
+      for (const [key, p] of params) {
+        if (p.visibility === 'private' || p.type === 'data') continue;
+        const k = materialChangeKey({ entityId, materialId, key });
+        const now = this.stepBefore.has(k) ? this.stepBefore.get(k) : this.state.get(entityId)?.get(materialId)?.values.get(key);
+        const v = now ?? (w.authored[materialId]?.[key] as MaterialParamValue | undefined) ?? p.default;
+        values[key] = Array.isArray(v) ? Object.freeze([...v]) : v;
+      }
+      if (Object.keys(values).length > 0) out[materialId] = Object.freeze(values);
+    }
+    return Object.keys(out).length > 0 ? Object.freeze(out) : null;
+  }
+
+  /** Why a script may not write `value` (null: back to the authored value) to one parameter of one material the object wears; null when it may. */
+  scriptProblem(entityId: string, materialId: string, param: string, value: unknown): string | null {
+    const w = this.worn.get(entityId);
+    if (w === undefined || !w.materials.includes(materialId)) return `the object does not wear graph material "${materialId.slice(0, 64)}"`;
+    const p = this.params.get(materialId)?.get(param);
+    if (p === undefined || p.visibility === 'private') return `material "${materialId}" has no public parameter "${param.slice(0, 64)}"`;
+    if (p.type === 'data') return `material "${materialId}" parameter "${param}" is a data grid (ctx.materials.setData writes its cells)`;
+    if (value === null) return null;
+    return checkedValue(p, value, this.textures) === undefined ? `material "${materialId}" parameter "${param}" (${p.type}) does not take ${JSON.stringify(value)?.slice(0, 64) ?? String(value)}` : null;
+  }
+
+  /** Apply one checked write (`scriptProblem` was null): the value, or null for the authored value. */
+  scriptApply(entityId: string, materialId: string, param: string, value: unknown): void {
+    const p = this.params.get(materialId)?.get(param);
+    if (p === undefined) return;
+    this.noteBefore(entityId, materialId, param);
+    if (value === null) {
+      const s = this.state.get(entityId)?.get(materialId);
+      if (s !== undefined && s.values.delete(param)) {
+        this.mark('clear', entityId, materialId, param);
+        this.prune(entityId, materialId);
+      }
+      return;
+    }
+    const v = checkedValue(p, value, this.textures);
+    if (v === undefined) return;
+    this.stateOf(entityId, materialId).values.set(param, v);
+    this.mark('set', entityId, materialId, param);
+  }
+
+  /** Keep a parameter's step-start value before its first change in the step. */
+  private noteBefore(entityId: string, materialId: string, key: string): void {
+    const k = materialChangeKey({ entityId, materialId, key });
+    if (!this.stepBefore.has(k)) this.stepBefore.set(k, this.state.get(entityId)?.get(materialId)?.values.get(key));
   }
 
   /** A new run: every object back to its authored values (the renderer is told). */
   reset(): void {
+    this.stepBefore.clear();
     for (const [entityId, byMaterial] of this.state) {
       for (const [materialId, s] of byMaterial) {
         for (const key of s.values.keys()) this.mark('clear', entityId, materialId, key);
@@ -472,6 +540,7 @@ export class RuntimeMaterials {
         const checked = targets.map((t) => checkedValue(t.p, value, m.textures));
         if (checked.some((v) => v === undefined) || !m.write()) return false;
         targets.forEach((t, i) => {
+          m.noteBefore(entityId, t.materialId, param);
           m.stateOf(entityId, t.materialId).values.set(param, checked[i]!);
           m.mark('set', entityId, t.materialId, param);
         });
@@ -495,6 +564,7 @@ export class RuntimeMaterials {
           if (only !== null && id !== only) continue;
           for (const key of [...s.values.keys()]) {
             if (param !== undefined && key !== param) continue;
+            m.noteBefore(entityId, id, key);
             s.values.delete(key);
             m.mark('clear', entityId, id, key);
             any = true;

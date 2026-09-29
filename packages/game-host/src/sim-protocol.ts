@@ -161,6 +161,10 @@ export interface FrameState {
   /** Shared memory: the slot the transforms are in (and the buffer when it was (re)allocated). */
   readonly xfShared?: { readonly slot: number; readonly count: number; readonly slotFloats: number; readonly buffer?: SharedArrayBuffer };
   readonly hidden?: readonly string[];
+  /** Phase 25.10: the objects scripts switched off (with their children) when that changed. */
+  readonly inactive?: readonly string[];
+  /** Phase 25.10: the light values scripts wrote when they changed (the whole list; [] when cleared). */
+  readonly lights?: readonly (readonly [string, import('@thirdlight/runtime').LightOverride])[];
   /** Phase 24.4h: the look overrides when they changed (the whole list; [] when the last one was cleared). */
   readonly looks?: readonly (readonly [string, { readonly emissive?: string; readonly emissiveIntensity?: number; readonly tint?: string }])[];
   readonly poses?: readonly (readonly [string, AnimatorPose])[];

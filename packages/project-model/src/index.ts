@@ -803,6 +803,21 @@ export {
   type VecFieldDescriptor,
 } from './descriptors';
 
+// Phase 25.10: generic component access for scripts (ctx.entity): the table and the write check.
+export {
+  SCRIPT_ACCESS_SCHEMA_VERSION,
+  SCRIPT_OBJECT_COMPONENT,
+  checkScriptPatch,
+  scriptAccessTable,
+  scriptComponentAccess,
+  scriptSnapshot,
+  type ScriptAccessTable,
+  type ScriptComponentAccess,
+  type ScriptPatchResult,
+  type ScriptWriteCode,
+  type ScriptWriteProblem,
+} from './script-fields';
+
 // Phase 23.5 (E8): block layers — data model, grid, edits, meshing, PNG heightmaps.
 export {
   BLOCK_LAYER_DEFAULT,

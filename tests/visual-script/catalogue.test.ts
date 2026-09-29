@@ -284,6 +284,12 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
       weight: rec('environment.weight', 0.5),
       presets: rec('environment.presets', () => ['day', 'night']),
     },
+    // Phase 25.10: generic component access (a handle per object) and the shell's scene list.
+    entity: (id: string) => {
+      calls.push('entity');
+      return id === '' ? null : { get: rec('entity.get', () => ({ intensity: 2 })), set: rec('entity.set', () => ({ ok: true, field: '', code: '', message: '' })) };
+    },
+    shell: { nextScene: rec('shell.nextScene', true), sceneIndex: rec('shell.sceneIndex', 0), sceneCount: rec('shell.sceneCount', 2) },
   };
 }
 

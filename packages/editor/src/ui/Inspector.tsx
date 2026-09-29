@@ -282,7 +282,12 @@ export function Inspector({ entity, gizmoMode, onGizmoMode, registry, fieldConte
                             {behavior.error.code}: {behavior.error.message}
                           </div>
                         ) : (
-                          <PropertyControlList controls={behavior.controls} onCommit={(key, raw) => onEditProperty(entity.id, key, raw)} />
+                          <PropertyControlList
+                            controls={behavior.controls}
+                            onCommit={(key, raw) => onEditProperty(entity.id, key, raw)}
+                            // Phase 25.10: object properties pick from the objects of this scene (the command resolves them there).
+                            entityOptions={fieldContext.entities.filter((e) => fieldContext.sceneId === undefined || e.sceneId === undefined || e.sceneId === fieldContext.sceneId).map((e) => ({ id: e.id, label: e.name }))}
+                          />
                         )}
                         {propertyError && (
                           <div className="tl-prop__error" title={propertyError.message}>

@@ -133,6 +133,22 @@ interface FieldBase {
   readonly handle?: HandleKind;
   /** Phase 23.2: the project physics dimension the field applies in (absent: both); the Inspector shows the project's. */
   readonly dimension?: 2 | 3;
+  /**
+   * Phase 25.10: scripts read it (`ctx.entity(ref).get(component)`: a
+   * read-only snapshot of the step-start state). The marks are versioned with
+   * the project schema (`SCRIPT_ACCESS_SCHEMA_VERSION`): renaming a marked
+   * field is a schema change.
+   */
+  readonly scriptReadable?: true;
+  /**
+   * Phase 25.10: scripts may write it while the game runs
+   * (`ctx.entity(ref).set(component, patch)`, applied at the end of the step);
+   * each such field has defined runtime behavior. Every other field is fixed
+   * at run time and a write to it is refused naming the field.
+   */
+  readonly runtimeWritable?: true;
+  /** Phase 25.10: exists only while the game runs (never stored; starts at `default`). */
+  readonly runtimeOnly?: true;
 }
 
 export interface NumberFieldDescriptor extends FieldBase {
@@ -1186,6 +1202,8 @@ const mover: ComponentDescriptor = {
     enm('easing', 'Easing', 'Constant speed or smooth starts and stops.', MOVER_EASINGS, { default: 'linear' }),
     signal('startOn', 'Start on signal', 'Wait for this signal before moving (absent: moves from the start).'),
     num('maxPush', 'Max push', 'The fastest it shoves a player out of its way (a safety limit that keeps the player out of the platform).', { ...BL.maxPush, step: 1, unit: 'm/s', default: BD.maxPush }),
+    // Phase 25.10: a held mover stays where it is (it still collides and carries) until a script switches it on.
+    bool('active', 'Moving', 'Off: it holds where it is (still solid) until a script switches it on.', { default: true, omitDefault: true }),
   ]),
   // Phase 15.5: a new mover goes 4 m sideways and back at 2 m/s (a brisk walk), pausing 0.5 s at each end (reads as a stop, not a bounce).
   add: { kind: 'menu', value: { waypoints: [[4, 0, 0]], speed: 2, mode: 'pingpong', wait: 0.5 } },
@@ -1450,7 +1468,9 @@ const ENTITY: ObjectFieldDescriptor = obj('entity', 'Object', 'An object in a sc
   str('id', 'Id', 'The stable object id.', { ...ID, required: true, readOnly: true }),
   str('name', 'Name', 'The name shown in the Hierarchy.', NAME),
   entity('parentId', 'Parent', 'The parent object (none: a scene root).', { nullable: true, default: null }),
-  bool('active', 'Active', 'Inactive objects are not in the game.', { default: true, omitDefault: true }),
+  bool('active', 'Active', 'Inactive objects are not in the game (an object a script switches off stays loaded but is not drawn, collides with nothing, fires no trigger and does not tick).', { default: true, omitDefault: true }),
+  // Phase 25.10: drawn or not while the game runs (scripts and collectibles hide objects; never stored).
+  bool('visible', 'Visible', 'Drawn (with its children, their lights and effects); it still collides, triggers and ticks while hidden.', { default: true, runtimeOnly: true }),
   bool('locked', 'Locked', 'Cannot be selected in the Scene view.', { default: false, omitDefault: true }),
   bool('static', 'Static', 'Never moves (baked lighting, cheaper rendering).', { default: false, omitDefault: true }),
   int('tags', 'Tags', 'The tag bits (a 32-bit mask of the project\'s tags).', { min: 0, max: 0xffffffff, default: 0, omitDefault: true }),
@@ -2045,6 +2065,49 @@ const COMPONENTS: readonly ComponentDescriptor[] = [
   behaviorGroupC,
 ];
 
+// ---- phase 25.10: what scripts read and write (ctx.entity) --------------------------
+
+/**
+ * Components scripts never read: a folder is not in the game, an instance
+ * set's copies and a block layer's cells are bulk data (the block layers are
+ * read through `ctx.grid`).
+ */
+const SCRIPT_UNREADABLE: ReadonlySet<string> = new Set(['folder', 'instances', 'blockLayer']);
+/** The object's own fields scripts read (`locked` is editor-only; `components` is the rest of the table). */
+const SCRIPT_OBJECT_READ: ReadonlySet<string> = new Set(['id', 'name', 'parentId', 'active', 'visible', 'static', 'tags']);
+/**
+ * The fields scripts may write while the game runs, each with its runtime
+ * behavior (runtime `entity-access.ts`). `*`: the component's value itself (a
+ * map). Everything the engine builds once — static batching, baked lighting,
+ * static colliders, instancing, assets that need loading — stays fixed.
+ */
+const SCRIPT_WRITABLE: Readonly<Record<string, readonly string[]>> = {
+  entity: ['active', 'visible'],
+  transform: ['position', 'rotation', 'scale'],
+  light: ['color', 'intensity', 'range'],
+  mover: ['speed', 'active'],
+  materialParams: ['*'],
+};
+
+function markField(f: FieldDescriptor, read: boolean, write: boolean): FieldDescriptor {
+  if (!read && !write) return f;
+  return { ...f, ...(read ? { scriptReadable: true as const } : {}), ...(write ? { runtimeWritable: true as const } : {}) };
+}
+
+/** A component with its script marks (every top-level field readable, the listed ones writable). */
+function withScriptAccess(c: ComponentDescriptor): ComponentDescriptor {
+  if (SCRIPT_UNREADABLE.has(c.name)) return c;
+  const writable = SCRIPT_WRITABLE[c.name] ?? [];
+  const root = c.value;
+  if (root.type !== 'object') return { ...c, value: markField(root, true, writable.includes('*')) };
+  return { ...c, value: { ...root, fields: root.fields.map((f) => markField(f, true, writable.includes(f.key))) } };
+}
+
+function withObjectScriptAccess(e: ObjectFieldDescriptor): ObjectFieldDescriptor {
+  const writable = SCRIPT_WRITABLE['entity'] ?? [];
+  return { ...e, fields: e.fields.map((f) => markField(f, SCRIPT_OBJECT_READ.has(f.key), writable.includes(f.key))) };
+}
+
 function deepFreeze<T>(v: T): T {
   if (typeof v === 'object' && v !== null && !Object.isFrozen(v)) {
     Object.freeze(v);
@@ -2061,8 +2124,8 @@ export const DESCRIPTORS: DescriptorRegistry = deepFreeze({
   version: 1,
   handleKinds: [...HANDLE_KINDS],
   handleRoles: HANDLE_ROLES,
-  entity: { ...ENTITY, fields: ENTITY.fields.map((f) => (f.key === 'components' ? { ...f, allowed: COMPONENTS.map((c) => c.name) } : f)) },
-  components: COMPONENTS,
+  entity: withObjectScriptAccess({ ...ENTITY, fields: ENTITY.fields.map((f) => (f.key === 'components' ? { ...f, allowed: COMPONENTS.map((c) => c.name) } : f)) }),
+  components: COMPONENTS.map(withScriptAccess),
   icons: [...COMPONENT_ICONS],
   content: CONTENT,
   ui: UI_DESCRIPTORS,

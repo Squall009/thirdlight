@@ -174,7 +174,8 @@ boundary it changes (Playwright for any editor surface).
 | 25.7 | done 2026-09-28: (a)–(e) hold |
 | 25.8 | done 2026-09-28: lights belong to scenes: any kind in any scene (model and runtime; per scene one directional, ambient, hemisphere, 16 point/spot); the most recently loaded scene's directional, ambient and hemisphere light on (each kind on its own), the previous back on unload; point/spot of all loaded scenes share the budget of 16 (most recent scenes first); the key light's own shadow settings follow the switch; spot cookies (`light.cookie`, a texture; `SpotLight.map`) in the Scene view, Play and export on both backends, Inspector field; `renderer.lights` in Play diagnostics; `scene-lights.e2e.ts` (pixels: 12 point lights, sun colours on load/unload, cookie; Play and export, auto/webgl2/webgpu), `lights.e2e.ts` (Inspector cookie, Scene view pixels); D49 fixed |
 | 25.9 | done 2026-09-28: each script library compiled once into its own minified, tree-shaken module (`libraries/<digest>.js`, manifest `libraries` rows under the buildId) that scripts import by digest instead of bundling (Play worker and page, export with the backend stopped; one module instance per realm, tested); records published before it still build (bundled digest re-derived, shared form shipped); staged library edits (`stageScriptLibrary` route/MCP op, files in pieces, `commitScriptLibraryStage`: one revision, one undo, each dependent compiled once; the Libraries panel's Save all, large saves staged); source maps for every compiled output, runtime errors and `ctx.log` record compiled frames, Play diagnostics map them to `{behaviorId|libraryId, path, line, column}`, the Console tab opens the line; `script-libraries-shared.e2e.ts`, `m25-libraries` integration, unit tests |
-| 25.10–25.23 | — |
+| 25.10 | done 2026-09-29: `ctx.entity(id).get(component)` (step-start snapshot of the descriptor-marked script-readable fields; the marks are pinned for schemaVersion 4) and `.set(component, patch)` (queued, applied at the end of the step in script order; refusals name the field; a field written twice: later wins, conflict in diagnostics); writable: object `active` (not drawn, no collision, triggers or ticking) and `visible`, transform (relaxed ownership: not physics bodies, the camera, static or system-driven objects), light colour/intensity/range, mover speed/`active` (new stored field), material parameters; `character_place` on the 2D plane (from rest); `ctx.shell.nextScene()`; typed prefab-local references in spawned copies; object pickers for script object properties; typings and visual-script nodes; `m25-entity-access` (2D/3D, page and worker, replay digests), `entity-access.e2e.ts` (Inspector, typings, pixels on both backends) |
+| 25.11–25.23 | — |
 
 ## 6. Decision log
 
@@ -857,4 +858,102 @@ boundary it changes (Playwright for any editor surface).
   (`append: true`). The stage route is not a command (like the content
   upload stages): it changes no revision. The editor stages only when a save
   does not fit one request, and for the panel's Save all.
-
+- 2026-09-29 (25.10): **the marks and their version.** Descriptor fields
+  carry `scriptReadable` and `runtimeWritable` (and `runtimeOnly` for a
+  field that exists only while the game runs); a small table in
+  `descriptors.ts` applies them: every top-level field of every component
+  scripts may read (not folders, instance sets or block layers: bulk data),
+  the object's own fields as the pseudo-component `object` (id, name,
+  parentId, active, visible, static, tags; `locked` is editor-only). The
+  derived table (`scriptAccessTable`, project-model `script-fields.ts`)
+  carries the project schemaVersion, and a unit test pins its digest for
+  schemaVersion 4: renaming or unmarking a field fails it until the schema
+  is bumped (with an upgrade) and the pin renewed.
+- 2026-09-29 (25.10): **refusals answer, they do not stop the game.**
+  `set` returns `{ok, field, code, message}` (one flat shape so a visual
+  script's node has plain outputs); a refused patch writes nothing. Each
+  refusal is also noted in the diagnostics error ring (`entity_write`,
+  reason `refused`, the code as detail) once per step, script and field,
+  so a script that ignores the answer still shows in the Console.
+  `get` of a component scripts cannot read throws (a misspelt name is a
+  programming error, like a bad timer call); `get` of a component the
+  object does not carry answers null.
+- 2026-09-29 (25.10): **when writes apply and what reads see.** The queue is
+  applied after the transform phase and the blocks' character tests, before
+  the timelines and the camera brain (so the camera sees a moved object in
+  the same step). Reads during a step see its start: transforms from the
+  pre-step copy, material parameters from the values kept before their
+  first change in the step, the visible state from a copy taken at its
+  first change; the other fields change only at the queue's application.
+  A field written twice in a step: the later write (script order) wins and
+  the conflict is reported (`entity_write`, reason `conflict`, both writers
+  named); a transform write to an object an owned transform intent also
+  moved in the step counts as a conflict too (the write is applied after
+  it). Limit: 4,096 accepted writes per step.
+- 2026-09-29 (25.10): **relaxed ownership is the `transform` write.** Any
+  script may write `transform.position/rotation/scale` of an object that is
+  not a physics body (a collider or the controller, in both dimensions),
+  not the camera, not static, and not posed every step by its mover,
+  patrol, socket or facing model (the write would be overwritten). Owned
+  transform intents (`ctx.emit`) keep their strict ownership and phases
+  unchanged, so no existing script changes meaning.
+- 2026-09-29 (25.10): **`active` switches loaded objects.** A script switches
+  an object (and its children) off and on while it is in the game: off, it
+  is not drawn (its lights and effects neither), its colliders leave the
+  physics world (and come back where the object is now), its triggers,
+  switches, movers, patrols, hitboxes, collectibles, animators, facing and
+  scripts do not step, and its audio source is silent. A trigger or switch
+  forgets that the character was inside (switched on again, an entry is an
+  entry; no exit is sent), a hitbox's contacts end with `separate`. The
+  camera, the character and objects above them stay on (`character_enable`
+  switches the controller); static objects are refused (batched and baked
+  once); virtual cameras keep their own switch (`ctx.camera`). An object
+  made inactive in the editor stays out of the game as before: loading such
+  objects would change every existing game's step digests and replays; a
+  script switches an object off in its first step instead (owner review:
+  whether authored-inactive objects should load switched off).
+- 2026-09-29 (25.10): **`visible` is runtime-only.** It is the state
+  `ctx.game.setVisible` and collectibles already used (the object with its
+  children is drawn or not), marked `runtimeOnly` on the object descriptor;
+  no stored flag was added. A light whose object is hidden or switched off
+  is off and counts for nothing in 25.8's choice (the previous scene's sun
+  of that kind comes back; a point or spot light frees its place in the
+  budget), since directional, ambient and hemisphere lights hang off the
+  scene rather than their object.
+- 2026-09-29 (25.10): **lights, movers, materials.** Light writes are
+  colour, intensity and range (point and spot; a `when` condition refuses
+  range elsewhere, naming the field); a baked light is refused (it lives in
+  the lightmaps). Written colour and intensity become the light's base, so
+  an environment preset blends from them. The mover gains a stored
+  `active` field (default on, stored only when off: a mover held until a
+  script or, in 25.12, a signal starts it); `speed` and `active` are
+  written, a new run restores the authored ones. Only material *parameter
+  values* are writable, never the material mapping, so 25.7b's shipped set
+  (used materials only) stays complete.
+- 2026-09-29 (25.10): **saves and digests.** The `components` save section
+  gains `fields` (objects switched off, `visible`, light and mover writes;
+  only when any) — material values keep their own section, transforms and
+  `ctx.game.setVisible` are not saved (as before). The step digest adds the
+  written fields only while any exist, so every recorded pin is unchanged.
+- 2026-09-29 (25.10): **`character_place` on the 2D plane** takes effect in
+  the step it is committed, before the controller (as in 3D), through the
+  2D placement arrivals and respawns use (the port's motion cleared, the
+  controller reset as a transfer: from rest); z is ignored there. A respawn
+  asked for in the same step gives way to it, as in 3D. `character_move`
+  and `character_enable` stay 3D-only.
+- 2026-09-29 (25.10): **`ctx.shell`** has `nextScene()` (the shell's
+  `nextScene` move, queued for the next step boundary like the UI event;
+  false without a next entry; calling it twice in a step asks for the same
+  move), `sceneIndex()` and `sceneCount()`.
+- 2026-09-29 (25.10): **typed references.** A spawned copy remaps only its
+  scripts' `entityRef` properties (by the behavior's declaration) from the
+  prefab's local ids to the copy's ids; before, any text value spelling a
+  local id was remapped. Script object properties are pickers of the
+  scene's objects in the Inspector ("none" clears); the prefab panel's
+  initial overrides keep their id field (they may name a scene object or a
+  local one).
+- 2026-09-29 (25.10): **visual scripts** get the handle nodes the generator
+  makes from the typings (category Entity: "Get component", "Set
+  component" with ok/field/code/message outputs; the object input defaults
+  to this object) and Shell nodes (Next scene, Scene list entry, Scene list
+  length).

@@ -77,8 +77,14 @@ export function parseSpawnOptions(def: PrefabDefinition, options: unknown): { ok
  * transforms. Behavior values naming a localId of the definition (entity
  * references inside the prefab) are remapped to the copy's ids, as the
  * editor's `instantiatePrefab` does. Each carries `prefab` provenance.
+ *
+ * Phase 25.10: typed — with `entityRefKeys` (a behavior's `entityRef`
+ * property keys, from its declaration) only those values are remapped, so a
+ * text property that happens to spell a localId stays as written. Without
+ * it (a behavior the game does not know) every value naming a localId is,
+ * as before.
  */
-export function expandPrefab(def: PrefabDefinition, ids: readonly string[], placement: SpawnPlacement): EntityV3[] {
+export function expandPrefab(def: PrefabDefinition, ids: readonly string[], placement: SpawnPlacement, entityRefKeys?: (behaviorId: string) => readonly string[] | undefined): EntityV3[] {
   const mapping = new Map<string, string>();
   def.entities.forEach((de, i) => mapping.set(de.localId, ids[i]!));
   return def.entities.map((de, i) => {
@@ -90,7 +96,8 @@ export function expandPrefab(def: PrefabDefinition, ids: readonly string[], plac
     const behavior = de.components.behavior;
     if (behavior !== undefined) {
       const values: Record<string, unknown> = {};
-      for (const [k, v] of Object.entries(behavior.values)) values[k] = typeof v === 'string' && mapping.has(v) ? mapping.get(v) : structuredClone(v);
+      const refs = entityRefKeys?.(behavior.behaviorId);
+      for (const [k, v] of Object.entries(behavior.values)) values[k] = typeof v === 'string' && mapping.has(v) && (refs === undefined || refs.includes(k)) ? mapping.get(v) : structuredClone(v);
       components['behavior'] = { behaviorId: behavior.behaviorId, values };
     }
     components['prefab'] = { prefabId: def.prefabId, localId: de.localId };

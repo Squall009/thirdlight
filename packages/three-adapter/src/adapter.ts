@@ -1236,7 +1236,15 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     }
     const entries: SceneLightEntry[] = [];
     let order = 0;
-    for (const [id, r] of switchable) entries.push({ id, kind: r.kind, rank: rank.get(id) ?? -1, order: order++ });
+    // Phase 25.10: a light whose object is hidden or switched off is off and counts for nothing (the previous scene's
+    // light of its kind comes back; a point or spot light frees its place in the budget).
+    for (const [id, r] of switchable) {
+      if (hiddenIds.has(id)) {
+        order++;
+        continue;
+      }
+      entries.push({ id, kind: r.kind, rank: rank.get(id) ?? -1, order: order++ });
+    }
     lightSelection = selectSceneLights(entries);
     for (const [id, r] of switchable) r.light.visible = lightSelection.active.has(id);
     const next = lightSelection.directional !== null ? (directionals.get(lightSelection.directional) ?? null) : null;
@@ -1350,6 +1358,38 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       const v = blendLight(rec.authored, rec, envTagBits, base as never, envPresets, view);
       setLightValues(rec, v);
     }
+  }
+  /**
+   * Phase 25.10: the light values scripts wrote (`ctx.entity(id).set('light',
+   * …)`): colour and intensity become the light's authored values (presets
+   * blend from them; a new run's empty list restores the document's), range
+   * is a point or spot light's distance. Applied when the list or the light
+   * set changed.
+   */
+  let lightOverridesKey = '';
+  const lightOriginals = new WeakMap<object, EnvironmentLightValues>();
+  function applyLightOverrides(): void {
+    const ov = (opts.runtime as { lightOverrides?: () => ReadonlyMap<string, { color?: string; intensity?: number; range?: number }> }).lightOverrides?.();
+    if (ov === undefined) return;
+    const key = ov.size === 0 && lightOverridesKey === '' ? '' : `${envLightsRevision}|${JSON.stringify([...ov])}`;
+    if (key === lightOverridesKey) return;
+    lightOverridesKey = key;
+    for (const rec of envLights.values()) {
+      let original = lightOriginals.get(rec);
+      if (original === undefined) lightOriginals.set(rec, (original = rec.authored));
+      const o = ov.get(rec.id);
+      rec.authored = o === undefined ? original : { ...original, ...(o.color !== undefined ? { color: o.color } : {}), ...(o.intensity !== undefined ? { intensity: o.intensity } : {}) };
+      if (!envBlendActive) setLightValues(rec, rec.authored);
+    }
+    for (const [id, r] of switchable) {
+      const l = r.light as THREE.PointLight | THREE.SpotLight;
+      if ((l as THREE.PointLight).isPointLight !== true && (l as THREE.SpotLight).isSpotLight !== true) continue;
+      const authored = (entityDocs.get(id)?.components as { light?: { range?: number } } | undefined)?.light?.range ?? 0;
+      l.distance = ov.get(id)?.range ?? authored;
+    }
+    // A running blend blends from the written values.
+    if (envBlendActive) envAppliedKey = '';
+    if (ov.size === 0) lightOverridesKey = '';
   }
   function setLightValues(rec: { light: THREE.Light; id: string; type: string }, v: EnvironmentLightValues): void {
     rec.light.color.set(v.color);
@@ -1560,17 +1600,25 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     // Phase 9.9: the objects the simulation hides disappear (and come back on a restart).
     const hiddenNow = (opts.runtime as { hiddenEntities?: () => ReadonlySet<string> }).hiddenEntities?.();
     if (hiddenNow !== undefined) {
+      let lightsTouched = false;
       for (const id of hiddenIds) {
         if (hiddenNow.has(id)) continue;
         const obj = objects.get(id);
         if (obj !== undefined) obj.visible = true;
         hiddenIds.delete(id);
+        if (switchable.has(id)) lightsTouched = true;
       }
       for (const id of hiddenNow) {
         if (hiddenIds.has(id)) continue;
         const obj = objects.get(id);
         if (obj !== undefined) obj.visible = false;
         hiddenIds.add(id);
+        if (switchable.has(id)) lightsTouched = true;
+      }
+      // Phase 25.10: a light object hidden or switched off (or back) changes which lights are on.
+      if (lightsTouched) {
+        selectLights();
+        precompileWanted ??= 'scene';
       }
     }
     // Phase 20.2: the effect requests of the steps since the last frame (presentation only), then the effects step.
@@ -1658,7 +1706,9 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     const gridChanges = (opts.runtime as { takeGridChanges?: () => GridRenderChange[] }).takeGridChanges?.() ?? [];
     if (gridChanges.length > 0) blockView.applyRuntimeChanges(gridChanges);
     blockView.update();
-    // Phase 23.18: the environment preset blend (the running game's, or the editor's preview) before the draw.
+    // Phase 25.10: the light values scripts wrote, then (phase 23.18) the environment preset blend
+    // (the running game's, or the editor's preview) before the draw.
+    applyLightOverrides();
     applyEnvironmentBlend();
     // Phase 23.12: material parameters scripts changed, on the objects before the draw (and before regrouping).
     const materialChanges = (opts.runtime as { takeMaterialChanges?: () => MaterialRenderChangeLike[] }).takeMaterialChanges?.() ?? [];

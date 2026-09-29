@@ -255,6 +255,8 @@ export class Primitives {
   private readonly collectibles = new Map<string, Collectible>();
   private readonly patrols = new Map<string, Patrol>();
   private readonly hitboxes = new Map<string, Hitbox>();
+  /** Phase 25.10: objects a script switched off (they do not walk, collect or touch; a hitbox switched off separates). */
+  private inactive: ReadonlySet<string> = new Set();
   /** The contacts of the last step, by pair key `a\u0000b` (a < b). */
   private contacts = new Map<string, [string, string]>();
   /** Each participant's centre in the last contact pass (the side a new contact came from). */
@@ -409,12 +411,18 @@ export class Primitives {
   }
 
   /** After physics: patrols walk, collectibles and contacts are tested (`playing`: the character takes part). */
+  /** Phase 25.10: the objects switched off (see `GameplayBlocks.setInactive`). */
+  setInactive(ids: ReadonlySet<string>): void {
+    this.inactive = ids;
+  }
+
   afterPhysics(playing: boolean): void {
     if (!this.active) return;
     const dt = 1 / this.host.hz;
-    for (const p of this.patrols.values()) this.walk(p, dt);
+    const off = this.inactive;
+    for (const p of this.patrols.values()) if (off.size === 0 || !off.has(p.id)) this.walk(p, dt);
     const character = playing ? this.host.character() : null;
-    for (const k of this.collectibles.values()) this.collect(k, character);
+    for (const k of this.collectibles.values()) if (off.size === 0 || !off.has(k.id)) this.collect(k, character);
     if (this.hitboxes.size > 0) this.touch(character);
   }
 
@@ -521,7 +529,7 @@ export class Primitives {
   private touch(character: { id: string; centre: Vec3; half: Vec3 } | null): void {
     const bodies: Body[] = [];
     for (const b of this.hitboxes.values()) {
-      if (!b.active) continue;
+      if (!b.active || this.inactive.has(b.id)) continue;
       const c = this.host.worldOf(b.id);
       if (c !== null) bodies.push({ id: b.id, c, half: b.half, r: b.radius, damage: b.damage });
     }

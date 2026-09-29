@@ -493,7 +493,7 @@ const COMPONENT_BASES: Record<string, J[]> = {
   cameraPath: [{ points: [[0, 0, 0], [4, 1, 0], [8, 0, 2]], closed: true, smooth: false }],
   light: LIGHTS,
   playerSpawn: [{ yaw: 90 }],
-  mover: [{ waypoints: [[1, 0, 0], [2, 1, 0]], speed: 2, mode: 'loop', wait: 0.5, easing: 'smooth', startOn: 'go', maxPush: 30 }],
+  mover: [{ waypoints: [[1, 0, 0], [2, 1, 0]], speed: 2, mode: 'loop', wait: 0.5, easing: 'smooth', startOn: 'go', maxPush: 30, active: false }],
   trigger: [
     { shape: 'box', size: [2, 2, 2], signal: 'enter', exitSignal: 'leave', mode: 'stay', once: true },
     { shape: 'circle', radius: 1.5, signal: 'enter' },
@@ -926,7 +926,12 @@ describe('descriptor registry (phase 15.0)', () => {
     for (const b of DESCRIPTORS.content) walk(b.value, all, false);
     for (const d of Object.values(DESCRIPTORS.ui ?? {})) walk(d, all, false);
     walk(DESCRIPTORS.entity, all, false);
-    const unreached = all.filter((d) => !visited.has(d) && d.type !== 'json' && d.type !== 'components');
+    // Phase 25.10: a runtime-only field is never stored: the validator refuses it (probed below), no base reaches it.
+    const unreached = all.filter((d) => !visited.has(d) && d.type !== 'json' && d.type !== 'components' && d.runtimeOnly !== true);
+    for (const d of DESCRIPTORS.entity.fields.filter((f) => f.runtimeOnly === true)) {
+      const stored = sceneErrors({ schemaVersion: 4, sceneId: 'main', revision: 1, entities: [{ id: 'subject-0001', [d.key]: d.default as J, components: { transform: T } }] });
+      if (!stored.some((e) => e.path === `/entities/0/${d.key}`)) failures.push(`runtime-only field "${d.key}" is accepted as stored data`);
+    }
     for (const d of unreached) failures.push(`descriptor "${d.key}" (${d.label}) is never reached by a test base`);
     expect(failures).toEqual([]);
   });

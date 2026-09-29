@@ -29,6 +29,7 @@
  * three.js, no authoring/backend edge.
  */
 import type { BehaviorGrid } from './grid';
+import { EntityAccessError, type BehaviorEntityHandle } from './entity-access';
 import type { BehaviorMaterials } from './material-params';
 import type { BehaviorSaves } from './project-saves';
 import type {
@@ -83,6 +84,7 @@ import type {
   BehaviorRandom,
   BehaviorSave,
   BehaviorSceneControl,
+  BehaviorShell,
   BehaviorSignals,
   BehaviorTagQuery,
   BehaviorTimers,
@@ -272,6 +274,15 @@ export interface BehaviorContext {
   readonly timeline?: BehaviorTimeline;
   /** Phase 23.18: the environment presets — switch or blend sky, fog, lights, exposure and grading at run time. */
   readonly environment?: BehaviorEnvironment;
+  /**
+   * Phase 25.10: one loaded object by id (an object property's value, a spawned copy's id, `ctx.entityId`) —
+   * read any component (`get`: the step-start state of its script-readable fields) and write the fields
+   * marked writable (`set`: applied at the end of the step). Null for no id or an object that is not loaded.
+   * @graphLabel entityId object
+   */
+  readonly entity?: (entityId: string | null) => BehaviorEntityHandle | null;
+  /** Phase 25.10: the game shell's scene list — move to the next entry (the shell's nextScene action). */
+  readonly shell?: BehaviorShell;
 }
 
 /** What `prepare(cfg)` receives (once per run, before any instance). */
@@ -691,6 +702,8 @@ interface BehaviorInstance {
   messages: { src: StepContext; view: BehaviorMessages } | null;
   /** Phase 23.7: `ctx.random` of this instance (made on first use). */
   random: InstanceRandom | null;
+  /** Phase 25.10: `ctx.entity` of this instance (it writes as this script on its object). */
+  entity: { src: StepContext; fn: (ref: string | null) => BehaviorEntityHandle | null } | null;
 }
 
 /**
@@ -813,7 +826,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         } catch (e) {
           throw withFrames(new BehaviorHostError('config_invalid', 'behavior_instantiate_failed', `behavior "${behaviorId}" instantiate("${entityId}") threw: ${messageOf(e)}`), e);
         }
-        return { entityId, properties, state, logs: [], counterStep: -1, stepLogs: 0, stepIntents: 0, committed: new Map(), committedKinds: new Map(), timers: new InstanceTimers(cfg.fixedStepHz), events: null, eventsStep: -1, contexts: new Map(), log: null, messages: null, random: null };
+        return { entityId, properties, state, logs: [], counterStep: -1, stepLogs: 0, stepIntents: 0, committed: new Map(), committedKinds: new Map(), timers: new InstanceTimers(cfg.fixedStepHz), events: null, eventsStep: -1, contexts: new Map(), log: null, messages: null, random: null, entity: null };
       };
       for (const entityId of [...entityIds].sort((a, b) => orderOf(snapshot, a) - orderOf(snapshot, b))) {
         try {
@@ -1053,6 +1066,9 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         if (src.timeline !== undefined) fields['timeline'] = { value: src.timeline, enumerable: true };
         // Phase 23.18: the environment presets.
         if (src.environment !== undefined) fields['environment'] = { value: src.environment, enumerable: true };
+        // Phase 25.10: generic component access (writes named after this script on its object) and the shell's scene list.
+        if (src.entities !== undefined) fields['entity'] = { value: entityOf(instance, src), enumerable: true };
+        if (src.shell !== undefined) fields['shell'] = { value: src.shell, enumerable: true };
         // Phase 14.1: prefab copies in the running game.
         if (src.spawner !== undefined) {
           fields['spawn'] = { value: src.spawner.spawn, enumerable: true };
@@ -1064,6 +1080,14 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         const ctx = Object.freeze(Object.defineProperties({}, fields)) as BehaviorContext;
         instance.contexts.set(phase, { src, ctx });
         return ctx;
+      };
+      const entityOf = (instance: BehaviorInstance, src: StepContext): ((ref: string | null) => BehaviorEntityHandle | null) => {
+        if (instance.entity === null || instance.entity.src !== src) {
+          const control = src.entities!;
+          const writer = `script "${behaviorId}" on "${instance.entityId}"`;
+          instance.entity = { src, fn: (ref: string | null) => control.handle(writer, ref) };
+        }
+        return instance.entity.fn;
       };
       const messagesOf = (instance: BehaviorInstance, src: StepContext): BehaviorMessages => {
         if (instance.messages === null || instance.messages.src !== src) instance.messages = { src, view: messagesFor(instance, src) };
@@ -1089,7 +1113,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
             if (frames.length > 0) err.frames = frames;
             return err;
           };
-          if (e instanceof TimerCallError || e instanceof RandomCallError || e instanceof DebugCallError) {
+          if (e instanceof TimerCallError || e instanceof RandomCallError || e instanceof DebugCallError || e instanceof EntityAccessError) {
             throw withNode(new BehaviorHostError('module_error', e.reason, `behavior "${behaviorId}" ${e.message}`));
           }
           if (e instanceof FrozenPreparedError) {
@@ -1108,6 +1132,7 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
 
       const module: SimulationPhaseModule & {
         behaviorDiagnostics(): { logCount: number; logDropped: number; instanceCount: number };
+        behaviorEntityRefKeys(): readonly string[];
         behaviorProperties(entityId: string): BehaviorPropertyView | null;
         behaviorDebug(filter: { behaviorId?: string; entityId?: string }): BehaviorDebugView[];
       } = {
@@ -1212,6 +1237,10 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         },
         behaviorDiagnostics(): { logCount: number; logDropped: number; instanceCount: number } {
           return { logCount, logDropped, instanceCount: instances.length };
+        },
+        /** Phase 25.10: the declaration's object (entityRef) property keys (a spawned copy's prefab-local references are remapped by them). */
+        behaviorEntityRefKeys(): readonly string[] {
+          return entityRefKeys;
         },
         behaviorDebug(filter: { behaviorId?: string; entityId?: string }): BehaviorDebugView[] {
           // Phase 19.2: only modules that answer (a Play debug build of a visual script).
