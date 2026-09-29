@@ -6,7 +6,7 @@
  * `@thirdlight/three-adapter`'s visual resource store (an injected async byte
  * resolver, cancellable prepared resources with stale-completion discarding,
  * whole-GLB model instances with a preserved internal hierarchy) plus the
- * pinned `three@0.186.0` GLTFLoader port from the `./gltf-loader` subpath.
+ * pinned `three` GLTFLoader port from the `./gltf-loader` subpath.
  *
  * The renderer never receives the authoring token and never fetches: the
  * injected resolver is the editor's authenticated byte read (sessions.md

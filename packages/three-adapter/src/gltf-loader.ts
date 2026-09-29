@@ -1,6 +1,6 @@
 /**
  * The pinned three.js GLTFLoader-backed port (packet 26;
- * `dependencies.md` §7 "GLB loading | no new pin: the pinned `three@0.186.0`
+ * `dependencies.md` §7 "GLB loading | no new pin: the pinned `three`
  * package's `examples/jsm/loaders/GLTFLoader.js` (+ its animation subpath)").
  *
  * This module is the ONLY place this package imports the loader, and it is

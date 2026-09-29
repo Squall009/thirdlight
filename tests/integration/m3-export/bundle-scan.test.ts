@@ -3,7 +3,7 @@
  * (export.md §5.4.1 "M3 addition (packet 42)"; the 58/60 re-measurement duty).
  *
  * The §5.4.1 recorded-exception table binds the exact per-pattern counts of the
- * pinned `three@0.186.0` full-core bundle under the §5.3 pinned option set. The
+ * pinned `three` full-core bundle under the §5.3 pinned option set. The
  * packet-42 M3 addition records that `game-host` initiates no fetch and adds 0
  * occurrences for a/b/c/e/g/i and 0 additional for d/f/h/j (content.game/
  * settings/media are embedded in manifest.json, so there is no game.json
@@ -12,7 +12,7 @@
  * text differs they request a bounded re-review rather than widening an
  * exception.
  *
- * This test (real esbuild, real three@0.186.0 install, real M3 bundle via the
+ * This test (real esbuild, real three install, real M3 bundle via the
  * production `buildM3Bundle`):
  *   1. re-verifies the §5.4.1 reference full-core three counts against the
  *      current install (binding 3);
@@ -98,7 +98,7 @@ describe('M3 export bundle §5.4.1 re-measurement + production parity (packet 60
   it('re-verifies the §5.4.1 reference full-core three counts against the current install (binding 3)', async () => {
     const reference = await buildStdin(REFERENCE_ENTRY);
     const ref = scanText(reference, []);
-    // The §5.4.1 recorded-exception table (pinned three@0.186.0; phase 17.4:
+    // The §5.4.1 recorded-exception table (pinned three; phase 17.4:
     // the WebGPU build — core + three.webgpu + TSL, no three.module.js, so the
     // one `https://` doc link only the WebGL renderer build had is gone:
     // 4 `http://` + 26 `https://`; its six `node:` object keys are not
@@ -165,7 +165,7 @@ describe('M3 export bundle §5.4.1 re-measurement + production parity (packet 60
     //    re-measured packet 70): the `three-adapter` `./gltf-loader` subpath
     //    entered the M3 export graph (delivery.md (M4) §2 — the wrapper
     //    builds the loader port the `models` block uses), adding the
-    //    pinned `three@0.186.0` GLTFLoader addon's documented URL comments
+    //    pinned `three` GLTFLoader addon's documented URL comments
     //    (+12 `https://`; `GLTFLoader` ×37 in the bundle bytes). The
     //    compressed-GLB loaders (2026-09-23: DRACOLoader, KTX2Loader and their
     //    helpers, meshopt_decoder) add +1: a documentation URL in a comment

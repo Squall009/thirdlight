@@ -8,7 +8,7 @@
  * on screen) is UNVERIFIED until the owner runs this procedure. The verified
  * halves are: the real-loader + real-fixture `setRoles` evidence
  * (`tests/m3-animation/roles-real-loader.test.ts`), the controller behavior
- * over the real three@0.186.0 animation stack
+ * over the real three animation stack
  * (`packages/three-adapter/src/animation.test.ts`), the pure rule 3/4/7 math
  * and the committed real-roles fixture re-derivation (media checker `roles`
  * group).

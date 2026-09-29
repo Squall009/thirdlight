@@ -142,7 +142,7 @@ export const NODE_SIDE_ALLOWED = {
     packages: ['runtime', 'effects'],
     external: ['three', '@types/three'],
     // dependencies.md §4.2/§7 (the GLTFLoader note): only the pinned
-    // three@0.186.0 package's own GLTFLoader subpath is approved; the empty
+    // three package's own GLTFLoader subpath is approved; the empty
     // subpath '' is the bare `three` specifier. Added 2026-09-23 (owner
     // go-ahead for compressed GLBs): three's own Draco/KTX2 loaders and
     // meshopt decoder, used only by the gltf-loader port.
@@ -161,7 +161,7 @@ export const NODE_SIDE_ALLOWED = {
         // Phase 17.1 (renderer-factory.ts, environment.ts): three's WebGPURenderer
         // (WebGPU with its WebGL 2 backend) and its node PMREM generator; TSL
         // for the node materials and post of phases 17.2/17.3. Part of the
-        // pinned three@0.186.0 package, not examples; the export scan record
+        // pinned three package, not examples; the export scan record
         // (exporter/src/scan.ts) is measured with them.
         'webgpu',
         'tsl',

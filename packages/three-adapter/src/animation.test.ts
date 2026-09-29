@@ -2,7 +2,7 @@
  * Packet 53 — the runtime role selector and the bounded crossfade
  * (presentation.md §41.3.6/§41.3.7/§41.9; acceptance B14).
  *
- * Runs in Node against the REAL `three@0.186.0` animation stack
+ * Runs in Node against the REAL `three` animation stack
  * (`AnimationMixer`/`AnimationAction`) over real, self-contained GLB bytes
  * (the pinned GLTFLoader-backed port — the same real-loader path as
  * `gltf-loader.test.ts`). Verified here: the fixed role selection (rule 3),
@@ -184,7 +184,7 @@ describe('rule 7 — validateAnimationRoles (the stage 3 / stage 5–6 re-check)
 
 // ---- the controller over the real three animation stack ----
 
-describe('packet 53 — the role controller (real three@0.186.0 mixers, real GLB clips)', () => {
+describe('packet 53 — the role controller (real three mixers, real GLB clips)', () => {
   it('installs the mapping and refuses the hard failures (rule 7)', async () => {
     const resource = await prepareResource(CLIP_NAMES);
     const { view } = hostView();

@@ -10,7 +10,7 @@
  * JSON chunk, BIN chunk, one mesh (with POSITION/TEXCOORD_0/indices), one or
  * two PBR materials, an embedded 1x1 PNG image when requested, and a rotation
  * animation clip. `packages/three-adapter/src/gltf-loader.test.ts` feeds these
- * bytes through the REAL pinned `GLTFLoader` (three@0.186.0), so the loader
+ * bytes through the REAL pinned `GLTFLoader` (three), so the loader
  * binding is exercised for real, not mocked.
  */
 

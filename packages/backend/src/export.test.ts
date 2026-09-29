@@ -4,7 +4,7 @@
  * (`POST /api/v1/admin/projects/:projectId/export`, sessions.md §6.3)
  * driving `exportProject` (the exporter's injected-service + injected-fs
  * design). The export bundle is built for real (esbuild + the real
- * installed three@0.186.0), so the §5.4.1 recorded-exception record is
+ * installed three), so the §5.4.1 recorded-exception record is
  * re-verified against the current install here as well (independently of
  * the exporter's unit tests).
  *

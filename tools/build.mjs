@@ -137,7 +137,7 @@ const BUNDLES = [
 ];
 
 /**
- * three's Draco and Basis decoders (pinned three@0.186.0), served next to the
+ * three's Draco and Basis decoders (pinned three), served next to the
  * editor page and on the preview origin at /decoders/ for GLBs that use
  * KHR_draco_mesh_compression / KHR_texture_basisu.
  */

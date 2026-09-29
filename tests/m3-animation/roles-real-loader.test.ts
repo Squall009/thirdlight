@@ -1,6 +1,6 @@
 /**
  * Packet 53 — real-loader `setRoles` evidence over the committed media
- * fixtures (`tests/m3-animation/**`): the real `three@0.186.0` GLTFLoader
+ * fixtures (`tests/m3-animation/**`): the real `three` GLTFLoader
  * port loads the REAL `fixtures/m3/media/glb/courier-roles.glb` /
  * `courier-reordered.glb` bytes, and the role controller re-checks the
  * REAL-ROLES `modelAnimation` components from the committed

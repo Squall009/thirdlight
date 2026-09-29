@@ -1,5 +1,5 @@
 /**
- * Packet-26 tests: the pinned `three@0.186.0` GLTFLoader-backed port
+ * Packet-26 tests: the pinned `three` GLTFLoader-backed port
  * (`./gltf-loader` subpath) over real, self-contained GLB bytes.
  *
  * These run in Node against the REAL loader (three's own GLTFLoader module,
@@ -44,7 +44,7 @@ function firstMesh(resource: PreparedVisualResource): Mesh {
   return mesh;
 }
 
-describe('packet 26 — pinned GLTFLoader port (three@0.186.0, real bytes, Node)', () => {
+describe('packet 26 — pinned GLTFLoader port (three, real bytes, Node)', () => {
   it('realizes a real scene graph: preserved hierarchy, MeshStandardMaterial, BufferGeometry, clip', async () => {
     const bytes = buildGlb();
     const resource = ready(await loadReal(bytes));

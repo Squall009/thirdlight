@@ -184,7 +184,7 @@ at the boundary it changes (Playwright for any editor surface).
 | Item | Status |
 |---|---|
 | 26.0 | done 2026-09-29; reconciled with phase 25 at `811c14c5` |
-| 26.1 | in progress: A done (limits once, splits); B (ESLint, three.js 0.186.1) and C (history comments, build check) remain |
+| 26.1 | in progress: A, B done (limits once, splits; ESLint in the gates, three.js 0.186.1); C (history comments, build check) remains |
 | 26.2–26.14 | — |
 
 ## 6. Measurements
@@ -286,3 +286,23 @@ at the boundary it changes (Playwright for any editor surface).
   so listing them would hit the temporal dead zone), `useWorkerJob`'s
   caller-given dependency list, and the block editor's slice reapplied per
   edited layer.
+- 2026-09-29 (26.1 B): three.js 0.186.0 → 0.186.1. GitHub has no separate
+  r186.1 release; npm 0.186.1 is the "r186 (bis)" commit on the r186 tag
+  (2026-09-24), five fixes, all in the node/WebGPU renderer (the tarball diff
+  touches nothing else; `three.module.js`, the loaders and the addons are
+  byte-identical): #34567 `VelocityNode` camera-matrix uniform scoped to the
+  render group; #34612 `NodeMaterialObserver` refreshes every material once
+  on a resize (before, only transmission ones); #34640 `wireframe` is
+  observed, so toggling it rebuilds the material; #34648 `Geometries`
+  drops a disposed geometry's data (the leak class `dispose.ts` works around;
+  its guarded deletes stay valid); #34650 `getSharedContext` clears loop
+  state. No `@types/three` 0.186.1 exists; the 0.186.0 types stay (no API
+  change). Per site: the package pins, `check-deps`, the export scan's
+  identity record (`THREE_RECORD`: version and lockfile integrity; the
+  pattern counts re-verified by `bundle-scan`) and `M3_ENGINE_PINS` (the
+  table every current export manifest carries, so each game's build id
+  changes once) move to 0.186.1. `M2_GLTF_TOOLCHAIN` stays 0.186.0: it
+  names the GLTFLoader line of a model's import recipe, is part of every
+  model's recipe digest, and the loader did not change. `M2_ENGINE_PINS`
+  (the v1 manifest, test-only now) and the fixtures' recorded recipes stay
+  as recorded. Version numbers in comments now say "the pinned three".

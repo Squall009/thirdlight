@@ -37,7 +37,12 @@ export const M2_GLTF_INSPECTION_NAME_CHARS = 128;
 /** content-storage.md §9 / workspace.md §14: the bounded inspection job budget. */
 export const M2_GLTF_INSPECTION_TIMEOUT_MS = 30_000;
 
-/** §18.5: the only accepted toolchain (the repository's pinned loader line). */
+/**
+ * §18.5: the only accepted toolchain: the GLTFLoader line a model's import
+ * recipe was made with. It moves when a three release changes that loader,
+ * not with every three patch: the recipe digest of every imported model
+ * depends on it, and a patch that leaves the loader alone changes no import.
+ */
 export const M2_GLTF_TOOLCHAIN = Object.freeze({ three: '0.186.0' });
 
 /**

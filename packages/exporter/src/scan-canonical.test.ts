@@ -6,7 +6,7 @@
  * builtins — the real-fs + real-service + real-HTTP end-to-end is in the
  * backend package's export.test.ts, where `node:fs` is allowed). The esbuild
  * build is REAL: the actual `export-bootstrap.ts` entry is bundled against
- * the real installed `three@0.186.0`, so the graph check and the §5.4 scan
+ * the real installed `three`, so the graph check and the §5.4 scan
  * (incl. the §5.4.1 recorded-exception counts) run against genuine bytes.
  */
 import { describe, it, expect } from 'vitest';
@@ -100,7 +100,7 @@ describe('forbidden-content scan (export.md §5.4/§5.4.1)', () => {
       [{ name: 'js/main.js', bytes: bundleBytes() }],
       patterns,
       'js/main.js',
-      { version: '0.186.1', integrity: THREE_RECORD.integrity },
+      { version: '0.186.2', integrity: THREE_RECORD.integrity },
       referenceBytes(),
     );
     expect(report.binding.identityOk).toBe(false);

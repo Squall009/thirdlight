@@ -1,14 +1,14 @@
 /**
  * Forbidden-content scan (export.md §5.4 — normative patterns a–j) over
  * every emitted byte of the four output files, with the §5.4.1
- * recorded-exception table for the pinned `three@0.186.0`.
+ * recorded-exception table for the pinned three.
  *
  * The patterns are absolute for ENGINE CODE. The pinned three carries inert
  * occurrences of four patterns (d `fetch(`, f `process.`, h URL literals,
  * j `XMLHttpRequest`) inside its own shipped code; the contract records them
  * as a version-bound exception with EXACT counts, applied only when all
  * binding conditions hold:
- *   1. Identity — the bundled three is exactly 0.186.0 (package version +
+ *   1. Identity — the bundled three is exactly the recorded version (package version +
  *      the lockfile registry integrity equal to the recorded sha512).
  *   2. Flags — the build used exactly the export.md §5.3 pinned option set
  *      (enforced by the exporter's build call, not re-checkable here).
@@ -31,11 +31,11 @@
  * Pure string/byte processing: no I/O (the bytes are passed in).
  */
 
-/** The §5.4.1 recorded-exception table (pinned three@0.186.0, pinned flags; phase 17.4: the WebGPU build — three/webgpu (core re-exported) + three/tsl, `three` resolved to three/webgpu). */
+/** The §5.4.1 recorded-exception table (pinned three, pinned flags; phase 17.4: the WebGPU build — three/webgpu (core re-exported) + three/tsl, `three` resolved to three/webgpu). */
 export const THREE_RECORD = {
-  version: '0.186.0',
-  /** dependencies.md §7 / export.md §5.4.1: npm registry integrity of three@0.186.0. */
-  integrity: 'sha512-cr/fIM2ddMSVbYVgkfD4jLJv7Fh/8ZTjvo+7gQeSVGUZHxpx9FDwoL5iC7hUz/LiRA8wMbqfnb90xKfm1/HHkQ==',
+  version: '0.186.1',
+  /** dependencies.md §7 / export.md §5.4.1: npm registry integrity of that version (the lockfile's). */
+  integrity: 'sha512-blFeqb49wRCSGUGj7gtpfnSGHy2lwDk94RhUmS1c/hTby70kvChbWpkJ4Pm1390LqzzvTmzgXKHPEafJwCb8jA==',
   /** d — `fetch(` in the pinned three code (two loader fetches + one warn literal). */
   fetch: 3,
   /** f — `process.` (two warn literals + one doc comment in three core; 13 prose/doc uses such as "the build process." in the WebGPU renderer); `__dirname`: 0. */

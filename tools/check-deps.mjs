@@ -39,7 +39,8 @@ export const PINS = {
   esbuild: '0.28.2',
   vitest: '5.0.1',
   ws: '8.21.3',
-  three: '0.186.0',
+  three: '0.186.1',
+  // No @types/three 0.186.1 exists: the patch changed no API, so the 0.186 types stay.
   '@types/three': '0.186.0',
   '@modelcontextprotocol/sdk': '1.30.0',
   react: '19.3.0',

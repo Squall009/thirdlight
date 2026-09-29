@@ -211,7 +211,7 @@ export const MANIFEST_KEYS_V2 = [
  */
 export const M3_ENGINE_PINS: ReadonlyArray<{ id: string; version: string; apiVersion: number }> = Object.freeze([
   Object.freeze({ id: '@thirdlight/runtime', version: '0.1.0', apiVersion: 2 }),
-  Object.freeze({ id: '@thirdlight/three', version: '0.186.0', apiVersion: 0 }),
+  Object.freeze({ id: '@thirdlight/three', version: '0.186.1', apiVersion: 0 }),
 ]);
 
 /** The package a known M3 module id belongs to (the manifest `modules` rows). */
