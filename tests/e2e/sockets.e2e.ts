@@ -301,8 +301,15 @@ test('editor: "+ Add component" → Socket, the Inspector node list from the mod
       const [c, e] = await preview.evaluate((el) => [Number(el.getAttribute('data-clip-time')), Number(el.getAttribute('data-elapsed'))]);
       return [c!, e!];
     };
+    // The attributes are sampled every 100 ms, so the ones on the page when the
+    // speed changes may predate it: start from a sample taken after it.
+    const fresh = async (): Promise<[number, number]> => {
+      const [, stale] = await read();
+      await expect.poll(async () => (await read())[1], { timeout: 5_000 }).not.toBe(stale);
+      return read();
+    };
     for (let attempt = 0; attempt < 8; attempt += 1) {
-      const [t0, e0] = await read();
+      const [t0, e0] = await fresh();
       await page.waitForTimeout(800);
       const [t1, e1] = await read();
       if (t1 > t0 && e1 > e0 + 0.2) return (t1 - t0) / (e1 - e0);
