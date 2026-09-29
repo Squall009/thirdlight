@@ -42,6 +42,7 @@ has looked at it where it is visual/audible.
 | 27 | Scalable lighting — `docs/plan-phase-27.md`: 60 fps at 1080p on an iGPU; probes baked from static objects light every 3D object, cached static shadows with dynamic casters on top, light layers, per-vertex local lights, effect lights on the GPU, AO and render scale; one realization for Scene view and Play | E45, E43 | planned 2026-09-29 (starts after phase 26) |
 | 28 | Documentation and AI onboarding — `docs/plan-phase-28.md` | — | planned 2026-09-28 (starts after phase 27) |
 | 29 | Decals and trim-sheet materials: mesh decals, projected decals, `DecalGeometry` placement, mesh vertex painting in the editor | — | on the roadmap 2026-09-29; plan not written |
+| 30 | Occlusion culling: GPU Hi-Z culling with indirect draws on WebGPU, occlusion queries on WebGL 2, occluders from static objects and optional `_OCC` nodes | — | on the roadmap 2026-09-29; plan not written |
 | — | Found in the owner's first real run | D32 | fixed 2026-09-23 — digests fall back to pure SHA-256 outside secure contexts; the editor no longer hashes uploads (the backend's digest is used). `tests/e2e/insecure-context.e2e.ts` plays without WebCrypto and runs an export served on the LAN address |
 | — | Debt, only when touching the files anyway | D21 | ongoing |
 
