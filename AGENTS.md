@@ -40,6 +40,20 @@ are in `docs/STATUS.md`; known defects are in `docs/audit-2026-09-22.md`.
   moves the area it touches into its own module.
 - Keep `npm run lint` (ESLint, from phase 26.1) green. An `eslint-disable`
   needs its reason on the same line.
+- After each phase, before the next one starts: an independent review by
+  a fresh agent that did not build the phase. It checks the phase against
+  the charter and these rules: new limits (per-project caps, sample-sized
+  per-object caps), copied constants or code paths, files grown past 2,000
+  lines, history comments, tests that only confirm their own code, and what
+  still needs the owner's eyes or ears. Its findings (one page) go into the
+  phase plan's decision log; defects go into the audit list, and the owner
+  reads them before the next phase.
+- At the start of each phase, check for a newer three.js release: a patch
+  release is taken in the phase's first item after reading its release
+  notes; a minor release is planned as its own item.
+- Game projects (Sprout, Skyforge Tactics, …) live outside this repo and are
+  never edited from here. Their requests reach the engine through their own
+  docs; the engine reads them only to plan.
 - Preserve unrelated user changes. Never expose credentials in code, logs,
   bundles, fixtures, or docs.
 
