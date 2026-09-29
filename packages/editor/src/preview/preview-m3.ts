@@ -1058,16 +1058,21 @@ export function bootstrapPreviewM3(): void {
   });
 
   bridge.on('tl.input.request', (m) => {
-    const body = m as { requestId: string; frames: readonly IncomingRelayFrame[] };
+    const body = m as { requestId: string; frames: readonly IncomingRelayFrame[]; restart?: boolean };
     if (handle === null) {
       bridge.sendInputResult(playId, body.requestId, notReady);
       return;
     }
     // Phase 25.15: a virtual gamepad is read through the bindings here (the page has them), step by step.
     const frames = resolveRelayFrames(body.frames, handle.inputConfig(), handle.stepHz);
-    const accepted = handle.access.beginInputTest(frames, (from, to) => {
-      bridge.sendInputResult(playId, body.requestId, { ok: true, appliedFromStep: from, appliedToStep: to });
-    });
+    const accepted = handle.access.beginInputTest(
+      frames,
+      (from, to) => {
+        bridge.sendInputResult(playId, body.requestId, { ok: true, appliedFromStep: from, appliedToStep: to });
+      },
+      // Phase 25.16: restart the game first (the replay); the frames begin at the new run's first step.
+      { restart: body.restart === true },
+    );
     if (!accepted) bridge.sendInputResult(playId, body.requestId, { ok: false, error: { code: 'input_relay_conflict', message: 'a relay is already active' } });
   });
 
@@ -1116,6 +1121,8 @@ export function bootstrapPreviewM3(): void {
     // Phase 22.0: the parts only the simulation can answer (asked of the worker in worker mode).
     const behaviors = entityId !== undefined ? await behaviorValues(h.access, entityId) : null;
     const debug = await h.access.debugObservation();
+    // Phase 25.16: the run digest now and after the last input exercise (asked of the worker in worker mode).
+    const digests = await h.access.runDigests();
     // Phase 24.7: every game plays as a scene (the step, the play state, sound, the character…).
     const sc = h.host.observe();
     if (!sc.ok) return null;
@@ -1132,6 +1139,7 @@ export function bootstrapPreviewM3(): void {
       simTime: o.simTime,
       state: o.state,
       inputMode: h.access.inputTestActive ? 'test' : 'physical',
+      ...(digests !== null ? { run: { stepIndex: digests.now.stepIndex, runStep: digests.now.runStep, digest: digests.now.digest, ...(digests.input !== null ? { lastInput: { ...digests.input } } : {}) } } : {}),
       sound: o.sound,
       simulation: { mode: h.threading.mode, transport: h.threading.transport, isolated: h.threading.isolated },
       ...(o.player !== undefined ? { player: { x: o.player.x, y: o.player.y, z: o.player.z } } : {}),

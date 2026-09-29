@@ -1384,6 +1384,11 @@ class RuntimeInstance implements Runtime {
   private debugSteps = 0;
   /** Phase 19.2: called after every executed step with the completed step index; true holds there (a breakpoint). */
   private stepWatcher: ((stepIndex: number) => boolean) | null = null;
+  /** Phase 25.16: told after every executed step (tools: the run digest after an input exercise); never holds. */
+  private stepObserver: ((stepIndex: number) => void) | null = null;
+  /** Phase 25.16: the step count when this run began (0; a restart's boundary) and the last spawned copy's number then. */
+  private runStartStep = 0;
+  private runSpawnBase = 0;
   /** Loaded scenes, in load order. */
   private batches = new Map<string, SceneBatchState>();
   private sceneStatus = new Map<string, SceneStatus>();
@@ -2362,6 +2367,20 @@ class RuntimeInstance implements Runtime {
     this.stepWatcher = watcher;
   }
 
+  /** Phase 25.16: an observer told after every executed step (settle steps excluded) with the step count; null removes it. */
+  setStepObserver(observer: ((stepIndex: number) => void) | null): void {
+    this.stepObserver = observer;
+  }
+
+  /**
+   * Phase 25.16: where this run began — the step count (0, or the boundary
+   * of the last restart) and the number of the last spawned copy then (a
+   * run's copies are numbered after it: ids are never reused in a play).
+   */
+  runStart(): { readonly step: number; readonly spawnBase: number } {
+    return { step: this.runStartStep, spawnBase: this.runSpawnBase };
+  }
+
   /**
    * Phase 9.9: entities hidden (collected collectibles, ctx.game.setVisible; the renderer hides them).
    * Phase 25.10: with the objects scripts switched off (and their children), which are not drawn either.
@@ -3057,6 +3076,7 @@ class RuntimeInstance implements Runtime {
         if (this.isM2) {
           if (!this.stepOnceM2()) return;
         } else if (!this.stepOnce()) return;
+        this.stepObserver?.(this.stepIndex);
       }
       this.anchor = { wall: t, simTime: this.simTime };
       this.lastAlpha = 0;
@@ -3086,6 +3106,7 @@ class RuntimeInstance implements Runtime {
       } else if (!this.stepOnce()) {
         return; // phase 23.0: a 3D physics fail-stop (the only way a plain step stops)
       }
+      this.stepObserver?.(this.stepIndex);
       // Phase 19.2: a breakpoint holds right after the step it hit.
       if (this.stepWatcher !== null && this.stepWatcher(this.stepIndex)) {
         this.debugHold = true;
@@ -3590,12 +3611,15 @@ class RuntimeInstance implements Runtime {
    */
   private restartRun(ordinal: number): boolean {
     this.pendingRestart = false;
+    // Phase 25.16: a new run — its steps count from here (tools compare a run with its replay by run step).
+    this.runStartStep = ordinal - 1;
     this.listedScene = null;
     this.pendingRestore = null;
     // Phase 24.4f: scripts' impulses and a spawn facing do not outlive the run.
     this.impulseAcc = null;
     this.pendingFacing = null;
     this.clearSpawned();
+    this.runSpawnBase = this.spawnSerial;
     if (!this.restoreStartSet()) return false;
     for (const [id, data] of this.entities) {
       const t = this.curr.get(id);

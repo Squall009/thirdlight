@@ -164,6 +164,18 @@ describe('editor → preview validators', () => {
     }
   });
 
+  it('phase 25.16: restart travels with the relay (a boolean)', () => {
+    const r = parseInputRelayRequest({ mode: 'exclusive-test', restart: true, frames: [{ stepOffset: 0 }] });
+    expect(r.ok && r.request.restart).toBe(true);
+    expect(parseInputRelayRequest({ mode: 'exclusive-test', restart: 'yes', frames: [{ stepOffset: 0 }] }).ok).toBe(false);
+    const plain = parseInputRelayRequest({ mode: 'exclusive-test', restart: false, frames: [{ stepOffset: 0 }] });
+    expect(plain.ok && plain.request.restart).toBeUndefined();
+    expect((JSON.parse(makeInputRelayRequest('req-1', [{ stepOffset: 0 }], true)) as { restart?: boolean }).restart).toBe(true);
+    expect((JSON.parse(makeInputRelayRequest('req-1', [{ stepOffset: 0 }])) as { restart?: boolean }).restart).toBeUndefined();
+    expect(validateBridgeEditorToPreview({ v: 2, type: 'tl.input.request', playSessionId: play, requestId: req, restart: true, frames: [{ stepOffset: 0 }] }).ok).toBe(true);
+    expect(validateBridgeEditorToPreview({ v: 2, type: 'tl.input.request', playSessionId: play, requestId: req, restart: 1, frames: [{ stepOffset: 0 }] }).ok).toBe(false);
+  });
+
   it('tl.play.stop / tl.ping', () => {
     expect(validateBridgeEditorToPreview({ v: 2, type: 'tl.play.stop', playSessionId: play }).ok).toBe(true);
     expect(validateBridgeEditorToPreview({ v: 2, type: 'tl.play.stop' }).ok).toBe(false);

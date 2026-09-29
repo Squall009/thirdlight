@@ -330,11 +330,16 @@ describe('spawn: the runtime (ctx.spawn / ctx.destroy)', () => {
     expect(a.h.rt.queueUiEvent!({ kind: 'restart', doc: '', widget: '', name: '' }).ok).toBe(true);
     a.h.tick(1); // the restart is sampled in this step (a spawn it asked for is made at the restart boundary, then removed)
     const firstAfter = a.ids.length;
+    const d = a.h.rt.getDiagnostics();
+    const boundary = d.ok ? d.diagnostics.stepIndex : -1;
     a.h.tick(1);
     expect(a.h.spawned()).toEqual([]);
     for (const id of before) if (id !== undefined && a.h.log.added.some((s) => s.startsWith(`${id}@`))) expect(a.h.log.removed).toContain(id);
     a.h.tick(20);
     expect(a.ids[firstAfter]).toBe(`spawn-${firstAfter + 1}`);
+    // Phase 25.16: the run began at the restart's boundary, after the copies numbered so far (tools name a run's copies from there).
+    expect(a.h.rt.runStart!()).toEqual({ step: boundary, spawnBase: firstAfter });
+    expect(b.h.rt.runStart!()).toEqual({ step: 0, spawnBase: 0 });
   });
 });
 

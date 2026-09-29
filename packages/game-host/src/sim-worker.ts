@@ -22,6 +22,7 @@ import { createRecordedActionSource, type ActionSource, type PhysicsPort, type P
 import { composeGameRuntime, linkBehaviorModules } from './host';
 import { PlayDebugger, type DebugRequest, type DebugRuntime } from './play-debug';
 import { RelayActionSource } from './relay-input';
+import { RunProbe } from './run-probe';
 import { hitUiTargets, type UiHitTarget } from './ui-hit';
 import { FrameEncoder } from './sim-state';
 import { PHYSICS_MEMORY_CAP_BYTES, type MainToWorker, type SimCommand, type SimEndpoint, type SimInitMessage, type SimQuery, type WorkerToMain } from './sim-protocol';
@@ -65,6 +66,7 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
   let physics: (PhysicsPort & PhysicsQueries) | null = null;
   let tickInput: TickInputSource | null = null;
   let relay: RelayActionSource | null = null;
+  let probe: RunProbe | null = null;
   /** Phase 25.15: the page's UI hit targets (sent while an input exercise runs). */
   let uiTargets: readonly UiHitTarget[] = [];
   let encoder: FrameEncoder | null = null;
@@ -206,6 +208,8 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
         return;
       }
       runtime = composed.runtime;
+      // Phase 25.16: the run digests (its step observer; the digest watcher and the debugger use the step watcher).
+      probe = new RunProbe(runtime);
       encoder = new FrameEncoder({ shared: m.shared === true });
       digestOn = m.digestSteps === true;
       installWatcher();
@@ -279,6 +283,8 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
         return { ok: true };
       case 'debug.observation':
         return (debug ?? (rt.debugHeld === true ? debuggerOf() : null))?.observation() ?? null;
+      case 'runDigests':
+        return probe?.read() ?? null;
     }
   };
 
@@ -344,7 +350,17 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
         if (m.uiTargets !== undefined) uiTargets = m.uiTargets;
         const d = rt.getDiagnostics();
         const first = (d.ok ? d.diagnostics.stepIndex : 0) + 1;
-        const accepted = relay?.beginTest(m.frames, first, (from, to) => post({ t: 'relay.done', from, to })) ?? false;
+        const restart = m.restart === true;
+        const accepted =
+          relay?.beginTest(
+            m.frames,
+            first,
+            (from, to) => {
+              probe?.exerciseDone(from, to, restart);
+              post({ t: 'relay.done', from, to });
+            },
+            restart,
+          ) ?? false;
         if (!accepted) post({ t: 'relay.done', from: -1, to: -1 });
         return;
       }

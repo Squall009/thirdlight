@@ -560,7 +560,11 @@ frame's `ui` edges (`up`, `down`, `left`, `right`, `submit`, `cancel`,
 clicks it, and scripts read `ctx.input.pointer().overUi` (the real mouse
 too). A `gamepad` `{buttons, axes}` is a virtual standard pad read through the
 project's bindings. `tl_game_observe` lists the shown widgets' rectangles in
-`ui.elements`.
+`ui.elements`. With `restart: true` (phase 25.16) the exercise restarts the
+game and applies its frames from the new run's first step;
+`tl_game_observe`'s `run.lastInput.digest` is the world's digest right after
+its last step, so the same frames run twice give the same digest when the game
+is deterministic.
 
 `tl_screenshot` always answers: a capture the preview cannot make comes back
 as `relay_failed` with the preview's code in `cause` (`screenshot_failed`,

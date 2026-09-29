@@ -570,7 +570,7 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
       return;
     }
     const requestId = `req-${hex(16)}`;
-    const payload = makeInputRelayRequest(requestId, parsedReq.request.frames);
+    const payload = makeInputRelayRequest(requestId, parsedReq.request.frames, parsedReq.request.restart === true);
     // Phase 25.15: run-length frames cover up to INPUT_RELAY_MAX_STEPS steps; the wait grows with the span
     // (at least 30 steps a second: a quarter of the default 120 Hz step, half of 60 Hz).
     const last = parsedReq.request.frames[parsedReq.request.frames.length - 1]!;

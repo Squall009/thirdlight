@@ -43,6 +43,7 @@ import { FrameMirror } from './sim-state';
 import { TRANSFORM_STRIDE, type FrameState, type MainToWorker, type SceneEntities, type SimCommand, type SimInitMessage, type SimQuery, type SimWorkerHandle, type WorkerToMain } from './sim-protocol';
 import type { RelayPage, SimAccess } from './sim-access';
 import type { UiHitTarget } from './ui-hit';
+import type { RunDigests } from './run-probe';
 
 export interface RemoteSimulationOptions {
   readonly worker: SimWorkerHandle;
@@ -529,7 +530,7 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
     },
     debugObservation: () => ask({ op: 'debug.observation' }),
     diagnostics: async () => ((await ask({ op: 'diagnostics' })) as ReturnType<Runtime['getDiagnostics']> | null) ?? { ok: true, diagnostics: diagnostics() },
-    beginInputTest: (frames, onComplete) => {
+    beginInputTest: (frames, onComplete, options) => {
       if (relayActive || disposed) return false;
       relayActive = true;
       relayDone = (from, to) => {
@@ -541,12 +542,13 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
       };
       sentTargets = '';
       const uiTargets = targetsNow();
-      post({ t: 'relay', frames, ...(uiTargets !== undefined ? { uiTargets } : {}) });
+      post({ t: 'relay', frames, ...(uiTargets !== undefined ? { uiTargets } : {}), ...(options?.restart === true ? { restart: true } : {}) });
       return true;
     },
     get inputTestActive() {
       return relayActive;
     },
+    runDigests: async () => ((await ask({ op: 'runDigests' })) as RunDigests | null) ?? null,
     relayIdle: () => {
       if (relayActive) post({ t: 'relay.idle' });
     },

@@ -10,6 +10,7 @@ import type { ActionFrame, Runtime } from '@thirdlight/runtime';
 import { PlayDebugger, type DebugRequest } from './play-debug';
 import type { RelayActionSource, RelayEffect, RelayTestFrame } from './relay-input';
 import { hitUiTargets, type UiHitTarget } from './ui-hit';
+import { RunProbe, type RunDigests } from './run-probe';
 import type { ThreadingMode } from './threading';
 
 export interface SimRay {
@@ -32,7 +33,9 @@ export interface SimAccess {
   diagnostics(): Promise<ReturnType<Runtime['getDiagnostics']>>;
   /** Start an exclusive input exercise (per-step frames from the next step); false while one runs. */
   /** Phase 24.8: frames carry named actions and (phase 23.3) the pointer (version 2: no fixed move/jump channels). */
-  beginInputTest(frames: readonly RelayTestFrame[], onComplete: (from: number, to: number) => void): boolean;
+  beginInputTest(frames: readonly RelayTestFrame[], onComplete: (from: number, to: number) => void, options?: { readonly restart?: boolean }): boolean;
+  /** Phase 25.16: the run digest now and after the last exercise's last step (null: nothing to observe). */
+  runDigests(): Promise<RunDigests | null>;
   readonly inputTestActive: boolean;
   /**
    * Phase 25.15: the page's UI for the input exercise — its hit targets (a
@@ -62,6 +65,7 @@ interface PhysicsQueries {
 export function createLocalSimAccess(opts: { runtime: Runtime; relay?: RelayActionSource; physics?: PhysicsQueries; stepHz: number }): SimAccess {
   const rt = opts.runtime;
   let debug: PlayDebugger | null = null;
+  const probe = new RunProbe(rt);
   const debuggerOf = (): PlayDebugger => (debug ??= new PlayDebugger(rt, Math.max(1, Math.round(opts.stepHz / 2))));
   return {
     mode: 'single',
@@ -75,11 +79,21 @@ export function createLocalSimAccess(opts: { runtime: Runtime; relay?: RelayActi
     },
     debugObservation: () => Promise.resolve((debug ?? (rt.debugHeld === true ? debuggerOf() : null))?.observation() ?? null),
     diagnostics: () => Promise.resolve(rt.getDiagnostics()),
-    beginInputTest: (frames, onComplete) => {
+    beginInputTest: (frames, onComplete, options) => {
       if (opts.relay === undefined) return false;
       const d = rt.getDiagnostics();
-      return opts.relay.beginTest(frames, (d.ok ? d.diagnostics.stepIndex : 0) + 1, onComplete);
+      const restart = options?.restart === true;
+      return opts.relay.beginTest(
+        frames,
+        (d.ok ? d.diagnostics.stepIndex : 0) + 1,
+        (from, to) => {
+          probe.exerciseDone(from, to, restart);
+          onComplete(from, to);
+        },
+        restart,
+      );
     },
+    runDigests: () => Promise.resolve(probe.read()),
     get inputTestActive() {
       return opts.relay?.testActive === true;
     },

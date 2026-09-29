@@ -2214,6 +2214,10 @@ export interface Runtime {
   readonly debugHeld?: boolean;
   debugStep?(): void;
   setStepWatcher?(watcher: ((stepIndex: number) => boolean) | null): void;
+  /** Phase 25.16: told after every executed step (settle steps excluded) with the step count; never holds. */
+  setStepObserver?(observer: ((stepIndex: number) => void) | null): void;
+  /** Phase 25.16: where this run began: the step count (0, or the boundary of the last restart) and the last spawned copy's number then. */
+  runStart?(): { readonly step: number; readonly spawnBase: number };
   behaviorDebug?(filter?: { behaviorId?: string; entityId?: string }): { behaviorId: string; entityId: string; debug: unknown }[];
   /** Phase 9.9: entities hidden (collected collectibles, `ctx.game.setVisible`; the renderer hides them). */
   hiddenEntities?(): ReadonlySet<string>;

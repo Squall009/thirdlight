@@ -124,7 +124,8 @@ export { PHYSICS_3D_GLOBAL, registerPhysics3D, type Physics3DModule } from './ph
 export { PHYSICS_MEMORY_CAP_BYTES, TRANSFORM_STRIDE, type FrameState, type SimEndpoint, type SimInitMessage, type SimWorkerHandle, type SceneEntities } from './sim-protocol';
 export { resolveThreadingMode, resolveTransport, threadingFromUrl, threadingLogLine, SIM_THREAD_SETTING_VALUES, THREADS_URL_PARAM, type SimTransport, type ThreadingMode } from './threading';
 export { TickInputSource, continueFrame, mergePhase } from './tick-input';
-export { stepDigest } from './step-digest';
+export { runDigest, stepDigest } from './step-digest';
+export { RunProbe, type InputRunDigest, type RunDigestNow, type RunDigests } from './run-probe';
 // Phase 25.24b: the verified asset reader (start-scene assets first, bounded parallel; the rest on demand).
 export { AssetReadError, ASSET_READS_IN_FLIGHT, createVerifiedAssetReader, startSceneAssets, type AssetReaderIo, type DeclaredAssetRow, type StartAssetSources, type VerifiedAssetReader } from './asset-reader';
 // Phase 25.24a: where a game page's start time goes (stages, first frame, slow frames, scene loads).

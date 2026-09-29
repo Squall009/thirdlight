@@ -181,7 +181,8 @@ boundary it changes (Playwright for any editor surface).
 | 25.13 | done 2026-09-29: `climbVolume` component (a box turned with its object; Scene size handle, create menu) climbed in by both controllers (up/down along its +Y, sideways across, `climbSpeed`, no gravity; jump lets go with a jump, leaving lets go; optional `climbAction`), `wallSlide`/`wallSlideSpeed` and `wallJump`/`wallJumpAway`/`wallJumpUp` (off by default) in 2D and 3D; `gravity` component (non-character bodies fall under the project gravity onto colliders, saved); 2D edge patrols walk any direction of the plane; Inspector fields; `climb-walls.test.ts` (`m25-movement` 2D/3D page and worker, replay digests), unit and model tests, `climb-walls.e2e.ts` |
 | 25.14 | done 2026-09-29: `cameraRegion` component (a world-axis box; dead zone, bounds from the region, distance along the camera offset, blended on enter and leave, priority then entered last; one or every track camera), track `lookAhead`/`lookAheadMax`/`lookAheadSmoothing` (per axis, vertical = `[0, t, 0]`); Scene handles: the dead zone around the target (handle `anchor`), a new `bounds` corner handle, the region's size; Inspector, create menu, observation `camera.region`; brain unit tests, `m25-movement/camera-regions.test.ts` (2D/3D page/worker/replay digests), handle tests, `camera-regions.e2e.ts` (editor, Play position and pixels) |
 | 25.15 | done 2026-09-29: relay frames `{stepOffset, steps?, actions?, pointer?, gamepad?, ui?}`: run length (≤ 7,200 steps a call, no overlap; the backend waits by the span), gaps neutral (tool text); `ui` edges drive menus, pause and resume (frames of a paused game take steps' places); the pointer through the UI hit test (a click on a UI button clicks it, the game never sees that press; `pointer().overUi`, real mouse too); `ui.elements` rectangles in `tl_game_observe`; a virtual standard gamepad read through the bindings on the page; unit tests, `relay-input.e2e.ts` (MCP stdio → HTTP relay → editor, worker and single thread) |
-| 25.16–25.22 | — |
+| 25.16 | done 2026-09-29: `tl_game_observe` `run {stepIndex, runStep, digest, lastInput?}` — the run digest (steps from the run's start, a run's spawned copies by their number in it, loaded scenes instead of the set's revision) now and right after the last exercise's last step (a step observer in the simulation's realm); `tl_input_exercise {restart: true}` restarts the game and applies the frames from the new run's first step; `relay-input.e2e.ts`: the same frames after a restart give the same digest at the same run step, other frames another, and the worker and a single thread agree; unit tests |
+| 25.17–25.22 | — |
 | 25.23 | moved to phase 26 (26.13), owner 2026-09-29 |
 | 25.25 | — |
 
@@ -1157,3 +1158,22 @@ boundary it changes (Playwright for any editor surface).
 - 2026-09-29 (25.15): the relay's span is bounded at 7,200 steps (60 s at
   120 Hz) per call; the backend waits 10 s plus the span at 30 steps a
   second. Frames may not overlap; `stepOffset` above 7,199 is now refused.
+- 2026-09-29 (25.16): **the run digest** compares a run with its replay
+  (`replay` is the restart): a separate digest beside the worker-parity
+  `stepDigest`, which hashes the absolute step and the scene set's revision
+  (both grow across restarts). It counts steps from the run's start (a
+  restart's boundary; `runtime.runStart()`), names a run's spawned copies by
+  their number in the run (ids are never reused in a play, as 14.1 decided,
+  so a replay's copies have higher ids; the ids stay as they are) and hashes
+  the loaded scenes. It leaves out the logs of when things happened (sounds,
+  timelines, dialogue, saves, a mode's switch step: they hold absolute
+  steps); ids inside values scripts wrote are hashed as written. The
+  observation's `run.digest` is the state between frames when observed;
+  `run.lastInput` is taken right after an exercise's last step by a step
+  observer where the simulation runs (the page or the worker), so it does
+  not depend on frame timing. `tl_input_exercise {restart: true}` makes runs
+  comparable: its first step asks for the restart, which happens at the next
+  step's boundary, where the frames begin (run step 1). A paused game
+  restarts when it runs again. Not step-exact: UI edges and clicks apply at
+  the page's next frame (as a player's do), so an exercise with UI input
+  compares with its replay only where the UI's effect has settled.

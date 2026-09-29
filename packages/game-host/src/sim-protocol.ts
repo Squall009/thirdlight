@@ -119,14 +119,16 @@ export type SimQuery =
   | { readonly op: 'diagnostics' }
   | { readonly op: 'debug.request'; readonly request: unknown }
   | { readonly op: 'debug.control'; readonly command: 'debugPause' | 'debugResume' | 'debugStep' }
-  | { readonly op: 'debug.observation' };
+  | { readonly op: 'debug.observation' }
+  /** Phase 25.16: the run digest now and after the last exercise. */
+  | { readonly op: 'runDigests' };
 
 export type MainToWorker =
   | SimInitMessage
   | SimTickMessage
   | { readonly t: 'cmd'; readonly command: SimCommand }
   | { readonly t: 'scene'; readonly sceneId: string; readonly result: { ok: true; entities: SceneEntities } | { ok: false; message: string } }
-  | { readonly t: 'relay'; readonly frames: readonly RelayTestFrame[]; readonly uiTargets?: readonly UiHitTarget[] }
+  | { readonly t: 'relay'; readonly frames: readonly RelayTestFrame[]; readonly uiTargets?: readonly UiHitTarget[]; readonly restart?: boolean }
   /** Phase 25.15: a page frame in which the game is paused while an exercise runs. */
   | { readonly t: 'relay.idle' }
   | { readonly t: 'query'; readonly id: number; readonly query: SimQuery }

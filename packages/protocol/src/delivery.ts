@@ -335,6 +335,8 @@ export function parseRelayPointer(value: unknown): RelayPointer | null {
 export interface InputRelayRequest {
   mode: 'exclusive-test';
   frames: readonly RelayFrame[];
+  /** Phase 25.16: restart the game first (the replay); the frames begin at the new run's first step. */
+  restart?: boolean;
 }
 
 const RELAY_FRAME_FIELDS = new Map<string, string>([
@@ -348,6 +350,7 @@ const RELAY_FRAME_FIELDS = new Map<string, string>([
 const RELAY_BODY_FIELDS = new Map<string, string>([
   ['mode', '"exclusive-test"'],
   ['frames', '1–600 ascending step-indexed frames'],
+  ['restart', 'optional boolean: restart the game first; the frames begin at the new run\'s first step (phase 25.16)'],
 ]);
 const JUMP_SET: readonly string[] = ['none', 'pressed', 'held', 'released'];
 const MAX_STEP_OFFSET = 2 ** 53 - 1;
@@ -494,7 +497,11 @@ export function parseInputRelayRequest(
       },
     };
   }
-  return { ok: true, request: { mode: INPUT_RELAY_MODE, frames } };
+  const restart = (shape.value as Record<string, unknown>)['restart'];
+  if (restart !== undefined && typeof restart !== 'boolean') {
+    return { ok: false, error: { code: 'field_type', cls: 'validation', message: 'restart must be true or false', path: '/restart', found: typeof restart, expected: 'boolean' } };
+  }
+  return { ok: true, request: { mode: INPUT_RELAY_MODE, frames, ...(restart === true ? { restart: true } : {}) } };
 }
 
 /** The §18.1.2 result shape (built by the backend). */

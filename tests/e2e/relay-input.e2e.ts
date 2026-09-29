@@ -268,3 +268,64 @@ test('tl_input_exercise on a single thread: run length, UI hit test and clicks, 
   test.setTimeout(240_000);
   await checks(page, 2, 'single');
 });
+
+// Phase 25.16: a run and its replay. An exercise with `restart` restarts the game and applies its frames from the new
+// run's first step; tl_game_observe's run.lastInput is the run digest right after its last step. The same frames give
+// the same digest at the same run step (in the worker and on a single thread — and the two agree); other frames do not.
+test('a run and its replay (tl_input_exercise restart) give the same run digest, in the worker and on a single thread', async ({ page }) => {
+  test.setTimeout(240_000);
+  await setUp(page);
+  const frames = [
+    { stepOffset: 0, steps: 40, actions: { move: { v: 1, p: 'none' } } },
+    { stepOffset: 40, actions: { move: { v: 1, p: 'none' }, jump: { v: 1, p: 'pressed' } } },
+    { stepOffset: 41, steps: 30, actions: { move: { v: 1, p: 'none' }, jump: { v: 1, p: 'held' } } },
+    { stepOffset: 80, steps: 3, gamepad: { buttons: [0, 0, 1] } },
+    { stepOffset: 90, pointer: { x: 0.3, y: 0.6, pressed: 1, released: 1 } },
+    { stepOffset: 100, steps: 20, gamepad: { axes: [-1, 0] } },
+  ];
+  const digests: Record<string, string> = {};
+  for (const [simThread, mode] of [[1, 'worker'], [2, 'single']] as const) {
+    await cmd('setSettings', { settings: { sim_thread: simThread } });
+    const started = await call('tl_play_start', { demo: false });
+    expect(started.isError, JSON.stringify(started.body)).toBe(false);
+    const playSessionId = String(started.body.playSessionId);
+    type Run = { stepIndex: number; runStep: number; digest: string; lastInput?: { fromStep: number; toStep: number; runStep: number; digest: string; restarted: boolean } };
+    const observe = async (): Promise<{ state: string; simulation: { mode: string }; run: Run; ui?: { values?: { t?: Record<string, number> } } }> => (await call('tl_game_observe', { playSessionId })).body as never;
+    await expect.poll(async () => (await observe()).state, { timeout: 30_000 }).toBe('running');
+    expect((await observe()).simulation.mode).toBe(mode);
+    const replay = async (fs: unknown[]): Promise<NonNullable<Run['lastInput']>> => {
+      const r = await call('tl_input_exercise', { playSessionId, frames: fs, restart: true });
+      expect(r.isError, JSON.stringify(r.body)).toBe(false);
+      let last: Run['lastInput'];
+      await expect.poll(async () => {
+        last = (await observe()).run.lastInput;
+        return last?.toStep;
+      }, { timeout: 10_000 }).toBe(Number(r.body.appliedToStep));
+      return last!;
+    };
+    const a = await replay(frames);
+    // The game kept running after it; the run step counts from the restart.
+    const now = (await observe()).run;
+    expect(now.runStep).toBeGreaterThanOrEqual(a.runStep);
+    expect(now.stepIndex - now.runStep).toBe(a.toStep + 1 - a.runStep);
+    expect(a.restarted).toBe(true);
+    expect(a.toStep - a.fromStep).toBe(119);
+    // What the probe script counted in that run (the pad press, the click on the game view).
+    const t = (await observe()).ui?.values?.t ?? {};
+    expect(t['attack']).toBe(1);
+    expect(t['gamePress']).toBe(1);
+    const b = await replay(frames);
+    expect(b.fromStep).toBeGreaterThan(a.toStep);
+    expect(b.runStep).toBe(a.runStep);
+    expect(b.digest).toBe(a.digest);
+    // Other input: another digest.
+    const c = await replay(frames.map((f, i) => (i === 0 ? { ...f, actions: { move: { v: -1, p: 'none' } } } : f)));
+    expect(c.runStep).toBe(a.runStep);
+    expect(c.digest).not.toBe(a.digest);
+    digests[mode] = a.digest;
+    expect((await call('tl_play_stop', { playSessionId })).isError).toBe(false);
+    await expect(page.locator('iframe.tl-app__preview-frame')).toHaveCount(0);
+  }
+  // The worker computes what the page computes.
+  expect(digests['worker']).toBe(digests['single']);
+});

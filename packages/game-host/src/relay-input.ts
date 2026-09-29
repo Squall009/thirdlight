@@ -44,7 +44,7 @@ interface Run {
 
 export class RelayActionSource implements ActionSource {
   private readonly browser: ActionSource & { reset?: (reason?: string) => void };
-  private test: { runs: Run[]; cursor: number; base: number; end: number; first: number; last: number; next: number } | null = null;
+  private test: { runs: Run[]; cursor: number; base: number; end: number; first: number; last: number; next: number; restart: boolean } | null = null;
   private onComplete: ((from: number, to: number) => void) | null = null;
   private uiHit: ((x: number, y: number) => string | null) | null = null;
   private effect: ((e: RelayEffect) => void) | null = null;
@@ -68,7 +68,12 @@ export class RelayActionSource implements ActionSource {
     this.effect = sink;
   }
 
-  beginTest(frames: readonly RelayTestFrame[], firstStep: number, onComplete: (from: number, to: number) => void): boolean {
+  /**
+   * Start an exercise from `firstStep`. Phase 25.16: with `restart` the game
+   * restarts first (the replay: the start scenes, every object as authored)
+   * and the frames begin at the new run's first step.
+   */
+  beginTest(frames: readonly RelayTestFrame[], firstStep: number, onComplete: (from: number, to: number) => void, restart = false): boolean {
     if (this.test !== null) return false;
     const runs: Run[] = [];
     let end = 0;
@@ -80,7 +85,7 @@ export class RelayActionSource implements ActionSource {
     }
     runs.sort((a, b) => a.start - b.start);
     this.browser.reset?.('exclusive-test');
-    this.test = { runs, cursor: 0, base: firstStep, end, first: -1, last: -1, next: firstStep - 1 };
+    this.test = { runs, cursor: 0, base: firstStep, end, first: -1, last: -1, next: firstStep - 1, restart };
     this.relayButtons = 0;
     this.uiHeld = 0;
     this.pressKey = null;
@@ -96,6 +101,12 @@ export class RelayActionSource implements ActionSource {
     const test = this.test;
     if (test === null) return this.browser.sample(stepIndex);
     test.next = stepIndex + 1;
+    if (test.restart) {
+      // Phase 25.16: this step asks for the restart; it happens at the next step's boundary, where the frames begin.
+      test.restart = false;
+      test.base = stepIndex + 1;
+      return { stepIndex, ui: [{ kind: 'restart', doc: '', widget: '', name: '' }] };
+    }
     return this.at(test, stepIndex - test.base, stepIndex);
   }
 
@@ -108,7 +119,8 @@ export class RelayActionSource implements ActionSource {
    */
   idle(): void {
     const test = this.test;
-    if (test === null) return;
+    // A restart waits for a step (a paused game restarts when it runs again).
+    if (test === null || test.restart) return;
     const offset = test.next - test.base;
     test.base -= 1;
     this.at(test, offset, null);

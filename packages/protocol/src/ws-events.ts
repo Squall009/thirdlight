@@ -216,10 +216,13 @@ export function makeDiagnosticsRequest(relayId: string): string {
 export function makeInputRelayRequest(
   requestId: string,
   frames: readonly { readonly stepOffset: number; readonly steps?: number; readonly actions?: Readonly<Record<string, unknown>>; readonly pointer?: unknown; readonly gamepad?: unknown; readonly ui?: readonly string[] }[],
+  restart = false,
 ): string {
   return emit({
     type: 'input.request',
     requestId,
+    // Phase 25.16: restart the game first (the frames begin at the new run's first step).
+    ...(restart ? { restart: true } : {}),
     // Phase 23.2: the second move axis and the named actions (and, phase 23.3, the pointer) travel too (absent: as before).
     // Phase 25.15: run length, the virtual gamepad and UI edges.
     frames: frames.map((f) => ({
