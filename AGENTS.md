@@ -31,6 +31,15 @@ are in `docs/STATUS.md`; known defects are in `docs/audit-2026-09-22.md`.
   then push to `origin`. Green is tiered: `tools/gate.sh fast <e2e files of
   the area>` per commit, `tools/gate.sh full` before an item is marked done,
   `tools/gate.sh rerun` (only what failed) while fixing.
+- Comments say why the code is the way it is. No phase numbers, item ids,
+  dates or `§` spec references in source comments; history lives in git and
+  `docs/plan-phase-*.md`.
+- Define a limit or constant once, in the package that owns it, and import
+  it everywhere else. No per-project count caps on assets or resources.
+- Split before growing: a change that adds to a file over 2,000 lines first
+  moves the area it touches into its own module.
+- Keep `npm run lint` (ESLint, from phase 26.1) green. An `eslint-disable`
+  needs its reason on the same line.
 - Preserve unrelated user changes. Never expose credentials in code, logs,
   bundles, fixtures, or docs.
 
