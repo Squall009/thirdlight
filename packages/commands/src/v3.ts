@@ -50,7 +50,7 @@ export const COMPONENT_FIELD_ORDER_V3: Record<V3OwnedComponent, readonly string[
   fogVolume: ['size', 'density', 'color', 'falloff', 'heightFalloff'],
   animator: ['controller', 'parameters'],
   // Phase 9.9: gameplay building blocks.
-  mover: ['waypoints', 'speed', 'mode', 'wait', 'easing', 'startOn', 'maxPush', 'active'],
+  mover: ['waypoints', 'speed', 'mode', 'wait', 'easing', 'startOn', 'maxPush', 'active', 'stopOn', 'toggleOn', 'reverseOn'],
   audioSource: ['assetId', 'volume', 'range', 'distanceModel', 'refDistance', 'rolloff'],
   faceMovement: ['yawRight', 'yawLeft', 'turnSeconds', 'mode', 'yawOffset'],
   trigger: ['size', 'signal', 'once', 'exitSignal', 'shape', 'radius', 'mode', 'height', 'sceneTransition'],

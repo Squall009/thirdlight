@@ -493,7 +493,7 @@ const COMPONENT_BASES: Record<string, J[]> = {
   cameraPath: [{ points: [[0, 0, 0], [4, 1, 0], [8, 0, 2]], closed: true, smooth: false }],
   light: LIGHTS,
   playerSpawn: [{ yaw: 90 }],
-  mover: [{ waypoints: [[1, 0, 0], [2, 1, 0]], speed: 2, mode: 'loop', wait: 0.5, easing: 'smooth', startOn: 'go', maxPush: 30, active: false }],
+  mover: [{ waypoints: [[1, 0, 0], [2, 1, 0]], speed: 2, mode: 'loop', wait: 0.5, easing: 'smooth', startOn: 'go', maxPush: 30, active: false, stopOn: 'halt', toggleOn: 'flip', reverseOn: 'back' }],
   trigger: [
     { shape: 'box', size: [2, 2, 2], signal: 'enter', exitSignal: 'leave', mode: 'stay', once: true },
     { shape: 'circle', radius: 1.5, signal: 'enter' },

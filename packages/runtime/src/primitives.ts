@@ -42,7 +42,8 @@ export interface PathState {
   speed: number;
   mode: 'loop' | 'pingpong' | 'once';
   wait: number;
-  smooth: boolean;
+  /** Phase 25.12: how the position follows the distance along a stretch (was `smooth: boolean`). */
+  easing: 'linear' | 'smooth' | 'gravity';
   segment: number;
   along: number;
   dir: 1 | -1;
@@ -81,8 +82,14 @@ export function advancePath(m: PathState, dt: number): void {
     // At a point: wait, then pick the next segment.
     const atEnd = m.dir === 1 ? m.segment === m.lengths.length - 1 : m.segment === 0;
     if (m.mode === 'loop') {
-      m.segment = (m.segment + 1) % m.lengths.length;
-      m.along = 0;
+      // Phase 25.12: a reversed loop goes round the other way.
+      if (m.dir === 1) {
+        m.segment = (m.segment + 1) % m.lengths.length;
+        m.along = 0;
+      } else {
+        m.segment = (m.segment + m.lengths.length - 1) % m.lengths.length;
+        m.along = m.lengths[m.segment] ?? 0;
+      }
     } else if (atEnd) {
       if (m.mode === 'once') {
         m.done = true;
@@ -98,12 +105,49 @@ export function advancePath(m: PathState, dt: number): void {
       budget = 0;
     }
   }
+  m.pos = pathPosition(m);
+}
+
+/**
+ * Phase 25.12: the share of a stretch's length covered at share `f` of its
+ * distance along it (`along / length`), for the path's easing and direction.
+ * Gravity is constant acceleration from the stretch's start point (the one it
+ * left: `a` going forward, `b` going back): the distance grows with the square
+ * of the time, and `along` advances at `speed` as the time does.
+ */
+function eased(easing: PathState['easing'], dir: 1 | -1, f: number): number {
+  if (easing === 'smooth') return f * f * (3 - 2 * f);
+  if (easing === 'gravity') return dir === 1 ? f * f : 1 - (1 - f) * (1 - f);
+  return f;
+}
+
+/** Phase 25.12: where a path's state puts it. */
+export function pathPosition(m: PathState): Vec3 {
   const len = m.lengths[m.segment] ?? 0;
   const a = m.points[m.segment]!;
   const b = m.points[(m.segment + 1) % m.points.length]!;
-  let u = len > 0 ? m.along / len : 0;
-  if (m.smooth) u = u * u * (3 - 2 * u);
-  m.pos = [a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u, a[2] + (b[2] - a[2]) * u];
+  const u = eased(m.easing, m.dir, len > 0 ? m.along / len : 0);
+  return [a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u, a[2] + (b[2] - a[2]) * u];
+}
+
+/**
+ * Phase 25.12: turn a path around where it is — back the way it came. A
+ * finished `once` path moves again (back to its start). With gravity easing
+ * the distance along the stretch is re-read for the new direction so the
+ * position does not jump (the motion then carries on from that point of the
+ * reversed stretch's curve).
+ */
+export function reversePath(m: PathState): void {
+  const len = m.lengths[m.segment] ?? 0;
+  if (m.easing === 'gravity' && len > 0) {
+    const f = m.along / len;
+    const u = eased('gravity', m.dir, f);
+    // Solve eased(gravity, −dir, f') = u for f'.
+    const f2 = m.dir === 1 ? 1 - Math.sqrt(Math.max(0, 1 - u)) : Math.sqrt(Math.max(0, u));
+    m.along = f2 * len;
+  }
+  m.dir = m.dir === 1 ? -1 : 1;
+  m.done = false;
 }
 
 // ---- state -----------------------------------------------------------------------
@@ -307,7 +351,7 @@ export class Primitives {
       if (waypoints !== null) {
         const points: Vec3[] = [start, ...waypoints.map((w) => [start[0] + num(w[0], 0), start[1] + num(w[1], 0), start[2] + num(w[2], 0)] as Vec3)];
         const loop = p['loop'] === true;
-        path = { points, lengths: pathLengths(points, loop), speed: num(p['speed'], 1), mode: loop ? 'loop' : 'pingpong', wait: num(p['wait'], 0), smooth: false, segment: 0, along: 0, dir: 1, waiting: 0, done: false, pos: [...start] };
+        path = { points, lengths: pathLengths(points, loop), speed: num(p['speed'], 1), mode: loop ? 'loop' : 'pingpong', wait: num(p['wait'], 0), easing: 'linear', segment: 0, along: 0, dir: 1, waiting: 0, done: false, pos: [...start] };
       } else {
         const d = (p['direction'] as number[] | undefined) ?? [1, 0, 0];
         // The 2D plane walks along x only (the sign of the direction's x; +x when it has none).

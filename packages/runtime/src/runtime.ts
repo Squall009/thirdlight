@@ -5323,7 +5323,10 @@ class RuntimeInstance implements Runtime {
       const z = (delta as { z?: unknown }).z;
       // Phase 23.1: the player moves with what it stands on (and a mover's push).
       const c3 = entityId === this.controllerEntityId ? (this.blocks?.carryDelta3() ?? [0, 0, 0]) : [0, 0, 0];
-      const moved3 = { x: delta.x + c3[0]!, y: delta.y + c3[1]!, z: (typeof z === 'number' && Number.isFinite(z) ? z : 0) + c3[2]! };
+      // D50 (phase 25.12): lifted by what it stands on, its own fall is cancelled — the port poses the
+      // movers after the sweep, so a grounded character's small fall would end inside the risen platform.
+      const ownY = c3[1]! > 0 && delta.y < 0 ? 0 : delta.y;
+      const moved3 = { x: delta.x + c3[0]!, y: ownY + c3[1]!, z: (typeof z === 'number' && Number.isFinite(z) ? z : 0) + c3[2]! };
       this.staged.set(entityId, { x: moved3.x, y: moved3.y });
       this.staged3d.set(entityId, moved3);
       this.physics3d.stageCharacterMove(moved3);

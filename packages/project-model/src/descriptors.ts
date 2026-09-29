@@ -1199,12 +1199,17 @@ const mover: ComponentDescriptor = {
     num('speed', 'Speed', 'Travel speed.', { required: true, min: 0.01, max: 50, step: 0.1, unit: 'm/s', default: 2 }),
     enm('mode', 'Mode', 'Loop back to the start, go back and forth, or move once.', MOVER_MODES, { required: true, default: 'pingpong', labels: { pingpong: 'Back and forth' } }),
     num('wait', 'Wait', 'Pause at each point.', { min: 0, max: 60, step: 0.1, unit: 's', default: 0 }),
-    enm('easing', 'Easing', 'Constant speed or smooth starts and stops.', MOVER_EASINGS, { default: 'linear' }),
+    // Phase 25.12: gravity — constant acceleration from each point (the stretch takes as long as at its speed).
+    enm('easing', 'Easing', 'Constant speed, smooth starts and stops, or gravity: from rest at each point, speeding up evenly until the next (each stretch takes as long as at its speed).', MOVER_EASINGS, { default: 'linear' }),
     signal('startOn', 'Start on signal', 'Wait for this signal before moving (absent: moves from the start).'),
     num('maxPush', 'Max push', 'The fastest it shoves a player out of its way (a safety limit that keeps the player out of the platform).', { ...BL.maxPush, step: 1, unit: 'm/s', default: BD.maxPush }),
     // Phase 25.10: a held mover stays where it is (it still collides and carries) until a script switches it on.
-    bool('active', 'Moving', 'Off: it holds where it is (still solid) until a script switches it on.', { default: true, omitDefault: true }),
-  ]),
+    bool('active', 'Moving', 'Off: it holds where it is (still solid) until a script, its start signal or its toggle signal moves it.', { default: true, omitDefault: true }),
+    // Phase 25.12: more signals (seen one step after they are sent, like startOn).
+    signal('stopOn', 'Stop on signal', 'This signal holds it where it is (still solid); its start or toggle signal moves it again.'),
+    signal('toggleOn', 'Toggle on signal', 'This signal moves it if it is held, and holds it if it moves.'),
+    signal('reverseOn', 'Reverse on signal', 'This signal turns it around, back the way it came (a finished once-mover goes back to its start).'),
+  ], { rules: ['startOn, stopOn and toggleOn name different signals.'] }),
   // Phase 15.5: a new mover goes 4 m sideways and back at 2 m/s (a brisk walk), pausing 0.5 s at each end (reads as a stop, not a bounce).
   add: { kind: 'menu', value: { waypoints: [[4, 0, 0]], speed: 2, mode: 'pingpong', wait: 0.5 } },
   // Phase 24.5: placeholder boxes against the engine's default 1.8 m character: a 2 m platform to stand on and a 3 m door

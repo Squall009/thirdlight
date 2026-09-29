@@ -1606,7 +1606,13 @@ view icons come from the descriptors too. Any object can get these in the Inspec
   fires). With a box or polygon collider it carries the player standing on
   it and pushes a player it moves into (a polygon by its exact shape). A mover rising beside or under the player
   (a gate opening, a pillar) pushes the player aside, never up: only a player
-  above it rides it up. The Scene view draws its path.
+  above it rides it up. The Scene view draws its path. Phase 25.12: more
+  signals — **Stop on signal** holds it where it is, **Toggle on signal** moves
+  a held mover and holds a moving one (with **Moving** off it waits for the
+  first toggle), **Reverse on signal** turns it around (a finished once-mover
+  goes back to its start); and a **gravity** easing: from rest at each point,
+  speeding up evenly until the next (each stretch takes as long as at its
+  speed). A script reads a signal's hold as `get('mover').active`.
 - **Trigger** — an area that sends a signal when the player enters it
   (and, if set, another one when the player leaves it). Its shape is a box
   (width, height) or a circle (radius; tested against the player's capsule

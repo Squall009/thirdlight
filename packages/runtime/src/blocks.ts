@@ -35,7 +35,7 @@ import { BLOCK_DEFAULTS, SWITCH_DEFAULT_ACTION, type EntityV3 } from '@thirdligh
 import type { BehaviorMessage, PlayerCapsule, PrimitiveEventRecord, TransformState, TriggerEventRecord } from './types';
 import { capsuleHalfTotal, colliderRotationZ, colliderShape3DOf } from './scene-set';
 import { rotate3, segmentBoxDistance2, segmentPointDistance2, segmentSegmentDistance2, sub3, type V3 } from './geometry3';
-import { advancePath, Primitives, type PathState } from './primitives';
+import { advancePath, Primitives, reversePath, type PathState } from './primitives';
 
 /**
  * Phase 19.1: script messages per step (`ctx.messages.send`): far above what
@@ -55,6 +55,10 @@ type Vec3 = [number, number, number];
 interface Mover extends PathState {
   id: string;
   startOn: string | null;
+  /** Phase 25.12: the signals that hold it, toggle it and turn it around (null: none). */
+  stopOn: string | null;
+  toggleOn: string | null;
+  reverseOn: string | null;
   /** Phase 25.10: the authored speed and moving flag (a new run restores them; scripts write `speed` and `active`). */
   authoredSpeed: number;
   authoredActive: boolean;
@@ -398,8 +402,11 @@ export class GameplayBlocks {
           active: m['active'] !== false,
           mode,
           wait: num(m['wait'], 0),
-          smooth: m['easing'] === 'smooth',
+          easing: m['easing'] === 'smooth' || m['easing'] === 'gravity' ? m['easing'] : 'linear',
           startOn: typeof m['startOn'] === 'string' ? (m['startOn'] as string) : null,
+          stopOn: typeof m['stopOn'] === 'string' ? (m['stopOn'] as string) : null,
+          toggleOn: typeof m['toggleOn'] === 'string' ? (m['toggleOn'] as string) : null,
+          reverseOn: typeof m['reverseOn'] === 'string' ? (m['reverseOn'] as string) : null,
           started: typeof m['startOn'] !== 'string',
           segment: 0,
           along: 0,
@@ -795,7 +802,7 @@ export class GameplayBlocks {
     for (const m of this.movers.values()) {
       if (this.inactive.has(m.id)) continue;
       const before: Vec3 = [...m.pos];
-      if (!m.started && m.startOn !== null && this.signalsPrev.has(m.startOn)) m.started = true;
+      this.moverSignals(m);
       if (m.started && m.active && !m.done) this.advance(m, dt);
       this.writeTransform(m.id, m.pos);
       poses.push({ entityId: m.id, position: { x: m.pos[0], y: m.pos[1] }, rotationZ: m.rotationZ });
@@ -843,7 +850,7 @@ export class GameplayBlocks {
     for (const m of this.movers.values()) {
       if (this.inactive.has(m.id)) continue;
       const before: Vec3 = [...m.pos];
-      if (!m.started && m.startOn !== null && this.signalsPrev.has(m.startOn)) m.started = true;
+      this.moverSignals(m);
       if (m.started && m.active && !m.done) this.advance(m, dt);
       this.writeTransform(m.id, m.pos);
       poses.push({ entityId: m.id, position: { x: m.pos[0], y: m.pos[1], z: m.pos[2] }, rotation: { x: m.rotation[0], y: m.rotation[1], z: m.rotation[2], w: m.rotation[3] } });
@@ -870,6 +877,33 @@ export class GameplayBlocks {
 
   private advance(m: Mover, dt: number): void {
     advancePath(m, dt);
+  }
+
+  /**
+   * Phase 25.12: a mover reads last step's signals, in a fixed order: its
+   * start signal starts it (and moves a held one: `active`), its stop signal
+   * holds it, its toggle signal moves a held one and holds a moving one, and
+   * its reverse signal turns it around (a finished once-mover travels back).
+   * Before 25.12 only `startOn` existed and it only started a waiting mover
+   * (`active` was a script's alone); `stopOn`/`toggleOn` hold and move through
+   * the same `active` flag a script writes, so `get('mover').active` shows it.
+   */
+  private moverSignals(m: Mover): void {
+    const sig = this.signalsPrev;
+    if (sig.size === 0) return;
+    if (m.startOn !== null && sig.has(m.startOn)) {
+      if (!m.started) m.started = true;
+      m.active = true;
+    }
+    if (m.stopOn !== null && sig.has(m.stopOn)) m.active = false;
+    if (m.toggleOn !== null && sig.has(m.toggleOn)) {
+      if (m.started && m.active) m.active = false;
+      else {
+        m.started = true;
+        m.active = true;
+      }
+    }
+    if (m.reverseOn !== null && sig.has(m.reverseOn)) reversePath(m);
   }
 
   /**

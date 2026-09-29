@@ -177,7 +177,8 @@ boundary it changes (Playwright for any editor surface).
 | 25.9 | done 2026-09-28: each script library compiled once into its own minified, tree-shaken module (`libraries/<digest>.js`, manifest `libraries` rows under the buildId) that scripts import by digest instead of bundling (Play worker and page, export with the backend stopped; one module instance per realm, tested); records published before it still build (bundled digest re-derived, shared form shipped); staged library edits (`stageScriptLibrary` route/MCP op, files in pieces, `commitScriptLibraryStage`: one revision, one undo, each dependent compiled once; the Libraries panel's Save all, large saves staged); source maps for every compiled output, runtime errors and `ctx.log` record compiled frames, Play diagnostics map them to `{behaviorId|libraryId, path, line, column}`, the Console tab opens the line; `script-libraries-shared.e2e.ts`, `m25-libraries` integration, unit tests |
 | 25.10 | done 2026-09-29: `ctx.entity(id).get(component)` (step-start snapshot of the descriptor-marked script-readable fields; the marks are pinned for schemaVersion 4) and `.set(component, patch)` (queued, applied at the end of the step in script order; refusals name the field; a field written twice: later wins, conflict in diagnostics); writable: object `active` (not drawn, no collision, triggers or ticking) and `visible`, transform (relaxed ownership: not physics bodies, the camera, static or system-driven objects), light colour/intensity/range, mover speed/`active` (new stored field), material parameters; `character_place` on the 2D plane (from rest); `ctx.shell.nextScene()`; typed prefab-local references in spawned copies; object pickers for script object properties; typings and visual-script nodes; `m25-entity-access` (2D/3D, page and worker, replay digests), `entity-access.e2e.ts` (Inspector, typings, pixels on both backends) |
 | 25.11 | done 2026-09-29: callbacks on the behavior spec (`onEnable/onDisable/onDestroy`, `onTriggerEnter/Exit`, `onContact`, `onMessage`, `onUiEvent`, `onAnimatorEvent`; `step` optional), run in the intent phase before the script's step in a fixed order; lifecycle follows the object's switched-on state (25.10's `active`, spawns, scene loads/unloads, destroys; a restart sends onEnable again, no onDestroy); the event lists stay; typings with completion of the callbacks and their event fields; visual-script nodes On enable/disable/destroy, On contact, On UI event; `m25-callbacks` (2D/3D, page and worker, replay digests), `callbacks.e2e.ts` |
-| 25.12–25.22 | — |
+| 25.12 | done 2026-09-29: mover `stopOn`, `toggleOn`, `reverseOn` (with `startOn`, read in that order from last step's signals, through the same `active` flag scripts write; a reversed loop goes round the other way, a finished once-mover travels back) and a `gravity` easing (from rest at each point, constant acceleration, each stretch as long as at its speed; a reverse part-way keeps the position); Inspector fields; `mover-signals.test.ts` (unit, model, `m25-movement` 2D/3D page and worker, replay digests), `mover-signals.e2e.ts`; D50 fixed |
+| 25.13–25.22 | — |
 | 25.23 | moved to phase 26 (26.12), owner 2026-09-29 |
 | 25.25 | — |
 
@@ -1005,6 +1006,33 @@ boundary it changes (Playwright for any editor surface).
   existing nodes did not cover — On enable, On disable, On destroy, On
   contact, On UI event — compiled into the spec's callback methods; On
   trigger, On message and On animator event keep reading the lists.
+- 2026-09-29 (25.12): **one running flag.** The new signals act on the
+  mover's `active` flag (25.10's Moving switch, the one scripts write), so a
+  hold by signal is what `get('mover').active` reads and a mover authored
+  with Moving off waits for its start or toggle signal (the 25.10 log said
+  "a script or, in 25.12, a signal starts it"). `startOn` now also moves a
+  held mover (before, it only ended the wait for the first signal); only
+  movers authored since 25.10 with Moving off and a start signal behave
+  differently. Order within a step: start, stop, toggle, reverse; one signal
+  may not name two of start/stop/toggle (refused: it would undo itself),
+  `reverseOn` may share a signal with any. Signal holds are not saved in a
+  project save (mover positions never were); script writes still are.
+- 2026-09-29 (25.12): **gravity easing** is an easing, not a physics body:
+  the position along a stretch is the square of the time share (`along`
+  still advances at `speed`), so the stretch takes as long as a linear one
+  and `speed` stays its average (the mover arrives at twice it). The
+  acceleration is therefore 2·speed²/length per stretch rather than the
+  project gravity: a path's timing stays what its speed says, in any genre.
+  A reverse part-way re-reads the distance for the new direction so the
+  position never jumps. Patrols keep linear motion.
+- 2026-09-29 (25.12): the script access pin (25.10) re-pinned for schema 4:
+  the three new optional fields only add to what scripts read; a rename or an
+  unmarked field stays a schema change.
+- 2026-09-29 (25.12): D50 found by the lift test: in 3D the grounded
+  character's per-step fall was swept together with a rising platform's
+  carry while the port poses movers after the sweep, so each step ended
+  inside the risen platform. While the carry lifts it, the character's own
+  fall is cancelled (2D never had the fall on the ground).
 - 2026-09-29: 25.23 (the project window) moved to phase 26 (owner). Phase
   26 stores assets and resources as files in real folders of the game folder,
   so 25.23's folders-as-content-data would be thrown away; the window is built

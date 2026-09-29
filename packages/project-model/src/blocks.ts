@@ -17,7 +17,15 @@
 import type { ModelErrorV2 } from './errors';
 
 export const MOVER_MODES = ['loop', 'pingpong', 'once'] as const;
-export const MOVER_EASINGS = ['linear', 'smooth'] as const;
+/**
+ * Phase 25.12: `gravity` — constant acceleration: it leaves each point from
+ * rest and speeds up evenly until the next (a falling or dropping motion),
+ * taking as long per stretch as it would at `speed` (so `speed` stays the
+ * average and a path keeps its timing).
+ */
+export const MOVER_EASINGS = ['linear', 'smooth', 'gravity'] as const;
+/** Phase 25.12: the mover's signal fields (each a signal name; at most one of them names a given signal, `reverseOn` aside). */
+export const MOVER_SIGNAL_FIELDS = ['startOn', 'stopOn', 'toggleOn', 'reverseOn'] as const;
 export const SWITCH_MODES = ['interact', 'stand'] as const;
 /** Phase 14.2: a trigger's area (absent: box) and when it emits (absent: enter). */
 export const TRIGGER_SHAPES = ['box', 'circle', 'sphere', 'capsule'] as const;
@@ -60,6 +68,12 @@ export interface MoverComponent {
    * absent: true. Stored only when false.
    */
   active?: boolean;
+  /** Phase 25.12: this signal holds it where it is (as `active: false`; a start or toggle signal moves it again). */
+  stopOn?: string;
+  /** Phase 25.12: this signal moves it if it is held and holds it if it moves. */
+  toggleOn?: string;
+  /** Phase 25.12: this signal turns it around: back the way it came (a finished `once` mover travels back to its start). */
+  reverseOn?: string;
 }
 
 export interface TriggerComponent {
@@ -140,7 +154,7 @@ function fields(v: Record<string, unknown>, allowed: readonly string[], required
   for (const k of required) if (v[k] === undefined) err(errors, 'field_missing', `${path}/${k}`, `"${k}" is required`, undefined, k);
 }
 
-const MOVER_FIELDS = ['waypoints', 'speed', 'mode', 'wait', 'easing', 'startOn', 'maxPush', 'active'] as const;
+const MOVER_FIELDS = ['waypoints', 'speed', 'mode', 'wait', 'easing', 'startOn', 'maxPush', 'active', 'stopOn', 'toggleOn', 'reverseOn'] as const;
 const HEALTH_FIELDS = ['max', 'start'] as const;
 
 /** Phase 15.3: optional tuning numbers within their `BLOCK_TUNING_LIMITS` range. */
@@ -163,8 +177,19 @@ export function validateMoverComponent(value: unknown, path: string, errors: Mod
   if (value['speed'] !== undefined && !num(value['speed'], 0.01, 50)) err(errors, 'field_value', `${path}/speed`, 'speed is 0.01–50 m/s', value['speed']);
   if (value['mode'] !== undefined && !(MOVER_MODES as readonly unknown[]).includes(value['mode'])) err(errors, 'field_value', `${path}/mode`, 'mode is loop, pingpong or once', value['mode']);
   if (value['wait'] !== undefined && !num(value['wait'], 0, 60)) err(errors, 'field_value', `${path}/wait`, 'wait is 0–60 s', value['wait']);
-  if (value['easing'] !== undefined && !(MOVER_EASINGS as readonly unknown[]).includes(value['easing'])) err(errors, 'field_value', `${path}/easing`, 'easing is linear or smooth', value['easing']);
-  if (value['startOn'] !== undefined && (typeof value['startOn'] !== 'string' || !NAME_RE.test(value['startOn']))) err(errors, 'field_value', `${path}/startOn`, 'startOn is a signal name', value['startOn']);
+  if (value['easing'] !== undefined && !(MOVER_EASINGS as readonly unknown[]).includes(value['easing'])) err(errors, 'field_value', `${path}/easing`, 'easing is linear, smooth or gravity', value['easing']);
+  for (const k of MOVER_SIGNAL_FIELDS) {
+    if (value[k] !== undefined && (typeof value[k] !== 'string' || !NAME_RE.test(value[k] as string))) err(errors, 'field_value', `${path}/${k}`, `${k} is a signal name`, value[k]);
+  }
+  // Phase 25.12: one signal both starting and stopping (or toggling) a mover would undo itself in the same step.
+  const seen = new Map<unknown, string>();
+  for (const k of ['startOn', 'stopOn', 'toggleOn'] as const) {
+    const v = value[k];
+    if (typeof v !== 'string') continue;
+    const other = seen.get(v);
+    if (other !== undefined) err(errors, 'field_value', `${path}/${k}`, `${k} names the same signal as ${other} (one signal would start and stop it at once)`, v);
+    else seen.set(v, k);
+  }
   if (value['active'] !== undefined && typeof value['active'] !== 'boolean') err(errors, 'field_type', `${path}/active`, 'active is true or false', value['active']);
 }
 
@@ -249,6 +274,10 @@ export const canonicalMover = (c: MoverComponent): MoverComponent => ({
   ...(c.maxPush !== undefined ? { maxPush: c.maxPush } : {}),
   // Phase 25.10: stored only when off (an existing mover keeps its exact canonical bytes).
   ...(c.active === false ? { active: false } : {}),
+  // Phase 25.12: the signals last (an existing mover keeps its exact canonical bytes).
+  ...(c.stopOn !== undefined ? { stopOn: c.stopOn } : {}),
+  ...(c.toggleOn !== undefined ? { toggleOn: c.toggleOn } : {}),
+  ...(c.reverseOn !== undefined ? { reverseOn: c.reverseOn } : {}),
 });
 // Phase 14.2: the new fields come last (an existing trigger keeps its exact canonical bytes).
 export const canonicalTrigger = (c: TriggerComponent): TriggerComponent => ({
