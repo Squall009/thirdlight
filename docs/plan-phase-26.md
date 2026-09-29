@@ -185,11 +185,98 @@ at the boundary it changes (Playwright for any editor surface).
 |---|---|
 | 26.0 | done 2026-09-29; reconciled with phase 25 at `811c14c5` |
 | 26.1 | done 2026-09-29: limits once, splits (D57, D58); ESLint in the gates; three.js 0.186.1; history comments removed with a build check (D59) |
-| 26.2–26.14 | — |
+| 26.2 | done 2026-09-29: scale bench (generator, harness, small-size tests in the fast gate); before numbers in §6; D61 |
+| 26.3–26.14 | — |
 
 ## 6. Measurements
 
 (26.2's before numbers and 26.14's after numbers.)
+
+### Before (26.2, 2026-09-29)
+
+Host: Intel Core i5-12600H (10 vCPU), 16 GiB; Chromium (Playwright 1.62.1)
+on its Iris Xe (ANGLE on Vulkan, WebGPURenderer on WebGL 2); commit
+`a15a994e` for Starter, half-caps and caps; the ×0.01, ×0.1 and full columns
+ran on a scratch branch that lifts the count caps, the 1 MiB content cap and
+the 256 KiB manifest cap (not merged; 26.5 removes caps properly). Command:
+`node tools/perf/run.mjs scale --preset <p> | --factor <f> --gpu`; reports in
+`~/.cache/thirdlight-perf/reports/scale-*.json`. Times in ms (p50 / p95),
+memory in MiB. "–": not applicable; "refused": the step could not be taken
+(reason below the table).
+
+| | Starter | half-caps | caps | ×0.01 | ×0.1 | full |
+|---|---|---|---|---|---|---|
+| assets (voices / sounds / textures / models) | 2 | 256 (32/32/128/64) | 512 (64/64/256/128) | 180 | 1,800 | 18,000 (10,000/1,000/5,000/2,000) |
+| prefabs / materials / scenes / dialogue lines | 0 / 0 / 1 / 0 | 64 / 128 / 32 / 250 | 128 / 256 / 64 / 250 | 50 / 20 / 3 / 20 | 500 / 200 / 30 / 200 | 5,000 / 2,000 / 300 / 2,000 |
+| sources on disk | – | 3.7 | 6.9 | 2.7 | 27 | 302 |
+| open: backend's first read | 6 | 61 | 90 | 49 | 191 | 6,703 |
+| open: editor connected / Scene view first frame | 881 / 626 | 908 / 590 | 941 / 612 | 898 / 608 | 940 / 620 | 1,128 / 603 |
+| backend resident after open | 139 | 161 | 171 | 145 | 196 | 560 |
+| command: scene edit (setTransform) | 6.6 / 10.3 | 14.9 / 29.1 | 32.6 / 45.5 | 13.4 / 17.5 | 130 / 155 | 11,198 / 11,804 |
+| command: content edit (setMaterial) | – | 35.9 / 46.8 | 76.6 / 91.1 | 17.9 / 25.2 | 322 / 342 | 26,057 / 27,505 |
+| Play: click → first frame | 548 | 530 | refused | 528 | 905 | 22,778 |
+| Play: backend build (closure) / manifest bytes | 31 (10) / 6 K | 93 (71) / 185 K | refused | 82 (56) / 94 K | 429 (400) / 916 K | 22,077 (22,048) / 9.2 M |
+| scene load: request → drawn (game timings) | – | 47 / 52 | refused | 103 / 127 | 73 / 93 | 138 / 156 |
+| walk: scenes; heap before → after | – | 31; 48.1 → 52.4 | refused | 2; 46.8 → 49.4 | 29; 52.3 → 65.7 | 50; 66.2 → 115.1 |
+| walk: live GPU textures before → loaded → after | – | 4 → 7 → 5 | refused | 4 → 30 → 5 | 4 → 50 → 5 | 4 → 49 → 5 |
+| dialogue: lines heard; line → voice p95; gap p50 / p95 / max | – | 250/250; 32; 6 / 11 / 24 | refused | 20/20; 35; 9 / 12 / 12 | 200/200; 35; 5 / 11 / 26 | 500/500; 35; 4 / 11 / 28 |
+| export: time; files; MiB; exported first frame | 1,160; 9; 13.1; 735 | 1,166; 265; 15.1; 579 | refused | 1,017; 102; 13.8; 538 | 1,498; 939; 21.1; 606 | 9,058; 9,309; 119; 852 |
+
+What broke, and where each number could not be taken:
+
+- **Open at full size on `a15a994e`:** refused (`content_invalid`, 8 problems):
+  scenes 300 > 64, models 2,000 > 128, music 10,000 > 64, textures 5,000 >
+  256, audio 1,000 > 64, version records 18,000 > 1,024, prefabs 5,000 > 128,
+  materials 2,000 > 256. Nothing else could be measured at that size on main.
+- **At the caps:** the 1 MiB content block binds first — 1,000 dialogue lines
+  did not fit (1.2 MiB canonical), so the caps preset carries 250. Play and
+  the export are refused: the runtime manifest is over 256 KiB
+  (`export_manifest_invalid`); every Play-side number at today's limits is
+  taken at half the caps.
+- **Voices:** `audio` takes only 2 s mono WAV, so voice lines are `music`
+  records (the one kind that takes Opus); the other sounds are WAV of
+  0.2–1 s.
+- **With those three caps lifted (scratch):** every step ran at full size,
+  but commands take 11 s (scene) and 26 s (content), Play starts in 23 s
+  (18.3 s of it the backend's `closure.view`), the open takes 6.7 s and the
+  backend holds 560–581 MiB. Command latency grows faster than the asset
+  count (×10 assets from ×0.1 to full: ×86 scene edit); most of it is a
+  quadratic step in content validation (D61). `content.json` grows from 11 MB
+  as generated to 24 MB after the first command rewrites it.
+- **Walking scenes:** GPU objects are freed on unload (live textures back to
+  baseline + 1), but the heap grows about 1 MiB per distinct scene loaded
+  and is never given back (66 → 115 MiB over 50 scenes; 27 MiB of asset bytes
+  read): verified bytes and decoded data stay cached (§2, 26.10).
+- **Dialogue:** no audible gap at any size: voices are small `music` files
+  read and decoded when played (p95 line start → voice playing 35 ms, gap
+  p95 11 ms). The resolution is the relay's observation round trip
+  (5–10 ms); nothing was listened to (owner listen pending).
+- **Not reached:** the 512 MiB source quota and the 512 MiB Play content set
+  (the generated files are small: 64 px textures, tiny models; 302 MiB of
+  sources). A game with real texture and model sizes would hit both; the
+  generator's `textureSize` and counts are parameters for 26.8's check.
+- **Not observable today:** resident bytes by kind (the game host has no such
+  metric; 26.10 adds it). The bench records the JS heap after a collection,
+  the graphics API's live objects and byte estimate, three's renderer counts,
+  asset bytes read (Play diagnostics) and the backend's resident set instead.
+  The Play page shares its renderer process with the editor, so its heap is
+  editor + game.
+
+Proposed targets for "Done when" (fixed in 26.14 from these numbers):
+
+- One command at full size: p95 ≤ 100 ms for a scene edit and a content edit,
+  and within 2× of the same command at ×0.01 ("does not grow").
+- Open at full size: backend ≤ 2 s, editor connected ≤ 2 s; backend resident
+  ≤ 300 MiB.
+- Play start at full size: click → first frame ≤ 1.5 s and within 1.5× of
+  ×0.01; the backend's build time does not grow with the asset count.
+- Walking 50 scenes at full size: heap after the walk within 5 MiB of before;
+  live GPU textures back to baseline; scene load p95 ≤ 200 ms.
+- 500-line voiced dialogue at full size with voices loaded on demand (26.11):
+  every voice heard, gap p95 ≤ 20 ms and max ≤ 50 ms at the bench's
+  resolution.
+- Export at full size: ≤ 15 s, the backend's resident set during it no more
+  than 100 MiB above the open's; the exported game's first frame ≤ 1.5 s.
 
 ## 7. Decision log
 
@@ -334,3 +421,29 @@ at the boundary it changes (Playwright for any editor surface).
   an AI client reads (MCP tool descriptions "(phase 25.17)", some error
   hints citing `§`, the export bundle header, `REMOVED_IN_PHASE_24`; the behavior API generators' headers were fixed, as the generated typings carry them); 26.14
   rewrites the MCP texts, the rest is logged as D60.
+- 2026-09-29 (26.2): the scale bench writes the project's files directly
+  (`tools/perf/scale-generate.ts`) instead of issuing commands: each command
+  re-validates and rewrites the whole content document (at full size 11–26 s
+  a command, so 26,000 imports would take days), and the caps refuse the
+  build long before the size the bench is for. Every asset record is the
+  proposal the backend's own inspector makes from the file's bytes, and the
+  open runs the model's full validation, so the project is exactly what the
+  imports would leave; a refused open is a measurement.
+- 2026-09-29 (26.2): no Opus encoder on the hosts (no ffmpeg, opusenc or
+  sox). Voice lines are assembled from a checked-in pool of real Opus packets
+  (`tools/perf/fixtures/opus-pool.bin`, 61 KB, 12 tones × 2 s at 16 kbit/s,
+  made by Chromium's WebCodecs `AudioEncoder` with `tools/perf/opus-pool.mjs`)
+  and wrapped in Ogg pages by the generator: every file decodes as Opus and
+  is distinct bytes, and generation needs no browser and is deterministic
+  across Chromium upgrades. Other sounds are PCM WAV (today's `audio`
+  profile), textures 64 px noise PNGs, models small textured spheres:
+  counts are the subject; sizes are parameters.
+- 2026-09-29 (26.2): the caps were lifted on a local scratch branch
+  (`scratch/26.2-caps-lifted`, not pushed): the per-kind count caps, the
+  version-record cap, the 1 MiB content cap and the 256 KiB manifest cap,
+  each raised to a value never reached. The quota and Play-set byte caps
+  were left (not reached). The dialogue is started by a bench script through
+  a debug command after the click that unlocks sound; scenes are walked with
+  the play relay's `loadScene`/`unloadScene` (what `ctx.scenes` does). The
+  small-size run is in the fast gate's smoke set (about 25 s).
+

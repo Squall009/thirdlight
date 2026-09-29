@@ -3657,6 +3657,38 @@ scenario's baseline and end counts); `TL_MEMORY_CYCLES=5` shortens it for a
 quick smoke run. Without `TL_MEMORY=1` the spec is skipped (the full gate
 sets it).
 
+**Scale bench.** A project of a full game's size — 10,000 voice lines
+(Ogg Opus, 1–15 s), 1,000 other sounds, 5,000 textures, 2,000 models, 5,000
+prefabs, 2,000 materials, 300 scenes, 2,000 voiced dialogue lines — is
+generated deterministically (`tools/perf/scale-generate.ts`) straight into the
+backend's on-disk format, every file distinct and every asset record the one
+the backend's own inspector makes from its bytes. The bench
+(`tools/perf/scale.ts`) opens it with a real backend and the editor in
+Chromium and measures the open, one command's latency (a scene edit and a
+content edit), the Play start, 50 scenes loaded and unloaded one after
+another (load times, heap, graphics objects, asset bytes read, the backend's
+resident set), a 500-line voiced dialogue played through (each line's start
+to its voice playing, and the silence between voices) and the export (time,
+files, bytes, the exported page's first frame). A step that cannot be taken
+records why (a cap refusing the open, a manifest refusing Play).
+
+```sh
+npm run build
+node tools/perf/run.mjs scale --preset full --gpu        # the full size (about 25 min today)
+node tools/perf/run.mjs scale --preset small             # a few of each (seconds)
+node tools/perf/run.mjs scale --factor 0.1 --lines 200   # the full size × 0.1
+node tools/perf/scale-summary.mjs ~/.cache/thirdlight-perf/reports/scale-*.json
+```
+
+Presets: `full`, `caps` (every kind at today's count caps), `half-caps`,
+`small`, `starter` (the Starter template, nothing generated). Options:
+`--steps open,commands,play,walk,dialogue,export`, `--walk N`, `--lines N`,
+`--commands N`, `--seed N`, `--renderer`, `--gpu`, `--keep`, `--out FILE`.
+The generated project is kept under `~/.cache/thirdlight-perf/scale/<preset>/`
+and copied for each run. `tests/e2e/scale-bench.e2e.ts` (in the fast gate)
+runs every step at the small size. The measured numbers are in
+`docs/plan-phase-26.md` §6.
+
 ## Upgrade
 
 ```sh

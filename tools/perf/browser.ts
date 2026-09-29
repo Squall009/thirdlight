@@ -104,7 +104,7 @@ export interface PlayStartSplit {
   counts: Record<string, number>;
 }
 
-function splitOf(clickEpoch: number, responseEpoch: number, backend: Record<string, number> | null, t: StartTimingsReport | undefined): PlayStartSplit {
+export function splitOf(clickEpoch: number, responseEpoch: number, backend: Record<string, number> | null, t: StartTimingsReport | undefined): PlayStartSplit {
   const r1 = (v: number): number => Math.round(v * 10) / 10;
   if (t === undefined) return { responseMs: responseEpoch - clickEpoch, backend, pageMs: null, stages: [], readyMs: null, firstFrameMs: null, afterFirstFrame: null, counts: {} };
   const off = t.epochMs - clickEpoch;
@@ -153,7 +153,7 @@ export function serveDir(dir: string): Promise<{ url: string; close: () => Promi
   });
 }
 
-async function poll<T>(fn: () => Promise<T>, ok: (v: T) => boolean, timeoutMs: number, what: string): Promise<T> {
+export async function poll<T>(fn: () => Promise<T>, ok: (v: T) => boolean, timeoutMs: number, what: string): Promise<T> {
   const until = Date.now() + timeoutMs;
   for (;;) {
     const v = await fn().catch(() => undefined as T);
