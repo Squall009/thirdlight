@@ -32,7 +32,7 @@ export function ClipsForField(p: Props): JSX.Element {
     return () => {
       live = false;
     };
-  }, [p.assetId, p.clipsFor]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [p.assetId, p.clipsFor]); // eslint-disable-line react-hooks/exhaustive-deps -- reloads when the asset or its clip source changes; the loader prop is a new closure each render
   return (
     <div className="tl-field" title="An animation-only file: its clips play on another model with the same bone names">
       <span className="tl-field__label">clips for rig of</span>

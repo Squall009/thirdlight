@@ -530,7 +530,6 @@ export class RuntimeMaterials {
   }
 
   private buildApi(): BehaviorMaterials {
-    // eslint-disable-next-line @typescript-eslint/no-this-alias
     const m = this;
     const int = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v);
     return Object.freeze({

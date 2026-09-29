@@ -166,7 +166,6 @@ describe('flat ground, movement and seams (real Rapier + controller)', () => {
       expect(maxDy).toBeLessThanOrEqual(0.001);
       const finalY = steps[steps.length - 1]!.position.y;
       expect(Math.abs(finalY - 0.91)).toBeLessThanOrEqual(0.0005);
-      // eslint-disable-next-line no-console
       console.log(`[idle-settle] restY=${finalY} maxDy=${maxDy}`);
     } finally {
       run.dispose();
@@ -189,7 +188,6 @@ describe('flat ground, movement and seams (real Rapier + controller)', () => {
       expect(Math.abs(mean - 4) / 4).toBeLessThanOrEqual(0.05);
       const ys = steps.map((s) => s.position.y);
       expect(Math.max(...ys) - Math.min(...ys)).toBeLessThanOrEqual(0.005);
-      // eslint-disable-next-line no-console
       console.log(`[flat-run] meanSpeed=${mean} maxYdev=${Math.max(...ys) - Math.min(...ys)} ungrounded=${ungroundedSteps(steps)}`);
     } finally {
       run.dispose();
@@ -211,7 +209,6 @@ describe('flat ground, movement and seams (real Rapier + controller)', () => {
       expect(steps[decelStart + 7]!.vx).toBe(0);
       // The slide policy must never re-accelerate an idle character on flat ground.
       for (let k = 8; k < 14; k += 1) expect(steps[decelStart + k]!.vx).toBe(0);
-      // eslint-disable-next-line no-console
       console.log(`[accel-decel] vx@11=${v(11)} vx@decelStart=${steps[decelStart]!.vx} vx@8=${steps[decelStart + 7]!.vx}`);
     } finally {
       run.dispose();
@@ -226,7 +223,6 @@ describe('flat ground, movement and seams (real Rapier + controller)', () => {
       expect(steps.some((s) => s.position.x >= 0)).toBe(true);
       expect(ungroundedSteps(steps)).toBeLessThanOrEqual(2);
       expect(groundedFraction(steps)).toBeGreaterThanOrEqual(0.95);
-      // eslint-disable-next-line no-console
       console.log(`[seam-cross] ungrounded=${ungroundedSteps(steps)} frac=${groundedFraction(steps)}`);
     } finally {
       run.dispose();
@@ -248,7 +244,6 @@ describe('jump behaviour (real Rapier + controller)', () => {
       const last = steps[steps.length - 1]!;
       expect(Math.abs(last.position.y - restY)).toBeLessThanOrEqual(0.001);
       expect(last.result.grounded).toBe(true);
-      // eslint-disable-next-line no-console
       console.log(`[jump-hold] restY=${restY} apexGain=${gain} maxVy=${Math.max(...steps.map((s) => s.vy))}`);
     } finally {
       run.dispose();
@@ -266,7 +261,6 @@ describe('jump behaviour (real Rapier + controller)', () => {
       const vyAfter = steps[idx(33)]!.vy;
       expect(vyAfter).toBeCloseTo((vyBefore + -19.62 * DT) * 0.5, 9);
       expect(Math.max(...steps.map((s) => s.position.y))).toBeLessThan(2.1);
-      // eslint-disable-next-line no-console
       console.log(`[jump-tap] vy32=${vyBefore} vy33=${vyAfter} apex=${Math.max(...steps.map((s) => s.position.y))}`);
     } finally {
       run.dispose();
@@ -286,7 +280,6 @@ describe('jump behaviour (real Rapier + controller)', () => {
       }
       expect(starts).toBe(1);
       expect(Math.max(...steps.map((s) => s.vy))).toBeLessThanOrEqual(7 + 1e-9);
-      // eslint-disable-next-line no-console
       console.log(`[no-air-jump] starts=${starts} maxVy=${Math.max(...steps.map((s) => s.vy))}`);
     } finally {
       run.dispose();
@@ -306,7 +299,6 @@ describe('wall, ceiling and ledge (real Rapier + controller)', () => {
       expect(Math.max(0, maxX - stopCenter)).toBeLessThanOrEqual(0.005);
       expect(contactsSeen(steps, 'wall')).toBe(true);
       expect(ungroundedSteps(steps)).toBe(0);
-      // eslint-disable-next-line no-console
       console.log(`[wall-stop] maxX=${maxX} stopCenter=${stopCenter}`);
     } finally {
       run.dispose();
@@ -333,7 +325,6 @@ describe('wall, ceiling and ledge (real Rapier + controller)', () => {
       // the achieved approach speed is recorded (the T9 12 m/s figure is the
       // packet-14 instantaneous-velocity probe; C32-4).
       const approach = Math.max(...steps.slice(0, Math.max(1, contactIndex)).map((s) => s.vx));
-      // eslint-disable-next-line no-console
       console.log(`[high-speed-wall] maxX=${maxX} contact@${contactIndex} stop@${stopIndex} approach=${approach}`);
       expect(approach).toBeGreaterThanOrEqual(8.0);
     } finally {
@@ -358,7 +349,6 @@ describe('wall, ceiling and ledge (real Rapier + controller)', () => {
       );
       expect(stopIndex).toBeGreaterThan(contactIndex);
       expect(stopIndex - contactIndex).toBeLessThanOrEqual(10);
-      // eslint-disable-next-line no-console
       console.log(`[high-speed-ledge] approach=${approach} maxX=${maxX} contact@${contactIndex} stop@${stopIndex}`);
     } finally {
       run.dispose();
@@ -383,7 +373,6 @@ describe('wall, ceiling and ledge (real Rapier + controller)', () => {
         maxRise = Math.max(maxRise, steps[i]!.position.y - steps[i - 1]!.position.y);
       }
       expect(maxRise).toBeLessThanOrEqual(5e-4);
-      // eslint-disable-next-line no-console
       console.log(`[ceiling-head-bump] maxCenterY=${maxCenterY} head@${headIndex} maxRiseAfter=${maxRise}`);
     } finally {
       run.dispose();
@@ -409,7 +398,6 @@ describe('wall, ceiling and ledge (real Rapier + controller)', () => {
       expect(landed.position.x).toBeGreaterThan(12);
       expect(Math.abs(landed.position.y - expectedLandTop)).toBeLessThanOrEqual(0.05);
       expect(landed.result.grounded).toBe(true);
-      // eslint-disable-next-line no-console
       console.log(`[ledge] maxBlockedDx=${maxBlockedDx} landed=(${landed.position.x},${landed.position.y})`);
     } finally {
       run.dispose();
@@ -430,7 +418,6 @@ describe('slope limit, sliding and snapping (real Rapier + controller)', () => {
       const ascent = steps.filter((s) => s.position.x > 2.2 && s.position.x < 4.2 && s.position.y > startY + 0.1);
       expect(ascent.length).toBeGreaterThan(10);
       expect(groundedFraction(ascent)).toBeGreaterThanOrEqual(0.95);
-      // eslint-disable-next-line no-console
       console.log(`[ramp-a43] gain=${apex - startY} ascentSteps=${ascent.length} groundedFrac=${groundedFraction(ascent)}`);
     } finally {
       run.dispose();
@@ -447,7 +434,6 @@ describe('slope limit, sliding and snapping (real Rapier + controller)', () => {
       const push = steps.slice(-120);
       const gain = Math.max(...push.map((s) => s.position.y)) - startY;
       expect(gain).toBeLessThanOrEqual(0.3);
-      // eslint-disable-next-line no-console
       console.log(`[ramp-b47] gainOver1s=${gain}`);
     } finally {
       run.dispose();
@@ -483,7 +469,6 @@ describe('slope limit, sliding and snapping (real Rapier + controller)', () => {
         const last = steps[steps.length - 1]!;
         const driftY = last.position.y - steps[0]!.position.y;
         const driftX = last.position.x - steps[0]!.position.x;
-        // eslint-disable-next-line no-console
         console.log(`[slope ${row.angle}] normalY=${normalY} rawGrounded=${measured.result.grounded} steep=${measured.result.contacts.steepSlope} controllerGrounded=${controllerGrounded} slideDrift=(${driftX},${driftY})`);
         // C32-1 slide policy: at/below the minimum slide angle the character
         // holds; at/above it slides down the face while idle.
@@ -513,7 +498,6 @@ describe('slope limit, sliding and snapping (real Rapier + controller)', () => {
       expect(minY).toBeGreaterThan(0.855);
       expect(region.filter((s) => !s.result.grounded).length).toBe(0);
       expect(region.some((s) => s.result.snapped)).toBe(true);
-      // eslint-disable-next-line no-console
       console.log(`[snap-within] minY=${minY} ungrounded=${region.filter((s) => !s.result.grounded).length}`);
     } finally {
       run.dispose();
@@ -542,7 +526,6 @@ describe('slope limit, sliding and snapping (real Rapier + controller)', () => {
       const landedY = deepSteps[deepSteps.length - 1]!.position.y;
       expect(Math.abs(landedY - 0.36)).toBeLessThanOrEqual(0.05);
       expect(deepSteps[deepSteps.length - 1]!.result.grounded).toBe(true);
-      // eslint-disable-next-line no-console
       console.log(`[snap-beyond] snappedDeep=${snappedDeep} maxStepDrop=${maxStepDrop} landedY=${landedY}`);
     } finally {
       run.dispose();
@@ -568,7 +551,6 @@ describe('Z lock and snapshot immutability', () => {
       expect(t.scale).toEqual([1, 1, 1]);
       const d = run.diagnostics();
       if (!d.ok) throw new Error('diagnostics failed');
-      // eslint-disable-next-line no-console
       console.log(`[no-z-drift] steps=${steps.length} z=${t.position[2]}`);
     } finally {
       run.dispose();
@@ -633,14 +615,12 @@ describe('window boundaries (coyote / jump buffer) on the real course', () => {
 
   it('jump-buffer-in-window: a press 7 steps before landing fires the jump', async () => {
     const r = await buffered(kase('jump-buffer-in-window'));
-    // eslint-disable-next-line no-console
     console.log(`[buffer-in] landedStep=${r.landedStep} fired=${r.fired}`);
     expect(r.fired).toBe(true);
   });
 
   it('jump-buffer-expired: a press 10 steps before landing never fires', async () => {
     const r = await buffered(kase('jump-buffer-expired'));
-    // eslint-disable-next-line no-console
     console.log(`[buffer-out] landedStep=${r.landedStep} fired=${r.fired}`);
     expect(r.fired).toBe(false);
   });
@@ -669,7 +649,6 @@ describe('window boundaries (coyote / jump buffer) on the real course', () => {
       run.steps(160 - SETTLE_STEPS);
       const steps = gameplay(run);
       const fired = steps.some((s) => s.vy > 1);
-      // eslint-disable-next-line no-console
       console.log(`[${id}] lastGroundedStep=${lastGroundedStep} pressStep=${pressStep} fired=${fired}`);
       expect(fired).toBe(c.expect.fires as boolean);
       run.dispose();
@@ -705,7 +684,6 @@ describe('packet-30 mapping drives the controller (keyboard + gamepad raw snapsh
     keyRun.dispose();
 
     expect(Math.abs(padMean - keyMean)).toBeLessThanOrEqual(1e-6);
-    // eslint-disable-next-line no-console
     console.log(`[device-parity] gamepadMean=${padMean} keyboardMean=${keyMean}`);
   });
 

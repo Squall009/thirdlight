@@ -135,7 +135,7 @@ export function UiPreview(p: Props): JSX.Element {
       layer.dispose();
       if (layerRef.current === layer) layerRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the preview layer is rebuilt only when the document's content key changes
   }, [docKey]);
 
   // Mock values: a view-model reset (the layer keeps its widgets).
@@ -147,7 +147,7 @@ export function UiPreview(p: Props): JSX.Element {
     flowRef.current = m.flow;
     layer.applyOutput({ reset: true, set: m.set, commands: [] });
     layer.frame();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mock values are applied when their content key changes
   }, [mockKey]);
 
   // Each frame: late assets (images, fonts), world anchors at the centre, the selection box.
@@ -242,7 +242,7 @@ export function UiPreview(p: Props): JSX.Element {
     };
     p.handleRef(handle);
     return () => p.handleRef(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the handle is published once per document; it reaches the layer through a ref
   }, [p.doc.uiDocumentId]);
 
   const safe = p.safeAreaPercent;

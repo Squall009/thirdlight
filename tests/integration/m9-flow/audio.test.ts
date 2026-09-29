@@ -12,7 +12,6 @@ import { createPhysicsPort } from '@thirdlight/physics-rapier';
 import { createBehaviorModuleSpec } from '@thirdlight/runtime';
 import { withGameModules } from '../../game-modules';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
 const DT = 1 / 120;
 const T = { rotation: [0, 0, 0, 1], scale: [1, 1, 1] };

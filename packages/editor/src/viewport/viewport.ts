@@ -71,7 +71,7 @@ export interface ViewportCallbacks {
   onPick: (entityId: string | null) => void;
   onGestureBegin: (entityId: string) => void;
   onGestureFrame: (entityId: string, transform: { position: number[]; rotation: number[]; scale: number[] }) => void;
-  onGestureEnd: (entityId: string, transform: { position: number[]; rotation: number[]; scale: number[] }) => void;
+  onGestureEnd: (entityId: string, transform: { position: number[]; rotation: number[]; scale: number[] }) => void | Promise<void>;
   /**
    * Phase 15.2 (generalises 9.12's waypoint and 14.0's size handles): a
    * handle was dragged and dropped, or a corner deleted — the component
@@ -273,7 +273,7 @@ export class Viewport {
         else this.cb.onCopyTransform?.(sel.entityId, sel.index, this.readCopyProxy());
         return;
       }
-      if (id && !cancelled) this.cb.onGestureEnd(id, this.readTarget());
+      if (id && !cancelled) void this.cb.onGestureEnd(id, this.readTarget());
     });
     this.scene.add(this.gizmo.getHelper());
 

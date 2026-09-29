@@ -60,7 +60,6 @@ import { LIT, litMainDirectionWorld, MeshCustomLitNodeMaterial } from './custom-
 import { instanceOrigin } from './node-materials';
 
 // TSL's typings do not follow values whose width is known only at run time.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type N = any;
 /** TSL, untyped here (see N). */
 const T: N = TSL;

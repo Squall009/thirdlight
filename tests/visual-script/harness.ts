@@ -15,7 +15,6 @@ import type { BehaviorScriptEnv, GraphData, GraphNode } from '@thirdlight/projec
 import { canonicalContainerText, compileBehaviorGraph, createBehaviorCompiler, type BehaviorCompileResult } from '../../packages/behavior-build/src/index';
 import { withGameModules } from '../game-modules';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type Any = any;
 const DT = 1 / 120;
 const T = { rotation: [0, 0, 0, 1], scale: [1, 1, 1] };

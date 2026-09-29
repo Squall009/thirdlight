@@ -40,10 +40,10 @@ export function AnimatorPanel(p: AnimatorPanelProps): JSX.Element {
   const [message, setMessage] = useState<string | null>(null);
   useEffect(() => {
     if (model === '' && rigs[0] !== undefined) setModel(rigs[0].assetId);
-  }, [rigs.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [rigs.length]); // eslint-disable-line react-hooks/exhaustive-deps -- picks the first rig when rigs appear; the models list is a new array each render
   useEffect(() => {
     if (selectedId === null || !p.controllers.some((c) => c.controllerId === selectedId)) setSelectedId(p.controllers[0]?.controllerId ?? null);
-  }, [p.controllers.map((c) => c.controllerId).join(',')]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [p.controllers.map((c) => c.controllerId).join(',')]); // eslint-disable-line react-hooks/exhaustive-deps -- keyed by the controller ids; the controllers array is new each render
   const selected = p.controllers.find((c) => c.controllerId === selectedId) ?? null;
 
   const create = async (preset: 'empty' | 'locomotion'): Promise<void> => {

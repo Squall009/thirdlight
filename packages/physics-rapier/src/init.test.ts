@@ -477,7 +477,6 @@ describe('resource release over many create/dispose cycles', () => {
     finalProbe.settle(12);
     expect(finalProbe.last?.grounded).toBe(true);
     finalPort.dispose();
-    // eslint-disable-next-line no-console
     console.log(
       `[resource-cycles] cycles=${cycles} statics=${expectedStatics} ` +
         `collidersPerCycle=${expectedStatics + 1} bodiesPerCycle=${expectedStatics} ` +

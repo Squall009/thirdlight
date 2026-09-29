@@ -182,7 +182,6 @@ export class EntityAccess {
   readonly control: BehaviorEntityControl;
 
   constructor(private readonly host: EntityAccessHost) {
-    // eslint-disable-next-line @typescript-eslint/no-this-alias
     const access = this;
     this.control = Object.freeze({
       handle(writer: string, ref: unknown): BehaviorEntityHandle | null {

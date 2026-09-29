@@ -10,7 +10,6 @@ import { stepDigest } from '@thirdlight/game-host';
 
 import { startHarness, type Harness, type Mode } from '../m22-worker/harness';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type Any = any;
 export const HZ = 120;
 export const DT = 1 / HZ;

@@ -276,12 +276,12 @@ export function Hierarchy({ entities, structureKey, flags, projectId, selectedId
             rows: collapsed.has(`scene:${sc.sceneId}`) ? [] : visibleRows(entities.filter((e) => e.sceneId === sc.sceneId), collapsed, filter),
           })),
     // `entities` is read through `shapeKey`.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- entities are read through shapeKey so transform-only edits don't rebuild the tree
     [scenes, shapeKey, collapsed, filter],
   );
   const rows: TreeRow[] = useMemo(
     () => (sceneTrees !== null ? sceneTrees.flatMap((t) => t.rows) : visibleRows(entities, collapsed, filter)),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- entities are read through shapeKey so transform-only edits don't rebuild the rows
     [sceneTrees, shapeKey, collapsed, filter],
   );
   const byId = useMemo(() => new Map(entities.map((e) => [e.id, e])), [entities]);

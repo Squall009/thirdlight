@@ -1084,7 +1084,7 @@ function EditorApp(): JSX.Element {
       clientRef.current = null;
       viewportRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the viewport and session client are made once per mount
   }, []);
 
   // Phase 25.7d: a changed project chunk size rebuilds the instance sets that use it.
@@ -1270,7 +1270,7 @@ function EditorApp(): JSX.Element {
       window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('blur', onBlur);
     };
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- the key listeners are installed once; undo, redo, del and setSelectedId are stable callbacks declared further down
 
   // Selection → gizmo, and to the backend (tools can inspect the selection).
   useEffect(() => {
@@ -1475,7 +1475,7 @@ function EditorApp(): JSX.Element {
       window.removeEventListener('message', onMsg);
       bridgeRef.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the play bridge restarts only when the play session's identity changes
   }, [playing, playInfo?.playSessionId, playInfo?.playBase, playInfo?.snapshot, playInfo?.contentId, playInfo?.buildId]);
 
   // ---- toolbar actions (all delegated to the backend) ---------------------
@@ -1491,7 +1491,7 @@ function EditorApp(): JSX.Element {
       c.projection.revision,
     );
     if (res.ok && res.createdId !== undefined) setSelectedId(res.createdId);
-  }, []);
+  }, [setSelectedId]);
   const del = useCallback(async () => {
     const c = clientRef.current;
     if (!c || !selectedIdRef.current) return;
@@ -1535,7 +1535,7 @@ function EditorApp(): JSX.Element {
       if (res.ok && res.createdId !== undefined) setSelectedId(res.createdId);
       else reportFailure(what, res);
     },
-    [reportFailure],
+    [reportFailure, setSelectedId],
   );
   const createEmpty = useCallback(() => createEntityAt('Create empty', { kind: 'group', name: `entity-${Date.now() % 10000}` }), [createEntityAt]);
   // Phase 15.5: the camera and the lights are the descriptor's add value and
@@ -1600,7 +1600,7 @@ function EditorApp(): JSX.Element {
     const res = await c.command('pasteEntities', { entities: named, offset: [0.5, 0, 0], ...(sceneId !== undefined ? { sceneId } : {}) }, c.projection.revision);
     if (res.ok && res.createdId !== undefined) setSelectedId(res.createdId);
     else reportFailure('Duplicate', res);
-  }, [reportFailure, selectionValues]);
+  }, [reportFailure, selectionValues, setSelectedId]);
 
   /** Edit → Copy (Ctrl+C): remember the selection's values (any scene). */
   const clipboardRef = useRef<Record<string, unknown>[] | null>(null);
@@ -1621,7 +1621,7 @@ function EditorApp(): JSX.Element {
     const res = await c.command('pasteEntities', { entities: values, parentId }, c.projection.revision);
     if (res.ok && res.createdId !== undefined) setSelectedId(res.createdId);
     else reportFailure('Paste', res);
-  }, [reportFailure]);
+  }, [reportFailure, setSelectedId]);
   const editRef = useRef({ duplicate, copySelection, paste });
   editRef.current = { duplicate, copySelection, paste };
 
@@ -2585,7 +2585,7 @@ function EditorApp(): JSX.Element {
       else if (!res.ok) setPlacementError({ code: (res.response as { code?: string }).code ?? 'command_failed', message: (res.response as { message?: string }).message ?? 'the model could not be placed' });
       reportFailure(`Place ${asset.displayName}`, res);
     },
-    [reportFailure],
+    [reportFailure, setSelectedId],
   );
 
   // ---- phase 9.4: materials, their assignment, the environment ---------------
@@ -3320,7 +3320,7 @@ function EditorApp(): JSX.Element {
   /** The libraries with unsaved edits (their drafts differ from the stored files). */
   const dirtyLibraries = useMemo(
     () => scriptLibraries.filter((l) => libraryDrafts.get(l.libraryId)?.dirty === true).map((l) => l.libraryId),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- libraryDrafts is a mutable map; libraryDraftsVersion signals its changes
     [scriptLibraries, libraryDraftsVersion],
   );
   /**
@@ -3752,11 +3752,11 @@ function EditorApp(): JSX.Element {
   useEffect(() => {
     const target = selectedEffect !== undefined && selectedEntity !== null ? { id: selectedEntity.id, component: selectedEffect } : null;
     viewportRef.current?.setEffectPreview(effectPreview, effects as never, target, loadTextureRef.current);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the selected effect is keyed by selectedEffectKey so unrelated entity edits don't rebuild the preview
   }, [effectPreview, effects, selectedEffectKey]);
   const structureKey = `${clientRef.current?.projection.structureVersion ?? 0}|${clientRef.current?.getSceneView().open.join(',') ?? ''}`;
   // Flags depend on parents and own flags only: recomputed with the shape, not on every transform edit.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- flags depend on the shape (structureKey), not on transform edits
   const hierarchyFlagsMemo = useMemo(() => effectiveFlagsOf(entities), [structureKey, entities.length]);
   const tagUsageMemo = useMemo(() => {
     const usage = new Map<number, number>();

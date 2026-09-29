@@ -37,7 +37,8 @@ export function GraphInspector({ kind, graph, ids, onEdit, extension, empty, por
   const edit = (ops: GraphOp[]): void => {
     void onEdit(ops).then(setError);
   };
-  useEffect(() => setError(null), [ids.join(',')]);
+  const idsKey = ids.join(',');
+  useEffect(() => setError(null), [idsKey]);
   if (ids.length === 0) return <>{empty ?? <div className="tl-inspector__empty">Select a node, wire, group or comment.</div>}</>;
   if (ids.length > 1) return <div className="tl-inspector__empty">{ids.length} items selected.</div>;
   const id = ids[0]!;

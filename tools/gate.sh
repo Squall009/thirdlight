@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Thirdlight green gate (2026-09-26). Three modes:
 #
-#   tools/gate.sh fast [e2e files or dirs…]   per commit: build + vitest + the smoke set + the
+#   tools/gate.sh fast [e2e files or dirs…]   per commit: build + lint + vitest + the smoke set + the
 #                                             e2e files named (the ones for the area you changed)
 #   tools/gate.sh full [--both-renderers]     per phase item / before STATUS says done: build +
-#                                             vitest + every e2e spec, the leak test included
+#                                             lint + vitest + every e2e spec, the leak test included
 #                                             (TL_MEMORY=1). On a GPU (2026-09-27) one pass in the
 #                                             product's own renderer; --both-renderers (for shader /
 #                                             rendering changes) adds the forced WebGL 2 variants and
@@ -32,6 +32,8 @@ done_() { say "$1 ($(( ($(date +%s) - t0) / 60 )) min, logs $L)"; case "$1" in G
 build_and_unit() {
   npm run build > "$L/build.log" 2>&1
   grep -q '^build: done' "$L/build.log" || { grep -E 'FAIL|error' "$L/build.log" | head -20; done_ "RED build"; }
+  npm run lint > "$L/lint.log" 2>&1 || { grep -E 'error|✖' "$L/lint.log" | head -20; done_ "RED lint"; }
+  say "lint: clean"
   npx vitest run --exclude '.claude/**' --exclude 'archive/**' > "$L/vitest.log" 2>&1
   if ! grep -qE 'Test Files .*passed' "$L/vitest.log" || grep -qE 'Test Files .*failed' "$L/vitest.log"; then
     # Like the e2e step: rerun the failed files once alone (timeouts and CPU budgets on a loaded host).

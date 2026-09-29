@@ -64,7 +64,6 @@ import { fxaa } from 'three/examples/jsm/tsl/display/FXAANode.js';
 import { releaseMrtContexts } from './dispose';
 
 /** TSL nodes are loosely typed here (three's node typings are generic-heavy); values stay three objects. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type N = any;
 
 /** The fog volumes drawn: the model's per-scene cap. */

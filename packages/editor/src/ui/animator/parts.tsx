@@ -88,7 +88,7 @@ export function useClipChoices(model: string, models: AnimatorModels, clipsOf: (
     return () => {
       live = false;
     };
-  }, [model, JSON.stringify(models)]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [model, JSON.stringify(models)]); // eslint-disable-line react-hooks/exhaustive-deps -- models are compared by content since the list is rebuilt each render
   return clips;
 }
 
@@ -422,7 +422,7 @@ export function LivePreview({ controller, start, onStates }: { controller: Anima
       live.current = null;
       onStatesRef.current?.([]);
     };
-  }, [on, key]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [on, key]); // eslint-disable-line react-hooks/exhaustive-deps -- the preview restarts on toggle or content key; callbacks are read through refs
   const set = (name: string, v: number | boolean): void => {
     setValues((x) => ({ ...x, [name]: v }));
     live.current?.set(name, v);

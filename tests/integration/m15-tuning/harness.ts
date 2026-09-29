@@ -10,7 +10,6 @@ import { createPhysicsPort } from '@thirdlight/physics-rapier';
 import { playerCapsuleOf, playerPhysicsOf } from '@thirdlight/runtime';
 import { withGameModules } from '../../game-modules';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type Any = any;
 const T = { rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
 export const at = (x: number, y: number, z = 0) => ({ position: [x, y, z], ...T });

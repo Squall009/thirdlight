@@ -227,7 +227,7 @@ export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus, ed
     const sel = selectionRef.current;
     if ([...sel].some((id) => !present.has(id))) setSelection(new Set([...sel].filter((id) => present.has(id))));
     requestDraw();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- prunes the selection when the graph changes; the other reads go through refs
   }, [graph]);
 
   // ---- drawing --------------------------------------------------------------------------
@@ -349,7 +349,7 @@ export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus, ed
     const b = boundsOf(allRects(kind, graph, portsRef.current));
     if (b !== null) setView(fitView(b, sizeRef.current.w, sizeRef.current.h));
     else setView({ x: 40, y: 40, zoom: 1 });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- frames the view once per opened owner, not on every graph edit
   }, [owner.kind, owner.id]);
 
   // ---- helpers --------------------------------------------------------------------------
@@ -471,7 +471,7 @@ export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus, ed
     frame(ids);
     const el = rootRef.current?.querySelector<HTMLElement>(`[data-node-id="${CSS.escape(focus.id)}"]`);
     el?.focus({ preventScroll: true });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once per focus request (id and nonce)
   }, [focus?.id, focus?.nonce]);
 
   // ---- clipboard and selection commands ----------------------------------------------------

@@ -262,3 +262,27 @@ at the boundary it changes (Playwright for any editor surface).
   `editor/src/session/client.ts` 2,417 → 773 (the HTTP project operations,
   a `SessionClient` subclass) + `client-core.ts` 1,667 (connection,
   projection, commands).
+- 2026-09-29 (26.1 B): ESLint 10.11.0 (flat config, `defineConfig`),
+  typescript-eslint 8.71.0 and eslint-plugin-react-hooks 7.1.1, versions
+  checked on npm and the typed-linting setup against typescript-eslint.io;
+  pinned in `check-deps`. `npm run lint` (`eslint.config.mjs`) runs in the
+  fast and full gates after the build, about 40 s. Package sources get the
+  typed rules through each package's tsconfig (project service); `tests/`
+  and `tools/` have no tsconfig and get the untyped ones; the React hooks
+  rules apply to the editor. `eqeqeq` ignores `== null` (the codebase's
+  null-or-undefined idiom); `no-fallthrough` allows empty cases with
+  comments between labels. Unused disables are errors, and a small local
+  rule requires `-- reason` on every `eslint-disable`: the 101 inert
+  disables (rules never configured: `no-explicit-any`, `no-console`,
+  `no-this-alias`, …) were removed, the 34 live `exhaustive-deps` ones got
+  their reason. Fixed without behaviour change: dependency keys extracted
+  (`idsKey`, `hasLayer`), the stable `setSelectedId` added to five
+  `useCallback` lists, one shared empty breakpoint list, `void` on
+  `renderer.compute` (returns a promise only before init) and on the
+  viewport's async gesture-end callback (its type now says so), a duplicate
+  `runs` key in an evaluation probe (the first was always overwritten; now
+  `runCount`). Left with a reason instead of a change of effect timing: the
+  editor's key listeners installed once (their callbacks are declared later,
+  so listing them would hit the temporal dead zone), `useWorkerJob`'s
+  caller-given dependency list, and the block editor's slice reapplied per
+  edited layer.

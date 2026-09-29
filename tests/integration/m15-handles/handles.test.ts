@@ -22,7 +22,6 @@ import { commitValue, deletePoint, dragGrip, gripsOf, handleShapesOf, insertPoin
 import { boxFromOutline, convexHull, polygonFromOutline } from '@thirdlight/editor/outline';
 import { copyAt, copyCount, spacedPoints, withAddedCopies, withCopy, withoutCopy } from '@thirdlight/editor/instance-copies';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
 type State = CommandState<Any>;
 

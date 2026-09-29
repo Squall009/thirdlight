@@ -70,6 +70,11 @@ export const PINS = {
   // encoder (its bundled WASM build) and a JPEG decoder for JPEG sources.
   'ktx2-encoder': '0.6.0',
   'jpeg-js': '0.4.4',
+  // `npm run lint` (root dev only): ESLint's flat config, typescript-eslint for
+  // the typed rules, and the React hooks rules for the editor.
+  eslint: '10.11.0',
+  'typescript-eslint': '8.71.0',
+  'eslint-plugin-react-hooks': '7.1.1',
 };
 
 /** §7 scope/consumer notes for the pending-pin report. */
@@ -102,6 +107,9 @@ const PIN_CONSUMERS = {
   'playwright-core': 'backend (phase 11: the headless editor for MCP play; same version as @playwright/test)',
   'ktx2-encoder': 'backend (phase 25.19: KTX2 encoding on import, in a worker thread; never in a browser bundle; decision 0006)',
   'jpeg-js': 'backend (phase 25.19: decodes JPEG sources for KTX2 encoding; decision 0006)',
+  eslint: 'workspace lint (root dev; never in a bundle)',
+  'typescript-eslint': 'workspace lint (root dev; never in a bundle)',
+  'eslint-plugin-react-hooks': 'workspace lint (root dev; never in a bundle)',
   '@dimforge/rapier2d-compat':
     'physics-rapier (packet 31) — the exact 0.20.0 pin (decision 0002 §1; dependencies.md §7); bundled by the preview/export graphs in packets 35/36',
   '@dimforge/rapier3d-compat':

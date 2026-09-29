@@ -24,7 +24,6 @@ import { physics3DConfigOf } from '@thirdlight/runtime';
 import { behaviorModule, MODES, startHarness, type Harness, type Mode } from '../m22-worker/harness';
 import { MODULES_3D } from '../m23-3d/character-kit';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
 const DT = 1 / 120;
 const T = (position: number[], rotation = [0, 0, 0, 1]) => ({ position, rotation, scale: [1, 1, 1] });

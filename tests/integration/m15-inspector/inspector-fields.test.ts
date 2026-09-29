@@ -20,7 +20,6 @@ import { DESCRIPTORS, validateContentV4, validateSceneV4, type FieldDescriptor, 
 import { applyMutation, createCommandState, type CommandState, type ContentDocument } from '@thirdlight/commands';
 import { addEntries, componentPatch, firstReference, seedsOf, visibleFields, widgetFor, type FieldPath } from '@thirdlight/editor/descriptor-fields';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
 type State = CommandState<Any>;
 

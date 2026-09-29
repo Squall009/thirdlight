@@ -75,7 +75,6 @@ describe('physics cases (real Rapier 2D)', () => {
           diagnostics: init.port.diagnostics?.(),
         };
         expect(summary.steps).toBeGreaterThan(0);
-        // eslint-disable-next-line no-console
         console.log(`[${physicsCase.id}] ${JSON.stringify(summary)}`);
       } finally {
         init.port.dispose();

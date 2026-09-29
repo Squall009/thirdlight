@@ -31,7 +31,6 @@ import {
 
 import { compileBehaviorGraph, createBehaviorCompiler } from '../../packages/behavior-build/src/index';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
 const compiler = createBehaviorCompiler();
 

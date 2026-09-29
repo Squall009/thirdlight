@@ -894,12 +894,12 @@ export class GpuSystem {
   }
 
   reset(renderer: THREE.WebGPURenderer): void {
-    renderer.compute(this.resetPass);
+    void renderer.compute(this.resetPass);
   }
 
   /** One step: update, then spawn the planned births. */
   step(renderer: THREE.WebGPURenderer, plan: { serialBase: number; count: number; runs: { count: number; distance: boolean }[] } | undefined): void {
-    renderer.compute(this.updatePass);
+    void renderer.compute(this.updatePass);
     if (plan === undefined || plan.count <= 0) return;
     const count = Math.min(plan.count, this.capacity);
     this.spawnCount.value = count;
@@ -910,24 +910,24 @@ export class GpuSystem {
       (this.runs[r]!.value as THREE.Vector4).set(start, run?.count ?? 0, run?.distance === true ? 1 : 0, 0);
       start += run?.count ?? 0;
     }
-    renderer.compute(this.spawnPass, count);
+    void renderer.compute(this.spawnPass, count);
   }
 
   /** Before drawing: sort the slots back to front for this camera (alpha-blended outputs), then gather them into the draw buffers. */
   sort(renderer: THREE.WebGPURenderer, camera: THREE.Vector3): void {
     this.sortSlots(renderer, camera);
-    renderer.compute(this.gatherPass);
+    void renderer.compute(this.gatherPass);
   }
 
   private sortSlots(renderer: THREE.WebGPURenderer, camera: THREE.Vector3): void {
     if (this.sortFill === null || this.sortStep === null) return;
     (this.cameraPosition.value as THREE.Vector3).copy(camera);
-    renderer.compute(this.sortFill);
+    void renderer.compute(this.sortFill);
     for (let k = 2; k <= this.sortSize; k *= 2) {
       for (let j = k >> 1; j > 0; j >>= 1) {
         this.sortK.value = k;
         this.sortJ.value = j;
-        renderer.compute(this.sortStep);
+        void renderer.compute(this.sortStep);
       }
     }
   }

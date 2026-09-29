@@ -13,7 +13,6 @@ import { validateContentV4, validateSceneV4 } from '@thirdlight/project-model';
 import { applyMutation, createCommandState, type CommandState, type ContentDocument } from '@thirdlight/commands';
 import { physics3DConfigOf, staticColliderOf3D } from '@thirdlight/runtime';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
 type State = CommandState<Any>;
 const DIR = join(__dirname, '..', '..', '..', 'fixtures', 'commands', 'scenarios', '01-retry-lost-ack', 'disk-before');

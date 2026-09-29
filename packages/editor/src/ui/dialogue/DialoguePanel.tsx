@@ -145,7 +145,7 @@ function SpeakersEditor(p: DialoguePanelProps): JSX.Element {
   const current = editing !== null ? (p.speakers.find((s) => s.speakerId === editing) ?? null) : null;
   const blank: DialogueSpeaker = { speakerId: '', name: '' };
   const [draft, setDraft] = useState<DialogueSpeaker>(blank);
-  useEffect(() => setDraft(current !== null ? structuredClone(current) : blank), [editing, current]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => setDraft(current !== null ? structuredClone(current) : blank), [editing, current]); // eslint-disable-line react-hooks/exhaustive-deps -- blank is a new object each render; the draft resets when the edited speaker changes
   const textures = p.assets.filter((a) => a.kind === 'texture');
   const sounds = p.assets.filter((a) => a.kind === 'audio');
   const portraits = Object.entries(draft.portraits ?? {});

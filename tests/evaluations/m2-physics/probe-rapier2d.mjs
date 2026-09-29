@@ -531,7 +531,7 @@ if (mode === 'cpu') {
     machine: 'container (NOT the reference desktop — directional only, plan-review BR-2)',
     node: process.version,
     fixture: '1 kinematic capsule + 64 static colliders (course-spec.json)',
-    warmupS: m.warmupS, measureS: m.measureS, runs: m.runs,
+    warmupS: m.warmupS, measureS: m.measureS, runCount: m.runs,
     profilingLimits: 'process.hrtime.bigint(); no GC isolation (spikes included in percentiles); single-threaded; Node, not a browser — no GPU involvement',
     runs: runResults,
   };

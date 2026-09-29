@@ -32,7 +32,6 @@ import { socketGlb } from '../../e2e/socket-glb';
 import { FakeNode, behaviorModule, startHarness, type Mode } from '../m22-worker/harness';
 import { MODULES_3D } from '../m23-3d/character-kit';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
 const DT = 1 / 120;
 const T = (position: number[]) => ({ position, rotation: [0, 0, 0, 1], scale: [1, 1, 1] });

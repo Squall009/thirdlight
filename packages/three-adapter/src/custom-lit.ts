@@ -42,7 +42,6 @@ import * as TSL from 'three/tsl';
 import { EnvironmentNode, LightingModel, LightingNode, NodeMaterial, type NodeBuilder } from 'three/webgpu';
 
 // TSL's typings do not follow values whose width is known only at run time.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type N = any;
 const T: N = TSL;
 

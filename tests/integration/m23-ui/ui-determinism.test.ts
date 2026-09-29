@@ -11,7 +11,6 @@ import { describe, expect, it } from 'vitest';
 
 import { FakeNode, behaviorModule, startHarness, type Mode } from '../m22-worker/harness';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
 const HZ = 120;
 const DT = 1 / HZ;

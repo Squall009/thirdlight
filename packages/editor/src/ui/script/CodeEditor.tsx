@@ -200,7 +200,7 @@ export function CodeEditor(p: CodeEditorProps): JSX.Element {
       v.destroy();
       view.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the CodeMirror view is made once per mount; path and text updates go through the next effect
   }, []);
 
   // Another file (or the file's text replaced from outside: a reload).
@@ -216,7 +216,7 @@ export function CodeEditor(p: CodeEditorProps): JSX.Element {
     } else if (v.state.doc.toString() !== p.text) {
       v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: p.text } });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- syncs the view on path or text changes only; the rest is read from refs
   }, [p.path, p.text]);
 
   // Diagnostics for the open file.

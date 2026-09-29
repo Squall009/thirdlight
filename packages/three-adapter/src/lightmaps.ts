@@ -88,7 +88,6 @@ function withLightmapTint(material: THREE.Material, tint: { value: THREE.Color }
   const m = material as THREE.Material & { setupLightMap: (builder: unknown) => unknown };
   const baseKey = m.customProgramCacheKey;
   m.setupLightMap = function setupTintedLightMap(builder: unknown) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return (builder as { material: LightmapCapable }).material.lightMap ? new IrradianceNode((materialLightMap as any).mul(tint)) : null;
   };
   m.customProgramCacheKey = function cacheKeyTintedLightmap() {

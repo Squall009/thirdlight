@@ -109,6 +109,8 @@ type CheckState = { status: 'idle' | 'checking' } | { status: 'done'; result: Vi
 const DRAG_TYPE = 'application/x-thirdlight-variable';
 /** How often the debugger polls the running Play (4 per second: a glance, a small relay load). */
 const DEBUG_POLL_MS = 250;
+/** One empty list, so a script without breakpoints keeps the same dependency between renders. */
+const NO_BREAKPOINTS: readonly string[] = [];
 
 export function VisualScriptDocument(p: VisualScriptDocumentProps): JSX.Element {
   const { behaviorId, behavior, check } = p;
@@ -168,12 +170,12 @@ export function VisualScriptDocument(p: VisualScriptDocumentProps): JSX.Element 
   const { onTarget } = p;
   useEffect(() => {
     if (focusSplit !== null && focusSplit.target !== target) onTarget(behaviorId, focusSplit.target);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once per focus request (its nonce), not on every tab switch
   }, [focusFor?.nonce]);
   const graphFocus = focusFor !== null && focusSplit !== null && focusSplit.target === target ? { id: focusSplit.id, nonce: focusFor.nonce } : null;
 
   // ---- debugging in Play -------------------------------------------------------------
-  const breakpoints = p.breakpoints[behaviorId] ?? [];
+  const breakpoints = p.breakpoints[behaviorId] ?? NO_BREAKPOINTS;
   const watches = p.watches[behaviorId] ?? [];
   const carriers = p.carriers(behaviorId);
   const [debugEntity, setDebugEntity] = useState<string | null>(null);
@@ -187,7 +189,7 @@ export function VisualScriptDocument(p: VisualScriptDocumentProps): JSX.Element 
   // The scene's selection picks the debugged object when it carries this script.
   useEffect(() => {
     if (p.selectedEntityId !== null && carriers.some((c) => c.id === p.selectedEntityId)) setDebugEntity(p.selectedEntityId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- follows the scene selection only; a changed carrier list must not reset the debugged object
   }, [p.selectedEntityId]);
   const playKey = p.activePlay !== null ? `${p.activePlay.snapshotId}@${p.activePlay.revision}` : null;
   const { debugRequest } = p;

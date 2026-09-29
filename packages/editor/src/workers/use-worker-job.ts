@@ -61,6 +61,6 @@ export function useWorkerJob<K extends ValueJob>(
     };
     void pump();
     // The caller's dependency list decides when the inputs changed.
-  }, deps);
+  }, deps); // eslint-disable-line react-hooks/exhaustive-deps -- the caller's list stands for makeInput's inputs; job and inline are fixed per call site
   return value;
 }

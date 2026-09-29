@@ -84,7 +84,7 @@ export function AnimatorDocument(p: AnimatorDocumentProps): JSX.Element {
   const [model, setModel] = useState<string>(firstAsset ?? rigs[0]?.assetId ?? '');
   useEffect(() => {
     if (firstAsset !== undefined && firstAsset !== model) setModel(firstAsset);
-  }, [firstAsset]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [firstAsset]); // eslint-disable-line react-hooks/exhaustive-deps -- follows the controller's rig only; a model the user picked stays until the rig changes
   const clips = useClipChoices(model, p.models, p.clipsOf);
   const [bones, setBones] = useState<BoneInfo[]>([]);
   useEffect(() => {
@@ -93,7 +93,7 @@ export function AnimatorDocument(p: AnimatorDocumentProps): JSX.Element {
     return () => {
       live = false;
     };
-  }, [model]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [model]); // eslint-disable-line react-hooks/exhaustive-deps -- bones reload when the model changes; skeletonOf is a new closure each render
   const [dock, setDockState] = useState<PreviewDock>(loadDock);
   const setDock = (d: PreviewDock): void => {
     setDockState(d);
@@ -118,12 +118,12 @@ export function AnimatorDocument(p: AnimatorDocumentProps): JSX.Element {
     if (layer === null || target === null || 'blendState' in target) return m;
     for (const pair of animatorTransitionPairs(layer.transitions)) if (pair.indices.length > 1) m.set(pair.id, `×${pair.indices.length}`);
     return m;
-  }, [layer, target === null ? '' : ownerId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [layer, target === null ? '' : ownerId]); // eslint-disable-line react-hooks/exhaustive-deps -- the target is identified by ownerId; recomputed when the layer or the owner changes
   const highlighted = useMemo(() => {
     if (layer === null || target === null || 'blendState' in target) return new Set<string>();
     const name = previewStates[layerIndex];
     return new Set(layer.states.filter((s) => s.name === name).map((s) => s.id));
-  }, [layer, previewStates, layerIndex, ownerId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [layer, previewStates, layerIndex, ownerId]); // eslint-disable-line react-hooks/exhaustive-deps -- the target is identified by ownerId; recomputed when the layer, preview or owner changes
 
   if (controller === null) return <p className="tl-hint">This animator controller no longer exists (deleted or undone). Close the tab, or undo the deletion.</p>;
 

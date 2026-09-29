@@ -184,7 +184,6 @@ async function main(): Promise<void> {
   notice.textContent = BEHAVIOR_TRUST_NOTICE.join('\n\n');
   root.append(notice);
 
-  // eslint-disable-next-line no-console
   console.log(pre.textContent);
 }
 

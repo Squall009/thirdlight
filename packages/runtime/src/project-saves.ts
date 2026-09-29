@@ -633,7 +633,6 @@ export class RuntimeSaves {
   }
 
   private buildApi(): BehaviorSaves {
-    // eslint-disable-next-line @typescript-eslint/no-this-alias
     const r = this;
     return Object.freeze({
       get version(): number {

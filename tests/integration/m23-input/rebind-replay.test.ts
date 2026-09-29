@@ -19,7 +19,6 @@ import type { ActionFrame } from '@thirdlight/runtime';
 
 import { behaviorModule, startHarness } from '../m22-worker/harness';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
 const DT = 1 / 120;
 const SETTINGS = { gravity_y: -19.62, run_speed: 4, jump_velocity: 7, max_fall_speed: -30, max_slope_climb_deg: 45, min_slope_slide_deg: 30 };

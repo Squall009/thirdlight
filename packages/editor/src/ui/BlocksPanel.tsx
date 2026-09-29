@@ -177,13 +177,14 @@ export function BlocksPanel(p: Props): JSX.Element {
       pasteSize: clip === null ? null : [clip.box[3] - clip.box[0], clip.box[4] - clip.box[1], clip.box[5] - clip.box[2]],
     });
   });
+  const hasLayer = layer !== null;
   useEffect(() => {
-    editor?.setActive(p.visible && armed && layer !== null);
+    editor?.setActive(p.visible && armed && hasLayer);
     return () => editor?.setActive(false);
-  }, [editor, p.visible, armed, layer !== null]);
+  }, [editor, p.visible, armed, hasLayer]);
   useEffect(() => {
     if (editor !== null && layer !== null) setSlice(editor.setSlice(slice));
-  }, [editor, slice, layer?.entityId]);
+  }, [editor, slice, layer?.entityId]); // eslint-disable-line react-hooks/exhaustive-deps -- the slice is reapplied when the edited layer changes, not on every edit of its content
   useEffect(() => editor?.setShownFields(shown), [editor, shown]);
   useEffect(() => editor?.setShowRegions(showRegions), [editor, showRegions]);
   useEffect(() => editor?.setSelection(selection), [editor, selection]);

@@ -184,7 +184,7 @@ export function ScriptDocument(p: ScriptDocumentProps): JSX.Element {
     return () => {
       live = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reloads when the script or its published digest changes, not on every draft edit
   }, [behaviorId, publishedDigest, behavior === null]);
 
   const runCheck = useCallback(
@@ -218,7 +218,7 @@ export function ScriptDocument(p: ScriptDocumentProps): JSX.Element {
       if (timer.current !== null) window.clearTimeout(timer.current);
       timer.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the check restarts on text edits only; its other inputs are read when it fires
   }, [text]);
 
   // Phase 25.9: a Console location opens its file and puts the cursor on the line.

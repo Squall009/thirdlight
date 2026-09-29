@@ -156,6 +156,10 @@ describe('check 6 — dependency pinning (dependencies.md §5.6)', () => {
       // Phase 25.19: KTX2 encoding on import (decision 0006).
       'ktx2-encoder': '0.6.0',
       'jpeg-js': '0.4.4',
+      // The lint toolchain (root dev only).
+      eslint: '10.11.0',
+      'typescript-eslint': '8.71.0',
+      'eslint-plugin-react-hooks': '7.1.1',
     });
   });
 });

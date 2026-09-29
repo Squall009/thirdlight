@@ -605,7 +605,6 @@ function checkValue(prop: DeclaredProperty, value: unknown): string | null {
       if (typeof value !== 'string') return 'type';
       const maxLength = prop.maxLength ?? 256;
       if (value.length > maxLength) return 'value';
-      // eslint-disable-next-line no-control-regex
       if (/[\u0000-\u001f\u007f]/.test(value)) return 'value';
       return null;
     }

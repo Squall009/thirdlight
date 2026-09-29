@@ -23,7 +23,6 @@ import { M2_PINNED_MODULES, compileBehavior } from '@thirdlight/behavior-build';
 
 import { startHarness, type Harness, type Mode } from '../m22-worker/harness';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
 const HZ = 120;
 const DT = 1 / HZ;

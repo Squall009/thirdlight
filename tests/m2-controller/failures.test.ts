@@ -70,7 +70,6 @@ describe('long tab stall and dropped wall time (A13)', () => {
       // No phantom displacement beyond the executed steps.
       const xAfter = run.position().x;
       expect(xAfter - xBefore).toBeLessThanOrEqual(8 * 4 * DT + 1e-6);
-      // eslint-disable-next-line no-console
       console.log(
         `[stall] executed=8 dropped=${after.diagnostics.droppedSteps} inputSamples=${after.diagnostics.inputSamples} physicsSteps=${after.diagnostics.physicsSteps} stepIndex=${after.diagnostics.stepIndex} dx=${xAfter - xBefore}`,
       );
@@ -111,7 +110,6 @@ describe('long tab stall and dropped wall time (A13)', () => {
       }
       expect(starts).toBe(1);
       expect(Math.max(...steps.map((s) => s.vy))).toBeLessThanOrEqual(7 + 1e-9);
-      // eslint-disable-next-line no-console
       console.log(`[catch-up-jump] starts=${starts} maxVy=${Math.max(...steps.map((s) => s.vy))} stepIndex=${d.diagnostics.stepIndex}`);
     } finally {
       run.dispose();
@@ -196,7 +194,6 @@ describe('fail-stop after a physics-phase mutation (A14)', () => {
     expect(runtime.dispose().ok).toBe(true);
     expect(runtime.dispose().ok).toBe(true);
     expect(disposed).toBe(1);
-    // eslint-disable-next-line no-console
     console.log(
       `[fail-stop] physicsSteps=${d.diagnostics.physicsSteps} failedStepIndex=${d.diagnostics.failedStepIndex} module=${d.diagnostics.failedModuleId} phase=${d.diagnostics.failedPhase}`,
     );
@@ -218,7 +215,6 @@ describe('stop/start retains the controller private state (platformer.md §6)', 
       // The controller's private vx survived the stop/start (a reset would
       // force it back to 0 and re-accelerate).
       expect(run.records[run.records.length - 1]!.vx).toBeCloseTo(4, 9);
-      // eslint-disable-next-line no-console
       console.log(`[stop-start] vxBefore=${vxBefore} vxAfter=${run.records[run.records.length - 1]!.vx}`);
     } finally {
       run.dispose();

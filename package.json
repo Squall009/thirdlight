@@ -14,6 +14,7 @@
     "build": "node tools/check-deps.mjs && node tools/check-boundaries.mjs && node tools/typecheck.mjs && node tools/build.mjs",
     "start": "node tools/start.mjs",
     "typecheck": "node tools/typecheck.mjs",
+    "lint": "eslint .",
     "test": "vitest run",
     "check-deps": "node tools/check-deps.mjs",
     "check-boundaries": "node tools/check-boundaries.mjs",
@@ -24,7 +25,10 @@
     "@types/node": "22.20.4",
     "@types/ws": "8.18.1",
     "esbuild": "0.28.2",
+    "eslint": "10.11.0",
+    "eslint-plugin-react-hooks": "7.1.1",
     "typescript": "5.9.3",
+    "typescript-eslint": "8.71.0",
     "vitest": "5.0.1"
   }
 }

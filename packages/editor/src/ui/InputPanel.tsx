@@ -162,7 +162,7 @@ export function InputPanel(p: Props): JSX.Element {
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
-  }, [listening]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [listening]); // eslint-disable-line react-hooks/exhaustive-deps -- the key listener is installed per listen request; the binding helpers are recreated each render
 
   // Gamepad: the connected indicator, and button capture while listening.
   useEffect(() => {
@@ -182,7 +182,7 @@ export function InputPanel(p: Props): JSX.Element {
       }
     }, 100);
     return () => clearInterval(timer);
-  }, [config]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [config]); // eslint-disable-line react-hooks/exhaustive-deps -- the gamepad poll restarts when the config changes; the binding helpers are recreated each render
 
   const group = (map: string): JSX.Element => (
     <div className="tl-input-map" aria-label={`${map} actions`} key={map}>

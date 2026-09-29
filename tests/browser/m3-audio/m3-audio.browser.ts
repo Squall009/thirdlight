@@ -250,7 +250,6 @@ async function main(): Promise<void> {
       fn();
       status.push({ t: label, status: owner.status() });
       for (const d of owner.diagnostics()) diagnosticsLog.push({ ...d, t: label });
-      // eslint-disable-next-line no-console
       console.log(`[m3-audio] ${label}`, JSON.stringify(owner.status()), JSON.stringify(owner.diagnostics().slice(-3)));
       await new Promise((r) => setTimeout(r, ms));
     };
@@ -312,7 +311,6 @@ async function main(): Promise<void> {
     window.__m3Audio = { evidence, owner };
     pre.textContent = 'EVIDENCE\n' + JSON.stringify(evidence, null, 2);
     captureEvidencePng(evidence);
-    // eslint-disable-next-line no-console
     console.log('[m3-audio] EVIDENCE COMPLETE', JSON.stringify(evidence.checklist));
   }
 
@@ -342,7 +340,6 @@ declare global {
 }
 
 main().catch((err) => {
-  // eslint-disable-next-line no-console
   console.error('[m3-audio] host failed', err);
   const pre = document.createElement('pre');
   pre.textContent = `HOST FAILED: ${String(err)}`;

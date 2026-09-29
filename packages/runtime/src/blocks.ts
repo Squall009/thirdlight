@@ -351,7 +351,6 @@ export class GameplayBlocks {
     const c = host.characterCapsule;
     this.pc = { ox: c.offset.x, oy: c.offset.y, hw: c.radius, hh: capsuleHalfTotal(c) };
     this.pushSkin = (host.characterSkin ?? 0.01) + PUSH_MARGIN;
-    // eslint-disable-next-line @typescript-eslint/no-this-alias
     const blocks = this;
     this.primitives = new Primitives({
       hz: host.hz,

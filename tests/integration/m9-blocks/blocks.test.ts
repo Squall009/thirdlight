@@ -16,7 +16,6 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { MODES, startHarness, type Harness, type Mode } from '../m22-worker/harness';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
 const DT = 1 / 120;
 const T = { rotation: [0, 0, 0, 1], scale: [1, 1, 1] };

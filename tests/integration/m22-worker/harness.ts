@@ -38,7 +38,6 @@ import { createPhysicsPort3D } from '@thirdlight/physics-rapier/3d';
 import { createRecordedActionSource, type ActionFrame, type Runtime } from '@thirdlight/runtime';
 import { MODULE_SPECS, modulesOf } from '../../game-modules';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
 
 export type Mode = 'single' | 'worker';

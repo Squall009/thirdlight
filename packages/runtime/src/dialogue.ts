@@ -242,7 +242,6 @@ export class DialogueRunner {
   // ---- script API -----------------------------------------------------------
 
   private buildApi(): BehaviorDialogue {
-    // eslint-disable-next-line @typescript-eslint/no-this-alias
     const r = this;
     return Object.freeze({
       start: (dialogueId: string, options?: { entry?: string; node?: string; bindings?: Readonly<Record<string, DialogueVariableValue>> }): number => r.requestStart(dialogueId, options),

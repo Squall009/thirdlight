@@ -82,7 +82,6 @@ describe('directional container CPU cost (packet-14 protocol, BR-2)', () => {
       stepBudgetMs: 1 / DT / 120 === 0 ? 0 : 8.333333333333334,
       runs: runs.map((r) => ({ ...r, p50: Number(r.p50.toFixed(6)), p95: Number(r.p95.toFixed(6)), p99: Number(r.p99.toFixed(6)) })),
     };
-    // eslint-disable-next-line no-console
     console.log(`[cpu] ${JSON.stringify(summary)}`);
     for (const r of runs) {
       expect(r.samples).toBe(measureSteps);

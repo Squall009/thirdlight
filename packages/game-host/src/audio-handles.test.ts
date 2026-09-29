@@ -9,7 +9,6 @@ import { describe, expect, it } from 'vitest';
 
 import { AUDIO_PANNING_MODEL, createGameAudioOwner, type AudioCommandLike } from './audio';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
 
 function fakeContext() {

@@ -17,7 +17,6 @@ import { scriptLibraryDigest } from '@thirdlight/project-model';
 
 import { envelopeJson, makeBuildEnv, requestId, sha256Hex, ORIGIN, type BuildEnv } from '../m2-builds/helpers';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
 let n = 0x25900;
 const rid = (): string => requestId((n += 1));

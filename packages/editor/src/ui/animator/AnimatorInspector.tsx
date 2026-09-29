@@ -60,7 +60,8 @@ function dataWith(node: GraphNode, kind: GraphKindDef, patch: Record<string, Gra
 
 export function AnimatorInspector(p: AnimatorInspectorProps): JSX.Element {
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => setError(null), [p.ids.join(','), p.ownerId]);
+  const idsKey = p.ids.join(',');
+  useEffect(() => setError(null), [idsKey, p.ownerId]);
   const c = p.controller;
   const asked = parseAnimatorOwnerId(p.ownerId);
   // A graph that is gone (a removed layer or blend tree) falls back to the base layer, like the tab.

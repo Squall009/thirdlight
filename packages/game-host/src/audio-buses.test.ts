@@ -7,7 +7,6 @@ import { describe, expect, it } from 'vitest';
 
 import { createGameAudioOwner } from './audio';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
 
 function fakeContext() {

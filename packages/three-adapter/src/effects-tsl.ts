@@ -19,7 +19,6 @@ import * as TSLTyped from 'three/tsl';
 
 import { srgbToLinear } from '@thirdlight/effects';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type N = any;
 /** TSL untyped: node types here follow the effect graph's port types, which the checker cannot see. */
 const TSL: N = TSLTyped;

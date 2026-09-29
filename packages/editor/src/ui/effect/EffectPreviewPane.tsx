@@ -95,7 +95,7 @@ export function EffectPreviewPane(p: EffectPreviewPaneProps): JSX.Element {
       const keep = Object.fromEntries(Object.entries(o).filter(([k]) => params.some((x) => x.key === k)));
       return Object.keys(keep).length === Object.keys(o).length ? o : keep;
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- params is keyed by paramsKey so a new array with the same params keeps the overrides
   }, [paramsKey]);
 
   const time = scrub ?? stats?.time ?? 0;

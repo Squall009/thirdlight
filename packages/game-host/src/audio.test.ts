@@ -178,7 +178,6 @@ async function settle(times = 6): Promise<void> {
   for (let i = 0; i < times; i += 1) {
     // A macrotask tick is fine here: it is the test harness's own yield,
     // not an owner clock read (the owner reads none).
-    // eslint-disable-next-line no-await-in-loop
     await new Promise((r) => setTimeout(r, 0));
   }
 }

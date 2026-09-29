@@ -30,7 +30,6 @@ import { scriptLibraryContainerText } from '@thirdlight/project-model';
 import { makeRoot } from '../m2-builds/helpers';
 import { startHarness, type Mode } from '../m22-worker/harness';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
 const HZ = 120;
 const T = { rotation: [0, 0, 0, 1], scale: [1, 1, 1] };

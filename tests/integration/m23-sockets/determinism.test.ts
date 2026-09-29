@@ -19,7 +19,6 @@ import { physics3DConfigOf } from '@thirdlight/runtime';
 import { socketGlb } from '../../e2e/socket-glb';
 import { FakeNode, behaviorModule, startHarness, type Harness, type Mode } from '../m22-worker/harness';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
 const HZ = 120;
 const DT = 1 / HZ;

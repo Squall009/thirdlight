@@ -272,7 +272,6 @@ describe('accepted platformer traces (platformer.md §7, packet-17 fixture)', ()
       }
     }
     expect(rows).toBe(178);
-    // eslint-disable-next-line no-console
     console.log(`[traces] 16 traces / ${rows} sampled rows replayed exactly`);
   });
 

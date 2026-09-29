@@ -2113,7 +2113,6 @@ class RuntimeInstance implements Runtime {
 
   /** Phase 23.19: the engine state a save document's sections capture and restore. */
   private buildSaveSections(): SaveSectionsPort {
-    // eslint-disable-next-line @typescript-eslint/no-this-alias
     const rt = this;
     return {
       capture(section) {
@@ -2393,7 +2392,6 @@ class RuntimeInstance implements Runtime {
 
   /** Phase 25.10: `ctx.entity` — what the generic component access reads and writes in this runtime. */
   private buildEntityAccess(): EntityAccess {
-    // eslint-disable-next-line @typescript-eslint/no-this-alias
     const rt = this;
     return new EntityAccess({
       doc: (id) => rt.entityDocument(id),
@@ -2483,7 +2481,6 @@ class RuntimeInstance implements Runtime {
 
   /** Phase 25.10: `ctx.shell` — the shell's scene list (the same move as the shell's nextScene UI action). */
   private buildShellControl(): import('./types').BehaviorShell {
-    // eslint-disable-next-line @typescript-eslint/no-this-alias
     const rt = this;
     return Object.freeze({
       nextScene(): boolean {
@@ -3971,7 +3968,6 @@ class RuntimeInstance implements Runtime {
 
   /** Phase 23.17: what the sequencer drives — the runtime's own channels. */
   private buildTimelineHost(): import('./timeline').TimelineHost {
-    // eslint-disable-next-line @typescript-eslint/no-this-alias
     const rt = this;
     const warn = (message: string): void => rt.recordBehaviorLog('thirdlight.runtime:timeline', 'warn', message);
     return {
@@ -4811,7 +4807,6 @@ class RuntimeInstance implements Runtime {
   }
 
   private makePhaseViews(entry: ModuleEntry, phase: SimulationPhase): PhaseViews {
-    // eslint-disable-next-line @typescript-eslint/no-this-alias
     const rt = this;
     // The accepted rule: the transform phase writes the declared owners.
     const writablePhase = phase === 'transform';

@@ -118,7 +118,7 @@ export function LibraryDocument(p: LibraryDocumentProps): JSX.Element {
     }
     const keepOpen = existing !== undefined && library.files.some((f) => f.path === existing.openPath) ? existing.openPath : ENTRY_PATH;
     setDraft({ files: library.files.map((f) => ({ path: f.path, text: f.text })), base: storedText, dirty: false, openPath: keepOpen });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the draft resets when the stored library or a saved draft changes, not on edits
   }, [libraryId, storedText, p.draftsVersion]);
 
   const runCheck = useCallback(
@@ -151,7 +151,7 @@ export function LibraryDocument(p: LibraryDocumentProps): JSX.Element {
       if (timer.current !== null) window.clearTimeout(timer.current);
       timer.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the check restarts on text edits only; its other inputs are read when it fires
   }, [draftText]);
 
   // Phase 25.9: a Console location opens its file and puts the cursor on the line.

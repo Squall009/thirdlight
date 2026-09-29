@@ -32,7 +32,6 @@ import { physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, staticColliderOf }
 import { cpuCalibration } from './stats';
 import { withGameModules } from '../../tests/game-modules';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
 
 interface SimInput {
