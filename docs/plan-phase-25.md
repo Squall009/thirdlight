@@ -1497,3 +1497,26 @@ boundary it changes (Playwright for any editor surface).
   `client.ts` are over 2,000 lines: the script publish flow moved out of
   `App.tsx` into `session/script-publish.ts` (App.tsx shrank); `client.ts`
   only had two existing lines changed.
+- 2026-09-29: independent post-phase review (read-only, 23bd953..4b0aa347).
+  Findings and what became of them:
+  1. The backend PNG decoder inflated IDAT with no output cap and the KTX2
+     worker had no resource limits: a small PNG could claim gigabytes. D55,
+     fixed (inflate capped at the exact size of every pass's rows; worker
+     heap/stack limits; pack decodes only the sources it reads).
+  2. That decoder copied project-model's `decodePngRgba`. D56, fixed: one
+     decoder in project-model (caller's pixel bound, optional inflate, Adam7,
+     tRNS), imported by the backend through `@thirdlight/project-model/png`,
+     the only project-model subpath the backend may value-import.
+  3. Limits defined more than once (256 texture layers in three places, fade,
+     instance depth, audio, libraries, content-ops literals). D57, open → 26.1.
+  4. Per-project caps restated (audio 64, libraries 32, both copies). For 26.5.
+  5. KTX2 encode and pack take at most 12 Mpix across all layers (a 4096²
+     texture is refused). For 26.5's limits audit (per-layer encoding).
+  6. "Split before growing" not followed for content.ts, descriptors.ts,
+     client.ts, runtime types.ts. D58, open → 26.1.
+  7. ~1,390 added history comment lines (550 after the rule). D59, open → 26.1.
+  8–10. Zip reader, digest-keyed cache URLs, playtest token: no defect (the zip
+     reader inflates synchronously on the request thread: note for 26's
+     importer; deployment.md should say the playtest CLI sends the token).
+  11–13. No new genre rules; no mock-only features; decision-log sample true
+     (one inexact line count). Owner look pending on the list in the review.
