@@ -32,6 +32,9 @@ import {
   nextFreeEntityIdOf,
   entityIdAt,
   ENTITY_ID_MAX,
+  MAX_ENTITIES_V2,
+  MAX_ENTITIES_V4,
+  MAX_ENTITY_DEPTH,
 } from '@thirdlight/project-model';
 
 import {
@@ -97,11 +100,6 @@ export function behaviorOf(e: AnyEntity): BehaviorComponent | undefined {
   return (e.components as { behavior?: BehaviorComponent }).behavior;
 }
 
-/** Scene limits (project-model §10.4, restated in commands.md §5.4/§8.1): a v3 scene. */
-const MAX_ENTITIES = 1024;
-/** Phase 12 (c): a v4 scene holds up to 16384 entities. */
-const MAX_ENTITIES_SCENE_V4 = 16_384;
-const MAX_DEPTH = 32; // root = 1
 
 /**
  * JSON-safe deep clone. Entity/transform graphs are plain JSON values by
@@ -579,14 +577,14 @@ function stageCreate(
       if (roleError !== null) return fail(roleError);
     }
   }
-  const maxEntities = scene.schemaVersion === 4 ? MAX_ENTITIES_SCENE_V4 : MAX_ENTITIES;
+  const maxEntities = scene.schemaVersion === 4 ? MAX_ENTITIES_V4 : MAX_ENTITIES_V2;
   const total = work.sceneCount + work.created.length + 1;
   if (total > maxEntities) {
     return fail(limitsExceeded('entities', total, maxEntities));
   }
   const newDepth = parentId === null ? 1 : depthIn(work, parentId) + 1;
-  if (newDepth > MAX_DEPTH) {
-    return fail(limitsExceeded('depth', newDepth, MAX_DEPTH));
+  if (newDepth > MAX_ENTITY_DEPTH) {
+    return fail(limitsExceeded('depth', newDepth, MAX_ENTITY_DEPTH));
   }
   // Phase 25.7e: the hierarchy flags and tags (named in the request, stored as the mask).
   let tags = 0;

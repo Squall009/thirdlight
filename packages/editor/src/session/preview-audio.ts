@@ -34,6 +34,7 @@
  * global audio state read) — the Node tests drive a fake Web Audio graph
  * exactly as `packages/game-host/src/audio.test.ts` does.
  */
+import { AUDIO_VOICES_DEFAULT } from '@thirdlight/project-model/limits';
 
 export interface PreviewAudioContextLike {
   readonly state: 'suspended' | 'running' | 'closed';
@@ -272,8 +273,8 @@ export class PreviewAudioOwner {
   }
 }
 
-/** The preview voice cap (mirrors the game owner's `AUDIO_MAX_VOICES = 8`). */
-export const PREVIEW_AUDIO_MAX_VOICES = 8;
+/** The preview voice cap: the game's default voice count. */
+export const PREVIEW_AUDIO_MAX_VOICES = AUDIO_VOICES_DEFAULT;
 
 /** Create one editor-page preview owner (the App owns its lifetime). */
 export function createPreviewAudioOwner(config?: PreviewAudioOwnerConfig): PreviewAudioOwner {

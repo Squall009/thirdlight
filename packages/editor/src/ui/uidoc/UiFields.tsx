@@ -11,6 +11,7 @@
  *
  * Browser-only (React).
  */
+import { UI_LIMITS } from '@thirdlight/project-model/limits';
 import { useEffect, useState, type JSX } from 'react';
 import type { FieldDescriptor, ObjectFieldDescriptor, UiAction, UiEngineAction, UiStyle } from '@thirdlight/project-model';
 
@@ -305,7 +306,7 @@ export function StyleMapEditor(p: {
         }}
       >
         <input className="tl-input" aria-label={`${p.aria} new style name`} placeholder="new style name" maxLength={32} value={newName} onChange={(e) => setNewName(e.target.value)} />
-        <button type="submit" className="tl-btn tl-btn--small" disabled={newName.trim() === '' || names.length >= 64}>
+        <button type="submit" className="tl-btn tl-btn--small" disabled={newName.trim() === '' || names.length >= UI_LIMITS.styles}>
           + Style
         </button>
       </form>

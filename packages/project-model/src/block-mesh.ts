@@ -19,6 +19,7 @@
  * seen from above (x' = x cos + z sin, z' = −x sin + z cos — three.js's
  * rotation.y). Ramps and stairs rise toward +Z at rotation 0.
  */
+import { COLLIDER_3D_LIMITS } from './components';
 import { CHUNK_SIZE, blockTypeSolid, rotatedFootprint, type BlockCell, type BlockShape, type BlockType } from './block-layers';
 import { autoVariant, chunkKeyOf, type BlockGrid } from './block-grid';
 import { cellCorners, cornerGradientAt, cornerHeightAt, diagonalSide, rotateXZ, type CellCorners } from './block-surface';
@@ -551,8 +552,8 @@ export interface CollisionMeshPiece {
   indices: number[];
 }
 
-/** The port's mesh limits (physics-rapier `MAX_MESH_VERTICES_3D` / `MAX_MESH_TRIANGLES_3D`). */
-export const COLLISION_PIECE_LIMITS = Object.freeze({ vertices: 1024, triangles: 2048 });
+/** A collision piece is one mesh collider, so it keeps the mesh collider's limits. */
+export const COLLISION_PIECE_LIMITS = Object.freeze({ vertices: COLLIDER_3D_LIMITS.meshVertices, triangles: COLLIDER_3D_LIMITS.meshTriangles });
 
 /**
  * The collision triangles of one chunk from its blocks' collision shapes

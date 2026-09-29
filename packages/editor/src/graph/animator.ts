@@ -10,6 +10,7 @@
  *
  * Pure: no DOM, no I/O.
  */
+import { ID_RE } from '@thirdlight/project-model/limits';
 import type { AnimatorClipRef, AnimatorController, AnimatorLayout, AnimatorState, AnimatorTransition, GraphData, GraphEdge, GraphNode, GraphPoint, GraphValue } from '@thirdlight/project-model';
 
 import { canonicalGraph } from './model';
@@ -27,7 +28,6 @@ const OUT = ANIMATOR_OUT;
 const COLUMN = 260;
 const ROW_STEP = 130;
 const BLEND_ROW = 110;
-const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
 /** `ctrl` → base layer; `ctrl@2` → override layer 2; `ctrl#walk` → the blend tree of state `walk`. */
 export function parseAnimatorOwnerId(id: string): AnimatorOwnerTarget | null {

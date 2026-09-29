@@ -16,6 +16,7 @@
  * Pure three.js (`three/webgpu`, `three/tsl`, examples); nothing here needs a
  * GPU until a renderer builds the nodes.
  */
+import { MAX_FOG_VOLUMES } from '@thirdlight/runtime';
 import * as THREE from 'three';
 import {
   abs,
@@ -66,8 +67,8 @@ import { releaseMrtContexts } from './dispose';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type N = any;
 
-/** The fog volume cap (the same as the archived (WebGL) pass). */
-export const MAX_FOG_VOLUMES = 16;
+/** The fog volumes drawn: the model's per-scene cap. */
+export { MAX_FOG_VOLUMES };
 
 /** The physical sky's parameters (the project's `sky` fields). */
 export interface SkyParams {

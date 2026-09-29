@@ -13,6 +13,7 @@
  * Every change is one call of `onCommit` with the whole new value (the
  * host sends one `setNodeData`). Browser-only (React).
  */
+import { GRAPH_CURVE_LIMITS } from '@thirdlight/project-model/limits';
 import { useEffect, useRef, useState, type JSX, type PointerEvent as ReactPointerEvent } from 'react';
 
 const round = (x: number): number => Math.round(x * 1e4) / 1e4;
@@ -106,7 +107,7 @@ export function CurveField({ label, value, min, max, onCommit }: { label: string
           )}
         </div>
       ))}
-      {keys.length < 16 && (
+      {keys.length < GRAPH_CURVE_LIMITS.maxKeys && (
         <button type="button" className="tl-btn tl-btn--small" aria-label={`add ${label} key`} onClick={addKey}>
           + key
         </button>
@@ -166,7 +167,7 @@ export function GradientField({ label, value, onCommit }: { label: string; value
           )}
         </div>
       ))}
-      {stops.length < 8 && (
+      {stops.length < GRAPH_CURVE_LIMITS.maxStops && (
         <button type="button" className="tl-btn tl-btn--small" aria-label={`add ${label} stop`} onClick={addStop}>
           + stop
         </button>

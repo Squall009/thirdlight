@@ -31,6 +31,7 @@
  * Pure data rules; the grid helpers are `block-grid.ts`, the meshing
  * `block-mesh.ts`.
  */
+import { ID_RE } from './validate';
 import type { ModelErrorV2 } from './errors';
 import { chunkPaintError, decodeChunkPaint, encodeChunkPaint, isUnpainted } from './block-paint';
 
@@ -228,8 +229,6 @@ export const BLOCK_CORNER_MAX = 4;
 
 /** The steepest and flattest `maxSlope` a layer may set (degrees). */
 export const BLOCK_MAX_SLOPE_RANGE = Object.freeze({ min: 1, max: 89 });
-
-const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 export const CELL_FIELD_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
 export const REGION_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/;
 const COLOR_RE = /^#[0-9a-f]{6}$/;

@@ -7,6 +7,7 @@
  * project that sets none replays exactly. The rest are engine limits and
  * numeric tolerances.
  */
+import { CONVEX_TOL, MAX_COLLIDER_EXTENT, MAX_LEN, MAX_POLYGON_VERTICES as MODEL_MAX_POLYGON_VERTICES, MIN_POLYGON_AREA as MODEL_MIN_POLYGON_AREA } from '@thirdlight/project-model/limits';
 
 /** The approved physics pin (dependencies.md §7; decision 0002 §1.2 item 1). */
 export const RAPIER_PIN = '0.20.0' as const;
@@ -70,11 +71,11 @@ export const GROUND_NORMAL_TOLERANCE = 1e-6 as const;
 export const AUTOSTEP_DISABLED = false as const;
 
 /** Collider shape limits (project-model §10.7/§21.3). */
-export const MAX_SHAPE_VALUE = 1e6 as const;
-export const MAX_POLYGON_VERTICES = 8 as const;
-export const MIN_POLYGON_AREA = 1e-6 as const;
-export const CONVEX_TOLERANCE = 1e-9 as const;
-export const MAX_COLLIDER_HALF_EXTENT = 64 as const;
+export const MAX_SHAPE_VALUE = MAX_LEN;
+export const MAX_POLYGON_VERTICES = MODEL_MAX_POLYGON_VERTICES;
+export const MIN_POLYGON_AREA = MODEL_MIN_POLYGON_AREA;
+export const CONVEX_TOLERANCE = CONVEX_TOL;
+export const MAX_COLLIDER_HALF_EXTENT = MAX_COLLIDER_EXTENT;
 
 /** The project-model near-unit tolerance for the `x`/`y` quaternion parts. */
 export const OFF_AXIS_TOLERANCE = 1e-6 as const;

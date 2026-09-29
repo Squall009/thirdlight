@@ -9,6 +9,8 @@
  *
  * Pure: no DOM, no I/O, no code evaluation.
  */
+import { MAX_PROPERTIES } from '@thirdlight/project-model/limits';
+import { ID_RE } from '@thirdlight/project-model/limits';
 
 import type { DeclaredProperty, PropertyDeclaration, PropertyType, PropertyValue } from '@thirdlight/project-model';
 
@@ -42,7 +44,6 @@ export interface DraftProblem {
 }
 
 const KEY_RE = /^[a-z][a-z0-9_]{0,63}$/;
-const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
 function valueText(v: PropertyValue | undefined): string {
   if (v === null || v === undefined) return '';
@@ -111,7 +112,7 @@ function vec(text: string): [number, number, number] | null {
  */
 export function declarationOf(drafts: readonly PropertyDraft[]): { ok: true; declaration: PropertyDeclaration } | { ok: false; problem: DraftProblem } {
   const bad = (index: number, field: DraftProblem['field'], message: string): { ok: false; problem: DraftProblem } => ({ ok: false, problem: { index, field, message } });
-  if (drafts.length > 32) return bad(-1, 'properties', 'a behavior declares at most 32 properties');
+  if (drafts.length > MAX_PROPERTIES) return bad(-1, 'properties', `a behavior declares at most ${MAX_PROPERTIES} properties`);
   const seen = new Set<string>();
   const out: DeclaredProperty[] = [];
   for (let i = 0; i < drafts.length; i++) {

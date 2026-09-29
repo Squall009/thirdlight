@@ -34,7 +34,7 @@
  * Skip applies each track's end state at once (see `skipInstance`); stop
  * ends without end states. Pure logic over a host interface: no three.js.
  */
-import type { TimelineAsset, TimelineEasing, TimelineKey, TimelineTrack } from '@thirdlight/project-model';
+import { TIMELINE_LIMITS, type TimelineAsset, type TimelineEasing, type TimelineKey, type TimelineTrack } from '@thirdlight/project-model';
 
 import type { ActionFrame } from './actions';
 import { slerp } from './camera-rig';
@@ -317,8 +317,8 @@ interface Instance {
 
 const NO_EVENTS: readonly TimelineEvent[] = Object.freeze([]);
 
-/** Engine limit: timelines playing at once (project-model TIMELINE_LIMITS.playing). */
-export const TIMELINE_MAX_PLAYING = 8;
+/** Engine limit: timelines playing at once (the model's). */
+export const TIMELINE_MAX_PLAYING = TIMELINE_LIMITS.playing;
 
 export class TimelineSystem {
   private readonly byId = new Map<string, TimelineAsset>();

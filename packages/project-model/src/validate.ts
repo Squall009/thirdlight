@@ -41,7 +41,8 @@ const M1_SCENE_PATH = 'scenes/main.json'; // §3/§5.3/§7.1
 const QUATERNION_TOLERANCE = 1e-4; // §10.1
 export const MAX_LEN = 1e6; // §10.1/§10.2/§10.3 length bound (meters)
 export const MAX_REVISION = Number.MAX_SAFE_INTEGER; // §6 (2^53 - 1)
-const MAX_DEPTH = 32; // §10.4 (root = 1)
+/** The deepest an entity may sit in a scene's hierarchy (the root is depth 1). */
+export const MAX_ENTITY_DEPTH = 32;
 export const NAME_MIN = 1;
 export const NAME_MAX = 128;
 
@@ -115,19 +116,13 @@ function jsonSafe(v: unknown, depth: number): boolean {
  * call chain is <= ~137 frames plus the object branch's jsonSafe depth
  * (<= 5, its own depth cap of 4). Node's default stack holds orders of
  * magnitude more frames; with the depth cap, overflow is impossible by
- * construction.
- *
- * Deliberate duplication of the commands O1 helper (packages/commands/src/
- * errors.ts, 69b1a17): the dependency direction (dependencies.md §4.1 —
- * project-model is the leaf; commands depends on it) forbids importing
- * that module-local pure helper.
+ * construction. Commands bounds its errors' `found` with this same helper.
  */
 const BOUNDED_FOUND_MAX_DEPTH = 64;
 const BOUNDED_FOUND_MAX_NODES = 4096;
 
-/** The `found` marker emitted where the traversal bound is hit — the
- * commands O1 marker text verbatim: this file's existing markers are the
- * long-string / long-array summaries, which do not cover the bound case. */
+/** The `found` marker emitted where the traversal bound is hit (the
+ * long-string / long-array summaries do not cover the bound case). */
 const BOUNDED_FOUND_MARKER =
   '[truncated: exceeds bounded diagnostic traversal (depth <= 64, nodes <= 4096)]';
 
@@ -148,7 +143,7 @@ interface FoundBudget {
  * Primitives — including NaN/±Infinity, which JSON.stringify maps to
  * `null`, never to a NaN/Infinity token — pass through.
  */
-function boundedFound(v: unknown): unknown {
+export function boundedFound(v: unknown): unknown {
   const budget: FoundBudget = { nodes: 0, hit: false };
   const out = mapFound(v, 0, budget);
   return budget.hit ? BOUNDED_FOUND_MARKER : out;
@@ -509,7 +504,7 @@ export function pushDepthError(errors: AnyError[], idx: number, d: number): void
         path: `/entities/${idx}`,
         message: 'hierarchy depth exceeds the M1 limit (root = 1)',
         limit: 'depth',
-        expected: `depth <= ${MAX_DEPTH}`,
+        expected: `depth <= ${MAX_ENTITY_DEPTH}`,
       },
       d,
     ),
@@ -547,7 +542,7 @@ export function checkDepthLimit(
     if (typeof id !== 'string') continue;
     const known = depth.get(id);
     if (known !== undefined) {
-      if (known > MAX_DEPTH) pushDepthError(errors, idx, known);
+      if (known > MAX_ENTITY_DEPTH) pushDepthError(errors, idx, known);
       continue;
     }
     const chain: string[] = [];
@@ -580,7 +575,7 @@ export function checkDepthLimit(
         d += 1;
         depth.set(chain[k] as string, d);
       }
-      if (d > MAX_DEPTH) pushDepthError(errors, idx, d);
+      if (d > MAX_ENTITY_DEPTH) pushDepthError(errors, idx, d);
     }
   }
 }

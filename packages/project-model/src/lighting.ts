@@ -10,6 +10,7 @@
  * Atlas texels store irradiance / `range`, sRGB-encoded (8-bit PNG); the
  * renderer multiplies by `range`.
  */
+import { ID_RE } from './validate';
 import { BLOCK_LIMITS, CHUNK_SIZE } from './block-layers';
 import type { ModelErrorV2 } from './errors';
 
@@ -62,8 +63,6 @@ export const MAX_LIGHTMAP_ATLASES = 16;
 export const MAX_LIGHTMAP_ENTRIES = 4096;
 export const MAX_BAKED_LIGHTS = 64;
 export const LIGHTMAP_SOURCES = ['browser', 'blender'] as const;
-
-const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 const HASH_RE = /^[0-9a-f]{16}$/;
 const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/;
 

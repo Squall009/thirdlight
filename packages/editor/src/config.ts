@@ -12,6 +12,7 @@
  * (THIRDLIGHT_TRUSTED_NETWORKS) the page config says so and the editor asks
  * for no token: the backend accepts that network's requests without one.
  */
+import { ID_RE } from '@thirdlight/project-model/limits';
 
 import type { ClientConfig } from './session/client';
 
@@ -39,7 +40,7 @@ export type ConfigResult =
   | { ok: false; needs: 'project'; token: string; previewOrigin: string }
   | { ok: false; needs: 'page'; message: string };
 
-const PROJECT_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+const PROJECT_ID_RE = ID_RE;
 const TOKEN_KEY = 'thirdlight.token';
 
 function storedToken(): string | null {

@@ -29,6 +29,7 @@
  * Pure data rules: validation, canonical form, the compiled runtime form and
  * the engine's default dialogue UI document.
  */
+import { ID_RE } from './validate';
 import type { ModelErrorV2 } from './errors';
 import { canonicalGraphData, GRAPH_ITEM_ID_RE, nodeFieldValue, validateGraphData, type GraphData, type GraphFieldDef, type GraphKindDef, type GraphNode } from './graph';
 import { parseRichText, richTextVisibleLength } from './rich-text';
@@ -122,8 +123,6 @@ export const DIALOGUE_DEFAULTS = Object.freeze({ textSpeed: 40, autoAdvance: fal
 
 /** The engine's default dialogue UI document id (a project document with this id replaces it). */
 export const DIALOGUE_DOCUMENT_ID = 'tl-dialogue';
-
-const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 const VAR_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
 const EXPR_ID_RE = /^[A-Za-z0-9_-]{1,32}$/;
 const COLOR_RE = /^#[0-9a-f]{6}$/;

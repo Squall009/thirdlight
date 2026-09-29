@@ -38,6 +38,7 @@
  * materials are checked against the project by `validateTimelineReferences`.
  * Pure: no I/O.
  */
+import { ID_RE } from './validate';
 import type { ModelErrorV2 } from './errors';
 import { isPlainObject } from './validate';
 
@@ -174,8 +175,6 @@ export interface TimelineAsset {
   /** Plays when this signal fires (default bindings). */
   playOnSignal?: string;
 }
-
-const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 const SLOT_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
 const ACTION_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
 const SIGNAL_RE = /^[A-Za-z_][A-Za-z0-9_:.-]{0,63}$/;

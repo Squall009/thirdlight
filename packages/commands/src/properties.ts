@@ -27,6 +27,7 @@ import {
   propertyValue,
   withBoundedFound,
 } from './errors';
+import { MAX_DECLARATION_BYTES, MAX_ENUM_VALUES, MAX_PROPERTIES } from '@thirdlight/project-model';
 import type { CommandError } from './types';
 import type {
   DeclaredProperty,
@@ -231,10 +232,10 @@ function checkDeclaredProperty(
   if (p['values'] !== undefined) {
     const values = p['values'];
     if (!Array.isArray(values) || values.length === 0) {
-      return { ok: false, error: declarationValueError(key, values, 'array of 1-32 unique enum members', 'enum values must be a non-empty array') };
+      return { ok: false, error: declarationValueError(key, values, `array of 1-${MAX_ENUM_VALUES} unique enum members`, 'enum values must be a non-empty array') };
     }
-    if (values.length > 32) {
-      return { ok: false, error: declarationValueError(key, values, 'array of 1-32 unique enum members', 'an enum may declare at most 32 members') };
+    if (values.length > MAX_ENUM_VALUES) {
+      return { ok: false, error: declarationValueError(key, values, `array of 1-${MAX_ENUM_VALUES} unique enum members`, `an enum may declare at most ${MAX_ENUM_VALUES} members`) };
     }
     for (const m of values) {
       if (typeof m !== 'string' || m.length < 1 || m.length > 64 || !isControlFree(m)) {
@@ -518,9 +519,9 @@ export function checkOverrideValue(
 export function validateDeclaration(
   declaration: PropertyDeclaration,
 ): { ok: true; declaration: PropertyDeclaration } | { ok: false; error: CommandError } {
-  // Phase 19.1: 0–32 properties (a behavior may declare none; it was 1–32).
+  // A behavior may declare no properties at all.
   const properties = declaration.properties as readonly unknown[];
-  if (properties.length > 32) {
+  if (properties.length > MAX_PROPERTIES) {
     return {
       ok: false,
       error: {
@@ -528,8 +529,8 @@ export function validateDeclaration(
         cls: 'validation',
         limit: 'properties',
         current: properties.length,
-        max: 32,
-        message: `a declaration may declare at most 32 properties`,
+        max: MAX_PROPERTIES,
+        message: `a declaration may declare at most ${MAX_PROPERTIES} properties`,
       },
     };
   }
@@ -541,7 +542,7 @@ export function validateDeclaration(
     out.push(r.prop);
   }
   for (const p of out) {
-    if (p.values !== undefined && p.values.length > 32) {
+    if (p.values !== undefined && p.values.length > MAX_ENUM_VALUES) {
       return {
         ok: false,
         error: {
@@ -549,15 +550,15 @@ export function validateDeclaration(
           cls: 'validation',
           limit: 'enum_values',
           current: p.values.length,
-          max: 32,
-          message: `enum '${p.key}' may declare at most 32 members`,
+          max: MAX_ENUM_VALUES,
+          message: `enum '${p.key}' may declare at most ${MAX_ENUM_VALUES} members`,
         },
       };
     }
   }
   const canonical: PropertyDeclaration = { properties: out };
   const bytes = new TextEncoder().encode(JSON.stringify(canonical, null, 2) + '\n').length;
-  if (bytes > 32_768) {
+  if (bytes > MAX_DECLARATION_BYTES) {
     return {
       ok: false,
       error: {
@@ -565,8 +566,8 @@ export function validateDeclaration(
         cls: 'validation',
         limit: 'declaration_bytes',
         current: bytes,
-        max: 32_768,
-        message: 'the canonical declaration exceeds the 32768-byte cap',
+        max: MAX_DECLARATION_BYTES,
+        message: `the canonical declaration exceeds the ${MAX_DECLARATION_BYTES}-byte cap`,
       },
     };
   }

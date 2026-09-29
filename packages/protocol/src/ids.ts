@@ -7,9 +7,10 @@
  * internal pattern; the syntaxes are stable contract text (same record as
  * the runtime snapshot validator, handoff 08).
  */
+import { ID_RE } from '@thirdlight/project-model/limits';
 
 /** project-model §5.1: all project/entity/scene IDs. */
-export const PROJECT_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+export const PROJECT_ID_RE = ID_RE;
 /** sessions.md §3: `sess-` + 32 lowercase hex (client-generated). */
 export const SESSION_ID_RE = /^sess-[0-9a-f]{32}$/;
 /** sessions.md §3: `conn-` + 32 lowercase hex (server-generated). */

@@ -14,9 +14,13 @@
  * command may build a `BehaviorSourceRecord` from (project-model.md §22.2
  * rule 2); this module never accepts a caller-supplied record field.
  */
+import { ID_RE } from '@thirdlight/project-model';
 
 import type { CommandError, PreparedBehaviorSourceFact } from '@thirdlight/commands';
 import {
+  BEHAVIOR_ENTRY_PATH,
+  MAX_BEHAVIOR_DIAGNOSTICS,
+  SCRIPT_LIBRARY_LIMITS,
   applyScriptLibraryPatch,
   scriptLibraryContainerText,
   scriptLibraryDependents,
@@ -42,8 +46,6 @@ import {
   workspaceClosed,
 } from './errors';
 import { ensureSession, type Core, type LibraryStage } from './session';
-
-const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
 export interface PrepareBehaviorSourceRequest {
   /** The staged canonical container to prepare (workspace.md §13.3.1). */
@@ -214,7 +216,7 @@ function preparedSourceFromCompile(compiled: BehaviorCompileSuccess): PreparedBe
     behaviorId: m.behaviorId,
     sourceDigest: m.sourceDigest,
     sourceByteLength: m.sourceByteLength,
-    entryPath: 'src/index.ts',
+    entryPath: BEHAVIOR_ENTRY_PATH,
     fileCount: m.files.length,
     manifestDigest: compiled.manifestDigest,
     outputDigest: m.outputDigest,
@@ -363,7 +365,7 @@ export async function checkScriptLibraryDraft(core: Core, projectId: string, dra
   const errors: ModelErrorV2[] = [];
   validateScriptLibrary(library, '', errors);
   if (errors.length > 0) {
-    return { ok: true, compiled: false, libraryId: draft.libraryId, code: errors[0]!.code, reason: 'library', dependents, diagnostics: errors.slice(0, 32).map((e) => ({ code: e.code, reason: 'library', library: draft.libraryId, message: e.message.slice(0, 256) })) };
+    return { ok: true, compiled: false, libraryId: draft.libraryId, code: errors[0]!.code, reason: 'library', dependents, diagnostics: errors.slice(0, MAX_BEHAVIOR_DIAGNOSTICS).map((e) => ({ code: e.code, reason: 'library', library: draft.libraryId, message: e.message.slice(0, 256) })) };
   }
   const compiler: BehaviorCompiler | undefined = core.content.behaviorCompiler;
   if (compiler === undefined || compiler.checkLibrary === undefined) return { ok: false, error: behaviorPublicationUnavailable(draft.libraryId, 'source', 'preparer_unavailable') };
@@ -375,7 +377,7 @@ export async function checkScriptLibraryDraft(core: Core, projectId: string, dra
     r = { ok: false as const, code: 'behavior_compile_failed', reason: 'the compiler threw', diagnostics: [{ code: 'behavior_compile_failed', reason: 'throw', message: (e instanceof Error ? e.message : String(e)).slice(0, 256) }] };
   }
   if (r.ok) return { ok: true, compiled: true, libraryId: draft.libraryId, sourceDigest: r.sourceDigest, imports: r.imports, outputByteLength: r.outputByteLength, dependents, diagnostics: [] };
-  return { ok: true, compiled: false, libraryId: draft.libraryId, code: r.code, reason: String(r.reason).slice(0, 256), dependents, diagnostics: r.diagnostics.slice(0, 32) };
+  return { ok: true, compiled: false, libraryId: draft.libraryId, code: r.code, reason: String(r.reason).slice(0, 256), dependents, diagnostics: r.diagnostics.slice(0, MAX_BEHAVIOR_DIAGNOSTICS) };
 }
 
 // ---------------------------------------------------------------------------
@@ -481,7 +483,7 @@ export function stageScriptLibraryPatch(core: Core, projectId: string, request: 
   }
   const libraries = new Map<string, { base: string | null; library: ScriptLibrary }>(stage.libraries);
   libraries.set(request.patch.libraryId, { base: held?.base ?? (stored === null ? null : scriptLibraryDigest(stored)), library: patched.library });
-  if (libraries.size > 32) return { ok: false, error: fieldValueType('/patch/libraryId', request.patch.libraryId, 'at most 32 libraries in a stage', 'a stage holds at most 32 libraries (a project has at most 32)') };
+  if (libraries.size > SCRIPT_LIBRARY_LIMITS.libraries) return { ok: false, error: fieldValueType('/patch/libraryId', request.patch.libraryId, `at most ${SCRIPT_LIBRARY_LIMITS.libraries} libraries in a stage`, `a stage holds at most ${SCRIPT_LIBRARY_LIMITS.libraries} libraries (a project has at most ${SCRIPT_LIBRARY_LIMITS.libraries})`) };
   const bytes = [...libraries.values()].reduce((n, e) => n + textBytes(e.library), 0);
   if (bytes > LIBRARY_STAGE_MAX_BYTES) return { ok: false, error: fieldValueType('/patch/files', bytes, `at most ${LIBRARY_STAGE_MAX_BYTES} bytes of staged library text`, 'the stage would hold more library text than a project may') };
   stage.libraries.clear();

@@ -4,6 +4,7 @@
  *
  * Pure: values in, values out.
  */
+import { MAX_LIGHTMAP_ATLASES } from '@thirdlight/project-model/limits';
 
 /** One entity's lightmap: its size in texels (without padding). */
 export interface LightmapItem {
@@ -30,7 +31,7 @@ export interface LightmapPacking {
 }
 
 export const LIGHTMAP_MAX_ATLAS = 2048;
-export const LIGHTMAP_MAX_ATLASES = 16;
+export const LIGHTMAP_MAX_ATLASES = MAX_LIGHTMAP_ATLASES;
 export const LIGHTMAP_MIN_ITEM = 4;
 
 /**

@@ -34,7 +34,7 @@
  */
 
 import { validateGraphOps, blockEditsShapeError, validateBlockType, validateCellFields, validateBlockStamp, BLOCK_LIMITS, type GraphDocument, type GraphOp, type ModelErrorV2 } from '@thirdlight/project-model';
-import { ENTITY_FLAGS, M2_SETTINGS_KEYS, TAG_NAME_RE, type AnimatorController, type InputConfig, type EnvironmentConfig, type LightingBake, type MaterialDef, type EffectDef } from '@thirdlight/project-model';
+import { ENTITY_FLAGS, M2_SETTINGS_KEYS, MAX_SCENES, MAX_TAGS, TAG_NAME_RE, type AnimatorController, type InputConfig, type EnvironmentConfig, type LightingBake, type MaterialDef, type EffectDef } from '@thirdlight/project-model';
 
 import {
   ID_RE,
@@ -727,7 +727,7 @@ function validateCreateArgs(args: Record<string, unknown>):
   }
   if (args['tags'] !== undefined) {
     const tags = args['tags'];
-    if (!Array.isArray(tags) || tags.length > 32) return { ok: false, error: fieldType('/args/tags', tags, 'array of up to 32 tag names') };
+    if (!Array.isArray(tags) || tags.length > MAX_TAGS) return { ok: false, error: fieldType('/args/tags', tags, `array of up to ${MAX_TAGS} tag names`) };
     for (let i = 0; i < tags.length; i++) {
       if (typeof tags[i] !== 'string') return { ok: false, error: fieldType(`/args/tags/${i}`, tags[i], 'string (tag name)') };
     }
@@ -1070,7 +1070,7 @@ function validateUpdateEntityArgs(args: Record<string, unknown>):
   }
   const tags = args['tags'];
   if (tags !== undefined) {
-    if (!Array.isArray(tags) || tags.length > 32) return { ok: false, error: fieldType('/args/tags', tags, 'array of up to 32 tag names') };
+    if (!Array.isArray(tags) || tags.length > MAX_TAGS) return { ok: false, error: fieldType('/args/tags', tags, `array of up to ${MAX_TAGS} tag names`) };
     for (let i = 0; i < tags.length; i++) {
       if (typeof tags[i] !== 'string') return { ok: false, error: fieldType(`/args/tags/${i}`, tags[i], 'string (tag name)') };
     }
@@ -1107,8 +1107,8 @@ function validateSceneIndexArgs(op: 'createScene' | 'renameScene' | 'deleteScene
   if (op === 'deleteScene') return { ok: true, args: { op, sceneId: sceneId as string } };
   const ids = args['sceneIds'];
   if (ids === undefined) return { ok: false, error: fieldMissing('/args/sceneIds', 'sceneIds') };
-  if (!Array.isArray(ids) || ids.length < 1 || ids.length > 64 || ids.some((x) => typeof x !== 'string')) {
-    return { ok: false, error: fieldType('/args/sceneIds', ids, 'array of 1-64 scene ids') };
+  if (!Array.isArray(ids) || ids.length < 1 || ids.length > MAX_SCENES || ids.some((x) => typeof x !== 'string')) {
+    return { ok: false, error: fieldType('/args/sceneIds', ids, `array of 1-${MAX_SCENES} scene ids`) };
   }
   if (new Set(ids).size !== ids.length) return { ok: false, error: fieldValue('/args/sceneIds', ids, 'distinct scene ids', 'a scene is listed twice') };
   return { ok: true, args: { op, sceneIds: ids as string[] } };
@@ -1123,7 +1123,7 @@ function validateSetTagsArgs(args: Record<string, unknown>):
   const tags = args['tags'];
   if (tags === undefined) return { ok: false, error: fieldMissing('/args/tags', 'tags') };
   if (!Array.isArray(tags)) return { ok: false, error: fieldType('/args/tags', tags, 'array of { bit?, name }') };
-  if (tags.length > 32) return { ok: false, error: fieldValue('/args/tags', tags.length, 'at most 32 tags', 'a project has at most 32 tags') };
+  if (tags.length > MAX_TAGS) return { ok: false, error: fieldValue('/args/tags', tags.length, `at most ${MAX_TAGS} tags`, `a project has at most ${MAX_TAGS} tags`) };
   const out: SetTagsArgs['tags'] = [];
   for (let i = 0; i < tags.length; i++) {
     const t = tags[i];

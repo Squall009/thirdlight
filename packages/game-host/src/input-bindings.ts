@@ -13,7 +13,7 @@
  *
  * No DOM, no input owner.
  */
-import type { InputBindingConflict, InputBindingPart, InputDeviceKind, RebindConflictPolicy } from '@thirdlight/runtime';
+import { MAX_INPUT_BINDINGS, type InputBindingConflict, type InputBindingPart, type InputDeviceKind, type RebindConflictPolicy } from '@thirdlight/runtime';
 
 import { bindingDevice } from './glyphs';
 
@@ -47,7 +47,7 @@ export interface RebindTarget {
   readonly device: InputDeviceKind;
 }
 
-export const MAX_BINDINGS = 8;
+export const MAX_BINDINGS = MAX_INPUT_BINDINGS;
 const CODE_RE = /^[A-Za-z0-9]{1,32}$/;
 const COMPOSITE_PARTS: Readonly<Record<string, readonly InputBindingPart[]>> = {
   keys1d: ['negative', 'positive'],

@@ -10,6 +10,7 @@
  *
  * Results never carry bytes, blobs or staging handles.
  */
+import { ASSET_QUERY_PAGE_DEFAULT, ASSET_QUERY_PAGE_MAX } from '@thirdlight/project-model';
 
 import { ID_RE, fieldType, fieldUnexpected, fieldValue, invalidRequest, isPlainObject } from './errors';
 import { assetKindOf } from './v3';
@@ -28,9 +29,9 @@ import type {
   SceneDocument,
 } from './types';
 
-/** Page cap for content queries (commands.md §4). */
-const MAX_CONTENT_PAGE = 128;
-const DEFAULT_LIMIT = 50;
+/** Page cap for content queries: the model's asset catalog page. */
+const MAX_CONTENT_PAGE = ASSET_QUERY_PAGE_MAX;
+const DEFAULT_LIMIT = ASSET_QUERY_PAGE_DEFAULT;
 
 interface QueryBase {
   op?: string;

@@ -19,6 +19,8 @@
  *
  * Pure: no DOM, no I/O, no Node builtins, no code evaluation.
  */
+import { MAX_POLYGON_VERTICES } from '@thirdlight/project-model/limits';
+import { ID_RE } from '@thirdlight/project-model/limits';
 
 import type {
   BehaviorComponent,
@@ -30,17 +32,18 @@ import type {
   PropertyType,
   PropertyValue,
 } from '@thirdlight/project-model';
+import { DECLARATION_STRING_LENGTH_DEFAULT, MAX_DECLARATION_STRING_LENGTH, MAX_ENUM_VALUES, MAX_PROPERTIES } from '@thirdlight/project-model/limits';
 
 /** `^[a-z0-9][a-z0-9_-]{0,63}$` — the project-model §5.1 ID syntax. */
-export const ID_SYNTAX = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+export const ID_SYNTAX = ID_RE;
 
-/** project-model §20.5: a `string` declaration without `maxLength` defaults to 256. */
-export const DEFAULT_STRING_MAX_LENGTH = 256;
+/** A `string` declaration without `maxLength` takes the model's default. */
+export const DEFAULT_STRING_MAX_LENGTH = DECLARATION_STRING_LENGTH_DEFAULT;
 
 /** §20.7: properties per declaration, enum members, string `maxLength`. */
-export const MAX_DECLARED_PROPERTIES = 32;
-export const MAX_ENUM_MEMBERS = 32;
-export const MAX_STRING_MAX_LENGTH = 1024;
+export const MAX_DECLARED_PROPERTIES = MAX_PROPERTIES;
+export const MAX_ENUM_MEMBERS = MAX_ENUM_VALUES;
+export const MAX_STRING_MAX_LENGTH = MAX_DECLARATION_STRING_LENGTH;
 
 /** A bounded, actionable diagnostic surfaced to the UI. */
 export interface ControlError {
@@ -582,8 +585,8 @@ export function parseColliderPolygon(
   } catch {
     return { ok: false, error: { code: 'collider_shape_invalid', message: 'vertices must be valid JSON', path: 'collider.shape.vertices', found: raw } };
   }
-  if (!Array.isArray(parsed) || parsed.length < 3 || parsed.length > 8) {
-    return { ok: false, error: { code: 'collider_shape_invalid', message: 'vertices must be an array of 3-8 [x, y] pairs', path: 'collider.shape.vertices', found: parsed } };
+  if (!Array.isArray(parsed) || parsed.length < 3 || parsed.length > MAX_POLYGON_VERTICES) {
+    return { ok: false, error: { code: 'collider_shape_invalid', message: `vertices must be an array of 3-${MAX_POLYGON_VERTICES} [x, y] pairs`, path: 'collider.shape.vertices', found: parsed } };
   }
   const vertices: [number, number][] = [];
   for (const v of parsed) {

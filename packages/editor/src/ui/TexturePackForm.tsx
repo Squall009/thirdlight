@@ -11,6 +11,7 @@
  *
  * Browser-only (React).
  */
+import { MAX_TEXTURE_LAYERS } from '@thirdlight/project-model/limits';
 import { useState, type JSX } from 'react';
 
 import type { AssetView } from '../session/content-projection';
@@ -118,7 +119,7 @@ export function TexturePackForm(p: { textures: readonly AssetView[]; onPack: (re
         </div>
       ))}
       <div className="tl-assets__row">
-        <button className="tl-btn tl-btn--small" aria-label="add layer" onClick={() => setLayers((ls) => [...ls, first !== undefined ? whole(first.assetId) : [...EMPTY]])} disabled={layers.length >= 256}>
+        <button className="tl-btn tl-btn--small" aria-label="add layer" onClick={() => setLayers((ls) => [...ls, first !== undefined ? whole(first.assetId) : [...EMPTY]])} disabled={layers.length >= MAX_TEXTURE_LAYERS}>
           + layer
         </button>
         <button className="tl-btn tl-btn--small" aria-label="pack" disabled={busy || sources.length === 0} onClick={() => void pack()} title="Pack and encode on the server, then add the texture to the project (one undo)">

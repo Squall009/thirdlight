@@ -21,6 +21,7 @@
  *
  * Pure: no I/O, no three.js.
  */
+import { ID_RE } from './validate';
 import type { ModelErrorV2 } from './errors';
 
 export interface SocketAttachComponent {
@@ -42,7 +43,7 @@ export const SOCKET_ATTACH_FIELDS = ['target', 'node', 'position', 'rotation', '
  */
 export const SOCKET_ATTACH_LIMITS = Object.freeze({ nodeName: 128, offset: 10_000, scaleMin: 0.001, scaleMax: 1000 });
 
-const ENTITY_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+const ENTITY_ID_RE = ID_RE;
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);

@@ -22,6 +22,7 @@
  *
  * Pure: no I/O.
  */
+import { ID_RE } from './validate';
 import type { ModelErrorV2 } from './errors';
 import { canonicalEnvironment, validateFog, validatePost, validateSky, type FogConfig, type PostConfig, type SkyConfig } from './materials';
 
@@ -73,8 +74,6 @@ export interface EnvironmentPreset extends EnvironmentLookParts {
   presetId: string;
   name: string;
 }
-
-const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 const COLOR_RE = /^#[0-9a-f]{6}$/;
 /** A tag name (content.ts TAG_NAME_RE). */
 const TAG_RE = /^[A-Za-z][A-Za-z0-9_-]{0,31}$/;

@@ -4,6 +4,7 @@
  * tag an object still carries cannot be removed. Every edit is one `setTags`
  * command (the whole registry), issued by the app.
  */
+import { MAX_TAGS } from '@thirdlight/project-model/limits';
 import { useState, type JSX } from 'react';
 
 export interface TagView {
@@ -31,7 +32,7 @@ export function TagsPanel({ tags, usage, error, onSetTags }: Props): JSX.Element
   };
   const add = (): void => {
     const name = draft.trim();
-    if (valid(name) !== null || tags.length >= 32) return;
+    if (valid(name) !== null || tags.length >= MAX_TAGS) return;
     onSetTags([...tags.map((t) => ({ bit: t.bit, name: t.name })), { name }]);
     setDraft('');
   };
@@ -99,7 +100,7 @@ export function TagsPanel({ tags, usage, error, onSetTags }: Props): JSX.Element
             if (e.key === 'Enter') add();
           }}
         />
-        <button className="tl-btn" onClick={add} disabled={draft.trim() === '' || draftProblem !== null || tags.length >= 32}>
+        <button className="tl-btn" onClick={add} disabled={draft.trim() === '' || draftProblem !== null || tags.length >= MAX_TAGS}>
           add tag
         </button>
         {draftProblem !== null && <span className="tl-prop__error">{draftProblem}</span>}

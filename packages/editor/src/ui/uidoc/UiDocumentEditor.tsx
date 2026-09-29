@@ -23,6 +23,7 @@
  *
  * Browser-only (React).
  */
+import { UI_LIMITS } from '@thirdlight/project-model/limits';
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type JSX, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import type { FieldDescriptor, ObjectFieldDescriptor, UiDescriptors, UiDocument, UiIcon, UiTheme, UiTween, UiWidget, UiWidgetType } from '@thirdlight/project-model';
 
@@ -779,7 +780,7 @@ function DocumentInspector(p: {
           type="button"
           className="tl-btn tl-btn--small"
           aria-label="add tween"
-          disabled={tweenNames.length >= 32}
+          disabled={tweenNames.length >= UI_LIMITS.tweens}
           onClick={() => {
             const n = uniqueName('tween', new Set(tweenNames));
             const t: UiTween = { kind: 'fade', duration: 0.2 };
@@ -874,7 +875,7 @@ export function IconMapEditor(p: { icons: Readonly<Record<string, UiIcon>>; text
         type="button"
         className="tl-btn tl-btn--small"
         aria-label="add icon"
-        disabled={p.textures.length === 0 || names.length >= 64}
+        disabled={p.textures.length === 0 || names.length >= UI_LIMITS.icons}
         title={p.textures.length === 0 ? 'Import a texture first' : 'A glyph for rich text: [icon=name]'}
         onClick={() => p.onChange({ ...p.icons, [uniqueName('icon', new Set(names))]: { asset: p.textures[0]!.assetId } })}
       >

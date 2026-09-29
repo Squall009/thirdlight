@@ -9,6 +9,7 @@
  * identification header and the last page's granule position, MP3 by walking
  * the frame headers (after an ID3v2 tag), WAV from its `fmt `/`data` chunks.
  */
+import { MAX_MUSIC_DURATION_MS } from '@thirdlight/project-model/limits';
 import { resolveImportJob } from './inspect';
 import { AUDIO_PIPELINE_NAME, AUDIO_PIPELINE_VERSION, M2_GLTF_MAX_DIAGNOSTICS } from './limits';
 import { sha256Hex } from './sha256';
@@ -17,7 +18,7 @@ import type { ImportDiagnostic, ImportJobPort } from './types';
 /** Largest music file accepted (bytes). */
 export const MUSIC_SOURCE_BYTES_MAX = 16_777_216;
 /** Longest music accepted (milliseconds). */
-export const MUSIC_DURATION_MS_MAX = 600_000;
+export const MUSIC_DURATION_MS_MAX = MAX_MUSIC_DURATION_MS;
 
 export type MusicFormat = 'ogg-vorbis' | 'ogg-opus' | 'mp3' | 'wav';
 

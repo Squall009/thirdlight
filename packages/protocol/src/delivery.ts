@@ -15,6 +15,8 @@
  *    while §17.2.1/§17.4 name `GET /play/:playSessionId` as the shell and
  *    reject the bare content path — both shell routes are served.
  */
+import { ID_RE } from '@thirdlight/project-model/limits';
+import { MANIFEST_CONTENT_FILE_MAX_BYTES, RUNTIME_CONTENT_MANIFEST_MAX_BYTES } from '@thirdlight/project-model/limits';
 import { checkField, checkShape } from './strict';
 import { isContentId, isPlaySessionId, isRequestId } from './ids';
 import type { SessionError } from './errors';
@@ -27,12 +29,12 @@ export const PLAY_CONTENT_TTL_SECONDS = 900;
 export const PLAY_CONTENT_GRACE_SECONDS = 60;
 /** 32 CSPRNG bytes ⇒ 43 base64url characters. */
 export const PLAY_CONTENT_ID_BYTES = 32;
-/** The manifest document cap (sessions.md §11.5). */
-export const PLAY_CONTENT_MANIFEST_MAX_BYTES = 262_144;
+/** The manifest document cap (sessions.md §11.5): the runtime content manifest's. */
+export const PLAY_CONTENT_MANIFEST_MAX_BYTES = RUNTIME_CONTENT_MANIFEST_MAX_BYTES;
 /** The whole artifact-set cap (§17.3). */
 export const PLAY_CONTENT_SET_MAX_BYTES = 536_870_912;
-/** The single-artifact cap (§17.3). */
-export const PLAY_CONTENT_ARTIFACT_MAX_BYTES = 33_554_432;
+/** The single-artifact cap (§17.3): one content file's. */
+export const PLAY_CONTENT_ARTIFACT_MAX_BYTES = MANIFEST_CONTENT_FILE_MAX_BYTES;
 /** The bounded relay frame count (§18.1.1). */
 export const INPUT_RELAY_MAX_FRAMES = 600;
 /** The bounded relay body size (§18.1.1). */
@@ -151,7 +153,7 @@ export type LocatorPath =
   | { kind: 'invalid' };
 
 const DIGEST_RE = /^[0-9a-f]{64}$/;
-const ASSET_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+const ASSET_ID_RE = ID_RE;
 
 /**
  * Classify one URL path against the exact §17.2.1 route set. Anything else

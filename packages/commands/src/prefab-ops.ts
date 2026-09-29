@@ -15,6 +15,7 @@
  * variants and no structural overrides. `components.prefab` is informational
  * provenance written only here.
  */
+import { ID_RE } from '@thirdlight/project-model';
 
 import type {
   BehaviorComponent,
@@ -26,7 +27,17 @@ import type {
   PrefabEntity,
   PropertyValue,
 } from '@thirdlight/project-model';
-import { PREFAB_V4_COMPONENTS, nextFreeEntityIdOf } from '@thirdlight/project-model';
+import {
+  MAX_ENTITIES_V2 as MAX_SCENE_ENTITIES,
+  MAX_ENTITIES_V4 as MAX_SCENE_ENTITIES_V4,
+  MAX_ENTITY_DEPTH as MAX_SCENE_DEPTH,
+  MAX_PREFABS,
+  MAX_PREFAB_BYTES,
+  MAX_PREFAB_DEPTH,
+  MAX_PREFAB_ENTITIES,
+  PREFAB_V4_COMPONENTS,
+  nextFreeEntityIdOf,
+} from '@thirdlight/project-model';
 
 import {
   entityNotFound,
@@ -58,19 +69,8 @@ import type {
   PartialTransformArgs,
   SceneDocument,
 } from './types';
-
-const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 const ID_EXPECTED = 'project-model ID syntax: [a-z0-9][a-z0-9_-]{0,63}';
 
-/** §20.3 definition/instantiation limits (project-model). */
-const MAX_PREFAB_ENTITIES = 256;
-const MAX_PREFAB_DEPTH = 16;
-const MAX_PREFAB_BYTES = 131_072;
-const MAX_PREFABS = 128;
-const MAX_SCENE_ENTITIES = 1024;
-/** Phase 12 (c): a v4 scene holds up to 16384 entities (as createEntity / pasteEntities). */
-const MAX_SCENE_ENTITIES_V4 = 16_384;
-const MAX_SCENE_DEPTH = 32;
 
 const TRANSFORM_FIELDS = ['position', 'rotation', 'scale'] as const;
 

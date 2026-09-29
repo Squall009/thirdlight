@@ -10,6 +10,8 @@
  *
  * Pure: no I/O.
  */
+import { ID_RE } from '@thirdlight/project-model/limits';
+import { SCRIPT_SAVE_LIMITS } from '@thirdlight/project-model/limits';
 import type { MutationOp } from '@thirdlight/commands';
 import {
   isProjectId,
@@ -109,11 +111,11 @@ export interface PlayStartOptions {
   threads?: 'worker' | 'single';
 }
 
-/** Phase 23.8: the bounds of the start options (the script save's own: 64 keys, 4 KB per value). */
-export const PLAY_START_VARIABLES_MAX = 64;
-export const PLAY_START_VARIABLE_MAX_CHARS = 4096;
+/** The bounds of the start options' variables: the script save's own. */
+export const PLAY_START_VARIABLES_MAX = SCRIPT_SAVE_LIMITS.keys;
+export const PLAY_START_VARIABLE_MAX_CHARS = SCRIPT_SAVE_LIMITS.valueChars;
 const PLAY_VARIABLE_KEY_RE = /^[A-Za-z0-9_.:-]{1,64}$/;
-const PLAY_SCENE_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+const PLAY_SCENE_ID_RE = ID_RE;
 const PLAY_MODE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$/;
 /** Phase 23.19: a project save document (`format: "thirdlight.save"`) may be as large as a save slot (1 MiB; the request body bound applies too). */
 export const PLAY_START_PROJECT_SAVE_MAX_BYTES = 1_048_576;

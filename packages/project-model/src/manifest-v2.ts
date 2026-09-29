@@ -112,8 +112,8 @@ export interface ManifestContentFile extends ManifestContentFileRow {
 }
 
 /**
- * Phase 25.7b: the most bytes one content file may hold (the play content
- * store's single-artifact cap, `PLAY_CONTENT_ARTIFACT_MAX_BYTES`, 32 MiB).
+ * The most bytes one content file may hold; the play content store takes it
+ * as its single-artifact cap.
  */
 export const MANIFEST_CONTENT_FILE_MAX_BYTES = 33_554_432;
 

@@ -13,6 +13,7 @@
  * editor/backend/workspace edge. The `IntentSet` is the runtime's own
  * step-scoped data; nothing here reads a clock or a global.
  */
+import { MAX_LEN } from '@thirdlight/project-model';
 import { JUMP_PHASES, type JumpPhase } from './actions';
 import { clipMessage } from './errors';
 import type { SimulationPhase } from './types';
@@ -271,7 +272,7 @@ const SCALE_MIN = 0.001;
 const SCALE_MAX = 1000;
 
 const POSITION_KEYS = new Set(['x', 'y', 'z']);
-const MAX_POSITION = 1e6;
+const MAX_POSITION = MAX_LEN;
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);

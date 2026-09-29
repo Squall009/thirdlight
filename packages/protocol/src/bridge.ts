@@ -12,8 +12,19 @@
  * discriminators the caller supplies (origin/source checks are the transport's
  * job, §13.3 — they cannot be verified from the message body). Pure: no I/O.
  */
+import { ID_RE } from '@thirdlight/project-model/limits';
 import { isContentId, isNonce, isPlaySessionId, isRelayId, isRequestId } from './ids';
-import { parseRelayGamepad, parseRelayPointer, parseRelayUiEdges, relayFrameEnd, validateInputRelayResult } from './delivery';
+import {
+  BRIDGE_LOAD_PROGRESS_MAX_BYTES,
+  BRIDGE_MESSAGE_MAX_BYTES,
+  INPUT_RELAY_MAX_BODY_BYTES,
+  INPUT_RELAY_MAX_FRAMES,
+  parseRelayGamepad,
+  parseRelayPointer,
+  parseRelayUiEdges,
+  relayFrameEnd,
+  validateInputRelayResult,
+} from './delivery';
 import { debugCommandCallProblem } from './m3';
 
 /** The exhaustive allowlists (sessions.md §13.5, v2). */
@@ -51,13 +62,11 @@ export type BridgePreviewToEditorType = (typeof BRIDGE_PREVIEW_TO_EDITOR_TYPES)[
 /** The M2 discriminator (all bridge messages carry `v: 2`). */
 export const BRIDGE_VERSION = 2;
 
-/** §17.6: the general v2 message cap. */
-export const BRIDGE_MESSAGE_MAX_BYTES = 65_536;
-/** §17.6: `tl.load.progress` cap. */
-export const BRIDGE_LOAD_PROGRESS_MAX_BYTES = 1_024;
-/** §17.6: `tl.input.request` frames/bytes cap. */
-export const BRIDGE_INPUT_MAX_FRAMES = 600;
-export const BRIDGE_INPUT_MAX_BYTES = 16_384;
+/** §17.6: the general v2 message cap and the `tl.load.progress` cap (the delivery contract's). */
+export { BRIDGE_LOAD_PROGRESS_MAX_BYTES, BRIDGE_MESSAGE_MAX_BYTES };
+/** §17.6: `tl.input.request` frames/bytes cap: an input request carries one relay. */
+export const BRIDGE_INPUT_MAX_FRAMES = INPUT_RELAY_MAX_FRAMES;
+export const BRIDGE_INPUT_MAX_BYTES = INPUT_RELAY_MAX_BODY_BYTES;
 /** Phase 19.2: breakpoints in one `tl.debug.request` (node ids as the debugger names them, `fn:<id>/<node>` inside a function). */
 export const BRIDGE_DEBUG_MAX_BREAKPOINTS = 64;
 /** Phase 19.2: the `tl.debug.result` body bound. */
@@ -66,7 +75,7 @@ export const BRIDGE_DEBUG_RESULT_MAX_BYTES = 32_768;
 export const BRIDGE_DEBUG_COMMANDS = ['pause', 'resume', 'step'] as const;
 /** Phase 19.2: game-control commands (§20.1 plus the debugger's pause / resume / step). */
 const GAME_CONTROL = ['replay', 'mute', 'unmute', 'loadScene', 'unloadScene', 'clearSave', 'debugPause', 'debugResume', 'debugStep', 'debugCommand'];
-const ENTITY_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+const ENTITY_ID_RE = ID_RE;
 /** A debugger node id: a graph item id, optionally scoped (`fn:<functionId>/` or `lib:<graphId>/`). */
 const DEBUG_NODE_RE = /^(?:(?:fn|lib):[A-Za-z0-9_-]{1,64}\/)?[A-Za-z0-9_-]{1,64}$/;
 

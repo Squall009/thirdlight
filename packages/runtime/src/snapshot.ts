@@ -8,17 +8,16 @@
  * `validateSceneV3`/`validateMergedSceneV4` re-check (project-model §23) — failures carry ≤ 10
  * project-model error objects + the total count.
  */
+import { ID_RE } from '@thirdlight/project-model';
 import { validateModelRig, type ModelRig } from '@thirdlight/project-model';
 import { validateModes, type RuntimeModes } from '@thirdlight/project-model';
 import { validateBlockTypes, validateCellFields, type BlockType, type CellField } from '@thirdlight/project-model';
 import { resolveSceneHierarchy, validateMergedSceneV4, validateSceneV3, validateTagRegistry, validateAnimators, validatePrefabDefinitions, type AnimatorController, type PrefabDefinition, type TagDefinition, type ModelErrorV2, type ModelErrorV3, type SceneV3, type RuntimeUiDocumentRow } from '@thirdlight/project-model';
+import { ENVIRONMENT_PRESET_LIMITS, MAX_REVISION, MAX_SCENES, UI_LIMITS } from '@thirdlight/project-model';
 import type { RuntimeError } from './errors';
 import type { ModelBounds, RuntimeSceneRow, RuntimeScene, RuntimeSnapshot } from './types';
 
 /** project-model §5.1 ID syntax (all IDs). */
-const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
-/** runtime.md §2: `0 ≤ revision ≤ 2^53−1`. */
-const MAX_REVISION = 2 ** 53 - 1;
 
 import { runtimeDialogueDataProblem, validateSaveSchema, type RuntimeDialogueData, type SaveSchema } from '@thirdlight/project-model';
 import { canonicalTimelines, validateTimelines, type TimelineAsset } from '@thirdlight/project-model';
@@ -28,8 +27,8 @@ import { materialCatalogProblem, type RuntimeMaterialCatalog } from './material-
 const WRAPPER_FIELDS = new Set(['snapshotId', 'projectId', 'revision', 'scene', 'tags', 'scenes', 'animators', 'prefabs', 'modelBounds', 'blockTypes', 'cellFields', 'rigs', 'materialCatalog', 'uiDocuments', 'modes', 'saveSchema', 'audioDurations', 'timelines', 'eventCues', 'sceneList', 'environmentPresets', 'dialogue']);
 /** Phase 15.3: at most this many model bounds rows (one per model asset; the asset catalog's size). */
 const MAX_MODEL_BOUNDS = 4096;
-const SCENE_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/; // the model's id syntax (ID_RE_V2)
-const MAX_SNAPSHOT_SCENES = 64;
+const SCENE_ID_RE = ID_RE;
+const MAX_SNAPSHOT_SCENES = MAX_SCENES;
 
 /**
  * Recursively freeze (idempotent). runtime.md §2: on successful
@@ -357,8 +356,8 @@ export function validateRuntimeSnapshot(
   let environmentPresets: readonly string[] | undefined;
   if ((snap as { environmentPresets?: unknown }).environmentPresets !== undefined) {
     const ids = (snap as { environmentPresets?: unknown }).environmentPresets;
-    if (!Array.isArray(ids) || ids.length > 64 || !ids.every((x) => typeof x === 'string' && SCENE_ID_RE.test(x)) || new Set(ids).size !== ids.length) {
-      return { error: { code: 'snapshot_invalid', reason: 'shape', path: '/environmentPresets', message: 'environmentPresets is a list of at most 64 unique preset ids' } };
+    if (!Array.isArray(ids) || ids.length > ENVIRONMENT_PRESET_LIMITS.presets || !ids.every((x) => typeof x === 'string' && SCENE_ID_RE.test(x)) || new Set(ids).size !== ids.length) {
+      return { error: { code: 'snapshot_invalid', reason: 'shape', path: '/environmentPresets', message: `environmentPresets is a list of at most ${ENVIRONMENT_PRESET_LIMITS.presets} unique preset ids` } };
     }
     environmentPresets = ids as string[];
   }
@@ -368,7 +367,7 @@ export function validateRuntimeSnapshot(
     const bad = (message: string): { error: RuntimeError } => ({ error: { code: 'snapshot_invalid', reason: 'shape', path: '/uiDocuments', message } });
     if (sceneVersion !== 4) return bad('snapshot field "uiDocuments" is v4-only');
     const rows = snap.uiDocuments as unknown;
-    if (!Array.isArray(rows) || rows.length > 64) return bad('uiDocuments must be an array of at most 64 rows');
+    if (!Array.isArray(rows) || rows.length > UI_LIMITS.documents) return bad(`uiDocuments must be an array of at most ${UI_LIMITS.documents} rows`);
     const seen = new Set<string>();
     for (const r of rows as unknown[]) {
       const row = r as Record<string, unknown> | null;

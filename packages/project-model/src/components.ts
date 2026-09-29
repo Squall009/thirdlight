@@ -10,6 +10,7 @@
  *
  * Pure and total: same input → same result, never throws, never reads files.
  */
+import { ID_RE } from './validate';
 
 import {
   checkFiniteNumber,
@@ -30,7 +31,7 @@ import {
 import type { ModelErrorV2 } from './errors';
 import type { ColliderShape, ControllerComponent, TransformComponent } from './types-v2';
 
-export const ID_RE_V2 = /^[a-z0-9][a-z0-9_-]{0,63}$/; // §5.1
+export const ID_RE_V2 = ID_RE;
 export const PROPERTY_KEY_RE = /^[a-z][a-z0-9_]{0,63}$/; // §20.5
 
 export const MAX_ENTITIES_V2 = 1024; // §10.4

@@ -31,8 +31,9 @@ import {
   type SurfaceForm,
 } from './media';
 import type { ProjectedEntity } from './projection';
+import { CONTENT_STAGE_MAX } from '@thirdlight/protocol';
 
-const STAGE_MAX = 33_554_432; // 32 MiB (the protocol's CONTENT_STAGE_MAX)
+const STAGE_MAX = CONTENT_STAGE_MAX;
 
 // ---------------------------------------------------------------------------
 // validateMediaDrop (row 18/21)

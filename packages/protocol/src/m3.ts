@@ -19,6 +19,8 @@
  * Pure: no I/O, no Node built-ins, types-only edges to `commands`/`project-model`
  * (dependencies.md §4.1).
  */
+import { ID_RE } from '@thirdlight/project-model/limits';
+import { MAX_TEXTURE_LAYERS } from '@thirdlight/project-model/limits';
 import type {
   ApplySurfacePresetArgs,
   ChangeData,
@@ -581,7 +583,7 @@ const GAME_CONTROL_REQUEST_FIELDS = new Map([
   ['name', 'the debug command (debugCommand)'],
   ['args', 'the debug command\'s arguments (debugCommand)'],
 ]);
-const SCENE_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+const SCENE_ID_RE = ID_RE;
 
 /**
  * Parse the §20 control request body `{ command, expectedRunId? }` strictly
@@ -1042,8 +1044,8 @@ export interface TexturePackRequest {
   displayName?: string;
 }
 
-/** Phase 25.21: the most layers a packed texture may have (the model's texture-array limit). */
-export const TEXTURE_PACK_LAYERS_MAX = 256;
+/** The most layers a packed texture may have (the model's texture-array limit). */
+export const TEXTURE_PACK_LAYERS_MAX = MAX_TEXTURE_LAYERS;
 
 export function parseTexturePackRequest(value: unknown): { ok: true; request: TexturePackRequest } | { ok: false; error: SessionError } {
   const bad = (path: string, message: string, expected?: string): { ok: false; error: SessionError } => ({ ok: false, error: sessionError('field_value', 'validation', message, { path, ...(expected !== undefined ? { expected } : {}) }) });

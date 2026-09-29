@@ -4,6 +4,7 @@
  * content) and the asset files the content references under `assets/`.
  * An optional `template.json` supplies `{ name, description }`.
  */
+import { ID_RE } from '@thirdlight/project-model/limits';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
@@ -24,8 +25,6 @@ export interface TemplateSource {
   blobs: ReadonlyMap<string, Uint8Array>;
   requiredModules: string[];
 }
-
-const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 /** Phase 24.7: the engine ships templates only (no sample games). */
 const ROOTS = ['templates'];
 

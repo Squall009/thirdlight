@@ -202,6 +202,8 @@ export const NODE_SIDE_ALLOWED = {
     external: [],
     node: [],
     typesOnly: { 'project-model': true, commands: true },
+    // The model's limits (plain constants) are defined once in project-model.
+    valueSubpaths: { 'project-model': ['limits'] },
   },
   // §4.1 row: "… project-model (types only — the snapshot document,
   // sessions.md §10.1)".
@@ -220,8 +222,9 @@ export const NODE_SIDE_ALLOWED = {
     node: ['http', 'fs', 'path', 'crypto', 'child_process', 'worker_threads', 'zlib'],
     typesOnly: { 'project-model': true },
     // The shared PNG decoder (pure; texture sources for KTX2 encoding and
-    // packing) is the one project-model value the backend runs.
-    valueSubpaths: { 'project-model': ['png'] },
+    // packing) and the model's limits are the project-model values the
+    // backend runs.
+    valueSubpaths: { 'project-model': ['png', 'limits'] },
   },
   // §4.1 explicitly reiterates "imports workspace types only"; the
   // project-model/protocol value edges are not injection-only service edges.
@@ -240,6 +243,8 @@ export const NODE_SIDE_ALLOWED = {
     external: [],
     node: [],
     typesOnly: { 'project-model': true },
+    // The importer checks the model's own limits (plain constants).
+    valueSubpaths: { 'project-model': ['limits'] },
   },
   // §4.1 row: "input | runtime (types)" — the pure mapping plus one browser
   // attachment entry; it knows runtime types only (no value edge, so the
@@ -253,13 +258,17 @@ export const NODE_SIDE_ALLOWED = {
   // §4.1 row: "physics-rapier | runtime (types) + @dimforge/rapier2d-compat
   // (the approved pin, §7)". The adapter never imports a concrete runtime
   // value (the runtime owns stepping and hands it only the port shape), and it
-  // may not reach project-model/editor/backend/protocol/workspace/three.
+  // may not reach editor/backend/protocol/workspace/three (of project-model,
+  // only its types and the limits subpath).
   // Phase 23.0: + @dimforge/rapier3d-compat for the `./3d` subpath (decision 0005).
   'physics-rapier': {
-    packages: ['runtime'],
+    // + project-model's limits subpath only: the ports re-check the model's
+    // collider shape limits, which are defined once there.
+    packages: ['runtime', 'project-model'],
     external: ['@dimforge/rapier2d-compat', '@dimforge/rapier3d-compat'],
     node: [],
-    typesOnly: { runtime: true },
+    typesOnly: { runtime: true, 'project-model': true },
+    valueSubpaths: { 'project-model': ['limits'] },
   },
   // §4.1 row: "platformer | runtime (types)" (phase 24.7: the character package) — the controller algorithm over
   // the injected input/physics ports; it may not reach the concrete physics
@@ -282,10 +291,14 @@ export const NODE_SIDE_ALLOWED = {
     node: [],
   },
   'mcp-adapter': {
-    packages: ['protocol', 'backend'],
+    // + project-model's limits subpath only: the tool descriptions state the
+    // model's limits from their one definition.
+    packages: ['protocol', 'backend', 'project-model'],
     external: ['@modelcontextprotocol/sdk'],
     node: [],
-    subpaths: { backend: ['services'] },
+    subpaths: { backend: ['services'], 'project-model': ['limits'] },
+    typesOnly: { 'project-model': true },
+    valueSubpaths: { 'project-model': ['limits'] },
   },
   // §4.1 row: "… project-model (types), commands (types) …".
   editor: {
@@ -320,6 +333,9 @@ export const NODE_SIDE_ALLOWED = {
     ],
     node: [],
     typesOnly: { 'project-model': true, commands: true },
+    // The model's limits (plain constants): the editor checks the same bounds
+    // before it sends a command.
+    valueSubpaths: { 'project-model': ['limits'] },
   },
 };
 

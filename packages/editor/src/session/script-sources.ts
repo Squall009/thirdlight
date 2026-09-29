@@ -15,12 +15,14 @@
  * table (`ui/script/behavior-api.generated.ts`) along an `a.b.c.` chain.
  */
 
-/** The entry file every container has (project-model §22.2). */
-export const ENTRY_PATH = 'src/index.ts';
-/** The compiler's file-count bound (behavior-build `COMPILER_LIMITS.files`). */
-export const MAX_FILES = 16;
-/** The compiler's per-file byte bound (`COMPILER_LIMITS.fileBytes`). */
-export const MAX_FILE_BYTES = 65_536;
+import { BEHAVIOR_ENTRY_PATH, MAX_BEHAVIOR_FILES, MAX_BEHAVIOR_FILE_BYTES } from '@thirdlight/project-model/limits';
+
+/** The entry file every container has. */
+export const ENTRY_PATH = BEHAVIOR_ENTRY_PATH;
+/** The compiler's file-count bound (the model's, which the compiler checks). */
+export const MAX_FILES = MAX_BEHAVIOR_FILES;
+/** The compiler's per-file byte bound. */
+export const MAX_FILE_BYTES = MAX_BEHAVIOR_FILE_BYTES;
 /** The module the behavior API types are imported from (type-only). */
 export const API_MODULE = '@thirdlight/runtime';
 

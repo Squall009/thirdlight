@@ -44,6 +44,7 @@
  *
  * Pure: no I/O, no three.js.
  */
+import { ID_RE } from './validate';
 import type { ModelErrorV2 } from './errors';
 
 export const VIRTUAL_CAMERA_RIGS = ['follow', 'orbitPoint', 'topDown', 'fixed', 'rail', 'track'] as const;
@@ -269,7 +270,7 @@ export const VIRTUAL_CAMERA_FIELDS = [
 export const CAMERA_PATH_FIELDS = ['points', 'closed', 'smooth'] as const;
 export const CAMERA_PATH_LIMITS = Object.freeze({ minPoints: 2, maxPoints: 64, coordinate: 1e6 });
 
-const ENTITY_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+const ENTITY_ID_RE = ID_RE;
 const ACTION_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {

@@ -11,13 +11,13 @@
  * Absolute paths enter only here, at registration (an owner-token operation);
  * every other workspace operation still addresses a project by its id.
  */
+import { ID_RE } from '@thirdlight/project-model';
 import { closeSync, existsSync, fsyncSync, openSync, readFileSync, realpathSync, renameSync, statSync, writeSync } from 'node:fs';
 import { dirname, isAbsolute, join, normalize, relative, sep } from 'node:path';
 
 export const REGISTRY_FILE = 'registry.json';
 export const MARKER_FILE = 'thirdlight.json';
 export const DEFAULT_PROJECT_SUBDIR = 'thirdlight';
-const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 const SUBDIR_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/i;
 
 /** The engine a project was made with (informational; see the backend's pin check). */

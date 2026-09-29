@@ -20,6 +20,7 @@
  * data with its own projection (editor/src/graph/model.ts, kept equal by
  * tests/graph-parity.test.ts) and gets the kinds from `queryGameConfig`.
  */
+import { ID_RE } from './validate';
 import type { ModelErrorV2 } from './errors';
 
 // ---- data --------------------------------------------------------------------
@@ -1166,7 +1167,7 @@ export interface GraphDocument {
 }
 
 export const MAX_GRAPH_DOCUMENTS = 64;
-const DOC_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+const DOC_ID_RE = ID_RE;
 
 export function validateGraphDocument(kinds: Readonly<Record<string, GraphKindDef>>, value: unknown, path: string, errors: ModelErrorV2[], ctx?: GraphContext): void {
   if (!isPlainObject(value)) return err(errors, 'field_type', path, 'a graph document is { graphId, kind, name, graph }', value);

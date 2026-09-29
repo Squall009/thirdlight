@@ -97,7 +97,8 @@ export { DEFAULT_COLLISION_LAYER, MAX_COLLISION_LAYERS, validateCollisionLayers 
 export { parseDocumentBytes, type ByteParse } from './parse-bytes';
 export { parseEnvelopeV3, parseManifest, parseSceneV3 } from './parse-api';
 
-export { validateManifest, normalizeManifest } from './validate';
+export { validateManifest, normalizeManifest, boundedFound } from './validate';
+export * from './limits';
 
 export {
   M2_SETTINGS_KEYS,

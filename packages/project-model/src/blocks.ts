@@ -14,6 +14,7 @@
  * player's grace time, knockback and hit bounce were deleted (collectible,
  * patrol and hitbox are the generic primitives below).
  */
+import { ID_RE } from './validate';
 import type { ModelErrorV2 } from './errors';
 
 export const MOVER_MODES = ['loop', 'pingpong', 'once'] as const;
@@ -220,7 +221,7 @@ export function validateTriggerComponent(value: unknown, path: string, errors: M
 }
 
 /** Phase 24.4e: a scene id (the `content.scenes[]` id syntax) and an entity id. */
-const SCENE_OR_ENTITY_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+const SCENE_OR_ENTITY_RE = ID_RE;
 /** Phase 24.4f: an input action name. */
 const ACTION_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
 export const TRIGGER_FIELDS = ['size', 'signal', 'once', 'exitSignal', 'shape', 'radius', 'mode', 'height', 'sceneTransition'] as const;

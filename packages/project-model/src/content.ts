@@ -10,6 +10,7 @@
  * file, so its bytes are governed by the envelope's strict parse (workspace
  * §4.3).
  */
+import { ID_RE } from './validate';
 
 import { canonicalEventCues, validateEventCueReferences, validateEventCues } from './event-cues';
 import { canonicalShell, validateShell, validateShellReferences, type GameShell } from './shell';
@@ -86,67 +87,55 @@ import type {
 } from './types-v3';
 import { AUDIO_PCM_WAV_PROFILE, MAX_TAGS, type ContentCatalogV4 } from './types-v3';
 import { REMOVED_IN_PHASE_24 } from './upgrade-v24';
+import {
+  ASSET_METRIC_CAPS,
+  M2_GLTF_EXTENSION_ALLOWLIST,
+  AUDIO_VOICE_CAP,
+  AUDIO_VOICES_DEFAULT,
+  BEHAVIOR_ENTRY_PATH,
+  DECLARATION_STRING_LENGTH_DEFAULT,
+  MAX_ASSETS,
+  MAX_ASSET_VERSIONS,
+  MAX_AUDIO_ASSETS,
+  MAX_AUDIO_VERSIONS,
+  MAX_BEHAVIORS,
+  MAX_BEHAVIOR_FILES,
+  MAX_BEHAVIOR_OUTPUT_BYTES,
+  MAX_BEHAVIOR_SOURCE_BYTES,
+  MAX_CONTENT_BYTES,
+  MAX_CONVERTED_SOURCE_BYTES,
+  MAX_DECLARATION_BYTES,
+  MAX_DECLARATION_STRING_LENGTH,
+  MAX_ENUM_VALUES,
+  MAX_FONT_ASSETS,
+  MAX_FONT_FAMILY_NAME,
+  MAX_FONT_VERSIONS,
+  MAX_MUSIC_ASSETS,
+  MAX_MUSIC_DURATION_MS,
+  MAX_MUSIC_VERSIONS,
+  MAX_OWNED_TRANSFORMS,
+  MAX_PREFABS,
+  MAX_PREFAB_BYTES,
+  MAX_PREFAB_DEPTH,
+  MAX_PREFAB_ENTITIES,
+  MAX_PROPERTIES,
+  MAX_SCENES,
+  MAX_SETTINGS_KEYS,
+  MAX_SOURCE_BYTES,
+  MAX_SOURCE_PATH_LENGTH,
+  MAX_TEXTURE_ASSETS,
+  MAX_TEXTURE_EDGE,
+  MAX_TEXTURE_LAYERS,
+  MAX_TEXTURE_VERSIONS,
+  MAX_TOTAL_DECODED_BYTES,
+  MAX_TRUST_ENTRIES,
+  MAX_VERSION_RECORDS,
+} from './content-limits';
 
-// ---- limits (§18.4–§18.6, §20.3, §20.7, §22) ----------------------------------
+export * from './content-limits';
 
-export const MAX_ASSETS = 128;
-export const MAX_ASSET_VERSIONS = 32;
-export const MAX_VERSION_RECORDS = 1024;
-export const MAX_CONTENT_BYTES = 1_048_576;
-export const MAX_SOURCE_BYTES = 33_554_432;
-export const MAX_PREFABS = 128;
-export const MAX_PREFAB_ENTITIES = 256;
-export const MAX_PREFAB_DEPTH = 16;
-export const MAX_PREFAB_BYTES = 131_072;
-export const MAX_BEHAVIORS = 64;
-export const MAX_PROPERTIES = 32;
-export const MAX_ENUM_VALUES = 32;
-export const MAX_DECLARATION_BYTES = 32_768;
-export const MAX_SETTINGS_KEYS = 32;
-export const MAX_TRUST_ENTRIES = 64;
-/**
- * §23.10 v3 content limits. Phase 25.7c: 64 sound-effect records (was 16),
- * the same as music tracks: a game's many short cues (steps, hits, UI) need
- * more than 16, and each record is bounded by its own PCM byte cap.
- */
-export const MAX_AUDIO_ASSETS = 64;
-export const MAX_AUDIO_VERSIONS = 8;
-/** Phase 9.4: texture asset records (PNG/JPEG/WebP) and their versions. */
-export const MAX_TEXTURE_ASSETS = 256;
-export const MAX_TEXTURE_VERSIONS = 8;
-/** The largest texture edge (pixels). */
-export const MAX_TEXTURE_EDGE = 4096;
-/** Phase 9.10: music asset records (Ogg Vorbis/Opus, MP3, WAV) and their versions. */
-export const MAX_MUSIC_ASSETS = 64;
-export const MAX_MUSIC_VERSIONS = 8;
-/** The longest music (ms) and its largest file (bytes). */
-export const MAX_MUSIC_DURATION_MS = 600_000;
-/** Phase 23.9a: font asset records (TTF, OTF, WOFF2, WOFF) for the project UI and their versions. */
-export const MAX_FONT_ASSETS = 16;
-export const MAX_FONT_VERSIONS = 8;
-/** The longest family name a font version records (characters). */
-export const MAX_FONT_FAMILY_NAME = 64;
 type AssetKindV3 = 'model' | 'audio' | 'texture' | 'music' | 'font';
-export const MAX_BEHAVIOR_SOURCE_BYTES = 262_144;
-export const MAX_BEHAVIOR_FILES = 16;
-export const MAX_BEHAVIOR_OUTPUT_BYTES = 131_072;
 
-/** §18.6 decoded-resource caps. */
-export const ASSET_METRIC_CAPS = {
-  nodes: 4096,
-  meshes: 1024,
-  primitives: 8192,
-  materials: 512,
-  images: 64,
-  textures: 512,
-  vertices: 2_000_000,
-  triangles: 4_000_000,
-  animations: 64,
-  animationChannels: 4096,
-  clipDurationMs: 600_000,
-  decodedGeometryBytes: 268_435_456,
-  decodedImageBytes: 268_435_456,
-} as const;
 
 const METRIC_LIMIT_NAMES: Partial<Record<keyof AssetMetrics, NonNullable<ModelErrorV2['limit']>>> = {
   animationChannels: 'animation_channels',
@@ -171,14 +160,11 @@ const METRIC_ORDER: Exclude<keyof AssetMetrics, 'bounds'>[] = [
   'decodedImageBytes',
 ];
 
-/** §18.6 total-decoded cap (`decodedGeometryBytes + decodedImageBytes`). */
-export const MAX_TOTAL_DECODED_BYTES = 536_870_912;
 
 /**
  * presentation.md §41.4.1/§41.4.2/§41.4.3: the frozen `pcm-wav` profile
- * constants (the exact arithmetic §18.6 restates for the audio member).
- * `project-model` keeps its own copy because it has no dependency on
- * `asset-pipeline` (`dependencies.md` §4.1); the numbers are the contract's.
+ * constants (the exact arithmetic §18.6 restates for the audio member); the
+ * importer reads the same profile.
  */
 const AUDIO_PCM_BYTES_MAX = AUDIO_PCM_WAV_PROFILE.maxPcmBytes;
 const AUDIO_FRAMES_MAX = AUDIO_PCM_WAV_PROFILE.maxFrames;
@@ -208,23 +194,6 @@ const AUDIO_RECIPE_FIELDS = new Set(['profile', 'recipeVersion', 'toolchain']);
 const DIGEST_RE = /^[0-9a-f]{64}$/;
 const SEMVER_RE = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
 
-/** §18.8.1: the effective extension allowlist (asset-pipeline owns the list; restated here, kept equal by a cross-package test). */
-export const M2_GLTF_EXTENSION_ALLOWLIST: readonly string[] = Object.freeze([
-  'EXT_meshopt_compression',
-  'EXT_texture_webp',
-  'KHR_draco_mesh_compression',
-  'KHR_materials_clearcoat',
-  'KHR_materials_emissive_strength',
-  'KHR_materials_ior',
-  'KHR_materials_sheen',
-  'KHR_materials_specular',
-  'KHR_materials_transmission',
-  'KHR_materials_unlit',
-  'KHR_materials_volume',
-  'KHR_mesh_quantization',
-  'KHR_texture_basisu',
-  'KHR_texture_transform',
-]);
 
 /** §23.4: a v3 content block carries the five accepted keys plus `game` (phase 24.8: v4 content has no `game`). */
 const KNOWN_CONTENT_FIELDS_V3 = new Set(['assets', 'prefabs', 'behaviors', 'settings', 'behaviorTrust', 'game']);
@@ -238,8 +207,6 @@ const KNOWN_CONTENT_FIELDS_V4 = ['assets', 'prefabs', 'behaviors', 'settings', '
  * block's fields; with the block deleted they are engine defaults.
  */
 export const ENGINE_TIMING_DEFAULTS = Object.freeze({ dropThroughTime: 0.125, settleTime: 0.1 });
-/** Phase 12 (c): at most this many scenes per project. */
-export const MAX_SCENES = 64;
 const KNOWN_ASSET_FIELDS = new Set(['assetId', 'kind', 'displayName', 'currentVersion', 'versions', 'vertexColors', 'materials', 'clipsFor']);
 const KNOWN_VERSION_FIELDS = new Set([
   'version',
@@ -308,11 +275,6 @@ function digestError(path: string, found: unknown): ModelErrorV2 {
   );
 }
 
-/** The largest original accepted for conversion (an FBX), in bytes. */
-export const MAX_CONVERTED_SOURCE_BYTES = 134_217_728;
-
-/** The longest accepted `sourcePath` (UTF-16 code units). */
-export const MAX_SOURCE_PATH_LENGTH = 512;
 
 /**
  * A referenced asset version's `sourcePath`: relative to the game folder,
@@ -717,8 +679,6 @@ function validateAudioMetrics(
   }
 }
 
-/** Phase 25.21: the layers of a texture array (engine limit: WebGL 2 and WebGPU both guarantee 256). */
-export const MAX_TEXTURE_LAYERS = 256;
 /** Phase 25.21: the KTX2 encodings (color: ETC1S sRGB; normal: UASTC normal map; data: UASTC linear). */
 export const KTX2_ENCODINGS = ['color', 'normal', 'data'] as const;
 export type Ktx2Encoding = (typeof KTX2_ENCODINGS)[number];
@@ -762,7 +722,7 @@ function validatePackedFrom(v: Record<string, unknown>, path: string, errors: Mo
 }
 
 /** An asset id (the id syntax of every asset). */
-const ID_RE_ASSET = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+const ID_RE_ASSET = ID_RE;
 
 function validateAssetVersion(v: unknown, path: string, errors: ModelErrorV2[], kind: AssetKindV3 = 'model'): void {
   if (!isPlainObject(v)) {
@@ -1260,7 +1220,7 @@ function checkPropertyValueShape(
       return;
     case 'string': {
       if (typeof v !== 'string') return failType('string');
-      const maxLength = typeof prop['maxLength'] === 'number' ? prop['maxLength'] : 256;
+      const maxLength = typeof prop['maxLength'] === 'number' ? prop['maxLength'] : DECLARATION_STRING_LENGTH_DEFAULT;
       if ([...v].length > maxLength) return failValue(`length <= ${maxLength} code points`);
       for (let i = 0; i < v.length; i++) {
         const c = v.charCodeAt(i);
@@ -1343,8 +1303,8 @@ function validateDeclaredProperty(p: unknown, path: string, errors: ModelErrorV2
     errors.push(fieldValue(`${path}/step`, step, 'number with 0 < v <= 1e6', 'property step must satisfy 0 < v <= 1e6'));
   }
   const maxLength = p['maxLength'];
-  if (maxLength !== undefined && (typeof maxLength !== 'number' || !Number.isInteger(maxLength) || maxLength < 1 || maxLength > 1024)) {
-    errors.push(fieldValue(`${path}/maxLength`, maxLength, 'integer 1-1024', 'string maxLength must be an integer 1-1024'));
+  if (maxLength !== undefined && (typeof maxLength !== 'number' || !Number.isInteger(maxLength) || maxLength < 1 || maxLength > MAX_DECLARATION_STRING_LENGTH)) {
+    errors.push(fieldValue(`${path}/maxLength`, maxLength, `integer 1-${MAX_DECLARATION_STRING_LENGTH}`, `string maxLength must be an integer 1-${MAX_DECLARATION_STRING_LENGTH}`));
   }
   const values = p['values'];
   if (values !== undefined) {
@@ -1423,8 +1383,8 @@ function validateBehaviorSource(s: unknown, path: string, errors: ModelErrorV2[]
     errors.push(limitsError(`${path}/sourceByteLength`, 'graph_bytes', Number(sourceLen), MAX_BEHAVIOR_SOURCE_BYTES, `sourceByteLength must be an integer in [1, ${MAX_BEHAVIOR_SOURCE_BYTES}]`));
   } else if (sourceLen === undefined) errors.push(fieldMissing(`${path}/sourceByteLength`, 'sourceByteLength'));
 
-  if (s['entryPath'] !== 'src/index.ts') {
-    errors.push(fieldValue(`${path}/entryPath`, s['entryPath'], '"src/index.ts"', 'a stored source record entryPath is exactly "src/index.ts"'));
+  if (s['entryPath'] !== BEHAVIOR_ENTRY_PATH) {
+    errors.push(fieldValue(`${path}/entryPath`, s['entryPath'], `"${BEHAVIOR_ENTRY_PATH}"`, `a stored source record entryPath is exactly "${BEHAVIOR_ENTRY_PATH}"`));
   }
   const fileCount = s['fileCount'];
   if (fileCount === undefined) errors.push(fieldMissing(`${path}/fileCount`, 'fileCount'));
@@ -1451,7 +1411,7 @@ function validateBehaviorSource(s: unknown, path: string, errors: ModelErrorV2[]
   const owned = s['ownedTransforms'];
   if (owned !== undefined) {
     // Phase 14.1: entity ids or "@self", ascending, unique, 1..16 (the container's rules).
-    if (!Array.isArray(owned) || owned.length < 1 || owned.length > 16) errors.push(fieldValue(`${path}/ownedTransforms`, owned, '1-16 entity ids or "@self"', 'ownedTransforms is absent or lists 1-16 entries'));
+    if (!Array.isArray(owned) || owned.length < 1 || owned.length > MAX_OWNED_TRANSFORMS) errors.push(fieldValue(`${path}/ownedTransforms`, owned, `1-${MAX_OWNED_TRANSFORMS} entity ids or "@self"`, `ownedTransforms is absent or lists 1-${MAX_OWNED_TRANSFORMS} entries`));
     else {
       owned.forEach((id, i) => {
         if (typeof id !== 'string' || (id !== '@self' && !ID_RE_V2.test(id))) errors.push(fieldValue(`${path}/ownedTransforms/${i}`, id, 'an entity id or "@self"', 'an owned transform names an entity id or "@self"'));
@@ -1627,8 +1587,7 @@ export const M2_SETTINGS_KEYS: readonly SettingsKeySpec[] = [
   // displays, cheap for any 2D scene); 60 halves the cost, 240 halves the
   // step for fast motion.
   { key: 'fixed_step_hz', type: 'number', default: 120, values: [60, 120, 240], integer: true, unit: 'Hz', optional: true, group: 'Engine', label: 'Fixed step', tooltip: 'Simulation steps per second (60, 120 or 240). Timings in seconds keep their length; replays are recorded at one rate.' },
-  // 8 voices: enough for overlapping effects in any scene; the engine cap is 32.
-  { key: 'audio_voices', type: 'number', default: 8, min: 1, max: 32, integer: true, unit: 'voices', optional: true, group: 'Audio', label: 'Sound voices', tooltip: 'How many sound effects play at once (a new one is dropped while all are busy; at most 32).' },
+  { key: 'audio_voices', type: 'number', default: AUDIO_VOICES_DEFAULT, min: 1, max: AUDIO_VOICE_CAP, integer: true, unit: 'voices', optional: true, group: 'Audio', label: 'Sound voices', tooltip: `How many sound effects play at once (a new one is dropped while all are busy; at most ${AUDIO_VOICE_CAP}).` },
   // 1 s: a gentle crossfade between two music tracks.
   { key: 'music_fade_s', type: 'number', default: 1, min: 0, max: 10, unit: 's', optional: true, group: 'Audio', label: 'Music fade', tooltip: 'Seconds a music change crossfades (0: cut).' },
   // 0.2 s: a quick blend between two animation roles (idle, run, airborne).
@@ -1720,8 +1679,6 @@ export function physicsDimensionOf(settings: unknown): PhysicsDimension {
   return typeof settings === 'object' && settings !== null && (settings as Record<string, unknown>)['physics_dimension'] === 3 ? 3 : 2;
 }
 
-/** Phase 15.3: the engine cap on concurrent sound voices (the `audio_voices` setting's maximum). */
-export const AUDIO_VOICE_CAP = 32;
 
 const SETTINGS_BY_KEY = new Map(M2_SETTINGS_KEYS.map((s) => [s.key, s]));
 

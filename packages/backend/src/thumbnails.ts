@@ -8,6 +8,7 @@
  * Nothing is written into a game folder; a missing file is simply rendered
  * again by the next editor that needs it.
  */
+import { ID_RE } from '@thirdlight/project-model/limits';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -19,7 +20,7 @@ export const THUMBNAIL_EDGE_MAX = 512;
 /** Most cached thumbnails per project (writes beyond it are refused). */
 export const THUMBNAILS_PER_PROJECT_MAX = 8192;
 
-const PROJECT_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+const PROJECT_RE = ID_RE;
 const DIGEST_RE = /^[0-9a-f]{64}$/;
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 

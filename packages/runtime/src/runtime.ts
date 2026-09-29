@@ -45,6 +45,10 @@ import {
   type PrefabDefinition,
   type Quat,
   type RuntimeUiDocumentRow,
+  MAX_TRANSITION_FADE,
+  MAX_TRANSITION_UNLOADS,
+  SAVE_LIMITS,
+  SCRIPT_SAVE_LIMITS,
 } from '@thirdlight/project-model';
 import {
   actionPhase,
@@ -623,8 +627,8 @@ function parseConfig(config: unknown): { cfg: ParsedConfig } | { error: RuntimeE
   // Phase 23.19: the stored project settings document (checked field by field against the save schema by the runtime).
   let projectSettings: Record<string, unknown> | undefined;
   if (config.projectSettings !== undefined) {
-    if (!isPlainObject(config.projectSettings) || Object.keys(config.projectSettings).length > 64) {
-      return { error: fail('config_invalid', 'config field "projectSettings" must map at most 64 keys to values', { reason: 'shape', path: '/projectSettings' }) };
+    if (!isPlainObject(config.projectSettings) || Object.keys(config.projectSettings).length > SAVE_LIMITS.settingsFields) {
+      return { error: fail('config_invalid', `config field "projectSettings" must map at most ${SAVE_LIMITS.settingsFields} keys to values`, { reason: 'shape', path: '/projectSettings' }) };
     }
     projectSettings = { ...(config.projectSettings as Record<string, unknown>) };
   }
@@ -650,8 +654,8 @@ function parseConfig(config: unknown): { cfg: ParsedConfig } | { error: RuntimeE
 }
 
 /** Phase 9.11: `ctx.save` rules (shared by the Phase 23.8 injected variables). */
-const SAVE_MAX_KEYS = 64;
-const SAVE_MAX_VALUE_CHARS = 4096;
+const SAVE_MAX_KEYS = SCRIPT_SAVE_LIMITS.keys;
+const SAVE_MAX_VALUE_CHARS = SCRIPT_SAVE_LIMITS.valueChars;
 const SAVE_KEY_RE = /^[A-Za-z0-9_.:-]{1,64}$/;
 /** A value's JSON text when it fits a save value, else null. */
 function saveValueText(value: unknown): string | null {
@@ -1228,8 +1232,6 @@ type SceneOp = { op: 'load'; sceneId: string; at?: readonly [number, number, num
  */
 const SCENE_PREP_BUDGET_MS = 4;
 const nowMs = (): number => (typeof performance !== 'undefined' ? performance.now() : Date.now());
-/** Phase 25.24e: the longest fade a transition takes (seconds, each way). */
-const MAX_TRANSITION_FADE = 5;
 const FADE_COLOR_RE = /^#[0-9a-f]{6}$/;
 
 /** Phase 24.4f: the largest impulse component a script may give the character (m/s; a safety limit, far above a jump). */
@@ -1579,14 +1581,14 @@ class RuntimeInstance implements Runtime {
     get: (key: string): unknown => (this.saveStore.has(String(key)) ? structuredClone(this.saveStore.get(String(key))) : undefined),
     set: (key: string, value: unknown): boolean => {
       if (typeof key !== 'string' || !/^[A-Za-z0-9_.:-]{1,64}$/.test(key)) return false;
-      if (!this.saveStore.has(key) && this.saveStore.size >= 64) return false;
+      if (!this.saveStore.has(key) && this.saveStore.size >= SAVE_MAX_KEYS) return false;
       let text: string | undefined;
       try {
         text = JSON.stringify(value);
       } catch {
         return false;
       }
-      if (text === undefined || text.length > 4096) return false;
+      if (text === undefined || text.length > SAVE_MAX_VALUE_CHARS) return false;
       this.saveStore.set(key, JSON.parse(text) as unknown);
       return true;
     },
@@ -4240,7 +4242,7 @@ class RuntimeInstance implements Runtime {
       // Phase 25.24e: a transition's unloads and fade.
       const o = options as { unload?: unknown; fade?: unknown; fadeColor?: unknown };
       if (o.unload !== undefined) {
-        if (!Array.isArray(o.unload) || o.unload.length > 16 || !o.unload.every((x) => typeof x === 'string')) return 'load option "unload" must be up to 16 scene ids';
+        if (!Array.isArray(o.unload) || o.unload.length > MAX_TRANSITION_UNLOADS || !o.unload.every((x) => typeof x === 'string')) return `load option "unload" must be up to ${MAX_TRANSITION_UNLOADS} scene ids`;
         for (const u of o.unload as string[]) {
           if (u === sceneId) return `load option "unload" names the scene it loads (${JSON.stringify(u)})`;
           const p = this.sceneOpProblem('unload', u);

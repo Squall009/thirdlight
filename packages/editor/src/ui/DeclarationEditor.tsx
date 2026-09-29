@@ -12,6 +12,7 @@
  *
  * Display + intent only; the backend validates. Browser-only (React).
  */
+import { MAX_PROPERTIES } from '@thirdlight/project-model/limits';
 import { useState, type JSX } from 'react';
 import type { PropertyDeclaration, PropertyType } from '@thirdlight/project-model';
 import {
@@ -212,7 +213,7 @@ export function DeclarationEditor({
         <div className="tl-decl__row">
           <button
             className="tl-btn tl-btn--small"
-            disabled={drafts.length >= 32}
+            disabled={drafts.length >= MAX_PROPERTIES}
             onClick={() => {
               setSaved(false);
               setDrafts((ds) => [...ds, newPropertyDraft(ds)]);

@@ -16,12 +16,11 @@
 
 import { fieldValue, idExhaustion, limitsExceeded, type CommandError } from './errors';
 import { deepClone, derivedPrefix, gateResultState, type OpOutcome } from './ops';
-import { nextFreeEntityIdOf } from '@thirdlight/project-model';
+import { MAX_ENTITIES_V4, nextFreeEntityIdOf } from '@thirdlight/project-model';
 import type { ContentDocument, PasteEntitiesArgs, PasteEntitiesChange, SceneDocument } from './types';
 
 /** Most entities one paste may create. */
 export const PASTE_ENTITIES_MAX = 256;
-const MAX_ENTITIES_SCENE_V4 = 16_384;
 
 type Value = { id: string; parentId?: string; name?: string; components: Record<string, unknown> } & Record<string, unknown>;
 
@@ -29,7 +28,7 @@ export function applyPasteEntities(scene: SceneDocument, args: PasteEntitiesArgs
   const given = args.entities as unknown as Value[];
   const sourceIds = new Set(given.map((e) => e.id));
   if (sourceIds.size !== given.length) return { ok: false, error: fieldValue('/args/entities', given.length, 'distinct entity ids', 'two given entities share an id') };
-  const max = MAX_ENTITIES_SCENE_V4;
+  const max = MAX_ENTITIES_V4;
   if (scene.entities.length + given.length > max) return { ok: false, error: limitsExceeded('entities', scene.entities.length + given.length, max) };
 
   // Parents before children: roots first, then breadth first through the copy.

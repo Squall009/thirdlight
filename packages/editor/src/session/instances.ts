@@ -8,7 +8,10 @@
  * xyz, rotation quaternion xyzw, scale xyz), in the entity's local space.
  */
 
-export const SCATTER_MAX = 65_536;
+import { MAX_INSTANCES } from '@thirdlight/project-model/limits';
+
+/** A scatter fills one instance set, so it places at most the set's copies. */
+export const SCATTER_MAX = MAX_INSTANCES;
 
 export interface ScatterOptions {
   count: number;

@@ -17,6 +17,7 @@
  * parameter). A layer state may be `empty` (the layers under it show
  * through).
  */
+import { ID_RE } from './validate';
 import type { ModelErrorV2 } from './errors';
 import type { GraphComment, GraphGroup } from './graph';
 
@@ -173,8 +174,6 @@ export const MAX_ANIMATOR_LAYERS = 3;
 export const MAX_LAYER_MASK = 128;
 /** Phase 23.11: morph bindings per controller (a face rig's expression set). */
 export const MAX_ANIMATOR_MORPHS = 32;
-
-const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 const PARAM_RE = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {

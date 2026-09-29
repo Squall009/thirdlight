@@ -82,6 +82,8 @@ describe('runtime core imports no physics implementation', () => {
           // Phase 23.0: the 3D backend (the `./3d` subpath; decision 0005).
           specifier === '@dimforge/rapier3d-compat' ||
           specifier === '@thirdlight/runtime' ||
+          // The model's collider limits, defined once in project-model (constants only).
+          specifier === '@thirdlight/project-model/limits' ||
           specifier === 'vitest';
         expect(allowed, `${file} imports '${specifier}' (dependencies.md §4.1/§4.3)`).toBe(true);
       }

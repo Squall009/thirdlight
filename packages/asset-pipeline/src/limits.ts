@@ -8,13 +8,21 @@
  * persisted version's metrics against on load (project-model.md §18.6).
  */
 
+import {
+  ASSET_METRIC_CAPS,
+  AUDIO_PCM_WAV_PROFILE,
+  M2_GLTF_EXTENSION_ALLOWLIST,
+  MAX_SOURCE_BYTES,
+  MAX_TOTAL_DECODED_BYTES,
+  MODEL_JSON_CHUNK_BYTES_MAX,
+} from '@thirdlight/project-model/limits';
 import type { ImportLimitName } from './types';
 
 /** §18.7.2 step 1: the whole-source byte cap (also §18.4 `sourceByteLength`). */
-export const M2_GLTF_SOURCE_BYTES = 33_554_432;
+export const M2_GLTF_SOURCE_BYTES = MAX_SOURCE_BYTES;
 
 /** §18.7.2 step 4: the JSON chunk byte cap. */
-export const M2_GLTF_JSON_CHUNK_BYTES = 8_388_608;
+export const M2_GLTF_JSON_CHUNK_BYTES = MODEL_JSON_CHUNK_BYTES_MAX;
 
 /** §18.7.2 step 11: per-image byte cap. */
 export const M2_GLTF_IMAGE_BYTES = 33_554_432;
@@ -59,25 +67,25 @@ export const ANIMATION_ROLE_NAME_CHARS = 128;
  * one is contract data, not configuration; the same numbers are re-checked on
  * load by `project-model`'s audio branch (§18.6).
  */
-export const AUDIO_PCM_WAV_HEADER_BYTES = 44;
-export const AUDIO_PCM_WAV_CHANNELS = 1;
-export const AUDIO_PCM_WAV_SAMPLE_RATE = 48_000;
-export const AUDIO_PCM_WAV_BITS_PER_SAMPLE = 16;
-export const AUDIO_PCM_WAV_BYTE_RATE = 96_000;
-export const AUDIO_PCM_WAV_BLOCK_ALIGN = 2;
-export const AUDIO_PCM_WAV_MAX_PCM_BYTES = 192_000;
-export const AUDIO_PCM_WAV_MAX_FRAMES = 96_000;
-export const AUDIO_PCM_WAV_MAX_DURATION_MS = 2_000;
-export const AUDIO_PCM_WAV_MAX_SOURCE_BYTES = 192_044;
+export const AUDIO_PCM_WAV_HEADER_BYTES = AUDIO_PCM_WAV_PROFILE.headerBytes;
+export const AUDIO_PCM_WAV_CHANNELS = AUDIO_PCM_WAV_PROFILE.channels;
+export const AUDIO_PCM_WAV_SAMPLE_RATE = AUDIO_PCM_WAV_PROFILE.sampleRate;
+export const AUDIO_PCM_WAV_BITS_PER_SAMPLE = AUDIO_PCM_WAV_PROFILE.bitsPerSample;
+export const AUDIO_PCM_WAV_BYTE_RATE = AUDIO_PCM_WAV_PROFILE.byteRate;
+export const AUDIO_PCM_WAV_BLOCK_ALIGN = AUDIO_PCM_WAV_PROFILE.blockAlign;
+export const AUDIO_PCM_WAV_MAX_PCM_BYTES = AUDIO_PCM_WAV_PROFILE.maxPcmBytes;
+export const AUDIO_PCM_WAV_MAX_FRAMES = AUDIO_PCM_WAV_PROFILE.maxFrames;
+export const AUDIO_PCM_WAV_MAX_DURATION_MS = AUDIO_PCM_WAV_PROFILE.maxDurationMs;
+export const AUDIO_PCM_WAV_MAX_SOURCE_BYTES = AUDIO_PCM_WAV_PROFILE.maxSourceBytes;
 /** §41.4.4 stage 1: the hard source-file bound, before any profile cap. */
-export const AUDIO_PCM_WAV_MAX_SOURCE_FILE_BYTES = 196_608;
+export const AUDIO_PCM_WAV_MAX_SOURCE_FILE_BYTES = AUDIO_PCM_WAV_PROFILE.maxSourceFileBytes;
 
 /**
  * presentation.md §41.4.3: the only tool whose version can change an inspected
  * WAV — this package, at the repository pin (`package.json`, `version`).
  */
 export const AUDIO_PIPELINE_NAME = 'asset-pipeline';
-export const AUDIO_PIPELINE_VERSION = '0.1.0';
+export const AUDIO_PIPELINE_VERSION = AUDIO_PCM_WAV_PROFILE.audioPipelineVersion;
 
 /** §41.4.3: the exact `pcm-wav` toolchain object. */
 export const AUDIO_PCM_WAV_TOOLCHAIN: Readonly<Record<string, string>> = Object.freeze({
@@ -94,58 +102,43 @@ export const AUDIO_PCM_WAV_LIMITS: Readonly<Record<string, number>> = Object.fre
 });
 
 /**
- * §18.8.1 extension allowlist: the glTF extensions the pinned
- * `three@0.186.0` GLTFLoader honors (Draco and Basis/KTX2 through the decoders
- * three ships, delivered with the game only when an asset needs them), each
- * covered by a committed fixture that imports here and renders in the editor,
- * Play and export (fixtures/import-ext). Meshopt streams are decoded by the
- * importer itself (meshopt.ts); Draco and KTX2 payloads are checked for
- * structure and declared sizes here and decoded at load. The same list is restated in project-model (recipe
- * validation) and three-adapter (the loader guard); a cross-package test keeps
- * the three equal. Everything else is `asset_extension_unsupported`.
+ * §18.8.1 extension allowlist: the glTF extensions the pinned GLTFLoader
+ * honors (Draco and Basis/KTX2 through the decoders three ships, delivered
+ * with the game only when an asset needs them), each covered by a committed
+ * fixture that imports here and renders in the editor, Play and export
+ * (fixtures/import-ext). Meshopt streams are decoded by the importer itself
+ * (meshopt.ts); Draco and KTX2 payloads are checked for structure and declared
+ * sizes here and decoded at load. The list is the model's, so the importer,
+ * the recipe validation and the loader guard agree. Everything else is
+ * `asset_extension_unsupported`.
  */
-export const M2_GLTF_EXTENSION_ALLOWLIST: readonly string[] = Object.freeze([
-  'EXT_meshopt_compression',
-  'EXT_texture_webp',
-  'KHR_draco_mesh_compression',
-  'KHR_materials_clearcoat',
-  'KHR_materials_emissive_strength',
-  'KHR_materials_ior',
-  'KHR_materials_sheen',
-  'KHR_materials_specular',
-  'KHR_materials_transmission',
-  'KHR_materials_unlit',
-  'KHR_materials_volume',
-  'KHR_mesh_quantization',
-  'KHR_texture_basisu',
-  'KHR_texture_transform',
-]);
+export { M2_GLTF_EXTENSION_ALLOWLIST };
 
 /** §18.6 decoded-resource caps keyed by the §18.9.3 `limits_exceeded` limit name. */
 export const M2_GLTF_PROFILE_LIMITS: Readonly<Record<string, number>> = Object.freeze({
   source_bytes: M2_GLTF_SOURCE_BYTES,
   json_chunk_bytes: M2_GLTF_JSON_CHUNK_BYTES,
   image_bytes: M2_GLTF_IMAGE_BYTES,
-  nodes: 4_096,
-  meshes: 1_024,
-  primitives: 8_192,
-  materials: 512,
-  images: 64,
-  textures: 512,
-  vertices: 2_000_000,
-  triangles: 4_000_000,
-  animations: 64,
-  animation_channels: 4_096,
-  clip_duration: 600_000,
-  decoded_bytes: 268_435_456,
-  total_decoded_bytes: 536_870_912,
+  nodes: ASSET_METRIC_CAPS.nodes,
+  meshes: ASSET_METRIC_CAPS.meshes,
+  primitives: ASSET_METRIC_CAPS.primitives,
+  materials: ASSET_METRIC_CAPS.materials,
+  images: ASSET_METRIC_CAPS.images,
+  textures: ASSET_METRIC_CAPS.textures,
+  vertices: ASSET_METRIC_CAPS.vertices,
+  triangles: ASSET_METRIC_CAPS.triangles,
+  animations: ASSET_METRIC_CAPS.animations,
+  animation_channels: ASSET_METRIC_CAPS.animationChannels,
+  clip_duration: ASSET_METRIC_CAPS.clipDurationMs,
+  decoded_bytes: ASSET_METRIC_CAPS.decodedGeometryBytes,
+  total_decoded_bytes: MAX_TOTAL_DECODED_BYTES,
   diagnostics: M2_GLTF_MAX_DIAGNOSTICS,
 });
 
 /** Caps that are reported with the shared `decoded_bytes` limit name (§18.9.3). */
-export const M2_GLTF_DECODED_GEOMETRY_BYTES = 268_435_456;
-export const M2_GLTF_DECODED_IMAGE_BYTES = 268_435_456;
-export const M2_GLTF_TOTAL_DECODED_BYTES = 536_870_912;
+export const M2_GLTF_DECODED_GEOMETRY_BYTES = ASSET_METRIC_CAPS.decodedGeometryBytes;
+export const M2_GLTF_DECODED_IMAGE_BYTES = ASSET_METRIC_CAPS.decodedImageBytes;
+export const M2_GLTF_TOTAL_DECODED_BYTES = MAX_TOTAL_DECODED_BYTES;
 
 /** The §18.9.3 limit names this profile can report, in evaluation order. */
 export const M2_GLTF_REPORTED_LIMITS: readonly ImportLimitName[] = Object.freeze([

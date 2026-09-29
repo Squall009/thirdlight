@@ -4,6 +4,7 @@
  * Both talk to the same-origin backend with the bearer token; the token is
  * kept in this browser only.
  */
+import { ID_RE } from '@thirdlight/project-model/limits';
 import { useCallback, useEffect, useState, type FormEvent, type JSX } from 'react';
 
 import { forgetToken, rememberToken } from '../config';
@@ -30,7 +31,7 @@ interface TemplateRow {
   description: string;
 }
 
-const PROJECT_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+const PROJECT_ID_RE = ID_RE;
 
 async function api<T>(path: string, token: string, init?: { method?: string; body?: unknown }): Promise<{ status: number; body: T }> {
   const res = await fetch(`/api/v1${path}`, {

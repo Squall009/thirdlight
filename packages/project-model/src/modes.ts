@@ -21,6 +21,7 @@
  * button's mode action, which rides on the input frame), so replays and the
  * simulation worker switch at the same step. Pure data rules.
  */
+import { ID_RE } from './validate';
 import type { ModelErrorV2 } from './errors';
 import { INPUT_MAPS } from './input';
 
@@ -101,8 +102,6 @@ export const MODE_DEFAULTS = Object.freeze({
   /** Half a second: long enough to read as a fade, short enough not to stall input. */
   fadeTime: 0.5,
 });
-
-const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 /** A behavior group or an input map name: a letter or _, then up to 31 letters, digits or _. */
 export const MODE_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
 

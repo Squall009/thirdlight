@@ -23,9 +23,10 @@
  * revision" is structural, not a convention.
  */
 import type { DeclaredProperty, PropertyDeclaration } from '@thirdlight/project-model';
+import { MAX_BEHAVIOR_DIAGNOSTICS } from '@thirdlight/project-model/limits';
 
-/** The maximum bounded compile diagnostics the UI displays (project-model §22.4). */
-export const COMPILE_DIAGNOSTIC_LIMIT = 32;
+/** The maximum bounded compile diagnostics the UI displays (the compiler's own cut). */
+export const COMPILE_DIAGNOSTIC_LIMIT = MAX_BEHAVIOR_DIAGNOSTICS;
 
 /**
  * The normative trust notice (runtime.md §14.1.1/§14.2.2). The UI must render

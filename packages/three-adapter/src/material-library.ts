@@ -41,6 +41,7 @@
  * Pure three.js: textures come from an injected loader (the host resolves
  * bytes; nothing here fetches).
  */
+import { MAX_MATERIAL_INSTANCE_DEPTH } from '@thirdlight/runtime';
 import * as THREE from 'three';
 import * as TSL from 'three/tsl';
 import { MeshBasicNodeMaterial, type MeshStandardNodeMaterial, type NodeBuilder } from 'three/webgpu';
@@ -84,8 +85,8 @@ export interface MaterialDefLike {
   readonly values?: Readonly<Record<string, number | readonly number[] | string>>;
 }
 
-/** Phase 25.19: the longest instance chain (project-model `MAX_MATERIAL_INSTANCE_DEPTH`). */
-const MATERIAL_INSTANCE_DEPTH = 8;
+/** The longest instance chain (the model's). */
+const MATERIAL_INSTANCE_DEPTH = MAX_MATERIAL_INSTANCE_DEPTH;
 
 /**
  * Phase 25.19: the adapter's copy of project-model `resolveMaterialInstances`

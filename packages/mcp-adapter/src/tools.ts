@@ -21,7 +21,53 @@
 
 import { BackendClient, makeRequestId } from './backend-client';
 import { playtestBackend, runPlaytest, type PlaytestSpec } from './playtest';
-import { GAME_CONTROL_COMMANDS, SIGNAL_DEBUG_COMMAND_NAME, parseRelayGamepad, parseRelayUiEdges, relayFrameEnd } from '@thirdlight/protocol';
+import {
+  CONTENT_ASSETS_LIMIT_DEFAULT,
+  CONTENT_ASSETS_LIMIT_MAX,
+  CONTENT_STAGE_MAX,
+  CONTENT_UPLOAD_FRAME_MAX,
+  GAME_CONTROL_COMMANDS,
+  GAME_OBSERVATION_MAX_BYTES,
+  GAME_OBSERVE_TIMEOUT_MAX_MS,
+  GAME_OBSERVE_TIMEOUT_MIN_MS,
+  INPUT_RELAY_MAX_BODY_BYTES,
+  INPUT_RELAY_MAX_FRAMES,
+  INPUT_RELAY_MAX_STEPS,
+  INSTANCE_BUFFER_INLINE_MAX,
+  PLAY_START_VARIABLES_MAX,
+  PLAY_START_VARIABLE_MAX_CHARS,
+  RELAY_GAMEPAD_AXES,
+  RELAY_GAMEPAD_BUTTONS,
+  RELAY_MAX_UI_EDGES,
+  RELAY_UI_EDGES,
+  SCREENSHOT_MAX_WIDTH_MAX,
+  SCREENSHOT_MAX_WIDTH_MIN,
+  SIGNAL_DEBUG_COMMAND_NAME,
+  parseRelayGamepad,
+  parseRelayUiEdges,
+  relayFrameEnd,
+} from '@thirdlight/protocol';
+import {
+  AUDIO_VOICE_CAP,
+  AUDIO_VOICES_DEFAULT,
+  BEHAVIOR_GRAPH_LIMITS,
+  EFFECT_LIMITS,
+  GRAPH_LIMITS,
+  INSTANCE_FLOATS,
+  MATERIAL_DATA_MAX,
+  MAX_COLLISION_LAYERS,
+  MAX_FONT_ASSETS,
+  MAX_LOCAL_LIGHTS,
+  MAX_MATERIAL_INSTANCE_DEPTH,
+  MAX_TAGS,
+  MODE_LIMITS,
+  PAINT_BRUSH_LIMITS,
+  SAVE_LIMITS,
+  SCRIPT_LIBRARY_LIMITS,
+  SCULPT_LIMITS,
+  TIMELINE_LIMITS,
+  UI_LIMITS,
+} from '@thirdlight/project-model/limits';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
 export interface McpContext {
@@ -62,10 +108,6 @@ const QUERY_OPS = ['queryProject', 'queryEntity', 'queryEntities', 'queryAssets'
  * recording replays it).
  */
 const TOOL_CONTROL_COMMANDS = [...GAME_CONTROL_COMMANDS, SIGNAL_DEBUG_COMMAND_NAME] as const;
-/** The largest single upload frame accepted by the backend (sessions.md §11.5). */
-const CONTENT_UPLOAD_FRAME_MAX = 1_048_576;
-/** The staged-source cap (workspace.md §13.9) — the MCP upload tool's bound. */
-const CONTENT_STAGE_MAX = 33_554_432;
 
 const isInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v);
 const isObj = (v: unknown): v is Record<string, unknown> =>
@@ -107,7 +149,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'the world position), moveEntities (file entities with their subtrees, keeping world positions: ' +
       '{entityIds, parentId|null, beforeId?}), deleteEntity, undo, redo. A folder has no transform and sits at the ' +
       'root or in another folder; folders pass active/locked/static and their tags down to their subtree. ' +
-      'Tags: setTags {tags: [{bit?, name}]} replaces the project tag registry (up to 32; a rename keeps the bit, a new ' +
+      `Tags: setTags {tags: [{bit?, name}]} replaces the project tag registry (up to ${MAX_TAGS}; a rename keeps the bit, a new ` +
       'name gets the lowest free bit, a tag still carried by an entity cannot be removed); the registry is in ' +
       'tl_inspect target="project" (tags) and each entity shows its own and effective tag names. Content ops: publishAsset, publishBehavior, ' +
       'setBehaviorProperties, setComponent {entityId, component, value} (a partial value: each top-level field present replaces that ' +
@@ -125,9 +167,9 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'transform for scripts that move objects): event.start (first step of every run), event.step, event.signal {signal}, event.trigger {when: enter|exit, trigger?} (triggers ' +
       'the script owns), event.overlap / event.raycast (a query around this object every step: enter|exit|each), event.input {action, when: pressed|released|held}, ' +
       'event.animator {event?, entity?}, event.timer {timer}, event.message {message, type} (sent with api.messages.send); callback events (intent phase, before the others): event.enable, event.disable, event.destroy (the object switched on, off, gone), event.contact {when: contact|separate, entity?} (hitboxes the script owns), event.ui {name?, type} (the step\'s UI events). Flow: flow.branch, sequence, for, foreach, while ' +
-      '(loops: at most 10000 iterations per step in all, more is a script error with the node id), gate (enter/open/close/toggle), doonce (in/reset), delay {seconds} ' +
+      `(loops: at most ${BEHAVIOR_GRAPH_LIMITS.loopIterationsPerStep} iterations per step in all, more is a script error with the node id), gate (enter/open/close/toggle), doonce (in/reset), delay {seconds} ` +
       '(step-counted, a timer "vs.delay.<n>"), switch {on: text|int, cases: "a, b, c" (comma separated, up to 32; outputs case1..caseN)} (+ default), select. Data ports: number, boolean, string, vector [x,y,z], list and map ' +
-      '(bounded: 1024 items, 256 entries; list/map nodes return new values) with conversions number→string, boolean→string, boolean→number, number→vector, vector→string; ' +
+      `(bounded: ${BEHAVIOR_GRAPH_LIMITS.listItems} items, ${BEHAVIOR_GRAPH_LIMITS.mapEntries} entries; list/map nodes return new values) with conversions number→string, boolean→string, boolean→number, number→vector, vector→string; ` +
       'constants, maths, logic, text, vectors, random.* (a per-object deterministic sequence restarting each run). API nodes api.<ctx path> are generated from the runtime ' +
       'typings (every ctx call: game, signals, messages, timers, physics, tags, world, scenes, input, animator, audio, save, spawn/destroy, api.emit.* intents — Move/Pose ' +
       'object only in the transform phase, entity empty = this object, which makes the script own "@self"); an empty entity argument means this object; an unwired data ' +
@@ -149,9 +191,9 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'Phase 24.4e-i: trigger.sceneTransition {scene, spawn? (a playerSpawn in that scene or the trigger\'s), unload? [sceneIds]} loads the scene and moves the character there on entry; ' +
       'switch.action (interact mode; default interact); faceMovement {mode: "velocity", yawOffset?, turnSeconds?} faces the motion in any direction; playerSpawn.yaw (degrees, 0 = +Z); ' +
       'virtualCamera rig "track" {target, trackOffset?, deadZone? [w,h,d], damping?, boundsMin?, boundsMax?, lookAhead? [x,y,z] s (a vertical look-ahead: [0,t,0]), lookAheadMax? m (3), lookAheadSmoothing? s (0.2)}; cameraRegion {size [w,h] or [w,h,d] (world axes, centred; no d: every depth), camera? (a track camera; absent: all), priority?, deadZone?, boundsMin?/boundsMax? (offsets from the region), distance? (along the camera offset), blendTime? (0.5)} - while a track camera\'s target is inside, those replace the camera\'s own, blended on enter/leave (tl_game_observe camera.region); setEventCues {cues: [{on: signal|event, name, entity?, assetId (audio), volume?, bus?}]} plays sounds for signals and ctx.events types; ' +
-      'scripts: ctx.character.impulse([x,y,z]), ctx.look.set(id, {emissive?, emissiveIntensity?, tint?}) / clear(id) / get(id). Surface presets: applySurfacePreset {entityId, preset: matte-ground|signal-red|emissive-accent}. setSettings also takes the engine settings fixed_step_hz 60|120|240 (120), audio_voices 1-32 (8), music_fade_s 0-10 (1), animation_crossfade_s 0-2 (0.2), render_backend 1|2|3 (1: auto = WebGPU else WebGL 2, the default; 2: WebGPU; 3: WebGL 2; an old 0 means auto; a page URL flag ?renderer=auto|webgpu|webgl2 overrides it), sim_thread 1|2 (1: the simulation runs in a worker, the default; 2: on the main thread of the page; ?threads=off|on overrides it), physics_dimension 2|3 (2: the 2D plane, the default; 3: 3D physics — every box collider then needs hz, its half depth, colliders may rotate on any axis and scale, polygons are 2D-only; 3D collider shapes: sphere {radius}, capsule {radius, height}, convex {points [[x,y,z]...] 4-64}, mesh {vertices [[x,y,z]...] <=1024, triangles [[a,b,c]...] <=2048; static}; triggers: box size [w,h,d], sphere {radius}, capsule {radius, height}; switches are 2D-only), random_seed 0-4294967295 (0: the seed of ctx.random in scripts; the same seed gives the same numbers in every run and replay), audio_spatial 0|1|2 (0: automatic = 2D by X distance to the player, 3D panned; 1: by distance; 2: panned, the listener on the active camera). Scenes: createScene {name, sceneId?}, ' +
+      `scripts: ctx.character.impulse([x,y,z]), ctx.look.set(id, {emissive?, emissiveIntensity?, tint?}) / clear(id) / get(id). Surface presets: applySurfacePreset {entityId, preset: matte-ground|signal-red|emissive-accent}. setSettings also takes the engine settings fixed_step_hz 60|120|240 (120), audio_voices 1-${AUDIO_VOICE_CAP} (${AUDIO_VOICES_DEFAULT}), music_fade_s 0-10 (1), animation_crossfade_s 0-2 (0.2), render_backend 1|2|3 (1: auto = WebGPU else WebGL 2, the default; 2: WebGPU; 3: WebGL 2; an old 0 means auto; a page URL flag ?renderer=auto|webgpu|webgl2 overrides it), sim_thread 1|2 (1: the simulation runs in a worker, the default; 2: on the main thread of the page; ?threads=off|on overrides it), physics_dimension 2|3 (2: the 2D plane, the default; 3: 3D physics — every box collider then needs hz, its half depth, colliders may rotate on any axis and scale, polygons are 2D-only; 3D collider shapes: sphere {radius}, capsule {radius, height}, convex {points [[x,y,z]...] 4-64}, mesh {vertices [[x,y,z]...] <=1024, triangles [[a,b,c]...] <=2048; static}; triggers: box size [w,h,d], sphere {radius}, capsule {radius, height}; switches are 2D-only), random_seed 0-4294967295 (0: the seed of ctx.random in scripts; the same seed gives the same numbers in every run and replay), audio_spatial 0|1|2 (0: automatic = 2D by X distance to the player, 3D panned; 1: by distance; 2: panned, the listener on the active camera). Scenes: createScene {name, sceneId?}, ` +
       'renameScene {sceneId, name}, deleteScene {sceneId} (only an empty scene), setStartScenes {sceneIds} (the ' +
-      'scenes the game starts with; the camera, the character and start spawn live only in start scenes; lights belong to any scene: the most recently loaded scene\'s directional, ambient and hemisphere light is on, point/spot lights of all loaded scenes share a budget of 16; a spot light may carry cookie: a texture assetId projected through its cone). ' +
+      `scenes the game starts with; the camera, the character and start spawn live only in start scenes; lights belong to any scene: the most recently loaded scene's directional, ambient and hemisphere light is on, point/spot lights of all loaded scenes share a budget of ${MAX_LOCAL_LIGHTS}; a spot light may carry cookie: a texture assetId projected through its cone). ` +
       'createEntity/instantiatePrefab take sceneId (default: the first scene; with parentId, the parent\'s scene); ' +
       'one command edits one scene and entity ids are unique across scenes. An instance set is ' +
       'setComponent "instances" {asset:{assetId, piece?}, buffer:<sha256 of a staged buffer>, count}. Models: createEntity kind "model" ' +
@@ -169,11 +211,11 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'textureAssetId}}} creates or replaces one (on a model it starts from the file\'s own material and changes only what it sets); ' +
       'deleteMaterial {materialId}; objects use them with setComponent "materials" {<source material name or "*">: materialId}, a ' +
       'model asset for every placement with setAssetOptions {assetId, materials: {...}|null}, a block type with setBlockType {block: {…, materials}}. ' +
-      'A material instance is a material with instanceOf: <parent materialId> (a material or another instance, chains up to 8): it draws as its parent with ' +
+      `A material instance is a material with instanceOf: <parent materialId> (a material or another instance, chains up to ${MAX_MATERIAL_INSTANCE_DEPTH}): it draws as its parent with ` +
       'the values it sets — params/textures over a shader material\'s, values: {<parameter key>: value} over a graph material\'s parameter defaults; its shader is ' +
       'its parent\'s, it has no graph or parameters of its own; any mapping, override, effect or timeline may name it, and a used instance ships resolved. A graph material adds graph: {nodes, edges, groups?, comments?} (graph kind ' +
       '"material": the graph replaces shader/params/textures at render time: it compiles to a node material in the Scene view, Play and exports; the file\'s own material is not used) and ' +
-      'parameters: [{key (identifier), type: float|vec2|vec3|vec4|color|texture|data, default, min?, max?, size? (data: [w, h] cells 1-64; default = the RGBA bytes every cell starts with), visibility?: public|private, label?, group?, tooltip?}] ' +
+      `parameters: [{key (identifier), type: float|vec2|vec3|vec4|color|texture|data, default, min?, max?, size? (data: [w, h] cells 1-${MATERIAL_DATA_MAX}; default = the RGBA bytes every cell starts with), visibility?: public|private, label?, group?, tooltip?}] ` +
       '(read by Parameter nodes {key}); its graph is then edited with graphEdit {owner: {kind: "material", id: materialId}, ops}; objects override public parameters ' +
       'with setComponent "materialParams" {<materialId>: {<key>: value}} (private ones are refused; data parameters are written by scripts: ctx.materials.setData, read by Sample data nodes). Material functions (reusable sub-graphs) are standalone graphs of kind ' +
       '"material-function" (setGraph; Function input {name, type, default} / Function output {name, type} nodes are the ports of every Function call {function: graphId} node; ' +
@@ -202,12 +244,12 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'move, jump, attack, interact, pause, submit, cancel, navigate); scripts read ctx.input.value/pressed/released/held(name), ' +
       'ctx.input.pointer() / pointerPressed/Released/Held(button) and ctx.input.setCursor(free|locked|auto); the cursor hides while a gamepad drives. ' +
       '3D queries (physics_dimension 3): ctx.physics.raycast3d/overlapSphere/overlapBox3d/overlapCapsule/pickAt/pickAtPointer with a filter ' +
-      '{tags?, layers?, exclude?}; setCollisionLayers {layers: [name...]} names up to 15 collision layers ("default" is implicit) that ' +
+      `{tags?, layers?, exclude?}; setCollisionLayers {layers: [name...]} names up to ${MAX_COLLISION_LAYERS} collision layers ("default" is implicit) that ` +
       'collider {layers: [...]} lists. ' +
-      'Project saves (v4): setSaveSchema {schema: {version (1+), slots (1-99), migrations?: [{from, name}], sections?: [grid|materials|spawned|storage|dialogue], ' +
-      'thumbnail?: {width, height (16-512 px), format: jpeg|webp, quality?}, settings?: [{key, type: bool|number|string|enum, default, label?, min?, max?, values?, ' +
+      `Project saves (v4): setSaveSchema {schema: {version (1+), slots (1-${SAVE_LIMITS.slots}), migrations?: [{from, name}], sections?: [grid|materials|spawned|storage|dialogue], ` +
+      `thumbnail?: {width, height (16-${SAVE_LIMITS.thumbnailSide} px), format: jpeg|webp, quality?}, settings?: [{key, type: bool|number|string|enum, default, label?, min?, max?, values?, ` +
       'engine?: music|sfx|ui|quality}]} | null}; scripts use ctx.saves.write(doc)/read()/save(slot, {title?, chapter?, location?, thumbnail?})/load(slot)/' +
-      'delete(slot)/slots()/results()/migration(name, fn)/setting(key)/setSetting(key, value) (1 MiB per slot; saves live in the browser). ' +
+      `delete(slot)/slots()/results()/migration(name, fn)/setting(key)/setSetting(key, value) (${SAVE_LIMITS.documentBytes / 1_048_576} MiB per slot; saves live in the browser). ` +
       'Gameplay blocks (v4; setComponent or createEntity components): mover {waypoints: [[dx, dy, dz]...] offsets, speed, mode: ' +
       'loop|pingpong|once, wait?, easing?: linear|smooth|gravity (gravity: from rest at each point, constant acceleration), startOn?: signal, stopOn?: signal (holds it), toggleOn?: signal (moves a held one, holds a moving one), reverseOn?: signal (back the way it came), active?: false (held), maxPush? 1-1000 m/s (60: how hard it shoves a player out of its way)} (with a box collider it is a moving platform that carries ' +
       'the player; startOn makes a door); trigger {size: [w, h] (box) | shape: "circle", radius m (instead of size), signal, once?, exitSignal? (sent on leaving), mode?: enter|stay (stay: the signal every step while the player is inside)}; switch {mode: interact|stand, signal, size, once?}; ' +
@@ -224,7 +266,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'Graphs (node graphs; one op set for every graph kind): setGraph {graph: {graphId, kind, name, graph: {nodes: [], edges: []}}} ' +
       'creates or renames a standalone graph (kind "test" is the framework\'s test kind; the kinds\' node catalogues, port types and conversions are in ' +
       'tl_content_query target="game" includeDescriptors (graphKinds); the graphs themselves in target="game" (graphs)); deleteGraph {graphId}; graphEdit {owner: {kind: "graph", id: graphId}, ' +
-      'ops: [...]} applies up to 512 ops atomically as ONE undo step: addNodes {nodes: [{id, type, position: [x, y], collapsed?: true, data?: {field: value}}]}, ' +
+      `ops: [...]} applies up to ${GRAPH_LIMITS.ops} ops atomically as ONE undo step: addNodes {nodes: [{id, type, position: [x, y], collapsed?: true, data?: {field: value}}]}, ` +
       'removeNodes {ids} (also removes their edges), moveNodes {moves: [{id, position}]} (nodes, comments or groups), setNodeData {id, data} (replaces the node\'s data; {} = defaults), ' +
       'setCollapsed {ids, collapsed}, connect {edges: [{id, from: {node, port (an output)}, to: {node, port (an input)}, reroutes?: [[x, y]]}]}, disconnect {ids}, ' +
       'setReroutes {id, reroutes}, setGroups {groups: [{id, title, color: #rrggbb, rect: [x, y, w, h]}]} (add or replace), removeGroups {ids}, setComments {comments: [{id, text, ' +
@@ -241,7 +283,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'A visual script is owner kind "behavior" (owner id = behaviorId, kind behavior; "<behaviorId>#<functionId>" = one of its functions, kind behavior-function; the change is graphEdit with the ops, one undo step). ' +
       'Visual effects (visual only, never part of the game simulation): setEffect {effect: {effectId, name, duration 0.01-3600 s (one cycle), loop, seed 0-4294967295, ' +
       'bounds: {center: [x, y, z], size: [x, y, z]} (culling box around the origin), parameters?: [{key, type: float|vec3|color, default, min?, max?, visibility?: public|private, label?, group?, tooltip?}], ' +
-      'systems: [{systemId, name, maxParticles 1-1048576, space: local|world, graph}] (up to 16, evaluation order)}} creates or replaces one (adding/removing a system = setEffect); ' +
+      `systems: [{systemId, name, maxParticles 1-${EFFECT_LIMITS.maxParticles}, space: local|world, graph}] (up to ${EFFECT_LIMITS.systems}, evaluation order)}} creates or replaces one (adding/removing a system = setEffect); ` +
       'deleteEffect {effectId} (refused while an effect component names it); renameEffect {effectId, name}. A system graph (kind "effect", catalogue in graphKinds) has the fixed ' +
       'context nodes spawn, initialize, update and output (a new system: those four nodes with ids = their types, no edges); each context runs a chain: connect the context\'s "then" ' +
       'output to a block\'s "in", that block\'s "then" to the next block (spawn.rate|burst|distance|event; init.position.point|sphere|box|circle|cone|line|mesh, init.velocity, ' +
@@ -255,7 +297,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'tl_content_query target="game" (effects). ' +
       'Script libraries (shared TypeScript/JSON modules any script imports as @lib/<libraryId>, e.g. import { rules } from "@lib/combat"): setScriptLibrary {libraryId, name? (required for a new one), ' +
       'files?: [{path, text|null}]} creates a library or patches one (listed files are added or replaced, text null removes one, other files are kept; src/index.ts is what an import names; ' +
-      'paths end in .ts or .json; up to 16 files, 64 KiB each); a changed library recompiles every published script that imports it in the same command (refused with the compile error ' +
+      `paths end in .ts or .json; up to ${SCRIPT_LIBRARY_LIMITS.files} files, ${SCRIPT_LIBRARY_LIMITS.fileBytes / 1024} KiB each); a changed library recompiles every published script that imports it in the same command (refused with the compile error ` +
       'naming the script if one no longer compiles, or behavior_trust_unacknowledged {sourceDigest} until acknowledgeBehaviorTrust acknowledges the library\'s new digest); ' +
       'deleteScriptLibrary {libraryId} (refused while a published script imports it). A script may also import .json files of its own source (import data from "./data.json"). ' +
       'Edits larger than one request (the 64 KiB cap) or across several libraries are staged: op stageScriptLibrary {stageId?, libraryId, name?, files?} (no expectedRevision; ' +
@@ -279,15 +321,15 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       '{kind:"copy", box, to, rot?, mirror?, move?, mode?} (copy/move/mirror a selection), {kind:"region", regionId, op: set|add|remove|delete|rename, boxes?, to?} (named regions), ' +
       '{kind:"heightmap", png: base64 greyscale PNG, origin: [x,z], y, scale (cells for white), cell, keepAbove?, colors?: {png, map: [{color, cell}]}} (import a heightmap; the colour map picks each column\'s cell), ' +
       '{kind:"surface", columns: [x, z, h, h, h, h, ...] (column top corner heights −x−z, +x−z, +x+z, −x+z in rows: 3.25 = a quarter cell over row 3\'s bottom), cell?} (sloped terrain: each column grows or shrinks to its corners), ' +
-      '{kind:"sculpt", op: raise|lower|smooth|flatten, at: [x, z] (columns; vertices at whole numbers), radius (0.5-32 cells), strength (raise/lower: cells at the centre; smooth/flatten: blend 0-1), height? (flatten: rows), cell? (grows empty columns)} (a terrain brush dab; the editor sends a stroke as its dabs). ' +
-      '{kind:"paint", at: [x, z] (columns), radius (0.25-64 cells), strength (0-1 per dab at the centre), channel (0-3: a material layer, its weight grows and the others give way; 4: wetness), falloff?: smooth|linear|constant, erase?} ' +
+      `{kind:"sculpt", op: raise|lower|smooth|flatten, at: [x, z] (columns; vertices at whole numbers), radius (${SCULPT_LIMITS.radiusMin}-${SCULPT_LIMITS.radiusMax} cells), strength (raise/lower: cells at the centre; smooth/flatten: blend 0-1), height? (flatten: rows), cell? (grows empty columns)} (a terrain brush dab; the editor sends a stroke as its dabs). ` +
+      `{kind:"paint", at: [x, z] (columns), radius (${PAINT_BRUSH_LIMITS.radiusMin}-${PAINT_BRUSH_LIMITS.radiusMax} cells), strength (0-1 per dab at the centre), channel (0-3: a material layer, its weight grows and the others give way; 4: wetness), falloff?: smooth|linear|constant, erase?} ` +
       '(the layer\'s surface paint, stored per chunk; a painted layer\'s chunk meshes carry it as COLOR_0 = the four layer weights and COLOR_1.r = wetness, which a graph material reads — e.g. the height-blended layers template on a block type mapped {"*": materialId}). ' +
       'The change names the chunks [cx,cz] (16×16 columns) and regions touched; read cells back with tl_content_query target="blocks". Keep each request under 64 KiB (use boxes and runs). ' +
       'setBlockStamp {stamp} or {stampId, name, entityId, box} (save a selection) / deleteBlockStamp {stampId}. ' +
       'Project UI (drawn by the game host over the view, in Play and exports): setUiDocument {document: {uiDocumentId, name, layer? (-100..100), modal?, focus? (takes keyboard/gamepad focus; default modal), ' +
       'actionMap? (gameplay|ui: the only input map active while it has focus), theme? (uiThemeId), scale? {reference: [w, h], mode: fit|width|height}, styles? {name: style}, icons? {name: {asset: texture, rect?: [x, y, w, h]}}, ' +
       'tweens? {name: {kind: fade|slide|scale|stamp, duration 0.01-10 s, delay?, easing?: linear|easeIn|easeOut|easeInOut|back, from?, to?, direction?: left|right|up|down, distance?}}, showTween?, hideTween?, initialFocus? (widget id), onCancel? (action), root: widget}} ' +
-      'creates or replaces one (whole JSON, ≤ 48 KiB, ≤ 512 widgets, depth ≤ 16); deleteUiDocument {uiDocumentId}; setUiTheme {theme: {uiThemeId, name, styles, icons?}}; deleteUiTheme {uiThemeId}. ' +
+      `creates or replaces one (whole JSON, ≤ ${UI_LIMITS.documentBytes / 1024} KiB, ≤ ${UI_LIMITS.widgets} widgets, depth ≤ ${UI_LIMITS.depth}); deleteUiDocument {uiDocumentId}; setUiTheme {theme: {uiThemeId, name, styles, icons?}}; deleteUiTheme {uiThemeId}. ` +
       'A widget: {type: panel|stack|grid|text|image|bar|button|list|input, id?, anchor? [0-1, 0-1], pivot?, offset? [px, px], size? [w|null|{bind}, h|null|{bind}] (a bound axis is the px number the view model holds), stretch?: x|y|both, margin? [l, t, r, b], grow?, style?: name|[names], css?: style, ' +
       'visible?/enabled?: bool|{bind}, focusable?, nav? {up, down, left, right, next, prev: widget ids}, worldAnchor? {entity: id|{bind} | point: [x, y, z], offset?, clamp?, margin?, indicator?: child id}, onFocus?, children? (panel anchors them; stack direction row|column, gap, align, justify, wrap; grid columns, cellSize), ' +
       'text (rich: [b] [i] [color=#hex] [size=N] [icon=name], {path} values, {action:name} the glyph of an input action), image {image: texture|{bind}, slice? [t, r, b, l], fit?, tint?}, bar {value, min?, max? (numbers or {bind}), direction?: right|left|up|down, shape?: linear|radial, fillColor?, fillStyle?, startAngle? (radial, degrees, 0 = up: a number or {bind})}, ' +
@@ -307,12 +349,12 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'Scripts: ctx.dialogue.start(id, {entry?, node?, bindings?}), advance, choose, skip, setAuto, resume, stop, current, events, get/set variables, seen, history. ' +
       'Game modes: setModes {modes: [{modeId, name, inputMaps? (gameplay|ui|input.maps names; absent: every map — actions of other maps read as released), camera? (a virtualCamera object, live over priorities while the mode is), ' +
       'ui? (uiDocumentIds shown while active), groups? (behavior groups that tick; absent: all), ungrouped?: tick|pause, pause? (engine pause allowed, default true), pauseScreen? (uiDocumentId drawn while paused; absent: the engine panel), ' +
-      'timeScale? (0.1-4), physics?: run|hold, enter? {blend?: cut|linear|eased, blendTime?, fade? (uiDocumentId shown for fadeTime s), fadeTime?}}]} replaces the whole list (the first is the start mode; ≤ 16); ' +
+      `timeScale? (${MODE_LIMITS.timeScaleMin}-${MODE_LIMITS.timeScaleMax}), physics?: run|hold, enter? {blend?: cut|linear|eased, blendTime?, fade? (uiDocumentId shown for fadeTime s), fadeTime?}}]} replaces the whole list (the first is the start mode; ≤ ${MODE_LIMITS.modes}); ` +
       'setBehaviorGroups {groups: [names]}; an object joins a group with setComponent behaviorGroup {group}; setInput input.maps [names] adds project input maps. A UI action {do: "mode", mode} switches from a button. ' +
       'Scripts: ctx.modes.current/previous/is/switch(id, {blend?, blendTime?, fade?, fadeTime?})/events()/entered(id?)/exited(id?)/time() (a switch applies at the next step; enter/exit events in that step); ' +
       'ctx.lifecycle.respawn(spawnId?)/setSpawn/spawnPoint/restart() for a game without the game session block. tl_game_observe reports mode {current, previous, since, pending, pause, inputMaps, timeScale, physics, modes} and paused. ' +
-      'Timelines (sequencer, played in the simulation step): setTimeline {timeline: {timelineId, name, duration (s, ≤ 600), slots? [{name, entity? (default binding)}], markers? [{name, time}], skipAction? (input action), playOnStart?, playOnSignal?, ' +
-      'tracks: [{trackId, type, name?, muted?, target? (a slot: transform|animator|activation|material), keys: [{time, …}]}]}} creates or replaces one (≤ 48 KiB, 32 tracks, 256 keys each); deleteTimeline {timelineId}. Track types and key fields: ' +
+      `Timelines (sequencer, played in the simulation step): setTimeline {timeline: {timelineId, name, duration (s, ≤ ${TIMELINE_LIMITS.duration}), slots? [{name, entity? (default binding)}], markers? [{name, time}], skipAction? (input action), playOnStart?, playOnSignal?, ` +
+      `tracks: [{trackId, type, name?, muted?, target? (a slot: transform|animator|activation|material), keys: [{time, …}]}]}} creates or replaces one (≤ ${TIMELINE_LIMITS.bytes / 1024} KiB, ${TIMELINE_LIMITS.tracks} tracks, ${TIMELINE_LIMITS.keys} keys each); deleteTimeline {timelineId}. Track types and key fields: ` +
       'camera {camera: slot | release: true, blend: cut|linear|eased, blendTime, progress: [from, to] (rail), easing} (track end: release|keep, endBlend, endBlendTime); transform {position, rotation (quaternion), scale, easing}; ' +
       'animator {kind: set|trigger|play, name, value, fade, layer}; audio {kind: music|release|stinger|sfx, asset, fade, volume, loop, duration, at: slot} (track releaseMusic); dialogue {dialogue, node, wait}; effect {effect, duration, at, position, params}; ' +
       'activation {active}; signal {name, onSkip: fire|drop}; fade {value 0-1, color, easing}; letterbox {value 0-0.5, easing} (track hold); wait {action, timeout} (stops until the action is pressed); material {value} (track param, material); mode {mode, blend, blendTime} (switches the game mode like ctx.modes.switch; skip applies the last); environment {preset, blendTime}. ' +
@@ -336,7 +378,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
   {
     name: 'tl_content_query',
     description:
-      'Bounded, read-only M2 content queries. target="assets" pages the asset catalog (limit ≤ 128, default 50); ' +
+      `Bounded, read-only M2 content queries. target="assets" pages the asset catalog (limit ≤ ${CONTENT_ASSETS_LIMIT_MAX}, default ${CONTENT_ASSETS_LIMIT_DEFAULT}); ` +
       'target="asset" returns one record with assetId (includeVersions optional); target="prefabs" pages prefab ' +
       'summaries (includeEntities optional); target="behaviors" pages behavior summaries (includeDeclaration ' +
       'optional); target="integrity" returns the bounded content-integrity report (a file referenced in place is ' +
@@ -366,7 +408,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
         assetId: { type: 'string' },
         prefabId: { type: 'string' },
         behaviorId: { type: 'string' },
-        limit: { type: 'integer', minimum: 1, maximum: 128 },
+        limit: { type: 'integer', minimum: 1, maximum: CONTENT_ASSETS_LIMIT_MAX },
         offset: { type: 'integer', minimum: 0 },
         includeVersions: { type: 'boolean' },
         includeEntities: { type: 'boolean' },
@@ -382,7 +424,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     description:
       'Stage and inspect a source file over the real backend content routes (no filesystem bypass): creates a ' +
       'bounded upload stage, uploads ≤ 1 MiB frames, and returns the bounded import proposal (or the structured ' +
-      'import_rejected error carrying the ordered diagnostics). dataBase64 ≤ 32 MiB decoded. The command that ' +
+      `import_rejected error carrying the ordered diagnostics). dataBase64 ≤ ${CONTENT_STAGE_MAX / 1_048_576} MiB decoded. The command that ` +
       'commits the content is submitted separately with tl_command (publishAsset), so dedup precedes any stage lookup. ' +
       'For a project in a game folder, projectPath instead inspects a file already in that folder in place (nothing ' +
       'is copied): the result carries sourcePath, which the publishAsset args must include so the version references ' +
@@ -391,14 +433,14 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'kind "texture" takes a PNG, JPEG, WebP or a Basis Universal KTX2 (ETC1S/UASTC with its mips; a 2D array is a texture array); ktx2 "color"|"normal"|"data" encodes a PNG/JPEG to KTX2 first. ' +
       'pack (instead of dataBase64/projectPath) makes a KTX2 texture from PNG/JPEG texture assets already in the project, channel by channel — ' +
       'several layers make a texture array (graph materials sample a layer: Sample texture / Normal map / Triplanar "layer"); the result carries packedFrom, which the publishAsset args (kind "texture") must include. ' +
-      'kind "font" inspects a TrueType (.ttf), OpenType (.otf), WOFF2 or WOFF font (<= 4 MiB; at most 16 fonts per project) for the project UI; publish it with kind "font". ' +
+      `kind "font" inspects a TrueType (.ttf), OpenType (.otf), WOFF2 or WOFF font (<= 4 MiB; at most ${MAX_FONT_ASSETS} fonts per project) for the project UI; publish it with kind "font". ` +
       'jobExport (phase 25.22) imports an asset tool\'s job export: a folder or a .zip holding a GLB and manifest.json {name, files: [{path, role, digest (sha256 hex)}], triangles?, lods?} ' +
       '(exactly one file with role "model", a .glb; every listed file is checked against its digest; other roles are checked, not imported). jobExport {path} names a folder or .zip in the game folder; ' +
       'jobExport {} with dataBase64 uploads a zip. The result is the model\'s proposal (plus sourcePath for a folder: include it in the publishAsset args) and jobExport {name, files, triangles?, lods?, inspected {triangles}, warnings}; commit with publishAsset kind "model".',
     inputSchema: {
       type: 'object',
       properties: {
-        dataBase64: { type: 'string', description: 'base64 of the source bytes (≤ 32 MiB decoded)' },
+        dataBase64: { type: 'string', description: `base64 of the source bytes (≤ ${CONTENT_STAGE_MAX / 1_048_576} MiB decoded)` },
         projectPath: {
           type: 'string',
           description: 'a .glb/.fbx/.wav/.png/.jpg/.webp/.ktx2/… file relative to the game folder (the folder holding thirdlight.json), forward slashes, e.g. assets/props/crate.glb',
@@ -462,11 +504,11 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     description:
       'Run a bounded, step-indexed semantic action sequence against an explicitly presented play session in ' +
       'exclusive test-input mode (physical input is suppressed and cleared; it clears on completion/stop/disconnect). ' +
-      'frames ≤ 600 ascending by stepOffset, body ≤ 16 KiB; each frame {stepOffset, steps?, actions?, pointer?, gamepad?, ui?} (input frame version 2: ' +
+      `frames ≤ ${INPUT_RELAY_MAX_FRAMES} ascending by stepOffset, body ≤ ${INPUT_RELAY_MAX_BODY_BYTES / 1024} KiB; each frame {stepOffset, steps?, actions?, pointer?, gamepad?, ui?} (input frame version 2: ` +
       'no fixed move/jump channels). Gaps are neutral: a step no frame covers has no action, no pad and no new pointer sample. ' +
-      'steps (phase 25.15, run length, 1-7200): the frame holds for that many steps - its first step as written, the rest its continuation ' +
+      `steps (phase 25.15, run length, 1-${INPUT_RELAY_MAX_STEPS}): the frame holds for that many steps - its first step as written, the rest its continuation ` +
       '(pressed becomes held, released none; the pointer keeps its place and held buttons without movement, wheel or edges; ui only on the first step); ' +
-      'frames must not overlap and the last frame ends by step 7200 (60 s at 120 Hz). ' +
+      `frames must not overlap and the last frame ends by step ${INPUT_RELAY_MAX_STEPS} (60 s at 120 Hz). ` +
       'actions {<action name>: {v, x?, y?, p: none|pressed|held|released}} - the character ' +
       'controller reads its move and jump actions (default names move and jump: move {v: -1..1} walks along x, or {v, x, y} ' +
       'for a 2D move where a 3D character walks along (x, y) relative to the camera; jump {v: 0|1, p}), scripts read any action ' +
@@ -477,7 +519,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'the game reads ctx.input.pointer().overUi true and does not see that press; a left press and release on one button clicks it (its UI event rides the next frame). ' +
       'gamepad (phase 25.15): a virtual standard gamepad {buttons: [0-1 by standard index: 0 A, 1 B, 9 start, 12-15 D-pad up/down/left/right; down at 0.5], axes: [left x, left y, right x, right y] -1..1} ' +
       'read through the project\'s input bindings like a real pad (its move/jump and every action bound to pad buttons or axes; its D-pad, A, B and start also drive menus); ' +
-      'a frame without one: the pad at rest; explicit actions win over the pad\'s. ui (phase 25.15): 1-8 of up|down|left|right|submit|cancel|pause - ' +
+      `a frame without one: the pad at rest; explicit actions win over the pad's. ui (phase 25.15): 1-${RELAY_MAX_UI_EDGES} of ${RELAY_UI_EDGES.join('|')} - ` +
       'menu edges on the frame\'s first step, as the keys: they move the focused UI document\'s focus, submit/cancel it, and pause (a game shell or a game mode). ' +
       'restart (phase 25.16): true restarts the game first (the replay: start scenes, every object as authored) and the frames begin at the new run\'s first step - ' +
       'run the same frames with restart twice and compare tl_game_observe run.lastInput.digest (the run digest right after the last applied step) to check a run against its replay. ' +
@@ -492,22 +534,22 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
         frames: {
           type: 'array',
           minItems: 1,
-          maxItems: 600,
+          maxItems: INPUT_RELAY_MAX_FRAMES,
           items: {
             type: 'object',
             properties: {
-              stepOffset: { type: 'integer', minimum: 0, maximum: 7199 },
-              steps: { type: 'integer', minimum: 1, maximum: 7200, description: 'phase 25.15: the frame holds for this many steps (run length; absent 1)' },
+              stepOffset: { type: 'integer', minimum: 0, maximum: INPUT_RELAY_MAX_STEPS - 1 },
+              steps: { type: 'integer', minimum: 1, maximum: INPUT_RELAY_MAX_STEPS, description: 'phase 25.15: the frame holds for this many steps (run length; absent 1)' },
               gamepad: {
                 type: 'object',
                 description: 'phase 25.15: a virtual standard gamepad this frame (absent: at rest)',
                 properties: {
-                  buttons: { type: 'array', maxItems: 17, items: { type: 'number', minimum: 0, maximum: 1 } },
-                  axes: { type: 'array', maxItems: 4, items: { type: 'number', minimum: -1, maximum: 1 } },
+                  buttons: { type: 'array', maxItems: RELAY_GAMEPAD_BUTTONS, items: { type: 'number', minimum: 0, maximum: 1 } },
+                  axes: { type: 'array', maxItems: RELAY_GAMEPAD_AXES, items: { type: 'number', minimum: -1, maximum: 1 } },
                 },
                 additionalProperties: false,
               },
-              ui: { type: 'array', minItems: 1, maxItems: 8, items: { type: 'string', enum: ['up', 'down', 'left', 'right', 'submit', 'cancel', 'pause'] }, description: 'phase 25.15: menu edges on the frame\'s first step' },
+              ui: { type: 'array', minItems: 1, maxItems: RELAY_MAX_UI_EDGES, items: { type: 'string', enum: [...RELAY_UI_EDGES] }, description: 'phase 25.15: menu edges on the frame\'s first step' },
               actions: {
                 type: 'object',
                 additionalProperties: {
@@ -552,16 +594,16 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     description:
       'Publish an instance-set buffer (phase 12 c): the placements of many copies of one model, drawn with ' +
       'instancing as ONE entity (foliage, rocks, repeated detail). transforms is a flat list of 10 numbers per copy ' +
-      '(position x y z, rotation quaternion x y z w, scale x y z; local to the entity), 1-4096 copies. Returns ' +
+      `(position x y z, rotation quaternion x y z w, scale x y z; local to the entity), 1-${INSTANCE_BUFFER_INLINE_MAX} copies. Returns ` +
       '{digest, count}; then create the entity with tl_command createEntity {kind:"group", components:{instances:' +
       '{asset:{assetId}, buffer:digest, count}}} or setComponent "instances". Publishing changes no project state. ' +
       'Phase 15.2: give digest instead (an instance set\'s buffer) to READ its copies ({digest, count, transforms}; sets of up to ' +
-      '4096 copies) - to move, turn, scale, delete or add single copies, edit that list, publish it and setComponent "instances" ' +
+      `${INSTANCE_BUFFER_INLINE_MAX} copies) - to move, turn, scale, delete or add single copies, edit that list, publish it and setComponent "instances" ` +
       '{buffer, count} (one undo step; the editor\'s copy editing and brush do exactly this).',
     inputSchema: {
       type: 'object',
       properties: {
-        transforms: { type: 'array', items: { type: 'number' }, minItems: 10, maxItems: 40960 },
+        transforms: { type: 'array', items: { type: 'number' }, minItems: INSTANCE_FLOATS, maxItems: INSTANCE_BUFFER_INLINE_MAX * INSTANCE_FLOATS },
         digest: { type: 'string', description: 'read this buffer (64 hex) instead of publishing' },
       },
       additionalProperties: false,
@@ -600,7 +642,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
   {
     name: 'tl_game_observe',
     description:
-      'Read one bounded §20 observation document (<= 16 KiB) from an explicitly presented play ' +
+      `Read one bounded §20 observation document (<= ${GAME_OBSERVATION_MAX_BYTES / 1024} KiB) from an explicitly presented play ` +
       'session: `state` running|paused (the engine pause holds the simulation: a menu, the pause panel, a game mode), stepIndex, simTime, `player` {x, y, z} (the controller object\'s position), ' +
       '`scenes` {loaded, loading}; the observation is bounded and carries no ' +
       'GLB/WAV bytes, base64 media, authoring token or locator capability; `animators` maps each animated entity to its ' +
@@ -611,7 +653,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       type: 'object',
       properties: {
         playSessionId: { type: 'string' },
-        timeoutMs: { type: 'integer', minimum: 250, maximum: 15000 },
+        timeoutMs: { type: 'integer', minimum: GAME_OBSERVE_TIMEOUT_MIN_MS, maximum: GAME_OBSERVE_TIMEOUT_MAX_MS },
         entityId: { type: 'string', description: 'also return this entity\'s running script property values (public and private) as `behaviors`' },
       },
       required: ['playSessionId'],
@@ -631,7 +673,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'Pass sessionId (from tl_sessions) to require a specific browser session. Returns ' +
       'playSessionId + the frozen snapshotId/revision on success. Phase 23.8 test/debug starts (the editor\'s "Play from..." sends the same): ' +
       'sceneId - start there (the scene loads with the start scenes and the character starts at its first player spawn); ' +
-      'variables - {key: JSON value} the scripts read with ctx.save from step 0 (<= 64 keys, <= 4 KB each); ' +
+      `variables - {key: JSON value} the scripts read with ctx.save from step 0 (<= ${PLAY_START_VARIABLES_MAX} keys, <= ${PLAY_START_VARIABLE_MAX_CHARS} characters each); ` +
       'save - a project save document {format: "thirdlight.save", formatVersion: 2, version, playSeconds?, doc, sections?, world: {scenes, activeSpawn, listedScene, character: {position, velocity} | null}} (a project with a save schema; <= 1 MiB; loaded at the first step, older versions migrated; world puts the character back where it was saved; a formatVersion 1 document without world still loads) or saveSlot 1-99 (a project slot of the Play page); ' +
       'mode - the game mode the run starts in (checked against content.modes; ignored and noted in start.notes when the project has none). ' +
       'Variables apply at the start and again at every restart (replay, a shell\'s new game; phase 25.17). threads - worker|single: where this play\'s simulation runs (phase 25.17). ' +
@@ -645,7 +687,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
         mode: { type: 'string', description: 'a game mode id (applies once the project has game modes)' },
         variables: { type: 'object', description: 'script variables: what ctx.save holds from step 0' },
         save: { type: 'object', description: 'a project save document (format "thirdlight.save") to continue from' },
-        saveSlot: { type: 'string', pattern: '^[1-9][0-9]?$', description: 'continue from this project save slot of the Play page (1-99)' },
+        saveSlot: { type: 'string', pattern: '^[1-9][0-9]?$', description: `continue from this project save slot of the Play page (1-${SAVE_LIMITS.slots})` },
         threads: { type: 'string', enum: ['worker', 'single'], description: 'phase 25.17: where this play\'s simulation runs (a worker or the page\'s main thread), over the project setting sim_thread' },
       },
       additionalProperties: false,
@@ -721,7 +763,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
   {
     name: 'tl_screenshot',
     description:
-      'Capture a bounded screenshot (dataUrl ≤ 1 MiB, maxWidth 256–2048) from a play session\'s ' +
+      `Capture a bounded screenshot (dataUrl ≤ 1 MiB, maxWidth ${SCREENSHOT_MAX_WIDTH_MIN}–${SCREENSHOT_MAX_WIDTH_MAX}) from a play session's ` +
       'selected connected browser preview. Fails structurally if the play is not presented or the ' +
       'editor browser is not connected; a capture the preview cannot make says why (error.cause and ' +
       'message). A PNG over the bound comes back smaller (see width).',
@@ -729,7 +771,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       type: 'object',
       properties: {
         playSessionId: { type: 'string' },
-        maxWidth: { type: 'integer', minimum: 256, maximum: 2048 },
+        maxWidth: { type: 'integer', minimum: SCREENSHOT_MAX_WIDTH_MIN, maximum: SCREENSHOT_MAX_WIDTH_MAX },
       },
       required: ['playSessionId'],
       additionalProperties: false,
@@ -950,7 +992,7 @@ async function screenshot(ctx: McpContext, a: Record<string, unknown>): Promise<
   if (typeof a.playSessionId !== 'string' || a.playSessionId.length === 0) return toolError('playSessionId is required');
   let maxWidth: number | undefined;
   if (a.maxWidth !== undefined) {
-    if (!isInt(a.maxWidth) || a.maxWidth < 256 || a.maxWidth > 2048) return toolError('maxWidth must be an integer 256–2048');
+    if (!isInt(a.maxWidth) || a.maxWidth < SCREENSHOT_MAX_WIDTH_MIN || a.maxWidth > SCREENSHOT_MAX_WIDTH_MAX) return toolError(`maxWidth must be an integer ${SCREENSHOT_MAX_WIDTH_MIN}–${SCREENSHOT_MAX_WIDTH_MAX}`);
     maxWidth = a.maxWidth;
   }
   const res = await ctx.client.screenshot(ctx.projectId, a.playSessionId, maxWidth);
@@ -961,7 +1003,7 @@ async function screenshot(ctx: McpContext, a: Record<string, unknown>): Promise<
 async function inputExercise(ctx: McpContext, a: Record<string, unknown>): Promise<CallToolResult> {
   if (typeof a.playSessionId !== 'string' || a.playSessionId.length === 0) return toolError('playSessionId is required');
   if (!Array.isArray(a.frames) || a.frames.length < 1 || a.frames.length > 600) {
-    return toolError('frames must be an array of 1–600 entries');
+    return toolError(`frames must be an array of 1–${INPUT_RELAY_MAX_FRAMES} entries`);
   }
   const frames: Array<Record<string, unknown>> = [];
   let previous = -1;
@@ -1001,7 +1043,7 @@ async function inputExercise(ctx: McpContext, a: Record<string, unknown>): Promi
   if (a.hold !== undefined && typeof a.hold !== 'boolean') return toolError('hold must be true or false');
   const request = { mode: 'exclusive-test', frames, ...(a.restart === true ? { restart: true } : {}), ...(a.hold === true ? { hold: true } : {}) };
   const body = JSON.stringify(request);
-  if (body.length > 16_384) return toolError('the relay body exceeds the 16384-byte bound');
+  if (body.length > INPUT_RELAY_MAX_BODY_BYTES) return toolError(`the relay body exceeds the ${INPUT_RELAY_MAX_BODY_BYTES}-byte bound`);
   const res = await ctx.client.inputRelay(ctx.projectId, a.playSessionId, request);
   return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
 }
@@ -1096,7 +1138,7 @@ async function contentQuery(ctx: McpContext, a: Record<string, unknown>): Promis
 function pageArgs(a: Record<string, unknown>): { ok: true; args: Record<string, unknown> } | { ok: false; error: CallToolResult } {
   const args: Record<string, unknown> = {};
   if (a.limit !== undefined) {
-    if (!isInt(a.limit) || a.limit < 1 || a.limit > 128) return { ok: false, error: toolError('limit must be an integer 1–128') };
+    if (!isInt(a.limit) || a.limit < 1 || a.limit > CONTENT_ASSETS_LIMIT_MAX) return { ok: false, error: toolError(`limit must be an integer 1–${CONTENT_ASSETS_LIMIT_MAX}`) };
     args.limit = a.limit;
   }
   if (a.offset !== undefined) {
@@ -1240,13 +1282,13 @@ async function instanceBuffer(ctx: McpContext, a: Record<string, unknown>): Prom
     const read = await ctx.client.readInstanceBuffer(ctx.projectId, a.digest);
     if (!read.ok) return surfaceBackendError(read.response);
     const count = Math.floor(read.floats.length / 10);
-    if (count > 4096) return toolError(`the buffer holds ${count} copies; reading returns sets of up to 4096 copies`);
+    if (count > INSTANCE_BUFFER_INLINE_MAX) return toolError(`the buffer holds ${count} copies; reading returns sets of up to ${INSTANCE_BUFFER_INLINE_MAX} copies`);
     // 9 significant digits: every float32 reads back to the same value when republished.
     return toolOk({ ok: true, digest: a.digest, count, transforms: Array.from(read.floats, (v) => Number(v.toPrecision(9))) });
   }
   const t = a.transforms;
-  if (!Array.isArray(t) || t.length === 0 || t.length % 10 !== 0 || t.length > 40960 || !t.every((v) => typeof v === 'number' && Number.isFinite(v))) {
-    return toolError('transforms must be a flat list of finite numbers, 10 per copy, 1-4096 copies');
+  if (!Array.isArray(t) || t.length === 0 || t.length % INSTANCE_FLOATS !== 0 || t.length > INSTANCE_BUFFER_INLINE_MAX * INSTANCE_FLOATS || !t.every((v) => typeof v === 'number' && Number.isFinite(v))) {
+    return toolError(`transforms must be a flat list of finite numbers, ${INSTANCE_FLOATS} per copy, 1-${INSTANCE_BUFFER_INLINE_MAX} copies`);
   }
   const res = await ctx.client.publishInstanceBuffer(ctx.projectId, { transforms: t });
   return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
@@ -1301,7 +1343,7 @@ async function gameObserve(ctx: McpContext, a: Record<string, unknown>): Promise
   if (typeof a.playSessionId !== 'string' || a.playSessionId.length === 0) return toolError('playSessionId is required');
   const body: Record<string, unknown> = {};
   if (a.timeoutMs !== undefined) {
-    if (!isInt(a.timeoutMs) || a.timeoutMs < 250 || a.timeoutMs > 15000) return toolError('timeoutMs must be an integer 250–15000');
+    if (!isInt(a.timeoutMs) || a.timeoutMs < GAME_OBSERVE_TIMEOUT_MIN_MS || a.timeoutMs > GAME_OBSERVE_TIMEOUT_MAX_MS) return toolError(`timeoutMs must be an integer ${GAME_OBSERVE_TIMEOUT_MIN_MS}–${GAME_OBSERVE_TIMEOUT_MAX_MS}`);
     body.timeoutMs = a.timeoutMs;
   }
   if (a.entityId !== undefined) {

@@ -8,16 +8,14 @@
  *
  * Pure: values in, values out.
  */
+import { ID_RE } from '@thirdlight/project-model';
 
-import type { SceneIndexEntry } from '@thirdlight/project-model';
+import { MAX_SCENES, type SceneIndexEntry } from '@thirdlight/project-model';
 
 import { fieldValue, type CommandError } from './errors';
 import { contentOf, type OpInput } from './content-ops';
 import { deepClone, gateResultState, type OpOutcome } from './ops';
 import type { ContentDocument, SceneIndexArgs, SetSceneIndexChange } from './types';
-
-const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
-const MAX_SCENES = 64;
 
 interface SceneIndex {
   scenes: SceneIndexEntry[];

@@ -22,6 +22,7 @@
  * Display + intent: every write is an ordinary command issued by the app.
  * Browser-only (React).
  */
+import { SCRIPT_LIBRARY_LIMITS } from '@thirdlight/project-model/limits';
 import { useCallback, useEffect, useRef, useState, type JSX } from 'react';
 import type { ScriptLibrary } from '@thirdlight/project-model';
 
@@ -185,8 +186,8 @@ export function LibraryDocument(p: LibraryDocumentProps): JSX.Element {
   const submitFileForm = (): void => {
     if (fileForm === null) return;
     const name = fileForm.value.trim();
-    if (fileForm.mode === 'add' && draft.files.length >= 16) {
-      setFileForm({ ...fileForm, error: 'a library has at most 16 files' });
+    if (fileForm.mode === 'add' && draft.files.length >= SCRIPT_LIBRARY_LIMITS.files) {
+      setFileForm({ ...fileForm, error: `a library has at most ${SCRIPT_LIBRARY_LIMITS.files} files` });
       return;
     }
     const problem = pathProblem(name, asContainer(draft.files), fileForm.mode === 'rename' ? openPath : undefined);

@@ -14,7 +14,9 @@
  * and `fixtures/m2/contracts/delivery/{protocol-surface,upload-bounds}.json`
  * (content/job/query routes and the re-derived upload-bound cases).
  */
+import { ID_RE } from '@thirdlight/project-model/limits';
 import { isProjectId } from './ids';
+import { ASSET_QUERY_PAGE_DEFAULT, ASSET_QUERY_PAGE_MAX, MAX_OPEN_STAGES, MAX_SOURCE_BYTES, MAX_STAGED_BYTES_PER_PROJECT } from '@thirdlight/project-model/limits';
 import { checkField, checkShape, isPlainObject, type FieldErrorResult } from './strict';
 import { sessionError, type SessionError } from './errors';
 
@@ -22,12 +24,12 @@ import { sessionError, type SessionError } from './errors';
 
 /** §11.5: one upload frame ≤ 1 MiB. */
 export const CONTENT_UPLOAD_FRAME_MAX = 1_048_576;
-/** §11.5/§13.9: one staged source (and one authoritative source blob) ≤ 32 MiB. */
-export const CONTENT_STAGE_MAX = 33_554_432;
-/** §13.9: ≤ 128 MiB of staged bytes per project. */
-export const CONTENT_STAGED_BYTES_PER_PROJECT = 134_217_728;
-/** §7.6.2: ≤ 8 open stages per project. */
-export const CONTENT_OPEN_STAGES = 8;
+/** §11.5/§13.9: one staged source (and one authoritative source blob): the model's source bound. */
+export const CONTENT_STAGE_MAX = MAX_SOURCE_BYTES;
+/** §13.9: staged bytes per project. */
+export const CONTENT_STAGED_BYTES_PER_PROJECT = MAX_STAGED_BYTES_PER_PROJECT;
+/** §7.6.2: open stages per project. */
+export const CONTENT_OPEN_STAGES = MAX_OPEN_STAGES;
 /** §11.5: the asset byte-read response cap (32 MiB). */
 export const CONTENT_ASSET_BYTES_MAX = 33_554_432;
 /** §15: proposal response ≤ 256 KiB. */
@@ -43,13 +45,14 @@ export const CONTENT_PUBLISH_CONCURRENCY_GLOBAL = 4;
 /** The bounded lifetime of a completed job record (late results are refused). */
 export const CONTENT_JOB_RESULT_TTL_MS = 900_000;
 /** The asset-list/query page ceiling (commands.md §4 `queryAssets`). */
-export const CONTENT_ASSETS_LIMIT_MAX = 128;
-export const CONTENT_ASSETS_LIMIT_DEFAULT = 50;
+export const CONTENT_ASSETS_LIMIT_MAX = ASSET_QUERY_PAGE_MAX;
+export const CONTENT_ASSETS_LIMIT_DEFAULT = ASSET_QUERY_PAGE_DEFAULT;
 
 /** A `stageId` is a project-model §5.1 ID (workspace.md §7.6.1). */
-const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 /** The response `Content-Length` bound for a JSON route. */
 export const CONTENT_STAGE_CREATE_RESPONSE_MAX = 4096;
+/** The most instance-set copies one request carries inline (the buffer route, reads included); larger sets upload through a stage. */
+export const INSTANCE_BUFFER_INLINE_MAX = 4_096;
 /** Asset-byte read cache rule (sessions.md §16.1). */
 export const CONTENT_ASSET_BYTES_CACHE = 'private, max-age=31536000, immutable';
 

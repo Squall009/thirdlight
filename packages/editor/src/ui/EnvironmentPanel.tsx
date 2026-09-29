@@ -13,6 +13,7 @@
  *
  * Browser-only (React).
  */
+import { ENVIRONMENT_PRESET_LIMITS } from '@thirdlight/project-model/limits';
 import { useEffect, useState, type JSX } from 'react';
 import type { EnvironmentConfig, EnvironmentPreset, EnvironmentPresetLight, FogConfig, PostConfig, SkyConfig, WindConfig } from '@thirdlight/project-model';
 import { DEFAULT_WIND } from '../session/material-schema';
@@ -90,7 +91,7 @@ function PresetsSection(props: { env: EnvironmentConfig; lights: readonly Preset
         <button
           type="button"
           className="tl-button"
-          disabled={list.length >= 64}
+          disabled={list.length >= ENVIRONMENT_PRESET_LIMITS.presets}
           onClick={() => {
             props.save({ presets: [...list, capturePreset(props.env, props.lights, name || `Preset ${list.length + 1}`)] });
             setName('');

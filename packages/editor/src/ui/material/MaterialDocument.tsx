@@ -17,6 +17,7 @@
  */
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react';
 import type { GraphDocument, GraphValue, MaterialDef, MaterialParameter } from '@thirdlight/project-model';
+import { MATERIAL_DATA_MAX } from '@thirdlight/project-model/limits';
 import { materialGraphProblems, type EnvironmentLike, type MaterialDefLike, type MaterialFunctionLike, type WindLike } from '@thirdlight/three-adapter';
 import type * as THREE from 'three';
 
@@ -24,9 +25,6 @@ import { GraphEditor } from '../../graph/GraphEditor';
 import type { GraphKindDef, GraphOp } from '../../graph/model';
 import { materialPortContext, parameterDefault } from '../../session/material-graph';
 import { MaterialPreview, type PreviewShape } from '../../viewport/material-preview';
-
-/** Phase 23.12: the largest data parameter per side (project-model `MATERIAL_DATA_MAX`; the editor imports project-model types only). */
-const MATERIAL_DATA_MAX = 64;
 
 export interface MaterialDocumentProps {
   materialId: string;

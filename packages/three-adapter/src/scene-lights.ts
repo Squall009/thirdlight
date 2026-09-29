@@ -18,9 +18,10 @@
  * Pure: the adapter hands in the realized lights with their scene's load
  * rank and switches `visible` from the answer.
  */
+import { MAX_LOCAL_LIGHTS } from '@thirdlight/runtime';
 
-/** The point and spot lights drawn at once: the model's per-scene cap (project-model `MAX_LOCAL_LIGHTS`). */
-export const LOCAL_LIGHT_BUDGET = 16;
+/** The point and spot lights drawn at once: the model's per-scene cap. */
+export const LOCAL_LIGHT_BUDGET = MAX_LOCAL_LIGHTS;
 
 export type SceneLightKind = 'directional' | 'ambient' | 'hemisphere' | 'point' | 'spot';
 

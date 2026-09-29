@@ -22,7 +22,7 @@
  * widgets follow an entity or a point through the renderer's camera.
  */
 import type { DialogueInputRecord } from '@thirdlight/runtime';
-import { applyUiOutputToModel, readUiPath, uiPathSegments, type UiAction, type UiDocument, type UiEventRecord, type UiOutput, type UiShownDocument, type UiStyle, type UiTheme, type UiTween, type UiWidget } from '@thirdlight/runtime';
+import { UI_LIMITS, applyUiOutputToModel, readUiPath, uiPathSegments, type UiAction, type UiDocument, type UiEventRecord, type UiOutput, type UiShownDocument, type UiStyle, type UiTheme, type UiTween, type UiWidget } from '@thirdlight/runtime';
 import type { UiEdges } from './dom';
 import type { HostDom, HostDomNode } from './dom';
 import { GENERIC_FONTS, UI_BASE_CSS, boundSizeAxes, childrenFlow, containerProps, fontFamilyOf, placementProps, styleRules, tweenKeyframes, type CssAssets, type CssProp } from './ui-css';
@@ -767,7 +767,8 @@ class DocView {
   }
 }
 
-const LIST_MAX = 256;
+/** The items of one list drawn (the model's bound; the rest are not drawn). */
+const LIST_MAX = UI_LIMITS.listItems;
 const truthy = (v: unknown): boolean => v !== null && v !== undefined && v !== false && v !== 0 && v !== '';
 
 class LayerImpl implements UiLayer {

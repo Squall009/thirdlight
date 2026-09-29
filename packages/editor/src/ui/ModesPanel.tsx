@@ -16,6 +16,7 @@
  */
 import { useState, type JSX } from 'react';
 import type { DescriptorRegistry, GameMode, ObjectFieldDescriptor } from '@thirdlight/project-model';
+import { MODE_LIMITS } from '@thirdlight/project-model/limits';
 import { ObjectFields, type FieldContext } from './DescriptorFields';
 import { componentPatch } from '../session/descriptor-fields';
 
@@ -32,8 +33,8 @@ interface Props {
 }
 
 const NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
-const MAX_MODES = 16;
-const MAX_GROUPS = 32;
+const MAX_MODES = MODE_LIMITS.modes;
+const MAX_GROUPS = MODE_LIMITS.groups;
 
 function itemDesc(registry: DescriptorRegistry | null, key: string): ObjectFieldDescriptor | null {
   const d = registry?.content.find((b) => b.key === key)?.value;

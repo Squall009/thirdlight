@@ -35,6 +35,15 @@ import type {
   PropertyValue,
 } from '@thirdlight/project-model';
 import {
+  MAX_ENTITIES_V2 as MAX_SCENE_ENTITIES,
+  MAX_ENTITY_DEPTH as MAX_SCENE_DEPTH,
+  MAX_PREFAB_DEPTH,
+  MAX_PREFAB_ENTITIES,
+  MAX_PREFAB_OVERRIDES as MAX_OVERRIDES,
+  MAX_PREFABS,
+  NAME_MAX as MAX_DISPLAY_NAME,
+} from '@thirdlight/project-model/limits';
+import {
   ID_SYNTAX,
   parseControlInput,
   validatePropertyValue,
@@ -44,15 +53,9 @@ import {
   type StoredValues,
 } from './property-controls';
 
-// ---- limits (project-model §20.3 / commands.md §5.4 / project-model §10.4) ----
+// ---- limits: the model's, checked here before a command is sent ----
 
-export const MAX_PREFABS = 128;
-export const MAX_PREFAB_ENTITIES = 256;
-export const MAX_PREFAB_DEPTH = 16;
-export const MAX_OVERRIDES = 64;
-export const MAX_SCENE_ENTITIES = 1024;
-export const MAX_SCENE_DEPTH = 32;
-export const MAX_DISPLAY_NAME = 128;
+export { MAX_DISPLAY_NAME, MAX_OVERRIDES, MAX_PREFABS, MAX_PREFAB_DEPTH, MAX_PREFAB_ENTITIES, MAX_SCENE_DEPTH, MAX_SCENE_ENTITIES };
 
 /** A bounded, actionable planning error (the contract's code vocabulary). */
 export type PlanError = ControlError & Record<string, unknown>;

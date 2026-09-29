@@ -23,6 +23,7 @@ import {
   isPlainObject,
   limitsExceeded,
 } from './errors';
+import { MAX_PREFAB_OVERRIDES as MAX_OVERRIDES } from '@thirdlight/project-model';
 import type {
   CommandError,
   CreatePrefabArgs,
@@ -36,8 +37,7 @@ export interface PrefabArgsOk<T> {
   args: T;
 }
 
-/** §20.3/§20.7: at most 64 overrides per instantiation request. */
-export const MAX_OVERRIDES = 64;
+export { MAX_OVERRIDES };
 
 const TRANSFORM_FIELDS = ['position', 'rotation', 'scale'] as const;
 

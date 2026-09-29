@@ -23,6 +23,7 @@
  * diagnostics (`checkBehaviorGraph`), never edit refusals: a graph is edited
  * through incomplete states.
  */
+import { ID_RE } from './validate';
 import type { GraphContext, GraphData, GraphEdge, GraphNode, GraphValue } from './graph';
 import { graphInterface, nodeDef, repeatedPorts, repeatItems, resolveGraphPorts } from './graph';
 import type { BehaviorApiNodeSpec } from './behavior-api';
@@ -47,8 +48,8 @@ export * from './behavior-graph-nodes';
 /** Property keys (a variable's name is its property key). */
 export const BEHAVIOR_VARIABLE_NAME_RE = /^[a-z][a-z0-9_]{0,63}$/;
 /** A function id inside a script (the project-model id syntax). */
-export const BEHAVIOR_FUNCTION_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
-const ENTITY_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+export const BEHAVIOR_FUNCTION_ID_RE = ID_RE;
+const ENTITY_ID_RE = ID_RE;
 
 // ---- records -------------------------------------------------------------------------------
 

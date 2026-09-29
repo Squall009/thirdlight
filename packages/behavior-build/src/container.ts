@@ -9,6 +9,7 @@
  * files are accepted beside `.ts`). Nothing here is executed: the
  * container is data and is parsed with the accepted strict byte parser.
  */
+import { ID_RE } from '@thirdlight/project-model';
 
 import { parseDocumentBytes } from '@thirdlight/project-model';
 import type { CompileDiagnostic, BehaviorCompileFailure, BehaviorCompilerLimits, SourceGraphContainer, SourceGraphFile } from './types';
@@ -28,7 +29,6 @@ const SELF_OWNER = '@self';
 const KNOWN_CONTAINER_FIELDS = new Set(['graphVersion', 'entryPath', 'requiredModules', 'ownedTransforms', 'files']);
 const KNOWN_FILE_FIELDS = new Set(['path', 'text']);
 /** project-model.md §5.1 ID syntax (reused for `ownedTransforms` entries). */
-const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
 export interface ContainerParseOk {
   ok: true;

@@ -32,6 +32,7 @@
  * project-model type. Every public call returns a result object and never
  * throws across the module edge.
  */
+import { ASSET_METRIC_CAPS, MAX_SOURCE_BYTES } from '@thirdlight/runtime';
 import * as THREE from 'three';
 import { adapterError, type AdapterError, type AdapterErrorCode } from './errors';
 import { mergeOwnership, OwnershipLedger, type ResourceOwnership } from './ownership';
@@ -322,8 +323,8 @@ export interface ModelInstance {
   dispose(): { readonly ok: true; readonly alreadyDisposed?: true } | { readonly ok: false; readonly error: AdapterError };
 }
 
-/** The §18.7.2 step-1 source bound (defensive copy: the adapter imports no asset-pipeline constant). */
-export const VISUAL_SOURCE_BYTES_MAX = 33_554_432;
+/** The largest model source the adapter loads (the model's source bound). */
+export const VISUAL_SOURCE_BYTES_MAX = MAX_SOURCE_BYTES;
 
 /**
  * Packet 53 (presentation.md §41.6 mixer row): role controllers are tracked
@@ -359,9 +360,9 @@ export function roleControllerAttachError(instance: ModelInstance): AdapterError
   return instanceDisposed.has(instance) ? adapterError('asset_disposed', 'the model instance is disposed') : null;
 }
 
-/** Bounded clip validation (project-model §18.6 animation caps: 64 clips / 4096 channels). */
-const CLIP_LIMIT = 64;
-const CLIP_TRACK_LIMIT = 4096;
+/** Bounded clip validation (the model's animation caps: clips and channels). */
+const CLIP_LIMIT = ASSET_METRIC_CAPS.animations;
+const CLIP_TRACK_LIMIT = ASSET_METRIC_CAPS.animationChannels;
 const CLIP_TRACK_TIMES_LIMIT = 65_536;
 const CLIP_TOTAL_TIMES_LIMIT = 1_000_000;
 

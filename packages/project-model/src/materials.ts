@@ -12,6 +12,7 @@
  * Pure data rules: no three.js here (three-adapter keeps its own copy of the
  * defaults, like the surface presets).
  */
+import { ID_RE } from './validate';
 import type { ModelErrorV2 } from './errors';
 import { canonicalGraphData, graphAssetRefs, nodeFieldValue, validateGraphData, type GraphContext, type GraphData, type GraphDocument } from './graph';
 import { canonicalEnvironmentPresets, validateEnvironmentPresets, type EnvironmentPreset } from './environment-presets';
@@ -174,8 +175,6 @@ export const MAX_MATERIALS = 256;
 export const MAX_MATERIAL_SLOTS = 32;
 /** The slot key that applies a material to every material of a model (and to a box). */
 export const MATERIAL_SLOT_ALL = '*';
-
-const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 const COLOR_RE = /^#[0-9a-f]{6}$/;
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {

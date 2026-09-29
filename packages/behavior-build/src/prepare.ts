@@ -7,6 +7,7 @@
  * copied into it.
  */
 
+import { ENTRY_PATH } from './limits';
 import type {
   BehaviorCompileInput,
   BehaviorCompileResult,
@@ -27,7 +28,7 @@ export function preparedSourceFrom(result: BehaviorCompileSuccess): PreparedBeha
     behaviorId: m.behaviorId,
     sourceDigest: m.sourceDigest,
     sourceByteLength: m.sourceByteLength,
-    entryPath: 'src/index.ts',
+    entryPath: ENTRY_PATH,
     fileCount: m.files.length,
     manifestDigest: result.manifestDigest,
     outputDigest: m.outputDigest,

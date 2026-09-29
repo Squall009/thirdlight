@@ -25,6 +25,7 @@
  *
  * No I/O, no three.js.
  */
+import { ID_RE } from '@thirdlight/project-model';
 import {
   SAVE_LIMITS,
   effectiveField,
@@ -52,7 +53,7 @@ export interface WorldSave {
   readonly character: { readonly position: readonly [number, number, number]; readonly velocity: readonly [number, number, number] } | null;
 }
 
-const SCENE_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+const SCENE_ID_RE = ID_RE;
 
 /** Phase 24.8: a saved `world` block's shape (null: fine). */
 export function worldSaveProblem(v: unknown): string | null {

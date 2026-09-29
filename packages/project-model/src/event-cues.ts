@@ -15,6 +15,7 @@
  * The table never changes what the simulation does: the sound is played
  * through the audio intent log like a script's `ctx.audio.play`.
  */
+import { ID_RE } from './validate';
 import type { ModelErrorV2 } from './errors';
 
 export const EVENT_CUE_SOURCES = ['signal', 'event'] as const;
@@ -43,7 +44,7 @@ export interface EventCue {
 export const EVENT_CUE_FIELDS = ['on', 'name', 'entity', 'assetId', 'volume', 'bus'] as const;
 
 const NAME_RE = /^[A-Za-z_][A-Za-z0-9_:.-]{0,63}$/;
-const ENTITY_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+const ENTITY_RE = ID_RE;
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);

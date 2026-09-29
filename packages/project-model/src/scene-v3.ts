@@ -16,6 +16,7 @@
  * is renumbered or reinterpreted; §23.3). Pure and total: same input → same
  * result, never throws, never reads files.
  */
+import { ID_RE } from './validate';
 
 import { BLOCK_COMPONENT_NAMES, BLOCK_COMPONENTS } from './blocks';
 import { canonicalEffectComponent, validateEffectComponent, type EffectComponent } from './effects';
@@ -160,7 +161,7 @@ export const DIRECTIONAL_SHADOW_DEFAULTS = { mapSize: 1024, bias: -0.0005, norma
 /** Phase 9.5 (v4): the local light fields. */
 const KNOWN_LIGHT_FIELDS_V4 = new Set(['type', 'color', 'intensity', 'direction', 'castShadow', 'range', 'decay', 'angle', 'penumbra', 'groundColor', 'mode', 'cookie']);
 /** Phase 25.8: a spot light's cookie names a texture asset (the id pattern of every asset). */
-const COOKIE_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+const COOKIE_ID_RE = ID_RE;
 /** Phase 9.5: point/spot intensity is in candela (three's physical units). */
 export const MAX_LOCAL_INTENSITY = 1000;
 /** Phase 9.5: most point + spot lights per scene, and hemisphere lights per scene. */

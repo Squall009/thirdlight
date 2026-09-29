@@ -10,6 +10,7 @@
  * that declares oversized dimensions is therefore rejected even when the
  * payload is small; this is deliberately *not* a full image validation.
  */
+import { MAX_TEXTURE_LAYERS } from '@thirdlight/project-model/limits';
 
 export type ImportImageMime = 'image/png' | 'image/jpeg' | 'image/webp' | 'image/ktx2';
 
@@ -218,8 +219,8 @@ export function ktx2Info(bytes: Uint8Array): { width: number; height: number; le
   return codec === null ? null : { ...dims, levels, codec, ...(layerCount >= 2 ? { layers: layerCount } : {}) };
 }
 
-/** Phase 25.21: the most layers a KTX2 texture array may have (WebGL 2 and WebGPU both guarantee 256). */
-export const KTX2_LAYERS_MAX = 256;
+/** The most layers a KTX2 texture array may have (the model's texture-array limit). */
+export const KTX2_LAYERS_MAX = MAX_TEXTURE_LAYERS;
 
 /** The first 80 header bytes with the layer count zeroed (the 2D header checks then apply to an array too). */
 function withoutLayerCount(bytes: Uint8Array): Uint8Array {

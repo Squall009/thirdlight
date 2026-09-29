@@ -40,6 +40,7 @@ import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
+import { M2_GLTF_EXTENSION_ALLOWLIST, MODEL_JSON_CHUNK_BYTES_MAX } from '@thirdlight/runtime';
 import { sharedKtx2Loader } from './ktx2';
 import {
   visualLoadFailure,
@@ -48,26 +49,11 @@ import {
   type LoadedGlb,
 } from './visual';
 
-/** The extensions this realization path honors (the import allowlist, restated: no import edge exists). */
-export const GLTF_LOADER_ALLOWED_EXTENSIONS: readonly string[] = Object.freeze([
-  'EXT_meshopt_compression',
-  'EXT_texture_webp',
-  'KHR_draco_mesh_compression',
-  'KHR_materials_clearcoat',
-  'KHR_materials_emissive_strength',
-  'KHR_materials_ior',
-  'KHR_materials_sheen',
-  'KHR_materials_specular',
-  'KHR_materials_transmission',
-  'KHR_materials_unlit',
-  'KHR_materials_volume',
-  'KHR_mesh_quantization',
-  'KHR_texture_basisu',
-  'KHR_texture_transform',
-]);
+/** The extensions this realization path honors: the import allowlist. */
+export const GLTF_LOADER_ALLOWED_EXTENSIONS: readonly string[] = M2_GLTF_EXTENSION_ALLOWLIST;
 
-/** Defensive copies of the profile bounds (asset-pipeline owns the originals; no import edge exists). */
-const GLB_JSON_CHUNK_BYTES_MAX = 8_388_608;
+/** The import profile's JSON chunk bound, and a loose image-entry bound the loader re-checks. */
+const GLB_JSON_CHUNK_BYTES_MAX = MODEL_JSON_CHUNK_BYTES_MAX;
 const GLB_IMAGE_ENTRY_LIMIT = 4_096;
 
 export interface GltfLoaderPortOptions {

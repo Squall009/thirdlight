@@ -11,6 +11,7 @@
  */
 import { useEffect, useMemo, useRef, useState, type JSX } from 'react';
 import type { AnimatorClipRef, AnimatorController, AnimatorLayer, AnimatorParameter, AnimatorState, AnimatorTransition } from '@thirdlight/project-model';
+import { MAX_ANIMATOR_LAYERS } from '@thirdlight/project-model/limits';
 
 export interface ClipInfo {
   name: string;
@@ -51,7 +52,7 @@ export interface AnimatorPreview {
 export type AnimatorModels = { assetId: string; displayName: string; clipsFor?: string }[];
 export type StartPreview = (controller: AnimatorController, canvas: HTMLCanvasElement) => Promise<AnimatorPreview | string>;
 
-export const MAX_LAYERS = 3;
+export const MAX_LAYERS = MAX_ANIMATOR_LAYERS;
 
 export const newId = (prefix: string, taken: Iterable<string>): string => {
   const used = new Set(taken);

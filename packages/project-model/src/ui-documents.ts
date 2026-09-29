@@ -21,6 +21,7 @@
  * edit them with plain commands (`setUiDocument` / `deleteUiDocument`,
  * `setUiTheme` / `deleteUiTheme`), one undo step each. Pure data rules.
  */
+import { ID_RE } from './validate';
 import type { ModelErrorV2 } from './errors';
 import { projectInputMaps } from './input';
 
@@ -292,8 +293,6 @@ export const UI_GENERIC_FONTS = ['sans', 'serif', 'mono', 'rounded'] as const;
 export const UI_SHELL_SCREENS = ['title', 'pause', 'settings', 'controls', 'save', 'load'] as const;
 /** The save slots an engine load/save action names (the game host's). */
 export const UI_SAVE_SLOTS = ['auto', '1', '2', '3'] as const;
-
-const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 /** Widget ids, style/tween/icon names and event names. */
 const NAME_RE = /^[A-Za-z_][A-Za-z0-9_-]{0,31}$/;
 const COLOR_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;

@@ -14,6 +14,7 @@
  */
 import { useState, type JSX } from 'react';
 import type { DescriptorRegistry, EventCue, ObjectFieldDescriptor } from '@thirdlight/project-model';
+import { EVENT_CUE_LIMITS } from '@thirdlight/project-model/limits';
 import type { AssetView } from '../session/content-projection';
 import type { PreviewAudioStatus, PreviewAudioDiagnostic } from '../session/preview-audio';
 import { componentPatch } from '../session/descriptor-fields';
@@ -34,7 +35,7 @@ interface Props {
   onSetEventCues?: (next: EventCue[], base: EventCue[]) => void;
 }
 
-const MAX_EVENT_CUES = 64;
+const MAX_EVENT_CUES = EVENT_CUE_LIMITS.cues;
 
 function cueItemDesc(registry: DescriptorRegistry | null | undefined): ObjectFieldDescriptor | null {
   const d = registry?.content.find((b) => b.key === 'eventCues')?.value;

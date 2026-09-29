@@ -21,8 +21,10 @@
  *
  * Pure data rules; the compiler is in behavior-build.
  */
+import { ID_RE } from './validate';
 import type { ModelErrorV2 } from './errors';
 import { sha256HexOfText } from './sha256';
+import { MAX_BEHAVIOR_FILES, MAX_BEHAVIOR_FILE_BYTES, MAX_BEHAVIOR_SOURCE_BYTES } from './content-limits';
 
 export interface ScriptLibraryFile {
   /** A container path, e.g. `src/index.ts` or `src/data/items.json`. */
@@ -59,13 +61,11 @@ export const SCRIPT_LIBRARY_ENTRY = 'src/index.ts';
  */
 export const SCRIPT_LIBRARY_LIMITS = Object.freeze({
   libraries: 32,
-  files: 16,
-  fileBytes: 65_536,
-  containerBytes: 262_144,
+  files: MAX_BEHAVIOR_FILES,
+  fileBytes: MAX_BEHAVIOR_FILE_BYTES,
+  containerBytes: MAX_BEHAVIOR_SOURCE_BYTES,
   totalBytes: 1_048_576,
 });
-
-const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 const PATH_RE = /^[a-z0-9][a-z0-9._-]*(\/[a-z0-9][a-z0-9._-]*)*$/;
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {

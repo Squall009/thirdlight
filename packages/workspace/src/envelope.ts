@@ -14,6 +14,7 @@
  * - `validateRetryBlock` / the record-result shape check (§4.2) are shared
  *   with the v4 files (`store-v4.ts`).
  */
+import { ID_RE } from '@thirdlight/project-model';
 
 import type { ContentCatalogV3, SceneV3 } from '@thirdlight/project-model';
 import type { LoadDetail, UnavailableReason } from './errors';
@@ -43,7 +44,7 @@ export const RETRY_RECORD_VERSION = 2;
 export const ENVELOPE_TYPE = 'authoring-state';
 
 /** project-model §5.1 ID syntax (project/scene/entity IDs). */
-export const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+export { ID_RE };
 /** commands.md §3: `req-` + 32 lowercase hex chars. */
 const REQUEST_ID_RE = /^req-[0-9a-f]{32}$/;
 /** commands.md §7.1: 64 lowercase hex chars. */

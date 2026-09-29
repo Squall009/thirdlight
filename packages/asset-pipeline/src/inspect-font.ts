@@ -9,6 +9,7 @@
  * name is read from the `name` table of an uncompressed sfnt (TTF/OTF) when
  * present; WOFF/WOFF2 tables are compressed, so no name is read there.
  */
+import { MAX_FONT_FAMILY_NAME } from '@thirdlight/project-model/limits';
 import { resolveImportJob } from './inspect';
 import { AUDIO_PIPELINE_NAME, AUDIO_PIPELINE_VERSION, M2_GLTF_MAX_DIAGNOSTICS } from './limits';
 import { sha256Hex } from './sha256';
@@ -23,7 +24,7 @@ export const FONT_SOURCE_BYTES_MAX = 4_194_304;
 /** Most tables a font's directory may list (real fonts carry about 10–30). */
 export const FONT_TABLES_MAX = 128;
 /** Longest family name kept (characters). */
-export const FONT_FAMILY_NAME_MAX = 64;
+export const FONT_FAMILY_NAME_MAX = MAX_FONT_FAMILY_NAME;
 
 export type FontFormat = 'ttf' | 'otf' | 'woff2' | 'woff';
 

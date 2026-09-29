@@ -18,6 +18,7 @@
  *
  * Browser-only (React).
  */
+import { MAX_INPUT_ACTIONS, MAX_INPUT_BINDINGS, MAX_INPUT_MAPS } from '@thirdlight/project-model/limits';
 import { useEffect, useRef, useState, type JSX } from 'react';
 import type { CursorMode, InputAction, InputActionType, InputBinding, InputConfig } from '@thirdlight/project-model';
 
@@ -127,11 +128,11 @@ export function InputPanel(p: Props): JSX.Element {
     const cursor = config.cursor === undefined ? undefined : Object.fromEntries(Object.entries(config.cursor).filter(([m]) => m === 'gameplay' || m === 'ui' || next.includes(m)));
     p.onSave({ actions: config.actions, ...(next.length > 0 ? { maps: next } : {}), ...(cursor !== undefined && Object.keys(cursor).length > 0 ? { cursor } : {}), ...(config.glyphs !== undefined ? { glyphs: config.glyphs } : {}) });
   };
-  const mapNameOk = (name: string): boolean => /^[A-Za-z_][A-Za-z0-9_]{0,31}$/.test(name) && name !== 'gameplay' && name !== 'ui' && !maps.includes(name) && maps.length < 8;
+  const mapNameOk = (name: string): boolean => /^[A-Za-z_][A-Za-z0-9_]{0,31}$/.test(name) && name !== 'gameplay' && name !== 'ui' && !maps.includes(name) && maps.length < MAX_INPUT_MAPS;
   const put = (name: string, next: InputAction): void => save(config.actions.map((a) => (a.name === name ? next : a)));
   const addBinding = (name: string, b: InputBinding): void => {
     const a = config.actions.find((x) => x.name === name);
-    if (a === undefined || a.bindings.length >= 8) return;
+    if (a === undefined || a.bindings.length >= MAX_INPUT_BINDINGS) return;
     put(name, { ...a, bindings: [...a.bindings, b] });
   };
 
@@ -391,7 +392,7 @@ export function InputPanel(p: Props): JSX.Element {
         <button
           type="button"
           className="tl-button"
-          disabled={!/^[A-Za-z_][A-Za-z0-9_]{0,31}$/.test(newName) || config.actions.some((a) => a.name === newName) || config.actions.length >= 64}
+          disabled={!/^[A-Za-z_][A-Za-z0-9_]{0,31}$/.test(newName) || config.actions.some((a) => a.name === newName) || config.actions.length >= MAX_INPUT_ACTIONS}
           onClick={() => {
             save([...config.actions, { name: newName, type: newType, map: newMap, bindings: [] }]);
             setNewName('');

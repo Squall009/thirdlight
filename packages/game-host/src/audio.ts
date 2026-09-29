@@ -57,19 +57,19 @@
  * additive read-only method).
  */
 
-import { distanceGain, listenerRelative } from '@thirdlight/runtime';
+import { AUDIO_VOICE_CAP, AUDIO_VOICES_DEFAULT, MAX_AUDIO_ASSETS, MAX_MUSIC_ASSETS, distanceGain, listenerRelative } from '@thirdlight/runtime';
 
 /**
  * Rule 3 — the concurrent voice cap: phase 15.3, the default of the project's
  * `audio_voices` setting (`maxVoices`), which may go up to `AUDIO_VOICE_LIMIT`.
  */
-export const AUDIO_MAX_VOICES = 8;
+export const AUDIO_MAX_VOICES = AUDIO_VOICES_DEFAULT;
 /** Phase 15.3: the engine limit on concurrent voices (`audio_voices` at most). */
-export const AUDIO_VOICE_LIMIT = 32;
+export const AUDIO_VOICE_LIMIT = AUDIO_VOICE_CAP;
 /** The bounded diagnostic ring size (drop-oldest). */
 export const AUDIO_MAX_DIAGNOSTICS = 64;
-/** The bounded per-asset registration store cap: the catalog's audio records (phase 25.7c: 64, project-model MAX_AUDIO_ASSETS). */
-const AUDIO_MAX_REGISTERED_ASSETS = 64;
+/** The bounded per-asset registration store cap: the catalog's audio records. */
+const AUDIO_MAX_REGISTERED_ASSETS = MAX_AUDIO_ASSETS;
 
 /**
  * One cue event: a registered sound to play at most once per run. The id is
@@ -268,7 +268,8 @@ export interface AudioObservation {
   /** The owner's newest diagnostics (at most 3, each ≤ 256 chars, log-safe). */
   readonly diagnostics: readonly string[];
 }
-export const MUSIC_MAX_REGISTERED = 64;
+/** The bounded music store cap: the catalog's music records. */
+export const MUSIC_MAX_REGISTERED = MAX_MUSIC_ASSETS;
 
 export interface GameAudioOwnerConfig {
   /**

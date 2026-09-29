@@ -19,12 +19,14 @@ import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { MAX_LIGHTMAP_ATLASES, MAX_LIGHTMAP_ENTRIES } from '@thirdlight/project-model/limits';
 import { CYCLES_BAKE_SCRIPT } from './cycles-bake-script';
 
 export const BAKE_PACKAGE_BYTES_MAX = 256 * 1024 * 1024;
 const HEADER_BYTES_MAX = 16 * 1024 * 1024;
-const OBJECTS_MAX = 4096;
-const ATLASES_MAX = 16;
+/** A bake's objects and atlases: the model's lightmap entries and atlases. */
+const OBJECTS_MAX = MAX_LIGHTMAP_ENTRIES;
+const ATLASES_MAX = MAX_LIGHTMAP_ATLASES;
 const ATLAS_EDGE_MAX = 4096;
 const JOB_KEEP_MS = 60 * 60 * 1000;
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];

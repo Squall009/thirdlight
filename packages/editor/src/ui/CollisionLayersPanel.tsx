@@ -8,6 +8,7 @@
  * `setCollisionLayers` command (the whole list), issued by the app.
  */
 import { useState, type JSX } from 'react';
+import { MAX_COLLISION_LAYERS as MAX_LAYERS } from '@thirdlight/project-model/limits';
 
 interface Props {
   layers: readonly string[];
@@ -20,7 +21,6 @@ interface Props {
 }
 
 const NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
-const MAX_LAYERS = 15;
 
 export function CollisionLayersPanel({ layers, usage, dimension, error, onSetLayers }: Props): JSX.Element {
   const [draft, setDraft] = useState('');

@@ -23,6 +23,7 @@
  * capsule) and the character's clearance/placement. Walking and jumping are
  * phase 23.2; scripts' rays and overlaps are wired in 23.3.
  */
+import { COLLIDER_3D_LIMITS } from '@thirdlight/project-model/limits';
 import * as RAPIER from '@dimforge/rapier3d-compat';
 import type { CharacterClearanceResult3D, CharacterMoveResult3D, KinematicPose3D, OverlapShape3D, PhysicsDiagnostics, PhysicsInitConfig3D, PhysicsPort3D, PhysicsQuat, PhysicsQueryFilter3D, PhysicsVec3, RaycastHit3D, StaticColliderSpec3D } from '@thirdlight/runtime';
 
@@ -52,10 +53,10 @@ export type ColliderShape3D =
   | { type: 'convex'; points: readonly number[] }
   | { type: 'mesh'; vertices: readonly number[]; indices: readonly number[] };
 
-/** Phase 23.1: the port's limits for a hull and a mesh (the project model's, which also keep a scene's total). */
-export const MAX_CONVEX_POINTS_3D = 64;
-export const MAX_MESH_VERTICES_3D = 1024;
-export const MAX_MESH_TRIANGLES_3D = 2048;
+/** The port's limits for a hull and a mesh: the model's (which also keeps a scene's total). */
+export const MAX_CONVEX_POINTS_3D = COLLIDER_3D_LIMITS.convexPoints;
+export const MAX_MESH_VERTICES_3D = COLLIDER_3D_LIMITS.meshVertices;
+export const MAX_MESH_TRIANGLES_3D = COLLIDER_3D_LIMITS.meshTriangles;
 
 /** The 3D port's diagnostics (the runtime-read counters plus the library's own live counts). */
 export interface Rapier3DDiagnostics extends PhysicsDiagnostics {

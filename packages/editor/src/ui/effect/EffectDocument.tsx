@@ -17,6 +17,7 @@
  *
  * Browser-only (React).
  */
+import { EFFECT_LIMITS } from '@thirdlight/project-model/limits';
 import { useEffect, useMemo, useState, type JSX } from 'react';
 import type { EffectDef, EffectParameter, GraphValue } from '@thirdlight/project-model';
 
@@ -115,7 +116,7 @@ export function EffectDocument(p: EffectDocumentProps): JSX.Element {
           </div>
           <div className="tl-subhead">
             Systems
-            <button type="button" className="tl-btn tl-btn--small" aria-label="add system" onClick={addSystem} disabled={fx.systems.length >= 16}>
+            <button type="button" className="tl-btn tl-btn--small" aria-label="add system" onClick={addSystem} disabled={fx.systems.length >= EFFECT_LIMITS.systems}>
               + System
             </button>
           </div>
@@ -184,7 +185,7 @@ function EffectParameters({ effect, onSave }: { effect: EffectDef; onSave: (e: E
     <div className="tl-material-params" aria-label="exposed parameters">
       <div className="tl-subhead">
         Exposed parameters
-        <button type="button" className="tl-btn tl-btn--small" onClick={add} title="A value Parameter nodes read (objects may override public ones)" disabled={list.length >= 32}>
+        <button type="button" className="tl-btn tl-btn--small" onClick={add} title="A value Parameter nodes read (objects may override public ones)" disabled={list.length >= EFFECT_LIMITS.parameters}>
           + parameter
         </button>
       </div>

@@ -25,6 +25,7 @@
  * next scene and restart ride on the input frame as UI events (so replays
  * hold); pausing stops the steps as the engine pause does.
  */
+import { ID_RE } from './validate';
 import type { ModelErrorV2 } from './errors';
 
 /** The shell's screens a project draws with its own UI documents. */
@@ -55,7 +56,7 @@ export interface GameShell {
 
 export const SHELL_FIELDS = ['screens', 'hud', 'scenes', 'pause', 'status'] as const;
 
-const DOC_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+const DOC_RE = ID_RE;
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);

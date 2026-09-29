@@ -14,6 +14,7 @@
  * Derived caches are regenerable and never authoritative (§13.6): a write to
  * `.thirdlight/derived/**` changes no revision, no envelope and no catalog.
  */
+import { ID_RE } from '@thirdlight/project-model';
 
 import {
   closeSync,
@@ -33,7 +34,7 @@ import {
 import { basename, join, sep } from 'node:path';
 import { randomBytes } from 'node:crypto';
 
-import { type SceneV4, type ContentCatalogV4, isValidSourcePath, MAX_CONVERTED_SOURCE_BYTES } from '@thirdlight/project-model';
+import { type SceneV4, type ContentCatalogV4, isValidSourcePath, BEHAVIOR_ENTRY_PATH, MAX_BEHAVIOR_FILES, MAX_OPEN_STAGES, MAX_SOURCE_BYTES, MAX_STAGED_BYTES_PER_PROJECT, MAX_BEHAVIOR_OUTPUT_BYTES, MAX_BEHAVIOR_SOURCE_BYTES, MAX_CONVERTED_SOURCE_BYTES } from '@thirdlight/project-model';
 import type { ImportRecipe as ModelImportRecipe } from '@thirdlight/project-model';
 import type {
   AnimationProfileRequest,
@@ -67,12 +68,8 @@ import { writeAtomic, type WriteOps } from './write';
 
 // ---- bounds (workspace.md §13.9) --------------------------------------------
 
-/** ≤ 32 MiB per staged source / authoritative source blob. */
-export const MAX_SOURCE_BYTES = 33_554_432;
-/** ≤ 8 open stages per project. */
-export const MAX_OPEN_STAGES = 8;
-/** ≤ 128 MiB of staged bytes per project. */
-export const MAX_STAGED_BYTES_PER_PROJECT = 134_217_728;
+/** The staged source / authoritative source blob bound, open stages and staged bytes per project (the model's). */
+export { MAX_OPEN_STAGES, MAX_SOURCE_BYTES, MAX_STAGED_BYTES_PER_PROJECT };
 /** Stage TTL: 3 600 s (workspace.md §7.6.2). */
 export const STAGE_TTL_SECONDS = 3_600;
 /** Default authoritative-bytes quota per project (512 MiB). */
@@ -86,7 +83,6 @@ export const INSPECT_TIMEOUT_MS = 30_000;
 /** 64 lowercase hex. */
 const DIGEST_RE = /^[0-9a-f]{64}$/;
 /** project-model §5.1 ID syntax. */
-const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
 /** The content-storage configuration (a subspace of the service core). */
 export interface ContentConfig {
@@ -1618,7 +1614,7 @@ export function writeDerivedImport(
 // ---- prepared behavior sources (packet 33; derived cache) ---------------------
 
 const PREPARED_DIGEST_RE = /^[0-9a-f]{64}$/;
-const PREPARED_ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+const PREPARED_ID_RE = ID_RE;
 /** A bounded in-memory prepared-index scan (derived caches are non-authoritative). */
 export const MAX_PREPARED_SCAN = 256;
 
@@ -1643,11 +1639,11 @@ export function parsePreparedRecord(value: unknown): PreparedBehaviorSource | nu
     typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max;
   if (typeof value['behaviorId'] !== 'string' || !PREPARED_ID_RE.test(value['behaviorId'])) return null;
   if (!isDigest(value['sourceDigest'])) return null;
-  if (!isInt(value['sourceByteLength'], 1, 262_144)) return null;
-  if (value['entryPath'] !== 'src/index.ts') return null;
-  if (!isInt(value['fileCount'], 1, 16)) return null;
+  if (!isInt(value['sourceByteLength'], 1, MAX_BEHAVIOR_SOURCE_BYTES)) return null;
+  if (value['entryPath'] !== BEHAVIOR_ENTRY_PATH) return null;
+  if (!isInt(value['fileCount'], 1, MAX_BEHAVIOR_FILES)) return null;
   if (!isDigest(value['manifestDigest']) || !isDigest(value['outputDigest'])) return null;
-  if (!isInt(value['outputByteLength'], 1, 131_072)) return null;
+  if (!isInt(value['outputByteLength'], 1, MAX_BEHAVIOR_OUTPUT_BYTES)) return null;
   if (!Array.isArray(value['requiredModules']) || value['requiredModules'].some((m) => typeof m !== 'string')) return null;
   if (!Array.isArray(value['ownedTransforms']) || value['ownedTransforms'].some((m) => typeof m !== 'string')) return null;
   const decl = value['declaration'];

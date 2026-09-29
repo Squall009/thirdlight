@@ -10,6 +10,7 @@
  *
  * Browser-only (React).
  */
+import { DIALOGUE_LIMITS } from '@thirdlight/project-model/limits';
 import { useEffect, useState, type JSX } from 'react';
 import type { DialogueDocument, DialogueSettings, DialogueSpeaker, UiDocument, UiTheme } from '@thirdlight/project-model';
 
@@ -192,7 +193,7 @@ function SpeakersEditor(p: DialoguePanelProps): JSX.Element {
       </div>
       <div className="tl-subhead">
         Portraits
-        <button type="button" className="tl-btn tl-btn--small" aria-label="add portrait" disabled={portraits.length >= 32} onClick={() => setPortraits([...portraits, [portraits.length === 0 ? 'neutral' : `expression${portraits.length + 1}`, textures[0]?.assetId ?? '']])}>
+        <button type="button" className="tl-btn tl-btn--small" aria-label="add portrait" disabled={portraits.length >= DIALOGUE_LIMITS.portraits} onClick={() => setPortraits([...portraits, [portraits.length === 0 ? 'neutral' : `expression${portraits.length + 1}`, textures[0]?.assetId ?? '']])}>
           + portrait
         </button>
       </div>

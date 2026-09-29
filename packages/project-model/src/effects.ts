@@ -18,6 +18,7 @@
  * simulation, so replays do not depend on them. Pure data rules here; the
  * evaluator is `@thirdlight/effects`.
  */
+import { ID_RE } from './validate';
 import type { ModelErrorV2 } from './errors';
 import { canonicalGraphData, validateGraphData, type GraphContext, type GraphData } from './graph';
 import { EFFECT_GRAPH_KIND } from './effect-graph-kinds';
@@ -111,8 +112,6 @@ export const EFFECT_DEFAULTS = {
   maxParticles: 1000,
   space: 'local' as const,
 };
-
-const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 /** A signal name (the switches' and triggers' syntax). */
 const SIGNAL_RE = /^[A-Za-z_][A-Za-z0-9_:.-]{0,63}$/;
 const COLOR_RE = /^#[0-9a-f]{6}$/;

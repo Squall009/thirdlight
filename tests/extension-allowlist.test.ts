@@ -1,8 +1,7 @@
 /**
- * The glTF extension allowlist is stated in three packages that have no
- * import edge between them: asset-pipeline (the import profile), project-model
- * (recipe validation) and three-adapter (the loader guard). They must agree,
- * or a file would import but not render (or the other way round).
+ * The glTF extension allowlist is defined once in project-model; the importer
+ * (asset-pipeline) and the loader guard (three-adapter) re-export it. They
+ * must agree, or a file would import but not render (or the other way round).
  */
 import { describe, expect, it } from 'vitest';
 

@@ -28,6 +28,7 @@
  * loading the compiled bytes in its own bounded way). No Node builtin, no
  * three.js, no authoring/backend edge.
  */
+import { ID_RE } from '@thirdlight/project-model';
 import type { BehaviorGrid } from './grid';
 import { EntityAccessError, type BehaviorEntityHandle } from './entity-access';
 import type { BehaviorMaterials } from './material-params';
@@ -524,7 +525,6 @@ const PROPERTY_TYPES: readonly PropertyType[] = [
   'entityRef',
   'assetRef',
 ];
-const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 const MODULE_BEHAVIOR_ID_RE = /^[a-z0-9-]+$/;
 
 function isPlainObject(v: unknown): v is Record<string, unknown> {

@@ -8,6 +8,17 @@
  */
 
 import { version as esbuildVersion } from 'esbuild';
+import {
+  BEHAVIOR_ENTRY_PATH,
+  MAX_BEHAVIOR_DIAGNOSTICS,
+  MAX_BEHAVIOR_FILES,
+  MAX_BEHAVIOR_FILE_BYTES,
+  MAX_BEHAVIOR_OUTPUT_BYTES,
+  MAX_BEHAVIOR_SOURCE_BYTES,
+  MAX_DECLARATION_BYTES,
+  MAX_OWNED_TRANSFORMS,
+  MAX_PROPERTIES,
+} from '@thirdlight/project-model';
 import type { BehaviorCompilerLimits, PinnedModuleRef } from './types';
 
 /** The stable compiler identity (dependencies.md §2/§3: `COMPILER_ID` string). */
@@ -24,7 +35,7 @@ export const TYPESCRIPT_PIN = '5.9.3' as const;
 export const BEHAVIOR_API_VERSION = 1 as const;
 
 /** The fixed entry path (project-model.md §22.2: exactly `src/index.ts`). */
-export const ENTRY_PATH = 'src/index.ts' as const;
+export const ENTRY_PATH = BEHAVIOR_ENTRY_PATH;
 
 /**
  * The M2 defaults (behaviors.md §6). The contract lists the first nine keys;
@@ -32,17 +43,17 @@ export const ENTRY_PATH = 'src/index.ts' as const;
  * bounds the preparer re-checks here.
  */
 export const COMPILER_LIMITS: Readonly<BehaviorCompilerLimits> = Object.freeze({
-  files: 16,
-  fileBytes: 65_536,
-  graphBytes: 262_144,
+  files: MAX_BEHAVIOR_FILES,
+  fileBytes: MAX_BEHAVIOR_FILE_BYTES,
+  graphBytes: MAX_BEHAVIOR_SOURCE_BYTES,
   importDepth: 8,
   importsPerFile: 16,
-  ownedTransforms: 16,
-  diagnostics: 32,
+  ownedTransforms: MAX_OWNED_TRANSFORMS,
+  diagnostics: MAX_BEHAVIOR_DIAGNOSTICS,
   timeoutMs: 2_000,
-  outputBytes: 131_072,
-  properties: 32,
-  declarationBytes: 32_768,
+  outputBytes: MAX_BEHAVIOR_OUTPUT_BYTES,
+  properties: MAX_PROPERTIES,
+  declarationBytes: MAX_DECLARATION_BYTES,
 } as const);
 
 /**

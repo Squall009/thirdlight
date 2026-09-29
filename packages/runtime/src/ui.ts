@@ -17,6 +17,7 @@
  * Everything here is simulation state: two runs with the same input produce
  * the same view model and stack at every step (the step digest covers them).
  */
+import { ID_RE } from '@thirdlight/project-model';
 import type { RuntimeUiDocumentRow } from '@thirdlight/project-model';
 
 /** What a UI event is. */
@@ -56,7 +57,7 @@ export const UI_MAX_SHOWN = 32;
 export const UI_MAX_COMMANDS = 64;
 
 const NAME_RE = /^[A-Za-z_][A-Za-z0-9_-]{0,31}$/;
-const DOC_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+const DOC_RE = ID_RE;
 const SEGMENT_RE = /^[A-Za-z0-9_-]{1,32}$/;
 const hasOwn = Object.prototype.hasOwnProperty;
 

@@ -10,10 +10,25 @@
  * workspace: `publishAsset` takes digest-addressed facts only, and behavior
  * **source** publication is refused before any stage/digest work (§8.8.2).
  */
+import { ID_RE } from '@thirdlight/project-model';
 
 import {
+  BEHAVIOR_ENTRY_PATH,
   BEHAVIOR_GRAPH_KIND,
+  MAX_ASSETS,
+  MAX_ASSET_VERSIONS,
   MAX_AUDIO_ASSETS,
+  MAX_AUDIO_VERSIONS,
+  MAX_BEHAVIORS,
+  MAX_FONT_ASSETS,
+  MAX_FONT_VERSIONS,
+  MAX_MUSIC_ASSETS,
+  MAX_MUSIC_VERSIONS,
+  MAX_TEXTURE_ASSETS,
+  MAX_TEXTURE_VERSIONS,
+  MAX_TRUST_ENTRIES,
+  MAX_VERSION_RECORDS,
+  NAME_MAX,
   behaviorGraphContext,
   canonicalGraphData,
   validateGraphData,
@@ -113,8 +128,6 @@ export interface OpInput {
   scriptLibraryStages?: ReadonlyMap<string, import('./types').ScriptLibraryStageFact>;
 }
 
-const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
-
 /** The current content block, or the canonical empty catalog. */
 export function contentOf(content: ContentDocument | undefined): ContentDocument {
   return content ?? emptyContentCatalog();
@@ -153,7 +166,7 @@ export function applyPublishAsset(input: OpInput, args: PublishAssetArgs): OpOut
       return { ok: false, error: fieldMissing('/args/kind', 'kind') };
     }
     const kind = args.kind;
-    const limit = kind === 'audio' ? MAX_AUDIO_ASSETS : kind === 'texture' ? 256 : kind === 'music' ? 64 : kind === 'font' ? 16 : 128;
+    const limit = kind === 'audio' ? MAX_AUDIO_ASSETS : kind === 'texture' ? MAX_TEXTURE_ASSETS : kind === 'music' ? MAX_MUSIC_ASSETS : kind === 'font' ? MAX_FONT_ASSETS : MAX_ASSETS;
     const count = catalog.assets.filter((a) => assetKindOf(a) === kind).length;
     if (count + 1 > limit) {
       return {
@@ -166,7 +179,7 @@ export function applyPublishAsset(input: OpInput, args: PublishAssetArgs): OpOut
     if (args.kind !== undefined && args.kind !== existingKind) {
       return { ok: false, error: assetKindMismatch(args.assetId, existingKind ?? 'model', args.kind) };
     }
-    const versionLimit = existingKind === 'audio' || existingKind === 'texture' || existingKind === 'music' || existingKind === 'font' ? 8 : 32;
+    const versionLimit = existingKind === 'audio' ? MAX_AUDIO_VERSIONS : existingKind === 'texture' ? MAX_TEXTURE_VERSIONS : existingKind === 'music' ? MAX_MUSIC_VERSIONS : existingKind === 'font' ? MAX_FONT_VERSIONS : MAX_ASSET_VERSIONS;
     if (existing.versions.length + 1 > versionLimit) {
       return {
         ok: false,
@@ -180,8 +193,8 @@ export function applyPublishAsset(input: OpInput, args: PublishAssetArgs): OpOut
   }
   const totalVersions =
     catalog.assets.reduce((n, a) => n + a.versions.length, 0) + 1;
-  if (totalVersions > 1024) {
-    return { ok: false, error: limitsExceeded('version_records', totalVersions, 1024) };
+  if (totalVersions > MAX_VERSION_RECORDS) {
+    return { ok: false, error: limitsExceeded('version_records', totalVersions, MAX_VERSION_RECORDS) };
   }
 
   // §8.5.1: an atomic animated reimport moves the version-local role mapping
@@ -386,7 +399,7 @@ export function applyPublishBehavior(input: OpInput, args: PublishBehaviorArgs):
     };
   }
   // step 4: displayName shape, then declaration bounds.
-  if (args.displayName.length < 1 || args.displayName.length > 128 || !isControlFree(args.displayName)) {
+  if (args.displayName.length < 1 || args.displayName.length > NAME_MAX || !isControlFree(args.displayName)) {
     return {
       ok: false,
       error: fieldValue(
@@ -399,8 +412,8 @@ export function applyPublishBehavior(input: OpInput, args: PublishBehaviorArgs):
   }
   const dv = validateDeclaration(args.declaration);
   if (!dv.ok) return { ok: false, error: dv.error };
-  if (existing === null && catalog.behaviors.length + 1 > 64) {
-    return { ok: false, error: limitsExceeded('behaviors', catalog.behaviors.length + 1, 64) };
+  if (existing === null && catalog.behaviors.length + 1 > MAX_BEHAVIORS) {
+    return { ok: false, error: limitsExceeded('behaviors', catalog.behaviors.length + 1, MAX_BEHAVIORS) };
   }
   // Phase 15.4: a declaration derived from the code is edited in the code.
   if (existing !== null && args.mode === 'declaration-update' && existing.source?.declaredInCode === true) {
@@ -556,7 +569,7 @@ function applyPublishBehaviorSource(
   for (const pin of prepared.libraries ?? []) {
     if (!catalog.behaviorTrust.entries.some((e) => e.sourceDigest === pin.sourceDigest)) return { ok: false, error: behaviorTrustUnacknowledged(pin.sourceDigest) };
   }
-  if (args.displayName.length < 1 || args.displayName.length > 128 || !isControlFree(args.displayName)) {
+  if (args.displayName.length < 1 || args.displayName.length > NAME_MAX || !isControlFree(args.displayName)) {
     return {
       ok: false,
       error: fieldValue(
@@ -574,7 +587,7 @@ function applyPublishBehaviorSource(
     source: {
       sourceDigest: prepared.sourceDigest,
       sourceByteLength: prepared.sourceByteLength,
-      entryPath: 'src/index.ts',
+      entryPath: BEHAVIOR_ENTRY_PATH,
       fileCount: prepared.fileCount,
       manifestDigest: prepared.manifestDigest,
       outputDigest: prepared.outputDigest,
@@ -921,8 +934,8 @@ export function applyAcknowledgeBehaviorTrust(
   if (previous.some((e) => e.sourceDigest === args.sourceDigest)) {
     return { ok: false, error: noChangeContent() };
   }
-  if (previous.length + 1 > 64) {
-    return { ok: false, error: limitsExceeded('trust_entries', previous.length + 1, 64) };
+  if (previous.length + 1 > MAX_TRUST_ENTRIES) {
+    return { ok: false, error: limitsExceeded('trust_entries', previous.length + 1, MAX_TRUST_ENTRIES) };
   }
   const next = [...previous, { sourceDigest: args.sourceDigest, acknowledgedRevision: input.revision }].sort(
     (a, b) => (a.sourceDigest < b.sourceDigest ? -1 : a.sourceDigest > b.sourceDigest ? 1 : 0),

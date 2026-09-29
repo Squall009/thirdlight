@@ -296,6 +296,22 @@ export { debugCallProblem, debugCallRefusal, ENGINE_DEBUG_COMMANDS, SIGNAL_DEBUG
 export { MAX_FRAME_SAVE_EVENTS, PROJECT_SAVE_FORMAT, PROJECT_SAVE_FORMAT_VERSION, SAVE_REQUESTS_PER_STEP, projectSaveFileProblem, worldSaveProblem, utf8Length, validateSaveEvents, type BehaviorSaves, type ProjectSaveFile, type WorldSave, type SaveEvent, type SaveMeta, type SaveRequest, type SaveResult, type SaveSlotInfo } from './project-saves';
 // (the save schema's limits and settings rules, for hosts that do not depend on project-model)
 export { SAVE_LIMITS, SAVE_THUMBNAIL_DEFAULT, settingsDocumentOf, type SaveSchema, type SettingsField, type SettingsFieldValue } from '@thirdlight/project-model';
+// The model's limits the hosts and the renderer re-check (defined once, in project-model).
+export {
+  ASSET_METRIC_CAPS,
+  AUDIO_VOICE_CAP,
+  AUDIO_VOICES_DEFAULT,
+  MAX_AUDIO_ASSETS,
+  MAX_FOG_VOLUMES,
+  MAX_INPUT_BINDINGS,
+  MAX_LOCAL_LIGHTS,
+  MAX_MATERIAL_INSTANCE_DEPTH,
+  MAX_MUSIC_ASSETS,
+  MAX_POLYGON_VERTICES,
+  MAX_SOURCE_BYTES,
+  M2_GLTF_EXTENSION_ALLOWLIST,
+  MODEL_JSON_CHUNK_BYTES_MAX,
+} from '@thirdlight/project-model';
 export type { BehaviorDebug, DebugCommandArgs, DebugCommandArgSpec, DebugCommandArgType, DebugCommandOptions, DebugCommandSpec, DebugCommandState } from './types';
 // Phase 23.5 (E8): block layers — ctx.grid, the runtime grid, and the pure grid/meshing helpers the renderer shares.
 export { GRID_WRITES_PER_STEP, RuntimeGrid, gridColliderId, type BehaviorGrid, type GridCell, type GridCellInput, type GridChange, type GridDiff, type GridPick, type GridRenderChange, type GridSurface, type GridVec3 } from './grid';

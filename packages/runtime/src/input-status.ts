@@ -19,6 +19,8 @@
  * outcome comes back as frame events.
  */
 
+import { MAX_INPUT_ACTIONS, MAX_INPUT_BINDINGS } from '@thirdlight/project-model';
+
 /** The device the player used last: keyboard and mouse are one device. */
 export type InputDeviceKind = 'keyboardMouse' | 'gamepad';
 /** The gamepad families glyphs distinguish (from the pad's id; `generic` when unknown). */
@@ -150,8 +152,8 @@ export type InputBindingRequest =
 /** Engine limits: binding requests a step (all scripts), events a frame. */
 export const MAX_BINDING_REQUESTS = 8;
 export const MAX_FRAME_INPUT_EVENTS = 8;
-const MAX_ACTIONS = 64;
-const MAX_BINDINGS = 8;
+const MAX_ACTIONS = MAX_INPUT_ACTIONS;
+const MAX_BINDINGS = MAX_INPUT_BINDINGS;
 const MAX_TEXT = 64;
 const NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
 const ICON_RE = /^[a-z][a-z0-9-]{0,47}$/;

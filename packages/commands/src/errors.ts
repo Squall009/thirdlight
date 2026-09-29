@@ -11,8 +11,9 @@
  * `detailDocument`/`details`/`detailCount`/`detailsTruncated`
  * (result-scene failures), `message`, `hint`.
  */
+import { ID_RE } from '@thirdlight/project-model';
 
-import type { LimitName, ModelError, ModelErrorV2, ModelErrorV3 } from '@thirdlight/project-model';
+import { MAX_REVISION, boundedFound, type LimitName, type ModelError, type ModelErrorV2, type ModelErrorV3 } from '@thirdlight/project-model';
 
 import type { CommandError, ErrorClass } from './types';
 
@@ -88,108 +89,20 @@ export const ERROR_CODES = [
 
 export type CommandErrorCode = (typeof ERROR_CODES)[number];
 
-/** 2^53 − 1 — the maximum M1 revision (commands.md §3, project-model §6). */
-export const MAX_REVISION = Number.MAX_SAFE_INTEGER;
+export { MAX_REVISION };
 
 /** §3.1: the canonical request byte cap (65 536). */
 export const MAX_REQUEST_BYTES = 65_536;
 
 /** project-model §5.1 ID syntax (reused for `projectId`, commands.md §3). */
-const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
 /** commands.md §3: `req-` + 32 hex chars (128 random bits, client CSPRNG). */
 const REQUEST_ID_RE = /^req-[0-9a-f]{32}$/;
 
 export { ID_RE, REQUEST_ID_RE };
 
-// ---- bounded `found` (same convention as project-model §12.5) ------------------
-
-function jsonSafe(v: unknown, depth: number): boolean {
-  if (v === null) return true;
-  const t = typeof v;
-  if (t === 'string' || t === 'boolean' || t === 'number') return true;
-  if (t === 'undefined' || t === 'function' || t === 'symbol') return false;
-  if (depth > 4) return false;
-  if (Array.isArray(v)) {
-    return v.length <= 64 && v.every((x) => jsonSafe(x, depth + 1));
-  }
-  const keys = Object.keys(v as object);
-  return (
-    keys.length <= 64 &&
-    keys.every((k) => jsonSafe((v as Record<string, unknown>)[k], depth + 1))
-  );
-}
-
-/**
- * O1 (2026-09-18 repair, packet 07): the traversal bound of the `found`
- * mapper. A value used as `found` may be ANY in-process value (the public
- * entry points are total — commands.md §3: validation is total, never
- * throws), so the recursion over nested values must be bounded by
- * construction. A JSON-parsed 12,000-level nested array used as `found`
- * must yield a structured error, not a RangeError:
- *
- *   - depth <= 64 (root = depth 0; children of a depth-64 value are not
- *     processed — they degrade to the marker);
- *   - <= 4096 visited nodes per mapping (each processed value consumes one
- *     node of the budget).
- *
- * Overflow-impossibility (any value shape, not just arrays): boundedFound
- * recurses at most 66 levels deep (depths 0..65), and each array level adds
- * at most one extra frame (the `map` callback), so the call chain is
- * <= ~137 frames plus the object branch's jsonSafe depth (<= 5, its own
- * depth cap of 4). Node's default stack holds orders of magnitude more
- * frames; with the depth cap, overflow is impossible by construction.
- */
-const BOUNDED_FOUND_MAX_DEPTH = 64;
-const BOUNDED_FOUND_MAX_NODES = 4096;
-
-/** The `found` marker emitted where the traversal bound is hit. */
-const BOUNDED_FOUND_MARKER =
-  '[truncated: exceeds bounded diagnostic traversal (depth <= 64, nodes <= 4096)]';
-
-interface FoundBudget {
-  nodes: number;
-  hit: boolean;
-}
-
-/**
- * Bound a `found` value ("present when it exists and is bounded"): long
- * strings truncated, long arrays summarized, non-JSON-safe objects omitted,
- * and the whole traversal bounded (O1). Where the bound is hit ANYWHERE in
- * the value the whole `found` degrades to the marker — a complete,
- * JSON-safe string (the same "degrade to a summary" convention as the
- * long-string / long-array cases above); the error's `path` (built by the
- * caller from complete request segments) is unaffected and stays a
- * complete, valid JSON Pointer. Same convention as the project-model's
- * `boundedFound` (validate.ts).
- */
-function boundedFound(v: unknown): unknown {
-  const budget: FoundBudget = { nodes: 0, hit: false };
-  const out = mapFound(v, 0, budget);
-  return budget.hit ? BOUNDED_FOUND_MARKER : out;
-}
-
-function mapFound(v: unknown, depth: number, budget: FoundBudget): unknown {
-  if (depth > BOUNDED_FOUND_MAX_DEPTH || budget.nodes >= BOUNDED_FOUND_MAX_NODES) {
-    budget.hit = true;
-    return BOUNDED_FOUND_MARKER;
-  }
-  budget.nodes += 1;
-  if (typeof v === 'string') {
-    return v.length <= 256
-      ? v
-      : `${v.slice(0, 256)}… (truncated, ${v.length} chars total)`;
-  }
-  if (Array.isArray(v)) {
-    return v.length <= 16
-      ? v.map((x) => mapFound(x, depth + 1, budget))
-      : `[${v.length} elements]`;
-  }
-  if (v !== null && typeof v === 'object') {
-    return jsonSafe(v, 0) ? v : undefined;
-  }
-  return v;
-}
+// ---- bounded `found`: the model's convention, so a command error and a model
+// error carry the same bounded summary of the offending value.
 
 function withFound(e: CommandError, found: unknown): CommandError {
   const b = boundedFound(found);

@@ -21,10 +21,9 @@ import { createHash, randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
-/** Phase 12 (c): an instance set's copies (10 float32 each) and the inline bound of the buffer route. */
-const INSTANCE_FLOATS = 10;
-const INSTANCES_MAX = 65_536;
-const INLINE_INSTANCES_MAX = 4_096;
+/** An instance set's copies (float32 each) and the inline bound of the buffer route. */
+const INSTANCES_MAX = MAX_INSTANCES;
+const INLINE_INSTANCES_MAX = INSTANCE_BUFFER_INLINE_MAX;
 
 import {
   CONTENT_ASSET_BYTES_CACHE,
@@ -60,7 +59,9 @@ import {
   type ContentJobView,
   type SessionError,
   type StageInspectRequest,
+  INSTANCE_BUFFER_INLINE_MAX,
 } from '@thirdlight/protocol';
+import { INSTANCE_FLOATS, MAX_INSTANCES } from '@thirdlight/project-model/limits';
 import { inspectAudio, inspectFont, inspectGlb, inspectImage, inspectMusic, AUDIO_PCM_WAV_TOOLCHAIN, FONT_TOOLCHAIN, IMAGE_TOOLCHAIN, MUSIC_TOOLCHAIN, M2_GLTF_TOOLCHAIN, type ImportJobPort, type ImportProposal } from '@thirdlight/asset-pipeline';
 import { createBehaviorCompiler } from '@thirdlight/behavior-build';
 import type { BehaviorCompiler } from '@thirdlight/behavior-build';
@@ -1489,7 +1490,7 @@ export class ContentRoutes {
     if (Array.isArray(b['transforms'])) {
       const t = b['transforms'] as unknown[];
       if (t.length === 0 || t.length % INSTANCE_FLOATS !== 0 || t.length > INLINE_INSTANCES_MAX * INSTANCE_FLOATS) {
-        return bad(`transforms must be a flat list of 10 numbers per copy (1–${INLINE_INSTANCES_MAX} copies inline; upload larger sets through a stage)`, '/transforms');
+        return bad(`transforms must be a flat list of ${INSTANCE_FLOATS} numbers per copy (1–${INLINE_INSTANCES_MAX} copies inline; upload larger sets through a stage)`, '/transforms');
       }
       const floats = new Float32Array(t.length);
       for (let i = 0; i < t.length; i += 1) {
@@ -1510,7 +1511,7 @@ export class ContentRoutes {
     }
     const copies = bytes.byteLength / (INSTANCE_FLOATS * 4);
     if (!Number.isInteger(copies) || copies < 1 || copies > INSTANCES_MAX) {
-      return bad(`an instance buffer holds 1–${INSTANCES_MAX} copies of 40 bytes (got ${bytes.byteLength} bytes)`);
+      return bad(`an instance buffer holds 1–${INSTANCES_MAX} copies of ${INSTANCE_FLOATS * 4} bytes (got ${bytes.byteLength} bytes)`);
     }
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     for (let i = 0; i < copies * INSTANCE_FLOATS; i += 1) {

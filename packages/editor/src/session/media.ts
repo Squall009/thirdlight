@@ -11,6 +11,7 @@
  */
 import type { ProjectedEntity } from './projection';
 import { CONTENT_STAGE_MAX } from '@thirdlight/protocol';
+import { MAX_EMISSIVE_INTENSITY, MAX_INTENSITY, SCENE_LIMITS_V3 } from '@thirdlight/project-model/limits';
 
 // ---------------------------------------------------------------------------
 // Drop validation (row 18/21: `.glb` model, `.wav` audio)
@@ -92,7 +93,7 @@ export function validateMediaDrop(name: string, byteLength: number): MediaDropVe
 // Light components (rows 13/14/16: the §23.3.4 rules)
 // ---------------------------------------------------------------------------
 
-export const LIGHT_INTENSITY_MAX = 8; // §23.3.4
+export const LIGHT_INTENSITY_MAX = MAX_INTENSITY;
 export const LIGHT_DIRECTION_ABS_MAX = 1;
 export const LIGHT_DIRECTION_MIN_NORM = 1e-6;
 
@@ -227,7 +228,7 @@ export function lightCounts(entities: readonly ProjectedEntity[]): { directional
 
 export const SURFACE_ROUGHNESS_MAX = 1;
 export const SURFACE_METALNESS_MAX = 1;
-export const SURFACE_EMISSIVE_INTENSITY_MAX = 4; // §23.3.1a/§23.3.5
+export const SURFACE_EMISSIVE_INTENSITY_MAX = MAX_EMISSIVE_INTENSITY;
 
 export interface SurfaceView {
   color: string;
@@ -319,7 +320,7 @@ export function planSetSurface(
 
 export const ANIMATION_ROLE_KEYS = ['idle', 'run', 'airborne'] as const;
 export type AnimationRoleKey = (typeof ANIMATION_ROLE_KEYS)[number];
-export const ANIMATION_PROFILE_BYTES_MAX = 4096; // §23.10
+export const ANIMATION_PROFILE_BYTES_MAX = SCENE_LIMITS_V3.animationProfileBytes;
 
 export interface AnimationRoleBinding {
   clipIndex: number;

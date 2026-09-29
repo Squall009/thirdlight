@@ -6,6 +6,7 @@
  * proposal out, no decoding. The magic bytes decide the format (never the
  * file name); the container header's declared size decides the pixel budget.
  */
+import { MAX_TEXTURE_EDGE } from '@thirdlight/project-model/limits';
 import { resolveImportJob } from './inspect';
 import { AUDIO_PIPELINE_NAME, AUDIO_PIPELINE_VERSION, M2_GLTF_MAX_DIAGNOSTICS } from './limits';
 import { decodedImageBytes, detectImageMime, imageDimensions, ktx2Info } from './images';
@@ -15,7 +16,7 @@ import type { ImportDiagnostic, ImportJobPort } from './types';
 /** Largest texture file accepted (bytes). */
 export const TEXTURE_SOURCE_BYTES_MAX = 16_777_216;
 /** Largest texture edge (pixels). */
-export const TEXTURE_EDGE_MAX = 4096;
+export const TEXTURE_EDGE_MAX = MAX_TEXTURE_EDGE;
 
 export type TextureFormat = 'png' | 'jpeg' | 'webp' | 'ktx2';
 

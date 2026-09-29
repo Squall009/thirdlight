@@ -10,6 +10,7 @@
  *
  * Pure three.js (no loader): safe on the adapter's root subpath.
  */
+import { MAX_POLYGON_VERTICES } from '@thirdlight/runtime';
 import * as THREE from 'three';
 
 const LOD_RE = /^(.*)_LOD(\d+)$/i;
@@ -174,8 +175,8 @@ export function applyVertexColorMode(root: THREE.Object3D, mode: VertexColorMode
 
 // ---- 2D collider from a `_COL` node ---------------------------------------------
 
-/** Most vertices of a physics polygon (physics-rapier MAX_POLYGON_VERTICES). */
-export const COLLIDER_POLYGON_MAX = 8;
+/** Most vertices of a physics polygon (the model's collider limit). */
+export const COLLIDER_POLYGON_MAX = MAX_POLYGON_VERTICES;
 
 /**
  * The 2D collider for a piece: the convex hull of its `_COL` mesh projected on
