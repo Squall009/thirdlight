@@ -34,7 +34,7 @@
  */
 
 import { validateGraphOps, blockEditsShapeError, validateBlockType, validateCellFields, validateBlockStamp, BLOCK_LIMITS, type GraphDocument, type GraphOp, type ModelErrorV2 } from '@thirdlight/project-model';
-import { M2_SETTINGS_KEYS, TAG_NAME_RE, type AnimatorController, type InputConfig, type EnvironmentConfig, type LightingBake, type MaterialDef, type EffectDef } from '@thirdlight/project-model';
+import { ENTITY_FLAGS, M2_SETTINGS_KEYS, TAG_NAME_RE, type AnimatorController, type InputConfig, type EnvironmentConfig, type LightingBake, type MaterialDef, type EffectDef } from '@thirdlight/project-model';
 
 import {
   ID_RE,
@@ -642,13 +642,14 @@ function validateCreateArgs(args: Record<string, unknown>):
   | { ok: true; args: CreateEntityArgs }
   | { ok: false; error: CommandError } {
   const KNOWN =
-    'kind, parentId (optional), name (optional), active, locked, static, tags (optional), transform (optional), box (optional, box only), model (optional, model only), components (optional), surfacePreset (optional), children (optional, folder only)';
+    'kind, parentId (optional), name (optional), active, visible, locked, static, tags (optional), transform (optional), box (optional, box only), model (optional, model only), components (optional), surfacePreset (optional), children (optional, folder only)';
   for (const key of Object.keys(args)) {
     if (
       key !== 'kind' &&
       key !== 'parentId' &&
       key !== 'name' &&
       key !== 'active' &&
+      key !== 'visible' &&
       key !== 'locked' &&
       key !== 'static' &&
       key !== 'tags' &&
@@ -718,7 +719,7 @@ function validateCreateArgs(args: Record<string, unknown>):
     out.name = args['name'];
   }
   // Phase 25.7e: the hierarchy flags and tags, as updateEntity takes them.
-  for (const flag of ['active', 'locked', 'static'] as const) {
+  for (const flag of ENTITY_FLAGS) {
     const v = args[flag];
     if (v === undefined) continue;
     if (typeof v !== 'boolean') return { ok: false, error: fieldType(`/args/${flag}`, v, 'boolean') };
@@ -1034,7 +1035,7 @@ function validateDeleteArgs(args: Record<string, unknown>):
 function validateUpdateEntityArgs(args: Record<string, unknown>):
   | { ok: true; args: UpdateEntityArgs }
   | { ok: false; error: CommandError } {
-  const KNOWN_UPDATE = ['entityId', 'name', 'parentId', 'active', 'locked', 'static', 'tags'];
+  const KNOWN_UPDATE = ['entityId', 'name', 'parentId', ...ENTITY_FLAGS, 'tags'];
   for (const key of Object.keys(args)) {
     if (!KNOWN_UPDATE.includes(key)) {
       return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(key)}`, key, KNOWN_UPDATE.join(', ')) };
@@ -1061,7 +1062,7 @@ function validateUpdateEntityArgs(args: Record<string, unknown>):
     }
     out.parentId = args['parentId'];
   }
-  for (const flag of ['active', 'locked', 'static'] as const) {
+  for (const flag of ENTITY_FLAGS) {
     const v = args[flag];
     if (v === undefined) continue;
     if (typeof v !== 'boolean') return { ok: false, error: fieldType(`/args/${flag}`, v, 'boolean') };
@@ -1075,8 +1076,8 @@ function validateUpdateEntityArgs(args: Record<string, unknown>):
     }
     out.tags = tags as string[];
   }
-  if (out.name === undefined && out.parentId === undefined && out.active === undefined && out.locked === undefined && out.static === undefined && out.tags === undefined) {
-    return { ok: false, error: fieldMissing('/args/name', 'name, parentId, active, locked, static or tags') };
+  if (out.name === undefined && out.parentId === undefined && ENTITY_FLAGS.every((f) => out[f] === undefined) && out.tags === undefined) {
+    return { ok: false, error: fieldMissing('/args/name', `name, parentId, ${ENTITY_FLAGS.join(', ')} or tags`) };
   }
   return { ok: true, args: out };
 }

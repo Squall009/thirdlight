@@ -791,7 +791,7 @@ function runAllProbes(): void {
     bases.forEach((b, i) => probe(`${c.name}[${i}]`, sceneErrors, entityScene(c.name, b), `/entities/1/components/${c.name}`, c.value, `${c.name}:`));
   }
   // the entity's own fields
-  probe('entity', sceneErrors, { schemaVersion: 4, sceneId: 'main', revision: 1, entities: [{ id: 'parent-0001', components: { transform: T } }, { id: 'subject-0001', name: 'Thing', parentId: 'parent-0001', active: false, locked: true, static: true, tags: 5, components: { transform: T } }] }, '/entities/1', DESCRIPTORS.entity, 'entity:');
+  probe('entity', sceneErrors, { schemaVersion: 4, sceneId: 'main', revision: 1, entities: [{ id: 'parent-0001', components: { transform: T } }, { id: 'subject-0001', name: 'Thing', parentId: 'parent-0001', active: false, visible: false, locked: true, static: true, tags: 5, components: { transform: T } }] }, '/entities/1', DESCRIPTORS.entity, 'entity:');
   // content blocks
   ENV_BASES.forEach((b, i) => probe(`environment[${i}]`, (v) => errorsOf((e) => validateEnvironment(v, '', e)), b, '', block('environment'), 'environment:'));
   INPUT_BASES.forEach((b, i) => probe(`input[${i}]`, (v) => errorsOf((e) => validateInput(v, '', e)), b, '', block('input'), 'input:'));

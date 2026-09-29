@@ -121,8 +121,9 @@ const KNOWN_SCENE_FIELDS = new Set(['schemaVersion', 'sceneId', 'revision', 'ent
 const KNOWN_SCENE_FIELDS_V4 = new Set(['schemaVersion', 'sceneId', 'revision', 'entities', 'blocks']);
 /** Phase 12 (c): the v4 per-scene entity cap (instance sets hold dense detail). */
 export const MAX_ENTITIES_V4 = 16_384;
-const KNOWN_ENTITY_FIELDS = new Set(['id', 'name', 'parentId', 'active', 'locked', 'static', 'tags', 'components']);
-const ENTITY_FLAGS = ['active', 'locked', 'static'] as const;
+/** The boolean flags an entity may carry (only a non-default value is stored). */
+export const ENTITY_FLAGS = ['active', 'visible', 'locked', 'static'] as const;
+const KNOWN_ENTITY_FIELDS = new Set(['id', 'name', 'parentId', ...ENTITY_FLAGS, 'tags', 'components']);
 /** Phase 12 (c): the v4 component registry (v3's plus `instances`). */
 // Phase 18.0: `materialParams` (per-object overrides of graph-material parameters) is appended last.
 // Phase 20.0: `effect` (plays a visual effect from the entity) is appended after it.
@@ -962,9 +963,10 @@ function canonicalModelAnimation(c: unknown): ModelAnimationComponent {
   };
 }
 
-function canonicalFlags(e: Record<string, unknown>): Pick<EntityV3, 'active' | 'locked' | 'static' | 'tags'> {
+function canonicalFlags(e: Record<string, unknown>): Pick<EntityV3, 'active' | 'visible' | 'locked' | 'static' | 'tags'> {
   return {
     ...(e['active'] === false ? { active: false as const } : {}),
+    ...(e['visible'] === false ? { visible: false as const } : {}),
     ...(e['locked'] === true ? { locked: true as const } : {}),
     ...(e['static'] === true ? { static: true as const } : {}),
     ...(typeof e['tags'] === 'number' && e['tags'] !== 0 ? { tags: e['tags'] } : {}),
@@ -1146,6 +1148,10 @@ export function validateSceneV3Value(doc: Record<string, unknown>, version: 3 | 
         const v = e[flag];
         if (v !== undefined && typeof v !== 'boolean') errors.push(fieldType(`${base}/${flag}`, v, 'boolean'));
       }
+      // A folder is left out of the game, so hiding it would hide nothing.
+      if (e['visible'] === false && isPlainObject(e['components']) && (e['components'] as Record<string, unknown>)['folder'] !== undefined) {
+        errors.push(fieldValue(`${base}/visible`, false, 'true or absent on a folder', 'a folder is not in the game; hide the objects in it'));
+      }
       const tags = e['tags'];
       if (tags !== undefined && (typeof tags !== 'number' || !Number.isInteger(tags) || tags < 0 || tags > 0xffffffff)) {
         errors.push(fieldValue(`${base}/tags`, tags, 'integer 0 to 4294967295 (a 32-bit tag mask)', 'tags is the unsigned 32-bit mask of the tag bits'));
@@ -1170,7 +1176,7 @@ export function validateSceneV3Value(doc: Record<string, unknown>, version: 3 | 
         counts.points3d += c.points3d;
       }
       for (const k of Object.keys(e)) {
-        if (!KNOWN_ENTITY_FIELDS.has(k)) errors.push(unexpectedField(`${base}/${pointerSegment(k)}`, k, 'id, name, parentId, active, locked, static, tags, components'));
+        if (!KNOWN_ENTITY_FIELDS.has(k)) errors.push(unexpectedField(`${base}/${pointerSegment(k)}`, k, ['id', 'name', 'parentId', ...ENTITY_FLAGS, 'tags', 'components'].join(', ')));
       }
     }
 

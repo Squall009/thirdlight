@@ -60,6 +60,9 @@ import type {
   GameMode,
   TimelineAsset,
 } from '@thirdlight/project-model';
+import type { EntityHeader, EntityHeaderField, PartialTransformArgs, BoxArgs, ModelArgs, CreateEntityArgs, UpdateEntityArgs } from './entity-types';
+
+export type { EntityHeader, EntityHeaderField, PartialTransformArgs, BoxArgs, ModelArgs, CreateEntityArgs, UpdateEntityArgs } from './entity-types';
 
 // ---- ops and origins --------------------------------------------------------
 
@@ -891,23 +894,6 @@ export interface SetTransformChange {
   changedFields: readonly ChangedField[];
 }
 
-/**
- * An entity's hierarchy identity: its name, its parent (null = root) and its
- * own hierarchy flags (phase 12; the stored defaults are active, unlocked,
- * not static).
- */
-export interface EntityHeader {
-  name: string | null;
-  parentId: string | null;
-  active: boolean;
-  locked: boolean;
-  static: boolean;
-  /** Phase 12 (b): the entity's own tag mask (0 = none; absent in older records). */
-  tags: number;
-}
-
-/** The `updateEntity` fields a change can name. */
-export type EntityHeaderField = 'name' | 'parentId' | 'active' | 'locked' | 'static' | 'tags';
 
 /**
  * `updateEntity`: rename, reparent and/or set the hierarchy flags. When a
@@ -1401,63 +1387,6 @@ export interface PreparedBehaviorSourceFact {
 // ---- mutation request envelopes (§3) ----------------------------------------------
 
 /**
- * Partial transform args (§3.1): any non-empty subset; a present field
- * replaces the whole field (arrays are never merged component-wise).
- * Element values (length, finiteness, ranges, quaternion norm) are
- * re-checked by the project-model validation of the resulting scene.
- */
-export interface PartialTransformArgs {
-  position?: readonly number[];
-  rotation?: readonly number[];
-  scale?: readonly number[];
-}
-
-/** Box args for createEntity (§3.1): only when `kind` is `"box"`. */
-export interface BoxArgs {
-  size?: readonly number[];
-  material?: { color?: string };
-}
-
-/** Model args for createEntity (§3.1/§5.1): only when `kind` is `"model"`. */
-export interface ModelArgs {
-  asset: { assetId: string };
-  /** One named piece of a multi-piece GLB (absent = the whole file). */
-  piece?: string;
-}
-
-export interface CreateEntityArgs {
-  /** `folder` (phase 12): organisation only — no transform, box, model or components. */
-  kind: 'group' | 'box' | 'model' | 'folder';
-  parentId?: string | null;
-  name?: string;
-  /** Phase 25.7e: the hierarchy flags and tags, as `updateEntity` sets them (absent: active, unlocked, not static, no tags). */
-  active?: boolean;
-  locked?: boolean;
-  static?: boolean;
-  /** Phase 25.7e: tag names of the project's registry. */
-  tags?: string[];
-  transform?: PartialTransformArgs;
-  /** Only when `kind` is `"box"`. */
-  box?: BoxArgs;
-  /** Only when `kind` is `"model"` (required then). */
-  model?: ModelArgs;
-  /**
-   * The add-capable components created in the same transaction (commands.md
-   * §3.1/authoring §A3.1): `collider`, `controller`, `playerSpawn`, `light`,
-   * `surface`, `modelAnimation`; never `null`.
-   */
-  components?: Record<string, unknown>;
-  /** Copies a built-in preset row onto `components.surface` (authoring §A3.1). */
-  surfacePreset?: SurfacePresetName;
-  /**
-   * `folder` only: objects created inside the new folder in the same
-   * transaction (one undo), e.g. every piece of a multi-piece model. Each is
-   * a `box`/`model`/`group` create without `parentId` or `children`.
-   */
-  children?: CreateEntityArgs[];
-}
-
-/**
  * `setAssetOptions`: per-asset render options. `vertexColors` (model only):
  * `data` (default: COLOR_0 is shader data, never multiplied into the albedo)
  * or `tint` (the glTF default).
@@ -1490,18 +1419,6 @@ export interface SetTransformArgs {
 
 export interface DeleteEntityArgs {
   entityId: string;
-}
-
-/** `updateEntity` args: at least one of `name` / `parentId` (null = make root). */
-export interface UpdateEntityArgs {
-  entityId: string;
-  name?: string;
-  parentId?: string | null;
-  active?: boolean;
-  locked?: boolean;
-  static?: boolean;
-  /** Phase 12 (b): the entity's own tags, by name (replaces the whole set; [] clears). */
-  tags?: string[];
 }
 
 /**

@@ -59,7 +59,7 @@ interface Props {
   entityName: (id: string) => string;
   /** How many entities are selected in the hierarchy. */
   selectionCount: number;
-  onSetFlag: (entityId: string, flag: 'active' | 'locked' | 'static', value: boolean) => void;
+  onSetFlag: (entityId: string, flag: EntityFlag, value: boolean) => void;
   /** Phase 12 (b): the project tag registry. */
   tags: readonly { bit: number; name: string }[];
   onSetTags: (entityId: string, names: string[]) => void;
@@ -111,8 +111,12 @@ function TagControls(props: { entity: ProjectedEntity; flags: EffectiveEntityFla
   );
 }
 
+/** The entity flags the Inspector edits (`updateEntity`). */
+export type EntityFlag = 'active' | 'visible' | 'locked' | 'static';
+
 const FLAG_ROWS = [
   { flag: 'active', label: 'Active', hint: 'Off: left out of the game and hidden in the editor, with everything under it.' },
+  { flag: 'visible', label: 'Visible', hint: 'Off: the game starts it hidden (still simulated and colliding) until a script or a timeline shows it; the Scene view still draws it.' },
   { flag: 'locked', label: 'Locked', hint: 'Editor only: cannot be picked or moved in the Scene view.' },
   { flag: 'static', label: 'Static', hint: 'Marks the object as not moving.' },
 ] as const;
@@ -127,9 +131,11 @@ function FlagControls(props: { entity: ProjectedEntity; flags: EffectiveEntityFl
   return (
     <div className="tl-inspector__section tl-inspector__flags" aria-label="hierarchy flags">
       {FLAG_ROWS.map(({ flag, label, hint }) => {
+        // A folder is not in the game, so it has nothing to hide.
+        if (flag === 'visible' && entity.kind === 'folder') return null;
         const own = entity[flag];
-        const from = flags?.inheritedFrom[flag];
-        const effective = flags?.[flag] ?? own;
+        const from = flag === 'visible' ? undefined : flags?.inheritedFrom[flag];
+        const effective = flag === 'visible' ? own : (flags?.[flag] ?? own);
         return (
           <label key={flag} className="tl-flag" title={hint}>
             <input type="checkbox" aria-label={label} checked={own} onChange={(e) => props.onSetFlag(entity.id, flag, e.target.checked)} />

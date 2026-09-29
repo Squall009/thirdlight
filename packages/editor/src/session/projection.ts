@@ -32,6 +32,8 @@ export interface ProjectedEntity {
   kind: 'box' | 'camera' | 'model' | 'light' | 'entity' | 'folder';
   /** Own hierarchy flags (phase 12); folders pass them down (see session/hierarchy.ts). */
   active: boolean;
+  /** False: the game starts it hidden (the Scene view still draws it). */
+  visible: boolean;
   locked: boolean;
   static: boolean;
   /** Phase 12 (b): the entity's own tag mask (0 = none). */
@@ -173,7 +175,7 @@ function capsuleOf(controller: unknown): ProjectedEntity['capsule'] {
 }
 
 function toProjected(e: EntityV3): ProjectedEntity {
-  const flags = e as { active?: boolean; locked?: boolean; static?: boolean; tags?: number };
+  const flags = e as { active?: boolean; visible?: boolean; locked?: boolean; static?: boolean; tags?: number };
   const c = e.components as {
     folder?: unknown;
     box?: { size?: number[]; material?: { color?: string } };
@@ -201,6 +203,7 @@ function toProjected(e: EntityV3): ProjectedEntity {
     parentId: e.parentId ?? null,
     kind,
     active: flags.active !== false,
+    visible: flags.visible !== false,
     locked: flags.locked === true,
     static: flags.static === true,
     tags: typeof flags.tags === 'number' ? flags.tags >>> 0 : 0,
@@ -461,6 +464,7 @@ export class Projection {
         p.name = change.next.name ?? p.id;
         p.parentId = change.next.parentId;
         p.active = change.next.active !== false;
+        p.visible = change.next.visible !== false;
         p.locked = change.next.locked === true;
         p.static = change.next.static === true;
         p.tags = typeof change.next.tags === 'number' ? change.next.tags >>> 0 : 0;

@@ -1543,8 +1543,8 @@ const ENTITY: ObjectFieldDescriptor = obj('entity', 'Object', 'An object in a sc
   str('name', 'Name', 'The name shown in the Hierarchy.', NAME),
   entity('parentId', 'Parent', 'The parent object (none: a scene root).', { nullable: true, default: null }),
   bool('active', 'Active', 'Inactive objects are not in the game (an object a script switches off stays loaded but is not drawn, collides with nothing, fires no trigger and does not tick).', { default: true, omitDefault: true }),
-  // Phase 25.10: drawn or not while the game runs (scripts and collectibles hide objects; never stored).
-  bool('visible', 'Visible', 'Drawn (with its children, their lights and effects); it still collides, triggers and ticks while hidden.', { default: true, runtimeOnly: true }),
+  // The stored value is how the object starts; scripts, timelines and collectibles show and hide it while the game runs.
+  bool('visible', 'Visible', 'Drawn (with its children, their lights and effects). Off: the object starts hidden until a script or a timeline shows it; it still collides, triggers and ticks while hidden.', { default: true, omitDefault: true }),
   bool('locked', 'Locked', 'Cannot be selected in the Scene view.', { default: false, omitDefault: true }),
   bool('static', 'Static', 'Never moves (baked lighting, cheaper rendering).', { default: false, omitDefault: true }),
   int('tags', 'Tags', 'The tag bits (a 32-bit mask of the project\'s tags).', { min: 0, max: 0xffffffff, default: 0, omitDefault: true }),

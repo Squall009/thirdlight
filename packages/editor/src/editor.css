@@ -164,7 +164,7 @@ button, input, select, textarea { font-family: inherit; }
 .tl-row__kind--folder { color: var(--kind-folder); }
 .tl-row__flag { display: inline-flex; flex: none; color: var(--text-dim); font-size: 10px; margin-left: auto; }
 .tl-row__flag + .tl-row__flag { margin-left: 2px; }
-.tl-row__flag--static { padding: 0 3px; border: 1px solid var(--line); border-radius: 3px; }
+.tl-row__flag--static, .tl-row__flag--hidden { padding: 0 3px; border: 1px solid var(--line); border-radius: 3px; }
 .tl-row.is-inactive .tl-row__name, .tl-row.is-inactive .tl-row__icon, .tl-row.is-inactive .tl-row__folder { opacity: .45; }
 .tl-row.is-inactive .tl-row__name { font-style: italic; }
 .tl-row.is-drop-before::before, .tl-row.is-drop-after::after { content: ''; position: absolute; left: 4px; right: 4px;

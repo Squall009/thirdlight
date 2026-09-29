@@ -21,7 +21,7 @@
 
 import { BackendClient, makeRequestId } from './backend-client';
 import { playtestBackend, runPlaytest, type PlaytestSpec } from './playtest';
-import { parseRelayGamepad, parseRelayUiEdges, relayFrameEnd } from '@thirdlight/protocol';
+import { GAME_CONTROL_COMMANDS, SIGNAL_DEBUG_COMMAND_NAME, parseRelayGamepad, parseRelayUiEdges, relayFrameEnd } from '@thirdlight/protocol';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
 export interface McpContext {
@@ -56,8 +56,12 @@ const M2_MUTATION_OPS = [
 const M3_MUTATION_OPS = ['applySurfacePreset', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setCollisionLayers', 'setSaveSchema', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit', 'setEffect', 'deleteEffect', 'renameEffect', 'setScriptLibrary', 'deleteScriptLibrary', 'editBlocks', 'setBlockType', 'deleteBlockType', 'setCellFields', 'setBlockStamp', 'deleteBlockStamp', 'setUiDocument', 'deleteUiDocument', 'setUiTheme', 'deleteUiTheme', 'setTimeline', 'deleteTimeline', 'setModes', 'setBehaviorGroups', 'setEventCues', 'setShell', 'setDialogue', 'deleteDialogue', 'setSpeaker', 'deleteSpeaker', 'setDialogueSettings', 'deleteAsset', 'deletePrefab', 'createEntities', 'commitScriptLibraryStage'] as const;
 const MUTATION_OPS = [...M1_MUTATION_OPS, ...M2_MUTATION_OPS, ...M3_MUTATION_OPS] as const;
 const QUERY_OPS = ['queryProject', 'queryEntity', 'queryEntities', 'queryAssets', 'queryPrefabs', 'queryBehaviors'] as const;
-/** The closed §20 control command set (sessions.md §20.1). */
-const GAME_CONTROL_COMMANDS = ['replay', 'mute', 'unmute', 'loadScene', 'unloadScene', 'clearSave', 'debugPause', 'debugResume', 'debugStep', 'debugCommand'] as const;
+/**
+ * The tool's commands: the relay's closed set plus `signal`, which the tool
+ * sends as the engine's `signal` debug command (input of the next step, so a
+ * recording replays it).
+ */
+const TOOL_CONTROL_COMMANDS = [...GAME_CONTROL_COMMANDS, SIGNAL_DEBUG_COMMAND_NAME] as const;
 /** The largest single upload frame accepted by the backend (sessions.md §11.5). */
 const CONTENT_UPLOAD_FRAME_MAX = 1_048_576;
 /** The staged-source cap (workspace.md §13.9) — the MCP upload tool's bound. */
@@ -99,7 +103,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     description:
       'Submit one undoable editing command to the project, with optimistic concurrency ' +
       '(expectedRevision). Scene ops: createEntity (kind group|box|model|folder), setTransform, ' +
-      'updateEntity (rename/reparent/flags/tags: {entityId, name?, parentId?, active?, locked?, static?, tags?: [tag names]}; a reparent keeps ' +
+      'updateEntity (rename/reparent/flags/tags: {entityId, name?, parentId?, active?, visible?, locked?, static?, tags?: [tag names]}; visible false: the game starts the object hidden (drawn once a script\'s setVisible / entity().set or a timeline activation key shows it; it still simulates, unlike active false; not on folders); a reparent keeps ' +
       'the world position), moveEntities (file entities with their subtrees, keeping world positions: ' +
       '{entityIds, parentId|null, beforeId?}), deleteEntity, undo, redo. A folder has no transform and sits at the ' +
       'root or in another folder; folders pass active/locked/static and their tags down to their subtree. ' +
@@ -153,7 +157,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'setComponent "instances" {asset:{assetId, piece?}, buffer:<sha256 of a staged buffer>, count}. Models: createEntity kind "model" ' +
       'takes model {asset:{assetId}, piece?} — piece names one piece of a multi-piece GLB (the base name of its <piece>_LOD0..n / ' +
       '<piece>_COL nodes, or a top-level node); LOD nodes switch by screen size and _COL nodes are never drawn. A folder create ' +
-      'may carry children: [createEntity args without parentId] (up to 256, one undo). createEntity also takes active, locked, static (booleans) ' +
+      'may carry children: [createEntity args without parentId] (up to 256, one undo). createEntity also takes active, visible, locked, static (booleans) ' +
       'and tags ([tag names]). createEntities {entities: [createEntity args + ref?], sceneId?} creates up to 1024 in one revision and one undo ' +
       '(a later item\'s parentId may name an earlier item\'s ref; the change lists the created entities in order). deleteAsset {assetId} and ' +
       'deletePrefab {prefabId} remove a record; refused (reference_in_use, the uses in details) while any object, prefab, asset, material, document ' +
@@ -571,7 +575,9 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'release it, or run exactly one step while held - the visual-script debugger; tl_game_observe shows debug {paused, hit {behaviorId, entityId, nodeId, stepIndex}}; ' +
       'phase 23.8: debugCommand with name and args runs a project debug command - one a script declared with ctx.debug.command(name, {description, args: [{name, type: number|string|boolean, optional}]}, handler?) - ' +
       'inside the next simulation step as part of its input (a recording replays it; tl_game_observe lists debugCommands {registered, applied [{stepIndex, name, args}]}); ' +
-      'refused (game_command_invalid) when no script declared it or the args do not match) to an explicitly presented play ' +
+      'refused (game_command_invalid) when no script declared it or the args do not match); ' +
+      '{signal: name} (command signal) emits a signal as a script\'s ctx.signals.emit would - switches, movers, timelines, effects, event sounds and scripts see it in the step the call rides on - sent as the engine\'s signal debug command (input of the next step: a recording replays it; debugCommands.applied lists it); signals carry no value, so value is refused; ' +
+      'all go to an explicitly presented play ' +
       'session. expectedRunId is an optional optimistic guard (<snapshotId>#<replayEpoch>); a mismatch is refused ' +
       'with game_run_stale and no command is applied. The result is the preview\'s exact accepted result (identity ' +
       'tuple + play state running|paused); replay restarts the game; with no connected/presenting browser the contracted session_unavailable is returned - ' +
@@ -580,13 +586,14 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       type: 'object',
       properties: {
         playSessionId: { type: 'string' },
-        command: { type: 'string', enum: [...GAME_CONTROL_COMMANDS] },
+        command: { type: 'string', enum: [...TOOL_CONTROL_COMMANDS], description: 'absent with signal: signal' },
+        signal: { type: 'string', description: 'signal: the signal to emit (1-64 characters)' },
         expectedRunId: { type: 'string' },
         sceneId: { type: 'string', description: 'loadScene / unloadScene: the scene' },
         name: { type: 'string', description: 'debugCommand: the debug command a script declared' },
         args: { type: 'object', description: 'debugCommand: its arguments by name (numbers, text up to 256 characters, true/false; at most 8)', additionalProperties: { type: ['number', 'string', 'boolean'] } },
       },
-      required: ['playSessionId', 'command'],
+      required: ['playSessionId'],
       additionalProperties: false,
     },
   },
@@ -1247,9 +1254,19 @@ async function instanceBuffer(ctx: McpContext, a: Record<string, unknown>): Prom
 
 /** sessions.md §20.1: bounded game-control relay (never a simulation). */
 async function gameControl(ctx: McpContext, a: Record<string, unknown>): Promise<CallToolResult> {
-  if (typeof a.playSessionId !== 'string' || a.playSessionId.length === 0) return toolError('playSessionId is required');
-  if (typeof a.command !== 'string' || !(GAME_CONTROL_COMMANDS as readonly string[]).includes(a.command)) {
-    return toolError(`command must be one of ${GAME_CONTROL_COMMANDS.join(', ')}`);
+  const playSessionId = a.playSessionId;
+  if (typeof playSessionId !== 'string' || playSessionId.length === 0) return toolError('playSessionId is required');
+  const command = a.command ?? (a.signal !== undefined ? SIGNAL_DEBUG_COMMAND_NAME : undefined);
+  if (typeof command !== 'string' || !(TOOL_CONTROL_COMMANDS as readonly string[]).includes(command)) {
+    return toolError(`command must be one of ${TOOL_CONTROL_COMMANDS.join(', ')}`);
+  }
+  if (command === SIGNAL_DEBUG_COMMAND_NAME) {
+    if (a.value !== undefined) return toolError('signals carry no value (ctx.signals.emit takes a name only); give scripts a value with a debugCommand or a script message');
+    if (typeof a.signal !== 'string' || a.signal.length === 0) return toolError('signal (the signal name) is required for command signal');
+    if (a.name !== undefined || a.args !== undefined || a.sceneId !== undefined) return toolError('signal takes the signal name only');
+    a = { ...a, command: 'debugCommand', name: SIGNAL_DEBUG_COMMAND_NAME, args: { name: a.signal } };
+  } else if (a.signal !== undefined) {
+    return toolError('signal goes with command signal only');
   }
   const body: Record<string, unknown> = { command: a.command };
   if (a.expectedRunId !== undefined) {
@@ -1275,7 +1292,7 @@ async function gameControl(ctx: McpContext, a: Record<string, unknown>): Promise
   } else if (a.name !== undefined || a.args !== undefined) {
     return toolError('name and args go with debugCommand only');
   }
-  const res = await ctx.client.gameControl(ctx.projectId, a.playSessionId, body);
+  const res = await ctx.client.gameControl(ctx.projectId, playSessionId, body);
   return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
 }
 

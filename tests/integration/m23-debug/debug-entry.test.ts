@@ -20,6 +20,7 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 
 import { M2_PINNED_MODULES, compileBehavior } from '@thirdlight/behavior-build';
+import { SIGNAL_DEBUG_COMMAND } from '@thirdlight/runtime';
 
 import { FakeNode, startHarness, type Harness, type Mode } from '../m22-worker/harness';
 
@@ -162,7 +163,7 @@ describe('phase 23.8: debug entry points in the page and the worker', () => {
       const applied = single.h.rt.debugCommandState!().applied;
       expect(applied.map((a: Any) => a.args.dx)).toEqual([1.5, -0.25, 3]);
       expect(worker.h.rt.debugCommandState!().applied).toEqual(applied);
-      expect(single.h.rt.debugCommandState!().registered).toEqual([{ name: 'nudge', description: 'Move the box along x', args: [{ name: 'dx', type: 'number' }] }]);
+      expect(single.h.rt.debugCommandState!().registered).toEqual([SIGNAL_DEBUG_COMMAND, { name: 'nudge', description: 'Move the box along x', args: [{ name: 'dx', type: 'number' }] }]);
       expect(boxX(single.h)).toBeCloseTo(4 + 1.5 - 0.25 + 3, 9);
       const n = Math.min(single.h.digests.length, worker.h.digests.length);
       expect(n).toBeGreaterThan(100);

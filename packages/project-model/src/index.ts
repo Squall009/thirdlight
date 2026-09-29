@@ -304,7 +304,7 @@ export { upgradeProjectDocsV25, type UpgradeV25Result } from './upgrade-v25';
 export { materialsInUse, type MaterialUseInput } from './material-use';
 // Phase 25.7a: the assigned entity ids (at least six digits; four-digit ids still load).
 export { ENTITY_ID_DIGITS, ENTITY_ID_MAX, entityIdAt, nextFreeEntityIdOf } from './entity-ids';
-export { validateSceneV4, validateMergedSceneV4, validateInstancesComponent, DIRECTIONAL_SHADOW_DEFAULTS, DIRECTIONAL_SHADOW_LIMITS, MAX_ENTITIES_V4, V4_REGISTRY } from './scene-v3';
+export { validateSceneV4, validateMergedSceneV4, validateInstancesComponent, DIRECTIONAL_SHADOW_DEFAULTS, DIRECTIONAL_SHADOW_LIMITS, ENTITY_FLAGS, MAX_ENTITIES_V4, V4_REGISTRY } from './scene-v3';
 export { validateContentV4, MAX_SCENES, ENGINE_TIMING_DEFAULTS, MAX_AUDIO_ASSETS } from './content';
 // Phase 25.21: texture arrays and packed textures.
 export { arrayTextureIds, TEXTURE_ARRAY_KIND, MAX_TEXTURE_LAYERS, KTX2_ENCODINGS, type Ktx2Encoding } from './content';
@@ -1034,3 +1034,4 @@ export {
   canonicalTimelines,
 } from './timelines';
 export type { TimelineAsset, TimelineTrack, TimelineKey, TimelineSlot, TimelineMarker, TimelineTrackType, TimelineEasing, TimelineValue } from './timelines';
+export { SIGNAL_DEBUG_COMMAND_NAME, type SignalDebugCommandName } from './debug-command-names';

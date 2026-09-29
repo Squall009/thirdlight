@@ -18,7 +18,7 @@
  * (the runtime's bounded catch-up applies as in the page). With
  * `driver: 'manual'` (Node, tests) `tick(now)` resolves once the frame is in.
  */
-import { debugCallProblem, validateDebugCommandCall, validateSaveEvents, type SaveEvent } from '@thirdlight/runtime';
+import { debugCallRefusal, ENGINE_DEBUG_COMMANDS, validateDebugCommandCall, validateSaveEvents, type SaveEvent } from '@thirdlight/runtime';
 import { validateDialogueInput, validateUiEvent, type DialogueInputRecord } from '@thirdlight/runtime';
 import type {
   UiEventRecord,
@@ -75,7 +75,7 @@ export interface RemoteSimulation {
   dispose(): Promise<void>;
 }
 
-const NO_DEBUG_STATE: DebugCommandState = Object.freeze({ registered: Object.freeze([]), applied: Object.freeze([]), revision: 0 });
+const NO_DEBUG_STATE: DebugCommandState = Object.freeze({ registered: ENGINE_DEBUG_COMMANDS, applied: Object.freeze([]), revision: 0 });
 
 function rtError(code: string, message: string, extra: Partial<RuntimeError> = {}): RuntimeError {
   return { code, message, ...extra } as RuntimeError;
@@ -465,9 +465,7 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
       if (gone()) return { ok: false, error: rtError('runtime_disposed', 'runtime is disposed') };
       const checked = validateDebugCommandCall(call);
       if (!checked.ok) return { ok: false, error: rtError('game_command_invalid', `debug command: ${checked.message}`, { reason: 'debug_command' }) };
-      const spec = mirror.debugCommands?.registered.find((c) => c.name === checked.call.name);
-      if (spec === undefined) return { ok: false, error: rtError('game_command_invalid', `no script declared the debug command "${checked.call.name}"`, { reason: 'debug_command' }) };
-      const problem = debugCallProblem(spec, checked.call.args);
+      const problem = debugCallRefusal((mirror.debugCommands ?? NO_DEBUG_STATE).registered, checked.call);
       if (problem !== null) return { ok: false, error: rtError('game_command_invalid', problem, { reason: 'debug_command' }) };
       command({ op: 'debugCommand', call: checked.call });
       return { ok: true };

@@ -42,6 +42,8 @@ import { advancePath, Primitives, reversePath, type PathState } from './primitiv
  * game logic sends in one step, small enough to bound the per-step lists.
  */
 export const MAX_MESSAGES_PER_STEP = 256;
+/** The longest signal name (`ctx.signals.emit` ignores longer ones). */
+export const MAX_SIGNAL_NAME = 64;
 
 /**
  * Phase 15.3: the mover's tuning is its data; `BLOCK_DEFAULTS` are the values
@@ -311,6 +313,8 @@ export class GameplayBlocks {
   private readonly climbVolumes = new Map<string, { half: Vec3 }>();
   private readonly parents = new Map<string, string>();
   private readonly hidden = new Set<string>();
+  /** Loaded objects authored hidden (`visible: false`): every run starts with them hidden. */
+  private readonly startHidden = new Set<string>();
   /** Phase 25.10: the hidden set as it stood at the start of the step, kept once something changed it in the step (null: unchanged). */
   private hiddenStart: Set<string> | null = null;
   /** Phase 25.10: objects a script switched off (with their children): no mover, trigger, switch, primitive or facing steps. */
@@ -383,6 +387,10 @@ export class GameplayBlocks {
   add(entities: readonly EntityV3[]): void {
     for (const e of entities) {
       if (e.parentId !== undefined) this.parents.set(e.id, e.parentId);
+      if (e.visible === false) {
+        this.startHidden.add(e.id);
+        this.hidden.add(e.id);
+      }
       const c = e.components as unknown as Record<string, Record<string, unknown> | undefined>;
       const p = e.components.transform.position;
       const col = c['collider'];
@@ -510,6 +518,7 @@ export class GameplayBlocks {
       this.climbVolumes.delete(id);
       this.oneWay.delete(id);
       this.hidden.delete(id);
+      this.startHidden.delete(id);
       this.parents.delete(id);
       this.facers.delete(id);
       this.effectTriggers.delete(id);
@@ -526,6 +535,7 @@ export class GameplayBlocks {
     for (const t of this.triggers.values()) Object.assign(t, { inside: false, spent: false });
     for (const s of this.switches.values()) Object.assign(s, { inside: false, spent: false });
     this.hidden.clear();
+    for (const id of this.startHidden) this.hidden.add(id);
     this.hiddenStart = null;
     this.counters.clear();
     this.signalsNow.clear();
@@ -607,7 +617,7 @@ export class GameplayBlocks {
     return null;
   }
 
-  /** A script shows or hides an entity (a new run shows everything again). */
+  /** A script shows or hides an entity (a new run starts every object as authored). */
   setVisible(entityId: string, visible: boolean): void {
     if (visible === !this.hidden.has(entityId)) return;
     if (this.hiddenStart === null) this.hiddenStart = new Set(this.hidden);

@@ -146,7 +146,7 @@ test('the editor plays from a scene with variables; the in-game console and the 
   await expect.poll(async () => (await observe()).player?.x ?? 0, { timeout: 10_000 }).toBeCloseTo(65, 0);
   await expect.poll(async () => (await observe()).counters?.['bonus']).toBe(7);
   expect((await observe()).start).toMatchObject({ ok: true });
-  expect((await observe()).debugCommands?.registered).toEqual([{ name: 'grant', description: 'Add to the granted counter', args: [{ name: 'amount', type: 'number' }] }]);
+  expect((await observe()).debugCommands?.registered).toEqual([{ name: 'signal', description: 'Emit a signal, as a script\'s ctx.signals.emit does', args: [{ name: 'name', type: 'string' }] }, { name: 'grant', description: 'Add to the granted counter', args: [{ name: 'amount', type: 'number' }] }]);
   await page.screenshot({ path: 'test-results/debug-entry-play-from.png' });
 
   // The in-game console: the backquote key in the Play frame, a typed line.

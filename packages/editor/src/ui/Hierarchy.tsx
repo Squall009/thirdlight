@@ -231,6 +231,7 @@ const HierarchyRow = memo(function HierarchyRow({ entity: e, row: r, flags: f, s
         </span>
       )}
       {f?.static === true && <span className="tl-row__flag tl-row__flag--static" title="static">S</span>}
+      {!e.visible && <span className="tl-row__flag tl-row__flag--hidden" data-flag="hidden" title="starts hidden in the game">H</span>}
     </li>
   );
 });

@@ -189,7 +189,7 @@ boundary it changes (Playwright for any editor surface).
 | 25.21 | done 2026-09-29: painted terrain — texture arrays and packed textures (`pack texture…` / pack route / MCP `pack`: PNG/JPEG assets' channels per layer into one KTX2, `packedFrom`; `ktx2: "data"` UASTC linear), Sample texture / Normal map / Triplanar `layer` input (TSL `depth`, both backends), Height blend and Weighted mix nodes, Vertex colour set COLOR_1 and `first`; block-layer paint (4 layer weights + wetness per lattice vertex, stored per chunk; `paint` edits of the paint-brush module; chunk meshes carry COLOR_0/COLOR_1), stand-ins take a block type's `*` material, the height-blended layers template; Paint texture mode in the Blocks panel; `painted-terrain.e2e.ts` (Scene view, Play, export; auto/webgl2/webgpu), `terrain-paint.e2e.ts`, unit and integration tests |
 | 25.22 | done 2026-09-29: bindable widget `size` (per axis `{bind}`: the px number; a non-number sizes to content, a stretched axis keeps its stretch) and radial bar `startAngle` (validator, game host, UI editor size box takes a path, Start angle bind box, mock samples); job-export import (`POST …/content/job-exports/inspect` {path: folder or .zip in the game folder \| stageId: uploaded zip}; `manifest.json` {name, files [{path, role, digest}], triangles?, lods?}; digests checked, the one `model` GLB through the ordinary inspection, then `publishAsset`; MCP `tl_content_upload {jobExport}`); `ui-bindable-size.e2e.ts` (editor + Play: `ui.elements` rects and gauge pixels), `job-export-import.e2e.ts` (HTTP + MCP, generated exports), unit tests |
 | 25.23 | moved to phase 26 (26.13), owner 2026-09-29 |
-| 25.25 | — |
+| 25.25 | done 2026-09-29: dialogue lines render `{action:x}` as the glyph (one reveal character; a value cannot make one); `visible: false` stored on objects (scene data, `updateEntity`/`createEntity`, Inspector Visible checkbox, Hierarchy `H`; loaded, simulated and colliding but not drawn until `setVisible`, `entity().set` or an activation key; every restart hides it again; refused on folders); the engine's `signal {name}` debug command (`tl_game_control {signal}`, the console's `signal <name>`; recorded input); `m25-hidden-signals` (page/worker, replay digests), `hidden-signals.e2e.ts` (Inspector, Play and export pixels, MCP stdio, console, dialogue glyph) |
 
 ## 6. Decision log
 
@@ -1437,3 +1437,44 @@ boundary it changes (Playwright for any editor surface).
   reader in the backend (stored/deflate, CRC-checked; no zip64/encryption),
   not a new dependency. No editor button yet (HTTP and MCP only): the Assets
   tab's "from project folder…" still imports the GLB itself.
+- 2026-09-29 (25.25): **dialogue glyphs** are markup in texts read without
+  placeholders (`values: false`, a dialogue line or any bound content): only
+  `{action:name}` is recognized there, other braces stay text. A value put
+  into a line escapes its braces, so a variable cannot make a glyph. The
+  simulation counts a glyph as one visible character (as the host always
+  did), so a line with `{action:x}` now reveals in fewer steps than before;
+  lines without one are unchanged. The editor's dialogue preview has no
+  input device and shows `?` for a glyph.
+- 2026-09-29 (25.25): **authored hidden** is the entity flag `visible`
+  (stored only when false, beside `active`), not a component: it is the same
+  state `ctx.game.setVisible` and 25.10's `visible` write use (the runtime's
+  hidden set starts with the authored-hidden objects, and a restart starts
+  from them again), so no new runtime path. Not inherited by children (the
+  renderer already hides an object with its children) and refused on folders
+  (they are not in the game). The Scene view still draws hidden objects (an
+  editing view; the Inspector checkbox and a Hierarchy `H` show the flag).
+  Scenes without the flag load exactly as before: the step digests of every
+  existing integration test are unchanged. Prefab definitions have no entity
+  flags, so a spawned copy starts shown (a script hides it).
+- 2026-09-29 (25.25): **signals from tools** are the engine's own debug
+  command `signal {name}`, declared in every game before the scripts' ones
+  (not counted in their 32): a call rides on the next step's input frame
+  (recorded and replayed like any debug command) and emits the signal before
+  the step's signals turn over, so everything that reads signals sees it in
+  that step, as it would a script's emit from the step before. The console
+  and `tl_game_control` need no new path: the tool's `{signal}` is sent as
+  `debugCommand {name: 'signal', args: {name}}`. A script may declare
+  `signal` too (the same options, or none: it then receives the calls); other
+  options are a script error naming the engine. **`value` is refused**: the
+  engine's signals carry no value (`ctx.signals.emit(name)`, and every
+  consumer reads a name); a value for scripts goes through a debug command or
+  a script message (owner review: whether signals should carry values).
+  The name is defined once in project-model (`SIGNAL_DEBUG_COMMAND_NAME`);
+  protocol, which takes only types from project-model, pins its copy to that
+  type. `observe().debugCommands` is now present in every Play (it lists the
+  engine's command).
+- 2026-09-29 (25.25): the command package's entity request types
+  (`EntityHeader`, `createEntity`/`updateEntity` args) moved to
+  `commands/src/entity-types.ts` (types.ts was over 2,000 lines), and the
+  runtime's debug-command state to a `DebugCommands` class in
+  `debug-commands.ts` (runtime.ts shrank by 68 lines).

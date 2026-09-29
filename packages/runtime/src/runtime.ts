@@ -52,8 +52,6 @@ import {
   neutralFrame,
   validateActionFrame,
   InputFrameError,
-  validateDebugCommandCall,
-  DEBUG_COMMAND_NAME_RE,
   MAX_FRAME_COMMANDS,
   type ActionFrame,
   type ActionSource,
@@ -63,7 +61,7 @@ import {
 } from './actions';
 
 import { clipMessage, type ErrorCode, type RuntimeError } from './errors';
-import { DebugCallError, MAX_DEBUG_APPLIED, MAX_DEBUG_COMMANDS, MAX_DEBUG_QUEUE, NO_DEBUG_CALLS, debugCallProblem, debugSpecOf } from './debug-commands';
+import { DebugCommands } from './debug-commands';
 import { MAX_FRAME_UI_EVENTS, UiState, validateUiEvent, type UiEventRecord, type UiOutput, type UiStateView } from './ui';
 import { ModeState, type ModeView } from './modes';
 import { BehaviorHostError, BehaviorHostIntentLimit, BEHAVIOR_MODULE_PREFIX, compiledFramesOf, createTagQuery, graphNodeIdOf, type BehaviorDebugView, type BehaviorPropertyView, type CompiledFrame } from './behavior';
@@ -97,7 +95,7 @@ import { SocketSystem } from './sockets';
 import { TimelineSystem, type TimelineView } from './timeline';
 import type { TimelineAsset } from '@thirdlight/project-model';
 import { screenToRay as poseScreenToRay, worldToScreen as poseWorldToScreen, type CameraPose } from './camera-rig';
-import { GameplayBlocks, type SceneTransitionRequest } from './blocks';
+import { GameplayBlocks, MAX_SIGNAL_NAME, type SceneTransitionRequest } from './blocks';
 import { EntityAccess, type EntityFieldsSave, type LightOverride } from './entity-access';
 import { MAX_LIVE_SPAWNED, MAX_SPAWNS_PER_STEP, SPAWN_ID_PREFIX, expandPrefab, parseSpawnOptions } from './spawn';
 import { TransformMirror } from './step-buffers';
@@ -160,9 +158,7 @@ import {
   type SimulationRegistry,
   type StepContext,
   type TransformState,
-  type DebugCommandArgs,
   type DebugCommandOptions,
-  type DebugCommandSpec,
   type DebugCommandState,
   type BehaviorUi,
 } from './types';
@@ -1495,7 +1491,7 @@ class RuntimeInstance implements Runtime {
   private queryLimitWarned = false;
   private readonly signalControl = Object.freeze({
     emit: (name: string): void => {
-      if (typeof name === 'string' && name.length > 0 && name.length <= 64) this.blocks?.emit(name);
+      if (typeof name === 'string' && name.length > 0 && name.length <= MAX_SIGNAL_NAME) this.blocks?.emit(name);
     },
     on: (name: string): boolean => this.blocks?.signaled(String(name)) ?? false,
   });
@@ -1599,33 +1595,13 @@ class RuntimeInstance implements Runtime {
     },
     keys: (): string[] => [...this.saveStore.keys()].sort(),
   });
-  // ---- Phase 23.8: debug commands -------------------------------------------
-  /** The commands scripts declared (first declaration wins; kept across runs). */
-  private readonly debugRegistry = new Map<string, DebugCommandSpec>();
-  /** Calls queued by the host for the next sampled step. */
-  private debugQueue: DebugCommandCall[] = [];
-  /** Phase 23.19: storage answers queued by the host for the next sampled step. */
-  private saveQueue: SaveEvent[] = [];
-  /** This step's calls by command (from its input frame); null: none. */
-  private stepDebugCalls: Map<string, DebugCommandArgs[]> | null = null;
-  private debugApplied: { stepIndex: number; name: string; args: DebugCommandArgs }[] = [];
-  private debugRevision = 0;
-  private debugStateCache: DebugCommandState | null = null;
-  private readonly debugControl = Object.freeze({
-    command: (name: string, options: DebugCommandOptions | undefined, phase: SimulationPhase): readonly DebugCommandArgs[] => {
-      if (typeof name !== 'string' || !DEBUG_COMMAND_NAME_RE.test(name)) throw new DebugCallError('behavior_debug_invalid', 'a debug command name is a letter or _, then up to 31 letters, digits, _ . : -');
-      const known = this.debugRegistry.get(name);
-      if (known === undefined) {
-        if (this.debugRegistry.size >= MAX_DEBUG_COMMANDS) throw new DebugCallError('behavior_debug_limit', `at most ${MAX_DEBUG_COMMANDS} debug commands per game`);
-        this.debugRegistry.set(name, debugSpecOf(name, options));
-        this.debugTouched();
-      } else if (options !== undefined && JSON.stringify(debugSpecOf(name, options)) !== JSON.stringify(known)) {
-        throw new DebugCallError('behavior_debug_invalid', `debug command "${name}" is already declared with other options`);
-      }
-      if (phase !== 'intent') return NO_DEBUG_CALLS;
-      return this.stepDebugCalls?.get(name) ?? NO_DEBUG_CALLS;
-    },
+  /** Debug commands: declared ones, calls waiting for the next step, this step's calls. */
+  private readonly debugCommands = new DebugCommands({
+    emitSignal: (name) => this.blocks?.emit(name),
+    dropped: (problem, stepIndex) => this.recordError({ code: 'module_error', message: clipMessage(`debug command dropped: ${problem}`), stepIndex, reason: 'debug_command_invalid' }),
   });
+  /** Storage answers queued by the host for the next sampled step. */
+  private saveQueue: SaveEvent[] = [];
   private readonly audioControl: import('./types').BehaviorAudio;
   // ---- Phase 20.2: visual effect requests (presentation only) ----
   /** Requests since the adapter last took them (bounded: the oldest are dropped beyond 256). */
@@ -3313,7 +3289,7 @@ class RuntimeInstance implements Runtime {
     let action: ActionFrame;
     if (actionOverride !== undefined) {
       action = actionOverride;
-      this.stepDebugCalls = null;
+      this.debugCommands.clearStep();
       this.ui.deliver(undefined);
       this.dialogue.deliver(undefined);
     } else {
@@ -4086,10 +4062,10 @@ class RuntimeInstance implements Runtime {
       if (room > 0) raw = { ...(raw as ActionFrame), saves: [...have, ...this.saveQueue.splice(0, room)] };
     }
     // Phase 23.8: queued debug commands ride on this step's frame (so a recording keeps them).
-    if (this.debugQueue.length > 0 && typeof raw === 'object' && raw !== null) {
+    if (this.debugCommands.pending && typeof raw === 'object' && raw !== null) {
       const have = (raw as ActionFrame).commands ?? [];
       const room = Math.max(0, MAX_FRAME_COMMANDS - (Array.isArray(have) ? have.length : 0));
-      if (room > 0) raw = { ...(raw as ActionFrame), commands: [...have, ...this.debugQueue.splice(0, room)] };
+      if (room > 0) raw = { ...(raw as ActionFrame), commands: [...have, ...this.debugCommands.take(room)] };
     }
     // Phase 23.9a: queued UI events ride on this step's frame (so a recording keeps them).
     if (this.uiQueue.length > 0 && typeof raw === 'object' && raw !== null) {
@@ -4108,7 +4084,7 @@ class RuntimeInstance implements Runtime {
     if (!check.ok) throw new InputFrameError(check.field, check.message);
     this.lastInputFrame = check.frame;
     this.inputSamples += 1;
-    this.deliverDebugCommands(check.frame);
+    this.debugCommands.deliver(check.frame);
     // Phase 23.19: storage's answers (the slot list, outcomes, a loaded document).
     if (check.frame.saves !== undefined) this.saves.deliver(check.frame.saves);
     // Phase 23.14: the host's input status (device, bindings, rebind events).
@@ -4193,64 +4169,16 @@ class RuntimeInstance implements Runtime {
     return this.inputStatus.take();
   }
 
-  /**
-   * Phase 23.8: this step's debug command calls from its frame, by command
-   * (in frame order). A call no script declared, or whose arguments do not
-   * match the declaration, is dropped with a diagnostic entry.
-   */
-  private deliverDebugCommands(frame: ActionFrame): void {
-    const commands = frame.commands;
-    if (commands === undefined || commands.length === 0) {
-      this.stepDebugCalls = null;
-      return;
-    }
-    const byName = new Map<string, DebugCommandArgs[]>();
-    for (const c of commands) {
-      const spec = this.debugRegistry.get(c.name);
-      const problem = spec === undefined ? `no script declared the debug command "${c.name}"` : debugCallProblem(spec, c.args);
-      if (problem !== null) {
-        this.recordError({ code: 'module_error', message: clipMessage(`debug command dropped: ${problem}`), stepIndex: frame.stepIndex, reason: 'debug_command_invalid' });
-        continue;
-      }
-      let list = byName.get(c.name);
-      if (list === undefined) byName.set(c.name, (list = []));
-      list.push(c.args);
-      this.debugApplied.push({ stepIndex: frame.stepIndex, name: c.name, args: c.args });
-    }
-    if (this.debugApplied.length > MAX_DEBUG_APPLIED) this.debugApplied.splice(0, this.debugApplied.length - MAX_DEBUG_APPLIED);
-    this.debugTouched();
-    this.stepDebugCalls = byName.size > 0 ? byName : null;
-  }
-
-  private debugTouched(): void {
-    this.debugRevision += 1;
-    this.debugStateCache = null;
-  }
-
-  /** Phase 23.8: the registered debug commands and the calls run (newest last). */
+  /** The declared debug commands (the engine's `signal` first) and the calls run (newest last). */
   debugCommandState(): DebugCommandState {
-    if (this.debugStateCache === null) {
-      this.debugStateCache = Object.freeze({
-        registered: Object.freeze([...this.debugRegistry.values()]),
-        applied: Object.freeze(this.debugApplied.map((a) => Object.freeze({ ...a }))),
-        revision: this.debugRevision,
-      });
-    }
-    return this.debugStateCache;
+    return this.debugCommands.state();
   }
 
-  /** Phase 23.8: queue a debug command call for the next sampled step (see `Runtime.queueDebugCommand`). */
+  /** Queue a debug command call for the next sampled step (see `Runtime.queueDebugCommand`). */
   queueDebugCommand(call: DebugCommandCall): { ok: true } | { ok: false; error: RuntimeError } {
     if (this.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
-    const checked = validateDebugCommandCall(call);
-    if (!checked.ok) return { ok: false, error: fail('game_command_invalid', `debug command: ${checked.message}`, { reason: 'debug_command', path: `/${checked.field}` }) };
-    const spec = this.debugRegistry.get(checked.call.name);
-    if (spec === undefined) return { ok: false, error: fail('game_command_invalid', `no script declared the debug command "${checked.call.name}"`, { reason: 'debug_command' }) };
-    const problem = debugCallProblem(spec, checked.call.args);
-    if (problem !== null) return { ok: false, error: fail('game_command_invalid', problem, { reason: 'debug_command' }) };
-    if (this.debugQueue.length >= MAX_DEBUG_QUEUE) return { ok: false, error: fail('game_command_invalid', `at most ${MAX_DEBUG_QUEUE} debug command calls may wait for the next step`, { reason: 'pending' }) };
-    this.debugQueue.push(checked.call);
-    return { ok: true };
+    const r = this.debugCommands.enqueue(call);
+    return r.ok ? r : { ok: false, error: fail('game_command_invalid', r.message, { reason: r.reason, ...(r.path !== undefined ? { path: r.path } : {}) }) };
   }
 
   /** Narrow the injected physics port to the reset/clearance surface (placing the 2D character). */
@@ -4936,8 +4864,8 @@ class RuntimeInstance implements Runtime {
       // Phase 23.14: bindings, the device in use and rebinding (ctx.input).
       fields['inputStatus'] = { value: this.inputStatus.view, enumerable: true };
       // Phase 23.8: debug commands (this phase's calls; the behavior host adds the handler).
-      const debugControl = this.debugControl;
-      fields['debug'] = { value: Object.freeze({ command: (name: string, options?: DebugCommandOptions) => debugControl.command(name, options, phase) }), enumerable: true };
+      const debugCommands = this.debugCommands;
+      fields['debug'] = { value: Object.freeze({ command: (name: string, options?: DebugCommandOptions) => debugCommands.declare(name, options, phase === 'intent') }), enumerable: true };
       // Phase 23.5: the block layers.
       fields['grid'] = { value: this.grid.api, enumerable: true };
       // Phase 23.12: graph-material parameters per object.

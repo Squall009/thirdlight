@@ -34,8 +34,10 @@ describe('phase 25.10: script access marks', () => {
     for (const [c, key] of [['collider', 'shape'], ['model', 'asset'], ['materials', '*'], ['light', 'type'], ['light', 'castShadow'], ['object', 'static']] as const) {
       expect(scriptComponentAccess(c)?.write ?? []).not.toContain(key);
     }
-    // Every descriptor mark is on a stored field or a runtime-only one the table knows.
-    expect(DESCRIPTORS.entity.fields.find((f) => f.key === 'visible')?.runtimeOnly).toBe(true);
+    // `visible` is stored (how the object starts) and scripts write it while the game runs.
+    const visible = DESCRIPTORS.entity.fields.find((f) => f.key === 'visible');
+    expect(visible?.runtimeOnly).toBeUndefined();
+    expect(visible?.runtimeWritable).toBe(true);
   });
 
   it('checks a patch against the descriptors: unknown, fixed, not applicable, out of range', () => {

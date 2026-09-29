@@ -29,6 +29,7 @@ import {
   type DebugCommandOptions,
   type Runtime,
 } from './index';
+import { SIGNAL_DEBUG_COMMAND } from './debug-commands';
 
 const HZ = 120;
 const DT = 1 / HZ;
@@ -43,6 +44,7 @@ interface Ctx {
   entityId: string;
   save?: { get(k: string): unknown; set(k: string, v: unknown): boolean; keys(): string[] };
   debug?: { command(name: string, options?: DebugCommandOptions, handler?: (args: DebugCommandArgs) => void): readonly DebugCommandArgs[] };
+  signals?: { on(name: string): boolean; emit(name: string): void };
 }
 
 function artifact(behaviorId: string, step: (ctx: Ctx) => void): never {
@@ -242,7 +244,7 @@ describe('phase 23.8: debug commands on input frames', () => {
     };
     const { rt, tick, diag } = harness({ giver }, [carrier('box-0001', 'giver'), carrier('box-0002', 'giver')]);
     const state = rt.debugCommandState!();
-    expect(state.registered).toEqual([{ name: 'giveItem', description: 'Give the party an item', args: [{ name: 'item', type: 'string' }, { name: 'count', type: 'number', optional: true }] }]);
+    expect(state.registered).toEqual([SIGNAL_DEBUG_COMMAND, { name: 'giveItem', description: 'Give the party an item', args: [{ name: 'item', type: 'string' }, { name: 'count', type: 'number', optional: true }] }]);
     tick(3);
     const before = diag().stepIndex;
     expect(rt.queueDebugCommand!({ name: 'giveItem', args: { item: 'lantern', count: 2 } }).ok).toBe(true);
@@ -329,5 +331,36 @@ describe('phase 23.8: debug commands on input frames', () => {
     tick(40);
     expect(diag().state).not.toBe('failed');
     expect(diag().errors.some((e) => e.reason === 'debug_command_invalid' && e.message.includes('ghost'))).toBe(true);
+  });
+
+  it('the engine declares `signal`: a queued call emits the signal in the step it rides on, where scripts see it once', () => {
+    const seen: number[] = [];
+    const calls: string[] = [];
+    const watcher = (ctx: Ctx): void => {
+      if (ctx.phase !== 'intent') return;
+      if (ctx.signals!.on('gate')) seen.push(ctx.stepIndex);
+      // A script may listen to the engine's command too (declared the same way, or without options).
+      for (const a of ctx.debug!.command('signal')) calls.push(String(a.name));
+    };
+    const { rt, tick, diag } = harness({ watcher }, [carrier('box-0001', 'watcher')]);
+    expect(rt.debugCommandState!().registered).toEqual([SIGNAL_DEBUG_COMMAND]);
+    tick(3);
+    const step = diag().stepIndex;
+    expect(rt.queueDebugCommand!({ name: 'signal', args: { name: 'gate' } }).ok).toBe(true);
+    tick(4);
+    expect(seen).toEqual([step]);
+    expect(calls).toEqual(['gate']);
+    expect(rt.debugCommandState!().applied).toEqual([{ stepIndex: step, name: 'signal', args: { name: 'gate' } }]);
+    // Refusals: no name, an empty or too long name, an unknown argument.
+    for (const args of [{}, { name: '' }, { name: 'x'.repeat(65) }, { name: 'gate', value: 1 }]) {
+      const r = rt.queueDebugCommand!({ name: 'signal', args: args as DebugCommandArgs });
+      expect(r.ok, JSON.stringify(args)).toBe(false);
+    }
+  });
+
+  it('a script declaring `signal` with other arguments is a script error naming the engine', () => {
+    const clash = harness({ c: (ctx: Ctx) => void ctx.debug!.command('signal', { args: [{ name: 'to', type: 'number' }] }) }, [carrier('box-0001', 'c')]);
+    clash.tick(2);
+    expect(clash.diag().errors.some((e) => e.reason === 'behavior_debug_invalid' && e.message.includes('already declared (by the engine)'))).toBe(true);
   });
 });

@@ -24,12 +24,14 @@ export type RichToken =
 
 const COLOR_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
 const NAME_RE = /^[A-Za-z_][A-Za-z0-9_-]{0,31}$/;
+/** `{action:name}`: the glyph of an input action. */
+const GLYPH_RE = /^action:[A-Za-z_][A-Za-z0-9_]{0,31}$/;
 
 /**
  * Parse a UI text into tokens (placeholders and icons kept as tokens).
- * Phase 23.16: `values: false` reads `{…}` as plain text (a text that is
- * itself a view-model value, e.g. a dialogue line: its braces are not
- * placeholders).
+ * `values: false` reads `{…}` as plain text (a text that is itself a
+ * view-model value, e.g. a dialogue line: its braces are not placeholders),
+ * except `{action:name}`, which is a glyph there too.
  */
 export function parseRichText(src: string, options?: { readonly values?: boolean }): RichToken[] {
   const values = options?.values !== false;
@@ -57,14 +59,14 @@ export function parseRichText(src: string, options?: { readonly values?: boolean
       i += 2;
       continue;
     }
-    if (ch === '{' && values) {
+    if (ch === '{') {
       const end = src.indexOf('}', i + 1);
-      if (end > i + 1) {
+      const inner = end > i + 1 ? src.slice(i + 1, end) : '';
+      // An input action's glyph is markup in every text (a dialogue line's too); other braces are placeholders only with values.
+      const glyph = GLYPH_RE.test(inner);
+      if (glyph || (values && inner !== '')) {
         flush();
-        const inner = src.slice(i + 1, end);
-        // Phase 23.14: an input action's glyph.
-        if (/^action:[A-Za-z_][A-Za-z0-9_]{0,31}$/.test(inner)) out.push({ t: 'glyph', action: inner.slice(7), style });
-        else out.push({ t: 'value', path: inner, style });
+        out.push(glyph ? { t: 'glyph', action: inner.slice(7), style } : { t: 'value', path: inner, style });
         i = end + 1;
         continue;
       }

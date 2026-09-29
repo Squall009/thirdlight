@@ -344,6 +344,13 @@ listening to the project's sounds.
   - Locked: editor only. The object cannot be picked or moved in the Scene
     view, but can still be selected in the hierarchy.
   - Static: stored and inherited; nothing uses it yet.
+  - **Visible** off (`updateEntity {visible: false}`, also on
+    `createEntity`): the object starts the game hidden. It is loaded,
+    collides, triggers and ticks, but is not drawn (with its children) until
+    a script (`ctx.game.setVisible`, `ctx.entity(id).set('object', {visible:
+    true})`) or a timeline activation key shows it; every restart hides it
+    again. The Scene view still draws it; the Hierarchy marks it `H`. Not on
+    folders (they are not in the game).
 - `updateEntity` with `parentId` keeps the world position too (it used to
   keep the local values).
 - **Bulk building** (phase 25.7e): `createEntity` also takes `active`,
@@ -2385,6 +2392,13 @@ Run one from:
 - MCP: `tl_game_control` with `command: "debugCommand"`, `name` and `args`
   (refused with `game_command_invalid` when no script declared it or the
   arguments do not match);
+- **Signals from tools:** the engine declares `signal {name}` in every game.
+  `tl_game_control {signal: "door"}` (or the console's `signal door`, or
+  `debugCommand` with `name: "signal"`) emits the signal in the next step as a
+  script's `ctx.signals.emit` would: switches, movers, timelines
+  (`playOnSignal`), effects, event sounds and scripts react, so they are
+  testable without a script. Signals carry no value (a `value` is refused).
+  It is input like any debug command, so a recording replays it;
 - the **in-game console**: press **`** (backquote) in Play — it lists the
   commands (`help`), takes `giveItem lantern 2` (the declared order) or
   `giveItem count=2 item="iron key"`, and prints each call the game ran with
@@ -3387,7 +3401,8 @@ the browser granted it.
 - **Project UI** (UI documents): a button's engine action `rebind` (with
   `input`: the action, optional `device`, `index`, `part`, `policy`),
   `cancelRebind` or `resetBindings`; `{action:jump}` in a text shows the
-  action's glyph for the device in use; `$flow.input.actions` lists every
+  action's glyph for the device in use, in a dialogue line too (one
+  character of its typewriter reveal); `$flow.input.actions` lists every
   action's key and pad labels for a settings document.
 - Limits: 64 actions per project; 8 binding requests per step from scripts.
 

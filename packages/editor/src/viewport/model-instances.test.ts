@@ -46,6 +46,7 @@ function entity(id: string, assetId: string): ProjectedEntity {
     name: id,
     parentId: null,
     active: true,
+    visible: true,
     locked: false,
     static: false,
     tags: 0,

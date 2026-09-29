@@ -205,6 +205,12 @@ export interface EntityComponentsV3 extends EntityComponentsV2 {
  */
 export interface EntityFlagsV3 {
   active?: false;
+  /**
+   * The object starts hidden: loaded, simulated and colliding, but not drawn
+   * (with its children) until a script or a timeline shows it. Not on folders
+   * (they are not in the game).
+   */
+  visible?: false;
   locked?: true;
   static?: true;
   /**

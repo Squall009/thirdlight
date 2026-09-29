@@ -291,7 +291,7 @@ export {
   type EnvironmentOverride,
 } from './environment-blend';
 export { lookAtQuat, orbitOffset, pointOnPath, quatFromYawPitch, samplePath, screenToRay, worldToScreen, yawPitchOf, type CameraPose, type SampledPath, type ScreenPoint } from './camera-rig';
-export { debugCallProblem } from './debug-commands';
+export { debugCallProblem, debugCallRefusal, ENGINE_DEBUG_COMMANDS, SIGNAL_DEBUG_COMMAND } from './debug-commands';
 // Phase 23.19: project save documents (ctx.saves).
 export { MAX_FRAME_SAVE_EVENTS, PROJECT_SAVE_FORMAT, PROJECT_SAVE_FORMAT_VERSION, SAVE_REQUESTS_PER_STEP, projectSaveFileProblem, worldSaveProblem, utf8Length, validateSaveEvents, type BehaviorSaves, type ProjectSaveFile, type WorldSave, type SaveEvent, type SaveMeta, type SaveRequest, type SaveResult, type SaveSlotInfo } from './project-saves';
 // (the save schema's limits and settings rules, for hosts that do not depend on project-model)

@@ -26,6 +26,7 @@ import {
 } from './dialogue';
 import type { ModelErrorV2 } from './errors';
 import { validateUiDocument } from './ui-documents';
+import { parseRichText } from './rich-text';
 
 const env = (vars: Record<string, DialogueValue>, binds: Record<string, DialogueValue> = {}, seen: string[] = []): DialogueEnv => ({ variable: (n) => vars[n] ?? null, binding: (n) => binds[n] ?? null, seen: (k) => seen.includes(k) });
 const cond = (src: string, e: DialogueEnv): DialogueValue => {
@@ -82,6 +83,15 @@ describe('dialogue line text', () => {
     expect(t.display).toBe('Say [[b] [[pause=1] {{y}');
     expect(t.pauses).toEqual([]);
     expect(t.visible).toBe('Say [b] [pause=1] {y}'.length);
+  });
+  it('keeps {action:x} as a glyph (one visible character) and a value cannot make one', () => {
+    const t = dialogueLineText('Press {action:jump} to {x}.[pause=1] {{action:jump}', () => '{action:fire}');
+    expect(t.display).toBe('Press {action:jump} to {{action:fire}. {{action:jump}');
+    expect(t.pauses).toEqual([{ at: 'Press # to {action:fire}.'.length, seconds: 1 }]);
+    expect(t.visible).toBe('Press # to {action:fire}. {action:jump}'.length);
+    const tokens = parseRichText(t.display, { values: false });
+    expect(tokens.filter((k) => k.t === 'glyph').map((k) => (k as { action: string }).action)).toEqual(['jump']);
+    expect(tokens.some((k) => k.t === 'value')).toBe(false);
   });
 });
 

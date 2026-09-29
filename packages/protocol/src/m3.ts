@@ -87,7 +87,7 @@ export type V3MutationOp =
   | 'createEntities'
   // phase 25.9: staged library edits (several patches, one commit)
   | 'commitScriptLibraryStage';
-import type { AuthoringEnvelopeV3, ContentCatalogV3, SceneV3 } from '@thirdlight/project-model';
+import type { AuthoringEnvelopeV3, ContentCatalogV3, SceneV3, SignalDebugCommandName } from '@thirdlight/project-model';
 import { containsBinaryValue } from './content';
 import { sessionError, type SessionError } from './errors';
 import { isPlaySessionId, isProjectId, isRelayId } from './ids';
@@ -512,6 +512,8 @@ export function debugCommandCallProblem(name: unknown, args: unknown): { path: s
   }
   return null;
 }
+/** The engine's debug command that emits a signal (`debugCommand` with `{ name }`); typed against project-model's. */
+export const SIGNAL_DEBUG_COMMAND_NAME: SignalDebugCommandName = 'signal';
 export type GameControlCommand = (typeof GAME_CONTROL_COMMANDS)[number];
 
 /** §20.1 bounds: request bodies ≤ 4 KiB; control result ≤ 4 KiB; observation ≤ 16 KiB. */

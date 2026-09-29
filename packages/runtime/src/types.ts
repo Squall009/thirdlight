@@ -934,6 +934,7 @@ export type DebugCommandArgs = Readonly<Record<string, DebugCommandArg>>;
  * call is an input-frame entry at its step).
  */
 export interface DebugCommandState {
+  /** The engine's own (`signal`) first, then those scripts declared. */
   readonly registered: readonly DebugCommandSpec[];
   readonly applied: readonly { readonly stepIndex: number; readonly name: string; readonly args: DebugCommandArgs }[];
   /** Bumped whenever `registered` or `applied` changes. */
@@ -2341,7 +2342,7 @@ export interface Runtime {
   /**
    * Queue one debug command call for the next executed step (it rides on that
    * step's input frame, so a recording of the run replays it). Refused when
-   * no script registered the command, the arguments do not match its
+   * the command is not declared (by the engine or a script), the arguments do not match its
    * declaration, or 16 calls are already waiting.
    */
   queueDebugCommand?(call: DebugCommandCall): { ok: true } | { ok: false; error: RuntimeError };

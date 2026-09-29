@@ -86,7 +86,7 @@ import type { AnimatorController, DescriptorRegistry, EffectComponent, EffectDef
 import { PreviewStage } from '../viewport/preview-stage';
 import { Bridge } from '../preview/bridge';
 import { Hierarchy, type SceneAction, type SceneHeaderView } from './Hierarchy';
-import { Inspector } from './Inspector';
+import { Inspector, type EntityFlag } from './Inspector';
 import { Toolbar } from './Toolbar';
 import { StatusBar } from './StatusBar';
 import { AssetBrowser, thumbnailKey, type AssetPreviewView } from './AssetBrowser';
@@ -1862,7 +1862,7 @@ function EditorApp(): JSX.Element {
     reportFailure('Set tags', await c.command('updateEntity', { entityId, tags: names }, c.projection.revision));
   }, [reportFailure]);
   /** Phase 12: set one hierarchy flag (active / locked / static) on an entity. */
-  const setFlag = useCallback(async (entityId: string, flag: 'active' | 'locked' | 'static', value: boolean) => {
+  const setFlag = useCallback(async (entityId: string, flag: EntityFlag, value: boolean) => {
     const c = clientRef.current;
     if (!c) return;
     reportFailure(`Set ${flag}`, await c.command('updateEntity', { entityId, [flag]: value }, c.projection.revision));

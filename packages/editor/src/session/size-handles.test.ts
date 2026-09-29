@@ -14,6 +14,7 @@ const entity = (over: Partial<ProjectedEntity>): ProjectedEntity => ({
   parentId: null,
   kind: 'entity',
   active: true,
+  visible: true,
   locked: false,
   static: false,
   tags: 0,
