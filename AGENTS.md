@@ -40,8 +40,9 @@ are in `docs/STATUS.md`; known defects are in `docs/audit-2026-09-22.md`.
   moves the area it touches into its own module.
 - Keep `npm run lint` (ESLint, from phase 26.1) green. An `eslint-disable`
   needs its reason on the same line.
-- After each phase, before the next one starts: an independent review by
-  a fresh agent that did not build the phase. It checks the phase against
+- After each whole phase (e.g. phase 26, not its items 26.1, 26.2, …),
+  before the next one starts: one independent review by a fresh agent that
+  did not build the phase. Items get no review of their own. It checks the phase against
   the charter and these rules: new limits (per-project caps, sample-sized
   per-object caps), copied constants or code paths, files grown past 2,000
   lines, history comments, tests that only confirm their own code, and what
