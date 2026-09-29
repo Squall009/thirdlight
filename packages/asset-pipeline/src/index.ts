@@ -29,6 +29,8 @@ export {
   type ImageRecipe,
   type TextureFormat,
 } from './inspect-image';
+// Phase 25.19: a Basis Universal KTX2's facts (size, mip levels, codec).
+export { ktx2Info } from './images';
 export {
   inspectMusic,
   MUSIC_DURATION_MS_MAX,

@@ -66,6 +66,10 @@ export const PINS = {
   '@lezer/highlight': '1.2.4',
   '@lezer/lr': '1.4.10',
   '@lezer/javascript': '1.5.5',
+  // Phase 25.19: KTX2 encoding on import (decision 0006): the Basis Universal
+  // encoder (its bundled WASM build) and a JPEG decoder for JPEG sources.
+  'ktx2-encoder': '0.6.0',
+  'jpeg-js': '0.4.4',
 };
 
 /** §7 scope/consumer notes for the pending-pin report. */
@@ -96,6 +100,8 @@ const PIN_CONSUMERS = {
   '@lezer/lr': 'editor (phase 16.3 script editor; never in the runtime/export bundle)',
   '@lezer/javascript': 'editor (phase 16.3 script editor; never in the runtime/export bundle)',
   'playwright-core': 'backend (phase 11: the headless editor for MCP play; same version as @playwright/test)',
+  'ktx2-encoder': 'backend (phase 25.19: KTX2 encoding on import, in a worker thread; never in a browser bundle; decision 0006)',
+  'jpeg-js': 'backend (phase 25.19: decodes JPEG sources for KTX2 encoding; decision 0006)',
   '@dimforge/rapier2d-compat':
     'physics-rapier (packet 31) — the exact 0.20.0 pin (decision 0002 §1; dependencies.md §7); bundled by the preview/export graphs in packets 35/36',
   '@dimforge/rapier3d-compat':

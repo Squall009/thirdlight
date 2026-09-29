@@ -105,13 +105,16 @@ import {
   type SimAccess,
   type StartTimings,
 } from '@thirdlight/game-host';
-import { batchingFromUrl, createSceneAdapter, decodeTexture, effectsOptionFrom, environmentHasLook, pageSearch, resolveRendererPreference } from '@thirdlight/three-adapter';
+import { batchingFromUrl, createSceneAdapter, decodeTexture, effectsOptionFrom, environmentHasLook, pageSearch, resolveRendererPreference, setKtx2DecoderBase } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import type { EffectDefLike, EnvironmentLike, FrameDrawnInfo, LightingBakeLike, MaterialDefLike, MaterialFunctionLike, SceneAdapter, SceneAdapterModels, SceneAdapterOptions, WindLike } from '@thirdlight/three-adapter';
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import { Bridge } from './bridge';
 import { answerScreenshot } from './screenshot-answer';
 import { resolveRelayFrames, type IncomingRelayFrame } from './relay-frames';
+
+// Phase 25.19: KTX2 texture assets (and GLBs with KHR_texture_basisu) transcode with three's Basis files served at /decoders/basis/.
+setKtx2DecoderBase('/decoders/');
 
 /**
  * Phase 22.0: the simulation worker's script on the preview origin (a static

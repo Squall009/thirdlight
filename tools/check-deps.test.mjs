@@ -153,6 +153,9 @@ describe('check 6 — dependency pinning (dependencies.md §5.6)', () => {
       '@lezer/highlight': '1.2.4',
       '@lezer/lr': '1.4.10',
       '@lezer/javascript': '1.5.5',
+      // Phase 25.19: KTX2 encoding on import (decision 0006).
+      'ktx2-encoder': '0.6.0',
+      'jpeg-js': '0.4.4',
     });
   });
 });

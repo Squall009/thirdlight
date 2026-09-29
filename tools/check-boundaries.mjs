@@ -210,10 +210,13 @@ export const NODE_SIDE_ALLOWED = {
     // after each change, the same check as the editor's Problems tab.
     packages: ['protocol', 'workspace', 'exporter', 'project-model', 'asset-pipeline', 'behavior-build', 'three-adapter'],
     // playwright-core: the headless editor for MCP play (phase 11, headless.ts).
-    external: ['ws', 'playwright-core'],
+    // Phase 25.19: ktx2-encoder + jpeg-js — KTX2 encoding on import (decision 0006).
+    external: ['ws', 'playwright-core', 'ktx2-encoder', 'jpeg-js'],
     // child_process: FBX import runs headless Blender (fbx.ts; owner go-ahead
     // 2026-09-23). Nothing else in the backend starts processes.
-    node: ['http', 'fs', 'path', 'crypto', 'child_process'],
+    // Phase 25.19: worker_threads (the KTX2 encoder off the event loop) and
+    // zlib (the PNG decoder's inflate).
+    node: ['http', 'fs', 'path', 'crypto', 'child_process', 'worker_threads', 'zlib'],
     typesOnly: { 'project-model': true },
   },
   // §4.1 explicitly reiterates "imports workspace types only"; the

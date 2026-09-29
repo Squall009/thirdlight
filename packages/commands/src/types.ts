@@ -1951,8 +1951,10 @@ export interface AssetSummary {
   versionCount: number;
   /** The current version's file in the game folder, when it is referenced in place. */
   sourcePath?: string;
-  /** The current version's original when it was converted at import (FBX). */
-  convertedFrom?: { format: 'fbx'; sourcePath?: string };
+  /** The current version's original when it was converted at import (FBX; phase 25.19: a PNG/JPEG encoded to KTX2). */
+  convertedFrom?: { format: 'fbx' | 'png' | 'jpeg'; sourcePath?: string; encoding?: 'color' | 'normal' };
+  /** Phase 25.19, texture only: the current version's image facts (a KTX2's codec and mip levels). */
+  image?: { format: string; width: number; height: number; codec?: 'etc1s' | 'uastc'; levels?: number };
   /** Model only: `tint` = COLOR_0 multiplies the albedo (absent = shader data). */
   vertexColors?: 'tint';
   /** Model only (phase 9.4): the default material mapping of every placement. */

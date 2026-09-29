@@ -879,7 +879,12 @@ export function validateUiReferences(content: Record<string, unknown>, errors: M
   const modeIds = new Set((Array.isArray(content['modes']) ? (content['modes'] as unknown[]) : []).filter(isPlainObject).map((m) => m['modeId']));
   const themeById = new Map(themes.filter(isPlainObject).map((t) => [t['uiThemeId'], t] as const));
   const assetRefs = (r: UiDocumentRefs, at: string): void => {
-    for (const img of r.images) if (kindOf(img.id) !== 'texture') err(errors, 'asset_reference_missing', `${at}${img.path}`, 'this image must name a texture asset of this project', img.id, 'a texture assetId');
+    for (const img of r.images) {
+      const k = kindOf(img.id);
+      // Phase 25.19: a KTX2 texture is a GPU texture; the page draws UI images itself.
+      if (typeof k === 'string' && k.startsWith('texture (KTX2')) err(errors, 'field_value', `${at}${img.path}`, 'a UI image is drawn by the page: it cannot be a KTX2 texture (import a PNG, JPEG or WebP)', img.id, 'a PNG, JPEG or WebP texture');
+      else if (k !== 'texture') err(errors, 'asset_reference_missing', `${at}${img.path}`, 'this image must name a texture asset of this project', img.id, 'a texture assetId');
+    }
     for (const f of r.fonts) if (kindOf(f.id) !== 'font') err(errors, 'asset_reference_missing', `${at}${f.path}`, 'this font must name a font asset of this project (or sans, serif, mono, rounded)', f.id, 'a font assetId');
   };
   themes.forEach((t, i) => {

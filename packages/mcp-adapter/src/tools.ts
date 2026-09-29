@@ -378,6 +378,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'is copied): the result carries sourcePath, which the publishAsset args must include so the version references ' +
       'the file. Give exactly one of dataBase64 or projectPath. An FBX (either way) is converted to GLB by Blender on ' +
       'the server first: the result then carries convertedFrom (not sourcePath), which the publishAsset args must include. ' +
+      'kind "texture" takes a PNG, JPEG, WebP or a Basis Universal KTX2 (ETC1S/UASTC with its mips); ktx2 "color"|"normal" encodes a PNG/JPEG to KTX2 first. ' +
       'kind "font" inspects a TrueType (.ttf), OpenType (.otf), WOFF2 or WOFF font (<= 4 MiB; at most 16 fonts per project) for the project UI; publish it with kind "font".',
     inputSchema: {
       type: 'object',
@@ -385,10 +386,17 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
         dataBase64: { type: 'string', description: 'base64 of the source bytes (≤ 32 MiB decoded)' },
         projectPath: {
           type: 'string',
-          description: 'a .glb/.fbx/.wav file relative to the game folder (the folder holding thirdlight.json), forward slashes, e.g. assets/props/crate.glb',
+          description: 'a .glb/.fbx/.wav/.png/.jpg/.webp/.ktx2/… file relative to the game folder (the folder holding thirdlight.json), forward slashes, e.g. assets/props/crate.glb',
         },
         displayName: { type: 'string' },
         kind: { type: 'string', enum: ['model', 'audio', 'texture', 'music', 'font'] },
+        ktx2: {
+          type: 'string',
+          enum: ['color', 'normal'],
+          description:
+            'kind "texture" only: encode a PNG/JPEG to KTX2 (Basis Universal, with mipmaps) on the server — "color" (ETC1S, sRGB: albedo, emissive) or ' +
+            '"normal" (UASTC, linear: normal maps). The result carries convertedFrom (the original), which the publishAsset args must include.',
+        },
         animation: {
           type: 'object',
           description: 'request the role-aware animated GLB profile (presentation.md §41.3.3)',
@@ -1117,6 +1125,10 @@ async function contentUpload(ctx: McpContext, a: Record<string, unknown>): Promi
     if (!isObj(roles)) return toolError('animation.roles must be an object');
     inspectBody.animation = a.animation;
   }
+  if (a.ktx2 !== undefined) {
+    if (a.ktx2 !== 'color' && a.ktx2 !== 'normal') return toolError('ktx2 must be "color" or "normal"');
+    inspectBody.ktx2 = a.ktx2;
+  }
   const inspected = await ctx.client.inspectStage(ctx.projectId, stageId, inspectBody);
   return isObj(inspected.body) && inspected.body.ok === true ? toolOk(inspected.body) : surfaceBackendError(inspected);
 }
@@ -1138,6 +1150,10 @@ async function projectFileInspect(ctx: McpContext, a: Record<string, unknown>): 
   if (a.animation !== undefined) {
     if (!isObj(a.animation) || !isObj(a.animation.roles)) return toolError('animation.roles must be an object');
     body.animation = a.animation;
+  }
+  if (a.ktx2 !== undefined) {
+    if (a.ktx2 !== 'color' && a.ktx2 !== 'normal') return toolError('ktx2 must be "color" or "normal"');
+    body.ktx2 = a.ktx2;
   }
   const res = await ctx.client.inspectProjectFile(ctx.projectId, body);
   return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);

@@ -184,7 +184,8 @@ boundary it changes (Playwright for any editor surface).
 | 25.16 | done 2026-09-29: `tl_game_observe` `run {stepIndex, runStep, digest, lastInput?}` — the run digest (steps from the run's start, a run's spawned copies by their number in it, loaded scenes instead of the set's revision) now and right after the last exercise's last step (a step observer in the simulation's realm); `tl_input_exercise {restart: true}` restarts the game and applies the frames from the new run's first step; `relay-input.e2e.ts`: the same frames after a restart give the same digest at the same run step, other frames another, and the worker and a single thread agree; unit tests |
 | 25.17 | done 2026-09-29: the headless play-test runner (`tools/playtest.mjs` and `tl_playtest`, one runner in `mcp-adapter/src/playtest.ts`): a game folder, a start (scene, mode, variables), an input script (relay frames up to an hour, sent as exercises that hold the game in between) or a driver module of the game folder (CLI), an observation spec (fields, steps); JSON per run (run digests, fields, script errors) and whether runs agree; `tl_input_exercise {hold}`, `tl_play_start {threads}`; start variables set again at every restart (replay, New game); D51 fixed (digests hashed interpolated transforms); `playtest.e2e.ts` (CLI headless against a real backend, both threading modes; MCP stdio), unit tests |
 | 25.18 | done 2026-09-29: `GET /api/v1/engine` and `tl_inspect target="engine"` (version, commit and lockfile as the process started, the dist/ build stamp `dist/build-info.json` at start and now, `startedAt`, `dist.newerThanProcess` with its reason, the checkout's commit when it moved on); the backend runs `materialGraphProblems` when it loads a project and after every change (cached per compile input), a material whose problems appear is logged once (`material_graph_problems`), current ones in `tl_diagnostics` `materialProblems` and `tl_content_query target="materials"` (`GET …/content/materials`); backend and MCP tests |
-| 25.19–25.22 | — |
+| 25.19 | done 2026-09-29: material instances (`instanceOf` + `params`/`textures` or graph `values`; chains ≤ 8, checked against the parent with the whole list; any mapping, override, effect or timeline names one; a used instance ships resolved, its parents only when named); KTX2 texture assets (Basis Universal ETC1S/UASTC with mip levels; metrics `codec`, `levels`; one shared KTX2Loader per page; the export ships the transcoder); KTX2 encoding on import (`ktx2: "color"` ETC1S sRGB, `"normal"` UASTC + Zstandard, linear, normal-map mips; PNG/JPEG sources, `convertedFrom` records the original; editor Assets option, MCP `tl_content_upload {ktx2}`); `material-instances.e2e.ts`, `ktx2-textures.e2e.ts` (pixels in the Scene view, Play and the export, auto/webgl2/webgpu), commands and encoder unit tests |
+| 25.20–25.22 | — |
 | 25.23 | moved to phase 26 (26.13), owner 2026-09-29 |
 | 25.25 | — |
 
@@ -1231,6 +1232,60 @@ boundary it changes (Playwright for any editor surface).
   old one until restarted). Without a stamp the newest bundle's modification
   time stands in. The backend still has no child_process for git (the
   commit is read from `.git`).
+- 2026-09-29 (25.19): **material instances are materials.** An instance is a
+  record in `content.materials` with `instanceOf` (a material or another
+  instance; chains up to 8, no loops) that changes only what it sets:
+  `params`/`textures` over a shader material's, `values` over a graph
+  material's parameter defaults (any parameter, private ones too: an instance
+  is authored like its parent, not per object). Its `shader` is its root's
+  and it has no graph or parameters of its own. Because it is a materialId,
+  every mapping (object, model asset default, block type), override
+  (`materialParams` against the root's parameters), effect and timeline names
+  it with no new reference kind — "asset- or block-type-level mapping to a
+  material plus parameter values" is an asset/block-type mapping naming an
+  instance, and one instance serves many assets. The runtime never sees an
+  instance: the manifest ships each used instance resolved against its chain
+  (`resolveMaterialInstances`; 25.7b's used set counts the instance as the
+  use, its parents ship only when something names them), and the editor's
+  material library resolves the same way (the adapter's copy,
+  `resolveMaterialInstancesLike`, parity-tested; the editor may import
+  project-model types only). A parent change that breaks an instance (a
+  removed parameter it sets, another shader) is refused by the resulting-state
+  check, as for per-object overrides. Resolved instances of one graph compile
+  to their own node material (the defaults are values of the compile input);
+  the programs are shared when the generated code is the same.
+- 2026-09-29 (25.19): **KTX2 texture assets and encoding on import**
+  (decision 0006). A texture asset may be a Basis Universal KTX2 (2D, ETC1S
+  or UASTC, with its mip levels; a level count of 0 is refused — a compressed
+  texture cannot make its own). Pages decode it with three r186's
+  `KTX2Loader` and the transcoder files of the pinned three (served next to
+  the editor page, at `/decoders/` on the preview origin, shipped in an export
+  when a KTX2 texture or a Basis GLB ships; the preview's CSP adds
+  'unsafe-eval' for it as for Basis GLBs). One loader per page, shared with
+  the GLB path; the transcode target comes from a WebGL 2 probe of the same
+  browser for both backends (three's own rules incl. the Mesa emulation
+  filter: BC7/BC1-3 on desktop, ASTC/ETC2 on mobile — formats WebGPU exposes on
+  the same GPU; uncompressed RGBA otherwise). Encoding on import is opt-in
+  per import (`ktx2: "color" | "normal"`; the editor's Assets panel option
+  defaults to keeping the image, so nothing changes silently): colour = ETC1S
+  (quality 128), sRGB transfer, perceptual; normal = UASTC LDR 4×4 +
+  Zstandard, linear, the encoder's normal-map preset (renormalized mips).
+  Data maps (ORM, masks) have no mode: ETC1S mixes channels and the pinned
+  wrapper exposes no linear-mip preset, so they stay PNG (not done; a later
+  "data" mode needs the encoder's linear preset). Sources: PNG (an in-house
+  decoder on node:zlib, every colour type/depth, Adam7) and JPEG (`jpeg-js`,
+  pinned); WebP is refused with the reason (no server WebP decoder). The
+  encoder's limit is 12 Mpix (a 4096² texture is refused with the reason).
+  Measured on the GPU host (one thread, synthetic noise, worst case): 1024²
+  colour 4.5 s / normal 9.5 s, 2048² colour 16 s / normal 38 s. The encoder
+  runs in a worker thread (`dist/backend/ktx2-worker.mjs`), so the backend
+  keeps answering; from source (tests) it runs in-process. The KTX2 is the
+  version's stored bytes; `convertedFrom` {format png|jpeg, digest, size,
+  path?, converter ktx2-encoder 0.6.0, encoding} records the original (an
+  uploaded original is kept as a blob), like an FBX. Images the page draws
+  itself (UI images, portraits, input glyphs) refuse a KTX2 texture with the
+  reason. The editor shows no thumbnail for a KTX2 tile (icon) and a facts
+  line (`KTX2 · ETC1S · 7 mip levels · 64×64`, the original and encoding).
 - 2026-09-29 (25.18): **material problems on the backend** are the compiler's
   (`materialGraphProblems`, three-adapter: a graph built to TSL nodes
   without a renderer, as the editor's worker runs it), so the backend gains

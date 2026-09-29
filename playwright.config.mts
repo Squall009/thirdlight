@@ -106,6 +106,7 @@ export default defineConfig({
         '**/entity-access.e2e.ts',
         // Phase 25.19: material instances and KTX2 textures (Scene view, Play, export) on WebGPU.
         '**/material-instances.e2e.ts',
+        '**/ktx2-textures.e2e.ts',
       ],
       use: { launchOptions: { env: browserLaunchEnv(), args: [...GL_ARGS, ...WEBGPU_ARGS] } },
     },

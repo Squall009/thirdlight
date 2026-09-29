@@ -1,15 +1,14 @@
 /**
- * Texture import (phase 9.4): a standalone PNG, JPEG or WebP image.
+ * Texture import (phase 9.4): a standalone PNG, JPEG or WebP image; phase
+ * 25.19: or a Basis Universal KTX2 (ETC1S or UASTC, 2D, with its mip levels).
  *
  * Like the GLB and WAV inspectors: bytes in, a bounded non-authoritative
  * proposal out, no decoding. The magic bytes decide the format (never the
  * file name); the container header's declared size decides the pixel budget.
- * KTX2 is not accepted as a standalone texture yet (it is accepted inside a
- * GLB).
  */
 import { resolveImportJob } from './inspect';
 import { AUDIO_PIPELINE_NAME, AUDIO_PIPELINE_VERSION, M2_GLTF_MAX_DIAGNOSTICS } from './limits';
-import { decodedImageBytes, detectImageMime, imageDimensions } from './images';
+import { decodedImageBytes, detectImageMime, imageDimensions, ktx2Info } from './images';
 import { sha256Hex } from './sha256';
 import type { ImportDiagnostic, ImportJobPort } from './types';
 
@@ -18,7 +17,7 @@ export const TEXTURE_SOURCE_BYTES_MAX = 16_777_216;
 /** Largest texture edge (pixels). */
 export const TEXTURE_EDGE_MAX = 4096;
 
-export type TextureFormat = 'png' | 'jpeg' | 'webp';
+export type TextureFormat = 'png' | 'jpeg' | 'webp' | 'ktx2';
 
 /** The `image` recipe (the toolchain names this inspector). */
 export interface ImageRecipe {
@@ -34,6 +33,10 @@ export interface ImageMetrics {
   readonly height: number;
   /** width × height × 4. */
   readonly decodedBytes: number;
+  /** Phase 25.19, KTX2 only: the Basis Universal codec. */
+  readonly codec?: 'etc1s' | 'uastc';
+  /** Phase 25.19, KTX2 only: the mip levels in the file. */
+  readonly levels?: number;
 }
 
 export interface ImageImportOptions {
@@ -72,8 +75,16 @@ function inspectStages(bytes: Uint8Array): ImageMetrics | ImportDiagnostic[] {
     return [diag('asset_size_exceeded', 'the texture file is too large', bytes.length, `<= ${TEXTURE_SOURCE_BYTES_MAX} bytes`)];
   }
   const mime = detectImageMime(bytes);
-  if (mime === null || mime === 'image/ktx2') {
-    return [diag('asset_image_invalid', mime === 'image/ktx2' ? 'KTX2 is accepted inside a GLB, not as a standalone texture yet' : 'not a PNG, JPEG or WebP image', undefined, 'PNG, JPEG or WebP')];
+  if (mime === null) {
+    return [diag('asset_image_invalid', 'not a PNG, JPEG, WebP or KTX2 image', undefined, 'PNG, JPEG, WebP or KTX2')];
+  }
+  if (mime === 'image/ktx2') {
+    const info = ktx2Info(bytes);
+    if (info === null) return [diag('asset_image_invalid', 'the KTX2 is not a 2D Basis Universal texture (ETC1S or UASTC) with its mip levels', undefined, 'a 2D Basis Universal KTX2 (e.g. encoded at import)')];
+    if (info.width > TEXTURE_EDGE_MAX || info.height > TEXTURE_EDGE_MAX) {
+      return [diag('asset_limits_exceeded', 'the texture is larger than the edge limit', `${info.width}x${info.height}`, `<= ${TEXTURE_EDGE_MAX} px per edge`)];
+    }
+    return { format: 'ktx2', width: info.width, height: info.height, decodedBytes: decodedImageBytes(info), codec: info.codec, levels: info.levels };
   }
   const dims = imageDimensions(bytes, mime);
   if (dims === null || dims.width < 1 || dims.height < 1) {

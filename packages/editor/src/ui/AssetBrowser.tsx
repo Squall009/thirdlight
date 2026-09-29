@@ -62,6 +62,9 @@ interface Props {
   /** The pieces of each loaded model file (a file with 2+ pieces expands into piece tiles). */
   pieces: ReadonlyMap<string, readonly { name: string }[]>;
   onVertexColors: (assetId: string, mode: 'data' | 'tint') => void;
+  /** Phase 25.19: how an imported PNG/JPEG texture is stored — as is, or encoded to KTX2 (colour: ETC1S, normal map: UASTC). */
+  textureEncoding?: 'none' | 'color' | 'normal';
+  onTextureEncoding?: (v: 'none' | 'color' | 'normal') => void;
   /** Phase 9.4: extra sections for the selected asset (its default materials). */
   sideExtra?: ReactNode;
   /** Phase 23.9b: create a UI document and open its tab. */
@@ -188,7 +191,7 @@ export function AssetBrowser(p: Props): JSX.Element {
           ref={importInput}
           className="tl-assets__file"
           type="file"
-          accept=".glb,.fbx,.wav,.png,.jpg,.jpeg,.webp,.ogg,.opus,.mp3,.ttf,.otf,.woff2,.woff,model/gltf-binary,audio/wav,image/png,image/jpeg,image/webp,audio/ogg,audio/mpeg,font/ttf,font/otf,font/woff2,font/woff"
+          accept=".glb,.fbx,.wav,.png,.jpg,.jpeg,.webp,.ktx2,.ogg,.opus,.mp3,.ttf,.otf,.woff2,.woff,model/gltf-binary,audio/wav,image/png,image/jpeg,image/webp,audio/ogg,audio/mpeg,font/ttf,font/otf,font/woff2,font/woff"
           onChange={(e) => {
             const f = e.target.files?.[0];
             if (f) p.onImport(f);
@@ -202,7 +205,7 @@ export function AssetBrowser(p: Props): JSX.Element {
           ref={reimportInput}
           className="tl-assets__file"
           type="file"
-          accept=".glb,.fbx,.wav,.png,.jpg,.jpeg,.webp,.ogg,.opus,.mp3,.ttf,.otf,.woff2,.woff,model/gltf-binary,audio/wav,image/png,image/jpeg,image/webp,audio/ogg,audio/mpeg,font/ttf,font/otf,font/woff2,font/woff"
+          accept=".glb,.fbx,.wav,.png,.jpg,.jpeg,.webp,.ktx2,.ogg,.opus,.mp3,.ttf,.otf,.woff2,.woff,model/gltf-binary,audio/wav,image/png,image/jpeg,image/webp,audio/ogg,audio/mpeg,font/ttf,font/otf,font/woff2,font/woff"
           onChange={(e) => {
             const f = e.target.files?.[0];
             if (f) p.onReimport(f);
@@ -217,6 +220,16 @@ export function AssetBrowser(p: Props): JSX.Element {
         >
           reimport…
         </button>
+        {p.onTextureEncoding !== undefined && (
+          <label className="tl-field tl-field--inline" title="How a PNG or JPEG texture is imported: as is, or encoded to KTX2 with mipmaps — colour art as ETC1S (small), normal maps as UASTC (precise, linear). A KTX2 stays compressed on the GPU.">
+            <span className="tl-field__label">textures</span>
+            <select className="tl-input tl-input--small" aria-label="texture import encoding" value={p.textureEncoding ?? 'none'} onChange={(e) => p.onTextureEncoding?.(e.target.value as 'none' | 'color' | 'normal')}>
+              <option value="none">keep the image</option>
+              <option value="color">KTX2 colour (ETC1S)</option>
+              <option value="normal">KTX2 normal map (UASTC)</option>
+            </select>
+          </label>
+        )}
         {p.onNewUiDocument !== undefined && (
           <button className="tl-btn" onClick={p.onNewUiDocument} title="Create a UI document (a HUD, menu or screen) and open its editor tab; the UI tab lists them">
             new UI document
@@ -311,8 +324,21 @@ export function AssetBrowser(p: Props): JSX.Element {
             </div>
           )}
           {selected.convertedFrom !== undefined && (
-            <div className="tl-assets__source" title="Converted to glTF by Blender at import; the game loads the converted GLB">
-              from FBX{selected.convertedFrom.sourcePath !== undefined ? `: ${selected.convertedFrom.sourcePath}` : ' (uploaded)'}
+            <div
+              className="tl-assets__source"
+              title={selected.convertedFrom.format === 'fbx' ? 'Converted to glTF by Blender at import; the game loads the converted GLB' : 'Encoded to KTX2 at import; the game loads the KTX2'}
+            >
+              from {selected.convertedFrom.format === 'fbx' ? 'FBX' : selected.convertedFrom.format.toUpperCase()}
+              {selected.convertedFrom.encoding !== undefined ? ` (${selected.convertedFrom.encoding === 'normal' ? 'normal map' : 'colour'})` : ''}
+              {selected.convertedFrom.sourcePath !== undefined ? `: ${selected.convertedFrom.sourcePath}` : ' (uploaded)'}
+            </div>
+          )}
+          {selected.image !== undefined && (
+            <div className="tl-assets__source" data-testid="texture-facts" title={selected.image.format === 'ktx2' ? 'A GPU-compressed texture (Basis Universal): transcoded on the player’s GPU to its own compressed format' : 'An image the page decodes to RGBA'}>
+              {selected.image.format === 'ktx2'
+                ? `KTX2 · ${selected.image.codec === 'uastc' ? 'UASTC' : 'ETC1S'} · ${selected.image.levels ?? 1} mip level${selected.image.levels === 1 ? '' : 's'}`
+                : selected.image.format.toUpperCase()}{' '}
+              · {selected.image.width}×{selected.image.height}
             </div>
           )}
           {selected.kind === 'model' && (

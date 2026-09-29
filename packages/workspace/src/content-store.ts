@@ -1132,7 +1132,7 @@ export interface ProjectFileEntry {
 }
 
 export const MAX_PROJECT_FILE_ENTRIES = 500;
-const IMPORTABLE: Readonly<Record<string, 'model' | 'audio' | 'texture' | 'music' | 'font'>> = { '.glb': 'model', '.fbx': 'model', '.wav': 'audio', '.png': 'texture', '.jpg': 'texture', '.jpeg': 'texture', '.webp': 'texture', '.ogg': 'music', '.opus': 'music', '.mp3': 'music', '.ttf': 'font', '.otf': 'font', '.woff2': 'font', '.woff': 'font' };
+const IMPORTABLE: Readonly<Record<string, 'model' | 'audio' | 'texture' | 'music' | 'font'>> = { '.glb': 'model', '.fbx': 'model', '.wav': 'audio', '.png': 'texture', '.jpg': 'texture', '.jpeg': 'texture', '.webp': 'texture', '.ktx2': 'texture', '.ogg': 'music', '.opus': 'music', '.mp3': 'music', '.ttf': 'font', '.otf': 'font', '.woff2': 'font', '.woff': 'font' };
 
 export type ProjectFileListResult =
   | { ok: true; dir: string; entries: ProjectFileEntry[]; truncated: boolean }

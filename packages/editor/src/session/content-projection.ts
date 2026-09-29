@@ -110,7 +110,8 @@ export class ContentProjection {
     }
     const previous = this.assets.get(change.assetId);
     const pathOf = (v: unknown): string | undefined => (v as { sourcePath?: string } | undefined)?.sourcePath;
-    const current = next.versions.find((v) => v.version === next.currentVersion) as { convertedFrom?: { format: 'fbx'; sourcePath?: string } } | undefined;
+    const current = next.versions.find((v) => v.version === next.currentVersion) as { convertedFrom?: { format: 'fbx' | 'png' | 'jpeg'; sourcePath?: string; encoding?: 'color' | 'normal' }; metrics?: unknown } | undefined;
+    const image = next.kind === 'texture' ? (current?.metrics as { format: string; width: number; height: number; codec?: 'etc1s' | 'uastc'; levels?: number } | undefined) : undefined;
     const sourcePath = pathOf(current);
     const convertedFrom = current?.convertedFrom;
     this.assets.set(change.assetId, {
@@ -123,7 +124,9 @@ export class ContentProjection {
       ...((next as { materials?: Record<string, string> }).materials !== undefined ? { materials: { ...(next as unknown as { materials: Record<string, string> }).materials } } : {}),
       ...(typeof (next as { clipsFor?: string }).clipsFor === 'string' ? { clipsFor: (next as unknown as { clipsFor: string }).clipsFor } : {}),
       ...(sourcePath !== undefined ? { sourcePath } : {}),
-      ...(convertedFrom !== undefined ? { convertedFrom: { format: convertedFrom.format, ...(convertedFrom.sourcePath !== undefined ? { sourcePath: convertedFrom.sourcePath } : {}) } } : {}),
+      ...(convertedFrom !== undefined ? { convertedFrom: { format: convertedFrom.format, ...(convertedFrom.sourcePath !== undefined ? { sourcePath: convertedFrom.sourcePath } : {}), ...(convertedFrom.encoding !== undefined ? { encoding: convertedFrom.encoding } : {}) } } : {}),
+      // Phase 25.19: a texture's image facts (a KTX2's codec and mip levels).
+      ...(image !== undefined ? { image: { format: image.format, width: image.width, height: image.height, ...(image.codec !== undefined ? { codec: image.codec } : {}), ...(image.levels !== undefined ? { levels: image.levels } : {}) } } : {}),
       // `change.next` carries the full record, so the version facts (never
       // bytes) are recomputed locally rather than re-queried.
       versions: next.versions.map((v) => {
@@ -180,6 +183,7 @@ function cloneSummary(a: AssetSummary): AssetSummary {
     ...(a.clipsFor !== undefined ? { clipsFor: a.clipsFor } : {}),
     ...(a.sourcePath !== undefined ? { sourcePath: a.sourcePath } : {}),
     ...(a.convertedFrom !== undefined ? { convertedFrom: { ...a.convertedFrom } } : {}),
+    ...(a.image !== undefined ? { image: { ...a.image } } : {}),
     ...(a.versions ? { versions: a.versions.map((v) => ({ ...v })) } : {}),
   };
 }

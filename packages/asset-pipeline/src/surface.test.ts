@@ -70,6 +70,8 @@ describe('public surface (dependencies.md §3)', () => {
         'TEXTURE_EDGE_MAX',
         'TEXTURE_SOURCE_BYTES_MAX',
         'inspectImage',
+        // phase 25.19: a KTX2's facts (the backend's encoder tests read them)
+        'ktx2Info',
         // phase 9.10: music
         'inspectMusic',
         'MUSIC_DURATION_MS_MAX',

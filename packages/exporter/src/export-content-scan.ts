@@ -358,7 +358,10 @@ export function scanImageContainer(bytes: Uint8Array): ContainerResult {
     const declared = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(4, true);
     return declared + 8 === bytes.length ? { ok: true } : { ok: false, code: 'image_webp_length', message: 'the WebP RIFF length does not match the file', offset: 4 };
   }
-  return { ok: false, code: 'image_format', message: 'not a PNG, JPEG or WebP image', offset: 0 };
+  // Phase 25.19: a Basis Universal KTX2 (the header's identifier; the game's transcoder reads the rest).
+  const ktx2 = [0xab, 0x4b, 0x54, 0x58, 0x20, 0x32, 0x30, 0xbb, 0x0d, 0x0a, 0x1a, 0x0a];
+  if (bytes.length >= 80 && ktx2.every((b, i) => bytes[i] === b)) return { ok: true };
+  return { ok: false, code: 'image_format', message: 'not a PNG, JPEG, WebP or KTX2 image', offset: 0 };
 }
 
 /**

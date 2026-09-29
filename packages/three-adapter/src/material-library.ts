@@ -63,6 +63,7 @@ import {
   type SamplerLike,
 } from './material-graph';
 import { instanceOrigin, standardNodeMaterialFrom } from './node-materials';
+import { decodeKtx2, isKtx2 } from './ktx2';
 
 export type MaterialShaderName = 'standard' | 'foliage' | 'kit' | 'unlit' | 'water';
 
@@ -837,8 +838,18 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
   };
 }
 
-/** Decode a texture asset's verified bytes (PNG/JPEG/WebP) into a texture (browser only). */
+/**
+ * Decode a texture asset's verified bytes (PNG/JPEG/WebP) into a texture
+ * (browser only). Phase 25.19: a KTX2 becomes a compressed texture with its
+ * mip levels through the page's Basis transcoder (`setKtx2DecoderBase`).
+ */
 export async function decodeTexture(bytes: ArrayBuffer | Uint8Array): Promise<THREE.Texture> {
+  if (isKtx2(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes))) {
+    const t = await decodeKtx2(bytes);
+    t.flipY = false;
+    t.needsUpdate = true;
+    return t;
+  }
   const blob = new Blob([bytes as BlobPart]);
   const bitmap = await createImageBitmap(blob, { imageOrientation: 'none', premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
   const t = new THREE.Texture(bitmap as unknown as HTMLImageElement);

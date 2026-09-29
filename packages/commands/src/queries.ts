@@ -164,7 +164,7 @@ export function queryAssets(
       currentVersion: a.currentVersion,
       versionCount: a.versions.length,
     };
-    const current = a.versions.find((v) => v.version === a.currentVersion) as { sourcePath?: string; convertedFrom?: { format: 'fbx'; sourcePath?: string } } | undefined;
+    const current = a.versions.find((v) => v.version === a.currentVersion) as { sourcePath?: string; convertedFrom?: { format: 'fbx' | 'png' | 'jpeg'; sourcePath?: string; encoding?: 'color' | 'normal' }; metrics?: unknown } | undefined;
     if (current?.sourcePath !== undefined) summary.sourcePath = current.sourcePath;
     if ((a as { vertexColors?: string }).vertexColors === 'tint') summary.vertexColors = 'tint';
     const defaultMaterials = (a as { materials?: Record<string, string> }).materials;
@@ -172,7 +172,11 @@ export function queryAssets(
     const clipsFor = (a as { clipsFor?: string }).clipsFor;
     if (clipsFor !== undefined) summary.clipsFor = clipsFor;
     if (current?.convertedFrom !== undefined) {
-      summary.convertedFrom = { format: current.convertedFrom.format, ...(current.convertedFrom.sourcePath !== undefined ? { sourcePath: current.convertedFrom.sourcePath } : {}) };
+      summary.convertedFrom = { format: current.convertedFrom.format, ...(current.convertedFrom.sourcePath !== undefined ? { sourcePath: current.convertedFrom.sourcePath } : {}), ...(current.convertedFrom.encoding !== undefined ? { encoding: current.convertedFrom.encoding } : {}) };
+    }
+    if ((a.kind as string) === 'texture') {
+      const m = current?.metrics as { format: string; width: number; height: number; codec?: 'etc1s' | 'uastc'; levels?: number } | undefined;
+      if (m !== undefined) summary.image = { format: m.format, width: m.width, height: m.height, ...(m.codec !== undefined ? { codec: m.codec } : {}), ...(m.levels !== undefined ? { levels: m.levels } : {}) };
     }
     if (inc.value) {
       summary.versions = a.versions.map((v) => {

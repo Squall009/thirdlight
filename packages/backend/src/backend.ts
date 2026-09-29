@@ -29,6 +29,13 @@ import { publishBehaviorSource } from './behavior';
 import { diagnosticsWithNodes, generateGraphSource, graphProblemsFailure } from '@thirdlight/behavior-build';
 import { ContentRoutes, createAssetInspector, createBehaviorCompilerPort } from './content';
 import { createFbxConverter } from './fbx';
+import { createInlineTextureEncoder, createWorkerTextureEncoder } from './texture-encode';
+
+/** Phase 25.19: the KTX2 encoder's worker script, when this runs as the built bundle. */
+const KTX2_WORKER: URL | null = (() => {
+  const url = new URL('./ktx2-worker.mjs', import.meta.url);
+  return url.protocol === 'file:' && existsSync(decodeURIComponent(url.pathname)) ? url : null;
+})();
 import { createThumbnailCache } from './thumbnails';
 import { createBakeService } from './bake';
 import { isTrustedRequest, parseCidrList } from './trusted';
@@ -282,6 +289,9 @@ export function createBackend(
     log: logStartup,
     onJobFailed: (projectId, kind, code, message) => recordProblem(projectId, 'import', code, `Import ${kind} failed: ${message}`),
     fbx: createFbxConverter({ blender: config.blenderPath ?? 'blender', workRoot: join(config.dataRoot, '.convert') }),
+    // Phase 25.19: KTX2 encoding on import — a worker thread next to the deployment bundle
+    // (dist/backend/ktx2-worker.mjs), in this thread when run from source (tests).
+    textureEncoder: KTX2_WORKER !== null ? createWorkerTextureEncoder(KTX2_WORKER) : createInlineTextureEncoder(),
     thumbnails: createThumbnailCache(config.dataRoot),
     bakes: createBakeService({
       ...(config.bake !== undefined ? { host: config.bake.host } : {}),

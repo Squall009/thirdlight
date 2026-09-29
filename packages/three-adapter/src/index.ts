@@ -159,6 +159,8 @@ export {
   type VertexColorMode,
 } from './pieces';
 export type { CreateInstanceOptions } from './visual';
+// Phase 25.19: KTX2 texture assets (the page names where the Basis transcoder is served).
+export { isKtx2, setKtx2DecoderBase } from './ktx2';
 // Phase 9.4: project materials (shader types, global wind) at runtime.
 export {
   createMaterialLibrary,

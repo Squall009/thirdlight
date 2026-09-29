@@ -18,6 +18,7 @@
  * `behavior_publication_unavailable`.
  */
 import { createHash, randomBytes } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 /** Phase 12 (c): an instance set's copies (10 float32 each) and the inline bound of the buffer route. */
@@ -60,6 +61,7 @@ import { createBehaviorCompiler } from '@thirdlight/behavior-build';
 import type { BehaviorCompiler } from '@thirdlight/behavior-build';
 import type { CommandError, MutationSuccess, StageInspector, WorkspaceService } from '@thirdlight/workspace';
 import { isFbx, type FbxConverter } from './fbx';
+import { KTX2_ENCODER, type Ktx2Mode, type TextureEncoder } from './texture-encode';
 import { THUMBNAIL_BYTES_MAX, type ThumbnailCache } from './thumbnails';
 import { BAKE_PACKAGE_BYTES_MAX, type BakeService } from './bake';
 
@@ -537,6 +539,8 @@ export interface ContentRouteDeps {
   onJobFailed?: (projectId: string, kind: string, code: string, message: string) => void;
   /** FBX → GLB conversion (headless Blender); without it an FBX import is `converter_unavailable`. */
   fbx?: FbxConverter;
+  /** Phase 25.19: KTX2 encoding on import; without it a `ktx2` texture import is `converter_unavailable`. */
+  textureEncoder?: TextureEncoder;
   /** The asset thumbnail cache (absent: thumbnail routes answer 404). */
   thumbnails?: ThumbnailCache;
   /** Phase 9.6: the final light bake (absent: the bake routes answer "unavailable"). */
@@ -796,6 +800,11 @@ export class ContentRoutes {
     if (staged0.ok && isFbx(staged0.bytes)) {
       return this.inspectConverted(res, projectId, { kind: 'stage', stageId: sid.stageId, bytes: staged0.bytes }, inspected0.request, upload?.displayName);
     }
+    // Phase 25.19: a texture to encode to KTX2 first; the KTX2 is what gets inspected.
+    if (inspected0.request.ktx2 !== undefined) {
+      if (!staged0.ok) return this.deps.sendError(res, commandErrorToSession(staged0.error));
+      return this.inspectEncoded(res, projectId, { kind: 'stage', stageId: sid.stageId, bytes: staged0.bytes }, inspected0.request.ktx2, upload?.displayName);
+    }
     const job = this.jobs.begin('inspect', projectId);
     if (!job.ok) return this.deps.sendError(res, job.error);
     const result = this.deps.service.inspectStage(projectId, sid.stageId, {
@@ -919,6 +928,7 @@ export class ContentRoutes {
     if (!parsed.ok) return this.deps.sendError(res, parsed.error);
     const { path, displayName, kind, animation } = parsed.request;
     if (/\.fbx$/i.test(path)) return this.inspectConverted(res, projectId, { kind: 'file', path }, parsed.request, displayName);
+    if (parsed.request.ktx2 !== undefined) return this.inspectEncoded(res, projectId, { kind: 'file', path }, parsed.request.ktx2, displayName);
     const job = this.jobs.begin('inspect', projectId);
     if (!job.ok) return this.deps.sendError(res, job.error);
     const result = this.deps.service.inspectProjectFile(projectId, path, {
@@ -1033,6 +1043,84 @@ export class ContentRoutes {
       this.deps.sendJson(res, 200, { ok: true, proposal: p, convertedFrom, truncated: false, jobId: job.jobId });
     } finally {
       this.deps.service.discardStage(projectId, glbStage);
+    }
+  }
+
+  /**
+   * Phase 25.19: KTX2 encoding on import — encode the PNG/JPEG (the worker
+   * thread), stage the KTX2 like an upload, inspect it through the texture
+   * profile and publish it as a blob (the version's stored bytes). As with an
+   * FBX, the response carries `convertedFrom` for the `publishAsset` args: the
+   * original's digest/size, its game-folder path (an uploaded original is
+   * kept as a blob too), the encoder and the encoding.
+   */
+  private async inspectEncoded(res: ServerResponse, projectId: string, source: FbxSource, mode: Ktx2Mode, displayName: string | undefined): Promise<void> {
+    const failed = (code: string, cls: SessionError['cls'], message: string, extra: Partial<SessionError> = {}): void => {
+      this.deps.onJobFailed?.(projectId, 'inspect', code, message);
+      this.deps.sendError(res, sessionError(code as SessionError['code'], cls, message, extra));
+    };
+    const encoder = this.deps.textureEncoder;
+    if (encoder === undefined) return failed('converter_unavailable', 'unavailable', 'KTX2 encoding is not available on this server');
+    let original: { sourceDigest: string; sourceByteLength: number; sourcePath?: string };
+    let bytes: Uint8Array;
+    if (source.kind === 'file') {
+      const src = this.deps.service.conversionSource(projectId, source.path);
+      if (!src.ok) return this.deps.sendError(res, commandErrorToSession(src.error));
+      bytes = new Uint8Array(readFileSync(src.real));
+      original = { sourceDigest: src.digest, sourceByteLength: src.byteLength, sourcePath: source.path };
+      if (createHash('sha256').update(bytes).digest('hex') !== src.digest) return failed('asset_source_changed', 'conflict', `${source.path} changed while it was being read; import it again`, { path: source.path });
+    } else {
+      bytes = source.bytes;
+      original = { sourceDigest: createHash('sha256').update(source.bytes).digest('hex'), sourceByteLength: source.bytes.length };
+    }
+    const encoded = await encoder.encode(bytes, mode);
+    if (!encoded.ok) return failed('conversion_failed', 'validation', encoded.message, { path: '/ktx2' });
+    const name = displayName ?? (source.kind === 'file' ? (source.path.split('/').pop() ?? source.path).replace(/\.(png|jpe?g)$/i, '') : undefined);
+    const begun = this.uploads.begin(projectId, name);
+    if (!begun.ok) return this.deps.sendError(res, begun.error);
+    this.uploads.discard(begun.stageId);
+    const ktxStage = begun.stageId;
+    const staged = this.deps.service.stageContent(projectId, { stageId: ktxStage, bytes: encoded.ktx2, ...(name !== undefined ? { displayName: name } : {}) });
+    if (!staged.ok) return this.deps.sendError(res, commandErrorToSession(staged.error));
+    const job = this.jobs.begin('inspect', projectId);
+    if (!job.ok) {
+      this.deps.service.discardStage(projectId, ktxStage);
+      return this.deps.sendError(res, job.error);
+    }
+    try {
+      const result = this.deps.service.inspectStage(projectId, ktxStage, {
+        isCancelled: () => this.jobs.isCancelled(job.jobId),
+        ...(name !== undefined ? { displayName: name } : {}),
+        kind: 'texture',
+      });
+      if (!result.ok) {
+        this.jobs.fail(job.jobId, result.error.code, result.error.message);
+        return this.deps.sendError(res, commandErrorToSession(result.error));
+      }
+      const p = result.proposal;
+      if (p.status !== 'ok') {
+        this.jobs.finish(job.jobId, { proposalId: p.proposalId, status: p.status });
+        this.deps.sendJson(res, 200, { ok: true, proposal: p, truncated: false, jobId: job.jobId });
+        return;
+      }
+      const ktx = this.deps.service.publishBlob(projectId, { digest: p.sourceDigest, byteLength: p.sourceByteLength, source: { kind: 'stage', stageId: ktxStage } });
+      if (!ktx.ok) {
+        this.jobs.fail(job.jobId, ktx.error.code, ktx.error.message);
+        return this.deps.sendError(res, commandErrorToSession(ktx.error));
+      }
+      if (source.kind === 'stage') {
+        // An uploaded original has no other home: keep it as a blob (a later re-encode reads it).
+        const orig = this.deps.service.publishBlob(projectId, { digest: original.sourceDigest, byteLength: original.sourceByteLength, source: { kind: 'stage', stageId: source.stageId } });
+        if (!orig.ok) {
+          this.jobs.fail(job.jobId, orig.error.code, orig.error.message);
+          return this.deps.sendError(res, commandErrorToSession(orig.error));
+        }
+      }
+      this.jobs.finish(job.jobId, { proposalId: p.proposalId, status: p.status });
+      const convertedFrom = { format: encoded.source.format, ...original, converter: { name: KTX2_ENCODER.name, version: KTX2_ENCODER.version }, encoding: mode };
+      this.deps.sendJson(res, 200, { ok: true, proposal: p, convertedFrom, truncated: false, jobId: job.jobId });
+    } finally {
+      this.deps.service.discardStage(projectId, ktxStage);
     }
   }
 

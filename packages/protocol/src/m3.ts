@@ -875,10 +875,16 @@ export interface AnimationRolesValue {
 export interface StageInspectRequest {
   kind?: 'model' | 'audio' | 'texture' | 'music' | 'font';
   animation?: { entityId?: string; roles: AnimationRolesValue };
+  /**
+   * Phase 25.19, textures only: encode a PNG/JPEG to KTX2 on import —
+   * "color" (ETC1S, sRGB) or "normal" (UASTC, linear, normal-map mips).
+   */
+  ktx2?: 'color' | 'normal';
 }
 
 const INSPECT_REQUEST_FIELDS = new Map([
   ['kind', '"model" | "audio" | "texture" | "music" | "font" (default "model")'],
+  ['ktx2', '"color" | "normal" (a texture only: encode it to KTX2)'],
   ['animation', '{ entityId?, roles: { idle, run, airborne } } — the §41.3.3 animated profile'],
 ]);
 const ANIMATION_FIELDS = new Map([
@@ -938,11 +944,22 @@ export function parseStageInspectRequest(
       roles: roles as unknown as AnimationRolesValue,
     };
   }
+  let ktx2: StageInspectRequest['ktx2'];
+  if (shape.value.ktx2 !== undefined) {
+    if (shape.value.ktx2 !== 'color' && shape.value.ktx2 !== 'normal') {
+      return { ok: false, error: sessionError('field_value', 'validation', 'ktx2 must be "color" or "normal"', { path: '/ktx2', found: String(shape.value.ktx2).slice(0, 64), expected: '"color" | "normal"' }) };
+    }
+    if (kind !== 'texture') {
+      return { ok: false, error: sessionError('field_value', 'validation', 'ktx2 encoding is for a texture (kind "texture")', { path: '/ktx2', expected: 'kind: "texture"' }) };
+    }
+    ktx2 = shape.value.ktx2;
+  }
   return {
     ok: true,
     request: {
       ...(kind !== undefined ? { kind } : {}),
       ...(animation !== undefined ? { animation } : {}),
+      ...(ktx2 !== undefined ? { ktx2 } : {}),
     },
   };
 }

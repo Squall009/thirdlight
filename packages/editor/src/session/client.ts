@@ -2101,6 +2101,8 @@ export class SessionClient {
       displayName?: string | null;
       kind?: 'model' | 'audio' | 'texture' | 'music' | 'font';
       animation?: { entityId: string; roles: unknown };
+      /** Phase 25.19: a texture encoded to KTX2 on import. */
+      ktx2?: 'color' | 'normal';
       onState?: (s: AssetImportState) => void;
     } = {},
   ): Promise<{ ok: true; stageId: string; proposal: ImportProposal } | { ok: false; error: { code: string; message: string } }> {
@@ -2111,6 +2113,7 @@ export class SessionClient {
     const inspectBody = JSON.stringify({
       ...(options.kind !== undefined ? { kind: options.kind } : {}),
       ...(options.animation !== undefined ? { animation: options.animation } : {}),
+      ...(options.ktx2 !== undefined ? { ktx2: options.ktx2 } : {}),
     });
     try {
       const stage = await this.request<{ ok: true; stageId: string; expiresAt: string }>(
@@ -2181,7 +2184,7 @@ export class SessionClient {
    */
   async importProjectFile(
     sourcePath: string,
-    options: { target: ImportTarget; kind: 'model' | 'audio' | 'texture' | 'music' | 'font'; displayName?: string; onState?: (s: AssetImportState) => void },
+    options: { target: ImportTarget; kind: 'model' | 'audio' | 'texture' | 'music' | 'font'; displayName?: string; ktx2?: 'color' | 'normal'; onState?: (s: AssetImportState) => void },
   ): Promise<{ ok: true; proposal: ImportProposal } | { ok: false; error: { code: string; message: string } }> {
     let state = beginProjectFileImport(initialImportState, options.target, sourcePath);
     const emit = (): void => options.onState?.(state);
@@ -2192,7 +2195,7 @@ export class SessionClient {
         {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ path: sourcePath, kind: options.kind, ...(options.displayName ? { displayName: options.displayName } : {}) }),
+          body: JSON.stringify({ path: sourcePath, kind: options.kind, ...(options.displayName ? { displayName: options.displayName } : {}), ...(options.ktx2 !== undefined ? { ktx2: options.ktx2 } : {}) }),
         },
       );
       const proposal: ImportProposal = {

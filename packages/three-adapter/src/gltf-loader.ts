@@ -38,9 +38,9 @@ import {
 } from 'three';
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
-import { KTX2Loader } from 'three/examples/jsm/loaders/KTX2Loader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
+import { sharedKtx2Loader } from './ktx2';
 import {
   visualLoadFailure,
   type AssetVersionDescriptor,
@@ -86,18 +86,6 @@ const DECODER_EXTENSIONS: Readonly<Record<string, 'draco' | 'basis'>> = {
   KHR_draco_mesh_compression: 'draco',
   KHR_texture_basisu: 'basis',
 };
-
-/**
- * KTX2Loader picks the GPU format to transcode to from the renderer's
- * compressed-texture extensions. The port does not own the game's renderer, so
- * it asks a small WebGL2 context of its own (same browser and GPU).
- */
-function textureSupport(): { isWebGPURenderer: false; extensions: { has(name: string): boolean; get(name: string): unknown } } {
-  const doc = (globalThis as { document?: { createElement(tag: string): { getContext(kind: string): unknown } } }).document;
-  const gl = doc?.createElement('canvas').getContext('webgl2') as { getExtension(name: string): unknown } | null | undefined;
-  const get = (name: string): unknown => (gl ? gl.getExtension(name) : null);
-  return { isWebGPURenderer: false, extensions: { has: (name) => get(name) !== null, get } };
-}
 
 function messageOf(e: unknown): string {
   if (e instanceof Error) return e.message;
@@ -190,7 +178,6 @@ export function createGltfLoaderPort(options: GltfLoaderPortOptions = {}): GlbLo
   const allowed = new Set(options.allowedExtensions ?? GLTF_LOADER_ALLOWED_EXTENSIONS);
   // The Draco/KTX2 loaders start decoder workers: created on first need, then shared.
   let draco: DRACOLoader | null = null;
-  let ktx2: KTX2Loader | null = null;
   return {
     async load(
       bytes: Uint8Array,
@@ -219,12 +206,8 @@ export function createGltfLoaderPort(options: GltfLoaderPortOptions = {}): GlbLo
         loader.setDRACOLoader(draco);
       }
       if (needs.has('basis')) {
-        if (ktx2 === null) {
-          ktx2 = new KTX2Loader();
-          ktx2.setTranscoderPath(`${options.decoderBase}basis/`);
-          ktx2.detectSupport(textureSupport() as unknown as Parameters<KTX2Loader['detectSupport']>[0]);
-        }
-        loader.setKTX2Loader(ktx2);
+        // Phase 25.19: the page's one KTX2Loader (KTX2 texture assets share it).
+        loader.setKTX2Loader(sharedKtx2Loader(options.decoderBase!));
       }
       let gltf: GLTF;
       try {

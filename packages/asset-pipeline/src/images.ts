@@ -192,6 +192,29 @@ export function ktx2Dimensions(bytes: Uint8Array): ImageDimensions | null {
   return { width, height };
 }
 
+/**
+ * Phase 25.19: a Basis Universal KTX2's facts for a texture asset — its size,
+ * mip levels (a level count of 0, "generate at load", is refused: a
+ * compressed texture cannot make its own) and codec: ETC1S (BasisLZ
+ * supercompression, or the DFD colour model 163) or UASTC (model 166).
+ * `null` for anything else.
+ */
+export function ktx2Info(bytes: Uint8Array): { width: number; height: number; levels: number; codec: 'etc1s' | 'uastc' } | null {
+  const dims = ktx2Dimensions(bytes);
+  if (dims === null) return null;
+  const levels = u32le(bytes, 40);
+  const supercompression = u32le(bytes, 44);
+  const dfdOffset = u32le(bytes, 48);
+  if (levels < 1) return null;
+  let codec: 'etc1s' | 'uastc' | null = supercompression === 1 ? 'etc1s' : null;
+  if (codec === null && dfdOffset + 16 <= bytes.length) {
+    // DFD: total size (u32), then the basic block: vendor/type (u32), version/size (u32), colour model (u8).
+    const model = bytes[dfdOffset + 12];
+    codec = model === 166 ? 'uastc' : model === 163 ? 'etc1s' : null;
+  }
+  return codec === null ? null : { ...dims, levels, codec };
+}
+
 /** Declared dimensions for an accepted container; `null` when unreadable. */
 export function imageDimensions(bytes: Uint8Array, mime: ImportImageMime): ImageDimensions | null {
   if (mime === 'image/png') return pngDimensions(bytes);

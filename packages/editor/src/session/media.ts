@@ -21,7 +21,7 @@ export const MODEL_DROP_EXTENSION = '.glb';
 export const FBX_DROP_EXTENSION = '.fbx';
 export const AUDIO_DROP_EXTENSION = '.wav';
 /** Phase 9.4: standalone textures (the magic bytes are checked again at import). */
-export const TEXTURE_DROP_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp'] as const;
+export const TEXTURE_DROP_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp', '.ktx2'] as const;
 /** Phase 9.10: music (Ogg Vorbis/Opus, MP3; a long WAV imports with kind "music" through MCP). */
 export const MUSIC_DROP_EXTENSIONS = ['.ogg', '.opus', '.mp3'] as const;
 /** Phase 23.9a: fonts for the project UI (TrueType, OpenType, WOFF2, WOFF; the magic bytes are checked again at import). */

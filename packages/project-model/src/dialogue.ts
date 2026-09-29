@@ -735,7 +735,12 @@ export function validateDialogueReferences(
     });
   });
   speakers.forEach((s, i) => {
-    for (const [expr, id] of Object.entries(s.portraits ?? {})) if (assetKind(id) !== 'texture') errors.push(withFound({ code: 'asset_reference_missing', path: `/speakers/${i}/portraits/${expr}`, message: 'a portrait must name a texture asset of this project', expected: 'a texture assetId' }, id));
+    // Phase 25.19: a KTX2 texture (a GPU texture) reads as its own kind: the page draws portraits as images.
+    for (const [expr, id] of Object.entries(s.portraits ?? {})) {
+      const k = assetKind(id);
+      if (typeof k === 'string' && k.startsWith('texture (KTX2')) errors.push(withFound({ code: 'field_value', path: `/speakers/${i}/portraits/${expr}`, message: 'a portrait is drawn by the page: it cannot be a KTX2 texture (import a PNG, JPEG or WebP)', expected: 'a PNG, JPEG or WebP texture' }, id));
+      else if (k !== 'texture') errors.push(withFound({ code: 'asset_reference_missing', path: `/speakers/${i}/portraits/${expr}`, message: 'a portrait must name a texture asset of this project', expected: 'a texture assetId' }, id));
+    }
     if (s.blip !== undefined && assetKind(s.blip) !== 'audio') errors.push(withFound({ code: 'asset_reference_missing', path: `/speakers/${i}/blip`, message: 'a text blip must name an audio asset of this project', expected: 'an audio assetId' }, s.blip));
   });
   const settings = isObj(doc.dialogueSettings) ? (doc.dialogueSettings as DialogueSettings) : null;

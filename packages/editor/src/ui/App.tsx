@@ -79,7 +79,7 @@ import { iconTableOf } from '../viewport/icons';
 import { ModelInstances, type AssetPreviewSession } from '../viewport/model-instances';
 import { ThumbnailRenderer } from '../viewport/thumbnails';
 import { AnimatorMachine, type AnimatorControllerLike } from '@thirdlight/runtime';
-import { BATCHING_URL_PARAM, batchingFromUrl, createAnimatorPlayer, createMaterialLibrary, layerEnvironment, pageSearch, rendererPreferenceFromUrl, RENDERER_URL_PARAM, resolveRendererPreference, type EnvironmentLike, type LightingBakeLike, type MaterialDefLike, type MaterialFunctionLike, type MaterialLibrary, type RendererInfo, type WindLike } from '@thirdlight/three-adapter';
+import { BATCHING_URL_PARAM, batchingFromUrl, createAnimatorPlayer, createMaterialLibrary, decodeTexture, isKtx2, setKtx2DecoderBase, layerEnvironment, pageSearch, rendererPreferenceFromUrl, RENDERER_URL_PARAM, resolveRendererPreference, type EnvironmentLike, type LightingBakeLike, type MaterialDefLike, type MaterialFunctionLike, type MaterialLibrary, type RendererInfo, type WindLike } from '@thirdlight/three-adapter';
 import { setEditorRendererChoice } from '../viewport/renderer-choice';
 import type { TimelineAsset } from '@thirdlight/project-model';
 import type { AnimatorController, DescriptorRegistry, EffectComponent, EffectDef, EnvironmentConfig, InputConfig, LightingBake, MaterialDef, ScriptLibrary, UiDocument, UiTheme, GameMode, EventCue, GameShell } from '@thirdlight/project-model';
@@ -158,6 +158,9 @@ interface UiError {
 /** The bounded backend error for a failed command (the panels explain it, never lose it). */
 
 /** Poll `get` each animation frame (up to ~2 s) until it yields a value (phase 12 c: a change arriving over the socket). */
+// Phase 25.19: KTX2 textures (and GLBs with KHR_texture_basisu) transcode with three's Basis files next to the editor page.
+setKtx2DecoderBase('./decoders/');
+
 function waitFor<T>(get: () => T | null): Promise<T | null> {
   return new Promise((resolve) => {
     const started = performance.now();
@@ -1010,6 +1013,8 @@ function EditorApp(): JSX.Element {
       const v = client.content.resolveVersion(assetId);
       if (v === null) return null;
       const bytes = await client.assetBytes(assetId, v.version);
+      // Phase 25.19: a KTX2 texture transcodes with three's Basis files next to the editor page.
+      if (isKtx2(bytes)) return decodeTexture(bytes);
       const bitmap = await createImageBitmap(new Blob([bytes as BlobPart]), { imageOrientation: 'none', premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
       const t = new THREE.Texture(bitmap as unknown as HTMLImageElement);
       t.needsUpdate = true;
@@ -1134,6 +1139,8 @@ function EditorApp(): JSX.Element {
               textureTilesRef.current.delete(tile);
               return;
             }
+            // Phase 25.19: a KTX2 is no image the page can show (the tile keeps its icon).
+            if (isKtx2(bytes)) return;
             const url = URL.createObjectURL(new Blob([bytes as BlobPart]));
             setAssetThumbs((prev) => {
               const old = prev.get(key);
@@ -2170,6 +2177,11 @@ function EditorApp(): JSX.Element {
     return referencingEntityIds.length === 0;
   }, []);
 
+  // Phase 25.19: how PNG/JPEG textures are imported (as is, or encoded to KTX2); an editor preference, not project data.
+  const [textureEncoding, setTextureEncoding] = useState<'none' | 'color' | 'normal'>('none');
+  const textureEncodingRef = useRef(textureEncoding);
+  textureEncodingRef.current = textureEncoding;
+
   const importFile = useCallback(async (file: File, mode: 'create' | 'reimport') => {
     const c = clientRef.current;
     if (!c) return;
@@ -2185,7 +2197,9 @@ function EditorApp(): JSX.Element {
       mode === 'reimport'
         ? { mode: 'reimport', assetId: selectedAssetIdRef.current, displayName: null }
         : { mode: 'create', assetId: makeAssetId(), displayName: candidate.displayName };
-    const res = await c.uploadAsset(bytes, { target, displayName: candidate.displayName, kind: candidate.kind, onState: setImportState });
+    // Phase 25.19: a PNG/JPEG texture encoded to KTX2 when the Assets panel says so (a KTX2 or WebP is imported as is).
+    const ktx2 = candidate.kind === 'texture' && textureEncodingRef.current !== 'none' && /\.(png|jpe?g)$/i.test(file.name) ? textureEncodingRef.current : undefined;
+    const res = await c.uploadAsset(bytes, { target, displayName: candidate.displayName, kind: candidate.kind, ...(ktx2 !== undefined ? { ktx2 } : {}), onState: setImportState });
     if (res.ok) {
       acceptProposal(res.proposal, target, candidate.kind);
     } else {
@@ -2206,9 +2220,11 @@ function EditorApp(): JSX.Element {
     }
     const target: ImportTarget =
       mode === 'reimport' ? { mode: 'reimport', assetId, displayName: null } : { mode: 'create', assetId: makeAssetId(), displayName: candidate.displayName };
+    const ktx2 = candidate.kind === 'texture' && textureEncodingRef.current !== 'none' && /\.(png|jpe?g)$/i.test(path) ? textureEncodingRef.current : undefined;
     const res = await c.importProjectFile(path, {
       target,
       kind: candidate.kind,
+      ...(ktx2 !== undefined ? { ktx2 } : {}),
       displayName: candidate.displayName,
       onState: (st) => {
         importStateRef.current = st;
@@ -4438,6 +4454,8 @@ function EditorApp(): JSX.Element {
                 setAssetDeleteError(null);
               }}
               onImport={(f) => void importFile(f, 'create')}
+              textureEncoding={textureEncoding}
+              onTextureEncoding={setTextureEncoding}
               onReimport={(f) => void importFile(f, 'reimport')}
               folderImport={folderProject}
               onImportFromFolder={() => setFilePicker('create')}

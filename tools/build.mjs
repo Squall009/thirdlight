@@ -254,13 +254,29 @@ if (existsSync(join(root, BACKEND_ENTRY))) {
     // deployment docs; the mcp-adapter bundle stays fully self-contained).
     // playwright-core (the headless editor, phase 11) resolves its browser
     // registry relative to its own files: loaded from node_modules at runtime.
-    external: ['esbuild', 'playwright-core'],
+    // Phase 25.19: ktx2-encoder loads its Basis WASM next to its own file
+    // (import.meta.url) and jpeg-js is CommonJS: both from node_modules.
+    external: ['esbuild', 'playwright-core', 'ktx2-encoder', 'jpeg-js'],
     banner: {
       js: 'import { createRequire as __tl_createRequire } from "node:module"; const require = __tl_createRequire(import.meta.url);',
     },
   });
   console.log(`build: backend (deployment bundle): ${BACKEND_ENTRY} -> ${BACKEND_OUT}`);
   built += 1;
+  // Phase 25.19: the KTX2 encoder's worker thread, next to the backend bundle (backend.ts finds it there).
+  await esbuild.build({
+    entryPoints: [join(root, 'packages/backend/src/ktx2-worker.ts')],
+    outfile: join(root, 'dist/backend/ktx2-worker.mjs'),
+    bundle: true,
+    platform: 'node',
+    format: 'esm',
+    packages: 'bundle',
+    treeShaking: true,
+    sourcemap: false,
+    minify: false,
+    external: ['ktx2-encoder', 'jpeg-js'],
+  });
+  console.log('build: backend (KTX2 encoder worker): packages/backend/src/ktx2-worker.ts -> dist/backend/ktx2-worker.mjs');
 } else {
   console.log(`build: backend: entry not present (${BACKEND_ENTRY}) — not built (packet 13)`);
 }

@@ -821,6 +821,23 @@ Any other extension is refused at import with `asset_extension_unsupported`,
 naming it; an allowlisted extension in a place where it would mean nothing, or
 not declared in `extensionsUsed`, is refused too.
 
+### KTX2 textures (phase 25.19)
+
+A texture can be a KTX2 (Basis Universal ETC1S or UASTC, with its mip
+levels): it stays compressed on the GPU and is transcoded on the player's
+machine (three's Basis transcoder, shipped in an export only when it is
+needed). Import a `.ktx2` as it is, or let the backend encode a PNG/JPEG on
+import: Assets panel → **textures** → *KTX2 colour (ETC1S)* for albedo and
+emissive art, *KTX2 normal map (UASTC)* for normal maps (MCP:
+`tl_content_upload {kind: "texture", ktx2: "color" | "normal"}`, then publish
+with the returned `convertedFrom`). Encoding takes seconds (a 2048² normal map
+about 40 s on the GPU host) in a worker thread; up to 12 Mpix; WebP sources
+and data maps (ORM, masks) stay images. The selected asset shows
+`KTX2 · ETC1S · n mip levels` and the original it was encoded from. UI
+images, portraits and input glyphs are drawn by the page and need a PNG,
+JPEG or WebP. The encoder is the pinned `ktx2-encoder` package
+(decision 0006).
+
 ### FBX
 
 An `.fbx` can be imported like a `.glb` (upload, "from project folder…", or
@@ -1098,6 +1115,15 @@ gesture in "Graph editing") with the material catalogue; the Inspector on
 the right edits the selected node (texture fields pick from the project's
 textures, colours use a colour picker). **Remove graph** turns it back into
 its shader material.
+
+**Material instances** (phase 25.19): select a material and press **+ new
+instance** — an instance draws as its parent with the values you change in its
+inspector (a shader material's parameters and texture slots, a graph
+material's parameters; unset rows show the parent's value, ↺ goes back to it).
+It is a material like any other: pick it for an object, as a model asset's
+default materials (every placement), or in a block type's `materials`; an
+instance may have instances. The game ships each used instance already
+resolved. MCP: `setMaterial {material: {…, instanceOf, values?}}`.
 
 **The Material tab** (phase 18.2): on the left a live **Preview** — the
 material on a *sphere*, *plane*, *cube* or a *model* of the project (pick

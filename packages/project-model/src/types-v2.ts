@@ -254,13 +254,24 @@ export interface AssetMetrics {
 }
 
 /** The original a converted asset version was made from. */
-export interface ConvertedFrom {
-  format: 'fbx';
-  sourceDigest: string;
-  sourceByteLength: number;
-  sourcePath?: string;
-  converter: { name: 'blender'; version: string };
-}
+export type ConvertedFrom =
+  | {
+      format: 'fbx';
+      sourceDigest: string;
+      sourceByteLength: number;
+      sourcePath?: string;
+      converter: { name: 'blender'; version: string };
+    }
+  | {
+      /** Phase 25.19: a PNG/JPEG texture encoded to KTX2 at import. */
+      format: 'png' | 'jpeg';
+      sourceDigest: string;
+      sourceByteLength: number;
+      sourcePath?: string;
+      converter: { name: 'ktx2-encoder'; version: string };
+      /** color: ETC1S, sRGB; normal: UASTC, linear, normal-map mips. */
+      encoding: 'color' | 'normal';
+    };
 
 export interface AssetVersion {
   version: number;
