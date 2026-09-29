@@ -203,8 +203,11 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'and tags ([tag names]). createEntities {entities: [createEntity args + ref?], sceneId?} creates up to 1024 in one revision and one undo ' +
       '(a later item\'s parentId may name an earlier item\'s ref; the change lists the created entities in order). deleteAsset {assetId} and ' +
       'deletePrefab {prefabId} remove a record; refused (reference_in_use, the uses in details) while any object, prefab, asset, material, document ' +
-      'or a script\'s string literal still names it; the stored bytes stay, one undo restores it. setAssetOptions {assetId, vertexColors: ' +
-      '"data"|"tint"}: COLOR_0 is shader data by default, "tint" multiplies it into the base colour. pasteEntities {entities: [full entity ' +
+      'or a script\'s string literal still names it; deleteAsset also deletes the asset\'s file and its .tlasset sidecar from the game folder ' +
+      '(one undo restores all of it). setAssetOptions {assetId, vertexColors: ' +
+      '"data"|"tint"}: COLOR_0 is shader data by default, "tint" multiplies it into the base colour; setAssetOptions {assetId, sourcePath} ' +
+      'moves the asset\'s file (with its sidecar) to that path of the game folder, or records a move already made there; the id and ' +
+      'every reference stay. Every imported file is kept in the game folder (uploads land in assets/) next to its .tlasset sidecar. pasteEntities {entities: [full entity ' +
       'values as tl_inspect returns them, parents with their children], parentId?: id|null, offset?: [x,y,z], sceneId?} copies them with ' +
       'new ids in one undo (references inside the copy are remapped; use it to duplicate or to copy between scenes). Materials: ' +
       'setMaterial {material: {materialId, name, shader: standard|foliage|kit|unlit|water, params: {...overrides}, textures: {slot: ' +
@@ -381,8 +384,10 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       `Bounded, read-only M2 content queries. target="assets" pages the asset catalog (limit ≤ ${CONTENT_ASSETS_LIMIT_MAX}, default ${CONTENT_ASSETS_LIMIT_DEFAULT}); ` +
       'target="asset" returns one record with assetId (includeVersions optional); target="prefabs" pages prefab ' +
       'summaries (includeEntities optional); target="behaviors" pages behavior summaries (includeDeclaration ' +
-      'optional); target="integrity" returns the bounded content-integrity report (a file referenced in place is ' +
-      'ok / changed / missing); target="game" returns the ' +
+      'optional); target="integrity" returns the bounded content-integrity report (each asset\'s file in the game folder is ' +
+      'ok / changed / missing); with check=true the backend first brings the catalog in step with the game folder, as the editor\'s ' +
+      '"check files" does (a file moved together with its .tlasset sidecar keeps its asset, a changed file is imported again, the ' +
+      'import cache is made whole; the changes are ordinary undoable commands) and returns what it did as `check`; target="game" returns the ' +
       'full normalized `content.game` block (the v3 `queryGameConfig`, or null; includeDescriptors adds the ' +
       'component and content descriptor registry: every field\'s type, unit, range, default, label, tooltip and ' +
       'Scene handle, ~120 KB); target="projectFiles" lists one ' +
@@ -398,6 +403,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       properties: {
         target: { type: 'string', enum: ['assets', 'asset', 'prefabs', 'behaviors', 'integrity', 'game', 'projectFiles', 'blocks', 'materials'] },
         materialId: { type: 'string', description: 'target="materials": one material' },
+        check: { type: 'boolean', description: 'target="integrity": check the game folder first (moved files, changed files imported again)' },
         withProblems: { type: 'boolean', description: 'target="materials": only materials whose graph has problems' },
         sceneId: { type: 'string', description: 'target="blocks": the scene whose layers are listed' },
         entityId: { type: 'string', description: 'target="blocks": one block layer (the entity carrying blockLayer)' },
@@ -426,17 +432,20 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'bounded upload stage, uploads ≤ 1 MiB frames, and returns the bounded import proposal (or the structured ' +
       `import_rejected error carrying the ordered diagnostics). dataBase64 ≤ ${CONTENT_STAGE_MAX / 1_048_576} MiB decoded. The command that ` +
       'commits the content is submitted separately with tl_command (publishAsset), so dedup precedes any stage lookup. ' +
-      'For a project in a game folder, projectPath instead inspects a file already in that folder in place (nothing ' +
-      'is copied): the result carries sourcePath, which the publishAsset args must include so the version references ' +
-      'the file. Give exactly one of dataBase64 or projectPath. An FBX (either way) is converted to GLB by Blender on ' +
-      'the server first: the result then carries convertedFrom (not sourcePath), which the publishAsset args must include. ' +
-      'kind "texture" takes a PNG, JPEG, WebP or a Basis Universal KTX2 (ETC1S/UASTC with its mips; a 2D array is a texture array); ktx2 "color"|"normal"|"data" encodes a PNG/JPEG to KTX2 first. ' +
+      'Every imported file is kept in the game folder next to a .tlasset sidecar (the asset\'s id, kind, import settings): uploaded bytes ' +
+      'are written to assets/<name>.<ext> when publishAsset commits them (the change records the path). projectPath instead inspects a ' +
+      'file already in the game folder where it is (nothing is copied): the result carries sourcePath, which the publishAsset args must ' +
+      'include. Give exactly one of dataBase64 or projectPath. An FBX (either way) is converted to GLB by Blender on ' +
+      'the server first: the result then carries convertedFrom (not sourcePath), which the publishAsset args must include; the GLB is kept ' +
+      'in the import cache (git-ignored, made again from the FBX when missing). ' +
+      'kind "texture" takes a PNG, JPEG, WebP or a Basis Universal KTX2 (ETC1S/UASTC with its mips; a 2D array is a texture array); ktx2 "color"|"normal"|"data" is an ' +
+      'import setting of a PNG/JPEG: the image is the file, the KTX2 encoded from it is kept in the import cache. ' +
       'pack (instead of dataBase64/projectPath) makes a KTX2 texture from PNG/JPEG texture assets already in the project, channel by channel — ' +
       'several layers make a texture array (graph materials sample a layer: Sample texture / Normal map / Triplanar "layer"); the result carries packedFrom, which the publishAsset args (kind "texture") must include. ' +
       `kind "font" inspects a TrueType (.ttf), OpenType (.otf), WOFF2 or WOFF font (<= 4 MiB; at most ${MAX_FONT_ASSETS} fonts per project) for the project UI; publish it with kind "font". ` +
       'jobExport (phase 25.22) imports an asset tool\'s job export: a folder or a .zip holding a GLB and manifest.json {name, files: [{path, role, digest (sha256 hex)}], triangles?, lods?} ' +
       '(exactly one file with role "model", a .glb; every listed file is checked against its digest; other roles are checked, not imported). jobExport {path} names a folder or .zip in the game folder; ' +
-      'jobExport {} with dataBase64 uploads a zip. The result is the model\'s proposal (plus sourcePath for a folder: include it in the publishAsset args) and jobExport {name, files, triangles?, lods?, inspected {triangles}, warnings}; commit with publishAsset kind "model".',
+      'jobExport {} with dataBase64 uploads a zip, whose listed files are written into a new assets/<name>/ folder. The result is the model\'s proposal (plus sourcePath: include it in the publishAsset args) and jobExport {name, files, triangles?, lods?, inspected {triangles}, warnings}; commit with publishAsset kind "model".',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1068,7 +1077,8 @@ async function contentQuery(ctx: McpContext, a: Record<string, unknown>): Promis
     return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
   }
   if (target === 'integrity') {
-    const res = await ctx.client.contentIntegrity(ctx.projectId);
+    if (a.check !== undefined && typeof a.check !== 'boolean') return toolError('check must be a boolean');
+    const res = a.check === true ? await ctx.client.checkFiles(ctx.projectId) : await ctx.client.contentIntegrity(ctx.projectId);
     return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
   }
   // The v3 game-config query (commands.md) over the same shared command

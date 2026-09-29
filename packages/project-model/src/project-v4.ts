@@ -35,7 +35,7 @@ import { isFolderEntity } from './types-v3';
 import { materialOverrideErrors } from './materials';
 import { behaviorGroupErrors } from './modes';
 import { effectComponentErrors } from './effects';
-import { PROJECT_SCHEMA_VERSION, PROJECT_SCHEMA_VERSION_UPGRADED, isUpgradedProjectSchemaVersion } from './upgrade-v24';
+import { PROJECT_SCHEMA_VERSION, PROJECT_SCHEMA_VERSION_UPGRADED, PROJECT_SCHEMA_VERSION_V25, isUpgradedProjectSchemaVersion } from './upgrade-v24';
 import { nextFreeEntityIdOf } from './entity-ids';
 
 /**
@@ -60,7 +60,7 @@ export function validateManifestV2Project(doc: unknown): ModelResultV3<ProjectMa
   if (doc['schemaVersion'] !== PROJECT_SCHEMA_VERSION) {
     errors.push(
       isUpgradedProjectSchemaVersion(doc['schemaVersion'])
-        ? fieldValue('/schemaVersion', doc['schemaVersion'], String(PROJECT_SCHEMA_VERSION), `a schemaVersion ${String(doc['schemaVersion'])} project is upgraded by the loader before it is validated (${doc['schemaVersion'] === PROJECT_SCHEMA_VERSION_UPGRADED ? 'upgradeProjectDocsV24, then ' : ''}upgradeProjectDocsV25)`)
+        ? fieldValue('/schemaVersion', doc['schemaVersion'], String(PROJECT_SCHEMA_VERSION), `a schemaVersion ${String(doc['schemaVersion'])} project is upgraded by the loader before it is validated (${doc['schemaVersion'] === PROJECT_SCHEMA_VERSION_UPGRADED ? 'upgradeProjectDocsV24, then ' : ''}${doc['schemaVersion'] === PROJECT_SCHEMA_VERSION_V25 ? '' : 'upgradeProjectDocsV25, then '}the asset-file upgrade of the open)`)
         : fieldValue('/schemaVersion', doc['schemaVersion'], String(PROJECT_SCHEMA_VERSION), `a v4 project manifest has schemaVersion ${PROJECT_SCHEMA_VERSION}`),
     );
   }

@@ -34,6 +34,7 @@ import {
 
 import { ID_RE, validateEnvelope, type RetryRecord } from './envelope';
 import { cleanBlobTemps, cleanupStages, type ContentConfig } from './content-store';
+import { cleanupHeld } from './asset-files';
 import {
   invalidRequest,
   projectNotFound,
@@ -138,6 +139,8 @@ export interface ProjectSession {
   v4?: V4State | null;
   /** What the automatic v3 → v4 upgrade did at this open (for the problems log). */
   upgradeNotes?: string[];
+  /** Game-folder files a committed command could not bring in step (the next file check reports and repairs them). */
+  fileProblems?: string[];
   /** === scene.revision (0 while blocked). */
   revision: number;
   /** Published retry records (ascending appliedRevision). */
@@ -555,6 +558,8 @@ function cleanOpenArtifacts(core: Core, projectDir: string, sceneDir: string, th
   // leftover `sources/sha256/.<digest>.tmp-*`.
   cleanBlobTemps(projectDir);
   cleanupStages(core, projectDir, thirdlightDir, core.content.now());
+  // Held bytes past their retention (an upload never published, bytes an old undo would need).
+  cleanupHeld(thirdlightDir, core.content.now());
 }
 
 /**

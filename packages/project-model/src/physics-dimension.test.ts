@@ -16,7 +16,7 @@ import { validateSceneV3, validateSceneV4 } from './scene-v3';
 
 const T = (rotation: number[] = [0, 0, 0, 1], position: number[] = [0, 0, 0]) => ({ position, rotation, scale: [1, 1, 1] });
 const TILT_X = [Math.sin(Math.PI / 8), 0, 0, Math.cos(Math.PI / 8)];
-const MANIFEST = { schemaVersion: 4, engineVersion: '0.1.0', id: 'p', name: 'P', createdAt: '2026-09-23T00:00:00Z' };
+const MANIFEST = { schemaVersion: 5, engineVersion: '0.1.0', id: 'p', name: 'P', createdAt: '2026-09-23T00:00:00Z' };
 const content = (settings: Record<string, unknown>) => ({
   assets: [],
   prefabs: [],

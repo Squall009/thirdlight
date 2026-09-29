@@ -57,7 +57,7 @@ describe('publishAsset kind "font"', () => {
     expect(applyMutation(start(), req(publish('create', 'font-a', 1, { metrics: { format: 'woff2' } }), 0)).ok).toBe(true);
   });
 
-  it('caps a project at 16 fonts and a font at 8 versions', () => {
+  it('caps a project at 16 fonts; a re-import replaces the version (no per-asset version list)', () => {
     let s = start();
     let rev = 0;
     for (let i = 0; i < 16; i++) {
@@ -69,15 +69,15 @@ describe('publishAsset kind "font"', () => {
     const seventeenth = applyMutation(s, req(publish('create', 'font-16', 99), rev));
     expect(seventeenth.ok).toBe(false);
     if (!seventeenth.ok) expect(seventeenth.result.error).toMatchObject({ code: 'limits_exceeded', limit: 'font_assets', max: 16 });
-    for (let v = 2; v <= 8; v++) {
+    for (let v = 2; v <= 9; v++) {
       const out = applyMutation(s, req(publish('reimport', 'font-0', 100 + v), rev));
       expect(out.ok, JSON.stringify(out.result)).toBe(true);
       if (out.ok) s = out.state as State;
       rev += 1;
     }
-    const ninth = applyMutation(s, req(publish('reimport', 'font-0', 200), rev));
-    expect(ninth.ok).toBe(false);
-    if (!ninth.ok) expect(ninth.result.error).toMatchObject({ code: 'limits_exceeded', limit: 'font_versions', max: 8 });
+    const font = (s.content as unknown as { assets: { assetId: string; currentVersion: number; versions: { version: number }[] }[] }).assets.find((a) => a.assetId === 'font-0')!;
+    expect(font.currentVersion).toBe(9);
+    expect(font.versions.map((v) => v.version)).toEqual([9]);
   });
 
   it('refuses an unknown kind with the font in the expected list', () => {

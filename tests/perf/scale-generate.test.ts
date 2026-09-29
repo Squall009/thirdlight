@@ -4,7 +4,7 @@
  * matches its record, and the same seed writes the same bytes.
  */
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -20,9 +20,9 @@ afterAll(() => rmSync(root, { recursive: true, force: true }));
 const read = (dir: string, rel: string): unknown => JSON.parse(readFileSync(join(dir, rel), 'utf8'));
 
 describe('scale bench generator', () => {
-  it('writes a small project the model validates, with distinct sources matching their records', () => {
+  it('writes a small project the model validates, each asset a file with its sidecar matching its record', () => {
     const r = generateScaleProject(join(root, 'a'), 'scale', SCALE_SMALL, 7);
-    const content = read(r.dir, 'content.json') as { content: { assets: { assetId: string; kind: string; versions: { sourceDigest: string; sourceByteLength: number }[] }[]; dialogues: unknown[] } };
+    const content = read(r.dir, 'content.json') as { content: { assets: { assetId: string; kind: string; versions: { sourceDigest: string; sourceByteLength: number; sourcePath?: string }[] }[]; dialogues: unknown[] } };
     const scenes = r.sceneIds.map((id) => (read(r.dir, `scenes/${id}.json`) as { scene: unknown }).scene);
     const v = validateProjectV4(read(r.dir, 'project.json'), content.content, scenes, 0);
     expect(v.ok ? [] : v.errors.slice(0, 5)).toEqual([]);
@@ -33,17 +33,18 @@ describe('scale bench generator', () => {
     expect(r.counts.dialogueLines).toBe(SCALE_SMALL.dialogueNodes);
     expect(r.counts.scenes).toBe(SCALE_SMALL.scenes);
 
-    const blobs = readdirSync(join(r.dir, 'sources', 'sha256'));
-    expect(blobs.length).toBe(content.content.assets.length);
+    // Each asset is a file in the project's folder, next to its sidecar.
     for (const a of content.content.assets) {
-      const bytes = readFileSync(join(r.dir, 'sources', 'sha256', a.versions[0]!.sourceDigest));
-      expect(createHash('sha256').update(bytes).digest('hex')).toBe(a.versions[0]!.sourceDigest);
-      expect(bytes.length).toBe(a.versions[0]!.sourceByteLength);
+      const v = a.versions[0]!;
+      const bytes = readFileSync(join(r.dir, v.sourcePath!));
+      expect(createHash('sha256').update(bytes).digest('hex')).toBe(v.sourceDigest);
+      expect(bytes.length).toBe(v.sourceByteLength);
+      expect(read(r.dir, `${v.sourcePath!}.tlasset`)).toMatchObject({ tlasset: 1, id: a.assetId, kind: a.kind });
     }
   });
 
   it('is deterministic for a seed and differs for another', () => {
-    const digests = (dir: string): string[] => readdirSync(join(dir, 'sources', 'sha256')).sort();
+    const digests = (dir: string): string[] => (read(dir, 'content.json') as { content: { assets: { versions: { sourceDigest: string }[] }[] } }).content.assets.map((a) => a.versions[0]!.sourceDigest).sort();
     const a = generateScaleProject(join(root, 'b1'), 'scale', SCALE_SMALL, 11);
     const b = generateScaleProject(join(root, 'b2'), 'scale', SCALE_SMALL, 11);
     const c = generateScaleProject(join(root, 'b3'), 'scale', SCALE_SMALL, 12);

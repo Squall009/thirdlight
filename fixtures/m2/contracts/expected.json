@@ -318,7 +318,7 @@
         "asset_version_invalid"
       ],
       "innerErrorCount": 1,
-      "notes": "versions must be contiguous 1..N, append-only, never reordered or removed; currentVersion is set to 3 so exactly one error is produced."
+      "notes": "versions must be strictly ascending (a record keeps its current version; numbers only count changes); two versions numbered 3 with currentVersion 3 produce exactly one error."
     },
     {
       "path": "envelope/invalid/content-current-version-mismatch.json",

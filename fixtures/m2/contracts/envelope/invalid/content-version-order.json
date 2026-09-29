@@ -106,7 +106,7 @@
         "currentVersion": 1,
         "versions": [
           {
-            "version": 1,
+            "version": 3,
             "sourceDigest": "e5a1ea14d3910a126a20279038d478a6cd40258cf401b22eea321f94ff95eb41",
             "sourceByteLength": 26,
             "importRecipe": {

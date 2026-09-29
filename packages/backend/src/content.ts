@@ -64,9 +64,10 @@ import { INSTANCE_FLOATS, MAX_INSTANCES } from '@thirdlight/project-model/limits
 import { inspectAudio, inspectFont, inspectGlb, inspectImage, inspectMusic, AUDIO_PCM_WAV_TOOLCHAIN, FONT_TOOLCHAIN, IMAGE_TOOLCHAIN, MUSIC_TOOLCHAIN, M2_GLTF_TOOLCHAIN, type ImportJobPort, type ImportProposal } from '@thirdlight/asset-pipeline';
 import { createBehaviorCompiler } from '@thirdlight/behavior-build';
 import type { BehaviorCompiler } from '@thirdlight/behavior-build';
-import type { CommandError, MutationSuccess, StageInspector, WorkspaceService } from '@thirdlight/workspace';
+import { importKeyOfConverted, type CommandError, type MutationSuccess, type StageInspector, type WorkspaceService } from '@thirdlight/workspace';
 import { isFbx, type FbxConverter } from './fbx';
 import { KTX2_ENCODER, type Ktx2Mode, type PackLayer, type PackSource, type TextureEncoder } from './texture-encode';
+import type { AssetFileCheck } from './asset-files';
 import { THUMBNAIL_BYTES_MAX, type ThumbnailCache } from './thumbnails';
 import { BAKE_PACKAGE_BYTES_MAX, type BakeService } from './bake';
 import { zipEntries, zipRead, type ZipEntry } from './zip-read';
@@ -552,6 +553,8 @@ export interface ContentRouteDeps {
   thumbnails?: ThumbnailCache;
   /** The final light bake (absent: the bake routes answer "unavailable"). */
   bakes?: BakeService;
+  /** The asset file check (moved and changed files, the import cache). */
+  assetFiles?: AssetFileCheck;
 }
 
 /** Where an FBX to convert comes from: a game-folder file or an upload stage. */
@@ -655,6 +658,14 @@ export class ContentRoutes {
     if (n === 7 && parts[5] === 'assets') {
       if (method !== 'GET') return this.methodNotAllowed(res, 'GET');
       this.assetRecord(req, res, projectId, parts[6] ?? '');
+      return true;
+    }
+    // POST /api/v1/projects/:projectId/content/files/check — "check files":
+    // moved files found by their sidecars, changed files imported again, the
+    // import cache made whole; answers the integrity report after it.
+    if (n === 7 && parts[5] === 'files' && parts[6] === 'check') {
+      if (method !== 'POST') return this.methodNotAllowed(res, 'POST');
+      await this.checkFiles(req, res, projectId);
       return true;
     }
     // GET /api/v1/projects/:projectId/content/integrity
@@ -768,12 +779,12 @@ export class ContentRoutes {
       this.jobs.fail(job.jobId, staged.error.code, staged.error.message);
       return this.deps.sendError(res, commandErrorToSession(staged.error));
     }
-    // The immutable blob publication is deliberately NOT performed here: it is
-    // the last step of a *successful* inspection (order:
-    // stage ⇒ refusal/caps ⇒ read ⇒ digest ⇒ import-profile validation ⇒
-    // `publishBlob`). Publishing at upload completion would give a malformed
-    // GLB a durable `sources/sha256/<digest>` blob, contradicting
-    // the no-durable-effect rule for a refused import. The completed upload session is retained
+    // The bytes are deliberately NOT held here: holding them is the last step
+    // of a *successful* inspection (order: stage ⇒ refusal/caps ⇒ read ⇒
+    // digest ⇒ import-profile validation ⇒ hold). Holding them at upload
+    // completion would keep a malformed GLB for the publish to file into the
+    // game folder, contradicting the no-durable-effect rule for a refused
+    // import. The completed upload session is retained
     // (its displayName feeds the inspect proposal) until the caller discards it
     // or the TTL cleanup runs.
     if (this.jobs.overDeadline(job.jobId)) {
@@ -835,9 +846,8 @@ export class ContentRoutes {
       this.jobs.fail(job.jobId, result.error.code, result.error.message);
       return this.deps.sendError(res, commandErrorToSession(result.error));
     }
-    // Only an accepted import profile reaches
-    // the immutable publication. A rejected (malformed) GLB therefore leaves no
-    // durable blob; its staged
+    // Only an accepted import profile is held for the publish. A rejected
+    // (malformed) GLB therefore never reaches the game folder; its staged
     // input stays non-authoritative and TTL-bounded. The transport still writes
     // nothing itself — the workspace owns every byte of this write.
     const pubJob = this.jobs.begin('publish', projectId);
@@ -845,11 +855,14 @@ export class ContentRoutes {
       this.jobs.fail(job.jobId, pubJob.error.code, pubJob.error.message);
       return this.deps.sendError(res, pubJob.error);
     }
-    const published = this.deps.service.publishBlob(projectId, {
-      digest: result.proposal.sourceDigest,
-      byteLength: result.proposal.sourceByteLength,
-      source: { kind: 'stage', stageId: sid.stageId },
-    });
+    // The bytes are held until the publishAsset that files them into the game folder.
+    const staged = this.deps.service.readStage(projectId, sid.stageId);
+    const published = staged.ok ? this.deps.service.holdAssetBytes(projectId, staged.bytes) : staged;
+    if (published.ok && published.digest !== result.proposal.sourceDigest) {
+      this.jobs.fail(pubJob.jobId, 'blob_corrupt', 'the stage changed while it was inspected');
+      this.jobs.fail(job.jobId, 'blob_corrupt', 'the stage changed while it was inspected');
+      return this.deps.sendError(res, sessionError('blob_corrupt', 'internal', 'the staged bytes changed while they were inspected'));
+    }
     if (!published.ok) {
       this.jobs.fail(pubJob.jobId, published.error.code, published.error.message);
       this.jobs.fail(job.jobId, published.error.code, published.error.message);
@@ -974,11 +987,11 @@ export class ContentRoutes {
    * the game folder, or an uploaded stage) holding a GLB and `manifest.json`
    * (`@thirdlight/protocol` job-export: name, files with role and digest,
    * triangles?, lods?). Every listed file is checked against its digest; the
-   * one `model` file goes through the ordinary inspection: in a folder it is
-   * referenced in place (the proposal carries `sourcePath`), from a zip it is
-   * staged, inspected and published as a blob, as an upload is. Nothing else
-   * is written: the caller commits it with the ordinary `publishAsset`
-   * command. The response carries `jobExport` (the manifest's facts, the
+   * one `model` file goes through the ordinary inspection where it is (the
+   * proposal carries `sourcePath`): a folder is already in the game folder,
+   * a zip's listed files and manifest are first written into a new
+   * `assets/<name>/` folder of it. The caller commits it with the ordinary
+   * `publishAsset` command. The response carries `jobExport` (the manifest's facts, the
    * checked files and the inspected triangle count next to the claimed one).
    */
   private async inspectJobExport(req: IncomingMessage, res: ServerResponse, projectId: string): Promise<void> {
@@ -1065,14 +1078,11 @@ export class ContentRoutes {
     const manifest = man.manifest;
     // Every listed file, with its digest.
     const files: { path: string; role: string; digest: string; byteLength: number }[] = [];
-    let modelBytes: Uint8Array | undefined;
     for (let i = 0; i < manifest.files.length; i += 1) {
       const f = manifest.files[i]!;
-      const isModel = f.role === 'model';
       const r = fileOf(f.path, MAX_JOB_EXPORT_FILE_BYTES, false);
       if (!r.ok) return this.deps.sendError(res, { ...r.error, path: `/files/${i}` });
       if (r.digest !== f.digest) return refused(`${f.path} does not have its listed digest (the export is incomplete or changed)`, `/files/${i}/digest`);
-      if (isModel) modelBytes = r.bytes;
       files.push({ path: f.path, role: f.role, digest: f.digest, byteLength: r.byteLength });
     }
     const model = manifest.files.find((f) => f.role === 'model')!;
@@ -1094,34 +1104,30 @@ export class ContentRoutes {
       proposal = result.proposal as ImportedProposalView;
       sourcePath = result.sourcePath;
     } else {
-      // Stage the GLB (a fresh stage id), inspect it and publish it as a blob, as an upload is.
-      const begun = this.uploads.begin(projectId, displayName);
-      if (!begun.ok) {
-        this.jobs.fail(job.jobId, begun.error.code, begun.error.message);
-        return this.deps.sendError(res, begun.error);
+      // A zip lands as a folder of the game folder (its listed files and the
+      // manifest), and the model is imported where it is, as from a folder.
+      const out: { path: string; bytes: Uint8Array }[] = [{ path: JOB_EXPORT_MANIFEST, bytes: m.bytes! }];
+      for (const f of manifest.files) {
+        const r = fileOf(f.path, MAX_JOB_EXPORT_FILE_BYTES, true);
+        if (!r.ok || r.bytes === undefined) return this.deps.sendError(res, r.ok ? sessionError('content_invalid', 'validation', `job export: ${f.path} could not be read`, { path: '/path' }) : r.error);
+        out.push({ path: f.path, bytes: r.bytes });
       }
-      this.uploads.discard(begun.stageId);
-      const glbStage = begun.stageId;
-      const staged = this.deps.service.stageContent(projectId, { stageId: glbStage, bytes: modelBytes!, displayName });
-      if (!staged.ok) {
-        this.jobs.fail(job.jobId, staged.error.code, staged.error.message);
-        return this.deps.sendError(res, commandErrorToSession(staged.error));
+      const written = this.deps.service.writeAssetFolder(projectId, manifest.name, out);
+      if (!written.ok) {
+        this.jobs.fail(job.jobId, written.error.code, written.error.message);
+        return this.deps.sendError(res, commandErrorToSession(written.error));
       }
-      try {
-        const result = this.deps.service.inspectStage(projectId, glbStage, { isCancelled: () => this.jobs.isCancelled(job.jobId), displayName, kind: 'model' });
-        if (!result.ok) {
-          this.jobs.fail(job.jobId, result.error.code, result.error.message);
-          return this.deps.sendError(res, commandErrorToSession(result.error));
-        }
-        const blob = this.deps.service.publishBlob(projectId, { digest: result.proposal.sourceDigest, byteLength: result.proposal.sourceByteLength, source: { kind: 'stage', stageId: glbStage } });
-        if (!blob.ok) {
-          this.jobs.fail(job.jobId, blob.error.code, blob.error.message);
-          return this.deps.sendError(res, commandErrorToSession(blob.error));
-        }
-        proposal = result.proposal as ImportedProposalView;
-      } finally {
-        this.deps.service.discardStage(projectId, glbStage);
+      const result = this.deps.service.inspectProjectFile(projectId, `${written.folder}/${model.path}`, { isCancelled: () => this.jobs.isCancelled(job.jobId), displayName, kind: 'model' });
+      if (!result.ok) {
+        this.jobs.fail(job.jobId, result.error.code, result.error.message);
+        return this.deps.sendError(res, commandErrorToSession(result.error));
       }
+      if (result.proposal.sourceDigest !== model.digest) {
+        this.jobs.fail(job.jobId, 'asset_source_changed', 'the model changed while it was read');
+        return this.deps.sendError(res, sessionError('asset_source_changed', 'conflict', `job export: ${model.path} changed while it was read; try again`, { path: '/path' }));
+      }
+      proposal = result.proposal as ImportedProposalView;
+      sourcePath = result.sourcePath;
     }
     this.jobs.finish(job.jobId, { proposalId: proposal.proposalId, status: proposal.status });
     const inspectedTriangles = proposal.metrics?.triangles;
@@ -1145,12 +1151,12 @@ export class ContentRoutes {
   }
 
   /**
-   * FBX import: convert with headless Blender, stage the GLB like an upload,
-   * inspect it through the ordinary profile and publish it as a blob (the
-   * version's stored bytes). The response carries `convertedFrom` for the
-   * `publishAsset` args: the FBX's digest/size, its game-folder path (a file
-   * stays where it is) — an uploaded FBX is published as a blob too — and the
-   * Blender version.
+   * FBX import: convert with headless Blender, stage the GLB like an upload
+   * and inspect it through the ordinary profile; the GLB goes into the import
+   * cache (made again from the FBX when missing). The response carries
+   * `convertedFrom` for the `publishAsset` args: the FBX's digest/size, its
+   * game-folder path (a file stays where it is; an uploaded FBX is held and
+   * the publish files it into the game folder) and the Blender version.
    */
   private async inspectConverted(
     res: ServerResponse,
@@ -1209,22 +1215,16 @@ export class ContentRoutes {
         this.jobs.fail(job.jobId, result.error.code, result.error.message);
         return this.deps.sendError(res, commandErrorToSession(result.error));
       }
-      const glb = this.deps.service.publishBlob(projectId, {
-        digest: result.proposal.sourceDigest,
-        byteLength: result.proposal.sourceByteLength,
-        source: { kind: 'stage', stageId: glbStage },
-      });
+      const convertedFrom = { format: 'fbx' as const, ...original, converter: { name: 'blender' as const, version: converted.blenderVersion } };
+      // The GLB is what the importer made from the FBX: the import cache holds it.
+      const glb = this.deps.service.writeImportedArtifact(projectId, importKeyOfConverted(convertedFrom), converted.glb);
       if (!glb.ok) {
         this.jobs.fail(job.jobId, glb.error.code, glb.error.message);
         return this.deps.sendError(res, commandErrorToSession(glb.error));
       }
       if (source.kind === 'stage') {
-        // An uploaded original has no other home: keep it as a blob.
-        const fbx = this.deps.service.publishBlob(projectId, {
-          digest: original.sourceDigest,
-          byteLength: original.sourceByteLength,
-          source: { kind: 'stage', stageId: source.stageId },
-        });
+        // An uploaded FBX is held until the publish files it into the game folder.
+        const fbx = this.deps.service.holdAssetBytes(projectId, source.bytes);
         if (!fbx.ok) {
           this.jobs.fail(job.jobId, fbx.error.code, fbx.error.message);
           return this.deps.sendError(res, commandErrorToSession(fbx.error));
@@ -1232,7 +1232,6 @@ export class ContentRoutes {
       }
       const p = result.proposal;
       this.jobs.finish(job.jobId, { proposalId: p.proposalId, status: p.status });
-      const convertedFrom = { format: 'fbx' as const, ...original, converter: { name: 'blender' as const, version: converted.blenderVersion } };
       this.deps.sendJson(res, 200, { ok: true, proposal: p, convertedFrom, truncated: false, jobId: job.jobId });
     } finally {
       this.deps.service.discardStage(projectId, glbStage);
@@ -1240,12 +1239,13 @@ export class ContentRoutes {
   }
 
   /**
-   * KTX2 encoding on import — encode the PNG/JPEG (the worker
-   * thread), stage the KTX2 like an upload, inspect it through the texture
-   * profile and publish it as a blob (the version's stored bytes). As with an
-   * FBX, the response carries `convertedFrom` for the `publishAsset` args: the
-   * original's digest/size, its game-folder path (an uploaded original is
-   * kept as a blob too), the encoder and the encoding.
+   * KTX2 encoding on import — an import setting of the PNG/JPEG, as Unity's
+   * texture compression is: encode the image (the worker thread), stage the
+   * KTX2 and inspect it through the texture profile; the KTX2 goes into the
+   * import cache, never into the game folder. As with an FBX, the response
+   * carries `convertedFrom` for the `publishAsset` args: the image's
+   * digest/size, its game-folder path (an uploaded image is held and the
+   * publish files it), the encoder and the encoding.
    */
   private async inspectEncoded(res: ServerResponse, projectId: string, source: FbxSource, mode: Ktx2Mode, displayName: string | undefined): Promise<void> {
     const failed = (code: string, cls: SessionError['cls'], message: string, extra: Partial<SessionError> = {}): void => {
@@ -1296,21 +1296,22 @@ export class ContentRoutes {
         this.deps.sendJson(res, 200, { ok: true, proposal: p, truncated: false, jobId: job.jobId });
         return;
       }
-      const ktx = this.deps.service.publishBlob(projectId, { digest: p.sourceDigest, byteLength: p.sourceByteLength, source: { kind: 'stage', stageId: ktxStage } });
+      // The encoding is an import setting of the image: the KTX2 goes to the import cache, not into the game folder.
+      const convertedFrom = { format: encoded.source.format, ...original, converter: { name: KTX2_ENCODER.name, version: KTX2_ENCODER.version }, encoding: mode };
+      const ktx = this.deps.service.writeImportedArtifact(projectId, importKeyOfConverted(convertedFrom), encoded.ktx2);
       if (!ktx.ok) {
         this.jobs.fail(job.jobId, ktx.error.code, ktx.error.message);
         return this.deps.sendError(res, commandErrorToSession(ktx.error));
       }
       if (source.kind === 'stage') {
-        // An uploaded original has no other home: keep it as a blob (a later re-encode reads it).
-        const orig = this.deps.service.publishBlob(projectId, { digest: original.sourceDigest, byteLength: original.sourceByteLength, source: { kind: 'stage', stageId: source.stageId } });
+        // An uploaded image is held until the publish files it into the game folder.
+        const orig = this.deps.service.holdAssetBytes(projectId, source.bytes);
         if (!orig.ok) {
           this.jobs.fail(job.jobId, orig.error.code, orig.error.message);
           return this.deps.sendError(res, commandErrorToSession(orig.error));
         }
       }
       this.jobs.finish(job.jobId, { proposalId: p.proposalId, status: p.status });
-      const convertedFrom = { format: encoded.source.format, ...original, converter: { name: KTX2_ENCODER.name, version: KTX2_ENCODER.version }, encoding: mode };
       this.deps.sendJson(res, 200, { ok: true, proposal: p, convertedFrom, truncated: false, jobId: job.jobId });
     } finally {
       this.deps.service.discardStage(projectId, ktxStage);
@@ -1322,7 +1323,8 @@ export class ContentRoutes {
    * from the project's texture assets, channel by channel. The sources are the
    * named assets' current versions (PNG/JPEG, one size); the worker thread
    * decodes, packs and encodes; the KTX2 is staged, inspected through the
-   * texture profile and published as a blob like an encoded import. The
+   * texture profile and held: the publish files it into the game folder as
+   * the packed texture's own file, its sidecar naming the sources. The
    * response carries `packedFrom` (each channel's asset, version digest and
    * channel) for the `publishAsset` args.
    */
@@ -1387,7 +1389,8 @@ export class ContentRoutes {
         this.deps.sendJson(res, 200, { ok: true, proposal: p, truncated: false, jobId: job.jobId });
         return;
       }
-      const blob = this.deps.service.publishBlob(projectId, { digest: p.sourceDigest, byteLength: p.sourceByteLength, source: { kind: 'stage', stageId } });
+      // The packed KTX2 is its own file: held until the publish files it into the game folder.
+      const blob = this.deps.service.holdAssetBytes(projectId, packed.ktx2);
       if (!blob.ok) {
         this.jobs.fail(job.jobId, blob.error.code, blob.error.message);
         return this.deps.sendError(res, commandErrorToSession(blob.error));
@@ -1443,6 +1446,19 @@ export class ContentRoutes {
     const result = this.deps.service.contentIntegrity(projectId);
     if (!result.ok) return this.deps.sendError(res, commandErrorToSession(result.error));
     this.deps.sendJson(res, 200, { ok: true, entries: result.entries, summary: result.summary });
+  }
+
+  private async checkFiles(req: IncomingMessage, res: ServerResponse, projectId: string): Promise<void> {
+    const auth = this.deps.requireAuth(req, projectId, false);
+    if (auth !== null) return this.deps.sendError(res, auth);
+    const check = this.deps.assetFiles;
+    if (check === undefined) return this.deps.sendError(res, sessionError('invalid_request', 'unavailable', 'this backend does not check asset files'));
+    const done = await check.check(projectId);
+    if (!done.ok) return this.deps.sendError(res, sessionError(done.code as SessionError['code'], 'unavailable', done.message));
+    for (const f of done.report.failed) this.deps.onJobFailed?.(projectId, 'file check', f.code, `${f.assetId}${f.file !== null ? ` (${f.file})` : ''}: ${f.message}`);
+    const result = this.deps.service.contentIntegrity(projectId);
+    if (!result.ok) return this.deps.sendError(res, commandErrorToSession(result.error));
+    this.deps.sendJson(res, 200, { ok: true, check: done.report, entries: result.entries, summary: result.summary });
   }
 
   private job(req: IncomingMessage, res: ServerResponse, projectId: string, rawJobId: string): void {

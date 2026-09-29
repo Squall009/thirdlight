@@ -23,7 +23,7 @@ const content = (extra: Record<string, unknown> = {}): Record<string, unknown> =
 });
 const scene = (entities: unknown[]): Record<string, unknown> => ({ schemaVersion: 4, sceneId: 'scene-main', revision: 1, entities });
 const cam = { id: 'cam-main', components: { transform: T, camera: { type: 'perspective', fovY: 60, near: 0.1, far: 100 } } };
-const MANIFEST = { schemaVersion: 4, engineVersion: '0.1.0', id: 'p', name: 'P', createdAt: '2026-09-23T00:00:00Z' };
+const MANIFEST = { schemaVersion: 5, engineVersion: '0.1.0', id: 'p', name: 'P', createdAt: '2026-09-23T00:00:00Z' };
 
 describe('upgrade: generic data is carried over', () => {
   it('pickups become collectibles adding to the counters they added to; the amount, size and sound carry over', () => {

@@ -87,9 +87,18 @@ export interface IntegrityEntryView {
   sourceDigest: string;
   referenced: boolean;
   sourcePath?: string;
-  /** A converted model's original (FBX) and whether it still has the imported bytes. */
-  convertedFrom?: { format: 'fbx'; sourcePath?: string; status: 'ok' | 'missing' | 'corrupt' | 'unreadable' | 'changed' };
+  /** A converted asset's original (FBX, or the PNG/JPEG of a KTX2) and whether it still has the imported bytes. */
+  convertedFrom?: { format: string; sourcePath?: string; status: 'ok' | 'missing' | 'corrupt' | 'unreadable' | 'changed' };
   status: 'ok' | 'missing' | 'corrupt' | 'unreadable' | 'changed';
+}
+
+/** What the backend's file check did: moved files found by their sidecars, changed files imported again, the import cache made whole. */
+export interface FileCheckView {
+  relocated: { assetId: string; from: string | null; to: string }[];
+  reimported: { assetId: string; file: string; version: number }[];
+  rebuilt: { assetId: string; file: string }[];
+  failed: { assetId: string; file: string | null; code: string; message: string }[];
+  sidecarProblems: string[];
 }
 
 /** One entry of the backend's problems log. */

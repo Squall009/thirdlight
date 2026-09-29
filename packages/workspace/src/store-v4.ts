@@ -1,8 +1,8 @@
 /**
  * Storage version 4 — a project is several files.
  *
- *   project.json            manifest schemaVersion 4 (id, name, engine, createdAt;
- *                           a 2 or 3 is upgraded on open)
+ *   project.json            manifest schemaVersion 5 (id, name, engine, createdAt;
+ *                           a 2, 3 or 4 is upgraded on open)
  *   content.json            { storageVersion: 4, type: "project-content", projectId,
  *                             revision, content (v4), retry }
  *   scenes/<sceneId>.json   { storageVersion: 4, type: "scene", projectId,
@@ -29,7 +29,9 @@
  * `upgradeProjectDocsV24` before it is validated (the open writes the result
  * back); game data it refuses blocks the load with the model's problems.
  * A schemaVersion 3 project (and a 2 after that upgrade) goes
- * through `upgradeProjectDocsV25` to 4 (no document changes; written back).
+ * through `upgradeProjectDocsV25` to 4 (no document changes); a 4 is marked
+ * for the open's asset-file upgrade to 5 (`upgrade-assets.ts`), which writes
+ * files into the game folder and so is not a pure document step.
  */
 
 import { mkdirSync } from 'node:fs';
@@ -40,6 +42,7 @@ import {
   PROJECT_SCHEMA_VERSION,
   PROJECT_SCHEMA_VERSION_UPGRADED,
   PROJECT_SCHEMA_VERSION_V24,
+  PROJECT_SCHEMA_VERSION_V25,
   isUpgradedProjectSchemaVersion,
   upgradeProjectDocsV24,
   upgradeProjectDocsV25,
@@ -226,8 +229,8 @@ export function manifestV2Bytes(manifest: ProjectManifestV2): Uint8Array {
 // ---- reading -----------------------------------------------------------------
 
 export type LoadV4Outcome =
-  /** `upgraded`: a schemaVersion 2 project read through `upgradeProjectDocsV24` (not yet written back; its notes). */
-  | { kind: 'loaded'; state: V4State; upgraded?: { notes: string[] } }
+  /** `upgraded`: an older project read through the pure upgrades (not yet written back; its notes); `assetFiles`: its assets still have to become files. */
+  | { kind: 'loaded'; state: V4State; upgraded?: { notes: string[]; assetFiles?: true } }
   | { kind: 'blocked'; reason: UnavailableReason; errors: readonly LoadDetail[]; count: number };
 
 function blocked(reason: UnavailableReason, errors: LoadDetail[]): LoadV4Outcome {
@@ -305,7 +308,7 @@ export function loadV4(ops: WriteOps, dir: string, projectId: string): LoadV4Out
   let manifestDoc: unknown = man.value;
   let contentDoc: unknown = content.value['content'];
   let docs: unknown[] = sceneDocs;
-  let upgraded: { notes: string[] } | undefined;
+  let upgraded: { notes: string[]; assetFiles?: true } | undefined;
   const fromVersion = man.value['schemaVersion'];
   if (fromVersion === PROJECT_SCHEMA_VERSION_UPGRADED) {
     const u = upgradeProjectDocsV24(contentDoc, sceneDocs);
@@ -318,12 +321,16 @@ export function loadV4(ops: WriteOps, dir: string, projectId: string): LoadV4Out
     upgraded = { notes: [`the project was upgraded from project schemaVersion ${PROJECT_SCHEMA_VERSION_UPGRADED} to ${PROJECT_SCHEMA_VERSION_V24} (phase 24: the engine has no game rules)`, ...u.notes] };
   }
   // A schemaVersion 3 project (or a 2 just upgraded to 3) becomes 4 (no document changes: old ids are kept).
-  if (isUpgradedProjectSchemaVersion(fromVersion)) {
+  if (fromVersion === PROJECT_SCHEMA_VERSION_UPGRADED || fromVersion === PROJECT_SCHEMA_VERSION_V24) {
     const u = upgradeProjectDocsV25(contentDoc, docs);
-    manifestDoc = { ...man.value, schemaVersion: PROJECT_SCHEMA_VERSION };
     contentDoc = u.content;
     docs = u.scenes;
-    upgraded = { notes: [...(upgraded?.notes ?? [`the project was upgraded from project schemaVersion ${PROJECT_SCHEMA_VERSION_V24} to ${PROJECT_SCHEMA_VERSION}`]), ...u.notes] };
+    upgraded = { notes: [...(upgraded?.notes ?? [`the project was upgraded from project schemaVersion ${PROJECT_SCHEMA_VERSION_V24} to ${PROJECT_SCHEMA_VERSION_V25}`]), ...u.notes] };
+  }
+  // A 4 (or older, just upgraded to 4) becomes 5 at the open, which writes its asset files (upgrade-assets.ts).
+  if (isUpgradedProjectSchemaVersion(fromVersion)) {
+    manifestDoc = { ...man.value, schemaVersion: PROJECT_SCHEMA_VERSION };
+    upgraded = { notes: upgraded?.notes ?? [], assetFiles: true };
   }
   const v = validateProjectV4(manifestDoc, contentDoc, docs, revision);
   if (!v.ok) {

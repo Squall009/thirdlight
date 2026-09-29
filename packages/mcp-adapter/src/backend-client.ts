@@ -300,6 +300,11 @@ export class BackendClient {
     return this.request('GET', `/api/v1/projects/${encodeURIComponent(projectId)}/content/integrity`);
   }
 
+  /** POST "check files": the catalog brought in step with the game folder, then the integrity report. */
+  checkFiles(projectId: string): Promise<BackendResponse> {
+    return this.request('POST', `/api/v1/projects/${encodeURIComponent(projectId)}/content/files/check`, {});
+  }
+
   /** GET one bounded content job (job_not_found / job_expired). */
   contentJob(projectId: string, jobId: string): Promise<BackendResponse> {
     return this.request('GET', `/api/v1/projects/${encodeURIComponent(projectId)}/content/jobs/${encodeURIComponent(jobId)}`);

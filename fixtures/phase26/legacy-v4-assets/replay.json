@@ -1,0 +1,21 @@
+{
+  "op": "createEntity",
+  "projectId": "legacy-v4-assets",
+  "expectedRevision": 6,
+  "requestId": "req-0000000000000000000000000000000b",
+  "origin": {
+    "kind": "mcp",
+    "clientId": "fixture"
+  },
+  "args": {
+    "kind": "box",
+    "name": "Wall",
+    "transform": {
+      "position": [
+        0,
+        0,
+        -3
+      ]
+    }
+  }
+}

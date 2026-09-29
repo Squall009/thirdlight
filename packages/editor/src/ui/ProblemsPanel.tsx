@@ -1,8 +1,8 @@
 /**
- * Problems panel: files referenced in place in the game folder that changed or
- * went missing (live state, with re-import), then the backend's recent project
- * problems (failed commands, Play and export failures, external edits), newest
- * first.
+ * Problems panel: asset files in the game folder the file check could not
+ * bring in step (live state, with re-import), then the backend's recent
+ * project problems (failed commands, Play and export failures, external
+ * edits), newest first.
  */
 import type { JSX } from 'react';
 import type { ProblemView } from '../session/client';
@@ -29,7 +29,7 @@ interface Props {
   problems: readonly ProblemView[];
   /** Models the scene view could not load (by asset or entity). */
   viewFailures: readonly { id: string; name: string; code: string; message: string }[];
-  /** null for a project in the data root (no game folder to check). */
+  /** null until the project's folder has been checked. */
   sourceIssues: readonly SourceIssue[] | null;
   checking: boolean;
   onCheckFiles: () => void;
@@ -44,7 +44,7 @@ export function ProblemsPanel({ graphIssues = [], onGraphIssue, problems, viewFa
       <div className="tl-panel__title">
         Problems
         {sourceIssues !== null && (
-          <button className="tl-btn tl-btn--small" disabled={checking} onClick={onCheckFiles} title="Compare the asset files in the game folder with the imported versions">
+          <button className="tl-btn tl-btn--small" disabled={checking} onClick={onCheckFiles} title="Check the asset files in the game folder: a file moved with its .tlasset file keeps its asset, a changed file is imported again">
             {checking ? 'checking…' : 'check files'}
           </button>
         )}
@@ -58,7 +58,7 @@ export function ProblemsPanel({ graphIssues = [], onGraphIssue, problems, viewFa
                 {i.message}
               </span>
               {i.canReimport && (
-                <button className="tl-btn tl-btn--small" onClick={() => onReimport(i)} title={`Record ${i.sourcePath} as a new version (undoable)`}>
+                <button className="tl-btn tl-btn--small" onClick={() => onReimport(i)} title={`Import ${i.sourcePath} again (undoable)`}>
                   Re-import
                 </button>
               )}

@@ -81,19 +81,10 @@ export class ContentProjection {
       // `deleteAsset` (and its redo) removes the record.
       case 'removeAsset':
         return this.assets.delete(change.assetId);
-      case 'setAssetOptions': {
-        const a = this.assets.get(change.assetId);
-        if (a === undefined) return false;
-        const next = change.next as CommandAssetRecord & { materials?: Record<string, string>; clipsFor?: string };
-        const { vertexColors: _old, materials: _m, clipsFor: _c, ...rest } = a;
-        this.assets.set(change.assetId, {
-          ...rest,
-          ...(next.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}),
-          ...(next.materials !== undefined ? { materials: { ...next.materials } } : {}),
-          ...(next.clipsFor !== undefined ? { clipsFor: next.clipsFor } : {}),
-        });
-        return true;
-      }
+      // The whole next record (its options, and where its file is after a move).
+      case 'setAssetOptions':
+        if (!this.assets.has(change.assetId)) return false;
+        return this.applyPublishAsset({ type: 'publishAsset', mode: 'reimport', assetId: change.assetId, previous: null, next: change.next } as unknown as PublishAssetChange);
       default:
         return false;
     }

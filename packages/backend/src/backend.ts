@@ -28,6 +28,7 @@ import { mergeTimeouts, parseBackendConfig, type BackendConfig } from './config'
 import { publishBehaviorSource } from './behavior';
 import { diagnosticsWithNodes, generateGraphSource, graphProblemsFailure } from '@thirdlight/behavior-build';
 import { ContentRoutes, createAssetInspector, createBehaviorCompilerPort } from './content';
+import { createAssetFileCheck } from './asset-files';
 import { createFbxConverter } from './fbx';
 import { createInlineTextureEncoder, createWorkerTextureEncoder } from './texture-encode';
 
@@ -128,6 +129,7 @@ export function createBackend(
   // One compiler instance for both the injected workspace path and
   // the play build's deterministic behavior-output recompilation.
   const behaviorCompiler = createBehaviorCompilerPort(nowMs);
+  const assetInspector = createAssetInspector();
   const service: WorkspaceService = openWorkspaceService({
     root: config.dataRoot,
     backendId: config.backendId,
@@ -135,7 +137,7 @@ export function createBackend(
     // The backend constructs the pure `asset-pipeline` inspector
     // and injects it into the workspace. The
     // workspace owns the staged-byte read; the transport never touches a file.
-    assetInspector: createAssetInspector(),
+    assetInspector,
     // The backend constructs the pinned behavior-source compiler
     // (`behavior-build`) and injects it — the workspace's preparation layer
     // drives it; the compiler never reads a path or executes project source.
@@ -279,6 +281,19 @@ export function createBackend(
   // Content transport (bounded uploads, jobs, content queries and
   // the authenticated asset-byte read). It delegates every write/read to the
   // injected workspace service and performs no filesystem work itself.
+  const fbx = createFbxConverter({ blender: config.blenderPath ?? 'blender', workRoot: join(config.dataRoot, '.convert') });
+  // KTX2 encoding on import — a worker thread next to the deployment bundle
+  // (dist/backend/ktx2-worker.mjs), in this thread when run from source (tests).
+  const textureEncoder = KTX2_WORKER !== null ? createWorkerTextureEncoder(KTX2_WORKER) : createInlineTextureEncoder();
+  // The game folder is the truth for assets: moved and changed files, the import cache.
+  const assetFiles = createAssetFileCheck({
+    service,
+    inspector: assetInspector,
+    fbx,
+    textureEncoder,
+    now: nowMs,
+    onApplied: (projectId, r) => notifyMutationApplied(projectId, r.requestId, r.revision, { kind: 'admin', clientId: 'file-check' }, r.change, (r as { sceneId?: string }).sceneId),
+  });
   const contentRoutes = new ContentRoutes({
     service,
     now: nowMs,
@@ -287,11 +302,10 @@ export function createBackend(
     requireAuth,
     log: logStartup,
     onJobFailed: (projectId, kind, code, message) => recordProblem(projectId, 'import', code, `Import ${kind} failed: ${message}`),
-    fbx: createFbxConverter({ blender: config.blenderPath ?? 'blender', workRoot: join(config.dataRoot, '.convert') }),
-    // KTX2 encoding on import — a worker thread next to the deployment bundle
-    // (dist/backend/ktx2-worker.mjs), in this thread when run from source (tests).
-    textureEncoder: KTX2_WORKER !== null ? createWorkerTextureEncoder(KTX2_WORKER) : createInlineTextureEncoder(),
-    thumbnails: createThumbnailCache(config.dataRoot),
+    fbx,
+    textureEncoder,
+    assetFiles,
+    thumbnails: createThumbnailCache((projectId) => service.importCacheDir(projectId)),
     bakes: createBakeService({
       ...(config.bake !== undefined ? { host: config.bake.host } : {}),
       blender: config.bake?.blender ?? 'blender',
@@ -1738,10 +1752,10 @@ export function createBackend(
 
   // The prebuilt play scripts (bundle, worker, physics), read once per build, at digest-keyed URLs.
   const playBuild = createPlayBuildCache(config.previewStaticDir);
-  const { playStartRoute, playStopRoute, playSnapshotRoute, relayRoute, inputRelayRoute, gameControlRoute, gameObserveRoute } = makePlayRoutes({ config, nowMs, logStartup, behaviorCompiler, service, sessions, playContent, plays, relayTimeoutMs, sendJson, sendError, bearerToken, tokenScope, badOriginError, requireAuth, readBody, fullState, workspaceError, connectedOwner, unavailableError, recordProblem, headless, playBuild });
+  const { playStartRoute, playStopRoute, playSnapshotRoute, relayRoute, inputRelayRoute, gameControlRoute, gameObserveRoute } = makePlayRoutes({ config, nowMs, logStartup, behaviorCompiler, service, sessions, playContent, plays, relayTimeoutMs, sendJson, sendError, bearerToken, tokenScope, badOriginError, requireAuth, readBody, fullState, workspaceError, connectedOwner, unavailableError, recordProblem, headless, playBuild, ensureImported: assetFiles.ensureImported });
 
   const pinWarned = new Set<string>();
-  const { adminCreateProject, adminRegisterProject, adminUnregisterProject, adminProjectOp, adminExportRoute } = makeAdminRoutes({ config, behaviorCompiler, service, sendJson, sendError, requireAuth, readBody, workspaceError, recordProblem });
+  const { adminCreateProject, adminRegisterProject, adminUnregisterProject, adminProjectOp, adminExportRoute } = makeAdminRoutes({ config, behaviorCompiler, service, sendJson, sendError, requireAuth, readBody, workspaceError, recordProblem, ensureImported: assetFiles.ensureImported });
 
   const { serveStatic, previewCsp, locatorBaseHeaders, previewTemplate, previewShellHtml, isolationHeaders } = makeStaticRoutes({ config, sendJson });
 

@@ -220,7 +220,7 @@ export function AssetBrowser(p: Props): JSX.Element {
           className="tl-btn"
           disabled={!selected || BUSY.has(p.importState.phase)}
           onClick={() => reimportInput.current?.click()}
-          title="Append a new immutable version under the same assetId (model or audio bytes)"
+          title="Import other bytes for the selected asset: its file in the game folder is replaced (one undo puts it back)"
         >
           reimport…
         </button>
@@ -331,7 +331,7 @@ export function AssetBrowser(p: Props): JSX.Element {
             preview · {selected.displayName}
           </div>
           {selected.sourcePath !== undefined && (
-            <div className="tl-assets__source" title="Referenced in place in the game folder (not copied)">
+            <div className="tl-assets__source" title="The asset's file in the game folder (its .tlasset sidecar is next to it)">
               file: {selected.sourcePath}
             </div>
           )}

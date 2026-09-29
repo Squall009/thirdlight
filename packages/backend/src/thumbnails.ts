@@ -1,12 +1,12 @@
 /**
  * Asset thumbnails: small PNG previews the editor renders for the asset tiles.
  *
- * A cache, not project state: files live under
- * `<dataRoot>/cache/thumbnails/<projectId>/<sourceDigest>/<key>.png`, keyed
- * by the asset version's content digest (a new version gets new thumbnails)
- * and by piece (`file` for the whole model, else a hash of the piece name).
- * Nothing is written into a game folder; a missing file is simply rendered
- * again by the next editor that needs it.
+ * Part of the project's import cache, not project state: files live under
+ * `<project>/cache/imported/<sourceDigest>/thumbnails/<key>.png`, keyed by
+ * the asset version's content digest (new bytes get new thumbnails) and by
+ * piece (`file` for the whole model, else a hash of the piece name). The
+ * cache is git-ignored; a missing file is simply rendered again by the next
+ * editor that needs it.
  */
 import { ID_RE } from '@thirdlight/project-model/limits';
 import { createHash } from 'node:crypto';
@@ -56,10 +56,13 @@ export function checkThumbnailPng(png: Uint8Array): string | null {
   return null;
 }
 
-export function createThumbnailCache(dataRoot: string): ThumbnailCache {
-  const root = join(dataRoot, 'cache', 'thumbnails');
-  const dirOf = (projectId: string, digest: string): string | null =>
-    PROJECT_RE.test(projectId) && DIGEST_RE.test(digest) ? join(root, projectId, digest) : null;
+/** `cacheDirOf` answers a project's import cache folder (null: no such project). */
+export function createThumbnailCache(cacheDirOf: (projectId: string) => string | null): ThumbnailCache {
+  const dirOf = (projectId: string, digest: string): string | null => {
+    if (!PROJECT_RE.test(projectId) || !DIGEST_RE.test(digest)) return null;
+    const root = cacheDirOf(projectId);
+    return root === null ? null : join(root, digest, 'thumbnails');
+  };
   // The per-project count is walked once, then kept (a write no
   // longer lists the whole cache). Another process adding files is only
   // counted at the next restart — the bound is a disk-use guard, not exact.
@@ -68,10 +71,21 @@ export function createThumbnailCache(dataRoot: string): ThumbnailCache {
     const known = counts.get(projectId);
     if (known !== undefined) return known;
     let n = 0;
-    try {
-      for (const d of readdirSync(join(root, projectId))) n += readdirSync(join(root, projectId, d)).length;
-    } catch {
-      /* no cache yet */
+    const root = cacheDirOf(projectId);
+    if (root !== null) {
+      let digests: string[] = [];
+      try {
+        digests = readdirSync(root);
+      } catch {
+        /* no cache yet */
+      }
+      for (const d of digests) {
+        try {
+          n += readdirSync(join(root, d, 'thumbnails')).length;
+        } catch {
+          /* no thumbnails for these bytes */
+        }
+      }
     }
     counts.set(projectId, n);
     return n;

@@ -729,8 +729,27 @@ export function assetSourceMissing(digest: string, path: string, assetId?: strin
   e['sourceDigest'] = digest;
   e['path'] = path;
   e['message'] = `${assetId !== undefined ? `asset ${assetId}${version !== undefined ? ` v${version}` : ''}: ` : ''}the file ${path} is missing from the game folder`;
-  e['hint'] = 'put the file back (for example from git), or import another file as a new version';
+  e['hint'] = 'put the file back (for example from git); a file moved together with its .tlasset sidecar is found again by "check files"';
   return e as unknown as CommandError;
+}
+
+/**
+ * `blob_missing` for what an importer made from a file (a GLB converted from
+ * an FBX, a KTX2 encoded from a PNG): the import cache does not hold it.
+ * The cache is rebuilt from the file by "check files" (and before Play and
+ * export); nothing is served in its place.
+ */
+export function importedMissing(digest: string, path: string, assetId: string, version: number): CommandError {
+  return {
+    code: 'blob_missing',
+    cls: 'not_found',
+    assetId,
+    assetVersion: version,
+    sourceDigest: digest,
+    path,
+    message: `asset ${assetId} v${version}: the imported data made from ${path} is not in the import cache`,
+    hint: 'run "check files" (or start Play or an export): the import cache is rebuilt from the file',
+  } as unknown as CommandError;
 }
 
 /**
@@ -751,7 +770,7 @@ export function assetSourceChanged(
   e['path'] = path;
   e['found'] = found;
   e['message'] = `${assetId !== undefined ? `asset ${assetId}${version !== undefined ? ` v${version}` : ''}: ` : ''}${path} has changed since it was imported (sha256 ${digest.slice(0, 12)}… recorded, ${found.slice(0, 12)}… on disk)`;
-  e['hint'] = 're-import the file to record a new version with the new bytes; a version whose file changed can no longer be read';
+  e['hint'] = 'run "check files": a changed file is imported again (the file is the asset)';
   return e as unknown as CommandError;
 }
 

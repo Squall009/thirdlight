@@ -55,6 +55,7 @@ import {
   contentPublishFailed,
   contentQuotaExceeded,
   derivedCacheUnavailable,
+  importedMissing,
   importRejected,
   pathRejected,
   stageExpired,
@@ -64,6 +65,7 @@ import {
 } from './errors';
 import type { CommandError } from '@thirdlight/commands';
 import { writeAtomic, type WriteOps } from './write';
+import { assetRoot, hasImported, importKeyOfConverted, PROJECT_OWN_ENTRIES, readImported, type ConvertedLike } from './asset-files';
 
 // ---- bounds --------------------------------------------
 
@@ -608,7 +610,7 @@ export interface BlobPublishResultOk {
 }
 export type BlobPublishResult = BlobPublishResultOk | { ok: false; error: CommandError };
 
-function readBlobBytes(path: string): { ok: true; bytes: Uint8Array } | { ok: false; code: 'ENOENT' | 'other' | 'symlink' } {
+export function readBlobBytes(path: string): { ok: true; bytes: Uint8Array } | { ok: false; code: 'ENOENT' | 'other' | 'symlink' } {
   let fd: number;
   try {
     fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
@@ -797,6 +799,7 @@ interface CatalogVersionLike {
   readonly sourceDigest: string;
   readonly sourceByteLength: number;
   readonly sourcePath?: string;
+  readonly convertedFrom?: ConvertedLike;
   readonly importRecipe: ModelImportRecipe;
 }
 interface CatalogAssetLike {
@@ -850,15 +853,18 @@ function findVersion(
   ctx: ContentContext,
   assetId: unknown,
   version: unknown,
-): { ok: true; digest: string; byteLength: number; version: number; sourcePath?: string } | { ok: false; error: CommandError } {
+): { ok: true; digest: string; byteLength: number; version: number; sourcePath?: string; convertedFrom?: ConvertedLike } | { ok: false; error: CommandError } {
   const found = preparedMediaFacts(ctx, assetId, version);
   if (!found.ok) return found;
+  const record = (ctx.content as unknown as { assets: readonly CatalogAssetLike[] }).assets.find((a) => a.assetId === assetId);
+  const convertedFrom = record?.versions.find((v) => v.version === found.facts.version)?.convertedFrom;
   return {
     ok: true,
     digest: found.facts.sourceDigest,
     byteLength: found.facts.sourceByteLength,
     version: found.facts.version,
     ...(found.facts.sourcePath !== undefined ? { sourcePath: found.facts.sourcePath } : {}),
+    ...(convertedFrom !== undefined ? { convertedFrom } : {}),
   };
 }
 
@@ -875,6 +881,20 @@ export function readBlob(
 ): BlobReadResult {
   const found = findVersion(ctx, request?.assetId, request?.version);
   if (!found.ok) return found;
+  // A converted version's bytes are what the importer made from its file, in the import cache.
+  if (found.convertedFrom !== undefined) {
+    const bytes = readImported(ctx, importKeyOfConverted(found.convertedFrom), found.digest);
+    if (bytes !== null) {
+      return { ok: true, assetId: request.assetId, version: found.version, digest: found.digest, byteLength: bytes.length, verified: true, bytes };
+    }
+    // A project from before the import cache kept them in the blob store.
+    const legacy = join(ctx.dir, 'sources', 'sha256', found.digest);
+    const r = readBlobBytes(legacy);
+    if (r.ok && sha256Hex(r.bytes) === found.digest) {
+      return { ok: true, assetId: request.assetId, version: found.version, digest: found.digest, byteLength: r.bytes.length, verified: true, bytes: r.bytes };
+    }
+    return { ok: false, error: importedMissing(found.digest, found.convertedFrom.sourcePath ?? found.convertedFrom.sourceDigest, request.assetId, found.version) };
+  }
   if (found.sourcePath !== undefined) {
     const ref = readReferencedSource(ctx, found.sourcePath, found.digest, found.byteLength, request.assetId, found.version);
     if (!ref.ok) return ref;
@@ -978,8 +998,10 @@ export function readSourceBlob(
  * Resolve a project-relative `sourcePath` to a real file inside the game
  * folder, with the same containment rule as `resolveContained`: the realpath
  * must stay inside the realpath of the game folder (a symlink pointing out is
- * refused). The project's own files (`<folder>/<projectDir>/`) and `.git/`
- * are not asset sources. Errors carry only the relative path.
+ * refused). The project's own files (`<folder>/<projectDir>/`, or in a
+ * data-root project, which is its own game folder, `project.json`,
+ * `content.json`, `scenes/`, …) and `.git/` are not asset sources. Errors
+ * carry only the relative path.
  */
 export function resolveProjectFile(
   ctx: ContentContext,
@@ -987,18 +1009,16 @@ export function resolveProjectFile(
   want: 'file' | 'dir' = 'file',
 ): { ok: true; real: string; size: number } | { ok: false; error: CommandError; missing?: true } {
   const shown = typeof sourcePath === 'string' ? sourcePath.slice(0, 512) : String(sourcePath);
-  const folder = ctx.gameFolder ?? null;
-  if (folder === null) {
-    return { ok: false, error: pathRejected(shown, 'this project is not in a game folder; only folder projects reference files in place') };
-  }
+  const folder = assetRoot(ctx);
+  const dataRoot = ctx.gameFolder == null;
   const root = want === 'dir' && sourcePath === '';
   if (!root && !isValidSourcePath(sourcePath)) {
     return { ok: false, error: pathRejected(shown, 'the path must be relative to the game folder, with forward slashes and no "..", "." or empty parts') };
   }
   const segs = root ? [] : (sourcePath as string).split('/');
   if (segs.includes('.git')) return { ok: false, error: pathRejected(shown, '.git/ is not an asset folder') };
-  if (segs.length > 0 && join(folder, segs[0]!) === ctx.dir) {
-    return { ok: false, error: pathRejected(shown, `${segs[0]!}/ holds the project's own files, not asset sources`) };
+  if (segs.length > 0 && (dataRoot ? PROJECT_OWN_ENTRIES.has(segs[0]!) : join(folder, segs[0]!) === ctx.dir)) {
+    return { ok: false, error: pathRejected(shown, `${segs[0]!} holds the project's own files, not asset sources`) };
   }
   let realRoot: string;
   let realProject: string;
@@ -1019,7 +1039,7 @@ export function resolveProjectFile(
   if (!within(realRoot, real)) {
     return { ok: false, error: pathRejected(shown, `${shown} resolves outside the game folder (symlinks may not leave it)`) };
   }
-  if (!root && within(realProject, real)) {
+  if (!root && (dataRoot ? PROJECT_OWN_ENTRIES.has(real.slice(realRoot.length + 1).split(sep)[0] ?? '') : within(realProject, real))) {
     return { ok: false, error: pathRejected(shown, `${shown} resolves into the project's own files`) };
   }
   let st;
@@ -1098,6 +1118,17 @@ function rememberDigest(real: string, digest: string): void {
   digestCache.delete(real);
   digestCache.set(real, { stamp, digest });
   while (digestCache.size > DIGEST_CACHE_MAX) digestCache.delete(digestCache.keys().next().value as string);
+}
+
+/** The digest of a file's current bytes (remembered by its stamp), or null when it cannot be read. */
+export function fileDigest(real: string): string | null {
+  const cached = digestCache.get(real);
+  if (cached !== undefined && cached.stamp === fileStamp(real)) return cached.digest;
+  const r = readBlobBytes(real);
+  if (!r.ok) return null;
+  const h = sha256Hex(r.bytes);
+  rememberDigest(real, h);
+  return h;
 }
 
 function referencedStatus(ctx: ContentContext, sourcePath: string, digest: string, byteLength: number): ContentIntegrityEntry['status'] {
@@ -1387,7 +1418,7 @@ export function contentIntegrity(
     for (const record of catalog.assets) {
       for (const v of record.versions as readonly CatalogVersionLike[]) {
         known.add(v.sourceDigest);
-        const conv = (v as { convertedFrom?: { format: 'fbx'; sourceDigest: string; sourceByteLength: number; sourcePath?: string } }).convertedFrom;
+        const conv = (v as { convertedFrom?: { format: 'fbx'; sourceDigest: string; sourceByteLength: number; sourcePath?: string; converter: { name: string; version: string }; encoding?: string } }).convertedFrom;
         if (conv !== undefined && conv.sourcePath === undefined) known.add(conv.sourceDigest);
         entries.push({
           assetId: record.assetId,
@@ -1410,7 +1441,9 @@ export function contentIntegrity(
           status:
             v.sourcePath !== undefined
               ? referencedStatus(ctx, v.sourcePath, v.sourceDigest, v.sourceByteLength)
-              : blobStatus(ctx, v.sourceDigest, v.sourceByteLength),
+              : conv !== undefined
+                ? importedStatus(ctx, conv as ConvertedLike, v.sourceDigest, v.sourceByteLength)
+                : blobStatus(ctx, v.sourceDigest, v.sourceByteLength),
         });
       }
     }
@@ -1437,6 +1470,13 @@ export function contentIntegrity(
     orphanBlobs,
   };
   return { ok: true, entries, summary };
+}
+
+/** A converted version's bytes: in the import cache (checked by size; reads verify), else in the blob store of a project from before it. */
+function importedStatus(ctx: ContentContext, conv: ConvertedLike, digest: string, byteLength: number): ContentIntegrityEntry['status'] {
+  if (hasImported(ctx, importKeyOfConverted(conv), digest, byteLength)) return 'ok';
+  const legacy = blobStatus(ctx, digest, byteLength);
+  return legacy === 'ok' ? 'ok' : 'missing';
 }
 
 function blobStatus(ctx: ContentContext, digest: string, byteLength: number): ContentIntegrityEntry['status'] {
@@ -1492,6 +1532,18 @@ export function verifyReferencedBlob(
   const h = sha256Hex(r.bytes);
   if (h !== digest || r.bytes.length !== byteLength) return { ok: false, error: blobCorrupt(digest, path, h) };
   return { ok: true };
+}
+
+/**
+ * Commit-time check of a converted version: what the importer made from its
+ * file (the recorded digest) is in the import cache, or, in a project from
+ * before the cache, in the blob store.
+ */
+export function verifyImported(ctx: ContentContext, conv: ConvertedLike, digest: string): { ok: true } | { ok: false; error: CommandError } {
+  if (readImported(ctx, importKeyOfConverted(conv), digest) !== null) return { ok: true };
+  const r = readBlobBytes(join(ctx.dir, 'sources', 'sha256', digest));
+  if (r.ok && sha256Hex(r.bytes) === digest) return { ok: true };
+  return { ok: false, error: blobMissing(digest, `cache/imported/${conv.sourceDigest}/`) };
 }
 
 // ---- captured project read ---------------------

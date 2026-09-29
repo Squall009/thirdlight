@@ -229,13 +229,16 @@ describe('publishAsset', () => {
     expect((redone.result.change as unknown as { mode: string }).mode).toBe('create');
   });
 
-  it('reimport appends one immutable version and restores the previous record on undo', () => {
+  it('reimport replaces the version (the file is the asset) and restores the previous record on undo', () => {
     const created = ok(mutation(baseState(), 'publishAsset', ASSET_ARGS));
     const reimportArgs = { ...ASSET_ARGS, mode: 'reimport', sourceDigest: 'b'.repeat(64), sourceByteLength: 30 };
     const r2 = ok(mutation(created.state, 'publishAsset', reimportArgs));
     const next = (r2.result.change as unknown as { next: { currentVersion: number; versions: { version: number }[] } }).next;
     expect(next.currentVersion).toBe(2);
-    expect(next.versions.map((v) => v.version)).toEqual([1, 2]);
+    expect(next.versions.map((v) => v.version)).toEqual([2]);
+    // A third import counts on from the current version.
+    const r3 = ok(mutation(r2.state, 'publishAsset', { ...reimportArgs, sourceDigest: 'c'.repeat(64) }));
+    expect((r3.result.change as unknown as { next: { versions: { version: number }[] } }).next.versions.map((v) => v.version)).toEqual([3]);
     const undone = ok(mutation(r2.state, 'undo', {}));
     const record = undone.state.content?.assets.find((a) => a.assetId === ASSET_ARGS.assetId);
     expect(record?.currentVersion).toBe(1);

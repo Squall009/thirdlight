@@ -49,7 +49,7 @@
       "projectId": "demo-0001",
       "revision": 7,
       "manifest": {
-        "schemaVersion": 4,
+        "schemaVersion": 5,
         "engineVersion": "0.1.0",
         "id": "demo-0001",
         "name": "Demo Project",

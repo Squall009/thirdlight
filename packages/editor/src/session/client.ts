@@ -41,7 +41,7 @@ import {
 } from './behavior-publication';
 import type { ContentJobView } from '@thirdlight/protocol';
 import type { PropertyDeclaration } from '@thirdlight/project-model';
-import { type ProjectFileListing, type IntegrityEntryView, makeAssetId, SessionClientCore } from './client-core';
+import { type ProjectFileListing, type IntegrityEntryView, type FileCheckView, makeAssetId, SessionClientCore } from './client-core';
 
 export * from './client-core';
 
@@ -663,6 +663,21 @@ export class SessionClient extends SessionClientCore {
   }
 
   /** The content-integrity report (a file referenced in place: ok / changed / missing). */
+  /**
+   * "Check files": the backend brings the catalog in step with the game
+   * folder (a file moved with its sidecar keeps its asset, a changed file is
+   * imported again, the import cache is made whole) and answers the
+   * integrity report after it. Its changes arrive on the change feed.
+   */
+  async checkFiles(): Promise<{ ok: true; entries: IntegrityEntryView[]; check: FileCheckView } | { ok: false; error: { code: string; message: string } }> {
+    try {
+      const r = await this.request<{ ok: true; entries: IntegrityEntryView[]; check: FileCheckView }>(`/projects/${this.cfg.projectId}/content/files/check`, { method: 'POST', body: '{}' });
+      return { ok: true, entries: r.entries, check: r.check };
+    } catch (e) {
+      return { ok: false, error: this.describeError(e) };
+    }
+  }
+
   async contentIntegrity(): Promise<{ ok: true; entries: IntegrityEntryView[] } | { ok: false; error: { code: string; message: string } }> {
     try {
       const r = await this.request<{ ok: true; entries: IntegrityEntryView[] }>(`/projects/${this.cfg.projectId}/content/integrity`, { method: 'GET' });

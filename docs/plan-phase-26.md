@@ -186,7 +186,8 @@ at the boundary it changes (Playwright for any editor surface).
 | 26.0 | done 2026-09-29; reconciled with phase 25 at `811c14c5` |
 | 26.1 | done 2026-09-29: limits once, splits (D57, D58); ESLint in the gates; three.js 0.186.1; history comments removed with a build check (D59) |
 | 26.2 | done 2026-09-29: scale bench (generator, harness, small-size tests in the fast gate); before numbers in §6; D61 |
-| 26.3–26.14 | — |
+| 26.3 | A done 2026-09-29: files and sidecars (uploads filed into `assets/`, `.tlasset` sidecars, import cache, file check re-imports and follows moves, project.json 5 with the upgrade of a 4); B (folder import, drop into a folder, editor surfaces) next |
+| 26.4–26.14 | — |
 
 ## 6. Measurements
 
@@ -261,6 +262,13 @@ What broke, and where each number could not be taken:
   asset bytes read (Play diagnostics) and the backend's resident set instead.
   The Play page shares its renderer process with the editor, so its heap is
   editor + game.
+
+After 26.3 A (small preset, open and commands only, generator version 2 —
+assets as files with sidecars; 2026-09-29): backend's first read 58 ms
+(38 ms in 26.2's small run), editor connected 732 ms, scene edit p50/p95 7.1/10.3 ms,
+content edit 9.8/14.7 ms. The editor's file check after the open hashes each
+asset file once per change (stat-keyed); its cost at full size is 26.8's to
+measure.
 
 Proposed targets for "Done when" (fixed in 26.14 from these numbers):
 
@@ -446,4 +454,69 @@ Proposed targets for "Done when" (fixed in 26.14 from these numbers):
   a debug command after the click that unlocks sound; scenes are walked with
   the play relay's `loadScene`/`unloadScene` (what `ctx.scenes` does). The
   small-size run is in the fast gate's smoke set (about 25 s).
-
+- 2026-09-29 (26.3 A): the catalog record stays in `content.json` for now
+  (the index role 26.4 gives the resource files); the sidecar
+  (`<file>.tlasset`: `tlasset: 1`, id, kind, import settings, labels,
+  address) is written from it after every asset command and by the file
+  check when missing or stale, and it is what identifies a moved file. The
+  record keeps its shape with one version: a re-import replaces it and the
+  version number only counts changes (`currentVersion + 1`); a legacy
+  `modelAnimation` binding keeps the version it names.
+- 2026-09-29 (26.3 A): uploaded bytes are held by digest
+  (`.thirdlight/held/`, a day) and filed into the game folder when
+  `publishAsset` commits them: the workspace chooses `assets/<name>.<ext>`
+  (or the asset's own file on a re-import of the same kind of file) and
+  writes the path into the command's args, so browsers, MCP and scripts that
+  publish without a path keep working and the change, history and retry
+  record carry the path. A project in the data root is its own game folder
+  (its `project.json`, `content.json`, `scenes/`, `sources/`, `cache/` are
+  never asset paths).
+- 2026-09-29 (26.3 A): undo follows the files: `deleteAsset` deletes the file
+  and sidecar (bytes held) and its undo puts both back; undoing an upload's
+  replace writes the held old bytes back; undoing an import only forgets
+  the asset (its sidecar goes, the file stays, as it was the user's).
+  A move is `setAssetOptions {sourcePath}` (any kind, one undo): the
+  workspace moves file and sidecar, or records a move made outside the
+  editor; 26.13's `moveResources` can build on it.
+- 2026-09-29 (26.3 A): "the backend notices" is one check
+  (`POST …/content/files/check`; the editor on connect, window focus,
+  after a publish and "check files"; MCP `tl_content_query {target:
+  "integrity", check: true}`): a missing file is looked for by its sidecar
+  and its record re-pointed, a changed file is imported again (converted
+  first when it is an FBX or an image with a KTX2 setting), the import cache
+  is made whole. Each change is an ordinary command (change feed, undo; origin
+  `admin`/`file-check`). Before Play and export only the cache is made whole.
+  A file the check cannot import (no Blender, an animated model whose roles
+  must be chosen) stays a Problems row with the reason and "Re-import".
+- 2026-09-29 (26.3 A): the import cache is
+  `<project>/cache/imported/<source digest>/<importer>-<version>-<settings
+  digest>/` (git-ignored: `cache/` is added to the project `.gitignore`):
+  a GLB converted from an FBX and a KTX2 encoded from a PNG/JPEG
+  (`<digest>.bin`), the inspected header of a file (used by the check's
+  re-import), and the tile thumbnails (moved from `<dataRoot>/cache/`). A
+  PNG/JPEG with a KTX2 setting is one asset whose file is the image; the
+  record's `convertedFrom` states the encoding and the sidecar shows it as
+  `importSettings.ktx2`. When the converter makes other bytes than recorded
+  (another Blender), the check records them as a re-import.
+- 2026-09-29 (26.3 A): a packed texture array's KTX2 is written as its own
+  file (`assets/<name>.ktx2`) whose sidecar lists its sources by id and
+  file, rather than a cache entry: packing reads other assets and is not a
+  property of one file, and a file keeps it readable without the encoder.
+  A changed source is not re-packed automatically (re-pack from the Assets
+  tab); an asset tool's zip export lands as a folder `assets/<name>/` and
+  its model is imported where it is.
+- 2026-09-29 (26.3 A): the phase's format bump for `project.json` is
+  schemaVersion 5 (the runtime manifest's 5 is 26.9's). A 4 is upgraded on
+  open (`workspace/src/upgrade-assets.ts`): each asset's current version is
+  written as a file with its sidecar (a converted version's original as the
+  file, what was made from it into the import cache), the record keeps that
+  version, older versions stay in `sources/sha256/` untouched and are listed
+  in `upgrade-report.json` next to `project.json`; one new revision, retry
+  records kept. Tested over HTTP on `fixtures/phase26/legacy-v4-assets`
+  (written by the engine at `48a7bf98`): files, sidecars, cache, report,
+  a recorded retry replayed, the export shipping the same bytes. The
+  command corpus (`fixtures/commands`) and the M2 content-ops replay were
+  re-derived for the new manifest version and the replaced-version record;
+  each replay still passes byte for byte. Opening Sprout or Skyforge on this
+  build upgrades them and writes their asset files and sidecars into their
+  folders (the owner's open, as with earlier bumps).

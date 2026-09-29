@@ -45,10 +45,12 @@ export interface PlayRoutesContext {
   readonly headless: HeadlessEditors;
   /** The prebuilt play scripts (the bundle served as `game.js`). */
   readonly playBuild: PlayBuildCache;
+  /** Make the import cache whole before a build reads what the catalog records. */
+  readonly ensureImported?: (projectId: string) => Promise<void>;
 }
 
 export function makePlayRoutes(ctx: PlayRoutesContext) {
-  const { config, nowMs, logStartup, behaviorCompiler, service, sessions, playContent, plays, relayTimeoutMs, sendJson, sendError, bearerToken, tokenScope, badOriginError, requireAuth, readBody, fullState, workspaceError, connectedOwner, unavailableError, recordProblem, headless, playBuild } = ctx;
+  const { config, nowMs, logStartup, behaviorCompiler, service, sessions, playContent, plays, relayTimeoutMs, sendJson, sendError, bearerToken, tokenScope, badOriginError, requireAuth, readBody, fullState, workspaceError, connectedOwner, unavailableError, recordProblem, headless, playBuild, ensureImported } = ctx;
 
   /**
    * The project's live (active or presented) play with this id, or null after
@@ -170,6 +172,8 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
       );
       return;
     }
+    // What the import cache should hold (a converted model, a KTX2 encode) is made again if it went missing.
+    await ensureImported?.(projectId);
     // Build the runtime snapshot at the CURRENT revision (the play's
     // revision is frozen from here).
     const state = fullState(projectId);

@@ -2,7 +2,8 @@
  * The scale bench generator: a synthetic project of a full game's size,
  * written straight into the backend's on-disk project format
  * (`<dataRoot>/projects/<id>/`: project.json, content.json, scenes/*.json,
- * sources/sha256/<digest>), deterministic from a seed.
+ * and each asset a file under `assets/<kind>/` next to its `.tlasset`
+ * sidecar), deterministic from a seed.
  *
  * Why files and not the command API: every command re-validates and rewrites
  * the whole content document, so building 26,000 asset records one command
@@ -19,7 +20,7 @@
  * by content addressing.
  */
 import { createHash } from 'node:crypto';
-import { mkdirSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import {
@@ -38,7 +39,7 @@ import { prng } from './generate';
 import { opusVoice, pcmWav, scalePng } from './scale-media';
 
 /** Bump when the generated content changes (it keys cached projects and recorded numbers). */
-export const SCALE_GENERATOR_VERSION = 1;
+export const SCALE_GENERATOR_VERSION = 2;
 export const SCALE_DEFAULT_SEED = 26;
 
 export interface ScaleSpec {
@@ -158,7 +159,7 @@ export interface ScaleResult {
   seed: number;
   /** Records per kind. */
   counts: Record<string, number>;
-  /** Source bytes per asset kind (on disk under sources/sha256). */
+  /** Source bytes per asset kind (the files under assets/). */
   sourceBytes: Record<string, number>;
   contentJsonBytes: number;
   /** The content block as the model measures it against its byte cap (canonical JSON, two-space indent). */
@@ -216,24 +217,29 @@ export function generateScaleProject(dataRoot: string, projectId: string, spec: 
   const t0 = performance.now();
   const dir = join(dataRoot, 'projects', projectId);
   rmSync(dir, { recursive: true, force: true });
-  for (const d of ['scenes', 'sources/sha256', '.thirdlight/recovery']) mkdirSync(join(dir, d), { recursive: true });
-  const blobDir = join(dir, 'sources', 'sha256');
+  for (const d of ['scenes', '.thirdlight/recovery']) mkdirSync(join(dir, d), { recursive: true });
+  const EXT: Record<string, string> = { music: 'opus', audio: 'wav', texture: 'png', model: 'glb' };
+  const seen = new Set<string>();
   const sourceBytes: Record<string, number> = { voice: 0, sound: 0, texture: 0, model: 0 };
   const assets: Record<string, unknown>[] = [];
   const addAsset = (assetId: string, kind: 'music' | 'audio' | 'texture' | 'model', displayName: string, bytes: Uint8Array, p: Proposal, bucket: string): void => {
     if (p.status !== 'ok') throw new Error(`${assetId}: the ${kind} inspector refused the generated file: ${p.diagnostics.map((d) => d.message).join('; ')}`);
     const digest = createHash('sha256').update(bytes).digest('hex');
     if (digest !== p.sourceDigest) throw new Error(`${assetId}: digest mismatch`);
-    const file = join(blobDir, digest);
-    if (existsSync(file)) throw new Error(`${assetId}: two generated files have the same bytes (${digest})`);
-    writeFileSync(file, bytes);
+    if (seen.has(digest)) throw new Error(`${assetId}: two generated files have the same bytes (${digest})`);
+    seen.add(digest);
+    // The file in the game folder (a data-root project is its own) and its sidecar, as an import writes them.
+    const sourcePath = `assets/${bucket}/${assetId}.${EXT[kind]!}`;
+    mkdirSync(join(dir, 'assets', bucket), { recursive: true });
+    writeFileSync(join(dir, sourcePath), bytes);
+    writeFileSync(join(dir, `${sourcePath}.tlasset`), `${JSON.stringify({ tlasset: 1, id: assetId, kind, importSettings: {}, labels: [], address: null }, null, 2)}\n`);
     sourceBytes[bucket] = (sourceBytes[bucket] ?? 0) + bytes.length;
     assets.push({
       assetId,
       kind,
       displayName,
       currentVersion: 1,
-      versions: [{ version: 1, sourceDigest: digest, sourceByteLength: bytes.length, importRecipe: p.importRecipe, metrics: p.metrics, importedAt: IMPORTED_AT, publishedRevision: 0 }],
+      versions: [{ version: 1, sourceDigest: digest, sourceByteLength: bytes.length, sourcePath, importRecipe: p.importRecipe, metrics: p.metrics, importedAt: IMPORTED_AT, publishedRevision: 0 }],
     });
   };
   const rnd = prng(seed * 2654435761);
@@ -370,7 +376,7 @@ export function generateScaleProject(dataRoot: string, projectId: string, spec: 
     // typewriter, so any silence between two voices is the engine's.
     dialogueSettings: { textSpeed: 0, autoAdvance: true, autoDelay: 0 },
   };
-  const manifest = { schemaVersion: 4, engineVersion: '0.1.0', id: projectId, name: `Scale bench ${projectId}`, createdAt: IMPORTED_AT };
+  const manifest = { schemaVersion: 5, engineVersion: '0.1.0', id: projectId, name: `Scale bench ${projectId}`, createdAt: IMPORTED_AT };
   writeFileSync(join(dir, 'project.json'), `${JSON.stringify(manifest, null, 2)}\n`);
   const contentText = `${layout({ storageVersion: 4, type: 'project-content', projectId, revision: 0, content, retry: RETRY })}\n`;
   writeFileSync(join(dir, 'content.json'), contentText);

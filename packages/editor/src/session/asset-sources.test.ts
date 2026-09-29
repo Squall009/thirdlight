@@ -14,7 +14,7 @@ const D1 = '1'.repeat(64);
 const D2 = '2'.repeat(64);
 const names = new Map([['crate', 'Crate']]);
 
-describe('sourceIssuesFrom (Problems rows for files referenced in place)', () => {
+describe('sourceIssuesFrom (Problems rows for asset files the check could not bring in step)', () => {
   it('reports nothing when every referenced file matches, and ignores stored blobs', () => {
     expect(
       sourceIssuesFrom(
@@ -27,13 +27,23 @@ describe('sourceIssuesFrom (Problems rows for files referenced in place)', () =>
     ).toEqual([]);
   });
 
-  it('a changed current file offers re-import; a missing one does not', () => {
-    const changed = sourceIssuesFrom([{ assetId: 'crate', version: 2, sourceDigest: D1, referenced: true, sourcePath: 'assets/crate.glb', status: 'changed' }], names);
+  it('a changed file the check could not import again says why and offers re-import; a missing one does not', () => {
+    const check = { relocated: [], reimported: [], rebuilt: [], sidecarProblems: [], failed: [{ assetId: 'crate', file: 'assets/crate.glb', code: 'converter_unavailable', message: 'FBX import needs Blender on the server' }] };
+    const changed = sourceIssuesFrom([{ assetId: 'crate', version: 2, sourceDigest: D1, referenced: true, sourcePath: 'assets/crate.glb', status: 'changed' }], names, check);
     expect(changed).toMatchObject([{ assetId: 'crate', kind: 'changed', canReimport: true, sourcePath: 'assets/crate.glb', versions: [2] }]);
-    expect(changed[0]!.message).toContain('Crate: assets/crate.glb has changed since v2 was imported');
+    expect(changed[0]!.message).toContain('Crate: assets/crate.glb has changed and could not be imported again: FBX import needs Blender on the server');
     const missing = sourceIssuesFrom([{ assetId: 'crate', version: 1, sourceDigest: D1, referenced: true, sourcePath: 'assets/crate.glb', status: 'missing' }], names);
     expect(missing).toMatchObject([{ kind: 'missing', canReimport: false }]);
     expect(missing[0]!.message).toContain('is missing from the game folder');
+    expect(missing[0]!.message).toContain('.tlasset');
+  });
+
+  it('a converted asset whose original changed is a changed row; imported data that could not be made again is its own row', () => {
+    const fbx = sourceIssuesFrom([{ assetId: 'crate', version: 1, sourceDigest: D1, referenced: true, status: 'ok', convertedFrom: { format: 'fbx', sourcePath: 'art/crate.fbx', status: 'changed' } }], names);
+    expect(fbx).toMatchObject([{ kind: 'changed', sourcePath: 'art/crate.fbx', canReimport: true }]);
+    const cache = sourceIssuesFrom([{ assetId: 'crate', version: 1, sourceDigest: D1, referenced: true, status: 'missing', convertedFrom: { format: 'png', sourcePath: 'art/wall.png', status: 'ok' } }], names);
+    expect(cache).toMatchObject([{ kind: 'imported-missing', canReimport: false }]);
+    expect(cache[0]!.message).toContain('import cache');
   });
 
   it('older versions whose file changed are said to be unreadable', () => {

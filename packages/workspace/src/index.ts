@@ -70,3 +70,7 @@ export type { ImportProposal, AudioImportProposal, ImportJobPort } from '@thirdl
 export type { BehaviorCompiler, PreparedBehaviorSource } from '@thirdlight/behavior-build';
 
 export { MARKER_FILE, DEFAULT_PROJECT_SUBDIR, REGISTRY_FILE, readMarker, type EnginePin, type ProjectMarker } from './registry';
+// The asset database on disk: sidecars, the import cache's keys, the file check's entries.
+export { DEFAULT_ASSET_FOLDER, SIDECAR_SUFFIX, importKeyOfConverted, parseSidecar, type ImportHeader, type ImportKey, type SidecarDoc } from './asset-files';
+export type { AssetFileEntry, AssetFilesResult } from './service-content';
+export { UPGRADE_REPORT_FILE, type AssetUpgradeReport } from './upgrade-assets';

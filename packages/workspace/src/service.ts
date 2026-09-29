@@ -67,44 +67,19 @@ import {
 import { ID_RE, validateEnvelope, type RetryRecord } from './envelope';
 import {
   authoritativeBytes,
-  cleanupStages,
-  contentIntegrity,
   DEFAULT_DEVICE_SPACE_RESERVE_BYTES,
   DEFAULT_MAX_SOURCE_BYTES_PER_PROJECT,
   defaultFreeSpace,
-  discardStage,
-  inspectStage,
   publishBlob,
-  readBlob,
-  listProjectFiles,
-  inspectProjectFile,
-  conversionSource,
-  resolveStage,
-  verifyConvertedOriginal,
-  type ConversionSourceResult,
-  type ConvertedOriginal,
-  type InspectProjectFileResult,
-  type ProjectFileListResult,
-  readCapturedV3,
   readSourceBlob,
-  stageContent,
+  verifyConvertedOriginal,
+  verifyImported,
   verifyReferencedBlob,
-  type BlobPublishRequest,
-  type BlobPublishResult,
-  type BlobReadRequest,
-  type BlobReadResult,
-  type SourceBlobReadRequest,
-  type SourceBlobReadResult,
-  type CapturedV3ReadResult,
-  type ContentConfig,
   type ContentContext,
-  type ContentIntegrityResult,
-  type InspectStageOptions,
-  type InspectStageResult,
-  type StageDiscardResult,
-  type StageRequest,
-  type StageResult,
 } from './content-store';
+import { planPlacement, syncAssetFiles, type ConvertedLike } from './asset-files';
+import { upgradeAssetsToFiles } from './upgrade-assets';
+import { contentCtx, contentOps } from './service-content';
 import { checkScriptLibraryDraft, discardScriptLibraryStage, libraryStageFacts, prepareBehaviorSource, prepareScriptLibraryDependents, prepareScriptLibraryStage, preparedFactsOf, projectScriptLibraryInputs, stageScriptLibraryPatch, type PrepareBehaviorSourceRequest } from './behavior';
 import {
   externalChangeUnreadable,
@@ -219,29 +194,17 @@ function scriptsNaming(read: (digest: string) => Uint8Array | null, content: Con
   return out;
 }
 
-/** The session as the content-store operations need it. */
-function contentCtx(s: ProjectSession): ContentContext {
-  return {
-    projectId: s.projectId,
-    dir: s.dir,
-    thirdlightDir: s.thirdlightDir,
-    storageVersion: s.storageVersion,
-    revision: s.revision,
-    scene: s.scene,
-    content: s.content,
-    gameFolder: s.gameFolder ?? null,
-    ...(s.v4 ? { scenes: [...s.v4.scenes.values()] } : {}),
-  };
-}
-
 /**
- * The authoritative blob a successful publication references (the new
- * version's digest/length), or null for a non-publication / history-op
- * result. commit-time verification uses it.
+ * The bytes a successful publication references (the new version's
+ * digest/length and where they are), or null for a non-publication or a
+ * history op. Commit-time verification uses it. Undo and redo restore a
+ * version recorded (and verified) earlier: the workspace puts back the file
+ * bytes it holds, a file changed since is reported by the file check, and
+ * reads refuse it, but it never blocks the undo.
  */
 function publishedBlobRef(
   result: MutationSuccess,
-): { digest: string; byteLength: number; sourcePath?: string; convertedFrom?: ConvertedOriginal } | null {
+): { digest: string; byteLength: number; sourcePath?: string; convertedFrom?: ConvertedLike } | null {
   const ch = result.change;
   if (ch.type === 'publishBehavior') {
     // A source publication references the immutable container blob
@@ -251,20 +214,16 @@ function publishedBlobRef(
     return { digest: src.sourceDigest, byteLength: src.sourceByteLength };
   }
   if (ch.type !== 'publishAsset' || ch.next === null) return null;
+  if (result.op === 'undo' || result.op === 'redo') return null;
   const last = ch.next.versions[ch.next.versions.length - 1];
   if (last === undefined) return null;
   const sourcePath = (last as { sourcePath?: string }).sourcePath;
-  const convertedFrom = (last as { convertedFrom?: ConvertedOriginal }).convertedFrom;
-  // Undo/redo restore a version recorded (and verified) earlier. A file
-  // referenced in place may have changed since; that is reported by the
-  // integrity check, and reads refuse it, but it must not block the undo.
-  const history = result.op === 'undo' || result.op === 'redo';
-  if (sourcePath !== undefined && history) return null;
+  const convertedFrom = (last as { convertedFrom?: ConvertedLike }).convertedFrom;
   return {
     digest: last.sourceDigest,
     byteLength: last.sourceByteLength,
     ...(sourcePath !== undefined ? { sourcePath } : {}),
-    ...(convertedFrom !== undefined && !history ? { convertedFrom } : {}),
+    ...(convertedFrom !== undefined ? { convertedFrom } : {}),
   };
 }
 
@@ -486,6 +445,13 @@ function buildService(core: Core): WorkspaceService {
     // The staged library edit sets (a commit reads only these).
     const stages = libraryStageFacts(s);
     if (stages !== undefined) commandState.scriptLibraryStages = stages;
+    // Bytes uploaded to the backend name no file yet: the workspace chooses
+    // where in the game folder they go, and the command records that path.
+    const placement = op === 'publishAsset' ? planPlacement(core, contentCtx(s), args, state.content, (digest) => {
+      const r = readSourceBlob(core, contentCtx(s), { digest });
+      return r.ok ? r.bytes : null;
+    }) : null;
+    if (placement !== null) pureRequest = { ...(pureRequest as object), args: placement.args };
     const outcome = applyMutation(commandState, pureRequest);
     if (!outcome.ok) return outcome.result;
     // Remember which scene the new history entry edited (undo/redo route by it).
@@ -496,17 +462,27 @@ function buildService(core: Core): WorkspaceService {
     }
 
     // Commit-time blob checks: a published asset version; an instance buffer.
+    // Uploaded bytes are filed into the game folder now that the command's own checks passed.
+    const refuse = (error: CommandError): MutationResult => {
+      placement?.rollback();
+      return failRequest(request, error);
+    };
+    if (placement !== null) {
+      const placed = placement.write();
+      if (placed !== null) return refuse(placed);
+    }
     const ref = publishedBlobRef(outcome.result);
     if (ref !== null) {
-      const v = verifyReferencedBlob(contentCtx(s), ref.digest, ref.byteLength, ref.sourcePath);
-      if (!v.ok) return failRequest(request, v.error);
+      // A converted version: its file first (the original), then what the importer made from it.
       if (ref.convertedFrom !== undefined) {
         const o = verifyConvertedOriginal(contentCtx(s), ref.convertedFrom);
-        if (!o.ok) return failRequest(request, o.error);
+        if (!o.ok) return refuse(o.error);
       }
+      const v = ref.convertedFrom !== undefined ? verifyImported(contentCtx(s), ref.convertedFrom, ref.digest) : verifyReferencedBlob(contentCtx(s), ref.digest, ref.byteLength, ref.sourcePath);
+      if (!v.ok) return refuse(v.error);
       const used = authoritativeBytes(s.dir);
       if (used > core.content.maxSourceBytesPerProject) {
-        return failRequest(request, contentQuotaExceeded('project_quota', used, core.content.maxSourceBytesPerProject, 0));
+        return refuse(contentQuotaExceeded('project_quota', used, core.content.maxSourceBytesPerProject, 0));
       }
     }
     const resultScene = outcome.state.scene as unknown as SceneV4;
@@ -516,7 +492,7 @@ function buildService(core: Core): WorkspaceService {
       const before = carrier.entities.find((x) => x.id === e.id)?.components.instances;
       if (before !== undefined && before.buffer === inst.buffer && before.count === inst.count) continue;
       const v = verifyReferencedBlob(contentCtx(s), inst.buffer, inst.count * INSTANCE_FLOATS * 4);
-      if (!v.ok) return failRequest(request, v.error);
+      if (!v.ok) return refuse(v.error);
     }
 
     // The whole resulting project: scenes (the index may have changed) and content.
@@ -531,11 +507,11 @@ function buildService(core: Core): WorkspaceService {
     composeV4([...nextScenes.values()], nextContent, errors, newRevision);
     if (errors.length > 0 && (op === 'deleteAsset' || op === 'deletePrefab')) {
       // What no longer resolves in the other scenes names it.
-      return failRequest(request, contentInUse(op === 'deleteAsset' ? 'asset' : 'prefab', String(args[op === 'deleteAsset' ? 'assetId' : 'prefabId']), errors as unknown as { path?: string; document?: string; sceneId?: string }[]));
+      return refuse(contentInUse(op === 'deleteAsset' ? 'asset' : 'prefab', String(args[op === 'deleteAsset' ? 'assetId' : 'prefabId']), errors as unknown as { path?: string; document?: string; sceneId?: string }[]));
     }
     if (errors.length > 0) {
       const first = errors[0] as ModelErrorV3;
-      return failRequest(request, {
+      return refuse({
         code: first.code,
         cls: 'validation',
         detailDocument: 'project',
@@ -556,13 +532,15 @@ function buildService(core: Core): WorkspaceService {
     if (!res.ok) {
       if ('unreadable' in res) {
         setPendingUnreadableV4(s, res.unreadable.rel);
+        placement?.rollback();
         return failRequest(request, externalChangeUnreadable(s.projectId));
       }
       if ('external' in res) {
         const pc = detectExternalChangeV4(core, s, res.external);
+        placement?.rollback();
         return failRequest(request, externalChangeUnresolved(pendingInfo(pc)));
       }
-      if (res.failed.onDiskState === 'previous') return failRequest(request, writeFailed('previous', res.failed.errno));
+      if (res.failed.onDiskState === 'previous') return refuse(writeFailed('previous', res.failed.errno));
       publishV4(s, nextState);
       s.history = outcome.state.history;
       return failRequest(request, writeFailed('new-undurable', res.failed.errno));
@@ -571,6 +549,9 @@ function buildService(core: Core): WorkspaceService {
     s.history = outcome.state.history;
     // A committed stage is done (committing it again is refused).
     if (op === 'commitScriptLibraryStage' && typeof args['stageId'] === 'string') s.libraryStages?.delete(args['stageId']);
+    // The game folder follows what the command did to an asset: its sidecar, a delete, a move, an undone replace.
+    const fileProblems = syncAssetFiles(core, contentCtx(s), outcome.result.change, nextContent);
+    if (fileProblems.length > 0) s.fileProblems = [...(s.fileProblems ?? []), ...fileProblems].slice(-32);
     return ack;
   }
 
@@ -731,25 +712,31 @@ function buildService(core: Core): WorkspaceService {
       const first = project.errors[0];
       return { ok: false, error: invalidRequest(first?.path ?? '', undefined, 'a valid v3 scene + content', `the template is not a valid project: ${first?.message ?? 'invalid'}`) };
     }
-    const content = project.normalized.content as unknown as { assets: { assetId: string; versions: { version: number; sourceDigest: string }[] }[]; behaviors: { source: { sourceDigest: string } | null }[] };
+    const content = project.normalized.content as unknown as { assets: { assetId: string; versions: { version: number; sourceDigest: string; convertedFrom?: { sourceDigest: string } }[] }[]; behaviors: { source: { sourceDigest: string } | null }[] };
     const needed = new Set<string>();
-    for (const a of content.assets) for (const v of a.versions) needed.add(v.sourceDigest);
+    for (const a of content.assets) for (const v of a.versions) needed.add(v.convertedFrom?.sourceDigest ?? v.sourceDigest);
     for (const b of content.behaviors) if (b.source !== null) needed.add(b.source.sourceDigest);
     for (const digest of needed) {
       const bytes = source.blobs.get(digest);
       if (bytes === undefined || sha256Hex(bytes) !== digest) return { ok: false, error: blobMissing(digest, `sources/sha256/${digest}`) };
     }
-
-    const built = projectFilesFromV3(projectId, project.normalized.manifest, project.normalized.scene as SceneV3, project.normalized.content as ContentCatalogV3);
+    if (createDirectories(dir, core.ops) !== 'ok') return { ok: false, error: writeFailed('previous', undefined) };
+    const ctx: ContentContext = { projectId, dir, thirdlightDir: join(dir, '.thirdlight'), storageVersion: 4, revision: 0, scene: null, content: null, gameFolder: core.registry.get(projectId)?.folder ?? null };
+    // Behavior containers go to the blob store; the template's asset files into the game folder, each with its sidecar.
+    for (const b of content.behaviors) {
+      if (b.source === null) continue;
+      const bytes = source.blobs.get(b.source.sourceDigest)!;
+      const put = publishBlob(core, ctx, { digest: b.source.sourceDigest, byteLength: bytes.length, source: { kind: 'bytes', bytes } });
+      if (!put.ok) return { ok: false, error: put.error };
+    }
+    const filed = upgradeAssetsToFiles(core, ctx, project.normalized.content as unknown as ContentCatalogV4, [], { readStored: (digest) => source.blobs.get(digest) ?? null, report: false });
+    if (filed.report.notMoved.length > 0) {
+      const first = filed.report.notMoved[0]!;
+      return { ok: false, error: invalidRequest('', undefined, 'template assets written into the project folder', `asset ${first.assetId}: ${first.reason}`) };
+    }
+    const built = projectFilesFromV3(projectId, project.normalized.manifest, project.normalized.scene as SceneV3, filed.content as unknown as ContentCatalogV3);
     if (!built.ok) {
       return { ok: false, error: invalidRequest('', undefined, 'a valid v4 project', `the template is not a valid project: ${built.message}`) };
-    }
-    if (createDirectories(dir, core.ops) !== 'ok') return { ok: false, error: writeFailed('previous', undefined) };
-    const ctx: ContentContext = { projectId, dir, thirdlightDir: join(dir, '.thirdlight'), storageVersion: 4, revision: 0, scene: null, content: null };
-    for (const digest of needed) {
-      const bytes = source.blobs.get(digest)!;
-      const put = publishBlob(core, ctx, { digest, byteLength: bytes.length, source: { kind: 'bytes', bytes } });
-      if (!put.ok) return { ok: false, error: put.error };
     }
     const w = writeNewProjectFiles(core, dir, built.files);
     if (w.kind !== 'ok') return { ok: false, error: writeFailed(w.kind === 'failed' ? w.onDiskState : 'previous', w.kind === 'failed' ? w.errno : undefined) };
@@ -924,165 +911,9 @@ function buildService(core: Core): WorkspaceService {
     return discardExternal(core, s);
   }
 
-  // ---- content storage operations ---------------------
+  // ---- content storage operations (service-content.ts) ---------------------
 
-  /** Resolve the project for a content operation (the on-demand open). */
-  function withOpenSession<T>(
-    projectId: string,
-    fn: (s: ProjectSession) => T,
-    missing: (e: CommandError) => T,
-  ): T {
-    const o = ensureSession(core, projectId, 'command');
-    if (o.kind === 'not-found') return missing(projectNotFound(projectId));
-    if (o.kind === 'unavailable') return missing(projectUnavailable(o.reason, o.holder, o.errors ?? []));
-    if (o.kind === 'released') return missing(projectUnavailable('workspace_closed', null, []));
-    const s = o.session;
-    if (s.mode !== 'open') {
-      return missing(projectUnavailable(s.blocked?.reason ?? 'envelope_invalid', null, s.blocked?.errors ?? []));
-    }
-    return fn(s);
-  }
-
-  /** `stageContent`: non-authoritative staged input. */
-  function stageContentOp(projectId: string, request: StageRequest): StageResult {
-    return deepFreeze(
-      withOpenSession<StageResult>(
-        projectId,
-        (s) => stageContent(core, contentCtx(s), request),
-        (error) => ({ ok: false, error }),
-      ),
-    );
-  }
-
-  /** `discardStage`: non-authoritative cleanup. */
-  function discardStageOp(projectId: string, stageId: string): StageDiscardResult {
-    return deepFreeze(
-      withOpenSession<StageDiscardResult>(
-        projectId,
-        (s) => discardStage(core, contentCtx(s), stageId),
-        (error) => ({ ok: false, error }),
-      ),
-    );
-  }
-
-  /** `inspectStage`: the injected bounded inspector
-   * over the staged bytes; non-authoritative, never mutates authoring state. */
-  function inspectStageOp(projectId: string, stageId: string, options?: InspectStageOptions): InspectStageResult {
-    return deepFreeze(
-      withOpenSession<InspectStageResult>(
-        projectId,
-        (s) => inspectStage(core, contentCtx(s), stageId, options ?? {}),
-        (error) => ({ ok: false, error }),
-      ),
-    );
-  }
-
-  /** One folder of a folder project's game folder (importable files and subfolders). */
-  function listProjectFilesOp(projectId: string, dir: string): ProjectFileListResult {
-    return deepFreeze(
-      withOpenSession<ProjectFileListResult>(
-        projectId,
-        (s) => listProjectFiles(contentCtx(s), dir),
-        (error) => ({ ok: false, error }),
-      ),
-    );
-  }
-
-  /**
-   * "Import from project folder": inspect a file in the game folder in place.
-   * Nothing is copied; the returned `sourcePath` goes into `publishAsset`.
-   */
-  function inspectProjectFileOp(projectId: string, sourcePath: string, options?: InspectStageOptions): InspectProjectFileResult {
-    return deepFreeze(
-      withOpenSession<InspectProjectFileResult>(
-        projectId,
-        (s) => inspectProjectFile(core, contentCtx(s), sourcePath, options ?? {}),
-        (error) => ({ ok: false, error }),
-      ),
-    );
-  }
-
-  /** The input file of an FBX conversion (backend-internal: carries a host path). */
-  function conversionSourceOp(projectId: string, sourcePath: string): ConversionSourceResult {
-    return deepFreeze(
-      withOpenSession<ConversionSourceResult>(
-        projectId,
-        (s) => conversionSource(contentCtx(s), sourcePath),
-        (error) => ({ ok: false, error }),
-      ),
-    );
-  }
-
-  /** The bytes of one open stage (e.g. an uploaded FBX to convert). */
-  function readStageOp(projectId: string, stageId: string): { ok: true; bytes: Uint8Array } | { ok: false; error: CommandError } {
-    return withOpenSession<{ ok: true; bytes: Uint8Array } | { ok: false; error: CommandError }>(
-      projectId,
-      (s) => {
-        const r = resolveStage(core, contentCtx(s), stageId);
-        return r.ok ? { ok: true, bytes: r.stage.bytes } : { ok: false, error: r.error };
-      },
-      (error) => ({ ok: false, error }),
-    );
-  }
-
-  /** `publishBlob`: immutable blob publication (no lock). */
-  function publishBlobOp(projectId: string, request: BlobPublishRequest): BlobPublishResult {
-    return deepFreeze(
-      withOpenSession<BlobPublishResult>(
-        projectId,
-        (s) => publishBlob(core, contentCtx(s), request),
-        (error) => ({ ok: false, error }),
-      ),
-    );
-  }
-
-  /** `readBlob`: the only public byte read. */
-  function readBlobOp(projectId: string, request: BlobReadRequest): BlobReadResult {
-    return deepFreeze(
-      withOpenSession<BlobReadResult>(
-        projectId,
-        (s) => readBlob(core, contentCtx(s), request),
-        (error) => ({ ok: false, error }),
-      ),
-    );
-  }
-
-  /**
-   * `readSourceBlob`: the digest-addressed verified immutable-blob
-   * read the play/export delivery build uses for behavior source containers.
-   */
-  function readSourceBlobOp(projectId: string, request: SourceBlobReadRequest): SourceBlobReadResult {
-    return deepFreeze(
-      withOpenSession<SourceBlobReadResult>(
-        projectId,
-        (s) => readSourceBlob(core, contentCtx(s), request),
-        (error) => ({ ok: false, error }),
-      ),
-    );
-  }
-
-  /** `contentIntegrity`: bounded integrity report. */
-  function contentIntegrityOp(projectId: string): ContentIntegrityResult {
-    return deepFreeze(
-      withOpenSession<ContentIntegrityResult>(
-        projectId,
-        (s) => contentIntegrity(core, contentCtx(s)),
-        (error) => ({ ok: false, error }),
-      ),
-    );
-  }
-
-  /** `readCapturedV3`: the single
-   *  acknowledged project read (scenes + content). Pure read. */
-  function readCapturedV3Op(projectId: string): CapturedV3ReadResult {
-    return deepFreeze(
-      withOpenSession<CapturedV3ReadResult>(
-        projectId,
-        (s) => readCapturedV3(contentCtx(s)),
-        (error) => ({ ok: false, error }),
-      ),
-    );
-  }
+  const content = contentOps(core);
 
   /**
    * Compare an open project's files on disk with the last bytes this backend
@@ -1312,18 +1143,7 @@ function buildService(core: Core): WorkspaceService {
     takeoverWorkspace,
     acceptExternalState,
     discardExternalState,
-    stageContent: stageContentOp,
-    discardStage: discardStageOp,
-    inspectStage: inspectStageOp,
-    publishBlob: publishBlobOp,
-    readBlob: readBlobOp,
-    listProjectFiles: listProjectFilesOp,
-    inspectProjectFile: inspectProjectFileOp,
-    conversionSource: conversionSourceOp,
-    readStage: readStageOp,
-    readSourceBlob: readSourceBlobOp,
-    contentIntegrity: contentIntegrityOp,
-    readCapturedV3: readCapturedV3Op,
+    ...content,
     prepareBehaviorSource: prepareBehaviorSourceOp,
     prepareScriptLibraryDependents: prepareScriptLibraryDependentsOp,
     checkScriptLibraryDraft: (projectId: string, draft: { libraryId: string; files: { path: string; text: string }[] }) => checkScriptLibraryDraft(core, projectId, draft),

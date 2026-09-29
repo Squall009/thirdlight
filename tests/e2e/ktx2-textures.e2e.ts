@@ -16,7 +16,7 @@
  * (TL_E2E_ALL_VARIANTS=1 on a GPU), WebGPU in `webgpu`.
  */
 import { randomBytes, randomUUID } from 'node:crypto';
-import { createReadStream, existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { createReadStream, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { extname, join, normalize } from 'node:path';
@@ -130,11 +130,14 @@ for (const variant of RENDERER_VARIANTS) test(`KTX2 textures encoded on import (
   await expect(tile).toHaveCount(1, { timeout: 10_000 });
   await tile.click();
   await expect(page.getByTestId('texture-facts')).toContainText('KTX2 · ETC1S · 7 mip levels · 64×64');
-  await expect(page.locator('.tl-assets__source').filter({ hasText: 'from PNG' })).toContainText('from PNG (colour) (uploaded)');
+  // The encoding is an import setting of the image: the PNG is the asset's file (its sidecar says ktx2 colour), the KTX2 is in the import cache.
+  await expect(page.locator('.tl-assets__source').filter({ hasText: 'from PNG' })).toContainText('from PNG (colour): assets/checker.png');
+  expect(JSON.parse(readFileSync(join(be.projectDir, 'assets', 'checker.png.tlasset'), 'utf8'))).toMatchObject({ kind: 'texture', importSettings: { ktx2: 'color' } });
+  expect(readdirSync(join(be.projectDir, 'assets')).filter((f) => f.endsWith('.ktx2'))).toEqual([]);
   const assets = (await query('queryAssets', { limit: 10, offset: 0, includeVersions: true }))['assets'] as { assetId: string; displayName: string; image?: unknown; convertedFrom?: unknown }[];
   const checkerAsset = assets.find((a) => a.displayName === 'checker')!;
   expect(checkerAsset.image).toEqual({ format: 'ktx2', width: 64, height: 64, codec: 'etc1s', levels: 7 });
-  expect(checkerAsset.convertedFrom).toEqual({ format: 'png', encoding: 'color' });
+  expect(checkerAsset.convertedFrom).toEqual({ format: 'png', encoding: 'color', sourcePath: 'assets/checker.png' });
 
   // The content route (as MCP): a flat normal map as UASTC.
   const normal = await importEncoded(new Uint8Array(makePng(32, 32, () => [128, 128, 255, 255])), 'normal', 'flat-normal');

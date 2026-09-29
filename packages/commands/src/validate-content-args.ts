@@ -149,8 +149,10 @@ export function validatePublishAssetArgs(
     };
   }
   out.sourceByteLength = len;
-  // A file referenced in place in the game folder; the workspace checks at
-  // commit that it exists inside the folder and has exactly these bytes.
+  // The asset's file in the game folder; the workspace checks at commit that
+  // it exists inside the folder and has exactly these bytes. Absent for bytes
+  // uploaded to the backend: the workspace writes them into the game folder
+  // and records the path it chose.
   if (args['sourcePath'] !== undefined) {
     if (typeof args['sourcePath'] !== 'string') {
       return { ok: false, error: fieldType('/args/sourcePath', args['sourcePath'], 'string (path inside the game folder)') };
@@ -184,8 +186,8 @@ export function validatePublishAssetArgs(
     if (!isPlainObject(args['packedFrom'])) {
       return { ok: false, error: fieldType('/args/packedFrom', args['packedFrom'], 'object { layers, converter, encoding }') };
     }
-    if (out.sourcePath !== undefined || out.convertedFrom !== undefined) {
-      return { ok: false, error: fieldUnexpected('/args/packedFrom', 'packedFrom', KNOWN, 'a packed version is stored; it has no sourcePath or convertedFrom') };
+    if (out.convertedFrom !== undefined) {
+      return { ok: false, error: fieldUnexpected('/args/packedFrom', 'packedFrom', KNOWN, 'a packed version is its own KTX2 file; it has no convertedFrom') };
     }
     out.packedFrom = args['packedFrom'] as unknown as PublishAssetArgs['packedFrom'];
   }

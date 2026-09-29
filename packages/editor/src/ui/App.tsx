@@ -144,7 +144,8 @@ import { useWorkerJob } from '../workers/use-worker-job';
 import { graphsPortContext, materialPortContext } from '../session/material-graph';
 import type { GraphDocument, SaveSchema } from '@thirdlight/project-model';
 import { ProjectFilePicker } from './ProjectFilePicker';
-import { sourceIssuesFrom, type SourceIssue } from '../session/asset-sources';
+import { type SourceIssue } from '../session/asset-sources';
+import { useAssetFileCheck } from './useAssetFileCheck';
 import { createPreviewAudioOwner, type PreviewAudioOwner } from '../session/preview-audio';
 import { SURFACE_PRESET_NAMES, validateMediaDrop, type AnimationRoleKey, type SurfacePresetName } from '../session/media';
 import type { GizmoMode } from '../viewport/viewport';
@@ -2104,14 +2105,9 @@ function EditorApp(): JSX.Element {
     }
   }, []);
 
-  // ---- Assets referenced in place in the game folder -------------
-  // A folder project can import files where they are; Problems shows the ones
-  // whose bytes changed since import. The check runs when the editor connects,
-  // when the window gets focus back (e.g. after a Blender rebuild), after each
-  // publish and on "check files"; Play and export verify on every read anyway.
-  const [folderProject, setFolderProject] = useState(false);
-  const [sourceIssues, setSourceIssues] = useState<SourceIssue[] | null>(null);
-  const [checkingFiles, setCheckingFiles] = useState(false);
+  // ---- Asset files in the game folder -------------
+  // The file check (useAssetFileCheck.ts): moved and changed files, Problems rows.
+  const { checkable: folderProject, sourceIssues, checking: checkingFiles, checkFiles } = useAssetFileCheck(clientRef, ui.connection);
   const [filePicker, setFilePicker] = useState<'create' | 'reimport' | null>(null);
   /** Models the scene view could not show (never silent). */
   const [viewFailures, setViewFailures] = useState<{ id: string; name: string; code: string; message: string }[]>([]);
@@ -2122,37 +2118,6 @@ function EditorApp(): JSX.Element {
         : Promise.resolve({ ok: false as const, error: { code: 'session_unavailable', message: 'not connected' } }),
     [],
   );
-  const checkFiles = useCallback(async () => {
-    const c = clientRef.current;
-    if (!c) return;
-    setCheckingFiles(true);
-    const r = await c.contentIntegrity();
-    setCheckingFiles(false);
-    if (!r.ok) return;
-    const names = new Map(c.content.listAssets().map((a) => [a.assetId, a.displayName]));
-    setSourceIssues(sourceIssuesFrom(r.entries, names));
-  }, []);
-  useEffect(() => {
-    if (ui.connection !== 'connected') return;
-    const c = clientRef.current;
-    if (!c) return;
-    let live = true;
-    void c.listProjectFiles('').then((r) => {
-      if (!live) return;
-      setFolderProject(r.ok);
-      if (r.ok) void checkFiles();
-      else setSourceIssues(null);
-    });
-    return () => {
-      live = false;
-    };
-  }, [ui.connection, checkFiles]);
-  useEffect(() => {
-    if (!folderProject) return;
-    const onFocus = (): void => void checkFiles();
-    window.addEventListener('focus', onFocus);
-    return () => window.removeEventListener('focus', onFocus);
-  }, [folderProject, checkFiles]);
 
   /** After an inspect: remember the proposal and the role-mapping obligation.
    * Returns whether the publish needs no role mapping. */

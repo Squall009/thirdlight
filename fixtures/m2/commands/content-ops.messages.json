@@ -213,36 +213,6 @@
             "currentVersion": 2,
             "versions": [
               {
-                "version": 1,
-                "sourceDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-                "sourceByteLength": 26,
-                "importRecipe": {
-                  "profile": "gltf-glb",
-                  "recipeVersion": 1,
-                  "toolchain": {
-                    "three": "0.186.0"
-                  },
-                  "extensions": []
-                },
-                "metrics": {
-                  "nodes": 4,
-                  "meshes": 1,
-                  "primitives": 2,
-                  "materials": 2,
-                  "images": 1,
-                  "textures": 1,
-                  "vertices": 96,
-                  "triangles": 48,
-                  "animations": 1,
-                  "animationChannels": 3,
-                  "clipDurationMs": 1000,
-                  "decodedGeometryBytes": 4096,
-                  "decodedImageBytes": 2048
-                },
-                "importedAt": "2026-09-18T10:00:00Z",
-                "publishedRevision": 3
-              },
-              {
                 "version": 2,
                 "sourceDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
                 "sourceByteLength": 30,

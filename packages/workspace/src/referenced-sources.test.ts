@@ -15,7 +15,7 @@ import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { openWorkspaceService } from './service';
-import type { StageInspector, WorkspaceService } from './index';
+import { importKeyOfConverted, type StageInspector, type WorkspaceService } from './index';
 
 const roots: string[] = [];
 afterAll(() => {
@@ -162,7 +162,7 @@ describe('assets referenced in place in the game folder', () => {
     }
   });
 
-  it('a changed file is reported and refused; re-import records a new version; the old version becomes unreadable; undo works', () => {
+  it('a changed file is reported and refused; re-import replaces the version (the file is the asset); undo works', () => {
     const f = folderProject('change');
     try {
       const file = join(f.game, 'assets', 'props', 'crate.glb');
@@ -188,14 +188,11 @@ describe('assets referenced in place in the game folder', () => {
       expect(re.ok, JSON.stringify(re)).toBe(true);
       const v2 = f.service.readBlob('game', { assetId: 'crate', version: 2 });
       expect(v2.ok && v2.digest).toBe(sha(V2));
-      // The old version stays in the history but can no longer be read.
+      // No version list: the record holds the version the file has now.
       const v1 = f.service.readBlob('game', { assetId: 'crate', version: 1 });
-      expect(!v1.ok && v1.error.code).toBe('asset_source_changed');
+      expect(!v1.ok && v1.error.code).toBe('asset_version_not_found');
       const after = f.service.contentIntegrity('game');
-      expect(after.ok && after.entries.map((e) => [e.version, e.referenced, e.status])).toEqual([
-        [1, false, 'changed'],
-        [2, true, 'ok'],
-      ]);
+      expect(after.ok && after.entries.map((e) => [e.version, e.referenced, e.status])).toEqual([[2, true, 'ok']]);
 
       // Re-import is an ordinary command: undo restores version 1 as current.
       const undo = command(f.service, 'game', 'undo', {});
@@ -288,33 +285,43 @@ describe('assets referenced in place in the game folder', () => {
     }
   });
 
-  it('a project in the data root cannot reference files in place', () => {
+  it('a project in the data root keeps its asset files in its own folder, never among its project files', () => {
     const base = makeTemp('in-tree');
     const service = openWorkspaceService({ root: base, assetInspector: stubInspector });
     try {
       expect(service.createProject('demo', 'Demo').ok).toBe(true);
-      expect(service.listProjectFiles('demo', '').ok).toBe(false);
+      const dir = join(base, 'projects', 'demo');
+      mkdirSync(join(dir, 'assets'), { recursive: true });
+      writeFileSync(join(dir, 'assets', 'crate.glb'), V1);
+      // The folder lists the assets, not project.json, content.json, scenes/ or sources/.
+      const top = service.listProjectFiles('demo', '');
+      expect(top.ok && top.entries.map((e) => e.path)).toEqual(['assets']);
       const r = service.inspectProjectFile('demo', 'assets/crate.glb');
-      expect(!r.ok && r.error.code).toBe('path_rejected');
-      expect(!r.ok && r.error.message).toContain('not in a game folder');
+      expect(r.ok && r.sourcePath).toBe('assets/crate.glb');
       const c = command(service, 'demo', 'publishAsset', publishArgs('create', V1, 'assets/crate.glb'));
-      expect(!c.ok && c.error.code).toBe('path_rejected');
+      expect(c.ok, JSON.stringify(c)).toBe(true);
+      expect(existsSync(join(dir, 'assets', 'crate.glb.tlasset'))).toBe(true);
+      for (const own of ['content.json', 'project.json', 'scenes/scene-main.json']) {
+        const bad = service.inspectProjectFile('demo', own);
+        expect(!bad.ok && bad.error.code, own).toBe('path_rejected');
+      }
     } finally {
       service.dispose();
     }
   });
 
-  it('a converted version (FBX): the original is checked at commit and reported by integrity; the stored GLB stays readable', () => {
+  it('a converted version (FBX): the original is checked at commit and reported by integrity; the cached GLB stays readable', () => {
     const f = folderProject('converted');
     try {
       const fbx = bytesOf('Kaydara FBX Binary  \u0000 pretend fbx v1');
       writeFileSync(join(f.game, 'assets', 'props', 'crate.fbx'), fbx);
-      // The converted GLB is a stored blob (as the backend publishes it).
-      expect(f.service.publishBlob('game', { digest: sha(V1), byteLength: V1.length, source: { kind: 'bytes', bytes: V1 } }).ok).toBe(true);
+      const conv = (original: Uint8Array): { format: string; sourceDigest: string; sourceByteLength: number; sourcePath: string; converter: { name: string; version: string } } => ({ format: 'fbx', sourceDigest: sha(original), sourceByteLength: original.length, sourcePath: 'assets/props/crate.fbx', converter: { name: 'blender', version: '5.2.2' } });
+      // The converted GLB is what the importer made from the FBX: the import cache holds it (as the backend puts it there).
+      expect(f.service.writeImportedArtifact('game', importKeyOfConverted(conv(fbx)), V1).ok).toBe(true);
       const args = (original: Uint8Array): Record<string, unknown> => {
         const a = publishArgs('create', V1, 'unused');
         delete a['sourcePath'];
-        a['convertedFrom'] = { format: 'fbx', sourceDigest: sha(original), sourceByteLength: original.length, sourcePath: 'assets/props/crate.fbx', converter: { name: 'blender', version: '5.2.2' } };
+        a['convertedFrom'] = conv(original);
         return a;
       };
       // A convertedFrom that does not match the file on disk is refused.

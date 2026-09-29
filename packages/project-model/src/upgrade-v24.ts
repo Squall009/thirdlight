@@ -26,18 +26,21 @@
 import type { ModelErrorV3 } from './errors';
 
 /**
- * The `project.json` schemaVersion this build writes (4: wider entity ids;
- * `upgradeProjectDocsV25`).
+ * The `project.json` schemaVersion this build writes (5: every imported
+ * file is kept in the game folder with a `.tlasset` sidecar; the workspace's
+ * open upgrades a 4, see `upgrade-v26.ts`).
  */
-export const PROJECT_SCHEMA_VERSION = 4;
-/** The format without the genre layer (`project.json` schemaVersion 3), upgraded to 4 on load (`upgradeProjectDocsV25`). */
+export const PROJECT_SCHEMA_VERSION = 5;
+/** The format whose asset versions were stored in `sources/sha256/` (`project.json` schemaVersion 4), upgraded to 5 on open. */
+export const PROJECT_SCHEMA_VERSION_V25 = 4;
+/** The format without the genre layer (`project.json` schemaVersion 3), upgraded to 4 on load (`upgradeProjectDocsV25`), then to 5. */
 export const PROJECT_SCHEMA_VERSION_V24 = 3;
 /** The `project.json` schemaVersion `upgradeProjectDocsV24` upgrades (the format with the genre layer), then `upgradeProjectDocsV25`. */
 export const PROJECT_SCHEMA_VERSION_UPGRADED = 2;
 
-/** Whether the loader upgrades a project of this `project.json` schemaVersion (2 or 3). */
-export function isUpgradedProjectSchemaVersion(v: unknown): v is 2 | 3 {
-  return v === PROJECT_SCHEMA_VERSION_UPGRADED || v === PROJECT_SCHEMA_VERSION_V24;
+/** Whether the loader upgrades a project of this `project.json` schemaVersion (2, 3 or 4). */
+export function isUpgradedProjectSchemaVersion(v: unknown): v is 2 | 3 | 4 {
+  return v === PROJECT_SCHEMA_VERSION_UPGRADED || v === PROJECT_SCHEMA_VERSION_V24 || v === PROJECT_SCHEMA_VERSION_V25;
 }
 
 /** The tail every refusal of removed game data carries. */

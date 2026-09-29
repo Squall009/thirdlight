@@ -43,6 +43,8 @@ import type {
   StageRequest,
   StageResult,
 } from './content-store';
+import type { AssetFilesResult } from './service-content';
+import type { ImportHeader, ImportKey } from './asset-files';
 import type {
   PrepareBehaviorSourceRequest,
   PrepareBehaviorSourceResult,
@@ -387,6 +389,28 @@ export interface WorkspaceService {
   readSourceBlob(projectId: string, request: SourceBlobReadRequest): SourceBlobReadResult;
   /** `contentIntegrity` — bounded integrity report. */
   contentIntegrity(projectId: string): ContentIntegrityResult;
+  /**
+   * Every asset's file in the game folder against the catalog (moved,
+   * changed, missing, what the import cache holds), writing the `.tlasset`
+   * sidecars that are missing or stale. The backend's file check acts on it.
+   */
+  assetFiles(projectId: string): AssetFilesResult;
+  /** Where these assets' files are now, found by their sidecars (a move made outside the editor). */
+  findMovedAssets(projectId: string, assetIds: readonly string[]): { ok: true; found: Record<string, string> } | { ok: false; error: CommandError };
+  /**
+   * Hold uploaded bytes by digest until the `publishAsset` that files them
+   * into the game folder (`assets/<name>.<ext>` unless the command names a path).
+   */
+  holdAssetBytes(projectId: string, bytes: Uint8Array): { ok: true; digest: string; byteLength: number } | { ok: false; error: CommandError };
+  /** Put what an importer made from a file (a converted GLB, a KTX2 encode) into the import cache. */
+  writeImportedArtifact(projectId: string, key: ImportKey, bytes: Uint8Array): { ok: true; digest: string } | { ok: false; error: CommandError };
+  /** The cached inspection of a file's bytes, or null. */
+  readImportHeader(projectId: string, sourceDigest: string, kind: string, toolchain: string): ImportHeader | null;
+  writeImportHeader(projectId: string, header: ImportHeader, toolchain: string): void;
+  /** The project's import cache folder (null when the project cannot be opened). */
+  importCacheDir(projectId: string): string | null;
+  /** Write files into a new `assets/<stem>/` folder of the game folder (an asset tool's zip export); returns the folder. */
+  writeAssetFolder(projectId: string, stem: string, files: readonly { path: string; bytes: Uint8Array }[]): { ok: true; folder: string } | { ok: false; error: CommandError };
   /** `readCapturedV3` — the single acknowledged project read (the merged
    *  start scene, every scene and the content block) for the shared closure
    *  builder.

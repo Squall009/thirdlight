@@ -11,7 +11,7 @@
  * `upgradeProjectDocsV24` does). A schemaVersion 2 project goes through
  * `upgradeProjectDocsV24` first, then this.
  */
-import { PROJECT_SCHEMA_VERSION, PROJECT_SCHEMA_VERSION_V24 } from './upgrade-v24';
+import { PROJECT_SCHEMA_VERSION_V24, PROJECT_SCHEMA_VERSION_V25 } from './upgrade-v24';
 
 export interface UpgradeV25Result {
   /** The upgraded documents (deep copies; the inputs are untouched). */
@@ -28,6 +28,6 @@ export function upgradeProjectDocsV25(contentIn: unknown, scenesIn: readonly unk
   return {
     content,
     scenes,
-    notes: [`project schemaVersion ${PROJECT_SCHEMA_VERSION_V24} → ${PROJECT_SCHEMA_VERSION} (phase 25.7): new objects get six-digit ids (box-000001); the existing ids are kept`],
+    notes: [`project schemaVersion ${PROJECT_SCHEMA_VERSION_V24} → ${PROJECT_SCHEMA_VERSION_V25}: new objects get six-digit ids (box-000001); the existing ids are kept`],
   };
 }

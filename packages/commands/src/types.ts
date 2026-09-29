@@ -1407,6 +1407,8 @@ export interface SetAssetOptionsArgs {
   materials?: Record<string, string> | null;
   /** An animation-only file whose clips play on this model asset's rig (null = its clips are its own). */
   clipsFor?: string | null;
+  /** The asset file's path in the game folder (any kind): a file moved there keeps its asset and every reference to it. */
+  sourcePath?: string;
 }
 
 export interface SetTransformArgs {

@@ -502,7 +502,7 @@ export type Ktx2Encoding = (typeof KTX2_ENCODINGS)[number];
 function validatePackedFrom(v: Record<string, unknown>, path: string, errors: ModelErrorV2[], kind: AssetKindV3): void {
   const pf = v['packedFrom'];
   if (kind !== 'texture') return void errors.push(unexpectedField(path, 'packedFrom', 'only a texture version can be packed'));
-  if (v['convertedFrom'] !== undefined || v['sourcePath'] !== undefined) return void errors.push(unexpectedField(path, 'packedFrom', 'a packed version is stored; it has no convertedFrom or sourcePath'));
+  if (v['convertedFrom'] !== undefined) return void errors.push(unexpectedField(path, 'packedFrom', 'a packed version is its own KTX2 file; it has no convertedFrom'));
   if (!isPlainObject(pf)) return void errors.push(fieldType(path, pf, 'object'));
   for (const k of Object.keys(pf)) if (!['layers', 'converter', 'encoding'].includes(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'layers, converter, encoding'));
   if (!(KTX2_ENCODINGS as readonly unknown[]).includes(pf['encoding'])) errors.push(fieldValue(`${path}/encoding`, pf['encoding'], '"color" | "normal" | "data"', 'the KTX2 encoding is "color" (ETC1S), "normal" or "data" (UASTC)'));
@@ -688,19 +688,24 @@ export function validateAsset(a: unknown, path: string, errors: ModelErrorV2[], 
         limitsError(`${path}/versions`, kind === 'audio' ? 'audio_versions' : kind === 'font' ? 'font_versions' : 'asset_versions', versions.length, maxVersions, `an asset record must have 1-${maxVersions} versions`),
       );
     }
-    let contiguous = true;
+    // The file is the asset: a record keeps its current version (and, in a
+    // project upgraded from the stored-version format, a version a legacy
+    // animation binding still names). Version numbers only count changes, so
+    // they ascend but need not be contiguous.
+    let ascending = true;
     for (let i = 0; i < versions.length; i++) {
       const v = versions[i];
-      if (!isPlainObject(v) || v['version'] !== i + 1) contiguous = false;
+      const prev = i > 0 ? versions[i - 1] : null;
+      if (!isPlainObject(v) || typeof v['version'] !== 'number' || v['version'] < 1 || (isPlainObject(prev) && typeof prev['version'] === 'number' && v['version'] <= prev['version'])) ascending = false;
     }
-    if (!contiguous) {
+    if (!ascending) {
       errors.push(
         withFound(
           {
             code: 'asset_version_invalid',
             path: `${path}/versions`,
-            message: 'versions must be contiguous strictly ascending 1..N (append-only)',
-            expected: 'version[i] == i + 1',
+            message: 'versions must be strictly ascending, each at least 1',
+            expected: 'version[i] > version[i - 1] >= 1',
           },
           versions.map((v) => (isPlainObject(v) ? v['version'] : null)),
         ),

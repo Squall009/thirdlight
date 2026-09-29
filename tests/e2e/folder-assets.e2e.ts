@@ -3,8 +3,9 @@
  * the real backend and Chromium, with the game folder outside the data root:
  * import a .glb from the project folder in the picker, place it, reload,
  * restart, Play, export and run the export with the backend stopped; then
- * rebuild the file, see it in Problems, re-import, and Play/export use the new
- * bytes. The MCP server does the same import from inside the game folder.
+ * rebuild the file: the editor's file check imports it again, and Play/export
+ * use the new bytes. The MCP server does the same import from inside the game
+ * folder, and its check (integrity check=true) imports a rebuilt file again.
  */
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -118,7 +119,7 @@ async function runExport(page: Page, out: string, shot: string): Promise<void> {
   }
 }
 
-test('import a .glb from the project folder, place, reload, restart, Play, export; rebuild → Problems → re-import', async ({ page }) => {
+test('import a .glb from the project folder, place, reload, restart, Play, export; rebuild → imported again when the editor opens', async ({ page }) => {
   test.setTimeout(240_000);
   mkdirSync(SHOTS, { recursive: true });
   const meadow = join(games, 'meadow');
@@ -193,32 +194,26 @@ test('import a .glb from the project folder, place, reload, restart, Play, expor
 
   // Rebuild the file (other bytes at the same path).
   copyFileSync(GLB_V2, file);
-  // Export and Play refuse the changed file and name it.
+  // Until the backend notices, export refuses the changed file and names it.
   const refused = await be.admin('projects/meadow/export');
   expect(refused.status).not.toBe(200);
   expect(JSON.stringify(refused.json)).toContain('assets/props/crate.glb');
   expect(refused.json.error).toMatchObject({ reason: 'asset_source_changed' });
 
-  // Problems shows it: the check runs when the editor opens (a reload here,
-  // with the model's bytes now unreadable, must not break the page) …
+  // The file is the asset: the check when the editor opens (a reload here)
+  // imports it again, the change arrives on the change feed, nothing is left in Problems.
   await page.reload();
   await expect(status(page)).toContainText('connected');
   await expect(rows(page).filter({ hasText: 'crate' })).toHaveCount(1);
+  await page.getByRole('tab', { name: 'Assets' }).click();
+  await expect(tile).toContainText('v2', { timeout: 15_000 });
   await page.getByRole('tab', { name: /Problems/ }).click();
-  const files = page.getByRole('list', { name: 'Asset files' });
-  await expect(files).toContainText('crate: assets/props/crate.glb has changed since v1 was imported');
-  // … and again on demand.
   await page.getByRole('button', { name: 'check files' }).click();
   await expect(page.getByRole('button', { name: 'check files' })).toBeEnabled();
-  await expect(files).toContainText('has changed since v1 was imported');
+  await expect(page.getByRole('list', { name: 'Asset files' })).toHaveCount(0);
   await page.screenshot({ path: join(SHOTS, '4-problems-changed.png') });
-
-  // Re-import: a new version with the new digest (undoable), old version flagged.
-  await files.getByRole('button', { name: 'Re-import' }).click();
-  await expect(files).toContainText('older version v1 can no longer be read');
-  await expect(files).not.toContainText('has changed since');
-  await page.getByRole('tab', { name: 'Assets' }).click();
-  await expect(tile).toContainText('v2');
+  // The sidecar next to the file names the asset.
+  expect(JSON.parse(readFileSync(`${file}.tlasset`, 'utf8'))).toMatchObject({ tlasset: 1, id: expect.any(String), kind: 'model' });
   await page.getByRole('tab', { name: 'Scene' }).click();
 
   // Play and export now use the new bytes.
@@ -305,13 +300,14 @@ test('MCP imports a file from the game folder in place (no THIRDLIGHT_PROJECT_ID
     copyFileSync(GLB_V2, file);
     const changed = await call('tl_content_query', { target: 'integrity' });
     expect((changed.body.entries as Array<{ status: string }>)[0]!.status).toBe('changed');
+    // check=true is the editor's "check files": the changed file is imported again.
+    const checked = await call('tl_content_query', { target: 'integrity', check: true });
+    expect(checked.isError, JSON.stringify(checked.body)).toBe(false);
+    expect(checked.body.check).toMatchObject({ reimported: [{ assetId: 'crate', file: 'assets/props/crate.glb', version: 2 }], failed: [] });
+    expect((checked.body.entries as Array<{ version: number; status: string }>).map((e) => [e.version, e.status])).toEqual([[2, 'ok']]);
+    // An explicit re-import is still an ordinary command.
     const re = await publish('reimport');
     expect(re.isError, JSON.stringify(re.body)).toBe(false);
-    const after = await call('tl_content_query', { target: 'integrity' });
-    expect((after.body.entries as Array<{ version: number; status: string }>).map((e) => [e.version, e.status])).toEqual([
-      [1, 'changed'],
-      [2, 'ok'],
-    ]);
     const asset = await call('tl_content_query', { target: 'asset', assetId: 'crate' });
     expect(JSON.stringify(asset.body)).toContain(D2);
   } finally {

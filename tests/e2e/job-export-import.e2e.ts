@@ -8,7 +8,8 @@
  * Checked: a folder export is inspected over HTTP and its model referenced
  * in place (sourcePath), committed by the ordinary publishAsset; a zip in
  * the game folder (wrapped in one top folder) and an uploaded zip (MCP
- * dataBase64) are inspected through tl_content_upload {jobExport} and
+ * dataBase64) land as an assets/<name>/ folder of the game folder and are
+ * inspected through tl_content_upload {jobExport} and
  * committed by tl_command publishAsset; the manifest's triangle claim is
  * compared with the inspected model (a warning when they differ); a file
  * whose bytes do not match its digest, a manifest without a model and a
@@ -175,7 +176,10 @@ test('a job export (folder, zip in the game folder, uploaded zip) imports throug
     ]));
     const zipped = await call('tl_content_upload', { jobExport: { path: 'exports/crate.zip' } });
     expect(zipped.isError, JSON.stringify(zipped.body)).toBe(false);
-    expect(zipped.body.sourcePath).toBeUndefined();
+    // A zip lands as a folder of the game folder; its model is imported where it is.
+    expect(zipped.body.sourcePath).toBe('assets/Crate/crate.glb');
+    expect(readFileSync(join(game, 'assets', 'Crate', 'crate.glb'))).toEqual(glb);
+    expect(readFileSync(join(game, 'assets', 'Crate', 'preview.png'))).toEqual(preview);
     expect((zipped.body.jobExport as { warnings: string[] }).warnings).toEqual([]);
     const pub2 = await publish('crate-zip', zipped.body);
     expect(pub2.isError, JSON.stringify(pub2.body)).toBe(false);
@@ -189,6 +193,7 @@ test('a job export (folder, zip in the game folder, uploaded zip) imports throug
     const uploaded = await call('tl_content_upload', { jobExport: {}, dataBase64: upload.toString('base64') });
     expect(uploaded.isError, JSON.stringify(uploaded.body)).toBe(false);
     expect((uploaded.body.proposal as { suggestedDisplayName: string }).suggestedDisplayName).toBe('Crate upload');
+    expect(uploaded.body.sourcePath).toBe('assets/Crate-upload/crate.glb');
     const pub3 = await publish('crate-upload', uploaded.body);
     expect(pub3.isError, JSON.stringify(pub3.body)).toBe(false);
     expect((await assets()).map((a) => [a.assetId, a.displayName]).sort()).toEqual([['crate-folder', 'Crate'], ['crate-upload', 'Crate upload'], ['crate-zip', 'Crate']]);

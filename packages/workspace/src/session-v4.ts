@@ -10,7 +10,12 @@ import type { ContentDocument, HistoryState } from '@thirdlight/commands';
 import { BlockGrid, boxContains, effectiveCellMeta, regionCells, regionContains, type BlockCell, type BlockLayerComponent, type BlockLayerData, type BlockType, type CellField } from '@thirdlight/project-model';
 import { composeV4, defaultInputFor, DESCRIPTORS, physicsDimensionOf, effectiveEntityFlags, GRAPH_KINDS, glbClipDurations, migrateModelAnimations, validateContentV4, validateSceneV4, type ContentCatalogV3, type Manifest, type ModelErrorV3, type ProjectManifestV2, type SceneV3, type SceneV4 } from '@thirdlight/project-model';
 
+import { readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { loadPreparedSources, readBlob, type ContentContext } from './content-store';
+import { CACHE_GITIGNORE_LINES } from './registry';
+import { upgradeAssetsToFiles } from './upgrade-assets';
 import { sha256Hex } from './digest';
 import type { RetryRecord } from './envelope';
 import {
@@ -177,9 +182,57 @@ export function openV4(
   if (!j.ok) return { kind: 'blocked', reason: 'envelope_invalid', errors: [j.error], count: 1 };
   const l = loadV4(core.ops, dir, projectId);
   if (l.kind === 'blocked') return l;
-  const upgraded = l.upgraded !== undefined ? writeUpgradedProject(core, dir, thirdlightDir, projectId, l.state, l.upgraded.notes) : { state: l.state, notes: [] };
+  let loaded = l.state;
+  let loadNotes = l.upgraded?.notes ?? [];
+  if (l.upgraded?.assetFiles === true) {
+    const files = upgradeAssetFilesOnOpen(core, dir, thirdlightDir, projectId, loaded);
+    loaded = files.state;
+    loadNotes = [...loadNotes, ...files.notes];
+  }
+  const upgraded = l.upgraded !== undefined ? writeUpgradedProject(core, dir, thirdlightDir, projectId, loaded, loadNotes) : { state: loaded, notes: [] };
   const migrated = migrateModelAnimationsOnOpen(core, dir, thirdlightDir, projectId, upgraded.state);
   return { kind: 'open', session: makeSessionV4(core, dir, projectId, migrated.state, ownership, sceneDir, thirdlightDir, [...notes, ...upgraded.notes, ...migrated.notes]) };
+}
+
+/**
+ * A schemaVersion 4 project's assets become files in the game folder with
+ * their sidecars (`upgrade-assets.ts`); the result must validate like any
+ * command's, else the project opens as it was and the notes say why.
+ */
+function upgradeAssetFilesOnOpen(core: Core, dir: string, thirdlightDir: string, projectId: string, state: V4State): { state: V4State; notes: string[] } {
+  const ctx: ContentContext = {
+    projectId,
+    dir,
+    thirdlightDir,
+    storageVersion: 4,
+    revision: state.revision,
+    scene: primaryScene(state),
+    content: state.content,
+    scenes: [...state.scenes.values()],
+    gameFolder: core.registry.get(projectId)?.folder ?? null,
+  };
+  const u = upgradeAssetsToFiles(core, ctx, state.content, state.scenes.values());
+  const v = validateContentV4(u.content);
+  if (!v.ok) return { state, notes: [...u.notes, `the assets stay stored in sources/sha256: the upgraded content does not validate (${v.errors[0]?.message ?? 'unknown'})`] };
+  ensureCacheIgnored(dir);
+  return { state: { ...state, content: v.normalized }, notes: u.notes };
+}
+
+/** A folder project's `.gitignore` names the import cache (it is rebuilt, never committed). */
+function ensureCacheIgnored(dir: string): void {
+  const path = join(dir, '.gitignore');
+  let text: string;
+  try {
+    text = readFileSync(path, 'utf8');
+  } catch {
+    return;
+  }
+  if (/^cache\/?$/m.test(text)) return;
+  try {
+    writeFileSync(path, `${text.endsWith('\n') || text.length === 0 ? text : `${text}\n`}${CACHE_GITIGNORE_LINES}`);
+  } catch {
+    // the cache is then only unignored; nothing else depends on it
+  }
 }
 
 /**

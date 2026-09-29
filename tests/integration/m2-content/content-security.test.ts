@@ -208,16 +208,18 @@ describe('content transport security', () => {
     });
     expect(inspect.status).toBe(400);
     expect(errorCode(inspect.body as Record<string, unknown>)).toBe('import_rejected');
-    // ... and the refusal leaves NO durable blob and NO new orphan blob
-    // (durable effect "none").
+    // ... and the refusal leaves NO durable blob, nothing held for a publish
+    // and NO new orphan blob (durable effect "none").
     expect(existsSync(join(root.projectDir, 'sources', 'sha256', uploadDigest))).toBe(false);
+    expect(existsSync(join(root.projectDir, '.thirdlight', 'held', uploadDigest))).toBe(false);
     const integrity = await mcp.call('tl_content_query', { target: 'integrity' });
     expect((integrity.body.summary as { orphanBlobs?: number }).orphanBlobs).toBe(0);
     // No durable effect at all: the revision is unchanged.
     const after = await mcp.call('tl_inspect', { target: 'project' });
     expect(Number(after.body.revision)).toBe(beforeRevision);
     // Positive control for the same existence check: a VALID GLB inspected
-    // through the same route IS published.
+    // through the same route IS held for its publish (which files it into the
+    // game folder); nothing goes to the blob store.
     const good = fixtureBytes('tiny-v1.glb');
     const goodStage = await createStage();
     const goodUpload = await uploadFrame(goodStage, 0, good.length, good);
@@ -230,7 +232,8 @@ describe('content transport security', () => {
       origin: AUTHORING_ORIGIN,
     });
     expect(goodInspect.status).toBe(200);
-    expect(existsSync(join(root.projectDir, 'sources', 'sha256', goodDigest))).toBe(true);
+    expect(existsSync(join(root.projectDir, '.thirdlight', 'held', goodDigest))).toBe(true);
+    expect(existsSync(join(root.projectDir, 'sources', 'sha256', goodDigest))).toBe(false);
   }, 60_000);
 
   it('rejects malformed upload framing (missing/incorrect offset) with no stage extension', async () => {

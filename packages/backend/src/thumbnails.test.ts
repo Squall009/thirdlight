@@ -64,10 +64,10 @@ afterEach(() => {
 const DIGEST = 'ab'.repeat(32);
 
 describe('thumbnail cache', () => {
-  it('stores and reads a PNG per (project, digest, piece) under <dataRoot>/cache/thumbnails', () => {
+  it('stores and reads a PNG per (project, digest, piece) in the project\'s import cache', () => {
     const root = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'tl-thumbs-'));
     dirs.push(root);
-    const cache = createThumbnailCache(root);
+    const cache = createThumbnailCache((id) => join(root, id, 'cache', 'imported'));
     expect(cache.read('demo', DIGEST, null)).toBeNull();
     const file = png(128, 128);
     expect(cache.write('demo', DIGEST, null, file)).toBeNull();
@@ -75,14 +75,14 @@ describe('thumbnail cache', () => {
     expect(Buffer.from(cache.read('demo', DIGEST, null)!)).toEqual(Buffer.from(file));
     expect(cache.read('demo', DIGEST, 'rock')!.byteLength).toBeGreaterThan(0);
     expect(cache.read('demo', DIGEST, 'bush')).toBeNull();
-    expect(existsSync(join(root, 'cache', 'thumbnails', 'demo', DIGEST, `${thumbnailKey('rock')}.png`))).toBe(true);
+    expect(existsSync(join(root, 'demo', 'cache', 'imported', DIGEST, 'thumbnails', `${thumbnailKey('rock')}.png`))).toBe(true);
     expect(thumbnailKey('rock')).toMatch(/^p-[0-9a-f]{32}$/);
   });
 
   it('refuses non-PNG bytes, oversize images, bad ids and path tricks', () => {
     const root = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'tl-thumbs-'));
     dirs.push(root);
-    const cache = createThumbnailCache(root);
+    const cache = createThumbnailCache((id) => join(root, id, 'cache', 'imported'));
     expect(cache.write('demo', DIGEST, null, new TextEncoder().encode('not a png at all, just some text.'))).toMatch(/PNG/);
     expect(cache.write('demo', DIGEST, null, png(1024, 8))).toMatch(/pixels/);
     expect(cache.write('../x', DIGEST, null, png(8, 8))).toMatch(/invalid/);
@@ -94,7 +94,7 @@ describe('thumbnail cache', () => {
   it('an ETag per cached thumbnail that changes when it is rewritten (null when none)', () => {
     const root = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'tl-thumbs-'));
     dirs.push(root);
-    const cache = createThumbnailCache(root);
+    const cache = createThumbnailCache((id) => join(root, id, 'cache', 'imported'));
     expect(cache.etag('demo', DIGEST, null)).toBeNull();
     expect(cache.write('demo', DIGEST, null, png(16, 16))).toBeNull();
     const first = cache.etag('demo', DIGEST, null);
@@ -108,12 +108,12 @@ describe('thumbnail cache', () => {
   it('the per-project count is kept (a rewrite does not count twice; new files do)', () => {
     const root = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'tl-thumbs-'));
     dirs.push(root);
-    const cache = createThumbnailCache(root);
+    const cache = createThumbnailCache((id) => join(root, id, 'cache', 'imported'));
     for (let i = 0; i < 3; i += 1) expect(cache.write('demo', DIGEST, `piece-${i}`, png(8, 8))).toBeNull();
     // Rewriting the same thumbnails many times stays within any bound.
     for (let i = 0; i < 50; i += 1) expect(cache.write('demo', DIGEST, 'piece-0', png(8, 8))).toBeNull();
     // A fresh cache over the same root walks the files once and agrees.
-    const again = createThumbnailCache(root);
+    const again = createThumbnailCache((id) => join(root, id, 'cache', 'imported'));
     expect(again.write('demo', DIGEST, 'piece-3', png(8, 8))).toBeNull();
     expect(again.read('demo', DIGEST, 'piece-3')).not.toBeNull();
   });

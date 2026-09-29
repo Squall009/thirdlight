@@ -16,16 +16,11 @@ import {
   BEHAVIOR_ENTRY_PATH,
   BEHAVIOR_GRAPH_KIND,
   MAX_ASSETS,
-  MAX_ASSET_VERSIONS,
   MAX_AUDIO_ASSETS,
-  MAX_AUDIO_VERSIONS,
   MAX_BEHAVIORS,
   MAX_FONT_ASSETS,
-  MAX_FONT_VERSIONS,
   MAX_MUSIC_ASSETS,
-  MAX_MUSIC_VERSIONS,
   MAX_TEXTURE_ASSETS,
-  MAX_TEXTURE_VERSIONS,
   MAX_TRUST_ENTRIES,
   MAX_VERSION_RECORDS,
   NAME_MAX,
@@ -179,20 +174,21 @@ export function applyPublishAsset(input: OpInput, args: PublishAssetArgs): OpOut
     if (args.kind !== undefined && args.kind !== existingKind) {
       return { ok: false, error: assetKindMismatch(args.assetId, existingKind ?? 'model', args.kind) };
     }
-    const versionLimit = existingKind === 'audio' ? MAX_AUDIO_VERSIONS : existingKind === 'texture' ? MAX_TEXTURE_VERSIONS : existingKind === 'music' ? MAX_MUSIC_VERSIONS : existingKind === 'font' ? MAX_FONT_VERSIONS : MAX_ASSET_VERSIONS;
-    if (existing.versions.length + 1 > versionLimit) {
-      return {
-        ok: false,
-        error: limitsExceeded(
-          existingKind === 'audio' ? 'audio_versions' : existingKind === 'texture' ? 'texture_versions' : existingKind === 'music' ? 'music_versions' : existingKind === 'font' ? 'font_versions' : 'asset_versions',
-          existing.versions.length + 1,
-          versionLimit,
-        ),
-      };
-    }
   }
+  // The file is the asset, so a reimport replaces the version rather than
+  // appending one (the file's history is the game repository's). A legacy
+  // `modelAnimation` binding in this scene that still names an older version
+  // keeps that version, so the binding stays valid until it is moved.
+  const movedEntity = args.animation?.entityId;
+  const boundVersions = new Set<number>();
+  for (const e of input.scene.entities) {
+    if (e.id === movedEntity) continue;
+    const anim = (e.components as { modelAnimation?: { assetId?: unknown; version?: unknown } }).modelAnimation;
+    if (anim !== undefined && anim.assetId === args.assetId && typeof anim.version === 'number') boundVersions.add(anim.version);
+  }
+  const keptVersions = existing === null ? [] : existing.versions.filter((v) => boundVersions.has(v.version));
   const totalVersions =
-    catalog.assets.reduce((n, a) => n + a.versions.length, 0) + 1;
+    catalog.assets.reduce((n, a) => n + (a.assetId === args.assetId ? 0 : a.versions.length), 0) + keptVersions.length + 1;
   if (totalVersions > MAX_VERSION_RECORDS) {
     return { ok: false, error: limitsExceeded('version_records', totalVersions, MAX_VERSION_RECORDS) };
   }
@@ -243,7 +239,7 @@ export function applyPublishAsset(input: OpInput, args: PublishAssetArgs): OpOut
     }
   }
 
-  const version = existing !== null ? existing.versions.length + 1 : 1;
+  const version = existing !== null ? existing.currentVersion + 1 : 1;
   const versionRecord = {
     version,
     sourceDigest: args.sourceDigest,
@@ -262,7 +258,7 @@ export function applyPublishAsset(input: OpInput, args: PublishAssetArgs): OpOut
           ...deepClone(existing),
           displayName: args.displayName ?? existing.displayName,
           currentVersion: version,
-          versions: [...deepClone(existing.versions), versionRecord],
+          versions: [...deepClone(keptVersions), versionRecord],
         }
       : {
           assetId: args.assetId,

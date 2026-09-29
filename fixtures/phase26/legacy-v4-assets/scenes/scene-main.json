@@ -1,0 +1,25 @@
+{
+  "storageVersion": 4,
+  "type": "scene",
+  "projectId": "legacy-v4-assets",
+  "scene": {
+    "schemaVersion": 4,
+    "sceneId": "scene-main",
+    "revision": 7,
+    "entities": [
+      {"id":"cam-main","name":"Main Camera","components":{"transform":{"position":[0,0.5,4],"rotation":[0,0,0,1],"scale":[1,1,1]},"camera":{"type":"perspective","fovY":60,"near":0.1,"far":100}}},
+      {"id":"light-0001","name":"Sun","components":{"transform":{"position":[0,10,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"light":{"type":"directional","color":"#ffffff","intensity":1.2,"direction":[0.4,-1,-0.3],"castShadow":true}}},
+      {"id":"light-0002","name":"Ambient","components":{"transform":{"position":[0,0,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"light":{"type":"ambient","color":"#8090a8","intensity":0.6}}},
+      {"id":"model-000001","name":"Crate","components":{"transform":{"position":[2,0,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"model":{"asset":{"assetId":"crate"}}}},
+      {"id":"box-000001","name":"Wall","components":{"transform":{"position":[0,0,-3],"rotation":[0,0,0,1],"scale":[1,1,1]},"box":{"size":[1,1,1],"material":{"color":"#b0b0b0"}}}}
+    ]
+  },
+  "retry": {
+    "recordVersion": 2,
+    "retention": 128,
+    "records": [
+      {"requestId":"req-0000000000000000000000000000000a","digest":"8d131fb45c235e439647d44e5843e6fc66f7c15a1534e98dbe12d4d3a26e44c2","appliedRevision":6,"result":{"ok":true,"op":"createEntity","projectId":"legacy-v4-assets","requestId":"req-0000000000000000000000000000000a","revision":6,"duplicated":false,"createdId":"model-000001","change":{"type":"createEntity","id":"model-000001","entity":{"id":"model-000001","name":"Crate","components":{"transform":{"position":[2,0,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"model":{"asset":{"assetId":"crate"}}}}},"history":{"undoDepth":6,"redoDepth":0},"sceneId":"scene-main"}},
+      {"requestId":"req-0000000000000000000000000000000b","digest":"cba1dee14ebb6f1ea64335ea071192930c79a04a391833ffdce60d2fd9e6f72d","appliedRevision":7,"result":{"ok":true,"op":"createEntity","projectId":"legacy-v4-assets","requestId":"req-0000000000000000000000000000000b","revision":7,"duplicated":false,"createdId":"box-000001","change":{"type":"createEntity","id":"box-000001","entity":{"id":"box-000001","name":"Wall","components":{"transform":{"position":[0,0,-3],"rotation":[0,0,0,1],"scale":[1,1,1]},"box":{"size":[1,1,1],"material":{"color":"#b0b0b0"}}}}},"history":{"undoDepth":7,"redoDepth":0},"sceneId":"scene-main"}}
+    ]
+  }
+}

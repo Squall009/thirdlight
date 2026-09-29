@@ -33,7 +33,7 @@
  * stays the single authority for document value rules.
  */
 
-import { validateGraphOps, blockEditsShapeError, validateBlockType, validateCellFields, validateBlockStamp, BLOCK_LIMITS, type GraphDocument, type GraphOp, type ModelErrorV2 } from '@thirdlight/project-model';
+import { isValidSourcePath, validateGraphOps, blockEditsShapeError, validateBlockType, validateCellFields, validateBlockStamp, BLOCK_LIMITS, type GraphDocument, type GraphOp, type ModelErrorV2 } from '@thirdlight/project-model';
 import { ENTITY_FLAGS, M2_SETTINGS_KEYS, MAX_SCENES, MAX_TAGS, TAG_NAME_RE, type AnimatorController, type InputConfig, type EnvironmentConfig, type LightingBake, type MaterialDef, type EffectDef } from '@thirdlight/project-model';
 
 import {
@@ -932,13 +932,18 @@ function validateSetAssetOptionsArgs(args: Record<string, unknown>):
   | { ok: true; args: SetAssetOptionsArgs }
   | { ok: false; error: CommandError } {
   for (const key of Object.keys(args)) {
-    if (key !== 'assetId' && key !== 'vertexColors' && key !== 'materials' && key !== 'clipsFor') {
-      return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(key)}`, key, 'assetId, vertexColors, materials, clipsFor') };
+    if (key !== 'assetId' && key !== 'vertexColors' && key !== 'materials' && key !== 'clipsFor' && key !== 'sourcePath') {
+      return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(key)}`, key, 'assetId, vertexColors, materials, clipsFor, sourcePath') };
     }
   }
   if (args['assetId'] === undefined) return { ok: false, error: fieldMissing('/args/assetId', 'assetId') };
   if (typeof args['assetId'] !== 'string') return { ok: false, error: fieldType('/args/assetId', args['assetId'], 'string (asset ID)') };
-  if (args['vertexColors'] === undefined && args['materials'] === undefined && args['clipsFor'] === undefined) return { ok: false, error: fieldMissing('/args/vertexColors', 'vertexColors, materials or clipsFor') };
+  if (args['vertexColors'] === undefined && args['materials'] === undefined && args['clipsFor'] === undefined && args['sourcePath'] === undefined) return { ok: false, error: fieldMissing('/args/vertexColors', 'vertexColors, materials, clipsFor or sourcePath') };
+  // Where the asset's file is in the game folder (a moved file keeps its asset).
+  const sourcePath = args['sourcePath'];
+  if (sourcePath !== undefined && !isValidSourcePath(sourcePath)) {
+    return { ok: false, error: fieldValue('/args/sourcePath', sourcePath, 'a relative path with forward slashes, no "..", "." or empty segments', 'sourcePath is the asset file\'s path inside the game folder') };
+  }
   // The rig an animation-only file's clips are for (null clears it).
   const clipsFor = args['clipsFor'];
   if (clipsFor !== undefined && clipsFor !== null && typeof clipsFor !== 'string') {
@@ -961,6 +966,7 @@ function validateSetAssetOptionsArgs(args: Record<string, unknown>):
       ...(args['vertexColors'] !== undefined ? { vertexColors: args['vertexColors'] } : {}),
       ...(materials !== undefined ? { materials: materials as Record<string, string> | null } : {}),
       ...(clipsFor !== undefined ? { clipsFor: clipsFor as string | null } : {}),
+      ...(sourcePath !== undefined ? { sourcePath: sourcePath as string } : {}),
     },
   };
 }

@@ -74,7 +74,7 @@ const status = (page: Page) => page.locator('.tl-statusbar');
 
 test.skip(!haveBlender, 'needs Blender on the backend host (THIRDLIGHT_BLENDER)');
 
-test('an FBX in the game folder is converted, placed, played, exported; rebuilt → Problems → re-import', async ({ page }) => {
+test('an FBX in the game folder is converted, placed, played, exported; rebuilt → imported again by "check files"', async ({ page }) => {
   test.setTimeout(300_000);
   mkdirSync(SHOTS, { recursive: true });
   const game = join(games, 'game');
@@ -101,10 +101,12 @@ test('an FBX in the game folder is converted, placed, played, exported; rebuilt 
   await expect(tile).toHaveCount(1, { timeout: 10_000 });
   await tile.click();
   await expect(page.locator('.tl-assets__source')).toHaveText('from FBX: assets/props/crate.fbx');
-  // The converted GLB is stored with the project; the FBX stays in the folder.
-  const blobs = readdirSync(join(game, 'thirdlight', 'sources', 'sha256'));
-  expect(blobs).toHaveLength(1);
-  expect(readFileSync(join(game, 'thirdlight', 'sources', 'sha256', blobs[0]!)).subarray(0, 4).toString()).toBe('glTF');
+  // The FBX is the asset's file (with its sidecar); the converted GLB is in the import cache, nothing in sources/.
+  expect(JSON.parse(readFileSync(join(assets, 'crate.fbx.tlasset'), 'utf8'))).toMatchObject({ kind: 'model', importSettings: { convert: { from: 'fbx', to: 'glb' } } });
+  expect(existsSync(join(game, 'thirdlight', 'sources', 'sha256'))).toBe(false);
+  const cached = readdirSync(join(game, 'thirdlight', 'cache', 'imported'), { recursive: true }).map(String).filter((f) => f.endsWith('.bin'));
+  expect(cached).toHaveLength(1);
+  expect(readFileSync(join(game, 'thirdlight', 'cache', 'imported', cached[0]!)).subarray(0, 4).toString()).toBe('glTF');
   await page.getByRole('button', { name: 'place' }).click();
   await page.getByRole('tab', { name: 'Scene' }).click();
   await expect(page.locator('.tl-hierarchy__list li.tl-row').filter({ hasText: 'crate' })).toHaveCount(1);
@@ -127,18 +129,14 @@ test('an FBX in the game folder is converted, placed, played, exported; rebuilt 
   expect(exported.status, JSON.stringify(exported.json)).toBe(200);
   const out = join(be.exportRoot, String(exported.json.outputDir));
 
-  // Rebuild the FBX (a blue checker): Problems says so and re-imports it.
+  // Rebuild the FBX (a blue checker): the file is the asset, so "check files" converts and imports it again.
   copyFileSync(join(FBX, 'crate-blue.fbx'), join(assets, 'crate.fbx'));
   copyFileSync(join(FBX, 'crate_checker_blue.png'), join(assets, 'crate_checker_blue.png'));
   await page.getByRole('tab', { name: /Problems/ }).click();
   await page.getByRole('button', { name: 'check files' }).click();
-  const files = page.getByRole('list', { name: 'Asset files' });
-  await expect(files).toContainText('crate: assets/props/crate.fbx has changed since v1 was converted');
+  await expect(page.getByRole('button', { name: 'check files' })).toBeEnabled({ timeout: 120_000 });
+  await expect(page.getByRole('list', { name: 'Asset files' })).toHaveCount(0);
   await page.screenshot({ path: join(SHOTS, '3-problems.png') });
-  // Until then Play still uses the stored conversion.
-  expect(await play('4-play-before-reimport.png')).toBe('red');
-  await files.getByRole('button', { name: 'Re-import' }).click();
-  await expect(files).toHaveCount(0, { timeout: 120_000 });
   await page.getByRole('tab', { name: 'Assets' }).click();
   await expect(tile).toContainText('v2');
   expect(await play('5-play-blue.png')).toBe('blue');
@@ -209,7 +207,8 @@ test('MCP: an uploaded FBX (embedded texture) and a game-folder FBX import throu
     const entries = integrity.body.entries as Array<{ assetId: string; status: string; convertedFrom?: { sourcePath?: string; status: string } }>;
     expect(entries.map((e) => [e.assetId, e.status, e.convertedFrom?.sourcePath ?? null, e.convertedFrom?.status])).toEqual([
       ['folder-crate', 'ok', 'assets/crate.fbx', 'ok'],
-      ['uploaded-crate', 'ok', null, 'ok'],
+      // An uploaded FBX is filed into the game folder when it is published: it is the asset's file too.
+      ['uploaded-crate', 'ok', 'assets/uploaded-crate.fbx', 'ok'],
     ]);
   } finally {
     await mcp.close();

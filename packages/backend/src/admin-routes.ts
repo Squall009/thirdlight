@@ -21,10 +21,12 @@ export interface AdminRoutesContext {
   readonly readBody: (req: IncomingMessage) => Promise<{ ok: true; bytes: Uint8Array; } | { ok: false; error: SessionError; }>;
   readonly workspaceError: (e: CommandError) => SessionError;
   readonly recordProblem: (projectId: string, source: Problem["source"], code: string, message: string) => void;
+  /** Make the import cache whole before the export reads what the catalog records. */
+  readonly ensureImported?: (projectId: string) => Promise<void>;
 }
 
 export function makeAdminRoutes(ctx: AdminRoutesContext) {
-  const { config, behaviorCompiler, service, sendJson, sendError, requireAuth, readBody, workspaceError, recordProblem } = ctx;
+  const { config, behaviorCompiler, service, sendJson, sendError, requireAuth, readBody, workspaceError, recordProblem, ensureImported } = ctx;
 
   const adminCreateProject = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
     const authError = requireAuth(req, '', true);
@@ -235,6 +237,7 @@ export function makeAdminRoutes(ctx: AdminRoutesContext) {
       return;
     }
     const engineRoot = config.engineRoot;
+    await ensureImported?.(projectId);
     const result = await exportProject({
       projectId,
       service,
