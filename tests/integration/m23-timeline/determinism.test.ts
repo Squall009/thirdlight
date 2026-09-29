@@ -114,7 +114,7 @@ function firstDiff(a: string[], b: string[]): number {
   return a.slice(0, n).findIndex((d, k) => d !== b[k]);
 }
 
-describe('phase 23.17: timelines in page and worker', () => {
+describe('timelines in page and worker', () => {
   it('identical step digests; cameras, fade, letterbox, wait-for-input and skip end states agree', async () => {
     const a = await run('single');
     const b = await run('single');

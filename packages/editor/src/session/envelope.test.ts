@@ -25,7 +25,7 @@ describe('envelope — requestId', () => {
 });
 
 describe('envelope — makeEnvelope / makeEstablishBody', () => {
-  it('builds a commands.md §4 envelope', () => {
+  it('builds a command envelope', () => {
     const env = makeEnvelope('createEntity', 'proj-1', 'req-a', 3, { kind: 'box', parentId: null, name: 'x' }, { kind: 'browser', clientId: 'sess-1' });
     expect(env).toEqual({
       op: 'createEntity',
@@ -37,7 +37,7 @@ describe('envelope — makeEnvelope / makeEstablishBody', () => {
     });
   });
 
-  it('builds the establish body (sessions.md §5.1)', () => {
+  it('builds the establish body', () => {
     expect(makeEstablishBody('proj-1', 'sess-1')).toEqual({
       projectId: 'proj-1',
       sessionId: 'sess-1',
@@ -61,7 +61,7 @@ describe('envelope — revision adoption + duplicate detection', () => {
   });
 });
 
-describe('envelope — ack-loss retry discipline (sessions.md §8.4)', () => {
+describe('envelope — ack-loss retry discipline', () => {
   const lost: CommandOutcome = { status: 'lost' };
   const applied: CommandOutcome = { status: 'response', response: { ok: true, revision: 6, duplicated: false, change: {} } };
   const replay: CommandOutcome = { status: 'response', response: { ok: true, revision: 6, duplicated: true, change: {} } };

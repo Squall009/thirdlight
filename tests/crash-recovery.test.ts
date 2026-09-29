@@ -133,7 +133,7 @@ afterAll(() => {
   }
 });
 
-describe('crash recovery with real subprocess termination (workspace.md §5/§6)', () => {
+describe('crash recovery with real subprocess termination', () => {
   it('SIGKILL before the rename: old state + leftover temp; restart re-executes the request fresh (no double-apply)', async () => {
     const root = makeRoot('before');
     const dir = seedProject(root, 'demo-0001');

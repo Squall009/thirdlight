@@ -269,7 +269,7 @@ afterAll(() => {
 // T2 — real two-process barriers (exactly one active writer).
 // =============================================================================
 
-describe('T2: two real processes race the claim-file gate (workspace.md §6.3 single-winner)', () => {
+describe('T2: two real processes race the claim-file gate', () => {
   it('absent claim: fresh project (record absent) ⇒ exactly one winner; the loser is refused; the on-disk record + claim file are the winner', async () => {
     const root = makeRoot('absent');
     seedProject(root, PROJECT);
@@ -462,7 +462,7 @@ describe('T2: two real processes race the claim-file gate (workspace.md §6.3 si
 // T3 — SIGKILL crash points inside the claim sequence.
 // =============================================================================
 
-describe('T3: SIGKILL at the claim-file crash points (workspace.md §6.3/§6.5)', () => {
+describe('T3: SIGKILL at the claim-file crash points', () => {
   it('T3(a): kill between the acquire and the content stamp ⇒ empty orphan claim-0 ⇒ the next claim fails claim_inconsistent; the operator removes the orphan ⇒ the re-issued open succeeds', async () => {
     const root = makeRoot('crasha');
     seedProject(root, PROJECT);

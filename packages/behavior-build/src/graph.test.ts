@@ -170,7 +170,7 @@ describe('compileBehaviorGraph (the same compiler as TypeScript sources)', () =>
   });
 });
 
-describe('phase 19.1: a script at the node budget', () => {
+describe('a script at the node budget', () => {
   it('compiles: the node code is spread over files within the per-file bound', async () => {
     const nodes: GraphNode[] = [{ id: 'start', type: 'event.step', position: [0, 0] }];
     const edges: [string, string, string, string][] = [];

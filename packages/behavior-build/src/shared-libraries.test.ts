@@ -27,7 +27,7 @@ const MID = lib('mid', [
 ]);
 const USER = "import { twenty, fail } from '@lib/mid';\nexport default {\n  value: twenty,\n  step() {\n    fail(3);\n  },\n};\n";
 
-describe('shared library modules (phase 25.9)', () => {
+describe('shared library modules', () => {
   it('each library is its own minified, tree-shaken module; the behavior imports it by digest', async () => {
     const r = await compileBehavior({ behaviorId: 'user', declaration: NO_PROPS, containerBytes: container(USER), pinnedModules: M2_PINNED_MODULES, libraries: [MID, BASE] });
     if (!r.ok) throw new Error(JSON.stringify(r));
@@ -89,7 +89,7 @@ describe('shared library modules (phase 25.9)', () => {
     expect(r.diagnostics[0]?.message).toContain('No matching export in "@lib/base" for import "nope"');
   });
 
-  it('the bundled (23.7) form is still available and differs from the shared one', async () => {
+  it('the bundled form is still available and differs from the shared one', async () => {
     const input = { behaviorId: 'user', declaration: NO_PROPS, containerBytes: container(USER), pinnedModules: M2_PINNED_MODULES, libraries: [MID, BASE] };
     const shared = await compileBehavior(input);
     const bundled = await compileBehavior({ ...input, libraryLinking: 'bundle' });

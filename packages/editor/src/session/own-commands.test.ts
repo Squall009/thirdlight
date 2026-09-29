@@ -162,7 +162,7 @@ describe('SessionClient — own commands made before the previous result arrived
   });
 });
 
-describe('mergeListEdit (phase 24.7, D40: a table edit re-applied onto the table as it is at send time)', () => {
+describe('mergeListEdit (a table edit re-applied onto the table as it is at send time)', () => {
   const base = [{ name: 'opened', assetId: 'a' }, { name: 'closed', assetId: 'b' }];
   it('keeps another row field changed in between (one field of one row edited)', () => {
     const next = [{ name: 'opened', assetId: 'c' }, { name: 'closed', assetId: 'b' }];

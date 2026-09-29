@@ -40,7 +40,7 @@ const layersOf = (s: State): string[] | undefined => (s.content as { collisionLa
 const collider = (s: State, id: string): Any => s.scene.entities.find((e: Any) => e.id === id).components.collider;
 const BOX = { type: 'box', hx: 0.5, hy: 0.5, hz: 0.5 };
 
-describe('collision layers (phase 23.3)', () => {
+describe('collision layers', () => {
   it('setCollisionLayers names layers, refuses bad lists, undoes and redoes; empty removes the field', () => {
     let s = fresh();
     s = must(s, 'setSettings', { settings: { physics_dimension: 3 } });

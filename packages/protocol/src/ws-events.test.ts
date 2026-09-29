@@ -27,20 +27,20 @@ const play = `play-${hex32}`;
 const relay = `relay-${hex32}`;
 
 // The game control/observation relay has two server events and two client acks.
-describe('catalog constants (sessions.md §7 + packet-35 input relay + packet-42 §20 relay, exhaustive)', () => {
-  it('server → client: exactly the §7.1 set + input.request + the §20 relay rows', () => {
+describe('catalog constants', () => {
+  it('server → client: exactly the set + input.request + the relay rows', () => {
     expect([...SERVER_EVENT_TYPES].sort()).toEqual(
       ['attached', 'error', 'game.control.request', 'game.observe.request', 'input.request', 'mutation.applied', 'play.diagnostics.request', 'play.started', 'play.stop.request', 'play.stopped', 'pong', 'screenshot.request'].sort(),
     );
   });
-  it('client → server: exactly the §7.2 set + input.result + the §20 relay acks + selection.changed', () => {
+  it('client → server: exactly the set + input.result + the relay acks + selection.changed', () => {
     expect([...CLIENT_EVENT_TYPES].sort()).toEqual(
       ['game.control.ack', 'game.observe.ack', 'input.result', 'ping', 'play.diagnostics.ack', 'play.preview.failed', 'play.preview.progress', 'play.preview.ready', 'play.stopped.ack', 'screenshot.ack', 'selection.changed'].sort(),
     );
   });
 });
 
-describe('server → client builders (§7.1 exact payloads)', () => {
+describe('server → client builders', () => {
   it('attached { connId, revision }', () => {
     expect(JSON.parse(makeAttached(`conn-${hex32}`, 4))).toEqual({ type: 'attached', connId: `conn-${hex32}`, revision: 4 });
   });
@@ -90,7 +90,7 @@ describe('server → client builders (§7.1 exact payloads)', () => {
   });
 });
 
-describe('parseInboundEvent (sessions.md §7.2)', () => {
+describe('parseInboundEvent', () => {
   it('ping', () => {
     const r = parseInboundEvent({ type: 'ping' });
     expect(r).toEqual({ ok: true, event: { type: 'ping' } });
@@ -166,7 +166,7 @@ describe('parseInboundEvent (sessions.md §7.2)', () => {
   });
 });
 
-describe('frame bounds (sessions.md §5.2/§11.5)', () => {
+describe('frame bounds', () => {
   it('incoming: ≤ 64 KiB default, ≤ 1.5 MiB for screenshot.ack', () => {
     expect(WS_IN_FRAME_MAX).toBe(65536);
     expect(WS_SCREENSHOT_ACK_MAX).toBe(1572864);

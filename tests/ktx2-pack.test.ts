@@ -80,7 +80,7 @@ async function transcodeLayers(ktx2: Uint8Array): Promise<{ width: number; heigh
   }
 }
 
-describe('packKtx2 (phase 25.21)', () => {
+describe('packKtx2', () => {
   const albedo = rgbaPng(16, 16, () => [200, 40, 20, 255]);
   const height = rgbaPng(16, 16, (x) => [x < 8 ? 30 : 220, 0, 0, 255]);
   const green = rgbaPng(16, 16, () => [10, 180, 60, 255]);

@@ -67,8 +67,8 @@ function xAt(stepIndex: number, x0: number): number {
   return x0 + A * Math.sin((2 * Math.PI * (stepIndex + 1)) / PERIOD_STEPS);
 }
 
-describe('built-in moving-box demonstration (runtime.md §7)', () => {
-  it('after N fixed steps the box x equals the §7.1 formula at all exact period points (119/239/359/479)', () => {
+describe('built-in moving-box demonstration', () => {
+  it('after N fixed steps the box x equals the formula at all exact period points (119/239/359/479)', () => {
     const { rt, step } = makeDemo();
     step(119);
     expect(stateOf(rt).stepIndex).toBe(119);
@@ -132,7 +132,7 @@ describe('built-in moving-box demonstration (runtime.md §7)', () => {
     rt.dispose();
   });
 
-  it('determinism: two instances + the same fake-clock sequence ⇒ identical states (§4/§7.3)', () => {
+  it('determinism: two instances + the same fake-clock sequence ⇒ identical states', () => {
     const a = makeDemo();
     const b = makeDemo();
     a.step(479);

@@ -35,8 +35,8 @@ function expectInputFrameError(frames: readonly unknown[], field: string): void 
   }
 }
 
-describe('ActionFrame validation (runtime.md §12.5.3)', () => {
-  it('phase 24.8: a version 2 frame is named actions only; a fixed channel beside actions is refused only when malformed', () => {
+describe('ActionFrame validation', () => {
+  it('a version 2 frame is named actions only; a fixed channel beside actions is refused only when malformed', () => {
     expect(validateActionFrame({ stepIndex: 12, actions: { move: { v: 0.5, p: 'none' } } })).toEqual({ ok: true, frame: { stepIndex: 12, actions: { move: { v: 0.5, p: 'none' } } } });
     expect(validateActionFrame({ stepIndex: 12 })).toEqual({ ok: true, frame: { stepIndex: 12 } });
     // A version 1 frame's channels become the move and jump actions (they replace those actions' values).
@@ -72,13 +72,13 @@ describe('ActionFrame validation (runtime.md §12.5.3)', () => {
     expect(quantizeMove(-0)).toBe(0);
   });
 
-  it('the neutral frame is what every unrecorded index yields (phase 24.8: no action has a value)', () => {
+  it('the neutral frame is what every unrecorded index yields (no action has a value)', () => {
     expect(neutralFrame(7)).toEqual({ stepIndex: 7 });
   });
 });
 
-describe('createRecordedActionSource (runtime.md §12.7)', () => {
-  it('rejects duplicate/decreasing step indices, out-of-range/unquantized moveX and an unknown jump (phase 24.8: no jump chain check)', () => {
+describe('createRecordedActionSource', () => {
+  it('rejects duplicate/decreasing step indices, out-of-range/unquantized moveX and an unknown jump (no jump chain check)', () => {
     expectInputFrameError(
       [
         { stepIndex: 12, moveX: 0, jump: 'none' },

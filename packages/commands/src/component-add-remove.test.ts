@@ -45,7 +45,7 @@ function fresh(): State {
 const components = (s: State, id: string): Record<string, unknown> => s.scene.entities.find((e) => e.id === id)!.components as unknown as Record<string, unknown>;
 const errorCode = (r: { result: Record<string, unknown> }): string => String((r.result['error'] as { code?: string } | undefined)?.code);
 
-describe('setComponent adds and removes box, camera and model (phase 15.1)', () => {
+describe('setComponent adds and removes box, camera and model', () => {
   it('adds a box to an empty object, undoes it, and removes it again', () => {
     let s = fresh();
     const created = run(s, 'createEntity', { kind: 'group', name: 'Empty' });
@@ -89,7 +89,7 @@ describe('descriptor fields are setComponent fields', () => {
   });
 });
 
-describe('phase 17.4: the shadow flags of a box', () => {
+describe('the shadow flags of a box', () => {
   it('stores castShadow / receiveShadow, undoes them, and null goes back to the default (absent)', () => {
     const s = fresh();
     const box = s.scene.entities.find((e) => (e.components as Record<string, unknown>)['box'] !== undefined)!;

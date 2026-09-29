@@ -248,7 +248,7 @@ function replay(trace: Trace): { rows: Map<number, Measured>; state: ControllerS
   return { rows, state: st };
 }
 
-describe('accepted platformer traces (platformer.md §7, packet-17 fixture)', () => {
+describe('accepted platformer traces', () => {
   it('replays all 16 traces × 178 sampled rows', () => {
     expect(doc.traces).toHaveLength(16);
     let rows = 0;

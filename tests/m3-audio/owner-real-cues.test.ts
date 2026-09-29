@@ -194,7 +194,7 @@ function armed(): { owner: GameAudioOwner; ctx: FakeContext } {
   return { owner, ctx };
 }
 
-describe('packet 54 — the owner over the REAL committed cue bytes', () => {
+describe('the owner over the REAL committed cue bytes', () => {
   it('the five real cues register, decode to the committed PCM durations, and each committed event sounds once', async () => {
     const { owner, ctx } = armed();
     await owner.unlock();

@@ -34,7 +34,7 @@ function holdClip(name: string, x: number, bones: readonly string[] = ['hips', '
 const A = 'asset-rig';
 const at = (clip: string, weight = 1, assetId = A) => ({ assetId, clip, time: 0.5, weight });
 
-describe('animator player (phase 14.6)', () => {
+describe('animator player', () => {
   it('plays a pose without layers as before: the whole clip on every bone', () => {
     const r = rig();
     const p = createAnimatorPlayer(r.root, [holdClip('run', 1), holdClip('attack', 5)], A);

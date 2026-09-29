@@ -34,7 +34,7 @@ const vertex = (g: BlockGrid, cx: number, cz: number, x: number, z: number): num
   return l === null ? [255, 0, 0, 0, 0] : [...l.subarray(o, o + 5)];
 };
 
-describe('the paint brush (phase 25.21)', () => {
+describe('the paint brush', () => {
   it('falloffs: smooth (1 − d²/r²)², linear, constant; 0 outside', () => {
     expect(brushFalloff(0, 2, 'smooth')).toBe(1);
     expect(brushFalloff(1, 2, 'smooth')).toBeCloseTo(0.5625, 10);
@@ -71,7 +71,7 @@ describe('the paint brush (phase 25.21)', () => {
   });
 });
 
-describe('block layer paint (phase 25.21)', () => {
+describe('block layer paint', () => {
   it('the paint lattice is 17 × 17 per chunk (a chunk is 16 columns)', () => {
     expect(PAINT_CHUNK_SIZE).toBe(CHUNK_SIZE);
     expect(PAINT_VERTICES).toBe(CHUNK_SIZE + 1);

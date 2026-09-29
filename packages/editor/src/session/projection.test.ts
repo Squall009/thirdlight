@@ -154,7 +154,7 @@ describe('Projection — v3 gameplay components (playerSpawn)', () => {
     expect(p.getEntity('spawn-0001')?.playerSpawn).toBeUndefined();
   });
 
-  it('content-only changes (settings) and applySurfacePreset are consumed (revision advances, no gap; the map is on the client — §A8 row 19)', () => {
+  it('content-only changes (settings) and applySurfacePreset are consumed', () => {
     const p = new Projection();
     p.hydrate(full(1, [ent('a')]));
     expect(p.applyMutationApplied({ requestId: 'g1', revision: 2, change: { type: 'setSettings', previous: {}, next: { 'engine.gravity': -20 }, changedKeys: ['engine.gravity'] } }).applied).toBe(true);

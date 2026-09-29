@@ -38,7 +38,7 @@ function fakeRuntime() {
   return { rt, state };
 }
 
-describe('PlayDebugger (phase 19.2)', () => {
+describe('PlayDebugger', () => {
   it('answers with the watched instance: trace, recent nodes, sampled wires and variables', () => {
     const { rt } = fakeRuntime();
     const d = new PlayDebugger(rt, 5);

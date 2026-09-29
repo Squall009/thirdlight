@@ -113,7 +113,7 @@ describe('effective flags and resolve', () => {
   });
 });
 
-describe('tags (phase 12 b)', () => {
+describe('tags', () => {
   it('validates the entity mask, and folders OR their mask into the whole subtree', () => {
     expect(errorsOf([{ id: 'box-0001', tags: -1, components: { transform: T } }])[0]?.code).toBe('field_value');
     expect(errorsOf([{ id: 'box-0001', tags: 2 ** 32, components: { transform: T } }])[0]?.code).toBe('field_value');

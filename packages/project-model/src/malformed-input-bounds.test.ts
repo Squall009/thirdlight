@@ -70,7 +70,7 @@ function tokenizePointer(p: string): string[] | null {
   return out;
 }
 
-describe('Gate B repair: bounded `found` (G1/G2 model half, project-model.md §12.1)', () => {
+describe('Gate B repair: bounded `found` (G1/G2 model half)', () => {
   // The five shapes the Gate B re-review probed on the live tree (all threw
   // RangeError pre-fix through the public entry points) + the 12,000-level
   // construction the acceptance requires.
@@ -171,7 +171,7 @@ describe('Gate B repair: bounded `found` (G1/G2 model half, project-model.md §1
     expect(e?.found).toBe(MARKER);
   });
 
-  it('T6: a 12,000-level in-memory chain ⇒ no throw, structured error (the §12.1 totality bound)', () => {
+  it('T6: a 12,000-level in-memory chain ⇒ no throw, structured error', () => {
     const r = validateSceneV3({
       schemaVersion: 3,
       sceneId: 'scene-main',
@@ -231,7 +231,7 @@ describe('Gate B repair: bounded `found` (G1/G2 model half, project-model.md §1
   });
 });
 
-describe('Gate B repair: RFC 6901-escaped dynamic-key pointers (G3, project-model.md §12.5)', () => {
+describe('Gate B repair: RFC 6901-escaped dynamic-key pointers (G3)', () => {
   function sceneWithTransformKey(key: string): ModelResultV3<SceneV3> {
     return validateSceneV3({
       schemaVersion: 3,
@@ -347,7 +347,7 @@ describe('Gate B repair: RFC 6901-escaped dynamic-key pointers (G3, project-mode
     }
   });
 });
-describe('the same bounds through validateSceneV4 and validateContentV3 (phase 9.3)', () => {
+describe('the same bounds through validateSceneV4 and validateContentV3', () => {
   it('T10: v4 scene — a 12,000-level chain at entities[0] and at parentId ⇒ bounded found, no throw', () => {
     const r = validateSceneV4({ schemaVersion: 4, sceneId: 'scene-main', revision: 0, entities: deepChain(12000) });
     expect(r.ok).toBe(false);

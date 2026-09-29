@@ -20,7 +20,7 @@ const codes = (components: Record<string, unknown>): string[] => {
   return r.ok ? [] : r.errors.map((e) => `${e.code} ${e.path}`);
 };
 
-describe('phase 25.13 model', () => {
+describe('climb volumes and wall moves in the model', () => {
   it('a climb volume needs a size; a gravity body takes a scale and a body', () => {
     expect(codes({ climbVolume: { size: [1, 4] } })).toEqual([]);
     expect(codes({ climbVolume: { size: [1, 4, 1] } })).toEqual([]);

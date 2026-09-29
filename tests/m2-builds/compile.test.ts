@@ -50,7 +50,7 @@ async function compileFixture(rel: string, overrides: Record<string, unknown> = 
   });
 }
 
-describe('packet 33 — compileBehavior (project-model.md §22.3.3 steps 13–15)', () => {
+describe('compileBehavior', () => {
   it('uses the pinned parser version', () => {
     expect(esbuildPinMatches()).toBe(true);
     expect(COMPILER_ID).toBe('thirdlight.behavior-compiler');
@@ -60,7 +60,7 @@ describe('packet 33 — compileBehavior (project-model.md §22.3.3 steps 13–15
     );
   });
 
-  it('phase 24.3: the live pin table is the generic engine only — a script that requires the platformer is refused', async () => {
+  it('the live pin table is the generic engine only — a script that requires the platformer is refused', async () => {
     expect(M2_PINNED_MODULES.map((p) => p.id)).toEqual(['@thirdlight/physics-rapier', '@thirdlight/runtime']);
     const container = { graphVersion: 1, entryPath: 'src/index.ts', requiredModules: ['@thirdlight/character'], ownedTransforms: [], files: [{ path: 'src/index.ts', text: 'export default { step() {} };\n' }] };
     const r = await compileBehavior({ behaviorId: BEHAVIOR_ID, declaration: DECLARATION, containerBytes: new TextEncoder().encode(`${JSON.stringify(container, null, 2)}\n`), pinnedModules: M2_PINNED_MODULES, limits: RUN_LIMITS });
@@ -226,7 +226,7 @@ describe('packet 33 — compileBehavior (project-model.md §22.3.3 steps 13–15
     expect(result).toMatchObject({ ok: false, code: 'behavior_output_forbidden_content', reason: 'd' });
   });
 
-  it('exposes the output scanner directly (letters follow export.md §5.4)', () => {
+  it('exposes the output scanner directly', () => {
     expect(scanOutput(new TextEncoder().encode('ok'), M2_PINNED_MODULES)).toBeNull();
     expect(scanOutput(new TextEncoder().encode('var a = import("./x")'), M2_PINNED_MODULES)).toMatchObject({ letter: 'k' });
     expect(scanOutput(new TextEncoder().encode('var a = eval("1")'), M2_PINNED_MODULES)).toMatchObject({ letter: 'l' });

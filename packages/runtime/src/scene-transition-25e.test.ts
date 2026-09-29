@@ -138,7 +138,7 @@ function harness(opts: { script?: (ctx: Ctx) => void; exit?: Record<string, unkn
   return { rt, tick, serve, loaded, history, errors };
 }
 
-describe('scene transitions (phase 25.24e)', () => {
+describe('scene transitions', () => {
   it('a load that unloads scenes swaps them in one step boundary once its scene is in (the old world stays until then)', () => {
     let ask = false;
     const seen: { loading?: readonly string[]; transition?: unknown }[] = [];

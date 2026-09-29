@@ -174,7 +174,7 @@ const WALL = (s: number): Frame => {
   return {};
 };
 
-describe('phase 25.13: climbing, walls, gravity bodies, 2D patrol axes', () => {
+describe('climbing, walls, gravity bodies, 2D patrol axes', () => {
   for (const dim of [2, 3] as const) {
     it(`climbs a climb volume, jump leaves, takes hold again; gravity bodies land; page, worker, replay alike (${dim}D)`, async () => {
       const log = await allModes(dim, climbLevel(dim, {}), CLIMB(dim), 560);

@@ -56,7 +56,7 @@ function instantiateError(
   return { code: res.error.code, reason: res.error.reason };
 }
 
-describe('M2 phase order (runtime.md §12.1.1)', () => {
+describe('M2 phase order', () => {
   it('runs sample → intent → controller → physics → transform → render in exact order per step', () => {
     const calls: string[] = [];
     const port = makeFakePort({ onStep: () => calls.push('physics') });

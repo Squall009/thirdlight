@@ -14,7 +14,7 @@ import { baseScene, BOX_ID, BOX_X0, cloneJson, snapshotOf } from './test-helpers
 
 const DT = 1 / 120;
 
-describe('interpolation math (pure functions, runtime.md §6)', () => {
+describe('interpolation math (pure functions)', () => {
   it('lerpVec3 is component-wise', () => {
     expect(lerpVec3([0, 0, 0], [2, 4, 6], 0.5)).toEqual([1, 2, 3]);
     expect(lerpVec3([1, -1, 2], [1, -1, 2], 0.3)).toEqual([1, -1, 2]); // prev == curr
@@ -53,7 +53,7 @@ describe('interpolation math (pure functions, runtime.md §6)', () => {
     expect(at1[3]).toBeCloseTo(0.5, 12);
   });
 
-  it('inputs are NEVER mutated (derived copies only — project-model §10.1)', () => {
+  it('inputs are NEVER mutated', () => {
     const a: Quat = [0.1, 0.2, 0.3, 0.9];
     const b: Quat = [0.9, 0.3, 0.2, 0.1];
     const aJson = JSON.stringify(a);
@@ -88,7 +88,7 @@ function makeRuntime(modules?: string[]) {
   return res.runtime;
 }
 
-describe('interpolated state through the runtime (runtime.md §6)', () => {
+describe('interpolated state through the runtime', () => {
   it('prev == curr short-circuit: with the demo disabled the result is curr exactly (fresh copy, inputs untouched)', () => {
     const rt = makeRuntime([]);
     const before = JSON.stringify(snapshotOf(cloneJson(baseScene())));

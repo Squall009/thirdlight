@@ -80,7 +80,7 @@ function makeRuntime(driver?: { kind: 'raf' } | { kind: 'manual' }, clock?: () =
   return res.runtime;
 }
 
-describe('lifecycle (runtime.md §3)', () => {
+describe('lifecycle', () => {
   it('start/stop/start with the rAF driver keeps EXACTLY ONE active loop and removes the owned listener on stop/dispose', () => {
     const fake = installRafFake();
     let now = 0;
@@ -259,7 +259,7 @@ describe('lifecycle (runtime.md §3)', () => {
   });
 });
 
-describe('ctx.lifecycle.respawn on the 2D plane (phase 24.7)', () => {
+describe('ctx.lifecycle.respawn on the 2D plane', () => {
   const T = { rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
   const at = (x: number, y: number, z = 0) => ({ position: [x, y, z], ...T });
   interface Ctx {

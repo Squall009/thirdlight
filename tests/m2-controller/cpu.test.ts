@@ -35,7 +35,7 @@ function percentile(sorted: number[], p: number): number {
   return sorted[Math.max(0, idx)] as number;
 }
 
-describe('directional container CPU cost (packet-14 protocol, BR-2)', () => {
+describe('directional container CPU cost', () => {
   it('measures the composed fixed step over 3 runs of 5 s warmup + 30 s sample', async () => {
     const warmupSteps = 5 * 120;
     const measureSteps = 30 * 120;

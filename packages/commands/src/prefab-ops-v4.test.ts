@@ -138,7 +138,7 @@ function instantiateChange(result: MutationSuccess): InstantiatePrefabChange {
 
 // ---- accepted prefab fixture replay ---------------------------------------------
 
-describe('packet-16 accepted prefab fixture replay', () => {
+describe('accepted prefab fixture replay', () => {
   it('replays the whole M1–M10 scenario byte-for-byte and lands on the after envelope', () => {
     let state = baseState();
     const seen = new Map<string, MutationSuccess>();
@@ -215,7 +215,7 @@ describe('packet-16 accepted prefab fixture replay', () => {
     expect(replayed).toBe(23);
   });
 
-  it('§20.10 reference_in_use: a copy outside the deleted subtree blocks the delete (F21)', () => {
+  it('reference_in_use: a copy outside the deleted subtree blocks the delete', () => {
     // The committed F21 case now carries the instance-B lantern ID
     // (`model-000003`, per the scenario's own M5 mapping); this re-derives the
     // same outcome through the helper API as an independent check.
@@ -255,7 +255,7 @@ describe('packet-16 accepted prefab fixture replay', () => {
 
 // ---- one undo / redo preserves identity --------------------------------------------
 
-describe('one undo/redo preserves instance identity (§8.7.6)', () => {
+describe('one undo/redo preserves instance identity', () => {
   it('undo removes the whole subtree and redo restores exactly those IDs', () => {
     const state = stateThrough('M5');
     // Undo the SECOND instance: its whole subtree disappears in one step.
@@ -333,7 +333,7 @@ describe('two instances share no entity, no value storage and no link', () => {
 
 // ---- capture semantics --------------------------------------------------------------
 
-describe('createPrefab (§8.6)', () => {
+describe('createPrefab', () => {
   it('definition localIds are the subtree closure in document order; parent links are trimmed to the closure', () => {
     const state = stateThrough('M2');
     const r = ok(mutation(state, 'createPrefab', { prefabId: 'prefab-0001', displayName: 'Station Kit', sourceEntityId: 'group-0001' }));
@@ -361,7 +361,7 @@ describe('createPrefab (§8.6)', () => {
     expect(redone.state.content?.prefabs).toEqual([definition]);
   });
 
-  it('rejects the three forbidden capture contents with the §5.4 codes', () => {
+  it('rejects the three forbidden capture contents with the codes', () => {
     const state = stateThrough('M5');
     // nested: capture an instance subtree
     expect(
@@ -380,7 +380,7 @@ describe('createPrefab (§8.6)', () => {
 
 // ---- deterministic allocation and limits -------------------------------------------
 
-describe('deterministic ID allocation and limits (§8.7.2/§20.3)', () => {
+describe('deterministic ID allocation and limits', () => {
   it('re-uses deleted IDs exactly as the accepted createEntity rule does', () => {
     // From the after envelope group-000001/box-000001/model-000001/model-000002 are free
     // again (M7–M10 deleted them), so the next instance must take those IDs.
@@ -391,7 +391,7 @@ describe('deterministic ID allocation and limits (§8.7.2/§20.3)', () => {
     expect(change.entries.map((e) => e.index)).toEqual([10, 11, 12, 13]);
   });
 
-  it('the deterministic allocator takes the smallest free six-digit id; old four-digit ids do not block it (phase 25.7a)', () => {
+  it('the deterministic allocator takes the smallest free six-digit id; old four-digit ids do not block it', () => {
     const used = new Set<string>();
     for (let n = 1; n <= 9999; n++) used.add(`group-${String(n).padStart(4, '0')}`);
     expect(nextFreeEntityId(used, 'group')).toBe('group-000001');
@@ -403,7 +403,7 @@ describe('deterministic ID allocation and limits (§8.7.2/§20.3)', () => {
     expect(nextFreeEntityId({ has: () => true } as unknown as ReadonlySet<string>, 'box')).toBeUndefined();
   });
 
-  it('the result entity bound is checked before ID allocation (§8.7.5 step 6 order)', () => {
+  it('the result entity bound is checked before ID allocation', () => {
     // instantiatePrefab bounds a v4 scene at 16384 entities (the cap
     // createEntity/pasteEntities use) — the entity bound fires before a full
     // group prefix is scanned (C10's id_exhaustion remains a
@@ -605,7 +605,7 @@ describe('fixtures/m2/prefabs/independence.messages.json replay', () => {
 
 // ---- Gameplay components in v4 prefabs -----------------------------------
 
-describe('phase 14.1: a v4 prefab keeps its gameplay components', () => {
+describe('a v4 prefab keeps its gameplay components', () => {
   it('createPrefab captures a collider and a collectible; instantiatePrefab copies them; a controller is still refused', () => {
     const T = { position: [4, 0.5, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
     const crate = { id: 'box-0101', components: { transform: T, box: { size: [1, 1, 1], material: { color: '#aa7733' } }, collider: { shape: { type: 'box', hx: 0.5, hy: 0.5 }, oneWay: true } } };
@@ -630,7 +630,7 @@ describe('phase 14.1: a v4 prefab keeps its gameplay components', () => {
 
 // ---- queryPrefabs ------------------------------------------------------------------
 
-describe('queryPrefabs (commands.md §5.6)', () => {
+describe('queryPrefabs', () => {
   it('returns the committed query examples and a bounded, read-only page', () => {
     const examples = m2FixtureJson<{ examples: Record<string, { request: unknown; result: unknown }> }>(
       'contracts/commands/queries.json',

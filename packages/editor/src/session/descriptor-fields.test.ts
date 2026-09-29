@@ -240,7 +240,7 @@ describe('+ Add component', () => {
     expect(addEntries(reg, new Set(), { folder: true }).every((x) => !x.enabled)).toBe(true);
   });
 
-  it('phase 15.5: the GameObject menu takes a preset or the add value from the registry (a copy)', () => {
+  it('the GameObject menu takes a preset or the add value from the registry (a copy)', () => {
     const spot = presetValue(reg, 'light', 'Spot');
     expect(spot).toEqual({ type: 'spot' });
     spot!['type'] = 'changed';
@@ -279,7 +279,7 @@ describe('+ Add component', () => {
   });
 });
 
-describe('phase 24.5: create entries and icons from the descriptors', () => {
+describe('create entries and icons from the descriptors', () => {
   const obj = (key: string): ObjectFieldDescriptor => ({ type: 'object', key, label: key, tooltip: key, fields: [] });
   const comp = (name: string, extra: Partial<ComponentDescriptor>): ComponentDescriptor =>
     ({ name, label: name, tooltip: name, category: 'Gameplay', value: obj(name), add: { kind: 'menu', value: { a: 1 } }, handles: [], excludes: [], prefab: true, ...extra }) as ComponentDescriptor;

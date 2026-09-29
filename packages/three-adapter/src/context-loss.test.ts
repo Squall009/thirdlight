@@ -67,7 +67,7 @@ function makeRuntime(): { runtime: Runtime; snapshot: RuntimeSnapshot } {
   return { runtime: res.runtime, snapshot };
 }
 
-describe('packet 26 — lost WebGL context (adapter, Node-level)', () => {
+describe('lost WebGL context (adapter, Node-level)', () => {
   it('reports render_context_lost while lost, resumes normally after restore, and prevents the default', () => {
     const { runtime, snapshot } = makeRuntime();
     const canvas = stubCanvasWithEvents();

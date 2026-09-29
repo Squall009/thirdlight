@@ -17,7 +17,7 @@ const CONFIG: InputConfigLike = {
   ],
 };
 
-describe('virtual gamepad (phase 25.15)', () => {
+describe('virtual gamepad', () => {
   it('buttons give pressed, held and released; a stick a 2D axis (y up); rest gives nothing', () => {
     const pad = createVirtualPad(CONFIG, 1000 / 60);
     expect(pad.step(null).actions).toEqual({});

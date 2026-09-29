@@ -21,7 +21,7 @@ const DECLARATION: PropertyDeclaration = {
   ],
 };
 
-describe('phase 15.4: declaration drafts', () => {
+describe('declaration drafts', () => {
   it('round-trips every property type, visibility, group, header and tooltip', () => {
     const r = declarationOf(draftsOf(DECLARATION));
     if (!r.ok) throw new Error(JSON.stringify(r.problem));
@@ -47,7 +47,7 @@ describe('phase 15.4: declaration drafts', () => {
   });
 });
 
-describe('phase 15.4: the Inspector hides private properties', () => {
+describe('the Inspector hides private properties', () => {
   it('derives controls for public properties only, with group/header/tooltip', () => {
     const controls = derivePropertyControls(DECLARATION, { speed: 5, secret: 9 });
     expect(controls.map((c) => c.key)).toEqual(['speed', 'mode', 'tint', 'on', 'name', 'target', 'look']);

@@ -98,7 +98,7 @@ function inspect(json: Record<string, unknown>, bin: Uint8Array): ImportProposal
   return inspectGlb(buildGlb(json, bin), { profile: 'gltf-glb', recipeVersion: 1, toolchain: { three: '0.186.0' } });
 }
 
-describe('glTF extras (phase 25.6)', () => {
+describe('glTF extras', () => {
   it('the grown fixture is accepted as it is', () => {
     const { json, bin } = everyKind();
     const p = inspect(json, bin);

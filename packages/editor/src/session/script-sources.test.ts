@@ -15,7 +15,7 @@ import {
   typeOfIdentifier,
 } from './script-sources';
 
-describe('script sources (phase 16.3)', () => {
+describe('script sources', () => {
   it('serializes the canonical container: field order, files by path, trailing newline', () => {
     const c = { graphVersion: 1 as const, entryPath: 'src/index.ts', requiredModules: [], ownedTransforms: ['@self'], files: [{ path: 'src/z.ts', text: 'z' }, { path: 'src/index.ts', text: 'i' }] };
     const text = containerText(c);
@@ -69,7 +69,7 @@ describe('script sources (phase 16.3)', () => {
   });
 });
 
-describe('callback completion (phase 25.11)', () => {
+describe('callback completion', () => {
   it('completes the spec members inside export default, and a callback event parameter by its position', () => {
     const top = 'export default {\n  step(s, ctx) { if (ctx.phase === "x") { const o = { a: "}" }; } },\n  onTri';
     const spec = specMemberCompletion(top, BEHAVIOR_API_TYPES);
@@ -93,7 +93,7 @@ describe('callback completion (phase 25.11)', () => {
   });
 });
 
-describe('staged library patches (phase 25.9)', () => {
+describe('staged library patches', () => {
   it('cuts a change into patches under the request budget; a large file comes in pieces that rebuild it exactly', async () => {
     const { fitsOneRequest, libraryStagePatches } = await import('./script-sources');
     const big = `"quoted" ${'x'.repeat(30_000)} é 🙂 ${'"y"'.repeat(8000)}\n`;

@@ -61,7 +61,7 @@ const NESTED: SceneV4 = scene(0, [
   boxEntity('box-0004', { name: 'C' }),
 ]);
 
-describe('deleteEntity — subtree closure (§8.3)', () => {
+describe('deleteEntity — subtree closure', () => {
   it('removes the entity and its entire subtree; deletedIds in pre-deletion array order', () => {
     const st = v4State(NESTED);
     const r = applyMutation(st, req('deleteEntity', { entityId: 'group-0001' }));
@@ -98,7 +98,7 @@ describe('deleteEntity — subtree closure (§8.3)', () => {
   });
 });
 
-describe('deleteEntity — camera invariant (§8.3 step 2)', () => {
+describe('deleteEntity — camera invariant', () => {
   it('deleting the only camera ⇒ camera_count_invalid carrying cameraId', () => {
     const st = v4State(NESTED);
     const before = sceneBytes(st.scene);
@@ -174,7 +174,7 @@ describe('deleteEntity — camera invariant (§8.3 step 2)', () => {
   });
 });
 
-describe('deleteEntity — the inverse restores the exact pre-deletion array (§9.1)', () => {
+describe('deleteEntity — the inverse restores the exact pre-deletion array', () => {
   it('delete → undo reconstructs the byte-identical scene (masked revision)', () => {
     const st0 = v4State(NESTED);
     const r1 = applyMutation(st0, at(st0, 'deleteEntity', { entityId: 'group-0001' }));

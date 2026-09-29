@@ -108,8 +108,8 @@ function harness() {
   };
 }
 
-describe('contract constants (dependencies.md §3 character row)', () => {
-  it('exposes the module id and the the controller contract §12 constants', () => {
+describe('contract constants', () => {
+  it('exposes the module id and the controller contract constants', () => {
     expect(CHARACTER_MODULE_ID).toBe('thirdlight.character:controller');
     expect(CONTROLLER_CONSTANTS).toEqual({
       offsetSkin: 0.01,
@@ -124,7 +124,7 @@ describe('contract constants (dependencies.md §3 character row)', () => {
     });
   });
 
-  it('starts at the authored transform with the the controller contract §4 state', () => {
+  it('starts at the authored transform with the controller contract state', () => {
     expect(createControllerState(1.5, 0.91)).toEqual({
       vx: 0,
       vy: 0,
@@ -145,7 +145,7 @@ describe('contract constants (dependencies.md §3 character row)', () => {
     });
   });
 
-  it('approach() never overshoots and arrives exactly (§7.2 1e-9 snap)', () => {
+  it('approach() never overshoots and arrives exactly', () => {
     expect(approach(0, 4, 40 * DT, 60 * DT)).toBeCloseTo(1 / 3, 12);
     expect(approach(3.9, 4, 40 * DT, 60 * DT)).toBe(4);
     expect(approach(4.1, 4, 40 * DT, 60 * DT)).toBe(4);
@@ -153,7 +153,7 @@ describe('contract constants (dependencies.md §3 character row)', () => {
   });
 });
 
-describe('grounding from support normals (physics.md §8)', () => {
+describe('grounding from support normals', () => {
   it('is grounded only with a support normal at or above the climb angle', () => {
     expect(isGrounded(result({ x: 0, y: 0 }, { supportNormal: { x: 0, y: 1 } }), COS_MAX)).toBe(true);
     expect(isGrounded(result({ x: 0, y: 0 }, { supportNormal: { x: -0.5, y: COS_MAX } }), COS_MAX)).toBe(true);
@@ -175,7 +175,7 @@ describe('grounding from support normals (physics.md §8)', () => {
   });
 });
 
-describe('jump (the controller contract §7 A–G)', () => {
+describe('jump', () => {
   it('starts one jump on the press edge and integrates gravity the same step', () => {
     const state = createControllerState(0, 0.91);
     const h = harness();
@@ -248,7 +248,7 @@ describe('jump (the controller contract §7 A–G)', () => {
   });
 });
 
-describe('coyote and buffer windows (the controller contract §7.1)', () => {
+describe('coyote and buffer windows', () => {
   /**
    * The last step whose **result** is grounded is step 0. A press at step k
    * uses `groundedPrev = result(k−1).grounded`.
@@ -310,7 +310,7 @@ describe('coyote and buffer windows (the controller contract §7.1)', () => {
   });
 });
 
-describe('horizontal movement and staging (§7 H–I)', () => {
+describe('horizontal movement and staging', () => {
   it('reaches run_speed in exactly 12 steps and stops in exactly 8', () => {
     const state = createControllerState(0, 0.91);
     const h = harness();
@@ -355,7 +355,7 @@ describe('horizontal movement and staging (§7 H–I)', () => {
   });
 });
 
-describe('slide policy (C32-1, physics.md §7/§8 min_slope_slide_deg)', () => {
+describe('slide policy', () => {
   it('classifies a slide-steep support normal', () => {
     const steep = result({ x: 0, y: 0 }, { supportNormal: { x: -0.5, y: COS_MIN } });
     expect(slideDirection(steep, COS_MIN, TAN_MIN)).toBe(-1);
@@ -427,7 +427,7 @@ describe('slide policy (C32-1, physics.md §7/§8 min_slope_slide_deg)', () => {
   });
 });
 
-describe('phase 24.4f: a script impulse', () => {
+describe('a script impulse', () => {
   it('adds to the velocity: up lifts a grounded character into an arc; x decays at the acceleration', () => {
     const state = createControllerState(0, 0.91);
     const h = harness();

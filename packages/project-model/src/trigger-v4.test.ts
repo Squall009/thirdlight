@@ -14,7 +14,7 @@ const check = (value: unknown): string[] => {
   return errors.map((e) => `${e.code} ${e.path}`);
 };
 
-describe('trigger component (phase 14.2)', () => {
+describe('trigger component', () => {
   it('accepts boxes as before and circles with a radius; modes enter and stay', () => {
     expect(check({ size: [2, 2], signal: 'go' })).toEqual([]);
     expect(check({ size: [2, 2], signal: 'go', shape: 'box', mode: 'stay', once: true, exitSignal: 'left' })).toEqual([]);

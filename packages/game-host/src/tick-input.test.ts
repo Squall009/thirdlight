@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { continueFrame, mergePhase, TickInputSource } from './tick-input';
 import { threadingFromUrl, resolveThreadingMode, resolveTransport, threadingLogLine } from './threading';
 
-describe('TickInputSource (phase 22.0)', () => {
+describe('TickInputSource', () => {
   it('the first step of a tick sees the sample, later steps its continuation (no new device events)', () => {
     const src = new TickInputSource();
     src.push({ stepIndex: 0, actions: { move: { v: 1, p: 'none' }, jump: { v: 1, p: 'pressed' }, fire: { v: 1, p: 'pressed' }, aim: { v: 0.5, x: 0.5, y: 0, p: 'held' } } });
@@ -55,7 +55,7 @@ describe('TickInputSource (phase 22.0)', () => {
   });
 });
 
-describe('threading mode (phase 22.0)', () => {
+describe('threading mode', () => {
   it('the URL flag, then the project setting, then the worker default; no worker: single thread', () => {
     expect(threadingFromUrl('?threads=off')).toBe('single');
     expect(threadingFromUrl('?a=1&threads=worker')).toBe('worker');
@@ -81,7 +81,7 @@ describe('threading mode (phase 22.0)', () => {
   });
 });
 
-describe('phase 23.2: the worker\'s live input keeps the second move axis', () => {
+describe('the worker\'s live input keeps the second move axis', () => {
   it('a frame\'s moveY reaches every step of its tick and survives a merge; frames without it stay without', () => {
     const src = new TickInputSource();
     src.push({ stepIndex: 0, actions: { move: { v: 0.5, x: 0.5, y: -1, p: 'none' }, jump: { v: 0, p: 'none' } } });

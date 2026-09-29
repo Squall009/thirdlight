@@ -162,7 +162,7 @@ async function check(snap: Any, physics: Any, settings: Any): Promise<void> {
   }
 }
 
-describe('phase 23.11: sockets are resolved in the simulation (two runs, page and worker)', () => {
+describe('sockets are resolved in the simulation (two runs, page and worker)', () => {
   it('2D plane: an authored socket follows the animated node, a scripted one rides and snaps back, speed halves the rate', async () => {
     await check(snapshot([], 'sock2d'), null, { gravity_y: -20, run_speed: 5, jump_velocity: 8, max_fall_speed: -20, max_slope_climb_deg: 45, min_slope_slide_deg: 30 });
   }, 180_000);

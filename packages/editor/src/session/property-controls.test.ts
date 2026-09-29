@@ -48,7 +48,7 @@ const STORED = {
   material: 'asset-7f3a2c9e1b4d5068',
 };
 
-describe('packet 28 — schema-driven property controls (defaults/types/ranges)', () => {
+describe('schema-driven property controls (defaults/types/ranges)', () => {
   it('derives one control per declared property, in declaration order', () => {
     const controls = derivePropertyControls(DECLARATION, STORED);
     expect(controls.map((c) => c.key)).toEqual(['speed', 'label', 'visible', 'offset', 'mode', 'target', 'material']);
@@ -102,7 +102,7 @@ describe('packet 28 — schema-driven property controls (defaults/types/ranges)'
   });
 });
 
-describe('packet 28 — invalid numeric/reference input is rejected with an actionable error', () => {
+describe('invalid numeric/reference input is rejected with an actionable error', () => {
   const controls = new Map(derivePropertyControls(DECLARATION, STORED).map((c) => [c.key, c]));
   const control = (key: string) => controls.get(key)!;
 
@@ -149,7 +149,7 @@ describe('packet 28 — invalid numeric/reference input is rejected with an acti
   });
 });
 
-describe('packet 28 — one property edit is one typed setBehaviorProperties command', () => {
+describe('one property edit is one typed setBehaviorProperties command', () => {
   it('sends the whole declared values map so other properties are preserved', () => {
     const plan = planSetBehaviorProperties('model-0003', 'behavior-0001', DECLARATION, STORED, 'speed', 1.25);
     expect(plan.ok).toBe(true);
@@ -185,7 +185,7 @@ describe('packet 28 — one property edit is one typed setBehaviorProperties com
   });
 });
 
-describe('packet 28 — declared-behavior + contract component derivation', () => {
+describe('declared-behavior + contract component derivation', () => {
   it('derives controls for one behavior-carrying entity', () => {
     const view = deriveBehaviorControls(
       { localId: 'model-0001', entityName: 'Lantern', behaviorId: 'behavior-0001', recordedValues: STORED },

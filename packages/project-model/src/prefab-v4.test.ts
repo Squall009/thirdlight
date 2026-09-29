@@ -27,7 +27,7 @@ const errorsOf = (value: unknown, version: 3 | 4 = 4): ModelErrorV2[] => {
 };
 const codes = (value: unknown, version: 3 | 4 = 4): string[] => errorsOf(value, version).map((e) => e.code);
 
-describe('v4 prefab components (phase 14.1)', () => {
+describe('v4 prefab components', () => {
   it('accepts gameplay components in v4 and refuses them in v3', () => {
     const good = [
       def({ collider: { shape: { type: 'box', hx: 0.5, hy: 0.5 }, oneWay: true } }),

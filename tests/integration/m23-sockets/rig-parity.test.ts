@@ -123,7 +123,7 @@ async function compare(bytes: Uint8Array, poses: readonly (AnimatorPose | null)[
 
 const clip = (name: string, time: number, weight: number) => ({ assetId: 'model-a', clip: name, time, weight });
 
-describe('phase 23.11: the rig poser matches the renderer', () => {
+describe('the rig poser matches the renderer', () => {
   it('the socket fixture: rest, single clips, weights, crossfades and a masked override layer', async () => {
     const poses: (AnimatorPose | null)[] = [
       null,

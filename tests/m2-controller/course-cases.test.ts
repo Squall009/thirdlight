@@ -136,7 +136,7 @@ function contactsSeen(steps: Step[], key: 'ground' | 'wall' | 'head' | 'steepSlo
 }
 
 describe('frozen course fixtures', () => {
-  it('carries the 64 static colliders of the packet-14 frozen course', () => {
+  it('carries the 64 static colliders of the frozen course', () => {
     const course = courses.get('course.json')!;
     expect(course.statics).toHaveLength(64);
     expect(course.solver).toEqual({ hz: 120, gravityY: -19.62 });
@@ -656,7 +656,7 @@ describe('window boundaries (coyote / jump buffer) on the real course', () => {
   });
 });
 
-describe('packet-30 mapping drives the controller (keyboard + gamepad raw snapshots)', () => {
+describe('mapping drives the controller (keyboard + gamepad raw snapshots)', () => {
   it('keyboard right-arrow/D held reaches run_speed and jumps', async () => {
     const c = kase('flat-run');
     const { run } = await runCase({ ...c, input: 'run-right-120' });

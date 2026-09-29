@@ -40,7 +40,7 @@ function fakeRuntime(state: { step: number; start: number; spawnBase: number; re
   } as unknown as Runtime & { step(): void };
 }
 
-describe('run digest (phase 25.16)', () => {
+describe('run digest', () => {
   it('a run and its replay: equal at the same run step, whatever the absolute step, the copies\' ids and the scene revision', () => {
     const run = fakeRuntime({ step: 40, start: 0, spawnBase: 0, revision: 3, objects: { 'box-000001': 1.5, 'spawn-1': 2 }, spawned: ['spawn-1'] });
     const replay = fakeRuntime({ step: 940, start: 900, spawnBase: 7, revision: 12, objects: { 'spawn-8': 2, 'box-000001': 1.5 }, spawned: ['spawn-8'] });
@@ -75,7 +75,7 @@ describe('run digest (phase 25.16)', () => {
     expect(read.now.digest).not.toBe(read.input!.digest);
   });
 
-  it('phase 25.17: with hold the probe holds the game right after the last step; the next exercise lets go, the debugger\'s resume too', () => {
+  it('with hold the probe holds the game right after the last step; the next exercise lets go, the debugger\'s resume too', () => {
     const state = { step: 10, start: 0, spawnBase: 0, revision: 1, objects: { 'box-000001': 0 }, spawned: [] as string[] };
     const rt = fakeRuntime(state);
     const probe = new RunProbe(rt);
@@ -106,7 +106,7 @@ describe('run digest (phase 25.16)', () => {
     expect(rt.debugHeld).toBe(false);
   });
 
-  it('D51 (phase 25.17): the run digest hashes the committed transforms, not the frame-timed interpolated ones', () => {
+  it('the run digest hashes the committed transforms, not the frame-timed interpolated ones', () => {
     const state = { step: 40, start: 0, spawnBase: 0, revision: 1, objects: { 'box-000001': 1.5 }, spawned: [] as string[] };
     const committed = fakeRuntime(state);
     // The same state drawn at another interpolation alpha (a frame came at another time).

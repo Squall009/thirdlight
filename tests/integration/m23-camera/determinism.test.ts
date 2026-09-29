@@ -107,7 +107,7 @@ function firstDiff(a: string[], b: string[]): number {
   return a.slice(0, n).findIndex((d, k) => d !== b[k]);
 }
 
-describe('phase 23.4: the camera is resolved in the simulation (two runs, page and worker)', () => {
+describe('the camera is resolved in the simulation (two runs, page and worker)', () => {
   it('3D: follow → eased orbit → snapped turns → rail → back, identical step digests and camera frames', async () => {
     const { snapshot, physics } = scene3d();
     const a = await run('single', snapshot, physics, SETTINGS_3D, 900);

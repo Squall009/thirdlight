@@ -124,7 +124,7 @@ test('an instance set in a scene loaded during Play is drawn once the scene load
   await expect(page.locator('.tl-notice')).toHaveCount(0);
 });
 
-test('phase 25.7d: a set is chunked by extent (the project default, overridden per set in the Inspector)', async ({ page }) => {
+test('a set is chunked by extent (the project default, overridden per set in the Inspector)', async ({ page }) => {
   be = await startBackend('inst-chunks', 'starter');
   // 200 copies in a 99.5 m row (x 0..99.5) near the ground.
   const transforms: number[] = [];

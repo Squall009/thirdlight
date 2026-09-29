@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { assetPlacementAvailable, planAssetPlacement, planPrefabPlacement } from './placement';
 
-describe('packet 27 — whole-model placement is a typed command, never a state write', () => {
+describe('whole-model placement is a typed command, never a state write', () => {
   it('plans exactly one instantiatePrefab command for a prefab copy', () => {
     const command = planPrefabPlacement('prefab-0001', {
       parentId: null,
@@ -17,14 +17,14 @@ describe('packet 27 — whole-model placement is a typed command, never a state 
     });
   });
 
-  it('omits absent optional fields and caps overrides at the §20.3 limit', () => {
+  it('omits absent optional fields and caps overrides at the limit', () => {
     expect(planPrefabPlacement('prefab-0001').args).toEqual({ prefabId: 'prefab-0001' });
     const many = Array.from({ length: 80 }, (_, i) => ({ localId: `model-${i}`, key: 'k', value: i }));
     expect(planPrefabPlacement('prefab-0001', { overrides: many }).args.overrides?.length).toBe(64);
   });
 });
 
-describe('packet 27 — direct whole-GLB placement plans a real createEntity (C27-1 repair)', () => {
+describe('direct whole-GLB placement plans a real createEntity', () => {
   it('plans one createEntity model command with a resolving asset reference', () => {
     const command = planAssetPlacement('asset-0001', {
       parentId: null,

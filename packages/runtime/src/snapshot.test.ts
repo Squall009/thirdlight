@@ -22,7 +22,7 @@ function badSnapshot(snapshot: unknown) {
   return res.error;
 }
 
-describe('snapshot validation (runtime.md §2)', () => {
+describe('snapshot validation', () => {
   it('accepts a valid snapshot from a deep-frozen input and operates normally', () => {
     const scene = cloneJson(baseScene());
     const snapshot = deepFreezeForTest(snapshotOf(scene));

@@ -44,8 +44,8 @@ function instanceOf(resource: PreparedVisualResource) {
   return made.instance;
 }
 
-describe('packet 26 — public surface (dependencies.md §3 additions row)', () => {
-  it('exports the realization helpers and the packet-26 error codes', () => {
+describe('public surface', () => {
+  it('exports the realization helpers and the error codes', () => {
     expect(typeof prepareVisualResource).toBe('function');
     expect(typeof suppliedBytes).toBe('function');
     expect(typeof injectedResolver).toBe('function');
@@ -87,7 +87,7 @@ describe('packet 26 — public surface (dependencies.md §3 additions row)', () 
   });
 });
 
-describe('packet 26 — prepare: supplied bytes and an injected resolver', () => {
+describe('prepare: supplied bytes and an injected resolver', () => {
   it('prepares a descriptor set from supplied bytes: clips, ownership and diagnostics', async () => {
     const fake = createFakePort();
     const bytes = buildGlb({ materials: 2 });
@@ -135,7 +135,7 @@ describe('packet 26 — prepare: supplied bytes and an injected resolver', () =>
   });
 });
 
-describe('packet 26 — model instances are independent', () => {
+describe('model instances are independent', () => {
   it('two instances preserve the hierarchy under one entity and keep transforms/animation state independent', async () => {
     const fake = createFakePort();
     const bytes = buildGlb();
@@ -188,7 +188,7 @@ describe('packet 26 — model instances are independent', () => {
   });
 });
 
-describe('packet 26 — cancellation and stale async completion', () => {
+describe('cancellation and stale async completion', () => {
   it('cancels a pending resolver load and reports asset_load_cancelled', async () => {
     const fake = createFakePort();
     let observedAbort = false;
@@ -293,7 +293,7 @@ describe('packet 26 — cancellation and stale async completion', () => {
   });
 });
 
-describe('packet 26 — disposal, ownership balance and idempotence', () => {
+describe('disposal, ownership balance and idempotence', () => {
   it('repeated load/reimport/dispose releases owned GPU/CPU/listener resources (allocations == releases)', async () => {
     const store = createVisualResourceStore();
     const fake = createFakePort();
@@ -379,7 +379,7 @@ describe('packet 26 — disposal, ownership balance and idempotence', () => {
   });
 });
 
-describe('packet 26 — store supersession (reimport) semantics', () => {
+describe('store supersession (reimport) semantics', () => {
   it('a newer load for the same asset supersedes a pending one and discards its late completion', async () => {
     const store = createVisualResourceStore();
     const fake = createFakePort();

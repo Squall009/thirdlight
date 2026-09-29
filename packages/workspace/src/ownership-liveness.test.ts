@@ -247,7 +247,7 @@ function currentSecondMs(): number {
 // T1 — an unreadable ownership record is NEVER "absent" (real EACCES)
 // =============================================================================
 
-describe('T1: R8a — real-permission unreadable ownership record (workspace.md §6.2/§6.3/§11)', () => {
+describe('T1: R8a — real-permission unreadable ownership record', () => {
   it('T1(a): owner live, claim file present, record chmod 000 ⇒ query AND explicit takeover refused (ownership_conflict, holder null); record + claim file byte-identical after restore', () => {
     const root = makeRoot('t1a');
     seedScenario09(root);
@@ -344,7 +344,7 @@ describe('T1: R8a — real-permission unreadable ownership record (workspace.md 
 // T2 — liveness I/O errors are unknown, never death (procRoot seam)
 // =============================================================================
 
-describe('T2: R8b — /proc I/O errors classify as unknown ⇒ live (workspace.md §6.2)', () => {
+describe('T2: R8b — /proc I/O errors classify as unknown ⇒ live', () => {
   it('T2(a): owner live, <procRoot>/<pid> chmod 000 ⇒ query reports ownership_conflict (NOT stale_ownership); explicit takeover REFUSED while the owner is alive; record untouched, no claim-1', () => {
     const root = makeRoot('t2a');
     seedScenario09(root);
@@ -447,7 +447,7 @@ describe('T2: R8b — /proc I/O errors classify as unknown ⇒ live (workspace.m
 // T3 — the pid-reuse boundary (deterministic, no timing)
 // =============================================================================
 
-describe('T3: L1 — second-truncated openedAt makes pid reuse conclusive only past +1 s (workspace.md §6.2 "ambiguity resolves to live")', () => {
+describe('T3: L1 — second-truncated openedAt makes pid reuse conclusive only past +1 s', () => {
   /** The openedAt second and its ms value (guaranteed > boot). */
   function secondAnchor(): { openedAt: string; ms: number } {
     const ms = currentSecondMs();
@@ -586,7 +586,7 @@ describe('T3: L1 — second-truncated openedAt makes pid reuse conclusive only p
 // reported stale; a proven-dead readable record still is)
 // =============================================================================
 
-describe('T4: scan — an unreadable ownership record is never reported stale (workspace.md §6.2/§10)', () => {
+describe('T4: scan — an unreadable ownership record is never reported stale', () => {
   it('T4: record chmod 000 ⇒ no staleOwnership flag (unknown is not proven death); restored + owner dead in the seam ⇒ staleOwnership flag', () => {
     const root = makeRoot('t4');
     seedScenario09(root);
@@ -622,7 +622,7 @@ describe('T4: scan — an unreadable ownership record is never reported stale (w
 // record exists")
 // =============================================================================
 
-describe('T5: §11 line 934 — unreadable-record refusal carries holder: strict null (spot-check round 2)', () => {
+describe('T5: line 934 — unreadable-record refusal carries holder: strict null (spot-check round 2)', () => {
   it('T5: owner live, record chmod 000 ⇒ the query envelope AND the direct takeover error both carry the `holder` field as strict null (pre-fix: field omitted ⇒ undefined)', () => {
     const root = makeRoot('t5');
     seedScenario09(root);

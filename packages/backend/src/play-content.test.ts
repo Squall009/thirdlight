@@ -29,7 +29,7 @@ const BEHAVIOR = {
   requiredModules: ['@thirdlight/runtime'],
 };
 
-describe('locator path classification (sessions.md §17.2.1)', () => {
+describe('locator path classification', () => {
   const id = 'A'.repeat(43);
   it('accepts exactly the declared routes', () => {
     expect(classifyLocatorPath(`/play-content/${id}`).kind).toBe('shell');
@@ -54,7 +54,7 @@ describe('locator path classification (sessions.md §17.2.1)', () => {
   });
 });
 
-describe('PlayContentStore (sessions.md §17.3/§17.4)', () => {
+describe('PlayContentStore', () => {
   const TTL = 900_000;
   const GRACE = 60_000;
   const makeStore = (nowRef: { t: number }, overrides: Partial<{ maxSetBytes: number; maxArtifactBytes: number }> = {}): PlayContentStore =>

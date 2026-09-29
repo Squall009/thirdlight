@@ -534,7 +534,7 @@ describe('T3: R4 — after a fully failed release the next mutation re-reads own
     svcA.dispose();
   }, 30000);
 
-  it('T3(b): the claim file is gone (record still ours) after the failed release ⇒ the next mutation is refused (ownership_conflict, holder null — the self-reclaim refusal, §6.2 row)', () => {
+  it('T3(b): the claim file is gone (record still ours) after the failed release ⇒ the next mutation is refused', () => {
     const root = makeRoot('t3b');
     const faults: Faults = {};
     const svcA = openWorkspaceService({ root, backendId: A_ID, ops: faultedOps(faults) });
@@ -560,7 +560,7 @@ describe('T3: R4 — after a fully failed release the next mutation re-reads own
     svcA.dispose();
   }, 30000);
 
-  it('T3(c): a foreign RELEASed record ⇒ the next command is a fresh open (§9 step 3: re-claim at epoch 1, the disk state — never the cached session)', () => {
+  it('T3(c): a foreign RELEASed record ⇒ the next command is a fresh open (re-claim at epoch 1, the disk state — never the cached session)', () => {
     const root = makeRoot('t3c');
     const faults: Faults = {};
     const svcA = openWorkspaceService({ root, backendId: A_ID, ops: faultedOps(faults) });

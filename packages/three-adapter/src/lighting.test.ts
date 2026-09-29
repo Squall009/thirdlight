@@ -44,7 +44,7 @@ const REGION: ShadowRegion = { minX: 0, maxX: 48, minY: -4, maxY: 8 };
 const REGION_WIDE: ShadowRegion = { minX: 0, maxX: 200, minY: -4, maxY: 8 };
 const DIR: [number, number, number] = [0.5, -1, -0.6];
 
-describe('packet 52 — the §41.1.2 frozen shadow profile', () => {
+describe('the frozen shadow profile', () => {
   it('carries exactly the fixture constants (bit-equal, deep-frozen)', () => {
     expect({
       mapSize: SHADOW_PROFILE.mapSize,
@@ -59,7 +59,7 @@ describe('packet 52 — the §41.1.2 frozen shadow profile', () => {
   });
 });
 
-describe('packet 52 — the §41.1.3 exact shadow camera derivation', () => {
+describe('the exact shadow camera derivation', () => {
   it('derives the fixture case: region X[0,48] Y[-4,8], direction (0.5,-1,-0.6)', () => {
     const p = deriveShadowCamera(REGION, DIR);
     // centre = ((0+48)/2, (-4+8)/2, 0)
@@ -122,7 +122,7 @@ describe('packet 52 — the §41.1.3 exact shadow camera derivation', () => {
   });
 });
 
-describe('packet 52 — the §41.1.4 decision (the fixture shadowCases replay)', () => {
+describe('the decision (the fixture shadowCases replay)', () => {
   // The five promoted fixture cases, verbatim (inputs + expected outcomes).
   const cases = [
     {
@@ -193,7 +193,7 @@ describe('packet 52 — the §41.1.4 decision (the fixture shadowCases replay)',
   });
 });
 
-describe('packet 52 — the §41.2.1 frozen preset rows', () => {
+describe('the frozen preset rows', () => {
   it('carries exactly the three fixture rows (bit-equal, deep-frozen, closed)', () => {
     expect({
       'matte-ground': SURFACE_PRESETS['matte-ground'],
@@ -206,7 +206,7 @@ describe('packet 52 — the §41.2.1 frozen preset rows', () => {
   });
 });
 
-describe('packet 52 — the §41.1.2 light realization plans', () => {
+describe('the light realization plans', () => {
   const ambientLight = { type: 'ambient' as const, color: '#8899bb', intensity: 0.55 };
   const keyLight = {
     type: 'directional' as const,
@@ -273,7 +273,7 @@ describe('packet 52 — the §41.1.2 light realization plans', () => {
     expect(planSceneLights([], REGION, decision)).toEqual([]);
   });
 });
-describe('phase 17.4: the directional light shadow settings as data', () => {
+describe('the directional light shadow settings as data', () => {
   it('uses the light data where set and the genre-neutral defaults elsewhere', () => {
     expect(directionalShadowSettings(null)).toEqual({ mapSize: 1024, bias: -0.0005, normalBias: 0.02, extent: 24 });
     expect(DIRECTIONAL_SHADOW_DEFAULTS).toEqual({ mapSize: 1024, bias: -0.0005, normalBias: 0.02, extent: 24 });

@@ -32,7 +32,7 @@ import type { BehaviorRecord } from '@thirdlight/project-model';
 const DIGEST_A = 'a'.repeat(64);
 const DIGEST_B = 'b'.repeat(64);
 
-describe('trust notice (runtime.md §14.1.1/§14.2.2)', () => {
+describe('trust notice', () => {
   it('states no hard timeout, no hostile-code sandbox and the origin/credentials rule', () => {
     const text = BEHAVIOR_TRUST_NOTICE.join('\n');
     expect(text).toMatch(/NO hard runtime timeout/i);
@@ -174,7 +174,7 @@ describe('declaration schema view', () => {
   });
 });
 
-describe('trust projection (packet 34)', () => {
+describe('trust projection', () => {
   it('advances trust only from acknowledgeBehaviorTrust change records', () => {
     const projection = new PrefabProjection();
     expect(projection.listTrust()).toEqual([]);

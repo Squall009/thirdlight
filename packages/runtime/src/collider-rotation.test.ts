@@ -34,7 +34,7 @@ describe('the collider rotation about Z', () => {
     expect(staticColliderOf('none', { transform: { position: [0, 0, 0] } })).toBeNull();
   });
 
-  it('leaves a box depth out of the 2D-plane shape (phase 23.0: a 2D plane ignores hz)', () => {
+  it('leaves a box depth out of the 2D-plane shape (a 2D plane ignores hz)', () => {
     const spec = staticColliderOf('floor', { transform: { position: [0, 0, 0], rotation: [0, 0, 0, 1] }, collider: { shape: { type: 'box', hx: 2, hy: 0.5, hz: 3 } } });
     expect(spec!.shape).toEqual({ type: 'box', hx: 2, hy: 0.5 });
   });

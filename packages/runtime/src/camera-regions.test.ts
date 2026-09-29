@@ -23,7 +23,7 @@ const steps = (b: CameraBrain, w: CameraWorld, n: number): void => {
   for (let k = 0; k < n; k++) b.step(BASE, null, w);
 };
 
-describe('phase 25.14: camera regions', () => {
+describe('camera regions', () => {
   it('a region changes the bounds, dead zone and distance while the target is inside, blended over its blend time', () => {
     const b = brain();
     b.add([
@@ -118,7 +118,7 @@ describe('phase 25.14: camera regions', () => {
   });
 });
 
-describe('phase 25.14: look-ahead', () => {
+describe('look-ahead', () => {
   it('frames ahead of a falling target (vertical look-ahead), capped, eased; none without it', () => {
     const make = (extra: Record<string, unknown>): CameraBrain => {
       const b = brain();

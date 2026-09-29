@@ -44,7 +44,7 @@ const HANDSHAKE = { v: 2, type: 'tl.handshake', bridgeVersion: 2, playSessionId:
 const READY = { v: 2, type: 'tl.ready', playSessionId: PLAY_ID, snapshotId: 's@r0', revision: 0, buildId: BUILD_ID, contentDigest: CONTENT_DIGEST, stepIndex: 0 };
 const SNAPSHOT = { v: 2, type: 'tl.snapshot', playSessionId: PLAY_ID, nonce: 'c'.repeat(16), snapshot: { snapshotId: 's', projectId: 'p', revision: 0, scene: { schemaVersion: 1, sceneId: 'sc', revision: 0, entities: [] } } };
 
-describe('Bridge — §13.3 transport checks (origin + source)', () => {
+describe('Bridge — transport checks (origin + source)', () => {
   it('drops a message from the wrong origin (and counts it)', () => {
     const { editor } = makePair();
     editor.on('tl.ready', () => {
@@ -68,7 +68,7 @@ describe('Bridge — §13.3 transport checks (origin + source)', () => {
   });
 });
 
-describe('Bridge — §13.5 allowlist (exhaustive, v2)', () => {
+describe('Bridge — allowlist (exhaustive, v2)', () => {
   it('drops a type not in the receive allowlist', () => {
     const { editor } = makePair();
     deliver(editor, { origin: PREVIEW_ORIGIN, source: { tag: 'preview-window' }, data: { v: 2, type: 'tl.evil', playSessionId: PLAY_ID } });
@@ -147,7 +147,7 @@ describe('Bridge — handshake + nonce sequence', () => {
   });
 });
 
-describe('Bridge — v2 relay messages (delivery §7)', () => {
+describe('Bridge — v2 relay messages', () => {
   it('the editor forwards bounded input frames and the preview answers with the applied range', () => {
     const { editor, preview, previewWin, editorWin, postedEditorToPreview, postedPreviewToEditor } = makePair();
     let applied: unknown = null;
@@ -179,7 +179,7 @@ describe('Bridge — v2 relay messages (delivery §7)', () => {
   });
 });
 
-describe('Bridge — no wildcard, no credentials (m1-acceptance §2.2)', () => {
+describe('Bridge — no wildcard, no credentials', () => {
   function runHandshakeAndSnapshot() {
     const pair = makePair();
     pair.preview.on('tl.handshake', (m) => {

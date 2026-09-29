@@ -194,7 +194,7 @@ describe('runtime-only non-finite values', () => {
   });
 });
 
-describe('captured content view (§19, the v3 pair)', () => {
+describe('captured content view (the v3 pair)', () => {
   it('captures only reachable assets at their current version, sorted, with a recomputable digest', () => {
     const scene = sceneV3(JSON.parse(m2ModelFixtureText('valid/scene-v2.json')));
     const contentResult = validateContentV3(contentV3(JSON.parse(m2ModelFixtureText('valid/content.json'))));
@@ -237,7 +237,7 @@ describe('captured content view (§19, the v3 pair)', () => {
   });
 });
 
-describe('gameplay settings resolution (§21.5)', () => {
+describe('gameplay settings resolution', () => {
   it('fills the six defaults and applies content.settings overrides, deep-frozen', () => {
     const defaults = resolveGameplaySettings({ settings: {} });
     expect(defaults.ok).toBe(true);
@@ -317,7 +317,7 @@ describe('gameplay settings resolution (§21.5)', () => {
   });
 });
 
-describe('canonical serialization (§12.2)', () => {
+describe('canonical serialization', () => {
   it('normalizes negative zero and preserves accepted near-unit quaternions', () => {
     const scene = sceneV3(JSON.parse(m2ModelFixtureText('valid/scene-v2.json'))) as {
       entities: { id: string; components: { transform?: { position: number[]; rotation?: number[] } } }[];
@@ -352,7 +352,7 @@ describe('canonical serialization (§12.2)', () => {
   });
 });
 
-describe('behavior source records (§22.2/§12.3 step 5)', () => {
+describe('behavior source records', () => {
   it('validates a source record and rejects a bad digest / entry path', () => {
     const content = contentV3(JSON.parse(m2ModelFixtureText('valid/content.json')));
     const behaviors = content['behaviors'] as { source: unknown }[];

@@ -26,7 +26,7 @@ function content(sceneIds: string[]): Obj {
 }
 const ctx = { projectId: 'p', revision: 1 };
 
-describe('the collider limit is per scene (phase 21.2)', () => {
+describe('the collider limit is per scene', () => {
   it('captures start scenes whose colliders together exceed one scene’s limit', () => {
     const a = scene('scene-a', colliders('block-a', 200));
     const b = scene('scene-b', colliders('block-b', 200));

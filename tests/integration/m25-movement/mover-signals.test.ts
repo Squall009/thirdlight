@@ -107,7 +107,7 @@ async function run(mode: Mode, dim: Dim): Promise<{ log: Any[]; digests: string[
 /** The lift's height `k` steps after it left its start with the gravity easing (2 m in 2 s: 2 (t / 2)^2). */
 const rise = (k: number): number => 2 * (k / 240) ** 2;
 
-describe('phase 25.12: mover signals and the gravity easing', () => {
+describe('mover signals and the gravity easing', () => {
   for (const dim of [2, 3] as const) {
     it(`toggle, stop, toggle, reverse a lift that carries the character; page, worker and a second run identical (${dim}D)`, async () => {
       const single = await run('single', dim);

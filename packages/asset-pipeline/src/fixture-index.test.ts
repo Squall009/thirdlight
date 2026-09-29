@@ -171,7 +171,7 @@ describe('fixture index', () => {
     ]);
   });
 
-  it('the exported profile limits are exactly the contract values (§18.6/§18.7.2)', () => {
+  it('the exported profile limits are exactly the contract values', () => {
     expect(M2_GLTF_PROFILE_LIMITS).toEqual({
       source_bytes: 33_554_432,
       json_chunk_bytes: 8_388_608,
@@ -194,7 +194,7 @@ describe('fixture index', () => {
     expect(proposalSourceBytes()).toBe(33_554_432);
   });
 
-  it('the effective extension allowlist is the pinned set and frozen (§18.8.1)', () => {
+  it('the effective extension allowlist is the pinned set and frozen', () => {
     expect([...M2_GLTF_EXTENSION_ALLOWLIST]).toEqual(['EXT_meshopt_compression',  'EXT_texture_webp',  'KHR_draco_mesh_compression',  'KHR_materials_clearcoat',  'KHR_materials_emissive_strength',  'KHR_materials_ior',  'KHR_materials_sheen',  'KHR_materials_specular',  'KHR_materials_transmission',  'KHR_materials_unlit',  'KHR_materials_volume',  'KHR_mesh_quantization',  'KHR_texture_basisu',  'KHR_texture_transform']);
     expect(Object.isFrozen(M2_GLTF_EXTENSION_ALLOWLIST)).toBe(true);
     // Every committed fixture except compression.glb (Draco) declares no

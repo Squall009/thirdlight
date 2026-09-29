@@ -110,7 +110,7 @@ function unavailableOf(r: { ok: false; error: { code: string; reason?: string; d
   expect(r.error.code).toBe('project_unavailable');
 }
 
-describe('Gate B repair G1: one corrupt envelope must not abort startup (workspace.md §7.5/§10)', () => {
+describe('Gate B repair G1: one corrupt envelope must not abort startup', () => {
   it('startup scan survives a 4000-level deep entities; the healthy project is served and mutated; the corrupt project is blocked, reported, retained', () => {
     const root = mkRoot('g1');
     try {
@@ -190,7 +190,7 @@ describe('Gate B repair G1: one corrupt envelope must not abort startup (workspa
   });
 });
 
-describe('Gate B repair G2: on-demand open on a corrupt manifest blocks, never throws (workspace.md §7.5/§4.3 step 8/§11)', () => {
+describe('Gate B repair G2: on-demand open on a corrupt manifest blocks, never throws', () => {
   it('a 4000-level deep manifest name ⇒ project_unavailable { reason: "manifest_invalid" } on query AND command; bytes retained', () => {
     const root = mkRoot('g2');
     try {

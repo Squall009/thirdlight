@@ -102,7 +102,7 @@ async function run(mode: Mode, steps: number): Promise<{ h: Harness; digests: st
 
 const firstDiff = (a: string[], b: string[]): number => a.slice(0, Math.min(a.length, b.length)).findIndex((d, k) => d !== b[k]);
 
-describe('phase 23.3: pointer replays (page and worker)', () => {
+describe('pointer replays (page and worker)', () => {
   it('hover, click and leave from a recording: identical digests and the same hidden objects in page and worker', async () => {
     const a = await run('single', 160);
     const b = await run('single', 160);

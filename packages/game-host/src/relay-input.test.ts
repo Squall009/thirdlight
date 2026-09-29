@@ -16,7 +16,7 @@ function run(src: RelayActionSource, from: number, n: number): ReturnType<RelayA
   return Array.from({ length: n }, (_, k) => src.sample(from + k));
 }
 
-describe('relay test frames (phase 25.15)', () => {
+describe('relay test frames', () => {
   it('a run holds its frame: pressed on the first step, held after; gaps are neutral; completion after the last run', () => {
     const src = new RelayActionSource(physical);
     let done: [number, number] | null = null;

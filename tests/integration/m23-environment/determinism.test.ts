@@ -67,7 +67,7 @@ async function run(mode: Mode, source: string, presets: boolean, steps: number):
 
 const firstDiff = (a: string[], b: string[]): number => a.slice(0, Math.min(a.length, b.length)).findIndex((d, k) => d !== b[k]);
 
-describe('phase 23.18: the environment blend is simulation state (two page runs and the worker)', () => {
+describe('the environment blend is simulation state (two page runs and the worker)', () => {
   it('night over 2 s, day with an override interrupting it, a held mix: identical digests and blend frames', async () => {
     const a = await run('single', DIRECTOR, true, 600);
     const b = await run('single', DIRECTOR, true, 600);

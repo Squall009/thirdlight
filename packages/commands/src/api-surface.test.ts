@@ -27,7 +27,7 @@ import { at, boxEntity, cameraEntity, req, scene, v4State } from './test-scene';
 
 const ST = () => v4State(scene(0, [cameraEntity(), boxEntity('box-0001')]));
 
-describe('public surface (dependencies.md §3)', () => {
+describe('public surface', () => {
   it('exports the entry points and constants', () => {
     expect(typeof pkg.applyMutation).toBe('function');
     expect(typeof pkg.createCommandState).toBe('function');
@@ -207,7 +207,7 @@ describe('purity — the input state is never mutated', () => {
   });
 });
 
-describe('success payload invariants (§5.1)', () => {
+describe('success payload invariants', () => {
   it('every successful mutation advances the revision by exactly 1 and echoes the request', () => {
     let st = ST();
     const request = req('setTransform', {
@@ -228,7 +228,7 @@ describe('success payload invariants (§5.1)', () => {
     expect('originOfApplied' in r.result).toBe(false);
   });
 
-  it('canonical key order of the success payload (durable record, §5.1)', () => {
+  it('canonical key order of the success payload (durable record)', () => {
     const r = applyMutation(ST(), req('createEntity', { kind: 'box' }));
     if (!r.ok) throw new Error('should succeed');
     expect(Object.keys(r.result)).toEqual([
@@ -294,7 +294,7 @@ describe('success payload invariants (§5.1)', () => {
     ]);
   });
 
-  it('history entries carry the §9.1 shape with canonical key order', () => {
+  it('history entries carry the shape with canonical key order', () => {
     const st = ST();
     const r = applyMutation(st, req('createEntity', {
       kind: 'box',

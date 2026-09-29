@@ -108,8 +108,8 @@ afterAll(async () => {
   if (root) rmSync(root.root, { recursive: true, force: true });
 }, 60_000);
 
-describe('packet 48 — v3 command parity over the real transports', () => {
-  it('the real stdio MCP advertises the §20 relay tools and the v3 mutation ops', async () => {
+describe('v3 command parity over the real transports', () => {
+  it('the real stdio MCP advertises the relay tools and the v3 mutation ops', async () => {
     const names = await mcp.listTools();
     for (const expected of ['tl_game_control', 'tl_game_observe', 'tl_command', 'tl_content_upload']) {
       expect(names).toContain(expected);
@@ -226,7 +226,7 @@ describe('packet 48 — v3 command parity over the real transports', () => {
 
 let animatedEntityId = '';
 
-describe('packet 48 — role-aware animated reimport reaches §41.3.2 stages 5–7', () => {
+describe('role-aware animated reimport reaches stages 5–7', () => {
   it('inspects a real animated GLB with roles and publishes it through publishAsset', async () => {
     const inspected = await inspectMedia('glb/courier-roles.glb', { kind: 'model', animation: { roles: VALID_ROLES } });
     expect(inspected.isError, JSON.stringify(inspected.body)).toBe(false);
@@ -346,7 +346,7 @@ describe('packet 48 — role-aware animated reimport reaches §41.3.2 stages 5�
   });
 });
 
-describe('packet 48 — content transport security', () => {
+describe('content transport security', () => {
   it('rejects an unauthenticated upload and a foreign origin before any storage call', async () => {
     const unauth = await http(`${bp.origin}/api/v1/projects/${V3_PROJECT}/content/stages`, { body: {} });
     expect(unauth.status).toBe(401);

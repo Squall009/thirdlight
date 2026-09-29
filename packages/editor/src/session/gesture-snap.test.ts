@@ -33,7 +33,7 @@ function clone(t: Transform): Transform {
   return { position: [...t.position], rotation: [...t.rotation], scale: [...t.scale] };
 }
 
-describe('packet 27 — command discipline (zero during drag, one on release, none on cancel)', () => {
+describe('command discipline (zero during drag, one on release, none on cancel)', () => {
   it('per-frame previews issue no command at all; release issues exactly one', () => {
     const sink = new TestSink();
     const runner = new GestureRunner('e1', 5, base, sink, { snapping: true });
@@ -88,7 +88,7 @@ describe('packet 27 — command discipline (zero during drag, one on release, no
   });
 });
 
-describe('packet 27 — snapping in the local gesture path', () => {
+describe('snapping in the local gesture path', () => {
   it('translate preview snaps the world-axis delta to 0.25 m (snapping on)', () => {
     const runner = new GestureRunner('e1', 5, base, new TestSink(), { snapping: true });
     const t = runner.preview({ kind: 'translate', delta: [0.6, 0.6, -0.6] });
@@ -147,7 +147,7 @@ describe('packet 27 — snapping in the local gesture path', () => {
   });
 });
 
-describe('packet 27 — remote edit during the drag (conflict handling)', () => {
+describe('remote edit during the drag (conflict handling)', () => {
   it('the drag keeps the base revision; a remote edit causes one bounded rebase, then surfaces the conflict', () => {
     const sink = new TestSink();
     const runner = new GestureRunner('e1', 5, base, sink, { snapping: true });

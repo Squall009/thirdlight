@@ -29,7 +29,7 @@ function controllerSpec(step: SimulationModuleSpec extends never ? never : (
   });
 }
 
-describe('M2 fail-stop (runtime.md §13)', () => {
+describe('M2 fail-stop', () => {
   it('a throw after a private-state/transform mutation fail-stops and renders only the last committed state', () => {
     let privateState = 0;
     const spec = controllerSpec((phase, ctx) => {

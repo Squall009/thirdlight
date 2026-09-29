@@ -154,7 +154,7 @@ describe('per-mesh looks', () => {
     expect(own.emissiveIntensity).toBe(1);
   });
 
-  it('phase 21.3: a material marked shared (deduplicated boxes, a model shared by its placements) is copied before it glows', () => {
+  it('a material marked shared (deduplicated boxes, a model shared by its placements) is copied before it glows', () => {
     const shared = new THREE.MeshLambertMaterial({ color: 0x808080 });
     shared.userData[SHARED_MATERIAL_KEY] = true;
     const a = mesh(shared);
@@ -168,7 +168,7 @@ describe('per-mesh looks', () => {
     expect((a.material as THREE.Material).userData[SHARED_MATERIAL_KEY]).toBeUndefined();
   });
 
-  it('phase 24.4h: a look override glows and tints an own copy, and clearing it gives the material back its own colour and glow', () => {
+  it('a look override glows and tints an own copy, and clearing it gives the material back its own colour and glow', () => {
     const shared = new THREE.MeshStandardMaterial({ color: 0x808080, emissive: 0x112233, emissiveIntensity: 0.5 });
     shared.userData[SHARED_MATERIAL_KEY] = true;
     const a = mesh(shared);

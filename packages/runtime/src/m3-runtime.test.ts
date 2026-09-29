@@ -21,7 +21,7 @@ function errorOf(snapshot: unknown): RuntimeError | null {
   return res.error;
 }
 
-describe('a playable snapshot (phase 9.3 / 24)', () => {
+describe('a playable snapshot', () => {
   it('only a v3/v4 scene plays; a v1/v2 scene is refused before anything is created', () => {
     for (const schemaVersion of [1, 2]) {
       const scene = { ...cloneJson(baseScene()), schemaVersion } as unknown as { revision: number };
@@ -30,7 +30,7 @@ describe('a playable snapshot (phase 9.3 / 24)', () => {
     expect(errorOf(snapshotOf(cloneJson(baseScene())))).toBeNull();
   });
 
-  it('the game block is gone: no game field plays, any game field is refused (phase 24.8)', () => {
+  it('the game block is gone: no game field plays, any game field is refused', () => {
     const withGame = (game: unknown): unknown => {
       const s = snapshotOf(cloneJson(baseScene())) as Record<string, unknown>;
       if (game === undefined) delete s['game'];

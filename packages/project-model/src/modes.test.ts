@@ -84,7 +84,7 @@ describe('game modes (data)', () => {
     expect(canonicalInput(input as never).maps).toEqual(['tactical']);
   });
 
-  it('phase 25.6: input.cursor takes every map of input.maps (and only the project\'s maps); canonical order gameplay, ui, own maps', () => {
+  it('input.cursor takes every map of input.maps (and only the project\'s maps); canonical order gameplay, ui, own maps', () => {
     const input = { actions: [], maps: ['tactical', 'board'], cursor: { board: 'locked', tactical: 'free', ui: 'free', gameplay: 'locked' } };
     expect(errs((e) => validateInput(input, '/input', e))).toEqual([]);
     const bad = errs((e) => validateInput({ ...input, cursor: { ghost: 'free', tactical: 'sideways' } }, '/input', e));

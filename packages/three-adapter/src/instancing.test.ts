@@ -69,7 +69,7 @@ describe('instance chunks', () => {
     expect(chunks[0]).not.toBe(chunks[19_999]);
   });
 
-  it('phase 25.7d: with a chunk size, no chunk is wider than it (a few copies over a wide area still split); the cells grow past the cap', () => {
+  it('with a chunk size, no chunk is wider than it (a few copies over a wide area still split); the cells grow past the cap', () => {
     const pos = (f: Float32Array, n: number): Float32Array => {
       const p = new Float32Array(n * 3);
       for (let i = 0; i < n; i += 1) p.set([f[i * 10]!, f[i * 10 + 1]!, f[i * 10 + 2]!], i * 3);
@@ -167,7 +167,7 @@ describe('instance chunks', () => {
     expect([0, 1, 2, 3, 4].map((i) => set.copyOf(set.meshes[0]!, i))).toEqual([0, 1, 2, 3, 4]);
   });
 
-  it('phase 25.24d: a ray picks one copy of a chunk mesh (its slot as instanceId); dispose frees the chunk geometry, never the model\'s', () => {
+  it('a ray picks one copy of a chunk mesh (its slot as instanceId); dispose frees the chunk geometry, never the model\'s', () => {
     const root = new THREE.Group();
     const geometry = new THREE.BoxGeometry();
     let modelGeometryDisposed = 0;

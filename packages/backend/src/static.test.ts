@@ -27,7 +27,7 @@ function tempStaticDirs(): { root: string; editorDir: string; previewDir: string
   return { root, editorDir, previewDir };
 }
 
-describe('preview origin (sessions.md §2/§13.2)', () => {
+describe('preview origin', () => {
   let tb: TestBackend;
   beforeAll(async () => {
     tb = await startBackend();
@@ -86,7 +86,7 @@ describe('preview origin (sessions.md §2/§13.2)', () => {
   });
 });
 
-describe('authoring static bundle (§2)', () => {
+describe('authoring static bundle', () => {
   it('serves the editor index at / on the authoring origin', async () => {
     const tb = await startBackend();
     try {
@@ -99,7 +99,7 @@ describe('authoring static bundle (§2)', () => {
   });
 });
 
-describe('startup checks (sessions.md §13.7)', () => {
+describe('startup checks', () => {
   it('a missing preview bundle dir ⇒ the structured startup error (recorded in the bounded log)', () => {
     const { root, editorDir } = tempStaticDirs();
     const missingPreview = join(root, 'preview-missing');
@@ -163,7 +163,7 @@ describe('startup checks (sessions.md §13.7)', () => {
     expect(noTokens.ok).toBe(false);
   });
 
-  it('a configured (non-zero) bind port is actually bound — a second backend on the same port fails listen (packet 13 deployment fix)', async () => {
+  it('a configured (non-zero) bind port is actually bound — a second backend on the same port fails listen', async () => {
     const { root, editorDir, previewDir } = tempStaticDirs();
     // Take a free port deterministically (bind :0, read it, release it).
     const probe = createServer();
@@ -205,8 +205,8 @@ describe('startup checks (sessions.md §13.7)', () => {
   });
 });
 
-describe('the /services surface (dependencies.md §3)', () => {
-  it('exposes createBackend + config parsing + the PlayManager (the packet-11 surface)', async () => {
+describe('the /services surface', () => {
+  it('exposes createBackend + config parsing + the PlayManager', async () => {
     const services = await import('./services/index');
     expect(typeof services.createBackend).toBe('function');
     expect(typeof services.parseBackendConfig).toBe('function');

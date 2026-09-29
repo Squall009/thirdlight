@@ -87,8 +87,8 @@ function deepFreeze<T>(v: T): T {
 
 // ---- constants ------------------------------------------------------------------
 
-describe('stable constants (dependencies.md §3 single source of truth)', () => {
-  it('ERROR_CODES is exactly the §12.6 stable code set (M3 v3 extended)', () => {
+describe('stable constants', () => {
+  it('ERROR_CODES is exactly the stable code set', () => {
     expect([...ERROR_CODES].sort()).toEqual(
       [
         'encoding_invalid',
@@ -261,7 +261,7 @@ describe('total functions (never throw on malformed data)', () => {
 
 // ---- canonical output layout -------------------------------------------------------
 
-describe('canonical byte layout (§12.2 rule 6)', () => {
+describe('canonical byte layout', () => {
   it('manifest serialization: 2-space indent, LF, one trailing newline, no BOM', () => {
     const res = serializeCanonical(validManifest());
     expect(res.ok).toBe(true);
@@ -337,7 +337,7 @@ describe('canonical byte layout (§12.2 rule 6)', () => {
 
 // ---- normalization semantics ---------------------------------------------------------
 
-describe('normalization (§12.2)', () => {
+describe('normalization', () => {
   it('never mutates the input (deep-frozen input survives)', () => {
     const frozen = deepFreeze(validScene([cameraEntity(), boxEntity('box-1')]));
     expect(() => normalizeSceneV3(frozen)).not.toThrow();
@@ -431,7 +431,7 @@ describe('normalization (§12.2)', () => {
 
 // ---- version handling ------------------------------------------------------------------
 
-describe('schema version handling (§6, §12.3 pass 3)', () => {
+describe('schema version handling', () => {
   it('unknown version => exactly one schema_version_unsupported with found/knownVersions/hint', () => {
     for (const [sv, hintPart] of [
       [1, 'older'], // a scene version the engine does not read
@@ -607,7 +607,7 @@ describe('strict field rules', () => {
     }
   });
 
-  it('ID syntax (§5.1): 64 chars ok, 65 fails; first char [a-z0-9]; digits allowed', () => {
+  it('ID syntax: 64 chars ok, 65 fails; first char [a-z0-9]; digits allowed', () => {
     expect(validateSceneV3(validScene([cameraEntity('a'.repeat(64))])).ok).toBe(true);
     const r65 = validateSceneV3(validScene([cameraEntity('a'.repeat(65))]));
     expect(!r65.ok && first(r65).code === 'id_invalid').toBe(true);
@@ -634,7 +634,7 @@ describe('strict field rules', () => {
     expect(!del.ok && first(del).code === 'field_value').toBe(true);
   });
 
-  it('revision: integer in [0, 2^53-1] (§6)', () => {
+  it('revision: integer in [0, 2^53-1]', () => {
     for (const bad of [-1, 1.5, 2 ** 53, -0.5]) {
       const r = validateSceneV3({ ...validScene(), revision: bad });
       expect(!r.ok && first(r).code === 'revision_invalid', `revision ${bad}`).toBe(true);
@@ -696,7 +696,7 @@ describe('strict field rules', () => {
 
 // ---- hierarchy and components ----------------------------------------------------------------
 
-describe('hierarchy and component rules (§9, §10, §11, §23.3)', () => {
+describe('hierarchy and component rules', () => {
   it('duplicate entity ids: first occurrence wins, error at the later occurrence', () => {
     const res = validateSceneV3(validScene([boxEntity('e1'), boxEntity('e1'), cameraEntity()]));
     expect(res.ok).toBe(false);
@@ -913,7 +913,7 @@ describe('hierarchy and component rules (§9, §10, §11, §23.3)', () => {
 
 // ---- project-level -------------------------------------------------------------------------
 
-describe('project-level validation (§13.2 validateProjectV3)', () => {
+describe('project-level validation', () => {
   it('success: normalized { manifest, scene, content }', () => {
     const res = validateProjectV3(validManifest(), validScene(), emptyContent());
     expect(res.ok).toBe(true);

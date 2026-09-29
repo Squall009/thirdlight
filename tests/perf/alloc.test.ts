@@ -26,7 +26,7 @@ import { runSimChild } from '../../tools/perf/sim-run';
 
 const BOUND_BYTES_PER_STEP = 64 * 1024;
 
-describe('steady step allocations (phase 21.2)', () => {
+describe('steady step allocations', () => {
   it(`the medium benchmark's steady step allocates under ${BOUND_BYTES_PER_STEP / 1024} KiB`, async () => {
     expect(existsSync(join(REPO, 'dist', 'backend', 'backend.mjs')), 'dist/ is missing: run `npm run build` first').toBe(true);
     const root = join(PERF_ROOT, 'alloc-test', `${process.pid}-${Date.now()}`);

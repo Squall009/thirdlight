@@ -18,7 +18,7 @@ import { api, mkSessionId, startBackend, type TestBackend } from './test-helpers
 
 const FIXTURES = resolve(import.meta.dirname, '..', '..', '..', 'fixtures', 'phase24');
 
-describe('phase 24.8: a schemaVersion 2 project opened over HTTP', () => {
+describe('a schemaVersion 2 project opened over HTTP', () => {
   let tb: TestBackend;
   const projectDir = (id: string): string => join(tb.root, 'data', 'projects', id);
   const readJson = (id: string, rel: string): Record<string, unknown> => JSON.parse(readFileSync(join(projectDir(id), rel), 'utf8')) as Record<string, unknown>;
@@ -31,7 +31,7 @@ describe('phase 24.8: a schemaVersion 2 project opened over HTTP', () => {
     await tb.teardown();
   });
 
-  it('upgrades the generic data and writes the project back as schemaVersion 4 (phase 25.7; 3 in phase 24.8)', async () => {
+  it('upgrades the generic data and writes the project back as schemaVersion 4', async () => {
     const r = await api(`${tb.authUrl}/api/v1/sessions`, {
       body: { projectId: 'legacy-v2-upgradable', sessionId: mkSessionId(), clientInfo: { kind: 'browser', label: 'format-upgrade' } },
       token: tb.adminToken,
@@ -95,7 +95,7 @@ describe('phase 24.8: a schemaVersion 2 project opened over HTTP', () => {
  * written back as schemaVersion 4 with every id and reference unchanged, and
  * new objects get six-digit ids, unique across the project's scenes.
  */
-describe('phase 25.7: a schemaVersion 3 project with four-digit ids opened over HTTP', () => {
+describe('a schemaVersion 3 project with four-digit ids opened over HTTP', () => {
   const FIXTURES_25 = resolve(import.meta.dirname, '..', '..', '..', 'fixtures', 'phase25');
   const ID = 'legacy-v3-ids';
   let tb: TestBackend;

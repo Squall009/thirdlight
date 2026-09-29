@@ -8,7 +8,7 @@ import { parseJobExportManifest, parseJobExportRequest } from './job-export';
 const D = 'a'.repeat(64);
 const ok = { name: 'Crate', files: [{ path: 'crate.glb', role: 'model', digest: D }, { path: 'img/preview.png', role: 'preview', digest: `sha256:${'B'.repeat(64)}` }], triangles: 12, lods: [12, 6], tool: { any: 'thing' } };
 
-describe('phase 25.22: job export manifest', () => {
+describe('job export manifest', () => {
   it('reads name, files (digests normalised), triangles and lods; other keys are ignored and listed', () => {
     const r = parseJobExportManifest(ok);
     expect(r).toEqual({ ok: true, manifest: { name: 'Crate', files: [{ path: 'crate.glb', role: 'model', digest: D }, { path: 'img/preview.png', role: 'preview', digest: 'b'.repeat(64) }], triangles: 12, lods: [12, 6], ignoredKeys: ['tool'] } });

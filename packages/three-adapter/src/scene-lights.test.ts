@@ -4,7 +4,7 @@ import { LOCAL_LIGHT_BUDGET, selectSceneLights, type SceneLightEntry } from './s
 
 const e = (id: string, kind: SceneLightEntry['kind'], rank: number, order: number): SceneLightEntry => ({ id, kind, rank, order });
 
-describe('selectSceneLights (phase 25.8)', () => {
+describe('selectSceneLights', () => {
   it('the most recently loaded scene holding a kind has its light on, each kind on its own', () => {
     const sel = selectSceneLights([
       e('sun-a', 'directional', 0, 0),

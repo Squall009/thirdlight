@@ -76,7 +76,7 @@ describe('fog volumes (v4)', () => {
   });
 });
 
-describe('phase 14.4: grading lift/gamma/gain, fog volume height falloff, level looks', () => {
+describe('grading lift/gamma/gain, fog volume height falloff, level looks', () => {
   it('accepts lift/gamma/gain in range and refuses them out of range', () => {
     expect(check({ post: { grading: { lift: 0.1, gamma: 1.4, gain: 0.9 } } })).toEqual([]);
     expect(check({ post: { grading: { lift: 0.6 } } })).toEqual(['/environment/post/grading/lift']);

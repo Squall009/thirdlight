@@ -67,7 +67,7 @@ const DIGESTS: Record<string, { sha256: string }> = (JSON.parse(
   readFileSync(join(FIXTURES, 'index.json'), 'utf8'),
 ) as { files: Record<string, { sha256: string }> }).files;
 
-describe('packet 53 — setRoles over the real courier GLBs (committed real-roles rows)', () => {
+describe('setRoles over the real courier GLBs (committed real-roles rows)', () => {
   const byId = new Map(rolesCases.cases.map((c) => [c.id, c]));
 
   it('the committed rows cover the three evidence cases', () => {
@@ -104,7 +104,7 @@ describe('packet 53 — setRoles over the real courier GLBs (committed real-role
     resource.dispose();
   });
 
-  it('the reordered-v2 mapping installs against the reordered bytes (§41.3.4 rule 5)', async () => {
+  it('the reordered-v2 mapping installs against the reordered bytes', async () => {
     const c = byId.get('roles-reordered-v2')!;
     const { resource } = await prepare(`glb/${c.file}`, DIGESTS[`glb/${c.file}`]!.sha256, c.component.version);
     // The bytes are the reordered ones: clip 0 is 'Airborne'.
@@ -128,7 +128,7 @@ describe('packet 53 — setRoles over the real courier GLBs (committed real-role
     resource.dispose();
   });
 
-  it('the stale stored-order mapping against the reordered bytes is refused (§41.3.4 rule 1/6)', async () => {
+  it('the stale stored-order mapping against the reordered bytes is refused', async () => {
     const c = byId.get('roles-stored-order-against-reordered-bytes')!;
     expect(c.expect).toEqual({ verdict: 'rejected', code: 'animation_role_mismatch' });
     const { resource } = await prepare(`glb/${c.file}`, DIGESTS[`glb/${c.file}`]!.sha256, c.component.version);

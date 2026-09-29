@@ -37,7 +37,7 @@ function stateOf(env: EnvelopeFixture): State {
   ) as unknown as State;
 }
 
-describe('packet-39 no-change cases', () => {
+describe('no-change cases', () => {
   const NC = m3ContractJson<{
     state: string;
     messages: { requestId: string; op: string; expectedRevision: number; args: Record<string, unknown> }[];
@@ -86,7 +86,7 @@ interface FailureCase {
  */
 const GENERIC_FAILURES = ['F6', 'F8', 'F9'];
 
-describe('packet-39 reachable failures', () => {
+describe('reachable failures', () => {
   const FAILURES = m3ContractJson<{ cases: FailureCase[] }>('commands/failures.json').cases;
 
   it('produces the recorded code and auxiliary fields for the generic cases', () => {

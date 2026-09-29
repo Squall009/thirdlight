@@ -99,7 +99,7 @@ const BASE_INSTANTIATE = {
   parentDepth: 0,
 };
 
-describe('packet 28 — capture closure and preflight (commands.md §8.6.2/§8.6.3)', () => {
+describe('capture closure and preflight', () => {
   it('computes the subtree closure in document order with its depth', () => {
     const closure = captureClosure(SCENE, 'group-0001');
     expect(closure?.entities.map((e) => e.id)).toEqual(['group-0001', 'box-0001', 'model-0001', 'model-0002']);
@@ -196,7 +196,7 @@ describe('packet 28 — capture closure and preflight (commands.md §8.6.2/§8.6
   });
 });
 
-describe('packet 28 — instantiation accepts only the three configurables (§8.7)', () => {
+describe('instantiation accepts only the three configurables', () => {
   it('plans the accepted fixture I1 command byte-shape (root transform + one override)', () => {
     const plan = planInstantiatePrefab({
       ...BASE_INSTANTIATE,
@@ -294,7 +294,7 @@ describe('packet 28 — instantiation accepts only the three configurables (§8.
   });
 });
 
-describe('packet 28 — initial-override drafts come only from published declarations', () => {
+describe('initial-override drafts come only from published declarations', () => {
   const targets = deriveOverrideTargets(DEFINITION, DECLARATIONS);
 
   it('derives one target for the behavior-carrying definition entity', () => {
@@ -325,7 +325,7 @@ describe('packet 28 — initial-override drafts come only from published declara
   });
 });
 
-describe('packet 28 — client recovery for stale revisions and rejected limits', () => {
+describe('client recovery for stale revisions and rejected limits', () => {
   it('re-issues once for a stale revision, then surfaces', () => {
     const first = recoverPrefabCommandFailure({ code: 'revision_conflict', currentRevision: 12 }, { reissues: 0 });
     expect(first.kind).toBe('reissue');
@@ -353,7 +353,7 @@ describe('packet 28 — client recovery for stale revisions and rejected limits'
   });
 });
 
-describe('packet 28 — capture drafts', () => {
+describe('capture drafts', () => {
   it('generates an id-syntax prefabId, avoiding existing ids', () => {
     const id = makePrefabId(() => 0.5);
     expect(id).toMatch(/^prefab-[0-9a-f]{16}$/);

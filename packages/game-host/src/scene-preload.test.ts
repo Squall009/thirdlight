@@ -31,7 +31,7 @@ function setup(max?: number) {
   return { pre, reads, prepared, released, gates };
 }
 
-describe('scene preloader (phase 25.24e)', () => {
+describe('scene preloader', () => {
   it('answers a load once the scene is read and prepared', async () => {
     const s = setup();
     let answered = false;
@@ -87,7 +87,7 @@ describe('scene preloader (phase 25.24e)', () => {
   });
 });
 
-describe('scenes to read ahead (phase 25.24e)', () => {
+describe('scenes to read ahead', () => {
   it('names the unloaded targets of loaded scene transitions and the next listed scene, once each', async () => {
     const { scenesToReadAhead } = await import('./host');
     const set = {

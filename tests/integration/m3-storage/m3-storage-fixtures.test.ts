@@ -20,7 +20,7 @@ import { REPO_ROOT, makeRoot, seedV3DemoProject } from '../../../packages/worksp
 const STORAGE = join(REPO_ROOT, 'fixtures', 'm3', 'storage');
 const CREATED_AT = '2026-09-19T10:00:00Z';
 
-describe('packet 46 — committed storage fixtures', () => {
+describe('committed storage fixtures', () => {
   it('the fixture checker passes and its corruption control detects every corruption', () => {
     const checker = join(STORAGE, 'tools', 'check-fixtures.mjs');
     const ok = spawnSync(process.execPath, [checker], { encoding: 'utf8' });

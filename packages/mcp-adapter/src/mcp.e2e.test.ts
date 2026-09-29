@@ -77,7 +77,7 @@ afterAll(async () => {
 }, 60000);
 
 describe('MCP end-to-end (real client + real backend)', () => {
-  it('tools/list exposes the charter §7 tool surface', async () => {
+  it('tools/list exposes the charter tool surface', async () => {
     const { tools } = await client.listTools();
     const names = tools.map((t) => t.name);
     for (const expected of MCP_TOOL_NAMES) expect(names).toContain(expected);
@@ -184,7 +184,7 @@ describe('MCP end-to-end (real client + real backend)', () => {
     expect(Array.isArray(body.sessions)).toBe(true);
   });
 
-  it('phase 25.18: tl_inspect target="engine" answers the engine the backend runs', async () => {
+  it('tl_inspect target="engine" answers the engine the backend runs', async () => {
     const res = await client.callTool({ name: 'tl_inspect', arguments: { target: 'engine' } });
     expect(res.isError).toBeUndefined();
     const engine = text(res).engine as { startedAt: string; dist: { newerThanProcess: boolean; reason: string } };
@@ -193,7 +193,7 @@ describe('MCP end-to-end (real client + real backend)', () => {
     expect(engine.dist.reason.length).toBeGreaterThan(0);
   });
 
-  it('phase 25.18: a graph material with problems shows in tl_content_query target="materials" and tl_diagnostics', async () => {
+  it('a graph material with problems shows in tl_content_query target="materials" and tl_diagnostics', async () => {
     const rev = Number(text(await client.callTool({ name: 'tl_inspect', arguments: { target: 'project' } })).revision);
     const graph = { nodes: [{ id: 'out', type: 'pbr', position: [400, 0] }, { id: 's', type: 'sampleTexture', position: [0, 0] }], edges: [{ id: 'e1', from: { node: 's', port: 'rgb' }, to: { node: 'out', port: 'baseColor' } }] };
     const set = await client.callTool({ name: 'tl_command', arguments: { op: 'setMaterial', expectedRevision: rev, args: { material: { materialId: 'mat-graph', name: 'Graph', shader: 'standard', params: {}, textures: {}, graph } } } });

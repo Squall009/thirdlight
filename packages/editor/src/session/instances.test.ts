@@ -4,7 +4,7 @@ import { scatterProblem, scatterTransforms } from './instances';
 
 const base = { count: 100, width: 20, depth: 6, scaleMin: 0.5, scaleMax: 1.5, randomYaw: true, seed: 7 };
 
-describe('scatter (phase 12 c instance sets)', () => {
+describe('scatter', () => {
   it('spreads copies inside the rectangle with unit quaternions and scales in range; a seed repeats the layout', () => {
     const t = scatterTransforms(base);
     expect(t.length).toBe(1000);

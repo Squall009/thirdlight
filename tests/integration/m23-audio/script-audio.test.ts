@@ -93,7 +93,7 @@ function firstDiff(a: string[], b: string[]): number {
   return a.slice(0, n).findIndex((d, k) => d !== b[k]);
 }
 
-describe('phase 23.13: script audio is simulation state (two page runs and the worker)', () => {
+describe('script audio is simulation state (two page runs and the worker)', () => {
   it('identical step digests and command streams; finished events on the predicted steps', async () => {
     const a = await run('single');
     const b = await run('single');

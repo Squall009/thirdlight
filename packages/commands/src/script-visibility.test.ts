@@ -67,7 +67,7 @@ function published(): CommandState<SceneV4> {
   return ok(run(base(), 'publishBehavior', { behaviorId: 'mover-a', displayName: 'Mover', mode: 'declaration-create', declaration: DECLARATION }));
 }
 
-describe('phase 15.4: declared property visibility', () => {
+describe('declared property visibility', () => {
   it('stores private, drops an explicit public and keeps group/header/tooltip', () => {
     const state = published();
     const record = state.content?.behaviors.find((b) => b.behaviorId === 'mover-a');

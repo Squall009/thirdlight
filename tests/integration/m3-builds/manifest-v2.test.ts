@@ -76,7 +76,7 @@ describe('manifest-v2: independent digest re-derivation', () => {
     expect(buildId).toBe(expected.buildId);
   });
 
-  it('phase 24.8: no game block, no gameDigest, no cue slots', () => {
+  it('no game block, no gameDigest, no cue slots', () => {
     expect('game' in contentPre).toBe(false);
     expect('gameDigest' in example).toBe(false);
     expect('game' in example).toBe(false);
@@ -186,7 +186,7 @@ describe('manifest-v2: captured v3 content view + media identity', () => {
     ]);
   });
 
-  it('resolveMediaIdentityV3 derives the animation rows (phase 24.8: no cue slots)', () => {
+  it('resolveMediaIdentityV3 derives the animation rows (no cue slots)', () => {
     const res = resolveMediaIdentityV3(scene, content);
     expect(res.ok).toBe(true);
     if (!res.ok) return;

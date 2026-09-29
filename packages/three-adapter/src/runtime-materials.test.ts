@@ -61,7 +61,7 @@ function nodesOf(root: unknown): unknown[] {
   return [...out];
 }
 
-describe('phase 23.12: the data parameter in the compiler', () => {
+describe('the data parameter in the compiler', () => {
   it('Sample data loads a texel of the data parameter; a public one swaps in each drawn object\'s own grid', () => {
     const c = compileMaterialGraph({ graph: OVERLAY, parameters: PARAMS }, env({ overrideKey: 'dg' }));
     expect(c.problems.filter((p) => p.severity === 'error')).toEqual([]);
@@ -111,7 +111,7 @@ describe('phase 23.12: the data parameter in the compiler', () => {
   });
 });
 
-describe('phase 23.12: run-time values through the library and the view', () => {
+describe('run-time values through the library and the view', () => {
   const setup = (): { lib: ReturnType<typeof createMaterialLibrary>; a: THREE.Mesh; b: THREE.Mesh; view: RuntimeMaterialView } => {
     const lib = createMaterialLibrary({ loadTexture: async () => new THREE.DataTexture(new Uint8Array(4), 1, 1) });
     lib.setMaterials([def('overlay')]);

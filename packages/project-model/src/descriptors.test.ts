@@ -921,7 +921,7 @@ function fits(d: FieldDescriptor, v: unknown): string | null {
   }
 }
 
-describe('descriptor registry (phase 15.0)', () => {
+describe('descriptor registry', () => {
   it('describes exactly the v4 components, in one registry that survives JSON', () => {
     expect(DESCRIPTORS.components.map((c) => c.name).sort()).toEqual([...V4_REGISTRY].sort());
     expect(new Set(DESCRIPTORS.components.map((c) => c.name)).size).toBe(DESCRIPTORS.components.length);
@@ -994,7 +994,7 @@ describe('descriptor registry (phase 15.0)', () => {
     expect(errorsOf((e) => validateInput(block('input').default, '', e))).toEqual([]);
   });
 
-  it('phase 24.5: create menu entries fit their descriptors, validate and name known icons', () => {
+  it('create menu entries fit their descriptors, validate and name known icons', () => {
     let entries = 0;
     for (const c of DESCRIPTORS.components) {
       if (c.icon !== undefined) expect(COMPONENT_ICONS, `${c.name} icon`).toContain(c.icon);

@@ -91,8 +91,8 @@ async function buildStdin(contents: string): Promise<string> {
   return new TextDecoder().decode(out.contents);
 }
 
-describe('M3 export bundle §5.4.1 re-measurement + production parity (packet 60)', () => {
-  it('re-verifies the §5.4.1 reference full-core three counts against the current install (binding 3)', async () => {
+describe('M3 export bundle re-measurement + production parity', () => {
+  it('re-verifies the reference full-core three counts against the current install (binding 3)', async () => {
     const reference = await buildStdin(REFERENCE_ENTRY);
     const ref = scanText(reference, []);
     // The recorded-exception table (pinned three; the WebGPU build — core + three.webgpu + TSL, no three.module.js, so the
@@ -237,7 +237,7 @@ describe('M3 export bundle §5.4.1 re-measurement + production parity (packet 60
     return [page, worker].map((b) => ({ inputs: Object.keys(b.metafile.inputs), text: new TextDecoder().decode(b.bytes) }));
   }
 
-  it('phase 24.3: a project with the controller links exactly the modules its manifest names (game-host + the controller spec), page and worker alike', async () => {
+  it('a project with the controller links exactly the modules its manifest names (game-host + the controller spec), page and worker alike', async () => {
     const closure = await closureOf('demo-0006-parity', false);
     expect(closure.moduleIds).toEqual(expect.arrayContaining(['thirdlight.character:controller']));
     for (const b of await bundlesOf(closure)) {
@@ -251,7 +251,7 @@ describe('M3 export bundle §5.4.1 re-measurement + production parity (packet 60
     }
   }, 180_000);
 
-  it('phase 24.3: a project without platformer content (no controller) ships no platformer code', async () => {
+  it('a project without platformer content (no controller) ships no platformer code', async () => {
     const closure = await closureOf('demo-0006-plain', true);
     expect(closure.moduleIds.some((id) => id.includes('platformer'))).toBe(false);
     for (const b of await bundlesOf(closure)) {

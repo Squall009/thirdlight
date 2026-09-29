@@ -84,7 +84,7 @@ function dragAndStore3(s: State, shape: HandleShape, to: P3, stored: (v: Any) =>
 }
 
 describe('the Scene-view handles over the real registry and commands', () => {
-  it('every descriptor handle kind is used (phase 23.4: `point` by a virtual camera\'s orbit point)', () => {
+  it('every descriptor handle kind is used (`point` by a virtual camera\'s orbit point)', () => {
     const used = new Set(DESCRIPTORS.components.flatMap((c) => c.handles.map((h) => h.kind)));
     for (const k of HANDLE_KINDS) expect(used, k).toContain(k);
   });
@@ -127,7 +127,7 @@ describe('the Scene-view handles over the real registry and commands', () => {
     dragAndStore(s, 'group-000001', 'controller', 'capsule', 'side', p3(0.52, 0), true, (v) => expect(v.capsule).toEqual({ radius: 0.5, height: 1, offset: [0, -0.4] }));
   });
 
-  it('phase 23.2 (a 3D project): the step-up and ledge heights above the capsule\'s feet; a 2D plane shows neither', () => {
+  it('(a 3D project): the step-up and ledge heights above the capsule\'s feet; a 2D plane shows neither', () => {
     let s = fresh();
     s = must(s, 'setComponent', { entityId: 'group-000001', component: 'controller', value: {} }, 'controller');
     // A 2D plane (and a registry read without a dimension): no height handles.
@@ -160,7 +160,7 @@ describe('the Scene-view handles over the real registry and commands', () => {
     dragAndStore3(s, ledge, p3(0.4, 0.2 - 0.8 + 0.99), (v) => expect(v.ledgeHeight).toBe(1));
   });
 
-  it('phase 23.1 (a 3D project): a sphere collider\'s radius, a capsule collider grows both ways; 3D trigger areas (box with depth, sphere, capsule) turn with the object', () => {
+  it('(a 3D project): a sphere collider\'s radius, a capsule collider grows both ways; 3D trigger areas (box with depth, sphere, capsule) turn with the object', () => {
     let s = fresh();
     s = must(s, 'setSettings', { settings: { physics_dimension: 3 } }, '3D');
     s = must(s, 'setComponent', { entityId: 'group-000001', component: 'collider', value: { shape: { type: 'sphere', radius: 0.5 } } }, 'sphere');
@@ -231,7 +231,7 @@ describe('the Scene-view handles over the real registry and commands', () => {
     expect(deletePoint((del as Any).shape, 'p0')).toEqual({ ok: false, message: 'Waypoints keeps at least 1 point' });
   });
 
-  it('point and path (phase 23.4): a virtual camera\'s orbit point and a camera path\'s points drag on the grid', () => {
+  it('point and path: a virtual camera\'s orbit point and a camera path\'s points drag on the grid', () => {
     let s = fresh();
     s = must(s, 'createEntity', { parentId: null, kind: 'group', name: 'Shot', transform: { position: [0, 2, 6] }, components: {} }, 'shot');
     const shot = s.scene.entities.at(-1).id;
@@ -246,7 +246,7 @@ describe('the Scene-view handles over the real registry and commands', () => {
     s = dragAndStore(s, track, 'cameraPath', 'path', 'p1', p3(5.9, 1.1), true, (v) => expect(v.points).toEqual([[0, 0, 0], [6, 1, 0]]));
   });
 
-  it('bounds, an anchored dead zone and a region box (phase 25.14): the track camera\'s and a camera region\'s handles', () => {
+  it('bounds, an anchored dead zone and a region box: the track camera\'s and a camera region\'s handles', () => {
     let s = fresh();
     s = must(s, 'createEntity', { parentId: null, kind: 'group', name: 'Hero', transform: { position: [2, 1, 0] }, components: {} }, 'hero');
     const hero = s.scene.entities.at(-1).id;
@@ -347,7 +347,7 @@ describe('the Scene-view handles over the real registry and commands', () => {
     expect(copyAt(painted, 3)).toEqual({ position: [2.5, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] });
   });
 
-  it('playerSpawn.yaw: v4 data — stored, removed with null, the old facing refused (phase 24.8: yaw replaced it)', () => {
+  it('playerSpawn.yaw: v4 data — stored, removed with null, the old facing refused (yaw replaced it)', () => {
     let s = fresh();
     s = must(s, 'createEntity', { parentId: null, kind: 'group', name: 'Start', transform: { position: [0, 1, 0] }, components: { playerSpawn: { yaw: -90 } } }, 'spawn');
     const id = s.scene.entities.at(-1).id;

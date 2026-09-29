@@ -65,7 +65,7 @@ interface DebugView {
 }
 const debugOf = (rt: Any): DebugView => rt.behaviorDebug({ behaviorId: 'director', entityId: 'box-director' })[0].debug as DebugView;
 
-describe('visual-script debugging (phase 19.2)', () => {
+describe('visual-script debugging', () => {
   it('the ordinary build carries no debug hooks; the Play debug build records the trace, wires and locals', async () => {
     const plain = generateGraphSource(GRAPH);
     const again = generateGraphSource(GRAPH, {}, { debug: false });

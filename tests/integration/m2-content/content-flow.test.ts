@@ -114,8 +114,8 @@ afterAll(async () => {
   if (root) rmSync(root.root, { recursive: true, force: true });
 }, 60_000);
 
-describe('packet 25 — content flow (real process + real fs + real stdio MCP)', () => {
-  it('the actual stdio MCP lists the M1 tools plus the packet-25 content tools', async () => {
+describe('content flow (real process + real fs + real stdio MCP)', () => {
+  it('the actual stdio MCP lists the M1 tools plus the content tools', async () => {
     const names = await mcp.listTools();
     for (const expected of ['tl_inspect', 'tl_command', 'tl_content_query', 'tl_content_upload', 'tl_content_job']) {
       expect(names).toContain(expected);
@@ -380,7 +380,7 @@ describe('packet 25 — content flow (real process + real fs + real stdio MCP)',
     expect((unknown.body.error as { code: string }).code).toBe('job_not_found');
   }, 60_000);
 
-  it('refuses behavior source publication without a prepared digest (packet 33)', async () => {
+  it('refuses behavior source publication without a prepared digest', async () => {
     revision = await currentRevision();
     const res = await mcp.call('tl_command', {
       op: 'publishBehavior',

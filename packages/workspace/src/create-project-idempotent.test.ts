@@ -124,7 +124,7 @@ function nextRequestId(): string {
 
 // ---- the six cases -------------------------------------------------------------
 
-describe('R15 (group B2): the idempotent createProject is read-only (§8.1)', () => {
+describe('R15 (group B2): the idempotent createProject is read-only', () => {
   it('1. valid + owned by another live identity: idempotent no-op, nothing written', () => {
     const r = makeRoot();
     const dir = projectDir(r, 'demo');

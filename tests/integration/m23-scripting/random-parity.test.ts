@@ -154,7 +154,7 @@ async function run(mode: Mode, behavior: { row: Any; url: string }, settings: An
   return { h, digests: [...h.digests], end };
 }
 
-describe('phase 23.7: ctx.random gives identical results in the page, the worker and a replay', () => {
+describe('ctx.random gives identical results in the page, the worker and a replay', () => {
   it('a compiled script with random streams, name queries and facing poses: every step digest is equal', async () => {
     const behavior = await compiledWanderer();
     const a = await run('single', behavior);

@@ -81,7 +81,7 @@ afterAll(async () => {
   if (root) rmSync(root.root, { recursive: true, force: true });
 }, 60_000);
 
-describe('texture packing over MCP and the pack route (phase 25.21)', () => {
+describe('texture packing over MCP and the pack route', () => {
   it('packs two layers from two textures; the array is published with its packedFrom and listed with its layers', async () => {
     const pack = {
       layers: [

@@ -92,7 +92,7 @@ function v3Snapshot(opts: {
   } as unknown as RuntimeSnapshot;
 }
 
-describe('packet 52 — the M3 shadow decision + diagnostics in createSceneAdapter', () => {
+describe('the M3 shadow decision + diagnostics in createSceneAdapter', () => {
   it('v3 with a shadow-casting key light and an in-bounds shadow region ⇒ planned `on` (no reason field)', () => {
     const adapter = createSceneAdapter(stubCanvas(), { runtime: fakeRuntime(), snapshot: v3Snapshot({}) });
     const res = adapter.diagnostics();
@@ -159,7 +159,7 @@ describe('packet 52 — the M3 shadow decision + diagnostics in createSceneAdapt
   });
 });
 
-describe('packet 52 — the §41.7.2 D code-set registration + the public surface', () => {
+describe('the D code-set registration + the public surface', () => {
   it('ERROR_CODES carries animation_role_unresolved (registered in 52; raised by 53)', () => {
     expect(ERROR_CODES).toContain('animation_role_unresolved');
   });
@@ -172,7 +172,7 @@ describe('packet 52 — the §41.7.2 D code-set registration + the public surfac
   });
 });
 
-describe('packet 52 — repeated create/dispose (the B11 ownership checklist half)', () => {
+describe('repeated create/dispose (the B11 ownership checklist half)', () => {
   it('five create/dispose cycles over v3 scenes: idempotent, no throw, diagnostics stay coherent', () => {
     for (let i = 0; i < 5; i += 1) {
       const adapter = createSceneAdapter(stubCanvas(), { runtime: fakeRuntime(), snapshot: v3Snapshot({}) });

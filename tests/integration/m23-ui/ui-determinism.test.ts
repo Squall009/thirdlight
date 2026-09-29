@@ -85,7 +85,7 @@ async function run(mode: Mode): Promise<{ digests: string[]; shown: Map<number, 
   return { digests: [...h.digests], shown, texts, dispose: () => h.dispose() };
 }
 
-describe('phase 23.9a: the project UI in page and worker', () => {
+describe('the project UI in page and worker', () => {
   it('identical step digests with UI state; the host draws the same documents and values', async () => {
     const a = await run('single');
     const w = await run('worker');

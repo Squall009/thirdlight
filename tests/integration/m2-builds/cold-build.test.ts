@@ -20,7 +20,7 @@ import { BUILD_FIXTURES, REPO_ROOT, makeRoot } from './helpers';
 
 const RUNS = 6;
 
-describe('packet 33 — cold builds in fresh processes (deployed esbuild-external arrangement)', () => {
+describe('cold builds in fresh processes (deployed esbuild-external arrangement)', () => {
   it(`compiles the valid sample ${RUNS}× in fresh processes with identical digests`, async () => {
     const outDir = join(REPO_ROOT, 'dist', 'cold-build-harness');
     rmSync(outDir, { recursive: true, force: true });

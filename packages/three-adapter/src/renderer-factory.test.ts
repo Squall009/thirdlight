@@ -306,7 +306,7 @@ describe('createRenderer', () => {
     expect(h2.info()).toMatchObject({ backend: 'webgl2', state: 'ready', reason: 'default auto: the page is not a secure context: WebGL 2 backend' });
   });
 
-  it('phase 21.5: the probed WebGPU device is destroyed with its renderer (dispose and a WebGL 2 fallback); live renderers are tracked', async () => {
+  it('the probed WebGPU device is destroyed with its renderer (dispose and a WebGL 2 fallback); live renderers are tracked', async () => {
     const dev = device();
     const s = stubDeps({ ok: true, device: dev, adapterName: 'GPU X' });
     const h = createRenderer({ canvas: null, preference: 'webgpu', source: 'url', clearColor: 0, clearAlpha: 1, deps: s.deps });
@@ -333,7 +333,7 @@ describe('createRenderer', () => {
     expect(liveRenderers()).not.toContain(f.made[0]);
   });
 
-  it('phase 21.5: dispose({ loseContext }) overrides loseContextOnDispose for a canvas that is gone', async () => {
+  it('dispose({ loseContext }) overrides loseContextOnDispose for a canvas that is gone', async () => {
     let lost = 0;
     const ext = { loseContext: () => (lost += 1) };
     const gl = { getExtension: (n: string) => (n === 'WEBGL_lose_context' ? ext : null) };

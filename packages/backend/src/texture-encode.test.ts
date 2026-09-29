@@ -160,7 +160,7 @@ describe('the shared PNG decoder on texture sources', () => {
   });
 });
 
-describe('encodeKtx2 (phase 25.19)', () => {
+describe('encodeKtx2', () => {
   const checker = rgbaPng(64, 32, (x, y) => ((x >> 3) + (y >> 3)) % 2 === 0 ? [240, 60, 60, 255] : [40, 40, 200, 255]);
   /** The DFD's transfer function: 2 = sRGB, 1 = linear. */
   const transfer = (k: Uint8Array): number => k[new DataView(k.buffer, k.byteOffset).getUint32(48, true) + 14]!;

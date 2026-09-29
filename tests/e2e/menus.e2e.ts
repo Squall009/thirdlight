@@ -52,7 +52,7 @@ test('GameObject menu creates lights, spawns, empties; one camera and one light 
   await expect(page.locator('input.tl-inspector__name')).toHaveValue('Directional light');
 });
 
-test('phase 15.5: the menu lights are the starter values (the descriptor presets), not a sample\'s', async ({ page }) => {
+test('the menu lights are the starter values (the descriptor presets), not a sample\'s', async ({ page }) => {
   await open(page);
   type Ent = { id: string; components: { light?: { type: string }; camera?: object; transform?: { position: number[] } } };
   const all = async (): Promise<Ent[]> => (await be.command({ op: 'queryEntities', projectId: be.projectId, args: { limit: 50, offset: 0 } }))['entities'] as Ent[];

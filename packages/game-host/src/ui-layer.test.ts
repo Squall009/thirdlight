@@ -212,7 +212,7 @@ describe('the UI layer', () => {
   });
 });
 
-describe('phase 23.14: glyphs in UI texts and rebinding engine actions', () => {
+describe('glyphs in UI texts and rebinding engine actions', () => {
   it('{action:jump} is a glyph token; it draws the device\'s glyph and redraws when the glyph key changes', () => {
     expect(parseRichText('Press {action:jump} to jump')).toEqual([
       { t: 'text', text: 'Press ', style: {} },
@@ -253,7 +253,7 @@ describe('phase 23.14: glyphs in UI texts and rebinding engine actions', () => {
   });
 });
 
-describe('phase 23.16: content text, typewriter reveal and dialogue actions', () => {
+describe('content text, typewriter reveal and dialogue actions', () => {
   const DLG: UiDocument = {
     uiDocumentId: 'talk',
     name: 'Talk',
@@ -287,7 +287,7 @@ describe('phase 23.16: content text, typewriter reveal and dialogue actions', ()
   });
 });
 
-describe('phase 25.22: a bindable size and start angle', () => {
+describe('a bindable size and start angle', () => {
   it('a bound size axis follows the view model (a non-number sizes it to the content); a radial bar\'s start angle binds', () => {
     const DOC2: UiDocument = {
       uiDocumentId: 'gauge',

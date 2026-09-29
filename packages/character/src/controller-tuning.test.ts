@@ -40,8 +40,8 @@ function run(tuningSource: unknown, hz: number, frames: { moveX: number; jump: J
   return out;
 }
 
-describe('controller tuning as data (phase 15.3)', () => {
-  it('an empty controller is exactly the packet-32 constants at 120 Hz', () => {
+describe('controller tuning as data', () => {
+  it('an empty controller is exactly the constants at 120 Hz', () => {
     expect(controllerStepTuning({}, 120)).toEqual(DEFAULT_STEP_TUNING);
     expect(controllerStepTuning(undefined, 120)).toEqual({
       moveAccel: CONTROLLER_CONSTANTS.moveAccel,

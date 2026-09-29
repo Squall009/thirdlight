@@ -60,7 +60,7 @@ async function slideDown(wall: RapierStaticColliderSpec[], dir = 1): Promise<{ y
   return { ys, groundedAbove, landed };
 }
 
-describe('phase 25.4: internal edges (2D port)', () => {
+describe('internal edges (2D port)', () => {
   it('a wall of ten stacked boxes: never grounded at a seam; the same fall as one tall box', async () => {
     const one = await slideDown([box('w', 0.5, 5, 2.5, 5)]);
     const stacked = await slideDown(Array.from({ length: 10 }, (_, i) => box(`w${i}`, 0.5, 0.5, 2.5, 0.5 + i)));
@@ -77,7 +77,7 @@ describe('phase 25.4: internal edges (2D port)', () => {
     for (let i = 0; i < one.ys.length; i++) expect(Math.abs(overlapping.ys[i]! - one.ys[i]!)).toBeLessThan(0.01);
   });
 
-  it('D46: pressed against a wall on its left, the character falls as against one on its right', async () => {
+  it('pressed against a wall on its left, the character falls as against one on its right', async () => {
     const right = await slideDown([box('w', 0.5, 5, 2.5, 5)]);
     const left = await slideDown([box('w', 0.5, 5, -2.5, 5)], -1);
     const stackedLeft = await slideDown(Array.from({ length: 10 }, (_, i) => box(`w${i}`, 0.5, 0.5, -2.5, 0.5 + i)), -1);

@@ -68,7 +68,7 @@ function base(): State {
   return ok(ok(fresh(), 'setMaterial', { material: GRAPH }), 'setMaterial', { material: SHADER });
 }
 
-describe('material instances (phase 25.19)', () => {
+describe('material instances', () => {
   it('an instance of a graph material sets parameter values; one of a shader material sets params', () => {
     let s = ok(base(), 'setMaterial', { material: { materialId: 'mi-red', name: 'Red', shader: 'standard', params: {}, textures: {}, instanceOf: 'mat-g', values: { tint: '#ff0000' } } });
     s = ok(s, 'setMaterial', { material: { materialId: 'mi-rough', name: 'Rough', shader: 'standard', params: { roughness: 1 }, textures: {}, instanceOf: 'mat-s' } });

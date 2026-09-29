@@ -75,7 +75,7 @@ function rebuild(json: Record<string, unknown>, bin?: Uint8Array): Uint8Array {
   }, bin);
 }
 
-describe('§18.7.2 step 1 — size', () => {
+describe('size', () => {
   it('rejects empty and oversized sources without throwing', () => {
     expectRejected(new Uint8Array(0), 'asset_size_exceeded', '');
     const oversized = new Uint8Array(33_554_433);
@@ -87,7 +87,7 @@ describe('§18.7.2 step 1 — size', () => {
   });
 });
 
-describe('§18.7.2 step 2 — container', () => {
+describe('container', () => {
   it('rejects a shorter-than-header source', () => {
     expectRejected(new Uint8Array([1, 2, 3]), 'asset_container_invalid', '');
   });
@@ -108,7 +108,7 @@ describe('§18.7.2 step 2 — container', () => {
   });
 });
 
-describe('§18.7.2 step 3 — chunk framing', () => {
+describe('chunk framing', () => {
   it('rejects a chunk length that is not a multiple of 4', () => {
     const bytes = Uint8Array.from(tinyV1);
     const jsonLength = new DataView(bytes.buffer).getUint32(12, true);
@@ -141,7 +141,7 @@ describe('§18.7.2 step 3 — chunk framing', () => {
   });
 });
 
-describe('§18.7.2 step 4 — JSON', () => {
+describe('JSON', () => {
   it('rejects invalid UTF-8 in the JSON chunk', () => {
     const bytes = Uint8Array.from(tinyV1);
     bytes[25] = 0xff;
@@ -167,7 +167,7 @@ describe('§18.7.2 step 4 — JSON', () => {
   });
 });
 
-describe('§18.7.2 step 5 — glTF version, extensions and compression', () => {
+describe('glTF version, extensions and compression', () => {
   it('rejects a glTF 1.0 asset version', () => {
     expectRejected(
       mutate((json) => {
@@ -219,7 +219,7 @@ describe('§18.7.2 step 5 — glTF version, extensions and compression', () => {
   });
 });
 
-describe('§18.7.2 step 6/7 — buffers and bufferViews', () => {
+describe('buffers and bufferViews', () => {
   it('rejects two buffers, an over-long buffer and excessive BIN padding', () => {
     expectRejected(
       mutate((json) => {
@@ -268,7 +268,7 @@ describe('§18.7.2 step 6/7 — buffers and bufferViews', () => {
   });
 });
 
-describe('§18.7.2 step 8 — accessors', () => {
+describe('accessors', () => {
   it('rejects a sparse accessor with the unsupported code', () => {
     expectRejected(
       mutate((json) => {
@@ -328,7 +328,7 @@ describe('§18.7.2 step 8 — accessors', () => {
   });
 });
 
-describe('§18.7.2 step 9 — meshes and primitives', () => {
+describe('meshes and primitives', () => {
   it('rejects a missing mesh array, a missing POSITION and a missing primitives array', () => {
     expectRejected(
       mutate((json) => {
@@ -400,7 +400,7 @@ describe('§18.7.2 step 9 — meshes and primitives', () => {
   });
 });
 
-describe('§18.7.2 step 10/12 — materials and textures', () => {
+describe('materials and textures', () => {
   it('rejects a non-core material field, a bad alphaMode and an out-of-range factor', () => {
     expectRejected(
       mutate((json) => {
@@ -458,7 +458,7 @@ describe('§18.7.2 step 10/12 — materials and textures', () => {
   });
 });
 
-describe('§18.7.2 step 11 — images', () => {
+describe('images', () => {
   it('rejects an image without a bufferView and a non-image mimeType', () => {
     expectRejected(
       mutate((json) => {
@@ -492,7 +492,7 @@ describe('§18.7.2 step 11 — images', () => {
   });
 });
 
-describe('§18.7.2 step 13 — animations', () => {
+describe('animations', () => {
   it('rejects a bad target path, a missing target node and a mismatched output type', () => {
     expectRejected(
       mutate((json) => {
@@ -535,7 +535,7 @@ describe('§18.7.2 step 13 — animations', () => {
   });
 });
 
-describe('§18.7.2 step 14 — nodes and scenes', () => {
+describe('nodes and scenes', () => {
   it('rejects a hierarchy cycle, matrix+TRS together and a dangling child', () => {
     expectRejected(
       mutate((json) => {
@@ -589,7 +589,7 @@ describe('§18.7.2 step 14 — nodes and scenes', () => {
   });
 });
 
-describe('§18.8.2 — bounded diagnostics', () => {
+describe('bounded diagnostics', () => {
   it('returns at most 10 diagnostics plus the true count', () => {
     const extensions = Array.from({ length: 12 }, (_, i) => `EXT_fixture_${i}`);
     const proposal = expectRejected(

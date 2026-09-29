@@ -14,7 +14,7 @@ import {
 const hex32 = '0123456789abcdef0123456789abcdef';
 const est = { projectId: 'demo-0001', sessionId: `sess-${hex32}` };
 
-describe('parseEstablishRequest (sessions.md §5.1)', () => {
+describe('parseEstablishRequest', () => {
   it('accepts the minimal request', () => {
     const r = parseEstablishRequest(est);
     expect(r.ok).toBe(true);
@@ -54,7 +54,7 @@ describe('parseEstablishRequest (sessions.md §5.1)', () => {
     if (!r.ok) expect(r.error.code).toBe('field_value');
   });
 
-  it('clientInfo.kind other than "browser" ⇒ field_value (M1)', () => {
+  it('clientInfo.kind other than "browser" ⇒ field_value', () => {
     const r = parseEstablishRequest({ ...est, clientInfo: { kind: 'mcp' } });
     expect(r.ok).toBe(false);
     if (!r.ok) {
@@ -82,7 +82,7 @@ describe('parseEstablishRequest (sessions.md §5.1)', () => {
   });
 });
 
-describe('parsePlayStartRequest (sessions.md §10.1)', () => {
+describe('parsePlayStartRequest', () => {
   it('absent body ⇒ demo defaults to true', () => {
     const r = parsePlayStartRequest(undefined);
     expect(r.ok).toBe(true);
@@ -111,7 +111,7 @@ describe('parsePlayStartRequest (sessions.md §10.1)', () => {
   });
 });
 
-describe('parseScreenshotRequest (sessions.md §12/§11.5)', () => {
+describe('parseScreenshotRequest', () => {
   it('defaults to 1024', () => {
     const r = parseScreenshotRequest({});
     expect(r.ok).toBe(true);
@@ -135,7 +135,7 @@ describe('parseScreenshotRequest (sessions.md §12/§11.5)', () => {
   });
 });
 
-describe('admin bodies (sessions.md §6.3)', () => {
+describe('admin bodies', () => {
   it('createProject: { projectId, name } strict', () => {
     const r = parseAdminCreateProjectRequest({ projectId: 'new-proj', name: 'Demo' });
     expect(r.ok).toBe(true);
@@ -152,7 +152,7 @@ describe('admin bodies (sessions.md §6.3)', () => {
   });
 });
 
-describe('parseCommandEnvelope (sessions.md §6.1 pre-check)', () => {
+describe('parseCommandEnvelope', () => {
   it('routes every M1 op', () => {
     for (const op of ['createEntity', 'setTransform', 'deleteEntity', 'undo', 'redo', 'queryProject', 'queryEntity', 'queryEntities']) {
       const r = parseCommandEnvelope({ op, projectId: 'demo-0001', args: {} });

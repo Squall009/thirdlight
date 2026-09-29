@@ -33,7 +33,7 @@ const lum = (hex: string): number => {
   return 0.2126 * r + 0.7152 * g + 0.0722 * b;
 };
 
-describe('phase 23.18: environment blend maths', () => {
+describe('environment blend maths', () => {
   it('colours mix in linear light; ends are exact', () => {
     expect(linearToColor(colorToLinear('#4080ff'))).toBe('#4080ff');
     expect(mixColors([['#000000', 1], ['#ffffff', 0]])).toBe('#000000');
@@ -114,7 +114,7 @@ describe('phase 23.18: environment blend maths', () => {
   });
 });
 
-describe('phase 23.18: the environment director (simulation state)', () => {
+describe('the environment director (simulation state)', () => {
   const make = (): { d: EnvironmentDirector; warnings: string[] } => {
     const warnings: string[] = [];
     return { d: new EnvironmentDirector(60, ['day', 'night'], (m) => warnings.push(m)), warnings };

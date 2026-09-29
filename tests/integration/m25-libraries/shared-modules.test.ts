@@ -154,7 +154,7 @@ async function run(mode: Mode, built: Built): Promise<Any[]> {
   }
 }
 
-describe('phase 25.9: shared library modules in the page and the worker', () => {
+describe('shared library modules in the page and the worker', () => {
   it('two scripts share one library module; logs and errors map back to the library and script sources', async () => {
     const built = await build();
     expect(built.modules).toHaveLength(1);

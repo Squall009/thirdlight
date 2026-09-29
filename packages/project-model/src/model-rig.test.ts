@@ -42,7 +42,7 @@ function pack(parts: ArrayBufferView[]): { bin: Uint8Array; offsets: number[] } 
   return { bin, offsets };
 }
 
-describe('phase 23.11: readModelRig', () => {
+describe('readModelRig', () => {
   it('reads the default scene depth-first with parents, rest transforms (matrix decomposed) and three.js names', () => {
     const m = [2, 0, 0, 0, 0, 2, 0, 0, 0, 0, 2, 0, 1, 2, 3, 1]; // uniform scale 2 at [1, 2, 3]
     const doc = {

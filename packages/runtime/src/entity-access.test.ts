@@ -68,7 +68,7 @@ function harness(entities: EntityV3[]) {
   };
 }
 
-describe('phase 25.10: EntityAccess', () => {
+describe('EntityAccess', () => {
   it('switching a parent off takes its children along; switching it on brings them back (a child switched off itself stays off)', () => {
     const t = harness([ent('cam', { camera: {} }), ent('player', { controller: {} }), ent('group', {}), ent('a', {}, 'group'), ent('b', {}, 'a'), ent('c', {})]);
     expect(t.h('b').set('object', { active: false }).ok).toBe(true);

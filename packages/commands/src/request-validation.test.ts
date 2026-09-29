@@ -274,7 +274,7 @@ describe('args-level strictness (field_*) — setTransform / deleteEntity / undo
   });
 });
 
-describe('failure payload echo rules (§5.2)', () => {
+describe('failure payload echo rules', () => {
   it('echoes op (capped at 32 chars), projectId, requestId (capped at 64) when parseable', () => {
     const longOp = 'x'.repeat(40);
     const longRid = `req-${'a'.repeat(70)}`;
@@ -353,7 +353,7 @@ function parsePointer(p: string): string[] {
   });
 }
 
-describe('O1 (2026-09-18 repair): bounded diagnostic traversal — total applyMutation', () => {
+describe('bounded diagnostic traversal — total applyMutation', () => {
   /** A 12,000-level nested JSON array. */
   const DEEP = JSON.parse('['.repeat(12000) + '0' + ']'.repeat(12000));
 
@@ -397,7 +397,7 @@ describe('O1 (2026-09-18 repair): bounded diagnostic traversal — total applyMu
   });
 });
 
-describe('O2 (2026-09-18 repair): RFC 6901 escaping of dynamic JSON Pointer segments', () => {
+describe('RFC 6901 escaping of dynamic JSON Pointer segments', () => {
   it('fresh undo args {"a/b": 1} ⇒ field_unexpected at /args/a~1b (review case; pre-fix /args/a/b)', () => {
     const e = errO(req('undo', { 'a/b': 1 }));
     expect(e.code).toBe('field_unexpected');

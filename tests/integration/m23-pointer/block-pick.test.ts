@@ -40,7 +40,7 @@ export default {
 };
 `;
 
-describe('phase 23.3: a 3D hit on a block layer maps to its cell', () => {
+describe('a 3D hit on a block layer maps to its cell', () => {
   it('raycast3d reports the layer and the cell (as ctx.grid.pick does); overlaps (through its surface) report the layer once', async () => {
     const g = new BlockGrid(LAYER as Any);
     applyBlockEdits(g, [{ kind: 'fill', box: [0, 0, 0, 8, 2, 8], cell: { block: 'stone' } }], { types: new Map(TYPES.map((t) => [t.blockId, t as Any])), stamps: new Map() });

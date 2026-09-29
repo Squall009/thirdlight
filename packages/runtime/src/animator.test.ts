@@ -156,7 +156,7 @@ describe('animator state machine', () => {
   });
 });
 
-describe('animator override layers (phase 14.6)', () => {
+describe('animator override layers', () => {
   /** Base: idle/run by speed. Layer "upper body" (mask spine, arm): empty until `attack`, then the attack clip once, back to empty. */
   const layered = (extra: Partial<AnimatorControllerLike['layers'] extends readonly (infer L)[] | undefined ? L : never> = {}): AnimatorControllerLike =>
     controller({

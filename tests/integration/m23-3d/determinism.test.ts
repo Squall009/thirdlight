@@ -54,7 +54,7 @@ async function run(mode: Mode): Promise<{ h: Harness; digests: string[]; player:
   return { h, digests: [...h.digests], player: { position: [...player.position] }, scene: sc.ok ? { ...sc.observation, sound: null } : sc };
 }
 
-describe('phase 23.0: a 3D scene steps deterministically (two runs, page and worker)', () => {
+describe('a 3D scene steps deterministically (two runs, page and worker)', () => {
   it('the config: statics with their full rotation and depth, the capsule, gravity along −Y', () => {
     const { physics } = scene();
     expect(physics.dimension).toBe(3);

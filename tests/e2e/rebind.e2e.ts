@@ -180,7 +180,7 @@ test('rebind jump to K on a controls screen: K jumps, it survives a reload, rese
   expect((await observe()).inputBindings!.changed).toEqual([]);
 });
 
-test('rebind jump to a pad button on a controls screen: the pad button jumps, A no longer does (phase 24.7: from the level flow\'s pad menus)', async ({ page }) => {
+test('rebind jump to a pad button on a controls screen: the pad button jumps, A no longer does (from the level flow\'s pad menus)', async ({ page }) => {
   test.setTimeout(240_000);
   const padDocs = [
     DOCS[0]!,

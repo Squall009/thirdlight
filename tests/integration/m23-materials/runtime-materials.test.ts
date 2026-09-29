@@ -99,7 +99,7 @@ function latest(changes: Any[]): Record<string, Any> {
   return out;
 }
 
-describe('phase 23.12: material parameters in the running game (page and worker)', () => {
+describe('material parameters in the running game (page and worker)', () => {
   it('scripts set values per object; page and worker agree step by step and send the renderer the same changes', async () => {
     const STEPS = 240;
     const idle = await run('single', IDLE, STEPS);

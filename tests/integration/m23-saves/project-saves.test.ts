@@ -101,7 +101,7 @@ async function run(mode: Mode, opts: { live: boolean; steps: number; store: Map<
   return { h, digests: [...h.digests] };
 }
 
-describe('phase 23.19: project save documents (page and worker)', () => {
+describe('project save documents (page and worker)', () => {
   it('save to slot 2 with metadata, change things, load slot 2 — the cell, the value and the document come back (page and worker alike)', async () => {
     const runs: Record<string, { h: Harness; digests: string[]; store: Map<string, string> }> = {};
     try {

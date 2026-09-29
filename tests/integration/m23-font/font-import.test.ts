@@ -34,7 +34,7 @@ const TTF = fixture('neutral-sans.ttf');
 const WOFF2 = fixture('neutral-sans.woff2');
 const PNG = Uint8Array.of(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0);
 
-describe('export container check for fonts (phase 23.9a)', () => {
+describe('export container check for fonts', () => {
   it('accepts TTF and WOFF2 bytes under font/x-font and refuses a PNG or a truncated font', () => {
     expect(scanAssetContainer('font/x-font', TTF)).toEqual({ ok: true });
     expect(scanAssetContainer('font/x-font', WOFF2)).toEqual({ ok: true });
@@ -72,7 +72,7 @@ afterAll(async () => {
   if (root) rmSync(root.root, { recursive: true, force: true });
 }, 60_000);
 
-describe('font import through the real content route (phase 23.9a)', () => {
+describe('font import through the real content route', () => {
   it('inspects and publishes the TTF and the WOFF2 with kind "font"', async () => {
     for (const [bytes, id, format] of [[TTF, 'font-neutral-ttf', 'ttf'], [WOFF2, 'font-neutral-woff2', 'woff2']] as const) {
       const inspected = await inspectViaHttp(bp.origin, V3_PROJECT, AUTH_TOKEN, bytes, { kind: 'font' });

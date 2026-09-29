@@ -87,7 +87,7 @@ afterAll(async () => {
   if (root) rmSync(root.root, { recursive: true, force: true });
 }, 60_000);
 
-describe('packet 25 — content transport security', () => {
+describe('content transport security', () => {
   it('rejects unauthenticated asset-byte reads (401) and never reads a file', async () => {
     const res = await bytes(`/api/v1/projects/${CONTENT_PROJECT}/content/assets/asset-00000000000000a1/versions/2/bytes`);
     expect(res.status).toBe(401);

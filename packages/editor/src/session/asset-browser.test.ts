@@ -65,7 +65,7 @@ function uploaded(phase: 'inspecting' | 'proposed' = 'proposed'): AssetImportSta
   return s;
 }
 
-describe('packet 27 — invalid drop (no stage, no job, no state change)', () => {
+describe('invalid drop (no stage, no job, no state change)', () => {
   it('rejects a non-GLB name and an oversized file before any network call', () => {
     expect(validateDropCandidate({ name: 'rock.obj', byteLength: 10 })).toEqual({
       ok: false,
@@ -86,7 +86,7 @@ describe('packet 27 — invalid drop (no stage, no job, no state change)', () =>
   });
 });
 
-describe('packet 27 — bounded upload frame plan (workspace.md §7.6.2)', () => {
+describe('bounded upload frame plan', () => {
   it('splits a source into ≤ 1 MiB sequential frames', () => {
     expect(planUploadFrames(0)).toEqual([]);
     expect(planUploadFrames(1)).toEqual([{ offset: 0, length: 1 }]);
@@ -99,7 +99,7 @@ describe('packet 27 — bounded upload frame plan (workspace.md §7.6.2)', () =>
   });
 });
 
-describe('packet 27 — the import flow state machine', () => {
+describe('the import flow state machine', () => {
   it('walks stage → upload → inspect → propose → publish → committed', () => {
     let s = beginImport(initialImportState, { mode: 'create', assetId: 'asset-0001', displayName: null });
     expect(s.phase).toBe('staging');
@@ -144,7 +144,7 @@ describe('packet 27 — the import flow state machine', () => {
   });
 });
 
-describe('packet 27 — stale job result is a proposal, never an applied edit', () => {
+describe('stale job result is a proposal, never an applied edit', () => {
   it('a proposal for a superseded stage is discarded', () => {
     let s = uploaded('inspecting');
     s = inspectionSucceeded(s, proposal({ stageId: 'stage-0002' }));
@@ -181,7 +181,7 @@ describe('packet 27 — stale job result is a proposal, never an applied edit', 
   });
 });
 
-describe('packet 27 — failure preserves the previous committed content', () => {
+describe('failure preserves the previous committed content', () => {
   it('a failed reimport leaves the content projection untouched', () => {
     const content = new ContentProjection();
     content.hydrate({
@@ -213,8 +213,8 @@ describe('packet 27 — failure preserves the previous committed content', () =>
   });
 });
 
-describe('packet 27 — publishAsset args come from the proposal (stage-free facts)', () => {
-  it('builds the strict args for a create (M3: with the immutable kind, §A3.5)', () => {
+describe('publishAsset args come from the proposal (stage-free facts)', () => {
+  it('builds the strict args for a create', () => {
     const r = publishArgsFromProposal(proposal(), { mode: 'create', assetId: 'asset-0002', displayName: 'Rock' }, '2026-09-18T12:00:00Z', 'model');
     expect(r.ok).toBe(true);
     if (!r.ok) return;
@@ -231,7 +231,7 @@ describe('packet 27 — publishAsset args come from the proposal (stage-free fac
     });
   });
 
-  it('carries the atomic animated reimport when supplied (§8.5.1)', () => {
+  it('carries the atomic animated reimport when supplied', () => {
     const roles = { idle: { clipIndex: 0, clipName: 'Idle' }, run: { clipIndex: 1, clipName: 'Run' }, airborne: { clipIndex: 2, clipName: 'Airborne' } };
     const r = publishArgsFromProposal(proposal(), { mode: 'reimport', assetId: 'asset-0002', displayName: null }, '2026-09-18T12:00:00Z', 'model', { entityId: 'model-0001', roles });
     expect(r.ok).toBe(true);
@@ -251,13 +251,13 @@ describe('packet 27 — publishAsset args come from the proposal (stage-free fac
     expect(noId.error.code).toBe('field_missing');
   });
 
-  it('utcSecondTimestamp matches project-model §7.2 (second precision)', () => {
+  it('utcSecondTimestamp matches project-model (second precision)', () => {
     expect(utcSecondTimestamp(new Date('2026-09-18T12:34:56.789Z'))).toBe('2026-09-18T12:34:56Z');
   });
 });
 
-describe('packet 27 — bounded asset query paging', () => {
-  it('clamps limit/offset into the §4 bounds and folds pages', () => {
+describe('bounded asset query paging', () => {
+  it('clamps limit/offset into the bounds and folds pages', () => {
     expect(planAssetQuery({})).toEqual({ limit: 50, offset: 0 });
     expect(planAssetQuery({ limit: 1000, offset: -3 })).toEqual({ limit: 128, offset: 0 });
     const first = applyAssetQueryPage(null, { total: 129, offset: 0, limit: 50, count: 50 });

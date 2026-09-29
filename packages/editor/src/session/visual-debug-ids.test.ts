@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 
 import { idsInTab, splitScoped, toggleBreakpoints, variablesOf, functionIdFor } from './visual-debug';
 
-describe('visual debugger tab ids (phase 19.2)', () => {
+describe('visual debugger tab ids', () => {
   it('tab ids: scoped ids, breakpoint toggles, variables, function ids', () => {
     expect(splitScoped('n1')).toEqual({ target: '', id: 'n1' });
     expect(splitScoped('fn:jump/n1')).toEqual({ target: 'jump', id: 'n1' });

@@ -133,7 +133,7 @@ async function run(mode: Mode): Promise<Record<string, Any>> {
   return out;
 }
 
-describe('scene loading state (phase 25.24e)', () => {
+describe('scene loading state', () => {
   it.each(MODES)('a transition waits for its scene with the old one in place; $flow.scenes and the fade show it (threading: %s)', async (mode) => {
     const o = await run(mode);
     expect(o.errors).toEqual([]);

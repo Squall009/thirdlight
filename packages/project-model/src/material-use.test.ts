@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import { materialsInUse } from './material-use';
 
-describe('materialsInUse (phase 25.7b)', () => {
+describe('materialsInUse', () => {
   it('counts object mappings and overrides, shipped model defaults, block types, effects and timelines', () => {
     const used = materialsInUse({
       entities: [

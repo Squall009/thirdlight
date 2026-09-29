@@ -61,7 +61,7 @@ describe('located compile diagnostics', () => {
   });
 });
 
-describe('phase 25.6: an import-scan hit says where it is (line; comment, string or code)', () => {
+describe('an import-scan hit says where it is (line; comment, string or code)', () => {
   const failure = async (text: string) => {
     const r = await compileBehavior({ behaviorId: 'b', declaration: DECLARATION, containerBytes: container([{ path: 'src/index.ts', text }]), pinnedModules: M2_PINNED_MODULES });
     expect(r.ok).toBe(false);

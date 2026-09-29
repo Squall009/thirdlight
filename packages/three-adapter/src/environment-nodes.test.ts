@@ -66,7 +66,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('environment renderer on WebGPURenderer (phase 17.3)', () => {
+describe('environment renderer on WebGPURenderer', () => {
   it('draws the physical and gradient skies as node materials with image-based lighting', () => {
     const scene = new THREE.Scene();
     const env = createEnvironmentRenderer(nodeRenderer(), scene, { loadTexture: async () => null });
@@ -131,7 +131,7 @@ describe('environment renderer on WebGPURenderer (phase 17.3)', () => {
     expect(built[1]!.disposed).toBe(true);
   });
 
-  it('phase 23.18: a blend changes sky, fog, exposure and grading in place; different skies cross-fade as layers', () => {
+  it('a blend changes sky, fog, exposure and grading in place; different skies cross-fade as layers', () => {
     const renderer = nodeRenderer();
     const scene = new THREE.Scene();
     const env = createEnvironmentRenderer(renderer, scene, { loadTexture: async () => null });
@@ -170,7 +170,7 @@ describe('environment renderer on WebGPURenderer (phase 17.3)', () => {
     expect(scene.children).toHaveLength(0);
   });
 
-  it('phase 25.3: a blended sky re-bakes its lighting into the same target, only past the threshold, at most every 30th frame', () => {
+  it('a blended sky re-bakes its lighting into the same target, only past the threshold, at most every 30th frame', () => {
     const renderer = nodeRenderer();
     const scene = new THREE.Scene();
     const env = createEnvironmentRenderer(renderer, scene, { loadTexture: async () => null });
@@ -224,7 +224,7 @@ describe('environment renderer on WebGPURenderer (phase 17.3)', () => {
     env.dispose();
   });
 
-  it('phase 25.3: sky input differences against the threshold', () => {
+  it('sky input differences against the threshold', () => {
     const grey = [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5];
     expect(skyInputsDiffer('gradient', grey, grey.map((v) => v + SKY_REBAKE_THRESHOLD.color * 0.9))).toBe(false);
     expect(skyInputsDiffer('gradient', grey, grey.map((v, i) => (i === 8 ? v + SKY_REBAKE_THRESHOLD.color * 1.1 : v)))).toBe(true);

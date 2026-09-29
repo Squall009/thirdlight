@@ -182,7 +182,7 @@ async function settle(times = 6): Promise<void> {
   }
 }
 
-describe('packet 54 — the audio owner: bytes-in, validation, status', () => {
+describe('the audio owner: bytes-in, validation, status', () => {
   it('registerCue is bytes-in only: empty / non-Uint8Array bytes are audio_invalid_bytes', () => {
     const { owner } = makeEnv();
     expect(owner.registerCue('cue-hit', new Uint8Array(0))).toEqual({
@@ -244,7 +244,7 @@ describe('packet 54 — the audio owner: bytes-in, validation, status', () => {
     owner.dispose();
   });
 
-  it('the 64-asset store cap holds (the catalog bound, phase 25.7c)', () => {
+  it('the 64-asset store cap holds (the catalog bound)', () => {
     const { owner } = makeEnv();
     for (let i = 0; i < 64; i += 1) {
       expect(owner.registerCue(`a${i}`, new Uint8Array([i]))).toEqual({ ok: true });
@@ -262,7 +262,7 @@ describe('packet 54 — the audio owner: bytes-in, validation, status', () => {
   });
 });
 
-describe('packet 54 — unlock (local gesture) and the sound-off ladder', () => {
+describe('unlock (local gesture) and the sound-off ladder', () => {
   it('a rejected resume is a soft blocked status, not an error; a later gesture retries', async () => {
     const ctx = new FakeContext();
     ctx.resumeRejectsNext = 1;
@@ -329,7 +329,7 @@ describe('packet 54 — unlock (local gesture) and the sound-off ladder', () => 
   });
 });
 
-describe('packet 54 — committed cue submission: dedupe, cap, stale runs', () => {
+describe('committed cue submission: dedupe, cap, stale runs', () => {
   async function armed(assetId = 'cue-hit'): Promise<{ owner: GameAudioOwner; ctx: FakeContext }> {
     const ctx = new FakeContext();
     const { owner } = makeEnv([ctx]);
@@ -376,7 +376,7 @@ describe('packet 54 — committed cue submission: dedupe, cap, stale runs', () =
     owner.dispose();
   });
 
-  it('phase 15.3: the voice count is the project\'s audio_voices (maxVoices), clamped to 1..32', async () => {
+  it('the voice count is the project\'s audio_voices (maxVoices), clamped to 1..32', async () => {
     for (const [asked, cap] of [[3, 3], [20, 20], [100, 32], [0, 1]] as const) {
       const ctx = new FakeContext();
       const owner = createGameAudioOwner({ contextFactory: () => ctx, maxVoices: asked });
@@ -453,7 +453,7 @@ describe('packet 54 — committed cue submission: dedupe, cap, stale runs', () =
   });
 });
 
-describe('packet 54 — mute, hidden, dispose', () => {
+describe('mute, hidden, dispose', () => {
   async function armed(assetId = 'cue-hit'): Promise<{ owner: GameAudioOwner; ctx: FakeContext }> {
     const ctx = new FakeContext();
     const { owner } = makeEnv([ctx]);
@@ -575,7 +575,7 @@ describe('packet 54 — mute, hidden, dispose', () => {
   });
 });
 
-describe('packet 54 — determinism (no clock, no global audio state)', () => {
+describe('determinism (no clock, no global audio state)', () => {
   function scripted(owner: GameAudioOwner): Promise<{ diag: string[]; status: string }> {
     return (async () => {
       owner.registerCue('a', new Uint8Array([1]));

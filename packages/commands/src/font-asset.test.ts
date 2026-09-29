@@ -33,7 +33,7 @@ function start(): State {
   return createCommandState(structuredClone(BEFORE.scene), structuredClone(BEFORE.content) as unknown as ContentDocument) as unknown as State;
 }
 
-describe('publishAsset kind "font" (phase 23.9a)', () => {
+describe('publishAsset kind "font"', () => {
   it('creates a font record; the kind is immutable on reimport', () => {
     const created = applyMutation(start(), req(publish('create', 'font-a', 1), 0));
     expect(created.ok, JSON.stringify(created.result)).toBe(true);

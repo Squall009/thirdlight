@@ -25,7 +25,7 @@ const scene = (entities: unknown[]): Record<string, unknown> => ({ schemaVersion
 const cam = { id: 'cam-main', components: { transform: T, camera: { type: 'perspective', fovY: 60, near: 0.1, far: 100 } } };
 const MANIFEST = { schemaVersion: 4, engineVersion: '0.1.0', id: 'p', name: 'P', createdAt: '2026-09-23T00:00:00Z' };
 
-describe('phase 24.8 upgrade: generic data is carried over', () => {
+describe('upgrade: generic data is carried over', () => {
   it('pickups become collectibles adding to the counters they added to; the amount, size and sound carry over', () => {
     const u = upgradeProjectDocsV24(content(), [
       scene([
@@ -86,7 +86,7 @@ describe('phase 24.8 upgrade: generic data is carried over', () => {
   });
 });
 
-describe('phase 24.8 upgrade: game data is refused by name', () => {
+describe('upgrade: game data is refused by name', () => {
   it('refuses a game block, a flow, enemies, zones, camera follows and the pickup forms that were game rules', () => {
     const u = upgradeProjectDocsV24(content({ game: { configVersion: 2 }, flow: { levels: [] } }), [
       scene([

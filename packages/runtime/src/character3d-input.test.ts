@@ -11,7 +11,7 @@ import { createRecordedActionSource, validateActionFrame } from './actions';
 import { validateIntentPhase, validateIntentShape, validateIntentValue } from './intents';
 import { inputView } from './behavior';
 
-describe('phase 23.2: action frames carry an optional move-Y', () => {
+describe('action frames carry an optional move-Y', () => {
   it('a frame without moveY validates exactly as before; with it, moveY follows moveX\'s rules', () => {
     // A version 1 frame reads as the move/jump actions (version 2).
     expect(validateActionFrame({ stepIndex: 3, moveX: 0.5, jump: 'none' })).toEqual({ ok: true, frame: { stepIndex: 3, actions: { move: { v: 0.5, p: 'none' }, jump: { v: 0, p: 'none' } } } });
@@ -33,7 +33,7 @@ describe('phase 23.2: action frames carry an optional move-Y', () => {
   });
 });
 
-describe('phase 23.2: control_move y and the character intents', () => {
+describe('control_move y and the character intents', () => {
   const ok = (v: unknown) => {
     const s = validateIntentShape(v);
     expect(s.ok, JSON.stringify(s)).toBe(true);

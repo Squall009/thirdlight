@@ -37,7 +37,7 @@ function ok(r: ReturnType<typeof applyMutation>): MutationSuccess {
   return r.result;
 }
 
-describe('setTransform — replacement semantics (§8.2)', () => {
+describe('setTransform — replacement semantics', () => {
   it('replaces the whole provided field; absent fields are unchanged', () => {
     const r = applyMutation(
       v4State(BASE),
@@ -116,7 +116,7 @@ describe('setTransform — replacement semantics (§8.2)', () => {
   });
 });
 
-describe('setTransform — no_change (§6.5)', () => {
+describe('setTransform — no_change', () => {
   it('setting the current values ⇒ no_change (pinned payload), no revision, no record', () => {
     const st = v4State(BASE);
     const before = sceneBytes(st.scene);
@@ -206,7 +206,7 @@ describe('setTransform — failures leave inputs unchanged', () => {
     expect(JSON.parse(JSON.stringify(st))).toEqual(snap);
   });
 
-  it('empty transform object ⇒ field_value (pinned in §3.1)', () => {
+  it('empty transform object ⇒ field_value', () => {
     const r = applyMutation(
       v4State(BASE),
       req('setTransform', { entityId: 'box-0001', transform: {} }),

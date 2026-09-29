@@ -43,7 +43,7 @@ const publish = (extra: Record<string, unknown> = {}): Record<string, unknown> =
   ...extra,
 });
 
-describe('KTX2 texture versions (phase 25.19)', () => {
+describe('KTX2 texture versions', () => {
   it('publishes a KTX2 encoded from a PNG with its facts and original', () => {
     const r = run(fresh(), 'publishAsset', publish());
     expect(r.ok, JSON.stringify(r.result)).toBe(true);
@@ -72,7 +72,7 @@ describe('KTX2 texture versions (phase 25.19)', () => {
   });
 });
 
-describe('packed textures and texture arrays (phase 25.21)', () => {
+describe('packed textures and texture arrays', () => {
   const ARRAY = { format: 'ktx2', width: 64, height: 64, decodedBytes: 64 * 64 * 4 * 3, codec: 'uastc', levels: 7, layers: 3 };
   const src = (assetId: string, channel: string): Record<string, unknown> => ({ assetId, digest: 'c'.repeat(64), channel });
   const PACKED = {

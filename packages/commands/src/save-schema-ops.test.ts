@@ -21,7 +21,7 @@ const fresh = (): State => createCommandState(structuredClone(BEFORE.scene), str
 const codeOf = (r: Record<string, unknown>): unknown => (r['error'] as { code?: string } | undefined)?.code ?? r['code'];
 const schemaOf = (s: State): unknown => (s.content as { saveSchema?: unknown }).saveSchema;
 
-describe('phase 23.19: setSaveSchema', () => {
+describe('setSaveSchema', () => {
   it('sets, replaces and removes the schema (canonical order); undo/redo restore it', () => {
     let s = fresh();
     const a = run(s, 'setSaveSchema', { schema: { slots: 3, version: 1, sections: ['storage', 'grid'] } });

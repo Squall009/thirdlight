@@ -82,7 +82,7 @@ async function run(mode: Mode, scene: { snapshot: Any; physics: Any }, steps: nu
   return { h, digests: [...h.digests], at: (id: string) => [...transforms.find((t: Any) => t.id === id)!.position] };
 }
 
-describe('phase 23.1: 3D colliders, movers and triggers (page and worker)', () => {
+describe('3D colliders, movers and triggers (page and worker)', () => {
   it('the config resolves the 3D shapes: scale applied, capsule height to half segment, meshes flattened, movers kinematic', () => {
     const { physics } = level();
     const byId = (id: string) => physics.statics.find((s: Any) => s.entityId === id);
@@ -168,7 +168,7 @@ function ridingScene(): { snapshot: Any; physics: Any } {
   );
 }
 
-describe('phase 23.1: a script drives a collider through intents (3D)', () => {
+describe('a script drives a collider through intents (3D)', () => {
   it('the collider is posed as a kinematic body and carries the player standing on it (page and worker alike)', async () => {
     const driver = behaviorModule('driver', DRIVER);
     const behaviors = [{ row: { ...driver.row, ownedTransforms: ['@self'] }, url: driver.url }];

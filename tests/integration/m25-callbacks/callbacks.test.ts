@@ -342,7 +342,7 @@ function checkEvents(ev: string[]): void {
   expect(items.filter((w) => w === 'list:contact')).toHaveLength(items.filter((w) => w.startsWith('contact:')).length);
 }
 
-describe('phase 25.11: behavior callbacks', () => {
+describe('behavior callbacks', () => {
   for (const dim of [2, 3] as const) {
     it(`lifecycle and event callbacks run in the step in a fixed order, alike in page and worker, replays identical (${dim}D)`, async () => {
       const single = await run('single', dim);

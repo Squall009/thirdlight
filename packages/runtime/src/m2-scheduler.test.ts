@@ -73,7 +73,7 @@ function traceSpec(seen: Array<{ stepIndex: number; frame: ActionFrame }>): Simu
   });
 }
 
-describe('M2 scheduling (runtime.md §5/§12.5)', () => {
+describe('M2 scheduling', () => {
   it('the settle pre-roll executes 12 neutral steps, samples nothing, then the first sample is at step 12', () => {
     const seen: Array<{ stepIndex: number; frame: ActionFrame }> = [];
     const frames = recordingSource();

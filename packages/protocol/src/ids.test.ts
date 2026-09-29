@@ -25,7 +25,7 @@ import {
 const hex32 = '0123456789abcdef0123456789abcdef';
 const hex64 = `${hex32}${hex32}`;
 
-describe('ID syntax (sessions.md §3)', () => {
+describe('ID syntax', () => {
   it('sessionId: sess- + 32 lowercase hex', () => {
     expect(SESSION_ID_RE.test(`sess-${hex32}`)).toBe(true);
     expect(SESSION_ID_RE.test(`sess-${hex32.toUpperCase()}`)).toBe(false);
@@ -57,14 +57,14 @@ describe('ID syntax (sessions.md §3)', () => {
     expect(isWsToken(hex64.slice(0, 64 - 1))).toBe(false);
   });
 
-  it('requestId: req- + 32 hex (commands.md §3)', () => {
+  it('requestId: req- + 32 hex', () => {
     expect(REQUEST_ID_RE.test(`req-${hex32}`)).toBe(true);
     expect(REQUEST_ID_RE.test(`req-${hex32}0`)).toBe(false);
     expect(isRequestId(`req-${hex32}`)).toBe(true);
     expect(isRequestId('tb-req-0123')).toBe(false);
   });
 
-  it('project ID: project-model §5.1 syntax', () => {
+  it('project ID: project-model syntax', () => {
     expect(PROJECT_ID_RE.test('demo-0001')).toBe(true);
     expect(PROJECT_ID_RE.test('a_b-c9')).toBe(true);
     expect(PROJECT_ID_RE.test('_lead')).toBe(false);
@@ -80,7 +80,7 @@ describe('ID syntax (sessions.md §3)', () => {
     expect(isNonce('ABCDEF0123456789')).toBe(false);
   });
 
-  it('session kinds: exactly "browser" (M1)', () => {
+  it('session kinds: exactly "browser"', () => {
     expect(SESSION_KINDS).toEqual(['browser']);
   });
 });

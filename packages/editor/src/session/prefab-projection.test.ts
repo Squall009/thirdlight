@@ -40,7 +40,7 @@ function behavior(declaration: PropertyDeclaration, publishedRevision = 3): Beha
   return { behaviorId: 'behavior-0001', displayName: 'Lantern Glow', declaration, source: null, publishedRevision };
 }
 
-describe('packet 28 — prefab/declaration projection hydration', () => {
+describe('prefab/declaration projection hydration', () => {
   it('hydrates definitions and declarations in ascending id order', () => {
     const p = new PrefabProjection();
     p.hydrate([definition('prefab-0002'), definition('prefab-0001')], [behavior(DECLARATION)]);
@@ -61,7 +61,7 @@ describe('packet 28 — prefab/declaration projection hydration', () => {
   });
 });
 
-describe('packet 28 — definitions/declarations converge from applied changes', () => {
+describe('definitions/declarations converge from applied changes', () => {
   it('applies createPrefab and removePrefab without touching the scene projection', () => {
     const scene = new Projection();
     const copy: Entity = {

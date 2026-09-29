@@ -77,7 +77,7 @@ async function setup(tag: string): Promise<BuildEnv> {
   return env;
 }
 
-describe('phase 25.9: staged library edits', () => {
+describe('staged library edits', () => {
   it('several patches, one commit: one revision, both libraries, each dependent compiled once, one undo', async () => {
     const env = await setup('m25-staged');
     const before = { rev: revision(env), a: record(env, 'user-a'), b: record(env, 'user-b'), libs: libraries(env) };
@@ -166,8 +166,8 @@ describe('phase 25.9: staged library edits', () => {
   }, 120_000);
 });
 
-describe('phase 25.9: records published before shared libraries', () => {
-  it('a record with the bundled (23.7) output still builds: the closure re-derives it and ships the shared modules', async () => {
+describe('records published before shared libraries', () => {
+  it('a record with the bundled output still builds: the closure re-derives it and ships the shared modules', async () => {
     const { createBehaviorCompiler } = await import('@thirdlight/behavior-build');
     const { openWorkspaceService } = await import('@thirdlight/workspace');
     const { buildContentClosureM3 } = await import('@thirdlight/exporter');

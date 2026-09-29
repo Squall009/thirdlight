@@ -117,7 +117,7 @@ const BACKEND_ID = 'tb-11112222333344445555666677778888';
 
 // ---- tests ---------------------------------------------------------------------
 
-describe('2026-09-18 review group A1 (R10, R17) regressions', () => {
+describe('state isolation: edge cases', () => {
   it('R10a (QUERY_ALIAS): mutating a queryEntity result cannot change authoritative state', () => {
     const root = makeRoot('r10a');
     try {

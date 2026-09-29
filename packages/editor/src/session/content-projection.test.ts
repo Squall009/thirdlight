@@ -65,7 +65,7 @@ function modelEntity(id: string, assetId: string, x: number): Entity {
   };
 }
 
-describe('packet 27 — content projection (sessions.md §8/§19.4)', () => {
+describe('content projection', () => {
   it('hydrates from full state and lists assets in ascending assetId order', () => {
     const c = new ContentProjection();
     c.hydrate({

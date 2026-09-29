@@ -62,7 +62,7 @@ describe('the cursor mode in effect', () => {
     expect(resolveCursorMode({ actions: [], cursor: { ui: 'locked' } }, 'menu', null)).toBe('locked');
   });
 
-  it('phase 25.6: a project map sets the cursor while a game mode activates it', () => {
+  it('a project map sets the cursor while a game mode activates it', () => {
     const cfg = { actions: [], cursor: { gameplay: 'locked' as const, tactical: 'free' as const, ui: 'locked' as const } };
     // The mode's maps in order: the first with a setting wins, ui after the others.
     expect(resolveCursorMode(cfg, ['gameplay', 'ui'], null)).toBe('locked');

@@ -28,7 +28,7 @@ const LIST: MaterialDef[] = [
   { materialId: 'mi-broken', name: 'Broken', shader: 'standard', params: {}, textures: {}, instanceOf: 'mat-missing' },
 ];
 
-describe('material instance resolution (phase 25.19)', () => {
+describe('material instance resolution', () => {
   it('folds the chain: the root graph and parameters, the nearer values, params and textures win', () => {
     const r = resolveMaterialInstances(LIST);
     expect(r.map((m) => m.materialId)).toEqual(['mat-g', 'mi-red', 'mi-red-dull', 'mat-s', 'mi-s']);

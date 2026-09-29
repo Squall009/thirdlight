@@ -94,7 +94,7 @@ const GRAPH = {
   edges: [{ id: 'w1', from: { node: 'tick', port: 'then' }, to: { node: 'add', port: 'in' } }],
 };
 
-describe('phase 19.2: Play debug builds of visual scripts, never in exports', () => {
+describe('Play debug builds of visual scripts, never in exports', () => {
   it('Play serves the debug build; the export carries the published module without debug hooks; unpublished edits play the published module', async () => {
     await command('publishBehavior', { behaviorId: 'ticker', displayName: 'Ticker', mode: 'declaration-create', declaration: { properties: [] }, graph: GRAPH });
     const box = await command('createEntity', { kind: 'box', name: 'Ticker box' });

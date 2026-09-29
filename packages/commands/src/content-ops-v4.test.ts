@@ -126,7 +126,7 @@ const DIGEST = 'a'.repeat(64);
 
 // ---- accepted fixture replay -------------------------------------------------------
 
-describe('packet-16 accepted fixture replay (non-prefab steps)', () => {
+describe('accepted fixture replay (non-prefab steps)', () => {
   it('M1 publishBehavior declaration-create matches the committed result byte-for-byte', () => {
     const r = applyMutation(baseState(), M1.in);
     expect(r.ok).toBe(true);
@@ -204,7 +204,7 @@ const ASSET_ARGS = {
   importedAt: '2026-09-18T10:00:00Z',
 };
 
-describe('publishAsset (commands.md §8.5)', () => {
+describe('publishAsset', () => {
   it('create consumes exactly one revision/history entry with a correct inverse', () => {
     const before = baseState();
     const { state, result } = ok(mutation(before, 'publishAsset', ASSET_ARGS));
@@ -281,7 +281,7 @@ const NEW_BEHAVIOR = {
   declaration: DECLARATION,
 };
 
-describe('publishBehavior (commands.md §8.8)', () => {
+describe('publishBehavior', () => {
   it('declaration-create/update consume one revision and restore the previous record on undo', () => {
     const created = ok(mutation(baseState(), 'publishBehavior', NEW_BEHAVIOR));
     const record = created.state.content?.behaviors.find((b) => b.behaviorId === 'behavior-0002');
@@ -352,7 +352,7 @@ describe('publishBehavior (commands.md §8.8)', () => {
 
 // ---- setBehaviorProperties ---------------------------------------------------------
 
-describe('setBehaviorProperties (commands.md §8.9)', () => {
+describe('setBehaviorProperties', () => {
   it('updates one key, records changedKeys in declaration order and is self-inverse', () => {
     const state = stateAfterM2();
     const r = ok(
@@ -447,7 +447,7 @@ describe('setBehaviorProperties (commands.md §8.9)', () => {
     ).toBe('asset_reference_missing');
   });
 
-  it('deleteEntity rejects a subtree referenced from outside (§8.3 step 2b)', () => {
+  it('deleteEntity rejects a subtree referenced from outside', () => {
     const state = stateAfterM2();
     // An outside entity holds an entityRef value naming an entity inside the
     // group-0001 subtree. Create a second root, attach the behavior there and
@@ -483,7 +483,7 @@ describe('setBehaviorProperties (commands.md §8.9)', () => {
 
 // ---- setComponent ------------------------------------------------------------------
 
-describe('setComponent (commands.md §8.10)', () => {
+describe('setComponent', () => {
   it('edits a box field, carries changedFields and is self-inverse', () => {
     const state = baseState();
     const r = ok(
@@ -533,7 +533,7 @@ describe('setComponent (commands.md §8.10)', () => {
     ).toBe('no_change');
   });
 
-  it('phase 14.0: sets, validates, clears and undoes the controller capsule', () => {
+  it('sets, validates, clears and undoes the controller capsule', () => {
     const added = ok(mutation(baseState(), 'setComponent', { entityId: 'group-0000', component: 'controller', value: {} }));
     const controllerOf = (s: CommandState<SceneV4>) => (s.scene.entities.find((e) => e.id === 'group-0000')?.components as { controller?: unknown }).controller;
     expect(controllerOf(added.state)).toEqual({});
@@ -557,7 +557,7 @@ describe('setComponent (commands.md §8.10)', () => {
     expect(controllerOf(cleared.state)).toEqual({});
   });
 
-  it('phase 15.3: controller tuning is set, validated, reset with null and undone; engine settings are validated', () => {
+  it('controller tuning is set, validated, reset with null and undone; engine settings are validated', () => {
     const added = ok(mutation(baseState(), 'setComponent', { entityId: 'group-0000', component: 'controller', value: {} }));
     const controllerOf = (s: CommandState<SceneV4>) => (s.scene.entities.find((e) => e.id === 'group-0000')?.components as { controller?: unknown }).controller;
     const set = ok(mutation(added.state, 'setComponent', { entityId: 'group-0000', component: 'controller', value: { jumpRelease: 1, coyoteTime: 0.1, autostep: true } }));
@@ -574,7 +574,7 @@ describe('setComponent (commands.md §8.10)', () => {
     expect(failCode(mutation(baseState(), 'setSettings', { settings: { audio_voices: 2.5 } }))).toBe('field_value');
   });
 
-  it('phase 14.2: a trigger turns into a circle (radius) with stay mode in one edit, validated, undone in one step', () => {
+  it('a trigger turns into a circle (radius) with stay mode in one edit, validated, undone in one step', () => {
     const triggerOf = (s: CommandState<SceneV4>) => (s.scene.entities.find((e) => e.id === 'group-0000')?.components as { trigger?: unknown }).trigger;
     const added = ok(mutation(baseState(), 'setComponent', { entityId: 'group-0000', component: 'trigger', value: { size: [2, 2], signal: 'go' } }));
     expect(triggerOf(added.state)).toEqual({ size: [2, 2], signal: 'go' });
@@ -605,7 +605,7 @@ describe('setComponent (commands.md §8.10)', () => {
 
 // ---- setSettings -------------------------------------------------------------------
 
-describe('setSettings (commands.md §8.11)', () => {
+describe('setSettings', () => {
   it('applies a partial typed map with ascending changedKeys and self-inverse', () => {
     const state = baseState();
     const r = ok(mutation(state, 'setSettings', { settings: { run_speed: 6, jump_velocity: 8 } }));
@@ -642,7 +642,7 @@ describe('setSettings (commands.md §8.11)', () => {
 
 // ---- acknowledgeBehaviorTrust ------------------------------------------------------
 
-describe('acknowledgeBehaviorTrust (commands.md §8.12)', () => {
+describe('acknowledgeBehaviorTrust', () => {
   it('appends one entry with the result revision, is no-change when present and undo removes it', () => {
     const state = baseState();
     const r = ok(mutation(state, 'acknowledgeBehaviorTrust', { sourceDigest: DIGEST }));
@@ -658,7 +658,7 @@ describe('acknowledgeBehaviorTrust (commands.md §8.12)', () => {
 
 // ---- ordering, revision and history rules ------------------------------------------
 
-describe('ordering, revision and history rules (commands.md §6.1/§9)', () => {
+describe('ordering, revision and history rules', () => {
   it('a stale revision is reported as stale, not validated (stale precedes argument validation)', () => {
     const state = baseState();
     const before = JSON.stringify(state);
@@ -744,7 +744,7 @@ describe('fixtures/m2/commands/content-ops.messages.json replay', () => {
 
 // ---- content queries ---------------------------------------------------------------
 
-describe('content queries (commands.md §5.6)', () => {
+describe('content queries', () => {
   it('queryAssets/queryBehaviors return the committed query examples', () => {
     const examples = m2FixtureJson<{ examples: Record<string, { request: unknown; result: unknown }> }>(
       'contracts/commands/queries.json',

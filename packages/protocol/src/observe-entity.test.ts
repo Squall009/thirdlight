@@ -9,7 +9,7 @@ import { makeGameObserveRequest, parseGameObserveRequest, validateBridgeEditorTo
 const PLAY = `play-${'a'.repeat(32)}`;
 const RELAY = `relay-${'b'.repeat(32)}`;
 
-describe('phase 15.4: observe with an entity id', () => {
+describe('observe with an entity id', () => {
   it('the HTTP body accepts an entity id and refuses a malformed one', () => {
     expect(parseGameObserveRequest({ entityId: 'box-0001' })).toEqual({ ok: true, request: { timeoutMs: 5000, entityId: 'box-0001' } });
     expect(parseGameObserveRequest({ timeoutMs: 1000, entityId: 'box-0001' })).toEqual({ ok: true, request: { timeoutMs: 1000, entityId: 'box-0001' } });

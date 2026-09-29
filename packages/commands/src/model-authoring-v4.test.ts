@@ -206,7 +206,7 @@ describe('fixtures/m2/commands/model-authoring.messages.json replay (C27-1/C28-1
     expect((remove.result.change as { next: unknown }).next).toBeNull();
   });
 
-  it('rejects empty values for the field edits, and a bad shape; box/camera/model are removable (phase 15.1)', () => {
+  it('rejects empty values for the field edits, and a bad shape; box/camera/model are removable', () => {
     // A model is removed like any component (the "+ Add component" Inspector).
     const removed = ok(mutation(baseState(), 'setComponent', { entityId: 'model-0001', component: 'model', value: null }));
     expect((removed.result.change as { next: unknown }).next).toBeNull();

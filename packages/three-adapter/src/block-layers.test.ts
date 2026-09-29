@@ -98,7 +98,7 @@ describe('block view: chunk levels of detail', () => {
   });
 });
 
-describe('block view: paint and stand-in materials (phase 25.21)', () => {
+describe('block view: paint and stand-in materials', () => {
   const soil: BlockType = { blockId: 'soil', name: 'Soil', variants: [{ color: '#886644' }], shape: 'full', materials: { '*': 'mat-terrain' } };
   const ground = (paint: boolean): { entityId: string; chunks: ReturnType<BlockGrid['encodeChunk']>[] } => {
     const g = new BlockGrid(LAYER);

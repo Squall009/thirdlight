@@ -138,7 +138,7 @@ describe('material graph validation', () => {
     expect(check(mat({ nodes: nodes.slice(0, 512), edges: [] }))).toEqual([]);
   });
 
-  it('phase 23.15: the Lighting inputs and a Custom-lit output (one surface output of three)', () => {
+  it('the Lighting inputs and a Custom-lit output (one surface output of three)', () => {
     const light = new Set(MATERIAL_GRAPH_KIND.nodes.filter((d) => d.category === 'Lighting').map((d) => d.type));
     expect([...light].sort()).toEqual(['ambientLight', 'diffuseLight', 'lightShadow', 'mainLight']);
     expect(MATERIAL_GRAPH_KIND.categories).toContain('Lighting');

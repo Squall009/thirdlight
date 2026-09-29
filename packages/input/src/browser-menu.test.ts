@@ -99,7 +99,7 @@ function harness(pads: ArrayLike<Gamepad | null> = []): Harness {
   return { source, win, doc, key, setPads: (p: ArrayLike<Gamepad | null>): void => { padList = p; } };
 }
 
-describe('the owner feeds the menu channel (delivery.md §4.1)', () => {
+describe('the owner feeds the menu channel', () => {
   it('Enter and Space keydowns latch a menu confirm (Enter never touches the gameplay frame)', () => {
     const { source, key } = harness();
     key('Enter');
@@ -132,7 +132,7 @@ describe('the owner feeds the menu channel (delivery.md §4.1)', () => {
   });
 });
 
-describe('the §4.2 fresh-release state machine (delivery.md)', () => {
+describe('the fresh-release state machine (delivery.md)', () => {
   it('a consumed Space confirm held down does NOT jump; a fresh press in play jumps (C1/C2)', () => {
     const { source, key } = harness();
     key('Space');
@@ -187,7 +187,7 @@ describe('the §4.2 fresh-release state machine (delivery.md)', () => {
   });
 });
 
-describe('environment transitions (delivery.md §4.3/§4.6)', () => {
+describe('environment transitions', () => {
   it('visibility-hidden clears the menu latches and held confirm state (C9)', () => {
     const { source, doc, key } = harness();
     key('Space');

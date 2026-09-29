@@ -103,7 +103,7 @@ function frame(stepIndex: number, pressed: string[] = []): ActionFrame {
   return { stepIndex, moveX: 0, jump: 'none', actions: Object.fromEntries(pressed.map((n) => [n, { v: 1, p: 'pressed' as const }])) } as ActionFrame;
 }
 
-describe('phase 23.17: timeline data', () => {
+describe('timeline data', () => {
   it('validates a neutral sequence and refuses unbound slots, bad keys and out-of-range times', () => {
     const errors: ModelErrorV2[] = [];
     validateTimeline(sequence(), '', errors);
@@ -123,7 +123,7 @@ describe('phase 23.17: timeline data', () => {
   });
 });
 
-describe('phase 23.17: evaluation', () => {
+describe('evaluation', () => {
   it('easing curves', () => {
     expect(timelineEase('linear', 0.25)).toBe(0.25);
     expect(timelineEase('easeIn', 0.5)).toBe(0.25);
@@ -155,7 +155,7 @@ describe('phase 23.17: evaluation', () => {
   });
 });
 
-describe('phase 23.17: the system', () => {
+describe('the system', () => {
   it('plays to the end: cameras with their blends, keys in order, markers and events, the end releases the camera', () => {
     const f = fakeHost();
     const sys = new TimelineSystem([sequence()], HZ, f.host);
@@ -283,7 +283,7 @@ describe('phase 23.17: the system', () => {
     expect(f.log.slice(1)).toEqual(['mode explore cut', 'mode battle cut']);
   });
 
-  it('environment keys switch presets through the port (phase 23.18); skip applies them at once', () => {
+  it('environment keys switch presets through the port; skip applies them at once', () => {
     const f = fakeHost();
     const applied: string[] = [];
     const host: TimelineHost = { ...f.host, environment: { apply: (id, blend) => (applied.push(`${id} ${blend}`), true) } };
@@ -297,7 +297,7 @@ describe('phase 23.17: the system', () => {
     expect(applied.slice(1)).toEqual(['day 0']);
   });
 
-  it('dialogue keys run a node through the dialogue runner (phase 23.16) and wait until the conversation ends', () => {
+  it('dialogue keys run a node through the dialogue runner and wait until the conversation ends', () => {
     const f = fakeHost();
     const graph = {
       nodes: [

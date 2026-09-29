@@ -62,7 +62,7 @@ function harness(entities: EntityV3[], o: { dim3?: boolean } = {}) {
   return { blocks, curr, transitions, move, generic, yawOf, frameAt: () => i };
 }
 
-describe('triggers (phase 24.4e)', () => {
+describe('triggers', () => {
   it('the character entering and leaving a 2D trigger: enter/exit events, its signal, one transition per entry (once: the first only)', () => {
     const door = ent('door-0001', { trigger: { size: [1, 2], signal: 'door', sceneTransition: { scene: 'scene-b', spawn: 'spawn-b', unload: ['scene-a'] } } }, undefined, T(3, 1));
     const once = ent('gate-0001', { trigger: { size: [1, 2], signal: 'gate', once: true, sceneTransition: { scene: 'scene-c' } } }, undefined, T(10, 1));
@@ -105,7 +105,7 @@ describe('triggers (phase 24.4e)', () => {
   });
 });
 
-describe('a switch reads its action (phase 24.4f)', () => {
+describe('a switch reads its action', () => {
   it('an interact switch fires on its own action (default: interact)', () => {
     const h = harness([ent('actor', { controller: {} }, undefined, T(0, 1)), ent('lever-a', { switch: { mode: 'interact', signal: 'a', size: [2, 2], action: 'use' } }, undefined, T(0, 1)), ent('lever-b', { switch: { mode: 'interact', signal: 'b', size: [2, 2] } }, undefined, T(0, 1))]);
     const step = (actions: Record<string, { p: string; v: number }>): void => {
@@ -119,7 +119,7 @@ describe('a switch reads its action (phase 24.4f)', () => {
     expect([h.blocks.signaled('a'), h.blocks.signaled('b')]).toEqual([true, false]);
   });
 
-  it('phase 24.7: switches run on the 2D plane without a game session — stand (on entry, once) and interact (only inside)', () => {
+  it('switches run on the 2D plane without a game session — stand (on entry, once) and interact (only inside)', () => {
     const h = harness([
       ent('actor', { controller: {} }, undefined, T(0, 1)),
       ent('plate', { switch: { mode: 'stand', signal: 'plate', size: [1, 2] } }, undefined, T(3, 1)),
@@ -145,7 +145,7 @@ describe('a switch reads its action (phase 24.4f)', () => {
   });
 });
 
-describe('face velocity and a spawn yaw (phase 24.4f)', () => {
+describe('face velocity and a spawn yaw', () => {
   it('a velocity model faces the horizontal motion of its parent (2D: ±90°), turning at a half turn per turnSeconds', () => {
     const h = harness([ent('actor', { controller: {} }, undefined, T(0, 1)), ent('look', { faceMovement: { mode: 'velocity', turnSeconds: 0.5 } }, 'actor')]);
     h.generic();
@@ -184,7 +184,7 @@ describe('face velocity and a spawn yaw (phase 24.4f)', () => {
     expect(h.yawOf('drone')).toBeCloseTo(-45, 6);
   });
 
-  it('phase 24.7: a two-sided model reads as a velocity facer (offset yawRight − 90°); a spawn yaw (radians) turns it at once', () => {
+  it('a two-sided model reads as a velocity facer (offset yawRight − 90°); a spawn yaw (radians) turns it at once', () => {
     const h = harness([
       ent('actor', { controller: {} }, undefined, T(0, 1)),
       ent('look', { faceMovement: { yawRight: 90, yawLeft: -90 } }, 'actor'),
@@ -214,7 +214,7 @@ describe('face velocity and a spawn yaw (phase 24.4f)', () => {
   });
 });
 
-describe('the event → cue log (phase 24.4i)', () => {
+describe('the event → cue log', () => {
   it('notes signals and trigger/primitive events only once enabled, and hands each over once', () => {
     const h = harness([ent('actor', { controller: {} }, undefined, T(0, 1)), ent('zone-0001', { trigger: { size: [1, 2], signal: 'in' } }, undefined, T(0, 1)), ent('crate', { health: { max: 3 } })]);
     h.generic();
@@ -237,7 +237,7 @@ describe('the event → cue log (phase 24.4i)', () => {
   });
 });
 
-describe('look overrides (phase 24.4h)', () => {
+describe('look overrides', () => {
   it('validates, sets, clears, resets with a new run and travels in the components save section', () => {
     const h = harness([ent('actor', { controller: {} }, undefined, T(0, 1)), ent('lamp', { box: { size: [1, 1, 1] } })]);
     const p = h.blocks.primitives;
@@ -270,7 +270,7 @@ describe('look overrides (phase 24.4h)', () => {
   });
 });
 
-describe('the track camera rig (phase 24.4g)', () => {
+describe('the track camera rig', () => {
   const world = (pos: Record<string, number[]>): CameraWorld => ({
     worldOf: (id, p, r) => {
       const at = pos[id];

@@ -185,7 +185,7 @@ test('script tab: edit, see a compile error inline, fix it, publish, Play runs i
   await expect(status).toHaveAttribute('data-status', 'ok', { timeout: 20_000 });
 });
 
-test('phase 25.6: an import-scan hit in a comment is marked on its line and says it is in a comment', async ({ page }) => {
+test('an import-scan hit in a comment is marked on its line and says it is in a comment', async ({ page }) => {
   test.setTimeout(120_000);
   const made = await cmd('createEntity', { kind: 'box', name: 'Scan box', transform: { position: [6, 1, 0] }, box: { size: [0.5, 0.5, 0.5], material: { color: '#808080' } } });
   await cmd('publishBehavior', { behaviorId: 'scanned', displayName: 'Scanned', mode: 'declaration-create', declaration: { properties: [] } });

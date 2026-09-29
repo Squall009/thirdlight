@@ -79,7 +79,7 @@ describe('content v4', () => {
     expect(validateContentV4(content({ scenes: [{ sceneId: 'scene-core', name: 'A' }, { sceneId: 'scene-core', name: 'B' }] })).ok).toBe(false);
   });
 
-  it('phase 24: refuses a game block and a flow key, naming the removal', () => {
+  it('refuses a game block and a flow key, naming the removal', () => {
     const game = { configVersion: 2, title: 'T', objective: 'O', instructions: 'I', playerId: 'p', cameraId: 'c', spawnId: 's', cues: { start: null, jump: null } };
     const withGame = validateContentV4(content({ game }));
     expect(withGame.ok).toBe(false);
@@ -115,7 +115,7 @@ describe('project v4', () => {
     if (r.ok) expect(r.normalized.scenes.map((s) => s.sceneId)).toEqual(['scene-core', 'scene-level']);
   });
 
-  it('phase 25.8: lights belong to scenes — any kind in any scene, each scene at most one directional; a spot cookie is a texture', () => {
+  it('lights belong to scenes — any kind in any scene, each scene at most one directional; a spot cookie is a texture', () => {
     const sun = (id: string, color: string) => ({ id, components: { transform: T, light: { type: 'directional', color, intensity: 1, direction: [0, -1, 0] } } });
     const lit = scene('scene-level', [
       sun('light-0010', '#ff0000'),

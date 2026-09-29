@@ -27,7 +27,7 @@ const ALL_DEFAULTS = {
   settings: { fixed_step_hz: 120, audio_voices: 8, music_fade_s: 1, animation_crossfade_s: 0.2 },
 };
 
-describe('tuning values as data (phase 15.3, real host + platformer + Rapier)', () => {
+describe('tuning values as data (real host + platformer + Rapier)', () => {
   it('every value spelled out at its default plays bit-for-bit like none set', async () => {
     const none = await level({ playerExtra: { health: { max: 3 } }, extra: course(), drive: RUN_AND_JUMP });
     const d = ALL_DEFAULTS;

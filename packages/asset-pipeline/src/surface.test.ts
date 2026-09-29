@@ -38,7 +38,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe('public surface (dependencies.md §3)', () => {
+describe('public surface', () => {
   it('exports exactly the approved runtime values', () => {
     expect(Object.keys(api).sort()).toEqual(
       [

@@ -184,7 +184,7 @@ function waitSettled(p: Promise<unknown>): Promise<unknown> {
 
 // ---- fail-fast validation (models_config_invalid) --------------------------
 
-describe('models block validation (delivery.md (M4) §2.2)', () => {
+describe('models block validation', () => {
   const base = {
     models: {
       assets: [{ assetId: 'asset-courier', version: 1, sourceDigest: DIGEST }],
@@ -279,7 +279,7 @@ describe('createSceneAdapter with the models block (M4 C64-4)', () => {
     adapter.dispose();
   });
 
-  it('realizes both model entities under their holders; the settle carries the §2.5 counters', async () => {
+  it('realizes both model entities under their holders; the settle carries the counters', async () => {
     const scene = v3Scene();
     const counter = countingPort(createGltfLoaderPort());
     const adapter = createSceneAdapter(stubCanvas(), {
@@ -315,7 +315,7 @@ describe('createSceneAdapter with the models block (M4 C64-4)', () => {
     expect(settled2).toMatchObject({ ok: false, code: 'adapter_disposed' });
   });
 
-  it('settle waits for every asset to attach (two-asset microtask race, §2.8)', async () => {
+  it('settle waits for every asset to attach (two-asset microtask race)', async () => {
     // Two assets prepare in parallel. A settle gate on the handles'
     // `state()` would resolve in the microtask gap between the second
     // handle's promise resolution and the attach callback — reporting
@@ -383,7 +383,7 @@ describe('createSceneAdapter with the models block (M4 C64-4)', () => {
     adapter.dispose();
   });
 
-  it('two instances at distinct motions: one runs, one idles (the real mixer, §2.4)', async () => {
+  it('two instances at distinct motions: one runs, one idles (the real mixer)', async () => {
     // The adapter path (below) wires the committed view; here the SAME
     // substrate + real GLB + real mixers prove the per-instance state
     // independence numerically (the browser evidence proves it visually).
@@ -469,7 +469,7 @@ describe('createSceneAdapter with the models block (M4 C64-4)', () => {
     expect(ctrlA.controller.dispose()).toEqual({ ok: true, alreadyDisposed: true }); // released by the instance
   });
 
-  it('L6: a mismatching mapping keeps the model attached and static; the run proceeds (§2.7)', async () => {
+  it('L6: a mismatching mapping keeps the model attached and static; the run proceeds', async () => {
     const scene = v3Scene({ decorationMismatch: true });
     const counter = countingPort(createGltfLoaderPort());
     const adapter = createSceneAdapter(stubCanvas(), {
@@ -490,7 +490,7 @@ describe('createSceneAdapter with the models block (M4 C64-4)', () => {
     expect(counter.releases).toBe(1);
   });
 
-  it('a model entity with no assets row: a plain group + the bounded unresolved diagnostic; the run proceeds (§2.3)', async () => {
+  it('a model entity with no assets row: a plain group + the bounded unresolved diagnostic; the run proceeds', async () => {
     const scene = v3Scene({ withUnresolved: true });
     const counter = countingPort(createGltfLoaderPort());
     const adapter = createSceneAdapter(stubCanvas(), {
@@ -523,7 +523,7 @@ describe('createSceneAdapter with the models block (M4 C64-4)', () => {
     adapter.dispose();
   });
 
-  it('dispose while a prepare is in flight: the late completion is discarded and released exactly once (§2.6)', async () => {
+  it('dispose while a prepare is in flight: the late completion is discarded and released exactly once', async () => {
     // A loader that completes AFTER the dispose: the cancellation/late-
     // completion release must still run exactly once (no leak, nothing
     // applied).
@@ -558,7 +558,7 @@ describe('createSceneAdapter with the models block (M4 C64-4)', () => {
     expect(adapter.renderFrame().ok).toBe(false); // adapter_disposed
   });
 
-  it('per-instance material independence: one instance\'s cloned materials are its own (§2.3)', async () => {
+  it('per-instance material independence: one instance\'s cloned materials are its own', async () => {
     const bytes = buildGlb({ clipNames: ['Idle', 'Run', 'Airborne'], materials: 1 });
     const descriptor = { assetId: 'asset-courier', version: 1, sourceDigest: DIGEST, sourceByteLength: bytes.byteLength };
     const loader = createGltfLoaderPort();

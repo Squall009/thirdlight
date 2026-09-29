@@ -309,7 +309,7 @@ describe('the components save section', () => {
   });
 });
 
-describe('phase 25.13: gravity bodies and the 2D patrol in any direction', () => {
+describe('gravity bodies and the 2D patrol in any direction', () => {
   /** A floor whose top is at y 0 everywhere (a ray down from above it hits at its distance to 0). */
   const floor = (): PhysicsPort =>
     ({ raycast: (o: { x: number; y: number }, d: { x: number; y: number }, max: number) => (d.y < 0 && o.y >= 0 && o.y <= max ? { entityId: 'floor', distance: o.y, normal: { x: 0, y: 1 } } : null) }) as unknown as PhysicsPort;

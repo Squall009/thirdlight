@@ -323,7 +323,7 @@ function assertBlockedAndSiblingUsable(
 
 // ---- tests ---------------------------------------------------------------------
 
-describe('2026-09-18 review group A2 (R11, R12, R13) regressions', () => {
+describe('request JSON validation: edge cases', () => {
   describe('R11 (NULL_DIGEST): non-canonicalizable fresh requests', () => {
     it('R11a (probe NULL_DIGEST): origin: undefined is rejected before any record is built', () => {
       assertRejectedClean(

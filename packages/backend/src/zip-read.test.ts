@@ -48,7 +48,7 @@ export function makeZip(files: { name: string; data: Uint8Array; deflate?: boole
   return new Uint8Array(Buffer.concat([...locals, cd, end]));
 }
 
-describe('phase 25.22: the job-export zip reader', () => {
+describe('the job-export zip reader', () => {
   const text = new TextEncoder().encode('hello hello hello hello');
   it('lists entries and reads stored and deflated ones', () => {
     const zip = makeZip([{ name: 'a/manifest.json', data: text }, { name: 'a/b.bin', data: text, deflate: true }]);

@@ -392,7 +392,7 @@ function observed(host: Harness['host']): { state: string; stepIndex: number } {
 // Tests.
 // ---------------------------------------------------------------------------
 
-describe('the §3.1 surface constants', () => {
+describe('the surface constants', () => {
   it('the version, actions and message names are the delivery.md rows', () => {
     expect(GAME_HOST_API_VERSION).toBe(1);
     // No start action: every game plays as a scene, there is no run to start.
@@ -505,7 +505,7 @@ describe('the menu/control channel between frames (B04/B08)', () => {
     host.dispose();
   });
 
-  it('phase 23.14: the player\'s saved bindings reach the input owner and the glyphs, and follow the pad in use', () => {
+  it('the player\'s saved bindings reach the input owner and the glyphs, and follow the pad in use', () => {
     const { host: h0, config } = harness();
     h0.dispose();
     const data = new Map<string, string>();
@@ -579,7 +579,7 @@ describe('observe and the identity (B08/B09)', () => {
     host.dispose();
   });
 
-  it('the real packet-54 owner maps blocked → ready across a local unlock (B13 sound status)', async () => {
+  it('the real owner maps blocked → ready across a local unlock (B13 sound status)', async () => {
     const { host, audio } = harness({ realAudio: true });
     host.mount();
     const before = host.observe();
@@ -636,7 +636,7 @@ describe('disposal (B15 lifecycle)', () => {
     expect(() => host.runtime).toThrow(); // the seam is gone
   });
 
-  it('phase 21.5: dispose stops the loops it started on the wrapper-owned audio owner', () => {
+  it('dispose stops the loops it started on the wrapper-owned audio owner', () => {
     const base = harness();
     const loops: [string, string | null, number][] = [];
     const snapshot = hostSnapshot() as { scene: { schemaVersion: number; entities: unknown[] } };
@@ -685,7 +685,7 @@ describe('disposal (B15 lifecycle)', () => {
   });
 });
 
-describe('the manifest module list drives the composition (D17)', () => {
+describe('the manifest module list drives the composition', () => {
   it('an id this engine does not provide is refused at mount', () => {
     const h = harness();
     const cfg: GameHostConfig = { ...h.config, modules: ['thirdlight.character:controller', 'thirdlight.terrain:heightmap'] };
@@ -713,7 +713,7 @@ describe('the manifest module list drives the composition (D17)', () => {
     h.host.dispose();
   });
 
-  it('phase 24.3: no module list, no modules — there is no default set (the character stays where it is)', () => {
+  it('no module list, no modules — there is no default set (the character stays where it is)', () => {
     const h = harness();
     const { modules: _m, ...rest } = h.config;
     void _m;
@@ -726,7 +726,7 @@ describe('the manifest module list drives the composition (D17)', () => {
     h.host.dispose();
   });
 
-  it('phase 24.3: a manifest module the injected spec table lacks is unresolved', () => {
+  it('a manifest module the injected spec table lacks is unresolved', () => {
     const h = harness();
     const { moduleSpecs: _s, ...rest } = h.config;
     void _s;
@@ -741,7 +741,7 @@ describe('the manifest module list drives the composition (D17)', () => {
     h.host.dispose();
   });
 
-  it('phase 24.3: the entity a module needs is its own declaration', () => {
+  it('the entity a module needs is its own declaration', () => {
     const h = harness();
     const needy = { ...characterControllerSpec, id: 'test.needs:controller', requiresEntityWith: ['controller'] };
     const snapshot = hostSnapshot() as { scene: { entities: { components: Record<string, unknown> }[] } };

@@ -32,7 +32,7 @@ const SOURCE = {
   publishedRevision: 1,
 };
 
-describe('phase 15.4: script property visibility in the model', () => {
+describe('script property visibility in the model', () => {
   it('accepts visibility, group, header and tooltip', () => {
     const r = validateContentV4(content([{ ...SPEED, visibility: 'private', group: 'Movement', header: 'Tuning', tooltip: 'How fast.' }, { ...SPEED, key: 'jump', visibility: 'public' }]));
     expect(r.ok ? [] : r.errors).toEqual([]);

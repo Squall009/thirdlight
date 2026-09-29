@@ -13,8 +13,8 @@ import {
   collectInstalled,
 } from './check-deps.mjs';
 
-describe('check 6 — dependency pinning (dependencies.md §5.6)', () => {
-  it('accepts the exact §7 pins and reports the rest as pending', () => {
+describe('check 6 — dependency pinning', () => {
+  it('accepts the exact pins and reports the rest as pending', () => {
     const installed = [
       { name: 'typescript', version: '5.9.3', where: 'dependencies.typescript' },
       { name: 'esbuild', version: '0.28.2', where: 'dependencies.esbuild' },
@@ -34,7 +34,7 @@ describe('check 6 — dependency pinning (dependencies.md §5.6)', () => {
     expect(r.pending).not.toContain('typescript');
   });
 
-  it('fails on a version drift against a §7 pin', () => {
+  it('fails on a version drift against a pin', () => {
     const r = compareInstalled([
       { name: 'esbuild', version: '0.28.3', where: 'dependencies.esbuild' },
     ]);
@@ -44,7 +44,7 @@ describe('check 6 — dependency pinning (dependencies.md §5.6)', () => {
     expect(r.violations[0]).toContain('0.28.2');
   });
 
-  it('fails on an installed package that is not a §7 pin (no silent additions)', () => {
+  it('fails on an installed package that is not a pin (no silent additions)', () => {
     const r = compareInstalled([
       { name: 'left-pad', version: '1.0.0', where: 'dependencies.left-pad' },
     ]);
@@ -91,7 +91,7 @@ describe('check 6 — dependency pinning (dependencies.md §5.6)', () => {
     expect(vs.join('\n')).toContain('no ranges');
   });
 
-  it('declared deps: a wrong exact version fails against the §7 pin', () => {
+  it('declared deps: a wrong exact version fails against the pin', () => {
     const vs = checkDeclaredDeps([
       {
         name: 'thirdlight',
@@ -121,7 +121,7 @@ describe('check 6 — dependency pinning (dependencies.md §5.6)', () => {
     expect(vs[0]).toContain('0.0.1');
   });
 
-  it('the §7 pin table carries every approved stack item', () => {
+  it('the pin table carries every approved stack item', () => {
     expect(PINS).toEqual({
       typescript: '5.9.3',
       esbuild: '0.28.2',

@@ -68,7 +68,7 @@ function analyzeContainer(bytes: Uint8Array, limits: BehaviorCompilerLimits = LI
   };
 }
 
-describe('packet 33 — source-graph container + static rules (project-model.md §22.1/§22.3)', () => {
+describe('source-graph container + static rules', () => {
   it('replays every committed fixture container with its exact outcome', () => {
     expect(index.cases.length).toBeGreaterThanOrEqual(30);
     const problems: string[] = [];
@@ -88,7 +88,7 @@ describe('packet 33 — source-graph container + static rules (project-model.md 
     expect(problems).toEqual([]);
   });
 
-  it('accepts the valid sample and derives the §22.1 analysis fields', () => {
+  it('accepts the valid sample and derives the analysis fields', () => {
     const derived = analyzeContainer(containerBytes('valid/sample.json'));
     expect(derived).toMatchObject({
       ok: true,
@@ -109,7 +109,7 @@ describe('packet 33 — source-graph container + static rules (project-model.md 
     expect(derived).toMatchObject({ ok: false, code: 'behavior_source_invalid', reason: 'container' });
   });
 
-  it('phase 14.1: accepts "@self" in ownedTransforms (each carrier owns itself); other non-ids stay refused', () => {
+  it('accepts "@self" in ownedTransforms (each carrier owns itself); other non-ids stay refused', () => {
     const value = JSON.parse(containerText('valid/sample.json')) as Record<string, unknown>;
     value['ownedTransforms'] = ['@self', 'box-0001'];
     expect(analyzeContainer(new TextEncoder().encode(`${JSON.stringify(value, null, 2)}\n`))).toMatchObject({ ok: true, ownedTransforms: ['@self', 'box-0001'] });

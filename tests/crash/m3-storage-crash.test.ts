@@ -152,7 +152,7 @@ afterAll(() => {
   }
 });
 
-describe('packet 46 — real SIGKILL at the content.json boundary of an upgraded v3 project (workspace.md §5.3)', () => {
+describe('real SIGKILL at the content.json boundary of an upgraded v3 project', () => {
   it('SIGKILL before the rename: old state, leftover temp cleaned on open, retry re-executes', async () => {
     const root = makeRoot('v3-before');
     seedV3(root);

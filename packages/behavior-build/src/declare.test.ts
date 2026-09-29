@@ -46,7 +46,7 @@ const DERIVED = [
   { key: 'name', label: 'Name', type: 'string', default: 'x', maxLength: 8 },
 ];
 
-describe('phase 15.4: properties declared in code', () => {
+describe('properties declared in code', () => {
   it('reads every property type, visibility, options and default labels', () => {
     const r = readCodeDeclaration(SOURCE);
     if (!r.found || !r.ok) throw new Error(JSON.stringify(r));

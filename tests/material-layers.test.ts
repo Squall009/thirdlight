@@ -42,7 +42,7 @@ function textureReads(root: unknown): { array: boolean; depth: boolean }[] {
   return out;
 }
 
-describe('height-blended layers (phase 25.21)', () => {
+describe('height-blended layers', () => {
   it('the template validates and compiles against texture arrays without problems', () => {
     const m = layeredMaterial('mat-layers', 'Layers');
     expect(templateMaterial('layers', 'mat-layers', 'Layers')).toEqual(m);

@@ -83,7 +83,7 @@ function instantiateInput(definition: PrefabDefinition | null) {
   };
 }
 
-describe('packet 28 — capture planning from a real projected subtree', () => {
+describe('capture planning from a real projected subtree', () => {
   it('preflights a capture of the accepted Station subtree', () => {
     const scene = AFTER.scene.entities.map(
       (e): CaptureEntityView => ({
@@ -123,7 +123,7 @@ describe('packet 28 — capture planning from a real projected subtree', () => {
   });
 });
 
-describe('packet 28 — two independent copies, one override, ordinary edits', () => {
+describe('two independent copies, one override, ordinary edits', () => {
   it('plans the accepted I1/I4 commands from the definition + declarations', () => {
     const i1 = planInstantiatePrefab({ ...instantiateInput(DEFINITION), transform: { position: [12, 0, 0] }, overrides: [{ localId: 'model-0001', key: 'speed', value: 9.75 }] });
     expect(i1.ok).toBe(true);
@@ -173,7 +173,7 @@ describe('packet 28 — two independent copies, one override, ordinary edits', (
   });
 });
 
-describe('packet 28 — a definition/declaration change never rewrites a copy', () => {
+describe('a definition/declaration change never rewrites a copy', () => {
   it('applies a declaration update while the instance values stay byte-identical', () => {
     const scene = new Projection();
     scene.hydrate({ revision: 15, entities: AFTER.scene.entities });
@@ -199,7 +199,7 @@ describe('packet 28 — a definition/declaration change never rewrites a copy', 
   });
 });
 
-describe('packet 28 — editing one copy and MCP-origin convergence', () => {
+describe('editing one copy and MCP-origin convergence', () => {
   it('builds the full values map for an edit and applies it as an ordinary change', () => {
     const scene = new Projection();
     scene.hydrate({ revision: AFTER.scene.revision, entities: AFTER.scene.entities });
@@ -241,7 +241,7 @@ describe('packet 28 — editing one copy and MCP-origin convergence', () => {
   });
 });
 
-describe('packet 28 — reopening rebuilds from queries, not memory', () => {
+describe('reopening rebuilds from queries, not memory', () => {
   it('rehydrates identical scene, definitions and declarations from the query state', () => {
     const original = new Projection();
     original.hydrate({ revision: AFTER.scene.revision, entities: AFTER.scene.entities });
@@ -260,7 +260,7 @@ describe('packet 28 — reopening rebuilds from queries, not memory', () => {
   });
 });
 
-describe('packet 28 — override editor derivation from the accepted declaration', () => {
+describe('override editor derivation from the accepted declaration', () => {
   it('derives controls with defaults/types/constraints and collects typed overrides', () => {
     const targets = deriveOverrideTargets(DEFINITION, DECLARATIONS);
     expect(targets.map((t) => t.localId)).toEqual(['model-0001']);
@@ -292,7 +292,7 @@ describe('packet 28 — override editor derivation from the accepted declaration
   });
 });
 
-describe('packet 28 — no script evaluation and no apply/revert/variant/link affordance', () => {
+describe('no script evaluation and no apply/revert/variant/link affordance', () => {
   const authoringFiles = [
     'packages/editor/src/session/property-controls.ts',
     'packages/editor/src/session/prefab-authoring.ts',

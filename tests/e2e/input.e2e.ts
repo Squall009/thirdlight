@@ -80,7 +80,7 @@ test('jump rebound to W in the Input window: W jumps in Play, Space does not', a
   expect(await peak('w')).toBeGreaterThan(ground + 0.6);
 });
 
-test('phase 23.14: a hold time on a binding and a project glyph image, edited in the Input window', async ({ page }) => {
+test('a hold time on a binding and a project glyph image, edited in the Input window', async ({ page }) => {
   test.setTimeout(120_000);
   // A glyph image: a small texture imported through the Assets window.
   const dir = mkdtempSync(join(tmpdir(), 'tl-glyph-'));
@@ -116,7 +116,7 @@ test('phase 23.14: a hold time on a binding and a project glyph image, edited in
   await expect.poll(async () => (await stored())?.actions.find((a) => a.name === 'jump')?.bindings[0]).toEqual({ kind: 'key', code: 'Space' });
 });
 
-test('phase 25.6: a project map\'s cursor, set in the Input window, applies in Play while a game mode activates the map', async ({ page }) => {
+test('a project map\'s cursor, set in the Input window, applies in Play while a game mode activates the map', async ({ page }) => {
   test.setTimeout(120_000);
   const config = async (): Promise<{ input: { maps?: string[]; cursor?: Record<string, string> } | null; modes?: unknown }> => (await be.command({ op: 'queryGameConfig', projectId: be.projectId })) as never;
   const run = async (op: string, args: Record<string, unknown>): Promise<void> => {

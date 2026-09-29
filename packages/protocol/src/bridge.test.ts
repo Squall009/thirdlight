@@ -21,8 +21,8 @@ const contentId = 'c'.repeat(43);
 const buildId = 'd'.repeat(64);
 const contentDigest = 'e'.repeat(64);
 
-describe('allowlist constants (sessions.md §13.5, v2)', () => {
-  it('editor → preview: exactly the §13.5 v2 set', () => {
+describe('allowlist constants (v2)', () => {
+  it('editor → preview: exactly the v2 set', () => {
     expect([...BRIDGE_EDITOR_TO_PREVIEW_TYPES].sort()).toEqual(
       [
         'tl.debug.request',
@@ -39,7 +39,7 @@ describe('allowlist constants (sessions.md §13.5, v2)', () => {
       ].sort(),
     );
   });
-  it('phase 19.2: the debugger messages are validated (behavior, entity, bounded breakpoints, commands)', () => {
+  it('the debugger messages are validated (behavior, entity, bounded breakpoints, commands)', () => {
     const base = { v: 2, type: 'tl.debug.request', playSessionId: `play-${'a'.repeat(32)}`, relayId: `relay-${'b'.repeat(32)}`, behaviorId: 'door', breakpoints: ['n1', 'fn:open/n2', 'lib:shared/n3'] };
     expect(validateBridgeEditorToPreview(base).ok).toBe(true);
     expect(validateBridgeEditorToPreview({ ...base, entityId: 'box-1', command: 'step' }).ok).toBe(true);
@@ -54,7 +54,7 @@ describe('allowlist constants (sessions.md §13.5, v2)', () => {
       expect(validateBridgeEditorToPreview({ v: 2, type: 'tl.game.control', playSessionId: base.playSessionId, relayId: base.relayId, command }).ok).toBe(true);
     }
   });
-  it('preview → editor: exactly the §13.5 v2 set', () => {
+  it('preview → editor: exactly the v2 set', () => {
     expect([...BRIDGE_PREVIEW_TO_EDITOR_TYPES].sort()).toEqual(
       [
         'tl.debug.result',
@@ -126,7 +126,7 @@ describe('editor → preview validators', () => {
     expect(parseInputRelayRequest({ mode: 'exclusive-test', frames: [{ stepOffset: 0, moveX: 0.5, jump: 'none' }] }).ok).toBe(false);
   });
 
-  it('the relay body parser and the WS event keep the named actions (a 2D move is { v, x, y }; phase 24.8: frame version 2)', () => {
+  it('the relay body parser and the WS event keep the named actions (a 2D move is { v, x, y }; frame version 2)', () => {
     const parsed = parseInputRelayRequest({ mode: 'exclusive-test', frames: [{ stepOffset: 0, actions: { move: { v: 0.25, x: 0.25, y: -0.5, p: 'none' }, jump: { v: 0, p: 'none' } } }, { stepOffset: 1, actions: { move: { v: 1, p: 'none' }, jump: { v: 0, p: 'none' } } }] });
     expect(parsed.ok && parsed.request.frames).toEqual([{ stepOffset: 0, actions: { move: { v: 0.25, x: 0.25, y: -0.5, p: 'none' }, jump: { v: 0, p: 'none' } } }, { stepOffset: 1, actions: { move: { v: 1, p: 'none' }, jump: { v: 0, p: 'none' } } }]);
     expect(parseInputRelayRequest({ mode: 'exclusive-test', frames: [{ stepOffset: 0, actions: { move: { v: 0, x: 0, y: 'up', p: 'none' }, jump: { v: 0, p: 'none' } } }] }).ok).toBe(false);
@@ -134,7 +134,7 @@ describe('editor → preview validators', () => {
     expect(ws.frames).toEqual([{ stepOffset: 0, actions: { move: { v: 0, x: 0, y: 1, p: 'none' }, jump: { v: 0, p: 'none' }, run: { v: 1, p: 'held' } } }, { stepOffset: 1, actions: { move: { v: 1, p: 'none' }, jump: { v: 0, p: 'none' } } }]);
   });
 
-  it('phase 25.15: run-length frames, a virtual gamepad and UI edges (no overlap, the span bounded)', () => {
+  it('run-length frames, a virtual gamepad and UI edges (no overlap, the span bounded)', () => {
     const frames = [
       { stepOffset: 0, steps: 120, actions: { move: { v: 1, p: 'none' } } },
       { stepOffset: 120, gamepad: { buttons: [1, 0, 0.25], axes: [0.123456, -1] } },
@@ -164,7 +164,7 @@ describe('editor → preview validators', () => {
     }
   });
 
-  it('phase 25.17: hold travels with the relay (a boolean)', () => {
+  it('hold travels with the relay (a boolean)', () => {
     const r = parseInputRelayRequest({ mode: 'exclusive-test', hold: true, restart: true, frames: [{ stepOffset: 0 }] });
     expect(r.ok && r.request).toMatchObject({ hold: true, restart: true });
     expect(parseInputRelayRequest({ mode: 'exclusive-test', hold: 1, frames: [{ stepOffset: 0 }] }).ok).toBe(false);
@@ -176,7 +176,7 @@ describe('editor → preview validators', () => {
     expect(validateBridgeEditorToPreview({ v: 2, type: 'tl.input.request', playSessionId: play, requestId: req, hold: 'yes', frames: [{ stepOffset: 0 }] }).ok).toBe(false);
   });
 
-  it('phase 25.16: restart travels with the relay (a boolean)', () => {
+  it('restart travels with the relay (a boolean)', () => {
     const r = parseInputRelayRequest({ mode: 'exclusive-test', restart: true, frames: [{ stepOffset: 0 }] });
     expect(r.ok && r.request.restart).toBe(true);
     expect(parseInputRelayRequest({ mode: 'exclusive-test', restart: 'yes', frames: [{ stepOffset: 0 }] }).ok).toBe(false);

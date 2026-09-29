@@ -150,7 +150,7 @@ async function run(mode: Mode, dim: Dim): Promise<{ counters: Record<string, num
   }
 }
 
-describe('phase 25.5: scripts see a timeline ended event', () => {
+describe('scripts see a timeline ended event', () => {
   for (const dim of [0, 2, 3] as const) for (const mode of MODES) {
     it(`every ended is seen once, in the step after it (${dim === 0 ? 'no physics' : `${dim}D`}, ${mode})`, async () => {
       const { counters, logs } = await run(mode, dim);

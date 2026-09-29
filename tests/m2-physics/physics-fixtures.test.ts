@@ -33,7 +33,7 @@ for (const name of ['course.json', 'snap-course.json', 'slope-course.json', 'con
 }
 
 describe('frozen course geometry', () => {
-  it('carries the 64 static colliders of the packet-14 frozen course', () => {
+  it('carries the 64 static colliders of the frozen course', () => {
     const course = courses.get('course.json')!;
     expect(course.statics).toHaveLength(64);
     expect(course.statics.filter((s) => s.shape && (s.shape as { type?: string }).type === 'polygon')).toHaveLength(0);
@@ -41,7 +41,7 @@ describe('frozen course geometry', () => {
     expect(course.controller).toMatchObject({ offsetSkin: 0.01, groundSnap: 0.1, autostep: false });
   });
 
-  it('matches the frozen packet-14 ramp geometry exactly', () => {
+  it('matches the frozen ramp geometry exactly', () => {
     const course = courses.get('course.json')!;
     const rampA = course.statics.find((s) => s.entityId === 'rampA43')!;
     expect(rampA.position.x).toBeCloseTo(3.097030552429, 12);

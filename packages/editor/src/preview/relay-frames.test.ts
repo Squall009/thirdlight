@@ -15,7 +15,7 @@ const CONFIG: Parameters<typeof resolveRelayFrames>[1] = {
   ],
 };
 
-describe('relay frames with a virtual gamepad (phase 25.15)', () => {
+describe('relay frames with a virtual gamepad', () => {
   it('passes frames without a pad through', () => {
     const frames = [{ stepOffset: 0, steps: 4, actions: { jump: { v: 1, p: 'pressed' as const } }, ui: ['submit'] }];
     expect(resolveRelayFrames(frames, CONFIG, 120)).toEqual(frames);

@@ -78,7 +78,7 @@ function nextState(state: State, request: unknown): State {
   return outcome.state as State;
 }
 
-describe('createEntity with v3 components (authoring §A3.1/§A4.1)', () => {
+describe('createEntity with v3 components', () => {
   it('creates each add-capable component kind with the derived ID prefix', () => {
     const cases: Array<{ components: Record<string, unknown>; kind: string; id: string }> = [
       { kind: 'group', components: { playerSpawn: {} }, id: 'spawn-000001' },
@@ -108,7 +108,7 @@ describe('createEntity with v3 components (authoring §A3.1/§A4.1)', () => {
     }
   });
 
-  it('phase 25.6: a component only setComponent adds is refused with how to add it, not as unknown', () => {
+  it('a component only setComponent adds is refused with how to add it, not as unknown', () => {
     const refusal = (components: Record<string, unknown>): { code: string; message: string } => {
       const r = applyMutation(stateOf(BEFORE), req('createEntity', { kind: 'group', components }, 0));
       expect(r.ok).toBe(false);
@@ -188,7 +188,7 @@ describe('v3 setComponent add/edit/remove and reference safety', () => {
   });
 });
 
-describe('applySurfacePreset (commands.md §8.13)', () => {
+describe('applySurfacePreset', () => {
   it('copies the frozen row, keeps copies independent and re-applies the recorded value on redo', () => {
     let state = stateOf(BEFORE);
     const applied = ok(applyMutation(state, req('applySurfacePreset', { entityId: 'box-0001', preset: 'signal-red' }, 0)));
@@ -228,7 +228,7 @@ describe('applySurfacePreset (commands.md §8.13)', () => {
   });
 });
 
-describe('queryGameConfig and the content counts (commands.md §A6)', () => {
+describe('queryGameConfig and the content counts', () => {
   it('queryGameConfig reports the tags (no game block); the counts report spawns and audio assets', () => {
     const state = stateOf(AFTER);
     const q = queryGameConfig(state, { op: 'queryGameConfig', projectId: BEFORE.projectId, args: {} });
@@ -242,7 +242,7 @@ describe('queryGameConfig and the content counts (commands.md §A6)', () => {
   });
 });
 
-describe('publishAsset kind and reimport rules (commands.md §3.1.1/§8.5)', () => {
+describe('publishAsset kind and reimport rules', () => {
   // The real `pcm-wav` recipe and `PcmWavMetrics` member (96 frames of the
   // committed cue-start preimage). A placeholder shape (`recipeVersion: 0`,
   // empty toolchain, GLB metrics) is refused by the audio rules.
@@ -367,7 +367,7 @@ describe('publishAsset kind and reimport rules (commands.md §3.1.1/§8.5)', () 
   });
 });
 
-describe('engine invariants (packet 45)', () => {
+describe('engine invariants', () => {
   it('orders the stale revision check before argument validation', () => {
     const state = stateOf(AFTER);
     const stale = applyMutation(state, req('setComponent', { entityId: 'nope', component: 'nope', value: 1 }, 3));

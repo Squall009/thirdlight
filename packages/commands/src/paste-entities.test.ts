@@ -65,7 +65,7 @@ function roomValues(s: State): Ent[] {
 }
 
 describe('pasteEntities', () => {
-  it('phase 24.7: remaps a trigger\'s scene-transition spawn inside the copy (the deleted exit zone\'s rule)', () => {
+  it('remaps a trigger\'s scene-transition spawn inside the copy (the deleted exit zone\'s rule)', () => {
     let s = createCommandState(structuredClone(STATION.scene), structuredClone(STATION.content)) as unknown as State;
     s = ok(s, 'createEntity', { kind: 'folder', name: 'room' });
     const folder = ents(s).at(-1)!.id;

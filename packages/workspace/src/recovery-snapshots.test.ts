@@ -249,7 +249,7 @@ function enospcRecoveryOps(flag: { on: boolean }): WriteOps {
 
 // ---- cases ---------------------------------------------------------------------
 
-describe('2026-09-18 review group D (R3, R16) regressions', () => {
+describe('recovery snapshots: edge cases', () => {
   it('1. R3 snapshot-creation failure (the review repro): ENOSPC on the recovery temp-file open ⇒ external_change_unresolved with snapshotState "snapshot_failed"; query paused with the same state; no snapshot artifact; foreign bytes byte-identical', () => {
     const root = makeRoot('r3a');
     try {

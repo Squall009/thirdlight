@@ -9,7 +9,7 @@ const problems = (v: unknown): string[] => {
   return errors.map((e) => e.path);
 };
 
-describe('phase 23.19: the project save schema', () => {
+describe('the project save schema', () => {
   it('accepts a full schema and canonicalizes it', () => {
     const s: SaveSchema = {
       settings: [

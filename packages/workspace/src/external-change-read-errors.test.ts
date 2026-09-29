@@ -179,7 +179,7 @@ function pausedQuery(s: { query: (r: unknown) => unknown }): void {
 
 // ---- cases ---------------------------------------------------------------------
 
-describe('2026-09-18 review group C (R1, R2, R6) regressions', () => {
+describe('external-change reads: error and edge cases', () => {
   // -- permission denied ≠ absent ------------------------------------------------
 
   it('1. R1 permission-denied: an unreadable foreign file pauses as unreadable (no zero-byte snapshot, bytes untouched)', () => {
@@ -237,7 +237,7 @@ describe('2026-09-18 review group C (R1, R2, R6) regressions', () => {
     }
   });
 
-  it('2. R1 no resolution over unreadable bytes; the §7.3 re-read then re-establishes from the real bytes and proceeds in the same call', () => {
+  it('2. R1 no resolution over unreadable bytes; the re-read then re-establishes from the real bytes and proceeds in the same call', () => {
     const root = makeRoot('r1b');
     try {
       const s = openProject(root);

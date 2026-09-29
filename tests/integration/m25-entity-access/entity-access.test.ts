@@ -306,7 +306,7 @@ const MARKS = [
   'on_ledge', 'ledge_off', 'fell', 'no_enter_off', 'hidden', 'ledge_back', 'next', 'arrived', 'no_next', 'prefab_ref',
 ];
 
-describe('phase 25.10: ctx.entity get/set, relaxed ownership, typed references, ctx.shell', () => {
+describe('ctx.entity get/set, relaxed ownership, typed references, ctx.shell', () => {
   for (const dim of [2, 3] as const) {
     it(`reads, writes and refuses as described, alike in page and worker, replays identical (${dim}D)`, async () => {
       const single = await run('single', dim);

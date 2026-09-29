@@ -71,7 +71,7 @@ const canonicalBytesOf = (value: unknown): Uint8Array =>
 
 const firstError = (r: { ok: false; errors: readonly EnvelopeV3Error[] }): EnvelopeV3Error => r.errors[0]!;
 
-describe('packet 44 — committed contract fixtures are present and indexed', () => {
+describe('committed contract fixtures are present and indexed', () => {
   it('covers every family and every indexed file exists', () => {
     expect(envelopeValid.length).toBeGreaterThanOrEqual(3);
     expect(envelopeInvalid.length).toBeGreaterThanOrEqual(10);
@@ -86,7 +86,7 @@ describe('packet 44 — committed contract fixtures are present and indexed', ()
   });
 });
 
-describe('packet 44 — valid v3 envelopes through the real implementation', () => {
+describe('valid v3 envelopes through the real implementation', () => {
   for (const rel of envelopeValid) {
     it(`${rel}: strict parse, validate, normalize and byte/digest roundtrip`, () => {
       const bytes = m3ContractFixtureBytes(rel);
@@ -135,7 +135,7 @@ describe('packet 44 — valid v3 envelopes through the real implementation', () 
   }
 });
 
-describe('packet 44 — invalid v3 envelopes return the recorded code/path/reason', () => {
+describe('invalid v3 envelopes return the recorded code/path/reason', () => {
   let executed = 0;
   for (const rel of envelopeInvalid) {
     it(`${rel}: ${index.fixtures[rel]!.expect?.result}/${index.fixtures[rel]!.expect?.path}`, () => {
@@ -173,7 +173,7 @@ describe('packet 44 — invalid v3 envelopes return the recorded code/path/reaso
   });
 });
 
-describe('packet 44 — catalog fixture through the real v3 content validator', () => {
+describe('catalog fixture through the real v3 content validator', () => {
   for (const rel of catalogFiles) {
     it(`${rel}: validate + canonical byte/digest roundtrip`, () => {
       const bytes = m3ContractFixtureBytes(rel);
@@ -196,7 +196,7 @@ describe('packet 44 — catalog fixture through the real v3 content validator', 
   }
 });
 
-describe('packet 44 — migration fixtures: the expected v3 destination loads', () => {
+describe('migration fixtures: the expected v3 destination loads', () => {
   // The engine has no v2→v3 scene conversion; the committed v3 destination
   // is still a valid storage-v3 project.
   const srcEnvelope = JSON.parse(m3ContractFixtureText('migration/v2-source/envelope.json')) as Record<string, unknown>;
@@ -250,7 +250,7 @@ describe('packet 44 — migration fixtures: the expected v3 destination loads', 
   });
 });
 
-describe('packet 44 — captureContent accepts the v3 pair (§19.2/§16.6)', () => {
+describe('captureContent accepts the v3 pair', () => {
   it('captures model and modelAnimation (pinned version) assets', () => {
     const env = JSON.parse(m3ContractFixtureText('envelope/valid/demo-0003-media-v3.json')) as Record<string, unknown>;
     const captured = captureContent(env['scene'], env['content'], { projectId: 'demo-0003', revision: 3 });
@@ -276,7 +276,7 @@ describe('packet 44 — captureContent accepts the v3 pair (§19.2/§16.6)', () 
   });
 });
 
-describe('packet 44 — v3 scene rules and non-destructive refusals', () => {
+describe('v3 scene rules and non-destructive refusals', () => {
   const fresh = JSON.parse(m3ContractFixtureText('envelope/valid/demo-0003-fresh-v3.json')) as Record<string, unknown>;
 
   it('unknown component kinds fail with component_unknown and do not repair', () => {
@@ -393,7 +393,7 @@ describe('packet 44 — v3 scene rules and non-destructive refusals', () => {
     }
   });
 
-  it('normalizeSceneV3 is idempotent and fills only the §23.7 defaults', () => {
+  it('normalizeSceneV3 is idempotent and fills only the defaults', () => {
     const scene = {
       schemaVersion: 3,
       sceneId: 'scene-main',

@@ -144,7 +144,7 @@ describe('a visual-script behavior', () => {
   });
 });
 
-describe('phase 19.1: functions of a visual script and shared functions', () => {
+describe('functions of a visual script and shared functions', () => {
   const FN_NODES = [
     { id: 'start', type: 'fn.entry', position: [0, 0], data: { name: 'double' } },
     { id: 'x', type: 'fn.input', position: [0, 100], data: { name: 'x', type: 'number' } },

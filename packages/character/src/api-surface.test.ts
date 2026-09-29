@@ -30,7 +30,7 @@ const TRANSFORM = {
   transform: { position: [1, 0.91, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] },
 };
 
-describe('public exports (dependencies.md §3 character row)', () => {
+describe('public exports', () => {
   it('exports exactly the contracted names', () => {
     expect(Object.keys(character).sort()).toEqual([
       'CHARACTER_MODULE_ID',
@@ -42,7 +42,7 @@ describe('public exports (dependencies.md §3 character row)', () => {
     expect(characterControllerSpec.id).toBe(CHARACTER_MODULE_ID);
   });
 
-  it('declares the the controller contract §2 module metadata', () => {
+  it('declares the controller contract module metadata', () => {
     expect(characterControllerSpec.phases).toEqual(['controller', 'transform']);
     expect(characterControllerSpec.excludes).toEqual(['thirdlight.demo:box-motion']);
     expect(characterControllerSpec.requiresPhysicsPort).toBe(true);
@@ -146,7 +146,7 @@ describe('module behaviour through the contracted StepContext only', () => {
     expect(staged[1]!.delta.y).toBe(0);
   });
 
-  it('phase 24.8: reads the move and jump actions its controller names (moveAction / jumpAction), not fixed channels', () => {
+  it('reads the move and jump actions its controller names (moveAction / jumpAction), not fixed channels', () => {
     const staged: { x: number }[] = [];
     const physics: PhysicsStepClient = { stageCharacterMove: (_id, delta) => staged.push({ x: delta.x }), characterResult: () => undefined };
     const module = characterControllerSpec.create(
@@ -165,7 +165,7 @@ describe('module behaviour through the contracted StepContext only', () => {
     expect(staged[1]!.x).toBeGreaterThan(0);
   });
 
-  it('uses a committed control intent as the §14.5 effective input', () => {
+  it('uses a committed control intent as the effective input', () => {
     const createModule = (): {
       staged: { id: string; delta: { x: number; y: number } }[];
       step: (p: 'controller' | 'transform', c: StepContext) => void;

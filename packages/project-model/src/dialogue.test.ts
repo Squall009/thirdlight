@@ -175,7 +175,7 @@ describe('dialogue validation and compile', () => {
 });
 
 describe('the engine dialogue document', () => {
-  it('is a valid 23.9a UI document, themable, and added only when the project uses it', () => {
+  it('is a valid UI document, themable, and added only when the project uses it', () => {
     const errors: ModelErrorV2[] = [];
     validateUiDocument(dialogueUiDocument('neutral'), '', errors);
     expect(errors).toEqual([]);

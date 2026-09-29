@@ -133,7 +133,7 @@ async function run(mode: Mode, behavior: { row: Any; url: string }, opts: { vari
   return { h, results };
 }
 
-describe('phase 23.8: debug entry points in the page and the worker', () => {
+describe('debug entry points in the page and the worker', () => {
   it('injected variables are what the script reads at step 0 (both modes)', async () => {
     const behavior = await compiledNudger();
     for (const mode of ['single', 'worker'] as const) {

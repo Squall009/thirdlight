@@ -64,7 +64,7 @@ describe('a moving block pushes the player out of it', () => {
   });
 });
 
-describe('phase 25.4: a polygon mover pushes by the same rule', () => {
+describe('a polygon mover pushes by the same rule', () => {
   const rect = { type: 'polygon', vertices: [[-2, -0.5], [2, -0.5], [2, 0.5], [-2, 0.5]] };
   it('the same rectangle as a polygon pushes exactly as the box', () => {
     for (const [move, player] of [[[0, 0.02], { x: -1, y: 0.2 }], [[0, 0.02], { x: -1, y: 0.62 }], [[0.02, 0.01], { x: -1, y: 0.2 }], [[-0.02, 0], { x: -2.2, y: 0.5 }]] as const) {

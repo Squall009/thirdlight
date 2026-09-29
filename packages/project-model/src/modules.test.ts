@@ -25,7 +25,7 @@ describe('resolveRequiredModules', () => {
     expect(resolveRequiredModules({ scene: { entities: [entity({ collider: {} })] } })).toEqual({ ok: true, moduleIds: [] });
   });
 
-  it('a controller and a model pull the controller and the glTF loader (phase 24.7: no game block, no session or camera module)', () => {
+  it('a controller and a model pull the controller and the glTF loader (no game block, no session or camera module)', () => {
     const r = resolveRequiredModules({ scene: { entities: [entity({ controller: {} }), entity({ model: {} })] } });
     expect(r).toEqual({
       ok: true,
@@ -38,7 +38,7 @@ describe('resolveRequiredModules', () => {
     });
   });
 
-  it('phase 24.3: modules come only from references — no component, no module; the character package are no behavior dependency', () => {
+  it('modules come only from references — no component, no module; the character package are no behavior dependency', () => {
     // A camera, lights, boxes and a spawn (the starter's shape) reference nothing.
     expect(resolveRequiredModules({ scene: { entities: [entity({ camera: {} }), entity({ light: {} }), entity({ box: {} }), entity({ playerSpawn: {} })] } })).toEqual({ ok: true, moduleIds: [] });
     // Each reference is table data: component → module, content block → modules.
@@ -74,7 +74,7 @@ describe('resolveRequiredModules', () => {
     expect(r).toEqual({ ok: true, moduleIds: [...ENGINE_MODULE_IDS] });
   });
 
-  it('phase 23.0/23.2: a 3D project\'s controller needs the 3D character controller and backend', () => {
+  it('a 3D project\'s controller needs the 3D character controller and backend', () => {
     const scene = { entities: [entity({ controller: {} })] };
     // The 3D character controller module (with the 3D backend and input it needs).
     expect(resolveRequiredModules({ scene, physicsDimension: 3 })).toEqual({ ok: true, moduleIds: ['thirdlight.character3d:controller', 'thirdlight.input:keyboard-gamepad', 'thirdlight.physics-rapier:3d'] });

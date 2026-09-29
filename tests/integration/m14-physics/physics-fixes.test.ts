@@ -114,7 +114,7 @@ const box = (id: string, x: number, y: number, components: Record<string, unknow
 /** On the floor the capsule's centre rests at 0.91 (half height 0.9 + the controller's skin). */
 const REST_Y = 0.91;
 
-describe('phase 14.7: a mover rising beside the character', () => {
+describe('a mover rising beside the character', () => {
   // A switch-opened gate: a pressure plate right in front of a 3 m gate (0.5 m
   // thick, left face at x = 5.75) that rises 3.2 m with an eased start. The
   // player walks right the whole time: it steps on the plate, reaches the gate
@@ -164,7 +164,7 @@ describe('phase 14.7: a mover rising beside the character', () => {
   });
 });
 
-describe('phase 14.7: a character start inside a one-way platform', () => {
+describe('a character start inside a one-way platform', () => {
   it('is not blocked: the run starts and the character stands on the floor under the shelf', async () => {
     const shelf = box('shelf-0001', 0, 1.2, { box: { size: [4, 0.2, 2], material: { color: '#ffffff' } }, collider: { shape: { type: 'box', hx: 2, hy: 0.1 }, oneWay: true } });
     // The capsule (0.01..1.81 m) passes through the shelf (1.1..1.3 m).

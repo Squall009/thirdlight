@@ -29,7 +29,7 @@ const move = (id: string, x: number, requestId: string, revision: number): Mutat
   change: change({ type: 'setTransform', id, previous: T0, next: { ...T0, position: [x, 0, 0] }, changedFields: ['position'] }),
 });
 
-describe('Projection — incremental updates (phase 21.4)', () => {
+describe('Projection — incremental updates', () => {
   it('listEntities hands out the same array until something changes', () => {
     const p = new Projection();
     p.hydrate(full(1, [ent('a'), ent('b'), ent('c')]));

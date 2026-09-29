@@ -4,7 +4,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { api, AUTHORING_ORIGIN, establish, mkSessionId, sleep, startBackend, upgrade, type TestBackend, type TestWs } from './test-helpers';
 
-describe('establish / re-attach (sessions.md §5.1)', () => {
+describe('establish / re-attach', () => {
   let tb: TestBackend;
   const sid1 = mkSessionId();
   const sid2 = mkSessionId();
@@ -48,7 +48,7 @@ describe('establish / re-attach (sessions.md §5.1)', () => {
     expect((r.json as { error: { code: string } }).error.code).toBe('unauthorized');
   });
 
-  it('new session ⇒ 200 with full state (revision 0, the §15 default scene)', async () => {
+  it('new session ⇒ 200 with full state', async () => {
     const r = await api(`${tb.authUrl}/api/v1/sessions`, {
       body: { projectId: 'demo-0001', sessionId: sid1, clientInfo: { kind: 'browser', label: 't1' } },
       token: tb.authToken,
@@ -198,7 +198,7 @@ describe('establish / re-attach (sessions.md §5.1)', () => {
   });
 });
 
-describe('session lifecycle bookkeeping (§5.1/§11.1)', () => {
+describe('session lifecycle bookkeeping', () => {
   it('the session log ring is bounded (128) and records registered/detached', async () => {
     const tb = await startBackend();
     try {
@@ -223,7 +223,7 @@ describe('session lifecycle bookkeeping (§5.1/§11.1)', () => {
     }
   });
 });
-describe('admin operator operations (sessions.md §6.3; workspace.md §11)', () => {
+describe('admin operator operations', () => {
   let tb: TestBackend;
   beforeAll(async () => {
     tb = await startBackend();

@@ -13,7 +13,7 @@ import {
 
 const enc = (s: string): Uint8Array => new TextEncoder().encode(s);
 
-describe('parseStrictJsonBytes (sessions.md §6.1 pass-1)', () => {
+describe('parseStrictJsonBytes', () => {
   it('parses valid strict JSON', () => {
     const r = parseStrictJsonBytes(enc('{"a":1,"b":[1,2]}'));
     expect(r.ok).toBe(true);
@@ -44,7 +44,7 @@ describe('parseStrictJsonBytes (sessions.md §6.1 pass-1)', () => {
   });
 });
 
-describe('checkShape (unknown fields rejected — sessions.md §1)', () => {
+describe('checkShape', () => {
   const allowed = new Map([
     ['a', 'number'],
     ['b', 'string (optional)'],

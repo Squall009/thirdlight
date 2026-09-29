@@ -51,7 +51,7 @@ function step(st: CommandState, op: string, args: object): CommandState {
   return stateOf(applyMutation(st, at(st, op, args)));
 }
 
-describe('createEntity — ID assignment (§8.1 step 2)', () => {
+describe('createEntity — ID assignment', () => {
   it('assigns the smallest free <kind>-NNNN; kind prefixes are independent', () => {
     const st0 = v4State(BASE);
     const r1 = applyMutation(st0, at(st0, 'createEntity', { kind: 'box' }));
@@ -86,7 +86,7 @@ describe('createEntity — ID assignment (§8.1 step 2)', () => {
     expect(nextEntityId(s, 'box', new Set(['box-000002']))).toBe('box-000004');
   });
 
-  it('phase 25.7a: old four-digit ids stay and never collide with the six-digit ones', () => {
+  it('old four-digit ids stay and never collide with the six-digit ones', () => {
     const s = scene(0, [cameraEntity(), boxEntity('box-0001'), boxEntity('box-0002')]);
     let st = v4State(s);
     const r = applyMutation(st, at(st, 'createEntity', { kind: 'box' }));
@@ -96,7 +96,7 @@ describe('createEntity — ID assignment (§8.1 step 2)', () => {
   });
 });
 
-describe('createEntity — defaults and placement (§8.1 step 3/4)', () => {
+describe('createEntity — defaults and placement', () => {
   it('stores the full canonical entity with defaults filled; change carries it', () => {
     const s = ok(applyMutation(v4State(BASE), req('createEntity', { kind: 'box' })));
     expect(s.createdId).toBe('box-000001');
@@ -178,7 +178,7 @@ describe('createEntity — defaults and placement (§8.1 step 3/4)', () => {
   });
 });
 
-describe('createEntity — preconditions and limits (§8.1 step 1)', () => {
+describe('createEntity — preconditions and limits', () => {
   it('parentId that does not resolve ⇒ reference_missing (pinned shape)', () => {
     const requestId = 'req-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
     const r = applyMutation(
@@ -231,7 +231,7 @@ describe('createEntity — preconditions and limits (§8.1 step 1)', () => {
     expect(r2.ok && r2.state.scene.entities.length).toBe(16384);
   });
 
-  it('phase 25.7a: a v4 scene holding 9,999 old four-digit boxes still creates boxes (no id_exhaustion below the entity limit)', () => {
+  it('a v4 scene holding 9,999 old four-digit boxes still creates boxes (no id_exhaustion below the entity limit)', () => {
     const ents: EntityV3[] = [cameraEntity()];
     for (let n = 1; n <= 9999; n++) ents.push(boxEntity(`box-${String(n).padStart(4, '0')}`));
     const st = v4State(scene(0, ents));
@@ -269,7 +269,7 @@ describe('createEntity — preconditions and limits (§8.1 step 1)', () => {
   });
 });
 
-describe('createEntity — value failures via result-scene validation (§5.2)', () => {
+describe('createEntity — value failures via result-scene validation', () => {
   it.each([
     ['position out of range', { kind: 'box', transform: { position: [1000001, 0, 0] } }],
     ['scale zero', { kind: 'box', transform: { scale: [0, 1, 1] } }],

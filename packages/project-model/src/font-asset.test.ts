@@ -20,7 +20,7 @@ function font(assetId: string, versions = [version(1)]) {
 }
 const limitOf = (r: ReturnType<typeof validateContentV4>): unknown[] => (r.ok ? [] : r.errors.map((e) => (e as { limit?: unknown }).limit ?? e.code));
 
-describe('font asset records (phase 23.9a)', () => {
+describe('font asset records', () => {
   it('accepts a font record and keeps its metrics canonical', () => {
     const r = validateContentV4({ ...base, assets: [font('font-a'), font('font-b', [version(1, { format: 'woff2' })])] });
     expect(r.ok, JSON.stringify(r)).toBe(true);

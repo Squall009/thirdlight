@@ -18,7 +18,7 @@ import {
   type TestBackend,
 } from './test-helpers';
 
-describe('WS upgrade + session channel (sessions.md §4.3/§5.2)', () => {
+describe('WS upgrade + session channel', () => {
   let tb: TestBackend;
   const sid = mkSessionId();
   let est: Awaited<ReturnType<typeof establish>>;
@@ -187,7 +187,7 @@ describe('WS upgrade + session channel (sessions.md §4.3/§5.2)', () => {
   });
 });
 
-describe('commands over HTTP + mutation.applied (§6.1/§6.2/§8.4)', () => {
+describe('commands over HTTP + mutation.applied', () => {
   let tb: TestBackend;
   const sid = mkSessionId();
   let ws: Awaited<ReturnType<typeof connectWs>>;

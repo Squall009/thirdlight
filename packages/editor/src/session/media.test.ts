@@ -57,7 +57,7 @@ describe('validateMediaDrop — the extension decides the kind before any networ
     }
   });
 
-  it('phase 23.9a: accepts .ttf/.otf/.woff2/.woff as a font', () => {
+  it('accepts .ttf/.otf/.woff2/.woff as a font', () => {
     for (const name of ['Title.ttf', 'Title.OTF', 'Title.woff2', 'Title.woff']) {
       const r = validateMediaDrop(name, 1000);
       expect(r.ok, name).toBe(true);
@@ -119,7 +119,7 @@ function lightForm(over: Partial<LightForm> = {}): LightForm {
   };
 }
 
-describe('parseLightForm — the §23.3.4 table', () => {
+describe('parseLightForm — the table', () => {
   it('parses a directional light (castShadow carried)', () => {
     const r = parseLightForm(lightForm({ castShadow: true, color: '#F0E0D0' }));
     expect(r.ok).toBe(true);
@@ -210,7 +210,7 @@ describe('planSetLight — add = complete value, edit = changed fields, type swi
   });
 });
 
-describe('lightCounts — the §23.10 scene limit is one directional + one ambient', () => {
+describe('lightCounts — the scene limit is one directional + one ambient', () => {
   const e = (light?: unknown): ProjectedEntity =>
     ({ id: 'e', kind: 'group', name: 'n', transform: { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] }, light } as unknown as ProjectedEntity);
   it('counts only light components by type', () => {
@@ -223,7 +223,7 @@ describe('lightCounts — the §23.10 scene limit is one directional + one ambie
 // Surface
 // ---------------------------------------------------------------------------
 
-describe('parseSurfaceForm — the §23.3.5 table', () => {
+describe('parseSurfaceForm — the table', () => {
   const form = (over: Partial<SurfaceForm> = {}): SurfaceForm => ({
     color: '#b0b0b0',
     roughness: '0.9',
@@ -281,7 +281,7 @@ describe('planSetSurface — add = complete, edit = changed fields only', () => 
   });
 });
 
-describe('the built-in presets are the frozen §23.3.1a rows (display mirror)', () => {
+describe('the built-in presets are the frozen preset rows (display mirror)', () => {
   it('lists exactly the three preset names', () => {
     expect([...SURFACE_PRESET_NAMES]).toEqual(['matte-ground', 'signal-red', 'emissive-accent']);
   });
@@ -295,7 +295,7 @@ describe('the built-in presets are the frozen §23.3.1a rows (display mirror)', 
     }
   });
 
-  it('equals the authoritative project-model rows (phase 15.5: the mirror had drifted)', () => {
+  it('equals the authoritative project-model rows', () => {
     expect(SURFACE_PRESETS).toEqual({
       'matte-ground': { color: '#6f6f6f', roughness: 0.95, metalness: 0, emissive: '#000000', emissiveIntensity: 0 },
       'signal-red': { color: '#d42a1e', roughness: 0.55, metalness: 0, emissive: '#3a0703', emissiveIntensity: 0.35 },
@@ -367,7 +367,7 @@ describe('planSetModelAnimation — assetId fixed to the entity model, complete 
     }
   });
 
-  it('is a noop for a non-model entity (the §23.8 step-5 conflict)', () => {
+  it('is a noop for a non-model entity', () => {
     const box = { id: 'box-0001', kind: 'box', name: 'b', transform: { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] } } as unknown as ProjectedEntity;
     expect(planSetModelAnimation('box-0001', box, form, 1).kind).toBe('noop');
     expect(planSetModelAnimation('model-0001', { ...modelEntity(), assetId: undefined } as unknown as ProjectedEntity, form, 1).kind).toBe('noop');
@@ -386,7 +386,7 @@ describe('planSetModelAnimation — assetId fixed to the entity model, complete 
   });
 });
 
-describe('planAnimatedReimport — the §8.5.1 all-or-nothing args', () => {
+describe('planAnimatedReimport — the all-or-nothing args', () => {
   const roles: Record<AnimationRoleKey, { clipIndex: number; clipName: string }> = {
     idle: { clipIndex: 0, clipName: 'Idle' },
     run: { clipIndex: 1, clipName: 'Run' },

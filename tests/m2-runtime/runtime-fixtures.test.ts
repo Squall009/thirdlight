@@ -211,7 +211,7 @@ function replaySchedule(
   return out;
 }
 
-describe('accepted packet-17 scheduler fixture (fixtures/m2/contracts/runtime/catchup.json)', () => {
+describe('accepted scheduler fixture (fixtures/m2/contracts/runtime/catchup.json)', () => {
   const doc = readJson('fixtures/m2/contracts/runtime/catchup.json');
   for (const c of doc.cases) {
     it(`${c.caseId}: ${c.title}`, () => {
@@ -304,7 +304,7 @@ describe('accepted packet-17 scheduler fixture (fixtures/m2/contracts/runtime/ca
   });
 });
 
-describe('packet-29 scheduler fixtures (fixtures/m2/runtime/scheduler-traces.json)', () => {
+describe('scheduler fixtures (fixtures/m2/runtime/scheduler-traces.json)', () => {
   const doc = readJson('fixtures/m2/runtime/scheduler-traces.json');
   for (const c of doc.cases) {
     it(`${c.caseId}`, () => {
@@ -325,7 +325,7 @@ describe('packet-29 scheduler fixtures (fixtures/m2/runtime/scheduler-traces.jso
 
 describe('frozen M1 demo points (fixtures/m2/runtime/demo-traces.json)', () => {
   const doc = readJson('fixtures/m2/runtime/demo-traces.json');
-  it('reproduces every §7.1 exact point bit-for-bit', () => {
+  it('reproduces every exact point bit-for-bit', () => {
     const registry = createSimulationRegistry();
     for (const spec of BUILTIN_MODULES) registerSimulationModule(registry, spec.id, spec);
     const res = instantiateRuntime({

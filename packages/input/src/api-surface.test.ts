@@ -17,7 +17,7 @@ import { attachBrowserInput } from './browser';
 import { mapRawInput } from './mapping';
 import { createStepInputSource } from './step-source';
 
-describe('public exports (dependencies.md §3 input row)', () => {
+describe('public exports', () => {
   it('exports every contracted name', () => {
     expect(typeof input.mapRawInput).toBe('function');
     expect(typeof input.attachBrowserInput).toBe('function');

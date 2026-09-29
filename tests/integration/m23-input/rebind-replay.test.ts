@@ -108,7 +108,7 @@ async function liveRun(keys: [number, 'down' | 'up', string][], rebindAt: number
 
 const jumps = (frames: readonly ActionFrame[]): string[] => frames.map((f) => `${f.stepIndex}:${f.actions?.['jump']?.p ?? '-'}`);
 
-describe('phase 23.14: a rebind changes what drives an action, not what the simulation sees', () => {
+describe('a rebind changes what drives an action, not what the simulation sees', () => {
   it('the same jump values from Space→Space and Space→(rebind)→K; Space no longer jumps; the replay of the rebind run matches in page and worker', async () => {
     const a = await liveRun([[20, 'down', 'Space'], [25, 'up', 'Space'], [60, 'down', 'Space'], [65, 'up', 'Space']], null);
     const b = await liveRun([[20, 'down', 'Space'], [25, 'up', 'Space'], [60, 'down', 'KeyK'], [65, 'up', 'KeyK'], [80, 'down', 'Space'], [85, 'up', 'Space']], 40);

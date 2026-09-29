@@ -37,7 +37,7 @@ function ramp(id: string, x0: number, deg: number): Any {
   return block(id, center, [hx, hy, 2], [0, 0, Math.sin(t / 2), Math.cos(t / 2)]);
 }
 
-describe('phase 23.2: the 3D character controller (Rapier 3D, recorded input)', () => {
+describe('the 3D character controller (Rapier 3D, recorded input)', () => {
   it('step-up: the default 0.3 m climbs a 0.3 m riser; a 0.6 m block stops it', async () => {
     const low = await walk({}, [block('step-1', [3, 0.15, 0], [1, 0.15, 2])], 200);
     expect(low.player.position[0]).toBeGreaterThan(2.5);

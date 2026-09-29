@@ -42,7 +42,7 @@ function nodeAt(poser: RigPoser, name: string, p: AnimatorPose | null): { t: num
   return { t, r, s };
 }
 
-describe('phase 23.11: the rig poser', () => {
+describe('the rig poser', () => {
   it('samples like three.js: linear, step, cubic spline, and holds the ends', () => {
     const out = [0, 0, 0, 0];
     const lin = { node: 'a', path: 'translation' as const, interpolation: 'LINEAR' as const, times: [1, 3], values: [0, 0, 0, 2, 4, 6] };
@@ -106,7 +106,7 @@ function world(entities: { id: string; parentId?: string; t?: number[]; r?: numb
 const entity = (id: string, components: Record<string, unknown>, parentId?: string) => ({ id, ...(parentId !== undefined ? { parentId } : {}), components: { transform: { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] }, ...components } }) as never;
 const MODEL = { model: { asset: { assetId: 'model-a' } } };
 
-describe('phase 23.11: the socket system', () => {
+describe('the socket system', () => {
   it('places an attached entity at targetWorld · node · offset, relative to its own parent, following the pose', () => {
     const poses = new Map<string, AnimatorPose>([['tt', pose([{ clip: 'slide', time: 2, weight: 1 }])]]);
     const w = world(
@@ -193,7 +193,7 @@ describe('phase 23.11: the socket system', () => {
   });
 });
 
-describe('phase 23.11: animator speed and morph weights', () => {
+describe('animator speed and morph weights', () => {
   const controller: AnimatorControllerLike = {
     controllerId: 'c',
     parameters: [{ name: 'smile', type: 'float', default: 0.25 }],

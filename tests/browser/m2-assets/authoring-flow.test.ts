@@ -173,7 +173,7 @@ class CountingSink implements GestureCommandSink {
   }
 }
 
-describe('packet 27 (Node) — import → publish → place twice → reimport', () => {
+describe('(Node) — import → publish → place twice → reimport', () => {
   it('imports a GLB, places two instances and reimports without changing entity IDs/transforms', () => {
     const transport = new FakeTransport();
     const bytes = new Uint8Array(2_200_000); // 3 bounded frames
@@ -258,7 +258,7 @@ describe('packet 27 (Node) — import → publish → place twice → reimport',
   });
 });
 
-describe('packet 27 (Node) — gesture command discipline and undo', () => {
+describe('(Node) — gesture command discipline and undo', () => {
   it('zero commands during the drag, exactly one on release, one undo, none on cancel', () => {
     const sink = new CountingSink();
     const runner = new GestureRunner('model-0001', 4, { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] }, sink, { snapping: true });
@@ -282,7 +282,7 @@ describe('packet 27 (Node) — gesture command discipline and undo', () => {
   });
 });
 
-describe('packet 27 (Node) — direct whole-GLB placement (C27-1 repaired)', () => {
+describe('(Node) — direct whole-GLB placement (C27-1 repaired)', () => {
   it('plans two createEntity model commands and applies them as two independent copies', () => {
     const scene = new Projection();
     scene.hydrate({ revision: 2, entities: [] });

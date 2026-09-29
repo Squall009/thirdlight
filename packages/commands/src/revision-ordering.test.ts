@@ -36,7 +36,7 @@ function fail(state: CommandState, request: unknown): CommandError {
   return r.result.error;
 }
 
-describe('revision check precedes args-schema validation (§6.1 step 4) — F1 regression', () => {
+describe('revision check precedes args-schema validation', () => {
   it('stale + field_type args (entityId: 42) ⇒ revision_conflict carrying both revisions (probe A1)', () => {
     const e = fail(
       stateAt(5),

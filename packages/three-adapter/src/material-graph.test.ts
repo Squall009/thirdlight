@@ -126,7 +126,7 @@ describe('material graph compiler: every node kind', () => {
   });
 });
 
-describe('material graph compiler: lighting inputs and the Custom-lit output (phase 23.15)', () => {
+describe('material graph compiler: lighting inputs and the Custom-lit output', () => {
   /** A two-band cel graph: N·L of the main light stepped at 0 picks one of two colours; the shadow darkens it. */
   const bands = (surface: string, extra: Partial<MaterialGraphLike> = {}): MaterialGraphLike => ({
     nodes: [

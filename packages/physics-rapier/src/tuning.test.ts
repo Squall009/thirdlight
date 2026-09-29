@@ -41,7 +41,7 @@ function walk(p: RapierPhysicsPort, hz: number, moveX: number, seconds: number):
   return last!;
 }
 
-describe('physics tuning from the init config (phase 15.3)', () => {
+describe('physics tuning from the init config', () => {
   it('accepts the project step rates 60, 120 and 240 Hz; refuses others and out-of-range tuning', async () => {
     for (const hz of [60, 120, 240]) {
       const r = await createPhysicsPort(config(hz));

@@ -117,7 +117,7 @@ test('known values: constant, texture, per-object parameter, fresnel, vertex off
   expect(near(p('liftedFrom'), BACKGROUND, 3), JSON.stringify(p('liftedFrom'))).toBe(true);
 });
 
-test('custom-lit (phase 23.15): N·L bands, the shadow input, a point light in the diffuse light, the main light, fog', async ({ page }) => {
+test('custom-lit: N·L bands, the shadow input, a point light in the diffuse light, the main light, fog', async ({ page }) => {
   test.setTimeout(120_000);
   const { img, result, errors } = await render(page, 'lit');
   expect(errors).toEqual([]);
@@ -163,7 +163,7 @@ test('custom-lit (phase 23.15): N·L bands, the shadow input, a point light in t
   expect(far[2], JSON.stringify(far)).toBeGreaterThan(120);
 });
 
-test('custom-lit (phase 23.15) without any light draws its graph with "no light" (diffuse 0, shadow 1)', async ({ page }) => {
+test('custom-lit without any light draws its graph with "no light" (diffuse 0, shadow 1)', async ({ page }) => {
   test.setTimeout(60_000);
   const { img, result, errors } = await render(page, 'dark');
   expect(errors).toEqual([]);

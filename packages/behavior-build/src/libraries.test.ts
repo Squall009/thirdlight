@@ -191,7 +191,7 @@ describe('script libraries', () => {
     expect(typeof compiler.checkLibrary).toBe('function');
   });
 
-  it('phase 25.24c: a compiler instance compiles the same input once (keyed by source, declaration and library digests)', async () => {
+  it('a compiler instance compiles the same input once (keyed by source, declaration and library digests)', async () => {
     const compiler = createBehaviorCompiler();
     const src = (v: string): Uint8Array => container([{ path: 'src/index.ts', text: `import { NAME } from '@lib/rules';\nexport default { v: NAME + '${v}', step() {} };\n` }]);
     const input = { behaviorId: 'one', declaration: NO_PROPS, containerBytes: src('a'), pinnedModules: M2_PINNED_MODULES, libraries: [RULES] };

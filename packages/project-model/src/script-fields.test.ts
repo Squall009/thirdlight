@@ -8,7 +8,7 @@ import { DESCRIPTORS } from './descriptors';
 import { SCRIPT_ACCESS_SCHEMA_VERSION, checkScriptPatch, scriptAccessTable, scriptComponentAccess, scriptSnapshot } from './script-fields';
 import { PROJECT_SCHEMA_VERSION } from './upgrade-v24';
 
-describe('phase 25.10: script access marks', () => {
+describe('script access marks', () => {
   it('is versioned with the project schema and pinned for it', () => {
     const t = scriptAccessTable();
     expect(t.schemaVersion).toBe(PROJECT_SCHEMA_VERSION);

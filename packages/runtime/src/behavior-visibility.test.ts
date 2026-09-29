@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 
 import { materializeBehaviorValues } from './behavior';
 
-describe('phase 15.4: materialized values and visibility', () => {
+describe('materialized values and visibility', () => {
   const declaration = {
     properties: [
       { key: 'speed', label: 'Speed', type: 'number' as const, default: 3 },

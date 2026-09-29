@@ -145,7 +145,7 @@ const FN: GraphData = {
   edges: [w('1', 'x', 'value', 'twice', 'a'), w('2', 'twice', 'result', 'y', 'value')],
 };
 
-describe('phase 19.1: variables, functions, phases and moved objects', () => {
+describe('variables, functions, phases and moved objects', () => {
   it('variable kinds: vector, entity (entityRef), choice (enum), list and map; local variables are no properties', () => {
     const g: GraphData = {
       nodes: [

@@ -70,7 +70,7 @@ function recordOf(env: BuildEnv, behaviorId: string) {
   return envelopeJson(env).content.behaviors.find((b) => b.behaviorId === behaviorId);
 }
 
-describe('packet 33 — behavior source publication (real fs, real compiler, one commit path)', () => {
+describe('behavior source publication (real fs, real compiler, one commit path)', () => {
   it('prepares, publishes and reopens a source-bearing behavior record', async () => {
     const env = makeBuildEnv('m2pub');
     createDeclaration(env, 1);

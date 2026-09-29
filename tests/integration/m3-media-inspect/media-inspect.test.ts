@@ -122,7 +122,7 @@ function deriveMetrics(bytes: Buffer): PcmWavMetrics {
   };
 }
 
-describe('packet 47 — committed media fixture checker', () => {
+describe('committed media fixture checker', () => {
   it('passes, and its corruption control detects every corruption', () => {
     const checker = join(MEDIA, 'tools', 'check-fixtures.mjs');
     const ok = spawnSync(process.execPath, [checker], { encoding: 'utf8' });
@@ -139,8 +139,8 @@ describe('packet 47 — committed media fixture checker', () => {
   }, 30_000); // three node child processes; ~3 s alone, slower while the FBX tests run Blender
 });
 
-describe('packet 47 — inspectAudio over the committed WAV bytes (§41.4.4)', () => {
-  it('accepts every committed positive with the exact §41.4.2 metrics', () => {
+describe('inspectAudio over the committed WAV bytes', () => {
+  it('accepts every committed positive with the exact metrics', () => {
     expect(wavCases.positives.length).toBeGreaterThanOrEqual(8);
     for (const c of wavCases.positives) {
       const bytes = bytesOf(c.file);
@@ -240,7 +240,7 @@ describe('packet 47 — inspectAudio over the committed WAV bytes (§41.4.4)', (
   });
 });
 
-describe('packet 47 — cancellation through the accepted job port', () => {
+describe('cancellation through the accepted job port', () => {
   const job = (over: Partial<ImportJobPort> = {}): ImportJobPort => ({
     now: () => 0,
     isCancelled: () => false,
@@ -280,7 +280,7 @@ describe('packet 47 — cancellation through the accepted job port', () => {
   });
 });
 
-describe('packet 47 — role-aware GLB proposal (§41.3.2/§41.3.3)', () => {
+describe('role-aware GLB proposal', () => {
   it('reproduces every committed profile case through the real pipeline', () => {
     expect(profileCases.cases.length).toBeGreaterThanOrEqual(20);
     // The animation binding stages 1–2 (container/fields) are model-owned, so the
@@ -368,7 +368,7 @@ describe('packet 47 — role-aware GLB proposal (§41.3.2/§41.3.3)', () => {
   });
 });
 
-describe('packet 47 — recipe and metadata digests over supplied records', () => {
+describe('recipe and metadata digests over supplied records', () => {
   it('matches SHA-256(canonical JSON of the recipe) independently', () => {
     const recipe = wavCases.recipe;
     expect(importRecipeDigest(recipe as never)).toBe(canonicalDigest(recipe));
@@ -435,7 +435,7 @@ describe('packet 47 — recipe and metadata digests over supplied records', () =
   });
 });
 
-describe('packet 47 — project-model loads the promoted pcm-wav record (CC-44-2)', () => {
+describe('project-model loads the promoted pcm-wav record (CC-44-2)', () => {
   it('accepts the regenerated catalog and media envelope', () => {
     const catalog = json<{ content: unknown }>(join(CONTRACTS, 'catalog', 'audio-asset-record-v3.json'));
     expect(validateContentV3(catalog.content).ok).toBe(true);
@@ -443,7 +443,7 @@ describe('packet 47 — project-model loads the promoted pcm-wav record (CC-44-2
     expect(validateEnvelopeV3(envelope).ok).toBe(true);
   });
 
-  it('refuses a disagreeing metrics record and the packet-41 placeholder shape', () => {
+  it('refuses a disagreeing metrics record and the placeholder shape', () => {
     const catalog = json<{ content: { assets: { versions: Record<string, unknown>[] }[] } }>(
       join(CONTRACTS, 'catalog', 'audio-asset-record-v3.json'),
     );
@@ -481,7 +481,7 @@ describe('packet 47 — project-model loads the promoted pcm-wav record (CC-44-2
   });
 });
 
-describe('packet 47 — the pinned profile constants agree across the two packages', () => {
+describe('the pinned profile constants agree across the two packages', () => {
   it('uses the repository package version as the only pcm-wav toolchain entry', () => {
     const pkg = JSON.parse(
       readFileSync(join(REPO_ROOT, 'packages', 'asset-pipeline', 'package.json'), 'utf8'),
@@ -498,7 +498,7 @@ describe('packet 47 — the pinned profile constants agree across the two packag
   });
 });
 
-describe('packet 47 — no network and no filesystem in the pure inspector', () => {
+describe('no network and no filesystem in the pure inspector', () => {
   it('inspects every committed WAV and GLB with fetch/XHR/WebSocket stubbed to throw', () => {
     const fetchStub = () => {
       throw new Error('network access attempted by the inspector');

@@ -35,7 +35,7 @@ const io = (files: Map<string, Uint8Array>, reads: string[] = []) => ({
   sha256Hex: sha256HexAsync,
 });
 
-describe('expandManifestContentFiles (phase 25.7b)', () => {
+describe('expandManifestContentFiles', () => {
   it('reads each listed file once and puts its block back under its key', async () => {
     const { manifest, files } = await capture();
     expect('materials' in manifest).toBe(false);

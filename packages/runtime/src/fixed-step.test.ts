@@ -57,7 +57,7 @@ function makeManual(startClock = 0): Harness {
 
 const DT = 1 / 120;
 
-describe('fixed steps with bounded catch-up (runtime.md §5)', () => {
+describe('fixed steps with bounded catch-up', () => {
   it('the first frame after start initializes the anchor — time before start is never simulated', () => {
     const h = makeManual();
     h.rt.tick(0); // anchor at t=0 (zero steps)
@@ -88,7 +88,7 @@ describe('fixed steps with bounded catch-up (runtime.md §5)', () => {
     h.rt.stop();
   });
 
-  it('a 100 ms stall: rawN 12 ⇒ 8 executed, 4 dropped, anchor resynced (§5.4)', () => {
+  it('a 100 ms stall: rawN 12 ⇒ 8 executed, 4 dropped, anchor resynced', () => {
     const h = makeManual();
     h.rt.tick(0); // anchor
     h.setNow(DT * 2);

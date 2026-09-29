@@ -127,7 +127,7 @@ describe('effects', () => {
     if (none.ok) expect((none.normalized as unknown as Record<string, unknown>)['effects']).toBeUndefined();
   });
 
-  it('phase 20.2: the component starts and stops on signals (canonical: the new fields last)', () => {
+  it('the component starts and stops on signals (canonical: the new fields last)', () => {
     expect(errs((e) => validateEffectComponent({ effectId: 'fx-a', playOnStart: false, signal: 'go', stopSignal: 'halt' }, '', e))).toEqual([]);
     expect(errs((e) => validateEffectComponent({ effectId: 'fx-a', signal: 'bad signal!' }, '', e))[0]!.path).toBe('/signal');
     expect(Object.keys(canonicalEffectComponent({ stopSignal: 'halt', signal: 'go', effectId: 'fx-a', params: { tint: '#00FF00' } }))).toEqual(['effectId', 'params', 'signal', 'stopSignal']);
@@ -135,7 +135,7 @@ describe('effects', () => {
     expect(JSON.stringify(canonicalEffectComponent({ effectId: 'fx-a', playOnStart: false }))).toBe('{"effectId":"fx-a","playOnStart":false}');
   });
 
-  it('phase 20.2: the runtime view (manifest effects): graphs without editor text, the assets and materials the graphs name', () => {
+  it('the runtime view (manifest effects): graphs without editor text, the assets and materials the graphs name', () => {
     const withText: EffectDef = { ...FX, systems: [{ ...FX.systems[0]!, graph: { ...FX.systems[0]!.graph, comments: [{ id: 'c', position: [0, 0], size: [100, 50], text: 'note' }] } as never }] };
     const rt = effectsForRuntime([withText]);
     expect((rt[0]!.systems[0]!.graph as unknown as Record<string, unknown>)['comments']).toBeUndefined();
@@ -146,7 +146,7 @@ describe('effects', () => {
     expect(effectMaterialRefs(shaded)).toEqual(['mat-a']);
   });
 
-  it('phase 20.2: the manifest carries the effects (an optional key, validated)', () => {
+  it('the manifest carries the effects (an optional key, validated)', () => {
     const SETTINGS = { gravity_y: -19.62, run_speed: 4, jump_velocity: 7, max_fall_speed: -30, max_slope_climb_deg: 45, min_slope_slide_deg: 30 };
     const DIGEST = '0123456789abcdef'.repeat(4);
     const input = { projectId: 'demo-0001', revision: 1, capturedAt: '2026-09-25T10:00:00Z', sceneDigest: DIGEST, contentDigest: DIGEST, assets: [], behaviors: [], settings: SETTINGS, media: { animation: [] }, moduleIds: [] };

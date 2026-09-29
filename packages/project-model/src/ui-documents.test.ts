@@ -76,7 +76,7 @@ describe('UI documents: shape and limits', () => {
     for (const [what, v] of cases) expect(errs(v).length, what).toBeGreaterThan(0);
   });
 
-  it('phase 25.22: a size axis and a bar\'s start angle may read the view model', () => {
+  it('a size axis and a bar\'s start angle may read the view model', () => {
     expect(errs(doc({ root: { type: 'panel', children: [{ type: 'panel', size: [{ bind: 'hud.w' }, 12] }, { type: 'bar', value: 0.5, shape: 'radial', startAngle: { bind: 'hud.angle' }, size: [null, { bind: '$item.h' }] }] } }))).toEqual([]);
   });
 
@@ -128,7 +128,7 @@ describe('UI documents: project references', () => {
   });
 });
 
-describe('phase 23.14: rebinding engine actions', () => {
+describe('rebinding engine actions', () => {
   const docWith = (onClick: unknown): unknown => ({ uiDocumentId: 'keys', name: 'Keys', root: { type: 'button', text: 'x', onClick } });
   it('rebind names its input action (device, index, part, policy optional); cancelRebind and resetBindings', () => {
     expect(errs(docWith({ do: 'engine', action: 'rebind', input: 'jump', device: 'gamepad', index: 1, part: 'up', policy: 'refuse' }))).toEqual([]);

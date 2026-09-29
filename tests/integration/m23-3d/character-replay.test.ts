@@ -49,7 +49,7 @@ function recording(): ActionFrame[] {
   return out;
 }
 
-describe('phase 23.2: a recorded 3D character run replays identically (page and worker)', () => {
+describe('a recorded 3D character run replays identically (page and worker)', () => {
   it('two page runs and the worker produce the same step digests and end in the same place', async () => {
     const STEPS = 960;
     const a = await runScene('single', course(), recording(), STEPS);
@@ -102,7 +102,7 @@ function logsOf(errors: Any[]): Any[] {
   return errors.filter((e) => e.code === 'behavior_log').map((e) => JSON.parse(e.message));
 }
 
-describe('phase 23.2: scripts drive the 3D character (page and worker)', () => {
+describe('scripts drive the 3D character (page and worker)', () => {
   it('character_move walks it, character_place teleports it, character_enable freezes it, control_move takes a y; characterState reads it', async () => {
     const director = behaviorModule('director', DIRECTOR);
     const behaviors = [director];

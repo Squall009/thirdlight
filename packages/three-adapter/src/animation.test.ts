@@ -183,7 +183,7 @@ describe('rule 7 — validateAnimationRoles (the stage 3 / stage 5–6 re-check)
 
 // ---- the controller over the real three animation stack ----
 
-describe('packet 53 — the role controller (real three mixers, real GLB clips)', () => {
+describe('the role controller (real three mixers, real GLB clips)', () => {
   it('installs the mapping and refuses the hard failures (rule 7)', async () => {
     const resource = await prepareResource(CLIP_NAMES);
     const { view } = hostView();
@@ -274,7 +274,7 @@ describe('packet 53 — the role controller (real three mixers, real GLB clips)'
     resource.dispose();
   });
 
-  it('phase 15.3: the blend time is the project\'s animation_crossfade_s (0.5 s here; 0 s cuts)', async () => {
+  it('the blend time is the project\'s animation_crossfade_s (0.5 s here; 0 s cuts)', async () => {
     const resource = await prepareResource(CLIP_NAMES);
     const make = (seconds: number) => {
       const { host, view } = hostView();
@@ -328,7 +328,7 @@ describe('packet 53 — the role controller (real three mixers, real GLB clips)'
     resource.dispose();
   });
 
-  it('the reordered-clip mapping is accepted against the reordered bytes (rule 7 / §41.3.4 rule 5)', async () => {
+  it('the reordered-clip mapping is accepted against the reordered bytes', async () => {
     const resource = await prepareResource(REORDERED_NAMES);
     const { host, view } = hostView();
     const controller = controllerOf(resource, view);
@@ -488,7 +488,7 @@ describe('packet 53 — the role controller (real three mixers, real GLB clips)'
     resource.dispose();
   });
 
-  it('the instance dispose releases the tracked controller exactly once (§41.6 mixer row)', async () => {
+  it('the instance dispose releases the tracked controller exactly once', async () => {
     const resource = await prepareResource(CLIP_NAMES);
     const { host, view } = hostView();
     const controller = controllerOf(resource, view);

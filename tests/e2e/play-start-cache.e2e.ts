@@ -85,7 +85,7 @@ async function stop(page: Page, projectId: string, psid: string): Promise<void> 
   await expect.poll(async () => (await be.post(`/api/v1/projects/${projectId}/play/${psid}/observe`, {})).status, { timeout: 30_000 }).toBe(404);
 }
 
-for (const variant of RENDERER_VARIANTS) test(`25.24d (${variant}): batches of one model share their node programs; the first present and a scene load wait for a precompile; the spheres are drawn`, async ({ page }) => {
+for (const variant of RENDERER_VARIANTS) test(`(${variant}) batches of one model share their node programs; the first present and a scene load wait for a precompile; the spheres are drawn`, async ({ page }) => {
   onlyInItsProject(variant);
   test.setTimeout(300_000);
   await sphereProject('shared', 10, 4);
@@ -134,7 +134,7 @@ for (const variant of RENDERER_VARIANTS) test(`25.24d (${variant}): batches of o
   await stop(page, 'shared', psid);
 });
 
-for (const variant of RENDERER_VARIANTS) test(`25.24d (${variant}): the chunks of an instance set share their node programs and are drawn`, async ({ page }) => {
+for (const variant of RENDERER_VARIANTS) test(`(${variant}) the chunks of an instance set share their node programs and are drawn`, async ({ page }) => {
   onlyInItsProject(variant);
   test.setTimeout(300_000);
   await sphereProject('chunks', 0, 0);
@@ -169,7 +169,7 @@ for (const variant of RENDERER_VARIANTS) test(`25.24d (${variant}): the chunks o
   await stop(page, 'chunks', psid);
 });
 
-test('25.24c: the second Play takes its bundle and its model file from the browser cache (stable URLs); the model is still checked', async ({ page }) => {
+test('the second Play takes its bundle and its model file from the browser cache (stable URLs); the model is still checked', async ({ page }) => {
   test.setTimeout(300_000);
   await sphereProject('cached', 1, 2);
   await openEditor(page, 'cached');

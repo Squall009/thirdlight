@@ -32,7 +32,7 @@ describe('resolvePlayStart', () => {
     expect(resolvePlayStart({ mode: 'dance' }, withModes)).toMatchObject({ ok: false, error: { path: '/options/mode' } });
   });
 
-  it('phase 23.19: a project save document or slot needs a save schema; newer documents and missing slots are refused', () => {
+  it('a project save document or slot needs a save schema; newer documents and missing slots are refused', () => {
     const withSchema = { content: { saveSchema: { version: 2, slots: 5 } }, scenes, startScenes: ['scene-hub'], sceneId: 'scene-hub' };
     const doc = { format: 'thirdlight.save', version: 1, doc: { a: 1 } };
     expect(resolvePlayStart({ save: doc }, withSchema)).toEqual({ ok: true, start: { projectSave: doc }, notes: [] });

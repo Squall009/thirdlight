@@ -80,7 +80,7 @@ const disposeSpySpec: SimulationModuleSpec = {
   },
 };
 
-describe('registry (dependencies.md §6)', () => {
+describe('registry', () => {
   it('BUILTIN_MODULES is exactly the M1 built-in module', () => {
     expect(BUILTIN_MODULES.length).toBe(1);
     expect(BUILTIN_MODULES[0]?.id).toBe('thirdlight.demo:box-motion');
@@ -97,7 +97,7 @@ describe('registry (dependencies.md §6)', () => {
     }
   });
 
-  it('module names outside the §6 syntax ⇒ config_invalid', () => {
+  it('module names outside the syntax ⇒ config_invalid', () => {
     const r = createSimulationRegistry();
     const spec = { id: 'x', create: () => ({ step() {} }) };
     for (const bad of ['other.demo:x', 'thirdlight.demo', 'thirdlight.Demo:x', 'thirdlight.demo:Box', 'thirdlight.demo:x_1', '', 'thirdlight..demo:x']) {
@@ -151,7 +151,7 @@ describe('registry (dependencies.md §6)', () => {
   });
 });
 
-describe('module step isolation (runtime.md §5.1/§8)', () => {
+describe('module step isolation', () => {
   it('a throwing module: state restored (no partial application), step not advanced, module_error recorded', () => {
     const rt = makeRuntime(['thirdlight.test:thrower'], [throwerSpec]);
     rt.tick(DT); // the step attempt throws

@@ -76,14 +76,14 @@ function firstViolation(result, rule) {
   return result.violations.find((v) => v.rule === rule);
 }
 
-describe('check 1 — static import graph (dependencies.md §5.1)', () => {
+describe('check 1 — static import graph', () => {
   it('passes on an empty workspace (no implemented packages yet)', () => {
     const r = checkWorkspace(makeRoot());
     expect(r.violations).toEqual([]);
     expect(r.packages).toEqual([]);
   });
 
-  it('allows the §4.1 node-side allowed edges (positive fixtures)', () => {
+  it('allows the node-side allowed edges (positive fixtures)', () => {
     const root = makeRoot();
     addPkg(root, 'project-model');
     addPkg(root, 'commands', {
@@ -113,7 +113,7 @@ describe('check 1 — static import graph (dependencies.md §5.1)', () => {
     expect(r.violations).toEqual([]);
   });
 
-  it('restricts three-adapter to the approved three subpaths (dependencies.md §4.2/§7 GLTFLoader note)', () => {
+  it('restricts three-adapter to the approved three subpaths', () => {
     const root = makeRoot();
     addPkg(root, 'three-adapter', {
       files: {
@@ -147,7 +147,7 @@ describe('check 1 — static import graph (dependencies.md §5.1)', () => {
     expect(checkWorkspace(editor).violations).toEqual([]);
   });
 
-  it('fails runtime → three (forbidden, dependencies.md §4.3)', () => {
+  it('fails runtime → three (forbidden)', () => {
     const root = makeRoot();
     addPkg(root, 'runtime', {
       files: { 'src/index.ts': "import * as THREE from 'three';\nexport const c = new THREE.Color();\n" },
@@ -159,7 +159,7 @@ describe('check 1 — static import graph (dependencies.md §5.1)', () => {
     expect(v[0].line).toBe(1);
   });
 
-  it('fails runtime → Node builtins (bare and node: forms, dependencies.md §4.3)', () => {
+  it('fails runtime → Node builtins (bare and node: forms)', () => {
     const root = makeRoot();
     addPkg(root, 'runtime', {
       files: {
@@ -173,7 +173,7 @@ describe('check 1 — static import graph (dependencies.md §5.1)', () => {
     expect(vs.map((v) => v.line).sort()).toEqual([1, 2]);
   });
 
-  it('fails runtime → commands | workspace (forbidden edges, §4.3)', () => {
+  it('fails runtime → commands | workspace (forbidden edges)', () => {
     const root = makeRoot();
     addPkg(root, 'commands');
     addPkg(root, 'workspace');
@@ -188,7 +188,7 @@ describe('check 1 — static import graph (dependencies.md §5.1)', () => {
     expect(vs.every((v) => v.rule === 'forbidden-edge')).toBe(true);
   });
 
-  it('fails three-adapter → backend (forbidden edge, §4.3)', () => {
+  it('fails three-adapter → backend (forbidden edge)', () => {
     const root = makeRoot();
     addPkg(root, 'backend', {
       exports: { '.': './src/index.ts', './services': './src/services.ts' },
@@ -205,7 +205,7 @@ describe('check 1 — static import graph (dependencies.md §5.1)', () => {
     expect(v[0].rule).toBe('forbidden-edge');
   });
 
-  it('fails editor → workspace and editor → backend (the editor talks to the backend only over HTTP/WS, §4.3)', () => {
+  it('fails editor → workspace and editor → backend (the editor talks to the backend only over HTTP/WS)', () => {
     const root = makeRoot();
     addPkg(root, 'workspace');
     addPkg(root, 'backend', {
@@ -226,7 +226,7 @@ describe('check 1 — static import graph (dependencies.md §5.1)', () => {
     expect(vs.every((v) => v.rule === 'forbidden-edge')).toBe(true);
   });
 
-  it('fails backend → editor (serving the static bundle ≠ importing editor code, §4.3)', () => {
+  it('fails backend → editor (serving the static bundle ≠ importing editor code)', () => {
     const root = makeRoot();
     addPkg(root, 'editor');
     addPkg(root, 'backend', {
@@ -237,7 +237,7 @@ describe('check 1 — static import graph (dependencies.md §5.1)', () => {
     expect(v[0].rule).toBe('forbidden-edge');
   });
 
-  it('fails mcp-adapter → backend root subpath, allows the /services subpath only (§3/§4.3)', () => {
+  it('fails mcp-adapter → backend root subpath, allows the /services subpath only', () => {
     const root = makeRoot();
     addPkg(root, 'backend', {
       exports: { '.': './src/index.ts', './services': './src/services.ts' },
@@ -258,7 +258,7 @@ describe('check 1 — static import graph (dependencies.md §5.1)', () => {
     expect(vs[0].file).toBe('packages/mcp-adapter/src/bad.ts');
   });
 
-  it('fails mcp-adapter → workspace (no alternate mutation engine, §4.3)', () => {
+  it('fails mcp-adapter → workspace (no alternate mutation engine)', () => {
     const root = makeRoot();
     addPkg(root, 'workspace');
     addPkg(root, 'mcp-adapter', {
@@ -269,7 +269,7 @@ describe('check 1 — static import graph (dependencies.md §5.1)', () => {
     expect(v[0].rule).toBe('forbidden-edge');
   });
 
-  it('fails exporter → backend and exporter → editor (§4.3)', () => {
+  it('fails exporter → backend and exporter → editor', () => {
     const root = makeRoot();
     addPkg(root, 'backend', {
       exports: { '.': './src/index.ts', './services': './src/services.ts' },
@@ -290,7 +290,7 @@ describe('check 1 — static import graph (dependencies.md §5.1)', () => {
     expect(vs.every((v) => v.rule === 'forbidden-edge')).toBe(true);
   });
 
-  it('fails a specifier reaching a non-exported subpath (§3: internal files unreachable)', () => {
+  it('fails a specifier reaching a non-exported subpath (internal files unreachable)', () => {
     const root = makeRoot();
     addPkg(root, 'project-model', { exports: { '.': './src/index.ts' } });
     addPkg(root, 'commands', {
@@ -305,7 +305,7 @@ describe('check 1 — static import graph (dependencies.md §5.1)', () => {
     expect(v[0].file).toBe('packages/commands/src/index.ts');
   });
 
-  it('fails an import of a not-yet-implemented unit (§2: created only when implemented)', () => {
+  it('fails an import of a not-yet-implemented unit (created only when implemented)', () => {
     const root = makeRoot();
     addPkg(root, 'commands', {
       files: { 'src/index.ts': "import { App } from '@thirdlight/editor';\nexport const x = App;\n" },
@@ -315,7 +315,7 @@ describe('check 1 — static import graph (dependencies.md §5.1)', () => {
     expect(v[0].rule).toBe('unimplemented-unit');
   });
 
-  it('fails a relative import that escapes into another package (§4.3)', () => {
+  it('fails a relative import that escapes into another package', () => {
     const root = makeRoot();
     addPkg(root, 'protocol');
     addPkg(root, 'runtime', {
@@ -326,7 +326,7 @@ describe('check 1 — static import graph (dependencies.md §5.1)', () => {
     expect(v[0].rule).toBe('cross-package-internal');
   });
 
-  it('fails react/react-dom outside editor (React scope rules, dependencies.md §7)', () => {
+  it('fails react/react-dom outside editor (React scope rules)', () => {
     const root = makeRoot();
     addPkg(root, 'three-adapter', {
       files: { 'src/index.ts': "import React from 'react';\nimport { createRoot } from 'react-dom';\nexport const x = [React, createRoot];\n" },
@@ -344,7 +344,7 @@ describe('check 1 — static import graph (dependencies.md §5.1)', () => {
     expect(checkWorkspace(root).violations).toEqual([]);
   });
 
-  it('checks dynamic import() and export … from (dependencies.md §5.1: all three specifier forms)', () => {
+  it('checks dynamic import() and export … from (all three specifier forms)', () => {
     const root = makeRoot();
     addPkg(root, 'commands');
     addPkg(root, 'runtime', {
@@ -360,7 +360,7 @@ describe('check 1 — static import graph (dependencies.md §5.1)', () => {
     expect(vs.some((v) => v.rule === 'forbidden-edge')).toBe(true);
   });
 
-  it('flags globalThis assignments (no hidden global services, §4.3; m1-acceptance §2.4)', () => {
+  it('flags globalThis assignments', () => {
     const root = makeRoot();
     addPkg(root, 'runtime', {
       files: {
@@ -373,7 +373,7 @@ describe('check 1 — static import graph (dependencies.md §5.1)', () => {
     expect(vs.every((v) => v.rule === 'globalthis-assignment')).toBe(true);
   });
 
-  it('fails a web framework in declared dependencies (m1-acceptance §2.4 list)', () => {
+  it('fails a web framework in declared dependencies', () => {
     const root = makeRoot();
     addPkg(root, 'three-adapter', { devDependencies: { express: '4.19.2' } });
     const v = checkWorkspace(root).violations;
@@ -382,7 +382,7 @@ describe('check 1 — static import graph (dependencies.md §5.1)', () => {
     expect(v[0].file).toBe('packages/three-adapter/package.json');
   });
 
-  it('fails a declared dependency on a not-implemented workspace package (§5.6)', () => {
+  it('fails a declared dependency on a not-implemented workspace package', () => {
     const root = makeRoot();
     addPkg(root, 'commands', { dependencies: { '@thirdlight/editor': '0.0.0' } });
     const v = checkWorkspace(root).violations;
@@ -409,7 +409,7 @@ describe('check 1 — static import graph (dependencies.md §5.1)', () => {
     expect(v.message).toContain("'three'");
   });
 
-  it('covers every unit of the §2 list in the edge table', () => {
+  it('covers every unit of the list in the edge table', () => {
     for (const u of UNITS) {
       expect(NODE_SIDE_ALLOWED[u], `edge table row for '${u}'`).toBeDefined();
     }
@@ -514,7 +514,7 @@ describe('R2 — extraction of the normative import forms (04-review R2)', () =>
   });
 });
 
-describe('R3 — types-only edges (dependencies.md §4.1 qualifiers)', () => {
+describe('R3 — types-only edges', () => {
   it('fails editor → commands value imports (the R3 repro)', () => {
     const root = makeRoot();
     addPkg(root, 'commands');
@@ -614,7 +614,7 @@ describe('R3 — types-only edges (dependencies.md §4.1 qualifiers)', () => {
     expect(vs[0].message).toContain('exporter → workspace');
   });
 
-  it('fails protocol → project-model/commands value imports (the §4.1 "(types; pure code, no I/O)" row — recorded interpretation)', () => {
+  it('fails protocol → project-model/commands value imports (the "(types; pure code, no I/O)" row — recorded interpretation)', () => {
     const root = makeRoot();
     addPkg(root, 'project-model');
     addPkg(root, 'commands');
@@ -677,7 +677,7 @@ describe('R3 — types-only edges (dependencies.md §4.1 qualifiers)', () => {
   });
 });
 
-describe('R4 — React declaration scope (dependencies.md §7)', () => {
+describe('R4 — React declaration scope', () => {
   it('fails react/react-dom declared in a non-editor package (the R4 repro)', () => {
     const root = makeRoot();
     addPkg(root, 'three-adapter', {
@@ -991,7 +991,7 @@ describe('specifier extraction (the three normative forms)', () => {
     expect(extractSpecifiers(src)).toEqual([]);
   });
 });
-describe('check 2 — genre vocabulary in package sources (phase 24.9)', () => {
+describe('check 2 — genre vocabulary in package sources', () => {
   it('fails a package source file with a genre word, tests inside src included, naming file and line', () => {
     const root = makeRoot();
     addPkg(root, 'runtime', {

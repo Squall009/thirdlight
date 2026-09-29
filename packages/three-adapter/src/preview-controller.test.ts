@@ -44,7 +44,7 @@ async function prepared(options: { materials?: number } = {}): Promise<{
   return { resource, instance, controller: controller.controller, rotor, mesh };
 }
 
-describe('packet 26 — local animation preview (play / pause / scrub)', () => {
+describe('local animation preview (play / pause / scrub)', () => {
   it('reports the clip list and drives a local mixer through play, pause and scrub', async () => {
     const { resource, instance, controller, rotor } = await prepared();
     expect(controller.clips()).toHaveLength(1);
@@ -120,7 +120,7 @@ describe('packet 26 — local animation preview (play / pause / scrub)', () => {
   });
 });
 
-describe('packet 26 — local material preview', () => {
+describe('local material preview', () => {
   it('wireframe/normals are instance-local override materials; asset mode restores the asset material', async () => {
     const a = await prepared({ materials: 2 });
     const b = await prepared({ materials: 2 });

@@ -4,7 +4,7 @@ import { ENTITY_ID_DIGITS, ENTITY_ID_MAX, entityIdAt, nextFreeEntityIdOf } from 
 import { MAX_SCENES } from './content';
 import { MAX_ENTITIES_V4 } from './scene-v3';
 
-describe('entity ids (phase 25.7a)', () => {
+describe('entity ids', () => {
   it('are written with at least six digits and run to the project entity capacity', () => {
     expect(ENTITY_ID_DIGITS).toBe(6);
     expect(entityIdAt('box', 1)).toBe('box-000001');

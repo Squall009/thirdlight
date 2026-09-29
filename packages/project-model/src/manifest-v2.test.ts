@@ -83,7 +83,7 @@ function v2Input(over: Record<string, unknown> = {}) {
   };
 }
 
-describe('manifest-v2: block digest (delivery.md §2.4 rule 1)', () => {
+describe('manifest-v2: block digest', () => {
   it('hashes JSON.stringify(value, null, 2) + "\\n" in the value own key order', () => {
     const value = { b: 1, a: 2 }; // key order b, a (NOT sorted)
     const expected = sha256Hex(new TextEncoder().encode(`${JSON.stringify(value, null, 2)}\n`));
@@ -146,7 +146,7 @@ describe('manifest-v2: captureManifestV2 assembly', () => {
     expect(res.manifest.contentDigest).toBe(DIGEST);
   });
 
-  it('phase 24.8: the document has no game block, no gameDigest and no cue slots', () => {
+  it('the document has no game block, no gameDigest and no cue slots', () => {
     const res = captureManifestV2(v2Input() as never);
     expect(res.ok).toBe(true);
     if (!res.ok) return;
@@ -230,7 +230,7 @@ function everyOptionalKey(): Record<string, unknown> {
   };
 }
 
-describe('manifest-v2: phase 25.1 every optional key present', () => {
+describe('manifest-v2: every optional key present', () => {
   it('the fixture names every optional key (a key added to MANIFEST_KEYS_V2 must be added here)', () => {
     const required = Object.keys(captureManifestOrThrow(v2Input()));
     const optional = MANIFEST_KEYS_V2.filter((k) => !required.includes(k));
@@ -240,7 +240,7 @@ describe('manifest-v2: phase 25.1 every optional key present', () => {
     expect(inputs.filter((k) => fileKeys.includes(k)).sort()).toEqual([...fileKeys].sort());
   });
 
-  it('phase 25.7b: the content file blocks leave the document for their own files, listed by digest', () => {
+  it('the content file blocks leave the document for their own files, listed by digest', () => {
     const res = captureManifestV2({ ...v2Input(), ...everyOptionalKey() } as never);
     if (!res.ok) throw new Error(JSON.stringify(res.error));
     const doc = res.manifest as unknown as Record<string, unknown>;
@@ -380,7 +380,7 @@ describe('manifest-v2: validateManifestV2 (strict reader)', () => {
   });
 });
 
-describe('manifest-v2: phase 15.3 optional engine settings and model bounds', () => {
+describe('manifest-v2: optional engine settings and model bounds', () => {
   const capture = (over: Record<string, unknown>): Record<string, unknown> => {
     const res = captureManifestV2(v2Input(over) as never);
     if (!res.ok) throw new Error('expected a valid capture');
@@ -411,7 +411,7 @@ describe('manifest-v2: phase 15.3 optional engine settings and model bounds', ()
   });
 });
 
-describe('manifest-v2: version-compat rule (delivery.md §2.1)', () => {
+describe('manifest-v2: version-compat rule', () => {
   it('a v1 reader rejects a v2 document (manifest_version)', () => {
     const res = manifestVersionCompat({ manifestVersion: 2 }, 1);
     expect(res.ok).toBe(false);

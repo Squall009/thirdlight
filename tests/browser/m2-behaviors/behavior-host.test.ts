@@ -250,8 +250,8 @@ function runBehavior(
   return { x, diagnostics: d.diagnostics };
 }
 
-describe('packet 34 — Node host executes the real compiled artifact (node:vm)', () => {
-  it('executes the committed packet-33 output in a bounded VM context and measures a property-driven behavior change', () => {
+describe('Node host executes the real compiled artifact (node:vm)', () => {
+  it('executes the committed output in a bounded VM context and measures a property-driven behavior change', () => {
     const before = new Uint8Array(readFileSync(join(FIXTURE_ROOT, 'valid', 'sample.output.js')));
     const sourceBefore = sha256(before);
     const low = committedArtifact('behavior-0100');
@@ -311,7 +311,7 @@ describe('packet 34 — Node host executes the real compiled artifact (node:vm)'
   });
 });
 
-describe('packet 34 — failure modes in the Node host', () => {
+describe('failure modes in the Node host', () => {
   it('fail-stops a throwing behavior with bounded diagnostics and refuses to resume', async () => {
     const throwing = await compileHosted(
       'behavior-0201',
@@ -407,7 +407,7 @@ describe('packet 34 — failure modes in the Node host', () => {
   });
 });
 
-describe('packet 34 — the runtime host never evaluates source', () => {
+describe('the runtime host never evaluates source', () => {
   it('rejects an artifact namespace without a default spec', () => {
     expect(() =>
       createBehaviorModuleSpec({

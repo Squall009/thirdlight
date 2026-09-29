@@ -206,7 +206,7 @@ afterAll(() => {
 // claim-file open seam as the hook) ⇒ exactly one winner.
 // =============================================================================
 
-describe('T1: claim-file open seam interleaving (workspace.md §6.3 single-winner)', () => {
+describe('T1: claim-file open seam interleaving', () => {
   it('T1(a): A acquires claim-0, B full-claims before A stamps ⇒ B claim_inconsistent (holder null); A owns; the loser is refused end-to-end', async () => {
     // Clock-window guard (above): A's record openedAt must be strictly
     // after the worker's start or its own pid is misclassified dead.
@@ -370,7 +370,7 @@ describe('T1: claim-file open seam interleaving (workspace.md §6.3 single-winne
 // unlinks claim-e; exactly one active writer.
 // =============================================================================
 
-describe('T4: superseded-epoch cleanup over a released@e + claim-e residue (workspace.md §6.3/§6.5)', () => {
+describe('T4: superseded-epoch cleanup over a released@e + claim-e residue', () => {
   it('a released record with its claim-file residue is claimed at e+1; claim-e is unlinked; the released session refuses', async () => {
     // Clock-window guard (above): A's and B's claim records are stamped
     // floor-second; both must be strictly after the worker's start or
@@ -425,7 +425,7 @@ describe('T4: superseded-epoch cleanup over a released@e + claim-e residue (work
 // (holder null) and the session refuses to serve.
 // =============================================================================
 
-describe('T5: self-reclaim (workspace.md §6.2 row)', () => {
+describe('T5: self-reclaim', () => {
   it('same-process reopen serves with a byte-identical record; tampered or deleted claim file ⇒ conflict (holder null), refused end-to-end', () => {
     const root = makeRoot('t5');
     const s1 = openWorkspaceService({ root, backendId: S_ID });
@@ -490,7 +490,7 @@ describe('T5: self-reclaim (workspace.md §6.2 row)', () => {
 // claim; exactly zero active writers until a clean claim succeeds).
 // =============================================================================
 
-describe('T6: hostile unlink-recreate of the claim file (workspace.md §6.3 step 3/5)', () => {
+describe('T6: hostile unlink-recreate of the claim file', () => {
   const foreignStamp = (): string =>
     JSON.stringify({ backendId: B_ID, pid: 4242, openedAt: '2026-09-17T09:00:01Z' }, null, 2) + '\n';
 

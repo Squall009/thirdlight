@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 
 import { parseGameControlRequest, parsePlayStartRequest, validateBridgeEditorToPreview } from './index';
 
-describe('play start options (phase 23.8)', () => {
+describe('play start options', () => {
   it('accepts a scene, a mode, variables and a save slot; absent options keep the old request', () => {
     expect(parsePlayStartRequest({ options: { demo: false } })).toEqual({ ok: true, request: { demo: false } });
     const r = parsePlayStartRequest({ options: { demo: false, sceneId: 'scene-arena', mode: 'battle', variables: { gold: 100, party: ['a'] } } });
@@ -49,7 +49,7 @@ describe('play start options (phase 23.8)', () => {
   });
 });
 
-describe('the debugCommand game control (phase 23.8)', () => {
+describe('the debugCommand game control', () => {
   it('carries a name and arguments, and only it does', () => {
     expect(parseGameControlRequest({ command: 'debugCommand', name: 'giveItem', args: { item: 'key', count: 2, loud: true } })).toEqual({
       ok: true,

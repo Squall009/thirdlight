@@ -186,7 +186,7 @@ describe('gameplay blocks (real host, platformer, Rapier)', () => {
     expect(y).toBeLessThan(2.9 + 0.95);
   });
 
-  it('phase 9.13: a model child faces where its parent goes (the character, a patroller)', async () => {
+  it('a model child faces where its parent goes (the character, a patroller)', async () => {
     // (a left/right model reads as a velocity facer, offset yawRight − 90°.)
     const yawOf = (L: Any, id: string): number => {
       const t = L.rt.getInterpolatedState().state.transforms.find((x: Any) => x.id === id);
@@ -215,7 +215,7 @@ describe('gameplay blocks (real host, platformer, Rapier)', () => {
   });
 });
 
-describe('phase 15.2: a spawn says which way the character faces (on arrival)', () => {
+describe('a spawn says which way the character faces (on arrival)', () => {
   // Only an arrival (a scene transition's spawn) applies a spawn's
   // facing: the spawn's yaw. The character stands still in a
   // transition trigger and arrives, from rest, at a spawn in a second scene.
@@ -276,7 +276,7 @@ describe('gameplay blocks: the 9.9 wrap-up additions', () => {
   });
 });
 
-describe('gameplay blocks: phase 14.2 circle triggers', () => {
+describe('gameplay blocks: circle triggers', () => {
   it('a circle trigger opens a door when the character walks into it (not while passing below it)', async () => {
     // A circle 2.9 m up with radius 0.5 (bottom at 2.4 m): the default capsule
     // (top at 1.81 m when standing) passes below it; the low one is walked through.

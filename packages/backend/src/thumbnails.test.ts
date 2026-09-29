@@ -91,7 +91,7 @@ describe('thumbnail cache', () => {
     expect(checkThumbnailPng(png(8, 8))).toBeNull();
   });
 
-  it('phase 21.4: an ETag per cached thumbnail that changes when it is rewritten (null when none)', () => {
+  it('an ETag per cached thumbnail that changes when it is rewritten (null when none)', () => {
     const root = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'tl-thumbs-'));
     dirs.push(root);
     const cache = createThumbnailCache(root);
@@ -105,7 +105,7 @@ describe('thumbnail cache', () => {
     expect(cache.etag('demo', '../../etc', null)).toBeNull();
   });
 
-  it('phase 21.4: the per-project count is kept (a rewrite does not count twice; new files do)', () => {
+  it('the per-project count is kept (a rewrite does not count twice; new files do)', () => {
     const root = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'tl-thumbs-'));
     dirs.push(root);
     const cache = createThumbnailCache(root);

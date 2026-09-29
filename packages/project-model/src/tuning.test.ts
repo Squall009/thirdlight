@@ -30,7 +30,7 @@ const withBounds = (bounds: unknown): Obj => {
   return m;
 };
 
-describe('tuning values in the project model (phase 15.3)', () => {
+describe('tuning values in the project model', () => {
   it('a controller without tuning keeps its canonical bytes; the tuning follows the capsule', () => {
     expect(canonicalController({})).toEqual({});
     expect(JSON.stringify(canonicalController({ capsule: { radius: 0.3, height: 1.8 } }))).toBe('{"capsule":{"radius":0.3,"height":1.8}}');
@@ -49,7 +49,7 @@ describe('tuning values in the project model (phase 15.3)', () => {
     }
   });
 
-  it('phase 24.7: the engine timing is a fixed default (no game block carries it)', () => {
+  it('the engine timing is a fixed default (no game block carries it)', () => {
     expect(ENGINE_TIMING_DEFAULTS).toEqual({ dropThroughTime: 0.125, settleTime: 0.1 });
     expect(Object.isFrozen(ENGINE_TIMING_DEFAULTS)).toBe(true);
   });

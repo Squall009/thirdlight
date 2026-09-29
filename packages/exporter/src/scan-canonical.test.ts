@@ -32,7 +32,7 @@ function count(s: string, needle: string): number {
 
 // ---- tests --------------------------------------------------------------------------
 
-describe('forbidden-content scan (export.md §5.4/§5.4.1)', () => {
+describe('forbidden-content scan', () => {
   const patterns = { authoringOrigin: 'http://127.0.0.1:8501', previewOrigin: 'http://127.0.0.1:8502', tokenValues: ['tok-abc'] };
 
   function referenceBytes(): Uint8Array {
@@ -154,7 +154,7 @@ describe('forbidden-content scan (export.md §5.4/§5.4.1)', () => {
   });
 });
 
-describe('pattern e: Node built-in module specifiers (phase 17.1)', () => {
+describe('pattern e: Node built-in module specifiers', () => {
   const patterns = { authoringOrigin: 'http://127.0.0.1:8501', previewOrigin: 'http://127.0.0.1:8502', tokenValues: [] };
   const identity = { version: THREE_RECORD.version, integrity: THREE_RECORD.integrity };
   const reference = (): Uint8Array => {
@@ -222,7 +222,7 @@ describe('pattern e: Node built-in module specifiers (phase 17.1)', () => {
   });
 });
 
-describe('canonical serialization (export.md §3, project-model §12.2 style)', () => {
+describe('canonical serialization', () => {
   it('emits fixed field order, 2-space indent, LF, one trailing newline, no BOM', () => {
     const doc = { a: 1, b: ['x', 'y'], c: { d: true, e: null }, f: 's' };
     const text = canonicalJson(doc, 0) + '\n';

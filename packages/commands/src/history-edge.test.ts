@@ -44,7 +44,7 @@ function ok(r: ApplyOutcome): { state: CommandState; result: MutationSuccess } {
 
 const BASE: SceneV4 = scene(0, [cameraEntity()]);
 
-describe('redo — recorded values, not re-scans (§8.4)', () => {
+describe('redo — recorded values, not re-scans', () => {
   it('redo of a create re-inserts the recorded entity at the end with its original ID', () => {
     const st0 = v4State(BASE);
     const o1 = applyMutation(st0, at(st0, 'createEntity', { kind: 'box', name: 'First' }));
@@ -115,7 +115,7 @@ describe('redo — recorded values, not re-scans (§8.4)', () => {
   });
 });
 
-describe('history_invalid — defensive failure (§9.4, unreachable via LIFO state)', () => {
+describe('history_invalid — defensive failure (unreachable via LIFO state)', () => {
   function cameraScene(rev: number): SceneV4 {
     return scene(rev, [cameraEntity()]);
   }

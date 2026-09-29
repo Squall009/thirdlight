@@ -134,7 +134,7 @@ function neutralFrame(stepIndex: number) {
   return { stepIndex, moveX: 0, jump: 'none' };
 }
 
-describe('phase 23.2: a 2D move action gives the frame its move vector', () => {
+describe('a 2D move action gives the frame its move vector', () => {
   it('with the 3D defaults W/A/S/D give moveX and moveY; the 1D defaults keep the M2 frame exactly', () => {
     const h = harness({ inputConfig: DEFAULT_INPUT_CONFIG_3D });
     h.target.dispatch('keydown', h.keyEvent('KeyW'));
@@ -413,7 +413,7 @@ describe('gamepad binding', () => {
   });
 });
 
-describe('blocked, insecure and absent gamepad APIs (input.md §5.5)', () => {
+describe('blocked, insecure and absent gamepad APIs', () => {
   it('reports a structured unavailable state when getGamepads is absent', () => {
     const h = harness({ gamepads: null });
     expect(h.source.unavailable()).toEqual({
@@ -477,7 +477,7 @@ describe('blocked, insecure and absent gamepad APIs (input.md §5.5)', () => {
   });
 });
 
-describe('attachment cleanup (packet 30 acceptance: cleanup removes listeners and held state)', () => {
+describe('attachment cleanup (cleanup removes listeners and held state)', () => {
   it('detach removes every listener exactly once and is idempotent', () => {
     const h = harness({ gamepads: () => [pad()] });
     expect(h.source.attached).toBe(true);
@@ -521,7 +521,7 @@ describe('attachment cleanup (packet 30 acceptance: cleanup removes listeners an
   });
 });
 
-describe('phase 15.5: the device in use (the HUD names its bindings)', () => {
+describe('the device in use (the HUD names its bindings)', () => {
   it('is the keyboard until a pad button or stick moves, and the keyboard again after a key press', () => {
     let current: Gamepad[] = [pad()];
     const h = harness({ gamepads: () => current });

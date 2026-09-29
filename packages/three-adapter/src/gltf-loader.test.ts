@@ -44,7 +44,7 @@ function firstMesh(resource: PreparedVisualResource): Mesh {
   return mesh;
 }
 
-describe('packet 26 — pinned GLTFLoader port (three, real bytes, Node)', () => {
+describe('pinned GLTFLoader port (three, real bytes, Node)', () => {
   it('realizes a real scene graph: preserved hierarchy, MeshStandardMaterial, BufferGeometry, clip', async () => {
     const bytes = buildGlb();
     const resource = ready(await loadReal(bytes));

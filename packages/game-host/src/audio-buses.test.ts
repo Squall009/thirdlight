@@ -80,7 +80,7 @@ describe('audio buses, music, sounds and loops', () => {
     expect(owner.loops!()).toEqual({});
   });
 
-  it('phase 14.5: menu sounds play on the ui bus, which has its own volume', async () => {
+  it('menu sounds play on the ui bus, which has its own volume', async () => {
     const f = fakeContext();
     const owner = createGameAudioOwner({ contextFactory: () => f.ctx });
     owner.setVolume!('ui', 0.4);

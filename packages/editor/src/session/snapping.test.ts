@@ -25,7 +25,7 @@ import {
  * Snapping constants and math. The increment table
  * is asserted mechanically against the contract's fixed values.
  */
-describe('snapping — the contract increment table (sessions.md §9)', () => {
+describe('snapping — the contract increment table', () => {
   it('fixes the exact approved constants', () => {
     expect(SNAP_TRANSLATE_M).toBe(0.25);
     expect(SNAP_ROTATE_DEG).toBe(15);

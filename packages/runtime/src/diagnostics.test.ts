@@ -48,7 +48,7 @@ function makeDiagnostics(opts?: { withClock?: boolean }) {
   return { rt, diag, setNow: (t: number) => (now = t) };
 }
 
-describe('structured diagnostics (runtime.md §8)', () => {
+describe('structured diagnostics', () => {
   it('has exactly the contract field set, with types per the contract', () => {
     const { rt, diag } = makeDiagnostics({ withClock: true });
     const d = diag();

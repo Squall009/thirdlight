@@ -200,7 +200,7 @@ describe('fail-stop after a physics-phase mutation (A14)', () => {
   });
 });
 
-describe('stop/start retains the controller private state (platformer.md §6)', () => {
+describe('stop/start retains the controller private state', () => {
   it('resumes with the same velocity and window counters (no reset)', async () => {
     const run = await startRun(course, { x: -10, y: 0.9 }, { actions: createStepInputSource(stepsOf('run-right-240')) });
     try {

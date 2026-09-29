@@ -176,7 +176,7 @@ async function playStart(tb: TestBackend, body?: unknown): Promise<{ status: num
   return { status: r.status, json: r.json as Record<string, unknown> };
 }
 
-describe('play start (§10.1)', () => {
+describe('play start', () => {
   it('no registered browser ⇒ session_unavailable (structured, not an error dump)', async () => {
     const tb = await startBackend();
     try {
@@ -286,7 +286,7 @@ describe('play start (§10.1)', () => {
     }
   });
 
-  it('a held play.started is delivered on the owner re-attach (one-shot, §7.1)', async () => {
+  it('a held play.started is delivered on the owner re-attach (one-shot)', async () => {
     const tb = await startBackend({ timeouts: { presentTimeoutSeconds: 60, inactivityTtlSeconds: 300 } });
     try {
       const sid = mkSessionId();
@@ -321,7 +321,7 @@ describe('play start (§10.1)', () => {
   });
 });
 
-describe('phase 25.24: the backend part of a Play start', () => {
+describe('the backend part of a Play start', () => {
   it('the game bundle is read from disk once while it is unchanged, and again after a rebuild; the start reports its stages', async () => {
     const tb = await startBackend({ timeouts: { presentTimeoutSeconds: 60, inactivityTtlSeconds: 300 } });
     try {
@@ -360,7 +360,7 @@ describe('phase 25.24: the backend part of a Play start', () => {
   });
 });
 
-describe('phase 25.24c: caching across Plays', () => {
+describe('caching across Plays', () => {
   it('the play scripts and the declared artifacts are served at digest-keyed URLs that stay the same from Play to Play (immutable, ETag, 304); blobs are held once', async () => {
     const tb = await startBackend({ timeouts: { presentTimeoutSeconds: 60, inactivityTtlSeconds: 300 } });
     try {
@@ -451,7 +451,7 @@ describe('phase 25.24c: caching across Plays', () => {
   });
 });
 
-describe('stop paths (§10.2/§10.3)', () => {
+describe('stop paths', () => {
   it('happy relay: stop ⇒ play.stop.request ⇒ ack ⇒ play.stopped { reason: "request" } (no stopUnconfirmed)', async () => {
     const tb = await startBackend();
     try {
@@ -561,7 +561,7 @@ describe('stop paths (§10.2/§10.3)', () => {
     }
   });
 
-  it('phase 25.24f: the present timeout counts from the last play.preview.progress', async () => {
+  it('the present timeout counts from the last play.preview.progress', async () => {
     const tb = await startBackend({ timeouts: { presentTimeoutSeconds: 1, inactivityTtlSeconds: 300 } });
     try {
       const sid = mkSessionId();
@@ -664,7 +664,7 @@ describe('stop paths (§10.2/§10.3)', () => {
   });
 });
 
-describe('phase 25.5: an ended play says why', () => {
+describe('an ended play says why', () => {
   const post = (tb: TestBackend, psid: string, action: string) =>
     api(`${tb.authUrl}/api/v1/projects/demo-0001/play/${psid}/${action}`, { body: action === 'control' ? { command: 'mute' } : {}, token: tb.authToken }) as Promise<{ status: number; json: { error: { code: string; message: string; ended?: { reason: string; presented: boolean; at: string; detail?: string } } } }>;
   const problems = async (tb: TestBackend) =>
@@ -785,7 +785,7 @@ describe('phase 25.5: an ended play says why', () => {
   });
 });
 
-describe('screenshot / diagnostics relay (§12)', () => {
+describe('screenshot / diagnostics relay', () => {
   async function startPresentedPlay(tb: TestBackend): Promise<{ psid: string; editor: FakeEditor; ws: TestWs }> {
     const sid = mkSessionId();
     const est = await establish(tb, sid);
@@ -867,7 +867,7 @@ describe('screenshot / diagnostics relay (§12)', () => {
     }
   });
 
-  it('phase 25.2: a preview that says why the capture failed ⇒ 503 relay_failed with that reason in the message', async () => {
+  it('a preview that says why the capture failed ⇒ 503 relay_failed with that reason in the message', async () => {
     const tb = await startBackend();
     try {
       const { psid, editor, ws } = await startPresentedPlay(tb);

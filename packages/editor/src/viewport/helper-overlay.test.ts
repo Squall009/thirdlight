@@ -86,7 +86,7 @@ describe('helper overlay gameplay helpers', () => {
     overlay.dispose();
   });
 
-  it("phase 9.12/15.2: collider outlines; the selected mover's path points drag, an insert grip adds a point, the last point stays", () => {
+  it("collider outlines; the selected mover's path points drag, an insert grip adds a point, the last point stays", () => {
     const { scene, overlay, screen } = frontView();
     const lift = { ...entity('lift', { mover: { waypoints: [[2, 0, 0]], speed: 1, mode: 'once' } }), position: [0, 0, 0], collider: { shape: { type: 'box', hx: 1, hy: 0.2 } } } as ProjectedEntity;
     const ramp = { ...entity('ramp', undefined), collider: { shape: { type: 'polygon', vertices: [[0, 0], [2, 0], [2, 1]] } } } as ProjectedEntity;
@@ -117,7 +117,7 @@ describe('helper overlay gameplay helpers', () => {
     overlay.dispose();
   });
 
-  it("phase 14.0/15.2: the player capsule outline is drawn and picked; the selected player's capsule grips drag (feet kept, snapped)", () => {
+  it("the player capsule outline is drawn and picked; the selected player's capsule grips drag (feet kept, snapped)", () => {
     const { scene, overlay, screen } = frontView();
     const player = { ...entity('player', undefined), position: [0, 0, 0], controller: true, components: { controller: {} } } as ProjectedEntity;
     const plate = { ...entity('plate', { trigger: { size: [2, 2], signal: 's' } }), position: [3, 0, 0] } as ProjectedEntity;
@@ -144,7 +144,7 @@ describe('helper overlay gameplay helpers', () => {
     overlay.dispose();
   });
 
-  it('phase 14.2/15.2: a circle trigger is drawn as a circle with one radius grip that drags', () => {
+  it('a circle trigger is drawn as a circle with one radius grip that drags', () => {
     const { scene, overlay, screen } = frontView();
     const ring = { ...entity('ring', { trigger: { shape: 'circle', radius: 1.5, signal: 's' } }), position: [1, 2, 0] } as ProjectedEntity;
     overlay.sync([ring]);

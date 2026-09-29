@@ -53,7 +53,7 @@ describe('constants and public defaults', () => {
   });
 });
 
-describe('keyboard digital movement (input.md §4.1/§4.3)', () => {
+describe('keyboard digital movement', () => {
   it('maps each single control to exactly ±1', () => {
     expect(frame(snap({ keyboardLeft: true })).moveX).toBe(-1);
     expect(frame(snap({ keyboardRight: true })).moveX).toBe(1);
@@ -73,7 +73,7 @@ describe('keyboard digital movement (input.md §4.1/§4.3)', () => {
   });
 });
 
-describe('gamepad dead zone and rescaling (input.md §4.2)', () => {
+describe('gamepad dead zone and rescaling', () => {
   it('treats the exact boundary as zero on both sides', () => {
     expect(frame(snap({ gamepad: pad({ axis0: 0.2 }) })).moveX).toBe(0);
     expect(frame(snap({ gamepad: pad({ axis0: -0.2 }) })).moveX).toBe(0);
@@ -109,7 +109,7 @@ describe('gamepad dead zone and rescaling (input.md §4.2)', () => {
   });
 });
 
-describe('source arbitration (input.md §4.3, no summation)', () => {
+describe('source arbitration (no summation)', () => {
   it('lets the keyboard beat the D-pad and the stick', () => {
     expect(
       frame(snap({ keyboardLeft: true, gamepad: pad({ axis0: 1, button15: true }) })).moveX,
@@ -139,7 +139,7 @@ describe('source arbitration (input.md §4.3, no summation)', () => {
   });
 });
 
-describe('non-standard and absent devices (input.md §4.1)', () => {
+describe('non-standard and absent devices', () => {
   it('ignores a non-standard mapping entirely', () => {
     const result = frame(
       snap({ gamepad: pad({ mapping: '', axis0: 0.9, button0: true, button15: true }) }),
@@ -154,7 +154,7 @@ describe('non-standard and absent devices (input.md §4.1)', () => {
   });
 });
 
-describe('jump phase chain and the press latch (runtime.md §12.5.2)', () => {
+describe('jump phase chain and the press latch', () => {
   it('produces none → pressed → held → released → none across steps', () => {
     const options: MapRawOptions = { stepIndex: 12 };
     const a = mapRawInput(snap({ keyboardJump: true }), options);
@@ -270,7 +270,7 @@ function fixtureSequences(): FixtureSequence[] {
 describe('fixtures/m2/input/raw-sequences.json', () => {
   const sequences = fixtureSequences();
 
-  it('indexes the nine packet-30 sequences', () => {
+  it('indexes the nine sequences', () => {
     expect(sequences.map((s) => s.caseId)).toEqual([
       'S1-keyboard-digital',
       'S2-dead-zone-boundary',

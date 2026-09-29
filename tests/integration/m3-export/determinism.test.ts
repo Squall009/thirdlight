@@ -106,7 +106,7 @@ afterAll(() => {
   rmSync(exportRootB, { recursive: true, force: true });
 });
 
-describe('M3 export determinism + preview/export parity (packet 60)', () => {
+describe('M3 export determinism + preview/export parity', () => {
   it('two exports of the same captured state (fixed clock) into different trees are byte-identical', async () => {
     const resA = await exportProjectM3(ctxFor(exportRootA), captured, M3_BOOTSTRAP, ctxFor(exportRootA).compiler as never);
     expect(resA.ok).toBe(true);

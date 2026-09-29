@@ -120,7 +120,7 @@ afterAll(async () => {
   if (root) rmSync(root.root, { recursive: true, force: true });
 }, 60_000);
 
-describe('packet 48 — §20 relay tools are bounded and never fabricate', () => {
+describe('relay tools are bounded and never fabricate', () => {
   it('the real stdio MCP exposes both relay tools', async () => {
     const names = await mcp.listTools();
     expect(names).toContain('tl_game_control');
@@ -214,7 +214,7 @@ describe('packet 48 — §20 relay tools are bounded and never fabricate', () =>
   });
 });
 
-describe('packet 48 — §20 wire shapes are strict and bounded', () => {
+describe('wire shapes are strict and bounded', () => {
   it('accepts a well-formed game.control.ack and rejects a malformed one', () => {
     const good = parseInboundEvent({ type: 'game.control.ack', relayId: `relay-${'a'.repeat(32)}`, ok: true, result: controlResult() });
     expect(good.ok).toBe(true);
@@ -231,7 +231,7 @@ describe('packet 48 — §20 wire shapes are strict and bounded', () => {
     expect(validateGameObservation(tooMany).ok).toBe(false);
   });
 
-  it('phase 24.6/24.7: the observation is generic (a play state); the legacy session block is refused', () => {
+  it('the observation is generic (a play state); the legacy session block is refused', () => {
     expect(validateGameObservation(observation()).ok).toBe(true);
     expect(validateGameObservation(observation({ state: 'paused' })).ok).toBe(true);
     for (const state of ['playing', 'won', 'awaitingStart', 'scene']) expect(validateGameObservation(observation({ state })).ok, state).toBe(false);

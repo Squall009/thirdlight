@@ -163,7 +163,7 @@ afterAll(() => {
   }
 });
 
-describe('packet 23 — real SIGKILL at the blob / v4 file boundaries (workspace.md §13.3.4)', () => {
+describe('real SIGKILL at the blob / v4 file boundaries', () => {
   it('SIGKILL before the blob rename: no blob, leftover temp cleaned on open, retry is idempotent', async () => {
     const root = makeRoot('blob-before');
     const dir = seedV4Project(root);

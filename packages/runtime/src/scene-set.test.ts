@@ -179,7 +179,7 @@ function harness(opts: { exitAt?: [number, number]; loader?: (ctx: ScriptCtx) =>
   return { rt, log, calls, tick, serve, serveWith, ids, diag, now };
 }
 
-describe('runtime scene set (phase 12 c)', () => {
+describe('runtime scene set', () => {
   it('starts with the start scenes and loads a scene a script asks for, with its colliders, behaviors and tags', () => {
     let want = false;
     const seen: { rocks?: readonly string[]; status?: string } = {};
@@ -244,7 +244,7 @@ describe('runtime scene set (phase 12 c)', () => {
     expect(rock?.position).toEqual([42, 11, 0]);
   });
 
-  it('phase 25.8: a later-loaded scene may hold every light kind, and its lights leave with it; a camera stays refused', () => {
+  it('a later-loaded scene may hold every light kind, and its lights leave with it; a camera stays refused', () => {
     const h = harness();
     const lights = [
       { id: 'light-sun', components: { transform: at(0, 0), light: { type: 'directional', color: '#ff0000', intensity: 1, direction: [0, -1, 0] } } },
@@ -272,7 +272,7 @@ describe('runtime scene set (phase 12 c)', () => {
     expect(h.diag().errors.some((e) => e.code === 'scene_load_failed' && e.message.includes('belongs in a start scene (camera, player)'))).toBe(true);
   });
 
-  it('phase 14.5: a paused game still applies scene loads and unloads (no step runs)', () => {
+  it('a paused game still applies scene loads and unloads (no step runs)', () => {
     const h = harness();
     h.rt.setPaused!(true);
     const steps = (h.rt.getDiagnostics() as { diagnostics: { stepIndex?: number } }).diagnostics.stepIndex;

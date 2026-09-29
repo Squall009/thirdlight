@@ -56,7 +56,7 @@ function codesOf(res: { ok: false; errors: readonly ModelErrorV3[] }): string[] 
   return res.errors.map((e) => e.code);
 }
 
-describe('runtime non-finite cases R1–R6 (contract §12.7)', () => {
+describe('runtime non-finite cases R1–R6', () => {
   it('R1: NaN in position => number_not_finite at .../position/0 (with found NaN)', () => {
     const doc = sceneWith((e) => {
       TR(e)['position'] = [Number.NaN, 0, 0];

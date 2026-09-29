@@ -80,7 +80,7 @@ const broken = (fixed: boolean) => ({
       },
 });
 
-describe('GET /api/v1/engine (phase 25.18)', () => {
+describe('GET /api/v1/engine', () => {
   it('answers the engine the backend runs, and whether dist/ was built after the process started', async () => {
     expect((await get('/api/v1/engine', 'nope')).status).toBe(401);
     const distDir = tb.root; // the test backend's editor bundle dir is <root>/editor
@@ -104,7 +104,7 @@ describe('GET /api/v1/engine (phase 25.18)', () => {
   });
 });
 
-describe('graph materials\' problems on the backend (phase 25.18)', () => {
+describe('graph materials\' problems on the backend', () => {
   it('a material set with a broken graph is listed with its node problem; fixed, it has none; problems and the log say so', async () => {
     const first = await command('setMaterial', { material: plain });
     expect(first.ok, JSON.stringify(first).slice(0, 600)).toBe(true);

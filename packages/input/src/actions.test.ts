@@ -74,7 +74,7 @@ describe('input actions', () => {
     source.dispose();
   });
 
-  it('phase 9.10: menu edges from the ui keys, runtime rebinding, and a one-shot key capture', () => {
+  it('menu edges from the ui keys, runtime rebinding, and a one-shot key capture', () => {
     const listeners = new Map<string, ((e: Event) => void)[]>();
     const target = {
       addEventListener: (t: string, h: (e: Event) => void) => listeners.set(t, [...(listeners.get(t) ?? []), h]),

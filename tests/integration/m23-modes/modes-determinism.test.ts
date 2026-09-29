@@ -150,7 +150,7 @@ function firstDiff(a: string[], b: string[]): number {
   return a.slice(0, n).findIndex((d, k) => d !== b[k]);
 }
 
-describe('phase 23.10: game modes in page and worker, and in replays', () => {
+describe('game modes in page and worker, and in replays', () => {
   it('identical step digests across mode switches; one transition changes map, camera, UI and groups; respawn and restart', async () => {
     const a = await run('single');
     const b = await run('single');

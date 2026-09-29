@@ -110,7 +110,7 @@ describe('publishing a visual script (HTTP)', () => {
   });
 });
 
-describe('phase 19.1: a script with a function and a shared function (HTTP)', () => {
+describe('a script with a function and a shared function (HTTP)', () => {
   it('the check compiles the script with its functions and the shared function; changing the shared function changes the digest', async () => {
     const fn = (factor: number) => ({
       nodes: [

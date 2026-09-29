@@ -11,7 +11,7 @@ describe('input defaults parity', () => {
   it('the input package and project-model agree on the default actions', () => {
     expect(JSON.parse(JSON.stringify(DEFAULT_INPUT_CONFIG))).toEqual(JSON.parse(JSON.stringify(DEFAULT_INPUT)));
   });
-  it('phase 23.2: and on the 3D defaults', () => {
+  it('and on the 3D defaults', () => {
     expect(JSON.parse(JSON.stringify(DEFAULT_INPUT_CONFIG_3D))).toEqual(JSON.parse(JSON.stringify(DEFAULT_INPUT_3D)));
   });
 });

@@ -11,7 +11,7 @@ import {
   MENU_MUTE_CODE,
 } from './menu';
 
-describe('menu-control channel (delivery.md §4.1/§4.2)', () => {
+describe('menu-control channel', () => {
   it('the menu bindings are the delivery.md hard constants', () => {
     expect([...MENU_CONFIRM_CODES]).toEqual(['Enter', 'Space']);
     expect(MENU_MUTE_CODE).toBe('KeyM');

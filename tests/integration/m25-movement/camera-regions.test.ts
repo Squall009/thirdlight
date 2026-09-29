@@ -116,7 +116,7 @@ async function allModes(dim: Dim, entities: Any[], script: (s: number) => Frame,
   return single.log;
 }
 
-describe('phase 25.14: camera regions and look-ahead (track camera)', () => {
+describe('camera regions and look-ahead (track camera)', () => {
   for (const dim of [2, 3] as const) {
     // To x 10 (inside the region, past its framed bound 9), then a jump there. The 2D run is 4 m/s, the 3D walk 2 m/s.
     const until = dim === 3 ? 660 : 360;

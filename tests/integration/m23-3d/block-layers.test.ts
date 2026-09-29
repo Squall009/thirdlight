@@ -115,7 +115,7 @@ async function run(mode: Mode, kind: 'idle' | 'dig' | 'marker', steps: number, e
   return { h, digests: [...h.digests], player };
 }
 
-describe('phase 23.5: block layers in the running game (page and worker)', () => {
+describe('block layers in the running game (page and worker)', () => {
   it('the start layer collides: its chunk becomes a triangle-mesh collider in the runtime, not in the init config', () => {
     const { physics } = scene(false);
     // The layer entity carries no collider of its own; the runtime adds the chunk colliders.

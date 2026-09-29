@@ -67,7 +67,7 @@ afterAll(async () => {
   if (root) rmSync(root.root, { recursive: true, force: true });
 }, 60_000);
 
-describe('packet 48 — bounded PCM-WAV import through the real content route', () => {
+describe('bounded PCM-WAV import through the real content route', () => {
   it('inspects and publishes a minimal PCM WAV with kind:"audio"', async () => {
     const inspected = await inspectViaHttp(bp.origin, V3_PROJECT, AUTH_TOKEN, mediaBytes('wav/cue-min.wav'), { kind: 'audio' });
     expect(inspected.status, JSON.stringify(inspected.body)).toBe(200);
@@ -86,7 +86,7 @@ describe('packet 48 — bounded PCM-WAV import through the real content route', 
     expect(published.body.revision).toBe(rev + 1);
   });
 
-  it('reaches every §41.4.4 rejection through the transport with its recorded code', async () => {
+  it('reaches every rejection through the transport with its recorded code', async () => {
     const seen = new Set<string>();
     for (const c of WAV.rejections) {
       const res = await inspectViaHttp(bp.origin, V3_PROJECT, AUTH_TOKEN, mediaBytes(c.file), { kind: 'audio' });

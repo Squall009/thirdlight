@@ -39,7 +39,7 @@ function playAndStop(m: PlayManager, i: number): string {
   return id;
 }
 
-describe('phase 25.24 (D48): bounded retention of ended plays', () => {
+describe('bounded retention of ended plays', () => {
   it('a stopped play keeps its ended answer and drops its snapshot', () => {
     const m = manager();
     const id = playAndStop(m, 1);

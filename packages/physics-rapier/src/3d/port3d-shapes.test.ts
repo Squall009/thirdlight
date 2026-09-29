@@ -51,7 +51,7 @@ async function portOf(cfg: PhysicsInitConfig3D): Promise<RapierPhysicsPort3D> {
   return made.port;
 }
 
-describe('the Rapier 3D port: phase 23.1 shapes and queries', () => {
+describe('the Rapier 3D port: shapes and queries', () => {
   it('rests on a sphere, a capsule, a convex hull and a triangle mesh (feet on each top)', async () => {
     const cases: { name: string; shape: unknown; at: [number, number, number] }[] = [
       { name: 'sphere', shape: { type: 'sphere', radius: 1 }, at: [0, -1, 0] },

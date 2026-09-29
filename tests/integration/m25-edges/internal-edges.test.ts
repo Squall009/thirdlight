@@ -137,7 +137,7 @@ function maxGap(a: [number, number][], b: [number, number][]): number {
 const jumpIntoWall = (dir: number): Drive => (s) => ({ moveX: dir, jump: s === 90 ? 'pressed' : s > 90 && s < 150 ? 'held' : s === 150 ? 'released' : 'none' });
 
 for (const [side, dir] of [['right', 1], ['left', -1]] as const) {
-  describe(`phase 25.4: a wall of stacked colliders is one wall (the wall on the ${side})`, () => {
+  describe(`a wall of stacked colliders is one wall (the wall on the ${side})`, () => {
     // A 10 m wall whose face is 2 m from the start: one box, ten stacked 1 m boxes, ten stacked 1 m polygons.
     const wx = dir * 2.5;
     const walls: Record<string, Any[]> = {
@@ -174,7 +174,7 @@ for (const [side, dir] of [['right', 1], ['left', -1]] as const) {
   });
 }
 
-describe('phase 25.4: a floor of tiles is one floor', () => {
+describe('a floor of tiles is one floor', () => {
   // Floors with their top at y = 0 from x = -2 to 30: one box, 1 m box tiles, 0.5 m polygon tiles.
   const floors: Record<string, Any[]> = {
     one: [solid('floor-0001', 14, -0.5, boxShape(16, 0.5))],
@@ -210,7 +210,7 @@ describe('phase 25.4: a floor of tiles is one floor', () => {
   });
 });
 
-describe('phase 25.4: a ceiling of tiles is one ceiling', () => {
+describe('a ceiling of tiles is one ceiling', () => {
   // A ceiling whose underside is at y = 2.2 from x = -2 to 30: one box, 1 m box tiles, 0.5 m polygon tiles.
   const ceilings: Record<string, Any[]> = {
     one: [solid('roof-0001', 14, 2.7, boxShape(16, 0.5))],
@@ -238,7 +238,7 @@ describe('phase 25.4: a ceiling of tiles is one ceiling', () => {
   });
 });
 
-describe('phase 25.4: a slope cut into two polygons is one slope', () => {
+describe('a slope cut into two polygons is one slope', () => {
   // A 30° ramp from x = 2 (y = 0) to x = 8 (y = 6·tan30), then a flat top; one polygon, or two sharing the face at x = 5.
   const t = Math.tan(Math.PI / 6);
   const one = solid('ramp-0001', 0, 0, { type: 'polygon', vertices: [[2, 0], [8, 0], [8, 6 * t]] });
@@ -263,7 +263,7 @@ describe('phase 25.4: a slope cut into two polygons is one slope', () => {
   });
 });
 
-describe('phase 25.4 (plan §2, TL question 2): a polygon mover pushes the character sideways', () => {
+describe('a polygon mover pushes the character sideways', () => {
   // A 1 × 2 m block sliding left at 2 m/s into a character standing still; a box collider and the same rectangle as a polygon.
   const shapes = { box: boxShape(0.5, 1), polygon: rectPoly(0.5, 1) };
   const paths: Record<string, [number, number][]> = {};

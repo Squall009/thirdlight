@@ -45,7 +45,7 @@ function step(r: RuntimeSaves, events: Parameters<RuntimeSaves['deliver']>[0], s
   return r.takeRequests();
 }
 
-describe('phase 23.19: runtime project saves', () => {
+describe('runtime project saves', () => {
   it('a save is assembled at the end of its step with the opted-in sections and play time', () => {
     const port = fakePort();
     const r = new RuntimeSaves(SCHEMA, 60, port, undefined, () => undefined);
@@ -63,7 +63,7 @@ describe('phase 23.19: runtime project saves', () => {
     expect(JSON.parse(req.text)).toEqual({ format: 'thirdlight.save', formatVersion: 2, version: 2, playSeconds: 1, doc: { level: 'b', hp: 3 }, sections: { storage: { k: 2 } }, world: { scenes: ['scene-main'], activeSpawn: null, listedScene: -1, character: null } });
   });
 
-  it('phase 24.8: a format 2 save restores its world; a format 1 save (no world) leaves it; a bad world refuses the load', () => {
+  it('a format 2 save restores its world; a format 1 save (no world) leaves it; a bad world refuses the load', () => {
     const port = fakePort();
     const r = new RuntimeSaves(SCHEMA, 60, port, undefined, () => undefined);
     const world = { scenes: ['scene-main', 'scene-far'], activeSpawn: 'spawn-0002', listedScene: 1, character: { position: [3, 1, 0], velocity: [2, 0, 0] } } as const;

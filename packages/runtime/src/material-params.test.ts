@@ -48,7 +48,7 @@ function setup(): { m: RuntimeMaterials; catalog: RuntimeMaterialCatalog } {
   return { m, catalog };
 }
 
-describe('phase 23.12: the material catalogue', () => {
+describe('the material catalogue', () => {
   it('keeps graph materials with a public parameter, the model mappings and the closure textures', () => {
     const c = materialCatalogOf(MATERIALS, ASSETS)!;
     expect(c.materials.map((x) => x.materialId)).toEqual(['look', 'other']);
@@ -66,7 +66,7 @@ describe('phase 23.12: the material catalogue', () => {
   });
 });
 
-describe('phase 23.12: ctx.materials values', () => {
+describe('ctx.materials values', () => {
   it('sets per object: only that object changes, values are checked against the parameter', () => {
     const { m } = setup();
     const api = m.api;
@@ -155,7 +155,7 @@ describe('phase 23.12: ctx.materials values', () => {
   });
 });
 
-describe('phase 23.12: renderer diffs and the digest', () => {
+describe('renderer diffs and the digest', () => {
   it('sends one change per changed parameter: the latest value, a clear, a data parameter\'s whole grid', () => {
     const { m } = setup();
     const api = m.api;

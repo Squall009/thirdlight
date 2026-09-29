@@ -134,7 +134,7 @@ function harness(behaviors: Record<string, (ctx: Ctx) => void>, entities: unknow
   return { rt, tick, diag, now };
 }
 
-describe('phase 23.8: injected variables', () => {
+describe('injected variables', () => {
   it('the scripts read them with ctx.save from the very first step they run', () => {
     const seen: string[] = [];
     const reader = (ctx: Ctx): void => {
@@ -156,7 +156,7 @@ describe('phase 23.8: injected variables', () => {
     expect(seen).toEqual([[]]);
   });
 
-  it('phase 25.17: every start begins with them — a restart (a replay, a shell\'s new game) sets them again; other saved values stay', () => {
+  it('every start begins with them — a restart (a replay, a shell\'s new game) sets them again; other saved values stay', () => {
     const seen: string[] = [];
     const counter = (ctx: Ctx): void => {
       if (ctx.phase !== 'intent') return;
@@ -189,7 +189,7 @@ describe('phase 23.8: injected variables', () => {
   });
 });
 
-describe('phase 25.17: a step observer that holds', () => {
+describe('a step observer that holds', () => {
   it('holds right after the step it observed (the frame\'s other steps do not run) and goes on from there when let go, without catching up', () => {
     const { rt, tick, diag, now } = harness({ idle: () => undefined }, [carrier('box-0001', 'idle')]);
     tick(3);
@@ -211,7 +211,7 @@ describe('phase 25.17: a step observer that holds', () => {
   });
 });
 
-describe('phase 23.8: debug commands on input frames', () => {
+describe('debug commands on input frames', () => {
   it('a frame with commands validates to frozen copies; a frame without keeps its exact shape', () => {
     const plain = validateActionFrame({ stepIndex: 3, moveX: 0, jump: 'none' });
     expect(plain.ok && JSON.stringify(plain.frame)).toBe('{"stepIndex":3,"actions":{"move":{"v":0,"p":"none"},"jump":{"v":0,"p":"none"}}}');

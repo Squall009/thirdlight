@@ -125,7 +125,7 @@ const near = (m: Map<number, string>, step: number): string => {
   throw new Error(`nothing near ${step}`);
 };
 
-describe('phase 23.16: dialogue in page and worker, and on replay', () => {
+describe('dialogue in page and worker, and on replay', () => {
   it('identical digests page vs worker and run vs replay; choices, the voice bus and ducking as recorded', async () => {
     const a = await run('single');
     const w = await run('worker');

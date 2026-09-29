@@ -145,7 +145,7 @@ async function run(mode: Mode, opts: { replay: boolean; varied: boolean }): Prom
   return { h, digests: [...h.digests], end };
 }
 
-describe('phase 22.0: identical results in the page and in the simulation worker', () => {
+describe('identical results in the page and in the simulation worker', () => {
   it('a recorded replay: every step digest is equal (frames of 0–3 steps)', async () => {
     const a = await run('single', { replay: true, varied: true });
     const b = await run('worker', { replay: true, varied: true });
@@ -186,7 +186,7 @@ describe('phase 22.0: identical results in the page and in the simulation worker
   }, 120_000);
 });
 
-describe('phase 22.3: physics in the worker', () => {
+describe('physics in the worker', () => {
   it('dispose frees the simulation in the worker (acknowledged before the worker ends)', async () => {
     const { snapshot, physics } = level();
     const worker = await startNodeSimWorker();

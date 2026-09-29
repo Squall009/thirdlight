@@ -15,7 +15,7 @@ describe('labels', () => {
   });
 });
 
-describe('phase 24.4j: prompts generated from the declared input actions', () => {
+describe('prompts generated from the declared input actions', () => {
   const config = {
     actions: [
       { name: 'moveX', type: 'axis1d', map: 'gameplay', bindings: [{ kind: 'keys1d', negative: 'KeyA', positive: 'KeyD' }] },

@@ -27,7 +27,7 @@ const withMinMax = (json: Json): void => {
   acc['max'] = [1, 2, 0.5];
 };
 
-describe('model bounds in the import metrics (phase 15.3)', () => {
+describe('model bounds in the import metrics', () => {
   it('a file without POSITION min/max records no bounds (the metrics are unchanged)', () => {
     const p = inspect(fixtureBytes('tiny-v1.glb'));
     expect(p.status).toBe('ok');

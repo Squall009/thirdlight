@@ -128,7 +128,7 @@ describe('graphEdit', () => {
   });
 });
 
-describe('graphEdit on an animator controller (phase 16.2)', () => {
+describe('graphEdit on an animator controller', () => {
   const animators = (s: State): AnimatorController[] => (s.content as { animators?: AnimatorController[] }).animators ?? [];
   const clip = (name: string) => ({ assetId: 'asset-2b11d4a76c9f0e35', clip: name, duration: 1 });
   function withController(): State {

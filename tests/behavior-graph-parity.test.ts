@@ -83,7 +83,7 @@ describe('behavior graph parity (editor ↔ project-model)', () => {
     for (const id of ['door', 'door#open', 'door#', '#x']) expect(parseBehaviorOwnerId(id)).toEqual(commandsParse(id));
   });
 
-  it('phase 19.2: repeated ports (a port count from a node field) resolve alike, and wires to them validate', () => {
+  it('repeated ports (a port count from a node field) resolve alike, and wires to them validate', () => {
     // The Switch: one exec output per listed case (text list), ids case1..caseN, the item as the label.
     const g: GraphData = {
       nodes: [

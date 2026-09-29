@@ -48,7 +48,7 @@ function makeRuntime(): { runtime: Runtime; snapshot: RuntimeSnapshot } {
   return { runtime: res.runtime, snapshot };
 }
 
-describe('scene adapter surface (packet 08; Node unit/mock-level)', () => {
+describe('scene adapter surface (Node unit/mock-level)', () => {
   it('exports the contract surface: createSceneAdapter, ERROR_CODES, and the four adapter members', () => {
     expect(typeof createSceneAdapter).toBe('function');
     expect(Array.isArray(ERROR_CODES)).toBe(true);
@@ -67,7 +67,7 @@ describe('scene adapter surface (packet 08; Node unit/mock-level)', () => {
     runtime.dispose();
   });
 
-  it('diagnostics in Node report the ABSENT backend (null) with the §8 field set + the M3 shadow fields', () => {
+  it('diagnostics in Node report the ABSENT backend (null) with the field set + the M3 shadow fields', () => {
     const { runtime, snapshot } = makeRuntime();
     const adapter = createSceneAdapter(stubCanvas(), { runtime, snapshot });
     const res = adapter.diagnostics();

@@ -54,7 +54,7 @@ function setup(): State {
   return s;
 }
 
-describe('block layer commands (phase 23.5)', () => {
+describe('block layer commands', () => {
   it('editBlocks fills, reports a compact change, undoes and redoes', () => {
     const s0 = setup();
     const id = (s0 as { layerId?: string }).layerId!;

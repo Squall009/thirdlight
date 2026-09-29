@@ -25,7 +25,7 @@ import {
   validateContentJobView,
 } from './index';
 
-describe('checkUploadFrame (workspace.md §13.9 / upload-bounds.json cases)', () => {
+describe('checkUploadFrame', () => {
   const cases = [
     { caseId: 'U1', frameBytes: 1_048_576, offset: 0, expectedOffset: 0, declaredTotal: 1_048_576, openStages: 1, stagedBytes: 0, expect: { accepted: true, code: null, limit: null } },
     { caseId: 'U2', frameBytes: 1_048_577, offset: 0, expectedOffset: 0, declaredTotal: 2_097_152, openStages: 1, stagedBytes: 0, expect: { accepted: false, code: 'stage_limits_exceeded', limit: 'frame_bytes' } },
@@ -88,7 +88,7 @@ describe('parseUploadFrameHeaders', () => {
   });
 });
 
-describe('parseAssetByteParams (sessions.md §16.1)', () => {
+describe('parseAssetByteParams', () => {
   it('accepts a bare (assetId, version)', () => {
     const r = parseAssetByteParams('demo-0001', 'asset-00000000000000a1', '2');
     expect(r.ok).toBe(true);
@@ -181,7 +181,7 @@ describe('stage/job/query validators', () => {
   });
 });
 
-describe('parseCommandEnvelope (packet 25 op surface extension)', () => {
+describe('parseCommandEnvelope', () => {
   it('routes the M1 ops unchanged', () => {
     for (const op of ['createEntity', 'setTransform', 'deleteEntity', 'undo', 'redo', 'queryProject', 'queryEntity', 'queryEntities']) {
       const r = parseCommandEnvelope({ op, projectId: 'demo-0001', args: {} });

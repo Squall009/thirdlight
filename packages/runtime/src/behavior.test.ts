@@ -174,7 +174,7 @@ function boot(
   };
 }
 
-describe('behavior host lifecycle (runtime.md §14.3)', () => {
+describe('behavior host lifecycle', () => {
   it('runs prepare once, instantiate per carrying entity in document order, one step per declared phase, and dispose exactly once', () => {
     const calls: SpecCall[] = [];
     const art = artifact(
@@ -215,7 +215,7 @@ describe('behavior host lifecycle (runtime.md §14.3)', () => {
   });
 });
 
-describe('validated intents (runtime.md §14.4/§14.5)', () => {
+describe('validated intents', () => {
   it('commits a quantized control_move that a later phase module can read', () => {
     const seen: { move: number | null; moveWriter: string | null }[] = [];
     const art = artifact('behavior-0001', (_s, ctx) => {
@@ -407,7 +407,7 @@ describe('validated intents (runtime.md §14.4/§14.5)', () => {
     expect(d.intentCommitCount).toBe(5);
   });
 
-  it('phase 21.2: scales the per-step cap with the live instances (20 instances × 4 intents = 80 > 64 is accepted)', () => {
+  it('scales the per-step cap with the live instances (20 instances × 4 intents = 80 > 64 is accepted)', () => {
     const ids = Array.from({ length: 20 }, (_, i) => `box-${String(i + 1).padStart(4, '0')}`);
     const art = artifact('behavior-0001', (_s, ctx) => {
       const c = ctx as { phase: string; entityId: string; emit: (i: unknown) => void };
@@ -429,7 +429,7 @@ describe('validated intents (runtime.md §14.4/§14.5)', () => {
     expect(d.intentCommitCount).toBeGreaterThanOrEqual(80 * 3);
   });
 
-  it('phase 21.2: keeps the fixed floor of 64 for intents not bounded per instance (a module without instances)', () => {
+  it('keeps the fixed floor of 64 for intents not bounded per instance (a module without instances)', () => {
     const boxes = Array.from({ length: 22 }, (_, i) => `box-${String(i + 1).padStart(4, '0')}`);
     const flood = probeSpec({
       id: 'thirdlight.test:flood',
@@ -451,7 +451,7 @@ describe('validated intents (runtime.md §14.4/§14.5)', () => {
   });
 });
 
-describe('bounded logs (runtime.md §14.8)', () => {
+describe('bounded logs', () => {
   it('accepts 16 logs per step per instance, counts the rest as dropped, and keeps the runtime ring bounded', () => {
     const art = artifact('behavior-0001', (_s, ctx) => {
       const c = ctx as { log: (l: string, m: string) => void };
@@ -486,7 +486,7 @@ describe('bounded logs (runtime.md §14.8)', () => {
   });
 });
 
-describe('step failures and the frozen prepare object (runtime.md §14.1/§14.3.1)', () => {
+describe('step failures and the frozen prepare object', () => {
   it('fail-stops on a module throw with behavior_step_failed and refuses to resume', () => {
     const art = artifact('behavior-0001', () => {
       throw new Error('boom');
@@ -535,7 +535,7 @@ describe('step failures and the frozen prepare object (runtime.md §14.1/§14.3.
   });
 });
 
-describe('create-time failures (runtime.md §14.3.1/§14.6)', () => {
+describe('create-time failures', () => {
   function instantiateError(art: BehaviorArtifact, scene: unknown): { code: string; reason?: string; detail?: string } {
     const registry = createSimulationRegistry();
     const spec = createBehaviorModuleSpec({ declaration: { properties: [{ ...SPEED }] }, artifact: art });
@@ -657,7 +657,7 @@ describe('public surface', () => {
   });
 });
 
-describe('phase 25.11: callbacks on the behavior spec', () => {
+describe('callbacks on the behavior spec', () => {
   const namespaceArtifact = (spec: Record<string, unknown>): BehaviorArtifact => ({
     behaviorId: 'behavior-0001',
     sourceDigest: 'a'.repeat(64),

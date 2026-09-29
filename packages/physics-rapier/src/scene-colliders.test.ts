@@ -25,7 +25,7 @@ async function port(): Promise<RapierPhysicsPort> {
   return r.port;
 }
 
-describe('scene colliders (phase 12 c)', () => {
+describe('scene colliders', () => {
   it('adds a loaded floor the character then stands on, and frees it on unload', async () => {
     const p = await port();
     const before = p.diagnostics();
@@ -52,7 +52,7 @@ describe('scene colliders (phase 12 c)', () => {
     p.dispose();
   });
 
-  it('phase 9.9: overlap queries find the colliders in a box or a circle, never the character', async () => {
+  it('overlap queries find the colliders in a box or a circle, never the character', async () => {
     const p = await port();
     p.addStaticColliders([
       { entityId: 'crate-a', shape: { type: 'box', hx: 0.5, hy: 0.5 }, position: { x: 3, y: 1.5 }, rotationZ: 0 },

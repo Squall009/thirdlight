@@ -49,7 +49,7 @@ const floor = (g: BlockGrid): void => {
   applyBlockEdits(g, [{ kind: 'fill', box: [0, 0, 0, 16, 1, 16], cell: { block: 'stone' } }, { kind: 'region', regionId: 'deploy.a', op: 'set', boxes: [[0, 1, 0, 2, 2, 2]] }], { types: new Map(TYPES.map((t) => [t.blockId, t])), stamps: new Map() });
 };
 
-describe('runtime grid (phase 23.5)', () => {
+describe('runtime grid', () => {
   it('reads cells with effective metadata, writes and clears them, and validates writes', () => {
     const grid = new RuntimeGrid(TYPES, FIELDS, true);
     grid.addLayers([layerEntity('ground', [10, 0, -4], floor)]);
