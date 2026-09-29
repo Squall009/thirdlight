@@ -708,14 +708,16 @@ export const DEFAULT_CONTROLLER_MOVEMENT: Readonly<{ climbSpeed: number; wallSli
   wallJump: false,
 });
 /** Phase 25.13: the climb and wall fields' ranges (m/s). */
-export const CONTROLLER_MOVEMENT_LIMITS: Readonly<Record<'climbSpeed' | 'wallSlideSpeed' | 'wallJumpAway' | 'wallJumpUp', { readonly min: number; readonly max: number }>> = Object.freeze({
+export const CONTROLLER_MOVEMENT_LIMITS: Readonly<Record<'climbSpeed' | 'wallSlideSpeed' | 'wallJumpAway' | 'wallJumpUp' | 'wallJumpLock', { readonly min: number; readonly max: number }>> = Object.freeze({
   climbSpeed: { min: 0.1, max: 50 },
   wallSlideSpeed: { min: 0, max: 50 },
   wallJumpAway: { min: 0, max: 50 },
   wallJumpUp: { min: 0, max: 50 },
+  /** s: how long a wall jump keeps the input from steering (absent: until the top of the jump). */
+  wallJumpLock: { min: 0, max: 5 },
 });
 /** Phase 25.13: the climb and wall fields, in canonical order (after the action names). */
-export const CONTROLLER_MOVEMENT_FIELDS = ['climbSpeed', 'climbAction', 'wallSlide', 'wallSlideSpeed', 'wallJump', 'wallJumpAway', 'wallJumpUp'] as const;
+export const CONTROLLER_MOVEMENT_FIELDS = ['climbSpeed', 'climbAction', 'wallSlide', 'wallSlideSpeed', 'wallJump', 'wallJumpAway', 'wallJumpUp', 'wallJumpLock'] as const;
 const CONTROLLER_MOVEMENT_BOOLEANS: readonly string[] = ['wallSlide', 'wallJump'];
 
 /** Phase 25.13: the resolved climb and wall settings (`wallJumpAway`/`wallJumpUp` absent: the caller's run and jump speeds). */
@@ -728,6 +730,8 @@ export interface ControllerMovementSettings {
   wallJump: boolean;
   wallJumpAway: number | null;
   wallJumpUp: number | null;
+  /** Seconds the input does not steer after a wall jump (null: until the top of the jump). A landing always ends it. */
+  wallJumpLock: number | null;
 }
 
 /** Phase 25.13: the climb and wall settings a controller describes (each absent field at its default). */
@@ -744,6 +748,7 @@ export function controllerMovementOf(controller: unknown): ControllerMovementSet
     wallJump: bool('wallJump', d.wallJump),
     wallJumpAway: num('wallJumpAway'),
     wallJumpUp: num('wallJumpUp'),
+    wallJumpLock: num('wallJumpLock'),
   };
 }
 

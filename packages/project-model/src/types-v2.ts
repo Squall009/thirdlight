@@ -204,6 +204,8 @@ export interface ControllerComponent {
   wallJumpAway?: number;
   /** Phase 25.13: m/s upward at a wall jump (absent: the jump speed). */
   wallJumpUp?: number;
+  /** Phase 25.13: seconds a wall jump keeps the input from steering (absent: until the top of the jump; a landing ends it). */
+  wallJumpLock?: number;
 }
 
 /** v2 component registry order: transform, model, box, camera, behavior, prefab, collider, controller. */

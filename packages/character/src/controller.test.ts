@@ -141,6 +141,7 @@ describe('contract constants (dependencies.md §3 character row)', () => {
       wallSide: 0,
       wallCoyote: 0,
       wallJumped: false,
+      wallLockSteps: 0,
     });
   });
 

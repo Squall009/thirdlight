@@ -215,6 +215,8 @@ describe('phase 25.13: climbing, walls, gravity bodies, 2D patrol axes', () => {
     it(`wall slide holds the fall at its speed and wall jump pushes off; off by default (${dim}D)`, async () => {
       const on = await allModes(dim, wallLevel(dim, { wallSlide: true, wallSlideSpeed: 1, wallJump: true, wallJumpAway: 5, wallJumpUp: 6 }), WALL, 300);
       const off = await allModes(dim, wallLevel(dim, {}), WALL, 300);
+      // A wall jump lock of 0: the (released) input steers at once, so it slows down right after the push.
+      const free = await allModes(dim, wallLevel(dim, { wallSlide: true, wallSlideSpeed: 1, wallJump: true, wallJumpAway: 5, wallJumpUp: 6, wallJumpLock: 0 }), WALL, 300);
       if (process.env['TL_DEBUG']) console.log(JSON.stringify(on.map((r: Any[]) => [r[0], r[1]])), JSON.stringify(off.map((r: Any[]) => [r[0], r[1]])));
       const y = (log: Any[], s: number): number => row(log, s)[1][1];
       const x = (log: Any[], s: number): number => row(log, s)[1][0];
@@ -238,6 +240,10 @@ describe('phase 25.13: climbing, walls, gravity bodies, 2D patrol axes', () => {
       expect(x(on, 180)).toBeLessThan(x(on, 145) - 0.8);
       expect(y(on, 180)).toBeGreaterThan(y(on, 145) + 0.3);
       expect(x(off, 180)).toBeGreaterThan(2.5);
+      // The lock is data: without it the push carries on (no steering until the top); with 0 it is braked at once.
+      expect(x(free, 145)).toBeCloseTo(x(on, 145), 6);
+      expect(x(on, 160) - x(on, 170)).toBeGreaterThan(0.3);
+      expect(x(free, 160) - x(free, 170)).toBeLessThan((x(on, 160) - x(on, 170)) / 2);
     }, 240_000);
   }
 });

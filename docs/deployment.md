@@ -2743,8 +2743,9 @@ group of that name): **Climb speed** and **Climb action** (see Climb volume);
 slides down it no faster than **Wall slide speed**, 2 m/s) and **Wall jump**
 (off; when on, jump in the air next to a wall it touches — or touched within
 the coyote time — pushes it off at **Wall jump away** (absent: the run speed)
-and **Wall jump up** (absent: the jump speed); the input does not steer until
-the top of that jump). With both off a character plays exactly as before.
+and **Wall jump up** (absent: the jump speed); the input does not steer for
+**Wall jump lock** seconds — absent: until the top of that jump; a landing
+ends it). With both off a character plays exactly as before.
 
 **Input.** The move is a 2D vector: a project without its own input actions
 gets the 3D defaults (W/A/S/D and the arrow keys or the left stick move,

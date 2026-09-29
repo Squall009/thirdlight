@@ -103,6 +103,8 @@ export interface ControllerMovementTuning {
   readonly wallJump: boolean;
   readonly wallJumpAway: number | null;
   readonly wallJumpUp: number | null;
+  /** Seconds the input does not steer after a wall jump (null: until the top of the jump). */
+  readonly wallJumpLock: number | null;
 }
 
 export const DEFAULT_MOVEMENT_TUNING: ControllerMovementTuning = Object.freeze({
@@ -113,6 +115,7 @@ export const DEFAULT_MOVEMENT_TUNING: ControllerMovementTuning = Object.freeze({
   wallJump: false,
   wallJumpAway: null,
   wallJumpUp: null,
+  wallJumpLock: null,
 });
 
 /**
@@ -136,6 +139,7 @@ export function controllerMovementTuning(controller: unknown): ControllerMovemen
     wallJump: bool('wallJump', d.wallJump),
     wallJumpAway: num('wallJumpAway'),
     wallJumpUp: num('wallJumpUp'),
+    wallJumpLock: num('wallJumpLock'),
   });
 }
 
@@ -184,8 +188,10 @@ export interface ControllerState {
   /** Phase 25.13: the side of the wall it last touched in the air (−1 left, 1 right) and the steps that touch still counts for a wall jump. */
   wallSide: -1 | 0 | 1;
   wallCoyote: number;
-  /** Phase 25.13: rising from a wall jump — the input does not steer until the top of the jump. */
+  /** Phase 25.13: after a wall jump the input does not steer (until the top of the jump, or for `wallJumpLock`). */
   wallJumped: boolean;
+  /** Phase 25.13: steps the wall jump lock still holds (a timed `wallJumpLock` only). */
+  wallLockSteps: number;
 }
 
 /** the controller contract §7 `approach(v, target, up, down)` — never overshoots. */
@@ -213,6 +219,7 @@ export function createControllerState(charX: number, charY: number, coyoteSteps:
     wallSide: 0,
     wallCoyote: 0,
     wallJumped: false,
+    wallLockSteps: 0,
   };
 }
 
@@ -425,6 +432,7 @@ export function controllerStep(
       state.coyote = 0;
       state.wallCoyote = 0;
       state.wallJumped = true;
+      state.wallLockSteps = mv.wallJumpLock === null ? 0 : Math.round(mv.wallJumpLock / dt);
       state.jumpStarted = true;
     } else {
       state.jumpStarted = false;
@@ -457,8 +465,13 @@ export function controllerStep(
   }
   // G. landing classification (a grounded step with non-positive vy).
   if (state.airborne && groundedPrev && state.vy <= 0) state.airborne = false;
-  // Phase 25.13: a wall jump keeps its push away from the wall until the top of the jump (or a landing).
-  if (state.wallJumped && (state.vy <= 0 || groundedPrev && !state.jumpStarted)) state.wallJumped = false;
+  // Phase 25.13: a wall jump keeps its push away from the wall until the top of the jump, or for
+  // `wallJumpLock` (a landing ends it either way).
+  if (state.wallJumped) {
+    const landed = groundedPrev && !state.jumpStarted;
+    if (landed || (mv.wallJumpLock === null ? state.vy <= 0 : state.wallLockSteps <= 0)) state.wallJumped = false;
+    else if (mv.wallJumpLock !== null) state.wallLockSteps -= 1;
+  }
   // H. horizontal approach (no smoothing, exact arrival at the target).
   const commanded = frame.moveX * settings.run_speed;
   let target = commanded;
@@ -565,6 +578,7 @@ export function createControllerModule(
       state.wallSide = 0;
       state.wallCoyote = 0;
       state.wallJumped = false;
+      state.wallLockSteps = 0;
     },
     step(phase, ctx): void {
       if (phase === 'controller') {

@@ -1057,7 +1057,10 @@ boundary it changes (Playwright for any editor surface).
   at `wallJumpAway` (absent: the run speed) and `wallJumpUp` (absent: the
   jump speed), and the input does not steer until the top of that jump —
   without that the 2D ground deceleration (60 m/s²) ate the push in 0.08 s
-  (found by the integration test). No lock-time field was added.
+  (found by the integration test). Later the same day the lock became data
+  (principle 2): `wallJumpLock` seconds (absent: until the top of the jump,
+  the rule above, so recorded replays are unchanged; 0: steers at once; a
+  landing always ends it), an Inspector field under "Wall jump".
 - 2026-09-29 (25.13): **gravity for bodies that aren't characters** is a
   `gravity` component on objects without a physics body (not with a mover,
   a collider or a waypoint patrol — those set their own position): it

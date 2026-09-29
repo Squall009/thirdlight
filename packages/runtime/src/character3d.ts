@@ -121,8 +121,10 @@ export function createCharacter3DModule(snapshot: RuntimeSnapshot, cfg: ModuleCo
   /** The last wall touched in the air: its outward normal (horizontal) and the steps it still counts for a wall jump. */
   let wallNormal: { x: number; z: number } | null = null;
   let wallCoyote = 0;
-  /** Rising from a wall jump: the input does not steer until the top of the jump. */
+  /** After a wall jump the input does not steer: until the top of the jump, or for `wallJumpLock` (steps left). */
   let wallJumped = false;
+  let wallLockSteps = 0;
+  const wallLockTotal = M.wallJumpLock === null ? null : Math.round(M.wallJumpLock * hz);
 
   let vx = 0;
   let vz = 0;
@@ -203,6 +205,7 @@ export function createCharacter3DModule(snapshot: RuntimeSnapshot, cfg: ModuleCo
       wallNormal = null;
       wallCoyote = 0;
       wallJumped = false;
+      wallLockSteps = 0;
     }
     // Phase 24.4f: a placement that faces a spawn's yaw.
     if (typeof intents.characterYaw === 'number' && Number.isFinite(intents.characterYaw)) yaw = intents.characterYaw;
@@ -292,8 +295,12 @@ export function createCharacter3DModule(snapshot: RuntimeSnapshot, cfg: ModuleCo
     const cur = Math.hypot(vx, vz);
     const speedingUp = speed > 1e-9 && vx * tx + vz * tz >= 0 && speed >= cur;
     const rate = (speedingUp ? S.acceleration : S.deceleration) * (walkable ? 1 : S.airControl);
-    // Phase 25.13: a wall jump keeps its push away from the wall until the top of the jump (or a landing).
-    if (wallJumped && (vy <= 0 || walkable)) wallJumped = false;
+    // Phase 25.13: a wall jump keeps its push away from the wall until the top of the jump, or for
+    // `wallJumpLock` (a landing ends it either way).
+    if (wallJumped) {
+      if (walkable || (wallLockTotal === null ? vy <= 0 : wallLockSteps <= 0)) wallJumped = false;
+      else if (wallLockTotal !== null) wallLockSteps -= 1;
+    }
     if (!wallJumped) [vx, vz] = approach2(vx, vz, tx, tz, rate * dt);
 
     // Phase 25.13: the wall it touches in the air (a move the wall took part of; wall slide and wall jump only).
@@ -332,6 +339,7 @@ export function createCharacter3DModule(snapshot: RuntimeSnapshot, cfg: ModuleCo
       coyote = 0;
       wallCoyote = 0;
       wallJumped = true;
+      wallLockSteps = wallLockTotal ?? 0;
     } else if (jump === 'released' && jumping && vy > 0) {
       vy *= S.jumpRelease;
       jumping = false;

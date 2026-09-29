@@ -40,7 +40,7 @@ describe('phase 25.13 model', () => {
     const errors: ModelErrorV2[] = [];
     validateControllerComponent({ climbSpeed: 0, wallSlide: 'yes', wallJumpAway: 60, climbAction: '1x' }, '/c', errors, 4);
     expect(errors.map((e) => e.path).sort()).toEqual(['/c/climbAction', '/c/climbSpeed', '/c/wallJumpAway', '/c/wallSlide']);
-    expect(controllerMovementOf({})).toEqual({ climbSpeed: 2, climbAction: null, wallSlide: false, wallSlideSpeed: 2, wallJump: false, wallJumpAway: null, wallJumpUp: null });
+    expect(controllerMovementOf({})).toEqual({ climbSpeed: 2, climbAction: null, wallSlide: false, wallSlideSpeed: 2, wallJump: false, wallJumpAway: null, wallJumpUp: null, wallJumpLock: null });
     expect(Object.keys(canonicalController({ wallJump: true, climbSpeed: 3, moveAction: 'walk', skin: 0.02 }))).toEqual(['skin', 'moveAction', 'climbSpeed', 'wallJump']);
     expect(JSON.stringify(canonicalController({ skin: 0.02 }))).toBe('{"skin":0.02}');
   });

@@ -728,6 +728,7 @@ const controller: ComponentDescriptor = {
     bool('wallJump', 'Wall jump', 'In the air, jump pushes it off a wall it touches (away from the wall and up).', { group: 'Climbing and walls', default: CMD.wallJump }),
     num('wallJumpAway', 'Wall jump away', 'Speed away from the wall at a wall jump (absent: its run speed).', { group: 'Climbing and walls', when: when('wallJump', true), ...CML.wallJumpAway, step: 0.1, unit: 'm/s' }),
     num('wallJumpUp', 'Wall jump up', 'Upward speed at a wall jump (absent: its jump speed).', { group: 'Climbing and walls', when: when('wallJump', true), ...CML.wallJumpUp, step: 0.1, unit: 'm/s' }),
+    num('wallJumpLock', 'Wall jump lock', 'How long after a wall jump the input does not steer (absent: until the top of the jump; 0: steers at once; a landing always ends it).', { group: 'Climbing and walls', when: when('wallJump', true), ...CML.wallJumpLock, step: 0.05, unit: 's' }),
   ], { rules: ['The steepest walkable slope is the project setting max_slope_climb_deg; run speed, jump speed and gravity are project settings too (a 3D character may override them).'] }),
   add: { kind: 'menu', value: {} },
   handles: [
