@@ -130,7 +130,7 @@ boundary it changes (Playwright for any editor surface).
 | **Rendering and terrain** | | |
 | 25.19 | Materials and textures: material instances (an asset- or block-type-level mapping to a material plus parameter values), KTX2 texture assets, and KTX2 encoding on import (colour ETC1S, normals UASTC, with mipmaps). | E29, E30 |
 | 25.20 | Block layers: sloped terrain (corner heights, slope and wall meshing, `ctx.grid` surface queries, height and smooth brushes, a `maxSlope` setting); lightmaps and chunk LOD on block layers (phase 23 leftovers). | E39, E8 |
-| 25.21 | A painted terrain material: 4 height-blended PBR slots packed into 3 compressed texture arrays, paint and wetness stored with the layer, and an editor Paint mode. Needs 25.19 and 25.20. | E40 |
+| 25.21 | A painted terrain material: 4 height-blended PBR slots packed into 3 compressed texture arrays, paint and wetness stored with the layer, and an editor Paint mode. Needs 25.19 and 25.20.<br>• **The height blend is a material-graph node** (layers mixed by their height maps, weights from any input), not terrain-only code: the terrain material is one graph using it, and any mesh can use it with its vertex colours as weights (trim sheets: clean → dirt → moss). Its test covers both a block layer and a vertex-coloured GLB.<br>• The Paint mode's brush (radius, strength, falloff, target channel) is its own module, so painting other targets (mesh vertex colours, a later phase) reuses it. | E40, owner |
 | 25.22 | Small UI and content items: a bindable `startAngle` and `size` on UI widgets, and an art-factory import route. The route reads a job's export, not the art-factory repo. | E32, E18 |
 | **Editor quality of life** | | |
 | 25.23 | **Moved to phase 26** (owner, 2026-09-29): the project window is built on phase 26's storage, where folders are real directories of the game folder (26.4) instead of organization data in the content; its scope is in `docs/plan-phase-26.md` item 26.13. Not done in phase 25. | owner |
@@ -1177,3 +1177,7 @@ boundary it changes (Playwright for any editor surface).
   restarts when it runs again. Not step-exact: UI edges and clicks apply at
   the page's next frame (as a player's do), so an exercise with UI input
   compares with its replay only where the UI's effect has settled.
+- 2026-09-29: 25.21's height blend became a general material-graph node and
+  its brush a module (owner): trim-sheet environment pieces blend by vertex
+  colour with the same node; painting mesh vertex colours in the editor and
+  decals are a later phase (roadmap).

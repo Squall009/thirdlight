@@ -61,6 +61,7 @@ that phase plan's decision log, and move on. The owner reviews at the end.
 | 26 | `docs/plan-phase-26.md` | Asset scale and streaming: no per-project asset count caps, a Unity/Godot-style asset database (files with sidecars, resources as files), one audio kind, addresses and labels, refcounted runtime loading, texture streaming, the editor at thousands of assets |
 | 27 | `docs/plan-phase-27.md` | Scalable lighting: probes baked from static objects for every 3D object, cached static shadows with dynamic casters on top, light layers, per-vertex local lights, effect lights on the GPU, AO and render scale, measured at 1080p on an iGPU |
 | 28 | `docs/plan-phase-28.md` | Documentation and AI onboarding: a generated reference, a manual with how-to guides, `tl_docs` and MCP instructions, a Thirdlight skill installed into game folders, a hand-built dogfood project |
+| 29 | (plan to be written) | Decals and trim-sheet materials (owner, 2026-09-29): a decal material mode for mesh decals in GLBs (blend over the surface, depth offset, per-channel albedo/normal/roughness), projected decals evaluated in the material (Godot-style), static `DecalGeometry` placement in the editor, and painting mesh vertex colours in the editor with 25.21's brush |
 
 Phase 13 (material node graph) moved to phase 18, after the renderer phase,
 because the graph compiles to TSL (owner decision, 2026-09-24).
