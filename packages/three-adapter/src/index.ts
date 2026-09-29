@@ -284,4 +284,4 @@ export { EFFECT_TIMELINE_STEP, EffectTimeline, type EffectSystemCounter, type Ef
 // Phase 21.5: releasing objects that leave the scene for good (render objects, node-made buffers, shadow maps).
 export { disposeObjectTree, installProgramRelease, installVaoSweep, liveRenderers, releaseNodeAttributes, trackRenderer, trackTextureListeners, type DisposeTreeOptions } from './dispose';
 // Phase 23.5 (E8): block layers — merged chunk meshes (the Play/export adapter and the editor's Scene view share it).
-export { BlockLayerView, blockChunkKey, blockLookFromObject, type BlockLayerViewDeps, type BlockLayerViewDiagnostics, type BlockModelLook } from './block-layers';
+export { BlockLayerView, blockChunkKey, blockLookFromObject, type BlockChunkLightmapTarget, type BlockLayerViewDeps, type BlockLayerViewDiagnostics, type BlockModelLook } from './block-layers';

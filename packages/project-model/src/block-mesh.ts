@@ -368,6 +368,8 @@ export interface ChunkMeshPart {
   positions: Float32Array;
   normals: Float32Array;
   uvs: Float32Array;
+  /** Lightmap UVs, when a lightmap layout was made for the chunk (`chunkLightmapLayout`). */
+  uv1?: Float32Array;
   indices: Uint32Array;
 }
 

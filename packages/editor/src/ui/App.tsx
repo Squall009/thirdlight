@@ -4569,7 +4569,7 @@ function EditorApp(): JSX.Element {
               <LightingPanel
                 sceneName={activeScene.name}
                 bake={lighting[activeScene.sceneId] ?? null}
-                stale={lighting[activeScene.sceneId] !== undefined && bakeIsStale(lighting[activeScene.sceneId]!, (clientRef.current?.projection.listEntities() ?? []).filter((e) => e.sceneId === activeScene.sceneId))}
+                stale={lighting[activeScene.sceneId] !== undefined && bakeIsStale(lighting[activeScene.sceneId]!, (clientRef.current?.projection.listEntities() ?? []).filter((e) => e.sceneId === activeScene.sceneId), (id) => clientRef.current?.getBlockLayers().get(id)?.chunks)}
                 settings={bakeSettings}
                 onSettings={setBakeSettings}
                 busy={bakeBusy}

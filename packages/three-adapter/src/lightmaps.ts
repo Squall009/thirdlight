@@ -26,7 +26,7 @@ import { copyMaterialKeepingHooks, isNodeMaterial, toNodeMaterial, withoutAmbien
 export interface LightingBakeLike {
   readonly range: number;
   readonly atlases: readonly string[];
-  readonly entries: readonly { readonly entityId: string; readonly atlas: number; readonly scaleOffset: readonly [number, number, number, number] | readonly number[] }[];
+  readonly entries: readonly { readonly entityId: string; readonly chunk?: readonly number[]; readonly layout?: string; readonly atlas: number; readonly scaleOffset: readonly [number, number, number, number] | readonly number[] }[];
   readonly bakedLights: readonly string[];
 }
 
@@ -206,6 +206,12 @@ export interface LightmapSet {
   apply(entityId: string, root: THREE.Object3D): void;
   /** Take the entity's lightmap off again. */
   release(entityId: string): void;
+  /** Whether some bake has lightmaps for chunks of this block layer (its chunks then need lightmap UVs). */
+  hasChunks(entityId: string): boolean;
+  /** Apply a block-layer chunk's lightmap to `root` when the bake has one for this chunk made with this layout. */
+  applyChunk(entityId: string, cx: number, cz: number, layout: string, root: THREE.Object3D): void;
+  /** Take a chunk's lightmap off again. */
+  releaseChunk(entityId: string, cx: number, cz: number): void;
   /**
    * Phase 23.18: multiply the baked light by `intensity` and tint it (an
    * environment preset's `lightmap`; 1 and white leave the bake as it is).
@@ -232,13 +238,20 @@ export function createLightmapSet(
   loadTexture: (assetId: string) => Promise<THREE.Texture | null>,
   ambientBaked: (lightIds: readonly string[]) => boolean,
 ): LightmapSet {
-  const entries = new Map<string, { bake: LightingBakeLike; atlas: string; scaleOffset: readonly number[] }>();
+  // Entities by id; block-layer chunks by `<layer>#<cx>,<cz>` (never a valid entity id).
+  const entries = new Map<string, { bake: LightingBakeLike; atlas: string; scaleOffset: readonly number[]; layout?: string }>();
+  const chunkLayers = new Set<string>();
+  const chunkKey = (entityId: string, cx: number, cz: number): string => `${entityId}#${cx},${cz}`;
   const bakedLights = new Set<string>();
   for (const bake of Object.values(bakes)) {
     for (const id of bake.bakedLights) bakedLights.add(id);
     for (const e of bake.entries) {
       const atlas = bake.atlases[e.atlas];
-      if (atlas !== undefined) entries.set(e.entityId, { bake, atlas, scaleOffset: e.scaleOffset });
+      if (atlas === undefined) continue;
+      if (e.chunk !== undefined && e.layout !== undefined) {
+        chunkLayers.add(e.entityId);
+        entries.set(chunkKey(e.entityId, e.chunk[0]!, e.chunk[1]!), { bake, atlas, scaleOffset: e.scaleOffset, layout: e.layout });
+      } else entries.set(e.entityId, { bake, atlas, scaleOffset: e.scaleOffset });
     }
   }
   const textures = new Map<string, Promise<THREE.Texture | null>>();
@@ -266,9 +279,19 @@ export function createLightmapSet(
     refreshers.delete(entityId);
     copiesOf.delete(entityId);
   };
-  return {
+  const set: LightmapSet = {
     isBakedLight: (id) => bakedLights.has(id),
     has: (id) => entries.has(id),
+    hasChunks: (id) => chunkLayers.has(id),
+    applyChunk(entityId, cx, cz, layout, root) {
+      const key = chunkKey(entityId, cx, cz);
+      if (entries.get(key)?.layout !== layout) {
+        release(key);
+        return;
+      }
+      set.apply(key, root);
+    },
+    releaseChunk: (entityId, cx, cz) => release(chunkKey(entityId, cx, cz)),
     apply(entityId, root) {
       const entry = entries.get(entityId);
       if (entry === undefined || disposed) return;
@@ -301,4 +324,5 @@ export function createLightmapSet(
       textures.clear();
     },
   };
+  return set;
 }

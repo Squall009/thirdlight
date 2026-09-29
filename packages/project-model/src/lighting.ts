@@ -10,10 +10,19 @@
  * Atlas texels store irradiance / `range`, sRGB-encoded (8-bit PNG); the
  * renderer multiplies by `range`.
  */
+import { BLOCK_LIMITS, CHUNK_SIZE } from './block-layers';
 import type { ModelErrorV2 } from './errors';
 
 export interface LightingEntry {
   entityId: string;
+  /**
+   * A block layer's chunk [cx, cz]: the entry is that chunk's lightmap (the
+   * entity is the layer). Its UV1 is the chunk's lightmap layout
+   * (`chunkLightmapLayout`), and `layout` is that layout's digest at bake
+   * time: a chunk whose geometry changed since is drawn without it.
+   */
+  chunk?: [number, number];
+  layout?: string;
   /** Index into `atlases`. */
   atlas: number;
   /**
@@ -112,11 +121,16 @@ export function validateLightingBake(value: unknown, path: string, errors: Model
       err(errors, 'field_type', p, 'an entry is an object', e);
       return;
     }
-    for (const k of Object.keys(e)) if (!['entityId', 'atlas', 'scaleOffset'].includes(k)) err(errors, 'field_unexpected', `${p}/${k}`, `unknown entry field "${k}"`, k, 'entityId, atlas, scaleOffset');
+    for (const k of Object.keys(e)) if (!['entityId', 'chunk', 'layout', 'atlas', 'scaleOffset'].includes(k)) err(errors, 'field_unexpected', `${p}/${k}`, `unknown entry field "${k}"`, k, 'entityId, chunk, layout, atlas, scaleOffset');
     const id = e['entityId'];
+    const chunk = e['chunk'];
+    if (chunk !== undefined && !(Array.isArray(chunk) && chunk.length === 2 && chunk.every((c) => int(c, -BLOCK_LIMITS.coordinateXZ / CHUNK_SIZE, BLOCK_LIMITS.coordinateXZ / CHUNK_SIZE)))) err(errors, 'field_value', `${p}/chunk`, 'chunk is a block layer chunk [cx, cz]', chunk);
+    if ((chunk === undefined) !== (e['layout'] === undefined)) err(errors, 'field_value', `${p}/layout`, 'a chunk entry has its layout digest, and only a chunk entry', e['layout']);
+    else if (e['layout'] !== undefined && (typeof e['layout'] !== 'string' || !HASH_RE.test(e['layout']))) err(errors, 'field_value', `${p}/layout`, 'layout is 16 lowercase hex digits', e['layout']);
+    const key = Array.isArray(chunk) ? `${String(id)}#${chunk.join(',')}` : String(id);
     if (typeof id !== 'string' || !ID_RE.test(id)) err(errors, 'field_value', `${p}/entityId`, 'entityId is an entity id', id);
-    else if (seen.has(id)) err(errors, 'field_value', `${p}/entityId`, 'an entity has at most one lightmap entry', id);
-    else seen.add(id);
+    else if (seen.has(key)) err(errors, 'field_value', `${p}/entityId`, chunk !== undefined ? 'a chunk has at most one lightmap entry' : 'an entity has at most one lightmap entry', id);
+    else seen.add(key);
     if (!int(e['atlas'], 0, Math.max(0, atlasCount - 1))) err(errors, 'field_value', `${p}/atlas`, 'atlas is an index into atlases', e['atlas']);
     const so = e['scaleOffset'];
     if (!Array.isArray(so) || so.length !== 4 || !so.every((x, j) => num(x, j < 2 ? 1e-6 : -4096, 4096))) {
@@ -148,8 +162,13 @@ export function canonicalLightingBake(b: LightingBake): LightingBake {
     bounces: b.bounces,
     atlases: [...b.atlases],
     entries: [...b.entries]
-      .sort((x, y) => (x.entityId < y.entityId ? -1 : x.entityId > y.entityId ? 1 : 0))
-      .map((e) => ({ entityId: e.entityId, atlas: e.atlas, scaleOffset: [e.scaleOffset[0], e.scaleOffset[1], e.scaleOffset[2], e.scaleOffset[3]] })),
+      .sort((x, y) => (x.entityId < y.entityId ? -1 : x.entityId > y.entityId ? 1 : 0) || (x.chunk?.[1] ?? -Infinity) - (y.chunk?.[1] ?? -Infinity) || (x.chunk?.[0] ?? -Infinity) - (y.chunk?.[0] ?? -Infinity))
+      .map((e) => ({
+        entityId: e.entityId,
+        ...(e.chunk !== undefined ? { chunk: [e.chunk[0], e.chunk[1]] as [number, number], layout: e.layout! } : {}),
+        atlas: e.atlas,
+        scaleOffset: [e.scaleOffset[0], e.scaleOffset[1], e.scaleOffset[2], e.scaleOffset[3]],
+      })),
     bakedLights: [...b.bakedLights].sort(),
     lightsHash: b.lightsHash,
     staticsHash: b.staticsHash,

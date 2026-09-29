@@ -932,6 +932,7 @@ export {
   type CollisionMeshPiece,
 } from './block-mesh';
 export { SCULPT_LIMITS, SCULPT_OPS, columnHeights, sculptHeights, setColumnSurface, type ColumnHeights, type SculptDab, type SculptOp } from './block-sculpt';
+export { chunkLightmapLayout, type ChunkLightmapLayout } from './block-lightmap';
 export {
   FLAT_CORNERS,
   blockTopAt,

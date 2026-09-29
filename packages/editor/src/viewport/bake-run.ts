@@ -9,10 +9,10 @@
  *
  * Browser-only.
  */
-import { bakeHashes, packLightmaps, type BakeHashEntity, type LightmapPacking, type LightmapPlacement } from '@thirdlight/protocol';
+import { bakeHashes, hash16, packLightmaps, type BakeHashEntity, type LightmapPacking, type LightmapPlacement } from '@thirdlight/protocol';
 import * as THREE from 'three';
 import { bakeLightmapsInBrowser, boxLightmapSize, type BakeMeshInput, type BrowserBakeInput } from '@thirdlight/three-adapter';
-import type { LightingBake } from '@thirdlight/project-model';
+import type { BlockChunk, LightingBake } from '@thirdlight/project-model';
 
 import { makeAssetId, type SessionClient } from '../session/client';
 import { publishArgsFromProposal, utcSecondTimestamp, type ImportTarget } from '../session/asset-browser';
@@ -38,9 +38,28 @@ export interface BakeSettings {
 export const DEFAULT_BAKE_SETTINGS: BakeSettings = { texelsPerMeter: 16, samples: 64, finalSamples: 512, bounces: 3, range: 4 };
 
 const PADDING = 2;
+/** The fewest texels across one face slot of a block-layer chunk's lightmap. */
+const CHUNK_SLOT_TEXELS = 8;
 
-/** The hash view of a projected entity (the same for the bake and the stale check). */
-export function bakeHashEntity(e: ProjectedEntity): BakeHashEntity {
+/** A block layer's stored cells, per layer entity (what a bake of the layer was made from). */
+export type BlockCellsOf = (entityId: string) => ReadonlyMap<string, BlockChunk> | undefined;
+
+const cellDigests = new WeakMap<ReadonlyMap<string, BlockChunk>, string>();
+
+/** A digest of a layer's chunks (cached per stored chunk map: the client replaces the map when cells change). */
+function cellsDigest(chunks: ReadonlyMap<string, BlockChunk>): string {
+  let d = cellDigests.get(chunks);
+  if (d === undefined) {
+    d = hash16(JSON.stringify([...chunks.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))));
+    cellDigests.set(chunks, d);
+  }
+  return d;
+}
+
+/** The hash view of a projected entity (the same for the bake and the stale check); a block layer carries its cells' digest. */
+export function bakeHashEntity(e: ProjectedEntity, cellsOf?: BlockCellsOf): BakeHashEntity {
+  const layer = e.components['blockLayer'];
+  const chunks = layer !== undefined ? cellsOf?.(e.id) : undefined;
   return {
     id: e.id,
     parentId: e.parentId,
@@ -52,14 +71,21 @@ export function bakeHashEntity(e: ProjectedEntity): BakeHashEntity {
       ...(e.kind === 'model' && e.assetId !== undefined ? { model: { assetId: e.assetId, ...(e.piece !== undefined ? { piece: e.piece } : {}) } } : {}),
       ...(e.materials !== undefined ? { materials: e.materials } : {}),
       ...(e.light !== undefined ? { light: e.light } : {}),
+      ...(layer !== undefined ? { blockLayer: { ...(layer as Record<string, unknown>), ...(chunks !== undefined ? { cells: cellsDigest(chunks) } : {}) } } : {}),
     },
   };
 }
 
-/** Whether a scene's bake no longer matches its static objects or baked lights. */
-export function bakeIsStale(bake: LightingBake, sceneEntities: readonly ProjectedEntity[]): boolean {
-  const h = bakeHashes(sceneEntities.map(bakeHashEntity));
+/** Whether a scene's bake no longer matches its static objects (block layers' cells included) or baked lights. */
+export function bakeIsStale(bake: LightingBake, sceneEntities: readonly ProjectedEntity[], cellsOf?: BlockCellsOf): boolean {
+  const h = bakeHashes(sceneEntities.map((e) => bakeHashEntity(e, cellsOf)));
   return h.staticsHash !== bake.staticsHash || h.lightsHash !== bake.lightsHash;
+}
+
+/** A block layer that takes part in a bake: static, active, drawn (not metadata-only). */
+function bakesAsLayer(e: ProjectedEntity): boolean {
+  const layer = e.components['blockLayer'] as { metadataOnly?: boolean } | undefined;
+  return layer !== undefined && layer.metadataOnly !== true && e.static && e.active;
 }
 
 /** `where`: the preview bake ran in the editor worker or on the page (phase 22.1). */
@@ -107,10 +133,10 @@ type Prepared = {
 function prepare(deps: BakeDeps, lightModes: readonly ('baked' | 'mixed')[]): Prepared | { message: string } {
   const { client, viewport, sceneId, settings } = deps;
   const sceneEntities = client.projection.listEntities().filter((e) => (e.sceneId ?? sceneId) === sceneId) as ProjectedEntity[];
-  const statics = new Set(sceneEntities.filter((e) => e.static && e.active && (e.kind === 'box' || e.kind === 'model')).map((e) => e.id));
-  if (statics.size === 0) return { message: 'nothing to bake: mark boxes or models as Static first (Inspector)' };
+  const statics = new Set(sceneEntities.filter((e) => (e.static && e.active && (e.kind === 'box' || e.kind === 'model')) || bakesAsLayer(e)).map((e) => e.id));
+  if (statics.size === 0) return { message: 'nothing to bake: mark boxes, models or block layers as Static first (Inspector)' };
   const inputs = viewport.bakeInputs(statics);
-  if (inputs.targets.length === 0) return { message: 'none of the static objects has a lightmap UV (UV1)' };
+  if (inputs.targets.length === 0) return { message: 'none of the static objects has a lightmap UV (UV1) or a drawn block' };
   if (!inputs.lights.some((l) => lightModes.includes(l.mode))) {
     return {
       message: lightModes.includes('mixed')
@@ -123,6 +149,11 @@ function prepare(deps: BakeDeps, lightModes: readonly ('baked' | 'mixed')[]): Pr
   const uvBoxes = new Map(inputs.targets.map((t) => [t.entityId, uv1Box(t.meshes)]));
   const items = inputs.targets.map((t) => {
     if (t.box !== null) return { id: t.entityId, ...boxLightmapSize(t.box.size, t.box.scale, settings.texelsPerMeter) };
+    // A block-layer chunk: a square of slots, each at least a few texels across (small faces still get light and shadow).
+    if (t.chunk !== undefined) {
+      const side = Math.min(1024, Math.max(8, Math.ceil(Math.max(Math.sqrt(t.area) * settings.texelsPerMeter * 1.25, t.chunk.side * CHUNK_SLOT_TEXELS))));
+      return { id: t.entityId, width: side, height: side };
+    }
     const box = uvBoxes.get(t.entityId)!;
     const aspect = Math.min(8, Math.max(1 / 8, (box.maxU - box.minU) / Math.max(1e-6, box.maxV - box.minV)));
     const side = Math.sqrt(t.area) * settings.texelsPerMeter * 1.25;
@@ -163,7 +194,7 @@ async function publish(deps: BakeDeps, prepared: Prepared, pngs: readonly Uint8A
     if (!res.ok) return { message: `lightmap publish refused: ${(res.response as { message?: string }).message ?? 'unknown'}` };
     atlasIds.push(String((args.args as { assetId: string }).assetId));
   }
-  const hashes = bakeHashes(prepared.sceneEntities.map(bakeHashEntity));
+  const hashes = bakeHashes(prepared.sceneEntities.map((e) => bakeHashEntity(e, (id) => client.getBlockLayers().get(id)?.chunks)));
   const bake: LightingBake = {
     bakeId: `bake-${Date.now().toString(36)}`,
     createdAt: new Date().toISOString(),
@@ -173,7 +204,10 @@ async function publish(deps: BakeDeps, prepared: Prepared, pngs: readonly Uint8A
     samples: meta.samples,
     bounces: meta.bounces,
     atlases: atlasIds,
-    entries: prepared.packing.placements.map((p) => ({ entityId: p.id, atlas: p.atlas, scaleOffset: p.scaleOffset })),
+    entries: prepared.packing.placements.map((p) => {
+      const chunk = prepared.inputs.targets.find((t) => t.entityId === p.id)?.chunk;
+      return chunk !== undefined ? { entityId: chunk.entityId, chunk: [chunk.cx, chunk.cz] as [number, number], layout: chunk.layout, atlas: p.atlas, scaleOffset: p.scaleOffset } : { entityId: p.id, atlas: p.atlas, scaleOffset: p.scaleOffset };
+    }),
     bakedLights: meta.bakedLights,
     lightsHash: hashes.lightsHash,
     staticsHash: hashes.staticsHash,

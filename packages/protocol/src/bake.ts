@@ -145,9 +145,9 @@ function stable(v: unknown): string {
   return JSON.stringify(v);
 }
 
-/** Static objects that take part in a bake: static, active, with a box or a model. */
+/** Static objects that take part in a bake: static, active, with a box, a model or a block layer. */
 export function isBakeStatic(e: BakeHashEntity): boolean {
-  return e.static === true && e.active !== false && (e.components['box'] !== undefined || e.components['model'] !== undefined);
+  return e.static === true && e.active !== false && (e.components['box'] !== undefined || e.components['model'] !== undefined || e.components['blockLayer'] !== undefined);
 }
 
 /** Lights a bake uses: mode "baked" (direct + bounce) or "mixed" (bounce only). */
@@ -170,6 +170,7 @@ export function bakeHashes(entities: readonly BakeHashEntity[]): { staticsHash: 
     box: e.components['box'],
     model: e.components['model'],
     materials: e.components['materials'],
+    blockLayer: e.components['blockLayer'],
   }));
   const lights = entities.filter((e) => bakeLightMode(e) !== null).sort(byId).map((e) => ({
     id: e.id,

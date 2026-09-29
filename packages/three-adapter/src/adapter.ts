@@ -799,6 +799,10 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       const mapping = { ...(base ?? {}), ...(type.materials ?? {}) };
       if (Object.keys(mapping).length > 0) materialLibrary.apply(mesh, mapping, null);
     },
+    // Baked block-layer chunks: lightmap UVs, and the chunk's lightmap when its layout is the baked one.
+    lightmapped: (id) => lightmaps?.hasChunks(id) === true,
+    chunkBuilt: (id, cx, cz, group, layout) => lightmaps?.applyChunk(id, cx, cz, layout, group),
+    chunkDropped: (id, cx, cz) => lightmaps?.releaseChunk(id, cx, cz),
   });
   blockView.setTypes(((opts.snapshot as { blockTypes?: readonly BlockType[] }).blockTypes ?? []) as BlockType[]);
   scene.add(blockView.root);

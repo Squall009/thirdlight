@@ -23,19 +23,14 @@ import {
   disposeObjectTree,
   rendererMemory,
   DEFAULT_RENDERER_PREFERENCE,
-  lightmappedMaterial,
-  lightmapTexture,
   pageSearch,
-  refreshLightmappedMaterial,
   SELECTION_HIGHLIGHT_EMISSIVE,
   setSelectionHighlight,
   unitBoxGeometry,
   type AutoBatcher,
-  type BakeLightInput,
   type EffectComponentLike,
   type EffectDefLike,
   type EffectsPlayer,
-  type BakeMeshInput,
   type EnvironmentLike,
   type EnvironmentRenderer,
   type FogVolumeLike,
@@ -69,6 +64,8 @@ import { fitSprite, iconKindFor, iconTableOf, makeIconSprite, setSpriteSelected,
 import { materialOverridesOf, type ModelInstances } from './model-instances';
 import { planSync, removedIds, helperRelevant } from './sync-plan';
 import { BlockEditor, type BlockEditorCallbacks } from './block-editor';
+import { SceneLightmaps } from './scene-lightmaps';
+import { gatherBakeInputs, type BakeInputs } from './bake-inputs';
 
 export interface ViewportCallbacks {
   onPick: (entityId: string | null) => void;
@@ -296,6 +293,8 @@ export class Viewport {
   private blockView: BlockLayerView | null = null;
   private blockRevision = -1;
   private blockLooks = new Map<string, BlockModelLook | null | 'loading'>();
+  /** A chunk with lightmap UVs was rebuilt: the lightmaps go on again before the next draw. */
+  private blockLightmapsDirty = false;
 
   private ensureBlockView(): BlockLayerView {
     if (this.blockView !== null) return this.blockView;
@@ -321,6 +320,11 @@ export class Viewport {
       applyMaterials: (mesh, type) => {
         const lib = this.materialLibrary;
         if (lib !== null && type.materials !== undefined && Object.keys(type.materials).length > 0) lib.apply(mesh, type.materials, null);
+      },
+      // Baked block layers: their chunks carry lightmap UVs; a rebuilt chunk takes its lightmap again.
+      lightmapped: (id) => this.lightmaps.hasChunks(id),
+      chunkBuilt: () => {
+        this.blockLightmapsDirty = true;
       },
     });
     this.scene.add(view.root);
@@ -416,143 +420,39 @@ export class Viewport {
   blockStats(): { layers: number; chunks: number; meshes: number; triangles: number } {
     return this.blockView?.diagnostics() ?? { layers: 0, chunks: 0, meshes: 0, triangles: 0 };
   }
-
   // ---- Phase 9.6: lightmaps ----------------------------------------------------
   /** The last synced entities (the bake reads them). */
   private projected: readonly ProjectedEntity[] = [];
-  private lightmapEntries = new Map<string, { bake: LightingBakeLike; atlas: string; scaleOffset: readonly number[] }>();
-  private bakedLightIds = new Set<string>();
-  private loadAtlas: ((assetId: string) => Promise<THREE.Texture | null>) | null = null;
-  private atlasTextures = new Map<string, THREE.Texture | null | 'loading'>();
-  /** Per entity: its lightmap texture and the lightmapped copy of each original material. */
-  private lightmapCopies = new Map<string, { map: THREE.Texture; atlas: THREE.Texture; copies: Map<THREE.Material, THREE.Material | null> }>();
-  private lightmapSwapped: { mesh: THREE.Mesh; original: THREE.Material | THREE.Material[]; copy: THREE.Material | THREE.Material[] }[] = [];
+  /** The bakes shown on the baked objects and block-layer chunks (game lighting). */
+  private readonly lightmaps = new SceneLightmaps({
+    projected: () => this.projected,
+    rootOf: (id) => this.models?.instanceFor(id) ?? this.meshes.get(id) ?? null,
+    gameLighting: () => this.lighting === 'game',
+    blockView: () => this.blockView,
+    requestRender: () => this.requestRender(),
+  });
 
   /** The project's bakes (sceneId → bake); null clears them. */
   setLightmaps(bakes: Readonly<Record<string, LightingBakeLike>> | null, loadTexture: (assetId: string) => Promise<THREE.Texture | null>): void {
-    this.unapplyLightmaps();
-    for (const rec of this.lightmapCopies.values()) {
-      rec.map.dispose();
-      for (const c of rec.copies.values()) c?.dispose();
-    }
-    this.lightmapCopies.clear();
-    this.lightmapEntries.clear();
-    this.bakedLightIds.clear();
-    for (const bake of Object.values(bakes ?? {})) {
-      for (const id of bake.bakedLights) this.bakedLightIds.add(id);
-      for (const e of bake.entries) {
-        const atlas = bake.atlases[e.atlas];
-        if (atlas === undefined) continue;
-        this.lightmapEntries.set(e.entityId, { bake, atlas, scaleOffset: e.scaleOffset });
-      }
-    }
-    // A re-bake publishes new versions of the same atlas assets: load them all again.
-    for (const t of this.atlasTextures.values()) if (t !== null && t !== 'loading') t.dispose();
-    this.atlasTextures.clear();
-    this.loadAtlas = loadTexture;
+    this.lightmaps.set(bakes, loadTexture);
+    // Baked block layers draw their chunks with lightmap UVs from now on.
+    if (this.blockView !== null) for (const id of this.blockView.layerIds()) this.blockView.setLightmapUv(id, this.lightmaps.hasChunks(id));
     // The light set changes with the bakes (held lights leave realtime).
     for (const [id, have] of [...this.sceneLights]) {
       this.dropSceneLight(have);
       this.sceneLights.delete(id);
     }
     this.syncSceneLights(this.projected);
-    this.applyLightmaps();
+    this.lightmaps.apply();
     this.render();
   }
 
   private unapplyLightmaps(): void {
-    for (const s of this.lightmapSwapped) if (s.mesh.material === s.copy) s.mesh.material = s.original;
-    this.lightmapSwapped = [];
+    this.lightmaps.unapply();
   }
 
-  /** Swap the lightmapped copies in (game lighting only); cheap when nothing changed. */
   private applyLightmaps(): void {
-    if (this.lighting !== 'game' || this.lightmapEntries.size === 0) return;
-    const ambientBaked = (bake: LightingBakeLike): boolean =>
-      bake.bakedLights.some((id) => {
-        const t = this.projected.find((e) => e.id === id)?.light?.type;
-        return t === 'ambient' || t === 'hemisphere';
-      });
-    // Phase 21.5: copies this pass does not put on a mesh are released (an entity removed or
-    // not realized, a material swapped for another): they are rebuilt when needed again.
-    const visited = new Set<string>();
-    for (const [entityId, entry] of this.lightmapEntries) {
-      const atlas = this.atlasTexture(entry.atlas);
-      if (atlas === null) continue;
-      const root = this.models?.instanceFor(entityId) ?? this.meshes.get(entityId) ?? null;
-      if (root === null) continue;
-      visited.add(entityId);
-      let rec = this.lightmapCopies.get(entityId);
-      if (rec !== undefined && rec.atlas !== atlas) {
-        rec.map.dispose();
-        for (const c of rec.copies.values()) c?.dispose();
-        rec = undefined;
-      }
-      if (rec === undefined) {
-        rec = { map: lightmapTexture(atlas, entry.scaleOffset), atlas, copies: new Map() };
-        this.lightmapCopies.set(entityId, rec);
-      }
-      const r = rec;
-      const used = new Set<THREE.Material>();
-      const ignoreAmbient = ambientBaked(entry.bake);
-      const visit = (o: THREE.Object3D): void => {
-        // Another entity's node below this one keeps its own lightmap.
-        const owner = (o as { entityId?: string }).entityId;
-        if (o !== root && owner !== undefined && owner !== entityId) return;
-        const mesh = o as THREE.Mesh;
-        if (mesh.isMesh === true && mesh.geometry.getAttribute('uv1') !== undefined) {
-          const original = mesh.material;
-          const list = Array.isArray(original) ? original : [original];
-          const copies = list.map((m) => {
-            used.add(m);
-            if (!r.copies.has(m)) r.copies.set(m, lightmappedMaterial(m, r.map, entry.bake.range, ignoreAmbient));
-            const c = r.copies.get(m) ?? null;
-            if (c !== null) refreshLightmappedMaterial(c, m);
-            return c ?? m;
-          });
-          if (copies.some((c, i) => c !== list[i])) {
-            const copy = Array.isArray(original) ? copies : copies[0]!;
-            mesh.material = copy;
-            this.lightmapSwapped.push({ mesh, original, copy });
-          }
-        }
-        for (const c of o.children) visit(c);
-      };
-      visit(root);
-      for (const [m, c] of [...r.copies]) {
-        if (used.has(m)) continue;
-        c?.dispose();
-        r.copies.delete(m);
-      }
-    }
-    for (const [entityId, rec] of [...this.lightmapCopies]) {
-      if (visited.has(entityId)) continue;
-      rec.map.dispose();
-      for (const c of rec.copies.values()) c?.dispose();
-      this.lightmapCopies.delete(entityId);
-    }
-  }
-
-  private atlasTexture(assetId: string): THREE.Texture | null {
-    const have = this.atlasTextures.get(assetId);
-    if (have === 'loading') return null;
-    if (have !== undefined) return have;
-    const load = this.loadAtlas;
-    if (load === null) return null;
-    this.atlasTextures.set(assetId, 'loading');
-    void load(assetId)
-      .catch(() => null)
-      .then((t) => {
-        if (this.atlasTextures.get(assetId) !== 'loading') {
-          t?.dispose();
-          return;
-        }
-        this.atlasTextures.set(assetId, t);
-        this.unapplyLightmaps();
-        this.applyLightmaps();
-        this.requestRender();
-      });
-    return null;
+    this.lightmaps.apply();
   }
 
   /** A model instance arrived or left: its lightmap goes on (the viewport re-renders anyway). */
@@ -568,101 +468,20 @@ export class Viewport {
    * meshes (with UV1: a lightmap target; without: a shadow caster only) and
    * the baked lights. Models use their most detailed level.
    */
-  bakeInputs(entityIds: ReadonlySet<string>): {
-    targets: { entityId: string; meshes: BakeMeshInput[]; area: number; box: { size: readonly number[]; scale: readonly number[] } | null }[];
-    occluders: BakeMeshInput[];
-    missingUv: string[];
-    lights: (BakeLightInput & { entityId: string; mode: 'baked' | 'mixed' })[];
-  } {
+  bakeInputs(entityIds: ReadonlySet<string>): BakeInputs {
     this.unapplyLightmaps();
-    this.scene.updateMatrixWorld(true);
-    const targets: { entityId: string; meshes: BakeMeshInput[]; area: number; box: { size: readonly number[]; scale: readonly number[] } | null }[] = [];
-    const occluders: BakeMeshInput[] = [];
-    const missingUv: string[] = [];
-    const a = new THREE.Vector3();
-    const b = new THREE.Vector3();
-    const c = new THREE.Vector3();
-    const worldArea = (g: THREE.BufferGeometry, m: THREE.Matrix4): number => {
-      const pos = g.getAttribute('position');
-      const index = g.getIndex();
-      const n = index !== null ? index.count : pos.count;
-      let area = 0;
-      for (let i = 0; i + 2 < n; i += 3) {
-        const i0 = index !== null ? index.getX(i) : i;
-        const i1 = index !== null ? index.getX(i + 1) : i + 1;
-        const i2 = index !== null ? index.getX(i + 2) : i + 2;
-        a.fromBufferAttribute(pos, i0).applyMatrix4(m);
-        b.fromBufferAttribute(pos, i1).applyMatrix4(m);
-        c.fromBufferAttribute(pos, i2).applyMatrix4(m);
-        area += b.sub(a).cross(c.sub(a)).length() / 2;
-      }
-      return area;
-    };
-    for (const e of this.projected) {
-      if (!entityIds.has(e.id)) continue;
-      const root = e.kind === 'model' ? this.models?.instanceFor(e.id) ?? null : e.kind === 'box' ? this.meshes.get(e.id) ?? null : null;
-      if (root === null) continue;
-      const meshes: BakeMeshInput[] = [];
-      let noUv = false;
-      let area = 0;
-      const visit = (o: THREE.Object3D): void => {
-        const owner = (o as { entityId?: string }).entityId;
-        if (o !== root && owner !== undefined && owner !== e.id) return;
-        // Only the most detailed level of a LOD takes part.
-        if ((o as THREE.LOD).isLOD === true) {
-          const first = (o as THREE.LOD).levels[0]?.object;
-          if (first !== undefined) visit(first);
-          return;
-        }
-        const mesh = o as THREE.Mesh;
-        if (mesh.isMesh === true && (mesh as THREE.SkinnedMesh).isSkinnedMesh !== true) {
-          const m = { geometry: mesh.geometry, matrixWorld: mesh.matrixWorld.clone() };
-          if (mesh.geometry.getAttribute('uv1') !== undefined) {
-            meshes.push(m);
-            area += worldArea(mesh.geometry, mesh.matrixWorld);
-          } else {
-            occluders.push(m);
-            noUv = true;
-          }
-        }
-        for (const ch of o.children) visit(ch);
-      };
-      visit(root);
-      if (noUv && meshes.length === 0) missingUv.push(e.id);
-      if (meshes.length > 0) targets.push({ entityId: e.id, meshes, area, box: e.kind === 'box' ? { size: e.box?.size ?? [1, 1, 1], scale: e.scale } : null });
-    }
-    // Phase 23.5: block layers shade the baked objects (occluders); they keep realtime lighting
-    // themselves (their chunk meshes carry no lightmap UVs — see the plan's decision log).
-    for (const mesh of this.blockView?.meshes() ?? []) occluders.push({ geometry: mesh.geometry, matrixWorld: mesh.matrixWorld.clone() });
-    const lights: (BakeLightInput & { entityId: string; mode: 'baked' | 'mixed' })[] = [];
-    for (const e of this.projected) {
-      const l = e.light;
-      if (l === undefined || e.active === false || (l.mode !== 'baked' && l.mode !== 'mixed')) continue;
-      const node = this.meshes.get(e.id);
-      const p = new THREE.Vector3();
-      node?.getWorldPosition(p);
-      let direction = l.direction as readonly [number, number, number] | undefined;
-      if (l.type === 'spot' && node !== undefined && l.direction !== undefined) {
-        const d = new THREE.Vector3(...l.direction).applyQuaternion(node.getWorldQuaternion(new THREE.Quaternion())).normalize();
-        direction = [d.x, d.y, d.z];
-      }
-      lights.push({
-        entityId: e.id,
-        mode: l.mode,
-        type: l.type,
-        color: l.color,
-        intensity: l.intensity,
-        position: [p.x, p.y, p.z],
-        ...(direction !== undefined ? { direction } : {}),
-        ...(l.range !== undefined ? { range: l.range } : {}),
-        ...(l.decay !== undefined ? { decay: l.decay } : {}),
-        ...(l.angle !== undefined ? { angle: l.angle } : {}),
-        ...(l.penumbra !== undefined ? { penumbra: l.penumbra } : {}),
-        ...(l.groundColor !== undefined ? { groundColor: l.groundColor } : {}),
-      });
-    }
+    const inputs = gatherBakeInputs(
+      {
+        scene: this.scene,
+        projected: this.projected,
+        rootOf: (e) => (e.kind === 'model' ? (this.models?.instanceFor(e.id) ?? null) : e.kind === 'box' ? (this.meshes.get(e.id) ?? null) : null),
+        nodeOf: (id) => this.meshes.get(id),
+        blockView: this.blockView,
+      },
+      entityIds,
+    );
     this.applyLightmaps();
-    return { targets, occluders, missingUv, lights };
+    return inputs;
   }
 
   /**
@@ -734,7 +553,7 @@ export class Viewport {
     for (const e of entities) {
       const l = e.light;
       // Phase 9.6: a light a bake holds is not realtime (ambient/hemisphere stay for dynamic objects).
-      if (l === undefined || (l.mode === 'baked' && l.type !== 'ambient' && l.type !== 'hemisphere' && this.bakedLightIds.has(e.id))) continue;
+      if (l === undefined || (l.mode === 'baked' && l.type !== 'ambient' && l.type !== 'hemisphere' && this.lightmaps.bakedLightIds.has(e.id))) continue;
       seen.add(e.id);
       const key = JSON.stringify(l);
       const group = this.meshes.get(e.id);
@@ -1202,6 +1021,11 @@ export class Viewport {
       // Phase 23.5: re-mesh the block chunks that changed (before the draw).
       if (this.blockView !== null) {
         this.blockView.update();
+        if (this.blockLightmapsDirty) {
+          this.blockLightmapsDirty = false;
+          this.unapplyLightmaps();
+          this.applyLightmaps();
+        }
         this.root.setAttribute('data-block-layers', JSON.stringify(this.blockView.diagnostics()));
       }
       this.batcher.update(this.camera);
@@ -2377,14 +2201,7 @@ export class Viewport {
     this.blockEditorInst?.dispose();
     this.blockEditorInst = null;
     this.releaseEffectPreview();
-    this.unapplyLightmaps();
-    for (const rec of this.lightmapCopies.values()) {
-      rec.map.dispose();
-      for (const c of rec.copies.values()) c?.dispose();
-    }
-    this.lightmapCopies.clear();
-    for (const t of this.atlasTextures.values()) if (t !== null && t !== 'loading') t.dispose();
-    this.atlasTextures.clear();
+    this.lightmaps.dispose();
     for (const { light, parent } of this.sceneLights.values()) {
       parent.remove(light);
       light.dispose();

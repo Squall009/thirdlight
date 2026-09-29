@@ -11,11 +11,17 @@
  * prefab's model) variant draws the model's LOD0 geometry, turned and placed
  * per cell, with its own materials (a material mapping applied by the host).
  * Model geometry arrives asynchronously: chunks re-mesh when it is ready.
+ *
+ * Baked lighting: the chunks of a layer a bake covers get lightmap UVs (one
+ * square layout per chunk, `chunkLightmapLayout`), and the host puts each
+ * chunk's lightmap on when the chunk's layout is the one the bake was made
+ * for (a chunk changed since is drawn without it).
  */
 import * as THREE from 'three';
 import {
   BlockGrid,
   CHUNK_SIZE,
+  chunkLightmapLayout,
   meshBlockChunk,
   shapeSource,
   type BlockChunk,
@@ -44,6 +50,24 @@ export interface BlockLayerViewDeps {
   prefabModel?(prefabId: string): { assetId: string; piece?: string } | null;
   /** Apply a block type's material mapping to a chunk mesh of a model look (the host's material library). */
   applyMaterials?(mesh: THREE.Mesh, type: BlockType, assetId: string): void;
+  /** Whether a layer's chunks get lightmap UVs (a bake has lightmaps for them). */
+  lightmapped?(entityId: string): boolean;
+  /** A chunk was (re)built with lightmap UVs: its group and its layout digest (the host puts the lightmap on). */
+  chunkBuilt?(entityId: string, cx: number, cz: number, group: THREE.Group, layout: string): void;
+  /** A chunk with lightmap UVs goes away (rebuilt or removed). */
+  chunkDropped?(entityId: string, cx: number, cz: number): void;
+}
+
+/** A chunk's lightmap target: its meshes with UV1 and the layout they follow. */
+export interface BlockChunkLightmapTarget {
+  cx: number;
+  cz: number;
+  layout: string;
+  /** Surface area in square metres. */
+  area: number;
+  /** Slots per side of the chunk's square layout (one slot per cell face direction). */
+  side: number;
+  meshes: THREE.Mesh[];
 }
 
 interface LayerState {
@@ -52,6 +76,8 @@ interface LayerState {
   grid: BlockGrid;
   readonly chunks: Map<string, THREE.Group>;
   readonly dirty: Set<string>;
+  /** Chunks built with lightmap UVs: their layout digest, area and slots per side. */
+  readonly lightmapLayouts: Map<string, { layout: string; area: number; side: number }>;
 }
 
 export interface BlockLayerViewDiagnostics {
@@ -139,6 +165,8 @@ export class BlockLayerView {
   private readonly layers = new Map<string, LayerState>();
   private readonly standIns = new Map<string, BlockMeshSource>();
   private readonly colorMaterials = new Map<string, THREE.MeshLambertMaterial>();
+  /** Layers whose chunks get lightmap UVs whatever the host says (a bake in progress). */
+  private readonly forcedUv = new Set<string>();
   private disposed = false;
 
   constructor(deps: BlockLayerViewDeps = {}) {
@@ -162,7 +190,7 @@ export class BlockLayerView {
       const group = new THREE.Group();
       group.name = `block-layer:${entityId}`;
       this.root.add(group);
-      layer = { group, component, grid: BlockGrid.from(component, data), chunks: new Map(), dirty: new Set() };
+      layer = { group, component, grid: BlockGrid.from(component, data), chunks: new Map(), dirty: new Set(), lightmapLayouts: new Map() };
       this.layers.set(entityId, layer);
     } else {
       layer.component = component;
@@ -212,7 +240,7 @@ export class BlockLayerView {
   removeLayer(entityId: string): void {
     const layer = this.layers.get(entityId);
     if (layer === undefined) return;
-    for (const g of layer.chunks.values()) this.disposeChunk(g);
+    for (const [ck, g] of layer.chunks) this.dropChunk(entityId, layer, ck, g);
     layer.group.removeFromParent();
     this.layers.delete(entityId);
   }
@@ -249,6 +277,35 @@ export class BlockLayerView {
       }
     }
     return { layers: this.layers.size, chunks, meshes, triangles };
+  }
+
+  /**
+   * Build lightmap UVs for a layer's chunks (for a bake) — also where the
+   * host does not want them otherwise — until turned off again. The chunks
+   * re-mesh at the next `update`.
+   */
+  setLightmapUv(entityId: string, on: boolean): void {
+    if (on === this.forcedUv.has(entityId)) return;
+    if (on) this.forcedUv.add(entityId);
+    else this.forcedUv.delete(entityId);
+    const layer = this.layers.get(entityId);
+    if (layer !== undefined) for (const ck of layer.chunks.keys()) layer.dirty.add(ck);
+  }
+
+  /** A layer's chunks with lightmap UVs (their meshes, layout digest and area), in chunk order. */
+  lightmapTargets(entityId: string): BlockChunkLightmapTarget[] {
+    const layer = this.layers.get(entityId);
+    if (layer === undefined) return [];
+    const out: BlockChunkLightmapTarget[] = [];
+    for (const [ck, g] of [...layer.chunks].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+      const lm = layer.lightmapLayouts.get(ck);
+      if (lm === undefined) continue;
+      const [cx, cz] = ck.split(',').map(Number) as [number, number];
+      const meshes: THREE.Mesh[] = [];
+      g.traverse((o) => ((o as THREE.Mesh).isMesh === true && (o as THREE.Mesh).geometry.getAttribute('uv1') !== undefined ? meshes.push(o as THREE.Mesh) : undefined));
+      out.push({ cx, cz, layout: lm.layout, area: lm.area, side: lm.side, meshes });
+    }
+    return out;
   }
 
   /** One layer's chunk meshes (what a pointer ray hits of it). */
@@ -307,14 +364,11 @@ export class BlockLayerView {
 
   private rebuildChunk(entityId: string, layer: LayerState, ck: string): void {
     const old = layer.chunks.get(ck);
-    if (old !== undefined) {
-      this.disposeChunk(old);
-      layer.chunks.delete(ck);
-    }
+    if (old !== undefined) this.dropChunk(entityId, layer, ck, old);
     if (layer.component.metadataOnly === true) return;
     const [cx, cz] = ck.split(',').map(Number) as [number, number];
     const looks = new Map<string, { materials: readonly THREE.Material[]; type: BlockType; assetId: string | null; color: string | null }>();
-    const parts: ChunkMeshPart[] = meshBlockChunk(layer.grid, cx, cz, this.types, {
+    let parts: ChunkMeshPart[] = meshBlockChunk(layer.grid, cx, cz, this.types, {
       source: (type, variant, fm) => {
         const model = this.modelOf(type, variant);
         if (model !== null) {
@@ -336,6 +390,13 @@ export class BlockLayerView {
       },
     });
     if (parts.length === 0) return;
+    // Lightmap UVs where a bake has (or is making) this layer's lightmaps: one square per chunk.
+    let lightmap: { layout: string; area: number; side: number } | null = null;
+    if (this.forcedUv.has(entityId) || this.deps.lightmapped?.(entityId) === true) {
+      const lm = chunkLightmapLayout(parts, layer.grid.cellSize);
+      parts = lm.parts;
+      lightmap = { layout: lm.layout, area: lm.area, side: lm.side };
+    }
     const group = new THREE.Group();
     group.name = `block-chunk:${entityId}:${ck}`;
     for (const p of parts) {
@@ -346,6 +407,7 @@ export class BlockLayerView {
       geometry.setAttribute('position', new THREE.BufferAttribute(p.positions, 3));
       geometry.setAttribute('normal', new THREE.BufferAttribute(p.normals, 3));
       geometry.setAttribute('uv', new THREE.BufferAttribute(p.uvs, 2));
+      if (p.uv1 !== undefined) geometry.setAttribute('uv1', new THREE.BufferAttribute(p.uv1, 2));
       geometry.setIndex(new THREE.BufferAttribute(p.indices, 1));
       geometry.computeBoundingSphere();
       geometry.computeBoundingBox();
@@ -364,11 +426,20 @@ export class BlockLayerView {
     layer.group.add(group);
     group.updateMatrixWorld(true);
     layer.chunks.set(ck, group);
+    if (lightmap !== null) {
+      layer.lightmapLayouts.set(ck, lightmap);
+      this.deps.chunkBuilt?.(entityId, cx, cz, group, lightmap.layout);
+    }
   }
 
-  private disposeChunk(group: THREE.Group): void {
+  private dropChunk(entityId: string, layer: LayerState, ck: string, group: THREE.Group): void {
+    if (layer.lightmapLayouts.delete(ck)) {
+      const [cx, cz] = ck.split(',').map(Number) as [number, number];
+      this.deps.chunkDropped?.(entityId, cx, cz);
+    }
     for (const c of group.children) (c as THREE.Mesh).geometry.dispose();
     group.removeFromParent();
+    layer.chunks.delete(ck);
   }
 }
 
