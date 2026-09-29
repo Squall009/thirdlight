@@ -27,53 +27,80 @@ lighting is phase 27) so the manual describes the engine after both.
   shape (§3). Where the browser differs (the network is the disk, every load
   is asynchronous), the difference is named.
 
-## 2. Where things stand (checked at `34847ae`, 2026-09-28)
+## 2. Where things stand (checked at `811c14c5`, 2026-09-29, after phase 25)
 
-- **Count caps** (`project-model/src/content.ts:91-127`, copied into
-  `commands/src/content-ops.ts:156-184`, `scene-ops.ts:20`, `prefab-ops.ts:69`,
+- **Count caps** (`project-model/src/content.ts:92-125,242`, `materials.ts:172`,
+  `animator.ts:163`, `timelines.ts:47`, `dialogue.ts:90`, `effects.ts:88`,
+  `graph.ts:1168`, `script-libraries.ts:61`, `event-cues.ts:24`,
+  `ui-documents.ts:267`, `environment-presets.ts:31`, `shell.ts:35`; copied into `commands/src/content-ops.ts:156,169,402` as
+  literals, `scene-ops.ts:20`, `prefab-ops.ts:69`,
   `editor/src/session/prefab-authoring.ts:49`, `game-host/src/audio.ts:72,271`,
-  `mcp-adapter/src/tools.ts`, `docs/deployment.md`): 128 models, 256 textures,
-  64 sounds, 64 music, 16 fonts, 1024 version records, 128 prefabs, 64
-  behaviors, 64 scenes (32 in the shell's scene list), 256 materials, 64
-  animators, 64 timelines, 64 UI documents, 256 dialogues, 128 effects, 64
-  graph documents, 32 script libraries, 64 environment presets, 64 event
-  cues; a project-wide 1,048,576 animation keys (`model-rig.ts:79`).
+  `workspace/src/behavior.ts:484`, `mcp-adapter/src/tools.ts:394`, the
+  limits table in `docs/deployment.md:2618`; D57): 128 models, 256 textures,
+  64 sounds (16 until 25.7c), 64 music, 16 fonts, 1024 version records, 128
+  prefabs, 64 behaviors, 64 scenes (32 in the shell's scene list), 256
+  materials (instances included), 64 animators, 64 timelines, 64 UI
+  documents, 256 dialogues, 128 effects, 64 graph documents, 32 script
+  libraries, 64 environment presets, 64 event cues; a project-wide 1,048,576
+  animation keys (`model-rig.ts:79`).
 - **Byte caps that act as count caps:** the whole content document is one
-  file, `content.json`, at most 1 MiB (`MAX_CONTENT_BYTES`); the runtime
-  manifest is at most 256 KiB with asset rows, rigs and prefabs inline; a
-  project's sources are at most 512 MiB together
-  (`workspace/src/content-store.ts:79`); a Play content set at most 512 MiB
-  in the backend's memory (`protocol/src/delivery.ts:33-35`).
+  file, `content.json`, at most 1 MiB (`MAX_CONTENT_BYTES`,
+  `content.ts:95`); the runtime manifest (version 4) is at most 256 KiB
+  (`project-model/src/manifest.ts:33`). Since 25.7b materials (only the used
+  ones; a used instance ships resolved, 25.19), material functions, UI
+  documents, dialogue and the instance-buffer table are content files listed
+  by digest in `contentFiles`, and since 25.9 each script library is its own
+  module (`libraries/<digest>.js`); asset rows, rigs and prefabs are still
+  inline. A project's sources are at most 512 MiB together
+  (`workspace/src/content-store.ts:79`, checked at `:742`); a Play content
+  set at most 512 MiB in the backend's memory
+  (`protocol/src/delivery.ts:31-33`).
 - **Asset storage:** uploads are copied into `thirdlight/sources/sha256/`;
   in a folder project an asset may instead reference a game-folder file in
   place (path and SHA-256, phase 10). Each asset keeps a list of versions;
-  a changed file is an error until someone re-imports it.
+  a changed file is an error until someone re-imports it. Import routes:
+  the upload and inspection route, KTX2 encoding on import (25.19; the
+  KTX2 is stored as the asset, the PNG/JPEG recorded in `convertedFrom`),
+  packed texture arrays (25.21, `packedFrom`) and the job-export import
+  (25.22: a folder or zip with a GLB and `manifest.json`, then
+  `publishAsset`). `deleteAsset`/`deletePrefab` exist (25.7c), refused while
+  anything references the record; the bytes stay.
 - **Audio:** `audio` must be 2 s mono 48 kHz 16-bit WAV
-  (`AUDIO_PCM_WAV_PROFILE`, `types-v3.ts:527`); `music` is Ogg/Opus/MP3/WAV up
-  to 16 MiB and 10 min. Event cues and dialogue blips take `audio` only.
-  Every `audio` asset is read and decoded when the game mounts
-  (`game-host/src/host.ts:1388`); decoded buffers of both kinds are kept
+  (`AUDIO_PCM_WAV_PROFILE`, `types-v3.ts:538`); `music` is Ogg/Opus/MP3/WAV up
+  to 10 min (`content.ts:123`). Event cues and dialogue blips take `audio`
+  only. Every `audio` asset is read and decoded when the game mounts
+  (`registerSounds`, `game-host/src/host.ts:1406`) into a 64-entry store
+  (`audio.ts:72`; music's is `:271`); decoded buffers of both kinds are kept
   until the page closes.
 - **Commands:** every command re-validates the whole content document and
-  rewrites the whole `content.json` (`commands/src/ops.ts:311`,
-  `workspace/src/session-v4.ts:344`); a blob read scans the catalog
-  (`content-store.ts:878`); each publish stats every blob for the quota
-  (`content-store.ts:644`).
-- **Play and export:** each build reads and verifies every asset reachable
-  from any scene into memory (`exporter/src/content-closure.ts:569-612`); the
-  export bundle hard-codes every artifact path in a `switch`
-  (`exporter/src/export-bundle.ts:62-75`). Assets a script names by string
-  are found by scanning script literals (25.7c).
+  rewrites the whole `content.json` (`commands/src/ops.ts:318`,
+  `workspace/src/session-v4.ts:347`); a blob read scans the catalog
+  (`readBlob`, `content-store.ts:878`); each publish stats every blob for
+  the quota (`authoritativeBytes`, `content-store.ts:644`).
+- **Play and export:** since 25.24 the page reads only the start scenes'
+  assets before the start (8 at a time, each verified once) and the rest on
+  demand; artifacts are served at stable digest-keyed URLs (`immutable`,
+  `ETag`), compiled behaviors and an unchanged capture's derivation are
+  cached, and blobs are held once by digest. The backend still reads and
+  verifies every asset reachable from any scene into memory for each build
+  (`exporter/src/content-closure.ts:569-613`); the export bundle hard-codes
+  every artifact path in a `switch` (`exporter/src/export-bundle.ts:62-75`).
+  Assets a script names by string are found by scanning script literals
+  (25.7c). The two game-page bootstraps are still near-duplicates.
 - **Runtime caches:** models are refcounted and disposed when their last
-  scene unloads (25.24e). Nothing else is released: verified bytes
-  (`game-host/src/asset-reader.ts:73`), material-library textures
-  (`three-adapter/src/material-library.ts:202,477`), environment and effects
-  caches, decoded audio, fonts. No memory budget exists anywhere.
+  scene unloads (25.24e); scene loads are prepared ahead and up to 4 next
+  scenes read ahead. Nothing else is released: verified bytes
+  (`game-host/src/asset-reader.ts:74`, the 25.24 verified reader), material
+  and texture caches (`three-adapter/src/material-library.ts:265,540`,
+  KTX2 textures and arrays included), environment and effects caches,
+  decoded audio, fonts. No memory budget exists anywhere.
 - **Editor:** the session holds only the first 128 assets, prefabs and
-  behaviors (`backend/src/backend.ts:357`, `editor/src/session/client.ts:615`);
-  more arrive only on "Refresh". The asset panel fetches every texture's full
-  bytes and parses every GLB to draw its tiles (`editor/src/ui/App.tsx:1110`),
-  and the list is not virtualized (`AssetBrowser.tsx:112`).
+  behaviors (`backend/src/backend.ts:368-370`,
+  `editor/src/session/client.ts:615,625-626`); more arrive only on
+  "Refresh". The asset panel fetches every texture's full bytes and parses
+  every GLB to draw its tiles (`editor/src/ui/App.tsx:1121`), and the list
+  is not virtualized (`AssetBrowser.tsx:119`). The project window (25.23)
+  was not built; it is 26.13.
 
 ## 3. How Unity and Godot do it (checked 2026-09-29)
 
@@ -123,18 +150,18 @@ at the boundary it changes (Playwright for any editor surface).
 | Item | What |
 |---|---|
 | 26.0 | This plan, and its rows in `docs/STATUS.md` and `docs/roadmap.md`. |
-| 26.1 | **Cleanup first** (owner, 2026-09-29; the code review of that day). Done before the storage rewrite, while no other agent works in the tree:<br>• **History comments go.** Source comments lose their phase numbers, item ids, dates and `§` references to archived specs (~5,900 and ~3,100 today); a comment whose content is history ("was 16", "since 24.8") is rewritten to say why the code is as it is, or deleted. Checked comment-only: the build with `removeComments` emits the same JavaScript before and after. A check in `npm run build` fails on new ones in `packages/*/src`.<br>• **Limits defined once.** Every limit or constant copied between packages (about 15, e.g. `MAX_PREFABS` in three places, the scene and audio caps) is defined in the package that owns it and imported elsewhere, so 26.5 removes each cap in one place.<br>• **Minimal ESLint** in the fast gate (`npm run lint`), versions pinned in the lockfile and checked against the official docs: `eslint-plugin-react-hooks` (rules-of-hooks, exhaustive-deps), a few correctness rules (`eqeqeq`, `no-fallthrough`, `no-unreachable`, `no-self-compare`, `no-constant-condition`, `no-dupe-keys`), typescript-eslint's `no-floating-promises` and `no-misused-promises`, and `ban-ts-comment`. Existing findings are fixed, or listed in the item's decision log where a fix is a behaviour change; the 53 inert `eslint-disable` comments are removed or given a reason.<br>• **three.js 0.186.0 → 0.186.1** (the newest release, a patch of 2026-09-24), after reading its release notes, with the full gate. |
+| 26.1 | **Cleanup first** (owner, 2026-09-29; the code review of that day). Done before the storage rewrite, while no other agent works in the tree:<br>• **History comments go.** Source comments lose their phase numbers, item ids, dates and `§` references to archived specs (~5,900 and ~3,100 today); a comment whose content is history ("was 16", "since 24.8") is rewritten to say why the code is as it is, or deleted. Checked comment-only: the build with `removeComments` emits the same JavaScript before and after. A check in `npm run build` fails on new ones in `packages/*/src`; it covers the ~1,390 lines phase 25 added in `packages/` and `tools/`, and test names that carry them (D59).<br>• **Limits defined once.** Every limit or constant copied between packages (about 15, e.g. `MAX_PREFABS` in three places, the scene and audio caps) is defined in the package that owns it and imported elsewhere, so 26.5 removes each cap in one place. Includes phase 25's copies (D57): `MAX_TRANSITION_FADE`, the 256 texture layers (`KTX2_LAYERS_MAX`, `TEXTURE_PACK_LAYERS_MAX`, `MAX_TEXTURE_LAYERS`), `MAX_MATERIAL_INSTANCE_DEPTH`, `AUDIO_MAX_REGISTERED_ASSETS`, the literal 32 libraries in `workspace/src/behavior.ts`, the per-kind literals in `commands/src/content-ops.ts`.<br>• **Split before growing (D58).** `project-model/src/content.ts` (2,780 lines), `descriptors.ts` (2,213), `editor/src/session/client.ts` (2,417) and `runtime/src/types.ts` (2,489) grew in phase 25 without a split; each is split by area before any item adds to it.<br>• **Minimal ESLint** in the fast gate (`npm run lint`), versions pinned in the lockfile and checked against the official docs: `eslint-plugin-react-hooks` (rules-of-hooks, exhaustive-deps), a few correctness rules (`eqeqeq`, `no-fallthrough`, `no-unreachable`, `no-self-compare`, `no-constant-condition`, `no-dupe-keys`), typescript-eslint's `no-floating-promises` and `no-misused-promises`, and `ban-ts-comment`. Existing findings are fixed, or listed in the item's decision log where a fix is a behaviour change; the 53 inert `eslint-disable` comments are removed or given a reason.<br>• **three.js 0.186.0 → 0.186.1** (the newest release, a patch of 2026-09-24; npm `latest` re-checked 2026-09-29, no newer minor), after reading its release notes, with the full gate. |
 | 26.2 | **Scale bench.** A generator (`tools/`) that writes a synthetic project of a full game's size: 10,000 voice lines (1–15 s Opus) and 1,000 other sounds, 5,000 textures, 2,000 models, 5,000 prefabs, 2,000 materials, 300 scenes and 2,000 dialogue nodes with voices. A perf-harness class that measures open, one command's latency, Play start, scene load, memory resident while walking 50 scenes, a 500-line voiced dialogue played through, and export. Run it first with the caps lifted in a scratch branch to find what breaks, and record the before numbers in §6. |
-| 26.3 | **Asset database: files and sidecars** (Unity `.meta`, Godot `.import`). Every imported file lives in the game folder; an upload from the browser or MCP is written there (a default `assets/` folder, or the folder the user drops it in). Next to it, `<file>.tlasset` holds the asset's stable id, kind, import settings, labels and address. References use the id, so a move or rename keeps them (the editor moves the sidecar with the file; a sidecar found at a new path outside the editor is the same asset). The file is the truth: a changed file is re-imported when the backend notices (project open, window focus, "check files", as today), and the change goes out on the change feed; there is no per-asset version list (history is the game repo's, as in Unity and Godot). Imported data (FBX → GLB, audio and image headers, thumbnails, later KTX2) goes in `thirdlight/cache/imported/`, keyed by source digest, settings digest and importer version, git-ignored and rebuilt when missing. **Folder import:** pointing the importer (editor or MCP) at a folder brings every file in it in as assets named after their files (`assets/audio/voice/<line>.ogg` → an asset named `<line>`), one command, with labels applied to all of them (E41). Projects in the data root get the same layout in their own folder. Upgrade: each asset's current version is written out as a file with its sidecar; older versions stay in `thirdlight/sources/` untouched and are listed in the upgrade report. |
+| 26.3 | **Asset database: files and sidecars** (Unity `.meta`, Godot `.import`). Every imported file lives in the game folder; an upload from the browser or MCP is written there (a default `assets/` folder, or the folder the user drops it in). Next to it, `<file>.tlasset` holds the asset's stable id, kind, import settings, labels and address. References use the id, so a move or rename keeps them (the editor moves the sidecar with the file; a sidecar found at a new path outside the editor is the same asset). The file is the truth: a changed file is re-imported when the backend notices (project open, window focus, "check files", as today), and the change goes out on the change feed; there is no per-asset version list (history is the game repo's, as in Unity and Godot). Imported data (FBX → GLB, audio and image headers, thumbnails, KTX2 encodes) goes in `thirdlight/cache/imported/`, keyed by source digest, settings digest and importer version, git-ignored and rebuilt when missing. **Folder import:** pointing the importer (editor or MCP) at a folder brings every file in it in as assets named after their files (`assets/audio/voice/<line>.ogg` → an asset named `<line>`), one command, with labels applied to all of them (E41). Every import route writes this way: uploads, KTX2 encoding (25.19's `ktx2` option becomes an import setting of the PNG/JPEG file, as Unity's texture compression is; the KTX2 is cached, not stored as a second asset), packed texture arrays (25.21: a derived asset whose sidecar lists its source files, as `packedFrom` does today) and the job-export import (25.22: the GLB and its manifest's files go into the game folder). `deleteAsset` (25.7c) deletes the file and its sidecar, still refused while referenced. Projects in the data root get the same layout in their own folder. Upgrade: each asset's current version is written out as a file with its sidecar (a `convertedFrom` KTX2 as its original with the encode setting); older versions stay in `thirdlight/sources/` untouched and are listed in the upgrade report. |
 | 26.4 | **Project resources as files, with an index.** Each scene, prefab, material, material function, behavior, library, graph, UI document and theme, dialogue, timeline, effect, animator and environment preset is its own file with a stable id, in real folders the user chooses (25.23's folders become these directories). `content.json` keeps only project-wide settings. The backend keeps an index of every asset and resource (id, kind, path, name, labels, references out), rebuilt from the files on open and updated by each command (Unreal's Asset Registry role), so open and queries don't parse everything. A command validates the files it touches plus the references into and out of them, and writes only those (write then rename, as today). Undo, history, the change feed and MCP work as before. Storage leaves `workspace/src/service.ts`'s `buildService` closure for its own module first, and typed readers replace the `as unknown as` casts on the content shapes it rewrites. |
-| 26.5 | **Count caps removed.** Every per-project count in §2 goes, in the model, commands, editor, game host, MCP descriptions and docs. The 1 MiB content cap becomes a per-file byte cap. The 512 MiB project quota goes; an import refuses only when the disk is short, with the free space in the message. The project-wide animation-key budget becomes a per-model one. A test fails if a per-project count cap on assets or resources comes back. Per-object caps stay only if they survive a **limits audit**: every remaining engine limit (the table in `docs/deployment.md` and every constant behind it — colliders per scene (256), spawns (64 per step, 1,024 alive), script intents (5 per instance per step), timers, entities per scene, block-layer sizes, nodes per graph, widgets per document, keys per track, lights, bake atlases and entries, …) is checked against a full-size game. Each is raised, turned into a runtime budget, or kept with a one-line reason next to it and in the limits table. The audit's list goes in this plan's decision log. |
+| 26.5 | **Count caps removed.** Every per-project count in §2 goes, in the model, commands, editor, game host, MCP descriptions and docs. The 1 MiB content cap becomes a per-file byte cap. The 512 MiB project quota goes; an import refuses only when the disk is short, with the free space in the message. The project-wide animation-key budget becomes a per-model one. A test fails if a per-project count cap on assets or resources comes back. The caps phase 25 added or raised go too (audio 64 from 25.7c, 32 script libraries from 25.9, the game host's 64-entry audio stores; D57), each already defined once by 26.1. Per-object caps stay only if they survive a **limits audit**: every remaining engine limit (the table in `docs/deployment.md` and every constant behind it — colliders per scene (256), spawns (64 per step, 1,024 alive), script intents (5 per instance per step), timers, entities per scene, block-layer sizes, nodes per graph, widgets per document, keys per track, lights, bake atlases and entries, material-instance depth (8), texture-array layers (256), KTX2 encoder source size (12 Mpix, kept: owner deferred the encoder), …) is checked against a full-size game. Each is raised, turned into a runtime budget, or kept with a one-line reason next to it and in the limits table. The audit's list goes in this plan's decision log. |
 | 26.6 | **One audio kind** (Unity `AudioClip`, Godot `AudioStream`). `audio` takes Ogg Vorbis, Opus, MP3, WAV and FLAC in any channel count, rate and bit depth, checked against the MDN codec tables for Chromium, Firefox and Safari; no duration cap; a per-file size cap only. Import settings in the sidecar: **load type** (decode on load, decode while playing, stream), default by length (under 5 s decode on load, over 60 s stream, between decode while playing; the thresholds fixed from 26.2's measurements), and **preload** (read with its scene or only when played). `music` records become `audio` on upgrade (ids kept). Every reference (dialogue voice and blip, audio source, event cue, timeline key, `ctx.audio.play`, `ctx.audio.music`) takes any audio asset; sound, music, voice and UI are mixer buses only, as today. No transcoding (Unity's compression settings would need it; revisited only if a real game needs it). |
 | 26.7 | **Addresses and labels** (Addressables). An asset or resource may have an address (a name scripts use; default none) and labels (`voice`, `level-3`, …), set in the Inspector, the project window and through MCP (commands, one undo). An asset with an address or a label is **loadable**: the export includes it even if no scene references it. The 25.7c scan of script string literals becomes a Problem ("script names an asset that isn't loadable") instead of a build rule. |
-| 26.8 | **Backend reads scale.** Blob and file lookup through the index. Queries page from the index instead of copying and sorting the catalog. Play and export no longer read every reachable asset per build: a file's digest is checked once per change (kept across builds), and Play serves files from disk at the stable digest URLs of 25.24c instead of holding them in the backend's memory. Play start time and the backend's memory do not grow with the number of assets. |
-| 26.9 | **Catalog, manifest and export scale.** The runtime manifest keeps the start and the catalog's location; the catalog (id, address, labels, digest, kind, load settings, dependencies) is content files listed by digest (as 25.7b did for materials), split so a scene's load reads only what it needs. The export includes what the start scenes, the shell's scene list, loaded-by-reference scenes and resources reference, plus every loadable asset (Unity's build-list-plus-addressables, Godot's "selected scenes and dependencies" plus "selected resources"). The export bundle no longer bakes every artifact path into its code, and export streams files to disk instead of holding the closure in memory. The Play page's and the export's bootstraps (`editor/src/preview/preview-m3.ts`, `exporter/src/export-bootstrap-m3.ts`, near-duplicates today) become one shared game-page bootstrap. |
-| 26.10 | **Runtime resource manager** (Godot's refcounted `Resource`, Addressables' handles). One manager in the game host for everything loaded from assets: verified bytes, models, textures (`ImageBitmap`s closed), animation clips, audio, fonts, environment maps and effect models. A resource is held by its holders (loaded scenes, live entities, playing sounds, script handles) and freed when the last one goes, after the step's scene changes settle, so a transition that unloads and reloads the same model doesn't drop it. Scripts get `ctx.assets.load(idOrAddressOrLabel)` → a handle with a state (loading, ready, failed) and `ctx.assets.release(handle)`; a load of a label loads every asset carrying it. The simulation never waits on a load (presentation stays out of determinism; a script reads the state). Scene read-ahead (25.24e) goes through the manager. `tl_game_observe` and Play diagnostics report what is resident (count and bytes per kind), loads, frees and handles not released at the end of a play. Scene view and Play share it. Asset loading leaves `game-host/src/host.ts`'s `createGameHost` closure for this module first. |
+| 26.8 | **Backend reads scale.** Blob and file lookup through the index. Queries page from the index instead of copying and sorting the catalog. Play and export no longer read every reachable asset per build (25.24 limited the page's reads to the start scenes, but the backend's closure still reads and verifies every reachable asset, `content-closure.ts:569-613`): a file's digest is checked once per change (kept across builds), and Play serves files from disk at the stable digest URLs of 25.24c instead of holding them in the backend's memory. Play start time and the backend's memory do not grow with the number of assets. |
+| 26.9 | **Catalog, manifest and export scale.** The runtime manifest keeps the start and the catalog's location; the catalog (id, address, labels, digest, kind, load settings, dependencies) is content files listed by digest (as 25.7b did for used materials, material functions, UI documents, dialogue and the buffer table, and 25.9 for script library modules), split so a scene's load reads only what it needs. The export includes what the start scenes, the shell's scene list, loaded-by-reference scenes and resources reference, plus every loadable asset (Unity's build-list-plus-addressables, Godot's "selected scenes and dependencies" plus "selected resources"); only used materials ship (a used instance resolved, its parents only when named), and the KTX2 transcoder only when a KTX2 texture does, as today. The export bundle no longer bakes every artifact path into its code, and export streams files to disk instead of holding the closure in memory. The Play page's and the export's bootstraps (`editor/src/preview/preview-m3.ts`, `exporter/src/export-bootstrap-m3.ts`, near-duplicates today) become one shared game-page bootstrap. |
+| 26.10 | **Runtime resource manager** (Godot's refcounted `Resource`, Addressables' handles). One manager in the game host for everything loaded from assets: verified bytes, models, textures (`ImageBitmap`s closed), animation clips, audio, fonts, environment maps and effect models. A resource is held by its holders (loaded scenes, live entities, playing sounds, script handles) and freed when the last one goes, after the step's scene changes settle, so a transition that unloads and reloads the same model doesn't drop it. Scripts get `ctx.assets.load(idOrAddressOrLabel)` → a handle with a state (loading, ready, failed) and `ctx.assets.release(handle)`; a load of a label loads every asset carrying it. The simulation never waits on a load (presentation stays out of determinism; a script reads the state). The verified asset reader (25.24b, `game-host/src/asset-reader.ts`, which today keeps every verified read) becomes the manager's byte layer; prepared scene loads and read-ahead (25.24e) go through the manager, and the refcounted models of 25.24e become one kind among the others. `tl_game_observe` and Play diagnostics report what is resident (count and bytes per kind), loads, frees and handles not released at the end of a play. Scene view and Play share it. Asset loading leaves `game-host/src/host.ts`'s `createGameHost` closure for this module first. |
 | 26.11 | **Audio loading.** No audio is read at mount. Each file loads per its load type: decode on load into a buffer; decode while playing (compressed bytes kept, decoded per play); stream (a media element through Web Audio). The browser mechanics (decode per play vs chunked decode, media elements in a worker-driven page) are checked against current browser behaviour before choosing. A sound played before it is ready starts when ready, or is dropped past a lateness bound the caller sets; the observation says which. Dialogue loads the next lines' voices ahead (every branch a few nodes deep), so a voiced conversation has no gap. The 64-entry audio stores go. |
-| 26.12 | **Texture streaming under a budget** (Unity's mipmap streaming budget, Unreal's streaming pool, Godot 4.8's streamed textures). Textures with mip chains (KTX2 from 25.19) load their smallest mips first and higher ones by on-screen size, inside a GPU texture budget (a project setting with a default for a mid-range laptop); over budget, the least-needed mips drop first. Opt-in per texture in its import settings, on by default for textures over 1024 px. Both renderers; pixels checked. |
+| 26.12 | **Texture streaming under a budget** (Unity's mipmap streaming budget, Unreal's streaming pool, Godot 4.8's streamed textures). Textures with mip chains (KTX2 from 25.19, texture arrays from 25.21) load their smallest mips first and higher ones by on-screen size, inside a GPU texture budget (a project setting with a default for a mid-range laptop); over budget, the least-needed mips drop first. Opt-in per texture in its import settings, on by default for textures over 1024 px. Both renderers; pixels checked. |
 | 26.13 | **The project window, and the editor at scale** (25.23 moved here, owner 2026-09-29). Today the asset browser is one flat list with no search, filter or sort, and materials, prefabs, scripts, UI documents, timelines, dialogue, effects and animators each live in their own panel.<br>• **Folders** are the game folder's real directories (26.3, 26.4), for every asset and resource kind; nested, renamable, "new folder".<br>• **Drag and drop:** items and folders move between folders; multi-select, cut and paste. A move is a command (`moveResources`, one undo) that moves the file and its sidecar, so MCP can organize too; ids don't change, so a move never changes a build (paths stay out of the buildId). The existing drop targets stay: Scene view, Inspector fields, Hierarchy.<br>• **Browsing:** Unity-style search (`t:audio l:voice name`), filter by kind, sort, grid or list with a tile-size slider, a breadcrumb, a virtualized list that scrolls tens of thousands of items. Tiles come from the import cache's thumbnails; a model's pieces load when it is selected, not to draw its tile.<br>• **Opening items:** a double-click opens the item's editor (material, timeline, UI document, …); the per-kind panels remain as views.<br>• **Labels and addresses** (26.7) are set here too, on many items at once.<br>• **At scale:** the session holds the index, not the first 128 records; lists, pickers and search page from the backend. The Scene view's models and textures go through 26.10's manager and are freed when no scene uses them.<br>Playwright against a real backend: create a folder, drag an asset into it, search, reload; on the scale bench, open, scroll the whole catalog, place an asset, give a dialogue line a voice, label 1,000 files at once. |
 | 26.14 | **Acceptance and docs.** The scale bench's after numbers in §6, with targets fixed from 26.2's before numbers (as 25.24 did). The limits table in `docs/deployment.md` lists per-file sizes and runtime budgets only. MCP tool descriptions updated. |
 
@@ -156,7 +183,7 @@ at the boundary it changes (Playwright for any editor surface).
 
 | Item | Status |
 |---|---|
-| 26.0 | done 2026-09-29 |
+| 26.0 | done 2026-09-29; reconciled with phase 25 at `811c14c5` |
 | 26.1–26.14 | — |
 
 ## 6. Measurements
@@ -196,3 +223,16 @@ at the boundary it changes (Playwright for any editor surface).
   codebase workable with debt: closures of 1,000–1,700 lines, limits copied
   between packages, history comments, no linter. Splits happen in the items
   that rewrite those areas.
+- 2026-09-29: plan reconciled with phase 25 (`34847ae` → `811c14c5`). §2's
+  file:line references re-checked; it now names what 25.7b/c, 25.9, 25.19,
+  25.21, 25.22 and 25.24 changed (content files by digest, used materials
+  only, library modules, 64 audio records and deletes, KTX2 and texture
+  arrays, the job-export import, the verified reader and read-ahead). Items
+  adjusted: 26.1 takes D57–D59 (phase 25's copied limits, the four files
+  past 2,000 lines, its history comments); 26.3 routes every import
+  (KTX2 encode as an import setting, packed arrays as derived assets, job
+  exports) through files and sidecars; 26.5 lists phase 25's caps and limits
+  for removal or the audit; 26.8–26.10 and 26.12 build on 25.24's reader
+  and 25.19/25.21's KTX2. 25.23 already sits in 26.13. three.js check: npm
+  `latest` is 0.186.1 (repo pins 0.186.0), a patch already in 26.1; no newer
+  minor, so no new item.
