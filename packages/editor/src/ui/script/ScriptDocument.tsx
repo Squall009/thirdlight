@@ -41,6 +41,9 @@ import { DeclarationEditor, type DeclarationSave } from '../DeclarationEditor';
 import { BEHAVIOR_API_DTS } from './behavior-api.generated';
 import { CodeEditor, revealPosition, type InlineDiagnostic } from './CodeEditor';
 import type { SourceFocus } from '../../session/source-location';
+import type { ScriptPublishOutcome } from '../../session/script-publish';
+
+export type { ScriptPublishOutcome };
 
 /** The read-only typings entry of the file list. */
 export const API_TYPINGS_PATH = 'behavior-api.d.ts';
@@ -61,11 +64,6 @@ export type ScriptCheckResult =
   | { ok: true; compiled: true; declaredInCode: boolean; declaration: PropertyDeclaration; outputByteLength: number }
   | { ok: true; compiled: false; code: string; reason: string; diagnostics: CompileDiagnosticView[] }
   | { ok: false; error: { code: string; message: string } };
-
-export type ScriptPublishOutcome =
-  | { kind: 'published'; revision: number; digest: string }
-  | { kind: 'needs-ack'; digest: string }
-  | { kind: 'failed'; message: string };
 
 export interface ScriptDocumentProps {
   behaviorId: string;

@@ -190,6 +190,7 @@ boundary it changes (Playwright for any editor surface).
 | 25.22 | done 2026-09-29: bindable widget `size` (per axis `{bind}`: the px number; a non-number sizes to content, a stretched axis keeps its stretch) and radial bar `startAngle` (validator, game host, UI editor size box takes a path, Start angle bind box, mock samples); job-export import (`POST …/content/job-exports/inspect` {path: folder or .zip in the game folder \| stageId: uploaded zip}; `manifest.json` {name, files [{path, role, digest}], triangles?, lods?}; digests checked, the one `model` GLB through the ordinary inspection, then `publishAsset`; MCP `tl_content_upload {jobExport}`); `ui-bindable-size.e2e.ts` (editor + Play: `ui.elements` rects and gauge pixels), `job-export-import.e2e.ts` (HTTP + MCP, generated exports), unit tests |
 | 25.23 | moved to phase 26 (26.13), owner 2026-09-29 |
 | 25.25 | done 2026-09-29: dialogue lines render `{action:x}` as the glyph (one reveal character; a value cannot make one); `visible: false` stored on objects (scene data, `updateEntity`/`createEntity`, Inspector Visible checkbox, Hierarchy `H`; loaded, simulated and colliding but not drawn until `setVisible`, `entity().set` or an activation key; every restart hides it again; refused on folders); the engine's `signal {name}` debug command (`tl_game_control {signal}`, the console's `signal <name>`; recorded input); `m25-hidden-signals` (page/worker, replay digests), `hidden-signals.e2e.ts` (Inspector, Play and export pixels, MCP stdio, console, dialogue glyph) |
+| Acceptance | test written 2026-09-29: `starter-capabilities.e2e.ts` — a project made from the Starter template in the picker, built in the editor (scene sun and fill in the Inspector, a spot light from the menu with a cookie imported in Assets, a library in the Libraries tab, two scripts declared in Behaviors and published from their Script tabs, attached and wired in the Inspector, a moving platform held until `go` toggles it) and played: the cookie's stripes in pixels, `signal paint` from the in-game console turns them green (the script's `ctx.entity().set('light')`), both scripts count on the library's one count (1, 2), the `onMessage` callback fires, `go` lifts the character on the platform and a second `go` holds it; D53, D54 found and fixed |
 
 ## 6. Decision log
 
@@ -1478,3 +1479,21 @@ boundary it changes (Playwright for any editor surface).
   `commands/src/entity-types.ts` (types.ts was over 2,000 lines), and the
   runtime's debug-command state to a `DebugCommands` class in
   `debug-commands.ts` (runtime.ts shrank by 68 lines).
+- 2026-09-29 (acceptance): the "Done when" test (`starter-capabilities.e2e.ts`)
+  makes every change through the editor: the project picker, the menus, the
+  Inspector, the Assets, Libraries and Behaviors tabs, the Script tabs'
+  Publish, and the in-game console for the signals. No step needed a command
+  outside the editor. The test reads state through queries and the Play
+  observe, screenshot and diagnostics routes (what `tl_game_observe`,
+  `tl_screenshot` and `tl_diagnostics` use). One editor input is driven below
+  the pointer: the wall's colour is set on the Inspector's colour input
+  element (its own change and blur handlers commit it), since a browser's
+  native colour picker cannot be operated by Playwright. The spot light's
+  patch is found as stripes in the upper part of the view: the scene's sun and
+  fill are turned to 0 in the Inspector so only the spot lights the wall.
+  Two editor bugs it found were fixed rather than worked around: D53
+  (publishing a script that imports a never-acknowledged library) and D54
+  (a declaration could not drop its last property). `App.tsx` and
+  `client.ts` are over 2,000 lines: the script publish flow moved out of
+  `App.tsx` into `session/script-publish.ts` (App.tsx shrank); `client.ts`
+  only had two existing lines changed.

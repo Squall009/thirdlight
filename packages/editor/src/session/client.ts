@@ -1835,10 +1835,10 @@ export class SessionClient {
       });
       return { ok: true, revision: res.revision };
     } catch (e) {
-      const body = (e as { body?: { error?: { code?: string; message?: string; diagnostics?: { message?: string }[] } } }).body;
+      const body = (e as { body?: { error?: { code?: string; message?: string; sourceDigest?: string; diagnostics?: { message?: string }[] } } }).body;
       const err = body?.error;
       const detail = err?.diagnostics?.[0]?.message;
-      return { ok: false, response: { ok: false, code: err?.code ?? 'internal', message: detail ?? err?.message ?? 'the source was not published' } };
+      return { ok: false, response: { ok: false, code: err?.code ?? 'internal', message: detail ?? err?.message ?? 'the source was not published', ...(typeof err?.sourceDigest === 'string' ? { sourceDigest: err.sourceDigest } : {}) } };
     }
   }
 

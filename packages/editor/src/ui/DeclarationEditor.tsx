@@ -156,7 +156,6 @@ export function DeclarationEditor({
                     className="tl-btn tl-btn--small"
                     title="Remove the property"
                     aria-label={`${n} remove`}
-                    disabled={drafts.length <= 1}
                     onClick={() => {
                       setSaved(false);
                       setDrafts((ds) => ds.filter((_, j) => j !== i));

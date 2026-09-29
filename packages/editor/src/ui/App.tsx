@@ -102,6 +102,7 @@ import { PrefabPanel } from './PrefabPanel';
 import { BehaviorPanel, type BehaviorPanelProps } from './BehaviorPanel';
 import { ActiveDocument, WorkspaceTabs, resetWorkspaces, useWorkspace } from './workspace/WorkspaceTabs';
 import type { ScriptCheckResult, ScriptDraft, ScriptPublishOutcome } from './script/ScriptDocument';
+import { publishScriptSource } from '../session/script-publish';
 import type { WorkspaceHost } from './workspace/kinds';
 import type { MaterialDocumentProps } from './material/MaterialDocument';
 import { activeDoc, docKey } from '../session/workspace-tabs';
@@ -3199,29 +3200,9 @@ function EditorApp(): JSX.Element {
       const c = clientRef.current;
       const view = behaviorViews.find((b) => b.behaviorId === behaviorId);
       if (!c || !view) return { kind: 'failed', message: 'the behavior is not available' };
-      const staged = await c.stageBehaviorSource(bytes);
-      if (!staged.ok) return { kind: 'failed', message: `${staged.error.code}: ${staged.error.message}` };
-      let revision = c.projection.revision;
-      if (!c.acknowledgedDigests().includes(staged.digest)) {
-        if (!acknowledge) return { kind: 'needs-ack', digest: staged.digest };
-        const ack = await c.acknowledgeBehaviorTrust(staged.digest, revision);
-        if (!ack.ok) {
-          const r = ack.response;
-          return { kind: 'failed', message: r.ok ? 'the acknowledgment was not recorded' : `${r.code}: ${r.message ?? r.code}` };
-        }
-        revision = ack.revision;
-        setPublication((s) => trustObserved(s, [...c.prefabs.listTrust(), { sourceDigest: staged.digest, acknowledgedRevision: ack.revision }]));
-      }
-      const res = await c.publishBehaviorSource(
-        { behaviorId, displayName: view.displayName, declaration: view.declaration, sourceDigest: staged.digest, sourceByteLength: staged.byteLength, stageId: staged.stageId },
-        revision,
-      );
-      if (!res.ok) {
-        const r = res.response;
-        return { kind: 'failed', message: r.ok ? 'the source was not published' : `${r.code}: ${r.message ?? r.code}` };
-      }
-      refreshEntities();
-      return { kind: 'published', revision: res.revision, digest: staged.digest };
+      const out = await publishScriptSource(c, view, bytes, acknowledge, (digest, revision) => setPublication((s) => trustObserved(s, [...c.prefabs.listTrust(), { sourceDigest: digest, acknowledgedRevision: revision }])));
+      if (out.kind === 'published') refreshEntities();
+      return out;
     },
     [behaviorViews, refreshEntities],
   );
