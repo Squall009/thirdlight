@@ -1,5 +1,5 @@
 /**
- * The visual-script debugger inside the Play preview. It lives in the game
+ * The visual-script debugger inside the Play preview. It is in the game
  * host because it runs where the simulation runs, in the page or in the
  * simulation worker.
  *

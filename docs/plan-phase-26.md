@@ -184,7 +184,7 @@ at the boundary it changes (Playwright for any editor surface).
 | Item | Status |
 |---|---|
 | 26.0 | done 2026-09-29; reconciled with phase 25 at `811c14c5` |
-| 26.1 | in progress: A, B done (limits once, splits; ESLint in the gates, three.js 0.186.1); C (history comments, build check) remains |
+| 26.1 | done 2026-09-29: limits once, splits (D57, D58); ESLint in the gates; three.js 0.186.1; history comments removed with a build check (D59) |
 | 26.2–26.14 | — |
 
 ## 6. Measurements
@@ -306,3 +306,31 @@ at the boundary it changes (Playwright for any editor surface).
   model's recipe digest, and the loader did not change. `M2_ENGINE_PINS`
   (the v1 manifest, test-only now) and the fixtures' recorded recipes stay
   as recorded. Version numbers in comments now say "the pinned three".
+- 2026-09-29 (26.1 C): history comments. Comments are found with the
+  TypeScript parser (the trivia before every token; JSX text excluded), never
+  a regex over code. A scripted pass stripped leading tags ("Phase 23.4: ")
+  and all-reference parentheticals ("(sessions.md §13.7)", "(packet 57)");
+  per-package agents rewrote the rest by hand, including history told in
+  words ("was 16", "no longer", "before the fix") and review ids (R7, C29-4,
+  Gate B) that no pattern names. D-numbers are history too: a comment states
+  the why, the audit list keeps the defect. `M1`–`M4` stay only inside live
+  names (`M3_ENGINE_PINS`, `preview-m3.ts`); `decision 000N` (docs/decisions,
+  live) may be cited without a section. Proof: `tools/emit-compare.mjs`
+  compiles all 1,177 files of packages/*/src, tools/ and tests/ with
+  `removeComments` (TypeScript `transpileModule`) and hashes the output:
+  `record` before, `compare` after; byte-identical for every file (the tool
+  itself was checked: stripping every comment it finds changes no output,
+  and keeping comments shows none it missed). Test titles changed in their
+  own commit (strings, so outside that proof); no title became a duplicate.
+  `editor.css` comments were cleaned by hand. The guard is
+  `tools/history-comments.mjs` in `npm run build` (after check-boundaries),
+  not an ESLint rule: the build runs in every gate and before every start,
+  it covers `tools/` and `tests/` the typed lint does not type, and it is
+  one small script next to the other boundary checks; the patterns
+  (`HISTORY_PATTERNS`) are defined there only, with a unit test for both
+  sides (flags "since 24.8", leaves "the broad phase", "1.5 s", 3D alone).
+  It checks comments and `describe`/`it`/`test` titles in packages/*/src,
+  tools/ and tests/. Left for later: history in string literals the user or
+  an AI client reads (MCP tool descriptions "(phase 25.17)", some error
+  hints citing `§`, the export bundle header, `REMOVED_IN_PHASE_24`; the behavior API generators' headers were fixed, as the generated typings carry them); 26.14
+  rewrites the MCP texts, the rest is logged as D60.

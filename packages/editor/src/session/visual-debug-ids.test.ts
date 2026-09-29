@@ -1,6 +1,6 @@
 /**
  * The visual-script debugger tab's id helpers (the debugger itself
- * lives in the game host, with its own tests).
+ * is in the game host, with its own tests).
  */
 import { describe, expect, it } from 'vitest';
 

@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Thirdlight green gate (2026-09-26). Three modes:
+# Thirdlight green gate. Three modes:
 #
 #   tools/gate.sh fast [e2e files or dirs…]   per commit: build + lint + vitest + the smoke set + the
 #                                             e2e files named (the ones for the area you changed)
 #   tools/gate.sh full [--both-renderers]     per phase item / before STATUS says done: build +
 #                                             lint + vitest + every e2e spec, the leak test included
-#                                             (TL_MEMORY=1). On a GPU (2026-09-27) one pass in the
+#                                             (TL_MEMORY=1). On a GPU one pass in the
 #                                             product's own renderer; --both-renderers (for shader /
 #                                             rendering changes) adds the forced WebGL 2 variants and
 #                                             the webgpu project
