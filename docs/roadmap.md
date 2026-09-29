@@ -58,7 +58,7 @@ that phase plan's decision log, and move on. The owner reviews at the end.
 | 23 | `docs/plan-phase-23.md` | 3D game foundations: 3D physics and character controller, cameras, pointer and 3D queries, block layers, project UI, game modes, dialogue, sequencer, audio, saves (gap list from the Skyforge Tactics dogfooding project) |
 | 24 | `docs/plan-phase-24.md` | Engine/game separation: tests off Sprout, neutral starter, modules from the manifest, generic primitives, genre layer and Beacon Reach deleted, a vocabulary guard (`docs/audit-engine-game-separation.md`) |
 | 25 | `docs/plan-phase-25.md` | Requests from Sprout and Skyforge Tactics: bugs, scale limits, lights per scene, generic component access and shared libraries, movement, test tools, terrain, a project window with folders, faster Play start and scene loads |
-| 26 | `docs/plan-phase-26.md` | Asset scale and streaming: no per-project asset count caps, one audio kind, content stored per record, a runtime resource manager with memory budgets, the editor at thousands of assets |
+| 26 | `docs/plan-phase-26.md` | Asset scale and streaming: no per-project asset count caps, a Unity/Godot-style asset database (files with sidecars, resources as files), one audio kind, addresses and labels, refcounted runtime loading, texture streaming, the editor at thousands of assets |
 | 27 | `docs/plan-phase-27.md` | Documentation and AI onboarding: a generated reference, a manual with how-to guides, `tl_docs` and MCP instructions, a Thirdlight skill installed into game folders, a hand-built dogfood project |
 
 Phase 13 (material node graph) moved to phase 18, after the renderer phase,
