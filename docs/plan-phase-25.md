@@ -191,6 +191,7 @@ boundary it changes (Playwright for any editor surface).
 | 25.23 | moved to phase 26 (26.13), owner 2026-09-29 |
 | 25.25 | done 2026-09-29: dialogue lines render `{action:x}` as the glyph (one reveal character; a value cannot make one); `visible: false` stored on objects (scene data, `updateEntity`/`createEntity`, Inspector Visible checkbox, Hierarchy `H`; loaded, simulated and colliding but not drawn until `setVisible`, `entity().set` or an activation key; every restart hides it again; refused on folders); the engine's `signal {name}` debug command (`tl_game_control {signal}`, the console's `signal <name>`; recorded input); `m25-hidden-signals` (page/worker, replay digests), `hidden-signals.e2e.ts` (Inspector, Play and export pixels, MCP stdio, console, dialogue glyph) |
 | Acceptance | test written 2026-09-29: `starter-capabilities.e2e.ts` — a project made from the Starter template in the picker, built in the editor (scene sun and fill in the Inspector, a spot light from the menu with a cookie imported in Assets, a library in the Libraries tab, two scripts declared in Behaviors and published from their Script tabs, attached and wired in the Inspector, a moving platform held until `go` toggles it) and played: the cookie's stripes in pixels, `signal paint` from the in-game console turns them green (the script's `ctx.entity().set('light')`), both scripts count on the library's one count (1, 2), the `onMessage` callback fires, `go` lifts the character on the platform and a second `go` holds it; D53, D54 found and fixed |
+| Phase 25 | done 2026-09-29, owner look pending: full gate on the GPU (vitest 459 files; e2e 264 passed, 2 failed — D42's preview-speed test and a hidden-signals capture race — both fixed and passing alone, and the follow-up run 343 passed, 1 failed, the same race, fixed); independent review in §6 |
 
 ## 6. Decision log
 
@@ -1520,3 +1521,5 @@ boundary it changes (Playwright for any editor surface).
      importer; deployment.md should say the playtest CLI sends the token).
   11–13. No new genre rules; no mock-only features; decision-log sample true
      (one inexact line count). Owner look pending on the list in the review.
+
+- 2026-09-29 (phase close): `hidden-signals.e2e.ts` captured before the preview's first drawn frame under gate load (the preview answered "still initialising" as designed); the test now waits for the first capture. Not a product defect.

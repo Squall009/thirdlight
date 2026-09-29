@@ -166,6 +166,8 @@ test('Visible off in the Inspector: hidden in Play until a tool signal shows it;
     expect(r.status, JSON.stringify(r.json).slice(0, 200)).toBe(200);
     return decodePng(Buffer.from(String(r.json['dataUrl']).replace(/^data:image\/png;base64,/, ''), 'base64'));
   };
+  // A running simulation may precede the first drawn frame; the preview says so (503) until then.
+  await expect.poll(async () => (await api(`play/${playSessionId}/screenshot`, { maxWidth: 512 })).status, { timeout: 60_000 }).toBe(200);
   expect((await observe()).hidden).toContain(wallId);
   const before = share(await shot(), magenta);
   console.log(`play start: magenta ${before.toFixed(3)}`);
