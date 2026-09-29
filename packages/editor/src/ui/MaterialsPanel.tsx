@@ -15,12 +15,19 @@
  * and a graph material opens as a "Material: <name>" centre tab (double-click
  * its tile or "Open graph").
  *
+ * Phase 25.19: material instances — "+ new instance" makes an instance of
+ * the selected material (or instance): its parent's look with some values
+ * changed (a shader material's parameters and texture slots, a graph
+ * material's parameters). An instance is a material like any other: object,
+ * model-asset and block-type mappings may name it.
+ *
  * Browser-only (React).
  */
 import { useEffect, useState, type DragEvent, type JSX } from 'react';
 import type { MaterialDef, MaterialParameterValue, MaterialParamType, MaterialParamValue, MaterialShader } from '@thirdlight/project-model';
 import { ParameterValue } from './material/MaterialDocument';
 import { MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS } from '../session/material-schema';
+import { resolveMaterialInstancesLike, type MaterialDefLike } from '@thirdlight/three-adapter';
 
 import { ASSET_DRAG_TYPE, parseAssetDrag } from '../session/placement';
 import { CONVERTIBLE_SHADERS, convertToGraph, newMaterialGraph, templateMaterial } from '../session/material-graph';
@@ -60,6 +67,21 @@ function newMaterialId(existing: readonly MaterialDef[], name: string): string {
   return id;
 }
 
+/** Phase 25.19: every material as it draws (instances resolved against their parents). */
+function resolvedMaterials(list: readonly MaterialDef[]): MaterialDef[] {
+  return resolveMaterialInstancesLike(list as unknown as MaterialDefLike[]) as unknown as MaterialDef[];
+}
+
+/** Phase 25.19: `id` and every instance below it (a parent may not be one of them: that would loop). */
+function selfAndDescendants(list: readonly MaterialDef[], id: string): Set<string> {
+  const out = new Set([id]);
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const m of list) if (m.instanceOf !== undefined && out.has(m.instanceOf) && !out.has(m.materialId)) (out.add(m.materialId), (grew = true));
+  }
+  return out;
+}
+
 function swatch(m: MaterialDef): string {
   const c = m.params['color'];
   return typeof c === 'string' ? c : m.shader === 'water' ? '#1d5f8a' : '#c8c8c8';
@@ -77,6 +99,15 @@ const GRAPH_TEMPLATES: readonly { value: string; label: string }[] = [
 
 export function MaterialsPanel(p: Props): JSX.Element {
   const selected = p.materials.find((m) => m.materialId === p.selectedId) ?? null;
+  const resolved = resolvedMaterials(p.materials);
+  const shown = (m: MaterialDef): MaterialDef => resolved.find((r) => r.materialId === m.materialId) ?? m;
+  const createInstance = (): void => {
+    if (selected === null) return;
+    const name = `${selected.name} instance`.slice(0, 128);
+    const def: MaterialDef = { materialId: newMaterialId(p.materials, name), name, shader: shown(selected).shader, params: {}, textures: {}, instanceOf: selected.materialId };
+    p.onSave(def);
+    p.onSelect(def.materialId);
+  };
   const [template, setTemplate] = useState('');
   const create = (): void => {
     const name = `Material ${p.materials.length + 1}`;
@@ -102,6 +133,9 @@ export function MaterialsPanel(p: Props): JSX.Element {
         <button className="tl-btn tl-btn--small" onClick={createGraph} title="A new material built as a node graph (opens its tab)">
           + new graph material
         </button>
+        <button className="tl-btn tl-btn--small" onClick={createInstance} disabled={selected === null} title="A material instance of the selected material: its look, with the values you change here (select a material first)">
+          + new instance
+        </button>
         <select className="tl-input tl-input--small" aria-label="graph material template" value={template} onChange={(e) => setTemplate(e.target.value)} title="What a new graph material starts from: an empty PBR output, or a shader type as a graph (the same look)">
           {GRAPH_TEMPLATES.map((t) => (
             <option key={t.value} value={t.value}>
@@ -118,7 +152,7 @@ export function MaterialsPanel(p: Props): JSX.Element {
                 key={m.materialId}
                 className={m.materialId === p.selectedId ? 'tl-tile is-selected' : 'tl-tile'}
                 data-material-id={m.materialId}
-                title={`${m.name} (${m.shader}) — drag onto an object in the Scene view`}
+                title={`${m.name} (${m.instanceOf !== undefined ? `instance of ${p.materials.find((x) => x.materialId === m.instanceOf)?.name ?? m.instanceOf}` : m.shader}) — drag onto an object in the Scene view`}
                 onClick={() => p.onSelect(m.materialId)}
                 onDoubleClick={() => m.graph !== undefined && p.onOpen(m.materialId)}
                 draggable
@@ -128,10 +162,10 @@ export function MaterialsPanel(p: Props): JSX.Element {
                 }}
               >
                 <span className="tl-tile__icon" aria-hidden="true">
-                  <span className="tl-material-swatch" style={{ background: swatch(m) }} />
+                  <span className="tl-material-swatch" style={{ background: swatch(shown(m)) }} />
                 </span>
                 <span className="tl-tile__name">{m.name}</span>
-                <span className="tl-tile__meta">{m.graph !== undefined ? 'graph' : m.shader}</span>
+                <span className="tl-tile__meta">{m.instanceOf !== undefined ? 'instance' : m.graph !== undefined ? 'graph' : m.shader}</span>
               </li>
             ))}
             {p.materials.length === 0 && <li className="tl-row tl-row--empty">no materials yet</li>}
@@ -140,7 +174,9 @@ export function MaterialsPanel(p: Props): JSX.Element {
         </div>
         <div className="tl-assets__side">
           {selected !== null ? (
-            selected.graph !== undefined ? (
+            selected.instanceOf !== undefined ? (
+              <InstanceInspector key={selected.materialId} instance={selected} materials={p.materials} textures={p.textures} onSave={p.onSave} onDelete={p.onDelete} />
+            ) : selected.graph !== undefined ? (
               <div className="tl-material-inspector" aria-label={`material ${selected.name}`}>
                 <p className="tl-hint">
                   “{selected.name}” is a graph material ({selected.graph.nodes.length} node{selected.graph.nodes.length === 1 ? '' : 's'}, {(selected.parameters ?? []).length} exposed parameter{(selected.parameters ?? []).length === 1 ? '' : 's'}).
@@ -263,6 +299,125 @@ function MaterialInspector(props: { material: MaterialDef; textures: readonly Te
         Convert to graph
       </button>
       <button className="tl-btn tl-btn--small tl-btn--danger" onClick={() => props.onDelete(m.materialId)} title="Delete (refused while an object or an asset uses it)">
+        delete material
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Phase 25.19: a material instance — its parent, and the values it changes:
+ * a graph material's parameters, or a shader material's parameters and
+ * texture slots. Unset = the parent's value (shown); "↺" goes back to it.
+ */
+function InstanceInspector(props: { instance: MaterialDef; materials: readonly MaterialDef[]; textures: readonly TextureOption[]; onSave: Props['onSave']; onDelete: Props['onDelete'] }): JSX.Element {
+  const m = props.instance;
+  const [name, setName] = useState(m.name);
+  useEffect(() => setName(m.name), [m.name]);
+  const resolved = resolvedMaterials(props.materials);
+  const parent = resolved.find((x) => x.materialId === m.instanceOf) ?? null;
+  const excluded = selfAndDescendants(props.materials, m.materialId);
+  const save = (patch: Partial<MaterialDef>): void => {
+    const next: MaterialDef = { ...m, ...patch };
+    if (next.values !== undefined && Object.keys(next.values).length === 0) delete next.values;
+    props.onSave(next);
+  };
+  const setParam = (key: string, value: MaterialParamValue | undefined): void => {
+    const params = { ...m.params };
+    if (value === undefined) delete params[key];
+    else params[key] = value;
+    save({ params });
+  };
+  const setTexture = (slot: string, assetId: string | null): void => {
+    const textures = { ...m.textures };
+    if (assetId === null) delete textures[slot];
+    else textures[slot] = assetId;
+    save({ textures });
+  };
+  const setValue = (key: string, value: MaterialParameterValue | undefined): void => {
+    const values = { ...(m.values ?? {}) };
+    if (value === undefined) delete values[key];
+    else values[key] = value;
+    save({ values });
+  };
+  const reparent = (parentId: string): void => {
+    const np = resolved.find((x) => x.materialId === parentId);
+    if (np === undefined) return;
+    // Keep only what the new parent's look has.
+    const params = Object.fromEntries(Object.entries(m.params).filter(([k]) => MATERIAL_PARAMS[np.shader][k] !== undefined));
+    const textures = Object.fromEntries(Object.entries(m.textures).filter(([k]) => MATERIAL_TEXTURE_SLOTS[np.shader].includes(k)));
+    const values = Object.fromEntries(Object.entries(m.values ?? {}).filter(([k]) => (np.parameters ?? []).some((x) => x.key === k)));
+    save({ instanceOf: parentId, shader: np.shader, params, textures, values: np.graph !== undefined ? values : {} });
+  };
+  return (
+    <div className="tl-material-inspector" aria-label={`material ${m.name}`}>
+      <label className="tl-field">
+        <span className="tl-field__label">name</span>
+        <input
+          className="tl-input"
+          aria-label="material name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onBlur={() => name.trim() !== '' && name !== m.name && save({ name: name.trim().slice(0, 128) })}
+          onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+        />
+      </label>
+      <label className="tl-field">
+        <span className="tl-field__label">instance of</span>
+        <select className="tl-input" aria-label="instance parent" value={m.instanceOf ?? ''} onChange={(e) => reparent(e.target.value)}>
+          {props.materials
+            .filter((x) => !excluded.has(x.materialId))
+            .map((x) => (
+              <option key={x.materialId} value={x.materialId}>
+                {x.name}
+              </option>
+            ))}
+        </select>
+      </label>
+      {parent === null ? (
+        <p className="tl-inspector__hint">The parent material is missing.</p>
+      ) : parent.graph !== undefined ? (
+        <>
+          <div className="tl-subhead">Parameters (unset = the parent's value)</div>
+          {(parent.parameters ?? []).length === 0 && <p className="tl-inspector__hint">The parent graph material exposes no parameters.</p>}
+          {(parent.parameters ?? []).map((x) => {
+            const own = m.values?.[x.key];
+            return (
+              <div key={x.key} className={own !== undefined ? 'tl-param is-set' : 'tl-param'} data-param={x.key}>
+                <span className="tl-field__label" title={x.tooltip}>{x.label ?? x.key}</span>
+                <ParameterValue key={JSON.stringify(own ?? x.default)} param={{ ...x, default: own ?? x.default }} textures={props.textures} label={`instance ${x.key}`} onCommit={(v) => setValue(x.key, v)} />
+                <button className="tl-btn tl-btn--small tl-param__reset" disabled={own === undefined} aria-label={`reset ${x.key}`} title="Use the parent's value" onClick={() => setValue(x.key, undefined)}>
+                  ↺
+                </button>
+              </div>
+            );
+          })}
+        </>
+      ) : (
+        <>
+          <div className="tl-subhead">Parameters (unset = the parent's value)</div>
+          {Object.entries(MATERIAL_PARAMS[parent.shader]).map(([key, type]) => {
+            const inherited = parent.params[key];
+            const shownType = (inherited !== undefined ? { ...type, default: inherited } : type) as MaterialParamType;
+            return <ParamRow key={key} name={key} type={shownType} value={m.params[key]} onCommit={(v) => setParam(key, v)} />;
+          })}
+          <div className="tl-subhead">Textures (empty = the parent's)</div>
+          {MATERIAL_TEXTURE_SLOTS[parent.shader].map((slot) => (
+            <label key={slot} className="tl-field">
+              <span className="tl-field__label">{SLOT_LABEL[slot] ?? slot}</span>
+              <select className="tl-input" aria-label={`texture ${slot}`} value={m.textures[slot] ?? ''} onChange={(e) => setTexture(slot, e.target.value === '' ? null : e.target.value)}>
+                <option value="">— the parent's{parent.textures[slot] !== undefined ? ` (${props.textures.find((t) => t.assetId === parent.textures[slot])?.displayName ?? parent.textures[slot]})` : ''} —</option>
+                {props.textures.map((t) => (
+                  <option key={t.assetId} value={t.assetId}>
+                    {t.displayName}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ))}
+        </>
+      )}
+      <button className="tl-btn tl-btn--small tl-btn--danger" onClick={() => props.onDelete(m.materialId)} title="Delete (refused while an object, an asset or another instance uses it)">
         delete material
       </button>
     </div>
@@ -415,7 +570,9 @@ function ParameterOverrides(p: { mapping: Readonly<Record<string, string>>; mate
   const used = [...new Set([...Object.values(p.inherited ?? {}), ...Object.values(p.mapping)])];
   // Phase 23.12: a data parameter's cells are written by scripts at run time, never overridden per object here.
   const overridable = (x: { visibility?: string; type: string }): boolean => x.visibility !== 'private' && x.type !== 'data';
-  const graphs = used.map((id) => p.materials.find((m) => m.materialId === id)).filter((m): m is MaterialDef => m !== undefined && m.graph !== undefined && (m.parameters ?? []).some(overridable));
+  // Phase 25.19: an instance's parameters are its root graph material's (with the instance's values).
+  const resolved = resolvedMaterials(p.materials);
+  const graphs = used.map((id) => resolved.find((m) => m.materialId === id)).filter((m): m is MaterialDef => m !== undefined && m.graph !== undefined && (m.parameters ?? []).some(overridable));
   if (graphs.length === 0) return null;
   const set = (materialId: string, key: string, v: MaterialParameterValue | undefined): void => {
     const next: Record<string, Record<string, MaterialParameterValue>> = Object.fromEntries(Object.entries(p.value ?? {}).map(([k, o]) => [k, { ...o }]));

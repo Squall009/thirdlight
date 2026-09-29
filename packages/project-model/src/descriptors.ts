@@ -1787,6 +1787,9 @@ const MATERIAL_ITEM = obj('*', 'Material', 'A project material: a shader and ove
     str('tooltip', 'Tooltip', 'Help text.', { minLength: 1, maxLength: 256 }),
   ]), { maxItems: MAX_MATERIAL_PARAMETERS }),
   json('graph', 'Graph', 'The node graph (graph kind "material"): nodes, wires, groups and comments, edited in the Material tab with graph edits.', { readOnly: true }),
+  // Phase 25.19: a material instance (its parent's look with some values changed).
+  str('instanceOf', 'Instance of', 'A material instance: the parent material (or instance) whose look it takes.', { ...ID }),
+  json('values', 'Parameter values', "An instance of a graph material: its values for the parent's parameters (parameter key → value)."),
 ]);
 
 // Phase 20.0: a visual effect (systems of particles, each a graph of kind "effect").

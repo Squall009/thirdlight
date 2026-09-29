@@ -104,6 +104,8 @@ export default defineConfig({
         '**/scene-lights.e2e.ts',
         // Phase 25.10: a light and an object's active written by a script in Play, on WebGPU.
         '**/entity-access.e2e.ts',
+        // Phase 25.19: material instances and KTX2 textures (Scene view, Play, export) on WebGPU.
+        '**/material-instances.e2e.ts',
       ],
       use: { launchOptions: { env: browserLaunchEnv(), args: [...GL_ARGS, ...WEBGPU_ARGS] } },
     },

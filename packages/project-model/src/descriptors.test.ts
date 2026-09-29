@@ -638,6 +638,8 @@ const MATERIAL_BASES: J[] = [
       graph: { nodes: [{ id: 'out', type: 'pbr', position: [0, 0] }], edges: [] },
     },
   ],
+  // Phase 25.19: a material instance (checked against its parent with the whole list elsewhere).
+  [{ materialId: 'mat-i', name: 'Instance', shader: 'standard', params: {}, textures: {}, instanceOf: 'mat-g', values: { speed: 2 } }],
   // Phase 23.12: a graph material with a data parameter (its grid size).
   [
     {

@@ -28,7 +28,7 @@ import { canonicalBlockStamps, canonicalBlockTypes, canonicalCellFields, compose
 import { canonicalBehaviorGroup, canonicalModes, validateBehaviorGroupComponent, validateBehaviorGroups, validateModeReferences, validateModes } from './modes';
 import { canonicalUiDocuments, canonicalUiThemes, validateUiDocuments, validateUiReferences, validateUiThemes } from './ui-documents';
 import { canonicalScriptLibraries, scriptLibraryDigest, validateLibraryPins, validateScriptLibraries, type ScriptLibrary } from './script-libraries';
-import { canonicalEnvironment, canonicalMaterialMapping, canonicalMaterialParams, canonicalMaterials, validateEnvironment, validateMaterialMapping, validateMaterialParamsComponent, validateMaterials } from './materials';
+import { canonicalEnvironment, canonicalMaterialMapping, canonicalMaterialParams, canonicalMaterials, validateEnvironment, validateMaterialMapping, validateMaterialParamsComponent, validateMaterials, validateMaterialInstances, resolveMaterial, type MaterialDef } from './materials';
 import { canonicalAnimatorComponent, validateAnimatorComponent } from './animator';
 import { BLOCK_COMPONENTS } from './blocks';
 import { canonicalSurface, validateSurfaceComponent } from './scene-v3';
@@ -2186,7 +2186,11 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
 
   // Phase 9.4 (v4): project materials, the asset default mappings and the environment.
   // Phase 18.1: a graph material may call material functions (standalone graphs).
-  if (doc['materials'] !== undefined) validateMaterials(doc['materials'], '/materials', errors, graphDocumentsContext(GRAPH_KINDS, doc['graphs']));
+  if (doc['materials'] !== undefined) {
+    validateMaterials(doc['materials'], '/materials', errors, graphDocumentsContext(GRAPH_KINDS, doc['graphs']));
+    // Phase 25.19: instances against their parents (the whole list).
+    validateMaterialInstances(doc['materials'], '/materials', errors);
+  }
   if (doc['environment'] !== undefined) validateEnvironment(doc['environment'], '/environment', errors);
   if (doc['lighting'] !== undefined) validateLighting(doc['lighting'], '/lighting', errors);
   if (doc['animators'] !== undefined) validateAnimators(doc['animators'], '/animators', errors);
@@ -2454,6 +2458,16 @@ function validateMaterialReferences(doc: Record<string, unknown>, errors: ModelE
           errors.push(withFound({ code: 'asset_reference_missing', path: `/materials/${i}/parameters/${j}/default`, message: 'a texture parameter must name a texture asset of this project', expected: 'a texture assetId' }, p['default']));
         }
       });
+    }
+    // Phase 25.19: an instance's value for a texture parameter names a texture asset.
+    if (typeof m['instanceOf'] === 'string' && isPlainObject(m['values']) && typeof m['materialId'] === 'string') {
+      const root = resolveMaterial(materials as unknown as MaterialDef[], m['materialId']);
+      for (const p of root?.parameters ?? []) {
+        const v = m['values'][p.key];
+        if (p.type === 'texture' && typeof v === 'string' && v !== '' && kindOf.get(v) !== 'texture') {
+          errors.push(withFound({ code: 'asset_reference_missing', path: `/materials/${i}/values/${pointerSegment(p.key)}`, message: 'a texture parameter must name a texture asset of this project', expected: 'a texture assetId' }, v));
+        }
+      }
     }
   });
   // Phase 18.1: standalone graphs (material functions) reference assets the same way.

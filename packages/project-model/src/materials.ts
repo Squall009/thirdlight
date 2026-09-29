@@ -122,6 +122,19 @@ export interface MaterialDef {
    * "Remove graph").
    */
   graph?: GraphData;
+  /**
+   * Phase 25.19: a material instance — this material is its parent's (another
+   * material or instance, by materialId) with some values changed: `params`
+   * and `textures` over the parent's (a shader material), `values` over the
+   * parent's parameter defaults (a graph material). An instance has no graph
+   * or parameters of its own and its `shader` is its parent's. Anything that
+   * names a material (an object's, a model asset's or a block type's mapping,
+   * overrides, effects, timelines) may name an instance; the runtime gets it
+   * resolved (`resolveMaterialInstances`).
+   */
+  instanceOf?: string;
+  /** Phase 25.19, instances of graph materials: parameter key → value (see `MaterialParameter.default`). */
+  values?: Record<string, MaterialParameterValue>;
 }
 
 /** Phase 18.0: an exposed parameter of a graph material. */
@@ -323,8 +336,15 @@ export function validateMaterials(value: unknown, path: string, errors: ModelErr
       return;
     }
     for (const k of Object.keys(m)) {
-      if (!['materialId', 'name', 'shader', 'params', 'textures', 'parameters', 'graph'].includes(k)) err(errors, 'field_unexpected', `${p}/${k}`, `unknown material field "${k}"`, k, 'materialId, name, shader, params, textures, parameters, graph');
+      if (!['materialId', 'name', 'shader', 'params', 'textures', 'parameters', 'graph', 'instanceOf', 'values'].includes(k)) err(errors, 'field_unexpected', `${p}/${k}`, `unknown material field "${k}"`, k, 'materialId, name, shader, params, textures, parameters, graph, instanceOf, values');
     }
+    // Phase 25.19: a material instance (its parent is checked with the whole list, `validateMaterialInstances`).
+    if (m['instanceOf'] !== undefined) {
+      if (typeof m['instanceOf'] !== 'string' || !ID_RE.test(m['instanceOf'])) err(errors, 'id_invalid', `${p}/instanceOf`, 'instanceOf names the parent materialId', m['instanceOf']);
+      for (const k of ['graph', 'parameters'] as const) if (m[k] !== undefined) err(errors, 'field_unexpected', `${p}/${k}`, `a material instance has no ${k} of its own (it uses its parent's)`, k, 'instanceOf, values');
+    }
+    // Shape here; "values only on an instance" with the whole list (validateMaterialInstances).
+    if (m['values'] !== undefined) validateMaterialInstanceValues(m['values'], `${p}/values`, errors);
     const id = m['materialId'];
     if (typeof id !== 'string' || !ID_RE.test(id)) err(errors, 'id_invalid', `${p}/materialId`, 'materialId uses the id syntax [a-z0-9][a-z0-9_-]{0,63}', id);
     else if (seen.has(id)) err(errors, 'id_duplicate', `${p}/materialId`, 'materialId is used twice', id);
@@ -365,6 +385,146 @@ export function validateMaterials(value: unknown, path: string, errors: ModelErr
   });
 }
 
+/** Phase 25.19: the longest chain of instances (an instance of an instance of … a material). */
+export const MAX_MATERIAL_INSTANCE_DEPTH = 8;
+
+function validateMaterialInstanceValues(value: unknown, path: string, errors: ModelErrorV2[]): void {
+  if (!isPlainObject(value) || Object.keys(value).length > MAX_MATERIAL_PARAMETERS) {
+    err(errors, 'field_value', path, `values is an object of at most ${MAX_MATERIAL_PARAMETERS} parameter values`, value);
+    return;
+  }
+  for (const [k, v] of Object.entries(value)) {
+    if (!MATERIAL_PARAMETER_KEY_RE.test(k)) err(errors, 'field_value', `${path}/${k}`, 'a parameter key is an identifier', k);
+    const ok = (typeof v === 'number' && Number.isFinite(v)) || typeof v === 'string' || (Array.isArray(v) && v.length >= 2 && v.length <= 4 && v.every((x) => typeof x === 'number' && Number.isFinite(x)));
+    if (!ok) err(errors, 'field_type', `${path}/${k}`, 'a parameter value is a number, 2-4 numbers or a string', v);
+  }
+}
+
+type MaterialLike = Record<string, unknown>;
+
+/**
+ * Phase 25.19: the chain from an instance up to its root material (the
+ * instance first), or why it has none.
+ */
+function instanceChain(byId: ReadonlyMap<unknown, MaterialLike>, start: MaterialLike): { chain: MaterialLike[] } | { problem: 'missing' | 'loop' | 'depth'; at: unknown } {
+  const chain: MaterialLike[] = [start];
+  let cur = start;
+  while (cur['instanceOf'] !== undefined) {
+    const next = byId.get(cur['instanceOf']);
+    if (next === undefined) return { problem: 'missing', at: cur['instanceOf'] };
+    if (chain.includes(next)) return { problem: 'loop', at: cur['instanceOf'] };
+    chain.push(next);
+    if (chain.length > MAX_MATERIAL_INSTANCE_DEPTH + 1) return { problem: 'depth', at: cur['instanceOf'] };
+    cur = next;
+  }
+  return { chain };
+}
+
+/**
+ * Phase 25.19: the rules between materials and their instances (the whole
+ * list): the parent exists, the chain ends at a material within
+ * `MAX_MATERIAL_INSTANCE_DEPTH` steps without a loop, the instance's shader is
+ * its root's, and its `values` name the root graph material's parameters with
+ * values that fit them (a shader material's instance changes `params` and
+ * `textures` instead).
+ */
+export function validateMaterialInstances(value: unknown, path: string, errors: ModelErrorV2[]): void {
+  if (!Array.isArray(value)) return;
+  const list = value.filter(isPlainObject);
+  const byId = new Map(list.map((m) => [m['materialId'], m]));
+  value.forEach((m, i) => {
+    if (!isPlainObject(m)) return;
+    const p = `${path}/${i}`;
+    if (m['instanceOf'] === undefined) {
+      if (m['values'] !== undefined) err(errors, 'field_unexpected', `${p}/values`, 'values belong to a material instance (instanceOf names its parent)', 'values', 'instanceOf');
+      return;
+    }
+    if (m['instanceOf'] === m['materialId']) return err(errors, 'field_value', `${p}/instanceOf`, 'a material instance cannot be its own parent', m['instanceOf']);
+    const found = instanceChain(byId, m);
+    if ('problem' in found) {
+      if (found.problem === 'missing') return err(errors, 'reference_missing', `${p}/instanceOf`, 'instanceOf names no material of this project', found.at, 'a materialId in content.materials');
+      if (found.problem === 'loop') return err(errors, 'field_value', `${p}/instanceOf`, 'the instance chain loops back to itself', found.at, 'a chain that ends at a material');
+      return err(errors, 'limits_exceeded', `${p}/instanceOf`, `an instance chain is at most ${MAX_MATERIAL_INSTANCE_DEPTH} instances long`, found.at);
+    }
+    const root = found.chain[found.chain.length - 1]!;
+    if (m['shader'] !== root['shader']) err(errors, 'field_value', `${p}/shader`, `a material instance has its parent's shader ("${String(root['shader'])}")`, m['shader'], String(root['shader']));
+    const values = m['values'];
+    if (!isPlainObject(values)) return;
+    if (root['graph'] === undefined) {
+      if (Object.keys(values).length > 0) err(errors, 'field_value', `${p}/values`, 'only an instance of a graph material has parameter values (an instance of a shader material changes params and textures)', Object.keys(values)[0]);
+      return;
+    }
+    const declared = Array.isArray(root['parameters']) ? (root['parameters'] as unknown[]).filter(isPlainObject) : [];
+    for (const [k, v] of Object.entries(values)) {
+      const decl = declared.find((d) => d['key'] === k);
+      if (decl === undefined) {
+        err(errors, 'reference_missing', `${p}/values/${k}`, `material "${String(root['name'])}" has no parameter "${k}"`, k, declared.map((d) => String(d['key'])).join(', ') || 'a declared parameter');
+        continue;
+      }
+      const bad = materialParameterValueError(decl as unknown as MaterialParameter, v);
+      if (bad !== null) err(errors, 'field_value', `${p}/values/${k}`, `${k} must be ${bad}`, v, bad);
+    }
+  });
+}
+
+/**
+ * Phase 25.19: one material as it draws — an instance resolved against its
+ * chain (the root's shader, graph and parameters; the parents' params and
+ * textures under the instance's own; each level's `values` as the parameter
+ * defaults), a material unchanged. Null when the id names nothing or the
+ * chain is broken (the project rules refuse that).
+ */
+export function resolveMaterial(list: readonly MaterialDef[], materialId: string): MaterialDef | null {
+  const byId = new Map(list.map((m) => [m.materialId as unknown, m as unknown as MaterialLike]));
+  const start = byId.get(materialId);
+  if (start === undefined) return null;
+  return resolveFrom(byId, start);
+}
+
+function resolveFrom(byId: ReadonlyMap<unknown, MaterialLike>, start: MaterialLike): MaterialDef | null {
+  if (start['instanceOf'] === undefined) return start as unknown as MaterialDef;
+  const found = instanceChain(byId, start);
+  if ('problem' in found) return null;
+  const chain = found.chain as unknown as MaterialDef[];
+  const root = chain[chain.length - 1]!;
+  const self = chain[0]!;
+  const params: Record<string, MaterialParamValue> = {};
+  const textures: Record<string, string> = {};
+  const values: Record<string, MaterialParameterValue> = {};
+  // From the root down to the instance: the nearer level wins.
+  for (let i = chain.length - 1; i >= 0; i--) {
+    const m = chain[i]!;
+    Object.assign(params, m.params ?? {});
+    Object.assign(textures, m.textures ?? {});
+    if (i < chain.length - 1) Object.assign(values, m.values ?? {});
+  }
+  return {
+    materialId: self.materialId,
+    name: self.name,
+    shader: root.shader,
+    params,
+    textures,
+    ...(root.parameters !== undefined ? { parameters: root.parameters.map((p) => (values[p.key] !== undefined ? { ...p, default: values[p.key]! } : p)) } : {}),
+    ...(root.graph !== undefined ? { graph: root.graph } : {}),
+  };
+}
+
+/**
+ * Phase 25.19: every material as it draws (`resolveMaterial`), in list order;
+ * an instance whose chain is broken is left out. The editor's views, Play and
+ * the export draw from this list: the runtime never sees an instance.
+ */
+export function resolveMaterialInstances(list: readonly MaterialDef[]): MaterialDef[] {
+  if (!list.some((m) => m.instanceOf !== undefined)) return [...list];
+  const byId = new Map(list.map((m) => [m.materialId as unknown, m as unknown as MaterialLike]));
+  const out: MaterialDef[] = [];
+  for (const m of list) {
+    const r = resolveFrom(byId, m as unknown as MaterialLike);
+    if (r !== null) out.push(r);
+  }
+  return out;
+}
+
 /** Phase 18.0: parameters in canonical form (list order kept: it is the Inspector's order). */
 export function canonicalMaterialParameters(list: readonly MaterialParameter[]): MaterialParameter[] {
   return list.map((p) => ({
@@ -396,6 +556,11 @@ export function canonicalMaterials(list: readonly MaterialDef[]): MaterialDef[] 
       // Phase 18.0: after the 9.4 fields, so a shader material keeps its exact bytes.
       ...(m.parameters !== undefined && m.parameters.length > 0 ? { parameters: canonicalMaterialParameters(m.parameters) } : {}),
       ...(m.graph !== undefined ? { graph: canonicalGraphData(m.graph) } : {}),
+      // Phase 25.19: last, so every other material keeps its exact bytes.
+      ...(m.instanceOf !== undefined ? { instanceOf: m.instanceOf } : {}),
+      ...(m.instanceOf !== undefined && m.values !== undefined && Object.keys(m.values).length > 0
+        ? { values: Object.fromEntries(Object.keys(m.values).sort().map((k) => { const v = m.values![k]!; return [k, Array.isArray(v) ? [...v] : typeof v === 'string' && COLOR_RE.test(v.toLowerCase()) ? v.toLowerCase() : v]; })) }
+        : {}),
     }));
 }
 
@@ -852,7 +1017,8 @@ export function canonicalMaterialParams(c: MaterialParamsComponent): MaterialPar
 export function materialOverrideErrors(overrides: MaterialParamsComponent, materials: readonly MaterialDef[]): { path: string; code: string; message: string; found: unknown }[] {
   const out: { path: string; code: string; message: string; found: unknown }[] = [];
   for (const [id, values] of Object.entries(overrides)) {
-    const m = materials.find((x) => x.materialId === id);
+    // Phase 25.19: an instance's parameters are its root graph material's.
+    const m = materials.some((x) => x.materialId === id) ? (resolveMaterial(materials, id) ?? materials.find((x) => x.materialId === id)) : undefined;
     if (m === undefined) {
       out.push({ path: `/${id}`, code: 'reference_missing', message: 'the overrides name no material of this project', found: id });
       continue;

@@ -12,6 +12,10 @@
  * - an effect's Output block that shades with a project material;
  * - a timeline's material track.
  *
+ * Phase 25.19: any of these may name a material instance; the instance is
+ * then the used material and ships resolved against its parents
+ * (`resolveMaterialInstances`), so its parents are not uses of their own.
+ *
  * Nothing else reaches a material at run time: scripts set parameters on the
  * materials an object wears (`ctx.materials`), they never put a material on
  * an object, so a script cannot name a material that none of the above does.

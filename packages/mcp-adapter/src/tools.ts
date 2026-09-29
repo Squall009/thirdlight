@@ -164,7 +164,10 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'setMaterial {material: {materialId, name, shader: standard|foliage|kit|unlit|water, params: {...overrides}, textures: {slot: ' +
       'textureAssetId}}} creates or replaces one (on a model it starts from the file\'s own material and changes only what it sets); ' +
       'deleteMaterial {materialId}; objects use them with setComponent "materials" {<source material name or "*">: materialId}, a ' +
-      'model asset for every placement with setAssetOptions {assetId, materials: {...}|null}. A graph material adds graph: {nodes, edges, groups?, comments?} (graph kind ' +
+      'model asset for every placement with setAssetOptions {assetId, materials: {...}|null}, a block type with setBlockType {block: {…, materials}}. ' +
+      'A material instance is a material with instanceOf: <parent materialId> (a material or another instance, chains up to 8): it draws as its parent with ' +
+      'the values it sets — params/textures over a shader material\'s, values: {<parameter key>: value} over a graph material\'s parameter defaults; its shader is ' +
+      'its parent\'s, it has no graph or parameters of its own; any mapping, override, effect or timeline may name it, and a used instance ships resolved. A graph material adds graph: {nodes, edges, groups?, comments?} (graph kind ' +
       '"material": the graph replaces shader/params/textures at render time: it compiles to a node material in the Scene view, Play and exports; the file\'s own material is not used) and ' +
       'parameters: [{key (identifier), type: float|vec2|vec3|vec4|color|texture|data, default, min?, max?, size? (data: [w, h] cells 1-64; default = the RGBA bytes every cell starts with), visibility?: public|private, label?, group?, tooltip?}] ' +
       '(read by Parameter nodes {key}); its graph is then edited with graphEdit {owner: {kind: "material", id: materialId}, ops}; objects override public parameters ' +

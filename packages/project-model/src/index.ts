@@ -735,6 +735,11 @@ export {
   validateEnvironment,
   validateMaterialMapping,
   validateMaterials,
+  // Phase 25.19: material instances.
+  MAX_MATERIAL_INSTANCE_DEPTH,
+  resolveMaterial,
+  resolveMaterialInstances,
+  validateMaterialInstances,
   validateFogVolumeComponent,
   MAX_FOG_VOLUMES,
   canonicalLevelEnvironment,

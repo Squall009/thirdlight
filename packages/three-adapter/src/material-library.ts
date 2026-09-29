@@ -77,6 +77,68 @@ export interface MaterialDefLike {
   readonly parameters?: readonly MaterialParameterLike[];
   /** Phase 18.3: a node graph (a graph material; `shader`/`params`/`textures` are then unused). */
   readonly graph?: MaterialGraphLike;
+  /** Phase 25.19: a material instance's parent (`resolveMaterialInstancesLike`). */
+  readonly instanceOf?: string;
+  /** Phase 25.19: an instance's values for its root graph material's parameters. */
+  readonly values?: Readonly<Record<string, number | readonly number[] | string>>;
+}
+
+/** Phase 25.19: the longest instance chain (project-model `MAX_MATERIAL_INSTANCE_DEPTH`). */
+const MATERIAL_INSTANCE_DEPTH = 8;
+
+/**
+ * Phase 25.19: the adapter's copy of project-model `resolveMaterialInstances`
+ * (the editor may use project-model types only; `tests/material-instance-parity.test.ts`
+ * keeps the two equal). Every material as it draws, in list order: an
+ * instance takes its root's shader, graph and parameters, the chain's params
+ * and textures (the nearer level wins) and its chain's `values` as the
+ * parameter defaults; an instance whose chain is broken is left out. The
+ * runtime's manifest already holds resolved materials; `setMaterials` resolves
+ * again, which leaves those unchanged.
+ */
+export function resolveMaterialInstancesLike(list: readonly MaterialDefLike[]): MaterialDefLike[] {
+  if (!list.some((m) => m.instanceOf !== undefined)) return [...list];
+  const byId = new Map(list.map((m) => [m.materialId, m]));
+  const out: MaterialDefLike[] = [];
+  for (const m of list) {
+    if (m.instanceOf === undefined) {
+      out.push(m);
+      continue;
+    }
+    const chain: MaterialDefLike[] = [m];
+    let cur = m;
+    let broken = false;
+    while (cur.instanceOf !== undefined) {
+      const next = byId.get(cur.instanceOf);
+      if (next === undefined || chain.includes(next) || chain.length > MATERIAL_INSTANCE_DEPTH) {
+        broken = true;
+        break;
+      }
+      chain.push(next);
+      cur = next;
+    }
+    if (broken) continue;
+    const root = chain[chain.length - 1]!;
+    const params: Record<string, number | boolean | string | readonly [number, number]> = {};
+    const textures: Record<string, string> = {};
+    const values: Record<string, number | readonly number[] | string> = {};
+    for (let i = chain.length - 1; i >= 0; i--) {
+      const c = chain[i]!;
+      Object.assign(params, c.params ?? {});
+      Object.assign(textures, c.textures ?? {});
+      if (i < chain.length - 1) Object.assign(values, c.values ?? {});
+    }
+    out.push({
+      materialId: m.materialId,
+      name: m.name,
+      shader: root.shader,
+      params,
+      textures,
+      ...(root.parameters !== undefined ? { parameters: root.parameters.map((p) => (values[p.key] !== undefined ? { ...p, default: values[p.key]! } : p)) } : {}),
+      ...(root.graph !== undefined ? { graph: root.graph } : {}),
+    });
+  }
+  return out;
 }
 
 /** Phase 18.3: an object's values for public parameters, by materialId then parameter key. */
@@ -665,7 +727,8 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
       return Promise.all([...ids].map((id) => texture(id))).then(() => undefined);
     },
     setMaterials(list, fns) {
-      defs = new Map(list.map((d) => [d.materialId, d]));
+      // Phase 25.19: instances draw as their resolved material (the editor passes the project's list as is).
+      defs = new Map(resolveMaterialInstancesLike(list).map((d) => [d.materialId, d]));
       if (fns !== undefined) functions = new Map(fns.filter((f) => f.kind === 'material-function').map((f) => [f.graphId, f]));
       // Rebuild lazily: drop materials whose definition changed or vanished.
       animatedCount = 0;

@@ -27,7 +27,7 @@ import { dialogueForRuntime, type DialogueDocument, type DialogueSettings, type 
 import type { GameMode } from '@thirdlight/project-model';
 import type { EventCue, GameShell, TimelineAsset } from '@thirdlight/project-model';
 import type { AnimatorController, EnvironmentConfig, PrefabDefinition, InputConfig, LightingMap, MaterialDef, UiDocument, UiTheme } from '@thirdlight/project-model';
-import { animatorsForRuntime, effectsForRuntime, type EffectDef, materialFunctionsForRuntime, materialsForRuntime, type GraphDocument, captureContentViewV3, captureManifestV2, M3_ENGINE_PINS, resolveMediaIdentityV3, sha256Hex, type GameplaySettings, type ManifestAssetInputV2, type ManifestBehaviorInput, type MediaBlock, type RuntimeContentManifestV2, type ManifestSceneRow, physicsDimensionOf, resolveRequiredModules, materialsInUse, scriptLibraryContainerText, scriptLibraryDigest, type ScriptLibrary } from '@thirdlight/project-model';
+import { animatorsForRuntime, effectsForRuntime, type EffectDef, materialFunctionsForRuntime, materialsForRuntime, type GraphDocument, captureContentViewV3, captureManifestV2, M3_ENGINE_PINS, resolveMediaIdentityV3, sha256Hex, type GameplaySettings, type ManifestAssetInputV2, type ManifestBehaviorInput, type MediaBlock, type RuntimeContentManifestV2, type ManifestSceneRow, physicsDimensionOf, resolveRequiredModules, materialsInUse, resolveMaterialInstances, scriptLibraryContainerText, scriptLibraryDigest, type ScriptLibrary } from '@thirdlight/project-model';
 import { MODEL_RIG_LIMITS, readModelRig, type ModelRig } from '@thirdlight/project-model';
 import type { WorkspaceService } from '@thirdlight/workspace';
 
@@ -672,7 +672,9 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
           effects: (input.content as { effects?: EffectDef[] }).effects ?? [],
           timelines: (input.content as { timelines?: TimelineAsset[] }).timelines ?? [],
         });
-        return allMaterials.filter((m) => used.has(m.materialId));
+        // Phase 25.19: a named instance ships resolved (its chain's graph, parameters and values folded
+        // in), so the runtime never sees an instance; its parents ship only when something names them.
+        return resolveMaterialInstances(allMaterials).filter((m) => used.has(m.materialId));
       })();
 
   // 7. The v2 manifest (pure derivation) + self-identifying buildId.

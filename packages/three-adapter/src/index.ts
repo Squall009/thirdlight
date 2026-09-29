@@ -164,6 +164,7 @@ export {
   createMaterialLibrary,
   decodeTexture,
   DEFAULT_WIND_LIKE,
+  resolveMaterialInstancesLike,
   type MaterialDefLike,
   type MaterialLibrary,
   type MaterialLibraryOptions,

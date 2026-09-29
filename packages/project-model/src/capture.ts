@@ -24,7 +24,7 @@ import { environmentPresetTextureRefs, type EnvironmentPreset } from './environm
 import { animatorAssetIds, type AnimatorController } from './animator';
 import { graphAssetRefs, type GraphDocument } from './graph';
 import { MATERIAL_FUNCTION_GRAPH_KIND } from './material-graph-kinds';
-import { materialFunctionsForRuntime, materialTextureRefs, type MaterialDef } from './materials';
+import { materialFunctionsForRuntime, materialTextureRefs, resolveMaterialInstances, type MaterialDef } from './materials';
 import { effectAssetRefs, type EffectDef } from './effects';
 import type { ModelErrorV2, ModelResultV2 } from './errors';
 import type { CapturedAsset, CapturedContent, ContentCatalog, ImportRecipe, PropertyValue } from './types-v2';
@@ -98,7 +98,8 @@ export function collectAssetRefsV3(scene: SceneV3, content: ContentCatalogV3): A
     }
   };
   // Phase 18.3: an object may override a graph material's public texture parameter with another texture.
-  const materialDefs = (content as { materials?: MaterialDef[] }).materials ?? [];
+  // Phase 25.19: material instances as they draw (their root's parameters, their own values).
+  const materialDefs = resolveMaterialInstances((content as { materials?: MaterialDef[] }).materials ?? []);
   const textureKeys = new Map(materialDefs.map((m) => [m.materialId, new Set((m.parameters ?? []).filter((p) => p.type === 'texture').map((p) => p.key))]));
   const addEntity = (e: SceneV3['entities'][number]): void => {
     const overrides = (e.components as { materialParams?: Record<string, Record<string, unknown>> }).materialParams;
