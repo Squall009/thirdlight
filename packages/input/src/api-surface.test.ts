@@ -27,7 +27,7 @@ describe('public exports (dependencies.md §3 input row)', () => {
     // Packet 55 (delivery.md §4.1/§4.2) adds the menu-control channel
     // constants + the pure controller (additive — the contracted names above
     // are unchanged).
-    // Phase 9.8 adds the named input actions (additive); phase 14.5 the character controller's pad controls; phase 23.2 the 3D defaults; phase 23.3 the pointer/cursor helpers.
+    // Phase 9.8 adds the named input actions (additive); phase 14.5 the character controller's pad controls; phase 23.2 the 3D defaults; phase 23.3 the pointer/cursor helpers; phase 25.15 the virtual gamepad.
     expect(Object.keys(input).sort()).toEqual([
       'DEFAULT_INPUT_CONFIG',
       'DEFAULT_INPUT_CONFIG_3D',
@@ -37,6 +37,9 @@ describe('public exports (dependencies.md §3 input row)', () => {
       'MENU_GAMEPAD_CONFIRM_BUTTON',
       'MENU_MUTE_CODE',
       'STANDARD_CHARACTER_PAD',
+      'VIRTUAL_PAD_AXES',
+      'VIRTUAL_PAD_BUTTONS',
+      'VIRTUAL_PAD_BUTTON_DOWN',
       'actionKeys',
       'attachBrowserInput',
       'bindsPointerButton',
@@ -46,6 +49,7 @@ describe('public exports (dependencies.md §3 input row)', () => {
       'createActionEvaluator',
       'createMenuController',
       'createStepInputSource',
+      'createVirtualPad',
       'cursorPresentation',
       'focusGameSurface',
       'mapRawInput',

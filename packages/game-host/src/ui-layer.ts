@@ -28,6 +28,7 @@ import type { HostDom, HostDomNode } from './dom';
 import { GENERIC_FONTS, UI_BASE_CSS, childrenFlow, containerProps, fontFamilyOf, placementProps, styleRules, tweenKeyframes, type CssAssets, type CssProp } from './ui-css';
 import { orderPick, spatialPick, type NavDirection, type NavRect } from './ui-nav';
 import { parseRichText, uiValueText, type RichToken } from './ui-text';
+import type { UiHitTarget } from './ui-hit';
 
 /** The DOM surface the layer uses (real elements have it; optional members degrade in a headless page). */
 interface UiNode extends HostDomNode {
@@ -90,6 +91,24 @@ export interface UiLayerObservation {
   readonly actionMap: string | null;
 }
 
+/**
+ * Phase 25.15: one element as tl_game_observe lists it — its document and
+ * widget, the list item, the rectangle in fractions of the view ([x, y, w, h],
+ * 0,0 top left) and whether a pointer press there goes to the UI (`hit`).
+ */
+export interface UiElementObservation {
+  readonly doc: string;
+  readonly widget: string;
+  readonly type: string;
+  readonly index?: number;
+  readonly rect: readonly [number, number, number, number];
+  readonly hit?: true;
+  readonly disabled?: true;
+  readonly focused?: true;
+}
+
+export { hitUiTargets, type UiHitTarget } from './ui-hit';
+
 export interface UiLayer {
   /** Apply the simulation's UI diff (view model, shown documents, tween/focus commands). */
   applyOutput(out: UiOutput): void;
@@ -106,6 +125,12 @@ export interface UiLayer {
   /** Place the world-anchored widgets (after the frame is rendered). */
   updateAnchors(project: UiProjector): void;
   observe(): UiLayerObservation;
+  /** Phase 25.15: the shown widgets with an id or that take the pointer, with their rectangles (at most `max`, document order, bottom document first). */
+  elements(max?: number): UiElementObservation[];
+  /** Phase 25.15: where a pointer press goes to the UI, topmost first (cached for the frame). */
+  hitTargets(): readonly UiHitTarget[];
+  /** Phase 25.15: a click on the target with this key (a button runs its click, an input takes the focus); false when it is gone. */
+  click(key: string): boolean;
   dispose(): void;
 }
 
@@ -1011,6 +1036,7 @@ class LayerImpl implements UiLayer {
 
   frame(): void {
     if (this.disposed) return;
+    this.targetsCache = null;
     const flow = this.deps.flowValues?.() ?? null;
     // Phase 23.14: glyphs follow the device used last and the bindings.
     const gk = this.deps.glyphKey?.() ?? '';
@@ -1233,6 +1259,117 @@ class LayerImpl implements UiLayer {
         }
       });
     }
+  }
+
+  // --- phase 25.15: element rectangles, the pointer hit test, clicks ---------------
+
+  private targetsCache: readonly UiHitTarget[] | null = null;
+
+  /** An element's rectangle in fractions of the view (null: not laid out). */
+  private rectOf(el: UiNode, vp: { width: number; height: number }): [number, number, number, number] | null {
+    const b = el.getBoundingClientRect?.();
+    if (b === undefined || !(b.width > 0) || !(b.height > 0)) return null;
+    const q = (n: number): number => Math.round(n * 1e4) / 1e4;
+    return [q(b.left / vp.width), q(b.top / vp.height), q(b.width / vp.width), q(b.height / vp.height)];
+  }
+
+  /** The widgets of a view that take the pointer (buttons and inputs, visible), in document order. */
+  private pointerRecs(v: DocView): { rec: Rec; n: number }[] {
+    const out: { rec: Rec; n: number }[] = [];
+    let n = 0;
+    const go = (r: Rec, shown: boolean): void => {
+      const vis = shown && r.visible;
+      if (vis && (r.w.type === 'button' || r.w.type === 'input')) out.push({ rec: r, n });
+      n += 1;
+      r.kids.forEach((k) => go(k, vis));
+      (r.items ?? []).forEach((k) => go(k, vis));
+    };
+    if (v.top !== null) go(v.top, true);
+    return out;
+  }
+
+  elements(max = 64): UiElementObservation[] {
+    if (this.disposed) return [];
+    if (this.dirty) this.refreshAll();
+    const vp = this.viewport();
+    const out: UiElementObservation[] = [];
+    for (const v of this.views()) {
+      if (v.leaving) continue;
+      const go = (r: Rec, shown: boolean): void => {
+        const vis = shown && r.visible;
+        if (!vis || out.length >= max) return;
+        const hit = r.w.type === 'button' || r.w.type === 'input';
+        if (r.w.id !== undefined || hit) {
+          const rect = this.rectOf(r.el, vp);
+          if (rect !== null) {
+            out.push({
+              doc: v.doc.uiDocumentId,
+              widget: r.w.id ?? '',
+              type: r.w.type,
+              ...(r.scope.index !== undefined ? { index: r.scope.index } : {}),
+              rect,
+              ...(hit ? { hit: true as const } : {}),
+              ...(!r.enabled ? { disabled: true as const } : {}),
+              ...(v.focus === r ? { focused: true as const } : {}),
+            });
+          }
+        }
+        r.kids.forEach((k) => go(k, vis));
+        (r.items ?? []).forEach((k) => go(k, vis));
+      };
+      if (v.top !== null) go(v.top, true);
+    }
+    return out;
+  }
+
+  hitTargets(): readonly UiHitTarget[] {
+    if (this.targetsCache !== null) return this.targetsCache;
+    if (this.disposed) return [];
+    if (this.dirty) this.refreshAll();
+    const vp = this.viewport();
+    const out: UiHitTarget[] = [];
+    const views = this.views();
+    // Topmost first: the screen, then the simulation's documents from the last shown, then the HUD.
+    for (let i = views.length - 1; i >= 0; i -= 1) {
+      const v = views[i]!;
+      if (v.leaving) continue;
+      const recs = this.pointerRecs(v);
+      for (let k = recs.length - 1; k >= 0; k -= 1) {
+        const rect = this.rectOf(recs[k]!.rec.el, vp);
+        if (rect !== null) out.push({ key: `${v.source}:${v.doc.uiDocumentId}#${recs[k]!.n}`, rect });
+      }
+      // A modal document's backdrop takes every press below it.
+      if (v.modal) out.push({ key: `${v.source}:${v.doc.uiDocumentId}#backdrop`, rect: [0, 0, 1, 1] });
+    }
+    this.targetsCache = out;
+    return out;
+  }
+
+  click(key: string): boolean {
+    if (this.disposed) return false;
+    const hash = key.lastIndexOf('#');
+    const colon = key.indexOf(':');
+    if (hash < 0 || colon < 0) return false;
+    const source = key.slice(0, colon);
+    const docId = key.slice(colon + 1, hash);
+    const v = this.views().find((x) => !x.leaving && x.source === source && x.doc.uiDocumentId === docId);
+    if (v === undefined) return false;
+    const which = key.slice(hash + 1);
+    if (which === 'backdrop') return true;
+    const n = Number(which);
+    const hit = this.pointerRecs(v).find((r) => r.n === n);
+    if (hit === undefined) return false;
+    const rec = hit.rec;
+    if (!rec.enabled || !rec.visible) return true;
+    if (rec.w.type === 'input') {
+      if (v.wantsFocus) this.setFocus(v, rec, true);
+      rec.el.focus?.();
+      return true;
+    }
+    // As a pointer click: the hover takes the focus in a focused document, then the button's click runs.
+    if (v.wantsFocus) this.setFocus(v, rec, true);
+    this.activate(v, rec);
+    return true;
   }
 
   observe(): UiLayerObservation {

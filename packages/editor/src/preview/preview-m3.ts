@@ -101,6 +101,7 @@ import {
   pageScenePreparation,
   type VerifiedAssetReader,
   type RemoteSimulation,
+  type RelayUiEdgeName,
   type SimAccess,
   type StartTimings,
 } from '@thirdlight/game-host';
@@ -110,6 +111,7 @@ import type { EffectDefLike, EnvironmentLike, FrameDrawnInfo, LightingBakeLike, 
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import { Bridge } from './bridge';
 import { answerScreenshot } from './screenshot-answer';
+import { resolveRelayFrames, type IncomingRelayFrame } from './relay-frames';
 
 /**
  * Phase 22.0: the simulation worker's script on the preview origin (a static
@@ -248,6 +250,8 @@ export interface M3PreviewHandle {
   readonly identity: { snapshotId: string; revision: number; buildId: string; contentDigest: string; stepIndex: number };
   /** Phase 19.2: fixed steps per second (the debugger's "recently active" window is half a second of them). */
   readonly stepHz: number;
+  /** Phase 25.15: the input bindings in effect (the input exercise's virtual gamepad). */
+  readonly inputConfig: () => InputConfigLike;
   /** Phase 25.24b: the asset reads so far (at start and on demand) and their verified bytes. */
   assetReads(): { reads: number; bytes: number };
   dispose(): void;
@@ -540,7 +544,9 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   const physicsConfig: RapierPhysicsInitConfig | PhysicsInitConfig3D | null = physicsDimensionOf(settings) === 3 ? physics3DConfigOf(snapshot.scene.entities as never, settings, { layers: manifest.collisionLayers ?? [] }) : physicsConfigFromSnapshot(snapshot, settings);
   // (no controller: no physics world; a module that needs one says so when the host composes — phase 24.3)
   // Phase 9.8: the project's input actions (bound by the buildId), else the defaults.
-  const browserInput = attachBrowserInput(cfg.canvas, { inputConfig: manifest.input ?? (physicsDimensionOf(settings) === 3 ? DEFAULT_INPUT_CONFIG_3D : DEFAULT_INPUT_CONFIG) });
+  // Phase 25.15: the bindings in effect (a player's rebinding changes them) — the input exercise's virtual gamepad reads through them.
+  let inputConfigNow: InputConfigLike = manifest.input ?? (physicsDimensionOf(settings) === 3 ? DEFAULT_INPUT_CONFIG_3D : DEFAULT_INPUT_CONFIG);
+  const browserInput = attachBrowserInput(cfg.canvas, { inputConfig: inputConfigNow });
   // Phase 21.5: what this composition attaches to the page is released with it
   // (the input listeners, the focus listener, the audio owner and its context,
   // the unlock listeners) — a new snapshot composes again on the same canvas —
@@ -669,17 +675,37 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
     }
     if (physics !== undefined) timings?.end('physics');
     const relay = new RelayActionSource(browserInput);
+    // Phase 25.15: the input exercise's UI edges and clicks, applied at the next host frames (the menu channel is read every frame).
+    const relayEdges: RelayUiEdgeName[] = [];
+    const relayClicks: string[] = [];
+    const hostRef: { current: GameHost | null } = { current: null };
+    const accessRef: { current: SimAccess | null } = { current: null };
+    const NO_EDGES = { up: false, down: false, left: false, right: false, submit: false, cancel: false, pause: false };
     const input = {
       sample: (stepIndex: number) => relay.sample(stepIndex),
-      sampleMenu: () => browserInput.sampleMenu(),
+      sampleMenu: () => {
+        for (const key of relayClicks.splice(0)) hostRef.current?.clickUi?.(key);
+        // A frame of a paused game takes one step's place in a running exercise (its menu can be driven and resumed).
+        if (accessRef.current?.inputTestActive === true && hostRef.current?.playState?.() === 'paused') accessRef.current.relayIdle();
+        return browserInput.sampleMenu();
+      },
       markConfirmConsumed: () => browserInput.markConfirmConsumed(),
       dispose: () => browserInput.dispose(),
       // Phase 9.10: menu navigation and key rebinding (the shell's and UI documents' screens).
-      sampleUi: () => browserInput.sampleUi(),
+      sampleUi: () => {
+        const physical = browserInput.sampleUi();
+        const edge = relayEdges.shift();
+        return edge === undefined ? physical : { ...NO_EDGES, [edge]: true };
+      },
       captureKey: (cb: (code: string | null) => void) => browserInput.captureKey(cb),
       // Phase 14.5: pad rebinding in the settings.
       capturePadButton: (cb: (button: number | null) => void) => browserInput.capturePadButton(cb),
-      configure: (c: InputConfigLike) => browserInput.configure(c),
+      configure: (c: InputConfigLike) => {
+        inputConfigNow = c;
+        browserInput.configure(c);
+      },
+      // Phase 25.15: the UI hit test (the pointer over the UI: overUi, presses left to the UI).
+      setUiHitTest: (hit: ((x: number, y: number) => boolean) | null) => browserInput.setUiHitTest(hit),
       // Phase 23.9a: a focused UI document's action map.
       setActiveMaps: (maps: readonly string[] | null) => browserInput.setActiveMaps(maps),
       // Phase 23.3: the cursor (free/locked, hidden while a gamepad drives).
@@ -848,9 +874,21 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
     };
 
     const stepHz = settings.fixed_step_hz ?? 120;
+    const access = remote !== null ? remote.access : createLocalSimAccess({ runtime: host.runtime, relay, ...(physics !== undefined ? { physics: physics as never } : {}), stepHz });
+    // Phase 25.15: the input exercise's page side — the UI hit targets and where its UI edges and clicks go.
+    hostRef.current = host;
+    accessRef.current = access;
+    access.setRelayPage({
+      targets: () => host.uiHitTargets?.() ?? [],
+      effect: (e) => {
+        if (e.kind === 'click') relayClicks.push(e.key);
+        else for (const edge of e.edges) if (relayEdges.length < 64) relayEdges.push(edge);
+      },
+    });
     return {
       host,
-      access: remote !== null ? remote.access : createLocalSimAccess({ runtime: host.runtime, relay, ...(physics !== undefined ? { physics: physics as never } : {}), stepHz }),
+      access,
+      inputConfig: () => inputConfigNow,
       threading: { mode: threadMode, reason: threadReason, transport: remote?.transport ?? null, isolated },
       adapter: adapterRef.current,
       identity,
@@ -1020,12 +1058,14 @@ export function bootstrapPreviewM3(): void {
   });
 
   bridge.on('tl.input.request', (m) => {
-    const body = m as { requestId: string; frames: ReadonlyArray<{ stepOffset: number; actions?: Readonly<Record<string, { v: number; x?: number; y?: number; p: 'none' | 'pressed' | 'held' | 'released' }>>; pointer?: ActionFrame['pointer']; }> };
+    const body = m as { requestId: string; frames: readonly IncomingRelayFrame[] };
     if (handle === null) {
       bridge.sendInputResult(playId, body.requestId, notReady);
       return;
     }
-    const accepted = handle.access.beginInputTest(body.frames, (from, to) => {
+    // Phase 25.15: a virtual gamepad is read through the bindings here (the page has them), step by step.
+    const frames = resolveRelayFrames(body.frames, handle.inputConfig(), handle.stepHz);
+    const accepted = handle.access.beginInputTest(frames, (from, to) => {
       bridge.sendInputResult(playId, body.requestId, { ok: true, appliedFromStep: from, appliedToStep: to });
     });
     if (!accepted) bridge.sendInputResult(playId, body.requestId, { ok: false, error: { code: 'input_relay_conflict', message: 'a relay is already active' } });
@@ -1278,7 +1318,10 @@ function uiObservation(h: M3PreviewHandle, ui: unknown): { ui?: Record<string, u
   if (ui === undefined || ui === null) return {};
   const model = h.host.runtime.uiView?.().model ?? {};
   const text = JSON.stringify(model);
-  return { ui: { ...(structuredClone(ui) as Record<string, unknown>), ...(text.length <= 4096 ? { values: JSON.parse(text) as unknown } : { valueKeys: Object.keys(model).slice(0, 64) }) } };
+  // Phase 25.15: the shown widgets' rectangles (fractions of the view; `hit`: a press there goes to the UI), within 4 KiB.
+  let elements = h.host.uiElements?.(48) ?? [];
+  while (elements.length > 0 && JSON.stringify(elements).length > 4096) elements = elements.slice(0, Math.floor(elements.length * 0.75));
+  return { ui: { ...(structuredClone(ui) as Record<string, unknown>), ...(text.length <= 4096 ? { values: JSON.parse(text) as unknown } : { valueKeys: Object.keys(model).slice(0, 64) }), elements } };
 }
 
 /**

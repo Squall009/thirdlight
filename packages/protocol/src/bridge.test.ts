@@ -134,6 +134,36 @@ describe('editor → preview validators', () => {
     expect(ws.frames).toEqual([{ stepOffset: 0, actions: { move: { v: 0, x: 0, y: 1, p: 'none' }, jump: { v: 0, p: 'none' }, run: { v: 1, p: 'held' } } }, { stepOffset: 1, actions: { move: { v: 1, p: 'none' }, jump: { v: 0, p: 'none' } } }]);
   });
 
+  it('phase 25.15: run-length frames, a virtual gamepad and UI edges (no overlap, the span bounded)', () => {
+    const frames = [
+      { stepOffset: 0, steps: 120, actions: { move: { v: 1, p: 'none' } } },
+      { stepOffset: 120, gamepad: { buttons: [1, 0, 0.25], axes: [0.123456, -1] } },
+      { stepOffset: 130, ui: ['down', 'submit'] },
+    ];
+    const parsed = parseInputRelayRequest({ mode: 'exclusive-test', frames });
+    expect(parsed.ok && parsed.request.frames).toEqual([
+      { stepOffset: 0, steps: 120, actions: { move: { v: 1, p: 'none' } } },
+      { stepOffset: 120, gamepad: { buttons: [1, 0, 0.25], axes: [0.1235, -1] } },
+      { stepOffset: 130, ui: ['down', 'submit'] },
+    ]);
+    expect(validateBridgeEditorToPreview({ v: 2, type: 'tl.input.request', playSessionId: play, requestId: req, frames }).ok).toBe(true);
+    const ws = JSON.parse(makeInputRelayRequest('req-1', parsed.ok ? parsed.request.frames : [])) as { frames: unknown[] };
+    expect(ws.frames).toEqual(parsed.ok ? parsed.request.frames : null);
+    // A frame starting inside the run before it is refused.
+    const overlap = parseInputRelayRequest({ mode: 'exclusive-test', frames: [{ stepOffset: 0, steps: 10 }, { stepOffset: 5 }] });
+    expect(overlap.ok).toBe(false);
+    expect(!overlap.ok && overlap.error.message).toContain('overlap');
+    expect(validateBridgeEditorToPreview({ v: 2, type: 'tl.input.request', playSessionId: play, requestId: req, frames: [{ stepOffset: 0, steps: 10 }, { stepOffset: 5 }] }).ok).toBe(false);
+    // The span ends by 7200 steps.
+    const long = parseInputRelayRequest({ mode: 'exclusive-test', frames: [{ stepOffset: 7000, steps: 201 }] });
+    expect(!long.ok && long.error.code).toBe('input_relay_limits_exceeded');
+    expect(parseInputRelayRequest({ mode: 'exclusive-test', frames: [{ stepOffset: 7000, steps: 200 }] }).ok).toBe(true);
+    for (const bad of [{ stepOffset: 0, steps: 0 }, { stepOffset: 0, steps: 1.5 }, { stepOffset: 0, gamepad: { buttons: [2] } }, { stepOffset: 0, gamepad: { axes: [0, 0, 0, 0, 0] } }, { stepOffset: 0, gamepad: { trigger: 1 } }, { stepOffset: 0, ui: [] }, { stepOffset: 0, ui: ['jump'] }]) {
+      expect(parseInputRelayRequest({ mode: 'exclusive-test', frames: [bad] }).ok, JSON.stringify(bad)).toBe(false);
+      expect(validateBridgeEditorToPreview({ v: 2, type: 'tl.input.request', playSessionId: play, requestId: req, frames: [bad] }).ok, JSON.stringify(bad)).toBe(false);
+    }
+  });
+
   it('tl.play.stop / tl.ping', () => {
     expect(validateBridgeEditorToPreview({ v: 2, type: 'tl.play.stop', playSessionId: play }).ok).toBe(true);
     expect(validateBridgeEditorToPreview({ v: 2, type: 'tl.play.stop' }).ok).toBe(false);

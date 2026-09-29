@@ -41,7 +41,8 @@ import type {
 import type { GameControlError } from './host';
 import { FrameMirror } from './sim-state';
 import { TRANSFORM_STRIDE, type FrameState, type MainToWorker, type SceneEntities, type SimCommand, type SimInitMessage, type SimQuery, type SimWorkerHandle, type WorkerToMain } from './sim-protocol';
-import type { SimAccess } from './sim-access';
+import type { RelayPage, SimAccess } from './sim-access';
+import type { UiHitTarget } from './ui-hit';
 
 export interface RemoteSimulationOptions {
   readonly worker: SimWorkerHandle;
@@ -100,6 +101,17 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
   /** Run commands submitted since the last boundary (the runtime's one-pending rule, mirrored). */
   let relayDone: ((from: number, to: number) => void) | null = null;
   let relayActive = false;
+  /** Phase 25.15: the page's UI for the input exercise, and the targets last sent to the worker. */
+  let relayPage: RelayPage | null = null;
+  let sentTargets = '';
+  const targetsNow = (): readonly UiHitTarget[] | undefined => {
+    if (relayPage === null) return undefined;
+    const t = relayPage.targets();
+    const key = JSON.stringify(t);
+    if (key === sentTargets) return undefined;
+    sentTargets = key;
+    return t;
+  };
   let disposedAck: (() => void) | null = null;
   let transport: 'shared' | 'message' = opts.init.shared === true ? 'shared' : 'message';
 
@@ -123,7 +135,8 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
     const frame = opts.input !== null && mirror.frameCount > 0 ? opts.input.sample(mirror.stepIndex) : null;
     const give = mirror.spare;
     mirror.spare = null;
-    post({ t: 'tick', seq: s, now, frame, ...(give !== null ? { give } : {}) }, give !== null ? [give] : undefined);
+    const uiTargets = relayActive ? targetsNow() : undefined;
+    post({ t: 'tick', seq: s, now, frame, ...(give !== null ? { give } : {}), ...(uiTargets !== undefined ? { uiTargets } : {}) }, give !== null ? [give] : undefined);
     return s;
   };
 
@@ -177,6 +190,9 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
         cb?.(m.from, m.to);
         return;
       }
+      case 'relay.effect':
+        relayPage?.effect(m.effect);
+        return;
       case 'input.reset':
         opts.input?.reset?.(m.reason);
         return;
@@ -523,11 +539,20 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
         }
         onComplete(from, to);
       };
-      post({ t: 'relay', frames });
+      sentTargets = '';
+      const uiTargets = targetsNow();
+      post({ t: 'relay', frames, ...(uiTargets !== undefined ? { uiTargets } : {}) });
       return true;
     },
     get inputTestActive() {
       return relayActive;
+    },
+    relayIdle: () => {
+      if (relayActive) post({ t: 'relay.idle' });
+    },
+    setRelayPage: (page) => {
+      relayPage = page;
+      sentTargets = '';
     },
     raycast: async (rays) => ((await ask({ op: 'raycast', rays })) as ({ distance: number } | null)[] | null) ?? rays.map(() => null),
     overlap: async (shape, at) => ((await ask({ op: 'overlap', shape, at })) as string[] | null) ?? [],

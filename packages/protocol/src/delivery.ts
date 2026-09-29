@@ -37,6 +37,20 @@ export const PLAY_CONTENT_ARTIFACT_MAX_BYTES = 33_554_432;
 export const INPUT_RELAY_MAX_FRAMES = 600;
 /** The bounded relay body size (§18.1.1). */
 export const INPUT_RELAY_MAX_BODY_BYTES = 16_384;
+/**
+ * Phase 25.15: the most steps one relay covers (the last frame's
+ * `stepOffset + steps`): 60 s at the default 120 Hz step, 2 minutes at 60 Hz.
+ * The backend waits for the relay by this span.
+ */
+export const INPUT_RELAY_MAX_STEPS = 7_200;
+/** Phase 25.15: the UI edges a relay frame may carry (the keys and pad buttons that drive menus). */
+export const RELAY_UI_EDGES = ['up', 'down', 'left', 'right', 'submit', 'cancel', 'pause'] as const;
+export type RelayUiEdge = (typeof RELAY_UI_EDGES)[number];
+/** Phase 25.15: UI edges in one frame. */
+export const RELAY_MAX_UI_EDGES = 8;
+/** Phase 25.15: the standard gamepad layout's button and axis counts. */
+export const RELAY_GAMEPAD_BUTTONS = 17;
+export const RELAY_GAMEPAD_AXES = 4;
 /** The `tl.input.result` ack timeout (§18.1.2). */
 export const INPUT_RELAY_ACK_TIMEOUT_MS = 10_000;
 /** The v2 bridge message cap (§17.6). */
@@ -204,6 +218,18 @@ export type RelayJumpPhase = 'none' | 'pressed' | 'held' | 'released';
 /** Phase 24.8: frame version 2 — named actions and the pointer (no fixed moveX/moveY/jump channels). */
 export interface RelayFrame {
   stepOffset: number;
+  /**
+   * Phase 25.15: run length — the frame holds for this many steps (absent: 1).
+   * Its first step has it as written; the rest see its continuation (a
+   * `pressed` action is `held`, `released` is `none`; the pointer keeps its
+   * place and held buttons without the movement, wheel and edges; the UI
+   * edges only on the first step). Steps no frame covers are neutral.
+   */
+  steps?: number;
+  /** Phase 25.15: a virtual standard-mapped gamepad (absent: the pad at rest). */
+  gamepad?: RelayGamepad;
+  /** Phase 25.15: UI edges on the frame's first step (drive the focused document, the pause, the shell's screens). */
+  ui?: RelayUiEdge[];
   /** Phase 9.8: named input actions this step (`{ v, x?, y?, p }` each; the character reads `move` and `jump` by default). */
   actions?: Record<string, { v: number; x?: number; y?: number; p: RelayJumpPhase }>;
   /** Phase 23.3: the pointer this step (a frame without one keeps the last position and buttons). */
@@ -226,6 +252,62 @@ export interface RelayPointer {
   released?: number;
   over?: boolean;
   locked?: boolean;
+}
+
+/**
+ * Phase 25.15: a virtual gamepad in the standard layout — `buttons` values
+ * 0–1 by standard index (0 A/cross, 1 B/circle, 9 start, 12–15 the D-pad; a
+ * button is down at 0.5 or more), `axes` −1..1 (0/1 the left stick, 2/3 the
+ * right; y down). Missing entries are at rest.
+ */
+export interface RelayGamepad {
+  buttons?: number[];
+  axes?: number[];
+}
+
+/** Phase 25.15: parse a relay gamepad (null when malformed); values quantized to 1e-4. */
+export function parseRelayGamepad(value: unknown): RelayGamepad | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const v = value as Record<string, unknown>;
+  if (Object.keys(v).some((k) => k !== 'buttons' && k !== 'axes')) return null;
+  const list = (raw: unknown, max: number, lo: number): number[] | null | undefined => {
+    if (raw === undefined) return undefined;
+    if (!Array.isArray(raw) || raw.length > max) return null;
+    const out: number[] = [];
+    for (const n of raw) {
+      if (typeof n !== 'number' || !Number.isFinite(n) || n < lo || n > 1) return null;
+      const r = Math.round(n * 1e4) / 1e4;
+      out.push(r === 0 ? 0 : r);
+    }
+    return out;
+  };
+  const buttons = list(v['buttons'], RELAY_GAMEPAD_BUTTONS, 0);
+  const axes = list(v['axes'], RELAY_GAMEPAD_AXES, -1);
+  if (buttons === null || axes === null) return null;
+  return { ...(buttons !== undefined ? { buttons } : {}), ...(axes !== undefined ? { axes } : {}) };
+}
+
+/** Phase 25.15: parse a relay frame's UI edges (null when malformed). */
+export function parseRelayUiEdges(value: unknown): RelayUiEdge[] | null {
+  if (!Array.isArray(value) || value.length < 1 || value.length > RELAY_MAX_UI_EDGES) return null;
+  for (const e of value) if (typeof e !== 'string' || !(RELAY_UI_EDGES as readonly string[]).includes(e)) return null;
+  return [...(value as RelayUiEdge[])];
+}
+
+/**
+ * Phase 25.15: check a relay frame's `steps` against the frame before it:
+ * an integer 1..INPUT_RELAY_MAX_STEPS, the frame starting at or after the
+ * previous frame's end, and the whole relay ending by INPUT_RELAY_MAX_STEPS.
+ * Returns the frame's end (exclusive) or a reason.
+ */
+export function relayFrameEnd(stepOffset: number, steps: unknown, previousEnd: number): { ok: true; end: number } | { ok: false; reason: string } {
+  if (steps !== undefined && (typeof steps !== 'number' || !Number.isInteger(steps) || steps < 1 || steps > INPUT_RELAY_MAX_STEPS)) {
+    return { ok: false, reason: `steps must be an integer 1–${INPUT_RELAY_MAX_STEPS}` };
+  }
+  if (stepOffset < previousEnd) return { ok: false, reason: `frames must not overlap: this frame starts at step ${stepOffset}, inside the run before it (which ends at ${previousEnd})` };
+  const end = stepOffset + ((steps as number | undefined) ?? 1);
+  if (end > INPUT_RELAY_MAX_STEPS) return { ok: false, reason: `a relay covers at most ${INPUT_RELAY_MAX_STEPS} steps (stepOffset + steps of the last frame)` };
+  return { ok: true, end };
 }
 
 const RELAY_POINTER_KEYS = ['x', 'y', 'dx', 'dy', 'wheel', 'buttons', 'pressed', 'released', 'over', 'locked'];
@@ -259,6 +341,9 @@ const RELAY_FRAME_FIELDS = new Map<string, string>([
   ['stepOffset', 'integer 0..2^53-1'],
   ['actions', 'optional: { <action name>: { v, x?, y?, p } } (phase 9.8 named actions)'],
   ['pointer', 'optional: { x, y (0-1 of the view), dx?, dy?, wheel?, buttons?, pressed?, released? (masks: 1 left, 2 right, 4 middle), over?, locked? } (phase 23.3)'],
+  ['steps', `optional: integer 1–${INPUT_RELAY_MAX_STEPS}, the frame holds for this many steps (phase 25.15)`],
+  ['gamepad', 'optional: { buttons?: [0-1 ×≤17], axes?: [-1..1 ×≤4] } a virtual standard gamepad (phase 25.15)'],
+  ['ui', 'optional: 1-8 of up | down | left | right | submit | cancel | pause (phase 25.15)'],
 ]);
 const RELAY_BODY_FIELDS = new Map<string, string>([
   ['mode', '"exclusive-test"'],
@@ -305,6 +390,7 @@ export function parseInputRelayRequest(
   }
   const frames: RelayFrame[] = [];
   let previous = -1;
+  let previousEnd = 0;
   for (let i = 0; i < framesRaw.length; i += 1) {
     const entry = framesRaw[i];
     const frameShape = checkShape(entry, `/frames/${i}`, RELAY_FRAME_FIELDS, ['stepOffset']);
@@ -330,6 +416,32 @@ export function parseInputRelayRequest(
       };
     }
     previous = stepOffset;
+    // Phase 25.15: run length, no overlap, the relay's span bounded.
+    const rawSteps = (frameShape.value as Record<string, unknown>)['steps'];
+    const span = relayFrameEnd(stepOffset, rawSteps, previousEnd);
+    if (!span.ok) {
+      return {
+        ok: false,
+        error: span.reason.startsWith('a relay covers')
+          ? { code: 'input_relay_limits_exceeded', cls: 'validation', message: span.reason, path: `/frames/${i}`, limit: 'steps', current: stepOffset + (typeof rawSteps === 'number' ? rawSteps : 1), max: INPUT_RELAY_MAX_STEPS }
+          : { code: 'field_value', cls: 'validation', message: span.reason, path: `/frames/${i}/${span.reason.startsWith('steps') ? 'steps' : 'stepOffset'}` },
+      };
+    }
+    previousEnd = span.end;
+    const rawGamepad = (frameShape.value as Record<string, unknown>)['gamepad'];
+    let gamepad: RelayGamepad | undefined;
+    if (rawGamepad !== undefined) {
+      const g = parseRelayGamepad(rawGamepad);
+      if (g === null) return { ok: false, error: { code: 'field_value', cls: 'validation', message: `gamepad is { buttons?: up to ${RELAY_GAMEPAD_BUTTONS} numbers 0-1 (standard layout), axes?: up to ${RELAY_GAMEPAD_AXES} numbers -1..1 }`, path: `/frames/${i}/gamepad` } };
+      gamepad = g;
+    }
+    const rawUi = (frameShape.value as Record<string, unknown>)['ui'];
+    let ui: RelayUiEdge[] | undefined;
+    if (rawUi !== undefined) {
+      const u = parseRelayUiEdges(rawUi);
+      if (u === null) return { ok: false, error: { code: 'field_value', cls: 'validation', message: `ui is 1-${RELAY_MAX_UI_EDGES} of ${RELAY_UI_EDGES.join(' | ')}`, path: `/frames/${i}/ui` } };
+      ui = u;
+    }
     const rawActions = (frameShape.value as Record<string, unknown>)['actions'];
     let actions: RelayFrame['actions'];
     if (rawActions !== undefined) {
@@ -359,7 +471,14 @@ export function parseInputRelayRequest(
       }
       pointer = parsed;
     }
-    frames.push({ stepOffset, ...(actions !== undefined ? { actions } : {}), ...(pointer !== undefined ? { pointer } : {}) });
+    frames.push({
+      stepOffset,
+      ...(typeof rawSteps === 'number' && rawSteps !== 1 ? { steps: rawSteps } : {}),
+      ...(actions !== undefined ? { actions } : {}),
+      ...(pointer !== undefined ? { pointer } : {}),
+      ...(gamepad !== undefined ? { gamepad } : {}),
+      ...(ui !== undefined ? { ui } : {}),
+    });
   }
   const bodyBytes = new TextEncoder().encode(JSON.stringify({ mode: INPUT_RELAY_MODE, frames })).length;
   if (bodyBytes > INPUT_RELAY_MAX_BODY_BYTES) {

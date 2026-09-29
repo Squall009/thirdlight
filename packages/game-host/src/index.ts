@@ -117,7 +117,7 @@ export { createScenePreloader, pageScenePreparation, SCENES_READ_AHEAD, SCENE_PR
 // Phase 22.0: the simulation worker (runs the deterministic simulation off the page) and its page-side mirror.
 export { runSimWorker, type SimWorkerDeps } from './sim-worker';
 export { startRemoteSimulation, remoteStartError, type RemoteSimulation, type RemoteSimulationOptions } from './sim-remote';
-export { createLocalSimAccess, type SimAccess, type SimRay } from './sim-access';
+export { createLocalSimAccess, type RelayPage, type SimAccess, type SimRay } from './sim-access';
 export { browserWorkerAvailable, createBrowserSimWorker, loadPhysics3D, workerGlobalEndpoint } from './sim-browser';
 // Phase 23.0: the 3D physics backend's hand-over (a separate script; see physics-3d-global.ts).
 export { PHYSICS_3D_GLOBAL, registerPhysics3D, type Physics3DModule } from './physics-3d-global';
@@ -131,7 +131,10 @@ export { AssetReadError, ASSET_READS_IN_FLIGHT, createVerifiedAssetReader, start
 export { createStartTimings, FRAME_WATCH_MS, SLOW_FRAME_MS, type FrameWatch, type SceneLoadTiming, type SlowFrame, type StartStage, type StartTimings, type StartTimingsReport } from './start-timings';
 export { createDebugConsole, consoleWords, parseConsoleLine, DEBUG_CONSOLE_KEY, type DebugConsole, type DebugConsoleDeps } from './debug-console';
 export { PlayDebugger, sampleValue, type DebugRequest, type DebugResult, type DebugRuntime } from './play-debug';
-export { RelayActionSource } from './relay-input';
+export { RelayActionSource, type RelayEffect, type RelayTestFrame, type RelayUiEdgeName } from './relay-input';
+// Phase 25.15: the pointer's UI hit test and the observation's element rectangles.
+export { hitUiTargets, type UiHitTarget } from './ui-hit';
+export type { UiElementObservation } from './ui-layer';
 export { actionPrompts, actionWords, keyBindingLabel, keyLabel, padButtonLabel, resolveCursorMode, type ActionPrompt, type InputConfigLike } from './bindings';
 // Phase 23.19: project save documents (the page owns the slots: IndexedDB; the settings document: localStorage).
 export { browserProjectSaveBackend, createProjectSaveService, memoryProjectSaveBackend, readProjectSettings, type ProjectSaveBackend, type ProjectSaveService, type ProjectSlotObservation, type SaveThumbnailInfo, type ThumbnailCapture } from './project-saves';

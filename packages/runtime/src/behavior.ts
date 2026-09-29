@@ -1625,7 +1625,7 @@ export interface BehaviorInputView {
    */
   held(name: string): boolean;
   /**
-   * Phase 23.3: the pointer this step — where it is in the view (x, y 0–1 from the top left), how far it moved since the last step, the wheel, whether it is over the view (and entered or left it this step) and whether the cursor is locked; null before the pointer is first seen.
+   * Phase 23.3: the pointer this step — where it is in the view (x, y 0–1 from the top left), how far it moved since the last step, the wheel, whether it is over the view (and entered or left it this step), whether the cursor is locked and (phase 25.15) whether it is over a UI element (`overUi`: a click there went to the UI); null before the pointer is first seen.
    * @graphPure
    * @graphNode Pointer
    */
@@ -1743,6 +1743,12 @@ export interface BehaviorPointer {
   readonly left: boolean;
   /** The cursor is locked (hidden, held in the view). */
   readonly locked: boolean;
+  /**
+   * Phase 25.15: over a UI element that takes the pointer (a project UI
+   * button, input or modal backdrop, the engine pause panel) — a click there
+   * went to the UI, so a game ignores world clicks while it is true.
+   */
+  readonly overUi: boolean;
 }
 
 const POINTER_BIT: Readonly<Record<string, number>> = Object.freeze({ left: 1, right: 2, middle: 4 });
@@ -1822,7 +1828,7 @@ function pointerOf(frame: ActionFrame): BehaviorPointer | null {
   let v = pointerViews.get(p);
   if (v === undefined) {
     const e = p as PointerSample & { entered?: boolean; left?: boolean };
-    v = Object.freeze({ x: p.x, y: p.y, dx: p.dx ?? 0, dy: p.dy ?? 0, wheel: p.wheel ?? 0, over: p.over !== false, entered: e.entered === true, left: e.left === true, locked: p.locked === true });
+    v = Object.freeze({ x: p.x, y: p.y, dx: p.dx ?? 0, dy: p.dy ?? 0, wheel: p.wheel ?? 0, over: p.over !== false, entered: e.entered === true, left: e.left === true, locked: p.locked === true, overUi: p.overUi === true });
     pointerViews.set(p, v);
   }
   return v;

@@ -20,6 +20,7 @@
  */
 
 import { BackendClient, makeRequestId } from './backend-client';
+import { parseRelayGamepad, parseRelayUiEdges, relayFrameEnd } from '@thirdlight/protocol';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
 export interface McpContext {
@@ -409,13 +410,23 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     description:
       'Run a bounded, step-indexed semantic action sequence against an explicitly presented play session in ' +
       'exclusive test-input mode (physical input is suppressed and cleared; it clears on completion/stop/disconnect). ' +
-      'frames ≤ 600 ascending by stepOffset, body ≤ 16 KiB; each frame {stepOffset, actions?, pointer?} (input frame version 2: ' +
-      'no fixed move/jump channels): actions {<action name>: {v, x?, y?, p: none|pressed|held|released}} - the character ' +
+      'frames ≤ 600 ascending by stepOffset, body ≤ 16 KiB; each frame {stepOffset, steps?, actions?, pointer?, gamepad?, ui?} (input frame version 2: ' +
+      'no fixed move/jump channels). Gaps are neutral: a step no frame covers has no action, no pad and no new pointer sample. ' +
+      'steps (phase 25.15, run length, 1-7200): the frame holds for that many steps - its first step as written, the rest its continuation ' +
+      '(pressed becomes held, released none; the pointer keeps its place and held buttons without movement, wheel or edges; ui only on the first step); ' +
+      'frames must not overlap and the last frame ends by step 7200 (60 s at 120 Hz). ' +
+      'actions {<action name>: {v, x?, y?, p: none|pressed|held|released}} - the character ' +
       'controller reads its move and jump actions (default names move and jump: move {v: -1..1} walks along x, or {v, x, y} ' +
       'for a 2D move where a 3D character walks along (x, y) relative to the camera; jump {v: 0|1, p}), scripts read any action ' +
       'with ctx.input; an action absent from a frame is released. Optional pointer: {x, y (0-1 of the view, 0,0 top left), dx?, dy?, wheel?, buttons?, pressed?, released? ' +
       '(masks: 1 left, 2 right, 4 middle), over?, locked?} (a frame without one keeps the last position and held buttons; a button ' +
-      'going down between frames is a click - ctx.input.pointerPressed, ctx.physics.pickAtPointer). Returns the applied ' +
+      'going down between frames is a click - ctx.input.pointerPressed, ctx.physics.pickAtPointer). The pointer goes through the UI hit test first: ' +
+      'over a project UI element (a button, an input, a modal backdrop, the engine pause panel - tl_game_observe ui.elements lists their rectangles) ' +
+      'the game reads ctx.input.pointer().overUi true and does not see that press; a left press and release on one button clicks it (its UI event rides the next frame). ' +
+      'gamepad (phase 25.15): a virtual standard gamepad {buttons: [0-1 by standard index: 0 A, 1 B, 9 start, 12-15 D-pad up/down/left/right; down at 0.5], axes: [left x, left y, right x, right y] -1..1} ' +
+      'read through the project\'s input bindings like a real pad (its move/jump and every action bound to pad buttons or axes; its D-pad, A, B and start also drive menus); ' +
+      'a frame without one: the pad at rest; explicit actions win over the pad\'s. ui (phase 25.15): 1-8 of up|down|left|right|submit|cancel|pause - ' +
+      'menu edges on the frame\'s first step, as the keys: they move the focused UI document\'s focus, submit/cancel it, and pause (a game shell or a game mode). Returns the applied ' +
       'step range plus the pinned snapshotId/buildId, or the structured session_unavailable outcome when no browser is ' +
       'connected (never a simulated success). No DOM injection, no eval.',
     inputSchema: {
@@ -429,7 +440,18 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
           items: {
             type: 'object',
             properties: {
-              stepOffset: { type: 'integer', minimum: 0 },
+              stepOffset: { type: 'integer', minimum: 0, maximum: 7199 },
+              steps: { type: 'integer', minimum: 1, maximum: 7200, description: 'phase 25.15: the frame holds for this many steps (run length; absent 1)' },
+              gamepad: {
+                type: 'object',
+                description: 'phase 25.15: a virtual standard gamepad this frame (absent: at rest)',
+                properties: {
+                  buttons: { type: 'array', maxItems: 17, items: { type: 'number', minimum: 0, maximum: 1 } },
+                  axes: { type: 'array', maxItems: 4, items: { type: 'number', minimum: -1, maximum: 1 } },
+                },
+                additionalProperties: false,
+              },
+              ui: { type: 'array', minItems: 1, maxItems: 8, items: { type: 'string', enum: ['up', 'down', 'left', 'right', 'submit', 'cancel', 'pause'] }, description: 'phase 25.15: menu edges on the frame\'s first step' },
               actions: {
                 type: 'object',
                 additionalProperties: {
@@ -521,7 +543,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'session: `state` running|paused (the engine pause holds the simulation: a menu, the pause panel, a game mode), stepIndex, simTime, `player` {x, y, z} (the controller object\'s position), ' +
       '`scenes` {loaded, loading}; the observation is bounded and carries no ' +
       'GLB/WAV bytes, base64 media, authoring token or locator capability; `animators` maps each animated entity to its ' +
-      'current animator state; `counters` the named counters (collectibles and scripts add to them); `health` every object\'s health {objectId: {current, max}}; `shell` {screen, scene, hud} the game shell; `spawned` {count, ids (first 64)} the live entities scripts spawned; `audio` (once scripts used ctx.audio or a panned audio source plays; the Web Audio graph state, not heard sound) voices [{handle (0: an audio source, see key), assetId, bus, state playing|pending|stopping, loop, gain, rate, pan? (-1 left..1 right of the listener), distanceGain?, distance?, position?}] (first 24; voiceCount all), music {owner script|shell, assetId, playing, duck}, buses {sfx, music, voice, ui}, listener {position, rotation} (the active camera), panningModel; with entityId, `behaviors` {entityId, scripts: [{behaviorId, properties: [{key, label, type, visibility, value}]}]} — the values the entity\'s running scripts read, private ones included (read-only); `renderer` {requested, source, backend, api, state, reason} the renderer backend that draws the play and why; `effects` {executor: webgpu|cpu, caps {particlesPerSystem, particlesTotal, instances, lights, sortLimit}, playing, particles, refused, lights} the visual-effect player (WebGPU compute on WebGPU, the CPU fallback on WebGL 2; presentation only); `simulation` {mode: worker|single, transport: message|shared|null, isolated} where the play runs its simulation (phase 22); `saves` (a project with a save schema) {slotCount, storage, slots: [{slot, title, chapter, location, playSeconds, savedAt, version, bytes, thumbnail? {type, width, height, bytes}, damaged?}] (the first 32 used slots), settings (the project settings document)}. timeoutMs 250-15000 (default 5000). ' +
+      'current animator state; `counters` the named counters (collectibles and scripts add to them); `health` every object\'s health {objectId: {current, max}}; `shell` {screen, scene, hud} the game shell; `spawned` {count, ids (first 64)} the live entities scripts spawned; `audio` (once scripts used ctx.audio or a panned audio source plays; the Web Audio graph state, not heard sound) voices [{handle (0: an audio source, see key), assetId, bus, state playing|pending|stopping, loop, gain, rate, pan? (-1 left..1 right of the listener), distanceGain?, distance?, position?}] (first 24; voiceCount all), music {owner script|shell, assetId, playing, duck}, buses {sfx, music, voice, ui}, listener {position, rotation} (the active camera), panningModel; with entityId, `behaviors` {entityId, scripts: [{behaviorId, properties: [{key, label, type, visibility, value}]}]} — the values the entity\'s running scripts read, private ones included (read-only); `renderer` {requested, source, backend, api, state, reason} the renderer backend that draws the play and why; `effects` {executor: webgpu|cpu, caps {particlesPerSystem, particlesTotal, instances, lights, sortLimit}, playing, particles, refused, lights} the visual-effect player (WebGPU compute on WebGPU, the CPU fallback on WebGL 2; presentation only); `simulation` {mode: worker|single, transport: message|shared|null, isolated} where the play runs its simulation (phase 22); `saves` (a project with a save schema) {slotCount, storage, slots: [{slot, title, chapter, location, playSeconds, savedAt, version, bytes, thumbnail? {type, width, height, bytes}, damaged?}] (the first 32 used slots), settings (the project settings document)}; `pointer` {x, y, buttons, over, locked, overUi?} the pointer the simulation read last (overUi: over a UI element, phase 25.15); `ui` (a project with UI documents) {shown, screen, hud?, focus, actionMap, values|valueKeys, elements: [{doc, widget, type, index?, rect: [x, y, w, h] (fractions of the view, 0,0 top left), hit? (a pointer press there goes to the UI: buttons, inputs), disabled?, focused?}] (the shown widgets with an id or that take the pointer, first 48 within 4 KiB) - aim tl_input_exercise pointer clicks at a rect\'s centre}. timeoutMs 250-15000 (default 5000). ' +
       'With no connected/presenting browser the contracted session_unavailable is returned; a relay that exceeds ' +
       'timeoutMs is game_relay_timeout (503) - never a simulated value. A play that ended answers play_not_found with ended {reason, presented, at, detail?} and a message saying why (e.g. it ended before it was presented because the editor page reloaded).',
     inputSchema: {
@@ -832,6 +854,7 @@ async function inputExercise(ctx: McpContext, a: Record<string, unknown>): Promi
   }
   const frames: Array<Record<string, unknown>> = [];
   let previous = -1;
+  let previousEnd = 0;
   for (let i = 0; i < a.frames.length; i += 1) {
     const raw = a.frames[i];
     if (!isObj(raw)) return toolError(`frames[${i}] must be an object`);
@@ -846,8 +869,22 @@ async function inputExercise(ctx: McpContext, a: Record<string, unknown>): Promi
     if (actions !== undefined && !isObj(actions)) return toolError(`frames[${i}].actions must be an object`);
     // Phase 23.3: the pointer too.
     if (raw.pointer !== undefined && !isObj(raw.pointer)) return toolError(`frames[${i}].pointer must be an object { x, y, ... }`);
+    // Phase 25.15: run length (no overlap), a virtual gamepad, UI edges.
+    const span = relayFrameEnd(stepOffset, raw.steps, previousEnd);
+    if (!span.ok) return toolError(`frames[${i}]: ${span.reason}`);
+    previousEnd = span.end;
+    if (raw.gamepad !== undefined && parseRelayGamepad(raw.gamepad) === null) return toolError(`frames[${i}].gamepad must be { buttons?: up to 17 numbers 0-1, axes?: up to 4 numbers -1..1 }`);
+    if (raw.ui !== undefined && parseRelayUiEdges(raw.ui) === null) return toolError(`frames[${i}].ui must be 1-8 of up, down, left, right, submit, cancel, pause`);
+    for (const k of Object.keys(raw)) if (!['stepOffset', 'steps', 'actions', 'pointer', 'gamepad', 'ui'].includes(k)) return toolError(`frames[${i}].${k} is not a frame field (stepOffset, steps, actions, pointer, gamepad, ui)`);
     // The named actions reach the game (the backend validates them).
-    frames.push({ stepOffset, ...(actions !== undefined ? { actions } : {}), ...(raw.pointer !== undefined ? { pointer: raw.pointer } : {}) });
+    frames.push({
+      stepOffset,
+      ...(raw.steps !== undefined ? { steps: raw.steps } : {}),
+      ...(actions !== undefined ? { actions } : {}),
+      ...(raw.pointer !== undefined ? { pointer: raw.pointer } : {}),
+      ...(raw.gamepad !== undefined ? { gamepad: raw.gamepad } : {}),
+      ...(raw.ui !== undefined ? { ui: raw.ui } : {}),
+    });
   }
   const body = JSON.stringify({ mode: 'exclusive-test', frames });
   if (body.length > 16_384) return toolError('the relay body exceeds the 16384-byte bound');

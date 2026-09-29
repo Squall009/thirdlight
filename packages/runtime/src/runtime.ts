@@ -4092,7 +4092,7 @@ class RuntimeInstance implements Runtime {
       const p = prev!;
       // No new sample: the same state without this step's movement and edges (reused when it had none).
       if (p.dx === undefined && p.dy === undefined && p.wheel === undefined && p.pressed === undefined && p.released === undefined && p.entered === undefined && p.left === undefined) return { ...frame, pointer: p };
-      next = { x: p.x, y: p.y, buttons: prevButtons, over: prevOver, locked: p.locked === true };
+      next = { x: p.x, y: p.y, buttons: prevButtons, over: prevOver, locked: p.locked === true, ...(p.overUi === true ? { overUi: true } : {}) };
     } else {
       const buttons = sample.buttons ?? 0;
       const over = sample.over !== false;
@@ -4104,6 +4104,8 @@ class RuntimeInstance implements Runtime {
         buttons,
         over,
         locked: sample.locked === true,
+        // Phase 25.15: over a UI element (absent false, so every recording without it is unchanged).
+        ...(sample.overUi === true ? { overUi: true } : {}),
         ...(sample.dx !== undefined && sample.dx !== 0 ? { dx: sample.dx } : {}),
         ...(sample.dy !== undefined && sample.dy !== 0 ? { dy: sample.dy } : {}),
         ...(sample.wheel !== undefined && sample.wheel !== 0 ? { wheel: sample.wheel } : {}),

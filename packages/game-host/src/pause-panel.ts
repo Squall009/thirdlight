@@ -20,6 +20,10 @@ export interface PausePanel {
   handleEdges(edges: { up: boolean; down: boolean; submit: boolean; cancel: boolean }): void;
   /** The focused button (observations). */
   readonly focus: 'resume' | 'restart';
+  /** Phase 25.15: where a pointer press goes to the panel while shown (its buttons, then the whole view it covers), topmost first; fractions of the view. */
+  hitTargets(viewport: { width: number; height: number }): { key: string; rect: [number, number, number, number] }[];
+  /** Phase 25.15: a click on one of its targets ('resume', 'restart'; 'backdrop' does nothing). */
+  click(which: string): boolean;
   dispose(): void;
 }
 
@@ -92,6 +96,22 @@ export function createPausePanel(dom: HostDom, container: HostDomNode, actions: 
       }
       if (e.submit) run(items[index]!.id);
       else if (e.cancel) actions.resume();
+    },
+    hitTargets(vp): { key: string; rect: [number, number, number, number] }[] {
+      if (!shown) return [];
+      const q = (n: number): number => Math.round(n * 1e4) / 1e4;
+      const out: { key: string; rect: [number, number, number, number] }[] = [];
+      for (const it of items) {
+        const b = (it.el as HostDomNode & { getBoundingClientRect?: () => { left: number; top: number; width: number; height: number } }).getBoundingClientRect?.();
+        if (b !== undefined && b.width > 0 && b.height > 0) out.push({ key: it.id, rect: [q(b.left / vp.width), q(b.top / vp.height), q(b.width / vp.width), q(b.height / vp.height)] });
+      }
+      out.push({ key: 'backdrop', rect: [0, 0, 1, 1] });
+      return out;
+    },
+    click(which: string): boolean {
+      if (!shown) return false;
+      if (which === 'resume' || which === 'restart') run(which);
+      return which === 'resume' || which === 'restart' || which === 'backdrop';
     },
     dispose(): void {
       items.forEach((it, i) => it.el.removeEventListener?.('click', handlers[i]!));

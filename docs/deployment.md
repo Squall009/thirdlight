@@ -551,6 +551,17 @@ Optional: `THIRDLIGHT_MCP_CLIENT_ID` (recorded as the command origin),
 `tl_game_observe`, `tl_screenshot`, `tl_content_upload`, `tl_content_job`,
 `tl_content_query`, `tl_instance_buffer`).
 
+`tl_input_exercise` (phase 25.15) drives a play step by step. A frame may
+hold for `steps` steps (up to 7,200 in one call; its first step as written,
+the rest with pressed actions held); steps no frame covers are neutral. A
+frame's `ui` edges (`up`, `down`, `left`, `right`, `submit`, `cancel`,
+`pause`) drive menus like the keys, also while the game is paused. Its
+`pointer` goes through the UI hit test: a press and release on a UI button
+clicks it, and scripts read `ctx.input.pointer().overUi` (the real mouse
+too). A `gamepad` `{buttons, axes}` is a virtual standard pad read through the
+project's bindings. `tl_game_observe` lists the shown widgets' rectangles in
+`ui.elements`.
+
 `tl_screenshot` always answers: a capture the preview cannot make comes back
 as `relay_failed` with the preview's code in `cause` (`screenshot_failed`,
 `render_failed`, `not_ready`) and its reason in the message. A PNG over the

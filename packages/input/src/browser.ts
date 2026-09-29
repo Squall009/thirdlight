@@ -255,6 +255,13 @@ export function attachBrowserInput(
    * a gamepad drives.
    */
   applyCursor(mode: 'free' | 'locked'): void;
+  /**
+   * Phase 25.15: the UI hit test (x, y fractions of the view; null: none).
+   * The pointer over an element the test hits is still tracked (a move over
+   * the page's UI updates the position) and the frame's pointer reports
+   * `overUi`; a press there went to the UI (the view never saw it).
+   */
+  setUiHitTest(hit: ((x: number, y: number) => boolean) | null): void;
   /** Phase 23.3: the cursor as it is (the mode asked for, whether the browser holds the lock, whether it is hidden). */
   cursorState(): { mode: 'free' | 'locked'; locked: boolean; hidden: boolean };
 } {
@@ -741,6 +748,22 @@ export function attachBrowserInput(
     pointerOver = true;
     if (e.pointerType !== 'touch') lastDevice = 'keyboard'; // keyboard and mouse are one device for the HUD
   };
+  /** Phase 25.15: the UI hit test (the host's). */
+  let uiHit: ((x: number, y: number) => boolean) | null = null;
+  /** Phase 25.15: a move over the page's UI (an element over the view): the pointer stays tracked there. */
+  const onWindowPointerMove = (event: Event): void => {
+    if (detached || uiHit === null || isLocked()) return;
+    if ((event as { target?: unknown }).target === target) return; // the view's own listener has it
+    const e = event as unknown as PointerEventLike;
+    const r = rectOf();
+    if (r === null) return;
+    const x = (finiteOr0(e.clientX) - r.left) / r.width;
+    const y = (finiteOr0(e.clientY) - r.top) / r.height;
+    if (x < 0 || x > 1 || y < 0 || y > 1 || !uiHit(x, y)) return;
+    movePointer(e);
+    pointerOver = true;
+    if (e.pointerType !== 'touch') lastDevice = 'keyboard';
+  };
   const onPointerDown = (event: Event): void => {
     if (detached) return;
     const e = event as unknown as PointerEventLike;
@@ -877,6 +900,8 @@ export function attachBrowserInput(
       ...(pointerReleased !== 0 ? { released: pointerReleased } : {}),
       ...(!pointerOver && !locked ? { over: false } : {}),
       ...(locked ? { locked: true } : {}),
+      // Phase 25.15: over the UI (the host's hit test at the pointer).
+      ...(pointerOver && !locked && uiHit !== null && uiHit(pointerX, pointerY) ? { overUi: true } : {}),
     };
   };
 
@@ -900,6 +925,7 @@ export function attachBrowserInput(
   listen(doc, 'visibilitychange', onVisibilityChange);
   // Phase 23.3: the pointer over the view (a release outside it still counts), the wheel, pointer lock.
   listen(target, 'pointermove', onPointerMove);
+  listen(win, 'pointermove', onWindowPointerMove);
   listen(target, 'pointerdown', onPointerDown);
   listen(win, 'pointerup', onPointerUp);
   listen(win, 'pointercancel', onPointerUp);
@@ -1113,6 +1139,9 @@ export function attachBrowserInput(
     },
     cursorState(): { mode: 'free' | 'locked'; locked: boolean; hidden: boolean } {
       return { mode: cursorMode, locked: isLocked(), hidden: cursorHidden };
+    },
+    setUiHitTest(hit: ((x: number, y: number) => boolean) | null): void {
+      uiHit = hit;
     },
     /** The host consumed a confirm sample: the held press now needs a release. */
     markConfirmConsumed(): void {

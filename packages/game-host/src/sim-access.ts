@@ -8,7 +8,8 @@
  */
 import type { ActionFrame, Runtime } from '@thirdlight/runtime';
 import { PlayDebugger, type DebugRequest } from './play-debug';
-import type { RelayActionSource, RelayTestFrame } from './relay-input';
+import type { RelayActionSource, RelayEffect, RelayTestFrame } from './relay-input';
+import { hitUiTargets, type UiHitTarget } from './ui-hit';
 import type { ThreadingMode } from './threading';
 
 export interface SimRay {
@@ -33,9 +34,23 @@ export interface SimAccess {
   /** Phase 24.8: frames carry named actions and (phase 23.3) the pointer (version 2: no fixed move/jump channels). */
   beginInputTest(frames: readonly RelayTestFrame[], onComplete: (from: number, to: number) => void): boolean;
   readonly inputTestActive: boolean;
+  /**
+   * Phase 25.15: the page's UI for the input exercise — its hit targets (a
+   * relayed pointer is tested against them) and where the relay's UI edges
+   * and clicks go (the page applies them at its next frame).
+   */
+  setRelayPage(page: RelayPage | null): void;
+  /** Phase 25.15: a page frame in which the game is paused while an exercise runs (it takes one step's place: UI edges and clicks still apply). */
+  relayIdle(): void;
   /** Rays against the scene's colliders (the character excluded), as the physics port answers them. */
   raycast(rays: readonly SimRay[]): Promise<({ distance: number } | null)[]>;
   overlap(shape: unknown, at: { x: number; y: number }): Promise<string[]>;
+}
+
+/** Phase 25.15: the page side of the input exercise (its UI). */
+export interface RelayPage {
+  targets(): readonly UiHitTarget[];
+  effect(e: RelayEffect): void;
 }
 
 interface PhysicsQueries {
@@ -67,6 +82,11 @@ export function createLocalSimAccess(opts: { runtime: Runtime; relay?: RelayActi
     },
     get inputTestActive() {
       return opts.relay?.testActive === true;
+    },
+    relayIdle: () => opts.relay?.idle(),
+    setRelayPage: (page) => {
+      opts.relay?.setUiHit(page === null ? null : (x, y) => hitUiTargets(page.targets(), x, y)?.key ?? null);
+      opts.relay?.setEffectSink(page === null ? null : (e) => page.effect(e));
     },
     raycast: (rays) => Promise.resolve(rays.map((r) => opts.physics?.raycast?.(r.origin, r.dir, r.maxDistance) ?? null)),
     overlap: (shape, at) => Promise.resolve(opts.physics?.overlap?.(shape, at) ?? []),

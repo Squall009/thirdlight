@@ -13,7 +13,7 @@
  * job, §13.3 — they cannot be verified from the message body). Pure: no I/O.
  */
 import { isContentId, isNonce, isPlaySessionId, isRelayId, isRequestId } from './ids';
-import { parseRelayPointer, validateInputRelayResult } from './delivery';
+import { parseRelayGamepad, parseRelayPointer, parseRelayUiEdges, relayFrameEnd, validateInputRelayResult } from './delivery';
 import { debugCommandCallProblem } from './m3';
 
 /** The exhaustive allowlists (sessions.md §13.5, v2). */
@@ -169,15 +169,22 @@ export function validateBridgeEditorToPreview(value: unknown): Verdict {
         return { ok: false, reason: `frames must contain 1–${BRIDGE_INPUT_MAX_FRAMES} entries`, path: '/frames' };
       }
       let previous = -1;
+      let previousEnd = 0;
       for (let i = 0; i < frames.length; i += 1) {
         const f = frames[i];
         if (!isPlainObject(f)) return { ok: false, reason: 'every frame must be an object', path: `/frames/${i}` };
         // Phase 24.8: frame version 2 — named actions and (phase 23.3) the pointer (validated by the relay parser upstream).
-        const b2 = rejectUnknown(f, ['stepOffset', 'actions', 'pointer']);
+        // Phase 25.15: run length, a virtual gamepad and UI edges.
+        const b2 = rejectUnknown(f, ['stepOffset', 'steps', 'actions', 'pointer', 'gamepad', 'ui']);
         if (b2) return { ok: false, reason: b2.reason, path: `/frames/${i}${b2.path ?? ''}` };
         if (!int(f['stepOffset'], 0, 2 ** 53 - 1)) return { ok: false, reason: 'stepOffset must be an integer ≥ 0', path: `/frames/${i}/stepOffset` };
         if ((f['stepOffset'] as number) <= previous) return { ok: false, reason: 'frames must be strictly ascending by stepOffset', path: `/frames/${i}/stepOffset` };
         previous = f['stepOffset'] as number;
+        const span = relayFrameEnd(previous, f['steps'], previousEnd);
+        if (!span.ok) return { ok: false, reason: span.reason, path: `/frames/${i}` };
+        previousEnd = span.end;
+        if (f['gamepad'] !== undefined && parseRelayGamepad(f['gamepad']) === null) return { ok: false, reason: 'gamepad must be { buttons?: [0-1 ×≤17], axes?: [-1..1 ×≤4] }', path: `/frames/${i}/gamepad` };
+        if (f['ui'] !== undefined && parseRelayUiEdges(f['ui']) === null) return { ok: false, reason: 'ui must be 1-8 of up | down | left | right | submit | cancel | pause', path: `/frames/${i}/ui` };
         if (f['actions'] !== undefined && !isPlainObject(f['actions'])) return { ok: false, reason: 'actions must be an object of action values', path: `/frames/${i}/actions` };
         if (f['pointer'] !== undefined && parseRelayPointer(f['pointer']) === null) return { ok: false, reason: 'pointer must be { x, y, dx?, dy?, wheel?, buttons?, pressed?, released?, over?, locked? }', path: `/frames/${i}/pointer` };
       }

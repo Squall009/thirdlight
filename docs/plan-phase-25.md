@@ -180,7 +180,8 @@ boundary it changes (Playwright for any editor surface).
 | 25.12 | done 2026-09-29: mover `stopOn`, `toggleOn`, `reverseOn` (with `startOn`, read in that order from last step's signals, through the same `active` flag scripts write; a reversed loop goes round the other way, a finished once-mover travels back) and a `gravity` easing (from rest at each point, constant acceleration, each stretch as long as at its speed; a reverse part-way keeps the position); Inspector fields; `mover-signals.test.ts` (unit, model, `m25-movement` 2D/3D page and worker, replay digests), `mover-signals.e2e.ts`; D50 fixed |
 | 25.13 | done 2026-09-29: `climbVolume` component (a box turned with its object; Scene size handle, create menu) climbed in by both controllers (up/down along its +Y, sideways across, `climbSpeed`, no gravity; jump lets go with a jump, leaving lets go; optional `climbAction`), `wallSlide`/`wallSlideSpeed` and `wallJump`/`wallJumpAway`/`wallJumpUp` (off by default) in 2D and 3D; `gravity` component (non-character bodies fall under the project gravity onto colliders, saved); 2D edge patrols walk any direction of the plane; Inspector fields; `climb-walls.test.ts` (`m25-movement` 2D/3D page and worker, replay digests), unit and model tests, `climb-walls.e2e.ts` |
 | 25.14 | done 2026-09-29: `cameraRegion` component (a world-axis box; dead zone, bounds from the region, distance along the camera offset, blended on enter and leave, priority then entered last; one or every track camera), track `lookAhead`/`lookAheadMax`/`lookAheadSmoothing` (per axis, vertical = `[0, t, 0]`); Scene handles: the dead zone around the target (handle `anchor`), a new `bounds` corner handle, the region's size; Inspector, create menu, observation `camera.region`; brain unit tests, `m25-movement/camera-regions.test.ts` (2D/3D page/worker/replay digests), handle tests, `camera-regions.e2e.ts` (editor, Play position and pixels) |
-| 25.15–25.22 | — |
+| 25.15 | done 2026-09-29: relay frames `{stepOffset, steps?, actions?, pointer?, gamepad?, ui?}`: run length (≤ 7,200 steps a call, no overlap; the backend waits by the span), gaps neutral (tool text); `ui` edges drive menus, pause and resume (frames of a paused game take steps' places); the pointer through the UI hit test (a click on a UI button clicks it, the game never sees that press; `pointer().overUi`, real mouse too); `ui.elements` rectangles in `tl_game_observe`; a virtual standard gamepad read through the bindings on the page; unit tests, `relay-input.e2e.ts` (MCP stdio → HTTP relay → editor, worker and single thread) |
+| 25.16–25.22 | — |
 | 25.23 | moved to phase 26 (26.13), owner 2026-09-29 |
 | 25.25 | — |
 
@@ -1122,3 +1123,37 @@ boundary it changes (Playwright for any editor surface).
   entity field, plus an offset field): the dead zone is drawn around the
   target plus `targetOffset`, where the camera frames it at the start. The
   handles show once both bounds, or a target, are set.
+- 2026-09-29 (25.15): **the relay's UI parts run on the page, its steps in
+  the simulation.** Frames reach the simulation (the page's or the worker's)
+  as before; a frame's `ui` edges and a pointer click are handed to the page
+  (in worker mode as a message) and applied at its next frame, where UI
+  events already ride the next input frame. The pointer's hit test is plain
+  data: the page lists where a press goes to the UI (the engine pause panel,
+  then each shown document's buttons and inputs topmost first, a modal
+  document's backdrop over everything below it) and the worker tests relayed
+  pointers against the list the page sends while an exercise runs. A press
+  over the UI goes to the UI (the game sees neither it nor its release, as
+  with the real mouse, whose presses there never reach the view); a left
+  press and release on one target clicks it (a button's click, an input's
+  focus). `overUi` is part of the pointer sample (absent: false), so
+  recordings replay. The real mouse over the page's UI is tracked through a
+  window listener and gets `overUi` too; `over` stays true there (before,
+  the view's pointerleave made it false).
+- 2026-09-29 (25.15): **a paused game still takes the exercise's UI
+  frames**: each page frame of a paused game (the engine pause, a menu, the
+  debugger's hold) takes one step's place, so `[{0: pause}, {30: submit}]`
+  pauses and resumes; the actions of those frames have nothing to drive.
+- 2026-09-29 (25.15): **the virtual gamepad** is read on the page before the
+  frames go to the simulation (the page has the bindings, rebinding
+  included): step by step through the action evaluator with a pad that
+  starts at rest and rests in gaps and in frames without one; each step of
+  a pad frame becomes its own frame (the frame's own actions win by name).
+  Its D-pad or left stick past 0.6, A, B and start give menu edges as a real
+  pad does. Not done: the device status scripts read (`ctx.input.device`)
+  stays as it was (the relay has no device entry); a focused document's
+  action map does not mask relayed actions (as before for relayed actions).
+  The character's `move`/`jump` come from the bindings through the
+  evaluator, not the browser owner's keyboard device rules.
+- 2026-09-29 (25.15): the relay's span is bounded at 7,200 steps (60 s at
+  120 Hz) per call; the backend waits 10 s plus the span at 30 steps a
+  second. Frames may not overlap; `stepOffset` above 7,199 is now refused.

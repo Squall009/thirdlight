@@ -48,6 +48,8 @@ export {
 export type { MenuConfirmDevice, MenuController, MenuSample } from './menu';
 export { mapRawInput, toActionFrame, type CharacterChannels } from './mapping';
 export { createStepInputSource, type StepInputStep } from './step-source';
+// Phase 25.15: a virtual standard gamepad read through the project's bindings (the input exercise relay).
+export { createVirtualPad, VIRTUAL_PAD_AXES, VIRTUAL_PAD_BUTTON_DOWN, VIRTUAL_PAD_BUTTONS, type VirtualPadInput, type VirtualPadStep, type VirtualPadUiEdge } from './virtual-pad';
 export { DEFAULT_KEYBOARD_MAP, GAMEPAD_DEAD_ZONE } from './types';
 export type { InputBindingOptions, RawInputSnapshot } from './types';
 // Phase 9.8: named input actions.

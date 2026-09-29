@@ -571,7 +571,11 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
     }
     const requestId = `req-${hex(16)}`;
     const payload = makeInputRelayRequest(requestId, parsedReq.request.frames);
-    const outcome: InputRelayOutcome = await plays.relayInput(rec.playSessionId, requestId, payload);
+    // Phase 25.15: run-length frames cover up to INPUT_RELAY_MAX_STEPS steps; the wait grows with the span
+    // (at least 30 steps a second: a quarter of the default 120 Hz step, half of 60 Hz).
+    const last = parsedReq.request.frames[parsedReq.request.frames.length - 1]!;
+    const span = last.stepOffset + (last.steps ?? 1);
+    const outcome: InputRelayOutcome = await plays.relayInput(rec.playSessionId, requestId, payload, Math.ceil((span * 1000) / 30));
     if (outcome.ok) {
       sessions.record(owner, 'play', requestId, rec.revision, nowMs(), 'input_relay');
       sendJson(res, 200, {

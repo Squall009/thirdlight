@@ -81,6 +81,11 @@ export interface BridgeRelayFrame {
   stepOffset: number;
   /** Named input actions this step (phase 24.8: frame version 2, no fixed move/jump channels). */
   actions?: Readonly<Record<string, { v: number; x?: number; y?: number; p: 'none' | 'pressed' | 'held' | 'released' }>>;
+  /** Phase 25.15: run length, the pointer, a virtual standard gamepad and UI edges. */
+  steps?: number;
+  pointer?: unknown;
+  gamepad?: { buttons?: number[]; axes?: number[] };
+  ui?: string[];
 }
 
 /**

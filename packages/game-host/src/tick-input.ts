@@ -27,7 +27,7 @@ import { mergeInputStatus, upgradeActionFrameV1, type ActionFrame, type ActionSo
  */
 export function continuePointer(p: PointerSample): PointerSample {
   if (p.dx === undefined && p.dy === undefined && p.wheel === undefined && p.pressed === undefined && p.released === undefined) return p;
-  return { x: p.x, y: p.y, ...(p.buttons !== undefined ? { buttons: p.buttons } : {}), ...(p.over !== undefined ? { over: p.over } : {}), ...(p.locked !== undefined ? { locked: p.locked } : {}) };
+  return { x: p.x, y: p.y, ...(p.buttons !== undefined ? { buttons: p.buttons } : {}), ...(p.over !== undefined ? { over: p.over } : {}), ...(p.locked !== undefined ? { locked: p.locked } : {}), ...(p.overUi !== undefined ? { overUi: p.overUi } : {}) };
 }
 
 const clamp10 = (v: number): number => (v > 10 ? 10 : v < -10 ? -10 : v);
@@ -56,6 +56,7 @@ export function mergePointer(a: PointerSample | undefined, b: PointerSample | un
     ...(released !== 0 ? { released } : {}),
     ...(b.over !== undefined ? { over: b.over } : {}),
     ...(b.locked !== undefined ? { locked: b.locked } : {}),
+    ...(b.overUi !== undefined ? { overUi: b.overUi } : {}),
   };
 }
 

@@ -73,7 +73,8 @@ import type { Captured } from './input-bindings';
 import { createSettingsStore, type SaveStorage } from './storage';
 import { createProjectSaveService, memoryProjectSaveBackend, readProjectSettings, type ProjectSaveBackend, type ProjectSaveService, type ProjectSlotObservation } from './project-saves';
 import { createDebugConsole, type DebugConsole } from './debug-console';
-import { createUiLayer, type UiLayer, type UiLayerObservation, type UiProjector } from './ui-layer';
+import { createUiLayer, type UiElementObservation, type UiLayer, type UiLayerObservation, type UiProjector } from './ui-layer';
+import { hitUiTargets, type UiHitTarget } from './ui-hit';
 import { createPausePanel, type PausePanel } from './pause-panel';
 import { createShellController, type ShellConfigLike, type ShellController, type ShellObservation } from './shell';
 
@@ -118,6 +119,8 @@ export interface HostInputOwner {
   setActiveMaps?(maps: readonly string[] | null): void;
   /** Phase 23.3: the cursor the game wants (free / locked); the owner locks, releases and hides it. */
   applyCursor?(mode: 'free' | 'locked'): void;
+  /** Phase 25.15: the UI hit test (x, y fractions of the view): the owner reports the pointer over the UI (`overUi`) and leaves presses there to the UI. */
+  setUiHitTest?(hit: ((x: number, y: number) => boolean) | null): void;
   /** Phase 23.3: the cursor as it is (observers). */
   cursorState?(): { mode: 'free' | 'locked'; locked: boolean; hidden: boolean };
   /** Phase 23.14: listen for the next input for a rebind (a cancel key gives null). */
@@ -135,7 +138,7 @@ export interface HostInputOwner {
  * holds the lock / hides it; and the objects scripts hid.
  */
 export interface GameHostInputObservation {
-  readonly pointer?: { readonly x: number; readonly y: number; readonly buttons: number; readonly over: boolean; readonly locked: boolean };
+  readonly pointer?: { readonly x: number; readonly y: number; readonly buttons: number; readonly over: boolean; readonly locked: boolean; readonly overUi?: boolean };
   readonly cursor?: { readonly mode: 'free' | 'locked'; readonly locked: boolean; readonly hidden: boolean };
   /** The ids of the objects scripts hid (`ctx.game.setVisible`), sorted, at most 64. */
   readonly hidden?: readonly string[];
@@ -462,6 +465,18 @@ export interface GameHost {
    * before mount or without an input config.
    */
   readonly bindings?: InputBindingsController | null;
+  /**
+   * Phase 25.15, additive: where a pointer press goes to the UI instead of
+   * the game (the engine pause panel, then the project UI's buttons, inputs
+   * and modal backdrops), topmost first — the pointer's UI hit test.
+   */
+  uiHitTargets?(): readonly UiHitTarget[];
+  /** Phase 25.15, additive: click the UI target with this key (a relayed pointer click); false when it is gone. */
+  clickUi?(key: string): boolean;
+  /** Phase 25.15, additive: the shown UI widgets with their rectangles (tl_game_observe). */
+  uiElements?(max?: number): UiElementObservation[];
+  /** Phase 25.15, additive: the play state now (running, or paused: the engine pause, a menu or the debugger hold the simulation). */
+  playState?(): PlayState;
 }
 
 // --- the sound-status mapping (delivery.md §3.1 `sound.status`) -----------
@@ -986,7 +1001,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
     const cursor = config.input.cursorState?.();
     const hidden = rt.hiddenEntities?.();
     return {
-      ...(p !== null ? { pointer: { x: p.x, y: p.y, buttons: p.buttons ?? 0, over: p.over !== false, locked: p.locked === true } } : {}),
+      ...(p !== null ? { pointer: { x: p.x, y: p.y, buttons: p.buttons ?? 0, over: p.over !== false, locked: p.locked === true, ...(p.overUi === true ? { overUi: true } : {}) } } : {}),
       ...(cursor !== undefined ? { cursor: { mode: cursor.mode, locked: cursor.locked, hidden: cursor.hidden } } : {}),
       ...(hidden !== undefined && hidden.size > 0 ? { hidden: [...hidden].sort().slice(0, 64) } : {}),
       ...(bindings !== null ? { inputBindings: bindings.observe() } : {}),
@@ -1818,6 +1833,20 @@ export function createGameHost(config: GameHostConfig): GameHost {
     // cues end on their own; the wrapper's final dispose closes the context.
   };
 
+  /** Phase 25.15: the engine pause panel's targets (keys `pause:<which>`), then the project UI's. */
+  const uiHitTargets = (): readonly UiHitTarget[] => {
+    const g = globalThis as { innerWidth?: number; innerHeight?: number };
+    const vp = { width: g.innerWidth ?? 1280, height: g.innerHeight ?? 720 };
+    const panel = pausePanel?.shown === true ? pausePanel.hitTargets(vp).map((t) => ({ key: `pause:${t.key}`, rect: t.rect })) : [];
+    const layer = uiLayer?.hitTargets() ?? [];
+    return panel.length === 0 ? layer : [...panel, ...layer];
+  };
+  const clickUi = (key: string): boolean => {
+    if (key.startsWith('pause:')) return pausePanel?.click(key.slice('pause:'.length)) ?? false;
+    return uiLayer?.click(key) ?? false;
+  };
+  config.input.setUiHitTest?.((x, y) => hitUiTargets(uiHitTargets(), x, y) !== null);
+
   return {
     mount,
     control,
@@ -1825,6 +1854,10 @@ export function createGameHost(config: GameHostConfig): GameHost {
     dispose,
     scene,
     debugCommand,
+    uiHitTargets,
+    clickUi,
+    playState,
+    uiElements: (max?: number) => uiLayer?.elements(max) ?? [],
     get debugConsole(): DebugConsole | null {
       return debugConsole;
     },

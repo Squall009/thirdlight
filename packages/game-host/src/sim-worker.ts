@@ -22,6 +22,7 @@ import { createRecordedActionSource, type ActionSource, type PhysicsPort, type P
 import { composeGameRuntime, linkBehaviorModules } from './host';
 import { PlayDebugger, type DebugRequest, type DebugRuntime } from './play-debug';
 import { RelayActionSource } from './relay-input';
+import { hitUiTargets, type UiHitTarget } from './ui-hit';
 import { FrameEncoder } from './sim-state';
 import { PHYSICS_MEMORY_CAP_BYTES, type MainToWorker, type SimCommand, type SimEndpoint, type SimInitMessage, type SimQuery, type WorkerToMain } from './sim-protocol';
 import { stepDigest } from './step-digest';
@@ -64,6 +65,8 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
   let physics: (PhysicsPort & PhysicsQueries) | null = null;
   let tickInput: TickInputSource | null = null;
   let relay: RelayActionSource | null = null;
+  /** Phase 25.15: the page's UI hit targets (sent while an input exercise runs). */
+  let uiTargets: readonly UiHitTarget[] = [];
   let encoder: FrameEncoder | null = null;
   let debug: PlayDebugger | null = null;
   let stepHz = 120;
@@ -179,6 +182,9 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
         base = tickInput;
       }
       relay = new RelayActionSource(base);
+      // Phase 25.15: a relayed pointer is hit-tested against the page's UI targets; UI edges and clicks go to the page.
+      relay.setUiHit((x, y) => hitUiTargets(uiTargets, x, y)?.key ?? null);
+      relay.setEffectSink((effect) => post({ t: 'relay.effect', effect }));
       const composed = composeGameRuntime({
         snapshot: m.snapshot,
         settings: m.settings,
@@ -317,6 +323,7 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
     switch (m.t) {
       case 'tick': {
         if (m.give !== undefined) encoder?.give(m.give);
+        if (m.uiTargets !== undefined) uiTargets = m.uiTargets;
         tickInput?.push(m.frame);
         let tickError: { code: string; message: string } | undefined;
         if (!memoryStopped) {
@@ -334,12 +341,16 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
         rt.provideScene?.(m.sceneId, m.result);
         return;
       case 'relay': {
+        if (m.uiTargets !== undefined) uiTargets = m.uiTargets;
         const d = rt.getDiagnostics();
         const first = (d.ok ? d.diagnostics.stepIndex : 0) + 1;
         const accepted = relay?.beginTest(m.frames, first, (from, to) => post({ t: 'relay.done', from, to })) ?? false;
         if (!accepted) post({ t: 'relay.done', from: -1, to: -1 });
         return;
       }
+      case 'relay.idle':
+        relay?.idle();
+        return;
       case 'query':
         post({ t: 'query.result', id: m.id, result: query(m.query) });
         return;

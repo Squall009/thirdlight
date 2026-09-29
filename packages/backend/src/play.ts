@@ -663,7 +663,7 @@ export class PlayManager {
    * Relay a bounded input-exercise sequence to the owner editor (§18.1). At
    * most one relay is active per play; a second one is `input_relay_conflict`.
    */
-  relayInput(playSessionId: string, requestId: string, payload: string): Promise<InputRelayOutcome> {
+  relayInput(playSessionId: string, requestId: string, payload: string, extraMs = 0): Promise<InputRelayOutcome> {
     const rec = this.plays.get(playSessionId);
     if (rec === undefined || (rec.state !== 'active' && rec.state !== 'presented')) {
       return Promise.resolve({ ok: false, code: 'relay_failed', cause: 'play not active' });
@@ -681,7 +681,7 @@ export class PlayManager {
       };
       entry.timer = setTimeout(() => {
         entry.resolve({ ok: false, code: 'input_relay_timeout' });
-      }, this.hooks.inputRelayTimeoutMs());
+      }, this.hooks.inputRelayTimeoutMs() + Math.max(0, extraMs));
       rec.inputRelay = entry;
       if (!this.hooks.sendToOwner(rec.ownerSessionId, payload)) {
         entry.resolve({ ok: false, code: 'relay_failed', cause: 'owner unreachable' });

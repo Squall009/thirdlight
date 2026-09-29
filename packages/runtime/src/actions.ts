@@ -148,11 +148,17 @@ export interface PointerSample {
   readonly over?: boolean;
   /** The cursor is locked (hidden, held in the view); absent false. */
   readonly locked?: boolean;
+  /**
+   * Phase 25.15: the pointer is over a UI element that takes it (a project UI
+   * document's button, input or modal backdrop, the engine pause panel) — a
+   * press there went to the UI, not the game; absent false.
+   */
+  readonly overUi?: boolean;
 }
 
 /** Phase 23.3: the pointer's button bits (DOM `buttons`). */
 export const POINTER_BUTTON_BITS = Object.freeze({ left: 1, right: 2, middle: 4 } as const);
-const POINTER_KEYS = new Set(['x', 'y', 'dx', 'dy', 'wheel', 'buttons', 'pressed', 'released', 'over', 'locked']);
+const POINTER_KEYS = new Set(['x', 'y', 'dx', 'dy', 'wheel', 'buttons', 'pressed', 'released', 'over', 'locked', 'overUi']);
 
 /** Most named actions in a frame (project-model MAX_INPUT_ACTIONS). */
 export const MAX_FRAME_ACTIONS = 64;
@@ -409,7 +415,7 @@ export function validateActionFrame(
  * Returns a frozen copy with only the fields given.
  */
 export function validatePointerSample(value: unknown): { ok: true; pointer: PointerSample } | { ok: false; field: string; message: string } {
-  if (!isPlainObject(value)) return { ok: false, field: '', message: 'pointer is { x, y, dx?, dy?, wheel?, buttons?, pressed?, released?, over?, locked? }' };
+  if (!isPlainObject(value)) return { ok: false, field: '', message: 'pointer is { x, y, dx?, dy?, wheel?, buttons?, pressed?, released?, over?, locked?, overUi? }' };
   for (const k in value) if (hasOwn.call(value, k) && !POINTER_KEYS.has(k)) return { ok: false, field: k, message: `unknown pointer field "${k}"` };
   const unit = (v: unknown): boolean => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 1;
   const mask = (v: unknown): boolean => v === undefined || (typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 7);
@@ -419,9 +425,9 @@ export function validatePointerSample(value: unknown): { ok: true; pointer: Poin
   if (!unit(value['y'])) return { ok: false, field: 'y', message: 'pointer y is a number in [0, 1] (0 = the top of the view)' };
   for (const k of ['dx', 'dy', 'wheel'] as const) if (!amount(value[k])) return { ok: false, field: k, message: `pointer ${k} is a number in [-10, 10]` };
   for (const k of ['buttons', 'pressed', 'released'] as const) if (!mask(value[k])) return { ok: false, field: k, message: `pointer ${k} is a button mask 0-7 (1 left, 2 right, 4 middle)` };
-  for (const k of ['over', 'locked'] as const) if (!flag(value[k])) return { ok: false, field: k, message: `pointer ${k} is true or false` };
+  for (const k of ['over', 'locked', 'overUi'] as const) if (!flag(value[k])) return { ok: false, field: k, message: `pointer ${k} is true or false` };
   const out: Record<string, number | boolean> = { x: value['x'] as number, y: value['y'] as number };
-  for (const k of ['dx', 'dy', 'wheel', 'buttons', 'pressed', 'released', 'over', 'locked'] as const) if (value[k] !== undefined) out[k] = value[k] as number | boolean;
+  for (const k of ['dx', 'dy', 'wheel', 'buttons', 'pressed', 'released', 'over', 'locked', 'overUi'] as const) if (value[k] !== undefined) out[k] = value[k] as number | boolean;
   return { ok: true, pointer: Object.freeze(out) as unknown as PointerSample };
 }
 

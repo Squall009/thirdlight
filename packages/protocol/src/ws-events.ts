@@ -215,13 +215,21 @@ export function makeDiagnosticsRequest(relayId: string): string {
  */
 export function makeInputRelayRequest(
   requestId: string,
-  frames: readonly { readonly stepOffset: number; readonly actions?: Readonly<Record<string, unknown>>; readonly pointer?: unknown }[],
+  frames: readonly { readonly stepOffset: number; readonly steps?: number; readonly actions?: Readonly<Record<string, unknown>>; readonly pointer?: unknown; readonly gamepad?: unknown; readonly ui?: readonly string[] }[],
 ): string {
   return emit({
     type: 'input.request',
     requestId,
     // Phase 23.2: the second move axis and the named actions (and, phase 23.3, the pointer) travel too (absent: as before).
-    frames: frames.map((f) => ({ stepOffset: f.stepOffset, ...(f.actions !== undefined ? { actions: f.actions } : {}), ...(f.pointer !== undefined ? { pointer: f.pointer } : {}) })),
+    // Phase 25.15: run length, the virtual gamepad and UI edges.
+    frames: frames.map((f) => ({
+      stepOffset: f.stepOffset,
+      ...(f.steps !== undefined ? { steps: f.steps } : {}),
+      ...(f.actions !== undefined ? { actions: f.actions } : {}),
+      ...(f.pointer !== undefined ? { pointer: f.pointer } : {}),
+      ...(f.gamepad !== undefined ? { gamepad: f.gamepad } : {}),
+      ...(f.ui !== undefined ? { ui: [...f.ui] } : {}),
+    })),
   });
 }
 

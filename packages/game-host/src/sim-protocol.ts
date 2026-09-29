@@ -27,7 +27,8 @@ import type {
   ModeView,
 } from '@thirdlight/runtime';
 import type { ManifestBehaviorRow } from './host';
-import type { RelayTestFrame } from './relay-input';
+import type { RelayEffect, RelayTestFrame } from './relay-input';
+import type { UiHitTarget } from './ui-hit';
 
 /** A scene's resolved entities (as the runtime loads them). */
 export type SceneEntities = LoadedSceneBatch['entities'];
@@ -89,6 +90,8 @@ export interface SimTickMessage {
   readonly frame: ActionFrame | null;
   /** A transform buffer the page has finished with (reused by the worker). */
   readonly give?: ArrayBuffer;
+  /** Phase 25.15: the page's UI hit targets when they changed while an input exercise runs. */
+  readonly uiTargets?: readonly UiHitTarget[];
 }
 
 export type SimCommand =
@@ -123,7 +126,9 @@ export type MainToWorker =
   | SimTickMessage
   | { readonly t: 'cmd'; readonly command: SimCommand }
   | { readonly t: 'scene'; readonly sceneId: string; readonly result: { ok: true; entities: SceneEntities } | { ok: false; message: string } }
-  | { readonly t: 'relay'; readonly frames: readonly RelayTestFrame[] }
+  | { readonly t: 'relay'; readonly frames: readonly RelayTestFrame[]; readonly uiTargets?: readonly UiHitTarget[] }
+  /** Phase 25.15: a page frame in which the game is paused while an exercise runs. */
+  | { readonly t: 'relay.idle' }
   | { readonly t: 'query'; readonly id: number; readonly query: SimQuery }
   | { readonly t: 'dispose' };
 
@@ -221,6 +226,8 @@ export type WorkerToMain =
   | { readonly t: 'frame'; readonly state: FrameState }
   | { readonly t: 'scene.request'; readonly sceneId: string }
   | { readonly t: 'relay.done'; readonly from: number; readonly to: number }
+  /** Phase 25.15: a relay step's UI edges or click for the page. */
+  | { readonly t: 'relay.effect'; readonly effect: RelayEffect }
   | { readonly t: 'input.reset'; readonly reason?: string }
   | { readonly t: 'query.result'; readonly id: number; readonly result: unknown }
   | { readonly t: 'cmd.error'; readonly op: string; readonly error: { code: string; message: string } }

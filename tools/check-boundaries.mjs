@@ -457,6 +457,13 @@ const BUNDLE_ENTRY_EDGES = {
     // Behavior outputs load from the locator, as in preview-bootstrap.ts.
     computedDynamicImport: 'locator',
   },
+  // Phase 25.15: the input exercise's frames resolved on the play page (a virtual gamepad read through the
+  // project's bindings) — part of the same play-preview graph as preview-m3.ts.
+  'packages/editor/src/preview/relay-frames.ts': {
+    packages: ['runtime', 'input', 'game-host'],
+    external: [],
+    node: [],
+  },
 };
 
 /** React is scoped to `editor` only (dependencies.md §7 React scope rules). */
