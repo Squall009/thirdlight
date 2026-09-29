@@ -45,10 +45,7 @@ import {
   type PrefabDefinition,
   type Quat,
   type RuntimeUiDocumentRow,
-  MAX_TRANSITION_FADE,
-  MAX_TRANSITION_UNLOADS,
-  SAVE_LIMITS,
-  SCRIPT_SAVE_LIMITS,
+  MAX_TRANSITION_FADE, MAX_TRANSITION_UNLOADS, SAVE_LIMITS, SCRIPT_SAVE_LIMITS,
 } from '@thirdlight/project-model';
 import {
   actionPhase,

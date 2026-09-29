@@ -184,7 +184,8 @@ at the boundary it changes (Playwright for any editor surface).
 | Item | Status |
 |---|---|
 | 26.0 | done 2026-09-29; reconciled with phase 25 at `811c14c5` |
-| 26.1–26.14 | — |
+| 26.1 | in progress: A done (limits once, splits); B (ESLint, three.js 0.186.1) and C (history comments, build check) remain |
+| 26.2–26.14 | — |
 
 ## 6. Measurements
 
@@ -236,3 +237,28 @@ at the boundary it changes (Playwright for any editor surface).
   and 25.19/25.21's KTX2. 25.23 already sits in 26.13. three.js check: npm
   `latest` is 0.186.1 (repo pins 0.186.0), a patch already in 26.1; no newer
   minor, so no new item.
+- 2026-09-29 (26.1 A): shared limits live in project-model (the owner every
+  package reaches) and are re-exported from `src/limits.ts`, also the
+  `@thirdlight/project-model/limits` subpath (constants only): protocol,
+  asset-pipeline, backend and the editor value-import it over their
+  types-only edge, and physics-rapier and mcp-adapter get that subpath as
+  their one project-model edge; game-host and three-adapter take the few
+  they need through runtime's re-exports. Limits no model rule uses but two
+  packages share (prefab overrides per request, compile diagnostics, stage
+  and asset-page bounds, the inline instance-set bound in protocol) are
+  defined next to their nearest owner. The id syntax regex (about 50 copies)
+  is `ID_RE`. Left as is: independent bounds with equal values (error-message
+  lengths per package, the MCP entity page of 1,024, GLB image entries in the
+  loader), runtime-owned numbers in MCP prose (spawns, timers, queries per
+  step: mcp-adapter has no runtime edge; 26.5/26.14 rewrite those texts),
+  the frozen M2/M3 engine pin tables' three version, and three-adapter's
+  copy of `resolveMaterialInstances` (a code path, not a limit).
+- 2026-09-29 (26.1 A): the four files past 2,000 lines are split by area,
+  re-exported so imports stay the same: `content.ts` 2,780 → 777 (+
+  `content-limits`, `-helpers`, `-assets`, `-prefabs`, `-behaviors`,
+  `-settings`), `descriptors.ts` 2,213 → 153 (+ `descriptor-types`,
+  `-builders`, `-components`, `-content`), `runtime/src/types.ts` 2,489 → 323
+  (+ `types-scene`, `-simulation`, `-behavior`, `-behavior-world`),
+  `editor/src/session/client.ts` 2,417 → 773 (the HTTP project operations,
+  a `SessionClient` subclass) + `client-core.ts` 1,667 (connection,
+  projection, commands).
