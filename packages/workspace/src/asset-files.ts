@@ -24,7 +24,7 @@ import { createHash } from 'node:crypto';
 import { lstatSync, mkdirSync, readdirSync, realpathSync, renameSync, rmSync, statSync, unlinkSync, utimesSync } from 'node:fs';
 import { dirname, join, sep } from 'node:path';
 
-import { audioLoadOf, DEFAULT_ASSET_FOLDER, isValidSourcePath, textureHasStreamableChain, textureStreamingOf } from '@thirdlight/project-model';
+import { audioLoadOf, DEFAULT_ASSET_FOLDER, isValidSourcePath, MAX_FOLDER_DEPTH, textureHasStreamableChain, textureStreamingOf } from '@thirdlight/project-model';
 import type { ContentCatalogV4 } from '@thirdlight/project-model';
 import type { ChangeData, CommandError } from '@thirdlight/commands';
 
@@ -34,7 +34,7 @@ import { writeAtomic, type WriteOps } from './write';
 import type { ContentConfig, ContentContext } from './content-store';
 import { readBlobBytes, resolveProjectFile } from './content-store';
 import { layoutProjectJson } from './project-json';
-import { SIDECAR_SUFFIX } from './resource-files';
+import { isSkippedFolderName, SIDECAR_SUFFIX } from './resource-files';
 import { assetRecordOf } from './catalog-lookup';
 
 // ---- layout --------------------------------------------------------------
@@ -74,6 +74,17 @@ export const PROJECT_OWN_ENTRIES: ReadonlySet<string> = new Set([
   '.gitignore',
   'upgrade-report.json',
 ]);
+
+/**
+ * Whether a game-folder path's first segment is the project's own: one of a
+ * data-root project's own entries, or a folder project's project subfolder.
+ * Compared case-folded: on a case-insensitive disk (macOS, Windows)
+ * `Sources/` or `Thirdlight/` is the same folder as `sources/`.
+ */
+export function isProjectOwnTop(ctx: Pick<ContentContext, 'gameFolder' | 'dir'>, seg: string): boolean {
+  if (ctx.gameFolder == null) return PROJECT_OWN_ENTRIES.has(seg.toLowerCase());
+  return join(assetRoot(ctx), seg).toLowerCase() === ctx.dir.toLowerCase();
+}
 
 /** The folder asset paths are relative to: the game folder, or a data-root project's own folder. */
 export function assetRoot(ctx: Pick<ContentContext, 'gameFolder' | 'dir'>): string {
@@ -261,11 +272,11 @@ function within(parent: string, child: string): boolean {
 function prepareTarget(ctx: ContentContext, rel: string, create = true): { ok: true; abs: string; dir: string } | { ok: false; error: CommandError } {
   if (!isValidSourcePath(rel)) return { ok: false, error: pathRejected(rel, 'an asset path is relative to the game folder, with forward slashes') };
   const segs = rel.split('/');
-  if (segs.includes('.git')) return { ok: false, error: pathRejected(rel, '.git/ is not an asset folder') };
+  if (segs.some((seg) => seg.toLowerCase() === '.git')) return { ok: false, error: pathRejected(rel, '.git/ is not an asset folder') };
   // Hidden folders hold tools' state (.thirdlight, .git, editor settings), never assets.
   if (segs.slice(0, -1).some((seg) => seg.startsWith('.'))) return { ok: false, error: pathRejected(rel, 'a hidden folder is not an asset folder') };
   const root = assetRoot(ctx);
-  if (ctx.gameFolder == null ? PROJECT_OWN_ENTRIES.has(segs[0]!) : join(root, segs[0]!) === ctx.dir) {
+  if (isProjectOwnTop(ctx, segs[0]!)) {
     return { ok: false, error: pathRejected(rel, `${segs[0]!} holds the project's own files, not assets`) };
   }
   let realRoot: string;
@@ -777,9 +788,6 @@ function syncOne(core: Core, ctx: ContentContext, c: AssetRecordChange, named: R
 
 // ---- finding sidecars ---------------------------------------------------------
 
-/** Folders never searched for sidecars (process state, version control, dependencies). */
-const SKIP_DIRS = new Set(['.git', '.thirdlight', 'node_modules']);
-
 /**
  * Every sidecar in the game folder, by asset id (a file moved outside the
  * editor is found by its sidecar). Only sidecars whose file is there count.
@@ -795,7 +803,7 @@ export function findSidecars(ctx: ContentContext, wanted?: ReadonlySet<string>):
     projectReal = null;
   }
   const walk = (abs: string, rel: string, depth: number): void => {
-    if (depth > 32) return;
+    if (depth > MAX_FOLDER_DEPTH) return;
     let names: string[];
     try {
       names = readdirSync(abs);
@@ -803,7 +811,7 @@ export function findSidecars(ctx: ContentContext, wanted?: ReadonlySet<string>):
       return;
     }
     for (const name of names) {
-      if (SKIP_DIRS.has(name)) continue;
+      if (isSkippedFolderName(name)) continue;
       const childRel = rel === '' ? name : `${rel}/${name}`;
       if (rel === '' && ctx.gameFolder == null && PROJECT_OWN_ENTRIES.has(name)) continue;
       const childAbs = join(abs, name);

@@ -45,8 +45,8 @@
  * files into the game folder and so is not a pure document step.
  */
 
-import { mkdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { lstatSync, mkdirSync, realpathSync } from 'node:fs';
+import { dirname, join, sep } from 'node:path';
 
 import {
   migrateModelAnimations,
@@ -75,6 +75,7 @@ import {
   type BlockChunk,
   type BlockLayerData,
   type ClipDurationOf,
+  ID_RE,
 } from '@thirdlight/project-model';
 
 import { sha256Hex } from './digest';
@@ -851,6 +852,57 @@ function relSafe(rel: string): boolean {
   return rel === CONTENT_REL || rel === MANIFEST_REL_V4 || /^scenes\/[a-z0-9][a-z0-9_-]{0,63}\.json$/.test(rel) || CHUNK_REL_RE.test(rel);
 }
 
+/**
+ * Whether the game-folder files of a transaction land inside the game folder:
+ * no folder on a file's way is a link leading out of it (or into a folder
+ * project's own folder), and no file is itself a link. A person's link
+ * `assets/materials -> /elsewhere` would otherwise carry the editor's writes
+ * out of the game folder. Returns the first file key that does not.
+ */
+function linkLeadingOut(dir: string, gameRoot: string, rels: readonly string[]): string | null {
+  const game = rels.map((rel) => [rel, gamePathOf(rel)] as const).filter((x): x is readonly [string, string] => x[1] !== null);
+  if (game.length === 0) return null;
+  let realRoot: string;
+  let realProject: string | null;
+  try {
+    realRoot = realpathSync(gameRoot);
+    realProject = gameRoot === dir ? null : realpathSync(dir);
+  } catch {
+    return game[0]![0];
+  }
+  const inside = (parent: string, child: string): boolean => child === parent || child.startsWith(parent.endsWith(sep) ? parent : parent + sep);
+  const vetted = new Set<string>();
+  for (const [rel, path] of game) {
+    const segs = path.split('/');
+    let cur = gameRoot;
+    for (const seg of segs.slice(0, -1)) {
+      cur = join(cur, seg);
+      if (vetted.has(cur)) continue;
+      let link: boolean;
+      try {
+        link = lstatSync(cur).isSymbolicLink();
+      } catch {
+        break; // absent: made inside the last folder that exists
+      }
+      if (link) {
+        try {
+          const real = realpathSync(cur);
+          if (!inside(realRoot, real) || (realProject !== null && inside(realProject, real))) return rel;
+        } catch {
+          return rel;
+        }
+      }
+      vetted.add(cur);
+    }
+    try {
+      if (lstatSync(join(gameRoot, ...segs)).isSymbolicLink()) return rel;
+    } catch {
+      // absent: fine
+    }
+  }
+  return null;
+}
+
 function applyWrite(ops: WriteOps, dir: string, gameRoot: string, w: FileWrite, touched?: Set<string>): { ok: true } | { ok: false; errno?: string } {
   const target = absOf(dir, gameRoot, w.rel);
   if (w.bytes === null) {
@@ -935,6 +987,8 @@ function rollForwardOne(ops: WriteOps, dir: string, thirdlightDir: string, proje
       writes.push({ rel: w.rel, bytes });
     }
   }
+  const out = linkLeadingOut(dir, gameRoot, writes.map((w) => w.rel));
+  if (out !== null) return bad(`the transaction journal writes ${displayPathOf(out)} through a link leading out of the game folder`);
   for (const w of writes) {
     const r = applyWrite(ops, dir, gameRoot, w);
     if (!r.ok) return bad(`could not complete the interrupted transaction (${w.rel}: ${r.errno ?? 'I/O error'})`);
@@ -1015,6 +1069,7 @@ function writeFiles(
     if (pc !== null && w.bytes === null && isSidecarRel(w.rel) && 'external' in pc && pc.external.bytes.length === 0) continue;
     if (pc !== null) return pc;
   }
+  if (linkLeadingOut(dir, gameRoot, writes.map((w) => w.rel)) !== null) return { ok: false, failed: { onDiskState: 'previous', errno: 'ELOOP' } };
   // One file is written in place, unless an earlier transaction's journal still
   // waits for its flush: journals replay in order after a crash, so this write
   // must be one too, or an older journal would replay over it.
@@ -1111,8 +1166,9 @@ export function firstChangedFile(ops: WriteOps, dir: string, gameRoot: string, s
  */
 export const RECORD_CACHE_SEGMENTS = ['cache', 'records'] as const;
 
-export function recordCachePath(dir: string, assetId: string): string {
-  return join(dir, ...RECORD_CACHE_SEGMENTS, `${assetId}${SIDECAR_SUFFIX}`);
+/** Where an asset's cached sidecar is (null for an id that is not an id: a sidecar's `id` is read from disk and may name a path). */
+export function recordCachePath(dir: string, assetId: string): string | null {
+  return ID_RE.test(assetId) ? join(dir, ...RECORD_CACHE_SEGMENTS, `${assetId}${SIDECAR_SUFFIX}`) : null;
 }
 
 /**
@@ -1126,9 +1182,10 @@ function mirrorSidecarRecords(ops: WriteOps, dir: string, writes: readonly FileW
     if (w.bytes !== null || !isSidecarRel(w.rel)) continue;
     const before = known.get(w.rel);
     const doc = before === undefined ? null : parseSidecar(before.bytes);
-    if (doc === null) continue;
+    const cached = doc === null ? null : recordCachePath(dir, doc.id);
+    if (cached === null) continue;
     try {
-      ops.removeFile(recordCachePath(dir, doc.id));
+      ops.removeFile(cached);
     } catch {
       // not cached
     }
@@ -1141,6 +1198,7 @@ export function mirrorSidecar(ops: WriteOps, dir: string, bytes: Uint8Array): vo
   const doc = parseSidecar(bytes);
   if (doc === null || doc.record === undefined) return;
   const target = recordCachePath(dir, doc.id);
+  if (target === null) return;
   try {
     mkdirSync(dirname(target), { recursive: true, mode: 0o755 });
     writeAtomic({ dir: dirname(target), target, bytes, allowedPreHashes: [], previousHash: null, ops: { ...ops, fsyncFile: () => undefined, fsyncDir: () => undefined } });
@@ -1151,8 +1209,10 @@ export function mirrorSidecar(ops: WriteOps, dir: string, bytes: Uint8Array): vo
 
 /** A cached sidecar of an asset (null: none, or not one this build reads). */
 export function cachedSidecar(ops: WriteOps, dir: string, assetId: string): { bytes: Uint8Array; record: Record<string, unknown> } | null {
+  const cached = recordCachePath(dir, assetId);
+  if (cached === null) return null;
   try {
-    const bytes = ops.readFile(recordCachePath(dir, assetId));
+    const bytes = ops.readFile(cached);
     const doc = parseSidecar(bytes);
     return doc === null || doc.record === undefined || doc.id !== assetId ? null : { bytes, record: doc.record };
   } catch {

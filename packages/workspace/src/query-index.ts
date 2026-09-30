@@ -22,7 +22,7 @@
 import { readdirSync, type Dirent } from 'node:fs';
 import { join } from 'node:path';
 
-import { isValidSourcePath } from '@thirdlight/project-model';
+import { INDEX_PAGE_DEFAULT, INDEX_PAGE_MAX, isValidSourcePath } from '@thirdlight/project-model';
 
 import type { QueryResult } from './types';
 import { assetRoot, PROJECT_OWN_ENTRIES } from './asset-files';
@@ -30,12 +30,10 @@ import { contentCtx } from './service-content';
 
 import { fieldTypeError, fieldUnexpected, fieldValueType, isSafeInt, pointerSegment } from './errors';
 import { buildIndex, indexGeneration, orderedBy, sortedKeys, type IndexEntry, type IndexOrder, type ProjectIndex } from './project-index';
-import { recordsOfKind, RESOURCE_KINDS } from './resource-files';
+import { isSkippedFolderName, recordsOfKind, RESOURCE_KINDS } from './resource-files';
 import type { ProjectSession } from './session';
 import type { V4State } from './store-v4';
 
-/** The most index entries one `queryIndex` page returns (and the most ids one asks for). */
-export const MAX_INDEX_PAGE = 1024;
 
 const ARGS = ['kind', 'kinds', 'id', 'ids', 'label', 'labels', 'address', 'loadable', 'referencing', 'text', 'folder', 'recursive', 'folders', 'sort', 'descending', 'refs', 'records', 'limit', 'offset'];
 const ORDERS: readonly IndexOrder[] = ['name', 'kind', 'path'];
@@ -47,9 +45,6 @@ interface FolderRow {
   hasFolders: boolean;
 }
 
-/** Folders never listed: tools' state, version control, dependencies. */
-const SKIP_FOLDERS = new Set(['node_modules']);
-
 function listedDirs(root: string, rel: string, projectDir: string | null, dataRoot: boolean): Dirent[] {
   let names: Dirent[];
   try {
@@ -57,7 +52,7 @@ function listedDirs(root: string, rel: string, projectDir: string | null, dataRo
   } catch {
     return [];
   }
-  return names.filter((d) => d.isDirectory() && !d.name.startsWith('.') && !SKIP_FOLDERS.has(d.name) && !(rel === '' && dataRoot && PROJECT_OWN_ENTRIES.has(d.name)) && !(projectDir !== null && join(root, ...(rel === '' ? [] : rel.split('/')), d.name) === projectDir) && isValidSourcePath(rel === '' ? d.name : `${rel}/${d.name}`));
+  return names.filter((d) => d.isDirectory() && !isSkippedFolderName(d.name) && !(rel === '' && dataRoot && PROJECT_OWN_ENTRIES.has(d.name)) && !(projectDir !== null && join(root, ...(rel === '' ? [] : rel.split('/')), d.name) === projectDir) && isValidSourcePath(rel === '' ? d.name : `${rel}/${d.name}`));
 }
 
 /** The subfolders of a folder: on disk, and those the index's files are in. */
@@ -163,11 +158,11 @@ export function serveQueryIndex(s: ProjectSession, state: V4State, projectId: st
   if (a['sort'] !== undefined && !ORDERS.includes(a['sort'] as IndexOrder)) return failure(projectId, fieldValueType('/args/sort', a['sort'], ORDERS.join(' | '), 'sort orders the entries'));
   if (typeof a['folder'] === 'string' && a['folder'] !== '' && !isValidSourcePath(a['folder'])) return failure(projectId, fieldValueType('/args/folder', a['folder'], 'a folder of the game folder ("" its top)', 'folder is relative, with forward slashes'));
   for (const k of ['kinds', 'ids', 'labels'] as const) {
-    if (a[k] !== undefined && !isStringList(a[k], MAX_INDEX_PAGE)) return failure(projectId, fieldValueType(`/args/${k}`, a[k], `1-${MAX_INDEX_PAGE} strings`, `${k} lists 1 to ${MAX_INDEX_PAGE} strings`));
+    if (a[k] !== undefined && !isStringList(a[k], INDEX_PAGE_MAX)) return failure(projectId, fieldValueType(`/args/${k}`, a[k], `1-${INDEX_PAGE_MAX} strings`, `${k} lists 1 to ${INDEX_PAGE_MAX} strings`));
   }
-  const limit = a['limit'] ?? 256;
+  const limit = a['limit'] ?? INDEX_PAGE_DEFAULT;
   const offset = a['offset'] ?? 0;
-  if (!isSafeInt(limit) || (limit as number) < 1 || (limit as number) > MAX_INDEX_PAGE) return failure(projectId, fieldValueType('/args/limit', limit, `integer 1-${MAX_INDEX_PAGE}`, 'limit pages the index'));
+  if (!isSafeInt(limit) || (limit as number) < 1 || (limit as number) > INDEX_PAGE_MAX) return failure(projectId, fieldValueType('/args/limit', limit, `integer 1-${INDEX_PAGE_MAX}`, 'limit pages the index'));
   if (!isSafeInt(offset) || (offset as number) < 0) return failure(projectId, fieldValueType('/args/offset', offset, 'integer >= 0', 'offset pages the index'));
   const index: ProjectIndex = s.index ?? buildIndex(state);
   const reuse = a['records'] !== true;

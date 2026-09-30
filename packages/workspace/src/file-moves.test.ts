@@ -8,7 +8,7 @@
  * one folder, sorts, and lists a folder's subfolders.
  */
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -191,6 +191,62 @@ describe('moving files and folders in the game folder', () => {
       expect(bad.error?.code).toBe('field_value');
       expect(revision(s)).toBe(before);
       expect(pathOf(s, 'model', 'crate')).toBe('assets/Crate.glb');
+    } finally {
+      s.close();
+    }
+  });
+
+  it('never moves, renames or empties a hidden folder, .git/ or the project\'s own files (in any letter case)', () => {
+    const { dir, open } = stocked('sources');
+    const s = open();
+    try {
+      for (const f of ['.git/hooks/empty', '.github/workflows', 'cache/imported/empty']) mkdirSync(join(dir, ...f.split('/')), { recursive: true });
+      const before = revision(s);
+      const cases: [string, Record<string, unknown>][] = [
+        ['moveResources', { folders: ['.git/hooks'], to: 'levels' }],
+        ['renameFolder', { folder: '.github', name: 'github' }],
+        ['moveResources', { folders: ['cache/imported'], to: 'levels' }],
+        ['renameFolder', { folder: 'cache', name: 'stuff' }],
+        // A case-insensitive disk (macOS, Windows) reads these as the project's own folders; the check folds case so it holds there too.
+        ['createFolder', { folder: 'Sources' }],
+        ['createFolder', { folder: 'CACHE/new' }],
+        ['moveResources', { items: [{ kind: 'material', id: 'stone' }], to: 'Scenes' }],
+        ['moveResources', { items: [{ kind: 'material', id: 'stone' }], to: '.GIT' }],
+      ];
+      for (const [op, args] of cases) {
+        const r = run(s, op, args);
+        expect(r.ok, JSON.stringify(args)).toBe(false);
+      }
+      expect(revision(s)).toBe(before);
+      expect(existsSync(join(dir, '.git', 'hooks', 'empty'))).toBe(true);
+      expect(existsSync(join(dir, '.github', 'workflows'))).toBe(true);
+      expect(existsSync(join(dir, 'cache', 'imported', 'empty'))).toBe(true);
+      expect(existsSync(join(dir, 'Sources'))).toBe(false);
+    } finally {
+      s.close();
+    }
+  });
+
+  it('writes no resource file through a link leading out of the game folder', () => {
+    const { dir, open } = stocked('link-out');
+    const outside = join(dir, '..', `outside-${process.pid}`);
+    mkdirSync(outside, { recursive: true });
+    const s = open();
+    try {
+      ok(s, 'moveResources', { items: [{ kind: 'material', id: 'stone' }], to: 'levels' });
+      rmSync(join(dir, 'assets', 'materials'), { recursive: true, force: true });
+      symlinkSync(outside, join(dir, 'assets', 'materials'));
+      const before = revision(s);
+      const r = run(s, 'setMaterial', { material: mat('linked') });
+      expect(r.ok, JSON.stringify(r).slice(0, 400)).toBe(false);
+      expect(readdirSync(outside)).toEqual([]);
+      expect(revision(s)).toBe(before);
+      // A link that stays inside the game folder is written through.
+      rmSync(join(dir, 'assets', 'materials'));
+      mkdirSync(join(dir, 'looks'), { recursive: true });
+      symlinkSync(join(dir, 'looks'), join(dir, 'assets', 'materials'));
+      ok(s, 'setMaterial', { material: mat('inside') });
+      expect(readdirSync(join(dir, 'looks'))).toContain('inside.material.json');
     } finally {
       s.close();
     }

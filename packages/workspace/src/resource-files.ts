@@ -22,7 +22,7 @@
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { DEFAULT_ASSET_FOLDER, ENV_PRESETS_LIST, isAddress, isAssetLabel, isValidSourcePath, ID_RE, parseDocumentBytes, RESOURCE_KIND_TABLE, resourceRecordsOf } from '@thirdlight/project-model';
+import { DEFAULT_ASSET_FOLDER, ENV_PRESETS_LIST, MAX_FOLDER_DEPTH, isAddress, isAssetLabel, isValidSourcePath, ID_RE, parseDocumentBytes, RESOURCE_KIND_TABLE, resourceRecordsOf } from '@thirdlight/project-model';
 
 import { layoutProjectJson } from './project-json';
 
@@ -168,11 +168,14 @@ export function parseResourceFile(path: string, bytes: Uint8Array): ParsedResour
   return { ok: true, kind: k, id, data: data as Record<string, unknown>, ...(loading.address !== undefined || loading.labels !== undefined ? { loading } : {}) };
 }
 
-/** Folders deep enough for any real layout; deeper is a symlink-free cycle guard. */
-const MAX_DEPTH = 32;
-
-/** Folders the resource scan never enters (package managers' trees). */
-const SKIPPED_FOLDERS: ReadonlySet<string> = new Set(['node_modules']);
+/**
+ * Folders no walk of the game folder enters (the resource scan, the folder
+ * import, the sidecar search, the project window's folders): hidden ones
+ * (tools' state, version control, editor settings) and package managers' trees.
+ */
+export function isSkippedFolderName(name: string): boolean {
+  return name.startsWith('.') || name === 'node_modules';
+}
 
 /**
  * Every resource file, scene file and asset sidecar of the game folder (paths
@@ -195,7 +198,7 @@ export function scanResourceFiles(gameRoot: string, skip: (absDir: string, rel: 
       if (name.startsWith('.')) continue;
       const path = rel === '' ? name : `${rel}/${name}`;
       if (e.isDirectory()) {
-        if (depth >= MAX_DEPTH || SKIPPED_FOLDERS.has(name)) continue;
+        if (depth >= MAX_FOLDER_DEPTH || isSkippedFolderName(name)) continue;
         const abs = join(gameRoot, ...path.split('/'));
         if (skip(abs, path)) continue;
         walk(path, depth + 1);

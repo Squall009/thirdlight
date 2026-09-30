@@ -24,13 +24,13 @@
 import { lstatSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { ID_RE, isAssetLabel, isValidSourcePath, type ContentCatalogV4 } from '@thirdlight/project-model';
+import { ID_RE, isAssetLabel, isValidSourcePath, MAX_FOLDER_DEPTH, type ContentCatalogV4 } from '@thirdlight/project-model';
 import type { CommandError, PreparedAssetImportItem } from '@thirdlight/commands';
 
 import { PROJECT_OWN_ENTRIES, SIDECAR_SUFFIX, assetRoot, checkAssetFolder, fileOfRecord, gameFileExists, parseSidecar, readGameFile, sidecarPath, takenPaths, writeGameFile, type RecordLike } from './asset-files';
 import { IMPORTABLE, resolveProjectFile, type ContentConfig, type ContentContext } from './content-store';
 import { sha256Hex } from './digest';
-import { resourceKindOfName } from './resource-files';
+import { isSkippedFolderName, resourceKindOfName } from './resource-files';
 import { pathRejected } from './errors';
 import type { WriteOps } from './write';
 
@@ -53,9 +53,6 @@ export interface FolderImportScan {
   /** Files the catalog already imports (their asset). */
   known: { path: string; assetId: string }[];
 }
-
-/** Folders deep enough for any real layout; deeper is a symlink-free cycle guard. */
-const MAX_FOLDER_DEPTH = 32;
 
 /** The kind an importer takes a file as, by its extension (null: none). */
 export function importKindOf(name: string): ImportKind | null {
@@ -108,7 +105,7 @@ export function walkAssetFiles(ctx: ContentContext, folder: string): FolderImpor
         continue;
       }
       if (st.isDirectory()) {
-        if (join(root, ...path.split('/')) === ctx.dir) continue;
+        if (join(root, ...path.split('/')) === ctx.dir || isSkippedFolderName(name)) continue;
         if (depth >= MAX_FOLDER_DEPTH) scan.unsupported.push({ path, reason: `deeper than ${MAX_FOLDER_DEPTH} folders` });
         else subfolders.push(path);
         continue;

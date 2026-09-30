@@ -132,6 +132,13 @@ export const M2_GLTF_EXTENSION_ALLOWLIST: readonly string[] = Object.freeze([
 export const ASSET_QUERY_PAGE_MAX = 128;
 export const ASSET_QUERY_PAGE_DEFAULT = 50;
 
+/** A page of the project index (`queryIndex`): its largest (also the most ids one page asks for) and its default size. */
+export const INDEX_PAGE_MAX = 1024;
+export const INDEX_PAGE_DEFAULT = 256;
+
+/** The deepest folder of the game folder the editor reads resources and asset files from. */
+export const MAX_FOLDER_DEPTH = 32;
+
 /** An asset tile's thumbnail edge (px): what the editor draws and the backend makes from an image. */
 export const ASSET_THUMBNAIL_EDGE = 128;
 

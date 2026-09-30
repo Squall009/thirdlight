@@ -66,7 +66,7 @@ import type { CommandError } from '@thirdlight/commands';
 import { writeAtomic, type WriteOps } from './write';
 import { FileStamps } from './file-stamps';
 import { assetRecordOf } from './catalog-lookup';
-import { assetRoot, hasImported, importKeyOfConverted, PROJECT_OWN_ENTRIES, readImported, type ConvertedLike } from './asset-files';
+import { assetRoot, hasImported, importKeyOfConverted, isProjectOwnTop, PROJECT_OWN_ENTRIES, readImported, type ConvertedLike } from './asset-files';
 
 // ---- bounds --------------------------------------------
 
@@ -1001,8 +1001,8 @@ export function resolveProjectFile(
     return { ok: false, error: pathRejected(shown, 'the path must be relative to the game folder, with forward slashes and no "..", "." or empty parts') };
   }
   const segs = root ? [] : (sourcePath as string).split('/');
-  if (segs.includes('.git')) return { ok: false, error: pathRejected(shown, '.git/ is not an asset folder') };
-  if (segs.length > 0 && (dataRoot ? PROJECT_OWN_ENTRIES.has(segs[0]!) : join(folder, segs[0]!) === ctx.dir)) {
+  if (segs.some((seg) => seg.toLowerCase() === '.git')) return { ok: false, error: pathRejected(shown, '.git/ is not an asset folder') };
+  if (segs.length > 0 && isProjectOwnTop(ctx, segs[0]!)) {
     return { ok: false, error: pathRejected(shown, `${segs[0]!} holds the project's own files, not asset sources`) };
   }
   let realRoot: string;
@@ -1023,7 +1023,7 @@ export function resolveProjectFile(
   if (!within(realRoot, real)) {
     return { ok: false, error: pathRejected(shown, `${shown} resolves outside the game folder (symlinks may not leave it)`) };
   }
-  if (!root && (dataRoot ? PROJECT_OWN_ENTRIES.has(real.slice(realRoot.length + 1).split(sep)[0] ?? '') : within(realProject, real))) {
+  if (!root && (dataRoot ? PROJECT_OWN_ENTRIES.has((real.slice(realRoot.length + 1).split(sep)[0] ?? '').toLowerCase()) : within(realProject.toLowerCase(), real.toLowerCase()))) {
     return { ok: false, error: pathRejected(shown, `${shown} resolves into the project's own files`) };
   }
   let st;

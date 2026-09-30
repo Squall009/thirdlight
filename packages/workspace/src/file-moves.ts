@@ -20,7 +20,7 @@ import { join } from 'node:path';
 import type { CommandError, FileMove, FolderMove, MoveResourcesChange, PreparedMoves } from '@thirdlight/commands';
 import { validateCreateFolderArgs, validateMoveResourcesArgs, validateRenameFolderArgs } from '@thirdlight/commands';
 
-import { assetRoot, checkGamePath, fileOfRecord, gamePathTaken, isGameFolder, moveGameFile, type RecordLike } from './asset-files';
+import { assetRoot, checkAssetFolder, checkGamePath, fileOfRecord, gamePathTaken, isGameFolder, moveGameFile, type RecordLike } from './asset-files';
 import type { ContentContext } from './content-store';
 import { pathRejected } from './errors';
 import type { ProjectIndex } from './project-index';
@@ -112,6 +112,9 @@ function moveFolders(ctx: ContentContext, state: V4State, index: ProjectIndex | 
     const from = f.from!;
     const dest = f.to!;
     if (!isGameFolder(ctx, from)) return refused(from, `${from} is not a folder of the game folder`);
+    // The source is vetted like a destination: a hidden folder, .git/ or the project's own files never move (nor are emptied).
+    const source = checkAssetFolder(ctx, from);
+    if (!source.ok) return source;
     if (dest === from) return refused(dest, `${from} is already called ${lastSegment(dest)}`);
     if (within(dest, from)) return refused(dest, `${from} cannot move into itself`);
     const ok = checkGamePath(ctx, `${dest}/-`);
