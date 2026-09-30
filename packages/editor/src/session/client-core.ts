@@ -76,7 +76,7 @@ export interface ClientUiState {
 /** One folder of the game folder, as the import-from-project-folder picker shows it. */
 export interface ProjectFileListing {
   dir: string;
-  entries: Array<{ name: string; path: string; kind: 'dir' | 'model' | 'audio' | 'texture' | 'music' | 'font'; byteLength?: number }>;
+  entries: Array<{ name: string; path: string; kind: 'dir' | 'model' | 'audio' | 'texture' | 'font'; byteLength?: number }>;
   truncated: boolean;
 }
 

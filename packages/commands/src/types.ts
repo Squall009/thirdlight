@@ -1439,6 +1439,10 @@ export interface SetAssetOptionsArgs {
   clipsFor?: string | null;
   /** The asset file's path in the game folder (any kind): a file moved there keeps its asset and every reference to it. */
   sourcePath?: string;
+  /** Audio only: how the game holds the file (null = the default for its length). */
+  loadType?: 'decode-on-load' | 'decode-while-playing' | 'stream' | null;
+  /** Audio only: read with the scene that uses it (true, the default) or only when played. */
+  preload?: boolean;
 }
 
 export interface SetTransformArgs {
@@ -1907,6 +1911,11 @@ export interface AssetSummary {
   packedFrom?: { encoding: 'color' | 'normal' | 'data'; sources: string[] };
   /** Texture only: the current version's image facts (a KTX2's codec and mip levels; a texture array's layers). */
   image?: { format: string; width: number; height: number; codec?: 'etc1s' | 'uastc'; levels?: number; layers?: number };
+  /**
+   * Audio only: the current version's facts, how the game holds it (defaults
+   * applied; `loadTypeSet`: the user chose it) and what a browser does not play.
+   */
+  audio?: import('@thirdlight/project-model').AudioSummary;
   /** Model only: `tint` = COLOR_0 multiplies the albedo (absent = shader data). */
   vertexColors?: 'tint';
   /** Model only: the default material mapping of every placement. */

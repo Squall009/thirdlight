@@ -87,7 +87,7 @@ describe('buildPlayContentM3 (the v3 play artifact set)', () => {
       const artifact = byPath.get(asset.path);
       expect(artifact, `artifact for ${asset.path}`).toBeDefined();
       if (asset.kind === 'model') expect(artifact?.contentType).toBe('model/gltf-binary');
-      if (asset.kind === 'audio') expect(artifact?.contentType).toBe('audio/wav');
+      if (asset.kind === 'audio') expect(artifact?.contentType).toBe('audio/x-audio');
       // The artifact bytes re-hash to the declared digest.
       expect(sha256Hex(artifact!.bytes)).toBe(asset.sourceDigest);
     }

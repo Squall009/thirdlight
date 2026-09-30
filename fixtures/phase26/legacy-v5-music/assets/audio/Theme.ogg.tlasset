@@ -1,0 +1,17 @@
+{
+  "tlasset": 2,
+  "id": "theme",
+  "kind": "music",
+  "importSettings": {},
+  "labels": [],
+  "address": null,
+  "record": {
+    "assetId": "theme",
+    "kind": "music",
+    "displayName": "Theme",
+    "currentVersion": 1,
+    "versions": [
+      {"version":1,"sourceDigest":"848f18a84894c53b26fb10b9df3b9cb86198eccdacec47fbdc4f60d061d7246d","sourceByteLength":12939,"sourcePath":"assets/audio/Theme.ogg","importRecipe":{"profile":"music","recipeVersion":1,"toolchain":{"asset-pipeline":"0.1.0"}},"metrics":{"format":"ogg-vorbis","channels":2,"sampleRate":44100,"durationMs":3000},"importedAt":"2026-09-30T03:21:20Z","publishedRevision":1}
+    ]
+  }
+}

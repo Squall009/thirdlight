@@ -12,31 +12,6 @@ import type { AssetMetrics, ImportRecipe } from '@thirdlight/project-model';
 
 export type { AssetMetrics, ImportRecipe };
 
-/**
- * The `pcm-wav` recipe member of `ImportRecipeV3`.
- * `profile`/`recipeVersion`/`toolchain` only — no `extensions` key (a WAV has
- * no glTF extensions).
- */
-export interface PcmWavRecipe {
-  readonly profile: 'pcm-wav';
-  readonly recipeVersion: 1;
-  readonly toolchain: Readonly<Record<string, string>>;
-}
-
-/** The bounded PCM-WAV metrics member (exact key order). */
-export interface PcmWavMetrics {
-  readonly container: 'riff-wave';
-  readonly encoding: 'pcm-s16le';
-  readonly channels: 1;
-  readonly sampleRate: 48_000;
-  readonly bitsPerSample: 16;
-  readonly frames: number;
-  readonly durationMs: number;
-  readonly pcmBytes: number;
-  readonly dataChunkBytes: number;
-  readonly riffChunkBytes: number;
-}
-
 /** The stable diagnostic code set (closed). */
 export type ImportDiagnosticCode =
   | 'asset_size_exceeded'
@@ -116,8 +91,7 @@ export type ImportLimitName =
   // Skinned model caps
   | 'skins'
   | 'skin_joints'
-  | 'morph_targets'
-  | 'audio_pcm_bytes';
+  | 'morph_targets';
 
 /**
  * One import diagnostic. `path` is a JSON Pointer into the GLB JSON chunk
@@ -272,72 +246,16 @@ export type PrepareImportOptions = ImportOptions & { readonly job: ImportJobPort
 
 /**
  * The persistable proposal facts the metadata digest is taken over — the same
- * shape for a `gltf-glb` and a `pcm-wav` proposal. Job identity, stage id,
+ * shape for a `gltf-glb` and an `audio` proposal. Job identity, stage id,
  * expiry, display name and the non-persistent `inspection` lists are excluded.
  */
 export interface ImportMetadataFacts {
   readonly status: 'ok' | 'rejected';
   readonly sourceDigest: string;
   readonly sourceByteLength: number;
-  readonly importRecipe: ImportRecipe | PcmWavRecipe;
+  readonly importRecipe: ImportRecipe | import('./inspect-audio').AudioRecipe;
   readonly kind?: string;
   readonly metrics?: unknown;
 }
 
-// --- audio (`inspectAudio`) -----------------------------
 
-/** Audio stage 12: the bounded inspection summary (no sample data). */
-export interface AudioImportInspection {
-  readonly container: 'riff-wave';
-  readonly encoding: 'pcm-s16le';
-  /** The two accepted chunk ids, in order (`fmt `, `data`). */
-  readonly chunkIds: readonly string[];
-  readonly frames: number;
-  readonly durationMs: number;
-}
-
-/** The caps applied to this proposal, plus the injected job budget. */
-export interface AudioImportLimits {
-  readonly profile: 'pcm-wav';
-  readonly recipeVersion: 1;
-  readonly sourceFileBytes: number;
-  readonly pcmBytes: number;
-  readonly timeoutMs: number;
-  readonly caps: Readonly<Record<string, number>>;
-}
-
-/**
- * The bounded result of `inspectAudio`. Transient,
- * non-authoritative and never persisted — bytes in, a proposal out.
- */
-export interface AudioImportProposal {
-  readonly proposalId: string;
-  readonly stageId: string;
-  /** 64 lowercase hex SHA-256 of the supplied bytes. */
-  readonly sourceDigest: string;
-  readonly sourceByteLength: number;
-  readonly status: 'ok' | 'rejected';
-  /** Present exactly when `status === 'ok'` (the bytes alone decide). */
-  readonly kind?: 'audio';
-  readonly importRecipe: PcmWavRecipe;
-  /** Present exactly when `status === 'ok'`. */
-  readonly metrics?: PcmWavMetrics;
-  readonly suggestedDisplayName: string;
-  readonly inspection: AudioImportInspection;
-  /** At most `M2_GLTF_MAX_DIAGNOSTICS` entries. */
-  readonly diagnostics: readonly ImportDiagnostic[];
-  readonly diagnosticCount: number;
-  readonly expiresAt: string;
-  readonly limits: AudioImportLimits;
-}
-
-/** Options of `inspectAudio` (mirrors {@link ImportOptions} for the WAV profile). */
-export interface AudioImportOptions {
-  readonly profile: 'pcm-wav';
-  readonly recipeVersion: 1;
-  /** Exactly `{ "asset-pipeline": "<the repository pin>" }`. */
-  readonly toolchain: Readonly<Record<string, string>>;
-  /** Injected job port (cancellation/deadline); optional in pure mode. */
-  readonly job?: ImportJobPort;
-  readonly displayName?: string;
-}

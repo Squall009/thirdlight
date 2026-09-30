@@ -1,0 +1,19 @@
+{
+  "op": "setComponent",
+  "projectId": "legacy-v5-music",
+  "expectedRevision": 2,
+  "requestId": "req-c2a1693495f7ec5d8a76e9d2a18cafd6",
+  "origin": {
+    "kind": "mcp",
+    "clientId": "fixture"
+  },
+  "args": {
+    "entityId": "box-000001",
+    "component": "audioSource",
+    "value": {
+      "assetId": "rain",
+      "volume": 0.8,
+      "range": 12
+    }
+  }
+}

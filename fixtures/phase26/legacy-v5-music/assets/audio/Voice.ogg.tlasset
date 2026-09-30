@@ -1,0 +1,17 @@
+{
+  "tlasset": 2,
+  "id": "voice",
+  "kind": "music",
+  "importSettings": {},
+  "labels": [],
+  "address": null,
+  "record": {
+    "assetId": "voice",
+    "kind": "music",
+    "displayName": "Voice",
+    "currentVersion": 1,
+    "versions": [
+      {"version":1,"sourceDigest":"051f3283d9999cd2359eb5eb46cc6ba90a4e521ef9a3b5e81fc8c21ca87990a5","sourceByteLength":9722,"sourcePath":"assets/audio/Voice.ogg","importRecipe":{"profile":"music","recipeVersion":1,"toolchain":{"asset-pipeline":"0.1.0"}},"metrics":{"format":"ogg-opus","channels":2,"sampleRate":48000,"durationMs":1000},"importedAt":"2026-09-30T03:21:20Z","publishedRevision":1}
+    ]
+  }
+}

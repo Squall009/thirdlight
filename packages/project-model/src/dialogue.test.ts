@@ -125,14 +125,14 @@ describe('dialogue validation and compile', () => {
     expect(paths).toEqual(expect.arrayContaining(['/graph/nodes/1/data/condition', '/graph/nodes/2/data/effects', '/graph/nodes/3/data/speaker', '/graph/nodes/5/data/name']));
   });
 
-  it('references: speakers exist, voice is audio or music, portraits are textures, jumps name a dialogue and entry, settings name a document and theme', () => {
+  it('references: speakers exist, voice is an audio asset, portraits are textures, jumps name a dialogue and entry, settings name a document and theme', () => {
     const d = doc([
       { id: 'start', type: 'start', position: [0, 0] },
       { id: 'l', type: 'line', position: [0, 100], data: { speaker: 'ghost', voice: 'tex' } },
       { id: 'n', type: 'line', position: [0, 200], data: { speaker: '$who', voice: 'song' } },
       { id: 'j', type: 'jump', position: [0, 300], data: { dialogue: 'talk', entry: 'nowhere' } },
     ]);
-    const kinds: Record<string, string> = { tex: 'texture', song: 'music', beep: 'audio' };
+    const kinds: Record<string, string> = { tex: 'texture', song: 'audio', beep: 'audio' };
     const errors: ModelErrorV2[] = [];
     validateDialogueReferences(
       { dialogues: [d], speakers: [{ speakerId: 'a', name: 'A', portraits: { neutral: 'song' }, blip: 'tex' }], dialogueSettings: { document: 'nope', theme: 'nope' }, uiDocuments: [], uiThemes: [] },

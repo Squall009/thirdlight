@@ -16,6 +16,7 @@
  * adapter imports); the default subpath is the executable
  * bootstrap (the owner-deployment entry point).
  */
+import { audioPlaybackProblems } from './audio-gaps';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { existsSync, mkdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -617,6 +618,7 @@ export function createBackend(
   ): void => {
     // Materials are checked again after a change that can change what they compile to.
     if (changeReachesMaterials(change)) scheduleMaterialCheck(projectId);
+    for (const line of audioPlaybackProblems(change)) recordProblem(projectId, 'import', 'audio_browser_support', line);
     const s = sessions.sessionForProject(projectId);
     if (!s || !s.connected || !s.socket) return;
     // A full-state/change frame never carries GLB or source bytes.

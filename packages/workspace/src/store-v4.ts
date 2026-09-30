@@ -55,6 +55,7 @@ import {
   PROJECT_SCHEMA_VERSION_V24,
   PROJECT_SCHEMA_VERSION_V25,
   isUpgradedProjectSchemaVersion,
+  upgradeAudioAssets,
   upgradeProjectDocsV24,
   upgradeProjectDocsV25,
   parseDocumentBytes,
@@ -477,6 +478,14 @@ export function loadV4(ops: WriteOps, dir: string, projectId: string, gameRoot: 
     contentDoc = u.content;
     docs = u.scenes;
     upgraded = { documents: true, notes: [...(upgraded?.notes ?? [`the project was upgraded from project schemaVersion ${PROJECT_SCHEMA_VERSION_V24} to ${PROJECT_SCHEMA_VERSION_V25}`]), ...u.notes] };
+  }
+  // One audio kind: a `music` record (and a record of the fixed short-sound profile) becomes `audio`, its id kept.
+  const audio = upgradeAudioAssets(contentDoc);
+  if (audio.upgraded.length > 0) {
+    contentDoc = audio.content;
+    const note = `${audio.upgraded.length} audio asset record${audio.upgraded.length === 1 ? '' : 's'} took the one audio kind (ids kept): ${audio.upgraded.slice(0, 8).join(', ')}${audio.upgraded.length > 8 ? ', …' : ''}`;
+    upgraded = { ...(upgraded ?? { notes: [] }), documents: true };
+    upgraded.notes = [...upgraded.notes, note];
   }
   // A 4 (or older, just upgraded to 4) becomes 5 at the open, which writes its asset files (upgrade-assets.ts).
   if (isUpgradedProjectSchemaVersion(fromVersion)) {

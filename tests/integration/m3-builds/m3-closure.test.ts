@@ -29,7 +29,7 @@ describe('B19 the M3 shared closure derives the v2 manifest from one capture', (
     expect(c.assetArtifacts).toHaveLength(2);
     const byKind = new Map(c.assetArtifacts.map((a) => [a.contentType, a]));
     expect(byKind.get('model/gltf-binary')).toBeDefined();
-    expect(byKind.get('audio/wav')).toBeDefined();
+    expect(byKind.get('audio/x-audio')).toBeDefined();
     // The artifact path is the digest address (content/sha256/<digest>), and
     // the emitted bytes match the declared digest (the read is digest-verified
     // at the source; the export re-verifies the emitted bytes too).

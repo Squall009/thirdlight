@@ -1,0 +1,24 @@
+{
+  "storageVersion": 5,
+  "type": "project-content",
+  "projectId": "legacy-v5-music",
+  "revision": 1,
+  "content": {
+    "assets": [],
+    "settings": {},
+    "behaviorTrust": {
+      "entries": []
+    },
+    "scenes": [
+      {"sceneId":"scene-main","name":"Main"}
+    ],
+    "startScenes": ["scene-main"]
+  },
+  "retry": {
+    "recordVersion": 2,
+    "retention": 128,
+    "records": [
+      {"requestId":"req-5c69676d4ba1e475d8fc3e7423ac16fc","digest":"bdc013fec3b9e85b3dc754418e14de9ed696210bcfb5583755e078f3e3741c3a","appliedRevision":1,"result":{"ok":true,"op":"importAssets","projectId":"legacy-v5-music","requestId":"req-5c69676d4ba1e475d8fc3e7423ac16fc","revision":1,"duplicated":false,"change":{"type":"importAssets","folder":"assets/audio","added":[{"assetId":"hit","kind":"audio","displayName":"Hit","currentVersion":1,"versions":[{"version":1,"sourceDigest":"d35c4783875779e693e3b58cfdd2c14d006885c586e261f7a05fae7ee28cfeb8","sourceByteLength":9644,"sourcePath":"assets/audio/Hit.wav","importRecipe":{"profile":"pcm-wav","recipeVersion":1,"toolchain":{"asset-pipeline":"0.1.0"}},"metrics":{"container":"riff-wave","encoding":"pcm-s16le","channels":1,"sampleRate":48000,"bitsPerSample":16,"frames":4800,"durationMs":100,"pcmBytes":9600,"dataChunkBytes":9600,"riffChunkBytes":9636},"importedAt":"2026-09-30T03:21:20Z","publishedRevision":1}]},{"assetId":"rain","kind":"music","displayName":"Rain","currentVersion":1,"versions":[{"version":1,"sourceDigest":"b385f05230c55707b75eb19f26af1e938b0baf43213cccd9bd6ee88699909cce","sourceByteLength":288044,"sourcePath":"assets/audio/Rain.wav","importRecipe":{"profile":"music","recipeVersion":1,"toolchain":{"asset-pipeline":"0.1.0"}},"metrics":{"format":"wav","channels":1,"sampleRate":48000,"durationMs":3000},"importedAt":"2026-09-30T03:21:20Z","publishedRevision":1}]},{"assetId":"theme","kind":"music","displayName":"Theme","currentVersion":1,"versions":[{"version":1,"sourceDigest":"848f18a84894c53b26fb10b9df3b9cb86198eccdacec47fbdc4f60d061d7246d","sourceByteLength":12939,"sourcePath":"assets/audio/Theme.ogg","importRecipe":{"profile":"music","recipeVersion":1,"toolchain":{"asset-pipeline":"0.1.0"}},"metrics":{"format":"ogg-vorbis","channels":2,"sampleRate":44100,"durationMs":3000},"importedAt":"2026-09-30T03:21:20Z","publishedRevision":1}]},{"assetId":"voice","kind":"music","displayName":"Voice","currentVersion":1,"versions":[{"version":1,"sourceDigest":"051f3283d9999cd2359eb5eb46cc6ba90a4e521ef9a3b5e81fc8c21ca87990a5","sourceByteLength":9722,"sourcePath":"assets/audio/Voice.ogg","importRecipe":{"profile":"music","recipeVersion":1,"toolchain":{"asset-pipeline":"0.1.0"}},"metrics":{"format":"ogg-opus","channels":2,"sampleRate":48000,"durationMs":1000},"importedAt":"2026-09-30T03:21:20Z","publishedRevision":1}]}],"removed":[]},"history":{"undoDepth":1,"redoDepth":0},"sceneId":"scene-main"}}
+    ]
+  }
+}

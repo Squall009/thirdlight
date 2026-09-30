@@ -40,7 +40,7 @@ export interface TimelineDocumentProps {
   timelineId: string;
   timelines: readonly TimelineAsset[];
   entities: readonly TimelineEntityLike[];
-  /** Audio and music assets (audio keys). */
+  /** The audio assets (audio keys). */
   sounds: readonly { assetId: string; name: string }[];
   effects: readonly { id: string; name: string }[];
   /** The project's input action names (wait keys, the skip action). */

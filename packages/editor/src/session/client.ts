@@ -382,8 +382,8 @@ export class SessionClient extends SessionClientCore {
   }
 
   /** `POST /content/stages` + the bounded frame PUTs + the inspect (within the upload bounds).
-   * `kind` selects the inspector (`'audio'` = the bounded
-   * PCM-WAV inspector; absent = the GLB inspector)
+   * `kind` selects the inspector (`'audio'` = the audio header
+   * inspector, any format and length; absent = the GLB inspector)
    * and `animation` requests the role-aware animated GLB profile (stages 3–6
    * validate the bindings against the staged bytes' real clip list). */
   /**
@@ -514,7 +514,7 @@ export class SessionClient extends SessionClientCore {
     options: {
       target?: ImportTarget;
       displayName?: string | null;
-      kind?: 'model' | 'audio' | 'texture' | 'music' | 'font';
+      kind?: 'model' | 'audio' | 'texture' | 'font';
       animation?: { entityId: string; roles: unknown };
       /** A texture encoded to KTX2 on import (or as data). */
       ktx2?: 'color' | 'normal' | 'data';
@@ -659,7 +659,7 @@ export class SessionClient extends SessionClientCore {
    */
   async importProjectFile(
     sourcePath: string,
-    options: { target: ImportTarget; kind: 'model' | 'audio' | 'texture' | 'music' | 'font'; displayName?: string; ktx2?: 'color' | 'normal' | 'data'; onState?: (s: AssetImportState) => void },
+    options: { target: ImportTarget; kind: 'model' | 'audio' | 'texture' | 'font'; displayName?: string; ktx2?: 'color' | 'normal' | 'data'; onState?: (s: AssetImportState) => void },
   ): Promise<{ ok: true; proposal: ImportProposal } | { ok: false; error: { code: string; message: string } }> {
     let state = beginProjectFileImport(initialImportState, options.target, sourcePath);
     const emit = (): void => options.onState?.(state);

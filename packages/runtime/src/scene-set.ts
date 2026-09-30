@@ -274,7 +274,7 @@ export function modelBoundsFromAssetRows(rows: readonly { assetId: string; kind?
 }
 
 /**
- * The recorded durations a manifest's audio and music rows
+ * The recorded durations a manifest's audio rows
  * carry (`durationMs`), for `RuntimeSnapshot.audioDurations` — `undefined`
  * when none has one (the snapshot stays as it was).
  */
@@ -283,7 +283,7 @@ export function audioDurationsFromAssetRows(rows: readonly { assetId: string; ki
   let any = false;
   for (const r of rows ?? []) {
     const ms = r.durationMs;
-    if ((r.kind !== 'audio' && r.kind !== 'music') || typeof ms !== 'number' || !Number.isInteger(ms) || ms < 1 || ms > 3_600_000) continue;
+    if (r.kind !== 'audio' || typeof ms !== 'number' || !Number.isSafeInteger(ms) || ms < 1) continue;
     out[r.assetId] = ms;
     any = true;
   }

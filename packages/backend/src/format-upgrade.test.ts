@@ -257,3 +257,91 @@ describe('a schemaVersion 4 project with stored asset versions opened over HTTP'
     expect(shipped).not.toContain(v1.sourceDigest);
   }, 120_000);
 });
+
+/**
+ * One audio kind. A schemaVersion 5 project written before it
+ * (`fixtures/phase26/legacy-v5-music`, made by that engine's folder import:
+ * an Ogg Vorbis, an Ogg Opus and a 3 s WAV as `music`, a short WAV of the
+ * fixed short-sound profile as `audio`, an object whose audio source plays
+ * the long WAV) opens over HTTP with every record `audio`, ids and files
+ * kept; the sidecars are written back with their load settings, the audio
+ * source still plays its file, the recorded command replays, and Play's
+ * manifest carries each file's load settings. The v4 fixture's short-sound
+ * record comes through the same upgrade.
+ */
+describe('a project with music and short-sound records opened over HTTP', () => {
+  const REPO = resolve(import.meta.dirname, '..', '..', '..');
+  let tb: TestBackend;
+  let exportRoot: string;
+  const dir = (id: string): string => join(tb.root, 'data', 'projects', id);
+  const sidecar = (id: string, f: string): Record<string, unknown> => JSON.parse(readFileSync(join(dir(id), 'assets', ...f.split('/')) + '.tlasset', 'utf8')) as Record<string, unknown>;
+  type Rec = { assetId: string; kind: string; versions: { sourcePath?: string; importRecipe: { profile: string }; metrics: Record<string, unknown> }[] };
+
+  beforeAll(async () => {
+    exportRoot = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'tl-audio-upgrade-export-'));
+    tb = await startBackend({ tokens: [], exportRoot, engineRoot: REPO });
+    for (const id of ['legacy-v5-music', 'legacy-v4-assets']) cpSync(join(REPO, 'fixtures', 'phase26', id), dir(id), { recursive: true });
+  });
+  afterAll(async () => {
+    await tb.teardown();
+    rmSync(exportRoot, { recursive: true, force: true });
+  });
+
+  it('makes every music and short-sound record audio, ids and files kept, and replays', async () => {
+    const ID = 'legacy-v5-music';
+    const before = new Map(['audio/Theme.ogg', 'audio/Voice.ogg', 'audio/Rain.wav', 'audio/Hit.wav'].map((f) => [f, readFileSync(join(dir(ID), 'assets', ...f.split('/')))]));
+    const r = await api(`${tb.authUrl}/api/v1/sessions`, { body: { projectId: ID, sessionId: mkSessionId(), clientInfo: { kind: 'browser', label: 'audio-upgrade' } }, token: tb.adminToken });
+    expect(r.status, JSON.stringify(r.json)).toBe(200);
+    // One new revision for the upgrade (the files were at 3).
+    expect((r.json as { revision: number }).revision).toBe(4);
+
+    const expected: Record<string, [string, Record<string, unknown>, Record<string, unknown>]> = {
+      'audio/Theme.ogg': ['theme', { format: 'ogg-vorbis', channels: 2, sampleRate: 44100, durationMs: 3000 }, { loadType: 'decode-on-load', preload: true }],
+      'audio/Voice.ogg': ['voice', { format: 'ogg-opus', channels: 2, sampleRate: 48000, durationMs: 1000 }, { loadType: 'decode-on-load', preload: true }],
+      'audio/Rain.wav': ['rain', { format: 'wav', channels: 1, sampleRate: 48000, bitsPerSample: 16, durationMs: 3000 }, { loadType: 'decode-on-load', preload: true }],
+      'audio/Hit.wav': ['hit', { format: 'wav', channels: 1, sampleRate: 48000, bitsPerSample: 16, durationMs: 100 }, { loadType: 'decode-on-load', preload: true }],
+    };
+    for (const [file, [id, metrics, settings]] of Object.entries(expected)) {
+      const doc = sidecar(ID, file);
+      expect(doc, file).toMatchObject({ tlasset: 2, id, kind: 'audio', importSettings: settings });
+      const rec = doc['record'] as Rec;
+      expect(rec, file).toMatchObject({ assetId: id, kind: 'audio', versions: [{ sourcePath: `assets/${file}`, importRecipe: { profile: 'audio' } }] });
+      expect(rec.versions[0]!.metrics, file).toEqual(metrics);
+      // The file itself is untouched.
+      expect(readFileSync(join(dir(ID), 'assets', ...file.split('/'))).equals(before.get(file)!)).toBe(true);
+    }
+    // The audio source still plays its file; the upgrade is reported where the user and MCP look.
+    const scene = JSON.parse(readFileSync(join(dir(ID), 'scenes', 'scene-main.json'), 'utf8')) as { scene: { entities: { components: Record<string, unknown> }[] } };
+    expect(scene.scene.entities.some((e) => (e.components['audioSource'] as { assetId?: string } | undefined)?.assetId === 'rain')).toBe(true);
+    const problems = await api(`${tb.authUrl}/api/v1/projects/${ID}/problems`, { method: 'GET', token: tb.adminToken, origin: null });
+    const upgraded = (problems.json as { problems: { code: string; message: string }[] }).problems.filter((p) => p.code === 'project_upgraded');
+    expect(upgraded.map((p) => p.message).join('\n')).toContain('4 audio asset records took the one audio kind');
+
+    // The last recorded command, sent again, replays its recorded result.
+    const replay = JSON.parse(readFileSync(join(REPO, 'fixtures', 'phase26', ID, 'replay.json'), 'utf8')) as Record<string, unknown>;
+    const again = await api(`${tb.authUrl}/api/v1/projects/${ID}/commands`, { body: replay, token: tb.adminToken, origin: null });
+    expect(again.status, JSON.stringify(again.json)).toBe(200);
+    expect(again.json).toMatchObject({ ok: true, duplicated: true, revision: 3, requestId: replay['requestId'] });
+
+    // The file check finds nothing to do; a second open changes nothing.
+    const check = await api(`${tb.authUrl}/api/v1/projects/${ID}/content/files/check`, { body: {}, token: tb.adminToken, origin: null });
+    expect(check.status, JSON.stringify(check.json)).toBe(200);
+    expect((check.json as { check: { reimported: unknown[]; failed: unknown[]; sidecarProblems: unknown[] } }).check).toMatchObject({ reimported: [], failed: [], sidecarProblems: [] });
+
+    // The export's manifest carries each audio file's load settings for the runtime's audio loading.
+    const exported = await api(`${tb.authUrl}/api/v1/admin/projects/${ID}/export`, { body: {}, token: tb.adminToken, origin: null });
+    expect(exported.status, JSON.stringify(exported.json)).toBe(200);
+    const out = join(exportRoot, String((exported.json as { outputDir: string }).outputDir));
+    const manifest = JSON.parse(readFileSync(join(out, 'manifest.json'), 'utf8')) as { assets: { assetId: string; kind: string; loadType?: string; preload?: boolean; durationMs?: number }[] };
+    expect(manifest.assets.find((a) => a.assetId === 'rain')).toMatchObject({ kind: 'audio', loadType: 'decode-on-load', preload: true, durationMs: 3000 });
+  }, 120_000);
+
+  it("turns the v4 project's short-sound record into audio on the same open that writes its files", async () => {
+    const ID = 'legacy-v4-assets';
+    const r = await api(`${tb.authUrl}/api/v1/sessions`, { body: { projectId: ID, sessionId: mkSessionId(), clientInfo: { kind: 'browser', label: 'audio-upgrade-v4' } }, token: tb.adminToken });
+    expect(r.status, JSON.stringify(r.json)).toBe(200);
+    const doc = sidecar(ID, 'Beep.wav');
+    expect(doc).toMatchObject({ id: 'beep', kind: 'audio', importSettings: { loadType: 'decode-on-load', preload: true } });
+    expect((doc['record'] as Rec).versions[0]!.metrics).toEqual({ format: 'wav', channels: 1, sampleRate: 48000, bitsPerSample: 16, durationMs: 100 });
+  }, 60_000);
+});

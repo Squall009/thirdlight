@@ -258,7 +258,7 @@ export function validateRuntimeSnapshot(
     }
     modelBounds = mb as Record<string, ModelBounds>;
   }
-  // The optional v4 audio durations (assetId -> the audio/music asset's recorded length, ms).
+  // The optional v4 audio durations (assetId -> the audio asset's recorded length, ms; any length).
   let audioDurations: Readonly<Record<string, number>> = {};
   if (snap.audioDurations !== undefined) {
     const bad = (message: string): { error: RuntimeError } => ({ error: { code: 'snapshot_invalid', reason: 'shape', path: '/audioDurations', message } });
@@ -266,7 +266,7 @@ export function validateRuntimeSnapshot(
     const ad = snap.audioDurations as unknown;
     if (typeof ad !== 'object' || ad === null || Array.isArray(ad)) return bad('audioDurations must be an object of rows');
     for (const [k, v] of Object.entries(ad as Record<string, unknown>)) {
-      if (typeof v !== 'number' || !Number.isInteger(v) || v < 1 || v > 3_600_000) return bad(`audioDurations["${k}"] must be an integer 1..3600000 (ms)`);
+      if (typeof v !== 'number' || !Number.isSafeInteger(v) || v < 1) return bad(`audioDurations["${k}"] must be a positive integer (ms)`);
     }
     audioDurations = ad as Record<string, number>;
   }

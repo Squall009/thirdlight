@@ -15,7 +15,7 @@ import { join } from 'node:path';
 
 import { expect, test } from '@playwright/test';
 
-import { FONT_TOOLCHAIN, MUSIC_TOOLCHAIN, inspectFont, inspectMusic } from '@thirdlight/asset-pipeline';
+import { AUDIO_TOOLCHAIN, FONT_TOOLCHAIN, inspectAudio, inspectFont } from '@thirdlight/asset-pipeline';
 import { defaultResourcePath, RESOURCE_KINDS, resourceFileBytes } from '@thirdlight/workspace';
 
 import { gpuAvailable } from './browser-env.mjs';
@@ -112,12 +112,11 @@ test('a project above every old count cap opens, takes one command of each kind,
     expect(opened['ok'], JSON.stringify(opened['error'] ?? null).slice(0, 300) + problems.join('\n')).toBe(true);
     const count = async (kind: string): Promise<number> => Number((await p.query('queryIndex', { kind, limit: 1 }))['total']);
     const expected: Record<string, number> = {
-      model: over(OLD.models), texture: over(OLD.textures), audio: over(OLD.sounds), font: over(OLD.fonts), prefab: over(OLD.prefabs), behavior: over(OLD.behaviors),
+      model: over(OLD.models), texture: over(OLD.textures), audio: over(OLD.sounds) + over(OLD.music), font: over(OLD.fonts), prefab: over(OLD.prefabs), behavior: over(OLD.behaviors),
       scene: over(OLD.scenes), material: over(OLD.materials), animator: over(OLD.animators), timeline: over(OLD.timelines), ui: over(OLD.uiDocuments), uitheme: over(OLD.uiThemes),
       effect: over(OLD.effects), graph: over(OLD.graphs), library: over(OLD.libraries), envpreset: over(OLD.presets),
     };
     for (const [kind, n] of Object.entries(expected)) expect(await count(kind), kind).toBeGreaterThanOrEqual(n);
-    expect(await count('music')).toBeGreaterThan(over(OLD.music));
     expect(await count('dialogue')).toBeGreaterThan(over(OLD.dialogues));
 
     // One command of each kind, each making one more.
@@ -146,7 +145,7 @@ test('a project above every old count cap opens, takes one command of each kind,
     const folder = join(generated.dir, 'assets', 'guard-import');
     mkdirSync(folder, { recursive: true });
     const voice = opusVoice(7, 400, 'one-more');
-    expect((inspectMusic(voice, { profile: 'music', recipeVersion: 1, toolchain: MUSIC_TOOLCHAIN }) as { status: string }).status).toBe('ok');
+    expect(inspectAudio(voice, { profile: 'audio', recipeVersion: 1, toolchain: AUDIO_TOOLCHAIN }).status).toBe('ok');
     writeFileSync(join(folder, 'voice-one-more.opus'), voice);
     writeFileSync(join(folder, 'font-one-more.ttf'), readFileSync(join(REPO, 'fixtures', 'fonts', 'neutral-sans.ttf')));
     const imported = await p.command('importAssets', { folder: 'assets/guard-import' });

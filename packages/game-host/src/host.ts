@@ -378,6 +378,13 @@ export interface GameHostConfig {
   readonly inputConfig?: { actions: readonly { name: string; type: string; map: string; bindings: readonly unknown[] }[]; cursor?: { [map: string]: 'free' | 'locked' | undefined } };
   /** Each declared asset's kind (the host registers every audio asset for scripts, event cues and audio sources). */
   readonly assetKinds?: Readonly<Record<string, string>>;
+  /**
+   * Each audio asset's load settings (the manifest's rows). One decoded on
+   * load and read with its scene is read and decoded when the game starts;
+   * any other is read on first use and decoded when played. Absent for an
+   * asset: decoded on load.
+   */
+  readonly audioLoad?: Readonly<Record<string, { readonly loadType?: string; readonly preload?: boolean }>>;
   /** Where the player's settings go (localStorage in the browser; see `storage.ts`) and this game's key prefix. */
   readonly saveStorage?: SaveStorage;
   readonly saveNamespace?: string;
@@ -1144,6 +1151,12 @@ export function createGameHost(config: GameHostConfig): GameHost {
   let sources: { id: string; assetId: string; volume: number; range: number; spatial: AudioSpatialLike }[] = [];
   const liveLoops = new Set<string>();
   const musicAsked = new Set<string>();
+  /** An audio file read on first use and decoded when played (not decoded on load with its scene). */
+  const readOnUse = (assetId: string): boolean => {
+    if (config.assetKinds?.[assetId] !== 'audio') return false;
+    const load = config.audioLoad?.[assetId];
+    return load !== undefined && (load.loadType !== 'decode-on-load' || load.preload === false);
+  };
   /** The character (the first controller entity; null: none) — the legacy audio-source model hears from it. */
   let characterId: string | null | undefined;
   const serviceAudioSources = (rt: Runtime): void => {
@@ -1162,9 +1175,9 @@ export function createGameHost(config: GameHostConfig): GameHost {
         // legacy curve's shape (linear from a quarter of the range).
         if (a !== undefined) sources.push({ id: e.id, assetId: a.assetId, volume: a.volume, range: a.range, spatial: { distanceModel: a.distanceModel ?? 'linear', refDistance: Math.min(a.range, a.refDistance ?? a.range / 4), maxDistance: a.range, rolloff: a.rolloff ?? 1 } });
       }
-      // A music-kind source needs its bytes registered (once).
+      // A source whose file is read on first use needs its bytes registered (once).
       for (const s of sources) {
-        if (config.assetKinds?.[s.assetId] !== 'music' || musicAsked.has(s.assetId)) continue;
+        if (!readOnUse(s.assetId) || musicAsked.has(s.assetId)) continue;
         musicAsked.add(s.assetId);
         const path = config.assetPaths?.[s.assetId];
         if (typeof path === 'string' && config.audio.registerMusic !== undefined) {
@@ -1210,13 +1223,13 @@ export function createGameHost(config: GameHostConfig): GameHost {
 
   /** Audio sources in the panner model (the project's `audio_spatial`). */
   const panner = config.audioSpatial === 'panner';
-  /** Script sounds: execute the simulation's audio commands (music-kind assets get their bytes on first use). */
+  /** Script sounds: execute the simulation's audio commands (a file read on use gets its bytes on first use). */
   const scriptMusicAsked = new Set<string>();
   const serviceScriptAudio = (rt: Runtime): void => {
     const commands = rt.takeAudioRequests?.() ?? [];
     for (const c of commands) {
       const assetId = c.op === 'play' || c.op === 'music' ? c.assetId : null;
-      if (assetId !== null && config.assetKinds?.[assetId] === 'music' && !scriptMusicAsked.has(assetId) && !musicAsked.has(assetId)) {
+      if (assetId !== null && readOnUse(assetId) && !scriptMusicAsked.has(assetId) && !musicAsked.has(assetId)) {
         scriptMusicAsked.add(assetId);
         const path = config.assetPaths?.[assetId];
         if (typeof path === 'string' && config.audio.registerMusic !== undefined) {
@@ -1408,7 +1421,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
     // fetch-free: `readArtifact` is injected.
     if (config.assetPaths !== undefined) {
       const registered = new Set<string>();
-      const soundIds = Object.entries(config.assetKinds ?? {}).filter(([, k]) => k === 'audio').map(([id]) => id);
+      const soundIds = Object.entries(config.assetKinds ?? {}).filter(([id, k]) => k === 'audio' && !readOnUse(id)).map(([id]) => id);
       for (const assetId of soundIds) {
         if (registered.has(assetId)) continue;
         const path = config.assetPaths[assetId];

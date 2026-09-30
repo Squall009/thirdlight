@@ -539,11 +539,11 @@ export const CONTENT: readonly ContentBlockDescriptor[] = [
   {
     key: 'assets',
     label: 'Assets',
-    tooltip: 'Imported models, sounds, textures, music and fonts (their versions are written by the importer).',
+    tooltip: 'Imported models, audio, textures and fonts (their versions are written by the importer).',
     required: true,
     value: list('assets', 'Assets', 'The asset catalog.', obj('*', 'Asset', 'An imported asset.', [
       str('assetId', 'Id', 'The stable asset id.', { ...ID, required: true, readOnly: true }),
-      enm('kind', 'Kind', 'Model, audio, texture, music or font.', ASSET_KINDS, { required: true, readOnly: true }),
+      enm('kind', 'Kind', 'Model, audio, texture or font.', ASSET_KINDS, { required: true, readOnly: true }),
       str('displayName', 'Name', 'Shown in the asset browser.', { ...NAME, required: true, readOnly: true }),
       int('currentVersion', 'Version', 'The current version (the last).', { required: true, min: 1, readOnly: true }),
       list('versions', 'Versions', 'Every imported version (append-only, written by the importer).', json('*', 'Version', 'An imported version: source, recipe and metrics.', { readOnly: true }), { required: true, minItems: 1, readOnly: true }),

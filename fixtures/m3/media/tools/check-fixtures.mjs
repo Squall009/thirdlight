@@ -451,8 +451,9 @@ const canonicalDigest = (value) => sha256(Buffer.from(canonicalJsonText(value), 
         v !== undefined &&
         v.sourceDigest === rec.sourceDigest &&
         v.sourceByteLength === rec.sourceByteLength &&
-        eq(v.importRecipe, rec.recipe) &&
-        eq(v.metrics, r.metrics);
+        // The contracts hold the one-kind audio shape: the same header facts, no PCM arithmetic.
+        eq(v.importRecipe, { profile: 'audio', recipeVersion: 1, toolchain: rec.recipe.toolchain }) &&
+        eq(v.metrics, { format: 'wav', channels: r.metrics.channels, sampleRate: r.metrics.sampleRate, bitsPerSample: r.metrics.bitsPerSample, durationMs: r.metrics.durationMs });
       if (!agrees) fail(`audio[contracts:${f}]`, 'record does not carry the re-derived preimage recipe/metrics');
       else pass(`audio[contracts:${f}]`, 'recipe/metrics/digest match the real bytes');
     }

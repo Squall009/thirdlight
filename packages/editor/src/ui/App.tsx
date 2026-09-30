@@ -146,6 +146,7 @@ import type { GraphDocument, SaveSchema } from '@thirdlight/project-model';
 import { ProjectFilePicker } from './ProjectFilePicker';
 import { type SourceIssue } from '../session/asset-sources';
 import { useAssetFileCheck } from './useAssetFileCheck';
+import { useAssetOptions } from './useAssetOptions';
 import { useAssetImport } from './useAssetImport';
 import { AssetFolders } from './AssetFolders';
 import { createPreviewAudioOwner, type PreviewAudioOwner } from '../session/preview-audio';
@@ -651,7 +652,7 @@ function EditorApp(): JSX.Element {
   // The media import context the panel shows between the
   // inspect and the publish — the kind the drop decided, the inspected clip
   // names (a model proposal) and the animated-reimport obligation.
-  const mediaPendingRef = useRef<{ kind: 'model' | 'audio' | 'texture' | 'music' | 'font'; clipNames: string[] | null; referencingEntityIds: string[] } | null>(null);
+  const mediaPendingRef = useRef<{ kind: 'model' | 'audio' | 'texture' | 'font'; clipNames: string[] | null; referencingEntityIds: string[] } | null>(null);
   const [reimportRoles, setReimportRoles] = useState<Record<AnimationRoleKey, string>>({ idle: '', run: '', airborne: '' });
   const [reimportEntity, setReimportEntity] = useState('');
   const importStateRef = useRef<AssetImportState>(initialImportState);
@@ -2647,20 +2648,7 @@ function EditorApp(): JSX.Element {
     if (!c) return;
     reportFailure('Material parameters', await c.setComponent(entityId, 'materialParams', next, c.projection.revision));
   }, [reportFailure]);
-  const setAssetMaterials = useCallback(async (assetId: string, mapping: Record<string, string> | null) => {
-    const c = clientRef.current;
-    if (!c) return;
-    reportFailure('Default materials', await c.command('setAssetOptions', { assetId, materials: mapping }, c.projection.revision));
-  }, [reportFailure]);
-
-  const setVertexColors = useCallback(
-    async (assetId: string, mode: 'data' | 'tint') => {
-      const c = clientRef.current;
-      if (!c) return;
-      reportFailure('Vertex colours', await c.command('setAssetOptions', { assetId, vertexColors: mode }, c.projection.revision));
-    },
-    [reportFailure],
-  );
+  const { setAssetMaterials, setVertexColors, setAudioLoadType, setAudioPreload } = useAssetOptions(clientRef, reportFailure);
 
   // Delete an asset / a prefab definition (the backend refuses while anything uses it; one undo restores).
   const deleteAsset = useCallback(async (assetId: string) => {
@@ -3493,7 +3481,7 @@ function EditorApp(): JSX.Element {
     timeline: {
       timelines,
       entities: clientRef.current?.projection.listEntities() ?? entities,
-      sounds: assets.filter((a) => a.kind === 'audio' || a.kind === 'music').map((a) => ({ assetId: a.assetId, name: a.displayName })),
+      sounds: assets.filter((a) => a.kind === 'audio').map((a) => ({ assetId: a.assetId, name: a.displayName })),
       effects: effects.map((e) => ({ id: e.effectId, name: e.name })),
       actions: (inputConfig ?? inputDefaults).actions.map((a) => a.name),
       animators,
@@ -4269,6 +4257,8 @@ function EditorApp(): JSX.Element {
               thumbnails={assetThumbs}
               pieces={assetPieces}
               onVertexColors={(id, mode) => void setVertexColors(id, mode)}
+              onAudioLoadType={(id, t) => void setAudioLoadType(id, t)}
+              onAudioPreload={(id, v) => void setAudioPreload(id, v)}
               onDelete={(id) => void deleteAsset(id)}
               deleteError={assetDeleteError}
               importExtra={
@@ -4521,8 +4511,8 @@ function EditorApp(): JSX.Element {
                   graph={d.graph}
                   ids={dialogueSelection}
                   onEdit={(ops) => sendGraphEdit({ kind: 'dialogue', id: d.dialogueId }, ops)}
-                  // A voice clip is an audio or music asset (a voice line may be longer than an audio clip's cap).
-                  assetOptions={(k) => assets.filter((a) => (k === 'voice' ? a.kind === 'audio' || a.kind === 'music' : a.kind === k)).map((a) => ({ id: a.assetId, label: a.displayName }))}
+                  // A voice clip is an audio asset of any length.
+                  assetOptions={(k) => assets.filter((a) => (k === 'voice' ? a.kind === 'audio' : a.kind === k)).map((a) => ({ id: a.assetId, label: a.displayName }))}
                   empty={<div className="tl-inspector__empty">Select a node of “{d.name}”: a line (speaker, expression, text, voice), an option (text, condition, effects), a branch, a set, a signal…</div>}
                 />
               );

@@ -33,7 +33,7 @@
  * stays the single authority for document value rules.
  */
 
-import { isValidSourcePath, validateGraphOps, blockEditsShapeError, validateBlockType, validateCellFields, validateBlockStamp, BLOCK_LIMITS, type GraphDocument, type GraphOp, type ModelErrorV2 } from '@thirdlight/project-model';
+import { AUDIO_LOAD_TYPES, isValidSourcePath, validateGraphOps, blockEditsShapeError, validateBlockType, validateCellFields, validateBlockStamp, BLOCK_LIMITS, type GraphDocument, type GraphOp, type ModelErrorV2 } from '@thirdlight/project-model';
 import { ENTITY_FLAGS, M2_SETTINGS_KEYS, MAX_TAGS, TAG_NAME_RE, type AnimatorController, type InputConfig, type EnvironmentConfig, type LightingBake, type MaterialDef, type EffectDef } from '@thirdlight/project-model';
 
 import {
@@ -938,13 +938,22 @@ function validateSetAssetOptionsArgs(args: Record<string, unknown>):
   | { ok: true; args: SetAssetOptionsArgs }
   | { ok: false; error: CommandError } {
   for (const key of Object.keys(args)) {
-    if (key !== 'assetId' && key !== 'vertexColors' && key !== 'materials' && key !== 'clipsFor' && key !== 'sourcePath') {
-      return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(key)}`, key, 'assetId, vertexColors, materials, clipsFor, sourcePath') };
+    if (key !== 'assetId' && key !== 'vertexColors' && key !== 'materials' && key !== 'clipsFor' && key !== 'sourcePath' && key !== 'loadType' && key !== 'preload') {
+      return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(key)}`, key, 'assetId, vertexColors, materials, clipsFor, sourcePath, loadType, preload') };
     }
   }
   if (args['assetId'] === undefined) return { ok: false, error: fieldMissing('/args/assetId', 'assetId') };
   if (typeof args['assetId'] !== 'string') return { ok: false, error: fieldType('/args/assetId', args['assetId'], 'string (asset ID)') };
-  if (args['vertexColors'] === undefined && args['materials'] === undefined && args['clipsFor'] === undefined && args['sourcePath'] === undefined) return { ok: false, error: fieldMissing('/args/vertexColors', 'vertexColors, materials, clipsFor or sourcePath') };
+  if (args['vertexColors'] === undefined && args['materials'] === undefined && args['clipsFor'] === undefined && args['sourcePath'] === undefined && args['loadType'] === undefined && args['preload'] === undefined) {
+    return { ok: false, error: fieldMissing('/args/vertexColors', 'vertexColors, materials, clipsFor, sourcePath, loadType or preload') };
+  }
+  // An audio file's load settings.
+  const loadType = args['loadType'];
+  if (loadType !== undefined && loadType !== null && !(AUDIO_LOAD_TYPES as readonly unknown[]).includes(loadType)) {
+    return { ok: false, error: fieldValue('/args/loadType', loadType, '"decode-on-load", "decode-while-playing", "stream" or null', 'loadType is how the game holds an audio file (null: the default for its length)') };
+  }
+  const preload = args['preload'];
+  if (preload !== undefined && typeof preload !== 'boolean') return { ok: false, error: fieldType('/args/preload', preload, 'boolean (true: read with its scene; false: only when played)') };
   // Where the asset's file is in the game folder (a moved file keeps its asset).
   const sourcePath = args['sourcePath'];
   if (sourcePath !== undefined && !isValidSourcePath(sourcePath)) {
@@ -973,6 +982,8 @@ function validateSetAssetOptionsArgs(args: Record<string, unknown>):
       ...(materials !== undefined ? { materials: materials as Record<string, string> | null } : {}),
       ...(clipsFor !== undefined ? { clipsFor: clipsFor as string | null } : {}),
       ...(sourcePath !== undefined ? { sourcePath: sourcePath as string } : {}),
+      ...(loadType !== undefined ? { loadType: loadType as SetAssetOptionsArgs['loadType'] } : {}),
+      ...(preload !== undefined ? { preload } : {}),
     },
   };
 }

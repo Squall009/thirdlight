@@ -14,8 +14,8 @@ import { m2EnvelopeV4 } from './test-fixtures';
 
 const BEFORE = m2EnvelopeV4('contracts/commands/prefab-scenario.before.json');
 type State = CommandState<SceneV4>;
-const AUDIO_RECIPE = { profile: 'pcm-wav', recipeVersion: 1, toolchain: { 'asset-pipeline': '0.1.0' } };
-const AUDIO_METRICS = { container: 'riff-wave', encoding: 'pcm-s16le', channels: 1, sampleRate: 48000, bitsPerSample: 16, frames: 96, durationMs: 2, pcmBytes: 192, dataChunkBytes: 192, riffChunkBytes: 228 };
+const AUDIO_RECIPE = { profile: 'audio', recipeVersion: 1, toolchain: { 'asset-pipeline': '0.1.0' } };
+const AUDIO_METRICS = { format: 'wav', channels: 1, sampleRate: 48000, bitsPerSample: 16, durationMs: 2 };
 
 let counter = 0;
 function run(state: State, op: string, args: Record<string, unknown>): { state: State; result: Record<string, unknown> } {

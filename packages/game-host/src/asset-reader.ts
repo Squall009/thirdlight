@@ -237,5 +237,5 @@ export function startSceneAssets(src: StartAssetSources): DeclaredAssetRow[] {
     visit(queue.shift(), 0);
     if (queue.length === 0) followModels();
   }
-  return src.assets.filter((a) => found.has(a.assetId) && a.kind !== 'audio' && a.kind !== 'music');
+  return src.assets.filter((a) => found.has(a.assetId) && a.kind !== 'audio');
 }

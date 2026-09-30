@@ -245,80 +245,35 @@ const LOADER_HTTPS_ADDITION = 12;
 const LOADER_IDENTIFIER_MIN = 37;
 
 /**
- * WAV (RIFF/WAVE) container validation (the `audio/wav` artifact row): the
- * `RIFF`/`WAVE` markers, a `fmt ` chunk with PCM
- * (`audioFormat 1`) mono/48000/16-bit, and a `data` chunk whose declared size
- * fits the file. Pure byte processing: no I/O.
+ * Audio container validation (the `audio/x-audio` artifact row): an Ogg
+ * page, an MP3 (ID3v2 tag or an MPEG frame sync), a FLAC stream marker
+ * (after an optional ID3v2 tag), or a RIFF/WAVE that does not declare more
+ * bytes than the file has (a streamed WAV may declare 0 or 0xFFFFFFFF). No
+ * decoding.
  */
-export function scanWavContainer(bytes: Uint8Array): ContainerResult {
-  if (bytes.length < 44) return { ok: false, code: 'wav_truncated', message: 'a WAV shorter than the 44-byte canonical RIFF/WAVE header' };
-  const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const tag = (off: number): string => String.fromCharCode(bytes[off]!, bytes[off + 1]!, bytes[off + 2]!, bytes[off + 3]!);
-  if (tag(0) !== 'RIFF') return { ok: false, code: 'wav_riff', message: 'the file magic is not "RIFF"', offset: 0 };
-  const riffDeclared = dv.getUint32(4, true);
-  if (riffDeclared + 8 !== bytes.length) {
-    return { ok: false, code: 'wav_riff_length', message: `the RIFF declared length ${riffDeclared} + 8 != the file length ${bytes.length}`, offset: 4 };
-  }
-  if (tag(8) !== 'WAVE') return { ok: false, code: 'wav_wave', message: 'the form type is not "WAVE"', offset: 8 };
-  // Walk the chunks: locate the `fmt ` and `data` chunks.
-  let off = 12;
-  let fmt: { audioFormat: number; channels: number; sampleRate: number; bitsPerSample: number } | null = null;
-  let dataChunk = -1;
-  let dataLength = 0;
-  while (off + 8 <= bytes.length) {
-    const name = tag(off);
-    const size = dv.getUint32(off + 4, true);
-    const bodyStart = off + 8;
-    if (bodyStart + size > bytes.length) return { ok: false, code: 'wav_chunk_bounds', message: `a chunk (${name}) runs past the file end`, offset: off };
-    if (name === 'fmt ' && fmt === null) {
-      if (size < 16) return { ok: false, code: 'wav_fmt_short', message: 'the fmt chunk is shorter than 16 bytes', offset: off };
-      fmt = {
-        audioFormat: dv.getUint16(bodyStart, true),
-        channels: dv.getUint16(bodyStart + 2, true),
-        sampleRate: dv.getUint32(bodyStart + 4, true),
-        bitsPerSample: dv.getUint16(bodyStart + 14, true),
-      };
-    } else if (name === 'data' && dataChunk === -1) {
-      dataChunk = bodyStart;
-      dataLength = size;
-    }
-    off = bodyStart + size + (size % 2); // chunks are word-aligned
-  }
-  if (fmt === null) return { ok: false, code: 'wav_no_fmt', message: 'the container has no fmt chunk' };
-  if (fmt.audioFormat !== 1) return { ok: false, code: 'wav_format', message: `audioFormat ${fmt.audioFormat} is not PCM (1)`, offset: 20 };
-  if (fmt.channels !== 1) return { ok: false, code: 'wav_channels', message: `channels ${fmt.channels} is not mono (1)`, offset: 22 };
-  if (fmt.sampleRate !== 48000) return { ok: false, code: 'wav_sample_rate', message: `sampleRate ${fmt.sampleRate} is not 48000`, offset: 24 };
-  if (fmt.bitsPerSample !== 16) return { ok: false, code: 'wav_bits', message: `bitsPerSample ${fmt.bitsPerSample} is not 16`, offset: 34 };
-  if (dataChunk === -1) return { ok: false, code: 'wav_no_data', message: 'the container has no data chunk' };
-  if (dataLength % 2 !== 0) return { ok: false, code: 'wav_data_odd', message: 'the data chunk size is odd (s16le frames are 2-byte aligned)', offset: dataChunk - 4 };
-  return { ok: true };
-}
-
-/**
- * Music validation: an Ogg page, an MP3 (ID3v2 tag or an MPEG
- * frame sync) or a RIFF/WAVE whose RIFF length matches the file. No decoding.
- */
-export function scanMusicContainer(bytes: Uint8Array): ContainerResult {
+export function scanAudioContainer(bytes: Uint8Array): ContainerResult {
   const tag = (at: number, n: number): string => (bytes.length >= at + n ? String.fromCharCode(...bytes.subarray(at, at + n)) : '');
-  if (tag(0, 4) === 'OggS') return bytes.length >= 27 && bytes[4] === 0 ? { ok: true } : { ok: false, code: 'music_ogg_page', message: 'the Ogg page header is invalid', offset: 4 };
-  if (tag(0, 3) === 'ID3' || (bytes.length >= 4 && bytes[0] === 0xff && (bytes[1]! & 0xe0) === 0xe0)) return { ok: true };
+  if (tag(0, 4) === 'OggS') return bytes.length >= 27 && bytes[4] === 0 ? { ok: true } : { ok: false, code: 'audio_ogg_page', message: 'the Ogg page header is invalid', offset: 4 };
   if (tag(0, 4) === 'RIFF' && tag(8, 4) === 'WAVE') {
     const declared = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(4, true);
-    return declared + 8 === bytes.length ? { ok: true } : { ok: false, code: 'music_wav_length', message: 'the WAV RIFF length does not match the file', offset: 4 };
+    return declared === 0 || declared === 0xffffffff || declared + 8 <= bytes.length ? { ok: true } : { ok: false, code: 'audio_wav_length', message: `the WAV declares ${declared + 8} bytes but the file has ${bytes.length}`, offset: 4 };
   }
-  return { ok: false, code: 'music_format', message: 'not an Ogg, MP3 or WAV file', offset: 0 };
+  let at = 0;
+  if (tag(0, 3) === 'ID3' && bytes.length >= 10) at = 10 + (((bytes[6]! & 0x7f) << 21) | ((bytes[7]! & 0x7f) << 14) | ((bytes[8]! & 0x7f) << 7) | (bytes[9]! & 0x7f));
+  if (tag(at, 4) === 'fLaC') return { ok: true };
+  if (at > 0 || (bytes.length >= 4 && bytes[0] === 0xff && (bytes[1]! & 0xe0) === 0xe0)) return { ok: true };
+  return { ok: false, code: 'audio_format', message: 'not an Ogg, MP3, WAV or FLAC file', offset: 0 };
 }
 
 /**
  * The container check of one declared asset artifact by its closure content
- * type (model, texture, music, font; anything else is a PCM WAV cue).
+ * type (model, texture, audio, font).
  */
 export function scanAssetContainer(contentType: string, bytes: Uint8Array): ContainerResult {
   if (contentType === 'model/gltf-binary') return scanGlbContainer(bytes);
   if (contentType === 'image/x-texture') return scanImageContainer(bytes);
-  if (contentType === 'audio/x-music') return scanMusicContainer(bytes);
   if (contentType === 'font/x-font') return scanFontContainer(bytes);
-  return scanWavContainer(bytes);
+  return scanAudioContainer(bytes);
 }
 
 /**

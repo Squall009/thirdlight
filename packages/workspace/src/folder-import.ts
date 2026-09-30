@@ -34,7 +34,7 @@ import { resourceKindOfName } from './resource-files';
 import { pathRejected } from './errors';
 import type { WriteOps } from './write';
 
-export type ImportKind = 'model' | 'audio' | 'texture' | 'music' | 'font';
+export type ImportKind = 'model' | 'audio' | 'texture' | 'font';
 
 /** One importable file of a folder. */
 export interface FolderImportFile {

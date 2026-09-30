@@ -7,7 +7,8 @@
  *   its own name and imported with the labels typed: every supported file,
  *   subfolders included, is an asset named after its file; what no importer
  *   takes is reported;
- * - a folder already in the game folder is imported the same way;
+ * - a folder already in the game folder is imported the same way, a long WAV
+ *   as the one audio kind like a short one;
  * - after a reload the assets are listed with their labels and files.
  */
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -22,6 +23,26 @@ const REPO = resolve(import.meta.dirname, '..', '..');
 const GLB = join(REPO, 'fixtures', 'm2', 'assets', 'tiny-v1.glb');
 const OPUS = readFileSync(join(REPO, 'fixtures', 'music', 'chord-opus.ogg'));
 const WAV = readFileSync(join(REPO, 'fixtures', 'm3', 'media', 'wav', 'cue-jump.wav'));
+
+/** A mono 16-bit 48 kHz PCM WAV of `seconds` (a quiet tone). */
+function longWav(seconds: number): Buffer {
+  const samples = 48_000 * seconds;
+  const b = Buffer.alloc(44 + samples * 2);
+  b.write('RIFF', 0);
+  b.writeUInt32LE(36 + samples * 2, 4);
+  b.write('WAVEfmt ', 8);
+  b.writeUInt32LE(16, 16);
+  b.writeUInt16LE(1, 20);
+  b.writeUInt16LE(1, 22);
+  b.writeUInt32LE(48_000, 24);
+  b.writeUInt32LE(96_000, 28);
+  b.writeUInt16LE(2, 32);
+  b.writeUInt16LE(16, 34);
+  b.write('data', 36);
+  b.writeUInt32LE(samples * 2, 40);
+  for (let i = 0; i < samples; i++) b.writeInt16LE(Math.round(Math.sin(i / 20) * 2000), 44 + i * 2);
+  return b;
+}
 
 let be: E2EBackend;
 let local: string;
@@ -72,10 +93,12 @@ test('uploads land in the folder named; a picked folder and a game-folder folder
   // A folder already in the game folder.
   mkdirSync(join(be.projectDir, 'assets', 'sfx'), { recursive: true });
   writeFileSync(join(be.projectDir, 'assets', 'sfx', 'jump.wav'), WAV);
+  writeFileSync(join(be.projectDir, 'assets', 'sfx', 'rain.wav'), longWav(6));
   await page.getByLabel('folder to import').fill('assets/sfx');
   await page.getByLabel('labels').fill('sfx');
   await page.getByRole('group', { name: 'Folder import' }).getByRole('button', { name: 'import', exact: true }).click();
-  await expect(result).toContainText('imported 1 asset', { timeout: 15_000 });
+  await expect(result).toContainText('imported 2 assets', { timeout: 15_000 });
+  expect(JSON.parse(readFileSync(join(be.projectDir, 'assets', 'sfx', 'rain.wav.tlasset'), 'utf8'))).toMatchObject({ id: 'rain', kind: 'audio', importSettings: { loadType: 'decode-while-playing', preload: true } });
 
   // After a reload: the assets, their files and labels.
   await page.reload();
@@ -88,6 +111,9 @@ test('uploads land in the folder named; a picked folder and a game-folder folder
   await expect(page.locator('.tl-assets__source').first()).toHaveText('file: assets/props/voice/line-002.ogg');
   await tile(page, 'jump').click();
   await expect(page.getByTestId('asset-labels')).toHaveText('labels: sfx');
+  // One Audio kind in the list, whatever the length.
+  await expect(tile(page, 'rain').locator('.tl-tile__meta')).toContainText('audio');
+  await expect(tile(page, 'jump').locator('.tl-tile__meta')).toContainText('audio');
   await tile(page, 'tiny-v1').click();
   await expect(page.getByTestId('asset-labels')).toHaveCount(0);
   expect(errors).toEqual([]);

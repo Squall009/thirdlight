@@ -13,7 +13,7 @@ import { type SourceIssue } from '../session/asset-sources';
 import { validateMediaDrop, type AnimationRoleKey } from '../session/media';
 import { DEFAULT_UPLOAD_FOLDER } from '../session/folder-upload';
 
-type MediaKind = 'model' | 'audio' | 'texture' | 'music' | 'font';
+type MediaKind = 'model' | 'audio' | 'texture' | 'font';
 
 export interface AssetImportDeps {
   clientRef: MutableRefObject<SessionClient | null>;
@@ -41,7 +41,7 @@ export function useAssetImport(deps: AssetImportDeps) {
 
   /** After an inspect: remember the proposal and the role-mapping obligation.
    * Returns whether the publish needs no role mapping. */
-  const acceptProposal = useCallback((proposal: Parameters<typeof publishArgsFromProposal>[0], target: ImportTarget, kind: 'model' | 'audio' | 'texture' | 'music' | 'font'): boolean => {
+  const acceptProposal = useCallback((proposal: Parameters<typeof publishArgsFromProposal>[0], target: ImportTarget, kind: 'model' | 'audio' | 'texture' | 'font'): boolean => {
     const c = clientRef.current;
     if (!c) return false;
     pendingProposalRef.current = { proposal, target };

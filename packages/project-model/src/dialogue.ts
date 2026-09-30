@@ -161,7 +161,7 @@ export const DIALOGUE_GRAPH_KIND: GraphKindDef = {
         { key: 'speaker', label: 'Speaker', type: 'string', default: '', maxLength: 64 },
         { key: 'expression', label: 'Expression', type: 'string', default: '', maxLength: 32 },
         { key: 'text', label: 'Text', type: 'string', default: '', maxLength: DIALOGUE_LIMITS.textChars },
-        // `voice`: an audio or music asset (a voice line may be longer than an audio clip's cap).
+        // `voice`: an audio asset of any length.
         { key: 'voice', label: 'Voice clip', type: 'string', default: '', maxLength: 64, asset: 'voice' },
         { key: 'auto', label: 'Auto-advance', type: 'enum', options: ['default', 'on', 'off'], default: 'default' },
       ],
@@ -700,7 +700,7 @@ export function validateDialogueSettings(v: unknown, path: string, errors: Model
 /**
  * The references a project's dialogue content makes (checked on the whole
  * content): line speakers exist (or are "" / a $binding), assets have the
- * right kind (voice: audio or music; portraits: texture; blip: audio), a
+ * right kind (voice: audio; portraits: texture; blip: audio), a
  * Jump names a conversation (and one of its entries), the settings name a
  * UI document (or the engine's) and theme of the project.
  */
@@ -720,7 +720,7 @@ export function validateDialogueReferences(
         const sp = n.data?.['speaker'];
         if (typeof sp === 'string' && sp !== '' && !sp.startsWith('$') && !speakerIds.has(sp)) errors.push(withFound({ code: 'reference_missing', path: `${at}/speaker`, message: `line ${n.id} names the speaker "${sp}", which is not in content.speakers`, expected: 'a speakerId' }, sp));
         const voice = n.data?.['voice'];
-        if (typeof voice === 'string' && voice !== '' && assetKind(voice) !== 'audio' && assetKind(voice) !== 'music') errors.push(withFound({ code: 'asset_reference_missing', path: `${at}/voice`, message: `line ${n.id}'s voice clip must name an audio or music asset of this project`, expected: 'an audio or music assetId' }, voice));
+        if (typeof voice === 'string' && voice !== '' && assetKind(voice) !== 'audio') errors.push(withFound({ code: 'asset_reference_missing', path: `${at}/voice`, message: `line ${n.id}'s voice clip must name an audio asset of this project`, expected: 'an audio assetId' }, voice));
       } else if (n.type === 'jump') {
         const target = String(n.data?.['dialogue'] ?? '');
         const entry = String(n.data?.['entry'] ?? '');

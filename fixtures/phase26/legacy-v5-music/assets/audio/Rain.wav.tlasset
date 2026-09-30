@@ -1,0 +1,17 @@
+{
+  "tlasset": 2,
+  "id": "rain",
+  "kind": "music",
+  "importSettings": {},
+  "labels": [],
+  "address": null,
+  "record": {
+    "assetId": "rain",
+    "kind": "music",
+    "displayName": "Rain",
+    "currentVersion": 1,
+    "versions": [
+      {"version":1,"sourceDigest":"b385f05230c55707b75eb19f26af1e938b0baf43213cccd9bd6ee88699909cce","sourceByteLength":288044,"sourcePath":"assets/audio/Rain.wav","importRecipe":{"profile":"music","recipeVersion":1,"toolchain":{"asset-pipeline":"0.1.0"}},"metrics":{"format":"wav","channels":1,"sampleRate":48000,"durationMs":3000},"importedAt":"2026-09-30T03:21:20Z","publishedRevision":1}
+    ]
+  }
+}

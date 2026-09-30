@@ -40,7 +40,7 @@ export const HANDLE_ROLES: Readonly<Record<HandleKind, readonly (readonly string
   bounds: [['min', 'max']],
 };
 
-export const ASSET_KINDS = ['model', 'audio', 'texture', 'music', 'font'] as const;
+export const ASSET_KINDS = ['model', 'audio', 'texture', 'font'] as const;
 export type DescriptorAssetKind = (typeof ASSET_KINDS)[number];
 
 /** What an `ref` field names (besides assets, entities and scenes). */

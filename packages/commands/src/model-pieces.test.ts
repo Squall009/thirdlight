@@ -22,8 +22,8 @@ type State = CommandState<SceneV3>;
 
 const MODEL_RECIPE = { profile: 'gltf-glb', recipeVersion: 1, toolchain: { three: '0.186.0' }, extensions: [] };
 const MODEL_METRICS = { nodes: 3, meshes: 3, primitives: 3, materials: 1, images: 0, textures: 0, vertices: 72, triangles: 36, animations: 0, animationChannels: 0, clipDurationMs: 0, decodedGeometryBytes: 1000, decodedImageBytes: 0 };
-const AUDIO_RECIPE = { profile: 'pcm-wav', recipeVersion: 1, toolchain: { 'asset-pipeline': '0.1.0' } };
-const AUDIO_METRICS = { container: 'riff-wave', encoding: 'pcm-s16le', channels: 1, sampleRate: 48000, bitsPerSample: 16, frames: 96, durationMs: 2, pcmBytes: 192, dataChunkBytes: 192, riffChunkBytes: 228 };
+const AUDIO_RECIPE = { profile: 'audio', recipeVersion: 1, toolchain: { 'asset-pipeline': '0.1.0' } };
+const AUDIO_METRICS = { format: 'wav', channels: 1, sampleRate: 48000, bitsPerSample: 16, durationMs: 2 };
 
 let counter = 0;
 function run(state: State, op: string, args: Record<string, unknown>): { state: State; result: Record<string, unknown> } {
@@ -123,5 +123,24 @@ describe('setAssetOptions', () => {
     expect(run(s, 'setAssetOptions', { assetId: 'asset-sfx', vertexColors: 'tint' }).result.ok).toBe(false);
     expect(run(s, 'setAssetOptions', { assetId: 'asset-kit', vertexColors: 'red' }).result.ok).toBe(false);
     expect(run(s, 'setAssetOptions', { assetId: 'asset-kit' }).result.ok).toBe(false);
+  });
+
+  it("sets an audio file's load type and preload (the defaults stored as absence), with undo/redo", () => {
+    const s = withKit();
+    const sfx = (st: State) => (st.content as ContentDocument).assets.find((a) => a.assetId === 'asset-sfx') as { loadType?: string; preload?: boolean };
+    const streamed = ok(s, 'setAssetOptions', { assetId: 'asset-sfx', loadType: 'stream', preload: false });
+    expect(sfx(streamed.state)).toMatchObject({ loadType: 'stream', preload: false });
+    const undone = ok(streamed.state, 'undo', {}).state;
+    expect(sfx(undone).loadType).toBeUndefined();
+    expect(sfx(undone).preload).toBeUndefined();
+    expect(sfx(ok(undone, 'redo', {}).state)).toMatchObject({ loadType: 'stream', preload: false });
+    // null goes back to the default for its length; preload true is the default.
+    const back = ok(streamed.state, 'setAssetOptions', { assetId: 'asset-sfx', loadType: null, preload: true }).state;
+    expect('loadType' in sfx(back) || 'preload' in sfx(back)).toBe(false);
+    // Audio only, and only the three load types.
+    expect(run(s, 'setAssetOptions', { assetId: 'asset-kit', loadType: 'stream' }).result.ok).toBe(false);
+    expect(run(s, 'setAssetOptions', { assetId: 'asset-kit', preload: false }).result.ok).toBe(false);
+    expect(run(s, 'setAssetOptions', { assetId: 'asset-sfx', loadType: 'compressed' }).result.ok).toBe(false);
+    expect(run(s, 'setAssetOptions', { assetId: 'asset-sfx', preload: 'no' }).result.ok).toBe(false);
   });
 });

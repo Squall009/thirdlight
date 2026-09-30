@@ -26,16 +26,15 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import {
-  AUDIO_PCM_WAV_TOOLCHAIN,
+  AUDIO_TOOLCHAIN,
   IMAGE_TOOLCHAIN,
   M2_GLTF_TOOLCHAIN,
-  MUSIC_TOOLCHAIN,
   inspectAudio,
   inspectGlb,
   inspectImage,
-  inspectMusic,
 } from '@thirdlight/asset-pipeline';
 
+import { audioLoadOf } from '@thirdlight/project-model';
 import { CONTENT_STORAGE_VERSION, defaultResourcePath, RESOURCE_KINDS, resourceFileBytes } from '@thirdlight/workspace';
 
 import { sphereGlb } from './assets';
@@ -43,7 +42,7 @@ import { prng } from './generate';
 import { opusVoice, pcmWav, scalePng } from './scale-media';
 
 /** Bump when the generated content changes (it keys cached projects and recorded numbers). */
-export const SCALE_GENERATOR_VERSION = 4;
+export const SCALE_GENERATOR_VERSION = 5;
 export const SCALE_DEFAULT_SEED = 26;
 
 export interface ScaleSpec {
@@ -224,18 +223,18 @@ export function generateScaleProject(dataRoot: string, projectId: string, spec: 
   const dir = join(dataRoot, 'projects', projectId);
   rmSync(dir, { recursive: true, force: true });
   for (const d of ['scenes', '.thirdlight/recovery']) mkdirSync(join(dir, d), { recursive: true });
-  const EXT: Record<string, string> = { music: 'opus', audio: 'wav', texture: 'png', model: 'glb' };
+  const EXT: Record<string, string> = { voice: 'opus', sound: 'wav', texture: 'png', model: 'glb' };
   const seen = new Set<string>();
   const sourceBytes: Record<string, number> = { voice: 0, sound: 0, texture: 0, model: 0 };
   const assets: Record<string, unknown>[] = [];
-  const addAsset = (assetId: string, kind: 'music' | 'audio' | 'texture' | 'model', displayName: string, bytes: Uint8Array, p: Proposal, bucket: string): void => {
+  const addAsset = (assetId: string, kind: 'audio' | 'texture' | 'model', displayName: string, bytes: Uint8Array, p: Proposal, bucket: string, options: Record<string, unknown> = {}): void => {
     if (p.status !== 'ok') throw new Error(`${assetId}: the ${kind} inspector refused the generated file: ${p.diagnostics.map((d) => d.message).join('; ')}`);
     const digest = createHash('sha256').update(bytes).digest('hex');
     if (digest !== p.sourceDigest) throw new Error(`${assetId}: digest mismatch`);
     if (seen.has(digest)) throw new Error(`${assetId}: two generated files have the same bytes (${digest})`);
     seen.add(digest);
     // The file in the game folder (a data-root project is its own) and its sidecar, as an import writes them.
-    const sourcePath = `assets/${bucket}/${assetId}.${EXT[kind]!}`;
+    const sourcePath = `assets/${bucket}/${assetId}.${EXT[bucket]!}`;
     mkdirSync(join(dir, 'assets', bucket), { recursive: true });
     writeFileSync(join(dir, sourcePath), bytes);
     sourceBytes[bucket] = (sourceBytes[bucket] ?? 0) + bytes.length;
@@ -245,9 +244,10 @@ export function generateScaleProject(dataRoot: string, projectId: string, spec: 
       displayName,
       currentVersion: 1,
       versions: [{ version: 1, sourceDigest: digest, sourceByteLength: bytes.length, sourcePath, importRecipe: p.importRecipe, metrics: p.metrics, importedAt: IMPORTED_AT, publishedRevision: 0 }],
+      ...options,
     };
     // The sidecar holds the record (the project reads its assets from the sidecars).
-    writeFileSync(join(dir, `${sourcePath}.tlasset`), `${layout({ tlasset: 2, id: assetId, kind, importSettings: {}, labels: [], address: null, record })}\n`);
+    writeFileSync(join(dir, `${sourcePath}.tlasset`), `${layout({ tlasset: 2, id: assetId, kind, importSettings: kind === 'audio' ? { ...audioLoadOf(record) } : {}, labels: [], address: null, record })}\n`);
     assets.push(record);
   };
   const rnd = prng(seed * 2654435761);
@@ -259,13 +259,14 @@ export function generateScaleProject(dataRoot: string, projectId: string, spec: 
     const id = `voice-${pad(i)}`;
     const ms = i < spec.walkthroughLines ? spec.walkthroughVoiceMs : spec.voiceMinMs + Math.floor(rnd() * (spec.voiceMaxMs - spec.voiceMinMs + 1));
     const bytes = opusVoice(seedOf(), ms, id);
-    addAsset(id, 'music', `Voice ${i}`, bytes, inspectMusic(bytes, { profile: 'music', recipeVersion: 1, toolchain: MUSIC_TOOLCHAIN }) as unknown as Proposal, 'voice');
+    // A voiced game reads its lines when they are played, not with the scene (Unity: Preload Audio Data off).
+    addAsset(id, 'audio', `Voice ${i}`, bytes, inspectAudio(bytes, { profile: 'audio', recipeVersion: 1, toolchain: AUDIO_TOOLCHAIN }) as unknown as Proposal, 'voice', { preload: false });
     voiceIds.push(id);
     if ((i + 1) % 2000 === 0) log(`scale: ${i + 1} voices`);
   }
   for (let i = 0; i < spec.sounds; i++) {
     const bytes = pcmWav(seedOf(), 200 + Math.floor(rnd() * 801));
-    addAsset(`sound-${pad(i)}`, 'audio', `Sound ${i}`, bytes, inspectAudio(bytes, { profile: 'pcm-wav', recipeVersion: 1, toolchain: AUDIO_PCM_WAV_TOOLCHAIN }) as unknown as Proposal, 'sound');
+    addAsset(`sound-${pad(i)}`, 'audio', `Sound ${i}`, bytes, inspectAudio(bytes, { profile: 'audio', recipeVersion: 1, toolchain: AUDIO_TOOLCHAIN }) as unknown as Proposal, 'sound');
   }
   const textureIds: string[] = [];
   for (let i = 0; i < spec.textures; i++) {

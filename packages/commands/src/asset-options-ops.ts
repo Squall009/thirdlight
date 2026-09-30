@@ -10,6 +10,11 @@
  * clears it. The resulting-state check refuses a missing or non-model rig,
  * the asset itself and a rig that is itself clips-only.
  *
+ * `loadType` and `preload` (audio only): how the game holds the file
+ * (decode on load, decode while playing, stream; null = the default for its
+ * length) and whether it is read with its scene (true, stored as absence) or
+ * only when played.
+ *
  * `sourcePath` (any kind): where the asset's file now is in the game folder.
  * The file is the asset and the id stays, so every reference keeps working;
  * the workspace moves the file and its `.tlasset` sidecar when they are still
@@ -29,6 +34,8 @@ export function applySetAssetOptions(input: OpInput, args: SetAssetOptionsArgs):
   if (existing === undefined) return { ok: false, error: assetNotFound(args.assetId) };
   const modelOnly = args.vertexColors !== undefined || args.materials !== undefined || args.clipsFor !== undefined;
   if (modelOnly && assetKindOf(existing) !== 'model') return { ok: false, error: assetKindMismatch(args.assetId, 'model', assetKindOf(existing)) };
+  const audioOnly = args.loadType !== undefined || args.preload !== undefined;
+  if (audioOnly && assetKindOf(existing) !== 'audio') return { ok: false, error: assetKindMismatch(args.assetId, 'audio', assetKindOf(existing)) };
   const previous = deepClone(existing);
   let next: CommandAssetRecord = deepClone(existing);
   if (args.vertexColors !== undefined) {
@@ -42,6 +49,14 @@ export function applySetAssetOptions(input: OpInput, args: SetAssetOptionsArgs):
   if (args.clipsFor !== undefined) {
     const { clipsFor: _c, ...rest } = next as CommandAssetRecord & { clipsFor?: string };
     next = (args.clipsFor === null ? rest : { ...rest, clipsFor: args.clipsFor }) as CommandAssetRecord;
+  }
+  if (args.loadType !== undefined) {
+    const { loadType: _l, ...rest } = next as CommandAssetRecord & { loadType?: string };
+    next = (args.loadType === null ? rest : { ...rest, loadType: args.loadType }) as CommandAssetRecord;
+  }
+  if (args.preload !== undefined) {
+    const { preload: _p, ...rest } = next as CommandAssetRecord & { preload?: false };
+    next = (args.preload ? rest : { ...rest, preload: false }) as CommandAssetRecord;
   }
   if (args.sourcePath !== undefined) {
     const current = next.versions.find((v) => v.version === next.currentVersion);

@@ -114,12 +114,8 @@ export function rebuildFromFiles(core: Core, ctx: ContentContext, missing: reado
       problems.push({ code: 'asset_sidecar_lost', message: `asset "${id}" lost its sidecar; ${file.path} is an FBX, which is converted when imported: import it again from the Assets tab with id "${id}"` });
       continue;
     }
-    let kind: string = file.kind;
-    let r = inspectProjectFile(core, ctx, file.path, { kind: file.kind });
-    if (!r.ok && file.kind === 'audio') {
-      kind = 'music';
-      r = inspectProjectFile(core, ctx, file.path, { kind: 'music' });
-    }
+    const kind: string = file.kind;
+    const r = inspectProjectFile(core, ctx, file.path, { kind: file.kind });
     if (!r.ok) {
       problems.push({ code: 'asset_sidecar_lost', message: `asset "${id}" lost its sidecar and ${file.path} could not be imported again: ${r.error.message ?? r.error.code}` });
       continue;

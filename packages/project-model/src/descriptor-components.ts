@@ -1054,7 +1054,7 @@ export const audioSource: ComponentDescriptor = {
   tooltip: 'A looping sound here, louder as the player comes near (along X), or panned around the camera (the project\'s Audio sources setting; 3D projects).',
   category: 'Audio',
   value: obj('audioSource', 'Audio source', 'A positional loop.', [
-    asset('assetId', 'Sound', 'An audio or music asset.', ['audio', 'music'], { required: true }),
+    asset('assetId', 'Sound', 'An audio asset (any length: short sounds, music, ambience).', ['audio'], { required: true }),
     num('volume', 'Volume', 'Volume at full strength.', { required: true, min: 0, max: 1, step: 0.05, default: 0.8 }),
     num('range', 'Range', 'Heard within this distance (full volume within a quarter of it). Panned: its max distance.', { required: true, min: 0.5, max: 500, step: 0.5, unit: 'm', default: 12, handle: 'radius' }),
     // The panner model's distance fade (the project's Audio sources setting; 3D projects by default).

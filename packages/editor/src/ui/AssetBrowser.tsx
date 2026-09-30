@@ -15,6 +15,7 @@ import { ASSET_DRAG_TYPE } from '../session/placement';
 import type { AssetImportState, AssetQueryState } from '../session/asset-browser';
 import type { AnimationRoleKey } from '../session/media';
 import { TexturePackForm, type PackRequest } from './TexturePackForm';
+import { AudioAssetOptions } from './AudioAssetOptions';
 
 export interface AssetPreviewView {
   assetId: string;
@@ -63,6 +64,9 @@ interface Props {
   /** The pieces of each loaded model file (a file with 2+ pieces expands into piece tiles). */
   pieces: ReadonlyMap<string, readonly { name: string }[]>;
   onVertexColors: (assetId: string, mode: 'data' | 'tint') => void;
+  /** An audio file's load type (null: the default for its length) and whether it is read with its scene. */
+  onAudioLoadType?: (assetId: string, loadType: 'decode-on-load' | 'decode-while-playing' | 'stream' | null) => void;
+  onAudioPreload?: (assetId: string, preload: boolean) => void;
   /** How an imported PNG/JPEG texture is stored — as is, or encoded to KTX2 (colour: ETC1S, normal map: UASTC; data, UASTC linear). */
   textureEncoding?: 'none' | 'color' | 'normal' | 'data';
   onTextureEncoding?: (v: 'none' | 'color' | 'normal' | 'data') => void;
@@ -134,7 +138,7 @@ export function AssetBrowser(p: Props): JSX.Element {
                 onDragStart={a.kind === 'model' || a.kind === 'texture' ? (ev) => dragStart(ev, a.assetId, null) : undefined}
               >
                 <span className={`tl-tile__icon tl-tile__icon--${a.kind}`} aria-hidden="true">
-                  <img className={thumb !== undefined ? 'tl-tile__img tl-tile__img--thumb' : 'tl-tile__img'} src={thumb ?? `./icons/${a.kind === 'audio' || a.kind === 'music' ? 'audio' : a.kind === 'texture' || a.kind === 'font' ? 'empty' : 'model'}.png`} alt="" draggable={false} />
+                  <img className={thumb !== undefined ? 'tl-tile__img tl-tile__img--thumb' : 'tl-tile__img'} src={thumb ?? `./icons/${a.kind === 'audio' ? 'audio' : a.kind === 'texture' || a.kind === 'font' ? 'empty' : 'model'}.png`} alt="" draggable={false} />
                 </span>
                 <span className="tl-tile__name">{a.displayName}</span>
                 <span className="tl-tile__meta" title={`${a.versionCount} version(s)${a.sourcePath !== undefined ? ` · ${a.sourcePath}` : ''}`}>
@@ -197,21 +201,21 @@ export function AssetBrowser(p: Props): JSX.Element {
           ref={importInput}
           className="tl-assets__file"
           type="file"
-          accept=".glb,.fbx,.wav,.png,.jpg,.jpeg,.webp,.ktx2,.ogg,.opus,.mp3,.ttf,.otf,.woff2,.woff,model/gltf-binary,audio/wav,image/png,image/jpeg,image/webp,audio/ogg,audio/mpeg,font/ttf,font/otf,font/woff2,font/woff"
+          accept=".glb,.fbx,.wav,.png,.jpg,.jpeg,.webp,.ktx2,.ogg,.oga,.opus,.mp3,.flac,.ttf,.otf,.woff2,.woff,model/gltf-binary,audio/wav,image/png,image/jpeg,image/webp,audio/ogg,audio/mpeg,audio/flac,font/ttf,font/otf,font/woff2,font/woff"
           onChange={(e) => {
             const f = e.target.files?.[0];
             if (f) p.onImport(f);
             e.target.value = '';
           }}
         />
-        <button className="tl-btn" disabled={BUSY.has(p.importState.phase)} onClick={() => importInput.current?.click()} title="Stage + inspect + publish a new model (.glb, or .fbx converted by Blender), audio (.wav), texture (.png/.jpg/.webp), music (.ogg/.mp3) or font (.ttf/.otf/.woff2/.woff) asset">
+        <button className="tl-btn" disabled={BUSY.has(p.importState.phase)} onClick={() => importInput.current?.click()} title="Stage + inspect + publish a new model (.glb, or .fbx converted by Blender), audio of any length (.wav/.ogg/.opus/.mp3/.flac), texture (.png/.jpg/.webp) or font (.ttf/.otf/.woff2/.woff) asset">
           import…
         </button>
         <input
           ref={reimportInput}
           className="tl-assets__file"
           type="file"
-          accept=".glb,.fbx,.wav,.png,.jpg,.jpeg,.webp,.ktx2,.ogg,.opus,.mp3,.ttf,.otf,.woff2,.woff,model/gltf-binary,audio/wav,image/png,image/jpeg,image/webp,audio/ogg,audio/mpeg,font/ttf,font/otf,font/woff2,font/woff"
+          accept=".glb,.fbx,.wav,.png,.jpg,.jpeg,.webp,.ktx2,.ogg,.oga,.opus,.mp3,.flac,.ttf,.otf,.woff2,.woff,model/gltf-binary,audio/wav,image/png,image/jpeg,image/webp,audio/ogg,audio/mpeg,audio/flac,font/ttf,font/otf,font/woff2,font/woff"
           onChange={(e) => {
             const f = e.target.files?.[0];
             if (f) p.onReimport(f);
@@ -367,6 +371,7 @@ export function AssetBrowser(p: Props): JSX.Element {
               · {selected.image.width}×{selected.image.height}
             </div>
           )}
+          {selected.audio !== undefined && <AudioAssetOptions assetId={selected.assetId} audio={selected.audio} onLoadType={p.onAudioLoadType} onPreload={p.onAudioPreload} />}
           {selected.kind === 'model' && (
             <label className="tl-field" title="COLOR_0 as shader data (foliage bend weights and the like) or as a tint multiplied into the base colour">
               <span className="tl-field__label">vertex colour</span>

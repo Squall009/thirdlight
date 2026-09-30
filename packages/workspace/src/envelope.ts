@@ -19,6 +19,7 @@ import type { ContentCatalogV3, SceneV3 } from '@thirdlight/project-model';
 import type { LoadDetail, UnavailableReason } from './errors';
 import {
   parseDocumentBytes,
+  upgradeAudioAssets,
   validateContentV3,
   validateSceneV3,
   validateSceneV4,
@@ -258,7 +259,8 @@ function validateV3Envelope(root: Record<string, unknown>, pid: string): Envelop
   // scene; both are evaluated and both error sets are reported when both
   // fail.
   const sceneRes = validateSceneV3(sceneRaw);
-  const contentRes = validateContentV3(contentRaw);
+  // Its audio records in the one-kind shape (the move to storage v4 writes them so).
+  const contentRes = validateContentV3(upgradeAudioAssets(contentRaw).content);
   if (!sceneRes.ok || !contentRes.ok) {
     const errors: LoadDetail[] = [];
     let count = 0;

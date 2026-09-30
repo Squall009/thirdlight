@@ -1,408 +1,254 @@
 /**
- * `inspectAudio` — the bounded PCM-WAV inspector (the `pcm-wav` recipe and
- * the `PcmWavMetrics` member).
+ * Audio import: any Ogg Vorbis, Ogg Opus, MP3, WAV (integer or float PCM) or
+ * FLAC file, at any channel count, sample rate, bit depth and length — a
+ * footstep, a voice line or an hour of ambience are the same kind of asset.
  *
- * A pure leaf: bytes in, a non-authoritative proposal out. No I/O, no Node
- * built-in, no decoder/codec library, no `three`, no network, no cache write,
- * no asset-ID decision, no source execution and no state mutation
- * (`dependencies.md`). The 12 inspection stages run in order and stop at
- * the first failing stage; every number in `metrics` is re-derived from the
- * exact header bytes, never read from a caller-supplied declaration.
- *
- * Rejection is never driven by a file extension, a caller MIME type or a
- * declared `kind`: the bytes alone decide. `kind`/profile mismatch is
- * a publication error (`asset_kind_mismatch`), not an inspection outcome.
+ * Like the other inspectors: bytes in, a bounded non-authoritative proposal
+ * out, no decoding (the browser decodes when the game plays). The container
+ * headers decide the format (never the file name), the channel count, the
+ * sample rate, the bit depth and the duration: Ogg from the identification
+ * header and the last page's granule position, MP3 by walking the frame
+ * headers (after an ID3v2 tag), WAV from its `fmt `/`data` chunks, FLAC from
+ * its STREAMINFO block. A file no browser plays (a WAV of ADPCM or µ-law, an
+ * MPEG layer other than III) is refused; one only some browsers play is
+ * imported, and the backend reports the gap (`audioPlaybackGaps`).
  */
-
-import { resolveImportJob, type ResolvedJob } from './inspect';
-import {
-  AUDIO_PCM_WAV_BITS_PER_SAMPLE,
-  AUDIO_PCM_WAV_BLOCK_ALIGN,
-  AUDIO_PCM_WAV_BYTE_RATE,
-  AUDIO_PCM_WAV_CHANNELS,
-  AUDIO_PCM_WAV_HEADER_BYTES,
-  AUDIO_PCM_WAV_LIMITS,
-  AUDIO_PCM_WAV_MAX_PCM_BYTES,
-  AUDIO_PCM_WAV_MAX_SOURCE_FILE_BYTES,
-  AUDIO_PCM_WAV_SAMPLE_RATE,
-  AUDIO_PIPELINE_NAME,
-  AUDIO_PIPELINE_VERSION,
-  M2_GLTF_MAX_DIAGNOSTICS,
-} from './limits';
+import { AUDIO_PIPELINE_NAME, AUDIO_PIPELINE_VERSION, MAX_SOURCE_BYTES } from '@thirdlight/project-model/limits';
+import type { AudioFormat, AudioMetrics, AudioRecipe } from '@thirdlight/project-model';
+import { resolveImportJob } from './inspect';
+import { M2_GLTF_MAX_DIAGNOSTICS } from './limits';
 import { sha256Hex } from './sha256';
-import type {
-  AudioImportInspection,
-  AudioImportLimits,
-  AudioImportOptions,
-  AudioImportProposal,
-  ImportDiagnostic,
-  ImportDiagnosticCode,
-  ImportJobPort,
-  ImportLimitName,
-  PcmWavMetrics,
-  PcmWavRecipe,
-} from './types';
+import type { ImportDiagnostic, ImportJobPort } from './types';
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
+export type { AudioFormat, AudioMetrics, AudioRecipe };
+
+/** The `audio` recipe's toolchain (this inspector at its pin). */
+export const AUDIO_TOOLCHAIN: Readonly<Record<string, string>> = Object.freeze({ [AUDIO_PIPELINE_NAME]: AUDIO_PIPELINE_VERSION });
+
+export interface AudioImportOptions {
+  readonly profile: 'audio';
+  readonly recipeVersion: 1;
+  readonly toolchain: Readonly<Record<string, string>>;
+  readonly displayName?: string;
+  readonly job?: ImportJobPort;
 }
 
-function deepFreeze<T>(value: T): T {
-  if (value === null || typeof value !== 'object') return value;
-  for (const v of Object.values(value as Record<string, unknown>)) {
-    if (v !== null && typeof v === 'object') deepFreeze(v);
+export interface AudioImportProposal {
+  readonly proposalId: string;
+  readonly stageId: string;
+  readonly sourceDigest: string;
+  readonly sourceByteLength: number;
+  readonly status: 'ok' | 'rejected';
+  readonly kind?: 'audio';
+  readonly importRecipe: AudioRecipe;
+  readonly metrics?: AudioMetrics;
+  readonly suggestedDisplayName: string;
+  readonly inspection: { readonly format: AudioFormat | null; readonly durationMs: number };
+  readonly diagnostics: readonly ImportDiagnostic[];
+  readonly diagnosticCount: number;
+  readonly expiresAt: string;
+}
+
+function diag(code: ImportDiagnostic['code'], message: string, found?: unknown, expected?: string): ImportDiagnostic {
+  return { code, path: '', message, ...(found !== undefined ? { found } : {}), ...(expected !== undefined ? { expected } : {}) };
+}
+
+const ascii = (b: Uint8Array, at: number, n: number): string => (at >= 0 && at + n <= b.length ? String.fromCharCode(...b.subarray(at, at + n)) : '');
+
+type Parsed = AudioMetrics | ImportDiagnostic;
+
+const msOf = (frames: number, rate: number): number => Math.round((frames / rate) * 1000);
+
+/** Ogg: the first page's identification header and the last page's granule position. */
+function parseOgg(b: Uint8Array, view: DataView): Parsed {
+  if (b.length < 28) return diag('audio_container_invalid', 'the Ogg file is truncated');
+  const segments = b[26]!;
+  const body = 27 + segments;
+  if (body + 19 > b.length) return diag('audio_container_invalid', 'the first Ogg page is truncated');
+  let format: AudioFormat;
+  let channels: number;
+  let sampleRate: number;
+  let granuleRate: number;
+  let preSkip = 0;
+  if (b[body] === 1 && ascii(b, body + 1, 6) === 'vorbis') {
+    format = 'ogg-vorbis';
+    channels = b[body + 11]!;
+    sampleRate = view.getUint32(body + 12, true);
+    granuleRate = sampleRate;
+  } else if (ascii(b, body, 8) === 'OpusHead') {
+    format = 'ogg-opus';
+    channels = b[body + 9]!;
+    preSkip = view.getUint16(body + 10, true);
+    // Opus always decodes at 48 kHz and counts its granules in 48 kHz samples
+    // (the header's input rate is only what the source had before encoding).
+    sampleRate = 48_000;
+    granuleRate = 48_000;
+  } else {
+    return diag('audio_format_unsupported', 'the Ogg stream is neither Vorbis nor Opus', undefined, 'Vorbis or Opus');
   }
-  return Object.freeze(value) as T;
-}
-
-/** One container-level audio diagnostic (`path` is always `""` for a WAV). */
-function audioDiag(
-  code: ImportDiagnosticCode,
-  message: string,
-  extra: { found?: unknown; expected?: string; limit?: ImportLimitName } = {},
-): ImportDiagnostic {
-  const out: {
-    code: ImportDiagnosticCode;
-    path: string;
-    message: string;
-    found?: unknown;
-    expected?: string;
-    limit?: ImportLimitName;
-  } = {
-    code,
-    path: '',
-    message,
-  };
-  if (extra.found !== undefined) out.found = extra.found;
-  if (extra.expected !== undefined) out.expected = extra.expected;
-  if (extra.limit !== undefined) out.limit = extra.limit;
-  return out;
-}
-
-const ASCII_RIFF = 'RIFF';
-const ASCII_WAVE = 'WAVE';
-const ASCII_FMT = 'fmt ';
-const ASCII_DATA = 'data';
-
-function ascii(bytes: Uint8Array, offset: number, length: number): string {
-  let out = '';
-  for (let i = 0; i < length; i++) out += String.fromCharCode(bytes[offset + i] as number);
-  return out;
-}
-
-function u16(bytes: Uint8Array, offset: number): number {
-  return ((bytes[offset] as number) | ((bytes[offset + 1] as number) << 8)) >>> 0;
-}
-
-function u32(bytes: Uint8Array, offset: number): number {
-  return (
-    ((bytes[offset] as number) |
-      ((bytes[offset + 1] as number) << 8) |
-      ((bytes[offset + 2] as number) << 16) |
-      ((bytes[offset + 3] as number) << 24)) >>>
-    0
-  );
-}
-
-/**
- * Validate the caller's `pcm-wav` options. A wrong profile/recipe version or a
- * toolchain that is not exactly the pinned `asset-pipeline` entry is a caller
- * programming error (`TypeError`), exactly as for `inspectGlb`; the bytes are
- * never consulted for it.
- */
-function resolveAudioOptions(options: AudioImportOptions): void {
-  if (!isPlainObject(options)) throw new TypeError('inspectAudio: options must be an object');
-  if (options.profile !== 'pcm-wav') {
-    throw new TypeError("inspectAudio: unsupported profile (expected 'pcm-wav')");
-  }
-  if (options.recipeVersion !== 1) {
-    throw new TypeError('inspectAudio: unsupported recipeVersion (expected 1)');
-  }
-  const toolchain = options.toolchain;
-  if (!isPlainObject(toolchain)) throw new TypeError('inspectAudio: toolchain must be an object');
-  const names = Object.keys(toolchain).sort();
-  if (names.length !== 1 || names[0] !== AUDIO_PIPELINE_NAME) {
-    throw new TypeError(
-      `inspectAudio: the pcm-wav toolchain must name exactly the pinned inspector ('${AUDIO_PIPELINE_NAME}')`,
-    );
-  }
-  if (toolchain[AUDIO_PIPELINE_NAME] !== AUDIO_PIPELINE_VERSION) {
-    throw new TypeError(
-      `inspectAudio: toolchain['${AUDIO_PIPELINE_NAME}'] must be the pinned value '${AUDIO_PIPELINE_VERSION}'`,
-    );
-  }
-}
-
-/**
- * The 12 inspection stages, in order. Returns the rejection
- * diagnostics or the accepted `{ metrics, inspection }`. The injected job's
- * cancellation/deadline is the accepted cancellation path (the same
- * `ImportJobPort` contract the GLB inspector and the workspace use): a
- * cancelled or over-budget job reports the accepted `asset_timeout` rejection
- * and inspects nothing further.
- */
-function inspectStages(
-  bytes: Uint8Array,
-  job: ResolvedJob,
-): { metrics: PcmWavMetrics; inspection: AudioImportInspection } | ImportDiagnostic[] {
-  const length = bytes.length;
-  const startedAt = job.now();
-  const guard = (): ImportDiagnostic[] | null => {
-    if (job.isCancelled()) {
-      return [
-        audioDiag('asset_timeout', 'inspection cancelled by the caller', {
-          expected: 'inspection to finish within the job budget',
-        }),
-      ];
+  if (sampleRate === 0) return diag('audio_container_invalid', 'the Ogg identification header states no sample rate');
+  // The last page: scan back for its capture pattern.
+  let last = -1;
+  for (let i = b.length - 27; i >= 0; i--) {
+    if (b[i] === 0x4f && b[i + 1] === 0x67 && b[i + 2] === 0x67 && b[i + 3] === 0x53 && b[i + 4] === 0) {
+      last = i;
+      break;
     }
-    if (job.now() - startedAt > job.timeoutMs) {
-      return [
-        audioDiag('asset_timeout', `inspection exceeded the ${job.timeoutMs} ms job limit`, {
-          expected: 'inspection to finish within the job budget',
-        }),
-      ];
-    }
-    return null;
-  };
-
-  // 1 — size (the hard source-file bound, before any profile cap).
-  let gate = guard();
-  if (gate !== null) return gate;
-  if (length < AUDIO_PCM_WAV_HEADER_BYTES || length > AUDIO_PCM_WAV_MAX_SOURCE_FILE_BYTES) {
-    return [
-      audioDiag(
-        'audio_source_bytes_exceeded',
-        `source must be ${AUDIO_PCM_WAV_HEADER_BYTES}-${AUDIO_PCM_WAV_MAX_SOURCE_FILE_BYTES} bytes`,
-        {
-          found: length,
-          expected: `${AUDIO_PCM_WAV_HEADER_BYTES} .. ${AUDIO_PCM_WAV_MAX_SOURCE_FILE_BYTES}`,
-        },
-      ),
-    ];
   }
-
-  // 2 — container: RIFF/WAVE magic and the declared riffSize.
-  gate = guard();
-  if (gate !== null) return gate;
-  if (ascii(bytes, 0, 4) !== ASCII_RIFF) {
-    return [
-      audioDiag('audio_container_invalid', 'the container magic must be ASCII "RIFF"', {
-        found: ascii(bytes, 0, 4),
-        expected: '"RIFF"',
-      }),
-    ];
-  }
-  if (ascii(bytes, 8, 4) !== ASCII_WAVE) {
-    return [
-      audioDiag('audio_container_invalid', 'the RIFF form must be ASCII "WAVE"', {
-        found: ascii(bytes, 8, 4),
-        expected: '"WAVE"',
-      }),
-    ];
-  }
-  if (u32(bytes, 4) !== length - 8) {
-    return [
-      audioDiag('audio_container_invalid', 'riffSize must equal bytes.length - 8', {
-        found: u32(bytes, 4),
-        expected: String(length - 8),
-      }),
-    ];
-  }
-
-  // 3 — chunk framing: exactly `fmt ` (size 16) then `data`, filling the file.
-  gate = guard();
-  if (gate !== null) return gate;
-  if (ascii(bytes, 12, 4) !== ASCII_FMT) {
-    return [
-      audioDiag('audio_chunk_invalid', 'the first chunk id must be ASCII "fmt "', {
-        found: ascii(bytes, 12, 4),
-        expected: '"fmt "',
-      }),
-    ];
-  }
-  if (u32(bytes, 16) !== 16) {
-    return [
-      audioDiag('audio_chunk_invalid', 'the fmt chunk size must be exactly 16 (no cbSize)', {
-        found: u32(bytes, 16),
-        expected: '16',
-      }),
-    ];
-  }
-  if (ascii(bytes, 36, 4) !== ASCII_DATA) {
-    return [
-      audioDiag('audio_chunk_invalid', 'the second chunk id must be ASCII "data" (two chunks, no trailing chunk)', {
-        found: ascii(bytes, 36, 4),
-        expected: '"data"',
-      }),
-    ];
-  }
-  const declaredDataBytes = u32(bytes, 40);
-  if (AUDIO_PCM_WAV_HEADER_BYTES + declaredDataBytes !== length) {
-    return [
-      audioDiag('audio_chunk_invalid', 'the declared chunk bytes must exactly fill the file (no trailing byte)', {
-        found: AUDIO_PCM_WAV_HEADER_BYTES + declaredDataBytes,
-        expected: String(length),
-      }),
-    ];
-  }
-
-  // 4 — format tag.
-  gate = guard();
-  if (gate !== null) return gate;
-  if (u16(bytes, 20) !== 1) {
-    return [
-      audioDiag('audio_format_unsupported', 'only linear PCM (format tag 1) is accepted; compressed/float forms are rejected', {
-        found: u16(bytes, 20),
-        expected: '1 (linear PCM)',
-      }),
-    ];
-  }
-
-  // 5 — channels.
-  gate = guard();
-  if (gate !== null) return gate;
-  if (u16(bytes, 22) !== AUDIO_PCM_WAV_CHANNELS) {
-    return [
-      audioDiag('audio_channel_unsupported', 'the pcm-wav profile is mono', {
-        found: u16(bytes, 22),
-        expected: String(AUDIO_PCM_WAV_CHANNELS),
-      }),
-    ];
-  }
-
-  // 6 — sample rate.
-  gate = guard();
-  if (gate !== null) return gate;
-  if (u32(bytes, 24) !== AUDIO_PCM_WAV_SAMPLE_RATE) {
-    return [
-      audioDiag('audio_sample_rate_unsupported', `the pcm-wav profile is ${AUDIO_PCM_WAV_SAMPLE_RATE} Hz`, {
-        found: u32(bytes, 24),
-        expected: String(AUDIO_PCM_WAV_SAMPLE_RATE),
-      }),
-    ];
-  }
-
-  // 7 — bit depth.
-  gate = guard();
-  if (gate !== null) return gate;
-  if (u16(bytes, 34) !== AUDIO_PCM_WAV_BITS_PER_SAMPLE) {
-    return [
-      audioDiag('audio_bit_depth_unsupported', `the pcm-wav profile is signed ${AUDIO_PCM_WAV_BITS_PER_SAMPLE}-bit`, {
-        found: u16(bytes, 34),
-        expected: String(AUDIO_PCM_WAV_BITS_PER_SAMPLE),
-      }),
-    ];
-  }
-
-  // 8 — derived header arithmetic.
-  gate = guard();
-  if (gate !== null) return gate;
-  if (u32(bytes, 28) !== AUDIO_PCM_WAV_BYTE_RATE || u16(bytes, 32) !== AUDIO_PCM_WAV_BLOCK_ALIGN) {
-    return [
-      audioDiag('audio_chunk_invalid', 'byteRate must be 96000 and blockAlign 2 for mono 16-bit at 48000 Hz', {
-        found: { byteRate: u32(bytes, 28), blockAlign: u16(bytes, 32) },
-        expected: `byteRate ${AUDIO_PCM_WAV_BYTE_RATE}, blockAlign ${AUDIO_PCM_WAV_BLOCK_ALIGN}`,
-      }),
-    ];
-  }
-
-  // 9 — data size agreement and evenness.
-  gate = guard();
-  if (gate !== null) return gate;
-  const dataBytes = length - AUDIO_PCM_WAV_HEADER_BYTES;
-  if (declaredDataBytes !== dataBytes || dataBytes % 2 !== 0) {
-    return [
-      audioDiag(
-        'audio_data_size_invalid',
-        'the data chunk must hold exactly the remaining bytes, and the byte count must be even',
-        {
-          found: { declared: declaredDataBytes, actual: dataBytes },
-          expected: 'declared === dataBytes, dataBytes even',
-        },
-      ),
-    ];
-  }
-
-  // 10 — non-empty.
-  gate = guard();
-  if (gate !== null) return gate;
-  if (dataBytes < 2) {
-    return [
-      audioDiag('audio_empty', 'a pcm-wav cue must carry at least one frame', {
-        found: dataBytes,
-        expected: '>= 2 data bytes (1 frame)',
-      }),
-    ];
-  }
-
-  // 11 — the single normative PCM byte cap.
-  gate = guard();
-  if (gate !== null) return gate;
-  if (dataBytes > AUDIO_PCM_WAV_MAX_PCM_BYTES) {
-    return [
-      audioDiag('asset_limits_exceeded', 'PCM bytes exceed the pcm-wav profile cap', {
-        found: dataBytes,
-        expected: `<= ${AUDIO_PCM_WAV_MAX_PCM_BYTES}`,
-        limit: 'audio_pcm_bytes',
-      }),
-    ];
-  }
-
-  // 12 — accept: exact metrics, the recipe and a bounded summary (no samples).
-  gate = guard();
-  if (gate !== null) return gate;
-  const frames = dataBytes / 2;
-  const metrics: PcmWavMetrics = {
-    container: 'riff-wave',
-    encoding: 'pcm-s16le',
-    channels: 1,
-    sampleRate: 48_000,
-    bitsPerSample: 16,
-    frames,
-    durationMs: Math.floor(frames / 48),
-    pcmBytes: dataBytes,
-    dataChunkBytes: dataBytes,
-    riffChunkBytes: 36 + dataBytes,
-  };
-  const inspection: AudioImportInspection = {
-    container: 'riff-wave',
-    encoding: 'pcm-s16le',
-    chunkIds: [ASCII_FMT, ASCII_DATA],
-    frames,
-    durationMs: metrics.durationMs,
-  };
-  return { metrics, inspection };
+  if (last < 0) return diag('audio_container_invalid', 'no final Ogg page');
+  const granule = Number(view.getBigInt64(last + 6, true));
+  if (!(granule > preSkip)) return diag('audio_empty', 'the Ogg stream has no samples');
+  return { format, channels, sampleRate, durationMs: msOf(granule - preSkip, granuleRate) };
 }
 
-/**
- * Bounded PCM-WAV inspection. Deterministic, pure and
- * total over hostile bytes: malformed input yields a `rejected` proposal with
- * the first failing stage's diagnostics, never an exception. Invalid *options*
- * throw `TypeError` (a caller programming error).
- */
+const MP3_BITRATES: Record<'v1' | 'v2', readonly number[]> = {
+  v1: [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320],
+  v2: [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160],
+};
+const MP3_RATES: Record<number, readonly number[]> = { 3: [44100, 48000, 32000], 2: [22050, 24000, 16000], 0: [11025, 12000, 8000] };
+
+/** The byte after an ID3v2 tag at `at` (or `at` when there is none). */
+function skipId3(b: Uint8Array, at: number): number {
+  if (ascii(b, at, 3) !== 'ID3' || at + 10 > b.length) return at;
+  const size = ((b[at + 6]! & 0x7f) << 21) | ((b[at + 7]! & 0x7f) << 14) | ((b[at + 8]! & 0x7f) << 7) | (b[at + 9]! & 0x7f);
+  return at + 10 + size + ((b[at + 5]! & 0x10) !== 0 ? 10 : 0);
+}
+
+/** MP3: walk MPEG layer III frame headers to the end. */
+function parseMp3(b: Uint8Array, start: number): Parsed {
+  let at = start;
+  let frames = 0;
+  let samples = 0;
+  let sampleRate = 0;
+  let channels = 0;
+  while (at + 4 <= b.length) {
+    if (b[at] !== 0xff || (b[at + 1]! & 0xe0) !== 0xe0) {
+      if (frames > 0 && ascii(b, at, 3) === 'TAG') break; // ID3v1 at the end
+      if (frames === 0) return diag('audio_container_invalid', 'no MPEG frame at the start of the file');
+      break; // trailing junk after the last frame
+    }
+    const version = (b[at + 1]! >> 3) & 3; // 3: MPEG1, 2: MPEG2, 0: MPEG2.5
+    const layer = (b[at + 1]! >> 1) & 3; // 1: layer III
+    const bitrateIndex = b[at + 2]! >> 4;
+    const rateIndex = (b[at + 2]! >> 2) & 3;
+    const padding = (b[at + 2]! >> 1) & 1;
+    if (version === 1 || layer !== 1 || bitrateIndex === 0 || bitrateIndex === 15 || rateIndex === 3) {
+      if (frames === 0) return diag('audio_format_unsupported', 'not an MPEG layer III (MP3) stream', undefined, 'MP3');
+      break;
+    }
+    const rate = MP3_RATES[version]![rateIndex]!;
+    const kbps = (version === 3 ? MP3_BITRATES.v1 : MP3_BITRATES.v2)[bitrateIndex]!;
+    const length = Math.floor(((version === 3 ? 144 : 72) * kbps * 1000) / rate) + padding;
+    if (frames === 0) {
+      sampleRate = rate;
+      channels = b[at + 3]! >> 6 === 3 ? 1 : 2;
+    } else if (rate !== sampleRate) {
+      return diag('audio_container_invalid', 'the MP3 changes its sample rate between frames');
+    }
+    samples += version === 3 ? 1152 : 576;
+    frames += 1;
+    at += length;
+  }
+  if (frames === 0) return diag('audio_empty', 'the MP3 has no frames');
+  return { format: 'mp3', channels, sampleRate, durationMs: msOf(samples, sampleRate) };
+}
+
+const WAV_PCM = 1;
+const WAV_FLOAT = 3;
+const WAV_EXTENSIBLE = 0xfffe;
+
+/** WAV: integer PCM (any bit depth) or IEEE float, any channel count and rate. */
+function parseWav(b: Uint8Array, view: DataView): Parsed {
+  let at = 12;
+  let fmt: { tag: number; channels: number; rate: number; bits: number } | null = null;
+  while (at + 8 <= b.length) {
+    const id = ascii(b, at, 4);
+    const size = view.getUint32(at + 4, true);
+    if (id === 'fmt ') {
+      if (size < 16 || at + 24 > b.length) return diag('audio_chunk_invalid', 'the fmt chunk is truncated');
+      let tag = view.getUint16(at + 8, true);
+      // WAVE_FORMAT_EXTENSIBLE names the real format in its sub-format GUID's first two bytes.
+      if (tag === WAV_EXTENSIBLE && size >= 40 && at + 34 <= b.length) tag = view.getUint16(at + 32, true);
+      fmt = { tag, channels: view.getUint16(at + 10, true), rate: view.getUint32(at + 12, true), bits: view.getUint16(at + 22, true) };
+    } else if (id === 'data') {
+      if (fmt === null) return diag('audio_chunk_invalid', 'the data chunk comes before the fmt chunk');
+      // MDN: every browser plays linear PCM in WAV, none ADPCM, µ-law or MP3-in-WAV.
+      if (fmt.tag !== WAV_PCM && fmt.tag !== WAV_FLOAT) return diag('audio_format_unsupported', 'the WAV is not linear PCM or float (no browser plays ADPCM, µ-law, A-law or MP3 in WAV)', fmt.tag, 'PCM (1) or IEEE float (3)');
+      const float = fmt.tag === WAV_FLOAT;
+      if (float ? fmt.bits !== 32 && fmt.bits !== 64 : fmt.bits < 8 || fmt.bits > 32 || fmt.bits % 8 !== 0) {
+        return diag('audio_bit_depth_unsupported', `a ${float ? 'float' : 'PCM'} WAV of ${fmt.bits} bits per sample`, fmt.bits, float ? '32 or 64' : '8, 16, 24 or 32');
+      }
+      if (fmt.channels < 1) return diag('audio_channel_unsupported', 'the WAV has no channels', fmt.channels, 'at least 1');
+      if (fmt.rate < 1) return diag('audio_sample_rate_unsupported', 'the WAV states no sample rate', fmt.rate, 'at least 1 Hz');
+      // The frame size from the sample format (a header's block align may disagree; decoders use the format).
+      const align = (fmt.bits / 8) * fmt.channels;
+      // A streamed WAV may state 0 or 0xFFFFFFFF: the data then runs to the end of the file.
+      const available = b.length - at - 8;
+      const bytes = size === 0 || size > available ? available : size;
+      const frames = Math.floor(bytes / align);
+      if (frames === 0) return diag('audio_empty', 'the WAV has no samples');
+      return { format: 'wav', channels: fmt.channels, sampleRate: fmt.rate, bitsPerSample: fmt.bits, ...(float ? { float: true as const } : {}), durationMs: Math.max(1, msOf(frames, fmt.rate)) };
+    }
+    at += 8 + size + (size & 1);
+  }
+  return diag('audio_chunk_invalid', 'the WAV has no data chunk');
+}
+
+/** FLAC: the STREAMINFO block, which states the rate, channels, bit depth and total samples. */
+function parseFlac(b: Uint8Array, at: number): Parsed {
+  const info = at + 4;
+  if (info + 4 + 34 > b.length) return diag('audio_container_invalid', 'the FLAC is truncated');
+  if ((b[info]! & 0x7f) !== 0) return diag('audio_container_invalid', 'the FLAC does not begin with its STREAMINFO block');
+  const s = info + 4;
+  // Bits 80..: sample rate (20), channels - 1 (3), bits per sample - 1 (5), total samples (36).
+  const rate = (b[s + 10]! << 12) | (b[s + 11]! << 4) | (b[s + 12]! >> 4);
+  const channels = ((b[s + 12]! >> 1) & 0x7) + 1;
+  const bits = (((b[s + 12]! & 1) << 4) | (b[s + 13]! >> 4)) + 1;
+  const total = (b[s + 13]! & 0x0f) * 2 ** 32 + ((b[s + 14]! << 24) >>> 0) + (b[s + 15]! << 16) + (b[s + 16]! << 8) + b[s + 17]!;
+  if (rate === 0) return diag('audio_sample_rate_unsupported', 'the FLAC states no sample rate', rate, 'at least 1 Hz');
+  if (total === 0) return diag('audio_empty', 'the FLAC does not state its length (an unknown total sample count)');
+  return { format: 'flac', channels, sampleRate: rate, bitsPerSample: bits, durationMs: Math.max(1, msOf(total, rate)) };
+}
+
+function inspectStages(bytes: Uint8Array): AudioMetrics | ImportDiagnostic[] {
+  if (bytes.length > MAX_SOURCE_BYTES) {
+    return [diag('audio_source_bytes_exceeded', 'the audio file is too large', bytes.length, `<= ${MAX_SOURCE_BYTES} bytes`)];
+  }
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  let parsed: Parsed;
+  const afterId3 = skipId3(bytes, 0);
+  if (ascii(bytes, 0, 4) === 'OggS') parsed = parseOgg(bytes, view);
+  else if (ascii(bytes, 0, 4) === 'RIFF' && ascii(bytes, 8, 4) === 'WAVE') parsed = parseWav(bytes, view);
+  else if (ascii(bytes, afterId3, 4) === 'fLaC') parsed = parseFlac(bytes, afterId3);
+  else if (afterId3 > 0 || (bytes[0] === 0xff && (bytes[1]! & 0xe0) === 0xe0)) parsed = parseMp3(bytes, afterId3);
+  else return [diag('audio_container_invalid', 'not an Ogg (Vorbis/Opus), MP3, WAV or FLAC file', undefined, 'Ogg, MP3, WAV or FLAC')];
+  if ('code' in parsed) return [parsed];
+  if (parsed.channels < 1) return [diag('audio_channel_unsupported', 'the file has no channels', parsed.channels, 'at least 1')];
+  if (!(parsed.durationMs >= 1)) return [diag('audio_empty', 'the audio has no duration')];
+  return parsed;
+}
+
+/** Bounded audio inspection; malformed bytes give a `rejected` proposal, never an exception. */
 export function inspectAudio(bytes: Uint8Array, options: AudioImportOptions): AudioImportProposal {
-  if (!(bytes instanceof Uint8Array)) {
-    throw new TypeError('inspectAudio: bytes must be a Uint8Array');
+  if (!(bytes instanceof Uint8Array)) throw new TypeError('inspectAudio: bytes must be a Uint8Array');
+  if (options.profile !== 'audio' || options.recipeVersion !== 1) throw new TypeError("inspectAudio: expected profile 'audio', recipeVersion 1");
+  const t = options.toolchain;
+  if (typeof t !== 'object' || t === null || Object.keys(t).length !== 1 || t[AUDIO_PIPELINE_NAME] !== AUDIO_PIPELINE_VERSION) {
+    throw new TypeError(`inspectAudio: the toolchain must be exactly { "${AUDIO_PIPELINE_NAME}": "${AUDIO_PIPELINE_VERSION}" }`);
   }
-  resolveAudioOptions(options);
-
-  const recipe: PcmWavRecipe = {
-    profile: 'pcm-wav',
-    recipeVersion: 1,
-    toolchain: { [AUDIO_PIPELINE_NAME]: AUDIO_PIPELINE_VERSION },
-  };
+  const recipe: AudioRecipe = { profile: 'audio', recipeVersion: 1, toolchain: { ...AUDIO_TOOLCHAIN } };
   const sourceDigest = sha256Hex(bytes);
-  const job = resolveImportJob(options.job as ImportJobPort | undefined, options, sourceDigest);
-  const result = inspectStages(bytes, job);
-
-  const limits: AudioImportLimits = deepFreeze({
-    profile: 'pcm-wav' as const,
-    recipeVersion: 1 as const,
-    sourceFileBytes: AUDIO_PCM_WAV_MAX_SOURCE_FILE_BYTES,
-    pcmBytes: AUDIO_PCM_WAV_MAX_PCM_BYTES,
-    timeoutMs: job.timeoutMs,
-    caps: AUDIO_PCM_WAV_LIMITS,
-  });
+  const job = resolveImportJob(options.job, options, sourceDigest);
+  let result: AudioMetrics | ImportDiagnostic[];
+  const startedAt = job.now();
+  try {
+    result = inspectStages(bytes);
+  } catch {
+    result = [diag('audio_container_invalid', 'the audio file is malformed')];
+  }
+  // A cancelled or over-budget job reports the accepted timeout rejection (an MP3's frame walk is the long stage).
+  if (job.isCancelled()) result = [diag('asset_timeout', 'inspection cancelled by the caller')];
+  else if (job.now() - startedAt > job.timeoutMs) result = [diag('asset_timeout', `inspection exceeded the ${job.timeoutMs} ms job limit`)];
   const base = {
     proposalId: job.proposalId,
     stageId: job.stageId,
@@ -410,31 +256,10 @@ export function inspectAudio(bytes: Uint8Array, options: AudioImportOptions): Au
     sourceByteLength: bytes.length,
     importRecipe: recipe,
     suggestedDisplayName: job.suggestedDisplayName,
-    limits,
     expiresAt: job.expiresAt,
   };
   if (Array.isArray(result)) {
-    return deepFreeze({
-      ...base,
-      status: 'rejected' as const,
-      inspection: {
-        container: 'riff-wave' as const,
-        encoding: 'pcm-s16le' as const,
-        chunkIds: [] as readonly string[],
-        frames: 0,
-        durationMs: 0,
-      },
-      diagnostics: result.slice(0, M2_GLTF_MAX_DIAGNOSTICS),
-      diagnosticCount: result.length,
-    });
+    return Object.freeze({ ...base, status: 'rejected' as const, inspection: { format: null, durationMs: 0 }, diagnostics: result.slice(0, M2_GLTF_MAX_DIAGNOSTICS), diagnosticCount: result.length });
   }
-  return deepFreeze({
-    ...base,
-    status: 'ok' as const,
-    kind: 'audio' as const,
-    metrics: result.metrics,
-    inspection: result.inspection,
-    diagnostics: [] as readonly ImportDiagnostic[],
-    diagnosticCount: 0,
-  });
+  return Object.freeze({ ...base, status: 'ok' as const, kind: 'audio' as const, metrics: result, inspection: { format: result.format, durationMs: result.durationMs }, diagnostics: [], diagnosticCount: 0 });
 }

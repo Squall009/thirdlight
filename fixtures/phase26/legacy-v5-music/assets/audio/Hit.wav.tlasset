@@ -1,0 +1,17 @@
+{
+  "tlasset": 2,
+  "id": "hit",
+  "kind": "audio",
+  "importSettings": {},
+  "labels": [],
+  "address": null,
+  "record": {
+    "assetId": "hit",
+    "kind": "audio",
+    "displayName": "Hit",
+    "currentVersion": 1,
+    "versions": [
+      {"version":1,"sourceDigest":"d35c4783875779e693e3b58cfdd2c14d006885c586e261f7a05fae7ee28cfeb8","sourceByteLength":9644,"sourcePath":"assets/audio/Hit.wav","importRecipe":{"profile":"pcm-wav","recipeVersion":1,"toolchain":{"asset-pipeline":"0.1.0"}},"metrics":{"container":"riff-wave","encoding":"pcm-s16le","channels":1,"sampleRate":48000,"bitsPerSample":16,"frames":4800,"durationMs":100,"pcmBytes":9600,"dataChunkBytes":9600,"riffChunkBytes":9636},"importedAt":"2026-09-30T03:21:20Z","publishedRevision":1}
+    ]
+  }
+}

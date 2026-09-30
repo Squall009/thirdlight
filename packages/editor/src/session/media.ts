@@ -12,21 +12,20 @@ import { CONTENT_STAGE_MAX } from '@thirdlight/protocol';
 import { MAX_EMISSIVE_INTENSITY, MAX_INTENSITY, SCENE_LIMITS_V3 } from '@thirdlight/project-model/limits';
 
 // ---------------------------------------------------------------------------
-// Drop validation (`.glb` model, `.wav` audio)
+// Drop validation (the extension decides the kind; the bytes are checked at import)
 // ---------------------------------------------------------------------------
 
 export const MODEL_DROP_EXTENSION = '.glb';
 /** An FBX is converted to GLB by the backend (headless Blender) at import. */
 export const FBX_DROP_EXTENSION = '.fbx';
-export const AUDIO_DROP_EXTENSION = '.wav';
+/** Audio of any length: Ogg Vorbis/Opus, MP3, WAV and FLAC (the headers decide the format at import). */
+export const AUDIO_DROP_EXTENSIONS = ['.wav', '.ogg', '.oga', '.opus', '.mp3', '.flac'] as const;
 /** Standalone textures (the magic bytes are checked again at import). */
 export const TEXTURE_DROP_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp', '.ktx2'] as const;
-/** Music (Ogg Vorbis/Opus, MP3; a long WAV imports with kind "music" through MCP). */
-export const MUSIC_DROP_EXTENSIONS = ['.ogg', '.opus', '.mp3'] as const;
 /** Fonts for the project UI (TrueType, OpenType, WOFF2, WOFF; the magic bytes are checked again at import). */
 export const FONT_DROP_EXTENSIONS = ['.ttf', '.otf', '.woff2', '.woff'] as const;
 
-export type AssetKind = 'model' | 'audio' | 'texture' | 'music' | 'font';
+export type AssetKind = 'model' | 'audio' | 'texture' | 'font';
 
 export interface MediaDropVerdict {
   ok: true;
@@ -50,18 +49,15 @@ export function validateMediaDrop(name: string, byteLength: number): MediaDropVe
   } else if (lower.endsWith(FBX_DROP_EXTENSION)) {
     kind = 'model';
     ext = FBX_DROP_EXTENSION;
-  } else if (lower.endsWith(AUDIO_DROP_EXTENSION)) {
-    kind = 'audio';
-    ext = AUDIO_DROP_EXTENSION;
   } else {
     const t = TEXTURE_DROP_EXTENSIONS.find((e) => lower.endsWith(e));
-    const m = MUSIC_DROP_EXTENSIONS.find((e) => lower.endsWith(e));
+    const m = AUDIO_DROP_EXTENSIONS.find((e) => lower.endsWith(e));
     const f = FONT_DROP_EXTENSIONS.find((e) => lower.endsWith(e));
     if (t !== undefined) {
       kind = 'texture';
       ext = t;
     } else if (m !== undefined) {
-      kind = 'music';
+      kind = 'audio';
       ext = m;
     } else if (f !== undefined) {
       kind = 'font';
@@ -71,7 +67,7 @@ export function validateMediaDrop(name: string, byteLength: number): MediaDropVe
   if (kind === null) {
     return {
       ok: false,
-      error: { code: 'import_rejected', message: `only ${MODEL_DROP_EXTENSION} (glTF binary), ${FBX_DROP_EXTENSION} (converted to glTF), ${AUDIO_DROP_EXTENSION} (PCM WAV) and .png/.jpg/.webp (texture), .ogg/.mp3 (music) and .ttf/.otf/.woff2/.woff (font) files can be imported` },
+      error: { code: 'import_rejected', message: `only ${MODEL_DROP_EXTENSION} (glTF binary), ${FBX_DROP_EXTENSION} (converted to glTF), ${AUDIO_DROP_EXTENSIONS.join('/')} (audio), .png/.jpg/.webp/.ktx2 (texture) and .ttf/.otf/.woff2/.woff (font) files can be imported` },
     };
   }
   if (!Number.isInteger(byteLength) || byteLength < 1) {

@@ -11,7 +11,7 @@
   "notes": [
     "Every sha256 is the real digest of the committed fixture bytes; tools/check-fixtures.mjs recomputes all of them.",
     "Envelope fixtures are standalone documents: projectId == directory name is a load-time check and is not asserted here.",
-    "source-preimages/cue-start.wav is a real 48 kHz mono 16-bit PCM WAV (96 samples, 236 bytes, sha256 6228ba11eab4d769d9683d18dac12a3f23f9b23ed58e133ab24a6ac75ea5effb). The audio AssetRecord importRecipe/metrics fields in catalog/audio-asset-record-v3.json and envelope/valid/demo-0003-media-v3.json are the real presentation.md §41.4.3 profile (recipe { profile: pcm-wav, recipeVersion: 1, toolchain { asset-pipeline: 0.1.0 } }, PcmWavMetrics frames 96 / durationMs 2 / pcmBytes 192) derived from that preimage by packet 47 (CC-44-2).",
+    "source-preimages/cue-start.wav is a real 48 kHz mono 16-bit PCM WAV (96 samples, 236 bytes, sha256 6228ba11eab4d769d9683d18dac12a3f23f9b23ed58e133ab24a6ac75ea5effb). The audio AssetRecord importRecipe/metrics fields in catalog/audio-asset-record-v3.json and envelope/valid/demo-0003-media-v3.json are the one-kind audio shape (recipe { profile: audio, recipeVersion: 1, toolchain { asset-pipeline: 0.1.0 } }, metrics { format: wav, channels 1, sampleRate 48000, bitsPerSample 16, durationMs 2 }) read from that preimage; they held the older fixed short-sound profile (pcm-wav) until phase 26.6, which the open upgrades.",
     "model/modelAnimation role bindings in envelope/valid/demo-0003-media-v3.json are packet-41 placeholders: 39 fixes only the three role keys, requiredness, the assetId/version binding and the byte bound.",
     "Invalid fixtures isolate one rule each; check-fixtures.mjs re-derives the expected result independently for the version-combination, registry, reference, count and field rules it can and otherwise asserts the declared expectation and code.",
     "Expected results for envelope-level refusals are single errors; deeper checks stop (storage.md §S2/S4).",
@@ -101,13 +101,13 @@
       "kind": "v3-envelope-valid"
     },
     "envelope/valid/demo-0003-media-v3.json": {
-      "sha256": "10f7f8db10491c447c97c3426c28e3c70c4d0c321a6bcbea01856279d98ba1c0",
-      "bytes": 7168,
+      "sha256": "38c0473a341c161f0b3af3e70a3194b2628ace0e473a0a4cb7f99af252b1cd21",
+      "bytes": 6985,
       "kind": "v3-envelope-valid"
     },
     "catalog/audio-asset-record-v3.json": {
-      "sha256": "78f9361f1c1759a39cd4ac4a2f46f39a1550f483b3320497d959f221d95e9f46",
-      "bytes": 1207,
+      "sha256": "5ff3b77ed7a8785dc6b507819b56240626d6b0a09403ac3af0de71b0fc7a0f2a",
+      "bytes": 1024,
       "kind": "catalog"
     },
     "catalog/referenced-model-record-v3.json": {

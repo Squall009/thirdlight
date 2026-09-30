@@ -519,8 +519,8 @@ export function timelineRefs(list: readonly TimelineAsset[] | undefined): { asse
 }
 
 /**
- * The timelines' references against the project: audio keys name an audio or
- * music asset, effect keys an effect, material tracks a material. Dialogue
+ * The timelines' references against the project: audio keys name an audio
+ * asset, effect keys an effect, material tracks a material. Dialogue
  * and environment-preset ids are checked when the project holds those
  * collections — `dialogueIds` / `presetIds` null skip it.
  */
@@ -538,7 +538,7 @@ export function validateTimelineReferences(
         const kp = `${p}/keys/${n}`;
         if (t.type === 'audio' && k.asset !== undefined) {
           const kind = ctx.assetKind(k.asset);
-          if (kind !== 'audio' && kind !== 'music') err(errors, 'reference_missing', `${kp}/asset`, 'asset names an audio or music asset', k.asset, 'an audio/music assetId');
+          if (kind !== 'audio') err(errors, 'reference_missing', `${kp}/asset`, 'asset names an audio asset', k.asset, 'an audio assetId');
         }
         if (t.type === 'effect' && k.effect !== undefined && !ctx.effectIds.has(k.effect)) err(errors, 'reference_missing', `${kp}/effect`, 'effect names a project effect', k.effect, 'an effectId');
         if (t.type === 'dialogue' && k.dialogue !== undefined && ctx.dialogueIds != null && !ctx.dialogueIds.has(k.dialogue)) err(errors, 'reference_missing', `${kp}/dialogue`, 'dialogue names a project dialogue', k.dialogue, 'a dialogue id');

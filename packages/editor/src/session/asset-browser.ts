@@ -310,7 +310,7 @@ export interface PublishAssetRequestArgs {
   mode: 'create' | 'reimport';
   assetId: string;
   /** Required on a create; on a reimport it must equal the record's kind. */
-  kind: 'model' | 'audio' | 'texture' | 'music' | 'font';
+  kind: 'model' | 'audio' | 'texture' | 'font';
   displayName?: string;
   sourceDigest: string;
   sourceByteLength: number;
@@ -343,7 +343,7 @@ export function publishArgsFromProposal(
   proposal: ImportProposal,
   target: ImportTarget,
   importedAt: string,
-  kind: 'model' | 'audio' | 'texture' | 'music' | 'font',
+  kind: 'model' | 'audio' | 'texture' | 'font',
   animation?: { entityId: string; roles: unknown },
 ): PublishArgsResult {
   const p = proposal.proposal as {

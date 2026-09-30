@@ -220,11 +220,11 @@ export const M3_MODULE_PACKAGES: Readonly<Record<string, string>> = Object.freez
 /** The engine module IDs this model version knows (ascending). */
 export const M3_KNOWN_MODULE_IDS: readonly string[] = Object.freeze(Object.keys(M3_MODULE_PACKAGES).sort());
 
-/** The v2 recipe table (with `pcm-wav`). */
+/** The recipe table: each import profile's version. */
 export const M3_RECIPE_VERSIONS: Readonly<Record<string, number>> = Object.freeze({
+  audio: 1,
   'behavior-source': 1,
   'gltf-glb': 1,
-  'pcm-wav': 1,
 });
 
 // ---------------------------------------------------------------------------
@@ -301,8 +301,11 @@ export interface ManifestAssetInputV2 {
   clipsFor?: string;
   /** Model only: the version's recorded bounds (the runtime's pickups without a size read them). */
   bounds?: { min: [number, number, number]; max: [number, number, number] };
-  /** Audio and music: the version's recorded duration, ms (script sounds' ends are computed from it). */
+  /** Audio: the version's recorded duration, ms (script sounds' ends are computed from it). */
   durationMs?: number;
+  /** Audio: how the game holds the file and whether it is read with its scene (defaults applied). */
+  loadType?: import('./audio-assets').AudioLoadType;
+  preload?: boolean;
 }
 
 /** The v2 manifest document (field order = `MANIFEST_KEYS_V2`; `buildId` last). */
@@ -721,7 +724,8 @@ export function captureManifestV2(input: CaptureManifestV2Input): CaptureManifes
       ...(a.materials !== undefined ? { materials: canonicalMaterialMapping(a.materials) } : {}),
       ...(a.clipsFor !== undefined ? { clipsFor: a.clipsFor } : {}),
       ...(a.bounds !== undefined ? { bounds: boundsCopy(a.bounds) } : {}),
-      ...(a.durationMs !== undefined && (a.kind === 'audio' || a.kind === 'music') ? { durationMs: a.durationMs } : {}),
+      ...(a.durationMs !== undefined && a.kind === 'audio' ? { durationMs: a.durationMs } : {}),
+      ...(a.loadType !== undefined && a.kind === 'audio' ? { loadType: a.loadType, preload: a.preload !== false } : {}),
     }))
     .sort((a, b) => (a.assetId < b.assetId ? -1 : a.assetId > b.assetId ? 1 : a.version - b.version));
   const behaviors = [...input.behaviors]
@@ -747,7 +751,7 @@ export function captureManifestV2(input: CaptureManifestV2Input): CaptureManifes
     return { id, apiVersion: pin?.apiVersion ?? 1, package: pkg ?? '@thirdlight/runtime', version: pin?.version ?? '0.1.0' };
   });
   const enginePins = (input.enginePins ?? M3_ENGINE_PINS).map((p) => ({ id: p.id, version: p.version, apiVersion: p.apiVersion }));
-  const recipes = { ...M3_RECIPE_VERSIONS, ...(input.recipes ?? {}) };
+  const recipes = { ...(input.recipes ?? M3_RECIPE_VERSIONS) };
 
   const settingsDigest = blockDigest(input.settings);
   const mediaDigest = blockDigest(input.media);
@@ -878,7 +882,7 @@ export type ValidateManifestV2Result =
   | { ok: true; manifest: RuntimeContentManifestV2 }
   | { ok: false; error: ManifestErrorV2 };
 
-const ASSET_KINDS = ['model', 'audio', 'texture', 'music', 'font'] as const;
+const ASSET_KINDS = ['model', 'audio', 'texture', 'font'] as const;
 
 function isDigest(v: unknown): v is string {
   return typeof v === 'string' && DIGEST_RE.test(v);
@@ -1039,7 +1043,7 @@ export function validateManifestV2(doc: unknown, opts?: ValidateManifestV2Option
     const a = assets[i] as Record<string, unknown>;
     if (!isPlainObject(a)) return { ok: false, error: manifestError('manifest_invalid', `assets[${i}] must be an object`, 'field_value') };
     if (!ASSET_KINDS.includes(a['kind'] as (typeof ASSET_KINDS)[number])) {
-      return { ok: false, error: manifestError('manifest_invalid', `assets[${i}].kind must be "model" or "audio"`, 'field_value', a['kind']) };
+      return { ok: false, error: manifestError('manifest_invalid', `assets[${i}].kind must be "model", "audio", "texture" or "font"`, 'field_value', a['kind']) };
     }
     if (typeof a['sourceDigest'] === 'string' && a['path'] !== `content/sha256/${a['sourceDigest']}`) {
       return { ok: false, error: manifestError('manifest_invalid', `assets[${i}].path does not match its sourceDigest`, 'field_value', a['path']) };

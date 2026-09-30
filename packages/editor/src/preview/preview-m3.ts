@@ -790,6 +790,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
       // Project save slots in this browser's IndexedDB (Play and exported games keep separate ones).
       ...(browserProjectSaveBackend() !== null ? { projectSaveBackend: browserProjectSaveBackend()! } : {}),
       assetKinds: Object.fromEntries(((manifest.assets ?? []) as unknown as { assetId: string; kind: string }[]).map((r) => [r.assetId, r.kind])),
+      audioLoad: Object.fromEntries(((manifest.assets ?? []) as unknown as { assetId: string; kind: string; loadType?: string; preload?: boolean }[]).filter((r) => r.kind === 'audio' && r.loadType !== undefined).map((r) => [r.assetId, { loadType: r.loadType, preload: r.preload !== false }])),
       // How audio sources are heard (the audio_spatial setting; 3D: panned).
       audioSpatial: audioSpatialOf(settings),
       // Play always has the debug console (the backquote key); a start from "Play from…" / tl_play_start.

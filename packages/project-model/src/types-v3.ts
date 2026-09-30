@@ -298,7 +298,8 @@ export interface ResolvedSceneV3 {
 /** The v3 asset-kind discriminator. */
 /** `texture`: a standalone PNG/JPEG/WebP image. */
 /** `font`: a TTF/OTF/WOFF2/WOFF for the project UI. */
-export type AssetKind = 'model' | 'audio' | 'texture' | 'music' | 'font';
+/** `audio`: any Ogg Vorbis/Opus, MP3, WAV or FLAC file (`audio-assets.ts`). */
+export type AssetKind = 'model' | 'audio' | 'texture' | 'font';
 
 /**
  * The `gltf-glb` recipe member (the v2 shape). `extensions` is present iff `profile === 'gltf-glb'`.
@@ -311,50 +312,16 @@ export interface GltfGlbRecipeV3 {
 }
 
 /**
- * The `pcm-wav` recipe. The `toolchain` names exactly
- * `asset-pipeline` (the bounded pure inspector); there is no `extensions` key
- * because a WAV has no glTF extensions.
- */
-export interface PcmWavRecipe {
-  profile: 'pcm-wav';
-  recipeVersion: 1;
-  toolchain: Record<string, string>;
-}
-
-/**
  * A v3 import recipe: the `gltf-glb` member for a
- * `model` version, the `pcm-wav` member for an `audio` version.
+ * `model` version, the `audio` member for an `audio` version.
  */
-export type ImportRecipeV3 = GltfGlbRecipeV3 | PcmWavRecipe;
-
-/**
- * The bounded PCM-WAV metrics member for an
- * `kind: "audio"` version. Canonical key order is exactly the field order
- * below. Every field is an integer re-derivable from the WAV bytes.
- */
-export interface PcmWavMetrics {
-  container: 'riff-wave';
-  encoding: 'pcm-s16le';
-  channels: 1;
-  sampleRate: 48000;
-  bitsPerSample: 16;
-  /** 1..96000 (`== pcmBytes / 2`). */
-  frames: number;
-  /** `floor(frames / 48)`, ≤ 2000. */
-  durationMs: number;
-  /** `== frames * 2`, ≤ 192000 (the single normative PCM bound). */
-  pcmBytes: number;
-  /** `== pcmBytes`. */
-  dataChunkBytes: number;
-  /** `== 36 + pcmBytes`. */
-  riffChunkBytes: number;
-}
+export type ImportRecipeV3 = GltfGlbRecipeV3 | import('./audio-assets').AudioRecipe;
 
 /**
  * The metrics member depends on the record's `kind` — the GLB
- * decoded-resource member for `model`, {@link PcmWavMetrics} for `audio`.
+ * decoded-resource member for `model`, the header facts for `audio`.
  */
-export type AssetMetricsV3 = AssetMetrics | PcmWavMetrics;
+export type AssetMetricsV3 = AssetMetrics | import('./audio-assets').AudioMetrics;
 
 export interface AssetVersionV3 extends Omit<AssetVersion, 'importRecipe' | 'metrics'> {
   importRecipe: ImportRecipeV3;
@@ -383,6 +350,10 @@ export interface AssetRecordV3 {
   clipsFor?: string;
   /** The labels a script may load the asset by (ascending, unique; absent = none). */
   labels?: string[];
+  /** Audio only: how the file is held when played (absent: the default for its length). */
+  loadType?: import('./audio-assets').AudioLoadType;
+  /** Audio only: false = read only when played (absent: read with the scene that uses it). */
+  preload?: false;
 }
 
 /** The v3 content block: the accepted five keys plus the required `game`. */
@@ -518,27 +489,3 @@ export const SCENE_LIMITS_V3 = Object.freeze({
   animationProfileBytes: 4_096,
 });
 
-/**
- * The frozen PCM-WAV profile constants. They
- * live here (not imported from `asset-pipeline`) because `project-model` has no
- * dependency on the inspector; the importer applies the same exact
- * arithmetic. `audioPipelineVersion` is the repository pin of
- * `@thirdlight/asset-pipeline` (`packages/asset-pipeline/package.json`), the
- * only tool whose version can change an inspected WAV.
- */
-export const AUDIO_PCM_WAV_PROFILE = Object.freeze({
-  headerBytes: 44,
-  channels: 1,
-  sampleRate: 48_000,
-  bitsPerSample: 16,
-  byteRate: 96_000,
-  blockAlign: 2,
-  maxPcmBytes: 192_000,
-  maxFrames: 96_000,
-  maxDurationMs: 2_000,
-  maxSourceBytes: 192_044,
-  /** The hard source-file bound, checked before any profile cap. */
-  maxSourceFileBytes: 196_608,
-  recipeVersion: 1,
-  audioPipelineVersion: '0.1.0',
-});

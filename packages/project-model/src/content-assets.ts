@@ -1,6 +1,6 @@
 /**
  * Asset records of the content catalog: import recipes, metrics (model, audio,
- * music, font, texture), packed and converted sources, versions, and their
+ * font, texture), packed and converted sources, versions, and their
  * canonical form.
  */
 
@@ -28,8 +28,8 @@ import type {
   ImportRecipe,
 } from './types-v2';
 import { ID_RE_V2 } from './components';
-import type { AssetRecordV3, AssetVersionV3, PcmWavMetrics, PcmWavRecipe } from './types-v3';
-import { AUDIO_PCM_WAV_PROFILE } from './types-v3';
+import type { AssetRecordV3, AssetVersionV3 } from './types-v3';
+import { AUDIO_PIPELINE_NAME, AUDIO_PIPELINE_VERSION, canonicalAudioMetrics, validateAudioLoadFields, validateAudioMetrics, validateAudioRecipe, type AudioMetrics } from './audio-assets';
 import {
   ASSET_LABEL_RE,
   ASSET_METRIC_CAPS,
@@ -39,8 +39,6 @@ import {
   MAX_CONVERTED_SOURCE_BYTES,
   MAX_FONT_FAMILY_NAME,
   MAX_FONT_VERSIONS,
-  MAX_MUSIC_DURATION_MS,
-  MAX_MUSIC_VERSIONS,
   MAX_SOURCE_BYTES,
   MAX_TEXTURE_EDGE,
   MAX_TEXTURE_LAYERS,
@@ -49,7 +47,7 @@ import {
 } from './content-limits';
 import { DIGEST_RE, digestError, isValidSourcePath, limitsError, SEMVER_RE, sortedKeys } from './content-helpers';
 
-type AssetKindV3 = 'model' | 'audio' | 'texture' | 'music' | 'font';
+type AssetKindV3 = 'model' | 'audio' | 'texture' | 'font';
 
 const METRIC_LIMIT_NAMES: Partial<Record<keyof AssetMetrics, NonNullable<ModelErrorV2['limit']>>> = {
   animationChannels: 'animation_channels',
@@ -74,35 +72,9 @@ const METRIC_ORDER: Exclude<keyof AssetMetrics, 'bounds'>[] = [
   'decodedImageBytes',
 ];
 
-/**
- * The frozen `pcm-wav` profile constants; the importer reads the same
- * profile.
- */
-const AUDIO_PCM_BYTES_MAX = AUDIO_PCM_WAV_PROFILE.maxPcmBytes;
-const AUDIO_FRAMES_MAX = AUDIO_PCM_WAV_PROFILE.maxFrames;
-const AUDIO_DURATION_MS_MAX = AUDIO_PCM_WAV_PROFILE.maxDurationMs;
-const AUDIO_SOURCE_BYTES_MAX = AUDIO_PCM_WAV_PROFILE.maxSourceBytes;
-const AUDIO_SOURCE_FILE_BYTES_MAX = AUDIO_PCM_WAV_PROFILE.maxSourceFileBytes;
-const AUDIO_PIPELINE_NAME = 'asset-pipeline';
-const AUDIO_PIPELINE_VERSION = AUDIO_PCM_WAV_PROFILE.audioPipelineVersion;
-
-/** The `pcm-wav` metrics member key order (exact). */
-const AUDIO_METRIC_ORDER = [
-  'container',
-  'encoding',
-  'channels',
-  'sampleRate',
-  'bitsPerSample',
-  'frames',
-  'durationMs',
-  'pcmBytes',
-  'dataChunkBytes',
-  'riffChunkBytes',
-] as const;
-
-/** A `pcm-wav` recipe has no `extensions` key (a WAV has no glTF extensions). */
+/** A header-only recipe (font, texture) has no `extensions` key. */
 const AUDIO_RECIPE_FIELDS = new Set(['profile', 'recipeVersion', 'toolchain']);
-const KNOWN_ASSET_FIELDS = new Set(['assetId', 'kind', 'displayName', 'currentVersion', 'versions', 'vertexColors', 'materials', 'clipsFor', 'labels']);
+const KNOWN_ASSET_FIELDS = new Set(['assetId', 'kind', 'displayName', 'currentVersion', 'versions', 'vertexColors', 'materials', 'clipsFor', 'labels', 'loadType', 'preload']);
 const KNOWN_VERSION_FIELDS = new Set([
   'version',
   'sourceDigest',
@@ -139,16 +111,8 @@ function validateImportRecipe(r: unknown, path: string, errors: ModelErrorV2[], 
     }
     return;
   }
-  if (kind === 'music') {
-    if (r['profile'] !== 'music') bad('a music import recipe profile must be "music"', r['profile']);
-    if (r['recipeVersion'] !== 1) bad('a music import recipe version must be exactly 1', r['recipeVersion']);
-    const toolchain = r['toolchain'];
-    if (!isPlainObject(toolchain) || Object.keys(toolchain).length !== 1 || toolchain[AUDIO_PIPELINE_NAME] !== AUDIO_PIPELINE_VERSION) {
-      bad(`the music toolchain must name exactly "${AUDIO_PIPELINE_NAME}" at '${AUDIO_PIPELINE_VERSION}'`, toolchain);
-    }
-    for (const k of Object.keys(r)) {
-      if (!AUDIO_RECIPE_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, [...AUDIO_RECIPE_FIELDS].join(', ')));
-    }
+  if (kind === 'audio') {
+    validateAudioRecipe(r, path, errors);
     return;
   }
   if (kind === 'texture') {
@@ -160,44 +124,6 @@ function validateImportRecipe(r: unknown, path: string, errors: ModelErrorV2[], 
     }
     for (const k of Object.keys(r)) {
       if (!AUDIO_RECIPE_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, [...AUDIO_RECIPE_FIELDS].join(', ')));
-    }
-    return;
-  }
-  if (kind === 'audio') {
-    // The `pcm-wav` recipe is enforced, not merely container-checked. Exactly `asset-pipeline` at the
-    // repository pin, `recipeVersion` 1, and **no** `extensions` key.
-    if (r['profile'] !== 'pcm-wav') bad('an audio import recipe profile must be "pcm-wav"', r['profile']);
-    if (r['recipeVersion'] !== AUDIO_PCM_WAV_PROFILE.recipeVersion) {
-      bad(`an audio import recipe version must be exactly ${AUDIO_PCM_WAV_PROFILE.recipeVersion}`, r['recipeVersion']);
-    }
-    const toolchain = r['toolchain'];
-    if (!isPlainObject(toolchain)) {
-      bad('import recipe must name a toolchain', toolchain);
-    } else {
-      const names = Object.keys(toolchain);
-      if (names.length !== 1 || names[0] !== AUDIO_PIPELINE_NAME) {
-        bad(`the pcm-wav toolchain must name exactly "${AUDIO_PIPELINE_NAME}"`, names);
-      } else if (toolchain[AUDIO_PIPELINE_NAME] !== AUDIO_PIPELINE_VERSION) {
-        bad(
-          `toolchain["${AUDIO_PIPELINE_NAME}"] must be the pinned '${AUDIO_PIPELINE_VERSION}'`,
-          toolchain[AUDIO_PIPELINE_NAME],
-        );
-      }
-    }
-    // The key set is exactly profile/recipeVersion/toolchain.
-    // `extensions` is not merely empty — it must be absent.
-    for (const k of Object.keys(r)) {
-      if (!AUDIO_RECIPE_FIELDS.has(k)) {
-        errors.push(
-          unexpectedField(
-            `${path}/${pointerSegment(k)}`,
-            k,
-            k === 'extensions'
-              ? 'absent for profile "pcm-wav" (a WAV has no glTF extensions)'
-              : [...AUDIO_RECIPE_FIELDS].join(', '),
-          ),
-        );
-      }
     }
     return;
   }
@@ -243,22 +169,17 @@ function validateMetrics(
   path: string,
   errors: ModelErrorV2[],
   kind: AssetKindV3 = 'model',
-  sourceByteLength?: unknown,
 ): void {
   if (!isPlainObject(m)) {
     errors.push(fieldType(path, m, 'object'));
     return;
   }
   if (kind === 'audio') {
-    validateAudioMetrics(m, path, errors, sourceByteLength);
+    validateAudioMetrics(m, path, errors);
     return;
   }
   if (kind === 'texture') {
     validateTextureMetrics(m, path, errors);
-    return;
-  }
-  if (kind === 'music') {
-    validateMusicMetrics(m, path, errors);
     return;
   }
   if (kind === 'font') {
@@ -301,27 +222,6 @@ function validateMetrics(
     errors.push(
       limitsError(path, 'decoded_bytes', g + i, MAX_TOTAL_DECODED_BYTES, 'total decoded bytes exceed the cap'),
     );
-  }
-}
-
-/**
- * The `PcmWavMetrics` member is
- * re-validated against every cap and against the record's own
- * `sourceByteLength` on every load. A disagreeing record is invalid
- * (`limits_exceeded`/`field_value`) and is **never normalized**.
- */
-/** `{format, channels, sampleRate, durationMs}` of a music version. */
-function validateMusicMetrics(m: Record<string, unknown>, path: string, errors: ModelErrorV2[]): void {
-  if (!['ogg-vorbis', 'ogg-opus', 'mp3', 'wav'].includes(m['format'] as string)) {
-    errors.push(fieldValue(`${path}/format`, m['format'], '"ogg-vorbis" | "ogg-opus" | "mp3" | "wav"', 'music is Ogg Vorbis/Opus, MP3 or WAV'));
-  }
-  if (m['channels'] !== 1 && m['channels'] !== 2) errors.push(fieldValue(`${path}/channels`, m['channels'], '1 | 2', 'music is mono or stereo'));
-  const rate = m['sampleRate'];
-  if (typeof rate !== 'number' || !Number.isInteger(rate) || rate < 8000 || rate > 48000) errors.push(fieldValue(`${path}/sampleRate`, rate, 'integer 8000..48000', 'the sample rate is 8-48 kHz'));
-  const ms = m['durationMs'];
-  if (typeof ms !== 'number' || !Number.isInteger(ms) || ms < 1 || ms > MAX_MUSIC_DURATION_MS) errors.push(fieldValue(`${path}/durationMs`, ms, `integer 1..${MAX_MUSIC_DURATION_MS}`, 'music lasts at most 10 minutes'));
-  for (const k of Object.keys(m)) {
-    if (!['format', 'channels', 'sampleRate', 'durationMs'].includes(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, 'format, channels, sampleRate, durationMs'));
   }
 }
 
@@ -374,119 +274,6 @@ function validateTextureMetrics(m: Record<string, unknown>, path: string, errors
   const known = ktx2 ? ['format', 'width', 'height', 'decodedBytes', 'codec', 'levels', 'layers'] : ['format', 'width', 'height', 'decodedBytes'];
   for (const k of Object.keys(m)) {
     if (!known.includes(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, known.join(', ')));
-  }
-}
-
-function validateAudioMetrics(
-  m: Record<string, unknown>,
-  path: string,
-  errors: ModelErrorV2[],
-  sourceByteLength: unknown,
-): void {
-  const valueError = (field: string, value: unknown, expected: string, message: string): void => {
-    errors.push(withFound({ code: 'field_value', path: `${path}/${field}`, message, expected }, value));
-  };
-
-  const int = (field: string): number | null => {
-    const value = m[field];
-    // Absence is already reported by the exact-key-set loop above.
-    if (value === undefined) return null;
-    if (typeof value !== 'number' || !Number.isInteger(value)) {
-      errors.push(fieldType(`${path}/${field}`, value, 'integer'));
-      return null;
-    }
-    return value;
-  };
-
-  // Exact key set (the member is profile-determined).
-  for (const key of AUDIO_METRIC_ORDER) {
-    if (m[key] === undefined) errors.push(fieldMissing(`${path}/${key}`, key));
-  }
-  for (const k of Object.keys(m)) {
-    if (!(AUDIO_METRIC_ORDER as readonly string[]).includes(k)) {
-      errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, AUDIO_METRIC_ORDER.join(', ')));
-    }
-  }
-
-  // The two constant discriminators and the three constant header facts.
-  if (m['container'] !== undefined && m['container'] !== 'riff-wave') {
-    valueError('container', m['container'], '"riff-wave"', 'the audio metrics container must be "riff-wave"');
-  }
-  if (m['encoding'] !== undefined && m['encoding'] !== 'pcm-s16le') {
-    valueError('encoding', m['encoding'], '"pcm-s16le"', 'the audio metrics encoding must be "pcm-s16le"');
-  }
-  if (m['channels'] !== undefined && m['channels'] !== AUDIO_PCM_WAV_PROFILE.channels) {
-    valueError('channels', m['channels'], String(AUDIO_PCM_WAV_PROFILE.channels), 'the pcm-wav profile is mono');
-  }
-  if (m['sampleRate'] !== undefined && m['sampleRate'] !== AUDIO_PCM_WAV_PROFILE.sampleRate) {
-    valueError('sampleRate', m['sampleRate'], String(AUDIO_PCM_WAV_PROFILE.sampleRate), 'the pcm-wav profile is 48000 Hz');
-  }
-  if (m['bitsPerSample'] !== undefined && m['bitsPerSample'] !== AUDIO_PCM_WAV_PROFILE.bitsPerSample) {
-    valueError('bitsPerSample', m['bitsPerSample'], String(AUDIO_PCM_WAV_PROFILE.bitsPerSample), 'the pcm-wav profile is signed 16-bit');
-  }
-
-  const frames = int('frames');
-  const durationMs = int('durationMs');
-  const pcmBytes = int('pcmBytes');
-  const dataChunkBytes = int('dataChunkBytes');
-  const riffChunkBytes = int('riffChunkBytes');
-
-  // Caps (the single normative PCM bound names the limit).
-  if (frames !== null && frames > AUDIO_FRAMES_MAX) {
-    errors.push(limitsError(`${path}/frames`, 'audio_pcm_bytes', frames, AUDIO_FRAMES_MAX, 'frames exceed the PCM cap'));
-  }
-  if (pcmBytes !== null && pcmBytes > AUDIO_PCM_BYTES_MAX) {
-    errors.push(limitsError(`${path}/pcmBytes`, 'audio_pcm_bytes', pcmBytes, AUDIO_PCM_BYTES_MAX, 'PCM bytes exceed the profile cap'));
-  }
-  if (durationMs !== null && durationMs > AUDIO_DURATION_MS_MAX) {
-    errors.push(limitsError(`${path}/durationMs`, 'audio_pcm_bytes', durationMs, AUDIO_DURATION_MS_MAX, 'duration exceeds the derived cap'));
-  }
-
-  // Exact derived arithmetic — a disagreeing record is invalid.
-  if (frames !== null && frames < 1) {
-    valueError('frames', frames, 'an integer >= 1', 'a pcm-wav carries at least one frame');
-  }
-  if (frames !== null && pcmBytes !== null && pcmBytes !== frames * 2) {
-    valueError('pcmBytes', pcmBytes, `frames * 2 (${frames * 2})`, 'pcmBytes must equal frames * 2');
-  }
-  if (frames !== null && durationMs !== null && durationMs !== Math.floor(frames / 48)) {
-    valueError('durationMs', durationMs, `floor(frames / 48) (${Math.floor(frames / 48)})`, 'durationMs must equal floor(frames / 48)');
-  }
-  if (pcmBytes !== null && dataChunkBytes !== null && dataChunkBytes !== pcmBytes) {
-    valueError('dataChunkBytes', dataChunkBytes, `pcmBytes (${pcmBytes})`, 'the data chunk holds exactly pcmBytes bytes');
-  }
-  if (pcmBytes !== null && riffChunkBytes !== null && riffChunkBytes !== 36 + pcmBytes) {
-    valueError('riffChunkBytes', riffChunkBytes, `36 + pcmBytes (${36 + pcmBytes})`, 'riffChunkBytes must equal 36 + pcmBytes');
-  }
-  if (pcmBytes !== null && typeof sourceByteLength === 'number') {
-    if (sourceByteLength !== 44 + pcmBytes) {
-      valueError(
-        'pcmBytes',
-        pcmBytes,
-        `sourceByteLength - 44 (${sourceByteLength - 44})`,
-        'sourceByteLength must equal 44 + pcmBytes on every load',
-      );
-    } else if (sourceByteLength > AUDIO_SOURCE_BYTES_MAX) {
-      errors.push(
-        limitsError(
-          `${path}/pcmBytes`,
-          'audio_pcm_bytes',
-          sourceByteLength,
-          AUDIO_SOURCE_BYTES_MAX,
-          'sourceByteLength exceeds the derived 44 + pcmBytes cap',
-        ),
-      );
-    } else if (sourceByteLength > AUDIO_SOURCE_FILE_BYTES_MAX) {
-      errors.push(
-        limitsError(
-          `${path}/pcmBytes`,
-          'audio_pcm_bytes',
-          sourceByteLength,
-          AUDIO_SOURCE_FILE_BYTES_MAX,
-          'sourceByteLength exceeds the source-file hard bound',
-        ),
-      );
-    }
   }
 }
 
@@ -619,7 +406,7 @@ function validateAssetVersion(v: unknown, path: string, errors: ModelErrorV2[], 
   if (v['importRecipe'] === undefined) errors.push(fieldMissing(`${path}/importRecipe`, 'importRecipe'));
   else validateImportRecipe(v['importRecipe'], `${path}/importRecipe`, errors, kind);
   if (v['metrics'] === undefined) errors.push(fieldMissing(`${path}/metrics`, 'metrics'));
-  else validateMetrics(v['metrics'], `${path}/metrics`, errors, kind, len);
+  else validateMetrics(v['metrics'], `${path}/metrics`, errors, kind);
 
   const importedAt = v['importedAt'];
   if (importedAt === undefined) errors.push(fieldMissing(`${path}/importedAt`, 'importedAt'));
@@ -660,8 +447,8 @@ export function validateAsset(a: unknown, path: string, errors: ModelErrorV2[], 
   const rawKind = a['kind'];
   let kind: AssetKindV3 = 'model';
   if (v3) {
-    if (rawKind !== 'model' && rawKind !== 'audio' && rawKind !== 'texture' && rawKind !== 'music' && rawKind !== 'font') {
-      errors.push(fieldValue(`${path}/kind`, rawKind, '"model" | "audio" | "texture" | "music" | "font"', 'the v3 asset kind must be model, audio, texture, music or font'));
+    if (rawKind !== 'model' && rawKind !== 'audio' && rawKind !== 'texture' && rawKind !== 'font') {
+      errors.push(fieldValue(`${path}/kind`, rawKind, '"model" | "audio" | "texture" | "font"', 'the asset kind must be model, audio, texture or font'));
     } else {
       kind = rawKind;
     }
@@ -683,7 +470,7 @@ export function validateAsset(a: unknown, path: string, errors: ModelErrorV2[], 
     errors.push(fieldType(`${path}/versions`, versions, 'array'));
   } else {
     count = versions.length;
-    const maxVersions = v3 && kind === 'audio' ? MAX_AUDIO_VERSIONS : v3 && kind === 'texture' ? MAX_TEXTURE_VERSIONS : v3 && kind === 'music' ? MAX_MUSIC_VERSIONS : v3 && kind === 'font' ? MAX_FONT_VERSIONS : MAX_ASSET_VERSIONS;
+    const maxVersions = v3 && kind === 'audio' ? MAX_AUDIO_VERSIONS : v3 && kind === 'texture' ? MAX_TEXTURE_VERSIONS : v3 && kind === 'font' ? MAX_FONT_VERSIONS : MAX_ASSET_VERSIONS;
     if (versions.length < 1 || versions.length > maxVersions) {
       errors.push(
         limitsError(`${path}/versions`, kind === 'audio' ? 'audio_versions' : kind === 'font' ? 'font_versions' : 'asset_versions', versions.length, maxVersions, `an asset record must have 1-${maxVersions} versions`),
@@ -745,6 +532,7 @@ export function validateAsset(a: unknown, path: string, errors: ModelErrorV2[], 
     if (!v3 || kind !== 'model') errors.push(unexpectedField(`${path}/clipsFor`, 'clipsFor', 'only a v4 model asset has clipsFor'));
     else if (typeof clipsFor !== 'string' || !ID_RE_V2.test(clipsFor)) errors.push(fieldValue(`${path}/clipsFor`, clipsFor, 'a model assetId', 'clipsFor names the model asset whose rig these clips are for'));
   }
+  validateAudioLoadFields(a, path, errors, v3 && kind === 'audio');
   const labels = a['labels'];
   if (labels !== undefined) {
     if (!v3) errors.push(unexpectedField(`${path}/labels`, 'labels', 'only a v3/v4 asset has labels'));
@@ -768,29 +556,6 @@ function canonicalRecipe(r: ImportRecipe): ImportRecipe {
     recipeVersion: r.recipeVersion,
     toolchain,
     extensions: [...r.extensions].sort(),
-  };
-}
-
-/** The `pcm-wav` recipe has no `extensions` key. */
-function canonicalAudioRecipe(r: PcmWavRecipe): PcmWavRecipe {
-  const toolchain: Record<string, string> = {};
-  for (const k of sortedKeys(r.toolchain)) toolchain[k] = r.toolchain[k] as string;
-  return { profile: 'pcm-wav', recipeVersion: 1, toolchain };
-}
-
-/** The `PcmWavMetrics` member in its exact canonical key order. */
-function canonicalAudioMetrics(m: PcmWavMetrics): PcmWavMetrics {
-  return {
-    container: m.container,
-    encoding: m.encoding,
-    channels: m.channels,
-    sampleRate: m.sampleRate,
-    bitsPerSample: m.bitsPerSample,
-    frames: m.frames,
-    durationMs: m.durationMs,
-    pcmBytes: m.pcmBytes,
-    dataChunkBytes: m.dataChunkBytes,
-    riffChunkBytes: m.riffChunkBytes,
   };
 }
 
@@ -825,9 +590,9 @@ function canonicalConvertedFrom(c: ConvertedFrom): ConvertedFrom {
 }
 
 /**
- * The kind-aware v3 version canonicalizer. The `audio` member keeps
- * `PcmWavMetrics`/`pcm-wav` (no `extensions` and no GLB metric fields); the
- * `model` member keeps the v2 field set.
+ * The kind-aware v3 version canonicalizer. The header-only kinds (audio,
+ * font, texture) have no `extensions` and no GLB metric fields; the `model`
+ * member keeps the v2 field set.
  */
 function canonicalVersionV3(v: AssetVersionV3, kind: AssetKindV3): AssetVersionV3 {
   const head = {
@@ -850,13 +615,12 @@ function canonicalVersionV3(v: AssetVersionV3, kind: AssetKindV3): AssetVersionV
       ...tail,
     };
   }
-  if (kind === 'music') {
+  if (kind === 'audio') {
     const r = v.importRecipe as unknown as { toolchain: Record<string, string> };
-    const m = v.metrics as unknown as { format: string; channels: number; sampleRate: number; durationMs: number };
     return {
       ...head,
-      importRecipe: { profile: 'music', recipeVersion: 1, toolchain: { ...r.toolchain } } as unknown as AssetVersionV3['importRecipe'],
-      metrics: { format: m.format, channels: m.channels, sampleRate: m.sampleRate, durationMs: m.durationMs } as unknown as AssetVersionV3['metrics'],
+      importRecipe: { profile: 'audio', recipeVersion: 1, toolchain: { ...r.toolchain } } as unknown as AssetVersionV3['importRecipe'],
+      metrics: canonicalAudioMetrics(v.metrics as unknown as AudioMetrics) as unknown as AssetVersionV3['metrics'],
       ...tail,
     };
   }
@@ -871,14 +635,6 @@ function canonicalVersionV3(v: AssetVersionV3, kind: AssetKindV3): AssetVersionV
       ...tail,
     };
   }
-  if (kind === 'audio') {
-    return {
-      ...head,
-      importRecipe: canonicalAudioRecipe(v.importRecipe as PcmWavRecipe),
-      metrics: canonicalAudioMetrics(v.metrics as PcmWavMetrics),
-      ...tail,
-    };
-  }
   const model = v as unknown as AssetVersion;
   return {
     ...head,
@@ -890,7 +646,7 @@ function canonicalVersionV3(v: AssetVersionV3, kind: AssetKindV3): AssetVersionV
 
 /** The kind-aware v3 asset canonicalizer (record order is untouched). */
 export function canonicalAssetV3(a: AssetRecordV3): AssetRecordV3 {
-  const kind: AssetKindV3 = a.kind === 'audio' ? 'audio' : a.kind === 'texture' ? 'texture' : a.kind === 'music' ? 'music' : a.kind === 'font' ? 'font' : 'model';
+  const kind: AssetKindV3 = a.kind === 'audio' ? 'audio' : a.kind === 'texture' ? 'texture' : a.kind === 'font' ? 'font' : 'model';
   return {
     assetId: a.assetId,
     kind,
@@ -900,6 +656,8 @@ export function canonicalAssetV3(a: AssetRecordV3): AssetRecordV3 {
     ...(a.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}),
     ...(a.materials !== undefined ? { materials: canonicalMaterialMapping(a.materials) } : {}),
     ...(a.clipsFor !== undefined ? { clipsFor: a.clipsFor } : {}),
+    ...(a.loadType !== undefined ? { loadType: a.loadType } : {}),
+    ...(a.preload === false ? { preload: false as const } : {}),
     ...(a.labels !== undefined ? { labels: [...a.labels] } : {}),
   };
 }

@@ -31,15 +31,17 @@ describe('scale bench generator', () => {
       const index = svc.query({ op: 'queryIndex', projectId: 'scale', args: { limit: 1024 } }) as unknown as { entries: { kind: string; id: string; path: string }[] };
       const kinds: Record<string, number> = {};
       for (const e of index.entries) kinds[e.kind] = (kinds[e.kind] ?? 0) + 1;
-      expect(kinds).toEqual({ music: SCALE_SMALL.voices, audio: SCALE_SMALL.sounds, texture: SCALE_SMALL.textures, model: SCALE_SMALL.models, prefab: SCALE_SMALL.prefabs, material: SCALE_SMALL.materials, dialogue: r.counts.dialogues, scene: SCALE_SMALL.scenes });
+      expect(kinds).toEqual({ audio: SCALE_SMALL.voices + SCALE_SMALL.sounds, texture: SCALE_SMALL.textures, model: SCALE_SMALL.models, prefab: SCALE_SMALL.prefabs, material: SCALE_SMALL.materials, dialogue: r.counts.dialogues, scene: SCALE_SMALL.scenes });
       expect(r.counts.dialogueLines).toBe(SCALE_SMALL.dialogueNodes);
       // Each asset is a file in the project's folder, next to its sidecar holding its record.
-      for (const e of index.entries.filter((x) => ['music', 'audio', 'texture', 'model'].includes(x.kind))) {
+      for (const e of index.entries.filter((x) => ['audio', 'texture', 'model'].includes(x.kind))) {
         const sidecar = read(r.dir, `${e.path}.tlasset`) as { tlasset: number; id: string; kind: string; record: { versions: { sourceDigest: string; sourceByteLength: number }[] } };
         expect(sidecar).toMatchObject({ tlasset: 2, id: e.id, kind: e.kind });
         const bytes = readFileSync(join(r.dir, e.path));
         expect(createHash('sha256').update(bytes).digest('hex')).toBe(sidecar.record.versions[0]!.sourceDigest);
         expect(bytes.length).toBe(sidecar.record.versions[0]!.sourceByteLength);
+        // Voice lines are read when played (as a voiced game sets them); other sounds with their scene.
+        if (e.kind === 'audio') expect((sidecar as unknown as { importSettings: { preload: boolean } }).importSettings.preload).toBe(!e.id.startsWith('voice-'));
       }
     } finally {
       svc.dispose();

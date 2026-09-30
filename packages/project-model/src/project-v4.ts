@@ -272,7 +272,7 @@ function sceneReferenceRules(s: SceneV4, content: ContentCatalogV4): readonly Mo
   if (hit !== undefined && hit.key.every((v, i) => v === key[i])) return hit.byRule;
   const byRule: ModelErrorV3[][] = Array.from({ length: SCENE_REFERENCE_RULES }, () => []);
   const [sounds, pickups, animators, mappings, params, effects] = byRule as [ModelErrorV3[], ModelErrorV3[], ModelErrorV3[], ModelErrorV3[], ModelErrorV3[], ModelErrorV3[]];
-  // An audio source plays an audio or music asset of this project.
+  // An audio source plays an audio asset of this project.
   // A cookie is one plain texture (a texture array is read by graph materials only).
   const soundKinds = plainAssetKinds(content);
   const controllerIds = animatorIds(content);
@@ -284,8 +284,8 @@ function sceneReferenceRules(s: SceneV4, content: ContentCatalogV4): readonly Mo
       sounds.push(sceneError(s.sceneId, withFound({ code: 'asset_reference_missing', path: `/entities/${i}/components/light/cookie`, message: 'a spot light\'s cookie is a texture asset of this project', expected: 'a texture assetId' }, cookie)));
     }
     const src = (e.components as { audioSource?: { assetId: string } }).audioSource;
-    if (src !== undefined && soundKinds.get(src.assetId) !== 'audio' && soundKinds.get(src.assetId) !== 'music') {
-      sounds.push(sceneError(s.sceneId, withFound({ code: 'asset_reference_missing', path: `/entities/${i}/components/audioSource/assetId`, message: 'an audio source plays an audio or music asset of this project', expected: 'an audio or music assetId' }, src.assetId)));
+    if (src !== undefined && soundKinds.get(src.assetId) !== 'audio') {
+      sounds.push(sceneError(s.sceneId, withFound({ code: 'asset_reference_missing', path: `/entities/${i}/components/audioSource/assetId`, message: 'an audio source plays an audio asset of this project', expected: 'an audio assetId' }, src.assetId)));
     }
     // A pickup's collect sound is an audio asset of this project.
     const cue = (e.components as { pickup?: { cue?: string } }).pickup?.cue;
@@ -408,7 +408,7 @@ function prefabReferenceRules(content: ContentCatalogV4): readonly ModelErrorV3[
       for (const [slot, id] of Object.entries(c.materials ?? {})) if (!materialIds.has(id)) bad(`materials/${slot}`, 'reference_missing', 'the material mapping names no material of this project', 'a materialId in content.materials', id);
       if (c.materialParams !== undefined) for (const x of materialOverrideErrors(c.materialParams, content.materials ?? [])) bad(`materialParams${x.path}`, x.code, x.message, 'a public parameter of a graph material, with a value that fits it', x.found);
       if (c.effect !== undefined) for (const x of effectComponentErrors(c.effect, content.effects ?? [])) bad(`effect${x.path}`, x.code, x.message, 'an effect of this project and its public parameters', x.found);
-      if (c.audioSource !== undefined && soundKinds.get(c.audioSource.assetId) !== 'audio' && soundKinds.get(c.audioSource.assetId) !== 'music') bad('audioSource/assetId', 'asset_reference_missing', 'an audio source plays an audio or music asset of this project', 'an audio or music assetId', c.audioSource.assetId);
+      if (c.audioSource !== undefined && soundKinds.get(c.audioSource.assetId) !== 'audio') bad('audioSource/assetId', 'asset_reference_missing', 'an audio source plays an audio asset of this project', 'an audio assetId', c.audioSource.assetId);
     });
   });
   prefabRefRules.set(prefabs, { key, errors });

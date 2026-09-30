@@ -76,7 +76,7 @@ describe('start-scene assets', () => {
     rowFor('lm-start', 'texture', b('t7')),
     rowFor('lm-later', 'texture', b('t8')),
     rowFor('tex-unused', 'texture', b('t9')),
-    rowFor('song', 'music', b('m')),
+    rowFor('song', 'audio', b('m')),
   ]);
   it('follows what the start scenes use, and nothing else', async () => {
     const picked = startSceneAssets({

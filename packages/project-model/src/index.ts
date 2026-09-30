@@ -123,6 +123,26 @@ export {
 // the v3 registry/limits/preset constants, the v3 types and the
 // component-level validators.
 export {
+  AUDIO_DECODE_ON_LOAD_BELOW_MS,
+  AUDIO_FORMATS,
+  AUDIO_LOAD_TYPES,
+  AUDIO_PIPELINE_NAME,
+  AUDIO_PIPELINE_VERSION,
+  AUDIO_STREAM_ABOVE_MS,
+  audioLoadOf,
+  audioPlaybackGaps,
+  audioSummaryOf,
+  defaultAudioLoadType,
+  upgradeAudioAssets,
+  upgradeAudioRecord,
+  type AudioFormat,
+  type AudioLoadSettings,
+  type AudioLoadType,
+  type AudioMetrics,
+  type AudioRecipe,
+  type AudioSummary,
+} from './audio-assets';
+export {
   normalizeSceneV3,
   validateLightComponent,
   validateModelAnimationComponent,
@@ -131,7 +151,6 @@ export {
   validateSurfaceComponent,
 } from './scene-v3';
 export {
-  AUDIO_PCM_WAV_PROFILE,
   SCENE_LIMITS_V3,
   SURFACE_PRESETS,
   SURFACE_PRESET_NAMES,
@@ -159,8 +178,6 @@ export {
   type ImportRecipeV3,
   type LightComponent,
   type ModelAnimationComponent,
-  type PcmWavMetrics,
-  type PcmWavRecipe,
   type PlayerSpawnComponent,
   type SceneV3,
   type SurfaceComponent,

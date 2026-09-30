@@ -24,7 +24,7 @@ import { createHash } from 'node:crypto';
 import { lstatSync, mkdirSync, readdirSync, realpathSync, renameSync, rmSync, statSync, unlinkSync, utimesSync } from 'node:fs';
 import { dirname, join, sep } from 'node:path';
 
-import { DEFAULT_ASSET_FOLDER, isValidSourcePath } from '@thirdlight/project-model';
+import { audioLoadOf, DEFAULT_ASSET_FOLDER, isValidSourcePath } from '@thirdlight/project-model';
 import type { ContentCatalogV4 } from '@thirdlight/project-model';
 import type { ChangeData, CommandError } from '@thirdlight/commands';
 
@@ -186,6 +186,8 @@ export function importSettingsOf(record: RecordLike): Record<string, unknown> {
   if (record.vertexColors !== undefined) out['vertexColors'] = record.vertexColors;
   if (record.materials !== undefined) out['materials'] = { ...record.materials };
   if (record.clipsFor !== undefined) out['clipsFor'] = record.clipsFor;
+  // An audio file's load settings as the game uses them (the record stores only a changed one).
+  if (record.kind === 'audio') Object.assign(out, audioLoadOf(record));
   return out;
 }
 
@@ -591,9 +593,8 @@ export function extensionFor(kind: string, metrics: unknown, convertedFormat?: s
   if (convertedFormat !== undefined) return convertedFormat === 'jpeg' ? 'jpg' : convertedFormat;
   const format = typeof metrics === 'object' && metrics !== null ? (metrics as { format?: unknown }).format : undefined;
   if (kind === 'model') return 'glb';
-  if (kind === 'audio') return 'wav';
+  if (kind === 'audio') return format === 'ogg-vorbis' ? 'ogg' : format === 'ogg-opus' ? 'opus' : typeof format === 'string' ? format : 'wav';
   if (kind === 'texture') return format === 'jpeg' ? 'jpg' : typeof format === 'string' ? format : 'png';
-  if (kind === 'music') return format === 'ogg-vorbis' ? 'ogg' : format === 'ogg-opus' ? 'opus' : typeof format === 'string' ? format : 'ogg';
   if (kind === 'font') return typeof format === 'string' ? format : 'ttf';
   return 'bin';
 }

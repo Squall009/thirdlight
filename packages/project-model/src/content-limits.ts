@@ -17,6 +17,11 @@ export const MAX_ASSET_VERSIONS = 32;
  * carry; the number of files is not bounded.
  */
 export const MAX_CONTENT_FILE_BYTES = 1_048_576;
+/**
+ * The largest imported file (bytes): a model, an image, a font, an audio file
+ * of any length. It is the upload stage's bound too; the number of files is
+ * not bounded.
+ */
 export const MAX_SOURCE_BYTES = 33_554_432;
 /**
  * One prefab: its entities (a building or a vehicle of many parts) and its
@@ -35,16 +40,12 @@ export const MAX_DECLARATION_BYTES = 32_768;
 export const DECLARATION_STRING_LENGTH_DEFAULT = 256;
 export const MAX_DECLARATION_STRING_LENGTH = 1024;
 export const MAX_SETTINGS_KEYS = 32;
-/** Versions of one sound-effect record; each is bounded by its own PCM byte cap. */
+/** Versions of one audio record (its file's size is bounded by `MAX_SOURCE_BYTES`, as every imported file's). */
 export const MAX_AUDIO_VERSIONS = 8;
 /** Versions of one texture asset record (PNG/JPEG/WebP/KTX2). */
 export const MAX_TEXTURE_VERSIONS = 8;
 /** The largest texture edge (pixels): every GPU the engine targets samples it; texture streaming revisits it. */
 export const MAX_TEXTURE_EDGE = 4096;
-/** Versions of one music asset record (Ogg Vorbis/Opus, MP3, WAV). */
-export const MAX_MUSIC_VERSIONS = 8;
-/** The longest music (ms) and its largest file (bytes). */
-export const MAX_MUSIC_DURATION_MS = 600_000;
 /** Versions of one font asset record (TTF, OTF, WOFF2, WOFF). */
 export const MAX_FONT_VERSIONS = 8;
 /** The longest family name a font version records (characters). */

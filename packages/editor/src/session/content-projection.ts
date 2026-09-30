@@ -24,6 +24,7 @@
  */
 
 import type { AssetSummary, ChangeData, CommandAssetRecord, PublishAssetChange } from '@thirdlight/commands';
+import { audioSummaryOf } from '@thirdlight/project-model/limits';
 import type { ProjectedEntity } from './projection';
 
 /** One catalog asset summary exactly as `queryAssets`/full state returns it. */
@@ -115,6 +116,7 @@ export class ContentProjection {
     const packedSources = packed === undefined ? [] : [...new Set(packed.layers.flatMap((l) => l.flatMap((c) => ('assetId' in c && typeof c.assetId === 'string' ? [c.assetId] : []))))].sort();
     const sourcePath = pathOf(current);
     const convertedFrom = current?.convertedFrom;
+    const audio = audioSummaryOf(next as unknown as Parameters<typeof audioSummaryOf>[0]);
     this.assets.set(change.assetId, {
       assetId: next.assetId,
       kind: next.kind,
@@ -130,6 +132,8 @@ export class ContentProjection {
       // A texture's image facts (a KTX2's codec and mip levels).
       ...(image !== undefined ? { image: { format: image.format, width: image.width, height: image.height, ...(image.codec !== undefined ? { codec: image.codec } : {}), ...(image.levels !== undefined ? { levels: image.levels } : {}), ...(image.layers !== undefined ? { layers: image.layers } : {}) } } : {}),
       ...(packed !== undefined ? { packedFrom: { encoding: packed.encoding, sources: packedSources } } : {}),
+      // An audio file's facts and load settings.
+      ...(audio !== undefined ? { audio } : {}),
       // `change.next` carries the full record, so the version facts (never
       // bytes) are recomputed locally rather than re-queried.
       versions: next.versions.map((v) => {
@@ -138,7 +142,7 @@ export class ContentProjection {
       }),
     });
     if (!previous) return true;
-    return previous.currentVersion !== next.currentVersion || previous.displayName !== next.displayName || previous.sourcePath !== sourcePath || (previous.labels ?? []).join() !== (next.labels ?? []).join();
+    return previous.currentVersion !== next.currentVersion || previous.displayName !== next.displayName || previous.sourcePath !== sourcePath || (previous.labels ?? []).join() !== (next.labels ?? []).join() || JSON.stringify(previous.audio) !== JSON.stringify(audio);
   }
 
   /** The `(version, digest, byteLength)` a placement resolves through now. */
@@ -188,6 +192,7 @@ function cloneSummary(a: AssetSummary): AssetSummary {
     ...(a.sourcePath !== undefined ? { sourcePath: a.sourcePath } : {}),
     ...(a.convertedFrom !== undefined ? { convertedFrom: { ...a.convertedFrom } } : {}),
     ...(a.image !== undefined ? { image: { ...a.image } } : {}),
+    ...(a.audio !== undefined ? { audio: { ...a.audio, ...(a.audio.playbackGaps !== undefined ? { playbackGaps: [...a.audio.playbackGaps] } : {}) } } : {}),
     ...(a.packedFrom !== undefined ? { packedFrom: { encoding: a.packedFrom.encoding, sources: [...a.packedFrom.sources] } } : {}),
     ...(a.versions ? { versions: a.versions.map((v) => ({ ...v })) } : {}),
   };

@@ -19,7 +19,7 @@
 import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
-import { AUDIO_PCM_WAV_TOOLCHAIN, FONT_TOOLCHAIN, IMAGE_TOOLCHAIN, M2_GLTF_TOOLCHAIN, MUSIC_TOOLCHAIN, type ImportJobPort } from '@thirdlight/asset-pipeline';
+import { AUDIO_TOOLCHAIN, FONT_TOOLCHAIN, IMAGE_TOOLCHAIN, M2_GLTF_TOOLCHAIN, type ImportJobPort } from '@thirdlight/asset-pipeline';
 import { importKeyOfConverted, type AssetFileEntry, type ImportHeader, type MutationSuccess, type ResourceCheckReport, type StageInspector, type WorkspaceService } from '@thirdlight/workspace';
 
 import type { FbxConverter } from './fbx';
@@ -46,12 +46,12 @@ export interface AssetFileCheckDeps {
   onApplied: (projectId: string, result: MutationSuccess) => void;
 }
 
-type Kind = 'model' | 'audio' | 'texture' | 'music' | 'font';
+type Kind = 'model' | 'audio' | 'texture' | 'font';
 
 /** The inspector's toolchain per kind, as an import-cache version tag. */
 function toolchainTag(kind: string): string {
   const t: Readonly<Record<string, string>> =
-    kind === 'audio' ? AUDIO_PCM_WAV_TOOLCHAIN : kind === 'texture' ? IMAGE_TOOLCHAIN : kind === 'music' ? MUSIC_TOOLCHAIN : kind === 'font' ? FONT_TOOLCHAIN : M2_GLTF_TOOLCHAIN;
+    kind === 'audio' ? AUDIO_TOOLCHAIN : kind === 'texture' ? IMAGE_TOOLCHAIN : kind === 'font' ? FONT_TOOLCHAIN : M2_GLTF_TOOLCHAIN;
   return Object.entries(t)
     .map(([k, v]) => `${k}-${v}`)
     .join('-')
@@ -267,8 +267,7 @@ export function createAssetFileCheck(deps: AssetFileCheckDeps) {
    * Import a new file where it is: the facts a `publishAsset` create (or a
    * folder import) records. An FBX is converted to GLB first, a PNG/JPEG with
    * a KTX2 setting encoded; what the importer made goes into the import
-   * cache. A WAV the short-sound profile refuses is taken as the longer-audio
-   * kind, the one that takes any length.
+   * cache.
    */
   const importFile = async (projectId: string, file: string, kind: Kind, options: { ktx2?: Ktx2Mode } = {}): Promise<{ kind: Kind; args: Record<string, unknown> } | { code: string; message: string }> => {
     if (kind === 'model' && /\.fbx$/i.test(file)) {
@@ -280,13 +279,7 @@ export function createAssetFileCheck(deps: AssetFileCheckDeps) {
       return 'code' in c ? c : { kind, args: { convertedFrom: c.convertedFrom, ...factsArgs(c.facts) } };
     }
     const f = inspectFile(projectId, file, kind, null);
-    if ('code' in f) {
-      if (kind === 'audio') {
-        const longer = inspectFile(projectId, file, 'music', null);
-        if (!('code' in longer)) return { kind: 'music', args: { sourcePath: file, ...factsArgs(longer) } };
-      }
-      return f;
-    }
+    if ('code' in f) return f;
     return { kind, args: { sourcePath: file, ...factsArgs(f) } };
   };
 

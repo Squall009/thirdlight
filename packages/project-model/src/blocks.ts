@@ -311,7 +311,7 @@ export const canonicalHealth = (c: HealthComponent): HealthComponent => ({
  * camera, fading by its distance model; `range` is then the max distance.
  */
 export interface AudioSourceComponent {
-  /** An audio (cue) or music asset. */
+  /** An audio asset. */
   assetId: string;
   /** 0–1 at full volume. */
   volume: number;

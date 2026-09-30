@@ -62,7 +62,7 @@ export interface RuntimeSnapshot {
    */
   modelBounds?: Readonly<Record<string, ModelBounds>>;
   /**
-   * v4 only, optional: audio/music assetId -> its recorded
+   * v4 only, optional: audio assetId -> its recorded
    * duration in ms (the asset's import metrics). A script sound's `finished`
    * event is computed from it in the simulation.
    */

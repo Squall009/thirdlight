@@ -329,7 +329,7 @@ export interface AudioMusicState {
  */
 export interface BehaviorAudio {
   /**
-   * Play an audio asset (volume 0–1). Returns its handle (0 when refused: a bad id, more than 32 plays in one step or 64 sounds alive). Options: `loop`, `pitch` (playback rate 0.25–4), `bus` (sfx, music, voice, ui), `fadeIn` seconds; positional with `entityId` (it follows the entity) and/or `position` (world metres, or the offset from the entity), fading by `distanceModel` (linear, inverse, exponential), `refDistance` (2 m), `maxDistance` (30 m) and `rolloff` (1).
+   * Play an audio asset of any length (volume 0–1). Returns its handle (0 when refused: a bad id, more than 32 plays in one step or 64 sounds alive). Options: `loop`, `pitch` (playback rate 0.25–4), `bus` (sfx, music, voice, ui), `fadeIn` seconds; positional with `entityId` (it follows the entity) and/or `position` (world metres, or the offset from the entity), fading by `distanceModel` (linear, inverse, exponential), `refDistance` (2 m), `maxDistance` (30 m) and `rolloff` (1).
    * @graphNode Play sound
    * @graphLabel assetId sound
    * @graphAsset assetId audio
@@ -390,10 +390,10 @@ export interface BehaviorAudio {
    */
   events(): readonly AudioFinishedEvent[];
   /**
-   * Play a music track (looped), crossfading over `fadeSeconds` (1); null fades to silence. The scripts then own the music until `releaseMusic`.
+   * Play an audio asset as the music track (looped), crossfading over `fadeSeconds` (1); null fades to silence. The scripts then own the music until `releaseMusic`.
    * @graphNode Set music
    * @graphLabel assetId track
-   * @graphAsset assetId music
+   * @graphAsset assetId audio
    * @graphDefault fadeSeconds 1
    */
   music(assetId: string | null, fadeSeconds?: number): void;

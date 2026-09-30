@@ -16,7 +16,15 @@ export {
   importMetadataDigest,
   sanitizeDisplayName,
 } from './inspect';
-export { inspectAudio } from './inspect-audio';
+export {
+  AUDIO_TOOLCHAIN,
+  inspectAudio,
+  type AudioFormat,
+  type AudioImportOptions,
+  type AudioImportProposal,
+  type AudioMetrics,
+  type AudioRecipe,
+} from './inspect-audio';
 export {
   IMAGE_TOOLCHAIN,
   inspectImage,
@@ -30,17 +38,6 @@ export {
 } from './inspect-image';
 // A Basis Universal KTX2's facts (size, mip levels, codec).
 export { ktx2Info } from './images';
-export {
-  inspectMusic,
-  MUSIC_DURATION_MS_MAX,
-  MUSIC_SOURCE_BYTES_MAX,
-  MUSIC_TOOLCHAIN,
-  type MusicFormat,
-  type MusicImportOptions,
-  type MusicImportProposal,
-  type MusicMetrics,
-  type MusicRecipe,
-} from './inspect-music';
 export {
   FONT_FAMILY_NAME_MAX,
   FONT_SOURCE_BYTES_MAX,
@@ -62,22 +59,8 @@ export {
   ANIMATION_PROFILE_MAX_TRACK_TIMES,
   ANIMATION_ROLE_KEYS,
   ANIMATION_ROLE_NAME_CHARS,
-  AUDIO_PCM_WAV_BITS_PER_SAMPLE,
-  AUDIO_PCM_WAV_BLOCK_ALIGN,
-  AUDIO_PCM_WAV_BYTE_RATE,
-  AUDIO_PCM_WAV_CHANNELS,
-  AUDIO_PCM_WAV_HEADER_BYTES,
-  AUDIO_PCM_WAV_LIMITS,
-  AUDIO_PCM_WAV_MAX_DURATION_MS,
-  AUDIO_PCM_WAV_MAX_FRAMES,
-  AUDIO_PCM_WAV_MAX_PCM_BYTES,
-  AUDIO_PCM_WAV_MAX_SOURCE_BYTES,
-  AUDIO_PCM_WAV_MAX_SOURCE_FILE_BYTES,
-  AUDIO_PCM_WAV_SAMPLE_RATE,
-  AUDIO_PCM_WAV_TOOLCHAIN,
   AUDIO_PIPELINE_NAME,
   AUDIO_PIPELINE_VERSION,
-  AUDIO_REPORTED_LIMITS,
   M2_GLTF_EXTENSION_ALLOWLIST,
   M2_GLTF_PROFILE_LIMITS,
   M2_GLTF_SOURCE_BYTES,
@@ -95,10 +78,6 @@ export type {
   AnimationRoleBindingInput,
   AnimationRolesInput,
   AssetMetrics,
-  AudioImportInspection,
-  AudioImportLimits,
-  AudioImportOptions,
-  AudioImportProposal,
   ImportDiagnostic,
   ImportDiagnosticCode,
   ImportInspection,
@@ -109,7 +88,5 @@ export type {
   ImportOptions,
   ImportProposal,
   ImportRecipe,
-  PcmWavMetrics,
-  PcmWavRecipe,
   PrepareImportOptions,
 } from './types';

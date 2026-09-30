@@ -243,12 +243,12 @@ describe('queryGameConfig and the content counts', () => {
 });
 
 describe('publishAsset kind and reimport rules', () => {
-  // The real `pcm-wav` recipe and `PcmWavMetrics` member (96 frames of the
-  // committed cue-start preimage). A placeholder shape (`recipeVersion: 0`,
-  // empty toolchain, GLB metrics) is refused by the audio rules.
-  const AUDIO_RECIPE = { profile: 'pcm-wav', recipeVersion: 1, toolchain: { 'asset-pipeline': '0.1.0' } };
+  // The audio recipe and header facts (the committed cue-start preimage). A
+  // placeholder shape (`recipeVersion: 0`, empty toolchain, GLB metrics) is
+  // refused by the audio rules.
+  const AUDIO_RECIPE = { profile: 'audio', recipeVersion: 1, toolchain: { 'asset-pipeline': '0.1.0' } };
   const MODEL_RECIPE = { profile: 'gltf-glb', recipeVersion: 1, toolchain: { three: '0.186.0' }, extensions: [] };
-  const AUDIO_METRICS = { container: 'riff-wave', encoding: 'pcm-s16le', channels: 1, sampleRate: 48000, bitsPerSample: 16, frames: 96, durationMs: 2, pcmBytes: 192, dataChunkBytes: 192, riffChunkBytes: 228 };
+  const AUDIO_METRICS = { format: 'wav', channels: 1, sampleRate: 48000, bitsPerSample: 16, durationMs: 2 };
   const MODEL_METRICS = { nodes: 0, meshes: 0, primitives: 0, materials: 0, images: 0, textures: 0, vertices: 0, triangles: 0, animations: 0, animationChannels: 0, clipDurationMs: 0, decodedGeometryBytes: 0, decodedImageBytes: 0 };
 
   it('creates an audio record and rejects a kind change on reimport', () => {

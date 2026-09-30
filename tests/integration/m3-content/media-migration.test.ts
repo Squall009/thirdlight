@@ -1,7 +1,7 @@
 /**
- * Media publication over the REAL transports. Every audio (PCM-WAV)
- * rejection is driven through the real upload/inspect path and a rejected
- * source is asserted to write nothing.
+ * Media publication over the REAL transports. Audio refusals (what no
+ * browser plays, what is not audio) are driven through the real
+ * upload/inspect path and a refused source is asserted to write nothing.
  */
 import { existsSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
@@ -19,7 +19,6 @@ import {
   http,
   makeRoot,
   mediaBytes,
-  mediaJson,
   mkRequestId,
   inspectViaHttp,
   publishArgs,
@@ -29,16 +28,6 @@ import {
   type DisposableRoot,
   type McpHarness,
 } from './harness';
-
-interface WavCase {
-  readonly file: string;
-  readonly code?: string;
-  readonly limit?: string;
-}
-interface WavCases {
-  readonly rejections: WavCase[];
-}
-const WAV = mediaJson<WavCases>('wav/wav-cases.json');
 
 let root: DisposableRoot;
 let bp: BackendProcess;
@@ -67,14 +56,14 @@ afterAll(async () => {
   if (root) rmSync(root.root, { recursive: true, force: true });
 }, 60_000);
 
-describe('bounded PCM-WAV import through the real content route', () => {
+describe('audio import through the real content route', () => {
   it('inspects and publishes a minimal PCM WAV with kind:"audio"', async () => {
     const inspected = await inspectViaHttp(bp.origin, V3_PROJECT, AUTH_TOKEN, mediaBytes('wav/cue-min.wav'), { kind: 'audio' });
     expect(inspected.status, JSON.stringify(inspected.body)).toBe(200);
     const proposal = (inspected.body as { proposal: Record<string, unknown> }).proposal;
     expect(proposal.status).toBe('ok');
     expect(proposal.kind).toBe('audio');
-    expect((proposal.importRecipe as { profile?: string }).profile).toBe('pcm-wav');
+    expect((proposal.importRecipe as { profile?: string }).profile).toBe('audio');
     const rev = await currentRevision();
     const published = await mcp.call('tl_command', {
       op: 'publishAsset',
@@ -86,22 +75,27 @@ describe('bounded PCM-WAV import through the real content route', () => {
     expect(published.body.revision).toBe(rev + 1);
   });
 
-  it('reaches every rejection through the transport with its recorded code', async () => {
-    const seen = new Set<string>();
-    for (const c of WAV.rejections) {
-      const res = await inspectViaHttp(bp.origin, V3_PROJECT, AUTH_TOKEN, mediaBytes(c.file), { kind: 'audio' });
-      expect(res.status, `${c.file} must be rejected`).toBe(400);
-      const error = (res.body as { error?: { code?: string; diagnostics?: Array<{ code?: string; limit?: string }> } }).error ?? {};
-      const codes = new Set<string>([String(error.code), ...((error.diagnostics ?? []).map((d) => String(d.code)))]);
-      expect(codes.has(String(c.code)), `${c.file}: expected ${String(c.code)}, saw ${[...codes].join(',')}`).toBe(true);
-      if (c.limit !== undefined) {
-        const limits = (error.diagnostics ?? []).map((d) => d.limit);
-        expect(limits, `${c.file} limit`).toContain(c.limit);
-      }
-      seen.add(String(c.code));
+  it('refuses through the transport what no browser plays and what is not audio; takes any channels, rate and bit depth', async () => {
+    // What the fixed short-sound profile refused and every browser plays is audio now.
+    for (const file of ['wav/rejections/stereo.wav', 'wav/rejections/rate-44100.wav', 'wav/rejections/bit-depth-8.wav', 'wav/rejections/float32.wav', 'wav/rejections/oversized-pcm.wav']) {
+      const res = await inspectViaHttp(bp.origin, V3_PROJECT, AUTH_TOKEN, mediaBytes(file), { kind: 'audio' });
+      expect(res.status, `${file} is audio`).toBe(200);
     }
-    // Sanity: the sweep really covered more than one stage family.
-    expect(seen.size).toBeGreaterThanOrEqual(6);
+    const refused: [string, string][] = [
+      ['wav/rejections/adpcm.wav', 'audio_format_unsupported'],
+      ['wav/rejections/mulaw.wav', 'audio_format_unsupported'],
+      ['wav/rejections/alaw.wav', 'audio_format_unsupported'],
+      ['wav/rejections/zero-frames.wav', 'audio_empty'],
+      ['wav/rejections/bad-magic.wav', 'audio_container_invalid'],
+      ['wav/rejections/data-url.txt', 'audio_container_invalid'],
+    ];
+    for (const [file, code] of refused) {
+      const res = await inspectViaHttp(bp.origin, V3_PROJECT, AUTH_TOKEN, mediaBytes(file), { kind: 'audio' });
+      expect(res.status, `${file} must be refused`).toBe(400);
+      const error = (res.body as { error?: { code?: string; diagnostics?: Array<{ code?: string }> } }).error ?? {};
+      const codes = new Set<string>([String(error.code), ...((error.diagnostics ?? []).map((d) => String(d.code)))]);
+      expect(codes.has(code), `${file}: expected ${code}, saw ${[...codes].join(',')}`).toBe(true);
+    }
   });
 
   it('never publishes a rejected WAV blob (no durable effect)', async () => {

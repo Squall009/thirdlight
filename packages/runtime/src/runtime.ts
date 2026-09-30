@@ -1170,7 +1170,7 @@ interface RuntimeArgs {
   prefabs: readonly PrefabDefinition[];
   /** Model assetId -> its recorded bounds. */
   modelBounds: Readonly<Record<string, ModelBounds>>;
-  /** audio/music assetId -> its recorded duration (ms). */
+  /** audio assetId -> its recorded duration (ms). */
   audioDurations: Readonly<Record<string, number>>;
   /** Model rigs (sockets are resolved on them). */
   rigs?: Readonly<Record<string, import('@thirdlight/project-model').ModelRig>>;

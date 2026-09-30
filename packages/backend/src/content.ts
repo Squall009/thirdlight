@@ -61,7 +61,7 @@ import {
   INSTANCE_BUFFER_INLINE_MAX,
 } from '@thirdlight/protocol';
 import { INSTANCE_FLOATS, MAX_INSTANCES } from '@thirdlight/project-model/limits';
-import { inspectAudio, inspectFont, inspectGlb, inspectImage, inspectMusic, AUDIO_PCM_WAV_TOOLCHAIN, FONT_TOOLCHAIN, IMAGE_TOOLCHAIN, MUSIC_TOOLCHAIN, M2_GLTF_TOOLCHAIN, type ImportJobPort, type ImportProposal } from '@thirdlight/asset-pipeline';
+import { inspectAudio, inspectFont, inspectGlb, inspectImage, AUDIO_TOOLCHAIN, FONT_TOOLCHAIN, IMAGE_TOOLCHAIN, M2_GLTF_TOOLCHAIN, type ImportJobPort, type ImportProposal } from '@thirdlight/asset-pipeline';
 import { createBehaviorCompiler } from '@thirdlight/behavior-build';
 import type { BehaviorCompiler } from '@thirdlight/behavior-build';
 import { importKeyOfConverted, type CommandError, type MutationSuccess, type StageInspector, type WorkspaceService } from '@thirdlight/workspace';
@@ -151,7 +151,7 @@ function frameLimit(limit: string, current: number, max: number): SessionError {
  * the caller's typed request; the importer never reads a clock, PRNG or
  * environment variable itself.
  *
- * `request.kind === 'audio'` selects the bounded PCM-WAV inspector;
+ * `request.kind === 'audio'` selects the audio header inspector;
  * `request.animation` requests the role-aware animated GLB profile.
  * Without either, the static model proposal is byte-unchanged.
  */
@@ -160,19 +160,11 @@ export function createAssetInspector(): StageInspector {
     if (request?.kind === 'font') {
       return inspectFont(bytes, { profile: 'font', recipeVersion: 1, toolchain: FONT_TOOLCHAIN, job });
     }
-    if (request?.kind === 'music') {
-      return inspectMusic(bytes, { profile: 'music', recipeVersion: 1, toolchain: MUSIC_TOOLCHAIN, job });
-    }
     if (request?.kind === 'texture') {
       return inspectImage(bytes, { profile: 'image', recipeVersion: 1, toolchain: IMAGE_TOOLCHAIN, job });
     }
     if (request?.kind === 'audio') {
-      return inspectAudio(bytes, {
-        profile: 'pcm-wav',
-        recipeVersion: 1,
-        toolchain: AUDIO_PCM_WAV_TOOLCHAIN,
-        job,
-      });
+      return inspectAudio(bytes, { profile: 'audio', recipeVersion: 1, toolchain: AUDIO_TOOLCHAIN, job });
     }
     return inspectGlb(bytes, {
       profile: 'gltf-glb',
@@ -900,7 +892,7 @@ export class ContentRoutes {
       // bounded `inspection` is already tiny and is passed through unchanged.
       const p = result.proposal;
       const proposal =
-        p.kind === 'audio' || p.kind === 'texture' || p.kind === 'music' || p.kind === 'font'
+        p.kind === 'audio' || p.kind === 'texture' || p.kind === 'font'
           ? p
           : {
               ...p,
@@ -1009,7 +1001,7 @@ export class ContentRoutes {
     this.jobs.finish(job.jobId, { proposalId: p.proposalId, status: p.status });
     const encoded = JSON.stringify({ ok: true, sourcePath: result.sourcePath, proposal: p });
     const proposal =
-      new TextEncoder().encode(encoded).length > CONTENT_PROPOSAL_MAX_BYTES && p.kind !== 'audio' && p.kind !== 'texture' && p.kind !== 'music' && p.kind !== 'font'
+      new TextEncoder().encode(encoded).length > CONTENT_PROPOSAL_MAX_BYTES && p.kind !== 'audio' && p.kind !== 'texture' && p.kind !== 'font'
         ? { ...p, inspection: { nodeNames: [], materialNames: [], clipNames: [], sceneCount: (p.inspection as { sceneCount: number }).sceneCount, truncated: true } }
         : p;
     this.deps.sendJson(res, 200, { ok: true, sourcePath: result.sourcePath, proposal, truncated: proposal !== p, jobId: job.jobId });
@@ -1202,7 +1194,7 @@ export class ContentRoutes {
       this.deps.onJobFailed?.(projectId, 'inspect', code, message);
       this.deps.sendError(res, sessionError(code as SessionError['code'], cls, message, extra));
     };
-    if (request.kind === 'audio' || request.kind === 'texture' || request.kind === 'music' || request.kind === 'font') return failed('field_value', 'validation', `an FBX file is a model, not ${request.kind}`, { path: '/kind' });
+    if (request.kind === 'audio' || request.kind === 'texture' || request.kind === 'font') return failed('field_value', 'validation', `an FBX file is a model, not ${request.kind}`, { path: '/kind' });
     const converter = this.deps.fbx;
     if (converter === undefined) return failed('converter_unavailable', 'unavailable', 'FBX import needs Blender on the server (THIRDLIGHT_BLENDER)');
     let original: { sourceDigest: string; sourceByteLength: number; sourcePath?: string };

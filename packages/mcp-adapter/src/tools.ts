@@ -212,12 +212,15 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       '(one undo restores all of it). setAssetOptions {assetId, vertexColors: ' +
       '"data"|"tint"}: COLOR_0 is shader data by default, "tint" multiplies it into the base colour; setAssetOptions {assetId, sourcePath} ' +
       'moves the asset\'s file (with its sidecar) to that path of the game folder, or records a move already made there; the id and ' +
-      'every reference stay. Every imported file is kept in the game folder next to its .tlasset sidecar; uploaded bytes land in assets/, or in ' +
+      'every reference stay. Audio is one kind, any length: Ogg Vorbis/Opus, MP3, WAV (PCM or float, any rate, channels, bits) or FLAC; ' +
+      'setAssetOptions {assetId, loadType?: "decode-on-load"|"decode-while-playing"|"stream"|null, preload?: bool} sets how the game holds it ' +
+      '(null: the default by length — under 5 s decoded on load, over 60 s streamed, else decoded while playing) and whether it is read with its ' +
+      'scene (true) or only when played; a format one browser does not play (Ogg in Safari before 18.4) is imported and reported in Problems. Every imported file is kept in the game folder next to its .tlasset sidecar; uploaded bytes land in assets/, or in ' +
       'the folder publishAsset names with folder: "assets/props" (relative to the game folder; never a hidden folder or the project\'s own files). ' +
       'importAssets {folder, labels?: [label], ktx2?: "color"|"normal"|"data"} imports every supported file of a game-folder folder, subfolders ' +
       'included, in one command and one undo: each becomes an asset named after its file (assets/audio/voice/line-001.ogg → "line-001"; the id is the ' +
       'name made id-safe, -2, -3 … when taken; a file whose sidecar names an unused id keeps it), with the labels on every one (a label: a letter or ' +
-      'digit, then letters, digits, _ - . /). A WAV longer than a short sound comes in as music. Files already imported are skipped, and the result\'s ' +
+      'digit, then letters, digits, _ - . /). Files already imported are skipped, and the result\'s ' +
       'folderImport lists them (skipped), files no importer takes (unsupported) and files an importer refused (rejected); undo forgets the assets, the files stay. ' +
       'Asset records and tl_content_query assets carry their labels. pasteEntities {entities: [full entity ' +
       'values as tl_inspect returns them, parents with their children], parentId?: id|null, offset?: [x,y,z], sceneId?} copies them with ' +
@@ -269,7 +272,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'loop|pingpong|once, wait?, easing?: linear|smooth|gravity (gravity: from rest at each point, constant acceleration), startOn?: signal, stopOn?: signal (holds it), toggleOn?: signal (moves a held one, holds a moving one), reverseOn?: signal (back the way it came), active?: false (held), maxPush? 1-1000 m/s (60: how hard it shoves a player out of its way)} (with a box collider it is a moving platform that carries ' +
       'the player; startOn makes a door); trigger {size: [w, h] (box) | shape: "circle", radius m (instead of size), signal, once?, exitSignal? (sent on leaving), mode?: enter|stay (stay: the signal every step while the player is inside)}; switch {mode: interact|stand, signal, size, once?}; ' +
       'health {max, start?} (any object); collectible, patrol and hitbox (above); collider {oneWay: true} (jump up through, Down+Jump drops), a box shape\'s hz? m (half depth; required when physics_dimension is 3); controller {capsule: {radius 0.05-5 m, height 0.1-20 m (total, >= 2 x radius), offset? [x, y] or [x, y, z] m from the entity origin (z: 3D projects)} | null} is the player\'s collision capsule (absent = radius 0.3, height 1.8, centred; every system uses it: physics, spawn clearance, triggers, collectibles, hitboxes), plus the optional movement tuning acceleration (40 m/s²), deceleration (60), coyoteTime (0.05 s), jumpBuffer (0.0667 s), jumpRelease (0.5), groundSnap (0.1 m), skin (0.01 m), autostep (false), autostepHeight (0.25 m), phase 25.13 climbSpeed (2 m/s), climbAction? (an axis; absent: the move action\'s y), wallSlide (false), wallSlideSpeed (2 m/s), wallJump (false), wallJumpAway? (absent: run speed), wallJumpUp? (absent: jump speed), wallJumpLock? s (absent: no steering until the top of the jump) (null resets one); playerSpawn {yaw?} (v4; degrees about +Y, 0 = +Z; the character\'s face-movement models turn to it on arrival; null = none); audioSource ' +
-      '{assetId (audio or music), volume 0-1, range m, distanceModel?: linear|inverse|exponential, refDistance? m (range/4), rolloff? (1)} loops louder as the player comes near (along X), or, with setting audio_spatial 2 (or 0 in a 3D project), through a panner with the listener on the active camera (range = its max distance). ' +
+      '{assetId (an audio asset), volume 0-1, range m, distanceModel?: linear|inverse|exponential, refDistance? m (range/4), rolloff? (1)} loops louder as the player comes near (along X), or, with setting audio_spatial 2 (or 0 in a 3D project), through a panner with the listener on the active camera (range = its max distance). ' +
       'Scripts use ctx.signals.emit/on(name), ctx.game.counter/add/health()/setVisible(id, bool), ctx.physics.raycast/overlapBox(center, half)/overlapCircle(center, r) (1,024 queries/step, 2D and 3D together), ctx.emit({kind: "pose", entityId, rotation?: {yaw?, pitch?, roll?} degrees, scale?: n | [x, y, z]}) in the transform phase for an owned entity and ctx.audio.play(audioAssetId, {volume?, loop?, pitch?, bus?: sfx|music|voice|ui, fadeIn?, entityId?, position?, distanceModel?, refDistance?, maxDistance?, rolloff?}) -> handle (then stop(h, fade?), fade(h, to, s), setVolume/setPitch/setLoop, playing(h), finished(h) the step after it ended; music(id|null, fade?)/releaseMusic (scripts win over the flow\'s music until released), stinger(id, {duck?, fade?}), duck(level, s)/unduck, setBusVolume(bus, v, s)), ctx.save.get/set/remove/keys (kept in the player\'s save), ctx.spawn(prefabId, {position: [x, y] | [x, y, z], rotation?: [x, y, z, w], scale?: n | [x, y, z]}) ' +
       '-> "spawn-<n>" root id or null (a copy of a project prefab in the running game only — its colliders, components and scripts work; it appears at the next step; ' +
       'at most 64 spawns per step and 16,384 spawned entities alive; a new run removes them all; saves never keep them) and ctx.destroy(spawnedId) (removes it and its children; ' +
@@ -356,7 +359,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'They are in tl_content_query target="game" (uiDocuments, uiThemes); tl_game_observe reports ui {shown, screen, focus, actionMap}. ' +
       'Text widgets may also take content: {bind} (rich text from the view model) and reveal: number|{bind} (a typewriter); an action {do: "dialogue", input: advance|choose|skip|auto|backlog, value?} is a dialogue input. ' +
       'Dialogue (phase 23.16): setDialogue {dialogue: {dialogueId, name, graph?}} creates (graph absent: a Start node) or renames a conversation; its graph is owner kind "dialogue" (owner id = dialogueId, graph kind dialogue) edited with graphEdit: ' +
-      'nodes start (fixed), entry {name}, line {speaker (speakerId|$binding|""), expression, text (rich text, {var}/{$binding} values, [pause=0.5]), voice (audio or music asset), auto: default|on|off}, choice (outputs options → option nodes, none), ' +
+      'nodes start (fixed), entry {name}, line {speaker (speakerId|$binding|""), expression, text (rich text, {var}/{$binding} values, [pause=0.5]), voice (audio asset), auto: default|on|off}, choice (outputs options → option nodes, none), ' +
       'option {text, condition, effects, once}, branch {condition} (outputs true/false), set {effects}, signal {name, value, wait}, wait {seconds}, jump {dialogue, entry}, end; wires port "next". ' +
       'Conditions: variables, $bindings, numbers, "texts", true/false/null, ! not, * / %, + -, < <= > >=, == !=, && and, || or, seen("nodeId"); effects: "name = value; count += 1; x -= 2". ' +
       'deleteDialogue {dialogueId}; setSpeaker {speaker: {speakerId, name, color? #rrggbb, portraits? {expression: texture}, defaultExpression?, voiceProfile?, blip? (audio), blipEvery?, blipVolume?}}; deleteSpeaker {speakerId}; ' +
@@ -406,7 +409,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'full normalized `content.game` block (the v3 `queryGameConfig`, or null; includeDescriptors adds the ' +
       'component and content descriptor registry: every field\'s type, unit, range, default, label, tooltip and ' +
       'Scene handle, ~120 KB); target="projectFiles" lists one ' +
-      'folder of the game folder (dir relative to the folder holding thirdlight.json; subfolders and .glb/.fbx/.wav ' +
+      'folder of the game folder (dir relative to the folder holding thirdlight.json; subfolders and .glb/.fbx/.wav/.ogg/.opus/.mp3/.flac/.png/… ' +
       'files) for tl_content_upload projectPath; target="blocks" reads block layers: without entityId the layers ' +
       '(component, cell count, chunks, regions; sceneId optional), with entityId one layer — chunks [[cx,cz],…] in their stored ' +
       'form, box [x0,y0,z0,x1,y1,z1] its cells as [x,y,z,paletteIndex] with each value\'s effective metadata, or region (its ' +
@@ -476,10 +479,10 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
         writeTo: { type: 'string', description: 'with dataBase64: write the file into the game folder at this path (relative, forward slashes), e.g. assets/voice/line-001.ogg; nothing is inspected or imported' },
         projectPath: {
           type: 'string',
-          description: 'a .glb/.fbx/.wav/.png/.jpg/.webp/.ktx2/… file relative to the game folder (the folder holding thirdlight.json), forward slashes, e.g. assets/props/crate.glb',
+          description: 'a .glb/.fbx/.wav/.ogg/.opus/.mp3/.flac/.png/.jpg/.webp/.ktx2/… file relative to the game folder (the folder holding thirdlight.json), forward slashes, e.g. assets/props/crate.glb',
         },
         displayName: { type: 'string' },
-        kind: { type: 'string', enum: ['model', 'audio', 'texture', 'music', 'font'] },
+        kind: { type: 'string', enum: ['model', 'audio', 'texture', 'font'], description: 'audio: any Ogg Vorbis/Opus, MP3, WAV or FLAC file of any length' },
         ktx2: {
           type: 'string',
           enum: ['color', 'normal', 'data'],
@@ -1279,11 +1282,11 @@ async function contentUpload(ctx: McpContext, a: Record<string, unknown>): Promi
     const filed = await ctx.client.fileStage(ctx.projectId, stageId, a.writeTo);
     return isObj(filed.body) && filed.body.ok === true ? toolOk(filed.body) : surfaceBackendError(filed);
   }
-  // The additive inspect request selects the bounded PCM-WAV
-  // inspector or the role-aware animated GLB profile.
+  // The additive inspect request selects the inspector of a kind
+  // or the role-aware animated GLB profile.
   const inspectBody: Record<string, unknown> = {};
   if (a.kind !== undefined) {
-    if (a.kind !== 'model' && a.kind !== 'audio' && a.kind !== 'texture' && a.kind !== 'music' && a.kind !== 'font') return toolError('kind must be "model", "audio", "texture", "music" or "font"');
+    if (a.kind !== 'model' && a.kind !== 'audio' && a.kind !== 'texture' && a.kind !== 'font') return toolError('kind must be "model", "audio", "texture" or "font" (audio of any length is "audio")');
     inspectBody.kind = a.kind;
   }
   if (a.animation !== undefined) {
@@ -1311,7 +1314,7 @@ async function projectFileInspect(ctx: McpContext, a: Record<string, unknown>): 
     body.displayName = a.displayName;
   }
   if (a.kind !== undefined) {
-    if (a.kind !== 'model' && a.kind !== 'audio' && a.kind !== 'texture' && a.kind !== 'music' && a.kind !== 'font') return toolError('kind must be "model", "audio", "texture", "music" or "font"');
+    if (a.kind !== 'model' && a.kind !== 'audio' && a.kind !== 'texture' && a.kind !== 'font') return toolError('kind must be "model", "audio", "texture" or "font" (audio of any length is "audio")');
     body.kind = a.kind;
   }
   if (a.animation !== undefined) {

@@ -133,18 +133,25 @@ describe('folder import and upload folders over HTTP (a project in the data root
       'assets/audio/voice/line-001.ogg',
     ]);
     // Named after the file; one name in two folders is two ids.
-    expect(byPath.get('assets/audio/voice/line-001.ogg')).toMatchObject({ displayName: 'line-001', kind: 'music' });
+    expect(byPath.get('assets/audio/voice/line-001.ogg')).toMatchObject({ displayName: 'line-001', kind: 'audio' });
     expect(byPath.get('assets/audio/voice/act2/line-001.ogg')).toMatchObject({ displayName: 'line-001' });
     expect(byPath.get('assets/audio/voice/line-001.ogg')!.assetId).toBe('line-001');
     expect(byPath.get('assets/audio/voice/act2/line-001.ogg')!.assetId).toBe('line-001-2');
     expect(byPath.get('assets/audio/voice/Line 002.ogg')).toMatchObject({ assetId: 'line-002', displayName: 'Line 002' });
-    // A short WAV is a sound; a longer one the kind that takes any length.
+    // Every audio file is the one audio kind, whatever its length; its sidecar states the load settings the game uses.
     expect(byPath.get('assets/audio/hit.wav')).toMatchObject({ assetId: 'hit', kind: 'audio' });
-    expect(byPath.get('assets/audio/long take.wav')).toMatchObject({ assetId: 'long-take', kind: 'music' });
+    expect(byPath.get('assets/audio/long take.wav')).toMatchObject({ assetId: 'long-take', kind: 'audio' });
+    expect(sidecar('assets/audio/long take.wav')['importSettings']).toEqual({ loadType: 'decode-on-load', preload: true });
+    // Ogg a browser does not play is imported and named once in Problems.
+    const problems = await api(`${tb.authUrl}/api/v1/projects/${PID}/problems`, { method: 'GET', token: tb.adminToken, origin: null });
+    const gaps = (problems.json as { problems: { code: string; message: string }[] }).problems.filter((p) => p.code === 'audio_browser_support');
+    expect(gaps).toHaveLength(1);
+    expect(gaps[0]!.message).toContain('4 audio files');
+    expect(gaps[0]!.message).toContain('Safari before 18.4');
     expect(byPath.get('assets/audio/sting.ogg')).toMatchObject({ assetId: 'sting-from-elsewhere', labels: ['act-1', 'music', 'voice'] });
     for (const a of byPath.values()) expect(a.labels).toEqual(expect.arrayContaining(['act-1', 'voice']));
     // The labels are in the sidecars and readable through the asset query.
-    expect(sidecar('assets/audio/voice/line-001.ogg')).toMatchObject({ id: 'line-001', kind: 'music', labels: ['act-1', 'voice'] });
+    expect(sidecar('assets/audio/voice/line-001.ogg')).toMatchObject({ id: 'line-001', kind: 'audio', labels: ['act-1', 'voice'] });
     const q = await api(`${tb.authUrl}/api/v1/projects/${PID}/commands`, { body: { op: 'queryAssets', projectId: PID, args: { assetId: 'hit' } }, token: tb.adminToken, origin: null });
     expect(JSON.stringify(q.json)).toContain('"labels":["act-1","voice"]');
 

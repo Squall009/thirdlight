@@ -9,7 +9,6 @@
 
 import {
   ASSET_METRIC_CAPS,
-  AUDIO_PCM_WAV_PROFILE,
   M2_GLTF_EXTENSION_ALLOWLIST,
   MAX_SOURCE_BYTES,
   MAX_TOTAL_DECODED_BYTES,
@@ -67,43 +66,11 @@ export const ANIMATION_ROLE_KEYS = Object.freeze(['idle', 'run', 'airborne'] as 
 export const ANIMATION_ROLE_NAME_CHARS = 128;
 
 /**
- * The frozen PCM-WAV profile constants. Every
- * one is contract data, not configuration; the same numbers are re-checked on
- * load by `project-model`'s audio branch.
+ * The only tool whose version can change an inspected audio file (or font,
+ * or image) — this package, at the repository pin (`package.json`,
+ * `version`); the model checks recipes against the same pin.
  */
-export const AUDIO_PCM_WAV_HEADER_BYTES = AUDIO_PCM_WAV_PROFILE.headerBytes;
-export const AUDIO_PCM_WAV_CHANNELS = AUDIO_PCM_WAV_PROFILE.channels;
-export const AUDIO_PCM_WAV_SAMPLE_RATE = AUDIO_PCM_WAV_PROFILE.sampleRate;
-export const AUDIO_PCM_WAV_BITS_PER_SAMPLE = AUDIO_PCM_WAV_PROFILE.bitsPerSample;
-export const AUDIO_PCM_WAV_BYTE_RATE = AUDIO_PCM_WAV_PROFILE.byteRate;
-export const AUDIO_PCM_WAV_BLOCK_ALIGN = AUDIO_PCM_WAV_PROFILE.blockAlign;
-export const AUDIO_PCM_WAV_MAX_PCM_BYTES = AUDIO_PCM_WAV_PROFILE.maxPcmBytes;
-export const AUDIO_PCM_WAV_MAX_FRAMES = AUDIO_PCM_WAV_PROFILE.maxFrames;
-export const AUDIO_PCM_WAV_MAX_DURATION_MS = AUDIO_PCM_WAV_PROFILE.maxDurationMs;
-export const AUDIO_PCM_WAV_MAX_SOURCE_BYTES = AUDIO_PCM_WAV_PROFILE.maxSourceBytes;
-/** Audio inspection stage 1: the hard source-file bound, before any profile cap. */
-export const AUDIO_PCM_WAV_MAX_SOURCE_FILE_BYTES = AUDIO_PCM_WAV_PROFILE.maxSourceFileBytes;
-
-/**
- * The only tool whose version can change an inspected
- * WAV — this package, at the repository pin (`package.json`, `version`).
- */
-export const AUDIO_PIPELINE_NAME = 'asset-pipeline';
-export const AUDIO_PIPELINE_VERSION = AUDIO_PCM_WAV_PROFILE.audioPipelineVersion;
-
-/** The exact `pcm-wav` toolchain object. */
-export const AUDIO_PCM_WAV_TOOLCHAIN: Readonly<Record<string, string>> = Object.freeze({
-  [AUDIO_PIPELINE_NAME]: AUDIO_PIPELINE_VERSION,
-});
-
-/** The caps reported by an audio proposal. */
-export const AUDIO_PCM_WAV_LIMITS: Readonly<Record<string, number>> = Object.freeze({
-  audio_pcm_bytes: AUDIO_PCM_WAV_MAX_PCM_BYTES,
-  frames: AUDIO_PCM_WAV_MAX_FRAMES,
-  duration_ms: AUDIO_PCM_WAV_MAX_DURATION_MS,
-  source_bytes: AUDIO_PCM_WAV_MAX_SOURCE_BYTES,
-  source_file_bytes: AUDIO_PCM_WAV_MAX_SOURCE_FILE_BYTES,
-});
+export { AUDIO_PIPELINE_NAME, AUDIO_PIPELINE_VERSION } from '@thirdlight/project-model/limits';
 
 /**
  * Extension allowlist: the glTF extensions the pinned GLTFLoader
@@ -165,6 +132,3 @@ export const M2_GLTF_REPORTED_LIMITS: readonly ImportLimitName[] = Object.freeze
   'animation_track_times',
   'animation_clip_duration',
 ]);
-
-/** The limit names `inspectAudio` can report (stage 11). */
-export const AUDIO_REPORTED_LIMITS: readonly ImportLimitName[] = Object.freeze(['audio_pcm_bytes']);

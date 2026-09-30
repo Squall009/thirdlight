@@ -27,7 +27,7 @@ import type { GameMode } from '@thirdlight/project-model';
 import type { EventCue, GameShell, TimelineAsset } from '@thirdlight/project-model';
 import type { AnimatorController, EnvironmentConfig, PrefabDefinition, InputConfig, LightingMap, MaterialDef, UiDocument, UiTheme } from '@thirdlight/project-model';
 import { animatorsForRuntime, effectsForRuntime, type EffectDef, materialFunctionsForRuntime, materialsForRuntime, type GraphDocument, captureContentViewV3, captureManifestV2, M3_ENGINE_PINS, resolveMediaIdentityV3, sha256Hex, type GameplaySettings, type ManifestAssetInputV2, type ManifestBehaviorInput, type MediaBlock, type RuntimeContentManifestV2, type ManifestSceneRow, physicsDimensionOf, resolveRequiredModules, materialsInUse, resolveMaterialInstances, scriptLibraryContainerText, scriptLibraryDigest, type ScriptLibrary } from '@thirdlight/project-model';
-import { MODEL_RIG_LIMITS, readModelRig, type ModelRig } from '@thirdlight/project-model';
+import { audioLoadOf, MODEL_RIG_LIMITS, readModelRig, type AudioLoadType, type ModelRig } from '@thirdlight/project-model';
 import type { WorkspaceService } from '@thirdlight/workspace';
 
 /** The injected compiler port (structural; no behavior-build edge). */
@@ -145,13 +145,12 @@ function fromCommandError(e: {
 // ---------------------------------------------------------------------------
 
 /** The MIME type of one declared asset artifact by kind. */
-const ASSET_CONTENT_TYPE: Record<'model' | 'audio' | 'texture' | 'music' | 'font', string> = {
+const ASSET_CONTENT_TYPE: Record<'model' | 'audio' | 'texture' | 'font', string> = {
   model: 'model/gltf-binary',
-  audio: 'audio/wav',
+  // Ogg Vorbis/Opus, MP3, WAV or FLAC; the browser decodes it.
+  audio: 'audio/x-audio',
   // PNG/JPEG/WebP; the runtime decodes by magic bytes.
   texture: 'image/x-texture',
-  // Ogg Vorbis/Opus, MP3 or WAV; the browser decodes it.
-  music: 'audio/x-music',
   // TTF, OTF, WOFF2 or WOFF; the page loads it through FontFace by its bytes.
   font: 'font/x-font',
 };
@@ -557,11 +556,15 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
   // 5. The declared asset bytes (verified digest-addressed reads, kind-aware MIME).
   const assetArtifacts: ClosureArtifact[] = [];
   const assets: ManifestAssetInputV2[] = [];
-  // Each audio/music version's recorded duration (the simulation computes script sounds' ends from it).
+  // Each audio version's recorded duration (the simulation computes script sounds' ends from it).
   const durationOf = (assetId: string, version: number): number | undefined => {
     const rec = ((input.content as { assets?: { assetId: string; versions?: { version: number; metrics?: { durationMs?: unknown } }[] }[] } | null)?.assets ?? []).find((r) => r.assetId === assetId);
     const ms = rec?.versions?.find((v) => v.version === version)?.metrics?.durationMs;
     return typeof ms === 'number' && Number.isInteger(ms) && ms >= 1 ? ms : undefined;
+  };
+  const audioLoadRowOf = (assetId: string): { loadType?: AudioLoadType; preload?: boolean } => {
+    const rec = ((input.content as { assets?: { assetId: string }[] } | null)?.assets ?? []).find((r) => r.assetId === assetId);
+    return rec === undefined ? {} : audioLoadOf(rec as Parameters<typeof audioLoadOf>[0]);
   };
   /** The model bytes, for the rigs sockets are resolved on (read once below when the project uses sockets). */
   const modelBytes = new Map<string, Uint8Array>();
@@ -607,7 +610,9 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
       ...(a.materials !== undefined ? { materials: { ...a.materials } } : {}),
       ...(a.clipsFor !== undefined ? { clipsFor: a.clipsFor } : {}),
       ...(a.bounds !== undefined ? { bounds: a.bounds } : {}),
-      ...((a.kind === 'audio' || a.kind === 'music') && durationOf(a.assetId, a.version) !== undefined ? { durationMs: durationOf(a.assetId, a.version)! } : {}),
+      ...(a.kind === 'audio' && durationOf(a.assetId, a.version) !== undefined ? { durationMs: durationOf(a.assetId, a.version)! } : {}),
+      // How the game holds the file (the runtime's audio loading reads it).
+      ...(a.kind === 'audio' ? audioLoadRowOf(a.assetId) : {}),
     });
   }
 

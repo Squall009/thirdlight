@@ -39,7 +39,6 @@ import type {
   AnimationProfileRequest,
   AudioImportProposal,
   ImageImportProposal,
-  MusicImportProposal,
   FontImportProposal,
   ImportJobPort,
   ImportProposal,
@@ -114,13 +113,13 @@ export interface ContentConfig {
  * bytes itself and makes no role or profile decision.
  */
 export interface InspectorRequest {
-  readonly kind?: 'model' | 'audio' | 'texture' | 'music' | 'font';
+  readonly kind?: 'model' | 'audio' | 'texture' | 'font';
   /** Request the animated-model profile. */
   readonly animation?: AnimationProfileRequest;
 }
 
-/** An accepted import proposal (a model GLB, a PCM WAV, a texture image, music or a font). */
-export type ImportedProposal = ImportProposal | AudioImportProposal | ImageImportProposal | MusicImportProposal | FontImportProposal;
+/** An accepted import proposal (a model GLB, an audio file, a texture image or a font). */
+export type ImportedProposal = ImportProposal | AudioImportProposal | ImageImportProposal | FontImportProposal;
 
 /**
  * The injected inspector surface (asset-pipeline's `inspectGlb`/`inspectAudio`
@@ -171,7 +170,7 @@ export interface ContentContext {
  */
 export interface PreparedMediaFacts {
   readonly assetId: string;
-  readonly kind: 'model' | 'audio' | 'texture' | 'music' | 'font';
+  readonly kind: 'model' | 'audio' | 'texture' | 'font';
   readonly version: number;
   readonly sourceDigest: string;
   readonly sourceByteLength: number;
@@ -817,7 +816,7 @@ export function preparedMediaFacts(
     ok: true,
     facts: {
       assetId: record.assetId,
-      kind: record.kind === 'audio' ? 'audio' : record.kind === 'texture' ? 'texture' : record.kind === 'music' ? 'music' : record.kind === 'font' ? 'font' : 'model',
+      kind: record.kind === 'audio' ? 'audio' : record.kind === 'texture' ? 'texture' : record.kind === 'font' ? 'font' : 'model',
       version: v.version,
       sourceDigest: v.sourceDigest,
       sourceByteLength: v.sourceByteLength,
@@ -1127,13 +1126,13 @@ export interface ProjectFileEntry {
   name: string;
   /** Relative to the game folder, forward slashes. */
   path: string;
-  kind: 'dir' | 'model' | 'audio' | 'texture' | 'music' | 'font';
+  kind: 'dir' | 'model' | 'audio' | 'texture' | 'font';
   byteLength?: number;
 }
 
 /** Entries one folder listing returns (a page of the game folder; the index pages the whole project). */
 export const MAX_PROJECT_FILE_ENTRIES = 500;
-export const IMPORTABLE: Readonly<Record<string, 'model' | 'audio' | 'texture' | 'music' | 'font'>> = { '.glb': 'model', '.fbx': 'model', '.wav': 'audio', '.png': 'texture', '.jpg': 'texture', '.jpeg': 'texture', '.webp': 'texture', '.ktx2': 'texture', '.ogg': 'music', '.opus': 'music', '.mp3': 'music', '.ttf': 'font', '.otf': 'font', '.woff2': 'font', '.woff': 'font' };
+export const IMPORTABLE: Readonly<Record<string, 'model' | 'audio' | 'texture' | 'font'>> = { '.glb': 'model', '.fbx': 'model', '.wav': 'audio', '.png': 'texture', '.jpg': 'texture', '.jpeg': 'texture', '.webp': 'texture', '.ktx2': 'texture', '.ogg': 'audio', '.opus': 'audio', '.oga': 'audio', '.mp3': 'audio', '.flac': 'audio', '.ttf': 'font', '.otf': 'font', '.woff2': 'font', '.woff': 'font' };
 
 export type ProjectFileListResult =
   | { ok: true; dir: string; entries: ProjectFileEntry[]; truncated: boolean }
@@ -1328,7 +1327,7 @@ export interface InspectStageOptions {
   /** Test seam: deterministic proposal identity. */
   proposalId?: () => string;
   /** The declared kind of the staged bytes (default `model`). */
-  kind?: 'model' | 'audio' | 'texture' | 'music' | 'font';
+  kind?: 'model' | 'audio' | 'texture' | 'font';
   /** The requested animated GLB profile. */
   animation?: AnimationProfileRequest;
 }

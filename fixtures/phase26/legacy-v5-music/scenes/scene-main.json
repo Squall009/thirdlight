@@ -1,0 +1,24 @@
+{
+  "storageVersion": 4,
+  "type": "scene",
+  "projectId": "legacy-v5-music",
+  "scene": {
+    "schemaVersion": 4,
+    "sceneId": "scene-main",
+    "revision": 3,
+    "entities": [
+      {"id":"cam-main","name":"Main Camera","components":{"transform":{"position":[0,0.5,4],"rotation":[0,0,0,1],"scale":[1,1,1]},"camera":{"type":"perspective","fovY":60,"near":0.1,"far":100}}},
+      {"id":"light-0001","name":"Sun","components":{"transform":{"position":[0,10,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"light":{"type":"directional","color":"#ffffff","intensity":1.2,"direction":[0.4,-1,-0.3],"castShadow":true}}},
+      {"id":"light-0002","name":"Ambient","components":{"transform":{"position":[0,0,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"light":{"type":"ambient","color":"#8090a8","intensity":0.6}}},
+      {"id":"box-000001","name":"Speaker","components":{"transform":{"position":[0,0,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"box":{"size":[1,1,1],"material":{"color":"#b0b0b0"}},"audioSource":{"assetId":"rain","volume":0.8,"range":12}}}
+    ]
+  },
+  "retry": {
+    "recordVersion": 2,
+    "retention": 128,
+    "records": [
+      {"requestId":"req-fc56dcf59b317dc6c9d3f255a220115e","digest":"678d2b3e3bacc9afe8e54234ddf70aa3cda820737a31d7670d2c15f0045c1970","appliedRevision":2,"result":{"ok":true,"op":"createEntity","projectId":"legacy-v5-music","requestId":"req-fc56dcf59b317dc6c9d3f255a220115e","revision":2,"duplicated":false,"createdId":"box-000001","change":{"type":"createEntity","id":"box-000001","entity":{"id":"box-000001","name":"Speaker","components":{"transform":{"position":[0,0,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"box":{"size":[1,1,1],"material":{"color":"#b0b0b0"}}}}},"history":{"undoDepth":2,"redoDepth":0},"sceneId":"scene-main"}},
+      {"requestId":"req-c2a1693495f7ec5d8a76e9d2a18cafd6","digest":"30d81f16f35aaba385651cc4df1a91c04e5d0727981a2f48da22a820ccfb6978","appliedRevision":3,"result":{"ok":true,"op":"setComponent","projectId":"legacy-v5-music","requestId":"req-c2a1693495f7ec5d8a76e9d2a18cafd6","revision":3,"duplicated":false,"change":{"type":"setComponent","id":"box-000001","component":"audioSource","previous":null,"next":{"assetId":"rain","volume":0.8,"range":12},"changedFields":["assetId","volume","range"]},"history":{"undoDepth":3,"redoDepth":0},"sceneId":"scene-main"}}
+    ]
+  }
+}

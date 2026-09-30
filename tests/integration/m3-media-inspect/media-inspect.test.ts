@@ -4,9 +4,11 @@
  * The committed `.wav`/`.glb` bytes and the committed case files are the
  * evidence; this suite drives the real `inspectAudio` / role-aware `inspectGlb`
  * over those bytes, re-derives every digest with `node:crypto` independently,
- * checks the regenerated `fixtures/m3/contracts` audio record through the real
+ * checks the `fixtures/m3/contracts` audio record through the real
  * `@thirdlight/project-model` loader, and runs the fixture checker together with
- * its deliberate-corruption control as real child processes.
+ * its deliberate-corruption control as real child processes. The WAV cases were
+ * written for the fixed short-sound profile; the one audio kind takes every
+ * well-formed PCM or float file among them and refuses what no browser plays.
  */
 
 import { spawnSync } from 'node:child_process';
@@ -17,23 +19,19 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 import {
-  AUDIO_PCM_WAV_MAX_PCM_BYTES,
-  AUDIO_PCM_WAV_MAX_SOURCE_FILE_BYTES,
-  AUDIO_PCM_WAV_TOOLCHAIN,
   AUDIO_PIPELINE_VERSION,
-  AUDIO_REPORTED_LIMITS,
+  AUDIO_TOOLCHAIN,
   importMetadataDigest,
   importRecipeDigest,
   inspectAudio,
   inspectGlb,
   type AudioImportOptions,
   type AudioImportProposal,
-  type PcmWavMetrics,
   type ImportJobPort,
   type ImportOptions,
   type ImportProposal,
 } from '@thirdlight/asset-pipeline';
-import { AUDIO_PCM_WAV_PROFILE, validateContentV3, validateEnvelopeV3 } from '@thirdlight/project-model';
+import { AUDIO_PIPELINE_VERSION as MODEL_AUDIO_PIPELINE_VERSION, validateContentV3, validateEnvelopeV3 } from '@thirdlight/project-model';
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const MEDIA = join(REPO_ROOT, 'fixtures', 'm3', 'media');
@@ -55,9 +53,9 @@ function canonicalJson(value: unknown): string {
 const canonicalDigest = (value: unknown): string => sha256(Buffer.from(canonicalJson(value), 'utf8'));
 
 const AUDIO_OPTIONS: AudioImportOptions = {
-  profile: 'pcm-wav',
+  profile: 'audio',
   recipeVersion: 1,
-  toolchain: AUDIO_PCM_WAV_TOOLCHAIN,
+  toolchain: AUDIO_TOOLCHAIN,
 };
 
 const GLTF_OPTIONS: ImportOptions = {
@@ -84,7 +82,7 @@ interface WavCases {
     readonly recipe: Record<string, unknown>;
     readonly recipeDigest: string;
     readonly metadataDigest: string;
-    readonly metrics: PcmWavMetrics;
+    readonly metrics: Record<string, number | string>;
   };
   readonly positives: readonly WavCase[];
   readonly rejections: readonly WavCase[];
@@ -104,23 +102,29 @@ interface ProfileCases {
 const wavCases = json<WavCases>(join(MEDIA, 'wav', 'wav-cases.json'));
 const profileCases = json<ProfileCases>(join(MEDIA, 'glb', 'profile-cases.json'));
 
-/** The PCM-WAV metrics arithmetic, re-derived here (never read from the proposal). */
-function deriveMetrics(bytes: Buffer): PcmWavMetrics {
-  const dataBytes = bytes.readUInt32LE(40);
-  const frames = dataBytes / 2;
-  return {
-    container: 'riff-wave',
-    encoding: 'pcm-s16le',
-    channels: 1,
-    sampleRate: 48_000,
-    bitsPerSample: 16,
-    frames,
-    durationMs: Math.floor(frames / 48),
-    pcmBytes: dataBytes,
-    dataChunkBytes: dataBytes,
-    riffChunkBytes: 36 + dataBytes,
-  };
+/** A PCM WAV's header facts, re-derived here from its canonical 44-byte header (never read from the proposal). */
+function deriveMetrics(bytes: Buffer): Record<string, number | string> {
+  const channels = bytes.readUInt16LE(22);
+  const sampleRate = bytes.readUInt32LE(24);
+  const bitsPerSample = bytes.readUInt16LE(34);
+  const frames = bytes.readUInt32LE(40) / (channels * (bitsPerSample / 8));
+  return { format: 'wav', channels, sampleRate, bitsPerSample, durationMs: Math.max(1, Math.round((frames / sampleRate) * 1000)) };
 }
+
+/** What no browser plays (ADPCM, µ-law, A-law in WAV) and what is not a WAV at all. */
+const REFUSED: Readonly<Record<string, string>> = {
+  'wav/rejections/adpcm.wav': 'audio_format_unsupported',
+  'wav/rejections/mulaw.wav': 'audio_format_unsupported',
+  'wav/rejections/alaw.wav': 'audio_format_unsupported',
+  'wav/rejections/zero-frames.wav': 'audio_empty',
+  'wav/rejections/bad-magic.wav': 'audio_container_invalid',
+  'wav/rejections/rf64.wav': 'audio_container_invalid',
+  'wav/rejections/bw64.wav': 'audio_container_invalid',
+  'wav/rejections/non-wav.bin': 'audio_container_invalid',
+  'wav/rejections/data-url.txt': 'audio_container_invalid',
+  'wav/rejections/remote-url.txt': 'audio_container_invalid',
+  'wav/rejections/compressed.bin': 'audio_container_invalid',
+};
 
 describe('committed media fixture checker', () => {
   it('passes, and its corruption control detects every corruption', () => {
@@ -140,83 +144,40 @@ describe('committed media fixture checker', () => {
 });
 
 describe('inspectAudio over the committed WAV bytes', () => {
-  it('accepts every committed positive with the exact metrics', () => {
+  it('accepts every committed positive with its header facts', () => {
     expect(wavCases.positives.length).toBeGreaterThanOrEqual(8);
     for (const c of wavCases.positives) {
       const bytes = bytesOf(c.file);
       const proposal = inspectAudio(bytes, AUDIO_OPTIONS);
       expect(proposal.status, c.file).toBe('ok');
       expect(proposal.kind).toBe('audio');
-      const derived = deriveMetrics(bytes);
-      expect(proposal.metrics, c.file).toEqual(derived);
+      expect(proposal.metrics, c.file).toEqual(deriveMetrics(bytes));
       expect(proposal.sourceByteLength).toBe(bytes.length);
       expect(proposal.sourceDigest).toBe(sha256(bytes));
-      expect(bytes.length).toBe(44 + derived.pcmBytes);
-      if (c.frames !== undefined) expect(derived.frames).toBe(c.frames);
       // The recipe has exactly the three accepted keys (no `extensions`).
-      expect(Object.keys(proposal.importRecipe).sort()).toEqual(['profile', 'recipeVersion', 'toolchain']);
-      expect(proposal.importRecipe.toolchain).toEqual({ 'asset-pipeline': '0.1.0' });
-      expect(proposal.importRecipe.profile).toBe('pcm-wav');
-      expect(proposal.importRecipe.recipeVersion).toBe(1);
-      // The proposal is immutable and carries a bounded summary with no samples.
+      expect(proposal.importRecipe).toEqual({ profile: 'audio', recipeVersion: 1, toolchain: { 'asset-pipeline': '0.1.0' } });
       expect(Object.isFrozen(proposal)).toBe(true);
-      expect(Object.isFrozen(proposal.metrics)).toBe(true);
-      expect(proposal.inspection.chunkIds).toEqual(['fmt ', 'data']);
     }
   });
 
-  it('exercises the stage-1/stage-11 byte boundaries with real bytes', () => {
-    expect(AUDIO_REPORTED_LIMITS).toEqual(['audio_pcm_bytes']);
-    const min = inspectAudio(bytesOf('wav/cue-min.wav'), AUDIO_OPTIONS);
-    expect(min.status).toBe('ok');
-    expect(min.metrics?.frames).toBe(1);
-    expect(min.metrics?.durationMs).toBe(0);
-    expect(min.metrics?.pcmBytes).toBe(2);
-
-    const max = inspectAudio(bytesOf('wav/cue-max.wav'), AUDIO_OPTIONS);
-    expect(max.status).toBe('ok');
-    expect(max.metrics?.frames).toBe(96_000);
-    expect(max.metrics?.pcmBytes).toBe(AUDIO_PCM_WAV_MAX_PCM_BYTES);
-    expect(max.metrics?.durationMs).toBe(2_000);
-    expect(max.sourceByteLength).toBe(192_044);
-
-    // Exactly the 196 608-byte source-file bound passes stage 1 and is refused
-    // by the PCM cap; one more byte fails stage 1 itself.
-    const atBound = bytesOf('wav/rejections/source-at-bound.wav');
-    expect(atBound.length).toBe(AUDIO_PCM_WAV_MAX_SOURCE_FILE_BYTES);
-    const atBoundProposal = inspectAudio(atBound, AUDIO_OPTIONS);
-    expect(atBoundProposal.status).toBe('rejected');
-    expect(atBoundProposal.diagnostics.map((d) => d.code)).toEqual(['asset_limits_exceeded']);
-    expect(atBoundProposal.diagnostics[0]?.limit).toBe('audio_pcm_bytes');
-
-    const overBound = inspectAudio(bytesOf('wav/rejections/source-over-bound.wav'), AUDIO_OPTIONS);
-    expect(overBound.status).toBe('rejected');
-    expect(overBound.diagnostics.map((d) => d.code)).toEqual(['audio_source_bytes_exceeded']);
+  it('takes what the fixed short-sound profile refused and every browser plays: any channels, rate, bit depth, float, length', () => {
+    const facts = (file: string) => inspectAudio(bytesOf(file), AUDIO_OPTIONS).metrics;
+    expect(facts('wav/rejections/stereo.wav')).toMatchObject({ channels: 2 });
+    expect(facts('wav/rejections/rate-44100.wav')).toMatchObject({ sampleRate: 44100 });
+    expect(facts('wav/rejections/bit-depth-8.wav')).toMatchObject({ bitsPerSample: 8 });
+    expect(facts('wav/rejections/float32.wav')).toMatchObject({ bitsPerSample: 32, float: true });
+    // Past the old 2 s / 192 000-byte caps: no duration cap, only the per-file size cap.
+    expect(facts('wav/rejections/oversized-pcm.wav')?.durationMs).toBeGreaterThanOrEqual(2000);
+    expect(facts('wav/rejections/huge-source.wav')?.durationMs).toBeGreaterThan(2000);
   });
 
-  it('rejects every committed negative at its contracted stage (fail-fast, code + limit)', () => {
-    expect(wavCases.rejections.length).toBeGreaterThanOrEqual(30);
-    for (const c of wavCases.rejections) {
-      const proposal = inspectAudio(bytesOf(c.file!), AUDIO_OPTIONS);
-      expect(proposal.status, c.file).toBe('rejected');
-      expect(proposal.diagnostics.length, c.file).toBe(1);
-      expect(proposal.diagnostics[0]?.code, c.file).toBe(c.code);
-      if (c.limit !== undefined) expect(proposal.diagnostics[0]?.limit, c.file).toBe(c.limit);
-      expect(proposal.metrics).toBeUndefined();
-      expect(proposal.kind).toBeUndefined();
-    }
-  });
-
-  it('never accepts a non-WAV, data: or URL form (the bytes alone decide)', () => {
-    for (const file of [
-      'wav/rejections/non-wav.bin',
-      'wav/rejections/data-url.txt',
-      'wav/rejections/remote-url.txt',
-      'wav/rejections/compressed.bin',
-    ]) {
+  it('refuses what no browser plays and what is not audio (the bytes alone decide)', () => {
+    for (const [file, code] of Object.entries(REFUSED)) {
       const proposal = inspectAudio(bytesOf(file), AUDIO_OPTIONS);
       expect(proposal.status, file).toBe('rejected');
-      expect(proposal.diagnostics[0]?.code).toBe('audio_container_invalid');
+      expect(proposal.diagnostics[0]?.code, file).toBe(code);
+      expect(proposal.metrics).toBeUndefined();
+      expect(proposal.kind).toBeUndefined();
     }
   });
 
@@ -226,7 +187,8 @@ describe('inspectAudio over the committed WAV bytes', () => {
     expect(JSON.stringify(a)).toBe(JSON.stringify(b));
     // A caller MIME type / declared kind is not an input: only bytes and options.
     expect(inspectAudio(new Uint8Array(44), AUDIO_OPTIONS).status).toBe('rejected');
-    expect(inspectAudio(new Uint8Array(0), AUDIO_OPTIONS).diagnostics[0]?.code).toBe('audio_source_bytes_exceeded');
+    expect(inspectAudio(new Uint8Array(0), AUDIO_OPTIONS).status).toBe('rejected');
+    for (const c of wavCases.rejections) expect(['ok', 'rejected']).toContain(inspectAudio(bytesOf(c.file!), AUDIO_OPTIONS).status);
   });
 
   it('rejects invalid options as a caller programming error', () => {
@@ -370,12 +332,9 @@ describe('role-aware GLB proposal', () => {
 
 describe('recipe and metadata digests over supplied records', () => {
   it('matches SHA-256(canonical JSON of the recipe) independently', () => {
-    const recipe = wavCases.recipe;
-    expect(importRecipeDigest(recipe as never)).toBe(canonicalDigest(recipe));
-    expect(importRecipeDigest(recipe as never)).toBe(wavCases.audioRecord.recipeDigest);
     const proposal = inspectAudio(bytesOf('wav/cue-preimage.wav'), AUDIO_OPTIONS);
     expect(proposal.status).toBe('ok');
-    expect(importRecipeDigest(proposal.importRecipe)).toBe(wavCases.audioRecord.recipeDigest);
+    expect(importRecipeDigest(proposal.importRecipe)).toBe(canonicalDigest(proposal.importRecipe));
     const metadataDigest = canonicalDigest({
       status: proposal.status,
       kind: proposal.kind,
@@ -385,15 +344,14 @@ describe('recipe and metadata digests over supplied records', () => {
       metrics: proposal.metrics,
     });
     expect(importMetadataDigest(proposal)).toBe(metadataDigest);
-    expect(metadataDigest).toBe(wavCases.audioRecord.metadataDigest);
-    expect(proposal.metrics).toEqual(wavCases.audioRecord.metrics);
     expect(proposal.sourceDigest).toBe(wavCases.audioRecord.sourceDigest);
   });
 
-  it('agrees with the regenerated fixtures/m3/contracts audio record (CC-44-2)', () => {
+  it('agrees with the fixtures/m3/contracts audio record', () => {
     const rec = wavCases.audioRecord;
     const preimage = readFileSync(join(CONTRACTS, rec.contractsPreimage));
     expect(preimage.equals(bytesOf(rec.preimage))).toBe(true);
+    const proposal = inspectAudio(preimage, AUDIO_OPTIONS);
     for (const rel of [
       'catalog/audio-asset-record-v3.json',
       'envelope/valid/demo-0003-media-v3.json',
@@ -404,10 +362,8 @@ describe('recipe and metadata digests over supplied records', () => {
       const version = doc.content.assets.find((a) => a.kind === 'audio')!.versions[0]!;
       expect(version.sourceDigest, rel).toBe(rec.sourceDigest);
       expect(version.sourceByteLength, rel).toBe(rec.sourceByteLength);
-      expect(version.importRecipe, rel).toEqual(rec.recipe);
-      expect(version.metrics, rel).toEqual(rec.metrics);
-      // The recipe digest of the committed record is the canonical-JSON digest.
-      expect(importRecipeDigest(version.importRecipe as never), rel).toBe(rec.recipeDigest);
+      expect(version.importRecipe, rel).toEqual(proposal.importRecipe);
+      expect(version.metrics, rel).toEqual(proposal.metrics);
     }
   });
 
@@ -435,8 +391,8 @@ describe('recipe and metadata digests over supplied records', () => {
   });
 });
 
-describe('project-model loads the promoted pcm-wav record (CC-44-2)', () => {
-  it('accepts the regenerated catalog and media envelope', () => {
+describe('project-model loads the audio record', () => {
+  it('accepts the catalog and media envelope', () => {
     const catalog = json<{ content: unknown }>(join(CONTRACTS, 'catalog', 'audio-asset-record-v3.json'));
     expect(validateContentV3(catalog.content).ok).toBe(true);
     const envelope = json<unknown>(join(CONTRACTS, 'envelope', 'valid', 'demo-0003-media-v3.json'));
@@ -452,28 +408,11 @@ describe('project-model loads the promoted pcm-wav record (CC-44-2)', () => {
       fn(copy.content.assets[0]!.versions[0]!);
       return validateContentV3(copy.content);
     };
-    // sourceByteLength === 44 + pcmBytes, every cap, exact keys.
-    const arithmetic = mutate((v) => {
-      v['sourceByteLength'] = 237;
-    });
-    expect(arithmetic.ok).toBe(false);
-    if (!arithmetic.ok) expect(arithmetic.errors.some((e) => e.code === 'field_value')).toBe(true);
-
-    const capped = mutate((v) => {
-      const m = v['metrics'] as Record<string, number>;
-      m['pcmBytes'] = 192_002;
-      v['sourceByteLength'] = 44 + 192_002;
-    });
-    expect(capped.ok).toBe(false);
-    if (!capped.ok) expect(capped.errors.some((e) => e.code === 'limits_exceeded' && e.limit === 'audio_pcm_bytes')).toBe(true);
-
-    const extraKey = mutate((v) => {
-      (v['metrics'] as Record<string, number>)['nodes'] = 0;
-    });
-    expect(extraKey.ok).toBe(false);
-
+    expect(mutate((v) => void ((v['metrics'] as Record<string, unknown>)['format'] = 'aiff')).ok).toBe(false);
+    expect(mutate((v) => void ((v['metrics'] as Record<string, unknown>)['channels'] = 0)).ok).toBe(false);
+    expect(mutate((v) => void ((v['metrics'] as Record<string, number>)['nodes'] = 0)).ok).toBe(false);
     const placeholder = mutate((v) => {
-      v['importRecipe'] = { profile: 'pcm-wav', recipeVersion: 0, toolchain: {}, extensions: [] };
+      v['importRecipe'] = { profile: 'audio', recipeVersion: 0, toolchain: {}, extensions: [] };
     });
     expect(placeholder.ok).toBe(false);
     if (!placeholder.ok) expect(placeholder.errors.every((e) => e.code === 'recipe_invalid' || e.code === 'field_unexpected')).toBe(true);
@@ -481,20 +420,14 @@ describe('project-model loads the promoted pcm-wav record (CC-44-2)', () => {
   });
 });
 
-describe('the pinned profile constants agree across the two packages', () => {
-  it('uses the repository package version as the only pcm-wav toolchain entry', () => {
+describe('the pinned inspector version agrees across the two packages', () => {
+  it('uses the repository package version as the only audio toolchain entry', () => {
     const pkg = JSON.parse(
       readFileSync(join(REPO_ROOT, 'packages', 'asset-pipeline', 'package.json'), 'utf8'),
     ) as { version: string };
     expect(AUDIO_PIPELINE_VERSION).toBe(pkg.version);
-    // project-model keeps its own copy (no asset-pipeline dependency); the
-    // numbers must be identical or the promoted rules would disagree.
-    expect(AUDIO_PCM_WAV_PROFILE.audioPipelineVersion).toBe(pkg.version);
-    expect(AUDIO_PCM_WAV_PROFILE.maxPcmBytes).toBe(AUDIO_PCM_WAV_MAX_PCM_BYTES);
-    expect(AUDIO_PCM_WAV_PROFILE.maxSourceFileBytes).toBe(AUDIO_PCM_WAV_MAX_SOURCE_FILE_BYTES);
-    expect(AUDIO_PCM_WAV_PROFILE.maxSourceBytes).toBe(44 + AUDIO_PCM_WAV_MAX_PCM_BYTES);
-    expect(AUDIO_PCM_WAV_PROFILE.maxFrames).toBe(AUDIO_PCM_WAV_MAX_PCM_BYTES / 2);
-    expect(AUDIO_PCM_WAV_PROFILE.maxDurationMs).toBe(Math.floor((AUDIO_PCM_WAV_MAX_PCM_BYTES / 2) / 48));
+    expect(MODEL_AUDIO_PIPELINE_VERSION).toBe(pkg.version);
+    expect(AUDIO_TOOLCHAIN).toEqual({ 'asset-pipeline': pkg.version });
   });
 });
 

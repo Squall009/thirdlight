@@ -21,6 +21,7 @@
  */
 
 import type { AssetMetrics, ImportRecipe } from '@thirdlight/project-model';
+import type { AudioImportProposal, AudioRecipe } from './inspect-audio';
 
 import { decodedImageBytes, detectImageMime, imageDimensions, type ImportImageMime } from './images';
 import { decodeMeshopt, MeshoptError, type MeshoptFilter, type MeshoptMode } from './meshopt';
@@ -52,7 +53,6 @@ import {
 } from './limits';
 import { canonicalJsonText, sha256Hex, sha256HexOfText } from './sha256';
 import type {
-  AudioImportProposal,
   ImportDiagnostic,
   ImportDiagnosticCode,
   ImportInspection,
@@ -62,7 +62,6 @@ import type {
   ImportMetadataFacts,
   ImportOptions,
   ImportProposal,
-  PcmWavRecipe,
   PrepareImportOptions,
 } from './types';
 
@@ -2965,7 +2964,7 @@ export function prepareImport(bytes: Uint8Array, options: PrepareImportOptions):
 }
 
 /** `recipeDigest` = SHA-256 of the canonical JSON of the recipe. */
-export function importRecipeDigest(recipe: ImportRecipe | PcmWavRecipe): string {
+export function importRecipeDigest(recipe: ImportRecipe | AudioRecipe): string {
   return sha256HexOfText(canonicalJsonText(recipe));
 }
 

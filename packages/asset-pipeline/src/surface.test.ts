@@ -49,22 +49,10 @@ describe('public surface', () => {
         'ANIMATION_PROFILE_MAX_TRACK_TIMES',
         'ANIMATION_ROLE_KEYS',
         'ANIMATION_ROLE_NAME_CHARS',
-        'AUDIO_PCM_WAV_BITS_PER_SAMPLE',
-        'AUDIO_PCM_WAV_BLOCK_ALIGN',
-        'AUDIO_PCM_WAV_BYTE_RATE',
-        'AUDIO_PCM_WAV_CHANNELS',
-        'AUDIO_PCM_WAV_HEADER_BYTES',
-        'AUDIO_PCM_WAV_LIMITS',
-        'AUDIO_PCM_WAV_MAX_DURATION_MS',
-        'AUDIO_PCM_WAV_MAX_FRAMES',
-        'AUDIO_PCM_WAV_MAX_PCM_BYTES',
-        'AUDIO_PCM_WAV_MAX_SOURCE_BYTES',
-        'AUDIO_PCM_WAV_MAX_SOURCE_FILE_BYTES',
-        'AUDIO_PCM_WAV_SAMPLE_RATE',
-        'AUDIO_PCM_WAV_TOOLCHAIN',
         'AUDIO_PIPELINE_NAME',
         'AUDIO_PIPELINE_VERSION',
-        'AUDIO_REPORTED_LIMITS',
+        // Audio of any format and length
+        'AUDIO_TOOLCHAIN',
         // Standalone textures
         'IMAGE_TOOLCHAIN',
         'TEXTURE_EDGE_MAX',
@@ -72,11 +60,6 @@ describe('public surface', () => {
         'inspectImage',
         // A KTX2's facts (the backend's encoder tests read them)
         'ktx2Info',
-        // music
-        'inspectMusic',
-        'MUSIC_DURATION_MS_MAX',
-        'MUSIC_SOURCE_BYTES_MAX',
-        'MUSIC_TOOLCHAIN',
         // fonts
         'FONT_FAMILY_NAME_MAX',
         'FONT_SOURCE_BYTES_MAX',

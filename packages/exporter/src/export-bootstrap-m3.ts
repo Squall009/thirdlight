@@ -539,6 +539,7 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
     // Project save slots in the player's IndexedDB (no backend: the export runs standalone).
     ...(browserProjectSaveBackend() !== null ? { projectSaveBackend: browserProjectSaveBackend()! } : {}),
     assetKinds: Object.fromEntries(((manifest.assets ?? []) as unknown as { assetId: string; kind: string }[]).map((r) => [r.assetId, r.kind])),
+      audioLoad: Object.fromEntries(((manifest.assets ?? []) as unknown as { assetId: string; kind: string; loadType?: string; preload?: boolean }[]).filter((r) => r.kind === 'audio' && r.loadType !== undefined).map((r) => [r.assetId, { loadType: r.loadType, preload: r.preload !== false }])),
     // How audio sources are heard (the audio_spatial setting; 3D: panned).
     audioSpatial: audioSpatialOf(settings),
     // The debug console only when the project turns debug_console on (absent/0: a release game has none).

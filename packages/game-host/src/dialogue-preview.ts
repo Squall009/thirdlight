@@ -29,7 +29,7 @@ export interface DialoguePreviewDeps {
   readonly themes?: readonly UiTheme[];
   /** assetId → an artifact path `readArtifact` resolves (portraits, voice clips, blips). */
   readonly assetPaths: Readonly<Record<string, string>>;
-  /** assetId → kind (audio, music, texture, …). */
+  /** assetId → kind (audio, texture, …). */
   readonly assetKinds: Readonly<Record<string, string>>;
   readonly readArtifact: (path: string) => Promise<ArrayBuffer>;
   /** assetId → recorded length in ms (voice auto-advance). */
@@ -99,7 +99,7 @@ export function createDialoguePreview(deps: DialoguePreviewDeps): DialoguePrevie
     viewport: deps.viewport,
   });
 
-  // The sounds a conversation uses: audio-kind clips are cues (decoded now), music-kind ones tracks (decoded when played).
+  // The sounds a conversation uses, held as bytes and decoded when first played (a preview plays a few lines, not a scene).
   if (deps.audio !== null) {
     const ids = new Set<string>();
     for (const d of deps.data.dialogues) for (const n of Object.values(d.nodes)) if (n.t === 'line' && n.voice !== '') ids.add(n.voice);
@@ -107,11 +107,11 @@ export function createDialoguePreview(deps: DialoguePreviewDeps): DialoguePrevie
     for (const id of ids) {
       const path = deps.assetPaths[id];
       if (path === undefined) continue;
-      const kind = deps.assetKinds[id];
+      if (deps.assetKinds[id] !== 'audio') continue;
       void deps.readArtifact(path).then(
         (buf) => {
           if (disposed || deps.audio === null) return;
-          if (kind === 'music') deps.audio.registerMusic?.(id, new Uint8Array(buf));
+          if (deps.audio.registerMusic !== undefined) deps.audio.registerMusic(id, new Uint8Array(buf));
           else deps.audio.registerCue(id, new Uint8Array(buf));
         },
         () => undefined,
