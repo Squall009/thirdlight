@@ -49,6 +49,9 @@ export interface PlayRoutesContext {
   readonly ensureImported?: (projectId: string) => Promise<void>;
 }
 
+/** How long a project must be left alone after a file check before its next Play is built ahead. */
+export const PLAY_BUILD_AHEAD_IDLE_MS = 1_000;
+
 export function makePlayRoutes(ctx: PlayRoutesContext) {
   const { config, nowMs, logStartup, behaviorCompiler, service, sessions, playContent, plays, relayTimeoutMs, sendJson, sendError, bearerToken, tokenScope, badOriginError, requireAuth, readBody, fullState, workspaceError, connectedOwner, unavailableError, recordProblem, headless, playBuild, ensureImported } = ctx;
 
@@ -83,21 +86,33 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
    * opens a project and when its window gets focus back). What the build
    * derives is remembered per capture, so the Play that follows derives
    * nothing again for unchanged content; the build gives the event loop back
-   * between its stages. A Play asked for meanwhile waits for it.
+   * between its stages. It starts once the project has been left alone for
+   * `PLAY_BUILD_AHEAD_IDLE_MS` (not while someone is editing: a stage can
+   * hold a command for a few hundred ms at full size). A Play asked for
+   * meanwhile waits for it.
    */
   const warming = new Map<string, Promise<void>>();
   /** The revision each content object was last built ahead at (a project opened again has new ones). */
   const warmed = new WeakMap<object, number>();
   /** Projects with a Play start under way (a build ahead would only hold it up). */
   const starting = new Map<string, number>();
+  /** Projects whose build ahead waits for them to be left alone. */
+  const waitingToWarm = new Set<string>();
   const warmPlay = (projectId: string): void => {
-    if (warming.has(projectId) || starting.has(projectId) || plays.activeFor(projectId) !== undefined) return;
-    const run = (async (): Promise<void> => {
+    if (waitingToWarm.has(projectId) || warming.has(projectId) || starting.has(projectId) || plays.activeFor(projectId) !== undefined) return;
+    const before = service.readCapturedV3(projectId);
+    if (!before.ok) return;
+    waitingToWarm.add(projectId);
+    setTimeout(() => {
+      waitingToWarm.delete(projectId);
+      if (warming.has(projectId) || starting.has(projectId) || plays.activeFor(projectId) !== undefined) return;
       const captured = service.readCapturedV3(projectId);
-      if (!captured.ok || captured.read.scenes === undefined || warmed.get(captured.read.content as object) === captured.read.revision) return;
+      // Edited meanwhile: the Play (or the next check) builds what it needs.
+      if (!captured.ok || captured.read.revision !== before.read.revision || captured.read.scenes === undefined) return;
+      if (warmed.get(captured.read.content as object) === captured.read.revision) return;
       const bundle = readGameBundle();
       if (bundle === null) return;
-      const built = await buildPlayContentM3({
+      const run = buildPlayContentM3({
         service,
         compiler: behaviorCompiler,
         projectId,
@@ -110,12 +125,14 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
         scenes: captured.read.scenes,
         startScenes: captured.read.startScenes ?? [],
         background: true,
-      });
-      if (built.ok) warmed.set(captured.read.content as object, captured.read.revision);
-    })()
-      .catch(() => undefined)
-      .finally(() => warming.delete(projectId));
-    warming.set(projectId, run);
+      })
+        .then((built) => {
+          if (built.ok) warmed.set(captured.read.content as object, captured.read.revision);
+        })
+        .catch(() => undefined)
+        .finally(() => warming.delete(projectId));
+      warming.set(projectId, run);
+    }, PLAY_BUILD_AHEAD_IDLE_MS).unref();
   };
 
   /** Each play's snapshot as JSON bytes, serialized once (the snapshot is frozen with the play; released when it ends). */

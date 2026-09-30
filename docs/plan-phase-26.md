@@ -2201,11 +2201,14 @@ Owner listen and look pending.
   Full-size closure after a scene edit 306 → ~110 ms, a second Play of the
   same revision ~30 ms; the first build of a capture is not cheaper
   (~460 ms at full: every row made once).
-- 2026-09-30 (26.14, Play start): the Play build is made ahead. After a full
-  file check the backend builds the next Play in the background (its stages
-  give the event loop back), unless a Play is starting or running or that
-  revision was built already; a Play asked for meanwhile waits for it and
-  then only re-stamps. Unity keeps imports and compiled scripts ready before
+- 2026-09-30 (26.14, Play start): the Play build is made ahead. After a file
+  check, once the project has been left alone for `PLAY_BUILD_AHEAD_IDLE_MS`
+  (1 s: a stage of the build holds the event loop up to ~250 ms at full
+  size, which a command right after the editor connected would wait for),
+  the backend builds the next Play in the background (its stages give the
+  event loop back), unless a Play is starting or running, the project was
+  edited meanwhile or that revision was built already; a Play asked for
+  while it builds waits for it and then only re-stamps. Unity keeps imports and compiled scripts ready before
   Play mode the same way. Not done: a build ahead after every command (a
   second ~100 ms of work per edit at full size, for Plays that may not
   come).

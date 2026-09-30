@@ -417,6 +417,11 @@ export function bootstrapPreviewM3(): void {
       return;
     }
     void h.access.diagnostics().then((rd) => {
+      // Stopped while the simulation answered: the host is gone (its runtime with it).
+      if (handle !== h) {
+        bridge.sendDiagnosticsResult(playId, body.relayId, notReady);
+        return;
+      }
       const ad = h.adapter?.diagnostics();
       bridge.sendDiagnosticsResult(playId, body.relayId, {
         ok: true,
@@ -449,6 +454,8 @@ export function bootstrapPreviewM3(): void {
     const debug = await h.access.debugObservation();
     // The run digest now and after the last input exercise (asked of the worker in worker mode).
     const digests = await h.access.runDigests();
+    // Stopped while the simulation answered: nothing to observe (the host and its runtime are gone).
+    if (handle !== h) return null;
     // Every game plays as a scene (the step, the play state, sound, the character…).
     const sc = h.host.observe();
     if (!sc.ok) return null;

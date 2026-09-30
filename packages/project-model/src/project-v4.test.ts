@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { migrateProjectV3ToV4, validateProjectV4 } from './project-v4';
+import { composeV4, migrateProjectV3ToV4, validateProjectV4 } from './project-v4';
 import { validateContentV4 } from './content';
 import { validateSceneV4 } from './scene-v3';
 import { validateEnvelopeV3 } from './project-v3';
@@ -169,6 +169,33 @@ describe('project v4', () => {
     expect(JSON.stringify(validateProjectV4(MANIFEST, content({ shell: { hud: ['hud'] } }), [core, level]))).toContain('no UI document');
     const inst = scene('scene-level', [{ id: 'g-1', components: { transform: T, instances: { asset: { assetId: 'asset-none' }, buffer: DIGEST, count: 2 } } }]);
     expect(JSON.stringify(validateProjectV4(MANIFEST, content(), [core, inst]))).toContain('asset_reference_missing');
+  });
+
+  it('an edit that gives a scene an id another scene has is refused, and allowed again once it is gone (one scene recounted at a time)', () => {
+    const norm = (doc: unknown) => {
+      const r = validateSceneV4(doc);
+      if (!r.ok) throw new Error(JSON.stringify(r.errors));
+      return r.normalized;
+    };
+    const c = validateContentV4(content({ scenes: [{ sceneId: 'scene-core', name: 'Core' }, { sceneId: 'scene-level', name: 'Level' }] }));
+    if (!c.ok) throw new Error(JSON.stringify(c.errors));
+    const a = norm(core);
+    const b = norm(level);
+    const idErrors = (scenes: ReturnType<typeof norm>[]): string[] => {
+      const errors: { message: string }[] = [];
+      composeV4(scenes, c.normalized, errors as never);
+      return errors.map((e) => e.message).filter((m) => m.includes('ids are unique across the project'));
+    };
+    expect(idErrors([a, b])).toEqual([]);
+    // The level scene edited to hold the core scene's camera id: the one changed scene is recounted and the duplicate found.
+    const clash = norm(scene('scene-level', [...(level.entities as unknown[]), { id: 'cam-main', components: { transform: T } }]));
+    expect(idErrors([a, clash])).toEqual(['entity id is already used in scene "scene-core" (ids are unique across the project)']);
+    expect(idErrors([a, b])).toEqual([]);
+    // An id moved from one scene to the other in one edit of both is no duplicate.
+    const moved = norm(scene('scene-level', [...(level.entities as unknown[]), { id: 'light-0001', components: { transform: T } }]));
+    const without = norm(scene('scene-core', [camera()]));
+    expect(idErrors([without, moved])).toEqual([]);
+    expect(idErrors([a, moved])).toHaveLength(1);
   });
 });
 

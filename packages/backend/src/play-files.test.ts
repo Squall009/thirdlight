@@ -18,6 +18,7 @@ import { describe, expect, it } from 'vitest';
 import { closureCacheStats } from '@thirdlight/exporter';
 
 import { isFileArtifact } from './play-content';
+import { PLAY_BUILD_AHEAD_IDLE_MS } from './play-routes';
 import { FakeEditor } from './test-editor';
 import { AUTHORING_ORIGIN, PREVIEW_ORIGIN, api, establish, mkRequestId, mkSessionId, playContentOf, startBackend, upgrade, type TestBackend } from './test-helpers';
 import { createTestBackend } from './testing';
@@ -358,7 +359,7 @@ describe('the folder watch and the check before Play', () => {
       await editor.waitForEvent('play.stopped');
       // Nothing changed since: another check builds nothing ahead.
       await check();
-      await new Promise((done) => setTimeout(done, 200));
+      await new Promise((done) => setTimeout(done, PLAY_BUILD_AHEAD_IDLE_MS + 500));
       expect(closureCacheStats.misses).toBe(before.misses + 1);
       editor.close();
     } finally {
@@ -408,6 +409,12 @@ describe('queries page', () => {
       expect((await h.command('importAssets', { folder: 'assets/page2' })).status).toBe(200);
       expect((await pageIds('queryAssets', 'assets', {})).ids).toEqual(['a', 'aa', 'b', 'c', 'd', 'e']);
       expect((await pageIds('queryIndex', 'entries', { kind: 'audio' })).ids).toEqual(['a', 'aa', 'b', 'c', 'd', 'e']);
+      // An edit that changes nothing the index says (a load option) answers the same page; one that does (labels) the new one.
+      const before = await h.query('queryIndex', { kind: 'audio', limit: 3 });
+      expect((await h.command('setAssetOptions', { assetId: 'a', preload: false })).status).toBe(200);
+      expect((await h.query('queryIndex', { kind: 'audio', limit: 3 }))['entries']).toEqual(before['entries']);
+      expect((await h.command('setLabels', { items: [{ kind: 'audio', id: 'a' }], add: ['quiet'] })).status).toBe(200);
+      expect(((await h.query('queryIndex', { kind: 'audio', limit: 3 }))['entries'] as { id: string; labels: string[] }[]).find((e) => e.id === 'a')!.labels).toEqual(['quiet']);
       const one = await h.query('queryAssets', { assetId: 'c' });
       expect((one['assets'] as { assetId: string }[]).map((a) => a.assetId)).toEqual(['c']);
       expect((await h.query('queryAssets', { assetId: 'zz' }))['ok']).toBe(false);
