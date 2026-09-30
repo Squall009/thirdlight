@@ -17,7 +17,7 @@
  */
 import type { ContentCatalogV4, SceneV4 } from '@thirdlight/project-model';
 
-import { RESOURCE_KINDS, type ResourceKind } from './resource-files';
+import { recordsOfKind, RESOURCE_KINDS, type ResourceKind } from './resource-files';
 import { sceneRel, type ResourcePaths } from './store-v4';
 
 /** One asset, resource or scene of the project. */
@@ -62,9 +62,9 @@ interface AssetLike {
 
 const keyOf = (kind: string, id: string): string => `${kind}:${id}`;
 
+const NONE: readonly Record<string, unknown>[] = [];
 function listOf(content: ContentCatalogV4, k: ResourceKind): readonly Record<string, unknown>[] {
-  const list = (content as unknown as Record<string, unknown>)[k.list];
-  return Array.isArray(list) ? (list as Record<string, unknown>[]) : [];
+  return recordsOfKind(content, k) ?? NONE;
 }
 
 /** Every id an entry may reference: assets, resources, scenes. */

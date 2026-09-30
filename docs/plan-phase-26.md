@@ -187,7 +187,7 @@ at the boundary it changes (Playwright for any editor surface).
 | 26.1 | done 2026-09-29: limits once, splits (D57, D58); ESLint in the gates; three.js 0.186.1; history comments removed with a build check (D59) |
 | 26.2 | done 2026-09-29: scale bench (generator, harness, small-size tests in the fast gate); before numbers in §6; D61 |
 | 26.3 | done 2026-09-29: A files and sidecars (uploads filed into `assets/`, `.tlasset` sidecars, import cache, file check re-imports and follows moves, project.json 5 with the upgrade of a 4); B folder import with labels (`importAssets`, one undo; editor and MCP), uploads into the folder named, a folder uploaded file by file, labels on records and sidecars, whole-folder moves, upgrade report in Problems |
-| 26.4 | A done 2026-09-30: storage out of `buildService` (typed readers); resources as files, asset records in their sidecars, `content.json` project-wide only; the index (`queryIndex`); validation of what a command touched (D61); one command's latency flat at full size (§6). B: environment presets, scene folders, resources added or moved while open, D63 |
+| 26.4 | A done 2026-09-30: storage out of `buildService` (typed readers); resources as files, asset records in their sidecars, `content.json` project-wide only; the index (`queryIndex`); validation of what a command touched (D61); one command's latency flat at full size (§6); environment presets as files (their order in `content.json`). B: scene folders, choosing a folder for a new resource, resources added or moved while open, D63 |
 | 26.5–26.14 | — |
 
 ## 6. Measurements
@@ -297,7 +297,13 @@ One command no longer grows with the project the way it did (full size: 11 s
 and 26 s before): within 1.5× (scene edit) and 1.8× (content edit) of the
 ×0.01 project at p50; a content edit writes two files through the journal at
 any size (its record and `content.json`, which carries the revision and the
-retry record), the rest of both is the flushes. Linear passes that remain
+retry record), the rest of both is the flushes (renaming into and flushing a
+folder of 2,000 materials costs more than one of 20). Again at `51fc3260`
+(an edit sets one record of its list; the material check only after changes
+that reach materials), two runs each: full scene edit 7.7–7.8 / 21–66 ms,
+content edit 22.6 / 31–36 ms, open 0.8–1.1 s; ×0.01 5.9 / 8 ms and
+12.4–12.6 / 15–19 ms. The command's own work at full size (profiled, the
+flushes left out) is 1–3 ms. Linear passes that remain
 per command at full size, each well under a millisecond: the project-wide
 id uniqueness over every entity, the asset list's counts when an asset
 changes, the per-kind id sets when a record is added or removed.
@@ -620,8 +626,8 @@ Proposed targets for "Done when" (fixed in 26.14 from these numbers):
   content and scene shapes the commit rewrites (`service.ts` 1,849 → 875 lines).
 - 2026-09-30 (26.4 A): resources as files. Each prefab, behavior, material
   (instances included), animator controller, graph (material functions
-  included), effect, script library, UI document, UI theme, dialogue and
-  timeline is `<folder>/<id>.<kind>.json` in the game folder
+  included), effect, script library, UI document, UI theme, dialogue,
+  timeline and environment preset is `<folder>/<id>.<kind>.json` in the game folder
   (`{tlresource: 1, kind, id, data}`, the project-file layout), default
   folder `assets/<kind>/` (`resource-files.ts`, `RESOURCE_KINDS`). The open
   finds them by name anywhere in the game folder (hidden folders,
@@ -631,9 +637,10 @@ Proposed targets for "Done when" (fixed in 26.14 from these numbers):
   project-wide settings, the revision and the retry records: resource files
   hold no project state, so a command that writes resources writes
   `content.json` with them in one journaled transaction (a scene edit still
-  writes its scene file alone). Environment presets stay inside
-  `environment` for now: their order is the author's (not by id), and a
-  file per preset needs that order stored (part B). Scenes stay
+  writes its scene file alone). Environment presets are files too
+  (`assets/environment/<id>.envpreset.json`); their order is the author's,
+  not by id, so `content.json`'s environment lists their ids in that order
+  (a preset file it does not list comes last). Scenes stay
   `scenes/<id>.json` in the project folder (user folders for scenes: part B
   with 26.13's moves).
 - 2026-09-30 (26.4 A): the asset catalog records move to the sidecars, which

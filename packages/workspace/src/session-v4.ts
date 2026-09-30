@@ -66,7 +66,7 @@ import {
   type ResourcePaths,
   type V4State,
 } from './store-v4';
-import { defaultResourcePath, gamePathOf, gameRel, RESOURCE_KINDS, resourceFileBytes } from './resource-files';
+import { defaultResourcePath, gamePathOf, gameRel, recordsOfKind, RESOURCE_KINDS, resourceFileBytes } from './resource-files';
 import { fileOfRecord, sidecarPath, type RecordLike } from './asset-files';
 import { EMPTY_BYTES } from './write';
 import { commandContentOf } from './content-shapes';
@@ -528,15 +528,15 @@ function resourceWrites(before: V4State, next: V4State['content'], writes: FileW
   const prevContent = before.content as unknown as Record<string, unknown>;
   const nextContent = next as unknown as Record<string, unknown>;
   for (const k of RESOURCE_KINDS) {
-    const a = prevContent[k.list];
-    const b = nextContent[k.list];
+    const a = recordsOfKind(prevContent, k);
+    const b = recordsOfKind(nextContent, k);
     if (a === b) continue;
     const prev = new Map<string, unknown>();
-    if (Array.isArray(a)) for (const r of a as Record<string, unknown>[]) prev.set(String(r[k.idKey]), r);
+    if (a !== undefined) for (const r of a) prev.set(String(r[k.idKey]), r);
     const paths = new Map(before.resourcePaths.get(k.list) ?? []);
     const kept = new Set<string>();
-    if (Array.isArray(b)) {
-      for (const r of b as Record<string, unknown>[]) {
+    if (b !== undefined) {
+      for (const r of b) {
         const id = String(r[k.idKey]);
         kept.add(id);
         if (prev.get(id) === r) continue;

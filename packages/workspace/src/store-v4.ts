@@ -6,7 +6,9 @@
  *   content.json            { storageVersion: 5, type: "project-content", projectId,
  *                             revision, content (the project-wide settings), retry }
  *   <game folder>/…/<name>.<kind>.json   one project resource each (prefab,
- *                             material, behavior, …; resource-files.ts)
+ *                             material, behavior, …, environment preset;
+ *                             resource-files.ts)
+ *   <game folder>/…/<file>.tlasset       each asset's sidecar, holding its record
  *   scenes/<sceneId>.json   { storageVersion: 4, type: "scene", projectId,
  *                             scene (schemaVersion 4), retry }
  *   .thirdlight/journal.json   only while a multi-file transaction is in flight
@@ -72,7 +74,7 @@ import { pointerSegment, type LoadDetail, type UnavailableReason } from './error
 import { writeAtomic, type WriteOps } from './write';
 import { layoutProjectJson } from './project-json';
 import { fileOfRecord, parseSidecar, PROJECT_OWN_ENTRIES, sidecarBytes, sidecarOf, sidecarPath, type RecordLike } from './asset-files';
-import { gamePathOf, gameRel, isResourcePath, SIDECAR_SUFFIX, parseResourceFile, RESOURCE_KINDS, RESOURCE_LISTS, resourceFileBytes, scanResourceFiles, defaultResourcePath } from './resource-files';
+import { ENV_PRESETS, gamePathOf, gameRel, isResourcePath, SIDECAR_SUFFIX, parseResourceFile, recordsOfKind, RESOURCE_KINDS, RESOURCE_LISTS, resourceFileBytes, scanResourceFiles, defaultResourcePath } from './resource-files';
 
 export const CONTENT_REL = 'content.json';
 export const MANIFEST_REL_V4 = 'project.json';
@@ -135,7 +137,19 @@ export function projectWidePart(content: ContentCatalogV4): Record<string, unkno
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(content)) {
     if (RESOURCE_LISTS.has(key)) continue;
-    out[key] = key === 'assets' ? storedAssets(content.assets) : value;
+    out[key] = key === 'assets' ? storedAssets(content.assets) : key === 'environment' ? environmentPart(content.environment) : value;
+  }
+  return out;
+}
+
+/** The environment as `content.json` keeps it: each preset is its own file, the list keeps their order (their ids). */
+const environmentCache = new WeakMap<object, unknown>();
+function environmentPart(env: ContentCatalogV4['environment']): unknown {
+  if (env === undefined || env.presets === undefined) return env;
+  let out = environmentCache.get(env);
+  if (out === undefined) {
+    out = { ...env, presets: env.presets.map((p) => p.presetId) };
+    environmentCache.set(env, out);
   }
   return out;
 }
@@ -202,11 +216,11 @@ export function resourceFilesOf(content: ContentCatalogV4, paths: ResourcePaths,
   }
   const out = new Map<string, Map<string, string>>();
   for (const k of RESOURCE_KINDS) {
-    const list = (content as unknown as Record<string, unknown>)[k.list];
+    const list = recordsOfKind(content, k);
     const byId = new Map<string, string>();
     out.set(k.list, byId);
-    if (!Array.isArray(list)) continue;
-    for (const record of list as Record<string, unknown>[]) {
+    if (list === undefined) continue;
+    for (const record of list) {
       const id = String(record[k.idKey]);
       const path = paths.get(k.list)?.get(id) ?? defaultResourcePath(k, id);
       byId.set(id, path);
@@ -546,9 +560,27 @@ function joinResourceFiles(
     lists.set(r.kind.list, list);
   }
   for (const k of RESOURCE_KINDS) {
+    if (k.list === ENV_PRESETS) continue;
     const list = lists.get(k.list);
     if (list !== undefined) doc[k.list] = list.sort((a, b) => (String(a[k.idKey]) < String(b[k.idKey]) ? -1 : 1));
     else if (k.list === 'prefabs' || k.list === 'behaviors') doc[k.list] = [];
+  }
+  // The environment presets, in the order content.json keeps (a preset file it does not list comes last, by id).
+  const presets = lists.get(ENV_PRESETS) ?? [];
+  const env = doc['environment'];
+  const order = typeof env === 'object' && env !== null && Array.isArray((env as { presets?: unknown }).presets) ? ((env as { presets: unknown[] }).presets) : [];
+  if (order.some((x) => typeof x !== 'string')) return bad(`/${CONTENT_REL}/content/environment/presets`, `${CONTENT_REL} holds the environment presets: in this layout each is its own file (content.json lists their ids)`);
+  if (presets.length > 0 || order.length > 0) {
+    const byId = new Map(presets.map((p) => [String(p['presetId']), p]));
+    const listed: Record<string, unknown>[] = [];
+    for (const id of order as string[]) {
+      const p = byId.get(id);
+      if (p === undefined) return bad(`/${CONTENT_REL}/content/environment/presets`, `${CONTENT_REL} lists the environment preset "${id}", but no .envpreset.json file holds it`);
+      listed.push(p);
+      byId.delete(id);
+    }
+    const rest = [...byId.values()].sort((a, b) => (String(a['presetId']) < String(b['presetId']) ? -1 : 1));
+    doc['environment'] = { ...(typeof env === 'object' && env !== null ? (env as Record<string, unknown>) : {}), presets: [...listed, ...rest] };
   }
   return { ok: true, content: doc };
 }

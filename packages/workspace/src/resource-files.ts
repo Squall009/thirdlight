@@ -3,8 +3,9 @@
  *
  * Each prefab, material (and material instance), behavior, script library,
  * graph (material functions included), UI document and theme, dialogue,
- * timeline, effect and animator controller is its own file in the game
- * folder, in a folder of the user's choosing (`assets/<kind>/` by default):
+ * timeline, effect, animator controller and environment preset is its own
+ * file in the game folder, in a folder of the user's choosing
+ * (`assets/<kind>/` by default):
  *
  *   <folder>/<name>.<kind>.json   { "tlresource": 1, "kind", "id", "data": <the record> }
  *
@@ -42,6 +43,16 @@ export interface ResourceKind {
 
 const kind = (k: string, list: string, idKey: string, folder: string): ResourceKind => ({ kind: k, list, idKey, folder: `${DEFAULT_ASSET_FOLDER}/${folder}` });
 
+/** The one resource list that is not a key of the content block: the environment's presets. */
+export const ENV_PRESETS = 'environment.presets';
+
+/** A kind's records in a content block (none: absent). */
+export function recordsOfKind(content: unknown, k: ResourceKind): readonly Record<string, unknown>[] | undefined {
+  const c = content as Record<string, unknown>;
+  const list = k.list === ENV_PRESETS ? (c['environment'] as { presets?: unknown } | undefined)?.presets : c[k.list];
+  return Array.isArray(list) ? (list as Record<string, unknown>[]) : undefined;
+}
+
 /** Every kind of resource stored one file each, in the content block's key order. */
 export const RESOURCE_KINDS: readonly ResourceKind[] = [
   kind('prefab', 'prefabs', 'prefabId', 'prefabs'),
@@ -55,6 +66,8 @@ export const RESOURCE_KINDS: readonly ResourceKind[] = [
   kind('uitheme', 'uiThemes', 'uiThemeId', 'ui'),
   kind('dialogue', 'dialogues', 'dialogueId', 'dialogue'),
   kind('timeline', 'timelines', 'timelineId', 'timelines'),
+  // The presets are a list inside the environment, in the author's order: content.json keeps that order (their ids).
+  kind('envpreset', ENV_PRESETS, 'presetId', 'environment'),
 ];
 
 const BY_KIND = new Map(RESOURCE_KINDS.map((k) => [k.kind, k]));

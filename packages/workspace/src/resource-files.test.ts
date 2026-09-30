@@ -1,5 +1,6 @@
 /**
- * Project resources as files and the asset records in their sidecars, through
+ * Project resources as files (environment presets too, their order kept in
+ * content.json) and the asset records in their sidecars, through
  * the real service and filesystem: a command writes only the files of the
  * records it changed (and content.json, which carries the revision and the
  * retry record); a resource file moved outside the editor is the same
@@ -143,6 +144,31 @@ describe('project resources as files', () => {
         const inProject = written.map((p) => p.slice(dir.length + 1)).filter((p) => !p.startsWith('.thirdlight/'));
         expect(inProject.sort(), op).toEqual([file, 'content.json']);
       }
+    } finally {
+      s.close();
+    }
+  });
+
+  it('keeps each environment preset in its own file and their order in content.json', () => {
+    const written: string[] = [];
+    const { dir, open } = project('presets', written);
+    let s = open();
+    const env = (dusk: string): Record<string, unknown> => ({ wind: { direction: [1, 0], strength: 1, gust: 0.5, gustFrequency: 0.3, turbulence: 0.2 }, presets: [{ presetId: 'night', name: 'Night', lightmap: { intensity: 0.2 } }, { presetId: 'dusk', name: dusk, lightmap: { intensity: 0.6 } }] });
+    try {
+      ok(s, 'setEnvironment', { environment: env('Dusk') });
+      expect(json(join(dir, 'assets', 'environment', 'dusk.envpreset.json'))).toMatchObject({ kind: 'envpreset', id: 'dusk', data: { presetId: 'dusk', name: 'Dusk' } });
+      expect((json(join(dir, 'content.json')) as { content: { environment: { presets: unknown } } }).content.environment.presets).toEqual(['night', 'dusk']);
+      written.length = 0;
+      ok(s, 'setEnvironment', { environment: env('Late dusk') });
+      const inProject = written.map((p) => p.slice(dir.length + 1)).filter((p) => !p.startsWith('.thirdlight/'));
+      expect(inProject.sort()).toEqual(['assets/environment/dusk.envpreset.json', 'content.json']);
+    } finally {
+      s.close();
+    }
+    s = open();
+    try {
+      const cfg = s.query({ op: 'queryGameConfig', projectId: PID }) as unknown as { environment: { presets: { presetId: string; name: string }[] } };
+      expect(cfg.environment.presets.map((p) => [p.presetId, p.name])).toEqual([['night', 'Night'], ['dusk', 'Late dusk']]);
     } finally {
       s.close();
     }
