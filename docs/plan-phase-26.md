@@ -719,10 +719,12 @@ files,open,commands,editor,play,walk,handles,dialogue,stream,export --gpu
 then per renderer ×0.01 and ×0.1 (`files,open,commands,play`) and a clean
 full Play and export (`files,open,play,export`, `fullplay-*.json`); a full
 run of 60 command round trips (`cmd-full.json`) and a full export straight
-after the open (`export-full.json`). The renderer that drew is read off the
-Play canvas (`data-tl-renderer`, a bench addition): "WebGPU on intel
-gen-12lp" and "WebGPURenderer on its WebGL 2 backend". Nothing broke on
-either renderer. Times in ms (p50 / p95), memory in MiB; two numbers in a
+after the open (`export-full.json`). The renderer that drew was read off
+the Play canvas (`data-tl-renderer`, a bench addition) only in the short
+runs added for it (`2614/r-{webgl2,webgpu}.json`): "WebGPU on intel
+gen-12lp" and "WebGPURenderer on its WebGL 2 backend"; the whole-bench
+runs above asked for a renderer but do not record which one drew. Nothing
+broke on either renderer. Times in ms (p50 / p95), memory in MiB; two numbers in a
 cell are WebGL 2 / WebGPU.
 
 | | target (fixed from 26.2's before) | ×0.01 | ×0.1 | full | before (26.2 full, caps lifted) | result |
@@ -834,7 +836,7 @@ the runs.
 | Play right after 60 + 60 edits with no pause (the build ahead waits for a pause) | – | 452 / 540 | 506 / 526 | 1,017 / 1,019 | 1,717 / 1,819 (whole-bench run) | fails 1.5× (1.9–2.25×) |
 | command: scene edit, 60 round trips p50 / p95 | p95 ≤ 100, within 2× of ×0.01 | 5.1–5.6 / 7.3–9.1 | 5.1–5.8 / 7.0–23.8 | 7.4–8.0 / 24.0–28.6 | 8.6 / 23.8 | p50 **pass** (1.4×); p95 **fails** 2× (2.6–3.9×) |
 | command: content edit, 60 round trips p50 / p95 | same | 6.3–7.6 / 9.1–10.2 | 6.4–7.2 / 9.2–10.4 (one run 27 / 58) | 9.4–10.7 / 15.8–25.0 | 21.4 / 37.4 | p50 **pass** (1.2–1.7×); p95 1.6–2.7× (fails 2× in some runs) |
-| command in the backend, in-process (200 trips, p50 / p95): scene / content | – | 3.5–4.0 / 4.3–5.7 — 3.8–3.9 / 4.6–5.2 | – | 5.1–6.2 / 6.0–8.2 — 6.9–7.4 / 8.7–10.1 | – / 13.3 (content p50) | – |
+| command in the backend, in-process (200 trips, p50 / p95): scene / content; re-run after the review fixes, reports `~/.cache/thirdlight-phase26/review/inproc-*-settled*.json` | – | 3.9–4.7 / 4.8–6.6 — 4.7–5.6 / 5.7–7.4 | – | 4.4–5.2 / 5.4–6.7 — 6.6–7.5 / 7.7–11.4 (one run in four: content 21.3 / 57.8, the disk still writing back) | – / 13.3 (content p50) | – |
 | backend resident after open | ≤ 400 (revised) | 150–158 | 184–188 | 348–356 | 352–357 | pass |
 
 What still grows, and why:
@@ -2303,3 +2305,62 @@ What still grows, and why:
   every open); a partial resource-file check from the watch (the resource
   part of a check still reads its folders, ~95 ms at full); isolating the
   20–30 ms round trips behind a command's p95 at ×0.1 and full.
+- 2026-09-30: independent post-phase review (read-only reviewers, not the
+  builders; `811c14c5..958aa202`), and the full gate
+  (`--both-renderers`, RED: 3 of 393). What was fixed after it, what stays.
+  - Gate: `font-asset` expected a font tile not to be draggable; the
+    project window makes every tile draggable (moves into folders). The
+    product was right (a font drag carries no scene payload, the Scene view
+    refuses it); the test now drops a font on the Scene view (no entity, no
+    command) and drags it into a folder (file and sidecar move).
+    `texture-streaming` once kept level 1 far away under load: fixed, D89.
+    `start.e2e` once exited 1 on stop under load: watch, D90.
+  - Security (none high): **fixed** S1 `renameFolder`/`moveResources`
+    vet the source folder like a destination (no hidden folder, `.git/` or
+    the project's own files moved or emptied); S2 a transaction's
+    game-folder writes refuse a link leading out of the game folder (or
+    into a folder project's own folder), checked before the journal and on
+    replay; S3 the project's-own checks fold case (a case-insensitive disk
+    reads `Sources/` as `sources/`; tested on Linux by the same names in
+    other cases); S5 `recordCachePath` takes ids only. **Open** S4 (upload
+    file names; owner decision, D83).
+  - Correctness: **fixed** C1 a new dialogue's id is looked up by id in the
+    index (a failed read refuses, never a free guess); C2 the Animator reads
+    every model that names one (all pages); C3 the pack form offers every
+    texture when they fit one picker list, else only picked ones (no silent
+    first page); C4 a failed page of scripts is reported, never a partial
+    list, page size from the limit; C5 the editor session's 65,536-entity
+    bound is gone (the full state pages every entity). **Open** C6 (per
+    model 64 images / animations; owner decision, D84).
+  - Guards: `count-caps.test.ts` now reads typed `*_LIMITS: T =` and
+    `*_CAPS` objects and project-wide entity names (it flags the old
+    session bound); the two per-model-file objects are named as such.
+    History check: bare item ids in prose ("pre-22.1", "26.3's", "the 23.0
+    port", "(15.2 draws …)") are refused; 13 such hits and "decision 0004" in
+    a shipped message reworded; the boundary message points at the roadmap.
+    A general bare `2x.y` pattern had too many false positives (gravity
+    −19.62, Safari 18.4, SVG paths) and was not taken.
+  - Copies: **fixed** K2 one index page size (`INDEX_PAGE_MAX`,
+    `INDEX_PAGE_DEFAULT` in project-model limits); K3 one folder depth
+    (`MAX_FOLDER_DEPTH`) and one skip rule (`isSkippedFolderName`: hidden
+    folders and `node_modules`) for the four game-folder walks. **Open** K1
+    (D85), K4 (the resource part of a file check is not watch-driven; the
+    claim of `14254a6c` was overstated, D86), K5 (D87).
+  - Evidence: E1 the in-process row of §6 re-run at HEAD with saved reports;
+    E2 the renderer-read wording corrected. E3: Play clicked as the editor
+    connects (3.5×) and command p95 (2.6–3.9×) still miss "Done when"; the
+    revised targets wait for the owner.
+  - Owner decisions: R2 the boundary allowlist grew (the project-model
+    `limits` subpath edges and the game-page row; the vocabulary allowlist
+    did not); S4, C6; the revised targets (Play ≤ 2 s, backend ≤ 400 MiB);
+    the kept limits (16,384 entities per scene, 1,024 dialogue nodes, 16
+    local lights, 4,096 lightmap entries, 64 timers per instance); prefabs
+    read whole at open. R4 (tests that read the manager's own counters) is
+    D88. R3, R5: nothing to do.
+  - Owner look and listen: all audio (kinds, load types, streaming, late and
+    dropped lines, a 500-line dialogue); Safari Ogg and streaming on a Mac;
+    texture streaming on screen; the project window (folders, drag, search,
+    thumbnails, double-click, bulk labels); the inspector's load type,
+    preload and streaming fields; the format upgrade of Sprout and
+    Skyforge on their next open (commit or back up those repos first); D64;
+    the file watch relies on the host's inotify limits.
