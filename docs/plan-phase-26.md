@@ -2206,9 +2206,12 @@ Owner listen and look pending.
   (1 s: a stage of the build holds the event loop up to ~250 ms at full
   size, which a command right after the editor connected would wait for),
   the backend builds the next Play in the background (its stages give the
-  event loop back), unless a Play is starting or running, the project was
-  edited meanwhile or that revision was built already; a Play asked for
-  while it builds waits for it and then only re-stamps. Unity keeps imports and compiled scripts ready before
+  event loop back), unless a Play is starting or running or that revision
+  was built already; while edits keep coming it waits again. A Play asked
+  for while it builds waits for it and then only re-stamps; one asked for
+  while it waits cancels it (and builds cold at full size, ~0.45 s, if
+  nothing was built in this process yet: the bench's Play straight after
+  its commands). Unity keeps imports and compiled scripts ready before
   Play mode the same way. Not done: a build ahead after every command (a
   second ~100 ms of work per edit at full size, for Plays that may not
   come).

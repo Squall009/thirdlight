@@ -85,11 +85,12 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
    * file check has looked at every file (the editor asks for one when it
    * opens a project and when its window gets focus back). What the build
    * derives is remembered per capture, so the Play that follows derives
-   * nothing again for unchanged content; the build gives the event loop back
-   * between its stages. It starts once the project has been left alone for
+   * nothing again for unchanged content (and one after later edits only
+   * what they touched); the build gives the event loop back between its
+   * stages. It starts once the project has been left alone for
    * `PLAY_BUILD_AHEAD_IDLE_MS` (not while someone is editing: a stage can
-   * hold a command for a few hundred ms at full size). A Play asked for
-   * meanwhile waits for it.
+   * hold a command for a few hundred ms at full size), waiting again for as
+   * long as edits keep coming. A Play asked for meanwhile waits for it.
    */
   const warming = new Map<string, Promise<void>>();
   /** The revision each content object was last built ahead at (a project opened again has new ones). */
@@ -103,12 +104,25 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
     const before = service.readCapturedV3(projectId);
     if (!before.ok) return;
     waitingToWarm.add(projectId);
-    setTimeout(() => {
-      waitingToWarm.delete(projectId);
-      if (warming.has(projectId) || starting.has(projectId) || plays.activeFor(projectId) !== undefined) return;
+    let revision = before.read.revision;
+    const later = (): void => void setTimeout(idle, PLAY_BUILD_AHEAD_IDLE_MS).unref();
+    const idle = (): void => {
+      if (warming.has(projectId) || starting.has(projectId) || plays.activeFor(projectId) !== undefined) {
+        waitingToWarm.delete(projectId);
+        return;
+      }
       const captured = service.readCapturedV3(projectId);
-      // Edited meanwhile: the Play (or the next check) builds what it needs.
-      if (!captured.ok || captured.read.revision !== before.read.revision || captured.read.scenes === undefined) return;
+      if (!captured.ok || captured.read.scenes === undefined) {
+        waitingToWarm.delete(projectId);
+        return;
+      }
+      // Edited meanwhile: wait until the edits stop.
+      if (captured.read.revision !== revision) {
+        revision = captured.read.revision;
+        later();
+        return;
+      }
+      waitingToWarm.delete(projectId);
       if (warmed.get(captured.read.content as object) === captured.read.revision) return;
       const bundle = readGameBundle();
       if (bundle === null) return;
@@ -132,7 +146,8 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
         .catch(() => undefined)
         .finally(() => warming.delete(projectId));
       warming.set(projectId, run);
-    }, PLAY_BUILD_AHEAD_IDLE_MS).unref();
+    };
+    later();
   };
 
   /** Each play's snapshot as JSON bytes, serialized once (the snapshot is frozen with the play; released when it ends). */
