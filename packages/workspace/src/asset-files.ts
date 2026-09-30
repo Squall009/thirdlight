@@ -3,9 +3,12 @@
  *
  * Every imported file is kept in the game folder (a project in the data root
  * uses its own folder the same way), and next to it `<file>.tlasset` holds
- * the asset's stable id, kind, import settings, labels and address. The file
- * is the truth: references use the id, so a file moved together with its
- * sidecar is the same asset, and a file whose bytes change is imported again.
+ * the asset's stable id, kind, import settings, labels and address, and its
+ * catalog record: the project reads its assets from the sidecars, and a
+ * command writes the sidecars it changes with the project files (one
+ * transaction). The file is the truth: references use the id, so a file moved
+ * together with its sidecar is the same asset, and a file whose bytes change
+ * is imported again.
  *
  * Besides the game folder this module owns two stores, neither authoritative:
  *
@@ -30,13 +33,20 @@ import { contentPublishFailed, contentQuotaExceeded, pathRejected } from './erro
 import { writeAtomic, type WriteOps } from './write';
 import type { ContentConfig, ContentContext } from './content-store';
 import { readBlobBytes, resolveProjectFile } from './content-store';
+import { layoutProjectJson } from './project-json';
+import { SIDECAR_SUFFIX } from './resource-files';
 
 // ---- layout --------------------------------------------------------------
 
-/** The sidecar next to every asset file. */
-export const SIDECAR_SUFFIX = '.tlasset';
-/** The sidecar format this build writes. */
-export const SIDECAR_FORMAT = 1;
+/** The sidecar next to every asset file (resource-files.ts owns the name: sidecars are project files). */
+export { SIDECAR_SUFFIX };
+/**
+ * The sidecar format this build writes. A 2 carries the asset's catalog
+ * record (`record`): the sidecar is the truth, and the project reads its
+ * assets from the sidecars. A 1 (id, kind, settings, labels, address only)
+ * is still read where a sidecar names an asset.
+ */
+export const SIDECAR_FORMAT = 2;
 /** Where an upload lands when nothing names a folder (the model's constant, shared with the editor). */
 export { DEFAULT_ASSET_FOLDER };
 /** The import cache under the project folder (git-ignored). */
@@ -127,7 +137,7 @@ export function fileOfRecord(record: RecordLike): string | null {
 
 /** One `.tlasset` sidecar. */
 export interface SidecarDoc {
-  tlasset: typeof SIDECAR_FORMAT;
+  tlasset: 1 | typeof SIDECAR_FORMAT;
   id: string;
   kind: string;
   /** How the file is imported (the settings digest of the import cache is taken over these). */
@@ -136,6 +146,8 @@ export interface SidecarDoc {
   labels: string[];
   /** The name scripts may load the asset by; null: none. */
   address: string | null;
+  /** The asset's catalog record (format 2): what the project holds of it. */
+  record?: Record<string, unknown>;
 }
 
 export function sidecarPath(file: string): string {
@@ -152,7 +164,7 @@ export function fileOfSidecar(path: string): string | null {
  * them: a conversion (FBX to GLB, PNG/JPEG to KTX2 with its encoding), a
  * packed texture's sources (by id and file), and the model options.
  */
-export function importSettingsOf(record: RecordLike, fileOfAsset: (assetId: string) => string | null): Record<string, unknown> {
+export function importSettingsOf(record: RecordLike): Record<string, unknown> {
   const v = currentVersionOf(record);
   const out: Record<string, unknown> = {};
   if (v?.convertedFrom !== undefined) {
@@ -167,7 +179,7 @@ export function importSettingsOf(record: RecordLike, fileOfAsset: (assetId: stri
       encoding: p.encoding,
       converter: `${p.converter.name}@${p.converter.version}`,
       layers: p.layers.map((layer) =>
-        layer.map((c) => ('value' in c ? { value: c.value } : { id: c.assetId, file: fileOfAsset(c.assetId), channel: c.channel })),
+        layer.map((c) => ('value' in c ? { value: c.value } : { id: c.assetId, channel: c.channel })),
       ),
     };
   }
@@ -177,20 +189,22 @@ export function importSettingsOf(record: RecordLike, fileOfAsset: (assetId: stri
   return out;
 }
 
-export function sidecarOf(record: RecordLike, fileOfAsset: (assetId: string) => string | null, keep?: SidecarDoc | null): SidecarDoc {
+/** A record's sidecar (the address, not in the catalog yet, is kept from the sidecar before it). */
+export function sidecarOf(record: RecordLike, keep?: SidecarDoc | null): SidecarDoc {
   return {
     tlasset: SIDECAR_FORMAT,
     id: record.assetId,
     kind: record.kind ?? 'model',
-    importSettings: importSettingsOf(record, fileOfAsset),
-    // The record's labels when it has any; else a sidecar's own are kept (the address is not in the catalog yet).
-    labels: (record as { labels?: string[] }).labels ?? keep?.labels ?? [],
+    importSettings: importSettingsOf(record),
+    labels: [...((record as { labels?: string[] }).labels ?? [])],
     address: keep?.address ?? null,
+    record: record as unknown as Record<string, unknown>,
   };
 }
 
+/** A sidecar's bytes (the project-file layout: a diff shows one line per changed item). */
 export function sidecarBytes(doc: SidecarDoc): Uint8Array {
-  return new TextEncoder().encode(`${JSON.stringify(doc, null, 2)}\n`);
+  return new TextEncoder().encode(`${layoutProjectJson(doc)}\n`);
 }
 
 /** Parse a sidecar; null when it is not one this build reads. */
@@ -203,10 +217,11 @@ export function parseSidecar(bytes: Uint8Array): SidecarDoc | null {
   }
   if (typeof v !== 'object' || v === null || Array.isArray(v)) return null;
   const d = v as Record<string, unknown>;
-  if (d['tlasset'] !== SIDECAR_FORMAT || typeof d['id'] !== 'string' || typeof d['kind'] !== 'string') return null;
+  if ((d['tlasset'] !== 1 && d['tlasset'] !== SIDECAR_FORMAT) || typeof d['id'] !== 'string' || typeof d['kind'] !== 'string') return null;
   const labels = Array.isArray(d['labels']) ? d['labels'].filter((x): x is string => typeof x === 'string') : [];
   const settings = typeof d['importSettings'] === 'object' && d['importSettings'] !== null && !Array.isArray(d['importSettings']) ? (d['importSettings'] as Record<string, unknown>) : {};
-  return { tlasset: SIDECAR_FORMAT, id: d['id'], kind: d['kind'], importSettings: settings, labels, address: typeof d['address'] === 'string' ? d['address'] : null };
+  const record = d['tlasset'] === SIDECAR_FORMAT && typeof d['record'] === 'object' && d['record'] !== null && !Array.isArray(d['record']) ? (d['record'] as Record<string, unknown>) : undefined;
+  return { tlasset: d['tlasset'], id: d['id'], kind: d['kind'], importSettings: settings, labels, address: typeof d['address'] === 'string' ? d['address'] : null, ...(record !== undefined ? { record } : {}) };
 }
 
 // ---- game-folder files ---------------------------------------------------
@@ -214,11 +229,10 @@ export function parseSidecar(bytes: Uint8Array): SidecarDoc | null {
 type Core = { ops: WriteOps; content: ContentConfig };
 
 /**
- * Writes of data made again when missing or stale (sidecars, which the file
- * check rewrites from the catalog; the import cache): still write-then-rename,
- * but not flushed to disk one by one, so importing a thousand files does not
- * wait on two thousand flushes. A crash can lose such a write, never tear the
- * project's own files.
+ * Writes of data made again when missing or stale (the import cache's
+ * headers): still write-then-rename, but not flushed to disk one by one, so
+ * importing a thousand files does not wait on a thousand flushes. A crash can
+ * lose such a write, never tear the project's own files.
  */
 function rebuildable(core: Core): Core {
   return { ...core, ops: { ...core.ops, fsyncFile: () => undefined, fsyncDir: () => undefined } };
@@ -642,49 +656,20 @@ function sidecarAt(ctx: ContentContext, file: string): SidecarDoc | null {
   return b === null ? null : parseSidecar(b);
 }
 
-/** Write the sidecar of a record next to its file (only when it differs); returns an error text or null. */
-export function writeSidecar(core: Core, ctx: ContentContext, record: RecordLike, content: ContentCatalogV4 | null, fileOfAsset: (assetId: string) => string | null = fileLookup(content)): string | null {
-  const file = fileOfRecord(record);
-  if (file === null) return null;
-  const existingBytes = readGameFile(ctx, sidecarPath(file));
-  const existing = existingBytes === null ? null : parseSidecar(existingBytes);
-  const doc = sidecarOf(record, fileOfAsset, existing !== null && existing.id === record.assetId ? existing : null);
-  const bytes = sidecarBytes(doc);
-  if (existingBytes !== null && sha256Hex(existingBytes) === sha256Hex(bytes)) return null;
-  const w = writeGameFile(rebuildable(core), ctx, sidecarPath(file), bytes);
-  return w.ok ? null : w.error.message;
-}
-
-/** Each asset's current file by id (built once for many sidecars). */
-export function fileLookup(content: ContentCatalogV4 | null): (assetId: string) => string | null {
-  const byId = new Map(((content?.assets ?? []) as unknown as RecordLike[]).map((a) => [a.assetId, a]));
-  return (id) => {
-    const r = byId.get(id);
-    return r === undefined ? null : fileOfRecord(r);
-  };
-}
-
-/** Remove a sidecar when it is this asset's. */
-function removeSidecar(ctx: ContentContext, file: string, assetId: string): void {
-  const doc = sidecarAt(ctx, file);
-  if (doc !== null && doc.id !== assetId) return;
-  removeGameFile(ctx, sidecarPath(file));
-}
-
 /**
  * After a committed command: bring the game folder in step with what the
  * change did to an asset record.
  *
  * - a delete (`removeAsset`, also its redo) takes the file out (its bytes are
- *   held, so an undo puts it back) unless another asset still names it, and
- *   removes the sidecar;
- * - an undone import only forgets the asset: its sidecar goes, the file stays;
+ *   held, so an undo puts it back) unless another asset still names it;
+ * - an undone import only forgets the asset: the file stays;
  * - a record naming another path (a move, or a re-import from another file):
- *   a file still at the old path moves with its sidecar; a stale sidecar at
- *   the old path goes;
+ *   a file still at the old path moves;
  * - the file must have the recorded bytes: if it does not and the held bytes
- *   do (an undone replace or delete), they are written back;
- * - the sidecar is rewritten when the record's settings changed.
+ *   do (an undone replace or delete), they are written back.
+ *
+ * The sidecars are not written here: they hold the records, and the
+ * command's own transaction writes and removes them with the project files.
  *
  * Returns the problems found (never fatal: the command is committed; the
  * next file check repairs sidecars).
@@ -694,12 +679,11 @@ export function syncAssetFiles(core: Core, ctx: ContentContext, change: ChangeDa
   if (changes.length === 0) return [];
   const problems: string[] = [];
   const named = takenPaths(contentAfter);
-  const lookup = fileLookup(contentAfter);
-  for (const c of changes) syncOne(core, ctx, c, contentAfter, named, lookup, problems);
+  for (const c of changes) syncOne(core, ctx, c, named, problems);
   return problems;
 }
 
-function syncOne(core: Core, ctx: ContentContext, c: AssetRecordChange, contentAfter: ContentCatalogV4 | null, named: ReadonlySet<string>, lookup: (assetId: string) => string | null, problems: string[]): string[] {
+function syncOne(core: Core, ctx: ContentContext, c: AssetRecordChange, named: ReadonlySet<string>, problems: string[]): string[] {
   const prevFile = c.previous === null ? null : fileOfRecord(c.previous);
   const nextFile = c.next === null ? null : fileOfRecord(c.next);
   const stillNamed = (file: string): boolean => named.has(file.toLowerCase());
@@ -713,7 +697,6 @@ function syncOne(core: Core, ctx: ContentContext, c: AssetRecordChange, contentA
         else problems.push(`${prevFile} was kept: its bytes could not be held for undo (${held.error.message})`);
       }
     }
-    removeSidecar(ctx, prevFile, c.previous.assetId);
     return problems;
   }
   if (nextFile === null) return problems;
@@ -721,7 +704,6 @@ function syncOne(core: Core, ctx: ContentContext, c: AssetRecordChange, contentA
     if (gameFileExists(ctx, prevFile) && !gameFileExists(ctx, nextFile) && !stillNamed(prevFile)) {
       if (!moveGameFile(ctx, prevFile, nextFile)) problems.push(`${prevFile} could not be moved to ${nextFile}`);
     }
-    removeSidecar(ctx, prevFile, c.previous.assetId);
   }
   const v = currentVersionOf(c.next);
   if (v !== undefined) {
@@ -736,8 +718,6 @@ function syncOne(core: Core, ctx: ContentContext, c: AssetRecordChange, contentA
       }
     }
   }
-  const s = writeSidecar(core, ctx, c.next, contentAfter, lookup);
-  if (s !== null) problems.push(`the sidecar of ${nextFile} could not be written: ${s}`);
   return problems;
 }
 

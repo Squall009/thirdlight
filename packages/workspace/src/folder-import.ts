@@ -18,7 +18,7 @@
  * - a file the catalog already imports is skipped (its sidecar names an asset
  *   that is here, or a record names its path): importing a folder again brings
  *   only its new files;
- * - hidden files and folders, sidecars and symlinks are not imported; a file
+ * - hidden files and folders, sidecars, resource files and symlinks are not imported; a file
  *   of a type no importer takes is reported, never fatal.
  */
 import { lstatSync, readdirSync } from 'node:fs';
@@ -30,6 +30,7 @@ import type { CommandError, PreparedAssetImportItem } from '@thirdlight/commands
 import { PROJECT_OWN_ENTRIES, SIDECAR_SUFFIX, assetRoot, checkAssetFolder, fileOfRecord, gameFileExists, parseSidecar, readGameFile, sidecarPath, takenPaths, writeGameFile, type RecordLike } from './asset-files';
 import { IMPORTABLE, resolveProjectFile, type ContentConfig, type ContentContext } from './content-store';
 import { sha256Hex } from './digest';
+import { resourceKindOfName } from './resource-files';
 import { pathRejected } from './errors';
 import type { WriteOps } from './write';
 
@@ -107,7 +108,8 @@ export function scanAssetFolder(ctx: ContentContext, folder: string): { ok: true
         else subfolders.push(path);
         continue;
       }
-      if (!st.isFile() || name.endsWith(SIDECAR_SUFFIX)) continue;
+      // Sidecars and the project's resource files (prefabs, materials, …) are not assets.
+      if (!st.isFile() || name.endsWith(SIDECAR_SUFFIX) || resourceKindOfName(name) !== null) continue;
       if (!isValidSourcePath(path)) {
         scan.unsupported.push({ path, reason: 'the name cannot be an asset path' });
         continue;

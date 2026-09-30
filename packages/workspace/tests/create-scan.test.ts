@@ -84,7 +84,7 @@ describe('createProject (§8)', () => {
     expect(scene.scene.entities.map((e: { id: string }) => e.id)).toEqual(['cam-main', 'light-0001', 'light-0002']);
     expect(scene.retry).toEqual({ recordVersion: 2, retention: 128, records: [] });
     const content = JSON.parse(readFileSync(join(dir, 'content.json'), 'utf8'));
-    expect(content.storageVersion).toBe(4);
+    expect(content.storageVersion).toBe(5);
     expect(content.revision).toBe(0);
     expect('game' in content.content).toBe(false);
     expect(content.retry).toEqual({ recordVersion: 2, retention: 128, records: [] });

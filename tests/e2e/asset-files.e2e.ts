@@ -52,10 +52,12 @@ test('an imported file has a sidecar; renamed outside the editor with it, "check
   await expect(page.locator('.tl-assets__source')).toHaveText('file: assets/tiny-v1.glb');
   const file = join(be.projectDir, 'assets', 'tiny-v1.glb');
   expect(readFileSync(file)).toEqual(readFileSync(GLB));
-  const sidecar = JSON.parse(readFileSync(`${file}.tlasset`, 'utf8')) as { tlasset: number; id: string; kind: string };
-  expect(sidecar).toMatchObject({ tlasset: 1, kind: 'model' });
+  // The sidecar holds the asset's record: content.json keeps the project-wide settings only.
+  const sidecar = JSON.parse(readFileSync(`${file}.tlasset`, 'utf8')) as { tlasset: number; id: string; kind: string; record: { assetId: string } };
+  expect(sidecar).toMatchObject({ tlasset: 2, kind: 'model' });
+  expect(sidecar.record.assetId).toBe(sidecar.id);
   const content = JSON.parse(readFileSync(join(be.projectDir, 'content.json'), 'utf8')) as { content: { assets: { assetId: string }[] } };
-  expect(content.content.assets.map((a) => a.assetId)).toEqual([sidecar.id]);
+  expect(content.content.assets).toEqual([]);
 
   // Place it.
   await page.getByRole('button', { name: 'place' }).click();

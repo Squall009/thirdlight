@@ -188,7 +188,7 @@ describe('real SIGKILL at the content.json boundary of an upgraded v3 project', 
     const ex = await runChild('v3-env-after', root, 'tb-' + '2'.repeat(32));
     expect(ex.signal, ex.stdout).toBe('SIGKILL');
     const onDisk = contentFile(root);
-    expect(onDisk.storageVersion).toBe(4);
+    expect(onDisk.storageVersion).toBe(5);
     expect(onDisk.revision).toBe(4);
     expect(onDisk.retry.records.length).toBe(1);
     expect(onDisk.retry.records[0]!.requestId).toBe(REQUEST_ID);

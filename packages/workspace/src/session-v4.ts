@@ -51,15 +51,26 @@ import {
   sceneFileBytes,
   sceneChunkFiles,
   isChunkRel,
+  chunkRel,
+  projectWidePart,
+  resourceFilesOf,
+  sidecarWrite,
+  isSidecarRel,
+  withUntrackedSidecars,
+  absOf,
   sceneRel,
   snapshotForeignFile,
   writeTransaction,
   type FileWrite,
   type KnownFile,
+  type ResourcePaths,
   type V4State,
 } from './store-v4';
+import { defaultResourcePath, gamePathOf, gameRel, RESOURCE_KINDS, resourceFileBytes } from './resource-files';
+import { fileOfRecord, sidecarPath, type RecordLike } from './asset-files';
 import { EMPTY_BYTES } from './write';
 import { commandContentOf } from './content-shapes';
+import { buildIndex, updateIndex, type IndexEntry } from './project-index';
 import type { OwnershipRecord } from './ownership';
 import type { QueryResult } from './types';
 
@@ -80,11 +91,6 @@ export function legacyManifestOf(m: ProjectManifestV2, firstSceneId: string): Ma
   } as Manifest;
 }
 
-/** One digest over all the project's files (for the LKG hash field). */
-function combinedHash(files: ReadonlyMap<string, KnownFile>): string {
-  const lines = [...files.entries()].sort(([a], [b]) => (a < b ? -1 : 1)).map(([rel, f]) => `${rel}:${f.hash}`);
-  return sha256Hex(new TextEncoder().encode(lines.join('\n')));
-}
 
 /** The scene a v4 session exposes through the single-scene fields (the first start scene). */
 export function primaryScene(state: V4State): SceneV4 {
@@ -97,6 +103,9 @@ export function primaryScene(state: V4State): SceneV4 {
 /** Point the session's fields at a (new) v4 state. History is left alone. */
 export function publishV4(s: ProjectSession, state: V4State): void {
   const scene = primaryScene(state);
+  // The index follows: what the new state shares with the last one is not indexed again.
+  if (s.index !== undefined && s.v4 !== null && s.v4 !== undefined) updateIndex(s.index, s.v4, state);
+  else s.index = buildIndex(state);
   s.v4 = state;
   s.storageVersion = 4;
   s.scene = scene;
@@ -106,8 +115,25 @@ export function publishV4(s: ProjectSession, state: V4State): void {
   const records = mergedRecords(state);
   s.records = records;
   s.recordMap = new Map(records.map((r) => [r.requestId, r]));
-  s.lastWrittenHash = combinedHash(state.files);
   s.envelopeBytes = EMPTY_BYTES;
+}
+
+/** The revision `content.json` states (it may be below the project's, which is the highest file revision). */
+function contentRevisionOf(state: V4State): number {
+  const f = state.files.get(CONTENT_REL);
+  if (f === undefined) return state.revision;
+  const r = (JSON.parse(new TextDecoder().decode(f.bytes)) as { revision?: unknown }).revision;
+  return typeof r === 'number' ? r : state.revision;
+}
+
+/** The game folder a project's resource files are in (a data-root project is its own). */
+export function gameRootFor(core: Core, projectId: string, dir: string): string {
+  return core.registry.get(projectId)?.folder ?? dir;
+}
+
+/** The game folder of an open project. */
+export function gameRootOf(s: ProjectSession): string {
+  return s.gameFolder ?? s.dir;
 }
 
 /** A fresh history for a v4 state (a history boundary). */
@@ -139,7 +165,6 @@ function makeSessionV4(
     revision: state.revision,
     records: [] as RetryRecord[],
     recordMap: new Map<string, RetryRecord>(),
-    lastWrittenHash: '',
     envelopeBytes: EMPTY_BYTES,
     history: freshHistoryV4(state),
     ownership,
@@ -174,14 +199,15 @@ export function openV4(
   upgradeFrom?: { manifest: Manifest; scene: SceneV3; content: ContentCatalogV3; envelopeBytes: Uint8Array },
 ): OpenV4Outcome {
   let notes: string[] = [];
+  const gameRoot = gameRootFor(core, projectId, dir);
   if (upgradeFrom !== undefined) {
-    const m = migrateDirV3ToV4(core.ops, dir, thirdlightDir, projectId, upgradeFrom.manifest, upgradeFrom.scene, upgradeFrom.content, upgradeFrom.envelopeBytes);
+    const m = migrateDirV3ToV4(core.ops, dir, thirdlightDir, projectId, upgradeFrom.manifest, upgradeFrom.scene, upgradeFrom.content, upgradeFrom.envelopeBytes, gameRoot);
     if (!m.ok) return { kind: 'blocked', reason: 'envelope_invalid', errors: [m.error], count: 1 };
     notes = m.notes;
   }
-  const j = rollForwardJournal(core.ops, dir, thirdlightDir, projectId);
+  const j = rollForwardJournal(core.ops, dir, thirdlightDir, projectId, gameRoot);
   if (!j.ok) return { kind: 'blocked', reason: 'envelope_invalid', errors: [j.error], count: 1 };
-  const l = loadV4(core.ops, dir, projectId);
+  const l = loadV4(core.ops, dir, projectId, gameRoot);
   if (l.kind === 'blocked') return l;
   let loaded = l.state;
   let loadNotes = l.upgraded?.notes ?? [];
@@ -190,7 +216,9 @@ export function openV4(
     loaded = files.state;
     loadNotes = [...loadNotes, ...files.notes];
   }
-  const upgraded = l.upgraded !== undefined ? writeUpgradedProject(core, dir, thirdlightDir, projectId, loaded, loadNotes) : { state: loaded, notes: [] };
+  // A layout change alone (resources out of content.json) is no edit: the revision stays.
+  const bump = l.upgraded?.documents === true || l.upgraded?.assetFiles === true;
+  const upgraded = l.upgraded !== undefined ? writeUpgradedProject(core, dir, thirdlightDir, projectId, loaded, loadNotes, bump) : { state: loaded, notes: [] };
   const migrated = migrateModelAnimationsOnOpen(core, dir, thirdlightDir, projectId, upgraded.state);
   return { kind: 'open', session: makeSessionV4(core, dir, projectId, migrated.state, ownership, sceneDir, thirdlightDir, [...notes, ...upgraded.notes, ...migrated.notes]) };
 }
@@ -243,18 +271,21 @@ function ensureCacheIgnored(dir: string): void {
  * opens upgraded in memory (the next open upgrades it again) and the notes
  * say so.
  */
-function writeUpgradedProject(core: Core, dir: string, thirdlightDir: string, projectId: string, state: V4State, notes: string[]): { state: V4State; notes: string[] } {
-  const revision = state.revision + 1;
+function writeUpgradedProject(core: Core, dir: string, thirdlightDir: string, projectId: string, state: V4State, notes: string[], bump: boolean): { state: V4State; notes: string[] } {
+  const revision = bump ? state.revision + 1 : state.revision;
   const files = new Map(state.files);
   const writes: FileWrite[] = [];
-  const manifestBytes = manifestV2Bytes(state.manifest);
-  writes.push({ rel: MANIFEST_REL_V4, bytes: manifestBytes });
-  files.set(MANIFEST_REL_V4, { bytes: manifestBytes, hash: sha256Hex(manifestBytes) });
-  const contentBytes = contentFileBytes(projectId, revision, state.content, state.fileRecords.get(CONTENT_REL) ?? []);
+  const contentRevision = bump ? revision : contentRevisionOf(state);
+  const contentBytes = contentFileBytes(projectId, contentRevision, state.content, state.fileRecords.get(CONTENT_REL) ?? []);
   writes.push({ rel: CONTENT_REL, bytes: contentBytes });
   files.set(CONTENT_REL, { bytes: contentBytes, hash: sha256Hex(contentBytes) });
-  const scenes = new Map<string, SceneV4>();
-  for (const [id, scene] of state.scenes) {
+  const scenes = new Map<string, SceneV4>(state.scenes);
+  if (bump) {
+    const manifestBytes = manifestV2Bytes(state.manifest);
+    writes.push({ rel: MANIFEST_REL_V4, bytes: manifestBytes });
+    files.set(MANIFEST_REL_V4, { bytes: manifestBytes, hash: sha256Hex(manifestBytes) });
+  }
+  for (const [id, scene] of bump ? state.scenes : []) {
     const stamped: SceneV4 = { ...scene, revision };
     const rel = sceneRel(id);
     const bytes = sceneFileBytes(projectId, stamped, state.fileRecords.get(rel) ?? []);
@@ -262,9 +293,18 @@ function writeUpgradedProject(core: Core, dir: string, thirdlightDir: string, pr
     files.set(rel, { bytes, hash: sha256Hex(bytes) });
     scenes.set(id, stamped);
   }
-  const res = writeTransaction(core.ops, dir, thirdlightDir, projectId, state.files, writes);
+  // Every resource its own file, every asset's record in its sidecar (an older content.json held them all).
+  const resources = resourceFilesOf(state.content, state.resourcePaths, state.files);
+  for (const w of resources.writes) {
+    const hash = sha256Hex(w.bytes as Uint8Array);
+    if (files.get(w.rel)?.hash === hash) continue;
+    writes.push(w);
+    files.set(w.rel, { bytes: w.bytes as Uint8Array, hash });
+  }
+  const gameRoot = gameRootFor(core, projectId, dir);
+  const res = writeTransaction(core.ops, dir, thirdlightDir, projectId, withUntrackedSidecars(core.ops, dir, gameRoot, state.files, writes), writes, gameRoot);
   if (!res.ok) return { state, notes: [...notes, 'the upgraded project could not be written; it is upgraded again at the next open'] };
-  return { state: { ...state, scenes, revision, files }, notes };
+  return { state: { ...state, scenes, revision, files, resourcePaths: resources.paths }, notes };
 }
 
 /**
@@ -320,10 +360,11 @@ function migrateModelAnimationsOnOpen(core: Core, dir: string, thirdlightDir: st
   composeV4([...nextScenes.values()], content.normalized, errors, revision);
   if (errors.length > 0) return kept(errors[0]!.message);
   const plan = changedFiles(projectId, state, { content: content.normalized, scenes: nextScenes, revision }, null);
-  const res = writeTransaction(core.ops, dir, thirdlightDir, projectId, state.files, plan.writes);
+  const gameRoot = gameRootFor(core, projectId, dir);
+  const res = writeTransaction(core.ops, dir, thirdlightDir, projectId, withUntrackedSidecars(core.ops, dir, gameRoot, state.files, plan.writes), plan.writes, gameRoot);
   if (!res.ok) return kept('the project files could not be written');
   return {
-    state: { manifest: state.manifest, content: content.normalized, scenes: nextScenes, revision, files: plan.files, fileRecords: plan.fileRecords },
+    state: { manifest: state.manifest, content: content.normalized, scenes: nextScenes, revision, files: plan.commitFiles(), fileRecords: plan.fileRecords, resourcePaths: plan.resourcePaths },
     notes: m.notes,
   };
 }
@@ -338,11 +379,13 @@ export function toOpenOutcome(o: OpenV4Outcome): OpenOutcome | null {
 /** The files a new v4 state needs written, compared with what is on record. */
 export function changedFiles(projectId: string, before: V4State, after: { content: V4State['content']; scenes: Map<string, SceneV4>; revision: number }, record: RetryRecord | null): {
   writes: FileWrite[];
-  files: Map<string, KnownFile>;
+  /** The known files after the transaction: call once it is written (it brings the known files up to date in place). */
+  commitFiles: () => Map<string, KnownFile>;
   fileRecords: Map<string, RetryRecord[]>;
+  resourcePaths: ResourcePaths;
 } {
   const writes: FileWrite[] = [];
-  const files = new Map(before.files);
+  const files = new FileDelta(before.files);
   const fileRecords = new Map(before.fileRecords);
   const appendTo = (rel: string): RetryRecord[] => {
     const list = [...(fileRecords.get(rel) ?? [])];
@@ -376,8 +419,8 @@ export function changedFiles(projectId: string, before: V4State, after: { conten
       writes.push({ rel: crel, bytes: f.bytes });
       files.set(crel, f);
     }
-    for (const crel of [...files.keys()]) {
-      if (!isChunkRel(crel, id) || chunks.has(crel)) continue;
+    for (const crel of chunkRelsOf(prev)) {
+      if (chunks.has(crel) || !files.has(crel)) continue;
       writes.push({ rel: crel, bytes: null });
       files.delete(crel);
     }
@@ -388,22 +431,172 @@ export function changedFiles(projectId: string, before: V4State, after: { conten
     writes.push({ rel, bytes: null });
     files.delete(rel);
     fileRecords.delete(rel);
-    for (const crel of [...files.keys()]) {
-      if (!isChunkRel(crel, id)) continue;
+    for (const crel of chunkRelsOf(before.scenes.get(id))) {
+      if (!files.has(crel)) continue;
       writes.push({ rel: crel, bytes: null });
       files.delete(crel);
     }
   }
-  // Content: written when it changed (or when no scene carries the record).
-  const contentChanged = before.content !== after.content && JSON.stringify(before.content) !== JSON.stringify(after.content);
-  if (contentChanged || writes.length === 0) {
+  const sceneWritten = writes.some((w) => w.bytes !== null && !isChunkRel(w.rel));
+  // Resources: each record the command added, changed or removed is one file.
+  const resourcePaths = resourceWrites(before, after.content, writes, files);
+  // Content: written when the project-wide settings changed, or when no scene file carries the record.
+  if (projectWideChanged(before.content, after.content) || !sceneWritten) {
     const recs = appendTo(CONTENT_REL);
     const bytes = contentFileBytes(projectId, after.revision, after.content, recs);
     writes.push({ rel: CONTENT_REL, bytes });
     files.set(CONTENT_REL, { bytes, hash: sha256Hex(bytes) });
     fileRecords.set(CONTENT_REL, recs);
   }
-  return { writes, files, fileRecords };
+  return { writes, commitFiles: () => files.commit(), fileRecords, resourcePaths };
+}
+
+/**
+ * The known files as a transaction changes them: the project's thousands of
+ * files are not copied per command. The changes apply to the known files
+ * once the transaction is written (the state they belong to is then gone).
+ */
+class FileDelta {
+  private readonly changes = new Map<string, KnownFile | null>();
+  constructor(private readonly base: Map<string, KnownFile>) {}
+  get(rel: string): KnownFile | undefined {
+    const c = this.changes.get(rel);
+    return c === undefined ? this.base.get(rel) : (c ?? undefined);
+  }
+  has(rel: string): boolean {
+    return this.get(rel) !== undefined;
+  }
+  set(rel: string, f: KnownFile): void {
+    this.changes.set(rel, f);
+  }
+  delete(rel: string): void {
+    this.changes.set(rel, null);
+  }
+  commit(): Map<string, KnownFile> {
+    for (const [rel, f] of this.changes) {
+      if (f === null) this.base.delete(rel);
+      else this.base.set(rel, f);
+    }
+    this.changes.clear();
+    return this.base;
+  }
+}
+
+/** The chunk files a scene (as last written) has. */
+function chunkRelsOf(scene: SceneV4 | undefined): string[] {
+  const out: string[] = [];
+  for (const b of scene?.blocks ?? []) for (const c of b.chunks ?? []) out.push(chunkRel(scene!.sceneId, b.entityId, c.cx, c.cz));
+  return out;
+}
+
+/**
+ * The resource files a new content block needs written or removed: in each
+ * list the command replaced, a record that is not the same object as before
+ * is written (at its file's path, or its kind's folder when new), and a
+ * record that is gone is removed. Lists the command left alone are not read.
+ */
+function resourceWrites(before: V4State, next: V4State['content'], writes: FileWrite[], files: FileDelta): ResourcePaths {
+  const out = new Map(before.resourcePaths);
+  // Assets: each record with a file is its sidecar (written where its file is; a moved file's old sidecar goes).
+  if (before.content.assets !== next.assets) {
+    const prev = new Map((before.content.assets as unknown as RecordLike[]).map((a) => [a.assetId, a]));
+    const kept = new Set<string>();
+    const removeAt = (file: string | null): void => {
+      if (file === null) return;
+      const rel = gameRel(sidecarPath(file));
+      if (!files.has(rel) || writes.some((w) => w.rel === rel)) return;
+      writes.push({ rel, bytes: null });
+      files.delete(rel);
+    };
+    for (const a of next.assets as unknown as RecordLike[]) {
+      kept.add(a.assetId);
+      const p = prev.get(a.assetId);
+      if (p === a) continue;
+      const oldFile = p === undefined ? null : fileOfRecord(p);
+      const w = sidecarWrite(a, { get: (rel) => files.get(rel) });
+      if (oldFile !== null && oldFile !== fileOfRecord(a)) removeAt(oldFile);
+      if (w === null) continue;
+      const hash = sha256Hex(w.bytes as Uint8Array);
+      if (files.get(w.rel)?.hash === hash) continue;
+      const at = writes.findIndex((x) => x.rel === w.rel);
+      if (at >= 0) writes.splice(at, 1);
+      writes.push(w);
+      files.set(w.rel, { bytes: w.bytes as Uint8Array, hash });
+    }
+    for (const [id, a] of prev) if (!kept.has(id)) removeAt(fileOfRecord(a));
+  }
+  const prevContent = before.content as unknown as Record<string, unknown>;
+  const nextContent = next as unknown as Record<string, unknown>;
+  for (const k of RESOURCE_KINDS) {
+    const a = prevContent[k.list];
+    const b = nextContent[k.list];
+    if (a === b) continue;
+    const prev = new Map<string, unknown>();
+    if (Array.isArray(a)) for (const r of a as Record<string, unknown>[]) prev.set(String(r[k.idKey]), r);
+    const paths = new Map(before.resourcePaths.get(k.list) ?? []);
+    const kept = new Set<string>();
+    if (Array.isArray(b)) {
+      for (const r of b as Record<string, unknown>[]) {
+        const id = String(r[k.idKey]);
+        kept.add(id);
+        if (prev.get(id) === r) continue;
+        const path = paths.get(id) ?? defaultResourcePath(k, id);
+        paths.set(id, path);
+        const rel = gameRel(path);
+        const bytes = resourceFileBytes(k, id, r);
+        const hash = sha256Hex(bytes);
+        if (files.get(rel)?.hash === hash) continue;
+        writes.push({ rel, bytes });
+        files.set(rel, { bytes, hash });
+      }
+    }
+    for (const id of prev.keys()) {
+      if (kept.has(id)) continue;
+      const path = paths.get(id);
+      paths.delete(id);
+      if (path === undefined) continue;
+      writes.push({ rel: gameRel(path), bytes: null });
+      files.delete(gameRel(path));
+    }
+    out.set(k.list, paths);
+  }
+  return out;
+}
+
+/** Whether the project-wide part of the content block (what `content.json` holds) differs; both blocks are canonical. */
+function projectWideChanged(a: V4State['content'], b: V4State['content']): boolean {
+  if (a === b) return false;
+  const x = projectWidePart(a);
+  const y = projectWidePart(b);
+  const keys = Object.keys(x);
+  if (keys.join('\0') !== Object.keys(y).join('\0')) return true;
+  return keys.some((k) => x[k] !== y[k] && JSON.stringify(x[k]) !== JSON.stringify(y[k]));
+}
+
+/**
+ * Put back the sidecars of assets whose file is there but whose sidecar is
+ * gone (removed by hand): the session's records are the last committed ones.
+ * Written like any project file (one transaction); returns what failed.
+ */
+export function restoreSidecars(core: Core, s: ProjectSession, records: readonly RecordLike[]): string[] {
+  const state = s.v4;
+  if (state === null || state === undefined || s.pendingChange !== null || records.length === 0) return [];
+  const gameRoot = gameRootOf(s);
+  const known = new Map(state.files);
+  const writes: FileWrite[] = [];
+  for (const r of records) {
+    const w = sidecarWrite(r, state.files);
+    if (w === null) continue;
+    known.delete(w.rel);
+    writes.push(w);
+  }
+  if (writes.length === 0) return [];
+  const res = writeTransaction(core.ops, s.dir, s.thirdlightDir, s.projectId, known, writes, gameRoot);
+  if (!res.ok) return writes.map((w) => `the sidecar ${gamePathOf(w.rel) ?? w.rel} could not be written`);
+  const files = new Map(state.files);
+  for (const w of writes) files.set(w.rel, { bytes: w.bytes as Uint8Array, hash: sha256Hex(w.bytes as Uint8Array) });
+  publishV4(s, { ...state, files });
+  return [];
 }
 
 // ---- external changes --------------------------------------------------------------
@@ -411,7 +604,7 @@ export function changedFiles(projectId: string, before: V4State, after: { conten
 /** Pause on a foreign project file: snapshot it, re-read the project, record the pending change. */
 export function detectExternalChangeV4(core: Core, s: ProjectSession, foreign: { rel: string; bytes: Uint8Array; hash: string }): PendingChange & { snapshotState: 'ok' | 'snapshot_failed' } {
   const snapshotName = foreign.bytes.length > 0 ? snapshotForeignFile(s.thirdlightDir, foreign.bytes, core.ops, core.stamp) : 'deleted';
-  const l = loadV4(core.ops, s.dir, s.projectId);
+  const l = loadV4(core.ops, s.dir, s.projectId, gameRootOf(s));
   const pending = {
     snapshotState: snapshotName === null ? ('snapshot_failed' as const) : ('ok' as const),
     externalHash: foreign.hash,
@@ -431,7 +624,7 @@ export function detectExternalChangeV4(core: Core, s: ProjectSession, foreign: {
 export function checkExternalV4(core: Core, s: ProjectSession): { ok: true; pending: boolean } {
   if (s.pendingChange !== null) return { ok: true, pending: true };
   if (s.v4 === null || s.v4 === undefined) return { ok: true, pending: false };
-  const changed = firstChangedFile(core.ops, s.dir, s.v4);
+  const changed = firstChangedFile(core.ops, s.dir, gameRootOf(s), s.v4);
   if (changed === null) return { ok: true, pending: false };
   if ('unreadable' in changed) return { ok: true, pending: false }; // the next write reports it
   detectExternalChangeV4(core, s, changed);
@@ -443,7 +636,7 @@ function diskBaseline(core: Core, s: ProjectSession, rels: Iterable<string>): Ma
   const out = new Map<string, KnownFile>();
   for (const rel of rels) {
     try {
-      const bytes = core.ops.readFile(`${s.dir}/${rel}`);
+      const bytes = core.ops.readFile(absOf(s.dir, gameRootOf(s), rel));
       out.set(rel, { bytes, hash: sha256Hex(bytes) });
     } catch {
       // absent: the resolution recreates it
@@ -485,8 +678,8 @@ export function setPendingUnreadableV4(s: ProjectSession, rel: string): void {
 function rereadForResolutionV4(core: Core, s: ProjectSession): { ok: true } | { ok: false; error: import('@thirdlight/commands').CommandError } {
   const state = s.v4 as V4State;
   const pc = s.pendingChange as PendingChange & { externalFile?: string };
-  let found = pc.externalFile !== undefined ? changedFile(core.ops, s.dir, pc.externalFile, state.files.get(pc.externalFile)) : null;
-  if (found === null) found = firstChangedFile(core.ops, s.dir, state);
+  let found = pc.externalFile !== undefined ? changedFile(core.ops, s.dir, gameRootOf(s), pc.externalFile, state.files.get(pc.externalFile)) : null;
+  if (found === null) found = firstChangedFile(core.ops, s.dir, gameRootOf(s), state);
   if (found === null) return { ok: true };
   if ('unreadable' in found) {
     setPendingUnreadableV4(s, found.rel);
@@ -507,7 +700,7 @@ export function acceptExternalV4(core: Core, s: ProjectSession): { ok: true; rev
     if (!rr.ok) return rr;
   }
   // Re-read now: the resolution is never answered from a stale read.
-  const l = loadV4(core.ops, s.dir, s.projectId);
+  const l = loadV4(core.ops, s.dir, s.projectId, gameRootOf(s));
   if (l.kind !== 'loaded') return { ok: false, error: externalChangeInvalid() };
   // Rewrite every file canonically with the retry records cleared (a new retry boundary).
   const state = l.state;
@@ -528,7 +721,9 @@ export function acceptExternalV4(core: Core, s: ProjectSession): { ok: true; rev
   }
   const man = manifestV2Bytes(state.manifest);
   files.set(MANIFEST_REL_V4, { bytes: man, hash: sha256Hex(man) });
-  const res = writeTransaction(core.ops, s.dir, s.thirdlightDir, s.projectId, diskBaseline(core, s, writes.map((w) => w.rel)), writes);
+  // The resource files are what is on disk already.
+  for (const [rel, f] of state.files) if (gamePathOf(rel) !== null) files.set(rel, f);
+  const res = writeTransaction(core.ops, s.dir, s.thirdlightDir, s.projectId, diskBaseline(core, s, writes.map((w) => w.rel)), writes, gameRootOf(s));
   if (!res.ok) {
     if ('unreadable' in res) return { ok: false, error: externalChangeUnreadable(s.projectId) };
     if ('external' in res) {
@@ -562,6 +757,7 @@ export function discardExternalV4(core: Core, s: ProjectSession): { ok: true; re
   // pending change) instead of destroying it.
   const pendingFile = (pc as PendingChange & { externalFile?: string }).externalFile;
   for (const [rel, known] of state.files) {
+    if (isSidecarRel(rel)) continue;
     const onDisk = baseline.get(rel);
     const hash = onDisk?.hash ?? sha256Hex(new Uint8Array(0));
     if (hash === known.hash || (rel === pendingFile && hash === pc.externalHash)) continue;
@@ -570,11 +766,11 @@ export function discardExternalV4(core: Core, s: ProjectSession): { ok: true; re
   }
   const writes: FileWrite[] = [];
   for (const [rel, known] of state.files) {
-    if (baseline.get(rel)?.hash === known.hash) continue;
+    if (isSidecarRel(rel) || baseline.get(rel)?.hash === known.hash) continue;
     writes.push({ rel, bytes: known.bytes });
   }
   if (writes.length > 0) {
-    const res = writeTransaction(core.ops, s.dir, s.thirdlightDir, s.projectId, baseline, writes);
+    const res = writeTransaction(core.ops, s.dir, s.thirdlightDir, s.projectId, baseline, writes, gameRootOf(s));
     if (!res.ok) {
       if ('unreadable' in res) return { ok: false, error: externalChangeUnreadable(s.projectId) };
       if ('external' in res) {
@@ -610,7 +806,7 @@ export function clearRecordsV4(core: Core, s: ProjectSession): { ok: true } | { 
     files.set(rel, { bytes, hash: sha256Hex(bytes) });
   }
   if (writes.length === 0) return { ok: true };
-  const res = writeTransaction(core.ops, s.dir, s.thirdlightDir, s.projectId, state.files, writes);
+  const res = writeTransaction(core.ops, s.dir, s.thirdlightDir, s.projectId, state.files, writes, gameRootOf(s));
   if (!res.ok) {
     if ('external' in res) {
       detectExternalChangeV4(core, s, res.external);
@@ -635,7 +831,7 @@ export function sceneOfEntity(state: V4State, entityId: string): SceneV4 | null 
   return null;
 }
 
-type QueryOp = 'queryProject' | 'queryEntity' | 'queryEntities' | 'queryAssets' | 'queryPrefabs' | 'queryBehaviors' | 'queryGameConfig' | 'queryBlocks';
+type QueryOp = 'queryProject' | 'queryEntity' | 'queryEntities' | 'queryAssets' | 'queryPrefabs' | 'queryBehaviors' | 'queryGameConfig' | 'queryBlocks' | 'queryIndex';
 
 function failure(op: string, projectId: string, error: import('@thirdlight/commands').CommandError): QueryResult {
   return { ok: false, op, projectId, error } as unknown as QueryResult;
@@ -719,6 +915,7 @@ export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, 
   }
   const a = args ?? {};
   if (op === 'queryBlocks') return serveQueryBlocks(state, projectId, a);
+  if (op === 'queryIndex') return serveQueryIndex(s, state, projectId, a);
   if (op === 'queryProject') {
     for (const k of Object.keys(a)) return failure(op, projectId, fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'queryProject takes no args'));
     const scene = primaryScene(state);
@@ -812,6 +1009,40 @@ export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, 
     entities: page.map((r) => r.entity),
     entitySceneIds: page.map((r) => r.sceneId),
   } as unknown as QueryResult;
+}
+
+/** The most index entries one `queryIndex` page returns. */
+export const MAX_INDEX_PAGE = 1024;
+
+/**
+ * `queryIndex {kind?, id?, label?, referencing?, limit?, offset?}` — the
+ * project index: every asset, resource and scene with its file, name, labels
+ * and the ids it references, filtered (`referencing`: the entries that name
+ * that id), in `kind:id` order, paged.
+ */
+function serveQueryIndex(s: ProjectSession, state: V4State, projectId: string, a: Record<string, unknown>): QueryResult {
+  const op = 'queryIndex';
+  for (const k of Object.keys(a)) if (!['kind', 'id', 'label', 'referencing', 'limit', 'offset'].includes(k)) return failure(op, projectId, fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'kind, id, label, referencing, limit, offset'));
+  for (const k of ['kind', 'id', 'label', 'referencing'] as const) if (a[k] !== undefined && typeof a[k] !== 'string') return failure(op, projectId, fieldTypeError(`/args/${k}`, a[k], 'string'));
+  const limit = a['limit'] ?? 256;
+  const offset = a['offset'] ?? 0;
+  if (!isSafeInt(limit) || (limit as number) < 1 || (limit as number) > MAX_INDEX_PAGE) return failure(op, projectId, fieldValueType('/args/limit', limit, `integer 1-${MAX_INDEX_PAGE}`, 'limit pages the index'));
+  if (!isSafeInt(offset) || (offset as number) < 0) return failure(op, projectId, fieldValueType('/args/offset', offset, 'integer >= 0', 'offset pages the index'));
+  const index = s.index ?? buildIndex(state);
+  const source: Iterable<[string, IndexEntry]> =
+    typeof a['referencing'] === 'string'
+      ? [...(index.referrers.get(a['referencing']) ?? [])].map((key) => [key, index.entries.get(key)!] as [string, IndexEntry])
+      : index.entries;
+  const rows: [string, IndexEntry][] = [];
+  for (const [key, e] of source) {
+    if (a['kind'] !== undefined && e.kind !== a['kind']) continue;
+    if (a['id'] !== undefined && e.id !== a['id']) continue;
+    if (a['label'] !== undefined && !e.labels.includes(a['label'] as string)) continue;
+    rows.push([key, e]);
+  }
+  rows.sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0));
+  const page = rows.slice(offset as number, (offset as number) + (limit as number)).map(([, e]) => ({ kind: e.kind, id: e.id, path: e.path, name: e.name, labels: [...e.labels], refs: [...e.refs] }));
+  return { ok: true, projectId, revision: state.revision, total: rows.length, entries: page } as unknown as QueryResult;
 }
 
 /**

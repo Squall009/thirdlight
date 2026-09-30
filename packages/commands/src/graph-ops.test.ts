@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import type { AnimatorController, GraphDocument, SceneV4 } from '@thirdlight/project-model';
 
 import { applyMutation, createCommandState } from './index';
-import type { CommandState, GraphEditChange, MutationSuccess, SetAnimatorsChange, SetGraphChange } from './index';
+import type { CommandState, GraphEditChange, MutationSuccess, SetAnimatorChange, SetGraphChange } from './index';
 import { m2EnvelopeV4 } from './test-fixtures';
 
 const BEFORE = m2EnvelopeV4('contracts/commands/prefab-scenario.before.json');
@@ -149,7 +149,7 @@ describe('graphEdit on an animator controller', () => {
   }
   const anim = { kind: 'animator', id: 'walker' };
 
-  it('records the same setAnimators change as setAnimator, one undo step; MCP-style ops map onto the controller', () => {
+  it('records the same setAnimator change as setAnimator, one undo step; MCP-style ops map onto the controller', () => {
     const s0 = withController();
     const r = ok(s0, 'graphEdit', {
       owner: anim,
@@ -158,15 +158,16 @@ describe('graphEdit on an animator controller', () => {
         { op: 'connect', edges: [{ id: 'x', from: { node: 'run', port: 'out' }, to: { node: 'idle', port: 'in' } }] },
       ],
     });
-    const change = r.change as SetAnimatorsChange;
-    expect(change.type).toBe('setAnimators');
-    expect(change.previous).toEqual(animators(s0));
+    const change = r.change as SetAnimatorChange;
+    expect(change.type).toBe('setAnimator');
+    expect(change.controllerId).toBe('walker');
+    expect(change.previous).toEqual(animators(s0)[0]);
     const c = animators(r.state)[0]!;
     expect(c.states.find((x) => x.id === 'run')!.position).toEqual([600, 20]);
     expect(c.transitions.map((t) => `${t.from}>${t.to}`)).toEqual(['idle>run', 'run>idle']);
     const undone = ok(r.state, 'undo', {});
     expect(animators(undone.state)).toEqual(animators(s0));
-    expect((undone.change as SetAnimatorsChange).type).toBe('setAnimators');
+    expect((undone.change as SetAnimatorChange).type).toBe('setAnimator');
     const redone = ok(undone.state, 'redo', {});
     expect(animators(redone.state)).toEqual(animators(r.state));
   });

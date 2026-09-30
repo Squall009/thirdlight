@@ -821,12 +821,12 @@ export function validateUiDocument(value: unknown, path: string, errors: ModelEr
   return { docs: refs.docs, modes: refs.modes, styles: refs.styles, images: refs.images, fonts: refs.fonts, icons: refs.icons };
 }
 
-export function validateUiDocuments(value: unknown, path: string, errors: ModelErrorV2[], inputMaps?: readonly string[]): void {
+export function validateUiDocuments(value: unknown, path: string, errors: ModelErrorV2[], inputMaps?: readonly string[], trusted?: ReadonlySet<unknown>): void {
   if (!Array.isArray(value)) return err(errors, 'field_type', path, 'uiDocuments is a list of UI documents', value, 'array');
   if (value.length > UI_LIMITS.documents) err(errors, 'limits_exceeded', path, `a project has at most ${UI_LIMITS.documents} UI documents`, value.length, `≤ ${UI_LIMITS.documents}`);
   const seen = new Set<string>();
   value.forEach((d, i) => {
-    validateUiDocument(d, `${path}/${i}`, errors, inputMaps);
+    if (!trusted?.has(d)) validateUiDocument(d, `${path}/${i}`, errors, inputMaps);
     const id = isPlainObject(d) ? d['uiDocumentId'] : undefined;
     if (typeof id === 'string') {
       if (seen.has(id)) err(errors, 'id_duplicate', `${path}/${i}/uiDocumentId`, `two UI documents use the id "${id}"`, id, 'a unique uiDocumentId');
@@ -858,12 +858,12 @@ export function validateUiTheme(value: unknown, path: string, errors: ModelError
   return { docs: [], styles: [], images: refs.images, fonts: refs.fonts, icons: [] };
 }
 
-export function validateUiThemes(value: unknown, path: string, errors: ModelErrorV2[]): void {
+export function validateUiThemes(value: unknown, path: string, errors: ModelErrorV2[], trusted?: ReadonlySet<unknown>): void {
   if (!Array.isArray(value)) return err(errors, 'field_type', path, 'uiThemes is a list of UI themes', value, 'array');
   if (value.length > UI_LIMITS.themes) err(errors, 'limits_exceeded', path, `a project has at most ${UI_LIMITS.themes} UI themes`, value.length, `≤ ${UI_LIMITS.themes}`);
   const seen = new Set<string>();
   value.forEach((t, i) => {
-    validateUiTheme(t, `${path}/${i}`, errors);
+    if (!trusted?.has(t)) validateUiTheme(t, `${path}/${i}`, errors);
     const id = isPlainObject(t) ? t['uiThemeId'] : undefined;
     if (typeof id === 'string') {
       if (seen.has(id)) err(errors, 'id_duplicate', `${path}/${i}/uiThemeId`, `two UI themes use the id "${id}"`, id, 'a unique uiThemeId');

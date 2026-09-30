@@ -22,7 +22,8 @@
  */
 
 import { composeBlockLayers, type BlockContentView } from './block-layers';
-import { composeV3 } from './project-v3';
+import { composeContentChecks, composeV3 } from './project-v3';
+import { derivedOf } from './content-helpers';
 import { validateContentV4, MAX_SCENES, physicsDimensionOf, arrayTextureIds, TEXTURE_ARRAY_KIND } from './content';
 import { effectiveEntityFlags } from './hierarchy-v3';
 import { validateSceneV4 } from './scene-v3';
@@ -103,6 +104,11 @@ function projectError(path: string, code: ModelErrorV3['code'], message: string,
 /**
  * The cross-document v4 rules over already-validated documents. Errors carry
  * `document` and, for scene errors, `sceneId`.
+ *
+ * A scene's own part of each rule is kept with the scene and the content
+ * sections it read (documents are immutable values): a command that edits
+ * one scene, or content the scenes do not name, composes the others from
+ * what they gave before. The errors come in the same order either way.
  */
 export function composeV4(
   scenes: readonly SceneV4[],
@@ -130,8 +136,15 @@ export function composeV4(
       } else owner.set(e.id, s.sceneId);
     });
   }
-  const entityById = new Map<string, { entity: SceneEntityV3; sceneId: string }>();
-  for (const s of scenes) for (const e of s.entities) if (!entityById.has(e.id)) entityById.set(e.id, { entity: e, sceneId: s.sceneId });
+  // An entity and its scene by id (made when a rule needs it: spawns named across scenes).
+  let byId: Map<string, { entity: SceneEntityV3; sceneId: string }> | null = null;
+  const entityById = (id: string): { entity: SceneEntityV3; sceneId: string } | undefined => {
+    if (byId === null) {
+      byId = new Map();
+      for (const s of scenes) for (const e of s.entities) if (!byId.has(e.id)) byId.set(e.id, { entity: e, sceneId: s.sceneId });
+    }
+    return byId.get(id);
+  };
 
   // The scene index and the scene files match one to one.
   const indexed = new Set(content.scenes.map((e) => e.sceneId));
@@ -152,30 +165,10 @@ export function composeV4(
   let cameras = 0;
   let controllers = 0;
   for (const s of scenes) {
-    const inStart = start.has(s.sceneId);
-    const flags = effectiveEntityFlags(s.entities);
-    s.entities.forEach((e, i) => {
-      if (isFolderEntity(e)) return;
-      const c = e.components;
-      const oneOf: string[] = [];
-      if (c.camera !== undefined) oneOf.push('camera');
-      if (c.controller !== undefined) oneOf.push('controller');
-      if (oneOf.length === 0) return;
-      if (!inStart) {
-        errors.push(
-          sceneError(s.sceneId, withFound({
-            code: 'component_conflict',
-            path: `/entities/${i}/components`,
-            reason: 'start_scene_only',
-            message: `a ${oneOf.join(' / ')} belongs in a start scene (scenes loaded later hold level content and lights only)`,
-            expected: 'the entity in a scene listed in content.startScenes',
-          }, oneOf)),
-        );
-        return;
-      }
-      if (c.camera !== undefined && flags.get(e.id)?.active !== false) cameras += 1;
-      if (c.controller !== undefined) controllers += 1;
-    });
+    const r = sceneStartRule(s, start.has(s.sceneId));
+    errors.push(...r.errors);
+    cameras += r.cameras;
+    controllers += r.controllers;
   }
   if (cameras !== 1) errors.push(projectError('/startScenes', 'camera_count_invalid', 'the start scenes together hold exactly one active camera', 'exactly 1 camera', { document: 'content' } as never, cameras));
   if (controllers > 1) errors.push(projectError('/startScenes', 'controller_count_invalid', 'the start scenes hold at most one player controller', 'at most 1 controller', { document: 'content' } as never, controllers));
@@ -183,12 +176,11 @@ export function composeV4(
   // The shell's listed scenes are scenes of the project, each spawn a player spawn in its scene.
   const shell = (content as { shell?: { scenes?: { scene: string; spawn?: string }[] } }).shell;
   if (shell?.scenes !== undefined) {
-    const sceneIds = new Set(scenes.map((sc) => sc.sceneId));
     shell.scenes.forEach((entry, i) => {
       const p = `/shell/scenes/${i}`;
       if (!sceneIds.has(entry.scene)) errors.push(projectError(`${p}/scene`, 'reference_missing', 'a listed scene names an unknown scene', 'a sceneId of this project', { document: 'content' } as never, entry.scene));
       if (entry.spawn !== undefined) {
-        const spawn = entityById.get(entry.spawn);
+        const spawn = entityById(entry.spawn);
         if (spawn === undefined || spawn.entity.components.playerSpawn === undefined || spawn.sceneId !== entry.scene) {
           errors.push(projectError(`${p}/spawn`, 'reference_missing', 'a listed scene starts at a player spawn in that scene', 'a playerSpawn entity id in the scene', { document: 'content' } as never, entry.spawn));
         }
@@ -196,82 +188,219 @@ export function composeV4(
     });
   }
 
-  // An audio source plays an audio or music asset of this project.
-  // A cookie is one plain texture (a texture array is read by graph materials only).
-  const arrays = arrayTextureIds(content as unknown as Record<string, unknown>);
-  const soundKinds = new Map((content.assets as { assetId: string; kind?: string }[]).map((a) => [a.assetId, arrays.has(a.assetId) ? TEXTURE_ARRAY_KIND : a.kind]));
-  for (const s of scenes) {
-    s.entities.forEach((e, i) => {
-      // A spot light's cookie is a texture asset of this project.
-      const cookie = (e.components as { light?: { cookie?: string } }).light?.cookie;
-      if (cookie !== undefined && soundKinds.get(cookie) !== 'texture') {
-        errors.push(sceneError(s.sceneId, withFound({ code: 'asset_reference_missing', path: `/entities/${i}/components/light/cookie`, message: 'a spot light\'s cookie is a texture asset of this project', expected: 'a texture assetId' }, cookie)));
-      }
-      const src = (e.components as { audioSource?: { assetId: string } }).audioSource;
-      if (src !== undefined && soundKinds.get(src.assetId) !== 'audio' && soundKinds.get(src.assetId) !== 'music') {
-        errors.push(sceneError(s.sceneId, withFound({ code: 'asset_reference_missing', path: `/entities/${i}/components/audioSource/assetId`, message: 'an audio source plays an audio or music asset of this project', expected: 'an audio or music assetId' }, src.assetId)));
-      }
-    });
-  }
+  // Each scene's references to project content, rule by rule (in this order over all scenes).
+  const refs = scenes.map((s) => sceneReferenceRules(s, content));
+  for (let rule = 0; rule < SCENE_REFERENCE_RULES; rule++) for (const r of refs) errors.push(...r[rule]!);
 
-  // A pickup's collect sound is an audio asset of this project.
-  for (const s of scenes) {
-    s.entities.forEach((e, i) => {
-      const cue = (e.components as { pickup?: { cue?: string } }).pickup?.cue;
-      if (cue !== undefined && soundKinds.get(cue) !== 'audio') {
-        errors.push(sceneError(s.sceneId, withFound({ code: 'asset_reference_missing', path: `/entities/${i}/components/pickup/cue`, message: 'a pickup cue plays an audio asset of this project', expected: 'an audio assetId' }, cue)));
-      }
-    });
-  }
+  // A prefab's gameplay components name project things too.
+  errors.push(...prefabReferenceRules(content));
 
-  // An animator names a controller of this project.
-  const controllerIds = new Set((content.animators ?? []).map((c) => c.controllerId));
+  // triggers' scene transitions (the scenes exist; the spawn is a player spawn the character can reach).
   for (const s of scenes) {
-    s.entities.forEach((e, i) => {
-      const a = e.components.animator;
-      if (a !== undefined && !controllerIds.has(a.controller)) {
-        errors.push(sceneError(s.sceneId, withFound({ code: 'reference_missing', path: `/entities/${i}/components/animator/controller`, message: 'the animator names no controller of this project', expected: 'a controllerId in content.animators' }, a.controller)));
-      }
-    });
-  }
-
-  // An object's material mapping names project materials.
-  const materialIds = new Set((content.materials ?? []).map((m) => m.materialId));
-  for (const s of scenes) {
-    s.entities.forEach((e, i) => {
-      const mapping = e.components.materials;
-      if (mapping === undefined) return;
-      for (const [slot, id] of Object.entries(mapping)) {
-        if (!materialIds.has(id)) {
-          errors.push(sceneError(s.sceneId, withFound({ code: 'reference_missing', path: `/entities/${i}/components/materials/${slot}`, message: 'the material mapping names no material of this project', expected: 'a materialId in content.materials' }, id)));
+    for (const t of sceneTransitionsOf(s)) {
+      const at = `/entities/${t.index}/components/trigger/sceneTransition`;
+      if (!sceneIds.has(t.transition.scene)) errors.push(sceneError(s.sceneId, withFound({ code: 'reference_missing', path: `${at}/scene`, reason: 'scene', message: 'a scene transition names no scene of the project', expected: 'an existing scene id' }, t.transition.scene)));
+      (t.transition.unload ?? []).forEach((id, j) => {
+        if (!sceneIds.has(id)) errors.push(sceneError(s.sceneId, withFound({ code: 'reference_missing', path: `${at}/unload/${j}`, reason: 'scene', message: 'a scene transition unloads no scene of the project', expected: 'an existing scene id' }, id)));
+      });
+      if (t.transition.spawn !== undefined) {
+        const hit = entityById(t.transition.spawn);
+        const reachable = hit !== undefined && (hit.sceneId === s.sceneId || hit.sceneId === t.transition.scene);
+        if (hit === undefined || hit.entity.components.playerSpawn === undefined || !reachable) {
+          errors.push(sceneError(s.sceneId, withFound({ code: 'reference_missing', path: `${at}/spawn`, reason: 'spawn', message: 'a scene transition\'s spawn must be a player spawn in the scene it loads (or its own)', expected: 'a playerSpawn entity id' }, t.transition.spawn)));
         }
       }
-    });
+    }
   }
 
-  // Overrides name public parameters of the project's graph materials.
-  for (const s of scenes) {
-    s.entities.forEach((e, i) => {
-      const o = e.components.materialParams;
-      if (o === undefined) return;
+  // Per-scene references against the content block, and the block's own rules once.
+  for (const s of scenes) composeSceneV4(s, content, errors, projectRevision);
+  composeContentChecks({ ...content, game: null }, errors, projectRevision);
+
+  // A prefab's collider follows the project's physics dimension too.
+  errors.push(...prefabPhysicsRules(content));
+}
+
+/** The camera and controller of one scene: counted in a start scene, refused in any other. */
+const startRules = new WeakMap<SceneV4, { inStart: boolean; cameras: number; controllers: number; errors: readonly ModelErrorV3[] }>();
+function sceneStartRule(s: SceneV4, inStart: boolean): { cameras: number; controllers: number; errors: readonly ModelErrorV3[] } {
+  const hit = startRules.get(s);
+  if (hit !== undefined && hit.inStart === inStart) return hit;
+  const errors: ModelErrorV3[] = [];
+  let cameras = 0;
+  let controllers = 0;
+  const flags = effectiveEntityFlags(s.entities);
+  s.entities.forEach((e, i) => {
+    if (isFolderEntity(e)) return;
+    const c = e.components;
+    const oneOf: string[] = [];
+    if (c.camera !== undefined) oneOf.push('camera');
+    if (c.controller !== undefined) oneOf.push('controller');
+    if (oneOf.length === 0) return;
+    if (!inStart) {
+      errors.push(
+        sceneError(s.sceneId, withFound({
+          code: 'component_conflict',
+          path: `/entities/${i}/components`,
+          reason: 'start_scene_only',
+          message: `a ${oneOf.join(' / ')} belongs in a start scene (scenes loaded later hold level content and lights only)`,
+          expected: 'the entity in a scene listed in content.startScenes',
+        }, oneOf)),
+      );
+      return;
+    }
+    if (c.camera !== undefined && flags.get(e.id)?.active !== false) cameras += 1;
+    if (c.controller !== undefined) controllers += 1;
+  });
+  const out = { inStart, cameras, controllers, errors };
+  startRules.set(s, out);
+  return out;
+}
+
+/** How many rules `sceneReferenceRules` checks (its result holds one error list per rule). */
+const SCENE_REFERENCE_RULES = 6;
+const referenceRules = new WeakMap<SceneV4, { key: readonly unknown[]; byRule: readonly ModelErrorV3[][] }>();
+
+/**
+ * One scene's references to project content, one error list per rule: a
+ * light's cookie and an audio source's clip, a pickup's cue, an animator's
+ * controller, a material mapping, material parameter overrides, an effect.
+ * Kept with the scene and the asset, animator, material and effect lists.
+ */
+function sceneReferenceRules(s: SceneV4, content: ContentCatalogV4): readonly ModelErrorV3[][] {
+  // A material mapping reads the material ids; only an override reads a material's parameters, only an effect component the effects.
+  const uses = sceneUses(s);
+  const key = [content.assets, animatorIds(content), materialIdsOf(content), uses.params ? content.materials : null, uses.effects ? content.effects : null];
+  const hit = referenceRules.get(s);
+  if (hit !== undefined && hit.key.every((v, i) => v === key[i])) return hit.byRule;
+  const byRule: ModelErrorV3[][] = Array.from({ length: SCENE_REFERENCE_RULES }, () => []);
+  const [sounds, pickups, animators, mappings, params, effects] = byRule as [ModelErrorV3[], ModelErrorV3[], ModelErrorV3[], ModelErrorV3[], ModelErrorV3[], ModelErrorV3[]];
+  // An audio source plays an audio or music asset of this project.
+  // A cookie is one plain texture (a texture array is read by graph materials only).
+  const soundKinds = plainAssetKinds(content);
+  const controllerIds = animatorIds(content);
+  const materialIds = materialIdsOf(content);
+  s.entities.forEach((e, i) => {
+    // A spot light's cookie is a texture asset of this project.
+    const cookie = (e.components as { light?: { cookie?: string } }).light?.cookie;
+    if (cookie !== undefined && soundKinds.get(cookie) !== 'texture') {
+      sounds.push(sceneError(s.sceneId, withFound({ code: 'asset_reference_missing', path: `/entities/${i}/components/light/cookie`, message: 'a spot light\'s cookie is a texture asset of this project', expected: 'a texture assetId' }, cookie)));
+    }
+    const src = (e.components as { audioSource?: { assetId: string } }).audioSource;
+    if (src !== undefined && soundKinds.get(src.assetId) !== 'audio' && soundKinds.get(src.assetId) !== 'music') {
+      sounds.push(sceneError(s.sceneId, withFound({ code: 'asset_reference_missing', path: `/entities/${i}/components/audioSource/assetId`, message: 'an audio source plays an audio or music asset of this project', expected: 'an audio or music assetId' }, src.assetId)));
+    }
+    // A pickup's collect sound is an audio asset of this project.
+    const cue = (e.components as { pickup?: { cue?: string } }).pickup?.cue;
+    if (cue !== undefined && soundKinds.get(cue) !== 'audio') {
+      pickups.push(sceneError(s.sceneId, withFound({ code: 'asset_reference_missing', path: `/entities/${i}/components/pickup/cue`, message: 'a pickup cue plays an audio asset of this project', expected: 'an audio assetId' }, cue)));
+    }
+    // An animator names a controller of this project.
+    const a = e.components.animator;
+    if (a !== undefined && !controllerIds.has(a.controller)) {
+      animators.push(sceneError(s.sceneId, withFound({ code: 'reference_missing', path: `/entities/${i}/components/animator/controller`, message: 'the animator names no controller of this project', expected: 'a controllerId in content.animators' }, a.controller)));
+    }
+    // An object's material mapping names project materials.
+    const mapping = e.components.materials;
+    if (mapping !== undefined) {
+      for (const [slot, id] of Object.entries(mapping)) {
+        if (!materialIds.has(id)) {
+          mappings.push(sceneError(s.sceneId, withFound({ code: 'reference_missing', path: `/entities/${i}/components/materials/${slot}`, message: 'the material mapping names no material of this project', expected: 'a materialId in content.materials' }, id)));
+        }
+      }
+    }
+    // Overrides name public parameters of the project's graph materials.
+    const o = e.components.materialParams;
+    if (o !== undefined) {
       for (const x of materialOverrideErrors(o, content.materials ?? [])) {
-        errors.push(sceneError(s.sceneId, withFound({ code: x.code as never, path: `/entities/${i}/components/materialParams${x.path}`, message: x.message, expected: 'a public parameter of a graph material, with a value that fits it' }, x.found)));
+        params.push(sceneError(s.sceneId, withFound({ code: x.code as never, path: `/entities/${i}/components/materialParams${x.path}`, message: x.message, expected: 'a public parameter of a graph material, with a value that fits it' }, x.found)));
       }
-    });
-  }
+    }
+    // An effect component names a project effect and overrides only its public parameters.
+    const fx = e.components.effect;
+    if (fx !== undefined) {
+      for (const x of effectComponentErrors(fx, content.effects ?? [])) {
+        effects.push(sceneError(s.sceneId, withFound({ code: x.code as never, path: `/entities/${i}/components/effect${x.path}`, message: x.message, expected: 'an effect of this project and its public parameters' }, x.found)));
+      }
+    }
+  });
+  referenceRules.set(s, { key, byRule });
+  return byRule;
+}
 
-  // An effect component names a project effect and overrides only its public parameters.
-  for (const s of scenes) {
-    s.entities.forEach((e, i) => {
-      const c = e.components.effect;
-      if (c === undefined) return;
-      for (const x of effectComponentErrors(c, content.effects ?? [])) {
-        errors.push(sceneError(s.sceneId, withFound({ code: x.code as never, path: `/entities/${i}/components/effect${x.path}`, message: x.message, expected: 'an effect of this project and its public parameters' }, x.found)));
-      }
-    });
+/** Whether a scene has material parameter overrides or effect components (kept with the scene). */
+const usesOf = new WeakMap<SceneV4, { params: boolean; effects: boolean }>();
+function sceneUses(s: SceneV4): { params: boolean; effects: boolean } {
+  let out = usesOf.get(s);
+  if (out === undefined) {
+    out = { params: s.entities.some((e) => e.components.materialParams !== undefined), effects: s.entities.some((e) => e.components.effect !== undefined) };
+    usesOf.set(s, out);
   }
-  // A prefab's gameplay components name project things too.
-  (content.prefabs ?? []).forEach((d, di) => {
+  return out;
+}
+
+/** A scene's triggers that load scenes (kept with the scene). */
+const transitionsOf = new WeakMap<SceneV4, readonly { index: number; transition: { scene: string; spawn?: string; unload?: string[] } }[]>();
+function sceneTransitionsOf(s: SceneV4): readonly { index: number; transition: { scene: string; spawn?: string; unload?: string[] } }[] {
+  let out = transitionsOf.get(s);
+  if (out === undefined) {
+    const list: { index: number; transition: { scene: string; spawn?: string; unload?: string[] } }[] = [];
+    s.entities.forEach((e, i) => {
+      const t = (e.components as { trigger?: { sceneTransition?: { scene: string; spawn?: string; unload?: string[] } } }).trigger?.sceneTransition;
+      if (t !== undefined) list.push({ index: i, transition: t });
+    });
+    out = list;
+    transitionsOf.set(s, out);
+  }
+  return out;
+}
+
+/** Asset kinds by id as a plain-texture reference sees them (a texture array is its own kind). */
+function plainAssetKinds(content: ContentCatalogV4): ReadonlyMap<string, string | undefined> {
+  const arrays = arrayTextureIds(content as unknown as Record<string, unknown>);
+  return derivedOf(content.assets, 'plain-kinds-v4', () => new Map((content.assets as { assetId: string; kind?: string }[]).map((a) => [a.assetId, arrays.has(a.assetId) ? TEXTURE_ARRAY_KIND : a.kind])));
+}
+
+function animatorIds(content: ContentCatalogV4): ReadonlySet<string> {
+  return internIds('animators', content.animators, (c) => c.controllerId);
+}
+
+function materialIdsOf(content: ContentCatalogV4): ReadonlySet<string> {
+  return internIds('materials', content.materials, (m) => m.materialId);
+}
+
+/**
+ * A list's ids as one set object for as long as the ids stay the same: a
+ * record edited in place keeps the set, so what was checked against the ids
+ * alone is not checked again.
+ */
+const lastIds = new Map<string, ReadonlySet<string>>();
+const EMPTY_IDS: ReadonlySet<string> = new Set();
+function internIds<T>(role: string, list: readonly T[] | undefined, idOf: (r: T) => string): ReadonlySet<string> {
+  if (list === undefined || list.length === 0) return EMPTY_IDS;
+  return derivedOf(list, `interned-ids:${role}`, () => {
+    const ids = new Set(list.map(idOf));
+    const last = lastIds.get(role);
+    if (last !== undefined && last.size === ids.size && [...ids].every((id) => last.has(id))) return last;
+    lastIds.set(role, ids);
+    return ids;
+  });
+}
+
+const prefabRefRules = new WeakMap<object, { key: readonly unknown[]; errors: readonly ModelErrorV3[] }>();
+
+/** A prefab's gameplay components name project things (kept with the prefab, asset, animator, material and effect lists). */
+function prefabReferenceRules(content: ContentCatalogV4): readonly ModelErrorV3[] {
+  const prefabs = content.prefabs ?? [];
+  const uses = derivedOf(prefabs, 'uses', () => ({ params: prefabs.some((d) => d.entities.some((e) => e.components.materialParams !== undefined)), effects: prefabs.some((d) => d.entities.some((e) => e.components.effect !== undefined)) }));
+  const key = [content.assets, animatorIds(content), materialIdsOf(content), uses.params ? content.materials : null, uses.effects ? content.effects : null];
+  const hit = prefabRefRules.get(prefabs);
+  if (hit !== undefined && hit.key.every((v, i) => v === key[i])) return hit.errors;
+  const errors: ModelErrorV3[] = [];
+  const soundKinds = plainAssetKinds(content);
+  const controllerIds = animatorIds(content);
+  const materialIds = materialIdsOf(content);
+  prefabs.forEach((d, di) => {
     d.entities.forEach((e, ei) => {
       const p = `/prefabs/${di}/entities/${ei}/components`;
       const c = e.components;
@@ -285,41 +414,30 @@ export function composeV4(
       if (c.audioSource !== undefined && soundKinds.get(c.audioSource.assetId) !== 'audio' && soundKinds.get(c.audioSource.assetId) !== 'music') bad('audioSource/assetId', 'asset_reference_missing', 'an audio source plays an audio or music asset of this project', 'an audio or music assetId', c.audioSource.assetId);
     });
   });
+  prefabRefRules.set(prefabs, { key, errors });
+  return errors;
+}
 
-  // triggers' scene transitions (the scenes exist; the spawn is a player spawn the character can reach).
-  for (const s of scenes) {
-    s.entities.forEach((e, i) => {
-      const t = (e.components as { trigger?: { sceneTransition?: { scene: string; spawn?: string; unload?: string[] } } }).trigger?.sceneTransition;
-      if (t === undefined) return;
-      const at = `/entities/${i}/components/trigger/sceneTransition`;
-      if (!sceneIds.has(t.scene)) errors.push(sceneError(s.sceneId, withFound({ code: 'reference_missing', path: `${at}/scene`, reason: 'scene', message: 'a scene transition names no scene of the project', expected: 'an existing scene id' }, t.scene)));
-      (t.unload ?? []).forEach((id, j) => {
-        if (!sceneIds.has(id)) errors.push(sceneError(s.sceneId, withFound({ code: 'reference_missing', path: `${at}/unload/${j}`, reason: 'scene', message: 'a scene transition unloads no scene of the project', expected: 'an existing scene id' }, id)));
-      });
-      if (t.spawn !== undefined) {
-        const hit = entityById.get(t.spawn);
-        const reachable = hit !== undefined && (hit.sceneId === s.sceneId || hit.sceneId === t.scene);
-        if (hit === undefined || hit.entity.components.playerSpawn === undefined || !reachable) {
-          errors.push(sceneError(s.sceneId, withFound({ code: 'reference_missing', path: `${at}/spawn`, reason: 'spawn', message: 'a scene transition\'s spawn must be a player spawn in the scene it loads (or its own)', expected: 'a playerSpawn entity id' }, t.spawn)));
-        }
-      }
-    });
-  }
+const prefabPhysics = new WeakMap<object, { key: readonly unknown[]; errors: readonly ModelErrorV3[] }>();
 
-  // Per-scene references against the content block.
-  for (const s of scenes) composeSceneV4(s, content, errors, projectRevision);
-
-  // A prefab's collider follows the project's physics dimension too.
+/** A prefab's collider follows the project's physics dimension; a copy's behavior group is one of the project's (kept with the prefab list and those settings). */
+function prefabPhysicsRules(content: ContentCatalogV4): readonly ModelErrorV3[] {
+  const prefabs = content.prefabs ?? [];
+  const key = [content.settings, content.collisionLayers, content.behaviorGroups];
+  const hit = prefabPhysics.get(prefabs);
+  if (hit !== undefined && hit.key.every((v, i) => v === key[i])) return hit.errors;
+  const errors: ModelErrorV3[] = [];
   const dimension = physicsDimensionOf(content.settings);
-  (content.prefabs ?? []).forEach((d, di) => {
+  prefabs.forEach((d, di) => {
     d.entities.forEach((e, ei) => {
       const local: ModelErrorV3[] = [];
       physicsDimensionErrors(e.components as unknown as Record<string, unknown>, `/prefabs/${di}/entities/${ei}`, dimension, local, `/prefabs/${di}/entities/${ei}/components`, content.collisionLayers ?? []);
-      // A copy's behavior group is one of the project's.
       behaviorGroupErrors(e.components as unknown as Record<string, unknown>, `/prefabs/${di}/entities/${ei}`, content.behaviorGroups ?? [], local as never);
       for (const x of local) errors.push({ ...x, document: 'content' } as ModelErrorV3);
     });
   });
+  prefabPhysics.set(prefabs, { key, errors });
+  return errors;
 }
 
 /**
@@ -406,12 +524,37 @@ export function blockDimensionErrors(comps: Record<string, unknown>, path: strin
  * touches; `composeV4` runs it for every scene.
  */
 export function composeSceneV4(s: SceneV4, content: ContentCatalogV4, errors: ModelErrorV3[], projectRevision: number = Number.MAX_SAFE_INTEGER): void {
-  const assetById = new Map(content.assets.map((a) => [a.assetId, a]));
+  // A scene composed before against the same content sections gives the same answer (documents are immutable values).
+  // A scene with block layers reads the materials too (a block type's material).
+  const key = [...SCENE_RULE_SECTIONS.map((k) => (content as unknown as Record<string, unknown>)[k]), s.blocks !== undefined ? content.materials : null];
+  const hit = composedScenes.get(s);
+  if (hit !== undefined && hit.key.length === key.length && hit.key.every((v, i) => v === key[i])) {
+    errors.push(...hit.errors);
+    return;
+  }
+  const own: ModelErrorV3[] = [];
+  composeSceneRules(s, content, own, projectRevision);
+  composedScenes.set(s, { key, errors: own });
+  errors.push(...own);
+}
+
+/**
+ * The content sections the per-scene rules read (asset kinds and records,
+ * prefab definitions, behavior declarations, tags, the physics dimension in
+ * the settings, collision layers, behavior groups, block types, cell fields
+ * and stamps; with block layers the materials): a scene is composed again
+ * only when one of them changed.
+ */
+const SCENE_RULE_SECTIONS = ['assets', 'prefabs', 'behaviors', 'tags', 'settings', 'collisionLayers', 'behaviorGroups', 'blockTypes', 'cellFields', 'blockStamps'] as const;
+const composedScenes = new WeakMap<SceneV4, { key: readonly unknown[]; errors: readonly ModelErrorV3[] }>();
+
+function composeSceneRules(s: SceneV4, content: ContentCatalogV4, errors: ModelErrorV3[], projectRevision: number): void {
+  const assetById = derivedOf(content.assets, 'by-id', () => new Map(content.assets.map((a) => [a.assetId, a])));
   const local: ModelErrorV3[] = [];
   // The v3 rules compare published revisions with the scene's revision; in
   // v4 the project revision (shared by all files) is the bound.
   const asV3 = { ...s, schemaVersion: 3, revision: projectRevision } as unknown as SceneV3;
-  composeV3(asV3, { ...content, game: null }, local);
+  composeV3(asV3, { ...content, game: null }, local, false);
   for (const e of local) errors.push(e.document === 'content' ? e : sceneError(s.sceneId, e));
   // The rules that follow the project's physics dimension.
   const dimension = physicsDimensionOf(content.settings);

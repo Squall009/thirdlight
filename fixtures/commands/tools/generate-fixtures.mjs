@@ -8,7 +8,7 @@
 //   the storage-v4 layout (phase 12 c; packages/workspace/src/store-v4.ts):
 //
 //     project.json            manifest schemaVersion 5 (assets as game-folder files with sidecars; 4 before)
-//     content.json            { storageVersion 4, type "project-content",
+//     content.json            { storageVersion 5, type "project-content",
 //                               projectId, revision, content, retry }
 //     scenes/<sceneId>.json   { storageVersion 4, type "scene", projectId,
 //                               scene (schemaVersion 4), retry }
@@ -154,8 +154,14 @@ const RETENTION = 128;
 // (no `sceneId`), still read by the workspace; this corpus writes version 2.
 const RECORD_VERSION = 2;
 
+// content.json keeps the project-wide settings (storageVersion 5): prefabs,
+// behaviors, materials and the other resources are files of their own in the
+// game folder (packages/workspace/src/resource-files.ts); this corpus has none.
+const RESOURCE_LISTS = ["prefabs", "behaviors", "materials", "animators", "graphs", "effects", "scriptLibraries", "uiDocuments", "uiThemes", "dialogues", "timelines"];
+
 function contentFileObj(projectId, revision, content, records) {
-  return { storageVersion: 4, type: "project-content", projectId, revision, content, retry: { recordVersion: RECORD_VERSION, retention: RETENTION, records } };
+  const wide = Object.fromEntries(Object.entries(content).filter(([k]) => !RESOURCE_LISTS.includes(k)));
+  return { storageVersion: 5, type: "project-content", projectId, revision, content: wide, retry: { recordVersion: RECORD_VERSION, retention: RETENTION, records } };
 }
 
 function sceneFileObj(projectId, scene, records) {
@@ -1025,7 +1031,7 @@ put(sc("09-second-backend-ownership", "disk-after/.thirdlight/ownership.json"), 
   const validEntry = (name, project, snap, note) => ({ dir: `envelope/valid/${name}`, project, revision: revisionOf(snap), records: recordsOf(snap).length, note });
   const idx = {
     indexVersion: 2,
-    storage: "v4: project.json (manifest schemaVersion 5), content.json (storageVersion 4, type project-content), scenes/<sceneId>.json (storageVersion 4, type scene, scene schemaVersion 4)",
+    storage: "v4: project.json (manifest schemaVersion 5), content.json (storageVersion 5, type project-content: project-wide settings; resources are files), scenes/<sceneId>.json (storageVersion 4, type scene, scene schemaVersion 4)",
     contracts: {
       commands: "docs/contracts/commands.md",
       workspace: "docs/contracts/workspace.md (storage v4: packages/workspace/src/store-v4.ts)",

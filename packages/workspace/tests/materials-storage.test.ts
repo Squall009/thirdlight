@@ -68,9 +68,12 @@ describe('materials and environment (storage v4)', () => {
     ok(svc, 'undo', {});
     expect(gameConfig(svc).environment?.wind?.strength).toBe(2);
 
-    // It is all in content.json and survives a reopen.
-    const onDisk = JSON.parse(readFileSync(join(dir, 'content.json'), 'utf8')) as { content: { materials: unknown[]; environment: unknown } };
-    expect(onDisk.content.materials).toHaveLength(1);
+    // The material is its own file in the game folder (a data-root project is its own),
+    // the environment a project-wide setting in content.json; both survive a reopen.
+    const onDisk = JSON.parse(readFileSync(join(dir, 'content.json'), 'utf8')) as { content: { materials?: unknown[]; environment: unknown } };
+    expect(onDisk.content.materials).toBeUndefined();
+    const file = JSON.parse(readFileSync(join(dir, 'assets', 'materials', 'mat-foliage.material.json'), 'utf8')) as { kind: string; id: string; data: { materialId: string } };
+    expect([file.kind, file.id, file.data.materialId]).toEqual(['material', 'mat-foliage', 'mat-foliage']);
     expect(onDisk.content.environment).toEqual({ wind: { direction: [1, 0], strength: 2, gust: 1, gustFrequency: 0.5, turbulence: 0.4 } });
     svc.close();
     svc = open(root);

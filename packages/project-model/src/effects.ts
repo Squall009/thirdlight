@@ -241,12 +241,12 @@ export function validateEffect(value: unknown, path: string, errors: ModelErrorV
 }
 
 /** `content.effects`: at most 128 effects with unique ids. */
-export function validateEffects(value: unknown, path: string, errors: ModelErrorV2[]): void {
+export function validateEffects(value: unknown, path: string, errors: ModelErrorV2[], trusted?: ReadonlySet<unknown>): void {
   if (!Array.isArray(value)) return err(errors, 'field_type', path, 'effects is a list', value, 'array of effects');
   if (value.length > EFFECT_LIMITS.effects) err(errors, 'limits_exceeded', path, `a project has at most ${EFFECT_LIMITS.effects} effects`, value.length);
   const seen = new Set<string>();
   value.forEach((e, i) => {
-    validateEffect(e, `${path}/${i}`, errors);
+    if (!trusted?.has(e)) validateEffect(e, `${path}/${i}`, errors);
     const id = isPlainObject(e) ? e['effectId'] : undefined;
     if (typeof id === 'string') {
       if (seen.has(id)) err(errors, 'id_duplicate', `${path}/${i}/effectId`, 'effectId is used twice', id);

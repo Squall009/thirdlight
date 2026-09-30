@@ -768,8 +768,10 @@ export class SessionClientCore {
         this.settings = { ...(change.next as Record<string, unknown>) };
       } else if (change.type === 'setTags') {
         this.tags = change.next.map((t) => ({ bit: t.bit, name: t.name }));
-      } else if (change.type === 'setMaterials') {
-        this.materials = structuredClone(change.next);
+      } else if (change.type === 'setMaterial') {
+        // One material before/after (null = none).
+        const rest = this.materials.filter((m) => m.materialId !== change.materialId);
+        this.materials = change.next === null ? rest : [...rest, structuredClone(change.next)].sort((a, b) => (a.materialId < b.materialId ? -1 : 1));
       } else if (change.type === 'setEnvironment') {
         this.environment = change.next === null ? null : structuredClone(change.next);
       } else if (change.type === 'setInput') {
@@ -786,8 +788,10 @@ export class SessionClientCore {
         this.shell = change.next === null ? null : structuredClone(change.next);
       } else if (change.type === 'setSaveSchema') {
         this.saveSchema = change.next === null ? null : structuredClone(change.next);
-      } else if (change.type === 'setAnimators') {
-        this.animators = structuredClone(change.next);
+      } else if (change.type === 'setAnimator') {
+        // One controller before/after (null = none).
+        const rest = this.animators.filter((c) => c.controllerId !== change.controllerId);
+        this.animators = change.next === null ? rest : [...rest, structuredClone(change.next)].sort((a, b) => (a.controllerId < b.controllerId ? -1 : 1));
       } else if (change.type === 'setGraph') {
         const rest = this.graphs.filter((g) => g.graphId !== change.graphId);
         this.graphs = change.next === null ? rest : [...rest, structuredClone(change.next)].sort((a, b) => (a.graphId < b.graphId ? -1 : 1));

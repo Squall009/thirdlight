@@ -34,7 +34,6 @@ import {
   takenPaths,
   writeGameFile,
   writeImported,
-  writeSidecar,
   type RecordLike,
   type VersionLike,
 } from './asset-files';
@@ -131,13 +130,7 @@ export function upgradeAssetsToFiles(core: Core, ctx: ContentContext, content: C
     upgraded.push({ ...record, versions });
   }
   const next = { ...content, assets: upgraded as unknown as ContentCatalogV4['assets'] };
-  // Sidecars once every record has its file (a packed texture's names its sources' files).
-  const stayed = new Set(report.notMoved.map((n) => n.assetId));
-  for (const record of upgraded) {
-    if (stayed.has(record.assetId)) continue;
-    const problem = writeSidecar(core, ctx, record, next);
-    if (problem !== null) report.notMoved.push({ assetId: record.assetId, reason: `its sidecar could not be written: ${problem}` });
-  }
+  // The sidecars (each holding its record) are written with the project files that follow.
   if (options.report !== false) writeAtomic({ dir: ctx.dir, target: join(ctx.dir, UPGRADE_REPORT_FILE), bytes: new TextEncoder().encode(`${JSON.stringify(report, null, 2)}\n`), allowedPreHashes: [], previousHash: null, ops: core.ops });
   const written = report.files.filter((f) => f.written).length;
   const notes = [

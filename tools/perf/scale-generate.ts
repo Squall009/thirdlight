@@ -2,6 +2,8 @@
  * The scale bench generator: a synthetic project of a full game's size,
  * written straight into the backend's on-disk project format
  * (`<dataRoot>/projects/<id>/`: project.json, content.json, scenes/*.json,
+ * each prefab, material and dialogue its own file under `assets/<kind>/`,
+ * each asset's record in its `.tlasset` sidecar,
  * and each asset a file under `assets/<kind>/` next to its `.tlasset`
  * sidecar), deterministic from a seed.
  *
@@ -34,12 +36,14 @@ import {
   inspectMusic,
 } from '@thirdlight/asset-pipeline';
 
+import { CONTENT_STORAGE_VERSION, defaultResourcePath, RESOURCE_KINDS, resourceFileBytes } from '@thirdlight/workspace';
+
 import { sphereGlb } from './assets';
 import { prng } from './generate';
 import { opusVoice, pcmWav, scalePng } from './scale-media';
 
 /** Bump when the generated content changes (it keys cached projects and recorded numbers). */
-export const SCALE_GENERATOR_VERSION = 2;
+export const SCALE_GENERATOR_VERSION = 4;
 export const SCALE_DEFAULT_SEED = 26;
 
 export interface ScaleSpec {
@@ -162,6 +166,8 @@ export interface ScaleResult {
   /** Source bytes per asset kind (the files under assets/). */
   sourceBytes: Record<string, number>;
   contentJsonBytes: number;
+  /** The resource files (prefabs, materials, dialogues), together. */
+  resourceFileBytes?: number;
   /** The content block as the model measures it against its byte cap (canonical JSON, two-space indent). */
   contentCanonicalBytes: number;
   sceneFileBytes: number;
@@ -232,15 +238,17 @@ export function generateScaleProject(dataRoot: string, projectId: string, spec: 
     const sourcePath = `assets/${bucket}/${assetId}.${EXT[kind]!}`;
     mkdirSync(join(dir, 'assets', bucket), { recursive: true });
     writeFileSync(join(dir, sourcePath), bytes);
-    writeFileSync(join(dir, `${sourcePath}.tlasset`), `${JSON.stringify({ tlasset: 1, id: assetId, kind, importSettings: {}, labels: [], address: null }, null, 2)}\n`);
     sourceBytes[bucket] = (sourceBytes[bucket] ?? 0) + bytes.length;
-    assets.push({
+    const record = {
       assetId,
       kind,
       displayName,
       currentVersion: 1,
       versions: [{ version: 1, sourceDigest: digest, sourceByteLength: bytes.length, sourcePath, importRecipe: p.importRecipe, metrics: p.metrics, importedAt: IMPORTED_AT, publishedRevision: 0 }],
-    });
+    };
+    // The sidecar holds the record (the project reads its assets from the sidecars).
+    writeFileSync(join(dir, `${sourcePath}.tlasset`), `${layout({ tlasset: 2, id: assetId, kind, importSettings: {}, labels: [], address: null, record })}\n`);
+    assets.push(record);
   };
   const rnd = prng(seed * 2654435761);
   const seedOf = (): number => Math.floor(rnd() * 2 ** 31);
@@ -378,7 +386,22 @@ export function generateScaleProject(dataRoot: string, projectId: string, spec: 
   };
   const manifest = { schemaVersion: 5, engineVersion: '0.1.0', id: projectId, name: `Scale bench ${projectId}`, createdAt: IMPORTED_AT };
   writeFileSync(join(dir, 'project.json'), `${JSON.stringify(manifest, null, 2)}\n`);
-  const contentText = `${layout({ storageVersion: 4, type: 'project-content', projectId, revision: 0, content, retry: RETRY })}\n`;
+  // content.json keeps the project-wide settings; each prefab, material and dialogue is its own file (as the backend writes them).
+  const resources: Record<string, unknown[]> = { prefabs, materials, dialogues };
+  let resourceBytes = 0;
+  for (const k of RESOURCE_KINDS) {
+    for (const record of (resources[k.list] ?? []) as Record<string, unknown>[]) {
+      const id = String(record[k.idKey]);
+      const path = defaultResourcePath(k, id);
+      mkdirSync(join(dir, ...path.split('/').slice(0, -1)), { recursive: true });
+      const bytes = resourceFileBytes(k, id, record);
+      resourceBytes += bytes.length;
+      writeFileSync(join(dir, ...path.split('/')), bytes);
+    }
+  }
+  // Every asset has a file: its record is in its sidecar, not content.json.
+  const wide = { ...Object.fromEntries(Object.entries(content).filter(([key]) => !RESOURCE_KINDS.some((k) => k.list === key))), assets: [] };
+  const contentText = `${layout({ storageVersion: CONTENT_STORAGE_VERSION, type: 'project-content', projectId, revision: 0, content: wide, retry: RETRY })}\n`;
   writeFileSync(join(dir, 'content.json'), contentText);
   let sceneFileBytes = 0;
   sceneIds.forEach((sceneId, s) => {
@@ -407,6 +430,7 @@ export function generateScaleProject(dataRoot: string, projectId: string, spec: 
     counts,
     sourceBytes,
     contentJsonBytes: Buffer.byteLength(contentText),
+    resourceFileBytes: resourceBytes,
     contentCanonicalBytes: Buffer.byteLength(`${JSON.stringify(content, null, 2)}\n`),
     sceneFileBytes,
     sceneIds,

@@ -18,6 +18,7 @@
 
 import { fail, fieldValue, isPlainObject, pointerSegment, withFound } from './validate';
 import { ID_RE_V2 } from './components';
+import { derivedOf } from './content-helpers';
 import { validateManifest } from './validate';
 import { validateContentV3 } from './content';
 import { validateSceneV3 } from './scene-v3';
@@ -60,6 +61,8 @@ export function composeV3(
   scene: SceneV3,
   content: ContentCatalogV3,
   errors: ModelErrorV3[],
+  /** `false`: the scene's own references only (the content block's own rules run once per project, `composeContentChecks`). */
+  contentChecks = true,
 ): void {
   const indexById = new Map<string, number>();
   scene.entities.forEach((e, i) => {
@@ -93,7 +96,7 @@ export function composeV3(
   });
 
   // Step 6: cross-block asset/cue/animation resolution (never a dangling ref).
-  const assetById = new Map(content.assets.map((a) => [a.assetId, a]));
+  const assetById = derivedOf(content.assets, 'by-id', () => new Map(content.assets.map((a) => [a.assetId, a])));
   scene.entities.forEach((e, i) => {
     const model = e.components.model;
     if (model) {
@@ -163,8 +166,27 @@ export function composeV3(
     scene as unknown as Parameters<typeof crossBlockChecks>[0],
     content as unknown as Parameters<typeof crossBlockChecks>[1],
     errors as ModelErrorV2[],
+    undefined,
+    contentChecks,
   );
 }
+
+/**
+ * The content block's own cross-block rules (a prefab copy's behavior values,
+ * publication revisions not past the project revision), once per project: the
+ * per-scene composition leaves them out.
+ */
+export function composeContentChecks(content: ContentCatalogV3, errors: ModelErrorV3[], revision: number): void {
+  // The same lists found clean at a revision stay clean at any later one (publication revisions only grow).
+  const hit = cleanContent.get(content.assets);
+  if (hit !== undefined && hit.prefabs === content.prefabs && hit.behaviors === content.behaviors && hit.revision <= revision) return;
+  const before = errors.length;
+  crossBlockChecks({ revision, entities: [] }, content as unknown as ContentCatalog, errors as ModelErrorV2[], undefined, true, false);
+  if (errors.length === before) cleanContent.set(content.assets, { prefabs: content.prefabs, behaviors: content.behaviors, revision });
+}
+
+/** The asset, prefab and behavior lists `composeContentChecks` found clean, and at which revision. */
+const cleanContent = new WeakMap<object, { prefabs: object; behaviors: object; revision: number }>();
 
 // ---- cross-block checks --------------------------------------
 
@@ -310,14 +332,17 @@ function crossBlockChecks(
   cc: ContentCatalog,
   errors: ModelErrorV2[],
   ctxIn?: BehaviorCheckContext,
+  contentPart = true,
+  scenePart = true,
 ): void {
-  const assetIds = ctxIn?.assetIds ?? new Set(cc.assets.map((a) => a.assetId));
+  const assetIds = ctxIn?.assetIds ?? derivedOf(cc.assets, 'id-set', () => new Set(cc.assets.map((a) => a.assetId)));
   const entityIds = ctxIn?.entityIds ?? new Set(ss.entities.map((e) => e.id));
-  const behaviors = ctxIn?.behaviors ?? new Map(cc.behaviors.map((b) => [b.behaviorId, b.declaration.properties]));
+  const behaviors = ctxIn?.behaviors ?? derivedOf(cc.behaviors, 'declarations', () => new Map(cc.behaviors.map((b) => [b.behaviorId, b.declaration.properties])));
+  const prefabById = derivedOf(cc.prefabs, 'by-id', () => new Map(cc.prefabs.map((d) => [d.prefabId, d])));
   const ctx: BehaviorCheckContext = { behaviors, assetIds, entityIds };
 
   // Check 1: every scene model reference resolves.
-  ss.entities.forEach((e, i) => {
+  if (scenePart) ss.entities.forEach((e, i) => {
     const model = e.components.model;
     if (model && !assetIds.has(model.asset.assetId)) {
       errors.push(
@@ -336,10 +361,10 @@ function crossBlockChecks(
   });
 
   // Check 2: behavior ids/values in the scene and inside definitions.
-  ss.entities.forEach((e, i) => {
+  if (scenePart) ss.entities.forEach((e, i) => {
     checkBehaviorValues(e.components.behavior, `/entities/${i}/components/behavior`, errors, ctx, 'scene');
   });
-  cc.prefabs.forEach((d, di) => {
+  if (contentPart) cc.prefabs.forEach((d, di) => {
     const localIds = new Set(d.entities.map((e) => e.localId));
     const defCtx: BehaviorCheckContext = { behaviors, assetIds, entityIds, localIds };
     d.entities.forEach((e, ei) => {
@@ -348,10 +373,10 @@ function crossBlockChecks(
   });
 
   // Check 3: prefab provenance resolves to a definition + localId.
-  ss.entities.forEach((e, i) => {
+  if (scenePart) ss.entities.forEach((e, i) => {
     const prov = e.components.prefab;
     if (!prov) return;
-    const def = cc.prefabs.find((d) => d.prefabId === prov.prefabId);
+    const def = prefabById.get(prov.prefabId);
     if (!def || !def.entities.some((de) => de.localId === prov.localId)) {
       errors.push(
         withFound(
@@ -369,6 +394,7 @@ function crossBlockChecks(
   });
 
   // Publication revisions never exceed the revision.
+  if (!contentPart) return;
   cc.assets.forEach((a, ai) => {
     a.versions.forEach((v, vi) => {
       if (v.publishedRevision > ss.revision) {

@@ -93,7 +93,6 @@ function main(): void {
   const digest = createHash('sha256').update(FRESH_BYTES).digest('hex');
   const blobAbs = directPath(root, projectId, `sources/sha256/${digest}`);
   const sceneAbs = directPath(root, projectId, 'scenes/scene-main.json');
-  const contentAbs = directPath(root, projectId, 'content.json');
   const projectDirAbs = `${root}/projects/${projectId}`;
 
   let svc: WorkspaceService;
@@ -104,7 +103,8 @@ function main(): void {
   } else if (mode === 'env-before') {
     svc = openWorkspaceService({ root, backendId, ops: killBeforeRename(sceneAbs) });
   } else if (mode === 'publish-before') {
-    svc = openWorkspaceService({ root, backendId, ops: killBeforeRename(contentAbs) });
+    // A publication writes the asset's sidecar and content.json together: the journal is the commit point.
+    svc = openWorkspaceService({ root, backendId, ops: killBeforeRename(`${projectDirAbs}/.thirdlight/journal.json`) });
   } else if (mode === 'env-after') {
     svc = openWorkspaceService({ root, backendId, ops: killAfterDirFlush((d) => d.endsWith('scenes')) });
   } else if (mode === 'publish-after') {

@@ -10,8 +10,11 @@ A storage-v4 project is several files (`packages/workspace/src/store-v4.ts`):
 
 ```text
 project.json            manifest schemaVersion 2 (id, name, engine, createdAt)
-content.json            { storageVersion 4, type "project-content", projectId,
-                          revision, content, retry }
+content.json            { storageVersion 5, type "project-content", projectId,
+                          revision, content (the project-wide settings), retry }
+<game folder>/…         one file per resource (prefab, material, …) and a
+                        `.tlasset` sidecar holding each asset's record
+                        (this corpus has none)
 scenes/<sceneId>.json   { storageVersion 4, type "scene", projectId,
                           scene (schemaVersion 4), retry }
 retry                   { recordVersion 2, retention 128, records }

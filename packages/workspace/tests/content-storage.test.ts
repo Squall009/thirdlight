@@ -651,7 +651,7 @@ describe('content.json load refusals (workspace.md §4.5)', () => {
       return q.error?.reason;
     };
 
-    expect(reasonAfter({ ...good, storageVersion: 5 })).toBe('storage_version_unsupported');
+    expect(reasonAfter({ ...good, storageVersion: 6 })).toBe('storage_version_unsupported');
 
     const badContent = structuredClone(good) as { content: { assets: { displayName: string }[] } };
     badContent.content.assets[0]!.displayName = '';

@@ -263,7 +263,7 @@ export class ScaleBench {
     };
   }
 
-  /** One scene edit (a transform: rewrites one scene file) and one content edit (a material: rewrites content.json). */
+  /** One scene edit (a transform: rewrites one scene file) and one content edit (a material: rewrites its own file and content.json's record). */
   private async measureCommands(): Promise<void> {
     const p = this.backend.project(this.opts.projectId);
     const entities = ((await p.query('queryEntities', { limit: 50, offset: 0 }))['entities'] ?? []) as { id: string; components: Record<string, unknown> }[];
@@ -281,8 +281,10 @@ export class ScaleBench {
     // The first material as stored (the project's own file; commands only replace whole materials).
     let mat: Record<string, unknown> | undefined;
     try {
-      const file = JSON.parse(readFileSync(join(this.opts.dataRoot, 'projects', this.opts.projectId, 'content.json'), 'utf8')) as { content: { materials?: Record<string, unknown>[] } };
-      mat = file.content.materials?.[0];
+      // The index says where the material's file is (a data-root project is its own game folder).
+      const found = (await p.query('queryIndex', { kind: 'material', limit: 1 }))['entries'] as { path: string }[] | undefined;
+      const path = found?.[0]?.path;
+      if (path !== undefined) mat = (JSON.parse(readFileSync(join(this.opts.dataRoot, 'projects', this.opts.projectId, ...path.split('/')), 'utf8')) as { data: Record<string, unknown> }).data;
     } catch {
       mat = undefined;
     }

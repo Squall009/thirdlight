@@ -1,0 +1,176 @@
+/**
+ * Project resources as files (Unity's `.prefab` / `.mat`, Godot's `.tres`).
+ *
+ * Each prefab, material (and material instance), behavior, script library,
+ * graph (material functions included), UI document and theme, dialogue,
+ * timeline, effect and animator controller is its own file in the game
+ * folder, in a folder of the user's choosing (`assets/<kind>/` by default):
+ *
+ *   <folder>/<name>.<kind>.json   { "tlresource": 1, "kind", "id", "data": <the record> }
+ *
+ * The file is the truth. It carries its stable id, so a file the user moves
+ * or renames outside the editor is the same resource where the open finds it.
+ * It holds no project state (no revision, no retry records): those stay in
+ * `content.json`, which a command that writes resource files writes with
+ * them, in one transaction. `content.json` keeps the project-wide settings.
+ *
+ * In the session the records are still one content block (the command layer
+ * edits it as before); this module splits the block into files and joins the
+ * files back into it.
+ */
+import { readdirSync } from 'node:fs';
+import { join } from 'node:path';
+
+import { DEFAULT_ASSET_FOLDER, isValidSourcePath, ID_RE, parseDocumentBytes } from '@thirdlight/project-model';
+
+import { layoutProjectJson } from './project-json';
+
+/** The resource file format this build writes. */
+export const RESOURCE_FORMAT = 1;
+
+/** One kind of project resource: the content list its records live in and how its files are named. */
+export interface ResourceKind {
+  /** The `kind` a file states (also its name's second extension). */
+  readonly kind: string;
+  /** The content block's list of these records. */
+  readonly list: string;
+  /** The record's id field. */
+  readonly idKey: string;
+  /** Where a new one is written (relative to the game folder). */
+  readonly folder: string;
+}
+
+const kind = (k: string, list: string, idKey: string, folder: string): ResourceKind => ({ kind: k, list, idKey, folder: `${DEFAULT_ASSET_FOLDER}/${folder}` });
+
+/** Every kind of resource stored one file each, in the content block's key order. */
+export const RESOURCE_KINDS: readonly ResourceKind[] = [
+  kind('prefab', 'prefabs', 'prefabId', 'prefabs'),
+  kind('behavior', 'behaviors', 'behaviorId', 'behaviors'),
+  kind('material', 'materials', 'materialId', 'materials'),
+  kind('animator', 'animators', 'controllerId', 'animators'),
+  kind('graph', 'graphs', 'graphId', 'graphs'),
+  kind('effect', 'effects', 'effectId', 'effects'),
+  kind('library', 'scriptLibraries', 'libraryId', 'libraries'),
+  kind('ui', 'uiDocuments', 'uiDocumentId', 'ui'),
+  kind('uitheme', 'uiThemes', 'uiThemeId', 'ui'),
+  kind('dialogue', 'dialogues', 'dialogueId', 'dialogue'),
+  kind('timeline', 'timelines', 'timelineId', 'timelines'),
+];
+
+const BY_KIND = new Map(RESOURCE_KINDS.map((k) => [k.kind, k]));
+const BY_LIST = new Map(RESOURCE_KINDS.map((k) => [k.list, k]));
+
+export function resourceKindOfList(list: string): ResourceKind | undefined {
+  return BY_LIST.get(list);
+}
+
+/** The content lists stored as resource files. */
+export const RESOURCE_LISTS: ReadonlySet<string> = new Set(RESOURCE_KINDS.map((k) => k.list));
+
+/** `<name>.<kind>.json`: the kind a file name says it holds (null: not a resource file name). */
+export function resourceKindOfName(name: string): ResourceKind | null {
+  if (!name.endsWith('.json')) return null;
+  const stem = name.slice(0, -'.json'.length);
+  const dot = stem.lastIndexOf('.');
+  if (dot <= 0) return null;
+  return BY_KIND.get(stem.slice(dot + 1)) ?? null;
+}
+
+/** Where a new resource is written: its kind's folder, named by its id. */
+export function defaultResourcePath(k: ResourceKind, id: string): string {
+  return `${k.folder}/${id}.${k.kind}.json`;
+}
+
+/** The files of the game folder are keyed apart from the project's own (`content.json`, `scenes/…`). */
+export const GAME_REL_PREFIX = '@game/';
+
+export function gameRel(path: string): string {
+  return `${GAME_REL_PREFIX}${path}`;
+}
+
+/** The game-folder path of a game-folder key (null: a project file). */
+export function gamePathOf(rel: string): string | null {
+  return rel.startsWith(GAME_REL_PREFIX) ? rel.slice(GAME_REL_PREFIX.length) : null;
+}
+
+/** An asset's sidecar (`<file>.tlasset`): it holds the asset's record, so it is a project file too. */
+export const SIDECAR_SUFFIX = '.tlasset';
+
+/** A game-folder path a project transaction writes: relative, no hidden folder, a resource file or a sidecar. */
+export function isResourcePath(path: string): boolean {
+  if (!isValidSourcePath(path)) return false;
+  const segs = path.split('/');
+  if (segs.some((s) => s.startsWith('.'))) return false;
+  const name = segs[segs.length - 1]!;
+  return resourceKindOfName(name) !== null || (name.endsWith(SIDECAR_SUFFIX) && name.length > SIDECAR_SUFFIX.length);
+}
+
+/** One resource file's bytes (the project-file layout: a diff shows one line per changed item). */
+export function resourceFileBytes(k: ResourceKind, id: string, record: unknown): Uint8Array {
+  return new TextEncoder().encode(`${layoutProjectJson({ tlresource: RESOURCE_FORMAT, kind: k.kind, id, data: record })}\n`);
+}
+
+export type ParsedResource = { ok: true; kind: ResourceKind; id: string; data: Record<string, unknown> } | { ok: false; message: string };
+
+/** Read a resource file: its format, its kind (the one its name says), its id (the one its record has). */
+export function parseResourceFile(path: string, bytes: Uint8Array): ParsedResource {
+  const named = resourceKindOfName(path.slice(path.lastIndexOf('/') + 1));
+  const parsed = parseDocumentBytes(bytes);
+  if (!parsed.ok) return { ok: false, message: `${path} is not valid JSON (${parsed.error.message})` };
+  const v = parsed.value;
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) return { ok: false, message: `${path} is not a JSON object` };
+  const d = v as Record<string, unknown>;
+  for (const key of Object.keys(d)) if (!['tlresource', 'kind', 'id', 'data'].includes(key)) return { ok: false, message: `${path}: unknown key '${key}' (a resource file holds tlresource, kind, id, data)` };
+  if (d['tlresource'] !== RESOURCE_FORMAT) return { ok: false, message: `${path}: tlresource must be ${RESOURCE_FORMAT}` };
+  const k = typeof d['kind'] === 'string' ? BY_KIND.get(d['kind']) : undefined;
+  if (k === undefined) return { ok: false, message: `${path}: unknown resource kind ${JSON.stringify(d['kind'])}` };
+  if (named !== null && named !== k) return { ok: false, message: `${path}: the file name says ${named.kind}, the file holds a ${k.kind}` };
+  const id = d['id'];
+  if (typeof id !== 'string' || !ID_RE.test(id)) return { ok: false, message: `${path}: id must use the id syntax` };
+  const data = d['data'];
+  if (typeof data !== 'object' || data === null || Array.isArray(data)) return { ok: false, message: `${path}: data must be the ${k.kind} record` };
+  if ((data as Record<string, unknown>)[k.idKey] !== id) return { ok: false, message: `${path}: the record's ${k.idKey} must equal the file's id "${id}"` };
+  return { ok: true, kind: k, id, data: data as Record<string, unknown> };
+}
+
+/** Folders deep enough for any real layout; deeper is a symlink-free cycle guard. */
+const MAX_DEPTH = 32;
+
+/** Folders the resource scan never enters (package managers' trees). */
+const SKIPPED_FOLDERS: ReadonlySet<string> = new Set(['node_modules']);
+
+/**
+ * Every resource file and every asset sidecar of the game folder (paths
+ * relative to it, sorted), by name: hidden folders, `node_modules`, symlinks
+ * and the `skip` folders (the project's own files) are not entered.
+ */
+export function scanResourceFiles(gameRoot: string, skip: (absDir: string, rel: string) => boolean): { resources: string[]; sidecars: string[] } {
+  const out: string[] = [];
+  const sidecars: string[] = [];
+  const walk = (rel: string, depth: number): void => {
+    let entries;
+    try {
+      entries = readdirSync(rel === '' ? gameRoot : join(gameRoot, ...rel.split('/')), { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      const name = e.name;
+      if (name.startsWith('.')) continue;
+      const path = rel === '' ? name : `${rel}/${name}`;
+      if (e.isDirectory()) {
+        if (depth >= MAX_DEPTH || SKIPPED_FOLDERS.has(name)) continue;
+        const abs = join(gameRoot, ...path.split('/'));
+        if (skip(abs, path)) continue;
+        walk(path, depth + 1);
+      } else if (e.isFile() && resourceKindOfName(name) !== null && isValidSourcePath(path)) {
+        // A symlinked resource file is not a file here: the editor never writes through a link.
+        out.push(path);
+      } else if (e.isFile() && name.endsWith(SIDECAR_SUFFIX) && name.length > SIDECAR_SUFFIX.length && isValidSourcePath(path)) {
+        sidecars.push(path);
+      }
+    }
+  };
+  walk('', 0);
+  return { resources: out.sort(), sidecars: sidecars.sort() };
+}

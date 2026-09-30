@@ -406,11 +406,17 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'form, box [x0,y0,z0,x1,y1,z1] its cells as [x,y,z,paletteIndex] with each value\'s effective metadata, or region (its ' +
       'boxes and cells). target="materials" (phase 25.18) pages the materials {materialId, name, graph, problems: [{nodeId?, severity, message}]} - ' +
       'a graph material\'s compile problems as the editor\'s Problems tab shows them, checked by the backend when it loads the project and after every change ' +
-      '(materialId: one; withProblems: only broken ones; total, withProblems counts). Never returns bytes.',
+      '(materialId: one; withProblems: only broken ones; total, withProblems counts). target="index" pages the project index: every asset, ' +
+      'resource (prefab, material, behavior, library, graph, ui, uitheme, dialogue, timeline, effect, animator — each its own file in the game folder) and scene ' +
+      'as {kind, id, path, name, labels, refs} (kind, id, label filter; referencing: what names that id). Never returns bytes.',
     inputSchema: {
       type: 'object',
       properties: {
-        target: { type: 'string', enum: ['assets', 'asset', 'prefabs', 'behaviors', 'integrity', 'game', 'projectFiles', 'blocks', 'materials'] },
+        target: { type: 'string', enum: ['assets', 'asset', 'prefabs', 'behaviors', 'integrity', 'game', 'projectFiles', 'blocks', 'materials', 'index'] },
+        kind: { type: 'string', description: 'target="index": one kind (an asset kind, a resource kind such as prefab or material, or scene)' },
+        id: { type: 'string', description: 'target="index": one id' },
+        label: { type: 'string', description: 'target="index": only entries with this label' },
+        referencing: { type: 'string', description: 'target="index": only the entries that reference this id (what uses it)' },
         materialId: { type: 'string', description: 'target="materials": one material' },
         check: { type: 'boolean', description: 'target="integrity": check the game folder first (moved files, changed files imported again)' },
         withProblems: { type: 'boolean', description: 'target="materials": only materials whose graph has problems' },
@@ -1153,7 +1159,20 @@ async function contentQuery(ctx: McpContext, a: Record<string, unknown>): Promis
     const res = await ctx.client.command(ctx.projectId, { op: 'queryBlocks', args });
     return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
   }
-  return toolError('target must be "assets", "asset", "prefabs", "behaviors", "integrity", "game", "projectFiles" or "blocks"');
+  // The project index: every asset, resource and scene (file, name, labels, what it references).
+  if (target === 'index') {
+    const args: Record<string, unknown> = {};
+    for (const k of ['kind', 'id', 'label', 'referencing'] as const) {
+      if (a[k] === undefined) continue;
+      if (typeof a[k] !== 'string') return toolError(`${k} must be a string`);
+      args[k] = a[k];
+    }
+    const paged = pageArgs(a);
+    if (!paged.ok) return paged.error;
+    const res = await ctx.client.command(ctx.projectId, { op: 'queryIndex', args: { ...args, ...paged.args } });
+    return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
+  }
+  return toolError('target must be "assets", "asset", "prefabs", "behaviors", "integrity", "game", "projectFiles", "blocks", "materials" or "index"');
 }
 
 function pageArgs(a: Record<string, unknown>): { ok: true; args: Record<string, unknown> } | { ok: false; error: CallToolResult } {

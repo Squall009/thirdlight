@@ -632,10 +632,10 @@ export class Projection {
       // the next full state / `queryEntity` carry the value.
       case 'setTags':
       case 'setAssetOptions':
-      case 'setMaterials':
+      case 'setMaterial':
       case 'setEnvironment':
       case 'setLighting':
-      case 'setAnimators':
+      case 'setAnimator':
       case 'setInput':
       case 'setCollisionLayers':
       // Game modes and behavior groups (tracked by the client from the change data).

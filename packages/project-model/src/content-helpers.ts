@@ -73,3 +73,24 @@ export function sortedKeys(obj: Record<string, unknown>): string[] {
 export function sortedRecord<T>(items: T[], keyOf: (item: T) => string): T[] {
   return [...items].sort((a, b) => (keyOf(a) < keyOf(b) ? -1 : keyOf(a) > keyOf(b) ? 1 : 0));
 }
+// ---- values derived from immutable lists ---------------------------------------
+
+const derived = new WeakMap<object, Map<string, unknown>>();
+
+/**
+ * A value derived from a list (an id → kind map, a set of ids), made once per
+ * list object. Documents are immutable values, so a list that is the same
+ * object holds the same records, and a command that leaves a list alone keeps
+ * the derived value for the next one.
+ */
+export function derivedOf<T>(list: object, key: string, make: () => T): T {
+  let byKey = derived.get(list);
+  if (byKey === undefined) {
+    byKey = new Map();
+    derived.set(list, byKey);
+  }
+  if (byKey.has(key)) return byKey.get(key) as T;
+  const value = make();
+  byKey.set(key, value);
+  return value;
+}

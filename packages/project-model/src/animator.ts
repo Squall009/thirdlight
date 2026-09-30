@@ -439,11 +439,11 @@ export function validateAnimatorController(value: unknown, path: string, errors:
 }
 
 /** `content.animators`. */
-export function validateAnimators(value: unknown, path: string, errors: ModelErrorV2[]): void {
+export function validateAnimators(value: unknown, path: string, errors: ModelErrorV2[], trusted?: ReadonlySet<unknown>): void {
   if (!Array.isArray(value) || value.length > MAX_ANIMATORS) return err(errors, 'field_value', path, `animators is a list of at most ${MAX_ANIMATORS}`, value);
   const ids = new Set<string>();
   value.forEach((c, i) => {
-    validateAnimatorController(c, `${path}/${i}`, errors);
+    if (!trusted?.has(c)) validateAnimatorController(c, `${path}/${i}`, errors);
     const id = isPlainObject(c) ? c['controllerId'] : undefined;
     if (typeof id === 'string') {
       if (ids.has(id)) err(errors, 'id_duplicate', `${path}/${i}/controllerId`, 'controller ids are unique', id);

@@ -157,13 +157,13 @@ export function validateScriptLibrary(value: unknown, path: string, errors: Mode
 }
 
 /** `content.scriptLibraries`: at most 32 libraries with unique ids and 1 MiB of text in total. */
-export function validateScriptLibraries(value: unknown, path: string, errors: ModelErrorV2[]): void {
+export function validateScriptLibraries(value: unknown, path: string, errors: ModelErrorV2[], trusted?: ReadonlySet<unknown>): void {
   if (!Array.isArray(value)) return err(errors, 'field_type', path, 'scriptLibraries is a list', value, 'array of script libraries');
   if (value.length > SCRIPT_LIBRARY_LIMITS.libraries) err(errors, 'limits_exceeded', path, `a project has at most ${SCRIPT_LIBRARY_LIMITS.libraries} script libraries`, value.length, `<= ${SCRIPT_LIBRARY_LIMITS.libraries}`);
   const seen = new Set<string>();
   let total = 0;
   value.forEach((l, i) => {
-    validateScriptLibrary(l, `${path}/${i}`, errors);
+    if (!trusted?.has(l)) validateScriptLibrary(l, `${path}/${i}`, errors);
     if (!isPlainObject(l)) return;
     const id = l['libraryId'];
     if (typeof id === 'string') {

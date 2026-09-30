@@ -202,12 +202,14 @@ describe('a schemaVersion 4 project with stored asset versions opened over HTTP'
     expect(sha(png)).toBe(current.get('wall')!.convertedFrom!.sourceDigest);
     expect(sha(readFileSync(join(dir(), 'assets', 'Beep.wav')))).toBe(current.get('beep')!.sourceDigest);
     const sidecar = (f: string): Record<string, unknown> => JSON.parse(readFileSync(join(dir(), 'assets', `${f}.tlasset`), 'utf8')) as Record<string, unknown>;
-    expect(sidecar('Crate.glb')).toMatchObject({ tlasset: 1, id: 'crate', kind: 'model' });
+    expect(sidecar('Crate.glb')).toMatchObject({ tlasset: 2, id: 'crate', kind: 'model' });
     expect(sidecar('Wall-checker.png')).toMatchObject({ id: 'wall', kind: 'texture', importSettings: { ktx2: 'color' } });
     expect(sidecar('Beep.wav')).toMatchObject({ id: 'beep', kind: 'audio' });
 
-    // The records keep the current version only, with its path.
-    const content = readJson('content.json')['content'] as { assets: Array<{ assetId: string; currentVersion: number; versions: Array<{ version: number; sourcePath?: string; convertedFrom?: { sourcePath?: string } }> }> };
+    // The records keep the current version only, with its path; each is in its sidecar (content.json keeps the project-wide settings).
+    type AssetRow = { assetId: string; currentVersion: number; versions: Array<{ version: number; sourcePath?: string; convertedFrom?: { sourcePath?: string } }> };
+    expect(readJson('content.json')['content']).toMatchObject({ assets: [] });
+    const content = { assets: ['Crate.glb', 'Wall-checker.png', 'Beep.wav'].map((f) => sidecar(f)['record'] as AssetRow) };
     const crateRecord = content.assets.find((a) => a.assetId === 'crate')!;
     expect(crateRecord.currentVersion).toBe(2);
     expect(crateRecord.versions).toMatchObject([{ version: 2, sourcePath: 'assets/Crate.glb' }]);

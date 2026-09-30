@@ -126,9 +126,9 @@ describe('the old modelAnimation profile moves to an animator on open', () => {
         ['run', 'Run', 0.5],
         ['airborne', 'Jump', 0.75],
       ]);
-      // On disk too (the content file carries the controller).
-      const onDisk = readFileSync(join(game, 'thirdlight', 'content.json'), 'utf8');
-      expect(onDisk).toContain('idle-run-airborne-01');
+      // On disk too: the controller is its own file in the game folder.
+      const onDisk = readFileSync(join(game, 'assets', 'animators', 'idle-run-airborne-01.animator.json'), 'utf8');
+      expect(JSON.parse(onDisk)).toMatchObject({ tlresource: 1, kind: 'animator', id: 'idle-run-airborne-01', data: { controllerId: 'idle-run-airborne-01' } });
     } finally {
       service.dispose();
     }

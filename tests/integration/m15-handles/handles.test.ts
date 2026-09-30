@@ -31,7 +31,8 @@ function fresh(): State {
   const sceneFile = JSON.parse(readFileSync(join(DIR, 'scenes', 'scene-main.json'), 'utf8')) as { scene: unknown };
   const contentFile = JSON.parse(readFileSync(join(DIR, 'content.json'), 'utf8')) as { revision: number; content: unknown };
   const scene = validateSceneV4(sceneFile.scene);
-  const content = validateContentV4(contentFile.content);
+  // content.json holds the project-wide settings; the corpus has no resource files (no prefabs or behaviors).
+  const content = validateContentV4({ prefabs: [], behaviors: [], ...(contentFile.content as object) });
   if (!scene.ok || !content.ok) throw new Error('fixture invalid');
   return createCommandState({ ...scene.normalized, revision: Math.max(scene.normalized.revision, contentFile.revision) }, content.normalized as unknown as ContentDocument) as State;
 }

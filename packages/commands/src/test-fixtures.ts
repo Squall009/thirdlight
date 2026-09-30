@@ -59,7 +59,8 @@ export function fixtureProjectV4(dir: string): { scene: SceneV4; content: Conten
   const contentFile = JSON.parse(fixtureText(`${dir}/content.json`)) as { revision: number; content: unknown };
   const scene = validateSceneV4(sceneFile.scene);
   if (!scene.ok) throw new Error(`fixture scene invalid: ${JSON.stringify(scene.errors)}`);
-  const content = validateContentV4(contentFile.content);
+  // content.json holds the project-wide settings; the corpus has no resource files (no prefabs or behaviors).
+  const content = validateContentV4({ prefabs: [], behaviors: [], ...(contentFile.content as object) });
   if (!content.ok) throw new Error(`fixture content invalid: ${JSON.stringify(content.errors)}`);
   const revision = Math.max(scene.normalized.revision, contentFile.revision);
   return {

@@ -618,7 +618,7 @@ export function validateDialogue(v: unknown, path: string, errors: ModelErrorV2[
   });
 }
 
-export function validateDialogues(v: unknown, path: string, errors: ModelErrorV2[]): void {
+export function validateDialogues(v: unknown, path: string, errors: ModelErrorV2[], trusted?: ReadonlySet<unknown>): void {
   if (!Array.isArray(v)) {
     errors.push(fieldType(path, v, 'array'));
     return;
@@ -626,7 +626,7 @@ export function validateDialogues(v: unknown, path: string, errors: ModelErrorV2
   if (v.length > DIALOGUE_LIMITS.dialogues) errors.push(withFound({ code: 'limits_exceeded', path, message: `at most ${DIALOGUE_LIMITS.dialogues} dialogues`, expected: `<= ${DIALOGUE_LIMITS.dialogues}` }, v.length));
   const ids = new Set<string>();
   v.forEach((d, i) => {
-    validateDialogue(d, `${path}/${i}`, errors);
+    if (!trusted?.has(d)) validateDialogue(d, `${path}/${i}`, errors);
     if (isObj(d) && typeof d['dialogueId'] === 'string') {
       if (ids.has(d['dialogueId'])) errors.push(withFound({ code: 'id_duplicate', path: `${path}/${i}/dialogueId`, message: 'dialogue ids are unique' }, d['dialogueId']));
       ids.add(d['dialogueId']);

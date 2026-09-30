@@ -39,7 +39,7 @@ describe('committed storage fixtures', () => {
     expect(q.ok).toBe(true);
     // The open upgraded the v3 project in place to storage v4.
     const content = JSON.parse(readFileSync(join(root, 'projects', 'demo-0003', 'content.json'), 'utf8')) as { storageVersion: number };
-    expect(content.storageVersion).toBe(4);
+    expect(content.storageVersion).toBe(5);
     const edit = {
       op: 'createEntity',
       projectId: 'demo-0003',

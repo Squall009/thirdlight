@@ -69,7 +69,7 @@ import { canonicalIssue, echoOp, echoProjectId, envelopeProjectId, envelopeReque
 import { defaultOps, listLeftoverTemps } from './write';
 import { deepFreeze } from './isolate';
 import { isV4Layout, listLeftoverTempsV4, loadV4 } from './store-v4';
-import { checkExternalV4 } from './session-v4';
+import { checkExternalV4, gameRootFor } from './session-v4';
 import {
   DEFAULT_PROCESS_MARKER,
   DEFAULT_PROC_ROOT,
@@ -742,7 +742,7 @@ function scanEntry(core: Core, name: string): ScanEntry {
   // A v4 project (one file per scene).
   if (contentExists) {
     entry.kind = 'project';
-    const l = loadV4(core.ops, dir, name);
+    const l = loadV4(core.ops, dir, name, gameRootFor(core, name, dir));
     if (l.kind === 'loaded') {
       entry.name = l.state.manifest.name;
       entry.createdAt = l.state.manifest.createdAt;

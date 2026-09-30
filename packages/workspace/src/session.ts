@@ -73,6 +73,7 @@ import {
 } from './ownership';
 import type { PendingChangeInfo, QueryResult } from './types';
 import { cleanLeftoverTempsV4, type V4State } from './store-v4';
+import type { ProjectIndex } from './project-index';
 import {
   acceptExternalV4,
   clearRecordsV4,
@@ -138,6 +139,8 @@ export interface ProjectSession {
   content: ContentCatalogV4 | null;
   /** The whole v4 project (scenes, files, per-file records); null while blocked. */
   v4?: V4State | null;
+  /** The index of every asset, resource and scene of the open v4 project (project-index.ts). */
+  index?: ProjectIndex;
   /** What the automatic v3 → v4 upgrade did at this open (for the problems log). */
   upgradeNotes?: string[];
   /** A folder's files the backend inspected for the next `importAssets` of that folder (read once by the command). */
@@ -149,8 +152,6 @@ export interface ProjectSession {
   /** Published retry records (ascending appliedRevision). */
   records: RetryRecord[];
   recordMap: Map<string, RetryRecord>;
-  /** One digest over the last known good project files. */
-  lastWrittenHash: string;
   /** Unused since storage v4 (the files are in `v4.files`); always empty. */
   envelopeBytes: Uint8Array;
   history: HistoryState;
@@ -536,7 +537,6 @@ function blockSession(
     revision: 0,
     records: [],
     recordMap: new Map(),
-    lastWrittenHash: '',
     envelopeBytes: EMPTY_BYTES,
     // A blocked session never runs a command: its history stays empty.
     history: { entries: [], cursor: 0, seq: 1 },
@@ -1272,6 +1272,8 @@ const QUERY_OPS = [
   'queryGameConfig',
   // Block-layer cells and regions.
   'queryBlocks',
+  // The project index: what the project holds and what references what.
+  'queryIndex',
 ] as const;
 type QueryOp = (typeof QUERY_OPS)[number];
 

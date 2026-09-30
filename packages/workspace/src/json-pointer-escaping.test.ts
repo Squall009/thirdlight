@@ -325,7 +325,7 @@ describe('O2 workspace audit — retry-block sites through the v4 file loader (l
     const doc = JSON.parse(new TextDecoder().decode(contentBytes)) as Record<string, unknown>;
     doc['retry'] = retry;
     writeFileSync(join(dir, 'content.json'), JSON.stringify(doc));
-    return loadV4(defaultOps, dir, 'p000');
+    return loadV4(defaultOps, dir, 'p000', dir);
   }
 
   function expectDetail(res: LoadV4Outcome, path: string): void {

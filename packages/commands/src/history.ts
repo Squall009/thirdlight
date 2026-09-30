@@ -23,7 +23,7 @@
  */
 
 import type { AnimatorController, EnvironmentConfig, InputConfig, LightingBake, MaterialDef } from '@thirdlight/project-model';
-import { withAnimators, withEnvironment, withInput, withLighting, withMaterials } from './material-ops';
+import { withAnimator, withEnvironment, withInput, withLighting, withMaterial } from './material-ops';
 import { withCollisionLayers } from './layer-ops';
 import { withSaveSchema } from './save-schema-ops';
 import { editOwnerGraph, withGraphDocument } from './graph-ops';
@@ -483,10 +483,10 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     return finish(state, bumped(scene), { ...content, scenes: after.scenes, startScenes: after.startScenes } as ContentDocument, change, entry.requestId);
   }
 
-  if (inv.kind === 'setMaterials') {
-    const before = deepClone((content as { materials?: MaterialDef[] }).materials ?? []);
-    const change: ChangeData = { type: 'setMaterials', previous: before, next: deepClone(inv.restore) };
-    return finish(state, bumped(scene), withMaterials(content, inv.restore), change, entry.requestId);
+  if (inv.kind === 'setMaterial') {
+    const now = ((content as { materials?: MaterialDef[] }).materials ?? []).find((m) => m.materialId === inv.materialId);
+    const change: ChangeData = { type: 'setMaterial', materialId: inv.materialId, previous: now !== undefined ? deepClone(now) : null, next: inv.restore === null ? null : deepClone(inv.restore) };
+    return finish(state, bumped(scene), withMaterial(content, inv.materialId, inv.restore), change, entry.requestId);
   }
 
   if (inv.kind === 'setEnvironment') {
@@ -601,10 +601,10 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     return finish(state, bumped(scene), withEffect(content, inv.effectId, inv.restore), change, entry.requestId);
   }
 
-  if (inv.kind === 'setAnimators') {
-    const before = deepClone((content as { animators?: AnimatorController[] }).animators ?? []);
-    const change: ChangeData = { type: 'setAnimators', previous: before, next: deepClone(inv.restore) };
-    return finish(state, bumped(scene), withAnimators(content, inv.restore), change, entry.requestId);
+  if (inv.kind === 'setAnimator') {
+    const now = ((content as { animators?: AnimatorController[] }).animators ?? []).find((c) => c.controllerId === inv.controllerId);
+    const change: ChangeData = { type: 'setAnimator', controllerId: inv.controllerId, previous: now !== undefined ? deepClone(now) : null, next: inv.restore === null ? null : deepClone(inv.restore) };
+    return finish(state, bumped(scene), withAnimator(content, inv.controllerId, inv.restore), change, entry.requestId);
   }
 
   if (inv.kind === 'setLighting') {
@@ -994,10 +994,10 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     return finish(state, bumped(scene), { ...content, scenes: after.scenes, startScenes: after.startScenes } as ContentDocument, change, entry.requestId);
   }
 
-  if (f.type === 'setMaterials') {
-    const before = deepClone((content as { materials?: MaterialDef[] }).materials ?? []);
-    const change: ChangeData = { type: 'setMaterials', previous: before, next: deepClone(f.next) };
-    return finish(state, bumped(scene), withMaterials(content, f.next), change, entry.requestId);
+  if (f.type === 'setMaterial') {
+    const now = ((content as { materials?: MaterialDef[] }).materials ?? []).find((m) => m.materialId === f.materialId);
+    const change: ChangeData = { type: 'setMaterial', materialId: f.materialId, previous: now !== undefined ? deepClone(now) : null, next: f.next === null ? null : deepClone(f.next) };
+    return finish(state, bumped(scene), withMaterial(content, f.materialId, f.next), change, entry.requestId);
   }
 
   if (f.type === 'setEnvironment') {
@@ -1104,10 +1104,10 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     return finish(state, bumped(scene), withEffect(content, f.effectId, f.next), change, entry.requestId);
   }
 
-  if (f.type === 'setAnimators') {
-    const before = deepClone((content as { animators?: AnimatorController[] }).animators ?? []);
-    const change: ChangeData = { type: 'setAnimators', previous: before, next: deepClone(f.next) };
-    return finish(state, bumped(scene), withAnimators(content, f.next), change, entry.requestId);
+  if (f.type === 'setAnimator') {
+    const now = ((content as { animators?: AnimatorController[] }).animators ?? []).find((c) => c.controllerId === f.controllerId);
+    const change: ChangeData = { type: 'setAnimator', controllerId: f.controllerId, previous: now !== undefined ? deepClone(now) : null, next: f.next === null ? null : deepClone(f.next) };
+    return finish(state, bumped(scene), withAnimator(content, f.controllerId, f.next), change, entry.requestId);
   }
 
   if (f.type === 'setLighting') {

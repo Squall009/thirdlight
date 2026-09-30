@@ -629,7 +629,11 @@ function validateChangeShape(change: unknown, op: string, storageVersion: 3 | 4)
     const expected = M2_CHANGE_TYPE_BY_OP[op];
     // A graphEdit on an owner that stores its graph as its own data
     // (an animator controller) records that owner's change.
-    const alsoOk = op === 'graphEdit' && t === 'setAnimators';
+    // Records written before each material and controller became its own file carry the whole list.
+    const alsoOk =
+      (op === 'graphEdit' && (t === 'setAnimator' || t === 'setAnimators')) ||
+      ((op === 'setMaterial' || op === 'deleteMaterial') && t === 'setMaterials') ||
+      ((op === 'setAnimator' || op === 'deleteAnimator') && t === 'setAnimators');
     if (expected !== undefined && expected !== t && !alsoOk) {
       return rerr(`recorded change type does not match the recorded op '${op}'`, t, '/result/change/type');
     }
@@ -704,9 +708,11 @@ const V2_CHANGE_TYPES: readonly string[] = [
   'setSceneIndex',
   'setAssetOptions',
   'pasteEntities',
+  'setMaterial',
   'setMaterials',
   'setEnvironment',
   'setLighting',
+  'setAnimator',
   'setAnimators',
   'setInput',
   'setCollisionLayers',
@@ -808,12 +814,12 @@ const M2_CHANGE_TYPE_BY_OP: Record<string, string> = {
   setTags: 'setTags',
   setAssetOptions: 'setAssetOptions',
   pasteEntities: 'pasteEntities',
-  setMaterial: 'setMaterials',
-  deleteMaterial: 'setMaterials',
+  setMaterial: 'setMaterial',
+  deleteMaterial: 'setMaterial',
   setEnvironment: 'setEnvironment',
   setLighting: 'setLighting',
-  setAnimator: 'setAnimators',
-  deleteAnimator: 'setAnimators',
+  setAnimator: 'setAnimator',
+  deleteAnimator: 'setAnimator',
   setInput: 'setInput',
   setCollisionLayers: 'setCollisionLayers',
   setSaveSchema: 'setSaveSchema',

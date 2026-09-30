@@ -18,7 +18,7 @@ import { canonicalEnvironment, canonicalLighting, GRAPH_KINDS, graphDocumentsCon
 import { fieldValue, type CommandError } from './errors';
 import { contentOf, type OpInput } from './content-ops';
 import { deepClone, gateResultState, type OpOutcome } from './ops';
-import type { ContentDocument, SetAnimatorsChange, SetEnvironmentChange, SetInputChange, SetLightingChange, SetMaterialsChange } from './types';
+import type { ContentDocument, SetAnimatorChange, SetEnvironmentChange, SetInputChange, SetLightingChange, SetMaterialChange } from './types';
 
 type WithMaterials = ContentDocument & { materials?: MaterialDef[]; environment?: EnvironmentConfig; lighting?: Record<string, LightingBake>; animators?: AnimatorController[]; input?: InputConfig };
 
@@ -29,12 +29,12 @@ function modelError(e: ModelErrorV2, prefix: string): CommandError {
 function commit(
   input: OpInput,
   next: WithMaterials,
-  change: SetMaterialsChange | SetEnvironmentChange | SetLightingChange | SetAnimatorsChange | SetInputChange,
+  change: SetMaterialChange | SetEnvironmentChange | SetLightingChange | SetAnimatorChange | SetInputChange,
   inverse:
-    | { kind: 'setMaterials'; restore: MaterialDef[] }
+    | { kind: 'setMaterial'; materialId: string; restore: MaterialDef | null }
     | { kind: 'setEnvironment'; restore: EnvironmentConfig | null }
     | { kind: 'setLighting'; sceneId: string; restore: LightingBake | null }
-    | { kind: 'setAnimators'; restore: AnimatorController[] }
+    | { kind: 'setAnimator'; controllerId: string; restore: AnimatorController | null }
     | { kind: 'setInput'; restore: InputConfig | null },
 ): OpOutcome {
   const catalog = contentOf(input.content);
@@ -50,25 +50,26 @@ export function applySetMaterial(input: OpInput, args: { material: MaterialDef }
   // A graph material's calls resolve against the project's material functions.
   validateMaterials([args.material], '', errors, graphDocumentsContext(GRAPH_KINDS, (catalog as { graphs?: GraphDocument[] }).graphs));
   if (errors.length > 0) return { ok: false, error: modelError(errors[0] as ModelErrorV2, '/args/material') };
-  const previous = deepClone(catalog.materials ?? []);
-  const next = [...previous.filter((m) => m.materialId !== args.material.materialId), deepClone(args.material)];
-  const content: WithMaterials = { ...catalog, materials: next };
-  const out = commit(input, content, { type: 'setMaterials', previous, next: [] }, { kind: 'setMaterials', restore: previous });
-  if (out.ok) (out.op.change as SetMaterialsChange).next = deepClone(((out.op.content as WithMaterials | undefined)?.materials ?? []));
+  const id = args.material.materialId;
+  const found = (catalog.materials ?? []).find((m) => m.materialId === id);
+  const previous = found !== undefined ? deepClone(found) : null;
+  const out = commit(input, withMaterial(catalog, id, args.material) as WithMaterials, { type: 'setMaterial', materialId: id, previous, next: null }, { kind: 'setMaterial', materialId: id, restore: previous });
+  // The change carries the material as stored (canonical).
+  if (out.ok) {
+    const stored = ((out.op.content as WithMaterials | undefined)?.materials ?? []).find((m) => m.materialId === id);
+    (out.op.change as SetMaterialChange).next = stored !== undefined ? deepClone(stored) : null;
+  }
   return out;
 }
 
 export function applyDeleteMaterial(input: OpInput, args: { materialId: string }): OpOutcome {
   const catalog = contentOf(input.content) as WithMaterials;
-  const previous = deepClone(catalog.materials ?? []);
-  if (!previous.some((m) => m.materialId === args.materialId)) {
+  const found = (catalog.materials ?? []).find((m) => m.materialId === args.materialId);
+  if (found === undefined) {
     return { ok: false, error: fieldValue('/args/materialId', args.materialId, 'an existing materialId', 'no material with this id') };
   }
-  const next = previous.filter((m) => m.materialId !== args.materialId);
-  const content: WithMaterials = { ...catalog };
-  if (next.length > 0) content.materials = next;
-  else delete content.materials;
-  return commit(input, content, { type: 'setMaterials', previous, next }, { kind: 'setMaterials', restore: previous });
+  const previous = deepClone(found);
+  return commit(input, withMaterial(catalog, args.materialId, null) as WithMaterials, { type: 'setMaterial', materialId: args.materialId, previous, next: null }, { kind: 'setMaterial', materialId: args.materialId, restore: previous });
 }
 
 export function applySetEnvironment(input: OpInput, args: { environment: EnvironmentConfig }): OpOutcome {
@@ -104,20 +105,22 @@ export function applySetAnimator(input: OpInput, args: { controller: AnimatorCon
   const errors: ModelErrorV2[] = [];
   validateAnimatorController(args.controller, '', errors);
   if (errors.length > 0) return { ok: false, error: modelError(errors[0] as ModelErrorV2, '/args/controller') };
-  const previous = deepClone(catalog.animators ?? []);
-  const next = canonicalAnimators([...previous.filter((c) => c.controllerId !== args.controller.controllerId), deepClone(args.controller)]);
-  return commit(input, withAnimators(catalog, next) as WithMaterials, { type: 'setAnimators', previous, next }, { kind: 'setAnimators', restore: previous });
+  const id = args.controller.controllerId;
+  const found = (catalog.animators ?? []).find((c) => c.controllerId === id);
+  const previous = found !== undefined ? deepClone(found) : null;
+  const next = canonicalAnimators([args.controller])[0]!;
+  return commit(input, withAnimator(catalog, id, next) as WithMaterials, { type: 'setAnimator', controllerId: id, previous, next: deepClone(next) }, { kind: 'setAnimator', controllerId: id, restore: previous });
 }
 
 /** Remove a controller (refused while an animator still uses it — the resulting-state check reports it). */
 export function applyDeleteAnimator(input: OpInput, args: { controllerId: string }): OpOutcome {
   const catalog = contentOf(input.content) as WithMaterials;
-  const previous = deepClone(catalog.animators ?? []);
-  if (!previous.some((c) => c.controllerId === args.controllerId)) {
+  const found = (catalog.animators ?? []).find((c) => c.controllerId === args.controllerId);
+  if (found === undefined) {
     return { ok: false, error: fieldValue('/args/controllerId', args.controllerId, 'an existing controllerId', 'no animator controller with this id') };
   }
-  const next = previous.filter((c) => c.controllerId !== args.controllerId);
-  return commit(input, withAnimators(catalog, next) as WithMaterials, { type: 'setAnimators', previous, next }, { kind: 'setAnimators', restore: previous });
+  const previous = deepClone(found);
+  return commit(input, withAnimator(catalog, args.controllerId, null) as WithMaterials, { type: 'setAnimator', controllerId: args.controllerId, previous, next: null }, { kind: 'setAnimator', controllerId: args.controllerId, restore: previous });
 }
 
 /** Replace the input actions (null = back to the defaults). */
@@ -141,17 +144,30 @@ export function withInput(content: ContentDocument, value: InputConfig | null): 
   return c;
 }
 
-export function withAnimators(content: ContentDocument, list: AnimatorController[]): ContentDocument {
+/**
+ * The block with one record of a list set (null: removed). The list's other
+ * records stay the same objects: the model trusts what an edit left as it
+ * was, and the workspace writes only the records that changed.
+ */
+function withRecord<T>(list: readonly T[] | undefined, same: (r: T) => boolean, record: T | null): T[] {
+  const rest = (list ?? []).filter((r) => !same(r));
+  return record === null ? rest : [...rest, deepClone(record)];
+}
+
+/** Set or remove one animator controller (the list's others unchanged). */
+export function withAnimator(content: ContentDocument, controllerId: string, controller: AnimatorController | null): ContentDocument {
   const c = { ...(content as WithMaterials) };
-  if (list.length > 0) c.animators = deepClone(list);
+  const list = withRecord(c.animators, (x) => x.controllerId === controllerId, controller);
+  if (list.length > 0) c.animators = list;
   else delete c.animators;
   return c;
 }
 
-/** Restore a materials list or an environment block (undo/redo of the ops above). */
-export function withMaterials(content: ContentDocument, list: MaterialDef[]): ContentDocument {
+/** Set or remove one material (the list's others unchanged). */
+export function withMaterial(content: ContentDocument, materialId: string, material: MaterialDef | null): ContentDocument {
   const c = { ...(content as WithMaterials) };
-  if (list.length > 0) c.materials = deepClone(list);
+  const list = withRecord(c.materials, (x) => x.materialId === materialId, material);
+  if (list.length > 0) c.materials = list;
   else delete c.materials;
   return c;
 }

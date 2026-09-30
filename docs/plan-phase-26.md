@@ -589,3 +589,82 @@ Proposed targets for "Done when" (fixed in 26.14 from these numbers):
   protocol's and now is it. An import's change carries its records; one larger
   than a WebSocket message (1 MiB) makes the editor re-read the project, as
   any oversized change does.
+- 2026-09-30 (26.4 A): storage left `buildService` first: the v4 command
+  commit (`command-v4.ts`), project creation on disk (`project-create.ts`) and
+  the request envelope (`request-envelope.ts`); typed readers
+  (`content-shapes.ts`: `commandContentOf`, `catalogV4Of`, `sceneV4Of`, the
+  workspace's own `CommandError`s) replace the `as unknown as` casts on the
+  content and scene shapes the commit rewrites (`service.ts` 1,849 → 875 lines).
+- 2026-09-30 (26.4 A): resources as files. Each prefab, behavior, material
+  (instances included), animator controller, graph (material functions
+  included), effect, script library, UI document, UI theme, dialogue and
+  timeline is `<folder>/<id>.<kind>.json` in the game folder
+  (`{tlresource: 1, kind, id, data}`, the project-file layout), default
+  folder `assets/<kind>/` (`resource-files.ts`, `RESOURCE_KINDS`). The open
+  finds them by name anywhere in the game folder (hidden folders,
+  `node_modules` and the project's own files skipped), so a file moved or
+  renamed outside the editor is the same resource; two files with one id
+  block the open naming both. `content.json` (storageVersion 5) keeps the
+  project-wide settings, the revision and the retry records: resource files
+  hold no project state, so a command that writes resources writes
+  `content.json` with them in one journaled transaction (a scene edit still
+  writes its scene file alone). Environment presets stay inside
+  `environment` for now: their order is the author's (not by id), and a
+  file per preset needs that order stored (part B). Scenes stay
+  `scenes/<id>.json` in the project folder (user folders for scenes: part B
+  with 26.13's moves).
+- 2026-09-30 (26.4 A): the asset catalog records move to the sidecars, which
+  become the truth (Unity's `.meta` role): `.tlasset` format 2 carries the
+  record (`record`) next to id, kind, import settings, labels and address;
+  the open reads the assets from the sidecars, a command writes the sidecars
+  it changes in its transaction (durable, journaled with `content.json`), and
+  the file check no longer rewrites them from the catalog (it writes a
+  sidecar deleted by hand back from the session's record, as a transaction).
+  A record whose bytes are stored (no file, so no sidecar) stays in
+  `content.json`. A second sidecar naming an id is a copy unless its record
+  names the file it stands next to. Sidecars are tracked like project files
+  for writes but not polled by the external-change check: a file moved with
+  its sidecar outside the editor is the file check's (it follows it, as in
+  26.3), and removing a sidecar that already moved is not a conflict. A
+  packed texture's sidecar names its sources by id only (their paths were a
+  copy that went stale on a move). The rejected alternative, keeping the
+  records in a persisted index, is one file rewritten by every asset command.
+- 2026-09-30 (26.4 A): the phase's one format bump covers it: a v4 project
+  (and a 5 written by 26.3, whose `content.json` still holds everything)
+  opens, and the open writes the resource files, the sidecars and a
+  storageVersion 5 `content.json` in one transaction. A layout change alone
+  keeps the revision (no document changed; retry records stay valid); the
+  schemaVersion 4 → 5 asset upgrade still takes one revision. The command
+  corpus (`fixtures/commands`) was re-derived for storageVersion 5 (its
+  projects hold no resources); the recorded replays and the v4 fixture's
+  replay still match.
+- 2026-09-30 (26.4 A): the index (`project-index.ts`, the Asset Registry's
+  role): every asset, resource and scene with kind, id, path, name, labels
+  and the ids it references, and who references each id; built at the open,
+  updated in place from each command's result by identity (a list or record
+  the command left alone is not read). References are any string equal to a
+  project id (an asset's: its default materials, rig and packed layers), so
+  the index answers "what may use this"; the model's rules decide what must
+  resolve. Query `queryIndex {kind?, id?, label?, referencing?, limit ≤ 1024,
+  offset}` (HTTP) and MCP `tl_content_query {target: "index"}`; the bench
+  finds its material through it. Paging the other queries from it is 26.8's.
+- 2026-09-30 (26.4 A): a command validates what it touched. The model's
+  `validateContentV4(doc, previous)` trusts a block it normalized before:
+  a list or record the command left as the same object is not validated or
+  canonicalized again, and the cross-reference rules run only when a section
+  they read changed (D61's per-asset scan is gone with it: the derived id and
+  kind maps are made once per list, `derivedOf`). The per-scene composition
+  and each scene's reference rules are kept with the scene and the content
+  sections they read (a material edited in place keeps its id set, so scenes
+  that only map materials are not composed again); the content block's own
+  cross-block rules run once per project, not per scene. The no-change check
+  compares canonical blocks key by key and record by record. The 1 MiB
+  content cap now applies per resource record and to the project-wide part
+  (the unit that is a file), as 26.5 planned for the whole content; the
+  prefab cap is unchanged.
+- 2026-09-30 (26.4 A): `setMaterial`/`deleteMaterial` and
+  `setAnimator`/`deleteAnimator` (and a controller's `graphEdit`) record the
+  one record before and after (`setMaterial`/`setAnimator` changes and
+  inverses), not the whole list: the retry record, the change feed and undo
+  no longer carry every material. Stored records of the old shape still
+  validate; the editor applies the new ones by id.

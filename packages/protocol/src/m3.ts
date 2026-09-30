@@ -135,7 +135,8 @@ export const V3_SCENE_KEYS = ['schemaVersion', 'sceneId', 'revision', 'entities'
 export const V3_MUTATION_OPS: readonly V3MutationOp[] = ['applySurfacePreset', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setCollisionLayers', 'setSaveSchema', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit', 'setEffect', 'deleteEffect', 'renameEffect', 'setScriptLibrary', 'deleteScriptLibrary', 'editBlocks', 'setBlockType', 'deleteBlockType', 'setCellFields', 'setBlockStamp', 'deleteBlockStamp', 'setUiDocument', 'deleteUiDocument', 'setUiTheme', 'deleteUiTheme', 'setTimeline', 'deleteTimeline', 'setModes', 'setBehaviorGroups', 'setEventCues', 'setShell', 'setDialogue', 'deleteDialogue', 'setSpeaker', 'deleteSpeaker', 'setDialogueSettings', 'deleteAsset', 'deletePrefab', 'importAssets', 'createEntities', 'commitScriptLibraryStage'];
 /** The v3 query op. */
 // queryBlocks reads block-layer cells and regions.
-export const V3_QUERY_OPS: readonly string[] = ['queryGameConfig', 'queryBlocks'];
+// queryIndex reads the project index (assets, resources and scenes, what references what).
+export const V3_QUERY_OPS: readonly string[] = ['queryGameConfig', 'queryBlocks', 'queryIndex'];
 
 /** The change-record types a v3 `mutation.applied` frame may carry. */
 export const CHANGE_TYPES = [
@@ -157,10 +158,10 @@ export const CHANGE_TYPES = [
   'setSceneIndex',
   'setAssetOptions',
   'pasteEntities',
-  'setMaterials',
+  'setMaterial',
   'setEnvironment',
   'setLighting',
-  'setAnimators',
+  'setAnimator',
   'setInput',
   'setCollisionLayers',
   'setSaveSchema',

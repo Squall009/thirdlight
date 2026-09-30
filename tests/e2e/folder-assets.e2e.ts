@@ -153,9 +153,12 @@ test('import a .glb from the project folder, place, reload, restart, Play, expor
   await expect(page.locator('.tl-assets__source')).toHaveText('file: assets/props/crate.glb');
   // Referenced in place: recorded with its path, nothing copied into the project.
   // Read as JSON: the file's layout (one list item per line) is not the fact under test.
+  // The record is in the sidecar next to the file (the game folder's own).
   const sourcePaths = (): string[] => {
-    const doc = JSON.parse(readFileSync(join(meadow, 'thirdlight', 'content.json'), 'utf8')) as { content: { assets: { versions: { sourcePath?: string }[] }[] } };
-    return doc.content.assets.flatMap((a) => a.versions.map((v) => v.sourcePath ?? ''));
+    const at = join(meadow, 'assets', 'props', 'crate.glb.tlasset');
+    if (!existsSync(at)) return [];
+    const doc = JSON.parse(readFileSync(at, 'utf8')) as { record?: { versions: { sourcePath?: string }[] } };
+    return (doc.record?.versions ?? []).map((v) => v.sourcePath ?? '');
   };
   await expect.poll(sourcePaths).toContain('assets/props/crate.glb');
   const blobs = join(meadow, 'thirdlight', 'sources', 'sha256');
@@ -213,7 +216,7 @@ test('import a .glb from the project folder, place, reload, restart, Play, expor
   await expect(page.getByRole('list', { name: 'Asset files' })).toHaveCount(0);
   await page.screenshot({ path: join(SHOTS, '4-problems-changed.png') });
   // The sidecar next to the file names the asset.
-  expect(JSON.parse(readFileSync(`${file}.tlasset`, 'utf8'))).toMatchObject({ tlasset: 1, id: expect.any(String), kind: 'model' });
+  expect(JSON.parse(readFileSync(`${file}.tlasset`, 'utf8'))).toMatchObject({ tlasset: 2, id: expect.any(String), kind: 'model', record: { kind: 'model' } });
   await page.getByRole('tab', { name: 'Scene' }).click();
 
   // Play and export now use the new bytes.

@@ -418,11 +418,16 @@ export type SceneIndexArgs =
   | { op: 'deleteScene'; sceneId: string }
   | { op: 'setStartScenes'; sceneIds: string[] };
 
-/** `setMaterial`/`deleteMaterial` change data: the whole materials list before and after. */
-export interface SetMaterialsChange {
-  type: 'setMaterials';
-  previous: MaterialDef[];
-  next: MaterialDef[];
+/**
+ * `setMaterial`/`deleteMaterial` change data: the one material before and
+ * after (null: none). Each material is its own file; a change carries only
+ * what it changed, however many materials the project has.
+ */
+export interface SetMaterialChange {
+  type: 'setMaterial';
+  materialId: string;
+  previous: MaterialDef | null;
+  next: MaterialDef | null;
 }
 
 /** `setEnvironment` change data (null = no environment block). */
@@ -432,11 +437,12 @@ export interface SetEnvironmentChange {
   next: EnvironmentConfig | null;
 }
 
-/** `setAnimator`/`deleteAnimator` change data (the whole list before and after). */
-export interface SetAnimatorsChange {
-  type: 'setAnimators';
-  previous: AnimatorController[];
-  next: AnimatorController[];
+/** `setAnimator`/`deleteAnimator` (and a `graphEdit` of a controller) change data: the one controller before and after (null: none). */
+export interface SetAnimatorChange {
+  type: 'setAnimator';
+  controllerId: string;
+  previous: AnimatorController | null;
+  next: AnimatorController | null;
 }
 
 /**
@@ -975,10 +981,10 @@ export type ChangeData =
   | SetTagsChange
   | SetAssetOptionsChange
   | PasteEntitiesChange
-  | SetMaterialsChange
+  | SetMaterialChange
   | SetEnvironmentChange
   | SetLightingChange
-  | SetAnimatorsChange
+  | SetAnimatorChange
   | SetInputChange
   | SetCollisionLayersChange
   | SetSaveSchemaChange
@@ -1023,10 +1029,10 @@ export type ForwardChange =
   | SetTagsChange
   | SetAssetOptionsChange
   | PasteEntitiesChange
-  | SetMaterialsChange
+  | SetMaterialChange
   | SetEnvironmentChange
   | SetLightingChange
-  | SetAnimatorsChange
+  | SetAnimatorChange
   | SetInputChange
   | SetCollisionLayersChange
   | SetSaveSchemaChange
@@ -1155,10 +1161,11 @@ export interface MoveEntitiesInverse {
   restore: readonly { id: string; parentId: string | null; transform: TransformComponent | null }[];
 }
 
-/** Undo of a material op: restore the whole previous list. */
-export interface SetMaterialsInverse {
-  kind: 'setMaterials';
-  restore: MaterialDef[];
+/** Undo of a material op: put the one material back as it was (null: none). */
+export interface SetMaterialInverse {
+  kind: 'setMaterial';
+  materialId: string;
+  restore: MaterialDef | null;
 }
 
 /** Undo of `setEnvironment`: restore the previous block (null = none). */
@@ -1167,10 +1174,11 @@ export interface SetEnvironmentInverse {
   restore: EnvironmentConfig | null;
 }
 
-/** Undo of `setAnimator`/`deleteAnimator`: restore the previous list. */
-export interface SetAnimatorsInverse {
-  kind: 'setAnimators';
-  restore: AnimatorController[];
+/** Undo of `setAnimator`/`deleteAnimator` (and a controller's `graphEdit`): put the one controller back as it was (null: none). */
+export interface SetAnimatorInverse {
+  kind: 'setAnimator';
+  controllerId: string;
+  restore: AnimatorController | null;
 }
 
 
@@ -1241,10 +1249,10 @@ export type InverseSpec =
   | SetEventCuesInverse
   | SetShellInverse
   | SetTimelineInverse
-  | SetMaterialsInverse
+  | SetMaterialInverse
   | SetEnvironmentInverse
   | SetLightingInverse
-  | SetAnimatorsInverse
+  | SetAnimatorInverse
   | SetInputInverse
   | SetCollisionLayersInverse
   | SetSaveSchemaInverse

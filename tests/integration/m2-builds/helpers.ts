@@ -6,7 +6,7 @@
  * `behavior-build` compiler. Nothing is mocked where the contract requires real
  * behavior.
  */
-import { cpSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { cpSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -123,7 +123,28 @@ const SCENE_REL = join('scenes', 'scene-main.json');
  */
 export function envelopeBytes(env: BuildEnv): Uint8Array {
   const dir = join(env.root, 'projects', env.project);
-  return new Uint8Array(Buffer.concat([readFileSync(join(dir, CONTENT_REL)), readFileSync(join(dir, SCENE_REL))]));
+  const resources = resourceFiles(dir).map((f) => readFileSync(join(dir, f)));
+  return new Uint8Array(Buffer.concat([readFileSync(join(dir, CONTENT_REL)), readFileSync(join(dir, SCENE_REL)), ...resources]));
+}
+
+/** The project's resource files (a data-root project is its own game folder: `assets/<kind>/<id>.<kind>.json`), sorted. */
+function resourceFiles(dir: string): string[] {
+  const out: string[] = [];
+  const walk = (rel: string): void => {
+    let names: string[];
+    try {
+      names = readdirSync(join(dir, rel));
+    } catch {
+      return;
+    }
+    for (const name of names) {
+      const path = `${rel}/${name}`;
+      if (statSync(join(dir, path)).isDirectory()) walk(path);
+      else if (/\.[a-z]+\.json$/.test(name)) out.push(path);
+    }
+  };
+  walk('assets');
+  return out.sort();
 }
 
 /**
@@ -141,5 +162,14 @@ export function envelopeJson(env: BuildEnv): {
     content: { behaviors: { behaviorId: string; source: unknown }[]; behaviorTrust: { entries: { sourceDigest: string }[] } };
   };
   const scene = JSON.parse(readFileSync(join(dir, SCENE_REL), 'utf8')) as { scene: { revision: number } };
-  return { scene: { revision: Math.max(content.revision, scene.scene.revision) }, content: content.content };
+  // The resources are files of their own: each goes back into its content list.
+  const lists: Record<string, string> = { behavior: 'behaviors', library: 'scriptLibraries', prefab: 'prefabs', material: 'materials' };
+  const joined = { behaviors: [], ...content.content } as Record<string, unknown>;
+  for (const f of resourceFiles(dir)) {
+    const r = JSON.parse(readFileSync(join(dir, f), 'utf8')) as { kind: string; data: unknown };
+    const key = lists[r.kind];
+    if (key === undefined) continue;
+    joined[key] = [...((joined[key] as unknown[] | undefined) ?? []), r.data];
+  }
+  return { scene: { revision: Math.max(content.revision, scene.scene.revision) }, content: joined as typeof content.content };
 }

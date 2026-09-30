@@ -1,6 +1,6 @@
 {
   "indexVersion": 2,
-  "storage": "v4: project.json (manifest schemaVersion 5), content.json (storageVersion 4, type project-content), scenes/<sceneId>.json (storageVersion 4, type scene, scene schemaVersion 4)",
+  "storage": "v4: project.json (manifest schemaVersion 5), content.json (storageVersion 5, type project-content: project-wide settings; resources are files), scenes/<sceneId>.json (storageVersion 4, type scene, scene schemaVersion 4)",
   "contracts": {
     "commands": "docs/contracts/commands.md",
     "workspace": "docs/contracts/workspace.md (storage v4: packages/workspace/src/store-v4.ts)",

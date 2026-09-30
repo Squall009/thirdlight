@@ -325,7 +325,7 @@ describe('real SIGKILL at the blob / v4 file boundaries', () => {
     const ex = await runChild('publish-after', root, 'tb-' + '6'.repeat(32));
     expect(ex.signal, ex.stdout).toBe('SIGKILL');
     // publishAsset writes content.json alone: the new revision and the record live there.
-    expect(contentFile(root).storageVersion).toBe(4);
+    expect(contentFile(root).storageVersion).toBe(5);
     expect(contentFile(root).revision).toBe(4);
     expect(contentFile(root).retry.records.map((x) => x.requestId)).toContain('req-' + 'c'.repeat(32));
     expect(sceneFile(root).scene.revision).toBe(3);

@@ -5,7 +5,7 @@
  * (the on-demand open) and runs one content-store / asset-files operation on
  * its session; none of them changes authoritative state (only commands do).
  */
-import { statSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 import type { CommandError } from '@thirdlight/commands';
@@ -32,7 +32,6 @@ import {
   sidecarPath,
   writeHeader,
   writeImported,
-  writeSidecar,
   headerKey,
   type ImportHeader,
   type ImportKey,
@@ -74,8 +73,8 @@ import {
 import { pathRejected, projectNotFound, projectUnavailable } from './errors';
 import { scanAssetFolder, writeUploadedFile, type FolderImportScan, type PreparedImportFile } from './folder-import';
 import { deepFreeze } from './isolate';
-import { sha256Hex } from './digest';
 import { ensureSession, type Core, type ProjectSession } from './session';
+import { restoreSidecars } from './session-v4';
 
 /** The session as the content-store operations need it. */
 export function contentCtx(s: ProjectSession): ContentContext {
@@ -118,18 +117,6 @@ export type AssetFilesResult =
   | { ok: true; entries: AssetFileEntry[]; sidecarProblems: string[] }
   | { ok: false; error: CommandError };
 
-/** Sidecars known to be written as the catalog says, by path and file stamp (a check skips them). */
-const sidecarStamps = new Map<string, string>();
-
-function stampOf(abs: string): string | null {
-  try {
-    const st = statSync(abs);
-    return `${st.size}:${st.mtimeMs}:${st.ino}`;
-  } catch {
-    return null;
-  }
-}
-
 export function contentOps(core: Core) {
   /** Resolve the project for a content operation (the on-demand open). */
   function withOpenSession<T>(projectId: string, fn: (s: ProjectSession) => T, missing: (e: CommandError) => T): T {
@@ -166,6 +153,7 @@ export function contentOps(core: Core) {
       }
       const entries: AssetFileEntry[] = [];
       const sidecarProblems: string[] = [];
+      const lost: RecordLike[] = [];
       const root = assetRoot(ctx);
       for (const r of records) {
         const v = currentVersionOf(r);
@@ -196,20 +184,10 @@ export function contentOps(core: Core) {
         if (v.packedFrom !== undefined) entry.packed = true;
         if (animatedIds.has(r.assetId)) entry.animated = true;
         entries.push(entry);
-        if (file !== null && status !== 'missing' && status !== 'unreadable') {
-          const abs = join(root, ...sidecarPath(file).split('/'));
-          const recordKey = sha256Hex(new TextEncoder().encode(JSON.stringify(r)));
-          const stamp = stampOf(abs);
-          if (stamp === null || sidecarStamps.get(abs) !== `${stamp}|${recordKey}`) {
-            const problem = writeSidecar(core, ctx, r, content);
-            if (problem !== null) sidecarProblems.push(`${r.assetId}: ${problem}`);
-            else {
-              const after = stampOf(abs);
-              if (after !== null) sidecarStamps.set(abs, `${after}|${recordKey}`);
-            }
-          }
-        }
+        // The file is there but its sidecar (the record's file) is not: it is written again.
+        if (file !== null && status !== 'missing' && status !== 'unreadable' && !existsSync(join(root, ...sidecarPath(file).split('/')))) lost.push(r);
       }
+      sidecarProblems.push(...restoreSidecars(core, s, lost));
       return { ok: true, entries, sidecarProblems };
     }) as AssetFilesResult;
   }

@@ -214,7 +214,7 @@ describe('durable content.json write (workspace.md §5.3; storage v4)', () => {
     // (only the files a transaction changes are written).
     const onDisk = JSON.parse(readFileSync(contentPath(root), 'utf8')) as Record<string, unknown>;
     expect(Object.keys(onDisk)).toEqual(['storageVersion', 'type', 'projectId', 'revision', 'content', 'retry']);
-    expect(onDisk['storageVersion']).toBe(4);
+    expect(onDisk['storageVersion']).toBe(5);
     expect(onDisk['type']).toBe('project-content');
     expect(onDisk['revision']).toBe(4);
     const retry = onDisk['retry'] as { records: { requestId: string; appliedRevision: number }[] };

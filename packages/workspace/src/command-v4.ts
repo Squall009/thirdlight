@@ -18,8 +18,8 @@ import { mintImportItems } from './folder-import';
 import { contentCtx } from './service-content';
 import { libraryStageFacts, preparedFactsOf } from './behavior';
 import { contentQuotaExceeded, externalChangeUnreadable, externalChangeUnresolved, pathRejected, writeFailed } from './errors';
-import { writeTransaction, type V4State } from './store-v4';
-import { changedFiles, detectExternalChangeV4, publishV4, setPendingUnreadableV4 } from './session-v4';
+import { withUntrackedSidecars, writeTransaction, type V4State } from './store-v4';
+import { changedFiles, detectExternalChangeV4, gameRootOf, publishV4, setPendingUnreadableV4 } from './session-v4';
 import { pendingInfo, type Core, type ProjectSession } from './session';
 import { envelopeRequestId, failRequest } from './request-envelope';
 import { catalogV4Of, commandContentOf, crossSceneEntities, projectRuleError, sceneMissing, sceneNotEmpty, sceneV4Of } from './content-shapes';
@@ -230,8 +230,9 @@ export function runCommandV4(core: Core, s: ProjectSession, request: unknown, D:
   const ack: MutationSuccess = outcome.result.change.type !== 'setSceneIndex' ? { ...outcome.result, sceneId: carrierId } : outcome.result;
   const record: RetryRecord = { requestId: envelopeRequestId(request)!, digest: D, appliedRevision: newRevision, result: ack };
   const plan = changedFiles(s.projectId, state, { content: nextContent, scenes: nextScenes, revision: newRevision }, record);
-  const res = writeTransaction(core.ops, s.dir, s.thirdlightDir, s.projectId, state.files, plan.writes);
-  const nextState: V4State = { manifest: state.manifest, content: nextContent, scenes: nextScenes, revision: newRevision, files: plan.files, fileRecords: plan.fileRecords };
+  const res = writeTransaction(core.ops, s.dir, s.thirdlightDir, s.projectId, withUntrackedSidecars(core.ops, s.dir, gameRootOf(s), state.files, plan.writes), plan.writes, gameRootOf(s));
+  // The state after the write (its known files are brought up to date only once the write is done).
+  const nextState = (): V4State => ({ manifest: state.manifest, content: nextContent, scenes: nextScenes, revision: newRevision, files: plan.commitFiles(), fileRecords: plan.fileRecords, resourcePaths: plan.resourcePaths });
   if (!res.ok) {
     if ('unreadable' in res) {
       setPendingUnreadableV4(s, res.unreadable.rel);
@@ -244,11 +245,11 @@ export function runCommandV4(core: Core, s: ProjectSession, request: unknown, D:
       return failRequest(request, externalChangeUnresolved(pendingInfo(pc)));
     }
     if (res.failed.onDiskState === 'previous') return refuse(writeFailed('previous', res.failed.errno));
-    publishV4(s, nextState);
+    publishV4(s, nextState());
     s.history = outcome.state.history;
     return failRequest(request, writeFailed('new-undurable', res.failed.errno));
   }
-  publishV4(s, nextState);
+  publishV4(s, nextState());
   s.history = outcome.state.history;
   // A committed stage is done (committing it again is refused).
   if (op === 'commitScriptLibraryStage' && typeof args['stageId'] === 'string') s.libraryStages?.delete(args['stageId']);

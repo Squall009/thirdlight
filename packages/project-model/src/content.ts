@@ -53,9 +53,9 @@ import {
   withFound,
 } from './validate';
 import type { ModelErrorV2, ModelResultV2, ModelResultV3 } from './errors';
-import type { GameplaySettings, SettingsMap } from './types-v2';
+import type { BehaviorRecord, GameplaySettings, PrefabDefinition, SettingsMap } from './types-v2';
 import { validateCollisionLayers, ID_RE_V2 } from './components';
-import type { ContentCatalogV3 } from './types-v3';
+import type { AssetRecordV3, ContentCatalogV3 } from './types-v3';
 import { MAX_TAGS, type ContentCatalogV4 } from './types-v3';
 import { REMOVED_IN_PHASE_24 } from './upgrade-v24';
 import {
@@ -71,7 +71,7 @@ import {
   MAX_TEXTURE_ASSETS,
   MAX_VERSION_RECORDS,
 } from './content-limits';
-import { canonicalDocBytes, limitsError, sortedRecord } from './content-helpers';
+import { canonicalDocBytes, derivedOf, limitsError, sortedRecord } from './content-helpers';
 import { canonicalAssetV3, validateAsset } from './content-assets';
 import { canonicalPrefab, validatePrefabDefinition } from './content-prefabs';
 import { canonicalBehavior, canonicalTrust, validateBehaviorRecord, validateTrust } from './content-behaviors';
@@ -115,8 +115,13 @@ export function validateGameConfig(g: unknown, path: string, errors: ModelErrorV
  * v2 inner validators (prefabs/behaviors/settings/trust), the v3 asset-kind
  * discriminator and the bounded `game` block.
  */
-function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3): { errors: ModelErrorV2[]; doc?: ContentCatalogV3 | ContentCatalogV4 } {
+function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3, previous?: ContentCatalogV3 | ContentCatalogV4): { errors: ModelErrorV2[]; doc?: ContentCatalogV3 | ContentCatalogV4 } {
   const errors: ModelErrorV2[] = [];
+  // A block this module validated and normalized before: what the edit left
+  // as it was (the same list, the same record object) is not checked again.
+  const prev = previous !== undefined && NORMALIZED.has(previous) ? (previous as unknown as Record<string, unknown>) : undefined;
+  const same = (...keys: string[]): boolean => prev !== undefined && keys.every((k) => doc[k] === prev[k]);
+  const trusted = (key: string, ...context: string[]): ReadonlySet<unknown> | undefined => (prev !== undefined && context.every((k) => doc[k] === prev[k]) ? recordsOf(prev[key]) : undefined);
   const required = version === 4 ? KNOWN_CONTENT_FIELDS_V4 : [...KNOWN_CONTENT_FIELDS_V3];
   // A v4 content block has no `game` key.
   if (version === 4 && doc['game'] !== undefined) {
@@ -175,7 +180,8 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
 
   const assets = doc['assets'];
   let versionRecords = 0;
-  if (assets !== undefined) {
+  // An asset list the edit left as it is was counted and checked with the block before.
+  if (assets !== undefined && !same('assets')) {
     if (!Array.isArray(assets)) errors.push(fieldType('/assets', assets, 'array'));
     else {
       const modelAssets = assets.filter((a) => isPlainObject(a) && a['kind'] !== 'audio' && a['kind'] !== 'texture' && a['kind'] !== 'music' && a['kind'] !== 'font').length;
@@ -187,9 +193,11 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
       let musicAssets = 0;
       let fontAssets = 0;
       const seen = new Set<string>();
+      const known = trusted('assets');
       for (let i = 0; i < assets.length; i++) {
-        versionRecords += validateAsset(assets[i], `/assets/${i}`, errors, true);
         const a = assets[i];
+        if (known?.has(a) === true) versionRecords += (a as { versions: unknown[] }).versions.length;
+        else versionRecords += validateAsset(a, `/assets/${i}`, errors, true);
         if (isPlainObject(a)) {
           if (a['kind'] === 'audio') audioAssets += 1;
           if (a['kind'] === 'texture') textureAssets += 1;
@@ -221,19 +229,21 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
   }
 
   const prefabs = doc['prefabs'];
-  if (prefabs !== undefined) {
+  if (prefabs !== undefined && !same('prefabs')) {
     if (!Array.isArray(prefabs)) errors.push(fieldType('/prefabs', prefabs, 'array'));
     else {
       if (prefabs.length > MAX_PREFABS) errors.push(limitsError('/prefabs', 'prefabs', prefabs.length, MAX_PREFABS, `the catalog may hold at most ${MAX_PREFABS} prefab definitions`));
       const seen = new Set<string>();
+      const known = trusted('prefabs');
       for (let i = 0; i < prefabs.length; i++) {
-        validatePrefabDefinition(prefabs[i], `/prefabs/${i}`, errors, version);
         const d = prefabs[i];
+        const checked = known?.has(d) === true;
+        if (!checked) validatePrefabDefinition(d, `/prefabs/${i}`, errors, version);
         if (isPlainObject(d) && typeof d['prefabId'] === 'string') {
           if (seen.has(d['prefabId'])) errors.push(withFound({ code: 'id_duplicate', path: `/prefabs/${i}/prefabId`, message: 'prefabId is already used (first occurrence wins)', expected: 'a unique prefabId' }, d['prefabId']));
           else seen.add(d['prefabId']);
         }
-        if (isPlainObject(d) && canonicalDocBytes(d) > MAX_PREFAB_BYTES) {
+        if (!checked && isPlainObject(d) && canonicalDocBytes(d) > MAX_PREFAB_BYTES) {
           errors.push(limitsError(`/prefabs/${i}`, 'prefab_bytes', canonicalDocBytes(d), MAX_PREFAB_BYTES, 'canonical prefab definition exceeds the byte cap'));
         }
       }
@@ -241,13 +251,14 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
   }
 
   const behaviors = doc['behaviors'];
-  if (behaviors !== undefined) {
+  if (behaviors !== undefined && !same('behaviors', 'graphs')) {
     if (!Array.isArray(behaviors)) errors.push(fieldType('/behaviors', behaviors, 'array'));
     else {
       if (behaviors.length > MAX_BEHAVIORS) errors.push(limitsError('/behaviors', 'behaviors', behaviors.length, MAX_BEHAVIORS, `the catalog may hold at most ${MAX_BEHAVIORS} behavior records`));
       const seen = new Set<string>();
+      const known = trusted('behaviors', 'graphs');
       for (let i = 0; i < behaviors.length; i++) {
-        validateBehaviorRecord(behaviors[i], `/behaviors/${i}`, errors, version, doc['graphs']);
+        if (known?.has(behaviors[i]) !== true) validateBehaviorRecord(behaviors[i], `/behaviors/${i}`, errors, version, doc['graphs']);
         const b = behaviors[i];
         if (isPlainObject(b) && typeof b['behaviorId'] === 'string') {
           if (seen.has(b['behaviorId'])) errors.push(withFound({ code: 'id_duplicate', path: `/behaviors/${i}/behaviorId`, message: 'behaviorId is already used (first occurrence wins)', expected: 'a unique behaviorId' }, b['behaviorId']));
@@ -258,37 +269,37 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
   }
 
   const settings = doc['settings'];
-  if (settings !== undefined) validateSettings(settings, '/settings', errors);
+  if (settings !== undefined && !same('settings')) validateSettings(settings, '/settings', errors);
 
   // A missing behaviorTrust is reported once, by the required-key check above.
-  if (doc['behaviorTrust'] !== undefined) validateTrust(doc['behaviorTrust'], '/behaviorTrust', errors);
+  if (doc['behaviorTrust'] !== undefined && !same('behaviorTrust')) validateTrust(doc['behaviorTrust'], '/behaviorTrust', errors);
 
   const game = doc['game'];
   if (version === 3 && game !== undefined && game !== null) validateGameConfig(game, '/game', errors);
 
-  if (doc['tags'] !== undefined) validateTagRegistry(doc['tags'], '/tags', errors);
+  if (doc['tags'] !== undefined && !same('tags')) validateTagRegistry(doc['tags'], '/tags', errors);
 
   // v4: project materials, the asset default mappings and the environment.
   // A graph material may call material functions (standalone graphs).
-  if (doc['materials'] !== undefined) {
-    validateMaterials(doc['materials'], '/materials', errors, graphDocumentsContext(GRAPH_KINDS, doc['graphs']));
+  if (doc['materials'] !== undefined && !same('materials', 'graphs')) {
+    validateMaterials(doc['materials'], '/materials', errors, graphDocumentsContext(GRAPH_KINDS, doc['graphs']), trusted('materials', 'graphs'));
     // Instances against their parents (the whole list).
     validateMaterialInstances(doc['materials'], '/materials', errors);
   }
-  if (doc['environment'] !== undefined) validateEnvironment(doc['environment'], '/environment', errors);
-  if (doc['lighting'] !== undefined) validateLighting(doc['lighting'], '/lighting', errors);
-  if (doc['animators'] !== undefined) validateAnimators(doc['animators'], '/animators', errors);
-  if (doc['input'] !== undefined) validateInput(doc['input'], '/input', errors);
+  if (doc['environment'] !== undefined && !same('environment')) validateEnvironment(doc['environment'], '/environment', errors);
+  if (doc['lighting'] !== undefined && !same('lighting')) validateLighting(doc['lighting'], '/lighting', errors);
+  if (doc['animators'] !== undefined && !same('animators')) validateAnimators(doc['animators'], '/animators', errors, trusted('animators'));
+  if (doc['input'] !== undefined && !same('input')) validateInput(doc['input'], '/input', errors);
   // The level flow was deleted (the game shell, content.shell, is the generic menus and scene list).
   if (doc['flow'] !== undefined) errors.push(withFound({ code: 'field_unexpected', path: '/flow', message: `content.flow (the level flow and its menus) was ${REMOVED_IN_PHASE_24} (menus: the game shell, content.shell)`, expected: 'no flow' } as ModelErrorV2, 'flow'));
   // Standalone graph documents.
-  if (doc['graphs'] !== undefined) validateGraphDocuments(GRAPH_KINDS, doc['graphs'], '/graphs', errors);
+  if (doc['graphs'] !== undefined && !same('graphs')) validateGraphDocuments(GRAPH_KINDS, doc['graphs'], '/graphs', errors);
   // Visual effects.
-  if (doc['effects'] !== undefined) validateEffects(doc['effects'], '/effects', errors);
+  if (doc['effects'] !== undefined && !same('effects')) validateEffects(doc['effects'], '/effects', errors, trusted('effects'));
   // Shared script libraries (v4) and the behavior pins that name them.
-  if (version === 4 && doc['scriptLibraries'] !== undefined) validateScriptLibraries(doc['scriptLibraries'], '/scriptLibraries', errors);
+  if (version === 4 && doc['scriptLibraries'] !== undefined && !same('scriptLibraries')) validateScriptLibraries(doc['scriptLibraries'], '/scriptLibraries', errors, trusted('scriptLibraries'));
   // Block types, the cell metadata schema and stamps (v4), and their references.
-  if (version === 4) {
+  if (version === 4 && !same('blockTypes', 'cellFields', 'blockStamps')) {
     const before = errors.length;
     if (doc['blockTypes'] !== undefined) validateBlockTypes(doc['blockTypes'], '/blockTypes', errors);
     if (doc['cellFields'] !== undefined) validateCellFields(doc['cellFields'], '/cellFields', errors);
@@ -296,57 +307,59 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
     if (errors.length === before && (doc['blockTypes'] !== undefined || doc['blockStamps'] !== undefined)) composeBlockContent(doc as unknown as BlockContentView, errors);
   }
   // The named collision layers (v4).
-  if (version === 4 && doc['collisionLayers'] !== undefined) validateCollisionLayers(doc['collisionLayers'], '/collisionLayers', errors);
+  if (version === 4 && doc['collisionLayers'] !== undefined && !same('collisionLayers')) validateCollisionLayers(doc['collisionLayers'], '/collisionLayers', errors);
   // The project save schema (v4).
-  if (version === 4 && doc['saveSchema'] !== undefined) validateSaveSchema(doc['saveSchema'], '/saveSchema', errors);
-  validateLibraryPinReferences(doc, errors);
+  if (version === 4 && doc['saveSchema'] !== undefined && !same('saveSchema')) validateSaveSchema(doc['saveSchema'], '/saveSchema', errors);
+  if (!same('behaviors', 'scriptLibraries')) validateLibraryPinReferences(doc, errors);
   // Project UI documents and themes (v4), and what they reference.
   // A document's action map may be one of the project's own maps (input.maps).
-  if (version === 4 && doc['uiDocuments'] !== undefined) validateUiDocuments(doc['uiDocuments'], '/uiDocuments', errors, projectInputMaps(doc['input']));
-  if (version === 4 && doc['uiThemes'] !== undefined) validateUiThemes(doc['uiThemes'], '/uiThemes', errors);
+  if (version === 4 && doc['uiDocuments'] !== undefined && !same('uiDocuments', 'input')) validateUiDocuments(doc['uiDocuments'], '/uiDocuments', errors, projectInputMaps(doc['input']), trusted('uiDocuments', 'input'));
+  if (version === 4 && doc['uiThemes'] !== undefined && !same('uiThemes')) validateUiThemes(doc['uiThemes'], '/uiThemes', errors, trusted('uiThemes'));
   // Dialogue (v4): conversations, the speaker registry, the settings.
-  if (version === 4 && doc['dialogues'] !== undefined) validateDialogues(doc['dialogues'], '/dialogues', errors);
-  if (version === 4 && doc['speakers'] !== undefined) validateSpeakers(doc['speakers'], '/speakers', errors);
-  if (version === 4 && doc['dialogueSettings'] !== undefined) validateDialogueSettings(doc['dialogueSettings'], '/dialogueSettings', errors);
-  if (version === 4 && errors.length === 0) {
+  if (version === 4 && doc['dialogues'] !== undefined && !same('dialogues')) validateDialogues(doc['dialogues'], '/dialogues', errors, trusted('dialogues'));
+  if (version === 4 && doc['speakers'] !== undefined && !same('speakers')) validateSpeakers(doc['speakers'], '/speakers', errors);
+  if (version === 4 && doc['dialogueSettings'] !== undefined && !same('dialogueSettings')) validateDialogueSettings(doc['dialogueSettings'], '/dialogueSettings', errors);
+  if (version === 4 && errors.length === 0 && !same('assets', 'input', 'modes', 'uiDocuments', 'uiThemes', 'dialogues', 'speakers', 'dialogueSettings')) {
     // The page draws UI images and portraits (<img>), which cannot show a KTX2 (a GPU texture).
-    const kinds = new Map((Array.isArray(doc['assets']) ? (doc['assets'] as unknown[]) : []).filter(isPlainObject).map((a) => [a['assetId'], ktx2TextureIds(doc).has(a['assetId'] as string) ? KTX2_TEXTURE_KIND : a['kind']] as const));
+    const kinds = imageKindsOf(doc['assets']);
     validateUiReferences(doc, errors, (id) => kinds.get(id));
     if (doc['dialogues'] !== undefined || doc['speakers'] !== undefined || doc['dialogueSettings'] !== undefined) validateDialogueReferences(doc, errors, (id) => kinds.get(id));
   }
   // The event → cue table (v4) and its sounds.
-  if (version === 4 && doc['eventCues'] !== undefined) {
+  if (version === 4 && doc['eventCues'] !== undefined && !same('eventCues', 'assets')) {
     const before = errors.length;
     validateEventCues(doc['eventCues'], '/eventCues', errors);
     if (errors.length === before) {
-      const kinds = new Map((Array.isArray(doc['assets']) ? (doc['assets'] as unknown[]) : []).filter(isPlainObject).map((a) => [a['assetId'], a['kind'] ?? 'model'] as const));
+      const kinds = assetKindsOf(doc['assets']);
       validateEventCueReferences(doc, errors, (id) => kinds.get(id));
     }
   }
   // The game shell (v4): its screens' and HUD's UI documents.
-  if (version === 4 && doc['shell'] !== undefined) {
+  if (version === 4 && doc['shell'] !== undefined && !same('shell', 'uiDocuments')) {
     const before = errors.length;
     validateShell(doc['shell'], '/shell', errors);
     if (errors.length === before) validateShellReferences(doc, errors);
   }
   // Game modes and behavior groups (v4), and what the modes reference.
-  if (version === 4 && doc['behaviorGroups'] !== undefined) validateBehaviorGroups(doc['behaviorGroups'], '/behaviorGroups', errors);
-  if (version === 4 && doc['modes'] !== undefined) {
+  if (version === 4 && doc['behaviorGroups'] !== undefined && !same('behaviorGroups')) validateBehaviorGroups(doc['behaviorGroups'], '/behaviorGroups', errors);
+  if (version === 4 && doc['modes'] !== undefined && !same('modes', 'behaviorGroups', 'input', 'uiDocuments')) {
     const before = errors.length;
     validateModes(doc['modes'], '/modes', errors);
     if (errors.length === before) validateModeReferences(doc, errors);
   }
   // Timelines (v4) and what their keys name (audio assets, effects, materials).
-  if (version === 4 && doc['timelines'] !== undefined) {
+  if (version === 4 && doc['timelines'] !== undefined && !same('timelines', 'assets', 'effects', 'materials', 'modes')) {
     const before = errors.length;
-    validateTimelines(doc['timelines'], '/timelines', errors);
+    if (!same('timelines')) validateTimelines(doc['timelines'], '/timelines', errors, trusted('timelines'));
     if (errors.length === before) {
-      const kinds = new Map((Array.isArray(doc['assets']) ? (doc['assets'] as unknown[]) : []).filter(isPlainObject).map((a) => [a['assetId'], a['kind'] ?? 'model'] as const));
+      const kinds = assetKindsOf(doc['assets']);
       const ids = (key: string, idKey: string): Set<string> => new Set((Array.isArray(doc[key]) ? (doc[key] as unknown[]) : []).filter(isPlainObject).map((x) => String(x[idKey])));
       validateTimelineReferences(doc['timelines'] as TimelineAsset[], '/timelines', errors, { assetKind: (id) => kinds.get(id), effectIds: ids('effects', 'effectId'), materialIds: ids('materials', 'materialId'), modeIds: ids('modes', 'modeId') });
     }
   }
-  if (version === 4) validateMaterialReferences(doc, errors);
+  if (version === 4 && !same('assets', 'materials', 'graphs', 'effects', 'environment', 'input', 'animators', 'lighting', 'scenes')) {
+    validateMaterialReferences(doc, errors, prev === undefined || !same('assets') || !sameIds(prev['materials'], doc['materials'], 'materialId'));
+  }
   else if (Array.isArray(doc['assets'])) {
     // Clips-only assets are v4 data (v3 projects upgrade on open).
     (doc['assets'] as unknown[]).forEach((a, i) => {
@@ -355,14 +368,14 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
   }
 
   if (errors.length > 0) return { errors };
-  const canonical = canonicalContentV3(doc as unknown as ContentCatalogV3 | ContentCatalogV4);
+  const canonical = canonicalContentV3(doc as unknown as ContentCatalogV3 | ContentCatalogV4, prev as unknown as ContentCatalogV3 | ContentCatalogV4 | undefined);
   if (version === 4) {
-    (canonical as ContentCatalogV4).scenes = (doc['scenes'] as { sceneId: string; name: string }[]).map((e) => ({ sceneId: e.sceneId, name: e.name }));
-    (canonical as ContentCatalogV4).startScenes = [...(doc['startScenes'] as string[])];
+    (canonical as ContentCatalogV4).scenes = same('scenes') ? (prev!['scenes'] as ContentCatalogV4['scenes']) : (doc['scenes'] as { sceneId: string; name: string }[]).map((e) => ({ sceneId: e.sceneId, name: e.name }));
+    (canonical as ContentCatalogV4).startScenes = same('startScenes') ? (prev!['startScenes'] as string[]) : [...(doc['startScenes'] as string[])];
   }
-  if (canonicalDocBytes(canonical) > MAX_CONTENT_BYTES) {
-    return { errors: [limitsError('/content', 'content_bytes', canonicalDocBytes(canonical), MAX_CONTENT_BYTES, 'canonical content block exceeds the byte cap')] };
-  }
+  const over = contentBytesOver(canonical as unknown as Record<string, unknown>, prev);
+  if (over !== null) return { errors: [over] };
+  NORMALIZED.add(canonical);
   return { errors, doc: canonical };
 }
 
@@ -409,62 +422,187 @@ export function validateTagRegistry(tags: unknown, path: string, errors: ModelEr
 }
 
 /** Canonical v3 content block (fixed six-key order, `game` last; v4 content has no `game`). */
-export function canonicalContentV3<T extends ContentCatalogV3 | ContentCatalogV4>(c: T): T {
-  const v4 = (c as ContentCatalogV4).scenes !== undefined;
-  return {
-    assets: sortedRecord(c.assets, (a) => a.assetId).map(canonicalAssetV3),
-    prefabs: sortedRecord(c.prefabs, (d) => d.prefabId).map(canonicalPrefab),
-    behaviors: sortedRecord(c.behaviors, (b) => b.behaviorId).map(canonicalBehavior),
-    settings: canonicalSettings(c.settings),
-    behaviorTrust: canonicalTrust(c.behaviorTrust),
-    ...(v4 ? {} : { game: null }),
-    // v4 only — the scene index and the start set.
-    ...((c as ContentCatalogV4).scenes !== undefined ? { scenes: (c as ContentCatalogV4).scenes.map((e) => ({ sceneId: e.sceneId, name: e.name })) } : {}),
-    ...((c as ContentCatalogV4).startScenes !== undefined ? { startScenes: [...(c as ContentCatalogV4).startScenes] } : {}),
-    // Present only when the project defines tags.
-    ...(c.tags !== undefined && c.tags.length > 0
-      ? { tags: [...c.tags].sort((a, b) => a.bit - b.bit).map((t) => ({ bit: t.bit, name: t.name })) }
-      : {}),
-    // Present only when there are materials / environment settings.
-    ...((c as ContentCatalogV4).materials !== undefined && (c as ContentCatalogV4).materials!.length > 0 ? { materials: canonicalMaterials((c as ContentCatalogV4).materials!) } : {}),
-    ...((c as ContentCatalogV4).environment !== undefined ? { environment: canonicalEnvironment((c as ContentCatalogV4).environment!) } : {}),
-    // Present only when there are controllers.
-    ...((c as ContentCatalogV4).animators !== undefined && (c as ContentCatalogV4).animators!.length > 0 ? { animators: canonicalAnimators((c as ContentCatalogV4).animators!) } : {}),
-    // Present only when the project has its own input actions.
-    ...((c as ContentCatalogV4).input !== undefined ? { input: canonicalInput((c as ContentCatalogV4).input!) } : {}),
-    // Present only when there are standalone graphs.
-    ...((c as ContentCatalogV4).graphs !== undefined && (c as ContentCatalogV4).graphs!.length > 0 ? { graphs: canonicalGraphDocuments((c as ContentCatalogV4).graphs!) } : {}),
-    // Present only when there are effects.
-    ...((c as ContentCatalogV4).effects !== undefined && (c as ContentCatalogV4).effects!.length > 0 ? { effects: canonicalEffects((c as ContentCatalogV4).effects!) } : {}),
-    // Present only when there are script libraries.
-    ...((c as ContentCatalogV4).scriptLibraries !== undefined && (c as ContentCatalogV4).scriptLibraries!.length > 0 ? { scriptLibraries: canonicalScriptLibraries((c as ContentCatalogV4).scriptLibraries!) } : {}),
-    // Present only when there are block types / cell fields / stamps.
-    ...((c as ContentCatalogV4).blockTypes !== undefined && (c as ContentCatalogV4).blockTypes!.length > 0 ? { blockTypes: canonicalBlockTypes((c as ContentCatalogV4).blockTypes!) } : {}),
-    ...((c as ContentCatalogV4).cellFields !== undefined && (c as ContentCatalogV4).cellFields!.length > 0 ? { cellFields: canonicalCellFields((c as ContentCatalogV4).cellFields!) } : {}),
-    ...((c as ContentCatalogV4).blockStamps !== undefined && (c as ContentCatalogV4).blockStamps!.length > 0 ? { blockStamps: canonicalBlockStamps((c as ContentCatalogV4).blockStamps!) } : {}),
-    // Present only when there are UI documents / themes.
-    ...((c as ContentCatalogV4).uiDocuments !== undefined && (c as ContentCatalogV4).uiDocuments!.length > 0 ? { uiDocuments: canonicalUiDocuments((c as ContentCatalogV4).uiDocuments!) } : {}),
-    ...((c as ContentCatalogV4).uiThemes !== undefined && (c as ContentCatalogV4).uiThemes!.length > 0 ? { uiThemes: canonicalUiThemes((c as ContentCatalogV4).uiThemes!) } : {}),
-    // Present only when the project has game modes / behavior groups.
-    ...((c as ContentCatalogV4).modes !== undefined && (c as ContentCatalogV4).modes!.length > 0 ? { modes: canonicalModes((c as ContentCatalogV4).modes!) } : {}),
-    ...((c as ContentCatalogV4).behaviorGroups !== undefined && (c as ContentCatalogV4).behaviorGroups!.length > 0 ? { behaviorGroups: [...(c as ContentCatalogV4).behaviorGroups!] } : {}),
-    // Present only when the project names collision layers.
-    ...((c as ContentCatalogV4).collisionLayers !== undefined && (c as ContentCatalogV4).collisionLayers!.length > 0 ? { collisionLayers: [...(c as ContentCatalogV4).collisionLayers!] } : {}),
-    // Present only when the project declares a save schema.
-    ...((c as ContentCatalogV4).saveSchema !== undefined ? { saveSchema: canonicalSaveSchema((c as ContentCatalogV4).saveSchema!) } : {}),
-    // Present only when there are conversations / speakers / dialogue settings.
-    ...((c as ContentCatalogV4).dialogues !== undefined && (c as ContentCatalogV4).dialogues!.length > 0 ? { dialogues: canonicalDialogues((c as ContentCatalogV4).dialogues!) } : {}),
-    ...((c as ContentCatalogV4).speakers !== undefined && (c as ContentCatalogV4).speakers!.length > 0 ? { speakers: canonicalSpeakers((c as ContentCatalogV4).speakers!) } : {}),
-    ...((c as ContentCatalogV4).dialogueSettings !== undefined ? { dialogueSettings: canonicalDialogueSettings((c as ContentCatalogV4).dialogueSettings!) } : {}),
-    // Present only when the project maps events to cues.
-    ...((c as ContentCatalogV4).eventCues !== undefined && (c as ContentCatalogV4).eventCues!.length > 0 ? { eventCues: canonicalEventCues((c as ContentCatalogV4).eventCues!) } : {}),
-    // Present only when the project has a shell.
-    ...((c as ContentCatalogV4).shell !== undefined ? { shell: canonicalShell((c as ContentCatalogV4).shell as GameShell) } : {}),
-    // Present only when there are timelines.
-    ...((c as ContentCatalogV4).timelines !== undefined && (c as ContentCatalogV4).timelines!.length > 0 ? { timelines: canonicalTimelines((c as ContentCatalogV4).timelines!) } : {}),
-    // Present only when a scene has a bake.
-    ...((c as ContentCatalogV4).lighting !== undefined && Object.keys((c as ContentCatalogV4).lighting!).length > 0 ? { lighting: canonicalLighting((c as ContentCatalogV4).lighting!) } : {}),
-  } as unknown as T;
+export function canonicalContentV3<T extends ContentCatalogV3 | ContentCatalogV4>(c: T, previous?: T): T {
+  return canonicalContentWith(c, previous !== undefined && NORMALIZED.has(previous) ? (previous as unknown as Record<string, unknown>) : undefined);
+}
+
+/** The records of a list, as a set (built once per list: lists are immutable values). */
+const recordSets = new WeakMap<readonly unknown[], ReadonlySet<unknown>>();
+function recordsOf(list: unknown): ReadonlySet<unknown> | undefined {
+  if (!Array.isArray(list)) return undefined;
+  let set = recordSets.get(list);
+  if (set === undefined) {
+    set = new Set(list);
+    recordSets.set(list, set);
+  }
+  return set;
+}
+
+/**
+ * Content blocks this module validated and normalized. Documents are
+ * immutable values: a later validation given one of these as its previous
+ * block trusts the lists and records the new block still shares with it.
+ */
+const NORMALIZED = new WeakSet<object>();
+
+/** Whether a content block is one this module validated and normalized (a trusted previous block). */
+export function isNormalizedContent(c: unknown): boolean {
+  return typeof c === 'object' && c !== null && NORMALIZED.has(c);
+}
+
+/** The lists whose records are each a project resource (a file of its own), capped one by one. */
+const RESOURCE_LISTS = ['assets', 'prefabs', 'behaviors', 'materials', 'animators', 'graphs', 'effects', 'scriptLibraries', 'uiDocuments', 'uiThemes', 'dialogues', 'timelines'] as const;
+
+/**
+ * The byte cap applies to each resource record and to the rest of the block
+ * (the project-wide settings), not to the sum: the records are stored one
+ * file each. A record the previous block held unchanged was measured then.
+ */
+function contentBytesOver(c: Record<string, unknown>, prev: Record<string, unknown> | undefined): ModelErrorV2 | null {
+  const rest: Record<string, unknown> = {};
+  let restSame = prev !== undefined;
+  for (const [key, value] of Object.entries(c)) {
+    if ((RESOURCE_LISTS as readonly string[]).includes(key)) continue;
+    rest[key] = value;
+    if (prev === undefined || prev[key] !== value) restSame = false;
+  }
+  if (prev !== undefined) for (const key of Object.keys(prev)) if (!(RESOURCE_LISTS as readonly string[]).includes(key) && !(key in c)) restSame = false;
+  if (!restSame) {
+    const bytes = canonicalDocBytes(rest);
+    if (bytes > MAX_CONTENT_BYTES) return limitsError('/content', 'content_bytes', bytes, MAX_CONTENT_BYTES, 'canonical content block (the project-wide settings) exceeds the byte cap');
+  }
+  for (const key of RESOURCE_LISTS) {
+    const list = c[key];
+    if (!Array.isArray(list)) continue;
+    if (prev !== undefined && prev[key] === list) continue;
+    const known = prev !== undefined ? recordsOf(prev[key]) : undefined;
+    for (let i = 0; i < list.length; i++) {
+      if (known?.has(list[i]) === true) continue;
+      const bytes = canonicalDocBytes(list[i]);
+      if (bytes > MAX_CONTENT_BYTES) return limitsError(`/${key}/${i}`, 'content_bytes', bytes, MAX_CONTENT_BYTES, `canonical ${key} record exceeds the byte cap`);
+    }
+  }
+  return null;
+}
+
+/** Whether two lists of records hold the same ids (a record changed in place keeps its id). */
+function sameIds(a: unknown, b: unknown, idKey: string): boolean {
+  if (a === b) return true;
+  const x = Array.isArray(a) ? (a as Record<string, unknown>[]) : [];
+  const y = Array.isArray(b) ? (b as Record<string, unknown>[]) : [];
+  if (x.length !== y.length) return false;
+  const ids = derivedOf(x, `ids:${idKey}`, () => new Set(x.map((r) => r[idKey])));
+  return y.every((r) => ids.has(r[idKey]));
+}
+
+/** An asset's kind by id (built once per asset list). */
+function assetKindsOf(assets: unknown): ReadonlyMap<unknown, unknown> {
+  return derivedOf(Array.isArray(assets) ? assets : EMPTY_LIST, 'kinds', () => new Map((Array.isArray(assets) ? (assets as unknown[]) : []).filter(isPlainObject).map((a) => [a['assetId'], a['kind'] ?? 'model'] as const)));
+}
+
+/** An asset's kind by id as an image the page draws sees it (a KTX2 texture is its own kind). */
+function imageKindsOf(assets: unknown): ReadonlyMap<unknown, unknown> {
+  return derivedOf(Array.isArray(assets) ? assets : EMPTY_LIST, 'image-kinds', () => {
+    const ktx2 = ktx2TextureIds({ assets });
+    return new Map((Array.isArray(assets) ? (assets as unknown[]) : []).filter(isPlainObject).map((a) => [a['assetId'], ktx2.has(a['assetId'] as string) ? KTX2_TEXTURE_KIND : a['kind']] as const));
+  });
+}
+
+const EMPTY_LIST: readonly unknown[] = Object.freeze([]);
+
+/**
+ * One key of the canonical content block, in the block's key order: how it
+ * is canonicalized, and (for a list of records) the record id it is sorted by.
+ * `always`: present even when empty; otherwise a list is present only when it
+ * has records, a section only when it is set.
+ */
+interface CanonicalKey {
+  key: string;
+  canon: (value: never) => unknown;
+  idOf?: (record: never) => string;
+  always?: true;
+  present?: (value: never) => boolean;
+}
+
+const nonEmpty = (v: unknown): boolean => Array.isArray(v) && v.length > 0;
+const CANONICAL_KEYS: readonly CanonicalKey[] = [
+  { key: 'assets', canon: (l: AssetRecordV3[]) => sortedRecord(l, (a) => a.assetId).map(canonicalAssetV3), idOf: (a: AssetRecordV3) => a.assetId, always: true },
+  { key: 'prefabs', canon: (l: PrefabDefinition[]) => sortedRecord(l, (d) => d.prefabId).map(canonicalPrefab), idOf: (d: PrefabDefinition) => d.prefabId, always: true },
+  { key: 'behaviors', canon: (l: BehaviorRecord[]) => sortedRecord(l, (b) => b.behaviorId).map(canonicalBehavior), idOf: (b: BehaviorRecord) => b.behaviorId, always: true },
+  { key: 'settings', canon: canonicalSettings, always: true },
+  { key: 'behaviorTrust', canon: canonicalTrust, always: true },
+  { key: 'game', canon: () => null },
+  // v4 only — the scene index and the start set.
+  { key: 'scenes', canon: (l: { sceneId: string; name: string }[]) => l.map((e) => ({ sceneId: e.sceneId, name: e.name })) },
+  { key: 'startScenes', canon: (l: string[]) => [...l] },
+  { key: 'tags', canon: (l: { bit: number; name: string }[]) => [...l].sort((a, b) => a.bit - b.bit).map((t) => ({ bit: t.bit, name: t.name })), present: nonEmpty },
+  { key: 'materials', canon: canonicalMaterials, idOf: (m: MaterialDef) => m.materialId, present: nonEmpty },
+  { key: 'environment', canon: canonicalEnvironment },
+  { key: 'animators', canon: canonicalAnimators, idOf: (c: AnimatorController) => c.controllerId, present: nonEmpty },
+  { key: 'input', canon: canonicalInput },
+  { key: 'graphs', canon: canonicalGraphDocuments, idOf: (g: { graphId: string }) => g.graphId, present: nonEmpty },
+  { key: 'effects', canon: canonicalEffects, idOf: (e: { effectId: string }) => e.effectId, present: nonEmpty },
+  { key: 'scriptLibraries', canon: canonicalScriptLibraries, idOf: (l: ScriptLibrary) => l.libraryId, present: nonEmpty },
+  { key: 'blockTypes', canon: canonicalBlockTypes, present: nonEmpty },
+  { key: 'cellFields', canon: canonicalCellFields, present: nonEmpty },
+  { key: 'blockStamps', canon: canonicalBlockStamps, present: nonEmpty },
+  { key: 'uiDocuments', canon: canonicalUiDocuments, idOf: (d: { uiDocumentId: string }) => d.uiDocumentId, present: nonEmpty },
+  { key: 'uiThemes', canon: canonicalUiThemes, idOf: (t: { uiThemeId: string }) => t.uiThemeId, present: nonEmpty },
+  { key: 'modes', canon: canonicalModes, present: nonEmpty },
+  { key: 'behaviorGroups', canon: (l: string[]) => [...l], present: nonEmpty },
+  { key: 'collisionLayers', canon: (l: string[]) => [...l], present: nonEmpty },
+  { key: 'saveSchema', canon: canonicalSaveSchema },
+  { key: 'dialogues', canon: canonicalDialogues, idOf: (d: { dialogueId: string }) => d.dialogueId, present: nonEmpty },
+  { key: 'speakers', canon: canonicalSpeakers, present: nonEmpty },
+  { key: 'dialogueSettings', canon: canonicalDialogueSettings },
+  { key: 'eventCues', canon: canonicalEventCues, present: nonEmpty },
+  { key: 'shell', canon: (v: GameShell) => canonicalShell(v) },
+  { key: 'timelines', canon: canonicalTimelines, idOf: (t: TimelineAsset) => t.timelineId, present: nonEmpty },
+  { key: 'lighting', canon: canonicalLighting, present: (v: Record<string, unknown>) => Object.keys(v).length > 0 },
+];
+
+/**
+ * The canonical block. With a trusted previous block, a key whose value the
+ * edit left as it was keeps the previous canonical value, and in a changed
+ * list each record the edit left as it was is kept as it is (only new or
+ * changed records are canonicalized, then the list is put in id order).
+ */
+function canonicalContentWith<T extends ContentCatalogV3 | ContentCatalogV4>(c: T, prev?: Record<string, unknown>): T {
+  const src = c as unknown as Record<string, unknown>;
+  const v4 = src['scenes'] !== undefined;
+  const out: Record<string, unknown> = {};
+  for (const spec of CANONICAL_KEYS) {
+    if (spec.key === 'game') {
+      if (!v4) out['game'] = null;
+      continue;
+    }
+    const value = src[spec.key];
+    if (value === undefined) continue;
+    if (spec.always !== true && spec.present !== undefined && !spec.present(value as never)) continue;
+    const before = prev?.[spec.key];
+    if (before !== undefined && before === value) {
+      out[spec.key] = before;
+      continue;
+    }
+    if (prev !== undefined && spec.idOf !== undefined && Array.isArray(before) && Array.isArray(value)) {
+      out[spec.key] = canonicalListFrom(value, recordsOf(before)!, spec.idOf as (r: unknown) => string, spec.canon as (l: unknown[]) => unknown[]);
+      continue;
+    }
+    out[spec.key] = spec.canon(value as never);
+  }
+  return out as unknown as T;
+}
+
+/** A list with the records a trusted list already holds kept, the others canonicalized, in id order. */
+function canonicalListFrom(list: readonly unknown[], known: ReadonlySet<unknown>, idOf: (r: unknown) => string, canon: (l: unknown[]) => unknown[]): unknown[] {
+  const out = list.map((r) => (known.has(r) ? r : canon([r])[0]));
+  for (let i = 1; i < out.length; i++) {
+    if (idOf(out[i - 1]) > idOf(out[i])) {
+      out.sort((a, b) => (idOf(a) < idOf(b) ? -1 : idOf(a) > idOf(b) ? 1 : 0));
+      break;
+    }
+  }
+  return out;
 }
 
 /**
@@ -522,14 +660,18 @@ function validateLibraryPinReferences(doc: Record<string, unknown>, errors: Mode
 export const KTX2_TEXTURE_KIND = 'texture (KTX2: a GPU texture the page cannot draw as an image; import a PNG, JPEG or WebP for it)';
 
 /** The texture assets whose current version is a KTX2. */
-function ktx2TextureIds(doc: Record<string, unknown>): Set<string> {
-  const out = new Set<string>();
-  for (const a of Array.isArray(doc['assets']) ? (doc['assets'] as unknown[]) : []) {
+function ktx2TextureIds(doc: Record<string, unknown>): ReadonlySet<string> {
+  const list = doc['assets'];
+  if (!Array.isArray(list)) return new Set();
+  return derivedOf(list, 'ktx2', () => {
+    const out = new Set<string>();
+    for (const a of list as unknown[]) {
     if (!isPlainObject(a) || a['kind'] !== 'texture' || !Array.isArray(a['versions'])) continue;
     const current = (a['versions'] as unknown[]).find((v) => isPlainObject(v) && v['version'] === a['currentVersion']) as Record<string, unknown> | undefined;
     if (isPlainObject(current?.['metrics']) && current['metrics']['format'] === 'ktx2') out.add(a['assetId'] as string);
-  }
-  return out;
+    }
+    return out;
+  });
 }
 
 /**
@@ -540,23 +682,28 @@ function ktx2TextureIds(doc: Record<string, unknown>): Set<string> {
 export const TEXTURE_ARRAY_KIND = 'texture (a texture array: only graph materials read its layers; name a plain texture here)';
 
 /** The texture assets whose current version is a texture array (KTX2 with layers). */
-export function arrayTextureIds(doc: { assets?: readonly unknown[] } | Record<string, unknown>): Set<string> {
-  const out = new Set<string>();
+export function arrayTextureIds(doc: { assets?: readonly unknown[] } | Record<string, unknown>): ReadonlySet<string> {
   const list = (doc as Record<string, unknown>)['assets'];
-  for (const a of Array.isArray(list) ? (list as unknown[]) : []) {
+  if (!Array.isArray(list)) return new Set();
+  return derivedOf(list, 'texture-arrays', () => {
+    const out = new Set<string>();
+    for (const a of list as unknown[]) {
     if (!isPlainObject(a) || a['kind'] !== 'texture' || !Array.isArray(a['versions'])) continue;
     const current = (a['versions'] as unknown[]).find((v) => isPlainObject(v) && v['version'] === a['currentVersion']) as Record<string, unknown> | undefined;
     if (isPlainObject(current?.['metrics']) && typeof current['metrics']['layers'] === 'number') out.add(a['assetId'] as string);
-  }
-  return out;
+    }
+    return out;
+  });
 }
 
-function validateMaterialReferences(doc: Record<string, unknown>, errors: ModelErrorV2[]): void {
-  const assets = Array.isArray(doc['assets']) ? (doc['assets'] as unknown[]).filter(isPlainObject) : [];
-  const kindOf = new Map(assets.map((a) => [a['assetId'], a['kind']]));
+function validateMaterialReferences(doc: Record<string, unknown>, errors: ModelErrorV2[], assetRules = true): void {
+  const list = Array.isArray(doc['assets']) ? (doc['assets'] as unknown[]) : EMPTY_LIST;
+  const assets = derivedOf(list, 'records', () => list.filter(isPlainObject));
+  const kindOf = derivedOf(list, 'raw-kinds', () => new Map(assets.map((a) => [a['assetId'], a['kind']])));
+  const byId = derivedOf(list, 'by-id', () => new Map(assets.map((a) => [a['assetId'], a])));
   // Where one plain texture is read, a texture array is not one.
   const arrays = arrayTextureIds(doc);
-  const plainKindOf = new Map(assets.map((a) => [a['assetId'], arrays.has(a['assetId'] as string) ? TEXTURE_ARRAY_KIND : a['kind']]));
+  const plainKindOf = derivedOf(list, 'plain-kinds', () => new Map(assets.map((a) => [a['assetId'], arrays.has(a['assetId'] as string) ? TEXTURE_ARRAY_KIND : a['kind']])));
   const graphRefs = (kind: GraphKindDef, graph: GraphData, at: string): void => {
     const nodes = graph.nodes.filter((n) => isPlainObject(n) && typeof n.type === 'string' && (n.data === undefined || isPlainObject(n.data)));
     // A material graph samples array layers; an effect graph reads plain textures.
@@ -673,11 +820,13 @@ function validateMaterialReferences(doc: Record<string, unknown>, errors: ModelE
       });
     }
   }
+  // The asset records' own references (their rig, their default materials) only when the assets or the material ids changed.
+  if (!assetRules) return;
   // "clips for rig of <asset>" names another model of this project that is not itself a clips-only asset.
   assets.forEach((a, i) => {
     const rig = a['clipsFor'];
     if (typeof rig !== 'string') return;
-    const target = assets.find((x) => x['assetId'] === rig);
+    const target = byId.get(rig);
     if (rig === a['assetId']) errors.push(withFound({ code: 'reference_missing', path: `/assets/${i}/clipsFor`, message: 'an asset cannot hold clips for its own rig (absent = its clips are its own)', expected: 'another model assetId' }, rig));
     else if (target === undefined || target['kind'] !== 'model') errors.push(withFound({ code: 'asset_reference_missing', path: `/assets/${i}/clipsFor`, message: 'clipsFor must name a model asset of this project', expected: 'a model assetId' }, rig));
     else if (target['clipsFor'] !== undefined) errors.push(withFound({ code: 'reference_missing', path: `/assets/${i}/clipsFor`, message: 'clipsFor must name a model with its own rig, not another clips-only asset', expected: 'a model assetId without clipsFor' }, rig));
@@ -709,9 +858,16 @@ export function validateContentV3(doc: unknown): ModelResultV3<ContentCatalogV3>
  * The v4 project content block (`content.json`): v3's keys plus
  * the scene index and the required `startScenes` (no `game`).
  */
-export function validateContentV4(doc: unknown): ModelResultV3<ContentCatalogV4> {
+/**
+ * `previous`: the block this one was edited from, when it is a block this
+ * module validated (anything else is ignored): what the edit left as it was is
+ * trusted, not checked again.
+ */
+export function validateContentV4(doc: unknown, previous?: unknown): ModelResultV3<ContentCatalogV4> {
   if (!isPlainObject(doc)) return fail([fieldType('', doc, 'object')]);
-  const { errors, doc: canonical } = validateContentV3Value(doc, 4);
+  // An unchanged block is itself (a trusted previous block is valid and canonical).
+  if (isNormalizedContent(previous) && doc === previous) return { ok: true, normalized: previous as ContentCatalogV4 };
+  const { errors, doc: canonical } = validateContentV3Value(doc, 4, isNormalizedContent(previous) ? (previous as ContentCatalogV4) : undefined);
   if (errors.length > 0) return fail(errors);
   return { ok: true, normalized: canonical as ContentCatalogV4 };
 }

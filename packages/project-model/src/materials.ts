@@ -321,7 +321,7 @@ export function validateMaterialGraph(material: Record<string, unknown>, path: s
 }
 
 /** `content.materials`: at most 256 materials, unique ids, known shader params and slots. */
-export function validateMaterials(value: unknown, path: string, errors: ModelErrorV2[], graphs?: GraphContext): void {
+export function validateMaterials(value: unknown, path: string, errors: ModelErrorV2[], graphs?: GraphContext, trusted?: ReadonlySet<unknown>): void {
   if (!Array.isArray(value)) {
     err(errors, 'field_type', path, 'materials must be an array', value, 'array of materials');
     return;
@@ -332,6 +332,13 @@ export function validateMaterials(value: unknown, path: string, errors: ModelErr
     const p = `${path}/${i}`;
     if (!isPlainObject(m)) {
       err(errors, 'field_type', p, 'a material is an object', m);
+      return;
+    }
+    // A record validated before (the same object, with the same graphs) needs only its id checked against the list.
+    if (trusted?.has(m)) {
+      const tid = m['materialId'];
+      if (typeof tid === 'string' && seen.has(tid)) err(errors, 'id_duplicate', `${p}/materialId`, 'materialId is used twice', tid);
+      else if (typeof tid === 'string') seen.add(tid);
       return;
     }
     for (const k of Object.keys(m)) {

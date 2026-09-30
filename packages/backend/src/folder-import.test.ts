@@ -15,7 +15,7 @@
  *   assets: "check files" re-points every one.
  */
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -65,7 +65,21 @@ describe('folder import and upload folders over HTTP (a project in the data root
   };
   const command = (op: string, args: Record<string, unknown>) =>
     api(`${tb.authUrl}/api/v1/projects/${PID}/commands`, { body: { op, projectId: PID, expectedRevision: revision(), requestId: mkRequestId(), origin: { kind: 'mcp', clientId: 'folder-import-test' }, args }, token: tb.adminToken, origin: null });
-  const assets = (): Record_[] => (JSON.parse(readFileSync(join(dir(), 'content.json'), 'utf8')) as { content: { assets: Record_[] } }).content.assets;
+  // Each asset's record is in its sidecar (a data-root project is its own game folder).
+  const assets = (): Record_[] => {
+    const out: Record_[] = [];
+    const walk = (abs: string): void => {
+      for (const e of readdirSync(abs, { withFileTypes: true })) {
+        if (e.isDirectory()) walk(join(abs, e.name));
+        else if (e.name.endsWith('.tlasset')) {
+          const doc = JSON.parse(readFileSync(join(abs, e.name), 'utf8')) as { record?: Record_ };
+          if (doc.record !== undefined) out.push(doc.record);
+        }
+      }
+    };
+    walk(join(dir(), 'assets'));
+    return out;
+  };
   const sidecar = (rel: string): Record<string, unknown> => JSON.parse(readFileSync(join(dir(), ...`${rel}.tlasset`.split('/')), 'utf8')) as Record<string, unknown>;
   const upload = async (bytes: Uint8Array): Promise<string> => {
     const created = await api(`${tb.authUrl}/api/v1/projects/${PID}/content/stages`, { body: {}, token: tb.adminToken, origin: null });

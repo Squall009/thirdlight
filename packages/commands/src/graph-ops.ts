@@ -75,7 +75,7 @@ import {
 
 import { fieldValue, type CommandError } from './errors';
 import { contentOf, type OpInput } from './content-ops';
-import { withAnimators } from './material-ops';
+import { withAnimator } from './material-ops';
 import { effectsOf, withEffect } from './effect-ops';
 import { dialoguesOf, withDialogueValue } from './dialogue-ops';
 import { deepClone, gateResultState, type OpOutcome } from './ops';
@@ -173,11 +173,16 @@ export const GRAPH_OWNERS: Readonly<Record<string, GraphOwnerAdapter>> = {
       if (target === null || c === undefined) return { refused: 'no animator controller with this id' };
       const r = applyAnimatorGraph(c, target, graph);
       if (!r.ok) return { refused: r.message };
-      return withAnimators(content, canonicalAnimators(list.map((x) => (x.controllerId === c.controllerId ? r.controller : x))));
+      return withAnimator(content, c.controllerId, canonicalAnimators([r.controller])[0]!);
     },
     record(before, after) {
-      const previous = deepClone(animatorsOf(before));
-      return { change: { type: 'setAnimators', previous, next: deepClone(animatorsOf(after)) }, inverse: { kind: 'setAnimators', restore: previous } };
+      // The one controller the edit replaced (the list's others are the same objects).
+      const was = new Set(animatorsOf(before));
+      const edited = animatorsOf(after).find((x) => !was.has(x));
+      const id = edited?.controllerId ?? '';
+      const old = animatorsOf(before).find((x) => x.controllerId === id);
+      const previous = old !== undefined ? deepClone(old) : null;
+      return { change: { type: 'setAnimator', controllerId: id, previous, next: edited !== undefined ? deepClone(edited) : null }, inverse: { kind: 'setAnimator', controllerId: id, restore: previous } };
     },
   },
   // `<effectId>/<systemId>` — a particle system's graph.

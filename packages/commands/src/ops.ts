@@ -17,6 +17,8 @@ import {
   validateEnvelopeV3,
   validateSceneV4,
   validateContentV4,
+  isNormalizedContent,
+  composeContentChecks,
   composeSceneV4,
   type SceneV4,
   type ContentCatalogV4,
@@ -315,10 +317,14 @@ function gateResultV4(
 ): { ok: true; scene: SceneV4; content: ContentDocument } | { ok: false; error: CommandError } {
   const sv = validateSceneV4(resultScene);
   if (!sv.ok) return { ok: false, error: resultSceneError(sv.errors) };
-  const cv = validateContentV4(resultContent ?? current.content);
+  // The current block is valid and canonical: what the command left as it was is trusted.
+  const previous = current.content;
+  const cv = validateContentV4(resultContent ?? current.content, previous);
   if (!cv.ok) return { ok: false, error: resultSceneError(cv.errors) };
   const errors: ModelErrorV3[] = [];
   composeSceneV4(sv.normalized, cv.normalized, errors, sv.normalized.revision);
+  // The block's own cross-block rules, when the command changed it.
+  if (cv.normalized !== (previous as unknown)) composeContentChecks({ ...cv.normalized, game: null }, errors, sv.normalized.revision);
   if (errors.length > 0) return { ok: false, error: resultSceneError(errors) };
   const nextContent = cv.normalized as unknown as ContentDocument;
   if (stateIsNoChange(current, sv.normalized, nextContent)) return { ok: false, error: noChangeContent() };
@@ -393,10 +399,36 @@ export function contentIsNoChange(
   current: ContentDocument | undefined,
   result: ContentDocument | undefined,
 ): boolean {
+  if (current === result) return true;
+  // Two validated canonical blocks: compare what differs, key by key and record by record.
+  if (isNormalizedContent(current) && isNormalizedContent(result)) return canonicalBlocksEqual(current as unknown as Record<string, unknown>, result as unknown as Record<string, unknown>);
   const a = contentBytes(current ?? emptyContentCatalog());
   const b = contentBytes(result ?? emptyContentCatalog());
   if (a === null || b === null) return false;
   return bytesEqual(a, b);
+}
+
+/**
+ * Whether two canonical content blocks are the same bytes: shared keys and
+ * records (the same objects) are equal without being serialized; only what
+ * differs is compared as canonical JSON (key order is canonical in both).
+ */
+function canonicalBlocksEqual(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
+  const keys = Object.keys(a);
+  if (keys.length !== Object.keys(b).length) return false;
+  for (const k of keys) {
+    const x = a[k];
+    const y = b[k];
+    if (x === y) continue;
+    if (!(k in b)) return false;
+    if (Array.isArray(x) && Array.isArray(y)) {
+      if (x.length !== y.length) return false;
+      for (let i = 0; i < x.length; i++) if (x[i] !== y[i] && JSON.stringify(x[i]) !== JSON.stringify(y[i])) return false;
+      continue;
+    }
+    if (JSON.stringify(x) !== JSON.stringify(y)) return false;
+  }
+  return JSON.stringify(Object.keys(b)) === JSON.stringify(keys);
 }
 
 /**

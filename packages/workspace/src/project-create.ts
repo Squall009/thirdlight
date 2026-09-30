@@ -16,7 +16,9 @@ import { upgradeAssetsToFiles } from './upgrade-assets';
 import { blobMissing, fieldTypeError, fieldValueType, invalidRequest, projectExistsInvalid, writeFailed, type LoadDetail } from './errors';
 import { sha256Hex } from './digest';
 import { writeAtomic, type WriteOps } from './write';
-import { defaultProjectFilesV4, isV4Layout, loadV4, projectFilesFromV3, type ProjectFilesV4 } from './store-v4';
+import { absOf, defaultProjectFilesV4, isV4Layout, loadV4, projectFilesFromV3, type ProjectFilesV4 } from './store-v4';
+import { gameRootFor } from './session-v4';
+import { gamePathOf } from './resource-files';
 import { ENGINE_VERSION, ensureSession, loadEnvelopeV3, projectBaseDir, resolveContained, validateAnyManifest, type Core } from './session';
 import { validName } from './request-envelope';
 import type { CreateProjectResult, ProjectSource } from './types';
@@ -73,7 +75,7 @@ export function createProjectImpl(core: Core, projectId: string, name: string): 
     // creation the startup scan completes deterministically.
     const built = defaultProjectFilesV4(projectId, name, core.utcNow(), ENGINE_VERSION);
     if (!built.ok) return { ok: false, error: projectExistsInvalid([]) };
-    const w = writeNewProjectFiles(core, dir, built.files);
+    const w = writeNewProjectFiles(core, projectId, dir, built.files);
     if (w.kind === 'external') return convergeExisting(core, projectId);
     if (w.kind === 'failed') return { ok: false, error: writeFailed(w.onDiskState, w.errno) };
     // Claim ownership and load in memory.
@@ -174,7 +176,7 @@ export function createProjectFrom(core: Core, projectId: string, name: string, s
   if (!built.ok) {
     return { ok: false, error: invalidRequest('', undefined, 'a valid v4 project', `the template is not a valid project: ${built.message}`) };
   }
-  const w = writeNewProjectFiles(core, dir, built.files);
+  const w = writeNewProjectFiles(core, projectId, dir, built.files);
   if (w.kind !== 'ok') return { ok: false, error: writeFailed(w.kind === 'failed' ? w.onDiskState : 'previous', w.kind === 'failed' ? w.errno : undefined) };
   const o = ensureSession(core, projectId);
   if (o.kind !== 'open') return { ok: false, error: projectExistsInvalid([]) };
@@ -192,7 +194,7 @@ export function convergeExisting(core: Core, projectId: string): CreateProjectRe
   const dir = projectBaseDir(core, projectId);
   // An existing v4 project is loadable when its files validate.
   if (isV4Layout(core.ops, dir)) {
-    const l = loadV4(core.ops, dir, projectId);
+    const l = loadV4(core.ops, dir, projectId, gameRootFor(core, projectId, dir));
     if (l.kind === 'loaded') return { ok: true, created: false, revision: l.state.revision };
     return { ok: false, error: projectExistsInvalid([...l.errors]) };
   }
@@ -303,30 +305,34 @@ export function completeInterruptedCreation(
     if (res.failed && res.failed.onDiskState === 'new-undurable') continue; // on disk; durability unproven
     return false; // "previous" / unreadable: still absent — kept for the operator
   }
-  return loadV4(core.ops, dir, projectId).kind === 'loaded';
+  return loadV4(core.ops, dir, projectId, gameRootFor(core, projectId, dir)).kind === 'loaded';
 }
 
 /**
  * Write a new project's files (creation sequence, v4): `project.json`,
- * the scene file, then `content.json` — its presence makes the directory a
+ * its resource files (a template's prefabs, materials, …) in the game
+ * folder, the scene file, then `content.json` — its presence makes the directory a
  * v4 project, so a crash before it leaves an interrupted creation the startup
  * scan completes. A scene/content file that already exists is an external
  * appearance (a concurrent creator).
  */
 export function writeNewProjectFiles(
   core: Core,
+  projectId: string,
   dir: string,
   files: ProjectFilesV4,
 ): { kind: 'ok' } | { kind: 'external' } | { kind: 'failed'; onDiskState: 'previous' | 'new-undurable'; errno: string | undefined } {
-  for (const f of [files.manifest, files.scene, files.content]) {
-    const target = join(dir, f.rel);
+  const gameRoot = gameRootFor(core, projectId, dir);
+  for (const f of [files.manifest, ...files.resources, files.scene, files.content]) {
+    const target = absOf(dir, gameRoot, f.rel);
+    if (gamePathOf(f.rel) !== null) mkdirSync(dirname(target), { recursive: true, mode: 0o755 });
     const res = writeAtomic({
       dir: dirname(target),
       target,
       bytes: f.bytes as Uint8Array,
       // The manifest takes no pre-write check (races are handled by the
       // reload); the scene and content files must not exist yet.
-      allowedPreHashes: f === files.manifest ? [] : null,
+      allowedPreHashes: f === files.manifest || f.rel.endsWith('.tlasset') ? [] : null,
       previousHash: null,
       ops: core.ops,
     });

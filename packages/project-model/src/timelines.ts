@@ -482,7 +482,7 @@ export function validateTimeline(value: unknown, path: string, errors: ModelErro
 }
 
 /** `content.timelines` (each timeline's rules, unique ids, the count limit). */
-export function validateTimelines(value: unknown, path: string, errors: ModelErrorV2[]): void {
+export function validateTimelines(value: unknown, path: string, errors: ModelErrorV2[], trusted?: ReadonlySet<unknown>): void {
   if (!Array.isArray(value)) {
     err(errors, 'field_type', path, 'timelines is an array', value, 'array');
     return;
@@ -490,7 +490,7 @@ export function validateTimelines(value: unknown, path: string, errors: ModelErr
   if (value.length > TIMELINE_LIMITS.timelines) err(errors, 'limits_exceeded', path, `at most ${TIMELINE_LIMITS.timelines} timelines`, value.length, `≤ ${TIMELINE_LIMITS.timelines}`);
   const ids = new Set<string>();
   value.forEach((t, i) => {
-    validateTimeline(t, `${path}/${i}`, errors);
+    if (!trusted?.has(t)) validateTimeline(t, `${path}/${i}`, errors);
     const id = isPlainObject(t) ? t['timelineId'] : undefined;
     if (typeof id === 'string') {
       if (ids.has(id)) err(errors, 'id_duplicate', `${path}/${i}/timelineId`, 'timelineId is already used by an earlier timeline', id, 'a unique id');
