@@ -1,33 +1,31 @@
 /**
- * Asset/content browser panel (React).
+ * The Assets tab: the project window (folders, every asset, resource and
+ * scene, search, moves; ui/project/ProjectWindow.tsx), the import flow's
+ * job/failure/cancel status, and the chosen item's side panel (an asset's
+ * preview, options and placement; a resource's or scene's file, address and
+ * labels).
  *
  * Display + intent only: every action issues the typed backend command / route
- * through the session client (the sole mutation path). The panel shows the
- * bounded query page, the import flow's job/failure/cancel status, the local
- * clip preview controls and the placement availability. No decorative or graph
- * UI (decision 0001 scope guard).
+ * through the session client (the sole mutation path).
  *
  * Browser-only (React).
  */
-import { useEffect, useRef, useState, type DragEvent, type JSX, type ReactNode } from 'react';
-import { ASSET_KINDS } from '@thirdlight/project-model/limits';
-import type { AssetView } from '../session/content-projection';
+import { useEffect, useRef, useState, type JSX, type ReactNode } from 'react';
 import type { IndexEntryView } from '../session/catalog';
-import { ASSET_DRAG_TYPE } from '../session/placement';
+import type { ProjectItem } from '../session/project-items';
 import type { AssetImportState } from '../session/asset-browser';
 import type { TileThumbnails } from '../viewport/thumbnails';
 import { useAssetSummaries, useCatalog } from './catalog/catalog-context';
 import { EntryName, TEXTURE_KINDS } from './catalog/RefPicker';
-import { useIndexList } from './catalog/useIndexList';
-import { VirtualList } from './catalog/VirtualList';
-import { TileImage } from './assets/TileImage';
 import type { AnimationRoleKey } from '../session/media';
 import { TexturePackForm, type PackRequest } from './TexturePackForm';
 import { AudioAssetOptions } from './AudioAssetOptions';
 import { TextureAssetOptions } from './TextureAssetOptions';
 import type { AssetOptionActions } from './useAssetOptions';
-import { LabelsBar, LoadableFields } from './LoadableFields';
+import { LoadableFields } from './LoadableFields';
 import type { LoadingNameActions } from './useLoadingNames';
+import { ProjectWindow } from './project/ProjectWindow';
+import type { ProjectCommands } from './project/useProjectCommands';
 
 export interface AssetPreviewView {
   assetId: string;
@@ -93,89 +91,56 @@ interface Props {
   importExtra?: ReactNode;
   /** Addresses and labels: the selected asset's in its side panel, labels on a multi-selection. */
   loading?: LoadingNameActions;
+  /** The project window's folder (null: All assets); new items and uploads go into it. */
+  folder: string | null;
+  onFolder: (folder: string | null) => void;
+  /** Open an item's editor (a double-click). */
+  onOpenItem: (item: ProjectItem) => void;
+  /** Moves, folder renames and new folders. */
+  projectCommands: ProjectCommands;
 }
-
-/** The asset kinds the list shows (the project's asset files; resources have their own panels). */
-const ASSET_LIST_KINDS: readonly string[] = ASSET_KINDS;
-/** A tile's width (the grid's narrowest column), its height plus the gap, the gap, the list's padding (px; editor.css). */
-const TILE_MIN_WIDTH = 112;
-const TILE_STRIDE = 120;
-const TILE_GAP = 8;
-const TILE_PADDING = 8;
 
 const BUSY = new Set(['staging', 'uploading', 'inspecting', 'publishing']);
 
-/** One asset tile (its summary read by id while it is on screen). */
-function AssetTile(p: {
-  e: IndexEntryView;
-  selected: boolean;
-  chosen: boolean;
-  pieces: readonly { name: string }[] | null;
-  open: boolean;
-  thumbnails: TileThumbnails | null;
-  onChoose: (ev: { ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }, assetId: string) => void;
-  onToggle: (assetId: string) => void;
-  onDragStart: (ev: DragEvent<HTMLLIElement>, assetId: string, kind: string, piece: string | null) => void;
-}): JSX.Element {
-  const [a] = useAssetSummaries([p.e.id]);
-  const kind = p.e.kind;
-  const multi = kind === 'model' && p.pieces !== null && p.pieces.length >= 2;
-  const draggable = kind === 'model' || kind === 'texture';
-  return (
-    <li
-      className={p.selected || p.chosen ? 'tl-tile is-selected' : 'tl-tile'}
-      aria-selected={p.chosen || p.selected}
-      onClick={(ev) => p.onChoose(ev, p.e.id)}
-      title={kind === 'model' ? `${p.e.name} — drag into the scene or hierarchy` : p.e.id}
-      data-asset-id={p.e.id}
-      draggable={draggable}
-      onDragStart={draggable ? (ev) => p.onDragStart(ev, p.e.id, kind, null) : undefined}
-    >
-      <span className={`tl-tile__icon tl-tile__icon--${kind}`} aria-hidden="true">
-        <TileImage summary={a} kind={kind} piece={null} thumbnails={p.thumbnails} />
-      </span>
-      <span className="tl-tile__name">{p.e.name}</span>
-      <span className="tl-tile__meta" title={a !== undefined ? `${a.versionCount} version(s)${a.sourcePath !== undefined ? ` · ${a.sourcePath}` : ''}` : (p.e.path ?? '')}>
-        {kind}
-        {a !== undefined ? ` · v${a.currentVersion}` : ''}
-        {multi && (
-          <button
-            className="tl-tile__pieces"
-            aria-expanded={p.open}
-            aria-label={`${p.open ? 'hide' : 'show'} the ${p.pieces!.length} pieces of ${p.e.name}`}
-            title={`${p.pieces!.length} pieces — each can be dragged on its own`}
-            onClick={(ev) => {
-              ev.stopPropagation();
-              p.onToggle(p.e.id);
-            }}
-          >
-            {p.open ? '▾' : '▸'} {p.pieces!.length}
-          </button>
-        )}
-      </span>
-    </li>
-  );
+/** An index entry as the index has it now (read again whenever the index changed: labels change with commands). */
+function useFreshEntry(entry: IndexEntryView): IndexEntryView {
+  const { catalog, version } = useCatalog();
+  const [fresh, setFresh] = useState<IndexEntryView>(entry);
+  const { kind, id } = entry;
+  useEffect(() => {
+    if (catalog === null) return;
+    let live = true;
+    void catalog.entries([id], [kind]).then((list) => {
+      const found = list[0];
+      if (live && found !== undefined) setFresh(found);
+    });
+    return () => {
+      live = false;
+    };
+  }, [catalog, version, kind, id]);
+  return fresh.kind === kind && fresh.id === id ? fresh : entry;
 }
 
-/** One piece tile of an expanded model file. */
-function PieceTile(p: { assetId: string; name: string; fileName: string; thumbnails: TileThumbnails | null; onSelect: (assetId: string) => void; onDragStart: (ev: DragEvent<HTMLLIElement>, assetId: string, kind: string, piece: string | null) => void }): JSX.Element {
-  const [a] = useAssetSummaries([p.assetId]);
+/** A resource or scene chosen in the project window: its file, and its address and labels. */
+function ItemSide(p: { entry: IndexEntryView; loading?: LoadingNameActions; onOpen: (item: ProjectItem) => void }): JSX.Element {
+  const e = useFreshEntry(p.entry);
   return (
-    <li
-      className="tl-tile tl-tile--piece"
-      title={`${p.name} (piece of ${p.fileName}) — drag into the scene or hierarchy`}
-      data-asset-id={p.assetId}
-      data-piece={p.name}
-      draggable
-      onClick={() => p.onSelect(p.assetId)}
-      onDragStart={(ev) => p.onDragStart(ev, p.assetId, 'model', p.name)}
-    >
-      <span className="tl-tile__icon tl-tile__icon--model" aria-hidden="true">
-        <TileImage summary={a} kind="model" piece={p.name} thumbnails={p.thumbnails} />
-      </span>
-      <span className="tl-tile__name">{p.name}</span>
-      <span className="tl-tile__meta">piece</span>
-    </li>
+    <div className="tl-assets__preview" data-testid="item-side" data-item={`${e.kind}:${e.id}`}>
+      <div className="tl-assets__preview-head" title={e.id}>
+        {e.kind} · {e.name}
+      </div>
+      {e.path !== null && (
+        <div className="tl-assets__source" title="Its file in the game folder">
+          file: {e.path}
+        </div>
+      )}
+      {p.loading !== undefined && e.kind !== 'scene' && <LoadableFields item={{ kind: e.kind, id: e.id }} address={e.address ?? null} labels={e.labels} actions={p.loading} />}
+      <div className="tl-assets__row">
+        <button className="tl-btn tl-btn--small" onClick={() => p.onOpen({ kind: e.kind, id: e.id })} title="Open its editor (or double-click it)">
+          open
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -183,52 +148,10 @@ export function AssetBrowser(p: Props): JSX.Element {
   const importInput = useRef<HTMLInputElement | null>(null);
   const reimportInput = useRef<HTMLInputElement | null>(null);
   const catalog = useCatalog();
-  // The catalog in pages from the index: only the tiles in view are drawn and read.
-  const list = useIndexList({ kinds: ASSET_LIST_KINDS });
   const [selected] = useAssetSummaries(p.selectedAssetId !== null ? [p.selectedAssetId] : []);
-  const [expanded, setExpanded] = useState<string | null>(null);
   const [packing, setPacking] = useState(false);
-  // The multi-selection (Ctrl/Cmd-click adds or removes one, Shift-click a range): labels go to all of it at once.
-  const [chosen, setChosen] = useState<ReadonlySet<string>>(new Set());
-  const [anchor, setAnchor] = useState<number | null>(null);
-  // The selected model's pieces show as tiles after it (while it is expanded).
-  const pieces = p.pieces;
-  const openPieces = pieces !== null && expanded === pieces.assetId && pieces.list.length >= 2 ? pieces : null;
-  const [openAt, setOpenAt] = useState<number | null>(null);
-  const insert = openPieces !== null && openAt !== null ? { at: openAt, count: openPieces.list.length } : null;
-  const total = (list.total ?? 0) + (insert?.count ?? 0);
-  /** The list position of a drawn slot: an index entry, or a piece of the expanded file. */
-  const slot = (i: number): { entry: number } | { piece: number } => {
-    if (insert === null || i <= insert.at) return { entry: i };
-    if (i <= insert.at + insert.count) return { piece: i - insert.at - 1 };
-    return { entry: i - insert.count };
-  };
-  const choose = (ev: { ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }, assetId: string, index: number): void => {
-    if (ev.shiftKey && anchor !== null) {
-      const [i, j] = [anchor, index].sort((x, y) => x - y) as [number, number];
-      const ids: string[] = [];
-      for (let k = i; k <= j; k++) {
-        const e = list.entry(k);
-        if (e !== undefined) ids.push(e.id);
-      }
-      setChosen(new Set([...chosen, ...ids]));
-    } else if (ev.ctrlKey || ev.metaKey) {
-      const next = new Set(chosen);
-      if (next.has(assetId)) next.delete(assetId);
-      else next.add(assetId);
-      setChosen(next);
-      setAnchor(index);
-    } else {
-      setChosen(new Set([assetId]));
-      setAnchor(index);
-    }
-    p.onSelect(assetId);
-  };
-  const chosenItems = [...chosen].map((id) => ({ kind: 'asset', id }));
-  const dragStart = (ev: DragEvent<HTMLLIElement>, assetId: string, kind: string, piece: string | null): void => {
-    ev.dataTransfer.setData(ASSET_DRAG_TYPE, JSON.stringify(piece === null ? { assetId, kind } : { assetId, kind, piece }));
-    ev.dataTransfer.effectAllowed = 'copy';
-  };
+  // A resource or scene chosen in the project window (the side panel shows it instead of the asset).
+  const [focus, setFocus] = useState<IndexEntryView | null>(null);
   // The publish is disabled until the role mapping is
   // complete (every role bound + the entity chosen) — the command would be
   // `field_missing` / stage-3 refused otherwise.
@@ -249,49 +172,19 @@ export function AssetBrowser(p: Props): JSX.Element {
 
       <div className="tl-assets__body">
       <div className="tl-assets__main">
-      {p.loading !== undefined && chosenItems.length > 1 && <LabelsBar items={chosenItems} actions={p.loading} onClear={() => setChosen(new Set())} />}
-      <VirtualList
-        className="tl-assets__list tl-tiles tl-tiles--virtual"
-        count={total}
-        stride={TILE_STRIDE}
-        gap={TILE_GAP}
-        padding={TILE_PADDING}
-        minItemWidth={TILE_MIN_WIDTH}
-        overscan={3}
-        onRange={(from, to) => list.need(Math.max(0, from - (insert?.count ?? 0)), to)}
-        empty={<li className="tl-row tl-row--empty">{list.total === null ? 'loading…' : 'no assets'}</li>}
-        renderItem={(i) => {
-          const at = slot(i);
-          if ('piece' in at) {
-            const pc = openPieces!.list[at.piece]!;
-            return <PieceTile key={`${openPieces!.assetId}|${pc.name}`} assetId={openPieces!.assetId} name={pc.name} fileName={catalog.asset(openPieces!.assetId)?.displayName ?? openPieces!.assetId} thumbnails={p.thumbnails} onSelect={p.onSelect} onDragStart={dragStart} />;
-          }
-          const e = list.entry(at.entry);
-          if (e === undefined) return <li key={`slot:${i}`} className="tl-tile tl-tile--loading" aria-hidden="true" />;
-          const index = at.entry;
-          return (
-            <AssetTile
-              key={e.id}
-              e={e}
-              selected={e.id === p.selectedAssetId}
-              chosen={chosen.size > 1 && chosen.has(e.id)}
-              pieces={pieces !== null && pieces.assetId === e.id ? pieces.list : null}
-              open={openPieces !== null && openPieces.assetId === e.id}
-              thumbnails={p.thumbnails}
-              onChoose={(ev, id) => choose(ev, id, index)}
-              onToggle={(id) => {
-                setExpanded((x) => (x === id ? null : id));
-                setOpenAt(index);
-              }}
-              onDragStart={dragStart}
-            />
-          );
-        }}
+      <ProjectWindow
+        folder={p.folder}
+        onFolder={p.onFolder}
+        selectedAssetId={p.selectedAssetId}
+        onSelectAsset={p.onSelect}
+        onFocus={setFocus}
+        onOpen={p.onOpenItem}
+        commands={p.projectCommands}
+        {...(p.loading !== undefined ? { loading: p.loading } : {})}
+        thumbnails={p.thumbnails}
+        pieces={p.pieces}
+        fileName={(id) => catalog.asset(id)?.displayName ?? id}
       />
-      <div className="tl-assets__paging" data-total={list.total ?? ''}>
-        {list.total ?? '…'} asset(s)
-        {list.error !== null ? ` · ${list.error}` : ''}
-      </div>
 
       <div className="tl-assets__actions">
         <input
@@ -430,7 +323,8 @@ export function AssetBrowser(p: Props): JSX.Element {
       </div>
 
       <div className="tl-assets__side">
-      {selected && (
+      {focus !== null && <ItemSide entry={focus} {...(p.loading !== undefined ? { loading: p.loading } : {})} onOpen={p.onOpenItem} />}
+      {focus === null && selected && (
         <div className="tl-assets__preview">
           <div className="tl-assets__preview-head" title={selected.assetId}>
             preview · {selected.displayName}

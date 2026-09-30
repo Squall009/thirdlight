@@ -68,6 +68,8 @@ import type { ImportAssetsArgs, ImportAssetsChange, ImportAssetsInverse, Prepare
 export type { ImportAssetsArgs, ImportAssetsChange, ImportAssetsInverse, PreparedAssetImport, PreparedAssetImportItem } from './import-assets';
 import type { ImportResourcesArgs, ImportResourcesChange, ImportResourcesInverse, PreparedResourceImport } from './import-resources';
 import type { SetAddressArgs, SetLabelsArgs, SetLoadingChange, SetLoadingInverse } from './loadable-ops';
+import type { MoveResourcesChange, MoveResourcesInverse, PreparedMoves } from './move-ops';
+export type { CreateFolderArgs, FileMove, FolderMove, MoveItemRef, MoveResourcesArgs, MoveResourcesChange, MoveResourcesInverse, PreparedMoves, RenameFolderArgs } from './move-ops';
 export type { LoadableItemRef, LoadingItemChange, LoadingValue, SetAddressArgs, SetLabelsArgs, SetLoadingChange, SetLoadingInverse } from './loadable-ops';
 export type { AdoptedScene, ImportResourcesArgs, ImportResourcesChange, ImportResourcesInverse, PreparedResourceImport, PreparedResourceRecord } from './import-resources';
 
@@ -180,7 +182,11 @@ export type V3MutationOp =
   | 'createEntities'
   // Labels on many assets and resources, and one's address (one undo each)
   | 'setLabels'
-  | 'setAddress';
+  | 'setAddress'
+  // The project window: files and folders moved, a folder renamed or made (one undo each)
+  | 'moveResources'
+  | 'renameFolder'
+  | 'createFolder';
 
 /** Every implemented mutation op. */
 export type MutationOp = M1MutationOp | ContentMutationOp | PrefabMutationOp | V3MutationOp;
@@ -1017,7 +1023,8 @@ export type ChangeData =
   | SetTimelineChange
   | ImportAssetsChange
   | SetLoadingChange
-  | ImportResourcesChange;
+  | ImportResourcesChange
+  | MoveResourcesChange;
 
 /** The change types a forward (non-undo/redo) command can produce. */
 export type ForwardChange =
@@ -1067,7 +1074,8 @@ export type ForwardChange =
   | SetTimelineChange
   | ImportAssetsChange
   | SetLoadingChange
-  | ImportResourcesChange;
+  | ImportResourcesChange
+  | MoveResourcesChange;
 
 // ---- inverse specs --------------------------------------------------------
 
@@ -1289,6 +1297,7 @@ export type InverseSpec =
   | ImportAssetsInverse
   | SetLoadingInverse
   | ImportResourcesInverse
+  | MoveResourcesInverse
 ;
 
 // ---- history model --------------------------------------------------------
@@ -1388,6 +1397,8 @@ export interface CommandState<S extends SceneDocument = SceneDocument> {
   preparedAssetImport?: PreparedAssetImport;
   /** The host's prepared facts of resource and scene files (`importResources` reads only these). */
   preparedResourceImport?: PreparedResourceImport;
+  /** The host's prepared file and folder moves (`moveResources`, `renameFolder`, `createFolder` read only these). */
+  preparedMoves?: PreparedMoves;
 }
 
 /**

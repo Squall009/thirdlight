@@ -24,6 +24,8 @@ for (const path of process.argv.slice(2)) {
     console.log(`editor: connected ${ed.connectedMs} ms, usable (asset list drawn) ${ed.interactiveMs} ms, ${ed.listTotal} assets listed, heap ${f(ed.heapOpenMiB, 1)} MiB`);
     console.log(`editor scroll: ${sc.steps} screens in ${sc.ms} ms, frame p50 ${f(sc.frameMs.p50, 1)} / p95 ${f(sc.frameMs.p95, 1)} / max ${f(sc.frameMs.max, 1)} ms, ${sc.tilesSeen} tiles; heap ${f(sc.heapBeforeMiB, 1)} → ${f(sc.heapAfterMiB, 1)} MiB; requests ${JSON.stringify(sc.requests)}`);
     console.log(`editor: picker search ${ed.pickerSearch.ms} ms (${ed.pickerSearch.matches} shown), place (list position ${ed.place.position}) ${ed.place.ms} ms, a line's voice ${ed.voice.ms} ms`);
+    const pw = r.projectWindow;
+    if (pw) console.log(`project window: ${pw.files} files from ${pw.from}: chosen ${pw.chooseMs} ms, labelled ${pw.labelMs} ms, moved ${pw.moveMs} ms (shown ${pw.moveShownMs} ms), move undone ${pw.undoMoveMs} ms, label undone ${pw.undoLabelMs} ms; revisions ${JSON.stringify(pw.revisions)}`);
   }
   const p = r.play;
   if (p) {

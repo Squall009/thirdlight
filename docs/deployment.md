@@ -148,15 +148,21 @@ unless moved (the open finds them anywhere in the game folder by their name
 and id). A scene may live in the game folder too, as `<name>.scene.json`
 (the same format as `scenes/<id>.json`), found by the scene id it holds.
 
-**Where new things go.** The Assets tab's "new items in" names a folder of
-the game folder (the upload folder's rules: inside the game folder, no
-hidden folder, not the project's own files; made when missing); a new scene,
-prefab, material or other resource is then created there
-(`<folder>/<id>.scene.json`, `<folder>/<id>.<kind>.json`). Empty: scenes go
-to `scenes/`, resources to `assets/<kind>/`. MCP and scripts send `folder`
+**Where new things go.** The folder chosen in the Assets tab's project
+window (the upload folder's rules: inside the game folder, no hidden folder,
+not the project's own files) is where uploads land and a new scene, prefab,
+material or other resource is created (`<folder>/<id>.scene.json`,
+`<folder>/<id>.<kind>.json`). With "All assets" chosen: scenes go to
+`scenes/`, resources to `assets/<kind>/`, uploads to `assets/`. MCP and scripts send `folder`
 with the create command (`createScene {name, folder}`,
 `setMaterial {material, folder}`, …). A record a command only changes stays
 where its file is; undo and redo put a file back where it was.
+
+**Moving files in the editor.** The project window moves assets (with
+their `.tlasset` sidecars), resources, scenes and whole folders by drag and
+drop or cut and paste, renames and makes folders; each is one command and
+one undo (`moveResources`, `renameFolder`, `createFolder`, also over MCP).
+Ids never change, so no reference and nothing a build ships changes.
 
 **Files changed outside the editor while it is open** are picked up by the
 same file check as assets (on connect, window focus, "check files", MCP

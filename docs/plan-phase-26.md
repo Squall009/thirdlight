@@ -196,7 +196,7 @@ at the boundary it changes (Playwright for any editor surface).
 | 26.10 | done 2026-09-30. A: one resource manager per game page (runtime `createResourceManager`, held by the game host and settled after each frame) for verified bytes, models, animation-only clips, textures, decoded audio, fonts, UI and glyph images, environment maps and effect models; each freed when its last holder (entity, scene being prepared, material, voice, UI layer…) went, a same-step transition keeps what both scenes use; the store forgets freed models; the decoded-music LRU replaced; scene preparation and read-ahead through it; the Scene view's models and material textures through its own manager; `resources` in `tl_game_observe` and Play diagnostics (handles slot for B); 50-scene walk: resident bytes of every kind back to zero, heap +50 → +5 MiB at full (§6); e2e `resource-manager`. B: `ctx.assets.load(id, address or label)` → a handle (loading, ready, failed) and `release`; the page loads what the key names (a prefab's or material's models and textures too) and holds it for the handle; the answer is the simulation's input (a recording replays it at its step, page and worker alike, a recorded input takes no live answer); a handle open when a run ends is released and reported (`resources.open`/`notReleased`, script log); visual-script nodes; bench step `handles`: 1,000 labelled assets loaded and released at full, resident back to zero (§6); a texture that is the sky and a map decoded once; compiled graph materials and their textures go with their last mesh; prefabs stay whole at open, no grace before a free (§7); e2e `asset-handles`, integration `m26-asset-handles` |
 | 26.11 | done 2026-09-30: nothing audio is read at mount; each file loads by its load type through the resource manager (`audio` decoded, `audio-bytes` kept compressed and decoded per play, `audio-stream` a media element through Web Audio), held by its scene (preload) or from its first play by the scenes loaded then; a sound not ready starts when ready or is dropped past `maxLateMs` (script play/stinger, event cues, timeline keys, dialogue `voiceMaxLateMs`), reported in `audio.late`; a conversation reads its next voices ahead on every branch three lines deep (the next lines decoded); the per-kind audio stores gone; full 500-line dialogue: every voice heard, line → voice p95 0 ms, gap p95 12 ms, Play start reads no audio (§6); e2e `audio-loading` |
 | 26.12 | done 2026-09-30: large KTX2 textures stream their mips in Play and the export under a texture budget (`texture_budget_mb`, default 512 MiB): the build cuts each into parts by level (import cache, catalog `mipParts`, shipped instead of the whole file), the page reads the tail first and larger levels by on-screen size (UV density and the camera), least-needed dropped first; `streaming` per texture (sidecar, `setAssetOptions`, the asset inspector; on above 1024 px); `resources.textures` in observe and diagnostics; bench step `stream` (full: level 0 in 102 ms p50, resident ≤ 7.75 of 8 MiB, Play start unchanged); e2e `texture-streaming` (pixels, both renderers, export); D70 fixed, D71–D73 logged |
-| 26.13 | A done 2026-09-30: the editor reads the project index in pages and records by id (no first 128 records), virtualized asset list and pickers (a search over the index past one page), tiles from the import cache (textures made by the backend, models drawn in an editor worker; pieces read when a model is chosen), the Scene view's cookies, environment and lightmaps held in its resource manager, the dialogue previewer reads voices ahead, conversations read by id (`queryGameConfig {omit}`); `App.tsx` and `viewport.ts` split; §6 numbers; D74 fixed, D75–D78 logged. B (the project window) to come |
+| 26.13 | done 2026-09-30. A: the editor reads the project index in pages and records by id (no first 128 records), virtualized asset list and pickers, tiles from the import cache, the Scene view's cookies, environment and lightmaps in its resource manager, lazy dialogue voices; `App.tsx` and `viewport.ts` split; D74 fixed, D75–D78 logged. B: the project window (folder tree, every asset, resource and scene by folder, Unity search `t:`/`l:`, kind menu, sort, grid/list and tile size, breadcrumb, cut/paste and drag moves, new and renamed folders, double-click opens each kind's editor, labels on many items); `moveResources`, `renameFolder`, `createFolder` (one undo each, MCP too); `queryIndex` folder/recursive/folders/sort/labels; a move changes no built file; full: 1,000 files labelled 2.6 s, moved 4.4 s (fsync bound, D80) |
 | 26.14 | — |
 
 ## 6. Measurements
@@ -656,6 +656,28 @@ kept) and the 512 picture URLs kept; the frame time is the display's
 sound bytes, and on the next open no bytes at all besides the placed model's
 in the Scene view. The connect is ~0.1 s slower: not investigated (within
 the run-to-run spread of the open step, 0.95–1.25 s over these runs).
+
+The project window (26.13 B), the bench's `editor` step (its new part,
+`tools/perf/scale-project.ts`, also driven by `editor-scale.e2e.ts` at ×0.1),
+full size, GPU host, the working tree on `2ed970e8`, 2026-09-30, one run
+(`scale-full-2026-09-30T17-31-23-721Z.json`): 1,000 of the 10,000 voice
+files in `assets/voice`, chosen with a click and a Shift-click 1,000 tiles
+down, labelled from the labels bar, cut, and pasted into a new folder beside
+them; then both undone from the Edit menu:
+
+| | full (18,000 assets) | ×0.1 (e2e, same host) |
+|---|---|---|
+| Shift-click → 1,000 chosen (the range read from the index) | 66 ms | 86 ms |
+| "add labels" → labelled (one command, one revision) | 2,603 ms | 2,490–2,532 ms |
+| Ctrl+V → moved: 1,000 files and 1,000 sidecars (one command, one revision) | 4,352 ms (listed in the window 4,434 ms) | 3,751–3,762 ms |
+| Undo of the move / of the label | 7,735 / 3,010 ms | 3,692–3,756 / 6,509–6,529 ms |
+| In memory on tmpfs (×0.1, workspace service alone): label / undo / move / undo | – | 218 / 231 / 418 / 373 ms |
+
+The time is the transaction's `fsync` of every file (a profile of the ×0.1
+run: 14 s of `fsyncSync`), not the project's size; the backend answers
+nothing meanwhile (D80). The rest of the step is as in 26.13 A: usable
+585 ms, the scroll (9,600 screens now: the list is narrower beside the
+folder tree) at frame p50/p95/max 16.7/16.7/16.8 ms.
 
 Proposed targets for "Done when" (fixed in 26.14 from these numbers):
 
@@ -1872,3 +1894,59 @@ Proposed targets for "Done when" (fixed in 26.14 from these numbers):
   The scale bench has an `editor` step (`tools/perf/scale-editor.ts`, also
   driving `tests/e2e/editor-scale.e2e.ts` at ×0.1).
 
+- 2026-09-30 (26.13 B): the project window (`ui/project/`) replaces the flat
+  asset list: a folder tree (the game folder's real folders, read a level at
+  a time from `queryIndex {folder, folders: true}`, plus folders the index's
+  files are in, such as a project folder's own `scenes/`) and "All assets"
+  (every asset file wherever it is, the old list, the default); a folder
+  shows its subfolders, then every asset, resource and scene in it. The
+  folder chosen is where new scenes and resources are created and uploads
+  land (the "new items in" field went; the top of the game folder uploads to
+  `assets/`).
+- 2026-09-30 (26.13 B): moves are three ops, each one command and one undo:
+  `moveResources {items?: [{kind, id}], folders?: [path], to}` (items and
+  whole folders into a folder), `renameFolder {folder, name}`,
+  `createFolder {folder}`. Where a resource's or scene's file is belongs to
+  the workspace (files are found by id on open), so the workspace prepares
+  the moves (`CommandState.preparedMoves`, as imports are prepared) and the
+  command layer reads only them: it rewrites an asset record's path (every
+  version naming the old file) and records `{moves, folders}`; undo is the
+  same change the other way. The transaction writes each moved resource
+  file, scene file and sidecar at its new path and removes the old one; the
+  asset files, and whatever else a moved folder holds (files the project
+  does not track, empty folders), follow after the commit; an undone
+  `createFolder` removes the folder only when it is empty. Refused: a taken
+  target, a folder into itself, an asset whose bytes are stored (no file).
+  An undo or redo first checks its targets are still free. Renaming a
+  resource's or asset's file is not part of this (their names are their
+  panels' and the importer's; Unity renames the file with the asset).
+- 2026-09-30 (26.13 B): a move changes no build. What a build ships names no
+  file path (the catalog is by id and digest); the buildId covers the
+  revision and the capture time (it names a build: every scene document is
+  stamped with the capture's revision), so it is new for any revision. The
+  e2e test compares the export before and after a move with those masked:
+  the same files, byte for byte, and no source path in any of them.
+- 2026-09-30 (26.13 B): browsing: Unity's search syntax parsed in the editor
+  (`session/project-search.ts`): `t:` kinds (a kind, Unity's type names
+  such as `AudioClip`, `Texture2D`, `Prefab`, or a kind's start; several
+  widen), `l:` labels (several narrow: `queryIndex {labels}` holds every
+  one), the rest a part of the name, id or file; in a folder the search
+  covers the folder and its subfolders (`recursive`). The kind menu writes
+  the box's `t:`. `queryIndex` sorts by `name`, `kind` (then name) or `path`
+  (`descending`), an order made once per change of the index and kept.
+  Choosing: click, Ctrl/Cmd-click, Shift-click (a range past the tiles on
+  screen is read from the index), Ctrl/Cmd-A. Cut and paste move (a
+  project window has no copy of a file: Unity's Duplicate is not built).
+  Keys pressed in the window do not reach the Scene view's shortcuts
+  (paste, delete), except undo and redo. A double-click opens a folder, or
+  the item's editor tab (material, animator, graph, effect, library, UI
+  document and theme, dialogue, timeline, a script or visual script); a
+  scene opens in the Scene view, a prefab in the Prefabs panel, an
+  environment preset in the Environment panel, an asset in its preview. The
+  per-kind panels stay. Labels on many items: the labels bar on any
+  multi-selection of assets and resources; a resource's address and labels
+  in the side panel when it is chosen.
+- 2026-09-30 (26.13 B): `App.tsx` did not grow (4,899 → 4,840): the asset
+  preview moved to `ui/assets/useAssetPreview.ts`, the project window's
+  state and openers are `ui/project/useProjectWindow.ts`. `RESOURCE_KIND_TABLE`
+  is in the `limits` subpath (the editor's search names the kinds).

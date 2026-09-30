@@ -7,9 +7,11 @@
  * project's 1,100 sounds; and drawing the tiles reads their thumbnails from
  * the import cache — never a texture's bytes, and a model's only to make its
  * thumbnail the first time (none on the next open). The dialogue previewer
- * reads the voices ahead of the line it plays, not every voice.
+ * reads the voices ahead of the line it plays, not every voice. In the
+ * project window 1,000 voice files are chosen, labelled in one command and
+ * moved into a new folder in one command (their files and sidecars on disk).
  */
-import { rmSync } from 'node:fs';
+import { existsSync, readdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { expect, test } from '@playwright/test';
@@ -17,6 +19,7 @@ import { expect, test } from '@playwright/test';
 import { PERF_ROOT, startPerfBackend, type PerfBackend } from '../../tools/perf/backend';
 import { generateScaleProject, scaledSpec } from '../../tools/perf/scale-generate';
 import { measureEditorAtScale } from '../../tools/perf/scale-editor';
+import { measureProjectWindowAtScale } from '../../tools/perf/scale-project';
 import { installPerfInstrumentation } from '../../tools/perf/instrument';
 
 const root = join(PERF_ROOT, 'e2e', `editor-scale-${process.pid}-${Date.now()}`);
@@ -61,6 +64,24 @@ test('the editor at 1,800 assets: open, scroll the whole catalog, place, a voice
   await expect.poll(async () => Number(await stage.getAttribute('data-sounds-read')), { timeout: 20_000 }).toBeGreaterThan(0);
   expect(Number(await stage.getAttribute('data-sounds-read'))).toBeLessThanOrEqual(8);
   await page.getByRole('button', { name: 'stop dialogue preview' }).click();
+
+  // The project window: 1,000 voice files chosen with a Shift-click, labelled in one command, moved in one command (then undone).
+  const voiceDir = join(generated.dir, 'assets', 'voice');
+  const voicesBefore = readdirSync(voiceDir).length;
+  const batch = await measureProjectWindowAtScale(page, {
+    query,
+    files: 1000,
+    folder: 'assets/voice',
+    onMoved: async (to) => {
+      const moved = readdirSync(join(generated.dir, ...to.split('/')));
+      // Each file with its sidecar.
+      expect(moved.filter((f) => f.endsWith('.tlasset')).length).toBe(1000);
+      expect(moved.length).toBe(2000);
+    },
+  });
+  expect(batch.revisions).toEqual({ label: 1, move: 1 });
+  expect(readdirSync(voiceDir).length).toBe(voicesBefore);
+  expect(existsSync(join(generated.dir, 'assets', 'voice-moved'))).toBe(true);
 
   // Opened again, every thumbnail comes from the import cache: no asset's bytes are read to draw the list.
   await page.goto('about:blank');

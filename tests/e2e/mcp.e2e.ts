@@ -7,8 +7,12 @@
  * graph, graphEdit), published through the editor's HTTP source route and
  * played with the MCP play tools; the editor shows the same graph (one
  * mutation path).
+ * The project organized over MCP (createFolder, moveResources, renameFolder,
+ * each one undo): the files move on disk, ids stay, the index and the
+ * editor's project window follow.
  */
 import { randomBytes } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -195,4 +199,48 @@ test('an MCP agent builds a visual script with graphEdit, publishes it through t
   await expect.poll(async () => (await call('tl_game_observe', { playSessionId })).body.state, { timeout: 30_000 }).toBe('running');
   await expect.poll(async () => ((await call('tl_game_observe', { playSessionId })).body.counters as Record<string, number> | undefined)?.['gifts'], { timeout: 30_000 }).toBe(4);
   expect((await call('tl_play_stop', { playSessionId })).isError).toBe(false);
+});
+
+test('an MCP agent organizes the project: a folder made, a resource moved into it, the folder renamed, undone; the editor lists it', async ({ page }) => {
+  await page.goto(be.editorUrl);
+  await expect(page.locator('.tl-statusbar')).toContainText('connected');
+  const rev = async (): Promise<number> => (await call('tl_inspect', { target: 'project' })).body.revision as number;
+  const run = async (op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> => {
+    const r = await call('tl_command', { op, expectedRevision: await rev(), args });
+    expect(r.isError, JSON.stringify(r.body)).toBe(false);
+    return r.body;
+  };
+  const pathOf = async (kind: string, id: string): Promise<string | undefined> => ((await call('tl_content_query', { target: 'index', kind, id })).body.entries as { path: string }[])[0]?.path;
+  const onDisk = (rel: string): boolean => existsSync(join(be.projectDir, ...rel.split('/')));
+
+  await run('setMaterial', { material: { materialId: 'mcp-stone', name: 'Stone', shader: 'standard', params: { roughness: 0.5 }, textures: {} } });
+  await run('createFolder', { folder: 'art/stone' });
+  const moved = await run('moveResources', { items: [{ kind: 'material', id: 'mcp-stone' }], to: 'art/stone' });
+  expect((moved.change as { type: string; moves: { from: string; to: string }[] }).moves).toEqual([{ kind: 'material', id: 'mcp-stone', from: 'assets/materials/mcp-stone.material.json', to: 'art/stone/mcp-stone.material.json' }]);
+  expect(await pathOf('material', 'mcp-stone')).toBe('art/stone/mcp-stone.material.json');
+  await run('renameFolder', { folder: 'art', name: 'looks' });
+  expect(await pathOf('material', 'mcp-stone')).toBe('looks/stone/mcp-stone.material.json');
+  expect(onDisk('looks/stone/mcp-stone.material.json')).toBe(true);
+  expect(onDisk('art')).toBe(false);
+  // The folder tree over MCP, and in the editor's project window.
+  const top = (await call('tl_content_query', { target: 'index', folder: '', folders: true, limit: 1 })).body.folders as { path: string }[];
+  expect(top.map((f) => f.path)).toContain('looks');
+  const inLooks = (await call('tl_content_query', { target: 'index', folder: 'looks', recursive: true })).body.entries as { id: string }[];
+  expect(inLooks.map((e) => e.id)).toEqual(['mcp-stone']);
+  // A taken target is refused and changes nothing.
+  const before = await rev();
+  const refused = await call('tl_command', { op: 'createFolder', expectedRevision: before, args: { folder: 'looks' } });
+  expect(refused.isError).toBe(true);
+  expect(await rev()).toBe(before);
+  await page.getByRole('tab', { name: 'Assets' }).click();
+  await page.getByRole('button', { name: 'folder (game folder)', exact: true }).click();
+  await expect(page.locator('.tl-assets__list li[data-folder="looks"]')).toBeVisible();
+
+  // Undo: the rename, then the move (each one command).
+  await run('undo', {});
+  expect(await pathOf('material', 'mcp-stone')).toBe('art/stone/mcp-stone.material.json');
+  await run('undo', {});
+  expect(await pathOf('material', 'mcp-stone')).toBe('assets/materials/mcp-stone.material.json');
+  expect(onDisk('assets/materials/mcp-stone.material.json')).toBe(true);
+  await expect(page.locator('.tl-assets__list li[data-folder="art"]')).toBeVisible();
 });

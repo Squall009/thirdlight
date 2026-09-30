@@ -2,8 +2,8 @@
  * Scenes and resources as files in the folders the user chooses, against the
  * real backend and Chromium:
  *
- * - with "new items in" set in the Assets tab, a new scene and a new material
- *   are written into that folder of the game folder;
+ * - with a folder chosen in the project window (made there), a new scene and
+ *   a new material are written into that folder of the game folder;
  * - a scene file and a material file added outside the editor while it is
  *   open come in when the window gets focus back (the file check), as one
  *   command: the scene is offered to open with its objects, the material is
@@ -37,9 +37,18 @@ test('new scenes and materials go into the folder named; files added outside the
   await page.goto(be.editorUrl);
   await expect(status(page)).toContainText('connected');
 
-  // The folder new items go into.
+  // The folder new items go into: made in the project window and chosen there.
   await page.getByRole('tab', { name: 'Assets' }).click();
-  await page.getByLabel('new item folder').fill('world/levels');
+  await page.getByRole('button', { name: 'folder (game folder)', exact: true }).click();
+  await page.getByRole('button', { name: 'new folder', exact: true }).click();
+  await page.getByLabel('folder name').fill('world');
+  await page.getByLabel('folder name').press('Enter');
+  await page.locator('.tl-assets__list li[data-folder="world"]').dblclick();
+  await page.getByRole('button', { name: 'new folder', exact: true }).click();
+  await page.getByLabel('folder name').fill('levels');
+  await page.getByLabel('folder name').press('Enter');
+  await page.locator('.tl-assets__list li[data-folder="world/levels"]').dblclick();
+  await expect(page.getByTestId('new-item-folder')).toContainText('world/levels');
 
   // A new scene: written into that folder, found by its id.
   await page.getByRole('tab', { name: 'Scene' }).click();

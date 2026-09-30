@@ -129,6 +129,14 @@ export type {
   SetLoadingChange,
   SetLoadingInverse,
   ImportResourcesChange,
+  CreateFolderArgs,
+  FileMove,
+  FolderMove,
+  MoveItemRef,
+  MoveResourcesArgs,
+  MoveResourcesChange,
+  PreparedMoves,
+  RenameFolderArgs,
   PreparedResourceImport,
   PreparedResourceRecord,
   AdoptedScene,
@@ -250,3 +258,5 @@ export { CREATE_ENTITIES_MAX } from './ops';
 export { createdAssetRecord } from './content-ops';
 export { validatePublishAssetArgs } from './validate-content-args';
 export { withLoadingValues } from './loadable-ops';
+// The project window's file operations: the ops, and a change the other way (the host moves files by it).
+export { FILE_MOVE_OPS, reversedMoves, validateCreateFolderArgs, validateMoveResourcesArgs, validateRenameFolderArgs } from './move-ops';

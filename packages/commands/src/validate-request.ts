@@ -66,6 +66,7 @@ import {
 import { validateImportAssetsArgs, type ImportAssetsArgs } from './import-assets';
 import { validateSetAddressArgs, validateSetLabelsArgs, type SetAddressArgs, type SetLabelsArgs } from './loadable-ops';
 import { validateImportResourcesArgs, type ImportResourcesArgs } from './import-resources';
+import { validateCreateFolderArgs, validateMoveResourcesArgs, validateRenameFolderArgs, type CreateFolderArgs, type MoveResourcesArgs, type RenameFolderArgs } from './move-ops';
 import {
   validateCreatePrefabArgs,
   validateInstantiatePrefabArgs,
@@ -196,6 +197,10 @@ const OPS: readonly MutationOp[] = [
   // Labels and addresses (what scripts load by name)
   'setLabels',
   'setAddress',
+  // The project window's file operations
+  'moveResources',
+  'renameFolder',
+  'createFolder',
 ];
 
 const ORIGIN_KINDS = ['browser', 'mcp', 'admin'] as const;
@@ -250,7 +255,7 @@ const CREATE_COMPONENTS: readonly string[] = [
 
 /** Expected-text constants (the `expected` strings are log-safe, stable). */
 const EXPECT = {
-  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setCollisionLayers, setSaveSchema, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, editBlocks, setBlockType, deleteBlockType, setCellFields, setBlockStamp, deleteBlockStamp, setUiDocument, deleteUiDocument, setUiTheme, deleteUiTheme, setTimeline, deleteTimeline, setModes, setBehaviorGroups, setEventCues, setShell, setDialogue, deleteDialogue, setSpeaker, deleteSpeaker, setDialogueSettings, deleteAsset, deletePrefab, importAssets, importResources, createEntities, commitScriptLibraryStage, setLabels, setAddress',
+  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setCollisionLayers, setSaveSchema, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, editBlocks, setBlockType, deleteBlockType, setCellFields, setBlockStamp, deleteBlockStamp, setUiDocument, deleteUiDocument, setUiTheme, deleteUiTheme, setTimeline, deleteTimeline, setModes, setBehaviorGroups, setEventCues, setShell, setDialogue, deleteDialogue, setSpeaker, deleteSpeaker, setDialogueSettings, deleteAsset, deletePrefab, importAssets, importResources, createEntities, commitScriptLibraryStage, setLabels, setAddress, moveResources, renameFolder, createFolder',
   projectId: 'project-model ID syntax: [a-z0-9][a-z0-9_-]{0,63}',
   expectedRevision: 'integer, 0 <= v <= 2^53-1',
   requestId: 'req- + 32 lowercase hex chars: ^req-[0-9a-f]{32}$',
@@ -1324,7 +1329,10 @@ export type ValidatedOpArgs =
   | { op: 'deletePrefab'; args: { prefabId: string } }
   | { op: 'createEntities'; args: { entities: (CreateEntityArgs & { ref?: string })[] } }
   | { op: 'setLabels'; args: SetLabelsArgs }
-  | { op: 'setAddress'; args: SetAddressArgs };
+  | { op: 'setAddress'; args: SetAddressArgs }
+  | { op: 'moveResources'; args: MoveResourcesArgs }
+  | { op: 'renameFolder'; args: RenameFolderArgs }
+  | { op: 'createFolder'; args: CreateFolderArgs };
 
 /** The argument shapes of the block-layer ops (null: valid). */
 function blockArgsError(op: string, args: Record<string, unknown>): CommandError | null {
@@ -1451,6 +1459,21 @@ export function validateOpArgs(
       const r = validateSetAddressArgs(args);
       if (!r.ok) return r;
       return { ok: true, validated: { op: 'setAddress', args: r.args } };
+    }
+    case 'moveResources': {
+      const r = validateMoveResourcesArgs(args);
+      if (!r.ok) return r;
+      return { ok: true, validated: { op: 'moveResources', args: r.args } };
+    }
+    case 'renameFolder': {
+      const r = validateRenameFolderArgs(args);
+      if (!r.ok) return r;
+      return { ok: true, validated: { op: 'renameFolder', args: r.args } };
+    }
+    case 'createFolder': {
+      const r = validateCreateFolderArgs(args);
+      if (!r.ok) return r;
+      return { ok: true, validated: { op: 'createFolder', args: r.args } };
     }
     case 'importAssets': {
       const r = validateImportAssetsArgs(args);

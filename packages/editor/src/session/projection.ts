@@ -635,6 +635,8 @@ export class Projection {
       // Labels and addresses (the content projection and the client's content track them).
       case 'setLabels':
       case 'setAddress':
+      // Files and folders moved (ids stay; the content projection follows the assets' paths).
+      case 'moveResources':
       case 'setMaterial':
       case 'setEnvironment':
       case 'setLighting':

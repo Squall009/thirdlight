@@ -324,6 +324,31 @@ export function checkAssetFolder(ctx: ContentContext, folder: string): { ok: tru
   return { ok: true };
 }
 
+/** Whether a file may be written at a game-folder path (its folders need not exist yet); nothing is made. */
+export function checkGamePath(ctx: ContentContext, rel: string): { ok: true } | { ok: false; error: CommandError } {
+  const t = prepareTarget(ctx, rel, false);
+  return t.ok ? { ok: true } : t;
+}
+
+/** Whether anything (a file, a folder, a link) is at a game-folder path. */
+export function gamePathTaken(ctx: Pick<ContentContext, 'gameFolder' | 'dir'>, rel: string): boolean {
+  try {
+    lstatSync(join(assetRoot(ctx), ...rel.split('/')));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Whether a game-folder path is a real folder (not a link). */
+export function isGameFolder(ctx: Pick<ContentContext, 'gameFolder' | 'dir'>, rel: string): boolean {
+  try {
+    return lstatSync(rel === '' ? assetRoot(ctx) : join(assetRoot(ctx), ...rel.split('/'))).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 /** Write one game-folder file (write then rename). */
 export function writeGameFile(core: Core, ctx: ContentContext, rel: string, bytes: Uint8Array): { ok: true } | { ok: false; error: CommandError } {
   const t = prepareTarget(ctx, rel);

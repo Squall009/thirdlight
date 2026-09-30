@@ -231,6 +231,10 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'setLabels {items: [{kind, id}], add?: [label], remove?: [label]} labels any number of assets (kind "asset" or the asset kind) and resources ' +
       '(kind prefab, material, behavior, animator, graph, effect, library, ui, uitheme, dialogue, timeline, envpreset) in one command and one undo; ' +
       'setAddress {kind, id, address: string|null} gives one item its address (unique project-wide; refused when another asset or resource has it). ' +
+      'The project window\'s file operations, each one command and one undo however many files: moveResources {items?: [{kind, id}] (kind asset or its kind, a resource kind, or scene), ' +
+      'folders?: ["assets/old"], to: "assets/props" ("" the top of the game folder)} moves the files (an asset with its .tlasset sidecar, a resource file, a scene file) and whole folders ' +
+      '(with every file in them) into to; renameFolder {folder, name} renames one folder in place; createFolder {folder} makes one. Ids never change, so no reference and no built ' +
+      'content changes; a taken target, a folder moved into itself or an asset whose bytes are stored (no file) is refused; undo moves everything back. ' +
       'Anything with an address or a label is loadable: Play and export ship it even when no scene references it, and the runtime catalog lists it; ' +
       'a script that names an asset by id in a string literal while that asset is not loadable is reported in Problems. pasteEntities {entities: [full entity ' +
       'values as tl_inspect returns them, parents with their children], parentId?: id|null, offset?: [x,y,z], sceneId?} copies them with ' +
@@ -429,7 +433,9 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       '(materialId: one; withProblems: only broken ones; total, withProblems counts). target="index" pages the project index: every asset, ' +
       'resource (prefab, material, behavior, library, graph, ui, uitheme, dialogue, timeline, effect, animator — each its own file in the game folder) and scene ' +
       'as {kind, id, path, name, labels, address?, refs} (kind, id, label, address filter; loadable: true = only those with an address or a label; ' +
-      'referencing: what names that id; text: a part of the name, id or file, any case). Never returns bytes.',
+      'referencing: what names that id; text: a part of the name, id or file, any case; labels: [every one]; folder: "assets/props" the entries whose file is in that ' +
+      'folder of the game folder ("" its top), recursive: true also in its subfolders; sort: name|kind|path, descending; folders: true adds folders: [{path, name, hasFolders}] ' +
+      'the subfolders of folder). Never returns bytes.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -441,6 +447,12 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
         loadable: { type: 'boolean', description: 'target="index": true = only entries with an address or a label (what scripts may load by name); false = only those without' },
         referencing: { type: 'string', description: 'target="index": only the entries that reference this id (what uses it)' },
         text: { type: 'string', description: 'target="index": only the entries whose name, id or file contains this text (any case)' },
+        labels: { type: 'array', items: { type: 'string' }, description: 'target="index": only entries with every one of these labels' },
+        folder: { type: 'string', description: 'target="index": only entries whose file is in this folder of the game folder ("" its top)' },
+        recursive: { type: 'boolean', description: 'target="index": with folder, its subfolders too' },
+        folders: { type: 'boolean', description: 'target="index": also list the subfolders of folder (the folder tree)' },
+        sort: { type: 'string', enum: ['name', 'kind', 'path'], description: 'target="index": the order (default kind:id)' },
+        descending: { type: 'boolean', description: 'target="index": the other way' },
         materialId: { type: 'string', description: 'target="materials": one material' },
         check: { type: 'boolean', description: 'target="integrity": check the game folder first (moved files, changed files imported again)' },
         problems: { type: 'boolean', description: 'target="integrity": only the entries that are not ok (limit and offset page them; total counts them)' },
@@ -1191,14 +1203,19 @@ async function contentQuery(ctx: McpContext, a: Record<string, unknown>): Promis
   // The project index: every asset, resource and scene (file, name, labels, what it references).
   if (target === 'index') {
     const args: Record<string, unknown> = {};
-    for (const k of ['kind', 'id', 'label', 'address', 'referencing', 'text'] as const) {
+    for (const k of ['kind', 'id', 'label', 'address', 'referencing', 'text', 'folder', 'sort'] as const) {
       if (a[k] === undefined) continue;
       if (typeof a[k] !== 'string') return toolError(`${k} must be a string`);
       args[k] = a[k];
     }
-    if (a.loadable !== undefined) {
-      if (typeof a.loadable !== 'boolean') return toolError('loadable must be a boolean');
-      args.loadable = a.loadable;
+    for (const k of ['loadable', 'recursive', 'folders', 'descending'] as const) {
+      if (a[k] === undefined) continue;
+      if (typeof a[k] !== 'boolean') return toolError(`${k} must be a boolean`);
+      args[k] = a[k];
+    }
+    if (a.labels !== undefined) {
+      if (!Array.isArray(a.labels) || !a.labels.every((l) => typeof l === 'string')) return toolError('labels must be an array of strings');
+      args.labels = a.labels;
     }
     const paged = pageArgs(a);
     if (!paged.ok) return paged.error;

@@ -456,7 +456,7 @@ const M2_RESULT_OPS = [
 ];
 
 /** The v3 operation set. */
-const V3_RESULT_OPS = ['applySurfacePreset', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setCollisionLayers', 'setSaveSchema', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit', 'setEffect', 'deleteEffect', 'renameEffect', 'setScriptLibrary', 'deleteScriptLibrary', 'editBlocks', 'setBlockType', 'deleteBlockType', 'setCellFields', 'setBlockStamp', 'deleteBlockStamp', 'setUiDocument', 'deleteUiDocument', 'setUiTheme', 'deleteUiTheme', 'setTimeline', 'deleteTimeline', 'setModes', 'setBehaviorGroups', 'setEventCues', 'setShell', 'setDialogue', 'deleteDialogue', 'setSpeaker', 'deleteSpeaker', 'setDialogueSettings', 'deleteAsset', 'deletePrefab', 'importAssets', 'importResources', 'createEntities', 'commitScriptLibraryStage', 'setLabels', 'setAddress'];
+const V3_RESULT_OPS = ['applySurfacePreset', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setCollisionLayers', 'setSaveSchema', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit', 'setEffect', 'deleteEffect', 'renameEffect', 'setScriptLibrary', 'deleteScriptLibrary', 'editBlocks', 'setBlockType', 'deleteBlockType', 'setCellFields', 'setBlockStamp', 'deleteBlockStamp', 'setUiDocument', 'deleteUiDocument', 'setUiTheme', 'deleteUiTheme', 'setTimeline', 'deleteTimeline', 'setModes', 'setBehaviorGroups', 'setEventCues', 'setShell', 'setDialogue', 'deleteDialogue', 'setSpeaker', 'deleteSpeaker', 'setDialogueSettings', 'deleteAsset', 'deletePrefab', 'importAssets', 'importResources', 'createEntities', 'commitScriptLibraryStage', 'setLabels', 'setAddress', 'moveResources', 'renameFolder', 'createFolder'];
 /** The ops only a v4 project records (the scene index). */
 const V4_RESULT_OPS = ['createScene', 'renameScene', 'deleteScene', 'setStartScenes'];
 
@@ -747,6 +747,8 @@ const V2_CHANGE_TYPES: readonly string[] = [
   // Labels and addresses.
   'setLabels',
   'setAddress',
+  // Files and folders moved.
+  'moveResources',
 ];
 
 /** Required field names per change type (structural well-formedness). */
@@ -799,6 +801,7 @@ const V2_CHANGE_KEYS: Record<string, readonly string[]> = {
   setScriptLibraries: ['type', 'libraries', 'behaviors'],
   setLabels: ['type', 'items'],
   setAddress: ['type', 'items'],
+  moveResources: ['type', 'moves', 'folders'],
 };
 
 /** Optional field names per change type (a world-keeping reparent's transform). */
@@ -874,6 +877,9 @@ const M2_CHANGE_TYPE_BY_OP: Record<string, string> = {
   commitScriptLibraryStage: 'setScriptLibraries',
   setLabels: 'setLabels',
   setAddress: 'setAddress',
+  moveResources: 'moveResources',
+  renameFolder: 'moveResources',
+  createFolder: 'moveResources',
 };
 
 /**

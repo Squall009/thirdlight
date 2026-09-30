@@ -74,7 +74,7 @@ import { boxFromBounds3D, boxFromOutline, polygonFromOutline } from '../session/
 import { withAddedCopies, withCopy, withoutCopy, type CopyTransform } from '../session/instance-copies';
 import { Viewport } from '../viewport/viewport';
 import { iconTableOf } from '../viewport/icons';
-import { ModelInstances, type AssetPreviewSession } from '../viewport/model-instances';
+import { ModelInstances } from '../viewport/model-instances';
 import { createSceneViewAssets } from '../viewport/scene-assets';
 import { TileThumbnails } from '../viewport/thumbnails';
 import { AnimatorMachine, type AnimatorControllerLike } from '@thirdlight/runtime';
@@ -88,7 +88,9 @@ import { Hierarchy, type SceneAction, type SceneHeaderView } from './Hierarchy';
 import { Inspector, type EntityFlag } from './Inspector';
 import { Toolbar } from './Toolbar';
 import { StatusBar } from './StatusBar';
-import { AssetBrowser, type AssetPreviewView } from './AssetBrowser';
+import { AssetBrowser } from './AssetBrowser';
+import { useAssetPreview } from './assets/useAssetPreview';
+import { useProjectWindow } from './project/useProjectWindow';
 import { CatalogProvider, stringsIn } from './catalog/catalog-context';
 import { indexKindsOfAssetField, MODEL_KINDS, RefPicker } from './catalog/RefPicker';
 import { useSelectedAsset } from './assets/useSelectedAsset';
@@ -633,7 +635,6 @@ function EditorApp(): JSX.Element {
   const [lightingMode, setLightingMode] = useState<'editor' | 'game'>('editor');
   const [importState, setImportState] = useState<AssetImportState>(initialImportState);
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
-  const [assetPreview, setAssetPreview] = useState<AssetPreviewView | null>(null);
   const [snapping, setSnapping] = useState(true);
   // The snapping steps and cell-top snapping (editor settings per project, in this browser).
   const [snapSettings, setSnapSettingsState] = useState<SnapSettings>({ ...DEFAULT_SNAP_SETTINGS });
@@ -651,20 +652,6 @@ function EditorApp(): JSX.Element {
   /** Each layer's cells as a grid (props snap to them and footprints read them), by the client's block revision. */
   const propGridsRef = useRef<{ revision: number; grids: Map<string, BlockGrid> }>({ revision: -1, grids: new Map() });
   const modelInstancesRef = useRef<ModelInstances | null>(null);
-  const previewSessionRef = useRef<AssetPreviewSession | null>(null);
-  const previewStageRef = useRef<PreviewStage | null>(null);
-  const previewCanvasRef = useCallback((canvas: HTMLCanvasElement | null) => {
-    // The asset browser mounts a new canvas each time: the old one's context goes with it.
-    previewStageRef.current?.dispose(true);
-    previewStageRef.current = null;
-    if (canvas === null) {
-      modelInstancesRef.current?.clearPreview();
-      previewSessionRef.current = null;
-      setAssetPreview(null);
-      return;
-    }
-    previewStageRef.current = new PreviewStage(canvas);
-  }, []);
   const pendingProposalRef = useRef<{ proposal: Parameters<typeof publishArgsFromProposal>[0]; target: ImportTarget } | null>(null);
   // The media import context the panel shows between the
   // inspect and the publish — the kind the drop decided, the inspected clip
@@ -681,8 +668,8 @@ function EditorApp(): JSX.Element {
   }, [importState]);
   useEffect(() => {
     selectedAssetIdRef.current = selectedAssetId;
-    setAssetPreview(null);
   }, [selectedAssetId]);
+  const assetPreview = useAssetPreview({ clientRef, modelInstancesRef, selectedAssetId, onFailure: (e) => setImportState(importFailed(importStateRef.current, e)) });
   useEffect(() => {
     snappingRef.current = snapping;
   }, [snapping]);
@@ -1096,7 +1083,7 @@ function EditorApp(): JSX.Element {
       materialLibraryRef.current = null;
       viewport.dispose();
       modelInstancesRef.current = null;
-      previewSessionRef.current = null;
+      assetPreview.forget();
       clientRef.current = null;
       viewportRef.current = null;
     };
@@ -2090,6 +2077,24 @@ function EditorApp(): JSX.Element {
     checkFiles,
     showAssets: () => setBottomTab('assets'),
   });
+  // The project window: its folder (new items and uploads go there), moves, and what a double-click opens.
+  const projectWindow = useProjectWindow(clientRef, setUploadFolder, {
+    openDocument: (kind, id) => workspaceDispatch({ type: 'open', doc: { kind, id } }),
+    isVisualScript: (id) => behaviorViews.find((b) => b.behaviorId === id)?.graph !== undefined,
+    openScene: (sceneId) => {
+      void sceneAction({ kind: 'open', sceneId }).then(() => sceneAction({ kind: 'activate', sceneId }));
+      setCenterTab('scene');
+    },
+    showPrefab: (id) => {
+      setSelectedPrefabId(id);
+      setBottomTab('prefabs');
+    },
+    showEnvironment: () => setBottomTab('environment'),
+    previewAsset: (id) => {
+      setSelectedAssetId(id);
+      void assetPreview.load(id);
+    },
+  });
 
   // The Animator window's live preview — the controller's model in
   // its own small stage, posed every frame by the runtime's state machine.
@@ -2163,75 +2168,6 @@ function EditorApp(): JSX.Element {
       },
     };
   }, []);
-
-  const loadPreview = useCallback(async (assetId: string) => {
-    const c = clientRef.current;
-    const m = modelInstancesRef.current;
-    if (!c || !m) return;
-    const v = c.content.resolveVersion(assetId);
-    if (!v || !/^[0-9a-f]{64}$/.test(v.sourceDigest)) {
-      setImportState(importFailed(importStateRef.current, { code: 'asset_not_found', message: `no immutable version facts for ${assetId}` }));
-      return;
-    }
-    const stage = previewStageRef.current;
-    const res = await m.previewAsset(
-      { assetId, version: v.version, sourceDigest: v.sourceDigest, sourceByteLength: v.sourceByteLength },
-      stage?.scene,
-    );
-    if (res.ok) stage?.frame(res.session.root);
-    if (!res.ok) {
-      setImportState(importFailed(importStateRef.current, { code: res.code, message: res.message }));
-      return;
-    }
-    previewSessionRef.current = res.session;
-    setAssetPreview({ assetId, clips: res.session.clips, clipIndex: null, playing: false, timeSeconds: 0, durationSeconds: 0 });
-  }, []);
-
-  const publishPreviewState = useCallback(() => {
-    const s = previewSessionRef.current?.controller.state();
-    if (!s) return;
-    setAssetPreview((p) => (p ? { ...p, playing: s.playing, clipIndex: s.clipIndex, timeSeconds: s.timeSeconds, durationSeconds: s.durationSeconds } : p));
-  }, []);
-
-  const previewPlay = useCallback(() => {
-    const ctrl = previewSessionRef.current?.controller;
-    if (!ctrl) return;
-    ctrl.play();
-    publishPreviewState();
-  }, [publishPreviewState]);
-
-  const previewPause = useCallback(() => {
-    const ctrl = previewSessionRef.current?.controller;
-    if (!ctrl) return;
-    ctrl.pause();
-    publishPreviewState();
-  }, [publishPreviewState]);
-
-  const previewScrub = useCallback(
-    (seconds: number) => {
-      const ctrl = previewSessionRef.current?.controller;
-      if (!ctrl) return;
-      ctrl.scrub(seconds);
-      publishPreviewState();
-    },
-    [publishPreviewState],
-  );
-
-  // The host owns the preview frame loop (the controller installs none).
-  useEffect(() => {
-    if (!assetPreview?.playing) return;
-    let raf = 0;
-    let last = performance.now();
-    const tick = (now: number): void => {
-      const dt = Math.min(0.1, (now - last) / 1000);
-      last = now;
-      modelInstancesRef.current?.updatePreview(dt);
-      publishPreviewState();
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [assetPreview?.playing, publishPreviewState]);
 
   const placement = selectedAssetId !== null ? planAssetPlacement(selectedAssetId) : null;
 
@@ -4148,7 +4084,7 @@ function EditorApp(): JSX.Element {
               selectedAssetId={selectedAssetId}
               placementAvailable={placement !== null && assetPlacementAvailable()}
               placementMessage={placementError?.message ?? null}
-              preview={assetPreview}
+              preview={assetPreview.view}
               onRefresh={() => void refreshAssets()}
               onSelect={(id) => {
                 setSelectedAssetId(id);
@@ -4173,11 +4109,11 @@ function EditorApp(): JSX.Element {
               onPublish={() => void publish()}
               onCancel={() => void cancelImportFlow()}
               onDiscard={() => void discardImportFlow()}
-              onPreview={(id) => void loadPreview(id)}
-              previewCanvasRef={previewCanvasRef}
-              onPreviewPlay={previewPlay}
-              onPreviewPause={previewPause}
-              onPreviewScrub={previewScrub}
+              onPreview={(id) => void assetPreview.load(id)}
+              previewCanvasRef={assetPreview.canvasRef}
+              onPreviewPlay={assetPreview.play}
+              onPreviewPause={assetPreview.pause}
+              onPreviewScrub={assetPreview.scrub}
               onPlace={() => void placeAsset()}
               roleMapping={mediaPendingRef.current !== null && mediaPendingRef.current.referencingEntityIds.length > 0 ? { clipNames: mediaPendingRef.current.clipNames ?? [], referencingEntityIds: mediaPendingRef.current.referencingEntityIds } : null}
               roleEntity={reimportEntity}
@@ -4194,12 +4130,17 @@ function EditorApp(): JSX.Element {
                   clientRef={clientRef}
                   uploadFolder={uploadFolder}
                   onUploadFolder={setUploadFolder}
+                  newFolder={projectWindow.folder ?? ''}
                   ktx2={textureEncoding === 'none' ? undefined : textureEncoding}
                   load={loadProjectFiles}
                   onImported={() => void refreshAssets()}
                 />
               }
               loading={loadingNames}
+              folder={projectWindow.folder}
+              onFolder={projectWindow.setFolder}
+              onOpenItem={projectWindow.open}
+              projectCommands={projectWindow.commands}
               sideExtra={
                 selectedAssetId !== null && selectedAsset.summary?.kind === 'model' ? (
                   <ModelAssetOptions asset={selectedAsset.summary} materials={materials} sourceMaterials={assetSourceMaterials} missingBones={missingBones} onClipsFor={(rig) => void setAssetClipsFor(selectedAssetId, rig)} onMaterials={(mapping) => void assetOptions.setAssetMaterials(selectedAssetId, mapping)} />

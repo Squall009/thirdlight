@@ -1,6 +1,7 @@
 /**
- * The Assets tab's folders: the folder of the game folder uploads land in,
- * the folder new scenes and resources go into, and folder import — a folder already in the game folder, or one picked on
+ * The Assets tab's folders: the folder of the game folder uploads land in
+ * (the project window's folder, or one typed here), where new scenes and
+ * resources go (the project window's folder), and folder import — a folder already in the game folder, or one picked on
  * the computer (its files are uploaded into the upload folder first). Every
  * supported file comes in as an asset named after its file, with the labels
  * typed here, in one command (one undo). Display and intent only: the
@@ -16,9 +17,8 @@ type ImportResult = { ok: true; added: number; report?: FolderImportView } | { o
 interface Props {
   uploadFolder: string;
   onUploadFolder: (folder: string) => void;
-  /** Where new scenes and resources go (empty: each kind's default folder). */
+  /** Where new scenes and resources go: the project window's folder (empty: each kind's default folder). */
   newFolder: string;
-  onNewFolder: (folder: string) => void;
   /** One folder of the game folder (its subfolders are offered). */
   load: (dir: string) => Promise<{ ok: true; listing: ProjectFileListing } | { ok: false; error: { code: string; message: string } }>;
   upload: (path: string, bytes: Uint8Array) => Promise<{ ok: true; path: string } | { ok: false; error: { code: string; message: string } }>;
@@ -97,10 +97,10 @@ export function FolderImportPanel(p: Props): JSX.Element {
         <span className="tl-field__label">upload to</span>
         <input className="tl-input tl-input--small" aria-label="upload folder" value={p.uploadFolder} onChange={(e) => p.onUploadFolder(e.target.value.trim())} />
       </label>
-      <label className="tl-field tl-field--inline" title="The folder of the game folder new scenes, prefabs, materials and other resources are created in (made when missing); empty: each kind's own folder (scenes/, assets/<kind>/)">
+      <span className="tl-field tl-field--inline" data-testid="new-item-folder" title="New scenes, prefabs, materials and other resources are created in the folder chosen in the project window; with All assets chosen, in each kind's own folder (scenes/, assets/<kind>/)">
         <span className="tl-field__label">new items in</span>
-        <input className="tl-input tl-input--small" aria-label="new item folder" placeholder="default" value={p.newFolder} onChange={(e) => p.onNewFolder(e.target.value.trim())} />
-      </label>
+        <span className="tl-project__where">{p.newFolder === '' ? "each kind's folder" : p.newFolder}</span>
+      </span>
       <button
         className="tl-btn"
         aria-expanded={open}

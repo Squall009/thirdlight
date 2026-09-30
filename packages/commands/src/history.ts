@@ -48,6 +48,7 @@ import { historyEmpty, historyInvalid, type CommandError } from './errors';
 import { redoImportAssets, undoImportAssets } from './import-assets';
 import { loadingItemsExist, redoSetLoading, undoSetLoading } from './loadable-ops';
 import { redoImportResources, undoImportResources } from './import-resources';
+import { redoMoveResources, undoMoveResources } from './move-ops';
 import {
   behaviorOf,
   componentsRecord,
@@ -339,6 +340,15 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     if (entry.change.type !== 'importResources') return { ok: false, error: historyInvalid(entry.requestId) };
     const r = undoImportResources(scene, content, entry.change);
     if (r === null) return { ok: false, error: historyInvalid(entry.requestId) };
+    return finish(state, r.scene, r.content, r.change, entry.requestId);
+  }
+
+  if (inv.kind === 'moveResources') {
+    if (entry.change.type !== 'moveResources') return { ok: false, error: historyInvalid(entry.requestId) };
+    const r = undoMoveResources(scene, content, entry.change);
+    if (r === null) return { ok: false, error: historyInvalid(entry.requestId) };
+    // Only resource, scene and folder moves: the content block is the same (the host moves the files).
+    if (r.content === content) return { ok: true, applied: { scene: r.scene, content, change: r.change } };
     return finish(state, r.scene, r.content, r.change, entry.requestId);
   }
 
@@ -854,6 +864,14 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
   if (f.type === 'importResources') {
     const r = redoImportResources(scene, content, f);
     if (r === null) return { ok: false, error: historyInvalid(entry.requestId) };
+    return finish(state, r.scene, r.content, r.change, entry.requestId);
+  }
+
+  if (f.type === 'moveResources') {
+    const r = redoMoveResources(scene, content, f);
+    if (r === null) return { ok: false, error: historyInvalid(entry.requestId) };
+    // Only resource, scene and folder moves: the content block is the same (the host moves the files).
+    if (r.content === content) return { ok: true, applied: { scene: r.scene, content, change: r.change } };
     return finish(state, r.scene, r.content, r.change, entry.requestId);
   }
 

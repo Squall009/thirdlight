@@ -249,6 +249,7 @@ export function updateIndex(index: ProjectIndex, before: IndexSource, after: Ind
     entries.delete(key);
     dropId(old.id);
   }
+  if (removes.length > 0 || puts.length > 0) generations.set(index, (generations.get(index) ?? 0) + 1);
   for (const make of puts) {
     const e = make();
     const key = keyOf(e.kind, e.id);
@@ -258,6 +259,41 @@ export function updateIndex(index: ProjectIndex, before: IndexSource, after: Ind
     entries.set(key, e);
     addReferrers(referrers, key, e.refs);
   }
+}
+
+/** Goes up whenever an update changed an entry (orders by name or path are made again). */
+const generations = new WeakMap<ProjectIndex, number>();
+
+/** How the index can be ordered besides `kind:id`. */
+export type IndexOrder = 'name' | 'kind' | 'path';
+
+const collator = new Intl.Collator('en', { numeric: true, sensitivity: 'base' });
+const orders = new WeakMap<ProjectIndex, Map<IndexOrder, { generation: number; keys: readonly string[] }>>();
+
+/**
+ * The index's keys in an order (Unity's project window sorts by name, type or
+ * path; ties in `kind:id` order), made once per change of the index and kept.
+ */
+export function orderedBy(index: ProjectIndex, order: IndexOrder): readonly string[] {
+  const generation = generations.get(index) ?? 0;
+  let byOrder = orders.get(index);
+  if (byOrder === undefined) {
+    byOrder = new Map();
+    orders.set(index, byOrder);
+  }
+  const have = byOrder.get(order);
+  if (have !== undefined && have.generation === generation && have.keys.length === index.entries.size) return have.keys;
+  const base = sortedKeys(index);
+  const rank = new Map(base.map((k, i) => [k, i]));
+  const field = (k: string): string => {
+    const e = index.entries.get(k)!;
+    return order === 'path' ? (e.path ?? '') : e.name;
+  };
+  const kindOf = (k: string): string => index.entries.get(k)!.kind;
+  // By kind: then by name within a kind.
+  const keys = [...base].sort((a, b) => (order === 'kind' ? collator.compare(kindOf(a), kindOf(b)) : 0) || collator.compare(field(a), field(b)) || rank.get(a)! - rank.get(b)!);
+  byOrder.set(order, { generation, keys });
+  return keys;
 }
 
 /** Each index's keys in ascending order, made when first asked for after the key set changed (queries page from it). */

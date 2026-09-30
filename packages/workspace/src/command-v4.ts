@@ -6,8 +6,8 @@
  * changed, and the publish of the new state.
  */
 
-import { applyMutation, contentInUse } from '@thirdlight/commands';
-import type { AdoptedScene, CommandError, CommandState, ContentDocument, HistoryEntry, HistoryState, MutationResult, MutationSuccess, SceneDocument } from '@thirdlight/commands';
+import { applyMutation, contentInUse, FILE_MOVE_OPS } from '@thirdlight/commands';
+import type { AdoptedScene, CommandError, CommandState, ContentDocument, HistoryEntry, HistoryState, MoveResourcesChange, MutationResult, MutationSuccess, SceneDocument } from '@thirdlight/commands';
 import type { ModelErrorV3, SceneV4 } from '@thirdlight/project-model';
 import { composeV4, INSTANCE_FLOATS, RESOURCE_CREATING_OPS } from '@thirdlight/project-model';
 
@@ -15,6 +15,7 @@ import type { RetryRecord } from './envelope';
 import { readSourceBlob, verifyConvertedOriginal, verifyImported, verifyReferencedBlob } from './content-store';
 import { checkAssetFolder, planPlacement, syncAssetFiles, type ConvertedLike } from './asset-files';
 import { mintImportItems } from './folder-import';
+import { applyFileMoves, checkReplayedMoves, movedFileKeys, prepareFileMoves } from './file-moves';
 import { contentCtx } from './service-content';
 import { libraryStageFacts, preparedFactsOf } from './behavior';
 import { externalChangeUnreadable, externalChangeUnresolved, pathRejected, writeFailed } from './errors';
@@ -156,8 +157,23 @@ export function runCommandV4(core: Core, s: ProjectSession, request: unknown, D:
     s.preparedImports?.delete(args['folder']);
     if (files !== undefined) commandState.preparedAssetImport = { folder: args['folder'], items: mintImportItems(state.content, files) };
   }
+  // A move names items and folders; the files they are and where they go are found here.
+  if (FILE_MOVE_OPS.includes(op)) {
+    const prepared = prepareFileMoves(contentCtx(s), state, s.index, op, args);
+    if (prepared !== null && !prepared.ok) return failRequest(request, prepared.error);
+    if (prepared !== null) commandState.preparedMoves = prepared.prepared;
+  }
   const outcome = applyMutation(commandState, pureRequest);
   if (!outcome.ok) return outcome.result;
+  // A move (or its undo or redo) puts resource and scene files elsewhere; an undo or redo first checks its targets are free.
+  const moveChange = outcome.result.change.type === 'moveResources' ? (outcome.result.change as MoveResourcesChange) : null;
+  if (moveChange !== null) {
+    if (op === 'undo' || op === 'redo') {
+      const taken = checkReplayedMoves(contentCtx(s), moveChange);
+      if (taken !== null) return failRequest(request, taken);
+    }
+    place = { ...place, moved: movedFileKeys(moveChange) };
+  }
   // Remember which scene the new history entry edited (undo/redo route by it).
   const entries = outcome.state.history.entries;
   if (op !== 'undo' && op !== 'redo' && entries.length > 0) {
@@ -249,7 +265,7 @@ export function runCommandV4(core: Core, s: ProjectSession, request: unknown, D:
   // A committed stage is done (committing it again is refused).
   if (op === 'commitScriptLibraryStage' && typeof args['stageId'] === 'string') s.libraryStages?.delete(args['stageId']);
   // The game folder follows what the command did to an asset: its sidecar, a delete, a move, an undone replace.
-  const fileProblems = syncAssetFiles(core, contentCtx(s), outcome.result.change, nextContent);
+  const fileProblems = moveChange !== null ? applyFileMoves(contentCtx(s), moveChange) : syncAssetFiles(core, contentCtx(s), outcome.result.change, nextContent);
   if (fileProblems.length > 0) s.fileProblems = [...(s.fileProblems ?? []), ...fileProblems].slice(-32);
   return ack;
 }

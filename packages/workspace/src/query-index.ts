@@ -6,15 +6,30 @@
  * Filters: `kind` or `kinds`, `id` or `ids` (a page of ids: a caller fetching
  * what it needs by id), `label`, `address`, `loadable` (an address or a
  * label, or neither), `referencing` (the entries that name an id) and `text`
- * (a case-insensitive part of the name, id or file). `refs: false` leaves the
- * reference lists out (a list or picker needs none), `records: true` adds a
- * resource's record (`record`; assets and scenes have their own queries).
- * Entries come in `kind:id` order, paged.
+ * (a case-insensitive part of the name, id or file), `labels` (every one of
+ * them), `folder` (the entries whose file is in that folder of the game
+ * folder, `""` its top; `recursive: true` also in its subfolders). `refs:
+ * false` leaves the reference lists out (a list or picker needs none),
+ * `records: true` adds a resource's record (`record`; assets and scenes have
+ * their own queries). Entries come in `kind:id` order, or by `sort` (`name`,
+ * `kind` then name, `path`; `descending: true` the other way), paged.
+ *
+ * `folders: true` adds the subfolders of `folder` (the project window's
+ * folder tree): the game folder's real folders, and a folder the project's
+ * files are in (a project folder's own `scenes/`), each with whether it has
+ * subfolders of its own.
  */
+import { readdirSync, type Dirent } from 'node:fs';
+import { join } from 'node:path';
+
+import { isValidSourcePath } from '@thirdlight/project-model';
+
 import type { QueryResult } from './types';
+import { assetRoot, PROJECT_OWN_ENTRIES } from './asset-files';
+import { contentCtx } from './service-content';
 
 import { fieldTypeError, fieldUnexpected, fieldValueType, isSafeInt, pointerSegment } from './errors';
-import { buildIndex, sortedKeys, type IndexEntry, type ProjectIndex } from './project-index';
+import { buildIndex, orderedBy, sortedKeys, type IndexEntry, type IndexOrder, type ProjectIndex } from './project-index';
 import { recordsOfKind, RESOURCE_KINDS } from './resource-files';
 import type { ProjectSession } from './session';
 import type { V4State } from './store-v4';
@@ -22,7 +37,62 @@ import type { V4State } from './store-v4';
 /** The most index entries one `queryIndex` page returns (and the most ids one asks for). */
 export const MAX_INDEX_PAGE = 1024;
 
-const ARGS = ['kind', 'kinds', 'id', 'ids', 'label', 'address', 'loadable', 'referencing', 'text', 'refs', 'records', 'limit', 'offset'];
+const ARGS = ['kind', 'kinds', 'id', 'ids', 'label', 'labels', 'address', 'loadable', 'referencing', 'text', 'folder', 'recursive', 'folders', 'sort', 'descending', 'refs', 'records', 'limit', 'offset'];
+const ORDERS: readonly IndexOrder[] = ['name', 'kind', 'path'];
+
+/** One subfolder in a `folders: true` reply. */
+interface FolderRow {
+  path: string;
+  name: string;
+  hasFolders: boolean;
+}
+
+/** Folders never listed: tools' state, version control, dependencies. */
+const SKIP_FOLDERS = new Set(['node_modules']);
+
+function listedDirs(root: string, rel: string, projectDir: string | null, dataRoot: boolean): Dirent[] {
+  let names: Dirent[];
+  try {
+    names = readdirSync(rel === '' ? root : join(root, ...rel.split('/')), { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  return names.filter((d) => d.isDirectory() && !d.name.startsWith('.') && !SKIP_FOLDERS.has(d.name) && !(rel === '' && dataRoot && PROJECT_OWN_ENTRIES.has(d.name)) && !(projectDir !== null && join(root, ...(rel === '' ? [] : rel.split('/')), d.name) === projectDir) && isValidSourcePath(rel === '' ? d.name : `${rel}/${d.name}`));
+}
+
+/** The subfolders of a folder: on disk, and those the index's files are in. */
+function subfolders(s: ProjectSession, index: ProjectIndex, folder: string): FolderRow[] {
+  const ctx = contentCtx(s);
+  const root = assetRoot(ctx);
+  const dataRoot = ctx.gameFolder == null;
+  const projectDir = dataRoot ? null : ctx.dir;
+  const out = new Map<string, FolderRow>();
+  for (const d of listedDirs(root, folder, projectDir, dataRoot)) {
+    const path = folder === '' ? d.name : `${folder}/${d.name}`;
+    out.set(path, { path, name: d.name, hasFolders: listedDirs(root, path, projectDir, dataRoot).length > 0 });
+  }
+  const prefix = folder === '' ? '' : `${folder}/`;
+  for (const e of index.entries.values()) {
+    if (e.path === null || !e.path.startsWith(prefix)) continue;
+    const rest = e.path.slice(prefix.length);
+    const cut = rest.indexOf('/');
+    if (cut <= 0) continue;
+    const path = `${prefix}${rest.slice(0, cut)}`;
+    const deeper = rest.indexOf('/', cut + 1) > 0;
+    const row = out.get(path);
+    if (row === undefined) out.set(path, { path, name: rest.slice(0, cut), hasFolders: deeper });
+    else if (deeper && !row.hasFolders) out.set(path, { ...row, hasFolders: true });
+  }
+  return [...out.values()].sort((a, b) => a.name.localeCompare(b.name, 'en', { numeric: true, sensitivity: 'base' }));
+}
+
+/** Whether an entry's file is in a folder (or below it). */
+function inFolder(path: string | null, folder: string, recursive: boolean): boolean {
+  if (path === null) return false;
+  if (folder === '') return recursive || !path.includes('/');
+  if (!path.startsWith(`${folder}/`)) return false;
+  return recursive || !path.includes('/', folder.length + 1);
+}
 
 function failure(projectId: string, error: import('@thirdlight/commands').CommandError): QueryResult {
   return { ok: false, op: 'queryIndex', projectId, error } as unknown as QueryResult;
@@ -58,9 +128,11 @@ const isStringList = (v: unknown, max: number): v is string[] => Array.isArray(v
 
 export function serveQueryIndex(s: ProjectSession, state: V4State, projectId: string, a: Record<string, unknown>): QueryResult {
   for (const k of Object.keys(a)) if (!ARGS.includes(k)) return failure(projectId, fieldUnexpected(`/args/${pointerSegment(k)}`, k, ARGS.join(', ')));
-  for (const k of ['kind', 'id', 'label', 'address', 'referencing', 'text'] as const) if (a[k] !== undefined && typeof a[k] !== 'string') return failure(projectId, fieldTypeError(`/args/${k}`, a[k], 'string'));
-  for (const k of ['loadable', 'refs', 'records'] as const) if (a[k] !== undefined && typeof a[k] !== 'boolean') return failure(projectId, fieldTypeError(`/args/${k}`, a[k], 'boolean'));
-  for (const k of ['kinds', 'ids'] as const) {
+  for (const k of ['kind', 'id', 'label', 'address', 'referencing', 'text', 'folder'] as const) if (a[k] !== undefined && typeof a[k] !== 'string') return failure(projectId, fieldTypeError(`/args/${k}`, a[k], 'string'));
+  for (const k of ['loadable', 'refs', 'records', 'recursive', 'folders', 'descending'] as const) if (a[k] !== undefined && typeof a[k] !== 'boolean') return failure(projectId, fieldTypeError(`/args/${k}`, a[k], 'boolean'));
+  if (a['sort'] !== undefined && !ORDERS.includes(a['sort'] as IndexOrder)) return failure(projectId, fieldValueType('/args/sort', a['sort'], ORDERS.join(' | '), 'sort orders the entries'));
+  if (typeof a['folder'] === 'string' && a['folder'] !== '' && !isValidSourcePath(a['folder'])) return failure(projectId, fieldValueType('/args/folder', a['folder'], 'a folder of the game folder ("" its top)', 'folder is relative, with forward slashes'));
+  for (const k of ['kinds', 'ids', 'labels'] as const) {
     if (a[k] !== undefined && !isStringList(a[k], MAX_INDEX_PAGE)) return failure(projectId, fieldValueType(`/args/${k}`, a[k], `1-${MAX_INDEX_PAGE} strings`, `${k} lists 1 to ${MAX_INDEX_PAGE} strings`));
   }
   const limit = a['limit'] ?? 256;
@@ -75,7 +147,11 @@ export function serveQueryIndex(s: ProjectSession, state: V4State, projectId: st
   let keys: readonly string[];
   if (typeof a['referencing'] === 'string') keys = [...(index.referrers.get(a['referencing']) ?? [])].sort();
   else if (ids !== null && kinds !== null) keys = [...kinds].flatMap((k) => [...ids].map((id) => `${k}:${id}`)).filter((key) => index.entries.has(key)).sort();
-  else keys = sortedKeys(index);
+  else keys = a['sort'] !== undefined ? orderedBy(index, a['sort'] as IndexOrder) : sortedKeys(index);
+  const folder = typeof a['folder'] === 'string' ? a['folder'] : null;
+  const recursive = a['recursive'] === true;
+  const labels = (a['labels'] as string[] | undefined) ?? null;
+  const descending = a['descending'] === true;
   const text = typeof a['text'] === 'string' && a['text'].trim() !== '' ? a['text'].trim().toLowerCase() : null;
   const withRefs = a['refs'] !== false;
   const withRecords = a['records'] === true;
@@ -83,12 +159,15 @@ export function serveQueryIndex(s: ProjectSession, state: V4State, projectId: st
   const to = from + (limit as number);
   let total = 0;
   const page: Record<string, unknown>[] = [];
-  for (const key of keys) {
+  for (let n = 0; n < keys.length; n++) {
+    const key = keys[descending ? keys.length - 1 - n : n]!;
     const e = index.entries.get(key);
     if (e === undefined) continue;
     if (kinds !== null && !kinds.has(e.kind)) continue;
     if (ids !== null && !ids.has(e.id)) continue;
     if (a['label'] !== undefined && !e.labels.includes(a['label'] as string)) continue;
+    if (labels !== null && !labels.every((l) => e.labels.includes(l))) continue;
+    if (folder !== null && !inFolder(e.path, folder, recursive)) continue;
     if (a['address'] !== undefined && e.address !== a['address']) continue;
     // Loadable: an address or a label (what a script may load by name).
     if (a['loadable'] !== undefined && (e.address !== null || e.labels.length > 0) !== a['loadable']) continue;
@@ -108,5 +187,6 @@ export function serveQueryIndex(s: ProjectSession, state: V4State, projectId: st
     }
     total += 1;
   }
-  return { ok: true, projectId, revision: state.revision, total, entries: page } as unknown as QueryResult;
+  const folderRows = a['folders'] === true ? { folders: subfolders(s, index, folder ?? '') } : {};
+  return { ok: true, projectId, revision: state.revision, total, entries: page, ...folderRows } as unknown as QueryResult;
 }

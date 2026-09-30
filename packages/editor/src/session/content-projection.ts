@@ -108,6 +108,20 @@ export class ContentProjection {
         }
         return changed;
       }
+      // Files moved: an asset's file (and its original, for a converted one) is somewhere else.
+      case 'moveResources': {
+        let changed = false;
+        for (const m of change.moves) {
+          const a = m.kind === 'asset' ? this.assets.get(m.id) : undefined;
+          if (a === undefined) continue;
+          const moved = { ...a } as AssetView & { sourcePath?: string; convertedFrom?: { sourcePath?: string } };
+          if (moved.sourcePath === m.from) moved.sourcePath = m.to;
+          if (moved.convertedFrom?.sourcePath === m.from) moved.convertedFrom = { ...moved.convertedFrom, sourcePath: m.to };
+          this.assets.set(m.id, moved);
+          changed = true;
+        }
+        return changed;
+      }
       // The whole next record (its options, and where its file is after a move).
       case 'setAssetOptions':
         if (!this.assets.has(change.assetId)) return false;

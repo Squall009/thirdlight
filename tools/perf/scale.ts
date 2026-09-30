@@ -30,6 +30,7 @@ import { SCALE_BATCH_LABEL, type ScaleResult } from './scale-generate';
 import { checkerPng, opusVoice } from './scale-media';
 import { summarize, type Summary } from './stats';
 import { measureEditorAtScale, type EditorScaleReport } from './scale-editor';
+import { measureProjectWindowAtScale, type ProjectWindowScaleReport } from './scale-project';
 
 export type ScaleStep = 'files' | 'open' | 'commands' | 'editor' | 'import' | 'play' | 'walk' | 'handles' | 'dialogue' | 'stream' | 'export';
 /**
@@ -87,6 +88,8 @@ export interface ScaleReport {
   commands?: { sceneEdit: Summary; contentEdit: Summary | null; contentBytes: number | null };
   /** The editor at this size (scale-editor.ts): open to usable, the asset list scrolled through, a picker search, a placement, a line's voice. */
   editor?: EditorScaleReport;
+  /** The project window: files chosen, labelled and moved in one command each (then undone). */
+  projectWindow?: ProjectWindowScaleReport;
   /** One `importAssets` of a folder of new voice files: the command's round trip (inspection included), and one scene edit after it. */
   import?: { files: number; added: number; ms: number; sceneEditAfterMs: number; backendRssMiB: number | null };
   /**
@@ -393,6 +396,15 @@ export class ScaleBench {
       url: `${this.backend.origin}/?project=${this.opts.projectId}&renderer=${this.opts.renderer}#token=${this.backend.token}`,
       log: this.opts.log,
     });
+    const voices = this.opts.generated?.spec.voices ?? 0;
+    if (voices > 0) {
+      this.report.projectWindow = await measureProjectWindowAtScale(this.page!, {
+        query: (op, args) => p.query(op, args),
+        files: Math.min(1000, voices),
+        folder: 'assets/voice',
+        log: this.opts.log,
+      });
+    }
   }
 
   /** One scene edit (a transform: rewrites one scene file) and one content edit (a material: rewrites its own file and content.json's record). */

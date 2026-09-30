@@ -34,7 +34,7 @@ interface Cache {
 }
 
 export function queryKey(q: IndexQuery): string {
-  return JSON.stringify([q.kinds ?? [], q.text?.trim() ?? '', q.label ?? null, q.loadable ?? null, q.referencing ?? null]);
+  return JSON.stringify([q.kinds ?? [], q.text?.trim() ?? '', q.label ?? null, q.loadable ?? null, q.referencing ?? null, q.labels ?? [], q.folder ?? null, q.recursive ?? false, q.sort ?? null, q.descending ?? false]);
 }
 
 export function useIndexList(query: IndexQuery, enabled = true): IndexList {

@@ -474,6 +474,8 @@ export interface Placement {
   folder?: string;
   at?: ReadonlyMap<string, string>;
   disk?: ReadonlyMap<string, KnownFile | null>;
+  /** Files a move puts elsewhere (`formerKey` → a resource's game-folder path, or a scene's file key): written there, removed where they were. */
+  moved?: ReadonlyMap<string, string>;
 }
 
 /** The files a new v4 state needs written, compared with what is on record. */
@@ -560,6 +562,23 @@ export function changedFiles(projectId: string, before: V4State, after: { conten
     }
   }
   const sceneWritten = writes.some((w) => w.bytes !== null && !isChunkRel(w.rel));
+  // Scene files a move puts elsewhere: the same bytes at the new key.
+  for (const [key, rel] of place.moved ?? []) {
+    if (!key.startsWith(formerKey('scene', ''))) continue;
+    const id = key.slice(formerKey('scene', '').length);
+    const old = scenePaths.get(id) ?? sceneRel(id);
+    const f = files.get(old);
+    if (old === rel || f === undefined) continue;
+    writes.push({ rel, bytes: f.bytes });
+    files.set(rel, f);
+    writes.push({ rel: old, bytes: null });
+    files.delete(old);
+    const recs = fileRecords.get(old);
+    fileRecords.delete(old);
+    if (recs !== undefined) fileRecords.set(rel, recs);
+    if (rel === sceneRel(id)) scenePaths.delete(id);
+    else scenePaths.set(id, rel);
+  }
   // Resources: each record the command added, changed or removed is one file.
   const resourcePaths = resourceWrites(before, after.content, writes, files, place, formerPaths);
   // Content: written when the project-wide settings changed, or when no scene file carries the record.
@@ -657,10 +676,11 @@ function resourceWrites(before: V4State, next: V4State['content'], writes: FileW
     for (const key of new Set([...was.keys(), ...loading.keys()])) if (JSON.stringify(was.get(key)) !== JSON.stringify(loading.get(key))) loadingChanged.add(key);
   }
   const loadingKinds = new Set([...loadingChanged].map((key) => key.slice(0, key.indexOf(':'))));
+  const movedLists = new Set([...(place.moved?.keys() ?? [])].map((key) => key.slice(0, key.indexOf('\u0000'))));
   for (const k of RESOURCE_KINDS) {
     const a = recordsOfKind(prevContent, k);
     const b = recordsOfKind(nextContent, k);
-    if (a === b && !loadingKinds.has(k.kind)) continue;
+    if (a === b && !loadingKinds.has(k.kind) && !movedLists.has(k.list)) continue;
     const prev = new Map<string, unknown>();
     if (a !== undefined) for (const r of a) prev.set(String(r[k.idKey]), r);
     const paths = new Map(before.resourcePaths.get(k.list) ?? []);
@@ -669,7 +689,16 @@ function resourceWrites(before: V4State, next: V4State['content'], writes: FileW
       for (const r of b) {
         const id = String(r[k.idKey]);
         kept.add(id);
-        if (prev.get(id) === r && !loadingChanged.has(`${k.kind}:${id}`)) continue;
+        const movedTo = place.moved?.get(formerKey(k.list, id));
+        if (movedTo !== undefined && paths.get(id) !== undefined && paths.get(id) !== movedTo) {
+          // Moved: the file goes (the record is written at its new path below).
+          const old = gameRel(paths.get(id)!);
+          if (files.has(old)) {
+            writes.push({ rel: old, bytes: null });
+            files.delete(old);
+          }
+          paths.set(id, movedTo);
+        } else if (prev.get(id) === r && !loadingChanged.has(`${k.kind}:${id}`)) continue;
         let path = paths.get(id);
         if (path === undefined) {
           // New here: adopted where it is, in the folder the request named, where it was before it was removed, or its kind's folder.
