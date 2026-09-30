@@ -7,6 +7,7 @@
  *   --import N                         voice files the import step writes into a new folder and imports (1000)
  *   --stream N --budget MB             large KTX2 textures the stream step imports (6) and the texture budget Play then runs with (8)
  *   --walk N --lines N --commands N    scenes walked (50), dialogue lines played (500), command round trips (20)
+ *   --settle MS                        Play after the editor's connect-time file check answered and MS more (default: at once)
  *   --seed N --gpu --renderer webgl2|webgpu --keep --out FILE
  *
  * The project is generated under ~/.cache/thirdlight-perf/scale/<name>/pristine
@@ -84,6 +85,7 @@ export async function runScaleCli(argv: readonly string[]): Promise<void> {
     importFiles: Number(get('import') ?? 1000),
     streamTextures: Number(get('stream') ?? 6),
     streamBudgetMb: Number(get('budget') ?? 8),
+    ...(get('settle') !== undefined ? { settleMs: Number(get('settle')) } : {}),
     steps,
     log,
   });

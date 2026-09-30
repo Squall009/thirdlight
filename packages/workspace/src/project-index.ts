@@ -263,19 +263,36 @@ export function updateIndex(index: ProjectIndex, before: IndexSource, after: Ind
     entries.delete(key);
     dropId(old.id);
   }
-  if (removes.length > 0 || puts.length > 0) generations.set(index, (generations.get(index) ?? 0) + 1);
+  let changed = removes.length > 0;
   for (const make of puts) {
     const e = make();
     const key = keyOf(e.kind, e.id);
     const old = entries.get(key);
+    // A record edited without changing what the index says of it (a material's values, a scene's objects) keeps its entry.
+    if (old !== undefined && sameEntry(old, e)) continue;
+    changed = true;
     if (old !== undefined) dropReferrers(referrers, key, old.refs);
     else orderedKeys.delete(index);
     entries.set(key, e);
     addReferrers(referrers, key, e.refs);
   }
+  if (changed) generations.set(index, (generations.get(index) ?? 0) + 1);
 }
 
-/** Goes up whenever an update changed an entry (orders by name or path are made again). */
+function sameList(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((x, i) => x === b[i]);
+}
+
+function sameEntry(a: IndexEntry, b: IndexEntry): boolean {
+  return a.kind === b.kind && a.id === b.id && a.path === b.path && a.name === b.name && a.address === b.address && sameList(a.labels, b.labels) && sameList(a.refs, b.refs);
+}
+
+/** Goes up whenever an update changed an entry: what a query answered before still holds while it stays. */
+export function indexGeneration(index: ProjectIndex): number {
+  return generations.get(index) ?? 0;
+}
+
+/** Goes up whenever an update changed an entry (orders by name or path are made again, query answers are not reused). */
 const generations = new WeakMap<ProjectIndex, number>();
 
 /** How the index can be ordered besides `kind:id`. */

@@ -5,8 +5,9 @@
  * asset's file is and which files it found as recorded. From then on the
  * folder watch (file-watch.ts) reports every path that changes; a changed
  * file, its sidecar or its import-cache entry marks its asset changed and the
- * file unverified. The check before Play then visits only the changed assets,
- * and a Play build trusts a verified file without a `stat`.
+ * file unverified. A file check (the editor's on connect and focus, "check
+ * files", the one before Play) then visits only the changed assets, and a
+ * Play build trusts a verified file without a `stat`.
  *
  * Nothing is trusted unless the watch was running before the full check
  * started and has not lost an event since (`onLost` starts over): after a
@@ -37,7 +38,7 @@ interface Indexed {
   readonly owned: string[];
 }
 
-/** What the check before Play must visit: some assets, or all of them. */
+/** What a file check must visit: some assets, or all of them. */
 export type PendingAssets = { all: true; reason: string } | { all: false; assetIds: ReadonlySet<string> };
 
 export interface WatchedAssetsStats {
@@ -180,7 +181,7 @@ export class WatchedAssets {
   }
 
   /**
-   * What the check before Play must visit. `list` is the records' current
+   * What a file check must visit. `list` is the records' current
    * list; `keyOf` gives a record's id, file and recorded digest (a record
    * added or moved since it was indexed, or naming bytes other than its file
    * held when checked, is visited too).

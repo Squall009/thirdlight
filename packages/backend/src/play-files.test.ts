@@ -5,8 +5,9 @@
  *   changed on disk gets a new digest and a new URL at the next Play, and its
  *   old URL never serves the new bytes (refused, and the files checked again);
  * - a restart reads the stamps the last run kept and hashes no unchanged file;
- * - the check before Play looks only at the files the folder watch saw
- *   change, and at every file when the watch is off or may have missed some;
+ * - a file check (the one before Play too) looks only at the files the
+ *   folder watch saw change, and at every file when the watch is off or may
+ *   have missed some;
  * - the asset, index and integrity queries page.
  */
 import { createHash } from 'node:crypto';

@@ -81,7 +81,7 @@ export interface BackendConfig {
   crossOriginIsolation?: boolean;
   /**
    * Optional (THIRDLIGHT_FILE_WATCH=off → false): watch open projects'
-   * folders so the check before Play looks only at changed files (default on).
+   * folders so file checks look only at changed files (default on).
    * `maxEventsPerTurn`: the event count taken as a possible overflow of the
    * kernel's queue (a test seam; default the kernel's queue length).
    */

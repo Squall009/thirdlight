@@ -24,7 +24,7 @@
  *   THIRDLIGHT_TRUSTED_PROXIES    optional; reverse proxies whose X-Forwarded-For names the client
  *   THIRDLIGHT_CROSS_ORIGIN_ISOLATION optional; `1` = COOP + COEP on the editor and preview origin (Play's simulation worker then shares memory)
  *   THIRDLIGHT_BACKEND_ID         optional; `tb-` + 32 hex
- *   THIRDLIGHT_FILE_WATCH         optional; `off` = do not watch project folders (every check before Play walks every asset file)
+ *   THIRDLIGHT_FILE_WATCH         optional; `off` = do not watch project folders (every file check walks every asset file)
  *   THIRDLIGHT_HEADLESS           optional; `off` = never open a headless editor for MCP play
  *   THIRDLIGHT_BROWSER_LIBS       optional; an extracted library tree for Chromium (hosts without browser libraries)
  *   THIRDLIGHT_HEADLESS_IDLE_SECONDS optional; close an idle headless editor after this long (default 300)

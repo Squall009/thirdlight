@@ -213,7 +213,7 @@ export function composeV4(
 /**
  * Entity ids used twice across the project's scenes. The last answer is kept
  * with the scenes it was for and a count of every id (scenes are immutable
- * values): a command that changes no scene (a content edit) does not walk
+ * values, kept by identity like the other per-scene rules here): a command that changes no scene (a content edit) does not walk
  * every entity again, and one that changes a few scenes of a project without
  * duplicates recounts only those scenes' ids.
  */
@@ -222,8 +222,7 @@ let lastEntityIds: { readonly scenes: readonly SceneV4[]; readonly counts: Map<s
 const ENTITY_ID_RECOUNT_SCENES = 8;
 function entityIdErrors(scenes: readonly SceneV4[]): readonly ModelErrorV3[] {
   const last = lastEntityIds;
-  const frozen = scenes.every((s) => Object.isFrozen(s) && Object.isFrozen(s.entities));
-  if (last !== null && frozen && last.scenes.length === scenes.length) {
+  if (last !== null && last.scenes.length === scenes.length) {
     const changed: number[] = [];
     for (let i = 0; i < scenes.length && changed.length <= ENTITY_ID_RECOUNT_SCENES; i += 1) if (last.scenes[i] !== scenes[i]) changed.push(i);
     if (changed.length === 0) return last.errors;
@@ -258,7 +257,7 @@ function entityIdErrors(scenes: readonly SceneV4[]): readonly ModelErrorV3[] {
       } else owner.set(e.id, s.sceneId);
     });
   }
-  lastEntityIds = frozen ? { scenes: [...scenes], counts, errors } : null;
+  lastEntityIds = { scenes: [...scenes], counts, errors };
   return errors;
 }
 

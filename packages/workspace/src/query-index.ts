@@ -29,7 +29,7 @@ import { assetRoot, PROJECT_OWN_ENTRIES } from './asset-files';
 import { contentCtx } from './service-content';
 
 import { fieldTypeError, fieldUnexpected, fieldValueType, isSafeInt, pointerSegment } from './errors';
-import { buildIndex, orderedBy, sortedKeys, type IndexEntry, type IndexOrder, type ProjectIndex } from './project-index';
+import { buildIndex, indexGeneration, orderedBy, sortedKeys, type IndexEntry, type IndexOrder, type ProjectIndex } from './project-index';
 import { recordsOfKind, RESOURCE_KINDS } from './resource-files';
 import type { ProjectSession } from './session';
 import type { V4State } from './store-v4';
@@ -124,6 +124,16 @@ function resourceRecord(state: V4State, kind: string, id: string): Record<string
   return m.get(id);
 }
 
+/**
+ * Pages answered since the index last changed, by their arguments: the
+ * editor asks for the same pages again after an edit that changed no entry
+ * (a material's values, a scene's objects). Not kept: pages with records
+ * (they change with their record) or with folders (they read the disk).
+ */
+const answered = new WeakMap<ProjectIndex, { generation: number; pages: Map<string, { total: number; entries: readonly Record<string, unknown>[] }> }>();
+/** Pages kept per index (the lists and pickers open at once ask for a handful). */
+const ANSWERED_PAGES = 64;
+
 const isStringList = (v: unknown, max: number): v is string[] => Array.isArray(v) && v.length >= 1 && v.length <= max && v.every((x) => typeof x === 'string');
 
 export function serveQueryIndex(s: ProjectSession, state: V4State, projectId: string, a: Record<string, unknown>): QueryResult {
@@ -140,6 +150,13 @@ export function serveQueryIndex(s: ProjectSession, state: V4State, projectId: st
   if (!isSafeInt(limit) || (limit as number) < 1 || (limit as number) > MAX_INDEX_PAGE) return failure(projectId, fieldValueType('/args/limit', limit, `integer 1-${MAX_INDEX_PAGE}`, 'limit pages the index'));
   if (!isSafeInt(offset) || (offset as number) < 0) return failure(projectId, fieldValueType('/args/offset', offset, 'integer >= 0', 'offset pages the index'));
   const index: ProjectIndex = s.index ?? buildIndex(state);
+  const reuse = a['records'] !== true && a['folders'] !== true;
+  const generation = indexGeneration(index);
+  let memo = answered.get(index);
+  if (memo === undefined || memo.generation !== generation) answered.set(index, (memo = { generation, pages: new Map() }));
+  const memoKey = reuse ? JSON.stringify(ARGS.map((k) => a[k] ?? null)) : null;
+  const known = memoKey !== null ? memo.pages.get(memoKey) : undefined;
+  if (known !== undefined) return { ok: true, projectId, revision: state.revision, total: known.total, entries: known.entries } as unknown as QueryResult;
   const kinds = a['kinds'] !== undefined ? new Set(a['kinds'] as string[]) : a['kind'] !== undefined ? new Set([a['kind'] as string]) : null;
   const ids = a['ids'] !== undefined ? new Set(a['ids'] as string[]) : a['id'] !== undefined ? new Set([a['id'] as string]) : null;
   // The keys to look at: a page of ids with their kinds named is looked up; otherwise the keys in order,
@@ -188,5 +205,9 @@ export function serveQueryIndex(s: ProjectSession, state: V4State, projectId: st
     total += 1;
   }
   const folderRows = a['folders'] === true ? { folders: subfolders(s, index, folder ?? '') } : {};
+  if (memoKey !== null) {
+    if (memo.pages.size >= ANSWERED_PAGES) memo.pages.delete(memo.pages.keys().next().value!);
+    memo.pages.set(memoKey, { total, entries: page });
+  }
   return { ok: true, projectId, revision: state.revision, total, entries: page, ...folderRows } as unknown as QueryResult;
 }

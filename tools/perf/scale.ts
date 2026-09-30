@@ -60,6 +60,13 @@ export interface ScaleBenchOptions {
   streamTextures?: number;
   streamBudgetMb?: number;
   steps: ScaleStep[];
+  /**
+   * Play after the open has settled: the editor's connect-time file check
+   * answered, then this many ms more (the backend builds the next Play ahead
+   * meanwhile). Absent: Play is clicked as soon as the editor is connected
+   * (it then waits for that check).
+   */
+  settleMs?: number;
   log: (s: string) => void;
 }
 
@@ -100,7 +107,7 @@ export interface ScaleReport {
   files?: { firstMs: number; againMs: number; afterRestartMs: number; entries: number; backendRssMiB: { first: number | null; again: number | null; afterRestart: number | null } };
   /** `backendRssPeakMiB`: sampled every 50 ms from the click to the first frame; `backendRssAfterStopMiB`: once the play stopped. */
   /** `renderer`: the backend that drew the play and its API (Play diagnostics), so a run names the renderer it measured. */
-  play?: { split: PlayStartSplit; memory: MemorySample; renderer?: { backend?: string; state?: string; reason?: string }; backendRssPeakMiB?: number | null; backendRssAfterStopMiB?: number | null };
+  play?: { split: PlayStartSplit; memory: MemorySample; renderer?: { backend?: string; state?: string; reason?: string }; settledMs?: number; backendRssPeakMiB?: number | null; backendRssAfterStopMiB?: number | null };
   walk?: {
     scenes: number;
     /** Request → loaded in the observation, and → unloaded (as the relay sees it). */
@@ -246,6 +253,7 @@ export class ScaleBench {
   private browser: Browser | null = null;
   private context: BrowserContext | null = null;
   private page: Page | null = null;
+  private connectCheck: Promise<void> = Promise.resolve();
   private play: { psid: string; frame: Frame } | null = null;
   private streamSetup: { boxes: { id: string; texture: string; far: [number, number, number] }[]; near: [number, number, number]; importMs: number; rss: { before: number | null; after: number | null } } | null = null;
 
@@ -370,6 +378,11 @@ export class ScaleBench {
     this.context = await this.browser!.newContext({ viewport: { width: 1280, height: 720 } });
     await this.context.addInitScript(installPerfInstrumentation);
     this.page = await this.context.newPage();
+    // The editor's connect-time file check (a settled Play waits for its answer).
+    this.connectCheck = this.page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/content/files/check'), { timeout: 600_000 }).then(
+      () => undefined,
+      () => undefined,
+    );
     const t1 = Date.now();
     await this.page.goto(`${this.backend.origin}/?project=${this.opts.projectId}&renderer=${this.opts.renderer}#token=${this.backend.token}`);
     await this.page.locator('.tl-statusbar').filter({ hasText: 'connected' }).waitFor({ timeout: 600_000 });
@@ -525,6 +538,10 @@ export class ScaleBench {
   private async measurePlayStart(): Promise<void> {
     if (this.opts.generated !== undefined && (this.opts.steps.includes('dialogue') || this.opts.steps.includes('handles') || this.opts.steps.includes('stream'))) await this.installDriver();
     const page = this.page!;
+    if (this.opts.settleMs !== undefined) {
+      await this.connectCheck;
+      await sleep(this.opts.settleMs);
+    }
     const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'), { timeout: 600_000 });
     const before = new Set(page.frames());
     // The backend's resident set, sampled until the first frame.
@@ -556,6 +573,7 @@ export class ScaleBench {
       split: splitOf(t0, responseEpoch, diag.buildTimings ?? null, diag.diagnostics?.startTimings),
       memory: await this.memory(),
       ...(drawn !== null ? { renderer: drawn } : {}),
+      ...(this.opts.settleMs !== undefined ? { settledMs: this.opts.settleMs } : {}),
       backendRssPeakMiB: rssPeak,
     };
   }

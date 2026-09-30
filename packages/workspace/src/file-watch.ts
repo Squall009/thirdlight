@@ -1,8 +1,8 @@
 /**
  * Watching a project's folders for changes made outside the backend (Unity's
  * directory monitoring, Godot's filesystem scan on focus): a changed path is
- * reported as it happens, so the check before Play looks at the files that
- * changed instead of every asset's file.
+ * reported as it happens, so a file check (on connect and focus, before
+ * Play) looks at the files that changed instead of every asset's file.
  *
  * On Linux each directory gets its own watch. Node's recursive `fs.watch`
  * there is a JavaScript emulation that watches every file and stats every

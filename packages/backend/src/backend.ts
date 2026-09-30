@@ -145,7 +145,7 @@ export function createBackend(
     // (`behavior-build`) and injects it — the workspace's preparation layer
     // drives it; the compiler never reads a path or executes project source.
     behaviorCompiler,
-    // The folder watch that lets the check before Play look only at changed files.
+    // The folder watch that lets file checks look only at changed files.
     ...(config.fileWatch !== undefined ? { fileWatch: config.fileWatch } : {}),
   });
   const sessions = new SessionRegistry();

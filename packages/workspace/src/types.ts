@@ -108,8 +108,8 @@ export interface WorkspaceServiceConfig {
    * 67 108 864 = 64 MiB). */
   deviceSpaceReserveBytes?: number;
   /**
-   * Watch each open project's folders so the check before Play looks only at
-   * changed files (default on where the platform can watch; `false`: every
+   * Watch each open project's folders so file checks look only at changed
+   * files (default on where the platform can watch; `false`: every
    * check walks every asset's file). `maxEventsPerTurn` overrides the event
    * count that counts as a possible overflow of the kernel's queue.
    */

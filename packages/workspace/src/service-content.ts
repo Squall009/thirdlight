@@ -327,9 +327,10 @@ export function contentOps(core: Core) {
    * after it (a Play joins the check that is running). The project closing
    * or reopening between slices ends the walk with that error.
    *
-   * `changedOnly` (the check before Play): only the assets whose files the
-   * folder watch saw change since the last full walk, when it can be relied
-   * on; otherwise every asset (that walk makes the watch reliable again).
+   * `changedOnly` (the backend's file checks): only the assets whose files
+   * the folder watch saw change since the last full walk, when it can be
+   * relied on; otherwise every asset (that walk makes the watch reliable
+   * again).
    */
   async function assetFilesYielding(projectId: string, options: { changedOnly?: boolean } = {}): Promise<AssetFilesResult> {
     const session = (): ProjectSession | { ok: false; error: CommandError } => withOpenSession<ProjectSession | { ok: false; error: CommandError }>(projectId, (s) => s, (error) => ({ ok: false, error }));

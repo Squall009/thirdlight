@@ -2162,9 +2162,13 @@ Owner listen and look pending.
   check (connect, focus, "check files", or the first Play) that started with
   the watch running indexes where every asset's file, sidecar and imported
   data are; from then on an event on one of those paths marks its asset
-  changed and its file unverified, and the check before Play visits only the
-  changed assets and the records added, moved or re-imported since (the
-  list is compared by identity only when it was replaced). A change to a
+  changed and its file unverified, and every later file check (the editor's
+  on connect and focus, "check files", the one before Play; Unity's refresh
+  with directory monitoring works the same way) visits only the changed
+  assets and the records added, moved or re-imported since (the list is
+  compared by identity only when it was replaced). A moved file is an event
+  at its old path, so moves are still followed. The resource-file part of
+  the check still reads its folders (~95 ms at full). A change to a
   directory an indexed file is under (renamed, removed, a symlink changed)
   is not followed file by file: the next check is a full one. Everything is
   looked at again when the watch cannot be relied on: it failed or errored,

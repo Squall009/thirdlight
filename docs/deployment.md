@@ -917,10 +917,10 @@ no count limit on either.
   sidecar; each change is an ordinary undoable command and shows in the
   change feed. A file whose size and times did not change is not read again
   (the digests are kept in the import cache, so a restart hashes nothing
-  unchanged). Play and the export run the same check first, looking only at
-  the files that changed: the backend watches the open project's folders
+  unchanged). Play and the export run the same check first. Checks look only
+  at the files that changed: the backend watches the open project's folders
   (one watch per folder on Linux, the whole tree on macOS and Windows) and,
-  once a full check has run, the check before Play visits just the assets
+  once a check has looked at every file, later checks visit just the assets
   whose file, sidecar or imported data changed since. Whenever the watch may
   have missed something (it failed, the kernel's event queue may have
   overflowed, a folder holding asset files was renamed or removed, after a

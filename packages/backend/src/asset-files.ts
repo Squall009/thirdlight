@@ -230,8 +230,10 @@ export function createAssetFileCheck(deps: AssetFileCheckDeps) {
       }
     }
     // The walk gives the event loop back between slices, so a Play asked for meanwhile joins this check.
-    // Before Play only the files the folder watch saw change are looked at (all of them when it cannot be relied on).
-    let files = await service.assetFilesYielding(projectId, { changedOnly: !options.relocate });
+    // Only the files the folder watch saw change are looked at, as Unity's refresh with directory monitoring
+    // (every file when the watch cannot be relied on: the first check after an open, a lost event, no watch).
+    // A moved file shows as changed at its old path, so moves are still followed.
+    let files = await service.assetFilesYielding(projectId, { changedOnly: true });
     if (!files.ok) return { ok: false, code: files.error.code, message: files.error.message ?? files.error.code };
     const missing = files.entries.filter((e) => e.status === 'missing');
     if (options.relocate && missing.length > 0) {
@@ -246,7 +248,7 @@ export function createAssetFileCheck(deps: AssetFileCheckDeps) {
         }
       }
       if (report.relocated.length > 0) {
-        files = await service.assetFilesYielding(projectId);
+        files = await service.assetFilesYielding(projectId, { changedOnly: true });
         if (!files.ok) return { ok: false, code: files.error.code, message: files.error.message ?? files.error.code };
       }
     }
@@ -292,7 +294,7 @@ export function createAssetFileCheck(deps: AssetFileCheckDeps) {
 
   return {
     importFile,
-    /** The whole check: moved files found by their sidecars, changed files imported again, the import cache made whole. */
+    /** The whole check: resource files taken in, moved files found by their sidecars, changed files imported again, the import cache made whole. */
     check: (projectId: string): ReturnType<typeof runCheck> => {
       const done = serialized(projectId, { reimport: true, relocate: true });
       void done.then((r) => {
@@ -303,11 +305,11 @@ export function createAssetFileCheck(deps: AssetFileCheckDeps) {
     /**
      * Before Play and export (Unity refreshes its asset database before
      * entering Play mode): a file changed on disk is imported again, and the
-     * import cache made whole, so the build ships what the files hold. Only
-     * the files the folder watch saw change since the last full check are
-     * looked at (every asset's file, one stat each, when the watch cannot be
-     * relied on), and a file is hashed only when its stamp changed. Moves are
-     * left to the full check.
+     * import cache made whole, so the build ships what the files hold. Like
+     * every check it looks only at the files the folder watch saw change
+     * (every asset's file, one stat each, when the watch cannot be relied
+     * on), and hashes a file only when its stamp changed. Moves and resource
+     * files are left to the whole check.
      */
     ensureImported: async (projectId: string): Promise<void> => {
       // A check already running or queued (the editor's on connect or focus,
