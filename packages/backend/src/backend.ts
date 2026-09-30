@@ -145,6 +145,8 @@ export function createBackend(
     // (`behavior-build`) and injects it — the workspace's preparation layer
     // drives it; the compiler never reads a path or executes project source.
     behaviorCompiler,
+    // The folder watch that lets the check before Play look only at changed files.
+    ...(config.fileWatch !== undefined ? { fileWatch: config.fileWatch } : {}),
   });
   const sessions = new SessionRegistry();
   const tokenScopes = new Map<string, string>();
@@ -296,7 +298,10 @@ export function createBackend(
     textureEncoder,
     now: nowMs,
     onApplied: (projectId, r) => notifyMutationApplied(projectId, r.requestId, r.revision, { kind: 'admin', clientId: 'file-check' }, r.change, (r as { sceneId?: string }).sceneId),
+    // A full check is when a Play build is made ahead (the Play routes are made below).
+    onChecked: (projectId) => warmPlay?.(projectId),
   });
+  let warmPlay: ((projectId: string) => void) | undefined;
   // A folder's files are inspected before its importAssets command.
   const folderImport = createFolderImport({ service, assetFiles, now: nowMs });
   const contentRoutes = new ContentRoutes({
@@ -1779,7 +1784,8 @@ export function createBackend(
 
   // The prebuilt play scripts (bundle, worker, physics), read once per build, at digest-keyed URLs.
   const playBuild = createPlayBuildCache(config.previewStaticDir);
-  const { playStartRoute, playStopRoute, playSnapshotRoute, relayRoute, inputRelayRoute, gameControlRoute, gameObserveRoute } = makePlayRoutes({ config, nowMs, logStartup, behaviorCompiler, service, sessions, playContent, plays, relayTimeoutMs, sendJson, sendError, bearerToken, tokenScope, badOriginError, requireAuth, readBody, fullState, workspaceError, connectedOwner, unavailableError, recordProblem, headless, playBuild, ensureImported: assetFiles.ensureImported });
+  const { playStartRoute, playStopRoute, playSnapshotRoute, relayRoute, inputRelayRoute, gameControlRoute, gameObserveRoute, warmPlay: warmPlayBuild } = makePlayRoutes({ config, nowMs, logStartup, behaviorCompiler, service, sessions, playContent, plays, relayTimeoutMs, sendJson, sendError, bearerToken, tokenScope, badOriginError, requireAuth, readBody, fullState, workspaceError, connectedOwner, unavailableError, recordProblem, headless, playBuild, ensureImported: assetFiles.ensureImported });
+  warmPlay = warmPlayBuild;
 
   const pinWarned = new Set<string>();
   const { adminCreateProject, adminRegisterProject, adminUnregisterProject, adminProjectOp, adminExportRoute } = makeAdminRoutes({ config, behaviorCompiler, service, sendJson, sendError, requireAuth, readBody, workspaceError, recordProblem, ensureImported: assetFiles.ensureImported });

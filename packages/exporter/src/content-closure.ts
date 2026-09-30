@@ -26,7 +26,7 @@ import { dialogueForRuntime, type DialogueDocument, type DialogueSettings, type 
 import type { GameMode } from '@thirdlight/project-model';
 import type { EventCue, GameShell, TimelineAsset } from '@thirdlight/project-model';
 import type { AnimatorController, EnvironmentConfig, PrefabDefinition, InputConfig, LightingMap, MaterialDef, UiDocument, UiTheme } from '@thirdlight/project-model';
-import { animatorsForRuntime, effectsForRuntime, type EffectDef, materialFunctionsForRuntime, materialsForRuntime, type GraphDocument, captureContentViewV3, captureManifestV5, dependencyTables, scanDependencies, M3_ENGINE_PINS, resolveMediaIdentityV3, sha256Hex, type GameplaySettings, type ManifestAssetInputV2, type ManifestAssetInputV5, type ManifestBehaviorInput, type MediaBlock, type RuntimeContentManifestV5, type ManifestSceneRow, physicsDimensionOf, resolveRequiredModules, materialsInUse, resolveMaterialInstances, loadableAssetIds, loadableResourceIds, loadableRows, scriptLibraryContainerText, scriptLibraryDigest, type ScriptLibrary } from '@thirdlight/project-model';
+import { animatorsForRuntime, effectsForRuntime, type EffectDef, materialFunctionsForRuntime, materialsForRuntime, type GraphDocument, captureContentViewV3, captureManifestV5, restampManifestV5, type CatalogFile, dependencyTables, scanDependencies, M3_ENGINE_PINS, resolveMediaIdentityV3, sha256Hex, type GameplaySettings, type ManifestAssetInputV2, type ManifestAssetInputV5, type ManifestBehaviorInput, type MediaBlock, type RuntimeContentManifestV5, type ManifestSceneRow, physicsDimensionOf, resolveRequiredModules, materialsInUse, resolveMaterialInstances, loadableAssetIds, loadableResourceIds, loadableRows, scriptLibraryContainerText, scriptLibraryDigest, type ScriptLibrary } from '@thirdlight/project-model';
 import { ASSET_QUERY_PAGE_MAX, audioLoadOf, MODEL_RIG_LIMITS, readModelRig, textureStreamingOf, type AudioLoadType, type ManifestMipPart, type ModelRig } from '@thirdlight/project-model';
 import type { BlobFile, WorkspaceService } from '@thirdlight/workspace';
 
@@ -218,6 +218,12 @@ export interface ContentClosureM3Input {
    * `bufferArtifacts` are empty. An export reads them (default).
    */
   locate?: boolean;
+  /**
+   * A build made ahead of a Play, in the background: it gives the event loop
+   * back between its stages so requests meanwhile are not held for the whole
+   * build (the output is the same).
+   */
+  background?: boolean;
 }
 
 export interface ContentClosureM3 {
@@ -471,14 +477,44 @@ interface DerivedCapture {
   readonly sceneDigest: string;
   /** Each scene's dependencies (the asset ids it needs), once derived. */
   sceneDependencies?: ReadonlyMap<string, readonly string[]>;
+  /**
+   * The catalog a build of this capture made, and what else it was made from
+   * (the shipped files' digests, the compiled scripts, the modules): a later
+   * build with the same `key` re-stamps its manifest instead of making the
+   * catalog again (a second Play of an unchanged project).
+   */
+  catalog?: { readonly key: string; readonly manifest: RuntimeContentManifestV5; readonly files: readonly CatalogFile[] };
 }
 type CapturedView = Extract<ReturnType<typeof captureContentViewV3>, { ok: true }>['normalized'];
 
 /** One remembered derivation per captured content object (a changed project has a new one). */
 const derivedCaptures = new WeakMap<object, DerivedCapture>();
 
-/** Derivations reused / made (tests). */
-export const closureCacheStats = { hits: 0, misses: 0 };
+/**
+ * Each shipped asset's catalog input, by its view row (the same object while
+ * its record is unchanged) and what else it was made from: a build after an
+ * edit hands the manifest the same frozen inputs for unchanged assets, whose
+ * entries and shard files are then not made again.
+ */
+const entryInputs = new WeakMap<object, { readonly shipped: string; readonly names: unknown; readonly needs: string; readonly input: ManifestAssetInputV5 }>();
+
+/**
+ * Each scene's dependencies per content object: a build after an edit of
+ * other scenes (the same content, the same entity list) scans only the
+ * scenes that changed.
+ */
+const sceneDependenciesOf = new WeakMap<object, Map<string, { readonly entities: unknown; readonly lighting: unknown; readonly dependencies: readonly string[] }>>();
+
+function deepFreeze<T>(value: T): T {
+  if (typeof value === 'object' && value !== null && !Object.isFrozen(value)) {
+    for (const v of Object.values(value)) deepFreeze(v);
+    Object.freeze(value);
+  }
+  return value;
+}
+
+/** Derivations reused / made, and catalogs re-stamped instead of made (tests). */
+export const closureCacheStats = { hits: 0, misses: 0, catalogHits: 0 };
 
 /** The identities a derivation depends on, or null when an input is not frozen (never remembered). */
 function captureIdentities(scene: unknown, scenes: readonly unknown[] | undefined): unknown[] | null {
@@ -603,6 +639,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
   const moduleIds = modulesRes.moduleIds;
 
   stage('view');
+  if (input.background === true) await new Promise<void>((resolve) => setTimeout(resolve, 0));
   // 4. The reachable source-bearing behaviors (recompiled);
   //    the game host links them as runtime modules.
   const compiledBehaviors = await compileReachableBehaviors(service, input.compiler, projectId, declaredBehaviors.rows, ((input.content as { scriptLibraries?: ScriptLibrary[] }).scriptLibraries ?? []) as ScriptLibrary[]);
@@ -647,6 +684,8 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
   });
   const streamedTextures: ClosureStreamedTexture[] = [];
   const mipPartsOf = new Map<string, ManifestMipPart[]>();
+  // What the catalog is made from besides the capture: each shipped file's digest (and its parts).
+  const shippedKey: string[] = [];
   const located = locate ? service.locateBlobs(projectId, view.assets.map((a) => ({ assetId: a.assetId, version: a.version }))) : null;
   if (located !== null && !located.ok) return { ok: false, error: fromCommandError(located.error) };
   for (let i = 0; i < view.assets.length; i += 1) {
@@ -667,6 +706,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
         }
       }
       if (!mipPartsOf.has(a.assetId)) assetFiles.push({ path: `content/sha256/${at.file.digest}`, digest: at.file.digest, byteLength: at.file.byteLength, contentType: ASSET_CONTENT_TYPE[a.kind], file: at.file });
+      shippedKey.push(mipPartsOf.has(a.assetId) ? `${at.file.digest}:${mipPartsOf.get(a.assetId)!.map((p) => p.digest).join(',')}` : at.file.digest);
     } else {
       const read = service.readBlob(projectId, { assetId: a.assetId, version: a.version });
       if (!read.ok) return { ok: false, error: readError(read.error) };
@@ -678,6 +718,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
         digest: read.digest,
         contentType: ASSET_CONTENT_TYPE[a.kind],
       });
+      shippedKey.push(read.digest);
     }
     assets.push({
       assetId: a.assetId,
@@ -709,6 +750,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
   }
 
   stage('assets');
+  if (input.background === true) await new Promise<void>((resolve) => setTimeout(resolve, 0));
   // 5b. Every scene of a v4 project as its own artifact, and the
   //     instance-set buffers (verified digest-addressed reads).
   const sceneArtifacts: ClosureArtifact[] = derived !== null ? [...derived.sceneArtifacts] : [];
@@ -747,6 +789,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
   }
 
   stage('scenes');
+  if (input.background === true) await new Promise<void>((resolve) => setTimeout(resolve, 0));
   // 5c. The model rigs, only when the project uses sockets (a socketAttach component in a scene
   //     or prefab, or a script that names ctx.sockets) — every other project's manifest stays byte-identical.
   let rigs: Record<string, ModelRig> | undefined;
@@ -773,119 +816,146 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
     derivedCaptures.set(contentKey, remember);
   }
 
-  // 6b. Only the materials the game uses (an object, a prefab, a shipped model's default
-  //     mapping, a block type, an effect or a timeline names them), and the functions those call.
-  const allMaterials = (input.content as { materials?: MaterialDef[] } | null)?.materials;
-  const usedMaterials = allMaterials === undefined
-    ? undefined
-    : (() => {
-        const entities = input.scenes !== undefined
-          ? input.scenes.flatMap((sc) => ((sc as { entities?: { components?: unknown }[] }).entities ?? []))
-          : ((input.scene as { entities?: { components?: unknown }[] } | null)?.entities ?? []);
-        const used = materialsInUse({
-          entities: [...entities, ...((input.content as { prefabs?: PrefabDefinition[] } | null)?.prefabs ?? []).flatMap((d) => d.entities as unknown as { components?: unknown }[])],
-          assets: view.assets,
-          blockTypes: (input.content as { blockTypes?: BlockType[] }).blockTypes ?? [],
-          effects: (input.content as { effects?: EffectDef[] }).effects ?? [],
-          timelines: (input.content as { timelines?: TimelineAsset[] }).timelines ?? [],
-        });
-        // A loadable material ships too (a script may load it by name).
-        for (const id of loadableResourceIds(input.content, 'material')) used.add(id);
-        // A named instance ships resolved (its chain's graph, parameters and values folded
-        // in), so the runtime never sees an instance; its parents ship only when something names them.
-        return resolveMaterialInstances(allMaterials).filter((m) => used.has(m.materialId));
-      })();
+  // The catalog of the same capture made from the same files, scripts and modules is made once: re-stamped here.
+  const memo = derived ?? remember;
+  const catalogKey = [locate ? 'located' : 'read', shippedKey.join(' '), JSON.stringify(behaviorInputs), JSON.stringify(libraryRows), moduleIds.join(' '), rigs !== undefined ? 'rigs' : ''].join('\n');
+  let captured: { manifest: RuntimeContentManifestV5; bytes: Uint8Array; buildId: string; files: readonly CatalogFile[] };
+  if (memo?.catalog !== undefined && memo.catalog.key === catalogKey) {
+    captured = { ...restampManifestV5(memo.catalog.manifest, input.capturedAt, hash), files: memo.catalog.files };
+    closureCacheStats.catalogHits += 1;
+  } else {
+    // 6b. Only the materials the game uses (an object, a prefab, a shipped model's default
+    //     mapping, a block type, an effect or a timeline names them), and the functions those call.
+    const allMaterials = (input.content as { materials?: MaterialDef[] } | null)?.materials;
+    const usedMaterials = allMaterials === undefined
+      ? undefined
+      : (() => {
+          const entities = input.scenes !== undefined
+            ? input.scenes.flatMap((sc) => ((sc as { entities?: { components?: unknown }[] }).entities ?? []))
+            : ((input.scene as { entities?: { components?: unknown }[] } | null)?.entities ?? []);
+          const used = materialsInUse({
+            entities: [...entities, ...((input.content as { prefabs?: PrefabDefinition[] } | null)?.prefabs ?? []).flatMap((d) => d.entities as unknown as { components?: unknown }[])],
+            assets: view.assets,
+            blockTypes: (input.content as { blockTypes?: BlockType[] }).blockTypes ?? [],
+            effects: (input.content as { effects?: EffectDef[] }).effects ?? [],
+            timelines: (input.content as { timelines?: TimelineAsset[] }).timelines ?? [],
+          });
+          // A loadable material ships too (a script may load it by name).
+          for (const id of loadableResourceIds(input.content, 'material')) used.add(id);
+          // A named instance ships resolved (its chain's graph, parameters and values folded
+          // in), so the runtime never sees an instance; its parents ship only when something names them.
+          return resolveMaterialInstances(allMaterials).filter((m) => used.has(m.materialId));
+        })();
 
-  // 7. The v5 manifest and its catalog files (pure derivation) + self-identifying buildId.
-  const content = input.content as Record<string, unknown>;
-  const runtimeMaterials = usedMaterials !== undefined ? materialsForRuntime(usedMaterials) : undefined;
-  const runtimeFunctions = usedMaterials !== undefined ? materialFunctionsForRuntime(usedMaterials, (content['graphs'] as GraphDocument[] | undefined) ?? []) : undefined;
-  const runtimeEffects = content['effects'] !== undefined ? effectsForRuntime(content['effects'] as EffectDef[]) : undefined;
-  const runtimeAnimators = content['animators'] !== undefined ? animatorsForRuntime(content['animators'] as AnimatorController[]) : undefined;
-  // What each scene, each model and the project-wide blocks need of the shipped assets (the catalog's dependency lists).
-  const tables = dependencyTables({ assets: view.assets, ...(runtimeMaterials !== undefined ? { materials: runtimeMaterials } : {}), ...(runtimeFunctions !== undefined ? { functions: runtimeFunctions } : {}), ...(runtimeEffects !== undefined ? { effects: runtimeEffects } : {}), ...(runtimeAnimators !== undefined ? { animators: runtimeAnimators } : {}), prefabs: prefabDefs });
-  const lighting = content['lighting'] as LightingMap | undefined;
-  const sceneDependencies = new Map<string, readonly string[]>(derived?.sceneDependencies ?? []);
-  if (derived?.sceneDependencies === undefined) {
-    for (const doc of input.scenes ?? []) {
-      const sceneId = (doc as { sceneId: string }).sceneId;
-      sceneDependencies.set(sceneId, scanDependencies(tables, [doc, lighting?.[sceneId]]));
+    // 7. The v5 manifest and its catalog files (pure derivation) + self-identifying buildId.
+    const content = input.content as Record<string, unknown>;
+    const runtimeMaterials = usedMaterials !== undefined ? materialsForRuntime(usedMaterials) : undefined;
+    const runtimeFunctions = usedMaterials !== undefined ? materialFunctionsForRuntime(usedMaterials, (content['graphs'] as GraphDocument[] | undefined) ?? []) : undefined;
+    const runtimeEffects = content['effects'] !== undefined ? effectsForRuntime(content['effects'] as EffectDef[]) : undefined;
+    const runtimeAnimators = content['animators'] !== undefined ? animatorsForRuntime(content['animators'] as AnimatorController[]) : undefined;
+    // What each scene, each model and the project-wide blocks need of the shipped assets (the catalog's dependency lists).
+    const tables = dependencyTables({ assets: view.assets, ...(runtimeMaterials !== undefined ? { materials: runtimeMaterials } : {}), ...(runtimeFunctions !== undefined ? { functions: runtimeFunctions } : {}), ...(runtimeEffects !== undefined ? { effects: runtimeEffects } : {}), ...(runtimeAnimators !== undefined ? { animators: runtimeAnimators } : {}), prefabs: prefabDefs });
+    const lighting = content['lighting'] as LightingMap | undefined;
+    const sceneDependencies = new Map<string, readonly string[]>(derived?.sceneDependencies ?? []);
+    if (derived?.sceneDependencies === undefined) {
+      const contentKey = typeof input.content === 'object' && input.content !== null && Object.isFrozen(input.content) ? input.content : null;
+      let known = contentKey !== null ? sceneDependenciesOf.get(contentKey) : undefined;
+      if (contentKey !== null && known === undefined) sceneDependenciesOf.set(contentKey, (known = new Map()));
+      for (const doc of input.scenes ?? []) {
+        const { sceneId, entities } = doc as { sceneId: string; entities: unknown };
+        const before = known?.get(sceneId);
+        if (before !== undefined && before.entities === entities && before.lighting === lighting?.[sceneId]) {
+          sceneDependencies.set(sceneId, before.dependencies);
+          continue;
+        }
+        const dependencies = scanDependencies(tables, [doc, lighting?.[sceneId]]);
+        sceneDependencies.set(sceneId, dependencies);
+        if (Object.isFrozen(entities)) known?.set(sceneId, { entities, lighting: lighting?.[sceneId], dependencies });
+      }
+      if (remember !== null) remember.sceneDependencies = sceneDependencies;
     }
-    if (remember !== null) remember.sceneDependencies = sceneDependencies;
-  }
-  // (The speakers' portraits and blips; a line's voice is read when it plays.)
-  const sharedDependencies = scanDependencies(tables, [content['environment'], runtimeEffects, content['uiDocuments'], content['uiThemes'], content['shell'], content['timelines'], content['eventCues'], content['blockTypes'], content['input'], content['speakers']]);
-  // Each shipped asset with its address and labels (scripts load it by them) and, for a model, the textures its material map draws with.
-  const namesById = new Map<string, { address?: string; labels?: readonly string[] }>();
-  for (const r of ((content['assets'] as { assetId: string; address?: string; labels?: readonly string[] }[] | undefined) ?? [])) if (r.address !== undefined || (r.labels?.length ?? 0) > 0) namesById.set(r.assetId, r);
-  const entries: ManifestAssetInputV5[] = assets.map((a) => {
-    const names = namesById.get(a.assetId);
-    const needs = a.kind === 'model' && a.materials !== undefined ? scanDependencies(tables, [a.materials]).filter((id) => id !== a.assetId) : [];
-    return { ...a, ...(names?.address !== undefined ? { address: names.address } : {}), ...(names?.labels !== undefined && names.labels.length > 0 ? { labels: names.labels } : {}), ...(needs.length > 0 ? { dependencies: needs } : {}) };
-  });
-  const captured = captureManifestV5({
-    projectId,
-    revision: input.revision,
-    capturedAt: input.capturedAt,
-    sceneDigest,
-    contentDigest: view.contentDigest,
-    assets: entries,
-    // The catalog of what a script may load by address or label (what this build holds).
-    loadable: loadableRows(input.content, { assets: new Set(assets.map((a) => a.assetId)) }),
-    behaviors: behaviorInputs,
-    // The shared script library modules the behaviors import.
-    ...(libraryRows.length > 0 ? { libraries: libraryRows } : {}),
-    settings: view.settings,
-    // The tag registry (scripts query by tag).
-    tags: ((content['tags'] as { bit: number; name: string }[] | undefined) ?? []),
-    // Graph materials carry their graphs and parameters (the runtime compiles them to TSL), and the
-    // material functions they call — without editor-only graph text (comments, groups). The used ones only (6b).
-    ...(runtimeMaterials !== undefined ? { materials: runtimeMaterials } : {}),
-    ...(runtimeFunctions !== undefined ? { materialFunctions: runtimeFunctions } : {}),
-    // The visual effects (particle system graphs without editor-only text); the runtime's executors compile them.
-    ...(runtimeEffects !== undefined ? { effects: runtimeEffects } : {}),
-    ...(content['environment'] !== undefined ? { environment: content['environment'] as EnvironmentConfig } : {}),
-    // The scenes' bakes (lightmap atlases are texture assets, captured above).
-    ...(lighting !== undefined ? { lighting } : {}),
-    // The project UI (the game host draws the documents; themes hold their shared styles).
-    ...(content['uiThemes'] !== undefined ? { uiThemes: content['uiThemes'] as UiTheme[] } : {}),
-    ...(content['uiDocuments'] !== undefined ? { uiDocuments: content['uiDocuments'] as UiDocument[] } : {}),
-    // The compiled conversations, speakers and settings (the runtime's dialogue runner; only with conversations).
-    ...(input.content !== null ? { dialogue: dialogueForRuntime(input.content as { dialogues?: DialogueDocument[]; speakers?: DialogueSpeaker[]; dialogueSettings?: DialogueSettings }) } : {}),
-    // The game modes (the runtime switches them; the host reads their pause screens).
-    ...(content['modes'] !== undefined ? { modes: content['modes'] as GameMode[] } : {}),
-    // The timelines (the runtime plays them in the simulation step).
-    ...(content['timelines'] !== undefined ? { timelines: content['timelines'] as TimelineAsset[] } : {}),
-    // The event → cue table (the runtime plays its sounds through the audio intent log).
-    ...(content['eventCues'] !== undefined ? { eventCues: content['eventCues'] as EventCue[] } : {}),
-    // The game shell (the game host draws its screens and HUD; the runtime walks its scene list).
-    ...(content['shell'] !== undefined ? { shell: content['shell'] as GameShell } : {}),
-    // The input actions (the game's input binding reads them).
-    ...(content['input'] !== undefined ? { input: content['input'] as InputConfig } : {}),
-    // The named collision layers (the 3D physics world resolves colliders' and queries' layers with them).
-    ...(((content['collisionLayers'] as string[] | undefined) ?? []).length > 0 ? { collisionLayers: content['collisionLayers'] as string[] } : {}),
-    // The project save schema (the runtime builds and restores save documents with it; the host keeps the slots).
-    ...(content['saveSchema'] !== undefined ? { saveSchema: content['saveSchema'] as SaveSchema } : {}),
-    // The animator controllers (the game's runtime steps them), without the editor-only graph layout.
-    ...(runtimeAnimators !== undefined ? { animators: runtimeAnimators } : {}),
-    // The rigs sockets are resolved on (the runtime never loads a model).
-    ...(rigs !== undefined ? { rigs } : {}),
-    // A v4 game's prefabs (scripts spawn them at run time).
-    ...(prefabDefs.length > 0 ? { prefabs: prefabDefs } : {}),
-    // The block types and the cell metadata schema (the runtime and the renderer read them).
-    ...(content['blockTypes'] !== undefined ? { blockTypes: content['blockTypes'] as BlockType[] } : {}),
-    ...(content['cellFields'] !== undefined ? { cellFields: content['cellFields'] as CellField[] } : {}),
-    // Every scene with what it needs; the scenes the game starts with; what the project-wide blocks need.
-    ...(input.scenes !== undefined ? { scenes: sceneRows.map((r) => ({ ...r, dependencies: sceneDependencies.get(r.sceneId) ?? [] })), buffers: [...buffers.entries()].sort(([a], [b]) => (a < b ? -1 : 1)).map(([digest, byteLength]) => ({ digest, byteLength })) } : {}),
-    start: input.startScenes ?? [],
-    dependencies: sharedDependencies,
-    media,
-    moduleIds,
-    enginePins: M3_ENGINE_PINS,
-    sha256: hash,
-  });
-  if (!captured.ok) {
-    return { ok: false, error: { code: 'export_manifest_invalid', cls: 'validation', message: captured.error.message, reason: captured.error.reason } };
+    // (The speakers' portraits and blips; a line's voice is read when it plays.)
+    const sharedDependencies = scanDependencies(tables, [content['environment'], runtimeEffects, content['uiDocuments'], content['uiThemes'], content['shell'], content['timelines'], content['eventCues'], content['blockTypes'], content['input'], content['speakers']]);
+    // Each shipped asset with its address and labels (scripts load it by them) and, for a model, the textures its material map draws with.
+    const namesById = new Map<string, { address?: string; labels?: readonly string[] }>();
+    for (const r of ((content['assets'] as { assetId: string; address?: string; labels?: readonly string[] }[] | undefined) ?? [])) if (r.address !== undefined || (r.labels?.length ?? 0) > 0) namesById.set(r.assetId, r);
+    const entries: ManifestAssetInputV5[] = assets.map((a, i) => {
+      const names = namesById.get(a.assetId);
+      const needs = a.kind === 'model' && a.materials !== undefined ? scanDependencies(tables, [a.materials]).filter((id) => id !== a.assetId) : [];
+      const row = view.assets[i]!;
+      const known = entryInputs.get(row);
+      const needsKey = needs.join(' ');
+      if (known !== undefined && known.shipped === shippedKey[i] && known.names === names && known.needs === needsKey) return known.input;
+      const made = deepFreeze({ ...a, ...(names?.address !== undefined ? { address: names.address } : {}), ...(names?.labels !== undefined && names.labels.length > 0 ? { labels: names.labels } : {}), ...(needs.length > 0 ? { dependencies: needs } : {}) });
+      if (Object.isFrozen(row)) entryInputs.set(row, { shipped: shippedKey[i]!, names, needs: needsKey, input: made });
+      return made;
+    });
+    const made = captureManifestV5({
+      projectId,
+      revision: input.revision,
+      capturedAt: input.capturedAt,
+      sceneDigest,
+      contentDigest: view.contentDigest,
+      assets: entries,
+      // The catalog of what a script may load by address or label (what this build holds).
+      loadable: loadableRows(input.content, { assets: new Set(assets.map((a) => a.assetId)) }),
+      behaviors: behaviorInputs,
+      // The shared script library modules the behaviors import.
+      ...(libraryRows.length > 0 ? { libraries: libraryRows } : {}),
+      settings: view.settings,
+      // The tag registry (scripts query by tag).
+      tags: ((content['tags'] as { bit: number; name: string }[] | undefined) ?? []),
+      // Graph materials carry their graphs and parameters (the runtime compiles them to TSL), and the
+      // material functions they call — without editor-only graph text (comments, groups). The used ones only (6b).
+      ...(runtimeMaterials !== undefined ? { materials: runtimeMaterials } : {}),
+      ...(runtimeFunctions !== undefined ? { materialFunctions: runtimeFunctions } : {}),
+      // The visual effects (particle system graphs without editor-only text); the runtime's executors compile them.
+      ...(runtimeEffects !== undefined ? { effects: runtimeEffects } : {}),
+      ...(content['environment'] !== undefined ? { environment: content['environment'] as EnvironmentConfig } : {}),
+      // The scenes' bakes (lightmap atlases are texture assets, captured above).
+      ...(lighting !== undefined ? { lighting } : {}),
+      // The project UI (the game host draws the documents; themes hold their shared styles).
+      ...(content['uiThemes'] !== undefined ? { uiThemes: content['uiThemes'] as UiTheme[] } : {}),
+      ...(content['uiDocuments'] !== undefined ? { uiDocuments: content['uiDocuments'] as UiDocument[] } : {}),
+      // The compiled conversations, speakers and settings (the runtime's dialogue runner; only with conversations).
+      ...(input.content !== null ? { dialogue: dialogueForRuntime(input.content as { dialogues?: DialogueDocument[]; speakers?: DialogueSpeaker[]; dialogueSettings?: DialogueSettings }) } : {}),
+      // The game modes (the runtime switches them; the host reads their pause screens).
+      ...(content['modes'] !== undefined ? { modes: content['modes'] as GameMode[] } : {}),
+      // The timelines (the runtime plays them in the simulation step).
+      ...(content['timelines'] !== undefined ? { timelines: content['timelines'] as TimelineAsset[] } : {}),
+      // The event → cue table (the runtime plays its sounds through the audio intent log).
+      ...(content['eventCues'] !== undefined ? { eventCues: content['eventCues'] as EventCue[] } : {}),
+      // The game shell (the game host draws its screens and HUD; the runtime walks its scene list).
+      ...(content['shell'] !== undefined ? { shell: content['shell'] as GameShell } : {}),
+      // The input actions (the game's input binding reads them).
+      ...(content['input'] !== undefined ? { input: content['input'] as InputConfig } : {}),
+      // The named collision layers (the 3D physics world resolves colliders' and queries' layers with them).
+      ...(((content['collisionLayers'] as string[] | undefined) ?? []).length > 0 ? { collisionLayers: content['collisionLayers'] as string[] } : {}),
+      // The project save schema (the runtime builds and restores save documents with it; the host keeps the slots).
+      ...(content['saveSchema'] !== undefined ? { saveSchema: content['saveSchema'] as SaveSchema } : {}),
+      // The animator controllers (the game's runtime steps them), without the editor-only graph layout.
+      ...(runtimeAnimators !== undefined ? { animators: runtimeAnimators } : {}),
+      // The rigs sockets are resolved on (the runtime never loads a model).
+      ...(rigs !== undefined ? { rigs } : {}),
+      // A v4 game's prefabs (scripts spawn them at run time).
+      ...(prefabDefs.length > 0 ? { prefabs: prefabDefs } : {}),
+      // The block types and the cell metadata schema (the runtime and the renderer read them).
+      ...(content['blockTypes'] !== undefined ? { blockTypes: content['blockTypes'] as BlockType[] } : {}),
+      ...(content['cellFields'] !== undefined ? { cellFields: content['cellFields'] as CellField[] } : {}),
+      // Every scene with what it needs; the scenes the game starts with; what the project-wide blocks need.
+      ...(input.scenes !== undefined ? { scenes: sceneRows.map((r) => ({ ...r, dependencies: sceneDependencies.get(r.sceneId) ?? [] })), buffers: [...buffers.entries()].sort(([a], [b]) => (a < b ? -1 : 1)).map(([digest, byteLength]) => ({ digest, byteLength })) } : {}),
+      start: input.startScenes ?? [],
+      dependencies: sharedDependencies,
+      media,
+      moduleIds,
+      enginePins: M3_ENGINE_PINS,
+      sha256: hash,
+    });
+    if (!made.ok) {
+      return { ok: false, error: { code: 'export_manifest_invalid', cls: 'validation', message: made.error.message, reason: made.error.reason } };
+    }
+    captured = made;
+    if (memo !== null) memo.catalog = { key: catalogKey, manifest: made.manifest, files: made.files };
   }
 
   stage('manifest');

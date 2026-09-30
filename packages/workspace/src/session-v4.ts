@@ -683,33 +683,50 @@ function resourceWrites(before: V4State, next: V4State['content'], writes: FileW
   for (const k of RESOURCE_KINDS) {
     const a = recordsOfKind(prevContent, k);
     const b = recordsOfKind(nextContent, k);
-    if (a === b && !loadingKinds.has(k.kind) && !movedLists.has(k.list)) continue;
-    const prev = new Map<string, unknown>();
-    if (a !== undefined) for (const r of a) prev.set(String(r[k.idKey]), r);
-    const paths = new Map(before.resourcePaths.get(k.list) ?? []);
-    const kept = new Set<string>();
+    const rewrite = loadingKinds.has(k.kind) || movedLists.has(k.list);
+    if (a === b && !rewrite) continue;
+    // A command replaces a few records and keeps the others in place: records at the same position are
+    // compared first; the lists are matched by id, and the paths copied, only when something differs.
+    const beforePaths = before.resourcePaths.get(k.list);
+    let paths: Map<string, string> | null = null;
+    const pathOf = (id: string): string | undefined => (paths ?? beforePaths)?.get(id);
+    const setPath = (id: string, path: string): void => {
+      if (pathOf(id) !== path) (paths ??= new Map(beforePaths ?? [])).set(id, path);
+    };
+    const deletePath = (id: string): void => {
+      if ((paths ?? beforePaths)?.has(id) === true) (paths ??= new Map(beforePaths ?? [])).delete(id);
+    };
+    let prevById: Map<string, unknown> | null = null;
+    const prevOf = (i: number, id: string): unknown => {
+      const at = a?.[i];
+      if (at !== undefined && String(at[k.idKey]) === id) return at;
+      return (prevById ??= new Map((a ?? []).map((r) => [String(r[k.idKey]), r] as const))).get(id);
+    };
+    let aligned = a !== undefined && b !== undefined && a.length === b.length;
     if (b !== undefined) {
-      for (const r of b) {
+      for (let i = 0; i < b.length; i += 1) {
+        const r = b[i]!;
+        if (aligned && a![i] === r && !rewrite) continue;
         const id = String(r[k.idKey]);
-        kept.add(id);
+        if (aligned && String(a![i]?.[k.idKey]) !== id) aligned = false;
         const movedTo = place.moved?.get(formerKey(k.list, id));
-        if (movedTo !== undefined && paths.get(id) !== undefined && paths.get(id) !== movedTo) {
+        if (movedTo !== undefined && pathOf(id) !== undefined && pathOf(id) !== movedTo) {
           // Moved: the file goes (the record is written at its new path below).
-          const old = gameRel(paths.get(id)!);
+          const old = gameRel(pathOf(id)!);
           if (files.has(old)) {
             writes.push({ rel: old, bytes: null });
             files.delete(old);
           }
-          paths.set(id, movedTo);
-        } else if (prev.get(id) === r && !loadingChanged.has(`${k.kind}:${id}`)) continue;
-        let path = paths.get(id);
+          setPath(id, movedTo);
+        } else if (prevOf(i, id) === r && !loadingChanged.has(`${k.kind}:${id}`)) continue;
+        let path = pathOf(id);
         if (path === undefined) {
           // New here: adopted where it is, in the folder the request named, where it was before it was removed, or its kind's folder.
           const key = formerKey(k.list, id);
           path = place.at?.get(key) ?? (place.folder !== undefined ? defaultResourcePath(k, id, place.folder) : undefined) ?? formerPaths.get(key) ?? defaultResourcePath(k, id);
           formerPaths.delete(key);
         }
-        paths.set(id, path);
+        setPath(id, path);
         const rel = gameRel(path);
         const bytes = resourceFileBytes(k, id, r, loading.get(`${k.kind}:${id}`));
         const hash = sha256Hex(bytes);
@@ -718,16 +735,20 @@ function resourceWrites(before: V4State, next: V4State['content'], writes: FileW
         files.set(rel, { bytes, hash });
       }
     }
-    for (const id of prev.keys()) {
-      if (kept.has(id)) continue;
-      const path = paths.get(id);
-      paths.delete(id);
-      if (path === undefined) continue;
-      formerPaths.set(formerKey(k.list, id), path);
-      writes.push({ rel: gameRel(path), bytes: null });
-      files.delete(gameRel(path));
+    if (!aligned) {
+      const kept = new Set((b ?? []).map((r) => String(r[k.idKey])));
+      for (const r of a ?? []) {
+        const id = String(r[k.idKey]);
+        if (kept.has(id)) continue;
+        const path = pathOf(id);
+        deletePath(id);
+        if (path === undefined) continue;
+        formerPaths.set(formerKey(k.list, id), path);
+        writes.push({ rel: gameRel(path), bytes: null });
+        files.delete(gameRel(path));
+      }
     }
-    out.set(k.list, paths);
+    out.set(k.list, paths ?? beforePaths ?? new Map());
   }
   return out;
 }

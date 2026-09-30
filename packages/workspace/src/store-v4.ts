@@ -249,11 +249,17 @@ export function absOf(dir: string, gameRoot: string, rel: string): string {
 export const LOADABLE_KEY = 'loadable';
 
 /** Each resource's address and labels by `kind:id` (the content block's `loadable` entries). */
-export function loadingByKey(content: unknown): Map<string, ResourceLoading> {
+export function loadingByKey(content: unknown): ReadonlyMap<string, ResourceLoading> {
+  const list = (content as { loadable?: LoadableEntry[] } | null)?.loadable ?? [];
+  // Once per list (a list is replaced, never changed in place): every command indexes against it.
+  const known = loadingOf.get(list);
+  if (known !== undefined) return known;
   const out = new Map<string, ResourceLoading>();
-  for (const e of (content as { loadable?: LoadableEntry[] } | null)?.loadable ?? []) out.set(`${e.kind}:${e.id}`, { ...(e.address !== undefined ? { address: e.address } : {}), ...(e.labels !== undefined ? { labels: e.labels } : {}) });
+  for (const e of list) out.set(`${e.kind}:${e.id}`, { ...(e.address !== undefined ? { address: e.address } : {}), ...(e.labels !== undefined ? { labels: e.labels } : {}) });
+  if (Object.isFrozen(list)) loadingOf.set(list, out);
   return out;
 }
+const loadingOf = new WeakMap<object, ReadonlyMap<string, ResourceLoading>>();
 
 /** The resource files of a content block (the records of every resource list, and each asset's sidecar), at their known paths or new default ones. */
 export function resourceFilesOf(content: ContentCatalogV4, paths: ResourcePaths): { writes: FileWrite[]; paths: Map<string, Map<string, string>> } {

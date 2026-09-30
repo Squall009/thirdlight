@@ -307,6 +307,7 @@ export {
   CATALOG_SHARD_ENTRIES,
   joinCatalogParts,
   manifestBuildIdInputV5,
+  restampManifestV5,
   MANIFEST_KEYS_V5,
   readRuntimeContentSync,
   RUNTIME_CONTENT_MANIFEST_VERSION_5,

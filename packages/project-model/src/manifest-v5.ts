@@ -50,7 +50,7 @@ import {
   M3_SETTINGS_KEYS,
   MANIFEST_CONTENT_FILE_KEYS,
   RUNTIME_CONTENT_MANIFEST_VERSION_4,
-  sortedAssetRows,
+  manifestAssetRow,
   sortedBehaviorRows,
   validateManifestV2,
   type ExpandedRuntimeContentManifest,
@@ -65,6 +65,7 @@ import {
   type RuntimeContentManifestV2,
 } from './manifest-v2';
 import { sha256Hex } from './sha256';
+import { compact, deepFreeze, listFile, listParts, listText, mapParts, shardEntries, type MadeFile, type Part } from './catalog-files';
 import { ID_RE, isPlainObject } from './validate';
 import { isAddress, loadableRowsProblem, type LoadableRow } from './loadable';
 import { isAssetLabel } from './content-assets';
@@ -72,20 +73,7 @@ import type { GameplaySettings } from './types-v2';
 
 export const RUNTIME_CONTENT_MANIFEST_VERSION_5 = 5 as const;
 
-/**
- * Where a block file is cut into parts: a part ends once its items pass this
- * size (an item larger than this is a part of its own), so a large block is
- * read as several files in parallel and a change rewrites one part. The
- * per-file cap is `MANIFEST_CONTENT_FILE_MAX_BYTES`.
- */
-export const CATALOG_PART_BYTES = 1_048_576;
-
-/**
- * The entries per shard on average: a shard ends after an entry whose id
- * hashes to 0 modulo this (or at `CATALOG_PART_BYTES`), so one lookup reads
- * about this many entries.
- */
-export const CATALOG_SHARD_ENTRIES = 256;
+export { CATALOG_PART_BYTES, CATALOG_SHARD_ENTRIES } from './catalog-files';
 
 /** One file of a build, listed by digest (`content/sha256/<digest>`). */
 export interface CatalogFileRef {
@@ -286,87 +274,6 @@ function catalogBytes(value: unknown): Uint8Array {
   return new TextEncoder().encode(`${JSON.stringify(value)}\n`);
 }
 
-/** FNV-1a (32-bit) of a string: the shard boundary hash (stable across runtimes). */
-function fnv1a(text: string): number {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < text.length; i += 1) {
-    h ^= text.charCodeAt(i);
-    h = Math.imul(h, 0x01000193) >>> 0;
-  }
-  return h >>> 0;
-}
-
-/** A value's compact JSON length (a part's size, as its file holds it). */
-function approxBytes(value: unknown): number {
-  return JSON.stringify(value).length + 8;
-}
-
-/** Split a list into parts near `CATALOG_PART_BYTES` (every part non-empty). */
-function listParts(list: readonly unknown[]): unknown[][] {
-  const parts: unknown[][] = [];
-  let part: unknown[] = [];
-  let size = 0;
-  for (const item of list) {
-    const n = approxBytes(item);
-    if (part.length > 0 && size + n > CATALOG_PART_BYTES) {
-      parts.push(part);
-      part = [];
-      size = 0;
-    }
-    part.push(item);
-    size += n;
-  }
-  if (part.length > 0) parts.push(part);
-  return parts;
-}
-
-/** Split a map into parts near `CATALOG_PART_BYTES`, keys in order. */
-function mapParts(map: Readonly<Record<string, unknown>>): Record<string, unknown>[] {
-  const parts: Record<string, unknown>[] = [];
-  let part: Record<string, unknown> = {};
-  let size = 0;
-  let count = 0;
-  for (const key of Object.keys(map)) {
-    const n = approxBytes(map[key]) + key.length;
-    if (count > 0 && size + n > CATALOG_PART_BYTES) {
-      parts.push(part);
-      part = {};
-      size = 0;
-      count = 0;
-    }
-    part[key] = map[key];
-    size += n;
-    count += 1;
-  }
-  if (count > 0) parts.push(part);
-  return parts;
-}
-
-/**
- * Entries into shards: a shard ends after an entry whose id hashes to 0
- * modulo `CATALOG_SHARD_ENTRIES`, or once it reaches `CATALOG_PART_BYTES`;
- * the versions of one id stay in one shard.
- */
-function shardEntries(entries: readonly CatalogEntry[]): CatalogEntry[][] {
-  const shards: CatalogEntry[][] = [];
-  let shard: CatalogEntry[] = [];
-  let size = 0;
-  for (let i = 0; i < entries.length; i += 1) {
-    const e = entries[i]!;
-    shard.push(e);
-    size += approxBytes(e);
-    const next = entries[i + 1];
-    if (next !== undefined && next.assetId === e.assetId) continue;
-    if (fnv1a(e.assetId) % CATALOG_SHARD_ENTRIES === 0 || size >= CATALOG_PART_BYTES) {
-      shards.push(shard);
-      shard = [];
-      size = 0;
-    }
-  }
-  if (shard.length > 0) shards.push(shard);
-  return shards;
-}
-
 /** The catalog entry of one captured asset (the v4 row, then its names and dependencies). */
 function entryOf(row: Record<string, unknown>, a: ManifestAssetInputV5): CatalogEntry {
   return {
@@ -391,16 +298,37 @@ function hasGraphParameters(materials: unknown): boolean {
 function factRows(entries: readonly CatalogEntry[], textures: boolean): Record<string, unknown>[] {
   const out: Record<string, unknown>[] = [];
   for (const e of entries) {
-    // Every model (a page knows from these whether the build draws models at all).
-    if (e.kind === 'model') {
-      out.push({ assetId: e.assetId, kind: 'model', ...(e['bounds'] !== undefined ? { bounds: e['bounds'] } : {}), ...(e['materials'] !== undefined ? { materials: e['materials'] } : {}) });
-    } else if (e.kind === 'audio' && e['durationMs'] !== undefined) {
-      out.push({ assetId: e.assetId, kind: 'audio', durationMs: e['durationMs'] });
-    } else if (e.kind === 'texture' && textures) {
-      out.push({ assetId: e.assetId, kind: 'texture' });
-    }
+    const row = factRowOf(e, textures);
+    if (row !== null) out.push(row);
   }
   return out;
+}
+
+/** Each entry's fact row, once per frozen entry (with and without texture rows). */
+const factRowsOf = [new WeakMap<object, Record<string, unknown> | null>(), new WeakMap<object, Record<string, unknown> | null>()] as const;
+function factRowOf(e: CatalogEntry, textures: boolean): Record<string, unknown> | null {
+  const memo = factRowsOf[textures ? 1 : 0];
+  const known = memo.get(e);
+  if (known !== undefined) return known;
+  let row: Record<string, unknown> | null = null;
+  // Every model (a page knows from these whether the build draws models at all).
+  if (e.kind === 'model') row = { assetId: e.assetId, kind: 'model', ...(e['bounds'] !== undefined ? { bounds: e['bounds'] } : {}), ...(e['materials'] !== undefined ? { materials: e['materials'] } : {}) };
+  else if (e.kind === 'audio' && e['durationMs'] !== undefined) row = { assetId: e.assetId, kind: 'audio', durationMs: e['durationMs'] };
+  else if (e.kind === 'texture' && textures) row = { assetId: e.assetId, kind: 'texture' };
+  if (Object.isFrozen(e)) memo.set(e, row === null ? null : deepFreeze(row));
+  return row;
+}
+
+/** Each frozen captured asset's catalog entry, made once (frozen: its text is remembered too). */
+const catalogEntries = new WeakMap<object, CatalogEntry>();
+function entryFor(a: ManifestAssetInputV5): CatalogEntry {
+  if (!Object.isFrozen(a)) return entryOf(manifestAssetRow(a), a);
+  let e = catalogEntries.get(a);
+  if (e === undefined) {
+    e = deepFreeze(entryOf(manifestAssetRow(a), a));
+    catalogEntries.set(a, e);
+  }
+  return e;
 }
 
 /**
@@ -418,18 +346,17 @@ export function captureManifestV5(input: CaptureManifestV5Input): CaptureManifes
   }
   const files = new Map<string, CatalogFile>();
   let tooLarge: string | null = null;
-  const file = (value: unknown, what: string): CatalogFileRef => {
-    const bytes = catalogBytes(value);
-    if (bytes.length > MANIFEST_CONTENT_FILE_MAX_BYTES && tooLarge === null) tooLarge = what;
-    const digest = hash(bytes);
-    const ref = { path: `content/sha256/${digest}`, digest, byteLength: bytes.length };
-    if (!files.has(digest)) files.set(digest, { ...ref, bytes });
+  const add = (made: MadeFile, what: string): CatalogFileRef => {
+    if (made.bytes.length > MANIFEST_CONTENT_FILE_MAX_BYTES && tooLarge === null) tooLarge = what;
+    const ref = { path: `content/sha256/${made.digest}`, digest: made.digest, byteLength: made.bytes.length };
+    if (!files.has(made.digest)) files.set(made.digest, { ...ref, bytes: made.bytes });
     return ref;
   };
+  const made = (bytes: Uint8Array): MadeFile => ({ bytes, digest: hash(bytes) });
+  const file = (value: unknown, what: string): CatalogFileRef => add(made(catalogBytes(value)), what);
 
-  // The entries (every shipped asset), their shards and the facts the simulation needs.
-  const byKey = new Map(input.assets.map((a) => [`${a.assetId}@${a.version}`, a]));
-  const entries = sortedAssetRows(input.assets).map((row) => entryOf(row, byKey.get(`${row.assetId}@${row.version}`)!));
+  // The entries (every shipped asset, ascending id then version), their shards and the facts the simulation needs.
+  const entries = [...input.assets].sort((a, b) => (a.assetId < b.assetId ? -1 : a.assetId > b.assetId ? 1 : a.version - b.version)).map(entryFor);
   const entriesById = new Map<string, CatalogEntry[]>();
   for (const e of entries) {
     const list = entriesById.get(e.assetId);
@@ -437,7 +364,7 @@ export function captureManifestV5(input: CaptureManifestV5Input): CaptureManifes
     else list.push(e);
   }
   const entriesOf = (ids: readonly string[]): CatalogEntry[] => [...new Set(ids)].sort().flatMap((id) => entriesById.get(id) ?? []);
-  const shardRows: CatalogShardRow[] = shardEntries(entries).map((shard) => ({ first: shard[0]!.assetId, last: shard[shard.length - 1]!.assetId, count: shard.length, ...file(shard, 'an entry shard') }));
+  const shardRows: CatalogShardRow[] = shardEntries(entries).map((shard) => ({ first: shard[0]!.assetId, last: shard[shard.length - 1]!.assetId, count: shard.length, ...add(listFile(shard, 'shard', () => listText(shard), hash), 'an entry shard') }));
 
   // The blocks, each in its file or parts, in the catalog's key order.
   const { inline, files: contentBlocks } = canonicalManifestBlocks(input);
@@ -457,13 +384,19 @@ export function captureManifestV5(input: CaptureManifestV5Input): CaptureManifes
     const value = blocks[key];
     if (value === undefined || value === null) continue;
     if (Array.isArray(value) && value.length === 0) continue;
-    const parts: unknown[] = Array.isArray(value) ? listParts(value) : MAP_BLOCKS.has(key) && isPlainObject(value) ? mapParts(value as Record<string, unknown>) : [value];
+    const parts: Part[] = Array.isArray(value) ? listParts(value) : MAP_BLOCKS.has(key) && isPlainObject(value) ? mapParts(value as Record<string, unknown>) : [{ value, items: null, text: () => compact(value) }];
     if (parts.length === 0) continue;
-    for (const part of parts) fileRows.push({ key, ...file(part, `the ${key} file`) });
+    for (const part of parts) {
+      const bytes = (): MadeFile => made(new TextEncoder().encode(`${part.text()}\n`));
+      fileRows.push({ key, ...add(part.items !== null ? listFile(part.items, `block:${key}`, part.text, hash) : bytes(), `the ${key} file`) });
+    }
   }
 
   // Every scene with the file of the entries it needs.
-  const sceneRows: CatalogSceneRow[] | undefined = input.scenes?.map((sc) => ({ sceneId: sc.sceneId, path: sc.path, digest: sc.digest, byteLength: sc.byteLength, start: sc.start, dependencies: file(entriesOf(sc.dependencies), `the ${sc.sceneId} dependency file`) }));
+  const sceneRows: CatalogSceneRow[] | undefined = input.scenes?.map((sc) => {
+    const needed = entriesOf(sc.dependencies);
+    return { sceneId: sc.sceneId, path: sc.path, digest: sc.digest, byteLength: sc.byteLength, start: sc.start, dependencies: add(listFile(needed, `scene:${sc.sceneId}`, () => listText(needed), hash), `the ${sc.sceneId} dependency file`) };
+  });
 
   const root: CatalogRootV5 = {
     files: fileRows,
@@ -500,6 +433,21 @@ export function captureManifestV5(input: CaptureManifestV5Input): CaptureManifes
   const bytes = fileBytes(manifest);
   if (bytes.length > RUNTIME_CONTENT_MANIFEST_MAX_BYTES) return { ok: false, error: v5Error('limits_exceeded', `the manifest exceeds ${RUNTIME_CONTENT_MANIFEST_MAX_BYTES} bytes`) };
   return { ok: true, manifest, bytes, buildId, root, files: [...files.values()] };
+}
+
+/**
+ * The same captured manifest at another capture time: what a build of an
+ * unchanged project (the same revision, the same catalog files) answers
+ * without making the catalog again. Only `capturedAt`, and so `buildId`,
+ * differ; the bytes are what `captureManifestV5` makes for that time.
+ */
+export function restampManifestV5(manifest: RuntimeContentManifestV5, capturedAt: string, sha256?: (bytes: Uint8Array) => string): { manifest: RuntimeContentManifestV5; bytes: Uint8Array; buildId: string } {
+  const hash = sha256 ?? sha256Hex;
+  const withoutBuildId: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(manifest)) if (k !== 'buildId') withoutBuildId[k] = k === 'capturedAt' ? capturedAt : v;
+  const buildId = hash(manifestBuildIdInputV5(withoutBuildId)!);
+  const next = { ...withoutBuildId, buildId } as unknown as RuntimeContentManifestV5;
+  return { manifest: next, bytes: fileBytes(next), buildId };
 }
 
 /**

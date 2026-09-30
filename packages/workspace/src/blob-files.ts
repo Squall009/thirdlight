@@ -110,10 +110,16 @@ export function locateBlob(ctx: ContentContext, request: BlobReadRequest): Locat
   const version = v.version;
   const digest = v.sourceDigest;
   if (v.convertedFrom !== undefined) {
+    // Checked since the folder watch last saw it change: no need to look again.
+    const trusted = ctx.watched?.trustedImported(assetId, digest) ?? null;
+    if (trusted !== null) return { ok: true, assetId, version, file: { digest, byteLength: v.sourceByteLength, real: trusted } };
     const cached = importedArtifactPath(ctx, importKeyOfConverted(v.convertedFrom), digest);
     if (cached !== null) {
       const found = checkFile(ctx, cached);
-      if (found !== null && found.digest === digest) return { ok: true, assetId, version, file: { digest, byteLength: found.stamp.size, real: cached } };
+      if (found !== null && found.digest === digest) {
+        ctx.watched?.noteImported(assetId, digest, cached);
+        return { ok: true, assetId, version, file: { digest, byteLength: found.stamp.size, real: cached } };
+      }
     }
     // A project from before the import cache kept them in the blob store.
     const legacy = locateStored(ctx, digest, null, assetId, version);
@@ -121,6 +127,8 @@ export function locateBlob(ctx: ContentContext, request: BlobReadRequest): Locat
     return { ok: false, error: importedMissing(digest, v.convertedFrom.sourcePath ?? v.convertedFrom.sourceDigest, assetId, version) };
   }
   if (v.sourcePath !== undefined) {
+    const trusted = ctx.watched?.trustedFile(assetId, v.sourcePath, digest, v.sourceByteLength) ?? null;
+    if (trusted !== null) return { ok: true, assetId, version, file: { digest, byteLength: v.sourceByteLength, real: trusted } };
     const res = resolveProjectFile(ctx, v.sourcePath);
     if (!res.ok) return { ok: false, error: res.missing === true ? assetSourceMissing(digest, v.sourcePath, assetId, version) : res.error };
     const found = checkFile(ctx, res.real);

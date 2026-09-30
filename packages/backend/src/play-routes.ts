@@ -77,6 +77,47 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
    */
   const readGameBundle = (): { bytes: Uint8Array; digest: string } | null => playBuild.current()?.files.get('game.js') ?? null;
 
+  /**
+   * The Play build of the current revision, made ahead of the Play once a
+   * file check has looked at every file (the editor asks for one when it
+   * opens a project and when its window gets focus back). What the build
+   * derives is remembered per capture, so the Play that follows derives
+   * nothing again for unchanged content; the build gives the event loop back
+   * between its stages. A Play asked for meanwhile waits for it.
+   */
+  const warming = new Map<string, Promise<void>>();
+  /** The revision each content object was last built ahead at (a project opened again has new ones). */
+  const warmed = new WeakMap<object, number>();
+  /** Projects with a Play start under way (a build ahead would only hold it up). */
+  const starting = new Map<string, number>();
+  const warmPlay = (projectId: string): void => {
+    if (warming.has(projectId) || starting.has(projectId) || plays.activeFor(projectId) !== undefined) return;
+    const run = (async (): Promise<void> => {
+      const captured = service.readCapturedV3(projectId);
+      if (!captured.ok || captured.read.scenes === undefined || warmed.get(captured.read.content as object) === captured.read.revision) return;
+      const bundle = readGameBundle();
+      if (bundle === null) return;
+      const built = await buildPlayContentM3({
+        service,
+        compiler: behaviorCompiler,
+        projectId,
+        revision: captured.read.revision,
+        capturedAt: utcSecond(nowMs()),
+        scene: captured.read.scene as { schemaVersion: number; sceneId: string; revision: number; entities: ReadonlyArray<Record<string, unknown>> },
+        content: captured.read.content as Record<string, unknown>,
+        gameBundle: bundle.bytes,
+        gameBundleDigest: bundle.digest,
+        scenes: captured.read.scenes,
+        startScenes: captured.read.startScenes ?? [],
+        background: true,
+      });
+      if (built.ok) warmed.set(captured.read.content as object, captured.read.revision);
+    })()
+      .catch(() => undefined)
+      .finally(() => warming.delete(projectId));
+    warming.set(projectId, run);
+  };
+
   /** Each play's snapshot as JSON bytes, serialized once (the snapshot is frozen with the play; released when it ends). */
   const snapshotBytesOf = (rec: PlayRecord): Uint8Array => {
     if (rec.snapshotBytes === undefined) rec.snapshotBytes = new TextEncoder().encode(JSON.stringify(rec.snapshot));
@@ -110,6 +151,17 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
   const utcSecond = (ms: number): string => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
 
   const playStartRoute = async (req: IncomingMessage, res: ServerResponse, projectId: string): Promise<void> => {
+    starting.set(projectId, (starting.get(projectId) ?? 0) + 1);
+    try {
+      await playStart(req, res, projectId);
+    } finally {
+      const n = (starting.get(projectId) ?? 1) - 1;
+      if (n > 0) starting.set(projectId, n);
+      else starting.delete(projectId);
+    }
+  };
+
+  const playStart = async (req: IncomingMessage, res: ServerResponse, projectId: string): Promise<void> => {
     const authError = requireAuth(req, projectId, false);
     if (authError !== null) {
       sendError(res, authError);
@@ -176,6 +228,9 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
     mark('request');
     await ensureImported?.(projectId);
     mark('check');
+    // A build made ahead of this Play (after a file check) finishes first: this one then reuses what it derived.
+    await warming.get(projectId);
+    mark('warm');
     // Build the runtime snapshot at the CURRENT revision (the play's
     // revision is frozen from here).
     const state = fullState(projectId);
@@ -784,5 +839,5 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
   };
 
 
-  return { playStartRoute, playStopRoute, playSnapshotRoute, relayRoute, inputRelayRoute, gameControlRoute, gameObserveRoute };
+  return { playStartRoute, playStopRoute, playSnapshotRoute, relayRoute, inputRelayRoute, gameControlRoute, gameObserveRoute, warmPlay };
 }

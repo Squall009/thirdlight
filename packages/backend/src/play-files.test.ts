@@ -5,12 +5,16 @@
  *   changed on disk gets a new digest and a new URL at the next Play, and its
  *   old URL never serves the new bytes (refused, and the files checked again);
  * - a restart reads the stamps the last run kept and hashes no unchanged file;
+ * - the check before Play looks only at the files the folder watch saw
+ *   change, and at every file when the watch is off or may have missed some;
  * - the asset, index and integrity queries page.
  */
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, rmSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, renameSync, rmSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+
+import { closureCacheStats } from '@thirdlight/exporter';
 
 import { isFileArtifact } from './play-content';
 import { FakeEditor } from './test-editor';
@@ -225,6 +229,156 @@ describe('Play and the file check', () => {
       await tb.teardown();
     }
   }, 60_000);
+});
+
+describe('the folder watch and the check before Play', () => {
+  /** A backend with two imported sounds, an editor attached, and every walk over the asset files recorded. */
+  const setUp = async (fileWatch?: false | { maxEventsPerTurn?: number }) => {
+    const tb = await startBackend(fileWatch !== undefined ? { fileWatch } : {});
+    const h = helpers(() => tb);
+    h.put('assets/sfx/a.wav', variant(31));
+    h.put('assets/sfx/b.wav', variant(32));
+    expect((await h.command('importAssets', { folder: 'assets/sfx', labels: ['sfx'] })).status).toBe(200);
+    const sid = mkSessionId();
+    const est = await establish(tb, sid);
+    const ws = await upgrade(tb, sid, est.wsToken);
+    await ws.waitFor((m) => (m as { type?: string }).type === 'attached');
+    const editor = new FakeEditor(ws);
+    const service = tb.backend._test.service;
+    const walk = service.assetFilesYielding.bind(service);
+    const walks: { scope: string; visited: number; reason?: string }[] = [];
+    service.assetFilesYielding = async (projectId: string, options?: { changedOnly?: boolean }) => {
+      const r = await walk(projectId, options);
+      if (r.ok) walks.push(r.checked);
+      return r;
+    };
+    const play = async (): Promise<{ digests: Record<string, string>; checked: { scope: string; visited: number; reason?: string } }> => {
+      const before = walks.length;
+      const r = await api(`${tb.authUrl}/api/v1/projects/${PID}/play`, { body: {}, token: tb.authToken });
+      expect(r.status, JSON.stringify(r.json)).toBe(200);
+      const psid = (r.json as { playSessionId: string }).playSessionId;
+      const rows = playContentOf(tb, psid).assets as { assetId: string; sourceDigest: string }[];
+      await editor.waitUntil(() => tb.backend._test.plays.get(psid)?.state === 'presented');
+      await api(`${tb.authUrl}/api/v1/projects/${PID}/play/${psid}/stop`, { body: {}, token: tb.authToken });
+      await editor.waitForEvent('play.stopped');
+      expect(walks.length).toBe(before + 1);
+      return { digests: Object.fromEntries(rows.map((a) => [a.assetId, a.sourceDigest])), checked: walks[walks.length - 1]! };
+    };
+    const check = async (): Promise<void> => {
+      const r = await api(`${tb.authUrl}/api/v1/projects/${PID}/content/files/check`, { body: {}, token: tb.adminToken, origin: null });
+      expect(r.status, JSON.stringify(r.json)).toBe(200);
+    };
+    const watch = () => service.fileStampStats(PID)!.watch!;
+    return { tb, h, editor, play, check, watch, walks };
+  };
+
+  it('a file changed on disk while the project is open is caught before Play from what the watch saw, without walking every file', async () => {
+    const { tb, h, editor, play, check, watch } = await setUp();
+    try {
+      // The first check walks every file and makes the watch reliable.
+      await check();
+      expect(watch()).toMatchObject({ mode: 'directories', active: true, trusted: true });
+      const first = await play();
+      expect(first.checked).toEqual({ scope: 'changed', visited: 0 });
+      expect(first.digests['a']).toBe(sha(variant(31)));
+
+      // One file changes on disk (saved over in place): only it is looked at, and the Play ships its new bytes.
+      const hashes = tb.backend._test.service.fileStampStats(PID)!.hashes;
+      h.put('assets/sfx/a.wav', variant(33));
+      const second = await play();
+      expect(second.checked).toEqual({ scope: 'changed', visited: 1 });
+      expect(second.digests['a']).toBe(sha(variant(33)));
+      expect(second.digests['b']).toBe(sha(variant(32)));
+      expect(tb.backend._test.service.fileStampStats(PID)!.hashes - hashes).toBe(1);
+      expect(await h.digestOf('a')).toBe(sha(variant(33)));
+
+      // Saved the way editors do (a new file renamed over the old one): caught the same way.
+      h.put('assets/sfx/b.wav.tmp', variant(34), false);
+      renameSync(join(h.dir(), 'assets', 'sfx', 'b.wav.tmp'), join(h.dir(), 'assets', 'sfx', 'b.wav'));
+      // (`a` too: imported again by the last Play, which wrote its sidecar.)
+      const third = await play();
+      expect(third.checked).toEqual({ scope: 'changed', visited: 2 });
+      expect(third.digests['b']).toBe(sha(variant(34)));
+
+      // A folder an asset file is in renamed away and back: not followed file by file, every file is looked at.
+      renameSync(join(h.dir(), 'assets', 'sfx'), join(h.dir(), 'assets', 'sfx-old'));
+      renameSync(join(h.dir(), 'assets', 'sfx-old'), join(h.dir(), 'assets', 'sfx'));
+      const fourth = await play();
+      expect(fourth.checked.scope).toBe('all');
+      expect(fourth.checked.reason).toContain('changed');
+      // That walk made the watch reliable again.
+      expect((await play()).checked).toEqual({ scope: 'changed', visited: 0 });
+      editor.close();
+    } finally {
+      await tb.teardown();
+    }
+  }, 120_000);
+
+  it('when the watch may have missed events (more at once than the kernel queues) the check before Play looks at every file', async () => {
+    const { tb, h, editor, play, check, watch } = await setUp({ maxEventsPerTurn: 32 });
+    try {
+      await check();
+      expect(watch().trusted).toBe(true);
+      // A burst of changes in one go (a checkout, an unzip): more events than the watch takes as reliable.
+      for (let i = 0; i < 40; i += 1) h.put(`assets/sfx/burst-${i}.bin`, variant(40 + i), false);
+      h.put('assets/sfx/a.wav', variant(35), false);
+      await expect.poll(() => watch().lastLoss, { timeout: 5_000 }).toContain('more events');
+      expect(watch().trusted).toBe(false);
+      const after = await play();
+      expect(after.checked.scope).toBe('all');
+      expect(after.checked.reason).toContain('more events');
+      expect(after.digests['a']).toBe(sha(variant(35)));
+      // The full walk made it reliable again: the next Play looks only at what changed (`b`, and `a` whose sidecar the import wrote).
+      h.put('assets/sfx/b.wav', variant(36), false);
+      const next = await play();
+      expect(next.checked).toEqual({ scope: 'changed', visited: 2 });
+      expect(next.digests['b']).toBe(sha(variant(36)));
+      editor.close();
+    } finally {
+      await tb.teardown();
+    }
+  }, 120_000);
+
+  it('a file check builds the next Play ahead: that Play derives nothing again', async () => {
+    const { tb, editor, play, check } = await setUp();
+    try {
+      const before = { ...closureCacheStats };
+      await check();
+      // The build ahead ran once the check was done (a capture derived, its catalog made).
+      await expect.poll(() => closureCacheStats.misses, { timeout: 10_000 }).toBe(before.misses + 1);
+      const r = await api(`${tb.authUrl}/api/v1/projects/${PID}/play`, { body: {}, token: tb.authToken });
+      expect(r.status, JSON.stringify(r.json)).toBe(200);
+      expect(closureCacheStats.misses).toBe(before.misses + 1);
+      expect(closureCacheStats.hits).toBe(before.hits + 1);
+      expect(closureCacheStats.catalogHits).toBe(before.catalogHits + 1);
+      const psid = (r.json as { playSessionId: string }).playSessionId;
+      await editor.waitUntil(() => tb.backend._test.plays.get(psid)?.state === 'presented');
+      await api(`${tb.authUrl}/api/v1/projects/${PID}/play/${psid}/stop`, { body: {}, token: tb.authToken });
+      await editor.waitForEvent('play.stopped');
+      // Nothing changed since: another check builds nothing ahead.
+      await check();
+      await new Promise((done) => setTimeout(done, 200));
+      expect(closureCacheStats.misses).toBe(before.misses + 1);
+      editor.close();
+    } finally {
+      await tb.teardown();
+    }
+  }, 120_000);
+
+  it('with the watch off every check before Play looks at every file, and still catches a changed one', async () => {
+    const { tb, h, editor, play, check } = await setUp(false);
+    try {
+      await check();
+      expect(tb.backend._test.service.fileStampStats(PID)!.watch).toBeNull();
+      h.put('assets/sfx/a.wav', variant(37), false);
+      const played = await play();
+      expect(played.checked).toEqual({ scope: 'all', visited: 2, reason: 'watching is off' });
+      expect(played.digests['a']).toBe(sha(variant(37)));
+      editor.close();
+    } finally {
+      await tb.teardown();
+    }
+  }, 120_000);
 });
 
 describe('queries page', () => {

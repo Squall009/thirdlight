@@ -34,6 +34,8 @@ export interface AssetFileCheckReport {
   sidecarProblems: string[];
   /** The project's resource and scene files: moves followed, files adopted, reloaded or removed (one `importResources`), problems. */
   resources: ResourceCheckReport | null;
+  /** Which asset files were looked at: all, or the ones the folder watch saw change (and why all, when it could not be relied on). */
+  checked: { scope: 'all' | 'changed'; visited: number; reason?: string } | null;
 }
 
 export interface AssetFileCheckDeps {
@@ -44,6 +46,8 @@ export interface AssetFileCheckDeps {
   now: () => number;
   /** A command the check ran was applied (the change feed). */
   onApplied: (projectId: string, result: MutationSuccess) => void;
+  /** A full check (every file looked at) finished. */
+  onChecked?: (projectId: string) => void;
 }
 
 type Kind = 'model' | 'audio' | 'texture' | 'font';
@@ -207,7 +211,7 @@ export function createAssetFileCheck(deps: AssetFileCheckDeps) {
   };
 
   async function runCheck(projectId: string, options: { reimport: boolean; relocate: boolean }): Promise<{ ok: true; report: AssetFileCheckReport } | { ok: false; code: string; message: string }> {
-    const report: AssetFileCheckReport = { relocated: [], reimported: [], rebuilt: [], failed: [], sidecarProblems: [], resources: null };
+    const report: AssetFileCheckReport = { relocated: [], reimported: [], rebuilt: [], failed: [], sidecarProblems: [], resources: null, checked: null };
     // Resource and scene files first (a material a new file brings may name an asset the check re-imports next).
     if (options.relocate) {
       const r = service.checkResourceFiles(projectId);
@@ -226,7 +230,8 @@ export function createAssetFileCheck(deps: AssetFileCheckDeps) {
       }
     }
     // The walk gives the event loop back between slices, so a Play asked for meanwhile joins this check.
-    let files = await service.assetFilesYielding(projectId);
+    // Before Play only the files the folder watch saw change are looked at (all of them when it cannot be relied on).
+    let files = await service.assetFilesYielding(projectId, { changedOnly: !options.relocate });
     if (!files.ok) return { ok: false, code: files.error.code, message: files.error.message ?? files.error.code };
     const missing = files.entries.filter((e) => e.status === 'missing');
     if (options.relocate && missing.length > 0) {
@@ -246,6 +251,7 @@ export function createAssetFileCheck(deps: AssetFileCheckDeps) {
       }
     }
     report.sidecarProblems = files.sidecarProblems;
+    report.checked = files.checked;
     for (const e of files.entries) {
       if (e.file === null) continue;
       if (e.status === 'changed' && options.reimport) await reimport(projectId, e, report);
@@ -287,13 +293,21 @@ export function createAssetFileCheck(deps: AssetFileCheckDeps) {
   return {
     importFile,
     /** The whole check: moved files found by their sidecars, changed files imported again, the import cache made whole. */
-    check: (projectId: string) => serialized(projectId, { reimport: true, relocate: true }),
+    check: (projectId: string): ReturnType<typeof runCheck> => {
+      const done = serialized(projectId, { reimport: true, relocate: true });
+      void done.then((r) => {
+        if (r.ok) deps.onChecked?.(projectId);
+      });
+      return done;
+    },
     /**
      * Before Play and export (Unity refreshes its asset database before
      * entering Play mode): a file changed on disk is imported again, and the
-     * import cache made whole, so the build ships what the files hold. Files
-     * are hashed only when their stamp changed, so this costs one stat per
-     * asset. Moves are left to the full check.
+     * import cache made whole, so the build ships what the files hold. Only
+     * the files the folder watch saw change since the last full check are
+     * looked at (every asset's file, one stat each, when the watch cannot be
+     * relied on), and a file is hashed only when its stamp changed. Moves are
+     * left to the full check.
      */
     ensureImported: async (projectId: string): Promise<void> => {
       // A check already running or queued (the editor's on connect or focus,

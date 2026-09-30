@@ -74,6 +74,7 @@ export { MARKER_FILE, DEFAULT_PROJECT_SUBDIR, REGISTRY_FILE, readMarker, type En
 // The asset database on disk: sidecars, the import cache's keys, the file check's entries.
 export { DEFAULT_ASSET_FOLDER, SIDECAR_FORMAT, SIDECAR_SUFFIX, importKeyOfConverted, parseSidecar, type ImportHeader, type ImportKey, type SidecarDoc } from './asset-files';
 export type { AssetFileEntry, AssetFilesResult } from './service-content';
+export type { WatchedAssetsStats } from './watched-assets';
 export { BlobChangedError, type BlobFile, type LocateBlobResult, type OpenBlobResult, type OpenedBlob } from './blob-files';
 export { MIP_PARTS_IMPORTER, MIP_PARTS_VERSION, type MipPartFile } from './mip-parts';
 export { UPGRADE_REPORT_FILE, type AssetUpgradeReport } from './upgrade-assets';

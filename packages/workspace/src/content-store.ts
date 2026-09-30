@@ -106,6 +106,8 @@ export interface ContentConfig {
    * layer — no hidden global service, no source evaluation by the workspace.
    */
   behaviorCompiler?: BehaviorCompiler;
+  /** The folder watch of open projects (false: off; see `WorkspaceConfig.fileWatch`). */
+  fileWatch?: false | { maxEventsPerTurn?: number };
 }
 
 /**
@@ -159,6 +161,8 @@ export interface ContentContext {
   gameFolder?: string | null;
   /** What the project's files hashed to, by their stamps (the session's; absent: remembered for this call only). */
   stamps?: FileStamps;
+  /** The asset files a folder watch saw unchanged since they were last checked (absent: every file is checked). */
+  watched?: import('./watched-assets').WatchedAssets;
 }
 
 /**

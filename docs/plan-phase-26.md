@@ -2147,3 +2147,82 @@ Owner listen and look pending.
   `tl_command`, `resources`/`assetReads`/`catalogReads` in `tl_diagnostics`,
   `envpreset` among the index kinds. The scale bench records the renderer
   that drew Play (canvas attribute), so a run names what it measured.
+- 2026-09-30 (26.14, Play start): the file watcher. Node 22's recursive
+  `fs.watch` on Linux is a JavaScript emulation that puts a watch on every
+  file and stats every entry synchronously when it starts (61,000 watches
+  and a blocked event loop for the full bench); the backend instead puts one
+  inotify watch on each directory of the game folder (and of the import
+  cache when it is outside it; `.thirdlight/`, the record cache, the blob
+  store and `.git` are left out), as Unity's directory monitoring and
+  Godot's filesystem scan do; macOS and Windows watch the tree natively
+  (`recursive: true`); other platforms are not watched. A new directory is
+  watched as it appears (watched before it is listed), a removed one's
+  watches go (workspace `file-watch.ts`).
+- 2026-09-30 (26.14, Play start): what the watch is trusted with. A full
+  check (connect, focus, "check files", or the first Play) that started with
+  the watch running indexes where every asset's file, sidecar and imported
+  data are; from then on an event on one of those paths marks its asset
+  changed and its file unverified, and the check before Play visits only the
+  changed assets and the records added, moved or re-imported since (the
+  list is compared by identity only when it was replaced). A change to a
+  directory an indexed file is under (renamed, removed, a symlink changed)
+  is not followed file by file: the next check is a full one. Everything is
+  looked at again when the watch cannot be relied on: it failed or errored,
+  an event came without a name, a turn of the event loop delivered as many
+  events as the kernel queues (`max_queued_events`: libuv drops inotify's
+  overflow notice, so the count is the only sign), after a restart (the
+  stamps kept since 26.8 make that walk one stat per asset),
+  `THIRDLIGHT_FILE_WATCH=off`, or no watch on the platform. What a watch
+  cannot see (a write through a hard link from outside the game folder, a
+  change racing the click) is still caught when Play sends the file (hashed
+  while sent, refused, re-checked). The backend's own sidecar writes mark
+  their asset too (one extra stat at the next Play).
+- 2026-09-30 (26.14, Play start): one walk. The closure's locate trusts a
+  file the watch index verified and saw no event on since (no `realpath`,
+  no `stat`), and a converted asset's import-cache entry once a build found
+  it; anything else is located and checked as before.
+- 2026-09-30 (26.14, Play start): the content view and the catalog are
+  remembered by the identity of the frozen inputs they come from (the
+  captured project is deep-frozen and replaced piece by piece): a scene's
+  validated entities by its entity list (a capture stamps only `revision`),
+  an asset version's view row by its version and record, the view's digest
+  per content block with the parts it came from, each shipped asset's
+  catalog input and entry, an entry's and a block item's JSON, a shard's,
+  part's or scene dependency file's bytes by the items it holds, each
+  scene's dependencies per content object and entity list. A build of an
+  unchanged capture re-stamps the manifest (`capturedAt`, `buildId`) and
+  makes no catalog file. The bytes are those of the whole-value
+  serialization (checked byte for byte against `dc442d71` on the full bench
+  project: content digest, build id, manifest and all 339 catalog files).
+  Full-size closure after a scene edit 306 → ~110 ms, a second Play of the
+  same revision ~30 ms; the first build of a capture is not cheaper
+  (~460 ms at full: every row made once).
+- 2026-09-30 (26.14, Play start): the Play build is made ahead. After a full
+  file check the backend builds the next Play in the background (its stages
+  give the event loop back), unless a Play is starting or running or that
+  revision was built already; a Play asked for meanwhile waits for it and
+  then only re-stamps. Unity keeps imports and compiled scripts ready before
+  Play mode the same way. Not done: a build ahead after every command (a
+  second ~100 ms of work per edit at full size, for Plays that may not
+  come).
+- 2026-09-30 (26.14, commands): what a content edit still walked. A
+  material edit re-ran the project-wide address check over every asset and
+  resource and the references of every material; now the address check runs
+  when the assets, the loadable rows or a resource list's ids changed, and
+  the material references of the materials the edit replaced (instances
+  always: their parameters come from their chain; graph, effect,
+  environment, input, animator and bake references only when those changed).
+  The entity-id uniqueness check across scenes keeps a count per id and
+  recounts only the scenes a command replaced (a content edit recounts
+  none); the index and the resource file writes compare a replaced list
+  position by position and copy its path map only when a path changed.
+  In-process at full size a material edit is 13.3 → 7.4 ms p50 (×0.01:
+  3.8–4.6 ms), a transform edit 6.1 → 6.0 ms (×0.01 4.0 ms).
+- 2026-09-30 (26.14, commands): what is left is the flush. A command's
+  files are written and flushed (file and directory) before it is answered;
+  the flush costs the same per command at every size on an idle disk, but
+  pays for other dirty data on the disk: right after a large open (the
+  record cache written in the background) or a copy of the project, single
+  flushes of 20–50 ms show up in p95 (in-process runs on the same data
+  varied 7–20 ms p50 with the disk state alone). Durability is kept; the
+  record cache and stamps stay unflushed.

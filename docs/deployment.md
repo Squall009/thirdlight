@@ -917,7 +917,19 @@ no count limit on either.
   sidecar; each change is an ordinary undoable command and shows in the
   change feed. A file whose size and times did not change is not read again
   (the digests are kept in the import cache, so a restart hashes nothing
-  unchanged). Play and the export run the same check first.
+  unchanged). Play and the export run the same check first, looking only at
+  the files that changed: the backend watches the open project's folders
+  (one watch per folder on Linux, the whole tree on macOS and Windows) and,
+  once a full check has run, the check before Play visits just the assets
+  whose file, sidecar or imported data changed since. Whenever the watch may
+  have missed something (it failed, the kernel's event queue may have
+  overflowed, a folder holding asset files was renamed or removed, after a
+  restart) the next check looks at every file again. On Linux each watched
+  folder uses one inotify watch (`fs.inotify.max_user_watches`; a project
+  with more folders than that is checked in full every time).
+  `THIRDLIGHT_FILE_WATCH=off` turns the watch off. After a full check the
+  backend also builds the next Play ahead in the background, so a Play of an
+  unchanged project starts without deriving anything again.
 - **Reads are verified.** Play serves each file from disk at a URL named by
   its digest and hashes it while it is sent; a file changed since the check
   is refused (`asset_source_changed`), checked again and shipped by the next

@@ -222,16 +222,30 @@ export function updateIndex(index: ProjectIndex, before: IndexSource, after: Ind
     const a = listOf(before.content, k);
     const b = listOf(after.content, k);
     const paths = after.resourcePaths.get(k.list);
-    if (a === b && before.resourcePaths.get(k.list) === paths && !renamedKinds.has(k.kind)) continue;
-    const prev = new Map(a.map((r) => [String(r[k.idKey]), r]));
-    const kept = new Set<string>();
-    for (const r of b) {
+    const pathsChanged = before.resourcePaths.get(k.list) !== paths;
+    const renamedHere = renamedKinds.has(k.kind);
+    if (a === b && !pathsChanged && !renamedHere) continue;
+    // A command replaces a few records of a list and keeps the others in place: records at the same
+    // position are compared first, the lists are matched by id only when they are not aligned.
+    let prev: Map<string, Record<string, unknown>> | null = null;
+    const before_ = (i: number, id: string): Record<string, unknown> | undefined => {
+      const at = a[i];
+      if (at !== undefined && String(at[k.idKey]) === id) return at;
+      return (prev ??= new Map(a.map((r) => [String(r[k.idKey]), r]))).get(id);
+    };
+    let aligned = a.length === b.length;
+    for (let i = 0; i < b.length; i += 1) {
+      const r = b[i]!;
+      if (aligned && a[i] === r && !pathsChanged && !renamedHere) continue;
       const id = String(r[k.idKey]);
-      kept.add(id);
-      if (prev.get(id) === r && entries.get(keyOf(k.kind, id))?.path === (paths?.get(id) ?? null) && !renamed.has(keyOf(k.kind, id))) continue;
+      if (aligned && String(a[i]?.[k.idKey]) !== id) aligned = false;
+      if (before_(i, id) === r && entries.get(keyOf(k.kind, id))?.path === (paths?.get(id) ?? null) && !renamed.has(keyOf(k.kind, id))) continue;
       stage(k.kind, id, () => resourceEntry(k, r, paths?.get(id), known, loading.get(keyOf(k.kind, id))));
     }
-    for (const id of prev.keys()) if (!kept.has(id)) removes.push(keyOf(k.kind, id));
+    if (!aligned) {
+      const kept = new Set(b.map((r) => String(r[k.idKey])));
+      for (const r of a) if (!kept.has(String(r[k.idKey]))) removes.push(keyOf(k.kind, String(r[k.idKey])));
+    }
   }
   // Scenes.
   const names = new Map(after.content.scenes.map((sc) => [sc.sceneId, sc.name]));

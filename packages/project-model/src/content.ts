@@ -313,10 +313,12 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
       validateTimelineReferences(doc['timelines'] as TimelineAsset[], '/timelines', errors, { assetKind: (id) => kinds.get(id), effectIds: ids('effects', 'effectId'), materialIds: ids('materials', 'materialId'), modeIds: ids('modes', 'modeId') });
     }
   }
-  // The resources' addresses and labels, and one owner per address across assets and resources.
-  if (version === 4 && !same('assets', 'loadable', ...RESOURCE_KIND_TABLE.map((k) => (k.list === ENV_PRESETS_LIST ? 'environment' : k.list)))) validateLoadable(doc, errors);
+  // The resources' addresses and labels, and one owner per address across assets and resources: an edit
+  // that keeps every resource list's ids (a material changed) changes no address and no resource's liveness.
+  const sameResourceIds = prev !== undefined && RESOURCE_KIND_TABLE.every((k) => (k.list === ENV_PRESETS_LIST ? same('environment') : sameIds(prev[k.list], doc[k.list], k.idKey)));
+  if (version === 4 && !(same('assets', 'loadable') && sameResourceIds)) validateLoadable(doc, errors);
   if (version === 4 && !same('assets', 'materials', 'graphs', 'effects', 'environment', 'input', 'animators', 'lighting', 'scenes')) {
-    validateMaterialReferences(doc, errors, prev === undefined || !same('assets') || !sameIds(prev['materials'], doc['materials'], 'materialId'));
+    validateMaterialReferences(doc, errors, prev === undefined || !same('assets') || !sameIds(prev['materials'], doc['materials'], 'materialId'), prev !== undefined ? { same, materials: recordsOf(prev['materials']) } : undefined);
   }
   else if (Array.isArray(doc['assets'])) {
     // Clips-only assets are v4 data (v3 projects upgrade on open).
@@ -671,7 +673,15 @@ export function arrayTextureIds(doc: { assets?: readonly unknown[] } | Record<st
   });
 }
 
-function validateMaterialReferences(doc: Record<string, unknown>, errors: ModelErrorV2[], assetRules = true): void {
+/**
+ * What the content's references into the asset records name. `same` (the
+ * previous block was validated): a part the edit left as it was, whose assets
+ * are unchanged too, is not checked again — an unchanged material that is not
+ * an instance (an instance's parameters come from its chain), an unchanged
+ * graph, effect, environment, input, animator or bake list.
+ */
+function validateMaterialReferences(doc: Record<string, unknown>, errors: ModelErrorV2[], assetRules = true, previous?: { same: (...keys: string[]) => boolean; materials: ReadonlySet<unknown> | undefined }): void {
+  const unchanged = (...keys: string[]): boolean => previous !== undefined && previous.same('assets', ...keys);
   const list = Array.isArray(doc['assets']) ? (doc['assets'] as unknown[]) : EMPTY_LIST;
   const assets = derivedOf(list, 'records', () => list.filter(isPlainObject));
   const kindOf = derivedOf(list, 'raw-kinds', () => new Map(assets.map((a) => [a['assetId'], a['kind']])));
@@ -689,7 +699,10 @@ function validateMaterialReferences(doc: Record<string, unknown>, errors: ModelE
   };
   const materials = Array.isArray(doc['materials']) ? (doc['materials'] as unknown[]).filter(isPlainObject) : [];
   const materialIds = new Set(materials.map((m) => m['materialId']));
+  // The material records the previous block held (with the same assets, an unchanged record's references still hold).
+  const before = unchanged() ? previous?.materials : undefined;
   materials.forEach((m, i) => {
+    if (before?.has(m) === true && typeof m['instanceOf'] !== 'string') return;
     const textures = m['textures'];
     if (isPlainObject(textures)) {
       for (const [slot, id] of Object.entries(textures)) {
@@ -722,14 +735,14 @@ function validateMaterialReferences(doc: Record<string, unknown>, errors: ModelE
     }
   });
   // Standalone graphs (material functions) reference assets the same way.
-  if (Array.isArray(doc['graphs'])) {
+  if (Array.isArray(doc['graphs']) && !unchanged('graphs')) {
     (doc['graphs'] as unknown[]).forEach((g, i) => {
       const k = isPlainObject(g) && typeof g['kind'] === 'string' ? GRAPH_KINDS[g['kind']] : undefined;
       if (k !== undefined && isPlainObject(g) && isPlainObject(g['graph']) && Array.isArray(g['graph']['nodes'])) graphRefs(k, g['graph'] as unknown as GraphData, `/graphs/${i}/graph`);
     });
   }
   // Effect system graphs name textures and models the same way.
-  if (Array.isArray(doc['effects'])) {
+  if (Array.isArray(doc['effects']) && !unchanged('effects')) {
     (doc['effects'] as unknown[]).forEach((e, i) => {
       if (!isPlainObject(e) || !Array.isArray(e['systems'])) return;
       (e['systems'] as unknown[]).forEach((sys, j) => {
@@ -739,7 +752,7 @@ function validateMaterialReferences(doc: Record<string, unknown>, errors: ModelE
   }
   // Sky images and the grading LUT are texture assets too.
   const env = doc['environment'];
-  if (isPlainObject(env)) {
+  if (isPlainObject(env) && !unchanged('environment')) {
     const refs: [string, unknown][] = [];
     const sky = env['sky'];
     if (isPlainObject(sky)) {
@@ -767,7 +780,7 @@ function validateMaterialReferences(doc: Record<string, unknown>, errors: ModelE
   }
   // The input's glyph images are texture assets.
   const input = doc['input'];
-  if (isPlainObject(input) && isPlainObject(input['glyphs'])) {
+  if (isPlainObject(input) && isPlainObject(input['glyphs']) && !unchanged('input')) {
     for (const [k, id] of Object.entries(input['glyphs'])) {
       if (kindOf.get(id as string) !== 'texture') errors.push(withFound({ code: 'asset_reference_missing', path: `/input/glyphs/${k}`, message: 'a glyph image must name a texture asset of this project', expected: 'a texture assetId' }, id));
       // Glyphs are drawn by the page as images.
@@ -775,7 +788,7 @@ function validateMaterialReferences(doc: Record<string, unknown>, errors: ModelE
     }
   }
   // A controller's clips come from model assets of this project.
-  if (Array.isArray(doc['animators'])) {
+  if (Array.isArray(doc['animators']) && !unchanged('animators')) {
     (doc['animators'] as unknown[]).forEach((c, i) => {
       if (!isPlainObject(c) || !Array.isArray(c['states'])) return;
       for (const id of animatorAssetIds(c as unknown as AnimatorController)) {
@@ -785,7 +798,7 @@ function validateMaterialReferences(doc: Record<string, unknown>, errors: ModelE
   }
   // A bake belongs to a scene of the index; its atlases are texture assets.
   const lighting = doc['lighting'];
-  if (isPlainObject(lighting)) {
+  if (isPlainObject(lighting) && !unchanged('lighting', 'scenes')) {
     const sceneIds = new Set(Array.isArray(doc['scenes']) ? (doc['scenes'] as unknown[]).map((e) => (isPlainObject(e) ? e['sceneId'] : undefined)) : []);
     for (const [sceneId, bake] of Object.entries(lighting)) {
       if (!sceneIds.has(sceneId)) errors.push(withFound({ code: 'reference_missing', reason: 'scene', path: `/lighting/${pointerSegment(sceneId)}`, message: 'a bake belongs to a scene of this project', expected: 'a sceneId of content.scenes' }, sceneId));

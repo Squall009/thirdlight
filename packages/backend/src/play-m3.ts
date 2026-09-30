@@ -72,6 +72,8 @@ export interface BuildPlayContentM3Input {
   startScenes?: readonly string[];
   /** The closure's stage times (ms) are added here. */
   timings?: Record<string, number>;
+  /** Made ahead of a Play (the closure then gives the event loop back between its stages). */
+  background?: boolean;
 }
 
 export interface BuiltPlayContentM3 {
@@ -139,6 +141,7 @@ export async function buildPlayContentM3(input: BuildPlayContentM3Input): Promis
     sha256: sha256HexBytes,
     // The page reads each asset when it needs it: the build only finds and checks the files.
     locate: true,
+    ...(input.background === true ? { background: true } : {}),
   });
   if (!built.ok) {
     return { ok: false, error: sessionErrorFromM3Closure(built.error) };

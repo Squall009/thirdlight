@@ -124,15 +124,7 @@ export function composeV4(
   }
 
   // Entity ids are unique across the project.
-  const owner = new Map<string, string>();
-  for (const s of scenes) {
-    s.entities.forEach((e, i) => {
-      const first = owner.get(e.id);
-      if (first !== undefined) {
-        errors.push(sceneError(s.sceneId, withFound({ code: 'id_duplicate', path: `/entities/${i}/id`, message: `entity id is already used in scene "${first}" (ids are unique across the project)`, expected: 'a project-unique entity id' }, e.id)));
-      } else owner.set(e.id, s.sceneId);
-    });
-  }
+  errors.push(...entityIdErrors(scenes));
   // An entity and its scene by id (made when a rule needs it: spawns named across scenes).
   let byId: Map<string, { entity: SceneEntityV3; sceneId: string }> | null = null;
   const entityById = (id: string): { entity: SceneEntityV3; sceneId: string } | undefined => {
@@ -216,6 +208,58 @@ export function composeV4(
 
   // A prefab's collider follows the project's physics dimension too.
   errors.push(...prefabPhysicsRules(content));
+}
+
+/**
+ * Entity ids used twice across the project's scenes. The last answer is kept
+ * with the scenes it was for and a count of every id (scenes are immutable
+ * values): a command that changes no scene (a content edit) does not walk
+ * every entity again, and one that changes a few scenes of a project without
+ * duplicates recounts only those scenes' ids.
+ */
+let lastEntityIds: { readonly scenes: readonly SceneV4[]; readonly counts: Map<string, number>; readonly errors: readonly ModelErrorV3[] } | null = null;
+/** How many changed scenes are recounted instead of walking every scene again. */
+const ENTITY_ID_RECOUNT_SCENES = 8;
+function entityIdErrors(scenes: readonly SceneV4[]): readonly ModelErrorV3[] {
+  const last = lastEntityIds;
+  const frozen = scenes.every((s) => Object.isFrozen(s) && Object.isFrozen(s.entities));
+  if (last !== null && frozen && last.scenes.length === scenes.length) {
+    const changed: number[] = [];
+    for (let i = 0; i < scenes.length && changed.length <= ENTITY_ID_RECOUNT_SCENES; i += 1) if (last.scenes[i] !== scenes[i]) changed.push(i);
+    if (changed.length === 0) return last.errors;
+    if (last.errors.length === 0 && changed.length <= ENTITY_ID_RECOUNT_SCENES) {
+      lastEntityIds = null;
+      const counts = last.counts;
+      let duplicate = false;
+      for (const i of changed) for (const e of last.scenes[i]!.entities) counts.set(e.id, (counts.get(e.id) ?? 1) - 1);
+      for (const i of changed) {
+        for (const e of scenes[i]!.entities) {
+          const n = (counts.get(e.id) ?? 0) + 1;
+          counts.set(e.id, n);
+          if (n > 1) duplicate = true;
+        }
+      }
+      if (!duplicate) {
+        for (const i of changed) for (const e of last.scenes[i]!.entities) if (counts.get(e.id) === 0) counts.delete(e.id);
+        lastEntityIds = { scenes: [...scenes], counts, errors: [] };
+        return lastEntityIds.errors;
+      }
+    }
+  }
+  const errors: ModelErrorV3[] = [];
+  const owner = new Map<string, string>();
+  const counts = new Map<string, number>();
+  for (const s of scenes) {
+    s.entities.forEach((e, i) => {
+      counts.set(e.id, (counts.get(e.id) ?? 0) + 1);
+      const first = owner.get(e.id);
+      if (first !== undefined) {
+        errors.push(sceneError(s.sceneId, withFound({ code: 'id_duplicate', path: `/entities/${i}/id`, message: `entity id is already used in scene "${first}" (ids are unique across the project)`, expected: 'a project-unique entity id' }, e.id)));
+      } else owner.set(e.id, s.sceneId);
+    });
+  }
+  lastEntityIds = frozen ? { scenes: [...scenes], counts, errors } : null;
+  return errors;
 }
 
 /** The camera and controller of one scene: counted in a start scene, refused in any other. */

@@ -530,6 +530,12 @@ function artifactName(digest: string): string {
   return `${digest}.bin`;
 }
 
+/** Where the import cache keeps what an importer made, without looking (null: the key is malformed). */
+export function importedArtifactFile(dir: string, key: ImportKey, digest: string): string | null {
+  const segs = importCacheSegments(key);
+  return segs === null || !DIGEST_RE.test(digest) ? null : join(dir, ...segs, artifactName(digest));
+}
+
 /** Store what an importer made (write-once by digest; an existing entry is kept). */
 export function writeImported(core: Core, ctx: ContentContext, key: ImportKey, bytes: Uint8Array): { ok: true; digest: string } | { ok: false; error: CommandError } {
   const segs = importCacheSegments(key);

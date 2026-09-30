@@ -63,6 +63,7 @@ import { canonicalShell, validateShell, type GameShell } from './shell';
 import { validateMergedSceneV4, validateSceneV3, validateSceneV4 } from './scene-v3';
 import { canonicalPrefabs, validateContentV3, validateContentV4, validatePrefabDefinitions, resolveGameplaySettings, validateTagRegistry } from './content';
 import { collectAssetRefsV3 } from './capture';
+import { knownSceneEntities, rememberSceneEntities, viewDigestOf, viewRowOf } from './view-memo';
 import { loadableRowsProblem, type LoadableRow } from './loadable';
 import type { ModelErrorV2, ModelResultV2 } from './errors';
 import type {
@@ -447,11 +448,13 @@ function boundsCopy(b: { min: readonly number[]; max: readonly number[] }): { mi
  * digest never changes (a build of 18,000 assets hashes only what changed).
  */
 const metricsDigests = new WeakMap<object, string>();
-function metricsDigestOf(metrics: unknown): string {
-  if (typeof metrics !== 'object' || metrics === null || !Object.isFrozen(metrics)) return blockDigest(metrics);
+/** `sha256`: a host's native SHA-256 (the same digest as `blockDigest`, made faster: a first build hashes every shipped asset's metrics). */
+function metricsDigestOf(metrics: unknown, sha256?: (bytes: Uint8Array) => string): string {
+  const digest = (): string => (sha256 !== undefined ? sha256(new TextEncoder().encode(`${JSON.stringify(metrics, null, 2)}\n`)) : blockDigest(metrics));
+  if (typeof metrics !== 'object' || metrics === null || !Object.isFrozen(metrics)) return digest();
   let d = metricsDigests.get(metrics);
   if (d === undefined) {
-    d = blockDigest(metrics);
+    d = digest();
     metricsDigests.set(metrics, d);
   }
   return d;
@@ -504,6 +507,23 @@ export const M3_OPTIONAL_SETTINGS_KEYS = ['fixed_step_hz', 'audio_voices', 'musi
  * the wrong `kind`, or an absent version) fails `asset_reference_missing` /
  * `asset_kind_mismatch` / `asset_version_invalid` before any capture.
  */
+/** Every scene's validated entities, in order (a scene validated before with the same frozen fields is not validated again). */
+function allSceneEntities(allScenes: readonly unknown[]): { ok: true; entities: SceneV3['entities'] } | { ok: false; errors: ModelErrorV2[] } {
+  const entities: SceneV3['entities'] = [];
+  for (const doc of allScenes) {
+    const known = knownSceneEntities(doc);
+    if (known !== null) {
+      entities.push(...known);
+      continue;
+    }
+    const r = validateSceneV4(doc);
+    if (!r.ok) return { ok: false, errors: r.errors as ModelErrorV2[] };
+    rememberSceneEntities(doc, r.normalized.entities as SceneV3['entities']);
+    entities.push(...(r.normalized.entities as SceneV3['entities']));
+  }
+  return { ok: true, entities };
+}
+
 export function resolveMediaIdentityV3(scene: unknown, content: unknown, allScenes?: readonly unknown[]): ModelResultV2<MediaBlock> {
   const v4 = (scene as { schemaVersion?: unknown } | null)?.schemaVersion === 4;
   // With the project's scenes given, `scene` is the start scenes
@@ -516,13 +536,9 @@ export function resolveMediaIdentityV3(scene: unknown, content: unknown, allScen
   if (!c.ok) return { ok: false, errors: c.errors };
   let normScene = s.normalized as unknown as SceneV3;
   if (v4 && allScenes !== undefined) {
-    const entities: SceneV3['entities'] = [];
-    for (const doc of allScenes) {
-      const r = validateSceneV4(doc);
-      if (!r.ok) return { ok: false, errors: r.errors };
-      entities.push(...(r.normalized.entities as SceneV3['entities']));
-    }
-    normScene = { ...normScene, entities };
+    const all = allSceneEntities(allScenes);
+    if (!all.ok) return { ok: false, errors: all.errors };
+    normScene = { ...normScene, entities: all.entities };
   }
   return mediaIdentityFrom(normScene, c.normalized);
 }
@@ -600,12 +616,9 @@ export function captureContentViewV3(
   let normScene = s.normalized as unknown as SceneV3;
   const normContent = c.normalized as ContentCatalogV3;
   if (v4 && allScenes !== undefined) {
-    const entities: SceneV3['entities'] = [];
-    for (const doc of allScenes) {
-      const r = validateSceneV4(doc);
-      if (!r.ok) return fail(r.errors);
-      entities.push(...(r.normalized.entities as SceneV3['entities']));
-    }
+    const all = allSceneEntities(allScenes);
+    if (!all.ok) return fail(all.errors);
+    const entities = all.entities;
     // The references of every scene (a scene loaded later needs its assets too).
     normScene = { ...normScene, entities };
   }
@@ -634,20 +647,21 @@ export function captureContentViewV3(
       continue;
     }
     const importRecipe = version.importRecipe as { profile: string; recipeVersion: number };
-    assets.push({
+    // The row of an unchanged record and version is the one made before (with its text for the digest).
+    assets.push(viewRowOf<CapturedAssetV3>(record, version, () => ({
       assetId: record.assetId,
       kind: record.kind,
       version: version.version,
       sourceDigest: version.sourceDigest,
       sourceByteLength: version.sourceByteLength,
       recipe: { id: importRecipe.profile, version: importRecipe.recipeVersion },
-      metricsDigest: metricsDigestOf(version.metrics),
+      metricsDigest: metricsDigestOf(version.metrics, sha256),
       ...(record.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}),
       ...(record.materials !== undefined ? { materials: { ...record.materials } } : {}),
       ...(record.clipsFor !== undefined ? { clipsFor: record.clipsFor } : {}),
       // A model version's recorded bounds (absent before; the digests of older captures are unchanged).
       ...(record.kind === 'model' && (version.metrics as { bounds?: CapturedAssetV3['bounds'] }).bounds !== undefined ? { bounds: boundsCopy((version.metrics as { bounds: NonNullable<CapturedAssetV3['bounds']> }).bounds) } : {}),
-    });
+    })));
   }
   if (errors.length > 0) return fail(errors);
   assets.sort((a, b) => (a.assetId < b.assetId ? -1 : a.assetId > b.assetId ? 1 : a.version - b.version));
@@ -659,7 +673,8 @@ export function captureContentViewV3(
     settings: settingsRes.normalized,
     behaviorTrust: normContent.behaviorTrust,
   };
-  const contentDigest = sha256 !== undefined ? sha256(new TextEncoder().encode(`${JSON.stringify(withoutDigest, null, 2)}\n`)) : blockDigest(withoutDigest);
+  // The digest of `JSON.stringify(withoutDigest, null, 2)`, made from the parts' remembered texts (or remembered whole).
+  const contentDigest = viewDigestOf(normContent, withoutDigest, (text) => (sha256 !== undefined ? sha256(new TextEncoder().encode(text)) : sha256HexOfText(text)));
   return { ok: true, normalized: { ...withoutDigest, contentDigest } as CapturedContentViewV3 };
 }
 

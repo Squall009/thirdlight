@@ -51,6 +51,8 @@ export interface BackendTestOptions {
   /** Exports (the admin export route) — where they are written and the engine root they build from. */
   exportRoot?: string;
   engineRoot?: string;
+  /** The folder watch (false: off; `maxEventsPerTurn`: the count taken as an overflow). */
+  fileWatch?: false | { maxEventsPerTurn?: number };
 }
 
 /** Start an ephemeral backend with a demo project already created. */
@@ -71,6 +73,7 @@ export async function startBackend(opts: BackendTestOptions = {}): Promise<TestB
     timeouts: opts.timeouts,
     ...(opts.exportRoot !== undefined ? { exportRoot: opts.exportRoot } : {}),
     ...(opts.engineRoot !== undefined ? { engineRoot: opts.engineRoot } : {}),
+    ...(opts.fileWatch !== undefined ? { fileWatch: opts.fileWatch } : {}),
   });
   t.backend._test.service.createProject(projectId, 'Demo');
   const tb: TestBackend = {

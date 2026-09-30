@@ -48,7 +48,7 @@ import {
   DEFAULT_DEVICE_SPACE_RESERVE_BYTES,
   defaultFreeSpace,
 } from './content-store';
-import { contentOps } from './service-content';
+import { closeWatches, contentOps } from './service-content';
 import { checkScriptLibraryDraft, discardScriptLibraryStage, prepareBehaviorSource, prepareScriptLibraryDependents, prepareScriptLibraryStage, projectScriptLibraryInputs, stageScriptLibraryPatch, type PrepareBehaviorSourceRequest } from './behavior';
 import {
   externalChangeUnreadable,
@@ -158,6 +158,7 @@ export function openWorkspaceService(config: WorkspaceServiceConfig): WorkspaceS
       // The injected behavior-source compiler (dependencies.md
       // `backend` constructs it; the workspace holds only its type).
       ...(config.behaviorCompiler !== undefined ? { behaviorCompiler: config.behaviorCompiler } : {}),
+      ...(config.fileWatch !== undefined ? { fileWatch: config.fileWatch } : {}),
     },
   };
   return buildService(core);
@@ -412,6 +413,7 @@ function buildService(core: Core): WorkspaceService {
     // backend reclaims them once this process is dead. Journals still being
     // flushed stay on disk for the next open to replay.
     for (const s of core.sessions.values()) dropFlushes(s.thirdlightDir);
+    closeWatches(core);
     core.sessions.clear();
   }
 
@@ -425,6 +427,7 @@ function buildService(core: Core): WorkspaceService {
         // best effort — see above
       }
     }
+    closeWatches(core);
     core.sessions.clear();
   }
 
@@ -565,6 +568,7 @@ function buildService(core: Core): WorkspaceService {
       } catch {
         // best effort: the ownership record is released by the next claim anyway
       }
+      closeWatches(core, projectId);
       core.sessions.delete(projectId);
     }
     core.registry.delete(projectId);

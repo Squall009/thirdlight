@@ -247,7 +247,7 @@ describe('a schemaVersion 4 project with stored asset versions opened over HTTP'
     // The file check finds nothing to do.
     const check = await api(`${tb.authUrl}/api/v1/projects/${ID}/content/files/check`, { body: {}, token: tb.adminToken, origin: null });
     expect(check.status, JSON.stringify(check.json)).toBe(200);
-    expect((check.json as { check: unknown }).check).toEqual({ resources: { followed: [], adopted: [], reloaded: [], removed: [], problems: [], paused: null }, relocated: [], reimported: [], rebuilt: [], failed: [], sidecarProblems: [] });
+    expect((check.json as { check: unknown }).check).toEqual({ resources: { followed: [], adopted: [], reloaded: [], removed: [], problems: [], paused: null }, relocated: [], reimported: [], rebuilt: [], failed: [], sidecarProblems: [], checked: { scope: 'all', visited: 3 } });
 
     // The export ships the placed model's current bytes (what the v4 project shipped), not the older version.
     const exported = await api(`${tb.authUrl}/api/v1/admin/projects/${ID}/export`, { body: {}, token: tb.adminToken, origin: null });

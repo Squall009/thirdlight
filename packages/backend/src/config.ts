@@ -79,6 +79,13 @@ export interface BackendConfig {
    * results; see docs/deployment.md).
    */
   crossOriginIsolation?: boolean;
+  /**
+   * Optional (THIRDLIGHT_FILE_WATCH=off → false): watch open projects'
+   * folders so the check before Play looks only at changed files (default on).
+   * `maxEventsPerTurn`: the event count taken as a possible overflow of the
+   * kernel's queue (a test seam; default the kernel's queue length).
+   */
+  fileWatch?: false | { maxEventsPerTurn?: number };
   tokens: BackendTokenEntry[];
   /** Test-only seam (`DEFAULT_TIMEOUTS` stand in production). */
   timeouts?: Partial<BackendTimeouts>;
@@ -100,7 +107,7 @@ export function parseBackendConfig(value: unknown):
     'authoringOrigin', 'previewOrigin', 'authoringBind', 'previewBind',
     'authoringOrigins', 'editorStaticDir', 'previewStaticDir', 'exportRoot',
     'engineRoot', 'blenderPath', 'trustedNetworks', 'trustedProxies',
-    'tokens', 'timeouts', 'headless', 'bake', 'crossOriginIsolation',
+    'tokens', 'timeouts', 'headless', 'bake', 'crossOriginIsolation', 'fileWatch',
   ]);
   for (const k of Object.keys(obj)) {
     if (!allowed.has(k)) {
@@ -261,6 +268,13 @@ export function parseBackendConfig(value: unknown):
   if (obj.crossOriginIsolation !== undefined) {
     if (typeof obj.crossOriginIsolation !== 'boolean') return { ok: false, error: sessionError('field_type', 'validation', 'crossOriginIsolation must be a boolean', { path: '/crossOriginIsolation' }) };
     if (obj.crossOriginIsolation) config.crossOriginIsolation = true;
+  }
+  if (obj.fileWatch !== undefined) {
+    const w = obj.fileWatch as { maxEventsPerTurn?: unknown } | false | null;
+    if (w === false) config.fileWatch = false;
+    else if (typeof w === 'object' && w !== null && !Array.isArray(w) && Object.keys(w).every((k) => k === 'maxEventsPerTurn') && (w.maxEventsPerTurn === undefined || (typeof w.maxEventsPerTurn === 'number' && Number.isInteger(w.maxEventsPerTurn) && w.maxEventsPerTurn > 0))) {
+      config.fileWatch = w.maxEventsPerTurn === undefined ? {} : { maxEventsPerTurn: w.maxEventsPerTurn };
+    } else return { ok: false, error: sessionError('field_value', 'validation', 'fileWatch must be false or { maxEventsPerTurn?: integer > 0 }', { path: '/fileWatch' }) };
   }
   if (Object.keys(timeouts).length > 0) config.timeouts = timeouts;
   return { ok: true, config };

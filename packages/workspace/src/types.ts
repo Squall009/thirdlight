@@ -107,6 +107,13 @@ export interface WorkspaceServiceConfig {
   /** Device free space that must remain after a blob write (default
    * 67 108 864 = 64 MiB). */
   deviceSpaceReserveBytes?: number;
+  /**
+   * Watch each open project's folders so the check before Play looks only at
+   * changed files (default on where the platform can watch; `false`: every
+   * check walks every asset's file). `maxEventsPerTurn` overrides the event
+   * count that counts as a possible overflow of the kernel's queue.
+   */
+  fileWatch?: false | { maxEventsPerTurn?: number };
   /** Device free-space probe for the disk a path is on (default `statfs`; the data root's when no path is given). */
   freeSpaceBytes?: (path?: string) => number;
   /** Millisecond clock for the stage TTL and abandoned-stage retention
@@ -411,7 +418,7 @@ export interface WorkspaceService {
    */
   contentIntegrity(projectId: string, page?: IntegrityPage): ContentIntegrityResult;
   /** How many files the project's file stamps know, and how many were hashed since the project opened. */
-  fileStampStats(projectId: string): { files: number; hashes: number } | null;
+  fileStampStats(projectId: string): { files: number; hashes: number; watch: import('./watched-assets').WatchedAssetsStats | null } | null;
   /**
    * Every asset's file in the game folder against the catalog (moved,
    * changed, missing, what the import cache holds), writing the `.tlasset`
@@ -419,7 +426,7 @@ export interface WorkspaceService {
    */
   assetFiles(projectId: string): AssetFilesResult;
   /** `assetFiles`, giving the event loop back between slices of the walk (the file check's). */
-  assetFilesYielding(projectId: string): Promise<AssetFilesResult>;
+  assetFilesYielding(projectId: string, options?: { changedOnly?: boolean }): Promise<AssetFilesResult>;
   /** Where these assets' files are now, found by their sidecars (a move made outside the editor). */
   findMovedAssets(projectId: string, assetIds: readonly string[]): { ok: true; found: Record<string, string> } | { ok: false; error: CommandError };
   /**

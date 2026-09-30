@@ -152,6 +152,8 @@ export interface ProjectSession {
   preparedResources?: import('./resource-check').PreparedResourceFiles;
   /** What the project's files hashed to, by their stamps (kept in the import cache between runs; file-stamps.ts). */
   fileStamps?: import('./file-stamps').FileStamps;
+  /** The watch of the project's folders and what it saw change (made by the first file check; watched-assets.ts). */
+  watchedAssets?: import('./watched-assets').WatchedAssets | null;
   /** Resource files the file check found unchanged, by size, time and the hash they matched (not read again until one differs). */
   resourceStats?: Map<string, string>;
   /** Game-folder files a committed command could not bring in step (the next file check reports and repairs them). */
@@ -224,6 +226,8 @@ export interface Core {
   utcNow: () => string;
   ops: WriteOps;
   sessions: Map<string, ProjectSession>;
+  /** The folder watch of each project and the session it was made for (a session opened again gets a new one). */
+  watches?: Map<string, { session: ProjectSession; watched: import('./watched-assets').WatchedAssets }>;
   /** Content-storage configuration: quota, device-space
    * reserve and the clock/TTL seam. */
   content: ContentConfig;
