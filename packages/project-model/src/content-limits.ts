@@ -136,6 +136,14 @@ export const MAX_STAGED_BYTES_PER_PROJECT = 134_217_728;
 export const ASSET_LABEL_MAX_LENGTH = 64;
 export const ASSET_LABEL_RE = new RegExp(`^[\\p{L}\\p{N}][\\p{L}\\p{N}_.\\-/]{0,${ASSET_LABEL_MAX_LENGTH - 1}}$`, 'u');
 
+/**
+ * An address (the one name a script loads an asset or resource by): the
+ * label characters, longer, so a path-like name (`voice/intro/line-01`) fits.
+ * Unique across the project's assets and resources.
+ */
+export const ADDRESS_MAX_LENGTH = 128;
+export const ADDRESS_RE = new RegExp(`^[\\p{L}\\p{N}][\\p{L}\\p{N}_.\\-/]{0,${ADDRESS_MAX_LENGTH - 1}}$`, 'u');
+
 /** The folder of the game folder uploads land in when the user names none. */
 export const DEFAULT_ASSET_FOLDER = 'assets';
 

@@ -22,7 +22,7 @@
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { DEFAULT_ASSET_FOLDER, isValidSourcePath, ID_RE, parseDocumentBytes } from '@thirdlight/project-model';
+import { DEFAULT_ASSET_FOLDER, ENV_PRESETS_LIST, isAddress, isAssetLabel, isValidSourcePath, ID_RE, parseDocumentBytes, RESOURCE_KIND_TABLE, resourceRecordsOf } from '@thirdlight/project-model';
 
 import { layoutProjectJson } from './project-json';
 
@@ -41,34 +41,16 @@ export interface ResourceKind {
   readonly folder: string;
 }
 
-const kind = (k: string, list: string, idKey: string, folder: string): ResourceKind => ({ kind: k, list, idKey, folder: `${DEFAULT_ASSET_FOLDER}/${folder}` });
-
 /** The one resource list that is not a key of the content block: the environment's presets. */
-export const ENV_PRESETS = 'environment.presets';
+export const ENV_PRESETS = ENV_PRESETS_LIST;
 
 /** A kind's records in a content block (none: absent). */
 export function recordsOfKind(content: unknown, k: ResourceKind): readonly Record<string, unknown>[] | undefined {
-  const c = content as Record<string, unknown>;
-  const list = k.list === ENV_PRESETS ? (c['environment'] as { presets?: unknown } | undefined)?.presets : c[k.list];
-  return Array.isArray(list) ? (list as Record<string, unknown>[]) : undefined;
+  return resourceRecordsOf(content, k);
 }
 
-/** Every kind of resource stored one file each, in the content block's key order. */
-export const RESOURCE_KINDS: readonly ResourceKind[] = [
-  kind('prefab', 'prefabs', 'prefabId', 'prefabs'),
-  kind('behavior', 'behaviors', 'behaviorId', 'behaviors'),
-  kind('material', 'materials', 'materialId', 'materials'),
-  kind('animator', 'animators', 'controllerId', 'animators'),
-  kind('graph', 'graphs', 'graphId', 'graphs'),
-  kind('effect', 'effects', 'effectId', 'effects'),
-  kind('library', 'scriptLibraries', 'libraryId', 'libraries'),
-  kind('ui', 'uiDocuments', 'uiDocumentId', 'ui'),
-  kind('uitheme', 'uiThemes', 'uiThemeId', 'ui'),
-  kind('dialogue', 'dialogues', 'dialogueId', 'dialogue'),
-  kind('timeline', 'timelines', 'timelineId', 'timelines'),
-  // The presets are a list inside the environment, in the author's order: content.json keeps that order (their ids).
-  kind('envpreset', ENV_PRESETS, 'presetId', 'environment'),
-];
+/** Every kind of resource stored one file each, in the content block's key order (the model's table; new ones go in the asset folder). */
+export const RESOURCE_KINDS: readonly ResourceKind[] = RESOURCE_KIND_TABLE.map((k) => ({ kind: k.kind, list: k.list, idKey: k.idKey, folder: `${DEFAULT_ASSET_FOLDER}/${k.folder}` }));
 
 const BY_KIND = new Map(RESOURCE_KINDS.map((k) => [k.kind, k]));
 const BY_LIST = new Map(RESOURCE_KINDS.map((k) => [k.list, k]));
@@ -141,12 +123,24 @@ export function isResourcePath(path: string): boolean {
   return resourceKindOfName(name) !== null || isSceneFileName(name) || (name.endsWith(SIDECAR_SUFFIX) && name.length > SIDECAR_SUFFIX.length);
 }
 
-/** One resource file's bytes (the project-file layout: a diff shows one line per changed item). */
-export function resourceFileBytes(k: ResourceKind, id: string, record: unknown): Uint8Array {
-  return new TextEncoder().encode(`${layoutProjectJson({ tlresource: RESOURCE_FORMAT, kind: k.kind, id, data: record })}\n`);
+/** A resource's address and labels, as its file states them beside the record (absent: none). */
+export interface ResourceLoading {
+  address?: string;
+  labels?: string[];
 }
 
-export type ParsedResource = { ok: true; kind: ResourceKind; id: string; data: Record<string, unknown> } | { ok: false; message: string };
+/**
+ * One resource file's bytes (the project-file layout: a diff shows one line
+ * per changed item). The address and labels sit beside the record, so the
+ * record is the same bytes whatever names scripts load it by.
+ */
+export function resourceFileBytes(k: ResourceKind, id: string, record: unknown, loading?: ResourceLoading): Uint8Array {
+  return new TextEncoder().encode(
+    `${layoutProjectJson({ tlresource: RESOURCE_FORMAT, kind: k.kind, id, ...(loading?.address !== undefined ? { address: loading.address } : {}), ...(loading?.labels !== undefined && loading.labels.length > 0 ? { labels: loading.labels } : {}), data: record })}\n`,
+  );
+}
+
+export type ParsedResource = { ok: true; kind: ResourceKind; id: string; data: Record<string, unknown>; loading?: ResourceLoading } | { ok: false; message: string };
 
 /** Read a resource file: its format, its kind (the one its name says), its id (the one its record has). */
 export function parseResourceFile(path: string, bytes: Uint8Array): ParsedResource {
@@ -156,7 +150,7 @@ export function parseResourceFile(path: string, bytes: Uint8Array): ParsedResour
   const v = parsed.value;
   if (typeof v !== 'object' || v === null || Array.isArray(v)) return { ok: false, message: `${path} is not a JSON object` };
   const d = v as Record<string, unknown>;
-  for (const key of Object.keys(d)) if (!['tlresource', 'kind', 'id', 'data'].includes(key)) return { ok: false, message: `${path}: unknown key '${key}' (a resource file holds tlresource, kind, id, data)` };
+  for (const key of Object.keys(d)) if (!['tlresource', 'kind', 'id', 'address', 'labels', 'data'].includes(key)) return { ok: false, message: `${path}: unknown key '${key}' (a resource file holds tlresource, kind, id, address, labels, data)` };
   if (d['tlresource'] !== RESOURCE_FORMAT) return { ok: false, message: `${path}: tlresource must be ${RESOURCE_FORMAT}` };
   const k = typeof d['kind'] === 'string' ? BY_KIND.get(d['kind']) : undefined;
   if (k === undefined) return { ok: false, message: `${path}: unknown resource kind ${JSON.stringify(d['kind'])}` };
@@ -166,7 +160,12 @@ export function parseResourceFile(path: string, bytes: Uint8Array): ParsedResour
   const data = d['data'];
   if (typeof data !== 'object' || data === null || Array.isArray(data)) return { ok: false, message: `${path}: data must be the ${k.kind} record` };
   if ((data as Record<string, unknown>)[k.idKey] !== id) return { ok: false, message: `${path}: the record's ${k.idKey} must equal the file's id "${id}"` };
-  return { ok: true, kind: k, id, data: data as Record<string, unknown> };
+  const address = d['address'];
+  if (address !== undefined && !isAddress(address)) return { ok: false, message: `${path}: address must be a letter or digit, then letters, digits, _ - . / (at most 128)` };
+  const labels = d['labels'];
+  if (labels !== undefined && (!Array.isArray(labels) || labels.length === 0 || !labels.every(isAssetLabel))) return { ok: false, message: `${path}: labels must be a list of labels (a letter or digit, then letters, digits, _ - . /)` };
+  const loading: ResourceLoading = { ...(address !== undefined ? { address: address as string } : {}), ...(labels !== undefined ? { labels: [...new Set(labels as string[])].sort((x, y) => (x < y ? -1 : x > y ? 1 : 0)) } : {}) };
+  return { ok: true, kind: k, id, data: data as Record<string, unknown>, ...(loading.address !== undefined || loading.labels !== undefined ? { loading } : {}) };
 }
 
 /** Folders deep enough for any real layout; deeper is a symlink-free cycle guard. */

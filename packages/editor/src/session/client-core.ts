@@ -23,7 +23,7 @@
 import { applyGraphOpsLocal } from '../graph/model';
 import type { BlockChunk, BlockLayerComponent, BlockRegion, BlockStamp, BlockType, CellField, SaveSchema } from '@thirdlight/project-model';
 import type { DialogueDocument, DialogueSettings, DialogueSpeaker } from '@thirdlight/project-model';
-import type { AnimatorController, DescriptorRegistry, GraphDocument, GraphKindDef, EnvironmentConfig, InputConfig, LightingBake, MaterialDef, EffectDef, ScriptLibrary, UiDocument, UiTheme, TimelineAsset, GameMode, EventCue, GameShell } from '@thirdlight/project-model';
+import type { AnimatorController, DescriptorRegistry, GraphDocument, GraphKindDef, EnvironmentConfig, InputConfig, LightingBake, MaterialDef, EffectDef, ScriptLibrary, UiDocument, UiTheme, TimelineAsset, GameMode, EventCue, GameShell, LoadableEntry } from '@thirdlight/project-model';
 import type { CommandError, ChangeData } from '@thirdlight/commands';
 import {
   makeEnvelope,
@@ -312,6 +312,8 @@ export class SessionClientCore {
   private behaviorGroups: string[] = [];
   /** The event → cue table (from `queryGameConfig`, then `setEventCues` changes). */
   private eventCues: EventCue[] = [];
+  /** The resources' addresses and labels (an asset's are on its summary). */
+  private loadable: LoadableEntry[] = [];
   /** The game shell (from `queryGameConfig`, then `setShell` changes; null: none). */
   private shell: GameShell | null = null;
   /** The project save schema (from `queryGameConfig`, then `setSaveSchema` changes). */
@@ -555,6 +557,8 @@ export class SessionClientCore {
         this.behaviorGroups = Array.isArray(groups) ? [...groups] : [];
         const cues = (g as { eventCues?: EventCue[] }).eventCues;
         this.eventCues = Array.isArray(cues) ? structuredClone(cues) : [];
+        const loadable = (g as { loadable?: LoadableEntry[] }).loadable;
+        this.loadable = Array.isArray(loadable) ? structuredClone(loadable) : [];
         const shell = (g as { shell?: GameShell | null }).shell;
         this.shell = shell !== undefined && shell !== null ? structuredClone(shell) : null;
         const saveSchema = (g as { saveSchema?: SaveSchema | null }).saveSchema;
@@ -803,6 +807,16 @@ export class SessionClientCore {
         this.behaviorGroups = [...change.next];
       } else if (change.type === 'setEventCues') {
         this.eventCues = structuredClone(change.next);
+      } else if (change.type === 'setLabels' || change.type === 'setAddress') {
+        // Resources' entries (assets' are the content projection's).
+        const touched = change.items.filter((i) => i.kind !== 'asset');
+        if (touched.length > 0) {
+          const key = (e: { kind: string; id: string }): string => `${e.kind}:${e.id}`;
+          const gone = new Set(touched.map(key));
+          const kept = this.loadable.filter((e) => !gone.has(key(e)));
+          for (const i of touched) if (i.next.address !== undefined || (i.next.labels ?? []).length > 0) kept.push({ kind: i.kind, id: i.id, ...structuredClone(i.next) });
+          this.loadable = kept.sort((a, b) => (key(a) < key(b) ? -1 : 1));
+        }
       } else if (change.type === 'setShell') {
         this.shell = change.next === null ? null : structuredClone(change.next);
       } else if (change.type === 'setSaveSchema') {
@@ -1351,6 +1365,12 @@ export class SessionClientCore {
   /** The behavior group names. */
   getBehaviorGroups(): string[] {
     return [...this.behaviorGroups];
+  }
+
+  /** A resource's address and labels (null: none). */
+  getLoadable(kind: string, id: string): LoadableEntry | null {
+    const e = this.loadable.find((x) => x.kind === kind && x.id === id);
+    return e === undefined ? null : structuredClone(e);
   }
 
   /** The event → cue table. */

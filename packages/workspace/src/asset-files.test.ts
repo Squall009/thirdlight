@@ -97,7 +97,7 @@ describe('asset files in the game folder', () => {
       const file = join(game, 'assets', 'Wooden-Crate.glb');
       expect(readFileSync(file)).toEqual(Buffer.from(V1));
       const sidecar = JSON.parse(readFileSync(`${file}.tlasset`, 'utf8')) as Record<string, unknown>;
-      expect(sidecar).toMatchObject({ tlasset: 2, id: 'crate', kind: 'model', labels: [], address: null });
+      expect(sidecar).toMatchObject({ tlasset: 3, id: 'crate', kind: 'model', labels: [], address: null });
       expect(record(service, 'game')?.versions).toMatchObject([{ version: 1, sourcePath: 'assets/Wooden-Crate.glb' }]);
       // The change carries the chosen path (so history and a retry record it too).
       expect(r.ok && JSON.stringify(r.change)).toContain('assets/Wooden-Crate.glb');

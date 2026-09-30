@@ -89,6 +89,19 @@ export class ContentProjection {
         for (const r of change.added) changed = this.applyPublishAsset({ type: 'publishAsset', mode: 'create', assetId: r.assetId, previous: null, next: r } as PublishAssetChange) || changed;
         return changed;
       }
+      // Assets' labels and addresses (a resource's are the client's content).
+      case 'setLabels':
+      case 'setAddress': {
+        let changed = false;
+        for (const item of change.items) {
+          const a = item.kind === 'asset' ? this.assets.get(item.id) : undefined;
+          if (a === undefined) continue;
+          const { labels: _l, address: _a, ...rest } = a;
+          this.assets.set(item.id, { ...rest, ...(item.next.labels !== undefined ? { labels: [...item.next.labels] } : {}), ...(item.next.address !== undefined ? { address: item.next.address } : {}) });
+          changed = true;
+        }
+        return changed;
+      }
       // The whole next record (its options, and where its file is after a move).
       case 'setAssetOptions':
         if (!this.assets.has(change.assetId)) return false;
@@ -127,6 +140,7 @@ export class ContentProjection {
       ...((next as { materials?: Record<string, string> }).materials !== undefined ? { materials: { ...(next as unknown as { materials: Record<string, string> }).materials } } : {}),
       ...(typeof (next as { clipsFor?: string }).clipsFor === 'string' ? { clipsFor: (next as unknown as { clipsFor: string }).clipsFor } : {}),
       ...(next.labels !== undefined ? { labels: [...next.labels] } : {}),
+      ...((next as { address?: string }).address !== undefined ? { address: (next as { address?: string }).address } : {}),
       ...(sourcePath !== undefined ? { sourcePath } : {}),
       ...(convertedFrom !== undefined ? { convertedFrom: { format: convertedFrom.format, ...(convertedFrom.sourcePath !== undefined ? { sourcePath: convertedFrom.sourcePath } : {}), ...(convertedFrom.encoding !== undefined ? { encoding: convertedFrom.encoding } : {}) } } : {}),
       // A texture's image facts (a KTX2's codec and mip levels).
@@ -142,7 +156,7 @@ export class ContentProjection {
       }),
     });
     if (!previous) return true;
-    return previous.currentVersion !== next.currentVersion || previous.displayName !== next.displayName || previous.sourcePath !== sourcePath || (previous.labels ?? []).join() !== (next.labels ?? []).join() || JSON.stringify(previous.audio) !== JSON.stringify(audio);
+    return previous.currentVersion !== next.currentVersion || previous.displayName !== next.displayName || previous.sourcePath !== sourcePath || (previous.labels ?? []).join() !== (next.labels ?? []).join() || previous.address !== (next as { address?: string }).address || JSON.stringify(previous.audio) !== JSON.stringify(audio);
   }
 
   /** The `(version, digest, byteLength)` a placement resolves through now. */
@@ -189,6 +203,7 @@ function cloneSummary(a: AssetSummary): AssetSummary {
     ...(a.materials !== undefined ? { materials: { ...a.materials } } : {}),
     ...(a.clipsFor !== undefined ? { clipsFor: a.clipsFor } : {}),
     ...(a.labels !== undefined ? { labels: [...a.labels] } : {}),
+    ...(a.address !== undefined ? { address: a.address } : {}),
     ...(a.sourcePath !== undefined ? { sourcePath: a.sourcePath } : {}),
     ...(a.convertedFrom !== undefined ? { convertedFrom: { ...a.convertedFrom } } : {}),
     ...(a.image !== undefined ? { image: { ...a.image } } : {}),

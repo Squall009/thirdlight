@@ -64,6 +64,7 @@ import {
   validateSetSettingsArgs,
 } from './validate-content-args';
 import { validateImportAssetsArgs, type ImportAssetsArgs } from './import-assets';
+import { validateSetAddressArgs, validateSetLabelsArgs, type SetAddressArgs, type SetLabelsArgs } from './loadable-ops';
 import { validateImportResourcesArgs, type ImportResourcesArgs } from './import-resources';
 import {
   validateCreatePrefabArgs,
@@ -192,6 +193,9 @@ const OPS: readonly MutationOp[] = [
   'createEntities',
   // Staged library edits (several patches, one commit)
   'commitScriptLibraryStage',
+  // Labels and addresses (what scripts load by name)
+  'setLabels',
+  'setAddress',
 ];
 
 const ORIGIN_KINDS = ['browser', 'mcp', 'admin'] as const;
@@ -246,7 +250,7 @@ const CREATE_COMPONENTS: readonly string[] = [
 
 /** Expected-text constants (the `expected` strings are log-safe, stable). */
 const EXPECT = {
-  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setCollisionLayers, setSaveSchema, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, editBlocks, setBlockType, deleteBlockType, setCellFields, setBlockStamp, deleteBlockStamp, setUiDocument, deleteUiDocument, setUiTheme, deleteUiTheme, setTimeline, deleteTimeline, setModes, setBehaviorGroups, setEventCues, setShell, setDialogue, deleteDialogue, setSpeaker, deleteSpeaker, setDialogueSettings, deleteAsset, deletePrefab, importAssets, importResources, createEntities, commitScriptLibraryStage',
+  op: 'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setCollisionLayers, setSaveSchema, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, editBlocks, setBlockType, deleteBlockType, setCellFields, setBlockStamp, deleteBlockStamp, setUiDocument, deleteUiDocument, setUiTheme, deleteUiTheme, setTimeline, deleteTimeline, setModes, setBehaviorGroups, setEventCues, setShell, setDialogue, deleteDialogue, setSpeaker, deleteSpeaker, setDialogueSettings, deleteAsset, deletePrefab, importAssets, importResources, createEntities, commitScriptLibraryStage, setLabels, setAddress',
   projectId: 'project-model ID syntax: [a-z0-9][a-z0-9_-]{0,63}',
   expectedRevision: 'integer, 0 <= v <= 2^53-1',
   requestId: 'req- + 32 lowercase hex chars: ^req-[0-9a-f]{32}$',
@@ -1312,7 +1316,9 @@ export type ValidatedOpArgs =
   | { op: 'importAssets'; args: ImportAssetsArgs }
   | { op: 'importResources'; args: ImportResourcesArgs }
   | { op: 'deletePrefab'; args: { prefabId: string } }
-  | { op: 'createEntities'; args: { entities: (CreateEntityArgs & { ref?: string })[] } };
+  | { op: 'createEntities'; args: { entities: (CreateEntityArgs & { ref?: string })[] } }
+  | { op: 'setLabels'; args: SetLabelsArgs }
+  | { op: 'setAddress'; args: SetAddressArgs };
 
 /** The argument shapes of the block-layer ops (null: valid). */
 function blockArgsError(op: string, args: Record<string, unknown>): CommandError | null {
@@ -1429,6 +1435,16 @@ export function validateOpArgs(
         entities.push(ref !== undefined ? { ...r.args, ref: ref as string } : r.args);
       }
       return { ok: true, validated: { op: 'createEntities', args: { entities } } };
+    }
+    case 'setLabels': {
+      const r = validateSetLabelsArgs(args);
+      if (!r.ok) return r;
+      return { ok: true, validated: { op: 'setLabels', args: r.args } };
+    }
+    case 'setAddress': {
+      const r = validateSetAddressArgs(args);
+      if (!r.ok) return r;
+      return { ok: true, validated: { op: 'setAddress', args: r.args } };
     }
     case 'importAssets': {
       const r = validateImportAssetsArgs(args);

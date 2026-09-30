@@ -63,6 +63,7 @@ import { canonicalShell, validateShell, type GameShell } from './shell';
 import { validateMergedSceneV4, validateSceneV3, validateSceneV4 } from './scene-v3';
 import { canonicalPrefabs, validateContentV3, validateContentV4, validatePrefabDefinitions, resolveGameplaySettings, validateTagRegistry } from './content';
 import { collectAssetRefsV3 } from './capture';
+import { loadableRowsProblem, type LoadableRow } from './loadable';
 import type { ModelErrorV2, ModelResultV2 } from './errors';
 import type {
   AssetKind,
@@ -136,7 +137,7 @@ export interface ManifestSceneRow {
 }
 
 /** Keys present only when they apply: tags, scenes, buffers. */
-const OPTIONAL_MANIFEST_KEYS = new Set(['tags', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'saveSchema', 'uiThemes', 'timelines', 'eventCues', 'shell', 'modes', 'scenes', 'contentFiles', 'libraries']);
+const OPTIONAL_MANIFEST_KEYS = new Set(['tags', 'effects', 'environment', 'lighting', 'animators', 'rigs', 'prefabs', 'blockTypes', 'cellFields', 'input', 'collisionLayers', 'saveSchema', 'uiThemes', 'timelines', 'eventCues', 'shell', 'modes', 'scenes', 'contentFiles', 'libraries', 'loadable']);
 
 /** The v2 manifest keys in their exact canonical order (`buildId` last). */
 export const MANIFEST_KEYS_V2 = [
@@ -184,6 +185,8 @@ export const MANIFEST_KEYS_V2 = [
   // The blocks in their own content files (materials, materialFunctions, uiDocuments, dialogue, buffers).
   'contentFiles',
   'assets',
+  // The catalog of what scripts may load by address or label (id, kind, address, labels; only when there is some).
+  'loadable',
   'media',
   'behaviors',
   // The script libraries as shared modules (`libraries/<outputDigest>.js`) the behaviors import.
@@ -342,6 +345,8 @@ export interface RuntimeContentManifestV2 {
   /** The content files (present only when the game has one of their blocks). */
   contentFiles?: ManifestContentFileRow[];
   assets: ReadonlyArray<Record<string, unknown>>;
+  /** What scripts may load by address or label. */
+  loadable?: ReadonlyArray<LoadableRow>;
   media: MediaBlock;
   behaviors: ReadonlyArray<Record<string, unknown>>;
   /** The shared script library modules (present only when a behavior imports a library). */
@@ -534,6 +539,8 @@ export function captureContentViewV3(
   ctx: { projectId: string; revision: number },
   /** v4: every scene of the project (the view covers them all). */
   allScenes?: readonly unknown[],
+  /** Assets the view holds though nothing references them (the loadable ones). */
+  include?: readonly string[],
 ): ModelResultV2<CapturedContentViewV3> {
   const v4 = (scene as { schemaVersion?: unknown } | null)?.schemaVersion === 4;
   // With the project's scenes given, `scene` is the start scenes
@@ -562,7 +569,12 @@ export function captureContentViewV3(
   const byId = new Map<string, AssetRecordV3>(normContent.assets.map((a) => [a.assetId, a]));
   const errors: ModelErrorV2[] = [];
   const assets: CapturedAssetV3[] = [];
-  for (const ref of collectAssetRefsV3(normScene, normContent)) {
+  const refs = collectAssetRefsV3(normScene, normContent);
+  if (include !== undefined && include.length > 0) {
+    const named = new Set(refs.map((r) => r.assetId));
+    for (const assetId of include) if (!named.has(assetId) && byId.has(assetId)) refs.push({ assetId, version: null });
+  }
+  for (const ref of refs) {
     const record = byId.get(ref.assetId);
     if (!record) {
       errors.push(withFound({ code: 'asset_reference_missing', path: '', document: 'scene', message: 'a captured scene reference resolves to no catalog record', expected: 'an existing assetId in content.assets' }, ref.assetId));
@@ -618,6 +630,8 @@ export interface CaptureManifestV2Input {
   sceneDigest?: string;
   /** The resolved kind-tagged asset rows (from `captureContentViewV3`). */
   assets: readonly ManifestAssetInputV2[];
+  /** The loadable assets and resources the build holds (by address or label; absent or empty = none). */
+  loadable?: readonly LoadableRow[];
   /** The reachable source-bearing behaviors (the v1 manifest's row shape). */
   behaviors: readonly ManifestBehaviorInput[];
   /** The shared library modules the behaviors import (only when there are some). */
@@ -808,6 +822,7 @@ export function captureManifestV2(input: CaptureManifestV2Input): CaptureManifes
     ...(input.scenes !== undefined ? { scenes: input.scenes.map((r) => ({ sceneId: r.sceneId, path: r.path, digest: r.digest, byteLength: r.byteLength, start: r.start })) } : {}),
     ...(contentFiles.length > 0 ? { contentFiles: contentFiles.map((f) => ({ key: f.key, path: f.path, digest: f.digest, byteLength: f.byteLength })) } : {}),
     assets,
+    ...(input.loadable !== undefined && input.loadable.length > 0 ? { loadable: input.loadable.map((r) => ({ kind: r.kind, id: r.id, ...(r.address !== undefined ? { address: r.address } : {}), ...(r.labels !== undefined ? { labels: [...r.labels] } : {}) })) } : {}),
     media: input.media,
     behaviors,
     ...(input.libraries !== undefined && input.libraries.length > 0
@@ -970,6 +985,10 @@ export function validateManifestV2(doc: unknown, opts?: ValidateManifestV2Option
     if (d['blockTypes'] !== undefined) validateBlockTypes(d['blockTypes'], '/blockTypes', blockErrors);
     if (d['cellFields'] !== undefined) validateCellFields(d['cellFields'], '/cellFields', blockErrors);
     if (blockErrors.length > 0) return { ok: false, error: manifestError('manifest_invalid', 'blockTypes/cellFields are not valid', 'field_value') };
+  }
+  if (d['loadable'] !== undefined) {
+    const why = loadableRowsProblem(d['loadable']);
+    if (why !== null) return { ok: false, error: manifestError('manifest_invalid', why.slice(0, 256), 'field_value') };
   }
   // The content file rows (and, when given, their blocks).
   if (d['contentFiles'] !== undefined) {

@@ -63,6 +63,7 @@ import { applySetBehaviorGroups, applySetEventCues, applySetModes, applySetShell
 import { applyDeleteTimeline, applySetTimeline } from './timeline-ops';
 import { applyDeleteAsset, applyDeletePrefab } from './delete-content-ops';
 import { applyImportAssets } from './import-assets';
+import { applySetAddress, applySetLabels } from './loadable-ops';
 import { applyImportResources } from './import-resources';
 import type { GraphDocument, GraphOp } from '@thirdlight/project-model';
 import type {
@@ -272,6 +273,14 @@ export function applyMutation<S extends SceneDocument>(
       const r = applyCreateEntities(scene, va.validated.args, state.content, state.reservedIds);
       if (!r.ok) return { ok: false, result: failure(request, r.error) };
       return completeForward(state, 'createEntities', envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
+    }
+    case 'setLabels':
+    case 'setAddress': {
+      // Many items' labels, or one item's address, in one transaction (one undo).
+      const v = va.validated;
+      const r = v.op === 'setLabels' ? applySetLabels(input, v.args) : applySetAddress(input, v.args);
+      if (!r.ok) return { ok: false, result: failure(request, r.error) };
+      return completeForward(state, v.op, envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
     }
     case 'importAssets': {
       // A folder's files, prepared by the host, as assets in one transaction.
@@ -661,7 +670,7 @@ export function applyMutation<S extends SceneDocument>(
           path: '/op',
           message: 'op is not one of the implemented mutation ops',
           expected:
-            'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setCollisionLayers, setSaveSchema, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, editBlocks, setBlockType, deleteBlockType, setCellFields, setBlockStamp, deleteBlockStamp, setUiDocument, deleteUiDocument, setUiTheme, deleteUiTheme, setTimeline, deleteTimeline, setModes, setBehaviorGroups, setEventCues, setShell, setDialogue, deleteDialogue, setSpeaker, deleteSpeaker, setDialogueSettings, deleteAsset, deletePrefab, importAssets, importResources, createEntities, commitScriptLibraryStage',
+            'one of: createEntity, setTransform, deleteEntity, undo, redo, publishAsset, publishBehavior, setBehaviorProperties, setComponent, setSettings, acknowledgeBehaviorTrust, createPrefab, instantiatePrefab, applySurfacePreset, updateEntity, moveEntities, setTags, setAssetOptions, pasteEntities, setMaterial, deleteMaterial, setEnvironment, setLighting, setAnimator, deleteAnimator, setInput, setCollisionLayers, setSaveSchema, createScene, renameScene, deleteScene, setStartScenes, setGraph, deleteGraph, graphEdit, setEffect, deleteEffect, renameEffect, setScriptLibrary, deleteScriptLibrary, editBlocks, setBlockType, deleteBlockType, setCellFields, setBlockStamp, deleteBlockStamp, setUiDocument, deleteUiDocument, setUiTheme, deleteUiTheme, setTimeline, deleteTimeline, setModes, setBehaviorGroups, setEventCues, setShell, setDialogue, deleteDialogue, setSpeaker, deleteSpeaker, setDialogueSettings, deleteAsset, deletePrefab, importAssets, importResources, createEntities, commitScriptLibraryStage, setLabels, setAddress',
         }),
       };
     }

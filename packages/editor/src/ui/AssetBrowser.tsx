@@ -16,6 +16,8 @@ import type { AssetImportState, AssetQueryState } from '../session/asset-browser
 import type { AnimationRoleKey } from '../session/media';
 import { TexturePackForm, type PackRequest } from './TexturePackForm';
 import { AudioAssetOptions } from './AudioAssetOptions';
+import { LabelsBar, LoadableFields } from './LoadableFields';
+import type { LoadingNameActions } from './useLoadingNames';
 
 export interface AssetPreviewView {
   assetId: string;
@@ -82,6 +84,8 @@ interface Props {
   deleteError?: string | null;
   /** The folder controls (where uploads land, folder import) below the import buttons. */
   importExtra?: ReactNode;
+  /** Addresses and labels: the selected asset's in its side panel, labels on a multi-selection. */
+  loading?: LoadingNameActions;
 }
 
 /** The tile-preview key of an asset (or one of its pieces). */
@@ -97,6 +101,27 @@ export function AssetBrowser(p: Props): JSX.Element {
   const selected = p.assets.find((a) => a.assetId === p.selectedAssetId) ?? null;
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const [packing, setPacking] = useState(false);
+  // The multi-selection (Ctrl/Cmd-click adds or removes one, Shift-click a range): labels go to all of it at once.
+  const [chosen, setChosen] = useState<ReadonlySet<string>>(new Set());
+  const [anchor, setAnchor] = useState<string | null>(null);
+  const choose = (ev: { ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }, assetId: string): void => {
+    if (ev.shiftKey && anchor !== null) {
+      const ids = p.assets.map((a) => a.assetId);
+      const [i, j] = [ids.indexOf(anchor), ids.indexOf(assetId)].sort((x, y) => x - y);
+      if (i! >= 0) setChosen(new Set([...chosen, ...ids.slice(i, j! + 1)]));
+    } else if (ev.ctrlKey || ev.metaKey) {
+      const next = new Set(chosen);
+      if (next.has(assetId)) next.delete(assetId);
+      else next.add(assetId);
+      setChosen(next);
+      setAnchor(assetId);
+    } else {
+      setChosen(new Set([assetId]));
+      setAnchor(assetId);
+    }
+    p.onSelect(assetId);
+  };
+  const chosenItems = p.assets.filter((a) => chosen.has(a.assetId)).map((a) => ({ kind: 'asset', id: a.assetId }));
   const dragStart = (ev: DragEvent<HTMLLIElement>, assetId: string, piece: string | null): void => {
     ev.dataTransfer.setData(ASSET_DRAG_TYPE, JSON.stringify(piece === null ? { assetId } : { assetId, piece }));
     ev.dataTransfer.effectAllowed = 'copy';
@@ -121,6 +146,7 @@ export function AssetBrowser(p: Props): JSX.Element {
 
       <div className="tl-assets__body">
       <div className="tl-assets__main">
+      {p.loading !== undefined && chosenItems.length > 1 && <LabelsBar items={chosenItems} actions={p.loading} onClear={() => setChosen(new Set())} />}
       <ul className="tl-assets__list tl-tiles">
         {p.assets.map((a) => {
           const pieces = p.pieces.get(a.assetId) ?? [];
@@ -130,8 +156,9 @@ export function AssetBrowser(p: Props): JSX.Element {
           return (
             <Fragment key={a.assetId}>
               <li
-                className={a.assetId === p.selectedAssetId ? 'tl-tile is-selected' : 'tl-tile'}
-                onClick={() => p.onSelect(a.assetId)}
+                className={a.assetId === p.selectedAssetId || (chosen.size > 1 && chosen.has(a.assetId)) ? 'tl-tile is-selected' : 'tl-tile'}
+                aria-selected={chosen.has(a.assetId) || a.assetId === p.selectedAssetId}
+                onClick={(ev) => choose(ev, a.assetId)}
                 title={a.kind === 'model' ? `${a.displayName} — drag into the scene or hierarchy` : a.assetId}
                 data-asset-id={a.assetId}
                 draggable={a.kind === 'model' || a.kind === 'texture'}
@@ -358,6 +385,7 @@ export function AssetBrowser(p: Props): JSX.Element {
               labels: {selected.labels.join(', ')}
             </div>
           )}
+          {p.loading !== undefined && <LoadableFields item={{ kind: 'asset', id: selected.assetId }} address={selected.address ?? null} labels={selected.labels ?? []} actions={p.loading} />}
           {selected.packedFrom !== undefined && (
             <div className="tl-assets__source" title="Packed at import from these texture assets' channels; the game loads the KTX2">
               packed from {selected.packedFrom.sources.map((id) => p.assets.find((a) => a.assetId === id)?.displayName ?? id).join(', ')} ({selected.packedFrom.encoding === 'normal' ? 'normal map' : selected.packedFrom.encoding === 'data' ? 'data' : 'colour'})

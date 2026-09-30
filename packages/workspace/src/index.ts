@@ -71,7 +71,7 @@ export type { BehaviorCompiler, PreparedBehaviorSource } from '@thirdlight/behav
 
 export { MARKER_FILE, DEFAULT_PROJECT_SUBDIR, REGISTRY_FILE, readMarker, type EnginePin, type ProjectMarker } from './registry';
 // The asset database on disk: sidecars, the import cache's keys, the file check's entries.
-export { DEFAULT_ASSET_FOLDER, SIDECAR_SUFFIX, importKeyOfConverted, parseSidecar, type ImportHeader, type ImportKey, type SidecarDoc } from './asset-files';
+export { DEFAULT_ASSET_FOLDER, SIDECAR_FORMAT, SIDECAR_SUFFIX, importKeyOfConverted, parseSidecar, type ImportHeader, type ImportKey, type SidecarDoc } from './asset-files';
 export type { AssetFileEntry, AssetFilesResult } from './service-content';
 export { UPGRADE_REPORT_FILE, type AssetUpgradeReport } from './upgrade-assets';
 export { assetNameOfFile, importKindOf, type FolderImportFile, type FolderImportScan, type ImportKind, type PreparedImportFile } from './folder-import';
@@ -80,3 +80,6 @@ export { RESOURCE_FORMAT, RESOURCE_KINDS, defaultResourcePath, resourceFileBytes
 export { CONTENT_STORAGE_VERSION } from './store-v4';
 export type { IndexEntry } from './project-index';
 export type { ResourceCheckReport } from './resource-check';
+// The ids scripts name in string literals (the delete guard, the loadability Problem, the upgrade).
+export { literalsIn, scriptNamedAssets, scriptsNaming } from './script-names';
+export { SCRIPT_NAMED_LABEL } from './upgrade-loadable';

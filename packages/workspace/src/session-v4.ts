@@ -8,12 +8,13 @@
 import { createCommandState, filterEntitiesByComponent, queryAssets, queryBehaviors, queryGameConfig, queryPrefabs } from '@thirdlight/commands';
 import type { HistoryState } from '@thirdlight/commands';
 import { BlockGrid, boxContains, effectiveCellMeta, regionCells, regionContains, type BlockCell, type BlockLayerComponent, type BlockLayerData, type BlockType, type CellField } from '@thirdlight/project-model';
-import { composeV4, defaultInputFor, DESCRIPTORS, physicsDimensionOf, effectiveEntityFlags, GRAPH_KINDS, glbClipDurations, migrateModelAnimations, validateContentV4, validateSceneV4, type ContentCatalogV3, type Manifest, type ModelErrorV3, type ProjectManifestV2, type SceneV3, type SceneV4 } from '@thirdlight/project-model';
+import { composeV4, defaultInputFor, DESCRIPTORS, physicsDimensionOf, effectiveEntityFlags, GRAPH_KINDS, glbClipDurations, liveLoadable, migrateModelAnimations, validateContentV4, validateSceneV4, type ContentCatalogV3, type Manifest, type ModelErrorV3, type ProjectManifestV2, type SceneV3, type SceneV4 } from '@thirdlight/project-model';
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { loadPreparedSources, readBlob, type ContentContext } from './content-store';
+import { loadPreparedSources, readBlob, readSourceBlob, type ContentContext } from './content-store';
+import { loadabilityNotes, SCRIPT_NAMED_LABEL, upgradeLoadability, writeLoadabilityReport } from './upgrade-loadable';
 import { missingReferenceIds, rebuildFromFiles, restoreFromRecordCache, type RecoveryProblem } from './asset-recovery';
 import { CACHE_GITIGNORE_LINES } from './registry';
 import { upgradeAssetsToFiles } from './upgrade-assets';
@@ -58,6 +59,8 @@ import {
   sidecarWrite,
   isSidecarRel,
   withUntrackedSidecars,
+  loadingByKey,
+  LOADABLE_KEY,
   absOf,
   formerKey,
   sceneRel,
@@ -224,7 +227,10 @@ export function openV4(
   const bump = l.upgraded?.documents === true || l.upgraded?.assetFiles === true;
   const upgraded = l.upgraded !== undefined ? writeUpgradedProject(core, dir, thirdlightDir, projectId, loaded, loadNotes, bump) : { state: loaded, notes: [] };
   const migrated = migrateModelAnimationsOnOpen(core, dir, thirdlightDir, projectId, upgraded.state);
-  const session = makeSessionV4(core, dir, projectId, migrated.state, ownership, sceneDir, thirdlightDir, [...notes, ...upgraded.notes, ...migrated.notes]);
+  // Assets from before addresses and labels decided what ships: the ones scripts name keep shipping.
+  const legacy = l.upgraded?.assetFiles === true || l.upgraded?.resourceFiles === true ? 'all' : l.preAddressSidecars !== undefined ? new Set(l.preAddressSidecars.keys()) : null;
+  const loadable = legacy === null ? { state: migrated.state, notes: [] } : upgradeLoadabilityOnOpen(core, dir, thirdlightDir, projectId, migrated.state, legacy, l.preAddressSidecars ?? new Map());
+  const session = makeSessionV4(core, dir, projectId, loadable.state, ownership, sceneDir, thirdlightDir, [...notes, ...upgraded.notes, ...migrated.notes, ...loadable.notes]);
   const skipped = (l.skipped ?? []).map((f): RecoveryProblem => ({ code: 'resource_file_invalid', message: `${f.message}; the file was left out of the project` }));
   if (recovered.problems.length + skipped.length > 0) session.openProblems = [...recovered.problems, ...skipped];
   return { kind: 'open', session };
@@ -345,7 +351,7 @@ function writeUpgradedProject(core: Core, dir: string, thirdlightDir: string, pr
     scenes.set(id, stamped);
   }
   // Every resource its own file, every asset's record in its sidecar (an older content.json held them all).
-  const resources = resourceFilesOf(state.content, state.resourcePaths, state.files);
+  const resources = resourceFilesOf(state.content, state.resourcePaths);
   for (const w of resources.writes) {
     const hash = sha256Hex(w.bytes as Uint8Array);
     if (files.get(w.rel)?.hash === hash) continue;
@@ -417,6 +423,35 @@ function migrateModelAnimationsOnOpen(core: Core, dir: string, thirdlightDir: st
   return {
     state: { manifest: state.manifest, content: content.normalized, scenes: nextScenes, revision, files: plan.commitFiles(), fileRecords: plan.fileRecords, resourcePaths: plan.resourcePaths, scenePaths: plan.scenePaths, formerPaths: plan.formerPaths },
     notes: m.notes,
+  };
+}
+
+/**
+ * Label the assets scripts name by id (`upgrade-loadable.ts`) and write the
+ * old sidecars in this build's format, as one transaction; a new revision
+ * only when a record changed. If it cannot be written the project opens as
+ * it was (the next open tries again) and the notes say so.
+ */
+function upgradeLoadabilityOnOpen(core: Core, dir: string, thirdlightDir: string, projectId: string, state: V4State, legacy: ReadonlySet<string> | 'all', preAddress: ReadonlyMap<string, string | null>): { state: V4State; notes: string[] } {
+  const ctx: ContentContext = { projectId, dir, thirdlightDir, storageVersion: 4, revision: state.revision, scene: primaryScene(state), content: state.content, scenes: [...state.scenes.values()], gameFolder: core.registry.get(projectId)?.folder ?? null };
+  const u = upgradeLoadability(state.content, legacy, preAddress, (digest) => {
+    const r = readSourceBlob(core, ctx, { digest });
+    return r.ok ? r.bytes : null;
+  });
+  if (u === null) return { state, notes: [] };
+  const kept = (why: string): { state: V4State; notes: string[] } => ({ state, notes: [`the assets scripts name were not labelled "${SCRIPT_NAMED_LABEL}" (${why}); the next open tries again`] });
+  const content = validateContentV4(u.content, state.content);
+  if (!content.ok) return kept(content.errors[0]?.message ?? 'the content does not validate');
+  const revision = u.changed ? state.revision + 1 : state.revision;
+  const scenes = new Map(state.scenes);
+  const plan = changedFiles(projectId, state, { content: content.normalized, scenes, revision }, null);
+  const gameRoot = gameRootFor(core, projectId, dir);
+  const res = writeTransaction(core.ops, dir, thirdlightDir, projectId, withUntrackedSidecars(core.ops, dir, gameRoot, state.files, plan.writes), plan.writes, gameRoot);
+  if (!res.ok) return kept('the project files could not be written');
+  writeLoadabilityReport(core.ops, dir, u, new Date(core.content.now()).toISOString().replace(/\.\d{3}Z$/, 'Z'));
+  return {
+    state: { manifest: state.manifest, content: content.normalized, scenes, revision, files: plan.commitFiles(), fileRecords: plan.fileRecords, resourcePaths: plan.resourcePaths, scenePaths: plan.scenePaths, formerPaths: plan.formerPaths },
+    notes: loadabilityNotes(u),
   };
 }
 
@@ -599,7 +634,7 @@ function resourceWrites(before: V4State, next: V4State['content'], writes: FileW
       const p = prev.get(a.assetId);
       if (p === a) continue;
       const oldFile = p === undefined ? null : fileOfRecord(p);
-      const w = sidecarWrite(a, { get: (rel) => files.get(rel) });
+      const w = sidecarWrite(a);
       if (oldFile !== null && oldFile !== fileOfRecord(a)) removeAt(oldFile);
       if (w === null) continue;
       const hash = sha256Hex(w.bytes as Uint8Array);
@@ -613,10 +648,18 @@ function resourceWrites(before: V4State, next: V4State['content'], writes: FileW
   }
   const prevContent = before.content as unknown as Record<string, unknown>;
   const nextContent = next as unknown as Record<string, unknown>;
+  // A resource whose address or labels changed is written again (they are in its file).
+  const loading = loadingByKey(next);
+  const loadingChanged = new Set<string>();
+  if (prevContent[LOADABLE_KEY] !== nextContent[LOADABLE_KEY]) {
+    const was = loadingByKey(before.content);
+    for (const key of new Set([...was.keys(), ...loading.keys()])) if (JSON.stringify(was.get(key)) !== JSON.stringify(loading.get(key))) loadingChanged.add(key);
+  }
+  const loadingKinds = new Set([...loadingChanged].map((key) => key.slice(0, key.indexOf(':'))));
   for (const k of RESOURCE_KINDS) {
     const a = recordsOfKind(prevContent, k);
     const b = recordsOfKind(nextContent, k);
-    if (a === b) continue;
+    if (a === b && !loadingKinds.has(k.kind)) continue;
     const prev = new Map<string, unknown>();
     if (a !== undefined) for (const r of a) prev.set(String(r[k.idKey]), r);
     const paths = new Map(before.resourcePaths.get(k.list) ?? []);
@@ -625,7 +668,7 @@ function resourceWrites(before: V4State, next: V4State['content'], writes: FileW
       for (const r of b) {
         const id = String(r[k.idKey]);
         kept.add(id);
-        if (prev.get(id) === r) continue;
+        if (prev.get(id) === r && !loadingChanged.has(`${k.kind}:${id}`)) continue;
         let path = paths.get(id);
         if (path === undefined) {
           // New here: adopted where it is, in the folder the request named, where it was before it was removed, or its kind's folder.
@@ -635,7 +678,7 @@ function resourceWrites(before: V4State, next: V4State['content'], writes: FileW
         }
         paths.set(id, path);
         const rel = gameRel(path);
-        const bytes = resourceFileBytes(k, id, r);
+        const bytes = resourceFileBytes(k, id, r, loading.get(`${k.kind}:${id}`));
         const hash = sha256Hex(bytes);
         if (files.get(rel)?.hash === hash) continue;
         writes.push({ rel, bytes });
@@ -678,7 +721,7 @@ export function restoreSidecars(core: Core, s: ProjectSession, records: readonly
   const known = new Map(state.files);
   const writes: FileWrite[] = [];
   for (const r of records) {
-    const w = sidecarWrite(r, state.files);
+    const w = sidecarWrite(r);
     if (w === null) continue;
     known.delete(w.rel);
     writes.push(w);
@@ -995,6 +1038,8 @@ export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, 
         behaviorGroups: [...((state.content as { behaviorGroups?: string[] }).behaviorGroups ?? [])],
         // The event → cue table.
         eventCues: JSON.parse(JSON.stringify((state.content as { eventCues?: unknown[] }).eventCues ?? [])) as unknown,
+        // The resources' addresses and labels (only those the project has).
+        loadable: liveLoadable(state.content),
         // The game shell (null: none).
         shell: (state.content as { shell?: unknown }).shell !== undefined ? (JSON.parse(JSON.stringify((state.content as { shell?: unknown }).shell)) as unknown) : null,
         // The project save schema (null: no project saves).
@@ -1112,15 +1157,17 @@ export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, 
 export const MAX_INDEX_PAGE = 1024;
 
 /**
- * `queryIndex {kind?, id?, label?, referencing?, limit?, offset?}` — the
- * project index: every asset, resource and scene with its file, name, labels
- * and the ids it references, filtered (`referencing`: the entries that name
- * that id), in `kind:id` order, paged.
+ * `queryIndex {kind?, id?, label?, address?, loadable?, referencing?, limit?, offset?}` — the
+ * project index: every asset, resource and scene with its file, name, labels,
+ * address and the ids it references, filtered (`referencing`: the entries
+ * that name that id; `loadable`: those with an address or a label, or
+ * without), in `kind:id` order, paged.
  */
 function serveQueryIndex(s: ProjectSession, state: V4State, projectId: string, a: Record<string, unknown>): QueryResult {
   const op = 'queryIndex';
-  for (const k of Object.keys(a)) if (!['kind', 'id', 'label', 'referencing', 'limit', 'offset'].includes(k)) return failure(op, projectId, fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'kind, id, label, referencing, limit, offset'));
-  for (const k of ['kind', 'id', 'label', 'referencing'] as const) if (a[k] !== undefined && typeof a[k] !== 'string') return failure(op, projectId, fieldTypeError(`/args/${k}`, a[k], 'string'));
+  for (const k of Object.keys(a)) if (!['kind', 'id', 'label', 'address', 'loadable', 'referencing', 'limit', 'offset'].includes(k)) return failure(op, projectId, fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'kind, id, label, address, loadable, referencing, limit, offset'));
+  for (const k of ['kind', 'id', 'label', 'address', 'referencing'] as const) if (a[k] !== undefined && typeof a[k] !== 'string') return failure(op, projectId, fieldTypeError(`/args/${k}`, a[k], 'string'));
+  if (a['loadable'] !== undefined && typeof a['loadable'] !== 'boolean') return failure(op, projectId, fieldTypeError('/args/loadable', a['loadable'], 'boolean'));
   const limit = a['limit'] ?? 256;
   const offset = a['offset'] ?? 0;
   if (!isSafeInt(limit) || (limit as number) < 1 || (limit as number) > MAX_INDEX_PAGE) return failure(op, projectId, fieldValueType('/args/limit', limit, `integer 1-${MAX_INDEX_PAGE}`, 'limit pages the index'));
@@ -1135,10 +1182,13 @@ function serveQueryIndex(s: ProjectSession, state: V4State, projectId: string, a
     if (a['kind'] !== undefined && e.kind !== a['kind']) continue;
     if (a['id'] !== undefined && e.id !== a['id']) continue;
     if (a['label'] !== undefined && !e.labels.includes(a['label'] as string)) continue;
+    if (a['address'] !== undefined && e.address !== a['address']) continue;
+    // Loadable: an address or a label (what a script may load by name).
+    if (a['loadable'] !== undefined && (e.address !== null || e.labels.length > 0) !== a['loadable']) continue;
     rows.push([key, e]);
   }
   rows.sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0));
-  const page = rows.slice(offset as number, (offset as number) + (limit as number)).map(([, e]) => ({ kind: e.kind, id: e.id, path: e.path, name: e.name, labels: [...e.labels], refs: [...e.refs] }));
+  const page = rows.slice(offset as number, (offset as number) + (limit as number)).map(([, e]) => ({ kind: e.kind, id: e.id, path: e.path, name: e.name, labels: [...e.labels], ...(e.address !== null ? { address: e.address } : {}), refs: [...e.refs] }));
   return { ok: true, projectId, revision: state.revision, total: rows.length, entries: page } as unknown as QueryResult;
 }
 

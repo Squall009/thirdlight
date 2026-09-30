@@ -222,7 +222,12 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'name made id-safe, -2, -3 … when taken; a file whose sidecar names an unused id keeps it), with the labels on every one (a label: a letter or ' +
       'digit, then letters, digits, _ - . /). Files already imported are skipped, and the result\'s ' +
       'folderImport lists them (skipped), files no importer takes (unsupported) and files an importer refused (rejected); undo forgets the assets, the files stay. ' +
-      'Asset records and tl_content_query assets carry their labels. pasteEntities {entities: [full entity ' +
+      'Asset records and tl_content_query assets carry their labels. Addresses and labels are the names scripts load by: ' +
+      'setLabels {items: [{kind, id}], add?: [label], remove?: [label]} labels any number of assets (kind "asset" or the asset kind) and resources ' +
+      '(kind prefab, material, behavior, animator, graph, effect, library, ui, uitheme, dialogue, timeline, envpreset) in one command and one undo; ' +
+      'setAddress {kind, id, address: string|null} gives one item its address (unique project-wide; refused when another asset or resource has it). ' +
+      'Anything with an address or a label is loadable: Play and export ship it even when no scene references it, and the runtime catalog lists it; ' +
+      'a script that names an asset by id in a string literal while that asset is not loadable is reported in Problems. pasteEntities {entities: [full entity ' +
       'values as tl_inspect returns them, parents with their children], parentId?: id|null, offset?: [x,y,z], sceneId?} copies them with ' +
       'new ids in one undo (references inside the copy are remapped; use it to duplicate or to copy between scenes). Materials: ' +
       'setMaterial {material: {materialId, name, shader: standard|foliage|kit|unlit|water, params: {...overrides}, textures: {slot: ' +
@@ -417,7 +422,8 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'a graph material\'s compile problems as the editor\'s Problems tab shows them, checked by the backend when it loads the project and after every change ' +
       '(materialId: one; withProblems: only broken ones; total, withProblems counts). target="index" pages the project index: every asset, ' +
       'resource (prefab, material, behavior, library, graph, ui, uitheme, dialogue, timeline, effect, animator — each its own file in the game folder) and scene ' +
-      'as {kind, id, path, name, labels, refs} (kind, id, label filter; referencing: what names that id). Never returns bytes.',
+      'as {kind, id, path, name, labels, address?, refs} (kind, id, label, address filter; loadable: true = only those with an address or a label; ' +
+      'referencing: what names that id). Never returns bytes.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -425,6 +431,8 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
         kind: { type: 'string', description: 'target="index": one kind (an asset kind, a resource kind such as prefab or material, or scene)' },
         id: { type: 'string', description: 'target="index": one id' },
         label: { type: 'string', description: 'target="index": only entries with this label' },
+        address: { type: 'string', description: 'target="index": the entry with this address' },
+        loadable: { type: 'boolean', description: 'target="index": true = only entries with an address or a label (what scripts may load by name); false = only those without' },
         referencing: { type: 'string', description: 'target="index": only the entries that reference this id (what uses it)' },
         materialId: { type: 'string', description: 'target="materials": one material' },
         check: { type: 'boolean', description: 'target="integrity": check the game folder first (moved files, changed files imported again)' },
@@ -1171,10 +1179,14 @@ async function contentQuery(ctx: McpContext, a: Record<string, unknown>): Promis
   // The project index: every asset, resource and scene (file, name, labels, what it references).
   if (target === 'index') {
     const args: Record<string, unknown> = {};
-    for (const k of ['kind', 'id', 'label', 'referencing'] as const) {
+    for (const k of ['kind', 'id', 'label', 'address', 'referencing'] as const) {
       if (a[k] === undefined) continue;
       if (typeof a[k] !== 'string') return toolError(`${k} must be a string`);
       args[k] = a[k];
+    }
+    if (a.loadable !== undefined) {
+      if (typeof a.loadable !== 'boolean') return toolError('loadable must be a boolean');
+      args.loadable = a.loadable;
     }
     const paged = pageArgs(a);
     if (!paged.ok) return paged.error;

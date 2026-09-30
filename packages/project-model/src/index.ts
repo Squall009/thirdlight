@@ -321,6 +321,8 @@ export { validateSceneV4, validateMergedSceneV4, validateInstancesComponent, DIR
 export { validateContentV4, isNormalizedContent, ENGINE_TIMING_DEFAULTS } from './content';
 // Texture arrays and packed textures.
 export { arrayTextureIds, TEXTURE_ARRAY_KIND, MAX_TEXTURE_LAYERS, KTX2_ENCODINGS, canonicalLabels, isAssetLabel, type Ktx2Encoding } from './content';
+// Addresses and labels: what a script may load by name (assets on their records, resources beside theirs).
+export { canonicalLoadable, ENV_PRESETS_LIST, isAddress, isLoadable, liveLoadable, loadableAssetIds, loadableResourceIds, loadableRows, loadableRowsProblem, RESOURCE_KIND_TABLE, resourceKindDef, resourceRecordsOf, type LoadableEntry, type LoadableRow, type ResourceKindDef } from './loadable';
 // Prefabs spawned into a running game (the snapshot/manifest carry them).
 export { PREFAB_V4_COMPONENTS, canonicalPrefabs, validatePrefabDefinitions } from './content';
 export {

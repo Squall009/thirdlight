@@ -22,36 +22,8 @@ import { withUntrackedSidecars, writeTransaction, type KnownFile, type V4State }
 import { changedFiles, detectExternalChangeV4, gameRootOf, publishV4, setPendingUnreadableV4, type Placement } from './session-v4';
 import { pendingInfo, type Core, type ProjectSession } from './session';
 import { envelopeRequestId, failRequest } from './request-envelope';
+import { scriptsNaming } from './script-names';
 import { catalogV4Of, commandContentOf, crossSceneEntities, projectRuleError, sceneMissing, sceneNotEmpty, sceneV4Of } from './content-shapes';
-
-/**
- * The scripts whose source names `id` as a string literal
- * (`'crate'`, `"crate"`, `` `crate` ``): each published behavior's source
- * container (a visual script's generated source too) and each script
- * library's files. A reference only code can hold, so a delete is refused
- * while it is there. An unreadable source is skipped (the delete then rests on
- * the model's references alone).
- */
-function scriptsNaming(read: (digest: string) => Uint8Array | null, content: ContentDocument, id: string): { path: string; document: string }[] {
-  const escaped = id.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&');
-  // The quote may be escaped inside the container's JSON text (`\"crate\"`).
-  const literal = new RegExp(`['"\`]${escaped}\\\\?['"\`]`);
-  const out: { path: string; document: string }[] = [];
-  const decoder = new TextDecoder();
-  content.behaviors.forEach((b, i) => {
-    const digest = b.source?.sourceDigest;
-    if (digest === undefined) return;
-    const bytes = read(digest);
-    if (bytes !== null && literal.test(decoder.decode(bytes))) out.push({ document: 'content', path: `/behaviors/${i} (script ${b.behaviorId})` });
-  });
-  const libraries = (content as { scriptLibraries?: { libraryId: string; files: { path: string; text: string }[] }[] }).scriptLibraries ?? [];
-  libraries.forEach((lib, i) => {
-    lib.files.forEach((f, j) => {
-      if (literal.test(f.text)) out.push({ document: 'content', path: `/scriptLibraries/${i}/files/${j} (library ${lib.libraryId}, ${f.path})` });
-    });
-  });
-  return out;
-}
 
 /**
  * The bytes a successful publication references (the new version's

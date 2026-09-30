@@ -46,6 +46,7 @@ import type {
 
 import { historyEmpty, historyInvalid, type CommandError } from './errors';
 import { redoImportAssets, undoImportAssets } from './import-assets';
+import { loadingItemsExist, redoSetLoading, undoSetLoading } from './loadable-ops';
 import { redoImportResources, undoImportResources } from './import-resources';
 import {
   behaviorOf,
@@ -338,6 +339,12 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
     if (entry.change.type !== 'importResources') return { ok: false, error: historyInvalid(entry.requestId) };
     const r = undoImportResources(scene, content, entry.change);
     if (r === null) return { ok: false, error: historyInvalid(entry.requestId) };
+    return finish(state, r.scene, r.content, r.change, entry.requestId);
+  }
+
+  if (inv.kind === 'setLoading') {
+    if (!loadingItemsExist(content, inv.items)) return { ok: false, error: historyInvalid(entry.requestId) };
+    const r = undoSetLoading(scene, content, inv);
     return finish(state, r.scene, r.content, r.change, entry.requestId);
   }
 
@@ -847,6 +854,12 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
   if (f.type === 'importResources') {
     const r = redoImportResources(scene, content, f);
     if (r === null) return { ok: false, error: historyInvalid(entry.requestId) };
+    return finish(state, r.scene, r.content, r.change, entry.requestId);
+  }
+
+  if (f.type === 'setLabels' || f.type === 'setAddress') {
+    if (!loadingItemsExist(content, f.items)) return { ok: false, error: historyInvalid(entry.requestId) };
+    const r = redoSetLoading(scene, content, f);
     return finish(state, r.scene, r.content, r.change, entry.requestId);
   }
 

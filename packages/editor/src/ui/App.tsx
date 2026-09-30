@@ -95,7 +95,8 @@ import { EnvironmentPanel } from './EnvironmentPanel';
 import { LightingPanel } from './LightingPanel';
 import { AnimatorPanel, type AnimatorPanelProps, type AnimatorPreview } from './AnimatorPanel';
 import { AnimatorInspector } from './animator/AnimatorInspector';
-import { ClipsForField } from './ClipsForField';
+import { ModelAssetOptions } from './ModelAssetOptions';
+import { useLoadingNames } from './useLoadingNames';
 import { InputPanel } from './InputPanel';
 import { bakeIsStale, DEFAULT_BAKE_SETTINGS, runBlenderBake, runBrowserBake, type BakeSettings } from '../viewport/bake-run';
 import { PrefabPanel } from './PrefabPanel';
@@ -2649,6 +2650,7 @@ function EditorApp(): JSX.Element {
     reportFailure('Material parameters', await c.setComponent(entityId, 'materialParams', next, c.projection.revision));
   }, [reportFailure]);
   const { setAssetMaterials, setVertexColors, setAudioLoadType, setAudioPreload } = useAssetOptions(clientRef, reportFailure);
+  const loadingNames = useLoadingNames(clientRef);
 
   // Delete an asset / a prefab definition (the backend refuses while anything uses it; one undo restores).
   const deleteAsset = useCallback(async (assetId: string) => {
@@ -4271,24 +4273,10 @@ function EditorApp(): JSX.Element {
                   onImported={() => void refreshAssets()}
                 />
               }
+              loading={loadingNames}
               sideExtra={
                 selectedAssetId !== null && assets.find((a) => a.assetId === selectedAssetId)?.kind === 'model' ? (
-                  <>
-                    <ClipsForField
-                      assetId={selectedAssetId}
-                      clipsFor={assets.find((a) => a.assetId === selectedAssetId)?.clipsFor ?? null}
-                      rigs={assets.filter((a) => a.kind === 'model' && a.assetId !== selectedAssetId && a.clipsFor === undefined).map((a) => ({ assetId: a.assetId, displayName: a.displayName }))}
-                      onChange={(rig) => void setAssetClipsFor(selectedAssetId, rig)}
-                      missingBones={missingBones}
-                    />
-                    <MaterialMappingEditor
-                      label="Default materials (every placement)"
-                      sourceNames={assetSourceMaterials}
-                      mapping={assets.find((a) => a.assetId === selectedAssetId)?.materials ?? null}
-                      materials={materials}
-                      onChange={(mapping) => void setAssetMaterials(selectedAssetId, mapping)}
-                    />
-                  </>
+                  <ModelAssetOptions asset={assets.find((a) => a.assetId === selectedAssetId)!} assets={assets} materials={materials} sourceMaterials={assetSourceMaterials} missingBones={missingBones} onClipsFor={(rig) => void setAssetClipsFor(selectedAssetId, rig)} onMaterials={(mapping) => void setAssetMaterials(selectedAssetId, mapping)} />
                 ) : null
               }
             />

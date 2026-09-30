@@ -216,7 +216,7 @@ describe('project resources as files', () => {
       s.holdAssetBytes(PID, CRATE);
       ok(s, 'publishAsset', { mode: 'create', assetId: 'crate', kind: 'model', displayName: 'Crate', sourceDigest: sha(CRATE), sourceByteLength: CRATE.length, importRecipe: RECIPE, metrics: METRICS, importedAt: '2026-09-30T10:00:00Z' });
       const sidecar = json(join(dir, 'assets', 'Crate.glb.tlasset')) as { tlasset: number; id: string; record: { assetId: string; versions: { sourcePath: string }[] } };
-      expect(sidecar).toMatchObject({ tlasset: 2, id: 'crate', record: { assetId: 'crate', versions: [{ sourcePath: 'assets/Crate.glb' }] } });
+      expect(sidecar).toMatchObject({ tlasset: 3, id: 'crate', record: { assetId: 'crate', versions: [{ sourcePath: 'assets/Crate.glb' }] } });
       expect((json(join(dir, 'content.json')) as { content: { assets: unknown[] } }).content.assets).toEqual([]);
 
       ok(s, 'setMaterial', { material: mat('stone', '#808080') });
@@ -235,7 +235,7 @@ describe('project resources as files', () => {
       unlinkSync(join(dir, 'assets', 'Crate.glb.tlasset'));
       const files = t.assetFiles(PID);
       expect(files.ok && files.entries[0], JSON.stringify(files).slice(0, 400)).toMatchObject({ assetId: 'crate', status: 'ok' });
-      expect(json(join(dir, 'assets', 'Crate.glb.tlasset'))).toMatchObject({ tlasset: 2, record: { assetId: 'crate' } });
+      expect(json(join(dir, 'assets', 'Crate.glb.tlasset'))).toMatchObject({ tlasset: 3, record: { assetId: 'crate' } });
     } finally {
       t.close();
     }
@@ -268,7 +268,7 @@ describe('project resources as files', () => {
       expect(upgraded.content['materials']).toBeUndefined();
       expect(upgraded.content['assets']).toEqual([]);
       expect(json(join(dir, 'assets', 'materials', 'stone.material.json'))).toMatchObject({ id: 'stone' });
-      expect(json(sidecarPath)).toMatchObject({ tlasset: 2, record: { assetId: 'crate' } });
+      expect(json(sidecarPath)).toMatchObject({ tlasset: 3, record: { assetId: 'crate' } });
       // It keeps working: an edit, and the next open reads the files.
       ok(s, 'setMaterial', { material: mat('stone', '#222222') });
     } finally {

@@ -10,7 +10,8 @@ import { MAX_ANIMATOR_MORPHS } from './animator';
 import { ANIMATOR_CONDITION_OPS, ANIMATOR_PARAMETER_TYPES, MAX_ANIMATOR_CONDITIONS, MAX_ANIMATOR_EVENTS, MAX_ANIMATOR_LAYERS, MAX_ANIMATOR_PARAMETERS, MAX_ANIMATOR_STATES, MAX_ANIMATOR_TRANSITIONS, MAX_BLEND_CHILDREN, MAX_LAYER_MASK } from './animator';
 import { MAX_TRANSITION_FADE } from './blocks';
 import { MAX_COLLISION_LAYERS } from './components';
-import { ASSET_LABEL_MAX_LENGTH, M2_SETTINGS_KEYS, MAX_ENUM_VALUES, MAX_PREFAB_ENTITIES, MAX_PROPERTIES, PREFAB_V4_COMPONENTS } from './content';
+import { RESOURCE_KIND_TABLE } from './loadable';
+import { ADDRESS_MAX_LENGTH, ASSET_LABEL_MAX_LENGTH, M2_SETTINGS_KEYS, MAX_ENUM_VALUES, MAX_PREFAB_ENTITIES, MAX_PROPERTIES, PREFAB_V4_COMPONENTS } from './content';
 import {
   CURSOR_MODES,
   DEFAULT_INPUT,
@@ -508,6 +509,20 @@ export const CONTENT: readonly ContentBlockDescriptor[] = [
   { key: 'graphs', label: 'Graphs', tooltip: 'Standalone node graphs, edited in the graph editor.', required: false, value: list('graphs', 'Graphs', 'The project\'s graphs (each its own file).', json('*', 'Graph', 'A graph document: { graphId, kind, name, graph }.', { readOnly: true }), { default: [] }), ops: ['setGraph', 'deleteGraph', 'graphEdit'] },
   { key: 'tags', label: 'Tags', tooltip: 'Named tag bits objects carry.', required: false, value: list('tags', 'Tags', `Up to ${MAX_TAGS} tags.`, obj('*', 'Tag', 'A named bit.', [int('bit', 'Bit', 'The bit (0–31).', { required: true, min: 0, max: 31 }), str('name', 'Name', 'A letter, then letters, digits, _ or - (unique ignoring case).', { required: true, format: 'identifier', minLength: 1, maxLength: 32 })]), { maxItems: MAX_TAGS, default: [] }), ops: ['setTags'] },
   // Named collision layers (3D physics); "default" is implicit.
+  // The resources' addresses and labels (each resource file holds its own; assets keep theirs on their records).
+  {
+    key: 'loadable',
+    label: 'Loadable resources',
+    tooltip: 'The resources (prefabs, materials, dialogue, …) a script may load by address or label; Play and export ship them even when no scene uses them.',
+    required: false,
+    value: list('loadable', 'Loadable resources', 'One entry per resource with an address or labels.', obj('*', 'Resource', 'A resource and the names scripts load it by.', [
+      enm('kind', 'Kind', 'The resource kind.', RESOURCE_KIND_TABLE.map((k) => k.kind), { required: true, default: 'prefab' }),
+      str('id', 'Id', 'The resource id.', { ...ID, required: true }),
+      str('address', 'Address', 'The one name a script loads it by (unique in the project).', { minLength: 1, maxLength: ADDRESS_MAX_LENGTH }),
+      list('labels', 'Labels', 'Names a script loads it by, with everything else carrying them (ascending).', str('*', 'Label', 'A letter or digit, then letters, digits, _ - . /.', { minLength: 1, maxLength: ASSET_LABEL_MAX_LENGTH }), { minItems: 1, unique: true }),
+    ]), { default: [] }),
+    ops: ['setLabels', 'setAddress'],
+  },
   { key: 'collisionLayers', label: 'Collision layers', tooltip: 'Named collision layers colliders are in and script queries filter by (3D; "default" is implicit).', required: false, value: list('collisionLayers', 'Collision layers', `Up to ${MAX_COLLISION_LAYERS} names ("default" is implicit).`, str('*', 'Layer', 'A letter or _, then letters, digits or _.', { format: 'identifier', minLength: 1, maxLength: 32 }), { maxItems: MAX_COLLISION_LAYERS, unique: true, default: [] }), ops: ['setCollisionLayers'] },
   // The project save schema (save document version + migrations, slots, sections, picture, settings document).
   {
@@ -550,9 +565,10 @@ export const CONTENT: readonly ContentBlockDescriptor[] = [
       enm('vertexColors', 'Vertex colours', 'Data: COLOR_0 feeds shaders (wind weights). Tint: multiplies the colour.', ['data', 'tint'], { when: when('kind', 'model'), default: 'data', omitDefault: true }),
       map('materials', 'Default materials', 'Material slot → project material, for every placement.', 'Slot', ref('*', 'Material', 'A project material.', 'material'), { when: when('kind', 'model'), keyFormat: 'materialSlot', minEntries: 1, maxEntries: MAX_MATERIAL_SLOTS }),
       asset('clipsFor', 'Clips for', 'An animation-only file: its clips play on this model\'s rig.', ['model'], { when: when('kind', 'model') }),
-      list('labels', 'Labels', 'Names a script may load the asset by, with every other asset carrying them (ascending).', str('*', 'Label', 'A letter or digit, then letters, digits, _ - . /.', { minLength: 1, maxLength: ASSET_LABEL_MAX_LENGTH }), { minItems: 1, unique: true, readOnly: true }),
+      list('labels', 'Labels', 'Names a script may load the asset by, with every other asset carrying them (ascending; set with setLabels).', str('*', 'Label', 'A letter or digit, then letters, digits, _ - . /.', { minLength: 1, maxLength: ASSET_LABEL_MAX_LENGTH }), { minItems: 1, unique: true, readOnly: true }),
+      str('address', 'Address', 'The one name a script may load the asset by (unique in the project; set with setAddress).', { minLength: 1, maxLength: ADDRESS_MAX_LENGTH, readOnly: true }),
     ]), { required: true }),
-    ops: ['publishAsset', 'setAssetOptions', 'deleteAsset', 'importAssets'],
+    ops: ['publishAsset', 'setAssetOptions', 'deleteAsset', 'importAssets', 'setLabels', 'setAddress'],
   },
   {
     key: 'prefabs',

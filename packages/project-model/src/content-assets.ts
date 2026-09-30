@@ -32,6 +32,7 @@ import type { AssetRecordV3, AssetVersionV3 } from './types-v3';
 import { AUDIO_PIPELINE_NAME, AUDIO_PIPELINE_VERSION, canonicalAudioMetrics, validateAudioLoadFields, validateAudioMetrics, validateAudioRecipe, type AudioMetrics } from './audio-assets';
 import {
   ASSET_LABEL_RE,
+  ADDRESS_RE,
   ASSET_METRIC_CAPS,
   M2_GLTF_EXTENSION_ALLOWLIST,
   MAX_ASSET_VERSIONS,
@@ -74,7 +75,7 @@ const METRIC_ORDER: Exclude<keyof AssetMetrics, 'bounds'>[] = [
 
 /** A header-only recipe (font, texture) has no `extensions` key. */
 const AUDIO_RECIPE_FIELDS = new Set(['profile', 'recipeVersion', 'toolchain']);
-const KNOWN_ASSET_FIELDS = new Set(['assetId', 'kind', 'displayName', 'currentVersion', 'versions', 'vertexColors', 'materials', 'clipsFor', 'labels', 'loadType', 'preload']);
+const KNOWN_ASSET_FIELDS = new Set(['assetId', 'kind', 'displayName', 'currentVersion', 'versions', 'vertexColors', 'materials', 'clipsFor', 'labels', 'address', 'loadType', 'preload']);
 const KNOWN_VERSION_FIELDS = new Set([
   'version',
   'sourceDigest',
@@ -540,6 +541,13 @@ export function validateAsset(a: unknown, path: string, errors: ModelErrorV2[], 
       errors.push(fieldValue(`${path}/labels`, labels, 'ascending unique labels (a letter or digit, then letters, digits, _ - . /; at most 64)', 'labels are a non-empty ascending list of unique labels'));
     }
   }
+  const address = a['address'];
+  if (address !== undefined) {
+    if (!v3) errors.push(unexpectedField(`${path}/address`, 'address', 'only a v3/v4 asset has an address'));
+    else if (typeof address !== 'string' || !ADDRESS_RE.test(address)) {
+      errors.push(fieldValue(`${path}/address`, address, 'a letter or digit, then letters, digits, _ - . / (at most 128)', 'an address has no spaces or other punctuation'));
+    }
+  }
   for (const k of Object.keys(a)) {
     if (!KNOWN_ASSET_FIELDS.has(k)) errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, [...KNOWN_ASSET_FIELDS].join(', ')));
   }
@@ -659,6 +667,7 @@ export function canonicalAssetV3(a: AssetRecordV3): AssetRecordV3 {
     ...(a.loadType !== undefined ? { loadType: a.loadType } : {}),
     ...(a.preload === false ? { preload: false as const } : {}),
     ...(a.labels !== undefined ? { labels: [...a.labels] } : {}),
+    ...(a.address !== undefined ? { address: a.address } : {}),
   };
 }
 

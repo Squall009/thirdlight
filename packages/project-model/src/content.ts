@@ -11,6 +11,7 @@
 
 import { canonicalEventCues, validateEventCueReferences, validateEventCues } from './event-cues';
 import { canonicalShell, validateShell, validateShellReferences, type GameShell } from './shell';
+import { canonicalLoadable, ENV_PRESETS_LIST, RESOURCE_KIND_TABLE, validateLoadable } from './loadable';
 import { canonicalSaveSchema, validateSaveSchema } from './save-schema';
 import { canonicalDialogues, canonicalDialogueSettings, canonicalSpeakers, validateDialogueReferences, validateDialogues, validateDialogueSettings, validateSpeakers } from './dialogue';
 import { canonicalTimelines, validateTimelineReferences, validateTimelines, type TimelineAsset } from './timelines';
@@ -119,8 +120,8 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
     if (doc[key] === undefined) errors.push(fieldMissing(`/${pointerSegment(key)}`, key));
   }
   for (const k of Object.keys(doc)) {
-    if (!required.includes(k) && k !== 'tags' && !(version === 4 && k === 'game') && !(version === 4 && (k === 'materials' || k === 'environment' || k === 'lighting' || k === 'animators' || k === 'input' || k === 'flow' || k === 'graphs' || k === 'effects' || k === 'scriptLibraries' || k === 'blockTypes' || k === 'cellFields' || k === 'blockStamps' || k === 'collisionLayers' || k === 'saveSchema' || k === 'uiDocuments' || k === 'uiThemes' || k === 'timelines' || k === 'modes' || k === 'behaviorGroups' || k === 'dialogues' || k === 'speakers' || k === 'dialogueSettings' || k === 'eventCues' || k === 'shell'))) {
-      errors.push(unexpectedField(`/${pointerSegment(k)}`, k, [...required, 'tags (optional)', ...(version === 4 ? ['materials (optional)', 'environment (optional)', 'lighting (optional)', 'animators (optional)', 'input (optional)', 'graphs (optional)', 'effects (optional)', 'scriptLibraries (optional)', 'blockTypes (optional)', 'cellFields (optional)', 'blockStamps (optional)', 'collisionLayers (optional)', 'saveSchema (optional)', 'uiDocuments (optional)', 'uiThemes (optional)', 'timelines (optional)', 'modes (optional)', 'behaviorGroups (optional)', 'dialogues (optional)', 'speakers (optional)', 'dialogueSettings (optional)', 'eventCues (optional)', 'shell (optional)'] : [])].join(', ')));
+    if (!required.includes(k) && k !== 'tags' && !(version === 4 && k === 'game') && !(version === 4 && (k === 'materials' || k === 'environment' || k === 'lighting' || k === 'animators' || k === 'input' || k === 'flow' || k === 'graphs' || k === 'effects' || k === 'scriptLibraries' || k === 'blockTypes' || k === 'cellFields' || k === 'blockStamps' || k === 'collisionLayers' || k === 'saveSchema' || k === 'uiDocuments' || k === 'uiThemes' || k === 'timelines' || k === 'modes' || k === 'behaviorGroups' || k === 'dialogues' || k === 'speakers' || k === 'dialogueSettings' || k === 'eventCues' || k === 'shell' || k === 'loadable'))) {
+      errors.push(unexpectedField(`/${pointerSegment(k)}`, k, [...required, 'tags (optional)', ...(version === 4 ? ['materials (optional)', 'environment (optional)', 'lighting (optional)', 'animators (optional)', 'input (optional)', 'graphs (optional)', 'effects (optional)', 'scriptLibraries (optional)', 'blockTypes (optional)', 'cellFields (optional)', 'blockStamps (optional)', 'collisionLayers (optional)', 'saveSchema (optional)', 'uiDocuments (optional)', 'uiThemes (optional)', 'timelines (optional)', 'modes (optional)', 'behaviorGroups (optional)', 'dialogues (optional)', 'speakers (optional)', 'dialogueSettings (optional)', 'eventCues (optional)', 'shell (optional)', 'loadable (optional)'] : [])].join(', ')));
     }
   }
   if (version === 4 && doc['scenes'] !== undefined) {
@@ -312,6 +313,8 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
       validateTimelineReferences(doc['timelines'] as TimelineAsset[], '/timelines', errors, { assetKind: (id) => kinds.get(id), effectIds: ids('effects', 'effectId'), materialIds: ids('materials', 'materialId'), modeIds: ids('modes', 'modeId') });
     }
   }
+  // The resources' addresses and labels, and one owner per address across assets and resources.
+  if (version === 4 && !same('assets', 'loadable', ...RESOURCE_KIND_TABLE.map((k) => (k.list === ENV_PRESETS_LIST ? 'environment' : k.list)))) validateLoadable(doc, errors);
   if (version === 4 && !same('assets', 'materials', 'graphs', 'effects', 'environment', 'input', 'animators', 'lighting', 'scenes')) {
     validateMaterialReferences(doc, errors, prev === undefined || !same('assets') || !sameIds(prev['materials'], doc['materials'], 'materialId'));
   }
@@ -424,7 +427,8 @@ function contentBytesOver(c: Record<string, unknown>, prev: Record<string, unkno
   const rest: Record<string, unknown> = {};
   let restSame = prev !== undefined;
   for (const [key, value] of Object.entries(c)) {
-    if ((RESOURCE_LISTS as readonly string[]).includes(key)) continue;
+    // The resources' addresses and labels are in their resource files, not content.json.
+    if ((RESOURCE_LISTS as readonly string[]).includes(key) || key === 'loadable') continue;
     if (key === 'environment' && isPlainObject(value) && value['presets'] !== undefined) {
       const { presets: _presets, ...envRest } = value;
       rest[key] = envRest;
@@ -435,7 +439,7 @@ function contentBytesOver(c: Record<string, unknown>, prev: Record<string, unkno
     rest[key] = value;
     if (prev === undefined || prev[key] !== value) restSame = false;
   }
-  if (prev !== undefined) for (const key of Object.keys(prev)) if (!(RESOURCE_LISTS as readonly string[]).includes(key) && !(key in c)) restSame = false;
+  if (prev !== undefined) for (const key of Object.keys(prev)) if (!(RESOURCE_LISTS as readonly string[]).includes(key) && key !== 'loadable' && !(key in c)) restSame = false;
   if (!restSame) {
     const bytes = canonicalDocBytes(rest);
     if (bytes > MAX_CONTENT_FILE_BYTES) return limitsError('/content', 'content_bytes', bytes, MAX_CONTENT_FILE_BYTES, 'the project-wide settings (content.json) exceed the content file byte cap');
@@ -529,6 +533,7 @@ const CANONICAL_KEYS: readonly CanonicalKey[] = [
   { key: 'shell', canon: (v: GameShell) => canonicalShell(v) },
   { key: 'timelines', canon: canonicalTimelines, idOf: (t: TimelineAsset) => t.timelineId, present: nonEmpty },
   { key: 'lighting', canon: canonicalLighting, present: (v: Record<string, unknown>) => Object.keys(v).length > 0 },
+  { key: 'loadable', canon: canonicalLoadable, present: nonEmpty },
 ];
 
 /**

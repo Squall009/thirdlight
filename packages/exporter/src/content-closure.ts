@@ -26,7 +26,7 @@ import { dialogueForRuntime, type DialogueDocument, type DialogueSettings, type 
 import type { GameMode } from '@thirdlight/project-model';
 import type { EventCue, GameShell, TimelineAsset } from '@thirdlight/project-model';
 import type { AnimatorController, EnvironmentConfig, PrefabDefinition, InputConfig, LightingMap, MaterialDef, UiDocument, UiTheme } from '@thirdlight/project-model';
-import { animatorsForRuntime, effectsForRuntime, type EffectDef, materialFunctionsForRuntime, materialsForRuntime, type GraphDocument, captureContentViewV3, captureManifestV2, M3_ENGINE_PINS, resolveMediaIdentityV3, sha256Hex, type GameplaySettings, type ManifestAssetInputV2, type ManifestBehaviorInput, type MediaBlock, type RuntimeContentManifestV2, type ManifestSceneRow, physicsDimensionOf, resolveRequiredModules, materialsInUse, resolveMaterialInstances, scriptLibraryContainerText, scriptLibraryDigest, type ScriptLibrary } from '@thirdlight/project-model';
+import { animatorsForRuntime, effectsForRuntime, type EffectDef, materialFunctionsForRuntime, materialsForRuntime, type GraphDocument, captureContentViewV3, captureManifestV2, M3_ENGINE_PINS, resolveMediaIdentityV3, sha256Hex, type GameplaySettings, type ManifestAssetInputV2, type ManifestBehaviorInput, type MediaBlock, type RuntimeContentManifestV2, type ManifestSceneRow, physicsDimensionOf, resolveRequiredModules, materialsInUse, resolveMaterialInstances, loadableAssetIds, loadableResourceIds, loadableRows, scriptLibraryContainerText, scriptLibraryDigest, type ScriptLibrary } from '@thirdlight/project-model';
 import { audioLoadOf, MODEL_RIG_LIMITS, readModelRig, type AudioLoadType, type ModelRig } from '@thirdlight/project-model';
 import type { WorkspaceService } from '@thirdlight/workspace';
 
@@ -505,7 +505,8 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
     view = derived.view;
     media = derived.media;
   } else {
-    const viewRes = captureContentViewV3(input.scene, input.content, { projectId, revision: input.revision }, input.scenes);
+    // What scenes reference, and the loadable assets (an address or a label: a script may load them by name).
+    const viewRes = captureContentViewV3(input.scene, input.content, { projectId, revision: input.revision }, input.scenes, loadableAssetIds(input.content));
     if (!viewRes.ok) {
       const e = viewRes.errors[0]!;
       return { ok: false, error: { code: 'export_scene_invalid', cls: 'validation', message: e.message.slice(0, 256), reason: e.code } };
@@ -676,6 +677,8 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
           effects: (input.content as { effects?: EffectDef[] }).effects ?? [],
           timelines: (input.content as { timelines?: TimelineAsset[] }).timelines ?? [],
         });
+        // A loadable material ships too (a script may load it by name).
+        for (const id of loadableResourceIds(input.content, 'material')) used.add(id);
         // A named instance ships resolved (its chain's graph, parameters and values folded
         // in), so the runtime never sees an instance; its parents ship only when something names them.
         return resolveMaterialInstances(allMaterials).filter((m) => used.has(m.materialId));
@@ -689,6 +692,8 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
     sceneDigest,
     contentDigest: view.contentDigest,
     assets,
+    // The catalog of what a script may load by address or label (what this build holds).
+    loadable: loadableRows(input.content, { assets: new Set(assets.map((a) => a.assetId)) }),
     behaviors: behaviorInputs,
     // The shared script library modules the behaviors import.
     ...(libraryRows.length > 0 ? { libraries: libraryRows } : {}),

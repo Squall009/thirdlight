@@ -17,6 +17,7 @@
  * bootstrap (the owner-deployment entry point).
  */
 import { audioPlaybackProblems } from './audio-gaps';
+import { createScriptNameChecker } from './script-name-problems';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { existsSync, mkdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -415,6 +416,7 @@ export function createBackend(
       return { ok: false, error: workspaceError(q.error), status: statusFor(q.error.cls) };
     }
     reportUpgradeNotes(projectId);
+    scriptNames.loaded(projectId);
     // An editor loading the project: its materials are checked (once; after that, after each change).
     if (materialChecker.last(projectId) === null) {
       try {
@@ -552,6 +554,9 @@ export function createBackend(
     for (const p of service.takeOpenProblems(projectId)) recordProblem(projectId, 'workspace', p.code, p.message);
   };
 
+  // Scripts that name an asset that is not loadable (checked on load and after a change that can matter).
+  const scriptNames = createScriptNameChecker({ service, recordProblem: (projectId, code, message) => recordProblem(projectId, 'compile', code, message), logStartup, closed: () => closed });
+
   // ---------- Graph materials' problems (checked on load and after every change) ----------
   const materialChecker = createMaterialProblemChecker();
   const materialCheckTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -618,6 +623,7 @@ export function createBackend(
   ): void => {
     // Materials are checked again after a change that can change what they compile to.
     if (changeReachesMaterials(change)) scheduleMaterialCheck(projectId);
+    scriptNames.changed(projectId, change);
     for (const line of audioPlaybackProblems(change)) recordProblem(projectId, 'import', 'audio_browser_support', line);
     const s = sessions.sessionForProject(projectId);
     if (!s || !s.connected || !s.socket) return;
@@ -1596,6 +1602,7 @@ export function createBackend(
           // The graph materials with problems now (checked at the project's load and after each change).
           const rows = materialRows(projectId);
           reportUpgradeNotes(projectId);
+          scriptNames.loaded(projectId);
           const list = problems.get(projectId) ?? [];
           sendJson(res, 200, { ok: true, projectId, total: list.length, problems: list.slice(-50), ...(rows !== null ? { materialProblems: rows.filter((r) => r.problems.length > 0).slice(0, 64) } : {}) });
           return;

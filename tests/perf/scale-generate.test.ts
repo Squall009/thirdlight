@@ -36,7 +36,7 @@ describe('scale bench generator', () => {
       // Each asset is a file in the project's folder, next to its sidecar holding its record.
       for (const e of index.entries.filter((x) => ['audio', 'texture', 'model'].includes(x.kind))) {
         const sidecar = read(r.dir, `${e.path}.tlasset`) as { tlasset: number; id: string; kind: string; record: { versions: { sourceDigest: string; sourceByteLength: number }[] } };
-        expect(sidecar).toMatchObject({ tlasset: 2, id: e.id, kind: e.kind });
+        expect(sidecar).toMatchObject({ tlasset: 3, id: e.id, kind: e.kind });
         const bytes = readFileSync(join(r.dir, e.path));
         expect(createHash('sha256').update(bytes).digest('hex')).toBe(sidecar.record.versions[0]!.sourceDigest);
         expect(bytes.length).toBe(sidecar.record.versions[0]!.sourceByteLength);

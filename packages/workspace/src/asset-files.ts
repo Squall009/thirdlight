@@ -41,12 +41,17 @@ import { SIDECAR_SUFFIX } from './resource-files';
 /** The sidecar next to every asset file (resource-files.ts owns the name: sidecars are project files). */
 export { SIDECAR_SUFFIX };
 /**
- * The sidecar format this build writes. A 2 carries the asset's catalog
+ * The sidecar format this build writes. It carries the asset's catalog
  * record (`record`): the sidecar is the truth, and the project reads its
- * assets from the sidecars. A 1 (id, kind, settings, labels, address only)
- * is still read where a sidecar names an asset.
+ * assets from the sidecars. A 3's record holds the address too (the labels
+ * and address beside it repeat the record's, for a person reading the file).
+ * A 2 (the address beside the record only) is read and upgraded at the open;
+ * a 1 (id, kind, settings, labels, address only) is still read where a
+ * sidecar names an asset.
  */
-export const SIDECAR_FORMAT = 2;
+export const SIDECAR_FORMAT = 3;
+/** The sidecar format before addresses were the record's (the open upgrades it). */
+export const SIDECAR_FORMAT_PRE_ADDRESS = 2;
 /** Where an upload lands when nothing names a folder (the model's constant, shared with the editor). */
 export { DEFAULT_ASSET_FOLDER };
 /** The import cache under the project folder (git-ignored). */
@@ -137,12 +142,12 @@ export function fileOfRecord(record: RecordLike): string | null {
 
 /** One `.tlasset` sidecar. */
 export interface SidecarDoc {
-  tlasset: 1 | typeof SIDECAR_FORMAT;
+  tlasset: 1 | typeof SIDECAR_FORMAT_PRE_ADDRESS | typeof SIDECAR_FORMAT;
   id: string;
   kind: string;
   /** How the file is imported (the settings digest of the import cache is taken over these). */
   importSettings: Record<string, unknown>;
-  /** Labels a script may load the asset by (set from the project window and MCP later). */
+  /** Labels a script may load the asset by (the record's). */
   labels: string[];
   /** The name scripts may load the asset by; null: none. */
   address: string | null;
@@ -191,15 +196,15 @@ export function importSettingsOf(record: RecordLike): Record<string, unknown> {
   return out;
 }
 
-/** A record's sidecar (the address, not in the catalog yet, is kept from the sidecar before it). */
-export function sidecarOf(record: RecordLike, keep?: SidecarDoc | null): SidecarDoc {
+/** A record's sidecar. */
+export function sidecarOf(record: RecordLike): SidecarDoc {
   return {
     tlasset: SIDECAR_FORMAT,
     id: record.assetId,
     kind: record.kind ?? 'model',
     importSettings: importSettingsOf(record),
     labels: [...((record as { labels?: string[] }).labels ?? [])],
-    address: keep?.address ?? null,
+    address: (record as { address?: string }).address ?? null,
     record: record as unknown as Record<string, unknown>,
   };
 }
@@ -219,10 +224,10 @@ export function parseSidecar(bytes: Uint8Array): SidecarDoc | null {
   }
   if (typeof v !== 'object' || v === null || Array.isArray(v)) return null;
   const d = v as Record<string, unknown>;
-  if ((d['tlasset'] !== 1 && d['tlasset'] !== SIDECAR_FORMAT) || typeof d['id'] !== 'string' || typeof d['kind'] !== 'string') return null;
+  if ((d['tlasset'] !== 1 && d['tlasset'] !== SIDECAR_FORMAT_PRE_ADDRESS && d['tlasset'] !== SIDECAR_FORMAT) || typeof d['id'] !== 'string' || typeof d['kind'] !== 'string') return null;
   const labels = Array.isArray(d['labels']) ? d['labels'].filter((x): x is string => typeof x === 'string') : [];
   const settings = typeof d['importSettings'] === 'object' && d['importSettings'] !== null && !Array.isArray(d['importSettings']) ? (d['importSettings'] as Record<string, unknown>) : {};
-  const record = d['tlasset'] === SIDECAR_FORMAT && typeof d['record'] === 'object' && d['record'] !== null && !Array.isArray(d['record']) ? (d['record'] as Record<string, unknown>) : undefined;
+  const record = d['tlasset'] !== 1 && typeof d['record'] === 'object' && d['record'] !== null && !Array.isArray(d['record']) ? (d['record'] as Record<string, unknown>) : undefined;
   return { tlasset: d['tlasset'], id: d['id'], kind: d['kind'], importSettings: settings, labels, address: typeof d['address'] === 'string' ? d['address'] : null, ...(record !== undefined ? { record } : {}) };
 }
 

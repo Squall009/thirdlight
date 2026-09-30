@@ -202,7 +202,7 @@ describe('a schemaVersion 4 project with stored asset versions opened over HTTP'
     expect(sha(png)).toBe(current.get('wall')!.convertedFrom!.sourceDigest);
     expect(sha(readFileSync(join(dir(), 'assets', 'Beep.wav')))).toBe(current.get('beep')!.sourceDigest);
     const sidecar = (f: string): Record<string, unknown> => JSON.parse(readFileSync(join(dir(), 'assets', `${f}.tlasset`), 'utf8')) as Record<string, unknown>;
-    expect(sidecar('Crate.glb')).toMatchObject({ tlasset: 2, id: 'crate', kind: 'model' });
+    expect(sidecar('Crate.glb')).toMatchObject({ tlasset: 3, id: 'crate', kind: 'model' });
     expect(sidecar('Wall-checker.png')).toMatchObject({ id: 'wall', kind: 'texture', importSettings: { ktx2: 'color' } });
     expect(sidecar('Beep.wav')).toMatchObject({ id: 'beep', kind: 'audio' });
 
@@ -303,7 +303,7 @@ describe('a project with music and short-sound records opened over HTTP', () => 
     };
     for (const [file, [id, metrics, settings]] of Object.entries(expected)) {
       const doc = sidecar(ID, file);
-      expect(doc, file).toMatchObject({ tlasset: 2, id, kind: 'audio', importSettings: settings });
+      expect(doc, file).toMatchObject({ tlasset: 3, id, kind: 'audio', importSettings: settings });
       const rec = doc['record'] as Rec;
       expect(rec, file).toMatchObject({ assetId: id, kind: 'audio', versions: [{ sourcePath: `assets/${file}`, importRecipe: { profile: 'audio' } }] });
       expect(rec.versions[0]!.metrics, file).toEqual(metrics);

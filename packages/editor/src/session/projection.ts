@@ -632,6 +632,9 @@ export class Projection {
       // the next full state / `queryEntity` carry the value.
       case 'setTags':
       case 'setAssetOptions':
+      // Labels and addresses (the content projection and the client's content track them).
+      case 'setLabels':
+      case 'setAddress':
       case 'setMaterial':
       case 'setEnvironment':
       case 'setLighting':

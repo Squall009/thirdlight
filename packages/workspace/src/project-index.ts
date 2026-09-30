@@ -17,8 +17,8 @@
  */
 import type { ContentCatalogV4, SceneV4 } from '@thirdlight/project-model';
 
-import { recordsOfKind, RESOURCE_KINDS, type ResourceKind } from './resource-files';
-import { displayPathOf, sceneRel, type ResourcePaths } from './store-v4';
+import { recordsOfKind, RESOURCE_KINDS, type ResourceKind, type ResourceLoading } from './resource-files';
+import { displayPathOf, loadingByKey, sceneRel, type ResourcePaths } from './store-v4';
 
 /** One asset, resource or scene of the project. */
 export interface IndexEntry {
@@ -29,6 +29,8 @@ export interface IndexEntry {
   readonly path: string | null;
   readonly name: string;
   readonly labels: readonly string[];
+  /** The name a script loads it by (null: none). */
+  readonly address: string | null;
   /** The ids it references (ascending, unique). */
   readonly refs: readonly string[];
 }
@@ -56,6 +58,7 @@ interface AssetLike {
   readonly kind?: string;
   readonly displayName?: string;
   readonly labels?: readonly string[];
+  readonly address?: string;
   readonly currentVersion: number;
   readonly versions: readonly { readonly version: number; readonly sourcePath?: string; readonly convertedFrom?: { readonly sourcePath?: string }; readonly packedFrom?: { readonly layers: readonly (readonly ({ readonly assetId?: string } | { readonly value: number })[])[] } }[];
   readonly materials?: Readonly<Record<string, string>>;
@@ -102,22 +105,21 @@ function assetEntry(a: AssetLike, known: Known): IndexEntry {
   const current = a.versions.find((v) => v.version === a.currentVersion);
   for (const layer of current?.packedFrom?.layers ?? []) for (const c of layer) if ('assetId' in c && c.assetId !== undefined && known.has(c.assetId)) refs.add(c.assetId);
   const path = current?.sourcePath ?? current?.convertedFrom?.sourcePath ?? null;
-  return { kind: a.kind ?? 'model', id: a.assetId, path, name: a.displayName ?? a.assetId, labels: a.labels ?? [], refs: [...refs].sort() };
+  return { kind: a.kind ?? 'model', id: a.assetId, path, name: a.displayName ?? a.assetId, labels: a.labels ?? [], address: a.address ?? null, refs: [...refs].sort() };
 }
 
-function resourceEntry(k: ResourceKind, r: Record<string, unknown>, path: string | undefined, known: Known): IndexEntry {
+function resourceEntry(k: ResourceKind, r: Record<string, unknown>, path: string | undefined, known: Known, loading: ResourceLoading | undefined): IndexEntry {
   const id = String(r[k.idKey]);
   const refs = new Set<string>();
   stringRefs(r, known, id, refs);
   const name = typeof r['name'] === 'string' ? r['name'] : typeof r['displayName'] === 'string' ? r['displayName'] : id;
-  const labels = Array.isArray(r['labels']) ? (r['labels'] as unknown[]).filter((x): x is string => typeof x === 'string') : [];
-  return { kind: k.kind, id, path: path ?? null, name, labels, refs: [...refs].sort() };
+  return { kind: k.kind, id, path: path ?? null, name, labels: loading?.labels ?? [], address: loading?.address ?? null, refs: [...refs].sort() };
 }
 
 function sceneEntry(scene: SceneV4, name: string, rel: string | undefined, known: Known): IndexEntry {
   const refs = new Set<string>();
   for (const e of scene.entities) stringRefs(e.components, known, scene.sceneId, refs);
-  return { kind: 'scene', id: scene.sceneId, path: displayPathOf(rel ?? sceneRel(scene.sceneId)), name, labels: [], refs: [...refs].sort() };
+  return { kind: 'scene', id: scene.sceneId, path: displayPathOf(rel ?? sceneRel(scene.sceneId)), name, labels: [], address: null, refs: [...refs].sort() };
 }
 
 function addReferrers(referrers: Map<string, Set<string>>, key: string, refs: readonly string[]): void {
@@ -148,10 +150,11 @@ export function buildIndex(src: IndexSource): ProjectIndex {
     const e = assetEntry(a, known);
     entries.set(keyOf(e.kind, e.id), e);
   }
+  const loading = loadingByKey(src.content);
   for (const k of RESOURCE_KINDS) {
     const paths = src.resourcePaths.get(k.list);
     for (const r of listOf(src.content, k)) {
-      const e = resourceEntry(k, r, paths?.get(String(r[k.idKey])), known);
+      const e = resourceEntry(k, r, paths?.get(String(r[k.idKey])), known, loading.get(`${k.kind}:${String(r[k.idKey])}`));
       entries.set(keyOf(e.kind, e.id), e);
     }
   }
@@ -206,19 +209,27 @@ export function updateIndex(index: ProjectIndex, before: IndexSource, after: Ind
     }
     for (const [id, a] of prev) if (!kept.has(id)) removes.push(keyOf(a.kind ?? 'model', id));
   }
-  // Resources.
+  // Resources (and those whose address or labels changed).
+  const loadingBefore = (before.content as { loadable?: unknown }).loadable;
+  const loading = loadingByKey(after.content);
+  const renamed = new Set<string>();
+  if (loadingBefore !== (after.content as { loadable?: unknown }).loadable) {
+    const was = loadingByKey(before.content);
+    for (const key of new Set([...was.keys(), ...loading.keys()])) if (JSON.stringify(was.get(key)) !== JSON.stringify(loading.get(key))) renamed.add(key);
+  }
+  const renamedKinds = new Set([...renamed].map((key) => key.slice(0, key.indexOf(':'))));
   for (const k of RESOURCE_KINDS) {
     const a = listOf(before.content, k);
     const b = listOf(after.content, k);
     const paths = after.resourcePaths.get(k.list);
-    if (a === b && before.resourcePaths.get(k.list) === paths) continue;
+    if (a === b && before.resourcePaths.get(k.list) === paths && !renamedKinds.has(k.kind)) continue;
     const prev = new Map(a.map((r) => [String(r[k.idKey]), r]));
     const kept = new Set<string>();
     for (const r of b) {
       const id = String(r[k.idKey]);
       kept.add(id);
-      if (prev.get(id) === r && entries.get(keyOf(k.kind, id))?.path === (paths?.get(id) ?? null)) continue;
-      stage(k.kind, id, () => resourceEntry(k, r, paths?.get(id), known));
+      if (prev.get(id) === r && entries.get(keyOf(k.kind, id))?.path === (paths?.get(id) ?? null) && !renamed.has(keyOf(k.kind, id))) continue;
+      stage(k.kind, id, () => resourceEntry(k, r, paths?.get(id), known, loading.get(keyOf(k.kind, id))));
     }
     for (const id of prev.keys()) if (!kept.has(id)) removes.push(keyOf(k.kind, id));
   }

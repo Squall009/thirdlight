@@ -80,7 +80,7 @@ function addOtherKinds(dir: string, sceneIds: readonly string[], soundId: string
     const sourcePath = `assets/font/${assetId}.ttf`;
     writeFileSync(join(dir, sourcePath), ttf);
     const record = { assetId, kind: 'font', displayName: assetId, currentVersion: 1, versions: [{ version: 1, sourceDigest: p.sourceDigest, sourceByteLength: p.sourceByteLength, sourcePath, importRecipe: p.importRecipe, metrics: p.metrics, importedAt: '2026-01-01T00:00:00Z', publishedRevision: 0 }] };
-    writeFileSync(join(dir, `${sourcePath}.tlasset`), `${JSON.stringify({ tlasset: 2, id: assetId, kind: 'font', importSettings: {}, labels: [], address: null, record }, null, 2)}\n`);
+    writeFileSync(join(dir, `${sourcePath}.tlasset`), `${JSON.stringify({ tlasset: 3, id: assetId, kind: 'font', importSettings: {}, labels: [], address: null, record }, null, 2)}\n`);
   }
 
   // The project-wide lists content.json holds.

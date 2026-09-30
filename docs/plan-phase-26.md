@@ -190,7 +190,8 @@ at the boundary it changes (Playwright for any editor surface).
 | 26.4 | done 2026-09-30: A storage out of `buildService` (typed readers); resources as files, asset records in their sidecars, `content.json` project-wide only; the index (`queryIndex`); validation of what a command touched (D61); one command's latency flat at full size (§6); environment presets as files (their order in `content.json`). B scenes as files anywhere in the game folder (`<name>.scene.json`), `folder` on every create (editor "new items in"), files added, moved, copied, changed or removed while open taken in by the file check (`importResources`, one undo), lost sidecars put back at the open (D63; D64 open) |
 | 26.5 | done 2026-09-30: no per-project count cap on assets or resources (model, commands, editor, game host, MCP, docs; guarded by `tests/count-caps.test.ts` and `tests/e2e/count-caps.e2e.ts`); `MAX_CONTENT_FILE_BYTES` per file; no project quota (disk space only); manifest at the content file cap; animation keys per model; limits audit (§7; table in `docs/deployment.md`); full bench uncapped on main (§6) |
 | 26.6 | done 2026-09-30: one `audio` kind (Ogg Vorbis/Opus, MP3, WAV integer or float, FLAC; any channels, rate, bits, length; the 32 MiB file cap only); header inspection per format; load type and preload in the sidecar (`setAssetOptions`), defaults by length, carried in the manifest; `music` and short-sound records upgraded on open (v4 and earlier v5, ids kept, replays answered); browser gaps as a Problem; asset inspector shows the facts and settings; e2e `audio-kinds` |
-| 26.7–26.14 | — |
+| 26.7 | done 2026-09-30: an address and labels on any asset (on its record, in its sidecar, format 3) or resource (in its resource file, beside the record); `setLabels {items: [{kind, id}], add?, remove?}` and `setAddress {kind, id, address}` (unique project-wide), one command and one undo however many items; the Assets tab labels a multi-selection and its side panel sets one asset's address and labels; MCP commands and index filters (`address`, `loadable`); loadable assets and materials ship with Play and export though no scene references them, and the manifest lists them (`loadable`); a script naming a non-loadable asset is a Problem; on open, older projects' script-named assets get the label `script-named` (reported in Problems and `upgrade-report.json`); e2e `loadable` |
+| 26.8–26.14 | — |
 
 ## 6. Measurements
 
@@ -952,6 +953,67 @@ Proposed targets for "Done when" (fixed in 26.14 from these numbers):
   The M3 contract fixtures (`fixtures/m3/contracts`) now hold the one-kind
   record; `captureManifestV2` takes a supplied recipe table as the table
   (as it does engine pins) so the M3 manifest example keeps its bytes.
+- 2026-09-30 (26.7): what the 25.7c scan was. It never chose what builds
+  include: it only refused `deleteAsset`/`deletePrefab` while a script's
+  string literal named the id. An asset a script names only by id (a visual
+  script's Play sound, `ctx.audio.play("thud")`) was in no Play or export
+  build unless a scene, prefab or declared property referenced it (D65). The
+  scan now also feeds a Problem (`script_names_unloadable_asset`, checked on
+  load and after a script, library, label or asset change, literals cached
+  by source digest), and keeps refusing the delete. The upgrade labels such
+  assets `script-named`, so they ship from now on; nothing that shipped
+  stops shipping.
+- 2026-09-30 (26.7): the commands. `setLabels {items: [{kind, id}], add?,
+  remove?}` and `setAddress {kind, id, address: string | null}` (the set/
+  noun vocabulary of `setTags`, `setAssetOptions`); an item's kind is
+  `asset` (or the asset's own kind, as the index lists it) or a resource kind,
+  since an asset and a resource may share an id. One change type per op
+  (`items: [{kind, id, previous, next}]`, only the items that changed), one
+  undo; no count limit on items (the 64 KiB request bounds one request, about
+  1,500 items).
+- 2026-09-30 (26.7): where the names live. An asset's address joins its
+  labels on the catalog record (sidecar format 3: the record holds the
+  address; a 2's address sat beside the record). A resource's address and
+  labels sit in its resource file beside `data` (`{tlresource: 1, kind, id,
+  address?, labels?, data}`; a file without them is byte-identical), and in
+  the session in `content.loadable` (`[{kind, id, address?, labels?}]`),
+  which `content.json` never holds: so no resource's own record, validator or
+  set-command changes, and replacing a record keeps its names. An entry
+  outlives its deleted resource while the project is open (undoing the delete
+  brings the names back) and counts for nothing then (uniqueness, index,
+  builds). Address syntax: the label characters, up to 128.
+- 2026-09-30 (26.7): uniqueness. The command refuses an address another
+  asset or resource has, naming it ("an address is unique project-wide: … is
+  already the address of asset x"); the content validation checks the same
+  across assets and live resources, so a hand-edited duplicate names both.
+- 2026-09-30 (26.7): what ships. The closure (`content-closure.ts`) passes
+  the loadable asset ids to the content view (`captureContentViewV3`'s
+  `include`), adds loadable materials to the used set (the one resource kind
+  a build otherwise trims), and gives `captureManifestV2` the rows for the
+  runtime catalog: a new optional manifest key `loadable` (`[{kind, id,
+  address?, labels?}]`, assets with their asset kind, only what the build
+  holds; absent when empty, so other manifests keep their bytes). 26.9 moves
+  it into the catalog files; 26.10's `ctx.assets.load` resolves by it.
+- 2026-09-30 (26.7): the upgrade's marker is the sidecar format: assets read
+  from format-2 sidecars, or every asset of a project whose assets or
+  resources the open still moves into files, are checked once; a script
+  literal naming one without an address or a label gives it `script-named`
+  (a new revision only when a record changed), the sidecars are written as
+  format 3 in the same transaction, the note goes to Problems
+  (`project_upgraded`) and the list into `upgrade-report.json`
+  (`scriptNamed`). Removing the label later is kept. Assets whose bytes are
+  stored (no file, no sidecar) are not checked. The scale generator writes
+  format 3 (generator version 6).
+- 2026-09-30 (26.7): the editor. The Assets tab's side panel is the asset's
+  inspector (the Inspector dock shows entities): address field, label chips
+  with ×, an "add label" field; Ctrl/Cmd-click and Shift-click choose several
+  tiles and a bar labels them all in one command. Resources get their names
+  through the commands and MCP for now; 26.13's project window lists
+  resources and sets them there. `App.tsx` lost the model options to
+  `ModelAssetOptions.tsx` before it gained its two lines.
+- 2026-09-30 (26.7): a resource file's address or labels edited by hand
+  while the project is open are not taken in by the file check (it reloads
+  the record, not the names beside it); the next open reads them (D66).
 - 2026-09-30 (26.6): test fixtures: no ffmpeg on the host, but Blender's
   audaspace writes FLAC, 5.1 Vorbis and 24-bit WAV
   (`fixtures/music/make-music.py`, checked in with their base64 bundle);

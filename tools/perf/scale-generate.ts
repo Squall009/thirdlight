@@ -35,14 +35,14 @@ import {
 } from '@thirdlight/asset-pipeline';
 
 import { audioLoadOf } from '@thirdlight/project-model';
-import { CONTENT_STORAGE_VERSION, defaultResourcePath, RESOURCE_KINDS, resourceFileBytes } from '@thirdlight/workspace';
+import { CONTENT_STORAGE_VERSION, defaultResourcePath, RESOURCE_KINDS, resourceFileBytes, SIDECAR_FORMAT } from '@thirdlight/workspace';
 
 import { sphereGlb } from './assets';
 import { prng } from './generate';
 import { opusVoice, pcmWav, scalePng } from './scale-media';
 
 /** Bump when the generated content changes (it keys cached projects and recorded numbers). */
-export const SCALE_GENERATOR_VERSION = 5;
+export const SCALE_GENERATOR_VERSION = 6;
 export const SCALE_DEFAULT_SEED = 26;
 
 export interface ScaleSpec {
@@ -247,7 +247,7 @@ export function generateScaleProject(dataRoot: string, projectId: string, spec: 
       ...options,
     };
     // The sidecar holds the record (the project reads its assets from the sidecars).
-    writeFileSync(join(dir, `${sourcePath}.tlasset`), `${layout({ tlasset: 2, id: assetId, kind, importSettings: kind === 'audio' ? { ...audioLoadOf(record) } : {}, labels: [], address: null, record })}\n`);
+    writeFileSync(join(dir, `${sourcePath}.tlasset`), `${layout({ tlasset: SIDECAR_FORMAT, id: assetId, kind, importSettings: kind === 'audio' ? { ...audioLoadOf(record) } : {}, labels: [], address: null, record })}\n`);
     assets.push(record);
   };
   const rnd = prng(seed * 2654435761);

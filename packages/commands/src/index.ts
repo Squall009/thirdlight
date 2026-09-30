@@ -121,6 +121,13 @@ export type {
   DeleteAssetArgs,
   ImportAssetsArgs,
   ImportAssetsChange,
+  LoadableItemRef,
+  LoadingItemChange,
+  LoadingValue,
+  SetAddressArgs,
+  SetLabelsArgs,
+  SetLoadingChange,
+  SetLoadingInverse,
   ImportResourcesChange,
   PreparedResourceImport,
   PreparedResourceRecord,
@@ -242,3 +249,4 @@ export { CREATE_ENTITIES_MAX } from './ops';
 // A catalog record from import facts (the host rebuilds a lost sidecar's record the way an import makes one).
 export { createdAssetRecord } from './content-ops';
 export { validatePublishAssetArgs } from './validate-content-args';
+export { withLoadingValues } from './loadable-ops';

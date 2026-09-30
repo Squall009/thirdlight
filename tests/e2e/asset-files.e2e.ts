@@ -54,7 +54,7 @@ test('an imported file has a sidecar; renamed outside the editor with it, "check
   expect(readFileSync(file)).toEqual(readFileSync(GLB));
   // The sidecar holds the asset's record: content.json keeps the project-wide settings only.
   const sidecar = JSON.parse(readFileSync(`${file}.tlasset`, 'utf8')) as { tlasset: number; id: string; kind: string; record: { assetId: string } };
-  expect(sidecar).toMatchObject({ tlasset: 2, kind: 'model' });
+  expect(sidecar).toMatchObject({ tlasset: 3, kind: 'model' });
   expect(sidecar.record.assetId).toBe(sidecar.id);
   const content = JSON.parse(readFileSync(join(be.projectDir, 'content.json'), 'utf8')) as { content: { assets: { assetId: string }[] } };
   expect(content.content.assets).toEqual([]);

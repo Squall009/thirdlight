@@ -350,6 +350,8 @@ export interface AssetRecordV3 {
   clipsFor?: string;
   /** The labels a script may load the asset by (ascending, unique; absent = none). */
   labels?: string[];
+  /** The name a script may load the asset by (unique in the project; absent = none). */
+  address?: string;
   /** Audio only: how the file is held when played (absent: the default for its length). */
   loadType?: import('./audio-assets').AudioLoadType;
   /** Audio only: false = read only when played (absent: read with the scene that uses it). */
@@ -428,6 +430,8 @@ export interface ContentCatalogV4 extends Omit<ContentCatalogV3, 'game'> {
   speakers?: import('./dialogue').DialogueSpeaker[];
   /** Dialogue engine settings (absent = the defaults). */
   dialogueSettings?: import('./dialogue').DialogueSettings;
+  /** The resources a script may load by address or label (their resource files hold them; absent = none). */
+  loadable?: import('./loadable').LoadableEntry[];
 }
 
 /** One scene in the project's scene index. */

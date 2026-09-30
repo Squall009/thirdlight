@@ -56,6 +56,8 @@ import {
   PROJECT_SCHEMA_VERSION_V25,
   isUpgradedProjectSchemaVersion,
   upgradeAudioAssets,
+  canonicalLoadable,
+  type LoadableEntry,
   upgradeProjectDocsV24,
   upgradeProjectDocsV25,
   parseDocumentBytes,
@@ -79,8 +81,8 @@ import { snapshotForeignBytes } from './recovery';
 import { pointerSegment, type LoadDetail, type UnavailableReason } from './errors';
 import { writeAtomic, type WriteOps } from './write';
 import { layoutProjectJson } from './project-json';
-import { fileOfRecord, parseSidecar, PROJECT_OWN_ENTRIES, sidecarBytes, sidecarOf, sidecarPath, type RecordLike } from './asset-files';
-import { ENV_PRESETS, gamePathOf, gameRel, isResourcePath, SIDECAR_SUFFIX, parseResourceFile, recordsOfKind, RESOURCE_KINDS, RESOURCE_LISTS, resourceFileBytes, resourceStem, scanResourceFiles, defaultResourcePath } from './resource-files';
+import { fileOfRecord, parseSidecar, PROJECT_OWN_ENTRIES, SIDECAR_FORMAT_PRE_ADDRESS, sidecarBytes, sidecarOf, sidecarPath, type RecordLike } from './asset-files';
+import { ENV_PRESETS, gamePathOf, gameRel, isResourcePath, SIDECAR_SUFFIX, parseResourceFile, recordsOfKind, RESOURCE_KINDS, RESOURCE_LISTS, resourceFileBytes, resourceStem, scanResourceFiles, defaultResourcePath, type ResourceLoading } from './resource-files';
 
 export const CONTENT_REL = 'content.json';
 export const MANIFEST_REL_V4 = 'project.json';
@@ -169,7 +171,8 @@ export const CONTENT_STORAGE_VERSION = 5;
 export function projectWidePart(content: ContentCatalogV4): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(content)) {
-    if (RESOURCE_LISTS.has(key)) continue;
+    // The resource lists, and the resources' addresses and labels, are the resource files.
+    if (RESOURCE_LISTS.has(key) || key === LOADABLE_KEY) continue;
     out[key] = key === 'assets' ? storedAssets(content.assets) : key === 'environment' ? environmentPart(content.environment) : value;
   }
   return out;
@@ -198,14 +201,11 @@ function storedAssets(assets: ContentCatalogV4['assets']): readonly unknown[] {
   return out;
 }
 
-/** An asset record's sidecar write (null: its bytes are stored, it has no file); the address is kept from the sidecar before. */
-export function sidecarWrite(record: RecordLike, known: Pick<ReadonlyMap<string, KnownFile>, 'get'>): FileWrite | null {
+/** An asset record's sidecar write (null: its bytes are stored, it has no file). */
+export function sidecarWrite(record: RecordLike): FileWrite | null {
   const file = fileOfRecord(record);
   if (file === null) return null;
-  const rel = gameRel(sidecarPath(file));
-  const before = known.get(rel);
-  const keep = before === undefined ? null : parseSidecar(before.bytes);
-  return { rel, bytes: sidecarBytes(sidecarOf(record, keep !== null && keep.id === record.assetId ? keep : null)) };
+  return { rel: gameRel(sidecarPath(file)), bytes: sidecarBytes(sidecarOf(record)) };
 }
 
 /**
@@ -240,14 +240,25 @@ export function absOf(dir: string, gameRoot: string, rel: string): string {
   return game === null ? join(dir, rel) : join(gameRoot, ...game.split('/'));
 }
 
+/** The content block key of the resources' addresses and labels (their files hold them). */
+export const LOADABLE_KEY = 'loadable';
+
+/** Each resource's address and labels by `kind:id` (the content block's `loadable` entries). */
+export function loadingByKey(content: unknown): Map<string, ResourceLoading> {
+  const out = new Map<string, ResourceLoading>();
+  for (const e of (content as { loadable?: LoadableEntry[] } | null)?.loadable ?? []) out.set(`${e.kind}:${e.id}`, { ...(e.address !== undefined ? { address: e.address } : {}), ...(e.labels !== undefined ? { labels: e.labels } : {}) });
+  return out;
+}
+
 /** The resource files of a content block (the records of every resource list, and each asset's sidecar), at their known paths or new default ones. */
-export function resourceFilesOf(content: ContentCatalogV4, paths: ResourcePaths, known: ReadonlyMap<string, KnownFile> = new Map()): { writes: FileWrite[]; paths: Map<string, Map<string, string>> } {
+export function resourceFilesOf(content: ContentCatalogV4, paths: ResourcePaths): { writes: FileWrite[]; paths: Map<string, Map<string, string>> } {
   const writes: FileWrite[] = [];
   for (const a of content.assets as unknown as RecordLike[]) {
-    const w = sidecarWrite(a, known);
+    const w = sidecarWrite(a);
     if (w !== null) writes.push(w);
   }
   const out = new Map<string, Map<string, string>>();
+  const loading = loadingByKey(content);
   for (const k of RESOURCE_KINDS) {
     const list = recordsOfKind(content, k);
     const byId = new Map<string, string>();
@@ -257,7 +268,7 @@ export function resourceFilesOf(content: ContentCatalogV4, paths: ResourcePaths,
       const id = String(record[k.idKey]);
       const path = paths.get(k.list)?.get(id) ?? defaultResourcePath(k, id);
       byId.set(id, path);
-      writes.push({ rel: gameRel(path), bytes: resourceFileBytes(k, id, record) });
+      writes.push({ rel: gameRel(path), bytes: resourceFileBytes(k, id, record, loading.get(`${k.kind}:${id}`)) });
     }
   }
   return { writes, paths: out };
@@ -363,7 +374,14 @@ export type LoadV4Outcome =
    * files; `resourceFiles`: its resources are still inside `content.json`
    * (a layout change only: `documents` says the documents changed too).
    */
-  | { kind: 'loaded'; state: V4State; upgraded?: { notes: string[]; documents?: true; assetFiles?: true; resourceFiles?: true }; skipped?: { path: string; message: string }[] }
+  | {
+      kind: 'loaded';
+      state: V4State;
+      upgraded?: { notes: string[]; documents?: true; assetFiles?: true; resourceFiles?: true };
+      skipped?: { path: string; message: string }[];
+      /** The assets read from sidecars written before the record held the address (id → the address beside it, or null). */
+      preAddressSidecars?: Map<string, string | null>;
+    }
   | { kind: 'blocked'; reason: UnavailableReason; errors: readonly LoadDetail[]; count: number };
 
 function blocked(reason: UnavailableReason, errors: LoadDetail[]): LoadV4Outcome {
@@ -455,11 +473,13 @@ export function loadV4(ops: WriteOps, dir: string, projectId: string, gameRoot: 
   // The resources: their own files in the game folder, or (an older content.json) still inside it.
   const resourcePaths = new Map<string, Map<string, string>>();
   const skipped: { path: string; message: string }[] = [];
+  let preAddressSidecars: Map<string, string | null> | undefined;
   if (scan !== null) {
     const joined = joinResourceFiles(ops, gameRoot, scan, contentDoc, files, resourcePaths);
     if (!joined.ok) return blocked(joined.error.code as UnavailableReason, [joined.error]);
     contentDoc = joined.content;
     skipped.push(...joined.skipped);
+    if (joined.preAddress.size > 0) preAddressSidecars = joined.preAddress;
   }
   const fromVersion = man.value['schemaVersion'];
   if (fromVersion === PROJECT_SCHEMA_VERSION_UPGRADED) {
@@ -536,6 +556,7 @@ export function loadV4(ops: WriteOps, dir: string, projectId: string, gameRoot: 
     state: { manifest: v.normalized.manifest, content: v.normalized.content, scenes, revision, files, fileRecords, resourcePaths, scenePaths },
     ...(upgraded !== undefined ? { upgraded } : {}),
     ...(skipped.length > 0 ? { skipped } : {}),
+    ...(preAddressSidecars !== undefined ? { preAddressSidecars } : {}),
   };
 }
 
@@ -594,19 +615,21 @@ function joinResourceFiles(
   contentDoc: unknown,
   files: Map<string, KnownFile>,
   paths: Map<string, Map<string, string>>,
-): { ok: true; content: unknown; skipped: { path: string; message: string }[] } | { ok: false; error: LoadDetail } {
+): { ok: true; content: unknown; skipped: { path: string; message: string }[]; preAddress: Map<string, string | null> } | { ok: false; error: LoadDetail } {
   const skipped: { path: string; message: string }[] = [];
-  if (typeof contentDoc !== 'object' || contentDoc === null || Array.isArray(contentDoc)) return { ok: true, content: contentDoc, skipped };
+  const preAddress = new Map<string, string | null>();
+  if (typeof contentDoc !== 'object' || contentDoc === null || Array.isArray(contentDoc)) return { ok: true, content: contentDoc, skipped, preAddress };
   const doc = { ...(contentDoc as Record<string, unknown>) };
   const bad = (path: string, message: string, code = 'envelope_invalid'): { ok: false; error: LoadDetail } => ({ ok: false, error: { code, path, message, expected: 'one valid resource file per project resource' } });
-  for (const key of Object.keys(doc)) if (RESOURCE_LISTS.has(key)) return bad(`/${CONTENT_REL}/content/${key}`, `${CONTENT_REL} holds ${key}: in this layout each is its own file in the game folder`);
+  for (const key of Object.keys(doc)) if (RESOURCE_LISTS.has(key) || key === LOADABLE_KEY) return bad(`/${CONTENT_REL}/content/${key}`, `${CONTENT_REL} holds ${key}: in this layout each resource's is its own file in the game folder`);
+  const loadable: LoadableEntry[] = [];
   const stored = Array.isArray(doc['assets']) ? (doc['assets'] as RecordLike[]) : [];
   for (const [i, a] of stored.entries()) if (typeof a === 'object' && a !== null && Array.isArray(a.versions) && fileOfRecord(a) !== null) return bad(`/${CONTENT_REL}/content/assets/${i}`, `${CONTENT_REL} holds asset ${String(a.assetId)}, which has a file: its sidecar holds it`);
   const lists = new Map<string, Map<string, Record<string, unknown>>>();
   // The assets: each sidecar holds its record. A second sidecar naming the
   // same id is a copy (a file copied with its sidecar): the asset is the one
   // whose record names the file the sidecar stands next to.
-  const assets = new Map<string, { path: string; record: Record<string, unknown>; bytes: Uint8Array; home: boolean }>();
+  const assets = new Map<string, { path: string; record: Record<string, unknown>; bytes: Uint8Array; home: boolean; preAddress?: string | null }>();
   for (const path of scan.sidecars) {
     let bytes: Uint8Array;
     try {
@@ -625,10 +648,11 @@ function joinResourceFiles(
       if (first.home && home) return bad(`/${path}`, `${path} and ${first.path} both hold asset "${doc2.id}" for the same file`, 'id_duplicate');
       if (first.home || !home) continue;
     }
-    assets.set(doc2.id, { path, record, bytes, home });
+    assets.set(doc2.id, { path, record, bytes, home, ...(doc2.tlasset === SIDECAR_FORMAT_PRE_ADDRESS ? { preAddress: doc2.address } : {}) });
   }
-  for (const [, a] of assets) {
+  for (const [id, a] of assets) {
     stored.push(a.record as unknown as RecordLike);
+    if (a.preAddress !== undefined) preAddress.set(id, a.preAddress);
     files.set(gameRel(a.path), { bytes: a.bytes, hash: sha256Hex(a.bytes) });
   }
   doc['assets'] = stored;
@@ -661,7 +685,12 @@ function joinResourceFiles(
       lists.set(r.kind.list, list);
     }
     list.set(r.id, r.data);
+    // A copy that lost to this file leaves its entry behind: this file's (or none) is the resource's.
+    const at = loadable.findIndex((e) => e.kind === r.kind.kind && e.id === r.id);
+    if (at >= 0) loadable.splice(at, 1);
+    if (r.loading !== undefined) loadable.push({ kind: r.kind.kind, id: r.id, ...r.loading });
   }
+  if (loadable.length > 0) doc[LOADABLE_KEY] = canonicalLoadable(loadable);
   for (const k of RESOURCE_KINDS) {
     if (k.list === ENV_PRESETS) continue;
     const list = lists.get(k.list);
@@ -685,7 +714,7 @@ function joinResourceFiles(
     const rest = [...byId.values()].sort((a, b) => (String(a['presetId']) < String(b['presetId']) ? -1 : 1));
     doc['environment'] = { ...(typeof env === 'object' && env !== null ? (env as Record<string, unknown>) : {}), presets: [...listed, ...rest] };
   }
-  return { ok: true, content: doc, skipped };
+  return { ok: true, content: doc, skipped, preAddress };
 }
 
 /**

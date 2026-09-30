@@ -176,6 +176,8 @@ export function queryAssets(
     if (clipsFor !== undefined) summary.clipsFor = clipsFor;
     const labels = (a as { labels?: string[] }).labels;
     if (labels !== undefined) summary.labels = [...labels];
+    const address = (a as { address?: string }).address;
+    if (address !== undefined) summary.address = address;
     if (current?.convertedFrom !== undefined) {
       summary.convertedFrom = { format: current.convertedFrom.format, ...(current.convertedFrom.sourcePath !== undefined ? { sourcePath: current.convertedFrom.sourcePath } : {}), ...(current.convertedFrom.encoding !== undefined ? { encoding: current.convertedFrom.encoding } : {}) };
     }

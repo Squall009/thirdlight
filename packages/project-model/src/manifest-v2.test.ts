@@ -111,12 +111,12 @@ describe('manifest-v2: captureManifestV2 assembly', () => {
     if (!res.ok) return;
     const keys = Object.keys(res.manifest);
     // `tags` is present only when the project defines tags.
-    expect(keys).toEqual(MANIFEST_KEYS_V2.filter((k) => k !== 'tags' && k !== 'effects' && k !== 'environment' && k !== 'lighting' && k !== 'animators' && k !== 'rigs' && k !== 'prefabs' && k !== 'blockTypes' && k !== 'cellFields' && k !== 'input' && k !== 'collisionLayers' && k !== 'saveSchema' && k !== 'uiThemes' && k !== 'timelines' && k !== 'eventCues' && k !== 'shell' && k !== 'modes' && k !== 'scenes' && k !== 'contentFiles' && k !== 'libraries'));
+    expect(keys).toEqual(MANIFEST_KEYS_V2.filter((k) => k !== 'tags' && k !== 'effects' && k !== 'environment' && k !== 'lighting' && k !== 'animators' && k !== 'rigs' && k !== 'prefabs' && k !== 'blockTypes' && k !== 'cellFields' && k !== 'input' && k !== 'collisionLayers' && k !== 'saveSchema' && k !== 'uiThemes' && k !== 'timelines' && k !== 'eventCues' && k !== 'shell' && k !== 'modes' && k !== 'scenes' && k !== 'contentFiles' && k !== 'libraries' && k !== 'loadable'));
     expect(keys[keys.length - 1]).toBe('buildId');
     const tagged = captureManifestV2({ ...(v2Input() as object), tags: [{ bit: 3, name: 'walker' }] } as never);
     expect(tagged.ok).toBe(true);
     if (tagged.ok) {
-      expect(Object.keys(tagged.manifest)).toEqual(MANIFEST_KEYS_V2.filter((k) => k !== 'effects' && k !== 'environment' && k !== 'lighting' && k !== 'animators' && k !== 'rigs' && k !== 'prefabs' && k !== 'blockTypes' && k !== 'cellFields' && k !== 'input' && k !== 'collisionLayers' && k !== 'saveSchema' && k !== 'uiThemes' && k !== 'timelines' && k !== 'eventCues' && k !== 'shell' && k !== 'modes' && k !== 'scenes' && k !== 'contentFiles' && k !== 'libraries'));
+      expect(Object.keys(tagged.manifest)).toEqual(MANIFEST_KEYS_V2.filter((k) => k !== 'effects' && k !== 'environment' && k !== 'lighting' && k !== 'animators' && k !== 'rigs' && k !== 'prefabs' && k !== 'blockTypes' && k !== 'cellFields' && k !== 'input' && k !== 'collisionLayers' && k !== 'saveSchema' && k !== 'uiThemes' && k !== 'timelines' && k !== 'eventCues' && k !== 'shell' && k !== 'modes' && k !== 'scenes' && k !== 'contentFiles' && k !== 'libraries' && k !== 'loadable'));
       expect(validateManifestV2(tagged.manifest).ok).toBe(true);
     }
     expect(res.manifest.manifestVersion).toBe(RUNTIME_CONTENT_MANIFEST_VERSION_4);
@@ -203,6 +203,7 @@ describe('manifest-v2: captureManifestV2 assembly', () => {
 function everyOptionalKey(): Record<string, unknown> {
   return {
     tags: [{ bit: 3, name: 'walker' }],
+    loadable: [{ kind: 'audio', id: 'asset-2', address: 'voice/line-1', labels: ['voice'] }, { kind: 'prefab', id: 'pf-a', labels: ['spawnable'] }],
     materials: [{ materialId: 'mat-a', name: 'A', shader: 'standard', params: {}, textures: {} }],
     materialFunctions: [{ graphId: 'fn-a', kind: 'material-function', name: 'Fn', graph: { nodes: [], edges: [] } }],
     effects: [{ effectId: 'fx-a', name: 'Fx', duration: 1, loop: false, seed: 1, bounds: { center: [0, 0, 0], size: [1, 1, 1] }, systems: [{ systemId: 'sys-a', name: 'Sys', maxParticles: 8, space: 'world', graph: { nodes: ['spawn', 'initialize', 'update', 'output'].map((c, i) => ({ id: c, type: c, position: [0, i * 200] })), edges: [] } }] }],
@@ -436,7 +437,7 @@ describe('manifest-v2: version-compat rule', () => {
 
 describe('manifest-v2: contract constants', () => {
   it('the v2 key order carries the six added keys and buildId last', () => {
-    expect(MANIFEST_KEYS_V2).toHaveLength(40); // the blocks that grow with a project (materials, materialFunctions, uiDocuments, dialogue, buffers) are under contentFiles
+    expect(MANIFEST_KEYS_V2).toHaveLength(41); // the blocks that grow with a project (materials, materialFunctions, uiDocuments, dialogue, buffers) are under contentFiles
     expect(MANIFEST_KEYS_V2).not.toContain('gameDigest');
     expect(MANIFEST_KEYS_V2).toContain('settingsDigest');
     expect(MANIFEST_KEYS_V2).toContain('mediaDigest');
