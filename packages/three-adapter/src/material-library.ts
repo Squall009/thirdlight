@@ -65,6 +65,8 @@ import {
 } from './material-graph';
 import { instanceOrigin, standardNodeMaterialFrom } from './node-materials';
 import { decodeKtx2, isKtx2 } from './ktx2';
+import { textureHolds, type TextureHolds } from './texture-holds';
+import type { ResourceManager } from '@thirdlight/runtime';
 
 export type MaterialShaderName = 'standard' | 'foliage' | 'kit' | 'unlit' | 'water';
 
@@ -160,6 +162,12 @@ export interface WindLike {
 export interface MaterialLibraryOptions {
   /** A texture asset's texture (the host decodes the bytes); null when unavailable. */
   loadTexture: (assetId: string) => Promise<THREE.Texture | null>;
+  /**
+   * The resource manager the decoded textures are held in (each built
+   * material holds the ones it draws with; a texture no material holds is
+   * freed). Absent: a manager of the library's own.
+   */
+  resources?: ResourceManager;
   /** Something changed that needs a new frame (a texture arrived, a material was rebuilt). */
   onChange?: () => void;
 }
@@ -194,9 +202,10 @@ export interface MaterialLibrary {
   graphMaterialCount(): number;
   /**
    * Decode texture assets ahead of the materials that use them
-   * (a scene about to load); resolves when each is decoded or unavailable.
+   * (a scene about to load) and hold them until `release`; `ready` resolves
+   * when each is decoded or unavailable.
    */
-  preloadTextures?(textureAssetIds: Iterable<string>): Promise<void>;
+  preloadTextures?(textureAssetIds: Iterable<string>): { readonly ready: Promise<void>; release(): void };
   dispose(): void;
 }
 
@@ -249,6 +258,10 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     m.dispose();
     for (const t of ownTextures.get(m) ?? []) t.dispose();
     ownTextures.delete(m);
+    // The decoded textures it drew with are no longer held by it.
+    const holder = textureHolders.get(m);
+    if (holder !== undefined) holds.releaseHolder(holder);
+    textureHolders.delete(m);
   };
   const releaseKey = (key: string): void => {
     const n = (builtRefs.get(key) ?? 0) - 1;
@@ -263,7 +276,20 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     if (b.animated) animatedCount = Math.max(0, animatedCount - 1);
     disposeBuilt(b.material);
   };
-  const textures = new Map<string, Promise<THREE.Texture | null>>();
+  /** The decoded textures, held per built material (and by the compiled graphs, the preloads). */
+  const holds: TextureHolds = textureHolds(options.resources, options.loadTexture);
+  let holderSerial = 0;
+  const textureHolders = new WeakMap<THREE.Material, string>();
+  const holderOf = (m: THREE.Material): string => {
+    let h = textureHolders.get(m);
+    if (h === undefined) {
+      holderSerial += 1;
+      textureHolders.set(m, (h = `material:${holderSerial}`));
+    }
+    return h;
+  };
+  /** Compiled graphs sample their textures for the library's life (they are shared across materials and objects). */
+  const GRAPH_HOLDER = 'graphs';
   const applied = new Map<THREE.Object3D, { mapping: Readonly<Record<string, string>> | null; overrides: MaterialOverridesLike | null }>();
   let functions = new Map<string, MaterialFunctionLike>();
   let animatedCount = 0;
@@ -276,14 +302,9 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
 
   const defKeyOf = (d: MaterialDefLike): string => JSON.stringify(d);
 
-  const texture = (assetId: string): Promise<THREE.Texture | null> => {
-    let p = textures.get(assetId);
-    if (p === undefined) {
-      p = options.loadTexture(assetId).catch(() => null);
-      textures.set(assetId, p);
-    }
-    return p;
-  };
+  /** A decoded texture, held for the material that draws with it. */
+  const texture = (assetId: string, holder: THREE.Material | string): Promise<THREE.Texture | null> =>
+    holds.get(assetId, typeof holder === 'string' ? holder : holderOf(holder));
 
   /** Give a (loaded) texture its role: colour space, wrapping, the material's tiling. */
   const prepared = (t: THREE.Texture, colour: boolean, def: MaterialDefLike, channel = 0): THREE.Texture => {
@@ -343,7 +364,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     loadSlot(def, m, 'normalMap', 'normalMap', false);
     loadSlot(def, m, 'emissiveMap', 'emissiveMap', true);
     if (def.textures['ormMap'] !== undefined) {
-      void texture(def.textures['ormMap']).then((t) => {
+      void texture(def.textures['ormMap'], m).then((t) => {
         if (t === null || disposed || retired.has(m)) return;
         const orm = ownTexture(m, prepared(t, false, def, 0));
         m.roughnessMap = orm;
@@ -378,7 +399,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
   function loadSlot(def: MaterialDefLike, m: THREE.MeshStandardMaterial | THREE.MeshBasicMaterial, slot: string, key: 'map' | 'normalMap' | 'emissiveMap', colour: boolean): void {
     const id = def.textures[slot];
     if (id === undefined) return;
-    void texture(id).then((t) => {
+    void texture(id, m).then((t) => {
       if (t === null || disposed || retired.has(m)) return;
       (m as unknown as Record<string, THREE.Texture | null>)[key] = ownTexture(m, prepared(t, colour, def, 0));
       refreshNodes(m);
@@ -480,7 +501,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     nodeRefresh.set(m, refresh);
     const macroId = def.textures['macroNormalMap'];
     if (macroId !== undefined) {
-      void texture(macroId).then((t) => {
+      void texture(macroId, m).then((t) => {
         if (t === null || disposed || retired.has(m)) return;
         const c = ownTexture(m, t.clone());
         c.colorSpace = THREE.NoColorSpace;
@@ -545,7 +566,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
 
   const samplerTexture = (assetId: string, sampler: SamplerLike): THREE.Texture | 'loading' | null => {
     if (!loadedTextures.has(assetId)) {
-      void texture(assetId).then((t) => {
+      void texture(assetId, GRAPH_HOLDER).then((t) => {
         if (disposed || loadedTextures.has(assetId)) return;
         loadedTextures.set(assetId, t);
         // Recompile the graphs that drew a fallback while it was on its way.
@@ -725,8 +746,10 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
 
   return {
     preloadTextures(ids) {
-      if (disposed) return Promise.resolve();
-      return Promise.all([...ids].map((id) => texture(id))).then(() => undefined);
+      if (disposed) return { ready: Promise.resolve(), release: () => undefined };
+      holderSerial += 1;
+      const holder = `preload:${holderSerial}`;
+      return { ready: Promise.all([...ids].map((id) => texture(id, holder))).then(() => undefined), release: () => holds.releaseHolder(holder) };
     },
     setMaterials(list, fns) {
       // Instances draw as their resolved material (the editor passes the project's list as is).
@@ -831,9 +854,11 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
       builtRefs.clear();
       for (const e of graphEntries.values()) disposeEntry(e);
       graphEntries.clear();
-      // The sampler copies are the library's (the loaded textures belong to the loader).
+      // The sampler copies are the library's; the decoded textures are the resource manager's.
       for (const t of samplerTextures.values()) t.dispose();
       samplerTextures.clear();
+      holds.releaseHolder(GRAPH_HOLDER);
+      if (options.resources === undefined) holds.resources.dispose();
       applied.clear();
     },
   };

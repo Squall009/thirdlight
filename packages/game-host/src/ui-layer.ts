@@ -21,7 +21,7 @@
  * document's action map becomes the input owner's active map. World-anchored
  * widgets follow an entity or a point through the renderer's camera.
  */
-import type { DialogueInputRecord } from '@thirdlight/runtime';
+import { createResourceManager, type DialogueInputRecord, type ResourceManager } from '@thirdlight/runtime';
 import { UI_LIMITS, applyUiOutputToModel, readUiPath, uiPathSegments, type UiAction, type UiDocument, type UiEventRecord, type UiOutput, type UiShownDocument, type UiStyle, type UiTheme, type UiTween, type UiWidget } from '@thirdlight/runtime';
 import type { UiEdges } from './dom';
 import type { HostDom, HostDomNode } from './dom';
@@ -53,6 +53,11 @@ export interface UiLayerDeps {
   /** The path of an asset `assetPaths` does not name (a build's catalog read as the game needs it). */
   readonly lookupPath?: (assetId: string) => Promise<string | undefined>;
   readonly readArtifact: (path: string) => Promise<ArrayBuffer>;
+  /**
+   * The page's resource manager: the layer's images and fonts are held
+   * there while it exists (absent: a manager of the layer's own).
+   */
+  readonly resources?: ResourceManager;
   /** A UI event for the simulation (the runtime's `queueUiEvent`). */
   readonly queueEvent: (event: UiEventRecord) => void;
   /** A dialogue input for the simulation (the runtime's `queueDialogueInput`). */
@@ -794,6 +799,9 @@ class LayerImpl implements UiLayer {
   private activeMap: string | null | undefined = undefined;
   private readonly images = new Map<string, { url: string | null; w: number; h: number; pending: boolean }>();
   private readonly fonts = new Map<string, { face: unknown; loaded: boolean }>();
+  /** Where the images (object URLs) and font faces are held, and this layer's holder name there. */
+  private readonly resources: ResourceManager;
+  private readonly holder: string;
   private disposed = false;
   readonly cssAssets: CssAssets;
   private readonly out: number[] = [0, 0, 0];
@@ -801,6 +809,9 @@ class LayerImpl implements UiLayer {
 
   constructor(readonly deps: UiLayerDeps) {
     this.dom = deps.dom;
+    this.resources = deps.resources ?? createResourceManager({ schedule: (run) => queueMicrotask(run) });
+    layerSerial += 1;
+    this.holder = `ui${layerSerial}`;
     this.annotate = deps.annotate === true;
     this.docs = new Map(deps.documents.map((d) => [d.uiDocumentId, d] as const));
     this.themes = new Map((deps.themes ?? []).map((t) => [t.uiThemeId, t] as const));
@@ -849,12 +860,16 @@ class LayerImpl implements UiLayer {
     if (known !== undefined) return known.url;
     const entry = { url: null as string | null, w: 0, h: 0, pending: true };
     this.images.set(assetId, entry);
-    const urls = (globalThis as { URL?: { createObjectURL?: (b: Blob) => string } }).URL;
+    const urls = (globalThis as { URL?: { createObjectURL?: (b: Blob) => string; revokeObjectURL?: (u: string) => void } }).URL;
     if (typeof urls?.createObjectURL !== 'function' || typeof Blob !== 'function') return null;
-    void this.bytesOf(assetId).then(
-      (buffer) => {
-        if (this.disposed || buffer === undefined) return;
-        entry.url = urls.createObjectURL!(new Blob([buffer]));
+    void this.resources.acquire<string>('image', assetId, this.holder, async () => {
+      const buffer = await this.bytesOf(assetId);
+      if (buffer === undefined) throw new Error(`image ${assetId} is not in this build`);
+      return { value: urls.createObjectURL!(new Blob([buffer])), bytes: buffer.byteLength, free: (u) => urls.revokeObjectURL?.(u) };
+    }).then(
+      (url) => {
+        if (this.disposed) return;
+        entry.url = url;
         entry.pending = false;
         // The natural size (sprite icons are cut out of it).
         const Img = (globalThis as { Image?: new () => { src: string; naturalWidth: number; naturalHeight: number; onload: (() => void) | null } }).Image;
@@ -895,20 +910,22 @@ class LayerImpl implements UiLayer {
     const FF = (globalThis as { FontFace?: new (family: string, source: ArrayBuffer) => { load(): Promise<unknown> } }).FontFace;
     const set = (this.dom as unknown as { fonts?: { add(f: unknown): void; delete(f: unknown): void } }).fonts;
     if (FF === undefined || set === undefined) return;
-    void this.bytesOf(assetId).then(
-      (buffer) => {
-        if (this.disposed || buffer === undefined) return;
-        const face = new FF(fontFamilyOf(assetId), buffer);
+    void this.resources.acquire<unknown>('font', assetId, this.holder, async () => {
+      const buffer = await this.bytesOf(assetId);
+      if (buffer === undefined) throw new Error(`font ${assetId} is not in this build`);
+      const face = new FF(fontFamilyOf(assetId), buffer);
+      await face.load();
+      set.add(face);
+      return { value: face, bytes: buffer.byteLength, free: (f) => set.delete(f) };
+    }).then(
+      (face) => {
+        if (this.disposed) return;
         entry.face = face;
-        return face.load().then(() => {
-          if (this.disposed) return;
-          set.add(face);
-          entry.loaded = true;
-          this.root.setAttribute?.('data-fonts', [...this.fonts].filter(([, f]) => f.loaded).map(([id]) => id).sort().join(','));
-        });
+        entry.loaded = true;
+        this.root.setAttribute?.('data-fonts', [...this.fonts].filter(([, f]) => f.loaded).map(([id]) => id).sort().join(','));
       },
       () => undefined,
-    ).catch(() => undefined);
+    );
   }
 
   private assetsChanged(): void {
@@ -1427,16 +1444,19 @@ class LayerImpl implements UiLayer {
     this.hud = [];
     this.screen = null;
     this.root.remove();
-    const docLike = this.dom as unknown as { adoptedStyleSheets?: unknown[]; fonts?: { delete(f: unknown): void } };
+    const docLike = this.dom as unknown as { adoptedStyleSheets?: unknown[] };
     if (this.baseSheet !== null && Array.isArray(docLike.adoptedStyleSheets)) docLike.adoptedStyleSheets = docLike.adoptedStyleSheets.filter((x) => x !== this.baseSheet);
-    const urls = (globalThis as { URL?: { revokeObjectURL?: (u: string) => void } }).URL;
-    for (const img of this.images.values()) if (img.url !== null) urls?.revokeObjectURL?.(img.url);
+    // The images and font faces are let go (freed once no one else holds them).
     this.images.clear();
-    for (const f of this.fonts.values()) if (f.face !== null) docLike.fonts?.delete(f.face);
     this.fonts.clear();
+    this.resources.releaseHolder(this.holder);
+    if (this.deps.resources === undefined) this.resources.dispose();
     if (this.activeMap !== null && this.activeMap !== undefined) this.deps.setActiveMaps?.(null);
   }
 }
+
+/** Names each layer's holder apart (a Play page and an editor preview may each have one). */
+let layerSerial = 0;
 
 /** Create the project UI layer (see the module comment). */
 export function createUiLayer(deps: UiLayerDeps): UiLayer {

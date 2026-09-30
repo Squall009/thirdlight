@@ -802,6 +802,10 @@ export function validateGameObservation(value: unknown): FieldErrorResult {
   if (value.health !== undefined && (!isPlainObject(value.health) || Object.keys(value.health).length > 64 || !Object.values(value.health).every((x) => isPlainObject(x) && typeof x['current'] === 'number' && typeof x['max'] === 'number'))) {
     return fieldError('field_type', '/health', 'health maps object ids to { current, max } (at most 64)');
   }
+  // What is loaded from assets (resident count and bytes per kind, loads, frees, handles).
+  if (value.resources !== undefined && (!isPlainObject(value.resources) || !isPlainObject(value.resources['resident']))) {
+    return fieldError('field_type', '/resources', 'resources is { resident: { kind: { count, bytes } }, loading, loads, frees, failed, waiting, handles }');
+  }
   // The engine has no game-session block; a `legacy` field is rejected.
   if (value.legacy !== undefined) return fieldError('field_unexpected', '/legacy', 'the legacy game-session block was removed in phase 24');
   // Optional animator states (entity id → state name).

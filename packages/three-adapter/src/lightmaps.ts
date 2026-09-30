@@ -21,6 +21,7 @@ import { materialLightMap, uniform } from 'three/tsl';
 import { IrradianceNode } from 'three/webgpu';
 
 import { copyMaterialKeepingHooks, isNodeMaterial, toNodeMaterial, withoutAmbientLight } from './node-materials';
+import { textureHolds, type TextureHolds } from './texture-holds';
 
 /** A bake as the manifest carries it (project-model `LightingBake`, structurally). */
 export interface LightingBakeLike {
@@ -234,9 +235,11 @@ export interface LightmapSet {
  */
 export function createLightmapSet(
   bakes: Readonly<Record<string, LightingBakeLike>>,
-  loadTexture: (assetId: string) => Promise<THREE.Texture | null>,
+  /** The atlases, held per lightmapped object (a loader alone: held in a manager of the set's own). */
+  source: TextureHolds | ((assetId: string) => Promise<THREE.Texture | null>),
   ambientBaked: (lightIds: readonly string[]) => boolean,
 ): LightmapSet {
+  const holds = typeof source === 'function' ? textureHolds(undefined, source) : source;
   // Entities by id; block-layer chunks by `<layer>#<cx>,<cz>` (never a valid entity id).
   const entries = new Map<string, { bake: LightingBakeLike; atlas: string; scaleOffset: readonly number[]; layout?: string }>();
   const chunkLayers = new Set<string>();
@@ -253,7 +256,6 @@ export function createLightmapSet(
       } else entries.set(e.entityId, { bake, atlas, scaleOffset: e.scaleOffset });
     }
   }
-  const textures = new Map<string, Promise<THREE.Texture | null>>();
   const undo = new Map<string, () => void>();
   const refreshers = new Map<string, () => void>();
   /** The lightmapped copies per entity, the look multiplier and its shared tint uniform. */
@@ -263,20 +265,14 @@ export function createLightmapSet(
   const pending = new Map<string, number>();
   let generation = 0;
   let disposed = false;
-  const texture = (assetId: string): Promise<THREE.Texture | null> => {
-    let t = textures.get(assetId);
-    if (t === undefined) {
-      t = loadTexture(assetId).catch(() => null);
-      textures.set(assetId, t);
-    }
-    return t;
-  };
+  /** An object's atlas, held while its lightmap is on (the lightmap is a copy of it, the object's own). */
   const release = (entityId: string): void => {
     pending.delete(entityId);
     undo.get(entityId)?.();
     undo.delete(entityId);
     refreshers.delete(entityId);
     copiesOf.delete(entityId);
+    holds.releaseHolder(entityId);
   };
   const set: LightmapSet = {
     isBakedLight: (id) => bakedLights.has(id),
@@ -297,7 +293,7 @@ export function createLightmapSet(
       release(entityId);
       const ticket = ++generation;
       pending.set(entityId, ticket);
-      void texture(entry.atlas).then((tex) => {
+      void holds.get(entry.atlas, entityId).then((tex) => {
         if (disposed || tex === null || pending.get(entityId) !== ticket) return;
         pending.delete(entityId);
         const applied = applyLightmapTracked(root, tex, entry.scaleOffset, entry.bake.range, { ignoreAmbient: ambientBaked(entry.bake.bakedLights), tint, intensity: lookIntensity });
@@ -319,8 +315,8 @@ export function createLightmapSet(
     dispose() {
       disposed = true;
       for (const id of [...undo.keys()]) release(id);
-      for (const t of textures.values()) void t.then((x) => x?.dispose());
-      textures.clear();
+      for (const id of [...pending.keys()]) release(id);
+      if (typeof source === 'function') holds.resources.dispose();
     },
   };
   return set;

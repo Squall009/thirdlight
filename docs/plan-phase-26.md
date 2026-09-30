@@ -193,7 +193,8 @@ at the boundary it changes (Playwright for any editor surface).
 | 26.7 | done 2026-09-30: an address and labels on any asset (on its record, in its sidecar, format 3) or resource (in its resource file, beside the record); `setLabels {items: [{kind, id}], add?, remove?}` and `setAddress {kind, id, address}` (unique project-wide), one command and one undo however many items; the Assets tab labels a multi-selection and its side panel sets one asset's address and labels; MCP commands and index filters (`address`, `loadable`); loadable assets and materials ship with Play and export though no scene references them, and the manifest lists them (`loadable`); a script naming a non-loadable asset is a Problem; on open, older projects' script-named assets get the label `script-named` (reported in Problems and `upgrade-report.json`); e2e `loadable` |
 | 26.8 | done 2026-09-30: a file's digest checked once per change (stamps in memory and in `cache/imported/file-stamps.json`, a restart hashes nothing unchanged); Play serves assets and instance buffers from disk at their digest URLs, verified while sent (a changed file refused, or cut short, and re-checked); the 512 MiB Play set cap gone (per held file only); record lookups and query pages from indexes, the integrity report paged (`limit`, `offset`, `problems`); the check before Play and export takes changed files in; full-size Play 9.0 → 2.8 s (§6); D67 logged, D68 fixed; e2e `play-files` |
 | 26.9 | done 2026-09-30. A: runtime content manifest 5 (identity, settings, start scenes, the catalog's location; ~1.7 KB at any size); the catalog (root, block files in parts, entry shards by id with address, labels and dependencies, a dependency file per scene) read lazily by the game page (`openRuntimeContent`: a scene load reads its file and its dependency file, an unnamed id its one shard); a v4 build read the same way (fixture `legacy-v4-build`); D67 fixed; an asset property's default ships; the content view no longer validates or hashes what the model did; e2e `manifest-keys`, integration `m26-catalog`. B: the export copies assets and buffers from disk one at a time, hashed while copied (the 26.8 serving path), into a temp directory renamed into place (a failure leaves nothing); the bundle names no artifact (one relative reader by row path); one game page (`game-host/game-page`) starts Play and exports, their differences injected; full export 7.7 → 5.2 s, growth +171 → +104 MiB; HTTP test `export-streaming` |
-| 26.10–26.14 | — |
+| 26.10 | A done 2026-09-30: one resource manager per game page (runtime `createResourceManager`, held by the game host and settled after each frame) for verified bytes, models, animation-only clips, textures, decoded audio, fonts, UI and glyph images, environment maps and effect models; each freed when its last holder (entity, scene being prepared, material, voice, UI layer…) went, a same-step transition keeps what both scenes use; the store forgets freed models; the decoded-music LRU replaced; scene preparation and read-ahead through it; the Scene view's models and material textures through its own manager; `resources` in `tl_game_observe` and Play diagnostics (handles slot for B); 50-scene walk: resident bytes of every kind back to zero, heap +50 → +5 MiB at full (§6); e2e `resource-manager`. B: scripts' handles (`ctx.assets`), per-scene prefabs |
+| 26.11–26.14 | — |
 
 ## 6. Measurements
 
@@ -464,6 +465,40 @@ with the asset count is the closure's metadata that Play's start also builds
 catalog files held until written; Play's start at full peaks at 458 MiB
 too). The output is 3 MB smaller: the page bundle no longer carries every
 path (it is now the same bytes for any project with the same modules).
+
+After 26.10 A (the resource manager; `--steps open,play,walk --gpu`, the
+same session on the GPU host: before = `8fab4d51` built as is, after = the
+working tree with this change, both with the bench reporting the resource
+manager when there is one; reports `scale-{x0.1,full}-2026-09-30T09-0*`;
+heap after a collection, MiB):
+
+| | ×0.1 (29 scenes) before / after | full (50 scenes) before / after |
+|---|---|---|
+| walk: heap before → most → after | 51.4 → 66.2 → 65.5 / 47.6 → 53.6 → 51.5 | 61.1 → 112.7 → 111.5 / 57.3 → 64.6 → 62.5 |
+| walk: heap growth over the walk | +14.1 / +3.9 | +50.4 / +5.2 |
+| walk: resident KiB per kind before → most → after (the manager) | not observable / model 0 → 78.9 → 0; texture 0 → 1,024 → 0 | not observable / model 0 → 75.3 → 0; texture 0 → 960 → 0 |
+| walk: loads = frees (bytes / model / texture) | – / 1,800 / 500 / 1,300 each | – / 3,060 / 850 / 2,210 each |
+| walk: asset bytes read | 6.0 / 15.6 MiB | 26.6 / 26.6 MiB |
+| walk: scene load request → drawn p50 / p95 (ms) | 68 / 86 — 119 / 144 | 120 / 138 — 120 / 128 |
+| walk: live GPU textures before → loaded → after | 4 → 50 → 5 / 4 → 50 → 5 | 4 → 49 → 5 / 4 → 49 → 5 |
+| Play: click → first frame (ms) | 709 / 782 | 2,199 / 2,329 |
+
+Walking frees what each scene used: after every unload the resident bytes of
+each kind are back at the start's (zero here: the start scene draws nothing
+from assets), and every load has its free. The heap growth that remains
+(+3.9 / +5.2 MiB) is, by a heap snapshot diff before and after the ×0.1 walk
+(+4.1 MiB), V8's compiled code (+2.5 MiB, the node programs' JavaScript
+warming up) and strings and catalog rows read (the catalog keeps the rows and
+dependency lists it read, a few KiB per scene); no parsed file, material,
+texture or buffer is left. The first run of this change still grew +26.7 MiB
+at full: the visual resource store kept each freed model reachable through
+its last load's handle (200 `GLTFParser`s alive after the ×0.1 walk); the
+store now forgets it (§7). What freeing costs: a model or texture a later
+scene uses again is read (from the HTTP cache) and decoded again. At ×0.1,
+where 29 scenes share 1,800 assets, the walk reads 15.6 MiB instead of 6.0
+and a scene load is drawn after 119 ms p50 instead of 68 (a scene read
+ahead is prepared before the load); at full (18,000 assets, fewer shared)
+the same as before.
 
 Proposed targets for "Done when" (fixed in 26.14 from these numbers):
 
@@ -1279,3 +1314,80 @@ Proposed targets for "Done when" (fixed in 26.14 from these numbers):
   failure). Small differences that were accidental were made one: an export
   now gets the lighting option when a project has bakes but no materials, and
   checks the media animation rows, as Play did.
+- 2026-09-30 (26.10 A): one resource manager per game page, held in the
+  game host. Its code (`createResourceManager`, runtime `resources.ts`) lives
+  in runtime, the one package the game host, the scene adapter and the
+  editor all import (pure: no timers, no I/O; the owner settles it); the
+  page makes one instance and hands it to the verified reader, the adapter
+  (models, clips, textures, environment maps, effect models), the audio
+  owner (decoded sounds), the UI layer (images, fonts) and the host (glyph
+  images), which settles it after each frame and reports it (`resources` in
+  `tl_game_observe` and Play diagnostics: resident count and bytes per kind,
+  loads and frees per kind, loads in flight or failed, waiting, handles).
+  Kinds: bytes, model, texture, clip, audio, font, image, environment,
+  effect-model.
+- 2026-09-30 (26.10 A): holders are names, not counts (a holder holding
+  twice is one hold, `releaseHolder` lets go of everything it holds): an
+  entity (`entity:<id>`, its model file and the animation-only file its
+  animator plays), a scene being prepared or read ahead (its files and
+  textures until its entities took them), a built material (the textures it
+  draws with), a lightmapped object (its atlas), a spot light (its cookie),
+  a playing voice, loop or music track (its decoded buffer), the UI layer
+  (its images and fonts), the environment and the effect player (for their
+  life), and in part B a script handle (`handle:<n>`). A loaded scene holds
+  through its entities; there is no separate scene holder. A resource whose
+  last holder went waits for the settle: the host runs it after
+  `renderFrame`, which applied the step's scene changes, so a transition
+  that drops scene A and takes scene B in one step keeps a model both use
+  (tested: `resource-manager.e2e.ts`, `models.test.ts`). Freed means the
+  resource's own free ran (GPU data disposed, `ImageBitmap` closed, object
+  URL revoked, font face deleted) and the manager holds no reference.
+- 2026-09-30 (26.10 A): verified bytes are held only while something needs
+  them: the start (until the renderer draws and the models settled), a
+  scene's preparation (until its entities took what they draw), a decoder
+  until it has them. Asked for again later they are read again (the HTTP
+  cache has them, digest-keyed and immutable since 25.24c) and hashed again,
+  as Godot and Unity load from disk again. A scene's preparation does not
+  read a model or texture that is already resident.
+- 2026-09-30 (26.10 A): a decoded texture is one entry per asset shared by
+  every user; each user that changes how it samples (materials, lightmaps,
+  cookies, graphs, the LUT) draws with a clone it owns and disposes, so
+  freeing the shared one never changes a user's look. The environment keeps
+  its own `environment` entries (the sky's faces and the LUT, for the
+  environment's life); a texture used as both is decoded twice.
+- 2026-09-30 (26.10 A): the 64-entry decoded-music LRU of 26.5 is gone. A
+  sound decoded when played is held by the voice, loop or music track that
+  plays it and freed after it stops (decoded again when played again: the
+  load type's "decode while playing"); a sound decoded on load is held by
+  its registration, which lasts the play until 26.11 registers per load
+  type. The compressed bytes of sounds read on use stay registered in the
+  audio owner (26.11 takes them over).
+- 2026-09-30 (26.10 A): the visual resource store forgets a resource the
+  manager frees (`release`): before, a retired model stayed reachable from
+  the store's map until the next load of the same asset, so its parsed file
+  (geometry arrays, images) outlived the scene.
+- 2026-09-30 (26.10 A): the Scene view holds its model files (by object)
+  and its materials' textures in a manager of its own, settled in a task
+  after each change (`data-resources` on the view): closing a scene frees
+  what only it showed. Left for part B / 26.13: the Scene view's cookies,
+  environment and lightmaps decode through their own caches in viewport.ts
+  (over 2,000 lines: split first), and the asset tiles' `prepared` reads
+  parse a model to draw its tile (held only while handed over now).
+- 2026-09-30 (26.10 A): prefabs and the other blocks read whole at open
+  stay whole in part A. Loading a scene's prefabs with the scene is not a
+  manager question: the simulation spawns any prefab by id synchronously and
+  deterministically (in the worker too), so the definitions must reach the
+  simulation with a scene batch or a script's handle before a spawn can
+  name them. Listed for part B with `ctx.assets.load`.
+- 2026-09-30 (26.10 A): the visual resource store (`createVisualResourceStore`)
+  gains `release(resource)`: the manager's free of a model retires it and
+  drops the store's references to it (its map entry and the load handle
+  whose result held it). Found with the walk: a heap snapshot diff after the
+  ×0.1 walk still held 200 parsed files (`GLTFParser`, their geometries,
+  materials and textures) through the store's `latest` handles.
+- 2026-09-30 (26.10 A): asset loading left `createGameHost` for
+  `game-host/src/host-assets.ts` (glyph images, the sounds' registration,
+  the manager's settle and observation), and the adapter's public shapes
+  left `three-adapter/src/adapter.ts` (over 2,000 lines) for
+  `adapter-types.ts`; the Scene view's asset setup left `App.tsx` for
+  `editor/src/viewport/scene-assets.ts`.

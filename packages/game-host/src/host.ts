@@ -63,6 +63,8 @@ import {
   type SceneSetView,
 } from '@thirdlight/runtime';
 import type { ScenePreloader } from './scene-preload';
+import type { ResourceManager } from '@thirdlight/runtime';
+import { createHostAssets, type GameResourcesObservation, type HostAssets } from './host-assets';
 import type { MenuSample } from '@thirdlight/input';
 import type { AudioObservation, AudioSpatialLike, GameAudioOwner } from './audio';
 import type { HostDom, HostDomNode, UiEdges } from './dom';
@@ -273,6 +275,8 @@ export interface GameHostObservation {
   /** The named counters (at most 32) and every object's health (object id → current/max; at most 64) — Play and the export alike. */
   readonly counters?: Readonly<Record<string, number>>;
   readonly health?: Readonly<Record<string, { readonly current: number; readonly max: number }>>;
+  /** What is loaded from assets: resident count and bytes per kind, loads, frees, script handles alive. */
+  readonly resources?: GameResourcesObservation;
 }
 
 /** One object riding on a socket, as the host observes it (its interpolated world position). */
@@ -394,6 +398,13 @@ export interface GameHostConfig {
    * registered by its load settings once, then plays.
    */
   readonly lookupAsset?: (assetId: string) => Promise<{ readonly path: string; readonly kind: string; readonly loadType?: string; readonly preload?: boolean } | undefined>;
+  /**
+   * The page's resource manager (everything loaded from assets is held
+   * there: the reader's bytes, the adapter's models and textures, the audio
+   * owner's decoded sounds, the UI's images and fonts). The host settles it
+   * after each frame and reports it. Absent: a manager of the host's own.
+   */
+  readonly resources?: ResourceManager;
   /** Where the player's settings go (localStorage in the browser; see `storage.ts`) and this game's key prefix. */
   readonly saveStorage?: SaveStorage;
   readonly saveNamespace?: string;
@@ -769,26 +780,8 @@ export function createGameHost(config: GameHostConfig): GameHost {
   let shellCtl: ShellController | null = null;
   /** The player's bindings (created at mount when the game has an input config). */
   let bindings: InputBindingsController | null = null;
-  /** The project's glyph images as object URLs (loaded on first use). */
-  const glyphUrls = new Map<string, string | null>();
-  const glyphImageUrl = (assetId: string): string | null => {
-    if (glyphUrls.has(assetId)) return glyphUrls.get(assetId)!;
-    glyphUrls.set(assetId, null);
-    const known = config.assetPaths?.[assetId];
-    const urls = (globalThis as { URL?: { createObjectURL?: (b: Blob) => string } }).URL;
-    if (typeof urls?.createObjectURL !== 'function' || typeof Blob !== 'function') return null;
-    // An image the rows at mount do not name (a portrait, say): its path from the catalog.
-    const path = typeof known === 'string' ? Promise.resolve(known) : (config.lookupAsset?.(assetId).then((r) => r?.path) ?? Promise.resolve(undefined));
-    void path
-      .then((p) => (p === undefined ? undefined : config.readArtifact(p)))
-      .then(
-        (buffer) => {
-          if (buffer !== undefined && !disposed) glyphUrls.set(assetId, urls.createObjectURL!(new Blob([buffer])));
-        },
-        () => undefined,
-      );
-    return null;
-  };
+  /** What the host loads from assets (glyph images, sounds) and the resource manager it is held in. */
+  const assets: HostAssets = createHostAssets(config, () => !disposed && mounted);
   let adapter: HostRenderAdapter | null = null;
   /** The debug console (config.debugConsole) and what became of config.start. */
   let debugConsole: DebugConsole | null = null;
@@ -1162,30 +1155,6 @@ export function createGameHost(config: GameHostConfig): GameHost {
   let sourcesRevision = -1;
   let sources: { id: string; assetId: string; volume: number; range: number; spatial: AudioSpatialLike }[] = [];
   const liveLoops = new Set<string>();
-  const musicAsked = new Set<string>();
-  /** An audio file read on first use and decoded when played (not decoded on load with its scene). */
-  const readOnUse = (assetId: string): boolean => {
-    if (config.assetKinds?.[assetId] !== 'audio') return false;
-    const load = config.audioLoad?.[assetId];
-    return load !== undefined && (load.loadType !== 'decode-on-load' || load.preload === false);
-  };
-  /** Sounds found through `lookupAsset` (asked once each): read, then registered by their load settings. */
-  const lookupAsked = new Set<string>();
-  const findSound = (assetId: string): void => {
-    if (config.lookupAsset === undefined || config.assetPaths?.[assetId] !== undefined || lookupAsked.has(assetId)) return;
-    lookupAsked.add(assetId);
-    void config
-      .lookupAsset(assetId)
-      .then(async (row) => {
-        if (disposed || row === undefined || row.kind !== 'audio') return;
-        const buffer = await config.readArtifact(row.path);
-        if (disposed) return;
-        const onUse = row.loadType !== undefined && (row.loadType !== 'decode-on-load' || row.preload === false);
-        if (onUse && config.audio.registerMusic !== undefined) config.audio.registerMusic(assetId, new Uint8Array(buffer));
-        else config.audio.registerCue(assetId, new Uint8Array(buffer));
-      })
-      .catch(() => undefined);
-  };
   /** The character (the first controller entity; null: none) — the legacy audio-source model hears from it. */
   let characterId: string | null | undefined;
   const serviceAudioSources = (rt: Runtime): void => {
@@ -1205,19 +1174,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
         if (a !== undefined) sources.push({ id: e.id, assetId: a.assetId, volume: a.volume, range: a.range, spatial: { distanceModel: a.distanceModel ?? 'linear', refDistance: Math.min(a.range, a.refDistance ?? a.range / 4), maxDistance: a.range, rolloff: a.rolloff ?? 1 } });
       }
       // A source whose file is read on first use needs its bytes registered (once).
-      for (const s of sources) {
-        findSound(s.assetId);
-        if (!readOnUse(s.assetId) || musicAsked.has(s.assetId)) continue;
-        musicAsked.add(s.assetId);
-        const path = config.assetPaths?.[s.assetId];
-        if (typeof path === 'string' && config.audio.registerMusic !== undefined) {
-          void config.readArtifact(path)
-            .then((buffer) => {
-              if (!disposed) config.audio.registerMusic?.(s.assetId, new Uint8Array(buffer));
-            })
-            .catch(() => undefined);
-        }
-      }
+      for (const s of sources) assets.soundWanted(s.assetId);
     }
     if (sources.length === 0 && liveLoops.size === 0) return;
     // Only the character and the sources are read (no per-frame copy of every transform).
@@ -1254,23 +1211,11 @@ export function createGameHost(config: GameHostConfig): GameHost {
   /** Audio sources in the panner model (the project's `audio_spatial`). */
   const panner = config.audioSpatial === 'panner';
   /** Script sounds: execute the simulation's audio commands (a file read on use gets its bytes on first use). */
-  const scriptMusicAsked = new Set<string>();
   const serviceScriptAudio = (rt: Runtime): void => {
     const commands = rt.takeAudioRequests?.() ?? [];
     for (const c of commands) {
       const assetId = c.op === 'play' || c.op === 'music' ? c.assetId : null;
-      if (assetId !== null) findSound(assetId);
-      if (assetId !== null && readOnUse(assetId) && !scriptMusicAsked.has(assetId) && !musicAsked.has(assetId)) {
-        scriptMusicAsked.add(assetId);
-        const path = config.assetPaths?.[assetId];
-        if (typeof path === 'string' && config.audio.registerMusic !== undefined) {
-          void config.readArtifact(path)
-            .then((buffer) => {
-              if (!disposed) config.audio.registerMusic?.(assetId, new Uint8Array(buffer));
-            })
-            .catch(() => undefined);
-        }
-      }
+      if (assetId !== null) assets.soundWanted(assetId);
       if (config.audio.command !== undefined) config.audio.command(c);
       else if (c.op === 'play') config.audio.playSound?.(c.assetId, c.volume);
     }
@@ -1349,6 +1294,9 @@ export function createGameHost(config: GameHostConfig): GameHost {
     serviceAudioSources(runtime);
     adapter?.renderFrame();
     serviceAnchors();
+    // The frame drew the step's scene changes: what lost its last holder in them is freed now
+    // (a model unloaded and loaded again in one transition was taken again before this).
+    assets.frameDone();
   };
 
   /** The generic play state (the engine pause, a menu or the debugger hold the simulation). */
@@ -1441,35 +1389,6 @@ export function createGameHost(config: GameHostConfig): GameHost {
     return { ok: true, state: playState(), acceptedAtStep: stepNow(runtime) };
   };
 
-  /** The audio assets' bytes for the owner (scripts' sounds, event cues, audio sources). */
-  const registerSounds = (): void => {
-    // Resolve every audio asset through the injected reader (async — the
-    // game plays silently until a sound's bytes arrive and decode; the owner
-    // skips unregistered assets with a bounded diagnostic). The host stays
-    // fetch-free: `readArtifact` is injected.
-    if (config.assetPaths !== undefined) {
-      const registered = new Set<string>();
-      const soundIds = Object.entries(config.assetKinds ?? {}).filter(([id, k]) => k === 'audio' && !readOnUse(id)).map(([id]) => id);
-      for (const assetId of soundIds) {
-        if (registered.has(assetId)) continue;
-        const path = config.assetPaths[assetId];
-        if (typeof path !== 'string' || path.length === 0) continue;
-        registered.add(assetId);
-        void config.readArtifact(path)
-          .then((buffer) => {
-            if (disposed || !mounted) return;
-            const r = config.audio.registerCue(assetId, new Uint8Array(buffer));
-            if (r.ok === false) console.warn('[game-host] cue registration failed', r.error.code);
-          })
-          .catch((error: unknown) => {
-            // Bounded: the cue stays unregistered; the owner skips it and
-            // the game plays silently (no page error, no unhandled reject).
-            console.warn('[game-host] cue artifact read failed', error instanceof Error ? error.message : String(error));
-          });
-      }
-    }
-  };
-
   const mount = (): { ok: true } | { ok: false; error: GameControlError } => {
     if (disposed) return { ok: false, error: { code: 'host_disposed', message: 'the host is disposed' } };
     if (mounted) return { ok: false, error: { code: 'host_already_mounted', message: 'the host is already mounted (dispose before remounting)' } };
@@ -1557,7 +1476,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
         onChange: (c) => {
           promptInput = c as InputConfigLike;
         },
-        imageUrl: glyphImageUrl,
+        imageUrl: (assetId: string) => assets.glyphImageUrl(assetId),
       });
     }
 
@@ -1572,6 +1491,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
         ...(config.assetPaths !== undefined ? { assetPaths: config.assetPaths } : {}),
         ...(config.lookupAsset !== undefined ? { lookupPath: (assetId: string) => config.lookupAsset!(assetId).then((r) => r?.path) } : {}),
         readArtifact: config.readArtifact,
+        resources: assets.resources,
         queueEvent: (event) => {
           const r = rt.queueUiEvent?.(event);
           if (r !== undefined && r.ok === false) console.warn('[game-host] UI event refused:', r.error.message);
@@ -1639,7 +1559,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
     if (config.shell !== undefined) shellCtl = makeShell(res.runtime);
     mounted = true;
     // Script sounds, event cues and audio sources.
-    registerSounds();
+    assets.registerStartSounds();
     if (config.start !== undefined) startOutcome = applyStart(res.runtime, config.start);
     // A start given by a test or the debugger begins in play (no title).
     shellCtl?.start(config.start !== undefined);
@@ -1766,6 +1686,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
         ...timelineObservation(runtime),
         ...(shellCtl !== null ? { shell: shellCtl.observe(), paused: scenePaused } : {}),
         ...countersAndHealth(runtime),
+        resources: assets.observe(),
       },
     };
   };
@@ -1834,8 +1755,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
     debugConsole?.dispose();
     debugConsole = null;
     bindings?.dispose();
-    for (const url of glyphUrls.values()) if (url !== null) (globalThis as { URL?: { revokeObjectURL?: (u: string) => void } }).URL?.revokeObjectURL?.(url);
-    glyphUrls.clear();
+    assets.dispose();
     if (uiLayer !== null) {
       uiLayer.dispose();
       uiLayer = null;

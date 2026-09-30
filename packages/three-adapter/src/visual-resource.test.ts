@@ -419,4 +419,22 @@ describe('store supersession (reimport) semantics', () => {
     store.dispose();
     expect(store.ownership().outstanding).toBe(0);
   });
+  it('a released resource is forgotten: retired, no longer current, its shared resources freed with its last instance', async () => {
+    const store = createVisualResourceStore();
+    const fake = createFakePort();
+    const bytes = buildGlb();
+    const load = store.load(suppliedBytes(descriptorFor(bytes, { version: 1 }), bytes), { loader: fake.port });
+    fake.last().resolveWith();
+    const resource = ready(await load.result);
+    expect(resource.byteSize()).toBeGreaterThanOrEqual(0);
+    const instance = instanceOf(resource);
+    store.release(resource);
+    expect(store.current(resource.descriptor.assetId)).toBeNull();
+    expect(resource.diagnostics().state).toBe('disposed');
+    expect(fake.stats.loadedDisposed).toBe(0);
+    instance.dispose();
+    expect(fake.stats.loadedDisposed).toBe(1);
+    expect(store.ownership().outstanding).toBe(0);
+    store.dispose();
+  });
 });

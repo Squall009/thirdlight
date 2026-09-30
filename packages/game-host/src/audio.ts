@@ -51,6 +51,7 @@
  * additive read-only method).
  */
 
+import { createResourceManager, type ResourceManager } from '@thirdlight/runtime';
 import { AUDIO_VOICE_CAP, AUDIO_VOICES_DEFAULT, distanceGain, listenerRelative } from '@thirdlight/runtime';
 
 /**
@@ -260,15 +261,19 @@ export interface AudioObservation {
   /** The owner's newest diagnostics (at most 3, each ≤ 256 chars, log-safe). */
   readonly diagnostics: readonly string[];
 }
-/**
- * Decoded music buffers kept (the most recently used): a bounded cache
- * that never refuses. Registrations are keyed by asset id (one per audio
- * asset the game has), but a decoded buffer is far larger than its file, so
- * a long voiced dialogue would otherwise keep every line it played. The
- * least recently used buffer is dropped first and decoded again from its
- * bytes when next played; a sound already playing keeps its buffer.
- */
-export const MUSIC_DECODED_KEEP = 64;
+/** Names each owner's holders apart in a shared resource manager. */
+let ownerSerial = 0;
+/** One-shot sounds' holder names. */
+let soundSerial = 0;
+/** The holder of the sounds decoded on load (their registration). */
+const REGISTERED = 'registered';
+
+/** The resident size of a decoded buffer (32-bit float samples per channel). */
+function decodedBytes(b: AudioBufferLike): number {
+  const x = b as { length?: number; numberOfChannels?: number; duration?: number; sampleRate?: number };
+  const frames = typeof x.length === 'number' ? x.length : Math.round((x.duration ?? 0) * (x.sampleRate ?? 0));
+  return frames * Math.max(1, x.numberOfChannels ?? 1) * 4;
+}
 
 export interface GameAudioOwnerConfig {
   /**
@@ -282,6 +287,13 @@ export interface GameAudioOwnerConfig {
   readonly contextFactory?: () => AudioContextLike | null;
   /** The project's `audio_voices` (1–32; absent: `AUDIO_MAX_VOICES`). */
   readonly maxVoices?: number;
+  /**
+   * The page's resource manager. A sound decoded when played is held there
+   * by what plays it (a voice, a loop, the music track) and freed once the
+   * last of them stopped; a sound decoded on load is held by its
+   * registration. Absent: a manager of the owner's own.
+   */
+  readonly resources?: ResourceManager;
 }
 
 type AssetState =
@@ -297,6 +309,8 @@ interface Voice {
    * real Web Audio throws InvalidStateNode on stop-after-ender). */
   ended: boolean;
   released: boolean;
+  /** What it holds its buffer as (a sound decoded when played). */
+  holder?: string;
 }
 
 function clipMessage(message: string): string {
@@ -394,18 +408,45 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
   let sfxDuckLevel = 1;
   /** The scripts' mix per bus (each bus gain = the player's volume × this). */
   const mix: Record<'sfx' | 'music' | 'voice' | 'ui', number> = { sfx: 1, music: 1, voice: 1, ui: 1 };
-  const music = new Map<string, { bytes: Uint8Array; buffer: AudioBufferLike | null; decoding: boolean; failed: boolean }>();
-  /** The music ids holding a decoded buffer, least recently used first. */
-  const decodedMusic = new Set<string>();
-  function keepDecodedMusic(assetId: string): void {
-    decodedMusic.delete(assetId);
-    decodedMusic.add(assetId);
-    for (const id of decodedMusic) {
-      if (decodedMusic.size <= MUSIC_DECODED_KEEP) break;
-      const m = music.get(id);
-      if (m !== undefined) m.buffer = null;
-      decodedMusic.delete(id);
-    }
+  /** Sounds decoded when played: their bytes (26.11 reads them per load type), whether a decode failed. */
+  const music = new Map<string, { bytes: Uint8Array; failed: boolean }>();
+  /** Decoded buffers live in the resource manager (`audio`), held by what plays them. */
+  const resources: ResourceManager = config.resources ?? createResourceManager({ schedule: (run) => queueMicrotask(run) });
+  ownerSerial += 1;
+  const holderPrefix = `audio${ownerSerial}/`;
+  /** Every holder name this owner used (all let go at dispose). */
+  const heldAs = new Set<string>();
+  const letGo = (holder: string): void => {
+    heldAs.delete(holder);
+    resources.releaseHolder(holderPrefix + holder);
+  };
+  /**
+   * The decoded buffer of a sound decoded when played, held for `holder`
+   * (the decode starts on the first ask, with a context); null while decoding.
+   */
+  function playedBuffer(assetId: string, holder: string): AudioBufferLike | null {
+    const m = music.get(assetId);
+    if (m === undefined || m.failed || context === null) return resources.peek<AudioBufferLike>('audio', assetId) ?? null;
+    const ctx = context;
+    const bytes = m.bytes;
+    heldAs.add(holder);
+    void resources
+      .acquire<AudioBufferLike>('audio', assetId, holderPrefix + holder, () =>
+        Promise.resolve()
+          .then(() => ctx.decodeAudioData(bytes.slice().buffer))
+          .then((buffer) => ({ value: buffer, bytes: decodedBytes(buffer) })),
+      )
+      .then(
+        () => {
+          if (!disposed && wantedMusic === assetId) syncMusic();
+        },
+        () => {
+          if (music.get(assetId) !== m) return;
+          m.failed = true;
+          diag('audio_decode_failed', assetId, 'decode failed; the game plays without it');
+        },
+      );
+    return resources.peek<AudioBufferLike>('audio', assetId) ?? null;
   }
   /** The host's track (`playMusic`) and the scripts' (undefined: the host owns the music). */
   let hostMusic: string | null = null;
@@ -539,7 +580,7 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
   /** Start a pending voice when it can (unlocked, its bytes decoded, a free voice). */
   function tryStart(v: HandleVoice): 'started' | 'wait' | 'drop' {
     if (disposed || context === null || !unlocked || context.state === 'closed') return 'wait';
-    const buffer = bufferOf(v.assetId);
+    const buffer = bufferOf(v.assetId, `voice:${v.handle}`);
     if (buffer === null) return 'wait';
     if (voices.size + startedHandleVoices() >= maxVoices) {
       diag('voice_cap', v.assetId, `sound ${v.handle} (${v.assetId}) dropped: ${maxVoices} voices busy`);
@@ -576,7 +617,7 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
   }
 
   function releaseHandle(v: HandleVoice, stop: boolean): void {
-    handleVoices.delete(v.handle);
+    forgetHandle(v);
     if (v.source !== null) {
       v.source.onended = null;
       if (stop) {
@@ -591,16 +632,22 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
     v.panner?.disconnect?.();
   }
 
+  /** A handle's voice is gone (ended, stopped or dropped): its buffer is no longer held for it. */
+  function forgetHandle(v: HandleVoice): void {
+    if (handleVoices.get(v.handle) === v) handleVoices.delete(v.handle);
+    letGo(`voice:${v.handle}`);
+  }
+
   function pumpPending(): void {
     for (const v of [...handleVoices.values()]) {
       if (v.source !== null || v.stopping) continue;
       const r = tryStart(v);
-      if (r === 'drop') handleVoices.delete(v.handle);
+      if (r === 'drop') forgetHandle(v);
       else if (r === 'wait') {
         v.waited += 1;
         if (!v.loop && v.waited > PENDING_FRAMES) {
           diag('cue_skipped', v.assetId, `sound ${v.handle} (${v.assetId}) dropped: not playable within ${PENDING_FRAMES} frames (sound off or still decoding)`);
-          handleVoices.delete(v.handle);
+          forgetHandle(v);
         }
       }
     }
@@ -622,7 +669,9 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
   }
 
   function refreshWantedMusic(fade: number): void {
-    wantedMusic = scriptMusic !== undefined ? scriptMusic : hostMusic;
+    const next = scriptMusic !== undefined ? scriptMusic : hostMusic;
+    if (next !== wantedMusic) letGo('wanted');
+    wantedMusic = next;
     wantedFade = Math.max(0, Math.min(10, fade));
     syncMusic();
   }
@@ -655,7 +704,7 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
           waited: 0,
         };
         handleVoices.set(v.handle, v);
-        if (tryStart(v) === 'drop') handleVoices.delete(v.handle);
+        if (tryStart(v) === 'drop') forgetHandle(v);
         return;
       }
       case 'stop': {
@@ -750,42 +799,17 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
     return { ...base, ...spatialInfo(v.spatial, v.panner, at) };
   }
 
-  /** The decoded buffer of a registered cue or music asset (music decodes on demand). */
-  function bufferOf(assetId: string): AudioBufferLike | null {
+  /** The decoded buffer of a registered cue, or of a sound decoded when played (held for `holder`). */
+  function bufferOf(assetId: string, holder: string): AudioBufferLike | null {
     const cue = assets.get(assetId);
     if (cue?.state === 'ready') return cue.buffer;
     if (cue?.state === 'pending' && context !== null && !muted) startDecode(assetId);
-    const m = music.get(assetId);
-    if (m !== undefined) {
-      if (m.buffer !== null) {
-        keepDecodedMusic(assetId);
-        return m.buffer;
-      }
-      if (!m.decoding && !m.failed && context !== null) {
-        m.decoding = true;
-        let p: Promise<AudioBufferLike>;
-        try {
-          p = context.decodeAudioData(m.bytes.slice().buffer);
-        } catch (err) {
-          p = Promise.reject(err);
-        }
-        p.then(
-          (b) => {
-            m.buffer = b;
-            m.decoding = false;
-            if (music.get(assetId) === m) keepDecodedMusic(assetId);
-          },
-          () => {
-            m.decoding = false;
-            m.failed = true;
-          },
-        );
-      }
-    }
+    if (music.has(assetId)) return playedBuffer(assetId, holder);
     return null;
   }
 
   function stopLoop(key: string): void {
+    letGo(`loop:${key}`);
     const v = loopVoices.get(key);
     if (v === undefined) return;
     loopVoices.delete(key);
@@ -803,6 +827,7 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
   function stopTrack(fadeSeconds: number): void {
     const t = track;
     track = null;
+    if (t !== null) resources.release('audio', t.assetId, holderPrefix + 'track');
     if (t === null || context === null) return;
     ramp(t.gain, 0, fadeSeconds, context);
     const stop = (): void => {
@@ -826,51 +851,35 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
       stopTrack(wantedFade);
       return;
     }
-    let entry = music.get(wantedMusic);
+    let buffer: AudioBufferLike | null = null;
+    const entry = music.get(wantedMusic);
     if (entry === undefined) {
       // A script may pick an audio (cue) asset as its track.
       const cue = assets.get(wantedMusic);
-      if (cue !== undefined && cue.state !== 'failed') {
-        if (cue.state !== 'ready') {
-          if (cue.state === 'pending' && !muted) startDecode(wantedMusic);
-          return; // spatialFrame retries once it decoded
-        }
-        entry = { bytes: new Uint8Array(0), buffer: cue.buffer, decoding: false, failed: false };
+      if (cue === undefined || cue.state === 'failed') {
+        stopTrack(wantedFade);
+        return;
       }
-    }
-    if (entry === undefined || entry.failed) {
-      stopTrack(wantedFade);
-      return;
-    }
-    if (entry.buffer === null) {
-      if (entry.decoding) return;
-      entry.decoding = true;
-      const id = wantedMusic;
-      let p: Promise<AudioBufferLike>;
-      try {
-        p = ctx.decodeAudioData(entry.bytes.slice().buffer);
-      } catch (err) {
-        p = Promise.reject(err);
+      if (cue.state !== 'ready') {
+        if (cue.state === 'pending' && !muted) startDecode(wantedMusic);
+        return; // spatialFrame retries once it decoded
       }
-      p.then(
-        (buffer) => {
-          entry.buffer = buffer;
-          entry.decoding = false;
-          if (music.get(id) === entry) keepDecodedMusic(id);
-          if (!disposed && wantedMusic === id) syncMusic();
-        },
-        () => {
-          entry.decoding = false;
-          entry.failed = true;
-          diag('audio_decode_failed', id, 'music decode failed; the game plays without it');
-        },
-      );
-      return;
+      buffer = cue.buffer;
+    } else {
+      if (entry.failed) {
+        stopTrack(wantedFade);
+        return;
+      }
+      // Held by the wanted track while it decodes and plays (the decode's end syncs again).
+      buffer = playedBuffer(wantedMusic, 'wanted');
+      if (buffer === null) return;
     }
     stopTrack(wantedFade);
     const bus = ensureBuses(ctx);
     const source = ctx.createBufferSource();
-    source.buffer = entry.buffer;
+    // The track holds its buffer until it stops.
+    if (resources.hold('audio', wantedMusic, holderPrefix + 'track')) heldAs.add('track');
+    source.buffer = buffer;
     source.loop = true;
     const gain = ctx.createGain();
     gain.gain.value = 0;
@@ -901,6 +910,7 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
     if (voice.released) return;
     voice.released = true;
     voices.delete(voice);
+    if (voice.holder !== undefined) letGo(voice.holder);
     voice.source.onended = null;
     if (!voice.ended) {
       try {
@@ -961,6 +971,9 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
           return;
         }
         assets.set(assetId, { state: 'ready', buffer, token: cur.token });
+        // A sound decoded on load is held by its registration.
+        heldAs.add(REGISTERED);
+        void resources.acquire('audio', assetId, holderPrefix + REGISTERED, () => Promise.resolve({ value: buffer, bytes: decodedBytes(buffer) })).catch(() => undefined);
       })
       .catch(() => {
         if (disposed) return;
@@ -1013,6 +1026,7 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
       if (!(bytes instanceof Uint8Array) || bytes.length === 0) {
         return error('audio_invalid_bytes', 'cue bytes must be a non-empty Uint8Array (bytes in only — rule 1)');
       }
+      resources.release('audio', assetId, holderPrefix + REGISTERED);
       assets.set(assetId, { state: 'pending', bytes, token: 0 });
       // Rule 2: nothing is decoded while muted; with a live context
       // and sound on, decode eagerly (a cue must not wait for the first
@@ -1203,7 +1217,9 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
       for (const v of [...handleVoices.values()]) releaseHandle(v, true);
       for (const key of [...loopVoices.keys()]) stopLoop(key);
       music.clear();
-      decodedMusic.clear();
+      // Every decoded buffer this owner held goes (a manager of its own with it).
+      for (const h of [...heldAs]) letGo(h);
+      if (config.resources === undefined) resources.dispose();
       if (context) {
         // Rule 8: close exactly the contexts THIS owner created, once.
         context.close().catch(() => {
@@ -1226,8 +1242,7 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
     registerMusic(assetId, bytes) {
       if (disposed) return error('audio_disposed', 'registerMusic after dispose');
       if (!assetId || !(bytes instanceof Uint8Array) || bytes.length === 0) return error('audio_invalid_bytes', 'music needs an assetId and non-empty bytes');
-      decodedMusic.delete(assetId);
-      music.set(assetId, { bytes, buffer: null, decoding: false, failed: false });
+      music.set(assetId, { bytes, failed: false });
       if (wantedMusic === assetId) syncMusic();
       return { ok: true };
     },
@@ -1259,8 +1274,15 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
         diag('voice_cap', assetId, `sound ${assetId} dropped: ${maxVoices} voices busy`);
         return false;
       }
-      const buffer = bufferOf(assetId);
+      // A sound still decoding is not played now; its decode is held for the next ask.
+      const buffer = bufferOf(assetId, `decode:${assetId}`);
       if (buffer === null) return false;
+      soundSerial += 1;
+      const holder = `sound:${soundSerial}`;
+      if (music.has(assetId)) {
+        if (resources.hold('audio', assetId, holderPrefix + holder)) heldAs.add(holder);
+        letGo(`decode:${assetId}`);
+      }
       const ctx = context;
       const source = ctx.createBufferSource();
       source.buffer = buffer;
@@ -1269,7 +1291,7 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
       source.connect(gain);
       gain.connect(ensureBuses(ctx)[bus === 'ui' ? 'ui' : 'sfx']);
       played[bus === 'ui' ? 'ui' : 'sfx'] += 1;
-      const voice: Voice = { source, assetId, ended: false, released: false };
+      const voice: Voice = { source, assetId, ended: false, released: false, holder };
       source.onended = () => {
         voice.ended = true;
         releaseVoice(voice);
@@ -1296,7 +1318,7 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
       }
       stopLoop(key);
       if (context === null || !unlocked || loopVoices.size >= 16) return;
-      const buffer = bufferOf(assetId);
+      const buffer = bufferOf(assetId, `loop:${key}`);
       if (buffer === null) return; // decoding: the next frame's call starts it
       const ctx = context;
       const source = ctx.createBufferSource();

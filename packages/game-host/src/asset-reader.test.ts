@@ -1,6 +1,8 @@
 /** The verified asset reader (bounded parallel, once per asset, checked) and the start-scene asset set. */
 import { describe, expect, it } from 'vitest';
 
+import { createResourceManager } from '@thirdlight/runtime';
+
 import { AssetReadError, createVerifiedAssetReader, startSceneAssets, type DeclaredAssetRow } from './asset-reader';
 
 const hex = async (b: Uint8Array): Promise<string> => [...new Uint8Array(await crypto.subtle.digest('SHA-256', b as Uint8Array<ArrayBuffer>))].map((x) => x.toString(16).padStart(2, '0')).join('');
@@ -28,7 +30,7 @@ describe('verified asset reader', () => {
     const reads: string[] = [];
     const reader = createVerifiedAssetReader([], { read: async (p) => (reads.push(p), bytes.slice().buffer), sha256Hex: hex }, { catalog });
     expect(reader.bytesAt(late.path)).toBeNull();
-    expect(new TextDecoder().decode(await reader.bytes('late', 1))).toBe('late sound');
+    expect(new TextDecoder().decode(await reader.bytes('late', 1, 'user'))).toBe('late sound');
     expect(lookups).toBe(1);
     // Known now: no second lookup, and its path reads through the reader.
     await reader.bytes('late', 1);
@@ -71,10 +73,30 @@ describe('verified asset reader', () => {
     const again = await reader.bytes('a-3', 1);
     expect(new TextDecoder().decode(again)).toBe('file 3');
     expect(reader.peek('a-25', 1)).toBeUndefined();
-    await reader.bytesAt(rows[25]!.path);
+    await reader.bytesAt(rows[25]!.path, 'user');
     expect(reader.peek('a-25', 1)).toBeDefined();
     expect([...readsOf.values()].every((n) => n === 1)).toBe(true);
     expect(reader.bytesAt('content/sha256/unknown')).toBeNull();
+  });
+
+  it('bytes are held by their holders and freed when the last one lets go (read again when asked again)', async () => {
+    const b = new TextEncoder().encode('scene file');
+    const row = await rowFor('m-1', 'model', b);
+    let reads = 0;
+    const resources = createResourceManager();
+    const reader = createVerifiedAssetReader([row], { read: async () => (reads++, b.slice().buffer), sha256Hex: hex }, { resources });
+    await reader.preload([row], undefined, 'scene:a');
+    // A decoder takes them (no holder: handed over), the scene's preparation still holds them.
+    await reader.bytes('m-1', 1);
+    resources.settle();
+    expect(reader.peek('m-1', 1)).toBeDefined();
+    expect(resources.observe().resident.bytes).toEqual({ count: 1, bytes: b.byteLength });
+    reader.release('scene:a');
+    resources.settle();
+    expect(reader.peek('m-1', 1)).toBeUndefined();
+    expect(resources.observe().resident).toEqual({});
+    await reader.bytes('m-1', 1);
+    expect(reads).toBe(2);
   });
 
   it('refuses bytes that do not match the manifest, naming the asset', async () => {

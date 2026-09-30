@@ -32,8 +32,11 @@
  *     `renderFrame` advances every live controller once with the real
  *     frame delta clamped to `[0, 0.25]` (no fast-forward, no second
  *     loop);
- *   - refcounted resources: the LAST live `ModelInstance` of an
- *     asset releases the shared `LoadedGlb` exactly once;
+ *   - refcounted resources: a parsed file is held in the resource manager
+ *     by the entities that show it (and the scenes being prepared), freed
+ *     when the last holder went and the step's scene changes settled; the
+ *     LAST live `ModelInstance` of a freed file releases the shared
+ *     `LoadedGlb` exactly once;
  *   - stale-load cancellation: disposal cancels every in-flight
  *     prepare; a late completion after cancellation is discarded and
  *     released (never applied, never counted as a success).
@@ -47,6 +50,7 @@
  * diagnostic, the run proceeds).
  */
 import * as THREE from 'three';
+import { assetVersionKey, createResourceManager, type LoadedResource, type ResourceManager } from '@thirdlight/runtime';
 import {
   adapterError,
   type AdapterError,
@@ -220,6 +224,8 @@ export interface ModelsRealizationContext {
   readonly entityMaterialParams?: (entityId: string) => MaterialOverridesLike | null;
   /** More entities may arrive later (a scene catalog). */
   readonly allowAbsent?: boolean;
+  /** Where the parsed files are held (the page's resource manager); absent: a manager of the realization's own. */
+  readonly resources?: ResourceManager;
   /** A model instance (or an instance set) is attached to its entity (lightmaps and shadow flags go on here). */
   readonly onAttached?: (entityId: string, root: THREE.Object3D) => void;
   /** The entity holders (the adapter's `objects` map entries); `null` when
@@ -279,7 +285,7 @@ export interface ModelsRealization {
    * (loaded on first ask; null until it is ready, or when the asset is
    * neither).
    */
-  clipsOf(clipAssetId: string, rigAssetId: string): readonly THREE.AnimationClip[] | null;
+  clipsOf(clipAssetId: string, rigAssetId: string, entityId?: string): readonly THREE.AnimationClip[] | null;
   /** Dispose: cancel in-flight prepares, dispose the attached instances
    * (cloned materials + controllers + instances) and the store.
    *  Idempotent. */
@@ -435,6 +441,18 @@ function cloneInstanceMaterials(instance: ModelInstance, cloneOf: (m: THREE.Mate
 
 // ---- the realization -------------------------------------------------------
 
+/** Names each realization's holders apart (several may share one resource manager). */
+let realizationSerial = 0;
+
+/** A model file that could not be prepared, with the adapter's code for it. */
+class ModelFileError extends Error {
+  readonly code: string;
+  constructor(code: string, message: string) {
+    super(message);
+    this.code = code;
+  }
+}
+
 export function createModelsRealization(ctx: ModelsRealizationContext): {
   readonly ok: true;
   readonly realization: ModelsRealization;
@@ -506,12 +524,25 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
   const attachedSets = new Map<string, AttachedInstanceSet>(); // entityId → instanced meshes
   const liveControllers = new Set<AnimationRoleController>();
   const pendingHandles = new Map<string, VisualResourceHandle>(); // assetId → handle (the dispose cancel path)
-  /** Prepared resources by assetId (kept while an entity uses the asset). */
-  const resources = new Map<string, PreparedVisualResource>();
-  /** Assets being prepared (bytes resolving or the store load running). */
+  /**
+   * The parsed files live in the resource manager, held by the entities
+   * that show them (`entity:<id>`), the scenes being prepared (`hold:<n>`),
+   * the block looks (`blocks`) and the animators that play an animation-only
+   * file's clips (by entity); the manager frees one when its last holder
+   * went and the step's scene changes settled.
+   */
+  const resources: ResourceManager = ctx.resources ?? createResourceManager({ schedule: (run) => queueMicrotask(run) });
+  realizationSerial += 1;
+  const tag = `models${realizationSerial}`;
+  const entityHolder = (entityId: string): string => `${tag}/entity:${entityId}`;
+  const blocksHolder = `${tag}/blocks`;
+  /** Every holder name this realization used (released at dispose). */
+  const ownHolders = new Set<string>();
+  /** Assets this realization asked for (their manager entries may be gone since). */
+  const known = new Set<string>();
+  /** Assets being prepared for this realization (bytes resolving or the store load running). */
   const loading = new Set<string>();
   /** Model assets block looks use (kept loaded), their instances and the looks waiting for them. */
-  const blockAssets = new Set<string>();
   const blockInstances = new Map<string, ModelInstance>();
   const blockWaiters = new Map<string, (() => void)[]>();
   /** Instance-set buffers by digest (decoded once, dropped when unused). */
@@ -520,6 +551,7 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
   /** Assets and buffers held ahead of their entities, and the holds waiting for them. */
   const holds = new Set<{ readonly assets: ReadonlySet<string>; readonly buffers: ReadonlySet<string> }>();
   const holdWaiters = new Set<() => boolean>();
+  let holdSerial = 0;
   const notifyHolds = (): void => {
     for (const check of [...holdWaiters]) if (check()) holdWaiters.delete(check);
   };
@@ -556,6 +588,16 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
     for (const assetId of modelEntities.values()) if (!rowsByAsset.has(assetId)) n += 1;
     return n;
   }
+  /** Assets this realization holds that are loaded or loading. */
+  function heldAssetCount(): number {
+    let n = 0;
+    for (const assetId of [...known]) {
+      const row = rowsByAsset.get(assetId);
+      if (row !== undefined && resources.has(kindOf(row), keyOf(row))) n += 1;
+      else known.delete(assetId);
+    }
+    return n;
+  }
   function settleIfComplete(): void {
     if (settled || disposed) return;
     if (pendingCount > 0) return; // a completion has not attached yet
@@ -572,7 +614,7 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
     }
     settle({
       ok: true,
-      assets: resources.size,
+      assets: heldAssetCount(),
       instances: liveInstanceCount(),
       animations: liveControllers.size,
       unresolved: unresolvedCount(),
@@ -604,30 +646,107 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
   };
   /** Rows being found (`findRow`), each asked once at a time. */
   const finding = new Set<string>();
+  /** An animation-only file is held as clips; any other as a model. */
+  const kindOf = (row: SceneAdapterModelAsset): 'model' | 'clip' => (row.clipsFor !== undefined ? 'clip' : 'model');
+  const keyOf = (row: SceneAdapterModelAsset): string => assetVersionKey(row.assetId, row.version);
+  /** The parsed file of an asset, when it is loaded. */
+  const readyResource = (assetId: string): PreparedVisualResource | undefined => {
+    const row = rowsByAsset.get(assetId);
+    return row === undefined ? undefined : resources.peek<PreparedVisualResource>(kindOf(row), keyOf(row));
+  };
 
-  /** Animation-only assets asked for by an animator (kept while the realization exists). */
-  const clipAssets = new Set<string>();
-  /** Whether any live entity still uses the asset. */
-  function assetInUse(assetId: string): boolean {
-    if (clipAssets.has(assetId)) return true;
-    if (blockAssets.has(assetId)) return true;
-    for (const h of holds) if (h.assets.has(assetId)) return true;
-    for (const a of modelEntities.values()) if (a === assetId) return true;
-    for (const r of instanceEntities.values()) if (r.assetId === assetId) return true;
-    return false;
-  }
-
-  /** Retire an asset no entity uses: its shared GPU data is freed with the last instance. */
-  function releaseAssetIfUnused(assetId: string): void {
-    if (assetInUse(assetId)) return;
-    const resource = resources.get(assetId);
-    if (resource === undefined) return;
-    resources.delete(assetId);
+  /** The resource manager's load of one file: its verified bytes, then the cancellable store load. */
+  const loadFile = (row: SceneAdapterModelAsset) => async (): Promise<LoadedResource<PreparedVisualResource>> => {
+    let bytes: ArrayBuffer;
     try {
-      resource.dispose();
-    } catch {
-      /* best effort */
+      bytes = await ctx.models.resolveBytes(row.assetId, row.version);
+    } catch (e) {
+      throw new ModelFileError('asset_missing', `the models resolveBytes rejected for ${row.assetId} v${row.version}: ${(e instanceof Error ? e.message : String(e)).slice(0, 200)}`);
     }
+    if (disposed) throw new ModelFileError('asset_load_cancelled', 'the realization was disposed');
+    if (bytes.byteLength === 0) throw new ModelFileError('asset_load_cancelled', 'no bytes');
+    const descriptor: AssetVersionDescriptor = { assetId: row.assetId, version: row.version, sourceDigest: row.sourceDigest, sourceByteLength: bytes.byteLength };
+    const handle = store.load({ kind: 'bytes', descriptor, bytes: new Uint8Array(bytes) }, { loader });
+    pendingHandles.set(row.assetId, handle);
+    const res = await handle.result;
+    if (pendingHandles.get(row.assetId) === handle) pendingHandles.delete(row.assetId);
+    if (res.ok === false) throw new ModelFileError(res.error.code, res.error.message);
+    return { value: res.resource, bytes: res.resource.byteSize(), free: (r) => store.release(r) };
+  };
+
+  /**
+   * Hold an asset for `holder` (loading it the first time) and attach the
+   * entities waiting for it once it is ready. `wanted` says whether the holder
+   * still wants it when its row had to be found first.
+   */
+  function holdAsset(assetId: string, holder: string, wanted: () => boolean): void {
+    if (disposed) return;
+    const row = rowsByAsset.get(assetId);
+    if (row === undefined) {
+      // A model no row read so far names (a spawned copy's, say): found, then held.
+      const find = ctx.models.findRow;
+      if (find === undefined || finding.has(assetId)) return;
+      finding.add(assetId);
+      void find(assetId).then(
+        (found) => {
+          finding.delete(assetId);
+          if (found === undefined || disposed) return;
+          givenRows.set(assetId, found);
+          // Everyone who asked while it was being found.
+          for (const [id, a] of modelEntities) if (a === assetId) holdAsset(assetId, entityHolder(id), () => modelEntities.get(id) === assetId);
+          for (const [id, r] of instanceEntities) if (r.assetId === assetId) holdAsset(assetId, entityHolder(id), () => instanceEntities.get(id)?.assetId === assetId);
+          if (wanted()) holdAsset(assetId, holder, wanted);
+        },
+        () => finding.delete(assetId),
+      );
+      return;
+    }
+    if (!wanted()) return;
+    const kind = kindOf(row);
+    const key = keyOf(row);
+    ownHolders.add(holder);
+    known.add(assetId);
+    const p = resources.acquire(kind, key, holder, loadFile(row));
+    const ready = resources.peek<PreparedVisualResource>(kind, key);
+    if (ready !== undefined) {
+      attachForAsset(assetId, ready);
+      return;
+    }
+    if (loading.has(assetId)) return;
+    loading.add(assetId);
+    const gates = initial;
+    if (gates) {
+      pendingCount += 1;
+      initialAssets.add(assetId);
+    }
+    const done = (): void => {
+      loading.delete(assetId);
+      if (gates) pendingCount -= 1;
+    };
+    p.then(
+      (resource) => {
+        done();
+        if (disposed) return;
+        attachForAsset(assetId, resource);
+        // Block looks waiting for this model.
+        const waiting = blockWaiters.get(assetId);
+        blockWaiters.delete(assetId);
+        for (const cb of waiting ?? []) cb();
+        settleIfComplete();
+        notifyHolds();
+      },
+      (e: unknown) => {
+        done();
+        if (disposed) return;
+        const code = e instanceof ModelFileError ? e.code : 'asset_corrupt';
+        // Cancellation/stale are not errors.
+        if (code !== 'asset_load_cancelled' && code !== 'asset_load_stale' && !failedCodes.has(assetId)) failedCodes.set(assetId, code);
+        notifyHolds();
+        // The wrapper's resolver rejected for a declared row: a hard assets-phase failure.
+        if (code === 'asset_missing') settle({ ok: false, code, message: e instanceof Error ? e.message : String(e) });
+        else settleIfComplete();
+      },
+    );
   }
 
   function attachForAsset(assetId: string, resource: PreparedVisualResource): void {
@@ -710,7 +829,7 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
    */
   function attachInstanceSet(entityId: string, ref: InstanceSetRef): void {
     if (disposed || attachedSets.has(entityId)) return;
-    const resource = resources.get(ref.assetId);
+    const resource = readyResource(ref.assetId);
     const floats = buffers.get(ref.buffer);
     const holder = ctx.holderFor(entityId);
     if (resource === undefined || floats === undefined || holder === null) return;
@@ -781,9 +900,9 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
       }
     }
     rec.clonedMaterials.length = 0;
-    // The instance disposal releases the tracked role controllers too and
-    // returns the instance reference to the resource (the refcount rule:
-    // the LAST instance of a retired resource releases the LoadedGlb once).
+    // The instance disposal returns the instance reference to the resource
+    // (the refcount rule: the LAST instance of a retired resource releases
+    // the LoadedGlb once).
     try {
       rec.instance.dispose();
     } catch {
@@ -797,109 +916,14 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
     attached.delete(rec.entityId);
   }
 
-  /** Prepare an asset (once) and attach every entity waiting for it. */
-  function ensureAsset(assetId: string): void {
-    const ready = resources.get(assetId);
-    if (ready !== undefined) {
-      attachForAsset(assetId, ready);
-      return;
-    }
-    const row = rowsByAsset.get(assetId);
-    if (row === undefined) {
-      // A model no row read so far names (a spawned copy's, say): found, then loaded.
-      const find = ctx.models.findRow;
-      if (find === undefined || finding.has(assetId) || disposed) return;
-      finding.add(assetId);
-      void find(assetId).then(
-        (found) => {
-          finding.delete(assetId);
-          if (found === undefined || disposed) return;
-          givenRows.set(assetId, found);
-          ensureAsset(assetId);
-        },
-        () => finding.delete(assetId),
-      );
-      return;
-    }
-    if (loading.has(assetId)) return;
-    loading.add(assetId);
-    const gates = initial;
-    if (gates) {
-      pendingCount += 1;
-      initialAssets.add(assetId);
-    }
-    const done = (): void => {
-      loading.delete(assetId);
-      if (gates) pendingCount -= 1;
-    };
-    // Two-phase prepare: the wrapper-verified bytes first (no second
-    // fetch), then the cancellable store load. A dispose between the two
-    // discards the late bytes (nothing prepared).
-    void ctx.models.resolveBytes(row.assetId, row.version).then(
-      (bytes) => {
-        if (disposed || bytes.byteLength === 0) {
-          done();
-          if (!disposed) settleIfComplete();
-          notifyHolds();
-          return;
-        }
-        const descriptor: AssetVersionDescriptor = {
-          assetId: row.assetId,
-          version: row.version,
-          sourceDigest: row.sourceDigest,
-          sourceByteLength: bytes.byteLength,
-        };
-        const handle = store.load({ kind: 'bytes', descriptor, bytes: new Uint8Array(bytes) }, { loader });
-        pendingHandles.set(row.assetId, handle);
-        void handle.result.then((res) => {
-          pendingHandles.delete(row.assetId);
-          done();
-          if (disposed) {
-            // Late completion after disposal: discarded and released.
-            if (res.ok === true) res.resource.dispose();
-            return;
-          }
-          if (res.ok === false) {
-            const code = res.error.code;
-            // Cancellation/stale are not errors.
-            if (code !== 'asset_load_cancelled' && code !== 'asset_load_stale') {
-              if (!failedCodes.has(row.assetId)) failedCodes.set(row.assetId, code);
-            }
-          } else if (!assetInUse(row.assetId)) {
-            // Every entity that wanted it was unloaded meanwhile.
-            res.resource.dispose();
-          } else {
-            resources.set(row.assetId, res.resource);
-            attachForAsset(row.assetId, res.resource);
-            // Block looks waiting for this model.
-            const waiting = blockWaiters.get(row.assetId);
-            blockWaiters.delete(row.assetId);
-            for (const cb of waiting ?? []) cb();
-          }
-          settleIfComplete();
-          notifyHolds();
-        });
-      },
-      (e: unknown) => {
-        done();
-        if (disposed) return;
-        // The wrapper's resolver rejected for a manifest-declared row:
-        // a hard assets-phase failure.
-        const message = e instanceof Error ? e.message : String(e);
-        failedCodes.set(row.assetId, 'asset_missing');
-        pendingHandles.delete(row.assetId);
-        notifyHolds();
-        settle({
-          ok: false,
-          code: 'asset_missing',
-          message: `the models resolveBytes rejected for ${row.assetId} v${row.version}: ${message.slice(0, 200)}`,
-        });
-      },
-    );
+  /** Hold the files of these entities (each entity holds its own). */
+  function holdEntities(models: Iterable<[string, string]>, sets: Iterable<[string, InstanceSetRef]>): void {
+    for (const [id, assetId] of models) holdAsset(assetId, entityHolder(id), () => modelEntities.get(id) === assetId);
+    for (const [id, ref] of sets) holdAsset(ref.assetId, entityHolder(id), () => instanceEntities.get(id)?.assetId === ref.assetId);
   }
 
   // The start scenes' assets (these gate the settle).
-  for (const assetId of new Set([...modelEntities.values(), ...[...instanceEntities.values()].map((r) => r.assetId)])) ensureAsset(assetId);
+  holdEntities(modelEntities, instanceEntities);
   for (const ref of instanceEntities.values()) ensureBuffer(ref.buffer);
   initial = false;
 
@@ -909,15 +933,15 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
       const key = `${assetId}|${piece ?? ''}`;
       const hit = blockInstances.get(key);
       if (hit !== undefined) return hit;
-      blockAssets.add(assetId);
-      const resource = resources.get(assetId);
+      const resource = readyResource(assetId);
       if (resource === undefined) {
         let list = blockWaiters.get(assetId);
         if (list === undefined) blockWaiters.set(assetId, (list = []));
         list.push(onReady);
-        ensureAsset(assetId);
+        holdAsset(assetId, blocksHolder, () => true);
         return null;
       }
+      holdAsset(assetId, blocksHolder, () => true);
       const made = resource.createInstance(instanceOptions(assetId, piece));
       if (!made.ok) return null;
       blockInstances.set(key, made.instance);
@@ -929,24 +953,22 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
       const assetId = modelEntities.get(entityId);
       return assetId === undefined ? null : { assetId, instance: rec.instance };
     },
-    clipsOf(clipAssetId: string, rigAssetId: string) {
+    clipsOf(clipAssetId: string, rigAssetId: string, entityId?: string) {
       if (disposed) return null;
       if (clipAssetId === rigAssetId) {
-        const own = resources.get(rigAssetId);
+        const own = readyResource(rigAssetId);
         return own === undefined ? null : own.animationClips();
       }
       if (rowsByAsset.get(clipAssetId)?.clipsFor !== rigAssetId) return null;
-      const ready = resources.get(clipAssetId);
-      if (ready !== undefined) return ready.animationClips();
-      if (!clipAssets.has(clipAssetId)) {
-        clipAssets.add(clipAssetId);
-        // Not a settle gate: the animator plays the base pose until it arrives.
-        const wasInitial = initial;
-        initial = false;
-        ensureAsset(clipAssetId);
-        initial = wasInitial;
-      }
-      return null;
+      // Held by the animator's entity (released with it), else for the realization's life.
+      const holder = entityId !== undefined ? entityHolder(entityId) : `${tag}/clips`;
+      const wanted = entityId !== undefined ? () => modelEntities.has(entityId) : () => true;
+      // Not a settle gate: the animator plays the base pose until it arrives.
+      const wasInitial = initial;
+      initial = false;
+      holdAsset(clipAssetId, holder, wanted);
+      initial = wasInitial;
+      return readyResource(clipAssetId)?.animationClips() ?? null;
     },
     update(deltaSeconds: number): boolean {
       if (disposed) return false;
@@ -969,7 +991,7 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
         if (handle.state() === 'pending') pending += 1;
       }
       return {
-        assets: resources.size + loading.size,
+        assets: heldAssetCount(),
         instances: liveInstanceCount(),
         pending,
         animations: liveControllers.size,
@@ -987,27 +1009,26 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
       for (const [id, piece] of entities.pieces ?? []) modelPieces.set(id, piece);
       for (const [id, anim] of entities.animations) modelAnimationEntities.set(id, anim);
       for (const [id, ref] of entities.instances) instanceEntities.set(id, ref);
-      const assets = new Set([...entities.models.values(), ...[...entities.instances.values()].map((r) => r.assetId)]);
-      for (const assetId of assets) ensureAsset(assetId);
+      holdEntities(entities.models, entities.instances);
       for (const ref of entities.instances.values()) ensureBuffer(ref.buffer);
     },
 
     removeEntities(entityIds): void {
       if (disposed) return;
-      const touched = new Set<string>();
       for (const id of entityIds) {
         const rec = attached.get(id);
         if (rec !== undefined) disposeAttached(rec);
         const set = attachedSets.get(id);
         if (set !== undefined) disposeInstanceSet(set);
-        const assetId = modelEntities.get(id) ?? instanceEntities.get(id)?.assetId;
-        if (assetId !== undefined) touched.add(assetId);
         modelEntities.delete(id);
         modelAnimationEntities.delete(id);
         instanceEntities.delete(id);
         modelPieces.delete(id);
+        // Its file (and an animation-only file its animator played) is let go; freed once no one holds it.
+        const holder = entityHolder(id);
+        resources.releaseHolder(holder);
+        ownHolders.delete(holder);
       }
-      for (const assetId of touched) releaseAssetIfUnused(assetId);
       for (const digest of [...buffers.keys()]) {
         if (!bufferInUse(digest)) buffers.delete(digest);
       }
@@ -1016,8 +1037,11 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
     hold(assetIds, bufferDigests) {
       const h = { assets: new Set([...assetIds].filter((a) => rowsByAsset.has(a))), buffers: new Set(bufferDigests) };
       if (disposed) return { ready: Promise.resolve(), release: () => undefined };
+      holdSerial += 1;
+      const holder = `${tag}/hold:${holdSerial}`;
+      let released = false;
       holds.add(h);
-      for (const assetId of h.assets) ensureAsset(assetId);
+      for (const assetId of h.assets) holdAsset(assetId, holder, () => !released);
       for (const digest of h.buffers) ensureBuffer(digest);
       const complete = (): boolean => {
         if (disposed) return true;
@@ -1033,14 +1057,14 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
         };
         if (!check()) holdWaiters.add(check);
       });
-      let released = false;
       return {
         ready,
         release: () => {
           if (released || disposed) return;
           released = true;
           holds.delete(h);
-          for (const assetId of h.assets) releaseAssetIfUnused(assetId);
+          resources.releaseHolder(holder);
+          ownHolders.delete(holder);
           for (const digest of h.buffers) if (!bufferInUse(digest)) buffers.delete(digest);
         },
       };
@@ -1051,24 +1075,20 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
       disposed = true;
       // Cancel every in-flight prepare before releasing; a late
       // completion is discarded and released (never applied).
-      try {
-        store.dispose();
-      } catch {
-        /* best effort */
-      }
       for (const set of [...attachedSets.values()]) disposeInstanceSet(set);
       for (const rec of [...attached.values()]) disposeAttached(rec);
       for (const inst of blockInstances.values()) inst.dispose();
       blockInstances.clear();
       blockWaiters.clear();
-      for (const resource of resources.values()) {
-        try {
-          resource.dispose();
-        } catch {
-          /* best effort */
-        }
+      for (const holder of ownHolders) resources.releaseHolder(holder);
+      ownHolders.clear();
+      // What this realization's store parsed goes with it (a manager entry freed later finds it retired).
+      try {
+        store.dispose();
+      } catch {
+        /* best effort */
       }
-      resources.clear();
+      if (ctx.resources === undefined) resources.dispose();
       buffers.clear();
       liveControllers.clear();
       holds.clear();

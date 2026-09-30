@@ -77,9 +77,10 @@ import { withAddedCopies, withCopy, withoutCopy, type CopyTransform } from '../s
 import { Viewport } from '../viewport/viewport';
 import { iconTableOf } from '../viewport/icons';
 import { ModelInstances, type AssetPreviewSession } from '../viewport/model-instances';
+import { createSceneViewAssets } from '../viewport/scene-assets';
 import { ThumbnailRenderer } from '../viewport/thumbnails';
 import { AnimatorMachine, type AnimatorControllerLike } from '@thirdlight/runtime';
-import { BATCHING_URL_PARAM, batchingFromUrl, createAnimatorPlayer, createMaterialLibrary, decodeTexture, isKtx2, setKtx2DecoderBase, layerEnvironment, pageSearch, rendererPreferenceFromUrl, RENDERER_URL_PARAM, resolveRendererPreference, type EnvironmentLike, type LightingBakeLike, type MaterialDefLike, type MaterialFunctionLike, type MaterialLibrary, type RendererInfo, type WindLike } from '@thirdlight/three-adapter';
+import { BATCHING_URL_PARAM, batchingFromUrl, createAnimatorPlayer, isKtx2, setKtx2DecoderBase, layerEnvironment, pageSearch, rendererPreferenceFromUrl, RENDERER_URL_PARAM, resolveRendererPreference, type EnvironmentLike, type LightingBakeLike, type MaterialDefLike, type MaterialFunctionLike, type MaterialLibrary, type RendererInfo, type WindLike } from '@thirdlight/three-adapter';
 import { setEditorRendererChoice } from '../viewport/renderer-choice';
 import type { TimelineAsset } from '@thirdlight/project-model';
 import type { AnimatorController, DescriptorRegistry, EffectComponent, EffectDef, EnvironmentConfig, InputConfig, LightingBake, MaterialDef, ScriptLibrary, UiDocument, UiTheme, GameMode, EventCue, GameShell } from '@thirdlight/project-model';
@@ -1015,51 +1016,21 @@ function EditorApp(): JSX.Element {
     // resolver is the editor's authenticated byte read; the renderer never
     // receives the token.
     // Project materials (shared by boxes, models and instance sets).
-    const loadTextureAsset = async (assetId: string): Promise<THREE.Texture | null> => {
-      const v = client.content.resolveVersion(assetId);
-      if (v === null) return null;
-      const bytes = await client.assetBytes(assetId, v.version);
-      // A KTX2 texture transcodes with three's Basis files next to the editor page.
-      if (isKtx2(bytes)) return decodeTexture(bytes);
-      const bitmap = await createImageBitmap(new Blob([bytes as BlobPart]), { imageOrientation: 'none', premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
-      const t = new THREE.Texture(bitmap as unknown as HTMLImageElement);
-      t.needsUpdate = true;
-      return t;
-    };
-    loadTextureRef.current = loadTextureAsset;
-    // Spot light cookies in the Scene view.
-    viewport.setTextureSource(loadTextureAsset);
-    const materialLibrary = createMaterialLibrary({
-      loadTexture: loadTextureAsset,
-      onChange: () => viewport.requestRender(),
-    });
-    materialLibraryRef.current = materialLibrary;
-    viewport.setMaterialLibrary(materialLibrary);
-    const models = new ModelInstances(viewport.scene, {
-      resolve: client.assetByteResolver(),
-      descriptorFor: (assetId) => {
-        const v = client.content.resolveVersion(assetId);
-        if (!v || !/^[0-9a-f]{64}$/.test(v.sourceDigest)) return null;
-        return { assetId, version: v.version, sourceDigest: v.sourceDigest, sourceByteLength: v.sourceByteLength };
-      },
-      onChanged: () => {
-        viewport.refreshLightmaps();
-        viewport.requestRender();
-      },
-      parentFor: (entityId) => viewport.objectFor(entityId),
-      resolveBuffer: (digest) => client.instanceBufferBytes(digest),
-      vertexColorsFor: (assetId) => (client.content.getAsset(assetId)?.vertexColors === 'tint' ? 'tint' : 'data'),
-      materialLibrary,
-      assetMaterialsFor: (assetId) => client.content.getAsset(assetId)?.materials ?? null,
-      // The project's instance chunk size; the Inspector shows each set's chunk count.
-      instanceChunkSize: () => {
-        const v = client.getSettings()?.['instance_chunk_m'];
-        return typeof v === 'number' && v > 0 ? v : undefined;
-      },
+    const sceneAssets = createSceneViewAssets({
+      client,
+      viewport,
+      // What the Scene view holds from assets now (tests read it).
+      onResources: (r) => viewportHostRef.current?.setAttribute('data-resources', JSON.stringify(r.resident)),
       onSetBuilt: (entityId, chunks) => setInstanceChunks((prev) => (prev[entityId] === chunks ? prev : { ...prev, [entityId]: chunks })),
       onFailuresChanged: (failures) =>
         setViewFailures([...failures].map(([id, f]) => ({ id, name: client.content.getAsset(id)?.displayName ?? id, code: f.code, message: f.message }))),
     });
+    const { loadTexture: loadTextureAsset, materialLibrary, models } = sceneAssets;
+    loadTextureRef.current = loadTextureAsset;
+    // Spot light cookies in the Scene view.
+    viewport.setTextureSource(loadTextureAsset);
+    materialLibraryRef.current = materialLibrary;
+    viewport.setMaterialLibrary(materialLibrary);
     viewport.setModelInstances(models);
     modelInstancesRef.current = models;
     const thumbnails = new ThumbnailRenderer({
@@ -1080,9 +1051,8 @@ function EditorApp(): JSX.Element {
       client.dispose();
       thumbnails.dispose();
       thumbnailsRef.current = null;
-      materialLibrary.dispose();
+      sceneAssets.dispose();
       materialLibraryRef.current = null;
-      models.dispose();
       viewport.dispose();
       modelInstancesRef.current = null;
       previewSessionRef.current = null;

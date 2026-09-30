@@ -7,11 +7,11 @@
  * root `tests/m3-audio` real-cue-bytes tests; audibility stays UNVERIFIED
  * (no audio device in this container).
  */
+import { createResourceManager } from '@thirdlight/runtime';
 import { describe, expect, it } from 'vitest';
 import {
   AUDIO_MAX_DIAGNOSTICS,
   AUDIO_MAX_VOICES,
-  MUSIC_DECODED_KEEP,
   createGameAudioOwner,
   type AudioBufferLike,
   type AudioContextLike,
@@ -245,31 +245,39 @@ describe('the audio owner: bytes-in, validation, status', () => {
     owner.dispose();
   });
 
-  it('registers every sound the game has (no store cap), and keeps a bounded number of decoded music buffers', async () => {
+  it('registers every sound the game has (no store cap); a sound decoded when played is held while it plays and freed after', async () => {
     const flush = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
     const ctx = new FakeContext();
-    const { owner } = makeEnv([ctx]);
+    const resources = createResourceManager();
+    const owner = createGameAudioOwner({ contextFactory: () => ctx, resources });
     for (let i = 0; i < 100; i += 1) expect(owner.registerCue(`a${i}`, new Uint8Array([i]))).toEqual({ ok: true });
-    const tracks = Array.from({ length: MUSIC_DECODED_KEEP + 2 }, (_, i) => `m${i}`);
+    const tracks = ['m0', 'm1', 'm2'];
     tracks.forEach((id, i) => expect(owner.registerMusic!(id, new Uint8Array([1, i]))).toEqual({ ok: true }));
     await owner.unlock();
     await flush();
+    // The sounds decoded on load are held by their registration.
+    expect(resources.observe().resident.audio?.count).toBe(100);
     const decodes = (): number => ctx.decodedBytes.filter((d) => d.len === 2).length;
     for (const id of tracks) {
       owner.playMusic!(id, 0);
       await flush();
       expect(owner.musicStatus!()).toMatchObject({ assetId: id, playing: true });
+      resources.settle();
+      // Only the track playing now is held.
+      expect(resources.observe().resident.audio?.count).toBe(101);
     }
     expect(decodes()).toBe(tracks.length);
-    // The last one is still decoded; the first was dropped and is decoded again from its bytes when played.
+    // Played again: decoded again (its buffer went with the track that played it).
     owner.playMusic!(tracks[0]!, 0);
     await flush();
     expect(owner.musicStatus!()).toMatchObject({ assetId: tracks[0], playing: true });
     expect(decodes()).toBe(tracks.length + 1);
-    owner.playMusic!(tracks[tracks.length - 1]!, 0);
-    await flush();
-    expect(decodes()).toBe(tracks.length + 1);
+    owner.playMusic!(null, 0);
+    resources.settle();
+    expect(resources.observe().resident.audio?.count).toBe(100);
     owner.dispose();
+    resources.settle();
+    expect(resources.observe().resident).toEqual({});
   });
 });
 

@@ -37,7 +37,6 @@ export {
   type BufferSourceLike,
   type AudioContextLike,
   type AudioBus,
-  MUSIC_DECODED_KEEP,
   AUDIO_PANNING_MODEL,
   type AudioCommandLike,
   type AudioListenerLike,

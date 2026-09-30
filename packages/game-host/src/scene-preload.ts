@@ -21,7 +21,7 @@
  * most `max` at a time, and let go when they are no longer named. A load of a
  * scene read ahead answers as soon as its preparation is done.
  */
-import type { LoadedSceneBatch } from '@thirdlight/runtime';
+import { assetVersionKey, type LoadedSceneBatch, type ResourceManager } from '@thirdlight/runtime';
 
 import { startSceneAssets, type DeclaredAssetRow, type StartAssetSources, type VerifiedAssetReader } from './asset-reader';
 
@@ -153,9 +153,9 @@ export function createScenePreloader(opts: {
       }
       for (const [id, e] of [...entries]) {
         if (e.asked) {
-          // A load's entry: kept while the scene loads; once loaded the render side holds it; a cancelled one is let go.
-          if (status[id] === 'loaded') entries.delete(id);
-          else if (status[id] === 'unloaded' && e.done) drop(id, e);
+          // A load's entry: kept while the scene loads; once loaded its entities hold what it drew
+          // (they take it before the frame's settle), so the preparation lets go; a cancelled one is let go.
+          if (status[id] === 'loaded' || (status[id] === 'unloaded' && e.done)) drop(id, e);
           continue;
         }
         if (!named.has(id)) drop(id, e);
@@ -199,17 +199,33 @@ export function pageScenePreparation(o: {
   readonly sources: Omit<StartAssetSources, 'entities' | 'startSceneIds' | 'environment'>;
   /** A v5 build's catalog: the scene's dependency entries (read with the scene) are what it needs. */
   readonly catalog?: { sceneEntriesRead(sceneId: string): readonly DeclaredAssetRow[] | undefined };
+  /**
+   * The page's resource manager: a model or texture already resident (a
+   * scene loaded now uses it too) is not read again; the render side's
+   * preparation holds it as it is.
+   */
+  readonly resources?: ResourceManager;
 }): (sceneId: string, entities: SceneEntities) => ScenePreparation {
+  let serial = 0;
   return (sceneId, entities) => {
     const bake = o.sources.lighting?.[sceneId];
     const listed = o.catalog?.sceneEntriesRead(sceneId);
     const rows = listed !== undefined ? listed.filter((r) => r.kind !== 'audio') : startSceneAssets({ ...o.sources, entities, startSceneIds: [sceneId], lighting: bake !== undefined ? { [sceneId]: bake } : {} });
-    const read = o.reader.preload(rows).catch(() => undefined);
+    // The scene's files are held until its entities took what they draw (or it is let go).
+    serial += 1;
+    const holder = `prepare:${sceneId}:${serial}`;
+    const resident = (r: DeclaredAssetRow): boolean =>
+      o.resources !== undefined &&
+      ((r.kind === 'model' && (o.resources.has('model', assetVersionKey(r.assetId, r.version)) || o.resources.has('clip', assetVersionKey(r.assetId, r.version)))) || (r.kind === 'texture' && o.resources.has('texture', r.assetId)));
+    const read = o.reader.preload(rows.filter((r) => !resident(r)), undefined, holder).catch(() => undefined);
     const textures = rows.filter((r) => r.kind === 'texture').map((r) => r.assetId);
     const prepared = o.adapter()?.prepareScene?.(sceneId, entities as unknown as readonly { id: string; components: unknown }[], textures) ?? null;
     return {
       ready: Promise.all([read, prepared?.ready ?? Promise.resolve()]).then(() => undefined),
-      release: () => prepared?.release(),
+      release: () => {
+        prepared?.release();
+        o.reader.release(holder);
+      },
     };
   };
 }

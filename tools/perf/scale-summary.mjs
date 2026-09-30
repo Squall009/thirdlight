@@ -29,6 +29,13 @@ for (const path of process.argv.slice(2)) {
     const last = w.loaded[w.loaded.length - 1];
     const maxHeap = Math.max(...w.loaded.map((m) => m.heapMiB ?? 0));
     console.log(`walk ${w.scenes}: load p50 ${f(w.loadMs.p50)} / p95 ${f(w.loadMs.p95)} ms (read p50 ${f(w.readMs?.p50)}, drawn p50 ${f(w.attachMs?.p50)} / p95 ${f(w.attachMs?.p95)} ms), unload p50 ${f(w.unloadMs.p50)} ms; heap ${f(w.before.heapMiB, 1)} → max ${f(maxHeap, 1)} → after ${f(w.after.heapMiB, 1)} MiB; gpu ${f(w.before.gpuMiB, 1)} → ${f(last?.gpuMiB, 1)} → ${f(w.after.gpuMiB, 1)} MiB; textures ${w.before.live.textures} → ${last?.live.textures} → ${w.after.live.textures}; three textures ${w.before.three?.textures} → ${w.after.three?.textures}, geometries ${w.before.three?.geometries} → ${w.after.three?.geometries}; asset bytes read ${f((w.after.assetReads?.bytes ?? 0) / 1048576, 1)} MiB; backend RSS ${f(w.after.backendRssMiB)} MiB`);
+    // Resident bytes per kind (the resource manager): before the walk, the most while it ran, after it.
+    const kinds = [...new Set([w.before, ...w.loaded, w.after].flatMap((m) => Object.keys(m.resources?.resident ?? {})))].sort();
+    if (kinds.length > 0) {
+      const kib = (m, k) => f((m?.resources?.resident?.[k]?.bytes ?? 0) / 1024, 1);
+      const most = (k) => Math.max(...w.loaded.map((m) => m.resources?.resident?.[k]?.bytes ?? 0));
+      console.log(`walk resident KiB (before → most → after): ${kinds.map((k) => `${k} ${kib(w.before, k)} → ${f(most(k) / 1024, 1)} → ${kib(w.after, k)}`).join('; ')}; loads ${JSON.stringify(w.after.resources?.loads ?? {})}, frees ${JSON.stringify(w.after.resources?.frees ?? {})}`);
+    }
   }
   const d = r.dialogue;
   if (d) console.log(`dialogue ${d.lines}: seen ${d.linesSeen}, heard ${d.voicesHeard}; line→voice p50 ${f(d.startLatencyMs.p50)} / p95 ${f(d.startLatencyMs.p95)} / max ${f(d.startLatencyMs.max)} ms; gap p50 ${f(d.gapMs.p50)} / p95 ${f(d.gapMs.p95)} / max ${f(d.gapMs.max)} ms; wall ${f(d.wallMs / 1000, 1)} s`);

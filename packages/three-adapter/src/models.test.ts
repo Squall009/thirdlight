@@ -24,7 +24,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import type { Runtime, RuntimeSnapshot } from '@thirdlight/runtime';
+import { createResourceManager, type Runtime, type RuntimeSnapshot } from '@thirdlight/runtime';
 import {
   createSceneAdapter,
   ERROR_CODES,
@@ -36,6 +36,7 @@ import { createGltfLoaderPort } from './gltf-loader';
 import { buildGlb } from './test-glb';
 import { prepareVisualResource, type GlbLoaderPort } from './visual';
 import { createAnimationRoleController } from './animation';
+import { createModelsRealization } from './models';
 
 // ---- helpers ---------------------------------------------------------------
 
@@ -589,5 +590,77 @@ describe('createSceneAdapter with the models block (M4 C64-4)', () => {
     expect(matsA[0]).toBe(matsB[0]);
     a.instance.dispose();
     b.instance.dispose();
+  });
+});
+// ---- the resource manager: files held by entities and prepared scenes ------
+
+describe('models in the resource manager', () => {
+  const realize = (resources: ReturnType<typeof createResourceManager>, port: GlbLoaderPort) => {
+    const scene = v3Scene({ withRoles: false });
+    const holders = new Map<string, THREE.Object3D>();
+    const r = createModelsRealization({
+      schemaVersion: 3,
+      models: { ...modelsBlock(scene, GLB_BYTES), animation: [] },
+      loader: port,
+      modelEntities: new Map([['a1', 'asset-courier']]),
+      modelAnimationEntities: new Map(),
+      allowAbsent: true,
+      resources,
+      holderFor: (id) => {
+        let h = holders.get(id);
+        if (h === undefined) holders.set(id, (h = new THREE.Group()));
+        return h;
+      },
+      viewFor: () => null,
+    });
+    if (!r.ok) throw new Error(r.error.message);
+    return r.realization;
+  };
+  const one = (id: string) => ({ models: new Map([[id, 'asset-courier']]), animations: new Map(), instances: new Map() });
+
+  it('a file unloaded and loaded again in the same step is kept; freed at the settle after its last entity went', async () => {
+    const resources = createResourceManager();
+    const counter = countingPort(createGltfLoaderPort());
+    const r = realize(resources, counter.port);
+    expect(await waitSettled(r.settled())).toMatchObject({ ok: true, instances: 1 });
+    expect(resources.observe().resident.model?.count).toBe(1);
+    expect(resources.observe().resident.model!.bytes).toBeGreaterThan(0);
+    // A transition: scene A's entity goes, scene B's (same file) comes, then the frame settles.
+    r.removeEntities(new Set(['a1']));
+    r.addEntities(one('b1'));
+    expect(resources.settle()).toBe(0);
+    expect(counter.loads).toBe(1);
+    expect(r.instanceOf('b1')).not.toBeNull();
+    // The last entity goes: resident until the settle, freed by it.
+    r.removeEntities(new Set(['b1']));
+    expect(resources.observe().resident.model?.count).toBe(1);
+    expect(resources.settle()).toBe(1);
+    expect(resources.observe().resident).toEqual({});
+    expect(counter.releases).toBe(1);
+    // Asked for again: loaded again.
+    r.addEntities(one('c1'));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(counter.loads).toBe(2);
+    expect(r.instanceOf('c1')).not.toBeNull();
+    r.dispose();
+    resources.settle();
+    expect(resources.observe().resident).toEqual({});
+    expect(counter.releases).toBe(2);
+  });
+
+  it('a scene being prepared holds its files until it is released', async () => {
+    const resources = createResourceManager();
+    const counter = countingPort(createGltfLoaderPort());
+    const r = realize(resources, counter.port);
+    await waitSettled(r.settled());
+    const held = r.hold!(['asset-courier'], []);
+    await held.ready;
+    r.removeEntities(new Set(['a1']));
+    expect(resources.settle()).toBe(0);
+    held.release();
+    expect(resources.settle()).toBe(1);
+    expect(counter.loads).toBe(1);
+    expect(counter.releases).toBe(1);
+    r.dispose();
   });
 });

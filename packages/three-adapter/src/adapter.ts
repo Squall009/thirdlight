@@ -55,6 +55,9 @@ import {
   type SceneAdapterModelsDiagnostics,
 } from './models';
 import type { GlbLoaderPort } from './visual';
+import { createResourceManager, type ResourceManager } from '@thirdlight/runtime';
+import { textureHolds, type TextureHolds } from './texture-holds';
+import { objectByteSize } from './resource-bytes';
 import {
   ANIMATION_MAX_DELTA_SECONDS,
   type AnimationRoleView,
@@ -87,250 +90,8 @@ import {
   type RendererPreferenceSource,
 } from './renderer-factory';
 
-/** The runtime instance driving this scene (frame source + camera). */
-export interface SceneAdapterOptions {
-  runtime: Runtime;
-  /** The runtime snapshot the runtime was instantiated from (read-only scene source). */
-  snapshot: RuntimeSnapshot;
-  /** Renderer antialiasing (default true). */
-  antialias?: boolean;
-  /** The injected model surface — the
-   *  resolved model-asset rows, the committed per-`modelAnimation`-entity
-   *  mappings and the wrapper's verified-bytes resolver. Absent ⇒ no
-   *  model realization at all (byte-stable). Requires
-   *  `modelsLoader` and a v3 snapshot (fail-fast `models_config_invalid`). */
-  models?: SceneAdapterModels;
-  /** The injected GLB loader port (the wrapper builds it from
-   *  the `@thirdlight/three-adapter/gltf-loader` subpath; the root subpath
-   *  stays loader-free). Required iff `models` is present. */
-  modelsLoader?: GlbLoaderPort;
-  /**
-   * Project materials (the manifest's), the wind, and the texture
-   * decoder (bytes come from the wrapper's verified content). Absent: files
-   * and boxes keep their own materials.
-   */
-  materials?: {
-    readonly defs: readonly MaterialDefLike[];
-    /** The material functions graph materials call (the manifest's). */
-    readonly functions?: readonly MaterialFunctionLike[];
-    readonly wind: WindLike | null;
-    readonly loadTexture: (assetId: string) => Promise<THREE.Texture | null>;
-  };
-  /**
-   * Sky, fog, fog volumes and post-processing (the manifest's
-   * environment). Absent: the scene renders as before.
-   */
-  environment?: {
-    readonly value: EnvironmentLike;
-    readonly loadTexture: (assetId: string) => Promise<THREE.Texture | null>;
-    /** A player's quality setting (null = the environment's). */
-    readonly quality?: QualityLevel | null;
-  };
-  /**
-   * The texture decoder for spot light cookies (bytes from the
-   * wrapper's verified content). Absent: the materials' or the environment's
-   * decoder, else cookies are not drawn.
-   */
-  lights?: {
-    readonly loadTexture: (assetId: string) => Promise<THREE.Texture | null>;
-  };
-  /** The scenes' bakes (lightmaps; the manifest's `lighting`). */
-  lighting?: {
-    readonly bakes: Readonly<Record<string, LightingBakeLike>>;
-    readonly loadTexture: (assetId: string) => Promise<THREE.Texture | null>;
-  };
-  /**
-   * Which renderer backend to use and where that choice came
-   * from (the page's `?renderer=` flag, the project's `render_backend`
-   * setting, or the default — see `resolveRendererPreference`). Absent: the
-   * default (`auto`: WebGPU where it starts, else WebGL 2).
-   */
-  renderer?: {
-    readonly preference: RendererPreference;
-    readonly source: RendererPreferenceSource;
-    /** The depth buffer (the project's `depth_buffer` setting; absent: standard). */
-    readonly depthBuffer?: 'standard' | 'logarithmic' | 'reversed';
-    /** Tests only: stubbed renderer constructors and WebGPU probe. */
-    readonly deps?: Partial<RendererFactoryDeps>;
-  };
-  /**
-   * The game's visual effects (the manifest's `effects`). The
-   * adapter plays `effect` components (play on start; their signals) and the
-   * runtime's effect requests (scripts, gameplay hooks) — on the WebGPU
-   * compute executor when the renderer draws on WebGPU, else on the CPU
-   * executor. Absent: effects are not drawn.
-   */
-  /**
-   * Draw repeated objects (boxes, model pieces with the same
-   * geometry, material and shadow flags) instanced (default true). Off: one
-   * draw per object, as before (tests compare the two).
-   */
-  batching?: boolean;
-  /**
-   * Called after each drawn frame, with the scenes that frame
-   * attached (loaded scenes realized in it). The page's start and scene-load
-   * timings read it; absent: nothing is called.
-   */
-  onFrameDrawn?: (info: FrameDrawnInfo) => void;
-  effects?: {
-    readonly defs: readonly EffectDefLike[];
-    readonly wind?: EffectsPlayerOptions['wind'];
-    readonly loadTexture: (assetId: string) => Promise<THREE.Texture | null>;
-    /** A model asset's scene (mesh particles, mesh-surface shapes). */
-    readonly loadModel?: (assetId: string) => Promise<THREE.Object3D | null>;
-  };
-}
-
-/**
- * The longest a present waits for its precompile (ms). A
- * device that never answers must not hold the picture: past it the frame is
- * drawn and builds what is left itself.
- */
-export const PRECOMPILE_WAIT_MS = 20_000;
-
-/** What `onFrameDrawn` reports for a drawn frame. */
-export interface FrameDrawnInfo {
-  /** The scenes this frame attached (loaded scenes realized in it). */
-  readonly realizedScenes: readonly string[];
-  /** How long this frame's render call took (sync, update, draw; ms). */
-  readonly renderMs: number;
-  /** When the first render call of this adapter began (ms, `performance.now()`); frames before the renderer was ready were skipped. */
-  readonly firstCallAt: number;
-  /** The precompile this frame waited for (the first present, a scene attached): when it began (`performance.now()`) and how long it ran (ms). */
-  readonly precompile?: { readonly startedAt: number; readonly ms: number };
-  /** The frame's draw calls, and the scene set revision it drew (the runtime's; -1 without scenes). */
-  readonly draws?: number;
-  readonly sceneRevision?: number;
-}
-
-/** Adapter diagnostics block (runtime.md, separate block; the shadow
- * fields are presentation.md's — exactly two read-only fields). */
-export interface SceneAdapterDiagnostics {
-  /** The SELECTED graphics API: `"webgpu"` or `"webgl2"` (WebGPURenderer's
-   *  backends; `"webgl1"` stays in the type for the contract but is never
-   *  produced), or `null` when no backend has been selected
-   *  yet (no successful render — e.g. a non-browser environment, or
-   *  WebGPURenderer still initialising: the contract-prescribed absent value). */
-  renderBackend: 'webgl2' | 'webgl1' | 'webgpu' | null;
-  /** The renderer choice — requested backend and its source, the
-   *  backend that draws, its state and why (absent until a renderer was
-   *  asked for, i.e. before the first render). */
-  renderer?: RendererInfo;
-  /** Renderer identity string, ≤ 128 chars (null until a backend exists). */
-  rendererInfo: string | null;
-  canvasSize: [number, number];
-  pixelRatio: number;
-  /** The shadow realization result for the
-   *  current scene. `on` is the planned/realized state; the first-render
-   *  probe may flip it to `off` / `shadow_unsupported`. v1/v2 and scenes
-   *  without a shadow-casting light are `off` / `cast_shadow_false` (the
-   *  author's own choice — not an error). */
-  shadows: 'on' | 'off';
-  /** Present iff `shadows === 'off'`; carries no path, token or
-   *  device string. Recorded once per realized scene, never per frame. */
-  shadowReason?: ShadowReason;
-  /**
-   * v3/v4 scenes: the lights that are on — the directional,
-   * ambient and hemisphere light's entity (the most recently loaded scene's
-   * of each kind; null: none), the point and spot lights of the loaded
-   * scenes and how many of them are on (the budget), and the spot cookies
-   * drawn.
-   */
-  lights?: { directional: string | null; ambient: string | null; hemisphere: string | null; local: number; localOn: number; cookies: number };
-  /** The bounded model-realization
-   *  counters block; ABSENT when the `models` option is absent (or after
-   *  dispose). Counters only: no paths, tokens, asset IDs or byte lengths.
-   */
-  models?: SceneAdapterModelsDiagnostics;
-  /** The renderer's live GPU resources (three's `renderer.info`); ABSENT
-   *  until a renderer exists. Flat counts while a scene runs — growth means
-   *  something is allocated per frame and never freed. */
-  gpu?: RendererMemoryCounts;
-  /** The effect player — the executor (webgpu | cpu) and its caps, what plays; ABSENT without the `effects` option. */
-  effects?: EffectsDiagnostics;
-  /**
-   * The automatic instancing of the last frame (groups, objects drawn through them, objects drawn alone); ABSENT when off or before the first drawn frame.
-   * `programs` — the node programs the batches are drawn with (every pass; groups of one material and vertex layout share one).
-   */
-  batching?: AutoBatcherDiagnostics & { programs?: number };
-  /**
-   * Every mesh drawn through instance-matrix columns (automatic
-   * batches and instance-set chunks) and the node programs they are drawn
-   * with (every pass); ABSENT before the first drawn frame.
-   */
-  instanced?: { meshes: number; programs: number };
-  /** The block layers drawn (layers, chunk meshes, triangles). */
-  blocks?: BlockLayerViewDiagnostics;
-  /**
-   * Graph materials — the compiled ones alive (objects with
-   * different parameter values share one) and the objects carrying values
-   * scripts set, with their data textures; ABSENT without project materials.
-   */
-  materials?: { graphMaterials: number } & RuntimeMaterialsDiagnostics;
-  /** Draw calls and triangles of the last frame (three's renderer info); ABSENT until a frame was drawn. */
-  frame?: { drawCalls: number; triangles: number };
-  /** The environment renderer — image-based lighting re-bakes of a sky changed in place (a blend, a moved sun light) so far — only when it moved past a threshold; ABSENT without one. */
-  environment?: { iblRebakes: number };
-  /**
-   * The precompiles (`renderer.compileAsync` before the first
-   * present and after each scene attach): settled, failed (the frame then
-   * built its programs itself), given up after PRECOMPILE_WAIT_MS, the last
-   * one's time (ms), and whether one runs now; ABSENT before the first.
-   */
-  precompile?: { runs: number; failed: number; gaveUp: number; lastMs: number; running: boolean };
-}
-
-export interface SceneAdapter {
-  /** Sync interpolated transforms into the scene graph and render one
-   *  frame. Runs as the runtime's `onFrame` (step → sync → render). */
-  renderFrame(): { ok: true } | { ok: false; error: AdapterError };
-  /** Capture a bounded PNG (width ≤ `maxWidth`, default 1024). */
-  captureScreenshot(maxWidth?: number): { ok: true; result: ScreenshotResult } | { ok: false; error: AdapterError };
-  /** A downscaled picture of a freshly drawn frame (a save slot's thumbnail); null when nothing is drawn. */
-  captureThumbnail(width: number, height: number, type: 'image/jpeg' | 'image/webp', quality: number): { dataUrl: string; width: number; height: number } | null;
-  /** The renderer is still starting (it initialises asynchronously): a capture now draws nothing. False once it can draw or has failed. */
-  rendererStarting(): boolean;
-  diagnostics(): { ok: true; diagnostics: SceneAdapterDiagnostics } | { ok: false; error: AdapterError };
-  /** Idempotent (mirrors the runtime's dispose): second call ⇒
-   *  `{ ok: true, alreadyDisposed: true }`. */
-  dispose(): { ok: true; alreadyDisposed?: true } | { ok: false; error: AdapterError };
-  /** Present iff the `models`
-   *  option was given. Resolves (never rejects) when the model prepares
-   *  have settled — all ready, the first hard failure, or the
-   *  adapter disposed. The wrapper posts `tl.ready` on `ok: true`
-   *  and `tl.error` (phase `"assets"`) on `ok: false`. */
-  modelsSettled?(): Promise<ModelsSettledResult>;
-  /** A player's quality setting (low/medium/high) over the environment's. */
-  setQuality?(level: QualityLevel): void;
-  /**
-   * A look (sky, fog, post, wind) laid over the project
-   * environment; null = the project environment. Needs the `environment`
-   * option for sky/fog/post and the `materials` option for wind.
-   */
-  setEnvironmentLayer?(layer: EnvironmentLayerLike | null): void;
-  /**
-   * Show an environment preset blend instead of the running
-   * game's (an editor preview; null: the game's again).
-   */
-  previewEnvironmentBlend?(view: EnvironmentBlendView | null): void;
-  /**
-   * Project an entity's world position (or a world point), plus
-   * a world offset, through the camera of the last rendered frame: `out` =
-   * [x 0 (left)–1 (right), y 0 (top)–1 (bottom), 1 in front of the camera /
-   * 0 behind]. False without a camera or for an unknown entity. The game
-   * host places world-anchored UI widgets with it.
-   */
-  projectToScreen?(target: { readonly entityId?: string; readonly point?: readonly number[]; readonly offset?: readonly number[] }, out: number[]): boolean;
-  /**
-   * Prepare a scene before it loads — its model files read
-   * and parsed, instance buffers decoded and the textures `textures` names
-   * decoded — and keep them until the scene is realized (or `release`), so
-   * the frame that attaches it draws it whole. `ready` never rejects.
-   */
-  prepareScene?(sceneId: string, entities: readonly { readonly id: string; readonly components: unknown }[], textures?: readonly string[]): { readonly ready: Promise<void>; release(): void };
-  /** The runtime's scene set revision the last presented frame drew (-1: none drawn yet). */
-  presentedSceneRevision?(): number;
-}
+export { PRECOMPILE_WAIT_MS, type FrameDrawnInfo, type SceneAdapter, type SceneAdapterDiagnostics, type SceneAdapterOptions } from './adapter-types';
+import { PRECOMPILE_WAIT_MS, type FrameDrawnInfo, type SceneAdapter, type SceneAdapterDiagnostics, type SceneAdapterOptions } from './adapter-types';
 
 const RENDERER_INFO_LIMIT = 128;
 
@@ -423,9 +184,17 @@ function modelRefsOf(entities: readonly { id: string; components: unknown }[]): 
 
 /** What a particle material holder wears until the project material library dresses it. */
 const EFFECT_MATERIAL_PLACEHOLDER = new THREE.MeshBasicMaterial();
+/** The effect models' holder in the resource manager (one effect player per page). */
+const EFFECTS_HOLDER = 'effects';
 
 export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): SceneAdapter {
   const scene = new THREE.Scene();
+  /**
+   * What this adapter loads from assets is held in the page's resource
+   * manager (the page settles it after each frame); without one, the
+   * adapter's own, settled after each change.
+   */
+  const resources: ResourceManager = opts.resources ?? createResourceManager({ schedule: (run) => queueMicrotask(run) });
   // Project materials (shared by boxes, models and instance sets), node materials.
   /** The lightmap set once it exists (the library may report a change while it is still being set up). */
   let lightmapsLive: LightmapSet | null = null;
@@ -433,6 +202,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     opts.materials !== undefined
       ? createMaterialLibrary({
           loadTexture: opts.materials.loadTexture,
+          resources,
           // A project material changed in place (a texture arrived): lightmapped
           // copies made before are clones and follow it (else they keep the texture-less look).
           onChange: () => lightmapsLive?.refresh(),
@@ -448,7 +218,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   /** Lightmaps of the baked static objects; the lights a bake holds are not realtime. */
   const lightmaps: LightmapSet | null =
     opts.lighting !== undefined && Object.keys(opts.lighting.bakes).length > 0
-      ? createLightmapSet(opts.lighting.bakes, opts.lighting.loadTexture, (ids) =>
+      ? createLightmapSet(opts.lighting.bakes, textureHolds(resources, opts.lighting.loadTexture), (ids) =>
           ids.some((id) => {
             const t = (entityDocs.get(id)?.components as { light?: { type?: string } } | undefined)?.light?.type;
             return t === 'ambient' || t === 'hemisphere';
@@ -478,7 +248,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         const rig = found.assetId;
         const r = realization;
         // Clips of an animation-only asset marked "clips for" this model's asset.
-        rec = { instance: found.instance, player: createAnimatorPlayer(found.instance.root, found.instance.animationClips(), rig, { clipsOf: (clipAssetId) => r.clipsOf(clipAssetId, rig) }) };
+        rec = { instance: found.instance, player: createAnimatorPlayer(found.instance.root, found.instance.animationClips(), rig, { clipsOf: (clipAssetId) => r.clipsOf(clipAssetId, rig, id) }) };
         animatorPlayers.set(id, rec);
       }
       rec.player.apply(pose);
@@ -489,6 +259,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     l.mode === 'baked' && l.type !== 'ambient' && l.type !== 'hemisphere' && id !== undefined && lightmaps?.isBakedLight(id) === true;
   /** The environment renderer (created with the renderer). */
   let environmentRenderer: EnvironmentRenderer | null = null;
+  /** The environment's textures (held while it exists). */
+  let environmentHolds: TextureHolds | null = null;
   /** The size last handed to the environment renderer (it rebuilds its post stack on a change). */
   let environmentSize: [number, number] | null = null;
   let playerQuality: QualityLevel | null = opts.environment?.quality ?? null;
@@ -535,20 +307,23 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   let localShadowLights = 0;
   /** Every realized light by entity, switched on and off by `selectLights` (scene-lights.ts). */
   const switchable = new Map<string, { kind: SceneLightKind; light: THREE.Light }>();
-  /** The spot cookies drawn (their textures are the adapter's: disposed with the light). */
+  /** The spot cookies drawn (a copy of the decoded texture each, the light's own: disposed with the light, which holds the decoded one). */
   const cookies = new Map<THREE.SpotLight, THREE.Texture>();
   const cookieLoader = opts.lights?.loadTexture ?? opts.materials?.loadTexture ?? opts.environment?.loadTexture ?? null;
+  const cookieHolds = cookieLoader === null ? null : textureHolds(resources, cookieLoader);
   const attachCookie = (s: THREE.SpotLight, assetId: string): void => {
-    if (cookieLoader === null) return;
-    void cookieLoader(assetId).then(
-      (tex) => {
-        if (tex === null) return;
+    if (cookieHolds === null) return;
+    void cookieHolds.get(assetId, s.uuid).then(
+      (decoded) => {
+        if (decoded === null) return;
         // Released meanwhile (its scene unloaded, the adapter disposed): not drawn.
         if (disposed || ![...switchable.values()].some((r) => r.light === s)) {
-          tex.dispose();
+          cookieHolds.releaseHolder(s.uuid);
           return;
         }
+        const tex = decoded.clone();
         tex.colorSpace = THREE.SRGBColorSpace;
+        tex.needsUpdate = true;
         s.map = tex;
         cookies.set(s, tex);
         // A cookie changes the light's shading: its programs are built before the next present.
@@ -603,14 +378,28 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   // --- Visual effects --------------------------------------------
   /** A project material for particles shaded with one (the library's compiled material, taken from a holder mesh). */
   const effectMaterials = new Map<string, THREE.Mesh>();
+  /** The effects' textures and models are held for the effect player's life. */
+  const effectTextures = opts.effects !== undefined ? textureHolds(resources, opts.effects.loadTexture) : null;
+  const effectModelLoad = opts.effects?.loadModel;
   const effects: EffectsPlayer | null =
     opts.effects !== undefined
       ? createEffectsPlayer({
           scene,
           defs: opts.effects.defs,
           wind: opts.effects.wind ?? opts.materials?.wind ?? null,
-          loadTexture: opts.effects.loadTexture,
-          ...(opts.effects.loadModel !== undefined ? { loadModel: opts.effects.loadModel } : {}),
+          loadTexture: (assetId) => effectTextures!.get(assetId, 'effects'),
+          ...(effectModelLoad !== undefined
+            ? {
+                loadModel: (assetId: string) =>
+                  resources
+                    .acquire<THREE.Object3D>('effect-model', assetId, EFFECTS_HOLDER, async () => {
+                      const root = await effectModelLoad(assetId);
+                      if (root === null) throw new Error(`effect model ${assetId} is not available`);
+                      return { value: root, bytes: objectByteSize(root), free: (r) => disposeObjectTree(r) };
+                    })
+                    .catch(() => null),
+              }
+            : {}),
           projectMaterial: (id: string) => {
             if (materialLibrary === null || id === '') return null;
             let holder = effectMaterials.get(id);
@@ -921,6 +710,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
         (lit.light as THREE.SpotLight).map = null;
         cookie.dispose();
       }
+      cookieHolds?.releaseHolder(lit.light.uuid);
       if (lit.kind === 'directional' || lit.kind === 'ambient' || lit.kind === 'hemisphere') {
         lit.light.removeFromParent();
         if (lit.kind === 'directional') (lit.light as THREE.DirectionalLight).target.removeFromParent();
@@ -1017,6 +807,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       instanceEntities,
       modelPieces,
       materialLibrary,
+      resources,
       entityMaterials: (entityId: string) => (entityDocs.get(entityId)?.components as { materials?: Record<string, string> } | undefined)?.materials ?? null,
       entityMaterialParams: (entityId: string) => materialParamsOf(entityDocs.get(entityId)?.components),
       ...(opts.snapshot.scenes !== undefined ? { allowAbsent: true } : {}),
@@ -1729,7 +1520,10 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       // A player's quality level also applies without a project environment (the low
       // level draws without MSAA), so the environment renderer draws then too.
       if ((opts.environment !== undefined || playerQuality !== null) && environmentRenderer === null) {
-        environmentRenderer = createEnvironmentRenderer(renderer, scene, { loadTexture: opts.environment?.loadTexture ?? (async () => null) });
+        // The sky, its faces and the grading LUT are held for the environment's life.
+        const envTextures = textureHolds(resources, opts.environment?.loadTexture ?? (async () => null), 'environment');
+        environmentRenderer = createEnvironmentRenderer(renderer, scene, { loadTexture: (id) => envTextures.get(id, 'environment') });
+        environmentHolds = envTextures;
         environmentRenderer.set(effectiveEnvironment());
         if (playerQuality !== null) environmentRenderer.setQuality(playerQuality);
         // A blend already running goes onto the new environment renderer.
@@ -1874,6 +1668,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     disposed = true;
     for (const rec of animatorPlayers.values()) rec.player.dispose();
     effects?.dispose();
+    effectTextures?.releaseHolder('effects');
+    resources.releaseHolder(EFFECTS_HOLDER);
     for (const h of effectMaterials.values()) h.geometry.dispose();
     effectMaterials.clear();
     animatorPlayers.clear();
@@ -1882,6 +1678,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     sceneHolds.clear();
     materialLibrary?.dispose();
     environmentRenderer?.dispose();
+    environmentHolds?.releaseHolder('environment');
+    for (const light of cookies.keys()) cookieHolds?.releaseHolder(light.uuid);
     // Tear down the model realization
     // FIRST — cancel every in-flight prepare, dispose the attached
     // instances (cloned materials + controllers + instances) and the
@@ -1895,6 +1693,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       realization = null;
       lastFrameNow = null;
     }
+    // A manager of the adapter's own goes with it (the page's is the page's).
+    if (opts.resources === undefined) resources.dispose();
     // Release ALL owned Object3D/material/renderer lifetimes (repeatable
     // disposal, as in runtime.md: no leaked loop, no stale GPU state).
     for (const release of contextListenerReleases) {
@@ -1988,18 +1788,19 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       const refs = modelRefsOf(entities);
       const assets = new Set([...refs.models.values(), ...[...refs.instances.values()].map((r) => r.assetId)]);
       const held = realization?.hold?.(assets, [...refs.instances.values()].map((r) => r.buffer)) ?? null;
-      const decoded = textures !== undefined && textures.length > 0 && materialLibrary?.preloadTextures !== undefined ? materialLibrary.preloadTextures(textures).catch(() => undefined) : Promise.resolve();
+      const decoded = textures !== undefined && textures.length > 0 && materialLibrary?.preloadTextures !== undefined ? materialLibrary.preloadTextures(textures) : null;
       let released = false;
       const handle = {
         release: (): void => {
           if (released) return;
           released = true;
           held?.release();
+          decoded?.release();
           if (sceneHolds.get(sceneId) === handle) sceneHolds.delete(sceneId);
         },
       };
       sceneHolds.set(sceneId, handle);
-      return { ready: Promise.all([held?.ready ?? Promise.resolve(), decoded]).then(() => undefined), release: handle.release };
+      return { ready: Promise.all([held?.ready ?? Promise.resolve(), decoded?.ready.catch(() => undefined)]).then(() => undefined), release: handle.release };
     },
     presentedSceneRevision(): number {
       return presentedRevision;

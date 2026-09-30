@@ -45,9 +45,9 @@ describe('scene preloader', () => {
     expect(answered).toBe(false);
     s.gates.get('scene-b')!();
     expect((await p).map((e) => e.id)).toEqual(['scene-b-e']);
-    // Loaded: the render side keeps what it prepared (nothing released).
+    // Loaded: its entities hold what it drew now, so the preparation lets go.
     s.pre.want([], { 'scene-b': 'loaded' });
-    expect(s.released).toEqual([]);
+    expect(s.released).toEqual(['scene-b']);
   });
 
   it('reads ahead the named scenes that are not loaded (at most max), lets go of the ones no longer named, and a load reuses the read', async () => {

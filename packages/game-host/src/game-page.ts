@@ -31,6 +31,7 @@
  * Browser-only (DOM, WebGL/WebGPU, Web Audio, Web Crypto).
  */
 import { audioSpatialOf, depthBufferOf, instanceChunkSizeOf, physicsDimensionOf, sha256HexAsync, type SaveSchema } from '@thirdlight/project-model';
+import { createResourceManager, type ResourceObservation } from '@thirdlight/runtime';
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import { createPhysicsPort, type RapierPhysicsInitConfig, type RapierPhysicsPort, type RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
 import { batchingFromUrl, createSceneAdapter, decodeTexture, effectsOptionFrom, environmentHasLook, pageSearch, resolveRendererPreference, setKtx2DecoderBase } from '@thirdlight/three-adapter';
@@ -227,10 +228,36 @@ export interface GamePageHandle {
   readonly inputConfig: () => InputConfigLike;
   /** The asset reads so far and their verified bytes. */
   assetReads(): { reads: number; bytes: number };
+  /** What is loaded from assets now (resident per kind, loads, frees, script handles alive). */
+  resources(): ResourceObservation;
   dispose(): void;
 }
 
 const sha256Hex = sha256HexAsync;
+
+/** The start scenes' bytes, read before the game composes. */
+const START_HOLDER = 'start';
+/** How long the start's bytes wait for the renderer to start drawing (a device that never does must not keep them). */
+const START_HOLD_MAX_MS = 30_000;
+
+/**
+ * Let go of the start's bytes once the adapter's renderer has started (its
+ * environment and lightmaps took their textures then) and the models settled.
+ */
+function releaseStartWhenDrawn(adapter: SceneAdapter | null, hasModels: boolean, reader: VerifiedAssetReader): void {
+  const t0 = Date.now();
+  const settled = hasModels && adapter?.modelsSettled !== undefined ? adapter.modelsSettled().then(() => undefined) : Promise.resolve();
+  void settled.then(() => {
+    const check = (): void => {
+      if (adapter === null || adapter.rendererStarting() !== true || Date.now() - t0 > START_HOLD_MAX_MS) {
+        reader.release(START_HOLDER);
+        return;
+      }
+      setTimeout(check, 100);
+    };
+    check();
+  });
+}
 
 /** The assetIds the scene references through a `model` component. */
 function referencedModelAssetIds(snapshot: RuntimeSnapshot): Set<string> {
@@ -437,8 +464,11 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
   // The scene as the game loads it (folders and inactive entities resolved away): physics, the renderer and the runtime all use this one.
   const { snapshot, modeRows, uiDocs } = runtimeSnapshotOf(o.snapshot, content, catalog?.rows ?? null);
 
-  // Every declared asset is read through this reader, once, checked against its catalog row.
-  const assetReader = createVerifiedAssetReader(manifest.assets, io, { catalog: content.catalog });
+  // Everything this page loads from assets is held in one resource manager (the host settles it after
+  // each frame): the reader's bytes, the adapter's models and textures, the decoded sounds, the UI's images.
+  const resources = createResourceManager();
+  // Every declared asset is read through this reader, checked against its catalog row.
+  const assetReader = createVerifiedAssetReader(manifest.assets, io, { catalog: content.catalog, resources });
   // A 3D project's physics is the 3D backend; a plain scene (no player controller) plays without physics.
   const physicsConfig: RapierPhysicsInitConfig | PhysicsInitConfig3D | null = physicsDimensionOf(settings) === 3 ? physics3DConfigOf(snapshot.scene.entities as never, settings, { layers: manifest.collisionLayers ?? [] }) : physicsConfigFromSnapshot(snapshot, settings);
   // The bindings in effect (a player's rebinding changes them): the project's actions, else the defaults.
@@ -446,7 +476,7 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
   const browserInput = attachBrowserInput(o.canvas, { inputConfig: inputConfigNow });
   // What this composition attaches to the page is released with it and on every failure path
   // (a new start composes again on the same canvas).
-  const releases: (() => void)[] = [() => browserInput.dispose(), focusGameSurface(o.canvas), ...(scenes !== null ? [() => scenes.dispose()] : [])];
+  const releases: (() => void)[] = [() => resources.dispose(), () => browserInput.dispose(), focusGameSurface(o.canvas), ...(scenes !== null ? [() => scenes.dispose()] : [])];
   const releaseAll = (): void => {
     for (const r of releases.splice(0).reverse()) {
       try {
@@ -520,7 +550,8 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
         ...(manifest.lighting !== undefined ? { lighting: manifest.lighting } : {}),
       });
       timings?.begin('assets');
-      await assetReader.preload(startRows, (loaded, total) => onProgress('assets', loaded, total));
+      // Held until the start scenes' models, textures and sounds took what they need (below).
+      await assetReader.preload(startRows, (loaded, total) => onProgress('assets', loaded, total), START_HOLDER);
       timings?.end('assets', `${startRows.length} of ${manifest.assets.length}`);
       timings?.count('startAssetReads', startRows.length);
       timings?.count('startAssetBytes', startRows.reduce((n, r) => n + r.sourceByteLength, 0));
@@ -609,7 +640,7 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
             setFrameInput: (f: Parameters<typeof browserInput.setFrameInput>[0]) => browserInput.setFrameInput(f),
           };
     // The project's sound voice count (absent: 8).
-    const audio = createGameAudioOwner({ contextFactory: browserContextFactory() ?? undefined, ...(settings.audio_voices !== undefined ? { maxVoices: settings.audio_voices } : {}) });
+    const audio = createGameAudioOwner({ contextFactory: browserContextFactory() ?? undefined, resources, ...(settings.audio_voices !== undefined ? { maxVoices: settings.audio_voices } : {}) });
     releases.push(() => void audio.dispose());
     const assetPathsById: Record<string, string> = {};
     for (const asset of manifest.assets) assetPathsById[asset.assetId] = asset.path;
@@ -633,6 +664,7 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
         const a = createSceneAdapter(o.canvas, {
           runtime,
           snapshot,
+          resources,
           // The page's ?renderer= flag, else the project's render_backend setting.
           renderer: { ...resolveRendererPreference({ url: pageSearch(), setting: settings.render_backend }), depthBuffer: depthBufferOf(settings) },
           // Repeated objects drawn instanced unless the page says ?batching=off (a diagnostic comparison).
@@ -665,6 +697,7 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
       ...(scenes !== null ? { scenes } : {}),
       container: o.container,
       buildId: manifest.buildId,
+      resources,
       assetPaths: assetPathsById,
       ...(manifest.shell !== undefined ? { shell: manifest.shell } : {}),
       inputConfig: structuredClone(manifest.input ?? (physicsDimensionOf(settings) === 3 ? DEFAULT_INPUT_CONFIG_3D : DEFAULT_INPUT_CONFIG)) as unknown as NonNullable<GameHostConfig['inputConfig']>,
@@ -707,6 +740,7 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
         adapter: () => adapterRef.current,
         reader: assetReader,
         catalog: content.catalog,
+        resources,
         sources: {
           assets: manifest.assets,
           ...(manifest.materials !== undefined ? { materials: manifest.materials } : {}),
@@ -751,6 +785,9 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
         .catch(() => undefined);
     }
 
+    // The start's bytes are let go once the renderer draws and the models settled: what the
+    // start scenes use has taken its own holds by then (a decoder that did not is read again).
+    releaseStartWhenDrawn(adapterNow, models !== null, assetReader);
     const obs = host.observe();
     const identity = {
       snapshotId: String((snapshot as unknown as { snapshotId?: string }).snapshotId ?? ''),
@@ -783,9 +820,15 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
       identity,
       stepHz,
       assetReads: () => assetReader.stats(),
+      resources: () => resources.observe(),
       // The host disposes its runtime (in worker mode the mirror, which ends the worker);
-      // then the physics port, the audio owner, the input and the page listeners.
-      dispose: releaseAll,
+      // then the physics port, the audio owner, the input and the page listeners; the resources last.
+      dispose: () => {
+        // Scripts' handles still held when the play ends are reported (each is freed with the rest).
+        const open = resources.observe().handles;
+        if (open > 0) console.warn(`[game-page] ${open} asset handle(s) were not released when the play ended`);
+        releaseAll();
+      },
     };
   } catch (e) {
     releaseAll();

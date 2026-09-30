@@ -431,6 +431,8 @@ export function bootstrapPreviewM3(): void {
           startTimings: timings.report(),
           // Every asset read so far (the start scenes' and those read on demand since).
           assetReads: h.assetReads(),
+          // What is loaded from assets now: resident count and bytes per kind, loads, frees, script handles alive.
+          resources: h.resources(),
         },
       });
     });
@@ -484,6 +486,8 @@ export function bootstrapPreviewM3(): void {
       // The named counters (collectibles and scripts add to them; at most 32) and every object's health (the host observes both).
       ...(o.counters !== undefined ? { counters: { ...o.counters } } : {}),
       ...(o.health !== undefined ? { health: structuredClone(o.health) } : {}),
+      // What is loaded from assets (resident per kind, loads, frees, script handles alive).
+      ...(o.resources !== undefined ? { resources: structuredClone(o.resources) } : {}),
       // The animator states and the spawned objects.
       ...animatorStates(h.host.runtime),
       ...spawnedObservation(h.host.runtime),

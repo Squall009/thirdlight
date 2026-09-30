@@ -39,6 +39,7 @@ import { applyTransformToObject3D, type AdapterQuat, type AdapterVec3 } from './
 import { applyLodGroups, applyVertexColorMode, keepOnlyPiece, modelPieces, pieceBounds, pieceCollider2D,
   pieceCollider3D, stripCollisionNodes, type ModelCollider3D, type VertexColorMode } from './pieces';
 import { disposeObjectTree } from './dispose';
+import { objectByteSize } from './resource-bytes';
 
 /**
  * The approved visual descriptor: the immutable, path-free per-version facts a
@@ -246,6 +247,8 @@ export interface PreparedVisualResource {
   skeleton(): readonly { readonly name: string; readonly parent: string | null; readonly depth: number }[];
   diagnostics(): VisualResourceDiagnostics;
   ownership(): ResourceOwnership;
+  /** What the file keeps resident once parsed (geometry arrays and textures, bytes). */
+  byteSize(): number;
   /** Retire the resource: no new instances; shared resources are released when
    *  the last live instance is gone. Idempotent. */
   dispose(): { readonly ok: true; readonly alreadyDisposed?: true } | { readonly ok: false; readonly error: AdapterError };
@@ -863,6 +866,9 @@ function createResource(descriptor: AssetVersionDescriptor, loaded: LoadedGlb, l
     skeleton() {
       return skeletonOf(loaded.root);
     },
+    byteSize() {
+      return objectByteSize(loaded.root);
+    },
     createInstance(options: CreateInstanceOptions = {}) {
       if (disposed) {
         return {
@@ -1102,6 +1108,12 @@ export interface VisualResourceStore {
   load(source: AssetByteSource, options: VisualResourceStoreOptions): VisualResourceHandle;
   /** The currently settled resource for an asset (null when none). */
   current(assetId: string): PreparedVisualResource | null;
+  /**
+   * Retire this resource and forget it (nothing of it stays reachable from
+   * the store once its instances are gone): the resource manager's free of a
+   * model no one holds. A newer load of the asset is left as it is.
+   */
+  release(resource: PreparedVisualResource): void;
   /** Cancel every pending load and retire every resource. Idempotent. */
   dispose(): { readonly ok: true; readonly alreadyDisposed?: true };
   /** Aggregate ownership over every resource this store ever created. */
@@ -1117,6 +1129,8 @@ export function createVisualResourceStore(): VisualResourceStore {
   const latest = new Map<string, InternalHandle>();
   const pending = new Map<string, InternalHandle>();
   const resources = new Map<string, PreparedVisualResource>();
+  /** The load each resource came from. */
+  const handleOf = new WeakMap<PreparedVisualResource, InternalHandle>();
   /** Every resource this store created that may still hold something (live, or retired with live instances). */
   let created: PreparedVisualResource[] = [];
   /**
@@ -1180,6 +1194,7 @@ export function createVisualResourceStore(): VisualResourceStore {
       void handle.result.then((res) => {
         if (pending.get(assetId) === handle) pending.delete(assetId);
         if (!res.ok) return;
+        handleOf.set(res.resource, handle);
         if (disposed || latest.get(assetId) !== handle) {
           // The store no longer owns this resource: release it now (the
           // instance/refcount rules still apply inside the resource).
@@ -1194,6 +1209,15 @@ export function createVisualResourceStore(): VisualResourceStore {
     },
     current(assetId) {
       return resources.get(assetId) ?? null;
+    },
+    release(resource) {
+      const assetId = resource.descriptor.assetId;
+      if (resources.get(assetId) === resource) resources.delete(assetId);
+      // The load that made it is forgotten too (its handle's result holds the parsed file).
+      const handle = handleOf.get(resource);
+      if (handle !== undefined && latest.get(assetId) === handle) latest.delete(assetId);
+      resource.dispose();
+      compact();
     },
     dispose() {
       if (disposed) return { ok: true, alreadyDisposed: true };

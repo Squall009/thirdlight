@@ -9,6 +9,7 @@
 
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
+import { createResourceManager } from '@thirdlight/runtime';
 import { ModelInstances, type VisualDescriptor } from './model-instances';
 import type { ProjectedEntity } from '../session/projection';
 
@@ -119,5 +120,48 @@ describe('ModelInstances — bounded failed-load retry (GG-8)', () => {
 
     instances.dispose();
     expect(instances.ownership().outstanding).toBe(0);
+  });
+});
+
+describe('ModelInstances — model files held by the objects that show them', () => {
+  it('opening another scene frees the files only the first one used; a file both use is not read again', async () => {
+    const scene = new THREE.Scene();
+    const bytes = tinyGlb();
+    const len = bytes.byteLength;
+    const reads: string[] = [];
+    const resources = createResourceManager();
+    const instances = new ModelInstances(scene, {
+      resolve: async (d) => {
+        reads.push(d.assetId);
+        return bytes;
+      },
+      descriptorFor: (assetId) => descriptor(assetId, 1, len),
+      resources,
+    });
+    // Scene A: two objects of m-shared, one of m-a.
+    instances.sync([entity('a1', 'm-shared'), entity('a2', 'm-shared'), entity('a3', 'm-a')]);
+    await flush();
+    await flush();
+    resources.settle();
+    expect(resources.observe().resident.model?.count).toBe(2);
+    expect(instances.instanceFor('a3')).not.toBeNull();
+    // Scene B replaces it: m-shared again, and m-b.
+    instances.sync([entity('b1', 'm-shared'), entity('b2', 'm-b')]);
+    expect(resources.settle()).toBe(1);
+    await flush();
+    await flush();
+    resources.settle();
+    expect(resources.holders('model', 'm-a@1')).toEqual([]);
+    expect(resources.has('model', 'm-a@1')).toBe(false);
+    expect(resources.observe().resident.model?.count).toBe(2);
+    expect(reads.filter((id) => id === 'm-shared')).toHaveLength(1);
+    expect(instances.instanceFor('b1')).not.toBeNull();
+    // A query (a thumbnail, the pieces) holds a file only while it is handed over.
+    expect(await instances.prepared('m-q')).not.toBeNull();
+    resources.settle();
+    expect(resources.has('model', 'm-q@1')).toBe(false);
+    instances.dispose();
+    resources.settle();
+    expect(resources.observe().resident).toEqual({});
   });
 });

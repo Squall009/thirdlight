@@ -60,6 +60,8 @@ export interface MemorySample {
   live: PageSample['live'];
   three?: { geometries: number; textures: number; programs: number };
   assetReads?: { reads: number; bytes: number };
+  /** What the game holds from assets (the resource manager: resident count and bytes per kind, loads, frees); absent before it existed. */
+  resources?: { resident: Record<string, { count: number; bytes: number }>; loads: Record<string, number>; frees: Record<string, number> };
   backendRssMiB: number | null;
 }
 
@@ -395,10 +397,12 @@ export class ScaleBench {
     const s = frame !== undefined ? await frame.evaluate(readSample, false) : null;
     let three: MemorySample['three'];
     let assetReads: MemorySample['assetReads'];
+    let resources: MemorySample['resources'];
     if (this.play !== null) {
-      const d = (await this.relay(`${this.play.psid}/diagnostics`)).json as { diagnostics?: { renderer?: { gpu?: MemorySample['three'] }; assetReads?: { reads: number; bytes: number } } };
+      const d = (await this.relay(`${this.play.psid}/diagnostics`)).json as { diagnostics?: { renderer?: { gpu?: MemorySample['three'] }; assetReads?: { reads: number; bytes: number }; resources?: MemorySample['resources'] } };
       three = d.diagnostics?.renderer?.gpu;
       assetReads = d.diagnostics?.assetReads;
+      resources = d.diagnostics?.resources;
     }
     return {
       heapMiB: s?.heap === null || s === null ? null : Math.round(s.heap.usedMiB * 100) / 100,
@@ -406,6 +410,7 @@ export class ScaleBench {
       live: s?.live ?? { programs: 0, textures: 0, buffers: 0, vaos: 0, pipelines: 0 } as PageSample['live'],
       ...(three !== undefined ? { three } : {}),
       ...(assetReads !== undefined ? { assetReads } : {}),
+      ...(resources !== undefined ? { resources: { resident: resources.resident, loads: resources.loads, frees: resources.frees } } : {}),
       backendRssMiB: backendRssMiB(this.backend.pid),
     };
   }

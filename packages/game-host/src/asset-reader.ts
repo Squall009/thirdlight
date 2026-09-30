@@ -11,10 +11,14 @@
  *   later, a texture a material needs, a sound the host plays), through the
  *   same reader.
  *
- * Each asset is read at most once and its bytes are checked against the
- * manifest's length and digest before anyone gets them; a failed
- * check is an `asset_source_invalid` error naming the asset.
+ * The bytes are the resource manager's `bytes` kind: read once while
+ * anyone holds them (a scene being prepared, the start, a decoder until it
+ * has them) and freed when no one does; asked for again later, they are read
+ * again (the HTTP cache has them). They are checked against the manifest's
+ * length and digest before anyone gets them; a failed check is an
+ * `asset_source_invalid` error naming the asset.
  */
+import { assetVersionKey, createResourceManager, type LoadedResource, type ResourceManager } from '@thirdlight/runtime';
 
 /** One manifest asset row (the fields the reader uses). */
 export interface DeclaredAssetRow {
@@ -50,18 +54,26 @@ export class AssetReadError extends Error {
 }
 
 export interface VerifiedAssetReader {
-  /** The verified bytes of one declared asset (read once; later calls share the read). */
-  bytes(assetId: string, version: number): Promise<ArrayBuffer>;
+  /**
+   * The verified bytes of one declared asset, read once while anyone holds
+   * them. With a `holder` they stay held for it until `release(holder)`;
+   * without one they are handed over and held no longer (a decoder that
+   * keeps what it made from them needs nothing more).
+   */
+  bytes(assetId: string, version: number, holder?: string): Promise<ArrayBuffer>;
   /** The same by artifact path; null when the path is not a declared asset. */
-  bytesAt(path: string): Promise<ArrayBuffer> | null;
-  /** Bytes already read and verified (no read is started). */
+  bytesAt(path: string, holder?: string): Promise<ArrayBuffer> | null;
+  /** Bytes read, verified and still held (no read is started). */
   peek(assetId: string, version: number): ArrayBuffer | undefined;
   /**
    * Read `rows` (at most ASSET_READS_IN_FLIGHT at a time with every other
-   * read); resolves when all are verified, rejects with the first failure.
-   * `onRead` reports the bytes done so far of these rows.
+   * read) and hold them for `holder` until `release(holder)`; resolves when
+   * all are verified, rejects with the first failure. `onRead` reports the
+   * bytes done so far of these rows.
    */
-  preload(rows: readonly DeclaredAssetRow[], onRead?: (loadedBytes: number, totalBytes: number) => void): Promise<void>;
+  preload(rows: readonly DeclaredAssetRow[], onRead?: (loadedBytes: number, totalBytes: number) => void, holder?: string): Promise<void>;
+  /** Let go of the bytes `holder` holds. */
+  release(holder: string): void;
   /** Reads started and bytes verified so far. */
   stats(): { reads: number; bytes: number };
 }
@@ -73,15 +85,20 @@ export interface AssetRowSource {
   lookup(assetId: string): Promise<DeclaredAssetRow | undefined>;
 }
 
-export function createVerifiedAssetReader(rows: readonly DeclaredAssetRow[], io: AssetReaderIo, opts: { inFlight?: number; catalog?: AssetRowSource } = {}): VerifiedAssetReader {
+/** The holder `preload` holds for when the caller names none. */
+export const PRELOAD_HOLDER = 'preload';
+
+export function createVerifiedAssetReader(rows: readonly DeclaredAssetRow[], io: AssetReaderIo, opts: { inFlight?: number; catalog?: AssetRowSource; resources?: ResourceManager } = {}): VerifiedAssetReader {
   const limit = Math.max(1, opts.inFlight ?? ASSET_READS_IN_FLIGHT);
   const catalog = opts.catalog;
+  // The bytes live in the page's resource manager (kind `bytes`), freed once no one holds them.
+  const resources = opts.resources ?? createResourceManager({ schedule: (run) => queueMicrotask(run) });
   const byKey = new Map(rows.map((r) => [`${r.assetId}@${r.version}`, r]));
   const byPath = new Map(rows.map((r) => [r.path, r]));
-  const reads = new Map<string, Promise<ArrayBuffer>>();
-  const done = new Map<string, ArrayBuffer>();
+  const holderOf = (holder: string): string => `reader/${holder}`;
   let started = 0;
   let verifiedBytes = 0;
+  let transient = 0;
   // A small limiter: a read waits for a slot, holds it while it reads and hashes.
   let active = 0;
   const waiting: (() => void)[] = [];
@@ -97,68 +114,70 @@ export function createVerifiedAssetReader(rows: readonly DeclaredAssetRow[], io:
     if (next !== undefined) next();
     else active -= 1;
   };
-  const readRow = (row: DeclaredAssetRow): Promise<ArrayBuffer> => {
-    const key = `${row.assetId}@${row.version}`;
-    let p = reads.get(key);
-    if (p !== undefined) return p;
+  const verifiedRead = (row: DeclaredAssetRow) => async (): Promise<LoadedResource<ArrayBuffer>> => {
     started += 1;
-    p = slot().then(async () => {
+    await slot();
+    try {
+      let buf: ArrayBuffer;
       try {
-        let buf: ArrayBuffer;
-        try {
-          buf = await io.read(row.path);
-        } catch (e) {
-          throw new AssetReadError(row.assetId, `${row.assetId}: ${e instanceof Error ? e.message : String(e)}`);
-        }
-        const raw = new Uint8Array(buf);
-        if (raw.byteLength !== row.sourceByteLength) throw new AssetReadError(row.assetId, `${row.assetId}: byte length ${raw.byteLength} !== manifest ${row.sourceByteLength}`);
-        const digest = await io.sha256Hex(raw);
-        if (digest !== row.sourceDigest) throw new AssetReadError(row.assetId, `${row.assetId}: digest ${digest} !== manifest ${row.sourceDigest}`);
-        done.set(key, buf);
-        verifiedBytes += raw.byteLength;
-        return buf;
-      } finally {
-        release();
+        buf = await io.read(row.path);
+      } catch (e) {
+        throw new AssetReadError(row.assetId, `${row.assetId}: ${e instanceof Error ? e.message : String(e)}`);
       }
-    });
-    reads.set(key, p);
-    // A failed read is not kept: a later ask reads again (the failure is still reported to this one's callers).
-    p.catch(() => {
-      if (reads.get(key) === p) reads.delete(key);
-    });
-    return p;
+      const raw = new Uint8Array(buf);
+      if (raw.byteLength !== row.sourceByteLength) throw new AssetReadError(row.assetId, `${row.assetId}: byte length ${raw.byteLength} !== manifest ${row.sourceByteLength}`);
+      const digest = await io.sha256Hex(raw);
+      if (digest !== row.sourceDigest) throw new AssetReadError(row.assetId, `${row.assetId}: digest ${digest} !== manifest ${row.sourceDigest}`);
+      verifiedBytes += raw.byteLength;
+      return { value: buf, bytes: raw.byteLength };
+    } finally {
+      release();
+    }
+  };
+  /** Hold one row's bytes for `holder` (a failed read is forgotten: a later ask reads again). */
+  const readRow = (row: DeclaredAssetRow, holder: string | undefined): Promise<ArrayBuffer> => {
+    const key = assetVersionKey(row.assetId, row.version);
+    if (holder !== undefined) return resources.acquire('bytes', key, holderOf(holder), verifiedRead(row));
+    // Handed over: held only until the caller has them.
+    transient += 1;
+    const h = holderOf(`read:${transient}`);
+    const p = resources.acquire('bytes', key, h, verifiedRead(row));
+    return p.finally(() => resources.release('bytes', key, h));
   };
   return {
-    bytes(assetId, version) {
+    bytes(assetId, version, holder) {
       const row = byKey.get(`${assetId}@${version}`) ?? catalog?.row(assetId, version);
-      if (row !== undefined) return readRow(row);
+      if (row !== undefined) return readRow(row, holder);
       const missing = (): AssetReadError => new AssetReadError(assetId, `${assetId} v${version} is not declared in this build`);
       if (catalog === undefined) return Promise.reject(missing());
       // A row no read so far had: its catalog shard names it (or the build does not have it).
       return catalog.lookup(assetId).then(() => {
         const found = catalog.row(assetId, version);
         if (found === undefined) throw missing();
-        return readRow(found);
+        return readRow(found, holder);
       });
     },
-    bytesAt(path) {
+    bytesAt(path, holder) {
       const row = byPath.get(path) ?? catalog?.rowAt(path);
-      return row === undefined ? null : readRow(row);
+      return row === undefined ? null : readRow(row, holder);
     },
     peek(assetId, version) {
-      return done.get(`${assetId}@${version}`);
+      return resources.peek<ArrayBuffer>('bytes', assetVersionKey(assetId, version));
     },
-    async preload(list, onRead) {
+    async preload(list, onRead, holder = PRELOAD_HOLDER) {
       const total = list.reduce((s, r) => s + r.sourceByteLength, 0);
       let loaded = 0;
       await Promise.all(
         list.map((r) =>
-          readRow(r).then((b) => {
+          readRow(r, holder).then((b) => {
             loaded += b.byteLength;
             onRead?.(loaded, total);
           }),
         ),
       );
+    },
+    release(holder) {
+      resources.releaseHolder(holderOf(holder));
     },
     stats() {
       return { reads: started, bytes: verifiedBytes };

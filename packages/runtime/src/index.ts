@@ -404,3 +404,16 @@ export type { BehaviorTimeline, BehaviorTimelineEvent } from './types';
 export type { TimelineAsset, TimelineTrack, TimelineKey, TimelineTrackType } from '@thirdlight/project-model';
 // The editor may take project-model values only through the runtime.
 export { TIMELINE_EASINGS, TIMELINE_TARGET_TRACKS, TIMELINE_TRACK_TYPES, TIMELINE_LIMITS } from '@thirdlight/project-model';
+// The resource manager a game page and the editor's Scene view hold what they load from assets in.
+export {
+  createResourceManager,
+  assetVersionKey,
+  RESOURCE_KINDS,
+  RESOURCE_HANDLE_PREFIX,
+  type LoadedResource,
+  type ResidentCount,
+  type ResourceKind,
+  type ResourceManager,
+  type ResourceManagerOptions,
+  type ResourceObservation,
+} from './resources';

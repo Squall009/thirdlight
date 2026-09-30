@@ -284,14 +284,17 @@ describe('fixes built on the helpers', () => {
     expect(builtDisposed).toBe(1);
     expect(copyDisposed).toBe(1);
     expect(b.material).toBe(source);
-    // A new source (a recreated shared material) builds anew; the loaded texture itself is the loader's.
+    // A new source (a recreated shared material) builds anew, holding the same decoded texture (not decoded again).
+    let texDisposed = 0;
+    tex.addEventListener('dispose', () => void (texDisposed += 1));
     const c = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial());
     lib.apply(c, { '*': 'mat-red' });
     expect(c.material).not.toBe(built);
-    let texDisposed = 0;
-    tex.addEventListener('dispose', () => void (texDisposed += 1));
-    lib.dispose();
+    await new Promise((r) => setTimeout(r, 0));
     expect(texDisposed).toBe(0);
+    // The decoded texture is the resource manager's: freed once no material holds it.
+    lib.dispose();
+    expect(texDisposed).toBe(1);
   });
 
   it('releaseEmissiveLooks disposes a look override\'s own copy only', () => {

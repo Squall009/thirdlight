@@ -41,7 +41,7 @@ import {
   type MaterialOverridesLike,
 } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
-import { readModelRig, rigNodeNames } from '@thirdlight/runtime';
+import { assetVersionKey, createResourceManager, readModelRig, rigNodeNames, type LoadedResource, type ResourceManager } from '@thirdlight/runtime';
 import type { ProjectedEntity } from '../session/projection';
 
 export type VisualDescriptor = AssetVersionDescriptor;
@@ -70,6 +70,12 @@ export interface ModelInstancesOptions {
   assetMaterialsFor?: (assetId: string) => Readonly<Record<string, string>> | null;
   /** The project's instance-set chunk size (m; `instance_chunk_m`, absent: the engine default). */
   instanceChunkSize?: () => number | undefined;
+  /**
+   * The Scene view's resource manager: each model file is held by the
+   * objects that show it and freed when none does (another scene opened).
+   * Absent: a manager of its own.
+   */
+  resources?: ResourceManager;
   /** An instance set was (re)built with this many chunks (the Inspector shows it). */
   onSetBuilt?: (entityId: string, chunks: number) => void;
 }
@@ -83,6 +89,9 @@ interface LiveInstance {
   materialsKey: string;
   undoMaterials: (() => void) | null;
 }
+
+/** Names each view's holders apart in a shared resource manager. */
+let modelInstancesSerial = 0;
 
 /** Bounded failed-load guard: attempts per `(assetId, version)` before backing off. */
 const FAILED_LOAD_RETRY_LIMIT = 2;
@@ -124,8 +133,12 @@ export class ModelInstances {
    */
   private readonly failed = new Map<string, { version: number; attempts: number }>();
   private entities: readonly ProjectedEntity[] = [];
-  /** Prepared resources by assetId (instance sets draw from them). */
-  private readonly resources = new Map<string, { version: number; resource: PreparedVisualResource }>();
+  /** Where the parsed files are held (`model`, keyed `<assetId>@<version>`), by the objects that show them. */
+  private readonly resources: ResourceManager;
+  /** The file each object holds (its key), and this instance's holder names in the manager. */
+  private readonly entityKeys = new Map<string, string>();
+  private readonly tag: string;
+  private querySerial = 0;
   /** Realized instance sets by entity id. */
   private readonly sets = new Map<string, { key: string; template: ModelInstance; built: BuiltInstanceSet; undoMaterials: (() => void) | null }>();
   private readonly buffers = new Map<string, Float32Array>();
@@ -141,6 +154,84 @@ export class ModelInstances {
   constructor(scene: THREE.Scene, options: ModelInstancesOptions) {
     this.scene = scene;
     this.options = options;
+    this.resources = options.resources ?? createResourceManager({ schedule: (run) => setTimeout(run, 0) });
+    modelInstancesSerial += 1;
+    this.tag = `view${modelInstancesSerial}`;
+  }
+
+  private static keyOf(assetId: string, version: number): string {
+    return assetVersionKey(assetId, version);
+  }
+
+  /** The parsed file of an asset version, when it is loaded. */
+  private ready(assetId: string, version: number): PreparedVisualResource | undefined {
+    return this.resources.peek<PreparedVisualResource>('model', ModelInstances.keyOf(assetId, version));
+  }
+
+  /** Hold an asset version's parsed file for `holder` (loaded the first time); null when it failed. */
+  private hold(descriptor: VisualDescriptor, holder: string): Promise<PreparedVisualResource | null> {
+    return this.resources
+      .acquire<PreparedVisualResource>('model', ModelInstances.keyOf(descriptor.assetId, descriptor.version), `${this.tag}/${holder}`, () => this.loadFile(descriptor))
+      .catch(() => null);
+  }
+
+  private letGo(descriptorKey: string, holder: string): void {
+    this.resources.release('model', descriptorKey, `${this.tag}/${holder}`);
+  }
+
+  /** An object no longer shows its file (removed, or showing another). */
+  private releaseEntity(entityId: string): void {
+    const key = this.entityKeys.get(entityId);
+    if (key === undefined) return;
+    this.entityKeys.delete(entityId);
+    this.letGo(key, `entity:${entityId}`);
+  }
+
+  /** Hold the file an object shows (its current version); it attaches once loaded. */
+  private holdForEntity(e: ProjectedEntity, descriptor: VisualDescriptor): void {
+    const key = ModelInstances.keyOf(descriptor.assetId, descriptor.version);
+    if (this.entityKeys.get(e.id) === key) return;
+    this.releaseEntity(e.id);
+    const failure = this.failed.get(descriptor.assetId);
+    if (failure !== undefined && failure.version === descriptor.version && failure.attempts >= FAILED_LOAD_RETRY_LIMIT && !this.resources.has('model', key)) return;
+    this.entityKeys.set(e.id, key);
+    void this.hold(descriptor, `entity:${e.id}`).then((resource) => {
+      // A failed load holds nothing: a later sync may try again (within the retry limit).
+      if (resource === null && this.entityKeys.get(e.id) === key) this.entityKeys.delete(e.id);
+      if (this.disposed || resource === null || this.entityKeys.get(e.id) !== key) return;
+      const now = this.entityById(e.id);
+      if (now === undefined) return;
+      if (now.instances !== undefined) {
+        this.syncSets();
+        return;
+      }
+      const wantKey = this.keyFor(now, descriptor.version);
+      if (this.live.get(e.id)?.key !== wantKey) this.attach(e.id, resource.createInstance(this.instanceOptions(now)), wantKey);
+    });
+  }
+
+  /** The resource manager's load of one file: the store's cancellable load; a failure is reported and counted. */
+  private loadFile(descriptor: VisualDescriptor): Promise<LoadedResource<PreparedVisualResource>> {
+    const assetId = descriptor.assetId;
+    this.loading.add(assetId);
+    const source = injectedResolver(descriptor, () => this.options.resolve(descriptor));
+    const handle = this.store.load(source, { loader: this.loader });
+    return handle.result.then((result) => {
+      this.loading.delete(assetId);
+      if (!result.ok) {
+        if (!this.disposed) {
+          this.failures.set(assetId, { code: result.error.code, message: result.error.message });
+          this.options.onFailuresChanged?.(this.failures);
+          const prior = this.failed.get(assetId);
+          const attempts = prior !== undefined && prior.version === descriptor.version ? prior.attempts + 1 : 1;
+          this.failed.set(assetId, { version: descriptor.version, attempts });
+        }
+        throw new Error(result.error.message);
+      }
+      if (this.failures.delete(assetId)) this.options.onFailuresChanged?.(this.failures);
+      this.failed.delete(assetId);
+      return { value: result.resource, bytes: result.resource.byteSize(), free: (r) => this.store.release(r) };
+    });
   }
 
   /**
@@ -165,22 +256,14 @@ export class ModelInstances {
       else wanted.add(e.id);
       const descriptor = this.options.descriptorFor(assetId);
       if (descriptor === null) continue; // no immutable version facts yet
-      const current = this.store.current(assetId);
       const live = this.live.get(e.id);
-      const upToDate = current !== null && current.descriptor.version === descriptor.version;
-      const failure = this.failed.get(assetId);
-      const exhausted =
-        failure !== undefined &&
-        failure.version === descriptor.version &&
-        failure.attempts >= FAILED_LOAD_RETRY_LIMIT;
-      if (!upToDate && !this.loading.has(assetId) && !exhausted) {
-        this.loadAsset(assetId, descriptor);
-      }
+      // The object holds its file (loading it once; a reimport's new version replaces the hold).
+      this.holdForEntity(e, descriptor);
       // A changed piece or vertex-colour mode rebuilds the instance from the loaded resource.
-      const res = this.resources.get(assetId);
-      const wantKey = res !== undefined ? this.keyFor(e, res.version) : '';
-      if (e.instances === undefined && res !== undefined && res.version === descriptor.version && live?.key !== wantKey && this.failedKeys.get(e.id) !== wantKey) {
-        this.attach(e.id, res.resource.createInstance(this.instanceOptions(e)), this.keyFor(e, res.version));
+      const res = this.ready(assetId, descriptor.version);
+      const wantKey = this.keyFor(e, descriptor.version);
+      if (e.instances === undefined && res !== undefined && live?.key !== wantKey && this.failedKeys.get(e.id) !== wantKey) {
+        this.attach(e.id, res.createInstance(this.instanceOptions(e)), wantKey);
       }
       if (live && this.options.parentFor === undefined) this.applyTransform(live.holder, e);
       const liveNow = this.live.get(e.id);
@@ -193,6 +276,11 @@ export class ModelInstances {
       }
     } else for (const id of delta.removed) this.detach(id);
     this.syncSets();
+    // Objects gone (or showing no file now) let go of theirs; freed once no object holds it.
+    for (const id of [...this.entityKeys.keys()]) {
+      const e = this.entityById(id);
+      if (e === undefined || (e.assetId ?? e.instances?.assetId) === undefined) this.releaseEntity(id);
+    }
   }
 
   /** The projected entity by id (a map made once per entity list). */
@@ -240,14 +328,15 @@ export class ModelInstances {
   async prepared(assetId: string): Promise<PreparedVisualResource | null> {
     const descriptor = this.options.descriptorFor(assetId);
     if (descriptor === null || this.disposed) return null;
-    const have = this.resources.get(assetId);
-    if (have !== undefined && have.version === descriptor.version) return have.resource;
-    if (!this.loading.has(assetId)) this.loadAsset(assetId, descriptor);
-    return new Promise((resolve) => {
-      const list = this.waiters.get(assetId) ?? [];
-      list.push(resolve);
-      this.waiters.set(assetId, list);
-    });
+    // Held only while it is handed over: the caller uses it now (a thumbnail, its pieces); no
+    // object showing it, it is freed after this task.
+    this.querySerial += 1;
+    const holder = `query:${this.querySerial}`;
+    try {
+      return await this.hold(descriptor, holder);
+    } finally {
+      this.letGo(ModelInstances.keyOf(descriptor.assetId, descriptor.version), holder);
+    }
   }
 
   /**
@@ -267,16 +356,8 @@ export class ModelInstances {
     }
   }
 
-  private readonly waiters = new Map<string, ((r: PreparedVisualResource | null) => void)[]>();
   /** The instance key an entity last failed to build with (not retried until it changes). */
   private readonly failedKeys = new Map<string, string>();
-
-  private settleWaiters(assetId: string, resource: PreparedVisualResource | null): void {
-    const list = this.waiters.get(assetId);
-    if (list === undefined) return;
-    this.waiters.delete(assetId);
-    for (const w of list) w(resource);
-  }
 
   /** Fetch an instance buffer once (then draw the sets that use it). */
   private ensureBuffer(digest: string): void {
@@ -305,16 +386,17 @@ export class ModelInstances {
       const ref = e.instances;
       if (ref === undefined) continue;
       wanted.add(e.id);
-      const res = this.resources.get(ref.assetId);
+      const version = this.options.descriptorFor(ref.assetId)?.version;
+      const res = version === undefined ? undefined : this.ready(ref.assetId, version);
       const floats = this.buffers.get(ref.buffer);
       const mapping = this.mappingFor(e);
       const chunkSize = ref.chunkSize ?? this.options.instanceChunkSize?.() ?? INSTANCE_CHUNK_METERS;
-      const key = `${this.keyFor(e, res?.version ?? 0)}:${ref.buffer}:${ref.count}:${chunkSize}:${mapping === null ? '' : JSON.stringify([mapping, materialOverridesOf(e)])}`;
+      const key = `${this.keyFor(e, res !== undefined ? version! : 0)}:${ref.buffer}:${ref.count}:${chunkSize}:${mapping === null ? '' : JSON.stringify([mapping, materialOverridesOf(e)])}`;
       const current = this.sets.get(e.id);
       if (current !== undefined && current.key === key) continue;
       if (res === undefined || floats === undefined) continue;
       this.detachSet(e.id);
-      const created = res.resource.createInstance(this.instanceOptions(e));
+      const created = res.createInstance(this.instanceOptions(e));
       if (!created.ok) continue;
       const built = buildInstanceSet(created.instance, floats, ref.count, `instances:${e.id}`, { chunkSize });
       (built.group as { entityId?: string }).entityId = e.id;
@@ -369,34 +451,6 @@ export class ModelInstances {
     set.template.dispose();
     this.sets.delete(entityId);
     this.options.onChanged?.();
-  }
-
-  private loadAsset(assetId: string, descriptor: VisualDescriptor): void {
-    this.loading.add(assetId);
-    const source = injectedResolver(descriptor, () => this.options.resolve(descriptor));
-    const handle = this.store.load(source, { loader: this.loader });
-    void handle.result.then((result) => {
-      this.loading.delete(assetId);
-      if (this.disposed) return;
-      if (!result.ok) {
-        this.failures.set(assetId, { code: result.error.code, message: result.error.message });
-        this.options.onFailuresChanged?.(this.failures);
-        const prior = this.failed.get(assetId);
-        const attempts = prior !== undefined && prior.version === descriptor.version ? prior.attempts + 1 : 1;
-        this.failed.set(assetId, { version: descriptor.version, attempts });
-        this.settleWaiters(assetId, null);
-        return;
-      }
-      if (this.failures.delete(assetId)) this.options.onFailuresChanged?.(this.failures);
-      this.failed.delete(assetId);
-      this.resources.set(assetId, { version: descriptor.version, resource: result.resource });
-      for (const e of this.entities) {
-        if (e.assetId !== assetId) continue;
-        this.attach(e.id, result.resource.createInstance(this.instanceOptions(e)), this.keyFor(e, descriptor.version));
-      }
-      this.syncSets();
-      this.settleWaiters(assetId, result.resource);
-    });
   }
 
   private attach(entityId: string, created: CreateInstanceResult, key: string): void {
@@ -538,11 +592,12 @@ export class ModelInstances {
 
   dispose(): void {
     this.disposed = true;
-    for (const id of [...this.waiters.keys()]) this.settleWaiters(id, null);
     this.clearPreview();
     for (const entityId of [...this.live.keys()]) this.detach(entityId);
     for (const entityId of [...this.sets.keys()]) this.detachSet(entityId);
+    for (const entityId of [...this.entityKeys.keys()]) this.releaseEntity(entityId);
     this.store.dispose();
+    if (this.options.resources === undefined) this.resources.dispose();
   }
 }
 
