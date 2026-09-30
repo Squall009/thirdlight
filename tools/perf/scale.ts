@@ -383,21 +383,16 @@ export class ScaleBench {
     };
   }
 
-  /** The editor at this size, in a page of its own (the open step's page stays as it is). */
+  /** The editor at this size: the open step's page opens the editor again (one editor per project; later steps go on in it). */
   private async measureEditor(): Promise<void> {
     const p = this.backend.project(this.opts.projectId);
-    const page = await this.context!.newPage();
-    try {
-      this.report.editor = await measureEditorAtScale(page, {
-        query: (op, args) => p.query(op, args),
-        // A fling at frame rate (what scrolling costs), not a wait on every screen.
-        settle: false,
-        url: `${this.backend.origin}/?project=${this.opts.projectId}&renderer=${this.opts.renderer}#token=${this.backend.token}`,
-        log: this.opts.log,
-      });
-    } finally {
-      await page.close();
-    }
+    this.report.editor = await measureEditorAtScale(this.page!, {
+      query: (op, args) => p.query(op, args),
+      // A fling at frame rate (what scrolling costs), not a wait on every screen.
+      settle: false,
+      url: `${this.backend.origin}/?project=${this.opts.projectId}&renderer=${this.opts.renderer}#token=${this.backend.token}`,
+      log: this.opts.log,
+    });
   }
 
   /** One scene edit (a transform: rewrites one scene file) and one content edit (a material: rewrites its own file and content.json's record). */

@@ -196,7 +196,8 @@ at the boundary it changes (Playwright for any editor surface).
 | 26.10 | done 2026-09-30. A: one resource manager per game page (runtime `createResourceManager`, held by the game host and settled after each frame) for verified bytes, models, animation-only clips, textures, decoded audio, fonts, UI and glyph images, environment maps and effect models; each freed when its last holder (entity, scene being prepared, material, voice, UI layer…) went, a same-step transition keeps what both scenes use; the store forgets freed models; the decoded-music LRU replaced; scene preparation and read-ahead through it; the Scene view's models and material textures through its own manager; `resources` in `tl_game_observe` and Play diagnostics (handles slot for B); 50-scene walk: resident bytes of every kind back to zero, heap +50 → +5 MiB at full (§6); e2e `resource-manager`. B: `ctx.assets.load(id, address or label)` → a handle (loading, ready, failed) and `release`; the page loads what the key names (a prefab's or material's models and textures too) and holds it for the handle; the answer is the simulation's input (a recording replays it at its step, page and worker alike, a recorded input takes no live answer); a handle open when a run ends is released and reported (`resources.open`/`notReleased`, script log); visual-script nodes; bench step `handles`: 1,000 labelled assets loaded and released at full, resident back to zero (§6); a texture that is the sky and a map decoded once; compiled graph materials and their textures go with their last mesh; prefabs stay whole at open, no grace before a free (§7); e2e `asset-handles`, integration `m26-asset-handles` |
 | 26.11 | done 2026-09-30: nothing audio is read at mount; each file loads by its load type through the resource manager (`audio` decoded, `audio-bytes` kept compressed and decoded per play, `audio-stream` a media element through Web Audio), held by its scene (preload) or from its first play by the scenes loaded then; a sound not ready starts when ready or is dropped past `maxLateMs` (script play/stinger, event cues, timeline keys, dialogue `voiceMaxLateMs`), reported in `audio.late`; a conversation reads its next voices ahead on every branch three lines deep (the next lines decoded); the per-kind audio stores gone; full 500-line dialogue: every voice heard, line → voice p95 0 ms, gap p95 12 ms, Play start reads no audio (§6); e2e `audio-loading` |
 | 26.12 | done 2026-09-30: large KTX2 textures stream their mips in Play and the export under a texture budget (`texture_budget_mb`, default 512 MiB): the build cuts each into parts by level (import cache, catalog `mipParts`, shipped instead of the whole file), the page reads the tail first and larger levels by on-screen size (UV density and the camera), least-needed dropped first; `streaming` per texture (sidecar, `setAssetOptions`, the asset inspector; on above 1024 px); `resources.textures` in observe and diagnostics; bench step `stream` (full: level 0 in 102 ms p50, resident ≤ 7.75 of 8 MiB, Play start unchanged); e2e `texture-streaming` (pixels, both renderers, export); D70 fixed, D71–D73 logged |
-| 26.13–26.14 | — |
+| 26.13 | A done 2026-09-30: the editor reads the project index in pages and records by id (no first 128 records), virtualized asset list and pickers (a search over the index past one page), tiles from the import cache (textures made by the backend, models drawn in an editor worker; pieces read when a model is chosen), the Scene view's cookies, environment and lightmaps held in its resource manager, the dialogue previewer reads voices ahead, conversations read by id (`queryGameConfig {omit}`); `App.tsx` and `viewport.ts` split; §6 numbers; D74 fixed, D75–D78 logged. B (the project window) to come |
+| 26.14 | — |
 
 ## 6. Measurements
 
@@ -629,6 +630,32 @@ its targets. The KTX2 worker (D72), small preset `open,play,stream`, six
 (~13 s later) 544 / 571 MiB with the worker kept, 690 / 414 MiB ended when
 idle; the encoder alone in a test process, six encodes then 20 s:
 kept ≈ 600 MiB, ended 271–292 MiB (started at 130).
+
+The editor at scale (26.13 A), the bench's new `editor` step
+(`tools/perf/scale-editor.ts`), full size (18,000 assets), GPU host,
+`c4a7011f` plus the step's driver fixes, 2026-09-30, one run
+(`scale-full-2026-09-30T15-16-29-072Z.json`); before = the open step at
+`3f4171e0` (eight runs), when the editor held the first 128 assets, prefabs
+and scripts and drew its tiles from each texture's bytes and each model
+parsed on the page:
+
+| | before (`3f4171e0`) | after |
+|---|---|---|
+| editor open → connected | 949–1,109 ms | 1,099–1,246 ms |
+| open → usable (the asset list drawn with the catalog's size) | – (128 of 18,000 listed) | 1,304 ms (18,000 listed) |
+| editor heap after the open | 35.8–38.5 MiB | 35.3–36.0 MiB |
+| the asset list scrolled top to bottom (7,200 screens, one per frame) | – | 120 s; frame p50/p95/max 16.7/16.7/16.8 ms; heap 35.9 → 47.0 MiB; 70 index pages, 2,636 summary reads, 8,334 thumbnail reads, 667 model files read to draw thumbnails (none of any other kind) |
+| a picker search (10,000 voices; "Voice 9999") | – (a `select` of the first 128) | 38 ms to the match shown |
+| placing a model at list position 11,000 | – (not listed) | 115 ms click → the object in the backend |
+| a dialogue line given a voice through the picker | – | 91 ms pick → stored |
+
+The heap growth over the scroll is the summaries read (one per tile seen,
+kept) and the 512 picture URLs kept; the frame time is the display's
+(vsync): no frame over 16.8 ms. At ×0.1 the end-to-end test
+(`editor-scale.e2e.ts`) sees every one of 1,800 tiles, reads no texture or
+sound bytes, and on the next open no bytes at all besides the placed model's
+in the Scene view. The connect is ~0.1 s slower: not investigated (within
+the run-to-run spread of the open step, 0.95–1.25 s over these runs).
 
 Proposed targets for "Done when" (fixed in 26.14 from these numbers):
 
@@ -1779,3 +1806,69 @@ Proposed targets for "Done when" (fixed in 26.14 from these numbers):
   typed in that frame was lost. The fields are now one instance per item
   (keyed), and follow a committed change (undo, another client) while
   rendering; no test change.
+- 2026-09-30 (26.13 A): the session holds the index, not the first 128
+  records. The full state's `content` is the index's size (`{index:
+  {total}}`); lists and pickers read `queryIndex` pages (new filters `kinds`,
+  `text` — a part of the name, id or file, any case —, `ids`, `refs: false`,
+  and `records: true` for a resource's record), and what a view needs is read
+  by id: asset summaries (`queryAssets {ids}`), prefab definitions
+  (`queryPrefabs {ids}`), conversations (`queryIndex {kind, ids, records}`),
+  batched per task a page at a time (`editor/src/session/catalog.ts`). The
+  Scene view asks for the summaries of the models the open scenes place and
+  draws them when they arrive. Scripts stay whole (every page read at a full
+  state): their declarations are the schema of every behavior component and
+  they compile together. A check that needed the whole catalog (an override's
+  asset reference, a new prefab or conversation id) is the backend's, or asks
+  the index.
+- 2026-09-30 (26.13 A): pickers. A choice that fits one index page (256) is a
+  plain `select`; a longer one is a button that opens a search over the index
+  in a virtualized list (Unity's object picker); either way the value is named
+  by id from the index. 256 is how a choice is shown, not a limit on a
+  project. The index lists in `kind:id` order; sorting is part B's.
+- 2026-09-30 (26.13 A): the virtualized list is built here
+  (`ui/catalog/VirtualList.tsx`, ~150 lines: a fixed row stride, a grid mode
+  that matches the CSS auto-fill grid, spacer rows) rather than a package: the
+  editor needs one fixed-stride list, and each dependency is pinned and
+  audited.
+- 2026-09-30 (26.13 A): tile thumbnails. A texture's is made by the backend
+  when a tile asks for a missing one (`GET …/thumbnails/<digest>?asset=`),
+  in the texture worker thread (the image scaled to 128 px, a PNG), from the
+  PNG/JPEG or the image a KTX2 was encoded from; a KTX2 imported as is and a
+  packed texture keep the icon. A model's is drawn in a kept editor worker
+  (an `OffscreenCanvas`, the same glTF loader and renderer factory; a lane of
+  its own so it never holds up the small jobs), the file and each piece of a
+  file of several, and stored in the import cache; files wait newest-first
+  and a tile that scrolled away is dropped from the queue. Drawing a tile
+  reads its PNG only; a model's pieces load when it is chosen. The page keeps
+  the URLs of the tiles on screen and 512 more.
+- 2026-09-30 (26.13 A): the Scene view's spot cookies, environment textures
+  and lightmap atlases are held in its resource manager (`textureHolds`, the
+  one its models and materials use): a light holds its cookie while it is
+  drawn, a baked object its atlas while it is drawn (its scene open), the
+  environment what it names (a changed set of textures makes a new
+  environment renderer and lets the old set go). The Scene view still reads
+  a streamed texture whole (its own mips, no budget); kept, it edits one
+  scene's worth. `viewport.ts` split first (2,354 → 1,964 lines:
+  `scene-lighting.ts`, `camera-previews.ts` — the two copies of the camera
+  rig's world pose made one —, `helper-shapes.ts`).
+- 2026-09-30 (26.13 A): `queryGameConfig {omit: [...]}` leaves out
+  conversations, graphs, timelines, UI documents or effects; the editor omits
+  conversations and reads one when its tab opens or a preview plays it (with
+  the ones it jumps to). Materials stay in the reply: their change record
+  (`setMaterials`' keyed list) carries the whole id order, so a client holds
+  the list (2,000 materials ≈ 1.3 MB of files at full); graphs stay: material
+  functions and sub-graph calls resolve across all function graphs. The
+  pickers still read materials, prefabs and scripts from the index.
+- 2026-09-30 (26.13 A): the dialogue previewer reads the facts of the assets a
+  conversation names (a clip's length from its import metrics, not by
+  decoding it), the voices of the first lines before it starts (`prepare`)
+  and then the voices ahead of the line it plays (runtime
+  `dialogueVoicesAhead`, as Play does), a speaker's blip at the start and a
+  portrait when shown.
+- 2026-09-30 (26.13 A): `App.tsx` (4,952 lines) did not grow: the areas this
+  item changed went to modules (`ui/catalog/*`, `ui/assets/useSelectedAsset.ts`,
+  `ui/assets/TileImage.tsx`, `ui/uidoc/useUiPreviewAssets.ts`,
+  `session/dialogue-closure.ts`) and every whole-list prop left the panels.
+  The scale bench has an `editor` step (`tools/perf/scale-editor.ts`, also
+  driving `tests/e2e/editor-scale.e2e.ts` at ×0.1).
+

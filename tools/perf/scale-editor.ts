@@ -97,6 +97,8 @@ export async function measureEditorAtScale(page: Page, o: EditorScaleOptions): P
   let connectedMs = 0;
   let interactiveMs = 0;
   if (o.open !== false) {
+    // A page on the editor already is left first (the same URL would only change its fragment).
+    await page.goto('about:blank');
     const t0 = Date.now();
     await page.goto(o.url);
     await page.locator('.tl-statusbar').filter({ hasText: 'connected' }).waitFor({ timeout: 600_000 });
@@ -194,10 +196,16 @@ export async function measureEditorAtScale(page: Page, o: EditorScaleOptions): P
     await page.waitForTimeout(50);
   }
   await tile.click();
-  const before = await page.locator('.tl-hierarchy__list li.tl-row').count();
+  const placedCount = async (): Promise<number> => Number((await o.query('queryEntities', { limit: 1, component: 'model' }))['total'] ?? 0);
+  const before = await placedCount();
+  await page.getByRole('button', { name: 'place', exact: true }).waitFor({ timeout: 60_000 });
   const t2 = Date.now();
   await page.getByRole('button', { name: 'place', exact: true }).click();
-  await page.waitForFunction((n) => document.querySelectorAll('.tl-hierarchy__list li.tl-row').length > n, before, { timeout: 60_000 });
+  // Placed: the backend has the object and the editor's hierarchy shows it (a row named after the model).
+  while ((await placedCount()) <= before) {
+    if (Date.now() - t2 > 60_000) throw new Error(`placing ${modelId} made no object`);
+    await page.waitForTimeout(10);
+  }
   const placeMs = Date.now() - t2;
   log(`editor: placed ${modelId} (list position ${position}) in ${placeMs} ms`);
 
