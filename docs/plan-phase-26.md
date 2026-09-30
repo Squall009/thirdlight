@@ -197,7 +197,7 @@ at the boundary it changes (Playwright for any editor surface).
 | 26.11 | done 2026-09-30: nothing audio is read at mount; each file loads by its load type through the resource manager (`audio` decoded, `audio-bytes` kept compressed and decoded per play, `audio-stream` a media element through Web Audio), held by its scene (preload) or from its first play by the scenes loaded then; a sound not ready starts when ready or is dropped past `maxLateMs` (script play/stinger, event cues, timeline keys, dialogue `voiceMaxLateMs`), reported in `audio.late`; a conversation reads its next voices ahead on every branch three lines deep (the next lines decoded); the per-kind audio stores gone; full 500-line dialogue: every voice heard, line → voice p95 0 ms, gap p95 12 ms, Play start reads no audio (§6); e2e `audio-loading` |
 | 26.12 | done 2026-09-30: large KTX2 textures stream their mips in Play and the export under a texture budget (`texture_budget_mb`, default 512 MiB): the build cuts each into parts by level (import cache, catalog `mipParts`, shipped instead of the whole file), the page reads the tail first and larger levels by on-screen size (UV density and the camera), least-needed dropped first; `streaming` per texture (sidecar, `setAssetOptions`, the asset inspector; on above 1024 px); `resources.textures` in observe and diagnostics; bench step `stream` (full: level 0 in 102 ms p50, resident ≤ 7.75 of 8 MiB, Play start unchanged); e2e `texture-streaming` (pixels, both renderers, export); D70 fixed, D71–D73 logged |
 | 26.13 | done 2026-09-30. A: the editor reads the project index in pages and records by id (no first 128 records), virtualized asset list and pickers, tiles from the import cache, the Scene view's cookies, environment and lightmaps in its resource manager, lazy dialogue voices; `App.tsx` and `viewport.ts` split; D74 fixed, D75–D78 logged. B: the project window (folder tree, every asset, resource and scene by folder, Unity search `t:`/`l:`, kind menu, sort, grid/list and tile size, breadcrumb, cut/paste and drag moves, new and renamed folders, double-click opens each kind's editor, labels on many items); `moveResources`, `renameFolder`, `createFolder` (one undo each, MCP too); `queryIndex` folder/recursive/folders/sort/labels; a move changes no built file; full: 1,000 files labelled 2.6 s, moved 4.4 s (fsync bound, D80) |
-| 26.14 | done 2026-09-30 (phase review and `tools/gate.sh full` pending): after numbers on both renderers in §6 with targets fixed (three missed: Play start, backend resident at open — both revised with reasons —, export growth by 6 MiB; content-edit ratio); limits table per file and runtime budget only; MCP texts; D60 fixed with a string check in the build; D81 found and fixed |
+| 26.14 | done 2026-09-30 (phase review and `tools/gate.sh full` pending): after numbers on both renderers in §6 with targets fixed (three missed: Play start, backend resident at open — both revised with reasons —, export growth by 6 MiB; content-edit ratio); limits table per file and runtime budget only; MCP texts; D60 fixed with a string check in the build; D81 found and fixed. Then (`015680f4`…`ac42a9d5`): file checks from a folder watch, one walk, the content view and catalog remembered and built ahead, content edits validate what they replaced; Play start of a project left alone 532/657 ms at full (1.24–1.37× of ×0.01), one command's p50 within 1.4–1.7×; still growing: Play clicked as the editor connects to a just-opened project (3.5×) and command p95 (§6 "again"); D82 fixed |
 
 ## 6. Measurements
 
@@ -784,9 +784,11 @@ What still grows with the asset count, and why the three misses are left:
 
 - *Opens, edits, plays and exports in a real browser on both renderers*:
   holds (two full runs, nothing broken; the export played with the backend
-  stopped). *One command's latency and Play start do not grow*: partly.
-  Scene edit p50 1.5× over ×100 assets; content edit 2.6×; Play start 3.5×
-  (45 µs per asset in the backend). Revised targets and reasons in §7.
+  stopped). *One command's latency and Play start do not grow*: see
+  "Play start and commands, again" below — Play start of a project left
+  alone (and after edits, then a pause) and one command's p50 hold; Play
+  clicked the moment the editor connects to a just-opened project and one
+  command's p95 still grow.
 - *Walking 50 scenes frees what each scene used; textures inside their
   budget; 500 voiced lines with no gap*: holds (table above).
 - *1,000 assets by label loaded and released, resident memory back*: holds.
@@ -809,6 +811,56 @@ Heard and seen: nothing was listened to or looked at; the dialogue's gaps
 are the relay's observation (5–10 ms resolution) and the stream step's
 levels are resident bytes (the e2e `texture-streaming` checks pixels).
 Owner listen and look pending.
+
+### Play start and commands, again (26.14, 2026-09-30, `ac42a9d5`)
+
+The last open "Done when" line. Same host and bench; every run starts
+after `sync` and 15 s of rest (the disk's state alone moved a command's
+flush between 3 and 28 ms in the runs before, §7). Each size run with
+`files,open,commands,play --commands 60` on both renderers, twice
+(`--settle 3000`: Play after the editor's connect-time check answered and
+3 s more), and `files,open,play` with and without `--settle 3000`
+(reports `~/.cache/thirdlight-phase26/2614b/after4/`, `after5/`,
+`after6/`). Two numbers in a cell are WebGL 2 / WebGPU; ranges are over
+the runs.
+
+| | target | ×0.01 | ×0.1 | full | before (the table above) | result |
+|---|---|---|---|---|---|---|
+| Play: click → first frame, project left alone (open, then 3 s) | ≤ 1,500 (revised ≤ 2,000) and within 1.5× of ×0.01 | 428 / 481 | 422 / 453 | 532 / 657 | 1,619 / 1,659 (clicked at once) | **pass**: 1.24–1.37× |
+| Play after 60 scene and 60 content edits, then 3 s | same | 377–410 / 442–477 | 409–422 / 440–450 | 494–500 / 549–555 | – | **pass**: 1.2–1.35× |
+| Play: backend part, left alone (per asset at full) | ≤ 50 µs per asset (revised) | 2–5 | 5–10 | 44–65 (2.4–3.6 µs) | 845 / 805 (45 µs) | **pass** |
+| Play clicked the moment the editor connected to a just-opened project | same | 448–479 | 483 / 603 | 1,669 / 1,667 | 1,619 / 1,659 | **fails**: 3.5×; backend 873–904 (48–50 µs per asset) |
+| … of which the first file check after the open (joined) / the first build (view, catalog) | – | 0 / 11–12 | 0–36 / 44–49 | 403–425 / 360–404 | 248 / 403 | – |
+| Play right after 60 + 60 edits with no pause (the build ahead waits for a pause) | – | 452 / 540 | 506 / 526 | 1,017 / 1,019 | 1,717 / 1,819 (whole-bench run) | fails 1.5× (1.9–2.25×) |
+| command: scene edit, 60 round trips p50 / p95 | p95 ≤ 100, within 2× of ×0.01 | 5.1–5.6 / 7.3–9.1 | 5.1–5.8 / 7.0–23.8 | 7.4–8.0 / 24.0–28.6 | 8.6 / 23.8 | p50 **pass** (1.4×); p95 **fails** 2× (2.6–3.9×) |
+| command: content edit, 60 round trips p50 / p95 | same | 6.3–7.6 / 9.1–10.2 | 6.4–7.2 / 9.2–10.4 (one run 27 / 58) | 9.4–10.7 / 15.8–25.0 | 21.4 / 37.4 | p50 **pass** (1.2–1.7×); p95 1.6–2.7× (fails 2× in some runs) |
+| command in the backend, in-process (200 trips, p50 / p95): scene / content | – | 3.5–4.0 / 4.3–5.7 — 3.8–3.9 / 4.6–5.2 | – | 5.1–6.2 / 6.0–8.2 — 6.9–7.4 / 8.7–10.1 | – / 13.3 (content p50) | – |
+| backend resident after open | ≤ 400 (revised) | 150–158 | 184–188 | 348–356 | 352–357 | pass |
+
+What still grows, and why:
+
+- **Play clicked the moment the editor connects** to a project the backend
+  has just opened: it joins the editor's first file check, which must look
+  at every file once (nothing is known about changes made while the backend
+  was down: one stat per asset, 400 ms at full), and then makes the first
+  build of that capture (every content-view row and catalog entry made once,
+  ~450 ms at full). Both happen once per open; a project left alone for a
+  second has both done (the check, then the build ahead) and a later Play
+  re-stamps. Starting the first check and build at the backend's first read
+  of the project instead of at the editor's connect would hide most of it
+  from this click; not done (it moves ~0.9 s of work in front of every
+  open, also of projects opened only to read).
+- **Play right after edits, with no pause**: the build ahead waits for the
+  project to be left alone for 1 s (a stage of it held commands up to
+  ~250 ms right after the editor connected: scene edit p50 22 ms in that
+  run). Unity's domain reload after an edit has the same shape.
+- **One command's p95**: a command's own work at full is within ~1.6× of
+  ×0.01 in-process (the numbers above); over HTTP a few round trips in 60
+  take 20–30 ms at ×0.1 and full (some ×0.1 runs too), none at ×0.01. Not
+  the command: the flush of its files is the same work at every size and
+  pays for whatever else the disk is writing, and the backend's heap
+  (~350 MiB at full: every record in memory, §7) makes its collections
+  longer. Not isolated further.
 
 ## 7. Decision log
 
@@ -2236,3 +2288,18 @@ Owner listen and look pending.
   flushes of 20–50 ms show up in p95 (in-process runs on the same data
   varied 7–20 ms p50 with the disk state alone). Durability is kept; the
   record cache and stamps stay unflushed.
+- 2026-09-30 (26.14, commands): the editor's refetch. After an edit that is
+  not only a scene's objects the editor asks for its index pages and the
+  project window's folder rows again; at full size each one scanned the
+  whole index (~2 ms per edit, between the bench's commands). The index now
+  keeps an entry whose indexed fields did not change (a material's values),
+  so its generation stays, and a page asked for again at the same
+  generation is the last answer (not pages with records); a folder's rows
+  from the index are made once per generation, the disk's read each time.
+- 2026-09-30 (26.14): not done, with reasons. Starting a project's first
+  full file check and first Play build at the backend's first read instead
+  of at the editor's connect (it would hide the ~0.9 s a Play clicked the
+  moment the editor connects waits for, at the cost of that work in front of
+  every open); a partial resource-file check from the watch (the resource
+  part of a check still reads its folders, ~95 ms at full); isolating the
+  20–30 ms round trips behind a command's p95 at ×0.1 and full.
