@@ -308,6 +308,26 @@ per command at full size, each well under a millisecond: the project-wide
 id uniqueness over every entity, the asset list's counts when an asset
 changes, the per-kind id sets when a record is added or removed.
 
+After 26.4 B (scenes found in the game folder, the file check for resource
+files, the record cache; same steps and scratch patch, commit `3eeb70bc`
+against `dabb4473` built the same way, one after the other on the GPU host;
+2026-09-30; p50 / p95 ms):
+
+| | ×0.01 base / B | full base / B |
+|---|---|---|
+| open: backend's first read | 63 / 55–61 | 1,005 / 927 |
+| open: editor connected / first frame | 856 / 564 — 862–870 / 587–590 | 1,086 / 600 — 1,041 / 642 |
+| backend resident after open | 147 / 148–150 | 335 / 343 |
+| command: scene edit | 12.3 / 14.3 — 10.8–12.1 / 13.8–17.4 | 13.4 / 17.5 — 15.0 / 41.5 |
+| command: content edit | 31.1 / 46.8 — 30.0–31.7 / 34.3–34.9 | 40.4 / 51.6 — 39.9 / 44.9 |
+
+No change beyond run-to-run spread (this session's host is slower than 26.4
+A's, base included). The full-size scene-edit p95 of B's run includes the
+record cache being filled in the background after that first open (18,000
+sidecar copies in batches of 256 between commands; later opens find it
+filled). The 1.5 s poll no longer hashes the game folder's thousands of
+resource files; the file check's cost at full size is 26.8's to measure.
+
 Proposed targets for "Done when" (fixed in 26.14 from these numbers):
 
 - One command at full size: p95 ≤ 100 ms for a scene edit and a content edit,
