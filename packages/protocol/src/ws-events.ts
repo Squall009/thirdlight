@@ -588,7 +588,7 @@ export function parseInboundEvent(value: unknown):
           ['type', `"${type}"`],
           ['relayId', 'relay- + 32 hex'],
           ['ok', 'boolean'],
-          ['result', isControl ? 'the §20 control result (≤ 4 KiB) — when ok' : 'the §20 observation document (≤ 16 KiB) — when ok'],
+          ['result', isControl ? 'the control result (≤ 4 KiB) — when ok' : 'the observation document (≤ 16 KiB) — when ok'],
           ['error', '{ code, message? } — when not ok'],
         ]),
         ['type', 'relayId', 'ok'],

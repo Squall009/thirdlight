@@ -21,7 +21,7 @@
  *   `gameZone`, `cameraFollow`, and the pickup forms that were game rules
  *   (a heart's healing, "respawn on death", an effect, a sound on a
  *   prefab). Each problem names the component and ends with
- *   `REMOVED_IN_PHASE_24`.
+ *   `REMOVED_FROM_ENGINE`.
  */
 import type { ModelErrorV3 } from './errors';
 
@@ -44,7 +44,7 @@ export function isUpgradedProjectSchemaVersion(v: unknown): v is 2 | 3 | 4 {
 }
 
 /** The tail every refusal of removed game data carries. */
-export const REMOVED_IN_PHASE_24 = 'removed in phase 24: build it as project scripts';
+export const REMOVED_FROM_ENGINE = 'removed from the engine: build it as project scripts';
 
 /** The components deleted with the genre layer (what each did, for the problem text). */
 export const REMOVED_COMPONENTS: Readonly<Record<string, string>> = Object.freeze({
@@ -57,7 +57,7 @@ export const REMOVED_COMPONENTS: Readonly<Record<string, string>> = Object.freez
 /** The problem text for a removed component (`component_unknown`). */
 export function removedComponentMessage(name: string): string {
   const what = REMOVED_COMPONENTS[name];
-  return `component "${name}"${what !== undefined ? ` (${what})` : ''} was ${REMOVED_IN_PHASE_24}`;
+  return `component "${name}"${what !== undefined ? ` (${what})` : ''} was ${REMOVED_FROM_ENGINE}`;
 }
 
 /** Whether a component name is one of the removed game components. */
@@ -96,7 +96,7 @@ function refused(document: 'content' | 'scene', sceneId: string | undefined, pat
     code,
     path,
     message,
-    expected: 'no game-rule data (phase 24)',
+    expected: 'no game-rule data (the engine has no game rules)',
     found,
     document,
     ...(sceneId !== undefined ? { sceneId } : {}),
@@ -122,10 +122,10 @@ export function upgradeProjectDocsV24(contentIn: unknown, scenesIn: readonly unk
   if (isObject(content)) {
     if ('game' in content) {
       if (content['game'] === null) delete content['game'];
-      else errors.push(refused('content', undefined, '/game', `content.game (the game block: player, camera, spawn, cues and timing) was ${REMOVED_IN_PHASE_24}`, typeof content['game'], 'field_unexpected'));
+      else errors.push(refused('content', undefined, '/game', `content.game (the game block: player, camera, spawn, cues and timing) was ${REMOVED_FROM_ENGINE}`, typeof content['game'], 'field_unexpected'));
     }
     if (content['flow'] !== undefined) {
-      errors.push(refused('content', undefined, '/flow', `content.flow (the level flow and its menus) was ${REMOVED_IN_PHASE_24} (menus: the game shell, content.shell)`, 'flow', 'field_unexpected'));
+      errors.push(refused('content', undefined, '/flow', `content.flow (the level flow and its menus) was ${REMOVED_FROM_ENGINE} (menus: the game shell, content.shell)`, 'flow', 'field_unexpected'));
     }
   }
 
@@ -191,7 +191,7 @@ export function upgradeProjectDocsV24(contentIn: unknown, scenesIn: readonly unk
         spawn['yaw'] = facing === 'right' ? 90 : -90;
         count('spawn facings became yaws');
       } else if (facing !== 'none' && facing !== undefined && facing !== 'left' && facing !== 'right') {
-        errors.push(refused(document, sceneId, `${path}/components/playerSpawn/facing`, 'playerSpawn.facing is none, left or right (phase 24: a yaw in degrees)', facing, 'field_value'));
+        errors.push(refused(document, sceneId, `${path}/components/playerSpawn/facing`, 'playerSpawn.facing is none, left or right (the upgrade makes it a yaw in degrees)', facing, 'field_value'));
       }
     }
   };
@@ -211,6 +211,6 @@ export function upgradeProjectDocsV24(contentIn: unknown, scenesIn: readonly unk
     const table = Array.isArray(content['eventCues']) ? (content['eventCues'] as unknown[]) : [];
     content['eventCues'] = [...table, ...cues];
   }
-  for (const [what, n] of counts) notes.push(`phase 24 upgrade: ${n} ${what}`);
+  for (const [what, n] of counts) notes.push(`game-rules upgrade: ${n} ${what}`);
   return { content, scenes, notes, errors };
 }

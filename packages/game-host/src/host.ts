@@ -543,10 +543,10 @@ function validateConfig(config: GameHostConfig): string | null {
   if (typeof config.adapter !== 'function') return 'config.adapter must be the render-adapter factory (CC-55-2)';
   if (!isPlainObject(config.input)) return 'config.input must be the injected browser input owner';
   if (typeof config.input.sample !== 'function') return 'config.input.sample must be a function (ActionSource.sample)';
-  if (typeof config.input.sampleMenu !== 'function') return 'config.input.sampleMenu must be a function (the menu channel, delivery.md §4.1)';
-  if (typeof config.input.markConfirmConsumed !== 'function') return 'config.input.markConfirmConsumed must be a function (delivery.md §4.2)';
+  if (typeof config.input.sampleMenu !== 'function') return 'config.input.sampleMenu must be a function (the menu channel)';
+  if (typeof config.input.markConfirmConsumed !== 'function') return 'config.input.markConfirmConsumed must be a function';
   if (typeof config.input.dispose !== 'function') return 'config.input.dispose must be a function';
-  if (!isPlainObject(config.audio)) return 'config.audio must be the injected audio owner (packet 54)';
+  if (!isPlainObject(config.audio)) return 'config.audio must be the injected audio owner';
   for (const member of ['registerCue', 'submit', 'unlock', 'setMuted', 'setHidden', 'status', 'dispose', 'liveVoices'] as const) {
     if (typeof config.audio[member] !== 'function') return `config.audio.${member} must be a function`;
   }

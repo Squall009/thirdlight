@@ -59,7 +59,7 @@ import { clipMessage, type ErrorCode, type RuntimeError } from './errors';
 import { DebugCommands } from './debug-commands';
 import { MAX_FRAME_UI_EVENTS, UiState, validateUiEvent, type UiEventRecord, type UiOutput, type UiStateView } from './ui';
 import { ModeState, type ModeView } from './modes';
-import { BehaviorHostError, BehaviorHostIntentLimit, BEHAVIOR_MODULE_PREFIX, compiledFramesOf, createTagQuery, graphNodeIdOf, type BehaviorDebugView, type BehaviorPropertyView, type CompiledFrame } from './behavior';
+import { BehaviorHostError, BehaviorHostIntentLimit, compiledFramesOf, createTagQuery, graphNodeIdOf, type BehaviorDebugView, type BehaviorPropertyView, type CompiledFrame } from './behavior';
 import { character3DPhysicsOf, offsetEntities, playerCapsuleOf, sceneContribution, staticColliderOf, staticColliderOf3D, type LiveTagIndex, type SceneContribution } from './scene-set';
 import {
   BehaviorIntentError,
@@ -733,17 +733,6 @@ export function instantiateRuntime(
   }
 
   const isM2 = selected.some((s) => s.phases !== undefined);
-  // At most 64 behavior modules per runtime instance.
-  if (selected.filter((s) => s.id.startsWith(BEHAVIOR_MODULE_PREFIX)).length > INTENT_LIMITS.behaviorModules) {
-    return {
-      ok: false,
-      error: fail('config_invalid', `at most ${INTENT_LIMITS.behaviorModules} behavior modules may be selected`, {
-        reason: 'behavior_modules',
-        path: '/modules',
-      }),
-    };
-  }
-
   // Deep-freeze the snapshot (normative) — the input is
   // never written to; all mutable data is in the simulation state.
   // For a v3 scene, modules see the scene with folders and
@@ -847,7 +836,7 @@ export function instantiateRuntime(
   if (!cameraInfo) {
     return {
       ok: false,
-      error: fail('snapshot_invalid', 'scene has no camera entity (project-model §10.3 requires exactly one)', {
+      error: fail('snapshot_invalid', 'scene has no camera entity (a scene has exactly one)', {
         reason: 'scene_validation',
       }),
     };

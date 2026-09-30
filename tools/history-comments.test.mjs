@@ -1,6 +1,6 @@
 /**
  * The history-comment check: what it flags, what it leaves alone, and that
- * it reads comments and test titles only (never strings, templates or regexes).
+ * it reads comments and test titles, and the strings package sources ship (never regexes).
  */
 
 import { afterEach, describe, it, expect } from 'vitest';
@@ -46,7 +46,7 @@ describe('history markers', () => {
 });
 
 describe('where it looks', () => {
-  it('reads line, block and JSX comments, not strings, templates or regexes', () => {
+  it('reads line, block and JSX comments; outside package sources not strings, templates or regexes', () => {
     const src = [
       "const a = 'Phase 25.7c in a string';",
       'const b = `packet 57 in a template ${a}`;',
@@ -70,6 +70,23 @@ describe('where it looks', () => {
       ['test title', 'phase'],
       ['test title', 'milestone'],
     ]);
+  });
+
+  it('reads the strings a package source ships (literals, template parts, JSX text), not a test file\'s', () => {
+    const src = [
+      "export const hint = 'see workspace.md §9';",
+      'export const t = `a ${hint} (phase 25.17) b`;',
+      'export const e = <p>removed in phase 24</p>;',
+      "export const fine = 'Safari older than 18.4, 1.5 s, D-pad';",
+    ].join('\n');
+    expect(historyHits(src, 'packages/demo/src/a.tsx').map((h) => [h.line, h.kind, h.name])).toEqual([
+      [1, 'string', 'spec section'],
+      [2, 'string', 'phase'],
+      [3, 'string', 'phase'],
+    ]);
+    expect(historyHits(src, 'packages/demo/src/a.test.tsx')).toEqual([]);
+    expect(historyHits(src, 'packages/demo/tests/a.tsx')).toEqual([]);
+    expect(historyHits(src, 'tools/a.tsx')).toEqual([]);
   });
 
   it('fails a workspace with a marker in a package source and passes it once removed', () => {

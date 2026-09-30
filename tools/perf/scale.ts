@@ -99,7 +99,8 @@ export interface ScaleReport {
    */
   files?: { firstMs: number; againMs: number; afterRestartMs: number; entries: number; backendRssMiB: { first: number | null; again: number | null; afterRestart: number | null } };
   /** `backendRssPeakMiB`: sampled every 50 ms from the click to the first frame; `backendRssAfterStopMiB`: once the play stopped. */
-  play?: { split: PlayStartSplit; memory: MemorySample; backendRssPeakMiB?: number | null; backendRssAfterStopMiB?: number | null };
+  /** `renderer`: the backend that drew the play and its API (Play diagnostics), so a run names the renderer it measured. */
+  play?: { split: PlayStartSplit; memory: MemorySample; renderer?: { backend?: string; state?: string; reason?: string }; backendRssPeakMiB?: number | null; backendRssAfterStopMiB?: number | null };
   walk?: {
     scenes: number;
     /** Request → loaded in the observation, and → unloaded (as the relay sees it). */
@@ -546,7 +547,17 @@ export class ScaleBench {
     const wait = firstEpoch! + 10_500 - Date.now();
     if (wait > 0) await sleep(wait);
     const diag = (await this.relay(`${psid}/diagnostics`)).json as { diagnostics?: { startTimings?: StartTimingsReport }; buildTimings?: Record<string, number> };
-    this.report.play = { split: splitOf(t0, responseEpoch, diag.buildTimings ?? null, diag.diagnostics?.startTimings), memory: await this.memory(), backendRssPeakMiB: rssPeak };
+    // What drew the play: the renderer factory mirrors its choice on the canvas.
+    const drawn = await frame!.evaluate(() => {
+      const c = document.querySelector('canvas[data-tl-renderer]');
+      return c === null ? null : { backend: c.getAttribute('data-tl-renderer') ?? undefined, state: c.getAttribute('data-tl-renderer-state') ?? undefined, reason: c.getAttribute('data-tl-renderer-reason') ?? undefined };
+    });
+    this.report.play = {
+      split: splitOf(t0, responseEpoch, diag.buildTimings ?? null, diag.diagnostics?.startTimings),
+      memory: await this.memory(),
+      ...(drawn !== null ? { renderer: drawn } : {}),
+      backendRssPeakMiB: rssPeak,
+    };
   }
 
   /** Load each on-demand scene, sample, unload it; memory before, after each load, and after the walk. */

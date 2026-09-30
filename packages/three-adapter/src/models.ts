@@ -321,7 +321,7 @@ export function validateModelsBlock(ctx: {
   if (ctx.schemaVersion !== 3 && ctx.schemaVersion !== 4) {
     return adapterError(
       'models_config_invalid',
-      `the models block requires a schemaVersion 3 scene (found ${String(ctx.schemaVersion)}; delivery.md (M4) §2.2)`,
+      `the models block requires a schemaVersion 3 scene (found ${String(ctx.schemaVersion)}; a models block needs one)`,
     );
   }
   if (!ctx.hasLoader) {
@@ -608,7 +608,7 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
       settle({
         ok: false,
         code,
-        message: `the prepare for asset ${assetId} hard-failed (${code}); delivery.md (M4) §2.7 L2–L5 — the host mount fails before the play is presented`,
+        message: `the prepare for asset ${assetId} hard-failed (${code}) — the host mount fails before the play is presented`,
       });
       return;
     }
@@ -1097,7 +1097,7 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
         settle({
           ok: false,
           code: 'adapter_disposed',
-          message: 'the adapter was disposed before the model prepares settled (§2.6: the run is torn down; no late completion is applied)',
+          message: 'the adapter was disposed before the model prepares settled (the run is torn down; no late completion is applied)',
         });
       }
     },

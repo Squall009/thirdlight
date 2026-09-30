@@ -83,7 +83,7 @@ describe('the load settings', () => {
   it('names what a browser does not play: Ogg in older Safari, past 32 channels, outside 8-96 kHz', () => {
     expect(audioPlaybackGaps({ format: 'mp3', channels: 2, sampleRate: 44100 })).toEqual([]);
     expect(audioPlaybackGaps({ format: 'flac', channels: 2, sampleRate: 96000 })).toEqual([]);
-    expect(audioPlaybackGaps({ format: 'ogg-opus', channels: 2, sampleRate: 48000 })).toEqual(['Safari before 18.4 (macOS 15.4, iOS 18.4) does not play Ogg Opus']);
+    expect(audioPlaybackGaps({ format: 'ogg-opus', channels: 2, sampleRate: 48000 })).toEqual(['Safari older than 18.4 (macOS 15.4, iOS 18.4) does not play Ogg Opus']);
     expect(audioPlaybackGaps({ format: 'ogg-vorbis', channels: 2, sampleRate: 48000 })[0]).toContain('Ogg Vorbis');
     expect(audioPlaybackGaps({ format: 'wav', channels: 64, sampleRate: 192000 })).toHaveLength(2);
   });

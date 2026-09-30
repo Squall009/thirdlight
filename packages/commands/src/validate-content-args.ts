@@ -809,7 +809,7 @@ export function validateSetSettingsArgs(
         '/args/settings',
         {},
         'non-empty object of declared settings keys',
-        'settings must be a non-empty partial map (there is no removal in M2)',
+        'settings must be a non-empty partial map (a key cannot be removed)',
       ),
     };
   }

@@ -110,7 +110,7 @@ export function validateEnvelope(bytes: Uint8Array, dirName: string): EnvelopeLo
       {
         code: 'storage_version_unsupported',
         path: '/storageVersion',
-        message: `this project is stored as storage version ${sv} (the ${sv === 1 ? 'M1' : 'M2'} single-scene format), which this version no longer opens (removed in phase 9.3)`,
+        message: `this project is stored as storage version ${sv} (a single-scene format), which this version no longer opens`,
         found: sv,
         expected: '3 (upgraded to 4 on open) or a storage v4 project',
         hint: 'convert it with an earlier Thirdlight version (migrateProjectCopy / migrateProjectCopyV3 to storage v3), then open it here',
@@ -536,7 +536,7 @@ function validateRecordResult(
   }
   if ((result['revision'] as number) !== recordAppliedRevision) {
     return rerr(
-      'record result revision must equal the record appliedRevision (commands.md §7.1)',
+      'record result revision must equal the record appliedRevision',
       result['revision'],
       `/result/revision`,
     );
@@ -943,6 +943,6 @@ function validateHistoricalEntities(
     code: 'retry_records_invalid',
     path: base,
     message: `historical entity payload is not a complete project-model entity: ${first.message}`,
-    expected: 'a complete entity value (project-model §9/§10: id, optional name, optional parentId, components)',
+    expected: 'a complete entity value (id, optional name, optional parentId, components)',
   };
 }

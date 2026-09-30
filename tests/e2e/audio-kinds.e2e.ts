@@ -163,7 +163,7 @@ test('a long Opus and a stereo 44.1 kHz WAV are one Audio kind: inspector load s
   await tile('ambience').click();
   await expect(page.getByTestId('audio-facts')).toContainText('Ogg Opus · mono · 48 kHz');
   await expect(page.getByLabel('audio load type').locator('option[value="default"]')).toHaveText('default for its length (stream)');
-  await expect(page.getByTestId('audio-playback-gaps')).toContainText('Safari before 18.4');
+  await expect(page.getByTestId('audio-playback-gaps')).toContainText('Safari older than 18.4');
   // A change there is one command each, stored on the record and in the sidecar.
   await page.getByLabel('audio load type').selectOption('decode-while-playing');
   await expect.poll(async () => (await asset(opus)).audio?.loadType).toBe('decode-while-playing');

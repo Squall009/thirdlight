@@ -347,7 +347,7 @@ export function validateV3ContentBlock(value: unknown, path = '/content'): Field
     return fieldError('field_type', `${path}/behaviorTrust`, 'behaviorTrust must be `{ entries: [] }`');
   }
   if (value.game !== null) {
-    return fieldError('field_value', `${path}/game`, 'content.game (the game block) was removed in phase 24; it is null', {
+    return fieldError('field_value', `${path}/game`, 'content.game (the game block) was removed from the engine; it is null', {
       found: typeof value.game,
     });
   }
@@ -449,7 +449,7 @@ export function validateChangeFrame(value: unknown, path = ''): FieldErrorResult
       ['requestId', 'req- + 32 hex'],
       ['revision', 'integer ≥ 0'],
       ['origin', 'the command origin or null'],
-      ['change', 'commands.md §5.3 change data'],
+      ['change', 'the command\'s change data'],
       // The scene a v4 edit touched.
       ['sceneId', 'the edited scene (v4)'],
     ]),
@@ -489,7 +489,7 @@ export function validateQueryResultV3(op: string, value: unknown, path = ''): Fi
     return { ok: true, value: value as Record<string, unknown> };
   }
   if (op === 'queryGameConfig') {
-    if (value.game !== undefined) return fieldError('field_unexpected', `${path}/game`, 'queryGameConfig no longer returns a game block (removed in phase 24)');
+    if (value.game !== undefined) return fieldError('field_unexpected', `${path}/game`, 'queryGameConfig returns no game block (the engine has no game rules)');
     return { ok: true, value: value as Record<string, unknown> };
   }
   if (op === 'queryProject') {
@@ -812,7 +812,7 @@ export function validateGameObservation(value: unknown): FieldErrorResult {
     return fieldError('field_type', '/resources', 'resources is { resident: { kind: { count, bytes } }, loading, loads, frees, failed, waiting, handles }');
   }
   // The engine has no game-session block; a `legacy` field is rejected.
-  if (value.legacy !== undefined) return fieldError('field_unexpected', '/legacy', 'the legacy game-session block was removed in phase 24');
+  if (value.legacy !== undefined) return fieldError('field_unexpected', '/legacy', 'the legacy game-session block was removed from the engine');
   // Optional animator states (entity id → state name).
   if (value.animators !== undefined) {
     if (!isPlainObject(value.animators) || Object.keys(value.animators).length > 64 || !Object.values(value.animators).every((x) => typeof x === 'string')) {
@@ -910,7 +910,7 @@ export interface StageInspectRequest {
 const INSPECT_REQUEST_FIELDS = new Map([
   ['kind', '"model" | "audio" | "texture" | "font" (default "model")'],
   ['ktx2', '"color" | "normal" | "data" (a texture only: encode it to KTX2)'],
-  ['animation', '{ entityId?, roles: { idle, run, airborne } } — the §41.3.3 animated profile'],
+  ['animation', '{ entityId?, roles: { idle, run, airborne } } — the role-aware animated profile'],
 ]);
 const ANIMATION_FIELDS = new Map([
   ['entityId', 'string (optional; the referencing entity)'],

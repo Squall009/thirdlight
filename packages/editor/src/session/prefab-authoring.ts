@@ -227,7 +227,7 @@ export function preflightCreatePrefab(input: CaptureInput): PlanResult<CapturePr
       ok: false,
       error: {
         code: 'prefab_nested_forbidden',
-        message: 'the captured subtree contains a prefab copy; nested definitions are not in M2',
+        message: 'the captured subtree contains a prefab copy; nested prefab definitions are not supported',
         sourceEntityId: input.sourceEntityId,
         prefabInstanceIds: nested,
       },

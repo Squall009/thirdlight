@@ -941,7 +941,7 @@
               "behaviorId": "behavior-0002",
               "mode": "source",
               "reason": "preparer_unavailable",
-              "message": "public behavior source publication requires the packet-33 digest-bound compiled preparation record; no unchecked write path exists in M2"
+              "message": "public behavior source publication requires the digest-bound compiled preparation record; there is no unchecked write path"
             }
           }
         }
@@ -1318,8 +1318,8 @@
               "code": "setting_unknown",
               "cls": "validation",
               "key": "gravity",
-              "message": "the settings key registry (packet 17) does not declare this key",
-              "hint": "packet 17 pins the M2 settings keys; until then every key is unknown"
+              "message": "the settings key registry does not declare this key",
+              "hint": "only the keys the settings registry declares can be set"
             }
           }
         }

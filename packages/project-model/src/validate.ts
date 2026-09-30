@@ -631,7 +631,7 @@ function validateManifestValue(
     errors.push(fieldType('/scenes', scenes, 'array'));
   } else if (scenes.length !== 1) {
     errors.push(
-      fieldValue('/scenes', scenes.length, 'array of exactly 1 scene reference (M1)', 'the M1 manifest lists exactly one scene'),
+      fieldValue('/scenes', scenes.length, 'array of exactly 1 scene reference', 'a version 1 manifest lists exactly one scene'),
     );
   } else {
     const ref = scenes[0];

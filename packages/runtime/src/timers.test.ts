@@ -253,6 +253,18 @@ describe('timers: ctx.timers in the runtime', () => {
     expect(a.h.diag().state).toBe('running');
   });
 
+  it('a game runs as many scripts as it has (no count of behavior modules)', () => {
+    const ran = new Set<string>();
+    const ids = Array.from({ length: 150 }, (_, i) => `script-${String(i).padStart(3, '0')}`);
+    const h = harness(
+      Object.fromEntries(ids.map((id) => [id, (ctx: Ctx) => void ran.add(ctx.entityId)])),
+      ids.map((id, i) => ({ id: `box-${i}`, components: { transform: at(5 + i, -5), box: BOX, behavior: { behaviorId: id, values: {} } } })),
+    );
+    h.tick(2);
+    expect(ran.size).toBe(ids.length);
+    expect(h.diag().state).toBe('running');
+  });
+
   it('a bad timer call is a script error (fail-stop with its reason)', () => {
     const h = harness({ bad: (ctx) => void (ctx.stepIndex === 20 && ctx.timers.after('x', -1)) }, [{ id: 'box-bad', components: { transform: at(5, -5), box: BOX, behavior: { behaviorId: 'bad', values: {} } } }]);
     expect(() => h.tick(25)).toThrow();

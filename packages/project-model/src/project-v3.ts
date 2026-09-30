@@ -574,7 +574,7 @@ export function validateEnvelopeV3(root: unknown): EnvelopeV3Load {
     return envelopeFail([envelopeError('envelope_invalid', '/projectId', 'envelope projectId must be a string', 'a project ID string', 'field_type', projectId)]);
   }
   if (!ID_RE_V2.test(projectId)) {
-    return envelopeFail([envelopeError('envelope_invalid', '/projectId', 'envelope projectId must match the §5.1 ID syntax', '1-64 chars, ^[a-z0-9][a-z0-9_-]{0,63}$', 'field_value', projectId)]);
+    return envelopeFail([envelopeError('envelope_invalid', '/projectId', 'envelope projectId must match the project id syntax', '1-64 chars, ^[a-z0-9][a-z0-9_-]{0,63}$', 'field_value', projectId)]);
   }
   if (!isPlainObject(root['retry'])) {
     return envelopeFail([envelopeError('envelope_invalid', '/retry', 'the retry block must be present and be an object', 'object', 'field_type', root['retry'])]);

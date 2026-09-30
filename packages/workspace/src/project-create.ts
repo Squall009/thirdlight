@@ -268,7 +268,7 @@ export function convergeExisting(core: Core, projectId: string): CreateProjectRe
             code: 'envelope_invalid',
             path: '',
             message:
-              'the project has no content.json (an interrupted creation is completed by the startup scan, workspace.md §8.3/§10)',
+              'the project has no content.json (an interrupted creation is completed by the startup scan)',
             expected: 'a loadable project (content.json and its scene files)',
           },
         ]

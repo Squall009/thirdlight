@@ -121,7 +121,7 @@ export function validateBridgeEditorToPreview(value: unknown): Verdict {
   if (m['v'] !== BRIDGE_VERSION) return { ok: false, reason: `v must be ${BRIDGE_VERSION}`, path: '/v' };
   const type = m['type'];
   if (typeof type !== 'string' || !(BRIDGE_EDITOR_TO_PREVIEW_TYPES as readonly string[]).includes(type)) {
-    return { ok: false, reason: 'type not in the §13.5 editor→preview allowlist', path: '/type' };
+    return { ok: false, reason: 'type not in the editor→preview allowlist', path: '/type' };
   }
   switch (type) {
     case 'tl.handshake': {
@@ -141,7 +141,7 @@ export function validateBridgeEditorToPreview(value: unknown): Verdict {
       if (!isPlaySessionId(m['playSessionId'])) return { ok: false, reason: 'playSessionId must be play- + 32 hex', path: '/playSessionId' };
       if (!isNonce(m['nonce'])) return { ok: false, reason: 'nonce must be 16 lowercase hex', path: '/nonce' };
       const s = m['snapshot'];
-      if (!isPlainObject(s)) return { ok: false, reason: 'snapshot must be the runtime.md §2 document', path: '/snapshot' };
+      if (!isPlainObject(s)) return { ok: false, reason: 'snapshot must be the runtime snapshot document', path: '/snapshot' };
       for (const k of Object.keys(s)) {
         // `start` — a test/debug start the backend resolved (the preview hands it to the host).
         if (!['snapshotId', 'projectId', 'revision', 'scene', 'game', 'tags', 'start'].includes(k)) {
@@ -287,7 +287,7 @@ export function validateBridgePreviewToEditor(value: unknown): Verdict {
   if (m['v'] !== BRIDGE_VERSION) return { ok: false, reason: `v must be ${BRIDGE_VERSION}`, path: '/v' };
   const type = m['type'];
   if (typeof type !== 'string' || !(BRIDGE_PREVIEW_TO_EDITOR_TYPES as readonly string[]).includes(type)) {
-    return { ok: false, reason: 'type not in the §13.5 preview→editor allowlist', path: '/type' };
+    return { ok: false, reason: 'type not in the preview→editor allowlist', path: '/type' };
   }
   const general = tooLarge(m, BRIDGE_MESSAGE_MAX_BYTES);
   if (general !== null) return { ok: false, reason: general.reason };

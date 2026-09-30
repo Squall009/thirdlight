@@ -277,7 +277,7 @@ export function AssetBrowser(p: Props): JSX.Element {
           </div>
         )}
         <div className="tl-assets__row">
-          <button className="tl-btn tl-btn--small" disabled={p.importState.phase !== 'proposed' || roleIncomplete} onClick={p.onPublish} title={roleIncomplete ? 'Choose the animation role mapping first (the §8.5.1 reimport is all-or-nothing)' : 'Commit the validated proposal as one publishAsset command'}>
+          <button className="tl-btn tl-btn--small" disabled={p.importState.phase !== 'proposed' || roleIncomplete} onClick={p.onPublish} title={roleIncomplete ? 'Choose the animation role mapping first (an animated re-import is all-or-nothing)' : 'Commit the validated proposal as one publishAsset command'}>
             publish
           </button>
           <button className="tl-btn tl-btn--small" disabled={!BUSY.has(p.importState.phase)} onClick={p.onCancel} title="Cancel: no command is sent">

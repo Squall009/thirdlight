@@ -31,7 +31,7 @@ for (const path of process.argv.slice(2)) {
   if (p) {
     const s = p.split;
     const st = (n) => s.stages.find((x) => x.name === n);
-    console.log(`play: response ${s.responseMs} ms (backend total ${s.backend?.total}, closure ${s.backend?.closure}, closure.assets ${s.backend?.['closure.assets']}), manifest ${st('manifest')?.note ?? '–'}, ready ${f(s.readyMs)} ms, first frame ${f(s.firstFrameMs)} ms; heap ${f(p.memory.heapMiB, 1)} MiB, gpu ${f(p.memory.gpuMiB, 1)} MiB, backend RSS ${f(p.memory.backendRssMiB)} MiB (peak during the start ${f(p.backendRssPeakMiB)}, after the stop ${f(p.backendRssAfterStopMiB)})`);
+    console.log(`play: response ${s.responseMs} ms (backend total ${s.backend?.total}, closure ${s.backend?.closure}, closure.assets ${s.backend?.['closure.assets']}), manifest ${st('manifest')?.note ?? '–'}, ready ${f(s.readyMs)} ms, first frame ${f(s.firstFrameMs)} ms${p.renderer ? ` (drawn by ${p.renderer.backend}: ${p.renderer.reason})` : ''}; heap ${f(p.memory.heapMiB, 1)} MiB, gpu ${f(p.memory.gpuMiB, 1)} MiB, backend RSS ${f(p.memory.backendRssMiB)} MiB (peak during the start ${f(p.backendRssPeakMiB)}, after the stop ${f(p.backendRssAfterStopMiB)})`);
   }
   const w = r.walk;
   if (w) {

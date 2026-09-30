@@ -58,7 +58,7 @@ import type { BehaviorRecord, GameplaySettings, PrefabDefinition, SettingsMap } 
 import { validateCollisionLayers, ID_RE_V2 } from './components';
 import type { AssetRecordV3, ContentCatalogV3 } from './types-v3';
 import { MAX_TAGS, type ContentCatalogV4 } from './types-v3';
-import { REMOVED_IN_PHASE_24 } from './upgrade-v24';
+import { REMOVED_FROM_ENGINE } from './upgrade-v24';
 import { MAX_CONTENT_FILE_BYTES, MAX_PREFAB_BYTES } from './content-limits';
 import { canonicalDocBytes, derivedOf, limitsError, sortedRecord } from './content-helpers';
 import { canonicalAssetV3, validateAsset } from './content-assets';
@@ -96,7 +96,7 @@ export const ENGINE_TIMING_DEFAULTS = Object.freeze({ dropThroughTime: 0.125, se
  */
 export function validateGameConfig(g: unknown, path: string, errors: ModelErrorV2[]): void {
   if (g === null) return;
-  errors.push(withFound({ code: 'field_value', path, message: `content.game (the game block) was ${REMOVED_IN_PHASE_24}`, expected: 'null' } as ModelErrorV2, g));
+  errors.push(withFound({ code: 'field_value', path, message: `content.game (the game block) was ${REMOVED_FROM_ENGINE}`, expected: 'null' } as ModelErrorV2, g));
 }
 
 /**
@@ -114,7 +114,7 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
   const required = version === 4 ? KNOWN_CONTENT_FIELDS_V4 : [...KNOWN_CONTENT_FIELDS_V3];
   // A v4 content block has no `game` key.
   if (version === 4 && doc['game'] !== undefined) {
-    errors.push(withFound({ code: 'field_unexpected', path: '/game', message: `content.game (the game block: player, camera, spawn, cues and timing) was ${REMOVED_IN_PHASE_24}`, expected: 'no game key' } as ModelErrorV2, 'game'));
+    errors.push(withFound({ code: 'field_unexpected', path: '/game', message: `content.game (the game block: player, camera, spawn, cues and timing) was ${REMOVED_FROM_ENGINE}`, expected: 'no game key' } as ModelErrorV2, 'game'));
   }
   for (const key of required) {
     if (doc[key] === undefined) errors.push(fieldMissing(`/${pointerSegment(key)}`, key));
@@ -247,7 +247,7 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
   if (doc['animators'] !== undefined && !same('animators')) validateAnimators(doc['animators'], '/animators', errors, trusted('animators'));
   if (doc['input'] !== undefined && !same('input')) validateInput(doc['input'], '/input', errors);
   // The level flow was deleted (the game shell, content.shell, is the generic menus and scene list).
-  if (doc['flow'] !== undefined) errors.push(withFound({ code: 'field_unexpected', path: '/flow', message: `content.flow (the level flow and its menus) was ${REMOVED_IN_PHASE_24} (menus: the game shell, content.shell)`, expected: 'no flow' } as ModelErrorV2, 'flow'));
+  if (doc['flow'] !== undefined) errors.push(withFound({ code: 'field_unexpected', path: '/flow', message: `content.flow (the level flow and its menus) was ${REMOVED_FROM_ENGINE} (menus: the game shell, content.shell)`, expected: 'no flow' } as ModelErrorV2, 'flow'));
   // Standalone graph documents.
   if (doc['graphs'] !== undefined && !same('graphs')) validateGraphDocuments(GRAPH_KINDS, doc['graphs'], '/graphs', errors);
   // Visual effects.

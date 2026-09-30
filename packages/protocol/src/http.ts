@@ -38,7 +38,7 @@ export interface EstablishRequest {
 }
 
 const ESTABLISH_FIELDS = new Map([
-  ['projectId', 'string (project-model §5.1 ID syntax)'],
+  ['projectId', 'string (the project id syntax)'],
   ['sessionId', 'string (sess- + 32 hex)'],
   ['clientInfo', '{ kind: "browser", label?: string ≤ 128 }'],
 ]);
@@ -66,7 +66,7 @@ export function parseEstablishRequest(value: unknown):
     const ci = checkOptionalObject(obj, 'clientInfo', '', CLIENT_INFO_FIELDS, ['kind']);
     if (!ci.ok) return { ok: false, error: ci.error };
     const kind = checkField(ci.value, 'kind', '/clientInfo', '"browser" (the only M1 session kind)', (v) =>
-      v === 'browser' ? null : { problem: 'clientInfo.kind must be "browser" (M1)', kind: 'value' },
+      v === 'browser' ? null : { problem: 'clientInfo.kind must be "browser"', kind: 'value' },
     );
     if (!kind.ok) return { ok: false, error: kind.error };
     let label: string | undefined;
@@ -127,12 +127,12 @@ const PLAY_START_FIELDS = new Map([
 ]);
 const PLAY_OPTIONS_FIELDS = new Map([
   ['demo', 'boolean (default true)'],
-  ['sceneId', 'a scene id: Play starts there (phase 23.8)'],
-  ['mode', 'a game mode id (phase 23.8; checked once the project has game modes)'],
+  ['sceneId', 'a scene id: Play starts there'],
+  ['mode', 'a game mode id (checked once the project has game modes)'],
   ['variables', `{ key: JSON value } (at most ${PLAY_START_VARIABLES_MAX}; what the scripts' ctx.save holds from step 0)`],
   ['save', 'a project save document { format: "thirdlight.save", version, doc, ... } (at most 1 MiB)'],
   ['saveSlot', '1-99 (a project save slot)'],
-  ['threads', '"worker" | "single": where the simulation runs for this play (phase 25.17; absent: the project setting sim_thread)'],
+  ['threads', '"worker" | "single": where the simulation runs for this play (absent: the project setting sim_thread)'],
 ]);
 
 /** Validate the start fields of the play-start options (pure). */
@@ -253,7 +253,7 @@ export interface AdminCreateProjectRequest {
 }
 
 const ADMIN_CREATE_FIELDS = new Map([
-  ['projectId', 'string (project-model §5.1 ID syntax)'],
+  ['projectId', 'string (the project id syntax)'],
   ['name', 'string 1–128, no control chars'],
   ['template', 'string (template id), optional'],
   ['folder', 'absolute server folder path, optional'],
@@ -374,7 +374,7 @@ export function parseCommandEnvelope(value: unknown):
       error: {
         code: 'invalid_request',
         cls: 'validation',
-        message: 'requestId must be req- + 32 hex (commands.md §3)',
+        message: 'requestId must be req- + 32 hex',
         path: '/requestId',
         expected: REQUEST_ID_RE.source,
       },

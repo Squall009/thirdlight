@@ -635,7 +635,7 @@ export class PlayManager {
       kind: pending.kind,
       code,
       ...(ack.ok === true
-        ? { cause: 'the relayed result failed the §20 shape check' }
+        ? { cause: 'the relayed result failed the control result shape check' }
         : { cause: ack.error?.code ?? 'preview reported failure' }),
       ...(code === 'game_run_stale' ? { runId: rec.gameRunId } : {}),
     });

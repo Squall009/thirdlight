@@ -246,7 +246,7 @@ export function cameraCountInvalid(cameraId: string): CommandError {
     cls: 'validation',
     cameraId,
     message: 'deleting this entity would remove the scene\u2019s only camera',
-    hint: 'an M1 scene must always contain exactly one camera (project-model \u00a710.3)',
+    hint: 'a scene must always contain exactly one camera',
   };
 }
 
@@ -266,7 +266,7 @@ export function limitsExceeded(
     message:
       message ??
       (limit === 'entities' || limit === 'depth'
-        ? `creation would exceed the M1 ${limit} limit (${current} > ${max})`
+        ? `creation would exceed the ${limit} limit (${current} > ${max})`
         : `the ${limit} limit is exceeded (${current} > ${max})`),
   };
 }
@@ -328,7 +328,7 @@ export function historyEmpty(which: 'undo' | 'redo'): CommandError {
       which === 'undo'
         ? 'the undo stack is empty'
         : 'the redo stack is empty',
-    hint: 'history is in-memory per open session; it is empty after a restart or reset boundary and once fully undone (commands.md \u00a79.2)',
+    hint: 'history is in-memory per open session; it is empty after a restart or reset boundary and once fully undone',
   };
 }
 
@@ -340,7 +340,7 @@ export function historyInvalid(requestId: string): CommandError {
     requestId,
     message:
       'a stored history inverse/forward failed re-validation; state and history are unchanged',
-    hint: 'do not retry blindly; continue with fresh edits or restart the backend (commands.md \u00a79.4)',
+    hint: 'do not retry blindly; continue with fresh edits or restart the backend',
   };
 }
 
@@ -661,7 +661,7 @@ export function behaviorPublicationUnavailable(
     reason,
     message:
       reason === 'preparer_unavailable'
-        ? 'public behavior source publication requires the packet-33 digest-bound compiled preparation record; no unchecked write path exists in M2'
+        ? 'public behavior source publication requires the digest-bound compiled preparation record; there is no unchecked write path'
         : 'no prepared artifact exists for the supplied sourceDigest',
   };
 }
@@ -689,8 +689,8 @@ export function settingUnknown(key: string): CommandError {
     code: 'setting_unknown',
     cls: 'validation',
     key,
-    message: 'the settings key registry (packet 17) does not declare this key',
-    hint: 'packet 17 pins the M2 settings keys; until then every key is unknown',
+    message: 'the settings key registry does not declare this key',
+    hint: 'only the keys the settings registry declares can be set',
   };
 }
 

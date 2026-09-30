@@ -89,7 +89,7 @@ export function audioLoadOf(record: { currentVersion?: unknown; versions?: reado
  */
 export function audioPlaybackGaps(m: Pick<AudioMetrics, 'format' | 'channels' | 'sampleRate'>): string[] {
   const out: string[] = [];
-  if (m.format === 'ogg-vorbis' || m.format === 'ogg-opus') out.push(`Safari before 18.4 (macOS 15.4, iOS 18.4) does not play Ogg ${m.format === 'ogg-opus' ? 'Opus' : 'Vorbis'}`);
+  if (m.format === 'ogg-vorbis' || m.format === 'ogg-opus') out.push(`Safari older than 18.4 (macOS 15.4, iOS 18.4) does not play Ogg ${m.format === 'ogg-opus' ? 'Opus' : 'Vorbis'}`);
   if (m.channels > 32) out.push(`${m.channels} channels: Web Audio promises 32, so some browsers may not decode it`);
   if (m.sampleRate < 8_000 || m.sampleRate > 96_000) out.push(`${m.sampleRate} Hz: Web Audio promises 8–96 kHz, so some browsers may not decode it`);
   return out;

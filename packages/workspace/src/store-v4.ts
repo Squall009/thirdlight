@@ -495,7 +495,7 @@ export function loadV4(ops: WriteOps, dir: string, projectId: string, gameRoot: 
     }
     contentDoc = u.content;
     docs = u.scenes;
-    upgraded = { documents: true, notes: [`the project was upgraded from project schemaVersion ${PROJECT_SCHEMA_VERSION_UPGRADED} to ${PROJECT_SCHEMA_VERSION_V24} (phase 24: the engine has no game rules)`, ...u.notes] };
+    upgraded = { documents: true, notes: [`the project was upgraded from project schemaVersion ${PROJECT_SCHEMA_VERSION_UPGRADED} to ${PROJECT_SCHEMA_VERSION_V24} (the engine has no game rules)`, ...u.notes] };
   }
   // A schemaVersion 3 project (or a 2 just upgraded to 3) becomes 4 (no document changes: old ids are kept).
   if (fromVersion === PROJECT_SCHEMA_VERSION_UPGRADED || fromVersion === PROJECT_SCHEMA_VERSION_V24) {

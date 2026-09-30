@@ -3,7 +3,7 @@
  * and the validators' refusal of removed game data.
  */
 import { describe, it, expect } from 'vitest';
-import { upgradeProjectDocsV24, removedComponentMessage, REMOVED_IN_PHASE_24 } from './upgrade-v24';
+import { upgradeProjectDocsV24, removedComponentMessage, REMOVED_FROM_ENGINE } from './upgrade-v24';
 import { validateSceneV4 } from './scene-v3';
 import { validateContentV4 } from './content';
 import { validateProjectV4 } from './project-v4';
@@ -109,7 +109,7 @@ describe('upgrade: game data is refused by name', () => {
       '/flow',
       '/game',
     ]);
-    for (const e of u.errors) expect(e.message).toContain(REMOVED_IN_PHASE_24);
+    for (const e of u.errors) expect(e.message).toContain(REMOVED_FROM_ENGINE);
     expect(byPath['/entities/1/components/enemy']!.message).toContain('component "enemy"');
     expect(byPath['/entities/1/components/enemy']).toMatchObject({ document: 'scene', sceneId: 'scene-main', code: 'component_unknown' });
     expect(byPath['/entities/3/components/pickup']!.message).toContain('a heart healed the player');
@@ -136,6 +136,6 @@ describe('upgrade: game data is refused by name', () => {
     }
     const c = validateContentV4({ ...content(), game: { configVersion: 2 } });
     expect(c.ok).toBe(false);
-    if (!c.ok) expect(c.errors.find((e) => e.path === '/game')?.message).toContain(REMOVED_IN_PHASE_24);
+    if (!c.ok) expect(c.errors.find((e) => e.path === '/game')?.message).toContain(REMOVED_FROM_ENGINE);
   });
 });

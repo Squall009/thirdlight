@@ -512,7 +512,7 @@ export function attachBrowserInput(
     emit({
       code: 'input_mapping_unsupported',
       reason: 'mapping',
-      message: 'gamepad mapping is not "standard"; the device is ignored (no remapping UI in M2)',
+      message: 'gamepad mapping is not "standard"; the device is ignored (there is no remapping UI)',
       deviceId: id,
     });
   };

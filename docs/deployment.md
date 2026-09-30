@@ -209,6 +209,57 @@ trigger below the level whose `enter` event a script answers with
 `ctx.lifecycle.respawn`). Take a backup first if you want the old files
 outside `.thirdlight/`.
 
+**A project from before the asset database** (`project.json` schemaVersion
+4, or an earlier 5 whose `content.json` still holds every record) is upgraded
+on open too, and **the upgrade writes into the game folder**: each asset's
+current version becomes a file with its `.tlasset` sidecar (bytes the
+project stored are written to `assets/<name>.<ext>`; a file already
+referenced in place stays where it is and gets a sidecar next to it; an FBX
+or a PNG/JPEG with a KTX2 encode keeps its original as the file and what was
+made from it in the import cache); each prefab, script, material, animator,
+graph, effect, library, UI document and theme, dialogue, timeline and
+environment preset becomes its own file in `assets/<kind>/`; `content.json`
+keeps only the project-wide settings. `music` records and the old 2 s WAV
+sounds become `audio` with their ids; an asset a script names by id gets the
+label `script-named`, so it keeps shipping. Ids do not change, so scenes,
+recorded retries and replays stay valid. Older versions of an asset stay in
+`sources/sha256/` untouched and are listed in `upgrade-report.json` next to
+`project.json`; Problems notes the upgrade once (`project_upgraded`). So
+opening an older game's folder with this engine adds files and sidecars to
+it: commit (or back it up) before, and commit what the upgrade wrote after.
+
+### What you can do now (asset scale and streaming)
+
+A project holds as many assets and resources as a full game needs (the
+scale bench's project has 18,000 asset files — 10,000 voice lines, 5,000
+textures, 2,000 models — and 5,000 prefabs, 2,000 materials, 300 scenes and
+2,000 voiced dialogue lines), and the game loads and frees them as it plays.
+
+- **Assets are files with sidecars** in the game folder, **resources and
+  scenes are files** in folders you choose, and the **project window**
+  browses, searches (`t:` / `l:`), labels and moves them (see "The asset
+  database" and "The project window" above).
+- **Import a folder** of any size in one command with labels on every file
+  (**import folder…**, `importAssets`).
+- **Labels and addresses** make assets and resources loadable by name:
+  scripts load them with `ctx.assets.load(key)` and let them go with
+  `ctx.assets.release(handle)` (see "Loading assets by name from scripts").
+- **Audio is one kind** with a load type and preload per file (see "Music,
+  fonts and audio"); nothing audio is read at start, and a conversation reads
+  its voices a few lines ahead.
+- **The game frees what it no longer uses**: each loaded file, model,
+  texture, sound and font is held by the scenes, objects, sounds and handles
+  that use it and freed when the last one goes (`resources` in
+  `tl_game_observe` and Play diagnostics shows what is resident per kind).
+- **Large textures stream** their mips inside the texture budget (see
+  "Texture streaming").
+- **Play and the export read what they need**: the runtime manifest is about
+  2 KB at any size and points to a catalog read in parts (a scene load reads
+  its scene and its dependency list); Play serves files from disk, the export
+  copies them one at a time.
+- One file's size and the runtime's memory are bounded; the number of
+  assets and resources is not (see "Engine limits").
+
 ### What you can do now (phase 24: engine and game kept apart)
 
 Thirdlight holds generic capabilities only; a game's rules are its own
@@ -819,44 +870,104 @@ different commit alone is normal after an upgrade; the project still opens.
 `--force`; `check --repin` records this engine once you have checked the
 game. The export is a static directory that needs nothing else.
 
-### Assets referenced in place
+### The asset database: files and sidecars
 
-In a folder project, an asset can stay where the game keeps it (for example
-`assets/env/kit/meadow/env_kit_meadow.glb`, built by a script, in Git LFS)
-instead of being copied into `thirdlight/sources/`. The asset version records
-the file's path relative to the game folder and its SHA-256; nothing is
-copied. Projects in the data root keep copying uploads as before.
+Every imported file lives in the game folder (a project in the data root is
+its own game folder), as Unity keeps files under `Assets/` and Godot under
+`res://`. Next to each file is its `<file>.tlasset` sidecar: the asset's
+stable id, its kind, its import settings (a KTX2 encode, audio load type and
+preload, texture streaming, vertex colours, …), its labels and its address.
+Everything refers to the id, so a file moved or renamed together with its
+sidecar keeps every reference. Commit the files and the sidecars; there is
+no count limit on either.
 
-- **Import.** Assets tab → "from project folder…" opens a picker limited to
-  the game folder (it starts in `assets/`; hidden entries, `.git` and
-  `thirdlight/` are not offered, and a symlink that leads out of the folder is
-  refused). "reimport from folder…" records a file as a new version of the
-  selected asset. The MCP server does the same:
-  `tl_content_query {target:"projectFiles", dir:"assets"}` lists a folder,
-  `tl_content_upload {projectPath:"assets/props/crate.glb"}` inspects the file
-  in place and returns `sourcePath`, and `tl_command publishAsset` with
-  `sourcePath` in its args records it — the same command the editor sends.
-  Paths are always relative to the folder holding `thirdlight.json`.
-- **Reads are verified.** Every read (the editor view, Play, export) checks
-  that the file is still inside the game folder and still has the recorded
-  SHA-256. A changed file is `asset_source_changed`, a missing one
-  `asset_source_missing`; other bytes are never used.
-- **When a file changes** (a Blender rebuild): the editor checks the files
-  when it opens a project, when its window gets focus back, after each import
-  and on "check files" in Problems. Problems then says which asset and file
-  changed and offers **Re-import**, which records a new version with the new
-  bytes as one undoable command. There is no file watcher: the check on focus
-  covers switching back from Blender, rebuild scripts write many files at
-  once, and the reads are verified anyway. Older versions of that asset can
-  no longer be read once the file changed; Problems says so. They stay in the
-  history, and come back if the old bytes do (for example `git checkout`).
-- **Play and export** copy the referenced bytes into the play build and the
-  standalone game (`content/sha256/<digest>`), so an export needs no editor,
-  backend or game folder. With a changed or missing file, Play and export
-  refuse and name the file (export: `export_scene_invalid` with
-  `reason: asset_source_changed`).
-- **Backups** of a folder project hold the whole game folder, so the
-  referenced files are in them (see "Backups find folder projects" below).
+- **Uploads** (the Assets tab's file picker or drop, MCP
+  `tl_content_upload` + `publishAsset`) are written into the folder chosen
+  in the project window, or `assets/` (MCP: `publishAsset {folder}`); a name
+  already taken gets `-2`, `-3`, …
+- **A file already in the game folder** is imported where it is: Assets tab
+  → "from project folder…" (a picker limited to the game folder; hidden
+  entries, `.git` and `thirdlight/` are not offered, a symlink out of the
+  folder is refused), or MCP `tl_content_query {target: "projectFiles",
+  dir}` then `tl_content_upload {projectPath}` and `publishAsset` with the
+  returned `sourcePath`.
+- **A whole folder** comes in with **import folder…** in the Assets tab (or
+  **upload a folder…**, which first copies a folder from your computer into
+  the upload folder): every supported file in it and its subfolders becomes
+  an asset named after its file (`assets/audio/voice/line-001.ogg` → an asset
+  `line-001`; the id is the name made id-safe, `-2`, … when taken), with the
+  labels you type put on every one, in one command and one undo. Files
+  already imported are skipped, so importing a folder again brings only its
+  new files; files no importer takes or that an importer refuses are listed,
+  never fatal. MCP: `tl_command importAssets {folder, labels?, ktx2?}`; a
+  folder from another machine is sent file by file with
+  `tl_content_upload {dataBase64, writeTo}` first.
+- **Imported data** (an FBX converted to GLB, a KTX2 encoded from a PNG or
+  JPEG, audio and image headers, the project window's thumbnails, the mip
+  parts of streamed textures, the file digests) is kept in
+  `thirdlight/cache/imported/`, keyed by the file's digest, the importer's
+  version and the settings. It is git-ignored and rebuilt when missing, so a
+  fresh clone rebuilds it on first use.
+- **The file is the truth.** There is no version list per asset: history is
+  the game repository's, as in Unity and Godot. The editor checks the files
+  when it connects, when its window gets focus back, after an import and on
+  "check files" in Problems (MCP `tl_content_query {target: "integrity",
+  check: true}`): a file moved with its sidecar is followed, a changed file
+  is imported again with its settings, a missing one is looked for by its
+  sidecar; each change is an ordinary undoable command and shows in the
+  change feed. A file whose size and times did not change is not read again
+  (the digests are kept in the import cache, so a restart hashes nothing
+  unchanged). Play and the export run the same check first.
+- **Reads are verified.** Play serves each file from disk at a URL named by
+  its digest and hashes it while it is sent; a file changed since the check
+  is refused (`asset_source_changed`), checked again and shipped by the next
+  Play. The export copies each file the same way into the standalone game
+  (`content/sha256/<digest>`), which needs no editor, backend or game folder.
+- **Deleting** an asset (`deleteAsset`, refused while anything uses it)
+  deletes its file and sidecar; undo puts both back.
+- **Labels and addresses.** Any asset or resource may carry labels (`voice`,
+  `level-3`: a letter or digit, then letters, digits, `_ - . /`) and one
+  address (a name scripts use, unique in the project), set in the project
+  window (labels on many items at once), in the asset's side panel, or with
+  `setLabels {items: [{kind, id}], add?, remove?}` and `setAddress {kind, id,
+  address | null}` (one command and one undo however many items). An asset or
+  resource with an address or a label is **loadable**: Play and the export
+  ship it even when no scene uses it, and scripts load it by name (see
+  "Loading assets by name from scripts"). A script that names an asset by id
+  in a string literal while the asset is not loadable is a Problems row.
+
+### The project window
+
+The Assets tab is a project window over the game folder's real folders, as
+Unity's Project window and Godot's FileSystem dock: a folder tree (every
+folder of the game folder, and folders the project's files are in) and
+**All assets** (every asset file wherever it is). A folder shows its
+subfolders, then every asset, resource (prefab, material, script, …) and
+scene in it, as tiles or rows (the tile-size slider, the sort menu: name,
+kind or file, either way) with a breadcrumb. The list is virtualized and
+reads the project index in pages, so tens of thousands of items scroll
+without loading them; tiles are the import cache's thumbnails (a model's
+pieces load when it is chosen, not to draw its tile).
+
+- **Search** as in Unity: `t:audio`, `t:material`, `t:scene`, Unity's type
+  names (`t:AudioClip`, `t:Texture2D`, `t:Prefab`), `l:voice` (several `l:`
+  must all match), the rest a part of the name, id or file; in a folder the
+  search covers its subfolders. The kind menu writes the `t:` for you.
+- **Choosing**: click, Ctrl/Cmd-click, Shift-click (a range, also past the
+  tiles on screen), Ctrl/Cmd-A. The labels bar labels every chosen asset and
+  resource at once; the side panel sets one item's address and labels.
+- **Organizing**: drag items or folders onto a folder, or cut (Ctrl/Cmd-X)
+  and paste (Ctrl/Cmd-V); **new folder**, rename a folder (F2). A move is one
+  command and one undo (`moveResources`, `renameFolder`, `createFolder`,
+  also over MCP): an asset moves with its sidecar, and ids never change, so
+  no reference and no built file changes. A taken target is refused.
+- **Opening**: a double-click opens a folder, or the item's editor (a
+  material, animator, graph, effect, script or visual script, library, UI
+  document or theme, dialogue, timeline); a scene opens in the Scene view, a
+  prefab in the Prefabs panel, an environment preset in the Environment
+  panel, an asset in its preview. The per-kind panels stay as views.
+- The folder chosen is where uploads land and new scenes and resources are
+  created (above, "Where new things go").
 
 ### Supported glTF extensions
 
@@ -2794,7 +2905,9 @@ its reason (the same line is next to its constant in the code):
 | Script physics queries | 1,024 per step, 2D and 3D together (1,024 rays cost Rapier about 1.6 ms with 16,384 colliders) | Runtime budget against a runaway loop |
 | Game-view events kept | 32 | A display ring |
 | Sound voices | 32 at most (the `audio_voices` setting's range; default 8) | Mixing cost; as Unity's real-voice default |
-| Decoded audio kept (read on first use) | 64 decoded files, the most recently used, of the audio not decoded on load (older ones are decoded again from their bytes when played) | Memory of long voiced dialogues, until audio loads by load type (phase 26.11) |
+| Audio plays | 64 script sound handles alive; 32 plays per step; a sound whose file is not ready starts late up to its `maxLateMs` (default 500 ms, a dialogue voice 1,000 ms, at most 60 s) or is dropped | Runtime budget per step; decoded audio has no count: each file is held by what plays or preloads it and freed after |
+| Script asset handles | 64 answers per input frame (the rest ride the next frames, never refused); keys up to 256 characters | What one input frame carries; handles themselves are not counted |
+| Timelines playing | 8 at once | Runtime budget per step |
 | Spawns | 64 per step (a spawn costs about 0.1 ms with 16,384 alive); 16,384 alive (one scene's entity capacity) | Runtime budget per step; spawned copies live like a scene's entities |
 | Timers | 64 per script instance | Named timers of one script, saved with it; a script needing more keeps a list |
 | Script intents (move, jump, transform, pose, respawn) | 40 per script instance per step (a transform and a pose on each of its 16 owned entities and its control intents); per step at most 64 or 40 × the running script instances, whichever is larger | Defense in depth against a runaway script |
@@ -2802,7 +2915,6 @@ its reason (the same line is next to its constant in the code):
 | Colliders | none of their own: every entity may carry one (16,384 static colliders step in about 3 ms in Rapier, measured); 3D hull and mesh points 1,048,576 per scene (a thousand full meshes build in about 2 s at load) | The load cost of mesh colliders |
 | Scenes / entities | As many scenes as the game needs; 16,384 entities per scene (a big world is several scenes loaded together) | A scene is one load unit and one file |
 | Prefabs | 1,024 entities and 16 levels per prefab; 1 MiB (the content file cap) | One definition is one file and one command's copy |
-| Entity ids | New objects get `<kind>-N` with at least six digits (`box-000001`), unique across the project; N has no bound (the smallest free number is at most one more than the ids taken). Ids from before phase 25.7 (`box-0001`) load and stay as they are | – |
 | Collision layers / tags | 15 named layers (+ `default`) / 32 tags | Rapier's 16-bit collision groups / a 32-bit tag mask |
 | Local lights | 16 point and spot lights per scene, 16 drawn across loaded scenes | Forward-lighting cost; scalable lighting is phase 27 |
 | Fog volumes | 16 per scene | A fixed-size uniform array in the shader |
@@ -2815,12 +2927,14 @@ its reason (the same line is next to its constant in the code):
 | Graphs | 4,096 nodes per graph (the kind may set fewer; 256 for a script or effect system graph, which compile into one bounded module) | The editor and the compiled output of one document |
 | UI documents / timelines | 512 widgets and 48 KiB per document; 256 keys per track and 48 KiB per timeline | Each is saved in one 64 KiB command |
 | Dialogue | 1,024 nodes per conversation; 256 dialogue variables; 8,192 seen lines | One conversation is one document; the variables and the seen set are saved with the game |
-| Model rigs | 262,144 key numbers per model (clips past it are left out) | What one model adds to the manifest; per model, never per project |
-| Folder listing | 500 entries per listing of a game-folder folder | A page; the project window (phase 26.13) pages from the index |
-| Camera "no move" threshold | 1e-9 m; aspect 16:9 until the host reports the viewport | – |
-| Model animation run threshold | 0.05 m/s | – |
-| Shadow-follow extent | 24 m | – |
-| Stick dead zone default | 0.2 (per action: `deadZone`) | – |
+| Model rigs | 262,144 key numbers per model (clips past it are left out) | What one model adds to the catalog; per model, never per project |
+| Folder listing | 500 entries per `tl_content_query target="projectFiles"` listing | A page of one folder; the project window and `queryIndex` page through any number of files |
+| Command request | 64 KiB per request (a folder import names the folder, not its files; `setLabels` about 1,500 items per request) | One request's parse; larger edits are staged or name a folder |
+| Upload stages | 8 open and 128 MiB staged per project at once | Uploads in flight in the backend; each is committed or expires |
+| Scripts | 256 KiB of source, 16 files of 64 KiB each, 128 KiB compiled output per script; no count of scripts (a game runs as many as it has) | One compile and one module |
+| Model import | 2,000,000 vertices, 4,000,000 triangles, 64 animations, 512 MiB decoded (geometry and images) per model | What one model's inspection and the page's decode hold |
+| Instance sets | 65,536 copies per set | One buffer file and one draw set |
+| Block edits | 1,048,576 cells per edit | One command's work; a layer is stored in chunks |
 | WebSocket message to the editor | 1 MiB (a larger Play snapshot is fetched over HTTP; a larger change makes the editor re-read the project; anything else over it is dropped and listed under Problems) | One frame |
 
 ### Engine defaults
@@ -2836,8 +2950,12 @@ A gradient sky is grey below the horizon; an instance scatter starts as a
 (`$flow.prompts`) name the game's actual bindings (the player's rebinding
 included), with pad button names while a pad is in use. Scene validation
 refuses negative directional/ambient light intensities and surface
-roughness/metalness/glow (they were accepted before although the range said
-`0 ≤ v`).
+roughness/metalness/glow (the range is `0 ≤ v`). Other fixed values: the
+camera's "no move" threshold 1e-9 m and a 16:9 aspect until the host reports
+the viewport, the model animation's run threshold 0.05 m/s, the shadow-follow
+extent 24 m and a stick dead zone of 0.2 (per action: `deadZone`). New
+objects get `<kind>-N` ids with at least six digits (`box-000001`), unique
+across the project and without a bound (older four-digit ids load and stay).
 
 ## Renderer backends
 
@@ -3854,8 +3972,15 @@ content edit), the Play start, 50 scenes loaded and unloaded one after
 another (load times, heap, graphics objects, asset bytes read, the backend's
 resident set), a 500-line voiced dialogue played through (each line's start
 to its voice playing, and the silence between voices) and the export (time,
-files, bytes, the exported page's first frame). A step that cannot be taken
-records why (a cap refusing the open, a manifest refusing Play).
+files, bytes, the exported page's first frame). It also checks the game
+folder's files (`files`), drives the editor at that size (`editor`: open to
+usable, a scroll through every tile, a picker search, a placement, a line's
+voice, and the project window labelling and moving 1,000 files and undoing
+both), loads the labelled assets through a script's handle and releases them
+(`handles`), and, when named, imports a folder of new voice files (`import`)
+and streams large KTX2 textures under a small budget (`stream`). The
+renderer that drew Play is in the report. A step that cannot be taken
+records why (a refused open, a Play build that fails).
 
 ```sh
 npm run build
@@ -3865,10 +3990,12 @@ node tools/perf/run.mjs scale --factor 0.1 --lines 200   # the full size × 0.1
 node tools/perf/scale-summary.mjs ~/.cache/thirdlight-perf/reports/scale-*.json
 ```
 
-Presets: `full`, `caps` (every kind at today's count caps), `half-caps`,
+Presets: `full`, `caps` (every kind at the count caps engines before phase 26 had), `half-caps`,
 `small`, `starter` (the Starter template, nothing generated). Options:
-`--steps open,commands,play,walk,dialogue,export`, `--walk N`, `--lines N`,
-`--commands N`, `--seed N`, `--renderer`, `--gpu`, `--keep`, `--out FILE`.
+`--steps files,open,commands,editor,import,play,walk,handles,dialogue,stream,export`
+(export last: it stops the backend), `--import N`, `--stream N --budget MB`,
+`--walk N`, `--lines N`, `--commands N`, `--seed N`,
+`--renderer webgl2|webgpu`, `--gpu`, `--keep`, `--out FILE`.
 The generated project is kept under `~/.cache/thirdlight-perf/scale/<preset>/`
 and copied for each run. `tests/e2e/scale-bench.e2e.ts` (in the fast gate)
 runs every step at the small size. The measured numbers are in

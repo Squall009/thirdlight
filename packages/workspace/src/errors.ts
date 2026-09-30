@@ -123,17 +123,17 @@ function reasonHint(reason: UnavailableReason): string {
     case 'claim_inconsistent':
       // The stuck state: the claim file is
       // unresolvable — operator file operation, no backend command).
-      return 'the claim file at the target epoch cannot be reclaimed: confirm the holder is dead, remove the orphan claim file, and re-issue the open (operator file operation — no backend command, workspace.md §6.3/§11)';
+      return 'the claim file at the target epoch cannot be reclaimed: confirm the holder is dead, remove the orphan claim file, and re-issue the open (operator file operation — no backend command)';
     case 'stale_ownership':
       // Not pinned by the corpus: the automatic reclaim serves scenario 09's step 2 (no stale error).
       return 'the previous owner is gone but the automatic reclaim failed; run takeoverWorkspace';
     case 'workspace_closed':
-      return 'the project is released for external maintenance; finish the external edit — the next open re-claims it (workspace.md §9)';
+      return 'the project is released for external maintenance; finish the external edit — the next open re-claims it';
     case 'external_change_unresolved':
       return 'an operator must resolve the pending external change (acceptExternalState or discardExternalState)';
     case 'storage_version_unsupported':
       // Storage v1/v2 projects are no longer opened; the bytes are left untouched.
-      return 'the project files use a storage version this version does not open (storage v1/v2, removed in phase 9.3, or a newer one); the files are left untouched — convert a v1/v2 project to storage v3 with an earlier Thirdlight version (migrateProjectCopy / migrateProjectCopyV3), then open it here (v3 is upgraded to v4 on open)';
+      return 'the project files use a storage version this version does not open (storage v1/v2, or a newer one); the files are left untouched — convert a v1/v2 project to storage v3 with an earlier Thirdlight version (migrateProjectCopy / migrateProjectCopyV3), then open it here (v3 is upgraded to v4 on open)';
     default:
       return 'the authoring state on disk is invalid or unreadable; the bytes are retained untouched — repair the file by hand (a recovery snapshot or backup, if available) and re-open';
   }
@@ -201,7 +201,7 @@ export function workspaceClosed(): CommandError {
     code: 'workspace_closed',
     cls: 'unavailable',
     message: 'the project was released for external maintenance',
-    hint: 'finish the external edit; the next open re-claims the project and clears the boundary (workspace.md §9)',
+    hint: 'finish the external edit; the next open re-claims the project and clears the boundary',
   };
 }
 
@@ -316,10 +316,10 @@ export function writeFailed(
   if (errno !== undefined) e['errno'] = errno;
   if (onDiskState === 'previous') {
     e['message'] = 'the durable write failed and the on-disk state is the previous (unchanged) state';
-    e['hint'] = 'safe to retry the same request with the same requestId — no record exists, so it re-executes fresh (commands.md §7.3)';
+    e['hint'] = 'safe to retry the same request with the same requestId — no record exists, so it re-executes fresh';
   } else {
     e['message'] = 'the durable write completed its rename but the directory flush failed; durability is unproven';
-    e['hint'] = 'the running state is self-consistent (with its record); a crash may lose the unflushed rename, and the gap is always observable, never silent (commands.md §7.3)';
+    e['hint'] = 'the running state is self-consistent (with its record); a crash may lose the unflushed rename, and the gap is always observable, never silent';
   }
   return e as unknown as CommandError;
 }
@@ -409,7 +409,7 @@ export function claimInconsistent(
       ? 'the claim file exists at the target epoch but its content is unparseable or unreadable — it cannot be reclaimed; nothing was claimed'
       : `the claim file's holder (${holderContent.backendId}, pid ${holderContent.pid}) is not proven dead (liveness: ${livenessOutcome}) — it cannot be reclaimed; nothing was claimed`;
   e['hint'] =
-    'confirm the holder is dead, remove the orphan claim file, and re-issue the open (operator file operation — no backend command, workspace.md §6.3/§11)';
+    'confirm the holder is dead, remove the orphan claim file, and re-issue the open (operator file operation — no backend command)';
   return e as unknown as CommandError;
 }
 
@@ -421,7 +421,7 @@ export function staleOwnership(holder: Holder | null): CommandError {
   };
   if (holder !== null) e['holder'] = holder;
   e['message'] = 'the owning backend process is dead; explicit takeover is required';
-  e['hint'] = 'run takeoverWorkspace(projectId) — automatic takeover is never performed (workspace.md §6.4)';
+  e['hint'] = 'run takeoverWorkspace(projectId) — automatic takeover is never performed';
   return e as unknown as CommandError;
 }
 

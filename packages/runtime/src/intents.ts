@@ -224,8 +224,6 @@ export const INTENT_LIMITS = Object.freeze({
   logMessageLength: 256,
   /** Log entries retained per instance (last-N ring). */
   logsRetainedPerInstance: 32,
-  /** Behavior modules per runtime instance. */
-  behaviorModules: 64,
 } as const);
 
 /** The `ctx.log` levels. */

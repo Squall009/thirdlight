@@ -479,7 +479,7 @@ export interface ComponentControl {
  * controls below therefore build real typed commands; nothing is read-only.
  */
 export const COMPONENT_EDIT_AVAILABLE =
-  'setComponent supports collider/controller add, edit and remove (commands.md §8.10; C28-1 closed).';
+  'setComponent supports collider/controller add, edit and remove.';
 
 export interface ComponentCarrier {
   collider?: ColliderComponent;
@@ -527,7 +527,7 @@ export function deriveComponentControls(
       component: 'controller',
       label: 'Controller',
       present: true,
-      fields: [{ path: 'controller', label: 'marker', type: 'marker (no fields in M2)', value: 'present' }],
+      fields: [{ path: 'controller', label: 'marker', type: 'marker (no fields)', value: 'present' }],
       editable: true,
       unavailableReason: null,
       contractChangeRequest: null,

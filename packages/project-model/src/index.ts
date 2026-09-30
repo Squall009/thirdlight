@@ -360,7 +360,7 @@ export {
   PROJECT_SCHEMA_VERSION_V24,
   PROJECT_SCHEMA_VERSION_V25,
   isUpgradedProjectSchemaVersion,
-  REMOVED_IN_PHASE_24,
+  REMOVED_FROM_ENGINE,
   REMOVED_COMPONENTS,
   removedComponentMessage,
   isRemovedComponent,

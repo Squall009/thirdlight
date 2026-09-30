@@ -87,14 +87,14 @@ describe('content v4', () => {
       const e = withGame.errors.find((x) => x.path === '/game');
       expect(e, JSON.stringify(withGame.errors)).toBeDefined();
       expect(e!.code).toBe('field_unexpected');
-      expect(e!.message).toContain('removed in phase 24: build it as project scripts');
+      expect(e!.message).toContain('removed from the engine: build it as project scripts');
     }
     const withFlow = validateContentV4(content({ flow: { levels: [] } }));
     expect(withFlow.ok).toBe(false);
     if (!withFlow.ok) {
       const e = withFlow.errors.find((x) => x.path === '/flow');
       expect(e, JSON.stringify(withFlow.errors)).toBeDefined();
-      expect(e!.message).toContain('removed in phase 24');
+      expect(e!.message).toContain('removed from the engine');
     }
     // v4 content has no game key at all (a null one is refused too; the loader drops it from a schemaVersion 2 project).
     expect('game' in content()).toBe(false);

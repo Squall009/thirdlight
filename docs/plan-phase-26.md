@@ -197,7 +197,7 @@ at the boundary it changes (Playwright for any editor surface).
 | 26.11 | done 2026-09-30: nothing audio is read at mount; each file loads by its load type through the resource manager (`audio` decoded, `audio-bytes` kept compressed and decoded per play, `audio-stream` a media element through Web Audio), held by its scene (preload) or from its first play by the scenes loaded then; a sound not ready starts when ready or is dropped past `maxLateMs` (script play/stinger, event cues, timeline keys, dialogue `voiceMaxLateMs`), reported in `audio.late`; a conversation reads its next voices ahead on every branch three lines deep (the next lines decoded); the per-kind audio stores gone; full 500-line dialogue: every voice heard, line → voice p95 0 ms, gap p95 12 ms, Play start reads no audio (§6); e2e `audio-loading` |
 | 26.12 | done 2026-09-30: large KTX2 textures stream their mips in Play and the export under a texture budget (`texture_budget_mb`, default 512 MiB): the build cuts each into parts by level (import cache, catalog `mipParts`, shipped instead of the whole file), the page reads the tail first and larger levels by on-screen size (UV density and the camera), least-needed dropped first; `streaming` per texture (sidecar, `setAssetOptions`, the asset inspector; on above 1024 px); `resources.textures` in observe and diagnostics; bench step `stream` (full: level 0 in 102 ms p50, resident ≤ 7.75 of 8 MiB, Play start unchanged); e2e `texture-streaming` (pixels, both renderers, export); D70 fixed, D71–D73 logged |
 | 26.13 | done 2026-09-30. A: the editor reads the project index in pages and records by id (no first 128 records), virtualized asset list and pickers, tiles from the import cache, the Scene view's cookies, environment and lightmaps in its resource manager, lazy dialogue voices; `App.tsx` and `viewport.ts` split; D74 fixed, D75–D78 logged. B: the project window (folder tree, every asset, resource and scene by folder, Unity search `t:`/`l:`, kind menu, sort, grid/list and tile size, breadcrumb, cut/paste and drag moves, new and renamed folders, double-click opens each kind's editor, labels on many items); `moveResources`, `renameFolder`, `createFolder` (one undo each, MCP too); `queryIndex` folder/recursive/folders/sort/labels; a move changes no built file; full: 1,000 files labelled 2.6 s, moved 4.4 s (fsync bound, D80) |
-| 26.14 | — |
+| 26.14 | done 2026-09-30 (phase review and `tools/gate.sh full` pending): after numbers on both renderers in §6 with targets fixed (three missed: Play start, backend resident at open — both revised with reasons —, export growth by 6 MiB; content-edit ratio); limits table per file and runtime budget only; MCP texts; D60 fixed with a string check in the build; D81 found and fixed |
 
 ## 6. Measurements
 
@@ -705,6 +705,110 @@ Proposed targets for "Done when" (fixed in 26.14 from these numbers):
   resolution.
 - Export at full size: ≤ 15 s, the backend's resident set during it no more
   than 100 MiB above the open's; the exported game's first frame ≤ 1.5 s.
+
+### After (26.14, 2026-09-30)
+
+Host and command as for the before numbers (GPU host, Iris Xe; Chromium of
+Playwright 1.62.1), commit `971cbe33` with 26.14's working tree (messages and
+tool texts, the behavior-module cap gone: nothing on a measured path). Two
+whole-bench runs at full size, one per renderer, every step in the order
+files, open, commands, editor (the project window included), stream, play,
+walk, handles, dialogue, export (`--steps
+files,open,commands,editor,play,walk,handles,dialogue,stream,export --gpu
+--renderer webgl2|webgpu`; reports `~/.cache/thirdlight-phase26/2614/full-{webgl2,webgpu}.json`);
+then per renderer ×0.01 and ×0.1 (`files,open,commands,play`) and a clean
+full Play and export (`files,open,play,export`, `fullplay-*.json`); a full
+run of 60 command round trips (`cmd-full.json`) and a full export straight
+after the open (`export-full.json`). The renderer that drew is read off the
+Play canvas (`data-tl-renderer`, a bench addition): "WebGPU on intel
+gen-12lp" and "WebGPURenderer on its WebGL 2 backend". Nothing broke on
+either renderer. Times in ms (p50 / p95), memory in MiB; two numbers in a
+cell are WebGL 2 / WebGPU.
+
+| | target (fixed from 26.2's before) | ×0.01 | ×0.1 | full | before (26.2 full, caps lifted) | result |
+|---|---|---|---|---|---|---|
+| open: backend's first read | ≤ 2,000 | 31 / 33 | 161 / 111 | 818 / 821 (clean 976 / 819) | 6,703 | pass |
+| open: editor connected | ≤ 2,000 | 818 / 776 | 830 / 735 | 918 / 882 | 1,128 | pass |
+| backend resident after open | ≤ 300 (proposed) → revised ≤ 400 | 154 / 153 | 184 / 184 | 354 / 352 (351–357 over six runs) | 560 | **fails 300**, meets the revision (§7) |
+| command: scene edit (setTransform) | p95 ≤ 100, within 2× of ×0.01 | 5.9 / 8.2 — 5.4 / 7.6 | 6.6 / 35 — 5.7 / 43 | 24.1 / 51.3 — 22.8 / 50.1 (60 round trips: 8.6 / 23.8) | 11,198 / 11,804 | p95 pass; p50 1.5× (60 trips) pass; p95 2.9× **fails** |
+| command: content edit (setMaterial) | p95 ≤ 100, within 2× of ×0.01 | 8.3 / 11.1 — 7.7 / 10.3 | 7.0 / 14.3 — 9.4 / 13.6 | 20.1 / 32.5 — 19.1 / 29.8 (60 trips: 21.4 / 37.4) | 26,057 / 27,505 | p95 pass; 2.6× p50 **fails** |
+| Play: click → first frame | ≤ 1,500 and within 1.5× of ×0.01 (proposed) → revised ≤ 2,000, backend ≤ 50 µs per asset | 467 / 496 | 579 / 588 | clean 1,619 / 1,659; in the whole run 1,717 / 1,819 | 22,778 | **fails 1.5 s and 1.5×** (3.5×), meets the revision (§7) |
+| Play: backend total (pre-Play check; closure: view / assets / manifest) | does not grow (proposed) | 41 (3; 10 / 2 / 5) | 117 (24; 35 / 12 / 20) | 845 / 805 (248 / 237; 249 / 128 / 154) | 22,077 | **grows**: 45 µs per asset (§7) |
+| Play: what the page reads at open | – | 1.8 K + 6 files 27 K | 1.8 K + 6 files 262 K | 1.8 K + 7 files 2.6 M | 9.2 M | – |
+| walk 50 scenes: heap before → most → after | after within 5 MiB of before | – | – | 69.5 → 76.4 → 74.4 (+4.9) / 69.6 → 76.6 → 74.6 (+5.0) | 66.2 → 115.1 (+48.9) | pass (at the edge) |
+| walk: resident KiB per kind before → most → after | back to before after each scene | – | – | model 2.3 → 77.6 → 2.3, texture 0 → 960 → 0 (both); loads = frees (bytes 3,060, texture 2,210, model 850 / 849: the start scene's) | not observable | pass |
+| walk: live GPU textures before → loaded → after | back to baseline | – | – | 6 → 50 → 6 / 8 → 52 → 8 | 4 → 49 → 5 | pass |
+| walk: scene load request → loaded p50 / p95 (drawn p95) | p95 ≤ 200 | – | – | 155 / 176 (150) — 126 / 150 (184) | 138 / 156 (drawn) | pass |
+| textures inside their budget: stream step (six 2048² KTX2, 8 MiB budget) | resident ≤ budget at every observation | – | – | most 7.75 MiB of 8, 0 of 248 / 216 observations over; close → full size 101 / 122 — 96 / 119; 0 after the unload | not observable | pass |
+| walk under the default 512 MiB budget: texture bytes before → most → after | – | – | – | 0 → 0.94 → 0 (both) | – | – |
+| 500-line voiced dialogue: heard; line → voice p95 / max; gap p50 / p95 / max | every voice heard, gap p95 ≤ 20, max ≤ 50 | – | – | 500/500; 0 / 12; 4 / 12 / 26 — 500/500; 0 / 15; 5 / 12 / 28 | 500/500; 35 / –; 4 / 11 / 28 | pass |
+| dialogue: voices started late / dropped | – | – | – | 1 (the first line, 19 ms) / 0 — 1 (20 ms) / 0 | not observable | – |
+| 1,000 assets by label: ready (again); resident KiB before → held → after | resident returns to where it was | – | – | 1,431 (1,360) / 1,604 (1,520); model 2.3 → 2,060 → 2.3, texture 0 → 10,667 → 0 (both); heap 74.1 → 96.5 → 81.6, second cycle → 81.6 (both alike) | not possible (caps) | pass |
+| project window, 1,000 voice files: chosen / labelled / moved (listed) / move undone / label undone | – | – | – | 67 / 284 / 546 (633) / 460 / 335 — 66 / 350 / 602 (687) / 533 / 351 | not possible | – |
+| editor: open → usable (18,000 listed); scroll of every tile, frame p50 / p95 / max; picker search; place | – | – | – | 564 / 560; 16.7 / 16.7 / 16.8 (both, 9,600 screens); 31 / 34; 70 / 70 | 128 listed | – |
+| export: time; files; MiB | ≤ 15,000 | – | – | 3,754 / 4,151 (clean 3,636 / 3,940; after the open 4,792); 9,645–9,677; 121 | 9,058; 9,309; 119 | pass |
+| export: backend resident growth | ≤ 100 above the open's | – | – | straight after the open: 351 → 457 (**+106**); after a Play: 430 → 499 (+69) / 429 → 497 (+68) | – | **fails by 6 MiB** |
+| exported game (backend stopped): first frame | ≤ 1,500 | – | – | 640 / 663 (clean 696 / 612) | 852 | pass |
+| file check: first after the copy / again / after a restart | – | 85 / 40 / 25 | 232 / 138 / 265 | 1,391 / 673 / 800 | – | – |
+
+What still grows with the asset count, and why the three misses are left:
+
+- **Play start** (1.6–1.8 s at full, 0.47–0.50 s at ×0.01): the page's part
+  (response → first frame) is 0.36–0.40 s at ×0.01 and 0.64–0.65 s at full,
+  the 2.6 MB of blocks read whole at open (the prefabs 1.6 MB of it, kept
+  whole for deterministic spawns, §7); the backend's part grows by 45 µs per
+  asset: the pre-Play check (one `stat` per asset, 240–300 ms),
+  the closure's locate of every shipped file (a second `stat` each,
+  120–300 ms), the content view (references of every scene and prefab,
+  ~240 ms) and the catalog's entries and dependency files (~150 ms). Meeting
+  1.5 s needs the two stat walks merged or a file watcher; both change how a
+  changed file is caught before Play and are left with their reasons (§7).
+- **Backend resident after open** (352–357 MiB): the backend keeps the index
+  and every asset and resource record in memory, about 7 KiB per record over
+  the empty project's ~150 MiB (18,000 assets, ~9,300 resources and scenes).
+- **Content edit** (21 ms at full against 8 at ×0.01, p95 37 against 11):
+  a content edit writes its record and `content.json` through the journal
+  and the flushes of a folder of 2,000 materials cost more than of 20
+  (26.4 A); the command's own work at full is 1–3 ms. Scene edit p95 in the
+  whole-bench runs (50 ms) includes the record cache being filled in the
+  background after the open; 60 trips give 23.8.
+- **Export growth** (+106 MiB): the closure's metadata (content view,
+  catalog entries and dependency files, 14 MB of catalog files held until
+  written), as 26.9 B found (+104 then).
+- The first cycle of 1,000 handles keeps +7.5 MiB of heap (the loadable index
+  and entry shards read, compiled parser code); the second cycle keeps
+  nothing. The KTX2 encodes of the stream step raise the backend to
+  817–962 MiB until the encoder worker ends (10 s idle, D72).
+
+"Done when", line by line:
+
+- *Opens, edits, plays and exports in a real browser on both renderers*:
+  holds (two full runs, nothing broken; the export played with the backend
+  stopped). *One command's latency and Play start do not grow*: partly.
+  Scene edit p50 1.5× over ×100 assets; content edit 2.6×; Play start 3.5×
+  (45 µs per asset in the backend). Revised targets and reasons in §7.
+- *Walking 50 scenes frees what each scene used; textures inside their
+  budget; 500 voiced lines with no gap*: holds (table above).
+- *1,000 assets by label loaded and released, resident memory back*: holds.
+- *No per-project count cap, guarded by 26.5's test*: holds after D81 (a
+  64-script cap in the runtime, found here and removed). Guards:
+  `tests/count-caps.test.ts` (now also `behaviorModules`),
+  `tests/e2e/count-caps.e2e.ts`, `packages/runtime/src/timers.test.ts`
+  (150 scripts).
+- *A version-4 project opens and upgrades; its replays still match*: holds,
+  by the tests: `packages/backend/src/format-upgrade.test.ts` ("writes each
+  current version as a file with its sidecar, keeps the older bytes,
+  replays, exports the same bytes" on `fixtures/phase26/legacy-v4-assets`;
+  "makes every music and short-sound record audio, ids and files kept, and
+  replays" on `legacy-v5-music`), `tests/integration/m26-catalog` (a v4
+  build reads to the same rows and simulation inputs, its last command
+  replays), the command corpus replays (`fixtures/commands`, M2 content-ops).
+- *`tools/gate.sh full` is green*: the main session's, not run here.
+
+Heard and seen: nothing was listened to or looked at; the dialogue's gaps
+are the relay's observation (5–10 ms resolution) and the stream step's
+levels are resident bytes (the e2e `texture-streaming` checks pixels).
+Owner listen and look pending.
 
 ## 7. Decision log
 
@@ -1992,3 +2096,54 @@ Proposed targets for "Done when" (fixed in 26.14 from these numbers):
   the clip lengths read from the template's model files) instead of at the
   first open, which bumped the revision and put upgrade notes in a new
   project's Problems log. The captured template stays as it is.
+- 2026-09-30 (26.14): the targets. Kept as proposed and met: open ≤ 2 s
+  (backend and editor), one command p95 ≤ 100 ms, the walk (heap within
+  5 MiB, textures and every kind's resident bytes back, scene load p95
+  ≤ 200 ms), the dialogue (gap p95 ≤ 20, max ≤ 50 ms), the export time and
+  its game's first frame. Missed and reported, not relaxed: the content
+  edit's 2× ratio (2.6× at p50) and the export's growth (+106 MiB against
+  +100). Revised, each with its reason: **backend resident after open ≤ 300
+  → ≤ 400 MiB** (352–357 measured): the backend holds the index and every
+  record in memory by design (the Asset Registry role, 26.4), ~7 KiB per
+  record over an empty project; 300 was proposed before the index existed.
+  **Play start ≤ 1.5 s and within 1.5× of ×0.01 → ≤ 2 s at full, the
+  backend's part at most 50 µs per asset** (1.62–1.66 s clean, 45 µs):
+  what grows is two stat walks over every asset (the pre-Play check that
+  takes changed files in, as Unity refreshes before Play mode, and the
+  closure's locate of each shipped file), the content view and the catalog
+  entries. Both stay until a change is made on purpose: merging the walks
+  means the locate trusting the check's stamps, and a file watcher (Unity's
+  directory monitoring) needs one inotify watch per folder of the game
+  folder (a system limit; a missed event would ship a stale file until the
+  serving hash refuses it). Owner to confirm the two revisions.
+- 2026-09-30 (26.14): D81. The runtime still refused a game with more than
+  64 behavior modules (`INTENT_LIMITS.behaviorModules`), a count of scripts
+  26.5's guards missed (its name is no kind, and the e2e guard's scripts
+  have no source, so none are compiled). The check is gone (a module is
+  compiled code; its cost is its work per step, which the intent and step
+  budgets bound); `timers.test.ts` runs 150 scripts (it fails with the old
+  check), and the static guard also flags `behaviorModules`/`modules` keys.
+- 2026-09-30 (26.14): D60. Every string literal, template part and JSX text
+  of package sources that named a phase, packet, milestone or `§` (116,
+  MCP descriptions most of them) says what it means instead;
+  `REMOVED_IN_PHASE_24` is `REMOVED_FROM_ENGINE` ("removed from the engine:
+  build it as project scripts"); three messages the M2 contract fixtures pin
+  byte for byte changed in the fixtures too (no digest covers them). The
+  history check reads those strings as well, for package sources other than
+  tests (tests may quote old messages): cheap (the same parser pass) and
+  clean (no allowlist; "Safari before 18.4" reads "Safari older than 18.4",
+  since a version after "before" looks like an item id). Fixtures, docs and
+  tools stay outside it.
+- 2026-09-30 (26.14): the limits table in `docs/deployment.md` lists only
+  per-file and per-object sizes and runtime budgets, each checked against
+  its constant: the decoded-audio LRU row went (26.10/26.11 removed it), the
+  thresholds and id format moved to "Engine defaults", and the command
+  request, upload stages, scripts, model import, instance sets, block edits,
+  audio plays, script asset handles and timelines playing were added. The
+  KTX2 encoder's 12 Mpix source stays as a known limit of the pinned
+  encoder.
+- 2026-09-30 (26.14): MCP descriptions. Phase 26's commands and queries were
+  described by their items; added: scripts' `ctx.assets` handles in
+  `tl_command`, `resources`/`assetReads`/`catalogReads` in `tl_diagnostics`,
+  `envpreset` among the index kinds. The scale bench records the renderer
+  that drew Play (canvas attribute), so a run names what it measured.

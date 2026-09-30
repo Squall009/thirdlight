@@ -388,7 +388,7 @@ export async function runPlaytest(backend: PlaytestBackend, projectId: string, s
   };
   const runOf = (o: Record<string, unknown>): RunBlock => {
     const r = o['run'];
-    if (!isObj(r) || typeof r['digest'] !== 'string') throw new PlaytestError('playtest_no_digest', 'the observation carries no run digest (an engine before phase 25.16?)');
+    if (!isObj(r) || typeof r['digest'] !== 'string') throw new PlaytestError('playtest_no_digest', 'the observation carries no run digest (an engine without run digests?)');
     return r as unknown as RunBlock;
   };
   const pick = (o: Record<string, unknown>): Record<string, unknown> => Object.fromEntries(fields.map((p) => [p, pickPath(o, p)]));

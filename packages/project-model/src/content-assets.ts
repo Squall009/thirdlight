@@ -130,7 +130,7 @@ function validateImportRecipe(r: unknown, path: string, errors: ModelErrorV2[], 
     return;
   }
   if (r['profile'] !== 'gltf-glb') bad('import recipe profile must be "gltf-glb"', r['profile']);
-  if (r['recipeVersion'] !== 1) bad('import recipe version must be exactly 1 in M2', r['recipeVersion']);
+  if (r['recipeVersion'] !== 1) bad('import recipe version must be exactly 1', r['recipeVersion']);
   const toolchain = r['toolchain'];
   if (!isPlainObject(toolchain)) {
     bad('import recipe must name a toolchain', toolchain);
@@ -455,7 +455,7 @@ export function validateAsset(a: unknown, path: string, errors: ModelErrorV2[], 
       kind = rawKind;
     }
   } else if (rawKind !== 'model') {
-    errors.push(fieldValue(`${path}/kind`, rawKind, '"model"', 'only the whole-GLB model kind exists in M2'));
+    errors.push(fieldValue(`${path}/kind`, rawKind, '"model"', 'only the whole-GLB model kind exists'));
   }
   const displayName = a['displayName'];
   if (displayName === undefined) errors.push(fieldMissing(`${path}/displayName`, 'displayName'));

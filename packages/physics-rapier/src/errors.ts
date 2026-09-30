@@ -40,7 +40,7 @@ export function disposedError(operation: string): PhysicsPortError {
     code: 'physics_port_disposed',
     detail:
       `${operation} after dispose(): the Rapier World has been released ` +
-      '(physics.md §6 — a disposed port is never used; the host creates a fresh port)',
+      '(a disposed port is never used; the host creates a fresh port)',
   });
 }
 

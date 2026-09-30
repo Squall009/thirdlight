@@ -26,7 +26,7 @@ const KINDS = [
 /** `MAX_<kind>`, `MAX_<anything>_<kind>` (`MAX_AUDIO_ASSETS`), `<kind>_PER_PROJECT_MAX`, `MAX_<kind>_PER_PROJECT`. */
 const COUNT_NAME = new RegExp(`^(MAX_([A-Z0-9]+_)*(${KINDS.join('|')})|(${KINDS.join('|')})_PER_PROJECT(_MAX)?|MAX_(${KINDS.join('|')})_PER_PROJECT)$`);
 /** The same kinds as keys of a `*_LIMITS` object (`UI_LIMITS.documents`). */
-const COUNT_KEY = /^(assets|models|textures|sounds|audio|music|fonts|versionRecords|prefabs|behaviors|scripts|scenes|materials|animators|timelines|uiDocuments|documents|uiThemes|themes|dialogues|speakers|effects|graphs|libraries|presets|cues|eventCues|trustEntries|blockTypes|stamps|projectKeyNumbers|totalBytes)$/;
+const COUNT_KEY = /^(assets|models|textures|sounds|audio|music|fonts|versionRecords|prefabs|behaviors|scripts|scenes|materials|animators|timelines|uiDocuments|documents|uiThemes|themes|dialogues|speakers|effects|graphs|libraries|presets|cues|eventCues|trustEntries|blockTypes|stamps|projectKeyNumbers|totalBytes|behaviorModules|modules)$/;
 
 function sourceFiles(dir: string): string[] {
   const out: string[] = [];
@@ -42,7 +42,7 @@ describe('no per-project count cap on assets or resources', () => {
   it('the limit names say so (a guard: it flags the caps the engine once had, and nothing else)', () => {
     for (const name of ['MAX_ASSETS', 'MAX_AUDIO_ASSETS', 'MAX_SCENES', 'MAX_MATERIALS', 'MAX_GRAPH_DOCUMENTS', 'MAX_VERSION_RECORDS', 'MAX_TRUST_ENTRIES', 'THUMBNAILS_PER_PROJECT_MAX']) expect(COUNT_NAME.test(name), name).toBe(true);
     for (const name of ['MAX_ASSET_VERSIONS', 'MAX_PREFAB_ENTITIES', 'MAX_MATERIAL_SLOTS', 'MAX_TEXTURE_LAYERS', 'MAX_SCENE_DEPTH', 'MAX_CONTENT_FILE_BYTES', 'MAX_LOCAL_LIGHTS']) expect(COUNT_NAME.test(name), name).toBe(false);
-    for (const key of ['documents', 'scenes', 'presets', 'libraries', 'projectKeyNumbers']) expect(COUNT_KEY.test(key), key).toBe(true);
+    for (const key of ['documents', 'scenes', 'presets', 'libraries', 'projectKeyNumbers', 'behaviorModules']) expect(COUNT_KEY.test(key), key).toBe(true);
     for (const key of ['documentBytes', 'nodes', 'widgets', 'keys', 'hud']) expect(COUNT_KEY.test(key), key).toBe(false);
   });
 

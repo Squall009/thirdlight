@@ -242,7 +242,7 @@ export async function exportProjectM3(
   const referenceBytes = await probeBundle(ctx, REFERENCE_ENTRY, 'three-reference-entry.ts');
   const rapierBytes = await probeBundle(ctx, RAPIER_PROBE_ENTRY, 'rapier-compat-probe.ts');
   if (referenceBytes === null) {
-    return fail('export_bundle_forbidden_content', 'internal', 'the §5.4.1 reference three bundle could not be built (binding 3 fails closed)');
+    return fail('export_bundle_forbidden_content', 'internal', 'the reference three bundle could not be built (binding 3 fails closed)');
   }
   if (rapierBytes === null) {
     return fail('export_bundle_forbidden_content', 'internal', 'the pinned Rapier compat probe could not be built (the physics row fails closed)');

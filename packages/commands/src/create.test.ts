@@ -221,7 +221,7 @@ describe('createEntity — preconditions and limits', () => {
       limit: 'entities',
       current: 16385,
       max: 16384,
-      message: 'creation would exceed the M1 entities limit (16385 > 16384)',
+      message: 'creation would exceed the entities limit (16385 > 16384)',
     });
     expect(bytesEqual(sceneBytes(st.scene), before)).toBe(true);
     // One below the limit: the 16384th entity is created (group-006384).

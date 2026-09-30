@@ -5,6 +5,9 @@
  * check fails on comments (and test titles) that name a phase, a plan item,
  * a delivery packet or milestone, an audit-list defect, a date, or a
  * numbered section of a spec (the section sign), so they do not creep back.
+ * The same holds for the text a package ships to users and AI clients: the
+ * string literals and JSX text of package sources (error messages and hints,
+ * MCP tool descriptions, generated file headers), tests excluded.
  *
  * Comments are found with the TypeScript parser, never a regex over code,
  * so string literals, template strings and regexes are not read as comments.
@@ -102,6 +105,35 @@ export function testTitles(sourceFile) {
   return titles;
 }
 
+/**
+ * Whether a file's strings ship: a package source that is not a test. Tests
+ * may quote old messages; what users and AI clients read is the rest.
+ */
+export function shipsStrings(fileName) {
+  const f = fileName.replaceAll('\\', '/');
+  return /^packages\/[^/]+\/src\//.test(f) && !/\.(?:test|spec|e2e)\.[cm]?[jt]sx?$/.test(f) && !/\/(?:tests?|__tests__)\//.test(f);
+}
+
+/** The text of every string literal, template part and JSX text in a file. */
+export function stringTexts(sourceFile) {
+  const out = [];
+  const visit = (node) => {
+    if (
+      ts.isStringLiteral(node) ||
+      ts.isNoSubstitutionTemplateLiteral(node) ||
+      ts.isTemplateHead(node) ||
+      ts.isTemplateMiddle(node) ||
+      ts.isTemplateTail(node) ||
+      node.kind === ts.SyntaxKind.JsxText
+    ) {
+      out.push({ pos: node.getStart(sourceFile), end: node.end, text: node.text });
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return out;
+}
+
 /** The history markers in one piece of comment or title text. */
 export function historyMarkers(text) {
   const hits = [];
@@ -112,7 +144,7 @@ export function historyMarkers(text) {
   return hits;
 }
 
-/** Every history hit in one file: `{ line, kind: 'comment' | 'test title', name, match }`. */
+/** Every history hit in one file: `{ line, kind: 'comment' | 'test title' | 'string', name, match }`. */
 export function historyHits(text, fileName) {
   const { sourceFile, comments } = commentRanges(text, fileName);
   const hits = [];
@@ -124,6 +156,7 @@ export function historyHits(text, fileName) {
   };
   for (const c of comments) add('comment', c);
   for (const t of testTitles(sourceFile)) add('test title', t);
+  if (shipsStrings(fileName)) for (const t of stringTexts(sourceFile)) add('string', t);
   return hits;
 }
 
@@ -182,7 +215,7 @@ function main() {
     );
     process.exit(1);
   }
-  console.log(`history-comments: OK — ${files} source file(s), no history markers in comments or test titles.`);
+  console.log(`history-comments: OK — ${files} source file(s), no history markers in comments, test titles or shipped strings.`);
 }
 
 // Realpath-based, so a symlinked or relative tool path still runs the check.

@@ -180,7 +180,7 @@ function v3ComponentUnknown(path: string, key: string): ModelErrorV3 {
       path,
       message: 'component is not in the schemaVersion 3 registry',
       expected: `known component types: ${V3_REGISTRY.join(', ')}`,
-      hint: 'adding a component type requires a new schemaVersion (project-model.md §23.3)',
+      hint: 'adding a component type requires a new schemaVersion',
     },
     key,
   );
@@ -283,7 +283,7 @@ export function validatePlayerSpawnComponent(c: unknown, path: string, errors: M
     }
     // The left/right `facing` became `yaw` (a schemaVersion 2 project is upgraded on load).
     if (k === 'facing' && version === 4) {
-      errors.push(withFound({ code: 'field_unexpected', path: `${path}/facing`, message: 'playerSpawn.facing was replaced by yaw in phase 24 (left: -90, right: 90 degrees)', expected: 'yaw' }, c[k]));
+      errors.push(withFound({ code: 'field_unexpected', path: `${path}/facing`, message: 'playerSpawn.facing is replaced by yaw (left: -90, right: 90 degrees)', expected: 'yaw' }, c[k]));
       continue;
     }
     errors.push(unexpectedField(`${path}/${pointerSegment(k)}`, k, version === 4 ? 'yaw' : '{} (no fields)'));

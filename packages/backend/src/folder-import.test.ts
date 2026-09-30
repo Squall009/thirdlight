@@ -147,7 +147,7 @@ describe('folder import and upload folders over HTTP (a project in the data root
     const gaps = (problems.json as { problems: { code: string; message: string }[] }).problems.filter((p) => p.code === 'audio_browser_support');
     expect(gaps).toHaveLength(1);
     expect(gaps[0]!.message).toContain('4 audio files');
-    expect(gaps[0]!.message).toContain('Safari before 18.4');
+    expect(gaps[0]!.message).toContain('Safari older than 18.4');
     expect(byPath.get('assets/audio/sting.ogg')).toMatchObject({ assetId: 'sting-from-elsewhere', labels: ['act-1', 'music', 'voice'] });
     for (const a of byPath.values()) expect(a.labels).toEqual(expect.arrayContaining(['act-1', 'voice']));
     // The labels are in the sidecars and readable through the asset query.

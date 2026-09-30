@@ -1006,7 +1006,7 @@ export function validateManifestV2(doc: unknown, opts?: ValidateManifestV2Option
 
   // Version gate: a v1 (or unknown) document is not a v2 document.
   if (d['manifestVersion'] !== RUNTIME_CONTENT_MANIFEST_VERSION_4) {
-    return { ok: false, error: manifestError('manifest_invalid', 'manifestVersion is not 4 (phase 25.7b: materials, UI documents, dialogue and buffers in content files)', 'manifest_version', d['manifestVersion'], '4') };
+    return { ok: false, error: manifestError('manifest_invalid', 'manifestVersion is not 4 (materials, UI documents, dialogue and buffers in content files)', 'manifest_version', d['manifestVersion'], '4') };
   }
 
   // Key set: exactly MANIFEST_KEYS_V2 (unknown or missing ⇒ manifest_invalid).

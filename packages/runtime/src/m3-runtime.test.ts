@@ -41,7 +41,7 @@ describe('a playable snapshot', () => {
     for (const game of [null, { configVersion: 2, title: 'Old', playerId: 'box-0001', cameraId: 'cam-main' }]) {
       const refused = errorOf(withGame(game));
       expect(refused).toMatchObject({ code: 'snapshot_invalid', reason: 'shape', path: '/game' });
-      expect(refused?.message).toContain('removed in phase 24');
+      expect(refused?.message).toContain('removed from the engine');
     }
   });
 

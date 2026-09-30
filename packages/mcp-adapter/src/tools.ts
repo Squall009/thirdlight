@@ -128,7 +128,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'target="entities" returns a paged list (limit ≤ 1024, default 100; sceneId limits it to one scene, and ' +
       'each page names every entity\'s scene in entitySceneIds); ' +
       'target="selection" returns the entities selected in the connected editor. ' +
-      'target="engine" (phase 25.18) returns the engine the backend runs: version, commit and lockfileDigest (as it started), build (dist/build-info.json at start: builtAt, commit, dirty), ' +
+      'target="engine" returns the engine the backend runs: version, commit and lockfileDigest (as it started), build (dist/build-info.json at start: builtAt, commit, dirty), ' +
       'startedAt, dist {build (now), newerThanProcess, reason} - newerThanProcess true: dist/ was rebuilt after the backend started, so the pages load the newer bundles while the backend still runs the old one until restarted - and checkoutCommit when the checkout moved on. A project has one or more scenes ' +
       '(one file each; target="project" lists scenes and startScenes, target="entity" names its sceneId). Never mutates.',
     inputSchema: {
@@ -189,11 +189,11 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'instantiatePrefab (a prefab keeps the source\'s components that may sit on a prefab (the descriptors\' prefab flag: collider, surface, materials, animator, mover, trigger, switch, ' +
       'audioSource, faceMovement, health, collectible, patrol, hitbox…); a collider only on its root; never the player controller or scene wiring). ' +
       'Component fields, defaults, the GameObject menu\'s create entries (label, size, value) and icons: tl_content_query target="game" includeDescriptors. ' +
-      'Generic primitives (phase 24.4, both physics dimensions; fields in queryGameConfig {descriptors}): collectible {counter, amount?, size?, onCollect?, respawn?}, ' +
+      'Generic primitives (both physics dimensions; fields in queryGameConfig {descriptors}): collectible {counter, amount?, size?, onCollect?, respawn?}, ' +
       'health {max, start?} on any object (scripts: ctx.health.get/damage/heal, damaged/healed/died events), patrol {mode: waypoints|edges, speed, ...}, ' +
       'hitbox {shape?, size|radius, damage?} (contact/separate events with the other object and the normal). ' +
-      'climbVolume {size: [w, h] or [w, h, d]} (phase 25.13: the character climbs in it — up/down along the object\'s +Y, sideways across, at its controller climbSpeed, no gravity; jump or moving out leaves), gravity {scale? 0-10, size?} (an object that is not a character — e.g. an edge patrol — falls under the project gravity onto colliders below; not with mover, collider or a waypoint patrol); an edges patrol direction on the 2D plane may have a y part (it walks up/down, no ledge probe). ' +
-      'Phase 24.4e-i: trigger.sceneTransition {scene, spawn? (a playerSpawn in that scene or the trigger\'s), unload? [sceneIds]} loads the scene and moves the character there on entry; ' +
+      'climbVolume {size: [w, h] or [w, h, d]} (the character climbs in it — up/down along the object\'s +Y, sideways across, at its controller climbSpeed, no gravity; jump or moving out leaves), gravity {scale? 0-10, size?} (an object that is not a character — e.g. an edge patrol — falls under the project gravity onto colliders below; not with mover, collider or a waypoint patrol); an edges patrol direction on the 2D plane may have a y part (it walks up/down, no ledge probe). ' +
+      'trigger.sceneTransition {scene, spawn? (a playerSpawn in that scene or the trigger\'s), unload? [sceneIds]} loads the scene and moves the character there on entry; ' +
       'switch.action (interact mode; default interact); faceMovement {mode: "velocity", yawOffset?, turnSeconds?} faces the motion in any direction; playerSpawn.yaw (degrees, 0 = +Z); ' +
       'virtualCamera rig "track" {target, trackOffset?, deadZone? [w,h,d], damping?, boundsMin?, boundsMax?, lookAhead? [x,y,z] s (a vertical look-ahead: [0,t,0]), lookAheadMax? m (3), lookAheadSmoothing? s (0.2)}; cameraRegion {size [w,h] or [w,h,d] (world axes, centred; no d: every depth), camera? (a track camera; absent: all), priority?, deadZone?, boundsMin?/boundsMax? (offsets from the region), distance? (along the camera offset), blendTime? (0.5)} - while a track camera\'s target is inside, those replace the camera\'s own, blended on enter/leave (tl_game_observe camera.region); setEventCues {cues: [{on: signal|event, name, entity?, assetId (audio), volume?, bus?, maxLateMs? (500: how late a sound whose file is not ready may still start, else dropped)}]} plays sounds for signals and ctx.events types; ' +
       `scripts: ctx.character.impulse([x,y,z]), ctx.look.set(id, {emissive?, emissiveIntensity?, tint?}) / clear(id) / get(id). Surface presets: applySurfacePreset {entityId, preset: matte-ground|signal-red|emissive-accent}. setSettings also takes the engine settings fixed_step_hz 60|120|240 (120), audio_voices 1-${AUDIO_VOICE_CAP} (${AUDIO_VOICES_DEFAULT}), music_fade_s 0-10 (1), animation_crossfade_s 0-2 (0.2), render_backend 1|2|3 (1: auto = WebGPU else WebGL 2, the default; 2: WebGPU; 3: WebGL 2; an old 0 means auto; a page URL flag ?renderer=auto|webgpu|webgl2 overrides it), sim_thread 1|2 (1: the simulation runs in a worker, the default; 2: on the main thread of the page; ?threads=off|on overrides it), physics_dimension 2|3 (2: the 2D plane, the default; 3: 3D physics — every box collider then needs hz, its half depth, colliders may rotate on any axis and scale, polygons are 2D-only; 3D collider shapes: sphere {radius}, capsule {radius, height}, convex {points [[x,y,z]...] 4-64}, mesh {vertices [[x,y,z]...] <=1024, triangles [[a,b,c]...] <=2048; static}; triggers: box size [w,h,d], sphere {radius}, capsule {radius, height}; switches are 2D-only), random_seed 0-4294967295 (0: the seed of ctx.random in scripts; the same seed gives the same numbers in every run and replay), audio_spatial 0|1|2 (0: automatic = 2D by X distance to the player, 3D panned; 1: by distance; 2: panned, the listener on the active camera), instance_chunk_m 1-4096 (32: instance sets are culled and given their level of detail in chunks of this size), texture_budget_mb ${TEXTURE_BUDGET_MIN_MB}-${TEXTURE_BUDGET_MAX_MB} (${TEXTURE_BUDGET_DEFAULT_MB}: GPU memory for textures in Play and the export; streamed textures load the mips their size on screen needs inside it, the least-needed dropped first). Scenes: createScene {name, sceneId?}, ` +
@@ -218,7 +218,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'every reference stay. Audio is one kind, any length: Ogg Vorbis/Opus, MP3, WAV (PCM or float, any rate, channels, bits) or FLAC; ' +
       'setAssetOptions {assetId, loadType?: "decode-on-load"|"decode-while-playing"|"stream"|null, preload?: bool} sets how the game holds it ' +
       '(null: the default by length — under 5 s decoded on load, over 60 s streamed, else decoded while playing) and whether it is read with its ' +
-      'scene (true) or only when played; a format one browser does not play (Ogg in Safari before 18.4) is imported and reported in Problems. ' +
+      'scene (true) or only when played; a format one browser does not play (Ogg in Safari older than 18.4) is imported and reported in Problems. ' +
       'setAssetOptions {assetId (a texture), streaming: bool|null} streams its mips in Play and the export: the mip tail (levels up to 128 px) is read first and larger levels as its size on screen needs them, inside the texture budget (setting texture_budget_mb); ' +
       'null: the default, on for a KTX2 texture over 1024 px; only a KTX2 mip chain streams (import a PNG/JPEG with ktx2 to stream it); queryAssets shows streaming {on, set, possible}. Every imported file is kept in the game folder next to its .tlasset sidecar; uploaded bytes land in assets/, or in ' +
       'the folder publishAsset names with folder: "assets/props" (relative to the game folder; never a hidden folder or the project\'s own files). ' +
@@ -236,6 +236,9 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       '(with every file in them) into to; renameFolder {folder, name} renames one folder in place; createFolder {folder} makes one. Ids never change, so no reference and no built ' +
       'content changes; a taken target, a folder moved into itself or an asset whose bytes are stored (no file) is refused; undo moves everything back. ' +
       'Anything with an address or a label is loadable: Play and export ship it even when no scene references it, and the runtime catalog lists it; ' +
+      'scripts load it with ctx.assets.load(key) (key: an address, else an asset or resource id, else a label: every entry carrying it) → a handle at once (0: no such name), ' +
+      'then ctx.assets.state(h) loading|ready|failed, ready(h), ids(h), error(h) — the simulation never waits, the answer arrives on a later step and replays with the recording — ' +
+      'and ctx.assets.release(h) lets it go (what a handle holds stays in memory until then; tl_game_observe resources.open lists open handles); visual scripts: Load assets, Release assets, Assets state/ready/error. ' +
       'a script that names an asset by id in a string literal while that asset is not loadable is reported in Problems. pasteEntities {entities: [full entity ' +
       'values as tl_inspect returns them, parents with their children], parentId?: id|null, offset?: [x,y,z], sceneId?} copies them with ' +
       'new ids in one undo (references inside the copy are remapped; use it to duplicate or to copy between scenes). Materials: ' +
@@ -253,8 +256,8 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       '"material-function" (setGraph; Function input {name, type, default} / Function output {name, type} nodes are the ports of every Function call {function: graphId} node; ' +
       'calls may not form a cycle; a function whose ports are wired in a material cannot drop them). setEnvironment {environment: {wind: ' +
       '{direction: [x, z], strength, gust, gustFrequency, turbulence}, sky?: {mode: procedural|gradient|texture|color, ...}, fog?: {mode: none|linear|exp2, color, near?, far?, density?}, ' +
-      'post?: {toneMapping?, exposure?, bloom?, grading?: {brightness?, contrast?, saturation?, tint?, lut?, lift? -0.5..0.5, gamma? 0.2..5, gain? 0..4}, vignette?, ssao?, dof?, antialias?}, quality?, presets?: [{presetId, name, sky?, fog?, post?, lights?: [{entity|tag|type, color?, intensity?, direction?, groundColor?}], lightmap?: {intensity?, tint?}}] (phase 23.18: named looks scripts switch/blend to with ctx.environment.set(id, {blend, easing, override}) / blend(a, b, t); tl_game_observe reports environment {target, progress, weights})}} ' +
-      '(the foliage shader bends by COLOR_0.r); a fogVolume component {size, density, color, falloff?, heightFalloff? per m (density fades above the box bottom)}. Cameras (phase 23.4): a virtualCamera component {rig: follow|orbitPoint|topDown|fixed|rail, priority?, enabled?, target? (entity), targetOffset?, distance?, yaw?, pitch?, pitchMin/Max?, yawAction?/pitchAction?/zoomAction?/turnLeftAction?/turnRightAction? (input action names), yawStep?, turnTime?, point?, collision?, damping?, path? (rail: the entity with a cameraPath {points: [[x,y,z]...], closed?, smooth?}), progress?, railSpeed?, railMode?, fovY?, near?, far?, blend?: cut|linear|eased, blendTime?, letterbox?, shakeAmplitude?/Frequency?/Rotation?} — the enabled one with the highest priority is live (scripts: ctx.camera); tl_game_observe reports the resolved camera. Sockets (phase 23.11): a socketAttach component {target (an entity with a model), node (a node/bone name of its model), position?, rotation?, scale? (offset in the node space), attached? (default true)} — the object rides on that node every step (scripts: ctx.sockets.attach/detach, ctx.animator(id).setSpeed); tl_game_observe reports sockets [{entityId, target, node, position}]. setLighting {sceneId, ' +
+      'post?: {toneMapping?, exposure?, bloom?, grading?: {brightness?, contrast?, saturation?, tint?, lut?, lift? -0.5..0.5, gamma? 0.2..5, gain? 0..4}, vignette?, ssao?, dof?, antialias?}, quality?, presets?: [{presetId, name, sky?, fog?, post?, lights?: [{entity|tag|type, color?, intensity?, direction?, groundColor?}], lightmap?: {intensity?, tint?}}] (named looks scripts switch/blend to with ctx.environment.set(id, {blend, easing, override}) / blend(a, b, t); tl_game_observe reports environment {target, progress, weights})}} ' +
+      '(the foliage shader bends by COLOR_0.r); a fogVolume component {size, density, color, falloff?, heightFalloff? per m (density fades above the box bottom)}. Cameras: a virtualCamera component {rig: follow|orbitPoint|topDown|fixed|rail, priority?, enabled?, target? (entity), targetOffset?, distance?, yaw?, pitch?, pitchMin/Max?, yawAction?/pitchAction?/zoomAction?/turnLeftAction?/turnRightAction? (input action names), yawStep?, turnTime?, point?, collision?, damping?, path? (rail: the entity with a cameraPath {points: [[x,y,z]...], closed?, smooth?}), progress?, railSpeed?, railMode?, fovY?, near?, far?, blend?: cut|linear|eased, blendTime?, letterbox?, shakeAmplitude?/Frequency?/Rotation?} — the enabled one with the highest priority is live (scripts: ctx.camera); tl_game_observe reports the resolved camera. Sockets: a socketAttach component {target (an entity with a model), node (a node/bone name of its model), position?, rotation?, scale? (offset in the node space), attached? (default true)} — the object rides on that node every step (scripts: ctx.sockets.attach/detach, ctx.animator(id).setSpeed); tl_game_observe reports sockets [{entityId, target, node, position}]. setLighting {sceneId, ' +
       'lighting: null} clears a scene\'s baked lightmaps (bakes are made in the editor\'s Lighting window). Animation: setAnimator {controller: ' +
       '{controllerId, name, parameters: [{name, type: float|int|bool|trigger, default?}], states: [{id, name, motion: {kind: "clip", clip: ' +
       '{assetId, clip, duration}} | {kind: "blend1d", parameter, children: [{threshold, clip}]}, speed, speedParameter?, loop}], transitions: ' +
@@ -285,7 +288,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'Gameplay blocks (v4; setComponent or createEntity components): mover {waypoints: [[dx, dy, dz]...] offsets, speed, mode: ' +
       'loop|pingpong|once, wait?, easing?: linear|smooth|gravity (gravity: from rest at each point, constant acceleration), startOn?: signal, stopOn?: signal (holds it), toggleOn?: signal (moves a held one, holds a moving one), reverseOn?: signal (back the way it came), active?: false (held), maxPush? 1-1000 m/s (60: how hard it shoves a player out of its way)} (with a box collider it is a moving platform that carries ' +
       'the player; startOn makes a door); trigger {size: [w, h] (box) | shape: "circle", radius m (instead of size), signal, once?, exitSignal? (sent on leaving), mode?: enter|stay (stay: the signal every step while the player is inside)}; switch {mode: interact|stand, signal, size, once?}; ' +
-      'health {max, start?} (any object); collectible, patrol and hitbox (above); collider {oneWay: true} (jump up through, Down+Jump drops), a box shape\'s hz? m (half depth; required when physics_dimension is 3); controller {capsule: {radius 0.05-5 m, height 0.1-20 m (total, >= 2 x radius), offset? [x, y] or [x, y, z] m from the entity origin (z: 3D projects)} | null} is the player\'s collision capsule (absent = radius 0.3, height 1.8, centred; every system uses it: physics, spawn clearance, triggers, collectibles, hitboxes), plus the optional movement tuning acceleration (40 m/s²), deceleration (60), coyoteTime (0.05 s), jumpBuffer (0.0667 s), jumpRelease (0.5), groundSnap (0.1 m), skin (0.01 m), autostep (false), autostepHeight (0.25 m), phase 25.13 climbSpeed (2 m/s), climbAction? (an axis; absent: the move action\'s y), wallSlide (false), wallSlideSpeed (2 m/s), wallJump (false), wallJumpAway? (absent: run speed), wallJumpUp? (absent: jump speed), wallJumpLock? s (absent: no steering until the top of the jump) (null resets one); playerSpawn {yaw?} (v4; degrees about +Y, 0 = +Z; the character\'s face-movement models turn to it on arrival; null = none); audioSource ' +
+      'health {max, start?} (any object); collectible, patrol and hitbox (above); collider {oneWay: true} (jump up through, Down+Jump drops), a box shape\'s hz? m (half depth; required when physics_dimension is 3); controller {capsule: {radius 0.05-5 m, height 0.1-20 m (total, >= 2 x radius), offset? [x, y] or [x, y, z] m from the entity origin (z: 3D projects)} | null} is the player\'s collision capsule (absent = radius 0.3, height 1.8, centred; every system uses it: physics, spawn clearance, triggers, collectibles, hitboxes), plus the optional movement tuning acceleration (40 m/s²), deceleration (60), coyoteTime (0.05 s), jumpBuffer (0.0667 s), jumpRelease (0.5), groundSnap (0.1 m), skin (0.01 m), autostep (false), autostepHeight (0.25 m), climbSpeed (2 m/s), climbAction? (an axis; absent: the move action\'s y), wallSlide (false), wallSlideSpeed (2 m/s), wallJump (false), wallJumpAway? (absent: run speed), wallJumpUp? (absent: jump speed), wallJumpLock? s (absent: no steering until the top of the jump) (null resets one); playerSpawn {yaw?} (v4; degrees about +Y, 0 = +Z; the character\'s face-movement models turn to it on arrival; null = none); audioSource ' +
       '{assetId (an audio asset), volume 0-1, range m, distanceModel?: linear|inverse|exponential, refDistance? m (range/4), rolloff? (1)} loops louder as the player comes near (along X), or, with setting audio_spatial 2 (or 0 in a 3D project), through a panner with the listener on the active camera (range = its max distance). ' +
       'Scripts use ctx.signals.emit/on(name), ctx.game.counter/add/health()/setVisible(id, bool), ctx.physics.raycast/overlapBox(center, half)/overlapCircle(center, r) (1,024 queries/step, 2D and 3D together), ctx.emit({kind: "pose", entityId, rotation?: {yaw?, pitch?, roll?} degrees, scale?: n | [x, y, z]}) in the transform phase for an owned entity and ctx.audio.play(audioAssetId, {volume?, loop?, pitch?, bus?: sfx|music|voice|ui, fadeIn?, entityId?, position?, distanceModel?, refDistance?, maxDistance?, rolloff?}) -> handle (then stop(h, fade?), fade(h, to, s), setVolume/setPitch/setLoop, playing(h), finished(h) the step after it ended; music(id|null, fade?)/releaseMusic (scripts win over the flow\'s music until released), stinger(id, {duck?, fade?}), duck(level, s)/unduck, setBusVolume(bus, v, s)), ctx.save.get/set/remove/keys (kept in the player\'s save), ctx.spawn(prefabId, {position: [x, y] | [x, y, z], rotation?: [x, y, z, w], scale?: n | [x, y, z]}) ' +
       '-> "spawn-<n>" root id or null (a copy of a project prefab in the running game only — its colliders, components and scripts work; it appears at the next step; ' +
@@ -372,7 +375,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'The game shell: setShell {shell: {screens?: {title|pause|settings|controls|save|load: uiDocumentId}, hud?: [uiDocumentId], scenes?: [{scene, spawn?}], pause?, status?} | null} draws its menus and HUD with UI documents (save/load use the project saves); HUD bindings read $flow.counters.<name>, $flow.health.<objectId>.current|max, $flow.prompts (generated from the input actions) and $flow.shell (screen, scene, canContinue, saves.<n>.label, note); tl_game_observe reports shell {screen, scene, hud}. Scripts: ctx.ui.set/get/clear, show/hide/isShown, play, focus, events()/event(name). ' +
       'They are in tl_content_query target="game" (uiDocuments, uiThemes); tl_game_observe reports ui {shown, screen, focus, actionMap}. ' +
       'Text widgets may also take content: {bind} (rich text from the view model) and reveal: number|{bind} (a typewriter); an action {do: "dialogue", input: advance|choose|skip|auto|backlog, value?} is a dialogue input. ' +
-      'Dialogue (phase 23.16): setDialogue {dialogue: {dialogueId, name, graph?}} creates (graph absent: a Start node) or renames a conversation; its graph is owner kind "dialogue" (owner id = dialogueId, graph kind dialogue) edited with graphEdit: ' +
+      'Dialogue: setDialogue {dialogue: {dialogueId, name, graph?}} creates (graph absent: a Start node) or renames a conversation; its graph is owner kind "dialogue" (owner id = dialogueId, graph kind dialogue) edited with graphEdit: ' +
       'nodes start (fixed), entry {name}, line {speaker (speakerId|$binding|""), expression, text (rich text, {var}/{$binding} values, [pause=0.5]), voice (audio asset), auto: default|on|off}, choice (outputs options → option nodes, none), ' +
       'option {text, condition, effects, once}, branch {condition} (outputs true/false), set {effects}, signal {name, value, wait}, wait {seconds}, jump {dialogue, entry}, end; wires port "next". ' +
       'Conditions: variables, $bindings, numbers, "texts", true/false/null, ! not, * / %, + -, < <= > >=, == !=, && and, || or, seen("nodeId"); effects: "name = value; count += 1; x -= 2". ' +
@@ -410,7 +413,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
   {
     name: 'tl_content_query',
     description:
-      `Bounded, read-only M2 content queries. target="assets" pages the asset catalog (limit ≤ ${CONTENT_ASSETS_LIMIT_MAX}, default ${CONTENT_ASSETS_LIMIT_DEFAULT}); ` +
+      `Bounded, read-only content queries. target="assets" pages the asset catalog (limit ≤ ${CONTENT_ASSETS_LIMIT_MAX}, default ${CONTENT_ASSETS_LIMIT_DEFAULT}); ` +
       'target="asset" returns one record with assetId (includeVersions optional); target="prefabs" pages prefab ' +
       'summaries (includeEntities optional); target="behaviors" pages behavior summaries (includeDeclaration ' +
       'optional); target="integrity" returns the bounded content-integrity report (each asset\'s file in the game folder is ' +
@@ -428,10 +431,10 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'files) for tl_content_upload projectPath; target="blocks" reads block layers: without entityId the layers ' +
       '(component, cell count, chunks, regions; sceneId optional), with entityId one layer — chunks [[cx,cz],…] in their stored ' +
       'form, box [x0,y0,z0,x1,y1,z1] its cells as [x,y,z,paletteIndex] with each value\'s effective metadata, or region (its ' +
-      'boxes and cells). target="materials" (phase 25.18) pages the materials {materialId, name, graph, problems: [{nodeId?, severity, message}]} - ' +
+      'boxes and cells). target="materials" pages the materials {materialId, name, graph, problems: [{nodeId?, severity, message}]} - ' +
       'a graph material\'s compile problems as the editor\'s Problems tab shows them, checked by the backend when it loads the project and after every change ' +
       '(materialId: one; withProblems: only broken ones; total, withProblems counts). target="index" pages the project index: every asset, ' +
-      'resource (prefab, material, behavior, library, graph, ui, uitheme, dialogue, timeline, effect, animator — each its own file in the game folder) and scene ' +
+      'resource (prefab, material, behavior, library, graph, ui, uitheme, dialogue, timeline, effect, animator, envpreset — each its own file in the game folder) and scene ' +
       'as {kind, id, path, name, labels, address?, refs} (kind, id, label, address filter; loadable: true = only those with an address or a label; ' +
       'referencing: what names that id; text: a part of the name, id or file, any case; labels: [every one]; folder: "assets/props" the entries whose file is in that ' +
       'folder of the game folder ("" its top), recursive: true also in its subfolders; sort: name|kind|path, descending; folders: true adds folders: [{path, name, hasFolders}] ' +
@@ -495,7 +498,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'pack (instead of dataBase64/projectPath) makes a KTX2 texture from PNG/JPEG texture assets already in the project, channel by channel — ' +
       'several layers make a texture array (graph materials sample a layer: Sample texture / Normal map / Triplanar "layer"); the result carries packedFrom, which the publishAsset args (kind "texture") must include. ' +
       `kind "font" inspects a TrueType (.ttf), OpenType (.otf), WOFF2 or WOFF font (<= 4 MiB) for the project UI; publish it with kind "font". ` +
-      'jobExport (phase 25.22) imports an asset tool\'s job export: a folder or a .zip holding a GLB and manifest.json {name, files: [{path, role, digest (sha256 hex)}], triangles?, lods?} ' +
+      'jobExport imports an asset tool\'s job export: a folder or a .zip holding a GLB and manifest.json {name, files: [{path, role, digest (sha256 hex)}], triangles?, lods?} ' +
       '(exactly one file with role "model", a .glb; every listed file is checked against its digest; other roles are checked, not imported). jobExport {path} names a folder or .zip in the game folder; ' +
       'jobExport {} with dataBase64 uploads a zip, whose listed files are written into a new assets/<name>/ folder. The result is the model\'s proposal (plus sourcePath: include it in the publishAsset args) and jobExport {name, files, triangles?, lods?, inspected {triangles}, warnings}; commit with publishAsset kind "model". ' +
       'writeTo "assets/voice/line-001.ogg" with dataBase64 writes the file into the game folder at that path instead of inspecting it (its folders are made; never over another file, ' +
@@ -539,7 +542,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
         },
         animation: {
           type: 'object',
-          description: 'request the role-aware animated GLB profile (presentation.md §41.3.3)',
+          description: 'request the role-aware animated GLB profile (idle, run and airborne clips named by role)',
           properties: {
             entityId: { type: 'string' },
             roles: { type: 'object' },
@@ -570,7 +573,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'exclusive test-input mode (physical input is suppressed and cleared; it clears on completion/stop/disconnect). ' +
       `frames ≤ ${INPUT_RELAY_MAX_FRAMES} ascending by stepOffset, body ≤ ${INPUT_RELAY_MAX_BODY_BYTES / 1024} KiB; each frame {stepOffset, steps?, actions?, pointer?, gamepad?, ui?} (input frame version 2: ` +
       'no fixed move/jump channels). Gaps are neutral: a step no frame covers has no action, no pad and no new pointer sample. ' +
-      `steps (phase 25.15, run length, 1-${INPUT_RELAY_MAX_STEPS}): the frame holds for that many steps - its first step as written, the rest its continuation ` +
+      `steps (run length, 1-${INPUT_RELAY_MAX_STEPS}): the frame holds for that many steps - its first step as written, the rest its continuation ` +
       '(pressed becomes held, released none; the pointer keeps its place and held buttons without movement, wheel or edges; ui only on the first step); ' +
       `frames must not overlap and the last frame ends by step ${INPUT_RELAY_MAX_STEPS} (60 s at 120 Hz). ` +
       'actions {<action name>: {v, x?, y?, p: none|pressed|held|released}} - the character ' +
@@ -581,13 +584,13 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'going down between frames is a click - ctx.input.pointerPressed, ctx.physics.pickAtPointer). The pointer goes through the UI hit test first: ' +
       'over a project UI element (a button, an input, a modal backdrop, the engine pause panel - tl_game_observe ui.elements lists their rectangles) ' +
       'the game reads ctx.input.pointer().overUi true and does not see that press; a left press and release on one button clicks it (its UI event rides the next frame). ' +
-      'gamepad (phase 25.15): a virtual standard gamepad {buttons: [0-1 by standard index: 0 A, 1 B, 9 start, 12-15 D-pad up/down/left/right; down at 0.5], axes: [left x, left y, right x, right y] -1..1} ' +
+      'gamepad: a virtual standard gamepad {buttons: [0-1 by standard index: 0 A, 1 B, 9 start, 12-15 D-pad up/down/left/right; down at 0.5], axes: [left x, left y, right x, right y] -1..1} ' +
       'read through the project\'s input bindings like a real pad (its move/jump and every action bound to pad buttons or axes; its D-pad, A, B and start also drive menus); ' +
-      `a frame without one: the pad at rest; explicit actions win over the pad's. ui (phase 25.15): 1-${RELAY_MAX_UI_EDGES} of ${RELAY_UI_EDGES.join('|')} - ` +
+      `a frame without one: the pad at rest; explicit actions win over the pad's. ui: 1-${RELAY_MAX_UI_EDGES} of ${RELAY_UI_EDGES.join('|')} - ` +
       'menu edges on the frame\'s first step, as the keys: they move the focused UI document\'s focus, submit/cancel it, and pause (a game shell or a game mode). ' +
-      'restart (phase 25.16): true restarts the game first (the replay: start scenes, every object as authored) and the frames begin at the new run\'s first step - ' +
+      'restart: true restarts the game first (the replay: start scenes, every object as authored) and the frames begin at the new run\'s first step - ' +
       'run the same frames with restart twice and compare tl_game_observe run.lastInput.digest (the run digest right after the last applied step) to check a run against its replay. ' +
-      'hold (phase 25.17): true holds the game right after the last step (run.lastInput.held) until the next exercise, which begins at exactly the next step - ' +
+      'hold: true holds the game right after the last step (run.lastInput.held) until the next exercise, which begins at exactly the next step - ' +
       'observe, decide and go on step-exactly whatever the time between calls (tl_game_control debugResume lets it go too). Returns the applied ' +
       'step range plus the pinned snapshotId/buildId, or the structured session_unavailable outcome when no browser is ' +
       'connected (never a simulated success). No DOM injection, no eval.',
@@ -603,17 +606,17 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
             type: 'object',
             properties: {
               stepOffset: { type: 'integer', minimum: 0, maximum: INPUT_RELAY_MAX_STEPS - 1 },
-              steps: { type: 'integer', minimum: 1, maximum: INPUT_RELAY_MAX_STEPS, description: 'phase 25.15: the frame holds for this many steps (run length; absent 1)' },
+              steps: { type: 'integer', minimum: 1, maximum: INPUT_RELAY_MAX_STEPS, description: 'the frame holds for this many steps (run length; absent 1)' },
               gamepad: {
                 type: 'object',
-                description: 'phase 25.15: a virtual standard gamepad this frame (absent: at rest)',
+                description: 'a virtual standard gamepad this frame (absent: at rest)',
                 properties: {
                   buttons: { type: 'array', maxItems: RELAY_GAMEPAD_BUTTONS, items: { type: 'number', minimum: 0, maximum: 1 } },
                   axes: { type: 'array', maxItems: RELAY_GAMEPAD_AXES, items: { type: 'number', minimum: -1, maximum: 1 } },
                 },
                 additionalProperties: false,
               },
-              ui: { type: 'array', minItems: 1, maxItems: RELAY_MAX_UI_EDGES, items: { type: 'string', enum: [...RELAY_UI_EDGES] }, description: 'phase 25.15: menu edges on the frame\'s first step' },
+              ui: { type: 'array', minItems: 1, maxItems: RELAY_MAX_UI_EDGES, items: { type: 'string', enum: [...RELAY_UI_EDGES] }, description: 'menu edges on the frame\'s first step' },
               actions: {
                 type: 'object',
                 additionalProperties: {
@@ -625,7 +628,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
               },
               pointer: {
                 type: 'object',
-                description: 'phase 23.3: the pointer this step (a frame without one keeps the last position and held buttons)',
+                description: 'the pointer this step (a frame without one keeps the last position and held buttons)',
                 properties: {
                   x: { type: 'number', minimum: 0, maximum: 1 },
                   y: { type: 'number', minimum: 0, maximum: 1 },
@@ -646,8 +649,8 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
             additionalProperties: false,
           },
         },
-        restart: { type: 'boolean', description: 'phase 25.16: restart the game first; the frames begin at the new run\'s first step' },
-        hold: { type: 'boolean', description: 'phase 25.17: hold the game right after the last step until the next exercise, which then begins at exactly the next step (lockstep)' },
+        restart: { type: 'boolean', description: 'restart the game first; the frames begin at the new run\'s first step' },
+        hold: { type: 'boolean', description: 'hold the game right after the last step until the next exercise, which then begins at exactly the next step (lockstep)' },
       },
       required: ['playSessionId', 'frames'],
       additionalProperties: false,
@@ -656,12 +659,12 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
   {
     name: 'tl_instance_buffer',
     description:
-      'Publish an instance-set buffer (phase 12 c): the placements of many copies of one model, drawn with ' +
+      'Publish an instance-set buffer: the placements of many copies of one model, drawn with ' +
       'instancing as ONE entity (foliage, rocks, repeated detail). transforms is a flat list of 10 numbers per copy ' +
       `(position x y z, rotation quaternion x y z w, scale x y z; local to the entity), 1-${INSTANCE_BUFFER_INLINE_MAX} copies. Returns ` +
       '{digest, count}; then create the entity with tl_command createEntity {kind:"group", components:{instances:' +
       '{asset:{assetId}, buffer:digest, count}}} or setComponent "instances". Publishing changes no project state. ' +
-      'Phase 15.2: give digest instead (an instance set\'s buffer) to READ its copies ({digest, count, transforms}; sets of up to ' +
+      'Give digest instead (an instance set\'s buffer) to READ its copies ({digest, count, transforms}; sets of up to ' +
       `${INSTANCE_BUFFER_INLINE_MAX} copies) - to move, turn, scale, delete or add single copies, edit that list, publish it and setComponent "instances" ` +
       '{buffer, count} (one undo step; the editor\'s copy editing and brush do exactly this).',
     inputSchema: {
@@ -676,10 +679,10 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
   {
     name: 'tl_game_control',
     description:
-      'Submit one bounded §20 game-control command (replay (restart the game: the start scenes, every object as authored), mute, unmute, clearSave (forget the game\'s saves in this browser), or loadScene / unloadScene with ' +
+      'Submit one bounded game-control command (replay (restart the game: the start scenes, every object as authored), mute, unmute, clearSave (forget the game\'s saves in this browser), or loadScene / unloadScene with ' +
       'sceneId - the same request a script makes with ctx.scenes; debugPause / debugResume / debugStep hold the simulation at a step boundary, ' +
       'release it, or run exactly one step while held - the visual-script debugger; tl_game_observe shows debug {paused, hit {behaviorId, entityId, nodeId, stepIndex}}; ' +
-      'phase 23.8: debugCommand with name and args runs a project debug command - one a script declared with ctx.debug.command(name, {description, args: [{name, type: number|string|boolean, optional}]}, handler?) - ' +
+      'debugCommand with name and args runs a project debug command - one a script declared with ctx.debug.command(name, {description, args: [{name, type: number|string|boolean, optional}]}, handler?) - ' +
       'inside the next simulation step as part of its input (a recording replays it; tl_game_observe lists debugCommands {registered, applied [{stepIndex, name, args}]}); ' +
       'refused (game_command_invalid) when no script declared it or the args do not match); ' +
       '{signal: name} (command signal) emits a signal as a script\'s ctx.signals.emit would - switches, movers, timelines, effects, event sounds and scripts see it in the step the call rides on - sent as the engine\'s signal debug command (input of the next step: a recording replays it; debugCommands.applied lists it); signals carry no value, so value is refused; ' +
@@ -706,11 +709,11 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
   {
     name: 'tl_game_observe',
     description:
-      `Read one bounded §20 observation document (<= ${GAME_OBSERVATION_MAX_BYTES / 1024} KiB) from an explicitly presented play ` +
+      `Read one bounded observation document (<= ${GAME_OBSERVATION_MAX_BYTES / 1024} KiB) from an explicitly presented play ` +
       'session: `state` running|paused (the engine pause holds the simulation: a menu, the pause panel, a game mode), stepIndex, simTime, `player` {x, y, z} (the controller object\'s position), ' +
       '`scenes` {loaded, loading}; the observation is bounded and carries no ' +
       'GLB/WAV bytes, base64 media, authoring token or locator capability; `animators` maps each animated entity to its ' +
-      'current animator state; `counters` the named counters (collectibles and scripts add to them); `health` every object\'s health {objectId: {current, max}}; `shell` {screen, scene, hud} the game shell; `spawned` {count, ids (first 64)} the live entities scripts spawned; `audio` (once scripts used ctx.audio or a panned audio source plays; the Web Audio graph state, not heard sound) voices [{handle (0: an audio source, see key), assetId, bus, state playing|pending|stopping, loop, gain, rate, pan? (-1 left..1 right of the listener), distanceGain?, distance?, position?}] (first 24; voiceCount all), music {owner script|shell, assetId, playing, duck}, buses {sfx, music, voice, ui}, listener {position, rotation} (the active camera), panningModel, late {started, dropped, recent: [{handle, assetId, outcome started|dropped, lateMs, maxLateMs, waitedFor? file|unlock}]} (script sounds whose file was not ready when played: started late, or dropped past their maxLateMs); with entityId, `behaviors` {entityId, scripts: [{behaviorId, properties: [{key, label, type, visibility, value}]}]} — the values the entity\'s running scripts read, private ones included (read-only); `renderer` {requested, source, backend, api, state, reason} the renderer backend that draws the play and why; `effects` {executor: webgpu|cpu, caps {particlesPerSystem, particlesTotal, instances, lights, sortLimit}, playing, particles, refused, lights} the visual-effect player (WebGPU compute on WebGPU, the CPU fallback on WebGL 2; presentation only); `simulation` {mode: worker|single, transport: message|shared|null, isolated} where the play runs its simulation (phase 22); `saves` (a project with a save schema) {slotCount, storage, slots: [{slot, title, chapter, location, playSeconds, savedAt, version, bytes, thumbnail? {type, width, height, bytes}, damaged?}] (the first 32 used slots), settings (the project settings document)}; `run` (phase 25.16) {stepIndex, runStep (steps since this run began: the start or the last restart), digest (the run digest now: transforms, counters, hidden and switched-off objects, script-written fields, looks, poses, loaded scenes and spawned copies, the camera, the UI model, materials, environment, mode), lastInput? {fromStep, toStep, runStep, digest, restarted, held? (the game holds there: an exercise with hold)} (the run digest right after the last tl_input_exercise\'s last step)} - the same input after a restart gives the same lastInput digest at the same runStep; `pointer` {x, y, buttons, over, locked, overUi?} the pointer the simulation read last (overUi: over a UI element, phase 25.15); `ui` (a project with UI documents) {shown, screen, hud?, focus, actionMap, values|valueKeys, elements: [{doc, widget, type, index?, rect: [x, y, w, h] (fractions of the view, 0,0 top left), hit? (a pointer press there goes to the UI: buttons, inputs), disabled?, focused?}] (the shown widgets with an id or that take the pointer, first 48 within 4 KiB) - aim tl_input_exercise pointer clicks at a rect\'s centre}; `resources` {resident: {kind: {count, bytes}} (kinds bytes, model, texture, clip, audio (decoded), audio-bytes (kept compressed, decoded per play), audio-stream (streams playing), font, image, effect-model: what is loaded from assets now, freed when the last scene, object or sound holding it goes), loading, loads {kind: n}, frees {kind: n}, failed, waiting (let go, freed after this frame), handles (script asset handles open: ctx.assets.load until ctx.assets.release), open? [{handle, key, state loading|ready|failed, assets, error? (why it failed)}] (first 32), notReleased? [same] + notReleasedCount (handles a run ended with, e.g. a restart: released then; not releasing a handle keeps its assets in memory), textures? {budgetBytes, residentBytes (streamed textures, each GPU copy, plus fixedBytes: the textures that do not stream), streamedBytes, fixedBytes, over, loading, upgrades, drops, textures: [{id, width, height, levels, tail, resident (the largest mip level held, 0 = full size), wanted (the level its size on screen asks for), copies, bytes}]} (texture streaming)}. timeoutMs 250-15000 (default 5000). ' +
+      'current animator state; `counters` the named counters (collectibles and scripts add to them); `health` every object\'s health {objectId: {current, max}}; `shell` {screen, scene, hud} the game shell; `spawned` {count, ids (first 64)} the live entities scripts spawned; `audio` (once scripts used ctx.audio or a panned audio source plays; the Web Audio graph state, not heard sound) voices [{handle (0: an audio source, see key), assetId, bus, state playing|pending|stopping, loop, gain, rate, pan? (-1 left..1 right of the listener), distanceGain?, distance?, position?}] (first 24; voiceCount all), music {owner script|shell, assetId, playing, duck}, buses {sfx, music, voice, ui}, listener {position, rotation} (the active camera), panningModel, late {started, dropped, recent: [{handle, assetId, outcome started|dropped, lateMs, maxLateMs, waitedFor? file|unlock}]} (script sounds whose file was not ready when played: started late, or dropped past their maxLateMs); with entityId, `behaviors` {entityId, scripts: [{behaviorId, properties: [{key, label, type, visibility, value}]}]} — the values the entity\'s running scripts read, private ones included (read-only); `renderer` {requested, source, backend, api, state, reason} the renderer backend that draws the play and why; `effects` {executor: webgpu|cpu, caps {particlesPerSystem, particlesTotal, instances, lights, sortLimit}, playing, particles, refused, lights} the visual-effect player (WebGPU compute on WebGPU, the CPU fallback on WebGL 2; presentation only); `simulation` {mode: worker|single, transport: message|shared|null, isolated} where the play runs its simulation; `saves` (a project with a save schema) {slotCount, storage, slots: [{slot, title, chapter, location, playSeconds, savedAt, version, bytes, thumbnail? {type, width, height, bytes}, damaged?}] (the first 32 used slots), settings (the project settings document)}; `run` {stepIndex, runStep (steps since this run began: the start or the last restart), digest (the run digest now: transforms, counters, hidden and switched-off objects, script-written fields, looks, poses, loaded scenes and spawned copies, the camera, the UI model, materials, environment, mode), lastInput? {fromStep, toStep, runStep, digest, restarted, held? (the game holds there: an exercise with hold)} (the run digest right after the last tl_input_exercise\'s last step)} - the same input after a restart gives the same lastInput digest at the same runStep; `pointer` {x, y, buttons, over, locked, overUi?} the pointer the simulation read last (overUi: over a UI element); `ui` (a project with UI documents) {shown, screen, hud?, focus, actionMap, values|valueKeys, elements: [{doc, widget, type, index?, rect: [x, y, w, h] (fractions of the view, 0,0 top left), hit? (a pointer press there goes to the UI: buttons, inputs), disabled?, focused?}] (the shown widgets with an id or that take the pointer, first 48 within 4 KiB) - aim tl_input_exercise pointer clicks at a rect\'s centre}; `resources` {resident: {kind: {count, bytes}} (kinds bytes, model, texture, clip, audio (decoded), audio-bytes (kept compressed, decoded per play), audio-stream (streams playing), font, image, effect-model: what is loaded from assets now, freed when the last scene, object or sound holding it goes), loading, loads {kind: n}, frees {kind: n}, failed, waiting (let go, freed after this frame), handles (script asset handles open: ctx.assets.load until ctx.assets.release), open? [{handle, key, state loading|ready|failed, assets, error? (why it failed)}] (first 32), notReleased? [same] + notReleasedCount (handles a run ended with, e.g. a restart: released then; not releasing a handle keeps its assets in memory), textures? {budgetBytes, residentBytes (streamed textures, each GPU copy, plus fixedBytes: the textures that do not stream), streamedBytes, fixedBytes, over, loading, upgrades, drops, textures: [{id, width, height, levels, tail, resident (the largest mip level held, 0 = full size), wanted (the level its size on screen asks for), copies, bytes}]} (texture streaming)}. timeoutMs 250-15000 (default 5000). ' +
       'With no connected/presenting browser the contracted session_unavailable is returned; a relay that exceeds ' +
       'timeoutMs is game_relay_timeout (503) - never a simulated value. A play that ended answers play_not_found with ended {reason, presented, at, detail?} and a message saying why (e.g. it ended before it was presented because the editor page reloaded).',
     inputSchema: {
@@ -735,12 +738,12 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'Start a play session for the project from the current revision. Requires a connected editor ' +
       'browser (an active authoring session); with none, the backend opens a headless editor (else session_unavailable). ' +
       'Pass sessionId (from tl_sessions) to require a specific browser session. Returns ' +
-      'playSessionId + the frozen snapshotId/revision on success. Phase 23.8 test/debug starts (the editor\'s "Play from..." sends the same): ' +
+      'playSessionId + the frozen snapshotId/revision on success. Test/debug starts (the editor\'s "Play from..." sends the same): ' +
       'sceneId - start there (the scene loads with the start scenes and the character starts at its first player spawn); ' +
       `variables - {key: JSON value} the scripts read with ctx.save from step 0 (<= ${PLAY_START_VARIABLES_MAX} keys, <= ${PLAY_START_VARIABLE_MAX_CHARS} characters each); ` +
       'save - a project save document {format: "thirdlight.save", formatVersion: 2, version, playSeconds?, doc, sections?, world: {scenes, activeSpawn, listedScene, character: {position, velocity} | null}} (a project with a save schema; <= 1 MiB; loaded at the first step, older versions migrated; world puts the character back where it was saved; a formatVersion 1 document without world still loads) or saveSlot 1-99 (a project slot of the Play page); ' +
       'mode - the game mode the run starts in (checked against content.modes; ignored and noted in start.notes when the project has none). ' +
-      'Variables apply at the start and again at every restart (replay, a shell\'s new game; phase 25.17). threads - worker|single: where this play\'s simulation runs (phase 25.17). ' +
+      'Variables apply at the start and again at every restart (replay, a shell\'s new game). threads - worker|single: where this play\'s simulation runs. ' +
       'The result echoes the resolved start; tl_game_observe reports start {ok, applied | reason}.',
     inputSchema: {
       type: 'object',
@@ -752,7 +755,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
         variables: { type: 'object', description: 'script variables: what ctx.save holds from step 0' },
         save: { type: 'object', description: 'a project save document (format "thirdlight.save") to continue from' },
         saveSlot: { type: 'string', pattern: '^[1-9][0-9]?$', description: `continue from this project save slot of the Play page (1-${SAVE_LIMITS.slots})` },
-        threads: { type: 'string', enum: ['worker', 'single'], description: 'phase 25.17: where this play\'s simulation runs (a worker or the page\'s main thread), over the project setting sim_thread' },
+        threads: { type: 'string', enum: ['worker', 'single'], description: 'where this play\'s simulation runs (a worker or the page\'s main thread), over the project setting sim_thread' },
       },
       additionalProperties: false,
     },
@@ -771,12 +774,14 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     name: 'tl_diagnostics',
     description:
       'Without playSessionId: the project\'s recent problems (failed commands, import/compile/Play/' +
-      'export failures, external file edits, phase 25.18: a material whose graph has new problems, code material_graph_problems) and whether editing is paused, ' +
+      'export failures, external file edits, a material whose graph has new problems, code material_graph_problems) and whether editing is paused, ' +
       'plus materialProblems [{materialId, name, problems: [{nodeId?, severity, message}]}] - the graph materials that have problems now (the backend compiles them at load and after each change). With playSessionId: bounded ' +
       'runtime diagnostics (≤ 16 KiB) from that play\'s connected preview; its renderer block names the backend ' +
       'that draws (renderer.backend legacy|webgpu|webgl2, renderer.state) and why (renderer.reason); renderer.effects is the ' +
       'visual-effect player: executor webgpu|cpu with its caps, what plays, refused plays, unknown effect ids, per-effect executor and why an effect runs on the CPU on WebGPU. ' +
       'startTimings is where the start went (stages in ms from the page\'s time origin, the first frame, slow frames after it, each scene loaded since) and buildTimings the backend\'s part. ' +
+      'resources is what the play holds from assets (as tl_game_observe resources: resident count and bytes per kind, loads, frees, open and not released script handles, textures against the texture budget); ' +
+      'assetReads {reads, bytes} the asset files read so far and catalogReads {files, bytes} the runtime catalog files read so far (a scene load reads its scene and dependency file, an asset named by id its entry shard). ' +
       'runtime.errors holds the last script logs (code behavior_log) and errors; an entry with a compiled position (at, frames) also has source (and sources) ' +
       '{behaviorId | libraryId, path, line, column}: the place in the project\'s own script or library file. ' +
       'A play that ended answers play_not_found with ended {reason, presented, at, detail?} and why in the message; one that ended before it was presented is also in the problems.',
@@ -789,7 +794,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
   {
     name: 'tl_playtest',
     description:
-      'Phase 25.17: a headless play-test - play the game from its start with an input script and report what happened as JSON ' +
+      'A headless play-test - play the game from its start with an input script and report what happened as JSON ' +
       '(node tools/playtest.mjs <game folder> runs the same from the command line, and also runs a driver: the project\'s own Node module that plays step by step). ' +
       'With no editor open the backend plays in its headless editor. ' +
       'Each run begins with a restart of the game (start scenes, every object as authored, the start variables set again) and every exercise holds the game after it, so runs are step-exact; ' +

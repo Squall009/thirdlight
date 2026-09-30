@@ -75,7 +75,7 @@ describe('a schemaVersion 2 project opened over HTTP', () => {
     expect(byPath.get('/entities/2/components/enemy')).toContain('component "enemy"');
     expect(byPath.get('/entities/3/components/gameZone')).toContain('component "gameZone"');
     expect(byPath.get('/entities/4/components/pickup')).toContain('a heart healed the player');
-    for (const d of details) expect(d.message).toContain('removed in phase 24: build it as project scripts');
+    for (const d of details) expect(d.message).toContain('removed from the engine: build it as project scripts');
     // Nothing was written.
     expect(readFileSync(join(projectDir('legacy-v2-refused'), 'scenes', 'scene-main.json')).equals(before)).toBe(true);
     expect(readJson('legacy-v2-refused', 'project.json')['schemaVersion']).toBe(2);
@@ -85,7 +85,7 @@ describe('a schemaVersion 2 project opened over HTTP', () => {
     const body = (await list.json()) as { projects: Array<{ projectId: string; loadable: boolean; code?: string; note?: string }> };
     const refused = body.projects.find((p) => p.projectId === 'legacy-v2-refused');
     expect(refused).toMatchObject({ loadable: false, code: 'content_invalid' });
-    expect(refused?.note).toContain('removed in phase 24');
+    expect(refused?.note).toContain('removed from the engine');
     expect(body.projects.find((p) => p.projectId === 'legacy-v2-upgradable')).toMatchObject({ loadable: true });
   });
 });

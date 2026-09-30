@@ -375,7 +375,7 @@ export function loadManifest(
           code: 'manifest_invalid',
           path: '',
           message: 'project.json is missing',
-          expected: 'a loadable project manifest (workspace.md §8.2)',
+          expected: 'a loadable project manifest',
         },
       ],
     };
@@ -391,7 +391,7 @@ export function loadManifest(
           code: 'manifest_invalid',
           path: '',
           message: 'project.json is unreadable',
-          expected: 'a loadable project manifest (workspace.md §8.2)',
+          expected: 'a loadable project manifest',
         },
       ],
     };
@@ -504,7 +504,7 @@ export function loadEnvelopeV3(
           code: 'manifest_scene_mismatch',
           path: '/id',
           document: 'manifest',
-          message: 'manifest.id must equal the project directory name (project-model §13.3)',
+          message: 'manifest.id must equal the project directory name',
           expected: projectId,
         },
       ],
@@ -803,7 +803,7 @@ function envelopeMissingDetail(): LoadDetail {
   return {
     code: 'envelope_invalid',
     path: '',
-    message: 'the project has no content.json (an interrupted creation is completed by the startup scan, workspace.md §8.3/§10)',
+    message: 'the project has no content.json (an interrupted creation is completed by the startup scan)',
     expected: 'a loadable project (content.json and its scene files)',
   };
 }

@@ -100,7 +100,7 @@ export function validateRuntimeSnapshot(
           reason: 'shape',
           path: `/${key}`,
           // The deleted game block's field says where it went.
-          message: key === 'game' ? 'snapshot field "game" (the game block) was removed in phase 24: build it as project scripts' : `unknown snapshot field "${key}" (strict shape)`,
+          message: key === 'game' ? 'snapshot field "game" (the game block) was removed from the engine: build it as project scripts' : `unknown snapshot field "${key}" (strict shape)`,
         },
       };
     }
@@ -134,7 +134,7 @@ export function validateRuntimeSnapshot(
         code: 'snapshot_invalid',
         reason: 'shape',
         path: '/projectId',
-        message: 'projectId must match the project-model ID syntax (§5.1)',
+        message: 'projectId must match the project id syntax',
       },
     };
   }
