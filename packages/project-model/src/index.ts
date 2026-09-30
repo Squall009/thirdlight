@@ -143,6 +143,29 @@ export {
   type AudioSummary,
 } from './audio-assets';
 export {
+  TEXTURE_BUDGET_DEFAULT_MB,
+  TEXTURE_BUDGET_MAX_MB,
+  TEXTURE_BUDGET_MIN_MB,
+  TEXTURE_STREAMING_DEFAULT_ABOVE_PX,
+  TEXTURE_STREAM_TAIL_PX,
+  textureBudgetBytesOf,
+  textureHasStreamableChain,
+  textureStreamingOf,
+} from './texture-streaming';
+export {
+  buildKtx2Subset,
+  isKtx2Bytes,
+  ktx2IndexBytes,
+  ktx2LevelSize,
+  planKtx2Parts,
+  readKtx2Layout,
+  type Ktx2Layout,
+  type Ktx2LayoutResult,
+  type Ktx2Level,
+  type Ktx2Part,
+  type Ktx2Range,
+} from './ktx2-levels';
+export {
   normalizeSceneV3,
   validateLightComponent,
   validateModelAnimationComponent,
@@ -263,6 +286,7 @@ export {
   type CaptureManifestV2Input,
   type CaptureManifestV2Result,
   type ManifestAssetInputV2,
+  type ManifestMipPart,
   type ManifestErrorV2,
   type MediaAnimationRow,
   type MediaBlock,

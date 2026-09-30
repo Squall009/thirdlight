@@ -145,7 +145,7 @@ export { TickInputSource, continueFrame, mergePhase } from './tick-input';
 export { runDigest, stepDigest } from './step-digest';
 export { RunProbe, type InputRunDigest, type RunDigestNow, type RunDigests } from './run-probe';
 // The verified asset reader (start-scene assets first, bounded parallel; the rest on demand).
-export { AssetReadError, ASSET_READS_IN_FLIGHT, createVerifiedAssetReader, startSceneAssets, type AssetReaderIo, type AssetRowSource, type DeclaredAssetRow, type StartAssetSources, type VerifiedAssetReader } from './asset-reader';
+export { AssetReadError, ASSET_READS_IN_FLIGHT, createVerifiedAssetReader, startSceneAssets, mipPartsOf, type AssetReaderIo, type MipPartRow, type AssetRowSource, type DeclaredAssetRow, type StartAssetSources, type VerifiedAssetReader } from './asset-reader';
 // Where a game page's start time goes (stages, first frame, slow frames, scene loads).
 export { createStartTimings, FRAME_WATCH_MS, SLOW_FRAME_MS, type FrameWatch, type SceneLoadTiming, type SlowFrame, type StartStage, type StartTimings, type StartTimingsReport } from './start-timings';
 export { createDebugConsole, consoleWords, parseConsoleLine, DEBUG_CONSOLE_KEY, type DebugConsole, type DebugConsoleDeps } from './debug-console';

@@ -407,6 +407,8 @@ export interface GameHostConfig {
    * loads what it names and holds it for `holder` (see host-assets.ts).
    */
   readonly loadAssets?: (key: string, holder: string) => Promise<readonly string[]>;
+  /** The page's texture streamer report (in the resources observation). */
+  readonly textureStreaming?: () => object;
   /** Where the player's settings go (localStorage in the browser; see `storage.ts`) and this game's key prefix. */
   readonly saveStorage?: SaveStorage;
   readonly saveNamespace?: string;

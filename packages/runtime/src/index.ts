@@ -313,6 +313,17 @@ export {
   type CatalogShardRow,
   type RuntimeContentManifestV5,
 } from '@thirdlight/project-model';
+// Texture streaming: the KTX2 level layout the page reads by part, and the budget setting.
+export {
+  buildKtx2Subset,
+  ktx2LevelSize,
+  readKtx2Layout,
+  textureBudgetBytesOf,
+  TEXTURE_BUDGET_DEFAULT_MB,
+  type Ktx2Layout,
+  type Ktx2Range,
+  type ManifestMipPart,
+} from '@thirdlight/project-model';
 // The model's limits the hosts and the renderer re-check (defined once, in project-model).
 export {
   ASSET_METRIC_CAPS,

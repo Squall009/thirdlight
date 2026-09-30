@@ -23,6 +23,12 @@ export interface AssetSummary {
   /** Texture only: the current version's image facts (a KTX2's codec and mip levels; a texture array's layers). */
   image?: { format: string; width: number; height: number; codec?: 'etc1s' | 'uastc'; levels?: number; layers?: number };
   /**
+   * Texture only: whether the game streams its mips (`on`, the setting or the
+   * default for its size), whether the user set it, and whether it can
+   * (`possible`: a KTX2 mip chain larger than the mip tail).
+   */
+  streaming?: { on: boolean; set: boolean; possible: boolean };
+  /**
    * Audio only: the current version's facts, how the game holds it (defaults
    * applied; `loadTypeSet`: the user chose it) and what a browser does not play.
    */

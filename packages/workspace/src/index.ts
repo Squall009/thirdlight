@@ -75,6 +75,7 @@ export { MARKER_FILE, DEFAULT_PROJECT_SUBDIR, REGISTRY_FILE, readMarker, type En
 export { DEFAULT_ASSET_FOLDER, SIDECAR_FORMAT, SIDECAR_SUFFIX, importKeyOfConverted, parseSidecar, type ImportHeader, type ImportKey, type SidecarDoc } from './asset-files';
 export type { AssetFileEntry, AssetFilesResult } from './service-content';
 export { BlobChangedError, type BlobFile, type LocateBlobResult, type OpenBlobResult, type OpenedBlob } from './blob-files';
+export { MIP_PARTS_IMPORTER, MIP_PARTS_VERSION, type MipPartFile } from './mip-parts';
 export { UPGRADE_REPORT_FILE, type AssetUpgradeReport } from './upgrade-assets';
 export { assetNameOfFile, importKindOf, type FolderImportFile, type FolderImportScan, type ImportKind, type PreparedImportFile } from './folder-import';
 // Project resources as files (prefabs, materials, … one file each in the game folder) and the content file's format.

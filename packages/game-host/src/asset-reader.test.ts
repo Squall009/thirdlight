@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import { createResourceManager } from '@thirdlight/runtime';
 
-import { AssetReadError, createVerifiedAssetReader, startSceneAssets, type DeclaredAssetRow } from './asset-reader';
+import { AssetReadError, createVerifiedAssetReader, mipPartsOf, startSceneAssets, type DeclaredAssetRow } from './asset-reader';
 
 const hex = async (b: Uint8Array): Promise<string> => [...new Uint8Array(await crypto.subtle.digest('SHA-256', b as Uint8Array<ArrayBuffer>))].map((x) => x.toString(16).padStart(2, '0')).join('');
 
@@ -150,5 +150,63 @@ describe('start-scene assets', () => {
       lighting: { main: { atlases: ['lm-start'] }, later: { atlases: ['lm-later'] } },
     });
     expect(picked.map((r) => r.assetId).sort()).toEqual(['lm-start', 'model-a', 'tex-direct', 'tex-fn', 'tex-fx', 'tex-mat', 'tex-model-mat', 'tex-sky']);
+  });
+});
+
+describe('streamed textures: read by part', () => {
+  /** A "file" cut into three parts (the head, then two levels), its row listing them. */
+  async function streamed(): Promise<{ row: DeclaredAssetRow; files: Map<string, Uint8Array>; whole: Uint8Array }> {
+    const whole = new Uint8Array(300).map((_, i) => (i * 7) & 255);
+    const cuts = [0, 100, 180, 300];
+    const files = new Map<string, Uint8Array>();
+    const mipParts = [];
+    for (let i = 0; i < 3; i += 1) {
+      const part = whole.slice(cuts[i], cuts[i + 1]);
+      const digest = await hex(part);
+      files.set(`content/sha256/${digest}`, part);
+      mipParts.push({ path: `content/sha256/${digest}`, digest, byteLength: part.length, offset: cuts[i]!, levels: i === 0 ? [2, 3] : [2 - i] });
+    }
+    const row = await rowFor('tex', 'texture', whole, { mipParts });
+    return { row, files, whole };
+  }
+
+  it('a part is read at its own path and checked against its own digest; a changed part is refused', async () => {
+    const { row, files } = await streamed();
+    const reads: string[] = [];
+    const reader = createVerifiedAssetReader([row], { read: async (p) => (reads.push(p), files.get(p)!.slice().buffer), sha256Hex: hex });
+    const parts = mipPartsOf(row)!;
+    expect(parts.map((p) => p.levels)).toEqual([[2, 3], [1], [0]]);
+    expect([...(await reader.part(row, 2))]).toEqual([...files.get(parts[2]!.path)!]);
+    expect(reads).toEqual([parts[2]!.path]);
+    const bad = createVerifiedAssetReader([row], { read: async () => new Uint8Array(80).buffer, sha256Hex: hex });
+    await expect(bad.part(row, 1)).rejects.toThrow(AssetReadError);
+  });
+
+  it('the whole file is its parts put together (the whole is never fetched), and the start reads only the head', async () => {
+    const { row, files, whole } = await streamed();
+    const reads: string[] = [];
+    const reader = createVerifiedAssetReader([row], { read: async (p) => (reads.push(p), files.get(p)!.slice().buffer), sha256Hex: hex });
+    expect([...new Uint8Array(await reader.bytes('tex', 1))]).toEqual([...whole]);
+    expect(reads).not.toContain(row.path);
+    expect(reads).toHaveLength(3);
+    reads.length = 0;
+    const resources = createResourceManager();
+    const again = createVerifiedAssetReader([row], { read: async (p) => (reads.push(p), files.get(p)!.slice().buffer), sha256Hex: hex }, { resources });
+    let total = 0;
+    await again.preload([row], (_, t) => (total = t), 'start');
+    expect(reads).toEqual([mipPartsOf(row)![0]!.path]);
+    expect(total).toBe(100);
+    // The decoder's read of the head shares what the start holds.
+    await again.part(row, 0);
+    expect(reads).toHaveLength(1);
+  });
+
+  it('malformed parts (a gap, a wrong path, not the whole file) read the texture whole', async () => {
+    const { row } = await streamed();
+    const parts = (row as unknown as { mipParts: Record<string, unknown>[] }).mipParts;
+    expect(mipPartsOf({ ...row, mipParts: [parts[0], parts[2]] } as unknown as DeclaredAssetRow)).toBeNull();
+    expect(mipPartsOf({ ...row, mipParts: [{ ...parts[0], path: 'content/sha256/x' }, parts[1], parts[2]] } as unknown as DeclaredAssetRow)).toBeNull();
+    expect(mipPartsOf({ ...row, sourceByteLength: 301 })).toBeNull();
+    expect(mipPartsOf({ ...row, kind: 'model' })).toBeNull();
   });
 });

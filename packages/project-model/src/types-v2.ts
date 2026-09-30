@@ -520,6 +520,8 @@ export interface GameplaySettings {
   render_backend?: number;
   /** Where the simulation runs in Play and the export (1 a worker, 2 the page's main thread; absent: 1). */
   sim_thread?: number;
+  /** The texture budget of Play and the export in MiB (absent: `TEXTURE_BUDGET_DEFAULT_MB`). */
+  texture_budget_mb?: number;
 }
 
 // ---- content block and captured view ---------------------------------

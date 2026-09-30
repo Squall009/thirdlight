@@ -393,6 +393,11 @@ export interface WorkspaceService {
    * One result per request, in order; the same errors as `readBlob`.
    */
   locateBlobs(projectId: string, requests: readonly BlobReadRequest[]): { ok: true; results: LocateBlobResult[] } | { ok: false; error: CommandError };
+  /**
+   * A streamed texture's parts (its KTX2 cut by mip level into the import
+   * cache the first time; `parts: null`: nothing to stream, it ships whole).
+   */
+  locateMipParts(projectId: string, whole: BlobFile): { ok: true; parts: import('./mip-parts').MipPartFile[] | null } | { ok: false; error: CommandError };
   /** Where a stored blob is (instance buffers), checked by its stamp. */
   locateSourceBlob(projectId: string, digest: string): { ok: true; file: BlobFile } | { ok: false; error: CommandError };
   /**

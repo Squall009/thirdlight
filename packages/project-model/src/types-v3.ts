@@ -356,6 +356,8 @@ export interface AssetRecordV3 {
   loadType?: import('./audio-assets').AudioLoadType;
   /** Audio only: false = read only when played (absent: read with the scene that uses it). */
   preload?: false;
+  /** Texture only: stream its mips (absent: on for a KTX2 chain over 1024 px; `texture-streaming.ts`). */
+  streaming?: boolean;
 }
 
 /** The v3 content block: the accepted five keys plus the required `game`. */

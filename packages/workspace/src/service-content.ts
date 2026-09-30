@@ -72,7 +72,8 @@ import {
   type StageRequest,
   type StageResult,
 } from './content-store';
-import { pathRejected, projectNotFound, projectUnavailable } from './errors';
+import { contentPublishFailed, pathRejected, projectNotFound, projectUnavailable } from './errors';
+import { locateMipParts, type MipPartFile } from './mip-parts';
 import { scanAssetFolder, writeUploadedFile, type FolderImportScan, type PreparedImportFile } from './folder-import';
 import { deepFreeze } from './isolate';
 import { ensureSession, type Core, type ProjectSession } from './session';
@@ -359,6 +360,17 @@ export function contentOps(core: Core) {
           const results = requests.map((r) => locateBlob(ctx, r));
           stampsOfSession(s).save();
           return { ok: true, results };
+        },
+        (error) => ({ ok: false, error }),
+      ),
+    /** A located texture's streaming parts (cut into the import cache the first time; `parts: null`: it ships whole). */
+    locateMipParts: (projectId: string, whole: BlobFile): { ok: true; parts: MipPartFile[] | null } | { ok: false; error: CommandError } =>
+      withOpenSession<{ ok: true; parts: MipPartFile[] | null } | { ok: false; error: CommandError }>(
+        projectId,
+        (s) => {
+          const r = locateMipParts(core, contentCtx(s), whole);
+          stampsOfSession(s).save();
+          return r.ok ? r : { ok: false, error: contentPublishFailed('write') };
         },
         (error) => ({ ok: false, error }),
       ),

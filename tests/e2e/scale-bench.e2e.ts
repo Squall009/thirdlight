@@ -2,7 +2,8 @@
  * The scale bench end to end at its small size: the generated project opens
  * in the real backend and the editor, takes commands, plays (scene loads,
  * a script loading assets by a label and releasing them, a voiced dialogue
- * played through) and exports, and every number the bench
+ * played through, large textures streamed past the camera under a small
+ * texture budget) and exports, and every number the bench
  * reports is there. Checks the plumbing, not speed; the numbers at full size
  * are recorded by `node tools/perf/run.mjs scale` (docs/plan-phase-26.md).
  */
@@ -19,7 +20,7 @@ import { generateScaleProject, SCALE_SMALL } from '../../tools/perf/scale-genera
 const root = join(PERF_ROOT, 'e2e', `scale-${process.pid}-${Date.now()}`);
 test.afterEach(() => rmSync(root, { recursive: true, force: true }));
 
-test('the scale bench generates, opens, edits, plays, walks scenes, loads by label, plays a voiced dialogue and exports', async () => {
+test('the scale bench generates, opens, edits, plays, walks scenes, loads by label, plays a voiced dialogue, streams textures and exports', async () => {
   test.setTimeout(300_000);
   const generated = generateScaleProject(join(root, 'data'), 'scale', SCALE_SMALL);
   const bench = new ScaleBench({
@@ -32,7 +33,9 @@ test('the scale bench generates, opens, edits, plays, walks scenes, loads by lab
     commands: 3,
     walk: 3,
     lines: SCALE_SMALL.walkthroughLines,
-    steps: ['files', 'open', 'commands', 'play', 'walk', 'handles', 'dialogue', 'export'],
+    streamTextures: 2,
+    streamBudgetMb: 8,
+    steps: ['files', 'open', 'commands', 'play', 'walk', 'handles', 'dialogue', 'stream', 'export'],
     log: () => undefined,
   });
   const r = await bench.run();
@@ -63,6 +66,13 @@ test('the scale bench generates, opens, edits, plays, walks scenes, loads by lab
   expect(r.dialogue!.linesSeen).toBe(SCALE_SMALL.walkthroughLines);
   expect(r.dialogue!.voicesHeard).toBe(SCALE_SMALL.walkthroughLines);
   expect(r.dialogue!.gapMs.n).toBe(SCALE_SMALL.walkthroughLines - 1);
+  // Two large KTX2 textures brought up to the camera in turn under an 8 MiB budget: each reached full size, inside the budget.
+  expect(r.stream!.textures).toBe(2);
+  expect(r.stream!.upgradeMs.n).toBe(2);
+  expect(r.stream!.fullChainBytes).toBeGreaterThan(r.stream!.tailBytes * 50);
+  expect(r.stream!.maxResidentBytes).toBeLessThanOrEqual(r.stream!.budgetBytes);
+  expect(r.stream!.overBudgetSamples).toBe(0);
+  expect(r.stream!.afterBytes).toBe(0);
   expect(r.export!.files).toBeGreaterThan(0);
   expect(r.export!.firstFrameMs).toBeGreaterThan(0);
   expect(r.export!.state).toBe('running');

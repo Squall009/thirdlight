@@ -24,7 +24,7 @@ import { createHash } from 'node:crypto';
 import { lstatSync, mkdirSync, readdirSync, realpathSync, renameSync, rmSync, statSync, unlinkSync, utimesSync } from 'node:fs';
 import { dirname, join, sep } from 'node:path';
 
-import { audioLoadOf, DEFAULT_ASSET_FOLDER, isValidSourcePath } from '@thirdlight/project-model';
+import { audioLoadOf, DEFAULT_ASSET_FOLDER, isValidSourcePath, textureHasStreamableChain, textureStreamingOf } from '@thirdlight/project-model';
 import type { ContentCatalogV4 } from '@thirdlight/project-model';
 import type { ChangeData, CommandError } from '@thirdlight/commands';
 
@@ -115,6 +115,7 @@ export interface RecordLike {
   readonly vertexColors?: string;
   readonly materials?: Readonly<Record<string, string>>;
   readonly clipsFor?: string;
+  readonly streaming?: boolean;
 }
 
 export function currentVersionOf(record: RecordLike): VersionLike | undefined {
@@ -194,6 +195,8 @@ export function importSettingsOf(record: RecordLike): Record<string, unknown> {
   if (record.clipsFor !== undefined) out['clipsFor'] = record.clipsFor;
   // An audio file's load settings as the game uses them (the record stores only a changed one).
   if (record.kind === 'audio') Object.assign(out, audioLoadOf(record));
+  // A texture with a mip chain to stream says whether it streams (the record stores only a chosen value).
+  if (record.kind === 'texture' && textureHasStreamableChain(v?.metrics)) out['streaming'] = textureStreamingOf(record);
   return out;
 }
 
@@ -242,7 +245,7 @@ type Core = { ops: WriteOps; content: ContentConfig };
  * importing a thousand files does not wait on a thousand flushes. A crash can
  * lose such a write, never tear the project's own files.
  */
-function rebuildable(core: Core): Core {
+export function rebuildable(core: Core): Core {
   return { ...core, ops: { ...core.ops, fsyncFile: () => undefined, fsyncDir: () => undefined } };
 }
 

@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import type { SceneV4 } from '@thirdlight/project-model';
 
-import { applyMutation, createCommandState } from './index';
+import { applyMutation, createCommandState, queryAssets } from './index';
 import type { CommandState } from './index';
 import { m2EnvelopeV4 } from './test-fixtures';
 
@@ -132,5 +132,35 @@ describe('packed textures and texture arrays', () => {
     expect(graph.ok, JSON.stringify(graph.result).slice(0, 400)).toBe(true);
     const sky = run(s, 'setEnvironment', { environment: { sky: { mode: 'texture', texture: 'tex-arr' } } });
     expect(sky.ok).toBe(false);
+  });
+});
+
+describe('texture mip streaming (setAssetOptions streaming)', () => {
+  const BIG = { format: 'ktx2', width: 2048, height: 2048, decodedBytes: 2048 * 2048 * 4, codec: 'etc1s', levels: 12 };
+  const recOf = (s: State, id: string) => (s.content as unknown as { assets: { assetId: string; streaming?: boolean }[] }).assets.find((a) => a.assetId === id)!;
+  const summaryOf = (s: State, id: string) => {
+    const r = queryAssets(s as never, { op: 'queryAssets', projectId: BEFORE.projectId, args: { limit: 100, offset: 0 } }) as unknown as { items?: { assetId: string; streaming?: unknown }[]; assets?: { assetId: string; streaming?: unknown }[] };
+    return (r.items ?? r.assets ?? []).find((a) => a.assetId === id)?.streaming;
+  };
+
+  it('on by default over 1024 px, stored only when chosen, one undo; null goes back to the default', () => {
+    let s = run(fresh(), 'publishAsset', publish({ assetId: 'big', metrics: BIG })).state;
+    s = run(s, 'publishAsset', publish({ assetId: 'small' })).state;
+    expect(summaryOf(s, 'big')).toEqual({ on: true, set: false, possible: true });
+    // 64 px: every level is in the 128 px tail, nothing to stream.
+    expect(summaryOf(s, 'small')).toEqual({ on: false, set: false, possible: false });
+    const off = run(s, 'setAssetOptions', { assetId: 'big', streaming: false });
+    expect(off.ok, JSON.stringify(off.result)).toBe(true);
+    expect(recOf(off.state, 'big').streaming).toBe(false);
+    expect(summaryOf(off.state, 'big')).toEqual({ on: false, set: true, possible: true });
+    expect(recOf(run(off.state, 'undo', {}).state, 'big').streaming).toBeUndefined();
+    expect('streaming' in recOf(run(off.state, 'setAssetOptions', { assetId: 'big', streaming: null }).state, 'big')).toBe(false);
+  });
+
+  it('textures only, and a boolean or null', () => {
+    const s = run(fresh(), 'publishAsset', publish({ assetId: 'big', metrics: BIG })).state;
+    expect(run(s, 'setAssetOptions', { assetId: 'big', streaming: 'yes' }).ok).toBe(false);
+    const model = (BEFORE.content as unknown as { assets: { assetId: string; kind?: string }[] }).assets.find((a) => a.kind === 'model' || a.kind === undefined);
+    if (model !== undefined) expect(run(s, 'setAssetOptions', { assetId: model.assetId, streaming: true }).ok).toBe(false);
   });
 });

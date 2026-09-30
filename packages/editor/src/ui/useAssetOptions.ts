@@ -1,7 +1,7 @@
 /**
  * The asset inspector's options (the Assets tab's side panel): a model's
  * vertex colours and default materials, an audio file's load type and
- * preload. Each change is one `setAssetOptions` command (one undo).
+ * preload, a texture's mip streaming. Each change is one `setAssetOptions` command (one undo).
  */
 import { useCallback, type MutableRefObject } from 'react';
 
@@ -23,5 +23,9 @@ export function useAssetOptions(clientRef: MutableRefObject<SessionClient | null
   /** Null: the default for the file's length. */
   const setAudioLoadType = useCallback((assetId: string, loadType: AudioLoadTypeChoice) => setOptions('Audio load type', { assetId, loadType }), [setOptions]);
   const setAudioPreload = useCallback((assetId: string, preload: boolean) => setOptions('Audio preload', { assetId, preload }), [setOptions]);
-  return { setAssetMaterials, setVertexColors, setAudioLoadType, setAudioPreload };
+  /** Null: the default for the texture's size. */
+  const setTextureStreaming = useCallback((assetId: string, streaming: boolean | null) => setOptions('Texture streaming', { assetId, streaming }), [setOptions]);
+  return { setAssetMaterials, setVertexColors, setAudioLoadType, setAudioPreload, setTextureStreaming };
 }
+
+export type AssetOptionActions = ReturnType<typeof useAssetOptions>;

@@ -10,7 +10,7 @@
  *
  * Results never carry bytes, blobs or staging handles.
  */
-import { ASSET_QUERY_PAGE_DEFAULT, ASSET_QUERY_PAGE_MAX, audioSummaryOf } from '@thirdlight/project-model';
+import { ASSET_QUERY_PAGE_DEFAULT, ASSET_QUERY_PAGE_MAX, audioSummaryOf, textureHasStreamableChain, textureStreamingOf } from '@thirdlight/project-model';
 
 import { ID_RE, fieldType, fieldUnexpected, fieldValue, invalidRequest, isPlainObject } from './errors';
 import { assetKindOf } from './v3';
@@ -245,6 +245,8 @@ export function queryAssets(
     if ((a.kind as string) === 'texture') {
       const m = current?.metrics as { format: string; width: number; height: number; codec?: 'etc1s' | 'uastc'; levels?: number; layers?: number } | undefined;
       if (m !== undefined) summary.image = { format: m.format, width: m.width, height: m.height, ...(m.codec !== undefined ? { codec: m.codec } : {}), ...(m.levels !== undefined ? { levels: m.levels } : {}), ...(m.layers !== undefined ? { layers: m.layers } : {}) };
+      const own = (a as { streaming?: boolean }).streaming;
+      summary.streaming = { on: textureStreamingOf(a), set: typeof own === 'boolean', possible: textureHasStreamableChain(current?.metrics) };
     }
     const audio = audioSummaryOf(a);
     if (audio !== undefined) summary.audio = audio;

@@ -32,6 +32,8 @@ export interface HostAssetsConfig {
    * failed (then nothing stays held for `holder`). Absent: scripts' loads fail.
    */
   readonly loadAssets?: (key: string, holder: string) => Promise<readonly string[]>;
+  /** The texture streamer's report (resident texture bytes against the budget; the page's renderer makes it); absent: none. */
+  readonly textureStreaming?: () => object;
 }
 
 /** One script handle as the observation and the report show it. */
@@ -60,6 +62,8 @@ export interface GameResourcesObservation extends ResourceObservation {
   /** Handles still open when a run ended (a restart): released then; the last 32, `notReleasedCount` all. */
   readonly notReleased?: readonly ScriptHandleReport[];
   readonly notReleasedCount?: number;
+  /** Texture streaming: resident texture bytes against the budget, each streamed texture's levels. */
+  readonly textures?: object;
 }
 
 export interface HostAssets {
@@ -178,6 +182,7 @@ export function createHostAssets(config: HostAssetsConfig, live: () => boolean):
         handles: handles.size,
         ...(open.length > 0 ? { open } : {}),
         ...(notReleasedCount > 0 ? { notReleased: [...notReleased], notReleasedCount } : {}),
+        ...(config.textureStreaming !== undefined ? { textures: config.textureStreaming() } : {}),
       };
     },
     dispose() {

@@ -66,6 +66,7 @@ import {
 import { instanceOrigin, standardNodeMaterialFrom } from './node-materials';
 import { decodeKtx2, isKtx2 } from './ktx2';
 import { textureHolds, type TextureHolds } from './texture-holds';
+import { SAMPLED_TEXTURES_KEY } from './texture-streaming';
 import type { ResourceManager } from '@thirdlight/runtime';
 
 export type MaterialShaderName = 'standard' | 'foliage' | 'kit' | 'unlit' | 'water';
@@ -615,8 +616,22 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     return t;
   };
 
-  const compileEntry = (def: MaterialDefLike, digest: string): CompiledMaterialGraph =>
-    compileMaterialGraph({ graph: def.graph!, ...(def.parameters !== undefined ? { parameters: def.parameters } : {}) }, { globals: nodeGlobals, texture: samplerTexture, fn: fnOf, overrideKey: digest });
+  /** The textures each compile samples (a node graph's textures are not material properties; the texture streamer reads them). */
+  const sampledBy = new WeakMap<CompiledMaterialGraph, THREE.Texture[]>();
+  const compileEntry = (def: MaterialDefLike, digest: string): CompiledMaterialGraph => {
+    const sampledNow: THREE.Texture[] = [];
+    const texture = (assetId: string, sampler: SamplerLike): THREE.Texture | 'loading' | null => {
+      const t = samplerTexture(assetId, sampler);
+      if (t instanceof THREE.Texture) sampledNow.push(t);
+      return t;
+    };
+    const compiled = compileMaterialGraph({ graph: def.graph!, ...(def.parameters !== undefined ? { parameters: def.parameters } : {}) }, { globals: nodeGlobals, texture, fn: fnOf, overrideKey: digest });
+    sampledBy.set(compiled, sampledNow);
+    return compiled;
+  };
+  const markSampled = (e: { material: THREE.Material; compiled: CompiledMaterialGraph }): void => {
+    e.material.userData[SAMPLED_TEXTURES_KEY] = sampledBy.get(e.compiled) ?? [];
+  };
   /** A compiled graph holds what it samples. */
   const holdGraphTextures = (e: GraphEntry): void => {
     for (const id of e.compiled.textures) void texture(id, graphHolder(e.digest));
@@ -626,6 +641,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     e.compiled = compileEntry(e.def, e.digest);
     holdGraphTextures(e);
     applyGraphNodes(e.material as unknown as MeshStandardNodeMaterial, e.compiled);
+    markSampled(e);
     // The previous compile's data placeholders go with it.
     for (const t of old.ownedTextures) t.dispose();
   }
@@ -646,6 +662,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     const material = buildGraphMaterial(compiled, def.name);
     const e: GraphEntry = { canonical, digest, def, material, compiled };
     graphEntries.set(digest, e);
+    markSampled(e);
     holdGraphTextures(e);
     return e;
   };

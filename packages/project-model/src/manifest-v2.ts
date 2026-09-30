@@ -309,6 +309,21 @@ export interface ManifestAssetInputV2 {
   /** Audio: how the game holds the file and whether it is read with its scene (defaults applied). */
   loadType?: import('./audio-assets').AudioLoadType;
   preload?: boolean;
+  /**
+   * Texture: a streamed KTX2's parts (`ktx2-levels.ts`: the head with the
+   * mip tail, then one part per larger level), each a file of its own.
+   */
+  mipParts?: readonly ManifestMipPart[];
+}
+
+/** One part of a streamed texture as the catalog lists it (its file by digest, the levels in it). */
+export interface ManifestMipPart {
+  digest: string;
+  byteLength: number;
+  /** Where the part starts in the whole KTX2 file. */
+  offset: number;
+  /** Mip levels (0 = largest) whose data lie in this part. */
+  levels: readonly number[];
 }
 
 /** The v2 manifest document (field order = `MANIFEST_KEYS_V2`; `buildId` last). */
@@ -469,7 +484,7 @@ export const M3_SETTINGS_KEYS = [
  * when the project sets them), in registry order — a project that never sets
  * one keeps its exact settings block and digests.
  */
-export const M3_OPTIONAL_SETTINGS_KEYS = ['fixed_step_hz', 'audio_voices', 'music_fade_s', 'animation_crossfade_s', 'render_backend', 'physics_dimension', 'sim_thread', 'debug_console', 'random_seed', 'depth_buffer', 'audio_spatial'] as const;
+export const M3_OPTIONAL_SETTINGS_KEYS = ['fixed_step_hz', 'audio_voices', 'music_fade_s', 'animation_crossfade_s', 'render_backend', 'physics_dimension', 'sim_thread', 'debug_console', 'random_seed', 'depth_buffer', 'instance_chunk_m', 'audio_spatial', 'texture_budget_mb'] as const;
 
 // ---------------------------------------------------------------------------
 // Media identity (`media`)
@@ -751,6 +766,9 @@ export function manifestAssetRow(a: ManifestAssetInputV2): Record<string, unknow
     ...(a.bounds !== undefined ? { bounds: boundsCopy(a.bounds) } : {}),
     ...(a.durationMs !== undefined && a.kind === 'audio' ? { durationMs: a.durationMs } : {}),
     ...(a.loadType !== undefined && a.kind === 'audio' ? { loadType: a.loadType, preload: a.preload !== false } : {}),
+    ...(a.mipParts !== undefined && a.kind === 'texture'
+      ? { mipParts: a.mipParts.map((p) => ({ path: `content/sha256/${p.digest}`, digest: p.digest, byteLength: p.byteLength, offset: p.offset, levels: [...p.levels] })) }
+      : {}),
   };
 }
 

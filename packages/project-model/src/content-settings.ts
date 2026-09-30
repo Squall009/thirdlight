@@ -15,6 +15,7 @@ import type { SettingsMap } from './types-v2';
 import { PROPERTY_KEY_RE } from './components';
 import { AUDIO_VOICE_CAP, AUDIO_VOICES_DEFAULT, MAX_SETTINGS_KEYS } from './content-limits';
 import { limitsError, sortedKeys } from './content-helpers';
+import { TEXTURE_BUDGET_DEFAULT_MB, TEXTURE_BUDGET_MAX_MB, TEXTURE_BUDGET_MIN_MB } from './texture-streaming';
 
 // ---- settings registry ------------------------------------------
 
@@ -122,6 +123,11 @@ export const M2_SETTINGS_KEYS: readonly SettingsKeySpec[] = [
   // INSTANCE_CHUNK_METERS, the same value).
   { key: 'instance_chunk_m', type: 'number', default: 32, min: 1, max: 4096, unit: 'm', optional: true, group: 'Rendering', label: 'Instance chunk size', tooltip: 'Instance sets are drawn in square chunks of about this size (m), each hidden when out of view and given its level of detail on its own. Smaller: finer culling and LOD, more draw calls. A set can set its own.' },
   { key: 'audio_spatial', type: 'number', default: 0, values: [0, 1, 2], valueLabels: ['Automatic (2D: by distance to the player, 3D: panned)', 'By distance to the player (X)', 'Panned (listener on the camera)'], integer: true, unit: '', optional: true, group: 'Engine', label: 'Audio sources', tooltip: 'How audio sources are heard: by their X distance to the player (the 2D default, no panning) or through a panner with the listener on the active camera (the 3D default: left/right panning and each source\'s distance model). Script sounds with a position are always panned.' },
+  // The texture budget of Play and the export (MiB; project-model
+  // TEXTURE_BUDGET_DEFAULT_MB, where the default's reason is): streamed
+  // textures load the mips their on-screen size needs inside it, the least
+  // needed dropped first when it is full.
+  { key: 'texture_budget_mb', type: 'number', default: TEXTURE_BUDGET_DEFAULT_MB, min: TEXTURE_BUDGET_MIN_MB, max: TEXTURE_BUDGET_MAX_MB, integer: true, unit: 'MiB', optional: true, group: 'Rendering', label: 'Texture budget', tooltip: 'GPU memory (MiB) for textures in Play and the export. Streamed textures (large KTX2 textures; per texture in its import settings) load the detail their size on screen needs inside it; when it is full, the least-needed detail is dropped first.' },
 ];
 
 /** The simulation's dimension (the `physics_dimension` setting's values). */

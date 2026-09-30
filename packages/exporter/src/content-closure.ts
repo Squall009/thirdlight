@@ -27,7 +27,7 @@ import type { GameMode } from '@thirdlight/project-model';
 import type { EventCue, GameShell, TimelineAsset } from '@thirdlight/project-model';
 import type { AnimatorController, EnvironmentConfig, PrefabDefinition, InputConfig, LightingMap, MaterialDef, UiDocument, UiTheme } from '@thirdlight/project-model';
 import { animatorsForRuntime, effectsForRuntime, type EffectDef, materialFunctionsForRuntime, materialsForRuntime, type GraphDocument, captureContentViewV3, captureManifestV5, dependencyTables, scanDependencies, M3_ENGINE_PINS, resolveMediaIdentityV3, sha256Hex, type GameplaySettings, type ManifestAssetInputV2, type ManifestAssetInputV5, type ManifestBehaviorInput, type MediaBlock, type RuntimeContentManifestV5, type ManifestSceneRow, physicsDimensionOf, resolveRequiredModules, materialsInUse, resolveMaterialInstances, loadableAssetIds, loadableResourceIds, loadableRows, scriptLibraryContainerText, scriptLibraryDigest, type ScriptLibrary } from '@thirdlight/project-model';
-import { ASSET_QUERY_PAGE_MAX, audioLoadOf, MODEL_RIG_LIMITS, readModelRig, type AudioLoadType, type ModelRig } from '@thirdlight/project-model';
+import { ASSET_QUERY_PAGE_MAX, audioLoadOf, MODEL_RIG_LIMITS, readModelRig, textureStreamingOf, type AudioLoadType, type ManifestMipPart, type ModelRig } from '@thirdlight/project-model';
 import type { BlobFile, WorkspaceService } from '@thirdlight/workspace';
 
 /** The injected compiler port (structural; no behavior-build edge). */
@@ -106,6 +106,13 @@ export interface ClosureFileArtifact {
   contentType: string;
   /** Where the workspace found it (backend-internal; `real` is a host path). */
   file: BlobFile;
+}
+
+/** A streamed texture of the closure: its whole KTX2's digest and its parts, in file order. */
+export interface ClosureStreamedTexture {
+  assetId: string;
+  digest: string;
+  parts: readonly ClosureFileArtifact[];
 }
 
 /** One reachable source-bearing behavior of the closure. */
@@ -239,6 +246,11 @@ export interface ContentClosureM3 {
   assetFiles: readonly ClosureFileArtifact[];
   /** With `locate`: the instance-set buffers found on disk. */
   bufferFiles: readonly ClosureFileArtifact[];
+  /**
+   * With `locate`: the streamed textures, each shipped as its parts (the
+   * KTX2 cut by mip level, in file order) instead of its whole file.
+   */
+  streamedTextures: readonly ClosureStreamedTexture[];
   /** The decoders the shipped assets need, from their records (a model's used extensions, a KTX2 texture). */
   decoders: readonly ('draco' | 'basis')[];
   /**
@@ -633,6 +645,8 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
     found,
     expected: a.sourceDigest,
   });
+  const streamedTextures: ClosureStreamedTexture[] = [];
+  const mipPartsOf = new Map<string, ManifestMipPart[]>();
   const located = locate ? service.locateBlobs(projectId, view.assets.map((a) => ({ assetId: a.assetId, version: a.version }))) : null;
   if (located !== null && !located.ok) return { ok: false, error: fromCommandError(located.error) };
   for (let i = 0; i < view.assets.length; i += 1) {
@@ -641,7 +655,18 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
       const at = located.ok ? located.results[i]! : null;
       if (at === null || !at.ok) return { ok: false, error: readError(at!.ok ? ({ code: 'internal', cls: 'internal', message: 'unreachable' } as never) : at!.error) };
       if (at.file.digest !== a.sourceDigest || at.file.byteLength !== a.sourceByteLength) return { ok: false, error: mismatch(a, at.file.digest) };
-      assetFiles.push({ path: `content/sha256/${at.file.digest}`, digest: at.file.digest, byteLength: at.file.byteLength, contentType: ASSET_CONTENT_TYPE[a.kind], file: at.file });
+      // A streamed texture ships as its parts (the page reads the mip tail first, then the levels it needs).
+      const rec = a.kind === 'texture' ? recordsById.get(a.assetId) : undefined;
+      if (rec !== undefined && textureStreamingOf(rec as Parameters<typeof textureStreamingOf>[0])) {
+        const cut = service.locateMipParts(projectId, at.file);
+        if (!cut.ok) return { ok: false, error: fromCommandError(cut.error) };
+        if (cut.parts !== null) {
+          const parts = cut.parts.map((p) => ({ path: `content/sha256/${p.digest}`, digest: p.digest, byteLength: p.byteLength, contentType: 'application/octet-stream', file: p.file }));
+          streamedTextures.push({ assetId: a.assetId, digest: at.file.digest, parts });
+          mipPartsOf.set(a.assetId, cut.parts.map((p) => ({ digest: p.digest, byteLength: p.byteLength, offset: p.offset, levels: [...p.levels] })));
+        }
+      }
+      if (!mipPartsOf.has(a.assetId)) assetFiles.push({ path: `content/sha256/${at.file.digest}`, digest: at.file.digest, byteLength: at.file.byteLength, contentType: ASSET_CONTENT_TYPE[a.kind], file: at.file });
     } else {
       const read = service.readBlob(projectId, { assetId: a.assetId, version: a.version });
       if (!read.ok) return { ok: false, error: readError(read.error) };
@@ -669,6 +694,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
       ...(a.kind === 'audio' && durationOf(a.assetId, a.version) !== undefined ? { durationMs: durationOf(a.assetId, a.version)! } : {}),
       // How the game holds the file (the runtime's audio loading reads it).
       ...(a.kind === 'audio' ? audioLoadRowOf(a.assetId) : {}),
+      ...(mipPartsOf.has(a.assetId) ? { mipParts: mipPartsOf.get(a.assetId)! } : {}),
     });
   }
   // The decoders the shipped assets need, from what their records say (the bytes are not read here).
@@ -868,7 +894,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
   assetFiles.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   behaviorArtifacts.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   behaviors.sort((a, b) => (a.behaviorId < b.behaviorId ? -1 : a.behaviorId > b.behaviorId ? 1 : 0));
-  const declaredPaths = [...new Set([...assetArtifacts.map((a) => a.path), ...assetFiles.map((a) => a.path), ...behaviorArtifacts.map((a) => a.path), ...libraryArtifacts.map((a) => a.path), ...sceneArtifacts.map((a) => a.path), ...bufferArtifacts.map((a) => a.path), ...bufferFiles.map((a) => a.path), ...contentFileArtifacts.map((a) => a.path)])].sort();
+  const declaredPaths = [...new Set([...assetArtifacts.map((a) => a.path), ...assetFiles.map((a) => a.path), ...behaviorArtifacts.map((a) => a.path), ...libraryArtifacts.map((a) => a.path), ...sceneArtifacts.map((a) => a.path), ...bufferArtifacts.map((a) => a.path), ...bufferFiles.map((a) => a.path), ...streamedTextures.flatMap((t) => t.parts.map((p) => p.path)), ...contentFileArtifacts.map((a) => a.path)])].sort();
   return {
     ok: true,
     closure: {
@@ -888,6 +914,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
       bufferArtifacts,
       assetFiles,
       bufferFiles,
+      streamedTextures,
       decoders: [...decoders].sort(),
       contentFileArtifacts,
       libraryArtifacts,

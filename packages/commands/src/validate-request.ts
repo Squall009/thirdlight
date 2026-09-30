@@ -942,14 +942,19 @@ function validateSetAssetOptionsArgs(args: Record<string, unknown>):
   | { ok: true; args: SetAssetOptionsArgs }
   | { ok: false; error: CommandError } {
   for (const key of Object.keys(args)) {
-    if (key !== 'assetId' && key !== 'vertexColors' && key !== 'materials' && key !== 'clipsFor' && key !== 'sourcePath' && key !== 'loadType' && key !== 'preload') {
-      return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(key)}`, key, 'assetId, vertexColors, materials, clipsFor, sourcePath, loadType, preload') };
+    if (key !== 'assetId' && key !== 'vertexColors' && key !== 'materials' && key !== 'clipsFor' && key !== 'sourcePath' && key !== 'loadType' && key !== 'preload' && key !== 'streaming') {
+      return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(key)}`, key, 'assetId, vertexColors, materials, clipsFor, sourcePath, loadType, preload, streaming') };
     }
   }
   if (args['assetId'] === undefined) return { ok: false, error: fieldMissing('/args/assetId', 'assetId') };
   if (typeof args['assetId'] !== 'string') return { ok: false, error: fieldType('/args/assetId', args['assetId'], 'string (asset ID)') };
-  if (args['vertexColors'] === undefined && args['materials'] === undefined && args['clipsFor'] === undefined && args['sourcePath'] === undefined && args['loadType'] === undefined && args['preload'] === undefined) {
-    return { ok: false, error: fieldMissing('/args/vertexColors', 'vertexColors, materials, clipsFor, sourcePath, loadType or preload') };
+  if (args['vertexColors'] === undefined && args['materials'] === undefined && args['clipsFor'] === undefined && args['sourcePath'] === undefined && args['loadType'] === undefined && args['preload'] === undefined && args['streaming'] === undefined) {
+    return { ok: false, error: fieldMissing('/args/vertexColors', 'vertexColors, materials, clipsFor, sourcePath, loadType, preload or streaming') };
+  }
+  // A texture's mip streaming (null: the default for its size).
+  const streaming = args['streaming'];
+  if (streaming !== undefined && streaming !== null && typeof streaming !== 'boolean') {
+    return { ok: false, error: fieldType('/args/streaming', streaming, 'boolean (stream the texture\'s mips) or null (the default: on for a KTX2 texture over 1024 px)') };
   }
   // An audio file's load settings.
   const loadType = args['loadType'];
@@ -988,6 +993,7 @@ function validateSetAssetOptionsArgs(args: Record<string, unknown>):
       ...(sourcePath !== undefined ? { sourcePath: sourcePath as string } : {}),
       ...(loadType !== undefined ? { loadType: loadType as SetAssetOptionsArgs['loadType'] } : {}),
       ...(preload !== undefined ? { preload } : {}),
+      ...(streaming !== undefined ? { streaming: streaming as boolean | null } : {}),
     },
   };
 }

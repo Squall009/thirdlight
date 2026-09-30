@@ -48,6 +48,9 @@ for (const path of process.argv.slice(2)) {
   }
   const d = r.dialogue;
   if (d) console.log(`dialogue ${d.lines}: seen ${d.linesSeen}, heard ${d.voicesHeard}; line→voice p50 ${f(d.startLatencyMs.p50)} / p95 ${f(d.startLatencyMs.p95)} / max ${f(d.startLatencyMs.max)} ms; gap p50 ${f(d.gapMs.p50)} / p95 ${f(d.gapMs.p95)} / max ${f(d.gapMs.max)} ms; wall ${f(d.wallMs / 1000, 1)} s`);
+  const st = r.stream;
+  if (st) console.log(`stream ${st.textures} × 2048² KTX2 under ${f(st.budgetBytes / 1048576, 1)} MiB: full chain ${f(st.fullChainBytes / 1048576, 2)} MiB, tail ${f(st.tailBytes / 1024, 1)} KiB; close → full size p50 ${f(st.upgradeMs.p50)} / p95 ${f(st.upgradeMs.p95)} / max ${f(st.upgradeMs.max)} ms; resident texture bytes max ${f(st.maxResidentBytes / 1048576, 2)} MiB over ${st.samples} observations (${st.overBudgetSamples} over the budget), after the unload ${f(st.afterBytes / 1048576, 2)} MiB; ${st.upgrades} levels read, ${st.drops} drops; import ${f(st.importMs / 1000, 1)} s (backend RSS ${f(st.importBackendRssMiB?.before)} → ${f(st.importBackendRssMiB?.after)} MiB)`);
+  if (w?.after?.textures) console.log(`walk texture bytes (budget ${f(w.after.textures.budgetBytes / 1048576)} MiB): before ${f(w.before.textures?.residentBytes / 1048576, 2)} → most ${f(Math.max(...w.loaded.map((m) => m.textures?.residentBytes ?? 0)) / 1048576, 2)} → after ${f(w.after.textures.residentBytes / 1048576, 2)} MiB`);
   const e = r.export;
   if (e) console.log(`export: ${e.ms} ms, backend resident ${f(e.backendRssBeforeMiB)} → peak ${f(e.backendRssPeakMiB)} MiB, ${e.files} files, ${f(e.bytes / 1048576, 1)} MiB, first frame ${f(e.firstFrameMs)} ms, ${e.state}${e.pageErrors.length ? `, errors ${e.pageErrors.join(' | ')}` : ''}`);
   for (const [k, v] of Object.entries(r.broke)) console.log(`BROKE ${k}: ${v.slice(0, 400)}`);

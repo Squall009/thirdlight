@@ -84,6 +84,11 @@ export interface ResourceManager {
   release(kind: ResourceKind, key: string, holder: string): void;
   /** Let go of everything this holder holds. */
   releaseHolder(holder: string): void;
+  /**
+   * A loaded resource's resident size changed (a streamed texture gained or
+   * dropped mip levels). Only while `value` is still the entry's value.
+   */
+  resize(kind: ResourceKind, key: string, value: unknown, bytes: number): void;
   /** The value when it is loaded (undefined while loading or absent). */
   peek<T>(kind: ResourceKind, key: string): T | undefined;
   /** Whether the resource is loaded or loading. */
@@ -267,6 +272,10 @@ export function createResourceManager(options: ResourceManagerOptions = {}): Res
       const set = byHolder.get(holder);
       if (set === undefined) return;
       for (const e of [...set]) dropHolder(e, holder);
+    },
+    resize(kind, key, value, bytes) {
+      const e = entries.get(idOf(kind, key));
+      if (e !== undefined && e.state === 'ready' && e.value === value && Number.isFinite(bytes) && bytes >= 0) e.bytes = bytes;
     },
     peek<T>(kind: ResourceKind, key: string): T | undefined {
       const e = entries.get(idOf(kind, key));

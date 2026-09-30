@@ -17,6 +17,7 @@ import type { GlbLoaderPort } from './visual';
 import type { ShadowReason } from './lighting';
 import type { EffectDefLike, EffectsDiagnostics, EffectsPlayerOptions } from './effects-player';
 import type { AutoBatcherDiagnostics } from './batching';
+import type { TextureStreamer, TextureStreamingObservation } from './texture-streaming';
 import type { RendererFactoryDeps, RendererInfo, RendererMemoryCounts, RendererPreference, RendererPreferenceSource } from './renderer-factory';
 
 /** The runtime instance driving this scene (frame source + camera). */
@@ -33,6 +34,12 @@ export interface SceneAdapterOptions {
    * manager of the adapter's own.
    */
   resources?: ResourceManager;
+  /**
+   * The page's texture streamer (streamed KTX2 textures come from it
+   * through the texture decoder): before each frame it is told what the
+   * camera sees, and it loads and drops mip levels inside its budget.
+   */
+  textureStreamer?: TextureStreamer;
   /** The injected model surface — the
    *  resolved model-asset rows, the committed per-`modelAnimation`-entity
    *  mappings and the wrapper's verified-bytes resolver. Absent ⇒ no
@@ -206,6 +213,8 @@ export interface SceneAdapterDiagnostics {
    * scripts set, with their data textures; ABSENT without project materials.
    */
   materials?: { graphMaterials: number } & RuntimeMaterialsDiagnostics;
+  /** Texture streaming: resident texture bytes against the budget and each streamed texture's levels; ABSENT without a streamer. */
+  textures?: TextureStreamingObservation;
   /** Draw calls and triangles of the last frame (three's renderer info); ABSENT until a frame was drawn. */
   frame?: { drawCalls: number; triangles: number };
   /** The environment renderer — image-based lighting re-bakes of a sky changed in place (a blend, a moved sun light) so far — only when it moved past a threshold; ABSENT without one. */

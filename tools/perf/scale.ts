@@ -27,12 +27,15 @@ import { startPerfBackend, type PerfBackend } from './backend';
 import { launch, poll, serveDir, splitOf, type PlayStartSplit, type RendererName } from './browser';
 import { installPerfInstrumentation, readSample, type PageSample } from './instrument';
 import { SCALE_BATCH_LABEL, type ScaleResult } from './scale-generate';
-import { opusVoice } from './scale-media';
+import { checkerPng, opusVoice } from './scale-media';
 import { summarize, type Summary } from './stats';
 
-export type ScaleStep = 'files' | 'open' | 'commands' | 'import' | 'play' | 'walk' | 'handles' | 'dialogue' | 'export';
-/** Every step; `import` (a folder of new files imported in one command) runs only when asked for. */
-export const SCALE_STEPS: readonly ScaleStep[] = ['files', 'open', 'commands', 'import', 'play', 'walk', 'handles', 'dialogue', 'export'];
+export type ScaleStep = 'files' | 'open' | 'commands' | 'import' | 'play' | 'walk' | 'handles' | 'dialogue' | 'stream' | 'export';
+/**
+ * Every step; `import` (a folder of new files imported in one command) and `stream` (large KTX2 textures
+ * streamed past the camera under a small texture budget) run only when asked for.
+ */
+export const SCALE_STEPS: readonly ScaleStep[] = ['files', 'open', 'commands', 'import', 'play', 'walk', 'handles', 'dialogue', 'stream', 'export'];
 export const SCALE_DEFAULT_STEPS: readonly ScaleStep[] = ['files', 'open', 'commands', 'play', 'walk', 'handles', 'dialogue', 'export'];
 
 export interface ScaleBenchOptions {
@@ -51,6 +54,9 @@ export interface ScaleBenchOptions {
   lines: number;
   /** Voice files written into a new folder and imported in one command (the `import` step). */
   importFiles?: number;
+  /** The `stream` step: large KTX2 textures (2048²) imported, and the texture budget (MiB) Play runs with. */
+  streamTextures?: number;
+  streamBudgetMb?: number;
   steps: ScaleStep[];
   log: (s: string) => void;
 }
@@ -68,6 +74,8 @@ export interface MemorySample {
   catalogReads?: { files: number; bytes: number };
   /** What the game holds from assets (the resource manager: resident count and bytes per kind, loads, frees, script handles open); absent before it existed. */
   resources?: { resident: Record<string, { count: number; bytes: number }>; loads: Record<string, number>; frees: Record<string, number>; handles?: number };
+  /** Resident texture bytes against the texture budget (streamed textures, each GPU copy, and the ones that do not stream). */
+  textures?: { budgetBytes: number; residentBytes: number; streamedBytes: number; over: boolean };
   backendRssMiB: number | null;
 }
 
@@ -132,6 +140,31 @@ export interface ScaleReport {
     audioKiB: { before: Record<string, number>; most: Record<string, number>; after: Record<string, number> };
   };
   /**
+   * Texture streaming: large KTX2 textures (their files cut by mip level) on boxes in a scene of their own,
+   * brought up to the camera one after another (the one before sent far again) under a small texture
+   * budget: each texture's full-size level arriving after it came close, and the resident texture bytes
+   * at every observation, against the budget.
+   */
+  stream?: {
+    textures: number;
+    budgetBytes: number;
+    /** One texture's whole chain and its mip tail, as resident (one copy). */
+    fullChainBytes: number;
+    tailBytes: number;
+    /** Brought close → its full-size level resident (ms). */
+    upgradeMs: Summary;
+    maxResidentBytes: number;
+    samples: number;
+    overBudgetSamples: number;
+    upgrades: number;
+    drops: number;
+    /** After the scene was unloaded (settled): resident texture bytes. */
+    afterBytes: number;
+    /** Encoding and importing the textures (before Play), and the backend's resident set before and after it. */
+    importMs: number;
+    importBackendRssMiB: { before: number | null; after: number | null };
+  };
+  /**
    * The export request (its time, the backend's resident set before it and its peak while it ran, sampled every
    * 50 ms), its output on disk, and the exported game played from a static server with the backend stopped.
    */
@@ -147,7 +180,7 @@ const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
  * The script the bench attaches to the driver entity: debug commands that
  * start a dialogue (a debug command runs as step input, so the bench starts
  * the conversation after the click that unlocks sound), load assets by a key
- * and release them.
+ * and release them, and move an object (the stream step's boxes).
  */
 export const DRIVER_SCRIPT = [
   'export default {',
@@ -157,6 +190,7 @@ export const DRIVER_SCRIPT = [
   "    for (const call of ctx.debug.command('benchDialogue', { description: 'Start a dialogue', args: [{ name: 'id', type: 'string' }] })) ctx.dialogue?.start(String(call.id));",
   "    for (const call of ctx.debug.command('benchLoad', { description: 'Load assets by id, address or label', args: [{ name: 'key', type: 'string' }] })) state.handle = ctx.assets.load(String(call.key));",
   "    for (const _call of ctx.debug.command('benchRelease', { description: 'Release the loaded assets', args: [] })) { ctx.assets.release(state.handle); state.handle = 0; }",
+  "    for (const c of ctx.debug.command('benchPlace', { description: 'Move an object', args: [{ name: 'id', type: 'string' }, { name: 'x', type: 'number' }, { name: 'y', type: 'number' }, { name: 'z', type: 'number' }] })) ctx.entity(String(c.id))?.set('transform', { position: [Number(c.x), Number(c.y), Number(c.z)] });",
   '  },',
   '};',
 ].join('\n');
@@ -206,6 +240,7 @@ export class ScaleBench {
   private context: BrowserContext | null = null;
   private page: Page | null = null;
   private play: { psid: string; frame: Frame } | null = null;
+  private streamSetup: { boxes: { id: string; texture: string; far: [number, number, number] }[]; near: [number, number, number]; importMs: number; rss: { before: number | null; after: number | null } } | null = null;
 
   constructor(private readonly opts: ScaleBenchOptions) {
     const { dir: _dir, sceneIds: _ids, ...generated } = opts.generated ?? ({} as ScaleResult);
@@ -248,11 +283,13 @@ export class ScaleBench {
       if (!opened) return this.report;
       if (want('commands')) await this.attempt('commands', () => this.measureCommands());
       if (want('import')) await this.attempt('import', () => this.measureFolderImport());
-      const needPlay = want('play') || want('walk') || want('handles') || want('dialogue');
+      if (want('stream')) await this.attempt('stream', () => this.setUpStreaming());
+      const needPlay = want('play') || want('walk') || want('handles') || want('dialogue') || want('stream');
       if (needPlay && (await this.attempt('play', () => this.measurePlayStart()))) {
         if (want('walk')) await this.attempt('walk', () => this.walkScenes());
         if (want('handles')) await this.attempt('handles', () => this.loadByLabel());
         if (want('dialogue')) await this.attempt('dialogue', () => this.playDialogue());
+        if (want('stream') && this.streamSetup !== null) await this.attempt('stream', () => this.streamPastCamera());
         await this.stopPlay();
       }
       if (want('export')) await this.attempt('export', () => this.measureExport());
@@ -432,14 +469,15 @@ export class ScaleBench {
     let three: MemorySample['three'];
     let assetReads: MemorySample['assetReads'];
     let catalogReads: MemorySample['catalogReads'];
-    let resources: MemorySample['resources'];
+    let resources: (MemorySample['resources'] & { textures?: MemorySample['textures'] }) | undefined;
     if (this.play !== null) {
-      const d = (await this.relay(`${this.play.psid}/diagnostics`)).json as { diagnostics?: { renderer?: { gpu?: MemorySample['three'] }; assetReads?: { reads: number; bytes: number }; catalogReads?: { files: number; bytes: number }; resources?: MemorySample['resources'] } };
+      const d = (await this.relay(`${this.play.psid}/diagnostics`)).json as { diagnostics?: { renderer?: { gpu?: MemorySample['three'] }; assetReads?: { reads: number; bytes: number }; catalogReads?: { files: number; bytes: number }; resources?: MemorySample['resources'] & { textures?: MemorySample['textures'] } } };
       three = d.diagnostics?.renderer?.gpu;
       assetReads = d.diagnostics?.assetReads;
       catalogReads = d.diagnostics?.catalogReads;
       resources = d.diagnostics?.resources;
     }
+    const tex = resources?.textures;
     return {
       heapMiB: s?.heap === null || s === null ? null : Math.round(s.heap.usedMiB * 100) / 100,
       gpuMiB: s === null ? 0 : MiB(s.bytes.buffers + s.bytes.textures),
@@ -449,13 +487,14 @@ export class ScaleBench {
       ...(catalogReads !== undefined ? { catalogReads } : {}),
       ...(s?.fetches !== undefined ? { fetches: s.fetches } : {}),
       ...(resources !== undefined ? { resources: { resident: resources.resident, loads: resources.loads, frees: resources.frees, ...(resources.handles !== undefined ? { handles: resources.handles } : {}) } } : {}),
+      ...(tex !== undefined ? { textures: { budgetBytes: tex.budgetBytes, residentBytes: tex.residentBytes, streamedBytes: tex.streamedBytes, over: tex.over } } : {}),
       backendRssMiB: backendRssMiB(this.backend.pid),
     };
   }
 
   /** Play from the editor's button to the first frame, split into its stages. */
   private async measurePlayStart(): Promise<void> {
-    if (this.opts.generated !== undefined && (this.opts.steps.includes('dialogue') || this.opts.steps.includes('handles'))) await this.installDriver();
+    if (this.opts.generated !== undefined && (this.opts.steps.includes('dialogue') || this.opts.steps.includes('handles') || this.opts.steps.includes('stream'))) await this.installDriver();
     const page = this.page!;
     const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'), { timeout: 600_000 });
     const before = new Set(page.frames());
@@ -644,6 +683,109 @@ export class ScaleBench {
     const end = settled ?? (await this.observe());
     const late = { started: (end?.audio?.late?.started ?? 0) - lateBefore.started, dropped: (end?.audio?.late?.dropped ?? 0) - lateBefore.dropped, maxLateMs };
     this.report.dialogue = { lines, linesSeen: Math.min(order.length, lines), voicesHeard: heard, startLatencyMs: summarize(latency), gapMs: summarize(gaps), wallMs, trace, late, audioKiB: { before, most, after: audioKiB(end) } };
+  }
+
+  /**
+   * Before Play: large KTX2 textures (2048² checkers, each its own colours, encoded on import as a user's
+   * import would), a scene of their own with a box wearing each (unlit, a quarter tiling) far down the
+   * start camera's view, and the small texture budget Play runs with.
+   */
+  private async setUpStreaming(): Promise<void> {
+    const pid = this.opts.projectId;
+    const p = this.backend.project(pid);
+    const n = this.opts.streamTextures ?? 6;
+    const ents = ((await p.query('queryEntities', { limit: 200, offset: 0 }))['entities'] ?? []) as { id: string; components: Record<string, unknown> }[];
+    const cam = ents.find((e) => e.components['camera'] !== undefined);
+    const at = ((cam?.components['transform'] as { position?: number[] } | undefined)?.position ?? [0, 0, 6]) as [number, number, number];
+    const rssBefore = backendRssMiB(this.backend.pid);
+    const t0 = performance.now();
+    const boxes: { id: string; texture: string; far: [number, number, number] }[] = [];
+    await p.command('createScene', { sceneId: 'bench-stream', name: 'Streamed textures' });
+    for (let i = 0; i < n; i++) {
+      const hue = (i * 47) % 360;
+      const a: [number, number, number] = [200 + ((hue * 3) % 55), 180 + ((hue * 7) % 75), 150 + ((hue * 11) % 105)];
+      const png = checkerPng(2048, a, [20 + (i % 5) * 5, 20, 40 + i]);
+      const stageId = await this.backend.stage(pid, png);
+      const inspected = await this.backend.post(`/api/v1/projects/${pid}/content/stages/${stageId}/inspect`, { kind: 'texture', ktx2: 'color' });
+      const prop = inspected.json['proposal'] as Record<string, unknown> | undefined;
+      if (prop === undefined || prop['status'] !== 'ok') throw new Error(`a streamed texture could not be encoded: ${JSON.stringify(inspected.json).slice(0, 300)}`);
+      const texture = `bench-stream-${i}`;
+      await p.command('publishAsset', { mode: 'create', assetId: texture, kind: 'texture', displayName: texture, sourceDigest: prop['sourceDigest'], sourceByteLength: prop['sourceByteLength'], convertedFrom: inspected.json['convertedFrom'], importRecipe: prop['importRecipe'], metrics: prop['metrics'], importedAt: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z') });
+      await this.backend.discardStage(pid, stageId).catch(() => undefined);
+      await p.command('setMaterial', { material: { materialId: `mat-${texture}`, name: `Streamed ${i}`, shader: 'unlit', params: { tiling: [0.25, 0.25] }, textures: { map: texture } } });
+      const far: [number, number, number] = [at[0] + (i - (n - 1) / 2) * 3, at[1], at[2] - 80];
+      const created = await p.command('createEntity', { sceneId: 'bench-stream', kind: 'box', name: `Streamed ${i}`, transform: { position: far }, box: { size: [2, 2, 0.05], material: { color: '#ffffff' } }, components: { materials: { '*': `mat-${texture}` } } });
+      boxes.push({ id: String(created['createdId']), texture, far });
+    }
+    await p.command('setSettings', { settings: { texture_budget_mb: this.opts.streamBudgetMb ?? 8 } });
+    this.streamSetup = { boxes, near: [at[0], at[1], at[2] - 1.2], importMs: Math.round(performance.now() - t0), rss: { before: rssBefore, after: backendRssMiB(this.backend.pid) } };
+  }
+
+  /** The stream scene loaded; each box brought up to the camera in turn (the one before sent back); the scene unloaded. */
+  private async streamPastCamera(): Promise<void> {
+    const setup = this.streamSetup!;
+    type Tex = { budgetBytes: number; residentBytes: number; over: boolean; upgrades: number; drops: number; textures: { id: string; resident: number; tail: number; bytes: number; copies: number }[] };
+    const texturesOf = (o: Obs | null): Tex | undefined => (o?.resources as { textures?: Tex } | undefined)?.textures;
+    let maxResident = 0;
+    let samples = 0;
+    let over = 0;
+    let last: Tex | undefined;
+    const sample = (o: Obs | null): Tex | undefined => {
+      const t = texturesOf(o);
+      if (t !== undefined) {
+        samples += 1;
+        maxResident = Math.max(maxResident, t.residentBytes);
+        if (t.residentBytes > t.budgetBytes) over += 1;
+        last = t;
+      }
+      return t;
+    };
+    const control = async (body: Record<string, unknown>): Promise<void> => {
+      const r = await this.relay(`${this.play!.psid}/control`, body);
+      if (r.status !== 200) {
+        const o = (await this.relay(`${this.play!.psid}/observe`)).json as { debugCommands?: { registered?: { name: string }[] } };
+        throw new Error(`${JSON.stringify(body).slice(0, 80)} refused: ${JSON.stringify(r.json).slice(0, 300)} (declared: ${(o.debugCommands?.registered ?? []).map((c) => c.name).join(', ')})`);
+      }
+    };
+    const place = (id: string, p: [number, number, number]) => control({ command: 'debugCommand', name: 'benchPlace', args: { id, x: p[0], y: p[1], z: p[2] } });
+    await control({ command: 'loadScene', sceneId: 'bench-stream' });
+    await this.until((o) => (sample(o)?.textures.length ?? 0) >= setup.boxes.length && o?.scenes?.loaded?.includes('bench-stream') === true, 120_000, 'the streamed textures to load');
+    const tailBytes = Math.max(...last!.textures.map((t) => t.bytes / Math.max(1, t.copies)));
+    const upgrade: number[] = [];
+    let fullChain = 0;
+    let before: (typeof setup.boxes)[number] | null = null;
+    for (const box of setup.boxes) {
+      if (before !== null) await place(before.id, before.far);
+      const t0 = performance.now();
+      await place(box.id, setup.near);
+      await this.until((o) => {
+        const t = sample(o)?.textures.find((x) => x.id === box.texture);
+        if (t === undefined || t.resident !== 0) return false;
+        fullChain = Math.max(fullChain, t.bytes / Math.max(1, t.copies));
+        return true;
+      }, 60_000, `${box.texture} at full size`);
+      upgrade.push(performance.now() - t0);
+      before = box;
+    }
+    await control({ command: 'unloadScene', sceneId: 'bench-stream' });
+    await this.until((o) => o?.scenes?.loaded?.includes('bench-stream') === false && (o.resources?.loading ?? 0) + (o.resources?.waiting ?? 0) === 0, 60_000, 'the stream scene to unload');
+    await sleep(1_000);
+    const end = texturesOf(await this.observe());
+    this.report.stream = {
+      textures: setup.boxes.length,
+      budgetBytes: last!.budgetBytes,
+      fullChainBytes: fullChain,
+      tailBytes,
+      upgradeMs: summarize(upgrade),
+      maxResidentBytes: maxResident,
+      samples,
+      overBudgetSamples: over,
+      upgrades: last!.upgrades,
+      drops: last!.drops,
+      afterBytes: end?.residentBytes ?? 0,
+      importMs: setup.importMs,
+      importBackendRssMiB: setup.rss,
+    };
   }
 
   private async stopPlay(): Promise<void> {

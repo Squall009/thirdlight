@@ -301,7 +301,7 @@ export async function exportProjectM3(
   if (recomputed !== parsedManifest.buildId || parsedManifest.buildId !== closure.buildId) {
     return fail('export_manifest_invalid', 'internal', 'the manifest buildId does not match its own canonical bytes');
   }
-  const declaredManifestPaths = new Set<string>([...closure.assetFiles, ...closure.behaviorArtifacts, ...closure.libraryArtifacts, ...closure.sceneArtifacts, ...closure.bufferFiles, ...closure.contentFileArtifacts].map((a) => a.path));
+  const declaredManifestPaths = new Set<string>([...closure.assetFiles, ...closure.behaviorArtifacts, ...closure.libraryArtifacts, ...closure.sceneArtifacts, ...closure.bufferFiles, ...closure.streamedTextures.flatMap((t) => t.parts), ...closure.contentFileArtifacts].map((a) => a.path));
   if (declaredManifestPaths.size !== closure.declaredPaths.length) {
     return fail('export_manifest_invalid', 'internal', 'the manifest declares a duplicate artifact path');
   }
@@ -503,6 +503,38 @@ async function writeOutput(
     entries.push({ path: a.path, digest: a.digest, byteLength: n });
   }
 
+  // A streamed texture's parts, copied from disk in file order; together they are
+  // its KTX2, checked as one container (a part alone is not a file of any format).
+  for (const t of closure.streamedTextures) {
+    const held: Uint8Array[] = [];
+    let total = 0;
+    for (const p of t.parts) {
+      const opened = ctx.service.openBlobFile(ctx.projectId, p.file);
+      if (!opened.ok) return copyFailure(p.path, opened.error.code);
+      const chunks: Uint8Array[] = [];
+      let n: number;
+      try {
+        n = staging.files[p.path] !== undefined ? await drain(opened.blob.chunks(), (chunk) => chunks.push(chunk)) : await staging.writeChunks(p.path, opened.blob.chunks(), (chunk) => chunks.push(chunk));
+      } catch (e) {
+        opened.blob.close();
+        return copyFailure(p.path, e instanceof Error ? e.message : String(e));
+      }
+      if (n !== p.byteLength) return copyFailure(p.path, `${n} bytes, the build found ${p.byteLength}`);
+      held.push(...chunks);
+      total += n;
+      if (!entries.some((e) => e.path === p.path)) entries.push({ path: p.path, digest: p.digest, byteLength: n });
+    }
+    const whole = concat(held, total);
+    const container = scanAssetContainer('image/x-texture', whole);
+    if (!container.ok) {
+      return fail('scan_forbidden_content', 'internal', `a declared asset artifact fails container validation (${container.code})`, {
+        hits: [{ pattern: container.code, byteOffset: container.offset ?? -1, context: `${t.assetId} (streamed parts)` }],
+      });
+    }
+    decoders.add('basis');
+    assetBytes += total;
+  }
+
   // three's Draco/Basis decoders ship only when a shipped file needs them.
   const needed = [...decoders].sort();
   const threeDir = ctx.fs.join(ctx.threePackageJson, '..');
@@ -586,3 +618,13 @@ function rapier3dVersion(ctx: ExportContext, metafile: { inputs: Record<string, 
   return readJsonStringField(ctx, path, 'version');
 }
 
+
+/** Read a blob's chunks without writing them (a part two textures share, already staged). */
+async function drain(chunks: AsyncIterable<Uint8Array>, onChunk: (chunk: Uint8Array) => void): Promise<number> {
+  let n = 0;
+  for await (const c of chunks) {
+    onChunk(c);
+    n += c.length;
+  }
+  return n;
+}

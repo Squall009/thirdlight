@@ -195,7 +195,8 @@ at the boundary it changes (Playwright for any editor surface).
 | 26.9 | done 2026-09-30. A: runtime content manifest 5 (identity, settings, start scenes, the catalog's location; ~1.7 KB at any size); the catalog (root, block files in parts, entry shards by id with address, labels and dependencies, a dependency file per scene) read lazily by the game page (`openRuntimeContent`: a scene load reads its file and its dependency file, an unnamed id its one shard); a v4 build read the same way (fixture `legacy-v4-build`); D67 fixed; an asset property's default ships; the content view no longer validates or hashes what the model did; e2e `manifest-keys`, integration `m26-catalog`. B: the export copies assets and buffers from disk one at a time, hashed while copied (the 26.8 serving path), into a temp directory renamed into place (a failure leaves nothing); the bundle names no artifact (one relative reader by row path); one game page (`game-host/game-page`) starts Play and exports, their differences injected; full export 7.7 → 5.2 s, growth +171 → +104 MiB; HTTP test `export-streaming` |
 | 26.10 | done 2026-09-30. A: one resource manager per game page (runtime `createResourceManager`, held by the game host and settled after each frame) for verified bytes, models, animation-only clips, textures, decoded audio, fonts, UI and glyph images, environment maps and effect models; each freed when its last holder (entity, scene being prepared, material, voice, UI layer…) went, a same-step transition keeps what both scenes use; the store forgets freed models; the decoded-music LRU replaced; scene preparation and read-ahead through it; the Scene view's models and material textures through its own manager; `resources` in `tl_game_observe` and Play diagnostics (handles slot for B); 50-scene walk: resident bytes of every kind back to zero, heap +50 → +5 MiB at full (§6); e2e `resource-manager`. B: `ctx.assets.load(id, address or label)` → a handle (loading, ready, failed) and `release`; the page loads what the key names (a prefab's or material's models and textures too) and holds it for the handle; the answer is the simulation's input (a recording replays it at its step, page and worker alike, a recorded input takes no live answer); a handle open when a run ends is released and reported (`resources.open`/`notReleased`, script log); visual-script nodes; bench step `handles`: 1,000 labelled assets loaded and released at full, resident back to zero (§6); a texture that is the sky and a map decoded once; compiled graph materials and their textures go with their last mesh; prefabs stay whole at open, no grace before a free (§7); e2e `asset-handles`, integration `m26-asset-handles` |
 | 26.11 | done 2026-09-30: nothing audio is read at mount; each file loads by its load type through the resource manager (`audio` decoded, `audio-bytes` kept compressed and decoded per play, `audio-stream` a media element through Web Audio), held by its scene (preload) or from its first play by the scenes loaded then; a sound not ready starts when ready or is dropped past `maxLateMs` (script play/stinger, event cues, timeline keys, dialogue `voiceMaxLateMs`), reported in `audio.late`; a conversation reads its next voices ahead on every branch three lines deep (the next lines decoded); the per-kind audio stores gone; full 500-line dialogue: every voice heard, line → voice p95 0 ms, gap p95 12 ms, Play start reads no audio (§6); e2e `audio-loading` |
-| 26.12–26.14 | — |
+| 26.12 | done 2026-09-30: large KTX2 textures stream their mips in Play and the export under a texture budget (`texture_budget_mb`, default 512 MiB): the build cuts each into parts by level (import cache, catalog `mipParts`, shipped instead of the whole file), the page reads the tail first and larger levels by on-screen size (UV density and the camera), least-needed dropped first; `streaming` per texture (sidecar, `setAssetOptions`, the asset inspector; on above 1024 px); `resources.textures` in observe and diagnostics; bench step `stream` (full: level 0 in 102 ms p50, resident ≤ 7.75 of 8 MiB, Play start unchanged); e2e `texture-streaming` (pixels, both renderers, export); D70 fixed, D71–D73 logged |
+| 26.13–26.14 | — |
 
 ## 6. Measurements
 
@@ -560,6 +561,40 @@ audio during the conversation is the voices three lines ahead and the one
 playing (about 1 MiB of decoded 1 s mono voices), not the conversation's
 500. Play start does not read audio at any size (it read and decoded the
 start rows' decode-on-load sounds before).
+
+After 26.12 (texture streaming; the working tree on `3f4171e0`, GPU host,
+2026-09-30; reports `scale-full-2026-09-30T12-01-30-332Z.json` (`--steps
+open,play,walk,stream`), `…12-04-42-475Z.json` and `…12-02-55-676Z.json`;
+baseline A/B from a worktree at `3f4171e0`: `…12-05-21-488Z.json`,
+`…12-05-51-097Z.json`). The stream step imports six 2048² checkers as KTX2
+colour (ETC1S, transcoded to BC7 on this GPU: 5.33 MiB a whole chain), puts
+each on a box in a scene of its own, sets an 8 MiB budget, loads the scene
+and brings the boxes up to the camera one after another (the one before sent
+back), polling the observation between moves.
+
+| | full |
+|---|---|
+| stream: a box brought close → its full-size level resident p50 / p95 / max (ms) | 102 / 121 / 121 |
+| stream: resident texture bytes, most of 254 observations / budget | 7.75 / 8 MiB (0 observations over) |
+| stream: mip tail per texture; levels read; drops | 21.4 KiB; 24 (4 per texture); 9 |
+| stream: after the scene unloaded | 0 bytes |
+| walk 50: texture bytes before → most → after (512 MiB budget; nothing streams) | 0 → 0.94 → 0 MiB; scene load p50 136 / p95 164 ms (140 / 171 in the run with the stream step) |
+| Play: click → first frame, files,open,play (baseline `3f4171e0` / 26.12) | 1,903 / 1,907 ms |
+| Play: click → first frame, open,play (baseline / 26.12, three runs) | 2,220 / 2,276–2,315 ms |
+
+Play start does not regress: the same steps on the same host within minutes
+give the same time before and after (the page's part, response → first
+frame, is 425 ms either way). Both are above 26.11's 1,234 ms because the
+Play request now waited 0.7–1.1 s for the file check the editor starts on
+connect (a freshly copied project hashes its 18,000 files once; 26.11's run
+waited 59 ms): the bench's copy, not the build. In the e2e (2048², a box
+filling the Play view) the full-size level arrives 117–122 ms (WebGPU)
+and 365 ms (WebGL 2) after the box is brought close, the picture then shows
+the checker's squares (luma steps in 20 % of samples; the tail is flat
+grey), and under a 9 MiB budget the resident bytes peak at 6.67 MiB. The
+import of the six textures raised the backend's resident set 408 → 795 MiB
+and it stayed there: the KTX2 encoder's worker is kept with its WASM heap
+(D72).
 
 Proposed targets for "Done when" (fixed in 26.14 from these numbers):
 
@@ -1600,3 +1635,84 @@ Proposed targets for "Done when" (fixed in 26.14 from these numbers):
   conversations when it opens (an editor tool; the owner holds them in its
   own manager); the event cue and timeline editors show `maxLateMs` only
   where their forms come from the descriptors (event cues do).
+- 2026-09-30 (26.12): which textures stream. A plain KTX2 texture (a KTX2
+  file, or a PNG/JPEG with a KTX2 encode) whose mip chain goes past the
+  128 px mip tail; the import setting `streaming` on the asset's record
+  (sidecar `importSettings.streaming`, `setAssetOptions {streaming:
+  bool|null}`, the asset inspector's "stream mips"), on by default above
+  1024 px on the longer edge. A PNG/JPEG without a KTX2 encode never
+  streams: the KTX2 encode is where a stored mip chain comes from (Unity
+  streams only textures with mips), and a second mip cache per image would
+  be a second texture format to keep. Texture arrays load whole (at most
+  12 Mpix by the encoder, sampled by layer on terrain, where a mesh's UV
+  density says nothing of a layer's need). The texture edge stays 4,096
+  (the encoder makes at most about 3,500²; WebGL 2 promises 2,048).
+- 2026-09-30 (26.12): the budget is the project setting `texture_budget_mb`
+  (1–65,536, default 512 MiB: Unity's `streamingMipmapsMemoryBudget`
+  default, which a mid-range laptop's shared GPU memory (Iris Xe class,
+  8–16 GiB) holds beside the page). It counts every decoded texture:
+  streamed ones at their resident levels times their GPU copies (D71: each
+  user that samples a texture its own way has its own GPU texture in three's
+  WebGPURenderer), the others once, fixed. The mip tails are never dropped.
+  Play and the export read it; the Scene view reads textures whole (an
+  authoring view through the editor's asset route; streaming is the game's).
+- 2026-09-30 (26.12): split files, not HTTP range requests. The build cuts
+  a streamed KTX2 at its level offsets (the level index): a head (header,
+  level index, format descriptor, key/value and supercompression data, and
+  the tail levels, which KTX2 stores smallest first) and one part per larger
+  level. The parts are cut once per KTX2 digest into the import cache
+  (`ktx2-parts-1-…/`, with `parts.json`), listed in the catalog row
+  (`mipParts`: digest, bytes, offset, levels) and shipped instead of the
+  whole file (Play serves them from disk, the export copies them and checks
+  them together as one KTX2). Each part is a file the verified reader checks
+  against its own digest and the browser caches under its own immutable
+  URL; a range of a file has no digest to check, 26.8's Play route hashes
+  whole files as it sends them, and some static hosts answer a range with
+  the whole file. A reader that needs the whole file (a script's handle in
+  a project without materials) reads the parts and checks their
+  concatenation against the file's digest.
+- 2026-09-30 (26.12): the mechanics, checked against three 0.186.1
+  (`renderers/common/Textures.js`, `KTX2Loader.js`). The transcoder is
+  always handed a whole, valid KTX2: the tail as a smaller texture, a larger
+  level alone as a one-level file (`buildKtx2Subset`: BasisLZ's image
+  descriptors cut to the levels kept, codebooks whole; unit test: the tail
+  and level 0 transcode byte for byte as in the whole file, ETC1S and UASTC).
+  The transcoded levels are kept and the texture's `mipmaps` is the chain
+  from its largest resident level. A change of resident levels is a new GPU
+  texture: three allocates storage once at the size and level count of the
+  first upload (WebGL 2 `texStorage2D`, WebGPU `createTexture`) and later
+  uploads only write into it, so the streamer raises the texture's `dispose`
+  event (which also drops the bind groups that point at it) and marks it for
+  upload with the new chain. A base/max-level window over a full-size
+  allocation would keep the memory the budget exists to save, and WebGPU
+  has none. A level that transcodes to another GPU format than the tail
+  (the format picked by size, PVRTC only) is not applied. The same path on
+  both renderers; e2e `texture-streaming` checks pixels on WebGPU and
+  WebGL 2 and in an export.
+- 2026-09-30 (26.12): the needed level from on-screen size, as Unity does
+  (mesh UV distribution and the camera): per geometry and UV set its UV
+  density (square root of UV area over surface area, 4,096 triangles
+  sampled, cached), times the texture's size and tiling over the mesh's
+  scale, gives texels per world unit; the camera's pixels per world unit at
+  the distance of the bounding sphere's nearest point (perspective or
+  orthographic, device pixels) turns that into texels per pixel, and the
+  level is its base-2 logarithm. Meshes outside the view are not counted. A
+  graph material lists the textures its compile samples in its user data.
+  A streamed texture that a sky, a light's cookie or a lightmap draws is
+  kept at full size (pinned, first in line for the budget): their need is
+  not a mesh's size on screen. Worked out every 100 ms before a frame, in
+  presentation only.
+- 2026-09-30 (26.12): the policy (`texture-budget.ts`, unit-tested): the
+  tails first; then levels in rounds, the texture furthest below its need
+  first (ties: larger on screen), one level at a time while the budget
+  holds; then levels resident but no longer needed, kept while there is
+  room, the most recently needed texture first. Drops apply at once, loads
+  one level at a time (two in flight), so the resident bytes stay inside
+  the budget at every frame (the bench samples it).
+- 2026-09-30 (26.12): D70 found on the settings path the budget takes: a
+  project that set `instance_chunk_m` could not play or export (the
+  manifest's optional-keys list lacked it); fixed, and a unit test holds the
+  list equal to the registry's. D71 logged (one GPU texture per sampling
+  copy). Resident texture bytes against the budget, and each streamed
+  texture's resident and wanted level, are `resources.textures` in
+  `tl_game_observe` and Play diagnostics.

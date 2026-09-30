@@ -29,6 +29,7 @@ import {
   M2_SETTINGS_KEYS,
   type ContentCatalogV3,
 } from '@thirdlight/project-model';
+import { M3_OPTIONAL_SETTINGS_KEYS } from './manifest-v2';
 import { bytesEqual, decodeUtf8, m2ModelFixtureBytes, m2ModelFixtureText } from './test-fixtures';
 
 interface Entry {
@@ -287,7 +288,11 @@ describe('gameplay settings resolution', () => {
       'instance_chunk_m',
       // How audio sources are heard (0 automatic, 1 by X distance, 2 panned).
       'audio_spatial',
+      // The texture budget of Play and the export (MiB; absent: 512).
+      'texture_budget_mb',
     ]);
+    // Every optional key the registry has may follow the six in a manifest, in registry order.
+    expect([...M3_OPTIONAL_SETTINGS_KEYS]).toEqual(M2_SETTINGS_KEYS.filter((k) => k.optional === true).map((k) => k.key));
     // an unset engine setting stays out of the resolved block (its digest is unchanged); a set one follows the six
     const engine = resolveGameplaySettings({ settings: { audio_voices: 4, fixed_step_hz: 60 } });
     expect(engine.ok && Object.keys(engine.normalized)).toEqual(['gravity_y', 'run_speed', 'jump_velocity', 'max_fall_speed', 'max_slope_climb_deg', 'min_slope_slide_deg', 'fixed_step_hz', 'audio_voices']);

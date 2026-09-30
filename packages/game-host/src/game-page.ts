@@ -30,13 +30,13 @@
  *
  * Browser-only (DOM, WebGL/WebGPU, Web Audio, Web Crypto).
  */
-import { audioSpatialOf, dependencyTables, depthBufferOf, instanceChunkSizeOf, physicsDimensionOf, scanDependencies, sha256HexAsync, type SaveSchema } from '@thirdlight/project-model';
+import { audioSpatialOf, dependencyTables, depthBufferOf, instanceChunkSizeOf, physicsDimensionOf, scanDependencies, sha256HexAsync, textureBudgetBytesOf, type SaveSchema } from '@thirdlight/project-model';
 import { assetVersionKey, createResourceManager, type ResourceManager, type ResourceObservation } from '@thirdlight/runtime';
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import { createPhysicsPort, type RapierPhysicsInitConfig, type RapierPhysicsPort, type RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
-import { batchingFromUrl, createSceneAdapter, decodeTexture, effectsOptionFrom, environmentHasLook, pageSearch, resolveRendererPreference, setKtx2DecoderBase } from '@thirdlight/three-adapter';
+import { batchingFromUrl, createSceneAdapter, createTextureStreamer, decodeTexture, effectsOptionFrom, environmentHasLook, pageSearch, resolveRendererPreference, setKtx2DecoderBase } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
-import type { EffectDefLike, EnvironmentLike, FrameDrawnInfo, LightingBakeLike, MaterialDefLike, MaterialFunctionLike, SceneAdapter, SceneAdapterModels, SceneAdapterOptions, WindLike } from '@thirdlight/three-adapter';
+import type { EffectDefLike, EnvironmentLike, FrameDrawnInfo, TextureStreamer, LightingBakeLike, MaterialDefLike, MaterialFunctionLike, SceneAdapter, SceneAdapterModels, SceneAdapterOptions, WindLike } from '@thirdlight/three-adapter';
 import {
   modesForRuntime,
   audioDurationsFromAssetRows,
@@ -104,6 +104,7 @@ import {
   type VerifiedAssetReader,
 } from './index';
 import { pageAudio } from './page-audio';
+import { mipPartsOf } from './asset-reader';
 
 /** The runtime-content manifest as a game page reads it (the catalog's blocks already folded in by `openRuntimeContent`). */
 export interface GamePageManifest {
@@ -452,21 +453,33 @@ function physicsConfigFromSnapshot(snapshot: RuntimeSnapshot, settings: Gameplay
 }
 
 /** The adapter's materials, environment, lighting and light options (textures from the verified bytes). */
-function materialsOptionOf(manifest: GamePageManifest, reader: VerifiedAssetReader, catalog: RuntimeCatalog): { materials?: SceneAdapterOptions['materials']; environment?: SceneAdapterOptions['environment']; lighting?: SceneAdapterOptions['lighting']; lights: NonNullable<SceneAdapterOptions['lights']> } {
-  // Read (once, checked) when a material, a bake, the sky or a spot cookie first needs it (its row from the catalog).
+function materialsOptionOf(manifest: GamePageManifest, reader: VerifiedAssetReader, catalog: RuntimeCatalog, streamer: TextureStreamer): { materials?: SceneAdapterOptions['materials']; environment?: SceneAdapterOptions['environment']; lighting?: SceneAdapterOptions['lighting']; lights: NonNullable<SceneAdapterOptions['lights']> } {
+  // Read (once, checked) when a material, a bake, the sky or a spot cookie first needs it (its row from the catalog);
+  // a streamed texture reads its head (the mip tail) and streams larger levels as it is drawn.
   const loadTexture: NonNullable<SceneAdapterOptions['materials']>['loadTexture'] = (assetId) =>
     catalog.lookup(assetId).then(
-      (row) => (row !== undefined && row.kind === 'texture' ? reader.bytes(row.assetId, row.version).then((buf) => decodeTexture(buf), () => null) : null),
+      (row) => {
+        if (row === undefined || row.kind !== 'texture') return null;
+        const parts = mipPartsOf(row);
+        if (parts !== null) return streamer.open(row.assetId, { parts, read: (index) => reader.part(row, index) }).catch(() => null);
+        return reader.bytes(row.assetId, row.version).then((buf) => decodeTexture(buf), () => null);
+      },
       () => null,
     );
-  const lights = { loadTexture };
+  // A sky, a cookie or a lightmap is not a mesh's surface whose size on screen says what it needs: a streamed texture they draw is kept at full size.
+  const loadWhole: typeof loadTexture = (assetId) =>
+    loadTexture(assetId).then((t) => {
+      if (t !== null) streamer.pin(t);
+      return t;
+    });
+  const lights = { loadTexture: loadWhole };
   if (manifest.materials === undefined && manifest.environment === undefined && manifest.lighting === undefined) return { lights };
   const env = manifest.environment;
   return {
     lights,
     // Environment presets need the environment renderer too (scripts blend the look).
-    ...(environmentHasLook(env) || (env?.presets?.length ?? 0) > 0 ? { environment: { value: env ?? {}, loadTexture } } : {}),
-    ...(manifest.lighting !== undefined ? { lighting: { bakes: manifest.lighting, loadTexture } } : {}),
+    ...(environmentHasLook(env) || (env?.presets?.length ?? 0) > 0 ? { environment: { value: env ?? {}, loadTexture: loadWhole } } : {}),
+    ...(manifest.lighting !== undefined ? { lighting: { bakes: manifest.lighting, loadTexture: loadWhole } } : {}),
     materials: { defs: manifest.materials ?? [], functions: manifest.materialFunctions ?? [], wind: manifest.environment?.wind ?? null, loadTexture },
   };
 }
@@ -558,6 +571,13 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
   const resources = createResourceManager();
   // Every declared asset is read through this reader, checked against its catalog row.
   const assetReader = createVerifiedAssetReader(manifest.assets, io, { catalog: content.catalog, resources });
+  // Streamed textures load the mips their size on screen needs, inside the project's texture budget
+  // (the manager's texture entries follow their resident size).
+  const textureStreamer = createTextureStreamer({
+    budgetBytes: textureBudgetBytesOf(settings as unknown as Readonly<Record<string, unknown>>),
+    textureBytes: () => resources.observe().resident.texture?.bytes ?? 0,
+    onResize: (id, texture, bytes) => resources.resize('texture', id, texture, bytes),
+  });
   // A 3D project's physics is the 3D backend; a plain scene (no player controller) plays without physics.
   const physicsConfig: RapierPhysicsInitConfig | PhysicsInitConfig3D | null = physicsDimensionOf(settings) === 3 ? physics3DConfigOf(snapshot.scene.entities as never, settings, { layers: manifest.collisionLayers ?? [] }) : physicsConfigFromSnapshot(snapshot, settings);
   // The bindings in effect (a player's rebinding changes them): the project's actions, else the defaults.
@@ -565,7 +585,7 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
   const browserInput = attachBrowserInput(o.canvas, { inputConfig: inputConfigNow });
   // What this composition attaches to the page is released with it and on every failure path
   // (a new start composes again on the same canvas).
-  const releases: (() => void)[] = [() => resources.dispose(), () => browserInput.dispose(), focusGameSurface(o.canvas), ...(scenes !== null ? [() => scenes.dispose()] : [])];
+  const releases: (() => void)[] = [() => resources.dispose(), () => textureStreamer.dispose(), () => browserInput.dispose(), focusGameSurface(o.canvas), ...(scenes !== null ? [() => scenes.dispose()] : [])];
   const releaseAll = (): void => {
     for (const r of releases.splice(0).reverse()) {
       try {
@@ -770,7 +790,8 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
           // The first frame, slow frames and scene attaches for the start timings.
           ...(timings !== undefined ? { onFrameDrawn: (f: FrameDrawnInfo) => timings.frame(f) } : {}),
           ...(models !== null ? { models, modelsLoader: loader() } : {}),
-          ...materialsOptionOf(manifest, assetReader, content.catalog),
+          ...materialsOptionOf(manifest, assetReader, content.catalog, textureStreamer),
+          textureStreamer,
           // The visual effects (textures and models from the verified bytes).
           ...(manifest.effects !== undefined && manifest.effects.length > 0
             ? {
@@ -797,6 +818,7 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
       buildId: manifest.buildId,
       resources,
       // Scripts' loads by id, address or label (`ctx.assets`).
+      textureStreaming: () => textureStreamer.observe(),
       loadAssets: pageAssetLoader({ manifest, catalog: content.catalog, reader: assetReader, resources, adapter: () => adapterRef.current }),
       assetPaths: assetPathsById,
       ...(manifest.shell !== undefined ? { shell: manifest.shell } : {}),

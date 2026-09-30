@@ -30,6 +30,41 @@ export interface DeclaredAssetRow {
   readonly sourceByteLength: number;
 }
 
+/** One part of a streamed texture's file, as the catalog row lists it (`mipParts`). */
+export interface MipPartRow {
+  readonly path: string;
+  readonly digest: string;
+  readonly byteLength: number;
+  /** Where the part starts in the whole file. */
+  readonly offset: number;
+  /** Mip levels (0 = largest) whose data are in it. */
+  readonly levels: readonly number[];
+}
+
+const DIGEST_RE = /^[0-9a-f]{64}$/;
+
+/**
+ * A texture row's streaming parts, checked (contiguous from 0, together the
+ * whole file, each at its digest path); null when the row has none or they
+ * are malformed (the texture is then read whole).
+ */
+export function mipPartsOf(row: DeclaredAssetRow): MipPartRow[] | null {
+  const raw = (row as unknown as { mipParts?: unknown }).mipParts;
+  if (!Array.isArray(raw) || raw.length < 2 || row.kind !== 'texture') return null;
+  const out: MipPartRow[] = [];
+  let at = 0;
+  for (const p of raw as Record<string, unknown>[]) {
+    if (typeof p !== 'object' || p === null) return null;
+    const { path, digest, byteLength, offset, levels } = p;
+    if (typeof digest !== 'string' || !DIGEST_RE.test(digest) || path !== `content/sha256/${digest}`) return null;
+    if (typeof byteLength !== 'number' || !Number.isInteger(byteLength) || byteLength < 1 || offset !== at) return null;
+    if (!Array.isArray(levels) || levels.length === 0 || !levels.every((l) => typeof l === 'number' && Number.isInteger(l) && l >= 0 && l < 32)) return null;
+    out.push({ path, digest, byteLength, offset: at, levels: [...(levels as number[])] });
+    at += byteLength;
+  }
+  return at === row.sourceByteLength ? out : null;
+}
+
 export interface AssetReaderIo {
   /** Read one manifest-declared relative path. */
   readonly read: (path: string) => Promise<ArrayBuffer>;
@@ -61,6 +96,11 @@ export interface VerifiedAssetReader {
    * keeps what it made from them needs nothing more).
    */
   bytes(assetId: string, version: number, holder?: string): Promise<ArrayBuffer>;
+  /**
+   * The verified bytes of part `index` of a streamed texture (`mipPartsOf`),
+   * read once while anyone holds them; without a `holder` handed over.
+   */
+  part(row: DeclaredAssetRow, index: number, holder?: string): Promise<Uint8Array>;
   /** The same by artifact path; null when the path is not a declared asset. */
   bytesAt(path: string, holder?: string): Promise<ArrayBuffer> | null;
   /** Bytes read, verified and still held (no read is started). */
@@ -114,25 +154,56 @@ export function createVerifiedAssetReader(rows: readonly DeclaredAssetRow[], io:
     if (next !== undefined) next();
     else active -= 1;
   };
-  const verifiedRead = (row: DeclaredAssetRow) => async (): Promise<LoadedResource<ArrayBuffer>> => {
+  /** One file read and checked against its length and digest. */
+  const verifiedFile = async (assetId: string, path: string, byteLength: number, expected: string): Promise<ArrayBuffer> => {
     started += 1;
     await slot();
     try {
       let buf: ArrayBuffer;
       try {
-        buf = await io.read(row.path);
+        buf = await io.read(path);
       } catch (e) {
-        throw new AssetReadError(row.assetId, `${row.assetId}: ${e instanceof Error ? e.message : String(e)}`);
+        throw new AssetReadError(assetId, `${assetId}: ${e instanceof Error ? e.message : String(e)}`);
       }
       const raw = new Uint8Array(buf);
-      if (raw.byteLength !== row.sourceByteLength) throw new AssetReadError(row.assetId, `${row.assetId}: byte length ${raw.byteLength} !== manifest ${row.sourceByteLength}`);
+      if (raw.byteLength !== byteLength) throw new AssetReadError(assetId, `${assetId}: byte length ${raw.byteLength} !== manifest ${byteLength}`);
       const digest = await io.sha256Hex(raw);
-      if (digest !== row.sourceDigest) throw new AssetReadError(row.assetId, `${row.assetId}: digest ${digest} !== manifest ${row.sourceDigest}`);
+      if (digest !== expected) throw new AssetReadError(assetId, `${assetId}: digest ${digest} !== manifest ${expected}`);
       verifiedBytes += raw.byteLength;
-      return { value: buf, bytes: raw.byteLength };
+      return buf;
     } finally {
       release();
     }
+  };
+  const verifiedRead = (row: DeclaredAssetRow) => async (): Promise<LoadedResource<ArrayBuffer>> => {
+    const parts = mipPartsOf(row);
+    if (parts === null) {
+      const buf = await verifiedFile(row.assetId, row.path, row.sourceByteLength, row.sourceDigest);
+      return { value: buf, bytes: buf.byteLength };
+    }
+    // A streamed texture ships as its parts only: the whole file is their concatenation, checked again as one.
+    const whole = new Uint8Array(row.sourceByteLength);
+    for (const p of parts) whole.set(new Uint8Array(await verifiedFile(row.assetId, p.path, p.byteLength, p.digest)), p.offset);
+    const digest = await io.sha256Hex(whole);
+    if (digest !== row.sourceDigest) throw new AssetReadError(row.assetId, `${row.assetId}: digest ${digest} !== manifest ${row.sourceDigest}`);
+    return { value: whole.buffer, bytes: whole.byteLength };
+  };
+  /** A streamed texture's part, held by digest (two textures with the same file share it). */
+  const readPart = (row: DeclaredAssetRow, index: number, holder: string | undefined): Promise<Uint8Array> => {
+    const p = mipPartsOf(row)?.[index];
+    if (p === undefined) return Promise.reject(new AssetReadError(row.assetId, `${row.assetId} has no streaming part ${index}`));
+    const key = `sha256:${p.digest}`;
+    const load = async (): Promise<LoadedResource<ArrayBuffer>> => {
+      const buf = await verifiedFile(row.assetId, p.path, p.byteLength, p.digest);
+      return { value: buf, bytes: buf.byteLength };
+    };
+    if (holder !== undefined) return resources.acquire<ArrayBuffer>('bytes', key, holderOf(holder), load).then((b) => new Uint8Array(b));
+    transient += 1;
+    const h = holderOf(`read:${transient}`);
+    return resources
+      .acquire<ArrayBuffer>('bytes', key, h, load)
+      .then((b) => new Uint8Array(b))
+      .finally(() => resources.release('bytes', key, h));
   };
   /** Hold one row's bytes for `holder` (a failed read is forgotten: a later ask reads again). */
   const readRow = (row: DeclaredAssetRow, holder: string | undefined): Promise<ArrayBuffer> => {
@@ -157,6 +228,9 @@ export function createVerifiedAssetReader(rows: readonly DeclaredAssetRow[], io:
         return readRow(found, holder);
       });
     },
+    part(row, index, holder) {
+      return readPart(row, index, holder);
+    },
     bytesAt(path, holder) {
       const row = byPath.get(path) ?? catalog?.rowAt(path);
       return row === undefined ? null : readRow(row, holder);
@@ -165,11 +239,13 @@ export function createVerifiedAssetReader(rows: readonly DeclaredAssetRow[], io:
       return resources.peek<ArrayBuffer>('bytes', assetVersionKey(assetId, version));
     },
     async preload(list, onRead, holder = PRELOAD_HOLDER) {
-      const total = list.reduce((s, r) => s + r.sourceByteLength, 0);
+      // A streamed texture's start is its head (metadata and mip tail); its larger levels stream later.
+      const sizeOf = (r: DeclaredAssetRow): number => mipPartsOf(r)?.[0]?.byteLength ?? r.sourceByteLength;
+      const total = list.reduce((s, r) => s + sizeOf(r), 0);
       let loaded = 0;
       await Promise.all(
         list.map((r) =>
-          readRow(r, holder).then((b) => {
+          (mipPartsOf(r) !== null ? readPart(r, 0, holder) : readRow(r, holder)).then((b) => {
             loaded += b.byteLength;
             onRead?.(loaded, total);
           }),

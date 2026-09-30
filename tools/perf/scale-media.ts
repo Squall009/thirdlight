@@ -189,3 +189,8 @@ export function scalePng(seed: number, size: number): Buffer {
     return [0, 1, 2].map((c) => Math.max(0, Math.min(255, Math.round(base[c]! + slope[c]! * x + n)))).concat(255) as [number, number, number, number];
   });
 }
+
+/** A checker of 8-texel squares in two colours (a streamed texture: its first levels show squares, its mip tail is flat). */
+export function checkerPng(size: number, a: readonly [number, number, number], b: readonly [number, number, number]): Buffer {
+  return makePng(size, size, (x, y) => (((x >> 3) + (y >> 3)) % 2 === 0 ? [a[0], a[1], a[2], 255] : [b[0], b[1], b[2], 255]));
+}

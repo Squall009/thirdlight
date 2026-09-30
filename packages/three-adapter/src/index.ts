@@ -158,6 +158,8 @@ export {
 export type { CreateInstanceOptions } from './visual';
 // KTX2 texture assets (the page names where the Basis transcoder is served).
 export { isKtx2, setKtx2DecoderBase } from './ktx2';
+export { createTextureStreamer, isStreamedTexture, SAMPLED_TEXTURES_KEY, StreamedTexture, type MipPartRef, type StreamSource, type TextureStreamer, type TextureStreamerOptions, type TextureStreamingObservation } from './texture-streaming';
+export { planMipLevels, residentBytes, type MipCandidate, type MipPlan } from './texture-budget';
 // Project materials (shader types, global wind) at runtime.
 export {
   createMaterialLibrary,

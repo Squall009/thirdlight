@@ -27,6 +27,7 @@ export { MAX_LOCAL_LIGHTS } from './scene-v3';
 export { COLLIDER_3D_LIMITS, CONVEX_TOL, MAX_COLLIDER_EXTENT, MAX_POLYGON_VERTICES, MIN_POLYGON_AREA } from './components';
 // The audio load-type defaults and the browser-support rules (pure data rules the editor applies too).
 export { AUDIO_DECODE_ON_LOAD_BELOW_MS, AUDIO_FORMATS, AUDIO_LOAD_TYPES, AUDIO_PIPELINE_NAME, AUDIO_PIPELINE_VERSION, AUDIO_STREAM_ABOVE_MS, audioLoadOf, audioPlaybackGaps, audioSummaryOf, defaultAudioLoadType } from './audio-assets';
+export { TEXTURE_BUDGET_DEFAULT_MB, TEXTURE_BUDGET_MAX_MB, TEXTURE_BUDGET_MIN_MB, TEXTURE_STREAM_TAIL_PX, TEXTURE_STREAMING_DEFAULT_ABOVE_PX, textureBudgetBytesOf, textureHasStreamableChain, textureStreamingOf } from './texture-streaming';
 export { RUNTIME_CONTENT_MANIFEST_MAX_BYTES } from './manifest';
 export { MANIFEST_CONTENT_FILE_MAX_BYTES } from './manifest-v2';
 export { MAX_TAGS, INSTANCE_FLOATS } from './types-v3';

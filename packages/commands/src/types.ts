@@ -1451,6 +1451,8 @@ export interface SetAssetOptionsArgs {
   loadType?: 'decode-on-load' | 'decode-while-playing' | 'stream' | null;
   /** Audio only: read with the scene that uses it (true, the default) or only when played. */
   preload?: boolean;
+  /** Texture only: stream its mips (null = the default: on for a KTX2 texture over 1024 px). */
+  streaming?: boolean | null;
 }
 
 export interface SetTransformArgs {

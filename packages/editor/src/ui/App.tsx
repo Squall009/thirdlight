@@ -2619,7 +2619,7 @@ function EditorApp(): JSX.Element {
     if (!c) return;
     reportFailure('Material parameters', await c.setComponent(entityId, 'materialParams', next, c.projection.revision));
   }, [reportFailure]);
-  const { setAssetMaterials, setVertexColors, setAudioLoadType, setAudioPreload } = useAssetOptions(clientRef, reportFailure);
+  const assetOptions = useAssetOptions(clientRef, reportFailure);
   const loadingNames = useLoadingNames(clientRef);
 
   // Delete an asset / a prefab definition (the backend refuses while anything uses it; one undo restores).
@@ -4228,9 +4228,7 @@ function EditorApp(): JSX.Element {
               onRoleDraftChange={setReimportRoles}
               thumbnails={assetThumbs}
               pieces={assetPieces}
-              onVertexColors={(id, mode) => void setVertexColors(id, mode)}
-              onAudioLoadType={(id, t) => void setAudioLoadType(id, t)}
-              onAudioPreload={(id, v) => void setAudioPreload(id, v)}
+              assetOptions={assetOptions}
               onDelete={(id) => void deleteAsset(id)}
               deleteError={assetDeleteError}
               importExtra={
@@ -4246,7 +4244,7 @@ function EditorApp(): JSX.Element {
               loading={loadingNames}
               sideExtra={
                 selectedAssetId !== null && assets.find((a) => a.assetId === selectedAssetId)?.kind === 'model' ? (
-                  <ModelAssetOptions asset={assets.find((a) => a.assetId === selectedAssetId)!} assets={assets} materials={materials} sourceMaterials={assetSourceMaterials} missingBones={missingBones} onClipsFor={(rig) => void setAssetClipsFor(selectedAssetId, rig)} onMaterials={(mapping) => void setAssetMaterials(selectedAssetId, mapping)} />
+                  <ModelAssetOptions asset={assets.find((a) => a.assetId === selectedAssetId)!} assets={assets} materials={materials} sourceMaterials={assetSourceMaterials} missingBones={missingBones} onClipsFor={(rig) => void setAssetClipsFor(selectedAssetId, rig)} onMaterials={(mapping) => void assetOptions.setAssetMaterials(selectedAssetId, mapping)} />
                 ) : null
               }
             />

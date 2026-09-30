@@ -16,6 +16,8 @@ import type { AssetImportState, AssetQueryState } from '../session/asset-browser
 import type { AnimationRoleKey } from '../session/media';
 import { TexturePackForm, type PackRequest } from './TexturePackForm';
 import { AudioAssetOptions } from './AudioAssetOptions';
+import { TextureAssetOptions } from './TextureAssetOptions';
+import type { AssetOptionActions } from './useAssetOptions';
 import { LabelsBar, LoadableFields } from './LoadableFields';
 import type { LoadingNameActions } from './useLoadingNames';
 
@@ -65,10 +67,9 @@ interface Props {
   thumbnails: ReadonlyMap<string, string>;
   /** The pieces of each loaded model file (a file with 2+ pieces expands into piece tiles). */
   pieces: ReadonlyMap<string, readonly { name: string }[]>;
-  onVertexColors: (assetId: string, mode: 'data' | 'tint') => void;
+  /** The asset inspector's option commands (vertex colours, audio load settings, texture streaming). */
+  assetOptions: Pick<AssetOptionActions, 'setVertexColors' | 'setAudioLoadType' | 'setAudioPreload' | 'setTextureStreaming'>;
   /** An audio file's load type (null: the default for its length) and whether it is read with its scene. */
-  onAudioLoadType?: (assetId: string, loadType: 'decode-on-load' | 'decode-while-playing' | 'stream' | null) => void;
-  onAudioPreload?: (assetId: string, preload: boolean) => void;
   /** How an imported PNG/JPEG texture is stored — as is, or encoded to KTX2 (colour: ETC1S, normal map: UASTC; data, UASTC linear). */
   textureEncoding?: 'none' | 'color' | 'normal' | 'data';
   onTextureEncoding?: (v: 'none' | 'color' | 'normal' | 'data') => void;
@@ -399,7 +400,8 @@ export function AssetBrowser(p: Props): JSX.Element {
               · {selected.image.width}×{selected.image.height}
             </div>
           )}
-          {selected.audio !== undefined && <AudioAssetOptions assetId={selected.assetId} audio={selected.audio} onLoadType={p.onAudioLoadType} onPreload={p.onAudioPreload} />}
+          {selected.streaming !== undefined && <TextureAssetOptions assetId={selected.assetId} streaming={selected.streaming} image={selected.image} onStreaming={(id, v) => void p.assetOptions.setTextureStreaming(id, v)} />}
+          {selected.audio !== undefined && <AudioAssetOptions assetId={selected.assetId} audio={selected.audio} onLoadType={(id, t) => void p.assetOptions.setAudioLoadType(id, t)} onPreload={(id, v) => void p.assetOptions.setAudioPreload(id, v)} />}
           {selected.kind === 'model' && (
             <label className="tl-field" title="COLOR_0 as shader data (foliage bend weights and the like) or as a tint multiplied into the base colour">
               <span className="tl-field__label">vertex colour</span>
@@ -407,7 +409,7 @@ export function AssetBrowser(p: Props): JSX.Element {
                 className="tl-input"
                 aria-label="vertex colour"
                 value={selected.vertexColors === 'tint' ? 'tint' : 'data'}
-                onChange={(e) => p.onVertexColors(selected.assetId, e.target.value === 'tint' ? 'tint' : 'data')}
+                onChange={(e) => void p.assetOptions.setVertexColors(selected.assetId, e.target.value === 'tint' ? 'tint' : 'data')}
               >
                 <option value="data">data (not colour)</option>
                 <option value="tint">tint the albedo</option>

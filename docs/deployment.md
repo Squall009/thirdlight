@@ -891,6 +891,34 @@ JPEG or WebP. The encoder is the pinned `ktx2-encoder` package
 (decision 0006). Phase 25.21 adds *KTX2 data (UASTC, linear)* for masks,
 heights and packed occlusion/roughness/metalness (MCP `ktx2: "data"`).
 
+### Texture streaming (phase 26.12)
+
+A large KTX2 texture **streams its mips** in Play and the export, as Unity's
+mipmap streaming and Unreal's texture streaming pool do: the page first reads
+the file's metadata and its mip tail (every level up to 128 px, one small
+request), draws with it at once, and reads larger levels one at a time as the
+texture's size on screen asks for them, inside the project's **texture
+budget** (Project settings → Rendering → *Texture budget*, `texture_budget_mb`,
+1–65,536 MiB, default 512: Unity's default, which a mid-range laptop's shared
+GPU memory holds with room to spare). When the budget is full the
+least-needed levels go first: levels nothing on screen needs now, then the
+textures furthest from the camera. Textures that do not stream count against
+the budget but are never dropped; the tails always stay.
+
+Streaming is an import setting of the texture (its `.tlasset`
+`importSettings.streaming`; the asset inspector's **stream mips**; MCP
+`setAssetOptions {assetId, streaming: true | false | null}`): on by default
+for textures over 1024 px. Only a KTX2 mip chain streams: a PNG or JPEG
+streams once it is imported with a KTX2 encoding (the encode makes the chain);
+texture arrays load whole. The build cuts each streamed KTX2 into parts by
+mip level (in the import cache, keyed by the KTX2's digest), and Play and the
+export ship the parts instead of the whole file; each part is its own
+digest-addressed file, verified by the page and cached by the browser like
+any other. The Scene view reads textures whole. Resident texture bytes against
+the budget, and each streamed texture's resident and wanted level, are in
+`tl_game_observe` and Play diagnostics (`resources.textures`). Streaming is
+presentation only: it never touches the simulation.
+
 ### Packed textures and texture arrays (phase 25.21)
 
 Assets panel → **pack texture…** makes one KTX2 from PNG/JPEG texture assets
@@ -2774,7 +2802,8 @@ its reason (the same line is next to its constant in the code):
 | Fog volumes | 16 per scene | A fixed-size uniform array in the shader |
 | Lightmaps | 16 atlases and 4,096 entries per scene bake, 64 baked lights | The bake's own format; phase 27 reworks lighting |
 | Texture arrays | 256 layers | What WebGL 2 and WebGPU both guarantee |
-| Texture edge | 4,096 px | Texture streaming (phase 26.12) revisits it |
+| Texture edge | 4,096 px | Kept after streaming: the KTX2 encoder makes at most about 3,500² (12 Mpix), WebGL 2 promises only 2,048 and many devices stop at 4,096, and a streamed texture close to the camera still needs its full-size level |
+| Texture budget | 512 MiB by default (`texture_budget_mb`, 1–65,536) | A runtime budget: streamed textures' mips fit it, the least needed dropped first; the mip tails and textures that do not stream are counted, never dropped |
 | KTX2 encoding | 12 Mpix per source (across a packed array's layers) | A known limit of the pinned encoder (Basis Universal 2.5), kept; a larger texture is imported as PNG/JPEG or encoded outside the editor |
 | Material instances | 8 parents deep | A chain resolved at build; deeper chains are an authoring smell |
 | Graphs | 4,096 nodes per graph (the kind may set fewer; 256 for a script or effect system graph, which compile into one bounded module) | The editor and the compiled output of one document |

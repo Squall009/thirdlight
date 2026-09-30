@@ -24,7 +24,7 @@
  */
 
 import type { AssetSummary, ChangeData, CommandAssetRecord, PublishAssetChange } from '@thirdlight/commands';
-import { audioSummaryOf } from '@thirdlight/project-model/limits';
+import { audioSummaryOf, textureHasStreamableChain, textureStreamingOf } from '@thirdlight/project-model/limits';
 import type { ProjectedEntity } from './projection';
 
 /** One catalog asset summary exactly as `queryAssets`/full state returns it. */
@@ -148,6 +148,8 @@ export class ContentProjection {
       ...(packed !== undefined ? { packedFrom: { encoding: packed.encoding, sources: packedSources } } : {}),
       // An audio file's facts and load settings.
       ...(audio !== undefined ? { audio } : {}),
+      // A texture's mip streaming (the setting, else the default for its size).
+      ...(next.kind === 'texture' ? { streaming: { on: textureStreamingOf(next), set: typeof (next as { streaming?: unknown }).streaming === 'boolean', possible: textureHasStreamableChain(current?.metrics) } } : {}),
       // `change.next` carries the full record, so the version facts (never
       // bytes) are recomputed locally rather than re-queried.
       versions: next.versions.map((v) => {
@@ -207,6 +209,7 @@ function cloneSummary(a: AssetSummary): AssetSummary {
     ...(a.sourcePath !== undefined ? { sourcePath: a.sourcePath } : {}),
     ...(a.convertedFrom !== undefined ? { convertedFrom: { ...a.convertedFrom } } : {}),
     ...(a.image !== undefined ? { image: { ...a.image } } : {}),
+    ...(a.streaming !== undefined ? { streaming: { ...a.streaming } } : {}),
     ...(a.audio !== undefined ? { audio: { ...a.audio, ...(a.audio.playbackGaps !== undefined ? { playbackGaps: [...a.audio.playbackGaps] } : {}) } } : {}),
     ...(a.packedFrom !== undefined ? { packedFrom: { encoding: a.packedFrom.encoding, sources: [...a.packedFrom.sources] } } : {}),
     ...(a.versions ? { versions: a.versions.map((v) => ({ ...v })) } : {}),

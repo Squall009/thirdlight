@@ -183,7 +183,10 @@ export async function buildPlayContentM3(input: BuildPlayContentM3Input): Promis
     artifacts.push({ path: a.path, bytes: a.bytes, digest: a.digest, contentType: a.contentType });
   }
   // The project's files (assets, instance buffers) are served from disk, not held.
-  for (const a of [...closure.assetFiles, ...closure.bufferFiles]) {
+  const served = new Set<string>();
+  for (const a of [...closure.assetFiles, ...closure.bufferFiles, ...closure.streamedTextures.flatMap((t) => t.parts)]) {
+    if (served.has(a.path)) continue;
+    served.add(a.path);
     artifacts.push({ path: a.path, digest: a.digest, byteLength: a.byteLength, contentType: a.contentType, file: a.file });
   }
   // The play entry: the prebuilt bundle served as game.js (the page

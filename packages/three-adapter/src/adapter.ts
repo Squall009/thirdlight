@@ -1469,6 +1469,8 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     }
     camera!.aspect = w / h;
     camera!.updateProjectionMatrix();
+    // What the camera sees decides which texture mips stream in or out (presentation only).
+    opts.textureStreamer?.update(scene, camera!, h * renderer.getPixelRatio());
     // The viewport the view is drawn in (screen↔world projection in scripts uses its aspect).
     if (w !== reportedViewport[0] || h !== reportedViewport[1]) {
       reportedViewport[0] = w;
@@ -1658,6 +1660,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     if (!disposed && blockView.layerIds().length > 0) d.blocks = blockView.diagnostics();
     if (!disposed && materialLibrary !== null && runtimeMaterials !== null) d.materials = { graphMaterials: materialLibrary.graphMaterialCount(), ...runtimeMaterials.diagnostics() };
     if (environmentRenderer !== null && !disposed) d.environment = { iblRebakes: environmentRenderer.diagnostics().iblRebakes };
+    if (opts.textureStreamer !== undefined && !disposed) d.textures = opts.textureStreamer.observe();
     if (liveRenderer !== null && lastFrameDrawn) d.frame = { drawCalls: lastFrameCounts.drawCalls, triangles: lastFrameCounts.triangles };
     return {
       ok: true,
