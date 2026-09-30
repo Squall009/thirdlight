@@ -454,7 +454,7 @@ const M2_RESULT_OPS = [
 ];
 
 /** The v3 operation set. */
-const V3_RESULT_OPS = ['applySurfacePreset', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setCollisionLayers', 'setSaveSchema', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit', 'setEffect', 'deleteEffect', 'renameEffect', 'setScriptLibrary', 'deleteScriptLibrary', 'editBlocks', 'setBlockType', 'deleteBlockType', 'setCellFields', 'setBlockStamp', 'deleteBlockStamp', 'setUiDocument', 'deleteUiDocument', 'setUiTheme', 'deleteUiTheme', 'setTimeline', 'deleteTimeline', 'setModes', 'setBehaviorGroups', 'setEventCues', 'setShell', 'setDialogue', 'deleteDialogue', 'setSpeaker', 'deleteSpeaker', 'setDialogueSettings', 'deleteAsset', 'deletePrefab', 'importAssets', 'createEntities', 'commitScriptLibraryStage'];
+const V3_RESULT_OPS = ['applySurfacePreset', 'updateEntity', 'moveEntities', 'setTags', 'setAssetOptions', 'pasteEntities', 'setMaterial', 'deleteMaterial', 'setEnvironment', 'setLighting', 'setAnimator', 'deleteAnimator', 'setInput', 'setCollisionLayers', 'setSaveSchema', 'createScene', 'renameScene', 'deleteScene', 'setStartScenes', 'setGraph', 'deleteGraph', 'graphEdit', 'setEffect', 'deleteEffect', 'renameEffect', 'setScriptLibrary', 'deleteScriptLibrary', 'editBlocks', 'setBlockType', 'deleteBlockType', 'setCellFields', 'setBlockStamp', 'deleteBlockStamp', 'setUiDocument', 'deleteUiDocument', 'setUiTheme', 'deleteUiTheme', 'setTimeline', 'deleteTimeline', 'setModes', 'setBehaviorGroups', 'setEventCues', 'setShell', 'setDialogue', 'deleteDialogue', 'setSpeaker', 'deleteSpeaker', 'setDialogueSettings', 'deleteAsset', 'deletePrefab', 'importAssets', 'importResources', 'createEntities', 'commitScriptLibraryStage'];
 /** The ops only a v4 project records (the scene index). */
 const V4_RESULT_OPS = ['createScene', 'renameScene', 'deleteScene', 'setStartScenes'];
 
@@ -738,6 +738,8 @@ const V2_CHANGE_TYPES: readonly string[] = [
   'removeAsset',
   // A folder's files imported as assets.
   'importAssets',
+  // Resource and scene files the file check found.
+  'importResources',
   // A staged commit of several script libraries.
   'setScriptLibraries',
 ];
@@ -788,6 +790,7 @@ const V2_CHANGE_KEYS: Record<string, readonly string[]> = {
   setTimeline: ['type', 'timelineId', 'previous', 'next'],
   removeAsset: ['type', 'assetId', 'previous'],
   importAssets: ['type', 'folder', 'added', 'removed'],
+  importResources: ['type', 'records', 'scenesAdded', 'scenesRemoved'],
   setScriptLibraries: ['type', 'libraries', 'behaviors'],
 };
 
@@ -859,6 +862,7 @@ const M2_CHANGE_TYPE_BY_OP: Record<string, string> = {
   deleteAsset: 'removeAsset',
   deletePrefab: 'removePrefab',
   importAssets: 'importAssets',
+  importResources: 'importResources',
   createEntities: 'pasteEntities',
   commitScriptLibraryStage: 'setScriptLibraries',
 };

@@ -121,6 +121,10 @@ export type {
   DeleteAssetArgs,
   ImportAssetsArgs,
   ImportAssetsChange,
+  ImportResourcesChange,
+  PreparedResourceImport,
+  PreparedResourceRecord,
+  AdoptedScene,
   PreparedAssetImport,
   PreparedAssetImportItem,
   DeletePrefabArgs,
@@ -235,3 +239,6 @@ export { GRAPH_OWNER_KINDS, GRAPH_OWNERS, editOwnerGraph, parseBehaviorOwnerId, 
 // Asset and prefab deletion (the in-use refusal the workspace also raises), bulk creation.
 export { contentInUse } from './delete-content-ops';
 export { CREATE_ENTITIES_MAX } from './ops';
+// A catalog record from import facts (the host rebuilds a lost sidecar's record the way an import makes one).
+export { createdAssetRecord } from './content-ops';
+export { validatePublishAssetArgs } from './validate-content-args';

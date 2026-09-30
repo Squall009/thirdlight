@@ -316,3 +316,6 @@ export {
   type JobExportManifest,
   type JobExportRequest,
 } from './job-export';
+
+// The ops that create a resource or a scene (each takes an optional `folder`); the editor adds its current folder to them.
+export { RESOURCE_CREATING_OPS } from '@thirdlight/project-model/limits';

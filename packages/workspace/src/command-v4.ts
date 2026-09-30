@@ -7,9 +7,9 @@
  */
 
 import { applyMutation, contentInUse } from '@thirdlight/commands';
-import type { CommandError, CommandState, ContentDocument, HistoryEntry, HistoryState, MutationResult, MutationSuccess, SceneDocument } from '@thirdlight/commands';
+import type { AdoptedScene, CommandError, CommandState, ContentDocument, HistoryEntry, HistoryState, MutationResult, MutationSuccess, SceneDocument } from '@thirdlight/commands';
 import type { ModelErrorV3, SceneV4 } from '@thirdlight/project-model';
-import { composeV4, INSTANCE_FLOATS } from '@thirdlight/project-model';
+import { composeV4, INSTANCE_FLOATS, RESOURCE_CREATING_OPS } from '@thirdlight/project-model';
 
 import type { RetryRecord } from './envelope';
 import { authoritativeBytes, readSourceBlob, verifyConvertedOriginal, verifyImported, verifyReferencedBlob } from './content-store';
@@ -18,8 +18,8 @@ import { mintImportItems } from './folder-import';
 import { contentCtx } from './service-content';
 import { libraryStageFacts, preparedFactsOf } from './behavior';
 import { contentQuotaExceeded, externalChangeUnreadable, externalChangeUnresolved, pathRejected, writeFailed } from './errors';
-import { withUntrackedSidecars, writeTransaction, type V4State } from './store-v4';
-import { changedFiles, detectExternalChangeV4, gameRootOf, publishV4, setPendingUnreadableV4 } from './session-v4';
+import { withUntrackedSidecars, writeTransaction, type KnownFile, type V4State } from './store-v4';
+import { changedFiles, detectExternalChangeV4, gameRootOf, publishV4, setPendingUnreadableV4, type Placement } from './session-v4';
 import { pendingInfo, type Core, type ProjectSession } from './session';
 import { envelopeRequestId, failRequest } from './request-envelope';
 import { catalogV4Of, commandContentOf, crossSceneEntities, projectRuleError, sceneMissing, sceneNotEmpty, sceneV4Of } from './content-shapes';
@@ -159,6 +159,25 @@ export function runCommandV4(core: Core, s: ProjectSession, request: unknown, D:
   }, folder) : null;
   if (folder !== undefined && placement === null) return failRequest(request, pathRejected(folder, 'folder places uploaded bytes; this asset names its file already'));
   if (placement !== null) pureRequest = { ...(pureRequest as object), args: placement.args };
+  // A create names the folder of the game folder its resource or scene goes into (the pure layer never sees it).
+  let place: Placement = {};
+  if (RESOURCE_CREATING_OPS.includes(op) && 'folder' in args) {
+    const { folder: f, ...rest } = args;
+    if (typeof f !== 'string') return failRequest(request, pathRejected(String(f), 'folder names a folder of the game folder, e.g. assets/levels'));
+    const vetted = checkAssetFolder(contentCtx(s), f);
+    if (!vetted.ok) return failRequest(request, vetted.error);
+    place = { folder: f };
+    pureRequest = { ...(pureRequest as object), args: rest };
+  }
+  // Resource and scene files the file check read (once): adopted where they are.
+  if (op === 'importResources') {
+    const prepared = s.preparedResources;
+    s.preparedResources = undefined;
+    if (prepared !== undefined) {
+      commandState.preparedResourceImport = prepared.prepared;
+      place = { at: prepared.at, disk: prepared.disk };
+    }
+  }
   // A folder import reads the files the backend inspected for it (once), each given its id now.
   if (op === 'importAssets' && typeof args['folder'] === 'string') {
     const files = s.preparedImports?.get(args['folder']);
@@ -213,9 +232,13 @@ export function runCommandV4(core: Core, s: ProjectSession, request: unknown, D:
   const newRevision = outcome.result.revision;
   const nextContent = outcome.state.content !== undefined ? catalogV4Of(outcome.state.content) : state.content;
   const nextScenes = new Map<string, SceneV4>();
+  // Scene files the command adopts (and their redo) bring their documents.
+  const adopted = new Map<string, SceneV4>();
+  const change = outcome.result.change as { type: string; scenesAdded?: AdoptedScene[] };
+  if (change.type === 'importResources') for (const a of change.scenesAdded ?? []) adopted.set(a.sceneId, a.scene as SceneV4);
   for (const entry of nextContent.scenes) {
     if (entry.sceneId === carrierId) nextScenes.set(entry.sceneId, { ...resultScene, sceneId: carrierId });
-    else nextScenes.set(entry.sceneId, state.scenes.get(entry.sceneId) ?? { schemaVersion: 4, sceneId: entry.sceneId, revision: newRevision, entities: [] });
+    else nextScenes.set(entry.sceneId, state.scenes.get(entry.sceneId) ?? adopted.get(entry.sceneId) ?? { schemaVersion: 4, sceneId: entry.sceneId, revision: newRevision, entities: [] });
   }
   const errors: ModelErrorV3[] = [];
   composeV4([...nextScenes.values()], nextContent, errors, newRevision);
@@ -227,12 +250,18 @@ export function runCommandV4(core: Core, s: ProjectSession, request: unknown, D:
   // The acknowledgement names the edited scene (the editor
   // files new entities under it); a scene-index change names none.
   // The record stores that acknowledgement, so a replay carries it.
-  const ack: MutationSuccess = outcome.result.change.type !== 'setSceneIndex' ? { ...outcome.result, sceneId: carrierId } : outcome.result;
+  let ack: MutationSuccess = outcome.result.change.type !== 'setSceneIndex' ? { ...outcome.result, sceneId: carrierId } : outcome.result;
+  // Adopted scenes are in their own files: the acknowledgement (and so every retry record) names them without their documents.
+  if (change.type === 'importResources') ack = { ...ack, change: { ...ack.change, scenesAdded: (change.scenesAdded ?? []).map((a) => ({ sceneId: a.sceneId, name: a.name })) } as MutationSuccess['change'] };
   const record: RetryRecord = { requestId: envelopeRequestId(request)!, digest: D, appliedRevision: newRevision, result: ack };
-  const plan = changedFiles(s.projectId, state, { content: nextContent, scenes: nextScenes, revision: newRevision }, record);
-  const res = writeTransaction(core.ops, s.dir, s.thirdlightDir, s.projectId, withUntrackedSidecars(core.ops, s.dir, gameRootOf(s), state.files, plan.writes), plan.writes, gameRootOf(s));
+  const plan = changedFiles(s.projectId, state, { content: nextContent, scenes: nextScenes, revision: newRevision }, record, place);
+  // Files adopted where they are: what the file check read is the baseline their write is checked against.
+  const base = withUntrackedSidecars(core.ops, s.dir, gameRootOf(s), state.files, plan.writes);
+  const disk = place.disk;
+  const known = disk === undefined ? base : { get: (rel: string): KnownFile | undefined => (disk.has(rel) ? (disk.get(rel) ?? undefined) : base.get(rel)) };
+  const res = writeTransaction(core.ops, s.dir, s.thirdlightDir, s.projectId, known, plan.writes, gameRootOf(s));
   // The state after the write (its known files are brought up to date only once the write is done).
-  const nextState = (): V4State => ({ manifest: state.manifest, content: nextContent, scenes: nextScenes, revision: newRevision, files: plan.commitFiles(), fileRecords: plan.fileRecords, resourcePaths: plan.resourcePaths });
+  const nextState = (): V4State => ({ manifest: state.manifest, content: nextContent, scenes: nextScenes, revision: newRevision, files: plan.commitFiles(), fileRecords: plan.fileRecords, resourcePaths: plan.resourcePaths, scenePaths: plan.scenePaths, formerPaths: plan.formerPaths });
   if (!res.ok) {
     if ('unreadable' in res) {
       setPendingUnreadableV4(s, res.unreadable.rel);

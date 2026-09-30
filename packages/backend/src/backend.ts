@@ -548,6 +548,7 @@ export function createBackend(
   /** What the open's format upgrade did (files written, older versions kept, the report's name) goes to the Problems log once. */
   const reportUpgradeNotes = (projectId: string): void => {
     for (const note of service.takeUpgradeNotes(projectId)) recordProblem(projectId, 'workspace', 'project_upgraded', note);
+    for (const p of service.takeOpenProblems(projectId)) recordProblem(projectId, 'workspace', p.code, p.message);
   };
 
   // ---------- Graph materials' problems (checked on load and after every change) ----------
@@ -599,6 +600,7 @@ export function createBackend(
       type === 'publishAsset' ||
       type === 'removeAsset' ||
       type === 'importAssets' ||
+      type === 'importResources' ||
       type === 'setAssetOptions'
     );
   };

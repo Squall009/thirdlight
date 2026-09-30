@@ -20,7 +20,7 @@ import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
 import { AUDIO_PCM_WAV_TOOLCHAIN, FONT_TOOLCHAIN, IMAGE_TOOLCHAIN, M2_GLTF_TOOLCHAIN, MUSIC_TOOLCHAIN, type ImportJobPort } from '@thirdlight/asset-pipeline';
-import { importKeyOfConverted, type AssetFileEntry, type ImportHeader, type MutationSuccess, type StageInspector, type WorkspaceService } from '@thirdlight/workspace';
+import { importKeyOfConverted, type AssetFileEntry, type ImportHeader, type MutationSuccess, type ResourceCheckReport, type StageInspector, type WorkspaceService } from '@thirdlight/workspace';
 
 import type { FbxConverter } from './fbx';
 import { KTX2_ENCODER, type Ktx2Mode, type TextureEncoder } from './texture-encode';
@@ -32,6 +32,8 @@ export interface AssetFileCheckReport {
   rebuilt: { assetId: string; file: string }[];
   failed: { assetId: string; file: string | null; code: string; message: string }[];
   sidecarProblems: string[];
+  /** The project's resource and scene files: moves followed, files adopted, reloaded or removed (one `importResources`), problems. */
+  resources: ResourceCheckReport | null;
 }
 
 export interface AssetFileCheckDeps {
@@ -205,7 +207,24 @@ export function createAssetFileCheck(deps: AssetFileCheckDeps) {
   };
 
   async function runCheck(projectId: string, options: { reimport: boolean; relocate: boolean }): Promise<{ ok: true; report: AssetFileCheckReport } | { ok: false; code: string; message: string }> {
-    const report: AssetFileCheckReport = { relocated: [], reimported: [], rebuilt: [], failed: [], sidecarProblems: [] };
+    const report: AssetFileCheckReport = { relocated: [], reimported: [], rebuilt: [], failed: [], sidecarProblems: [], resources: null };
+    // Resource and scene files first (a material a new file brings may name an asset the check re-imports next).
+    if (options.relocate) {
+      const r = service.checkResourceFiles(projectId);
+      if (r.ok) {
+        report.resources = r.report;
+        if (r.prepared) {
+          const applied = command(projectId, 'importResources', {});
+          if (!applied.ok) {
+            // Nothing came in: the files stay as they are and say why; the next check tries again.
+            r.report.problems.push({ path: '', message: `the resource files found could not come in together: ${applied.message}` });
+            r.report.adopted = [];
+            r.report.reloaded = [];
+            r.report.removed = [];
+          }
+        }
+      }
+    }
     let files = service.assetFiles(projectId);
     if (!files.ok) return { ok: false, code: files.error.code, message: files.error.message ?? files.error.code };
     const missing = files.entries.filter((e) => e.status === 'missing');

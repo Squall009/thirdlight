@@ -147,7 +147,7 @@ import { ProjectFilePicker } from './ProjectFilePicker';
 import { type SourceIssue } from '../session/asset-sources';
 import { useAssetFileCheck } from './useAssetFileCheck';
 import { useAssetImport } from './useAssetImport';
-import { FolderImportPanel } from './FolderImportPanel';
+import { AssetFolders } from './AssetFolders';
 import { createPreviewAudioOwner, type PreviewAudioOwner } from '../session/preview-audio';
 import { SURFACE_PRESET_NAMES, validateMediaDrop, type AnimationRoleKey, type SurfacePresetName } from '../session/media';
 import type { GizmoMode } from '../viewport/viewport';
@@ -4272,12 +4272,12 @@ function EditorApp(): JSX.Element {
               onDelete={(id) => void deleteAsset(id)}
               deleteError={assetDeleteError}
               importExtra={
-                <FolderImportPanel
+                <AssetFolders
+                  clientRef={clientRef}
                   uploadFolder={uploadFolder}
                   onUploadFolder={setUploadFolder}
+                  ktx2={textureEncoding === 'none' ? undefined : textureEncoding}
                   load={loadProjectFiles}
-                  upload={(path, bytes) => clientRef.current?.uploadFileTo(path, bytes) ?? Promise.resolve({ ok: false as const, error: { code: 'session_unavailable', message: 'not connected' } })}
-                  importFolder={(folder, labels) => clientRef.current?.importFolder(folder, labels, textureEncoding === 'none' ? undefined : textureEncoding) ?? Promise.resolve({ ok: false as const, error: { code: 'session_unavailable', message: 'not connected' } })}
                   onImported={() => void refreshAssets()}
                 />
               }

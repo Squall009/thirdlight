@@ -18,14 +18,14 @@
 import type { ContentCatalogV4, SceneV4 } from '@thirdlight/project-model';
 
 import { recordsOfKind, RESOURCE_KINDS, type ResourceKind } from './resource-files';
-import { sceneRel, type ResourcePaths } from './store-v4';
+import { displayPathOf, sceneRel, type ResourcePaths } from './store-v4';
 
 /** One asset, resource or scene of the project. */
 export interface IndexEntry {
   /** An asset's kind (`model`, `texture`, …), a resource's (`prefab`, `material`, …) or `scene`. */
   readonly kind: string;
   readonly id: string;
-  /** Its file: in the game folder for assets and resources, the project folder for scenes; null: its bytes are stored, not a file. */
+  /** Its file: in the game folder for assets, resources and scenes placed there; `scenes/<id>.json` for a scene in the project folder; null: its bytes are stored, not a file. */
   readonly path: string | null;
   readonly name: string;
   readonly labels: readonly string[];
@@ -47,6 +47,8 @@ export interface IndexSource {
   readonly content: ContentCatalogV4;
   readonly scenes: ReadonlyMap<string, SceneV4>;
   readonly resourcePaths: ResourcePaths;
+  /** Scene id → its file key (absent: the project folder's `scenes/<id>.json`). */
+  readonly scenePaths?: ReadonlyMap<string, string>;
 }
 
 interface AssetLike {
@@ -112,10 +114,10 @@ function resourceEntry(k: ResourceKind, r: Record<string, unknown>, path: string
   return { kind: k.kind, id, path: path ?? null, name, labels, refs: [...refs].sort() };
 }
 
-function sceneEntry(scene: SceneV4, name: string, known: Known): IndexEntry {
+function sceneEntry(scene: SceneV4, name: string, rel: string | undefined, known: Known): IndexEntry {
   const refs = new Set<string>();
   for (const e of scene.entities) stringRefs(e.components, known, scene.sceneId, refs);
-  return { kind: 'scene', id: scene.sceneId, path: sceneRel(scene.sceneId), name, labels: [], refs: [...refs].sort() };
+  return { kind: 'scene', id: scene.sceneId, path: displayPathOf(rel ?? sceneRel(scene.sceneId)), name, labels: [], refs: [...refs].sort() };
 }
 
 function addReferrers(referrers: Map<string, Set<string>>, key: string, refs: readonly string[]): void {
@@ -155,7 +157,7 @@ export function buildIndex(src: IndexSource): ProjectIndex {
   }
   const names = new Map(src.content.scenes.map((s) => [s.sceneId, s.name]));
   for (const scene of src.scenes.values()) {
-    const e = sceneEntry(scene, names.get(scene.sceneId) ?? scene.sceneId, known);
+    const e = sceneEntry(scene, names.get(scene.sceneId) ?? scene.sceneId, src.scenePaths?.get(scene.sceneId), known);
     entries.set(keyOf(e.kind, e.id), e);
   }
   const referrers = new Map<string, Set<string>>();
@@ -224,8 +226,8 @@ export function updateIndex(index: ProjectIndex, before: IndexSource, after: Ind
   const names = new Map(after.content.scenes.map((sc) => [sc.sceneId, sc.name]));
   const namesBefore = before.content.scenes === after.content.scenes ? names : new Map(before.content.scenes.map((sc) => [sc.sceneId, sc.name]));
   for (const [id, scene] of after.scenes) {
-    if (before.scenes.get(id) === scene && namesBefore.get(id) === names.get(id)) continue;
-    stage('scene', id, () => sceneEntry(scene, names.get(id) ?? id, known));
+    if (before.scenes.get(id) === scene && namesBefore.get(id) === names.get(id) && before.scenePaths?.get(id) === after.scenePaths?.get(id)) continue;
+    stage('scene', id, () => sceneEntry(scene, names.get(id) ?? id, after.scenePaths?.get(id), known));
   }
   for (const id of before.scenes.keys()) if (!after.scenes.has(id)) removes.push(keyOf('scene', id));
   for (const key of removes) {

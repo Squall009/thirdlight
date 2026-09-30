@@ -66,6 +66,8 @@ import type { EntityHeader, EntityHeaderField, PartialTransformArgs, BoxArgs, Mo
 export type { EntityHeader, EntityHeaderField, PartialTransformArgs, BoxArgs, ModelArgs, CreateEntityArgs, UpdateEntityArgs } from './entity-types';
 import type { ImportAssetsArgs, ImportAssetsChange, ImportAssetsInverse, PreparedAssetImport } from './import-assets';
 export type { ImportAssetsArgs, ImportAssetsChange, ImportAssetsInverse, PreparedAssetImport, PreparedAssetImportItem } from './import-assets';
+import type { ImportResourcesArgs, ImportResourcesChange, ImportResourcesInverse, PreparedResourceImport } from './import-resources';
+export type { AdoptedScene, ImportResourcesArgs, ImportResourcesChange, ImportResourcesInverse, PreparedResourceImport, PreparedResourceRecord } from './import-resources';
 
 // ---- ops and origins --------------------------------------------------------
 
@@ -170,6 +172,8 @@ export type V3MutationOp =
   | 'deletePrefab'
   // Every supported file of a folder as assets, with labels (one undo)
   | 'importAssets'
+  // Resource and scene files the file check found (one undo)
+  | 'importResources'
   // Many entities in one transaction (one revision, one undo)
   | 'createEntities';
 
@@ -1006,7 +1010,8 @@ export type ChangeData =
   | SetShellChange
   | SetUiChange
   | SetTimelineChange
-  | ImportAssetsChange;
+  | ImportAssetsChange
+  | ImportResourcesChange;
 
 /** The change types a forward (non-undo/redo) command can produce. */
 export type ForwardChange =
@@ -1054,7 +1059,8 @@ export type ForwardChange =
   | SetShellChange
   | SetUiChange
   | SetTimelineChange
-  | ImportAssetsChange;
+  | ImportAssetsChange
+  | ImportResourcesChange;
 
 // ---- inverse specs --------------------------------------------------------
 
@@ -1274,6 +1280,7 @@ export type InverseSpec =
   | RemovePrefabInverse
   | RestorePrefabInverse
   | ImportAssetsInverse
+  | ImportResourcesInverse
 ;
 
 // ---- history model --------------------------------------------------------
@@ -1371,6 +1378,8 @@ export interface CommandState<S extends SceneDocument = SceneDocument> {
   scriptLibraryStages?: ReadonlyMap<string, ScriptLibraryStageFact>;
   /** The host's prepared facts of a folder's files (`importAssets` reads only these). */
   preparedAssetImport?: PreparedAssetImport;
+  /** The host's prepared facts of resource and scene files (`importResources` reads only these). */
+  preparedResourceImport?: PreparedResourceImport;
 }
 
 /**
@@ -1806,6 +1815,7 @@ export type MutationArgs =
   | DeleteAssetArgs
   | DeletePrefabArgs
   | ImportAssetsArgs
+  | ImportResourcesArgs
   | SetTransformArgs
   | DeleteEntityArgs
   | EmptyArgs

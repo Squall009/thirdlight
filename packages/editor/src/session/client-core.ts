@@ -39,7 +39,7 @@ import { PrefabProjection } from './prefab-projection';
 import { committed, planAssetQuery } from './asset-browser';
 import { type Transform } from './gesture';
 import { type CompileDiagnosticView } from './behavior-publication';
-import { fromWireChange } from '@thirdlight/protocol';
+import { fromWireChange, RESOURCE_CREATING_OPS } from '@thirdlight/protocol';
 import { OwnCommands, WHOLE_DOCUMENT_OPS } from './own-commands';
 import type { BehaviorRecord, PrefabDefinition } from '@thirdlight/project-model';
 
@@ -330,6 +330,20 @@ export class SessionClientCore {
    */
   private openSceneIds: string[] = [];
   private activeScene: string | null = null;
+  /**
+   * The folder of the game folder new scenes and resources go into (as
+   * Unity's Create menu uses the project window's current folder); empty:
+   * each kind's default folder. A view setting, never part of the project.
+   */
+  private newItemFolder = '';
+
+  get newResourceFolder(): string {
+    return this.newItemFolder;
+  }
+
+  setNewResourceFolder(folder: string): void {
+    this.newItemFolder = folder.trim().replace(/\/+$/, '');
+  }
 
   constructor(cfg: ClientConfig, cb: ClientCallbacks, sessionId?: string) {
     this.cfg = cfg;
@@ -727,6 +741,11 @@ export class SessionClientCore {
   }
 
   private applyMutationApplied(ev: { requestId: string; revision: number; change: unknown; sceneId?: string }): void {
+    // Files the file check took in may be of any kind and bring whole scenes: read the project again.
+    if ((ev.change as { type?: unknown } | null)?.type === 'importResources') {
+      void this.fullResync().then(() => this.cb.onSceneChanged());
+      return;
+    }
     // A keyed-list change arrives as a delta; rebuild it from our copy (a copy that does not fit resyncs).
     const full = fromWireChange(ev.change as Record<string, unknown>, { setMaterials: this.materials as unknown as Record<string, unknown>[], setAnimators: this.animators as unknown as Record<string, unknown>[] });
     if (full === null) {
@@ -993,6 +1012,10 @@ export class SessionClientCore {
     if ((op === 'createEntity' || op === 'instantiatePrefab' || op === 'pasteEntities') && this.activeScene !== null && typeof args === 'object' && args !== null) {
       const a = args as Record<string, unknown>;
       if ((a['parentId'] === undefined || a['parentId'] === null) && a['sceneId'] === undefined) args = { ...a, sceneId: this.activeScene };
+    }
+    // A new scene or resource goes into the current folder (a record the op only changes stays where its file is).
+    if (this.newItemFolder !== '' && RESOURCE_CREATING_OPS.includes(op) && typeof args === 'object' && args !== null && (args as Record<string, unknown>)['folder'] === undefined) {
+      args = { ...(args as Record<string, unknown>), folder: this.newItemFolder };
     }
     const env = makeEnvelope(op, this.cfg.projectId, rid, expectedRevision, args, origin);
     this.save = 'pending';

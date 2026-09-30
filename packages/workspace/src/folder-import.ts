@@ -69,6 +69,11 @@ export function scanAssetFolder(ctx: ContentContext, folder: string): { ok: true
   if (!vetted.ok) return vetted;
   const dir = resolveProjectFile(ctx, folder, 'dir');
   if (!dir.ok) return { ok: false, error: dir.error };
+  return { ok: true, scan: walkAssetFiles(ctx, folder) };
+}
+
+/** Every file of a folder of the game folder (`''`: the whole game folder), as `scanAssetFolder` lists them. */
+export function walkAssetFiles(ctx: ContentContext, folder: string): FolderImportScan {
   const records = (ctx.content?.assets ?? []) as unknown as RecordLike[];
   const byFile = new Map<string, string>();
   for (const r of records) {
@@ -90,7 +95,7 @@ export function scanAssetFolder(ctx: ContentContext, folder: string): { ok: true
     const subfolders: string[] = [];
     for (const name of names) {
       if (name.startsWith('.')) continue;
-      const path = `${rel}/${name}`;
+      const path = rel === '' ? name : `${rel}/${name}`;
       if (rel === '' && ctx.gameFolder == null && PROJECT_OWN_ENTRIES.has(name)) continue;
       let st;
       try {
@@ -141,7 +146,7 @@ export function scanAssetFolder(ctx: ContentContext, folder: string): { ok: true
     for (const sub of subfolders) walk(sub, depth + 1);
   };
   walk(folder, 0);
-  return { ok: true, scan };
+  return scan;
 }
 
 /** A file's facts as the backend prepared them for the command (the id is chosen at the command). */

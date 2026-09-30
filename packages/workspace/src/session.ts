@@ -143,8 +143,14 @@ export interface ProjectSession {
   index?: ProjectIndex;
   /** What the automatic v3 → v4 upgrade did at this open (for the problems log). */
   upgradeNotes?: string[];
+  /** Lost sidecars the open put back, or could not (for the problems log, each with its code). */
+  openProblems?: import('./asset-recovery').RecoveryProblem[];
   /** A folder's files the backend inspected for the next `importAssets` of that folder (read once by the command). */
   preparedImports?: Map<string, PreparedImportFile[]>;
+  /** Resource and scene files the file check read for the next `importResources` (read once by the command). */
+  preparedResources?: import('./resource-check').PreparedResourceFiles;
+  /** Resource files the file check found unchanged, by size, time and the hash they matched (not read again until one differs). */
+  resourceStats?: Map<string, string>;
   /** Game-folder files a committed command could not bring in step (the next file check reports and repairs them). */
   fileProblems?: string[];
   /** === scene.revision (0 while blocked). */

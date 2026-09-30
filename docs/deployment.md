@@ -134,7 +134,8 @@ A project directory holds:
   and the start scenes, the environment (its presets' order), input, the game
   shell, event sounds, modes, the save schema, speakers and dialogue
   settings, the revision and the retry records;
-- `scenes/<sceneId>.json`: one file per scene;
+- `scenes/<sceneId>.json`: one file per scene, unless it was created in a
+  folder of the game folder or moved there (below);
 - `sources/sha256/<digest>`: script sources and instance-set buffers (and
   asset versions an older project stored there).
 
@@ -144,7 +145,43 @@ import settings, labels); each prefab, script (behavior), material, animator,
 graph, effect, script library, UI document and theme, dialogue, timeline and
 environment preset is its own `<name>.<kind>.json` file, in `assets/<kind>/`
 unless moved (the open finds them anywhere in the game folder by their name
-and id).
+and id). A scene may live in the game folder too, as `<name>.scene.json`
+(the same format as `scenes/<id>.json`), found by the scene id it holds.
+
+**Where new things go.** The Assets tab's "new items in" names a folder of
+the game folder (the upload folder's rules: inside the game folder, no
+hidden folder, not the project's own files; made when missing); a new scene,
+prefab, material or other resource is then created there
+(`<folder>/<id>.scene.json`, `<folder>/<id>.<kind>.json`). Empty: scenes go
+to `scenes/`, resources to `assets/<kind>/`. MCP and scripts send `folder`
+with the create command (`createScene {name, folder}`,
+`setMaterial {material, folder}`, …). A record a command only changes stays
+where its file is; undo and redo put a file back where it was.
+
+**Files changed outside the editor while it is open** are picked up by the
+same file check as assets (on connect, window focus, "check files", MCP
+`tl_content_query {target: "integrity", check: true}`): a resource or scene
+file moved or renamed is followed (paths are not stored, so no revision); a
+file added or copied comes in as one undoable `importResources` command (a
+copy of a file whose id the project has gets a new id from its file name; a
+copied scene's objects get new ids); a changed resource file is reloaded and
+a removed one leaves the project. A scene file changed or removed outside the
+editor, a resource file that no longer reads or validates, or one removed
+while something uses it pauses the project on that file (accept the disk or
+keep the editor's version, as for any external change). A new file that
+cannot be read is a Problems row and stays out. At the open, a resource file
+that does not read is left out with a Problems row; of two files with one
+id, the one named after it is the resource and the other is taken in as a
+copy by the first check.
+
+**A lost `.tlasset`** (deleted while the project was closed, dropped by a
+merge) is put back when the project opens: from the record cache
+(`cache/records/<id>.tlasset`, a copy of every sidecar this machine wrote,
+git-ignored) with its id, settings and labels, else, while a scene or
+resource still uses the id, by importing the file named for the id again
+with default settings. Problems says which (`asset_sidecar_restored`,
+`asset_sidecar_rebuilt`). An id that neither can put back still stops the
+open, which names it: put the sidecar back or import the file with that id.
 
 `content.json` and the scene files are indented JSON with every list of
 objects written one item per line (one entity, material or retry record per

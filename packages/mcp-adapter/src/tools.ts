@@ -47,6 +47,7 @@ import {
   parseRelayUiEdges,
   relayFrameEnd,
   V3_MUTATION_OPS,
+  RESOURCE_CREATING_OPS,
 } from '@thirdlight/protocol';
 import {
   AUDIO_VOICE_CAP,
@@ -197,6 +198,9 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'renameScene {sceneId, name}, deleteScene {sceneId} (only an empty scene), setStartScenes {sceneIds} (the ' +
       `scenes the game starts with; the camera, the character and start spawn live only in start scenes; lights belong to any scene: the most recently loaded scene's directional, ambient and hemisphere light is on, point/spot lights of all loaded scenes share a budget of ${MAX_LOCAL_LIGHTS}; a spot light may carry cookie: a texture assetId projected through its cone). ` +
       'createEntity/instantiatePrefab take sceneId (default: the first scene; with parentId, the parent\'s scene); ' +
+      `Where new things go: ${RESOURCE_CREATING_OPS.join(', ')} take folder: "assets/levels" (a folder of the game folder, the upload folder\'s rules; made when missing): ` +
+      'a scene it creates is written as <folder>/<sceneId>.scene.json, a resource as <folder>/<id>.<kind>.json; a record the op only changes stays where its file is. ' +
+      'Without folder a scene goes to scenes/ in the project folder and a resource to assets/<kind>/. Scenes and resources are found by their id wherever they are. ' +
       'one command edits one scene and entity ids are unique across scenes. An instance set is ' +
       'setComponent "instances" {asset:{assetId, piece?}, buffer:<sha256 of a staged buffer>, count}. Models: createEntity kind "model" ' +
       'takes model {asset:{assetId}, piece?} — piece names one piece of a multi-piece GLB (the base name of its <piece>_LOD0..n / ' +
@@ -396,7 +400,10 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'optional); target="integrity" returns the bounded content-integrity report (each asset\'s file in the game folder is ' +
       'ok / changed / missing); with check=true the backend first brings the catalog in step with the game folder, as the editor\'s ' +
       '"check files" does (a file moved together with its .tlasset sidecar keeps its asset, a changed file is imported again, the ' +
-      'import cache is made whole; the changes are ordinary undoable commands) and returns what it did as `check`; target="game" returns the ' +
+      'import cache is made whole; the changes are ordinary undoable commands) and returns what it did as `check`; it checks the resource and scene files too ' +
+      '(check.resources: a file moved outside the editor is followed, one added or copied comes in — a copy gets a new id from its file name, a copied scene\'s objects new ids — ' +
+      'a changed resource file is reloaded and a removed one leaves the project, all in one undoable importResources; a changed or removed scene file, a resource file that no longer ' +
+      'reads or validates, or one removed while something uses it pauses the project on that file as an external change does); target="game" returns the ' +
       'full normalized `content.game` block (the v3 `queryGameConfig`, or null; includeDescriptors adds the ' +
       'component and content descriptor registry: every field\'s type, unit, range, default, label, tooltip and ' +
       'Scene handle, ~120 KB); target="projectFiles" lists one ' +

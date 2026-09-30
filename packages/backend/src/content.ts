@@ -1489,6 +1489,7 @@ export class ContentRoutes {
     const done = await check.check(projectId);
     if (!done.ok) return this.deps.sendError(res, sessionError(done.code as SessionError['code'], 'unavailable', done.message));
     for (const f of done.report.failed) this.deps.onJobFailed?.(projectId, 'file check', f.code, `${f.assetId}${f.file !== null ? ` (${f.file})` : ''}: ${f.message}`);
+    for (const p of done.report.resources?.problems ?? []) this.deps.onJobFailed?.(projectId, 'file check', 'resource_file_invalid', p.message);
     const result = this.deps.service.contentIntegrity(projectId);
     if (!result.ok) return this.deps.sendError(res, commandErrorToSession(result.error));
     this.deps.sendJson(res, 200, { ok: true, check: done.report, entries: result.entries, summary: result.summary });

@@ -418,8 +418,16 @@ export interface WorkspaceService {
   writeUploadedFile(projectId: string, path: string, bytes: Uint8Array): { ok: true; written: boolean } | { ok: false; error: CommandError };
   /** Whether files may be written into this folder of the game folder. */
   checkAssetFolder(projectId: string, folder: string): { ok: true } | { ok: false; error: CommandError };
+  /**
+   * The game folder's resource and scene files against the open project:
+   * moves followed, what cannot be taken in paused on, the rest prepared for
+   * the next `importResources` command (`prepared`).
+   */
+  checkResourceFiles(projectId: string): { ok: true; report: import('./resource-check').ResourceCheckReport; prepared: boolean } | { ok: false; error: CommandError };
   /** What the open's format upgrade did (each line once: the caller reports it). */
   takeUpgradeNotes(projectId: string): string[];
+  /** What the open put back of lost sidecars, or could not (each once, with its Problems code). */
+  takeOpenProblems(projectId: string): { code: string; message: string }[];
   /** Write files into a new `assets/<stem>/` folder of the game folder (an asset tool's zip export); returns the folder. */
   writeAssetFolder(projectId: string, stem: string, files: readonly { path: string; bytes: Uint8Array }[]): { ok: true; folder: string } | { ok: false; error: CommandError };
   /** `readCapturedV3` — the single acknowledged project read (the merged

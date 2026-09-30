@@ -76,6 +76,7 @@ export type { AssetFileEntry, AssetFilesResult } from './service-content';
 export { UPGRADE_REPORT_FILE, type AssetUpgradeReport } from './upgrade-assets';
 export { assetNameOfFile, importKindOf, type FolderImportFile, type FolderImportScan, type ImportKind, type PreparedImportFile } from './folder-import';
 // Project resources as files (prefabs, materials, … one file each in the game folder) and the content file's format.
-export { RESOURCE_FORMAT, RESOURCE_KINDS, defaultResourcePath, resourceFileBytes, resourceKindOfName, type ResourceKind } from './resource-files';
+export { RESOURCE_FORMAT, RESOURCE_KINDS, defaultResourcePath, resourceFileBytes, resourceKindOfName, SCENE_SUFFIX, type ResourceKind } from './resource-files';
 export { CONTENT_STORAGE_VERSION } from './store-v4';
 export type { IndexEntry } from './project-index';
+export type { ResourceCheckReport } from './resource-check';

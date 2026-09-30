@@ -75,6 +75,7 @@ import { scanAssetFolder, writeUploadedFile, type FolderImportScan, type Prepare
 import { deepFreeze } from './isolate';
 import { ensureSession, type Core, type ProjectSession } from './session';
 import { restoreSidecars } from './session-v4';
+import { checkResourceFiles } from './resource-check';
 
 /** The session as the content-store operations need it. */
 export function contentCtx(s: ProjectSession): ContentContext {
@@ -277,6 +278,19 @@ export function contentOps(core: Core) {
     );
   }
 
+  /** What the open put back of lost sidecars, or could not (each once, with its code). */
+  function takeOpenProblems(projectId: string): { code: string; message: string }[] {
+    return withOpenSession(
+      projectId,
+      (s) => {
+        const out = s.openProblems ?? [];
+        s.openProblems = [];
+        return out;
+      },
+      () => [],
+    );
+  }
+
   /** The project's import cache folder (thumbnails are kept there too); null when the project cannot be opened. */
   function importCacheDir(projectId: string): string | null {
     return withOpenSession(projectId, (s) => join(s.dir, 'cache', 'imported'), () => null);
@@ -324,7 +338,9 @@ export function contentOps(core: Core) {
     scanAssetFolder: scanFolder,
     prepareAssetImport,
     takeUpgradeNotes,
+    takeOpenProblems,
     writeUploadedFile: (projectId: string, path: string, bytes: Uint8Array) => run(projectId, (s) => writeUploadedFile(core, contentCtx(s), path, bytes)),
     checkAssetFolder: (projectId: string, folder: string) => run(projectId, (s) => checkAssetFolder(contentCtx(s), folder)),
+    checkResourceFiles: (projectId: string) => run(projectId, (s) => ({ ok: true as const, ...checkResourceFiles(core, s) })),
   };
 }

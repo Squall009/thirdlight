@@ -187,7 +187,7 @@ at the boundary it changes (Playwright for any editor surface).
 | 26.1 | done 2026-09-29: limits once, splits (D57, D58); ESLint in the gates; three.js 0.186.1; history comments removed with a build check (D59) |
 | 26.2 | done 2026-09-29: scale bench (generator, harness, small-size tests in the fast gate); before numbers in §6; D61 |
 | 26.3 | done 2026-09-29: A files and sidecars (uploads filed into `assets/`, `.tlasset` sidecars, import cache, file check re-imports and follows moves, project.json 5 with the upgrade of a 4); B folder import with labels (`importAssets`, one undo; editor and MCP), uploads into the folder named, a folder uploaded file by file, labels on records and sidecars, whole-folder moves, upgrade report in Problems |
-| 26.4 | A done 2026-09-30: storage out of `buildService` (typed readers); resources as files, asset records in their sidecars, `content.json` project-wide only; the index (`queryIndex`); validation of what a command touched (D61); one command's latency flat at full size (§6); environment presets as files (their order in `content.json`). B: scene folders, choosing a folder for a new resource, resources added or moved while open, D63 |
+| 26.4 | done 2026-09-30: A storage out of `buildService` (typed readers); resources as files, asset records in their sidecars, `content.json` project-wide only; the index (`queryIndex`); validation of what a command touched (D61); one command's latency flat at full size (§6); environment presets as files (their order in `content.json`). B scenes as files anywhere in the game folder (`<name>.scene.json`), `folder` on every create (editor "new items in"), files added, moved, copied, changed or removed while open taken in by the file check (`importResources`, one undo), lost sidecars put back at the open (D63; D64 open) |
 | 26.5–26.14 | — |
 
 ## 6. Measurements
@@ -698,3 +698,64 @@ Proposed targets for "Done when" (fixed in 26.14 from these numbers):
   inverses), not the whole list: the retry record, the change feed and undo
   no longer carry every material. Stored records of the old shape still
   validate; the editor applies the new ones by id.
+- 2026-09-30 (26.4 B): scenes are files like the resources. A scene is
+  `scenes/<id>.json` in the project folder by default, or
+  `<folder>/<name>.scene.json` in the game folder (the same format: it keeps
+  its revision and retry records, so a scene edit still writes one file),
+  found by the scene id it holds (the project folder's file first, then the
+  game folder's `.scene.json` files). The scene index in `content.json`
+  stays what says which scenes the project has: a scene file it does not
+  list is taken in by the file check, not by the open. Block chunk files stay
+  in the project folder (`scenes/<id>.blocks/`), keyed by the scene id, so a
+  moved scene keeps them. The default path is unchanged, so the v4 upgrade,
+  the layout upgrade and the recorded replays are as before.
+- 2026-09-30 (26.4 B): a folder for new things. Every command that creates a
+  scene or a resource (`RESOURCE_CREATING_OPS`, defined once in
+  project-model's limits) takes an optional `folder`, vetted like the upload
+  folder and consumed by the workspace before the pure command (as
+  `publishAsset`'s). It places what the command creates; a record it only
+  changes stays where its file is (Unity's Create menu writes into the
+  project window's current folder; an edit never moves a file). The paths of
+  removed resources and scenes are remembered in the session (`formerPaths`),
+  so undo of a delete and redo of a create write the file back where it was.
+  Editor: "new items in" in the Assets tab; the session client adds it to
+  every create, the role 26.13's project window takes over.
+- 2026-09-30 (26.4 B): files changed in the game folder while the project is
+  open are the file check's (connect, focus, "check files", MCP integrity
+  `check: true`), not the 1.5 s poll's, which now reads the project folder's
+  own files only (it hashed every resource file each time). A moved or
+  renamed resource or scene file is followed without a revision (paths are
+  found, not stored); added and copied files, changed resource files and
+  removed ones go in as one `importResources` command, prepared by the
+  workspace from the files (as `importAssets` reads a folder): the change
+  feed, one undo (it takes the adopted files out, as undoing any resource
+  create does; redo writes them back where they were). A copy (a second file
+  with an id the project has) gets a new id from its file name, 26.3 B's rule
+  (`<name>`, `<name>-2`); a copied scene's objects get new ids too, since
+  entity ids are unique across the project. The acknowledgement names
+  adopted scenes without their documents, so retry records stay small; the
+  editor reads the project again on this change.
+- 2026-09-30 (26.4 B): a changed or removed tracked resource file is reloaded
+  (its record becomes the file's; a removed one leaves the project), as
+  Unity re-imports a changed asset and Godot reloads a changed resource: the
+  more generic choice than pausing the project on every edit made in a text
+  editor or by a merge. The pause stays for what cannot be taken in: a
+  resource file that no longer reads or validates, one removed while the
+  index says something uses it, and a scene file changed or removed outside
+  the editor (scenes are edited in the editor; Godot asks before reloading an
+  open scene). A new file that cannot be read is a Problems row and stays
+  out. At the open, two files with one id no longer block (26.4 A): the one
+  named after the id is the resource, the other is taken in as a copy by the
+  first check; a resource file that does not read is left out with a
+  Problems row, and named first if the open then fails on a reference.
+- 2026-09-30 (26.4 B): D63. Every sidecar a transaction writes is copied into
+  the record cache (`cache/records/<id>.tlasset`, git-ignored, unflushed;
+  removed with the sidecar, filled in the background at an open that finds
+  it empty); the open puts a lost sidecar back from it when the record's
+  file is there without one (`asset_sidecar_restored`). With no cache (a
+  fresh clone), a missing id that something uses is rebuilt from a file
+  named for it (the name made id-safe equals the id, the folder-import rule)
+  by a new import with default settings (`asset_sidecar_rebuilt`; an FBX
+  needs Blender and is a Problem instead), as Unity makes a lost `.meta`
+  again. An id neither can put back still stops the open, now naming the id
+  and what to do: D64 (the model has no state for an unresolved reference).

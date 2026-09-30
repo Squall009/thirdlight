@@ -192,8 +192,11 @@ test('import a .glb from the project folder, place, reload, restart, Play, expor
   await be.halt();
   await runExport(page, out1, '3-export-v1.png');
   await be.restart();
+  // The editor checks the files once it is connected: that check is done before the file changes.
+  const connectCheck = page.waitForResponse((r) => r.url().includes('/content/files/check'));
   await page.reload();
   await expect(status(page)).toContainText('connected');
+  await connectCheck;
 
   // Rebuild the file (other bytes at the same path).
   copyFileSync(GLB_V2, file);

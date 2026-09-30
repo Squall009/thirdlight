@@ -137,3 +137,26 @@ export const ASSET_LABEL_RE = new RegExp(`^[\\p{L}\\p{N}][\\p{L}\\p{N}_.\\-/]{0,
 
 /** The folder of the game folder uploads land in when the user names none. */
 export const DEFAULT_ASSET_FOLDER = 'assets';
+
+/**
+ * The commands that create a scene or a project resource. Each takes an
+ * optional `folder` (a folder of the game folder) the backend writes what it
+ * creates into; a record the command only changes stays where its file is.
+ * The backend consumes the arg before the command runs, as it does an
+ * upload's folder; the editor adds its current folder to these.
+ */
+export const RESOURCE_CREATING_OPS: readonly string[] = [
+  'createScene',
+  'createPrefab',
+  'publishBehavior',
+  'setMaterial',
+  'setAnimator',
+  'setGraph',
+  'setEffect',
+  'setScriptLibrary',
+  'setUiDocument',
+  'setUiTheme',
+  'setTimeline',
+  'setDialogue',
+  'setEnvironment',
+];

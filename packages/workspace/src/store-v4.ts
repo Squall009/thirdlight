@@ -10,7 +10,9 @@
  *                             resource-files.ts)
  *   <game folder>/…/<file>.tlasset       each asset's sidecar, holding its record
  *   scenes/<sceneId>.json   { storageVersion: 4, type: "scene", projectId,
- *                             scene (schemaVersion 4), retry }
+ *                             scene (schemaVersion 4), retry }; a scene the
+ *                             user placed elsewhere is <game folder>/…/<name>.scene.json
+ *                             (the same format, found by its scene id)
  *   .thirdlight/journal.json   only while a multi-file transaction is in flight
  *
  * - The project revision is the highest `revision` of its files; every write
@@ -27,8 +29,11 @@
  * - Retry records live in the files a transaction wrote; the project's
  *   record map is the union over its files. The retry block names its record
  *   format (`recordVersion` 2: a record also stores the acked `sceneId`); a block without the key (version 1) is still read.
- * - External changes are detected per file (a changed, missing or new file
- *   in the index): the foreign bytes are snapshotted and writes pause.
+ * - External changes to the project folder's own files are detected per file
+ *   (a changed or missing file): the foreign bytes are snapshotted and writes
+ *   pause. The game folder's files (resources, sidecars, scenes placed there)
+ *   are the file check's: it follows moves, adopts new files and reloads
+ *   changed resources as commands (`resource-check.ts`).
  *
  * Validation is the model's (`validateProjectV4`); nothing here repairs data.
  * A schemaVersion 2 project is upgraded by the model's pure
@@ -74,7 +79,7 @@ import { pointerSegment, type LoadDetail, type UnavailableReason } from './error
 import { writeAtomic, type WriteOps } from './write';
 import { layoutProjectJson } from './project-json';
 import { fileOfRecord, parseSidecar, PROJECT_OWN_ENTRIES, sidecarBytes, sidecarOf, sidecarPath, type RecordLike } from './asset-files';
-import { ENV_PRESETS, gamePathOf, gameRel, isResourcePath, SIDECAR_SUFFIX, parseResourceFile, recordsOfKind, RESOURCE_KINDS, RESOURCE_LISTS, resourceFileBytes, scanResourceFiles, defaultResourcePath } from './resource-files';
+import { ENV_PRESETS, gamePathOf, gameRel, isResourcePath, SIDECAR_SUFFIX, parseResourceFile, recordsOfKind, RESOURCE_KINDS, RESOURCE_LISTS, resourceFileBytes, resourceStem, scanResourceFiles, defaultResourcePath } from './resource-files';
 
 export const CONTENT_REL = 'content.json';
 export const MANIFEST_REL_V4 = 'project.json';
@@ -119,10 +124,37 @@ export interface V4State {
   fileRecords: Map<string, RetryRecord[]>;
   /** Where each resource file is in the game folder: content list → record id → path. */
   resourcePaths: ResourcePaths;
+  /** Each scene's file key: `scenes/<id>.json` in the project folder, or `@game/…` (a scene placed in the game folder). */
+  scenePaths: ReadonlyMap<string, string>;
+  /**
+   * Where a resource or scene a command removed was (`formerKey`): the undo
+   * of the removal, or the redo of a create, writes it back there.
+   */
+  formerPaths?: ReadonlyMap<string, string>;
 }
 
 /** Content list → record id → the resource file's path in the game folder. */
 export type ResourcePaths = ReadonlyMap<string, ReadonlyMap<string, string>>;
+
+/** The key of a resource (by its content list) or a scene (`scene`) in `formerPaths` and placements. */
+export function formerKey(list: string, id: string): string {
+  return `${list}\u0000${id}`;
+}
+
+/** A scene's file key (its own file wherever it is, else the project folder's default). */
+export function sceneRelOf(state: Pick<V4State, 'scenePaths'>, sceneId: string): string {
+  return state.scenePaths.get(sceneId) ?? sceneRel(sceneId);
+}
+
+/** A file key as a person reads it: a game-folder path, or the project folder's own path. */
+export function displayPathOf(rel: string): string {
+  return gamePathOf(rel) ?? rel;
+}
+
+/** What the game-folder walk leaves out: a data-root project's own entries, or a folder project's project subfolder. */
+export function projectOwnSkip(dir: string, gameRoot: string): (abs: string, rel: string) => boolean {
+  return gameRoot === dir ? (_abs: string, rel: string): boolean => !rel.includes('/') && PROJECT_OWN_ENTRIES.has(rel) : (abs: string): boolean => abs === dir;
+}
 
 /** The `content.json` format that keeps the project-wide settings only (the resources are files). */
 export const CONTENT_STORAGE_VERSION = 5;
@@ -330,7 +362,7 @@ export type LoadV4Outcome =
    * files; `resourceFiles`: its resources are still inside `content.json`
    * (a layout change only: `documents` says the documents changed too).
    */
-  | { kind: 'loaded'; state: V4State; upgraded?: { notes: string[]; documents?: true; assetFiles?: true; resourceFiles?: true } }
+  | { kind: 'loaded'; state: V4State; upgraded?: { notes: string[]; documents?: true; assetFiles?: true; resourceFiles?: true }; skipped?: { path: string; message: string }[] }
   | { kind: 'blocked'; reason: UnavailableReason; errors: readonly LoadDetail[]; count: number };
 
 function blocked(reason: UnavailableReason, errors: LoadDetail[]): LoadV4Outcome {
@@ -386,17 +418,26 @@ export function loadV4(ops: WriteOps, dir: string, projectId: string, gameRoot: 
   const sceneDocs: unknown[] = [];
   const sceneRetry: { rel: string; retry: unknown; revision: number }[] = [];
   let revision = contentRevision;
+  // The game folder's resource, scene and sidecar files (this layout keeps the resources there).
+  const scan = content.value['storageVersion'] === CONTENT_STORAGE_VERSION ? scanResourceFiles(gameRoot, projectOwnSkip(dir, gameRoot)) : null;
+  const gameScenes = scan === null ? new Map<string, GameSceneFile>() : readGameScenes(ops, gameRoot, scan.scenes).chosen;
+  const scenePaths = new Map<string, string>();
   for (const id of sceneIds) {
-    const rel = sceneRel(id);
-    const f = readJson(ops, join(dir, rel));
-    if (!f.ok) return blocked('envelope_invalid', [{ ...f.error, path: `/${rel}` }]);
-    const se = checkFileKeys(f.value, SCENE_FILE_KEYS, 'scene', projectId, rel, SCENE_FILE_OPTIONAL_KEYS);
+    // The project folder's scenes/<id>.json, else a scene file in the game folder that holds this scene.
+    const own = sceneRel(id);
+    const game = ops.fileExists(join(dir, own)) ? undefined : gameScenes.get(id);
+    const rel = game === undefined ? own : gameRel(game.path);
+    const label = displayPathOf(rel);
+    const f = game === undefined ? readJson(ops, join(dir, rel)) : ({ ok: true, value: game.value, bytes: game.bytes } as const);
+    if (!f.ok) return blocked('envelope_invalid', [{ ...f.error, path: `/${label}`, ...(f.missing ? { message: `scene "${id}" has no file: neither ${own} nor a .scene.json in the game folder holds it` } : {}) }]);
+    const se = checkFileKeys(f.value, SCENE_FILE_KEYS, 'scene', projectId, label, SCENE_FILE_OPTIONAL_KEYS);
     if (se !== null) return blocked(se.code as UnavailableReason, [se]);
     const scene = f.value['scene'] as { revision?: unknown; sceneId?: unknown } | null;
     if (scene?.sceneId !== id) {
-      return blocked('manifest_scene_mismatch', [{ code: 'manifest_scene_mismatch', path: `/${rel}`, message: `${rel} holds scene "${String(scene?.sceneId)}" (the file name is the scene id)`, expected: id }]);
+      return blocked('manifest_scene_mismatch', [{ code: 'manifest_scene_mismatch', path: `/${label}`, message: `${label} holds scene "${String(scene?.sceneId)}" (the file name is the scene id)`, expected: id }]);
     }
     files.set(rel, { bytes: f.bytes, hash: sha256Hex(f.bytes) });
+    scenePaths.set(id, rel);
     // The scene's block chunks, one file each (listed by the scene file).
     const joined = joinChunkFiles(ops, dir, projectId, id, f.value['scene'], f.value['blockChunks'], files);
     if (!joined.ok) return blocked('envelope_invalid', [joined.error]);
@@ -412,10 +453,12 @@ export function loadV4(ops: WriteOps, dir: string, projectId: string, gameRoot: 
   let upgraded: { notes: string[]; documents?: true; assetFiles?: true; resourceFiles?: true } | undefined;
   // The resources: their own files in the game folder, or (an older content.json) still inside it.
   const resourcePaths = new Map<string, Map<string, string>>();
-  if (content.value['storageVersion'] === CONTENT_STORAGE_VERSION) {
-    const joined = joinResourceFiles(ops, dir, gameRoot, contentDoc, files, resourcePaths);
+  const skipped: { path: string; message: string }[] = [];
+  if (scan !== null) {
+    const joined = joinResourceFiles(ops, gameRoot, scan, contentDoc, files, resourcePaths);
     if (!joined.ok) return blocked(joined.error.code as UnavailableReason, [joined.error]);
     contentDoc = joined.content;
+    skipped.push(...joined.skipped);
   }
   const fromVersion = man.value['schemaVersion'];
   if (fromVersion === PROJECT_SCHEMA_VERSION_UPGRADED) {
@@ -450,6 +493,8 @@ export function loadV4(ops: WriteOps, dir: string, projectId: string, gameRoot: 
     // A document that fails its own validation blocks with that document's
     // reason (as the v1–v3 load does); a cross-document rule reports its code.
     const first = v.errors[0] as { code?: string; document?: string } | undefined;
+    // A resource file the open could not read may be what the broken reference named: it comes first.
+    const unread = skipped.map((f) => ({ code: 'envelope_invalid', path: `/${f.path}`, message: f.message, expected: 'a valid resource file' }));
     const reason =
       first?.document === 'manifest'
         ? 'manifest_invalid'
@@ -458,7 +503,7 @@ export function loadV4(ops: WriteOps, dir: string, projectId: string, gameRoot: 
           : first?.document === 'scene'
             ? 'scene_invalid'
             : (first?.code ?? 'scene_invalid');
-    return blocked(reason as UnavailableReason, v.errors as unknown as LoadDetail[]);
+    return blocked(reason as UnavailableReason, [...unread, ...(v.errors as unknown as LoadDetail[])]);
   }
   if (v.normalized.manifest.id !== projectId) {
     return blocked('manifest_scene_mismatch', [{ code: 'manifest_scene_mismatch', path: '/id', document: 'manifest', message: 'manifest.id must equal the project directory name', expected: projectId }]);
@@ -479,35 +524,76 @@ export function loadV4(ops: WriteOps, dir: string, projectId: string, gameRoot: 
   }
   return {
     kind: 'loaded',
-    state: { manifest: v.normalized.manifest, content: v.normalized.content, scenes, revision, files, fileRecords, resourcePaths },
+    state: { manifest: v.normalized.manifest, content: v.normalized.content, scenes, revision, files, fileRecords, resourcePaths, scenePaths },
     ...(upgraded !== undefined ? { upgraded } : {}),
+    ...(skipped.length > 0 ? { skipped } : {}),
   };
+}
+
+/** A scene file of the game folder, read. */
+export interface GameSceneFile {
+  path: string;
+  value: Record<string, unknown>;
+  bytes: Uint8Array;
+}
+
+/**
+ * The scene files of the game folder by the scene id they hold. Of two files
+ * holding one id, the one named after it (`<id>.scene.json`) is the scene,
+ * else the first by path; the others are copies (`copies`), which the file
+ * check gives new ids. A file that is not a scene file is `unreadable`.
+ */
+export function readGameScenes(ops: WriteOps, gameRoot: string, paths: readonly string[]): { chosen: Map<string, GameSceneFile>; copies: GameSceneFile[]; unreadable: { path: string; message: string }[] } {
+  const chosen = new Map<string, GameSceneFile>();
+  const copies: GameSceneFile[] = [];
+  const unreadable: { path: string; message: string }[] = [];
+  for (const path of paths) {
+    const f = readJson(ops, join(gameRoot, ...path.split('/')));
+    if (!f.ok) {
+      unreadable.push({ path, message: f.error.message });
+      continue;
+    }
+    const id = (f.value['scene'] as { sceneId?: unknown } | null)?.sceneId;
+    if (f.value['type'] !== 'scene' || typeof id !== 'string') {
+      unreadable.push({ path, message: `${path} is not a scene file (type "scene" with a scene that has a sceneId)` });
+      continue;
+    }
+    const file = { path, value: f.value, bytes: f.bytes };
+    const first = chosen.get(id);
+    if (first === undefined) chosen.set(id, file);
+    else if (resourceStem(path) === id && resourceStem(first.path) !== id) {
+      chosen.set(id, file);
+      copies.push(first);
+    } else copies.push(file);
+  }
+  return { chosen, copies, unreadable };
 }
 
 /**
  * Read every resource file of the game folder into the content block's lists
- * (each list in id order). A file that is not a valid resource file, or a
- * second file with an id already read, blocks the open and names the files:
- * which of two copies is the resource is the user's call.
+ * (each list in id order). A file that is not a valid resource file is left
+ * out and named (`skipped`): the open goes on, the Problems log says why, and
+ * if something used what it held the broken reference names it first. Of two files holding one id, the one named after it
+ * (`<id>.<kind>.json`) is the resource, else the first by path; the other is
+ * a copy the open leaves out and the file check gives a new id (Unity gives a
+ * copied `.meta`'s duplicate GUID a new one).
  */
 function joinResourceFiles(
   ops: WriteOps,
-  dir: string,
   gameRoot: string,
+  scan: { resources: readonly string[]; sidecars: readonly string[] },
   contentDoc: unknown,
   files: Map<string, KnownFile>,
   paths: Map<string, Map<string, string>>,
-): { ok: true; content: unknown } | { ok: false; error: LoadDetail } {
-  if (typeof contentDoc !== 'object' || contentDoc === null || Array.isArray(contentDoc)) return { ok: true, content: contentDoc };
+): { ok: true; content: unknown; skipped: { path: string; message: string }[] } | { ok: false; error: LoadDetail } {
+  const skipped: { path: string; message: string }[] = [];
+  if (typeof contentDoc !== 'object' || contentDoc === null || Array.isArray(contentDoc)) return { ok: true, content: contentDoc, skipped };
   const doc = { ...(contentDoc as Record<string, unknown>) };
   const bad = (path: string, message: string, code = 'envelope_invalid'): { ok: false; error: LoadDetail } => ({ ok: false, error: { code, path, message, expected: 'one valid resource file per project resource' } });
   for (const key of Object.keys(doc)) if (RESOURCE_LISTS.has(key)) return bad(`/${CONTENT_REL}/content/${key}`, `${CONTENT_REL} holds ${key}: in this layout each is its own file in the game folder`);
   const stored = Array.isArray(doc['assets']) ? (doc['assets'] as RecordLike[]) : [];
   for (const [i, a] of stored.entries()) if (typeof a === 'object' && a !== null && Array.isArray(a.versions) && fileOfRecord(a) !== null) return bad(`/${CONTENT_REL}/content/assets/${i}`, `${CONTENT_REL} holds asset ${String(a.assetId)}, which has a file: its sidecar holds it`);
-  // A data-root project is its own game folder: its project files are not resources; a folder project keeps them one level down.
-  const skip = gameRoot === dir ? (_abs: string, rel: string): boolean => !rel.includes('/') && PROJECT_OWN_ENTRIES.has(rel) : (abs: string): boolean => abs === dir;
-  const lists = new Map<string, Record<string, unknown>[]>();
-  const scan = scanResourceFiles(gameRoot, skip);
+  const lists = new Map<string, Map<string, Record<string, unknown>>>();
   // The assets: each sidecar holds its record. A second sidecar naming the
   // same id is a copy (a file copied with its sidecar): the asset is the one
   // whose record names the file the sidecar stands next to.
@@ -545,28 +631,36 @@ function joinResourceFiles(
       return bad(`/${path}`, `${path} is unreadable`);
     }
     const r = parseResourceFile(path, bytes);
-    if (!r.ok) return bad(`/${path}`, r.message);
+    if (!r.ok) {
+      skipped.push({ path, message: r.message });
+      continue;
+    }
     let byId = paths.get(r.kind.list);
     if (byId === undefined) {
       byId = new Map();
       paths.set(r.kind.list, byId);
     }
     const first = byId.get(r.id);
-    if (first !== undefined) return bad(`/${path}`, `${path} and ${first} both hold ${r.kind.kind} "${r.id}" (a copy keeps the id: give one of them a new id, or remove it)`, 'id_duplicate');
+    // A copy (the same id in a second file): the file named after the id wins, else the first by path.
+    if (first !== undefined && !(resourceStem(path) === r.id && resourceStem(first) !== r.id)) continue;
+    if (first !== undefined) files.delete(gameRel(first));
     byId.set(r.id, path);
     files.set(gameRel(path), { bytes, hash: sha256Hex(bytes) });
-    const list = lists.get(r.kind.list) ?? [];
-    list.push(r.data);
-    lists.set(r.kind.list, list);
+    let list = lists.get(r.kind.list);
+    if (list === undefined) {
+      list = new Map();
+      lists.set(r.kind.list, list);
+    }
+    list.set(r.id, r.data);
   }
   for (const k of RESOURCE_KINDS) {
     if (k.list === ENV_PRESETS) continue;
     const list = lists.get(k.list);
-    if (list !== undefined) doc[k.list] = list.sort((a, b) => (String(a[k.idKey]) < String(b[k.idKey]) ? -1 : 1));
+    if (list !== undefined) doc[k.list] = [...list.values()].sort((a, b) => (String(a[k.idKey]) < String(b[k.idKey]) ? -1 : 1));
     else if (k.list === 'prefabs' || k.list === 'behaviors') doc[k.list] = [];
   }
   // The environment presets, in the order content.json keeps (a preset file it does not list comes last, by id).
-  const presets = lists.get(ENV_PRESETS) ?? [];
+  const presets = [...(lists.get(ENV_PRESETS)?.values() ?? [])];
   const env = doc['environment'];
   const order = typeof env === 'object' && env !== null && Array.isArray((env as { presets?: unknown }).presets) ? ((env as { presets: unknown[] }).presets) : [];
   if (order.some((x) => typeof x !== 'string')) return bad(`/${CONTENT_REL}/content/environment/presets`, `${CONTENT_REL} holds the environment presets: in this layout each is its own file (content.json lists their ids)`);
@@ -582,14 +676,14 @@ function joinResourceFiles(
     const rest = [...byId.values()].sort((a, b) => (String(a['presetId']) < String(b['presetId']) ? -1 : 1));
     doc['environment'] = { ...(typeof env === 'object' && env !== null ? (env as Record<string, unknown>) : {}), presets: [...listed, ...rest] };
   }
-  return { ok: true, content: doc };
+  return { ok: true, content: doc, skipped };
 }
 
 /**
  * Read the chunk files a scene file lists and put the chunks
  * back into the scene's layer entries (the model validates the result).
  */
-function joinChunkFiles(
+export function joinChunkFiles(
   ops: WriteOps,
   dir: string,
   projectId: string,
@@ -816,7 +910,21 @@ export function writeTransaction(
   dir: string,
   thirdlightDir: string,
   projectId: string,
-  known: ReadonlyMap<string, KnownFile>,
+  known: Pick<ReadonlyMap<string, KnownFile>, 'get'>,
+  writes: readonly FileWrite[],
+  gameRoot: string,
+): TransactionOutcome {
+  const res = writeFiles(ops, dir, thirdlightDir, projectId, known, writes, gameRoot);
+  if (res.ok) mirrorSidecarRecords(ops, dir, writes, known);
+  return res;
+}
+
+function writeFiles(
+  ops: WriteOps,
+  dir: string,
+  thirdlightDir: string,
+  projectId: string,
+  known: Pick<ReadonlyMap<string, KnownFile>, 'get'>,
   writes: readonly FileWrite[],
   gameRoot: string,
 ): TransactionOutcome {
@@ -884,18 +992,79 @@ export function changedFile(ops: WriteOps, dir: string, gameRoot: string, rel: s
 }
 
 /**
- * The first project file that differs from what this backend last wrote (or
- * null). Sidecars are left to the file check: a file moved outside the editor
- * takes its sidecar along, and the check follows it (a sidecar changed by
- * hand is found when a command writes it).
+ * The first file of the project folder that differs from what this backend
+ * last wrote (or null). The game folder's files are left to the file check:
+ * a file moved outside the editor takes its sidecar along and the check
+ * follows it, a new resource file is adopted and a changed one reloaded (a
+ * file changed by hand is also found when a command writes it). Nor are
+ * thousands of resource files read on every poll.
  */
 export function firstChangedFile(ops: WriteOps, dir: string, gameRoot: string, state: V4State): { rel: string; bytes: Uint8Array; hash: string } | { rel: string; unreadable: true } | null {
   for (const [rel, known] of state.files) {
-    if (isSidecarRel(rel)) continue;
+    if (gamePathOf(rel) !== null) continue;
     const c = changedFile(ops, dir, gameRoot, rel, known);
     if (c !== null) return c;
   }
   return null;
+}
+
+// ---- the record cache ----------------------------------------------------------------
+
+/**
+ * A copy of each asset's sidecar in the import cache (`cache/records/<id>.tlasset`,
+ * git-ignored, rebuildable): when a sidecar is lost while the project is
+ * closed (deleted by hand, dropped by a merge), the open puts it back from
+ * here instead of losing the asset's id, settings and labels.
+ */
+export const RECORD_CACHE_SEGMENTS = ['cache', 'records'] as const;
+
+export function recordCachePath(dir: string, assetId: string): string {
+  return join(dir, ...RECORD_CACHE_SEGMENTS, `${assetId}${SIDECAR_SUFFIX}`);
+}
+
+/**
+ * Keep the record cache in step with the sidecars a transaction wrote (best
+ * effort, not flushed: it is a cache). A sidecar the editor removed (an asset
+ * deleted or forgotten) leaves the cache first, so the open does not put it
+ * back; a move removes and writes one id, so removals go first.
+ */
+function mirrorSidecarRecords(ops: WriteOps, dir: string, writes: readonly FileWrite[], known: Pick<ReadonlyMap<string, KnownFile>, 'get'>): void {
+  for (const w of writes) {
+    if (w.bytes !== null || !isSidecarRel(w.rel)) continue;
+    const before = known.get(w.rel);
+    const doc = before === undefined ? null : parseSidecar(before.bytes);
+    if (doc === null) continue;
+    try {
+      ops.removeFile(recordCachePath(dir, doc.id));
+    } catch {
+      // not cached
+    }
+  }
+  for (const w of writes) if (w.bytes !== null && isSidecarRel(w.rel)) mirrorSidecar(ops, dir, w.bytes);
+}
+
+/** One sidecar's bytes into the record cache (skipped when it holds no record). */
+export function mirrorSidecar(ops: WriteOps, dir: string, bytes: Uint8Array): void {
+  const doc = parseSidecar(bytes);
+  if (doc === null || doc.record === undefined) return;
+  const target = recordCachePath(dir, doc.id);
+  try {
+    mkdirSync(dirname(target), { recursive: true, mode: 0o755 });
+    writeAtomic({ dir: dirname(target), target, bytes, allowedPreHashes: [], previousHash: null, ops: { ...ops, fsyncFile: () => undefined, fsyncDir: () => undefined } });
+  } catch {
+    // a cache: the next write or open fills it
+  }
+}
+
+/** A cached sidecar of an asset (null: none, or not one this build reads). */
+export function cachedSidecar(ops: WriteOps, dir: string, assetId: string): { bytes: Uint8Array; record: Record<string, unknown> } | null {
+  try {
+    const bytes = ops.readFile(recordCachePath(dir, assetId));
+    const doc = parseSidecar(bytes);
+    return doc === null || doc.record === undefined || doc.id !== assetId ? null : { bytes, record: doc.record };
+  } catch {
+    return null;
+  }
 }
 
 /** Snapshot foreign bytes of one file into `.thirdlight/recovery/` (name or null). */

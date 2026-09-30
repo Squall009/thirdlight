@@ -14,6 +14,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { loadPreparedSources, readBlob, type ContentContext } from './content-store';
+import { missingReferenceIds, rebuildFromFiles, restoreFromRecordCache, type RecoveryProblem } from './asset-recovery';
 import { CACHE_GITIGNORE_LINES } from './registry';
 import { upgradeAssetsToFiles } from './upgrade-assets';
 import { sha256Hex } from './digest';
@@ -58,7 +59,9 @@ import {
   isSidecarRel,
   withUntrackedSidecars,
   absOf,
+  formerKey,
   sceneRel,
+  sceneRelOf,
   snapshotForeignFile,
   writeTransaction,
   type FileWrite,
@@ -66,7 +69,7 @@ import {
   type ResourcePaths,
   type V4State,
 } from './store-v4';
-import { defaultResourcePath, gamePathOf, gameRel, recordsOfKind, RESOURCE_KINDS, resourceFileBytes } from './resource-files';
+import { defaultResourcePath, gamePathOf, gameRel, recordsOfKind, RESOURCE_KINDS, resourceFileBytes, scenePathIn } from './resource-files';
 import { fileOfRecord, sidecarPath, type RecordLike } from './asset-files';
 import { EMPTY_BYTES } from './write';
 import { commandContentOf } from './content-shapes';
@@ -207,7 +210,8 @@ export function openV4(
   }
   const j = rollForwardJournal(core.ops, dir, thirdlightDir, projectId, gameRoot);
   if (!j.ok) return { kind: 'blocked', reason: 'envelope_invalid', errors: [j.error], count: 1 };
-  const l = loadV4(core.ops, dir, projectId, gameRoot);
+  const recovered = loadRecoveringSidecars(core, dir, thirdlightDir, projectId, gameRoot);
+  const l = recovered.load;
   if (l.kind === 'blocked') return l;
   let loaded = l.state;
   let loadNotes = l.upgraded?.notes ?? [];
@@ -220,7 +224,54 @@ export function openV4(
   const bump = l.upgraded?.documents === true || l.upgraded?.assetFiles === true;
   const upgraded = l.upgraded !== undefined ? writeUpgradedProject(core, dir, thirdlightDir, projectId, loaded, loadNotes, bump) : { state: loaded, notes: [] };
   const migrated = migrateModelAnimationsOnOpen(core, dir, thirdlightDir, projectId, upgraded.state);
-  return { kind: 'open', session: makeSessionV4(core, dir, projectId, migrated.state, ownership, sceneDir, thirdlightDir, [...notes, ...upgraded.notes, ...migrated.notes]) };
+  const session = makeSessionV4(core, dir, projectId, migrated.state, ownership, sceneDir, thirdlightDir, [...notes, ...upgraded.notes, ...migrated.notes]);
+  const skipped = (l.skipped ?? []).map((f): RecoveryProblem => ({ code: 'resource_file_invalid', message: `${f.message}; the file was left out of the project` }));
+  if (recovered.problems.length + skipped.length > 0) session.openProblems = [...recovered.problems, ...skipped];
+  return { kind: 'open', session };
+}
+
+/**
+ * Load the project, putting lost sidecars back first (`asset-recovery.ts`):
+ * from the record cache, then, while the load names ids nothing holds, from
+ * files named for them. An id still missing after that blocks the open as
+ * any broken reference does, with a first detail that says what to do.
+ */
+function loadRecoveringSidecars(core: Core, dir: string, thirdlightDir: string, projectId: string, gameRoot: string): { load: ReturnType<typeof loadV4>; problems: RecoveryProblem[] } {
+  let l = loadV4(core.ops, dir, projectId, gameRoot);
+  // An older layout keeps the records in content.json: nothing to put back yet.
+  if (l.kind === 'loaded' && l.upgraded?.resourceFiles === true) return { load: l, problems: [] };
+  const ctx: ContentContext = { projectId, dir, thirdlightDir, storageVersion: 4, revision: l.kind === 'loaded' ? l.state.revision : 0, scene: null, content: null, gameFolder: core.registry.get(projectId)?.folder ?? null };
+  const files = l.kind === 'loaded' ? l.state.files : new Map<string, KnownFile>();
+  const problems = restoreFromRecordCache(core, ctx, l.kind === 'loaded' ? (l.state.content.assets as unknown as RecordLike[]) : [], (file) => files.get(gameRel(sidecarPath(file)))?.bytes);
+  if (problems.some((p) => p.code === 'asset_sidecar_restored')) l = loadV4(core.ops, dir, projectId, gameRoot);
+  if (l.kind === 'loaded') return { load: l, problems };
+  const missing = missingReferenceIds(l.errors);
+  const rebuilt = rebuildFromFiles(core, ctx, missing, contentRevisionOnDisk(core, dir));
+  problems.push(...rebuilt.problems);
+  if (rebuilt.rebuilt.length > 0) l = loadV4(core.ops, dir, projectId, gameRoot);
+  if (l.kind === 'blocked') {
+    const still = missingReferenceIds(l.errors);
+    if (still.length > 0) {
+      const lead: LoadDetail = {
+        code: 'reference_missing',
+        path: '',
+        message: `${still.map((id) => `"${id}"`).join(', ')} ${still.length === 1 ? 'is' : 'are'} used but no asset or resource of the project has ${still.length === 1 ? 'it' : 'them'}: a lost .tlasset sidecar (or resource file) that neither the record cache nor a file named for the id could put back. Put the file back, or import the asset's file again with that id`,
+        expected: 'every used id held by an asset sidecar or a resource file',
+      };
+      l = { ...l, errors: [lead, ...l.errors].slice(0, 10), count: l.count + 1 };
+    }
+  }
+  return { load: l, problems };
+}
+
+/** The revision `content.json` states (0 when it cannot be read): a rebuilt record's publishedRevision. */
+function contentRevisionOnDisk(core: Core, dir: string): number {
+  try {
+    const r = (JSON.parse(new TextDecoder().decode(core.ops.readFile(join(dir, CONTENT_REL)))) as { revision?: unknown }).revision;
+    return typeof r === 'number' && Number.isSafeInteger(r) && r >= 0 ? r : 0;
+  } catch {
+    return 0;
+  }
 }
 
 /**
@@ -287,7 +338,7 @@ function writeUpgradedProject(core: Core, dir: string, thirdlightDir: string, pr
   }
   for (const [id, scene] of bump ? state.scenes : []) {
     const stamped: SceneV4 = { ...scene, revision };
-    const rel = sceneRel(id);
+    const rel = sceneRelOf(state, id);
     const bytes = sceneFileBytes(projectId, stamped, state.fileRecords.get(rel) ?? []);
     writes.push({ rel, bytes });
     files.set(rel, { bytes, hash: sha256Hex(bytes) });
@@ -364,7 +415,7 @@ function migrateModelAnimationsOnOpen(core: Core, dir: string, thirdlightDir: st
   const res = writeTransaction(core.ops, dir, thirdlightDir, projectId, withUntrackedSidecars(core.ops, dir, gameRoot, state.files, plan.writes), plan.writes, gameRoot);
   if (!res.ok) return kept('the project files could not be written');
   return {
-    state: { manifest: state.manifest, content: content.normalized, scenes: nextScenes, revision, files: plan.commitFiles(), fileRecords: plan.fileRecords, resourcePaths: plan.resourcePaths },
+    state: { manifest: state.manifest, content: content.normalized, scenes: nextScenes, revision, files: plan.commitFiles(), fileRecords: plan.fileRecords, resourcePaths: plan.resourcePaths, scenePaths: plan.scenePaths, formerPaths: plan.formerPaths },
     notes: m.notes,
   };
 }
@@ -376,16 +427,45 @@ export function toOpenOutcome(o: OpenV4Outcome): OpenOutcome | null {
 
 // ---- writing (the command path) ---------------------------------------------------
 
+/**
+ * Where a command puts the resources and scenes it creates: `folder` (a
+ * folder of the game folder the request named) for what it creates, `at` for
+ * files adopted where they are (`formerKey` → game-folder path), and `disk`:
+ * those files' bytes as the file check read them (null: gone), the baseline
+ * the transaction checks and the known files start from.
+ */
+export interface Placement {
+  folder?: string;
+  at?: ReadonlyMap<string, string>;
+  disk?: ReadonlyMap<string, KnownFile | null>;
+}
+
 /** The files a new v4 state needs written, compared with what is on record. */
-export function changedFiles(projectId: string, before: V4State, after: { content: V4State['content']; scenes: Map<string, SceneV4>; revision: number }, record: RetryRecord | null): {
+export function changedFiles(projectId: string, before: V4State, after: { content: V4State['content']; scenes: Map<string, SceneV4>; revision: number }, record: RetryRecord | null, place: Placement = {}): {
   writes: FileWrite[];
   /** The known files after the transaction: call once it is written (it brings the known files up to date in place). */
   commitFiles: () => Map<string, KnownFile>;
   fileRecords: Map<string, RetryRecord[]>;
   resourcePaths: ResourcePaths;
+  scenePaths: ReadonlyMap<string, string>;
+  formerPaths: ReadonlyMap<string, string>;
 } {
   const writes: FileWrite[] = [];
   const files = new FileDelta(before.files);
+  for (const [rel, f] of place.disk ?? []) {
+    if (f === null) files.delete(rel);
+    else files.set(rel, f);
+  }
+  const scenePaths = new Map(before.scenePaths);
+  const formerPaths = new Map(before.formerPaths ?? []);
+  // A new scene's file: adopted where it is, in the folder the request named, where it was before it was removed, or scenes/<id>.json.
+  const newSceneRel = (id: string): string => {
+    const key = formerKey('scene', id);
+    const at = place.at?.get(key);
+    const former = formerPaths.get(key);
+    formerPaths.delete(key);
+    return at !== undefined ? gameRel(at) : place.folder !== undefined ? gameRel(scenePathIn(place.folder, id)) : (former ?? sceneRel(id));
+  };
   const fileRecords = new Map(before.fileRecords);
   const appendTo = (rel: string): RetryRecord[] => {
     const list = [...(fileRecords.get(rel) ?? [])];
@@ -404,7 +484,11 @@ export function changedFiles(projectId: string, before: V4State, after: { conten
     // The scene's block cells count too (they live in its chunk files).
     const sameBlocks = prev !== undefined && (prev.blocks === scene.blocks || JSON.stringify(prev.blocks ?? null) === JSON.stringify(scene.blocks ?? null));
     if (prev !== undefined && (prev === scene || (sameBlocks && (prev.entities === scene.entities || JSON.stringify(prev.entities) === JSON.stringify(scene.entities))))) continue;
-    const rel = sceneRel(id);
+    let rel = scenePaths.get(id);
+    if (rel === undefined) {
+      rel = newSceneRel(id);
+      scenePaths.set(id, rel);
+    }
     const recs = appendTo(rel);
     const stamped: SceneV4 = { ...scene, revision: after.revision };
     const bytes = sceneFileBytes(projectId, stamped, recs);
@@ -427,7 +511,9 @@ export function changedFiles(projectId: string, before: V4State, after: { conten
   }
   for (const id of before.scenes.keys()) {
     if (after.scenes.has(id)) continue;
-    const rel = sceneRel(id);
+    const rel = sceneRelOf(before, id);
+    scenePaths.delete(id);
+    formerPaths.set(formerKey('scene', id), rel);
     writes.push({ rel, bytes: null });
     files.delete(rel);
     fileRecords.delete(rel);
@@ -439,7 +525,7 @@ export function changedFiles(projectId: string, before: V4State, after: { conten
   }
   const sceneWritten = writes.some((w) => w.bytes !== null && !isChunkRel(w.rel));
   // Resources: each record the command added, changed or removed is one file.
-  const resourcePaths = resourceWrites(before, after.content, writes, files);
+  const resourcePaths = resourceWrites(before, after.content, writes, files, place, formerPaths);
   // Content: written when the project-wide settings changed, or when no scene file carries the record.
   if (projectWideChanged(before.content, after.content) || !sceneWritten) {
     const recs = appendTo(CONTENT_REL);
@@ -448,7 +534,7 @@ export function changedFiles(projectId: string, before: V4State, after: { conten
     files.set(CONTENT_REL, { bytes, hash: sha256Hex(bytes) });
     fileRecords.set(CONTENT_REL, recs);
   }
-  return { writes, commitFiles: () => files.commit(), fileRecords, resourcePaths };
+  return { writes, commitFiles: () => files.commit(), fileRecords, resourcePaths, scenePaths, formerPaths };
 }
 
 /**
@@ -495,7 +581,7 @@ function chunkRelsOf(scene: SceneV4 | undefined): string[] {
  * is written (at its file's path, or its kind's folder when new), and a
  * record that is gone is removed. Lists the command left alone are not read.
  */
-function resourceWrites(before: V4State, next: V4State['content'], writes: FileWrite[], files: FileDelta): ResourcePaths {
+function resourceWrites(before: V4State, next: V4State['content'], writes: FileWrite[], files: FileDelta, place: Placement, formerPaths: Map<string, string>): ResourcePaths {
   const out = new Map(before.resourcePaths);
   // Assets: each record with a file is its sidecar (written where its file is; a moved file's old sidecar goes).
   if (before.content.assets !== next.assets) {
@@ -540,7 +626,13 @@ function resourceWrites(before: V4State, next: V4State['content'], writes: FileW
         const id = String(r[k.idKey]);
         kept.add(id);
         if (prev.get(id) === r) continue;
-        const path = paths.get(id) ?? defaultResourcePath(k, id);
+        let path = paths.get(id);
+        if (path === undefined) {
+          // New here: adopted where it is, in the folder the request named, where it was before it was removed, or its kind's folder.
+          const key = formerKey(k.list, id);
+          path = place.at?.get(key) ?? (place.folder !== undefined ? defaultResourcePath(k, id, place.folder) : undefined) ?? formerPaths.get(key) ?? defaultResourcePath(k, id);
+          formerPaths.delete(key);
+        }
         paths.set(id, path);
         const rel = gameRel(path);
         const bytes = resourceFileBytes(k, id, r);
@@ -555,6 +647,7 @@ function resourceWrites(before: V4State, next: V4State['content'], writes: FileW
       const path = paths.get(id);
       paths.delete(id);
       if (path === undefined) continue;
+      formerPaths.set(formerKey(k.list, id), path);
       writes.push({ rel: gameRel(path), bytes: null });
       files.delete(gameRel(path));
     }
@@ -711,8 +804,9 @@ export function acceptExternalV4(core: Core, s: ProjectSession): { ok: true; rev
   files.set(CONTENT_REL, { bytes: contentBytes, hash: sha256Hex(contentBytes) });
   for (const scene of state.scenes.values()) {
     const bytes = sceneFileBytes(s.projectId, scene, []);
-    writes.push({ rel: sceneRel(scene.sceneId), bytes });
-    files.set(sceneRel(scene.sceneId), { bytes, hash: sha256Hex(bytes) });
+    const rel = sceneRelOf(state, scene.sceneId);
+    writes.push({ rel, bytes });
+    files.set(rel, { bytes, hash: sha256Hex(bytes) });
     // Its chunk files, canonical.
     for (const [crel, f] of sceneChunkFiles(s.projectId, scene)) {
       writes.push({ rel: crel, bytes: f.bytes });
@@ -722,7 +816,7 @@ export function acceptExternalV4(core: Core, s: ProjectSession): { ok: true; rev
   const man = manifestV2Bytes(state.manifest);
   files.set(MANIFEST_REL_V4, { bytes: man, hash: sha256Hex(man) });
   // The resource files are what is on disk already.
-  for (const [rel, f] of state.files) if (gamePathOf(rel) !== null) files.set(rel, f);
+  for (const [rel, f] of state.files) if (gamePathOf(rel) !== null && !files.has(rel)) files.set(rel, f);
   const res = writeTransaction(core.ops, s.dir, s.thirdlightDir, s.projectId, diskBaseline(core, s, writes.map((w) => w.rel)), writes, gameRootOf(s));
   if (!res.ok) {
     if ('unreadable' in res) return { ok: false, error: externalChangeUnreadable(s.projectId) };
@@ -796,12 +890,15 @@ export function clearRecordsV4(core: Core, s: ProjectSession): { ok: true } | { 
   if (state === null || state === undefined) return { ok: true };
   const writes: FileWrite[] = [];
   const files = new Map(state.files);
+  const sceneOfRel = new Map([...state.scenes.keys()].map((id) => [sceneRelOf(state, id), id]));
   for (const [rel, recs] of state.fileRecords) {
     if (recs.length === 0) continue;
+    const sceneId = sceneOfRel.get(rel);
+    if (rel !== CONTENT_REL && sceneId === undefined) continue;
     const bytes =
       rel === CONTENT_REL
         ? contentFileBytes(s.projectId, (JSON.parse(new TextDecoder().decode(state.files.get(rel)!.bytes)) as { revision: number }).revision, state.content, [])
-        : sceneFileBytes(s.projectId, state.scenes.get(rel.slice('scenes/'.length, -'.json'.length))!, []);
+        : sceneFileBytes(s.projectId, state.scenes.get(sceneId!)!, []);
     writes.push({ rel, bytes });
     files.set(rel, { bytes, hash: sha256Hex(bytes) });
   }

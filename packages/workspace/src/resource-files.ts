@@ -89,9 +89,32 @@ export function resourceKindOfName(name: string): ResourceKind | null {
   return BY_KIND.get(stem.slice(dot + 1)) ?? null;
 }
 
-/** Where a new resource is written: its kind's folder, named by its id. */
-export function defaultResourcePath(k: ResourceKind, id: string): string {
-  return `${k.folder}/${id}.${k.kind}.json`;
+/** Where a new resource is written: its kind's folder (or the folder the command names), named by its id. */
+export function defaultResourcePath(k: ResourceKind, id: string, folder?: string): string {
+  return `${folder ?? k.folder}/${id}.${k.kind}.json`;
+}
+
+/**
+ * A scene outside the project folder's `scenes/`: `<folder>/<name>.scene.json`
+ * in the game folder (the scene file format; its name need not be its id).
+ */
+export const SCENE_SUFFIX = '.scene.json';
+
+export function isSceneFileName(name: string): boolean {
+  return name.endsWith(SCENE_SUFFIX) && name.length > SCENE_SUFFIX.length;
+}
+
+/** Where a new scene is written in a folder the user chose. */
+export function scenePathIn(folder: string, sceneId: string): string {
+  return `${folder}/${sceneId}${SCENE_SUFFIX}`;
+}
+
+/** The name part of a resource or scene file (`crate copy.material.json` → `crate copy`). */
+export function resourceStem(path: string): string {
+  const name = path.slice(path.lastIndexOf('/') + 1);
+  if (isSceneFileName(name)) return name.slice(0, -SCENE_SUFFIX.length);
+  const k = resourceKindOfName(name);
+  return k === null ? name.replace(/\.[^.]*$/, '') : name.slice(0, -`.${k.kind}.json`.length);
 }
 
 /** The files of the game folder are keyed apart from the project's own (`content.json`, `scenes/…`). */
@@ -109,13 +132,13 @@ export function gamePathOf(rel: string): string | null {
 /** An asset's sidecar (`<file>.tlasset`): it holds the asset's record, so it is a project file too. */
 export const SIDECAR_SUFFIX = '.tlasset';
 
-/** A game-folder path a project transaction writes: relative, no hidden folder, a resource file or a sidecar. */
+/** A game-folder path a project transaction writes: relative, no hidden folder, a resource file, a scene file or a sidecar. */
 export function isResourcePath(path: string): boolean {
   if (!isValidSourcePath(path)) return false;
   const segs = path.split('/');
   if (segs.some((s) => s.startsWith('.'))) return false;
   const name = segs[segs.length - 1]!;
-  return resourceKindOfName(name) !== null || (name.endsWith(SIDECAR_SUFFIX) && name.length > SIDECAR_SUFFIX.length);
+  return resourceKindOfName(name) !== null || isSceneFileName(name) || (name.endsWith(SIDECAR_SUFFIX) && name.length > SIDECAR_SUFFIX.length);
 }
 
 /** One resource file's bytes (the project-file layout: a diff shows one line per changed item). */
@@ -153,13 +176,14 @@ const MAX_DEPTH = 32;
 const SKIPPED_FOLDERS: ReadonlySet<string> = new Set(['node_modules']);
 
 /**
- * Every resource file and every asset sidecar of the game folder (paths
+ * Every resource file, scene file and asset sidecar of the game folder (paths
  * relative to it, sorted), by name: hidden folders, `node_modules`, symlinks
  * and the `skip` folders (the project's own files) are not entered.
  */
-export function scanResourceFiles(gameRoot: string, skip: (absDir: string, rel: string) => boolean): { resources: string[]; sidecars: string[] } {
+export function scanResourceFiles(gameRoot: string, skip: (absDir: string, rel: string) => boolean): { resources: string[]; sidecars: string[]; scenes: string[] } {
   const out: string[] = [];
   const sidecars: string[] = [];
+  const scenes: string[] = [];
   const walk = (rel: string, depth: number): void => {
     let entries;
     try {
@@ -181,9 +205,11 @@ export function scanResourceFiles(gameRoot: string, skip: (absDir: string, rel: 
         out.push(path);
       } else if (e.isFile() && name.endsWith(SIDECAR_SUFFIX) && name.length > SIDECAR_SUFFIX.length && isValidSourcePath(path)) {
         sidecars.push(path);
+      } else if (e.isFile() && isSceneFileName(name) && isValidSourcePath(path)) {
+        scenes.push(path);
       }
     }
   };
   walk('', 0);
-  return { resources: out.sort(), sidecars: sidecars.sort() };
+  return { resources: out.sort(), sidecars: sidecars.sort(), scenes: scenes.sort() };
 }

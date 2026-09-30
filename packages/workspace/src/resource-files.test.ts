@@ -4,7 +4,9 @@
  * the real service and filesystem: a command writes only the files of the
  * records it changed (and content.json, which carries the revision and the
  * retry record); a resource file moved outside the editor is the same
- * resource at the next open, two files with one id block the open; the index
+ * resource at the next open, and of two files with one id the one named
+ * after it is the resource (the other is a copy the file check gives a new
+ * id); the index
  * answers what references what; a project whose content.json still holds
  * everything (26.3's layout) opens and is written in the files layout with
  * its revision kept.
@@ -191,14 +193,17 @@ describe('project resources as files', () => {
     } finally {
       s.close();
     }
-    // A copy of the file with the same id: which one is the resource is the user's call.
+    // A copy of the file with the same id opens (the first by path is the resource); the file check gives the copy a new id.
     cpSync(join(dir, 'levels', 'one', 'rock.material.json'), join(dir, 'levels', 'rock-copy.material.json'));
     s = open();
     try {
-      const q = s.query({ op: 'queryProject', projectId: PID }) as unknown as { ok: boolean; error?: { reason?: string; details?: { message: string }[] } };
-      expect(q.ok).toBe(false);
-      expect(q.error?.reason).toBe('id_duplicate');
-      expect(q.error?.details?.[0]?.message).toContain('levels/rock-copy.material.json');
+      const idx = s.query({ op: 'queryIndex', projectId: PID, args: { kind: 'material' } }) as unknown as { entries: { id: string; path: string }[] };
+      expect(idx.entries).toEqual([expect.objectContaining({ id: 'stone', path: 'levels/one/rock.material.json' })]);
+      const check = s.checkResourceFiles(PID) as { ok: true; prepared: boolean; report: { adopted: unknown[] } };
+      expect(check.report.adopted).toEqual([{ kind: 'material', id: 'rock-copy', path: 'levels/rock-copy.material.json', copyOf: 'stone' }]);
+      ok(s, 'importResources', {});
+      expect(json(join(dir, 'levels', 'rock-copy.material.json'))).toMatchObject({ id: 'rock-copy', data: { materialId: 'rock-copy', params: { color: '#111111' } } });
+      expect(json(join(dir, 'levels', 'one', 'rock.material.json'))).toMatchObject({ id: 'stone' });
     } finally {
       s.close();
     }
