@@ -74,7 +74,7 @@ describe('generateGraphSource', () => {
 describe('compileBehaviorGraph (the same compiler as TypeScript sources)', () => {
   const compiler = createBehaviorCompiler();
 
-  it('compiles the 19.0 starter nodes in one graph; the manifest says sourceKind graph and the declaration comes from the code', async () => {
+  it('compiles the starter nodes in one graph; the manifest says sourceKind graph and the declaration comes from the code', async () => {
     // One graph using every starter node type, wired validly (the whole
     // catalogue, one script per node type: tests/visual-script/catalogue.test.ts).
     const nodes: GraphNode[] = [

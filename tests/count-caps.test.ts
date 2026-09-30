@@ -25,7 +25,16 @@ const KINDS = [
 ];
 /** `MAX_<kind>`, `MAX_<anything>_<kind>` (`MAX_AUDIO_ASSETS`), `<kind>_PER_PROJECT_MAX`, `MAX_<kind>_PER_PROJECT`. */
 const COUNT_NAME = new RegExp(`^(MAX_([A-Z0-9]+_)*(${KINDS.join('|')})|(${KINDS.join('|')})_PER_PROJECT(_MAX)?|MAX_(${KINDS.join('|')})_PER_PROJECT)$`);
-/** The same kinds as keys of a `*_LIMITS` object (`UI_LIMITS.documents`). */
+/** How many entities a whole project (or an editor session of it) may hold: `MAX_ENTITIES`, `SESSION_ENTITY_BOUND`, `ENTITIES_PER_PROJECT`. Per-scene and per-prefab bounds are not project-wide. */
+const PROJECT_ENTITY_NAME = /^(MAX_(PROJECT_|SESSION_|TOTAL_)?ENTITIES|(PROJECT|SESSION|TOTAL)_ENTIT(Y|IES)_(BOUND|CAP|MAX|LIMIT)|ENTITIES_PER_PROJECT(_MAX)?|MAX_ENTITIES_PER_PROJECT)$/;
+/**
+ * Objects whose keys count what is inside one model file (a glTF's materials
+ * and textures), not a project's: the same key names, a different scope.
+ * Their values are a per-file question, never a project count cap.
+ */
+const PER_MODEL_FILE = new Set(['ASSET_METRIC_CAPS', 'M2_GLTF_PROFILE_LIMITS']);
+const isCountName = (name: string): boolean => COUNT_NAME.test(name) || PROJECT_ENTITY_NAME.test(name);
+/** The same kinds as keys of a `*_LIMITS` or `*_CAPS` object (`UI_LIMITS.documents`). */
 const COUNT_KEY = /^(assets|models|textures|sounds|audio|music|fonts|versionRecords|prefabs|behaviors|scripts|scenes|materials|animators|timelines|uiDocuments|documents|uiThemes|themes|dialogues|speakers|effects|graphs|libraries|presets|cues|eventCues|trustEntries|blockTypes|stamps|projectKeyNumbers|totalBytes|behaviorModules|modules)$/;
 
 function sourceFiles(dir: string): string[] {
@@ -40,8 +49,8 @@ function sourceFiles(dir: string): string[] {
 
 describe('no per-project count cap on assets or resources', () => {
   it('the limit names say so (a guard: it flags the caps the engine once had, and nothing else)', () => {
-    for (const name of ['MAX_ASSETS', 'MAX_AUDIO_ASSETS', 'MAX_SCENES', 'MAX_MATERIALS', 'MAX_GRAPH_DOCUMENTS', 'MAX_VERSION_RECORDS', 'MAX_TRUST_ENTRIES', 'THUMBNAILS_PER_PROJECT_MAX']) expect(COUNT_NAME.test(name), name).toBe(true);
-    for (const name of ['MAX_ASSET_VERSIONS', 'MAX_PREFAB_ENTITIES', 'MAX_MATERIAL_SLOTS', 'MAX_TEXTURE_LAYERS', 'MAX_SCENE_DEPTH', 'MAX_CONTENT_FILE_BYTES', 'MAX_LOCAL_LIGHTS']) expect(COUNT_NAME.test(name), name).toBe(false);
+    for (const name of ['MAX_ASSETS', 'MAX_AUDIO_ASSETS', 'MAX_SCENES', 'MAX_MATERIALS', 'MAX_GRAPH_DOCUMENTS', 'MAX_VERSION_RECORDS', 'MAX_TRUST_ENTRIES', 'THUMBNAILS_PER_PROJECT_MAX', 'SESSION_ENTITY_BOUND', 'MAX_ENTITIES']) expect(isCountName(name), name).toBe(true);
+    for (const name of ['MAX_ASSET_VERSIONS', 'MAX_PREFAB_ENTITIES', 'MAX_SCENE_ENTITIES', 'MAX_MATERIAL_SLOTS', 'MAX_TEXTURE_LAYERS', 'MAX_SCENE_DEPTH', 'MAX_CONTENT_FILE_BYTES', 'MAX_LOCAL_LIGHTS', 'SESSION_PAGE']) expect(isCountName(name), name).toBe(false);
     for (const key of ['documents', 'scenes', 'presets', 'libraries', 'projectKeyNumbers', 'behaviorModules']) expect(COUNT_KEY.test(key), key).toBe(true);
     for (const key of ['documentBytes', 'nodes', 'widgets', 'keys', 'hud']) expect(COUNT_KEY.test(key), key).toBe(false);
   });
@@ -49,8 +58,8 @@ describe('no per-project count cap on assets or resources', () => {
   it('no limit the model exports counts a project\'s assets or resources', () => {
     const found: string[] = [];
     for (const [name, value] of Object.entries(limits)) {
-      if (COUNT_NAME.test(name)) found.push(name);
-      if (/_LIMITS$/.test(name) && typeof value === 'object' && value !== null) {
+      if (isCountName(name)) found.push(name);
+      if (/_(LIMITS|CAPS)$/.test(name) && !PER_MODEL_FILE.has(name) && typeof value === 'object' && value !== null) {
         for (const key of Object.keys(value)) if (COUNT_KEY.test(key)) found.push(`${name}.${key}`);
       }
     }
@@ -70,9 +79,11 @@ describe('no per-project count cap on assets or resources', () => {
       for (const file of files) {
         const text = readFileSync(file, 'utf8');
         for (const m of text.matchAll(/\bconst\s+([A-Z][A-Z0-9_]*)\s*(?::[^=]+)?=/g)) {
-          if (COUNT_NAME.test(m[1]!)) found.push(`${file.slice(REPO.length + 1)}: ${m[1]}`);
+          if (isCountName(m[1]!)) found.push(`${file.slice(REPO.length + 1)}: ${m[1]}`);
         }
-        for (const m of text.matchAll(/\bconst\s+([A-Z][A-Z0-9_]*_LIMITS)\s*=\s*(?:Object\.freeze\()?\{([^}]*)\}/g)) {
+        // Typed ones too (`const X_LIMITS: Readonly<…> = {`); a nested object is read up to its first `}`.
+        for (const m of text.matchAll(/\bconst\s+([A-Z][A-Z0-9_]*_(?:LIMITS|CAPS))\s*(?::[^=]+)?=\s*(?:Object\.freeze\()?\{([^}]*)\}/g)) {
+          if (PER_MODEL_FILE.has(m[1]!)) continue;
           for (const k of m[2]!.matchAll(/(?:^|[,{\s])([a-zA-Z]+)\s*:/g)) if (COUNT_KEY.test(k[1]!)) found.push(`${file.slice(REPO.length + 1)}: ${m[1]}.${k[1]}`);
         }
       }

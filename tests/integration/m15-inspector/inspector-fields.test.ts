@@ -177,7 +177,7 @@ describe('the generic Inspector over the real registry', () => {
   });
 });
 
-describe('content blocks edited from their descriptors (15.3 fields included)', () => {
+describe('content blocks edited from their descriptors (every settings field included)', () => {
   it('edits every settings field in one setSettings each, undoable', () => {
     const desc = DESCRIPTORS.content.find((b) => b.key === 'settings')!.value as ObjectFieldDescriptor;
     const s = fresh();

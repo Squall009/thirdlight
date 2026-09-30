@@ -44,7 +44,7 @@ describe('controller capsule (v4)', () => {
     expect(errorPaths({ capsule: 'small' })).toContain('/entities/0/components/controller/capsule');
   });
 
-  it('resolves the default capsule when the controller has none (the pre-14.0 shape)', () => {
+  it('resolves the default capsule when the controller has none (the shape before capsules)', () => {
     expect(DEFAULT_CONTROLLER_CAPSULE).toMatchObject({ radius: 0.3, height: 1.8 });
     expect(controllerCapsuleOf({})).toEqual({ radius: 0.3, height: 1.8, offset: [0, 0] });
     expect(controllerCapsuleOf(undefined)).toEqual({ radius: 0.3, height: 1.8, offset: [0, 0] });

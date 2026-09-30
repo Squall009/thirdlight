@@ -224,7 +224,7 @@ const MATERIALS: MaterialDef[] = [
 ];
 
 describe('graph diagnostics on and off the worker', () => {
-  it('standalone graphs: worker = inline = the pre-22.1 computation (2000-node graph)', async () => {
+  it('standalone graphs: worker = inline = the main-thread computation (2000-node graph)', async () => {
     const graphs = [bigGraph(2000), { graphId: 'empty', kind: 'test', name: 'Empty', graph: { nodes: [], edges: [] } } as GraphDocument];
     const before = graphIssuesBefore(graphs, KINDS);
     expect(before.length).toBeGreaterThan(2000);
@@ -237,7 +237,7 @@ describe('graph diagnostics on and off the worker', () => {
     workers.dispose();
   });
 
-  it('graph materials (rules and the compiler): worker = inline = the pre-22.1 computation', async () => {
+  it('graph materials (rules and the compiler): worker = inline = the main-thread computation', async () => {
     const graphs: GraphDocument[] = [];
     const textureIds = ['tex-ok'];
     const before = materialIssuesBefore(MATERIALS, graphs, KINDS, textureIds);

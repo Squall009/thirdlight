@@ -8,7 +8,7 @@
  * after it is the resource (the other is a copy the file check gives a new
  * id); the index
  * answers what references what; a project whose content.json still holds
- * everything (26.3's layout) opens and is written in the files layout with
+ * everything (the layout before resource files) opens and is written in the files layout with
  * its revision kept.
  */
 import { createHash } from 'node:crypto';
@@ -249,7 +249,7 @@ describe('project resources as files', () => {
     ok(s, 'setMaterial', { material: mat('stone', '#808080') });
     const rev = revision(s);
     s.close();
-    // The layout 26.3 wrote: everything in content.json (storageVersion 4), sidecars without records.
+    // The layout before resource files: everything in content.json (storageVersion 4), sidecars without records.
     const contentPath = join(dir, 'content.json');
     const file = json(contentPath) as { storageVersion: number; content: Record<string, unknown> };
     const sidecarPath = join(dir, 'assets', 'Crate.glb.tlasset');

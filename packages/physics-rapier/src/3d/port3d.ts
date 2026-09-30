@@ -620,7 +620,7 @@ function createAdapter(world: RAPIER.World, characterCollider: RAPIER.Collider, 
       staged = null;
       if (!isVec3(requested)) throw new Error(`staged movement must be a finite { x, y, z } (got ${JSON.stringify(requested)})`);
       // The request is swept as it is, a grounded character's small downward part
-      // included (the 23.0 port dropped it like the 2D port, which made Rapier's grounded status
+      // included (dropping it, as the 2D port does, which made Rapier's grounded status
       // flicker every other step on flat ground — measured with a walking character; the sweep
       // stops it on the ground and keeps it grounded).
       const commanded: PhysicsVec3 = { x: requested.x, y: requested.y, z: requested.z };

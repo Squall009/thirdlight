@@ -40,7 +40,7 @@ function harness(entities: EntityV3[], o: { character?: { x: number; y: number }
 }
 
 describe('mover push tuning', () => {
-  /** A wide block rising into the player beside it (the 14.7 sideways push), with its maxPush. */
+  /** A wide block rising into the player beside it (a sideways push), with its maxPush. */
   const push = (maxPush: number | undefined, skin?: number) => {
     const mover = ent('block-0001', { collider: { shape: { type: 'box', hx: 2, hy: 0.5 } }, mover: { waypoints: [[0, 2, 0]], speed: 2.4, mode: 'once', ...(maxPush !== undefined ? { maxPush } : {}) } });
     const h = harness([mover], { character: { x: -1, y: 0.2 }, ...(skin !== undefined ? { skin } : {}) });

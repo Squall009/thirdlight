@@ -238,7 +238,7 @@ describe('environment renderer on WebGPURenderer', () => {
     expect(skyInputsDiffer('procedural', proc(6, 10), [])).toBe(true);
   });
 
-  it('fog volumes go to the pipeline as world boxes every frame (14.4 height falloff included)', () => {
+  it('fog volumes go to the pipeline as world boxes every frame (height falloff included)', () => {
     const env = createEnvironmentRenderer(nodeRenderer(), new THREE.Scene(), { loadTexture: async () => null });
     const camera = new THREE.PerspectiveCamera();
     env.set({ sky: { mode: 'color', color: '#808080' }, post: { toneMapping: 'none' } });

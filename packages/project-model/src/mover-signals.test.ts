@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { canonicalMover, validateMoverComponent, type MoverComponent } from './blocks';
 import type { ModelErrorV2 } from './errors';
 
-describe('the mover model (25.12 fields)', () => {
+describe('the mover model (signal fields)', () => {
   const check = (v: Record<string, unknown>): ModelErrorV2[] => {
     const errors: ModelErrorV2[] = [];
     validateMoverComponent({ waypoints: [[1, 0, 0]], speed: 1, mode: 'once', ...v }, '/m', errors);

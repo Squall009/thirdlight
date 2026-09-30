@@ -253,7 +253,7 @@ describe('exposed parameters and the canonical form', () => {
     expect(canonicalMaterials(canonicalMaterials([g]))).toEqual(canonicalMaterials([g]));
   });
 
-  it('the runtime view keeps the graph (18.3 compiles it) and the parameters, without editor-only text', () => {
+  it('the runtime view keeps the graph (the runtime compiles it) and the parameters, without editor-only text', () => {
     const g = mat(
       { nodes: [{ ...OUT, collapsed: true }], edges: [], comments: [{ id: 'k', text: 'see https://example.invalid', position: [0, 0] }], groups: [{ id: 'g', title: 'Look', color: '#336699', rect: [0, 0, 10, 10] }] },
       [{ key: 'x', type: 'float', default: 0 }],

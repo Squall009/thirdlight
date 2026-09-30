@@ -31,6 +31,9 @@ export const HISTORY_PATTERNS = Object.freeze([
   { name: 'phase', re: /\b[Pp]hases?\s+\d/ },
   { name: 'item id', re: /\b(?:[1-9]|[12]\d)\.\d{1,2}[a-h]\b/ },
   { name: 'item id', re: /\b(?:[Ss]ince|[Uu]ntil|[Bb]efore|[Aa]fter|[Ii]tems?|[Pp]lan|[Ii]n|[Ss]ee|[Bb]y|[Ff]rom)\s+(?:9|[12]\d)\.\d{1,2}\b(?!\s*(?:m|s|ms|px|%|°|x|Hz|MiB|KiB|kB|MB)\b)/ },
+  // A bare item id where prose names a step of the work: before one ("pre-" and an id), one's, "the" or
+  // "(" then an id then a word; a measure after the number ("the 23.5 m") is not one.
+  { name: 'item id', re: /\bpre-(?:1[4-9]|2\d)\.\d{1,2}\b|(?<![\w.−-])(?:1[4-9]|2\d)\.\d{1,2}'s\b|(?:\bthe\s+|\()(?:1[4-9]|2\d)\.\d{1,2}\s+(?!(?:m|s|ms|px|x|Hz|MiB|KiB|kB|MB|GB|fps|dB|cm|mm|deg|degrees|seconds|frames|units|and|or|to)\b)[a-z]/ },
   { name: 'packet', re: /\b[Pp]ackets?[\s-]+\d/ },
   { name: 'milestone', re: /\bM[1-9](?:\+M[1-9])?(?=\s*(?:\(|:|,|;|\)|—|-\s|era\b|milestone|packet|review|contract|acceptance|repair|work\b|state\b|$))/ },
   { name: 'audit id', re: /\bD\d{1,3}\b(?![-.]\d)/ },

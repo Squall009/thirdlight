@@ -1133,7 +1133,7 @@ export function checkVocabulary(root, allowlist = VOCABULARY_ALLOWLIST) {
           line: hit.line,
           rule: 'genre-vocabulary',
           message: `'${hit.word}' — genre vocabulary in engine source: game rules live in game repos ` +
-            '(docs/plan-phase-24.md 24.9; a generic use needs a reviewed VOCABULARY_ALLOWLIST row)',
+            '(docs/roadmap.md principle 1b; a generic use needs a reviewed VOCABULARY_ALLOWLIST row)',
         });
       }
     }

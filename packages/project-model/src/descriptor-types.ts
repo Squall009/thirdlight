@@ -14,7 +14,7 @@ export type DescriptorScalar = string | number | boolean;
 /** The units a field may be in (display text; values are stored in these units). */
 export type DescriptorUnit = 'm' | 'm/s' | 'm/s²' | 's' | 'deg' | 'deg/s' | 'cd' | '1/m' | 'points' | 'points/s' | '×' | 'Hz' | 'voices' | 'px' | 'ms' | 'MiB';
 
-/** The Scene-view handle kinds (15.2 draws and drags them). */
+/** The Scene-view handle kinds (the Scene view draws and drags them). */
 export const HANDLE_KINDS = ['box2', 'box3', 'radius', 'capsule', 'cone', 'direction', 'path', 'polygon', 'point', 'height', 'bounds'] as const;
 export type HandleKind = (typeof HANDLE_KINDS)[number];
 

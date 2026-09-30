@@ -22,6 +22,10 @@ describe('history markers', () => {
     ['the set chunk (25.7c)', 'item id'],
     ['added in 24.8 for the menus', 'item id'],
     ['since 24.8 the list is sorted', 'item id'],
+    ['the pre-22.1 computation', 'item id'],
+    ["everything (26.3's layout) opens", 'item id'],
+    ['the 23.0 port dropped it', 'item id'],
+    ['handle kinds (15.2 draws and drags them)', 'item id'],
     ['the reader (packet 57)', 'packet'],
     ['M4 (the delivery):', 'milestone'],
     ['the M2 era', 'milestone'],
@@ -40,6 +44,12 @@ describe('history markers', () => {
     'a 16.7 ms frame at 60 Hz',
     'three 0.186.1 and Rapier 0.19.3',
     'the Draco decoder (D-pad input is separate)',
+    'default gravity -19.62 vs changed -30',
+    'Safari older than 18.4 (macOS 15.4, iOS 18.4)',
+    'the camera goes back to 24 m along its offset (z ≈ 23.6)',
+    'the 29.9/30.0/44.9/45.0/45.1 degree table',
+    'the 23.5 m fall (20.5 ms at most)',
+    'M3 6.5A1.5 1.5 0 0 1 19.5 19h-15',
   ])('leaves %j alone', (text) => {
     expect(historyMarkers(text)).toEqual([]);
   });
