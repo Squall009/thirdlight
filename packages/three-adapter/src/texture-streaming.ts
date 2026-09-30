@@ -461,6 +461,11 @@ export function createTextureStreamer(options: TextureStreamerOptions): TextureS
         s.wanted = s.pinned ? 0 : s.tail;
         s.weight = s.pinned ? Number.MAX_SAFE_INTEGER : -1 - (t - s.lastSeen) / 1000;
       }
+      // World matrices as the draw will see them: an object added or moved this
+      // frame still holds its old (or identity) matrix until the renderer's own
+      // update, and a stale one measures it at the wrong distance — a far
+      // object placed at the origin asks for a large level it will keep.
+      scene.updateMatrixWorld();
       camera.updateMatrixWorld();
       projScreen.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
       frustum.setFromProjectionMatrix(projScreen, camera.coordinateSystem, camera.reversedDepth);
