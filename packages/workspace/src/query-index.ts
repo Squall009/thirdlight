@@ -71,6 +71,23 @@ function subfolders(s: ProjectSession, index: ProjectIndex, folder: string): Fol
     const path = folder === '' ? d.name : `${folder}/${d.name}`;
     out.set(path, { path, name: d.name, hasFolders: listedDirs(root, path, projectDir, dataRoot).length > 0 });
   }
+  for (const f of indexFolders(index, folder)) {
+    const row = out.get(f.path);
+    if (row === undefined) out.set(f.path, f);
+    else if (f.hasFolders && !row.hasFolders) out.set(f.path, { ...row, hasFolders: true });
+  }
+  return [...out.values()].sort((a, b) => a.name.localeCompare(b.name, 'en', { numeric: true, sensitivity: 'base' }));
+}
+
+/** The subfolders the index's files are in, per folder, made once per change of the index (the disk's are read each time). */
+const folderRowsOf = new WeakMap<ProjectIndex, { generation: number; byFolder: Map<string, readonly FolderRow[]> }>();
+function indexFolders(index: ProjectIndex, folder: string): readonly FolderRow[] {
+  const generation = indexGeneration(index);
+  let memo = folderRowsOf.get(index);
+  if (memo === undefined || memo.generation !== generation) folderRowsOf.set(index, (memo = { generation, byFolder: new Map() }));
+  const known = memo.byFolder.get(folder);
+  if (known !== undefined) return known;
+  const out = new Map<string, FolderRow>();
   const prefix = folder === '' ? '' : `${folder}/`;
   for (const e of index.entries.values()) {
     if (e.path === null || !e.path.startsWith(prefix)) continue;
@@ -83,7 +100,9 @@ function subfolders(s: ProjectSession, index: ProjectIndex, folder: string): Fol
     if (row === undefined) out.set(path, { path, name: rest.slice(0, cut), hasFolders: deeper });
     else if (deeper && !row.hasFolders) out.set(path, { ...row, hasFolders: true });
   }
-  return [...out.values()].sort((a, b) => a.name.localeCompare(b.name, 'en', { numeric: true, sensitivity: 'base' }));
+  const rows = [...out.values()];
+  memo.byFolder.set(folder, rows);
+  return rows;
 }
 
 /** Whether an entry's file is in a folder (or below it). */
@@ -128,7 +147,8 @@ function resourceRecord(state: V4State, kind: string, id: string): Record<string
  * Pages answered since the index last changed, by their arguments: the
  * editor asks for the same pages again after an edit that changed no entry
  * (a material's values, a scene's objects). Not kept: pages with records
- * (they change with their record) or with folders (they read the disk).
+ * (they change with their record); a page's folders are listed again (the
+ * disk's are read each time).
  */
 const answered = new WeakMap<ProjectIndex, { generation: number; pages: Map<string, { total: number; entries: readonly Record<string, unknown>[] }> }>();
 /** Pages kept per index (the lists and pickers open at once ask for a handful). */
@@ -150,13 +170,16 @@ export function serveQueryIndex(s: ProjectSession, state: V4State, projectId: st
   if (!isSafeInt(limit) || (limit as number) < 1 || (limit as number) > MAX_INDEX_PAGE) return failure(projectId, fieldValueType('/args/limit', limit, `integer 1-${MAX_INDEX_PAGE}`, 'limit pages the index'));
   if (!isSafeInt(offset) || (offset as number) < 0) return failure(projectId, fieldValueType('/args/offset', offset, 'integer >= 0', 'offset pages the index'));
   const index: ProjectIndex = s.index ?? buildIndex(state);
-  const reuse = a['records'] !== true && a['folders'] !== true;
+  const reuse = a['records'] !== true;
   const generation = indexGeneration(index);
   let memo = answered.get(index);
   if (memo === undefined || memo.generation !== generation) answered.set(index, (memo = { generation, pages: new Map() }));
   const memoKey = reuse ? JSON.stringify(ARGS.map((k) => a[k] ?? null)) : null;
   const known = memoKey !== null ? memo.pages.get(memoKey) : undefined;
-  if (known !== undefined) return { ok: true, projectId, revision: state.revision, total: known.total, entries: known.entries } as unknown as QueryResult;
+  if (known !== undefined) {
+    const folders = a['folders'] === true ? { folders: subfolders(s, index, typeof a['folder'] === 'string' ? a['folder'] : '') } : {};
+    return { ok: true, projectId, revision: state.revision, total: known.total, entries: known.entries, ...folders } as unknown as QueryResult;
+  }
   const kinds = a['kinds'] !== undefined ? new Set(a['kinds'] as string[]) : a['kind'] !== undefined ? new Set([a['kind'] as string]) : null;
   const ids = a['ids'] !== undefined ? new Set(a['ids'] as string[]) : a['id'] !== undefined ? new Set([a['id'] as string]) : null;
   // The keys to look at: a page of ids with their kinds named is looked up; otherwise the keys in order,
