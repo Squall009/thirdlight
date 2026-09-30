@@ -18,6 +18,7 @@ import { fieldValue, type CommandError } from './errors';
 import { contentOf, type OpInput } from './content-ops';
 import { deepClone, gateResultState, type OpOutcome } from './ops';
 import type { ContentDocument, SetEffectChange } from './types';
+import { withListRecord } from './record-lists';
 
 type WithEffects = ContentDocument & { effects?: EffectDef[] };
 
@@ -28,9 +29,8 @@ function modelError(e: ModelErrorV2, prefix: string): CommandError {
 /** The content with one effect set (or removed when null); the list stays canonical and is absent when empty. */
 export function withEffect(content: ContentDocument, effectId: string, effect: EffectDef | null): ContentDocument {
   const c = { ...(content as WithEffects) };
-  const list = (c.effects ?? []).filter((e) => e.effectId !== effectId);
-  if (effect !== null) list.push(deepClone(effect));
-  if (list.length > 0) c.effects = canonicalEffects(list);
+  const list = withListRecord(c.effects, (e) => e.effectId, effectId, effect === null ? null : canonicalEffects([deepClone(effect)])[0]!);
+  if (list.length > 0) c.effects = list;
   else delete c.effects;
   return c as ContentDocument;
 }

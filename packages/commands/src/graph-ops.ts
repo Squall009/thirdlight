@@ -80,6 +80,7 @@ import { effectsOf, withEffect } from './effect-ops';
 import { dialoguesOf, withDialogueValue } from './dialogue-ops';
 import { deepClone, gateResultState, type OpOutcome } from './ops';
 import type { ContentDocument, ForwardChange, GraphEditChange, GraphOwner, InverseSpec, SetGraphChange } from './types';
+import { withListRecord } from './record-lists';
 
 type WithGraphs = ContentDocument & { graphs?: GraphDocument[] };
 type WithMaterials = ContentDocument & { materials?: MaterialDef[] };
@@ -346,9 +347,8 @@ export function applyGraphEdit(input: OpInput, args: { owner: GraphOwner; ops: G
 /** The content with one standalone graph document set (or removed when null). */
 export function withGraphDocument(content: ContentDocument, graphId: string, doc: GraphDocument | null): ContentDocument {
   const c = { ...(content as WithGraphs) };
-  const list = (c.graphs ?? []).filter((g) => g.graphId !== graphId);
-  if (doc !== null) list.push(deepClone(doc));
-  if (list.length > 0) c.graphs = canonicalGraphDocuments(list);
+  const list = withListRecord(c.graphs, (g) => g.graphId, graphId, doc === null ? null : canonicalGraphDocuments([deepClone(doc)])[0]!);
+  if (list.length > 0) c.graphs = list;
   else delete c.graphs;
   return c as ContentDocument;
 }

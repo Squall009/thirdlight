@@ -583,6 +583,25 @@ export function createBackend(
     (t as { unref?: () => void }).unref?.();
     materialCheckTimers.set(projectId, t);
   };
+  /**
+   * Whether a change can change a material's compile: the materials
+   * themselves, a standalone graph (a material function), or the texture
+   * assets a graph samples. A scene edit or any other content edit cannot,
+   * and the check reads the whole project.
+   */
+  const changeReachesMaterials = (change: unknown): boolean => {
+    const type = (change as { type?: unknown } | null)?.type;
+    return (
+      type === 'setMaterial' ||
+      type === 'setMaterials' ||
+      type === 'setGraph' ||
+      type === 'graphEdit' ||
+      type === 'publishAsset' ||
+      type === 'removeAsset' ||
+      type === 'importAssets' ||
+      type === 'setAssetOptions'
+    );
+  };
   // ---------- The engine this process runs ----------
   const engineInfo = makeEngineInfo({ engineRoot: config.engineRoot, distDir: dirname(config.editorStaticDir), startedAtMs: Date.now() - process.uptime() * 1000 });
 
@@ -594,8 +613,8 @@ export function createBackend(
     change: unknown,
     sceneId?: string,
   ): void => {
-    // Materials are checked again after every applied change.
-    scheduleMaterialCheck(projectId);
+    // Materials are checked again after a change that can change what they compile to.
+    if (changeReachesMaterials(change)) scheduleMaterialCheck(projectId);
     const s = sessions.sessionForProject(projectId);
     if (!s || !s.connected || !s.socket) return;
     // A full-state/change frame never carries GLB or source bytes.

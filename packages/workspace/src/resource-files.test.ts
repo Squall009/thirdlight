@@ -121,6 +121,33 @@ describe('project resources as files', () => {
     }
   });
 
+  it('an edit of a dialogue, a timeline or a UI document writes that one file (the others of its kind stay as they are)', () => {
+    const written: string[] = [];
+    const { dir, open } = project('per-kind', written);
+    const s = open();
+    try {
+      const timeline = (id: string, duration: number): Record<string, unknown> => ({ timelineId: id, name: id, duration, slots: [], tracks: [{ trackId: 'sig', type: 'signal', keys: [{ time: 1, name: 'go' }] }] });
+      for (const id of ['a', 'b', 'c']) {
+        ok(s, 'setDialogue', { dialogue: { dialogueId: `talk-${id}`, name: `Talk ${id}` } });
+        ok(s, 'setTimeline', { timeline: timeline(`shot-${id}`, 3) });
+        ok(s, 'setUiDocument', { document: { uiDocumentId: `hud-${id}`, name: `HUD ${id}`, root: { type: 'text', text: id } } });
+      }
+      const edits: [string, Record<string, unknown>, string][] = [
+        ['setDialogue', { dialogue: { dialogueId: 'talk-b', name: 'Small talk' } }, 'assets/dialogue/talk-b.dialogue.json'],
+        ['setTimeline', { timeline: timeline('shot-b', 4) }, 'assets/timelines/shot-b.timeline.json'],
+        ['setUiDocument', { document: { uiDocumentId: 'hud-b', name: 'HUD b', root: { type: 'text', text: 'changed' } } }, 'assets/ui/hud-b.ui.json'],
+      ];
+      for (const [op, args, file] of edits) {
+        written.length = 0;
+        ok(s, op, args);
+        const inProject = written.map((p) => p.slice(dir.length + 1)).filter((p) => !p.startsWith('.thirdlight/'));
+        expect(inProject.sort(), op).toEqual([file, 'content.json']);
+      }
+    } finally {
+      s.close();
+    }
+  });
+
   it('finds a resource file moved outside the editor at the next open, and writes it where it is', () => {
     const { dir, open } = project('moved');
     let s = open();

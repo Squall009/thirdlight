@@ -17,6 +17,7 @@ import { canonicalEnvironment, canonicalLighting, GRAPH_KINDS, graphDocumentsCon
 
 import { fieldValue, type CommandError } from './errors';
 import { contentOf, type OpInput } from './content-ops';
+import { withListRecord } from './record-lists';
 import { deepClone, gateResultState, type OpOutcome } from './ops';
 import type { ContentDocument, SetAnimatorChange, SetEnvironmentChange, SetInputChange, SetLightingChange, SetMaterialChange } from './types';
 
@@ -144,20 +145,10 @@ export function withInput(content: ContentDocument, value: InputConfig | null): 
   return c;
 }
 
-/**
- * The block with one record of a list set (null: removed). The list's other
- * records stay the same objects: the model trusts what an edit left as it
- * was, and the workspace writes only the records that changed.
- */
-function withRecord<T>(list: readonly T[] | undefined, same: (r: T) => boolean, record: T | null): T[] {
-  const rest = (list ?? []).filter((r) => !same(r));
-  return record === null ? rest : [...rest, deepClone(record)];
-}
-
 /** Set or remove one animator controller (the list's others unchanged). */
 export function withAnimator(content: ContentDocument, controllerId: string, controller: AnimatorController | null): ContentDocument {
   const c = { ...(content as WithMaterials) };
-  const list = withRecord(c.animators, (x) => x.controllerId === controllerId, controller);
+  const list = withListRecord(c.animators, (x) => x.controllerId, controllerId, controller === null ? null : deepClone(controller));
   if (list.length > 0) c.animators = list;
   else delete c.animators;
   return c;
@@ -166,7 +157,7 @@ export function withAnimator(content: ContentDocument, controllerId: string, con
 /** Set or remove one material (the list's others unchanged). */
 export function withMaterial(content: ContentDocument, materialId: string, material: MaterialDef | null): ContentDocument {
   const c = { ...(content as WithMaterials) };
-  const list = withRecord(c.materials, (x) => x.materialId === materialId, material);
+  const list = withListRecord(c.materials, (x) => x.materialId, materialId, material === null ? null : deepClone(material));
   if (list.length > 0) c.materials = list;
   else delete c.materials;
   return c;

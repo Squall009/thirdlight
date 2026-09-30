@@ -35,6 +35,7 @@ import { behaviorPublicationUnavailable, behaviorTrustUnacknowledged, fieldValue
 import { contentOf, type OpInput } from './content-ops';
 import { deepClone, gateResultState, type OpOutcome } from './ops';
 import type { ContentDocument, SetScriptLibrariesChange, SetScriptLibraryChange } from './types';
+import { withListRecord } from './record-lists';
 
 type WithLibraries = ContentDocument & { scriptLibraries?: ScriptLibrary[] };
 
@@ -47,9 +48,8 @@ export const scriptLibrariesOf = (content: ContentDocument): ScriptLibrary[] => 
 /** The content with one library set (or removed when null); the list stays canonical and is absent when empty. */
 export function withScriptLibrary(content: ContentDocument, libraryId: string, library: ScriptLibrary | null): ContentDocument {
   const c = { ...(content as WithLibraries) };
-  const list = (c.scriptLibraries ?? []).filter((l) => l.libraryId !== libraryId);
-  if (library !== null) list.push(deepClone(library));
-  if (list.length > 0) c.scriptLibraries = canonicalScriptLibraries(list);
+  const list = withListRecord(c.scriptLibraries, (l) => l.libraryId, libraryId, library === null ? null : canonicalScriptLibraries([deepClone(library)])[0]!);
+  if (list.length > 0) c.scriptLibraries = list;
   else delete c.scriptLibraries;
   return c as ContentDocument;
 }

@@ -16,6 +16,7 @@ import { fieldValue, type CommandError } from './errors';
 import { contentOf, type OpInput } from './content-ops';
 import { deepClone, gateResultState, type OpOutcome } from './ops';
 import type { ContentDocument, SetUiChange } from './types';
+import { withListRecord } from './record-lists';
 
 type WithUi = ContentDocument & { uiDocuments?: UiDocument[]; uiThemes?: UiTheme[] };
 export type UiKind = 'document' | 'theme';
@@ -36,14 +37,12 @@ export function uiOf(content: ContentDocument, kind: UiKind, id: string): UiDocu
 export function withUi(content: ContentDocument, kind: UiKind, id: string, value: UiDocument | UiTheme | null): ContentDocument {
   const c = { ...(content as WithUi) };
   if (kind === 'document') {
-    const list = (c.uiDocuments ?? []).filter((d) => d.uiDocumentId !== id);
-    if (value !== null) list.push(deepClone(value as UiDocument));
-    if (list.length > 0) c.uiDocuments = canonicalUiDocuments(list);
+    const list = withListRecord(c.uiDocuments, (d) => d.uiDocumentId, id, value === null ? null : canonicalUiDocuments([deepClone(value as UiDocument)])[0]!);
+    if (list.length > 0) c.uiDocuments = list;
     else delete c.uiDocuments;
   } else {
-    const list = (c.uiThemes ?? []).filter((t) => t.uiThemeId !== id);
-    if (value !== null) list.push(deepClone(value as UiTheme));
-    if (list.length > 0) c.uiThemes = canonicalUiThemes(list);
+    const list = withListRecord(c.uiThemes, (t) => t.uiThemeId, id, value === null ? null : canonicalUiThemes([deepClone(value as UiTheme)])[0]!);
+    if (list.length > 0) c.uiThemes = list;
     else delete c.uiThemes;
   }
   return c as ContentDocument;

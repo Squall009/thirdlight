@@ -34,6 +34,7 @@ import { fieldValue, type CommandError } from './errors';
 import { contentOf, type OpInput } from './content-ops';
 import { deepClone, gateResultState, type OpOutcome } from './ops';
 import type { ContentDocument, DialogueKind, SetDialogueArgs, SetDialogueChange } from './types';
+import { withListRecord } from './record-lists';
 
 type WithDialogue = ContentDocument & { dialogues?: DialogueDocument[]; speakers?: DialogueSpeaker[]; dialogueSettings?: DialogueSettings };
 type Value = DialogueDocument | DialogueSpeaker | DialogueSettings;
@@ -56,9 +57,8 @@ export function dialogueValueOf(content: ContentDocument, kind: DialogueKind, id
 export function withDialogueValue(content: ContentDocument, kind: DialogueKind, id: string, value: Value | null): ContentDocument {
   const c = { ...(content as WithDialogue) };
   if (kind === 'dialogue') {
-    const list = (c.dialogues ?? []).filter((d) => d.dialogueId !== id);
-    if (value !== null) list.push(deepClone(value as DialogueDocument));
-    if (list.length > 0) c.dialogues = canonicalDialogues(list);
+    const list = withListRecord(c.dialogues, (d) => d.dialogueId, id, value === null ? null : canonicalDialogues([deepClone(value as DialogueDocument)])[0]!);
+    if (list.length > 0) c.dialogues = list;
     else delete c.dialogues;
   } else if (kind === 'speaker') {
     const list = (c.speakers ?? []).filter((s) => s.speakerId !== id);

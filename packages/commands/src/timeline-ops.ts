@@ -13,6 +13,7 @@ import { fieldValue, noChangeContent, type CommandError } from './errors';
 import { contentOf, type OpInput } from './content-ops';
 import { deepClone, gateResultState, type OpOutcome } from './ops';
 import type { ContentDocument, SetTimelineChange } from './types';
+import { withListRecord } from './record-lists';
 
 type WithTimelines = ContentDocument & { timelines?: TimelineAsset[] };
 
@@ -30,9 +31,8 @@ export function timelineOf(content: ContentDocument, id: string): TimelineAsset 
 /** The content with one timeline set (or removed when null); the list stays canonical and is absent when empty. */
 export function withTimeline(content: ContentDocument, id: string, value: TimelineAsset | null): ContentDocument {
   const c = { ...(content as WithTimelines) };
-  const list = (c.timelines ?? []).filter((t) => t.timelineId !== id);
-  if (value !== null) list.push(deepClone(value));
-  if (list.length > 0) c.timelines = canonicalTimelines(list);
+  const list = withListRecord(c.timelines, (t) => t.timelineId, id, value === null ? null : canonicalTimelines([deepClone(value)])[0]!);
+  if (list.length > 0) c.timelines = list;
   else delete c.timelines;
   return c as ContentDocument;
 }

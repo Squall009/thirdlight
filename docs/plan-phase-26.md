@@ -187,7 +187,8 @@ at the boundary it changes (Playwright for any editor surface).
 | 26.1 | done 2026-09-29: limits once, splits (D57, D58); ESLint in the gates; three.js 0.186.1; history comments removed with a build check (D59) |
 | 26.2 | done 2026-09-29: scale bench (generator, harness, small-size tests in the fast gate); before numbers in §6; D61 |
 | 26.3 | done 2026-09-29: A files and sidecars (uploads filed into `assets/`, `.tlasset` sidecars, import cache, file check re-imports and follows moves, project.json 5 with the upgrade of a 4); B folder import with labels (`importAssets`, one undo; editor and MCP), uploads into the folder named, a folder uploaded file by file, labels on records and sidecars, whole-folder moves, upgrade report in Problems |
-| 26.4–26.14 | — |
+| 26.4 | A done 2026-09-30: storage out of `buildService` (typed readers); resources as files, asset records in their sidecars, `content.json` project-wide only; the index (`queryIndex`); validation of what a command touched (D61); one command's latency flat at full size (§6). B: environment presets, scene folders, resources added or moved while open, D63 |
+| 26.5–26.14 | — |
 
 ## 6. Measurements
 
@@ -278,6 +279,28 @@ labels in one `importAssets` command, round trip: small preset (60 assets)
 content validation 0.44 s (grows with the catalog: D61, 26.4), sidecars
 0.2 s; one scene edit after it (2,800 assets) 175–227 ms. Before sidecars and
 import-cache headers skipped their per-file flush: 7–11 s at ×0.1.
+
+After 26.4 A (the resources and asset records as files, validation of what
+a command touched; `--steps open,commands --gpu`, the caps lifted on the
+scratch patch for the run only, generator version 4 — resources and sidecar
+records as files, `content.json` 15 KiB; commit `d75b8d75`; 2026-09-30):
+
+| | ×0.01 | full |
+|---|---|---|
+| open: backend's first read | 64 | 815 |
+| open: editor connected / Scene view first frame | 712 / 530 | 883 / 552 |
+| backend resident after open | 145 | 265 |
+| command: scene edit (setTransform) | 5.7 / 16.2 | 8.3 / 26.7 |
+| command: content edit (setMaterial) | 12.6 / 14.3 | 23.2 / 31.4 |
+
+One command no longer grows with the project the way it did (full size: 11 s
+and 26 s before): within 1.5× (scene edit) and 1.8× (content edit) of the
+×0.01 project at p50; a content edit writes two files through the journal at
+any size (its record and `content.json`, which carries the revision and the
+retry record), the rest of both is the flushes. Linear passes that remain
+per command at full size, each well under a millisecond: the project-wide
+id uniqueness over every entity, the asset list's counts when an asset
+changes, the per-kind id sets when a record is added or removed.
 
 Proposed targets for "Done when" (fixed in 26.14 from these numbers):
 
