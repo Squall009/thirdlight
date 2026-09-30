@@ -23,7 +23,7 @@
  * UNVERIFIED here (no browser in this container): the real-browser static-URL
  * walkthrough (WebGL, the audio owner, the HUD).
  */
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -47,6 +47,10 @@ function realFs(): ExportFs {
     exists: (p) => existsSync(p),
     mkdir: (p) => mkdirSync(p, { recursive: true }),
     write: (p, data) => writeFileSync(p, data),
+    openWrite: (p) => {
+      const fd = openSync(p, 'w');
+      return { write: (data) => void writeSync(fd, data), close: () => closeSync(fd) };
+    },
     rename: (from, to) => renameSync(from, to),
     rm: (p) => rmSync(p, { recursive: true, force: true }),
     mkdtemp: (prefix) => mkdtempSync(prefix),
@@ -192,7 +196,7 @@ describe('B21 the M3 export is a complete declared==emitted relative closure', (
         'packages/physics-rapier/src/port.ts': {},
         'node_modules/three/build/three.module.js': {},
         'node_modules/@dimforge/rapier2d-compat/dist/rapier.js': {},
-        'thirdlight-export:export-artifacts': {},
+        'thirdlight-export-modules:export-modules': {},
       },
     };
     expect(checkBundleGraphM3(cleanMetafile, M3_BOOTSTRAP, ['thirdlight.character:controller']).ok).toBe(true);

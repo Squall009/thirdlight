@@ -8,8 +8,8 @@
  * `project-model`, `input`, `physics-rapier` — plus `three`, the pinned
  * `@dimforge/rapier2d-compat` (and `@dimforge/rapier3d-compat`, the 3D
  * backend's `js/physics-3d.js` of a 3D project), and the per-snapshot
- * virtual modules the export build generates in memory
- * (`thirdlight:export-artifacts`, `thirdlight:export-modules`). A
+ * virtual module the export build generates in memory
+ * (`thirdlight:export-modules`). A
  * module package outside that set (the character controller ones) is allowed only when
  * the manifest names one of its modules.
  *
@@ -29,7 +29,7 @@ export interface GraphReport {
 const MAX_REPORTED = 8;
 
 /** The virtual-module keys the export build generates (esbuild namespaces them). */
-const VIRTUAL_KEYS = new Set(['thirdlight-export:export-artifacts', 'thirdlight-export-modules:export-modules']);
+const VIRTUAL_KEYS = new Set(['thirdlight-export-modules:export-modules']);
 
 /** Metafile keys are absolute or cwd-relative; normalize separators. */
 function normalize(p: string): string {

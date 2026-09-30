@@ -64,72 +64,111 @@ export function resolveExportTarget(ctx: ExportTargetContext, revision: number):
   return { target, exportRootReal, dirName };
 }
 
-export interface TreeFile {
-  name: string;
-  bytes: Uint8Array;
+/**
+ * Step 6 — the output is written into a fresh temp directory under
+ * `<exportRoot>` as it is produced (files are copied in one at a time, never
+ * held together), then the target tree is replaced atomically. A failed
+ * export removes the temp directory; the previous output stays byte-untouched.
+ */
+export interface ExportStaging {
+  /** Write one whole file. */
+  write(name: string, bytes: Uint8Array): void;
+  /** Write one file from its chunks as they arrive; a throwing source fails the export (the caller aborts). */
+  writeChunks(name: string, chunks: AsyncIterable<Uint8Array>, onChunk?: (chunk: Uint8Array) => void): Promise<number>;
+  /** Every file written so far and its size. */
+  readonly files: Readonly<Record<string, number>>;
+  /** Replace `<exportRoot>/<dirName>` with the written tree (the previous one is restored on failure). */
+  publish(dirName: string): { ok: true } | { ok: false; error: ExportError };
+  /** Remove the temp directory (a failed export). */
+  abort(): void;
 }
 
-/**
- * Step 6 — write the files into a fresh temp directory under `<exportRoot>`
- * and atomically replace the target tree. A failed write removes the temp
- * directory and restores the previous tree; a failed export therefore leaves
- * the previous output byte-untouched.
- */
-export type PublishTreeResult = { ok: true; files: Record<string, number> } | { ok: false; error: ExportError };
-
-export function publishTree(fs: ExportFs, exportRootReal: string, dirName: string, files: readonly TreeFile[]): PublishTreeResult {
-  let tempDir = '';
+export function openStaging(fs: ExportFs, exportRootReal: string): { ok: true; staging: ExportStaging } | { ok: false; error: ExportError } {
+  let tempDir: string;
   try {
     tempDir = fs.mkdtemp(fs.join(exportRootReal, '.export-tmp-'));
   } catch (e) {
     return { ok: false, error: failError('export_output_not_writable', 'unavailable', `cannot create the temp export dir: ${e instanceof Error ? e.message : String(e)}`) };
   }
-  try {
-    const dirs = new Set<string>();
-    for (const f of files) {
-      const parts = f.name.split('/');
-      if (parts.length > 1) {
-        const dir = parts.slice(0, -1).join('/');
-        if (!dirs.has(dir)) {
-          fs.mkdir(fs.join(tempDir, dir));
-          dirs.add(dir);
-        }
+  const dirs = new Set<string>();
+  const files: Record<string, number> = {};
+  const pathOf = (name: string): string => {
+    const parts = name.split('/');
+    if (parts.length > 1) {
+      const dir = parts.slice(0, -1).join('/');
+      if (!dirs.has(dir)) {
+        fs.mkdir(fs.join(tempDir, dir));
+        dirs.add(dir);
       }
-      fs.write(fs.join(tempDir, f.name), f.bytes);
     }
-    const target = fs.join(exportRootReal, dirName);
-    // Atomic replacement: back up the previous tree, rename the temp tree
-    // into place, remove the backup. A failure restores the previous tree.
-    const backup = fs.join(exportRootReal, `.${dirName}.replacing`);
-    if (fs.exists(backup)) fs.rm(backup);
-    let backedUp = false;
-    if (fs.exists(target)) {
-      fs.rename(target, backup);
-      backedUp = true;
-    }
+    return fs.join(tempDir, name);
+  };
+  let done = false;
+  const abort = (): void => {
+    if (done) return;
+    done = true;
     try {
-      fs.rename(tempDir, target);
-    } catch (e) {
-      if (backedUp) {
-        try {
-          fs.rename(backup, target);
-        } catch {
-          // The previous tree cannot be restored — report the failure; the
-          // operator must re-export.
-        }
-      }
-      throw e;
-    }
-    if (backedUp) fs.rm(backup);
-  } catch (e) {
-    try {
-      if (tempDir !== '' && fs.exists(tempDir)) fs.rm(tempDir);
+      if (fs.exists(tempDir)) fs.rm(tempDir);
     } catch {
       // temp cleanup best-effort
     }
-    return { ok: false, error: failError('export_output_not_writable', 'unavailable', `the export output writes failed: ${e instanceof Error ? e.message : String(e)}`) };
-  }
-  const sizes: Record<string, number> = {};
-  for (const f of files) sizes[f.name] = f.bytes.length;
-  return { ok: true, files: sizes };
+  };
+  return {
+    ok: true,
+    staging: {
+      files,
+      write(name, bytes) {
+        fs.write(pathOf(name), bytes);
+        files[name] = bytes.length;
+      },
+      async writeChunks(name, chunks, onChunk) {
+        const out = fs.openWrite(pathOf(name));
+        let n = 0;
+        try {
+          for await (const chunk of chunks) {
+            out.write(chunk);
+            onChunk?.(chunk);
+            n += chunk.length;
+          }
+        } finally {
+          out.close();
+        }
+        files[name] = n;
+        return n;
+      },
+      publish(dirName) {
+        try {
+          const target = fs.join(exportRootReal, dirName);
+          // Atomic replacement: back up the previous tree, rename the temp tree
+          // into place, remove the backup. A failure restores the previous tree.
+          const backup = fs.join(exportRootReal, `.${dirName}.replacing`);
+          if (fs.exists(backup)) fs.rm(backup);
+          let backedUp = false;
+          if (fs.exists(target)) {
+            fs.rename(target, backup);
+            backedUp = true;
+          }
+          try {
+            fs.rename(tempDir, target);
+          } catch (e) {
+            if (backedUp) {
+              try {
+                fs.rename(backup, target);
+              } catch {
+                // The previous tree cannot be restored — report the failure; the operator must re-export.
+              }
+            }
+            throw e;
+          }
+          done = true;
+          if (backedUp) fs.rm(backup);
+          return { ok: true };
+        } catch (e) {
+          abort();
+          return { ok: false, error: failError('export_output_not_writable', 'unavailable', `the export output writes failed: ${e instanceof Error ? e.message : String(e)}`) };
+        }
+      },
+      abort,
+    },
+  };
 }

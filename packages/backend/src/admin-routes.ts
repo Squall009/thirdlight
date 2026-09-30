@@ -1,5 +1,5 @@
 import { type IncomingMessage, type ServerResponse } from 'node:http';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs';
 import { join } from 'node:path';
 import { exportProject, type ExportFs } from '@thirdlight/exporter';
 import { loadTemplate, resolveTemplateModules } from './templates';
@@ -195,6 +195,19 @@ export function makeAdminRoutes(ctx: AdminRoutesContext) {
     exists: (p) => existsSync(p),
     mkdir: (p) => mkdirSync(p, { recursive: true }),
     write: (p, data) => writeFileSync(p, data),
+    openWrite: (p) => {
+      const fd = openSync(p, 'w');
+      let open = true;
+      return {
+        write: (data) => {
+          for (let at = 0; at < data.length; ) at += writeSync(fd, data, at, data.length - at);
+        },
+        close: () => {
+          if (open) closeSync(fd);
+          open = false;
+        },
+      };
+    },
     rename: (from, to) => renameSync(from, to),
     rm: (p) => rmSync(p, { recursive: true, force: true }),
     mkdtemp: (prefix) => mkdtempSync(prefix),

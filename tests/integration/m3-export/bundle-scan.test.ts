@@ -126,8 +126,6 @@ describe('M3 export bundle re-measurement + production parity', () => {
     expect(closure.ok).toBe(true);
     if (!closure.ok) return;
     expect(closure.closure.assetArtifacts.length).toBe(2);
-    // The bundle reads each declared path once: the assets and the catalog's files (its root, blocks and entry shards).
-    const nAssets = new Set([...closure.closure.assetArtifacts, ...closure.closure.sceneArtifacts, ...closure.closure.bufferArtifacts, ...closure.closure.contentFileArtifacts].map((a) => a.path)).size;
 
     const bundle = await buildM3Bundle({ bootstrapEntry: BOOTSTRAP, closure: closure.closure });
     expect(bundle.ok).toBe(true);
@@ -145,12 +143,15 @@ describe('M3 export bundle re-measurement + production parity', () => {
     expect(c.i).toBe(0);
 
     // d = the recorded baseline (three core) + the Rapier row (+1) + the
-    //    counted engine call sites (one ./manifest.json + one ./scene.json +
-    //    one read per unique declared path: assets and catalog files). game-host adds 0. The
+    //    page's one relative reader (the manifest, the scene, the catalog's
+    //    files and the assets all go through it, by the paths their rows give;
+    //    the bundle names no artifact). game-host adds 0. The
     //    compressed-GLB loaders add 1: three's zstddec, pulled in
     //    by KTX2Loader, fetches its own embedded `data:application/wasm` URL
     //    (no network).
-    expect(c.d).toBe(ref.d + 1 + 2 + nAssets + 1);
+    expect(c.d).toBe(ref.d + 1 + 1 + 1);
+    // No artifact path is baked into the code: not an asset's, not a catalog file's.
+    for (const a of [...closure.closure.assetArtifacts, ...closure.closure.contentFileArtifacts]) expect(text).not.toContain(a.path);
 
     // f/j = exactly the table's counts + 0 from game-host + 0 from the
     //    GLTFLoader subpath (d/f/j/a/b/c/e/g/i +0 for the subpath
@@ -237,6 +238,27 @@ describe('M3 export bundle re-measurement + production parity', () => {
     expect(checkBundleGraphM3(worker.metafile, WORKER, closure.moduleIds).ok).toBe(true);
     return [page, worker].map((b) => ({ inputs: Object.keys(b.metafile.inputs), text: new TextDecoder().decode(b.bytes) }));
   }
+
+  it('the page bundle is the same bytes for a project with more assets (its code does not grow with the project)', async () => {
+    const small = await closureOf('demo-0006-size', true);
+    const { scene, content, blobs } = syntheticV3();
+    for (const e of (scene as { entities: { components: Record<string, unknown> }[] }).entities) delete e.components['controller'];
+    // The same project with a copy of every asset under another id and more bytes.
+    const records = (content as { assets: Record<string, unknown>[] }).assets;
+    for (const r of [...records]) {
+      const id = `${String(r['assetId'])}-copy`;
+      records.push({ ...r, assetId: id, address: id });
+      const b = blobs.get(String(r['assetId']))!;
+      blobs.set(id, b);
+    }
+    const bigger = await buildContentClosureM3({ service: fakeService({ blobs }) as unknown as WorkspaceService, compiler: {} as never, projectId: 'demo-0006-size', revision: 1, capturedAt: '2026-09-21T00:00:00Z', scene, content });
+    if (!bigger.ok) throw new Error(JSON.stringify(bigger.error));
+    expect(bigger.closure.contentFileArtifacts.length).toBeGreaterThanOrEqual(small.contentFileArtifacts.length);
+    const a = await buildM3Bundle({ bootstrapEntry: BOOTSTRAP, closure: small });
+    const b = await buildM3Bundle({ bootstrapEntry: BOOTSTRAP, closure: bigger.closure });
+    if (!a.ok || !b.ok) throw new Error('bundle build failed');
+    expect(Buffer.from(b.bytes).equals(Buffer.from(a.bytes))).toBe(true);
+  }, 180_000);
 
   it('a project with the controller links exactly the modules its manifest names (game-host + the controller spec), page and worker alike', async () => {
     const closure = await closureOf('demo-0006-parity', false);

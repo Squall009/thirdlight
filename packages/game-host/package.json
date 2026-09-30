@@ -8,7 +8,8 @@
     ".": "./src/index.ts",
     "./physics-3d-global": "./src/physics-3d-global.ts",
     "./ui-layer": "./src/ui-layer-public.ts",
-    "./dialogue-preview": "./src/dialogue-preview-public.ts"
+    "./dialogue-preview": "./src/dialogue-preview-public.ts",
+    "./game-page": "./src/game-page.ts"
   },
   "dependencies": {
     "@thirdlight/input": "0.1.0",

@@ -376,21 +376,27 @@ const BUNDLE_ENTRY_EDGES = {
     external: [],
     node: [],
   },
-  // The v3 export bundle: `export-bootstrap-m3.ts`'s
-  // direct edges are the single shared production composition graph — the
-  // `game-host` composition (which transitively pulls `runtime`,
-  // `three-adapter`, `project-model`) + `input`/`character`/
-  // `physics-rapier` + the per-snapshot virtual module the export build
-  // generates in memory (`thirdlight:export-artifacts` — it has no package;
-  // the esbuild metafile check allows exactly that key for it).
-  // `export-bootstrap-m2.ts` stays byte-stable above.
-  // No character edge — the module specs come from the generated
-  // `thirdlight:export-modules` (only those the manifest names).
+  // The v3 export bundle: `export-bootstrap-m3.ts` starts the game with the
+  // shared game page (`game-host` and its `./game-page` subpath) and reads
+  // the manifest's scene and catalog through project-model's hash. Its only
+  // generated module is `thirdlight:export-modules` (the module specs the
+  // manifest names; the esbuild metafile check allows exactly that key). The
+  // bundle names no artifact path: files are read by the paths their rows give.
   'packages/exporter/src/export-bootstrap-m3.ts': {
-    packages: ['runtime', 'three-adapter', 'project-model', 'input', 'physics-rapier', 'game-host'],
-    external: ['three', 'thirdlight:export-artifacts', 'thirdlight:export-modules'],
+    packages: ['runtime', 'project-model', 'game-host'],
+    external: ['thirdlight:export-modules'],
     node: [],
-    // Behavior outputs load from manifest-declared `behaviors/<digest>.js` next to index.html.
+  },
+  // The game page (`game-host/game-page`): the composition Play's page and an
+  // exported game's page share. It is browser bundle code, linked only into
+  // those two bundles (the game-host root stays free of three and physics):
+  // the scene adapter and its GLTFLoader port, the physics port, the browser
+  // input, the model's pure helpers. Behavior outputs load from the URLs the
+  // page gives it (manifest-declared paths).
+  'packages/game-host/src/game-page.ts': {
+    packages: ['runtime', 'three-adapter', 'project-model', 'input', 'physics-rapier'],
+    external: [],
+    node: [],
     computedDynamicImport: 'locator',
   },
   // The exported game's simulation worker entry (`js/sim-worker.js`):

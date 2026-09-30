@@ -18,7 +18,7 @@
  * recorded network) is the owner-run procedure — UNVERIFIED in-container
  * (tests/browser/m3-export).
  */
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -39,6 +39,10 @@ function realFs(): ExportFs {
     exists: (p) => existsSync(p),
     mkdir: (p) => mkdirSync(p, { recursive: true }),
     write: (p, data) => writeFileSync(p, data),
+    openWrite: (p) => {
+      const fd = openSync(p, 'w');
+      return { write: (data) => void writeSync(fd, data), close: () => closeSync(fd) };
+    },
     rename: (from, to) => renameSync(from, to),
     rm: (p) => rmSync(p, { recursive: true, force: true }),
     mkdtemp: (prefix) => mkdtempSync(prefix),

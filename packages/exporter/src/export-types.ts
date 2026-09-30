@@ -21,12 +21,20 @@ export interface ExportFs {
   /** Recursive mkdir (node:fs.mkdirSync `{ recursive: true }`). */
   mkdir(p: string): void;
   write(p: string, data: Uint8Array): void;
+  /** A file written chunk by chunk (node:fs openSync/writeSync/closeSync); `close` also ends a failed write. */
+  openWrite(p: string): ExportFileWriter;
   rename(from: string, to: string): void;
   /** Recursive, force (node:fs.rmSync). */
   rm(p: string): void;
   /** node:fs.mkdtempSync (prefix must end in `-`). */
   mkdtemp(prefix: string): string;
   read(p: string): Uint8Array;
+}
+
+/** One file being written in parts. */
+export interface ExportFileWriter {
+  write(data: Uint8Array): void;
+  close(): void;
 }
 
 export interface ExportContext {

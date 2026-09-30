@@ -192,7 +192,7 @@ at the boundary it changes (Playwright for any editor surface).
 | 26.6 | done 2026-09-30: one `audio` kind (Ogg Vorbis/Opus, MP3, WAV integer or float, FLAC; any channels, rate, bits, length; the 32 MiB file cap only); header inspection per format; load type and preload in the sidecar (`setAssetOptions`), defaults by length, carried in the manifest; `music` and short-sound records upgraded on open (v4 and earlier v5, ids kept, replays answered); browser gaps as a Problem; asset inspector shows the facts and settings; e2e `audio-kinds` |
 | 26.7 | done 2026-09-30: an address and labels on any asset (on its record, in its sidecar, format 3) or resource (in its resource file, beside the record); `setLabels {items: [{kind, id}], add?, remove?}` and `setAddress {kind, id, address}` (unique project-wide), one command and one undo however many items; the Assets tab labels a multi-selection and its side panel sets one asset's address and labels; MCP commands and index filters (`address`, `loadable`); loadable assets and materials ship with Play and export though no scene references them, and the manifest lists them (`loadable`); a script naming a non-loadable asset is a Problem; on open, older projects' script-named assets get the label `script-named` (reported in Problems and `upgrade-report.json`); e2e `loadable` |
 | 26.8 | done 2026-09-30: a file's digest checked once per change (stamps in memory and in `cache/imported/file-stamps.json`, a restart hashes nothing unchanged); Play serves assets and instance buffers from disk at their digest URLs, verified while sent (a changed file refused, or cut short, and re-checked); the 512 MiB Play set cap gone (per held file only); record lookups and query pages from indexes, the integrity report paged (`limit`, `offset`, `problems`); the check before Play and export takes changed files in; full-size Play 9.0 → 2.8 s (§6); D67 logged, D68 fixed; e2e `play-files` |
-| 26.9 | A done 2026-09-30: runtime content manifest 5 (identity, settings, start scenes, the catalog's location; ~1.7 KB at any size); the catalog (root, block files in parts, entry shards by id with address, labels and dependencies, a dependency file per scene) read lazily by the game page (`openRuntimeContent`: a scene load reads its file and its dependency file, an unnamed id its one shard); a v4 build read the same way (fixture `legacy-v4-build`); D67 fixed; an asset property's default ships; the content view no longer validates or hashes what the model did; e2e `manifest-keys`, integration `m26-catalog`. B (export streaming, one game-page bootstrap) pending |
+| 26.9 | done 2026-09-30. A: runtime content manifest 5 (identity, settings, start scenes, the catalog's location; ~1.7 KB at any size); the catalog (root, block files in parts, entry shards by id with address, labels and dependencies, a dependency file per scene) read lazily by the game page (`openRuntimeContent`: a scene load reads its file and its dependency file, an unnamed id its one shard); a v4 build read the same way (fixture `legacy-v4-build`); D67 fixed; an asset property's default ships; the content view no longer validates or hashes what the model did; e2e `manifest-keys`, integration `m26-catalog`. B: the export copies assets and buffers from disk one at a time, hashed while copied (the 26.8 serving path), into a temp directory renamed into place (a failure leaves nothing); the bundle names no artifact (one relative reader by row path); one game page (`game-host/game-page`) starts Play and exports, their differences injected; full export 7.7 → 5.2 s, growth +171 → +104 MiB; HTTP test `export-streaming` |
 | 26.10–26.14 | — |
 
 ## 6. Measurements
@@ -440,6 +440,30 @@ dependency files (`closure.manifest` 134 ms), the content view (208 ms: the
 references of every scene and prefab and the view's digest) and one stat per
 asset (the locate 110 ms and the pre-Play check). The heap still grows over
 the walk (61 → 112 MiB): 26.10.
+
+After 26.9 B (export streamed to disk, one game-page bootstrap, the bundle
+names no artifact; `--steps open,export --gpu`, each size run on `2a4e507c`
+(before) and on the working tree with this change (after), GPU host,
+2026-09-30; the backend's resident set sampled every 50 ms during the export
+request; the exported game served by a static server with the backend
+stopped; reports `scale-{small,x0.1,full}-2026-09-30T07-5*`; ms, MiB):
+
+| | small (60 assets) before / after | ×0.1 (1,800) before / after | full (18,000) before / after |
+|---|---|---|---|
+| export request | 982 / 1,038 | 1,616 / 1,539 | 7,715 / 5,187 |
+| backend resident: before the export → peak (growth) | 145 → 210 (+65) / 147 → 206 (+59) | 182 → 258 (+77) / 181 → 252 (+70) | 350 → 520 (+171) / 354 → 458 (+104) |
+| output: files; MiB | 76; 13.4 / 76; 13.4 | 976; 21.6 / 976; 21.3 | 9,644; 123.5 / 9,644; 120.5 |
+| exported game (backend stopped): first frame; state | 509 / 537; running | 560 / 563; running | 680 / 630; running |
+
+The 26.5 full export was 12.2 s with 9,309 files; 26.9 A's catalog files
+made it 9,644 files and 7.7 s. Streaming takes the full export to 5.2 s and
+its growth from +171 to +104 MiB: no asset's bytes are held (each file is
+copied, hashed while copied and checked, one at a time); what still grows
+with the asset count is the closure's metadata that Play's start also builds
+(the content view, the catalog's entries and dependency files, 14 MB of
+catalog files held until written; Play's start at full peaks at 458 MiB
+too). The output is 3 MB smaller: the page bundle no longer carries every
+path (it is now the same bytes for any project with the same modules).
 
 Proposed targets for "Done when" (fixed in 26.14 from these numbers):
 
@@ -1222,3 +1246,36 @@ Proposed targets for "Done when" (fixed in 26.14 from these numbers):
   still grows with the asset count in the backend: building and serializing
   the entries and dependency files (the `manifest` stage) and one stat per
   asset (26.8's locate and pre-Play check).
+- 2026-09-30 (26.9 B): the export streams. The closure locates the assets
+  and instance buffers (as Play does) instead of reading them; the export
+  opens each located file with the workspace's serving path (stamp check at
+  open, hashed while read, last chunk held until the digest matched) and
+  writes it into the staging directory, holding one file at a time for its
+  container check and its decoder needs (read from the bytes, as before). The
+  staging directory is created under the export root once the bundles and
+  scans passed and renamed into place at the end; any failure (a file that
+  changed while it was copied answers `export_build_unavailable`, reason
+  `asset_source_changed`) removes it and leaves the previous output as it was.
+  The catalog files are generated in memory by the closure (14 MB at full)
+  and written one by one; generating them straight to disk would need the
+  manifest builder to emit files as it goes: left, it is shared with Play.
+- 2026-09-30 (26.9 B): the export bundle names no artifact. The page reads
+  every file (manifest, scene, catalog files, assets, scripts) through one
+  relative reader by the path its row gives; only plain relative paths are
+  read, and every read is checked against its row's digest, so the switch of
+  declared paths added nothing the digest checks do not. The only generated
+  module left is the module-spec table.
+- 2026-09-30 (26.9 B): one game page. The composition both pages ran lives
+  in game-host's `./game-page` subpath (a browser-bundle row in the boundary
+  check: three-adapter, physics-rapier, input, runtime, project-model; the
+  game-host root stays free of three and physics). The Play page (editor)
+  reads the manifest from the locator and checks the bridge snapshot; the
+  export page reads `manifest.json` and `scene.json`; both then call
+  `startGamePage` with what differs: the reader, script/worker/physics/decoder
+  URLs, module specs, the input exercise relay (Play), the start block
+  (Play), the save namespace, the debug console (Play always; an export when
+  `debug_console` is on) and whether the start waits for the models (Play:
+  `tl.ready` only after they settle; an export plays on and shows the
+  failure). Small differences that were accidental were made one: an export
+  now gets the lighting option when a project has bakes but no materials, and
+  checks the media animation rows, as Play did.

@@ -1,121 +1,49 @@
 /**
- * The editor preview wrapper for a play backed by runtime content: the
- * preview loading order and the host-side `models` wiring.
+ * The Play page: a play backed by runtime content, started with the shared
+ * game page (`game-host/game-page`, the same composition an exported game
+ * runs) and driven by the editor over the bridge.
  *
- * `preview-bootstrap.ts` (byte-stable) is the inline composition. For a v3
- * play (a runtime-content manifest v2 document) the preview DELEGATES here.
- * The content/snapshot split (see `preview-bootstrap.ts`'s header) is
- * preserved exactly:
+ * The content/snapshot split:
  *
  * - the **snapshot (v3 scene) arrives only through the checked bridge** — the
- *   nonce-verified `tl.snapshot` message (the locator route set has no scene
- *   route; the manifest's `sceneDigest` is the identity the
- *   preview verifies the bridge snapshot against);
- * - the **content arrives only through the locator** — the manifest v2
- *   `buildId` (WebCrypto self-identity + the handshake's expected build) and
- *   the declared asset bytes.
+ *   nonce-verified `tl.snapshot` message; it must name the manifest's capture
+ *   (snapshotId, project, revision) and carry its tags;
+ * - the **content arrives only through the locator** — the manifest (its
+ *   `buildId` re-derived and equal to the handshake's expected build), the
+ *   catalog and the declared files, each checked against its row.
  *
- * `startM3Preview` composes the SINGLE shared production host
- * (`createGameHost` — the same entry the export uses) with the
- * manifest's resolved `settings`, the Rapier physics port, the scene
- * adapter (with the `models` block when the scene references model
- * assets), the input owner and the audio owner. There is no second bootstrap,
- * controller or run-state owner.
+ * What Play gives the game page that an export does not: the locator and
+ * cache roots it reads from, the play build's worker and physics scripts, the
+ * input exercise relay (tools drive and read the game through it), the test
+ * or debug start block, the debug console, and a start that resolves only
+ * after the models settle (so `tl.ready` is truthful). A failed start is a
+ * bounded `PreviewM3Error` with its load phase and code, sent as `tl.error`;
+ * `tl.play.stop` (or a second start) disposes the composition, and a late
+ * result of a stopped play is discarded (generation fencing).
  *
- * Host-side loading order (preview steps):
- *   1. the handshake is ACKed with the editor's nonce (the
- *      bridge gate then carries the nonce-verified `tl.playContent.expect`
- *      + `tl.snapshot`);
- *   2. the manifest v2 is read + buildId-verified (L1 — `play_content_not_ready`,
- *      phase `manifest`);
- *   3. the bridge snapshot names the manifest's snapshot (its
- *      id, project and revision; the scene is not serialized and hashed a
- *      second time — the backend built both from one capture);
- *   4. the start scenes' assets are read (at most 8 at a time)
- *      and re-hashed to their manifest `sourceDigest` (L2 — phase `assets`);
- *      every other asset is read, once and checked the same way, when it is
- *      asked for (a scene loaded later, a material's texture, a sound); the
- *      wrapper posts truthful load progress (≤ 1 KiB per row);
- *   5. the single shared composition; the adapter receives the `models`
- *      block (`assets` = the referenced model rows, `animation` from
- *      `manifest.media.animation`, `resolveBytes` = the wrapper-verified byte
- *      map) + `modelsLoader` = `createGltfLoaderPort()` imported from the
- *      `@thirdlight/three-adapter/gltf-loader` subpath (the root stays
- *      loader-free); the game-host never fetches;
- *   6. the preview reports `tl.ready` ONLY after the models settle (or, when
- *      the block is absent, after the mount) — with the REAL identity tuple:
- *      the verified snapshotId, the snapshot revision, the
- *      manifest buildId, the manifest contentDigest (64-hex) and the runtime
- *      stepIndex after the settle pre-roll;
- *   7. a hard failure (L1–L5) is surfaced as `tl.error` with the phase + the
- *      accepted code (the adapter's `models_*`/`asset_*` codes are reused —
- *      delivery.md defines no new codes);
- *   8. `tl.play.stop` (or a second start) disposes the host + physics: the
- *      adapter's dispose cancels its in-flight model prepares (L9 — the late
- *      loads are discarded) and the in-flight composition is generation-
- *      fenced so a late `tl.ready`/`tl.error` can never post for a stopped
- *      play.
- *
- * Browser-only (WebGL/DOM/Web Audio/Web Crypto); the in-container half is the
- * Node-verified backend play build (tests/integration/m3-play) — the real
- * browser render walkthrough is the tests/browser suite (audio, gamepad and
- * physical display stay UNVERIFIED in this container).
+ * Browser-only (WebGL/WebGPU, DOM, Web Audio, Web Crypto).
  */
-import { createPhysicsPort, type RapierPhysicsInitConfig, type RapierPhysicsPort, type RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
 import { PREVIEW_MODULE_SPECS } from './module-specs';
-import { modesForRuntime, audioDurationsFromAssetRows, uiDocumentsForRuntime, withDialogueUiDocument, materialCatalogOf, modelBoundsFromAssetRows, physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, resolveSnapshotHierarchy, staticColliderOf, type ActionFrame, type PhysicsInitConfig3D, type PhysicsPort3D, type RuntimeSnapshot, type GameplaySettings } from '@thirdlight/runtime';
-import { audioSpatialOf, depthBufferOf, instanceChunkSizeOf, physicsDimensionOf, sha256HexAsync, type SaveSchema } from '@thirdlight/project-model';
+import type { RuntimeSnapshot } from '@thirdlight/runtime';
+import { sha256HexAsync } from '@thirdlight/project-model';
 import {
-  bufferResolver,
-  createGameHost,
-  linkBehaviorModules,
-  prepareSceneCatalog,
   openRuntimeContent,
-  type ManifestContentFileRowLike,
-  type RuntimeCatalog,
-  type ManifestBehaviorRow,
-  type ManifestBufferRow,
-  type ManifestSceneRow,
-  createGameAudioOwner,
-  browserContextFactory,
-  type GameHostConfig,
   type GameHost,
   type GameStartOptions,
   type HostDomNode,
-  browserSaveStorage,
-  browserProjectSaveBackend,
-  readProjectSettings,
-  browserWorkerAvailable,
-  createBrowserSimWorker,
-  createLocalSimAccess,
-  loadPhysics3D,
-  resolveThreadingMode,
-  resolveTransport,
-  RelayActionSource,
-  startRemoteSimulation,
-  threadingLogLine,
-  createStartTimings,
-  createVerifiedAssetReader,
-  startSceneAssets,
-  AssetReadError,
-  createScenePreloader,
-  pageScenePreparation,
-  type VerifiedAssetReader,
-  type RemoteSimulation,
-  type RelayUiEdgeName,
   type SimAccess,
   type StartTimings,
+  createStartTimings,
 } from '@thirdlight/game-host';
-import { batchingFromUrl, createSceneAdapter, decodeTexture, effectsOptionFrom, environmentHasLook, pageSearch, resolveRendererPreference, setKtx2DecoderBase } from '@thirdlight/three-adapter';
-import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
-import type { EffectDefLike, EnvironmentLike, FrameDrawnInfo, LightingBakeLike, MaterialDefLike, MaterialFunctionLike, SceneAdapter, SceneAdapterModels, SceneAdapterOptions, WindLike } from '@thirdlight/three-adapter';
-import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
+import { GamePageError, startGamePage, type GamePageHandle, type GamePageManifest } from '@thirdlight/game-host/game-page';
+import type { SceneAdapter } from '@thirdlight/three-adapter';
+import type { InputConfigLike } from '@thirdlight/input';
 import { Bridge } from './bridge';
 import { answerScreenshot } from './screenshot-answer';
 import { resolveRelayFrames, type IncomingRelayFrame } from './relay-frames';
 
-// KTX2 texture assets (and GLBs with KHR_texture_basisu) transcode with three's Basis files served at /decoders/basis/.
-setKtx2DecoderBase('/decoders/');
+/** Three's Draco and Basis decoders on the preview origin. */
+const PREVIEW_DECODER_BASE = '/decoders/';
 
 /**
  * The simulation worker's script on the preview origin (a static
@@ -132,83 +60,12 @@ const PREVIEW_SIM_WORKER_FILE = 'sim-worker.js';
  */
 const PREVIEW_PHYSICS_3D_FILE = 'physics-3d.js';
 
-/** The runtime-content manifest v2 document (the fields the preview reads). */
-export interface PreviewManifestV2 {
-  manifestVersion: number;
-  type: string;
-  projectId: string;
-  revision: number;
-  snapshotId: string;
-  capturedAt: string;
-  sceneDigest: string;
-  contentDigest: string;
-  settingsDigest: string;
-  mediaDigest: string;
-  settings: GameplaySettings;
-  tags?: { bit: number; name: string }[];
-  /** Project materials and the environment (bound by the buildId). */
-  materials?: MaterialDefLike[];
-  /** The material functions graph materials call. */
-  materialFunctions?: MaterialFunctionLike[];
-  /** The visual effects (particle system graphs). */
-  effects?: EffectDefLike[];
-  /** The project UI documents and themes (the game host draws them). */
-  uiDocuments?: import('@thirdlight/runtime').UiDocument[];
-  uiThemes?: import('@thirdlight/runtime').UiTheme[];
-  /** The dialogue runner's data (conversations, speakers, settings). */
-  dialogue?: import('@thirdlight/runtime').RuntimeDialogueData;
-  /** The game modes (the runtime switches them; the first is the start mode). */
-  modes?: import('@thirdlight/runtime').GameMode[];
-  environment?: EnvironmentLike & { wind?: WindLike };
-  /** The scenes' bakes. */
-  lighting?: Record<string, LightingBakeLike>;
-  /** The animator controllers. */
-  animators?: unknown[];
-  /** Model rigs (sockets are resolved on them). */
-  rigs?: Record<string, unknown>;
-  /** The prefab definitions scripts spawn. */
-  prefabs?: unknown[];
-  /** The block types and cell fields block layers use. */
-  blockTypes?: unknown[];
-  cellFields?: unknown[];
-  /** The input actions. */
-  input?: InputConfigLike;
-  /** The named collision layers. */
-  collisionLayers?: readonly string[];
-  saveSchema?: SaveSchema;
-  /** The timelines. */
-  timelines?: import('@thirdlight/runtime').TimelineAsset[];
-  /** The event → cue table. */
-  eventCues?: import('@thirdlight/runtime').RuntimeEventCue[];
-  /** The game shell (menus and HUD documents, the scene list). */
-  shell?: import('@thirdlight/game-host').ShellConfigLike;
-  /** Every scene of a v4 project and the instance-set buffers. */
-  scenes?: ManifestSceneRow[];
-  buffers?: ManifestBufferRow[];
-  /**
-   * The content files the document lists; materials,
-   * materialFunctions, uiDocuments, dialogue and buffers above come from
-   * them (`openRuntimeContent`), never from the document itself (v4).
-   */
-  contentFiles?: ManifestContentFileRowLike[];
-  assets: Array<{ assetId: string; version: number; path: string; kind: string; sourceDigest: string; sourceByteLength: number }>;
-  /** The resolved media identity: cue slots + one
-   * `modelAnimation` row per entity (entityId/assetId/version/profileDigest/
-   * roles). */
-  media: { cues: Record<string, unknown>; animation: Array<{ entityId: string; assetId: string; version: number; profileDigest: string; roles: Record<string, unknown> }> };
-  buildId: string;
-}
+/** The runtime-content manifest (the fields a game page reads). */
+export type PreviewManifestV2 = GamePageManifest;
 
-/** The wrapper's bounded structured error (the load phase + accepted code). */
-export class PreviewM3Error extends Error {
-  readonly code: string;
-  readonly phase: string;
-  constructor(code: string, phase: string, message: string) {
-    super(message);
-    this.code = code;
-    this.phase = phase;
-  }
-}
+/** The wrapper's bounded structured error (the load phase + accepted code); the game page throws the same class. */
+export const PreviewM3Error = GamePageError;
+export type PreviewM3Error = GamePageError;
 
 export interface M3PreviewConfig {
   /** The locator-relative artifact root (e.g. `/play-content/<contentId>/`). */
@@ -236,38 +93,20 @@ export interface M3PreviewConfig {
   readonly timings?: StartTimings;
 }
 
-export interface M3PreviewHandle {
-  readonly host: GameHost;
+export interface M3PreviewHandle extends GamePageHandle {
   /**
    * The simulation's async surface (script values, the debugger,
    * diagnostics, the exclusive input exercise) — the page's runtime in
    * single-thread mode, the worker otherwise.
    */
   readonly access: SimAccess;
-  /** Where the simulation runs, and why. */
-  readonly threading: { readonly mode: 'worker' | 'single'; readonly reason: string; readonly transport: 'shared' | 'message' | null; readonly isolated: boolean };
-  /** The render adapter (screenshots, diagnostics), when one was created. */
+  readonly host: GameHost;
   readonly adapter: SceneAdapter | null;
-  /** The verified ready identity: the verified snapshotId + snapshot
-   * revision, the manifest buildId + contentDigest (64-hex, bound by the
-   * buildId check) and the runtime stepIndex after the settle pre-roll. */
-  readonly identity: { snapshotId: string; revision: number; buildId: string; contentDigest: string; stepIndex: number };
-  /** Fixed steps per second (the debugger's "recently active" window is half a second of them). */
-  readonly stepHz: number;
-  /** The input bindings in effect (the input exercise's virtual gamepad). */
   readonly inputConfig: () => InputConfigLike;
-  /** The asset reads so far (at start and on demand) and their verified bytes. */
-  assetReads(): { reads: number; bytes: number };
-  dispose(): void;
 }
 
 /** Lowercase hex SHA-256 (Web Crypto when the page has it, pure JS otherwise). */
 const sha256Hex = sha256HexAsync;
-
-/** The locator-relative artifact reader (manifest-declared paths only). */
-function readPreviewArtifact(contentRoot: string, path: string): Promise<ArrayBuffer> {
-  return readArtifactUrl(`${contentRoot}${path}`, path);
-}
 
 function readArtifactUrl(url: string, path: string): Promise<ArrayBuffer> {
   return fetch(url, { credentials: 'omit' }).then((res) => {
@@ -308,143 +147,22 @@ function deepEqual(a: unknown, b: unknown): boolean {
   return true;
 }
 
-/** The assetIds the snapshot scene references through a `model` component
- * (the v3 shape: `components.model.asset.assetId`). */
-function referencedModelAssetIds(snapshot: RuntimeSnapshot): Set<string> {
-  const out = new Set<string>();
-  for (const entity of snapshot.scene.entities) {
-    const components = (entity.components ?? {}) as unknown as Record<string, unknown>;
-    const model = components['model'] as { asset?: { assetId?: string } } | undefined;
-    if (model !== undefined && typeof model.asset?.assetId === 'string') out.add(model.asset.assetId);
-  }
-  return out;
-}
-
 /**
- * The `models` block (or null when the scene references no model asset —
- * the adapter then stays byte-stable loader-free). `assets` = the manifest's model-kind
- * rows for the REFERENCED assetIds only (the asset set is the referenced set);
- * `animation` = the manifest's `media.animation` rows (the resolved media
- * identity, hash-bound through `mediaDigest`); `resolveBytes` = the
- * wrapper-verified byte map (the adapter never re-hashes).
- */
-function buildModelsBlock(manifest: PreviewManifestV2, snapshot: RuntimeSnapshot, reader: VerifiedAssetReader, read: (path: string) => Promise<ArrayBuffer>, content: { readonly catalog: RuntimeCatalog; readonly facts: readonly Readonly<Record<string, unknown>>[] }): SceneAdapterModels | null {
-  // Scenes loaded later may use any model of the build: a v4 manifest lists
-  // them all; a v5 catalog lists what the start needs, and the adapter finds
-  // the others' rows as their scenes are read (or reads their shard).
-  const referenced = manifest.scenes !== undefined
-    ? new Set(manifest.assets.filter((a) => a.kind === 'model').map((a) => a.assetId))
-    : referencedModelAssetIds(snapshot);
-  const lazy = content.catalog.version === 5 && content.facts.some((f) => f['kind'] === 'model');
-  if (referenced.size === 0 && !lazy) return null;
-  const modelRows = manifest.assets.filter((a) => a.kind === 'model' && referenced.has(a.assetId));
-  // The scene references a model asset the manifest does not declare: a
-  // captured-state integrity failure (L2, phase `assets`).
-  if (modelRows.length !== referenced.size) {
-    const missing = [...referenced].filter((id) => !modelRows.some((r) => r.assetId === id));
-    throw new PreviewM3Error('models_asset_unresolved', 'assets', `the scene references model asset(s) absent from the manifest: ${missing.join(', ')}`);
-  }
-  for (const row of manifest.media.animation) {
-    if (typeof row.entityId !== 'string' || typeof row.assetId !== 'string' || typeof row.version !== 'number' || typeof row.profileDigest !== 'string' || typeof row.roles !== 'object' || row.roles === null) {
-      throw new PreviewM3Error('models_config_invalid', 'assets', 'the manifest media.animation row shape is invalid');
-    }
-  }
-  return {
-    assets: modelRows.map(modelRowOf),
-    // A model row read after the start (its scene's dependency file, or its shard).
-    ...(lazy
-      ? {
-          rowOf: (assetId: string) => {
-            const r = content.catalog.row(assetId);
-            return r !== undefined && r.kind === 'model' ? modelRowOf(r) : undefined;
-          },
-          findRow: (assetId: string) => content.catalog.lookup(assetId).then((r) => (r !== undefined && r.kind === 'model' ? modelRowOf(r) : undefined)),
-        }
-      : {}),
-    animation: manifest.media.animation.map((r) => ({ entityId: r.entityId, roles: r.roles as never, version: r.version })),
-    // The project's idle/run/airborne blend time.
-    ...(manifest.settings.animation_crossfade_s !== undefined ? { crossfadeSeconds: manifest.settings.animation_crossfade_s } : {}),
-    // The project's instance-set chunk size.
-    ...(instanceChunkSizeOf(manifest.settings) !== undefined ? { instanceChunkSize: instanceChunkSizeOf(manifest.settings) } : {}),
-    // Read (once, checked) when the model is first needed — at start for the start scenes' models.
-    resolveBytes: (assetId: string, version: number): Promise<ArrayBuffer> => reader.bytes(assetId, version),
-    ...(manifest.buffers !== undefined
-      ? { resolveBuffer: bufferResolver(manifest.buffers, { read, sha256Hex }) }
-      : {}),
-  };
-}
-
-/** The adapter's row of one model (id, version, digest; tint, material map, clips' rig). */
-function modelRowOf(r: { assetId: string; version: number; sourceDigest: string }): SceneAdapterModels['assets'][number] {
-  const x = r as { vertexColors?: unknown; materials?: unknown; clipsFor?: unknown };
-  return { assetId: r.assetId, version: r.version, sourceDigest: r.sourceDigest, ...(x.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}), ...(x.materials !== undefined ? { materials: x.materials as Record<string, string> } : {}), ...(typeof x.clipsFor === 'string' ? { clipsFor: x.clipsFor } : {}) };
-}
-
-/** The scene-derived Rapier init config (statics + the player controller) with
- * the manifest's resolved `gravity_y` as the solver gravity. */
-function physicsConfigFromSnapshot(snapshot: RuntimeSnapshot, settings: GameplaySettings): RapierPhysicsInitConfig | null {
-  const statics: RapierStaticColliderSpec[] = [];
-  let character: RapierPhysicsInitConfig['character'] | null = null;
-  let tuning = playerPhysicsOf(undefined);
-  for (const entity of snapshot.scene.entities) {
-    const components = (entity.components ?? {}) as unknown as Record<string, unknown>;
-    const transform = components['transform'] as { position?: number[]; rotation?: number[]; scale?: number[] } | undefined;
-    const position = transform?.position ?? [0, 0, 0];
-    // The shared rule (world XY, the entity's rotation about Z; movers kinematic; one-way platforms).
-    const collider = staticColliderOf(entity.id, components);
-    if (collider !== null) statics.push(collider as RapierStaticColliderSpec);
-    if (components['controller'] !== undefined) {
-      // The player's own capsule (its controller's, else the default).
-      const capsule = playerCapsuleOf(components['controller']);
-      // Its skin, ground snap and autostep (else the defaults).
-      tuning = playerPhysicsOf(components['controller']);
-      character = {
-        x: position[0] ?? 0,
-        y: position[1] ?? 0,
-        radius: capsule.radius,
-        halfHeight: capsule.halfHeight,
-        offset: { x: capsule.offset.x, y: capsule.offset.y },
-        parentId: (entity as { parentId?: string | null }).parentId ?? null,
-        rotation: (transform?.rotation ?? [0, 0, 0, 1]) as [number, number, number, number],
-        scale: (transform?.scale ?? [1, 1, 1]) as [number, number, number],
-      };
-    }
-  }
-  if (character === null) return null;
-  return {
-    character,
-    statics,
-    // The project's step rate and the player's controller tuning.
-    solver: { hz: settings.fixed_step_hz ?? 120, gravityY: settings.gravity_y },
-    controller: {
-      offsetSkin: tuning.offsetSkin,
-      groundSnap: tuning.groundSnap,
-      maxSlopeClimbRad: (settings.max_slope_climb_deg * Math.PI) / 180,
-      minSlopeSlideRad: (settings.min_slope_slide_deg * Math.PI) / 180,
-      autostep: tuning.autostep,
-      ...(tuning.autostep ? { autostepHeight: tuning.autostepHeight } : {}),
-    },
-  };
-}
-
-/**
- * Start the M3 preview for one verified capture: read + verify the manifest v2
- * from the locator (WebCrypto `buildId`), check that the bridge-delivered
- * snapshot names the manifest's capture, read + verify the start scenes'
- * assets (the rest on demand, each once), then compose + mount
- * the single shared host and AWAIT
- * the models settle. A failed read/verify/mount/prepare
- * throws a bounded `PreviewM3Error` (the caller surfaces it to the bridge as a
- * structured play error with the load phase + accepted code).
+ * Start Play for one verified capture: read the manifest from the locator
+ * (its buildId re-derived and equal to the handshake's), check that the
+ * bridge-delivered snapshot names the manifest's capture, then start the
+ * shared game page with Play's options (the locator and cache roots, the
+ * input exercise relay, the start block, the debug console) and wait for the
+ * models to settle. A failed start throws a bounded `PreviewM3Error` (the
+ * caller surfaces it to the bridge with the load phase and accepted code).
  */
 export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHandle> {
   const onProgress = cfg.onProgress ?? (() => undefined);
   const timings = cfg.timings;
 
-  // 1. The manifest v2 (buildId-verified via WebCrypto; must also equal the
-  //    handshake's expected build). L1 — phase `manifest`.
+  // The manifest (buildId-verified; must also equal the handshake's expected build).
   timings?.begin('manifest');
-  const manifestRes = await readPreviewArtifact(cfg.contentRoot, 'manifest.json');
+  const manifestRes = await readArtifactUrl(`${cfg.contentRoot}manifest.json`, 'manifest.json');
   const manifestDoc = JSON.parse(new TextDecoder().decode(manifestRes)) as { buildId?: unknown };
   // The declared artifacts by digest from the project's cache root (still checked against their rows).
   let urlOf = artifactUrls({}, cfg.contentRoot, cfg.cacheRoot);
@@ -462,13 +180,9 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   // Each stage done is progress (the backend's present timeout counts from the last).
   onProgress('manifest', manifestRes.byteLength + catalogRead.bytes, manifestRes.byteLength + catalogRead.bytes);
 
-  // 2. The bridge-delivered snapshot: verify its scene re-hashes to
-  //    manifest.sceneDigest.
   // A test/debug start (resolved by the backend) is not part of the runtime snapshot.
   const { start: startBlock, ...bridged } = cfg.snapshot as RuntimeSnapshot & { start?: PlayStartBlock };
   const authored: RuntimeSnapshot = bridged;
-  const startOptions = startBlock !== undefined ? hostStartOf(startBlock) : undefined;
-  const startVariables = startBlock?.variables;
   // The snapshot and the manifest come from one backend capture (the play.started message
   // that carries the snapshot names this build); the snapshot must name the manifest's capture. The scene
   // is not serialized and hashed again here (the backend checked its bytes against sceneDigest).
@@ -480,449 +194,36 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   if (!deepEqual(authored.tags ?? [], manifest.tags ?? [])) {
     throw new PreviewM3Error('play_content_not_ready', 'manifest', 'the snapshot tags do not match the manifest tags');
   }
-  // The scene catalog (start scenes read once for their
-  // members; the others load on demand through the host).
-  timings?.begin('startScenes');
-  const catalog0 = manifest.scenes !== undefined
-    ? await prepareSceneCatalog(manifest.scenes, { read: readDeclared, sha256Hex }, content.catalog)
-    : null;
-  timings?.end('startScenes');
-  // Scene loads go through the preloader (read, then prepared on the render side before the
-  // simulation gets them; the scenes a game is likely to load next are read ahead). Each is timed.
-  const scenes = catalog0 === null
-    ? null
-    : createScenePreloader({
-        read: catalog0.loadScene,
-        ...(timings !== undefined
-          ? {
-              hooks: {
-                requested: (sceneId: string, preloaded: boolean) => timings.sceneRequested(sceneId, preloaded),
-                read: (sceneId: string, n: number) => timings.sceneRead(sceneId, n),
-                prepared: (sceneId: string, n: number) => timings.scenePrepared(sceneId, n),
-                failed: (sceneId: string, message: string) => timings.sceneFailed(sceneId, message),
-              },
-            }
-          : {}),
-      });
-  const catalog = catalog0 === null || scenes === null ? null : { rows: catalog0.rows, loadScene: scenes.load };
-  // The scene as the game loads it (folders and inactive entities
-  // resolved away) — physics, the renderer and the runtime all use this one.
-  // The animator controllers come from the verified manifest.
-  const withAnimators0 = manifest.animators !== undefined ? ({ ...authored, animators: manifest.animators } as RuntimeSnapshot) : authored;
-  // The prefabs scripts spawn (from the verified manifest).
-  const withPrefabs = manifest.prefabs !== undefined ? ({ ...withAnimators0, prefabs: manifest.prefabs } as RuntimeSnapshot) : withAnimators0;
-  // The block types and cell fields of the block layers (from the verified manifest).
-  const withAnimators = { ...withPrefabs, ...(manifest.blockTypes !== undefined ? { blockTypes: manifest.blockTypes } : {}), ...(manifest.cellFields !== undefined ? { cellFields: manifest.cellFields } : {}) } as RuntimeSnapshot;
-  // The model assets' recorded bounds (a collectible without a size collects over its model's).
-  const modelBounds = modelBoundsFromAssetRows(content.facts as readonly { assetId: string; kind?: string; bounds?: unknown }[]);
-  const withBounds0 = modelBounds !== undefined ? ({ ...withAnimators, modelBounds } as RuntimeSnapshot) : withAnimators;
-  // The model rigs sockets are resolved on (from the verified manifest).
-  const withBoundsR = manifest.rigs !== undefined ? ({ ...withBounds0, rigs: manifest.rigs } as RuntimeSnapshot) : withBounds0;
-  // The graph materials' parameters scripts set per object (ctx.materials; from the verified manifest).
-  const materialCatalog = materialCatalogOf(manifest.materials as Parameters<typeof materialCatalogOf>[0], content.facts as Parameters<typeof materialCatalogOf>[1]);
-  const withBoundsM = materialCatalog !== undefined ? ({ ...withBoundsR, materialCatalog } as RuntimeSnapshot) : withBoundsR;
-  // The project save schema (ctx.saves; from the verified manifest).
-  const withBoundsS = manifest.saveSchema !== undefined ? ({ ...withBoundsM, saveSchema: manifest.saveSchema } as RuntimeSnapshot) : withBoundsM;
-  // The UI documents scripts show and hide (id, layer, modal; the host draws them from the manifest).
-  // Plus the engine's dialogue document when the project has conversations (and the runner's data).
-  const uiDocs = withDialogueUiDocument(manifest.uiDocuments, manifest.dialogue ?? null);
-  const uiRows = uiDocumentsForRuntime(uiDocs);
-  const withBoundsU0 = uiRows !== undefined ? ({ ...withBoundsS, uiDocuments: uiRows } as RuntimeSnapshot) : withBoundsS;
-  const withBoundsU1 = manifest.dialogue !== undefined ? ({ ...withBoundsU0, dialogue: manifest.dialogue } as RuntimeSnapshot) : withBoundsU0;
-  // The timelines (ctx.timeline, play-on-start / play-on-signal).
-  const withBoundsU2 = manifest.timelines !== undefined && manifest.timelines.length > 0 ? ({ ...withBoundsU1, timelines: manifest.timelines } as RuntimeSnapshot) : withBoundsU1;
-  // The event → cue table (the runtime plays its sounds through the audio intent log).
-  const withBoundsU3 = manifest.eventCues !== undefined && manifest.eventCues.length > 0 ? ({ ...withBoundsU2, eventCues: manifest.eventCues } as RuntimeSnapshot) : withBoundsU2;
-  // The game shell's scene list (the `scene` UI event walks it).
-  const withBoundsU = manifest.shell?.scenes !== undefined ? ({ ...withBoundsU3, sceneList: manifest.shell.scenes } as RuntimeSnapshot) : withBoundsU3;
-  // The audio assets' recorded durations (script sounds' finished events are computed from them).
-  const audioDurations = audioDurationsFromAssetRows(content.facts as readonly { assetId: string; kind?: string; durationMs?: unknown }[]);
-  const withBoundsA = audioDurations !== undefined ? ({ ...withBoundsU, audioDurations } as RuntimeSnapshot) : withBoundsU;
-  // The game modes and each action's input map (the masking of inactive maps; from the verified manifest).
-  const modeRows = modesForRuntime(manifest.modes, manifest.input ?? (physicsDimensionOf(manifest.settings) === 3 ? DEFAULT_INPUT_CONFIG_3D : DEFAULT_INPUT_CONFIG));
-  const withBoundsM2 = modeRows !== undefined ? ({ ...withBoundsA, modes: modeRows } as RuntimeSnapshot) : withBoundsA;
-  // The environment preset ids scripts switch and blend to (ctx.environment; from the verified manifest).
-  const presetIds = (manifest.environment?.presets ?? []).map((p) => p.presetId);
-  const withBounds = presetIds.length > 0 ? ({ ...withBoundsM2, environmentPresets: presetIds } as RuntimeSnapshot) : withBoundsM2;
-  const snapshot = resolveSnapshotHierarchy(catalog !== null ? { ...withBounds, scenes: catalog.rows } : withBounds);
-
-  const settings = manifest.settings;
-  // Every declared asset is read through this reader, once, checked against its catalog row.
-  const assetReader = createVerifiedAssetReader(manifest.assets, { read: readDeclared, sha256Hex }, { catalog: content.catalog });
-  // This project's saves in Play (an export uses its own namespace).
-  const playSaveNamespace = `thirdlight-play:${String((snapshot as unknown as { projectId?: string }).projectId ?? 'game')}`;
-  // Physics runs only for a game (a player controller); a plain scene plays
-  // without it.
-  // A 3D project's physics is the 3D backend (its own config; the 2D one otherwise, unchanged).
-  const physicsConfig: RapierPhysicsInitConfig | PhysicsInitConfig3D | null = physicsDimensionOf(settings) === 3 ? physics3DConfigOf(snapshot.scene.entities as never, settings, { layers: manifest.collisionLayers ?? [] }) : physicsConfigFromSnapshot(snapshot, settings);
-  // (no controller: no physics world; a module that needs one says so when the host composes)
-  // The project's input actions (bound by the buildId), else the defaults.
-  // The bindings in effect (a player's rebinding changes them) — the input exercise's virtual gamepad reads through them.
-  let inputConfigNow: InputConfigLike = manifest.input ?? (physicsDimensionOf(settings) === 3 ? DEFAULT_INPUT_CONFIG_3D : DEFAULT_INPUT_CONFIG);
-  const browserInput = attachBrowserInput(cfg.canvas, { inputConfig: inputConfigNow });
-  // What this composition attaches to the page is released with it
-  // (the input listeners, the focus listener, the audio owner and its context,
-  // the unlock listeners) — a new snapshot composes again on the same canvas —
-  // and on every failure path below.
-  const releases: (() => void)[] = [() => browserInput.dispose(), focusGameSurface(cfg.canvas), ...(scenes !== null ? [() => scenes.dispose()] : [])];
-  const releaseAll = (): void => {
-    for (const r of releases.splice(0).reverse()) {
-      try {
-        r();
-      } catch {
-        /* released as far as possible */
-      }
-    }
-  };
-  let remoteStart: Promise<RemoteSimulation> | null = null;
-  try {
-    const behaviorRows = (manifest as unknown as { behaviors?: ManifestBehaviorRow[] }).behaviors ?? [];
-    const enginePins = (manifest as unknown as { enginePins?: { id: string; version: string; apiVersion: number }[] }).enginePins ?? [];
-    const moduleIds = (manifest as unknown as { modules?: Array<{ id: string }> }).modules?.map((m) => m.id) ?? [];
-
-    // The simulation runs in a worker unless the page (?threads=off),
-    // the project (sim_thread) or the browser says otherwise.
-    // A play-test start may ask for a mode (over the setting; the URL flag still wins).
-    const threading = resolveThreadingMode({ url: pageSearch(), setting: settings.sim_thread, workerAvailable: browserWorkerAvailable(), ...(startBlock?.threads !== undefined ? { start: startBlock.threads } : {}) });
-    let threadMode = threading.mode;
-    let threadReason = threading.reason;
-    const isolated = (globalThis as { crossOriginIsolated?: unknown }).crossOriginIsolated === true;
-    if (threadMode === 'worker') {
-      const worker = createBrowserSimWorker(new URL(`${cfg.buildRoot ?? '/'}${PREVIEW_SIM_WORKER_FILE}`, location.href).href);
-      if (worker === null) {
-        threadMode = 'single';
-        threadReason = 'the browser refused to start the worker: single thread';
-      } else {
-        // The worker composes the simulation while the page reads the assets (below).
-        timings?.begin('worker');
-        remoteStart = startRemoteSimulation({
-            worker,
-            init: {
-              snapshot,
-              settings,
-              physics: physicsConfig,
-              modules: moduleIds,
-              // The worker imports each compiled script from the locator (absolute same-origin URLs).
-              behaviors: { rows: behaviorRows, enginePins, urls: Object.fromEntries(behaviorRows.map((r) => [r.path, new URL(urlOf(r.path), location.href).href])) },
-              shared: resolveTransport(globalThis as never) === 'shared',
-              // Injected script variables (ctx.save from step 0).
-              ...(startVariables !== undefined ? { variables: startVariables } : {}),
-              // The game mode the run starts in (a start option).
-              ...(startOptions?.mode !== undefined && modeRows !== undefined ? { startMode: startOptions.mode } : {}),
-              // The stored project settings document (the runtime starts with it).
-              ...(snapshot.saveSchema !== undefined ? { projectSettings: readProjectSettings(snapshot.saveSchema, browserSaveStorage() ?? undefined, playSaveNamespace) } : {}),
-            },
-            input: { sample: (stepIndex) => browserInput.sample(stepIndex), reset: (reason) => browserInput.reset?.(reason) },
-            ...(catalog !== null ? { loadScene: catalog.loadScene } : {}),
-            driver: 'raf',
-          });
-        remoteStart.then(
-          () => {
-            timings?.end('worker');
-            onProgress('behaviors', 0, 0);
-          },
-          () => timings?.end('worker', 'failed'),
-        );
-      }
-    }
-
-    // 3. The wrapper's read phase (L2): the start scenes' assets, read at most 8 at a time
-    //    and re-hashed to their manifest sourceDigest (the adapter never receives unverified bytes); the
-    //    other assets go through the same reader when they are asked for.
-    try {
-      const startRows = startSceneAssets({
-        assets: manifest.assets,
-        entities: snapshot.scene.entities,
-        ...(manifest.scenes !== undefined ? { startSceneIds: manifest.scenes.filter((r) => r.start).map((r) => r.sceneId) } : {}),
-        ...(manifest.materials !== undefined ? { materials: manifest.materials } : {}),
-        ...(manifest.materialFunctions !== undefined ? { materialFunctions: manifest.materialFunctions } : {}),
-        ...(manifest.effects !== undefined ? { effects: manifest.effects } : {}),
-        ...(manifest.environment !== undefined ? { environment: manifest.environment } : {}),
-        ...(manifest.lighting !== undefined ? { lighting: manifest.lighting } : {}),
-      });
-      timings?.begin('assets');
-      await assetReader.preload(startRows, (loaded, total) => onProgress('assets', loaded, total));
-      timings?.end('assets', `${startRows.length} of ${manifest.assets.length}`);
-      timings?.count('startAssetReads', startRows.length);
-      timings?.count('startAssetBytes', startRows.reduce((n, r) => n + r.sourceByteLength, 0));
-    } catch (e) {
-      void remoteStart?.then((r) => r.dispose(), () => undefined);
-      remoteStart = null;
-      throw e instanceof AssetReadError ? new PreviewM3Error('asset_source_invalid', 'assets', e.message) : e;
-    }
-    // 4. The single shared production composition with the
-    //    `models` block (or none — the adapter stays loader-free).
-    const models = buildModelsBlock(manifest, snapshot, assetReader, readDeclared, content);
-
-    let remote: RemoteSimulation | null = null;
-    if (remoteStart !== null) {
-      try {
-        remote = await remoteStart;
-      } catch (e) {
-        threadMode = 'single';
-        threadReason = `the worker could not start (${e instanceof Error ? e.message : String(e)}): single thread`;
-      }
-    }
-    console.info(threadingLogLine(threadMode, threadReason, remote?.transport ?? null, isolated));
-
-    if (remote !== null) {
-      const r = remote;
-      // Until the host owns it (its runtime is the mirror, disposed with the host): released on failure.
-      releases.push(() => void r.dispose());
-    }
-    let physics: RapierPhysicsPort | PhysicsPort3D | undefined;
-    if (remote === null && physicsConfig !== null) timings?.begin('physics');
-    if (remote === null && physicsConfig !== null && 'dimension' in physicsConfig) {
-      // The 3D backend (a separate script, loaded only for a 3D project).
-      const backend = await loadPhysics3D(new URL(`${cfg.buildRoot ?? '/'}${PREVIEW_PHYSICS_3D_FILE}`, location.href).href);
-      const init = await backend.createPhysicsPort3D(physicsConfig as never);
-      if (!init.ok) throw new PreviewM3Error('play_content_not_ready', 'manifest', `physics init failed: ${init.error.code}`);
-      const p = init.port as PhysicsPort3D;
-      physics = p;
-      releases.push(() => p.dispose());
-    } else if (remote === null && physicsConfig !== null) {
-      const init = await createPhysicsPort(physicsConfig as RapierPhysicsInitConfig);
-      if (!init.ok) throw new PreviewM3Error('play_content_not_ready', 'manifest', `physics init failed: ${init.error.code}`);
-      physics = init.port;
-      const p = init.port;
-      releases.push(() => p.dispose());
-    }
-    if (physics !== undefined) timings?.end('physics');
-    const relay = new RelayActionSource(browserInput);
-    // The input exercise's UI edges and clicks, applied at the next host frames (the menu channel is read every frame).
-    const relayEdges: RelayUiEdgeName[] = [];
-    const relayClicks: string[] = [];
-    const hostRef: { current: GameHost | null } = { current: null };
-    const accessRef: { current: SimAccess | null } = { current: null };
-    const NO_EDGES = { up: false, down: false, left: false, right: false, submit: false, cancel: false, pause: false };
-    const input = {
-      sample: (stepIndex: number) => relay.sample(stepIndex),
-      sampleMenu: () => {
-        for (const key of relayClicks.splice(0)) hostRef.current?.clickUi?.(key);
-        // A frame of a paused game takes one step's place in a running exercise (its menu can be driven and resumed).
-        if (accessRef.current?.inputTestActive === true && hostRef.current?.playState?.() === 'paused') accessRef.current.relayIdle();
-        return browserInput.sampleMenu();
-      },
-      markConfirmConsumed: () => browserInput.markConfirmConsumed(),
-      dispose: () => browserInput.dispose(),
-      // Menu navigation and key rebinding (the shell's and UI documents' screens).
-      sampleUi: () => {
-        const physical = browserInput.sampleUi();
-        const edge = relayEdges.shift();
-        return edge === undefined ? physical : { ...NO_EDGES, [edge]: true };
-      },
-      captureKey: (cb: (code: string | null) => void) => browserInput.captureKey(cb),
-      // Pad rebinding in the settings.
-      capturePadButton: (cb: (button: number | null) => void) => browserInput.capturePadButton(cb),
-      configure: (c: InputConfigLike) => {
-        inputConfigNow = c;
-        browserInput.configure(c);
-      },
-      // The UI hit test (the pointer over the UI: overUi, presses left to the UI).
-      setUiHitTest: (hit: ((x: number, y: number) => boolean) | null) => browserInput.setUiHitTest(hit),
-      // A focused UI document's action map.
-      setActiveMaps: (maps: readonly string[] | null) => browserInput.setActiveMaps(maps),
-      // The cursor (free/locked, hidden while a gamepad drives).
-      applyCursor: (mode: 'free' | 'locked') => browserInput.applyCursor(mode),
-      cursorState: () => browserInput.cursorState(),
-      // Listen-for-input rebinding, the device used last and the frame's input entry.
-      captureInput: (o: Parameters<typeof browserInput.captureInput>[0], cb: Parameters<typeof browserInput.captureInput>[1]) => browserInput.captureInput(o, cb),
-      activeDevice: () => browserInput.activeDevice(),
-      activeDeviceInfo: () => browserInput.activeDeviceInfo(),
-      setFrameInput: (f: Parameters<typeof browserInput.setFrameInput>[0]) => browserInput.setFrameInput(f),
-    };
-    // The project's sound voice count (absent: 8).
-    const audio = createGameAudioOwner({ contextFactory: browserContextFactory() ?? undefined, ...(settings.audio_voices !== undefined ? { maxVoices: settings.audio_voices } : {}) });
-    releases.push(() => void audio.dispose());
-    const assetPathsById: Record<string, string> = {};
-    for (const asset of manifest.assets) assetPathsById[asset.assetId] = asset.path;
-
-    // The adapter instance the factory creates (the settle + dispose surfaces).
-    // A holder object: the factory (host-called inside `mount()`) assigns
-    // `current`, which the settle gate below reads after the mount.
-    const adapterRef: { current: SceneAdapter | null } = { current: null };
-    // The project's compiled behaviors (same-origin modules under the locator); in worker mode the worker links them.
-    if (remote === null && behaviorRows.length > 0) timings?.begin('behaviors');
-    const behaviorModules = remote !== null ? [] : await linkBehaviorModules(behaviorRows, enginePins, (path) => import(/* @vite-ignore */ urlOf(path)));
-    if (remote === null && behaviorRows.length > 0) timings?.end('behaviors');
-    const config: GameHostConfig = {
-      snapshot,
-      settings,
-      behaviorModules,
-      modules: moduleIds,
-      moduleSpecs: PREVIEW_MODULE_SPECS,
-      ...(physics !== undefined ? { physics } : {}),
-      ...(remote !== null ? { runtimeFactory: remote.runtimeFactory } : {}),
-      adapter: (runtime) => {
-        const a = createSceneAdapter(cfg.canvas, {
-          runtime,
-          snapshot,
-          // The play page's ?renderer= flag (the editor passes its own on), else the project's render_backend setting.
-          renderer: { ...resolveRendererPreference({ url: pageSearch(), setting: settings.render_backend }), depthBuffer: depthBufferOf(settings) },
-          // Repeated objects drawn instanced unless the page says ?batching=off (a diagnostic comparison).
-          batching: batchingFromUrl(pageSearch()),
-          // The first frame, slow frames and scene attaches for the start timings.
-          ...(timings !== undefined ? { onFrameDrawn: (f: FrameDrawnInfo) => timings.frame(f) } : {}),
-          ...(models !== null
-            ? { models, modelsLoader: createGltfLoaderPort({ decoderBase: '/decoders/' }) }
-            : {}),
-          ...materialsOptionOf(manifest, assetReader, content.catalog),
-          // The visual effects (textures and models from the verified bytes).
-          ...(manifest.effects !== undefined && manifest.effects.length > 0
-            ? {
-                effects: effectsOptionFrom({
-                  defs: manifest.effects,
-                  wind: manifest.environment?.wind ?? null,
-                  assets: manifest.assets,
-                  bytes: (assetId: string, version: number) => assetReader.bytes(assetId, version).catch(() => undefined),
-                  ...(JSON.stringify(manifest.effects).includes('"model"') ? { loader: createGltfLoaderPort({ decoderBase: '/decoders/' }) } : {}),
-                }),
-              }
-            : {}),
-        });
-        adapterRef.current = a;
-        return a;
-      },
-      input,
-      audio,
-      // A declared asset (a sound, a glyph, a UI image) through the checked reader; other paths as they are.
-      readArtifact: (path) => assetReader.bytesAt(path) ?? readDeclared(path),
-      ...(catalog !== null ? { loadScene: catalog.loadScene } : {}),
-      ...(scenes !== null ? { scenes } : {}),
-      container: cfg.container as unknown as HostDomNode,
-      buildId: manifest.buildId,
-      assetPaths: assetPathsById,
-      // The game shell (menus and HUD as UI documents, the scene list).
-      ...(manifest.shell !== undefined ? { shell: manifest.shell } : {}),
-      inputConfig: structuredClone(manifest.input ?? (physicsDimensionOf(settings) === 3 ? DEFAULT_INPUT_CONFIG_3D : DEFAULT_INPUT_CONFIG)) as unknown as NonNullable<GameHostConfig['inputConfig']>,
-      setQuality: (level) => adapterRef.current?.setQuality?.(level),
-      // Saves in this browser's localStorage (Play and exported games keep separate ones).
-      ...(browserSaveStorage() !== null ? { saveStorage: browserSaveStorage()!, saveNamespace: playSaveNamespace } : {}),
-      // Project save slots in this browser's IndexedDB (Play and exported games keep separate ones).
-      ...(browserProjectSaveBackend() !== null ? { projectSaveBackend: browserProjectSaveBackend()! } : {}),
-      assetKinds: Object.fromEntries(((manifest.assets ?? []) as unknown as { assetId: string; kind: string }[]).map((r) => [r.assetId, r.kind])),
-      audioLoad: Object.fromEntries(((manifest.assets ?? []) as unknown as { assetId: string; kind: string; loadType?: string; preload?: boolean }[]).filter((r) => r.kind === 'audio' && r.loadType !== undefined).map((r) => [r.assetId, { loadType: r.loadType, preload: r.preload !== false }])),
-      // An asset the rows above do not name: its catalog shard, read when a sound asks for it.
-      lookupAsset: (assetId) => content.catalog.lookup(assetId).then((r) => (r === undefined ? undefined : { path: r.path, kind: r.kind, ...(typeof r['loadType'] === 'string' ? { loadType: r['loadType'] } : {}), ...(typeof r['preload'] === 'boolean' ? { preload: r['preload'] } : {}) })),
-      // How audio sources are heard (the audio_spatial setting; 3D: panned).
-      audioSpatial: audioSpatialOf(settings),
-      // Play always has the debug console (the backquote key); a start from "Play from…" / tl_play_start.
-      debugConsole: true,
-      focusGame: () => cfg.canvas.focus(),
-      ...(startVariables !== undefined ? { variables: startVariables } : {}),
-      ...(startOptions !== undefined ? { start: startOptions } : {}),
-      // The project UI documents and themes (the host draws them).
-      ...(uiDocs !== undefined && uiDocs.length > 0 ? { ui: { documents: uiDocs, ...(manifest.uiThemes !== undefined ? { themes: manifest.uiThemes } : {}) } } : {}),
-    };
-    const host = createGameHost(config);
-    // Play has no page gesture wiring of its own: the first key or click in the
-    // game frame unlocks sound (music and cues).
-    const unlockOnce = (): void => {
-      void audio.unlock().catch(() => undefined);
-    };
-    globalThis.addEventListener?.('pointerdown', unlockOnce, { once: true });
-    globalThis.addEventListener?.('keydown', unlockOnce, { once: true });
-    releases.push(() => {
-      globalThis.removeEventListener?.('pointerdown', unlockOnce);
-      globalThis.removeEventListener?.('keydown', unlockOnce);
-    });
-    releases.push(() => host.dispose());
-    timings?.begin('mount');
-    const mount = host.mount();
-    timings?.end('mount');
-    onProgress('runtime', 0, 0);
-    if (!mount.ok) {
-      throw new PreviewM3Error('play_content_not_ready', 'manifest', `host mount failed: ${JSON.stringify(mount.error)}`);
-    }
-    // A scene is prepared (assets read, models parsed, textures decoded) before the simulation gets it.
-    scenes?.setPrepare(
-      pageScenePreparation({
-        adapter: () => adapterRef.current,
-        reader: assetReader,
-        catalog: content.catalog,
-        sources: {
-          assets: manifest.assets,
-          ...(manifest.materials !== undefined ? { materials: manifest.materials } : {}),
-          ...(manifest.materialFunctions !== undefined ? { materialFunctions: manifest.materialFunctions } : {}),
-          ...(manifest.effects !== undefined ? { effects: manifest.effects } : {}),
-          ...(manifest.lighting !== undefined ? { lighting: manifest.lighting } : {}),
-        },
-      }),
-    );
-    // A project save slot's picture (a data URL) for the page — a game's load screen, tests.
-    (globalThis as { __thirdlightSaveThumbnail?: (slot: number) => Promise<string | null> }).__thirdlightSaveThumbnail = (slot: number) => host.projectSaves?.thumbnail(slot) ?? Promise.resolve(null);
-
-    // 5. The models settle: the preview reports
-    //    ready ONLY after the prepares settle. A hard failure (L3–L5) is a
-    //    `PreviewM3Error` carrying the adapter's accepted code — the host +
-    //    physics are disposed so the in-flight/late loads are discarded (L9).
-    if (models !== null && adapterRef.current !== null) {
-      timings?.begin('models');
-      // Every model prepared is progress (a project with many large models keeps its start alive).
-      const adapterNow = adapterRef.current;
-      let prepared = -1;
-      const watch = setInterval(() => {
-        const m = adapterNow.diagnostics();
-        const c = m.ok ? m.diagnostics.models : undefined;
-        if (c === undefined) return;
-        const done = c.assets - c.pending;
-        if (done !== prepared) {
-          prepared = done;
-          onProgress('runtime', 0, 0);
-        }
-      }, 250);
-      const settle = await adapterRef.current.modelsSettled?.().finally(() => clearInterval(watch));
-      timings?.end('models');
-      if (settle === undefined || settle.ok === false) {
-        const code = settle?.code ?? 'models_config_invalid';
-        throw new PreviewM3Error(code, 'assets', `the model prepare hard-failed (${code}): ${settle?.message ?? 'no settle result'}`);
-      }
-    }
-
-    // The real ready identity: the verified snapshotId + snapshot
-    // revision, the manifest buildId + contentDigest (64-hex, bound by the
-    // buildId check), and the runtime stepIndex after the settle pre-roll.
-    const obs = host.observe();
-    const identity = {
-      snapshotId: String((snapshot as unknown as { snapshotId?: string }).snapshotId ?? ''),
-      revision: Number((snapshot as unknown as { revision?: number }).revision ?? 0),
-      buildId: manifest.buildId,
-      contentDigest: manifest.contentDigest,
-      stepIndex: obs.ok ? obs.observation.stepIndex : 0,
-    };
-
-    const stepHz = settings.fixed_step_hz ?? 120;
-    const access = remote !== null ? remote.access : createLocalSimAccess({ runtime: host.runtime, relay, ...(physics !== undefined ? { physics: physics as never } : {}), stepHz });
-    // The input exercise's page side — the UI hit targets and where its UI edges and clicks go.
-    hostRef.current = host;
-    accessRef.current = access;
-    access.setRelayPage({
-      targets: () => host.uiHitTargets?.() ?? [],
-      effect: (e) => {
-        if (e.kind === 'click') relayClicks.push(e.key);
-        else for (const edge of e.edges) if (relayEdges.length < 64) relayEdges.push(edge);
-      },
-    });
-    return {
-      host,
-      access,
-      inputConfig: () => inputConfigNow,
-      threading: { mode: threadMode, reason: threadReason, transport: remote?.transport ?? null, isolated },
-      adapter: adapterRef.current,
-      identity,
-      stepHz,
-      assetReads: () => assetReader.stats(),
-      dispose: () => {
-        // The host disposes its runtime — in worker mode the mirror, which ends the worker (the physics world is freed there);
-        // then the physics port, the audio owner, the input and the page listeners.
-        releaseAll();
-      },
-    };
-  } catch (e) {
-    releaseAll();
-    void remoteStart?.then((r) => r.dispose(), () => undefined);
-    throw e;
+  const startOptions = startBlock !== undefined ? hostStartOf(startBlock) : undefined;
+  const handle = await startGamePage({
+    content,
+    snapshot: authored,
+    read: readDeclared,
+    // The worker and the page import each compiled script from the locator (absolute same-origin URLs).
+    scriptUrl: (path) => new URL(urlOf(path), location.href).href,
+    workerUrl: new URL(`${cfg.buildRoot ?? '/'}${PREVIEW_SIM_WORKER_FILE}`, location.href).href,
+    physics3dUrl: new URL(`${cfg.buildRoot ?? '/'}${PREVIEW_PHYSICS_3D_FILE}`, location.href).href,
+    decoderBase: PREVIEW_DECODER_BASE,
+    moduleSpecs: PREVIEW_MODULE_SPECS,
+    canvas: cfg.canvas,
+    container: cfg.container as unknown as HostDomNode,
+    // This project's saves in Play (an export uses its own namespace).
+    saveNamespace: `thirdlight-play:${String(manifest.projectId ?? 'game')}`,
+    // Play always has the debug console (the backquote key).
+    debugConsole: true,
+    // Tools drive and read the game through the input exercise relay.
+    relay: true,
+    ...(startBlock !== undefined ? { start: { ...(startOptions !== undefined ? { options: startOptions } : {}), ...(startBlock.variables !== undefined ? { variables: startBlock.variables } : {}), ...(startBlock.threads !== undefined ? { threads: startBlock.threads } : {}) } } : {}),
+    // Ready only after the models settle; a hard failure fails the start.
+    waitForModels: true,
+    onProgress,
+    ...(timings !== undefined ? { timings } : {}),
+  });
+  if (handle.access === null) {
+    handle.dispose();
+    throw new PreviewM3Error('play_content_not_ready', 'manifest', 'the play has no simulation access');
   }
+  return handle as M3PreviewHandle;
 }
 
 /** The injected preview page config (the backend's play HTML — config, not secrets). */
@@ -1422,32 +723,6 @@ function animatorStates(runtime: unknown): { animators?: Record<string, string> 
   // Override layers follow the base state ("Run | Upper body: Attack").
   const text = (p: { state: string; layers?: readonly { name: string; state: string }[] }): string => [p.state, ...(p.layers ?? []).map((l) => `${l.name}: ${l.state}`)].join(' | ').slice(0, 256);
   return { animators: Object.fromEntries([...poses].slice(0, 64).map(([id, p]) => [id, text(p)])) };
-}
-
-/** The adapter's materials option from the verified manifest (textures from the verified bytes). */
-function materialsOptionOf(manifest: PreviewManifestV2, reader: VerifiedAssetReader, catalog: RuntimeCatalog): { materials?: SceneAdapterOptions['materials']; environment?: SceneAdapterOptions['environment']; lighting?: SceneAdapterOptions['lighting']; lights: NonNullable<SceneAdapterOptions['lights']> } {
-  // Read (once, checked) when a material, a bake, the sky or a spot cookie first needs it (its row from the catalog).
-  const loadTexture: NonNullable<SceneAdapterOptions['materials']>['loadTexture'] = (assetId) =>
-    catalog.lookup(assetId).then(
-      (row) => (row !== undefined && row.kind === 'texture' ? reader.bytes(row.assetId, row.version).then((buf) => decodeTexture(buf), () => null) : null),
-      () => null,
-    );
-  // Spot light cookies (textures of any scene's lights).
-  const lights = { loadTexture };
-  if (manifest.materials === undefined && manifest.environment === undefined && manifest.lighting === undefined) return { lights };
-  const env = manifest.environment;
-  return {
-    lights,
-    // Environment presets need the environment renderer too (scripts blend the look).
-    ...(environmentHasLook(env) || (env?.presets?.length ?? 0) > 0 ? { environment: { value: env ?? {}, loadTexture } } : {}),
-    ...(manifest.lighting !== undefined ? { lighting: { bakes: manifest.lighting, loadTexture } } : {}),
-    materials: {
-      defs: manifest.materials ?? [],
-      functions: manifest.materialFunctions ?? [],
-      wind: manifest.environment?.wind ?? null,
-      loadTexture,
-    },
-  };
 }
 
 /**

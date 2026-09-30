@@ -103,7 +103,11 @@ export interface ScaleReport {
     /** The first lines' times from the dialogue start (ms): line start, voice playing, voice gone. */
     trace: { line: string; voice: string | null; start: number; playing: number | null; gone: number | null }[];
   };
-  export?: { ms: number; files: number; bytes: number; firstFrameMs: number | null; state: string | null; pageErrors: string[] };
+  /**
+   * The export request (its time, the backend's resident set before it and its peak while it ran, sampled every
+   * 50 ms), its output on disk, and the exported game played from a static server with the backend stopped.
+   */
+  export?: { ms: number; files: number; bytes: number; backendRssBeforeMiB: number | null; backendRssPeakMiB: number | null; firstFrameMs: number | null; state: string | null; pageErrors: string[] };
   /** Steps that could not be taken, and why. */
   broke: Partial<Record<ScaleStep, string>>;
 }
@@ -554,14 +558,28 @@ export class ScaleBench {
     if (this.report.play !== undefined) this.report.play.backendRssAfterStopMiB = backendRssMiB(this.backend.pid);
   }
 
-  /** The export request, its output on disk, and the exported game's first frame in its own page. */
+  /**
+   * The export request, its output on disk, and the exported game's first frame in its own page, served by a
+   * static server with the backend stopped (an exported game needs nothing of the editor). The last step.
+   */
   private async measureExport(): Promise<void> {
+    const pid = this.backend.pid;
+    const rssBefore = backendRssMiB(pid);
+    let rssPeak: number | null = rssBefore;
+    const sampler = setInterval(() => {
+      const v = backendRssMiB(pid);
+      if (v !== null && (rssPeak === null || v > rssPeak)) rssPeak = v;
+    }, 50);
     const t = performance.now();
-    const res = await this.backend.post(`/api/v1/admin/projects/${this.opts.projectId}/export`, {});
+    const res = await this.backend.post(`/api/v1/admin/projects/${this.opts.projectId}/export`, {}).finally(() => clearInterval(sampler));
     const ms = Math.round(performance.now() - t);
     if (res.status !== 200) throw new Error(`the export was refused after ${ms} ms: ${JSON.stringify(res.json).slice(0, 500)}`);
     const dir = join(this.backend.exportRoot, String(res.json['outputDir']));
     const size = dirSize(dir);
+    await this.context?.close().catch(() => undefined);
+    this.context = null;
+    await this.be?.stop();
+    this.be = null;
     const site = await serveDir(dir);
     const context = await this.browser!.newContext({ viewport: { width: 1280, height: 720 } });
     await context.addInitScript(installPerfInstrumentation);
@@ -573,7 +591,7 @@ export class ScaleBench {
       await game.goto(site.url);
       const first = await poll(() => game.evaluate(() => (window as unknown as { __tlPerf?: { firstDrawEpoch: number | null } }).__tlPerf?.firstDrawEpoch ?? null), (v) => v !== null, 300_000, 'the exported game first frame').catch(() => null);
       const state = await game.evaluate(() => ((window as unknown as { __thirdlightObserve?: () => { state?: string } }).__thirdlightObserve?.()?.state ?? null)).catch(() => null);
-      this.report.export = { ms, files: size.files, bytes: size.bytes, firstFrameMs: first === null ? null : first - t0, state, pageErrors };
+      this.report.export = { ms, files: size.files, bytes: size.bytes, backendRssBeforeMiB: rssBefore, backendRssPeakMiB: rssPeak, firstFrameMs: first === null ? null : first - t0, state, pageErrors };
     } finally {
       await context.close();
       await site.close();

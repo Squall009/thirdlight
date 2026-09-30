@@ -33,6 +33,6 @@ for (const path of process.argv.slice(2)) {
   const d = r.dialogue;
   if (d) console.log(`dialogue ${d.lines}: seen ${d.linesSeen}, heard ${d.voicesHeard}; line→voice p50 ${f(d.startLatencyMs.p50)} / p95 ${f(d.startLatencyMs.p95)} / max ${f(d.startLatencyMs.max)} ms; gap p50 ${f(d.gapMs.p50)} / p95 ${f(d.gapMs.p95)} / max ${f(d.gapMs.max)} ms; wall ${f(d.wallMs / 1000, 1)} s`);
   const e = r.export;
-  if (e) console.log(`export: ${e.ms} ms, ${e.files} files, ${f(e.bytes / 1048576, 1)} MiB, first frame ${f(e.firstFrameMs)} ms, ${e.state}${e.pageErrors.length ? `, errors ${e.pageErrors.join(' | ')}` : ''}`);
+  if (e) console.log(`export: ${e.ms} ms, backend resident ${f(e.backendRssBeforeMiB)} → peak ${f(e.backendRssPeakMiB)} MiB, ${e.files} files, ${f(e.bytes / 1048576, 1)} MiB, first frame ${f(e.firstFrameMs)} ms, ${e.state}${e.pageErrors.length ? `, errors ${e.pageErrors.join(' | ')}` : ''}`);
   for (const [k, v] of Object.entries(r.broke)) console.log(`BROKE ${k}: ${v.slice(0, 400)}`);
 }

@@ -234,5 +234,20 @@ export function fakeService(opts?: {
         return { ok: true, assetId: req.assetId, version: req.version, file: { digest: opts?.tamperDigest ?? b.digest, byteLength: b.byteLength, real: `/fake/${req.assetId}` } };
       }),
     }),
+    // Serving a located file (the export copies it): its bytes in one chunk.
+    openBlobFile: (_projectId: string, file: { real: string }) => {
+      const b = blobs?.get(file.real.slice('/fake/'.length));
+      if (b === undefined) return { ok: false, changed: true, error: { code: 'blob_missing', cls: 'unavailable', message: `no file ${file.real}` } };
+      return {
+        ok: true,
+        blob: {
+          byteLength: b.byteLength,
+          close: () => undefined,
+          chunks: async function* () {
+            yield b.bytes;
+          },
+        },
+      };
+    },
   } as never;
 }

@@ -8,8 +8,9 @@
  *   the v2 runtime-content manifest (self-identifying `buildId`, the resolved
  *   six-key `settings` / frozen `game` / media identity hash-bound through it)
  *   + the canonical v3 scene document
- *   + every reachable asset as a relative `content/sha256/<digest>` artifact
- *   (model → `model/gltf-binary`, audio → `audio/wav`)
+ *   + every reachable asset as a relative `content/sha256/<digest>` artifact,
+ *   copied from where the workspace found it and hashed while copied (the
+ *   export never holds the assets together; its memory does not grow with them)
  *   + the bundle (the single shared production composition — `game-host`)
  *   + `meta.json` v2
  *
@@ -20,8 +21,9 @@
  * rule (every declared artifact present and every present artifact declared)
  * and the atomic publication.
  *
- * A failure writes nothing: the temp directory is removed and the previous
- * output tree is byte-untouched. Source-bearing behaviors ship as separate
+ * The output is written into a temp directory under the export root as it is
+ * produced and renamed into place at the end. A failure leaves nothing: the
+ * temp directory is removed and the previous output tree is byte-untouched. Source-bearing behaviors ship as separate
  * `behaviors/<outputDigest>.js` modules the bootstrap imports.
  */
 import { DECODER_LICENSES, decoderFiles, decodersNeeded } from './decoders';
@@ -39,7 +41,7 @@ import type { ContentClosureCompilerPort } from './content-closure';
 import { buildContentClosureM3, type ContentClosureM3 } from './content-closure';
 import { buildM3Bundle, buildSimWorkerBundle, PINNED_OPTIONS, THREE_WEBGPU_ONLY_PLUGIN } from './export-bundle';
 import { assertRelativeClosure, scanAssetContainer, textPatternCounts, type ScanPatterns } from './export-content-scan';
-import { publishTree, resolveExportTarget, type TreeFile } from './export-io';
+import { openStaging, resolveExportTarget, type ExportStaging } from './export-io';
 import type { ExportContext } from './export-types';
 import { clip, type ExportError, type ExportResult } from './errors';
 import { checkBundleGraphM3 } from './graph';
@@ -187,6 +189,9 @@ export async function exportProjectM3(
     scene: captured.scene,
     content: captured.content,
     ...(captured.scenes !== undefined ? { scenes: captured.scenes, startScenes: captured.startScenes ?? [] } : {}),
+    // The assets and instance buffers are found on disk and copied into the output one at a
+    // time, each checked against its digest while it is copied: the export never holds them.
+    locate: true,
   });
   if (!closureResult.ok) {
     const e = closureResult.error;
@@ -296,7 +301,7 @@ export async function exportProjectM3(
   if (recomputed !== parsedManifest.buildId || parsedManifest.buildId !== closure.buildId) {
     return fail('export_manifest_invalid', 'internal', 'the manifest buildId does not match its own canonical bytes');
   }
-  const declaredManifestPaths = new Set<string>([...closure.assetArtifacts, ...closure.behaviorArtifacts, ...closure.libraryArtifacts, ...closure.sceneArtifacts, ...closure.bufferArtifacts, ...closure.contentFileArtifacts].map((a) => a.path));
+  const declaredManifestPaths = new Set<string>([...closure.assetFiles, ...closure.behaviorArtifacts, ...closure.libraryArtifacts, ...closure.sceneArtifacts, ...closure.bufferFiles, ...closure.contentFileArtifacts].map((a) => a.path));
   if (declaredManifestPaths.size !== closure.declaredPaths.length) {
     return fail('export_manifest_invalid', 'internal', 'the manifest declares a duplicate artifact path');
   }
@@ -309,17 +314,6 @@ export async function exportProjectM3(
     tokenValues: ctx.tokenValues,
     locatorValues: [],
   };
-  for (const asset of closure.assetArtifacts) {
-    const container = scanAssetContainer(asset.contentType, asset.bytes);
-    if (!container.ok) {
-      return fail('scan_forbidden_content', 'internal', `a declared asset artifact fails container validation (${container.code})`, {
-        hits: [{ pattern: container.code, byteOffset: container.offset ?? -1, context: `content/sha256/${asset.digest}` }],
-      });
-    }
-    if (digestBytes(asset.bytes) !== asset.digest) {
-      return fail('scan_forbidden_content', 'internal', `the emitted asset artifact bytes do not match its digest (${asset.path})`);
-    }
-  }
   // Behavior modules (and the shared library modules they import) are shipped as
   // separate files: same forbidden-content rule as the bundle.
   for (const b of [...closure.behaviorArtifacts, ...closure.libraryArtifacts]) {
@@ -334,18 +328,6 @@ export async function exportProjectM3(
     const sceneCounts = textPatternCounts(new TextDecoder().decode(sc.bytes), patterns);
     if (sceneCounts.a + sceneCounts.b + sceneCounts.c + sceneCounts.e + sceneCounts.g + sceneCounts.i !== 0 || digestBytes(sc.bytes) !== sc.digest) {
       return fail('export_bundle_forbidden_content', 'internal', `forbidden content in scene file ${sc.path}`);
-    }
-  }
-  for (const b of closure.bufferArtifacts) {
-    if (digestBytes(b.bytes) !== b.digest || b.bytes.length % 40 !== 0) {
-      return fail('scan_forbidden_content', 'internal', `an instance buffer does not match its digest or size (${b.path})`);
-    }
-  }
-  // The manifest's content files are JSON text (the rules manifest.json's text had).
-  for (const f of closure.contentFileArtifacts) {
-    const c = textPatternCounts(new TextDecoder().decode(f.bytes), patterns);
-    if (c.a + c.b + c.c + c.e + c.g + c.i !== 0 || digestBytes(f.bytes) !== f.digest) {
-      return fail('export_bundle_forbidden_content', 'internal', `forbidden content in manifest content file ${f.path}`);
     }
   }
   const bundleText = new TextDecoder().decode(built.bytes);
@@ -382,7 +364,6 @@ export async function exportProjectM3(
     { name: 'index.html', text: INDEX_HTML },
     { name: MANIFEST_NAME, text: new TextDecoder().decode(manifestBytes) },
     { name: SCENE_NAME, text: new TextDecoder().decode(closure.sceneBytes) },
-    ...closure.contentFileArtifacts.map((f) => ({ name: f.path, text: new TextDecoder().decode(f.bytes) })),
   ];
   const relative = assertRelativeClosure(textFiles, patterns);
   if (!relative.ok) {
@@ -391,51 +372,165 @@ export async function exportProjectM3(
     });
   }
 
-  // ---- the output tree + meta.json v2 -----------------------------------------
+  // ---- step 6: the output tree, written as it is produced ----------------------
 
-  // three's Draco/Basis decoders ship only when a shipped GLB needs them.
-  const decoders = decodersNeeded(closure.assetArtifacts);
+  const opened = openStaging(ctx.fs, exportRootReal);
+  if (!opened.ok) return { ok: false, error: opened.error };
+  const staging = opened.staging;
+  try {
+    const written = await writeOutput(ctx, staging, closure, patterns, {
+      index: new TextEncoder().encode(INDEX_HTML),
+      bundle: built.bytes,
+      worker: worker.bytes,
+      physics3d: physics3d !== null && physics3d.ok ? physics3d.bytes : null,
+      physics3dVersion: physics3d !== null && physics3d.ok ? rapier3dVersion(ctx, physics3d.metafile) : null,
+      manifestBytes,
+      parsedManifest,
+      captured,
+      now,
+    });
+    if (!written.ok) {
+      staging.abort();
+      return written;
+    }
+    const published = staging.publish(dirName);
+    if (!published.ok) return { ok: false, error: published.error };
+    return {
+      ok: true,
+      outputDir: dirName,
+      snapshotId: closure.snapshotId,
+      revision: captured.revision,
+      files: { ...staging.files },
+      scanHits: 0,
+      schemaVersion: M3_SCHEMA_VERSION,
+      buildId: closure.buildId,
+      contentDigest: parsedManifest.contentDigest,
+      outputDigest: written.outputDigest,
+    };
+  } catch (e) {
+    staging.abort();
+    return fail('export_output_not_writable', 'unavailable', `the export output writes failed: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
+/** Why a located file could not be copied (it changed or went missing since the build found it). */
+function copyFailure(path: string, detail: string): ExportResult {
+  return fail('export_build_unavailable', 'unavailable', `a shipped file changed or went missing while it was copied (${path}): ${detail}`, { reason: 'asset_source_changed' });
+}
+
+/**
+ * Write the whole output into the staging directory: the page, the bundles,
+ * the manifest and scene, the compiled scripts, the scene files and the
+ * catalog's files (each text scanned before it is written), then every asset
+ * and instance buffer copied from where the workspace found it — one file at
+ * a time, hashed while copied (a file whose bytes are no longer the recorded
+ * ones fails the export) and checked by its container format — then the
+ * decoders the shipped files need and meta.json.
+ */
+async function writeOutput(
+  ctx: ExportContext,
+  staging: ExportStaging,
+  closure: ContentClosureM3,
+  patterns: ScanPatterns,
+  parts: {
+    index: Uint8Array;
+    bundle: Uint8Array;
+    worker: Uint8Array;
+    physics3d: Uint8Array | null;
+    physics3dVersion: string | null;
+    manifestBytes: Uint8Array;
+    parsedManifest: RuntimeContentManifestV5;
+    captured: { scene: unknown; revision: number };
+    now: () => number;
+  },
+): Promise<ExportResult | { ok: true; outputDigest: string }> {
+  const entries: { path: string; digest: string; byteLength: number }[] = [];
+  const put = (name: string, bytes: Uint8Array, digest?: string): void => {
+    staging.write(name, bytes);
+    entries.push({ path: name, digest: digest ?? digestBytes(bytes), byteLength: bytes.length });
+  };
+  put('index.html', parts.index);
+  put(BUNDLE_NAME, parts.bundle);
+  put(WORKER_BUNDLE_NAME, parts.worker);
+  if (parts.physics3d !== null) put(PHYSICS_3D_BUNDLE_NAME, parts.physics3d);
+  put(MANIFEST_NAME, parts.manifestBytes);
+  put(SCENE_NAME, closure.sceneBytes, closure.sceneDigest);
+  for (const a of [...closure.behaviorArtifacts, ...closure.libraryArtifacts, ...closure.sceneArtifacts]) put(a.path, a.bytes, a.digest);
+  // The catalog's files are JSON text (the rules manifest.json's text has), scanned one at a time.
+  for (const f of closure.contentFileArtifacts) {
+    const text = new TextDecoder().decode(f.bytes);
+    const c = textPatternCounts(text, patterns);
+    if (c.a + c.b + c.c + c.e + c.g + c.i !== 0 || digestBytes(f.bytes) !== f.digest) {
+      return fail('export_bundle_forbidden_content', 'internal', `forbidden content in manifest content file ${f.path}`);
+    }
+    const relative = assertRelativeClosure([{ name: f.path, text }], patterns);
+    if (!relative.ok) return fail('scan_forbidden_content', 'internal', 'an emitted text artifact contains an absolute/remote reference', { hits: relative.hits.slice(0, 4) });
+    put(f.path, f.bytes, f.digest);
+  }
+
+  // The assets and instance buffers, copied from disk. One file is held at a time (its
+  // container check needs the whole file); what it needs of the decoders is read from it.
+  const decoders = new Set<'draco' | 'basis'>();
+  let assetBytes = 0;
+  const assetPaths = new Set(closure.assetFiles.map((a) => a.path));
+  for (const a of [...closure.assetFiles, ...closure.bufferFiles]) {
+    if (staging.files[a.path] !== undefined) continue; // the same bytes named twice (an asset and a buffer)
+    const isAsset = assetPaths.has(a.path);
+    const opened = ctx.service.openBlobFile(ctx.projectId, a.file);
+    if (!opened.ok) return copyFailure(a.path, opened.error.code);
+    const held: Uint8Array[] = [];
+    let n: number;
+    try {
+      n = await staging.writeChunks(a.path, opened.blob.chunks(), isAsset ? (chunk) => held.push(chunk) : undefined);
+    } catch (e) {
+      opened.blob.close();
+      return copyFailure(a.path, e instanceof Error ? e.message : String(e));
+    }
+    if (n !== a.byteLength) return copyFailure(a.path, `${n} bytes, the build found ${a.byteLength}`);
+    if (isAsset) {
+      const bytes = held.length === 1 ? held[0]! : concat(held, n);
+      const container = scanAssetContainer(a.contentType, bytes);
+      if (!container.ok) {
+        return fail('scan_forbidden_content', 'internal', `a declared asset artifact fails container validation (${container.code})`, {
+          hits: [{ pattern: container.code, byteOffset: container.offset ?? -1, context: a.path }],
+        });
+      }
+      for (const d of decodersNeeded([{ bytes, contentType: a.contentType }])) decoders.add(d);
+      assetBytes += n;
+    } else if (n % 40 !== 0) {
+      return fail('scan_forbidden_content', 'internal', `an instance buffer does not match its size (${a.path})`);
+    }
+    entries.push({ path: a.path, digest: a.digest, byteLength: n });
+  }
+
+  // three's Draco/Basis decoders ship only when a shipped file needs them.
+  const needed = [...decoders].sort();
   const threeDir = ctx.fs.join(ctx.threePackageJson, '..');
-  const decoderArtifacts = decoderFiles(decoders, threeDir, (p) => ctx.fs.read(p), (...p) => ctx.fs.join(...p)).map((f) => ({
-    ...f,
-    digest: digestBytes(f.bytes),
-  }));
+  for (const f of decoderFiles(needed, threeDir, (p) => ctx.fs.read(p), (...p) => ctx.fs.join(...p))) put(f.path, f.bytes);
 
-  const indexBytes = new TextEncoder().encode(INDEX_HTML);
-  const assetBytes = closure.assetArtifacts.reduce((n, a) => n + a.bytes.length, 0);
-  const behaviorBytes = closure.behaviorArtifacts.reduce((n, a) => n + a.bytes.length, 0);
-  const extraArtifacts = [...closure.libraryArtifacts, ...closure.sceneArtifacts, ...closure.bufferArtifacts, ...closure.contentFileArtifacts];
-  const closureEntries = [
-    { path: 'index.html', digest: digestBytes(indexBytes), byteLength: indexBytes.length },
-    { path: BUNDLE_NAME, digest: digestBytes(built.bytes), byteLength: built.bytes.length },
-    { path: WORKER_BUNDLE_NAME, digest: digestBytes(worker.bytes), byteLength: worker.bytes.length },
-    ...(physics3d !== null && physics3d.ok ? [{ path: PHYSICS_3D_BUNDLE_NAME, digest: digestBytes(physics3d.bytes), byteLength: physics3d.bytes.length }] : []),
-    { path: MANIFEST_NAME, digest: digestBytes(manifestBytes), byteLength: manifestBytes.length },
-    { path: SCENE_NAME, digest: closure.sceneDigest, byteLength: closure.sceneBytes.length },
-    ...[...closure.assetArtifacts, ...closure.behaviorArtifacts, ...extraArtifacts].map((a) => ({ path: a.path, digest: a.digest, byteLength: a.bytes.length })),
-    ...decoderArtifacts.map((a) => ({ path: a.path, digest: a.digest, byteLength: a.bytes.length })),
-  ].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
-  const outputDigest = digestEmittedClosure(closureEntries);
-
+  entries.sort((x, y) => (x.path < y.path ? -1 : x.path > y.path ? 1 : 0));
+  const outputDigest = digestEmittedClosure(entries);
+  const parsedManifest = parts.parsedManifest;
+  const behaviorBytes = closure.behaviorArtifacts.reduce((sum, b) => sum + b.bytes.length, 0);
   const licenses = [
     installedPackage(ctx, ctx.threePackageJson, 'three'),
     installedPackage(ctx, ctx.typescriptPackageJson, 'typescript'),
     { id: 'esbuild', version: esbuildVersion, license: 'MIT', source: 'npm' },
     { id: '@dimforge/rapier2d-compat', version: readJsonStringField(ctx, ctx.fs.join(ctx.repoRoot, 'node_modules/@dimforge/rapier2d-compat/package.json'), 'version'), license: 'Apache-2.0', source: 'npm' },
     // A 3D project's backend (the version the 3D bundle linked).
-    ...(physics3d !== null && physics3d.ok ? [{ id: '@dimforge/rapier3d-compat', version: rapier3dVersion(ctx, physics3d.metafile), license: 'Apache-2.0', source: 'npm' }] : []),
-    ...decoders.map((d) => ({ id: DECODER_LICENSES[d].id, version: readJsonStringField(ctx, ctx.threePackageJson, 'version'), license: DECODER_LICENSES[d].license, source: 'npm' })),
-  ].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    ...(parts.physics3dVersion !== null ? [{ id: '@dimforge/rapier3d-compat', version: parts.physics3dVersion, license: 'Apache-2.0', source: 'npm' }] : []),
+    ...needed.map((d) => ({ id: DECODER_LICENSES[d].id, version: readJsonStringField(ctx, ctx.threePackageJson, 'version'), license: DECODER_LICENSES[d].license, source: 'npm' })),
+  ].sort((x, y) => (x.id < y.id ? -1 : x.id > y.id ? 1 : 0));
 
-  const sceneEntities = (captured.scene as { entities?: unknown[] })?.entities ?? [];
+  const sceneEntities = (parts.captured.scene as { entities?: unknown[] })?.entities ?? [];
   const meta = {
     schemaVersion: M3_SCHEMA_VERSION,
     type: 'thirdlight-export',
     engineVersion: ENGINE_VERSION,
     projectId: ctx.projectId,
     snapshotId: closure.snapshotId,
-    revision: captured.revision,
-    exportedAt: utcSeconds(now()),
+    revision: parts.captured.revision,
+    exportedAt: utcSeconds(parts.now()),
     dependencies: {
       three: readJsonStringField(ctx, ctx.threePackageJson, 'version'),
       typescript: readJsonStringField(ctx, ctx.typescriptPackageJson, 'version'),
@@ -463,43 +558,24 @@ export async function exportProjectM3(
     },
     licenses,
     artifacts: {
-      assets: { count: closure.assetArtifacts.length, bytes: assetBytes },
+      assets: { count: closure.assetFiles.length, bytes: assetBytes },
       behaviors: { count: closure.behaviorArtifacts.length, bytes: behaviorBytes },
-      total: { count: closure.assetArtifacts.length + closure.behaviorArtifacts.length, bytes: assetBytes + behaviorBytes },
+      total: { count: closure.assetFiles.length + closure.behaviorArtifacts.length, bytes: assetBytes + behaviorBytes },
     },
     outputDigest,
   };
-  const metaBytes = canonicalDocument(meta);
+  staging.write(META_NAME, canonicalDocument(meta));
+  return { ok: true, outputDigest };
+}
 
-  const files: TreeFile[] = [
-    { name: 'index.html', bytes: indexBytes },
-    { name: BUNDLE_NAME, bytes: built.bytes },
-    { name: WORKER_BUNDLE_NAME, bytes: worker.bytes },
-    ...(physics3d !== null && physics3d.ok ? [{ name: PHYSICS_3D_BUNDLE_NAME, bytes: physics3d.bytes }] : []),
-    { name: MANIFEST_NAME, bytes: manifestBytes },
-    { name: SCENE_NAME, bytes: closure.sceneBytes },
-    ...[...closure.assetArtifacts, ...closure.behaviorArtifacts, ...extraArtifacts].map((a) => ({ name: a.path, bytes: a.bytes })),
-    ...decoderArtifacts.map((a) => ({ name: a.path, bytes: a.bytes })),
-    { name: META_NAME, bytes: metaBytes },
-  ];
-
-  // ---- step 6: atomic publication ---------------------------------------------
-
-  const published = publishTree(ctx.fs, exportRootReal, dirName, files);
-  if (!published.ok) return { ok: false, error: published.error };
-
-  return {
-    ok: true,
-    outputDir: dirName,
-    snapshotId: closure.snapshotId,
-    revision: captured.revision,
-    files: published.files,
-    scanHits: 0,
-    schemaVersion: M3_SCHEMA_VERSION,
-    buildId: closure.buildId,
-    contentDigest: parsedManifest.contentDigest,
-    outputDigest,
-  };
+function concat(parts: readonly Uint8Array[], n: number): Uint8Array {
+  const out = new Uint8Array(n);
+  let at = 0;
+  for (const p of parts) {
+    out.set(p, at);
+    at += p.length;
+  }
+  return out;
 }
 
 /** The rapier3d-compat version the 3D bundle linked ('' when unknown). */
