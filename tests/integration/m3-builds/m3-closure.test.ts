@@ -74,6 +74,21 @@ describe('B19 the M3 shared closure derives the v2 manifest from one capture', (
   });
 });
 
+describe('the decoders a build ships', () => {
+  it('come from the models\' import recipes: a Draco or KTX2/Basis model names its decoder', async () => {
+    const plain = syntheticV3();
+    const none = await buildContentClosureM3({ service: fakeService({ blobs: plain.blobs }), compiler: {} as never, projectId: CTX.projectId, revision: CTX.revision, capturedAt: CTX.capturedAt, scene: plain.scene, content: plain.content });
+    expect(none.ok && none.closure.decoders).toEqual([]);
+    const { scene, content, blobs } = syntheticV3();
+    const model = (content as { assets: { kind: string; versions: { importRecipe: { extensions?: string[] } }[] }[] }).assets.find((a) => a.kind === 'model')!;
+    model.versions[0]!.importRecipe.extensions = ['KHR_draco_mesh_compression', 'KHR_texture_basisu'];
+    const res = await buildContentClosureM3({ service: fakeService({ blobs }), compiler: {} as never, projectId: CTX.projectId, revision: CTX.revision, capturedAt: CTX.capturedAt, scene, content });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.closure.decoders).toEqual(['basis', 'draco']);
+  });
+});
+
 describe('B19 the M3 closure failure modes', () => {
   it('blob_missing: a reachable asset with no immutable blob is refused', async () => {
     const { scene, content } = syntheticV3();

@@ -6,7 +6,7 @@
  * routes), placed side by side, rendered in Play and in the export served with
  * the backend stopped. Screenshots land in test-results/import-extensions/.
  */
-import { copyFileSync, createReadStream, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { copyFileSync, createReadStream, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { extname, join, normalize, resolve } from 'node:path';
@@ -153,7 +153,9 @@ test('WebP, material extensions, unlit and quantized GLBs import, render in Play
   const res = await be.admin('projects/game/export');
   expect(res.status, JSON.stringify(res.json)).toBe(200);
   const out = join(be.exportRoot, String(res.json.outputDir));
-  expect(readdirSync(join(out, 'content', 'sha256'))).toHaveLength(3);
+  // The three models' files, beside the catalog's own (its root, entry shard and facts).
+  const shipped = readdirSync(join(out, 'content', 'sha256')).filter((f) => readFileSync(join(out, 'content', 'sha256', f)).subarray(0, 4).toString('latin1') === 'glTF');
+  expect(shipped).toHaveLength(3);
   await page.goto('about:blank');
   await be.halt();
   const site = await serveDir(out);

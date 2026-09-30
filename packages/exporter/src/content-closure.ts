@@ -617,7 +617,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
   const assets: ManifestAssetInputV2[] = [];
   const locate = input.locate === true;
   // The records by id, once (the rows below read each asset's own).
-  const recordsById = new Map<string, { assetId: string; kind?: string; versions?: { version: number; metrics?: { durationMs?: unknown; format?: unknown } }[] }>();
+  const recordsById = new Map<string, { assetId: string; kind?: string; versions?: { version: number; metrics?: { durationMs?: unknown; format?: unknown }; importRecipe?: { extensions?: unknown } }[] }>();
   for (const r of ((input.content as { assets?: { assetId: string }[] } | null)?.assets ?? [])) recordsById.set(r.assetId, r);
   // Each audio version's recorded duration (the simulation computes script sounds' ends from it).
   const durationOf = (assetId: string, version: number): number | undefined => {
@@ -697,11 +697,12 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
       ...(mipPartsOf.has(a.assetId) ? { mipParts: mipPartsOf.get(a.assetId)! } : {}),
     });
   }
-  // The decoders the shipped assets need, from what their records say (the bytes are not read here).
+  // The decoders the shipped assets need, from what their records say (the bytes are not read here):
+  // a model's import recipe names the glTF extensions it uses (the view's recipe is only its profile and version).
   const decoders = new Set<'draco' | 'basis'>();
   for (const a of view.assets) {
     if (a.kind === 'model') {
-      const used = (a.recipe as { extensions?: unknown } | undefined)?.extensions;
+      const used = recordsById.get(a.assetId)?.versions?.find((v) => v.version === a.version)?.importRecipe?.extensions;
       if (Array.isArray(used) && used.includes('KHR_draco_mesh_compression')) decoders.add('draco');
       if (Array.isArray(used) && used.includes('KHR_texture_basisu')) decoders.add('basis');
     } else if (a.kind === 'texture' && recordsById.get(a.assetId)?.versions?.find((v) => v.version === a.version)?.metrics?.format === 'ktx2') decoders.add('basis');

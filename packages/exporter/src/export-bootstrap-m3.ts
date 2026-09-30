@@ -97,6 +97,8 @@ async function main(): Promise<void> {
       onModelsFailed: (code) => hud(`export error: the model prepare hard-failed (${code}); the game continues without the failed model`, true),
     });
     const host = game.host;
+    // Where the simulation runs (worker or this thread, and how transforms come back), for tooling and tests.
+    (window as unknown as { __thirdlightThreading?: unknown }).__thirdlightThreading = game.threading;
     // The static export's own observation (there is no relay): its step, play state and the character's position; read by tooling and tests.
     (window as unknown as { __thirdlightObserve?: () => unknown }).__thirdlightObserve = () => {
       const res = host.observe();
