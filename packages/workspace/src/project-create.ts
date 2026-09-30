@@ -8,7 +8,7 @@ import { chmodSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 import type { ContentCatalogV3, ContentCatalogV4, Manifest, SceneV3 } from '@thirdlight/project-model';
-import { normalizeManifest, parseDocumentBytes, validateProjectV3 } from '@thirdlight/project-model';
+import { glbClipDurations, normalizeManifest, parseDocumentBytes, validateProjectV3 } from '@thirdlight/project-model';
 
 import { ID_RE } from './envelope';
 import { publishBlob, type ContentContext } from './content-store';
@@ -172,7 +172,20 @@ export function createProjectFrom(core: Core, projectId: string, name: string, s
     const first = filed.report.notMoved[0]!;
     return { ok: false, error: invalidRequest('', undefined, 'template assets written into the project folder', `asset ${first.assetId}: ${first.reason}`) };
   }
-  const built = projectFilesFromV3(projectId, project.normalized.manifest, project.normalized.scene as SceneV3, filed.content as unknown as ContentCatalogV3);
+  // The clip lengths come from the template's own model files.
+  const clips = new Map<string, { name: string; duration: number }[] | null>();
+  const durationOf = (assetId: string, version: number, clipIndex: number, clipName: string): number | null => {
+    const key = `${assetId}@${version}`;
+    if (!clips.has(key)) {
+      const v = content.assets.find((a) => a.assetId === assetId)?.versions.find((x) => x.version === version);
+      const bytes = v === undefined ? undefined : source.blobs.get(v.convertedFrom?.sourceDigest ?? v.sourceDigest);
+      clips.set(key, bytes === undefined ? null : glbClipDurations(bytes));
+    }
+    const list = clips.get(key);
+    const clip = list?.[clipIndex]?.name === clipName ? list[clipIndex] : list?.find((c) => c.name === clipName);
+    return clip?.duration ?? null;
+  };
+  const built = projectFilesFromV3(projectId, project.normalized.manifest, project.normalized.scene as SceneV3, filed.content as unknown as ContentCatalogV3, durationOf);
   if (!built.ok) {
     return { ok: false, error: invalidRequest('', undefined, 'a valid v4 project', `the template is not a valid project: ${built.message}`) };
   }

@@ -98,6 +98,35 @@ describe('ModelInstances — superseded preview disposal (GG-4)', () => {
   });
 });
 
+describe('ModelInstances — a preview and another read of the same file', () => {
+  it('a piece or clip read started while the preview loads joins its load instead of superseding it', async () => {
+    const scene = new THREE.Scene();
+    const bytes = tinyGlb();
+    const len = bytes.byteLength;
+    let calls = 0;
+    const instances = new ModelInstances(scene, {
+      resolve: async () => {
+        calls += 1;
+        await flush();
+        return bytes;
+      },
+      descriptorFor: (assetId) => descriptor(assetId, 1, len),
+    });
+    const id = 'asset-0000000000000004';
+    const preview = instances.previewAsset(descriptor(id, 1, len));
+    const read = instances.prepared(id);
+    const [p, r] = await Promise.all([preview, read]);
+    expect(p.ok, JSON.stringify(p)).toBe(true);
+    expect(r).not.toBeNull();
+    expect(calls).toBe(1);
+    expect(instances.previewSession()?.assetId).toBe(id);
+    instances.clearPreview();
+    instances.dispose();
+    await flush();
+    expect(instances.ownership().outstanding).toBe(0);
+  });
+});
+
 describe('ModelInstances — bounded failed-load retry (GG-8)', () => {
   it('stops re-issuing a persistently failing load after the bounded attempts', async () => {
     const scene = new THREE.Scene();

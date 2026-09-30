@@ -34,7 +34,6 @@ import {
   type AssetVersionDescriptor,
   type ModelInstance,
   type VisualClipInfo,
-  type VisualResourceHandle,
   type VisualResourceStore,
   type VertexColorMode,
   type MaterialLibrary,
@@ -147,7 +146,6 @@ export class ModelInstances {
   private readonly bufferLoads = new Set<string>();
   private preview: AssetPreviewSession | null = null;
   private previewSequence = 0;
-  private previewHandle: VisualResourceHandle | null = null;
   private disposed = false;
 
   /** The bounded, explained realization failures (never silent). */
@@ -526,48 +524,53 @@ export class ModelInstances {
     /** Where the preview instance attaches (the preview stage's scene). */
     parent: THREE.Object3D = this.scene,
   ): Promise<{ ok: true; session: AssetPreviewSession } | { ok: false; code: string; message: string }> {
-    // A superseded preview's late completion must be discarded AND disposed:
-    // the sequence token below makes the stale branch release anything
-    // the late load produced instead of overwriting the live preview.
+    // The preview holds its file through the resource manager like every other
+    // user of it (an object, a clip or piece query), so a read of the same file
+    // started meanwhile joins this load instead of superseding it. A superseded
+    // preview lets go of its hold once its load settles.
     const sequence = ++this.previewSequence;
-    this.previewHandle?.cancel();
-    this.previewHandle = null;
     this.preview?.dispose();
     this.preview = null;
-    const source = injectedResolver(descriptor, () => this.options.resolve(descriptor));
-    const handle = this.store.load(source, { loader: this.loader });
-    this.previewHandle = handle;
-    return handle.result.then((result) => {
-      if (sequence !== this.previewSequence) {
-        if (result.ok) result.resource.dispose();
+    const key = ModelInstances.keyOf(descriptor.assetId, descriptor.version);
+    const holder = `preview:${sequence}`;
+    return this.hold(descriptor, holder).then((resource) => {
+      if (sequence !== this.previewSequence || this.disposed) {
+        this.letGo(key, holder);
         return {
           ok: false as const,
           code: 'asset_load_stale',
-          message: 'the preview was superseded by a newer request; the stale result was discarded and disposed',
+          message: 'the preview was superseded by a newer request; the stale result was discarded and released',
         };
       }
-      this.previewHandle = null;
-      if (!result.ok) return { ok: false as const, code: result.error.code, message: result.error.message };
-      const created = result.resource.createInstance();
-      if (!created.ok) return { ok: false as const, code: created.error.code, message: created.error.message };
+      if (resource === null) {
+        const failure = this.failures.get(descriptor.assetId);
+        return { ok: false as const, code: failure?.code ?? 'asset_load_failed', message: failure?.message ?? 'the model could not be read' };
+      }
+      const created = resource.createInstance();
+      if (!created.ok) {
+        this.letGo(key, holder);
+        return { ok: false as const, code: created.error.code, message: created.error.message };
+      }
       const controller = created.instance.createPreviewController();
       if (!controller.ok) {
         created.instance.dispose();
+        this.letGo(key, holder);
         return { ok: false as const, code: controller.error.code, message: controller.error.message };
       }
-      const holder = created.instance.root;
-      parent.add(holder);
+      const root = created.instance.root;
+      parent.add(root);
       const session: AssetPreviewSession = {
-        root: holder,
+        root,
         assetId: descriptor.assetId,
         descriptor,
-        clips: result.resource.clips,
+        clips: resource.clips,
         animationClips: created.instance.animationClips(),
         controller: controller.controller,
         dispose: () => {
           controller.controller.dispose();
           created.instance.dispose();
-          holder.parent?.remove(holder);
+          root.parent?.remove(root);
+          this.letGo(key, holder);
         },
       };
       this.preview = session;
@@ -589,8 +592,6 @@ export class ModelInstances {
   /** Hide the preview instance without touching placements. */
   clearPreview(): void {
     this.previewSequence += 1;
-    this.previewHandle?.cancel();
-    this.previewHandle = null;
     this.preview?.dispose();
     this.preview = null;
   }

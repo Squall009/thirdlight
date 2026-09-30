@@ -1985,3 +1985,10 @@ Proposed targets for "Done when" (fixed in 26.14 from these numbers):
   same file operations (counted), and which of the steps was slow varied
   between runs; each flush also paid for the unflushed writes before it (the
   record cache, the moved files) in the disk's journal commit.
+- 2026-09-30 (D76): a project made from a template is current when made. The
+  Starter's captured project predates animators (storage v3 has no animator
+  list), so its character's old idle/run/airborne animation becomes an
+  animator while the project is created (the same conversion an open does,
+  the clip lengths read from the template's model files) instead of at the
+  first open, which bumped the revision and put upgrade notes in a new
+  project's Problems log. The captured template stays as it is.

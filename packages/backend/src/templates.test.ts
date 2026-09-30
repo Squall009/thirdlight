@@ -102,5 +102,16 @@ describe('template dependencies at creation', () => {
     expect(game.ok, JSON.stringify(game).slice(0, 300)).toBe(true);
     expect(Array.isArray(game.tags)).toBe(true);
     expect('game' in game).toBe(false);
+    // A new project is current: its character plays through an animator, and nothing was upgraded at its first open.
+    const player = (await (await fetch(`${base}/api/v1/projects/t3/commands`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${ADMIN}`, 'content-type': 'application/json', origin: AUTHORING_ORIGIN },
+      body: JSON.stringify({ op: 'queryEntities', projectId: 't3', args: { limit: 100 } }),
+    })).json()) as { entities: { name: string; components: Record<string, unknown> }[] };
+    const character = player.entities.find((e) => e.name === 'Player');
+    expect(character?.components['animator']).toEqual({ controller: 'idle-run-airborne-01' });
+    expect(character?.components['modelAnimation']).toBeUndefined();
+    const problems = await fetch(`${base}/api/v1/projects/t3/problems`, { headers: { authorization: `Bearer ${ADMIN}`, origin: AUTHORING_ORIGIN } });
+    expect(((await problems.json()) as { problems: unknown[] }).problems).toEqual([]);
   });
 });

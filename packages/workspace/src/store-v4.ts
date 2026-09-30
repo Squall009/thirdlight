@@ -49,6 +49,7 @@ import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 import {
+  migrateModelAnimations,
   migrateProjectV3ToV4,
   PROJECT_SCHEMA_VERSION,
   PROJECT_SCHEMA_VERSION_UPGRADED,
@@ -73,6 +74,7 @@ import {
   type SceneV4,
   type BlockChunk,
   type BlockLayerData,
+  type ClipDurationOf,
 } from '@thirdlight/project-model';
 
 import { sha256Hex } from './digest';
@@ -1182,9 +1184,17 @@ export function projectFilesFromV3(
   manifest: Manifest,
   scene: SceneV3,
   content: ContentCatalogV3,
+  /**
+   * The clip lengths of the project's models: given for a project made from a
+   * template, whose old idle/run/airborne animations become animators here,
+   * so the new project needs no upgrade (and reports none) at its first open.
+   */
+  clipDurations?: ClipDurationOf,
 ): { ok: true; files: ProjectFilesV4 } | { ok: false; message: string } {
   const { project, notes } = migrateProjectV3ToV4(manifest, scene, content);
-  const v = validateProjectV4(project.manifest, project.content, project.scenes);
+  const animated = clipDurations === undefined ? null : migrateModelAnimations(project.scenes as SceneV4[], project.content as ContentCatalogV4, clipDurations);
+  const current = animated !== null && animated.migrated > 0 ? { content: animated.content, scenes: animated.scenes } : { content: project.content, scenes: project.scenes };
+  const v = validateProjectV4(project.manifest, current.content, current.scenes);
   if (!v.ok) return { ok: false, message: v.errors[0]?.message ?? 'unknown' };
   const sceneV4 = v.normalized.scenes[0] as SceneV4;
   return {

@@ -296,11 +296,12 @@ async function drive(page: Page, root: Page | Frame, click: (l: Locator) => Prom
     .poll(
       async () => {
         if ((await line())?.id === 'hello') await click(box);
-        return (await line())?.id ?? null;
+        // No observation is no line: only a line past the first counts.
+        return (await line())?.id ?? 'unobserved';
       },
       { timeout: 40_000, intervals: [400] },
     )
-    .not.toBe('hello');
+    .toMatch(/^(intro|ask)$/);
   // The host's neutral portrait (blue) — its pixels while the voiced line is still up (a slow host may be past it; the observation records it anyway).
   const neutralImage = (await line())?.id === 'intro' ? await colour(2, 'neutral', happyImage) : happyImage;
   // Auto-advance after the 2 s clip and the delay; the ducks come back up.
@@ -320,7 +321,7 @@ async function drive(page: Page, root: Page | Frame, click: (l: Locator) => Prom
     .poll(
       async () => {
         const o = await observe();
-        if (o?.dialogue?.kind !== 'choice') await click(box);
+        if (o !== null && o.dialogue?.kind !== 'choice') await click(box);
         return (await observe())?.dialogue?.kind ?? null;
       },
       { timeout: 40_000, intervals: [400] },
@@ -423,9 +424,16 @@ test('dialogue with voice: the editor previewer, Play and the export', async ({ 
   await page.getByTitle('Start an isolated play preview').click();
   const psid = String(((await (await started).json()) as { playSessionId: string }).playSessionId);
   const iframe = page.locator('iframe.tl-app__preview-frame');
-  const observe = async (): Promise<Obs | null> => {
-    const r = await api(`play/${psid}/observe`, {});
-    return r.status === 200 ? (r.json as Obs) : null;
+  // One observation at a time: the backend relays one per Play and refuses a second while one is
+  // pending (`input_relay_conflict`), and the sampler polls beside the driver.
+  let queue: Promise<unknown> = Promise.resolve();
+  const observe = (): Promise<Obs | null> => {
+    const next = queue.then(async () => {
+      const r = await api(`play/${psid}/observe`, {});
+      return r.status === 200 ? (r.json as Obs) : null;
+    });
+    queue = next.catch(() => null);
+    return next;
   };
   await expect.poll(async () => ((await observe()) as { state?: string } | null)?.state ?? null, { timeout: 60_000 }).toBe('running');
   const fb = (await iframe.boundingBox())!;
