@@ -125,8 +125,9 @@ describe('M3 export bundle re-measurement + production parity', () => {
     });
     expect(closure.ok).toBe(true);
     if (!closure.ok) return;
-    const nAssets = closure.closure.assetArtifacts.length;
-    expect(nAssets).toBe(2);
+    expect(closure.closure.assetArtifacts.length).toBe(2);
+    // The bundle reads each declared path once: the assets and the catalog's files (its root, blocks and entry shards).
+    const nAssets = new Set([...closure.closure.assetArtifacts, ...closure.closure.sceneArtifacts, ...closure.closure.bufferArtifacts, ...closure.closure.contentFileArtifacts].map((a) => a.path)).size;
 
     const bundle = await buildM3Bundle({ bootstrapEntry: BOOTSTRAP, closure: closure.closure });
     expect(bundle.ok).toBe(true);
@@ -145,7 +146,7 @@ describe('M3 export bundle re-measurement + production parity', () => {
 
     // d = the recorded baseline (three core) + the Rapier row (+1) + the
     //    counted engine call sites (one ./manifest.json + one ./scene.json +
-    //    one read per unique declared asset path). game-host adds 0. The
+    //    one read per unique declared path: assets and catalog files). game-host adds 0. The
     //    compressed-GLB loaders add 1: three's zstddec, pulled in
     //    by KTX2Loader, fetches its own embedded `data:application/wasm` URL
     //    (no network).

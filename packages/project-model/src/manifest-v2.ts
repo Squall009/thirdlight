@@ -426,6 +426,34 @@ function boundsCopy(b: { min: readonly number[]; max: readonly number[] }): { mi
   return { min: [b.min[0]!, b.min[1]!, b.min[2]!], max: [b.max[0]!, b.max[1]!, b.max[2]!] };
 }
 
+/**
+ * A version's metrics digest, once per metrics object: the model's records
+ * are frozen and replaced, never changed in place, so a frozen object's
+ * digest never changes (a build of 18,000 assets hashes only what changed).
+ */
+const metricsDigests = new WeakMap<object, string>();
+function metricsDigestOf(metrics: unknown): string {
+  if (typeof metrics !== 'object' || metrics === null || !Object.isFrozen(metrics)) return blockDigest(metrics);
+  let d = metricsDigests.get(metrics);
+  if (d === undefined) {
+    d = blockDigest(metrics);
+    metricsDigests.set(metrics, d);
+  }
+  return d;
+}
+
+/** A recipe's digest (`{id, version}`: a handful per engine), once each. */
+const recipeDigests = new Map<string, string>();
+function recipeDigestOf(recipe: { id: string; version: number }): string {
+  const key = `${recipe.id}@${recipe.version}`;
+  let d = recipeDigests.get(key);
+  if (d === undefined) {
+    d = blockDigest({ id: recipe.id, version: recipe.version });
+    recipeDigests.set(key, d);
+  }
+  return d;
+}
+
 /** The six resolved settings keys in registry order. */
 export const M3_SETTINGS_KEYS = [
   'gravity_y',
@@ -468,7 +496,8 @@ export function resolveMediaIdentityV3(scene: unknown, content: unknown, allScen
   // zones, spawns, the entity cap) apply to each scene below, not to their sum.
   const s = v4 ? (allScenes !== undefined ? validateMergedSceneV4(scene) : validateSceneV4(scene)) : validateSceneV3(scene);
   if (!s.ok) return { ok: false, errors: s.errors };
-  const c = v4 ? validateContentV4(content) : validateContentV3(content);
+  // A block the model validated before (the workspace's captured state) is not validated again.
+  const c = v4 ? validateContentV4(content, content) : validateContentV3(content);
   if (!c.ok) return { ok: false, errors: c.errors };
   let normScene = s.normalized as unknown as SceneV3;
   if (v4 && allScenes !== undefined) {
@@ -541,6 +570,8 @@ export function captureContentViewV3(
   allScenes?: readonly unknown[],
   /** Assets the view holds though nothing references them (the loadable ones). */
   include?: readonly string[],
+  /** SHA-256 (lowercase hex) for the view's digest (a host's native one; the same digest). */
+  sha256?: (bytes: Uint8Array) => string,
 ): ModelResultV2<CapturedContentViewV3> {
   const v4 = (scene as { schemaVersion?: unknown } | null)?.schemaVersion === 4;
   // With the project's scenes given, `scene` is the start scenes
@@ -548,7 +579,8 @@ export function captureContentViewV3(
   // zones, spawns, the entity cap) apply to each scene below, not to their sum.
   const s = v4 ? (allScenes !== undefined ? validateMergedSceneV4(scene) : validateSceneV4(scene)) : validateSceneV3(scene);
   if (!s.ok) return fail(s.errors);
-  const c = v4 ? validateContentV4(content) : validateContentV3(content);
+  // A block the model validated before (the workspace's captured state) is not validated again.
+  const c = v4 ? validateContentV4(content, content) : validateContentV3(content);
   if (!c.ok) return fail(c.errors);
   let normScene = s.normalized as unknown as SceneV3;
   const normContent = c.normalized as ContentCatalogV3;
@@ -594,7 +626,7 @@ export function captureContentViewV3(
       sourceDigest: version.sourceDigest,
       sourceByteLength: version.sourceByteLength,
       recipe: { id: importRecipe.profile, version: importRecipe.recipeVersion },
-      metricsDigest: blockDigest(version.metrics),
+      metricsDigest: metricsDigestOf(version.metrics),
       ...(record.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}),
       ...(record.materials !== undefined ? { materials: { ...record.materials } } : {}),
       ...(record.clipsFor !== undefined ? { clipsFor: record.clipsFor } : {}),
@@ -612,7 +644,7 @@ export function captureContentViewV3(
     settings: settingsRes.normalized,
     behaviorTrust: normContent.behaviorTrust,
   };
-  const contentDigest = blockDigest(withoutDigest);
+  const contentDigest = sha256 !== undefined ? sha256(new TextEncoder().encode(`${JSON.stringify(withoutDigest, null, 2)}\n`)) : blockDigest(withoutDigest);
   return { ok: true, normalized: { ...withoutDigest, contentDigest } as CapturedContentViewV3 };
 }
 
@@ -702,6 +734,108 @@ const MODULE_PACKAGE_LOOKUP: Readonly<Record<string, string>> = {
   ...M3_MODULE_PACKAGES,
 };
 
+/** One manifest asset row (v4 `assets`, v5 catalog entries) from its captured input. */
+export function manifestAssetRow(a: ManifestAssetInputV2): Record<string, unknown> & { assetId: string; version: number } {
+  return {
+    assetId: a.assetId,
+    kind: a.kind,
+    version: a.version,
+    sourceDigest: a.sourceDigest,
+    sourceByteLength: a.sourceByteLength,
+    recipeDigest: a.recipeDigest ?? recipeDigestOf(a.recipe ?? { id: 'unknown', version: 0 }),
+    metricsDigest: a.metricsDigest,
+    path: `content/sha256/${a.sourceDigest}`,
+    ...(a.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}),
+    ...(a.materials !== undefined ? { materials: canonicalMaterialMapping(a.materials) } : {}),
+    ...(a.clipsFor !== undefined ? { clipsFor: a.clipsFor } : {}),
+    ...(a.bounds !== undefined ? { bounds: boundsCopy(a.bounds) } : {}),
+    ...(a.durationMs !== undefined && a.kind === 'audio' ? { durationMs: a.durationMs } : {}),
+    ...(a.loadType !== undefined && a.kind === 'audio' ? { loadType: a.loadType, preload: a.preload !== false } : {}),
+  };
+}
+
+/** Asset rows in the manifest's order (ascending id, then version). */
+export function sortedAssetRows(assets: readonly ManifestAssetInputV2[]): Array<Record<string, unknown> & { assetId: string; version: number }> {
+  return assets.map(manifestAssetRow).sort((a, b) => (a.assetId < b.assetId ? -1 : a.assetId > b.assetId ? 1 : a.version - b.version));
+}
+
+/** The behavior rows in the manifest's order (ascending id). */
+export function sortedBehaviorRows(behaviors: readonly ManifestBehaviorInput[]): Array<Record<string, unknown> & { behaviorId: string }> {
+  return behaviors
+    .map((b) => ({
+      behaviorId: b.behaviorId,
+      sourceDigest: b.sourceDigest,
+      sourceByteLength: b.sourceByteLength,
+      manifestDigest: b.manifestDigest,
+      outputDigest: b.outputDigest,
+      outputByteLength: b.outputByteLength,
+      apiVersion: b.apiVersion,
+      declaration: b.declaration,
+      ownedTransforms: [...b.ownedTransforms],
+      requiredModules: [...b.requiredModules],
+      path: `behaviors/${b.outputDigest}.js`,
+    }))
+    .sort((a, b) => (a.behaviorId < b.behaviorId ? -1 : a.behaviorId > b.behaviorId ? 1 : 0));
+}
+
+/** The `modules` rows of a module id set (ascending, each with its package and pin). */
+export function manifestModuleRows(moduleIds: readonly string[]): Array<{ id: string; apiVersion: number; package: string; version: string }> {
+  return [...new Set(moduleIds)].sort().map((id) => {
+    const pkg = MODULE_PACKAGE_LOOKUP[id];
+    const pin = pkg !== undefined ? M3_ENGINE_PINS.find((p) => p.id === pkg) ?? M2_ENGINE_PINS.find((p) => p.id === pkg) : undefined;
+    return { id, apiVersion: pin?.apiVersion ?? 1, package: pkg ?? '@thirdlight/runtime', version: pin?.version ?? '0.1.0' };
+  });
+}
+
+/** The `libraries` rows (ascending id, digest-named paths). */
+export function manifestLibraryRows(libraries: readonly Omit<ManifestLibraryRow, 'path'>[]): ManifestLibraryRow[] {
+  return [...libraries]
+    .map((l) => ({ libraryId: l.libraryId, sourceDigest: l.sourceDigest, outputDigest: l.outputDigest, outputByteLength: l.outputByteLength, path: `libraries/${l.outputDigest}.js` }))
+    .sort((a, b) => (a.libraryId < b.libraryId ? -1 : a.libraryId > b.libraryId ? 1 : 0));
+}
+
+/** The toolchain block every manifest carries (the compiler versions and the build options digest). */
+export function manifestToolchain(): { toolchain: Record<string, unknown>; buildOptionsDigest: string } {
+  const buildOptionsDigest = sha256Hex(buildOptionsRecordBytes());
+  return { toolchain: { esbuild: '0.28.2', typescript: '5.9.3', optionsDigest: buildOptionsDigest }, buildOptionsDigest };
+}
+
+/**
+ * The manifest's project-wide blocks in their canonical runtime form, from a
+ * capture's inputs: the ones a v4 manifest holds inline (`inline`, only the
+ * ones that apply) and the ones in content files (`files`). A v5 catalog
+ * writes the same blocks to its files.
+ */
+export function canonicalManifestBlocks(input: Omit<CaptureManifestV2Input, 'assets' | 'behaviors' | 'media' | 'moduleIds' | 'projectId' | 'revision' | 'capturedAt' | 'settings'>): { inline: Record<string, unknown>; files: Partial<Record<ManifestContentFileKey, unknown>> } {
+  const inline: Record<string, unknown> = {
+    ...(input.tags !== undefined && input.tags.length > 0 ? { tags: input.tags.map((t) => ({ bit: t.bit, name: t.name })) } : {}),
+    ...(input.effects !== undefined && input.effects.length > 0 ? { effects: canonicalEffects(input.effects) } : {}),
+    ...(input.environment !== undefined ? { environment: canonicalEnvironment(input.environment) } : {}),
+    ...(input.lighting !== undefined && Object.keys(input.lighting).length > 0 ? { lighting: canonicalLighting(input.lighting) } : {}),
+    ...(input.animators !== undefined && input.animators.length > 0 ? { animators: canonicalAnimators(input.animators) } : {}),
+    ...(input.rigs !== undefined && Object.keys(input.rigs).length > 0 ? { rigs: Object.fromEntries(Object.keys(input.rigs).sort().map((k) => [k, input.rigs![k]!])) } : {}),
+    ...(input.prefabs !== undefined && input.prefabs.length > 0 ? { prefabs: canonicalPrefabs(input.prefabs) } : {}),
+    ...(input.blockTypes !== undefined && input.blockTypes.length > 0 ? { blockTypes: canonicalBlockTypes(input.blockTypes) } : {}),
+    ...(input.cellFields !== undefined && input.cellFields.length > 0 ? { cellFields: canonicalCellFields(input.cellFields) } : {}),
+    ...(input.input !== undefined ? { input: canonicalInput(input.input) } : {}),
+    ...(input.collisionLayers !== undefined && input.collisionLayers.length > 0 ? { collisionLayers: [...input.collisionLayers] } : {}),
+    ...(input.saveSchema !== undefined ? { saveSchema: canonicalSaveSchema(input.saveSchema) } : {}),
+    ...(input.uiThemes !== undefined && input.uiThemes.length > 0 ? { uiThemes: canonicalUiThemes(input.uiThemes) } : {}),
+    ...(input.modes !== undefined && input.modes.length > 0 ? { modes: canonicalModes(input.modes) } : {}),
+    ...(input.timelines !== undefined && input.timelines.length > 0 ? { timelines: canonicalTimelines(input.timelines) } : {}),
+    ...(input.eventCues !== undefined && input.eventCues.length > 0 ? { eventCues: canonicalEventCues(input.eventCues) } : {}),
+    ...(input.shell !== undefined ? { shell: canonicalShell(input.shell) } : {}),
+  };
+  const files: Partial<Record<ManifestContentFileKey, unknown>> = {
+    ...(input.materials !== undefined && input.materials.length > 0 ? { materials: canonicalMaterials(input.materials) } : {}),
+    ...(input.materialFunctions !== undefined && input.materialFunctions.length > 0 ? { materialFunctions: canonicalGraphDocuments(input.materialFunctions) } : {}),
+    ...(input.uiDocuments !== undefined && input.uiDocuments.length > 0 ? { uiDocuments: canonicalUiDocuments(input.uiDocuments) } : {}),
+    ...(input.dialogue !== undefined && input.dialogue !== null ? { dialogue: JSON.parse(JSON.stringify(input.dialogue)) as RuntimeDialogueData } : {}),
+    ...(input.buffers !== undefined && input.buffers.length > 0 ? { buffers: input.buffers.map((b) => ({ digest: b.digest, byteLength: b.byteLength })) } : {}),
+  };
+  return { inline, files };
+}
+
 /**
  * `captureManifestV2(input)` — the pure v2 manifest derivation. Every field is
  * derived from the arguments; `capturedAt` is caller-supplied. The block
@@ -724,61 +858,18 @@ export function captureManifestV2(input: CaptureManifestV2Input): CaptureManifes
     if (!DIGEST_RE.test(value)) return { ok: false, error: manifestError('field_value', `${name} must be 64 lowercase hex`) };
   }
 
-  const assets = [...input.assets]
-    .map((a) => ({
-      assetId: a.assetId,
-      kind: a.kind,
-      version: a.version,
-      sourceDigest: a.sourceDigest,
-      sourceByteLength: a.sourceByteLength,
-      recipeDigest: a.recipeDigest ?? blockDigest(a.recipe ?? { id: 'unknown', version: 0 }),
-      metricsDigest: a.metricsDigest,
-      path: `content/sha256/${a.sourceDigest}`,
-      ...(a.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}),
-      ...(a.materials !== undefined ? { materials: canonicalMaterialMapping(a.materials) } : {}),
-      ...(a.clipsFor !== undefined ? { clipsFor: a.clipsFor } : {}),
-      ...(a.bounds !== undefined ? { bounds: boundsCopy(a.bounds) } : {}),
-      ...(a.durationMs !== undefined && a.kind === 'audio' ? { durationMs: a.durationMs } : {}),
-      ...(a.loadType !== undefined && a.kind === 'audio' ? { loadType: a.loadType, preload: a.preload !== false } : {}),
-    }))
-    .sort((a, b) => (a.assetId < b.assetId ? -1 : a.assetId > b.assetId ? 1 : a.version - b.version));
-  const behaviors = [...input.behaviors]
-    .map((b) => ({
-      behaviorId: b.behaviorId,
-      sourceDigest: b.sourceDigest,
-      sourceByteLength: b.sourceByteLength,
-      manifestDigest: b.manifestDigest,
-      outputDigest: b.outputDigest,
-      outputByteLength: b.outputByteLength,
-      apiVersion: b.apiVersion,
-      declaration: b.declaration,
-      ownedTransforms: [...b.ownedTransforms],
-      requiredModules: [...b.requiredModules],
-      path: `behaviors/${b.outputDigest}.js`,
-    }))
-    .sort((a, b) => (a.behaviorId < b.behaviorId ? -1 : a.behaviorId > b.behaviorId ? 1 : 0));
-
-  const moduleIds = [...new Set(input.moduleIds)].sort();
-  const modules = moduleIds.map((id) => {
-    const pkg = MODULE_PACKAGE_LOOKUP[id];
-    const pin = pkg !== undefined ? M3_ENGINE_PINS.find((p) => p.id === pkg) ?? M2_ENGINE_PINS.find((p) => p.id === pkg) : undefined;
-    return { id, apiVersion: pin?.apiVersion ?? 1, package: pkg ?? '@thirdlight/runtime', version: pin?.version ?? '0.1.0' };
-  });
+  const assets = sortedAssetRows(input.assets);
+  const behaviors = sortedBehaviorRows(input.behaviors);
+  const modules = manifestModuleRows(input.moduleIds);
   const enginePins = (input.enginePins ?? M3_ENGINE_PINS).map((p) => ({ id: p.id, version: p.version, apiVersion: p.apiVersion }));
   const recipes = { ...(input.recipes ?? M3_RECIPE_VERSIONS) };
 
   const settingsDigest = blockDigest(input.settings);
   const mediaDigest = blockDigest(input.media);
-  const buildOptionsDigest = sha256Hex(buildOptionsRecordBytes());
+  const { toolchain, buildOptionsDigest } = manifestToolchain();
 
   // The blocks that grow with the content go to their own files (canonical bytes, by digest).
-  const fileBlocks: Partial<Record<ManifestContentFileKey, unknown>> = {
-    ...(input.materials !== undefined && input.materials.length > 0 ? { materials: canonicalMaterials(input.materials) } : {}),
-    ...(input.materialFunctions !== undefined && input.materialFunctions.length > 0 ? { materialFunctions: canonicalGraphDocuments(input.materialFunctions) } : {}),
-    ...(input.uiDocuments !== undefined && input.uiDocuments.length > 0 ? { uiDocuments: canonicalUiDocuments(input.uiDocuments) } : {}),
-    ...(input.dialogue !== undefined && input.dialogue !== null ? { dialogue: JSON.parse(JSON.stringify(input.dialogue)) as RuntimeDialogueData } : {}),
-    ...(input.buffers !== undefined && input.buffers.length > 0 ? { buffers: input.buffers.map((b) => ({ digest: b.digest, byteLength: b.byteLength })) } : {}),
-  };
+  const { inline, files: fileBlocks } = canonicalManifestBlocks(input);
   const contentFiles: ManifestContentFile[] = [];
   for (const key of MANIFEST_CONTENT_FILE_KEYS) {
     if (!(key in fileBlocks)) continue;
@@ -802,40 +893,18 @@ export function captureManifestV2(input: CaptureManifestV2Input): CaptureManifes
     settingsDigest,
     mediaDigest,
     settings: input.settings,
-    ...(input.tags !== undefined && input.tags.length > 0 ? { tags: input.tags.map((t) => ({ bit: t.bit, name: t.name })) } : {}),
-    ...(input.effects !== undefined && input.effects.length > 0 ? { effects: canonicalEffects(input.effects) } : {}),
-    ...(input.environment !== undefined ? { environment: canonicalEnvironment(input.environment) } : {}),
-    ...(input.lighting !== undefined && Object.keys(input.lighting).length > 0 ? { lighting: canonicalLighting(input.lighting) } : {}),
-    ...(input.animators !== undefined && input.animators.length > 0 ? { animators: canonicalAnimators(input.animators) } : {}),
-    ...(input.rigs !== undefined && Object.keys(input.rigs).length > 0 ? { rigs: Object.fromEntries(Object.keys(input.rigs).sort().map((k) => [k, input.rigs![k]!])) } : {}),
-    ...(input.prefabs !== undefined && input.prefabs.length > 0 ? { prefabs: canonicalPrefabs(input.prefabs) } : {}),
-    ...(input.blockTypes !== undefined && input.blockTypes.length > 0 ? { blockTypes: canonicalBlockTypes(input.blockTypes) } : {}),
-    ...(input.cellFields !== undefined && input.cellFields.length > 0 ? { cellFields: canonicalCellFields(input.cellFields) } : {}),
-    ...(input.input !== undefined ? { input: canonicalInput(input.input) } : {}),
-    ...(input.collisionLayers !== undefined && input.collisionLayers.length > 0 ? { collisionLayers: [...input.collisionLayers] } : {}),
-    ...(input.saveSchema !== undefined ? { saveSchema: canonicalSaveSchema(input.saveSchema) } : {}),
-    ...(input.uiThemes !== undefined && input.uiThemes.length > 0 ? { uiThemes: canonicalUiThemes(input.uiThemes) } : {}),
-    ...(input.modes !== undefined && input.modes.length > 0 ? { modes: canonicalModes(input.modes) } : {}),
-    ...(input.timelines !== undefined && input.timelines.length > 0 ? { timelines: canonicalTimelines(input.timelines) } : {}),
-    ...(input.eventCues !== undefined && input.eventCues.length > 0 ? { eventCues: canonicalEventCues(input.eventCues) } : {}),
-    ...(input.shell !== undefined ? { shell: canonicalShell(input.shell) } : {}),
+    ...inline,
     ...(input.scenes !== undefined ? { scenes: input.scenes.map((r) => ({ sceneId: r.sceneId, path: r.path, digest: r.digest, byteLength: r.byteLength, start: r.start })) } : {}),
     ...(contentFiles.length > 0 ? { contentFiles: contentFiles.map((f) => ({ key: f.key, path: f.path, digest: f.digest, byteLength: f.byteLength })) } : {}),
     assets,
     ...(input.loadable !== undefined && input.loadable.length > 0 ? { loadable: input.loadable.map((r) => ({ kind: r.kind, id: r.id, ...(r.address !== undefined ? { address: r.address } : {}), ...(r.labels !== undefined ? { labels: [...r.labels] } : {}) })) } : {}),
     media: input.media,
     behaviors,
-    ...(input.libraries !== undefined && input.libraries.length > 0
-      ? {
-          libraries: [...input.libraries]
-            .map((l) => ({ libraryId: l.libraryId, sourceDigest: l.sourceDigest, outputDigest: l.outputDigest, outputByteLength: l.outputByteLength, path: `libraries/${l.outputDigest}.js` }))
-            .sort((a, b) => (a.libraryId < b.libraryId ? -1 : a.libraryId > b.libraryId ? 1 : 0)),
-        }
-      : {}),
+    ...(input.libraries !== undefined && input.libraries.length > 0 ? { libraries: manifestLibraryRows(input.libraries) } : {}),
     modules,
     enginePins,
     recipes,
-    toolchain: { esbuild: '0.28.2', typescript: '5.9.3', optionsDigest: buildOptionsDigest },
+    toolchain,
     buildOptionsDigest,
   };
   const preimage = manifestBuildIdInputV2(withoutBuildId);
@@ -932,64 +1001,8 @@ export function validateManifestV2(doc: unknown, opts?: ValidateManifestV2Option
     if (OPTIONAL_MANIFEST_KEYS.has(key)) continue; // optional
     if (!(key in d)) return { ok: false, error: manifestError('manifest_invalid', `missing manifest key "${key}"`, 'missing_key', undefined, key) };
   }
-  if (d['rigs'] !== undefined) {
-    const r = d['rigs'];
-    if (typeof r !== 'object' || r === null || Array.isArray(r)) return { ok: false, error: manifestError('manifest_invalid', 'rigs maps model asset ids to rigs', 'field_value') };
-    for (const [k, v] of Object.entries(r as Record<string, unknown>)) {
-      const why = validateModelRig(v);
-      if (why !== null) return { ok: false, error: manifestError('manifest_invalid', `rigs["${k}"]: ${why}`.slice(0, 256), 'field_value') };
-    }
-  }
-  if (d['tags'] !== undefined) {
-    const tagErrors: ModelErrorV2[] = [];
-    validateTagRegistry(d['tags'], '/tags', tagErrors);
-    if (tagErrors.length > 0) return { ok: false, error: manifestError('manifest_invalid', 'tags is not a valid tag registry', 'field_value') };
-  }
-  // The timelines validate as content.timelines does (their own rules).
-  if (d['timelines'] !== undefined) {
-    const tlErrors: ModelErrorV2[] = [];
-    validateTimelines(d['timelines'], '/timelines', tlErrors);
-    if (tlErrors.length > 0) return { ok: false, error: manifestError('manifest_invalid', 'timelines are not valid', 'field_value') };
-  }
-  // The event → cue table validates as content.eventCues does.
-  if (d['eventCues'] !== undefined) {
-    const ecErrors: ModelErrorV2[] = [];
-    validateEventCues(d['eventCues'], '/eventCues', ecErrors);
-    if (ecErrors.length > 0) return { ok: false, error: manifestError('manifest_invalid', 'eventCues are not valid', 'field_value') };
-  }
-  // The game shell validates as content.shell does.
-  if (d['shell'] !== undefined) {
-    const shErrors: ModelErrorV2[] = [];
-    validateShell(d['shell'], '/shell', shErrors);
-    if (shErrors.length > 0) return { ok: false, error: manifestError('manifest_invalid', 'shell is not valid', 'field_value') };
-  }
-  if (d['effects'] !== undefined || d['environment'] !== undefined || d['lighting'] !== undefined || d['animators'] !== undefined || d['prefabs'] !== undefined || d['input'] !== undefined || d['collisionLayers'] !== undefined || d['uiThemes'] !== undefined || d['modes'] !== undefined) {
-    const matErrors: ModelErrorV2[] = [];
-    // The effects validate as content.effects does.
-    if (d['effects'] !== undefined) validateEffects(d['effects'], '/effects', matErrors);
-    if (d['environment'] !== undefined) validateEnvironment(d['environment'], '/environment', matErrors);
-    if (d['lighting'] !== undefined) validateLighting(d['lighting'], '/lighting', matErrors);
-    if (d['animators'] !== undefined) validateAnimators(d['animators'], '/animators', matErrors);
-    if (d['prefabs'] !== undefined) validatePrefabDefinitions(d['prefabs'], '/prefabs', matErrors, 4);
-    if (d['input'] !== undefined) validateInput(d['input'], '/input', matErrors);
-    if (d['collisionLayers'] !== undefined) validateCollisionLayers(d['collisionLayers'], '/collisionLayers', matErrors);
-    // The UI themes validate as content.uiThemes does (the documents are a content file).
-    if (d['uiThemes'] !== undefined) validateUiThemes(d['uiThemes'], '/uiThemes', matErrors);
-    // The game modes validate as content.modes does.
-    if (d['modes'] !== undefined) validateModes(d['modes'], '/modes', matErrors);
-    if (matErrors.length > 0) return { ok: false, error: manifestError('manifest_invalid', 'effects/environment/lighting are not valid', 'field_value') };
-  }
-
-  if (d['blockTypes'] !== undefined || d['cellFields'] !== undefined) {
-    const blockErrors: ModelErrorV2[] = [];
-    if (d['blockTypes'] !== undefined) validateBlockTypes(d['blockTypes'], '/blockTypes', blockErrors);
-    if (d['cellFields'] !== undefined) validateCellFields(d['cellFields'], '/cellFields', blockErrors);
-    if (blockErrors.length > 0) return { ok: false, error: manifestError('manifest_invalid', 'blockTypes/cellFields are not valid', 'field_value') };
-  }
-  if (d['loadable'] !== undefined) {
-    const why = loadableRowsProblem(d['loadable']);
-    if (why !== null) return { ok: false, error: manifestError('manifest_invalid', why.slice(0, 256), 'field_value') };
-  }
+  const blocks = manifestBlocksProblem(d);
+  if (blocks !== null) return { ok: false, error: blocks };
   // The content file rows (and, when given, their blocks).
   if (d['contentFiles'] !== undefined) {
     const rowsRes = contentFileRowsProblem(d['contentFiles']);
@@ -999,12 +1012,6 @@ export function validateManifestV2(doc: unknown, opts?: ValidateManifestV2Option
     const blocksRes = contentFileBlocksProblem((d['contentFiles'] as ManifestContentFileRow[] | undefined) ?? [], opts.contentFiles, d['input']);
     if (blocksRes !== null) return { ok: false, error: manifestError('manifest_invalid', blocksRes.slice(0, 256), 'content_file') };
   }
-  if (d['saveSchema'] !== undefined) {
-    const saveErrors: ModelErrorV2[] = [];
-    validateSaveSchema(d['saveSchema'], '/saveSchema', saveErrors);
-    if (saveErrors.length > 0) return { ok: false, error: manifestError('manifest_invalid', 'saveSchema is not valid', 'field_value') };
-  }
-
   if (d['type'] !== RUNTIME_CONTENT_TYPE) {
     return { ok: false, error: manifestError('manifest_invalid', 'type is not the runtime-content discriminator', 'field_value', d['type'], RUNTIME_CONTENT_TYPE) };
   }
@@ -1118,8 +1125,83 @@ export function validateManifestV2(doc: unknown, opts?: ValidateManifestV2Option
   return { ok: true, manifest: doc as unknown as RuntimeContentManifestV2 };
 }
 
+/**
+ * Why a manifest's project-wide blocks do not validate (null: they do): each
+ * block by its own content rules (rigs, tags, timelines, event cues, shell,
+ * effects, environment, lighting, animators, prefabs, input, collision
+ * layers, UI themes, modes, block types, cell fields, loadable rows, save
+ * schema). A v4 manifest holds them inline; a v5 catalog in its files.
+ */
+export function manifestBlocksProblem(d: Readonly<Record<string, unknown>>): ManifestErrorV2 | null {
+  if (d['rigs'] !== undefined) {
+    const r = d['rigs'];
+    if (typeof r !== 'object' || r === null || Array.isArray(r)) return manifestError('manifest_invalid', 'rigs maps model asset ids to rigs', 'field_value');
+    for (const [k, v] of Object.entries(r as Record<string, unknown>)) {
+      const why = validateModelRig(v);
+      if (why !== null) return manifestError('manifest_invalid', `rigs["${k}"]: ${why}`.slice(0, 256), 'field_value');
+    }
+  }
+  if (d['tags'] !== undefined) {
+    const tagErrors: ModelErrorV2[] = [];
+    validateTagRegistry(d['tags'], '/tags', tagErrors);
+    if (tagErrors.length > 0) return manifestError('manifest_invalid', 'tags is not a valid tag registry', 'field_value');
+  }
+  // The timelines validate as content.timelines does (their own rules).
+  if (d['timelines'] !== undefined) {
+    const tlErrors: ModelErrorV2[] = [];
+    validateTimelines(d['timelines'], '/timelines', tlErrors);
+    if (tlErrors.length > 0) return manifestError('manifest_invalid', 'timelines are not valid', 'field_value');
+  }
+  // The event → cue table validates as content.eventCues does.
+  if (d['eventCues'] !== undefined) {
+    const ecErrors: ModelErrorV2[] = [];
+    validateEventCues(d['eventCues'], '/eventCues', ecErrors);
+    if (ecErrors.length > 0) return manifestError('manifest_invalid', 'eventCues are not valid', 'field_value');
+  }
+  // The game shell validates as content.shell does.
+  if (d['shell'] !== undefined) {
+    const shErrors: ModelErrorV2[] = [];
+    validateShell(d['shell'], '/shell', shErrors);
+    if (shErrors.length > 0) return manifestError('manifest_invalid', 'shell is not valid', 'field_value');
+  }
+  if (d['effects'] !== undefined || d['environment'] !== undefined || d['lighting'] !== undefined || d['animators'] !== undefined || d['prefabs'] !== undefined || d['input'] !== undefined || d['collisionLayers'] !== undefined || d['uiThemes'] !== undefined || d['modes'] !== undefined) {
+    const matErrors: ModelErrorV2[] = [];
+    // The effects validate as content.effects does.
+    if (d['effects'] !== undefined) validateEffects(d['effects'], '/effects', matErrors);
+    if (d['environment'] !== undefined) validateEnvironment(d['environment'], '/environment', matErrors);
+    if (d['lighting'] !== undefined) validateLighting(d['lighting'], '/lighting', matErrors);
+    if (d['animators'] !== undefined) validateAnimators(d['animators'], '/animators', matErrors);
+    if (d['prefabs'] !== undefined) validatePrefabDefinitions(d['prefabs'], '/prefabs', matErrors, 4);
+    if (d['input'] !== undefined) validateInput(d['input'], '/input', matErrors);
+    if (d['collisionLayers'] !== undefined) validateCollisionLayers(d['collisionLayers'], '/collisionLayers', matErrors);
+    // The UI themes validate as content.uiThemes does (the documents are a content file).
+    if (d['uiThemes'] !== undefined) validateUiThemes(d['uiThemes'], '/uiThemes', matErrors);
+    // The game modes validate as content.modes does.
+    if (d['modes'] !== undefined) validateModes(d['modes'], '/modes', matErrors);
+    if (matErrors.length > 0) return manifestError('manifest_invalid', 'effects/environment/lighting are not valid', 'field_value');
+  }
+
+  if (d['blockTypes'] !== undefined || d['cellFields'] !== undefined) {
+    const blockErrors: ModelErrorV2[] = [];
+    if (d['blockTypes'] !== undefined) validateBlockTypes(d['blockTypes'], '/blockTypes', blockErrors);
+    if (d['cellFields'] !== undefined) validateCellFields(d['cellFields'], '/cellFields', blockErrors);
+    if (blockErrors.length > 0) return manifestError('manifest_invalid', 'blockTypes/cellFields are not valid', 'field_value');
+  }
+  if (d['loadable'] !== undefined) {
+    const why = loadableRowsProblem(d['loadable']);
+    if (why !== null) return manifestError('manifest_invalid', why.slice(0, 256), 'field_value');
+  }
+  if (d['saveSchema'] !== undefined) {
+    const saveErrors: ModelErrorV2[] = [];
+    validateSaveSchema(d['saveSchema'], '/saveSchema', saveErrors);
+    if (saveErrors.length > 0) return manifestError('manifest_invalid', 'saveSchema is not valid', 'field_value');
+  }
+
+  return null;
+}
+
 /** Why a `libraries` value is not a list of shared library rows (null: it is). */
-function libraryRowsProblem(v: unknown): string | null {
+export function libraryRowsProblem(v: unknown): string | null {
   if (!Array.isArray(v) || v.length === 0) return 'a non-empty list of rows';
   let last = '';
   for (const [i, raw] of v.entries()) {
@@ -1162,39 +1244,51 @@ function contentFileBlocksProblem(rows: readonly ManifestContentFileRow[], block
   for (const key of Object.keys(blocks)) {
     if (!rows.some((r) => r.key === key)) return `content file ${key} is not listed in contentFiles`;
   }
-  const errors: ModelErrorV2[] = [];
   for (const row of rows) {
     if (!(row.key in blocks)) return `content file ${row.key} is missing`;
     const block = blocks[row.key];
     const bytes = new TextEncoder().encode(`${JSON.stringify(block, null, 2)}\n`);
     if (bytes.length !== row.byteLength || sha256Hex(bytes) !== row.digest) return `content file ${row.key} does not match its digest`;
-    switch (row.key) {
-      case 'materialFunctions':
-        // The functions validate as graph documents (kind material-function only); graph materials call them.
-        validateGraphDocuments(GRAPH_KINDS, block, '/materialFunctions', errors);
-        if (Array.isArray(block) && (block as unknown[]).some((g) => (g as { kind?: unknown } | null)?.kind !== 'material-function')) {
-          errors.push({ code: 'field_value', path: '/materialFunctions', message: 'materialFunctions holds material functions only' } as ModelErrorV2);
-        }
-        break;
-      case 'materials':
-        validateMaterials(block, '/materials', errors, graphDocumentsContext(GRAPH_KINDS, blocks.materialFunctions));
-        break;
-      case 'uiDocuments':
-        validateUiDocuments(block, '/uiDocuments', errors, projectInputMaps(input));
-        break;
-      case 'dialogue': {
-        const why = runtimeDialogueDataProblem(block);
-        if (why !== null) return `dialogue: ${why}`;
-        break;
-      }
-      case 'buffers':
-        if (!Array.isArray(block) || block.length === 0 || block.some((b) => !isPlainObject(b) || Object.keys(b).join(',') !== 'digest,byteLength' || !isDigest((b as Record<string, unknown>)['digest']) || !Number.isInteger((b as Record<string, unknown>)['byteLength']))) {
-          return 'buffers is a list of {digest, byteLength} rows';
-        }
-        break;
-    }
-    if (errors.length > 0) return `content file ${row.key} is not valid: ${errors[0]!.message}`;
+    const why = contentFileBlockProblem(row.key, block, { materialFunctions: blocks.materialFunctions, input });
+    if (why !== null) return why;
   }
+  return null;
+}
+
+/**
+ * Why one content file block does not validate (null: it does): the
+ * materials with the material functions they call, the functions as graph
+ * documents, the UI documents with the input maps, the dialogue data, the
+ * instance buffer rows.
+ */
+export function contentFileBlockProblem(key: ManifestContentFileKey, block: unknown, ctx: { readonly materialFunctions?: unknown; readonly input?: unknown }): string | null {
+  const errors: ModelErrorV2[] = [];
+  switch (key) {
+    case 'materialFunctions':
+      // The functions validate as graph documents (kind material-function only); graph materials call them.
+      validateGraphDocuments(GRAPH_KINDS, block, '/materialFunctions', errors);
+      if (Array.isArray(block) && (block as unknown[]).some((g) => (g as { kind?: unknown } | null)?.kind !== 'material-function')) {
+        errors.push({ code: 'field_value', path: '/materialFunctions', message: 'materialFunctions holds material functions only' } as ModelErrorV2);
+      }
+      break;
+    case 'materials':
+      validateMaterials(block, '/materials', errors, graphDocumentsContext(GRAPH_KINDS, ctx.materialFunctions));
+      break;
+    case 'uiDocuments':
+      validateUiDocuments(block, '/uiDocuments', errors, projectInputMaps(ctx.input));
+      break;
+    case 'dialogue': {
+      const why = runtimeDialogueDataProblem(block);
+      if (why !== null) return `dialogue: ${why}`;
+      break;
+    }
+    case 'buffers':
+      if (!Array.isArray(block) || block.length === 0 || block.some((b) => !isPlainObject(b) || Object.keys(b).join(',') !== 'digest,byteLength' || !isDigest((b as Record<string, unknown>)['digest']) || !Number.isInteger((b as Record<string, unknown>)['byteLength']))) {
+        return 'buffers is a list of {digest, byteLength} rows';
+      }
+      break;
+  }
+  if (errors.length > 0) return `content file ${key} is not valid: ${errors[0]!.message}`;
   return null;
 }
 

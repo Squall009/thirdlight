@@ -4,8 +4,12 @@
  * message queuing, and ID allocators matching the protocol's ID syntaxes.
  */
 import { randomBytes } from 'node:crypto';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { WebSocket } from 'ws';
+import { readRuntimeContentSync, type ExpandedRuntimeContent } from '@thirdlight/exporter';
 import type { Backend } from './backend';
+import { isFileArtifact } from './play-content';
 import { createTestBackend } from './testing';
 
 export function hex(n: number): string {
@@ -229,3 +233,24 @@ export function upgrade(tb: TestBackend, sessionId: string, wsToken: string, ori
 
 /** A small sleep (tests run on the real clock with shortened timeouts). */
 export const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+/**
+ * A Play's content read whole (every catalog file from the set the backend
+ * published for it, checked against its row): the manifest's blocks, every
+ * catalog entry as `assets`, the scenes' rows and dependency entries.
+ */
+export function playContentOf(tb: TestBackend, playSessionId: string): ExpandedRuntimeContent {
+  const set = tb.backend._test.playContent.forPlay(playSessionId);
+  if (set === undefined) throw new Error(`no play content for ${playSessionId}`);
+  return readRuntimeContentSync(JSON.parse(new TextDecoder().decode(set.manifestBytes)), (path) => {
+    const a = set.artifacts.get(path);
+    return a !== undefined && !isFileArtifact(a) ? a.bytes : null;
+  });
+}
+
+/** An export's content read whole from its output folder (every catalog file checked against its row). */
+export function exportContentOf(outDir: string): ExpandedRuntimeContent {
+  return readRuntimeContentSync(JSON.parse(readFileSync(join(outDir, 'manifest.json'), 'utf8')), (path) => {
+    const file = join(outDir, path);
+    return existsSync(file) ? new Uint8Array(readFileSync(file)) : null;
+  });
+}

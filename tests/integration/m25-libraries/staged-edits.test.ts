@@ -13,7 +13,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { acknowledgePreparedDigest, publishBehaviorSource } from '@thirdlight/backend/services';
-import { scriptLibraryDigest } from '@thirdlight/project-model';
+import { scriptLibraryDigest, readRuntimeContentSync } from '@thirdlight/project-model';
 
 import { envelopeJson, makeBuildEnv, requestId, sha256Hex, ORIGIN, type BuildEnv } from '../m2-builds/helpers';
 
@@ -205,9 +205,12 @@ describe('records published before shared libraries', () => {
     const c = built.closure;
     // The shipped script is the shared form (it imports mid's module); mid imports base's.
     expect(c.behaviors[0]!.outputDigest).not.toBe(recorded);
-    expect(c.libraryArtifacts.map((a) => a.path)).toEqual(c.manifest.libraries!.map((l) => l.path));
-    expect(c.manifest.libraries!.map((l) => l.libraryId)).toEqual(['base', 'mid']);
-    const mid = c.manifest.libraries!.find((l) => l.libraryId === 'mid')!;
+    // The library rows are the catalog's (its root).
+    const files = new Map(c.contentFileArtifacts.map((f) => [f.path, f.bytes]));
+    const libraries = readRuntimeContentSync(c.manifest, (p) => files.get(p) ?? null).libraries!;
+    expect(c.libraryArtifacts.map((a) => a.path)).toEqual(libraries.map((l) => l.path));
+    expect(libraries.map((l) => l.libraryId)).toEqual(['base', 'mid']);
+    const mid = libraries.find((l) => l.libraryId === 'mid')!;
     expect(new TextDecoder().decode(c.behaviorArtifacts[0]!.bytes)).toContain(`../libraries/${mid.outputDigest}.js`);
     expect(c.declaredPaths).toEqual(expect.arrayContaining(c.libraryArtifacts.map((a) => a.path)));
     // Maps for every shipped module (Play maps error locations with them).

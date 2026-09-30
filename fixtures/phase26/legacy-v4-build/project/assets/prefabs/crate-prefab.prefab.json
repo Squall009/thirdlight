@@ -1,0 +1,15 @@
+{
+  "tlresource": 1,
+  "kind": "prefab",
+  "id": "crate-prefab",
+  "data": {
+    "prefabId": "crate-prefab",
+    "displayName": "Crate prefab",
+    "createdRevision": 11,
+    "entityCount": 1,
+    "depth": 1,
+    "entities": [
+      {"localId":"model-000001","name":"Crate","components":{"transform":{"position":[2,0,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"model":{"asset":{"assetId":"crate"}}}}
+    ]
+  }
+}

@@ -66,8 +66,16 @@ export interface VerifiedAssetReader {
   stats(): { reads: number; bytes: number };
 }
 
-export function createVerifiedAssetReader(rows: readonly DeclaredAssetRow[], io: AssetReaderIo, opts: { inFlight?: number } = {}): VerifiedAssetReader {
+/** Where a reader finds a row it was not given (the page's catalog: rows read so far, and the shard reads). */
+export interface AssetRowSource {
+  row(assetId: string, version?: number): DeclaredAssetRow | undefined;
+  rowAt(path: string): DeclaredAssetRow | undefined;
+  lookup(assetId: string): Promise<DeclaredAssetRow | undefined>;
+}
+
+export function createVerifiedAssetReader(rows: readonly DeclaredAssetRow[], io: AssetReaderIo, opts: { inFlight?: number; catalog?: AssetRowSource } = {}): VerifiedAssetReader {
   const limit = Math.max(1, opts.inFlight ?? ASSET_READS_IN_FLIGHT);
+  const catalog = opts.catalog;
   const byKey = new Map(rows.map((r) => [`${r.assetId}@${r.version}`, r]));
   const byPath = new Map(rows.map((r) => [r.path, r]));
   const reads = new Map<string, Promise<ArrayBuffer>>();
@@ -122,12 +130,19 @@ export function createVerifiedAssetReader(rows: readonly DeclaredAssetRow[], io:
   };
   return {
     bytes(assetId, version) {
-      const row = byKey.get(`${assetId}@${version}`);
-      if (row === undefined) return Promise.reject(new AssetReadError(assetId, `${assetId} v${version} is not declared in this build`));
-      return readRow(row);
+      const row = byKey.get(`${assetId}@${version}`) ?? catalog?.row(assetId, version);
+      if (row !== undefined) return readRow(row);
+      const missing = (): AssetReadError => new AssetReadError(assetId, `${assetId} v${version} is not declared in this build`);
+      if (catalog === undefined) return Promise.reject(missing());
+      // A row no read so far had: its catalog shard names it (or the build does not have it).
+      return catalog.lookup(assetId).then(() => {
+        const found = catalog.row(assetId, version);
+        if (found === undefined) throw missing();
+        return readRow(found);
+      });
     },
     bytesAt(path) {
-      const row = byPath.get(path);
+      const row = byPath.get(path) ?? catalog?.rowAt(path);
       return row === undefined ? null : readRow(row);
     },
     peek(assetId, version) {

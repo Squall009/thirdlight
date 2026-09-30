@@ -18,13 +18,13 @@
  * WebGPU in `webgpu`.
  */
 import { randomBytes } from 'node:crypto';
-import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
+import { createReadStream, existsSync, statSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { extname, join, normalize } from 'node:path';
 
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
-import { publishBytes, startBackend, type E2EBackend } from './backend';
+import { exportedContent, publishBytes, startBackend, type E2EBackend } from './backend';
 import { multiPieceGlb } from './multi-piece-glb';
 import { decodePng, type Image } from './png';
 import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
@@ -198,10 +198,7 @@ for (const variant of VARIANTS) test(`material instances on an object, a model a
   expect(res.status, JSON.stringify(res.json)).toBe(200);
   const out = join(be.exportRoot, String(res.json.outputDir));
   // The shipped materials: the three used instances, resolved (no instanceOf), and neither parent.
-  const manifest = JSON.parse(readFileSync(join(out, 'manifest.json'), 'utf8')) as { contentFiles?: { key: string; path: string }[] };
-  const row = manifest.contentFiles?.find((f) => f.key === 'materials');
-  expect(row).toBeDefined();
-  const shipped = JSON.parse(readFileSync(join(out, row!.path), 'utf8')) as { materialId: string; instanceOf?: string; graph?: unknown; parameters?: { key: string; default: unknown }[] }[];
+  const shipped = (exportedContent(out).materials ?? []) as unknown as { materialId: string; instanceOf?: string; graph?: unknown; parameters?: { key: string; default: unknown }[] }[];
   expect(shipped.map((m) => m.materialId).sort()).toEqual([redId, 'plain-blue', yellowId].sort());
   expect(shipped.some((m) => m.instanceOf !== undefined)).toBe(false);
   expect(shipped.find((m) => m.materialId === yellowId)?.parameters).toEqual([{ key: 'tint', type: 'color', default: '#ffff00' }]);

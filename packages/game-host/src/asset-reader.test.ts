@@ -11,6 +11,34 @@ async function rowFor(assetId: string, kind: string, bytes: Uint8Array, extra: R
 }
 
 describe('verified asset reader', () => {
+  it('a row it was not given comes from the catalog: rows read since, else the shard lookup, then the checked read', async () => {
+    const bytes = new TextEncoder().encode('late sound');
+    const late = await rowFor('late', 'audio', bytes);
+    const known = new Map<string, DeclaredAssetRow>();
+    let lookups = 0;
+    const catalog = {
+      row: (id: string, v?: number) => (known.get(id)?.version === (v ?? 1) ? known.get(id) : undefined),
+      rowAt: (path: string) => [...known.values()].find((r) => r.path === path),
+      lookup: async (id: string) => {
+        lookups += 1;
+        if (id === 'late') known.set(id, late);
+        return known.get(id);
+      },
+    };
+    const reads: string[] = [];
+    const reader = createVerifiedAssetReader([], { read: async (p) => (reads.push(p), bytes.slice().buffer), sha256Hex: hex }, { catalog });
+    expect(reader.bytesAt(late.path)).toBeNull();
+    expect(new TextDecoder().decode(await reader.bytes('late', 1))).toBe('late sound');
+    expect(lookups).toBe(1);
+    // Known now: no second lookup, and its path reads through the reader.
+    await reader.bytes('late', 1);
+    expect(lookups).toBe(1);
+    expect(reader.bytesAt(late.path)).not.toBeNull();
+    expect(reads).toEqual([late.path]);
+    // Not in the build: refused, naming it.
+    await expect(reader.bytes('ghost', 1)).rejects.toThrow(/ghost v1 is not declared/);
+  });
+
   it('reads each asset once, at most 8 at a time, and checks every one', async () => {
     const files = new Map<string, Uint8Array>();
     const rows: DeclaredAssetRow[] = [];

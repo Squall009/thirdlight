@@ -143,15 +143,17 @@ describe('v3 play route (real backend + locator)', () => {
     const manifest = await locator(`${path}${manifestPath}`);
     expect(manifest.status).toBe(200);
     const doc = JSON.parse(new TextDecoder().decode(manifest.bytes)) as Record<string, unknown>;
-    expect(doc.manifestVersion).toBe(4);
+    expect(doc.manifestVersion).toBe(5);
     expect(doc.type).toBe('thirdlight-runtime-content');
     expect(doc.buildId).toBe(buildId);
     expect(doc.projectId).toBe(V3_PROJECT);
     expect(doc.snapshotId).toBe(`${V3_PROJECT}@r${revision}`);
-    // The box-based demo has no media assets; the resolved six-key settings are
-    // present (defaults, since the authored settings block is empty).
-    expect(Array.isArray(doc.assets)).toBe(true);
-    expect((doc.assets as unknown[]).length).toBe(0);
+    // The box-based demo has no media assets (its catalog has no entry shard); the
+    // resolved six-key settings are present (defaults, since the authored settings block is empty).
+    expect('assets' in doc).toBe(false);
+    const root = await locator(`${path}${(doc.catalog as { path: string }).path}`);
+    expect(root.status).toBe(200);
+    expect((JSON.parse(new TextDecoder().decode(root.bytes)) as { entries: unknown[] }).entries).toEqual([]);
     expect(typeof doc.settings).toBe('object');
     expect('game' in doc).toBe(false);
     expect(doc.sceneDigest).toMatch(/^[0-9a-f]{64}$/);

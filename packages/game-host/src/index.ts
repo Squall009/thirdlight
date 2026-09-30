@@ -111,6 +111,8 @@ export function browserContextFactory(): (() => AudioContextLike | null) | null 
   type ManifestSceneRow,
   type SceneCatalogIo,
 } from './scene-catalog';
+// A build's runtime content: the manifest and the catalog, read as the game needs it (v5; a v4 build opens the same way).
+export { openRuntimeContent, type CatalogRow, type RuntimeCatalog, type RuntimeContent } from './runtime-content';
 // Scene loads prepared before they are handed to the simulation, and scenes read ahead.
 export { createScenePreloader, pageScenePreparation, SCENES_READ_AHEAD, SCENE_PREPARE_WAIT_MS, type ScenePreloader, type ScenePreparation, type ScenePreparingAdapter, type ScenePreloadHooks } from './scene-preload';
 // The simulation worker (runs the deterministic simulation off the page) and its page-side mirror.
@@ -126,7 +128,7 @@ export { TickInputSource, continueFrame, mergePhase } from './tick-input';
 export { runDigest, stepDigest } from './step-digest';
 export { RunProbe, type InputRunDigest, type RunDigestNow, type RunDigests } from './run-probe';
 // The verified asset reader (start-scene assets first, bounded parallel; the rest on demand).
-export { AssetReadError, ASSET_READS_IN_FLIGHT, createVerifiedAssetReader, startSceneAssets, type AssetReaderIo, type DeclaredAssetRow, type StartAssetSources, type VerifiedAssetReader } from './asset-reader';
+export { AssetReadError, ASSET_READS_IN_FLIGHT, createVerifiedAssetReader, startSceneAssets, type AssetReaderIo, type AssetRowSource, type DeclaredAssetRow, type StartAssetSources, type VerifiedAssetReader } from './asset-reader';
 // Where a game page's start time goes (stages, first frame, slow frames, scene loads).
 export { createStartTimings, FRAME_WATCH_MS, SLOW_FRAME_MS, type FrameWatch, type SceneLoadTiming, type SlowFrame, type StartStage, type StartTimings, type StartTimingsReport } from './start-timings';
 export { createDebugConsole, consoleWords, parseConsoleLine, DEBUG_CONSOLE_KEY, type DebugConsole, type DebugConsoleDeps } from './debug-console';

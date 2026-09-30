@@ -192,7 +192,8 @@ at the boundary it changes (Playwright for any editor surface).
 | 26.6 | done 2026-09-30: one `audio` kind (Ogg Vorbis/Opus, MP3, WAV integer or float, FLAC; any channels, rate, bits, length; the 32 MiB file cap only); header inspection per format; load type and preload in the sidecar (`setAssetOptions`), defaults by length, carried in the manifest; `music` and short-sound records upgraded on open (v4 and earlier v5, ids kept, replays answered); browser gaps as a Problem; asset inspector shows the facts and settings; e2e `audio-kinds` |
 | 26.7 | done 2026-09-30: an address and labels on any asset (on its record, in its sidecar, format 3) or resource (in its resource file, beside the record); `setLabels {items: [{kind, id}], add?, remove?}` and `setAddress {kind, id, address}` (unique project-wide), one command and one undo however many items; the Assets tab labels a multi-selection and its side panel sets one asset's address and labels; MCP commands and index filters (`address`, `loadable`); loadable assets and materials ship with Play and export though no scene references them, and the manifest lists them (`loadable`); a script naming a non-loadable asset is a Problem; on open, older projects' script-named assets get the label `script-named` (reported in Problems and `upgrade-report.json`); e2e `loadable` |
 | 26.8 | done 2026-09-30: a file's digest checked once per change (stamps in memory and in `cache/imported/file-stamps.json`, a restart hashes nothing unchanged); Play serves assets and instance buffers from disk at their digest URLs, verified while sent (a changed file refused, or cut short, and re-checked); the 512 MiB Play set cap gone (per held file only); record lookups and query pages from indexes, the integrity report paged (`limit`, `offset`, `problems`); the check before Play and export takes changed files in; full-size Play 9.0 → 2.8 s (§6); D67 logged, D68 fixed; e2e `play-files` |
-| 26.9–26.14 | — |
+| 26.9 | A done 2026-09-30: runtime content manifest 5 (identity, settings, start scenes, the catalog's location; ~1.7 KB at any size); the catalog (root, block files in parts, entry shards by id with address, labels and dependencies, a dependency file per scene) read lazily by the game page (`openRuntimeContent`: a scene load reads its file and its dependency file, an unnamed id its one shard); a v4 build read the same way (fixture `legacy-v4-build`); D67 fixed; an asset property's default ships; the content view no longer validates or hashes what the model did; e2e `manifest-keys`, integration `m26-catalog`. B (export streaming, one game-page bootstrap) pending |
+| 26.10–26.14 | — |
 
 ## 6. Measurements
 
@@ -413,6 +414,32 @@ before the follow-up measured the file check at 2.5 / 2.0 / 2.2 s and Play at
 5.6 s: the check spent its time resolving the game folder's real path for
 every file and opening each file to stat it, and blocked the event loop while
 the editor's connect-time check ran, delaying the Play request behind it.
+
+After 26.9 A (manifest 5 and the lazily read catalog; `--steps
+files,open,play,walk,dialogue --gpu`, the working tree on `8c21bfa3`, GPU
+host, 2026-09-30; reports `scale-small-2026-09-30T07-17-16-074Z.json`,
+`scale-x0.1-2026-09-30T07-17-44-874Z.json`,
+`scale-full-2026-09-30T07-21-33-110Z.json`; ms, MiB):
+
+| | small (60 assets) | ×0.1 (1,800) | full (18,000) | full before (26.8) |
+|---|---|---|---|---|
+| Play: click → first frame | 437 | 577 | 1,278 | 2,816 |
+| Play: backend total (closure; view / assets / manifest) | 42 (14) | 117 (70) | 736 (476; 208 / 110 / 134) | 1,623 (1,368; 788 / 107 / 442) |
+| what the page reads at open: manifest + catalog files | 1.8 K + 7 files 16 K | 1.8 K + 7 files 263 K | 1.8 K + 8 files 2.6 M | 9.2 M + 2 files 0.97 M |
+| backend resident: open / peak during the start / after the stop | 147 / 163 / 179 | 180 / 212 / 245 | 368 / 458 / 375 | 374 / 498 / 473 |
+| scene load (walk): request → drawn p50 / p95 | 64 / 115 | 103 / 156 | 138 / 176 | 145 / 158 (26.5) |
+| dialogue: heard; line → voice p95; gap p95 / max | 6/6; 35; 4 / 4 | 200/200; 34; 10 / 12 | 500/500; 35; 10 / 23 | 500/500; 35; 10 / 26 (26.5) |
+
+Play start at full is 1.3 s (it was 2.8 s): the manifest is 1.7 KB and the
+page reads 2.6 MB of catalog files at open (the prefabs 1.6 MB, the
+simulation's facts, materials and dialogue), none of the entry shards; each
+scene load reads its scene file and its dependency file (walk: read p50
+3 ms), a voice its shard once. Still growing with the asset count: the
+blocks the simulation needs whole (above), the backend's entries and
+dependency files (`closure.manifest` 134 ms), the content view (208 ms: the
+references of every scene and prefab and the view's digest) and one stat per
+asset (the locate 110 ms and the pre-Play check). The heap still grows over
+the walk (61 → 112 MiB): 26.10.
 
 Proposed targets for "Done when" (fixed in 26.14 from these numbers):
 
@@ -1112,3 +1139,86 @@ Proposed targets for "Done when" (fixed in 26.14 from these numbers):
   the bytes. Reading the closure found D67 (a behavior's required modules
   never reach the module set) and D68 (only the first 128 behaviors were
   compiled: fixed, every page is read).
+- 2026-09-30 (26.9 A): the runtime content manifest is version 5, and its
+  catalog follows Addressables' catalog (entries with their keys, labels and
+  dependencies) and Godot's dependency lists (a scene names what it needs).
+  `manifest.json` keeps the build's identity and digests, the resolved
+  settings, `start` (the start scene ids) and `catalog` (the root file's path,
+  digest and length), then modules, pins, recipes, toolchain and `buildId`:
+  1.7 KB at any size (×0.1 and full differ only in the digits of the root's
+  length). The root (a content file, like every file below) lists every
+  block's file by key (the v4 manifest's inline blocks and content files,
+  plus `media`, `behaviors`, `loadable`, `facts` and `dependencies`), every
+  scene with its dependency file, the entry shards (first and last id, count)
+  and the library rows. `buildId` covers the root, the root covers the rest.
+- 2026-09-30 (26.9 A): the pieces. A catalog entry is the v4 asset row plus
+  `address`, `labels` and `dependencies` (a model's textures through its
+  material map). Entries sit in shards sorted by id; a shard ends after an id
+  whose FNV-1a hash is 0 modulo 256 (or at 1 MiB), so an added asset rewrites
+  one shard, and a lookup is one binary search over the root's ranges and one
+  read. A scene's dependency file holds the full entries its objects need
+  (directly, through materials, functions, effects, animators, prefabs, a
+  model's own material map, its bake: one generic scan of the documents,
+  `scanDependencies`), so a scene load reads its file and that one file; the
+  duplication across scenes is about 5 MB of files at full size that nothing
+  reads at start. `dependencies` does the same for the project-wide blocks
+  (environment, effects, UI, shell, timelines, event cues, block types,
+  input, the dialogue speakers' portraits and blips; a line's voice is found
+  when it plays). A list or map block past 1 MiB is split into parts, so no
+  block meets the 32 MiB per-file cap as a project grows (a per-file cap must
+  not become a count cap). Catalog files are compact JSON (`JSON.stringify(v)
+  + "\n"`, half the bytes of the indented form at full size); the manifest
+  stays indented.
+- 2026-09-30 (26.9 A): what a page reads (`openRuntimeContent` in game-host,
+  used by both bootstraps): at open the root, every block file but the
+  loadable index, and the start scenes' dependency files; those entries and
+  the project-wide blocks' are the rows known at start (the start-scene reads
+  of 25.24 pick from them). A scene load reads its file and its dependency
+  file together (`prepareSceneCatalog` with the catalog), and its preparation
+  reads those entries (`pageScenePreparation`); read-ahead does the same. An
+  id no read named (a script's sound, a line's voice, a spawned copy's model,
+  a portrait, a UI image) reads its shard: the verified asset reader, the
+  host (`lookupAsset`: sounds, images, fonts) and the adapter's models
+  (`rowOf`, `findRow`) find rows through the catalog. The loadable index is
+  read when a script loads by name (26.10's `ctx.assets.load`).
+- 2026-09-30 (26.9 A): what is still read whole at start: what the simulation
+  must know from its first step, deterministically: the prefabs (a script
+  spawns any prefab by id, synchronously), rigs, dialogue, materials and
+  `facts` (every model's bounds and material map, every audio file's
+  duration, texture ids when graph materials have parameters: a few fields
+  per asset, not its row). At full size that is 2.9 MB of the start's reads,
+  the prefabs 1.6 MB of it. Loading spawnable prefabs with their scene or by
+  handle needs the simulation to take definitions with a scene batch or
+  through `ctx.assets.load`: 26.10's resource manager.
+- 2026-09-30 (26.9 A): a v4 manifest. An older export plays as it was built:
+  its bundle carries its own v4 reader and nothing new reads its files. The
+  page's reader also reads a v4 build, upgraded where it is loaded: every row
+  known at open, its content files as before, the same content object as a
+  v5 build gives. Tested on `fixtures/phase26/legacy-v4-build` (written by the
+  engine at `8c21bfa3` from `legacy-v4-assets`): the v4 build and the v5
+  export of the same project open to the same asset rows, blocks, scene rows
+  and simulation inputs (model bounds, durations, material catalogue), so a
+  recorded run replays the same; the project's last command replays from its
+  record. `captureManifestV2` stays (this fixture and the M3 contract fixture,
+  byte-identical).
+- 2026-09-30 (26.9 A): build ids change for every project with version 5 (the
+  manifest's shape), and again for a project whose scripts need a module no
+  scene component pulls in (D67 fixed: the closure reads the behavior records
+  with their sources once, for the module set and the compile).
+- 2026-09-30 (26.9 A): inclusion checked against the closure. Every scene
+  ships (a script may load any scene by id; the start set, the shell's list
+  and the scenes transitions name are all of them). Assets: what the scenes
+  and prefabs reference, every project material's textures, effects, UI,
+  glyphs, dialogue, timelines, event cues, environment, animators, bakes, plus
+  the loadable assets and materials. One gap fixed: an asset property's
+  default (a script property of type asset; every object that sets no value
+  uses it, and every object a private one) did not ship; it does when it names
+  an asset of the project.
+- 2026-09-30 (26.9 A): the content view at Play start. The closure does not
+  validate the captured content again when the model already did (the
+  workspace's captured block is a normalized one: `validateContentV4(c, c)`);
+  the view's digest takes the host's SHA-256; a version's metrics digest is
+  made once per frozen metrics object and a recipe's once per recipe. What
+  still grows with the asset count in the backend: building and serializing
+  the entries and dependency files (the `manifest` stage) and one stat per
+  asset (26.8's locate and pre-Play check).

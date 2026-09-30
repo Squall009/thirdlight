@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 4,
+  "sceneId": "scene-two",
+  "revision": 13,
+  "entities": [
+    {
+      "id": "box-000002",
+      "name": "Chime",
+      "components": {
+        "transform": {
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0,
+            1
+          ],
+          "scale": [
+            1,
+            1,
+            1
+          ]
+        },
+        "box": {
+          "size": [
+            1,
+            1,
+            1
+          ],
+          "material": {
+            "color": "#b0b0b0"
+          }
+        },
+        "audioSource": {
+          "assetId": "beep",
+          "volume": 1,
+          "range": 10
+        }
+      }
+    }
+  ]
+}

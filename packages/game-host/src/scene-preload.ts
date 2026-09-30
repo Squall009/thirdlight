@@ -23,7 +23,7 @@
  */
 import type { LoadedSceneBatch } from '@thirdlight/runtime';
 
-import { startSceneAssets, type StartAssetSources, type VerifiedAssetReader } from './asset-reader';
+import { startSceneAssets, type DeclaredAssetRow, type StartAssetSources, type VerifiedAssetReader } from './asset-reader';
 
 type SceneEntities = LoadedSceneBatch['entities'];
 
@@ -197,10 +197,13 @@ export function pageScenePreparation(o: {
   readonly adapter: () => ScenePreparingAdapter | null;
   readonly reader: VerifiedAssetReader;
   readonly sources: Omit<StartAssetSources, 'entities' | 'startSceneIds' | 'environment'>;
+  /** A v5 build's catalog: the scene's dependency entries (read with the scene) are what it needs. */
+  readonly catalog?: { sceneEntriesRead(sceneId: string): readonly DeclaredAssetRow[] | undefined };
 }): (sceneId: string, entities: SceneEntities) => ScenePreparation {
   return (sceneId, entities) => {
     const bake = o.sources.lighting?.[sceneId];
-    const rows = startSceneAssets({ ...o.sources, entities, startSceneIds: [sceneId], lighting: bake !== undefined ? { [sceneId]: bake } : {} });
+    const listed = o.catalog?.sceneEntriesRead(sceneId);
+    const rows = listed !== undefined ? listed.filter((r) => r.kind !== 'audio') : startSceneAssets({ ...o.sources, entities, startSceneIds: [sceneId], lighting: bake !== undefined ? { [sceneId]: bake } : {} });
     const read = o.reader.preload(rows).catch(() => undefined);
     const textures = rows.filter((r) => r.kind === 'texture').map((r) => r.assetId);
     const prepared = o.adapter()?.prepareScene?.(sceneId, entities as unknown as readonly { id: string; components: unknown }[], textures) ?? null;

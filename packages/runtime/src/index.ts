@@ -294,6 +294,23 @@ export { debugCallProblem, debugCallRefusal, ENGINE_DEBUG_COMMANDS, SIGNAL_DEBUG
 export { MAX_FRAME_SAVE_EVENTS, PROJECT_SAVE_FORMAT, PROJECT_SAVE_FORMAT_VERSION, SAVE_REQUESTS_PER_STEP, projectSaveFileProblem, worldSaveProblem, utf8Length, validateSaveEvents, type BehaviorSaves, type ProjectSaveFile, type WorldSave, type SaveEvent, type SaveMeta, type SaveRequest, type SaveResult, type SaveSlotInfo } from './project-saves';
 // (the save schema's limits and settings rules, for hosts that do not depend on project-model)
 export { SAVE_LIMITS, SAVE_THUMBNAIL_DEFAULT, settingsDocumentOf, type SaveSchema, type SettingsField, type SettingsFieldValue } from '@thirdlight/project-model';
+// The runtime content a game page reads: the manifest's versions and buildId inputs, the catalog's shape and parts (v5).
+export {
+  catalogRootProblem,
+  joinCatalogParts,
+  manifestBuildIdInputV2,
+  manifestBuildIdInputV5,
+  RUNTIME_CONTENT_MANIFEST_VERSION_4,
+  RUNTIME_CONTENT_MANIFEST_VERSION_5,
+  validateManifestV5,
+  type CatalogBlockRow,
+  type CatalogEntry,
+  type CatalogFileRef,
+  type CatalogRootV5,
+  type CatalogSceneRow,
+  type CatalogShardRow,
+  type RuntimeContentManifestV5,
+} from '@thirdlight/project-model';
 // The model's limits the hosts and the renderer re-check (defined once, in project-model).
 export {
   ASSET_METRIC_CAPS,

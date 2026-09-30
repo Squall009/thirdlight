@@ -49,6 +49,8 @@ async function readVerified(io: SceneCatalogIo, path: string, digest: string, by
 export async function prepareSceneCatalog(
   rows: readonly ManifestSceneRow[],
   io: SceneCatalogIo,
+  /** A v5 build's catalog: a scene's load reads its dependency file with it. */
+  catalog?: { sceneEntries(sceneId: string): Promise<unknown> | null },
 ): Promise<{ rows: RuntimeSceneRow[]; loadScene: (sceneId: string) => Promise<LoadedSceneBatch['entities']> }> {
   const out: RuntimeSceneRow[] = [];
   for (const row of rows) {
@@ -64,7 +66,9 @@ export async function prepareSceneCatalog(
   const loadScene = async (sceneId: string): Promise<LoadedSceneBatch['entities']> => {
     const row = bySceneId.get(sceneId);
     if (row === undefined) throw new Error(`scene "${sceneId}" is not part of this build`);
-    const doc: unknown = JSON.parse(new TextDecoder().decode(await readVerified(io, row.path, row.digest, row.byteLength)));
+    // The scene and the entries it needs, read together (the entries are known before its objects arrive).
+    const [bytes] = await Promise.all([readVerified(io, row.path, row.digest, row.byteLength), catalog?.sceneEntries(sceneId) ?? null]);
+    const doc: unknown = JSON.parse(new TextDecoder().decode(bytes));
     const res = sceneEntitiesFromDocument(doc, sceneId);
     if (!res.ok) throw new Error(res.message);
     return res.entities;

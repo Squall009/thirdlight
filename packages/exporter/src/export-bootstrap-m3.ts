@@ -36,14 +36,15 @@
  *
  * Browser-only: DOM + WebGL.
  */
-import { audioSpatialOf, depthBufferOf, instanceChunkSizeOf, MANIFEST_KEYS_V2, physicsDimensionOf, RUNTIME_CONTENT_MANIFEST_VERSION_4, sha256HexAsync, type SaveSchema } from '@thirdlight/project-model';
+import { audioSpatialOf, depthBufferOf, instanceChunkSizeOf, physicsDimensionOf, sha256HexAsync, type SaveSchema } from '@thirdlight/project-model';
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import { createPhysicsPort, type RapierPhysicsInitConfig, type RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
 import {
   browserContextFactory,
   bufferResolver,
-  expandManifestContentFiles,
+  openRuntimeContent,
   type ManifestContentFileRowLike,
+  type RuntimeContent,
   createGameAudioOwner,
   createGameHost,
   linkBehaviorModules,
@@ -165,17 +166,6 @@ function hud(text: string, isError: boolean): void {
 /** Lowercase hex SHA-256 (Web Crypto when the page has it, pure JS otherwise). */
 const sha256Hex = sha256HexAsync;
 
-/** The canonical v2 `buildId` preimage object (every key but `buildId`, in the
- * manifest key order — the page re-derives it to verify the single manifest
- * read before anything else loads). */
-function buildIdInput(manifest: Record<string, unknown>): Record<string, unknown> {
-  // The model's key order (one list; every key but buildId).
-  const keys = MANIFEST_KEYS_V2.filter((k) => k !== 'buildId');
-  const out: Record<string, unknown> = {};
-  for (const k of keys) out[k] = manifest[k];
-  return out;
-}
-
 /** The scene-derived Rapier init config (statics + the player controller),
  * with the manifest's resolved `gravity_y` as the solver gravity. */
 function physicsConfigFromSnapshot(snapshot: RuntimeSnapshot, settings: GameplaySettings): RapierPhysicsInitConfig | null {
@@ -237,7 +227,8 @@ function readArtifactBytes(path: string): Promise<ArrayBuffer> {
 }
 
 /** Start the exported game for one verified manifest. */
-async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Promise<void> {
+async function start(canvas: HTMLCanvasElement, content: RuntimeContent<ExportManifestV2>): Promise<void> {
+  const manifest = content.manifest;
   // The captured v3 scene (digest-verified against manifest.sceneDigest).
   const sceneRes = await fetch('./scene.json', { credentials: 'omit' });
   if (!sceneRes.ok) throw new Error(`scene read failed (HTTP ${String(sceneRes.status)})`);
@@ -250,25 +241,28 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
   // bytes; the start scenes' assets are read BEFORE the runtime composes (L2 = hard failure, no runtime),
   // at most 8 at a time, the others when they are asked for (a scene loaded later, a texture, a sound).
   // (the start reads run below, while the simulation worker starts.)
-  const assetReader = createVerifiedAssetReader(manifest.assets ?? [], { read: readArtifactBytes, sha256Hex });
-  const textureLoader = (assetId: string): Promise<Awaited<ReturnType<typeof decodeTexture>> | null> => {
-    const row = (manifest.assets ?? []).find((r) => r.kind === 'texture' && r.assetId === assetId);
-    return row !== undefined ? assetReader.bytes(row.assetId, row.version).then((buf) => decodeTexture(buf), () => null) : Promise.resolve(null);
-  };
+  const assetReader = createVerifiedAssetReader(manifest.assets ?? [], { read: readArtifactBytes, sha256Hex }, { catalog: content.catalog });
+  // A texture's row from the catalog (read when a material, a bake, the sky or a cookie first needs it).
+  const textureLoader = (assetId: string): Promise<Awaited<ReturnType<typeof decodeTexture>> | null> =>
+    content.catalog.lookup(assetId).then(
+      (row) => (row !== undefined && row.kind === 'texture' ? assetReader.bytes(row.assetId, row.version).then((buf) => decodeTexture(buf), () => null) : null),
+      () => null,
+    );
 
   const settings = manifest.settings;
   // The scene catalog (start scenes read once for their
   // members; the others load on demand through the host).
   const io = { read: readArtifactBytes, sha256Hex };
-  const catalog0 = manifest.scenes !== undefined ? await prepareSceneCatalog(manifest.scenes, io) : null;
+  const catalog0 = manifest.scenes !== undefined ? await prepareSceneCatalog(manifest.scenes, io, content.catalog) : null;
   // Scene loads are prepared (assets read, models parsed) before the simulation gets them; likely next scenes are read ahead.
   const scenes = catalog0 === null ? null : createScenePreloader({ read: catalog0.loadScene });
   const catalog = catalog0 === null || scenes === null ? null : { rows: catalog0.rows, loadScene: scenes.load };
   // The scene as the game loads it (folders and inactive entities
   // resolved away) — physics, the renderer and the runtime all use this one.
-  const modelBounds = modelBoundsFromAssetRows((manifest.assets ?? []) as readonly { assetId: string; kind?: string; bounds?: unknown }[]);
-  const audioDurations = audioDurationsFromAssetRows((manifest.assets ?? []) as readonly { assetId: string; kind?: string; durationMs?: unknown }[]);
-  const materialCatalog = materialCatalogOf(manifest.materials as Parameters<typeof materialCatalogOf>[0], manifest.assets as Parameters<typeof materialCatalogOf>[1]);
+  // What the simulation reads of every asset (the catalog's facts; a v4 build's asset rows).
+  const modelBounds = modelBoundsFromAssetRows(content.facts as readonly { assetId: string; kind?: string; bounds?: unknown }[]);
+  const audioDurations = audioDurationsFromAssetRows(content.facts as readonly { assetId: string; kind?: string; durationMs?: unknown }[]);
+  const materialCatalog = materialCatalogOf(manifest.materials as Parameters<typeof materialCatalogOf>[0], content.facts as Parameters<typeof materialCatalogOf>[1]);
   const uiDocs = withDialogueUiDocument(manifest.uiDocuments, manifest.dialogue ?? null);
   const snapshot = resolveSnapshotHierarchy({
     snapshotId: manifest.snapshotId,
@@ -327,14 +321,29 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
     if (model !== undefined && typeof model.asset?.assetId === 'string') referenced.add(model.asset.assetId);
   }
   let models: SceneAdapterModels | null = null;
-  if (referenced.size > 0) {
+  // A v5 catalog lists the start's models; the others' rows are found as their scenes are read (or in their shard).
+  const lazy = content.catalog.version === 5 && content.facts.some((f) => f['kind'] === 'model');
+  const modelRowOf = (r: { assetId: string; version: number; sourceDigest: string }): SceneAdapterModels['assets'][number] => {
+    const x = r as { vertexColors?: unknown; materials?: unknown; clipsFor?: unknown };
+    return { assetId: r.assetId, version: r.version, sourceDigest: r.sourceDigest, ...(x.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}), ...(x.materials !== undefined ? { materials: x.materials as Record<string, string> } : {}), ...(typeof x.clipsFor === 'string' ? { clipsFor: x.clipsFor } : {}) };
+  };
+  if (referenced.size > 0 || lazy) {
     const modelRows = (manifest.assets ?? []).filter((a) => a.kind === 'model' && referenced.has(a.assetId));
     if (modelRows.length !== referenced.size) {
       const missing = [...referenced].filter((id) => !modelRows.some((r) => r.assetId === id));
       throw new Error(`the scene references model asset(s) absent from the manifest: ${missing.join(', ')}`);
     }
     models = {
-      assets: modelRows.map((r) => ({ assetId: r.assetId, version: r.version, sourceDigest: r.sourceDigest, ...((r as { vertexColors?: unknown }).vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}), ...((r as { materials?: Record<string, string> }).materials !== undefined ? { materials: (r as unknown as { materials: Record<string, string> }).materials } : {}), ...(typeof (r as { clipsFor?: unknown }).clipsFor === 'string' ? { clipsFor: (r as unknown as { clipsFor: string }).clipsFor } : {}) })),
+      assets: modelRows.map(modelRowOf),
+      ...(lazy
+        ? {
+            rowOf: (assetId: string) => {
+              const r = content.catalog.row(assetId);
+              return r !== undefined && r.kind === 'model' ? modelRowOf(r) : undefined;
+            },
+            findRow: (assetId: string) => content.catalog.lookup(assetId).then((r) => (r !== undefined && r.kind === 'model' ? modelRowOf(r) : undefined)),
+          }
+        : {}),
       animation: (manifest.media?.animation ?? []).map((r) => ({ entityId: r.entityId, roles: r.roles as never, version: r.version })),
       // The project's idle/run/airborne blend time.
       ...(settings.animation_crossfade_s !== undefined ? { crossfadeSeconds: settings.animation_crossfade_s } : {}),
@@ -540,6 +549,8 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
     ...(browserProjectSaveBackend() !== null ? { projectSaveBackend: browserProjectSaveBackend()! } : {}),
     assetKinds: Object.fromEntries(((manifest.assets ?? []) as unknown as { assetId: string; kind: string }[]).map((r) => [r.assetId, r.kind])),
       audioLoad: Object.fromEntries(((manifest.assets ?? []) as unknown as { assetId: string; kind: string; loadType?: string; preload?: boolean }[]).filter((r) => r.kind === 'audio' && r.loadType !== undefined).map((r) => [r.assetId, { loadType: r.loadType, preload: r.preload !== false }])),
+    // An asset the rows above do not name: its catalog shard, read when a sound asks for it.
+    lookupAsset: (assetId) => content.catalog.lookup(assetId).then((r) => (r === undefined ? undefined : { path: r.path, kind: r.kind, ...(typeof r['loadType'] === 'string' ? { loadType: r['loadType'] } : {}), ...(typeof r['preload'] === 'boolean' ? { preload: r['preload'] } : {}) })),
     // How audio sources are heard (the audio_spatial setting; 3D: panned).
     audioSpatial: audioSpatialOf(settings),
     // The debug console only when the project turns debug_console on (absent/0: a release game has none).
@@ -558,6 +569,7 @@ async function start(canvas: HTMLCanvasElement, manifest: ExportManifestV2): Pro
     pageScenePreparation({
       adapter: () => adapterRef.current,
       reader: assetReader,
+      catalog: content.catalog,
       sources: {
         assets: manifest.assets ?? [],
         ...(manifest.materials !== undefined ? { materials: manifest.materials } : {}),
@@ -621,16 +633,12 @@ async function main(): Promise<void> {
     return;
   }
   try {
-    // The single manifest read (the v2 buildId is verified before anything
-    // else loads).
+    // The single manifest read (its buildId is verified before anything else
+    // loads), then the catalog's blocks and what the start scenes need, each
+    // file checked against its buildId-bound row.
     const res = await fetch('./manifest.json', { credentials: 'omit' });
     if (!res.ok) throw new Error(`manifest read failed (HTTP ${String(res.status)})`);
-    const manifest = JSON.parse(await res.text()) as ExportManifestV2;
-    if (manifest.type !== 'thirdlight-runtime-content' || manifest.manifestVersion !== RUNTIME_CONTENT_MANIFEST_VERSION_4) throw new Error('unsupported manifest document');
-    const expected = await sha256Hex(new TextEncoder().encode(`${JSON.stringify(buildIdInput(manifest as unknown as Record<string, unknown>), null, 2)}\n`));
-    if (expected !== manifest.buildId) throw new Error('manifest buildId does not match its own canonical bytes');
-    // The content files, each checked against its (buildId-bound) row, back under their keys.
-    await start(canvas, await expandManifestContentFiles(manifest, { read: readArtifactBytes, sha256Hex }));
+    await start(canvas, await openRuntimeContent<ExportManifestV2>(JSON.parse(await res.text()) as unknown, { read: readArtifactBytes, sha256Hex }));
   } catch (e) {
     hud(`export error: ${(e instanceof Error ? e.message : String(e)).slice(0, 160)}`, true);
   }

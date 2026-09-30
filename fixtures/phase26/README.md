@@ -32,3 +32,18 @@ with its id, file and header facts kept (the short-sound record's PCM
 arithmetic dropped), the sidecars are written back with their load settings,
 the replay is answered from its record, and the export's manifest carries
 each audio file's load type and preload.
+
+`legacy-v4-build/` — a runtime content build in manifest version 4 and the
+project it was built from, written by the engine before the catalog (commit
+`8c21bfa3`, the Play/export closure run through its own service): the
+`legacy-v4-assets` project opened (and so upgraded to the files format), then
+a second scene with an object playing `beep`, a prefab of the crate, the
+material `wall-mat` on the box and the label `sfx` on `beep`. `project/` is
+the project after those commands (the import cache left out; the KTX2 is made
+again on open), `build/` the manifest, its content file and the scene files,
+`replay.json` the last command.
+
+Used by `tests/integration/m26-catalog/catalog.test.ts`: the v4 build opens on
+the game page's reader (`openRuntimeContent`) into the same asset rows,
+blocks, scene rows and simulation inputs as the v5 export the engine now makes
+of `project/`; the last command replays from its record.

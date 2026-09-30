@@ -1,0 +1,164 @@
+{
+  "manifestVersion": 4,
+  "type": "thirdlight-runtime-content",
+  "projectId": "legacy-v4-assets",
+  "revision": 13,
+  "snapshotId": "legacy-v4-assets@r13",
+  "capturedAt": "2026-09-30T00:00:00Z",
+  "sceneDigest": "e76612da8c0da391788ae5ac8cbff52951e4a3b3fff10a4ec426352dfd1b5a4e",
+  "contentDigest": "87a414aba9560d2cde5a625ae351d8cd3094acdfd0ffef5cb4d1a7a5ff51da78",
+  "settingsDigest": "1e0330968732956f82238e846a85a2694219e951f38a0eec85e8fee49f13f284",
+  "mediaDigest": "a253e1468b2e2528f15992d774d1fe92dbfd54b1c05b036e5e36621e7536ad4c",
+  "settings": {
+    "gravity_y": -19.62,
+    "run_speed": 4,
+    "jump_velocity": 7,
+    "max_fall_speed": -30,
+    "max_slope_climb_deg": 45,
+    "min_slope_slide_deg": 30
+  },
+  "prefabs": [
+    {
+      "prefabId": "crate-prefab",
+      "displayName": "Crate prefab",
+      "createdRevision": 11,
+      "entityCount": 1,
+      "depth": 1,
+      "entities": [
+        {
+          "localId": "model-000001",
+          "name": "Crate",
+          "components": {
+            "transform": {
+              "position": [
+                2,
+                0,
+                0
+              ],
+              "rotation": [
+                0,
+                0,
+                0,
+                1
+              ],
+              "scale": [
+                1,
+                1,
+                1
+              ]
+            },
+            "model": {
+              "asset": {
+                "assetId": "crate"
+              }
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "scenes": [
+    {
+      "sceneId": "scene-main",
+      "path": "scenes/scene-main.json",
+      "digest": "e76612da8c0da391788ae5ac8cbff52951e4a3b3fff10a4ec426352dfd1b5a4e",
+      "byteLength": 2804,
+      "start": true
+    },
+    {
+      "sceneId": "scene-two",
+      "path": "scenes/scene-two.json",
+      "digest": "8d5aca246dcfea2006b5a563e02145ded398d152d0b096bd03efafb19e542360",
+      "byteLength": 750,
+      "start": false
+    }
+  ],
+  "contentFiles": [
+    {
+      "key": "materials",
+      "path": "content/sha256/36a5d28baa32f739b7819138e85e75f52a7f59a87a3423acfedac27f63df5ada",
+      "digest": "36a5d28baa32f739b7819138e85e75f52a7f59a87a3423acfedac27f63df5ada",
+      "byteLength": 150
+    }
+  ],
+  "assets": [
+    {
+      "assetId": "beep",
+      "kind": "audio",
+      "version": 1,
+      "sourceDigest": "d35c4783875779e693e3b58cfdd2c14d006885c586e261f7a05fae7ee28cfeb8",
+      "sourceByteLength": 9644,
+      "recipeDigest": "d6fc0f9b4ab143f9381efa0cfaba245265e7fd923b992c394aba202f65e68a78",
+      "metricsDigest": "07b470264f37f4c5ff5a828e686cf607f12e7644db2fe1500a3d2e87466e54de",
+      "path": "content/sha256/d35c4783875779e693e3b58cfdd2c14d006885c586e261f7a05fae7ee28cfeb8",
+      "durationMs": 100,
+      "loadType": "decode-on-load",
+      "preload": true
+    },
+    {
+      "assetId": "crate",
+      "kind": "model",
+      "version": 2,
+      "sourceDigest": "826e99bd806ec9dc3d56b088120161c418599a8f9b17ea95358e942aba272f4f",
+      "sourceByteLength": 1864,
+      "recipeDigest": "cfc38c78879916c8403a83b703c081401fd91309b7665ea9351e6c9ba2fd60f5",
+      "metricsDigest": "8675f4a729507cb360b580553cf4db05dcb1aa8dc23e6b89b2c54a8eb373494f",
+      "path": "content/sha256/826e99bd806ec9dc3d56b088120161c418599a8f9b17ea95358e942aba272f4f"
+    },
+    {
+      "assetId": "wall",
+      "kind": "texture",
+      "version": 1,
+      "sourceDigest": "5232db67afb898ce8a33ce6a36dc25a3ea92c72495682411aba127bfce2d1eb9",
+      "sourceByteLength": 695,
+      "recipeDigest": "ce51f82650581d3ebbc79e5396d067f0bfe551a792d66ba72f9c765ac71ee181",
+      "metricsDigest": "a4b51b512da0e074b5ab861caf16a9218ed7495145745cf521237e7282f6aba7",
+      "path": "content/sha256/5232db67afb898ce8a33ce6a36dc25a3ea92c72495682411aba127bfce2d1eb9"
+    }
+  ],
+  "loadable": [
+    {
+      "kind": "audio",
+      "id": "beep",
+      "labels": [
+        "sfx"
+      ]
+    }
+  ],
+  "media": {
+    "animation": []
+  },
+  "behaviors": [],
+  "modules": [
+    {
+      "id": "thirdlight.three-adapter:gltf-loader",
+      "apiVersion": 1,
+      "package": "@thirdlight/three-adapter",
+      "version": "0.1.0"
+    }
+  ],
+  "enginePins": [
+    {
+      "id": "@thirdlight/runtime",
+      "version": "0.1.0",
+      "apiVersion": 2
+    },
+    {
+      "id": "@thirdlight/three",
+      "version": "0.186.1",
+      "apiVersion": 0
+    }
+  ],
+  "recipes": {
+    "audio": 1,
+    "behavior-source": 1,
+    "gltf-glb": 1
+  },
+  "toolchain": {
+    "esbuild": "0.28.2",
+    "typescript": "5.9.3",
+    "optionsDigest": "f4520cb0734c51420469f7ec9fefe13e46b49e414fe37ed8114573c9a6ff4751"
+  },
+  "buildOptionsDigest": "f4520cb0734c51420469f7ec9fefe13e46b49e414fe37ed8114573c9a6ff4751",
+  "buildId": "01f30f3ec8d11f5eebbc7eef5483e45e689fc8c5dc5f9b484a06133b9903eaf0"
+}

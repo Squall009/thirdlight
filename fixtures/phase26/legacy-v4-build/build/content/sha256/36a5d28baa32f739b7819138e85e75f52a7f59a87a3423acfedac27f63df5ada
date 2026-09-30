@@ -1,0 +1,11 @@
+[
+  {
+    "materialId": "wall-mat",
+    "name": "Wall",
+    "shader": "standard",
+    "params": {},
+    "textures": {
+      "map": "wall"
+    }
+  }
+]

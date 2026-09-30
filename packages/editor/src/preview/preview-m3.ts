@@ -64,14 +64,15 @@
 import { createPhysicsPort, type RapierPhysicsInitConfig, type RapierPhysicsPort, type RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
 import { PREVIEW_MODULE_SPECS } from './module-specs';
 import { modesForRuntime, audioDurationsFromAssetRows, uiDocumentsForRuntime, withDialogueUiDocument, materialCatalogOf, modelBoundsFromAssetRows, physics3DConfigOf, playerCapsuleOf, playerPhysicsOf, resolveSnapshotHierarchy, staticColliderOf, type ActionFrame, type PhysicsInitConfig3D, type PhysicsPort3D, type RuntimeSnapshot, type GameplaySettings } from '@thirdlight/runtime';
-import { audioSpatialOf, depthBufferOf, instanceChunkSizeOf, MANIFEST_KEYS_V2, physicsDimensionOf, RUNTIME_CONTENT_MANIFEST_VERSION_4, sha256HexAsync, type SaveSchema } from '@thirdlight/project-model';
+import { audioSpatialOf, depthBufferOf, instanceChunkSizeOf, physicsDimensionOf, sha256HexAsync, type SaveSchema } from '@thirdlight/project-model';
 import {
   bufferResolver,
   createGameHost,
   linkBehaviorModules,
   prepareSceneCatalog,
-  expandManifestContentFiles,
+  openRuntimeContent,
   type ManifestContentFileRowLike,
+  type RuntimeCatalog,
   type ManifestBehaviorRow,
   type ManifestBufferRow,
   type ManifestSceneRow,
@@ -133,7 +134,7 @@ const PREVIEW_PHYSICS_3D_FILE = 'physics-3d.js';
 
 /** The runtime-content manifest v2 document (the fields the preview reads). */
 export interface PreviewManifestV2 {
-  manifestVersion: 4;
+  manifestVersion: number;
   type: string;
   projectId: string;
   revision: number;
@@ -187,7 +188,7 @@ export interface PreviewManifestV2 {
   /**
    * The content files the document lists; materials,
    * materialFunctions, uiDocuments, dialogue and buffers above come from
-   * them (`expandManifestContentFiles`), never from the document itself.
+   * them (`openRuntimeContent`), never from the document itself (v4).
    */
   contentFiles?: ManifestContentFileRowLike[];
   assets: Array<{ assetId: string; version: number; path: string; kind: string; sourceDigest: string; sourceByteLength: number }>;
@@ -327,13 +328,15 @@ function referencedModelAssetIds(snapshot: RuntimeSnapshot): Set<string> {
  * identity, hash-bound through `mediaDigest`); `resolveBytes` = the
  * wrapper-verified byte map (the adapter never re-hashes).
  */
-function buildModelsBlock(manifest: PreviewManifestV2, snapshot: RuntimeSnapshot, reader: VerifiedAssetReader, read: (path: string) => Promise<ArrayBuffer>): SceneAdapterModels | null {
-  // Scenes loaded later may use any model of the build (the
-  // manifest's asset list is the closure over every scene).
+function buildModelsBlock(manifest: PreviewManifestV2, snapshot: RuntimeSnapshot, reader: VerifiedAssetReader, read: (path: string) => Promise<ArrayBuffer>, content: { readonly catalog: RuntimeCatalog; readonly facts: readonly Readonly<Record<string, unknown>>[] }): SceneAdapterModels | null {
+  // Scenes loaded later may use any model of the build: a v4 manifest lists
+  // them all; a v5 catalog lists what the start needs, and the adapter finds
+  // the others' rows as their scenes are read (or reads their shard).
   const referenced = manifest.scenes !== undefined
     ? new Set(manifest.assets.filter((a) => a.kind === 'model').map((a) => a.assetId))
     : referencedModelAssetIds(snapshot);
-  if (referenced.size === 0) return null;
+  const lazy = content.catalog.version === 5 && content.facts.some((f) => f['kind'] === 'model');
+  if (referenced.size === 0 && !lazy) return null;
   const modelRows = manifest.assets.filter((a) => a.kind === 'model' && referenced.has(a.assetId));
   // The scene references a model asset the manifest does not declare: a
   // captured-state integrity failure (L2, phase `assets`).
@@ -347,7 +350,17 @@ function buildModelsBlock(manifest: PreviewManifestV2, snapshot: RuntimeSnapshot
     }
   }
   return {
-    assets: modelRows.map((r) => ({ assetId: r.assetId, version: r.version, sourceDigest: r.sourceDigest, ...((r as { vertexColors?: unknown }).vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}), ...((r as { materials?: Record<string, string> }).materials !== undefined ? { materials: (r as unknown as { materials: Record<string, string> }).materials } : {}), ...(typeof (r as { clipsFor?: unknown }).clipsFor === 'string' ? { clipsFor: (r as unknown as { clipsFor: string }).clipsFor } : {}) })),
+    assets: modelRows.map(modelRowOf),
+    // A model row read after the start (its scene's dependency file, or its shard).
+    ...(lazy
+      ? {
+          rowOf: (assetId: string) => {
+            const r = content.catalog.row(assetId);
+            return r !== undefined && r.kind === 'model' ? modelRowOf(r) : undefined;
+          },
+          findRow: (assetId: string) => content.catalog.lookup(assetId).then((r) => (r !== undefined && r.kind === 'model' ? modelRowOf(r) : undefined)),
+        }
+      : {}),
     animation: manifest.media.animation.map((r) => ({ entityId: r.entityId, roles: r.roles as never, version: r.version })),
     // The project's idle/run/airborne blend time.
     ...(manifest.settings.animation_crossfade_s !== undefined ? { crossfadeSeconds: manifest.settings.animation_crossfade_s } : {}),
@@ -359,6 +372,12 @@ function buildModelsBlock(manifest: PreviewManifestV2, snapshot: RuntimeSnapshot
       ? { resolveBuffer: bufferResolver(manifest.buffers, { read, sha256Hex }) }
       : {}),
   };
+}
+
+/** The adapter's row of one model (id, version, digest; tint, material map, clips' rig). */
+function modelRowOf(r: { assetId: string; version: number; sourceDigest: string }): SceneAdapterModels['assets'][number] {
+  const x = r as { vertexColors?: unknown; materials?: unknown; clipsFor?: unknown };
+  return { assetId: r.assetId, version: r.version, sourceDigest: r.sourceDigest, ...(x.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}), ...(x.materials !== undefined ? { materials: x.materials as Record<string, string> } : {}), ...(typeof x.clipsFor === 'string' ? { clipsFor: x.clipsFor } : {}) };
 }
 
 /** The scene-derived Rapier init config (statics + the player controller) with
@@ -426,30 +445,22 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   //    handshake's expected build). L1 — phase `manifest`.
   timings?.begin('manifest');
   const manifestRes = await readPreviewArtifact(cfg.contentRoot, 'manifest.json');
-  const manifestDoc = JSON.parse(new TextDecoder().decode(manifestRes)) as PreviewManifestV2;
-  if (manifestDoc.manifestVersion !== RUNTIME_CONTENT_MANIFEST_VERSION_4 || manifestDoc.type !== 'thirdlight-runtime-content') {
-    throw new PreviewM3Error('play_content_not_ready', 'manifest', 'unsupported manifest document (expected runtime-content v4)');
-  }
-  // The model's key order (one list; every key but buildId).
-  const buildIdKeys = MANIFEST_KEYS_V2.filter((k) => k !== 'buildId');
-  const preimage: Record<string, unknown> = {};
-  for (const k of buildIdKeys) if (k in manifestDoc) preimage[k] = (manifestDoc as unknown as Record<string, unknown>)[k];
-  const recomputed = await sha256Hex(new TextEncoder().encode(`${JSON.stringify(preimage, null, 2)}\n`));
-  if (recomputed !== manifestDoc.buildId) throw new PreviewM3Error('play_content_not_ready', 'manifest', 'the manifest buildId does not match the verified capture');
-  if (manifestDoc.buildId !== cfg.expectedBuildId) throw new PreviewM3Error('play_content_not_ready', 'manifest', 'the manifest buildId does not match the expected build');
-
-  // The declared artifacts by digest from the project's cache root (still checked against the manifest below).
-  const urlOf = artifactUrls(manifestDoc, cfg.contentRoot, cfg.cacheRoot);
+  const manifestDoc = JSON.parse(new TextDecoder().decode(manifestRes)) as { buildId?: unknown };
+  // The declared artifacts by digest from the project's cache root (still checked against their rows).
+  let urlOf = artifactUrls({}, cfg.contentRoot, cfg.cacheRoot);
   const readDeclared = (path: string): Promise<ArrayBuffer> => readArtifactUrl(urlOf(path), path);
-  // The content files (materials, UI documents, dialogue, the buffer table), each checked
-  // against its buildId-bound row, back under their keys.
-  const manifest = await expandManifestContentFiles(manifestDoc, { read: readDeclared, sha256Hex }).catch((e: unknown) => {
-    throw new PreviewM3Error('play_content_not_ready', 'manifest', `a manifest content file failed: ${(e instanceof Error ? e.message : String(e)).slice(0, 180)}`);
+  // The manifest (its buildId re-derived), the catalog's blocks and what the start scenes need,
+  // each file checked against its buildId-bound row; the rest of the catalog is read as the game needs it.
+  const content = await openRuntimeContent<PreviewManifestV2>(manifestDoc, { read: readDeclared, sha256Hex }).catch((e: unknown) => {
+    throw new PreviewM3Error('play_content_not_ready', 'manifest', `the manifest or a catalog file failed: ${(e instanceof Error ? e.message : String(e)).slice(0, 180)}`);
   });
-  const contentFileBytes = (manifestDoc.contentFiles ?? []).reduce((n, r) => n + r.byteLength, 0);
-  timings?.end('manifest', `${manifestRes.byteLength} B${contentFileBytes > 0 ? ` + ${String(manifestDoc.contentFiles!.length)} content files ${String(contentFileBytes)} B` : ''}`);
+  if (content.manifest.buildId !== cfg.expectedBuildId) throw new PreviewM3Error('play_content_not_ready', 'manifest', 'the manifest buildId does not match the expected build');
+  const manifest = content.manifest;
+  urlOf = artifactUrls(manifest, cfg.contentRoot, cfg.cacheRoot);
+  const catalogRead = content.catalog.stats();
+  timings?.end('manifest', `${manifestRes.byteLength} B${catalogRead.files > 0 ? ` + ${String(catalogRead.files)} catalog files ${String(catalogRead.bytes)} B` : ''}`);
   // Each stage done is progress (the backend's present timeout counts from the last).
-  onProgress('manifest', manifestRes.byteLength + contentFileBytes, manifestRes.byteLength + contentFileBytes);
+  onProgress('manifest', manifestRes.byteLength + catalogRead.bytes, manifestRes.byteLength + catalogRead.bytes);
 
   // 2. The bridge-delivered snapshot: verify its scene re-hashes to
   //    manifest.sceneDigest.
@@ -473,7 +484,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   // members; the others load on demand through the host).
   timings?.begin('startScenes');
   const catalog0 = manifest.scenes !== undefined
-    ? await prepareSceneCatalog(manifest.scenes, { read: readDeclared, sha256Hex })
+    ? await prepareSceneCatalog(manifest.scenes, { read: readDeclared, sha256Hex }, content.catalog)
     : null;
   timings?.end('startScenes');
   // Scene loads go through the preloader (read, then prepared on the render side before the
@@ -503,12 +514,12 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   // The block types and cell fields of the block layers (from the verified manifest).
   const withAnimators = { ...withPrefabs, ...(manifest.blockTypes !== undefined ? { blockTypes: manifest.blockTypes } : {}), ...(manifest.cellFields !== undefined ? { cellFields: manifest.cellFields } : {}) } as RuntimeSnapshot;
   // The model assets' recorded bounds (a collectible without a size collects over its model's).
-  const modelBounds = modelBoundsFromAssetRows(manifest.assets as readonly { assetId: string; kind?: string; bounds?: unknown }[]);
+  const modelBounds = modelBoundsFromAssetRows(content.facts as readonly { assetId: string; kind?: string; bounds?: unknown }[]);
   const withBounds0 = modelBounds !== undefined ? ({ ...withAnimators, modelBounds } as RuntimeSnapshot) : withAnimators;
   // The model rigs sockets are resolved on (from the verified manifest).
   const withBoundsR = manifest.rigs !== undefined ? ({ ...withBounds0, rigs: manifest.rigs } as RuntimeSnapshot) : withBounds0;
   // The graph materials' parameters scripts set per object (ctx.materials; from the verified manifest).
-  const materialCatalog = materialCatalogOf(manifest.materials as Parameters<typeof materialCatalogOf>[0], manifest.assets as Parameters<typeof materialCatalogOf>[1]);
+  const materialCatalog = materialCatalogOf(manifest.materials as Parameters<typeof materialCatalogOf>[0], content.facts as Parameters<typeof materialCatalogOf>[1]);
   const withBoundsM = materialCatalog !== undefined ? ({ ...withBoundsR, materialCatalog } as RuntimeSnapshot) : withBoundsR;
   // The project save schema (ctx.saves; from the verified manifest).
   const withBoundsS = manifest.saveSchema !== undefined ? ({ ...withBoundsM, saveSchema: manifest.saveSchema } as RuntimeSnapshot) : withBoundsM;
@@ -525,7 +536,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   // The game shell's scene list (the `scene` UI event walks it).
   const withBoundsU = manifest.shell?.scenes !== undefined ? ({ ...withBoundsU3, sceneList: manifest.shell.scenes } as RuntimeSnapshot) : withBoundsU3;
   // The audio assets' recorded durations (script sounds' finished events are computed from them).
-  const audioDurations = audioDurationsFromAssetRows(manifest.assets as readonly { assetId: string; kind?: string; durationMs?: unknown }[]);
+  const audioDurations = audioDurationsFromAssetRows(content.facts as readonly { assetId: string; kind?: string; durationMs?: unknown }[]);
   const withBoundsA = audioDurations !== undefined ? ({ ...withBoundsU, audioDurations } as RuntimeSnapshot) : withBoundsU;
   // The game modes and each action's input map (the masking of inactive maps; from the verified manifest).
   const modeRows = modesForRuntime(manifest.modes, manifest.input ?? (physicsDimensionOf(manifest.settings) === 3 ? DEFAULT_INPUT_CONFIG_3D : DEFAULT_INPUT_CONFIG));
@@ -536,8 +547,8 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
   const snapshot = resolveSnapshotHierarchy(catalog !== null ? { ...withBounds, scenes: catalog.rows } : withBounds);
 
   const settings = manifest.settings;
-  // Every declared asset is read through this reader, once, checked against the manifest.
-  const assetReader = createVerifiedAssetReader(manifest.assets, { read: readDeclared, sha256Hex });
+  // Every declared asset is read through this reader, once, checked against its catalog row.
+  const assetReader = createVerifiedAssetReader(manifest.assets, { read: readDeclared, sha256Hex }, { catalog: content.catalog });
   // This project's saves in Play (an export uses its own namespace).
   const playSaveNamespace = `thirdlight-play:${String((snapshot as unknown as { projectId?: string }).projectId ?? 'game')}`;
   // Physics runs only for a game (a player controller); a plain scene plays
@@ -641,7 +652,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
     }
     // 4. The single shared production composition with the
     //    `models` block (or none — the adapter stays loader-free).
-    const models = buildModelsBlock(manifest, snapshot, assetReader, readDeclared);
+    const models = buildModelsBlock(manifest, snapshot, assetReader, readDeclared, content);
 
     let remote: RemoteSimulation | null = null;
     if (remoteStart !== null) {
@@ -755,7 +766,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
           ...(models !== null
             ? { models, modelsLoader: createGltfLoaderPort({ decoderBase: '/decoders/' }) }
             : {}),
-          ...materialsOptionOf(manifest, assetReader),
+          ...materialsOptionOf(manifest, assetReader, content.catalog),
           // The visual effects (textures and models from the verified bytes).
           ...(manifest.effects !== undefined && manifest.effects.length > 0
             ? {
@@ -791,6 +802,8 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
       ...(browserProjectSaveBackend() !== null ? { projectSaveBackend: browserProjectSaveBackend()! } : {}),
       assetKinds: Object.fromEntries(((manifest.assets ?? []) as unknown as { assetId: string; kind: string }[]).map((r) => [r.assetId, r.kind])),
       audioLoad: Object.fromEntries(((manifest.assets ?? []) as unknown as { assetId: string; kind: string; loadType?: string; preload?: boolean }[]).filter((r) => r.kind === 'audio' && r.loadType !== undefined).map((r) => [r.assetId, { loadType: r.loadType, preload: r.preload !== false }])),
+      // An asset the rows above do not name: its catalog shard, read when a sound asks for it.
+      lookupAsset: (assetId) => content.catalog.lookup(assetId).then((r) => (r === undefined ? undefined : { path: r.path, kind: r.kind, ...(typeof r['loadType'] === 'string' ? { loadType: r['loadType'] } : {}), ...(typeof r['preload'] === 'boolean' ? { preload: r['preload'] } : {}) })),
       // How audio sources are heard (the audio_spatial setting; 3D: panned).
       audioSpatial: audioSpatialOf(settings),
       // Play always has the debug console (the backquote key); a start from "Play from…" / tl_play_start.
@@ -826,6 +839,7 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
       pageScenePreparation({
         adapter: () => adapterRef.current,
         reader: assetReader,
+        catalog: content.catalog,
         sources: {
           assets: manifest.assets,
           ...(manifest.materials !== undefined ? { materials: manifest.materials } : {}),
@@ -1411,12 +1425,13 @@ function animatorStates(runtime: unknown): { animators?: Record<string, string> 
 }
 
 /** The adapter's materials option from the verified manifest (textures from the verified bytes). */
-function materialsOptionOf(manifest: PreviewManifestV2, reader: VerifiedAssetReader): { materials?: SceneAdapterOptions['materials']; environment?: SceneAdapterOptions['environment']; lighting?: SceneAdapterOptions['lighting']; lights: NonNullable<SceneAdapterOptions['lights']> } {
-  const loadTexture: NonNullable<SceneAdapterOptions['materials']>['loadTexture'] = (assetId) => {
-    const row = manifest.assets.find((a) => a.kind === 'texture' && a.assetId === assetId);
-    // Read (once, checked) when a material, a bake, the sky or a spot cookie first needs it.
-    return row !== undefined ? reader.bytes(row.assetId, row.version).then((buf) => decodeTexture(buf), () => null) : Promise.resolve(null);
-  };
+function materialsOptionOf(manifest: PreviewManifestV2, reader: VerifiedAssetReader, catalog: RuntimeCatalog): { materials?: SceneAdapterOptions['materials']; environment?: SceneAdapterOptions['environment']; lighting?: SceneAdapterOptions['lighting']; lights: NonNullable<SceneAdapterOptions['lights']> } {
+  // Read (once, checked) when a material, a bake, the sky or a spot cookie first needs it (its row from the catalog).
+  const loadTexture: NonNullable<SceneAdapterOptions['materials']>['loadTexture'] = (assetId) =>
+    catalog.lookup(assetId).then(
+      (row) => (row !== undefined && row.kind === 'texture' ? reader.bytes(row.assetId, row.version).then((buf) => decodeTexture(buf), () => null) : null),
+      () => null,
+    );
   // Spot light cookies (textures of any scene's lights).
   const lights = { loadTexture };
   if (manifest.materials === undefined && manifest.environment === undefined && manifest.lighting === undefined) return { lights };

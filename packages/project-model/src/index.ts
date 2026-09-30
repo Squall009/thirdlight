@@ -270,6 +270,38 @@ export {
   type ValidateManifestV2Options,
   type ValidateManifestV2Result,
 } from './manifest-v2';
+// What scenes, models and the project-wide blocks need of the shipped assets (the catalog's dependency lists).
+export { dependencyTables, scanDependencies, type DependencyScanTables } from './catalog-dependencies';
+// The v5 manifest (identity, start, the catalog's location) and its catalog files.
+export {
+  captureManifestV5,
+  catalogBlockProblem,
+  catalogEntriesProblem,
+  catalogRootProblem,
+  CATALOG_BLOCK_KEYS,
+  CATALOG_PART_BYTES,
+  CATALOG_SHARD_ENTRIES,
+  joinCatalogParts,
+  manifestBuildIdInputV5,
+  MANIFEST_KEYS_V5,
+  readRuntimeContentSync,
+  RUNTIME_CONTENT_MANIFEST_VERSION_5,
+  validateManifestV5,
+  type CatalogBlockKey,
+  type CatalogBlockRow,
+  type CatalogEntry,
+  type CatalogFile,
+  type CatalogFileRef,
+  type CatalogRootV5,
+  type CatalogSceneRow,
+  type CatalogShardRow,
+  type CaptureManifestV5Input,
+  type CaptureManifestV5Result,
+  type CaptureSceneV5,
+  type ExpandedRuntimeContent,
+  type ManifestAssetInputV5,
+  type RuntimeContentManifestV5,
+} from './manifest-v5';
 
 export { serializeCanonical } from './normalize';
 

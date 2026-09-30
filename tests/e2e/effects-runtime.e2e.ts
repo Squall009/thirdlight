@@ -12,13 +12,13 @@
  *   "Play selected effects"), and stops when the toggle is off.
  */
 import { createHash } from 'node:crypto';
-import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
+import { createReadStream, existsSync, statSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { extname, join, normalize } from 'node:path';
 
 import { expect, test, type FrameLocator, type Locator, type Page } from '@playwright/test';
 
-import { addTitleShell, startBackend, type E2EBackend } from './backend';
+import { exportedContent, addTitleShell, startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
 import { backendOf, editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, type RendererVariant } from './renderer-variants';
 import { menu } from './ui';
@@ -180,7 +180,7 @@ for (const variant of VARIANTS) test(`a burst effect started by a collectible's 
   const res = await be.admin(`projects/${be.projectId}/export`);
   expect(res.status, JSON.stringify(res.json)).toBe(200);
   const out = join(be.exportRoot, String(res.json.outputDir));
-  const manifest = JSON.parse(readFileSync(join(out, 'manifest.json'), 'utf8')) as { effects?: { effectId: string }[] };
+  const manifest = exportedContent(out) as { effects?: { effectId: string }[] };
   expect(manifest.effects?.map((e) => e.effectId)).toEqual(['fx-burst']);
   await page.goto('about:blank');
   await be.halt();

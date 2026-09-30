@@ -15,6 +15,7 @@ import {
   api,
   establish,
   mkSessionId,
+  playContentOf,
   PREVIEW_ORIGIN,
   sleep,
   startBackend,
@@ -227,13 +228,15 @@ describe('caching across Plays', () => {
         const res = await fetch(`${tb.prevUrl}${path}`, { headers });
         return { status: res.status, headers: res.headers, bytes: new Uint8Array(await res.arrayBuffer()) };
       };
-      const playOnce = async (): Promise<{ psid: string; shell: string; manifest: { scenes?: { path: string; digest: string }[] } }> => {
+      const playOnce = async (): Promise<{ psid: string; shell: string; manifest: { scenes?: { path: string; digest: string }[]; revision?: number } }> => {
         const r = await playStart(tb);
         expect(r.status).toBe(200);
         const psid = r.json.playSessionId as string;
         const content = r.json.playContent as { contentId: string; path: string };
         const shell = new TextDecoder().decode((await get(`/play/${psid}?content=${content.contentId}`)).bytes);
-        const manifest = JSON.parse(new TextDecoder().decode((await get(`${content.path}manifest.json`)).bytes)) as { scenes?: { path: string; digest: string }[] };
+        expect((await get(`${content.path}manifest.json`)).status).toBe(200);
+        // The scene rows are the catalog's (its root, read from the published set).
+        const manifest = { scenes: playContentOf(tb, psid).scenes, revision: playContentOf(tb, psid).revision };
         return { psid, shell, manifest };
       };
       const stop = async (psid: string): Promise<void> => {

@@ -1,0 +1,21 @@
+{
+  "storageVersion": 4,
+  "type": "scene",
+  "projectId": "legacy-v4-assets",
+  "scene": {
+    "schemaVersion": 4,
+    "sceneId": "scene-two",
+    "revision": 10,
+    "entities": [
+      {"id":"box-000002","name":"Chime","components":{"transform":{"position":[0,0,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"box":{"size":[1,1,1],"material":{"color":"#b0b0b0"}},"audioSource":{"assetId":"beep","volume":1,"range":10}}}
+    ]
+  },
+  "retry": {
+    "recordVersion": 2,
+    "retention": 128,
+    "records": [
+      {"requestId":"req-2e10fec8136f7f32bd2cc61c06f64060","digest":"a465e8c9d2af73df318a25e65f7b742b18be02e7d6e3ad5e392b657e7d77137e","appliedRevision":9,"result":{"ok":true,"op":"createScene","projectId":"legacy-v4-assets","requestId":"req-2e10fec8136f7f32bd2cc61c06f64060","revision":9,"duplicated":false,"change":{"type":"setSceneIndex","previous":{"scenes":[{"sceneId":"scene-main","name":"Main"}],"startScenes":["scene-main"]},"next":{"scenes":[{"sceneId":"scene-main","name":"Main"},{"sceneId":"scene-two","name":"Second"}],"startScenes":["scene-main"]}},"history":{"undoDepth":1,"redoDepth":0}}},
+      {"requestId":"req-46b4bdc4b3165184a83d8eaa7e64e9a3","digest":"a9e543f2cd133ee2394edc0bb3691c736615b5391007b04f9312e658ae6a60b0","appliedRevision":10,"result":{"ok":true,"op":"createEntity","projectId":"legacy-v4-assets","requestId":"req-46b4bdc4b3165184a83d8eaa7e64e9a3","revision":10,"duplicated":false,"createdId":"box-000002","change":{"type":"createEntity","id":"box-000002","entity":{"id":"box-000002","name":"Chime","components":{"transform":{"position":[0,0,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"box":{"size":[1,1,1],"material":{"color":"#b0b0b0"}},"audioSource":{"assetId":"beep","volume":1,"range":10}}}},"history":{"undoDepth":2,"redoDepth":0},"sceneId":"scene-two"}}
+    ]
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "from": 4,
+  "to": 5,
+  "at": "2026-09-30T07:03:00Z",
+  "files": [
+    {
+      "assetId": "beep",
+      "file": "assets/Beep.wav",
+      "written": true
+    },
+    {
+      "assetId": "crate",
+      "file": "assets/Crate.glb",
+      "written": true
+    },
+    {
+      "assetId": "wall",
+      "file": "assets/Wall-checker.png",
+      "written": true
+    }
+  ],
+  "olderVersions": [
+    {
+      "assetId": "crate",
+      "version": 1,
+      "sourceDigest": "5d9f74122d1269c8b7e447573751c7367e726be45a4698206297390bdb7b3e43",
+      "stored": "sources/sha256/5d9f74122d1269c8b7e447573751c7367e726be45a4698206297390bdb7b3e43"
+    }
+  ],
+  "notMoved": []
+}

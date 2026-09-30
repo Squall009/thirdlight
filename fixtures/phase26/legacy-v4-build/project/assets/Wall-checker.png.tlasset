@@ -1,0 +1,20 @@
+{
+  "tlasset": 3,
+  "id": "wall",
+  "kind": "texture",
+  "importSettings": {
+    "ktx2": "color",
+    "converter": "ktx2-encoder@0.6.0"
+  },
+  "labels": [],
+  "address": null,
+  "record": {
+    "assetId": "wall",
+    "kind": "texture",
+    "displayName": "Wall checker",
+    "currentVersion": 1,
+    "versions": [
+      {"version":1,"sourceDigest":"5232db67afb898ce8a33ce6a36dc25a3ea92c72495682411aba127bfce2d1eb9","sourceByteLength":695,"convertedFrom":{"format":"png","sourceDigest":"9f0d80523c92abea24315776e9c401e9db09c7c51e946b86f29293ed342e3b28","sourceByteLength":462,"sourcePath":"assets/Wall-checker.png","converter":{"name":"ktx2-encoder","version":"0.6.0"},"encoding":"color"},"importRecipe":{"profile":"image","recipeVersion":1,"toolchain":{"asset-pipeline":"0.1.0"}},"metrics":{"format":"ktx2","width":64,"height":64,"decodedBytes":16384,"codec":"etc1s","levels":7},"importedAt":"2026-09-28T12:00:00Z","publishedRevision":3}
+    ]
+  }
+}

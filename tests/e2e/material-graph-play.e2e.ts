@@ -8,14 +8,14 @@
  *
  * Runs per renderer: `auto` in `default` (WebGL 2 there), `webgpu` in `webgpu`.
  */
-import { createReadStream, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { createReadStream, existsSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { extname, join, normalize } from 'node:path';
 
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
-import { startBackend, type E2EBackend } from './backend';
+import { exportedContent, startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
 import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, type RendererVariant } from './renderer-variants';
@@ -200,10 +200,8 @@ for (const variant of VARIANTS) test(`a graph material (texture × tint, fresnel
   const res = await be.admin(`projects/${be.projectId}/export`);
   expect(res.status, JSON.stringify(res.json)).toBe(200);
   const out = join(be.exportRoot, String(res.json.outputDir));
-  // Materials and material functions are content files the manifest lists by digest.
-  const doc = JSON.parse(readFileSync(join(out, 'manifest.json'), 'utf8')) as { contentFiles: { key: string; path: string }[] };
-  const file = (key: string): unknown => JSON.parse(readFileSync(join(out, doc.contentFiles.find((r) => r.key === key)!.path), 'utf8'));
-  const manifest = { materials: file('materials'), materialFunctions: file('materialFunctions') } as { materials: { materialId: string; graph?: unknown }[]; materialFunctions?: { graphId: string }[] };
+  // Materials and material functions are catalog files the manifest's catalog lists by digest.
+  const manifest = exportedContent(out) as unknown as { materials: { materialId: string; graph?: unknown }[]; materialFunctions?: { graphId: string }[] };
   expect(manifest.materials.find((m) => m.materialId === 'mat-graph')?.graph).toBeDefined();
   expect(manifest.materialFunctions?.map((f) => f.graphId)).toEqual(['tint-fn']);
   await page.goto('about:blank');

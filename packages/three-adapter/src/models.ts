@@ -127,6 +127,13 @@ export interface SceneAdapterModels {
   readonly crossfadeSeconds?: number;
   /** The project's instance-set chunk size (m, `instance_chunk_m`; absent: INSTANCE_CHUNK_METERS). */
   readonly instanceChunkSize?: number;
+  /**
+   * A model row `assets` does not hold, from rows the page has read since
+   * (a build whose catalog is read as scenes load): undefined when not read.
+   */
+  readonly rowOf?: (assetId: string) => SceneAdapterModelAsset | undefined;
+  /** The same, reading what it takes to find the row (undefined: not a model of this build). */
+  readonly findRow?: (assetId: string) => Promise<SceneAdapterModelAsset | undefined>;
 }
 
 /** The bounded `models` diagnostics block (delivery.md —
@@ -580,8 +587,23 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
   // One row per assetId (validated above): one load per (assetId, version)
   // through the shared store. The bytes are already re-hashed against
   // `sourceDigest` by the wrapper.
-  const rowsByAsset = new Map<string, SceneAdapterModelAsset>();
-  for (const row of ctx.models.assets) rowsByAsset.set(row.assetId, row);
+  const givenRows = new Map<string, SceneAdapterModelAsset>();
+  for (const row of ctx.models.assets) givenRows.set(row.assetId, row);
+  /** A model's row: given at creation, else one the page has read since (kept once found). */
+  const rowsByAsset = {
+    get(assetId: string): SceneAdapterModelAsset | undefined {
+      const hit = givenRows.get(assetId);
+      if (hit !== undefined) return hit;
+      const found = ctx.models.rowOf?.(assetId);
+      if (found !== undefined) givenRows.set(assetId, found);
+      return found;
+    },
+    has(assetId: string): boolean {
+      return rowsByAsset.get(assetId) !== undefined;
+    },
+  };
+  /** Rows being found (`findRow`), each asked once at a time. */
+  const finding = new Set<string>();
 
   /** Animation-only assets asked for by an animator (kept while the realization exists). */
   const clipAssets = new Set<string>();
@@ -783,7 +805,23 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
       return;
     }
     const row = rowsByAsset.get(assetId);
-    if (row === undefined || loading.has(assetId)) return;
+    if (row === undefined) {
+      // A model no row read so far names (a spawned copy's, say): found, then loaded.
+      const find = ctx.models.findRow;
+      if (find === undefined || finding.has(assetId) || disposed) return;
+      finding.add(assetId);
+      void find(assetId).then(
+        (found) => {
+          finding.delete(assetId);
+          if (found === undefined || disposed) return;
+          givenRows.set(assetId, found);
+          ensureAsset(assetId);
+        },
+        () => finding.delete(assetId),
+      );
+      return;
+    }
+    if (loading.has(assetId)) return;
     loading.add(assetId);
     const gates = initial;
     if (gates) {

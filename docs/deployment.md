@@ -436,7 +436,7 @@ inactive entities are removed, and each entity gets its effective `static`.
   - `has(entityId, mask, 'any' | 'all')` tests an object.
   - `query(mask, 'any' | 'all')` returns object ids in scene order. It is
     computed once per mask.
-  The registry travels in the Play/export manifest (`tags`), so an exported
+  The registry travels in the Play/export catalog (`tags`), so an exported
   game needs nothing else.
 - **MCP.**
   - `tl_command setTags {tags: [{bit?, name}]}` replaces the registry: an
@@ -2296,7 +2296,8 @@ loads, no wait when played), *decode while playing* (kept compressed,
 decoded when played) or *stream* — defaulting by length: under 5 s decode on
 load, over 60 s stream, anything between decode while playing; and
 **preload** — read with the scene that uses it (the default) or only when
-played (a long dialogue's voice lines). The runtime manifest carries both.
+played (a long dialogue's voice lines). The runtime catalog's entry for the
+file carries both.
 Until the runtime loads audio by load type (phase 26.11), an asset decoded on
 load and preloaded is read and decoded when the game starts, and any other
 is read on first use and decoded when played. A project with `music`
@@ -2702,7 +2703,7 @@ its reason (the same line is next to its constant in the code):
 | Content file | 1 MiB of canonical JSON per file: each resource record (material, dialogue, UI document, …, environment preset, prefab) and `content.json`'s project-wide settings | What one parse and one change carry; the number of files is not bounded |
 | Asset file | 32 MiB per imported file (128 MiB for an FBX to convert); fonts 4 MiB, images 16 MiB; audio of any length within the 32 MiB | One read and one inspection in the backend's memory |
 | Disk | An import or upload is refused only when the disk the game folder is on would keep less than 64 MiB free; the message gives the free space | No project quota |
-| Runtime content manifest | `manifest.json` of a Play build or an export: 32 MiB, the content file cap (asset rows, rigs and prefabs are still inline; phase 26.9 moves them to a catalog). The parts listed by digest (`content/sha256/<digest>`: used materials, material functions, UI documents, dialogue, the instance-set buffer table, script library modules) are 32 MiB each | One file of the build |
+| Runtime content manifest | `manifest.json` of a Play build or an export (version 5): the build's identity, settings, start scenes and the catalog's location, about 2 KB at any project size. The catalog's files (`content/sha256/<digest>`: its root, each block — prefabs, materials, UI documents, dialogue, behaviors, … — in parts of about 1 MiB, the entry shards, each scene's dependency file) are 32 MiB each, the content file cap | One file of the build |
 | Play build in memory | 32 MiB per file the build generates (the manifest's content files, scene files, compiled scripts); no cap on the whole build. The project's files (assets, instance buffers) are not held: Play serves them from disk at their digest URLs, verified while sent | One file the backend holds; what the page reads of the project is read from disk per request |
 | Fixed-step catch-up per frame | 8 steps (the rest are dropped) | A slow frame must not make the next one slower |
 | Script physics queries | 1,024 per step, 2D and 3D together (1,024 rays cost Rapier about 1.6 ms with 16,384 colliders) | Runtime budget against a runaway loop |

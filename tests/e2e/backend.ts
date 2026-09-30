@@ -9,6 +9,8 @@ import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
+import { readRuntimeContentSync, type ExpandedRuntimeContent } from '@thirdlight/project-model';
+
 const REPO = resolve(import.meta.dirname, '..', '..');
 
 export interface E2EBackend {
@@ -225,4 +227,19 @@ export function controls(moveX: number, jump: 'none' | 'pressed' | 'held' | 'rel
       jump: { v: jump === 'pressed' || jump === 'held' ? 1 : 0, p: jump },
     },
   };
+}
+
+/**
+ * An export's content read whole from its folder: the manifest, then every
+ * file of its catalog, each checked against its row (the blocks under their
+ * keys, every catalog entry as `assets`).
+ */
+export function exportedContent(outDir: string): ExpandedRuntimeContent {
+  return readRuntimeContentSync(JSON.parse(readFileSync(join(outDir, 'manifest.json'), 'utf8')), (path) => {
+    try {
+      return new Uint8Array(readFileSync(join(outDir, path)));
+    } catch {
+      return null;
+    }
+  });
 }

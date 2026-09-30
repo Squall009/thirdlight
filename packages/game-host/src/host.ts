@@ -385,6 +385,13 @@ export interface GameHostConfig {
    * asset: decoded on load.
    */
   readonly audioLoad?: Readonly<Record<string, { readonly loadType?: string; readonly preload?: boolean }>>;
+  /**
+   * An asset the maps above do not name (a build whose catalog is read as
+   * the game needs it): its path, kind and load settings, or undefined when
+   * the build does not have it. A sound found this way is read and
+   * registered by its load settings once, then plays.
+   */
+  readonly lookupAsset?: (assetId: string) => Promise<{ readonly path: string; readonly kind: string; readonly loadType?: string; readonly preload?: boolean } | undefined>;
   /** Where the player's settings go (localStorage in the browser; see `storage.ts`) and this game's key prefix. */
   readonly saveStorage?: SaveStorage;
   readonly saveNamespace?: string;
@@ -765,16 +772,19 @@ export function createGameHost(config: GameHostConfig): GameHost {
   const glyphImageUrl = (assetId: string): string | null => {
     if (glyphUrls.has(assetId)) return glyphUrls.get(assetId)!;
     glyphUrls.set(assetId, null);
-    const path = config.assetPaths?.[assetId];
+    const known = config.assetPaths?.[assetId];
     const urls = (globalThis as { URL?: { createObjectURL?: (b: Blob) => string } }).URL;
-    if (typeof path === 'string' && typeof urls?.createObjectURL === 'function' && typeof Blob === 'function') {
-      void config.readArtifact(path).then(
+    if (typeof urls?.createObjectURL !== 'function' || typeof Blob !== 'function') return null;
+    // An image the rows at mount do not name (a portrait, say): its path from the catalog.
+    const path = typeof known === 'string' ? Promise.resolve(known) : (config.lookupAsset?.(assetId).then((r) => r?.path) ?? Promise.resolve(undefined));
+    void path
+      .then((p) => (p === undefined ? undefined : config.readArtifact(p)))
+      .then(
         (buffer) => {
-          if (!disposed) glyphUrls.set(assetId, urls.createObjectURL!(new Blob([buffer])));
+          if (buffer !== undefined && !disposed) glyphUrls.set(assetId, urls.createObjectURL!(new Blob([buffer])));
         },
         () => undefined,
       );
-    }
     return null;
   };
   let adapter: HostRenderAdapter | null = null;
@@ -1157,6 +1167,23 @@ export function createGameHost(config: GameHostConfig): GameHost {
     const load = config.audioLoad?.[assetId];
     return load !== undefined && (load.loadType !== 'decode-on-load' || load.preload === false);
   };
+  /** Sounds found through `lookupAsset` (asked once each): read, then registered by their load settings. */
+  const lookupAsked = new Set<string>();
+  const findSound = (assetId: string): void => {
+    if (config.lookupAsset === undefined || config.assetPaths?.[assetId] !== undefined || lookupAsked.has(assetId)) return;
+    lookupAsked.add(assetId);
+    void config
+      .lookupAsset(assetId)
+      .then(async (row) => {
+        if (disposed || row === undefined || row.kind !== 'audio') return;
+        const buffer = await config.readArtifact(row.path);
+        if (disposed) return;
+        const onUse = row.loadType !== undefined && (row.loadType !== 'decode-on-load' || row.preload === false);
+        if (onUse && config.audio.registerMusic !== undefined) config.audio.registerMusic(assetId, new Uint8Array(buffer));
+        else config.audio.registerCue(assetId, new Uint8Array(buffer));
+      })
+      .catch(() => undefined);
+  };
   /** The character (the first controller entity; null: none) — the legacy audio-source model hears from it. */
   let characterId: string | null | undefined;
   const serviceAudioSources = (rt: Runtime): void => {
@@ -1177,6 +1204,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
       }
       // A source whose file is read on first use needs its bytes registered (once).
       for (const s of sources) {
+        findSound(s.assetId);
         if (!readOnUse(s.assetId) || musicAsked.has(s.assetId)) continue;
         musicAsked.add(s.assetId);
         const path = config.assetPaths?.[s.assetId];
@@ -1229,6 +1257,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
     const commands = rt.takeAudioRequests?.() ?? [];
     for (const c of commands) {
       const assetId = c.op === 'play' || c.op === 'music' ? c.assetId : null;
+      if (assetId !== null) findSound(assetId);
       if (assetId !== null && readOnUse(assetId) && !scriptMusicAsked.has(assetId) && !musicAsked.has(assetId)) {
         scriptMusicAsked.add(assetId);
         const path = config.assetPaths?.[assetId];
@@ -1541,6 +1570,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
         documents: config.ui.documents,
         ...(config.ui.themes !== undefined ? { themes: config.ui.themes } : {}),
         ...(config.assetPaths !== undefined ? { assetPaths: config.assetPaths } : {}),
+        ...(config.lookupAsset !== undefined ? { lookupPath: (assetId: string) => config.lookupAsset!(assetId).then((r) => r?.path) } : {}),
         readArtifact: config.readArtifact,
         queueEvent: (event) => {
           const r = rt.queueUiEvent?.(event);

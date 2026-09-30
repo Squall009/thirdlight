@@ -24,64 +24,7 @@ import {
   sha256Hex,
   validateManifestV2,
 } from './index';
-
-// A small synthetic settings block in registry order (all defaults).
-const SETTINGS = {
-  gravity_y: -19.62,
-  run_speed: 4,
-  jump_velocity: 7,
-  max_fall_speed: -30,
-  max_slope_climb_deg: 45,
-  min_slope_slide_deg: 30,
-} as const;
-
-// A minimal media identity (only animation rows; one row).
-const ROLES = {
-  idle: { clipIndex: 0, clipName: 'Idle' },
-  run: { clipIndex: 1, clipName: 'Run' },
-  airborne: { clipIndex: 2, clipName: 'Air' },
-};
-const MEDIA = {
-  animation: [
-    {
-      entityId: 'p-1',
-      assetId: 'asset-1',
-      version: 1,
-      profileDigest: mediaProfileDigest(ROLES),
-      roles: ROLES,
-    },
-  ],
-};
-
-const ASSETS = [
-  {
-    assetId: 'asset-1',
-    kind: 'model' as const,
-    version: 1,
-    sourceDigest: 'a'.repeat(64),
-    sourceByteLength: 47,
-    recipe: { id: 'gltf-glb', version: 1 },
-    metricsDigest: 'b'.repeat(64),
-  },
-];
-
-const DIGEST = 'c'.repeat(64);
-
-function v2Input(over: Record<string, unknown> = {}) {
-  return {
-    projectId: 'demo-0001',
-    revision: 12,
-    capturedAt: '2026-09-19T10:00:00Z',
-    sceneDigest: DIGEST,
-    contentDigest: DIGEST,
-    assets: ASSETS,
-    behaviors: [],
-    settings: SETTINGS,
-    media: MEDIA,
-    moduleIds: ['thirdlight.physics-rapier:3d', 'thirdlight.character:controller'],
-    ...over,
-  };
-}
+import { ASSETS, DIGEST, everyOptionalKey, MEDIA, ROLES, SETTINGS, v2Input } from './manifest-test-inputs';
 
 describe('manifest-v2: block digest', () => {
   it('hashes JSON.stringify(value, null, 2) + "\\n" in the value own key order', () => {
@@ -200,37 +143,6 @@ describe('manifest-v2: captureManifestV2 assembly', () => {
  * buffers are capture inputs that become content files (the document's
  * `contentFiles` key), not document keys.
  */
-function everyOptionalKey(): Record<string, unknown> {
-  return {
-    tags: [{ bit: 3, name: 'walker' }],
-    loadable: [{ kind: 'audio', id: 'asset-2', address: 'voice/line-1', labels: ['voice'] }, { kind: 'prefab', id: 'pf-a', labels: ['spawnable'] }],
-    materials: [{ materialId: 'mat-a', name: 'A', shader: 'standard', params: {}, textures: {} }],
-    materialFunctions: [{ graphId: 'fn-a', kind: 'material-function', name: 'Fn', graph: { nodes: [], edges: [] } }],
-    effects: [{ effectId: 'fx-a', name: 'Fx', duration: 1, loop: false, seed: 1, bounds: { center: [0, 0, 0], size: [1, 1, 1] }, systems: [{ systemId: 'sys-a', name: 'Sys', maxParticles: 8, space: 'world', graph: { nodes: ['spawn', 'initialize', 'update', 'output'].map((c, i) => ({ id: c, type: c, position: [0, i * 200] })), edges: [] } }] }],
-    environment: { sky: { mode: 'color', color: '#7ec8ff' } },
-    lighting: { 'scene-a': { bakeId: 'bake-a', createdAt: '2026-09-19T10:00:00Z', source: 'browser', range: 1, texelsPerMeter: 4, samples: 16, bounces: 1, atlases: ['tex-a'], entries: [], bakedLights: [], lightsHash: '0'.repeat(16), staticsHash: '1'.repeat(16) } },
-    animators: [{ controllerId: 'anim-a', name: 'Anim', parameters: [], states: [{ id: 'idle', name: 'Idle', motion: { kind: 'clip', clip: { assetId: 'asset-1', clip: 'Idle', duration: 1 } }, speed: 1, loop: true }], transitions: [], entry: 'idle', events: [] }],
-    rigs: { 'asset-1': { nodes: [{ name: 'root', parent: -1, t: [0, 0, 0], r: [0, 0, 0, 1], s: [1, 1, 1] }], clips: [] } },
-    prefabs: [{ prefabId: 'pf-a', displayName: 'Pf', createdRevision: 1, entityCount: 1, depth: 1, entities: [{ localId: 'root', name: 'Root', parentLocalId: null, components: { transform: { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] } } }] }],
-    blockTypes: [{ blockId: 'bt-a', name: 'Bt', shape: 'full', variants: [{ color: '#808080' }] }],
-    cellFields: [{ key: 'depth', type: 'int' }],
-    input: { actions: [{ name: 'use', type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: 'KeyE' }] }] },
-    collisionLayers: ['world'],
-    saveSchema: { version: 1, slots: 1 },
-    uiThemes: [{ uiThemeId: 'theme-a', name: 'Theme', styles: {} }],
-    uiDocuments: [{ uiDocumentId: 'hud', name: 'HUD', root: { type: 'text', text: 'hi' } }],
-    dialogue: { dialogues: [], speakers: [], settings: {}, document: 'dialogue' },
-    modes: [{ modeId: 'main', name: 'Main' }],
-    timelines: [{ timelineId: 'tl-a', name: 'Tl', duration: 1, tracks: [] }],
-    eventCues: [{ on: 'signal', name: 'tick', assetId: 'asset-1' }],
-    shell: { hud: ['hud'] },
-    scenes: [{ sceneId: 'scene-a', path: 'scenes/scene-a.json', digest: 'e'.repeat(64), byteLength: 10, start: true }],
-    buffers: [{ digest: 'f'.repeat(64), byteLength: 48 }],
-    // The shared script library modules.
-    libraries: [{ libraryId: 'lib-a', sourceDigest: 'a'.repeat(64), outputDigest: 'b'.repeat(64), outputByteLength: 12 }],
-  };
-}
-
 describe('manifest-v2: every optional key present', () => {
   it('the fixture names every optional key (a key added to MANIFEST_KEYS_V2 must be added here)', () => {
     const required = Object.keys(captureManifestOrThrow(v2Input()));

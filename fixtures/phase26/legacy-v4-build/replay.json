@@ -1,0 +1,21 @@
+{
+  "op": "setLabels",
+  "projectId": "legacy-v4-assets",
+  "expectedRevision": 12,
+  "requestId": "req-107f5bd2d2a93a28082b60f441bef914",
+  "origin": {
+    "kind": "mcp",
+    "clientId": "fixture"
+  },
+  "args": {
+    "items": [
+      {
+        "kind": "asset",
+        "id": "beep"
+      }
+    ],
+    "add": [
+      "sfx"
+    ]
+  }
+}

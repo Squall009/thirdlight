@@ -25,7 +25,7 @@ import { extname, join, normalize } from 'node:path';
 
 import { expect, test, type Page } from '@playwright/test';
 
-import { type E2EBackend, startBackend } from './backend';
+import { exportedContent, type E2EBackend, startBackend } from './backend';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -218,7 +218,7 @@ test('libraries are shared modules in Play (worker and page) and the export; the
   const res = await be.admin(`projects/${be.projectId}/export`);
   expect(res.status, JSON.stringify(res.json)).toBe(200);
   const out = join(be.exportRoot, String(res.json.outputDir));
-  const manifest = JSON.parse(readFileSync(join(out, 'manifest.json'), 'utf8')) as { libraries?: { libraryId: string; outputDigest: string; path: string }[]; behaviors: { path: string }[] };
+  const manifest = exportedContent(out) as unknown as { libraries?: { libraryId: string; outputDigest: string; path: string }[]; behaviors: { path: string }[] };
   expect(manifest.libraries?.map((l) => l.libraryId)).toEqual(['tally']);
   const libPath = manifest.libraries![0]!.path;
   const libText = readFileSync(join(out, libPath), 'utf8');

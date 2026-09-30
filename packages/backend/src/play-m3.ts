@@ -21,7 +21,7 @@
  */
 import { PLAY_CONTENT_ARTIFACT_MAX_BYTES, type SessionError } from '@thirdlight/protocol';
 import { buildContentClosureM3, type ClosureSourceMap, type ContentClosureM3 } from '@thirdlight/exporter';
-import type { RuntimeContentManifestV2 } from '@thirdlight/project-model';
+import type { RuntimeContentManifestV5 } from '@thirdlight/project-model';
 import type { WorkspaceService } from '@thirdlight/workspace';
 import { generateGraphSource, type BehaviorCompiler } from '@thirdlight/behavior-build';
 import { sha256HexBytes, type PlayServed } from './play-content';
@@ -75,8 +75,8 @@ export interface BuildPlayContentM3Input {
 }
 
 export interface BuiltPlayContentM3 {
-  /** The runtime-content manifest v2 document. */
-  manifest: RuntimeContentManifestV2;
+  /** The runtime-content manifest document. */
+  manifest: RuntimeContentManifestV5;
   manifestBytes: Uint8Array;
   buildId: string;
   contentDigest: string;

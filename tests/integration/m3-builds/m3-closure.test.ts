@@ -12,6 +12,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { buildContentClosureM3 } from '@thirdlight/exporter';
+import { readRuntimeContentSync } from '@thirdlight/project-model';
 
 import { fakeService, sha256Hex, syntheticV3 } from './helpers';
 
@@ -37,10 +38,12 @@ describe('B19 the M3 shared closure derives the v2 manifest from one capture', (
       expect(a.path).toBe(`content/sha256/${a.digest}`);
       expect(sha256Hex(a.bytes)).toBe(a.digest);
     }
-    // The declared set == the manifest's asset rows (declared == emitted at the
-    // closure level).
-    expect(c.declaredPaths).toHaveLength(2);
-    expect(c.manifest.assets).toHaveLength(2);
+    // The declared set == the catalog's asset entries and its own files
+    // (declared == emitted at the closure level).
+    const files = new Map(c.contentFileArtifacts.map((f) => [f.path, f.bytes]));
+    const read = readRuntimeContentSync(c.manifest, (p) => files.get(p) ?? null);
+    expect(read.assets).toHaveLength(2);
+    expect(c.declaredPaths).toEqual([...new Set([...read.assets.map((a) => String(a['path'])), ...files.keys()])].sort());
     // No behaviors (the supported M3 closure is behavior-free).
     expect(c.behaviors).toHaveLength(0);
     expect(c.behaviorArtifacts).toHaveLength(0);
@@ -56,7 +59,7 @@ describe('B19 the M3 shared closure derives the v2 manifest from one capture', (
     // project-model unit tests + the byte-identical fixture re-derivation).
     expect(typeof manifestObj['buildId']).toBe('string');
     expect(manifestObj['buildId']).toBe(c.buildId);
-    expect(manifestObj['manifestVersion']).toBe(4);
+    expect(manifestObj['manifestVersion']).toBe(5);
     expect(manifestObj['settingsDigest']).toBe(c.manifest.settingsDigest);
     void without;
   });

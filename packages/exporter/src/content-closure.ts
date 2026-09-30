@@ -26,7 +26,7 @@ import { dialogueForRuntime, type DialogueDocument, type DialogueSettings, type 
 import type { GameMode } from '@thirdlight/project-model';
 import type { EventCue, GameShell, TimelineAsset } from '@thirdlight/project-model';
 import type { AnimatorController, EnvironmentConfig, PrefabDefinition, InputConfig, LightingMap, MaterialDef, UiDocument, UiTheme } from '@thirdlight/project-model';
-import { animatorsForRuntime, effectsForRuntime, type EffectDef, materialFunctionsForRuntime, materialsForRuntime, type GraphDocument, captureContentViewV3, captureManifestV2, M3_ENGINE_PINS, resolveMediaIdentityV3, sha256Hex, type GameplaySettings, type ManifestAssetInputV2, type ManifestBehaviorInput, type MediaBlock, type RuntimeContentManifestV2, type ManifestSceneRow, physicsDimensionOf, resolveRequiredModules, materialsInUse, resolveMaterialInstances, loadableAssetIds, loadableResourceIds, loadableRows, scriptLibraryContainerText, scriptLibraryDigest, type ScriptLibrary } from '@thirdlight/project-model';
+import { animatorsForRuntime, effectsForRuntime, type EffectDef, materialFunctionsForRuntime, materialsForRuntime, type GraphDocument, captureContentViewV3, captureManifestV5, dependencyTables, scanDependencies, M3_ENGINE_PINS, resolveMediaIdentityV3, sha256Hex, type GameplaySettings, type ManifestAssetInputV2, type ManifestAssetInputV5, type ManifestBehaviorInput, type MediaBlock, type RuntimeContentManifestV5, type ManifestSceneRow, physicsDimensionOf, resolveRequiredModules, materialsInUse, resolveMaterialInstances, loadableAssetIds, loadableResourceIds, loadableRows, scriptLibraryContainerText, scriptLibraryDigest, type ScriptLibrary } from '@thirdlight/project-model';
 import { ASSET_QUERY_PAGE_MAX, audioLoadOf, MODEL_RIG_LIMITS, readModelRig, type AudioLoadType, type ModelRig } from '@thirdlight/project-model';
 import type { BlobFile, WorkspaceService } from '@thirdlight/workspace';
 
@@ -214,7 +214,7 @@ export interface ContentClosureM3Input {
 }
 
 export interface ContentClosureM3 {
-  manifest: RuntimeContentManifestV2;
+  manifest: RuntimeContentManifestV5;
   manifestBytes: Uint8Array;
   buildId: string;
   contentDigest: string;
@@ -265,14 +265,12 @@ async function compileReachableBehaviors(
   service: WorkspaceService,
   compiler: ContentClosureCompilerPort,
   projectId: string,
+  behaviorRows: ReadonlyArray<Record<string, unknown>>,
   scriptLibraries: readonly ScriptLibrary[] = [],
 ): Promise<
   | { ok: true; behaviorArtifacts: ClosureArtifact[]; behaviorInputs: ManifestBehaviorInput[]; behaviors: ClosureBehavior[]; libraryArtifacts: ClosureArtifact[]; libraryRows: ManifestLibraryInput[]; sourceMaps: ClosureSourceMap[] }
   | { ok: false; error: ContentClosureError }
 > {
-  const all = allBehaviorRows(service, projectId, true);
-  if (!all.ok) return all;
-  const behaviorRows = all.rows;
   const behaviorArtifacts: ClosureArtifact[] = [];
   const behaviorInputs: ManifestBehaviorInput[] = [];
   const behaviors: ClosureBehavior[] = [];
@@ -459,6 +457,8 @@ interface DerivedCapture {
   readonly buffers: readonly { digest: string; byteLength: number }[];
   readonly sceneBytes: Uint8Array;
   readonly sceneDigest: string;
+  /** Each scene's dependencies (the asset ids it needs), once derived. */
+  sceneDependencies?: ReadonlyMap<string, readonly string[]>;
 }
 type CapturedView = Extract<ReturnType<typeof captureContentViewV3>, { ok: true }>['normalized'];
 
@@ -549,7 +549,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
     media = derived.media;
   } else {
     // What scenes reference, and the loadable assets (an address or a label: a script may load them by name).
-    const viewRes = captureContentViewV3(input.scene, input.content, { projectId, revision: input.revision }, input.scenes, loadableAssetIds(input.content));
+    const viewRes = captureContentViewV3(input.scene, input.content, { projectId, revision: input.revision }, input.scenes, loadableAssetIds(input.content), hash);
     if (!viewRes.ok) {
       const e = viewRes.errors[0]!;
       return { ok: false, error: { code: 'export_scene_invalid', cls: 'validation', message: e.message.slice(0, 256), reason: e.code } };
@@ -568,7 +568,8 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
   // 3. The required engine modules, derived from the declared dependencies
   //    (the referenced content, what each behavior requires).
   //    An unresolved dependency refuses the build here, before any compile.
-  const declaredBehaviors = allBehaviorRows(service, projectId, false);
+  // Every behavior with its source (its required modules, and what is compiled below).
+  const declaredBehaviors = allBehaviorRows(service, projectId, true);
   if (!declaredBehaviors.ok) return declaredBehaviors;
   const behaviorDeps = declaredBehaviors.rows
     .filter((row) => row['source'] !== null && row['source'] !== undefined)
@@ -592,7 +593,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
   stage('view');
   // 4. The reachable source-bearing behaviors (recompiled);
   //    the game host links them as runtime modules.
-  const compiledBehaviors = await compileReachableBehaviors(service, input.compiler, projectId, ((input.content as { scriptLibraries?: ScriptLibrary[] }).scriptLibraries ?? []) as ScriptLibrary[]);
+  const compiledBehaviors = await compileReachableBehaviors(service, input.compiler, projectId, declaredBehaviors.rows, ((input.content as { scriptLibraries?: ScriptLibrary[] }).scriptLibraries ?? []) as ScriptLibrary[]);
   if (!compiledBehaviors.ok) return compiledBehaviors;
   const { behaviorArtifacts, behaviorInputs, behaviors, libraryArtifacts, libraryRows, sourceMaps } = compiledBehaviors;
   stage('behaviors');
@@ -739,8 +740,10 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
   // 6. The emitted scene bytes + sceneDigest (the manifest's sceneDigest input).
   const sceneBytes = derived !== null ? derived.sceneBytes : new TextEncoder().encode(`${JSON.stringify(input.scene, null, 2)}\n`);
   const sceneDigest = derived !== null ? derived.sceneDigest : hash(sceneBytes);
+  let remember: DerivedCapture | null = null;
   if (derived === null && contentKey !== null && identities !== null) {
-    derivedCaptures.set(contentKey, { projectId, revision: input.revision, startScenes: startKey, identities, view, media, sceneArtifacts: [...sceneArtifacts], sceneRows: [...sceneRows], buffers: [...buffers.entries()].map(([digest, byteLength]) => ({ digest, byteLength })), sceneBytes, sceneDigest });
+    remember = { projectId, revision: input.revision, startScenes: startKey, identities, view, media, sceneArtifacts: [...sceneArtifacts], sceneRows: [...sceneRows], buffers: [...buffers.entries()].map(([digest, byteLength]) => ({ digest, byteLength })), sceneBytes, sceneDigest };
+    derivedCaptures.set(contentKey, remember);
   }
 
   // 6b. Only the materials the game uses (an object, a prefab, a shipped model's default
@@ -766,75 +769,101 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
         return resolveMaterialInstances(allMaterials).filter((m) => used.has(m.materialId));
       })();
 
-  // 7. The v2 manifest (pure derivation) + self-identifying buildId.
-  const captured = captureManifestV2({
+  // 7. The v5 manifest and its catalog files (pure derivation) + self-identifying buildId.
+  const content = input.content as Record<string, unknown>;
+  const runtimeMaterials = usedMaterials !== undefined ? materialsForRuntime(usedMaterials) : undefined;
+  const runtimeFunctions = usedMaterials !== undefined ? materialFunctionsForRuntime(usedMaterials, (content['graphs'] as GraphDocument[] | undefined) ?? []) : undefined;
+  const runtimeEffects = content['effects'] !== undefined ? effectsForRuntime(content['effects'] as EffectDef[]) : undefined;
+  const runtimeAnimators = content['animators'] !== undefined ? animatorsForRuntime(content['animators'] as AnimatorController[]) : undefined;
+  // What each scene, each model and the project-wide blocks need of the shipped assets (the catalog's dependency lists).
+  const tables = dependencyTables({ assets: view.assets, ...(runtimeMaterials !== undefined ? { materials: runtimeMaterials } : {}), ...(runtimeFunctions !== undefined ? { functions: runtimeFunctions } : {}), ...(runtimeEffects !== undefined ? { effects: runtimeEffects } : {}), ...(runtimeAnimators !== undefined ? { animators: runtimeAnimators } : {}), prefabs: prefabDefs });
+  const lighting = content['lighting'] as LightingMap | undefined;
+  const sceneDependencies = new Map<string, readonly string[]>(derived?.sceneDependencies ?? []);
+  if (derived?.sceneDependencies === undefined) {
+    for (const doc of input.scenes ?? []) {
+      const sceneId = (doc as { sceneId: string }).sceneId;
+      sceneDependencies.set(sceneId, scanDependencies(tables, [doc, lighting?.[sceneId]]));
+    }
+    if (remember !== null) remember.sceneDependencies = sceneDependencies;
+  }
+  // (The speakers' portraits and blips; a line's voice is read when it plays.)
+  const sharedDependencies = scanDependencies(tables, [content['environment'], runtimeEffects, content['uiDocuments'], content['uiThemes'], content['shell'], content['timelines'], content['eventCues'], content['blockTypes'], content['input'], content['speakers']]);
+  // Each shipped asset with its address and labels (scripts load it by them) and, for a model, the textures its material map draws with.
+  const namesById = new Map<string, { address?: string; labels?: readonly string[] }>();
+  for (const r of ((content['assets'] as { assetId: string; address?: string; labels?: readonly string[] }[] | undefined) ?? [])) if (r.address !== undefined || (r.labels?.length ?? 0) > 0) namesById.set(r.assetId, r);
+  const entries: ManifestAssetInputV5[] = assets.map((a) => {
+    const names = namesById.get(a.assetId);
+    const needs = a.kind === 'model' && a.materials !== undefined ? scanDependencies(tables, [a.materials]).filter((id) => id !== a.assetId) : [];
+    return { ...a, ...(names?.address !== undefined ? { address: names.address } : {}), ...(names?.labels !== undefined && names.labels.length > 0 ? { labels: names.labels } : {}), ...(needs.length > 0 ? { dependencies: needs } : {}) };
+  });
+  const captured = captureManifestV5({
     projectId,
     revision: input.revision,
     capturedAt: input.capturedAt,
     sceneDigest,
     contentDigest: view.contentDigest,
-    assets,
+    assets: entries,
     // The catalog of what a script may load by address or label (what this build holds).
     loadable: loadableRows(input.content, { assets: new Set(assets.map((a) => a.assetId)) }),
     behaviors: behaviorInputs,
     // The shared script library modules the behaviors import.
     ...(libraryRows.length > 0 ? { libraries: libraryRows } : {}),
     settings: view.settings,
-    // The tag registry rides in the manifest (scripts query by tag).
-    tags: ((input.content as { tags?: { bit: number; name: string }[] } | null)?.tags ?? []),
-    // Project materials and the environment (the renderer's; bound by the buildId).
+    // The tag registry (scripts query by tag).
+    tags: ((content['tags'] as { bit: number; name: string }[] | undefined) ?? []),
     // Graph materials carry their graphs and parameters (the runtime compiles them to TSL), and the
-    // manifest the material functions they call — without editor-only graph text (comments, groups).
-    // The used ones only (6b); both ride in content files.
-    ...(usedMaterials !== undefined ? { materials: materialsForRuntime(usedMaterials) } : {}),
-    ...(usedMaterials !== undefined
-      ? { materialFunctions: materialFunctionsForRuntime(usedMaterials, (input.content as { graphs?: GraphDocument[] }).graphs ?? []) }
-      : {}),
+    // material functions they call — without editor-only graph text (comments, groups). The used ones only (6b).
+    ...(runtimeMaterials !== undefined ? { materials: runtimeMaterials } : {}),
+    ...(runtimeFunctions !== undefined ? { materialFunctions: runtimeFunctions } : {}),
     // The visual effects (particle system graphs without editor-only text); the runtime's executors compile them.
-    ...((input.content as { effects?: EffectDef[] } | null)?.effects !== undefined ? { effects: effectsForRuntime((input.content as { effects: EffectDef[] }).effects) } : {}),
-    ...((input.content as { environment?: EnvironmentConfig } | null)?.environment !== undefined ? { environment: (input.content as { environment: EnvironmentConfig }).environment } : {}),
+    ...(runtimeEffects !== undefined ? { effects: runtimeEffects } : {}),
+    ...(content['environment'] !== undefined ? { environment: content['environment'] as EnvironmentConfig } : {}),
     // The scenes' bakes (lightmap atlases are texture assets, captured above).
-    ...((input.content as { lighting?: LightingMap } | null)?.lighting !== undefined ? { lighting: (input.content as { lighting: LightingMap }).lighting } : {}),
+    ...(lighting !== undefined ? { lighting } : {}),
     // The project UI (the game host draws the documents; themes hold their shared styles).
-    ...((input.content as { uiThemes?: UiTheme[] } | null)?.uiThemes !== undefined ? { uiThemes: (input.content as { uiThemes: UiTheme[] }).uiThemes } : {}),
-    ...((input.content as { uiDocuments?: UiDocument[] } | null)?.uiDocuments !== undefined ? { uiDocuments: (input.content as { uiDocuments: UiDocument[] }).uiDocuments } : {}),
+    ...(content['uiThemes'] !== undefined ? { uiThemes: content['uiThemes'] as UiTheme[] } : {}),
+    ...(content['uiDocuments'] !== undefined ? { uiDocuments: content['uiDocuments'] as UiDocument[] } : {}),
     // The compiled conversations, speakers and settings (the runtime's dialogue runner; only with conversations).
     ...(input.content !== null ? { dialogue: dialogueForRuntime(input.content as { dialogues?: DialogueDocument[]; speakers?: DialogueSpeaker[]; dialogueSettings?: DialogueSettings }) } : {}),
     // The game modes (the runtime switches them; the host reads their pause screens).
-    ...((input.content as { modes?: GameMode[] } | null)?.modes !== undefined ? { modes: (input.content as { modes: GameMode[] }).modes } : {}),
+    ...(content['modes'] !== undefined ? { modes: content['modes'] as GameMode[] } : {}),
     // The timelines (the runtime plays them in the simulation step).
-    ...((input.content as { timelines?: TimelineAsset[] } | null)?.timelines !== undefined ? { timelines: (input.content as { timelines: TimelineAsset[] }).timelines } : {}),
+    ...(content['timelines'] !== undefined ? { timelines: content['timelines'] as TimelineAsset[] } : {}),
     // The event → cue table (the runtime plays its sounds through the audio intent log).
-    ...((input.content as { eventCues?: EventCue[] } | null)?.eventCues !== undefined ? { eventCues: (input.content as { eventCues: EventCue[] }).eventCues } : {}),
+    ...(content['eventCues'] !== undefined ? { eventCues: content['eventCues'] as EventCue[] } : {}),
     // The game shell (the game host draws its screens and HUD; the runtime walks its scene list).
-    ...((input.content as { shell?: GameShell } | null)?.shell !== undefined ? { shell: (input.content as { shell: GameShell }).shell } : {}),
+    ...(content['shell'] !== undefined ? { shell: content['shell'] as GameShell } : {}),
     // The input actions (the game's input binding reads them).
-    ...((input.content as { input?: InputConfig } | null)?.input !== undefined ? { input: (input.content as { input: InputConfig }).input } : {}),
+    ...(content['input'] !== undefined ? { input: content['input'] as InputConfig } : {}),
     // The named collision layers (the 3D physics world resolves colliders' and queries' layers with them).
-    ...(((input.content as { collisionLayers?: string[] } | null)?.collisionLayers ?? []).length > 0 ? { collisionLayers: (input.content as { collisionLayers: string[] }).collisionLayers } : {}),
+    ...(((content['collisionLayers'] as string[] | undefined) ?? []).length > 0 ? { collisionLayers: content['collisionLayers'] as string[] } : {}),
     // The project save schema (the runtime builds and restores save documents with it; the host keeps the slots).
-    ...((input.content as { saveSchema?: SaveSchema } | null)?.saveSchema !== undefined ? { saveSchema: (input.content as { saveSchema: SaveSchema }).saveSchema } : {}),
+    ...(content['saveSchema'] !== undefined ? { saveSchema: content['saveSchema'] as SaveSchema } : {}),
     // The animator controllers (the game's runtime steps them), without the editor-only graph layout.
-    ...((input.content as { animators?: AnimatorController[] } | null)?.animators !== undefined ? { animators: animatorsForRuntime((input.content as { animators: AnimatorController[] }).animators) } : {}),
+    ...(runtimeAnimators !== undefined ? { animators: runtimeAnimators } : {}),
     // The rigs sockets are resolved on (the runtime never loads a model).
     ...(rigs !== undefined ? { rigs } : {}),
     // A v4 game's prefabs (scripts spawn them at run time).
     ...(prefabDefs.length > 0 ? { prefabs: prefabDefs } : {}),
     // The block types and the cell metadata schema (the runtime and the renderer read them).
-    ...((input.content as { blockTypes?: BlockType[] } | null)?.blockTypes !== undefined ? { blockTypes: (input.content as { blockTypes: BlockType[] }).blockTypes } : {}),
-    ...((input.content as { cellFields?: CellField[] } | null)?.cellFields !== undefined ? { cellFields: (input.content as { cellFields: CellField[] }).cellFields } : {}),
-    ...(input.scenes !== undefined ? { scenes: sceneRows, buffers: [...buffers.entries()].sort(([a], [b]) => (a < b ? -1 : 1)).map(([digest, byteLength]) => ({ digest, byteLength })) } : {}),
+    ...(content['blockTypes'] !== undefined ? { blockTypes: content['blockTypes'] as BlockType[] } : {}),
+    ...(content['cellFields'] !== undefined ? { cellFields: content['cellFields'] as CellField[] } : {}),
+    // Every scene with what it needs; the scenes the game starts with; what the project-wide blocks need.
+    ...(input.scenes !== undefined ? { scenes: sceneRows.map((r) => ({ ...r, dependencies: sceneDependencies.get(r.sceneId) ?? [] })), buffers: [...buffers.entries()].sort(([a], [b]) => (a < b ? -1 : 1)).map(([digest, byteLength]) => ({ digest, byteLength })) } : {}),
+    start: input.startScenes ?? [],
+    dependencies: sharedDependencies,
     media,
     moduleIds,
     enginePins: M3_ENGINE_PINS,
+    sha256: hash,
   });
   if (!captured.ok) {
     return { ok: false, error: { code: 'export_manifest_invalid', cls: 'validation', message: captured.error.message, reason: captured.error.reason } };
   }
 
   stage('manifest');
-  // The content files the manifest lists (JSON, by digest).
-  const contentFileArtifacts: ClosureArtifact[] = captured.contentFiles.map((f) => ({ path: f.path, bytes: f.bytes, digest: f.digest, contentType: 'application/json' }));
+  // The catalog's files (JSON, by digest): its root, the blocks, the entry shards, the scenes' dependency files.
+  const contentFileArtifacts: ClosureArtifact[] = captured.files.map((f) => ({ path: f.path, bytes: f.bytes, digest: f.digest, contentType: 'application/json' }));
   assetArtifacts.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   assetFiles.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   behaviorArtifacts.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));

@@ -1,25 +1,26 @@
 /**
- * One project with the optional manifest keys that
- * travel together (modes, timelines, event cues, the shell, dialogue, a save
- * schema, tags, collision layers, input and UI documents), built by the real
- * backend, verified by the pages that load it, played and exported:
+ * One project with the optional blocks that travel together (modes,
+ * timelines, event cues, the shell, dialogue, a save schema, tags, collision
+ * layers, input, UI documents, materials, an instance buffer table and a
+ * script), built by the real backend, verified by the pages that load it,
+ * played and exported:
  *
- * - Play: the preview re-derives the manifest's buildId (MANIFEST_KEYS_V2
- *   order) before anything loads; the manifest it read carries every one of
- *   those keys, in that order. In the running game the mode is current, the
- *   shell's HUD and the mode's document are shown, the start timeline's
- *   letterbox holds and the metronome's signal plays its event sound.
- * - Export: the same with the backend stopped, from a plain static server
- *   (the exported page re-derives the buildId the same way).
+ * - The manifest (version 5) keeps its own keys only (`MANIFEST_KEYS_V5`, in
+ *   order): the start scenes and the catalog's location. Every block is a
+ *   file of the catalog, listed by its root in the catalog's key order; the
+ *   pages re-derive the manifest's buildId before anything loads and check
+ *   each file against its row.
+ * - Play: the page reads the root, every block file and the start scene's
+ *   dependency file from the play's cache root. In the running game the mode
+ *   is current, the shell's HUD and the mode's document are shown, the start
+ *   timeline's letterbox holds and the metronome's signal plays its event
+ *   sound.
+ * - Export: the same with the backend stopped, from a plain static server;
+ *   the same catalog as Play's (one capture of the same project).
  *
- * Manifest version 4: the materials (only the used ones), the
- * UI documents, the dialogue data and the instance buffer table are content
- * files listed in `contentFiles`, not manifest keys. Play reads them from the
- * play's cache root and the export from its own tree (the files are there,
- * the exported page fetches them, the unused material is in neither).
- *
- * The every-key-at-once check of the pure builder (all optional keys, the
- * strict reader) is `packages/project-model/src/manifest-v2.test.ts`.
+ * The every-block-at-once check of the pure builder (every optional block,
+ * the strict readers, the v4 capture's blocks read back the same) is
+ * `packages/project-model/src/manifest-v5.test.ts`.
  */
 import { createHash, randomBytes } from 'node:crypto';
 import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
@@ -28,7 +29,7 @@ import { extname, join, normalize } from 'node:path';
 
 import { expect, test, type FrameLocator, type Page } from '@playwright/test';
 
-import { MANIFEST_KEYS_V2 } from '@thirdlight/project-model';
+import { CATALOG_BLOCK_KEYS, MANIFEST_KEYS_V5 } from '@thirdlight/project-model';
 
 import { publishWav, startBackend, STARTER, type E2EBackend } from './backend';
 
@@ -86,10 +87,8 @@ const METRONOME = [
   '',
 ].join('\n');
 
-/** The keys this project authors (beyond the ones every manifest has). */
-const AUTHORED = ['tags', 'input', 'collisionLayers', 'saveSchema', 'modes', 'timelines', 'eventCues', 'shell', 'contentFiles'] as const;
-/** The content files this project has, in their order. */
-const CONTENT_FILES = ['materials', 'uiDocuments', 'dialogue', 'buffers'] as const;
+/** The catalog blocks this project authors (each its own file). */
+const AUTHORED = ['tags', 'input', 'collisionLayers', 'saveSchema', 'modes', 'timelines', 'eventCues', 'shell', 'materials', 'uiDocuments', 'dialogue', 'buffers', 'behaviors', 'loadable', 'facts', 'dependencies'] as const;
 /** The instance set's buffer (published in buildProject). */
 let bufferDigest = '';
 
@@ -104,6 +103,8 @@ async function buildProject(): Promise<void> {
   await cmd('setTimeline', { timeline: { timelineId: 'intro', name: 'Intro', duration: 1, playOnStart: true, tracks: [{ trackId: 'bars', type: 'letterbox', hold: true, keys: [{ time: 0, value: 0.1 }] }] } });
   const sound = await publishWav(be, 'cue-goal.wav', 'sfx-tick', 'tick');
   await cmd('setEventCues', { cues: [{ on: 'signal', name: 'tick', assetId: sound }] });
+  // A label makes it loadable by name (the catalog's loadable index).
+  await cmd('setLabels', { items: [{ kind: 'asset', id: sound }], add: ['sfx'] });
   await cmd('setShell', { shell: { hud: ['hud'] } });
   await cmd('setDialogue', { dialogue: { dialogueId: 'talk', name: 'Talk', graph: {
     nodes: [{ id: 'start', type: 'start', position: [0, 0] }, { id: 'hello', type: 'line', position: [0, 100], data: { text: 'Hello.' } }],
@@ -125,35 +126,53 @@ async function buildProject(): Promise<void> {
   await cmd('createEntity', { kind: 'group', name: 'Pillars', components: { instances: { asset: { assetId: pillar }, buffer: bufferDigest, count: 6 } } });
 }
 
-/**
- * The content files the manifest lists, read through `read` and
- * checked against their rows; the blocks are not in the document itself, only
- * the used material ships, and the buffer table names the instance set's buffer.
- */
-async function expectContentFiles(manifest: Record<string, unknown>, read: (path: string) => Promise<Buffer>): Promise<void> {
-  const rows = manifest['contentFiles'] as { key: string; path: string; digest: string; byteLength: number }[];
-  expect(rows.map((r) => r.key)).toEqual([...CONTENT_FILES]);
-  for (const k of CONTENT_FILES) expect(k in manifest, `the manifest itself carries no ${k}`).toBe(false);
-  const blocks: Record<string, unknown> = {};
-  for (const r of rows) {
-    expect(r.path).toBe(`content/sha256/${r.digest}`);
-    const bytes = await read(r.path);
-    expect(bytes.length).toBe(r.byteLength);
-    expect(createHash('sha256').update(bytes).digest('hex')).toBe(r.digest);
-    blocks[r.key] = JSON.parse(bytes.toString('utf8'));
-  }
-  expect((blocks['materials'] as { materialId: string }[]).map((m) => m.materialId)).toEqual(['mat-used']);
-  expect((blocks['uiDocuments'] as { uiDocumentId: string }[]).map((d) => d.uiDocumentId).sort()).toEqual(['hud', 'panel']);
-  expect(JSON.stringify(blocks['dialogue'])).toContain('Hello.');
-  expect(blocks['buffers']).toEqual([{ digest: bufferDigest, byteLength: 6 * 40 }]);
+interface CatalogRoot {
+  files: { key: string; path: string; digest: string; byteLength: number }[];
+  scenes: { sceneId: string; start: boolean; dependencies: { path: string; digest: string; byteLength: number } }[];
+  entries: { path: string }[];
 }
 
-/** Every authored key is present and the document's keys follow MANIFEST_KEYS_V2. */
+/** One file read through `read`, checked against its row, parsed. */
+async function checked(read: (path: string) => Promise<Buffer>, row: { path: string; digest: string; byteLength: number }): Promise<unknown> {
+  expect(row.path).toBe(`content/sha256/${row.digest}`);
+  const bytes = await read(row.path);
+  expect(bytes.length).toBe(row.byteLength);
+  expect(createHash('sha256').update(bytes).digest('hex')).toBe(row.digest);
+  return JSON.parse(bytes.toString('utf8')) as unknown;
+}
+
+/**
+ * The catalog the manifest points at, read through `read` and checked
+ * against its rows: every authored block is a file, in the catalog's key
+ * order; only the used material ships; the buffer table names the instance
+ * set's buffer; the event sound is in what the project-wide blocks need.
+ * Returns the root (the files a page reads at start are named by it).
+ */
+async function expectCatalog(manifest: Record<string, unknown>, read: (path: string) => Promise<Buffer>): Promise<CatalogRoot> {
+  const root = (await checked(read, manifest['catalog'] as { path: string; digest: string; byteLength: number })) as CatalogRoot;
+  const keys = [...new Set(root.files.map((f) => f.key))];
+  for (const k of AUTHORED) expect(keys, `catalog block ${k}`).toContain(k);
+  expect(keys).toEqual(CATALOG_BLOCK_KEYS.filter((k) => keys.includes(k)));
+  const blocks: Record<string, unknown[]> = {};
+  for (const f of root.files) {
+    if (f.key === 'loadable') continue;
+    const value = await checked(read, f);
+    blocks[f.key] = [...(blocks[f.key] ?? []), value];
+  }
+  const one = (k: string): unknown => (blocks[k]!.length === 1 && !Array.isArray(blocks[k]![0]) ? blocks[k]![0] : blocks[k]!.flat());
+  expect((one('materials') as { materialId: string }[]).map((m) => m.materialId)).toEqual(['mat-used']);
+  expect((one('uiDocuments') as { uiDocumentId: string }[]).map((d) => d.uiDocumentId).sort()).toEqual(['hud', 'panel']);
+  expect(JSON.stringify(one('dialogue'))).toContain('Hello.');
+  expect(one('buffers')).toEqual([{ digest: bufferDigest, byteLength: 6 * 40 }]);
+  expect((one('behaviors') as { behaviorId: string }[]).map((b) => b.behaviorId)).toEqual(['metronome']);
+  expect((one('dependencies') as { assetId: string }[]).map((e) => e.assetId)).toContain('sfx-tick');
+  return root;
+}
+
+/** The manifest's keys are exactly `MANIFEST_KEYS_V5`, in order; no block is in it. */
 function expectManifestKeys(manifest: Record<string, unknown>): void {
-  const keys = Object.keys(manifest);
-  for (const k of AUTHORED) expect(keys, `manifest key ${k}`).toContain(k);
-  expect(keys).toEqual(MANIFEST_KEYS_V2.filter((k) => keys.includes(k)));
-  expect(keys.every((k) => (MANIFEST_KEYS_V2 as readonly string[]).includes(k))).toBe(true);
+  expect(Object.keys(manifest)).toEqual([...MANIFEST_KEYS_V5]);
+  expect(manifest['manifestVersion']).toBe(5);
 }
 
 interface Obs {
@@ -228,9 +247,14 @@ test('a manifest with modes, timelines, event cues, the shell, dialogue and the 
     await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   });
   await expect(page.locator('.tl-notice')).toHaveCount(0);
-  // The Play page read every content file (checked here against the rows) and the instance buffer the table names.
-  await expect.poll(() => [...(playManifest['contentFiles'] as { digest: string }[]).map((r) => r.digest), bufferDigest].every((d) => playReads.has(d)), { timeout: 20_000 }).toBe(true);
-  await expectContentFiles(playManifest, async (path) => playReads.get(path.slice('content/sha256/'.length))!);
+  // The Play page read the catalog's root, every block file and the start scene's dependency file
+  // (checked here against the rows), and the instance buffer the table names.
+  const rootDigest = (playManifest['catalog'] as { digest: string }).digest;
+  await expect.poll(() => playReads.has(rootDigest), { timeout: 20_000 }).toBe(true);
+  const playRoot = JSON.parse(playReads.get(rootDigest)!.toString('utf8')) as CatalogRoot;
+  const atStart = [...playRoot.files.filter((f) => f.key !== 'loadable').map((f) => f.digest), ...playRoot.scenes.filter((sc) => sc.start).map((sc) => sc.dependencies.digest), bufferDigest];
+  await expect.poll(() => atStart.every((d) => playReads.has(d)), { timeout: 20_000 }).toBe(true);
+  await expectCatalog(playManifest, async (path) => playReads.get(path.slice('content/sha256/'.length))!);
   await page.getByTitle('Stop the play preview').click();
   await expect(frame).toHaveCount(0, { timeout: 30_000 });
 
@@ -241,9 +265,9 @@ test('a manifest with modes, timelines, event cues, the shell, dialogue and the 
   const served: string[] = [];
   const exported = JSON.parse(readFileSync(join(out, 'manifest.json'), 'utf8')) as Record<string, unknown>;
   expectManifestKeys(exported);
-  // The content files are in the export tree (the same bytes as Play's: one capture of the same project).
-  await expectContentFiles(exported, async (path) => readFileSync(join(out, path)));
-  expect(exported['contentFiles']).toEqual(playManifest['contentFiles']);
+  // The catalog is in the export tree (the same files as Play's: one capture of the same project).
+  const exportedRoot = await expectCatalog(exported, async (path) => readFileSync(join(out, path)));
+  expect(exported['catalog']).toEqual(playManifest['catalog']);
   await page.goto('about:blank');
   await be.halt();
   const site = await serveDir(out, served);
@@ -255,9 +279,12 @@ test('a manifest with modes, timelines, event cues, the shell, dialogue and the 
     const read = async (): Promise<Obs> => (await game.evaluate(() => ((window as unknown as { __thirdlightObserve?: () => unknown }).__thirdlightObserve?.() ?? {}) as Obs));
     await expectRunning(game, read, () => game.mouse.click(400, 300));
     expect(errors).toEqual([]);
-    // The exported page read every content file and the instance buffer from the static server.
-    for (const r of exported['contentFiles'] as { path: string }[]) expect(served, r.path).toContain(r.path);
+    // The exported page read the root, every block file, the start scene's entries and the instance buffer from the static server.
+    const startFiles = [(exported['catalog'] as { path: string }).path, ...exportedRoot.files.filter((f) => f.key !== 'loadable').map((f) => f.path), ...exportedRoot.scenes.filter((sc) => sc.start).map((sc) => `content/sha256/${sc.dependencies.digest}`)];
+    for (const p of startFiles) expect(served, p).toContain(p);
     expect(served).toContain(`content/sha256/${bufferDigest}`);
+    // No entry shard: the start's rows are in its dependency files.
+    for (const shard of exportedRoot.entries) expect(served).not.toContain(shard.path);
   } finally {
     await game.close();
     await site.close();

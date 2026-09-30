@@ -121,6 +121,12 @@ export function collectAssetRefsV3(scene: SceneV3, content: ContentCatalogV3): A
   };
   for (const e of scene.entities) addEntity(e);
   for (const d of content.prefabs) for (const e of d.entities) addEntity(e as unknown as SceneV3['entities'][number]);
+  // An asset property's default: what an object that sets no value (and every object, for a
+  // private property) plays or draws. Only a default that names an asset of the project.
+  const known = new Set(content.assets.map((a) => a.assetId));
+  for (const b of content.behaviors) {
+    for (const p of b.declaration.properties) if (p.type === 'assetRef' && typeof p.default === 'string' && known.has(p.default)) setRef(p.default);
+  }
   // Every texture a project material uses travels with the game.
   // A graph material's texture fields and parameters too, and those of the functions it calls.
   for (const m of materialDefs) for (const id of materialTextureRefs(m)) setRef(id);

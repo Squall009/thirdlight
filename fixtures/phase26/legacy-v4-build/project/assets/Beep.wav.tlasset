@@ -1,0 +1,21 @@
+{
+  "tlasset": 3,
+  "id": "beep",
+  "kind": "audio",
+  "importSettings": {
+    "loadType": "decode-on-load",
+    "preload": true
+  },
+  "labels": ["sfx"],
+  "address": null,
+  "record": {
+    "assetId": "beep",
+    "kind": "audio",
+    "displayName": "Beep",
+    "currentVersion": 1,
+    "versions": [
+      {"version":1,"sourceDigest":"d35c4783875779e693e3b58cfdd2c14d006885c586e261f7a05fae7ee28cfeb8","sourceByteLength":9644,"sourcePath":"assets/Beep.wav","importRecipe":{"profile":"audio","recipeVersion":1,"toolchain":{"asset-pipeline":"0.1.0"}},"metrics":{"format":"wav","channels":1,"sampleRate":48000,"bitsPerSample":16,"durationMs":100},"importedAt":"2026-09-28T12:00:00Z","publishedRevision":4}
+    ],
+    "labels": ["sfx"]
+  }
+}

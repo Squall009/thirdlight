@@ -15,7 +15,7 @@ import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { api, mkSessionId, startBackend, type TestBackend } from './test-helpers';
+import { api, exportContentOf, mkSessionId, startBackend, type TestBackend } from './test-helpers';
 
 const FIXTURES = resolve(import.meta.dirname, '..', '..', '..', 'fixtures', 'phase24');
 
@@ -332,8 +332,8 @@ describe('a project with music and short-sound records opened over HTTP', () => 
     const exported = await api(`${tb.authUrl}/api/v1/admin/projects/${ID}/export`, { body: {}, token: tb.adminToken, origin: null });
     expect(exported.status, JSON.stringify(exported.json)).toBe(200);
     const out = join(exportRoot, String((exported.json as { outputDir: string }).outputDir));
-    const manifest = JSON.parse(readFileSync(join(out, 'manifest.json'), 'utf8')) as { assets: { assetId: string; kind: string; loadType?: string; preload?: boolean; durationMs?: number }[] };
-    expect(manifest.assets.find((a) => a.assetId === 'rain')).toMatchObject({ kind: 'audio', loadType: 'decode-on-load', preload: true, durationMs: 3000 });
+    const manifest = exportContentOf(out);
+    expect(manifest.assets.find((a) => a['assetId'] === 'rain')).toMatchObject({ kind: 'audio', loadType: 'decode-on-load', preload: true, durationMs: 3000 });
   }, 120_000);
 
   it("turns the v4 project's short-sound record into audio on the same open that writes its files", async () => {

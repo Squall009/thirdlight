@@ -14,7 +14,7 @@ import { describe, expect, it } from 'vitest';
 
 import { isFileArtifact } from './play-content';
 import { FakeEditor } from './test-editor';
-import { AUTHORING_ORIGIN, PREVIEW_ORIGIN, api, establish, mkRequestId, mkSessionId, startBackend, upgrade, type TestBackend } from './test-helpers';
+import { AUTHORING_ORIGIN, PREVIEW_ORIGIN, api, establish, mkRequestId, mkSessionId, playContentOf, startBackend, upgrade, type TestBackend } from './test-helpers';
 import { createTestBackend } from './testing';
 
 const REPO = resolve(import.meta.dirname, '..', '..', '..');
@@ -81,8 +81,8 @@ describe('Play serves the project files from disk', () => {
         const j = r.json as { playSessionId: string; playContent: { contentId: string; path: string } };
         const shell = new TextDecoder().decode((await get(`/play/${j.playSessionId}?content=${j.playContent.contentId}`)).bytes);
         const cache = /__thirdlightCacheRoot = "(\/play-content\/[A-Za-z0-9_-]{43}\/)"/.exec(shell)![1]!;
-        const manifest = (await get(`${j.playContent.path}manifest.json`)).json() as { assets: { assetId: string; sourceDigest: string }[] };
-        const row = manifest.assets.find((a) => a.assetId === 'tone');
+        expect((await get(`${j.playContent.path}manifest.json`)).status).toBe(200);
+        const row = (playContentOf(tb, j.playSessionId).assets as { assetId: string; sourceDigest: string }[]).find((a) => a.assetId === 'tone');
         expect(row).toBeDefined();
         return { psid: j.playSessionId, cache, digest: row!.sourceDigest };
       };

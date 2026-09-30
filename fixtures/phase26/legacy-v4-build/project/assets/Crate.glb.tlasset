@@ -1,0 +1,17 @@
+{
+  "tlasset": 3,
+  "id": "crate",
+  "kind": "model",
+  "importSettings": {},
+  "labels": [],
+  "address": null,
+  "record": {
+    "assetId": "crate",
+    "kind": "model",
+    "displayName": "Crate",
+    "currentVersion": 2,
+    "versions": [
+      {"version":2,"sourceDigest":"826e99bd806ec9dc3d56b088120161c418599a8f9b17ea95358e942aba272f4f","sourceByteLength":1864,"sourcePath":"assets/Crate.glb","importRecipe":{"profile":"gltf-glb","recipeVersion":1,"toolchain":{"three":"0.186.0"},"extensions":[]},"metrics":{"nodes":2,"meshes":1,"primitives":1,"materials":2,"images":0,"textures":0,"vertices":4,"triangles":2,"animations":1,"animationChannels":2,"clipDurationMs":2000,"decodedGeometryBytes":108,"decodedImageBytes":0},"importedAt":"2026-09-28T12:00:00Z","publishedRevision":2}
+    ]
+  }
+}

@@ -50,6 +50,8 @@ export interface UiLayerDeps {
   readonly documents: readonly UiDocument[];
   readonly themes?: readonly UiTheme[];
   readonly assetPaths?: Readonly<Record<string, string>>;
+  /** The path of an asset `assetPaths` does not name (a build's catalog read as the game needs it). */
+  readonly lookupPath?: (assetId: string) => Promise<string | undefined>;
   readonly readArtifact: (path: string) => Promise<ArrayBuffer>;
   /** A UI event for the simulation (the runtime's `queueUiEvent`). */
   readonly queueEvent: (event: UiEventRecord) => void;
@@ -847,12 +849,11 @@ class LayerImpl implements UiLayer {
     if (known !== undefined) return known.url;
     const entry = { url: null as string | null, w: 0, h: 0, pending: true };
     this.images.set(assetId, entry);
-    const path = this.deps.assetPaths?.[assetId];
     const urls = (globalThis as { URL?: { createObjectURL?: (b: Blob) => string } }).URL;
-    if (typeof path !== 'string' || typeof urls?.createObjectURL !== 'function' || typeof Blob !== 'function') return null;
-    void this.deps.readArtifact(path).then(
+    if (typeof urls?.createObjectURL !== 'function' || typeof Blob !== 'function') return null;
+    void this.bytesOf(assetId).then(
       (buffer) => {
-        if (this.disposed) return;
+        if (this.disposed || buffer === undefined) return;
         entry.url = urls.createObjectURL!(new Blob([buffer]));
         entry.pending = false;
         // The natural size (sprite icons are cut out of it).
@@ -880,17 +881,23 @@ class LayerImpl implements UiLayer {
     return `"${fontFamilyOf(font)}", ${GENERIC_FONTS['sans']}`;
   }
 
+  /** An asset's bytes by its declared path (found in the catalog when the paths given do not name it); undefined: not in the build. */
+  private bytesOf(assetId: string): Promise<ArrayBuffer | undefined> {
+    const known = this.deps.assetPaths?.[assetId];
+    const path = typeof known === 'string' ? Promise.resolve(known) : (this.deps.lookupPath?.(assetId) ?? Promise.resolve(undefined));
+    return path.then((p) => (p === undefined ? undefined : this.deps.readArtifact(p)));
+  }
+
   private loadFont(assetId: string): void {
     if (this.fonts.has(assetId)) return;
     const entry = { face: null as unknown, loaded: false };
     this.fonts.set(assetId, entry);
-    const path = this.deps.assetPaths?.[assetId];
     const FF = (globalThis as { FontFace?: new (family: string, source: ArrayBuffer) => { load(): Promise<unknown> } }).FontFace;
     const set = (this.dom as unknown as { fonts?: { add(f: unknown): void; delete(f: unknown): void } }).fonts;
-    if (typeof path !== 'string' || FF === undefined || set === undefined) return;
-    void this.deps.readArtifact(path).then(
+    if (FF === undefined || set === undefined) return;
+    void this.bytesOf(assetId).then(
       (buffer) => {
-        if (this.disposed) return;
+        if (this.disposed || buffer === undefined) return;
         const face = new FF(fontFamilyOf(assetId), buffer);
         entry.face = face;
         return face.load().then(() => {

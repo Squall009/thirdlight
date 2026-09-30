@@ -1,0 +1,14 @@
+{
+  "tlresource": 1,
+  "kind": "material",
+  "id": "wall-mat",
+  "data": {
+    "materialId": "wall-mat",
+    "name": "Wall",
+    "shader": "standard",
+    "params": {},
+    "textures": {
+      "map": "wall"
+    }
+  }
+}

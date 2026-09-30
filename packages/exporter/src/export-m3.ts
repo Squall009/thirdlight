@@ -30,9 +30,8 @@ import {
   canonicalJsonText,
   digestBytes,
   digestEmittedClosure,
-  MANIFEST_KEYS_V2,
-  sha256HexOfText,
-  type RuntimeContentManifestV2,
+  manifestBuildIdInputV5,
+  type RuntimeContentManifestV5,
 } from '@thirdlight/project-model';
 
 import { canonicalDocument } from './canonical';
@@ -291,8 +290,9 @@ export async function exportProjectM3(
   // ---- step 5a: the manifest self-identity + the closure rule ------------------
 
   const manifestBytes = closure.manifestBytes;
-  const parsedManifest = JSON.parse(new TextDecoder().decode(manifestBytes)) as RuntimeContentManifestV2;
-  const recomputed = sha256HexOfText(`${JSON.stringify(manifestWithoutBuildId(parsedManifest), null, 2)}\n`);
+  const parsedManifest = JSON.parse(new TextDecoder().decode(manifestBytes)) as RuntimeContentManifestV5;
+  const preimage = manifestBuildIdInputV5(parsedManifest as unknown as Record<string, unknown>);
+  const recomputed = preimage === null ? null : digestBytes(preimage);
   if (recomputed !== parsedManifest.buildId || parsedManifest.buildId !== closure.buildId) {
     return fail('export_manifest_invalid', 'internal', 'the manifest buildId does not match its own canonical bytes');
   }
@@ -510,11 +510,3 @@ function rapier3dVersion(ctx: ExportContext, metafile: { inputs: Record<string, 
   return readJsonStringField(ctx, path, 'version');
 }
 
-/** The manifest document without `buildId` (the `buildId` preimage object). */
-function manifestWithoutBuildId(manifest: RuntimeContentManifestV2): Record<string, unknown> {
-  const without: Record<string, unknown> = {};
-  // The model's key order (one list; every key but buildId).
-  const keys = MANIFEST_KEYS_V2.filter((k) => k !== 'buildId');
-  for (const k of keys) without[k] = (manifest as unknown as Record<string, unknown>)[k];
-  return without;
-}

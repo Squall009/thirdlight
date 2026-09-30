@@ -18,7 +18,7 @@ import { join } from 'node:path';
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { api, establish, mkRequestId, mkSessionId, startBackend, upgrade, type TestBackend, type TestWs } from './test-helpers';
+import { api, establish, mkRequestId, mkSessionId, playContentOf, startBackend, upgrade, type TestBackend, type TestWs } from './test-helpers';
 
 const REPO_ROOT = new URL('.', import.meta.url).pathname.slice(0, new URL('.', import.meta.url).pathname.lastIndexOf('/packages/'));
 const P = 'demo-0001';
@@ -72,7 +72,8 @@ async function playBehaviors(): Promise<Map<string, { text: string; outputDigest
   expect(start.status, JSON.stringify(start.json)).toBe(200);
   const j = start.json as { playSessionId: string; playContent: { path: string } };
   const base = `${tb.prevUrl}${j.playContent.path}`;
-  const manifest = (await (await fetch(`${base}manifest.json`)).json()) as { behaviors: { behaviorId: string; path: string; outputDigest: string }[] };
+  expect((await fetch(`${base}manifest.json`)).status).toBe(200);
+  const manifest = playContentOf(tb, j.playSessionId) as unknown as { behaviors: { behaviorId: string; path: string; outputDigest: string }[] };
   const out = new Map<string, { text: string; outputDigest: string }>();
   for (const b of manifest.behaviors) {
     const res = await fetch(`${base}${b.path}`);

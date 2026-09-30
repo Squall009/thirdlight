@@ -12,13 +12,13 @@
  *
  * Runs per renderer: `webgl2` in `default`, `webgpu` in `webgpu`.
  */
-import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs';
+import { createReadStream, existsSync, statSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { extname, join, normalize } from 'node:path';
 
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
-import { startBackend, type E2EBackend } from './backend';
+import { exportedContent, startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
 import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, type RendererVariant } from './renderer-variants';
 import { menu } from './ui';
@@ -167,9 +167,8 @@ for (const variant of VARIANTS) test(`a Custom-lit graph (two N·L bands) shades
   const res = await be.admin(`projects/${be.projectId}/export`);
   expect(res.status, JSON.stringify(res.json)).toBe(200);
   const out = join(be.exportRoot, String(res.json.outputDir));
-  // The materials are a content file the manifest lists by digest; only the used one ships.
-  const doc = JSON.parse(readFileSync(join(out, 'manifest.json'), 'utf8')) as { contentFiles: { key: string; path: string }[] };
-  const manifest = { materials: JSON.parse(readFileSync(join(out, doc.contentFiles.find((r) => r.key === 'materials')!.path), 'utf8')) } as { materials: { materialId: string; graph?: { nodes: { type: string }[] } }[] };
+  // The materials are a catalog file listed by digest; only the used one ships.
+  const manifest = exportedContent(out) as unknown as { materials: { materialId: string; graph?: { nodes: { type: string }[] } }[] };
   expect(manifest.materials.find((m) => m.materialId === 'mat-cel')?.graph?.nodes.some((x) => x.type === 'customLit')).toBe(true);
   expect(manifest.materials.map((m) => m.materialId)).not.toContain('mat-wrong');
   await page.goto('about:blank');

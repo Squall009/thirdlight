@@ -33,6 +33,8 @@ export {
   type ContentClosureM3,
   type ContentClosureM3Input,
 } from './content-closure';
+// A build read whole from its catalog (a tool or a test reads what the closure wrote; a game page reads it lazily, game-host).
+export { readRuntimeContentSync, type ExpandedRuntimeContent } from '@thirdlight/project-model';
 export { checkBundleGraphM3 } from './graph';
 export { decodersNeeded } from './decoders';
 export {

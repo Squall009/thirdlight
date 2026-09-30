@@ -16,8 +16,9 @@ import { buildPlayContentM3 } from '../../../packages/backend/src/play-m3';
 import type { WorkspaceService } from '@thirdlight/workspace';
 import { sha256Hex, syntheticV3, fakeService } from '../m3-builds/helpers';
 import {
-  validateManifestV2,
-  manifestBuildIdInputV2,
+  manifestBuildIdInputV5,
+  readRuntimeContentSync,
+  validateManifestV5,
   type RuntimeContentManifestV2,
 } from '@thirdlight/project-model';
 
@@ -46,14 +47,14 @@ describe('buildPlayContentM3 (the v3 play artifact set)', () => {
     if (!res.ok) return;
     const built = res.built;
 
-    // The v2 manifest is self-identifying and contract-valid.
-    expect(built.manifest.manifestVersion).toBe(4);
+    // The manifest is self-identifying and contract-valid.
+    expect(built.manifest.manifestVersion).toBe(5);
     expect(built.buildId).toMatch(/^[0-9a-f]{64}$/);
-    const preimage = manifestBuildIdInputV2(built.manifest as unknown as Record<string, unknown>);
+    const preimage = manifestBuildIdInputV5(built.manifest as unknown as Record<string, unknown>);
     expect(preimage).not.toBeNull();
     expect(sha256Hex(preimage!)).toBe(built.buildId);
     const doc = JSON.parse(new TextDecoder().decode(built.manifestBytes)) as Record<string, unknown>;
-    const v = validateManifestV2(doc, { scene, content });
+    const v = validateManifestV5(doc);
     expect(v.ok).toBe(true);
 
     // The snapshot identity.
@@ -78,12 +79,14 @@ describe('buildPlayContentM3 (the v3 play artifact set)', () => {
     expect(byPath.has('scene.json')).toBe(false);
     // The manifest carries the sceneDigest the bridge snapshot is verified against.
     expect(built.manifest.sceneDigest).toMatch(/^[0-9a-f]{64}$/);
-    // The two declared assets at their digest-addressed paths (by kind).
-    expect(built.manifest.assets.length).toBe(2);
-    const kinds = new Set(built.manifest.assets.map((a) => a.kind));
+    // The two declared assets at their digest-addressed paths (by kind), listed in the catalog the set holds.
+    const read = readRuntimeContentSync(doc, (p) => { const a = byPath.get(p); return a !== undefined && 'bytes' in a ? a.bytes : null; });
+    const assets = read.assets as RuntimeContentManifestV2['assets'] as { assetId: string; kind: string; path: string; sourceDigest: string; sourceByteLength: number }[];
+    expect(assets.length).toBe(2);
+    const kinds = new Set(assets.map((a) => a.kind));
     expect(kinds.has('model')).toBe(true);
     expect(kinds.has('audio')).toBe(true);
-    for (const asset of built.manifest.assets) {
+    for (const asset of assets) {
       const artifact = byPath.get(asset.path);
       expect(artifact, `artifact for ${asset.path}`).toBeDefined();
       if (asset.kind === 'model') expect(artifact?.contentType).toBe('model/gltf-binary');

@@ -15,7 +15,7 @@ import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writ
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { api, mkRequestId, mkSessionId, startBackend, type TestBackend } from './test-helpers';
+import { api, exportContentOf, mkRequestId, mkSessionId, startBackend, type TestBackend } from './test-helpers';
 
 const REPO = resolve(import.meta.dirname, '..', '..', '..');
 const WAV = readFileSync(join(REPO, 'fixtures', 'm3', 'media', 'wav', 'cue-jump.wav'));
@@ -90,7 +90,7 @@ describe('addresses and labels over HTTP', () => {
     const shipped = readdirSync(join(out, 'content', 'sha256'));
     expect(shipped).toContain(sha(WAV));
     expect(shipped).not.toContain(sha(OPUS));
-    const manifest = json(join(out, 'manifest.json')) as { assets: { assetId: string }[]; loadable?: unknown; contentFiles?: { key: string; path: string }[] };
+    const manifest = exportContentOf(out);
     expect(manifest.assets.map((a) => a.assetId)).toContain('labelled');
     expect(manifest.assets.map((a) => a.assetId)).not.toContain('plain');
     expect(manifest.loadable).toEqual([
@@ -98,9 +98,9 @@ describe('addresses and labels over HTTP', () => {
       { kind: 'material', id: 'mat-loadable', labels: ['level-1', 'sfx'] },
     ]);
     // The loadable material ships though nothing draws with it.
-    const materials = manifest.contentFiles?.find((f) => f.key === 'materials');
-    expect(materials).toBeDefined();
-    expect(readFileSync(join(out, materials!.path), 'utf8')).toContain('mat-loadable');
+    expect((manifest.materials ?? []).map((m) => m.materialId)).toContain('mat-loadable');
+    // Its catalog entry carries its address and labels (a script loads it by them).
+    expect(manifest.entries?.find((e) => e.assetId === 'labelled')).toMatchObject({ address: 'sfx/jump', labels: ['level-1', 'sfx'] });
 
     // Undo takes the address back off; the sidecar follows.
     const undo = await api(`${tb.authUrl}/api/v1/projects/${PID}/commands`, { body: { op: 'undo', projectId: PID, expectedRevision: revision(), requestId: mkRequestId(), origin: { kind: 'mcp', clientId: 'loadable-test' }, args: {} }, token: tb.adminToken, origin: null });

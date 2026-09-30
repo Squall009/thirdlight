@@ -31,6 +31,7 @@ import { createHash } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { checkBundleGraphM3, exportProjectM3, type ExportContext, type ExportFs } from '@thirdlight/exporter';
+import { readRuntimeContentSync } from '@thirdlight/project-model';
 
 import { fakeService, sha256Hex, syntheticV3 } from './helpers';
 
@@ -113,21 +114,18 @@ describe('B21 the M3 export is a complete declared==emitted relative closure', (
     for (const name of ['index.html', 'js/main.js', 'manifest.json', 'scene.json', 'meta.json']) {
       expect(files.has(name), `missing ${name}`).toBe(true);
     }
-    // The two content artifacts (model GLB + audio WAV) are emitted at their
-    // digest addresses.
+    // The two content artifacts (model GLB + audio WAV) and the catalog's files
+    // are emitted at their digest addresses.
     const contentFiles = [...files].filter((f) => f.startsWith('content/sha256/'));
-    expect(contentFiles).toHaveLength(2);
-    // The manifest declares exactly the emitted content artifacts (declared
-    // == emitted at the closure level).
-    const manifest = JSON.parse(new TextDecoder().decode(new Uint8Array(readFileSync(join(outDir, 'manifest.json'))))) as {
-      assets: Array<{ path: string }>;
-      buildId: string;
-      sceneDigest: string;
-      settingsDigest: string;
-      mediaDigest: string;
-      gameDigest: string;
-    };
-    const declared = new Set(manifest.assets.map((a) => a.path));
+    // The catalog declares exactly the emitted content artifacts (declared
+    // == emitted at the closure level): its files, and the assets its entries list.
+    const catalogFiles = new Set<string>();
+    const manifest = readRuntimeContentSync(JSON.parse(readFileSync(join(outDir, 'manifest.json'), 'utf8')), (p) => {
+      catalogFiles.add(p);
+      return new Uint8Array(readFileSync(join(outDir, p)));
+    }) as unknown as { assets: Array<{ path: string }>; sceneDigest: string };
+    expect(manifest.assets).toHaveLength(2);
+    const declared = new Set([...manifest.assets.map((a) => a.path), ...catalogFiles]);
     const emitted = new Set(contentFiles);
     expect(declared).toEqual(emitted);
 
