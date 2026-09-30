@@ -418,6 +418,8 @@ export interface WorkspaceService {
    * sidecars that are missing or stale. The backend's file check acts on it.
    */
   assetFiles(projectId: string): AssetFilesResult;
+  /** `assetFiles`, giving the event loop back between slices of the walk (the file check's). */
+  assetFilesYielding(projectId: string): Promise<AssetFilesResult>;
   /** Where these assets' files are now, found by their sidecars (a move made outside the editor). */
   findMovedAssets(projectId: string, assetIds: readonly string[]): { ok: true; found: Record<string, string> } | { ok: false; error: CommandError };
   /**

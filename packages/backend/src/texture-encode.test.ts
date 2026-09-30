@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest';
 import { ktx2Info } from '@thirdlight/asset-pipeline';
 import { decodePngRgba } from '@thirdlight/project-model/png';
 
-import { encodeKtx2, KTX2_ENCODER, packKtx2 } from './texture-encode';
+import { createWorkerTextureEncoder, encodeKtx2, KTX2_ENCODER, packKtx2 } from './texture-encode';
 
 function crc32(bytes: Uint8Array): number {
   let c = ~0;
@@ -192,4 +192,42 @@ describe('encodeKtx2', () => {
     const pkg = JSON.parse(readFileSync(join(process.cwd(), 'node_modules', 'ktx2-encoder', 'package.json'), 'utf8')) as { version: string };
     expect(KTX2_ENCODER.version).toBe(pkg.version);
   });
+});
+
+describe('the encoder worker', () => {
+  // The worker script the build makes next to the backend bundle (the deployment's encoder).
+  const workerUrl = new URL('../../../dist/backend/ktx2-worker.mjs', import.meta.url);
+  const checker = rgbaPng(64, 64, (x, y) => ((x >> 3) + (y >> 3)) % 2 === 0 ? [240, 60, 60, 255] : [40, 40, 200, 255]);
+
+  it('ends once idle, giving its memory back, and starts again for the next encode', async () => {
+    const enc = createWorkerTextureEncoder(workerUrl, { idleMs: 200 });
+    try {
+      const first = await enc.encode(checker, 'color');
+      expect(first.ok, JSON.stringify(first).slice(0, 200)).toBe(true);
+      expect(enc.workerRunning).toBe(true);
+      await expect.poll(() => enc.workerRunning, { timeout: 5_000 }).toBe(false);
+      // Jobs queued together keep one worker; both answer.
+      const [a, b] = await Promise.all([enc.encode(checker, 'color'), enc.encode(checker, 'data')]);
+      expect([a.ok, b.ok]).toEqual([true, true]);
+      if (first.ok && a.ok) expect(Buffer.from(a.ktx2).equals(Buffer.from(first.ktx2))).toBe(true);
+      expect(enc.workerRunning).toBe(true);
+    } finally {
+      enc.dispose?.();
+    }
+    expect(enc.workerRunning).toBe(false);
+  }, 60_000);
+
+  it('a job that arrives while an idle worker is ending gets a new worker and its answer', async () => {
+    const enc = createWorkerTextureEncoder(workerUrl, { idleMs: 0 });
+    try {
+      for (let i = 0; i < 4; i++) {
+        const r = await enc.encode(checker, 'color');
+        expect(r.ok, JSON.stringify(r).slice(0, 200)).toBe(true);
+        // The idle end fires first; the old worker's exit comes after the next job started a new one.
+        await new Promise((done) => setTimeout(done, 1));
+      }
+    } finally {
+      enc.dispose?.();
+    }
+  }, 60_000);
 });

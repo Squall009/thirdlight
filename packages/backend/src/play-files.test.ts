@@ -181,6 +181,52 @@ describe('Play serves the project files from disk', () => {
   }, 120_000);
 });
 
+describe('Play and the file check', () => {
+  it('a Play asked for while a check walks the files joins that check instead of queuing a second one', async () => {
+    const tb = await startBackend();
+    const h = helpers(() => tb);
+    try {
+      h.put('assets/sfx/tone.wav', WAV);
+      expect((await h.command('importAssets', { folder: 'assets/sfx', labels: ['sfx'] })).status).toBe(200);
+      const sid = mkSessionId();
+      const est = await establish(tb, sid);
+      const ws = await upgrade(tb, sid, est.wsToken);
+      await ws.waitFor((m) => (m as { type?: string }).type === 'attached');
+      const editor = new FakeEditor(ws);
+      // Every walk over the asset files is counted and made slow enough for the Play to arrive during it.
+      const service = tb.backend._test.service;
+      const walk = service.assetFilesYielding.bind(service);
+      let walks = 0;
+      service.assetFilesYielding = async (projectId: string) => {
+        walks += 1;
+        await new Promise((done) => setTimeout(done, 400));
+        return walk(projectId);
+      };
+      const checked = api(`${tb.authUrl}/api/v1/projects/${PID}/content/files/check`, { body: {}, token: tb.adminToken, origin: null }).then((r) => ({ r, at: performance.now() }));
+      await expect.poll(() => walks, { timeout: 5_000 }).toBe(1);
+      const played = await api(`${tb.authUrl}/api/v1/projects/${PID}/play`, { body: {}, token: tb.authToken });
+      const playedAt = performance.now();
+      expect(played.status, JSON.stringify(played.json)).toBe(200);
+      const check = await checked;
+      expect(check.r.status, JSON.stringify(check.r.json)).toBe(200);
+      // One walk: the Play waited for the check it joined (answered before the check's report) and ran none of its own.
+      expect(walks).toBe(1);
+      expect(playedAt).toBeLessThanOrEqual(check.at);
+      // With no check running, a Play walks the files itself (a file changed on disk is taken in before it starts).
+      const psid = (played.json as { playSessionId: string }).playSessionId;
+      await editor.waitUntil(() => tb.backend._test.plays.get(psid)?.state === 'presented');
+      await api(`${tb.authUrl}/api/v1/projects/${PID}/play/${psid}/stop`, { body: {}, token: tb.authToken });
+      await editor.waitForEvent('play.stopped');
+      const again = await api(`${tb.authUrl}/api/v1/projects/${PID}/play`, { body: {}, token: tb.authToken });
+      expect(again.status, JSON.stringify(again.json)).toBe(200);
+      expect(walks).toBe(2);
+      editor.close();
+    } finally {
+      await tb.teardown();
+    }
+  }, 60_000);
+});
+
 describe('queries page', () => {
   it('assets, the index and the integrity report page in id order; a new list is paged in its new order', async () => {
     const tb = await startBackend();

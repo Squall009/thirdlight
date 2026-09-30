@@ -1488,6 +1488,8 @@ export class ContentRoutes {
     if (!done.ok) return this.deps.sendError(res, sessionError(done.code as SessionError['code'], 'unavailable', done.message));
     for (const f of done.report.failed) this.deps.onJobFailed?.(projectId, 'file check', f.code, `${f.assetId}${f.file !== null ? ` (${f.file})` : ''}: ${f.message}`);
     for (const p of done.report.resources?.problems ?? []) this.deps.onJobFailed?.(projectId, 'file check', 'resource_file_invalid', p.message);
+    // The report for the editor's Problems waits a turn: a Play that joined this check goes first.
+    await new Promise<void>((resolve) => setImmediate(resolve));
     const result = this.deps.service.contentIntegrity(projectId, page.page);
     if (!result.ok) return this.deps.sendError(res, commandErrorToSession(result.error));
     this.deps.sendJson(res, 200, { ok: true, check: done.report, entries: result.entries, summary: result.summary, ...pageFields(result.page) });

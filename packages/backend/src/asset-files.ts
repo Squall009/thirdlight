@@ -225,7 +225,8 @@ export function createAssetFileCheck(deps: AssetFileCheckDeps) {
         }
       }
     }
-    let files = service.assetFiles(projectId);
+    // The walk gives the event loop back between slices, so a Play asked for meanwhile joins this check.
+    let files = await service.assetFilesYielding(projectId);
     if (!files.ok) return { ok: false, code: files.error.code, message: files.error.message ?? files.error.code };
     const missing = files.entries.filter((e) => e.status === 'missing');
     if (options.relocate && missing.length > 0) {
@@ -240,7 +241,7 @@ export function createAssetFileCheck(deps: AssetFileCheckDeps) {
         }
       }
       if (report.relocated.length > 0) {
-        files = service.assetFiles(projectId);
+        files = await service.assetFilesYielding(projectId);
         if (!files.ok) return { ok: false, code: files.error.code, message: files.error.message ?? files.error.code };
       }
     }
@@ -295,7 +296,12 @@ export function createAssetFileCheck(deps: AssetFileCheckDeps) {
      * asset. Moves are left to the full check.
      */
     ensureImported: async (projectId: string): Promise<void> => {
-      await serialized(projectId, { reimport: true, relocate: false });
+      // A check already running or queued (the editor's on connect or focus,
+      // or another Play's) does all of this: join the last one instead of
+      // queuing a second pass behind it. A file changed after that pass read
+      // it is still caught when Play or the export sends it (hashed while
+      // sent; a mismatch is refused and starts a check).
+      await (running.get(projectId) ?? serialized(projectId, { reimport: true, relocate: false }));
     },
   };
 }

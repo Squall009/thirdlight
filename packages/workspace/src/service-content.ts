@@ -83,6 +83,12 @@ import { locateBlob, locateSourceBlob, openBlobFile, type BlobFile, type LocateB
 import { FileStamps, FILE_STAMPS_NAME } from './file-stamps';
 
 /** The session as the content-store operations need it. */
+/**
+ * How long the file check's walk over the assets holds the event loop before
+ * it lets other requests in (about one frame of an editor at 60 Hz).
+ */
+export const FILE_CHECK_SLICE_MS = 16;
+
 export function contentCtx(s: ProjectSession): ContentContext {
   return {
     projectId: s.projectId,
@@ -154,62 +160,63 @@ export function contentOps(core: Core) {
     deepFreeze(withOpenSession<T | { ok: false; error: CommandError }>(projectId, fn, (error) => ({ ok: false, error })));
 
   /**
-   * Every asset's file against the catalog, and the sidecars written where
-   * they are missing or no longer say what the catalog does. A moved file
-   * shows as `missing` (`findMovedAssets` finds it by its sidecar), a changed
-   * one as `changed` (the backend imports it again).
+   * The walk behind `assetFiles`: every asset's file against the catalog, one
+   * record at a time, then the sidecars written where they are missing or no
+   * longer say what the catalog does. A moved file shows as `missing`
+   * (`findMovedAssets` finds it by its sidecar), a changed one as `changed`
+   * (the backend imports it again).
    */
-  function assetFiles(projectId: string): AssetFilesResult {
-    return run(projectId, (s): AssetFilesResult => {
-      const ctx = contentCtx(s);
-      const content = s.content as ContentCatalogV4 | null;
-      const records = (content?.assets ?? []) as unknown as RecordLike[];
-      const animatedIds = new Set<string>();
-      for (const sc of s.v4?.scenes.values() ?? []) {
-        for (const e of sc.entities) {
-          const anim = (e.components as { modelAnimation?: { assetId?: unknown } }).modelAnimation;
-          if (anim !== undefined && typeof anim.assetId === 'string') animatedIds.add(anim.assetId);
+  function assetFilesWalk(s: ProjectSession): { records: readonly RecordLike[]; visit: (r: RecordLike) => void; finish: () => AssetFilesResult } {
+    const ctx = contentCtx(s);
+    const content = s.content as ContentCatalogV4 | null;
+    const records = (content?.assets ?? []) as unknown as RecordLike[];
+    const animatedIds = new Set<string>();
+    for (const sc of s.v4?.scenes.values() ?? []) {
+      for (const e of sc.entities) {
+        const anim = (e.components as { modelAnimation?: { assetId?: unknown } }).modelAnimation;
+        if (anim !== undefined && typeof anim.assetId === 'string') animatedIds.add(anim.assetId);
+      }
+    }
+    const entries: AssetFileEntry[] = [];
+    const sidecarProblems: string[] = [];
+    const lost: RecordLike[] = [];
+    const root = assetRoot(ctx);
+    const stamps = stampsOfSession(s);
+    const seen = new Set<string>();
+    const visit = (r: RecordLike): void => {
+      const v = currentVersionOf(r);
+      if (v === undefined) return;
+      const file = fileOfRecord(r);
+      const facts = fileFactsOfVersion(v);
+      let status: AssetFileEntry['status'] = 'stored';
+      let found: string | null = null;
+      if (file !== null) {
+        const res = resolveProjectFile(ctx, file);
+        if (!res.ok) status = res.missing === true ? 'missing' : 'unreadable';
+        else {
+          seen.add(res.real);
+          found = fileDigest(ctx, res.real);
+          status = found === null ? 'unreadable' : found === facts.digest && res.size === facts.byteLength ? 'ok' : 'changed';
         }
       }
-      const entries: AssetFileEntry[] = [];
-      const sidecarProblems: string[] = [];
-      const lost: RecordLike[] = [];
-      const root = assetRoot(ctx);
-      const stamps = stampsOfSession(s);
-      const seen = new Set<string>();
-      for (const r of records) {
-        const v = currentVersionOf(r);
-        if (v === undefined) continue;
-        const file = fileOfRecord(r);
-        const facts = fileFactsOfVersion(v);
-        let status: AssetFileEntry['status'] = 'stored';
-        let found: string | null = null;
-        if (file !== null) {
-          const res = resolveProjectFile(ctx, file);
-          if (!res.ok) status = res.missing === true ? 'missing' : 'unreadable';
-          else {
-            seen.add(res.real);
-            found = fileDigest(ctx, res.real);
-            status = found === null ? 'unreadable' : found === facts.digest && res.size === facts.byteLength ? 'ok' : 'changed';
-          }
-        }
-        const entry: AssetFileEntry = { assetId: r.assetId, kind: r.kind ?? 'model', displayName: r.displayName ?? r.assetId, version: v.version, file, status, digest: facts.digest };
-        if (status === 'changed' && found !== null) entry.foundDigest = found;
-        if (v.convertedFrom !== undefined) {
-          const c = v.convertedFrom;
-          entry.converted = {
-            format: c.format,
-            ...(c.encoding !== undefined ? { encoding: c.encoding } : {}),
-            converter: { name: c.converter.name, version: c.converter.version },
-            imported: hasImported(ctx, importKeyOfConverted(c), v.sourceDigest, v.sourceByteLength) ? 'ok' : 'missing',
-          };
-        }
-        if (v.packedFrom !== undefined) entry.packed = true;
-        if (animatedIds.has(r.assetId)) entry.animated = true;
-        entries.push(entry);
-        // The file is there but its sidecar (the record's file) is not: it is written again.
-        if (file !== null && status !== 'missing' && status !== 'unreadable' && !existsSync(join(root, ...sidecarPath(file).split('/')))) lost.push(r);
+      const entry: AssetFileEntry = { assetId: r.assetId, kind: r.kind ?? 'model', displayName: r.displayName ?? r.assetId, version: v.version, file, status, digest: facts.digest };
+      if (status === 'changed' && found !== null) entry.foundDigest = found;
+      if (v.convertedFrom !== undefined) {
+        const c = v.convertedFrom;
+        entry.converted = {
+          format: c.format,
+          ...(c.encoding !== undefined ? { encoding: c.encoding } : {}),
+          converter: { name: c.converter.name, version: c.converter.version },
+          imported: hasImported(ctx, importKeyOfConverted(c), v.sourceDigest, v.sourceByteLength) ? 'ok' : 'missing',
+        };
       }
+      if (v.packedFrom !== undefined) entry.packed = true;
+      if (animatedIds.has(r.assetId)) entry.animated = true;
+      entries.push(entry);
+      // The file is there but its sidecar (the record's file) is not: it is written again.
+      if (file !== null && status !== 'missing' && status !== 'unreadable' && !existsSync(join(root, ...sidecarPath(file).split('/')))) lost.push(r);
+    };
+    const finish = (): AssetFilesResult => {
       sidecarProblems.push(...restoreSidecars(core, s, lost));
       // Game-folder files no asset uses any more drop out of the stamps; the project's own stores (blobs, import cache) stay.
       const dirReal = realDir(s.dir);
@@ -217,7 +224,42 @@ export function contentOps(core: Core) {
       stamps.retainOnly(seen, (p) => !own.some((o) => p.startsWith(o)));
       stamps.save();
       return { ok: true, entries, sidecarProblems };
+    };
+    return { records, visit, finish };
+  }
+
+  /** Every asset's file against the catalog, in one go (see `assetFilesWalk`). */
+  function assetFiles(projectId: string): AssetFilesResult {
+    return run(projectId, (s): AssetFilesResult => {
+      const walk = assetFilesWalk(s);
+      for (const r of walk.records) walk.visit(r);
+      return walk.finish();
     }) as AssetFilesResult;
+  }
+
+  /**
+   * The same walk, giving the event loop back every `FILE_CHECK_SLICE_MS`: a
+   * check that hashes a freshly copied game folder takes seconds, and a Play
+   * or a command asked for meanwhile is answered between slices instead of
+   * after it (a Play joins the check that is running). The project closing
+   * or reopening between slices ends the walk with that error.
+   */
+  async function assetFilesYielding(projectId: string): Promise<AssetFilesResult> {
+    const session = (): ProjectSession | { ok: false; error: CommandError } => withOpenSession<ProjectSession | { ok: false; error: CommandError }>(projectId, (s) => s, (error) => ({ ok: false, error }));
+    const s = session();
+    if ('ok' in s) return s as AssetFilesResult;
+    const walk = assetFilesWalk(s);
+    let sliceStart = performance.now();
+    for (const r of walk.records) {
+      if (performance.now() - sliceStart >= FILE_CHECK_SLICE_MS) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        const again = session();
+        if (again !== s) return ('ok' in again ? again : { ok: false, error: projectUnavailable('workspace_closed', null, []) }) as AssetFilesResult;
+        sliceStart = performance.now();
+      }
+      walk.visit(r);
+    }
+    return deepFreeze(walk.finish());
   }
 
   /** The game-folder file of each asset id found by its sidecar (only files that are there). */
@@ -383,6 +425,7 @@ export function contentOps(core: Core) {
     /** The single acknowledged project read (scenes + content). */
     readCapturedV3: (projectId: string): CapturedV3ReadResult => run(projectId, (s) => readCapturedV3(contentCtx(s))),
     assetFiles,
+    assetFilesYielding,
     findMovedAssets,
     holdAssetBytes,
     writeImportedArtifact,

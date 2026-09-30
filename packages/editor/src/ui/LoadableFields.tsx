@@ -7,7 +7,7 @@
  *
  * Browser-only (React).
  */
-import { useEffect, useState, type JSX } from 'react';
+import { useState, type JSX } from 'react';
 
 import { labelsOf, type LoadableItem, type LoadingNameActions } from './useLoadingNames';
 
@@ -19,12 +19,24 @@ interface Props {
 }
 
 export function LoadableFields(p: Props): JSX.Element {
+  // One instance per item: its fields start from that item's values on the
+  // first render. Resetting them in an effect after the item changed left a
+  // frame in which the next item's field showed (and took keystrokes into) the
+  // previous item's text, which the late reset then threw away.
+  return <ItemLoadableFields key={`${p.item.kind}:${p.item.id}`} {...p} />;
+}
+
+function ItemLoadableFields(p: Props): JSX.Element {
   const [address, setAddress] = useState(p.address ?? '');
   const [label, setLabel] = useState('');
   const [error, setError] = useState<string | null>(null);
-  // The field follows the item and its committed value (an undo, another client).
-  useEffect(() => setAddress(p.address ?? ''), [p.address, p.item.kind, p.item.id]);
-  useEffect(() => setError(null), [p.item.kind, p.item.id]);
+  // The field follows the item's committed value (an undo, another client),
+  // adjusted while rendering, not in an effect, for the same reason as the key.
+  const [committed, setCommitted] = useState(p.address);
+  if (committed !== p.address) {
+    setCommitted(p.address);
+    setAddress(p.address ?? '');
+  }
   const commitAddress = async (): Promise<void> => {
     const next = address.trim() === '' ? null : address.trim();
     if (next === p.address) return;

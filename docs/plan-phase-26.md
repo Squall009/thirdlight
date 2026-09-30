@@ -596,6 +596,40 @@ import of the six textures raised the backend's resident set 408 → 795 MiB
 and it stayed there: the KTX2 encoder's worker is kept with its WASM heap
 (D72).
 
+After the fixes between 26.12 and 26.13 (Play joins a file check that is
+running; the check's walk over the assets gives the event loop back every
+16 ms; the connect check's Problems report waits a turn; the KTX2 worker
+ends after 10 s idle). The working tree on `581eeb86`, GPU host,
+2026-09-30, one run each; before = the same tree with the old pre-Play
+check (a second pass queued behind any running check); reports
+`/tmp/d73/bench-{base,after}-*.json` (not kept). The Play request's
+backend stages now name the pre-Play check (`check`) apart from `state`
+(ms):
+
+| Play: click → first frame (response; backend total; its pre-Play check) | small (60) | ×0.1 (1,800) | full (18,000) |
+|---|---|---|---|
+| fresh copy, Play right after the editor connects (`open,play`), before | 451 (102; 38; 3) | 709 (319; 165; 60) | 2,406 (1,979; 798; 242) |
+| the same, after | 467 (118; 40; 3) | 692 (249; 127; 21) | 2,018 (1,372; 1,176; 637 joined) |
+| files hashed first (`files,open,play`), before | 463 (100; 39; 3) | 722 (307; 144; 25) | 1,940 (946; 799; 280) |
+| the same, after | 430 (87; 34; 1) | 553 (180; 113; 18) | 1,790 (1,052; 763; 245) |
+
+Confirmed: on a fresh copy the Play request sat about 1.2 s in the event
+loop (response 1,979 ms against 798 ms of backend work) while the editor's
+connect check hashed 18,000 files in one synchronous pass, and then ran a
+second pass of its own (242 ms). Now it is answered between slices of that
+walk, joins it (637 ms: the rest of the one-time hashing) and runs no
+second pass: full 2.41 → 2.02 s. Play start still grows with the asset
+count: with no check running, the pre-Play pass is one walk over every
+asset (about 14 µs each: 1 / 18 / 245 ms), and the closure's stat of each
+shipped file (`closure.assets` ~110 ms at full) and the content view stay;
+a pre-Play pass that visits only files changed since the last check needs
+a file watcher (Unity's directory monitoring) — for 26.14 to weigh against
+its targets. The KTX2 worker (D72), small preset `open,play,stream`, six
+2048² encodes: backend resident after the import / after the Play stopped
+(~13 s later) 544 / 571 MiB with the worker kept, 690 / 414 MiB ended when
+idle; the encoder alone in a test process, six encodes then 20 s:
+kept ≈ 600 MiB, ended 271–292 MiB (started at 130).
+
 Proposed targets for "Done when" (fixed in 26.14 from these numbers):
 
 - One command at full size: p95 ≤ 100 ms for a scene edit and a content edit,
@@ -1716,3 +1750,32 @@ Proposed targets for "Done when" (fixed in 26.14 from these numbers):
   copy). Resident texture bytes against the budget, and each streamed
   texture's resident and wanted level, are `resources.textures` in
   `tl_game_observe` and Play diagnostics.
+- 2026-09-30 (between 26.12 and 26.13): Play and the file check. A Play
+  (or export) start joins a file check that is running or queued for the
+  project (the editor's on connect or focus, or another Play's) instead of
+  queuing a second pass behind it: the full check does everything the
+  pre-Play pass does. A file changed after that walk read it, before the
+  click, is caught when Play or the export sends it (hashed while sent:
+  409, a check, the next Play ships it), the same backstop 26.8 put under
+  the stat-only pass. The check's walk over the assets
+  (`assetFilesYielding`) gives the event loop back every
+  `FILE_CHECK_SLICE_MS` (16, workspace), so a Play asked for during a long
+  first hash is answered and joins it, and no other request waits seconds
+  behind it; the route's integrity report waits one turn so a joined Play
+  goes first. Not done: a cheaper connect check than one stat per asset —
+  the check already hashes only files whose stamp changed; a fresh copy
+  changes every stamp (inode, ctime, mtime), so its one hash of every file
+  stays (Unity imports a fresh clone once too). A pre-Play pass that does
+  not grow needs a file watcher; left for 26.14 (see §6).
+- 2026-09-30 (between 26.12 and 26.13): D72. The KTX2 encoder worker ends
+  after `KTX2_WORKER_IDLE_MS` (10 s, backend) without a job and is started
+  again by the next encode: its WASM memory can only grow, so ending the
+  thread is the one way to give it back; a heap cap would fail large
+  encodes instead. Only the current worker's exit fails waiting jobs (an
+  idle one may exit after its successor took new work).
+- 2026-09-30 (between 26.12 and 26.13): D73 was a product race. The
+  inspector's address field kept the last asset's typed text when another
+  asset was chosen and reset it in an effect a frame later, so what was
+  typed in that frame was lost. The fields are now one instance per item
+  (keyed), and follow a committed change (undo, another client) while
+  rendering; no test change.

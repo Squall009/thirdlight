@@ -173,7 +173,9 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
       return;
     }
     // What the import cache should hold (a converted model, a KTX2 encode) is made again if it went missing.
+    mark('request');
     await ensureImported?.(projectId);
+    mark('check');
     // Build the runtime snapshot at the CURRENT revision (the play's
     // revision is frozen from here).
     const state = fullState(projectId);

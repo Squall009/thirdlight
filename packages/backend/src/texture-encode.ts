@@ -267,19 +267,41 @@ export function createInlineTextureEncoder(): TextureEncoder {
 }
 
 /**
+ * How long the encoder worker is kept after its last job. The encoder's WASM
+ * memory only grows (WebAssembly memory cannot shrink), so a worker kept for
+ * the backend's life holds the peak of its largest encode; ending it once
+ * idle gives that back, and the next encode starts a fresh one (a few tens of
+ * milliseconds, small beside an encode).
+ */
+export const KTX2_WORKER_IDLE_MS = 10_000;
+
+/**
  * The deployment's encoder: one worker thread (the script built next to the
  * backend bundle), one encode at a time in order, started on first use and
- * kept; a crashed worker fails its job and is started again for the next.
+ * ended once idle; a crashed worker fails its job and is started again for
+ * the next.
  */
-export function createWorkerTextureEncoder(workerUrl: URL): TextureEncoder {
+export function createWorkerTextureEncoder(workerUrl: URL, options: { idleMs?: number } = {}): TextureEncoder & { readonly workerRunning: boolean } {
+  const idleMs = options.idleMs ?? KTX2_WORKER_IDLE_MS;
   let worker: Worker | null = null;
+  let idle: ReturnType<typeof setTimeout> | null = null;
   let next = 1;
   const pending = new Map<number, (r: Ktx2EncodeResult | Ktx2PackResult) => void>();
   const failAll = (message: string): void => {
     for (const done of pending.values()) done({ ok: false, code: 'texture_encode_failed', message });
     pending.clear();
   };
+  const stop = (): void => {
+    if (idle !== null) clearTimeout(idle);
+    idle = null;
+    const w = worker;
+    worker = null;
+    void w?.terminate();
+    failAll('the KTX2 encoder stopped');
+  };
   const start = (): Worker => {
+    if (idle !== null) clearTimeout(idle);
+    idle = null;
     if (worker !== null) return worker;
     // A bound on the worker's JS heap: a runaway decode or encode ends the
     // worker (its job fails, the next starts a fresh one), not the backend.
@@ -291,9 +313,18 @@ export function createWorkerTextureEncoder(workerUrl: URL): TextureEncoder {
       const done = pending.get(m.id);
       pending.delete(m.id);
       done?.(m.result);
+      if (pending.size === 0 && worker === w) {
+        idle = setTimeout(stop, idleMs);
+        idle.unref();
+      }
     });
-    w.on('error', (e) => failAll(`the KTX2 encoder stopped: ${e.message}`));
+    // Only the current worker's end fails the jobs waiting: one ended for
+    // idleness may exit after its successor took new jobs.
+    w.on('error', (e) => {
+      if (worker === w) failAll(`the KTX2 encoder stopped: ${e.message}`);
+    });
     w.on('exit', () => {
+      if (worker !== w) return;
       worker = null;
       failAll('the KTX2 encoder stopped');
     });
@@ -301,6 +332,9 @@ export function createWorkerTextureEncoder(workerUrl: URL): TextureEncoder {
     return w;
   };
   return {
+    get workerRunning() {
+      return worker !== null;
+    },
     encode(bytes, mode) {
       const w = start();
       const id = next++;
@@ -320,8 +354,7 @@ export function createWorkerTextureEncoder(workerUrl: URL): TextureEncoder {
       });
     },
     dispose() {
-      void worker?.terminate();
-      worker = null;
+      stop();
     },
   };
 }
