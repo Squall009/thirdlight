@@ -8,11 +8,14 @@
  * nothing of the editor is imported here.
  *
  * No scene, no scripts, no physics: the previewer steps the runner at a
- * fixed rate from the page's frames. Dialogue variables start empty (or as
+ * fixed rate from the page's frames. Voices are read as Play reads them:
+ * the lines a conversation may say next (runtime `dialogueVoicesAhead`),
+ * never every voice of the project; `prepare` reads the first ones before
+ * `start`, so the first line's voice is there when it is said. Dialogue variables start empty (or as
  * given), so conditions can be tried out; input comes from the dialogue
  * document's buttons and the keyboard (arrows, Enter/Space, Backspace/Escape).
  */
-import { AudioMixer, DialogueRunner, UiState, uiDocumentsForRuntime, withDialogueUiDocument, type DialogueInputRecord, type RuntimeDialogueData, type UiDocument, type UiTheme } from '@thirdlight/runtime';
+import { AudioMixer, DialogueRunner, dialogueVoicesAhead, UiState, uiDocumentsForRuntime, withDialogueUiDocument, type DialogueInputRecord, type RuntimeDialogueData, type UiDocument, type UiTheme } from '@thirdlight/runtime';
 
 import type { GameAudioOwner, AudioObservation } from './audio';
 import type { UiEdges } from './dom';
@@ -32,7 +35,7 @@ export interface DialoguePreviewDeps {
   /** assetId → kind (audio, texture, …). */
   readonly assetKinds: Readonly<Record<string, string>>;
   readonly readArtifact: (path: string) => Promise<ArrayBuffer>;
-  /** assetId → recorded length in ms (voice auto-advance). */
+  /** assetId → recorded length in ms (voice auto-advance; from the import metrics, not the bytes). */
   readonly durations: Readonly<Record<string, number>>;
   /** The audio owner (null: silent preview). */
   readonly audio: GameAudioOwner | null;
@@ -51,9 +54,13 @@ export interface DialoguePreviewObservation {
   readonly audio: AudioObservation | null;
   /** Voice/blip plays started (the audio intent log's play commands). */
   readonly plays: readonly { readonly assetId: string; readonly bus: string }[];
+  /** The sound files read so far (voices ahead of the conversation, blips): what was read, not the project's every voice. */
+  readonly soundsRead: number;
 }
 
 export interface DialoguePreview {
+  /** Read the voices of the first lines `start` will say with the same arguments (resolves when they are read or failed). */
+  prepare(dialogueId: string, options?: { entry?: string; node?: string }): Promise<void>;
   /** Start the conversation (at its start, an entry or a node); false when it cannot. */
   start(dialogueId: string, options?: { entry?: string; node?: string; variables?: Readonly<Record<string, number | string | boolean | null>> }): boolean;
   /** Stop it (the dialogue document hides). */
@@ -99,27 +106,47 @@ export function createDialoguePreview(deps: DialoguePreviewDeps): DialoguePrevie
     viewport: deps.viewport,
   });
 
-  // The sounds a conversation uses, held as bytes and decoded when first played (a preview plays a few lines, not a scene).
-  if (deps.audio !== null) {
-    const ids = new Set<string>();
-    for (const d of deps.data.dialogues) for (const n of Object.values(d.nodes)) if (n.t === 'line' && n.voice !== '') ids.add(n.voice);
-    for (const s of deps.data.speakers) if (s.blip !== undefined) ids.add(s.blip);
-    for (const id of ids) {
-      const path = deps.assetPaths[id];
-      if (path === undefined) continue;
-      if (deps.assetKinds[id] !== 'audio') continue;
-      void deps.readArtifact(path).then(
-        (buf) => {
-          if (disposed || deps.audio === null) return;
-          if (deps.audio.registerMusic !== undefined) deps.audio.registerMusic(id, new Uint8Array(buf));
-          else deps.audio.registerCue(id, new Uint8Array(buf));
-        },
-        () => undefined,
-      );
-    }
-  }
+  // Sound files are read when a conversation may say them next and held as bytes, decoded when first played.
+  const requested = new Set<string>();
+  const readSound = (id: string): Promise<void> => {
+    const audio = deps.audio;
+    const path = deps.assetPaths[id];
+    if (audio === null || requested.has(id) || path === undefined || deps.assetKinds[id] !== 'audio') return Promise.resolve();
+    requested.add(id);
+    return deps.readArtifact(path).then(
+      (buf) => {
+        if (disposed) return;
+        if (audio.registerMusic !== undefined) audio.registerMusic(id, new Uint8Array(buf));
+        else audio.registerCue(id, new Uint8Array(buf));
+      },
+      () => void requested.delete(id),
+    );
+  };
+  // A speaker's text blip plays on every line they say: read with the first line.
+  const blips = [...new Set(deps.data.speakers.flatMap((sp) => (sp.blip !== undefined ? [sp.blip] : [])))];
+  /** The voices from a node on: its own (a line) and the lines that may come next. */
+  const voicesFrom = (dialogueId: string, node: string): string[] => {
+    const d = deps.data.dialogues.find((x) => x.dialogueId === dialogueId);
+    const own = d?.nodes[node];
+    const out = own !== undefined && own.t === 'line' && own.voice !== '' ? [own.voice] : [];
+    for (const v of dialogueVoicesAhead(deps.data, dialogueId, node)) out.push(v.voice);
+    return out;
+  };
+  let readAt = '';
+  /** The conversation moved on: read the voices it may say next. */
+  const readAhead = (): void => {
+    const o = runner.observe();
+    const id = o?.['dialogueId'];
+    const node = o?.['node'];
+    if (o?.['running'] !== true || typeof id !== 'string' || typeof node !== 'string') return;
+    const where = `${id}/${node}`;
+    if (where === readAt) return;
+    readAt = where;
+    for (const v of voicesFrom(id, node)) void readSound(v);
+  };
 
   const service = (): void => {
+    readAhead();
     const out = ui.takeOutput();
     if (out !== null) layer.applyOutput(out);
     layer.frame();
@@ -142,6 +169,13 @@ export function createDialoguePreview(deps: DialoguePreviewDeps): DialoguePrevie
   };
 
   return {
+    async prepare(dialogueId, options) {
+      const d = deps.data.dialogues.find((x) => x.dialogueId === dialogueId);
+      if (d === undefined) return;
+      const at = options?.node ?? (options?.entry !== undefined ? d.entries[options.entry] : d.start) ?? null;
+      if (at === null) return;
+      await Promise.all([...blips, ...voicesFrom(dialogueId, at)].map((id) => readSound(id)));
+    },
     start(dialogueId, options) {
       if (disposed) return false;
       runner.resetRun();
@@ -182,7 +216,7 @@ export function createDialoguePreview(deps: DialoguePreviewDeps): DialoguePrevie
       service();
     },
     observe() {
-      return { step, running: runner.api.isRunning(), dialogue: runner.observe(), ui: layer.observe(), audio: deps.audio?.observeAudio?.() ?? null, plays: [...plays] };
+      return { step, running: runner.api.isRunning(), dialogue: runner.observe(), ui: layer.observe(), audio: deps.audio?.observeAudio?.() ?? null, plays: [...plays], soundsRead: requested.size };
     },
     dispose() {
       if (disposed) return;

@@ -14,7 +14,6 @@ import { MaterialMappingEditor } from './MaterialsPanel';
 
 export function ModelAssetOptions(p: {
   asset: AssetView;
-  assets: readonly AssetView[];
   materials: readonly MaterialDef[];
   /** The model file's own material names. */
   sourceMaterials: readonly string[];
@@ -27,7 +26,6 @@ export function ModelAssetOptions(p: {
       <ClipsForField
         assetId={p.asset.assetId}
         clipsFor={p.asset.clipsFor ?? null}
-        rigs={p.assets.filter((a) => a.kind === 'model' && a.assetId !== p.asset.assetId && a.clipsFor === undefined).map((a) => ({ assetId: a.assetId, displayName: a.displayName }))}
         onChange={p.onClipsFor}
         missingBones={p.missingBones}
       />

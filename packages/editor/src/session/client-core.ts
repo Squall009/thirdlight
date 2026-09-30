@@ -36,6 +36,7 @@ import {
 import { Projection, type FullState, type ProjectedEntity } from './projection';
 import { ContentProjection, type AssetView } from './content-projection';
 import { PrefabProjection } from './prefab-projection';
+import { Catalog } from './catalog';
 import { committed, planAssetQuery } from './asset-browser';
 import { type Transform } from './gesture';
 import { type CompileDiagnosticView } from './behavior-publication';
@@ -233,6 +234,24 @@ export class SessionClientCore {
    * the property controls (never behavior code).
    */
   readonly prefabs = new PrefabProjection();
+  /**
+   * The project catalog at any size: index pages for lists, pickers and
+   * search, and the records read by id into `content`, `prefabs` and the
+   * conversations (catalog.ts).
+   */
+  readonly catalog: Catalog = new Catalog((op, args) => this.api<Record<string, unknown>>(`/projects/${this.cfg.projectId}/commands`, { op, projectId: this.cfg.projectId, args }), {
+    assets: this.content,
+    prefabs: this.prefabs,
+    resources: {
+      has: (kind, id) => kind === 'dialogue' && this.dialogues.some((d) => d.dialogueId === id),
+      put: (kind, records) => {
+        if (kind !== 'dialogue') return;
+        const byId = new Map(this.dialogues.map((d) => [d.dialogueId, d] as const));
+        for (const r of records) byId.set(String(r['dialogueId']), structuredClone(r) as unknown as DialogueDocument);
+        this.dialogues = [...byId.values()].sort((a, b) => (a.dialogueId < b.dialogueId ? -1 : 1));
+      },
+    },
+  });
   protected readonly cfg: ClientConfig;
   private readonly cb: ClientCallbacks;
   private readonly sessionId: string;
@@ -297,7 +316,11 @@ export class SessionClientCore {
   /** The project UI documents and themes (from queryGameConfig, then setUi changes). */
   private uiDocuments: UiDocument[] = [];
   private uiThemes: UiTheme[] = [];
-  /** Conversations, the speaker registry and the dialogue settings (from queryGameConfig, then setDialogue / graphEdit changes). */
+  /**
+   * The conversations read so far (by id, from the index: a project may hold
+   * thousands of lines), the speaker registry and the dialogue settings (from
+   * queryGameConfig), then setDialogue / graphEdit changes.
+   */
   private dialogues: DialogueDocument[] = [];
   private speakers: DialogueSpeaker[] = [];
   private dialogueSettings: DialogueSettings | null = null;
@@ -532,7 +555,7 @@ export class SessionClientCore {
     // The project content re-reads on every full state
     // (reopening the editor retains what was authored).
     try {
-      const g = await this.queryGameConfig({ descriptors: this.descriptors === null });
+      const g = await this.queryGameConfig({ descriptors: this.descriptors === null, omit: ['dialogues'] });
       if (g.ok) {
         const descriptors = (g as { descriptors?: DescriptorRegistry }).descriptors;
         if (descriptors !== undefined) this.descriptors = descriptors;
@@ -585,9 +608,10 @@ export class SessionClientCore {
         this.uiDocuments = Array.isArray(uiDocs) ? structuredClone(uiDocs) : [];
         const uiThemes = (g as { uiThemes?: UiTheme[] }).uiThemes;
         this.uiThemes = Array.isArray(uiThemes) ? structuredClone(uiThemes) : [];
-        // Dialogue content.
-        const dialogues = (g as { dialogues?: DialogueDocument[] }).dialogues;
-        this.dialogues = Array.isArray(dialogues) ? structuredClone(dialogues) : [];
+        // Dialogue content: the conversations are read by id when they are opened or played.
+        const openDialogues = this.dialogues.map((d) => d.dialogueId);
+        this.dialogues = [];
+        void this.catalog.ensureResources('dialogue', openDialogues);
         const speakers = (g as { speakers?: DialogueSpeaker[] }).speakers;
         this.speakers = Array.isArray(speakers) ? structuredClone(speakers) : [];
         const ds = (g as { dialogueSettings?: DialogueSettings | null }).dialogueSettings;
@@ -607,26 +631,54 @@ export class SessionClientCore {
     } catch {
       // resolved by the next full state
     }
-    // The additive content projection is rebuilt from the same full state:
-    // a bounded `queryAssets` page, never a partial merge.
+    // The records read by id are read again (a full state may follow changes this editor missed),
+    // with what the open scenes use; lists read their index pages again.
+    const heldAssets = this.content.cachedAssets().map((a) => a.assetId);
+    const heldPrefabs = this.prefabs.prefabIds;
+    this.content.hydrate(null);
     try {
-      const assets = await this.queryAssets({ limit: 128, offset: 0, includeVersions: true });
-      if (assets.ok) this.content.hydrate({ assets: assets.assets });
+      // The scripts' declarations are the schema of every behavior component: all of them, page by page.
+      const behaviors = await this.allBehaviors();
+      this.prefabs.hydrate([], behaviors);
     } catch {
-      // A missing content page is resolved by the next full state; it never
-      // corrupts the scene projection.
+      // A missing page is resolved by the next full state.
     }
-    // Reopening rebuilds definitions and published
-    // declarations from bounded queries — no in-memory assumption.
-    try {
-      const [defs, behaviors] = await Promise.all([
-        this.queryPrefabs({ limit: 128, offset: 0, includeEntities: true }),
-        this.queryBehaviors({ limit: 128, offset: 0, includeDeclaration: true }),
-      ]);
-      if (defs.ok && behaviors.ok) this.prefabs.hydrate(defs.prefabs, behaviors.behaviors);
-    } catch {
-      // A missing content page is resolved by the next full state.
+    this.catalog.invalidate();
+    void this.catalog.ensureAssets(heldAssets);
+    void this.catalog.ensurePrefabs(heldPrefabs);
+    this.ensureSceneRecords();
+  }
+
+  /** Every published script's record, read a page at a time. */
+  private async allBehaviors(): Promise<BehaviorRecord[]> {
+    const out: BehaviorRecord[] = [];
+    for (let offset = 0; ; ) {
+      const page = await this.queryBehaviors({ limit: 128, offset, includeDeclaration: true });
+      if (!page.ok) break;
+      out.push(...page.behaviors);
+      offset += page.behaviors.length;
+      if (page.behaviors.length === 0 || offset >= page.total) break;
     }
+    return out;
+  }
+
+  /**
+   * The records the objects of the open scenes use and the editor has not read
+   * yet: the model files the Scene view draws and the prefabs copies came
+   * from. They arrive in the background; the Scene view draws them then.
+   */
+  ensureSceneRecords(): void {
+    const assets = new Set<string>();
+    const prefabs = new Set<string>();
+    for (const e of this.visibleEntities()) {
+      if (e.assetId !== undefined && !this.content.has(e.assetId)) assets.add(e.assetId);
+      const instanced = e.instances?.assetId;
+      if (instanced !== undefined && !this.content.has(instanced)) assets.add(instanced);
+      const prefabId = e.prefab?.prefabId;
+      if (prefabId !== undefined && !this.prefabs.hasDefinition(prefabId)) prefabs.add(prefabId);
+    }
+    if (assets.size > 0) void this.catalog.ensureAssets(assets);
+    if (prefabs.size > 0) void this.catalog.ensurePrefabs(prefabs);
   }
 
   /** Re-read the backend's undo/redo depths (the history is shared with MCP). */
@@ -773,7 +825,8 @@ export class SessionClientCore {
       // The content projection advances from the SAME applied change records
       // the scene projection uses; a failed or stale job
       // never reaches this path, so previous committed content is preserved.
-      this.content.applyChange(ev.change as ChangeData);
+      if (this.content.applyChange(ev.change as ChangeData)) this.catalog.recordsChanged();
+      this.catalog.changed((ev.change as ChangeData).type);
       // definitions/declarations converge from the same
       // records, so an MCP-origin edit is visible without a reload.
       // A visual-script edit that does not fit the copy is
@@ -891,11 +944,12 @@ export class SessionClientCore {
           // A conversation's graph.
           const d = this.dialogues.find((x) => x.dialogueId === change.owner.id);
           const next = d !== undefined ? applyGraphOpsLocal(d.graph, change.ops) : null;
-          if (d === undefined || next === null) {
+          // A conversation this editor has not read is read when it is opened: nothing to advance.
+          if (d !== undefined && next === null) {
             void this.fullResync().then(() => this.cb.onSceneChanged());
             return;
           }
-          this.dialogues = this.dialogues.map((x) => (x === d ? { ...x, graph: next } : x));
+          if (d !== undefined && next !== null) this.dialogues = this.dialogues.map((x) => (x === d ? { ...x, graph: next } : x));
         } else if (change.owner.kind === 'effect') {
           // One system's graph (owner id "<effectId>/<systemId>").
           const [effectId, systemId] = change.owner.id.split('/');
@@ -926,6 +980,7 @@ export class SessionClientCore {
         void this.refreshBlockChunks(change.entityId, change.chunks).then(() => this.cb.onSceneChanged());
       }
       if (blockLayerListTouched(change, this.blockLayers)) void this.refreshBlockLayers().then(() => this.cb.onSceneChanged());
+      this.ensureSceneRecords();
       this.save = 'saved';
       this.cb.onSceneChanged();
       this.emit();
@@ -1418,7 +1473,7 @@ export class SessionClientCore {
     return this.uiThemes;
   }
 
-  /** The conversations (read-only values). */
+  /** The conversations read so far (read-only values; `catalog.ensureResources('dialogue', ids)` reads more). */
   getDialogues(): readonly DialogueDocument[] {
     return this.dialogues;
   }
@@ -1596,11 +1651,11 @@ export class SessionClientCore {
    * A bounded `queryGameConfig`: the
    * project content (tags, scenes, materials, environment, …); read-only.
    */
-  async queryGameConfig(opts: { descriptors?: boolean } = {}): Promise<{ ok: true; revision: number } | { ok: false; error: { code: string; message: string } }> {
+  async queryGameConfig(opts: { descriptors?: boolean; omit?: readonly string[] } = {}): Promise<{ ok: true; revision: number } | { ok: false; error: { code: string; message: string } }> {
     try {
       const r = await this.api<{ ok: true; projectId: string; revision: number }>(
         `/projects/${this.cfg.projectId}/commands`,
-        { op: 'queryGameConfig', projectId: this.cfg.projectId, args: opts.descriptors === true ? { descriptors: true } : {} },
+        { op: 'queryGameConfig', projectId: this.cfg.projectId, args: { ...(opts.descriptors === true ? { descriptors: true } : {}), ...(opts.omit !== undefined && opts.omit.length > 0 ? { omit: [...opts.omit] } : {}) } },
       );
       // The content (tags, scenes, materials, environment, lighting, …) rides along.
       return { ...r, ok: true, revision: r.revision };

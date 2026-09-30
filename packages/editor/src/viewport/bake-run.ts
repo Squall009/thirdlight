@@ -183,6 +183,8 @@ async function publish(deps: BakeDeps, prepared: Prepared, pngs: readonly Uint8A
   for (let i = 0; i < pngs.length; i++) {
     deps.onProgress(`saving lightmap ${i + 1}/${pngs.length}`, 0.9 + (0.1 * i) / pngs.length);
     const reuse = previous?.atlases[i];
+    // Whether the previous atlas still exists is read by id (the editor holds no whole catalog).
+    if (reuse !== undefined) await client.catalog.ensureAssets([reuse]);
     const displayName = `lightmap ${deps.sceneName} ${i + 1}`;
     const target: ImportTarget =
       reuse !== undefined && client.content.resolveVersion(reuse) !== null ? { mode: 'reimport', assetId: reuse, displayName } : { mode: 'create', assetId: makeAssetId(), displayName };

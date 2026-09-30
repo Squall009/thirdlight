@@ -283,4 +283,38 @@ describe('project resources as files', () => {
       s.close();
     }
   });
+
+  it('pages the index by kinds, text and ids, with records by id, and leaves lists out of the game config', () => {
+    const { open } = project('index-query');
+    const s = open();
+    try {
+      s.holdAssetBytes(PID, CRATE);
+      ok(s, 'publishAsset', { mode: 'create', assetId: 'crate', kind: 'model', displayName: 'Crate', sourceDigest: sha(CRATE), sourceByteLength: CRATE.length, importRecipe: RECIPE, metrics: METRICS, importedAt: '2026-09-30T10:00:00Z' });
+      for (const [id, color] of [['stone', '#808080'], ['moss', '#00aa00'], ['stone-dark', '#202020']] as const) ok(s, 'setMaterial', { material: mat(id, color) });
+      type Page = { ok: boolean; total: number; entries: { kind: string; id: string; refs?: string[]; record?: Record<string, unknown> }[]; error?: { code: string } };
+      const q = (args: Record<string, unknown>): Page => s.query({ op: 'queryIndex', projectId: PID, args }) as unknown as Page;
+      // Any case, name or id; several kinds at once; no reference lists when asked.
+      const stones = q({ kinds: ['material', 'model'], text: 'STONE', refs: false });
+      expect(stones.entries.map((e) => e.id)).toEqual(['stone', 'stone-dark']);
+      expect(stones.entries[0]!.refs).toBeUndefined();
+      expect(q({ kinds: ['material', 'model'] }).entries.map((e) => `${e.kind}:${e.id}`)).toEqual(['material:moss', 'material:stone', 'material:stone-dark', 'model:crate']);
+      // By id with the records (resources only), an unknown id left out.
+      const byId = q({ kind: 'material', ids: ['stone-dark', 'nope', 'moss'], records: true });
+      expect(byId.total).toBe(2);
+      expect(byId.entries.map((e) => [e.id, (e.record as { params: { color: string } }).params.color])).toEqual([['moss', '#00aa00'], ['stone-dark', '#202020']]);
+      expect(q({ ids: [] }).ok).toBe(false);
+      // Asset summaries by id (what a list shows for the rows on screen).
+      const assets = s.query({ op: 'queryAssets', projectId: PID, args: { ids: ['nope', 'crate'], includeVersions: true } }) as unknown as { assets: { assetId: string; versions: unknown[] }[]; missing: string[] };
+      expect(assets.assets.map((a) => a.assetId)).toEqual(['crate']);
+      expect(assets.missing).toEqual(['nope']);
+      // The game config without the lists read by id.
+      const cfg = s.query({ op: 'queryGameConfig', projectId: PID, args: { omit: ['dialogues', 'graphs'] } }) as unknown as Record<string, unknown>;
+      expect(cfg['ok']).toBe(true);
+      expect('dialogues' in cfg || 'graphs' in cfg).toBe(false);
+      expect(Array.isArray(cfg['materials'])).toBe(true);
+      expect((s.query({ op: 'queryGameConfig', projectId: PID, args: { omit: ['materials'] } }) as unknown as { ok: boolean }).ok).toBe(false);
+    } finally {
+      s.close();
+    }
+  });
 });

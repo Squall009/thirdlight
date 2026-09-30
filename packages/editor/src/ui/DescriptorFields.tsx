@@ -14,8 +14,10 @@
 import { useEffect, useId, useState, type JSX, type KeyboardEvent, type ReactNode } from 'react';
 import * as THREE from 'three';
 import type { ComponentDescriptor, FieldDescriptor, ObjectFieldDescriptor } from '@thirdlight/project-model';
+import { RefPicker } from './catalog/RefPicker';
 import {
   entityChoices,
+  INDEX_REF_TARGETS,
   fieldAria,
   fieldLabel,
   formatNumber,
@@ -289,11 +291,11 @@ export function FieldRow(p: RowProps): JSX.Element | null {
         </Row>
       );
     case 'asset': {
-      const kinds = f.type === 'assetRef' ? f.kinds : [];
-      const options = p.ctx.assets.filter((a) => kinds.includes(a.kind as never)).map((a) => ({ value: a.assetId, label: `${a.displayName}${kinds.length > 1 ? ` (${a.kind})` : ''}` }));
+      // The project's assets of these kinds, paged from the index.
+      const kinds = f.type === 'assetRef' ? (f.kinds as readonly string[]) : [];
       return (
         <Row f={f} label={p.label} isDefault={isDefault}>
-          <SelectWidget aria={aria} value={typeof shown === 'string' ? shown : ''} options={options} none={optional || f.nullable === true ? 'none' : null} onPick={(v) => (v === '' ? clear() : p.onEdit(p.path, v))} />
+          <RefPicker aria={aria} kinds={kinds} value={typeof shown === 'string' ? shown : ''} none={optional || f.nullable === true ? 'none' : null} onPick={(v) => (v === '' ? clear() : p.onEdit(p.path, v))} />
         </Row>
       );
     }
@@ -315,6 +317,13 @@ export function FieldRow(p: RowProps): JSX.Element | null {
       );
     case 'ref': {
       const target = f.type === 'ref' ? f.target : 'material';
+      if (INDEX_REF_TARGETS.has(target)) {
+        return (
+          <Row f={f} label={p.label} isDefault={isDefault}>
+            <RefPicker aria={aria} kinds={[target]} value={typeof shown === 'string' ? shown : ''} none={optional ? 'none' : null} onPick={(v) => (v === '' ? clear() : p.onEdit(p.path, v))} />
+          </Row>
+        );
+      }
       const list = p.ctx.refs[target as 'material'];
       if (list === undefined) {
         return (
@@ -422,7 +431,10 @@ function ListWidget(p: RowProps & { aria: string }): JSX.Element {
   const max = f.length ?? f.maxItems ?? Infinity;
   const min = f.length ?? f.minItems ?? 0;
   // A list of references (a HUD's documents) starts a new item at the first choice; a listed scene at the first scene.
-  const fresh = (): unknown => startValue(f.item, undefined, { scene: p.ctx.scenes[0]?.sceneId }) ?? (f.item.type === 'ref' ? p.ctx.refs[f.item.target as 'material']?.[0]?.id : undefined) ?? (items.length > 0 ? JSON.parse(JSON.stringify(items[items.length - 1])) : undefined);
+  const fresh = (): unknown =>
+    startValue(f.item, undefined, { scene: p.ctx.scenes[0]?.sceneId }) ??
+    (f.item.type === 'ref' ? (INDEX_REF_TARGETS.has(f.item.target) ? p.ctx.firstOf?.([f.item.target]) : p.ctx.refs[f.item.target as 'material']?.[0]?.id) : undefined) ??
+    (items.length > 0 ? JSON.parse(JSON.stringify(items[items.length - 1])) : undefined);
   return (
     <div className="tl-desc__list" aria-label={p.aria} title={f.tooltip} data-field={f.key}>
       <div className="tl-field__label">

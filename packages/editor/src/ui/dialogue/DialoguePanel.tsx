@@ -14,19 +14,23 @@ import { DIALOGUE_LIMITS } from '@thirdlight/project-model/limits';
 import { useEffect, useState, type JSX } from 'react';
 import type { DialogueDocument, DialogueSettings, DialogueSpeaker, UiDocument, UiTheme } from '@thirdlight/project-model';
 
-interface AssetOption {
-  assetId: string;
-  displayName: string;
-  kind: string;
-}
+import type { IndexEntryView } from '../../session/catalog';
+import { AUDIO_KINDS, RefPicker, TEXTURE_KINDS, useFirstEntry } from '../catalog/RefPicker';
+import { useIndexList } from '../catalog/useIndexList';
+import { VirtualList } from '../catalog/VirtualList';
+
+/** The conversations, paged from the project index. */
+const DIALOGUE_KINDS: readonly string[] = ['dialogue'];
+/** One row of the conversation list (px). */
+const DIALOGUE_ROW = 30;
 
 export interface DialoguePanelProps {
+  /** The conversations the editor has read (their line counts); the list itself comes from the index. */
   dialogues: readonly DialogueDocument[];
   speakers: readonly DialogueSpeaker[];
   settings: DialogueSettings | null;
   uiDocuments: readonly UiDocument[];
   uiThemes: readonly UiTheme[];
-  assets: readonly AssetOption[];
   openId: string | null;
   error: string | null;
   onOpen: (dialogueId: string) => void;
@@ -81,15 +85,7 @@ export function DialoguePanel(p: DialoguePanelProps): JSX.Element {
             </button>
           </form>
           <p className="tl-hint">A conversation is a node graph: lines (speaker, expression, text, voice clip), choices, conditions and effects on dialogue variables, signals, jumps. Scripts start one with ctx.dialogue.start(id).</p>
-          {p.dialogues.length === 0 ? (
-            <div className="tl-inspector__empty">No conversations yet.</div>
-          ) : (
-            <ul className="tl-effects__list" aria-label="Dialogue list">
-              {p.dialogues.map((d) => (
-                <DialogueRow key={d.dialogueId} d={d} active={p.openId === d.dialogueId} onOpen={p.onOpen} onRename={p.onRename} onDelete={p.onDelete} />
-              ))}
-            </ul>
-          )}
+          <DialogueList {...p} />
         </>
       )}
       {section === 'speakers' && <SpeakersEditor {...p} />}
@@ -98,11 +94,31 @@ export function DialoguePanel(p: DialoguePanelProps): JSX.Element {
   );
 }
 
-function DialogueRow({ d, active, onOpen, onRename, onDelete }: { d: DialogueDocument; active: boolean; onOpen: (id: string) => void; onRename: (id: string, name: string) => void; onDelete: (id: string) => void }): JSX.Element {
-  const [renaming, setRenaming] = useState<string | null>(null);
-  const lines = d.graph.nodes.filter((n) => n.type === 'line').length;
+/** The conversations of the project, paged from the index as the list scrolls. */
+function DialogueList(p: DialoguePanelProps): JSX.Element {
+  const list = useIndexList({ kinds: DIALOGUE_KINDS });
+  if (list.total === 0) return <div className="tl-inspector__empty">No conversations yet.</div>;
+  const loaded = new Map(p.dialogues.map((d) => [d.dialogueId, d] as const));
   return (
-    <li className={`tl-effects__row${active ? ' is-active' : ''}`} data-dialogue-id={d.dialogueId} onDoubleClick={() => onOpen(d.dialogueId)}>
+    <VirtualList
+      className="tl-effects__list"
+      ariaLabel="Dialogue list"
+      count={list.total ?? 0}
+      stride={DIALOGUE_ROW}
+      onRange={list.need}
+      renderItem={(i) => {
+        const e = list.entry(i);
+        return e === undefined ? <li key={`i${i}`} className="tl-effects__row" style={{ height: DIALOGUE_ROW - 2 }} /> : <DialogueRow key={e.id} d={e} doc={loaded.get(e.id)} active={p.openId === e.id} onOpen={p.onOpen} onRename={p.onRename} onDelete={p.onDelete} />;
+      }}
+    />
+  );
+}
+
+function DialogueRow({ d, doc, active, onOpen, onRename, onDelete }: { d: IndexEntryView; doc: DialogueDocument | undefined; active: boolean; onOpen: (id: string) => void; onRename: (id: string, name: string) => void; onDelete: (id: string) => void }): JSX.Element {
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const lines = doc?.graph.nodes.filter((n) => n.type === 'line').length;
+  return (
+    <li className={`tl-effects__row${active ? ' is-active' : ''}`} data-dialogue-id={d.id} onDoubleClick={() => onOpen(d.id)}>
       {renaming !== null ? (
         <input
           autoFocus
@@ -112,7 +128,7 @@ function DialogueRow({ d, active, onOpen, onRename, onDelete }: { d: DialogueDoc
           value={renaming}
           onChange={(e) => setRenaming(e.target.value)}
           onBlur={() => {
-            if (renaming.trim() !== '' && renaming.trim() !== d.name) onRename(d.dialogueId, renaming.trim());
+            if (renaming.trim() !== '' && renaming.trim() !== d.name) onRename(d.id, renaming.trim());
             setRenaming(null);
           }}
           onKeyDown={(e) => {
@@ -124,15 +140,16 @@ function DialogueRow({ d, active, onOpen, onRename, onDelete }: { d: DialogueDoc
         <span className="tl-effects__name">{d.name}</span>
       )}
       <span className="tl-effects__meta">
-        {d.dialogueId} · {lines} line{lines === 1 ? '' : 's'}
+        {d.id}
+        {lines !== undefined ? ` · ${lines} line${lines === 1 ? '' : 's'}` : ''}
       </span>
-      <button className="tl-btn tl-btn--small" onClick={() => onOpen(d.dialogueId)} aria-label={`Open ${d.name}`}>
+      <button className="tl-btn tl-btn--small" onClick={() => onOpen(d.id)} aria-label={`Open ${d.name}`}>
         Open
       </button>
       <button className="tl-btn tl-btn--small" onClick={() => setRenaming(d.name)} aria-label={`Rename ${d.name}`}>
         Rename
       </button>
-      <button className="tl-btn tl-btn--small" onClick={() => onDelete(d.dialogueId)} aria-label={`Delete ${d.name}`}>
+      <button className="tl-btn tl-btn--small" onClick={() => onDelete(d.id)} aria-label={`Delete ${d.name}`}>
         Delete
       </button>
     </li>
@@ -146,8 +163,7 @@ function SpeakersEditor(p: DialoguePanelProps): JSX.Element {
   const blank: DialogueSpeaker = { speakerId: '', name: '' };
   const [draft, setDraft] = useState<DialogueSpeaker>(blank);
   useEffect(() => setDraft(current !== null ? structuredClone(current) : blank), [editing, current]); // eslint-disable-line react-hooks/exhaustive-deps -- blank is a new object each render; the draft resets when the edited speaker changes
-  const textures = p.assets.filter((a) => a.kind === 'texture');
-  const sounds = p.assets.filter((a) => a.kind === 'audio');
+  const firstTexture = useFirstEntry(TEXTURE_KINDS).first;
   const portraits = Object.entries(draft.portraits ?? {});
   const set = (patch: Partial<DialogueSpeaker>): void => setDraft((d) => {
     const next = { ...d, ...patch } as DialogueSpeaker & Record<string, unknown>;
@@ -180,20 +196,13 @@ function SpeakersEditor(p: DialoguePanelProps): JSX.Element {
         <span>Voice profile</span>
         <input className="tl-input" aria-label="speaker voice profile" value={draft.voiceProfile ?? ''} maxLength={64} onChange={(e) => set({ voiceProfile: e.target.value === '' ? undefined : e.target.value })} />
         <span>Text blip</span>
-        <select className="tl-input" aria-label="speaker blip" value={draft.blip ?? ''} onChange={(e) => set({ blip: e.target.value === '' ? undefined : e.target.value })}>
-          <option value="">(none)</option>
-          {sounds.map((a) => (
-            <option key={a.assetId} value={a.assetId}>
-              {a.displayName}
-            </option>
-          ))}
-        </select>
+        <RefPicker aria="speaker blip" kinds={AUDIO_KINDS} value={draft.blip ?? ''} none="(none)" onPick={(id) => set({ blip: id === '' ? undefined : id })} />
         <span>Blip every (chars)</span>
         <input className="tl-input tl-input--num" type="number" min={1} max={16} aria-label="speaker blip every" value={draft.blipEvery ?? ''} placeholder="2" onChange={(e) => set({ blipEvery: e.target.value === '' ? undefined : Math.max(1, Math.min(16, Math.round(Number(e.target.value)))) })} />
       </div>
       <div className="tl-subhead">
         Portraits
-        <button type="button" className="tl-btn tl-btn--small" aria-label="add portrait" disabled={portraits.length >= DIALOGUE_LIMITS.portraits} onClick={() => setPortraits([...portraits, [portraits.length === 0 ? 'neutral' : `expression${portraits.length + 1}`, textures[0]?.assetId ?? '']])}>
+        <button type="button" className="tl-btn tl-btn--small" aria-label="add portrait" disabled={portraits.length >= DIALOGUE_LIMITS.portraits} onClick={() => setPortraits([...portraits, [portraits.length === 0 ? 'neutral' : `expression${portraits.length + 1}`, firstTexture ?? '']])}>
           + portrait
         </button>
       </div>
@@ -201,14 +210,7 @@ function SpeakersEditor(p: DialoguePanelProps): JSX.Element {
       {portraits.map(([expr, tex], i) => (
         <div key={i} className="tl-material-param">
           <input className="tl-input" aria-label={`portrait ${i + 1} expression`} value={expr} maxLength={32} onChange={(e) => setPortraits(portraits.map((x, j) => (j === i ? [e.target.value, x[1]] : x)))} />
-          <select className="tl-input" aria-label={`portrait ${i + 1} texture`} value={tex} onChange={(e) => setPortraits(portraits.map((x, j) => (j === i ? [x[0], e.target.value] : x)))}>
-            {tex === '' && <option value="">(choose a texture)</option>}
-            {textures.map((a) => (
-              <option key={a.assetId} value={a.assetId}>
-                {a.displayName}
-              </option>
-            ))}
-          </select>
+          <RefPicker aria={`portrait ${i + 1} texture`} kinds={TEXTURE_KINDS} value={tex} none={tex === '' ? '(choose a texture)' : null} onPick={(id) => id !== '' && setPortraits(portraits.map((x, j) => (j === i ? [x[0], id] : x)))} />
           <button type="button" className="tl-btn tl-btn--small" aria-label={`remove portrait ${expr}`} onClick={() => setPortraits(portraits.filter((_, j) => j !== i))}>
             ✕
           </button>

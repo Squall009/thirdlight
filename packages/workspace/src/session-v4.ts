@@ -76,7 +76,8 @@ import { defaultResourcePath, gamePathOf, gameRel, recordsOfKind, RESOURCE_KINDS
 import { fileOfRecord, sidecarPath, type RecordLike } from './asset-files';
 import { EMPTY_BYTES } from './write';
 import { commandContentOf } from './content-shapes';
-import { buildIndex, sortedKeys, updateIndex } from './project-index';
+import { buildIndex, updateIndex } from './project-index';
+import { serveQueryIndex } from './query-index';
 import type { OwnershipRecord } from './ownership';
 import type { QueryResult } from './types';
 
@@ -971,6 +972,9 @@ export function sceneOfEntity(state: V4State, entityId: string): SceneV4 | null 
   return null;
 }
 
+/** The lists `queryGameConfig` may leave out (read by id from the index: `queryIndex {kind, ids, records: true}`). */
+export const GAME_CONFIG_OMITTABLE: readonly string[] = ['dialogues', 'graphs', 'timelines', 'uiDocuments', 'effects'];
+
 type QueryOp = 'queryProject' | 'queryEntity' | 'queryEntities' | 'queryAssets' | 'queryPrefabs' | 'queryBehaviors' | 'queryGameConfig' | 'queryBlocks' | 'queryIndex';
 
 function failure(op: string, projectId: string, error: import('@thirdlight/commands').CommandError): QueryResult {
@@ -1000,11 +1004,21 @@ export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, 
       const { descriptors: _d, ...rest } = args;
       args = rest;
     }
+    // `queryGameConfig {omit: [...]}` leaves out lists the caller reads by id instead (a
+    // project's conversations, for one, are read one at a time from the index).
+    let omit: readonly string[] = [];
+    if (op === 'queryGameConfig' && args !== undefined && Object.prototype.hasOwnProperty.call(args, 'omit')) {
+      const o = args['omit'];
+      if (!Array.isArray(o) || !o.every((x) => typeof x === 'string' && GAME_CONFIG_OMITTABLE.includes(x))) return failure(op, projectId, fieldValueType('/args/omit', o, `a list of: ${GAME_CONFIG_OMITTABLE.join(', ')}`, 'omit names lists of the reply'));
+      omit = o as string[];
+      const { omit: _o, ...rest } = args;
+      args = rest;
+    }
     if (args !== undefined) request['args'] = args;
     const result = op === 'queryAssets' ? queryAssets(cs, request) : op === 'queryPrefabs' ? queryPrefabs(cs, request) : op === 'queryBehaviors' ? queryBehaviors(cs, request) : queryGameConfig(cs, request);
     if (op === 'queryGameConfig' && (result as { ok?: boolean }).ok === true) {
       // The project materials and the environment travel with the game block.
-      return {
+      const reply = {
         ...(result as object),
         scenes: state.content.scenes.map((e) => ({ ...e })),
         startScenes: [...state.content.startScenes],
@@ -1017,9 +1031,9 @@ export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, 
         inputDefaults: JSON.parse(JSON.stringify(defaultInputFor(physicsDimensionOf(state.content.settings) === 3 ? 3 : 2))) as unknown,
         flow: (state.content as { flow?: unknown }).flow !== undefined ? (JSON.parse(JSON.stringify((state.content as { flow?: unknown }).flow)) as unknown) : null,
         // Standalone graph documents (and, with the descriptors, the graph kinds' catalogues).
-        graphs: JSON.parse(JSON.stringify((state.content as { graphs?: unknown[] }).graphs ?? [])) as unknown,
+        ...(omit.includes('graphs') ? {} : { graphs: JSON.parse(JSON.stringify((state.content as { graphs?: unknown[] }).graphs ?? [])) as unknown }),
         // Visual effects (systems and their graphs).
-        effects: JSON.parse(JSON.stringify((state.content as { effects?: unknown[] }).effects ?? [])) as unknown,
+        ...(omit.includes('effects') ? {} : { effects: JSON.parse(JSON.stringify((state.content as { effects?: unknown[] }).effects ?? [])) as unknown }),
         // Block types, the cell metadata schema and stamps.
         blockTypes: JSON.parse(JSON.stringify((state.content as { blockTypes?: unknown[] }).blockTypes ?? [])) as unknown,
         cellFields: JSON.parse(JSON.stringify((state.content as { cellFields?: unknown[] }).cellFields ?? [])) as unknown,
@@ -1027,10 +1041,10 @@ export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, 
         // Shared script libraries (their files).
         scriptLibraries: JSON.parse(JSON.stringify((state.content as { scriptLibraries?: unknown[] }).scriptLibraries ?? [])) as unknown,
         // Project UI documents and themes.
-        uiDocuments: JSON.parse(JSON.stringify((state.content as { uiDocuments?: unknown[] }).uiDocuments ?? [])) as unknown,
+        ...(omit.includes('uiDocuments') ? {} : { uiDocuments: JSON.parse(JSON.stringify((state.content as { uiDocuments?: unknown[] }).uiDocuments ?? [])) as unknown }),
         uiThemes: JSON.parse(JSON.stringify((state.content as { uiThemes?: unknown[] }).uiThemes ?? [])) as unknown,
         // timelines.
-        timelines: JSON.parse(JSON.stringify((state.content as { timelines?: unknown[] }).timelines ?? [])) as unknown,
+        ...(omit.includes('timelines') ? {} : { timelines: JSON.parse(JSON.stringify((state.content as { timelines?: unknown[] }).timelines ?? [])) as unknown }),
         // The named collision layers.
         collisionLayers: [...((state.content as { collisionLayers?: string[] }).collisionLayers ?? [])],
         // The game modes and behavior groups.
@@ -1045,13 +1059,14 @@ export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, 
         // The project save schema (null: no project saves).
         saveSchema: (state.content as { saveSchema?: unknown }).saveSchema !== undefined ? (JSON.parse(JSON.stringify((state.content as { saveSchema?: unknown }).saveSchema)) as unknown) : null,
         // Conversations, the speaker registry and the dialogue settings (null: the defaults).
-        dialogues: JSON.parse(JSON.stringify((state.content as { dialogues?: unknown[] }).dialogues ?? [])) as unknown,
+        ...(omit.includes('dialogues') ? {} : { dialogues: JSON.parse(JSON.stringify((state.content as { dialogues?: unknown[] }).dialogues ?? [])) as unknown }),
         speakers: JSON.parse(JSON.stringify((state.content as { speakers?: unknown[] }).speakers ?? [])) as unknown,
         dialogueSettings: (state.content as { dialogueSettings?: unknown }).dialogueSettings !== undefined ? (JSON.parse(JSON.stringify((state.content as { dialogueSettings?: unknown }).dialogueSettings)) as unknown) : null,
         // The settings map (the editor's Scene view reads render_backend at load).
         settings: JSON.parse(JSON.stringify((state.content as { settings?: unknown }).settings ?? {})) as unknown,
         ...(withDescriptors ? { descriptors: JSON.parse(JSON.stringify(DESCRIPTORS)) as unknown, graphKinds: JSON.parse(JSON.stringify(GRAPH_KINDS)) as unknown } : {}),
-      } as unknown as QueryResult;
+      };
+      return reply as unknown as QueryResult;
     }
     return result as unknown as QueryResult;
   }
@@ -1151,47 +1166,6 @@ export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, 
     entities: page.map((r) => r.entity),
     entitySceneIds: page.map((r) => r.sceneId),
   } as unknown as QueryResult;
-}
-
-/** The most index entries one `queryIndex` page returns. */
-export const MAX_INDEX_PAGE = 1024;
-
-/**
- * `queryIndex {kind?, id?, label?, address?, loadable?, referencing?, limit?, offset?}` — the
- * project index: every asset, resource and scene with its file, name, labels,
- * address and the ids it references, filtered (`referencing`: the entries
- * that name that id; `loadable`: those with an address or a label, or
- * without), in `kind:id` order, paged.
- */
-function serveQueryIndex(s: ProjectSession, state: V4State, projectId: string, a: Record<string, unknown>): QueryResult {
-  const op = 'queryIndex';
-  for (const k of Object.keys(a)) if (!['kind', 'id', 'label', 'address', 'loadable', 'referencing', 'limit', 'offset'].includes(k)) return failure(op, projectId, fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'kind, id, label, address, loadable, referencing, limit, offset'));
-  for (const k of ['kind', 'id', 'label', 'address', 'referencing'] as const) if (a[k] !== undefined && typeof a[k] !== 'string') return failure(op, projectId, fieldTypeError(`/args/${k}`, a[k], 'string'));
-  if (a['loadable'] !== undefined && typeof a['loadable'] !== 'boolean') return failure(op, projectId, fieldTypeError('/args/loadable', a['loadable'], 'boolean'));
-  const limit = a['limit'] ?? 256;
-  const offset = a['offset'] ?? 0;
-  if (!isSafeInt(limit) || (limit as number) < 1 || (limit as number) > MAX_INDEX_PAGE) return failure(op, projectId, fieldValueType('/args/limit', limit, `integer 1-${MAX_INDEX_PAGE}`, 'limit pages the index'));
-  if (!isSafeInt(offset) || (offset as number) < 0) return failure(op, projectId, fieldValueType('/args/offset', offset, 'integer >= 0', 'offset pages the index'));
-  const index = s.index ?? buildIndex(state);
-  // The keys in order, made once per change of the index's key set: a page is read from it, not sorted per query.
-  const keys: readonly string[] = typeof a['referencing'] === 'string' ? [...(index.referrers.get(a['referencing']) ?? [])].sort() : sortedKeys(index);
-  const from = offset as number;
-  const to = from + (limit as number);
-  let total = 0;
-  const page: Record<string, unknown>[] = [];
-  for (const key of keys) {
-    const e = index.entries.get(key);
-    if (e === undefined) continue;
-    if (a['kind'] !== undefined && e.kind !== a['kind']) continue;
-    if (a['id'] !== undefined && e.id !== a['id']) continue;
-    if (a['label'] !== undefined && !e.labels.includes(a['label'] as string)) continue;
-    if (a['address'] !== undefined && e.address !== a['address']) continue;
-    // Loadable: an address or a label (what a script may load by name).
-    if (a['loadable'] !== undefined && (e.address !== null || e.labels.length > 0) !== a['loadable']) continue;
-    if (total >= from && total < to) page.push({ kind: e.kind, id: e.id, path: e.path, name: e.name, labels: [...e.labels], ...(e.address !== null ? { address: e.address } : {}), refs: [...e.refs] });
-    total += 1;
-  }
-  return { ok: true, projectId, revision: state.revision, total, entries: page } as unknown as QueryResult;
 }
 
 /**

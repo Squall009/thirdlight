@@ -18,6 +18,7 @@ import type { FieldDescriptor, ObjectFieldDescriptor, UiAction, UiEngineAction, 
 import { ObjectFields, type FieldContext } from '../DescriptorFields';
 import { getAt, setAt, type FieldPath } from '../../session/descriptor-fields';
 import { setStyleValue, uniqueName } from '../../session/ui-edit';
+import { FONT_KINDS, RefPicker, TEXTURE_KINDS, useFirstEntry } from '../catalog/RefPicker';
 
 /** A text box that commits on Enter or blur. */
 export function CommitText(p: { value: string; aria: string; placeholder?: string; title?: string; wide?: boolean; onCommit: (v: string) => void }): JSX.Element {
@@ -47,14 +48,14 @@ export function BindingField(p: {
   f: FieldDescriptor;
   value: unknown;
   aria: string;
-  textures: readonly { assetId: string; displayName: string }[];
   entities: readonly { id: string; name: string }[];
   onChange: (v: unknown) => void;
 }): JSX.Element {
   const vt = p.f.type === 'json' ? p.f.valueType : undefined;
   const bound = isBinding(p.value) || vt === undefined;
   const required = p.f.required === true;
-  const plainDefault = (): unknown => (vt === 'number' ? 0 : vt === 'bool' ? true : vt === 'texture' ? (p.textures[0]?.assetId ?? '') : vt === 'entity' ? (p.entities[0]?.id ?? '') : '');
+  const firstTexture = useFirstEntry(TEXTURE_KINDS).first;
+  const plainDefault = (): unknown => (vt === 'number' ? 0 : vt === 'bool' ? true : vt === 'texture' ? (firstTexture ?? '') : vt === 'entity' ? (p.entities[0]?.id ?? '') : '');
   return (
     <div className="tl-desc__row tl-uidoc__bind" title={p.f.tooltip} data-field={p.f.key}>
       <span className="tl-field__label">{p.f.label}</span>
@@ -76,14 +77,7 @@ export function BindingField(p: {
             <option value="false">false</option>
           </select>
         ) : vt === 'texture' ? (
-          <select className="tl-input" aria-label={p.aria} value={typeof p.value === 'string' ? p.value : ''} onChange={(e) => p.onChange(e.target.value === '' ? undefined : e.target.value)}>
-            {!required && <option value="">none</option>}
-            {p.textures.map((t) => (
-              <option key={t.assetId} value={t.assetId}>
-                {t.displayName}
-              </option>
-            ))}
-          </select>
+          <RefPicker aria={p.aria} kinds={TEXTURE_KINDS} value={typeof p.value === 'string' ? p.value : ''} none={required ? null : 'none'} onPick={(id) => p.onChange(id === '' ? undefined : id)} />
         ) : vt === 'entity' ? (
           <select className="tl-input" aria-label={p.aria} value={typeof p.value === 'string' ? p.value : ''} onChange={(e) => p.onChange(e.target.value === '' ? undefined : e.target.value)}>
             <option value="">none</option>
@@ -179,24 +173,14 @@ export function PaddingField(p: { value: unknown; aria: string; onChange: (v: nu
 
 export const GENERIC_FONTS = ['sans', 'serif', 'mono', 'rounded'] as const;
 
-export function FontField(p: { value: unknown; aria: string; fonts: readonly { assetId: string; displayName: string }[]; onChange: (v: string | undefined) => void }): JSX.Element {
+const GENERIC_FONT_CHOICES = GENERIC_FONTS.map((f) => ({ value: f, label: f }));
+
+export function FontField(p: { value: unknown; aria: string; onChange: (v: string | undefined) => void }): JSX.Element {
   return (
     <div className="tl-desc__row" data-field="font" title="A project font asset, or a generic family">
       <span className="tl-field__label">Font</span>
       <div className="tl-desc__control">
-        <select className="tl-input" aria-label={`${p.aria} font`} value={typeof p.value === 'string' ? p.value : ''} onChange={(e) => p.onChange(e.target.value === '' ? undefined : e.target.value)}>
-          <option value="">— inherit —</option>
-          {GENERIC_FONTS.map((f) => (
-            <option key={f} value={f}>
-              {f}
-            </option>
-          ))}
-          {p.fonts.map((f) => (
-            <option key={f.assetId} value={f.assetId}>
-              {f.displayName}
-            </option>
-          ))}
-        </select>
+        <RefPicker aria={`${p.aria} font`} kinds={FONT_KINDS} value={typeof p.value === 'string' ? p.value : ''} none="— inherit —" extra={GENERIC_FONT_CHOICES} onPick={(v) => p.onChange(v === '' ? undefined : v)} />
       </div>
     </div>
   );
@@ -212,7 +196,6 @@ export function StyleEditor(p: {
   /** Accessible-name prefix ("theme label", "widget css"). */
   aria: string;
   ctx: FieldContext;
-  fonts: readonly { assetId: string; displayName: string }[];
   withStates: boolean;
   onChange: (next: UiStyle) => void;
   onFail: (msg: string) => void;
@@ -234,7 +217,7 @@ export function StyleEditor(p: {
           ))}
         </div>
       )}
-      <FontField value={values['font']} aria={aria} fonts={p.fonts} onChange={(v) => put('font', v)} />
+      <FontField value={values['font']} aria={aria} onChange={(v) => put('font', v)} />
       <PaddingField value={values['padding']} aria={aria} onChange={(v) => put('padding', v)} />
       <ObjectFields
         desc={fieldDesc}
@@ -260,7 +243,6 @@ export function StyleMapEditor(p: {
   styles: Readonly<Record<string, UiStyle>>;
   aria: string;
   ctx: FieldContext;
-  fonts: readonly { assetId: string; displayName: string }[];
   onChange: (next: Record<string, UiStyle>) => void;
   onFail: (msg: string) => void;
 }): JSX.Element {
@@ -317,7 +299,6 @@ export function StyleMapEditor(p: {
           style={p.styles[current]!}
           aria={`${p.aria} ${current}`}
           ctx={p.ctx}
-          fonts={p.fonts}
           withStates
           onChange={(next) => p.onChange({ ...p.styles, [current]: next })}
           onFail={p.onFail}

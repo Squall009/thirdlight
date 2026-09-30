@@ -139,6 +139,39 @@ export function idOrderedPage<T>(list: readonly T[], idOf: (r: T) => string, off
   return { total: list.length, records: got, found: true };
 }
 
+/** The records of `list` with these ids (in the order asked, each once) and the ids that name none. */
+export function recordsByIds<T>(list: readonly T[], idOf: (r: T) => string, ids: readonly string[]): { records: T[]; missing: string[] } {
+  let o = idOrders.get(list as unknown as readonly object[]);
+  if (o === undefined || o.length !== list.length) o = makeIdOrder(list, idOf);
+  const records: T[] = [];
+  const missing: string[] = [];
+  const seen = new Set<string>();
+  for (const id of ids) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    let k = o.rank.get(id);
+    let r = k === undefined ? undefined : list[o.order[k]!];
+    if (r !== undefined && idOf(r) !== id) {
+      o = makeIdOrder(list, idOf);
+      k = o.rank.get(id);
+      r = k === undefined ? undefined : list[o.order[k]!];
+    }
+    if (r === undefined) missing.push(id);
+    else records.push(r);
+  }
+  return { records, missing };
+}
+
+/** `args.ids`: absent, or 1 to a page of id strings (a caller fetching the records it needs by id). */
+function parseIdsArg(args: Record<string, unknown>): { ok: true; ids: readonly string[] | undefined } | { ok: false; error: CommandError } {
+  const v = args['ids'];
+  if (v === undefined) return { ok: true, ids: undefined };
+  if (!Array.isArray(v) || v.length < 1 || v.length > MAX_CONTENT_PAGE || !v.every((x) => typeof x === 'string')) {
+    return { ok: false, error: fieldValue('/args/ids', v, `1-${MAX_CONTENT_PAGE} id strings`, `ids lists 1 to ${MAX_CONTENT_PAGE} ids`) };
+  }
+  return { ok: true, ids: v as string[] };
+}
+
 function parsePageArgs(
   args: Record<string, unknown>,
   known: readonly string[],
@@ -195,8 +228,10 @@ export function queryAssets(
   const parsed = parseQueryRequest('queryAssets', request);
   if (!parsed.ok) return { ok: false, projectId: parsed.projectId, error: parsed.error };
   const { projectId, args } = parsed.base;
-  const page = parsePageArgs(args, ['limit', 'offset', 'includeVersions', 'assetId']);
+  const page = parsePageArgs(args, ['limit', 'offset', 'includeVersions', 'assetId', 'ids']);
   if (!page.ok) return { ok: false, op: 'queryAssets', projectId, error: page.error };
+  const idsArg = parseIdsArg(args);
+  if (!idsArg.ok) return { ok: false, op: 'queryAssets', projectId, error: idsArg.error };
   const inc = parseBooleanArg(args, 'includeVersions');
   if (!inc.ok) return { ok: false, op: 'queryAssets', projectId, error: inc.error };
   if (args['assetId'] !== undefined && typeof args['assetId'] !== 'string') {
@@ -204,7 +239,8 @@ export function queryAssets(
   }
   const content = contentOf(state.content);
   const wanted = typeof args['assetId'] === 'string' ? args['assetId'] : undefined;
-  const { total, records: pageRecords, found } = idOrderedPage(content.assets, (a) => a.assetId, page.offset, page.limit, wanted);
+  const byIds = idsArg.ids !== undefined ? recordsByIds(content.assets, (a) => a.assetId, idsArg.ids) : null;
+  const { total, records: pageRecords, found } = byIds !== null ? { total: byIds.records.length, records: byIds.records, found: true } : idOrderedPage(content.assets, (a) => a.assetId, page.offset, page.limit, wanted);
   if (!found) {
     return {
       ok: false,
@@ -271,6 +307,7 @@ export function queryAssets(
     offset: page.offset,
     limit: page.limit,
     assets,
+    ...(byIds !== null ? { missing: byIds.missing } : {}),
   };
 }
 
@@ -282,8 +319,10 @@ export function queryBehaviors(
   const parsed = parseQueryRequest('queryBehaviors', request);
   if (!parsed.ok) return { ok: false, projectId: parsed.projectId, error: parsed.error };
   const { projectId, args } = parsed.base;
-  const page = parsePageArgs(args, ['limit', 'offset', 'includeDeclaration', 'behaviorId']);
+  const page = parsePageArgs(args, ['limit', 'offset', 'includeDeclaration', 'behaviorId', 'ids']);
   if (!page.ok) return { ok: false, op: 'queryBehaviors', projectId, error: page.error };
+  const idsArg = parseIdsArg(args);
+  if (!idsArg.ok) return { ok: false, op: 'queryBehaviors', projectId, error: idsArg.error };
   const inc = parseBooleanArg(args, 'includeDeclaration');
   if (!inc.ok) return { ok: false, op: 'queryBehaviors', projectId, error: inc.error };
   if (args['behaviorId'] !== undefined && typeof args['behaviorId'] !== 'string') {
@@ -291,7 +330,8 @@ export function queryBehaviors(
   }
   const content = contentOf(state.content);
   const wanted = typeof args['behaviorId'] === 'string' ? args['behaviorId'] : undefined;
-  const { total, records: pageRecords, found } = idOrderedPage(content.behaviors, (b) => b.behaviorId, page.offset, page.limit, wanted);
+  const byIds = idsArg.ids !== undefined ? recordsByIds(content.behaviors, (b) => b.behaviorId, idsArg.ids) : null;
+  const { total, records: pageRecords, found } = byIds !== null ? { total: byIds.records.length, records: byIds.records, found: true } : idOrderedPage(content.behaviors, (b) => b.behaviorId, page.offset, page.limit, wanted);
   if (!found) {
     return {
       ok: false,
@@ -321,6 +361,7 @@ export function queryBehaviors(
     offset: page.offset,
     limit: page.limit,
     behaviors,
+    ...(byIds !== null ? { missing: byIds.missing } : {}),
   };
 }
 
@@ -332,8 +373,10 @@ export function queryPrefabs(
   const parsed = parseQueryRequest('queryPrefabs', request);
   if (!parsed.ok) return { ok: false, projectId: parsed.projectId, error: parsed.error };
   const { projectId, args } = parsed.base;
-  const page = parsePageArgs(args, ['limit', 'offset', 'includeEntities', 'prefabId']);
+  const page = parsePageArgs(args, ['limit', 'offset', 'includeEntities', 'prefabId', 'ids']);
   if (!page.ok) return { ok: false, op: 'queryPrefabs', projectId, error: page.error };
+  const idsArg = parseIdsArg(args);
+  if (!idsArg.ok) return { ok: false, op: 'queryPrefabs', projectId, error: idsArg.error };
   const inc = parseBooleanArg(args, 'includeEntities');
   if (!inc.ok) return { ok: false, op: 'queryPrefabs', projectId, error: inc.error };
   if (args['prefabId'] !== undefined && typeof args['prefabId'] !== 'string') {
@@ -346,7 +389,8 @@ export function queryPrefabs(
   }
   const content = contentOf(state.content);
   const wanted = typeof args['prefabId'] === 'string' ? args['prefabId'] : undefined;
-  const { total, records: pageRecords, found } = idOrderedPage(content.prefabs, (d) => d.prefabId, page.offset, page.limit, wanted);
+  const byIds = idsArg.ids !== undefined ? recordsByIds(content.prefabs, (d) => d.prefabId, idsArg.ids) : null;
+  const { total, records: pageRecords, found } = byIds !== null ? { total: byIds.records.length, records: byIds.records, found: true } : idOrderedPage(content.prefabs, (d) => d.prefabId, page.offset, page.limit, wanted);
   {
     if (!found) {
       return {
@@ -383,6 +427,7 @@ export function queryPrefabs(
     offset: page.offset,
     limit: page.limit,
     prefabs,
+    ...(byIds !== null ? { missing: byIds.missing } : {}),
   };
 }
 

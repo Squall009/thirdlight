@@ -9,10 +9,18 @@
  *
  * Browser-only (React).
  */
-import { Fragment, useRef, useState, type DragEvent, type JSX, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type DragEvent, type JSX, type ReactNode } from 'react';
+import { ASSET_KINDS } from '@thirdlight/project-model/limits';
 import type { AssetView } from '../session/content-projection';
+import type { IndexEntryView } from '../session/catalog';
 import { ASSET_DRAG_TYPE } from '../session/placement';
-import type { AssetImportState, AssetQueryState } from '../session/asset-browser';
+import type { AssetImportState } from '../session/asset-browser';
+import type { TileThumbnails } from '../viewport/thumbnails';
+import { useAssetSummaries, useCatalog } from './catalog/catalog-context';
+import { EntryName, TEXTURE_KINDS } from './catalog/RefPicker';
+import { useIndexList } from './catalog/useIndexList';
+import { VirtualList } from './catalog/VirtualList';
+import { TileImage } from './assets/TileImage';
 import type { AnimationRoleKey } from '../session/media';
 import { TexturePackForm, type PackRequest } from './TexturePackForm';
 import { AudioAssetOptions } from './AudioAssetOptions';
@@ -31,8 +39,6 @@ export interface AssetPreviewView {
 }
 
 interface Props {
-  assets: AssetView[];
-  query: AssetQueryState;
   importState: AssetImportState;
   selectedAssetId: string | null;
   placementAvailable: boolean;
@@ -63,10 +69,10 @@ interface Props {
   roleDraft: Record<AnimationRoleKey, string>;
   onRoleEntityChange: (id: string) => void;
   onRoleDraftChange: (roles: Record<AnimationRoleKey, string>) => void;
-  /** Rendered tile previews: key `${assetId}|${piece ?? ''}` → image URL. */
-  thumbnails: ReadonlyMap<string, string>;
-  /** The pieces of each loaded model file (a file with 2+ pieces expands into piece tiles). */
-  pieces: ReadonlyMap<string, readonly { name: string }[]>;
+  /** The tile pictures (from the import cache). */
+  thumbnails: TileThumbnails | null;
+  /** The pieces of the selected model file, read when it was selected (a file with 2+ pieces expands into piece tiles). */
+  pieces: { assetId: string; list: readonly { name: string }[] } | null;
   /** The asset inspector's option commands (vertex colours, audio load settings, texture streaming). */
   assetOptions: Pick<AssetOptionActions, 'setVertexColors' | 'setAudioLoadType' | 'setAudioPreload' | 'setTextureStreaming'>;
   /** An audio file's load type (null: the default for its length) and whether it is read with its scene. */
@@ -89,42 +95,138 @@ interface Props {
   loading?: LoadingNameActions;
 }
 
-/** The tile-preview key of an asset (or one of its pieces). */
-export function thumbnailKey(assetId: string, piece: string | null): string {
-  return `${assetId}|${piece ?? ''}`;
-}
+/** The asset kinds the list shows (the project's asset files; resources have their own panels). */
+const ASSET_LIST_KINDS: readonly string[] = ASSET_KINDS;
+/** A tile's width (the grid's narrowest column), its height plus the gap, the gap, the list's padding (px; editor.css). */
+const TILE_MIN_WIDTH = 112;
+const TILE_STRIDE = 120;
+const TILE_GAP = 8;
+const TILE_PADDING = 8;
 
 const BUSY = new Set(['staging', 'uploading', 'inspecting', 'publishing']);
+
+/** One asset tile (its summary read by id while it is on screen). */
+function AssetTile(p: {
+  e: IndexEntryView;
+  selected: boolean;
+  chosen: boolean;
+  pieces: readonly { name: string }[] | null;
+  open: boolean;
+  thumbnails: TileThumbnails | null;
+  onChoose: (ev: { ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }, assetId: string) => void;
+  onToggle: (assetId: string) => void;
+  onDragStart: (ev: DragEvent<HTMLLIElement>, assetId: string, kind: string, piece: string | null) => void;
+}): JSX.Element {
+  const [a] = useAssetSummaries([p.e.id]);
+  const kind = p.e.kind;
+  const multi = kind === 'model' && p.pieces !== null && p.pieces.length >= 2;
+  const draggable = kind === 'model' || kind === 'texture';
+  return (
+    <li
+      className={p.selected || p.chosen ? 'tl-tile is-selected' : 'tl-tile'}
+      aria-selected={p.chosen || p.selected}
+      onClick={(ev) => p.onChoose(ev, p.e.id)}
+      title={kind === 'model' ? `${p.e.name} — drag into the scene or hierarchy` : p.e.id}
+      data-asset-id={p.e.id}
+      draggable={draggable}
+      onDragStart={draggable ? (ev) => p.onDragStart(ev, p.e.id, kind, null) : undefined}
+    >
+      <span className={`tl-tile__icon tl-tile__icon--${kind}`} aria-hidden="true">
+        <TileImage summary={a} kind={kind} piece={null} thumbnails={p.thumbnails} />
+      </span>
+      <span className="tl-tile__name">{p.e.name}</span>
+      <span className="tl-tile__meta" title={a !== undefined ? `${a.versionCount} version(s)${a.sourcePath !== undefined ? ` · ${a.sourcePath}` : ''}` : (p.e.path ?? '')}>
+        {kind}
+        {a !== undefined ? ` · v${a.currentVersion}` : ''}
+        {multi && (
+          <button
+            className="tl-tile__pieces"
+            aria-expanded={p.open}
+            aria-label={`${p.open ? 'hide' : 'show'} the ${p.pieces!.length} pieces of ${p.e.name}`}
+            title={`${p.pieces!.length} pieces — each can be dragged on its own`}
+            onClick={(ev) => {
+              ev.stopPropagation();
+              p.onToggle(p.e.id);
+            }}
+          >
+            {p.open ? '▾' : '▸'} {p.pieces!.length}
+          </button>
+        )}
+      </span>
+    </li>
+  );
+}
+
+/** One piece tile of an expanded model file. */
+function PieceTile(p: { assetId: string; name: string; fileName: string; thumbnails: TileThumbnails | null; onSelect: (assetId: string) => void; onDragStart: (ev: DragEvent<HTMLLIElement>, assetId: string, kind: string, piece: string | null) => void }): JSX.Element {
+  const [a] = useAssetSummaries([p.assetId]);
+  return (
+    <li
+      className="tl-tile tl-tile--piece"
+      title={`${p.name} (piece of ${p.fileName}) — drag into the scene or hierarchy`}
+      data-asset-id={p.assetId}
+      data-piece={p.name}
+      draggable
+      onClick={() => p.onSelect(p.assetId)}
+      onDragStart={(ev) => p.onDragStart(ev, p.assetId, 'model', p.name)}
+    >
+      <span className="tl-tile__icon tl-tile__icon--model" aria-hidden="true">
+        <TileImage summary={a} kind="model" piece={p.name} thumbnails={p.thumbnails} />
+      </span>
+      <span className="tl-tile__name">{p.name}</span>
+      <span className="tl-tile__meta">piece</span>
+    </li>
+  );
+}
 
 export function AssetBrowser(p: Props): JSX.Element {
   const importInput = useRef<HTMLInputElement | null>(null);
   const reimportInput = useRef<HTMLInputElement | null>(null);
-  const selected = p.assets.find((a) => a.assetId === p.selectedAssetId) ?? null;
-  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+  const catalog = useCatalog();
+  // The catalog in pages from the index: only the tiles in view are drawn and read.
+  const list = useIndexList({ kinds: ASSET_LIST_KINDS });
+  const [selected] = useAssetSummaries(p.selectedAssetId !== null ? [p.selectedAssetId] : []);
+  const [expanded, setExpanded] = useState<string | null>(null);
   const [packing, setPacking] = useState(false);
   // The multi-selection (Ctrl/Cmd-click adds or removes one, Shift-click a range): labels go to all of it at once.
   const [chosen, setChosen] = useState<ReadonlySet<string>>(new Set());
-  const [anchor, setAnchor] = useState<string | null>(null);
-  const choose = (ev: { ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }, assetId: string): void => {
+  const [anchor, setAnchor] = useState<number | null>(null);
+  // The selected model's pieces show as tiles after it (while it is expanded).
+  const pieces = p.pieces;
+  const openPieces = pieces !== null && expanded === pieces.assetId && pieces.list.length >= 2 ? pieces : null;
+  const [openAt, setOpenAt] = useState<number | null>(null);
+  const insert = openPieces !== null && openAt !== null ? { at: openAt, count: openPieces.list.length } : null;
+  const total = (list.total ?? 0) + (insert?.count ?? 0);
+  /** The list position of a drawn slot: an index entry, or a piece of the expanded file. */
+  const slot = (i: number): { entry: number } | { piece: number } => {
+    if (insert === null || i <= insert.at) return { entry: i };
+    if (i <= insert.at + insert.count) return { piece: i - insert.at - 1 };
+    return { entry: i - insert.count };
+  };
+  const choose = (ev: { ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }, assetId: string, index: number): void => {
     if (ev.shiftKey && anchor !== null) {
-      const ids = p.assets.map((a) => a.assetId);
-      const [i, j] = [ids.indexOf(anchor), ids.indexOf(assetId)].sort((x, y) => x - y);
-      if (i! >= 0) setChosen(new Set([...chosen, ...ids.slice(i, j! + 1)]));
+      const [i, j] = [anchor, index].sort((x, y) => x - y) as [number, number];
+      const ids: string[] = [];
+      for (let k = i; k <= j; k++) {
+        const e = list.entry(k);
+        if (e !== undefined) ids.push(e.id);
+      }
+      setChosen(new Set([...chosen, ...ids]));
     } else if (ev.ctrlKey || ev.metaKey) {
       const next = new Set(chosen);
       if (next.has(assetId)) next.delete(assetId);
       else next.add(assetId);
       setChosen(next);
-      setAnchor(assetId);
+      setAnchor(index);
     } else {
       setChosen(new Set([assetId]));
-      setAnchor(assetId);
+      setAnchor(index);
     }
     p.onSelect(assetId);
   };
-  const chosenItems = p.assets.filter((a) => chosen.has(a.assetId)).map((a) => ({ kind: 'asset', id: a.assetId }));
-  const dragStart = (ev: DragEvent<HTMLLIElement>, assetId: string, piece: string | null): void => {
-    ev.dataTransfer.setData(ASSET_DRAG_TYPE, JSON.stringify(piece === null ? { assetId } : { assetId, piece }));
+  const chosenItems = [...chosen].map((id) => ({ kind: 'asset', id }));
+  const dragStart = (ev: DragEvent<HTMLLIElement>, assetId: string, kind: string, piece: string | null): void => {
+    ev.dataTransfer.setData(ASSET_DRAG_TYPE, JSON.stringify(piece === null ? { assetId, kind } : { assetId, kind, piece }));
     ev.dataTransfer.effectAllowed = 'copy';
   };
   // The publish is disabled until the role mapping is
@@ -140,7 +242,7 @@ export function AssetBrowser(p: Props): JSX.Element {
     <div className="tl-panel tl-assets">
       <div className="tl-panel__title">
         Assets
-        <button className="tl-btn tl-btn--small" onClick={p.onRefresh} title="Re-run the bounded queryAssets page">
+        <button className="tl-btn tl-btn--small" onClick={p.onRefresh} title="Read the project index again">
           refresh
         </button>
       </div>
@@ -148,80 +250,47 @@ export function AssetBrowser(p: Props): JSX.Element {
       <div className="tl-assets__body">
       <div className="tl-assets__main">
       {p.loading !== undefined && chosenItems.length > 1 && <LabelsBar items={chosenItems} actions={p.loading} onClear={() => setChosen(new Set())} />}
-      <ul className="tl-assets__list tl-tiles">
-        {p.assets.map((a) => {
-          const pieces = p.pieces.get(a.assetId) ?? [];
-          const multi = a.kind === 'model' && pieces.length >= 2;
-          const open = multi && expanded.has(a.assetId);
-          const thumb = p.thumbnails.get(thumbnailKey(a.assetId, null));
+      <VirtualList
+        className="tl-assets__list tl-tiles tl-tiles--virtual"
+        count={total}
+        stride={TILE_STRIDE}
+        gap={TILE_GAP}
+        padding={TILE_PADDING}
+        minItemWidth={TILE_MIN_WIDTH}
+        overscan={3}
+        onRange={(from, to) => list.need(Math.max(0, from - (insert?.count ?? 0)), to)}
+        empty={<li className="tl-row tl-row--empty">{list.total === null ? 'loading…' : 'no assets'}</li>}
+        renderItem={(i) => {
+          const at = slot(i);
+          if ('piece' in at) {
+            const pc = openPieces!.list[at.piece]!;
+            return <PieceTile key={`${openPieces!.assetId}|${pc.name}`} assetId={openPieces!.assetId} name={pc.name} fileName={catalog.asset(openPieces!.assetId)?.displayName ?? openPieces!.assetId} thumbnails={p.thumbnails} onSelect={p.onSelect} onDragStart={dragStart} />;
+          }
+          const e = list.entry(at.entry);
+          if (e === undefined) return <li key={`slot:${i}`} className="tl-tile tl-tile--loading" aria-hidden="true" />;
+          const index = at.entry;
           return (
-            <Fragment key={a.assetId}>
-              <li
-                className={a.assetId === p.selectedAssetId || (chosen.size > 1 && chosen.has(a.assetId)) ? 'tl-tile is-selected' : 'tl-tile'}
-                aria-selected={chosen.has(a.assetId) || a.assetId === p.selectedAssetId}
-                onClick={(ev) => choose(ev, a.assetId)}
-                title={a.kind === 'model' ? `${a.displayName} — drag into the scene or hierarchy` : a.assetId}
-                data-asset-id={a.assetId}
-                draggable={a.kind === 'model' || a.kind === 'texture'}
-                onDragStart={a.kind === 'model' || a.kind === 'texture' ? (ev) => dragStart(ev, a.assetId, null) : undefined}
-              >
-                <span className={`tl-tile__icon tl-tile__icon--${a.kind}`} aria-hidden="true">
-                  <img className={thumb !== undefined ? 'tl-tile__img tl-tile__img--thumb' : 'tl-tile__img'} src={thumb ?? `./icons/${a.kind === 'audio' ? 'audio' : a.kind === 'texture' || a.kind === 'font' ? 'empty' : 'model'}.png`} alt="" draggable={false} />
-                </span>
-                <span className="tl-tile__name">{a.displayName}</span>
-                <span className="tl-tile__meta" title={`${a.versionCount} version(s)${a.sourcePath !== undefined ? ` · ${a.sourcePath}` : ''}`}>
-                  {a.kind} · v{a.currentVersion}
-                  {multi && (
-                    <button
-                      className="tl-tile__pieces"
-                      aria-expanded={open}
-                      aria-label={`${open ? 'hide' : 'show'} the ${pieces.length} pieces of ${a.displayName}`}
-                      title={`${pieces.length} pieces — each can be dragged on its own`}
-                      onClick={(ev) => {
-                        ev.stopPropagation();
-                        setExpanded((prev) => {
-                          const next = new Set(prev);
-                          if (next.has(a.assetId)) next.delete(a.assetId);
-                          else next.add(a.assetId);
-                          return next;
-                        });
-                      }}
-                    >
-                      {open ? '▾' : '▸'} {pieces.length}
-                    </button>
-                  )}
-                </span>
-              </li>
-              {open &&
-                pieces.map((pc) => {
-                  const pt = p.thumbnails.get(thumbnailKey(a.assetId, pc.name));
-                  return (
-                    <li
-                      key={`${a.assetId}|${pc.name}`}
-                      className="tl-tile tl-tile--piece"
-                      title={`${pc.name} (piece of ${a.displayName}) — drag into the scene or hierarchy`}
-                      data-asset-id={a.assetId}
-                      data-piece={pc.name}
-                      draggable
-                      onClick={() => p.onSelect(a.assetId)}
-                      onDragStart={(ev) => dragStart(ev, a.assetId, pc.name)}
-                    >
-                      <span className="tl-tile__icon tl-tile__icon--model" aria-hidden="true">
-                        <img className={pt !== undefined ? 'tl-tile__img tl-tile__img--thumb' : 'tl-tile__img'} src={pt ?? './icons/model.png'} alt="" draggable={false} />
-                      </span>
-                      <span className="tl-tile__name">{pc.name}</span>
-                      <span className="tl-tile__meta">piece</span>
-                    </li>
-                  );
-                })}
-            </Fragment>
+            <AssetTile
+              key={e.id}
+              e={e}
+              selected={e.id === p.selectedAssetId}
+              chosen={chosen.size > 1 && chosen.has(e.id)}
+              pieces={pieces !== null && pieces.assetId === e.id ? pieces.list : null}
+              open={openPieces !== null && openPieces.assetId === e.id}
+              thumbnails={p.thumbnails}
+              onChoose={(ev, id) => choose(ev, id, index)}
+              onToggle={(id) => {
+                setExpanded((x) => (x === id ? null : id));
+                setOpenAt(index);
+              }}
+              onDragStart={dragStart}
+            />
           );
-        })}
-        {p.assets.length === 0 && <li className="tl-row tl-row--empty">no assets</li>}
-      </ul>
-      <div className="tl-assets__paging">
-        {p.query.total} asset(s) · offset {p.query.offset}
-        {p.query.hasMore ? ' · more' : ''}
+        }}
+      />
+      <div className="tl-assets__paging" data-total={list.total ?? ''}>
+        {list.total ?? '…'} asset(s)
+        {list.error !== null ? ` · ${list.error}` : ''}
       </div>
 
       <div className="tl-assets__actions">
@@ -298,7 +367,7 @@ export function AssetBrowser(p: Props): JSX.Element {
 
       {p.importExtra}
 
-      {packing && p.onPackTexture !== undefined && <TexturePackForm textures={p.assets} onPack={p.onPackTexture} onClose={() => setPacking(false)} />}
+      {packing && p.onPackTexture !== undefined && <TexturePackForm onPack={p.onPackTexture} onClose={() => setPacking(false)} />}
 
       <div className={`tl-assets__status tl-assets__status--${p.importState.phase}`}>
         <span>import: {p.importState.phase}</span>
@@ -389,7 +458,13 @@ export function AssetBrowser(p: Props): JSX.Element {
           {p.loading !== undefined && <LoadableFields item={{ kind: 'asset', id: selected.assetId }} address={selected.address ?? null} labels={selected.labels ?? []} actions={p.loading} />}
           {selected.packedFrom !== undefined && (
             <div className="tl-assets__source" title="Packed at import from these texture assets' channels; the game loads the KTX2">
-              packed from {selected.packedFrom.sources.map((id) => p.assets.find((a) => a.assetId === id)?.displayName ?? id).join(', ')} ({selected.packedFrom.encoding === 'normal' ? 'normal map' : selected.packedFrom.encoding === 'data' ? 'data' : 'colour'})
+              packed from{' '}
+              {selected.packedFrom.sources.map((id, i) => (
+                <span key={id}>
+                  {i > 0 ? ', ' : ''}
+                  <EntryName id={id} kinds={TEXTURE_KINDS} />
+                </span>
+              ))} ({selected.packedFrom.encoding === 'normal' ? 'normal map' : selected.packedFrom.encoding === 'data' ? 'data' : 'colour'})
             </div>
           )}
           {selected.image !== undefined && (

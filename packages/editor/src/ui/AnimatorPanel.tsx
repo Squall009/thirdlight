@@ -12,7 +12,8 @@
 import { useEffect, useState, type JSX } from 'react';
 import type { AnimatorController } from '@thirdlight/project-model';
 
-import { newId, locomotionController, type AnimatorModels, type BoneInfo, type ClipInfo, type StartPreview } from './animator/parts';
+import { newId, locomotionController, type BoneInfo, type ClipInfo, type StartPreview } from './animator/parts';
+import { MODEL_KINDS, RefPicker, useFirstEntry } from './catalog/RefPicker';
 
 export type { AnimatorPreview, BoneInfo, ClipInfo } from './animator/parts';
 export { locomotionController } from './animator/parts';
@@ -23,8 +24,6 @@ export interface AnimatorPanelProps {
   onOpen: (controllerId: string) => void;
   /** Start a live preview of `controller` in `canvas`, or say why not. */
   preview?: StartPreview;
-  /** Model assets; `clipsFor` marks an animation-only file whose clips play on that model. */
-  models: AnimatorModels;
   clipsOf: (assetId: string) => Promise<ClipInfo[]>;
   /** The model's skeleton (its bones, or its nodes when it has none). */
   skeletonOf?: (assetId: string) => Promise<BoneInfo[]>;
@@ -34,13 +33,12 @@ export interface AnimatorPanelProps {
 }
 
 export function AnimatorPanel(p: AnimatorPanelProps): JSX.Element {
-  const rigs = p.models.filter((m) => m.clipsFor === undefined);
-  const [model, setModel] = useState<string>(rigs[0]?.assetId ?? '');
+  const firstModel = useFirstEntry(MODEL_KINDS).first;
+  const [picked, setModel] = useState<string>('');
+  // The first model of the project until one is picked.
+  const model = picked !== '' ? picked : (firstModel ?? '');
   const [selectedId, setSelectedId] = useState<string | null>(p.controllers[0]?.controllerId ?? null);
   const [message, setMessage] = useState<string | null>(null);
-  useEffect(() => {
-    if (model === '' && rigs[0] !== undefined) setModel(rigs[0].assetId);
-  }, [rigs.length]); // eslint-disable-line react-hooks/exhaustive-deps -- picks the first rig when rigs appear; the models list is a new array each render
   useEffect(() => {
     if (selectedId === null || !p.controllers.some((c) => c.controllerId === selectedId)) setSelectedId(p.controllers[0]?.controllerId ?? null);
   }, [p.controllers.map((c) => c.controllerId).join(',')]); // eslint-disable-line react-hooks/exhaustive-deps -- keyed by the controller ids; the controllers array is new each render
@@ -74,14 +72,7 @@ export function AnimatorPanel(p: AnimatorPanelProps): JSX.Element {
   return (
     <div className="tl-panel tl-animator" aria-label="animator">
       <div className="tl-animator__bar">
-        <select className="tl-input" aria-label="animator model" value={model} onChange={(e) => setModel(e.target.value)} title="The model whose clips a new controller uses">
-          {rigs.length === 0 && <option value="">— no model —</option>}
-          {rigs.map((m) => (
-            <option key={m.assetId} value={m.assetId}>
-              {m.displayName}
-            </option>
-          ))}
-        </select>
+        <RefPicker aria="animator model" kinds={MODEL_KINDS} value={model} none={firstModel === null ? '— no model —' : null} title="The model whose clips a new controller uses" onPick={setModel} />
         <button type="button" className="tl-button" onClick={() => void create('empty')}>
           New controller
         </button>

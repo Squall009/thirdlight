@@ -9,11 +9,11 @@
  */
 import { useEffect, useState, type JSX } from 'react';
 
+import { MODEL_KINDS, RefPicker } from './catalog/RefPicker';
+
 interface Props {
   assetId: string;
   clipsFor: string | null;
-  /** Models that can be rigs (not this one, not clips-only themselves). */
-  rigs: { assetId: string; displayName: string }[];
   onChange: (rig: string | null) => void;
   /** The animated bones the rig lacks (null = the files are not loaded). */
   missingBones: (clipAssetId: string, rigAssetId: string) => Promise<string[] | null>;
@@ -36,15 +36,7 @@ export function ClipsForField(p: Props): JSX.Element {
   return (
     <div className="tl-field" title="An animation-only file: its clips play on another model with the same bone names">
       <span className="tl-field__label">clips for rig of</span>
-      <select className="tl-input" aria-label="clips for rig of" value={p.clipsFor ?? ''} onChange={(e) => p.onChange(e.target.value === '' ? null : e.target.value)}>
-        <option value="">— its own nodes —</option>
-        {p.clipsFor !== null && !p.rigs.some((r) => r.assetId === p.clipsFor) && <option value={p.clipsFor}>{p.clipsFor}</option>}
-        {p.rigs.map((r) => (
-          <option key={r.assetId} value={r.assetId}>
-            {r.displayName}
-          </option>
-        ))}
-      </select>
+      <RefPicker aria="clips for rig of" kinds={MODEL_KINDS} value={p.clipsFor ?? ''} none="— its own nodes —" onPick={(id) => id !== p.assetId && p.onChange(id === '' ? null : id)} />
       {note !== null && (
         <small className="tl-hint" aria-label="clips for rig check">
           {note}

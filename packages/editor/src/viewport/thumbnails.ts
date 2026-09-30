@@ -1,107 +1,153 @@
 /**
- * Asset tile thumbnails: one small offscreen renderer draws a model (or one
- * piece of it) from a three-quarter front view on a transparent background.
- * The PNG goes to the backend's thumbnail cache, so the next editor just
- * downloads it. Renders run one at a time.
+ * Asset tile thumbnails, from the import cache (`cache/imported/<digest>/
+ * thumbnails/`): drawing a tile reads its small PNG and nothing else — never
+ * a texture's own bytes, never a model file. Where the cache has none:
  *
- * The renderer comes from the three-adapter factory with the
- * editor's backend choice (a thumbnail waits until WebGPURenderer is ready).
+ * - a texture's is made by the backend from its image (the PNG/JPEG, or the
+ *   image a KTX2 was encoded from) when the tile asks for it;
+ * - a model's is drawn in the editor worker (model-thumbnail.ts: the file is
+ *   parsed and drawn off the page) and stored in the cache, with one per
+ *   piece for a file of several; files wait in a queue, the newest tile
+ *   first, and a tile that scrolled away is dropped from it.
  *
- * The render stays on the page (the loaded models live with the
- * editor's asset loader; a worker would need a second loader and a second
- * copy of every model), but the PNG is not read with `toDataURL` —
- * a synchronous read-back of the WebGL/WebGPU canvas plus the encoding,
- * 0.6 s of main thread per thumbnail on the CPU renderer. A bitmap snapshot
- * of the canvas (taken in the render's task, no CPU read) goes to the
- * editor worker, which encodes it (inline without a worker: the same
- * encoder on the page).
+ * Object URLs are kept for the tiles on screen and a few hundred more; the
+ * rest are revoked, so scrolling a large catalog does not keep every picture.
  *
- * Browser-only (three.js + WebGL/WebGPU).
+ * Browser-only.
  */
-import * as THREE from 'three';
-import { createRenderer, type PreparedVisualResource, type RendererHandle, type VertexColorMode } from '@thirdlight/three-adapter';
+import { ASSET_THUMBNAIL_EDGE } from '@thirdlight/project-model/limits';
+import type { RendererPreference, RendererPreferenceSource, VertexColorMode } from '@thirdlight/three-adapter';
 
-import { editorRendererChoice } from './renderer-choice';
 import { editorWorkers } from '../workers/editor-workers';
-import { encodePngOnPage } from '../workers/page-png';
+import { renderModelThumbnails } from '../workers/model-thumbnail';
 
 /** Thumbnail edge in pixels (tiles show it at half size on HiDPI screens). */
-export const THUMBNAIL_SIZE = 128;
+export const THUMBNAIL_SIZE = ASSET_THUMBNAIL_EDGE;
+
+/** Object URLs kept for tiles that are not on screen (the ones on screen are always kept). */
+const KEPT_URLS = 512;
 
 export interface ThumbnailSource {
-  /** The cached PNG, or null when none is cached. */
-  read(digest: string, piece: string | null): Promise<Blob | null>;
-  store(digest: string, piece: string | null, png: Blob): Promise<void>;
-  /** The loaded asset (null when it cannot be loaded). */
-  prepared(assetId: string): Promise<PreparedVisualResource | null>;
+  /** The cached PNG (null: none); with `make`, the backend makes a texture's from its image first. */
+  read(digest: string, piece: string | null, make?: { asset: string }): Promise<Blob | null>;
+  store(digest: string, piece: string | null, png: Uint8Array): Promise<void>;
+  /** A model file's bytes (to draw its thumbnails off the page). */
+  modelBytes(assetId: string, version: number): Promise<Uint8Array>;
   vertexColorsFor(assetId: string): VertexColorMode;
+  renderer(): { preference: RendererPreference; source: RendererPreferenceSource };
 }
 
-interface Job {
-  assetId: string;
-  digest: string;
-  piece: string | null;
-  resolve: (url: string | null) => void;
+/** What a tile shows: an asset version (and one of its pieces). */
+export interface TileRef {
+  readonly assetId: string;
+  readonly kind: string;
+  readonly version: number;
+  readonly digest: string;
+  readonly piece: string | null;
 }
 
-/** Resolve when the browser is idle (or after a short pause where idle callbacks are missing). */
-function idle(): Promise<void> {
-  return new Promise((resolve) => {
-    const w = globalThis as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number };
-    if (typeof w.requestIdleCallback === 'function') w.requestIdleCallback(() => resolve(), { timeout: 500 });
-    else setTimeout(resolve, 30);
-  });
+interface Entry {
+  url: Promise<string | null>;
+  resolved: string | null;
+  /** Tiles showing it now. */
+  users: number;
+  lastUsed: number;
 }
 
-export class ThumbnailRenderer {
-  private renderer: RendererHandle | null = null;
-  private readonly scene = new THREE.Scene();
-  private readonly camera = new THREE.PerspectiveCamera(30, 1, 0.01, 1000);
-  private readonly queue: Job[] = [];
+interface ModelJob {
+  ref: TileRef;
+  resolve: (ok: boolean) => void;
+}
+
+export class TileThumbnails {
+  private readonly entries = new Map<string, Entry>();
+  private readonly modelJobs = new Map<string, ModelJob>();
+  /** Tiles on screen per asset version (0: none; a model job for it is dropped). */
+  private readonly onScreen = new Map<string, number>();
+  private queue: string[] = [];
   private running = false;
-  private readonly urls = new Map<string, Promise<string | null>>();
-  /** The newest `digest|piece` key per `asset|piece`. */
-  private readonly latest = new Map<string, string>();
   private disposed = false;
+  private clock = 0;
+  /** Model files drawn and PNGs made by the backend (tests and the bench read them). */
+  readonly stats = { modelsDrawn: 0, cacheReads: 0 };
 
-  constructor(private readonly source: ThumbnailSource) {
-    this.scene.add(new THREE.HemisphereLight(0xf2f5ff, 0x40362c, 1.6));
-    const key = new THREE.DirectionalLight(0xffffff, 2.2);
-    key.position.set(3, 5, 4);
-    this.scene.add(key);
-  }
+  constructor(private readonly source: ThumbnailSource) {}
 
-  /** An object URL for the thumbnail of one asset version (and piece): cached, else rendered and stored. */
-  url(assetId: string, digest: string, piece: string | null): Promise<string | null> {
-    const k = `${digest}|${piece ?? ''}`;
-    let p = this.urls.get(k);
-    if (p === undefined) {
-      p = this.load(assetId, digest, piece);
-      this.urls.set(k, p);
-      // A new version of the same asset (and piece) replaces the old one's URL, which is revoked.
-      const slot = `${assetId}|${piece ?? ''}`;
-      const previous = this.latest.get(slot);
-      this.latest.set(slot, k);
-      if (previous !== undefined && previous !== k) {
-        const old = this.urls.get(previous);
-        this.urls.delete(previous);
-        void old?.then((u) => {
-          if (u !== null) URL.revokeObjectURL(u);
-        });
-      }
+  /** The tile's picture URL (null: none, the tile keeps its icon); `hold` it while the tile is on screen. */
+  url(ref: TileRef): Promise<string | null> {
+    const key = `${ref.digest}|${ref.piece ?? ''}`;
+    let e = this.entries.get(key);
+    if (e === undefined) {
+      const entry: Entry = { url: Promise.resolve(null), resolved: null, users: 0, lastUsed: ++this.clock };
+      entry.url = this.load(ref).then((u) => {
+        entry.resolved = u;
+        return u;
+      });
+      this.entries.set(key, entry);
+      e = entry;
     }
-    return p;
+    e.lastUsed = ++this.clock;
+    return e.url;
   }
 
-  private async load(assetId: string, digest: string, piece: string | null): Promise<string | null> {
+  /** A tile shows this picture (its URL is kept while held). */
+  hold(ref: TileRef): () => void {
+    const key = `${ref.digest}|${ref.piece ?? ''}`;
+    const e = this.entries.get(key);
+    if (e !== undefined) e.users += 1;
+    this.onScreen.set(ref.digest, (this.onScreen.get(ref.digest) ?? 0) + 1);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      const now = this.entries.get(key);
+      if (now !== undefined) {
+        now.users = Math.max(0, now.users - 1);
+        now.lastUsed = ++this.clock;
+      }
+      const n = (this.onScreen.get(ref.digest) ?? 1) - 1;
+      if (n <= 0) this.onScreen.delete(ref.digest);
+      else this.onScreen.set(ref.digest, n);
+      this.trim();
+    };
+  }
+
+  private async load(ref: TileRef): Promise<string | null> {
+    if (!/^[0-9a-f]{64}$/.test(ref.digest) || (ref.kind !== 'model' && ref.kind !== 'texture')) return null;
     try {
-      const cached = await this.source.read(digest, piece);
-      if (cached !== null) return URL.createObjectURL(cached);
+      this.stats.cacheReads += 1;
+      const cached = await this.source.read(ref.digest, ref.piece, ref.kind === 'texture' && ref.piece === null ? { asset: ref.assetId } : undefined);
+      if (cached !== null) return this.disposed ? null : URL.createObjectURL(cached);
     } catch {
-      /* render instead */
+      return null;
+    }
+    if (ref.kind !== 'model') return null;
+    // Not cached: draw the file (and its pieces) off the page, then read what was stored.
+    if (!(await this.drawModel(ref))) return null;
+    try {
+      const made = await this.source.read(ref.digest, ref.piece);
+      return made === null || this.disposed ? null : URL.createObjectURL(made);
+    } catch {
+      return null;
+    }
+  }
+
+  private drawModel(ref: TileRef): Promise<boolean> {
+    const running = this.modelJobs.get(ref.digest);
+    if (running !== undefined) {
+      // A newer ask goes first.
+      this.queue = [ref.digest, ...this.queue.filter((d) => d !== ref.digest)];
+      return new Promise((resolve) => {
+        const prev = running.resolve;
+        running.resolve = (ok) => {
+          prev(ok);
+          resolve(ok);
+        };
+      });
     }
     return new Promise((resolve) => {
-      this.queue.push({ assetId, digest, piece, resolve });
+      this.modelJobs.set(ref.digest, { ref: { ...ref, piece: null }, resolve });
+      this.queue.unshift(ref.digest);
       void this.pump();
     });
   }
@@ -110,79 +156,76 @@ export class ThumbnailRenderer {
     if (this.running) return;
     this.running = true;
     try {
-      for (let job = this.queue.shift(); job !== undefined; job = this.queue.shift()) {
-        // Previews are background work: let input and the editor's own frames run first.
-        await idle();
-        if (this.disposed) {
-          job.resolve(null);
+      for (let digest = this.queue.shift(); digest !== undefined; digest = this.queue.shift()) {
+        const job = this.modelJobs.get(digest);
+        if (job === undefined) continue;
+        // A tile that scrolled away before its turn is not drawn (it asks again when it is back).
+        if ((this.onScreen.get(digest) ?? 0) <= 0 || this.disposed) {
+          this.modelJobs.delete(digest);
+          this.forget(digest);
+          job.resolve(false);
           continue;
         }
-        let blob: Blob | null = null;
+        let ok = false;
         try {
-          blob = await this.render(job.assetId, job.piece);
-          if (blob !== null) await this.source.store(job.digest, job.piece, blob).catch(() => undefined);
+          ok = await this.drawAndStore(job.ref);
         } catch {
-          blob = null;
+          ok = false;
         }
-        job.resolve(blob === null ? null : URL.createObjectURL(blob));
+        this.modelJobs.delete(digest);
+        job.resolve(ok);
       }
     } finally {
       this.running = false;
     }
   }
 
-  /** Render one model (or piece) to a PNG. */
-  async render(assetId: string, piece: string | null): Promise<Blob | null> {
-    const resource = await this.source.prepared(assetId);
-    if (resource === null || this.disposed) return null;
-    const created = resource.createInstance({ ...(piece !== null ? { piece } : {}), vertexColors: this.source.vertexColorsFor(assetId) });
-    if (!created.ok) return null;
-    const instance = created.instance;
-    let snapshot: Promise<ImageBitmap>;
-    try {
-      if (this.renderer === null) {
-        const canvas = document.createElement('canvas');
-        canvas.width = THUMBNAIL_SIZE;
-        canvas.height = THUMBNAIL_SIZE;
-        const choice = editorRendererChoice();
-        // A transparent background: the tile's own colour shows around the model.
-        this.renderer = createRenderer({ canvas, preference: choice.preference, source: choice.source, alpha: true, antialias: true, clearColor: 0x000000, clearAlpha: 0, loseContextOnDispose: true });
-      }
-      if (!(await this.renderer.whenReady()) || this.disposed) return null;
-      const renderer = this.renderer.current();
-      if (renderer === null) return null;
-      renderer.setPixelRatio(1);
-      renderer.setSize(THUMBNAIL_SIZE, THUMBNAIL_SIZE, false);
-      this.scene.add(instance.root);
-      instance.root.updateMatrixWorld(true);
-      const box = resource.bounds(piece);
-      if (box.isEmpty()) box.setFromObject(instance.root);
-      if (box.isEmpty()) return null;
-      const sphere = box.getBoundingSphere(new THREE.Sphere());
-      const dir = new THREE.Vector3(0.55, 0.45, 1).normalize();
-      const distance = sphere.radius / Math.sin(THREE.MathUtils.degToRad(this.camera.fov / 2)) * 1.05;
-      this.camera.position.copy(sphere.center).addScaledVector(dir, distance);
-      this.camera.near = Math.max(0.001, distance - sphere.radius * 2);
-      this.camera.far = distance + sphere.radius * 2;
-      this.camera.lookAt(sphere.center);
-      this.camera.updateProjectionMatrix();
-      renderer.render(this.scene, this.camera);
-      // WebGPURenderer keeps no drawing buffer (WebGPU and WebGL 2): the snapshot is taken in the same task as the render.
-      snapshot = createImageBitmap(renderer.domElement as HTMLCanvasElement);
-    } finally {
-      this.scene.remove(instance.root);
-      instance.dispose();
+  private async drawAndStore(ref: TileRef): Promise<boolean> {
+    const bytes = await this.source.modelBytes(ref.assetId, ref.version);
+    const input = { bytes, assetId: ref.assetId, version: ref.version, digest: ref.digest, vertexColors: this.source.vertexColorsFor(ref.assetId), renderer: this.source.renderer() };
+    const out = await editorWorkers().run(
+      'modelThumbnail',
+      () => {
+        const copy = bytes.slice();
+        return { input: { ...input, bytes: copy }, transfer: [copy.buffer] };
+      },
+      { lane: 'thumbnails', inline: () => renderModelThumbnails(input) },
+    );
+    if (out.file === null) return false;
+    this.stats.modelsDrawn += 1;
+    await this.source.store(ref.digest, null, out.file);
+    for (const p of out.pieces) await this.source.store(ref.digest, p.name, p.png);
+    return true;
+  }
+
+  /** Forget the entries of a digest that were never made (asked again later, they load again). */
+  private forget(digest: string): void {
+    for (const [key, e] of this.entries) if (key.startsWith(`${digest}|`) && e.resolved === null && e.users === 0) this.entries.delete(key);
+  }
+
+  /** Revoke the least recently shown URLs beyond `KEPT_URLS` that no tile shows. */
+  private trim(): void {
+    if (this.entries.size <= KEPT_URLS) return;
+    const idle = [...this.entries].filter(([, e]) => e.users === 0).sort((a, b) => a[1].lastUsed - b[1].lastUsed);
+    for (const [key, e] of idle.slice(0, this.entries.size - KEPT_URLS)) {
+      this.entries.delete(key);
+      void e.url.then((u) => {
+        if (u !== null) URL.revokeObjectURL(u);
+      });
     }
-    const bitmap = await snapshot;
-    const png = await editorWorkers().run('encodePng', () => ({ input: { bitmap }, transfer: [bitmap] }), { inline: () => encodePngOnPage({ bitmap }) });
-    return new Blob([png as BlobPart], { type: 'image/png' });
+  }
+
+  /** How many picture URLs are kept (the bench reads it). */
+  get kept(): number {
+    return this.entries.size;
   }
 
   dispose(): void {
     this.disposed = true;
-    for (const p of this.urls.values()) void p.then((u) => u !== null && URL.revokeObjectURL(u));
-    this.urls.clear();
-    this.renderer?.dispose();
-    this.renderer = null;
+    for (const e of this.entries.values()) void e.url.then((u) => u !== null && URL.revokeObjectURL(u));
+    this.entries.clear();
+    for (const j of this.modelJobs.values()) j.resolve(false);
+    this.modelJobs.clear();
+    this.queue = [];
   }
 }

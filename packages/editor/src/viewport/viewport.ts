@@ -18,7 +18,6 @@ import {
   batchingFromUrl,
   createAutoBatcher,
   createEffectsPlayer,
-  createEnvironmentRenderer,
   createRenderer,
   disposeObjectTree,
   rendererMemory,
@@ -32,8 +31,6 @@ import {
   type EffectDefLike,
   type EffectsPlayer,
   type EnvironmentLike,
-  type EnvironmentRenderer,
-  type FogVolumeLike,
   type LightingBakeLike,
   type MaterialLibrary,
   type RendererHandle,
@@ -43,13 +40,12 @@ import {
   BlockLayerView,
   blockLookFromObject,
   type BlockModelLook,
-  selectSceneLights,
-  type SceneLightKind,
+  textureHolds,
+  type TextureHolds,
 } from '@thirdlight/three-adapter';
 import type { BlockChunk, BlockLayerComponent, BlockType } from '@thirdlight/project-model';
 import * as THREE from 'three';
-import { blendEnvironment, blendLight, type CameraPose, CameraBrain, type EnvironmentBlendView, type EnvironmentLightValues } from '@thirdlight/runtime';
-import type { EnvironmentPreset } from '@thirdlight/project-model';
+import { type EnvironmentBlendView, type ResourceManager } from '@thirdlight/runtime';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { disposeOrbitControls, releaseControlKeyListeners } from './controls';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
@@ -65,6 +61,9 @@ import { materialOverridesOf, type ModelInstances } from './model-instances';
 import { planSync, removedIds, helperRelevant } from './sync-plan';
 import { BlockEditor, type BlockEditorCallbacks } from './block-editor';
 import { SceneLightmaps } from './scene-lightmaps';
+import { SceneLighting } from './scene-lighting';
+import { virtualCameraPreviews } from './camera-previews';
+import { cameraFrustum, lightGizmo } from './helper-shapes';
 import { gatherBakeInputs, type BakeInputs } from './bake-inputs';
 
 export interface ViewportCallbacks {
@@ -140,8 +139,6 @@ export class Viewport {
   /** The renderer (the three-adapter factory's); replaced with the canvas on a backend change. */
   private rendererHandle: RendererHandle;
   private rendererChoice: { preference: RendererPreference; source: RendererPreferenceSource };
-  /** The renderer generation the environment renderer was built for. */
-  private environmentGeneration = 0;
   private root: HTMLCanvasElement;
   private readonly meshes = new Map<string, THREE.Object3D>();
   private readonly cb: ViewportCallbacks;
@@ -211,12 +208,20 @@ export class Viewport {
     this.grid = new THREE.GridHelper(GROUND_SIZE, GROUND_SIZE, 0x333844, 0x23262f);
     this.scene.add(this.grid);
 
-    const key = new THREE.DirectionalLight(0xffffff, 1.0);
-    key.position.set(5, 10, 7);
-    this.scene.add(key);
-    const fill = new THREE.AmbientLight(0x8899bb, 0.6);
-    this.scene.add(fill);
-    this.editorLights.push(key, fill);
+    this.lights = new SceneLighting({
+      scene: this.scene,
+      rendererHandle: () => this.rendererHandle,
+      size: () => ({ width: Math.max(1, this.root.clientWidth || this.root.width), height: Math.max(1, this.root.clientHeight || this.root.height) }),
+      objectOf: (id) => this.meshes.get(id),
+      active: (id) => this.hierarchyFlags.get(id)?.active !== false,
+      bakedLight: (id) => this.lightmaps.bakedLightIds.has(id),
+      reapplyLightmaps: () => {
+        this.unapplyLightmaps();
+        this.applyLightmaps();
+      },
+      requestRender: () => this.requestRender(),
+      render: () => this.render(),
+    });
 
     this.helpers = new HelperOverlay(this.scene, this.camera, canvas);
 
@@ -427,22 +432,19 @@ export class Viewport {
   private readonly lightmaps = new SceneLightmaps({
     projected: () => this.projected,
     rootOf: (id) => this.models?.instanceFor(id) ?? this.meshes.get(id) ?? null,
-    gameLighting: () => this.lighting === 'game',
+    gameLighting: () => this.lights.game,
     blockView: () => this.blockView,
     requestRender: () => this.requestRender(),
   });
 
   /** The project's bakes (sceneId → bake); null clears them. */
-  setLightmaps(bakes: Readonly<Record<string, LightingBakeLike>> | null, loadTexture: (assetId: string) => Promise<THREE.Texture | null>): void {
-    this.lightmaps.set(bakes, loadTexture);
+  setLightmaps(bakes: Readonly<Record<string, LightingBakeLike>> | null): void {
+    this.lightmaps.set(bakes, this.textures);
     // Baked block layers draw their chunks with lightmap UVs from now on.
     if (this.blockView !== null) for (const id of this.blockView.layerIds()) this.blockView.setLightmapUv(id, this.lightmaps.hasChunks(id));
     // The light set changes with the bakes (held lights leave realtime).
-    for (const [id, have] of [...this.sceneLights]) {
-      this.dropSceneLight(have);
-      this.sceneLights.delete(id);
-    }
-    this.syncSceneLights(this.projected);
+    this.lights.dropAll();
+    this.lights.sync(this.projected);
     this.lightmaps.apply();
     this.render();
   }
@@ -484,131 +486,24 @@ export class Viewport {
     return inputs;
   }
 
-  /**
-   * "editor" lighting is a fixed key + fill; "game" lighting uses
-   * the scene's own lights (what Play shows). Automatic until chosen: game
-   * lighting as soon as the scene has a light.
-   */
-  private readonly editorLights: THREE.Light[] = [];
-  private lighting: 'editor' | 'game' = 'editor';
-  private lightingChosen = false;
-  private readonly sceneLights = new Map<string, { key: string; light: THREE.Light; parent: THREE.Object3D }>();
+  /** The Scene view's lighting: the editor rig or the game's (lights, cookies, environment, preset preview). */
+  private readonly lights: SceneLighting;
   setLighting(mode: 'editor' | 'game'): void {
-    this.lighting = mode;
-    this.lightingChosen = true;
-    this.applyLighting();
+    this.lights.setMode(mode);
   }
   getLighting(): 'editor' | 'game' {
-    return this.lighting;
+    return this.lights.getMode();
   }
-  private applyLighting(): void {
-    this.unapplyLightmaps();
-    this.applyLightmaps();
-    this.environment?.setBlend(null);
-    this.environment?.set(this.lighting === 'game' ? this.environmentValue : null);
-    this.applyEnvironmentPreview();
-    this.environment?.setQuality(this.editorQuality());
-    for (const l of this.editorLights) l.visible = this.lighting === 'editor';
-    for (const { light } of this.sceneLights.values()) light.visible = this.lighting === 'game' && light.userData['tlActive'] !== false && light.userData['tlSwitchedOn'] !== false;
-    this.render();
+  /**
+   * Where the Scene view's textures (cookies, the sky, lightmaps) are
+   * decoded and held: the view's resource manager (the one its models and
+   * materials use) and its texture loader. Freed when nothing holds them.
+   */
+  private textures: TextureHolds | null = null;
+  setTextureSource(loadTexture: ((assetId: string) => Promise<THREE.Texture | null>) | null, resources: ResourceManager | null = null): void {
+    this.textures = loadTexture !== null && resources !== null ? textureHolds(resources, loadTexture) : null;
+    this.lights.setTextures(resources, loadTexture);
   }
-  /** The project's texture loader (spot light cookies; null until the editor set it). */
-  private textureSource: ((assetId: string) => Promise<THREE.Texture | null>) | null = null;
-  setTextureSource(loadTexture: ((assetId: string) => Promise<THREE.Texture | null>) | null): void {
-    this.textureSource = loadTexture;
-  }
-  /** Drop a scene light (its cookie texture is the viewport's). */
-  private dropSceneLight(have: { light: THREE.Light; parent: THREE.Object3D }): void {
-    have.parent.remove(have.light);
-    if (have.light instanceof THREE.SpotLight || have.light instanceof THREE.DirectionalLight) have.parent.remove(have.light.target);
-    if (have.light instanceof THREE.SpotLight && have.light.map !== null) {
-      have.light.map.dispose();
-      have.light.map = null;
-    }
-    have.light.dispose();
-  }
-  /** A spot light's cookie, drawn in the Scene view as in Play (three's SpotLight.map). */
-  private loadCookie(light: THREE.SpotLight, assetId: string): void {
-    const load = this.textureSource;
-    if (load === null) return;
-    void load(assetId).then(
-      (tex) => {
-        if (tex === null) return;
-        const live = [...this.sceneLights.values()].some((h) => h.light === light);
-        if (!live) {
-          tex.dispose();
-          return;
-        }
-        tex.flipY = false; // as the game decodes it
-        tex.colorSpace = THREE.SRGBColorSpace;
-        tex.needsUpdate = true;
-        light.map = tex;
-        this.requestRender();
-      },
-      () => undefined,
-    );
-  }
-  private syncSceneLights(entities: readonly ProjectedEntity[]): void {
-    const seen = new Set<string>();
-    for (const e of entities) {
-      const l = e.light;
-      // A light a bake holds is not realtime (ambient/hemisphere stay for dynamic objects).
-      if (l === undefined || (l.mode === 'baked' && l.type !== 'ambient' && l.type !== 'hemisphere' && this.lightmaps.bakedLightIds.has(e.id))) continue;
-      seen.add(e.id);
-      const key = JSON.stringify(l);
-      const group = this.meshes.get(e.id);
-      if (group === undefined) continue;
-      let have = this.sceneLights.get(e.id);
-      if (have !== undefined && have.key !== key) {
-        this.dropSceneLight(have);
-        this.sceneLights.delete(e.id);
-        have = undefined;
-      }
-      if (have === undefined) {
-        const made = makeSceneLight(l);
-        // Directional/ambient/hemisphere lights ignore the entity transform (as in Play); point/spot follow it.
-        const parent = l.type === 'point' || l.type === 'spot' ? group : this.scene;
-        parent.add(made);
-        if (made instanceof THREE.SpotLight || made instanceof THREE.DirectionalLight) parent.add(made.target);
-        have = { key, light: made, parent };
-        this.sceneLights.set(e.id, have);
-        if (made instanceof THREE.SpotLight && l.type === 'spot' && l.cookie !== undefined) this.loadCookie(made, l.cookie);
-      }
-      have.light.userData['tlActive'] = this.hierarchyFlags.get(e.id)?.active !== false;
-    }
-    for (const [id, have] of [...this.sceneLights]) {
-      if (seen.has(id)) continue;
-      this.dropSceneLight(have);
-      this.sceneLights.delete(id);
-    }
-    // With several scenes open, the lights Play would have on with them loaded in that order
-    // (the last open scene's directional, ambient and hemisphere light; point and spot lights within the budget).
-    const sceneRank = new Map<string, number>();
-    for (const e of entities) if (e.sceneId !== undefined && !sceneRank.has(e.sceneId)) sceneRank.set(e.sceneId, sceneRank.size);
-    const byId = new Map(entities.map((e) => [e.id, e]));
-    let order = 0;
-    const picked = selectSceneLights([...this.sceneLights].map(([id]) => {
-      const e = byId.get(id);
-      return { id, kind: (e?.light?.type ?? 'point') as SceneLightKind, rank: e?.sceneId !== undefined ? (sceneRank.get(e.sceneId) ?? -1) : -1, order: order++ };
-    }));
-    for (const [id, have] of this.sceneLights) have.light.userData['tlSwitchedOn'] = picked.active.has(id);
-    // A preset preview applies to the lights as they are now.
-    this.lightTags = new Map(entities.filter((e) => e.light !== undefined).map((e) => [e.id, e.tags]));
-    if (this.envPreview !== null) this.applyEnvironmentPreview();
-    // The sun of a procedural sky sits opposite the scene's directional light.
-    const key = (picked.directional !== null ? byId.get(picked.directional) : undefined) ?? entities.find((e) => e.light?.type === 'directional' && e.light.direction !== undefined);
-    this.keyLightDirection = key?.light?.direction ?? null;
-    this.environment?.setKeyLightDirection(this.keyLightDirection);
-    this.fogVolumeData = new Map(entities.filter((e) => e.fogVolume !== undefined).map((e) => [e.id, e.fogVolume!]));
-    const lightingBefore = this.lighting;
-    if (!this.lightingChosen) this.lighting = this.sceneLights.size > 0 ? 'game' : 'editor';
-    if (lightingBefore !== this.lighting) this.applyLighting();
-    else {
-      for (const l of this.editorLights) l.visible = this.lighting === 'editor';
-      for (const { light } of this.sceneLights.values()) light.visible = this.lighting === 'game' && light.userData['tlActive'] !== false && light.userData['tlSwitchedOn'] !== false;
-    }
-  }
-
   /**
    * Every virtual camera's preview, rebuilt from the authored data
    * on each sync with the runtime's own rig maths (the camera brain) — the
@@ -621,47 +516,14 @@ export class Viewport {
       (c as THREE.LineSegments).geometry.dispose();
       ((c as THREE.LineSegments).material as THREE.Material).dispose();
     }
-    const cams = entities.filter((e) => e.components['virtualCamera'] !== undefined);
-    if (cams.length > 0) {
-      if (this.vcamPreviews.parent === null) {
-        this.vcamPreviews.name = 'virtual-camera-previews';
-        this.scene.add(this.vcamPreviews);
-      }
-      const sceneCam = entities.find((e) => e.kind === 'camera')?.components['camera'] as { fovY?: number; near?: number; far?: number } | undefined;
-      const brain = new CameraBrain(120, { fovY: sceneCam?.fovY ?? 60, near: sceneCam?.near ?? 0.1, far: sceneCam?.far ?? 100 });
-      brain.add(entities.map((e) => ({ id: e.id, components: e.components })));
-      const byId = new Map(entities.map((e) => [e.id, e]));
-      const world = {
-        worldOf: (id: string, p: number[], r: number[]): boolean => {
-          const e = byId.get(id);
-          if (e === undefined) return false;
-          const m = new THREE.Matrix4();
-          for (let cur: ProjectedEntity | undefined = e, depth = 0; cur !== undefined && depth < 64; cur = cur.parentId !== null ? byId.get(cur.parentId) : undefined, depth += 1) {
-            const local = new THREE.Matrix4().compose(new THREE.Vector3(N(cur.position[0]), N(cur.position[1]), N(cur.position[2])), new THREE.Quaternion(N(cur.rotation[0]), N(cur.rotation[1]), N(cur.rotation[2]), cur.rotation[3] ?? 1), new THREE.Vector3(cur.scale[0] ?? 1, cur.scale[1] ?? 1, cur.scale[2] ?? 1));
-            m.premultiply(local);
-          }
-          const pos = new THREE.Vector3();
-          const rot = new THREE.Quaternion();
-          m.decompose(pos, rot, new THREE.Vector3());
-          p[0] = pos.x;
-          p[1] = pos.y;
-          p[2] = pos.z;
-          r[0] = rot.x;
-          r[1] = rot.y;
-          r[2] = rot.z;
-          r[3] = rot.w;
-          return true;
-        },
-      };
-      for (const e of cams) {
-        const pose = brain.previewPose(e.id, world);
-        if (pose === null) continue;
-        const vc = e.components['virtualCamera'] as { rig?: string; distance?: number };
-        const reach = vc.rig === 'follow' || vc.rig === 'orbitPoint' || vc.rig === 'topDown' ? (vc.distance ?? 5) : 3;
-        const lines = virtualCameraFrustum(e.id, pose, this.gameAspect, reach);
-        lines.visible = this.selectedId === e.id;
-        this.vcamPreviews.add(lines);
-      }
+    const previews = virtualCameraPreviews(entities, this.gameAspect);
+    if (previews.length > 0 && this.vcamPreviews.parent === null) {
+      this.vcamPreviews.name = 'virtual-camera-previews';
+      this.scene.add(this.vcamPreviews);
+    }
+    for (const v of previews) {
+      v.lines.visible = this.selectedId === v.id;
+      this.vcamPreviews.add(v.lines);
     }
     this.showVirtualCameraPreview();
   }
@@ -714,47 +576,13 @@ export class Viewport {
       shown[id] = [m.position.x, m.position.y, m.position.z];
     }
     let camera: unknown = null;
-    if (p.camera !== null && this.projected.some((e) => e.id === p.camera!.entityId && e.components['virtualCamera'] !== undefined)) {
-      const entities = this.projected;
-      const sceneCam = entities.find((e) => e.kind === 'camera')?.components['camera'] as { fovY?: number; near?: number; far?: number } | undefined;
-      const brain = new CameraBrain(120, { fovY: sceneCam?.fovY ?? 60, near: sceneCam?.near ?? 0.1, far: sceneCam?.far ?? 100 });
-      brain.add(entities.map((e) => ({ id: e.id, components: e.components })));
-      if (p.camera.progress !== null) brain.set(p.camera.entityId, { progress: p.camera.progress });
-      const byId = new Map(entities.map((e) => [e.id, e]));
-      const world = {
-        worldOf: (id: string, out: number[], rot: number[]): boolean => {
-          const e = byId.get(id);
-          if (e === undefined) return false;
-          const m = new THREE.Matrix4();
-          for (let cur: ProjectedEntity | undefined = e, depth = 0; cur !== undefined && depth < 64; cur = cur.parentId !== null ? byId.get(cur.parentId) : undefined, depth += 1) {
-            // A previewed object is where the timeline puts it.
-            const pv = p.transforms.get(cur.id);
-            const pos = pv?.position ?? cur.position;
-            const q = pv?.rotation ?? cur.rotation;
-            const sc = pv?.scale ?? cur.scale;
-            m.premultiply(new THREE.Matrix4().compose(new THREE.Vector3(N(pos[0]), N(pos[1]), N(pos[2])), new THREE.Quaternion(N(q[0]), N(q[1]), N(q[2]), q[3] ?? 1), new THREE.Vector3(sc[0] ?? 1, sc[1] ?? 1, sc[2] ?? 1)));
-          }
-          const v = new THREE.Vector3();
-          const r = new THREE.Quaternion();
-          m.decompose(v, r, new THREE.Vector3());
-          out[0] = v.x;
-          out[1] = v.y;
-          out[2] = v.z;
-          rot[0] = r.x;
-          rot[1] = r.y;
-          rot[2] = r.z;
-          rot[3] = r.w;
-          return true;
-        },
-      };
-      const pose = brain.previewPose(p.camera.entityId, world);
-      if (pose !== null) {
-        const vc = byId.get(p.camera.entityId)?.components['virtualCamera'] as { rig?: string; distance?: number } | undefined;
-        const reach = vc?.rig === 'follow' || vc?.rig === 'orbitPoint' || vc?.rig === 'topDown' ? (vc.distance ?? 5) : 3;
-        this.timelineFrustum = virtualCameraFrustum(p.camera.entityId, pose, this.gameAspect, reach);
-        this.timelineFrustum.name = `timeline-camera:${p.camera.entityId}`;
+    if (p.camera !== null) {
+      const v = virtualCameraPreviews(this.projected, this.gameAspect, p.camera, p.transforms)[0];
+      if (v !== undefined) {
+        this.timelineFrustum = v.lines;
+        this.timelineFrustum.name = `timeline-camera:${v.id}`;
         this.scene.add(this.timelineFrustum);
-        camera = { id: p.camera.entityId, position: [...pose.position], rotation: [...pose.rotation] };
+        camera = { id: v.id, position: [...v.pose.position], rotation: [...v.pose.rotation] };
       }
     }
     this.root.setAttribute('data-timeline-preview', JSON.stringify({ time: Math.round(p.time * 1000) / 1000, transforms: shown, camera }));
@@ -1032,11 +860,11 @@ export class Viewport {
       const info = renderer.info.render;
       const drawsBefore = info.drawCalls;
       const trianglesBefore = info.triangles;
-      const environment = this.ensureEnvironment();
+      const environment = this.lights.ensureEnvironment();
       // The editor rig also draws at the project's quality level (low: no MSAA).
-      const throughEnvironment = environment !== null && (this.lighting === 'game' || this.editorQuality() !== null);
+      const throughEnvironment = environment !== null && (this.lights.game || this.lights.editorQuality() !== null);
       if (throughEnvironment) {
-        environment.setFogVolumes(this.fogVolumesNow());
+        environment.setFogVolumes(this.lights.fogVolumesNow());
         environment.render(this.camera);
       } else renderer.render(this.scene, this.camera);
       this.framesDrawn += 1;
@@ -1094,8 +922,7 @@ export class Viewport {
     const next = document.createElement('canvas');
     for (const a of [...old.attributes]) if (!a.name.startsWith('data-tl-renderer')) next.setAttribute(a.name, a.value);
     this.unbindCanvasEvents();
-    this.environment?.dispose();
-    this.environment = null;
+    this.lights.dropEnvironment();
     // The old canvas is never drawn to again: its WebGL context goes now (the WebGPU device is destroyed either way).
     this.rendererHandle.dispose({ loseContext: true });
     old.replaceWith(next);
@@ -1113,70 +940,17 @@ export class Viewport {
     this.cb.onRendererChange?.(this.rendererHandle.info());
   }
 
-  /** The environment renderer for the current renderer (rebuilt when the renderer was replaced). */
-  private ensureEnvironment(): EnvironmentRenderer | null {
-    const renderer = this.rendererHandle.current();
-    if (this.environmentSource === null || renderer === null) return null;
-    if (this.environment !== null && this.environmentGeneration === this.rendererHandle.generation()) return this.environment;
-    this.environment?.dispose();
-    this.environmentGeneration = this.rendererHandle.generation();
-    const env = createEnvironmentRenderer(renderer, this.scene, { loadTexture: this.environmentSource, onChange: () => this.requestRender() });
-    env.resize(Math.max(1, this.root.clientWidth || this.root.width), Math.max(1, this.root.clientHeight || this.root.height));
-    env.setKeyLightDirection(this.keyLightDirection);
-    env.set(this.lighting === 'game' ? this.environmentValue : null);
-    env.setQuality(this.editorQuality());
-    this.environment = env;
-    // A preset preview carries over to a new renderer.
-    if (this.envPreview !== null) this.applyEnvironmentPreview();
-    return env;
-  }
-
   // ---- Environment preset preview --------------------------------------------
-  /** The preset blend the Scene view previews (null: the authored look). */
-  private envPreview: EnvironmentBlendView | null = null;
-  private envPreviewTags = new Map<string, number>();
-  private lightTags = new Map<string, number>();
-  private envLightsTouched = false;
   /**
-   * Show an environment preset blend (weights by preset id; '' = the base
-   * look) in the Scene view with game lighting: the look, and the scene
-   * lights the presets set — the runtime's own blend maths (what Play draws).
-   * Null: back to the authored look. `tagBits`: the project's tag registry
-   * (name → bit) for presets that name lights by tag.
+   * Show an environment preset blend in the Scene view with game lighting
+   * (SceneLighting.previewEnvironmentBlend); null: back to the authored look.
    */
   previewEnvironmentBlend(view: { weights: readonly (readonly [string, number])[]; overrides?: EnvironmentBlendView['overrides'] } | null, tagBits?: ReadonlyMap<string, number>): void {
-    this.envPreview = view === null ? null : { weights: view.weights, overrides: view.overrides ?? {}, target: null, progress: 1 };
-    if (tagBits !== undefined) this.envPreviewTags = new Map([...tagBits].map(([k, v]) => [k.toLowerCase(), v]));
-    this.applyEnvironmentPreview();
-    this.requestRender();
+    this.lights.previewEnvironmentBlend(view, tagBits);
   }
   /** The previewed blend (tests, the panel). */
   environmentPreview(): EnvironmentBlendView | null {
-    return this.envPreview;
-  }
-  private applyEnvironmentPreview(): void {
-    const view = this.envPreview;
-    const presets = new Map(((this.environmentValue?.presets ?? []) as unknown as readonly EnvironmentPreset[]).map((p) => [p.presetId, p]));
-    const base = (this.environmentValue ?? {}) as Parameters<typeof blendEnvironment>[0];
-    if (view === null || this.lighting !== 'game') this.environment?.setBlend(null);
-    else this.environment?.setBlend(blendEnvironment(base, presets, view) as never);
-    // The lights: blended values, or back to what the scene authored.
-    if (view === null && !this.envLightsTouched) return;
-    this.envLightsTouched = view !== null;
-    for (const [id, have] of this.sceneLights) {
-      const l = JSON.parse(have.key) as { type: string; color: string; intensity: number; direction?: number[]; groundColor?: string };
-      const d = l.direction ?? (l.type === 'spot' || l.type === 'directional' ? [0, -1, 0] : undefined);
-      const authored: EnvironmentLightValues = { color: l.color, intensity: l.intensity, ...(d !== undefined ? { direction: [d[0]!, d[1]!, d[2]!] as [number, number, number] } : {}), ...(l.type === 'hemisphere' ? { groundColor: l.groundColor ?? '#444444' } : {}) };
-      const v = view === null ? authored : blendLight(authored, { id, tags: this.lightTags.get(id) ?? 0, type: l.type }, this.envPreviewTags, base, presets, view);
-      have.light.color.set(v.color);
-      have.light.intensity = v.intensity;
-      if (v.groundColor !== undefined && have.light instanceof THREE.HemisphereLight) have.light.groundColor.set(v.groundColor);
-      if (v.direction !== undefined) {
-        const [x, y, z] = v.direction;
-        if (have.light instanceof THREE.SpotLight) have.light.target.position.set(x, y, z);
-        else if (have.light instanceof THREE.DirectionalLight) have.light.position.set(-x * 20, -y * 20, -z * 20);
-      }
-    }
+    return this.lights.environmentPreview();
   }
 
   private readTarget(): GizmoTransform {
@@ -1307,7 +1081,7 @@ export class Viewport {
       }
     }
     this.models?.sync(entities, full ? undefined : { changed: new Set(changed.map((e) => e.id)), removed });
-    this.syncSceneLights(entities);
+    this.lights.sync(entities);
     this.syncVirtualCameraPreviews(entities);
     // A timeline scrub preview stays on top of the synced transforms.
     if (this.timelinePreview !== null) this.applyTimelinePreview();
@@ -2149,64 +1923,21 @@ export class Viewport {
     const renderer = this.rendererHandle.current();
     renderer?.setSize(w, h, false);
     renderer?.setPixelRatio(window.devicePixelRatio);
-    this.environment?.resize(w, h);
+    this.lights.resize(w, h);
     this.requestRender();
   }
 
-  /**
-   * The project environment (sky, fog, fog volumes, post) in the
-   * Scene view — with game lighting only (the editor rig shows the plain view).
-   */
-  private environment: EnvironmentRenderer | null = null;
-  private environmentValue: EnvironmentLike | null = null;
-  /** The scene's directional light direction (the procedural sky's sun). */
-  private keyLightDirection: readonly [number, number, number] | null = null;
-  /** The texture loader of the environment (null until an environment was set). */
-  private environmentSource: ((assetId: string) => Promise<THREE.Texture | null>) | null = null;
-  setEnvironment(value: EnvironmentLike | null, loadTexture: (assetId: string) => Promise<THREE.Texture | null>): void {
-    this.environmentValue = value;
-    this.environmentSource = loadTexture;
-    // Built for the current renderer (null while WebGPURenderer initialises; the first frame builds it).
-    const env = this.ensureEnvironment();
-    env?.set(this.lighting === 'game' ? value : null);
-    env?.setQuality(this.editorQuality());
-    // A previewed blend follows edited presets.
-    if (this.envPreview !== null) this.applyEnvironmentPreview();
-    this.requestRender();
+  /** The project environment (sky, fog, fog volumes, post) in the Scene view — with game lighting only. */
+  setEnvironment(value: EnvironmentLike | null): void {
+    this.lights.setEnvironment(value);
   }
-  /**
-   * With the editor rig (no project look) the Scene view still
-   * draws at the project's quality level — MSAA is the level's choice (low:
-   * none); null in game lighting (the environment's own level applies) or
-   * when the project sets none.
-   */
-  private editorQuality(): 'low' | 'medium' | 'high' | null {
-    return this.lighting === 'editor' ? (this.environmentValue?.quality ?? null) : null;
-  }
-
-  private fogVolumesNow(): FogVolumeLike[] {
-    const out: FogVolumeLike[] = [];
-    const p = new THREE.Vector3();
-    for (const [id, fv] of this.fogVolumeData) {
-      const obj = this.meshes.get(id);
-      if (obj === undefined || this.hierarchyFlags.get(id)?.active === false) continue;
-      obj.getWorldPosition(p);
-      out.push({ center: [p.x, p.y, p.z], size: fv.size, density: fv.density, color: fv.color, ...(fv.falloff !== undefined ? { falloff: fv.falloff } : {}), ...(fv.heightFalloff !== undefined ? { heightFalloff: fv.heightFalloff } : {}) });
-    }
-    return out;
-  }
-  private fogVolumeData = new Map<string, NonNullable<ProjectedEntity['fogVolume']>>();
 
   dispose(): void {
     this.blockEditorInst?.dispose();
     this.blockEditorInst = null;
     this.releaseEffectPreview();
     this.lightmaps.dispose();
-    for (const { light, parent } of this.sceneLights.values()) {
-      parent.remove(light);
-      light.dispose();
-    }
-    this.sceneLights.clear();
+    this.lights.dispose();
     this.copyHighlight?.removeFromParent();
     this.copyHighlight?.dispose();
     this.copyHighlight = null;
@@ -2224,131 +1955,10 @@ export class Viewport {
     this.gizmo.dispose();
     disposeOrbitControls(this.orbit);
     this.disposeMesh(this.ground);
-    this.environment?.dispose();
-    this.environment = null;
     this.rendererHandle.dispose();
     this.batcher.dispose();
     this.unitBox.dispose();
     for (const rec of this.boxLooks.values()) rec.material.dispose();
     this.boxLooks.clear();
   }
-}
-
-/** The three.js light for an authored light (the editor's "game lighting"). */
-function makeSceneLight(l: NonNullable<ProjectedEntity['light']>): THREE.Light {
-  const colour = new THREE.Color(l.color);
-  switch (l.type) {
-    case 'ambient':
-      return new THREE.AmbientLight(colour, l.intensity);
-    case 'hemisphere':
-      return new THREE.HemisphereLight(colour, new THREE.Color(l.groundColor ?? '#444444'), l.intensity);
-    case 'point':
-      return new THREE.PointLight(colour, l.intensity, l.range ?? 0, l.decay ?? 2);
-    case 'spot': {
-      const s = new THREE.SpotLight(colour, l.intensity, l.range ?? 0, THREE.MathUtils.degToRad(l.angle ?? 30), l.penumbra ?? 0.2, l.decay ?? 2);
-      // At its entity's origin (three starts a SpotLight at (0, 1, 0)), shining along `direction`.
-      s.position.set(0, 0, 0);
-      const d = l.direction ?? [0, -1, 0];
-      s.target.position.set(d[0], d[1], d[2]);
-      return s;
-    }
-    default: {
-      const d = l.direction ?? [0, -1, 0];
-      const dl = new THREE.DirectionalLight(colour, l.intensity);
-      dl.position.set(-d[0] * 20, -d[1] * 20, -d[2] * 20);
-      return dl;
-    }
-  }
-}
-
-/**
- * A virtual camera's preview in world space — the frustum where
- * its rig puts it (drawn out to the pivot it looks at, at most its far plane)
- * and a line to that pivot.
- */
-function virtualCameraFrustum(id: string, pose: CameraPose, aspect: number, reach: number): THREE.LineSegments {
-  const fov = (pose.fovY * Math.PI) / 180;
-  const q = new THREE.Quaternion(pose.rotation[0], pose.rotation[1], pose.rotation[2], pose.rotation[3]);
-  const eye = new THREE.Vector3(pose.position[0], pose.position[1], pose.position[2]);
-  const d = Math.max(0.5, Math.min(pose.far, reach));
-  const h = Math.tan(fov / 2) * d;
-  const w = h * aspect;
-  const corner = (x: number, y: number): THREE.Vector3 => new THREE.Vector3(x, y, -d).applyQuaternion(q).add(eye);
-  const c = [corner(-w, -h), corner(w, -h), corner(w, h), corner(-w, h)];
-  const centre = new THREE.Vector3(0, 0, -d).applyQuaternion(q).add(eye);
-  const pts: THREE.Vector3[] = [];
-  for (let i = 0; i < 4; i++) pts.push(eye, c[i]!, c[i]!, c[(i + 1) % 4]!);
-  pts.push(eye, centre);
-  const lines = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: 0x4cc9f0, transparent: true, opacity: 0.85, depthTest: false }));
-  lines.name = `virtual-camera-frustum:${id}`;
-  lines.userData['virtualCameraFrustum'] = { id, position: [...pose.position], rotation: [...pose.rotation], fovY: pose.fovY, aspect };
-  lines.renderOrder = 10;
-  lines.raycast = () => undefined;
-  return lines;
-}
-
-/**
- * A camera's real frustum in its own space (it looks down −Z):
- * the near and far rectangles and the edges from the eye, from its fovY,
- * near and far and the game's aspect.
- */
-function cameraFrustum(e: ProjectedEntity, aspect: number): THREE.LineSegments {
-  const c = (e.components['camera'] ?? {}) as { fovY?: number; near?: number; far?: number };
-  const fov = ((c.fovY ?? 60) * Math.PI) / 180;
-  const near = c.near ?? 0.1;
-  const far = c.far ?? 100;
-  const rectAt = (d: number): THREE.Vector3[] => {
-    const h = Math.tan(fov / 2) * d;
-    const w = h * aspect;
-    return [new THREE.Vector3(-w, -h, -d), new THREE.Vector3(w, -h, -d), new THREE.Vector3(w, h, -d), new THREE.Vector3(-w, h, -d)];
-  };
-  const n = rectAt(near);
-  const f = rectAt(far);
-  const pts: THREE.Vector3[] = [];
-  for (let i = 0; i < 4; i++) pts.push(n[i]!, n[(i + 1) % 4]!, f[i]!, f[(i + 1) % 4]!, new THREE.Vector3(0, 0, 0), f[i]!);
-  const lines = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: 0xf2b544, transparent: true, opacity: 0.6 }));
-  lines.name = `camera-frustum:${e.id}`;
-  lines.userData['cameraFrustum'] = { fovY: c.fovY ?? 60, near, far, aspect };
-  // Drawn only: its long lines never take a click meant for what is behind them.
-  lines.raycast = () => undefined;
-  return lines;
-}
-
-/** A point light's reach (three circles) or a spot light's cone, as lines. */
-function lightGizmo(e: ProjectedEntity): THREE.LineSegments {
-  const l = e.light!;
-  const pts: THREE.Vector3[] = [];
-  const reach = l.range !== undefined && l.range > 0 ? l.range : 3;
-  if (l.type === 'point') {
-    const n = 32;
-    for (const axis of [0, 1, 2]) {
-      for (let i = 0; i < n; i += 1) {
-        const a = (i / n) * Math.PI * 2;
-        const b = ((i + 1) / n) * Math.PI * 2;
-        const at = (t: number): THREE.Vector3 => (axis === 0 ? new THREE.Vector3(0, Math.cos(t), Math.sin(t)) : axis === 1 ? new THREE.Vector3(Math.cos(t), 0, Math.sin(t)) : new THREE.Vector3(Math.cos(t), Math.sin(t), 0)).multiplyScalar(reach);
-        pts.push(at(a), at(b));
-      }
-    }
-  } else {
-    const d = new THREE.Vector3(...(l.direction ?? [0, -1, 0])).normalize();
-    const half = THREE.MathUtils.degToRad(l.angle ?? 30);
-    const r = Math.tan(half) * reach;
-    const side = Math.abs(d.y) > 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
-    const u = new THREE.Vector3().crossVectors(d, side).normalize();
-    const v = new THREE.Vector3().crossVectors(d, u).normalize();
-    const centre = d.clone().multiplyScalar(reach);
-    const n = 24;
-    for (let i = 0; i < n; i += 1) {
-      const a = (i / n) * Math.PI * 2;
-      const b = ((i + 1) / n) * Math.PI * 2;
-      const p = (t: number): THREE.Vector3 => centre.clone().addScaledVector(u, Math.cos(t) * r).addScaledVector(v, Math.sin(t) * r);
-      pts.push(p(a), p(b));
-      if (i % 6 === 0) pts.push(new THREE.Vector3(0, 0, 0), p(a));
-    }
-  }
-  const lines = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: 0xffe27a, transparent: true, opacity: 0.55 }));
-  lines.name = e.id;
-  (lines as { entityId?: string }).entityId = e.id;
-  lines.userData = { lightKind: l.type };
-  return lines;
 }

@@ -98,13 +98,15 @@ export const ASSET_DRAG_TYPE = 'application/x-thirdlight-asset';
 export interface AssetDragPayload {
   assetId: string;
   piece?: string;
+  /** The asset's kind (a drop target that takes one kind checks it without reading the asset). */
+  kind?: string;
 }
 
 export function parseAssetDrag(text: string): AssetDragPayload | null {
   try {
-    const v = JSON.parse(text) as { assetId?: unknown; piece?: unknown };
+    const v = JSON.parse(text) as { assetId?: unknown; piece?: unknown; kind?: unknown };
     if (typeof v.assetId !== 'string' || v.assetId === '') return null;
-    return typeof v.piece === 'string' ? { assetId: v.assetId, piece: v.piece } : { assetId: v.assetId };
+    return { assetId: v.assetId, ...(typeof v.piece === 'string' ? { piece: v.piece } : {}), ...(typeof v.kind === 'string' ? { kind: v.kind } : {}) };
   } catch {
     return null;
   }

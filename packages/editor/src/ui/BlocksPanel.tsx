@@ -19,6 +19,9 @@
  * Browser-only (React).
  */
 import { useEffect, useMemo, useState, type JSX } from 'react';
+import type { TileThumbnails } from '../viewport/thumbnails';
+import { useTileUrl } from './assets/TileImage';
+import { useAssetSummaries } from './catalog/catalog-context';
 import type { BlockCell, BlockEdit, BlockLayerComponent, BlockRegion, BlockStamp, BlockType, CellField, CellMetaValue, DescriptorRegistry, ObjectFieldDescriptor } from '@thirdlight/project-model';
 import { BRUSH_FALLOFFS, PAINT_BRUSH_LIMITS, SCULPT_LIMITS, type BrushFalloff } from '@thirdlight/runtime';
 import { ObjectFields, type FieldContext } from './DescriptorFields';
@@ -77,7 +80,8 @@ interface Props {
   stamps: readonly BlockStamp[];
   registry: DescriptorRegistry | null;
   fieldContext: FieldContext;
-  thumbnails: ReadonlyMap<string, string>;
+  /** The asset tiles' pictures (a block type's swatch shows its model's). */
+  thumbnails: TileThumbnails | null;
   handlers: { current: BlockPanelHandlers | null };
   /** A content / scene command (true: stored). */
   run: (what: string, op: string, args: Record<string, unknown>) => Promise<boolean>;
@@ -96,10 +100,11 @@ const newId = (base: string, taken: readonly string[]): string => {
 };
 
 /** A block type's swatch: its first model's thumbnail, else its first colour. */
-function Swatch({ t, thumbnails }: { t: BlockType; thumbnails: ReadonlyMap<string, string> }): JSX.Element {
+function Swatch({ t, thumbnails }: { t: BlockType; thumbnails: TileThumbnails | null }): JSX.Element {
   const v = t.variants[0];
-  const thumb = v?.model !== undefined ? thumbnails.get(v.model.assetId) : undefined;
-  if (thumb !== undefined) return <img className="tl-blocks__swatch" src={thumb} alt="" />;
+  const [summary] = useAssetSummaries(v?.model !== undefined ? [v.model.assetId] : []);
+  const thumb = useTileUrl(summary, v?.model?.piece ?? null, thumbnails);
+  if (thumb !== null) return <img className="tl-blocks__swatch" src={thumb} alt="" />;
   return <span className="tl-blocks__swatch" style={{ background: v?.color ?? '#808080' }} />;
 }
 

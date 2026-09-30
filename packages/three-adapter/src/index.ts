@@ -257,6 +257,8 @@ export {
   type LightingBakeLike,
   type LightmapSet,
 } from './lightmaps';
+// Decoded textures held in a resource manager by who draws with them (the editor's Scene view holds its cookies, sky and lightmaps so).
+export { textureHolds, type TextureHolds } from './texture-holds';
 export { bakeLightmapsInBrowser, type BakedAtlas, type BakeLightInput, type BakeMeshInput, type BakeTargetInput, type BrowserBakeInput, type BrowserBakeResult } from './lightmap-baker';
 // Poses a model from an animator pose (the Animator window's live preview).
 export { createAnimatorPlayer, type AnimatorPlayer, type AnimatorPlayerOptions, type AnimatorPoseLike } from './animator-player';

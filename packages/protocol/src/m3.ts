@@ -406,11 +406,10 @@ export function validateFullStateFrame(value: unknown, path = ''): FieldErrorRes
     return fieldError('field_type', `${path}/scene`, 'scene must be the normalized scene projection object');
   }
   if (value.content !== undefined) {
-    // The full-state `content` is the bounded content PROJECTION
-    // (summary pages), never the six-key envelope content block, and has
-    // no `game` summary.
+    // The full-state `content` says how big the project index is (the
+    // records are read in pages or by id), never the envelope content block.
     if (!isPlainObject(value.content)) {
-      return fieldError('field_type', `${path}/content`, 'content must be the bounded content projection object');
+      return fieldError('field_type', `${path}/content`, 'content must be the content projection object');
     }
     for (const key of Object.keys(value.content)) {
       if (!(CONTENT_PROJECTION_KEYS as readonly string[]).includes(key)) {
@@ -424,8 +423,8 @@ export function validateFullStateFrame(value: unknown, path = ''): FieldErrorRes
   return { ok: true, value: value as Record<string, unknown> };
 }
 
-/** The bounded content projection keys (no `game` summary: the engine has no game block). */
-export const CONTENT_PROJECTION_KEYS = ['assets', 'prefabs', 'behaviors', 'behaviorTrust'] as const;
+/** The content projection keys: the index's size (lists and records are read by query). */
+export const CONTENT_PROJECTION_KEYS = ['index'] as const;
 
 /**
  * Validate a `mutation.applied` projection frame:

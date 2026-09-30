@@ -21,12 +21,15 @@
  */
 import type { JSX } from 'react';
 import type { ProjectedEntity } from '../session/projection';
+import { useIndexList } from './catalog/useIndexList';
+import { VirtualList } from './catalog/VirtualList';
 import type { BehaviorControlsView } from '../session/property-controls';
 import type { PrefabSummaryView } from '../session/prefab-projection';
 import { PropertyControlList, type ControlErrorView } from './PropertyControls';
 
 export interface PrefabPanelProps {
   selection: ProjectedEntity | null;
+  /** The definitions read so far (by id); the list itself pages the project index. */
   definitions: readonly PrefabSummaryView[];
   selectedPrefabId: string | null;
   /** Declared-property targets of the selected definition (override editor). */
@@ -47,8 +50,16 @@ export interface PrefabPanelProps {
   onOverrideCommit: (localId: string, key: string, raw: string) => void;
 }
 
+/** A prefab tile's height plus the gap (px; editor.css). */
+const TILE_STRIDE = 150;
+
+/** The prefabs, paged from the project index. */
+const PREFAB_KINDS: readonly string[] = ['prefab'];
+
 export function PrefabPanel(p: PrefabPanelProps): JSX.Element {
   const selected = p.definitions.find((d) => d.prefabId === p.selectedPrefabId) ?? null;
+  const list = useIndexList({ kinds: PREFAB_KINDS });
+  const read = new Map(p.definitions.map((d) => [d.prefabId, d] as const));
   return (
     <div className="tl-panel tl-prefabs">
       <div className="tl-panel__title">Prefabs — copies, not links</div>
@@ -84,46 +95,51 @@ export function PrefabPanel(p: PrefabPanelProps): JSX.Element {
         )}
       </div>
 
-      <ul className="tl-prefabs__list tl-tiles">
-        {p.definitions.map((d) => (
-          <li
-            key={d.prefabId}
-            className={d.prefabId === p.selectedPrefabId ? 'tl-tile is-selected' : 'tl-tile'}
-            onClick={() => p.onSelect(d.prefabId)}
-            title={d.prefabId}
-          >
-            <span className="tl-tile__icon tl-tile__icon--prefab" aria-hidden="true"><img className="tl-tile__img" src="./icons/prefab.png" alt="" /></span>
-            <span className="tl-tile__name">{d.displayName}</span>
-            <span className="tl-tile__meta">
-              {d.entityCount} ent · depth {d.depth}
-            </span>
-            <button
-              className="tl-btn tl-btn--small"
-              onClick={(e) => {
-                e.stopPropagation();
-                p.onPlaceCopy(d.prefabId);
-              }}
-              title="Materialize one independent copy at the scene root"
-            >
-              place copy
-            </button>
-            {p.onDelete !== undefined && (
+      <VirtualList
+        className="tl-prefabs__list tl-tiles tl-tiles--virtual"
+        count={list.total ?? 0}
+        stride={TILE_STRIDE}
+        gap={8}
+        padding={8}
+        minItemWidth={112}
+        onRange={list.need}
+        empty={<li className="tl-row tl-row--empty">{list.total === null ? 'loading…' : 'no prefab definitions'}</li>}
+        renderItem={(i) => {
+          const e = list.entry(i);
+          if (e === undefined) return <li key={`slot:${i}`} className="tl-tile tl-tile--loading" aria-hidden="true" />;
+          const d = read.get(e.id);
+          return (
+            <li key={e.id} className={e.id === p.selectedPrefabId ? 'tl-tile is-selected' : 'tl-tile'} onClick={() => p.onSelect(e.id)} title={e.id} data-prefab-id={e.id}>
+              <span className="tl-tile__icon tl-tile__icon--prefab" aria-hidden="true"><img className="tl-tile__img" src="./icons/prefab.png" alt="" /></span>
+              <span className="tl-tile__name">{e.name}</span>
+              <span className="tl-tile__meta">{d !== undefined ? `${d.entityCount} ent · depth ${d.depth}` : 'prefab'}</span>
               <button
                 className="tl-btn tl-btn--small"
-                aria-label={`delete prefab ${d.displayName}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  p.onDelete?.(d.prefabId);
+                onClick={(ev) => {
+                  ev.stopPropagation();
+                  p.onPlaceCopy(e.id);
                 }}
-                title="Remove this definition (refused while a placed copy, a block look or a script still uses it; one undo brings it back)"
+                title="Materialize one independent copy at the scene root"
               >
-                delete
+                place copy
               </button>
-            )}
-          </li>
-        ))}
-        {p.definitions.length === 0 && <li className="tl-row tl-row--empty">no prefab definitions</li>}
-      </ul>
+              {p.onDelete !== undefined && (
+                <button
+                  className="tl-btn tl-btn--small"
+                  aria-label={`delete prefab ${e.name}`}
+                  onClick={(ev) => {
+                    ev.stopPropagation();
+                    p.onDelete?.(e.id);
+                  }}
+                  title="Remove this definition (refused while a placed copy, a block look or a script still uses it; one undo brings it back)"
+                >
+                  delete
+                </button>
+              )}
+            </li>
+          );
+        }}
+      />
       {p.deleteError != null && (
         <div className="tl-prop__error" role="alert" data-testid="prefab-delete-error" title={p.deleteError}>
           {p.deleteError}

@@ -13,6 +13,9 @@ import { useEffect, useMemo, useRef, useState, type JSX } from 'react';
 import type { AnimatorClipRef, AnimatorController, AnimatorLayer, AnimatorParameter, AnimatorState, AnimatorTransition } from '@thirdlight/project-model';
 import { MAX_ANIMATOR_LAYERS } from '@thirdlight/project-model/limits';
 
+import { useAssetSummaries, useCatalog } from '../catalog/catalog-context';
+import { MODEL_KINDS } from '../catalog/RefPicker';
+
 export interface ClipInfo {
   name: string;
   duration: number;
@@ -49,7 +52,6 @@ export interface AnimatorPreview {
   dispose(): void;
 }
 
-export type AnimatorModels = { assetId: string; displayName: string; clipsFor?: string }[];
 export type StartPreview = (controller: AnimatorController, canvas: HTMLCanvasElement) => Promise<AnimatorPreview | string>;
 
 export const MAX_LAYERS = MAX_ANIMATOR_LAYERS;
@@ -63,32 +65,64 @@ export const newId = (prefix: string, taken: Iterable<string>): string => {
 };
 export const allStateIds = (c: AnimatorController): string[] => [c, ...(c.layers ?? [])].flatMap((g) => g.states.map((s) => s.id));
 
-/** Where a controller's clips come from: its first clip's asset (a clips-only asset stands for its rig). */
-export function rigOf(c: AnimatorController | null, models: AnimatorModels): string | undefined {
+/** A controller's first clip's asset (the file its clips come from). */
+function firstClipAsset(c: AnimatorController | null): string | undefined {
   for (const g of c === null ? [] : [c, ...(c.layers ?? [])]) {
     for (const s of g.states) {
       const id = s.motion.kind === 'clip' ? s.motion.clip.assetId : s.motion.kind === 'blend1d' ? s.motion.children[0]?.clip.assetId : undefined;
-      if (id !== undefined) return models.find((m) => m.assetId === id)?.clipsFor ?? id;
+      if (id !== undefined) return id;
     }
   }
   return undefined;
 }
 
-/** The clips of `model` and of every animation-only asset marked "clips for" it (loaded asynchronously). */
-export function useClipChoices(model: string, models: AnimatorModels, clipsOf: (assetId: string) => Promise<ClipInfo[]>): ClipChoice[] {
+/** Where a controller's clips come from: its first clip's asset (a clips-only asset stands for its rig; read by id). */
+export function useRigOf(c: AnimatorController | null): string | undefined {
+  const first = firstClipAsset(c);
+  const [summary] = useAssetSummaries(first !== undefined ? [first] : []);
+  return first === undefined ? undefined : (summary?.clipsFor ?? first);
+}
+
+/**
+ * The clips of `model` and of every animation-only asset marked "clips for"
+ * it (the models whose index entry names it, checked on their summaries;
+ * loaded asynchronously).
+ */
+export function useClipChoices(model: string, clipsOf: (assetId: string) => Promise<ClipInfo[]>): ClipChoice[] {
+  const { catalog, version, asset } = useCatalog();
   const [clips, setClips] = useState<ClipChoice[]>([]);
+  // The animation-only files marked "clips for" the model, read again when the index changes; their
+  // clips are read only when that list changes (reading a model while its preview loads it would supersede that load).
+  const [sources, setSources] = useState<{ model: string; key: string; list: { assetId: string; source: string | null }[] }>({ model: '', key: '', list: [] });
   useEffect(() => {
     let live = true;
-    if (model === '') {
-      setClips([]);
+    if (model === '' || catalog === null) {
+      setSources((s) => (s.model === model && s.key === '' ? s : { model, key: '', list: [] }));
       return;
     }
-    const sources = [{ assetId: model, source: null as string | null }, ...models.filter((m) => m.clipsFor === model).map((m) => ({ assetId: m.assetId, source: m.displayName }))];
-    void Promise.all(sources.map(async (src) => (await clipsOf(src.assetId)).map((c) => ({ ...c, assetId: src.assetId, source: src.source })))).then((lists) => live && setClips(lists.flat()));
+    void (async () => {
+      const users = await catalog.page({ kinds: MODEL_KINDS, referencing: model }, 0, 1024).catch(() => ({ total: 0, entries: [] }));
+      await catalog.ensureAssets(users.entries.map((e) => e.id));
+      const list = users.entries.filter((e) => e.id !== model && asset(e.id)?.clipsFor === model).map((e) => ({ assetId: e.id, source: e.name as string | null }));
+      const key = list.map((x) => `${x.assetId}:${x.source ?? ''}`).join('|');
+      if (live) setSources((s) => (s.model === model && s.key === key ? s : { model, key, list }));
+    })();
     return () => {
       live = false;
     };
-  }, [model, JSON.stringify(models)]); // eslint-disable-line react-hooks/exhaustive-deps -- models are compared by content since the list is rebuilt each render
+  }, [model, catalog, version, asset]);
+  useEffect(() => {
+    let live = true;
+    if (model === '' || sources.model !== model) {
+      setClips([]);
+      return;
+    }
+    const all = [{ assetId: model, source: null as string | null }, ...sources.list];
+    void Promise.all(all.map(async (src) => (await clipsOf(src.assetId)).map((c) => ({ ...c, assetId: src.assetId, source: src.source })))).then((lists) => live && setClips(lists.flat()));
+    return () => {
+      live = false;
+    };
+  }, [model, sources]); // eslint-disable-line react-hooks/exhaustive-deps -- clipsOf is a new closure each render; the clips follow the model and its clip files
   return clips;
 }
 

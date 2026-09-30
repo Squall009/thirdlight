@@ -14,13 +14,18 @@
  */
 import { useState, type JSX } from 'react';
 import type { DescriptorRegistry, EventCue, ObjectFieldDescriptor } from '@thirdlight/project-model';
-import type { AssetView } from '../session/content-projection';
 import type { PreviewAudioStatus, PreviewAudioDiagnostic } from '../session/preview-audio';
 import { componentPatch } from '../session/descriptor-fields';
 import { ObjectFields, type FieldContext } from './DescriptorFields';
+import { useAssetSummaries } from './catalog/catalog-context';
+import { AUDIO_KINDS, RefPicker, useFirstEntry } from './catalog/RefPicker';
+import { useIndexList } from './catalog/useIndexList';
+import { VirtualList } from './catalog/VirtualList';
+
+/** One row of the sound list (px). */
+const SOUND_ROW = 28;
 
 interface Props {
-  assets: readonly AssetView[];
   previewStatus: PreviewAudioStatus;
   previewDiagnostics: readonly PreviewAudioDiagnostic[];
   onUnlockPreview: () => void;
@@ -54,12 +59,12 @@ function EventSounds(p: Props): JSX.Element | null {
   const [error, setError] = useState<string | null>(null);
   const desc = cueItemDesc(p.registry);
   const cues = p.eventCues ?? [];
+  const first = useFirstEntry(AUDIO_KINDS).first;
   if (p.onSetEventCues === undefined || p.fieldContext === undefined || desc === null) return null;
   const setCues = p.onSetEventCues;
   const set = (next: EventCue[]): void => setCues(next, [...cues]);
   const ctx = p.fieldContext;
-  const sounds = p.assets.filter((a) => a.kind === 'audio');
-  const pick = sound !== '' ? sound : (sounds[0]?.assetId ?? '');
+  const pick = sound !== '' ? sound : (first ?? '');
   const canAdd = name.trim() !== '' && pick !== '';
   const add = (): void => {
     if (!canAdd) return;
@@ -110,13 +115,7 @@ function EventSounds(p: Props): JSX.Element | null {
             if (e.key === 'Enter') add();
           }}
         />
-        <select aria-label="new event sound asset" value={pick} onChange={(e) => setSound(e.target.value)}>
-          {sounds.map((a) => (
-            <option key={a.assetId} value={a.assetId}>
-              {a.displayName}
-            </option>
-          ))}
-        </select>
+        <RefPicker aria="new event sound asset" kinds={AUDIO_KINDS} value={pick} onPick={(id) => id !== '' && setSound(id)} />
         <button className="tl-btn" onClick={add} disabled={!canAdd}>
           add event sound
         </button>
@@ -126,8 +125,22 @@ function EventSounds(p: Props): JSX.Element | null {
   );
 }
 
+/** One sound of the list: its name, its version once read, and a preview button. */
+function SoundRow(p: { id: string; name: string; onPreview: (assetId: string) => void }): JSX.Element {
+  const [a] = useAssetSummaries([p.id]);
+  return (
+    <div className="tl-media__cue-row" style={{ height: SOUND_ROW - 2 }}>
+      <span className="tl-media__cue-label">{p.name}</span>
+      <span className="tl-inspector__hint">{a !== undefined ? `v${a.currentVersion}` : ''}</span>
+      <button className="tl-btn tl-btn--small" aria-label={`preview ${p.name}`} onClick={() => p.onPreview(p.id)} title="Play the sound (enable preview sound first)">
+        ▶
+      </button>
+    </div>
+  );
+}
+
 export function MediaPanel(props: Props): JSX.Element {
-  const sounds = props.assets.filter((a) => a.kind === 'audio');
+  const sounds = useIndexList({ kinds: AUDIO_KINDS });
   const status = props.previewStatus;
   return (
     <div className="tl-panel tl-media" aria-label="media">
@@ -135,20 +148,20 @@ export function MediaPanel(props: Props): JSX.Element {
       <p className="tl-note">
         Listen to the project's sounds. Where they are used is set in the Inspector (an audio source, a component's sound field) and in the event sounds below (a sound for a signal or an event).
       </p>
-      {sounds.length === 0 ? (
+      {sounds.total === 0 ? (
         <p className="tl-note">No sounds yet: import a WAV in the Assets tab.</p>
       ) : (
-        <div className="tl-media__cues">
-          {sounds.map((a) => (
-            <div className="tl-media__cue-row" key={a.assetId}>
-              <span className="tl-media__cue-label">{a.displayName}</span>
-              <span className="tl-inspector__hint">v{a.currentVersion}</span>
-              <button className="tl-btn tl-btn--small" aria-label={`preview ${a.displayName}`} onClick={() => props.onPreviewCue(a.assetId)} title="Play the sound (enable preview sound first)">
-                ▶
-              </button>
-            </div>
-          ))}
-        </div>
+        <VirtualList
+          as="div"
+          className="tl-media__cues tl-virtual"
+          count={sounds.total ?? 0}
+          stride={SOUND_ROW}
+          onRange={sounds.need}
+          renderItem={(i) => {
+            const e = sounds.entry(i);
+            return e === undefined ? <div key={`i${i}`} style={{ height: SOUND_ROW }} /> : <SoundRow key={e.id} id={e.id} name={e.name} onPreview={props.onPreviewCue} />;
+          }}
+        />
       )}
       <p className="tl-note">
         Preview: <code>{status.state}{status.state === 'ready' ? (status.muted ? ' (muted)' : '') : ''}</code>. Sound starts only after the button below (no autoplay).

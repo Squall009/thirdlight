@@ -70,7 +70,16 @@ export class PrefabProjection {
     for (const b of behaviors) this.behaviors.set(b.behaviorId, toDeclarationView(b));
   }
 
-  /** Ascending `prefabId` order. */
+  /** Add or replace definitions read by id (a list shows the index; a definition is read when it is used). */
+  putDefinitions(definitions: readonly PrefabDefinition[]): void {
+    for (const d of definitions) this.definitions.set(d.prefabId, cloneDefinition(d));
+  }
+
+  hasDefinition(prefabId: string): boolean {
+    return this.definitions.has(prefabId);
+  }
+
+  /** Ascending `prefabId` order (the definitions read so far). */
   listDefinitions(): PrefabDefinition[] {
     return [...this.definitions.values()].sort((a, b) => (a.prefabId < b.prefabId ? -1 : a.prefabId > b.prefabId ? 1 : 0));
   }
@@ -93,6 +102,7 @@ export class PrefabProjection {
     return this.definitions.size;
   }
 
+  /** The ids of the definitions read so far (a new id is checked against the index, not this). */
   get prefabIds(): string[] {
     return this.listDefinitions().map((d) => d.prefabId);
   }

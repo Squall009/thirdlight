@@ -14,7 +14,9 @@
 import { MAX_TEXTURE_LAYERS } from '@thirdlight/project-model/limits';
 import { useState, type JSX } from 'react';
 
-import type { AssetView } from '../session/content-projection';
+import { useAssetSummaries } from './catalog/catalog-context';
+import { RefPicker, TEXTURE_KINDS, useEntryNames } from './catalog/RefPicker';
+import { useIndexList } from './catalog/useIndexList';
 
 export type PackChannel = { assetId: string; channel: 'r' | 'g' | 'b' | 'a' } | { value: number };
 export interface PackRequest {
@@ -30,30 +32,38 @@ const channelOf = (v: string): PackChannel => (v.startsWith('=') ? { value: Numb
 /** An empty layer: black, opaque. */
 const EMPTY: PackChannel[] = [{ value: 0 }, { value: 0 }, { value: 0 }, { value: 255 }];
 
-export function TexturePackForm(p: { textures: readonly AssetView[]; onPack: (req: PackRequest) => Promise<string | null>; onClose: () => void }): JSX.Element {
-  // Only PNG/JPEG textures can be unpacked into channels.
-  const sources = p.textures.filter((a) => a.kind === 'texture' && (a.image === undefined || a.image.format === 'png' || a.image.format === 'jpeg'));
-  const first = sources[0];
+export function TexturePackForm(p: { onPack: (req: PackRequest) => Promise<string | null>; onClose: () => void }): JSX.Element {
+  // The channels offered: the textures of the index's first page and any the form uses (a larger
+  // project picks more with "add a source"); KTX2 textures cannot be unpacked into channels.
+  const page = useIndexList({ kinds: TEXTURE_KINDS });
+  const listed: string[] = [];
+  for (let i = 0; i < Math.min(page.total ?? 0, 256); i++) {
+    const e = page.entry(i);
+    if (e !== undefined) listed.push(e.id);
+  }
   const whole = (id: string): PackChannel[] => CHANNELS.map((channel) => ({ assetId: id, channel }));
   const [name, setName] = useState('Packed texture');
   const [encoding, setEncoding] = useState<'color' | 'normal' | 'data'>('color');
-  const [layers, setLayers] = useState<PackChannel[][]>(() => [first !== undefined ? whole(first.assetId) : [...EMPTY]]);
+  const [layers, setLayers] = useState<PackChannel[][]>(() => [[...EMPTY]]);
+  const [added, setAdded] = useState<readonly string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const setLayer = (i: number, l: PackChannel[]): void => setLayers((ls) => ls.map((x, j) => (j === i ? l : x)));
-  const size = (id: string): string => {
-    const img = sources.find((s) => s.assetId === id)?.image;
-    return img !== undefined ? ` (${img.width}×${img.height})` : '';
-  };
+  const used = layers.flatMap((l) => l.flatMap((c) => ('assetId' in c ? [c.assetId] : [])));
+  const candidates = [...new Set([...listed, ...added, ...used])];
+  const summaries = useAssetSummaries(candidates);
+  const sources = candidates.filter((_, i) => summaries[i] === undefined || summaries[i]!.image === undefined || summaries[i]!.image!.format === 'png' || summaries[i]!.image!.format === 'jpeg');
+  const first = sources[0];
+  const names = useEntryNames(sources, TEXTURE_KINDS);
   const options = (
     <>
       <option value="=0">0</option>
       <option value="=128">128</option>
       <option value="=255">255</option>
-      {sources.map((s) =>
+      {sources.map((id) =>
         CHANNELS.map((c) => (
-          <option key={`${s.assetId}:${c}`} value={`${s.assetId}:${c}`}>
-            {s.displayName} {c.toUpperCase()}
+          <option key={`${id}:${c}`} value={`${id}:${c}`}>
+            {names.get(id) ?? id} {c.toUpperCase()}
           </option>
         )),
       )}
@@ -88,21 +98,7 @@ export function TexturePackForm(p: { textures: readonly AssetView[]; onPack: (re
       {layers.map((l, i) => (
         <div className="tl-assets__pack-layer" key={i} data-layer={i}>
           <span className="tl-field__label">layer {i + 1}</span>
-          <select
-            className="tl-input tl-input--small"
-            aria-label={`layer ${i + 1} from`}
-            title="Take all four channels of one texture"
-            value=""
-            onChange={(e) => e.target.value !== '' && setLayer(i, whole(e.target.value))}
-          >
-            <option value="">RGBA of…</option>
-            {sources.map((s) => (
-              <option key={s.assetId} value={s.assetId}>
-                {s.displayName}
-                {size(s.assetId)}
-              </option>
-            ))}
-          </select>
+          <RefPicker aria={`layer ${i + 1} from`} kinds={TEXTURE_KINDS} className="tl-input tl-input--small" title="Take all four channels of one texture" value="" none="RGBA of…" onPick={(id) => id !== '' && setLayer(i, whole(id))} />
           {CHANNELS.map((c, k) => (
             <label key={c} className="tl-field--inline">
               {c.toUpperCase()}{' '}
@@ -119,7 +115,8 @@ export function TexturePackForm(p: { textures: readonly AssetView[]; onPack: (re
         </div>
       ))}
       <div className="tl-assets__row">
-        <button className="tl-btn tl-btn--small" aria-label="add layer" onClick={() => setLayers((ls) => [...ls, first !== undefined ? whole(first.assetId) : [...EMPTY]])} disabled={layers.length >= MAX_TEXTURE_LAYERS}>
+        <RefPicker aria="pack source" kinds={TEXTURE_KINDS} className="tl-input tl-input--small" title="Offer another texture's channels in the layers' channel choices" value="" none="add a source…" onPick={(id) => id !== '' && setAdded((a) => (a.includes(id) ? a : [...a, id]))} />
+        <button className="tl-btn tl-btn--small" aria-label="add layer" onClick={() => setLayers((ls) => [...ls, first !== undefined ? whole(first) : [...EMPTY]])} disabled={layers.length >= MAX_TEXTURE_LAYERS}>
           + layer
         </button>
         <button className="tl-btn tl-btn--small" aria-label="pack" disabled={busy || sources.length === 0} onClick={() => void pack()} title="Pack and encode on the server, then add the texture to the project (one undo)">

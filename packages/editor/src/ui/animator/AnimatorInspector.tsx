@@ -23,7 +23,7 @@ import type { AnimatorCondition, AnimatorController, AnimatorState, AnimatorTran
 import { GraphInspector } from '../../graph/GraphInspector';
 import { ANIMATOR_ANY, ANIMATOR_ENTRY, ANIMATOR_ENTRY_WIRE, animatorBlendStateOf, animatorGraphOf, animatorLayerOf, animatorOwnerId, animatorTransitionPairs, parseAnimatorOwnerId, type AnimatorOwnerTarget } from '../../graph/animator';
 import { nodeDefOf, type GraphKindDef, type GraphOp } from '../../graph/model';
-import { ClipSelect, paramOptions, rigOf, useClipChoices, type AnimatorModels, type ClipInfo } from './parts';
+import { ClipSelect, paramOptions, useClipChoices, useRigOf, type ClipInfo } from './parts';
 
 export interface AnimatorInspectorProps {
   controller: AnimatorController;
@@ -31,7 +31,6 @@ export interface AnimatorInspectorProps {
   ownerId: string;
   ids: readonly string[];
   kinds: Readonly<Record<string, GraphKindDef>>;
-  models: AnimatorModels;
   clipsOf: (assetId: string) => Promise<ClipInfo[]>;
   onGraphEdit: (ownerId: string, ops: GraphOp[]) => Promise<string | null>;
   onSave: (controller: AnimatorController) => void;
@@ -68,8 +67,8 @@ export function AnimatorInspector(p: AnimatorInspectorProps): JSX.Element {
   const target: AnimatorOwnerTarget = asked !== null && asked.controllerId === c.controllerId && animatorGraphOf(c, asked) !== null ? asked : { controllerId: c.controllerId, layer: 0 };
   const view = animatorGraphOf(c, target);
   const kind = view !== null ? p.kinds[view.kindId] : undefined;
-  const model = rigOf(c, p.models) ?? '';
-  const clips = useClipChoices(model, p.models, p.clipsOf);
+  const model = useRigOf(c) ?? '';
+  const clips = useClipChoices(model, p.clipsOf);
   if (view === null || kind === undefined) return <div className="tl-inspector__empty">Loading…</div>;
   const graph = view.graph;
   const edit = (ops: GraphOp[]): void => void p.onGraphEdit(animatorOwnerId(target), ops).then(setError);

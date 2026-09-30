@@ -321,8 +321,8 @@ export interface InstantiateInput {
   overrides?: readonly OverrideInput[];
   /** Existing scene entity IDs (parent resolution + `entityRef` targets). */
   sceneEntityIds: readonly string[];
-  /** Catalog asset IDs (`assetRef` override resolution). */
-  assetIds: readonly string[];
+  /** Catalog asset IDs (`assetRef` override resolution); absent: the backend checks them (the editor reads the catalog in pages). */
+  assetIds?: readonly string[];
   /** The projected scene size before insertion (the `entities` limit). */
   sceneEntityCount: number;
   /** The depth of `parentId` (root = 1); 0 for the scene root. */
@@ -485,7 +485,7 @@ export function planInstantiatePrefab(input: InstantiateInput): PlanResult<{ com
     }
     if (prop.type === 'assetRef' && override.value !== null) {
       const target = override.value as string;
-      if (!input.assetIds.includes(target)) {
+      if (input.assetIds !== undefined && !input.assetIds.includes(target)) {
         return {
           ok: false,
           error: { code: 'asset_reference_missing', message: `the assetRef override names ${target}, which is not in the asset catalog`, found: target, expected: 'an existing assetId', key: override.key, localId: override.localId },

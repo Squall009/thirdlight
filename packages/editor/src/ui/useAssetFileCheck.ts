@@ -31,7 +31,10 @@ export function useAssetFileCheck(clientRef: RefObject<SessionClient | null>, co
     const r = await c.checkFiles();
     setChecking(false);
     if (!r.ok) return;
-    const names = new Map(c.content.listAssets().map((a) => [a.assetId, a.displayName]));
+    // The names of the assets the report names (the problems only: read by id from the index).
+    const ids = [...new Set([...r.entries.map((e) => e.assetId), ...r.check.relocated.map((x) => x.assetId), ...r.check.reimported.map((x) => x.assetId), ...r.check.rebuilt.map((x) => x.assetId), ...r.check.failed.map((x) => x.assetId)])];
+    const named = ids.length === 0 ? [] : await c.catalog.entries(ids).catch(() => []);
+    const names = new Map(named.map((e) => [e.id, e.name] as const));
     setSourceIssues(sourceIssuesFrom(r.entries, names, r.check));
   }, [clientRef]);
   useEffect(() => {

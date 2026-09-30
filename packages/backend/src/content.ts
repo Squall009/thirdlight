@@ -694,9 +694,10 @@ export class ContentRoutes {
       await this.bakeRoute(req, res, projectId, method, parts.slice(6));
       return true;
     }
-    // GET|PUT /api/v1/projects/:projectId/content/thumbnails/:digest?piece= (the tile preview cache)
+    // GET|PUT /api/v1/projects/:projectId/content/thumbnails/:digest?piece=&asset= (the tile preview cache;
+    // with `asset`, a texture's thumbnail missing from the cache is made from its image)
     if (n === 7 && parts[5] === 'thumbnails') {
-      if (method === 'GET') this.thumbnailRead(req, res, projectId, parts[6] ?? '', query);
+      if (method === 'GET') await this.thumbnailRead(req, res, projectId, parts[6] ?? '', query);
       else if (method === 'PUT') await this.thumbnailWrite(req, res, projectId, parts[6] ?? '', query);
       else return this.methodNotAllowed(res, 'GET, PUT');
       return true;
@@ -1644,11 +1645,16 @@ export class ContentRoutes {
     return piece;
   }
 
-  private thumbnailRead(req: IncomingMessage, res: ServerResponse, projectId: string, digest: string, query: Map<string, string>): void {
+  private async thumbnailRead(req: IncomingMessage, res: ServerResponse, projectId: string, digest: string, query: Map<string, string>): Promise<void> {
     const auth = this.deps.requireAuth(req, projectId, false);
     if (auth !== null) return this.deps.sendError(res, auth);
     const piece = this.thumbnailPiece(res, query);
     if (piece === undefined) return;
+    const asset = query.get('asset');
+    if (piece === null && asset !== undefined && asset !== '' && this.deps.thumbnails !== undefined && this.deps.thumbnails.etag(projectId, digest, null) === null) {
+      const made = await this.makeTextureThumbnail(projectId, asset, digest);
+      if (made !== null) this.deps.thumbnails.write(projectId, digest, null, made);
+    }
     // Revalidation — an unchanged cached thumbnail answers 304 without its bytes.
     const etag = this.deps.thumbnails?.etag(projectId, digest, piece) ?? null;
     if (etag !== null && req.headers['if-none-match'] === etag) {
@@ -1672,6 +1678,43 @@ export class ContentRoutes {
     res.setHeader('cache-control', 'private, no-cache');
     res.statusCode = 200;
     res.end(png);
+  }
+
+  /**
+   * A texture's thumbnail made from its image: the PNG/JPEG itself, or the
+   * image a KTX2 was encoded from (its file in the game folder). Only for the
+   * asset's current version (`digest`); null when there is no image to make
+   * it from (a KTX2 imported as is, a packed texture): the tile keeps its icon.
+   */
+  private async makeTextureThumbnail(projectId: string, assetId: string, digest: string): Promise<Uint8Array | null> {
+    const encoder = this.deps.textureEncoder;
+    if (encoder === undefined) return null;
+    const q = this.deps.service.query({ op: 'queryAssets', projectId, args: { ids: [assetId], includeVersions: true } });
+    type Summary = { kind: string; currentVersion: number; versions?: { version: number; sourceDigest: string }[]; image?: { format: string }; convertedFrom?: { format: string; sourcePath?: string } };
+    const a = (q as unknown as { assets?: Summary[] }).assets?.[0];
+    if (!q.ok || a === undefined || a.kind !== 'texture') return null;
+    const current = a.versions?.find((v) => v.version === a.currentVersion);
+    if (current === undefined || current.sourceDigest !== digest) return null;
+    let bytes: Uint8Array | null = null;
+    if (a.image?.format === 'png' || a.image?.format === 'jpeg') {
+      const r = this.deps.service.readBlob(projectId, { assetId, version: a.currentVersion });
+      if (r.ok) bytes = r.bytes;
+    } else if (a.convertedFrom?.sourcePath !== undefined && (a.convertedFrom.format === 'png' || a.convertedFrom.format === 'jpeg')) {
+      const src = this.deps.service.conversionSource(projectId, a.convertedFrom.sourcePath);
+      if (src.ok) {
+        try {
+          bytes = new Uint8Array(readFileSync(src.real));
+        } catch {
+          bytes = null;
+        }
+      }
+    }
+    if (bytes === null) return null;
+    try {
+      return await encoder.thumbnail(bytes);
+    } catch {
+      return null;
+    }
   }
 
   private async thumbnailWrite(req: IncomingMessage, res: ServerResponse, projectId: string, digest: string, query: Map<string, string>): Promise<void> {

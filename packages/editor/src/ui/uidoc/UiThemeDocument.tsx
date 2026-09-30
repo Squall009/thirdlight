@@ -22,8 +22,6 @@ export interface UiThemeDocumentProps {
   descriptors: UiDescriptors | null;
   onSave: (theme: UiTheme) => Promise<string | null>;
   onOpenDocument: (uiDocumentId: string) => void;
-  textures: readonly { assetId: string; displayName: string }[];
-  fonts: readonly { assetId: string; displayName: string }[];
   fieldContext: FieldContext;
   error: string | null;
   onError: (message: string | null) => void;
@@ -51,11 +49,11 @@ export function UiThemeDocument(p: UiThemeDocumentProps): JSX.Element {
       <div className="tl-uitheme__main">
         <div className="tl-uidoc__panel">
           <div className="tl-subhead">Styles</div>
-          <StyleMapEditor desc={p.descriptors.style} styles={theme.styles} aria="theme" ctx={p.fieldContext} fonts={p.fonts} onChange={(styles) => save({ ...theme, styles })} onFail={(m) => p.onError(m)} />
+          <StyleMapEditor desc={p.descriptors.style} styles={theme.styles} aria="theme" ctx={p.fieldContext} onChange={(styles) => save({ ...theme, styles })} onFail={(m) => p.onError(m)} />
           <div className="tl-subhead">Icons</div>
           <IconMapEditor
             icons={theme.icons ?? {}}
-            textures={p.textures}
+           
             onChange={(icons) => {
               const { icons: _i, ...rest } = theme;
               save(Object.keys(icons).length === 0 ? rest : { ...rest, icons });

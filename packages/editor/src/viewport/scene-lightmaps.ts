@@ -9,7 +9,7 @@
  * bakes, the lighting mode or block chunks change.
  */
 import * as THREE from 'three';
-import { lightmappedMaterial, lightmapTexture, refreshLightmappedMaterial, type BlockLayerView, type LightingBakeLike } from '@thirdlight/three-adapter';
+import { lightmappedMaterial, lightmapTexture, refreshLightmappedMaterial, type BlockLayerView, type LightingBakeLike, type TextureHolds } from '@thirdlight/three-adapter';
 
 import type { ProjectedEntity } from '../session/projection';
 
@@ -34,8 +34,13 @@ export class SceneLightmaps {
   private readonly chunkLayers = new Set<string>();
   /** The lights a bake holds in full (not realtime while it is used). */
   readonly bakedLightIds = new Set<string>();
-  private loadAtlas: ((assetId: string) => Promise<THREE.Texture | null>) | null = null;
-  private atlasTextures = new Map<string, THREE.Texture | null | 'loading'>();
+  /**
+   * The atlases, held in the Scene view's resource manager per entity or
+   * chunk that shows one (decoded once, shared): an object that is not drawn
+   * (its scene closed) lets its atlas go, and an atlas nothing shows is freed.
+   */
+  private holds: TextureHolds | null = null;
+  private readonly held = new Map<string, THREE.Texture | 'loading'>();
   /** Per entity or chunk: its lightmap texture and the lightmapped copy of each original material. */
   private copies = new Map<string, { map: THREE.Texture; atlas: THREE.Texture; copies: Map<THREE.Material, THREE.Material | null> }>();
   private swapped: { mesh: THREE.Mesh; original: THREE.Material | THREE.Material[]; copy: THREE.Material | THREE.Material[] }[] = [];
@@ -45,9 +50,12 @@ export class SceneLightmaps {
   }
 
   /** The project's bakes (sceneId → bake); null clears them. The caller re-syncs its lights (held lights leave realtime) and applies. */
-  set(bakes: Readonly<Record<string, LightingBakeLike>> | null, loadTexture: (assetId: string) => Promise<THREE.Texture | null>): void {
+  set(bakes: Readonly<Record<string, LightingBakeLike>> | null, holds: TextureHolds | null): void {
     this.unapply();
     this.releaseCopies();
+    // A re-bake publishes new versions of the same atlas assets: they are read again.
+    this.releaseAll();
+    this.holds = holds;
     this.entries.clear();
     this.chunkLayers.clear();
     this.bakedLightIds.clear();
@@ -62,10 +70,6 @@ export class SceneLightmaps {
         } else this.entries.set(e.entityId, { bake, atlas, scaleOffset: e.scaleOffset });
       }
     }
-    // A re-bake publishes new versions of the same atlas assets: load them all again.
-    for (const t of this.atlasTextures.values()) if (t !== null && t !== 'loading') t.dispose();
-    this.atlasTextures.clear();
-    this.loadAtlas = loadTexture;
   }
 
   /** Whether a bake has lightmaps for chunks of this block layer (its chunks need lightmap UVs). */
@@ -99,11 +103,13 @@ export class SceneLightmaps {
         if (this.entries.get(key)?.layout === t.layout) chunkMeshes.set(key, [...t.meshes, ...t.coarse]);
       }
     }
+    const drawn = new Set<string>();
     for (const [key, entry] of this.entries) {
-      const atlas = this.atlasTexture(entry.atlas);
-      if (atlas === null) continue;
       const meshes = entry.layout !== undefined ? (chunkMeshes.get(key) ?? null) : this.entityMeshes(key);
       if (meshes === null) continue;
+      drawn.add(key);
+      const atlas = this.atlasFor(key, entry.atlas);
+      if (atlas === null) continue;
       visited.add(key);
       let rec = this.copies.get(key);
       if (rec !== undefined && rec.atlas !== atlas) {
@@ -146,13 +152,14 @@ export class SceneLightmaps {
       for (const c of rec.copies.values()) c?.dispose();
       this.copies.delete(key);
     }
+    // What is not drawn lets its atlas go.
+    for (const key of [...this.held.keys()]) if (!drawn.has(key)) this.release(key);
   }
 
   dispose(): void {
     this.unapply();
     this.releaseCopies();
-    for (const t of this.atlasTextures.values()) if (t !== null && t !== 'loading') t.dispose();
-    this.atlasTextures.clear();
+    this.releaseAll();
   }
 
   /** An entity's meshes with UV1 (another entity's nodes below it keep their own lightmap); null when it is not drawn. */
@@ -179,25 +186,34 @@ export class SceneLightmaps {
     this.copies.clear();
   }
 
-  private atlasTexture(assetId: string): THREE.Texture | null {
-    const have = this.atlasTextures.get(assetId);
+  /** An object's atlas (held for it; null while it is read). */
+  private atlasFor(key: string, assetId: string): THREE.Texture | null {
+    const have = this.held.get(key);
     if (have === 'loading') return null;
     if (have !== undefined) return have;
-    const load = this.loadAtlas;
-    if (load === null) return null;
-    this.atlasTextures.set(assetId, 'loading');
-    void load(assetId)
-      .catch(() => null)
-      .then((t) => {
-        if (this.atlasTextures.get(assetId) !== 'loading') {
-          t?.dispose();
-          return;
-        }
-        this.atlasTextures.set(assetId, t);
-        this.unapply();
-        this.apply();
-        this.host.requestRender();
-      });
+    const holds = this.holds;
+    if (holds === null) return null;
+    this.held.set(key, 'loading');
+    void holds.get(assetId, `lightmap:${key}`).then((t) => {
+      if (this.held.get(key) !== 'loading') return;
+      if (t === null) {
+        this.release(key);
+        return;
+      }
+      this.held.set(key, t);
+      this.unapply();
+      this.apply();
+      this.host.requestRender();
+    });
     return null;
+  }
+
+  private release(key: string): void {
+    this.held.delete(key);
+    this.holds?.releaseHolder(`lightmap:${key}`);
+  }
+
+  private releaseAll(): void {
+    for (const key of [...this.held.keys()]) this.release(key);
   }
 }

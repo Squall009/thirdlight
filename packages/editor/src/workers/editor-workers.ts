@@ -9,10 +9,11 @@
  * (its buffers are transferred, so it copies what it needs — the caller's
  * own data is never detached and the inline version can still use it).
  *
- * Two lanes of the same script: `cpu` (kept: scatter, diagnostics, PNG
- * encoding) and `gpu` (one worker per job, ended after it: the lightmap
- * bake, whose renderer and scene are released at once and which must not
- * hold up the small jobs).
+ * Three lanes of the same script: `cpu` (kept: scatter, diagnostics, PNG
+ * encoding), `thumbnails` (kept: model tile thumbnails, one renderer for
+ * all of them, queued apart so a scroll through a large catalog never holds
+ * up the small jobs) and `gpu` (one worker per job, ended after it: the
+ * lightmap bake, whose renderer and scene are released at once).
  */
 import type { FromWorker, ToWorker } from './protocol';
 import { isFromWorker } from './protocol';
@@ -25,7 +26,7 @@ export interface WorkerLike {
   terminate(): void;
 }
 
-export type Lane = 'cpu' | 'gpu';
+export type Lane = 'cpu' | 'gpu' | 'thumbnails';
 
 export interface RunOptions<T> {
   /** The same job on the page (identical result); runs when no worker can. */
@@ -146,6 +147,7 @@ export interface EditorWorkersOptions {
 
 export class EditorWorkers {
   private cpu: LaneWorker | null = null;
+  private thumbnails: LaneWorker | null = null;
   private nextId = 1;
   /** A worker never became ready (no script, blocked, too slow): every later job runs inline without waiting again. */
   private unavailable = false;
@@ -160,6 +162,10 @@ export class EditorWorkers {
 
   private lane(which: Lane): LaneWorker {
     if (which === 'gpu') return new LaneWorker(this.options.create);
+    if (which === 'thumbnails') {
+      if (this.thumbnails === null || !this.thumbnails.alive) this.thumbnails = new LaneWorker(this.options.create);
+      return this.thumbnails;
+    }
     if (this.cpu === null || !this.cpu.alive) this.cpu = new LaneWorker(this.options.create);
     return this.cpu;
   }
@@ -191,6 +197,8 @@ export class EditorWorkers {
   dispose(): void {
     this.cpu?.kill();
     this.cpu = null;
+    this.thumbnails?.kill();
+    this.thumbnails = null;
   }
 }
 

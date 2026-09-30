@@ -196,7 +196,7 @@ describe('failure preserves the previous committed content', () => {
         },
       ],
     });
-    const before = content.listAssets().map((a) => ({ ...a }));
+    const before = content.cachedAssets().map((a) => ({ ...a }));
 
     let s = beginImport(initialImportState, { mode: 'reimport', assetId: 'asset-0001', displayName: null });
     s = stageCreated(s, 'stage-0001', 200);
@@ -208,7 +208,7 @@ describe('failure preserves the previous committed content', () => {
 
     expect(s.phase).toBe('failed');
     // The catalog is unchanged: only an APPLIED publishAsset change updates it.
-    expect(content.listAssets()).toEqual(before);
+    expect(content.cachedAssets()).toEqual(before);
     expect(content.currentVersion('asset-0001')).toBe(1);
   });
 });

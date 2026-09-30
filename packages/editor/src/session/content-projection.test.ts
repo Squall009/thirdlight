@@ -74,7 +74,7 @@ describe('content projection', () => {
         { assetId: 'asset-0001', kind: 'model', displayName: 'A', currentVersion: 2, versionCount: 2 },
       ],
     });
-    expect(c.listAssets().map((a) => a.assetId)).toEqual(['asset-0001', 'asset-0002']);
+    expect(c.cachedAssets().map((a) => a.assetId)).toEqual(['asset-0001', 'asset-0002']);
     expect(c.currentVersion('asset-0001')).toBe(2);
     expect(c.currentVersion('asset-missing')).toBeNull();
     expect(c.size).toBe(2);

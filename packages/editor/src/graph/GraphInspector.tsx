@@ -8,6 +8,7 @@
  * transition wire); it returns null for the rest, which get the generic
  * forms. `empty` replaces the hint shown when nothing is selected.
  */
+import { RefPicker } from '../ui/catalog/RefPicker';
 import { useEffect, useState, type JSX, type ReactNode } from 'react';
 
 import { diagnoseGraph, edgeConversion, fieldValue, nodeDefOf, portDef, portsResolver, portTypeLabel, type GraphContext, type GraphData, type GraphKindDef, type GraphOp, type PortsOf } from './model';
@@ -25,13 +26,13 @@ interface Props {
   empty?: ReactNode;
   /** What data-dependent ports read outside the graph (see GraphEditor). */
   portContext?: GraphContext;
-  /** The choices for a field that names an asset (`GraphFieldDef.asset`); absent = a text box. */
-  assetOptions?: (assetKind: string) => readonly { id: string; label: string }[];
+  /** The index kinds a field that names an asset may pick (`GraphFieldDef.asset`, e.g. `voice` → audio); absent = a text box. */
+  assetKinds?: (assetKind: string) => readonly string[];
   /** The choices of a text field the host knows (e.g. a call node's function: the script's functions); undefined = a text box. */
   fieldOptions?: (field: GraphFieldDef, node: GraphNode) => readonly { id: string; label: string }[] | undefined;
 }
 
-export function GraphInspector({ kind, graph, ids, onEdit, extension, empty, portContext, assetOptions, fieldOptions }: Props): JSX.Element {
+export function GraphInspector({ kind, graph, ids, onEdit, extension, empty, portContext, assetKinds, fieldOptions }: Props): JSX.Element {
   const portsOf = portsResolver(kind, graph, portContext);
   const [error, setError] = useState<string | null>(null);
   const edit = (ops: GraphOp[]): void => {
@@ -50,7 +51,7 @@ export function GraphInspector({ kind, graph, ids, onEdit, extension, empty, por
   const comment = (graph.comments ?? []).find((c) => c.id === id);
   return (
     <div className="tl-graph-inspector" aria-label="Graph item">
-      {node !== undefined && <NodeFields kind={kind} graph={graph} node={node} edit={edit} portsOf={portsOf} {...(assetOptions !== undefined ? { assetOptions } : {})} {...(fieldOptions !== undefined ? { fieldOptions } : {})} />}
+      {node !== undefined && <NodeFields kind={kind} graph={graph} node={node} edit={edit} portsOf={portsOf} {...(assetKinds !== undefined ? { assetKinds } : {})} {...(fieldOptions !== undefined ? { fieldOptions } : {})} />}
       {edge !== undefined && (
         <>
           <div className="tl-inspector__title">Wire</div>
@@ -102,7 +103,7 @@ function NodeFields({
   node,
   edit,
   portsOf,
-  assetOptions,
+  assetKinds,
   fieldOptions,
 }: {
   kind: GraphKindDef;
@@ -110,7 +111,7 @@ function NodeFields({
   node: GraphNode;
   edit: (ops: GraphOp[]) => void;
   portsOf: PortsOf;
-  assetOptions?: (assetKind: string) => readonly { id: string; label: string }[];
+  assetKinds?: (assetKind: string) => readonly string[];
   fieldOptions?: (field: GraphFieldDef, node: GraphNode) => readonly { id: string; label: string }[] | undefined;
 }): JSX.Element {
   const def = nodeDefOf(kind, node.type);
@@ -170,16 +171,8 @@ function NodeFields({
               </select>
             ) : f.type === 'color' ? (
               <input type="color" aria-label={f.label} value={String(v)} onChange={(e) => setField(f, e.target.value.toLowerCase())} />
-            ) : f.type === 'string' && f.asset !== undefined && assetOptions !== undefined ? (
-              <select className="tl-input" aria-label={f.label} value={String(v)} onChange={(e) => setField(f, e.target.value)}>
-                <option value="">(none)</option>
-                {assetOptions(f.asset).map((o) => (
-                  <option key={o.id} value={o.id}>
-                    {o.label}
-                  </option>
-                ))}
-                {String(v) !== '' && !assetOptions(f.asset).some((o) => o.id === v) && <option value={String(v)}>{String(v)} (missing)</option>}
-              </select>
+            ) : f.type === 'string' && f.asset !== undefined && assetKinds !== undefined ? (
+              <RefPicker aria={f.label} kinds={assetKinds(f.asset)} value={String(v)} none="(none)" onPick={(id) => setField(f, id)} />
             ) : f.type === 'boolean' ? (
               <input type="checkbox" aria-label={f.label} checked={v === true} onChange={(e) => setField(f, e.target.checked)} />
             ) : f.type === 'enum' ? (

@@ -99,10 +99,11 @@ beforeAll(async () => {
   mcp = await createMcp(bp.origin);
   session = await establish(bp.origin);
   ws = await openWs(bp.origin, session);
-  // The establish full state carries the content projection.
-  const content = session.body.content as { assets: Array<{ assetId: string }> } | undefined;
-  expect(content).toBeDefined();
-  expect(content?.assets.map((a) => a.assetId)).toContain('asset-00000000000000a1');
+  // The establish full state says how big the project index is; the records are read by id or in pages.
+  const content = session.body.content as { index: { total: number } } | undefined;
+  expect(content?.index.total).toBeGreaterThan(0);
+  const seeded = await command({ op: 'queryAssets', projectId: CONTENT_PROJECT, args: { ids: ['asset-00000000000000a1'] } });
+  expect((seeded.body.assets as Array<{ assetId: string }>).map((a) => a.assetId)).toEqual(['asset-00000000000000a1']);
   revision = session.revision;
 }, 90_000);
 
@@ -406,8 +407,9 @@ describe('content flow (real process + real fs + real stdio MCP)', () => {
   it('a full re-attach matches the incremental projection', async () => {
     // Re-attach the SAME session (a fresh sessionId would 409 while active).
     const again = await establish(bp.origin, session.sessionId);
-    const content = again.body.content as { assets: Array<{ assetId: string; currentVersion: number }> };
-    expect(content.assets.find((a) => a.assetId === importedAssetId)?.currentVersion).toBe(2);
+    expect((again.body.content as { index: { total: number } }).index.total).toBeGreaterThan(0);
+    const read = await command({ op: 'queryAssets', projectId: CONTENT_PROJECT, args: { ids: [importedAssetId] } });
+    expect((read.body.assets as Array<{ assetId: string; currentVersion: number }>)[0]?.currentVersion).toBe(2);
     expect(again.revision).toBe(await currentRevision());
   }, 60_000);
 

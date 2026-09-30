@@ -27,22 +27,12 @@
  * refused (no WebP decoder on the server: export the source as PNG).
  */
 import { Worker } from 'node:worker_threads';
-import { inflateSync } from 'node:zlib';
 
-import { decodePngRgba } from '@thirdlight/project-model/png';
 import { MAX_TEXTURE_LAYERS } from '@thirdlight/project-model/limits';
-import jpeg from 'jpeg-js';
 import * as ktx2Encoder from 'ktx2-encoder';
 
-interface DecodedImage {
-  readonly width: number;
-  readonly height: number;
-  /** width × height × 4 bytes, rows top to bottom. */
-  readonly data: Uint8Array;
-}
-
-/** Node's inflate, refusing to produce more than the PNG header implies. */
-const nodeInflate = (data: Uint8Array, maxOut: number): Uint8Array => inflateSync(data, { maxOutputLength: maxOut });
+import { decodeSource, sourceFormat, type DecodedImage } from './image-decode';
+import { makeImageThumbnail } from './image-thumbnail';
 
 export type Ktx2Mode = 'color' | 'normal' | 'data';
 export const KTX2_MODES: readonly Ktx2Mode[] = ['color', 'normal', 'data'];
@@ -70,27 +60,11 @@ export type Ktx2PackResult =
 
 export interface TextureEncoder {
   encode(bytes: Uint8Array, mode: Ktx2Mode): Promise<Ktx2EncodeResult>;
+  /** A tile thumbnail (PNG) of a PNG/JPEG image; null when the image cannot be read. */
+  thumbnail(bytes: Uint8Array): Promise<Uint8Array | null>;
   /** Pack the layers' channels from the source images (PNG/JPEG bytes) and encode one KTX2 (an array with several layers). */
   pack(sources: readonly Uint8Array[], layers: readonly PackLayer[], mode: Ktx2Mode): Promise<Ktx2PackResult>;
   dispose?(): void;
-}
-
-function sourceFormat(bytes: Uint8Array): 'png' | 'jpeg' | 'webp' | 'ktx2' | null {
-  if (bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return 'png';
-  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'jpeg';
-  if (bytes.length >= 12 && String.fromCharCode(...bytes.subarray(0, 4)) === 'RIFF' && String.fromCharCode(...bytes.subarray(8, 12)) === 'WEBP') return 'webp';
-  if (bytes.length >= 12 && bytes[0] === 0xab && bytes[1] === 0x4b && bytes[2] === 0x54 && bytes[3] === 0x58) return 'ktx2';
-  return null;
-}
-
-function decodeSource(bytes: Uint8Array, format: 'png' | 'jpeg', maxPixels = KTX2_SOURCE_PIXELS_MAX): DecodedImage {
-  if (format === 'png') {
-    const r = decodePngRgba(bytes, { maxPixels, inflate: nodeInflate });
-    if (!r.ok) throw new Error(r.message);
-    return { width: r.png.width, height: r.png.height, data: r.png.rgba };
-  }
-  const img = jpeg.decode(bytes, { useTArray: true, formatAsRGBA: true, maxResolutionInMP: maxPixels / (1024 * 1024), maxMemoryUsageInMB: 512 });
-  return { width: img.width, height: img.height, data: new Uint8Array(img.data.buffer, img.data.byteOffset, img.data.byteLength) };
 }
 
 /** Encode one PNG/JPEG to KTX2 in this thread (the worker runs this too). */
@@ -101,7 +75,7 @@ export async function encodeKtx2(bytes: Uint8Array, mode: Ktx2Mode): Promise<Ktx
   if (format === null) return { ok: false, code: 'texture_encode_unsupported', message: 'not a PNG or JPEG image' };
   let img: DecodedImage;
   try {
-    img = decodeSource(bytes, format);
+    img = decodeSource(bytes, format, KTX2_SOURCE_PIXELS_MAX);
   } catch (e) {
     return { ok: false, code: 'texture_encode_failed', message: `the ${format.toUpperCase()} could not be decoded: ${e instanceof Error ? e.message : String(e)}` };
   }
@@ -263,7 +237,7 @@ export const KTX2_WORKER_LIMITS = { maxOldGenerationSizeMb: 512, maxYoungGenerat
 
 /** In this thread (tests; a busy encode holds the event loop). */
 export function createInlineTextureEncoder(): TextureEncoder {
-  return { encode: encodeKtx2, pack: packKtx2 };
+  return { encode: encodeKtx2, pack: packKtx2, thumbnail: async (bytes) => makeImageThumbnail(bytes) };
 }
 
 /**
@@ -286,7 +260,7 @@ export function createWorkerTextureEncoder(workerUrl: URL, options: { idleMs?: n
   let worker: Worker | null = null;
   let idle: ReturnType<typeof setTimeout> | null = null;
   let next = 1;
-  const pending = new Map<number, (r: Ktx2EncodeResult | Ktx2PackResult) => void>();
+  const pending = new Map<number, (r: Ktx2EncodeResult | Ktx2PackResult | { thumbnail: Uint8Array | null }) => void>();
   const failAll = (message: string): void => {
     for (const done of pending.values()) done({ ok: false, code: 'texture_encode_failed', message });
     pending.clear();
@@ -309,7 +283,7 @@ export function createWorkerTextureEncoder(workerUrl: URL, options: { idleMs?: n
     // pixel limit, not by these.
     const w = new Worker(workerUrl, { resourceLimits: KTX2_WORKER_LIMITS });
     w.unref();
-    w.on('message', (m: { id: number; result: Ktx2EncodeResult | Ktx2PackResult }) => {
+    w.on('message', (m: { id: number; result: Ktx2EncodeResult | Ktx2PackResult | { thumbnail: Uint8Array | null } }) => {
       const done = pending.get(m.id);
       pending.delete(m.id);
       done?.(m.result);
@@ -339,7 +313,7 @@ export function createWorkerTextureEncoder(workerUrl: URL, options: { idleMs?: n
       const w = start();
       const id = next++;
       return new Promise((resolve) => {
-        pending.set(id, resolve as (r: Ktx2EncodeResult | Ktx2PackResult) => void);
+        pending.set(id, resolve as (r: Ktx2EncodeResult | Ktx2PackResult | { thumbnail: Uint8Array | null }) => void);
         const copy = bytes.slice();
         w.postMessage({ id, bytes: copy, mode }, [copy.buffer]);
       });
@@ -348,9 +322,18 @@ export function createWorkerTextureEncoder(workerUrl: URL, options: { idleMs?: n
       const w = start();
       const id = next++;
       return new Promise((resolve) => {
-        pending.set(id, resolve as (r: Ktx2EncodeResult | Ktx2PackResult) => void);
+        pending.set(id, resolve as (r: Ktx2EncodeResult | Ktx2PackResult | { thumbnail: Uint8Array | null }) => void);
         const copies = sources.map((b) => b.slice());
         w.postMessage({ id, pack: { sources: copies, layers }, mode }, copies.map((c) => c.buffer));
+      });
+    },
+    thumbnail(bytes) {
+      const w = start();
+      const id = next++;
+      return new Promise((resolve) => {
+        pending.set(id, (r) => resolve('thumbnail' in r ? r.thumbnail : null));
+        const copy = bytes.slice();
+        w.postMessage({ id, thumbnail: copy }, [copy.buffer]);
       });
     },
     dispose() {

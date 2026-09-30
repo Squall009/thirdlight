@@ -3,7 +3,7 @@
  * job (the same OffscreenCanvas encoder as the worker where the page has
  * one, else a DOM canvas).
  */
-import { encodePngOffscreen, type EncodeInput } from './jobs';
+import { encodePngOffscreen, type EncodeInput } from './png-offscreen';
 
 export async function encodePngOnPage(input: EncodeInput): Promise<Uint8Array> {
   if (typeof OffscreenCanvas === 'function') return encodePngOffscreen(input);

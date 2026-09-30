@@ -21,14 +21,13 @@
 import { MAX_INPUT_ACTIONS, MAX_INPUT_BINDINGS, MAX_INPUT_MAPS } from '@thirdlight/project-model/limits';
 import { useEffect, useRef, useState, type JSX } from 'react';
 import type { CursorMode, InputAction, InputActionType, InputBinding, InputConfig } from '@thirdlight/project-model';
+import { EntryName, RefPicker, TEXTURE_KINDS } from './catalog/RefPicker';
 
 interface Props {
   input: InputConfig | null;
   defaults: InputConfig;
   onSave: (input: InputConfig | null) => void;
   error: string | null;
-  /** The project's textures (glyph images). */
-  textures?: readonly { assetId: string; displayName: string }[];
 }
 
 /** The binding kinds that take the hold modifier. */
@@ -334,7 +333,9 @@ export function InputPanel(p: Props): JSX.Element {
         {Object.entries(config.glyphs ?? {}).map(([k, id]) => (
           <div className="tl-input-action" key={k} aria-label={`glyph ${k}`}>
             <span className="tl-input-action__name">{k}</span>
-            <span>{p.textures?.find((t) => t.assetId === id)?.displayName ?? id}</span>
+            <span>
+              <EntryName id={id} kinds={TEXTURE_KINDS} />
+            </span>
             <button
               type="button"
               className="tl-button"
@@ -351,14 +352,7 @@ export function InputPanel(p: Props): JSX.Element {
         ))}
         <div className="tl-animator__row">
           <input className="tl-input" aria-label="new glyph key" placeholder="glyph key (e.g. pad-south)" value={glyphKey} onChange={(e) => setGlyphKey(e.target.value.trim())} />
-          <select className="tl-input" aria-label="new glyph texture" value={glyphTexture} onChange={(e) => setGlyphTexture(e.target.value)}>
-            <option value="">texture…</option>
-            {(p.textures ?? []).map((t) => (
-              <option key={t.assetId} value={t.assetId}>
-                {t.displayName}
-              </option>
-            ))}
-          </select>
+          <RefPicker aria="new glyph texture" kinds={TEXTURE_KINDS} value={glyphTexture} none="texture…" onPick={setGlyphTexture} />
           <button
             type="button"
             className="tl-button"

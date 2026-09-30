@@ -16,10 +16,10 @@
 import { useEffect, useState, type JSX } from 'react';
 import type { EnvironmentConfig, EnvironmentPreset, EnvironmentPresetLight, FogConfig, PostConfig, SkyConfig, WindConfig } from '@thirdlight/project-model';
 import { DEFAULT_WIND } from '../session/material-schema';
+import { RefPicker, TEXTURE_KINDS } from './catalog/RefPicker';
 
 interface Props {
   environment: EnvironmentConfig | null;
-  textures: readonly { assetId: string; displayName: string }[];
   onSave: (environment: EnvironmentConfig) => void;
   error: string | null;
   /** The scene lights a captured preset records, and the Scene view's preset preview. */
@@ -227,6 +227,16 @@ function Choice<T extends string>(props: { label: string; name: string; value: T
   );
 }
 
+/** A texture of the project (paged from the index), or none. */
+function TextureChoice(props: { label: string; name: string; value: string; onCommit: (v: string) => void }): JSX.Element {
+  return (
+    <label className="tl-field">
+      <span className="tl-field__label">{props.label}</span>
+      <RefPicker aria={props.name} kinds={TEXTURE_KINDS} value={props.value} none="— none —" onPick={props.onCommit} />
+    </label>
+  );
+}
+
 function Toggle(props: { label: string; name: string; value: boolean; onCommit: (v: boolean) => void }): JSX.Element {
   const [v, setV] = useState(props.value);
   useEffect(() => setV(props.value), [props.value]);
@@ -258,7 +268,6 @@ export function EnvironmentPanel(p: Props): JSX.Element {
   const wind: WindConfig = env.wind ?? { ...DEFAULT_WIND, direction: [...DEFAULT_WIND.direction] as [number, number] };
   const setWind = (patch: Partial<WindConfig>): void => save({ wind: { ...wind, ...patch } });
   const angle = Math.round((Math.atan2(wind.direction[1], wind.direction[0]) * 180) / Math.PI);
-  const textureOptions = [['', '— none —'] as const, ...p.textures.map((t) => [t.assetId, t.displayName] as const)];
 
   return (
     <div className="tl-panel tl-environment">
@@ -299,7 +308,7 @@ export function EnvironmentPanel(p: Props): JSX.Element {
           )}
           {env.sky !== undefined && sky.mode === 'color' && <Colour label="colour" name="sky colour" value={sky.color ?? '#7ec8ff'} onCommit={(v) => setSky({ color: v })} />}
           {env.sky !== undefined && sky.mode === 'texture' && (
-            <Choice label="panorama (equirect)" name="sky texture" value={sky.texture ?? ''} options={textureOptions} onCommit={(v) => setSky(v === '' ? { texture: undefined } : { texture: v })} />
+            <TextureChoice label="panorama (equirect)" name="sky texture" value={sky.texture ?? ''} onCommit={(v) => setSky(v === '' ? { texture: undefined } : { texture: v })} />
           )}
           {env.sky !== undefined && (
             <>
@@ -342,7 +351,7 @@ export function EnvironmentPanel(p: Props): JSX.Element {
           <Slider label="gamma (mid-tones)" name="grading gamma" value={post.grading?.gamma ?? 1} min={0.2} max={5} step={0.01} onCommit={(v) => setPost({ grading: { ...(post.grading ?? {}), gamma: v } })} />
           <Slider label="gain (whites)" name="grading gain" value={post.grading?.gain ?? 1} min={0} max={4} step={0.01} onCommit={(v) => setPost({ grading: { ...(post.grading ?? {}), gain: v } })} />
           <Colour label="tint" name="grading tint" value={post.grading?.tint ?? '#ffffff'} onCommit={(v) => setPost({ grading: { ...(post.grading ?? {}), tint: v } })} />
-          <Choice label="LUT (strip image)" name="grading lut" value={post.grading?.lut ?? ''} options={textureOptions} onCommit={(v) => setPost({ grading: { ...(post.grading ?? {}), lut: v === '' ? undefined : v } })} />
+          <TextureChoice label="LUT (strip image)" name="grading lut" value={post.grading?.lut ?? ''} onCommit={(v) => setPost({ grading: { ...(post.grading ?? {}), lut: v === '' ? undefined : v } })} />
           <Toggle label="vignette" name="vignette" value={post.vignette?.enabled === true} onCommit={(v) => setPost({ vignette: { ...(post.vignette ?? {}), enabled: v } })} />
           {post.vignette?.enabled === true && <Slider label="vignette darkness" name="vignette darkness" value={post.vignette.darkness ?? 0.5} min={0} max={1} step={0.01} onCommit={(v) => setPost({ vignette: { ...post.vignette!, darkness: v } })} />}
           <Toggle label="ambient occlusion (high quality)" name="ssao" value={post.ssao?.enabled === true} onCommit={(v) => setPost({ ssao: { ...(post.ssao ?? {}), enabled: v } })} />

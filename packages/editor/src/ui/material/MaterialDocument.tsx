@@ -25,6 +25,9 @@ import { GraphEditor } from '../../graph/GraphEditor';
 import type { GraphKindDef, GraphOp } from '../../graph/model';
 import { materialPortContext, parameterDefault } from '../../session/material-graph';
 import { MaterialPreview, type PreviewShape } from '../../viewport/material-preview';
+import { stringsIn, useTextureIds } from '../catalog/catalog-context';
+import { MODEL_KINDS, RefPicker, TEXTURE_KINDS } from '../catalog/RefPicker';
+import { useIndexList } from '../catalog/useIndexList';
 
 export interface MaterialDocumentProps {
   materialId: string;
@@ -33,7 +36,6 @@ export interface MaterialDocumentProps {
   kinds: Readonly<Record<string, GraphKindDef>>;
   /** The project's standalone graphs (material functions are called from the graph). */
   graphs: readonly GraphDocument[];
-  textures: readonly { assetId: string; displayName: string }[];
   /** Sends `graphEdit` ops for the material (queued; resolves with a refusal or null). */
   onEdit: (materialId: string, ops: GraphOp[]) => Promise<string | null>;
   /** One `setMaterial` (parameters, name, removing the graph). */
@@ -43,8 +45,6 @@ export interface MaterialDocumentProps {
   error: string | null;
   /** The preview's environment (the project's, with its wind); null = a neutral backdrop. */
   environment: (EnvironmentLike & { wind?: WindLike }) | null;
-  /** The project's model assets (the preview's "model" shape). */
-  models: readonly { assetId: string; displayName: string }[];
   /** A texture asset's texture (the preview's own library). */
   loadTexture: (assetId: string) => Promise<THREE.Texture | null>;
   /** A model asset as a new object for the preview (null: unavailable); `dispose` releases it. */
@@ -60,8 +60,9 @@ export function MaterialDocument(p: MaterialDocumentProps): JSX.Element {
   const kind = p.kinds['material'];
   const portContext = useMemo(() => materialPortContext(m?.parameters, p.graphs, p.kinds), [m?.parameters, p.graphs, p.kinds]);
   // What the compiler says about this graph (missing textures, functions, parameters; pixel-only inputs in a vertex offset).
-  const textureKey = p.textures.map((t) => t.assetId).join(',');
-  const textureIds = useMemo(() => new Set(textureKey === '' ? [] : textureKey.split(',')), [textureKey]);
+  // The textures it names (read by id: the project may hold thousands).
+  const named = useMemo(() => stringsIn([m?.graph ?? null, m?.parameters ?? null]), [m?.graph, m?.parameters]);
+  const textureIds = useTextureIds(named);
   const compileProblems = useMemo(
     () => (m?.graph !== undefined ? materialGraphProblems({ graph: m.graph, ...(m.parameters !== undefined ? { parameters: m.parameters } : {}) }, p.graphs as unknown as MaterialFunctionLike[], textureIds) : []),
     [m?.graph, m?.parameters, p.graphs, textureIds],
@@ -104,8 +105,8 @@ export function MaterialDocument(p: MaterialDocumentProps): JSX.Element {
       )}
       <div className="tl-animator-doc__main">
         <div className="tl-animator-doc__side">
-          <PreviewPane materialId={m.materialId} materials={p.materials} graphs={p.graphs} environment={p.environment} models={p.models} loadTexture={p.loadTexture} loadModel={p.loadModel} />
-          <ParameterEditor material={m} textures={p.textures} onSave={p.onSave} />
+          <PreviewPane materialId={m.materialId} materials={p.materials} graphs={p.graphs} environment={p.environment} loadTexture={p.loadTexture} loadModel={p.loadModel} />
+          <ParameterEditor material={m} onSave={p.onSave} />
         </div>
         <div className="tl-animator-doc__graph">
           <GraphEditor
@@ -130,7 +131,7 @@ export function MaterialDocument(p: MaterialDocumentProps): JSX.Element {
  * The live preview — the material on a sphere, a plane, a cube
  * or a model of the project, in the project environment; drag to orbit.
  */
-function PreviewPane(p: Pick<MaterialDocumentProps, 'materials' | 'graphs' | 'environment' | 'models' | 'loadTexture' | 'loadModel'> & { materialId: string }): JSX.Element {
+function PreviewPane(p: Pick<MaterialDocumentProps, 'materials' | 'graphs' | 'environment' | 'loadTexture' | 'loadModel'> & { materialId: string }): JSX.Element {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const previewRef = useRef<MaterialPreview | null>(null);
   const [shape, setShape] = useState<PreviewShape>('sphere');
@@ -138,8 +139,9 @@ function PreviewPane(p: Pick<MaterialDocumentProps, 'materials' | 'graphs' | 'en
   const [status, setStatus] = useState('starting…');
   const latest = useRef(p);
   latest.current = p;
-  // The models list is rebuilt on every host render: its ids are the dependency.
-  const modelsKey = p.models.map((x) => x.assetId).join(',');
+  // The project's first model stands in until one is chosen (the models are paged from the index).
+  const models = useIndexList({ kinds: MODEL_KINDS });
+  const firstModel = models.entry(0)?.id ?? '';
   useEffect(() => {
     const canvas = canvasRef.current;
     if (canvas === null) return undefined;
@@ -172,7 +174,7 @@ function PreviewPane(p: Pick<MaterialDocumentProps, 'materials' | 'graphs' | 'en
       preview.setShape(shape);
       return undefined;
     }
-    const id = modelId !== '' ? modelId : (latest.current.models[0]?.assetId ?? '');
+    const id = modelId !== '' ? modelId : firstModel;
     if (id === '') {
       preview.setShape('sphere');
       return undefined;
@@ -194,7 +196,7 @@ function PreviewPane(p: Pick<MaterialDocumentProps, 'materials' | 'graphs' | 'en
         loaded.dispose();
       }
     };
-  }, [shape, modelId, modelsKey]);
+  }, [shape, modelId, firstModel]);
   return (
     <div className="tl-material-preview" aria-label="material preview">
       <div className="tl-subhead">
@@ -203,20 +205,12 @@ function PreviewPane(p: Pick<MaterialDocumentProps, 'materials' | 'graphs' | 'en
           <option value="sphere">sphere</option>
           <option value="plane">plane</option>
           <option value="cube">cube</option>
-          <option value="model" disabled={p.models.length === 0}>
+          <option value="model" disabled={models.total === 0}>
             model
           </option>
         </select>
       </div>
-      {shape === 'model' && p.models.length > 0 && (
-        <select className="tl-input" aria-label="preview model" value={modelId !== '' ? modelId : p.models[0]!.assetId} onChange={(e) => setModelId(e.target.value)}>
-          {p.models.map((x) => (
-            <option key={x.assetId} value={x.assetId}>
-              {x.displayName}
-            </option>
-          ))}
-        </select>
-      )}
+      {shape === 'model' && firstModel !== '' && <RefPicker aria="preview model" kinds={MODEL_KINDS} value={modelId !== '' ? modelId : firstModel} onPick={setModelId} />}
       <canvas ref={canvasRef} className="tl-material-preview__canvas" aria-label="material preview canvas" />
       <span className="tl-hint tl-material-preview__status" role="status">
         {status}
@@ -227,7 +221,7 @@ function PreviewPane(p: Pick<MaterialDocumentProps, 'materials' | 'graphs' | 'en
 }
 
 /** The exposed parameters: one row per parameter; each change is one `setMaterial`. */
-function ParameterEditor({ material, textures, onSave }: { material: MaterialDef; textures: MaterialDocumentProps['textures']; onSave: (m: MaterialDef) => void }): JSX.Element {
+function ParameterEditor({ material, onSave }: { material: MaterialDef; onSave: (m: MaterialDef) => void }): JSX.Element {
   const list = material.parameters ?? [];
   const save = (next: MaterialParameter[]): void => onSave({ ...material, parameters: next });
   const setAt = (i: number, patch: Partial<MaterialParameter>): void => save(list.map((x, j) => (j === i ? { ...x, ...patch } : x)));
@@ -267,7 +261,7 @@ function ParameterEditor({ material, textures, onSave }: { material: MaterialDef
               </option>
             ))}
           </select>
-          <ParameterValue param={x} textures={textures} onCommit={(v) => setAt(i, { default: v })} />
+          <ParameterValue param={x} onCommit={(v) => setAt(i, { default: v })} />
           {x.type === 'data' && <DataSize value={x.size ?? NEW_DATA_SIZE} name={`parameter ${x.key} size`} onCommit={(size) => setAt(i, { size })} />}
           <select className="tl-input" aria-label={`parameter ${x.key} visibility`} value={x.visibility ?? 'public'} onChange={(e) => setAt(i, { visibility: e.target.value as 'public' | 'private' })}>
             <option value="public">public</option>
@@ -283,22 +277,11 @@ function ParameterEditor({ material, textures, onSave }: { material: MaterialDef
 }
 
 /** A parameter's default: a number, 2–4 numbers, a colour or a texture (committed on blur / change). */
-export function ParameterValue({ param, textures, onCommit, label }: { param: Pick<MaterialParameter, 'type' | 'key' | 'default' | 'min' | 'max'>; textures: MaterialDocumentProps['textures']; onCommit: (v: MaterialParameter['default']) => void; label?: string }): JSX.Element {
+export function ParameterValue({ param, onCommit, label }: { param: Pick<MaterialParameter, 'type' | 'key' | 'default' | 'min' | 'max'>; onCommit: (v: MaterialParameter['default']) => void; label?: string }): JSX.Element {
   const name = label ?? `parameter ${param.key} default`;
   const [draft, setDraft] = useState<string>(Array.isArray(param.default) ? param.default.join(', ') : String(param.default));
   if (param.type === 'color') return <input type="color" aria-label={name} value={String(param.default)} onChange={(e) => onCommit(e.target.value.toLowerCase())} />;
-  if (param.type === 'texture') {
-    return (
-      <select className="tl-input" aria-label={name} value={String(param.default)} onChange={(e) => onCommit(e.target.value)}>
-        <option value="">(none)</option>
-        {textures.map((t) => (
-          <option key={t.assetId} value={t.assetId}>
-            {t.displayName}
-          </option>
-        ))}
-      </select>
-    );
-  }
+  if (param.type === 'texture') return <RefPicker aria={name} kinds={TEXTURE_KINDS} value={String(param.default)} none="(none)" onPick={(id) => onCommit(id)} />;
   // A data parameter's default is the RGBA bytes every cell starts with.
   const n = param.type === 'float' ? 1 : param.type === 'data' ? 4 : Number(param.type.slice(3));
   const commit = (): void => {

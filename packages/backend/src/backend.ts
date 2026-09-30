@@ -372,29 +372,16 @@ export function createBackend(
   };
 
   /**
-   * The full current project state (manifest + full scene + history +
-   * workspace), composed from the workspace's public query API (the
-   * transport never reads files directly).
-   */
-  /**
-   * The bounded content projection for the full-state payload:
-   * summary pages only (never definitions, declarations, versions or bytes),
-   * composed from the workspace's public query surface. Returns undefined for
-   * a project whose queries fail (the scene full state is still served).
+   * The content part of the full state: the size of the project index. The
+   * editor reads what it shows from the index in pages (`queryIndex`) and the
+   * records it needs by id (`queryAssets {ids}`, …) — never a first page
+   * standing in for the catalog. Undefined for a project whose index cannot
+   * be read (the scene full state is still served).
    */
   const contentProjection = (projectId: string): Record<string, unknown> | undefined => {
-    const assets = service.query({ op: 'queryAssets', projectId, args: { limit: 128, offset: 0 } });
-    const prefabs = service.query({ op: 'queryPrefabs', projectId, args: { limit: 128, offset: 0 } });
-    const behaviors = service.query({ op: 'queryBehaviors', projectId, args: { limit: 128, offset: 0 } });
-    if (!assets.ok || !prefabs.ok || !behaviors.ok) return undefined;
-    const a = assets as unknown as { assets: unknown };
-    const p = prefabs as unknown as { prefabs: unknown };
-    const b = behaviors as unknown as { behaviors: unknown };
-    return {
-      assets: a.assets,
-      prefabs: p.prefabs,
-      behaviors: b.behaviors,
-    };
+    const index = service.query({ op: 'queryIndex', projectId, args: { limit: 1, refs: false } });
+    if (!index.ok) return undefined;
+    return { index: { total: (index as unknown as { total: number }).total } };
   };
 
   /** The editor session's entity bound (all scenes) and page size. */

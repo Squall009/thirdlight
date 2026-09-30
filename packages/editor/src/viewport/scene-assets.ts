@@ -47,6 +47,8 @@ export function createSceneViewAssets(o: {
       }, 0),
   });
   const loadTexture = async (assetId: string): Promise<THREE.Texture | null> => {
+    // A texture the editor has not read the facts of yet is read by id first (the editor holds no whole catalog).
+    await client.catalog.ensureAssets([assetId]);
     const v = client.content.resolveVersion(assetId);
     if (v === null) return null;
     const bytes = await client.assetBytes(assetId, v.version);
@@ -74,6 +76,7 @@ export function createSceneViewAssets(o: {
       if (!v || !/^[0-9a-f]{64}$/.test(v.sourceDigest)) return null;
       return { assetId, version: v.version, sourceDigest: v.sourceDigest, sourceByteLength: v.sourceByteLength };
     },
+    ensureDescriptor: (assetId) => client.catalog.ensureAssets([assetId]),
     onChanged: () => {
       viewport.refreshLightmaps();
       viewport.requestRender();

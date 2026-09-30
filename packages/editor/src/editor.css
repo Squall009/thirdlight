@@ -1001,3 +1001,24 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-console__where:hover { text-decoration: underline; }
 .tl-console__compiled { font-family: monospace; opacity: 0.7; }
 .tl-console__frames { list-style: none; margin: 0 0 0 46px; padding: 0; width: 100%; opacity: 0.85; }
+
+/* Virtualized lists and grids (ui/catalog/VirtualList.tsx): each row has one
+   fixed stride, so the tiles and rows have a fixed height. */
+.tl-assets__list.tl-tiles--virtual .tl-tile { height: 112px; box-sizing: border-box; }
+.tl-prefabs__list.tl-tiles--virtual { max-height: none; flex: 1; }
+.tl-prefabs__list.tl-tiles--virtual .tl-tile { height: 142px; box-sizing: border-box; }
+.tl-tile--loading { background: var(--surface-1); border-color: var(--line); }
+.tl-virtual { overflow-y: auto; max-height: 280px; }
+.tl-dialogue-panel .tl-effects__list { overflow-y: auto; max-height: 360px; }
+.tl-dialogue-panel .tl-effects__row { box-sizing: border-box; height: 28px; overflow: hidden; }
+
+/* The reference picker's long form: a button naming the value, a search over the index. */
+.tl-picker { position: relative; display: inline-flex; min-width: 0; max-width: 100%; }
+.tl-picker__button { text-align: left; min-width: 9em; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.tl-picker__popup { position: absolute; z-index: 60; left: 0; top: calc(100% + 2px); width: 300px; display: flex; flex-direction: column; gap: 4px;
+  padding: 4px; background: var(--surface-1); border: 1px solid var(--line-strong); border-radius: 6px; box-shadow: 0 8px 24px rgba(0, 0, 0, .45); }
+.tl-picker__list { height: 240px; overflow-y: auto; }
+.tl-picker__option { box-sizing: border-box; height: 24px; line-height: 24px; padding: 0 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; border-radius: 4px; }
+.tl-picker__option.is-active { background: var(--surface-2); }
+.tl-picker__option.is-selected { color: var(--select); }
+.tl-picker__empty { padding: 6px; color: var(--text-dim); }

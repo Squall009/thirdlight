@@ -132,6 +132,9 @@ export const M2_GLTF_EXTENSION_ALLOWLIST: readonly string[] = Object.freeze([
 export const ASSET_QUERY_PAGE_MAX = 128;
 export const ASSET_QUERY_PAGE_DEFAULT = 50;
 
+/** An asset tile's thumbnail edge (px): what the editor draws and the backend makes from an image. */
+export const ASSET_THUMBNAIL_EDGE = 128;
+
 /** Open import stages per project, and their staged bytes together. */
 export const MAX_OPEN_STAGES = 8;
 export const MAX_STAGED_BYTES_PER_PROJECT = 134_217_728;

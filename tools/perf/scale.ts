@@ -29,14 +29,15 @@ import { installPerfInstrumentation, readSample, type PageSample } from './instr
 import { SCALE_BATCH_LABEL, type ScaleResult } from './scale-generate';
 import { checkerPng, opusVoice } from './scale-media';
 import { summarize, type Summary } from './stats';
+import { measureEditorAtScale, type EditorScaleReport } from './scale-editor';
 
-export type ScaleStep = 'files' | 'open' | 'commands' | 'import' | 'play' | 'walk' | 'handles' | 'dialogue' | 'stream' | 'export';
+export type ScaleStep = 'files' | 'open' | 'commands' | 'editor' | 'import' | 'play' | 'walk' | 'handles' | 'dialogue' | 'stream' | 'export';
 /**
  * Every step; `import` (a folder of new files imported in one command) and `stream` (large KTX2 textures
  * streamed past the camera under a small texture budget) run only when asked for.
  */
-export const SCALE_STEPS: readonly ScaleStep[] = ['files', 'open', 'commands', 'import', 'play', 'walk', 'handles', 'dialogue', 'stream', 'export'];
-export const SCALE_DEFAULT_STEPS: readonly ScaleStep[] = ['files', 'open', 'commands', 'play', 'walk', 'handles', 'dialogue', 'export'];
+export const SCALE_STEPS: readonly ScaleStep[] = ['files', 'open', 'commands', 'editor', 'import', 'play', 'walk', 'handles', 'dialogue', 'stream', 'export'];
+export const SCALE_DEFAULT_STEPS: readonly ScaleStep[] = ['files', 'open', 'commands', 'editor', 'play', 'walk', 'handles', 'dialogue', 'export'];
 
 export interface ScaleBenchOptions {
   dataRoot: string;
@@ -84,6 +85,8 @@ export interface ScaleReport {
   generated?: Omit<ScaleResult, 'dir' | 'sceneIds'>;
   open?: { backendMs: number; editorConnectedMs: number; editorFirstFrameMs: number | null; editorHeapMiB: number | null; backendRssMiB: number | null; assetsListed: number | null };
   commands?: { sceneEdit: Summary; contentEdit: Summary | null; contentBytes: number | null };
+  /** The editor at this size (scale-editor.ts): open to usable, the asset list scrolled through, a picker search, a placement, a line's voice. */
+  editor?: EditorScaleReport;
   /** One `importAssets` of a folder of new voice files: the command's round trip (inspection included), and one scene edit after it. */
   import?: { files: number; added: number; ms: number; sceneEditAfterMs: number; backendRssMiB: number | null };
   /**
@@ -282,6 +285,7 @@ export class ScaleBench {
       const opened = await this.attempt('open', () => this.measureOpen());
       if (!opened) return this.report;
       if (want('commands')) await this.attempt('commands', () => this.measureCommands());
+      if (want('editor')) await this.attempt('editor', () => this.measureEditor());
       if (want('import')) await this.attempt('import', () => this.measureFolderImport());
       if (want('stream')) await this.attempt('stream', () => this.setUpStreaming());
       const needPlay = want('play') || want('walk') || want('handles') || want('dialogue') || want('stream');
@@ -377,6 +381,23 @@ export class ScaleBench {
       backendRssMiB: backendRssMiB(this.backend.pid),
       assetsListed: typeof total === 'number' ? total : null,
     };
+  }
+
+  /** The editor at this size, in a page of its own (the open step's page stays as it is). */
+  private async measureEditor(): Promise<void> {
+    const p = this.backend.project(this.opts.projectId);
+    const page = await this.context!.newPage();
+    try {
+      this.report.editor = await measureEditorAtScale(page, {
+        query: (op, args) => p.query(op, args),
+        // A fling at frame rate (what scrolling costs), not a wait on every screen.
+        settle: false,
+        url: `${this.backend.origin}/?project=${this.opts.projectId}&renderer=${this.opts.renderer}#token=${this.backend.token}`,
+        log: this.opts.log,
+      });
+    } finally {
+      await page.close();
+    }
   }
 
   /** One scene edit (a transform: rewrites one scene file) and one content edit (a material: rewrites its own file and content.json's record). */

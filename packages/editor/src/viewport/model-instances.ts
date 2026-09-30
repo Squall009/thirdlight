@@ -51,6 +51,8 @@ export interface ModelInstancesOptions {
   resolve: (descriptor: VisualDescriptor) => Promise<Uint8Array>;
   /** The current immutable version facts for an assetId, or null when unknown. */
   descriptorFor: (assetId: string) => VisualDescriptor | null;
+  /** Read an asset's version facts when the editor has not read them yet (then `descriptorFor` has them). */
+  ensureDescriptor?: (assetId: string) => Promise<void>;
   /** Called whenever an instance is attached/detached (the viewport re-renders). */
   onChanged?: () => void;
   /**
@@ -326,6 +328,8 @@ export class ModelInstances {
    * its pieces, bounds and `_COL` colliders, and instances for thumbnails.
    */
   async prepared(assetId: string): Promise<PreparedVisualResource | null> {
+    // Only an asset not read yet waits (a load started later than another of the same file would supersede it).
+    if (this.options.descriptorFor(assetId) === null) await this.options.ensureDescriptor?.(assetId);
     const descriptor = this.options.descriptorFor(assetId);
     if (descriptor === null || this.disposed) return null;
     // Held only while it is handed over: the caller uses it now (a thumbnail, its pieces); no
@@ -345,6 +349,7 @@ export class ModelInstances {
    * Inspector offers the names the game finds). Null when it cannot be read.
    */
   async nodeNames(assetId: string): Promise<string[] | null> {
+    if (this.options.descriptorFor(assetId) === null) await this.options.ensureDescriptor?.(assetId);
     const descriptor = this.options.descriptorFor(assetId);
     if (descriptor === null || this.disposed) return null;
     try {

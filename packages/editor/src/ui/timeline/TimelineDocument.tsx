@@ -20,6 +20,7 @@
 import { useEffect, useMemo, useRef, useState, type JSX, type PointerEvent as ReactPointerEvent } from 'react';
 import type { AnimatorController, TimelineAsset, TimelineKey, TimelineTrack, TimelineTrackType } from '@thirdlight/project-model';
 import { AnimatorMachine, evaluateTimelineAt, TIMELINE_EASINGS, TIMELINE_TARGET_TRACKS, TIMELINE_TRACK_TYPES, type AnimatorControllerLike } from '@thirdlight/runtime';
+import { AUDIO_KINDS, RefPicker, useFirstEntry } from '../catalog/RefPicker';
 
 export interface TimelineEntityLike {
   id: string;
@@ -40,8 +41,6 @@ export interface TimelineDocumentProps {
   timelineId: string;
   timelines: readonly TimelineAsset[];
   entities: readonly TimelineEntityLike[];
-  /** The audio assets (audio keys). */
-  sounds: readonly { assetId: string; name: string }[];
   effects: readonly { id: string; name: string }[];
   /** The project's input action names (wait keys, the skip action). */
   actions: readonly string[];
@@ -135,6 +134,7 @@ export function TimelineDocument(props: TimelineDocumentProps): JSX.Element {
   const [time, setTime] = useState(0);
   const [zoom, setZoom] = useState(80);
   const [selected, setSelected] = useState<{ trackId: string; index: number } | null>(null);
+  const firstSound = useFirstEntry(AUDIO_KINDS).first;
   const [playing, setPlaying] = useState(false);
   const [addType, setAddType] = useState<TimelineTrackType>('transform');
   const [localError, setLocalError] = useState<string | null>(null);
@@ -209,7 +209,7 @@ export function TimelineDocument(props: TimelineDocumentProps): JSX.Element {
       case 'animator':
         return { time, kind: 'set', name: 'speed', value: 1 };
       case 'audio':
-        return props.sounds.length > 0 ? { time, kind: 'music', asset: props.sounds[0]!.assetId, fade: 1 } : { time, kind: 'release' };
+        return firstSound !== null ? { time, kind: 'music', asset: firstSound, fade: 1 } : { time, kind: 'release' };
       case 'dialogue':
         return { time, dialogue: 'dialogue' };
       case 'effect':
@@ -442,8 +442,11 @@ export function TimelineDocument(props: TimelineDocumentProps): JSX.Element {
         break;
       case 'audio':
         f.push(
-          choice('kind', k.kind, ['music', 'release', 'stinger', 'sfx'], (v) => setKey({ kind: v as TimelineKey['kind'], ...(v === 'release' ? { asset: undefined } : { asset: k.asset ?? props.sounds[0]?.assetId }), ...(v !== 'sfx' ? { loop: undefined, duration: undefined, at: undefined } : {}) })),
-          choice('asset', k.asset, props.sounds.map((s) => s.assetId), (v) => setKey({ asset: v })),
+          choice('kind', k.kind, ['music', 'release', 'stinger', 'sfx'], (v) => setKey({ kind: v as TimelineKey['kind'], ...(v === 'release' ? { asset: undefined } : { asset: k.asset ?? firstSound ?? undefined }), ...(v !== 'sfx' ? { loop: undefined, duration: undefined, at: undefined } : {}) })),
+          <label key="asset" className="tl-timeline__field">
+            asset
+            <RefPicker aria="Key asset" kinds={AUDIO_KINDS} value={k.asset ?? ''} none="—" onPick={(v) => setKey({ asset: v === '' ? undefined : v })} />
+          </label>,
           num('fade', k.fade, (v) => setKey({ fade: v })),
           num('volume', k.volume, (v) => setKey({ volume: v })),
         );

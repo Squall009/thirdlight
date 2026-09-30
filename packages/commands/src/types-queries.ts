@@ -88,6 +88,8 @@ export type QueryResult<T> =
       assets?: readonly T[];
       behaviors?: readonly T[];
       prefabs?: readonly T[];
+      /** With `ids`: the ids asked for that name no record. */
+      missing?: readonly string[];
     }
   | { ok: false; op?: string; projectId?: string; error: CommandError };
 

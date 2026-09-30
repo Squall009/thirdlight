@@ -429,7 +429,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       '(materialId: one; withProblems: only broken ones; total, withProblems counts). target="index" pages the project index: every asset, ' +
       'resource (prefab, material, behavior, library, graph, ui, uitheme, dialogue, timeline, effect, animator — each its own file in the game folder) and scene ' +
       'as {kind, id, path, name, labels, address?, refs} (kind, id, label, address filter; loadable: true = only those with an address or a label; ' +
-      'referencing: what names that id). Never returns bytes.',
+      'referencing: what names that id; text: a part of the name, id or file, any case). Never returns bytes.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -440,6 +440,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
         address: { type: 'string', description: 'target="index": the entry with this address' },
         loadable: { type: 'boolean', description: 'target="index": true = only entries with an address or a label (what scripts may load by name); false = only those without' },
         referencing: { type: 'string', description: 'target="index": only the entries that reference this id (what uses it)' },
+        text: { type: 'string', description: 'target="index": only the entries whose name, id or file contains this text (any case)' },
         materialId: { type: 'string', description: 'target="materials": one material' },
         check: { type: 'boolean', description: 'target="integrity": check the game folder first (moved files, changed files imported again)' },
         problems: { type: 'boolean', description: 'target="integrity": only the entries that are not ok (limit and offset page them; total counts them)' },
@@ -1190,7 +1191,7 @@ async function contentQuery(ctx: McpContext, a: Record<string, unknown>): Promis
   // The project index: every asset, resource and scene (file, name, labels, what it references).
   if (target === 'index') {
     const args: Record<string, unknown> = {};
-    for (const k of ['kind', 'id', 'label', 'address', 'referencing'] as const) {
+    for (const k of ['kind', 'id', 'label', 'address', 'referencing', 'text'] as const) {
       if (a[k] === undefined) continue;
       if (typeof a[k] !== 'string') return toolError(`${k} must be a string`);
       args[k] = a[k];

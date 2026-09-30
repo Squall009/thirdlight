@@ -11,7 +11,6 @@ import type { FolderImportView } from './folder-upload';
 import { makeRequestId, type MutationResponse } from './envelope';
 import { type AssetView } from './content-projection';
 import {
-  applyAssetQueryPage,
   beginImport,
   beginProjectFileImport,
   canPublish,
@@ -30,7 +29,6 @@ import {
   uploadCompleted,
   validateDropCandidate,
   type AssetImportState,
-  type AssetQueryState,
   type ImportProposal,
   type ImportTarget,
 } from './asset-browser';
@@ -45,14 +43,6 @@ import type { PropertyDeclaration } from '@thirdlight/project-model';
 import { type ProjectFileListing, type IntegrityEntryView, type FileCheckView, makeAssetId, SessionClientCore } from './client-core';
 
 export * from './client-core';
-
-/** Merge one asset page into the cached summaries (page entries win). */
-function mergeAssets(existing: readonly AssetView[], page: readonly AssetView[]): AssetView[] {
-  const byId = new Map<string, AssetView>();
-  for (const a of existing) byId.set(a.assetId, a);
-  for (const a of page) byId.set(a.assetId, a);
-  return [...byId.values()].sort((a, b) => (a.assetId < b.assetId ? -1 : a.assetId > b.assetId ? 1 : 0));
-}
 
 export class SessionClient extends SessionClientCore {
   /** One entity with its full components (read-only). */
@@ -367,20 +357,6 @@ export class SessionClient extends SessionClientCore {
     return this.prefabs.listTrust().map((e) => e.sourceDigest);
   }
 
-  /** Fetch one bounded asset page and fold it into the paging state. */
-  async loadAssetPage(
-    state: AssetQueryState | null,
-    request: Partial<{ limit: number; offset: number }> = {},
-  ): Promise<{ state: AssetQueryState; assets: AssetView[] }> {
-    const page = planAssetQuery(request);
-    const result = await this.queryAssets({ ...page, includeVersions: true });
-    if (result.ok) this.content.hydrate({ assets: mergeAssets(this.content.listAssets(), result.assets) });
-    return {
-      state: applyAssetQueryPage(state, { total: result.total, offset: result.offset, limit: result.limit, count: result.assets.length }),
-      assets: result.assets,
-    };
-  }
-
   /** `POST /content/stages` + the bounded frame PUTs + the inspect (within the upload bounds).
    * `kind` selects the inspector (`'audio'` = the audio header
    * inspector, any format and length; absent = the GLB inspector)
@@ -435,8 +411,12 @@ export class SessionClient extends SessionClientCore {
   }
 
   /** The cached tile thumbnail of one asset version (and piece), or null when none is cached yet. */
-  async thumbnail(digest: string, piece: string | null): Promise<Blob | null> {
-    const q = piece === null ? '' : `?piece=${encodeURIComponent(piece)}`;
+  async thumbnail(digest: string, piece: string | null, make?: { asset: string }): Promise<Blob | null> {
+    const params = new URLSearchParams();
+    if (piece !== null) params.set('piece', piece);
+    // A texture's thumbnail the backend makes from its image when the cache has none.
+    if (make !== undefined) params.set('asset', make.asset);
+    const q = params.size === 0 ? '' : `?${params.toString()}`;
     const res = await fetch(`${this.cfg.authoringOrigin}/api/v1/projects/${this.cfg.projectId}/content/thumbnails/${digest}${q}`, {
       headers: { authorization: `Bearer ${this.cfg.authoringToken}`, origin: this.cfg.authoringOrigin },
     });
@@ -499,12 +479,12 @@ export class SessionClient extends SessionClientCore {
   }
 
   /** Store a rendered tile thumbnail (PNG) in the backend's cache. */
-  async storeThumbnail(digest: string, piece: string | null, png: Blob): Promise<void> {
+  async storeThumbnail(digest: string, piece: string | null, png: Blob | Uint8Array): Promise<void> {
     const q = piece === null ? '' : `?piece=${encodeURIComponent(piece)}`;
     const res = await fetch(`${this.cfg.authoringOrigin}/api/v1/projects/${this.cfg.projectId}/content/thumbnails/${digest}${q}`, {
       method: 'PUT',
       headers: { authorization: `Bearer ${this.cfg.authoringToken}`, origin: this.cfg.authoringOrigin, 'content-type': 'image/png' },
-      body: png,
+      body: png as BodyInit,
     });
     if (!res.ok) throw new Error(`thumbnail write failed (HTTP ${res.status})`);
   }

@@ -18,6 +18,13 @@ for (const path of process.argv.slice(2)) {
   if (o) console.log(`open: backend ${o.backendMs} ms, editor connected ${o.editorConnectedMs} ms, first frame ${f(o.editorFirstFrameMs)} ms, editor heap ${f(o.editorHeapMiB, 1)} MiB, backend RSS ${f(o.backendRssMiB)} MiB`);
   const c = r.commands;
   if (c) console.log(`command: scene edit p50 ${f(c.sceneEdit.p50, 1)} / p95 ${f(c.sceneEdit.p95, 1)} ms; content edit p50 ${f(c.contentEdit?.p50, 1)} / p95 ${f(c.contentEdit?.p95, 1)} ms; content.json ${f((c.contentBytes ?? 0) / 1024)} KiB`);
+  const ed = r.editor;
+  if (ed) {
+    const sc = ed.scroll;
+    console.log(`editor: connected ${ed.connectedMs} ms, usable (asset list drawn) ${ed.interactiveMs} ms, ${ed.listTotal} assets listed, heap ${f(ed.heapOpenMiB, 1)} MiB`);
+    console.log(`editor scroll: ${sc.steps} screens in ${sc.ms} ms, frame p50 ${f(sc.frameMs.p50, 1)} / p95 ${f(sc.frameMs.p95, 1)} / max ${f(sc.frameMs.max, 1)} ms, ${sc.tilesSeen} tiles; heap ${f(sc.heapBeforeMiB, 1)} → ${f(sc.heapAfterMiB, 1)} MiB; requests ${JSON.stringify(sc.requests)}`);
+    console.log(`editor: picker search ${ed.pickerSearch.ms} ms (${ed.pickerSearch.matches} shown), place (list position ${ed.place.position}) ${ed.place.ms} ms, a line's voice ${ed.voice.ms} ms`);
+  }
   const p = r.play;
   if (p) {
     const s = p.split;

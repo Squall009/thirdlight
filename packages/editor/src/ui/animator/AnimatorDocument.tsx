@@ -27,12 +27,12 @@ import type { AnimatorController, AnimatorLayer, GraphValue } from '@thirdlight/
 import { GraphEditor } from '../../graph/GraphEditor';
 import { animatorBlendStateOf, animatorGraphOf, animatorLayerOf, animatorOwnerId, animatorTransitionPairs, parseAnimatorOwnerId, type AnimatorOwnerTarget } from '../../graph/animator';
 import type { GraphKindDef, GraphOp } from '../../graph/model';
-import { allStateIds, LayerSettings, LivePreview, MAX_LAYERS, newId, ParameterList, rigOf, useClipChoices, type AnimatorModels, type BoneInfo, type ClipInfo, type StartPreview } from './parts';
+import { allStateIds, LayerSettings, LivePreview, MAX_LAYERS, newId, ParameterList, useClipChoices, useRigOf, type BoneInfo, type ClipInfo, type StartPreview } from './parts';
+import { MODEL_KINDS, RefPicker, useFirstEntry } from '../catalog/RefPicker';
 
 export interface AnimatorDocumentProps {
   controllerId: string;
   controllers: AnimatorController[];
-  models: AnimatorModels;
   clipsOf: (assetId: string) => Promise<ClipInfo[]>;
   skeletonOf?: (assetId: string) => Promise<BoneInfo[]>;
   preview?: StartPreview;
@@ -79,13 +79,15 @@ function layerOfState(c: AnimatorController, stateId: string): number {
 
 export function AnimatorDocument(p: AnimatorDocumentProps): JSX.Element {
   const controller = p.controllers.find((c) => c.controllerId === p.controllerId) ?? null;
-  const rigs = p.models.filter((m) => m.clipsFor === undefined);
-  const firstAsset = useMemo(() => rigOf(controller, p.models), [controller, p.models]);
-  const [model, setModel] = useState<string>(firstAsset ?? rigs[0]?.assetId ?? '');
+  const firstAsset = useRigOf(controller);
+  const firstModel = useFirstEntry(MODEL_KINDS).first;
+  const [picked, setModel] = useState<string>('');
   useEffect(() => {
-    if (firstAsset !== undefined && firstAsset !== model) setModel(firstAsset);
-  }, [firstAsset]); // eslint-disable-line react-hooks/exhaustive-deps -- follows the controller's rig only; a model the user picked stays until the rig changes
-  const clips = useClipChoices(model, p.models, p.clipsOf);
+    if (firstAsset !== undefined) setModel(firstAsset);
+  }, [firstAsset]);
+  // The controller's rig, else the model picked, else the project's first model.
+  const model = picked !== '' ? picked : (firstAsset ?? firstModel ?? '');
+  const clips = useClipChoices(model, p.clipsOf);
   const [bones, setBones] = useState<BoneInfo[]>([]);
   useEffect(() => {
     let live = true;
@@ -159,14 +161,7 @@ export function AnimatorDocument(p: AnimatorDocumentProps): JSX.Element {
     <div className="tl-animator-doc" aria-label="animator">
       <div className="tl-animator__bar">
         <input className="tl-input" aria-label="controller name" defaultValue={controller.name} key={`${controller.controllerId}:${controller.name}`} onBlur={(e) => e.target.value.trim() !== '' && e.target.value.trim() !== controller.name && save({ ...controller, name: e.target.value.trim() })} />
-        <select className="tl-input" aria-label="animator model" value={model} onChange={(e) => setModel(e.target.value)} title="The model whose clips the pickers list">
-          {rigs.length === 0 && <option value="">— no model —</option>}
-          {rigs.map((m) => (
-            <option key={m.assetId} value={m.assetId}>
-              {m.displayName}
-            </option>
-          ))}
-        </select>
+        <RefPicker aria="animator model" kinds={MODEL_KINDS} value={model} none={model === '' ? '— no model —' : null} title="The model whose clips the pickers list" onPick={setModel} />
         <button type="button" className="tl-button" onClick={() => p.onDelete(controller.controllerId)}>
           Delete controller
         </button>

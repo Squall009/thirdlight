@@ -28,8 +28,11 @@ export interface DialogueDocumentProps {
   uiDocuments: readonly UiDocument[];
   uiThemes: readonly UiTheme[];
   kinds: Readonly<Record<string, GraphKindDef>>;
-  assets: readonly PreviewAssetRef[];
+  /** The facts of the assets a conversation names (kind, version, a clip's length), read by id. */
+  assets: (assetIds: readonly string[]) => Promise<readonly PreviewAssetRef[]>;
   readAsset: (assetId: string, version: number) => Promise<Uint8Array>;
+  /** This conversation and the ones it may jump to, read (the editor holds the ones it opened). */
+  conversations: (dialogueId: string) => Promise<readonly DialogueDoc[]>;
   /** Sends `graphEdit` ops (queued; resolves with a refusal or null). */
   onEdit: (dialogueId: string, ops: GraphOp[]) => Promise<string | null>;
   /** One `setDialogue` (a rename). */
@@ -43,7 +46,8 @@ export interface DialogueDocumentProps {
 export function DialogueDocument(p: DialogueDocumentProps): JSX.Element {
   const d = p.dialogues.find((x) => x.dialogueId === p.dialogueId) ?? null;
   const kind = p.kinds['dialogue'];
-  if (d === null) return <p className="tl-hint">This conversation no longer exists (deleted or undone). Close the tab, or undo the deletion.</p>;
+  // Read by id when its tab opens (a conversation that is gone closes its tab).
+  if (d === null) return <p className="tl-hint">Reading the conversation…</p>;
   if (kind === undefined) return <p className="tl-hint">Loading the dialogue node catalogue…</p>;
   const speakerIds = p.speakers.map((s) => s.speakerId);
   const newNodeData = (type: string): Record<string, GraphValue> | undefined => (type === 'line' && speakerIds.length > 0 ? { speaker: speakerIds[0]! } : undefined);
@@ -103,6 +107,8 @@ function DialoguePreviewPane(p: DialogueDocumentProps & { dialogue: DialogueDoc 
       if (h === null) return;
       const o = h.observe();
       setObs(o.dialogue);
+      // How many sound files the preview has read (the voices ahead, not the project's; tests read it).
+      stageRef.current?.setAttribute('data-sounds-read', String(o.soundsRead));
       if (!o.running) setStatus('Ended');
     }, 200);
     return () => clearInterval(t);
@@ -127,9 +133,12 @@ function DialoguePreviewPane(p: DialogueDocumentProps & { dialogue: DialogueDoc 
     hostRef.current = null;
     stage.textContent = '';
     try {
-      const host = await mountDialoguePreview({ container: stage, dialogues: p.dialogues, speakers: p.speakers, settings: p.settings, documents: p.uiDocuments, themes: p.uiThemes, assets: p.assets, readAsset: p.readAsset, sound });
+      const dialogues = await p.conversations(p.dialogue.dialogueId);
+      const host = await mountDialoguePreview({ container: stage, dialogues, speakers: p.speakers, settings: p.settings, documents: p.uiDocuments, themes: p.uiThemes, assets: p.assets, readAsset: p.readAsset, sound });
       hostRef.current = host;
       const opts = from === 'start' ? {} : from === 'selected' && selectedNode !== undefined ? { node: selectedNode.id } : from.startsWith('entry:') ? { entry: from.slice(6) } : {};
+      // The first lines' voices are read before it starts; the rest as it goes (as in Play).
+      await host.prepare(p.dialogue.dialogueId, opts);
       const ok = host.start(p.dialogue.dialogueId, { ...opts, ...(variables !== undefined ? { variables } : {}) });
       setStatus(ok ? 'Playing' : 'Could not start (an empty conversation, or the node is gone)');
       stage.focus();

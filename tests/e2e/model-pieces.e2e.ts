@@ -103,7 +103,8 @@ test('a multi-piece GLB: tile preview, piece tiles, drag into the scene and a fo
   const junk = await fetch(`${be.origin}/api/v1/projects/${be.projectId}/content/thumbnails/${digest}?piece=rock`, { method: 'PUT', headers: { authorization: `Bearer ${be.token}`, origin: be.origin }, body: 'not a png' });
   expect(junk.status).toBe(400);
 
-  // Three pieces (LOD and COL nodes grouped by name), each with its own tile.
+  // Three pieces (LOD and COL nodes grouped by name), each with its own tile: the file is read when it is chosen.
+  await tile.click();
   await tile.getByRole('button', { name: /show the 3 pieces/ }).click();
   const pieceTiles = page.locator('.tl-tile--piece');
   await expect(pieceTiles).toHaveCount(3);

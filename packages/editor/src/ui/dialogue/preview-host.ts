@@ -7,9 +7,10 @@
  * row of tools/check-boundaries.mjs).
  *
  * Asset bytes come through the editor's authenticated asset read (the
- * caller's `readAsset`); voice lengths are measured by decoding the clips
- * with the page's audio context before the conversation starts (Play reads
- * them from the import metrics; the previewer has only the bytes).
+ * caller's `readAsset`), each when it is first needed: a portrait when it is
+ * shown, a voice when the conversation may say it next (the game host's
+ * read-ahead, as in Play). Voice lengths come from the import metrics of the
+ * clips (their asset summaries), not from decoding them.
  */
 import { createDialoguePreview, createGameAudioOwner, type AudioContextLike, type DialoguePreview, type DialoguePreviewObservation, type GameAudioOwner } from '@thirdlight/game-host/dialogue-preview';
 import { dialogueForRuntime, type DialogueInputRecord, type RuntimeDialogueData, type UiDocument, type UiTheme } from '@thirdlight/runtime';
@@ -19,6 +20,8 @@ export interface PreviewAssetRef {
   readonly assetId: string;
   readonly kind: string;
   readonly version: number;
+  /** An audio clip's length (ms), from its import metrics. */
+  readonly durationMs?: number;
 }
 
 export interface DialoguePreviewHostOptions {
@@ -28,13 +31,16 @@ export interface DialoguePreviewHostOptions {
   readonly settings: DialogueSettings | null;
   readonly documents: readonly UiDocument[];
   readonly themes: readonly UiTheme[];
-  readonly assets: readonly PreviewAssetRef[];
+  /** The facts (kind, version, length) of the assets a conversation names, read by id. */
+  readonly assets: (assetIds: readonly string[]) => Promise<readonly PreviewAssetRef[]>;
   readonly readAsset: (assetId: string, version: number) => Promise<Uint8Array>;
   /** Play sound (false: a silent preview). */
   readonly sound: boolean;
 }
 
 export interface DialoguePreviewHost {
+  /** Read the voices of the first lines before `start` (the same arguments). */
+  prepare(dialogueId: string, options?: { entry?: string; node?: string }): Promise<void>;
   start(dialogueId: string, options?: { entry?: string; node?: string; variables?: Readonly<Record<string, number | string | boolean | null>> }): boolean;
   stop(): void;
   input(input: DialogueInputRecord): void;
@@ -55,9 +61,9 @@ function usedAssets(data: RuntimeDialogueData): Set<string> {
 }
 
 /**
- * Prepare and mount a preview (reads the assets, measures voice clips); the
- * returned host is live until `dispose`. Rejects when the project has no
- * conversation.
+ * Mount a preview (reads the facts of the assets the conversations name, not
+ * their bytes); the returned host is live until `dispose`. Rejects when there
+ * is no conversation.
  */
 export async function mountDialoguePreview(o: DialoguePreviewHostOptions): Promise<DialoguePreviewHost> {
   const data = dialogueForRuntime({ dialogues: [...o.dialogues], speakers: [...o.speakers], ...(o.settings !== null ? { dialogueSettings: o.settings } : {}) });
@@ -74,37 +80,10 @@ export async function mountDialoguePreview(o: DialoguePreviewHostOptions): Promi
     return ctx;
   };
   if (o.sound) contextOf();
-  const byId = new Map(o.assets.map((a) => [a.assetId, a] as const));
   const used = usedAssets(data);
-  const bytes = new Map<string, Uint8Array>();
-  await Promise.all(
-    [...used].map(async (id) => {
-      const a = byId.get(id);
-      if (a === undefined) return;
-      try {
-        bytes.set(id, await o.readAsset(a.assetId, a.version));
-      } catch {
-        // A missing asset previews without it (no portrait / no sound).
-      }
-    }),
-  );
-  // One page audio context: the owner's, and the voice lengths.
+  const byId = new Map((await o.assets([...used])).map((a) => [a.assetId, a] as const));
   const durations: Record<string, number> = {};
-  if (o.sound) {
-    const c = contextOf();
-    if (c !== null) {
-      for (const [id, b] of bytes) {
-        const kind = byId.get(id)?.kind;
-        if (kind !== 'audio' && kind !== 'music') continue;
-        try {
-          const buf = await c.decodeAudioData(b.slice().buffer);
-          durations[id] = Math.round(buf.duration * 1000);
-        } catch {
-          // Not decodable here: the line counts as spoken when its text is out.
-        }
-      }
-    }
-  }
+  for (const a of byId.values()) if (a.kind === 'audio' && typeof a.durationMs === 'number') durations[a.assetId] = a.durationMs;
   let audio: GameAudioOwner | null = null;
   if (o.sound) {
     audio = createGameAudioOwner({ contextFactory: () => contextOf() as unknown as AudioContextLike | null });
@@ -112,10 +91,22 @@ export async function mountDialoguePreview(o: DialoguePreviewHostOptions): Promi
   }
   const paths: Record<string, string> = {};
   const kinds: Record<string, string> = {};
-  for (const id of bytes.keys()) {
+  for (const [id, a] of byId) {
     paths[id] = id;
-    kinds[id] = byId.get(id)?.kind ?? '';
+    kinds[id] = a.kind;
   }
+  /** Each file read once, when first asked for. */
+  const reads = new Map<string, Promise<Uint8Array>>();
+  const read = (id: string): Promise<Uint8Array> => {
+    let p = reads.get(id);
+    if (p === undefined) {
+      const a = byId.get(id);
+      p = a === undefined ? Promise.reject(new Error(`no asset ${id}`)) : o.readAsset(a.assetId, a.version);
+      reads.set(id, p);
+      void p.catch(() => reads.delete(id));
+    }
+    return p;
+  };
   const preview: DialoguePreview = createDialoguePreview({
     dom: document as unknown as Parameters<typeof createDialoguePreview>[0]['dom'],
     container: o.container as unknown as Parameters<typeof createDialoguePreview>[0]['container'],
@@ -124,11 +115,7 @@ export async function mountDialoguePreview(o: DialoguePreviewHostOptions): Promi
     themes: o.themes,
     assetPaths: paths,
     assetKinds: kinds,
-    readArtifact: async (path) => {
-      const b = bytes.get(path);
-      if (b === undefined) throw new Error(`no bytes for ${path}`);
-      return b.slice().buffer;
-    },
+    readArtifact: async (path) => (await read(path)).slice().buffer,
     durations,
     audio,
     viewport: () => ({ width: o.container.clientWidth || 640, height: o.container.clientHeight || 360 }),
@@ -144,6 +131,7 @@ export async function mountDialoguePreview(o: DialoguePreviewHostOptions): Promi
   };
   raf = requestAnimationFrame(loop);
   return {
+    prepare: (id, opts) => preview.prepare(id, opts),
     start: (id, opts) => preview.start(id, opts),
     stop: () => preview.stop(),
     input: (i) => preview.input(i),

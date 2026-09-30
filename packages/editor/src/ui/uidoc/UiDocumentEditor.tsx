@@ -69,6 +69,7 @@ import {
 } from '../../session/ui-edit';
 import { ActionsField, BindingField, CommitText, SizeField, StyleEditor, StyleMapEditor, StyleRefField } from './UiFields';
 import { UiPreview, type Measured, type PreviewAssets, type PreviewHandle } from './UiPreview';
+import { RefPicker, TEXTURE_KINDS, useFirstEntry } from '../catalog/RefPicker';
 
 export interface UiDocumentEditorProps {
   uiDocumentId: string;
@@ -82,8 +83,6 @@ export interface UiDocumentEditorProps {
   /** One `setUiTheme` (the document's theme, edited beside its preview). */
   onSaveTheme: (theme: UiTheme) => Promise<string | null>;
   onOpenTheme: (uiThemeId: string) => void;
-  textures: readonly { assetId: string; displayName: string }[];
-  fonts: readonly { assetId: string; displayName: string }[];
   entities: readonly { id: string; name: string }[];
   fieldContext: FieldContext;
   assets: PreviewAssets;
@@ -363,7 +362,7 @@ export function UiDocumentEditor(p: UiDocumentEditorProps): JSX.Element {
         </p>
       )}
       <div className="tl-uidoc__main">
-        <Hierarchy doc={doc} selKey={selKey} onSelect={setSelKey} textures={p.textures} treeOp={treeOp} onFail={fail} />
+        <Hierarchy doc={doc} selKey={selKey} onSelect={setSelKey} treeOp={treeOp} onFail={fail} />
         <UiPreview
           doc={doc}
           themes={p.themes}
@@ -403,8 +402,8 @@ export function UiDocumentEditor(p: UiDocumentEditorProps): JSX.Element {
               docIds={docIds}
               tweens={tweenNames}
               ids={ids}
-              textures={p.textures}
-              fonts={p.fonts}
+             
+             
               entities={p.entities}
               onEdit={(fn) => editWidget(selPath, fn)}
               onPreset={(preset, keep) => {
@@ -416,7 +415,7 @@ export function UiDocumentEditor(p: UiDocumentEditorProps): JSX.Element {
             />
           )}
           {tab === 'document' && (
-            <DocumentInspector doc={doc} D={D} ctx={ctx} docIds={docIds} ids={ids} fonts={p.fonts} textures={p.textures} onEdit={(fn) => void edit(fn)} onOpenTheme={p.onOpenTheme} onPlay={(t) => previewRef.current?.play(t)} onFail={fail} />
+            <DocumentInspector doc={doc} D={D} ctx={ctx} docIds={docIds} ids={ids} onEdit={(fn) => void edit(fn)} onOpenTheme={p.onOpenTheme} onPlay={(t) => previewRef.current?.play(t)} onFail={fail} />
           )}
           {tab === 'theme' && (
             <div className="tl-uidoc__panel" aria-label="theme inspector">
@@ -436,7 +435,7 @@ export function UiDocumentEditor(p: UiDocumentEditorProps): JSX.Element {
                     styles={theme.styles}
                     aria="theme"
                     ctx={ctx}
-                    fonts={p.fonts}
+                   
                     onChange={(next) => void p.onSaveTheme({ ...theme, styles: next }).then(setError)}
                     onFail={fail}
                   />
@@ -475,15 +474,16 @@ function placementOf(w: UiWidget): Pick<UiWidget, 'anchor' | 'pivot' | 'offset' 
 
 const DRAG_TYPE = 'application/x-thirdlight-ui-widget';
 
-function Hierarchy(p: { doc: UiDocument; selKey: string; onSelect: (k: string) => void; textures: readonly { assetId: string }[]; treeOp: (op: (root: UiWidget) => TreeOutcome) => void; onFail: (m: string) => void }): JSX.Element {
+function Hierarchy(p: { doc: UiDocument; selKey: string; onSelect: (k: string) => void; treeOp: (op: (root: UiWidget) => TreeOutcome) => void; onFail: (m: string) => void }): JSX.Element {
   const [addType, setAddType] = useState<UiWidgetType>('text');
   const [moveTo, setMoveTo] = useState('');
+  const firstTexture = useFirstEntry(TEXTURE_KINDS).first;
   const rows = flattenTree(p.doc.root);
   const sel = parsePathKey(p.selKey) ?? [];
   const selW = widgetAt(p.doc.root, sel);
   const containers = rows.filter((r) => holds(r.widget) === 'children' && !(pathKey(r.path).startsWith(p.selKey) && (pathKey(r.path) === p.selKey || pathKey(r.path).startsWith(`${p.selKey}.`))));
   const add = (): void => {
-    const made = newWidget(addType, collectIds(p.doc.root), p.textures[0]?.assetId ?? null);
+    const made = newWidget(addType, collectIds(p.doc.root), firstTexture);
     if ('error' in made) return p.onFail(made.error);
     p.treeOp((root) => {
       const target = selW !== null && holds(selW) !== null && !(holds(selW) === 'template' && selW.template !== undefined) ? sel : sel.length > 0 ? parentPath(sel) : [];
@@ -603,8 +603,6 @@ function WidgetInspector(p: {
   docIds: readonly string[];
   tweens: readonly string[];
   ids: readonly string[];
-  textures: readonly { assetId: string; displayName: string }[];
-  fonts: readonly { assetId: string; displayName: string }[];
   entities: readonly { id: string; name: string }[];
   onEdit: (fn: (w: UiWidget) => UiWidget) => void;
   onPreset: (preset: (typeof ANCHOR_PRESETS)[number], keep: boolean) => void;
@@ -655,7 +653,7 @@ function WidgetInspector(p: {
       />
       {bindings.length > 0 && <div className="tl-desc__group-title">Values</div>}
       {bindings.map((f) => (
-        <BindingField key={f.key} f={f} value={(w as unknown as Record<string, unknown>)[f.key]} aria={`widget ${f.key}`} textures={p.textures} entities={p.entities} onChange={(v) => put(f.key, v)} />
+        <BindingField key={f.key} f={f} value={(w as unknown as Record<string, unknown>)[f.key]} aria={`widget ${f.key}`} entities={p.entities} onChange={(v) => put(f.key, v)} />
       ))}
       <div className="tl-desc__group-title">Style</div>
       <StyleRefField label="Styles" aria="widget style" value={w.style} names={names} onChange={(v) => put('style', v)} />
@@ -672,7 +670,7 @@ function WidgetInspector(p: {
         />
         own style (this widget only)
       </label>
-      {(ownStyle || w.css !== undefined) && <StyleEditor desc={p.D.style} style={w.css ?? {}} aria="widget css" ctx={p.ctx} fonts={p.fonts} withStates onChange={(next) => put('css', Object.keys(next).length === 0 ? undefined : next)} onFail={p.onFail} />}
+      {(ownStyle || w.css !== undefined) && <StyleEditor desc={p.D.style} style={w.css ?? {}} aria="widget css" ctx={p.ctx} withStates onChange={(next) => put('css', Object.keys(next).length === 0 ? undefined : next)} onFail={p.onFail} />}
       {field('onClick') !== undefined && <ActionsField label="On click" aria="widget on click" value={w.onClick} docs={p.docIds} tweens={p.tweens} widgets={p.ids} onChange={(v) => put('onClick', v)} onFail={p.onFail} />}
       {field('onSubmit') !== undefined && <ActionsField label="On submit" aria="widget on submit" value={w.onSubmit} docs={p.docIds} tweens={p.tweens} widgets={p.ids} onChange={(v) => put('onSubmit', v)} onFail={p.onFail} />}
       <ActionsField label="On focus" aria="widget on focus" value={w.onFocus} docs={p.docIds} tweens={p.tweens} widgets={p.ids} onChange={(v) => put('onFocus', v)} onFail={p.onFail} />
@@ -696,7 +694,7 @@ function WidgetInspector(p: {
             an entity (else a point)
           </label>
           {w.worldAnchor.entity !== undefined && (
-            <BindingField f={wa.fields.find((f) => f.key === 'entity')!} value={w.worldAnchor.entity} aria="world anchor entity" textures={p.textures} entities={p.entities} onChange={(v) => put('worldAnchor', { ...w.worldAnchor, entity: v })} />
+            <BindingField f={wa.fields.find((f) => f.key === 'entity')!} value={w.worldAnchor.entity} aria="world anchor entity" entities={p.entities} onChange={(v) => put('worldAnchor', { ...w.worldAnchor, entity: v })} />
           )}
           <ObjectFields
             desc={wa}
@@ -733,8 +731,6 @@ function DocumentInspector(p: {
   ctx: FieldContext;
   docIds: readonly string[];
   ids: readonly string[];
-  fonts: readonly { assetId: string; displayName: string }[];
-  textures: readonly { assetId: string; displayName: string }[];
   onEdit: (fn: (d: UiDocument) => UiDocument) => void;
   onOpenTheme: (id: string) => void;
   onPlay: (tween: string) => void;
@@ -765,7 +761,7 @@ function DocumentInspector(p: {
       <ObjectFields desc={p.D.document} value={d as unknown as Record<string, unknown>} path={[]} component="document" ctx={p.ctx} skip={DOC_CUSTOM} onEdit={(path: FieldPath, next: unknown) => p.onEdit((doc) => setAt(doc, path, next) as UiDocument)} onFail={p.onFail} />
       <ActionsField label="On cancel" aria="document on cancel" value={d.onCancel} docs={p.docIds} tweens={tweenNames} widgets={p.ids} onChange={(v) => p.onEdit((doc) => setAt(doc, ['onCancel'], v) as UiDocument)} onFail={p.onFail} />
       <div className="tl-desc__group-title">Styles</div>
-      <StyleMapEditor desc={p.D.style} styles={d.styles ?? {}} aria="document" ctx={p.ctx} fonts={p.fonts} onChange={(next) => setMap('styles', next)} onFail={p.onFail} />
+      <StyleMapEditor desc={p.D.style} styles={d.styles ?? {}} aria="document" ctx={p.ctx} onChange={(next) => setMap('styles', next)} onFail={p.onFail} />
       <div className="tl-desc__group-title">Tweens</div>
       <div className="tl-uidoc__row">
         <select className="tl-input" aria-label="tween" value={cur ?? ''} onChange={(e) => setTween(e.target.value)}>
@@ -823,14 +819,15 @@ function DocumentInspector(p: {
         />
       )}
       <div className="tl-desc__group-title">Icons</div>
-      <IconMapEditor icons={d.icons ?? {}} textures={p.textures} onChange={(next) => setMap('icons', next)} />
+      <IconMapEditor icons={d.icons ?? {}} onChange={(next) => setMap('icons', next)} />
     </div>
   );
 }
 
 /** Named rich-text icons ([icon=name]): a texture and an optional part of it. */
-export function IconMapEditor(p: { icons: Readonly<Record<string, UiIcon>>; textures: readonly { assetId: string; displayName: string }[]; onChange: (next: Record<string, UiIcon>) => void }): JSX.Element {
+export function IconMapEditor(p: { icons: Readonly<Record<string, UiIcon>>; onChange: (next: Record<string, UiIcon>) => void }): JSX.Element {
   const names = Object.keys(p.icons).sort();
+  const textures = useFirstEntry(TEXTURE_KINDS);
   return (
     <div className="tl-uidoc__icons" aria-label="icons">
       {names.map((n) => {
@@ -838,14 +835,7 @@ export function IconMapEditor(p: { icons: Readonly<Record<string, UiIcon>>; text
         return (
           <div key={n} className="tl-uidoc__row" data-icon={n}>
             <span className="tl-hint">{n}</span>
-            <select className="tl-input" aria-label={`icon ${n} texture`} value={ic.asset} onChange={(e) => p.onChange({ ...p.icons, [n]: { ...ic, asset: e.target.value } })}>
-              {!p.textures.some((t) => t.assetId === ic.asset) && <option value={ic.asset}>{ic.asset}</option>}
-              {p.textures.map((t) => (
-                <option key={t.assetId} value={t.assetId}>
-                  {t.displayName}
-                </option>
-              ))}
-            </select>
+            <RefPicker aria={`icon ${n} texture`} kinds={TEXTURE_KINDS} value={ic.asset} onPick={(id) => id !== '' && p.onChange({ ...p.icons, [n]: { ...ic, asset: id } })} />
             <CommitText
               aria={`icon ${n} part`}
               placeholder="x, y, w, h (whole image)"
@@ -875,9 +865,9 @@ export function IconMapEditor(p: { icons: Readonly<Record<string, UiIcon>>; text
         type="button"
         className="tl-btn tl-btn--small"
         aria-label="add icon"
-        disabled={p.textures.length === 0 || names.length >= UI_LIMITS.icons}
-        title={p.textures.length === 0 ? 'Import a texture first' : 'A glyph for rich text: [icon=name]'}
-        onClick={() => p.onChange({ ...p.icons, [uniqueName('icon', new Set(names))]: { asset: p.textures[0]!.assetId } })}
+        disabled={textures.first === null || names.length >= UI_LIMITS.icons}
+        title={textures.first === null ? 'Import a texture first' : 'A glyph for rich text: [icon=name]'}
+        onClick={() => textures.first !== null && p.onChange({ ...p.icons, [uniqueName('icon', new Set(names))]: { asset: textures.first } })}
       >
         + Icon
       </button>

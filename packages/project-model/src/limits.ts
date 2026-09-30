@@ -11,6 +11,8 @@
 
 export { ID_RE, MAX_ENTITY_DEPTH, MAX_LEN, MAX_REVISION, NAME_MAX, NAME_MIN } from './validate';
 export * from './content-limits';
+// The asset kinds (the editor's asset lists and pickers name them).
+export { ASSET_KINDS } from './descriptor-types';
 export { MAX_COLLISION_LAYERS, MAX_ENTITIES_V2 } from './components';
 export { MAX_EMISSIVE_INTENSITY, MAX_ENTITIES_V4, MAX_INTENSITY } from './scene-v3';
 export { MAX_INSTANCES, SCENE_LIMITS_V3 } from './types-v3';

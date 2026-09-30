@@ -31,18 +31,13 @@ import { resolveMaterialInstancesLike, type MaterialDefLike } from '@thirdlight/
 
 import { ASSET_DRAG_TYPE, parseAssetDrag } from '../session/placement';
 import { CONVERTIBLE_SHADERS, convertToGraph, newMaterialGraph, templateMaterial } from '../session/material-graph';
+import { RefPicker, TEXTURE_KINDS, useEntryName } from './catalog/RefPicker';
 
 /** The DataTransfer type a material tile drags (onto an object in the Scene view). */
 export const MATERIAL_DRAG_TYPE = 'application/x-thirdlight-material';
 
-interface TextureOption {
-  assetId: string;
-  displayName: string;
-}
-
 interface Props {
   materials: readonly MaterialDef[];
-  textures: readonly TextureOption[];
   selectedId: string | null;
   onSelect: (materialId: string | null) => void;
   onSave: (material: MaterialDef) => void;
@@ -177,7 +172,7 @@ export function MaterialsPanel(p: Props): JSX.Element {
         <div className="tl-assets__side">
           {selected !== null ? (
             selected.instanceOf !== undefined ? (
-              <InstanceInspector key={selected.materialId} instance={selected} materials={p.materials} textures={p.textures} onSave={p.onSave} onDelete={p.onDelete} />
+              <InstanceInspector key={selected.materialId} instance={selected} materials={p.materials} onSave={p.onSave} onDelete={p.onDelete} />
             ) : selected.graph !== undefined ? (
               <div className="tl-material-inspector" aria-label={`material ${selected.name}`}>
                 <p className="tl-hint">
@@ -191,7 +186,7 @@ export function MaterialsPanel(p: Props): JSX.Element {
                 </button>
               </div>
             ) : (
-              <MaterialInspector key={selected.materialId} material={selected} textures={p.textures} onSave={p.onSave} onDelete={p.onDelete} onOpen={p.onOpen} />
+              <MaterialInspector key={selected.materialId} material={selected} onSave={p.onSave} onDelete={p.onDelete} onOpen={p.onOpen} />
             )
           ) : (
             <p className="tl-inspector__hint">Select a material to edit it.</p>
@@ -202,7 +197,7 @@ export function MaterialsPanel(p: Props): JSX.Element {
   );
 }
 
-function MaterialInspector(props: { material: MaterialDef; textures: readonly TextureOption[]; onSave: Props['onSave']; onDelete: Props['onDelete']; onOpen: Props['onOpen'] }): JSX.Element {
+function MaterialInspector(props: { material: MaterialDef; onSave: Props['onSave']; onDelete: Props['onDelete']; onOpen: Props['onOpen'] }): JSX.Element {
   const m = props.material;
   const schema = MATERIAL_PARAMS[m.shader];
   const slots = MATERIAL_TEXTURE_SLOTS[m.shader];
@@ -269,21 +264,14 @@ function MaterialInspector(props: { material: MaterialDef; textures: readonly Te
           }}
           onDrop={(ev: DragEvent) => {
             const payload = parseAssetDrag(ev.dataTransfer.getData(ASSET_DRAG_TYPE));
-            if (payload !== null && props.textures.some((t) => t.assetId === payload.assetId)) {
+            if (payload !== null && payload.kind === 'texture') {
               ev.preventDefault();
               setTexture(slot, payload.assetId);
             }
           }}
         >
           <span className="tl-field__label">{SLOT_LABEL[slot] ?? slot}</span>
-          <select className="tl-input" aria-label={`texture ${slot}`} value={m.textures[slot] ?? ''} onChange={(e) => setTexture(slot, e.target.value === '' ? null : e.target.value)}>
-            <option value="">— none —</option>
-            {props.textures.map((t) => (
-              <option key={t.assetId} value={t.assetId}>
-                {t.displayName}
-              </option>
-            ))}
-          </select>
+          <RefPicker aria={`texture ${slot}`} kinds={TEXTURE_KINDS} value={m.textures[slot] ?? ''} none="— none —" onPick={(id) => setTexture(slot, id === '' ? null : id)} />
         </label>
       ))}
       <button
@@ -312,7 +300,14 @@ function MaterialInspector(props: { material: MaterialDef; textures: readonly Te
  * a graph material's parameters, or a shader material's parameters and
  * texture slots. Unset = the parent's value (shown); "↺" goes back to it.
  */
-function InstanceInspector(props: { instance: MaterialDef; materials: readonly MaterialDef[]; textures: readonly TextureOption[]; onSave: Props['onSave']; onDelete: Props['onDelete'] }): JSX.Element {
+/** An instance's texture slot: its own texture, or empty for the parent's (named in the empty choice). */
+function InheritedTexture(p: { aria: string; value: string; inherited: string | undefined; onPick: (id: string) => void }): JSX.Element {
+  const parent = useEntryName(p.inherited ?? null, TEXTURE_KINDS);
+  const named = p.inherited === undefined ? '' : ` (${parent !== null && parent !== undefined ? parent.name : p.inherited})`;
+  return <RefPicker aria={p.aria} kinds={TEXTURE_KINDS} value={p.value} none={`— the parent's${named} —`} onPick={p.onPick} />;
+}
+
+function InstanceInspector(props: { instance: MaterialDef; materials: readonly MaterialDef[]; onSave: Props['onSave']; onDelete: Props['onDelete'] }): JSX.Element {
   const m = props.instance;
   const [name, setName] = useState(m.name);
   useEffect(() => setName(m.name), [m.name]);
@@ -387,7 +382,7 @@ function InstanceInspector(props: { instance: MaterialDef; materials: readonly M
             return (
               <div key={x.key} className={own !== undefined ? 'tl-param is-set' : 'tl-param'} data-param={x.key}>
                 <span className="tl-field__label" title={x.tooltip}>{x.label ?? x.key}</span>
-                <ParameterValue key={JSON.stringify(own ?? x.default)} param={{ ...x, default: own ?? x.default }} textures={props.textures} label={`instance ${x.key}`} onCommit={(v) => setValue(x.key, v)} />
+                <ParameterValue key={JSON.stringify(own ?? x.default)} param={{ ...x, default: own ?? x.default }} label={`instance ${x.key}`} onCommit={(v) => setValue(x.key, v)} />
                 <button className="tl-btn tl-btn--small tl-param__reset" disabled={own === undefined} aria-label={`reset ${x.key}`} title="Use the parent's value" onClick={() => setValue(x.key, undefined)}>
                   ↺
                 </button>
@@ -407,14 +402,7 @@ function InstanceInspector(props: { instance: MaterialDef; materials: readonly M
           {MATERIAL_TEXTURE_SLOTS[parent.shader].map((slot) => (
             <label key={slot} className="tl-field">
               <span className="tl-field__label">{SLOT_LABEL[slot] ?? slot}</span>
-              <select className="tl-input" aria-label={`texture ${slot}`} value={m.textures[slot] ?? ''} onChange={(e) => setTexture(slot, e.target.value === '' ? null : e.target.value)}>
-                <option value="">— the parent's{parent.textures[slot] !== undefined ? ` (${props.textures.find((t) => t.assetId === parent.textures[slot])?.displayName ?? parent.textures[slot]})` : ''} —</option>
-                {props.textures.map((t) => (
-                  <option key={t.assetId} value={t.assetId}>
-                    {t.displayName}
-                  </option>
-                ))}
-              </select>
+              <InheritedTexture aria={`texture ${slot}`} value={m.textures[slot] ?? ''} inherited={parent.textures[slot]} onPick={(id) => setTexture(slot, id === '' ? null : id)} />
             </label>
           ))}
         </>
@@ -535,7 +523,7 @@ export function MaterialMappingEditor(props: {
    * materials the mapping (or `inherited`, the model asset's default
    * mapping) uses; absent = no override section (e.g. an asset's defaults).
    */
-  overrides?: { value: Readonly<Record<string, Readonly<Record<string, MaterialParameterValue>>>> | null; inherited: Readonly<Record<string, string>> | null; textures: readonly TextureOption[]; onChange: (next: Record<string, Record<string, MaterialParameterValue>> | null) => void };
+  overrides?: { value: Readonly<Record<string, Readonly<Record<string, MaterialParameterValue>>>> | null; inherited: Readonly<Record<string, string>> | null; onChange: (next: Record<string, Record<string, MaterialParameterValue>> | null) => void };
 }): JSX.Element {
   const rows = ['*', ...props.sourceNames];
   const current = props.mapping ?? {};
@@ -568,7 +556,7 @@ export function MaterialMappingEditor(props: {
 }
 
 /** Per-object values for the public parameters of the graph materials an object uses. */
-function ParameterOverrides(p: { mapping: Readonly<Record<string, string>>; materials: readonly MaterialDef[]; value: Readonly<Record<string, Readonly<Record<string, MaterialParameterValue>>>> | null; inherited: Readonly<Record<string, string>> | null; textures: readonly TextureOption[]; onChange: (next: Record<string, Record<string, MaterialParameterValue>> | null) => void }): JSX.Element | null {
+function ParameterOverrides(p: { mapping: Readonly<Record<string, string>>; materials: readonly MaterialDef[]; value: Readonly<Record<string, Readonly<Record<string, MaterialParameterValue>>>> | null; inherited: Readonly<Record<string, string>> | null; onChange: (next: Record<string, Record<string, MaterialParameterValue>> | null) => void }): JSX.Element | null {
   const used = [...new Set([...Object.values(p.inherited ?? {}), ...Object.values(p.mapping)])];
   // A data parameter's cells are written by scripts at run time, never overridden per object here.
   const overridable = (x: { visibility?: string; type: string }): boolean => x.visibility !== 'private' && x.type !== 'data';
@@ -597,7 +585,7 @@ function ParameterOverrides(p: { mapping: Readonly<Record<string, string>>; mate
               return (
                 <div key={x.key} className={over !== undefined ? 'tl-param is-set' : 'tl-param'} data-param={x.key}>
                   <span className="tl-field__label" title={x.tooltip}>{x.label ?? x.key}</span>
-                  <ParameterValue key={JSON.stringify(over ?? x.default)} param={{ ...x, default: over ?? x.default }} textures={p.textures} label={`${m.name} ${x.key}`} onCommit={(v) => set(m.materialId, x.key, v)} />
+                  <ParameterValue key={JSON.stringify(over ?? x.default)} param={{ ...x, default: over ?? x.default }} label={`${m.name} ${x.key}`} onCommit={(v) => set(m.materialId, x.key, v)} />
                   <button className="tl-btn tl-btn--small tl-param__reset" disabled={over === undefined} aria-label={`reset ${m.name} ${x.key}`} title="Use the material's value" onClick={() => set(m.materialId, x.key, undefined)}>
                     ↺
                   </button>

@@ -210,7 +210,7 @@ function EffectParameters({ effect, onSave }: { effect: EffectDef; onSave: (e: E
               </option>
             ))}
           </select>
-          <ParameterValue param={x} textures={[]} onCommit={(v) => setAt(i, { default: v })} />
+          <ParameterValue param={x} onCommit={(v) => setAt(i, { default: v })} />
           <select className="tl-input" aria-label={`parameter ${x.key} visibility`} value={x.visibility ?? 'public'} onChange={(e) => setAt(i, { visibility: e.target.value as 'public' | 'private' })}>
             <option value="public">public</option>
             <option value="private">private</option>

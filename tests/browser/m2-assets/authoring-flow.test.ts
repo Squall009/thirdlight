@@ -240,13 +240,13 @@ describe('(Node) — import → publish → place twice → reimport', () => {
   it('a failed reimport preserves the previous committed content', () => {
     const content = new ContentProjection();
     content.hydrate({ assets: [{ assetId: 'asset-0001', kind: 'model', displayName: 'Lantern', currentVersion: 1, versionCount: 1, versions: [{ version: 1, sourceDigest: DIGEST_V1, sourceByteLength: 100 }] }] });
-    const before = JSON.stringify(content.listAssets());
+    const before = JSON.stringify(content.cachedAssets());
 
     const transport = new FakeTransport();
     const failedImport = runImport(transport, new Uint8Array(64), { mode: 'reimport', assetId: 'asset-0001', displayName: null });
     const failed = importFailed(publishStarted(failedImport.state), { code: 'content_publish_failed', message: 'publication failed' });
     expect(failed.phase).toBe('failed');
-    expect(JSON.stringify(content.listAssets())).toBe(before);
+    expect(JSON.stringify(content.cachedAssets())).toBe(before);
   });
 
   it('a stale/expired job never becomes publishable', () => {

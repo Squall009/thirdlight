@@ -31,14 +31,12 @@ import { CollisionLayersPanel } from './CollisionLayersPanel';
 import { ModesPanel } from './ModesPanel';
 import { ShellPanel } from './ShellPanel';
 import { SavesPanel } from './SavesPanel';
-import type { AssetView } from '../session/content-projection';
 import {
   importFailed,
   initialImportState,
   publishArgsFromProposal,
   utcSecondTimestamp,
   type AssetImportState,
-  type AssetQueryState,
   type ImportTarget,
 } from '../session/asset-browser';
 import { ASSET_DRAG_TYPE, assetPlacementAvailable, parseAssetDrag, planAssetPlacement, planModelDrop, type AssetDragPayload, type PieceFacts } from '../session/placement';
@@ -78,10 +76,10 @@ import { Viewport } from '../viewport/viewport';
 import { iconTableOf } from '../viewport/icons';
 import { ModelInstances, type AssetPreviewSession } from '../viewport/model-instances';
 import { createSceneViewAssets } from '../viewport/scene-assets';
-import { ThumbnailRenderer } from '../viewport/thumbnails';
+import { TileThumbnails } from '../viewport/thumbnails';
 import { AnimatorMachine, type AnimatorControllerLike } from '@thirdlight/runtime';
-import { BATCHING_URL_PARAM, batchingFromUrl, createAnimatorPlayer, isKtx2, setKtx2DecoderBase, layerEnvironment, pageSearch, rendererPreferenceFromUrl, RENDERER_URL_PARAM, resolveRendererPreference, type EnvironmentLike, type LightingBakeLike, type MaterialDefLike, type MaterialFunctionLike, type MaterialLibrary, type RendererInfo, type WindLike } from '@thirdlight/three-adapter';
-import { setEditorRendererChoice } from '../viewport/renderer-choice';
+import { BATCHING_URL_PARAM, batchingFromUrl, createAnimatorPlayer, setKtx2DecoderBase, layerEnvironment, pageSearch, rendererPreferenceFromUrl, RENDERER_URL_PARAM, resolveRendererPreference, type EnvironmentLike, type LightingBakeLike, type MaterialDefLike, type MaterialFunctionLike, type MaterialLibrary, type RendererInfo, type WindLike } from '@thirdlight/three-adapter';
+import { editorRendererChoice, setEditorRendererChoice } from '../viewport/renderer-choice';
 import type { TimelineAsset } from '@thirdlight/project-model';
 import type { AnimatorController, DescriptorRegistry, EffectComponent, EffectDef, EnvironmentConfig, InputConfig, LightingBake, MaterialDef, ScriptLibrary, UiDocument, UiTheme, GameMode, EventCue, GameShell } from '@thirdlight/project-model';
 import { PreviewStage } from '../viewport/preview-stage';
@@ -90,7 +88,12 @@ import { Hierarchy, type SceneAction, type SceneHeaderView } from './Hierarchy';
 import { Inspector, type EntityFlag } from './Inspector';
 import { Toolbar } from './Toolbar';
 import { StatusBar } from './StatusBar';
-import { AssetBrowser, thumbnailKey, type AssetPreviewView } from './AssetBrowser';
+import { AssetBrowser, type AssetPreviewView } from './AssetBrowser';
+import { CatalogProvider, stringsIn } from './catalog/catalog-context';
+import { indexKindsOfAssetField, MODEL_KINDS, RefPicker } from './catalog/RefPicker';
+import { useSelectedAsset } from './assets/useSelectedAsset';
+import { useUiPreviewAssets } from './uidoc/useUiPreviewAssets';
+import { conversationsFrom } from '../session/dialogue-closure';
 import { MATERIAL_DRAG_TYPE, MaterialMappingEditor, MaterialsPanel } from './MaterialsPanel';
 import { EnvironmentPanel } from './EnvironmentPanel';
 import { LightingPanel } from './LightingPanel';
@@ -207,6 +210,11 @@ interface PlayInfo {
   contentId: string | null;
   buildId: string | null;
   contentPath: string | null;
+}
+
+/** The first asset or index item of some kinds the catalog has read (a starting choice), if any. */
+function firstOfKinds(c: SessionClient | null, kinds: readonly string[]): string | undefined {
+  return c?.catalog.firstOf(kinds);
 }
 
 /** The Problems tab's graph diagnostics before the first worker result. */
@@ -537,11 +545,13 @@ function EditorApp(): JSX.Element {
   }, [playing, playInfo, playDiagnostics, modes.length]);
 
   // ---- Content browser + local snapping -------------------------
-  const [assets, setAssets] = useState<AssetView[]>([]);
-  /** Tile previews (`${assetId}|${piece}` → object URL) and each model file's pieces. */
-  const [assetThumbs, setAssetThumbs] = useState<ReadonlyMap<string, string>>(new Map());
-  const [assetPieces, setAssetPieces] = useState<ReadonlyMap<string, readonly { name: string }[]>>(new Map());
-  const thumbnailsRef = useRef<ThumbnailRenderer | null>(null);
+  /** Goes up when the catalog changed or records read by id arrived (views that read them draw again). */
+  const [catalogTick, setCatalogTick] = useState(0);
+  /** The asset tiles' pictures (from the import cache). */
+  const [tileThumbnails, setTileThumbnails] = useState<TileThumbnails | null>(null);
+  /** The session client, for the panels below (the catalog and the summaries it read). */
+  const [sessionClient, setSessionClient] = useState<SessionClient | null>(null);
+  const assetSummary = useCallback((assetId: string) => clientRef.current?.content.getAsset(assetId), []);
   const materialLibraryRef = useRef<MaterialLibrary | null>(null);
   const materialsKeyRef = useRef('');
   const environmentKeyRef = useRef('');
@@ -564,12 +574,21 @@ function EditorApp(): JSX.Element {
   const [projectUiDocs, setProjectUiDocs] = useState<readonly ProjectUiDocument[]>([]);
   const [projectUiThemes, setProjectUiThemes] = useState<readonly ProjectUiTheme[]>([]);
   const [dialogueError, setDialogueError] = useState<string | null>(null);
-  // A conversation that went away closes its tab (after the first full state).
+  // The conversations open in tabs are read by id; one the index no longer has closes its tab (after the first full state).
   useEffect(() => {
-    if (!graphsLoaded) return;
-    const ids = new Set(dialogues.map((d) => d.dialogueId));
-    for (const d of workspace.docs) if (d.kind === 'dialogue' && !ids.has(d.id)) workspaceDispatch({ type: 'close', key: docKey(d) });
-  }, [graphsLoaded, dialogues, workspace.docs, workspaceDispatch]);
+    const c = clientRef.current;
+    const open = workspace.docs.filter((d) => d.kind === 'dialogue');
+    if (!graphsLoaded || c === null || open.length === 0) return;
+    let live = true;
+    void c.catalog.ensureResources('dialogue', open.map((d) => d.id)).then(() => {
+      if (!live) return;
+      const held = new Set(c.getDialogues().map((d) => d.dialogueId));
+      for (const d of open) if (!held.has(d.id) && c.catalog.resourceAbsent('dialogue', d.id)) workspaceDispatch({ type: 'close', key: docKey(d) });
+    });
+    return () => {
+      live = false;
+    };
+  }, [graphsLoaded, dialogues, workspace.docs, workspaceDispatch, catalogTick]);
   // The timelines and the list's / tab's last refusal.
   const [timelines, setTimelines] = useState<readonly TimelineAsset[]>([]);
   const [timelineError, setTimelineError] = useState<string | null>(null);
@@ -610,12 +629,8 @@ function EditorApp(): JSX.Element {
   const [materialError, setMaterialError] = useState<string | null>(null);
   /** The material names of the selected object's model file (for the mapping editor). */
   const [selectedSourceMaterials, setSelectedSourceMaterials] = useState<string[]>([]);
-  const [assetSourceMaterials, setAssetSourceMaterials] = useState<string[]>([]);
-  /** Texture versions whose tile image was already fetched. */
-  const textureTilesRef = useRef(new Set<string>());
   const [assetDropActive, setAssetDropActive] = useState(false);
   const [lightingMode, setLightingMode] = useState<'editor' | 'game'>('editor');
-  const [assetQuery, setAssetQuery] = useState<AssetQueryState>({ total: 0, offset: 0, limit: 50, hasMore: false });
   const [importState, setImportState] = useState<AssetImportState>(initialImportState);
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
   const [assetPreview, setAssetPreview] = useState<AssetPreviewView | null>(null);
@@ -717,12 +732,26 @@ function EditorApp(): JSX.Element {
   );
   // Graph materials' problems (the kind's rules and the compiler's), for the Problems tab.
   // Computed in the editor worker (inline without one).
+  // The textures the materials name, read by id: one not read yet counts as there (it is checked once read).
+  const materialTextureIds = useMemo(() => {
+    const c = clientRef.current;
+    const ids = [...new Set(stringsIn(materials))];
+    return ids.filter((id) => {
+      const a = c?.content.getAsset(id);
+      return a !== undefined ? a.kind === 'texture' : c === null || c === undefined || !c.catalog.assetAbsent(id);
+    });
+    // `catalogTick` stands for the summaries read since.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the summaries live in the client; the tick says they changed
+  }, [materials, catalogTick]);
+  useEffect(() => {
+    void clientRef.current?.catalog.ensureAssets(stringsIn(materials));
+  }, [materials, catalogTick]);
   const materialIssues = useWorkerJob(
     'materialIssues',
-    () => ({ materials, graphs, kinds: graphKinds, textureIds: assets.filter((a) => a.kind === 'texture').map((a) => a.assetId) }),
+    () => ({ materials, graphs, kinds: graphKinds, textureIds: materialTextureIds }),
     (i) => materialIssuesOf(i.materials, i.graphs, i.kinds, i.textureIds),
     NO_MATERIAL_ISSUES,
-    [materials, graphs, graphKinds, assets],
+    [materials, graphs, graphKinds, materialTextureIds],
   );
   const [selectedBehaviorId, setSelectedBehaviorId] = useState<string | null>(null);
   const [publication, setPublication] = useState<BehaviorPublicationState>(() => initialPublicationState());
@@ -761,7 +790,7 @@ function EditorApp(): JSX.Element {
     const envKey = JSON.stringify(shown);
     if (envKey !== environmentKeyRef.current && loadTextureRef.current !== null) {
       environmentKeyRef.current = envKey;
-      viewportRef.current?.setEnvironment(shown === null ? null : (shown as EnvironmentLike), loadTextureRef.current);
+      viewportRef.current?.setEnvironment(shown === null ? null : (shown as EnvironmentLike));
     }
   }, []);
 
@@ -795,9 +824,6 @@ function EditorApp(): JSX.Element {
       setSceneHeaders(stable('sceneHeaders', scenes.filter((r) => view.open.includes(r.sceneId)).map((r) => ({ sceneId: r.sceneId, name: r.name, start: start.has(r.sceneId), active: r.sceneId === view.active, entityCount: counts.get(r.sceneId) ?? 0 }))));
       setClosedScenes(stable('closedScenes', scenes.filter((r) => !view.open.includes(r.sceneId)).map((r) => ({ sceneId: r.sceneId, name: r.name }))));
     }
-    const assetList = stable('assets', c.content.listAssets());
-    setAssets(assetList);
-    setAssetQuery((q) => (assetList.length > q.total ? { ...q, total: assetList.length } : q));
     setPrefabSummaries(stable('prefabSummaries', c.prefabs.listSummaries()));
     setDeclarations(stable('declarations', c.prefabs.declarationMap()));
     setBehaviorViews(stable('behaviorViews', [...c.prefabs.listDeclarations()]));
@@ -853,7 +879,7 @@ function EditorApp(): JSX.Element {
     setLighting(lighting);
     if (lightingKey !== lightingKeyRef.current && loadTextureRef.current !== null) {
       lightingKeyRef.current = lightingKey;
-      viewportRef.current?.setLightmaps(lighting as unknown as Record<string, LightingBakeLike>, loadTextureRef.current);
+      viewportRef.current?.setLightmaps(lighting as unknown as Record<string, LightingBakeLike>);
     }
     // The block layers (cells, block types) at their entities' positions.
     const blockLayers = c.getBlockLayers();
@@ -915,6 +941,7 @@ function EditorApp(): JSX.Element {
       onRelayRequest: (req) => forwardRelayRef.current(req),
     });
     clientRef.current = client;
+    setSessionClient(client);
 
     // The Viewport owns its canvas (a renderer backend change swaps it for a fresh one).
     const canvas = document.createElement('canvas');
@@ -1027,19 +1054,31 @@ function EditorApp(): JSX.Element {
     });
     const { loadTexture: loadTextureAsset, materialLibrary, models } = sceneAssets;
     loadTextureRef.current = loadTextureAsset;
-    // Spot light cookies in the Scene view.
-    viewport.setTextureSource(loadTextureAsset);
+    // Spot light cookies, the environment and lightmaps: held in the Scene view's manager with its models and materials.
+    viewport.setTextureSource(loadTextureAsset, sceneAssets.resources);
     materialLibraryRef.current = materialLibrary;
     viewport.setMaterialLibrary(materialLibrary);
     viewport.setModelInstances(models);
     modelInstancesRef.current = models;
-    const thumbnails = new ThumbnailRenderer({
-      read: (digest, piece) => client.thumbnail(digest, piece),
+    const thumbnails = new TileThumbnails({
+      read: (digest, piece, make) => client.thumbnail(digest, piece, make),
       store: (digest, piece, png) => client.storeThumbnail(digest, piece, png),
-      prepared: (assetId) => models.prepared(assetId),
+      modelBytes: (assetId, version) => client.assetBytes(assetId, version),
       vertexColorsFor: (assetId) => (client.content.getAsset(assetId)?.vertexColors === 'tint' ? 'tint' : 'data'),
+      renderer: () => editorRendererChoice(),
     });
-    thumbnailsRef.current = thumbnails;
+    setTileThumbnails(thumbnails);
+    // Records read by id arrived (a model the Scene view waited for) or the catalog changed: draw again.
+    let loadedSeen = client.catalog.loaded;
+    const unsubscribe = client.catalog.subscribe(() => {
+      setCatalogTick((t) => t + 1);
+      if (client.catalog.loaded !== loadedSeen) {
+        loadedSeen = client.catalog.loaded;
+        viewport.syncEntities(client.visibleEntities());
+        // Conversations read by id (a tab opened, a preview's jumps).
+        setDialogues(client.getDialogues());
+      }
+    });
     viewport.resize();
     void client.connect();
     refreshEntities();
@@ -1048,9 +1087,11 @@ function EditorApp(): JSX.Element {
     window.addEventListener('resize', onResize);
     return () => {
       window.removeEventListener('resize', onResize);
+      unsubscribe();
+      setSessionClient(null);
       client.dispose();
       thumbnails.dispose();
-      thumbnailsRef.current = null;
+      setTileThumbnails(null);
       sceneAssets.dispose();
       materialLibraryRef.current = null;
       viewport.dispose();
@@ -1090,66 +1131,6 @@ function EditorApp(): JSX.Element {
   // Push the projection into the viewport (placements must be
   // visible; the viewport renders the projection, never the reverse). The
   // first non-empty scene is framed so a large level is in view on open.
-  // Model assets: load each file once to learn its pieces, and fetch (or
-  // render and cache) a tile preview for the file and each of its pieces. A
-  // changed asset option (vertex colours) rebuilds the placed instances.
-  useEffect(() => {
-    const c = clientRef.current;
-    const models = modelInstancesRef.current;
-    const thumbs = thumbnailsRef.current;
-    if (!c || !models || !thumbs) return;
-    viewportRef.current?.syncEntities(c.visibleEntities());
-    let cancelled = false;
-    for (const a of assets) {
-      if (a.kind === 'texture') {
-        // A texture's tile is the image itself (its own bytes, no render).
-        const key = thumbnailKey(a.assetId, null);
-        const v = c.content.resolveVersion(a.assetId);
-        const tile = `${a.assetId}@${v?.version ?? 0}`;
-        if (v === null || textureTilesRef.current.has(tile)) continue;
-        textureTilesRef.current.add(tile);
-        void c.assetBytes(a.assetId, v.version).then(
-          (bytes) => {
-            // A superseded run forgets the tile so the next run fetches it (it was skipped for good).
-            if (cancelled) {
-              textureTilesRef.current.delete(tile);
-              return;
-            }
-            // A KTX2 is no image the page can show (the tile keeps its icon).
-            if (isKtx2(bytes)) return;
-            const url = URL.createObjectURL(new Blob([bytes as BlobPart]));
-            setAssetThumbs((prev) => {
-              const old = prev.get(key);
-              if (old !== undefined) URL.revokeObjectURL(old);
-              return new Map(prev).set(key, url);
-            });
-          },
-          () => undefined,
-        );
-        continue;
-      }
-      if (a.kind !== 'model') continue;
-      const digest = c.content.resolveVersion(a.assetId)?.sourceDigest ?? '';
-      if (!/^[0-9a-f]{64}$/.test(digest)) continue;
-      const show = (piece: string | null): void => {
-        void thumbs.url(a.assetId, digest, piece).then((url) => {
-          if (cancelled || url === null) return;
-          setAssetThumbs((prev) => (prev.get(thumbnailKey(a.assetId, piece)) === url ? prev : new Map(prev).set(thumbnailKey(a.assetId, piece), url)));
-        });
-      };
-      show(null);
-      void models.prepared(a.assetId).then((resource) => {
-        if (cancelled || resource === null) return;
-        const pieces = resource.pieces().map((pc) => ({ name: pc.name }));
-        setAssetPieces((prev) => new Map(prev).set(a.assetId, pieces));
-        if (pieces.length >= 2) for (const pc of pieces) show(pc.name);
-      });
-    }
-    return () => {
-      cancelled = true;
-    };
-  }, [assets]);
-
   // Animated materials (wind, water) need frames while they are in view:
   // the Scene view ticks them with its own frames and keeps drawing only while one is animated
   // (render on demand: no animation-frame loop while nothing changes).
@@ -2300,7 +2281,7 @@ function EditorApp(): JSX.Element {
     const assetId = selectedAssetIdRef.current;
     if (!c || !assetId) return;
     // Named after the asset and placed where the camera is looking.
-    const displayName = c.content.listAssets().find((a) => a.assetId === assetId)?.displayName;
+    const displayName = c.content.getAsset(assetId)?.displayName;
     const focus = viewportRef.current?.focusPoint() ?? [0, 0, 0];
     const command = planAssetPlacement(assetId, {
       ...(displayName !== undefined ? { name: displayName.slice(0, 128) } : {}),
@@ -2679,11 +2660,14 @@ function EditorApp(): JSX.Element {
     async (prefabId: string) => {
       const c = clientRef.current;
       if (!c) return;
+      // The definition is read by id (the editor reads definitions when they are used).
+      await c.catalog.ensurePrefabs([prefabId]);
       const definition = c.prefabs.getDefinition(prefabId) ?? null;
       const decls = c.prefabs.declarationMap();
       const targets = definition ? deriveOverrideTargets(definition, decls) : [];
       const entitiesNow = c.projection.listEntities();
-      const refs = { entityIds: entitiesNow.map((e) => e.id), assetIds: c.content.listAssets().map((a) => a.assetId) };
+      // Asset references are checked by the backend (the editor holds no whole catalog).
+      const refs = { entityIds: entitiesNow.map((e) => e.id) };
       const collected = collectOverrides(targets, new Map(Object.entries(overrideDrafts)), refs);
       if (!collected.ok) {
         setCopyError({ code: collected.error.code, message: collected.error.message });
@@ -2695,7 +2679,6 @@ function EditorApp(): JSX.Element {
         declarations: decls,
         parentId: null,
         sceneEntityIds: refs.entityIds,
-        assetIds: refs.assetIds,
         sceneEntityCount: entitiesNow.length,
         parentDepth: 0,
         overrides: collected.overrides,
@@ -2735,10 +2718,8 @@ function EditorApp(): JSX.Element {
         setPropertyError({ code: 'property_unknown', message: `"${key}" is not declared by ${entity.behaviorId}` });
         return;
       }
-      const parsed = parseControlInput(control, raw, {
-        entityIds: c.projection.listEntities().map((e) => e.id),
-        assetIds: c.content.listAssets().map((a) => a.assetId),
-      });
+      // Asset references are checked by the backend (the editor holds no whole catalog).
+      const parsed = parseControlInput(control, raw, { entityIds: c.projection.listEntities().map((e) => e.id) });
       if (!parsed.ok) {
         setPropertyError({ code: parsed.error.code, message: parsed.error.message });
         return;
@@ -2857,13 +2838,10 @@ function EditorApp(): JSX.Element {
     [editComponent, addComponentTo, registry],
   );
 
-  const refreshAssets = useCallback(async () => {
-    const c = clientRef.current;
-    if (!c) return;
-    const page = await c.loadAssetPage(assetQuery, {});
-    setAssetQuery(page.state);
-    setAssets(c.content.listAssets());
-  }, [assetQuery]);
+  /** Read the index again (lists and pickers read their pages again). */
+  const refreshAssets = useCallback(() => {
+    clientRef.current?.catalog.invalidate();
+  }, []);
 
   // ---- Behavior publication workflow ----------------------------
 
@@ -3236,21 +3214,9 @@ function EditorApp(): JSX.Element {
       live = false;
     };
   }, [selectedModelKey]);
-  useEffect(() => {
-    const models = modelInstancesRef.current;
-    const a = selectedAssetId !== null ? assets.find((x) => x.assetId === selectedAssetId) : undefined;
-    if (a === undefined || a.kind !== 'model' || models === null) {
-      setAssetSourceMaterials([]);
-      return;
-    }
-    let live = true;
-    void models.prepared(a.assetId).then((r) => {
-      if (live) setAssetSourceMaterials(r === null ? [] : r.materialNames(null));
-    });
-    return () => {
-      live = false;
-    };
-  }, [selectedAssetId, assets]);
+  // The chosen asset (its summary, and a model's pieces and material names, loaded when it is chosen).
+  const selectedAsset = useSelectedAsset(clientRef, modelInstancesRef, selectedAssetId, catalogTick);
+  const assetSourceMaterials = selectedAsset.sourceMaterials;
 
   // A script tab in front selects its behavior (the source
   // stage/acknowledge/publish flow acts on the selected behavior).
@@ -3271,10 +3237,8 @@ function EditorApp(): JSX.Element {
     openDocument(loc.libraryId !== undefined ? 'script-library' : 'script', id);
     setSourceFocus({ id, path: loc.path, line: loc.line, column: loc.column, nonce: Date.now() });
   };
-  const animatorModels = assets.filter((a) => a.kind === 'model').map((a) => ({ assetId: a.assetId, displayName: a.displayName, ...(a.clipsFor !== undefined ? { clipsFor: a.clipsFor } : {}) }));
   const animatorProps: AnimatorPanelProps = {
     controllers: animators,
-    models: assets.filter((a) => a.kind === 'model').map((a) => ({ assetId: a.assetId, displayName: a.displayName, ...(a.clipsFor !== undefined ? { clipsFor: a.clipsFor } : {}) })),
     clipsOf,
     skeletonOf,
     preview: previewAnimator,
@@ -3310,7 +3274,6 @@ function EditorApp(): JSX.Element {
     animatorDocument: (controllerId) => ({
       controllerId,
       controllers: animators,
-      models: animatorModels,
       clipsOf,
       skeletonOf,
       preview: previewAnimator,
@@ -3361,7 +3324,6 @@ function EditorApp(): JSX.Element {
       materials,
       kinds: graphKinds,
       graphs,
-      textures: assets.filter((a) => a.kind === 'texture').map((a) => ({ assetId: a.assetId, displayName: a.displayName })),
       onEdit: (materialId, ops) => sendGraphEdit({ kind: 'material', id: materialId }, ops),
       onSave: (m) => void saveMaterial(m, materials.find((x) => x.materialId === m.materialId) ?? null),
       onSelection: setMaterialSelection,
@@ -3369,7 +3331,6 @@ function EditorApp(): JSX.Element {
       error: materialError,
       // The live preview (the project environment, its models, the editor's texture bytes).
       environment: environment as unknown as MaterialDocumentProps['environment'],
-      models: assets.filter((a) => a.kind === 'model').map((a) => ({ assetId: a.assetId, displayName: a.displayName })),
       loadTexture: (assetId) => loadTextureRef.current?.(assetId) ?? Promise.resolve(null),
       loadModel: async (assetId) => {
         const r = await modelInstancesRef.current?.prepared(assetId);
@@ -3408,7 +3369,17 @@ function EditorApp(): JSX.Element {
       uiDocuments: projectUiDocs,
       uiThemes: projectUiThemes,
       kinds: graphKinds,
-      assets: assets.map((a) => ({ assetId: a.assetId, kind: a.kind, version: a.currentVersion })),
+      // The facts of the assets a conversation names (read by id), and each file when it is needed.
+      assets: async (ids) => {
+        const c = clientRef.current;
+        if (c === null) return [];
+        await c.catalog.ensureAssets(ids);
+        return ids.flatMap((id) => {
+          const a = c.content.getAsset(id);
+          return a === undefined ? [] : [{ assetId: a.assetId, kind: a.kind, version: a.currentVersion, ...(a.audio !== undefined ? { durationMs: a.audio.durationMs } : {}) }];
+        });
+      },
+      conversations: (dialogueId) => conversationsFrom(clientRef.current, dialogueId),
       readAsset: (assetId, version) => {
         const c = clientRef.current;
         return c !== null ? c.assetBytes(assetId, version) : Promise.reject(new Error('not connected'));
@@ -3453,7 +3424,6 @@ function EditorApp(): JSX.Element {
     timeline: {
       timelines,
       entities: clientRef.current?.projection.listEntities() ?? entities,
-      sounds: assets.filter((a) => a.kind === 'audio').map((a) => ({ assetId: a.assetId, name: a.displayName })),
       effects: effects.map((e) => ({ id: e.effectId, name: e.name })),
       actions: (inputConfig ?? inputDefaults).actions.map((a) => a.name),
       animators,
@@ -3474,8 +3444,6 @@ function EditorApp(): JSX.Element {
         onSave: (document) => uiCommand('setUiDocument', { document }),
         onSaveTheme: (theme) => uiCommand('setUiTheme', { theme }),
         onOpenTheme: (id) => openDocument('ui-theme', id),
-        textures: assets.filter((a) => a.kind === 'texture').map((a) => ({ assetId: a.assetId, displayName: a.displayName })),
-        fonts: assets.filter((a) => a.kind === 'font').map((a) => ({ assetId: a.assetId, displayName: a.displayName })),
         entities: gameFieldContext.entities.map((e) => ({ id: e.id, name: e.name })),
         fieldContext: gameFieldContext,
         assets: uiPreviewAssets,
@@ -3488,8 +3456,6 @@ function EditorApp(): JSX.Element {
         descriptors: registry?.ui ?? null,
         onSave: (theme) => uiCommand('setUiTheme', { theme }),
         onOpenDocument: (id) => openDocument('ui-document', id),
-        textures: assets.filter((a) => a.kind === 'texture').map((a) => ({ assetId: a.assetId, displayName: a.displayName })),
-        fonts: assets.filter((a) => a.kind === 'font').map((a) => ({ assetId: a.assetId, displayName: a.displayName })),
         fieldContext: gameFieldContext,
         error: uiError,
         onError: setUiError,
@@ -3542,7 +3508,8 @@ function EditorApp(): JSX.Element {
   const projectScenes = clientRef.current?.projection.scenes;
   const fieldContextBase = useMemo(
     () => ({
-      assets: assets.map((a) => ({ assetId: a.assetId, kind: a.kind, displayName: a.displayName })),
+      // The first asset or index item of some kinds (a starting choice), when it is known.
+      firstOf: (kinds: readonly string[]) => firstOfKinds(clientRef.current, kinds),
       entities: allEntitiesMemo.map((e) => {
         // One option object per entity object (copy-on-write: kept until the entity changes).
         let o = entityOptionCache.get(e);
@@ -3579,7 +3546,7 @@ function EditorApp(): JSX.Element {
         return typeof assetId === 'string' ? modelNodesOf(assetId) : undefined;
       },
     }),
-    [assets, allEntitiesMemo, projectScenes, materials, animators, behaviorViews, prefabSummaries, effects, registry, settings, modelNodesOf, behaviorGroups, modes],
+    [allEntitiesMemo, projectScenes, materials, animators, behaviorViews, prefabSummaries, effects, registry, settings, modelNodesOf, behaviorGroups, modes],
   );
   /** How many objects carry each behavior group. */
   const groupUsageMemo = useMemo(() => {
@@ -3596,21 +3563,8 @@ function EditorApp(): JSX.Element {
     [fieldContextBase, selectedSceneId],
   );
 
-  // A hook, so before the early returns below: the UI preview reads texture and font bytes through the editor's authenticated asset path.
-  const uiAssetKey = assets.filter((a) => a.kind === 'texture' || a.kind === 'font').map((a) => `${a.assetId}@${a.currentVersion}`).join('|');
-  const uiPreviewAssets = useMemo(
-    () => ({
-      paths: Object.fromEntries(uiAssetKey === '' ? [] : uiAssetKey.split('|').map((k) => [k.slice(0, k.lastIndexOf('@')), k] as const)),
-      read: async (path: string): Promise<ArrayBuffer> => {
-        const at = path.lastIndexOf('@');
-        const c = clientRef.current;
-        if (c === null || at < 0) throw new Error('not connected');
-        const bytes = await c.assetBytes(path.slice(0, at), Number(path.slice(at + 1)));
-        return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
-      },
-    }),
-    [uiAssetKey],
-  );
+  // A hook, so before the early returns below: the UI preview reads the textures and fonts the UI names through the editor's authenticated asset path.
+  const uiPreviewAssets = useUiPreviewAssets(clientRef, uiDocuments, uiThemes, catalogTick);
 
   if (gate?.kind === 'token' || (gate?.kind === 'projects' && !cfg.current.ok && cfg.current.needs === 'token')) {
     return <TokenForm message={gate.message} />;
@@ -3821,6 +3775,7 @@ function EditorApp(): JSX.Element {
   ];
 
   return (
+    <CatalogProvider catalog={sessionClient?.catalog ?? null} asset={assetSummary}>
     <div className="tl-app">
       <MenuBar menus={menus} />
       <Toolbar
@@ -4008,13 +3963,18 @@ function EditorApp(): JSX.Element {
               settings={dialogueSettings}
               uiDocuments={projectUiDocs}
               uiThemes={projectUiThemes}
-              assets={assets.map((a) => ({ assetId: a.assetId, displayName: a.displayName, kind: a.kind }))}
               openId={activeDialogueId}
               error={dialogueError}
               onOpen={(id) => openDocument('dialogue', id)}
               onCreate={(name) => {
-                const dialogueId = dialogueIdFrom(name, dialogues.map((d) => d.dialogueId), 'dialogue');
-                void dialogueCommand('setDialogue', { dialogue: { dialogueId, name } }).then((ok) => ok && openDocument('dialogue', dialogueId));
+                // A new id is checked against the index (the editor has read only the conversations it opened).
+                void (async () => {
+                  const c = clientRef.current;
+                  const base = dialogueIdFrom(name, [], 'dialogue');
+                  const taken = c === null ? [] : (await c.catalog.page({ kinds: ['dialogue'], text: base }, 0, 1024).catch(() => ({ total: 0, entries: [] }))).entries.map((e) => e.id);
+                  const dialogueId = dialogueIdFrom(name, [...taken, ...dialogues.map((d) => d.dialogueId)], 'dialogue');
+                  if (await dialogueCommand('setDialogue', { dialogue: { dialogueId, name } })) openDocument('dialogue', dialogueId);
+                })();
               }}
               onRename={(dialogueId, name) => void dialogueCommand('setDialogue', { dialogue: { dialogueId, name } })}
               onDelete={(dialogueId) => {
@@ -4113,7 +4073,7 @@ function EditorApp(): JSX.Element {
               stamps={blockStamps}
               registry={registry}
               fieldContext={gameFieldContext}
-              thumbnails={assetThumbs}
+              thumbnails={tileThumbnails}
               handlers={blockHandlersRef}
               run={blockRun}
               edit={blockEdit}
@@ -4184,8 +4144,6 @@ function EditorApp(): JSX.Element {
           {bottomTab === 'assets' && (
             <AssetBrowser
               onNewUiDocument={() => void createUiDocument(`UI document ${uiDocuments.length + 1}`)}
-              assets={assets}
-              query={assetQuery}
               importState={importState}
               selectedAssetId={selectedAssetId}
               placementAvailable={placement !== null && assetPlacementAvailable()}
@@ -4226,8 +4184,8 @@ function EditorApp(): JSX.Element {
               roleDraft={reimportRoles}
               onRoleEntityChange={setReimportEntity}
               onRoleDraftChange={setReimportRoles}
-              thumbnails={assetThumbs}
-              pieces={assetPieces}
+              thumbnails={tileThumbnails}
+              pieces={selectedAsset.pieces}
               assetOptions={assetOptions}
               onDelete={(id) => void deleteAsset(id)}
               deleteError={assetDeleteError}
@@ -4243,8 +4201,8 @@ function EditorApp(): JSX.Element {
               }
               loading={loadingNames}
               sideExtra={
-                selectedAssetId !== null && assets.find((a) => a.assetId === selectedAssetId)?.kind === 'model' ? (
-                  <ModelAssetOptions asset={assets.find((a) => a.assetId === selectedAssetId)!} assets={assets} materials={materials} sourceMaterials={assetSourceMaterials} missingBones={missingBones} onClipsFor={(rig) => void setAssetClipsFor(selectedAssetId, rig)} onMaterials={(mapping) => void assetOptions.setAssetMaterials(selectedAssetId, mapping)} />
+                selectedAssetId !== null && selectedAsset.summary?.kind === 'model' ? (
+                  <ModelAssetOptions asset={selectedAsset.summary} materials={materials} sourceMaterials={assetSourceMaterials} missingBones={missingBones} onClipsFor={(rig) => void setAssetClipsFor(selectedAssetId, rig)} onMaterials={(mapping) => void assetOptions.setAssetMaterials(selectedAssetId, mapping)} />
                 ) : null
               }
             />
@@ -4287,7 +4245,6 @@ function EditorApp(): JSX.Element {
           {bottomTab === 'materials' && (
             <MaterialsPanel
               materials={materials}
-              textures={assets.filter((a) => a.kind === 'texture').map((a) => ({ assetId: a.assetId, displayName: a.displayName }))}
               selectedId={selectedMaterialId}
               onSelect={setSelectedMaterialId}
               onSave={(m) => void saveMaterial(m, materials.find((x) => x.materialId === m.materialId) ?? null)}
@@ -4299,7 +4256,6 @@ function EditorApp(): JSX.Element {
           {bottomTab === 'environment' && (
             <EnvironmentPanel
               environment={environment}
-              textures={assets.filter((a) => a.kind === 'texture').map((a) => ({ assetId: a.assetId, displayName: a.displayName }))}
               onSave={(env) => void saveEnvironment(env, environment)}
               error={materialError}
               presets={{
@@ -4308,7 +4264,7 @@ function EditorApp(): JSX.Element {
               }}
             />
           )}
-          {bottomTab === 'input' && <InputPanel input={inputConfig} defaults={inputDefaults} onSave={(i) => void saveInput(i)} error={inputError} textures={assets.filter((a) => a.kind === 'texture').map((a) => ({ assetId: a.assetId, displayName: a.displayName }))} />}
+          {bottomTab === 'input' && <InputPanel input={inputConfig} defaults={inputDefaults} onSave={(i) => void saveInput(i)} error={inputError} />}
           {bottomTab === 'animator' && <AnimatorPanel {...animatorProps} />}
           {bottomTab === 'lighting' && (
             activeScene === null ? (
@@ -4381,7 +4337,6 @@ function EditorApp(): JSX.Element {
           )}
           {bottomTab === 'media' && (
             <MediaPanel
-              assets={assets}
               previewStatus={previewOwnerRef.current?.status() ?? { state: 'unsupported' }}
               previewDiagnostics={previewOwnerRef.current?.diagnostics() ?? []}
               onUnlockPreview={unlockPreview}
@@ -4405,7 +4360,6 @@ function EditorApp(): JSX.Element {
               ownerId={animatorSelection.ownerId !== '' ? animatorSelection.ownerId : (animatorTargets[activeAnimatorId] ?? activeAnimatorId)}
               ids={animatorSelection.ids}
               kinds={graphKinds}
-              models={animatorModels}
               clipsOf={clipsOf}
               onGraphEdit={animatorGraphEdit}
               onSave={(controller) => void saveAnimator(controller)}
@@ -4435,7 +4389,7 @@ function EditorApp(): JSX.Element {
                   ids={visualSelection}
                   onEdit={(ops) => sendGraphEdit({ kind: 'behavior', id: owner }, ops)}
                   portContext={behaviorPortContext(g, { functions: activeVisual.functions, graphs, kinds: graphKinds, ...(fn !== undefined ? { script: activeVisual.graph! } : {}) })}
-                  assetOptions={(k) => assets.filter((a) => a.kind === k).map((a) => ({ id: a.assetId, label: a.displayName }))}
+                  assetKinds={indexKindsOfAssetField}
                   // Calls pick their function by name: the script's functions, or the project's shared functions.
                   fieldOptions={(f, n) =>
                     f.key !== 'function' ? undefined : n.type === 'fn.call' ? (activeVisual.functions ?? []).map((x) => ({ id: x.functionId, label: scriptFunctionName(x) })) : n.type === 'fn.library' ? graphs.filter((x) => x.kind === 'behavior-library').map((x) => ({ id: x.graphId, label: x.name })) : undefined
@@ -4453,7 +4407,7 @@ function EditorApp(): JSX.Element {
               ids={graphSelection}
               onEdit={(ops) => sendGraphEdit({ kind: 'graph', id: openGraph.graphId }, ops)}
               portContext={graphsContext}
-              assetOptions={(k) => assets.filter((a) => a.kind === k).map((a) => ({ id: a.assetId, label: a.displayName }))}
+              assetKinds={indexKindsOfAssetField}
             />
           </div>
         ) : activeDialogueId !== null && graphKinds['dialogue'] !== undefined && dialogues.some((d) => d.dialogueId === activeDialogueId) ? (
@@ -4468,7 +4422,7 @@ function EditorApp(): JSX.Element {
                   ids={dialogueSelection}
                   onEdit={(ops) => sendGraphEdit({ kind: 'dialogue', id: d.dialogueId }, ops)}
                   // A voice clip is an audio asset of any length.
-                  assetOptions={(k) => assets.filter((a) => (k === 'voice' ? a.kind === 'audio' : a.kind === k)).map((a) => ({ id: a.assetId, label: a.displayName }))}
+                  assetKinds={indexKindsOfAssetField}
                   empty={<div className="tl-inspector__empty">Select a node of “{d.name}”: a line (speaker, expression, text, voice), an option (text, condition, effects), a branch, a set, a signal…</div>}
                 />
               );
@@ -4487,7 +4441,7 @@ function EditorApp(): JSX.Element {
                   ids={effectSelection}
                   onEdit={(ops) => sendGraphEdit({ kind: 'effect', id: `${fx.effectId}/${sys.systemId}` }, ops)}
                   portContext={effectPortContext(fx.parameters)}
-                  assetOptions={(k) => assets.filter((a) => a.kind === k).map((a) => ({ id: a.assetId, label: a.displayName }))}
+                  assetKinds={indexKindsOfAssetField}
                   empty={<div className="tl-inspector__empty">Select a node, wire, group or comment of “{sys.name}”.</div>}
                 />
               );
@@ -4505,7 +4459,7 @@ function EditorApp(): JSX.Element {
                   ids={materialSelection}
                   onEdit={(ops) => sendGraphEdit({ kind: 'material', id: m.materialId }, ops)}
                   portContext={materialPortContext(m.parameters, graphs, graphKinds)}
-                  assetOptions={(k) => assets.filter((a) => a.kind === k).map((a) => ({ id: a.assetId, label: a.displayName }))}
+                  assetKinds={indexKindsOfAssetField}
                   empty={<div className="tl-inspector__empty">Select a node, wire, group or comment of “{m.name}”.</div>}
                 />
               );
@@ -4581,8 +4535,7 @@ function EditorApp(): JSX.Element {
                       onChange={(mapping) => void setEntityMaterials(selected.id, mapping)}
                       overrides={{
                         value: (selected.components['materialParams'] as Record<string, Record<string, number | number[] | string>> | undefined) ?? null,
-                        inherited: selected.assetId !== undefined ? (assets.find((a) => a.assetId === selected.assetId)?.materials ?? null) : null,
-                        textures: assets.filter((a) => a.kind === 'texture').map((a) => ({ assetId: a.assetId, displayName: a.displayName })),
+                        inherited: selected.assetId !== undefined ? (clientRef.current?.content.getAsset(selected.assetId)?.materials ?? null) : null,
                         onChange: (next) => void setEntityMaterialParams(selected.id, next),
                       }}
                     />
@@ -4862,14 +4815,7 @@ function EditorApp(): JSX.Element {
           <div className="tl-scatter">
             <label className="tl-field">
               <span className="tl-field__label">Model</span>
-              <select className="tl-input" aria-label="instance model" value={scatter.assetId} onChange={(e) => setScatter((f) => ({ ...f, assetId: e.target.value }))}>
-                <option value="">— select —</option>
-                {assets.filter((a) => a.kind === 'model').map((a) => (
-                  <option key={a.assetId} value={a.assetId}>
-                    {a.displayName}
-                  </option>
-                ))}
-              </select>
+              <RefPicker aria="instance model" kinds={MODEL_KINDS} value={scatter.assetId} none="— select —" onPick={(id) => setScatter((f) => ({ ...f, assetId: id }))} />
             </label>
             {(
               [
@@ -4905,6 +4851,7 @@ function EditorApp(): JSX.Element {
         </Dialog>
       )}
     </div>
+    </CatalogProvider>
   );
 }
 

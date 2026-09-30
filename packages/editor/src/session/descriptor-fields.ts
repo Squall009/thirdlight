@@ -637,9 +637,17 @@ export interface EntityOption {
   readonly components: readonly string[];
 }
 
+/** The project items a `ref` field names that the pickers read from the project index (not a list the editor holds). */
+export const INDEX_REF_TARGETS: ReadonlySet<string> = new Set(['material', 'behavior', 'prefab']);
+
 /** What the reference pickers offer. */
 export interface PickerData {
-  readonly assets: readonly { assetId: string; kind: string; displayName: string }[];
+  /**
+   * The first asset or index item of these kinds, when it is known (a
+   * starting choice); the pickers read assets and index items from the
+   * project index themselves.
+   */
+  readonly firstOf?: (kinds: readonly string[]) => string | undefined;
   /** Every object of the project (entity refs may name other scenes). */
   readonly entities: readonly EntityOption[];
   readonly scenes: readonly { sceneId: string; name: string }[];
@@ -654,11 +662,11 @@ export function firstReference(f: FieldDescriptor, d: PickerData): string | unde
     case 'entityRef':
       return entityChoices(f, d.entities, d.sceneId)[0]?.id;
     case 'assetRef':
-      return d.assets.find((a) => (f.kinds as readonly string[]).includes(a.kind))?.assetId;
+      return d.firstOf?.(f.kinds as readonly string[]);
     case 'sceneRef':
       return d.scenes[0]?.sceneId;
     case 'ref':
-      return d.refs[f.target as 'material']?.[0]?.id;
+      return INDEX_REF_TARGETS.has(f.target) ? d.firstOf?.([f.target]) : d.refs[f.target as 'material']?.[0]?.id;
     default:
       return undefined;
   }

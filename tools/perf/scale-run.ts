@@ -3,7 +3,7 @@
  *
  *   --preset full|caps|small|starter   the generated size (starter: the Starter template, no generation)
  *   --factor F                         the full size times F instead of a preset
- *   --steps files,open,commands,import,play,walk,handles,dialogue,stream,export   (import and stream only when named)
+ *   --steps files,open,commands,editor,import,play,walk,handles,dialogue,stream,export   (import and stream only when named)
  *   --import N                         voice files the import step writes into a new folder and imports (1000)
  *   --stream N --budget MB             large KTX2 textures the stream step imports (6) and the texture budget Play then runs with (8)
  *   --walk N --lines N --commands N    scenes walked (50), dialogue lines played (500), command round trips (20)

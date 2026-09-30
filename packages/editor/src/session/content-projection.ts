@@ -1,15 +1,14 @@
 /**
  * Content projection (additive to the scene projection).
  *
- * The full-state payload carries a bounded `content` object
- * (`{ assets, prefabs, behaviors }` summary pages at the same revision).
- * This module holds the **asset** part of that projection:
- * the catalog summaries the content browser renders and the version
- * resolution the viewport uses to realize a model placement.
+ * The asset summaries the editor has read by id (`queryAssets {ids}`): the
+ * ones the Scene view, a list or a picker shows now — never the whole
+ * catalog, which the project index pages (`catalog.ts`). It also resolves
+ * the version a placement realizes.
  *
  * Normative rules implemented here:
  *
- *  - the projection is rebuilt on every full state (establish/re-attach/resync)
+ *  - the summaries are read again after every full state (establish/re-attach/resync)
  *    and updated from the same `mutation.applied` `change` records the scene
  *    projection uses; `mutation.applied` never carries bytes;
  *  - a **reimport** appends a version and moves `currentVersion`; it never
@@ -50,16 +49,23 @@ export interface FullContentState {
 export class ContentProjection {
   private assets = new Map<string, AssetView>();
 
-  /** Rebuild from authoritative full state (establish / re-attach / resync). */
+  /** Start again from these summaries (a full state: the ones read so far may be stale). */
   hydrate(content: FullContentState | null | undefined): void {
     this.assets.clear();
-    for (const a of content?.assets ?? []) {
-      this.assets.set(a.assetId, cloneSummary(a));
-    }
+    this.put(content?.assets ?? []);
   }
 
-  /** Ascending `assetId` order. */
-  listAssets(): AssetView[] {
+  /** Add or replace summaries read by id (what a list, picker or the Scene view needs now). */
+  put(summaries: readonly AssetSummary[]): void {
+    for (const a of summaries) this.assets.set(a.assetId, cloneSummary(a));
+  }
+
+  has(assetId: string): boolean {
+    return this.assets.has(assetId);
+  }
+
+  /** The summaries read so far, in ascending `assetId` order (never the whole catalog: the index pages that). */
+  cachedAssets(): AssetView[] {
     return [...this.assets.values()].sort((a, b) => (a.assetId < b.assetId ? -1 : a.assetId > b.assetId ? 1 : 0));
   }
 
@@ -158,7 +164,8 @@ export class ContentProjection {
       }),
     });
     if (!previous) return true;
-    return previous.currentVersion !== next.currentVersion || previous.displayName !== next.displayName || previous.sourcePath !== sourcePath || (previous.labels ?? []).join() !== (next.labels ?? []).join() || previous.address !== (next as { address?: string }).address || JSON.stringify(previous.audio) !== JSON.stringify(audio);
+    // Any fact of the summary (a vertex-colour mode, default materials, a rig, streaming, …).
+    return JSON.stringify(previous) !== JSON.stringify(this.assets.get(change.assetId));
   }
 
   /** The `(version, digest, byteLength)` a placement resolves through now. */
