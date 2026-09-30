@@ -1004,14 +1004,13 @@ export function resolveProjectFile(
   let realRoot: string;
   let realProject: string;
   try {
-    realRoot = realpathSync(folder);
-    realProject = realpathSync(ctx.dir);
+    ({ realRoot, realProject } = realRootsOf(ctx, folder));
   } catch {
     return { ok: false, error: pathRejected(shown, 'the game folder is unavailable') };
   }
   let real: string;
   try {
-    real = realpathSync(join(folder, ...segs));
+    real = realpathSync.native(join(folder, ...segs));
   } catch {
     return { ok: false, error: pathRejected(shown, `${shown} does not exist in the game folder`), missing: true };
   }
@@ -1033,6 +1032,20 @@ export function resolveProjectFile(
     return { ok: false, error: pathRejected(shown, `${shown} is not a ${want === 'file' ? 'regular file' : 'folder'}`) };
   }
   return { ok: true, real, size: st.size };
+}
+
+/**
+ * The real paths of the game folder and the project folder, resolved once per
+ * context: a pass over thousands of files (the file check, a build) resolves
+ * each file, not its roots, again.
+ */
+const realRoots = new WeakMap<ContentContext, { folder: string; realRoot: string; realProject: string }>();
+function realRootsOf(ctx: ContentContext, folder: string): { realRoot: string; realProject: string } {
+  const known = realRoots.get(ctx);
+  if (known !== undefined && known.folder === folder) return known;
+  const made = { folder, realRoot: realpathSync.native(folder), realProject: realpathSync.native(ctx.dir) };
+  realRoots.set(ctx, made);
+  return made;
 }
 
 /** Read one contained game-folder file (size-bounded, the final component never followed). */

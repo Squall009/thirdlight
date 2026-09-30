@@ -191,7 +191,8 @@ at the boundary it changes (Playwright for any editor surface).
 | 26.5 | done 2026-09-30: no per-project count cap on assets or resources (model, commands, editor, game host, MCP, docs; guarded by `tests/count-caps.test.ts` and `tests/e2e/count-caps.e2e.ts`); `MAX_CONTENT_FILE_BYTES` per file; no project quota (disk space only); manifest at the content file cap; animation keys per model; limits audit (§7; table in `docs/deployment.md`); full bench uncapped on main (§6) |
 | 26.6 | done 2026-09-30: one `audio` kind (Ogg Vorbis/Opus, MP3, WAV integer or float, FLAC; any channels, rate, bits, length; the 32 MiB file cap only); header inspection per format; load type and preload in the sidecar (`setAssetOptions`), defaults by length, carried in the manifest; `music` and short-sound records upgraded on open (v4 and earlier v5, ids kept, replays answered); browser gaps as a Problem; asset inspector shows the facts and settings; e2e `audio-kinds` |
 | 26.7 | done 2026-09-30: an address and labels on any asset (on its record, in its sidecar, format 3) or resource (in its resource file, beside the record); `setLabels {items: [{kind, id}], add?, remove?}` and `setAddress {kind, id, address}` (unique project-wide), one command and one undo however many items; the Assets tab labels a multi-selection and its side panel sets one asset's address and labels; MCP commands and index filters (`address`, `loadable`); loadable assets and materials ship with Play and export though no scene references them, and the manifest lists them (`loadable`); a script naming a non-loadable asset is a Problem; on open, older projects' script-named assets get the label `script-named` (reported in Problems and `upgrade-report.json`); e2e `loadable` |
-| 26.8–26.14 | — |
+| 26.8 | done 2026-09-30: a file's digest checked once per change (stamps in memory and in `cache/imported/file-stamps.json`, a restart hashes nothing unchanged); Play serves assets and instance buffers from disk at their digest URLs, verified while sent (a changed file refused, or cut short, and re-checked); the 512 MiB Play set cap gone (per held file only); record lookups and query pages from indexes, the integrity report paged (`limit`, `offset`, `problems`); the check before Play and export takes changed files in; full-size Play 9.0 → 2.8 s (§6); D67 logged, D68 fixed; e2e `play-files` |
+| 26.9–26.14 | — |
 
 ## 6. Measurements
 
@@ -384,6 +385,34 @@ frame 872–1,225 ms (backend build 428–524, closure 267–317); manifest
 runs of `360abfc0` in the same session: Play 919–954 ms, closure 269–283, so
 Play is within spread; that build's open (4.6–4.9 s) and commands (41–124 ms
 p50) read its own generator-5 cached project and are not compared.
+
+After 26.8 (backend reads: files checked once per change, Play assets
+served from disk, lookups and pages from indexes; `--steps files,open,play
+--gpu`, the reads' code at `c108a1bd` plus its follow-up (roots resolved once
+per pass, a stat before any open), GPU host, 2026-09-30; reports
+`scale-small-2026-09-30T06-23-11-133Z.json`,
+`scale-x0.1-2026-09-30T06-23-25-109Z.json`,
+`scale-full-2026-09-30T06-22-35-745Z.json`; ms, MiB):
+
+| | small (60 assets) | ×0.1 (1,800) | full (18,000) | full before (26.5) |
+|---|---|---|---|---|
+| file check: first after the copy (every file hashed) / again / first after a restart | 13 / 15 / 12 | 147 / 132 / 167 | 990 / 492 / 628 | not measured (each check hashed every file past a 1,024-entry cache) |
+| Play: click → first frame | 432 | 670 | 2,816 | 9,033 |
+| Play: backend total (pre-Play check; closure; its asset stage) | 45 (–; 26; 2) | 215 (–; 167; 13) | 1,623 (230; 1,368; 107) | 8,358 (–; 6,772; 5,354) |
+| backend resident: after open / peak during the start / after the stop | 143 / 160 / 144 | 182 / 215 / 215 | 374 / 498 / 473 | 342 after open |
+
+The asset stage no longer grows with the project (107 ms for 18,000 assets:
+one stat each; it was 5.4 s of reading and hashing), and the backend holds no
+asset bytes (the Play set held every reachable file before). What still grows
+with the asset count at full size: the content view (`closure.view` 788 ms, a
+first build of the capture) and the 9.2 MB inline manifest (`closure.manifest`
+442 ms, and most of the ~125 MiB the backend gains during the start: the
+manifest, the view and the remembered derivation) — both 26.9's catalog; the
+pre-Play check (230 ms, one stat per asset). A first run of the same commit
+before the follow-up measured the file check at 2.5 / 2.0 / 2.2 s and Play at
+5.6 s: the check spent its time resolving the game folder's real path for
+every file and opening each file to stat it, and blocked the event loop while
+the editor's connect-time check ran, delaying the Play request behind it.
 
 Proposed targets for "Done when" (fixed in 26.14 from these numbers):
 
@@ -1032,3 +1061,54 @@ Proposed targets for "Done when" (fixed in 26.14 from these numbers):
   float/extensible WAV, FLAC STREAMINFO, MP3 frame runs and Ogg pages of
   other codecs are built byte by byte in `inspect-audio.test.ts`; the e2e's
   70 s Opus comes from the scale bench's Opus packet pool.
+- 2026-09-30 (26.8): a file's digest is kept under its stamp (size,
+  modification and change times, inode) per open project and in the import
+  cache (`cache/imported/file-stamps.json`, git-ignored, written then renamed
+  unflushed); a file whose stamp is unchanged is not read by the file check, a
+  Play or export build or the integrity report, so a restart hashes nothing
+  unchanged (Git's index and Unity's asset database skip unchanged files the
+  same way). A hash made within 2 s of the file's last write is not trusted
+  (Git's "racily clean" rule). This replaces the process-wide 1,024-entry
+  cache, which at full size re-hashed every file on every check.
+- 2026-09-30 (26.8): Play serves the project's files (assets, instance
+  buffers) from disk at the stable digest URLs of 25.24c; the backend holds
+  only what the build generates (manifest content files, scene files,
+  compiled scripts). The 512 MiB Play set cap (`PLAY_CONTENT_SET_MAX_BYTES`)
+  is gone; the per-file cap (32 MiB, the content file cap) stays for what the
+  backend holds, and a file served from disk is bounded by the import's
+  source cap only.
+- 2026-09-30 (26.8): integrity on serve, both ways the plan named: a file's
+  stamp is checked when it is opened, and one whose stamp changed since it was
+  hashed is hashed whole before a byte is sent and refused
+  (`409 asset_source_changed`) when its digest differs, which starts a file
+  check (one queued per project); while a file is sent it is hashed again and
+  its last chunk held back until the whole file matched, so a file changed
+  during the send ends the response short (the browser drops a response short
+  of its `content-length`; the page's reader checks digests too) and is
+  re-checked. Refusing alone would leave the stat-to-send race; hashing alone
+  would send bytes before knowing.
+- 2026-09-30 (26.8): the check before Play and export now imports a changed
+  file again (Unity refreshes its asset database before entering Play mode),
+  not only the import cache; with stamps it costs one stat per asset. Moves
+  and resource files stay the full check's (connect, focus, "check files").
+  A Play started after a file changed on disk ships the new file at its new
+  URL without "check files".
+- 2026-09-30 (26.8): lookups and pages. An asset record by id goes through a
+  position map made once per asset list (lists are replaced, never changed
+  in place; a stale position makes it again), not a catalog scan; `queryAssets`,
+  `queryPrefabs` and `queryBehaviors` page from an id order made once per list
+  (the same response shapes), `queryIndex` from its keys sorted once per change
+  of the key set. The integrity report (HTTP `…/content/integrity`, the check
+  route's body, MCP `tl_content_query {target: "integrity"}`) takes `limit`,
+  `offset` and `problems` (only the entries that are not ok) and answers
+  `total` and `nextCursor`; without them it answers every entry as before. The
+  editor's check asks for problems only. `queryGameConfig` still returns every
+  material, graph and dialogue at once (the editor's load; 26.13 pages the
+  editor).
+- 2026-09-30 (26.8): the closure locates for Play (`locate: true`: one
+  batched `locateBlobs` per build) and reads for the export (26.9 streams the
+  export; it gains the lookups). A Play's need for the Basis transcoder comes
+  from the records (a model's used extensions, a KTX2 texture's format), not
+  the bytes. Reading the closure found D67 (a behavior's required modules
+  never reach the module set) and D68 (only the first 128 behaviors were
+  compiled: fixed, every page is read).

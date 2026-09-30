@@ -15,7 +15,7 @@
  * next time it is asked about.
  */
 import { createHash } from 'node:crypto';
-import { closeSync, constants, fstatSync, mkdirSync, openSync, readFileSync, readSync, renameSync, statSync, writeFileSync, type Stats } from 'node:fs';
+import { closeSync, constants, fstatSync, mkdirSync, openSync, readFileSync, lstatSync, readSync, renameSync, writeFileSync, type Stats } from 'node:fs';
 import { dirname } from 'node:path';
 
 /** The file-system facts that change whenever a file's bytes can have changed. */
@@ -115,6 +115,12 @@ export class FileStamps {
 
   /** The file's current digest and stamp: the remembered one when its stamp is unchanged, else hashed now. Null: it cannot be read. */
   digestOf(real: string): { digest: string; stamp: Stamp; hashed: boolean } | null {
+    // A stat answers for a file whose stamp is known (no open, no read).
+    const seenStamp = FileStamps.stat(real);
+    if (seenStamp !== null) {
+      const seen = this.known(real, seenStamp);
+      if (seen !== null) return { digest: seen, stamp: seenStamp, hashed: false };
+    }
     let fd: number;
     try {
       fd = openSync(real, constants.O_RDONLY | constants.O_NOFOLLOW);
@@ -142,7 +148,9 @@ export class FileStamps {
   /** The stat of a file as a stamp (null: it is not there). */
   static stat(real: string): Stamp | null {
     try {
-      return stampOf(statSync(real));
+      // The file itself, never a link's target (reads open without following one).
+      const st = lstatSync(real);
+      return st.isFile() ? stampOf(st) : null;
     } catch {
       return null;
     }
