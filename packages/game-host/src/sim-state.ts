@@ -305,6 +305,9 @@ export class FrameEncoder {
     // Project save requests (the page carries them out).
     const saveReq = rt.takeSaveRequests?.() ?? [];
     if (saveReq.length > 0) out.saveReq = saveReq;
+    // Scripts' asset loads and releases (the page holds the assets).
+    const assetReq = rt.takeAssetRequests?.() ?? [];
+    if (assetReq.length > 0) out.assetReq = assetReq;
     // Block-layer chunks the simulation changed.
     const grid = rt.takeGridChanges?.() ?? [];
     if (grid.length > 0) out.grid = grid;
@@ -455,6 +458,8 @@ export class FrameMirror {
   env: import('@thirdlight/runtime').EnvironmentBlendView | null = null;
   /** Project save requests not carried out yet (the host takes them every frame). */
   saveReq: import('@thirdlight/runtime').SaveRequest[] = [];
+  /** Asset loads and releases not carried out yet (the host takes them every frame). */
+  assetReq: import('@thirdlight/runtime').AssetHandleRequest[] = [];
   /** Binding requests not taken by the host yet (at most 32 wait). */
   bindingRequests: import('@thirdlight/runtime').InputBindingRequest[] = [];
   bindingDropped = 0;
@@ -546,6 +551,7 @@ export class FrameMirror {
     if (s.cam !== undefined) this.cam = s.cam;
     if (s.env !== undefined) this.env = s.env;
     if (s.saveReq !== undefined) for (const r of s.saveReq) this.saveReq.push(r);
+    if (s.assetReq !== undefined) for (const r of s.assetReq) this.assetReq.push(r);
     if (s.grid !== undefined) for (const g of s.grid) this.grid.set(`${g.entityId}|${g.cx},${g.cz}`, g);
     if (s.mat !== undefined) {
       for (const c of s.mat) {

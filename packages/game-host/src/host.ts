@@ -405,6 +405,11 @@ export interface GameHostConfig {
    * after each frame and reports it. Absent: a manager of the host's own.
    */
   readonly resources?: ResourceManager;
+  /**
+   * Scripts' loads by key (`ctx.assets.load`): the page resolves the key,
+   * loads what it names and holds it for `holder` (see host-assets.ts).
+   */
+  readonly loadAssets?: (key: string, holder: string) => Promise<readonly string[]>;
   /** Where the player's settings go (localStorage in the browser; see `storage.ts`) and this game's key prefix. */
   readonly saveStorage?: SaveStorage;
   readonly saveNamespace?: string;
@@ -1289,6 +1294,11 @@ export function createGameHost(config: GameHostConfig): GameHost {
     serviceCursor(runtime);
     // The simulation's save requests (a thumbnail is drawn now, in this frame; held ones go once it can be).
     if (projectSaves !== null) projectSaves.handle(runtime.takeSaveRequests?.() ?? []);
+    // Scripts' asset loads and releases; each answer is the next step's input.
+    assets.serviceHandles(runtime.takeAssetRequests?.() ?? [], (answer) => {
+      const r = disposed || runtime === null ? undefined : runtime.queueAssetAnswer?.(answer);
+      if (r !== undefined && !r.ok) console.warn('[game-host] asset answer refused:', r.error.message);
+    });
     // The sounds of scripts and event cues (the runtime's audio intent log), and the audio sources' loops.
     serviceScriptAudio(runtime);
     serviceAudioSources(runtime);
@@ -1755,7 +1765,9 @@ export function createGameHost(config: GameHostConfig): GameHost {
     debugConsole?.dispose();
     debugConsole = null;
     bindings?.dispose();
-    assets.dispose();
+    // Scripts' handles still open when the play ends are let go and reported.
+    const open = assets.dispose();
+    if (open.length > 0) console.warn(`[game-host] ${open.length} asset handle(s) were not released when the play ended: ${open.slice(0, 8).map((h) => `${h.handle} "${h.key}"`).join(', ')}`);
     if (uiLayer !== null) {
       uiLayer.dispose();
       uiLayer = null;

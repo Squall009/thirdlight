@@ -92,6 +92,9 @@ export function stepDigest(rt: Runtime): string {
   // The project saves state (document, play time, settings, slot list, outcomes; only with a save schema and once used).
   const saves = rt.savesState?.() ?? null;
   if (saves !== null) h.text(saves);
+  // The scripts' asset handles (only once a script loaded one, so every other digest is unchanged).
+  const handles = rt.assetHandlesState?.() ?? null;
+  if (handles !== null) h.text(handles);
   // The dialogue runner (only once a conversation or a dialogue call happened, so every other digest is unchanged).
   const dlg = rt.dialogueState?.() ?? null;
   if (dlg !== null) h.text(dlg);

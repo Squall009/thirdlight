@@ -58,6 +58,11 @@ export class RelayActionSource implements ActionSource {
     this.browser = browser;
   }
 
+  /** A recorded input stays recorded through the relay (its frames carry the host's answers). */
+  get recorded(): boolean {
+    return this.browser.recorded === true;
+  }
+
   /** The UI hit test (the key of the topmost UI target under x, y; null: the game view). */
   setUiHit(hit: ((x: number, y: number) => string | null) | null): void {
     this.uiHit = hit;

@@ -18,7 +18,7 @@
  * (the runtime's bounded catch-up applies as in the page). With
  * `driver: 'manual'` (Node, tests) `tick(now)` resolves once the frame is in.
  */
-import { debugCallRefusal, ENGINE_DEBUG_COMMANDS, validateDebugCommandCall, validateSaveEvents, type SaveEvent } from '@thirdlight/runtime';
+import { debugCallRefusal, ENGINE_DEBUG_COMMANDS, validateAssetAnswers, validateDebugCommandCall, validateSaveEvents, type AssetHandleAnswer, type SaveEvent } from '@thirdlight/runtime';
 import { validateDialogueInput, validateUiEvent, type DialogueInputRecord } from '@thirdlight/runtime';
 import type {
   UiEventRecord,
@@ -352,6 +352,19 @@ export function startRemoteSimulation(opts: RemoteSimulationOptions): Promise<Re
       const checked = validateSaveEvents([event]);
       if (!checked.ok) return { ok: false, error: rtError('game_command_invalid', `save entry: ${checked.message}`, { reason: 'saves' }) };
       command({ op: 'saveEvent', event: checked.events[0]! });
+      return { ok: true };
+    },
+    // Scripts' asset handles — the worker's loads and releases (the page holds the assets), the answers queued there.
+    takeAssetRequests: () => {
+      const out = mirror.assetReq;
+      mirror.assetReq = [];
+      return out;
+    },
+    queueAssetAnswer: (answer: AssetHandleAnswer) => {
+      if (gone()) return { ok: false, error: rtError('runtime_disposed', 'runtime is disposed') };
+      const checked = validateAssetAnswers([answer]);
+      if (!checked.ok) return { ok: false, error: rtError('game_command_invalid', `assets answer: ${checked.message}`, { reason: 'assets' }) };
+      command({ op: 'assetAnswer', answer: checked.answers[0]! });
       return { ok: true };
     },
     gameCounters: () => mirror.counters,

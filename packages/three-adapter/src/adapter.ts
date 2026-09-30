@@ -1802,6 +1802,21 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       sceneHolds.set(sceneId, handle);
       return { ready: Promise.all([held?.ready ?? Promise.resolve(), decoded?.ready.catch(() => undefined)]).then(() => undefined), release: handle.release };
     },
+    holdAssets(models, textures) {
+      if (disposed) return { ready: Promise.resolve(), release: () => undefined };
+      const held = models.length > 0 ? (realization?.hold?.(new Set(models), []) ?? null) : null;
+      const decoded = textures.length > 0 && materialLibrary?.preloadTextures !== undefined ? materialLibrary.preloadTextures(textures) : null;
+      let released = false;
+      return {
+        ready: Promise.all([held?.ready ?? Promise.resolve(), decoded?.ready.catch(() => undefined)]).then(() => undefined),
+        release: (): void => {
+          if (released) return;
+          released = true;
+          held?.release();
+          decoded?.release();
+        },
+      };
+    },
     presentedSceneRevision(): number {
       return presentedRevision;
     },

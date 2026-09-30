@@ -31,6 +31,7 @@ import type { BehaviorGrid } from './grid';
 import { EntityAccessError, type BehaviorEntityHandle } from './entity-access';
 import type { BehaviorMaterials } from './material-params';
 import type { BehaviorSaves } from './project-saves';
+import type { BehaviorAssets } from './asset-handles';
 import type {
   DeclaredProperty,
   PropertyDeclaration,
@@ -261,6 +262,11 @@ export interface BehaviorContext {
    * with title/chapter/location/play time/picture) and the project settings document.
    */
   readonly saves?: BehaviorSaves;
+  /**
+   * Load assets by id, address or label and release them: a handle's state says when they are ready
+   * (the game never waits for a load); release every handle you load.
+   */
+  readonly assets?: BehaviorAssets;
   /** The project UI — publish view-model values, show and hide UI documents, read the step's UI events. */
   readonly ui?: BehaviorUi;
   /**
@@ -1096,6 +1102,8 @@ export function createBehaviorModuleSpec(input: BehaviorHostInput): SimulationMo
         if (src.materials !== undefined) fields['materials'] = { value: src.materials, enumerable: true };
         // Project saves.
         if (src.saves !== undefined) fields['saves'] = { value: src.saves, enumerable: true };
+        // Asset handles (the host loads; the answers arrive as input).
+        if (src.assets !== undefined) fields['assets'] = { value: src.assets, enumerable: true };
         // The project UI (the view model and shown documents are simulation state).
         if (src.ui !== undefined) fields['ui'] = { value: src.ui, enumerable: true };
         // Conversations (run by the engine at the end of the step).

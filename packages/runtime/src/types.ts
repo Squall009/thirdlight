@@ -198,6 +198,14 @@ export interface Runtime {
   savesState?(): string | null;
   /** The project settings document now. */
   projectSettings?(): Readonly<Record<string, boolean | number | string>>;
+
+  // ---- Scripts' asset handles ------------------------------------------------
+  /** The loads and releases scripts asked for since the last call (the host holds the assets). */
+  takeAssetRequests?(): import('./asset-handles').AssetHandleRequest[];
+  /** Queue the host's answer to one load for the next executed step (it rides on that step's input frame). */
+  queueAssetAnswer?(answer: import('./asset-handles').AssetHandleAnswer): { ok: true } | { ok: false; error: RuntimeError };
+  /** The scripts' asset handles as digest text (null before any was used). */
+  assetHandlesState?(): string | null;
 }
 
 /** One interpolated transform. */

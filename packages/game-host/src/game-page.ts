@@ -30,8 +30,8 @@
  *
  * Browser-only (DOM, WebGL/WebGPU, Web Audio, Web Crypto).
  */
-import { audioSpatialOf, depthBufferOf, instanceChunkSizeOf, physicsDimensionOf, sha256HexAsync, type SaveSchema } from '@thirdlight/project-model';
-import { createResourceManager, type ResourceObservation } from '@thirdlight/runtime';
+import { audioSpatialOf, dependencyTables, depthBufferOf, instanceChunkSizeOf, physicsDimensionOf, scanDependencies, sha256HexAsync, type SaveSchema } from '@thirdlight/project-model';
+import { assetVersionKey, createResourceManager, type ResourceManager, type ResourceObservation } from '@thirdlight/runtime';
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import { createPhysicsPort, type RapierPhysicsInitConfig, type RapierPhysicsPort, type RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
 import { batchingFromUrl, createSceneAdapter, decodeTexture, effectsOptionFrom, environmentHasLook, pageSearch, resolveRendererPreference, setKtx2DecoderBase } from '@thirdlight/three-adapter';
@@ -315,6 +315,89 @@ function buildModelsBlock(manifest: GamePageManifest, snapshot: RuntimeSnapshot,
     // Read (once, checked) when the model is first needed — at start for the start scenes' models.
     resolveBytes: (assetId: string, version: number): Promise<ArrayBuffer> => reader.bytes(assetId, version),
     ...(manifest.buffers !== undefined ? { resolveBuffer: bufferResolver(manifest.buffers, { read, sha256Hex }) } : {}),
+  };
+}
+
+/** What a script may load by name: an entry of the build's loadable index. */
+interface LoadableEntryLike {
+  readonly kind: string;
+  readonly id: string;
+  readonly address?: string;
+  readonly labels?: readonly string[];
+}
+
+/**
+ * The page's side of `ctx.assets.load(key)`: the key resolved (an address
+ * first, then an asset or resource id, then a label: every entry carrying
+ * it), what those name found (a resource's models, materials and textures by
+ * the same scan as the build's dependency lists), models parsed and textures
+ * decoded by the adapter, any other file's verified bytes read, and all of it
+ * held for `holder` in the page's resource manager until the handle is
+ * released. Rejects (holding nothing) when the key names nothing in this
+ * build or a file could not be loaded.
+ */
+function pageAssetLoader(o: {
+  readonly manifest: GamePageManifest;
+  readonly catalog: RuntimeCatalog;
+  readonly reader: VerifiedAssetReader;
+  readonly resources: ResourceManager;
+  readonly adapter: () => SceneAdapter | null;
+}): (key: string, holder: string) => Promise<readonly string[]> {
+  const m = o.manifest as GamePageManifest & { loadable?: readonly LoadableEntryLike[]; animators?: readonly { controllerId: string }[]; prefabs?: readonly { prefabId: string }[] };
+  const resourcesById = new Map<string, unknown>();
+  for (const p of m.prefabs ?? []) resourcesById.set(p.prefabId, p);
+  for (const x of m.materials ?? []) resourcesById.set(x.materialId, x);
+  for (const x of m.materialFunctions ?? []) resourcesById.set((x as { graphId: string }).graphId, x);
+  for (const x of m.effects ?? []) resourcesById.set((x as { effectId: string }).effectId, x);
+  for (const x of m.animators ?? []) resourcesById.set(x.controllerId, x);
+  const loadable = async (): Promise<readonly LoadableEntryLike[]> => (o.catalog.version === 4 ? (m.loadable ?? []) : o.catalog.loadable());
+  /** The ids a key names (sorted): its address, else an asset or a resource with that id, else every entry with that label. */
+  const resolve = async (key: string): Promise<string[]> => {
+    const entries = await loadable();
+    const addressed = entries.find((e) => e.address === key);
+    if (addressed !== undefined) return [addressed.id];
+    if ((await o.catalog.lookup(key)) !== undefined || resourcesById.has(key)) return [key];
+    return [...new Set(entries.filter((e) => e.labels?.includes(key) === true).map((e) => e.id))].sort();
+  };
+  return async (key, holder) => {
+    const ids = await resolve(key);
+    if (ids.length === 0) throw new Error(`nothing in this build is named "${key.slice(0, 64)}" (an asset id, an address or a label)`);
+    // Every asset the named assets and resources need: the rows read so far know every asset a
+    // project-wide resource names (the build's shared dependency list); a named asset is looked up.
+    const named = await Promise.all(ids.map((id) => o.catalog.lookup(id)));
+    const tables = dependencyTables({ assets: o.catalog.known(), ...(m.materials !== undefined ? { materials: m.materials as { materialId: string }[] } : {}), ...(m.materialFunctions !== undefined ? { functions: m.materialFunctions as { graphId: string }[] } : {}), ...(m.effects !== undefined ? { effects: m.effects as { effectId: string }[] } : {}), ...(m.animators !== undefined ? { animators: m.animators } : {}), ...(m.prefabs !== undefined ? { prefabs: m.prefabs } : {}) });
+    const roots = ids.map((id, i) => (named[i] !== undefined ? id : resourcesById.get(id)));
+    const needed = scanDependencies(tables, roots);
+    const rows = (await Promise.all(needed.map((id) => o.catalog.lookup(id)))).filter((r): r is NonNullable<typeof r> => r !== undefined);
+    const adapter = o.adapter();
+    const canDecode = adapter?.holdAssets !== undefined;
+    const models = canDecode ? rows.filter((r) => r.kind === 'model') : [];
+    const textures = canDecode ? rows.filter((r) => r.kind === 'texture') : [];
+    const decoded = new Set([...models, ...textures]);
+    const files = rows.filter((r) => !decoded.has(r));
+    const reading = `${holder}/read`;
+    const hold = adapter?.holdAssets?.(models.map((r) => r.assetId), textures.map((r) => r.assetId)) ?? null;
+    try {
+      await Promise.all([o.reader.preload(files, undefined, reading), hold?.ready]);
+      // The handle takes its own holds, then the loads' holds go: the handle is what keeps them.
+      const missing: string[] = [];
+      for (const r of models) {
+        const k = assetVersionKey(r.assetId, r.version);
+        if (!o.resources.hold('model', k, holder) && !o.resources.hold('clip', k, holder)) missing.push(r.assetId);
+      }
+      // A project without materials has no texture decoder: its textures are held as their verified bytes.
+      const undecoded = textures.filter((r) => !o.resources.hold('texture', r.assetId, holder));
+      if (undecoded.length > 0) await o.reader.preload(undecoded, undefined, reading);
+      for (const r of [...files, ...undecoded]) o.resources.hold('bytes', assetVersionKey(r.assetId, r.version), holder);
+      if (missing.length > 0) throw new Error(`${missing.length} of ${rows.length} files could not be loaded: ${missing.slice(0, 4).join(', ')}${missing.length > 4 ? ', …' : ''}`);
+      return ids;
+    } catch (e) {
+      o.resources.releaseHolder(holder);
+      throw e;
+    } finally {
+      hold?.release();
+      o.reader.release(reading);
+    }
   };
 }
 
@@ -698,6 +781,8 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
       container: o.container,
       buildId: manifest.buildId,
       resources,
+      // Scripts' loads by id, address or label (`ctx.assets`).
+      loadAssets: pageAssetLoader({ manifest, catalog: content.catalog, reader: assetReader, resources, adapter: () => adapterRef.current }),
       assetPaths: assetPathsById,
       ...(manifest.shell !== undefined ? { shell: manifest.shell } : {}),
       inputConfig: structuredClone(manifest.input ?? (physicsDimensionOf(settings) === 3 ? DEFAULT_INPUT_CONFIG_3D : DEFAULT_INPUT_CONFIG)) as unknown as NonNullable<GameHostConfig['inputConfig']>,
@@ -820,15 +905,14 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
       identity,
       stepHz,
       assetReads: () => assetReader.stats(),
-      resources: () => resources.observe(),
+      resources: () => {
+        // The host's view adds the scripts' handles (open, and those a run ended without releasing).
+        const o = host.observe();
+        return o.ok && o.observation.resources !== undefined ? o.observation.resources : resources.observe();
+      },
       // The host disposes its runtime (in worker mode the mirror, which ends the worker);
       // then the physics port, the audio owner, the input and the page listeners; the resources last.
-      dispose: () => {
-        // Scripts' handles still held when the play ends are reported (each is freed with the rest).
-        const open = resources.observe().handles;
-        if (open > 0) console.warn(`[game-page] ${open} asset handle(s) were not released when the play ended`);
-        releaseAll();
-      },
+      dispose: () => releaseAll(),
     };
   } catch (e) {
     releaseAll();

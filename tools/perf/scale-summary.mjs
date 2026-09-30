@@ -37,6 +37,12 @@ for (const path of process.argv.slice(2)) {
       console.log(`walk resident KiB (before → most → after): ${kinds.map((k) => `${k} ${kib(w.before, k)} → ${f(most(k) / 1024, 1)} → ${kib(w.after, k)}`).join('; ')}; loads ${JSON.stringify(w.after.resources?.loads ?? {})}, frees ${JSON.stringify(w.after.resources?.frees ?? {})}`);
     }
   }
+  const hd = r.handles;
+  if (hd) {
+    const kinds = [...new Set([hd.before, hd.loaded, hd.after].flatMap((m) => Object.keys(m.resources?.resident ?? {})))].sort();
+    const kib = (m, k) => f((m?.resources?.resident?.[k]?.bytes ?? 0) / 1024, 1);
+    console.log(`handles: "${hd.label}" names ${hd.assets}; ready ${hd.readyMs} ms, released ${hd.releasedMs} ms; heap ${f(hd.before.heapMiB, 1)} → ${f(hd.loaded.heapMiB, 1)} → ${f(hd.after.heapMiB, 1)} MiB; gpu ${f(hd.before.gpuMiB, 1)} → ${f(hd.loaded.gpuMiB, 1)} → ${f(hd.after.gpuMiB, 1)} MiB; textures ${hd.before.live.textures} → ${hd.loaded.live.textures} → ${hd.after.live.textures}; resident KiB (before → held → after): ${kinds.map((k) => `${k} ${kib(hd.before, k)} → ${kib(hd.loaded, k)} → ${kib(hd.after, k)}`).join('; ')}`);
+  }
   const d = r.dialogue;
   if (d) console.log(`dialogue ${d.lines}: seen ${d.linesSeen}, heard ${d.voicesHeard}; line→voice p50 ${f(d.startLatencyMs.p50)} / p95 ${f(d.startLatencyMs.p95)} / max ${f(d.startLatencyMs.max)} ms; gap p50 ${f(d.gapMs.p50)} / p95 ${f(d.gapMs.p95)} / max ${f(d.gapMs.max)} ms; wall ${f(d.wallMs / 1000, 1)} s`);
   const e = r.export;

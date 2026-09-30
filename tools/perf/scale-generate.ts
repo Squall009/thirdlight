@@ -42,7 +42,7 @@ import { prng } from './generate';
 import { opusVoice, pcmWav, scalePng } from './scale-media';
 
 /** Bump when the generated content changes (it keys cached projects and recorded numbers). */
-export const SCALE_GENERATOR_VERSION = 6;
+export const SCALE_GENERATOR_VERSION = 7;
 export const SCALE_DEFAULT_SEED = 26;
 
 export interface ScaleSpec {
@@ -64,7 +64,12 @@ export interface ScaleSpec {
   /** The first dialogue's lines (played through by the bench); its voices are `walkthroughVoiceMs` long. */
   walkthroughLines: number;
   walkthroughVoiceMs: number;
+  /** Textures and models (alternately) carrying the label `SCALE_BATCH_LABEL`, which a script loads and releases by it. */
+  labelled: number;
 }
+
+/** The label the bench's script loads (`labelled` assets carry it). */
+export const SCALE_BATCH_LABEL = 'bench-batch';
 
 /** A full game's size (the plan's numbers). */
 export const SCALE_FULL: Readonly<ScaleSpec> = Object.freeze({
@@ -81,6 +86,7 @@ export const SCALE_FULL: Readonly<ScaleSpec> = Object.freeze({
   dialogueNodes: 2_000,
   walkthroughLines: 500,
   walkthroughVoiceMs: 1_000,
+  labelled: 1_000,
 });
 
 /**
@@ -134,6 +140,7 @@ export const SCALE_SMALL: Readonly<ScaleSpec> = Object.freeze({
   dialogueNodes: 24,
   walkthroughLines: 6,
   walkthroughVoiceMs: 400,
+  labelled: 8,
 });
 
 export const SCALE_PRESETS: Readonly<Record<string, Readonly<ScaleSpec>>> = { full: SCALE_FULL, caps: SCALE_AT_CAPS, 'half-caps': SCALE_HALF_CAPS, small: SCALE_SMALL };
@@ -152,6 +159,7 @@ export function scaledSpec(f: number): ScaleSpec {
     scenes: n(SCALE_FULL.scenes, 2),
     dialogueNodes: n(SCALE_FULL.dialogueNodes),
     walkthroughLines: Math.min(SCALE_FULL.walkthroughLines, n(SCALE_FULL.dialogueNodes)),
+    labelled: n(SCALE_FULL.labelled),
   };
 }
 
@@ -227,7 +235,11 @@ export function generateScaleProject(dataRoot: string, projectId: string, spec: 
   const seen = new Set<string>();
   const sourceBytes: Record<string, number> = { voice: 0, sound: 0, texture: 0, model: 0 };
   const assets: Record<string, unknown>[] = [];
-  const addAsset = (assetId: string, kind: 'audio' | 'texture' | 'model', displayName: string, bytes: Uint8Array, p: Proposal, bucket: string, options: Record<string, unknown> = {}): void => {
+  // The labelled assets: textures and models alternately (as many of each as there are).
+  const labelledTextures = Math.min(spec.textures, Math.max(Math.ceil(spec.labelled / 2), spec.labelled - spec.models));
+  const labelledModels = Math.min(spec.models, spec.labelled - labelledTextures);
+  const labelsOf = (bucket: string, i: number): string[] => ((bucket === 'texture' && i < labelledTextures) || (bucket === 'model' && i < labelledModels) ? [SCALE_BATCH_LABEL] : []);
+  const addAsset = (assetId: string, kind: 'audio' | 'texture' | 'model', displayName: string, bytes: Uint8Array, p: Proposal, bucket: string, options: Record<string, unknown> = {}, labels: string[] = []): void => {
     if (p.status !== 'ok') throw new Error(`${assetId}: the ${kind} inspector refused the generated file: ${p.diagnostics.map((d) => d.message).join('; ')}`);
     const digest = createHash('sha256').update(bytes).digest('hex');
     if (digest !== p.sourceDigest) throw new Error(`${assetId}: digest mismatch`);
@@ -245,9 +257,11 @@ export function generateScaleProject(dataRoot: string, projectId: string, spec: 
       currentVersion: 1,
       versions: [{ version: 1, sourceDigest: digest, sourceByteLength: bytes.length, sourcePath, importRecipe: p.importRecipe, metrics: p.metrics, importedAt: IMPORTED_AT, publishedRevision: 0 }],
       ...options,
+      // The record holds the labels (the sidecar repeats them beside it).
+      ...(labels.length > 0 ? { labels } : {}),
     };
     // The sidecar holds the record (the project reads its assets from the sidecars).
-    writeFileSync(join(dir, `${sourcePath}.tlasset`), `${layout({ tlasset: SIDECAR_FORMAT, id: assetId, kind, importSettings: kind === 'audio' ? { ...audioLoadOf(record) } : {}, labels: [], address: null, record })}\n`);
+    writeFileSync(join(dir, `${sourcePath}.tlasset`), `${layout({ tlasset: SIDECAR_FORMAT, id: assetId, kind, importSettings: kind === 'audio' ? { ...audioLoadOf(record) } : {}, labels, address: null, record })}\n`);
     assets.push(record);
   };
   const rnd = prng(seed * 2654435761);
@@ -272,7 +286,7 @@ export function generateScaleProject(dataRoot: string, projectId: string, spec: 
   for (let i = 0; i < spec.textures; i++) {
     const id = `texture-${pad(i)}`;
     const bytes = scalePng(seedOf(), spec.textureSize);
-    addAsset(id, 'texture', `Texture ${i}`, bytes, inspectImage(bytes, { profile: 'image', recipeVersion: 1, toolchain: IMAGE_TOOLCHAIN }) as unknown as Proposal, 'texture');
+    addAsset(id, 'texture', `Texture ${i}`, bytes, inspectImage(bytes, { profile: 'image', recipeVersion: 1, toolchain: IMAGE_TOOLCHAIN }) as unknown as Proposal, 'texture', {}, labelsOf('texture', i));
     textureIds.push(id);
   }
   log(`scale: ${spec.sounds} sounds, ${spec.textures} textures`);
@@ -280,7 +294,7 @@ export function generateScaleProject(dataRoot: string, projectId: string, spec: 
   for (let i = 0; i < spec.models; i++) {
     const id = `model-${pad(i)}`;
     const bytes = sphereGlb(seedOf(), 6 + (i % 6), 8);
-    addAsset(id, 'model', `Model ${i}`, bytes, inspectGlb(bytes, { profile: 'gltf-glb', recipeVersion: 1, toolchain: M2_GLTF_TOOLCHAIN }) as unknown as Proposal, 'model');
+    addAsset(id, 'model', `Model ${i}`, bytes, inspectGlb(bytes, { profile: 'gltf-glb', recipeVersion: 1, toolchain: M2_GLTF_TOOLCHAIN }) as unknown as Proposal, 'model', {}, labelsOf('model', i));
     modelIds.push(id);
   }
   log(`scale: ${spec.models} models`);
@@ -421,6 +435,7 @@ export function generateScaleProject(dataRoot: string, projectId: string, spec: 
     dialogues: dialogues.length,
     dialogueLines: lineNo,
     assets: assets.length,
+    labelled: labelledTextures + labelledModels,
     sceneEntities: sceneEntities.reduce((n, l) => n + l.length, 0),
   };
   const result: ScaleResult = {

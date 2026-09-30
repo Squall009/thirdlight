@@ -13,10 +13,16 @@
  *   plays it (a script, an event cue, an audio source); a sound the start
  *   rows do not name is found in the catalog first.
  *
+ * - what scripts load with `ctx.assets`: the simulation's load requests are
+ *   carried out by the page's `loadAssets` (the key resolved, the assets
+ *   read, parsed or decoded, and held for the handle's holder), and the
+ *   answer goes back as the simulation's input; a release lets the holder go
+ *   (a handle released while it loads is let go once its load is done).
+ *
  * The host stays fetch-free: every read goes through the injected
- * `readArtifact` (the page's verified reader).
+ * `readArtifact` (the page's verified reader) or `loadAssets`.
  */
-import { createResourceManager, type ResourceManager, type ResourceObservation } from '@thirdlight/runtime';
+import { createResourceManager, RESOURCE_HANDLE_PREFIX, type AssetHandleAnswer, type AssetHandleRequest, type ResourceManager, type ResourceObservation } from '@thirdlight/runtime';
 
 import type { GameAudioOwner } from './audio';
 
@@ -29,7 +35,28 @@ export interface HostAssetsConfig {
   readonly audioLoad?: Readonly<Record<string, { readonly loadType?: string; readonly preload?: boolean }>>;
   readonly lookupAsset?: (assetId: string) => Promise<{ readonly path: string; readonly kind: string; readonly loadType?: string; readonly preload?: boolean } | undefined>;
   readonly resources?: ResourceManager;
+  /**
+   * Load what a script's key names (an asset id, an address or a label) and
+   * hold it in the resource manager for `holder`; resolves with the ids the
+   * key named. Rejects when the key names nothing in this build or a load
+   * failed (then nothing stays held for `holder`). Absent: scripts' loads fail.
+   */
+  readonly loadAssets?: (key: string, holder: string) => Promise<readonly string[]>;
 }
+
+/** One script handle as the observation and the report show it. */
+export interface ScriptHandleReport {
+  readonly handle: number;
+  readonly key: string;
+  readonly state: 'loading' | 'ready' | 'failed';
+  /** Assets and resources the key named (0 until ready). */
+  readonly assets: number;
+  /** Why the load failed (failed only). */
+  readonly error?: string;
+}
+
+/** Handles listed in an observation (the counts say how many there are). */
+const HANDLES_LISTED = 32;
 
 /**
  * The resource manager as a game's observation and Play diagnostics report
@@ -37,7 +64,13 @@ export interface HostAssetsConfig {
  * flight or failed, and the script handles alive (scripts' handles come with
  * `ctx.assets`; until then none).
  */
-export type GameResourcesObservation = ResourceObservation;
+export interface GameResourcesObservation extends ResourceObservation {
+  /** The script handles open now (first 32; `handles` counts them all). */
+  readonly open?: readonly ScriptHandleReport[];
+  /** Handles still open when a run ended (a restart): released then; the last 32, `notReleasedCount` all. */
+  readonly notReleased?: readonly ScriptHandleReport[];
+  readonly notReleasedCount?: number;
+}
 
 export interface HostAssets {
   /** The manager everything loaded from assets is held in. */
@@ -48,10 +81,13 @@ export interface HostAssets {
   registerStartSounds(): void;
   /** Something is about to play this sound: its bytes are read and registered (once) if they are not yet. */
   soundWanted(assetId: string): void;
+  /** Carry out the simulation's asset loads and releases; the answers go to `answer` (the next step's input). */
+  serviceHandles(requests: readonly AssetHandleRequest[], answer: (a: AssetHandleAnswer) => void): void;
   /** The frame's scene changes are drawn: free what lost its last holder. */
   frameDone(): void;
   observe(): GameResourcesObservation;
-  dispose(): void;
+  /** Let everything go; returns the script handles still open (reported as not released at the play's end). */
+  dispose(): readonly ScriptHandleReport[];
 }
 
 /** The glyph images' holder (released when the host is disposed). */
@@ -87,6 +123,45 @@ export function createHostAssets(config: HostAssetsConfig, live: () => boolean):
   };
   /** Files read on first use, asked once each. */
   const onUseAsked = new Set<string>();
+
+  /** Scripts' handles the host holds for (by handle number). */
+  interface HostHandle {
+    readonly key: string;
+    state: ScriptHandleReport['state'];
+    assets: number;
+    error: string;
+    released: boolean;
+  }
+  const handles = new Map<number, HostHandle>();
+  const notReleased: ScriptHandleReport[] = [];
+  let notReleasedCount = 0;
+  const reportOf = (handle: number, h: HostHandle): ScriptHandleReport => ({ handle, key: h.key, state: h.state, assets: h.assets, ...(h.state === 'failed' ? { error: h.error } : {}) });
+  const holderOf = (handle: number): string => `${RESOURCE_HANDLE_PREFIX}${handle}`;
+  const startLoad = (handle: number, key: string, answer: (a: AssetHandleAnswer) => void): void => {
+    const h: HostHandle = { key, state: 'loading', assets: 0, error: '', released: false };
+    handles.set(handle, h);
+    const load = config.loadAssets;
+    const done = load === undefined ? Promise.reject(new Error('this game page cannot load assets by name')) : load(key, holderOf(handle));
+    void done.then(
+      (ids) => {
+        // Released while it loaded (or the host closed): what it took is let go now.
+        if (h.released || !live()) {
+          resources.releaseHolder(holderOf(handle));
+          return;
+        }
+        h.state = 'ready';
+        h.assets = ids.length;
+        answer({ handle, ok: true, assets: [...ids] });
+      },
+      (e: unknown) => {
+        resources.releaseHolder(holderOf(handle));
+        if (h.released || !live()) return;
+        h.state = 'failed';
+        h.error = (e instanceof Error ? e.message : String(e)).slice(0, 256);
+        answer({ handle, ok: false, message: h.error });
+      },
+    );
+  };
 
   return {
     resources,
@@ -152,16 +227,48 @@ export function createHostAssets(config: HostAssetsConfig, live: () => boolean):
         })
         .catch(() => undefined);
     },
+    serviceHandles(requests, answer) {
+      for (const r of requests) {
+        if (r.op === 'load') {
+          startLoad(r.handle, r.key, answer);
+          continue;
+        }
+        const h = handles.get(r.handle);
+        if (h === undefined) continue;
+        handles.delete(r.handle);
+        h.released = true;
+        resources.releaseHolder(holderOf(r.handle));
+        if (r.runEnded === true) {
+          notReleasedCount += 1;
+          notReleased.push(reportOf(r.handle, h));
+          if (notReleased.length > HANDLES_LISTED) notReleased.shift();
+        }
+      }
+    },
     frameDone() {
       resources.settle();
     },
     observe() {
-      return resources.observe();
+      const base = resources.observe();
+      const open = [...handles].slice(0, HANDLES_LISTED).map(([n, h]) => reportOf(n, h));
+      return {
+        ...base,
+        handles: handles.size,
+        ...(open.length > 0 ? { open } : {}),
+        ...(notReleasedCount > 0 ? { notReleased: [...notReleased], notReleasedCount } : {}),
+      };
     },
     dispose() {
+      const open = [...handles].map(([n, h]) => reportOf(n, h));
+      for (const [n, h] of handles) {
+        h.released = true;
+        resources.releaseHolder(holderOf(n));
+      }
+      handles.clear();
       glyphUrls.clear();
       resources.releaseHolder(GLYPHS_HOLDER);
       if (own) resources.dispose();
+      return open;
     },
   };
 }

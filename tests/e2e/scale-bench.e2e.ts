@@ -1,7 +1,8 @@
 /**
  * The scale bench end to end at its small size: the generated project opens
  * in the real backend and the editor, takes commands, plays (scene loads,
- * a voiced dialogue played through) and exports, and every number the bench
+ * a script loading assets by a label and releasing them, a voiced dialogue
+ * played through) and exports, and every number the bench
  * reports is there. Checks the plumbing, not speed; the numbers at full size
  * are recorded by `node tools/perf/run.mjs scale` (docs/plan-phase-26.md).
  */
@@ -18,7 +19,7 @@ import { generateScaleProject, SCALE_SMALL } from '../../tools/perf/scale-genera
 const root = join(PERF_ROOT, 'e2e', `scale-${process.pid}-${Date.now()}`);
 test.afterEach(() => rmSync(root, { recursive: true, force: true }));
 
-test('the scale bench generates, opens, edits, plays, walks scenes, plays a voiced dialogue and exports', async () => {
+test('the scale bench generates, opens, edits, plays, walks scenes, loads by label, plays a voiced dialogue and exports', async () => {
   test.setTimeout(300_000);
   const generated = generateScaleProject(join(root, 'data'), 'scale', SCALE_SMALL);
   const bench = new ScaleBench({
@@ -31,7 +32,7 @@ test('the scale bench generates, opens, edits, plays, walks scenes, plays a voic
     commands: 3,
     walk: 3,
     lines: SCALE_SMALL.walkthroughLines,
-    steps: ['files', 'open', 'commands', 'play', 'walk', 'dialogue', 'export'],
+    steps: ['files', 'open', 'commands', 'play', 'walk', 'handles', 'dialogue', 'export'],
     log: () => undefined,
   });
   const r = await bench.run();
@@ -52,6 +53,12 @@ test('the scale bench generates, opens, edits, plays, walks scenes, plays a voic
   expect(r.walk!.loaded).toHaveLength(3);
   expect(r.walk!.loaded[0]!.assetReads!.reads).toBeGreaterThan(r.walk!.before.assetReads!.reads);
   expect(r.walk!.loaded[0]!.live.textures).toBeGreaterThan(r.walk!.before.live.textures);
+  // A script loaded the labelled assets by their label and released them: held while loaded, back where they were after.
+  const resident = (m: { resources?: { resident: Record<string, { count: number; bytes: number }> } }): Record<string, number> => Object.fromEntries(Object.entries(m.resources?.resident ?? {}).filter(([, v]) => v.count > 0).map(([k, v]) => [k, v.bytes]));
+  expect(r.handles!.assets).toBe(generated.counts['labelled']);
+  expect(r.handles!.loaded.resources!.resident['texture']!.count).toBeGreaterThanOrEqual(SCALE_SMALL.labelled / 2);
+  expect(r.handles!.loaded.resources!.handles).toBe(1);
+  expect(resident(r.handles!.after)).toEqual(resident(r.handles!.before));
   // Every line started, and its own voice was heard playing.
   expect(r.dialogue!.linesSeen).toBe(SCALE_SMALL.walkthroughLines);
   expect(r.dialogue!.voicesHeard).toBe(SCALE_SMALL.walkthroughLines);

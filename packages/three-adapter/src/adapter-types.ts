@@ -267,6 +267,14 @@ export interface SceneAdapter {
    * the frame that attaches it draws it whole. `ready` never rejects.
    */
   prepareScene?(sceneId: string, entities: readonly { readonly id: string; readonly components: unknown }[], textures?: readonly string[]): { readonly ready: Promise<void>; release(): void };
+  /**
+   * Parse these model files and decode these textures into the page's
+   * resource manager and hold them until `release` (a script's asset
+   * handle takes its own holds on them first). `ready` never rejects: a
+   * file that failed is simply not resident. Textures are decoded only when
+   * the project has materials (the material library decodes them).
+   */
+  holdAssets?(models: readonly string[], textures: readonly string[]): { readonly ready: Promise<void>; release(): void };
   /** The runtime's scene set revision the last presented frame drew (-1: none drawn yet). */
   presentedSceneRevision?(): number;
 }

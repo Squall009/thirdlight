@@ -2049,6 +2049,39 @@ prefab.
 `tl_game_observe` reports `spawned: { count, ids }` (the first 64 ids). Play
 and the export carry the project's prefabs with the game.
 
+### Loading assets by name from scripts
+
+A scene's objects load what they use with the scene. A script that needs
+assets no loaded scene uses (a level's props before it opens, a boss's
+models, a set of voice lines) loads them by name and lets them go when it is
+done, as Unity's Addressables do. Give the assets (or prefabs, materials) an
+address or a label first (Assets tab or Inspector; `setLabels`,
+`setAddress`): only what has one ships for scripts.
+
+- `ctx.assets.load(key)` takes an address, an asset or resource id, or a
+  label (every asset and resource with that label), in that order, and
+  returns a handle (a number; 0 when the key is not a name at all). The game
+  never waits: the handle is `loading` until the assets are read, parsed and
+  decoded, a later step.
+- `ctx.assets.state(handle)` is `loading`, `ready` or `failed` (null once
+  released); `ready(handle)`, `ids(handle)` (what the key named) and
+  `error(handle)` (why it failed, e.g. nothing is named that).
+- `ctx.assets.release(handle)` lets the assets go; they leave memory once
+  nothing else (a scene, a spawned object, a playing sound) uses them.
+  Release every handle you load. A prefab loaded by handle spawns at once
+  with its models and textures already in memory.
+- The answer arrives as the game's input at the step it came, so a recording
+  of the input replays it the same however long the loads take then, and the
+  simulation worker sees it at the same step.
+- A handle still open when a run ends (a restart, the shell's new game) is
+  released then and reported: the script log says which, and
+  `tl_game_observe` / Play diagnostics list it under `resources.notReleased`.
+  `resources.open` lists the handles open now; one still open when Play
+  stops is named in the page console.
+
+Visual scripts have Load assets, Release assets, Assets state, Assets ready
+and Assets error nodes.
+
 ### Script libraries and JSON data (phase 23.7)
 
 - **Libraries** are shared TypeScript (and JSON) every script of the

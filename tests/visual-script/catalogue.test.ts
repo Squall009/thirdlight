@@ -277,6 +277,15 @@ export function recordingContext(calls: string[], phase: 'intent' | 'transform',
       ended: rec('timeline.ended', false),
       marker: rec('timeline.marker', true),
     },
+    // Asset handles.
+    assets: {
+      load: rec('assets.load', 1),
+      release: rec('assets.release', true),
+      state: rec('assets.state', 'ready'),
+      ready: rec('assets.ready', true),
+      ids: rec('assets.ids', () => ['tex-a']),
+      error: rec('assets.error', ''),
+    },
     // Environment presets.
     environment: {
       set: rec('environment.set', true),
@@ -417,6 +426,8 @@ describe('the visual-script catalogue (every node type compiles and runs)', () =
     // Debug commands are declared and received in code (a typed spec, an optional handler).
     // The bindings list, the device record, the glyph object, rebind (an options object) and its events are read in code.
     expect(BEHAVIOR_API_SKIPPED.map((s) => s.path).sort()).toEqual([
+      // The answers to asset loads arrive with the input (scripts read a handle with ctx.assets.state).
+      'action.assets',
       'action.commands',
       // A frame's dialogue inputs (scripts drive conversations with ctx.dialogue); the variable map and the backlog records are read in code.
       'action.dialogue',
@@ -425,6 +436,8 @@ describe('the visual-script catalogue (every node type compiles and runs)', () =
       'action.saves',
       // A frame's UI events are read with ctx.ui.events / ctx.ui.event.
       'action.ui',
+      // The ids a handle loaded, as a list (Assets ready says when they are there).
+      'assets.ids',
       // The finished events as a list (the Sound finished node checks one handle).
       'audio.events',
       'debug.command',

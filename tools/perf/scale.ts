@@ -2,8 +2,10 @@
  * The scale bench: one generated project of a given size (scale-generate.ts)
  * measured in a real browser against a real backend — the open, one
  * command's latency, the Play start, scene loads while walking through the
- * scenes (with what stays resident), a long voiced dialogue played through
- * (the silence between two lines), and the export.
+ * scenes (with what stays resident), a script loading the labelled assets
+ * by their label and releasing them (what is resident before, while held
+ * and after), a long voiced dialogue played through (the silence between
+ * two lines), and the export.
  *
  * Every step is attempted and records either its numbers or why it could not
  * be taken (a cap refusing the open, a Play build refusing the content, a
@@ -24,14 +26,14 @@ import type { StartTimingsReport } from '../../packages/game-host/src/start-timi
 import { startPerfBackend, type PerfBackend } from './backend';
 import { launch, poll, serveDir, splitOf, type PlayStartSplit, type RendererName } from './browser';
 import { installPerfInstrumentation, readSample, type PageSample } from './instrument';
-import type { ScaleResult } from './scale-generate';
+import { SCALE_BATCH_LABEL, type ScaleResult } from './scale-generate';
 import { opusVoice } from './scale-media';
 import { summarize, type Summary } from './stats';
 
-export type ScaleStep = 'files' | 'open' | 'commands' | 'import' | 'play' | 'walk' | 'dialogue' | 'export';
+export type ScaleStep = 'files' | 'open' | 'commands' | 'import' | 'play' | 'walk' | 'handles' | 'dialogue' | 'export';
 /** Every step; `import` (a folder of new files imported in one command) runs only when asked for. */
-export const SCALE_STEPS: readonly ScaleStep[] = ['files', 'open', 'commands', 'import', 'play', 'walk', 'dialogue', 'export'];
-export const SCALE_DEFAULT_STEPS: readonly ScaleStep[] = ['files', 'open', 'commands', 'play', 'walk', 'dialogue', 'export'];
+export const SCALE_STEPS: readonly ScaleStep[] = ['files', 'open', 'commands', 'import', 'play', 'walk', 'handles', 'dialogue', 'export'];
+export const SCALE_DEFAULT_STEPS: readonly ScaleStep[] = ['files', 'open', 'commands', 'play', 'walk', 'handles', 'dialogue', 'export'];
 
 export interface ScaleBenchOptions {
   dataRoot: string;
@@ -60,8 +62,8 @@ export interface MemorySample {
   live: PageSample['live'];
   three?: { geometries: number; textures: number; programs: number };
   assetReads?: { reads: number; bytes: number };
-  /** What the game holds from assets (the resource manager: resident count and bytes per kind, loads, frees); absent before it existed. */
-  resources?: { resident: Record<string, { count: number; bytes: number }>; loads: Record<string, number>; frees: Record<string, number> };
+  /** What the game holds from assets (the resource manager: resident count and bytes per kind, loads, frees, script handles open); absent before it existed. */
+  resources?: { resident: Record<string, { count: number; bytes: number }>; loads: Record<string, number>; frees: Record<string, number>; handles?: number };
   backendRssMiB: number | null;
 }
 
@@ -93,6 +95,12 @@ export interface ScaleReport {
     loaded: MemorySample[];
     after: MemorySample;
   };
+  /**
+   * A script loads every asset with the bench's label (`ctx.assets.load(label)`), and releases the
+   * handle once it is ready: the command → ready in the observation, the ids the handle names, and
+   * what is resident before, while it is held and after the release settled.
+   */
+  handles?: { label: string; assets: number; readyMs: number; releasedMs: number; before: MemorySample; loaded: MemorySample; after: MemorySample };
   dialogue?: {
     lines: number;
     linesSeen: number;
@@ -118,16 +126,19 @@ const MiB = (b: number): number => Math.round((b / 1048576) * 100) / 100;
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 /**
- * The script the bench attaches to the driver entity: a debug command that
- * starts a dialogue (a debug command runs as step input, so the bench starts
- * the conversation after the click that unlocks sound).
+ * The script the bench attaches to the driver entity: debug commands that
+ * start a dialogue (a debug command runs as step input, so the bench starts
+ * the conversation after the click that unlocks sound), load assets by a key
+ * and release them.
  */
 export const DRIVER_SCRIPT = [
   'export default {',
   '  instantiate() { return {}; },',
-  '  step(_state: any, ctx: any) {',
+  '  step(state: any, ctx: any) {',
   "    if (ctx.phase !== 'intent') return;",
   "    for (const call of ctx.debug.command('benchDialogue', { description: 'Start a dialogue', args: [{ name: 'id', type: 'string' }] })) ctx.dialogue?.start(String(call.id));",
+  "    for (const call of ctx.debug.command('benchLoad', { description: 'Load assets by id, address or label', args: [{ name: 'key', type: 'string' }] })) state.handle = ctx.assets.load(String(call.key));",
+  "    for (const _call of ctx.debug.command('benchRelease', { description: 'Release the loaded assets', args: [] })) { ctx.assets.release(state.handle); state.handle = 0; }",
   '  },',
   '};',
 ].join('\n');
@@ -160,6 +171,7 @@ function dirSize(dir: string): { files: number; bytes: number } {
 
 type Obs = {
   state?: string;
+  resources?: { loading: number; waiting: number; handles: number; open?: { handle: number; key: string; state: string; assets: number }[] };
   sound?: { unlocked?: boolean };
   scenes?: { loaded?: string[] };
   dialogue?: { running?: boolean; line?: { id?: string } | null } | null;
@@ -215,9 +227,10 @@ export class ScaleBench {
       if (!opened) return this.report;
       if (want('commands')) await this.attempt('commands', () => this.measureCommands());
       if (want('import')) await this.attempt('import', () => this.measureFolderImport());
-      const needPlay = want('play') || want('walk') || want('dialogue');
+      const needPlay = want('play') || want('walk') || want('handles') || want('dialogue');
       if (needPlay && (await this.attempt('play', () => this.measurePlayStart()))) {
         if (want('walk')) await this.attempt('walk', () => this.walkScenes());
+        if (want('handles')) await this.attempt('handles', () => this.loadByLabel());
         if (want('dialogue')) await this.attempt('dialogue', () => this.playDialogue());
         await this.stopPlay();
       }
@@ -410,14 +423,14 @@ export class ScaleBench {
       live: s?.live ?? { programs: 0, textures: 0, buffers: 0, vaos: 0, pipelines: 0 } as PageSample['live'],
       ...(three !== undefined ? { three } : {}),
       ...(assetReads !== undefined ? { assetReads } : {}),
-      ...(resources !== undefined ? { resources: { resident: resources.resident, loads: resources.loads, frees: resources.frees } } : {}),
+      ...(resources !== undefined ? { resources: { resident: resources.resident, loads: resources.loads, frees: resources.frees, ...(resources.handles !== undefined ? { handles: resources.handles } : {}) } } : {}),
       backendRssMiB: backendRssMiB(this.backend.pid),
     };
   }
 
   /** Play from the editor's button to the first frame, split into its stages. */
   private async measurePlayStart(): Promise<void> {
-    if (this.opts.generated !== undefined && (this.opts.steps.includes('dialogue'))) await this.installDriver();
+    if (this.opts.generated !== undefined && (this.opts.steps.includes('dialogue') || this.opts.steps.includes('handles'))) await this.installDriver();
     const page = this.page!;
     const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'), { timeout: 600_000 });
     const before = new Set(page.frames());
@@ -478,6 +491,41 @@ export class ScaleBench {
       loaded,
       after: await this.memory(),
     };
+  }
+
+  /**
+   * A script loads every asset carrying the bench's label and releases the
+   * handle: resident memory (per kind, and the heap after a collection)
+   * before, while held, and after the release was settled.
+   */
+  private async loadByLabel(): Promise<void> {
+    const label = SCALE_BATCH_LABEL;
+    const settled = async (what: string): Promise<void> => {
+      await this.until((o) => o?.resources !== undefined && o.resources.loading === 0 && o.resources.waiting === 0, 120_000, what);
+    };
+    await settled('the resources to settle before the load');
+    const before = await this.memory();
+    const t0 = performance.now();
+    const asked = await this.relay(`${this.play!.psid}/control`, { command: 'debugCommand', name: 'benchLoad', args: { key: label } });
+    if (asked.status !== 200) throw new Error(`benchLoad refused: ${JSON.stringify(asked.json).slice(0, 300)}`);
+    let assets = 0;
+    await this.until((o) => {
+      const h = o?.resources?.open?.find((x) => x.key === label);
+      if (h?.state === 'failed') throw new Error(`the label's handle failed: ${JSON.stringify(h)}`);
+      if (h?.state !== 'ready') return false;
+      assets = h.assets;
+      return true;
+    }, 600_000, `the handle of ${label} to be ready`);
+    const readyMs = Math.round(performance.now() - t0);
+    await settled('the resources to settle with the handle held');
+    const loaded = await this.memory();
+    const t1 = performance.now();
+    const released = await this.relay(`${this.play!.psid}/control`, { command: 'debugCommand', name: 'benchRelease', args: {} });
+    if (released.status !== 200) throw new Error(`benchRelease refused: ${JSON.stringify(released.json).slice(0, 300)}`);
+    await this.until((o) => o?.resources?.handles === 0 && o.resources.loading === 0 && o.resources.waiting === 0, 120_000, 'the release to settle');
+    const releasedMs = Math.round(performance.now() - t1);
+    await sleep(2_000);
+    this.report.handles = { label, assets, readyMs, releasedMs, before, loaded, after: await this.memory() };
   }
 
   /**

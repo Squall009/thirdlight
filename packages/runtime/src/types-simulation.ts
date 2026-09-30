@@ -292,6 +292,8 @@ export interface StepContext {
   readonly materials?: import('./material-params').BehaviorMaterials;
   /** Project saves (`ctx.saves`). */
   readonly saves?: import('./project-saves').BehaviorSaves;
+  /** Asset handles (`ctx.assets`). */
+  readonly assets?: import('./asset-handles').BehaviorAssets;
   /** The project UI (`ctx.ui`: the view model, shown documents, UI events). */
   readonly ui?: BehaviorUi;
   /** Conversations (`ctx.dialogue`). */

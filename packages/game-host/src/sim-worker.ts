@@ -248,6 +248,9 @@ export function runSimWorker(endpoint: SimEndpoint, deps: SimWorkerDeps): void {
       case 'saveEvent':
         r = rt.queueSaveEvent?.(c.event) ?? { ok: false, error: { code: 'game_command_invalid', message: 'this runtime has no project saves' } };
         break;
+      case 'assetAnswer':
+        r = rt.queueAssetAnswer?.(c.answer) ?? { ok: false, error: { code: 'game_command_invalid', message: 'this runtime has no asset handles' } };
+        break;
       case 'requestSave':
         r = rt.requestSave?.(c.slot, c.meta) ?? { ok: false, error: { code: 'game_command_invalid', message: 'this runtime has no project saves' } };
         break;

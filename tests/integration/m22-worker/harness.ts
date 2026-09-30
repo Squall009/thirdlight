@@ -168,7 +168,7 @@ export async function startHarness(mode: Mode, cfg: HarnessConfig): Promise<Harn
   const pins = cfg.enginePins ?? [];
   const recorded = cfg.replay !== undefined ? createRecordedActionSource(cfg.replay) : null;
   const liveInput = cfg.input ?? NEUTRAL_INPUT;
-  const hostInput = recorded !== null ? { ...liveInput, sample: (s: number) => recorded.sample(s) } : liveInput;
+  const hostInput = recorded !== null ? { ...liveInput, recorded: true, sample: (s: number) => recorded.sample(s) } : liveInput;
   const sounds: string[] = [];
   const audio: Any = createGameAudioOwner({ contextFactory: () => null } as Any);
   audio.playSound = (assetId: string) => sounds.push(assetId);

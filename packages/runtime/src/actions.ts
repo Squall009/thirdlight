@@ -26,6 +26,7 @@ import { validateSaveEvents, type SaveEvent } from './project-saves';
 import { validateInputStatus, type InputStatusEntry } from './input-status';
 import { validateUiEvents, type UiEventRecord } from './ui';
 import { validateDialogueInputs, type DialogueInputRecord } from './dialogue';
+import { validateAssetAnswers, type AssetHandleAnswer } from './asset-handles';
 
 /** The four jump phases. */
 export type JumpPhase = 'none' | 'pressed' | 'held' | 'released';
@@ -89,6 +90,14 @@ export interface ActionFrame {
    * @graphNode skip scripts drive conversations with ctx.dialogue
    */
   dialogue?: readonly DialogueInputRecord[];
+  /**
+   * Optional: the host's answers to the scripts' asset loads this
+   * step (ready with the ids loaded, or failed) — part of the input so a
+   * recording replays them at the step they arrived, however long a load
+   * took. Absent: none.
+   * @graphNode skip a script reads its handles with ctx.assets.state
+   */
+  assets?: readonly AssetHandleAnswer[];
 }
 
 /** One debug command call carried by an input frame. */
@@ -184,6 +193,12 @@ export interface ActionSourceDiagnostics {
  */
 export interface ActionSource {
   sample(stepIndex: number): ActionFrame;
+  /**
+   * True for a recorded input (a replay): its frames carry the host's
+   * answers (asset loads) as they arrived when it was recorded, so the
+   * runtime takes no live answer on top of them.
+   */
+  readonly recorded?: boolean;
   reset?(reason?: string): void;
   diagnostics?(): ActionSourceDiagnostics;
 }
@@ -300,7 +315,7 @@ export function validateActionFrame(
     return { ok: false, field: '', message: 'action frame must be an object' };
   }
   for (const key in value) {
-    if (!hasOwn.call(value, key) || key === 'actions' || key === 'pointer' || key === 'commands' || key === 'saves' || key === 'ui' || key === 'input' || key === 'dialogue') continue;
+    if (!hasOwn.call(value, key) || key === 'actions' || key === 'pointer' || key === 'commands' || key === 'saves' || key === 'ui' || key === 'input' || key === 'dialogue' || key === 'assets') continue;
     if (!FRAME_KEYS.has(key)) {
       return { ok: false, field: key, message: V1_CHANNELS.has(key) ? `action frame field "${key}" is a version 1 channel (upgradeActionFrameV1)` : `unknown action frame field "${key}" (strict shape)` };
     }
@@ -368,7 +383,15 @@ export function validateActionFrame(
     if (!d.ok) return d;
     dialogueInputs = d.inputs;
   }
-  const withExtras = <F extends ActionFrame>(f: F): F => (dialogueInputs === undefined ? withExtras0(f) : { ...withExtras0(f), dialogue: dialogueInputs });
+  // The host's answers to asset loads (validated and frozen).
+  let assetAnswers: readonly AssetHandleAnswer[] | undefined;
+  if (value['assets'] !== undefined) {
+    const a = validateAssetAnswers(value['assets']);
+    if (!a.ok) return a;
+    assetAnswers = a.answers;
+  }
+  const withExtras1 = <F extends ActionFrame>(f: F): F => (dialogueInputs === undefined ? withExtras0(f) : { ...withExtras0(f), dialogue: dialogueInputs });
+  const withExtras = <F extends ActionFrame>(f: F): F => (assetAnswers === undefined ? withExtras1(f) : { ...withExtras1(f), assets: assetAnswers });
   const withExtras0 = <F extends ActionFrame>(f: F): F => (pointer === undefined && commands === undefined && uiEvents === undefined && saves === undefined && input === undefined ? f : { ...f, ...(commands !== undefined ? { commands } : {}), ...(saves !== undefined ? { saves } : {}), ...(pointer !== undefined ? { pointer } : {}), ...(uiEvents !== undefined ? { ui: uiEvents } : {}), ...(input !== undefined ? { input } : {}) });
   const rawActions = value['actions'];
   // Commands, the pointer and UI events only when present (a frame without them stays as it was).
@@ -529,6 +552,7 @@ export function createRecordedActionSource(frames: readonly ActionFrame[]): Acti
     byIndex.set(frame.stepIndex, Object.freeze({ ...frame }));
   }
   return Object.freeze({
+    recorded: true,
     sample: (stepIndex: number): ActionFrame => byIndex.get(stepIndex) ?? neutralFrame(stepIndex),
     reset: (): void => {
       /* recorded sequences must not silently change on focus events */

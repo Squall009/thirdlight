@@ -104,6 +104,8 @@ export type SimCommand =
   | { readonly op: 'debugCommand'; readonly call: DebugCommandCall }
   // A storage answer (slot list, outcome, loaded save), queued in the worker's runtime for its next step.
   | { readonly op: 'saveEvent'; readonly event: import('@thirdlight/runtime').SaveEvent }
+  // The page's answer to a script's asset load, queued in the worker's runtime for its next step.
+  | { readonly op: 'assetAnswer'; readonly answer: import('@thirdlight/runtime').AssetHandleAnswer }
   // The player's save from the game shell (made in the worker now, between steps).
   | { readonly op: 'requestSave'; readonly slot: number; readonly meta?: import('@thirdlight/runtime').SaveMeta }
   /** A UI event, queued in the worker's runtime for its next sampled frame. */
@@ -220,6 +222,8 @@ export interface FrameState {
   readonly sl?: import('@thirdlight/runtime').SceneLoadingView;
   /** The save/load/delete/settings requests scripts made (the page owns storage). */
   readonly saveReq?: readonly import('@thirdlight/runtime').SaveRequest[];
+  /** The asset loads and releases scripts asked for (the page holds the assets). */
+  readonly assetReq?: readonly import('@thirdlight/runtime').AssetHandleRequest[];
 }
 
 export type WorkerToMain =

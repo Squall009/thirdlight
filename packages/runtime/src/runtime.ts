@@ -20,17 +20,12 @@
  */
 import { RuntimeGrid, type GridRenderChange } from './grid';
 import { RuntimeMaterials, type MaterialRenderChange, type RuntimeMaterialCatalog } from './material-params';
+import { MAX_FRAME_ASSET_ANSWERS, RuntimeAssetHandles, validateAssetAnswers, type AssetHandleAnswer, type AssetHandleRequest } from './asset-handles';
+import { rideOnFrame } from './frame-queues';
+import { SAVE_KEY_RE, SAVE_MAX_KEYS, SAVE_MAX_VALUE_CHARS, saveSectionsPort, saveValueText, type SavedSpawnCopy } from './save-sections';
 import { MAX_FRAME_SAVE_EVENTS, RuntimeSaves, validateSaveEvents, type SaveEvent, type SaveRequest, type SaveSectionsPort, type WorldSave } from './project-saves';
 import type { SaveSchema } from '@thirdlight/project-model';
 
-/** One spawned copy as a save document's `spawned` section keeps it. */
-interface SavedSpawnCopy {
-  prefabId: string;
-  ids: string[];
-  position: number[];
-  rotation: number[];
-  scale: number[];
-}
 import { RuntimeInputStatus, type InputBindingRequest } from './input-status';
 import type { BlockType, CellField } from '@thirdlight/project-model';
 import {
@@ -647,21 +642,6 @@ function parseConfig(config: unknown): { cfg: ParsedConfig } | { error: RuntimeE
       ...(projectSettings !== undefined ? { projectSettings } : {}),
     },
   };
-}
-
-/** `ctx.save` rules (shared by the start's injected script variables). */
-const SAVE_MAX_KEYS = SCRIPT_SAVE_LIMITS.keys;
-const SAVE_MAX_VALUE_CHARS = SCRIPT_SAVE_LIMITS.valueChars;
-const SAVE_KEY_RE = /^[A-Za-z0-9_.:-]{1,64}$/;
-/** A value's JSON text when it fits a save value, else null. */
-function saveValueText(value: unknown): string | null {
-  let text: string | undefined;
-  try {
-    text = JSON.stringify(value);
-  } catch {
-    return null;
-  }
-  return text === undefined || text.length > SAVE_MAX_VALUE_CHARS ? null : text;
 }
 
 interface ParsedConfig {
@@ -1600,6 +1580,9 @@ class RuntimeInstance implements Runtime {
   });
   /** Storage answers queued by the host for the next sampled step. */
   private saveQueue: SaveEvent[] = [];
+  /** Scripts' asset handles (`ctx.assets`) and the host's answers waiting for the next sampled step. */
+  private readonly assetHandles = new RuntimeAssetHandles((message) => this.recordBehaviorLog('thirdlight.runtime:assets', 'warn', message));
+  private assetAnswerQueue: AssetHandleAnswer[] = [];
   private readonly audioControl: import('./types').BehaviorAudio;
   // ---- Visual effect requests (presentation only) ----
   /** Requests since the adapter last took them (bounded: the oldest are dropped beyond 256). */
@@ -2105,107 +2088,49 @@ class RuntimeInstance implements Runtime {
     return this.saves.digestText();
   }
 
+  /** The scripts' asset loads and releases since the last call; the host (the resource owner) carries them out. */
+  takeAssetRequests(): AssetHandleRequest[] {
+    return this.assetHandles.takeRequests();
+  }
+
+  /** Queue the host's answer to one asset load for the next sampled step (it rides on that step's input frame). */
+  queueAssetAnswer(answer: AssetHandleAnswer): { ok: true } | { ok: false; error: RuntimeError } {
+    if (this.stateName === 'disposed') return { ok: false, error: fail('runtime_disposed', 'runtime is disposed') };
+    const checked = validateAssetAnswers([answer]);
+    if (!checked.ok) return { ok: false, error: fail('game_command_invalid', `assets answer: ${checked.message}`, { reason: 'assets' }) };
+    // A recorded input replays the answers at the steps they arrived when it was recorded; a live one is not added.
+    if (this.actions.recorded !== true) this.assetAnswerQueue.push(checked.answers[0]!);
+    return { ok: true };
+  }
+
+  /** The scripts' asset handles as digest text (null before any was used). */
+  assetHandlesState(): string | null {
+    return this.assetHandles.digestText();
+  }
+
   /** The project settings document now (empty without a save schema). */
   projectSettings(): Readonly<Record<string, boolean | number | string>> {
     return this.saves.settingsNow();
   }
 
-  /** The engine state a save document's sections capture and restore. */
+  /** The engine state a save document's sections capture and restore (read when a save is made: the parts exist by then). */
   private buildSaveSections(): SaveSectionsPort {
     const rt = this;
-    return {
-      capture(section) {
-        switch (section) {
-          case 'grid':
-            return rt.grid.api.diff();
-          case 'materials':
-            return rt.materials.saveState();
-          case 'storage':
-            return Object.fromEntries([...rt.saveStore.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
-          case 'spawned':
-            return rt.spawnedCopies();
-          case 'dialogue':
-            return rt.dialogue.saveState();
-          case 'environment':
-            return rt.environment.saveState();
-          case 'components': {
-            // The named counters travel with the objects' state (a collectible's total with it being collected).
-            const state = rt.blocks?.primitives.saveState() ?? {};
-            const counters = rt.blocks?.countersView() ?? {};
-            // The fields scripts wrote (ctx.entity(id).set), only when there are any.
-            const fields = rt.entityAccess.saveState();
-            return { ...state, ...(Object.keys(counters).length > 0 ? { counters } : {}), ...(Object.keys(fields).length > 0 ? { fields } : {}) };
-          }
-        }
-      },
-      check(section, value) {
-        switch (section) {
-          case 'grid':
-            return null;
-          case 'materials':
-            return rt.materials.checkState(value);
-          case 'storage': {
-            if (typeof value !== 'object' || value === null || Array.isArray(value) || Object.keys(value).length > SAVE_MAX_KEYS) return `the storage section maps at most ${SAVE_MAX_KEYS} keys to values`;
-            for (const [k, v] of Object.entries(value)) if (!SAVE_KEY_RE.test(k) || saveValueText(v) === null) return `storage key "${k.slice(0, 64)}" does not fit ctx.save's rules`;
-            return null;
-          }
-          case 'spawned':
-            return rt.spawnedCopiesProblem(value);
-          case 'dialogue':
-            return rt.dialogue.checkState(value);
-          case 'environment':
-            return rt.environment.checkState(value);
-          case 'components': {
-            if (typeof value === 'object' && value !== null && !Array.isArray(value) && 'fields' in value) {
-              const { fields, ...others } = value as Record<string, unknown>;
-              const problem = rt.entityAccess.checkState(fields);
-              if (problem !== null) return problem;
-              value = others;
-            }
-            if (typeof value === 'object' && value !== null && !Array.isArray(value) && 'counters' in value) {
-              const { counters, ...rest } = value as Record<string, unknown>;
-              if (typeof counters !== 'object' || counters === null || Array.isArray(counters) || Object.keys(counters).length > 256) return 'the components section\'s counters map at most 256 names to numbers';
-              for (const [k, v] of Object.entries(counters)) if (!/^[A-Za-z_][A-Za-z0-9_]{0,31}$/.test(k) || typeof v !== 'number' || !Number.isFinite(v)) return `counter "${k.slice(0, 40)}" is not a counter name with a number`;
-              return rt.blocks?.primitives.checkState(rest) ?? null;
-            }
-            return rt.blocks?.primitives.checkState(value) ?? null;
-          }
-        }
-      },
-      captureWorld: (): WorldSave => rt.captureWorld(),
-      checkWorld: (world: WorldSave): string | null => rt.worldProblem(world),
-      applyWorld: (world: WorldSave): void => rt.applyWorld(world),
-      apply(section, value) {
-        switch (section) {
-          case 'grid':
-            return rt.grid.restoreDiff(value);
-          case 'materials':
-            rt.materials.restoreState(value as import('./material-params').MaterialSaveEntry[] | undefined);
-            return null;
-          case 'storage':
-            rt.saveStore.clear();
-            for (const [k, v] of Object.entries((value ?? {}) as Record<string, unknown>)) rt.saveStore.set(k, JSON.parse(saveValueText(v)!) as unknown);
-            return null;
-          case 'spawned':
-            rt.restoreSpawnedCopies((value ?? []) as SavedSpawnCopy[]);
-            return null;
-          case 'dialogue':
-            rt.dialogue.restoreState(value);
-            // The dialogue case fell through into the environment's restore.
-            return null;
-          case 'environment':
-            rt.environment.restoreState(value as EnvironmentSaveState | undefined);
-            return null;
-          case 'components': {
-            const { counters, fields, ...rest } = (value ?? {}) as Record<string, unknown>;
-            rt.blocks?.primitives.restoreState(rest as import('./primitives').PrimitivesSaveState);
-            rt.blocks?.setCounters((counters ?? {}) as Record<string, number>);
-            rt.entityAccess.restoreState(fields as EntityFieldsSave | undefined);
-            return null;
-          }
-        }
-      },
-    };
+    return saveSectionsPort({
+      get grid() { return rt.grid; },
+      get materials() { return rt.materials; },
+      get saveStore() { return rt.saveStore; },
+      get dialogue() { return rt.dialogue; },
+      get environment() { return rt.environment; },
+      get entityAccess() { return rt.entityAccess; },
+      blocks: () => rt.blocks,
+      spawnedCopies: () => rt.spawnedCopies(),
+      spawnedCopiesProblem: (value) => rt.spawnedCopiesProblem(value),
+      restoreSpawnedCopies: (copies) => rt.restoreSpawnedCopies(copies),
+      captureWorld: () => rt.captureWorld(),
+      worldProblem: (world) => rt.worldProblem(world),
+      applyWorld: (world) => rt.applyWorld(world),
+    });
   }
 
   /** The live spawned copies (prefab, ids in prefab order, the root's placement now). */
@@ -3621,6 +3546,8 @@ class RuntimeInstance implements Runtime {
     this.pendingFacing = null;
     this.clearSpawned();
     this.runSpawnBase = this.spawnSerial;
+    // The scripts start over knowing no handle: those still open are released (and reported).
+    this.assetHandles.endRun();
     if (!this.restoreStartSet()) return false;
     for (const [id, data] of this.entities) {
       const t = this.curr.get(id);
@@ -4048,30 +3975,13 @@ class RuntimeInstance implements Runtime {
     } catch (e) {
       throw new InputSourceError(messageOf(e));
     }
-    // storage's queued answers ride on this step's frame too.
-    if (this.saveQueue.length > 0 && typeof raw === 'object' && raw !== null) {
-      const have = (raw as ActionFrame).saves ?? [];
-      const room = Math.max(0, MAX_FRAME_SAVE_EVENTS - (Array.isArray(have) ? have.length : 0));
-      if (room > 0) raw = { ...(raw as ActionFrame), saves: [...have, ...this.saveQueue.splice(0, room)] };
-    }
-    // Queued debug commands ride on this step's frame (so a recording keeps them).
-    if (this.debugCommands.pending && typeof raw === 'object' && raw !== null) {
-      const have = (raw as ActionFrame).commands ?? [];
-      const room = Math.max(0, MAX_FRAME_COMMANDS - (Array.isArray(have) ? have.length : 0));
-      if (room > 0) raw = { ...(raw as ActionFrame), commands: [...have, ...this.debugCommands.take(room)] };
-    }
-    // Queued UI events ride on this step's frame (so a recording keeps them).
-    if (this.uiQueue.length > 0 && typeof raw === 'object' && raw !== null) {
-      const have = (raw as ActionFrame).ui ?? [];
-      const room = Math.max(0, MAX_FRAME_UI_EVENTS - (Array.isArray(have) ? have.length : 0));
-      if (room > 0) raw = { ...(raw as ActionFrame), ui: [...have, ...this.uiQueue.splice(0, room)] };
-    }
-    // Queued dialogue inputs ride on this step's frame (so a recording keeps them).
-    if (this.dialogueQueue.length > 0 && typeof raw === 'object' && raw !== null) {
-      const have = (raw as ActionFrame).dialogue ?? [];
-      const room = Math.max(0, DIALOGUE_FRAME_INPUTS - (Array.isArray(have) ? have.length : 0));
-      if (room > 0) raw = { ...(raw as ActionFrame), dialogue: [...have, ...this.dialogueQueue.splice(0, room)] };
-    }
+    // What the host queued rides on this step's frame (so a recording keeps it): storage's answers,
+    // debug commands, UI events, dialogue inputs and the answers to asset loads.
+    raw = rideOnFrame(raw, 'saves', this.saveQueue.length, (n) => this.saveQueue.splice(0, n), MAX_FRAME_SAVE_EVENTS);
+    raw = rideOnFrame(raw, 'commands', this.debugCommands.pending ? 1 : 0, (n) => this.debugCommands.take(n), MAX_FRAME_COMMANDS);
+    raw = rideOnFrame(raw, 'ui', this.uiQueue.length, (n) => this.uiQueue.splice(0, n), MAX_FRAME_UI_EVENTS);
+    raw = rideOnFrame(raw, 'dialogue', this.dialogueQueue.length, (n) => this.dialogueQueue.splice(0, n), DIALOGUE_FRAME_INPUTS);
+    raw = rideOnFrame(raw, 'assets', this.assetAnswerQueue.length, (n) => this.assetAnswerQueue.splice(0, n), MAX_FRAME_ASSET_ANSWERS);
     // Equal action values of the last frame are shared (immutable).
     const check = validateActionFrame(raw, stepIndex, this.lastInputFrame ?? undefined);
     if (!check.ok) throw new InputFrameError(check.field, check.message);
@@ -4080,6 +3990,8 @@ class RuntimeInstance implements Runtime {
     this.debugCommands.deliver(check.frame);
     // storage's answers (the slot list, outcomes, a loaded document).
     if (check.frame.saves !== undefined) this.saves.deliver(check.frame.saves);
+    // The answers to asset loads (a script sees ready in this step).
+    this.assetHandles.deliver(check.frame.assets);
     // The host's input status (device, bindings, rebind events).
     this.inputStatus.apply(check.frame.input);
     // The frame's show/hide entries apply before any script runs.
@@ -4867,6 +4779,7 @@ class RuntimeInstance implements Runtime {
       fields['shell'] = { value: this.shellControl, enumerable: true };
       // Project saves (ctx.saves).
       fields['saves'] = { value: this.saves.api, enumerable: true };
+      fields['assets'] = { value: this.assetHandles.api, enumerable: true };
       // The project UI (the step's UI events in the intent phase).
       fields['ui'] = { value: this.uiControlFor(phase), enumerable: true };
       // Conversations (ctx.dialogue; calls apply at the end of the step).
