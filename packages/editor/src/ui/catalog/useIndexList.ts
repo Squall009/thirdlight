@@ -7,13 +7,12 @@
  *
  * Browser-only (React).
  */
+import { INDEX_PAGE_DEFAULT } from '@thirdlight/project-model/limits';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { IndexEntryView, IndexQuery } from '../../session/catalog';
 import { useCatalog } from './catalog-context';
 
-/** Entries one page read carries. */
-export const INDEX_LIST_PAGE = 256;
 
 export interface IndexList {
   /** Entries matching the query (null until the first page arrived). */
@@ -59,7 +58,7 @@ export function useIndexList(query: IndexQuery, enabled = true): IndexList {
       const cache = cacheRef.current;
       if (catalog === null || cache === null || !enabled || cache.pages.has(page) || cache.loading.has(page)) return;
       cache.loading.add(page);
-      void catalog.page(queryRef.current, page * INDEX_LIST_PAGE, INDEX_LIST_PAGE).then(
+      void catalog.page(queryRef.current, page * INDEX_PAGE_DEFAULT, INDEX_PAGE_DEFAULT).then(
         (r) => {
           cache.loading.delete(page);
           if (cacheRef.current !== cache) return;
@@ -87,7 +86,7 @@ export function useIndexList(query: IndexQuery, enabled = true): IndexList {
   // A new function per query and index version, so a list asks again for the pages it shows.
   const need = useCallback(
     (from: number, to: number) => {
-      for (let p = Math.floor(from / INDEX_LIST_PAGE); p <= Math.floor(Math.max(from, to - 1) / INDEX_LIST_PAGE); p++) load(p);
+      for (let p = Math.floor(from / INDEX_PAGE_DEFAULT); p <= Math.floor(Math.max(from, to - 1) / INDEX_PAGE_DEFAULT); p++) load(p);
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `cacheKey` is not read here; it renews the function so the list's range effect runs again
     [load, cacheKey],
@@ -99,9 +98,9 @@ export function useIndexList(query: IndexQuery, enabled = true): IndexList {
     () => ({
       total: cache.total ?? stale?.total ?? null,
       entry: (i) => {
-        const p = Math.floor(i / INDEX_LIST_PAGE);
+        const p = Math.floor(i / INDEX_PAGE_DEFAULT);
         const page = cache.pages.get(p) ?? stale?.pages.get(p);
-        return page?.[i - p * INDEX_LIST_PAGE];
+        return page?.[i - p * INDEX_PAGE_DEFAULT];
       },
       need,
       error,

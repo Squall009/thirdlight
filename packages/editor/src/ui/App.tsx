@@ -126,7 +126,7 @@ import { MediaPanel } from './MediaPanel';
 import { ProblemsPanel } from './ProblemsPanel';
 import { GraphInspector } from '../graph/GraphInspector';
 import { EffectsPanel } from './effect/EffectsPanel';
-import { DialoguePanel, dialogueIdFrom } from './dialogue/DialoguePanel';
+import { DialoguePanel, freeDialogueId } from './dialogue/DialoguePanel';
 import type { DialogueDocument as DialogueDoc, DialogueSettings, DialogueSpeaker, UiDocument as ProjectUiDocument, UiTheme as ProjectUiTheme } from '@thirdlight/project-model';
 import { TimelinesPanel } from './timeline/TimelinesPanel';
 import { newTimeline, type TimelinePreviewValue } from './timeline/TimelineDocument';
@@ -3903,14 +3903,12 @@ function EditorApp(): JSX.Element {
               error={dialogueError}
               onOpen={(id) => openDocument('dialogue', id)}
               onCreate={(name) => {
-                // A new id is checked against the index (the editor has read only the conversations it opened).
-                void (async () => {
-                  const c = clientRef.current;
-                  const base = dialogueIdFrom(name, [], 'dialogue');
-                  const taken = c === null ? [] : (await c.catalog.page({ kinds: ['dialogue'], text: base }, 0, 1024).catch(() => ({ total: 0, entries: [] }))).entries.map((e) => e.id);
-                  const dialogueId = dialogueIdFrom(name, [...taken, ...dialogues.map((d) => d.dialogueId)], 'dialogue');
-                  if (await dialogueCommand('setDialogue', { dialogue: { dialogueId, name } })) openDocument('dialogue', dialogueId);
-                })();
+                const c = clientRef.current;
+                if (c === null) return;
+                void freeDialogueId(name, async (ids) => new Set([...(await c.catalog.taken(ids, ['dialogue'])), ...dialogues.map((d) => d.dialogueId)])).then(
+                  async (dialogueId) => (await dialogueCommand('setDialogue', { dialogue: { dialogueId, name } })) && openDocument('dialogue', dialogueId),
+                  (e: unknown) => setDialogueError(`the new conversation's id could not be checked: ${e instanceof Error ? e.message : String(e)}`),
+                );
               }}
               onRename={(dialogueId, name) => void dialogueCommand('setDialogue', { dialogue: { dialogueId, name } })}
               onDelete={(dialogueId) => {

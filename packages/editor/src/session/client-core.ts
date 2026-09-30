@@ -43,6 +43,7 @@ import { type CompileDiagnosticView } from './behavior-publication';
 import { fromWireChange, RESOURCE_CREATING_OPS } from '@thirdlight/protocol';
 import { OwnCommands, WHOLE_DOCUMENT_OPS } from './own-commands';
 import type { BehaviorRecord, PrefabDefinition } from '@thirdlight/project-model';
+import { ASSET_QUERY_PAGE_MAX } from '@thirdlight/project-model/limits';
 
 export interface ClientConfig {
   projectId: string;
@@ -640,8 +641,11 @@ export class SessionClientCore {
       // The scripts' declarations are the schema of every behavior component: all of them, page by page.
       const behaviors = await this.allBehaviors();
       this.prefabs.hydrate([], behaviors);
-    } catch {
-      // A missing page is resolved by the next full state.
+    } catch (e) {
+      // Never a partial list (a script missing from it would read as having no properties): said, and
+      // resolved by the next full state.
+      this.error = { code: 'behaviors_unavailable', message: `the scripts' declarations could not be read: ${e instanceof Error ? e.message : String(e)}` };
+      this.emit();
     }
     this.catalog.invalidate();
     void this.catalog.ensureAssets(heldAssets);
@@ -653,8 +657,8 @@ export class SessionClientCore {
   private async allBehaviors(): Promise<BehaviorRecord[]> {
     const out: BehaviorRecord[] = [];
     for (let offset = 0; ; ) {
-      const page = await this.queryBehaviors({ limit: 128, offset, includeDeclaration: true });
-      if (!page.ok) break;
+      const page = await this.queryBehaviors({ limit: ASSET_QUERY_PAGE_MAX, offset, includeDeclaration: true });
+      if ((page as { ok: boolean }).ok !== true) throw new Error('a page of scripts could not be read');
       out.push(...page.behaviors);
       offset += page.behaviors.length;
       if (page.behaviors.length === 0 || offset >= page.total) break;

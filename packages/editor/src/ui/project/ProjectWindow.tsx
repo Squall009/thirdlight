@@ -21,7 +21,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type JSX, type KeyboardEvent } from 'react';
 
-import { ASSET_KINDS } from '@thirdlight/project-model/limits';
+import { ASSET_KINDS, INDEX_PAGE_DEFAULT, INDEX_PAGE_MAX } from '@thirdlight/project-model/limits';
 
 import type { FolderView, IndexEntryView, IndexQuery } from '../../session/catalog';
 import { ASSET_DRAG_TYPE } from '../../session/placement';
@@ -29,7 +29,7 @@ import { PROJECT_KINDS, parseSearch, typeOf, withType } from '../../session/proj
 import { folderKey, folderTrail, freeFolderName, isAssetKind, isWithin, itemKey, parseProjectDrag, PROJECT_DRAG_TYPE, selectionOf, type ProjectItem, type ProjectSelection } from '../../session/project-items';
 import type { TileThumbnails } from '../../viewport/thumbnails';
 import { useCatalog } from '../catalog/catalog-context';
-import { INDEX_LIST_PAGE, useIndexList } from '../catalog/useIndexList';
+import { useIndexList } from '../catalog/useIndexList';
 import { VirtualList } from '../catalog/VirtualList';
 import { MATERIAL_DRAG_TYPE } from '../MaterialsPanel';
 import { LabelsBar } from '../LoadableFields';
@@ -154,7 +154,7 @@ export function ProjectWindow(p: Props): JSX.Element {
           at += 1;
           continue;
         }
-        const count = Math.min(1024, e1 - at + 1);
+        const count = Math.min(INDEX_PAGE_MAX, e1 - at + 1);
         const page = await catalog.page(query, at, count);
         for (const e of page.entries) out.push(itemKey(e));
         at += Math.max(1, page.entries.length);
@@ -470,7 +470,7 @@ export function ProjectWindow(p: Props): JSX.Element {
         <div className="tl-assets__paging" data-total={list.total ?? ''}>
           {folderCount > 0 ? `${folderCount} folder(s) · ` : ''}
           {list.total ?? '…'} item(s)
-          {list.total !== null && list.total > INDEX_LIST_PAGE ? ' (read as they scroll into view)' : ''}
+          {list.total !== null && list.total > INDEX_PAGE_DEFAULT ? ' (read as they scroll into view)' : ''}
           {list.error !== null ? ` · ${list.error}` : ''}
         </div>
       </div>

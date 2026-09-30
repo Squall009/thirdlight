@@ -101,9 +101,10 @@ export function useClipChoices(model: string, clipsOf: (assetId: string) => Prom
       return;
     }
     void (async () => {
-      const users = await catalog.page({ kinds: MODEL_KINDS, referencing: model }, 0, 1024).catch(() => ({ total: 0, entries: [] }));
-      await catalog.ensureAssets(users.entries.map((e) => e.id));
-      const list = users.entries.filter((e) => e.id !== model && asset(e.id)?.clipsFor === model).map((e) => ({ assetId: e.id, source: e.name as string | null }));
+      // Every model that names it, however many (a failed read offers the model's own clips only).
+      const users = await catalog.all({ kinds: MODEL_KINDS, referencing: model }).catch(() => []);
+      await catalog.ensureAssets(users.map((e) => e.id));
+      const list = users.filter((e) => e.id !== model && asset(e.id)?.clipsFor === model).map((e) => ({ assetId: e.id, source: e.name as string | null }));
       const key = list.map((x) => `${x.assetId}:${x.source ?? ''}`).join('|');
       if (live) setSources((s) => (s.model === model && s.key === key ? s : { model, key, list }));
     })();

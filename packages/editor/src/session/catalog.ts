@@ -15,7 +15,7 @@
  * client's authenticated command route). No DOM.
  */
 import type { AssetSummary } from '@thirdlight/commands';
-import { ASSET_QUERY_PAGE_MAX } from '@thirdlight/project-model/limits';
+import { ASSET_QUERY_PAGE_MAX, INDEX_PAGE_MAX } from '@thirdlight/project-model/limits';
 import type { PrefabDefinition } from '@thirdlight/project-model';
 
 /** One index entry as a list shows it (no reference lists: `refs: false`). */
@@ -59,8 +59,6 @@ export interface IndexPage {
   readonly entries: readonly IndexEntryView[];
 }
 
-/** The most entries one index page carries (the backend's `queryIndex` page). */
-export const INDEX_PAGE_MAX = 1024;
 
 /** Changes that edit the objects of a scene only: the index lists the same entries after them. */
 const ENTITY_CHANGES: ReadonlySet<string> = new Set([
@@ -267,6 +265,16 @@ export class Catalog {
     return { total: Number(r['total'] ?? 0), entries: (r['entries'] as IndexEntryView[] | undefined) ?? [] };
   }
 
+  /** Every entry a query matches, a page at a time (for a set a view needs whole, e.g. what uses one model). */
+  async all(q: IndexQuery): Promise<IndexEntryView[]> {
+    const out: IndexEntryView[] = [];
+    for (;;) {
+      const page = await this.page(q, out.length, INDEX_PAGE_MAX);
+      out.push(...page.entries);
+      if (page.entries.length === 0 || out.length >= page.total) return out;
+    }
+  }
+
   /** The subfolders of a folder of the game folder (`""`: its top), as they are now. */
   async folders(folder: string): Promise<FolderView[]> {
     const r = await this.query('queryIndex', { folder, folders: true, refs: false, limit: 1 });
@@ -282,6 +290,23 @@ export class Catalog {
       if (kinds !== undefined && kinds.length > 0) args['kinds'] = [...kinds];
       const r = await this.query('queryIndex', args);
       if (r['ok'] === true) out.push(...((r['entries'] as IndexEntryView[] | undefined) ?? []));
+    }
+    return out;
+  }
+
+  /**
+   * Which of these ids the index has (of these kinds). Unlike `entries` it
+   * throws when a page cannot be read: a caller choosing a new id must never
+   * take a used one for free.
+   */
+  async taken(ids: readonly string[], kinds?: readonly string[]): Promise<Set<string>> {
+    const out = new Set<string>();
+    for (let i = 0; i < ids.length; i += INDEX_PAGE_MAX) {
+      const args: Record<string, unknown> = { refs: false, ids: ids.slice(i, i + INDEX_PAGE_MAX), limit: INDEX_PAGE_MAX };
+      if (kinds !== undefined && kinds.length > 0) args['kinds'] = [...kinds];
+      const r = await this.query('queryIndex', args);
+      if (r['ok'] !== true) throw new Error(String((r['error'] as { message?: string } | undefined)?.message ?? 'the index could not be read'));
+      for (const e of (r['entries'] as IndexEntryView[] | undefined) ?? []) out.add(e.id);
     }
     return out;
   }

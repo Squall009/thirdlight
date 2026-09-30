@@ -11,15 +11,16 @@
  *
  * Browser-only (React).
  */
+import { INDEX_PAGE_DEFAULT } from '@thirdlight/project-model/limits';
 import { useEffect, useRef, useState, type JSX } from 'react';
 
 import type { IndexEntryView } from '../../session/catalog';
 import { useCatalog } from './catalog-context';
-import { INDEX_LIST_PAGE, useIndexList } from './useIndexList';
+import { useIndexList } from './useIndexList';
 import { VirtualList } from './VirtualList';
 
 /** The most choices a picker shows as a plain select (one index page: the first page has them all); more are searched. */
-export const PICKER_SELECT_MAX = INDEX_LIST_PAGE;
+export const PICKER_SELECT_MAX = INDEX_PAGE_DEFAULT;
 
 /** The index kinds of the usual pickers (one array each, so a picker's query stays the same between draws). */
 export const TEXTURE_KINDS: readonly string[] = ['texture'];

@@ -50,6 +50,22 @@ export function dialogueIdFrom(name: string, taken: readonly string[], fallback:
   return id;
 }
 
+/**
+ * A dialogue id no dialogue has: the name's id, else it numbered, each
+ * candidate looked up by id in the index (the editor holds only the
+ * conversations it opened, and `setDialogue` replaces one that exists).
+ */
+export async function freeDialogueId(name: string, taken: (ids: readonly string[]) => Promise<ReadonlySet<string>>): Promise<string> {
+  const base = dialogueIdFrom(name, [], 'dialogue');
+  const batch = 64;
+  for (let from = 1; ; from += batch) {
+    const candidates = Array.from({ length: batch }, (_, i) => (from + i === 1 ? base : `${base}-${from + i}`));
+    const used = await taken(candidates);
+    const free = candidates.find((c) => !used.has(c));
+    if (free !== undefined) return free;
+  }
+}
+
 export function DialoguePanel(p: DialoguePanelProps): JSX.Element {
   const [name, setName] = useState('');
   const [section, setSection] = useState<'dialogues' | 'speakers' | 'settings'>('dialogues');

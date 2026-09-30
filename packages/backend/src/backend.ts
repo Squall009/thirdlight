@@ -123,8 +123,8 @@ export function createBackend(
     while (startupLog.length > STARTUP_LOG_RING) startupLog.shift();
   };
   if (missing.length > 0) {
-    logStartup(`startup_invalid: static bundle check failed (${missing.join(', ')}); run the editor build (decision 0004) first`);
-    return { ok: false, error: { message: 'static bundle check failed — run the editor build (decision 0004) first', missing } };
+    logStartup(`startup_invalid: static bundle check failed (${missing.join(', ')}); run the editor build (npm run build) first`);
+    return { ok: false, error: { message: 'static bundle check failed — run the editor build (npm run build) first', missing } };
   }
   mkdirSync(config.dataRoot, { recursive: true });
   if (config.exportRoot !== undefined) mkdirSync(config.exportRoot, { recursive: true });
@@ -389,8 +389,7 @@ export function createBackend(
     return { index: { total: (index as unknown as { total: number }).total } };
   };
 
-  /** The editor session's entity bound (all scenes) and page size. */
-  const SESSION_ENTITY_BOUND = 65_536;
+  /** The page the editor session's entities (all scenes) are read in; there is no bound on how many. */
   const SESSION_PAGE = 16_384;
   const fullState = (projectId: string):
     | {
@@ -422,10 +421,10 @@ export function createBackend(
       // guard so the code below narrows to `QueryProjectResult`.
       return { ok: false, status: 500, error: sessionError('invalid_request', 'internal', 'unexpected query shape') };
     }
-    // Paged (16384 per page) up to the session bound; a v4
+    // Paged, every entity of every scene (a project's size is not capped); a v4
     // project also names each entity's scene and lists its scenes.
     const v4 = (q as { scenes?: unknown }).scenes !== undefined;
-    const page = v4 ? SESSION_PAGE : 1024; // a legacy (v1–v3) session reads one 1024 page
+    const page = v4 ? SESSION_PAGE : 1024; // a legacy (v1–v3) session reads 1024 pages
     const entities: unknown[] = [];
     const entitySceneIds: string[] = [];
     let total = 0;
@@ -438,13 +437,6 @@ export function createBackend(
         return { ok: false, status: 500, error: sessionError('invalid_request', 'internal', 'unexpected query shape') };
       }
       total = e.total;
-      if (total > (v4 ? SESSION_ENTITY_BOUND : 1024)) {
-        return {
-          ok: false,
-          status: 503,
-          error: sessionError('project_unavailable', 'unavailable', `the project holds ${total} entities; an editor session loads at most ${SESSION_ENTITY_BOUND} (use instance sets for repeated detail)`),
-        };
-      }
       entities.push(...e.entities);
       const ids = (e as { entitySceneIds?: string[] }).entitySceneIds;
       if (ids !== undefined) entitySceneIds.push(...ids);

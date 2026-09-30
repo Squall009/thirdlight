@@ -15,7 +15,7 @@ import { MAX_TEXTURE_LAYERS } from '@thirdlight/project-model/limits';
 import { useState, type JSX } from 'react';
 
 import { useAssetSummaries } from './catalog/catalog-context';
-import { RefPicker, TEXTURE_KINDS, useEntryNames } from './catalog/RefPicker';
+import { PICKER_SELECT_MAX, RefPicker, TEXTURE_KINDS, useEntryNames } from './catalog/RefPicker';
 import { useIndexList } from './catalog/useIndexList';
 
 export type PackChannel = { assetId: string; channel: 'r' | 'g' | 'b' | 'a' } | { value: number };
@@ -33,11 +33,12 @@ const channelOf = (v: string): PackChannel => (v.startsWith('=') ? { value: Numb
 const EMPTY: PackChannel[] = [{ value: 0 }, { value: 0 }, { value: 0 }, { value: 255 }];
 
 export function TexturePackForm(p: { onPack: (req: PackRequest) => Promise<string | null>; onClose: () => void }): JSX.Element {
-  // The channels offered: the textures of the index's first page and any the form uses (a larger
-  // project picks more with "add a source"); KTX2 textures cannot be unpacked into channels.
+  // The channels offered: every texture when they all fit one picker list, else only those picked
+  // with "add a source" or "RGBA of…" (searchable pickers) — never a silent first page. Plus any the
+  // form uses; KTX2 textures cannot be unpacked into channels.
   const page = useIndexList({ kinds: TEXTURE_KINDS });
   const listed: string[] = [];
-  for (let i = 0; i < Math.min(page.total ?? 0, 256); i++) {
+  for (let i = 0; page.total !== null && page.total <= PICKER_SELECT_MAX && i < page.total; i++) {
     const e = page.entry(i);
     if (e !== undefined) listed.push(e.id);
   }
