@@ -40,6 +40,12 @@ export interface PerfPageState {
   contexts: GpuContextRecord[];
   /** Workers created and terminated by this frame's scripts. */
   workers: { created: number; terminated: number };
+  /**
+   * The frame's `fetch` responses (Resource Timing): how many, how many the
+   * browser's HTTP cache answered (nothing transferred), and the bytes that
+   * crossed the network and that the bodies held.
+   */
+  fetches: { n: number; cached: number; networkBytes: number; bodyBytes: number };
 }
 
 /** One WebGL context or WebGPU device and what it holds now. */
@@ -69,6 +75,7 @@ export function installPerfInstrumentation(): void {
     longTasks: [],
     contexts: [],
     workers: { created: 0, terminated: 0 },
+    fetches: { n: 0, cached: 0, networkBytes: 0, bodyBytes: 0 },
   };
   w.__tlPerf = P;
   // Per-context bookkeeping (WeakRef: a context is never kept alive by this map).
@@ -138,6 +145,21 @@ export function installPerfInstrumentation(): void {
     }).observe({ type: 'longtask', buffered: true });
   } catch {
     /* long tasks are not observable here */
+  }
+  try {
+    // Same-origin fetches report their sizes: nothing transferred is an answer from the HTTP cache.
+    performance.setResourceTimingBufferSize?.(100_000);
+    new PerformanceObserver((list) => {
+      for (const e of list.getEntries() as PerformanceResourceTiming[]) {
+        if (e.initiatorType !== 'fetch') continue;
+        P.fetches.n += 1;
+        if (e.transferSize === 0 && e.decodedBodySize > 0) P.fetches.cached += 1;
+        P.fetches.networkBytes += e.transferSize;
+        P.fetches.bodyBytes += e.decodedBodySize;
+      }
+    }).observe({ type: 'resource', buffered: true });
+  } catch {
+    /* resource timing is not observable here */
   }
   const noteApi = (name: string): void => {
     if (!P.apis.includes(name)) P.apis.push(name);
@@ -361,6 +383,7 @@ export interface PageSample {
   uasm: string;
   renderer: { requested?: string; backend?: string; state?: string; reason?: string } | null;
   nav: { domContentLoaded: number; load: number } | null;
+  fetches: PerfPageState['fetches'];
 }
 
 /** In the page: stop recording and read everything (garbage-collected heap where `gc` is exposed). */
@@ -396,6 +419,7 @@ export async function readSample(stop: boolean): Promise<PageSample> {
     uasm,
     renderer,
     nav: navEntry !== undefined ? { domContentLoaded: navEntry.domContentLoadedEventEnd, load: navEntry.loadEventEnd } : null,
+    fetches: { ...P.fetches },
   };
 }
 

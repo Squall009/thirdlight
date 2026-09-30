@@ -288,8 +288,13 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     }
     return h;
   };
-  /** Compiled graphs sample their textures for the library's life (they are shared across materials and objects). */
-  const GRAPH_HOLDER = 'graphs';
+  /**
+   * A compiled graph holds the textures it samples (`graph:<digest>`) while a
+   * mesh wears it; a texture's first load is held by `graph-load` until the
+   * graphs sampling it took their own holds.
+   */
+  const graphHolder = (digest: string): string => `graph:${digest}`;
+  const GRAPH_LOAD_HOLDER = 'graph-load';
   const applied = new Map<THREE.Object3D, { mapping: Readonly<Record<string, string>> | null; overrides: MaterialOverridesLike | null }>();
   let functions = new Map<string, MaterialFunctionLike>();
   let animatedCount = 0;
@@ -564,10 +569,17 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
   const samplerTextures = new Map<string, THREE.Texture>();
   const fnOf = (id: string): MaterialFunctionLike | null => functions.get(id) ?? null;
 
+  /** Whether a live compiled graph samples this texture. */
+  const sampled = (assetId: string): boolean => {
+    for (const e of graphEntries.values()) if (e.compiled.textures.includes(assetId)) return true;
+    return false;
+  };
   const samplerTexture = (assetId: string, sampler: SamplerLike): THREE.Texture | 'loading' | null => {
     if (!loadedTextures.has(assetId)) {
-      void texture(assetId, GRAPH_HOLDER).then((t) => {
-        if (disposed || loadedTextures.has(assetId)) return;
+      void texture(assetId, GRAPH_LOAD_HOLDER).then((t) => {
+        // The graphs that sample it hold it now (none left: it is let go and not kept).
+        holds.release(assetId, GRAPH_LOAD_HOLDER);
+        if (disposed || loadedTextures.has(assetId) || !sampled(assetId)) return;
         loadedTextures.set(assetId, t);
         // Recompile the graphs that drew a fallback while it was on its way.
         let changed = false;
@@ -605,9 +617,14 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
 
   const compileEntry = (def: MaterialDefLike, digest: string): CompiledMaterialGraph =>
     compileMaterialGraph({ graph: def.graph!, ...(def.parameters !== undefined ? { parameters: def.parameters } : {}) }, { globals: nodeGlobals, texture: samplerTexture, fn: fnOf, overrideKey: digest });
+  /** A compiled graph holds what it samples. */
+  const holdGraphTextures = (e: GraphEntry): void => {
+    for (const id of e.compiled.textures) void texture(id, graphHolder(e.digest));
+  };
   function recompile(e: GraphEntry): void {
     const old = e.compiled;
     e.compiled = compileEntry(e.def, e.digest);
+    holdGraphTextures(e);
     applyGraphNodes(e.material as unknown as MeshStandardNodeMaterial, e.compiled);
     // The previous compile's data placeholders go with it.
     for (const t of old.ownedTextures) t.dispose();
@@ -629,7 +646,39 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
     const material = buildGraphMaterial(compiled, def.name);
     const e: GraphEntry = { canonical, digest, def, material, compiled };
     graphEntries.set(digest, e);
+    holdGraphTextures(e);
     return e;
+  };
+
+  /**
+   * Meshes wearing each compiled graph (by digest) and the digests each mesh
+   * wears: a compiled graph, its textures and its sampler copies go with its
+   * last mesh (a scene unloaded, an object destroyed), as a built material does.
+   */
+  const graphRefs = new Map<string, number>();
+  const heldDigests = new WeakMap<THREE.Object3D, readonly string[]>();
+  const dropGraph = (digest: string): void => {
+    graphRefs.delete(digest);
+    const e = graphEntries.get(digest);
+    if (e === undefined) return;
+    graphEntries.delete(digest);
+    disposeEntry(e);
+    holds.releaseHolder(graphHolder(digest));
+    // A texture no other compiled graph samples: its sampler copies go, and a later compile loads it again.
+    for (const id of e.compiled.textures) {
+      if (sampled(id)) continue;
+      loadedTextures.delete(id);
+      for (const [k, t] of [...samplerTextures]) {
+        if (!k.startsWith(`${id}|`)) continue;
+        t.dispose();
+        samplerTextures.delete(k);
+      }
+    }
+  };
+  const releaseDigest = (digest: string): void => {
+    const n = (graphRefs.get(digest) ?? 0) - 1;
+    if (n > 0) graphRefs.set(digest, n);
+    else dropGraph(digest);
   };
 
   /** A graph material's definition with an object's texture overrides as its defaults (null: none apply). */
@@ -685,6 +734,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
       const values: Record<string, Readonly<Record<string, unknown>>> = {};
       let noShadow = false;
       const keys: string[] = [];
+      const digests: string[] = [];
       const next = list.map((src) => {
         const id = mapping === null ? undefined : (mapping[src.name] ?? mapping['*']);
         const def = id === undefined ? undefined : defs.get(id);
@@ -693,6 +743,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
           const live = runtime?.values[def.materialId];
           const e = graphMaterial(textureVariant(def, live !== undefined ? { ...(own ?? {}), ...live } : own) ?? def);
           usedDigests.add(e.digest);
+          digests.push(e.digest);
           ids[e.digest] = def.materialId;
           if (own !== undefined) values[e.digest] = own;
           if (!e.compiled.flags.castShadows) noShadow = true;
@@ -711,6 +762,11 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
       for (const k of heldKeys.get(mesh) ?? []) releaseKey(k);
       if (keys.length > 0) heldKeys.set(mesh, keys);
       else heldKeys.delete(mesh);
+      // The same for the compiled graphs it wears.
+      for (const d of digests) graphRefs.set(d, (graphRefs.get(d) ?? 0) + 1);
+      for (const d of heldDigests.get(mesh) ?? []) releaseDigest(d);
+      if (digests.length > 0) heldDigests.set(mesh, digests);
+      else heldDigests.delete(mesh);
       if (Object.keys(values).length > 0) data[OVERRIDES_KEY] = values;
       else delete data[OVERRIDES_KEY];
       if (Object.keys(ids).length > 0) data[MATERIAL_IDS_KEY] = ids;
@@ -767,11 +823,7 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
       usedDigests = new Set();
       for (const [root, a] of applied) assign(root, a.mapping, a.overrides);
       // Compiled graphs no applied mesh uses any more (a later apply recompiles).
-      for (const [digest, e] of [...graphEntries]) {
-        if (usedDigests.has(digest)) continue;
-        disposeEntry(e);
-        graphEntries.delete(digest);
-      }
+      for (const digest of [...graphEntries.keys()]) if (!usedDigests.has(digest)) dropGraph(digest);
       options.onChange?.();
     },
     setWind(wind) {
@@ -852,12 +904,17 @@ export function createMaterialLibrary(options: MaterialLibraryOptions): Material
       for (const b of built.values()) disposeBuilt(b.material);
       built.clear();
       builtRefs.clear();
-      for (const e of graphEntries.values()) disposeEntry(e);
+      for (const e of graphEntries.values()) {
+        disposeEntry(e);
+        holds.releaseHolder(graphHolder(e.digest));
+      }
       graphEntries.clear();
+      graphRefs.clear();
       // The sampler copies are the library's; the decoded textures are the resource manager's.
       for (const t of samplerTextures.values()) t.dispose();
       samplerTextures.clear();
-      holds.releaseHolder(GRAPH_HOLDER);
+      loadedTextures.clear();
+      holds.releaseHolder(GRAPH_LOAD_HOLDER);
       if (options.resources === undefined) holds.resources.dispose();
       applied.clear();
     },

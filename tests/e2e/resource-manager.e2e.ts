@@ -11,6 +11,9 @@
  * and after each scene is unloaded the resident bytes of every kind are back
  * where they were before the walk.
  *
+ * Play, a texture sky: the texture the sky shows is also a material's map;
+ * it is decoded once and shared.
+ *
  * Scene view: the editor opens scene A (two models), then opens scene B (one
  * of them) and closes A: the model only A used is freed (`data-resources` of
  * the view).
@@ -178,6 +181,53 @@ test('Play: a transition keeps the model both scenes use; after the walk every k
   // Play's diagnostics report the same manager.
   const diag = (await relay(`${psid}/diagnostics`)).json as { diagnostics?: { resources?: Resources } };
   expect(bytesByKind(diag.diagnostics?.resources?.resident ?? {})).toEqual(baseline);
+  await page.getByTitle('Stop the play preview').click();
+});
+
+test('Play: a texture that is both the sky and a material\'s map is decoded once', async ({ page }) => {
+  test.setTimeout(180_000);
+  const pid = 'resources-sky';
+  const p = await newProject(pid);
+  await publish(pid, 'tex-sky', 'texture', makePng(64, 32, (_x, y) => (y < 16 ? [90, 150, 230, 255] : [60, 140, 60, 255])));
+  await p.command('setEnvironment', { environment: { sky: { mode: 'texture', texture: 'tex-sky' } } });
+  await p.command('setMaterial', { material: { materialId: 'mat-sky', name: 'Sky map', shader: 'unlit', params: {}, textures: { map: 'tex-sky' } } });
+  await p.command('createScene', { sceneId: 'scene-a', name: 'A' });
+  await p.command('setStartScenes', { sceneIds: ['scene-main'] });
+  await p.command('createEntity', { sceneId: 'scene-a', kind: 'box', name: 'Box', transform: { position: [0, 0, 0] }, box: { size: [1, 1, 1], material: { color: '#ffffff' } }, components: { materials: { '*': 'mat-sky' } } });
+
+  const relay = (path: string, body: unknown = {}) => be.post(`/api/v1/projects/${pid}/play/${path}`, body);
+  await page.goto(`${be.origin}/?project=${pid}#token=${be.token}`);
+  await expect(page.locator('.tl-statusbar')).toContainText('connected', { timeout: 60_000 });
+  const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));
+  await page.getByTitle('Start an isolated play preview').click();
+  const psid = String(((await (await started).json()) as { playSessionId: string }).playSessionId);
+  type Obs = { state?: string; scenes?: { loaded?: string[] }; resources?: Resources };
+  const observe = async (): Promise<Obs> => {
+    const r = await relay(`${psid}/observe`);
+    return r.status === 200 ? (r.json as Obs) : {};
+  };
+  await expect.poll(async () => (await observe()).state, { timeout: 60_000 }).toBe('running');
+  const settled = async (): Promise<Resources> => {
+    await expect.poll(async () => { const r = (await observe()).resources!; return r.loading + r.waiting; }, { timeout: 30_000 }).toBe(0);
+    return (await observe()).resources!;
+  };
+  // The sky decoded its texture for the environment.
+  await expect.poll(async () => (await settled()).resident['texture']?.count ?? 0, { timeout: 30_000 }).toBe(1);
+  const sky = await settled();
+  expect(sky.loads['texture']).toBe(1);
+  // The box wears the same texture: the sky's decode is shared, not repeated.
+  expect((await relay(`${psid}/control`, { command: 'loadScene', sceneId: 'scene-a' })).status).toBe(200);
+  await expect.poll(async () => (await observe()).scenes?.loaded?.includes('scene-a') === true, { timeout: 60_000 }).toBe(true);
+  const both = await settled();
+  expect(both.resident['texture']?.count).toBe(1);
+  expect(both.loads['texture']).toBe(1);
+  expect(Object.keys(both.resident)).not.toContain('environment');
+  // Unloading the scene keeps it: the sky still holds it.
+  expect((await relay(`${psid}/control`, { command: 'unloadScene', sceneId: 'scene-a' })).status).toBe(200);
+  await expect.poll(async () => (await observe()).scenes?.loaded?.includes('scene-a') === false, { timeout: 60_000 }).toBe(true);
+  const after = await settled();
+  expect(after.resident['texture']?.count).toBe(1);
+  expect(after.frees['texture'] ?? 0).toBe(0);
   await page.getByTitle('Stop the play preview').click();
 });
 

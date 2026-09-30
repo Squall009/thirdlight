@@ -431,6 +431,8 @@ export function bootstrapPreviewM3(): void {
           startTimings: timings.report(),
           // Every asset read so far (the start scenes' and those read on demand since).
           assetReads: h.assetReads(),
+          // The catalog files read so far (what the page has learnt about assets it was not given at the start).
+          catalogReads: h.catalogReads(),
           // What is loaded from assets now: resident count and bytes per kind, loads, frees, script handles alive.
           resources: h.resources(),
         },

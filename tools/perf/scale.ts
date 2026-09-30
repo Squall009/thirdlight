@@ -62,6 +62,10 @@ export interface MemorySample {
   live: PageSample['live'];
   three?: { geometries: number; textures: number; programs: number };
   assetReads?: { reads: number; bytes: number };
+  /** The game page's fetches so far: all, answered by the browser's HTTP cache, bytes over the network and in the bodies. */
+  fetches?: { n: number; cached: number; networkBytes: number; bodyBytes: number };
+  /** Catalog files the page read so far (absent before Play diagnostics carried them). */
+  catalogReads?: { files: number; bytes: number };
   /** What the game holds from assets (the resource manager: resident count and bytes per kind, loads, frees, script handles open); absent before it existed. */
   resources?: { resident: Record<string, { count: number; bytes: number }>; loads: Record<string, number>; frees: Record<string, number>; handles?: number };
   backendRssMiB: number | null;
@@ -100,7 +104,17 @@ export interface ScaleReport {
    * handle once it is ready: the command → ready in the observation, the ids the handle names, and
    * what is resident before, while it is held and after the release settled.
    */
-  handles?: { label: string; assets: number; readyMs: number; releasedMs: number; before: MemorySample; loaded: MemorySample; after: MemorySample };
+  handles?: {
+    label: string;
+    assets: number;
+    readyMs: number;
+    releasedMs: number;
+    before: MemorySample;
+    loaded: MemorySample;
+    after: MemorySample;
+    /** The same load and release again: what the first left behind is a cache if this one adds nothing. */
+    again: { readyMs: number; loaded: MemorySample; after: MemorySample };
+  };
   dialogue?: {
     lines: number;
     linesSeen: number;
@@ -410,11 +424,13 @@ export class ScaleBench {
     const s = frame !== undefined ? await frame.evaluate(readSample, false) : null;
     let three: MemorySample['three'];
     let assetReads: MemorySample['assetReads'];
+    let catalogReads: MemorySample['catalogReads'];
     let resources: MemorySample['resources'];
     if (this.play !== null) {
-      const d = (await this.relay(`${this.play.psid}/diagnostics`)).json as { diagnostics?: { renderer?: { gpu?: MemorySample['three'] }; assetReads?: { reads: number; bytes: number }; resources?: MemorySample['resources'] } };
+      const d = (await this.relay(`${this.play.psid}/diagnostics`)).json as { diagnostics?: { renderer?: { gpu?: MemorySample['three'] }; assetReads?: { reads: number; bytes: number }; catalogReads?: { files: number; bytes: number }; resources?: MemorySample['resources'] } };
       three = d.diagnostics?.renderer?.gpu;
       assetReads = d.diagnostics?.assetReads;
+      catalogReads = d.diagnostics?.catalogReads;
       resources = d.diagnostics?.resources;
     }
     return {
@@ -423,6 +439,8 @@ export class ScaleBench {
       live: s?.live ?? { programs: 0, textures: 0, buffers: 0, vaos: 0, pipelines: 0 } as PageSample['live'],
       ...(three !== undefined ? { three } : {}),
       ...(assetReads !== undefined ? { assetReads } : {}),
+      ...(catalogReads !== undefined ? { catalogReads } : {}),
+      ...(s?.fetches !== undefined ? { fetches: s.fetches } : {}),
       ...(resources !== undefined ? { resources: { resident: resources.resident, loads: resources.loads, frees: resources.frees, ...(resources.handles !== undefined ? { handles: resources.handles } : {}) } } : {}),
       backendRssMiB: backendRssMiB(this.backend.pid),
     };
@@ -503,29 +521,37 @@ export class ScaleBench {
     const settled = async (what: string): Promise<void> => {
       await this.until((o) => o?.resources !== undefined && o.resources.loading === 0 && o.resources.waiting === 0, 120_000, what);
     };
+    const control = async (name: string, args: Record<string, string>): Promise<void> => {
+      const r = await this.relay(`${this.play!.psid}/control`, { command: 'debugCommand', name, args });
+      if (r.status !== 200) throw new Error(`${name} refused: ${JSON.stringify(r.json).slice(0, 300)}`);
+    };
+    /** Load the label, wait for ready, sample; release, wait for the settle, sample. */
+    const cycle = async (): Promise<{ assets: number; readyMs: number; releasedMs: number; loaded: MemorySample; after: MemorySample }> => {
+      const t0 = performance.now();
+      await control('benchLoad', { key: label });
+      let assets = 0;
+      await this.until((o) => {
+        const h = o?.resources?.open?.find((x) => x.key === label);
+        if (h?.state === 'failed') throw new Error(`the label's handle failed: ${JSON.stringify(h)}`);
+        if (h?.state !== 'ready') return false;
+        assets = h.assets;
+        return true;
+      }, 600_000, `the handle of ${label} to be ready`);
+      const readyMs = Math.round(performance.now() - t0);
+      await settled('the resources to settle with the handle held');
+      const loaded = await this.memory();
+      const t1 = performance.now();
+      await control('benchRelease', {});
+      await this.until((o) => o?.resources?.handles === 0 && o.resources.loading === 0 && o.resources.waiting === 0, 120_000, 'the release to settle');
+      const releasedMs = Math.round(performance.now() - t1);
+      await sleep(2_000);
+      return { assets, readyMs, releasedMs, loaded, after: await this.memory() };
+    };
     await settled('the resources to settle before the load');
     const before = await this.memory();
-    const t0 = performance.now();
-    const asked = await this.relay(`${this.play!.psid}/control`, { command: 'debugCommand', name: 'benchLoad', args: { key: label } });
-    if (asked.status !== 200) throw new Error(`benchLoad refused: ${JSON.stringify(asked.json).slice(0, 300)}`);
-    let assets = 0;
-    await this.until((o) => {
-      const h = o?.resources?.open?.find((x) => x.key === label);
-      if (h?.state === 'failed') throw new Error(`the label's handle failed: ${JSON.stringify(h)}`);
-      if (h?.state !== 'ready') return false;
-      assets = h.assets;
-      return true;
-    }, 600_000, `the handle of ${label} to be ready`);
-    const readyMs = Math.round(performance.now() - t0);
-    await settled('the resources to settle with the handle held');
-    const loaded = await this.memory();
-    const t1 = performance.now();
-    const released = await this.relay(`${this.play!.psid}/control`, { command: 'debugCommand', name: 'benchRelease', args: {} });
-    if (released.status !== 200) throw new Error(`benchRelease refused: ${JSON.stringify(released.json).slice(0, 300)}`);
-    await this.until((o) => o?.resources?.handles === 0 && o.resources.loading === 0 && o.resources.waiting === 0, 120_000, 'the release to settle');
-    const releasedMs = Math.round(performance.now() - t1);
-    await sleep(2_000);
-    this.report.handles = { label, assets, readyMs, releasedMs, before, loaded, after: await this.memory() };
+    const first = await cycle();
+    const second = await cycle();
+    this.report.handles = { label, assets: first.assets, readyMs: first.readyMs, releasedMs: first.releasedMs, before, loaded: first.loaded, after: first.after, again: { readyMs: second.readyMs, loaded: second.loaded, after: second.after } };
   }
 
   /**

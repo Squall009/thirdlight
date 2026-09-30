@@ -228,6 +228,8 @@ export interface GamePageHandle {
   readonly inputConfig: () => InputConfigLike;
   /** The asset reads so far and their verified bytes. */
   assetReads(): { reads: number; bytes: number };
+  /** Catalog files read so far (the root and blocks at the start, then dependency files and entry shards as asked). */
+  catalogReads(): { files: number; bytes: number };
   /** What is loaded from assets now (resident per kind, loads, frees, script handles alive). */
   resources(): ResourceObservation;
   dispose(): void;
@@ -905,6 +907,7 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
       identity,
       stepHz,
       assetReads: () => assetReader.stats(),
+      catalogReads: () => content.catalog.stats(),
       resources: () => {
         // The host's view adds the scripts' handles (open, and those a run ended without releasing).
         const o = host.observe();

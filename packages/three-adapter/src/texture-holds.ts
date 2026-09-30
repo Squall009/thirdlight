@@ -1,10 +1,11 @@
 /**
  * Decoded textures held in the resource manager by who draws with them.
  *
- * A texture asset is decoded once per page (the manager's `texture` or
- * `environment` entry) and shared: every user that changes how it samples
- * (colour space, wrapping, tiling, a light's cookie) draws with a clone, so
- * the shared texture itself is never changed. A user holds it while it
+ * A texture asset is decoded once per page (the manager's `texture` entry)
+ * and shared by materials, lightmaps, lights and the environment: every
+ * user that changes how it samples (colour space, wrapping, tiling, a
+ * light's cookie, the sky's cube or equirect copy, the grading LUT) draws
+ * with a copy of its own, so the shared texture itself is never changed. A user holds it while it
  * draws with it and lets go when it stops; the texture (its GPU copy and its
  * `ImageBitmap`) is freed when no one holds it.
  */
@@ -28,10 +29,12 @@ let holdsSerial = 0;
 
 /**
  * Textures of one user (a material library, the lightmaps, the lights, the
- * environment) in `resources`, decoded by `load`. Holder names are this
- * user's own (several users share one manager).
+ * environment) in `resources`, decoded by `load` (every user's `load` decodes
+ * the same verified file the same way: whoever asks first decodes it). Holder
+ * names are this user's own (several users share one manager).
  */
-export function textureHolds(resources: ResourceManager | undefined, load: (assetId: string) => Promise<THREE.Texture | null>, kind: 'texture' | 'environment' = 'texture'): TextureHolds {
+export function textureHolds(resources: ResourceManager | undefined, load: (assetId: string) => Promise<THREE.Texture | null>): TextureHolds {
+  const kind = 'texture';
   const manager = resources ?? createResourceManager({ schedule: (run) => queueMicrotask(run) });
   holdsSerial += 1;
   const tag = `textures${holdsSerial}/`;

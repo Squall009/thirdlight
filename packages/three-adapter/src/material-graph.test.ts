@@ -8,6 +8,8 @@ import * as TSL from 'three/tsl';
 import { describe, expect, it } from 'vitest';
 
 import { buildGraphMaterial, COMPILER_NODES, compileMaterialGraph, LIGHTING_TYPES, digestOf, materialGraphCanonical, materialGraphProblems, OVERRIDES_KEY, resolveMaterialGraphPorts, type GraphCompileEnv, type MaterialFunctionLike, type MaterialGraphLike } from './material-graph';
+import { createResourceManager } from '@thirdlight/runtime';
+
 import { createMaterialLibrary, MATERIAL_NO_SHADOW_KEY, type MaterialDefLike } from './material-library';
 
 const tex = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
@@ -381,6 +383,41 @@ describe('material library: graph materials', () => {
     expect((a.material as THREE.Material).type).toBe('MeshStandardMaterial');
     expect(lib.graphProblems('g2')).toEqual([]);
     expect(lib.graphProblems('nope')).toBeNull();
+  });
+
+  it('a compiled graph and the textures it samples go with the last mesh wearing it, and come back with the next', async () => {
+    const resources = createResourceManager();
+    let decodes = 0;
+    const lib = createMaterialLibrary({ resources, loadTexture: async () => (decodes++, new THREE.Texture()) });
+    lib.setMaterials([graphDef('g', TINT, PARAMS)]);
+    const flush = async (): Promise<void> => {
+      for (let i = 0; i < 3; i++) await new Promise((r) => setTimeout(r, 0));
+      resources.settle();
+    };
+    const a = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial());
+    const b = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshStandardMaterial());
+    const undoA = lib.apply(a, { '*': 'g' });
+    const undoB = lib.apply(b, { '*': 'g' });
+    await flush();
+    expect(lib.graphMaterialCount()).toBe(1);
+    expect(resources.observe().resident['texture']?.count).toBe(1);
+    // One of two meshes goes: the compiled graph and its texture stay.
+    undoA();
+    await flush();
+    expect(lib.graphMaterialCount()).toBe(1);
+    expect(resources.observe().resident['texture']?.count).toBe(1);
+    // The last one goes: both are freed.
+    undoB();
+    await flush();
+    expect(lib.graphMaterialCount()).toBe(0);
+    expect(resources.observe().resident).toEqual({});
+    // Worn again: compiled again and its texture decoded again.
+    lib.apply(a, { '*': 'g' });
+    await flush();
+    expect(lib.graphMaterialCount()).toBe(1);
+    expect(resources.observe().resident['texture']?.count).toBe(1);
+    expect(decodes).toBe(2);
+    expect((a.material as THREE.Material & { roughnessNode: unknown }).roughnessNode).toBeDefined();
   });
 
   it('recompiles when a texture arrives, and when the graph changes (not when a node moves)', async () => {

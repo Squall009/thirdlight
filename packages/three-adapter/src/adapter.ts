@@ -1520,8 +1520,10 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       // A player's quality level also applies without a project environment (the low
       // level draws without MSAA), so the environment renderer draws then too.
       if ((opts.environment !== undefined || playerQuality !== null) && environmentRenderer === null) {
-        // The sky, its faces and the grading LUT are held for the environment's life.
-        const envTextures = textureHolds(resources, opts.environment?.loadTexture ?? (async () => null), 'environment');
+        // The sky, its faces and the grading LUT are held for the environment's life. They are the same
+        // decoded textures materials draw with (the environment builds its cube, equirect copy and LUT
+        // from their images and never changes them), so a texture used by both is decoded once.
+        const envTextures = textureHolds(resources, opts.environment?.loadTexture ?? (async () => null));
         environmentRenderer = createEnvironmentRenderer(renderer, scene, { loadTexture: (id) => envTextures.get(id, 'environment') });
         environmentHolds = envTextures;
         environmentRenderer.set(effectiveEnvironment());
