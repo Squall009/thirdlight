@@ -86,7 +86,6 @@ export interface EffectComponent {
 
 /** Engine limits (not tuning values). */
 export const EFFECT_LIMITS = {
-  effects: 128,
   systems: 16,
   parameters: 32,
   /** Data bound of one system's capacity (2^20); executors cap lower (the CPU fallback has its own documented cap). */
@@ -240,10 +239,9 @@ export function validateEffect(value: unknown, path: string, errors: ModelErrorV
   });
 }
 
-/** `content.effects`: at most 128 effects with unique ids. */
+/** `content.effects`: effects with unique ids. */
 export function validateEffects(value: unknown, path: string, errors: ModelErrorV2[], trusted?: ReadonlySet<unknown>): void {
   if (!Array.isArray(value)) return err(errors, 'field_type', path, 'effects is a list', value, 'array of effects');
-  if (value.length > EFFECT_LIMITS.effects) err(errors, 'limits_exceeded', path, `a project has at most ${EFFECT_LIMITS.effects} effects`, value.length);
   const seen = new Set<string>();
   value.forEach((e, i) => {
     if (!trusted?.has(e)) validateEffect(e, `${path}/${i}`, errors);

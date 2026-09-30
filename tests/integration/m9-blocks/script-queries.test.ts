@@ -1,7 +1,7 @@
 /**
  * A script's overlap queries and show/hide, through the
  * real game host and Rapier — `ctx.physics.overlapBox/overlapCircle` find the
- * level's colliders (never the character), share the 32-per-step budget with
+ * level's colliders (never the character), share the per-step budget with
  * rays, and `ctx.game.setVisible` hides an entity until the next run.
  *
  * In both threading modes — in the simulation worker the
@@ -10,6 +10,8 @@
  * worker's script cannot write into the test's variables).
  */
 import { afterEach, describe, expect, it } from 'vitest';
+
+import { PHYSICS_QUERY_LIMIT } from '@thirdlight/runtime';
 
 import { behaviorModule, MODES, startHarness, type Harness } from '../m22-worker/harness';
 
@@ -32,7 +34,7 @@ export default {
     }
     if (ctx.stepIndex === 31) {
       const out = [];
-      for (let i = 0; i < 34; i++) out.push(ctx.physics.overlapBox({ x: 3, y: 0.5 }, { x: 0.2, y: 0.2 }).length);
+      for (let i = 0; i < ${PHYSICS_QUERY_LIMIT + 2}; i++) out.push(ctx.physics.overlapBox({ x: 3, y: 0.5 }, { x: 0.2, y: 0.2 }).length);
       ctx.save.set('budget', out);
     }
   },
@@ -88,8 +90,8 @@ describe.each(MODES)('script queries (real host, Rapier; threading: %s)', (mode)
     expect(seen['wide']).toEqual(['crate-0001', 'crate-0002']);
     expect(seen['circle']).toEqual(['crate-0002']);
     expect(seen['player']).toEqual([]); // the character's capsule is not a level collider
-    // 32 queries per step (rays and overlaps together), then empty.
-    expect(seen['budget']).toEqual([...Array(32).fill(1), 0, 0]);
+    // The step's queries (rays and overlaps together), then empty.
+    expect(seen['budget']).toEqual([...Array(PHYSICS_QUERY_LIMIT).fill(1), 0, 0]);
     expect(rt.hiddenEntities().has('crate-0002')).toBe(true);
     // A new run (the host's replay: the engine restart) shows it again.
     expect(h.host.control('replay').ok).toBe(true);

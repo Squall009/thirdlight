@@ -58,19 +58,7 @@ import { validateCollisionLayers, ID_RE_V2 } from './components';
 import type { AssetRecordV3, ContentCatalogV3 } from './types-v3';
 import { MAX_TAGS, type ContentCatalogV4 } from './types-v3';
 import { REMOVED_IN_PHASE_24 } from './upgrade-v24';
-import {
-  MAX_ASSETS,
-  MAX_AUDIO_ASSETS,
-  MAX_BEHAVIORS,
-  MAX_CONTENT_BYTES,
-  MAX_FONT_ASSETS,
-  MAX_MUSIC_ASSETS,
-  MAX_PREFABS,
-  MAX_PREFAB_BYTES,
-  MAX_SCENES,
-  MAX_TEXTURE_ASSETS,
-  MAX_VERSION_RECORDS,
-} from './content-limits';
+import { MAX_CONTENT_FILE_BYTES, MAX_PREFAB_BYTES } from './content-limits';
 import { canonicalDocBytes, derivedOf, limitsError, sortedRecord } from './content-helpers';
 import { canonicalAssetV3, validateAsset } from './content-assets';
 import { canonicalPrefab, validatePrefabDefinition } from './content-prefabs';
@@ -140,7 +128,7 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
     const scenes = doc['scenes'];
     if (!Array.isArray(scenes)) errors.push(fieldType('/scenes', scenes, 'array of { sceneId, name }'));
     else {
-      if (scenes.length < 1 || scenes.length > MAX_SCENES) errors.push(fieldValue('/scenes', scenes.length, `1-${MAX_SCENES} scenes`, 'a project has 1 to 64 scenes'));
+      if (scenes.length < 1) errors.push(fieldValue('/scenes', scenes.length, 'at least 1 scene', 'a project has at least one scene'));
       const seen = new Set<string>();
       scenes.forEach((entry, i) => {
         const p = `/scenes/${i}`;
@@ -163,7 +151,7 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
     const start = doc['startScenes'];
     if (!Array.isArray(start)) errors.push(fieldType('/startScenes', start, 'array of scene ids'));
     else {
-      if (start.length < 1 || start.length > MAX_SCENES) errors.push(fieldValue('/startScenes', start.length, `1-${MAX_SCENES} scene ids`, 'the game starts with at least one scene'));
+      if (start.length < 1) errors.push(fieldValue('/startScenes', start.length, 'at least 1 scene id', 'the game starts with at least one scene'));
       start.forEach((id, i) => {
         if (typeof id !== 'string') errors.push(fieldType(`/startScenes/${i}`, id, 'string (scene id)'));
         else if (!ID_RE_V2.test(id)) errors.push(fieldValue(`/startScenes/${i}`, id, '1-64 chars, ^[a-z0-9][a-z0-9_-]{0,63}$', 'a scene id uses the id syntax'));
@@ -179,51 +167,20 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
   }
 
   const assets = doc['assets'];
-  let versionRecords = 0;
-  // An asset list the edit left as it is was counted and checked with the block before.
+  // An asset list the edit left as it is was checked with the block before.
   if (assets !== undefined && !same('assets')) {
     if (!Array.isArray(assets)) errors.push(fieldType('/assets', assets, 'array'));
     else {
-      const modelAssets = assets.filter((a) => isPlainObject(a) && a['kind'] !== 'audio' && a['kind'] !== 'texture' && a['kind'] !== 'music' && a['kind'] !== 'font').length;
-      if (modelAssets > MAX_ASSETS) {
-        errors.push(limitsError('/assets', 'assets', modelAssets, MAX_ASSETS, `the catalog may hold at most ${MAX_ASSETS} model assets`));
-      }
-      let audioAssets = 0;
-      let textureAssets = 0;
-      let musicAssets = 0;
-      let fontAssets = 0;
       const seen = new Set<string>();
       const known = trusted('assets');
       for (let i = 0; i < assets.length; i++) {
         const a = assets[i];
-        if (known?.has(a) === true) versionRecords += (a as { versions: unknown[] }).versions.length;
-        else versionRecords += validateAsset(a, `/assets/${i}`, errors, true);
-        if (isPlainObject(a)) {
-          if (a['kind'] === 'audio') audioAssets += 1;
-          if (a['kind'] === 'texture') textureAssets += 1;
-          if (a['kind'] === 'music') musicAssets += 1;
-          if (a['kind'] === 'font') fontAssets += 1;
-          if (typeof a['assetId'] === 'string') {
-            if (seen.has(a['assetId'])) {
-              errors.push(withFound({ code: 'id_duplicate', path: `/assets/${i}/assetId`, message: 'assetId is already used by an earlier record (first occurrence wins)', expected: 'a unique assetId' }, a['assetId']));
-            } else seen.add(a['assetId']);
-          }
+        if (known?.has(a) !== true) validateAsset(a, `/assets/${i}`, errors, true);
+        if (isPlainObject(a) && typeof a['assetId'] === 'string') {
+          if (seen.has(a['assetId'])) {
+            errors.push(withFound({ code: 'id_duplicate', path: `/assets/${i}/assetId`, message: 'assetId is already used by an earlier record (first occurrence wins)', expected: 'a unique assetId' }, a['assetId']));
+          } else seen.add(a['assetId']);
         }
-      }
-      if (musicAssets > MAX_MUSIC_ASSETS) {
-        errors.push(limitsError('/assets', 'assets', musicAssets, MAX_MUSIC_ASSETS, `the catalog may hold at most ${MAX_MUSIC_ASSETS} music asset records`));
-      }
-      if (fontAssets > MAX_FONT_ASSETS) {
-        errors.push(limitsError('/assets', 'font_assets', fontAssets, MAX_FONT_ASSETS, `the catalog may hold at most ${MAX_FONT_ASSETS} font asset records`));
-      }
-      if (textureAssets > MAX_TEXTURE_ASSETS) {
-        errors.push(limitsError('/assets', 'assets', textureAssets, MAX_TEXTURE_ASSETS, `the catalog may hold at most ${MAX_TEXTURE_ASSETS} texture asset records`));
-      }
-      if (audioAssets > MAX_AUDIO_ASSETS) {
-        errors.push(limitsError('/assets', 'audio_assets', audioAssets, MAX_AUDIO_ASSETS, `the catalog may hold at most ${MAX_AUDIO_ASSETS} audio asset records`));
-      }
-      if (versionRecords > MAX_VERSION_RECORDS) {
-        errors.push(limitsError('/assets', 'version_records', versionRecords, MAX_VERSION_RECORDS, `the catalog may hold at most ${MAX_VERSION_RECORDS} version records`));
       }
     }
   }
@@ -232,7 +189,6 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
   if (prefabs !== undefined && !same('prefabs')) {
     if (!Array.isArray(prefabs)) errors.push(fieldType('/prefabs', prefabs, 'array'));
     else {
-      if (prefabs.length > MAX_PREFABS) errors.push(limitsError('/prefabs', 'prefabs', prefabs.length, MAX_PREFABS, `the catalog may hold at most ${MAX_PREFABS} prefab definitions`));
       const seen = new Set<string>();
       const known = trusted('prefabs');
       for (let i = 0; i < prefabs.length; i++) {
@@ -254,7 +210,6 @@ function validateContentV3Value(doc: Record<string, unknown>, version: 3 | 4 = 3
   if (behaviors !== undefined && !same('behaviors', 'graphs')) {
     if (!Array.isArray(behaviors)) errors.push(fieldType('/behaviors', behaviors, 'array'));
     else {
-      if (behaviors.length > MAX_BEHAVIORS) errors.push(limitsError('/behaviors', 'behaviors', behaviors.length, MAX_BEHAVIORS, `the catalog may hold at most ${MAX_BEHAVIORS} behavior records`));
       const seen = new Set<string>();
       const known = trusted('behaviors', 'graphs');
       for (let i = 0; i < behaviors.length; i++) {
@@ -453,33 +408,48 @@ export function isNormalizedContent(c: unknown): boolean {
 /** The lists whose records are each a project resource (a file of its own), capped one by one. */
 const RESOURCE_LISTS = ['assets', 'prefabs', 'behaviors', 'materials', 'animators', 'graphs', 'effects', 'scriptLibraries', 'uiDocuments', 'uiThemes', 'dialogues', 'timelines'] as const;
 
+/** The environment's presets: a list inside `environment`, each preset its own file too. */
+function envPresetsOf(c: Record<string, unknown> | undefined): unknown {
+  const env = c?.['environment'];
+  return isPlainObject(env) ? env['presets'] : undefined;
+}
+
 /**
- * The byte cap applies to each resource record and to the rest of the block
- * (the project-wide settings), not to the sum: the records are stored one
- * file each. A record the previous block held unchanged was measured then.
+ * The content file byte cap applies to each file the block is stored as:
+ * each resource record (the environment's presets included) and the rest of
+ * the block (the project-wide settings in `content.json`), never to the sum.
+ * A record the previous block held unchanged was measured then.
  */
 function contentBytesOver(c: Record<string, unknown>, prev: Record<string, unknown> | undefined): ModelErrorV2 | null {
   const rest: Record<string, unknown> = {};
   let restSame = prev !== undefined;
   for (const [key, value] of Object.entries(c)) {
     if ((RESOURCE_LISTS as readonly string[]).includes(key)) continue;
+    if (key === 'environment' && isPlainObject(value) && value['presets'] !== undefined) {
+      const { presets: _presets, ...envRest } = value;
+      rest[key] = envRest;
+      const before = prev?.['environment'];
+      if (!isPlainObject(before) || Object.keys(envRest).some((k) => before[k] !== envRest[k]) || Object.keys(before).some((k) => k !== 'presets' && !(k in envRest))) restSame = false;
+      continue;
+    }
     rest[key] = value;
     if (prev === undefined || prev[key] !== value) restSame = false;
   }
   if (prev !== undefined) for (const key of Object.keys(prev)) if (!(RESOURCE_LISTS as readonly string[]).includes(key) && !(key in c)) restSame = false;
   if (!restSame) {
     const bytes = canonicalDocBytes(rest);
-    if (bytes > MAX_CONTENT_BYTES) return limitsError('/content', 'content_bytes', bytes, MAX_CONTENT_BYTES, 'canonical content block (the project-wide settings) exceeds the byte cap');
+    if (bytes > MAX_CONTENT_FILE_BYTES) return limitsError('/content', 'content_bytes', bytes, MAX_CONTENT_FILE_BYTES, 'the project-wide settings (content.json) exceed the content file byte cap');
   }
-  for (const key of RESOURCE_LISTS) {
-    const list = c[key];
+  const lists: [string, unknown, unknown][] = RESOURCE_LISTS.map((key) => [`/${key}`, c[key], prev?.[key]]);
+  lists.push(['/environment/presets', envPresetsOf(c), envPresetsOf(prev)]);
+  for (const [path, list, before] of lists) {
     if (!Array.isArray(list)) continue;
-    if (prev !== undefined && prev[key] === list) continue;
-    const known = prev !== undefined ? recordsOf(prev[key]) : undefined;
+    if (prev !== undefined && before === list) continue;
+    const known = prev !== undefined ? recordsOf(before) : undefined;
     for (let i = 0; i < list.length; i++) {
       if (known?.has(list[i]) === true) continue;
       const bytes = canonicalDocBytes(list[i]);
-      if (bytes > MAX_CONTENT_BYTES) return limitsError(`/${key}/${i}`, 'content_bytes', bytes, MAX_CONTENT_BYTES, `canonical ${key} record exceeds the byte cap`);
+      if (bytes > MAX_CONTENT_FILE_BYTES) return limitsError(`${path}/${i}`, 'content_bytes', bytes, MAX_CONTENT_FILE_BYTES, `canonical ${path.slice(1)} record (one file) exceeds the content file byte cap`);
     }
   }
   return null;

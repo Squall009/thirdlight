@@ -24,8 +24,19 @@ export const RUNTIME_CONTENT_TYPE = 'thirdlight-runtime-content' as const;
 /** The manifest shape version. */
 export const RUNTIME_CONTENT_MANIFEST_VERSION = 1 as const;
 
-/** The manifest document cap. */
-export const RUNTIME_CONTENT_MANIFEST_MAX_BYTES = 262_144;
+/**
+ * The most bytes one content file of a Play build or an export may hold; the
+ * play content store takes it as its single-artifact cap.
+ */
+export const MANIFEST_CONTENT_FILE_MAX_BYTES = 33_554_432;
+
+/**
+ * The manifest document cap: the manifest is one file like the content files
+ * it lists, so it has their per-file cap. Asset rows, rigs and prefabs are
+ * still inline and grow with the game; a fixed cap below a file's would bound
+ * how many assets a game ships.
+ */
+export const RUNTIME_CONTENT_MANIFEST_MAX_BYTES = MANIFEST_CONTENT_FILE_MAX_BYTES;
 
 /** The exact canonical option-set record. */
 export const BUILD_OPTIONS_RECORD = Object.freeze({

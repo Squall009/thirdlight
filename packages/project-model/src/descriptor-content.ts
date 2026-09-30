@@ -7,10 +7,10 @@ import { EVENT_CUE_BUSES, EVENT_CUE_LIMITS, EVENT_CUE_SOURCES } from './event-cu
 import { SHELL_LIMITS } from './shell';
 import { SAVE_LIMITS, SAVE_SECTIONS } from './save-schema';
 import { MAX_ANIMATOR_MORPHS } from './animator';
-import { ANIMATOR_CONDITION_OPS, ANIMATOR_PARAMETER_TYPES, MAX_ANIMATOR_CONDITIONS, MAX_ANIMATOR_EVENTS, MAX_ANIMATOR_LAYERS, MAX_ANIMATOR_PARAMETERS, MAX_ANIMATOR_STATES, MAX_ANIMATOR_TRANSITIONS, MAX_ANIMATORS, MAX_BLEND_CHILDREN, MAX_LAYER_MASK } from './animator';
+import { ANIMATOR_CONDITION_OPS, ANIMATOR_PARAMETER_TYPES, MAX_ANIMATOR_CONDITIONS, MAX_ANIMATOR_EVENTS, MAX_ANIMATOR_LAYERS, MAX_ANIMATOR_PARAMETERS, MAX_ANIMATOR_STATES, MAX_ANIMATOR_TRANSITIONS, MAX_BLEND_CHILDREN, MAX_LAYER_MASK } from './animator';
 import { MAX_TRANSITION_FADE } from './blocks';
 import { MAX_COLLISION_LAYERS } from './components';
-import { ASSET_LABEL_MAX_LENGTH, M2_SETTINGS_KEYS, MAX_BEHAVIORS, MAX_ENUM_VALUES, MAX_PREFAB_ENTITIES, MAX_PREFABS, MAX_PROPERTIES, MAX_SCENES, PREFAB_V4_COMPONENTS } from './content';
+import { ASSET_LABEL_MAX_LENGTH, M2_SETTINGS_KEYS, MAX_ENUM_VALUES, MAX_PREFAB_ENTITIES, MAX_PROPERTIES, PREFAB_V4_COMPONENTS } from './content';
 import {
   CURSOR_MODES,
   DEFAULT_INPUT,
@@ -24,14 +24,13 @@ import {
   POINTER_AXES,
   POINTER_BUTTONS,
 } from './input';
-import { MAX_GRAPH_DOCUMENTS } from './graph';
 import { EFFECT_DEFAULTS, EFFECT_LIMITS, EFFECT_PARAMETER_TYPES } from './effects';
 import { UI_LIMITS } from './ui-documents';
 import { DIALOGUE_LIMITS } from './dialogue';
 import { TIMELINE_LIMITS } from './timelines';
 import { SCRIPT_LIBRARY_LIMITS } from './script-libraries';
 import { BLOCK_LIMITS } from './block-layers';
-import { DEFAULT_WIND, MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS, MAX_MATERIAL_PARAMETERS, MAX_MATERIAL_SLOTS, MAX_MATERIALS, type MaterialParamType } from './materials';
+import { DEFAULT_WIND, MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS, MAX_MATERIAL_PARAMETERS, MAX_MATERIAL_SLOTS, type MaterialParamType } from './materials';
 import { MATERIAL_DATA_MAX, MATERIAL_PARAMETER_TYPES } from './material-graph-kinds';
 import { MODE_LIMITS } from './modes';
 import { MAX_TAGS } from './types-v3';
@@ -391,19 +390,19 @@ const SETTINGS: FieldDescriptor = obj('settings', 'Gameplay settings', 'The play
 export const CONTENT: readonly ContentBlockDescriptor[] = [
   { key: 'environment', label: 'Environment', tooltip: 'Sky, fog, post-processing, wind and quality.', required: false, value: ENVIRONMENT, ops: ['setEnvironment'] },
   { key: 'input', label: 'Input', tooltip: 'Actions and their bindings.', required: false, value: INPUT, ops: ['setInput'] },
-  { key: 'materials', label: 'Materials', tooltip: 'Project materials.', required: false, value: list('materials', 'Materials', `Up to ${MAX_MATERIALS} materials.`, MATERIAL_ITEM, { maxItems: MAX_MATERIALS, default: [] }), ops: ['setMaterial', 'deleteMaterial'] },
-  { key: 'animators', label: 'Animator controllers', tooltip: 'State machines for model animation.', required: false, value: list('animators', 'Animator controllers', `Up to ${MAX_ANIMATORS} controllers.`, ANIMATOR_ITEM, { maxItems: MAX_ANIMATORS, default: [] }), ops: ['setAnimator', 'deleteAnimator'] },
+  { key: 'materials', label: 'Materials', tooltip: 'Project materials.', required: false, value: list('materials', 'Materials', 'The project\'s materials (each its own file).', MATERIAL_ITEM, { default: [] }), ops: ['setMaterial', 'deleteMaterial'] },
+  { key: 'animators', label: 'Animator controllers', tooltip: 'State machines for model animation.', required: false, value: list('animators', 'Animator controllers', 'The project\'s controllers (each its own file).', ANIMATOR_ITEM, { default: [] }), ops: ['setAnimator', 'deleteAnimator'] },
   // Visual effects; each system's graph is edited in the Effect tab (graphEdit ops).
-  { key: 'effects', label: 'Effects', tooltip: 'Visual effects: particle systems authored as node graphs.', required: false, value: list('effects', 'Effects', `Up to ${EFFECT_LIMITS.effects} effects.`, EFFECT_ITEM, { maxItems: EFFECT_LIMITS.effects, default: [] }), ops: ['setEffect', 'deleteEffect', 'renameEffect', 'graphEdit'] },
+  { key: 'effects', label: 'Effects', tooltip: 'Visual effects: particle systems authored as node graphs.', required: false, value: list('effects', 'Effects', 'The project\'s effects (each its own file).', EFFECT_ITEM, { default: [] }), ops: ['setEffect', 'deleteEffect', 'renameEffect', 'graphEdit'] },
   // Shared script libraries; their files are edited in the script editor (Library tab).
-  { key: 'scriptLibraries', label: 'Script libraries', tooltip: 'Shared TypeScript and JSON modules every script can import as @lib/<id>.', required: false, value: list('scriptLibraries', 'Script libraries', `Up to ${SCRIPT_LIBRARY_LIMITS.libraries} libraries.`, json('*', 'Library', 'A script library: { libraryId, name, files: [{ path, text }] }.', { readOnly: true }), { maxItems: SCRIPT_LIBRARY_LIMITS.libraries, default: [] }), ops: ['setScriptLibrary', 'deleteScriptLibrary'] },
+  { key: 'scriptLibraries', label: 'Script libraries', tooltip: 'Shared TypeScript and JSON modules every script can import as @lib/<id>.', required: false, value: list('scriptLibraries', 'Script libraries', 'The project\'s libraries (each its own file).', json('*', 'Library', 'A script library: { libraryId, name, files: [{ path, text }] }.', { readOnly: true }), { default: [] }), ops: ['setScriptLibrary', 'deleteScriptLibrary'] },
   // Block types, the cell metadata schema and stamps for block layers.
   {
     key: 'blockTypes',
     label: 'Block types',
     tooltip: 'The blocks block layers are built from: their looks, collision shape, footprint, rotations and default cell metadata.',
     required: false,
-    value: list('blockTypes', 'Block types', `Up to ${BLOCK_LIMITS.blockTypes} block types.`, obj('*', 'Block type', 'One block.', [
+    value: list('blockTypes', 'Block types', 'The project\'s block types.', obj('*', 'Block type', 'One block.', [
       str('blockId', 'Id', 'The stable block id cells name.', { ...ID, required: true }),
       str('name', 'Name', 'Shown in the block palette.', { ...NAME, required: true }),
       json('variants', 'Looks', `1–${BLOCK_LIMITS.variants} weighted looks: {model: {assetId, piece?}} | {prefab} | {color: "#rrggbb"}, each with an optional weight (a cell without a variant picks one by weight, stably by position).`, { required: true }),
@@ -415,7 +414,7 @@ export const CONTENT: readonly ContentBlockDescriptor[] = [
       json('metadata', 'Default metadata', 'Cell metadata every cell of this block starts with (field key → value).'),
       // A picker per slot (as a model asset's default materials); "*" also maps a stand-in's one material.
       map('materials', 'Materials', 'Material slot → project material: a model look\'s source material name, or "*" for every slot (a coloured stand-in has one: "*" gives it a material, e.g. a painted terrain material).', 'Slot', ref('*', 'Material', 'A project material.', 'material'), { keyFormat: 'materialSlot', minEntries: 1, maxEntries: 32 }),
-    ]), { maxItems: BLOCK_LIMITS.blockTypes, default: [] }),
+    ]), { default: [] }),
     ops: ['setBlockType', 'deleteBlockType'],
   },
   {
@@ -440,17 +439,17 @@ export const CONTENT: readonly ContentBlockDescriptor[] = [
     label: 'Block stamps',
     tooltip: 'Saved patterns of cells (a cottage footprint, a bridge span) placed on block layers.',
     required: false,
-    value: list('blockStamps', 'Block stamps', `Up to ${BLOCK_LIMITS.stamps} stamps.`, obj('*', 'Stamp', 'A saved pattern.', [
+    value: list('blockStamps', 'Block stamps', 'The project\'s stamps.', obj('*', 'Stamp', 'A saved pattern.', [
       str('stampId', 'Id', 'The stable stamp id.', { ...ID, required: true }),
       str('name', 'Name', 'Shown in the stamp list.', { ...NAME, required: true }),
       vec3('size', 'Size', 'The pattern\'s extent in cells.', { required: true, min: 1, max: BLOCK_LIMITS.stampSize, step: 1, labels: ['x', 'y', 'z'] }),
       json('palette', 'Palette', 'The cell values the runs name.', { required: true, readOnly: true }),
       json('columns', 'Cells', `Run-length columns [x, z, y, n, p, …] (at most ${BLOCK_LIMITS.stampCells} cells).`, { required: true, readOnly: true }),
-    ]), { maxItems: BLOCK_LIMITS.stamps, default: [] }),
+    ]), { default: [] }),
     ops: ['setBlockStamp', 'deleteBlockStamp'],
   },
   // Project UI documents and themes (JSON widget trees, also edited in the visual UI editor).
-  { key: 'uiDocuments', label: 'UI documents', tooltip: 'HUDs, menus and screens drawn by the game over the view (widget trees bound to script values).', required: false, value: list('uiDocuments', 'UI documents', `Up to ${UI_LIMITS.documents} documents.`, json('*', 'Document', 'A UI document: { uiDocumentId, name, root, styles?, tweens?, … }.', { readOnly: true }), { maxItems: UI_LIMITS.documents, default: [] }), ops: ['setUiDocument', 'deleteUiDocument'] },
+  { key: 'uiDocuments', label: 'UI documents', tooltip: 'HUDs, menus and screens drawn by the game over the view (widget trees bound to script values).', required: false, value: list('uiDocuments', 'UI documents', 'The project\'s documents (each its own file).', json('*', 'Document', 'A UI document: { uiDocumentId, name, root, styles?, tweens?, … }.', { readOnly: true }), { default: [] }), ops: ['setUiDocument', 'deleteUiDocument'] },
   // Game modes (the first is the start mode) and the behavior groups modes tick.
   { key: 'modes', label: 'Game modes', tooltip: 'Named states of the running game: the input maps, camera, UI documents and ticking behavior groups of each, switched in one transition without a scene load (explore and tactical, on foot and driving, build and play…). The first mode is the one a run starts in.', required: false, value: list('modes', 'Game modes', `Up to ${MODE_LIMITS.modes} modes; the first is the start mode.`, MODE_ITEM, { maxItems: MODE_LIMITS.modes, default: [] }), ops: ['setModes'] },
   { key: 'behaviorGroups', label: 'Behavior groups', tooltip: 'Names an object\'s behavior can belong to (its Behavior group component); a game mode lists the groups that tick while it is active.', required: false, value: list('behaviorGroups', 'Behavior groups', `Up to ${MODE_LIMITS.behaviorGroups} names.`, str('*', 'Group', 'A letter or _, then letters, digits or _.', { format: 'identifier', minLength: 1, maxLength: 32 }), { maxItems: MODE_LIMITS.behaviorGroups, unique: true, default: [] }), ops: ['setBehaviorGroups'] },
@@ -470,13 +469,13 @@ export const CONTENT: readonly ContentBlockDescriptor[] = [
         ref('load', 'Load', 'Load slots (project saves).', 'uiDocument'),
       ]),
       list('hud', 'HUD', `UI documents shown while the game plays (hidden behind the menus); bind to $flow.counters, $flow.health, $flow.prompts or script values. Up to ${SHELL_LIMITS.hud}.`, ref('*', 'Document', 'A UI document.', 'uiDocument'), { maxItems: SHELL_LIMITS.hud, unique: true }),
-      list('scenes', 'Scene list', `The game's scenes in order: New game begins a fresh run at the first, Next scene moves on to the next (up to ${SHELL_LIMITS.scenes}).`, obj('*', 'Listed scene', 'A scene and where the character starts in it.', [
+      list('scenes', 'Scene list', `The game's scenes in order: New game begins a fresh run at the first, Next scene moves on to the next.`, obj('*', 'Listed scene', 'A scene and where the character starts in it.', [
         scene('scene', 'Scene', 'A scene of the project.', { required: true }),
         entity('spawn', 'Spawn', 'The player spawn the character starts at (in that scene; absent: it stays where it is).', { component: 'playerSpawn', anyScene: true }),
         // The fade of a move to this scene.
         num('fade', 'Fade', 'Seconds the view fades out before a move to this scene and back in after it (absent or 0: no fade; the previous scene stays in view until this one is drawn).', { min: 0, max: MAX_TRANSITION_FADE, step: 0.05 }),
         color('fadeColor', 'Fade colour', 'The colour the view fades to (absent: black).'),
-      ]), { maxItems: SHELL_LIMITS.scenes }),
+      ])),
       bool('pause', 'Pause allowed', 'The pause input opens the pause screen.', { default: true }),
       bool('status', 'Status line', 'A small debug line: the shell screen, the listed scene and the input prompts.', { default: false }),
     ]),
@@ -488,25 +487,25 @@ export const CONTENT: readonly ContentBlockDescriptor[] = [
     label: 'Event sounds',
     tooltip: 'Sounds the game plays when a signal is sent or an event happens (a trigger entered, something collected, damaged, touched…), by name.',
     required: false,
-    value: list('eventCues', 'Event sounds', `Up to ${EVENT_CUE_LIMITS.cues} rows.`, obj('*', 'Event sound', 'One sound for one signal or event.', [
+    value: list('eventCues', 'Event sounds', 'One row per signal or event that plays a sound.', obj('*', 'Event sound', 'One sound for one signal or event.', [
       enm('on', 'On', 'A signal (by its name) or an event scripts see in ctx.events (by its type: enter, exit, collected, damaged, died, contact…, or an animator clip event\'s name).', EVENT_CUE_SOURCES, { required: true, default: 'signal', labels: { signal: 'Signal', event: 'Event' } }),
       str('name', 'Name', 'The signal\'s name, or the event\'s type or name.', { required: true, minLength: 1, maxLength: EVENT_CUE_LIMITS.name, default: 'trigger' }),
       entity('entity', 'Object', 'Only this object\'s events (absent: any object\'s).', { when: when('on', 'event'), anyScene: true }),
       asset('assetId', 'Sound', 'The audio asset played.', ['audio'], { required: true }),
       num('volume', 'Volume', 'How loud (0–1).', { min: 0, max: 1, step: 0.05, default: 1 }),
       enm('bus', 'Bus', 'The mixer bus it plays on.', EVENT_CUE_BUSES, { default: 'sfx' }),
-    ]), { maxItems: EVENT_CUE_LIMITS.cues, default: [] }),
+    ]), { default: [] }),
     ops: ['setEventCues'],
   },
-  { key: 'uiThemes', label: 'UI themes', tooltip: 'Named styles and icons UI documents share.', required: false, value: list('uiThemes', 'UI themes', `Up to ${UI_LIMITS.themes} themes.`, json('*', 'Theme', 'A UI theme: { uiThemeId, name, styles, icons? }.', { readOnly: true }), { maxItems: UI_LIMITS.themes, default: [] }), ops: ['setUiTheme', 'deleteUiTheme'] },
+  { key: 'uiThemes', label: 'UI themes', tooltip: 'Named styles and icons UI documents share.', required: false, value: list('uiThemes', 'UI themes', 'The project\'s themes (each its own file).', json('*', 'Theme', 'A UI theme: { uiThemeId, name, styles, icons? }.', { readOnly: true }), { default: [] }), ops: ['setUiTheme', 'deleteUiTheme'] },
   // Dialogue — conversations (dialogue graphs, edited in the Dialogue tab with graphEdit), the speaker registry, the settings.
-  { key: 'dialogues', label: 'Dialogues', tooltip: 'Conversations: node graphs of lines (speaker, expression, text, voice clip), choices, conditions and effects, signals and jumps.', required: false, value: list('dialogues', 'Dialogues', `Up to ${DIALOGUE_LIMITS.dialogues} conversations.`, json('*', 'Dialogue', 'A conversation: { dialogueId, name, graph } (graph kind dialogue).', { readOnly: true }), { maxItems: DIALOGUE_LIMITS.dialogues, default: [] }), ops: ['setDialogue', 'deleteDialogue', 'graphEdit'] },
-  { key: 'speakers', label: 'Speakers', tooltip: 'Who speaks in conversations: name, name-plate colour, portraits per expression, voice profile, text blip.', required: false, value: list('speakers', 'Speakers', `Up to ${DIALOGUE_LIMITS.speakers} speakers.`, json('*', 'Speaker', 'A speaker: { speakerId, name, color?, portraits? {expression: texture}, defaultExpression?, voiceProfile?, blip?, blipEvery?, blipVolume? }.', { readOnly: true }), { maxItems: DIALOGUE_LIMITS.speakers, default: [] }), ops: ['setSpeaker', 'deleteSpeaker'] },
+  { key: 'dialogues', label: 'Dialogues', tooltip: 'Conversations: node graphs of lines (speaker, expression, text, voice clip), choices, conditions and effects, signals and jumps.', required: false, value: list('dialogues', 'Dialogues', 'The project\'s conversations (each its own file).', json('*', 'Dialogue', 'A conversation: { dialogueId, name, graph } (graph kind dialogue).', { readOnly: true }), { default: [] }), ops: ['setDialogue', 'deleteDialogue', 'graphEdit'] },
+  { key: 'speakers', label: 'Speakers', tooltip: 'Who speaks in conversations: name, name-plate colour, portraits per expression, voice profile, text blip.', required: false, value: list('speakers', 'Speakers', 'The project\'s speakers.', json('*', 'Speaker', 'A speaker: { speakerId, name, color?, portraits? {expression: texture}, defaultExpression?, voiceProfile?, blip?, blipEvery?, blipVolume? }.', { readOnly: true }), { default: [] }), ops: ['setSpeaker', 'deleteSpeaker'] },
   { key: 'dialogueSettings', label: 'Dialogue settings', tooltip: 'Text speed, auto-advance and its delay, the music/SFX duck under a voice, the backlog length, the dialogue UI document and theme.', required: false, value: json('dialogueSettings', 'Dialogue settings', '{ textSpeed? (chars/s, 0 instant), autoAdvance?, autoDelay? (s), duck? (0–1), backlog? (1–100), document? (uiDocumentId), theme? (uiThemeId) }.', { readOnly: true }), ops: ['setDialogueSettings'] },
   // Timelines (tracks of keys on a time ruler; edited in the Timeline tab).
-  { key: 'timelines', label: 'Timelines', tooltip: 'Sequences of camera cuts, moves, animation, sound, dialogue, effects, signals and fades on a time ruler, played by scripts or signals.', required: false, value: list('timelines', 'Timelines', `Up to ${TIMELINE_LIMITS.timelines} timelines.`, json('*', 'Timeline', 'A timeline: { timelineId, name, duration, slots?, markers?, tracks, … }.', { readOnly: true }), { maxItems: TIMELINE_LIMITS.timelines, default: [] }), ops: ['setTimeline', 'deleteTimeline'] },
+  { key: 'timelines', label: 'Timelines', tooltip: 'Sequences of camera cuts, moves, animation, sound, dialogue, effects, signals and fades on a time ruler, played by scripts or signals.', required: false, value: list('timelines', 'Timelines', 'The project\'s timelines (each its own file).', json('*', 'Timeline', 'A timeline: { timelineId, name, duration, slots?, markers?, tracks, … }.', { readOnly: true }), { default: [] }), ops: ['setTimeline', 'deleteTimeline'] },
   // Standalone node graphs; their body is edited in the graph editor (graphEdit ops).
-  { key: 'graphs', label: 'Graphs', tooltip: 'Standalone node graphs, edited in the graph editor.', required: false, value: list('graphs', 'Graphs', `Up to ${MAX_GRAPH_DOCUMENTS} graphs.`, json('*', 'Graph', 'A graph document: { graphId, kind, name, graph }.', { readOnly: true }), { maxItems: MAX_GRAPH_DOCUMENTS, default: [] }), ops: ['setGraph', 'deleteGraph', 'graphEdit'] },
+  { key: 'graphs', label: 'Graphs', tooltip: 'Standalone node graphs, edited in the graph editor.', required: false, value: list('graphs', 'Graphs', 'The project\'s graphs (each its own file).', json('*', 'Graph', 'A graph document: { graphId, kind, name, graph }.', { readOnly: true }), { default: [] }), ops: ['setGraph', 'deleteGraph', 'graphEdit'] },
   { key: 'tags', label: 'Tags', tooltip: 'Named tag bits objects carry.', required: false, value: list('tags', 'Tags', `Up to ${MAX_TAGS} tags.`, obj('*', 'Tag', 'A named bit.', [int('bit', 'Bit', 'The bit (0–31).', { required: true, min: 0, max: 31 }), str('name', 'Name', 'A letter, then letters, digits, _ or - (unique ignoring case).', { required: true, format: 'identifier', minLength: 1, maxLength: 32 })]), { maxItems: MAX_TAGS, default: [] }), ops: ['setTags'] },
   // Named collision layers (3D physics); "default" is implicit.
   { key: 'collisionLayers', label: 'Collision layers', tooltip: 'Named collision layers colliders are in and script queries filter by (3D; "default" is implicit).', required: false, value: list('collisionLayers', 'Collision layers', `Up to ${MAX_COLLISION_LAYERS} names ("default" is implicit).`, str('*', 'Layer', 'A letter or _, then letters, digits or _.', { format: 'identifier', minLength: 1, maxLength: 32 }), { maxItems: MAX_COLLISION_LAYERS, unique: true, default: [] }), ops: ['setCollisionLayers'] },
@@ -535,8 +534,8 @@ export const CONTENT: readonly ContentBlockDescriptor[] = [
     ops: ['setSaveSchema'],
   },
   { key: 'settings', label: 'Gameplay settings', tooltip: 'Gravity, run speed, jump, slopes, and the engine settings (step rate, sound voices, music fade, animation blend).', required: true, value: SETTINGS, ops: ['setSettings'] },
-  { key: 'scenes', label: 'Scenes', tooltip: 'The project\'s scenes.', required: true, value: list('scenes', 'Scenes', `1–${MAX_SCENES} scenes.`, obj('*', 'Scene', 'A scene file.', [str('sceneId', 'Id', 'The stable scene id.', { ...ID, required: true, readOnly: true }), str('name', 'Name', 'Shown in the scene list.', { ...NAME, required: true })]), { required: true, minItems: 1, maxItems: MAX_SCENES }), ops: ['createScene', 'renameScene', 'deleteScene'] },
-  { key: 'startScenes', label: 'Start scenes', tooltip: 'The scenes loaded when the game starts (without a flow).', required: true, value: list('startScenes', 'Start scenes', `1–${MAX_SCENES} scenes.`, scene('*', 'Scene', 'A start scene.'), { required: true, minItems: 1, maxItems: MAX_SCENES, unique: true }), ops: ['setStartScenes'] },
+  { key: 'scenes', label: 'Scenes', tooltip: 'The project\'s scenes.', required: true, value: list('scenes', 'Scenes', 'At least one scene.', obj('*', 'Scene', 'A scene file.', [str('sceneId', 'Id', 'The stable scene id.', { ...ID, required: true, readOnly: true }), str('name', 'Name', 'Shown in the scene list.', { ...NAME, required: true })]), { required: true, minItems: 1 }), ops: ['createScene', 'renameScene', 'deleteScene'] },
+  { key: 'startScenes', label: 'Start scenes', tooltip: 'The scenes loaded when the game starts (without a flow).', required: true, value: list('startScenes', 'Start scenes', 'At least one scene.', scene('*', 'Scene', 'A start scene.'), { required: true, minItems: 1, unique: true }), ops: ['setStartScenes'] },
   {
     key: 'assets',
     label: 'Assets',
@@ -560,7 +559,7 @@ export const CONTENT: readonly ContentBlockDescriptor[] = [
     label: 'Prefabs',
     tooltip: 'Captured object groups placed as independent copies.',
     required: true,
-    value: list('prefabs', 'Prefabs', `Up to ${MAX_PREFABS} definitions.`, obj('*', 'Prefab', 'A captured definition (immutable).', [
+    value: list('prefabs', 'Prefabs', 'The project\'s prefabs (each its own file).', obj('*', 'Prefab', 'A captured definition (immutable).', [
       str('prefabId', 'Id', 'The stable prefab id.', { ...ID, required: true, readOnly: true }),
       str('displayName', 'Name', 'Shown in the prefab list.', { ...NAME, required: true, readOnly: true }),
       int('createdRevision', 'Created at', 'The project revision it was captured at.', { required: true, min: 0, readOnly: true }),
@@ -572,7 +571,7 @@ export const CONTENT: readonly ContentBlockDescriptor[] = [
         str('parentLocalId', 'Parent', 'The parent inside the prefab (none: a root).', { ...ID, nullable: true, readOnly: true }),
         { type: 'components', key: 'components', label: 'Components', tooltip: 'The prefab component vocabulary.', required: true, readOnly: true, allowed: ['transform', 'model', 'box', 'behavior', ...PREFAB_V4_COMPONENTS] },
       ]), { required: true, minItems: 1, maxItems: MAX_PREFAB_ENTITIES, readOnly: true }),
-    ]), { required: true, maxItems: MAX_PREFABS }),
+    ]), { required: true }),
     ops: ['createPrefab', 'instantiatePrefab', 'deletePrefab'],
   },
   {
@@ -580,13 +579,13 @@ export const CONTENT: readonly ContentBlockDescriptor[] = [
     label: 'Behaviors',
     tooltip: 'Published scripts and their declared properties.',
     required: true,
-    value: list('behaviors', 'Behaviors', `Up to ${MAX_BEHAVIORS} behaviors.`, obj('*', 'Behavior', 'A published script.', [
+    value: list('behaviors', 'Behaviors', 'The project\'s scripts (each its own file).', obj('*', 'Behavior', 'A published script.', [
       str('behaviorId', 'Id', 'The stable behavior id.', { ...ID, required: true, readOnly: true }),
       str('displayName', 'Name', 'Shown in pickers.', { ...NAME, required: true }),
       obj('declaration', 'Declaration', 'The properties objects set.', [list('properties', 'Properties', `1–${MAX_PROPERTIES} declared properties.`, DECLARED_PROPERTY, { required: true, minItems: 1, maxItems: MAX_PROPERTIES })], { required: true }),
       json('source', 'Source', 'The compiled source record (written by the behavior build; none: declaration only).', { required: true, nullable: true, readOnly: true }),
       int('publishedRevision', 'Published at', 'The project revision it was published at.', { required: true, min: 0, readOnly: true }),
-    ]), { required: true, maxItems: MAX_BEHAVIORS }),
+    ]), { required: true }),
     ops: ['publishBehavior'],
   },
   { key: 'behaviorTrust', label: 'Script trust', tooltip: 'Which script sources the owner acknowledged.', required: true, value: obj('behaviorTrust', 'Script trust', 'Acknowledged sources.', [list('entries', 'Entries', 'Acknowledged source digests.', json('*', 'Entry', 'A source digest and the revision it was acknowledged at.', { readOnly: true }), { required: true, readOnly: true })], { required: true, readOnly: true }), ops: ['acknowledgeBehaviorTrust'] },

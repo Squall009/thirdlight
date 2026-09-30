@@ -57,9 +57,7 @@ import {
   colliderCore,
   validateColliderLayers,
   ID_RE_V2,
-  MAX_COLLIDERS,
   MAX_ENTITIES_V2,
-  MAX_POLYGON_VERTICES_TOTAL,
   COLLIDER_3D_LIMITS,
   validateBehaviorComponent,
   validateBoxV2,
@@ -118,7 +116,7 @@ export const SURFACE_DEFAULTS = Object.freeze({
 const KNOWN_SCENE_FIELDS = new Set(['schemaVersion', 'sceneId', 'revision', 'entities']);
 // `blocks` — the scene's block-layer cells and regions (absent = none).
 const KNOWN_SCENE_FIELDS_V4 = new Set(['schemaVersion', 'sceneId', 'revision', 'entities', 'blocks']);
-/** The v4 per-scene entity cap (instance sets hold dense detail). */
+/** The v4 per-scene entity cap: a scene is one load unit (a big world is several scenes loaded together; instance sets hold dense detail). */
 export const MAX_ENTITIES_V4 = 16_384;
 /** The boolean flags an entity may carry (only a non-default value is stored). */
 export const ENTITY_FLAGS = ['active', 'visible', 'locked', 'static'] as const;
@@ -162,7 +160,7 @@ const KNOWN_LIGHT_FIELDS_V4 = new Set(['type', 'color', 'intensity', 'direction'
 const COOKIE_ID_RE = ID_RE;
 /** point/spot intensity is in candela (three's physical units). */
 export const MAX_LOCAL_INTENSITY = 1000;
-/** Most point + spot lights per scene, and hemisphere lights per scene. */
+/** Most point + spot lights per scene, and hemisphere lights per scene (forward-lighting cost per drawn light; scalable lighting replaces it). */
 export const MAX_LOCAL_LIGHTS = 16;
 export const MAX_HEMISPHERE_LIGHTS = 1;
 const KNOWN_SURFACE_FIELDS = new Set(['color', 'roughness', 'metalness', 'emissive', 'emissiveIntensity']);
@@ -531,8 +529,6 @@ interface EntityV3Counts {
   fogVolumes: number;
   cameras: number;
   controllers: number;
-  colliders: number;
-  polygonVertices: number;
   /** Convex-hull points and mesh vertices (3D colliders). */
   points3d: number;
 }
@@ -546,8 +542,6 @@ const EMPTY_COUNTS: EntityV3Counts = {
   fogVolumes: 0,
   cameras: 0,
   controllers: 0,
-  colliders: 0,
-  polygonVertices: 0,
   points3d: 0,
 };
 
@@ -880,13 +874,9 @@ function validateEntityComponentsV3(
     validatePhysicsTransform(comps, parentId, ePath, comps['controller'] !== undefined, errors, version !== 4);
   }
 
-  let polygonVertices = 0;
   let points3d = 0;
   if (comps['collider'] !== undefined) {
     const shape = isPlainObject(comps['collider']) ? comps['collider']['shape'] : undefined;
-    if (isPlainObject(shape) && shape['type'] === 'polygon' && Array.isArray(shape['vertices'])) {
-      polygonVertices = shape['vertices'].length;
-    }
     // A hull's points and a mesh's vertices count toward the scene's 3D point budget.
     if (isPlainObject(shape) && shape['type'] === 'convex' && Array.isArray(shape['points'])) points3d = shape['points'].length;
     if (isPlainObject(shape) && shape['type'] === 'mesh' && Array.isArray(shape['vertices'])) points3d = shape['vertices'].length;
@@ -902,8 +892,6 @@ function validateEntityComponentsV3(
     hemisphere: lightType === 'hemisphere' ? 1 : 0,
     cameras: comps['camera'] !== undefined ? 1 : 0,
     controllers: comps['controller'] !== undefined ? 1 : 0,
-    colliders: comps['collider'] !== undefined ? 1 : 0,
-    polygonVertices,
     points3d,
   };
 }
@@ -1170,8 +1158,6 @@ export function validateSceneV3Value(doc: Record<string, unknown>, version: 3 | 
         counts.hemisphere += c.hemisphere;
         counts.cameras += c.cameras;
         counts.controllers += c.controllers;
-        counts.colliders += c.colliders;
-        counts.polygonVertices += c.polygonVertices;
         counts.points3d += c.points3d;
       }
       for (const k of Object.keys(e)) {
@@ -1229,14 +1215,6 @@ export function validateSceneV3Value(doc: Record<string, unknown>, version: 3 | 
           { code: 'controller_count_invalid', path: '', message: 'a scene must not contain more than one entity carrying the controller component', expected: 'at most 1 controller' },
           counts.controllers,
         ),
-      );
-    }
-    if (!merged && counts.colliders > MAX_COLLIDERS) {
-      errors.push(limitsError('/entities', 'colliders', counts.colliders, MAX_COLLIDERS, `scene exceeds the collider limit of ${MAX_COLLIDERS}`));
-    }
-    if (!merged && counts.polygonVertices > MAX_POLYGON_VERTICES_TOTAL) {
-      errors.push(
-        limitsError('/entities', 'collider_vertices_total', counts.polygonVertices, MAX_POLYGON_VERTICES_TOTAL, `scene exceeds the total polygon-vertex limit of ${MAX_POLYGON_VERTICES_TOTAL}`),
       );
     }
     if (!merged && counts.points3d > COLLIDER_3D_LIMITS.pointsTotal) {

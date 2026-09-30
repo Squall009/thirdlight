@@ -60,10 +60,10 @@ export function worldSaveProblem(v: unknown): string | null {
   if (!isObj(v)) return 'world is an object { scenes, activeSpawn, listedScene, character }';
   for (const k of Object.keys(v)) if (!['scenes', 'activeSpawn', 'listedScene', 'character'].includes(k)) return `unknown world field "${k.slice(0, 32)}"`;
   const scenes = v['scenes'];
-  if (!Array.isArray(scenes) || scenes.length > 64 || !scenes.every((x) => typeof x === 'string' && SCENE_ID_RE.test(x))) return 'world.scenes lists at most 64 scene ids';
+  if (!Array.isArray(scenes) || !scenes.every((x) => typeof x === 'string' && SCENE_ID_RE.test(x))) return 'world.scenes lists scene ids';
   const spawn = v['activeSpawn'];
   if (spawn !== null && !(typeof spawn === 'string' && SCENE_ID_RE.test(spawn))) return 'world.activeSpawn is an entity id or null';
-  if (!intIn(v['listedScene'], -1, 1024)) return 'world.listedScene is an integer -1..1024';
+  if (!intIn(v['listedScene'], -1, Number.MAX_SAFE_INTEGER)) return 'world.listedScene is an integer from -1 (an index in the shell\'s scene list)';
   const c = v['character'];
   if (c === null) return null;
   const vec = (x: unknown, lim: number): boolean => Array.isArray(x) && x.length === 3 && x.every((n) => typeof n === 'number' && Number.isFinite(n) && Math.abs(n) <= lim);

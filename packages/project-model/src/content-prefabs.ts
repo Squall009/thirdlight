@@ -35,7 +35,7 @@ import {
   validateModelComponent,
   validatePhysicsTransform,
 } from './components';
-import { MAX_PREFABS, MAX_PREFAB_DEPTH, MAX_PREFAB_ENTITIES } from './content-limits';
+import { MAX_PREFAB_DEPTH, MAX_PREFAB_ENTITIES } from './content-limits';
 import { limitsError, sortedRecord } from './content-helpers';
 
 const KNOWN_PREFAB_DEF_FIELDS = new Set(['prefabId', 'displayName', 'createdRevision', 'entityCount', 'depth', 'entities']);
@@ -273,14 +273,13 @@ export function validatePrefabDefinition(d: unknown, path: string, errors: Model
 /**
  * Validate a list of prefab definitions on their own (the runtime
  * snapshot's `prefabs`, the manifest's): each definition by the content rules
- * (`version` 4 allows `PREFAB_V4_COMPONENTS`), ids unique, at most `MAX_PREFABS`.
+ * (`version` 4 allows `PREFAB_V4_COMPONENTS`), ids unique.
  */
 export function validatePrefabDefinitions(value: unknown, path: string, errors: ModelErrorV2[], version: 3 | 4 = 4): void {
   if (!Array.isArray(value)) {
     errors.push(fieldType(path, value, 'array'));
     return;
   }
-  if (value.length > MAX_PREFABS) errors.push(limitsError(path, 'prefabs', value.length, MAX_PREFABS, `at most ${MAX_PREFABS} prefab definitions`));
   const seen = new Set<string>();
   value.forEach((d, i) => {
     validatePrefabDefinition(d, `${path}/${i}`, errors, version);

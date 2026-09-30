@@ -27,7 +27,7 @@ import {
   limitsExceeded,
   settingUnknown,
 } from './errors';
-import { BLOCK_LAYER_FIELDS, CAMERA_PATH_FIELDS, CAMERA_REGION_FIELDS, SOCKET_ATTACH_FIELDS, VIRTUAL_CAMERA_FIELDS, isValidSourcePath, type PropertyValue, type SettingsKeySpec } from '@thirdlight/project-model';
+import { BLOCK_LAYER_FIELDS, CAMERA_PATH_FIELDS, CAMERA_REGION_FIELDS, MAX_BEHAVIOR_SOURCE_BYTES, SOCKET_ATTACH_FIELDS, VIRTUAL_CAMERA_FIELDS, isValidSourcePath, type PropertyValue, type SettingsKeySpec } from '@thirdlight/project-model';
 import { SURFACE_PRESET_NAMES } from './v3';
 import type {
   AcknowledgeBehaviorTrustArgs,
@@ -392,10 +392,10 @@ export function validatePublishBehaviorArgs(
       return { ok: false, error: fieldMissing('/args/source/sourceByteLength', 'sourceByteLength') };
     }
     if (typeof byteLength !== 'number' || !Number.isInteger(byteLength)) {
-      return { ok: false, error: fieldType('/args/source/sourceByteLength', byteLength, 'integer 1..262144') };
+      return { ok: false, error: fieldType('/args/source/sourceByteLength', byteLength, `integer 1..${MAX_BEHAVIOR_SOURCE_BYTES}`) };
     }
-    if (byteLength < 1 || byteLength > 262_144) {
-      return { ok: false, error: limitsExceeded('graph_bytes', byteLength, 262_144) };
+    if (byteLength < 1 || byteLength > MAX_BEHAVIOR_SOURCE_BYTES) {
+      return { ok: false, error: limitsExceeded('graph_bytes', byteLength, MAX_BEHAVIOR_SOURCE_BYTES) };
     }
     out.source = s as unknown as { sourceDigest: string; sourceByteLength: number };
   }

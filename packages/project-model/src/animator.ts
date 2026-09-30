@@ -161,7 +161,6 @@ export interface AnimatorComponent {
   parameters?: Record<string, number | boolean>;
 }
 
-export const MAX_ANIMATORS = 64;
 export const MAX_ANIMATOR_PARAMETERS = 32;
 export const MAX_ANIMATOR_STATES = 64;
 export const MAX_ANIMATOR_TRANSITIONS = 256;
@@ -440,7 +439,7 @@ export function validateAnimatorController(value: unknown, path: string, errors:
 
 /** `content.animators`. */
 export function validateAnimators(value: unknown, path: string, errors: ModelErrorV2[], trusted?: ReadonlySet<unknown>): void {
-  if (!Array.isArray(value) || value.length > MAX_ANIMATORS) return err(errors, 'field_value', path, `animators is a list of at most ${MAX_ANIMATORS}`, value);
+  if (!Array.isArray(value)) return err(errors, 'field_value', path, 'animators is a list', value);
   const ids = new Set<string>();
   value.forEach((c, i) => {
     if (!trusted?.has(c)) validateAnimatorController(c, `${path}/${i}`, errors);

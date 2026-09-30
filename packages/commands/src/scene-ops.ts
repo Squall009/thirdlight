@@ -10,7 +10,7 @@
  */
 import { ID_RE } from '@thirdlight/project-model';
 
-import { MAX_SCENES, type SceneIndexEntry } from '@thirdlight/project-model';
+import type { SceneIndexEntry } from '@thirdlight/project-model';
 
 import { fieldValue, type CommandError } from './errors';
 import { contentOf, type OpInput } from './content-ops';
@@ -45,17 +45,17 @@ function unknownScene(path: string, sceneId: string): CommandError {
 /** The next index after the op, or an error. */
 function nextIndex(index: SceneIndex, args: SceneIndexArgs): SceneIndex | { error: CommandError } {
   const next: SceneIndex = { scenes: index.scenes.map((e) => ({ ...e })), startScenes: [...index.startScenes] };
-  const has = (id: string): boolean => next.scenes.some((e) => e.sceneId === id);
+  const ids = new Set(next.scenes.map((e) => e.sceneId));
+  const has = (id: string): boolean => ids.has(id);
   switch (args.op) {
     case 'createScene': {
-      if (next.scenes.length >= MAX_SCENES) return { error: fieldValue('/args', next.scenes.length, `at most ${MAX_SCENES} scenes`, 'the project already has 64 scenes') };
       let id = args.sceneId;
       if (id === undefined) {
-        for (let n = 1; n <= 9999 && id === undefined; n++) {
+        // A free number is at most one past the scenes the project has.
+        for (let n = 1; id === undefined; n++) {
           const candidate = `scene-${String(n).padStart(4, '0')}`;
           if (!has(candidate)) id = candidate;
         }
-        if (id === undefined) return { error: fieldValue('/args/sceneId', null, 'a free scene id', 'no free scene id') };
       } else if (!ID_RE.test(id)) {
         return { error: fieldValue('/args/sceneId', id, '^[a-z0-9][a-z0-9_-]{0,63}$', 'a scene id uses the id syntax') };
       } else if (has(id)) {

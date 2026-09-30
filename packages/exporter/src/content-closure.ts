@@ -789,22 +789,20 @@ function usesSockets(scenes: readonly unknown[] | undefined, prefabs: readonly P
 /**
  * Every model's rig (nodes and node animation channels read from
  * its GLB), with the clips of animation-only files ("clips for" a model)
- * added to that model's rig. Within the engine's key budgets
- * (`MODEL_RIG_LIMITS`): clips past them are left out and the rig is marked
+ * added to that model's rig. Within the engine's per-model key budget
+ * (`MODEL_RIG_LIMITS`): clips past it are left out and the rig is marked
  * truncated. A file that cannot be read gets no rig (a socket on it warns).
  */
 function modelRigs(assets: readonly { assetId: string; kind: string; clipsFor?: string }[], bytes: ReadonlyMap<string, Uint8Array>): Record<string, ModelRig> | undefined {
   const out: Record<string, ModelRig> = {};
-  let budget = MODEL_RIG_LIMITS.projectKeyNumbers;
   const sorted = [...assets].filter((a) => a.kind === 'model').sort((a, b) => (a.assetId < b.assetId ? -1 : a.assetId > b.assetId ? 1 : 0));
   const used = new Map<string, number>();
   for (const a of sorted) {
     if (a.clipsFor !== undefined) continue;
     const b = bytes.get(a.assetId);
     if (b === undefined) continue;
-    const r = readModelRig(b, a.assetId, Math.min(MODEL_RIG_LIMITS.keyNumbers, budget));
+    const r = readModelRig(b, a.assetId, MODEL_RIG_LIMITS.keyNumbers);
     if (!r.ok) continue;
-    budget -= r.keyNumbers;
     used.set(a.assetId, r.keyNumbers);
     out[a.assetId] = r.rig;
   }
@@ -813,10 +811,9 @@ function modelRigs(assets: readonly { assetId: string; kind: string; clipsFor?: 
     const rig = out[a.clipsFor];
     const b = bytes.get(a.assetId);
     if (rig === undefined || b === undefined) continue;
-    const room = Math.min(MODEL_RIG_LIMITS.keyNumbers - (used.get(a.clipsFor) ?? 0), budget);
+    const room = MODEL_RIG_LIMITS.keyNumbers - (used.get(a.clipsFor) ?? 0);
     const r = readModelRig(b, a.assetId, Math.max(0, room));
     if (!r.ok) continue;
-    budget -= r.keyNumbers;
     used.set(a.clipsFor, (used.get(a.clipsFor) ?? 0) + r.keyNumbers);
     const clips = [...rig.clips, ...r.rig.clips].slice(0, MODEL_RIG_LIMITS.clips * 4);
     out[a.clipsFor] = { nodes: rig.nodes, clips, ...(rig.truncated === true || r.rig.truncated === true ? { truncated: true as const } : {}) };

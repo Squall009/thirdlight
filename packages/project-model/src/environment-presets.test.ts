@@ -61,7 +61,8 @@ describe('environment presets', () => {
     expect(bad([{ ...DAY, lights: [{ intensity: 0.5 }] }])).toEqual([]);
     expect(bad([{ ...DAY, lights: [{ type: 'directional', direction: [0, 0, 0] }] }])).toEqual(['field_value /presets/0/lights/0/direction']);
     expect(bad([{ ...DAY, lightmap: { intensity: 9 } }])).toEqual(['field_value /presets/0/lightmap/intensity']);
-    expect(bad(Array.from({ length: 65 }, (_, i) => ({ presetId: `p${i}`, name: 'P' })))).toEqual(['field_value /presets']);
+    // As many presets as the game needs.
+    expect(bad(Array.from({ length: 96 }, (_, i) => ({ presetId: `p${i}`, name: 'P' })))).toEqual([]);
     // Through the environment block too.
     expect(errorsOf((e) => validateEnvironment({ presets: [{ presetId: 'x' }] }, '', e)).map((x) => x.path)).toEqual(['/presets/0/name']);
   });

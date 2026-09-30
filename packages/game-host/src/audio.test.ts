@@ -11,6 +11,7 @@ import { describe, expect, it } from 'vitest';
 import {
   AUDIO_MAX_DIAGNOSTICS,
   AUDIO_MAX_VOICES,
+  MUSIC_DECODED_KEEP,
   createGameAudioOwner,
   type AudioBufferLike,
   type AudioContextLike,
@@ -244,20 +245,30 @@ describe('the audio owner: bytes-in, validation, status', () => {
     owner.dispose();
   });
 
-  it('the 64-asset store cap holds (the catalog bound)', () => {
-    const { owner } = makeEnv();
-    for (let i = 0; i < 64; i += 1) {
-      expect(owner.registerCue(`a${i}`, new Uint8Array([i]))).toEqual({ ok: true });
+  it('registers every sound the game has (no store cap), and keeps a bounded number of decoded music buffers', async () => {
+    const flush = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
+    const ctx = new FakeContext();
+    const { owner } = makeEnv([ctx]);
+    for (let i = 0; i < 100; i += 1) expect(owner.registerCue(`a${i}`, new Uint8Array([i]))).toEqual({ ok: true });
+    const tracks = Array.from({ length: MUSIC_DECODED_KEEP + 2 }, (_, i) => `m${i}`);
+    tracks.forEach((id, i) => expect(owner.registerMusic!(id, new Uint8Array([1, i]))).toEqual({ ok: true }));
+    await owner.unlock();
+    await flush();
+    const decodes = (): number => ctx.decodedBytes.filter((d) => d.len === 2).length;
+    for (const id of tracks) {
+      owner.playMusic!(id, 0);
+      await flush();
+      expect(owner.musicStatus!()).toMatchObject({ assetId: id, playing: true });
     }
-    const over = owner.registerCue('a64', new Uint8Array([64])) as {
-      ok: boolean;
-      error?: { code: string };
-    };
-    expect(over.ok).toBe(false);
-    expect(over.error?.code).toBe('audio_invalid_bytes');
-    // Re-registering an EXISTING asset is still allowed (the store is
-    // bounded by distinct assets, not calls).
-    expect(owner.registerCue('a0', new Uint8Array([0]))).toEqual({ ok: true });
+    expect(decodes()).toBe(tracks.length);
+    // The last one is still decoded; the first was dropped and is decoded again from its bytes when played.
+    owner.playMusic!(tracks[0]!, 0);
+    await flush();
+    expect(owner.musicStatus!()).toMatchObject({ assetId: tracks[0], playing: true });
+    expect(decodes()).toBe(tracks.length + 1);
+    owner.playMusic!(tracks[tracks.length - 1]!, 0);
+    await flush();
+    expect(decodes()).toBe(tracks.length + 1);
     owner.dispose();
   });
 });

@@ -19,7 +19,6 @@ import type { CommandError, PreparedBehaviorSourceFact } from '@thirdlight/comma
 import {
   BEHAVIOR_ENTRY_PATH,
   MAX_BEHAVIOR_DIAGNOSTICS,
-  SCRIPT_LIBRARY_LIMITS,
   applyScriptLibraryPatch,
   scriptLibraryContainerText,
   scriptLibraryDependents,
@@ -384,7 +383,7 @@ export async function checkScriptLibraryDraft(core: Core, projectId: string, dra
 
 /** At most this many open stages per project (the oldest goes first). */
 export const LIBRARY_STAGES_PER_PROJECT = 8;
-/** A stage holds at most this much staged library text (twice the project's 1 MiB library budget). */
+/** A stage holds at most this much staged library text (it is held in the backend's memory until committed). */
 export const LIBRARY_STAGE_MAX_BYTES = 2 * 1024 * 1024;
 
 /**
@@ -481,9 +480,8 @@ export function stageScriptLibraryPatch(core: Core, projectId: string, request: 
   }
   const libraries = new Map<string, { base: string | null; library: ScriptLibrary }>(stage.libraries);
   libraries.set(request.patch.libraryId, { base: held?.base ?? (stored === null ? null : scriptLibraryDigest(stored)), library: patched.library });
-  if (libraries.size > SCRIPT_LIBRARY_LIMITS.libraries) return { ok: false, error: fieldValueType('/patch/libraryId', request.patch.libraryId, `at most ${SCRIPT_LIBRARY_LIMITS.libraries} libraries in a stage`, `a stage holds at most ${SCRIPT_LIBRARY_LIMITS.libraries} libraries (a project has at most ${SCRIPT_LIBRARY_LIMITS.libraries})`) };
   const bytes = [...libraries.values()].reduce((n, e) => n + textBytes(e.library), 0);
-  if (bytes > LIBRARY_STAGE_MAX_BYTES) return { ok: false, error: fieldValueType('/patch/files', bytes, `at most ${LIBRARY_STAGE_MAX_BYTES} bytes of staged library text`, 'the stage would hold more library text than a project may') };
+  if (bytes > LIBRARY_STAGE_MAX_BYTES) return { ok: false, error: fieldValueType('/patch/files', bytes, `at most ${LIBRARY_STAGE_MAX_BYTES} bytes of staged library text`, `a stage holds at most ${LIBRARY_STAGE_MAX_BYTES} bytes of library text; commit it and stage the rest`) };
   stage.libraries.clear();
   for (const [k, v] of libraries) stage.libraries.set(k, v);
   stage.patches += 1;

@@ -57,7 +57,7 @@ describe('publishAsset kind "font"', () => {
     expect(applyMutation(start(), req(publish('create', 'font-a', 1, { metrics: { format: 'woff2' } }), 0)).ok).toBe(true);
   });
 
-  it('caps a project at 16 fonts; a re-import replaces the version (no per-asset version list)', () => {
+  it('takes as many fonts as the game needs; a re-import replaces the version (no per-asset version list)', () => {
     let s = start();
     let rev = 0;
     for (let i = 0; i < 16; i++) {
@@ -67,8 +67,7 @@ describe('publishAsset kind "font"', () => {
       rev += 1;
     }
     const seventeenth = applyMutation(s, req(publish('create', 'font-16', 99), rev));
-    expect(seventeenth.ok).toBe(false);
-    if (!seventeenth.ok) expect(seventeenth.result.error).toMatchObject({ code: 'limits_exceeded', limit: 'font_assets', max: 16 });
+    expect(seventeenth.ok, JSON.stringify(seventeenth.result)).toBe(true);
     for (let v = 2; v <= 9; v++) {
       const out = applyMutation(s, req(publish('reimport', 'font-0', 100 + v), rev));
       expect(out.ok, JSON.stringify(out.result)).toBe(true);

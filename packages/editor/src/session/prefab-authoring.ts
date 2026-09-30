@@ -38,7 +38,6 @@ import {
   MAX_PREFAB_DEPTH,
   MAX_PREFAB_ENTITIES,
   MAX_PREFAB_OVERRIDES as MAX_OVERRIDES,
-  MAX_PREFABS,
   NAME_MAX as MAX_DISPLAY_NAME,
 } from '@thirdlight/project-model/limits';
 import {
@@ -53,7 +52,7 @@ import {
 
 // ---- limits: the model's, checked here before a command is sent ----
 
-export { MAX_DISPLAY_NAME, MAX_OVERRIDES, MAX_PREFABS, MAX_PREFAB_DEPTH, MAX_PREFAB_ENTITIES, MAX_SCENE_DEPTH, MAX_SCENE_ENTITIES };
+export { MAX_DISPLAY_NAME, MAX_OVERRIDES, MAX_PREFAB_DEPTH, MAX_PREFAB_ENTITIES, MAX_SCENE_DEPTH, MAX_SCENE_ENTITIES };
 
 /** A bounded, actionable planning error (the contract's code vocabulary). */
 export type PlanError = ControlError & Record<string, unknown>;
@@ -273,18 +272,6 @@ export function preflightCreatePrefab(input: CaptureInput): PlanResult<CapturePr
         limit: 'prefab_depth',
         current: closure.depth,
         max: MAX_PREFAB_DEPTH,
-      },
-    };
-  }
-  if (input.existingPrefabIds.length >= MAX_PREFABS) {
-    return {
-      ok: false,
-      error: {
-        code: 'limits_exceeded',
-        message: `the catalog already holds ${input.existingPrefabIds.length} definitions; the bound is ${MAX_PREFABS}`,
-        limit: 'prefabs',
-        current: input.existingPrefabIds.length,
-        max: MAX_PREFABS,
       },
     };
   }

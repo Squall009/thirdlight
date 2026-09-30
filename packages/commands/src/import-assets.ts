@@ -10,12 +10,11 @@
  * caller-supplied record, so a request stays small however many files the
  * folder holds, and no unchecked write path exists.
  */
-import { MAX_VERSION_RECORDS, canonicalLabels, isAssetLabel } from '@thirdlight/project-model';
+import { canonicalLabels, isAssetLabel } from '@thirdlight/project-model';
 
-import { assetCountLimit, contentOf, createdAssetRecord, type OpInput } from './content-ops';
-import { assetIdDuplicate, fieldMissing, fieldType, fieldUnexpected, fieldValue, limitsExceeded, noChangeContent, type CommandError } from './errors';
+import { contentOf, createdAssetRecord, type OpInput } from './content-ops';
+import { assetIdDuplicate, fieldMissing, fieldType, fieldUnexpected, fieldValue, noChangeContent, type CommandError } from './errors';
 import { deepClone, gateResultState, type OpOutcome } from './ops';
-import { assetKindOf } from './v3';
 import { validatePublishAssetArgs } from './validate-content-args';
 import type { CommandAssetRecord, ContentDocument, PublishAssetArgs, SceneDocument } from './types';
 
@@ -91,7 +90,6 @@ export function applyImportAssets(input: OpInput, args: ImportAssetsArgs, prepar
   const catalog = contentOf(input.content);
   const ids = new Set(catalog.assets.map((a) => a.assetId));
   const added: CommandAssetRecord[] = [];
-  const perKind = new Map<string, number>();
   for (let i = 0; i < prepared.items.length; i++) {
     const { labels, ...facts } = prepared.items[i]!;
     const v = validatePublishAssetArgs({ ...facts, mode: 'create' } as unknown as Record<string, unknown>);
@@ -103,15 +101,7 @@ export function applyImportAssets(input: OpInput, args: ImportAssetsArgs, prepar
     if (!all.every(isAssetLabel)) return { ok: false, error: fieldValue(`/prepared/items/${i}/labels`, labels, 'labels', 'a sidecar names a label that is not one') };
     const record = createdAssetRecord(v.args, input.revision);
     added.push(all.length > 0 ? { ...record, labels: canonicalLabels(all) } : record);
-    perKind.set(v.args.kind, (perKind.get(v.args.kind) ?? 0) + 1);
   }
-  for (const [kind, n] of perKind) {
-    const cap = assetCountLimit(kind);
-    const count = catalog.assets.filter((a) => assetKindOf(a) === kind).length + n;
-    if (count > cap.max) return { ok: false, error: limitsExceeded(cap.limit, count, cap.max) };
-  }
-  const totalVersions = catalog.assets.reduce((n, a) => n + a.versions.length, 0) + added.length;
-  if (totalVersions > MAX_VERSION_RECORDS) return { ok: false, error: limitsExceeded('version_records', totalVersions, MAX_VERSION_RECORDS) };
   const nextContent = withAssets(catalog, added, new Set());
   const resultScene = { ...input.scene, revision: input.scene.revision + 1 };
   const gate = gateResultState({ scene: input.scene, content: catalog, manifest: input.manifest }, resultScene, nextContent);

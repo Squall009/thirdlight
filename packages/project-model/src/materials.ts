@@ -169,8 +169,6 @@ export const MAX_MATERIAL_PARAMETERS = 64;
 export const MATERIAL_PARAMETER_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
 const PARAM_BOUND = 1e6;
 
-/** Most materials per project. */
-export const MAX_MATERIALS = 256;
 /** Most material slots one object or asset maps. */
 export const MAX_MATERIAL_SLOTS = 32;
 /** The slot key that applies a material to every material of a model (and to a box). */
@@ -320,13 +318,12 @@ export function validateMaterialGraph(material: Record<string, unknown>, path: s
   });
 }
 
-/** `content.materials`: at most 256 materials, unique ids, known shader params and slots. */
+/** `content.materials`: unique ids, known shader params and slots (a project has as many materials as it needs). */
 export function validateMaterials(value: unknown, path: string, errors: ModelErrorV2[], graphs?: GraphContext, trusted?: ReadonlySet<unknown>): void {
   if (!Array.isArray(value)) {
     err(errors, 'field_type', path, 'materials must be an array', value, 'array of materials');
     return;
   }
-  if (value.length > MAX_MATERIALS) err(errors, 'limits_exceeded', path, `a project has at most ${MAX_MATERIALS} materials`, value.length);
   const seen = new Set<string>();
   value.forEach((m, i) => {
     const p = `${path}/${i}`;
@@ -391,7 +388,7 @@ export function validateMaterials(value: unknown, path: string, errors: ModelErr
   });
 }
 
-/** The longest chain of instances (an instance of an instance of … a material). */
+/** The longest chain of instances (an instance of an instance of … a material), resolved at build and in the renderer per material. */
 export const MAX_MATERIAL_INSTANCE_DEPTH = 8;
 
 function validateMaterialInstanceValues(value: unknown, path: string, errors: ModelErrorV2[]): void {
@@ -957,6 +954,7 @@ export interface FogVolumeComponent {
   heightFalloff?: number;
 }
 
+/** Fog volumes per scene: the fog shader reads them from a fixed-size uniform array. */
 export const MAX_FOG_VOLUMES = 16;
 
 export function validateFogVolumeComponent(value: unknown, path: string, errors: ModelErrorV2[]): void {

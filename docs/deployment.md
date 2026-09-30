@@ -1201,9 +1201,9 @@ setReroutes, setGroups, removeGroups, setComments, removeComments — the full
 shapes are in the `tl_command` description). `tl_content_query
 target="game"` returns the graphs; with `includeDescriptors` also the kinds'
 catalogues. Limits: 4096 nodes per graph (the kind may set fewer), 256
-groups, 256 comments, 16 reroute points per wire, 64 graphs per project;
-graphs count toward the 1 MiB content cap (about 70 bytes per node and 80 per
-wire).
+groups, 256 comments, 16 reroute points per wire; a project has as many
+graphs as it needs, each its own file under the 1 MiB content file cap (about
+70 bytes per node and 80 per wire).
 
 ## Material graphs
 
@@ -1752,8 +1752,8 @@ graphs — adding or removing a system is a `setEffect`), `deleteEffect
 `setComponent "effect" {effectId, playOnStart?, params?, signal?,
 stopSignal?}` (naming no effect of the project is refused, and so is
 deleting an effect something names). The effects travel in `queryGameConfig` (`effects`) and
-`tl_content_query target="game"`. Limits: 128 effects, 16 systems and 32
-parameters per effect, 256 nodes per system graph, up to 1 048 576 max
+`tl_content_query target="game"`. Limits: 16 systems and 32
+parameters per effect (as many effects as the project needs), 256 nodes per system graph, up to 1 048 576 max
 particles per system (capped by the executor, see above).
 
 The CPU reference semantics of every node live in the runtime-safe package
@@ -1832,8 +1832,8 @@ game shell"). `tl_game_observe` reports `counters` and `health`. Scripts use
 `.setVisible(entityId, visible)` (until the next run; it still collides),
 and `ctx.physics.raycast(origin, direction, maxDistance)`,
 `.overlapBox(center, half)` and `.overlapCircle(center, radius)` (the
-entities whose colliders overlap, never the player; 32 queries per step in
-all).
+entities whose colliders overlap, never the player; 1,024 queries per step
+in all, 2D and 3D).
 
 ### Generic primitives (phase 24.4)
 
@@ -2029,7 +2029,8 @@ prefab.
 - `ctx.destroy(id)` removes a spawned object and its children at the next
   step (`false` if it is already gone). Objects placed in the editor cannot
   be destroyed; hide them with `ctx.game.setVisible`.
-- Engine limits: 64 spawns per step and 1024 spawned objects alive; past
+- Engine limits: 64 spawns per step and 16,384 spawned objects alive (one
+  scene's entity capacity); past
   them `ctx.spawn` returns `null` and the runtime diagnostics record one
   `spawn_refused` line. An unknown prefab or bad options stop the game with
   the script error, like a bad `ctx.scenes` call.
@@ -2066,8 +2067,8 @@ and the export carry the project's prefabs with the game.
   published script imports cannot be deleted.
 - A library may import other libraries (`@lib/<id>`); a cycle between
   libraries or an import of a library that does not exist is a compile
-  error. Bounds: 32 libraries, 16 files and 256 KiB per library, 64 KiB per
-  file (a save of more than ~64 KiB of changed text goes in several
+  error. Bounds: 16 files and 256 KiB per library, 64 KiB per
+  file, as many libraries as the project needs (a save of more than ~64 KiB of changed text goes in several
   patches, below).
 - Scripts may also keep `.json` files in their own source and import them
   the same way.
@@ -2282,7 +2283,7 @@ audio source. `tl_game_observe` reports `loops` (each audio source's current
 gain).
 
 **Font** assets are TrueType (.ttf), OpenType (.otf), WOFF2 or WOFF files up
-to 4 MiB, at most 16 per project (8 versions each). Choose or drop the file in
+to 4 MiB, as many as the project needs. Choose or drop the file in
 the Asset browser like other assets, or upload it with `tl_content_upload`
 kind `font` and publish it with kind `font`. The import checks the file's
 container only (the family name of a TTF/OTF is shown when it has one); the
@@ -2662,27 +2663,54 @@ puts an optional value back to its default).
 
 ### Engine limits (constants)
 
-These protect the runtime and are not tuning values:
+These protect the runtime and are not tuning values. A project has **no count
+limit on its assets or resources** (models, textures, sounds, music, fonts,
+prefabs, scripts, scenes, materials, animators, timelines, UI documents and
+themes, dialogues and speakers, effects, graphs, script libraries,
+environment presets, event sounds, block types and stamps): each is its own
+file, and only one file's size and the runtime's memory are bounded
+(`tests/count-caps.test.ts` and `tests/e2e/count-caps.e2e.ts` guard it). Each
+limit below is a per-file size, a per-object size or a runtime budget, with
+its reason (the same line is next to its constant in the code):
 
-| Limit | Value |
-|---|---|
-| Fixed-step catch-up per frame | 8 steps (the rest are dropped) |
-| Script physics queries | 32 per step |
-| Game-view events kept | 32 |
-| Sound voices | 32 at most (the `audio_voices` setting's range) |
-| Registered sound assets / music tracks | 64 / 64 (phase 25.7c: sound effects were 16; each file is bounded by its own PCM byte cap) |
-| Spawns | 64 per step, 1024 alive |
-| Timers | 64 per script instance |
-| Script intents (move, jump, transform, pose, respawn) | 5 per script instance per step; per step at most 64 or 5 × the running script instances, whichever is larger |
-| Colliders | 256 per scene; the start scenes (and scenes loaded later) together have no combined limit |
-| Scenes / entities | 64 scenes per project, 16,384 entities per scene |
-| Runtime content manifest | `manifest.json` of a Play build or an export: 256 KiB. Since phase 25.7 (manifest version 4) the parts that grow with a game's content — its materials (only the ones something in the game uses), material functions, UI documents, dialogue and the instance-set buffer table — are separate content files (`content/sha256/<digest>`, 32 MiB each) that the manifest lists by digest, so they do not count against it |
-| Entity ids | New objects get `<kind>-N` with at least six digits (`box-000001`), unique across the project; N goes up to 1,048,576 (64 × 16,384), so a kind never runs out of ids before the entity limits refuse a creation. Ids from before phase 25.7 (`box-0001`, at most 9,999 per kind) load and stay as they are |
-| Camera "no move" threshold | 1e-9 m; aspect 16:9 until the host reports the viewport |
-| Model animation run threshold | 0.05 m/s |
-| Shadow-follow extent | 24 m |
-| Stick dead zone default | 0.2 (per action: `deadZone`) |
-| WebSocket message to the editor | 1 MiB (a larger Play snapshot is fetched over HTTP; a larger change makes the editor re-read the project; anything else over it is dropped and listed under Problems) |
+| Limit | Value | Why |
+|---|---|---|
+| Content file | 1 MiB of canonical JSON per file: each resource record (material, dialogue, UI document, …, environment preset, prefab) and `content.json`'s project-wide settings | What one parse and one change carry; the number of files is not bounded |
+| Asset file | 32 MiB per imported file (128 MiB for an FBX to convert); fonts 4 MiB, images and music 16 MiB | One read and one inspection in the backend's memory |
+| Disk | An import or upload is refused only when the disk the game folder is on would keep less than 64 MiB free; the message gives the free space | No project quota |
+| Runtime content manifest | `manifest.json` of a Play build or an export: 32 MiB, the content file cap (asset rows, rigs and prefabs are still inline; phase 26.9 moves them to a catalog). The parts listed by digest (`content/sha256/<digest>`: used materials, material functions, UI documents, dialogue, the instance-set buffer table, script library modules) are 32 MiB each | One file of the build |
+| Play content set | 512 MiB of a Play build held in the backend's memory | Kept until Play serves files from disk (phase 26.8) |
+| Fixed-step catch-up per frame | 8 steps (the rest are dropped) | A slow frame must not make the next one slower |
+| Script physics queries | 1,024 per step, 2D and 3D together (1,024 rays cost Rapier about 1.6 ms with 16,384 colliders) | Runtime budget against a runaway loop |
+| Game-view events kept | 32 | A display ring |
+| Sound voices | 32 at most (the `audio_voices` setting's range; default 8) | Mixing cost; as Unity's real-voice default |
+| Decoded music kept | 64 decoded tracks, the most recently used (older ones are decoded again from their bytes when played) | Memory of long voiced dialogues, until audio loads by load type (phase 26.11) |
+| Spawns | 64 per step (a spawn costs about 0.1 ms with 16,384 alive); 16,384 alive (one scene's entity capacity) | Runtime budget per step; spawned copies live like a scene's entities |
+| Timers | 64 per script instance | Named timers of one script, saved with it; a script needing more keeps a list |
+| Script intents (move, jump, transform, pose, respawn) | 40 per script instance per step (a transform and a pose on each of its 16 owned entities and its control intents); per step at most 64 or 40 × the running script instances, whichever is larger | Defense in depth against a runaway script |
+| Script entity writes (`ctx.world.entity(id).set`) | 65,536 per step (four for every entity of a full scene) | Runtime budget against a runaway loop |
+| Colliders | none of their own: every entity may carry one (16,384 static colliders step in about 3 ms in Rapier, measured); 3D hull and mesh points 1,048,576 per scene (a thousand full meshes build in about 2 s at load) | The load cost of mesh colliders |
+| Scenes / entities | As many scenes as the game needs; 16,384 entities per scene (a big world is several scenes loaded together) | A scene is one load unit and one file |
+| Prefabs | 1,024 entities and 16 levels per prefab; 1 MiB (the content file cap) | One definition is one file and one command's copy |
+| Entity ids | New objects get `<kind>-N` with at least six digits (`box-000001`), unique across the project; N has no bound (the smallest free number is at most one more than the ids taken). Ids from before phase 25.7 (`box-0001`) load and stay as they are | – |
+| Collision layers / tags | 15 named layers (+ `default`) / 32 tags | Rapier's 16-bit collision groups / a 32-bit tag mask |
+| Local lights | 16 point and spot lights per scene, 16 drawn across loaded scenes | Forward-lighting cost; scalable lighting is phase 27 |
+| Fog volumes | 16 per scene | A fixed-size uniform array in the shader |
+| Lightmaps | 16 atlases and 4,096 entries per scene bake, 64 baked lights | The bake's own format; phase 27 reworks lighting |
+| Texture arrays | 256 layers | What WebGL 2 and WebGPU both guarantee |
+| Texture edge | 4,096 px | Texture streaming (phase 26.12) revisits it |
+| KTX2 encoding | 12 Mpix per source (across a packed array's layers) | A known limit of the pinned encoder (Basis Universal 2.5), kept; a larger texture is imported as PNG/JPEG or encoded outside the editor |
+| Material instances | 8 parents deep | A chain resolved at build; deeper chains are an authoring smell |
+| Graphs | 4,096 nodes per graph (the kind may set fewer; 256 for a script or effect system graph, which compile into one bounded module) | The editor and the compiled output of one document |
+| UI documents / timelines | 512 widgets and 48 KiB per document; 256 keys per track and 48 KiB per timeline | Each is saved in one 64 KiB command |
+| Dialogue | 1,024 nodes per conversation; 256 dialogue variables; 8,192 seen lines | One conversation is one document; the variables and the seen set are saved with the game |
+| Model rigs | 262,144 key numbers per model (clips past it are left out) | What one model adds to the manifest; per model, never per project |
+| Folder listing | 500 entries per listing of a game-folder folder | A page; the project window (phase 26.13) pages from the index |
+| Camera "no move" threshold | 1e-9 m; aspect 16:9 until the host reports the viewport | – |
+| Model animation run threshold | 0.05 m/s | – |
+| Shadow-follow extent | 24 m | – |
+| Stick dead zone default | 0.2 (per action: `deadZone`) | – |
+| WebSocket message to the editor | 1 MiB (a larger Play snapshot is fetched over HTTP; a larger change makes the editor re-read the project; anything else over it is dropped and listed under Problems) | One frame |
 
 ### Engine defaults
 
@@ -3153,8 +3181,9 @@ dialogue play in Play only.
 timeline, time, state, wait }], events }` once a timeline played; the fade
 element carries `data-tl-fade`.
 
-**Engine limits.** 64 timelines per project, 32 tracks, 256 keys per track,
-16 slots, 64 markers, 600 s, 48 KiB of JSON per timeline, 8 playing at once.
+**Engine limits.** 32 tracks, 256 keys per track, 16 slots, 64 markers,
+600 s and 48 KiB of JSON per timeline (a timeline is saved in one 64 KiB
+command), 8 playing at once; as many timelines as the project needs.
 
 ## Block layers (phase 23.5)
 
@@ -3333,9 +3362,9 @@ warning to the play log. Visual scripts have the same nodes under
 project that uses sockets (a Socket component anywhere, or a script naming
 `ctx.sockets`) gets each model's **rig** — its nodes and the node animation
 channels of its clips — read from the GLB into the play/export build (the
-manifest's `rigs`). Engine limits: 262,144 key numbers per model and about a
-million per project (clips past that are left out and a socket on them
-warns once). Projects without sockets build exactly as before.
+manifest's `rigs`). Engine limit: 262,144 key numbers per model, its
+animation-only files included (clips past that are left out and a socket on
+them warns once); no budget is shared across the project. Projects without sockets build exactly as before.
 
 **Animation speed and morph targets.** `ctx.animator(id)?.setSpeed(x)`
 sets one object's playback speed (every clip and crossfade; 1 as authored,
@@ -3396,7 +3425,7 @@ radius, height, rotation?, filter?)` → sorted ids (at most 64);
 through a screen point (the scene camera's when no virtual camera is live —
 `ctx.camera.screenToRay/worldToScreen` do the same now), `pickAtPointer`
 through the pointer (null while it is off the view). A filter is `{ tags?,
-layers?, exclude? }`. At most 64 queries a step for all scripts together
+layers?, exclude? }`. At most 1,024 queries a step for all scripts together
 (then nothing; warned once in the play log). A 3D scene without a player
 still has physics when it has colliders (they answer the queries).
 Hover edges on objects are the script's own: compare this step's pick with
@@ -3814,8 +3843,9 @@ exported games.
   else sizes that axis to its content; a stretched axis keeps its stretch) —
   and a radial bar's `startAngle` may be bound the same way. In the UI editor,
   type a path into the size field's w or h box, or tick "bind" by Start angle.
-- Engine limits: 64 documents, 48 KiB and 512 widgets per document, a 64 KiB
-  view model.
+- Engine limits: 48 KiB and 512 widgets per document (a document is saved
+  in one 64 KiB command), a 64 KiB view model; as many documents and themes
+  as the project needs.
 
 ## Game modes (phase 23.10)
 
@@ -3944,6 +3974,6 @@ engine as project content; the game's own rules stay in its scripts.
   `setSpeaker`, `setDialogueSettings`.
 - **Localization**: every line is addressed by `<dialogueId>.<nodeId>` (node
   ids are stable), the key a future string table uses; no table is read yet.
-- Engine limits: 256 conversations of 1,024 nodes, 128 speakers of 32
-  portraits, 1,024 characters a line, 256 dialogue variables, 8,192 seen
+- Engine limits: 1,024 nodes per conversation, 32 portraits per speaker (as
+  many conversations and speakers as the project needs), 1,024 characters a line, 256 dialogue variables, 8,192 seen
   lines, a 100-line backlog.

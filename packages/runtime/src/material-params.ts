@@ -27,7 +27,7 @@
  *   most 16 KiB; three.js re-uploads a whole data texture on change anyway).
  * - Engine limit: 4,096 writes (set, setData, reset) per step.
  */
-import { MATERIAL_DATA_MAX, type EntityV3 } from '@thirdlight/project-model';
+import { MATERIAL_DATA_MAX, MAX_MATERIAL_PARAMETERS, type EntityV3 } from '@thirdlight/project-model';
 
 /** The most parameter writes (set, setData, reset) per step (engine limit, as `ctx.grid`'s). */
 export const MATERIAL_WRITES_PER_STEP = 4096;
@@ -175,10 +175,10 @@ export function materialCatalogProblem(v: unknown): string | null {
   if (typeof v !== 'object' || v === null || Array.isArray(v)) return 'materialCatalog must be an object';
   const c = v as Record<string, unknown>;
   for (const k of Object.keys(c)) if (k !== 'materials' && k !== 'assetMaterials' && k !== 'textures') return `unknown materialCatalog field "${k}"`;
-  if (!Array.isArray(c['materials']) || c['materials'].length > 256) return 'materialCatalog.materials must be an array of at most 256 materials';
+  if (!Array.isArray(c['materials'])) return 'materialCatalog.materials must be an array of materials';
   for (const m of c['materials'] as unknown[]) {
     const r = m as { materialId?: unknown; parameters?: unknown };
-    if (typeof r !== 'object' || r === null || typeof r.materialId !== 'string' || !Array.isArray(r.parameters) || r.parameters.length > 64) return 'a materialCatalog material is { materialId, parameters[≤64] }';
+    if (typeof r !== 'object' || r === null || typeof r.materialId !== 'string' || !Array.isArray(r.parameters) || r.parameters.length > MAX_MATERIAL_PARAMETERS) return `a materialCatalog material is { materialId, parameters[≤${MAX_MATERIAL_PARAMETERS}] }`;
     for (const p of r.parameters as unknown[]) {
       const q = p as { key?: unknown; type?: unknown; size?: unknown };
       if (typeof q !== 'object' || q === null || typeof q.key !== 'string' || typeof q.type !== 'string' || !TYPES.includes(q.type)) return `a parameter of material "${r.materialId}" has no valid key/type`;

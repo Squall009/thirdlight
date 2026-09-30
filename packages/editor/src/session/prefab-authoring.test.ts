@@ -12,6 +12,7 @@ import type { PrefabDefinition, PropertyDeclaration } from '@thirdlight/project-
 import {
   captureClosure,
   collectOverrides,
+  MAX_PREFAB_ENTITIES,
   entityRefLinks,
   makePrefabId,
   newPrefabDraft,
@@ -172,7 +173,7 @@ describe('capture closure and preflight', () => {
     expect(preflightCreatePrefab({ ...base, sourceEntityId: 'group-9999' })).toMatchObject({ ok: false, error: { code: 'entity_not_found' } });
   });
 
-  it('enforces the prefab_entities/prefab_depth/prefabs limits', () => {
+  it('enforces the prefab_entities/prefab_depth limits; no count of prefabs', () => {
     const deep: CaptureEntityView[] = [];
     for (let i = 0; i < 20; i += 1) deep.push(view({ id: `group-${i}`, parentId: i === 0 ? null : `group-${i - 1}` }));
     const base = { prefabId: 'prefab-0002', displayName: 'Kit', scene: deep, existingPrefabIds: [] as string[], declarations: DECLARATIONS };
@@ -182,17 +183,14 @@ describe('capture closure and preflight', () => {
     });
 
     const wide: CaptureEntityView[] = [view({ id: 'group-0' })];
-    for (let i = 0; i < 257; i += 1) wide.push(view({ id: `box-${i}`, parentId: 'group-0' }));
+    for (let i = 0; i < MAX_PREFAB_ENTITIES; i += 1) wide.push(view({ id: `box-${i}`, parentId: 'group-0' }));
     expect(preflightCreatePrefab({ ...base, scene: wide, sourceEntityId: 'group-0' })).toMatchObject({
       ok: false,
-      error: { code: 'limits_exceeded', limit: 'prefab_entities', current: 258, max: 256 },
+      error: { code: 'limits_exceeded', limit: 'prefab_entities', current: MAX_PREFAB_ENTITIES + 1, max: MAX_PREFAB_ENTITIES },
     });
 
-    const many = Array.from({ length: 128 }, (_, i) => `prefab-${i}`);
-    expect(preflightCreatePrefab({ ...base, scene: SCENE, sourceEntityId: 'group-0001', existingPrefabIds: many })).toMatchObject({
-      ok: false,
-      error: { code: 'limits_exceeded', limit: 'prefabs', current: 128, max: 128 },
-    });
+    const many = Array.from({ length: 192 }, (_, i) => `prefab-${i}`);
+    expect(preflightCreatePrefab({ ...base, scene: SCENE, sourceEntityId: 'group-0001', existingPrefabIds: many }).ok).toBe(true);
   });
 });
 

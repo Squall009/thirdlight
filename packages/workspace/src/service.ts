@@ -46,7 +46,6 @@ import {
 import { ID_RE, validateEnvelope } from './envelope';
 import {
   DEFAULT_DEVICE_SPACE_RESERVE_BYTES,
-  DEFAULT_MAX_SOURCE_BYTES_PER_PROJECT,
   defaultFreeSpace,
 } from './content-store';
 import { contentOps } from './service-content';
@@ -150,9 +149,8 @@ export function openWorkspaceService(config: WorkspaceServiceConfig): WorkspaceS
     ops: config.ops ?? defaultOps,
     sessions: new Map(),
     content: {
-      maxSourceBytesPerProject: config.maxSourceBytesPerProject ?? DEFAULT_MAX_SOURCE_BYTES_PER_PROJECT,
       deviceSpaceReserveBytes: config.deviceSpaceReserveBytes ?? DEFAULT_DEVICE_SPACE_RESERVE_BYTES,
-      freeSpaceBytes: config.freeSpaceBytes ?? (() => defaultFreeSpace(root)),
+      freeSpaceBytes: config.freeSpaceBytes ?? ((p?: string) => defaultFreeSpace(p ?? root)),
       now: config.now ?? (() => Date.now()),
       ...(config.assetInspector !== undefined ? { assetInspector: config.assetInspector } : {}),
       ...(config.inspectTimeoutMs !== undefined ? { inspectTimeoutMs: config.inspectTimeoutMs } : {}),

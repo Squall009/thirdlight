@@ -1,12 +1,10 @@
 /**
- * The collider limit is per scene. Play and the export capture the
- * start scenes merged into one runtime scene; the per-scene limits (256
- * colliders) apply to each scene, not to their sum — a world of several start
- * scenes may carry more colliders than one scene can.
+ * A scene has no collider count of its own: every entity may carry one.
+ * Play and the export capture the start scenes merged into one runtime
+ * scene, and the per-scene limits apply to each scene, not to their sum.
  */
 import { describe, expect, it } from 'vitest';
 
-import { MAX_COLLIDERS } from './components';
 import { captureContentViewV3, resolveMediaIdentityV3 } from './manifest-v2';
 
 type Obj = Record<string, unknown>;
@@ -26,23 +24,19 @@ function content(sceneIds: string[]): Obj {
 }
 const ctx = { projectId: 'p', revision: 1 };
 
-describe('the collider limit is per scene', () => {
-  it('captures start scenes whose colliders together exceed one scene’s limit', () => {
-    const a = scene('scene-a', colliders('block-a', 200));
-    const b = scene('scene-b', colliders('block-b', 200));
-    const merged = scene('scene-a', [...(a['entities'] as Obj[]), ...(b['entities'] as Obj[])]);
-    expect((merged['entities'] as Obj[]).length).toBeGreaterThan(MAX_COLLIDERS);
-    const view = captureContentViewV3(merged, content(['scene-a', 'scene-b']), ctx, [a, b]);
-    expect(view.ok, JSON.stringify(view.ok ? null : view.errors)).toBe(true);
-    expect(resolveMediaIdentityV3(merged, content(['scene-a', 'scene-b']), [a, b]).ok).toBe(true);
+describe('colliders in a scene', () => {
+  it('a scene carries as many colliders as it has entities (the 256 once allowed was a sample size)', () => {
+    const big = scene('scene-a', colliders('block-a', 2_000));
+    const view = captureContentViewV3(big, content(['scene-a']), ctx, [big]);
+    expect(view.ok, JSON.stringify(view.ok ? null : view.errors).slice(0, 400)).toBe(true);
   });
 
-  it('still refuses one scene over the limit', () => {
-    const big = scene('scene-a', colliders('block-a', MAX_COLLIDERS + 1));
-    const view = captureContentViewV3(big, content(['scene-a']), ctx, [big]);
-    expect(view.ok).toBe(false);
-    if (!view.ok) expect(view.errors[0]!.message).toContain(`collider limit of ${MAX_COLLIDERS}`);
-    // Without the scene list the one scene is checked on its own.
-    expect(captureContentViewV3(big, content(['scene-a']), ctx).ok).toBe(false);
+  it('captures start scenes merged into one runtime scene', () => {
+    const a = scene('scene-a', colliders('block-a', 1_000));
+    const b = scene('scene-b', colliders('block-b', 1_000));
+    const merged = scene('scene-a', [...(a['entities'] as Obj[]), ...(b['entities'] as Obj[])]);
+    const view = captureContentViewV3(merged, content(['scene-a', 'scene-b']), ctx, [a, b]);
+    expect(view.ok, JSON.stringify(view.ok ? null : view.errors).slice(0, 400)).toBe(true);
+    expect(resolveMediaIdentityV3(merged, content(['scene-a', 'scene-b']), [a, b]).ok).toBe(true);
   });
 });

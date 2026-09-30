@@ -317,7 +317,7 @@ export function checkAssetFolder(ctx: ContentContext, folder: string): { ok: tru
 export function writeGameFile(core: Core, ctx: ContentContext, rel: string, bytes: Uint8Array): { ok: true } | { ok: false; error: CommandError } {
   const t = prepareTarget(ctx, rel);
   if (!t.ok) return t;
-  const free = core.content.freeSpaceBytes();
+  const free = core.content.freeSpaceBytes(t.dir);
   if (free - bytes.length < core.content.deviceSpaceReserveBytes) {
     return { ok: false, error: contentQuotaExceeded('device_space', free, core.content.deviceSpaceReserveBytes, bytes.length) };
   }
@@ -394,7 +394,7 @@ export function holdBytes(core: Core, ctx: ContentContext, bytes: Uint8Array): {
   } catch {
     return { ok: false, error: contentPublishFailed('write') };
   }
-  const free = core.content.freeSpaceBytes();
+  const free = core.content.freeSpaceBytes(dir);
   if (free - bytes.length < core.content.deviceSpaceReserveBytes) {
     return { ok: false, error: contentQuotaExceeded('device_space', free, core.content.deviceSpaceReserveBytes, bytes.length) };
   }

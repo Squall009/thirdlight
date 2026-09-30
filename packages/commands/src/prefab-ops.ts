@@ -30,7 +30,6 @@ import {
   MAX_ENTITIES_V2 as MAX_SCENE_ENTITIES,
   MAX_ENTITIES_V4 as MAX_SCENE_ENTITIES_V4,
   MAX_ENTITY_DEPTH as MAX_SCENE_DEPTH,
-  MAX_PREFABS,
   MAX_PREFAB_BYTES,
   MAX_PREFAB_DEPTH,
   MAX_PREFAB_ENTITIES,
@@ -321,12 +320,6 @@ export function applyCreatePrefab(input: OpInput, args: CreatePrefabArgs): OpOut
   const bytes = canonicalBytes(definition);
   if (bytes > MAX_PREFAB_BYTES) {
     return { ok: false, error: limitsExceeded('prefab_bytes', bytes, MAX_PREFAB_BYTES) };
-  }
-  if (catalog.prefabs.length + 1 > MAX_PREFABS) {
-    return {
-      ok: false,
-      error: limitsExceeded('prefabs', catalog.prefabs.length + 1, MAX_PREFABS),
-    };
   }
 
   // step 9: resulting-state validation (three-block when a manifest is

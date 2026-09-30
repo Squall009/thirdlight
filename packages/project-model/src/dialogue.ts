@@ -88,18 +88,17 @@ export interface DialogueSettings {
 // ---------------------------------------------------------------------------
 
 export const DIALOGUE_LIMITS = Object.freeze({
-  dialogues: 256,
   /** Nodes of one conversation (a long branching scene; the editor stays fast). */
   nodes: 1024,
-  speakers: 128,
   portraits: 32,
   textChars: 1024,
   optionChars: 256,
   exprChars: 512,
+  /** Dialogue variables alive at once (saved with the game, like the seen set). */
   variables: 256,
   variableText: 256,
   bindings: 16,
-  /** Lines remembered as seen (the skip-if-seen set). */
+  /** Lines remembered as seen (the skip-if-seen set, saved with the game). */
   seen: 8192,
   backlog: 100,
   /** Non-blocking nodes followed in one step (a loop without a line or a choice stops there). */
@@ -623,7 +622,6 @@ export function validateDialogues(v: unknown, path: string, errors: ModelErrorV2
     errors.push(fieldType(path, v, 'array'));
     return;
   }
-  if (v.length > DIALOGUE_LIMITS.dialogues) errors.push(withFound({ code: 'limits_exceeded', path, message: `at most ${DIALOGUE_LIMITS.dialogues} dialogues`, expected: `<= ${DIALOGUE_LIMITS.dialogues}` }, v.length));
   const ids = new Set<string>();
   v.forEach((d, i) => {
     if (!trusted?.has(d)) validateDialogue(d, `${path}/${i}`, errors);
@@ -669,7 +667,6 @@ export function validateSpeakers(v: unknown, path: string, errors: ModelErrorV2[
     errors.push(fieldType(path, v, 'array'));
     return;
   }
-  if (v.length > DIALOGUE_LIMITS.speakers) errors.push(withFound({ code: 'limits_exceeded', path, message: `at most ${DIALOGUE_LIMITS.speakers} speakers`, expected: `<= ${DIALOGUE_LIMITS.speakers}` }, v.length));
   const ids = new Set<string>();
   v.forEach((s, i) => {
     validateSpeaker(s, `${path}/${i}`, errors);
@@ -924,7 +921,7 @@ export function dialogueForRuntime(content: { dialogues?: readonly DialogueDocum
 /** A runtime dialogue data value is well formed (the snapshot check; built by `dialogueForRuntime`). */
 export function runtimeDialogueDataProblem(v: unknown): string | null {
   if (!isObj(v)) return 'dialogue is an object';
-  if (!Array.isArray(v['dialogues']) || v['dialogues'].length > DIALOGUE_LIMITS.dialogues) return `dialogue.dialogues is a list of at most ${DIALOGUE_LIMITS.dialogues}`;
+  if (!Array.isArray(v['dialogues'])) return 'dialogue.dialogues is a list';
   for (const d of v['dialogues'] as unknown[]) {
     if (!isObj(d) || typeof d['dialogueId'] !== 'string' || !isObj(d['nodes']) || !isObj(d['entries'])) return 'a dialogue is { dialogueId, name, start, entries, nodes }';
     if (Object.keys(d['nodes']).length > DIALOGUE_LIMITS.nodes) return `a dialogue has at most ${DIALOGUE_LIMITS.nodes} nodes`;

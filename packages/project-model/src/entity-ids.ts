@@ -3,10 +3,10 @@
  *
  * An assigned id is `<prefix>-N` with N written with at least
  * {@link ENTITY_ID_DIGITS} digits (`box-000001`), unique across the project
- * (every scene's ids are reserved). N runs up to {@link ENTITY_ID_MAX}, the
- * most entities a project can hold (64 scenes × 16,384 entities), so ids of
- * one prefix cannot run out before the entity limits refuse a creation
- * (`id_exhaustion` stays as a guard). Four-digit ids (`box-0001`) load and
+ * (every scene's ids are reserved). A project has as many scenes as it
+ * needs, so N has no project bound: the smallest free number is at most one
+ * more than the ids taken, and the search stops there (`id_exhaustion` stays
+ * as a guard for a set that says every id is taken). Four-digit ids (`box-0001`) load and
  * stay as they are: an id is any string of the id syntax, and the width is
  * only how new ones are written.
  */
@@ -15,11 +15,10 @@
 export const ENTITY_ID_DIGITS = 6;
 
 /**
- * The largest number an assigned id takes: the project's entity capacity,
- * `MAX_SCENES` (64) × `MAX_ENTITIES_V4` (16,384) = 1,048,576 (a unit test
- * checks the product). Past 999,999 the number simply has seven digits.
+ * The largest number an assigned id takes. Past 999,999 the number simply
+ * has more digits.
  */
-export const ENTITY_ID_MAX = 1_048_576;
+export const ENTITY_ID_MAX = Number.MAX_SAFE_INTEGER;
 
 /** The id `<prefix>-N` for the number `n` (at least six digits). */
 export function entityIdAt(prefix: string, n: number): string {
@@ -28,10 +27,12 @@ export function entityIdAt(prefix: string, n: number): string {
 
 /**
  * The smallest free id `<prefix>-N` (N from 1) that `taken` does not hold,
- * or undefined when every N up to {@link ENTITY_ID_MAX} is taken.
+ * or undefined when every N up to `taken.size + 1` (or {@link ENTITY_ID_MAX})
+ * is taken, which a real set never is.
  */
-export function nextFreeEntityIdOf(taken: { has(id: string): boolean }, prefix: string): string | undefined {
-  for (let n = 1; n <= ENTITY_ID_MAX; n += 1) {
+export function nextFreeEntityIdOf(taken: { has(id: string): boolean; readonly size?: number }, prefix: string): string | undefined {
+  const last = Math.min(ENTITY_ID_MAX, (taken.size ?? ENTITY_ID_MAX) + 1);
+  for (let n = 1; n <= last; n += 1) {
     const id = entityIdAt(prefix, n);
     if (!taken.has(id)) return id;
   }

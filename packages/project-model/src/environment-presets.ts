@@ -28,8 +28,6 @@ import { canonicalEnvironment, validateFog, validatePost, validateSky, type FogC
 
 /** Engine limits of environment presets (documented in deployment.md). */
 export const ENVIRONMENT_PRESET_LIMITS = Object.freeze({
-  /** Presets per project. */
-  presets: 64,
   /** Light entries per preset. */
   lights: 32,
   /** A light entry's intensity (three's units: candela for point/spot lights). */
@@ -130,10 +128,10 @@ function validateParts(value: Record<string, unknown>, path: string, errors: Mod
   }
 }
 
-/** `environment.presets`: at most 64 presets with unique ids. */
+/** `environment.presets`: presets with unique ids. */
 export function validateEnvironmentPresets(value: unknown, path: string, errors: ModelErrorV2[]): void {
-  if (!Array.isArray(value) || value.length > ENVIRONMENT_PRESET_LIMITS.presets) {
-    err(errors, 'field_value', path, `presets is a list of at most ${ENVIRONMENT_PRESET_LIMITS.presets} presets`, Array.isArray(value) ? value.length : value);
+  if (!Array.isArray(value)) {
+    err(errors, 'field_value', path, 'presets is a list of presets', value);
     return;
   }
   const seen = new Set<string>();

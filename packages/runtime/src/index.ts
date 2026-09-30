@@ -172,7 +172,7 @@ export {
 } from './registry';
 export { DROP_THROUGH_STEPS, MAX_CATCHUP_STEPS, SETTLE_PREROLL_STEPS, engineTimingSteps, instantiateRuntime } from './runtime';
 // The per-step budget of 3D script queries; the pointer state the runtime keeps.
-export { QUERY_LIMIT_3D, type HeldPointer } from './runtime';
+export { PHYSICS_QUERY_LIMIT, type HeldPointer } from './runtime';
 export {
   BEHAVIOR_MODULE_PREFIX,
   BEHAVIOR_CALLBACKS,
@@ -299,12 +299,10 @@ export {
   ASSET_METRIC_CAPS,
   AUDIO_VOICE_CAP,
   AUDIO_VOICES_DEFAULT,
-  MAX_AUDIO_ASSETS,
   MAX_FOG_VOLUMES,
   MAX_INPUT_BINDINGS,
   MAX_LOCAL_LIGHTS,
   MAX_MATERIAL_INSTANCE_DEPTH,
-  MAX_MUSIC_ASSETS,
   MAX_POLYGON_VERTICES,
   MAX_SOURCE_BYTES,
   M2_GLTF_EXTENSION_ALLOWLIST,

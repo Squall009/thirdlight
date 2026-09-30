@@ -13,7 +13,7 @@ import { validateModelRig, type ModelRig } from '@thirdlight/project-model';
 import { validateModes, type RuntimeModes } from '@thirdlight/project-model';
 import { validateBlockTypes, validateCellFields, type BlockType, type CellField } from '@thirdlight/project-model';
 import { resolveSceneHierarchy, validateMergedSceneV4, validateSceneV3, validateTagRegistry, validateAnimators, validatePrefabDefinitions, type AnimatorController, type PrefabDefinition, type TagDefinition, type ModelErrorV2, type ModelErrorV3, type SceneV3, type RuntimeUiDocumentRow } from '@thirdlight/project-model';
-import { ENVIRONMENT_PRESET_LIMITS, MAX_REVISION, MAX_SCENES, UI_LIMITS } from '@thirdlight/project-model';
+import { MAX_INPUT_ACTIONS, MAX_REVISION } from '@thirdlight/project-model';
 import type { RuntimeError } from './errors';
 import type { ModelBounds, RuntimeSceneRow, RuntimeScene, RuntimeSnapshot } from './types';
 
@@ -25,10 +25,7 @@ import { canonicalEventCues, validateEventCues, type EventCue } from '@thirdligh
 import { materialCatalogProblem, type RuntimeMaterialCatalog } from './material-params';
 
 const WRAPPER_FIELDS = new Set(['snapshotId', 'projectId', 'revision', 'scene', 'tags', 'scenes', 'animators', 'prefabs', 'modelBounds', 'blockTypes', 'cellFields', 'rigs', 'materialCatalog', 'uiDocuments', 'modes', 'saveSchema', 'audioDurations', 'timelines', 'eventCues', 'sceneList', 'environmentPresets', 'dialogue']);
-/** At most this many model bounds rows (one per model asset; the asset catalog's size). */
-const MAX_MODEL_BOUNDS = 4096;
 const SCENE_ID_RE = ID_RE;
-const MAX_SNAPSHOT_SCENES = MAX_SCENES;
 
 /**
  * Recursively freeze (idempotent). On successful
@@ -253,7 +250,7 @@ export function validateRuntimeSnapshot(
     const bad = (message: string): { error: RuntimeError } => ({ error: { code: 'snapshot_invalid', reason: 'shape', path: '/modelBounds', message } });
     if (sceneVersion !== 4) return bad('snapshot field "modelBounds" is v4-only');
     const mb = snap.modelBounds as unknown;
-    if (typeof mb !== 'object' || mb === null || Array.isArray(mb) || Object.keys(mb).length > MAX_MODEL_BOUNDS) return bad(`modelBounds must be an object of at most ${MAX_MODEL_BOUNDS} rows`);
+    if (typeof mb !== 'object' || mb === null || Array.isArray(mb)) return bad('modelBounds must be an object of rows');
     const vec = (v: unknown): boolean => Array.isArray(v) && v.length === 3 && v.every((x) => typeof x === 'number' && Number.isFinite(x));
     for (const [k, v] of Object.entries(mb as Record<string, unknown>)) {
       const b = v as { min?: unknown; max?: unknown } | null;
@@ -267,7 +264,7 @@ export function validateRuntimeSnapshot(
     const bad = (message: string): { error: RuntimeError } => ({ error: { code: 'snapshot_invalid', reason: 'shape', path: '/audioDurations', message } });
     if (sceneVersion !== 4) return bad('snapshot field "audioDurations" is v4-only');
     const ad = snap.audioDurations as unknown;
-    if (typeof ad !== 'object' || ad === null || Array.isArray(ad) || Object.keys(ad).length > MAX_MODEL_BOUNDS) return bad(`audioDurations must be an object of at most ${MAX_MODEL_BOUNDS} rows`);
+    if (typeof ad !== 'object' || ad === null || Array.isArray(ad)) return bad('audioDurations must be an object of rows');
     for (const [k, v] of Object.entries(ad as Record<string, unknown>)) {
       if (typeof v !== 'number' || !Number.isInteger(v) || v < 1 || v > 3_600_000) return bad(`audioDurations["${k}"] must be an integer 1..3600000 (ms)`);
     }
@@ -279,7 +276,7 @@ export function validateRuntimeSnapshot(
     const bad = (message: string): { error: RuntimeError } => ({ error: { code: 'snapshot_invalid', reason: 'shape', path: '/rigs', message } });
     if (sceneVersion !== 4) return bad('snapshot field "rigs" is v4-only');
     const r = snap.rigs as unknown;
-    if (typeof r !== 'object' || r === null || Array.isArray(r) || Object.keys(r).length > MAX_MODEL_BOUNDS) return bad(`rigs must be an object of at most ${MAX_MODEL_BOUNDS} rows`);
+    if (typeof r !== 'object' || r === null || Array.isArray(r)) return bad('rigs must be an object of rows');
     for (const [k, v] of Object.entries(r as Record<string, unknown>)) {
       const why = validateModelRig(v);
       if (why !== null) return bad(`rigs["${k}"]: ${why}`);
@@ -347,16 +344,16 @@ export function validateRuntimeSnapshot(
       if (e.fade !== undefined && !(typeof e.fade === 'number' && Number.isFinite(e.fade) && e.fade >= 0 && e.fade <= 5)) return false;
       return e.fadeColor === undefined || (typeof e.fadeColor === 'string' && /^#[0-9a-f]{6}$/.test(e.fadeColor));
     };
-    const ok = Array.isArray(list) && list.length >= 1 && list.length <= 32 && list.every(entryOk);
-    if (!ok) return { error: { code: 'snapshot_invalid', reason: 'shape', path: '/sceneList', message: 'sceneList is 1–32 entries { scene, spawn?, fade?, fadeColor? }' } };
+    const ok = Array.isArray(list) && list.length >= 1 && list.every(entryOk);
+    if (!ok) return { error: { code: 'snapshot_invalid', reason: 'shape', path: '/sceneList', message: 'sceneList is at least one entry { scene, spawn?, fade?, fadeColor? }' } };
     sceneList = (list as import('./types').ListedScene[]).map((x) => Object.freeze({ scene: x.scene, ...(x.spawn !== undefined ? { spawn: x.spawn } : {}), ...(x.fade !== undefined ? { fade: x.fade } : {}), ...(x.fadeColor !== undefined ? { fadeColor: x.fadeColor } : {}) }));
   }
   // The optional environment preset ids (ctx.environment).
   let environmentPresets: readonly string[] | undefined;
   if ((snap as { environmentPresets?: unknown }).environmentPresets !== undefined) {
     const ids = (snap as { environmentPresets?: unknown }).environmentPresets;
-    if (!Array.isArray(ids) || ids.length > ENVIRONMENT_PRESET_LIMITS.presets || !ids.every((x) => typeof x === 'string' && SCENE_ID_RE.test(x)) || new Set(ids).size !== ids.length) {
-      return { error: { code: 'snapshot_invalid', reason: 'shape', path: '/environmentPresets', message: `environmentPresets is a list of at most ${ENVIRONMENT_PRESET_LIMITS.presets} unique preset ids` } };
+    if (!Array.isArray(ids) || !ids.every((x) => typeof x === 'string' && SCENE_ID_RE.test(x)) || new Set(ids).size !== ids.length) {
+      return { error: { code: 'snapshot_invalid', reason: 'shape', path: '/environmentPresets', message: 'environmentPresets is a list of unique preset ids' } };
     }
     environmentPresets = ids as string[];
   }
@@ -366,7 +363,7 @@ export function validateRuntimeSnapshot(
     const bad = (message: string): { error: RuntimeError } => ({ error: { code: 'snapshot_invalid', reason: 'shape', path: '/uiDocuments', message } });
     if (sceneVersion !== 4) return bad('snapshot field "uiDocuments" is v4-only');
     const rows = snap.uiDocuments as unknown;
-    if (!Array.isArray(rows) || rows.length > UI_LIMITS.documents) return bad(`uiDocuments must be an array of at most ${UI_LIMITS.documents} rows`);
+    if (!Array.isArray(rows)) return bad('uiDocuments must be an array of rows');
     const seen = new Set<string>();
     for (const r of rows as unknown[]) {
       const row = r as Record<string, unknown> | null;
@@ -398,7 +395,7 @@ export function validateRuntimeSnapshot(
     if (errors.length > 0) return bad(`modes: ${errors[0]!.message}`);
     if (!Array.isArray(m['modes']) || m['modes'].length === 0) return bad('modes lists at least one game mode');
     const maps = m['actionMaps'];
-    if (typeof maps !== 'object' || maps === null || Array.isArray(maps) || Object.keys(maps).length > 64 || Object.values(maps).some((v) => typeof v !== 'string')) return bad('actionMaps maps at most 64 action names to their input map');
+    if (typeof maps !== 'object' || maps === null || Array.isArray(maps) || Object.keys(maps).length > MAX_INPUT_ACTIONS || Object.values(maps).some((v) => typeof v !== 'string')) return bad(`actionMaps maps at most ${MAX_INPUT_ACTIONS} action names to their input map`);
     modes = snap.modes as unknown as RuntimeModes;
   }
   // The optional v4 scene catalog.
@@ -406,8 +403,8 @@ export function validateRuntimeSnapshot(
   if (snap.scenes !== undefined) {
     const bad = (message: string, path = '/scenes'): { error: RuntimeError } => ({ error: { code: 'snapshot_invalid', reason: 'shape', path, message } });
     if (sceneVersion !== 4) return bad('snapshot field "scenes" is v4-only');
-    if (!Array.isArray(snap.scenes) || snap.scenes.length < 1 || snap.scenes.length > MAX_SNAPSHOT_SCENES) {
-      return bad(`snapshot field "scenes" must be an array of 1..${MAX_SNAPSHOT_SCENES} scene rows`);
+    if (!Array.isArray(snap.scenes) || snap.scenes.length < 1) {
+      return bad('snapshot field "scenes" must be an array of at least one scene row');
     }
     const seen = new Set<string>();
     const members = new Set<string>();

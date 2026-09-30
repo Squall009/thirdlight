@@ -51,7 +51,7 @@
  * additive read-only method).
  */
 
-import { AUDIO_VOICE_CAP, AUDIO_VOICES_DEFAULT, MAX_AUDIO_ASSETS, MAX_MUSIC_ASSETS, distanceGain, listenerRelative } from '@thirdlight/runtime';
+import { AUDIO_VOICE_CAP, AUDIO_VOICES_DEFAULT, distanceGain, listenerRelative } from '@thirdlight/runtime';
 
 /**
  * Rule 3 — the concurrent voice cap: the default of the project's
@@ -62,8 +62,6 @@ export const AUDIO_MAX_VOICES = AUDIO_VOICES_DEFAULT;
 export const AUDIO_VOICE_LIMIT = AUDIO_VOICE_CAP;
 /** The bounded diagnostic ring size (drop-oldest). */
 export const AUDIO_MAX_DIAGNOSTICS = 64;
-/** The bounded per-asset registration store cap: the catalog's audio records. */
-const AUDIO_MAX_REGISTERED_ASSETS = MAX_AUDIO_ASSETS;
 
 /**
  * One cue event: a registered sound to play at most once per run. The id is
@@ -262,8 +260,15 @@ export interface AudioObservation {
   /** The owner's newest diagnostics (at most 3, each ≤ 256 chars, log-safe). */
   readonly diagnostics: readonly string[];
 }
-/** The bounded music store cap: the catalog's music records. */
-export const MUSIC_MAX_REGISTERED = MAX_MUSIC_ASSETS;
+/**
+ * Decoded music buffers kept (the most recently used): a bounded cache
+ * that never refuses. Registrations are keyed by asset id (one per audio
+ * asset the game has), but a decoded buffer is far larger than its file, so
+ * a long voiced dialogue would otherwise keep every line it played. The
+ * least recently used buffer is dropped first and decoded again from its
+ * bytes when next played; a sound already playing keeps its buffer.
+ */
+export const MUSIC_DECODED_KEEP = 64;
 
 export interface GameAudioOwnerConfig {
   /**
@@ -390,6 +395,18 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
   /** The scripts' mix per bus (each bus gain = the player's volume × this). */
   const mix: Record<'sfx' | 'music' | 'voice' | 'ui', number> = { sfx: 1, music: 1, voice: 1, ui: 1 };
   const music = new Map<string, { bytes: Uint8Array; buffer: AudioBufferLike | null; decoding: boolean; failed: boolean }>();
+  /** The music ids holding a decoded buffer, least recently used first. */
+  const decodedMusic = new Set<string>();
+  function keepDecodedMusic(assetId: string): void {
+    decodedMusic.delete(assetId);
+    decodedMusic.add(assetId);
+    for (const id of decodedMusic) {
+      if (decodedMusic.size <= MUSIC_DECODED_KEEP) break;
+      const m = music.get(id);
+      if (m !== undefined) m.buffer = null;
+      decodedMusic.delete(id);
+    }
+  }
   /** The host's track (`playMusic`) and the scripts' (undefined: the host owns the music). */
   let hostMusic: string | null = null;
   let scriptMusic: string | null | undefined = undefined;
@@ -740,7 +757,10 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
     if (cue?.state === 'pending' && context !== null && !muted) startDecode(assetId);
     const m = music.get(assetId);
     if (m !== undefined) {
-      if (m.buffer !== null) return m.buffer;
+      if (m.buffer !== null) {
+        keepDecodedMusic(assetId);
+        return m.buffer;
+      }
       if (!m.decoding && !m.failed && context !== null) {
         m.decoding = true;
         let p: Promise<AudioBufferLike>;
@@ -753,6 +773,7 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
           (b) => {
             m.buffer = b;
             m.decoding = false;
+            if (music.get(assetId) === m) keepDecodedMusic(assetId);
           },
           () => {
             m.decoding = false;
@@ -835,6 +856,7 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
         (buffer) => {
           entry.buffer = buffer;
           entry.decoding = false;
+          if (music.get(id) === entry) keepDecodedMusic(id);
           if (!disposed && wantedMusic === id) syncMusic();
         },
         () => {
@@ -990,11 +1012,6 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
       }
       if (!(bytes instanceof Uint8Array) || bytes.length === 0) {
         return error('audio_invalid_bytes', 'cue bytes must be a non-empty Uint8Array (bytes in only — rule 1)');
-      }
-      if (!assets.has(assetId) && assets.size >= AUDIO_MAX_REGISTERED_ASSETS) {
-        // The catalog holds ≤ 64 audio records; the owner's store
-        // caps at the same bound (never grows unboundedly).
-        return error('audio_invalid_bytes', `registered asset store full (cap ${AUDIO_MAX_REGISTERED_ASSETS}); re-register an existing asset instead`);
       }
       assets.set(assetId, { state: 'pending', bytes, token: 0 });
       // Rule 2: nothing is decoded while muted; with a live context
@@ -1186,6 +1203,7 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
       for (const v of [...handleVoices.values()]) releaseHandle(v, true);
       for (const key of [...loopVoices.keys()]) stopLoop(key);
       music.clear();
+      decodedMusic.clear();
       if (context) {
         // Rule 8: close exactly the contexts THIS owner created, once.
         context.close().catch(() => {
@@ -1208,7 +1226,7 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
     registerMusic(assetId, bytes) {
       if (disposed) return error('audio_disposed', 'registerMusic after dispose');
       if (!assetId || !(bytes instanceof Uint8Array) || bytes.length === 0) return error('audio_invalid_bytes', 'music needs an assetId and non-empty bytes');
-      if (!music.has(assetId) && music.size >= MUSIC_MAX_REGISTERED) return error('audio_invalid_bytes', `music store full (cap ${MUSIC_MAX_REGISTERED})`);
+      decodedMusic.delete(assetId);
       music.set(assetId, { bytes, buffer: null, decoding: false, failed: false });
       if (wantedMusic === assetId) syncMusic();
       return { ok: true };

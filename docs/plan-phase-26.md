@@ -779,3 +779,81 @@ Proposed targets for "Done when" (fixed in 26.14 from these numbers):
   needs Blender and is a Problem instead), as Unity makes a lost `.meta`
   again. An id neither can put back still stops the open, now naming the id
   and what to do: D64 (the model has no state for an unresolved reference).
+- 2026-09-30 (26.5): every per-project count of assets and resources is gone
+  from the model, the commands, the editor, the game host, MCP and the docs:
+  models, textures, sounds, music, fonts, version records, prefabs, scripts,
+  scenes (and the shell's scene list), materials, animators, timelines, UI
+  documents and themes, dialogues and speakers, effects, graphs, script
+  libraries (and their 1 MiB of text together; a library stage keeps its
+  2 MiB of held text), environment presets, event sounds, trust entries,
+  block types and stamps, and the ones found along the way: the runtime
+  snapshot's model-bounds, audio-duration and rig rows (4,096), the thumbnail
+  cache's 8,192 images per project (refused writes), the 9,999 generated scene
+  ids (`scene-NNNN` now grows a digit) and the entity id space tied to 64
+  scenes (the search stops at the ids taken + 1). Guards:
+  `tests/count-caps.test.ts` (no limit the model exports, and no `const` in any
+  package, names a per-project count: `MAX_<kind>`, `*_LIMITS.<kind>`,
+  `<kind>_PER_PROJECT`) and `tests/e2e/count-caps.e2e.ts` (a project with 1.5 ×
+  every old cap of every kind opens, takes one command of each kind that
+  makes one more, plays and exports in the browser).
+- 2026-09-30 (26.5): the byte caps. `MAX_CONTENT_FILE_BYTES` (1 MiB) is the
+  one per-file cap: each resource record, each environment preset (they were
+  measured with `content.json`) and `content.json`'s project-wide part; a
+  prefab's cap is the same (was 128 KiB). The project source quota (512 MiB)
+  is gone: an import or upload is refused only when the disk it writes to
+  would keep less than the 64 MiB reserve, `statfs` of that folder (the game
+  folder may be on another disk than the data root), and the message says
+  how much is free. The runtime manifest's cap is the content file cap (32
+  MiB; was 256 KiB): asset rows, rigs and prefabs are still inline until
+  26.9's catalog, and the full bench's manifest is 9.2 MB. The 512 MiB Play
+  content set stays with a comment: the backend holds a Play build in memory
+  until 26.8 serves it from disk. The animation-key budget is per model only
+  (262,144 key numbers, animation-only files included; the project-wide
+  1,048,576 is gone).
+- 2026-09-30 (26.5): the game host's audio stores no longer refuse (keyed by
+  asset id, one entry per sound the game registers). Removing the store
+  without 26.11's loader would keep every decoded voice of a long dialogue,
+  so decoded music buffers are a bounded cache that never refuses
+  (`MUSIC_DECODED_KEEP` = 64, least recently used dropped and decoded again
+  from its bytes; a playing source keeps its buffer). Every `audio` asset is
+  still read and decoded at mount until 26.11.
+- 2026-09-30 (26.5): the limits audit, against a full-size game (the bench's
+  2,000 models, 300 scenes; Rapier measured in Node on the GPU host with
+  `~/.cache/thirdlight-phase26/measure/rapier-colliders.mjs`: 256 static
+  colliders step in 0.2 ms, 16,384 in 3.0 ms (p95 5.6), plus 1,024 rays 4.6
+  ms; 1,024 trimesh colliders of 1,024 vertices build in 1.8 s and step in
+  0.7 ms; 16,384 spawns over 257 steps 3.7 s in the runtime's test harness).
+  **Raised:** colliders per scene 256 → none of their own (every entity may
+  carry one; the 2D 1,024 polygon-vertex total went with it); 3D hull/mesh
+  points per scene 32,768 → 1,048,576; spawns alive 1,024 → 16,384 (one
+  scene's entities); script physics queries 32 (2D, a literal) and 64 (3D) →
+  1,024 per step for both, one constant (`PHYSICS_QUERY_LIMIT`); script
+  intents 5 → 40 per instance per step (a transform and a pose on each of 16
+  owned entities plus control intents; the 5 blocked a script moving its own
+  parts); entity writes 4,096 → 65,536 per step; prefab entities 256 → 1,024
+  and bytes to the content file cap. **Runtime budgets kept:** spawns 64 per
+  step (0.1 ms each), catch-up 8 steps, voices 32, audio handles 64 and 32
+  plays a step, view events 32, timers 64 per instance (saved with the
+  script). **Kept with a reason:** entities per scene 16,384 (a load unit;
+  worlds are several scenes), collision layers 15 + default (Rapier's 16-bit
+  groups), tags 32 (a 32-bit mask), fog volumes 16 (a fixed uniform array),
+  local lights 16 per scene and drawn, lightmap atlases 16 / entries 4,096 /
+  baked lights 64 (phase 27 reworks lighting), texture-array layers 256 (the
+  WebGL 2 / WebGPU guarantee), texture edge 4,096 (26.12 revisits), KTX2
+  encoder 12 Mpix (a known limit of the pinned encoder; owner deferred),
+  material-instance depth 8, graph nodes 4,096 (256 for script and effect
+  system graphs: one compiled module), UI documents 512 widgets / 48 KiB and
+  timelines 256 keys per track / 48 KiB (each saved in one 64 KiB command),
+  dialogue 1,024 nodes per conversation, 256 variables and 8,192 seen lines
+  (saved with the game), block layer sizes (chunked, 1,048,576 cells per
+  scene), instance sets 65,536 copies, model import metrics, per-asset
+  version counts (one version since 26.3), the Play content set (26.8), the
+  folder listing's 500 entries (a page; 26.13 pages from the index), the
+  editor session's first 128 assets, prefabs and scripts (26.13), the 64 KiB
+  command request, the 1 MiB WebSocket frame. Project configuration that is
+  not assets or resources keeps its bounds (input: 64 actions, 8 maps; 16
+  game modes; 32 settings keys; 99 save slots of 1 MiB). The table in
+  `docs/deployment.md` lists each with its reason, as the code does next to
+  the constant. The packer's literal 256 layers now reads
+  `MAX_TEXTURE_LAYERS`, and a behavior source's literal 262,144 bytes
+  `MAX_BEHAVIOR_SOURCE_BYTES`.

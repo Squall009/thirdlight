@@ -13,7 +13,7 @@ import {
   instantiateRuntime,
   registerSimulationModule,
   validateActionFrame,
-  QUERY_LIMIT_3D,
+  PHYSICS_QUERY_LIMIT,
   type ActionFrame,
   type CharacterMoveResult3D,
   type OverlapShape3D,
@@ -238,20 +238,20 @@ describe('3D script queries', () => {
     expect(errors).toHaveLength(4);
   });
 
-  it(`at most ${QUERY_LIMIT_3D} queries a step (then nothing, warned once); the budget resets every step`, () => {
+  it(`at most ${PHYSICS_QUERY_LIMIT} queries a step (then nothing, warned once); the budget resets every step`, () => {
     const counts: number[] = [];
     const logs: string[] = [];
     runQueries(
       (ctx, n) => {
         if (n < 1 || n > 2) return;
         let hits = 0;
-        for (let i = 0; i < QUERY_LIMIT_3D + 10; i += 1) if (ctx.physics.raycast3d!([0, 0, 10], [0, 0, -1]) !== null) hits += 1;
+        for (let i = 0; i < PHYSICS_QUERY_LIMIT + 10; i += 1) if (ctx.physics.raycast3d!([0, 0, 10], [0, 0, -1]) !== null) hits += 1;
         counts.push(hits);
       },
       [],
       { logs },
     );
-    expect(counts).toEqual([QUERY_LIMIT_3D, QUERY_LIMIT_3D]);
+    expect(counts).toEqual([PHYSICS_QUERY_LIMIT, PHYSICS_QUERY_LIMIT]);
     expect(logs.filter((l) => l.includes('physics queries in one step'))).toHaveLength(1);
   });
 

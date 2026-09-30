@@ -24,7 +24,7 @@
 import { composeBlockLayers, type BlockContentView } from './block-layers';
 import { composeContentChecks, composeV3 } from './project-v3';
 import { derivedOf } from './content-helpers';
-import { validateContentV4, MAX_SCENES, physicsDimensionOf, arrayTextureIds, TEXTURE_ARRAY_KIND } from './content';
+import { validateContentV4, physicsDimensionOf, arrayTextureIds, TEXTURE_ARRAY_KIND } from './content';
 import { effectiveEntityFlags } from './hierarchy-v3';
 import { validateSceneV4 } from './scene-v3';
 import { ID_RE_V2, physicsRotationErrors, physicsScaleErrors } from './components';
@@ -117,9 +117,6 @@ export function composeV4(
   /** The project revision (the highest file revision); asset versions must not be newer. */
   projectRevision: number = Number.MAX_SAFE_INTEGER,
 ): void {
-  if (scenes.length > MAX_SCENES) {
-    errors.push(projectError('', 'limits_exceeded', `a project may hold at most ${MAX_SCENES} scenes`, `<= ${MAX_SCENES}`, { limit: 'entities' as never, current: scenes.length, max: MAX_SCENES }));
-  }
   const sceneIds = new Set<string>();
   for (const s of scenes) {
     if (sceneIds.has(s.sceneId)) errors.push(projectError('/sceneId', 'id_duplicate', 'two scene files use the same scene id', 'unique scene ids', { document: 'scene', sceneId: s.sceneId } as never, s.sceneId));

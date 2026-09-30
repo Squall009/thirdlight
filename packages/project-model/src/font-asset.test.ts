@@ -43,10 +43,9 @@ describe('font asset records', () => {
     }
   });
 
-  it('caps a catalog at 16 fonts and a font at 8 versions', () => {
-    const sixteen = Array.from({ length: 16 }, (_, i) => font(`font-${String(i).padStart(2, '0')}`));
-    expect(validateContentV4({ ...base, assets: sixteen }).ok).toBe(true);
-    expect(limitOf(validateContentV4({ ...base, assets: [...sixteen, font('font-zz')] }))).toContain('font_assets');
+  it('takes as many fonts as the game needs, and caps a font at 8 versions', () => {
+    const many = Array.from({ length: 24 }, (_, i) => font(`font-${String(i).padStart(2, '0')}`));
+    expect(validateContentV4({ ...base, assets: many }).ok).toBe(true);
     const eight = Array.from({ length: 8 }, (_, i) => version(i + 1));
     expect(validateContentV4({ ...base, assets: [font('font-a', eight)] }).ok).toBe(true);
     expect(limitOf(validateContentV4({ ...base, assets: [font('font-a', [...eight, version(9)])] }))).toContain('font_versions');

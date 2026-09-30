@@ -77,6 +77,7 @@ import {
   buildOptionsRecordBytes,
   M2_ENGINE_PINS,
   M2_MODULE_PACKAGES,
+  MANIFEST_CONTENT_FILE_MAX_BYTES,
   RUNTIME_CONTENT_MANIFEST_MAX_BYTES,
   RUNTIME_CONTENT_TYPE,
   type ManifestBehaviorInput,
@@ -109,11 +110,7 @@ export interface ManifestContentFile extends ManifestContentFileRow {
   bytes: Uint8Array;
 }
 
-/**
- * The most bytes one content file may hold; the play content store takes it
- * as its single-artifact cap.
- */
-export const MANIFEST_CONTENT_FILE_MAX_BYTES = 33_554_432;
+export { MANIFEST_CONTENT_FILE_MAX_BYTES };
 
 /**
  * One shared script library module (`libraries/<outputDigest>.js`)

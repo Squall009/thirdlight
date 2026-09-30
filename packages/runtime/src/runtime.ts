@@ -171,12 +171,13 @@ export interface HeldPointer extends PointerSample {
 
 
 /**
- * At most this many 3D physics queries (rays, overlaps, picks) a
- * step, for every script together — twice the 2D plane's 32, because a 3D
- * scene's scripts pick, test line of sight and probe volumes around several
- * objects each step; beyond it a query finds nothing (warned once).
+ * At most this many physics queries (rays, overlaps, picks; 2D and 3D) a
+ * step, for every script together: a runtime budget. A game's agents each
+ * test line of sight and probe around them every step; 1,024 rays cost
+ * Rapier about 1.6 ms in a scene of 16,384 colliders (measured). Beyond it a
+ * query finds nothing (warned once in 3D).
  */
-export const QUERY_LIMIT_3D = 64;
+export const PHYSICS_QUERY_LIMIT = 1024;
 
 /** A query's [x, y, z] (a script error when it is not three finite numbers). */
 function queryVec3(v: unknown, what: string): [number, number, number] {
@@ -220,7 +221,7 @@ const DEFAULT_FIXED_STEP_HZ = 120;
 const MESSAGE_NAME_RE = /^[A-Za-z0-9_.:-]{1,64}$/;
 const MIN_FIXED_STEP_HZ = 1;
 const MAX_FIXED_STEP_HZ = 1000;
-/** Steps a frame may catch up before the rest is dropped. */
+/** Steps a frame may catch up before the rest is dropped (a slow frame must not make the next one slower). */
 export const MAX_CATCHUP_STEPS = 8;
 /**
  * The M2 settle pre-roll at 120 Hz — the engine's settle time
@@ -240,7 +241,7 @@ export function engineTimingSteps(hz: number): { settleSteps: number; dropThroug
     dropThroughSteps: Math.max(1, Math.round(ENGINE_TIMING_DEFAULTS.dropThroughTime * hz)),
   };
 }
-/** The error ring keeps the last 32 entries. */
+/** The error ring keeps the last 32 entries (a display ring, not a record). */
 const MAX_ERROR_ENTRIES = 32;
 /** Dialogue inputs per input frame (DIALOGUE_LIMITS.frameInputs). */
 const DIALOGUE_FRAME_INPUTS = 8;
@@ -5138,7 +5139,7 @@ class RuntimeInstance implements Runtime {
     // In 3D the 3D result (its vectors carry z too).
     characterResult: (): CharacterMoveResult | undefined => (this.physics3d !== undefined ? (this.lastCharacterResult3D as unknown as CharacterMoveResult | undefined) : this.lastCharacterResult),
     characterState: (): CharacterState3D | undefined => this.characterState3D(),
-    // 3D: rays, overlaps and picks with filters; at most QUERY_LIMIT_3D a step.
+    // 3D: rays, overlaps and picks with filters; at most PHYSICS_QUERY_LIMIT a step.
     raycast3d: (origin: readonly number[], direction: readonly number[], maxDistance?: number, filter?: unknown) => {
       const o = queryVec3(origin, 'raycast3d origin');
       const d = queryVec3(direction, 'raycast3d direction');
@@ -5167,19 +5168,19 @@ class RuntimeInstance implements Runtime {
       const ray = p.locked === true ? this.screenRay(0.5, 0.5) : this.screenRay(p.x, p.y);
       return this.castRay3D(ray.origin, ray.direction, max, filter);
     },
-    // At most 32 queries (rays and overlaps) per step for modules and scripts.
+    // At most PHYSICS_QUERY_LIMIT queries (rays and overlaps) per step for modules and scripts.
     raycast: (origin: Vec2, direction: Vec2, maxDistance: number) => {
-      if (this.raycastsThisStep >= 32 || this.physics?.raycast === undefined) return null;
+      if (this.raycastsThisStep >= PHYSICS_QUERY_LIMIT || this.physics?.raycast === undefined) return null;
       this.raycastsThisStep += 1;
       return this.physics.raycast(origin, direction, maxDistance);
     },
     overlapBox: (center: Vec2, half: Vec2): string[] => {
-      if (this.raycastsThisStep >= 32 || this.physics?.overlap === undefined || half === null || typeof half !== 'object') return [];
+      if (this.raycastsThisStep >= PHYSICS_QUERY_LIMIT || this.physics?.overlap === undefined || half === null || typeof half !== 'object') return [];
       this.raycastsThisStep += 1;
       return this.physics.overlap({ type: 'box', hx: Number(half.x), hy: Number(half.y) }, { x: Number(center?.x), y: Number(center?.y) });
     },
     overlapCircle: (center: Vec2, radius: number): string[] => {
-      if (this.raycastsThisStep >= 32 || this.physics?.overlap === undefined) return [];
+      if (this.raycastsThisStep >= PHYSICS_QUERY_LIMIT || this.physics?.overlap === undefined) return [];
       this.raycastsThisStep += 1;
       return this.physics.overlap({ type: 'circle', radius: Number(radius) }, { x: Number(center?.x), y: Number(center?.y) });
     },
@@ -5189,10 +5190,10 @@ class RuntimeInstance implements Runtime {
   private takeQuery3D(): PhysicsPort3D | null {
     const port = this.physics3d;
     if (port === undefined) return null;
-    if (this.raycastsThisStep >= QUERY_LIMIT_3D) {
+    if (this.raycastsThisStep >= PHYSICS_QUERY_LIMIT) {
       if (!this.queryLimitWarned) {
         this.queryLimitWarned = true;
-        this.recordBehaviorLog('thirdlight.runtime:physics', 'warn', `more than ${QUERY_LIMIT_3D} physics queries in one step (step ${this.stepIndex}): the rest of the step's queries find nothing (warned once)`);
+        this.recordBehaviorLog('thirdlight.runtime:physics', 'warn', `more than ${PHYSICS_QUERY_LIMIT} physics queries in one step (step ${this.stepIndex}): the rest of the step's queries find nothing (warned once)`);
       }
       return null;
     }

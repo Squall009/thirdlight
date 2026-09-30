@@ -74,9 +74,11 @@ export interface ModelRig {
  * bound what one model adds to a play/export manifest: 262,144 numbers is
  * about 3 MB of JSON — a character with 60 bones × 12 clips × 3 channels of
  * 30 keys fits with room; clips past the limit are left out and the rig is
- * marked `truncated` (a socket on it then warns once in the play log).
+ * marked `truncated` (a socket on it then warns once in the play log). The
+ * budget is per model (its animation-only files included), never shared
+ * across the project, so a game's hundredth character is read like its first.
  */
-export const MODEL_RIG_LIMITS = Object.freeze({ nodes: 4096, clips: 64, keyNumbers: 262_144, projectKeyNumbers: 1_048_576 });
+export const MODEL_RIG_LIMITS = Object.freeze({ nodes: 4096, clips: 64, keyNumbers: 262_144 });
 
 type Json = Record<string, unknown>;
 const isObj = (v: unknown): v is Json => typeof v === 'object' && v !== null && !Array.isArray(v);

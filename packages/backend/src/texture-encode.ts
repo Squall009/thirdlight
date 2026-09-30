@@ -30,6 +30,7 @@ import { Worker } from 'node:worker_threads';
 import { inflateSync } from 'node:zlib';
 
 import { decodePngRgba } from '@thirdlight/project-model/png';
+import { MAX_TEXTURE_LAYERS } from '@thirdlight/project-model/limits';
 import jpeg from 'jpeg-js';
 import * as ktx2Encoder from 'ktx2-encoder';
 
@@ -47,7 +48,11 @@ export type Ktx2Mode = 'color' | 'normal' | 'data';
 export const KTX2_MODES: readonly Ktx2Mode[] = ['color', 'normal', 'data'];
 /** The encoder package and its pinned version (recorded with every encoded version). */
 export const KTX2_ENCODER = { name: 'ktx2-encoder', version: '0.6.0' } as const;
-/** The encoder's source limit (Basis Universal 2.5: 12 Mpix across the slices). */
+/**
+ * The encoder's source limit (Basis Universal 2.5: 12 Mpix across the
+ * slices). Kept: a known limit of the pinned encoder, not of the engine; a
+ * larger texture is imported as PNG/JPEG or encoded outside the editor.
+ */
 export const KTX2_SOURCE_PIXELS_MAX = 12 * 1024 * 1024;
 
 export type Ktx2EncodeResult =
@@ -157,7 +162,7 @@ const SOURCE_RAW = 0;
  * same as `encodeKtx2`'s for colour and normal maps.
  */
 export async function packKtx2(sources: readonly Uint8Array[], layers: readonly PackLayer[], mode: Ktx2Mode): Promise<Ktx2PackResult> {
-  if (layers.length < 1 || layers.length > 256) return { ok: false, code: 'texture_encode_unsupported', message: 'a packed texture has 1-256 layers' };
+  if (layers.length < 1 || layers.length > MAX_TEXTURE_LAYERS) return { ok: false, code: 'texture_encode_unsupported', message: `a packed texture has 1-${MAX_TEXTURE_LAYERS} layers` };
   const used = new Set<number>();
   for (const l of layers) for (const c of l) if ('source' in c) used.add(c.source);
   if (used.size === 0) return { ok: false, code: 'texture_encode_unsupported', message: 'a packed texture needs at least one source image (its size)' };

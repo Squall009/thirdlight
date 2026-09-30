@@ -34,7 +34,7 @@
  */
 
 import { isValidSourcePath, validateGraphOps, blockEditsShapeError, validateBlockType, validateCellFields, validateBlockStamp, BLOCK_LIMITS, type GraphDocument, type GraphOp, type ModelErrorV2 } from '@thirdlight/project-model';
-import { ENTITY_FLAGS, M2_SETTINGS_KEYS, MAX_SCENES, MAX_TAGS, TAG_NAME_RE, type AnimatorController, type InputConfig, type EnvironmentConfig, type LightingBake, type MaterialDef, type EffectDef } from '@thirdlight/project-model';
+import { ENTITY_FLAGS, M2_SETTINGS_KEYS, MAX_TAGS, TAG_NAME_RE, type AnimatorController, type InputConfig, type EnvironmentConfig, type LightingBake, type MaterialDef, type EffectDef } from '@thirdlight/project-model';
 
 import {
   ID_RE,
@@ -1117,8 +1117,8 @@ function validateSceneIndexArgs(op: 'createScene' | 'renameScene' | 'deleteScene
   if (op === 'deleteScene') return { ok: true, args: { op, sceneId: sceneId as string } };
   const ids = args['sceneIds'];
   if (ids === undefined) return { ok: false, error: fieldMissing('/args/sceneIds', 'sceneIds') };
-  if (!Array.isArray(ids) || ids.length < 1 || ids.length > MAX_SCENES || ids.some((x) => typeof x !== 'string')) {
-    return { ok: false, error: fieldType('/args/sceneIds', ids, `array of 1-${MAX_SCENES} scene ids`) };
+  if (!Array.isArray(ids) || ids.length < 1 || ids.some((x) => typeof x !== 'string')) {
+    return { ok: false, error: fieldType('/args/sceneIds', ids, 'array of at least 1 scene id') };
   }
   if (new Set(ids).size !== ids.length) return { ok: false, error: fieldValue('/args/sceneIds', ids, 'distinct scene ids', 'a scene is listed twice') };
   return { ok: true, args: { op, sceneIds: ids as string[] } };

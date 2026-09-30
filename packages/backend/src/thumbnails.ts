@@ -10,15 +10,13 @@
  */
 import { ID_RE } from '@thirdlight/project-model/limits';
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 /** Largest thumbnail accepted (bytes). */
 export const THUMBNAIL_BYTES_MAX = 262_144;
 /** Largest thumbnail edge (pixels). */
 export const THUMBNAIL_EDGE_MAX = 512;
-/** Most cached thumbnails per project (writes beyond it are refused). */
-export const THUMBNAILS_PER_PROJECT_MAX = 8192;
 
 const PROJECT_RE = ID_RE;
 const DIGEST_RE = /^[0-9a-f]{64}$/;
@@ -63,33 +61,6 @@ export function createThumbnailCache(cacheDirOf: (projectId: string) => string |
     const root = cacheDirOf(projectId);
     return root === null ? null : join(root, digest, 'thumbnails');
   };
-  // The per-project count is walked once, then kept (a write no
-  // longer lists the whole cache). Another process adding files is only
-  // counted at the next restart — the bound is a disk-use guard, not exact.
-  const counts = new Map<string, number>();
-  const countFor = (projectId: string): number => {
-    const known = counts.get(projectId);
-    if (known !== undefined) return known;
-    let n = 0;
-    const root = cacheDirOf(projectId);
-    if (root !== null) {
-      let digests: string[] = [];
-      try {
-        digests = readdirSync(root);
-      } catch {
-        /* no cache yet */
-      }
-      for (const d of digests) {
-        try {
-          n += readdirSync(join(root, d, 'thumbnails')).length;
-        } catch {
-          /* no thumbnails for these bytes */
-        }
-      }
-    }
-    counts.set(projectId, n);
-    return n;
-  };
   return {
     etag(projectId, digest, piece) {
       const dir = dirOf(projectId, digest);
@@ -117,19 +88,11 @@ export function createThumbnailCache(cacheDirOf: (projectId: string) => string |
       if (dir === null) return 'invalid project or digest';
       const bad = checkThumbnailPng(png);
       if (bad !== null) return bad;
-      if (countFor(projectId) >= THUMBNAILS_PER_PROJECT_MAX) return `the thumbnail cache holds at most ${THUMBNAILS_PER_PROJECT_MAX} images per project`;
       mkdirSync(dir, { recursive: true });
       const path = join(dir, `${thumbnailKey(piece)}.png`);
-      let existed = false;
-      try {
-        existed = statSync(path).isFile();
-      } catch {
-        existed = false;
-      }
       const tmp = `${path}.${process.pid}.tmp`;
       writeFileSync(tmp, png);
       renameSync(tmp, path);
-      if (!existed) counts.set(projectId, countFor(projectId) + 1);
       return null;
     },
   };

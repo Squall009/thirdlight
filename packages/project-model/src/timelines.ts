@@ -44,8 +44,6 @@ import { isPlainObject } from './validate';
 
 /** Engine limits of timelines (documented in deployment.md). */
 export const TIMELINE_LIMITS = Object.freeze({
-  /** Timelines per project. */
-  timelines: 64,
   /** Tracks per timeline. */
   tracks: 32,
   /** Keys per track. */
@@ -487,7 +485,6 @@ export function validateTimelines(value: unknown, path: string, errors: ModelErr
     err(errors, 'field_type', path, 'timelines is an array', value, 'array');
     return;
   }
-  if (value.length > TIMELINE_LIMITS.timelines) err(errors, 'limits_exceeded', path, `at most ${TIMELINE_LIMITS.timelines} timelines`, value.length, `≤ ${TIMELINE_LIMITS.timelines}`);
   const ids = new Set<string>();
   value.forEach((t, i) => {
     if (!trusted?.has(t)) validateTimeline(t, `${path}/${i}`, errors);

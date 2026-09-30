@@ -475,19 +475,23 @@ describe('staging and immutable blob publication (workspace.md §7.6/§13.2)', (
 });
 
 describe('quota and write faults (workspace.md §13.4 F7/F8)', () => {
-  it('fails a publication with content_quota_exceeded (project quota) before writing', () => {
-    ctx = setup({ maxSourceBytesPerProject: 10 });
-    const bytes = new TextEncoder().encode('bigger than the tiny quota\n');
-    const digest = sha256Hex(bytes);
-    const st = ctx.svc.stageContent(PROJECT_ID, { stageId: 'stg-quota01', bytes });
-    if (!st.ok) throw new Error('stage failed');
-    const pub = ctx.svc.publishBlob(PROJECT_ID, { digest, byteLength: bytes.length, source: { kind: 'stage', stageId: 'stg-quota01' } });
+  it('has no project byte quota: only the disk the file goes to refuses, and the message gives its free space', () => {
+    const asked: (string | undefined)[] = [];
+    ctx = setup({ freeSpaceBytes: (path?: string) => (asked.push(path), 64 * 1024 * 1024 + 1000) });
+    const small = new TextEncoder().encode('fits in the disk\n');
+    const ok = ctx.svc.publishBlob(PROJECT_ID, { digest: sha256Hex(small), byteLength: small.length, source: { kind: 'bytes', bytes: small } });
+    expect(ok.ok).toBe(true);
+    // The probe is asked about the folder the file is written to (a game folder may be on another disk).
+    expect(asked.at(-1)).toContain(join('sources', 'sha256'));
+    const big = new Uint8Array(2000).fill(7);
+    const pub = ctx.svc.publishBlob(PROJECT_ID, { digest: sha256Hex(big), byteLength: big.length, source: { kind: 'bytes', bytes: big } });
     expect(pub.ok).toBe(false);
     if (!pub.ok) {
       expect(pub.error.code).toBe('content_quota_exceeded');
-      expect(ef(pub.error)['kind']).toBe('project_quota');
+      expect(ef(pub.error)['kind']).toBe('device_space');
+      expect(pub.error.message).toMatch(/the disk has 64 MiB free; writing 2 KiB would leave less than the 64 MiB kept free/);
     }
-    expect(existsSync(blobPath(ctx, digest))).toBe(false);
+    expect(existsSync(blobPath(ctx, sha256Hex(big)))).toBe(false);
     ctx.svc.dispose();
   });
 

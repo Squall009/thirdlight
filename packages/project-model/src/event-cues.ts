@@ -21,8 +21,8 @@ import type { ModelErrorV2 } from './errors';
 export const EVENT_CUE_SOURCES = ['signal', 'event'] as const;
 export const EVENT_CUE_BUSES = ['sfx', 'music', 'voice', 'ui'] as const;
 
-/** Engine limits: rows in the table; the name length (a signal name's). */
-export const EVENT_CUE_LIMITS = Object.freeze({ cues: 64, name: 64 });
+/** Engine limits: the name length (a signal name's). The table has as many rows as the game needs. */
+export const EVENT_CUE_LIMITS = Object.freeze({ name: 64 });
 
 /** The engine event types a row may listen to without a clip event name (the documented `ctx.events` types). */
 export const ENGINE_EVENT_TYPES = ['enter', 'exit', 'collected', 'restored', 'damaged', 'healed', 'died', 'turned', 'contact', 'separate'] as const;
@@ -71,7 +71,6 @@ export function validateEventCue(v: unknown, path: string, errors: ModelErrorV2[
 /** `content.eventCues`: the whole table. */
 export function validateEventCues(v: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!Array.isArray(v)) return err(errors, 'field_type', path, 'eventCues is a list', v, 'array');
-  if (v.length > EVENT_CUE_LIMITS.cues) err(errors, 'limits_exceeded', path, `a project has at most ${EVENT_CUE_LIMITS.cues} event cues`, v.length, `at most ${EVENT_CUE_LIMITS.cues}`);
   v.forEach((c, i) => validateEventCue(c, `${path}/${i}`, errors));
 }
 

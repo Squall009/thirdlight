@@ -265,8 +265,6 @@ export interface RuntimeUiDocumentRow {
 // ---------------------------------------------------------------------------
 
 export const UI_LIMITS = Object.freeze({
-  documents: 64,
-  themes: 16,
   /** Canonical JSON bytes of one document or theme. */
   documentBytes: 49_152,
   widgets: 512,
@@ -823,7 +821,6 @@ export function validateUiDocument(value: unknown, path: string, errors: ModelEr
 
 export function validateUiDocuments(value: unknown, path: string, errors: ModelErrorV2[], inputMaps?: readonly string[], trusted?: ReadonlySet<unknown>): void {
   if (!Array.isArray(value)) return err(errors, 'field_type', path, 'uiDocuments is a list of UI documents', value, 'array');
-  if (value.length > UI_LIMITS.documents) err(errors, 'limits_exceeded', path, `a project has at most ${UI_LIMITS.documents} UI documents`, value.length, `≤ ${UI_LIMITS.documents}`);
   const seen = new Set<string>();
   value.forEach((d, i) => {
     if (!trusted?.has(d)) validateUiDocument(d, `${path}/${i}`, errors, inputMaps);
@@ -860,7 +857,6 @@ export function validateUiTheme(value: unknown, path: string, errors: ModelError
 
 export function validateUiThemes(value: unknown, path: string, errors: ModelErrorV2[], trusted?: ReadonlySet<unknown>): void {
   if (!Array.isArray(value)) return err(errors, 'field_type', path, 'uiThemes is a list of UI themes', value, 'array');
-  if (value.length > UI_LIMITS.themes) err(errors, 'limits_exceeded', path, `a project has at most ${UI_LIMITS.themes} UI themes`, value.length, `≤ ${UI_LIMITS.themes}`);
   const seen = new Set<string>();
   value.forEach((t, i) => {
     if (!trusted?.has(t)) validateUiTheme(t, `${path}/${i}`, errors);

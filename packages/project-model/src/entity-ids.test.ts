@@ -1,17 +1,14 @@
-/** The assigned entity ids (six digits; the project's entity capacity bounds N). */
+/** The assigned entity ids (six digits; no project bound on N). */
 import { describe, expect, it } from 'vitest';
 import { ENTITY_ID_DIGITS, ENTITY_ID_MAX, entityIdAt, nextFreeEntityIdOf } from './entity-ids';
-import { MAX_SCENES } from './content';
-import { MAX_ENTITIES_V4 } from './scene-v3';
 
 describe('entity ids', () => {
-  it('are written with at least six digits and run to the project entity capacity', () => {
+  it('are written with at least six digits and more past a million', () => {
     expect(ENTITY_ID_DIGITS).toBe(6);
     expect(entityIdAt('box', 1)).toBe('box-000001');
     expect(entityIdAt('box', 999_999)).toBe('box-999999');
     expect(entityIdAt('box', 1_000_000)).toBe('box-1000000');
-    // Every entity a project can hold has an id of each prefix left for it.
-    expect(ENTITY_ID_MAX).toBe(MAX_SCENES * MAX_ENTITIES_V4);
+    expect(ENTITY_ID_MAX).toBe(Number.MAX_SAFE_INTEGER);
   });
 
   it('pick the smallest free number; old four-digit ids are other strings', () => {
@@ -19,10 +16,9 @@ describe('entity ids', () => {
     expect(nextFreeEntityIdOf(new Set(['box-000001', 'box-000003']), 'box')).toBe('box-000002');
   });
 
-  it('say undefined only when every number up to the capacity is taken', () => {
-    let asked = 0;
-    const all = { has: (): boolean => ((asked += 1), true) };
-    expect(nextFreeEntityIdOf(all, 'box')).toBeUndefined();
-    expect(asked).toBe(ENTITY_ID_MAX);
+  it('find a free number past what 64 scenes of 16,384 entities used to allow', () => {
+    const taken = 1_100_000;
+    const all = { has: (id: string): boolean => Number(id.slice(4)) <= taken };
+    expect(nextFreeEntityIdOf(all, 'box')).toBe('box-1100001');
   });
 });

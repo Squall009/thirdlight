@@ -283,17 +283,19 @@ describe('spawn: the runtime (ctx.spawn / ctx.destroy)', () => {
   });
 
   it(`limits: ${MAX_SPAWNS_PER_STEP} spawns per step, ${MAX_LIVE_SPAWNED} live; a refusal returns null with one diagnostic`, () => {
+    // Enough bursts to fill the live bound and be refused past it.
+    const BURSTS = Math.ceil(MAX_LIVE_SPAWNED / MAX_SPAWNS_PER_STEP) + 1;
     const results: (string | null)[] = [];
     let burst = true;
     const h = harness((ctx) => {
       if (!burst) return;
-      if (ctx.stepIndex >= 20 && ctx.stepIndex < 20 + 17) {
+      if (ctx.stepIndex >= 20 && ctx.stepIndex < 20 + BURSTS) {
         for (let i = 0; i < MAX_SPAWNS_PER_STEP + 1; i++) results.push(ctx.spawn('token', { position: [50 + i, 50] }));
       }
     });
-    h.tick(40);
+    h.tick(20 + BURSTS + 3);
     burst = false;
-    // Step 20: 64 accepted, the 65th refused.
+    // Step 20: the step's bound accepted, the one past it refused.
     expect(results.slice(0, MAX_SPAWNS_PER_STEP).every((r) => typeof r === 'string')).toBe(true);
     expect(results[MAX_SPAWNS_PER_STEP]).toBeNull();
     expect(h.spawned()).toHaveLength(MAX_LIVE_SPAWNED);
@@ -304,7 +306,7 @@ describe('spawn: the runtime (ctx.spawn / ctx.destroy)', () => {
     expect(refusals.length).toBeGreaterThanOrEqual(2);
     expect(refusals.some((e) => e.message.includes(`${MAX_LIVE_SPAWNED} spawned entities alive`))).toBe(true);
     expect(h.diag().state).toBe('running');
-  });
+  }, 60_000);
 
   it('a new run removes every spawned entity (ids are never reused); the same inputs give the same game', () => {
     const record = (): { h: ReturnType<typeof harness>; ids: string[] } => {

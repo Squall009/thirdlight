@@ -32,7 +32,6 @@ import {
   MAX_ENUM_VALUES,
   MAX_OWNED_TRANSFORMS,
   MAX_PROPERTIES,
-  MAX_TRUST_ENTRIES,
 } from './content-limits';
 import { canonicalDocBytes, DIGEST_RE, digestError, limitsError, sortedRecord } from './content-helpers';
 
@@ -413,9 +412,6 @@ export function validateTrust(trust: unknown, path: string, errors: ModelErrorV2
   if (entries === undefined) errors.push(fieldMissing(`${path}/entries`, 'entries'));
   else if (!Array.isArray(entries)) errors.push(fieldType(`${path}/entries`, entries, 'array'));
   else {
-    if (entries.length > MAX_TRUST_ENTRIES) {
-      errors.push(limitsError(`${path}/entries`, 'trust_entries', entries.length, MAX_TRUST_ENTRIES, `behaviorTrust may hold at most ${MAX_TRUST_ENTRIES} entries`));
-    }
     let prev: string | null = null;
     const seen = new Set<string>();
     for (let i = 0; i < entries.length; i++) {

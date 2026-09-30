@@ -210,8 +210,8 @@ function maskedSceneBytes(scene: SceneDocument): Uint8Array | null {
  * Backend-assigned ID — the smallest N from 1 such that
  * `<kind>-N` (at least six digits, `entityIdAt`) exists
  * neither in the current scene nor in `reserved` (the project's other
- * scenes). Undefined on exhaustion (⇒ `id_exhaustion`; unreachable before
- * the entity limits). The v3 derived prefixes (`zone`, `spawn`, `light`)
+ * scenes). Undefined on exhaustion (⇒ `id_exhaustion`; unreachable: one of
+ * the first `taken + 1` numbers is free). The v3 derived prefixes (`zone`, `spawn`, `light`)
  * use the same rule.
  */
 export type EntityIdPrefix = 'box' | 'group' | 'model' | 'zone' | 'spawn' | 'light' | 'folder' | 'instances';
@@ -543,7 +543,9 @@ function createWork(scene: SceneDocument, reservedIds?: ReadonlySet<string>): Cr
 
 /** The smallest free `<prefix>-N` (`entityIdAt` width), from where the last one of this prefix stopped. */
 function allocateId(work: CreateWork, prefix: string): string | undefined {
-  for (let n = work.nextN.get(prefix) ?? 1; n <= ENTITY_ID_MAX; n += 1) {
+  // One of the first `taken.size + 1` numbers is always free.
+  const last = Math.min(ENTITY_ID_MAX, work.taken.size + 1);
+  for (let n = work.nextN.get(prefix) ?? 1; n <= last; n += 1) {
     const id = entityIdAt(prefix, n);
     if (work.taken.has(id)) continue;
     work.taken.add(id);

@@ -1,9 +1,9 @@
 /**
  * Content storage: layout, immutable blob publication, staging,
- * reads/integrity, derived caches, quota and `captureContent`.
+ * reads/integrity, derived caches, the disk-space check and `captureContent`.
  *
  * Ownership: this module owns every project-relative
- * content path, immutable blob publication, staging, quota accounting, the
+ * content path, immutable blob publication, staging, the disk-space check, the
  * integrity report, derived-cache paths and the captured content view. It
  * never accepts a caller-supplied path or digest as authoritative, and it
  * never holds the project mutation lock (the synchronous service call is the
@@ -30,7 +30,7 @@ import {
   statfsSync,
   unlinkSync,
 } from 'node:fs';
-import { basename, join, sep } from 'node:path';
+import { basename, dirname, join, sep } from 'node:path';
 import { randomBytes } from 'node:crypto';
 
 import { type SceneV4, type ContentCatalogV4, isValidSourcePath, BEHAVIOR_ENTRY_PATH, MAX_BEHAVIOR_FILES, MAX_OPEN_STAGES, MAX_SOURCE_BYTES, MAX_STAGED_BYTES_PER_PROJECT, MAX_BEHAVIOR_OUTPUT_BYTES, MAX_BEHAVIOR_SOURCE_BYTES, MAX_CONVERTED_SOURCE_BYTES } from '@thirdlight/project-model';
@@ -73,8 +73,6 @@ import { assetRoot, hasImported, importKeyOfConverted, PROJECT_OWN_ENTRIES, read
 export { MAX_OPEN_STAGES, MAX_SOURCE_BYTES, MAX_STAGED_BYTES_PER_PROJECT };
 /** Stage TTL: 3 600 s. */
 export const STAGE_TTL_SECONDS = 3_600;
-/** Default authoritative-bytes quota per project (512 MiB). */
-export const DEFAULT_MAX_SOURCE_BYTES_PER_PROJECT = 536_870_912;
 /** Device free space required before a blob write: blobBytes + 64 MiB. */
 export const DEFAULT_DEVICE_SPACE_RESERVE_BYTES = 67_108_864;
 /** Abandoned-stage retention: 24 h by directory mtime (non-authoritative). */
@@ -87,9 +85,9 @@ const DIGEST_RE = /^[0-9a-f]{64}$/;
 
 /** The content-storage configuration (a subspace of the service core). */
 export interface ContentConfig {
-  maxSourceBytesPerProject: number;
   deviceSpaceReserveBytes: number;
-  freeSpaceBytes: () => number;
+  /** The free bytes of the disk a path is on (the data root's when no path is given). */
+  freeSpaceBytes: (path?: string) => number;
   now: () => number;
   /**
    * The injected GLB inspector (`backend` constructs
@@ -637,33 +635,20 @@ export function readBlobBytes(path: string): { ok: true; bytes: Uint8Array } | {
   }
 }
 
-/** Current authoritative bytes for the project (retained blobs only). */
-export function authoritativeBytes(projectDir: string): number {
-  const dir = join(projectDir, 'sources', 'sha256');
-  let total = 0;
-  try {
-    if (!lstatSync(dir).isDirectory()) return 0;
-  } catch {
-    return 0;
-  }
-  for (const name of readdirSync(dir)) {
-    if (!DIGEST_RE.test(name)) continue;
-    try {
-      total += statSync(join(dir, name)).size;
-    } catch {
-      // ignore
-    }
-  }
-  return total;
-}
-
-/** Default device-free-space probe (newer Node exposes statfsSync). */
+/**
+ * Default device-free-space probe: `statfs` of the path, or of its nearest
+ * existing folder when the path is not made yet (a new upload folder).
+ */
 function defaultFreeSpace(p: string): number {
-  try {
-    const st = statfsSync(p);
-    return Number(st.bavail) * Number(st.bsize);
-  } catch {
-    return Number.MAX_SAFE_INTEGER;
+  for (let at = p; ; ) {
+    try {
+      const st = statfsSync(at);
+      return Number(st.bavail) * Number(st.bsize);
+    } catch {
+      const up = dirname(at);
+      if (up === at) return Number.MAX_SAFE_INTEGER;
+      at = up;
+    }
   }
 }
 
@@ -734,15 +719,8 @@ export function publishBlob(
     if (h === digest) return { ok: true, digest, byteLength: bytes.length, published: false, alreadyPresent: true };
     return { ok: false, error: blobCorrupt(digest, target, h) };
   }
-  // Quota pre-flight: project quota and device free space.
-  const used = authoritativeBytes(ctx.dir);
-  if (used + bytes.length > core.content.maxSourceBytesPerProject) {
-    return {
-      ok: false,
-      error: contentQuotaExceeded('project_quota', used, core.content.maxSourceBytesPerProject, bytes.length),
-    };
-  }
-  const free = core.content.freeSpaceBytes();
+  // Only the disk bounds a project's files: refuse when it is short.
+  const free = core.content.freeSpaceBytes(dir);
   if (free - bytes.length < core.content.deviceSpaceReserveBytes) {
     return {
       ok: false,
@@ -1153,6 +1131,7 @@ export interface ProjectFileEntry {
   byteLength?: number;
 }
 
+/** Entries one folder listing returns (a page of the game folder; the index pages the whole project). */
 export const MAX_PROJECT_FILE_ENTRIES = 500;
 export const IMPORTABLE: Readonly<Record<string, 'model' | 'audio' | 'texture' | 'music' | 'font'>> = { '.glb': 'model', '.fbx': 'model', '.wav': 'audio', '.png': 'texture', '.jpg': 'texture', '.jpeg': 'texture', '.webp': 'texture', '.ktx2': 'texture', '.ogg': 'music', '.opus': 'music', '.mp3': 'music', '.ttf': 'font', '.otf': 'font', '.woff2': 'font', '.woff': 'font' };
 

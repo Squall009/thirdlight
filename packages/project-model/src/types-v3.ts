@@ -222,7 +222,7 @@ export interface TagDefinition {
   name: string;
 }
 
-/** At most this many tags per project (one per mask bit). */
+/** At most this many tags per project: one per bit of the 32-bit tag mask queries filter by. */
 export const MAX_TAGS = 32;
 
 export interface EntityV3 extends EntityFlagsV3 {
@@ -514,8 +514,6 @@ export const SCENE_LIMITS_V3 = Object.freeze({
   lightsDirectional: 1,
   lightsAmbient: 1,
   entities: 1024,
-  // The same value as MAX_AUDIO_ASSETS.
-  audioAssets: 64,
   audioVersions: 8,
   animationProfileBytes: 4_096,
 });

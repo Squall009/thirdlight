@@ -182,20 +182,20 @@ export const CHUNK_SIZE = 16;
 
 /**
  * Engine limits (they protect the runtime and keep requests under the 64 KiB
- * command cap): 256 block types of 8 variants, 32 metadata fields, 64 stamps of
- * at most 16,384 cells, 16 layers per scene, a layer up to 1,024 × 256 × 1,024
+ * command cap): block types of 8 variants, 32 metadata fields, stamps of at
+ * most 16,384 cells, 16 layers per scene, a layer up to 1,024 × 256 × 1,024
  * cells holding at most 262,144 cells (1,048,576 per scene), coordinates within
- * ±4,096 horizontally and ±1,024 vertically, 256 regions of 1,024 boxes.
+ * ±4,096 horizontally and ±1,024 vertically, 256 regions of 1,024 boxes. A
+ * project has as many block types and stamps as it needs (each is edited
+ * alone; cells name a type by id through a per-chunk palette).
  */
 export const BLOCK_LIMITS = Object.freeze({
-  blockTypes: 256,
   variants: 8,
   footprint: 8,
   customBoxes: 8,
   cellFields: 32,
   enumValues: 32,
   stringLength: 64,
-  stamps: 64,
   stampCells: 16_384,
   stampSize: 64,
   layersPerScene: 16,
@@ -456,7 +456,6 @@ function validateUnitBox(b: unknown, path: string, errors: ModelErrorV2[]): void
 
 export function validateBlockTypes(value: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!Array.isArray(value)) return err(errors, 'field_type', path, 'blockTypes is an array', value, 'array');
-  if (value.length > BLOCK_LIMITS.blockTypes) err(errors, 'limits_exceeded', path, `at most ${BLOCK_LIMITS.blockTypes} block types`, value.length);
   const seen = new Set<string>();
   value.forEach((t, i) => {
     const p = `${path}/${i}`;
@@ -661,7 +660,6 @@ export function validateBlockStamp(s: unknown, p: string, errors: ModelErrorV2[]
 
 export function validateBlockStamps(value: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!Array.isArray(value)) return err(errors, 'field_type', path, 'blockStamps is an array', value, 'array');
-  if (value.length > BLOCK_LIMITS.stamps) err(errors, 'limits_exceeded', path, `at most ${BLOCK_LIMITS.stamps} stamps`, value.length);
   const seen = new Set<string>();
   value.forEach((s, i) => {
     validateBlockStamp(s, `${path}/${i}`, errors);

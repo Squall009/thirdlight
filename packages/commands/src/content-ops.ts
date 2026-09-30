@@ -15,14 +15,6 @@ import { ID_RE } from '@thirdlight/project-model';
 import {
   BEHAVIOR_ENTRY_PATH,
   BEHAVIOR_GRAPH_KIND,
-  MAX_ASSETS,
-  MAX_AUDIO_ASSETS,
-  MAX_BEHAVIORS,
-  MAX_FONT_ASSETS,
-  MAX_MUSIC_ASSETS,
-  MAX_TEXTURE_ASSETS,
-  MAX_TRUST_ENTRIES,
-  MAX_VERSION_RECORDS,
   NAME_MAX,
   behaviorGraphContext,
   canonicalGraphData,
@@ -146,15 +138,6 @@ function byId<T extends { assetId?: string; behaviorId?: string }>(a: T, b: T): 
 
 // ---- publishAsset ---------------------------------------------------------
 
-/** The per-kind record count a create is checked against, and its limit's name. */
-export function assetCountLimit(kind: string): { max: number; limit: 'audio_assets' | 'texture_assets' | 'music_assets' | 'font_assets' | 'assets' } {
-  if (kind === 'audio') return { max: MAX_AUDIO_ASSETS, limit: 'audio_assets' };
-  if (kind === 'texture') return { max: MAX_TEXTURE_ASSETS, limit: 'texture_assets' };
-  if (kind === 'music') return { max: MAX_MUSIC_ASSETS, limit: 'music_assets' };
-  if (kind === 'font') return { max: MAX_FONT_ASSETS, limit: 'font_assets' };
-  return { max: MAX_ASSETS, limit: 'assets' };
-}
-
 /** One version record from publish facts, published at `revision`. */
 function assetVersionRecord(args: PublishAssetArgs, version: number, revision: number): CommandAssetRecord['versions'][number] {
   return {
@@ -196,10 +179,6 @@ export function applyPublishAsset(input: OpInput, args: PublishAssetArgs): OpOut
     if (args.kind === undefined) {
       return { ok: false, error: fieldMissing('/args/kind', 'kind') };
     }
-    const kind = args.kind;
-    const cap = assetCountLimit(kind);
-    const count = catalog.assets.filter((a) => assetKindOf(a) === kind).length;
-    if (count + 1 > cap.max) return { ok: false, error: limitsExceeded(cap.limit, count + 1, cap.max) };
   } else {
     if (existing === null) return { ok: false, error: assetNotFound(args.assetId) };
     if (args.kind !== undefined && args.kind !== existingKind) {
@@ -218,11 +197,6 @@ export function applyPublishAsset(input: OpInput, args: PublishAssetArgs): OpOut
     if (anim !== undefined && anim.assetId === args.assetId && typeof anim.version === 'number') boundVersions.add(anim.version);
   }
   const keptVersions = existing === null ? [] : existing.versions.filter((v) => boundVersions.has(v.version));
-  const totalVersions =
-    catalog.assets.reduce((n, a) => n + (a.assetId === args.assetId ? 0 : a.versions.length), 0) + keptVersions.length + 1;
-  if (totalVersions > MAX_VERSION_RECORDS) {
-    return { ok: false, error: limitsExceeded('version_records', totalVersions, MAX_VERSION_RECORDS) };
-  }
 
   // An atomic animated reimport moves the version-local role mapping
   // with the bytes; the presence rule is checked before any value work.
@@ -420,9 +394,6 @@ export function applyPublishBehavior(input: OpInput, args: PublishBehaviorArgs):
   }
   const dv = validateDeclaration(args.declaration);
   if (!dv.ok) return { ok: false, error: dv.error };
-  if (existing === null && catalog.behaviors.length + 1 > MAX_BEHAVIORS) {
-    return { ok: false, error: limitsExceeded('behaviors', catalog.behaviors.length + 1, MAX_BEHAVIORS) };
-  }
   // A declaration derived from the code is edited in the code.
   if (existing !== null && args.mode === 'declaration-update' && existing.source?.declaredInCode === true) {
     return {
@@ -940,9 +911,6 @@ export function applyAcknowledgeBehaviorTrust(
   const previous = deepClone(catalog.behaviorTrust.entries);
   if (previous.some((e) => e.sourceDigest === args.sourceDigest)) {
     return { ok: false, error: noChangeContent() };
-  }
-  if (previous.length + 1 > MAX_TRUST_ENTRIES) {
-    return { ok: false, error: limitsExceeded('trust_entries', previous.length + 1, MAX_TRUST_ENTRIES) };
   }
   const next = [...previous, { sourceDigest: args.sourceDigest, acknowledgedRevision: input.revision }].sort(
     (a, b) => (a.sourceDigest < b.sourceDigest ? -1 : a.sourceDigest > b.sourceDigest ? 1 : 0),

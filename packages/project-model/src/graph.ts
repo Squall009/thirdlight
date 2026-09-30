@@ -1166,7 +1166,6 @@ export interface GraphDocument {
   graph: GraphData;
 }
 
-export const MAX_GRAPH_DOCUMENTS = 64;
 const DOC_ID_RE = ID_RE;
 
 export function validateGraphDocument(kinds: Readonly<Record<string, GraphKindDef>>, value: unknown, path: string, errors: ModelErrorV2[], ctx?: GraphContext): void {
@@ -1200,7 +1199,7 @@ export function graphDocumentsContext(kinds: Readonly<Record<string, GraphKindDe
 }
 
 export function validateGraphDocuments(kinds: Readonly<Record<string, GraphKindDef>>, value: unknown, path: string, errors: ModelErrorV2[]): void {
-  if (!Array.isArray(value) || value.length > MAX_GRAPH_DOCUMENTS) return err(errors, 'field_value', path, `graphs is a list of at most ${MAX_GRAPH_DOCUMENTS}`, value);
+  if (!Array.isArray(value)) return err(errors, 'field_value', path, 'graphs is a list', value);
   const ids = new Set<string>();
   const ctx = graphDocumentsContext(kinds, value);
   // Sub-graph calls between documents must not form a cycle.

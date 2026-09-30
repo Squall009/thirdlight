@@ -11,7 +11,11 @@
  */
 import type { BehaviorTimers } from './types';
 
-/** An engine limit protecting the runtime: running timers per script instance. */
+/**
+ * An engine limit protecting the runtime: running timers per script instance.
+ * Named timers are saved with the script; a script needing more keeps a list
+ * in its state and one timer.
+ */
 export const MAX_TIMERS_PER_INSTANCE = 64;
 /** The longest timer (s): an hour covers any in-game delay and keeps step counts small. */
 export const MAX_TIMER_SECONDS = 3600;

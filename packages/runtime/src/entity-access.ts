@@ -43,8 +43,12 @@ import { clipMessage } from './errors';
 import type { MaterialParamValue, RuntimeMaterials } from './material-params';
 import type { DiagnosticErrorEntry, TransformState } from './types';
 
-/** Engine limit: accepted `set` calls per step (every script together). */
-export const MAX_ENTITY_WRITES_PER_STEP = 4096;
+/**
+ * Engine limit: accepted `set` calls per step (every script together), a
+ * runtime budget against a runaway loop: four writes to every entity of a
+ * full scene (16,384).
+ */
+export const MAX_ENTITY_WRITES_PER_STEP = 65_536;
 
 /** Why a write was refused: the descriptor check's codes and the runtime's. */
 export type EntityWriteCode =

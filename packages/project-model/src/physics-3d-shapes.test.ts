@@ -56,15 +56,16 @@ describe('3D collider shapes (validation and canonical form)', () => {
     expect(shapeErrors({ type: 'convex', points: many })[0]).toMatch(/^limits_exceeded/);
   });
 
-  it('a scene keeps at most 32,768 hull points and mesh vertices in all', () => {
+  it(`a scene keeps at most ${COLLIDER_3D_LIMITS.pointsTotal} hull points and mesh vertices in all`, () => {
     const verts = Array.from({ length: 1024 }, (_, i) => [(i % 32) - 16, 0, Math.floor(i / 32) - 16]);
     const mesh = { type: 'mesh', vertices: verts, triangles: [[0, 1, 32]] };
-    const entities = Array.from({ length: 33 }, (_, i) => ({ id: `mesh-${String(i).padStart(4, '0')}`, components: { transform: T([i * 40, 0, 0]), collider: { shape: mesh } } }));
+    const full = COLLIDER_3D_LIMITS.pointsTotal / verts.length;
+    const entities = Array.from({ length: full + 1 }, (_, i) => ({ id: `mesh-${String(i).padStart(4, '0')}`, components: { transform: T([(i % 32) * 40, 0, Math.floor(i / 32) * 40]), collider: { shape: mesh } } }));
     const v = validateSceneV4(scene(entities));
     expect(v.ok).toBe(false);
     expect(!v.ok && v.errors.map((e) => e.code)).toContain('limits_exceeded');
-    expect(validateSceneV4(scene(entities.slice(0, 32))).ok).toBe(true);
-  });
+    expect(validateSceneV4(scene(entities.slice(0, full))).ok).toBe(true);
+  }, 60_000);
 });
 
 describe('the dimension rules for 3D shapes, scale and blocks', () => {

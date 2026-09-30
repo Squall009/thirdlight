@@ -12,12 +12,12 @@ import type { ModelErrorV3, SceneV4 } from '@thirdlight/project-model';
 import { composeV4, INSTANCE_FLOATS, RESOURCE_CREATING_OPS } from '@thirdlight/project-model';
 
 import type { RetryRecord } from './envelope';
-import { authoritativeBytes, readSourceBlob, verifyConvertedOriginal, verifyImported, verifyReferencedBlob } from './content-store';
+import { readSourceBlob, verifyConvertedOriginal, verifyImported, verifyReferencedBlob } from './content-store';
 import { checkAssetFolder, planPlacement, syncAssetFiles, type ConvertedLike } from './asset-files';
 import { mintImportItems } from './folder-import';
 import { contentCtx } from './service-content';
 import { libraryStageFacts, preparedFactsOf } from './behavior';
-import { contentQuotaExceeded, externalChangeUnreadable, externalChangeUnresolved, pathRejected, writeFailed } from './errors';
+import { externalChangeUnreadable, externalChangeUnresolved, pathRejected, writeFailed } from './errors';
 import { withUntrackedSidecars, writeTransaction, type KnownFile, type V4State } from './store-v4';
 import { changedFiles, detectExternalChangeV4, gameRootOf, publishV4, setPendingUnreadableV4, type Placement } from './session-v4';
 import { pendingInfo, type Core, type ProjectSession } from './session';
@@ -211,12 +211,6 @@ export function runCommandV4(core: Core, s: ProjectSession, request: unknown, D:
     }
     const v = ref.convertedFrom !== undefined ? verifyImported(contentCtx(s), ref.convertedFrom, ref.digest) : verifyReferencedBlob(contentCtx(s), ref.digest, ref.byteLength, ref.sourcePath);
     if (!v.ok) return refuse(v.error);
-  }
-  if (publishedBlobRefs(outcome.result).length > 0) {
-    const used = authoritativeBytes(s.dir);
-    if (used > core.content.maxSourceBytesPerProject) {
-      return refuse(contentQuotaExceeded('project_quota', used, core.content.maxSourceBytesPerProject, 0));
-    }
   }
   const resultScene = sceneV4Of(outcome.state.scene);
   for (const e of resultScene.entities) {

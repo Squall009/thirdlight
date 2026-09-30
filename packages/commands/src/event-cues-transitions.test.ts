@@ -56,7 +56,8 @@ describe('the event → cue table (setEventCues)', () => {
     expect(refused(s, 'setEventCues', { cues: [{ on: 'sometimes', name: 'x', assetId: 'asset-sfx' }] }).code).toBe('field_value');
     expect(refused(s, 'setEventCues', { cues: [{ on: 'signal', assetId: 'asset-sfx' }] }).code).toBe('field_missing');
     expect(refused(s, 'setEventCues', { cues: 'nope' }).code).toBe('field_type');
-    expect(refused(s, 'setEventCues', { cues: Array.from({ length: 65 }, () => cues[0]) }).code).toBe('limits_exceeded');
+    // As many rows as the game needs.
+    ok(s, 'setEventCues', { cues: Array.from({ length: 96 }, (_, i) => ({ ...cues[0], name: `cue-${i}` })) });
     const undone = ok(s, 'undo', {}).state;
     expect(cuesOf(undone)).toBeUndefined();
     const redone = ok(undone, 'redo', {}).state;

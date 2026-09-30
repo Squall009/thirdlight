@@ -152,7 +152,7 @@ export interface SessionError {
   byteLength?: number;
   diagnostics?: unknown;
   diagnosticCount?: number;
-  /** `content_quota_exceeded`: `project_quota` | `device_space`. */
+  /** `content_quota_exceeded`: `device_space` (the disk is short; the message gives the free space). */
   kind?: string;
   used?: number;
   needed?: number;

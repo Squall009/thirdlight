@@ -1,21 +1,33 @@
 /**
- * The content catalog's limits: asset, prefab, behavior and scene counts and
- * sizes. A leaf module (no imports), so every model module can use them
+ * The content catalog's limits: the sizes of one file, one record and one
+ * model. A leaf module (no imports), so every model module can use them
  * without an import cycle; `content.ts` re-exports them.
+ *
+ * Nothing here bounds how many assets or resources a project holds: a game
+ * has as many as it needs, each stored as its own file, so only a file's size
+ * and the runtime's memory are bounded (a guard test fails if a count of
+ * assets or resources comes back as a `MAX_*` here).
  */
 
-export const MAX_ASSETS = 128;
 export const MAX_ASSET_VERSIONS = 32;
-export const MAX_VERSION_RECORDS = 1024;
-export const MAX_CONTENT_BYTES = 1_048_576;
+/**
+ * The largest content file, in canonical bytes: one resource record (a
+ * material, dialogue, UI document, …, each its own file) or the project-wide
+ * settings `content.json` holds. It bounds what one parse and one change
+ * carry; the number of files is not bounded.
+ */
+export const MAX_CONTENT_FILE_BYTES = 1_048_576;
 export const MAX_SOURCE_BYTES = 33_554_432;
-export const MAX_PREFABS = 128;
-export const MAX_PREFAB_ENTITIES = 256;
+/**
+ * One prefab: its entities (a building or a vehicle of many parts) and its
+ * depth. A prefab is one content file, so its bytes
+ * have the content file cap.
+ */
+export const MAX_PREFAB_ENTITIES = 1024;
 export const MAX_PREFAB_DEPTH = 16;
-export const MAX_PREFAB_BYTES = 131_072;
+export const MAX_PREFAB_BYTES = MAX_CONTENT_FILE_BYTES;
 /** The most overrides one prefab instantiation request carries (commands and the editor's planner check it). */
 export const MAX_PREFAB_OVERRIDES = 64;
-export const MAX_BEHAVIORS = 64;
 export const MAX_PROPERTIES = 32;
 export const MAX_ENUM_VALUES = 32;
 export const MAX_DECLARATION_BYTES = 32_768;
@@ -23,26 +35,17 @@ export const MAX_DECLARATION_BYTES = 32_768;
 export const DECLARATION_STRING_LENGTH_DEFAULT = 256;
 export const MAX_DECLARATION_STRING_LENGTH = 1024;
 export const MAX_SETTINGS_KEYS = 32;
-export const MAX_TRUST_ENTRIES = 64;
-/**
- * Sound-effect records: as many as music tracks, since a game's many short
- * cues (steps, hits, UI) each need one; each record is bounded by its own PCM
- * byte cap.
- */
-export const MAX_AUDIO_ASSETS = 64;
+/** Versions of one sound-effect record; each is bounded by its own PCM byte cap. */
 export const MAX_AUDIO_VERSIONS = 8;
-/** Texture asset records (PNG/JPEG/WebP) and their versions. */
-export const MAX_TEXTURE_ASSETS = 256;
+/** Versions of one texture asset record (PNG/JPEG/WebP/KTX2). */
 export const MAX_TEXTURE_VERSIONS = 8;
-/** The largest texture edge (pixels). */
+/** The largest texture edge (pixels): every GPU the engine targets samples it; texture streaming revisits it. */
 export const MAX_TEXTURE_EDGE = 4096;
-/** Music asset records (Ogg Vorbis/Opus, MP3, WAV) and their versions. */
-export const MAX_MUSIC_ASSETS = 64;
+/** Versions of one music asset record (Ogg Vorbis/Opus, MP3, WAV). */
 export const MAX_MUSIC_VERSIONS = 8;
 /** The longest music (ms) and its largest file (bytes). */
 export const MAX_MUSIC_DURATION_MS = 600_000;
-/** Font asset records (TTF, OTF, WOFF2, WOFF) for the project UI and their versions. */
-export const MAX_FONT_ASSETS = 16;
+/** Versions of one font asset record (TTF, OTF, WOFF2, WOFF). */
 export const MAX_FONT_VERSIONS = 8;
 /** The longest family name a font version records (characters). */
 export const MAX_FONT_FAMILY_NAME = 64;
@@ -78,9 +81,6 @@ export const ASSET_METRIC_CAPS = {
 /** The total decoded bytes of one model (`decodedGeometryBytes + decodedImageBytes`). */
 export const MAX_TOTAL_DECODED_BYTES = 536_870_912;
 
-/** The most scenes in a project. */
-export const MAX_SCENES = 64;
-
 /** The largest original accepted for conversion (an FBX), in bytes. */
 export const MAX_CONVERTED_SOURCE_BYTES = 134_217_728;
 
@@ -90,7 +90,7 @@ export const MAX_SOURCE_PATH_LENGTH = 512;
 /** The layers of a texture array (WebGL 2 and WebGPU both guarantee 256). */
 export const MAX_TEXTURE_LAYERS = 256;
 
-/** The engine cap on concurrent sound voices (the `audio_voices` setting's maximum). */
+/** The engine cap on concurrent sound voices (the `audio_voices` setting's maximum): mixing cost per voice, as common engines' real-voice defaults. */
 export const AUDIO_VOICE_CAP = 32;
 /** The `audio_voices` default: enough for overlapping effects in any scene. */
 export const AUDIO_VOICES_DEFAULT = 8;

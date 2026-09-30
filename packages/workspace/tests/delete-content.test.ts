@@ -123,19 +123,16 @@ describe('deleteAsset / deletePrefab (phase 25.7c)', () => {
     svc.dispose();
   });
 
-  it('the catalog holds 64 sound effects (was 16); the 65th is refused', () => {
+  it('the catalog holds as many sound effects as the game needs (64 was a cap)', () => {
     const { svc } = setup('audio-cap');
     const env = JSON.parse(readFileSync(MEDIA, 'utf8')) as { content: { assets: { assetId: string; versions: { importRecipe: unknown; metrics: unknown }[] }[] } };
     const v = env.content.assets.find((a) => a.assetId === AUDIO)!.versions[0]!;
     const publish = (i: number) =>
       send(svc, 'publishAsset', { mode: 'create', kind: 'audio', assetId: `sfx-${i}`, displayName: `sfx ${i}`, sourceDigest: WAV, sourceByteLength: WAV_BYTES.length, importRecipe: v.importRecipe, metrics: v.metrics, importedAt: '2026-09-28T12:00:00Z' });
-    // The fixture already has one audio asset: 63 more make 64.
-    for (let i = 0; i < 63; i += 1) expect(publish(i).ok).toBe(true);
-    const over = publish(63) as unknown as { ok: boolean; error: { code: string; limit: string; max: number } };
-    expect(over.ok).toBe(false);
-    expect(over.error).toMatchObject({ code: 'limits_exceeded', limit: 'audio_assets', max: 64 });
+    // The fixture already has one audio asset: 95 more make 96.
+    for (let i = 0; i < 95; i += 1) expect(publish(i).ok).toBe(true);
     svc.dispose();
-  });
+  }, 60_000);
 });
 
 describe('bulk building (phase 25.7e)', () => {

@@ -32,8 +32,8 @@ import type { ModelErrorV2 } from './errors';
 export const SHELL_SCREENS = ['title', 'pause', 'settings', 'controls', 'save', 'load'] as const;
 export type ShellScreen = (typeof SHELL_SCREENS)[number];
 
-/** Engine limits: HUD documents shown together; listed scenes. */
-export const SHELL_LIMITS = Object.freeze({ hud: 8, scenes: 32 });
+/** Engine limits: HUD documents shown together (drawn at once over the game). The scene list is as long as the game. */
+export const SHELL_LIMITS = Object.freeze({ hud: 8 });
 
 export interface ShellScene {
   /** A scene of the project. */
@@ -91,7 +91,7 @@ export function validateShell(v: unknown, path: string, errors: ModelErrorV2[]):
   }
   const scenes = v['scenes'];
   if (scenes !== undefined) {
-    if (!Array.isArray(scenes) || scenes.length < 1 || scenes.length > SHELL_LIMITS.scenes) err(errors, 'field_value', `${path}/scenes`, `scenes is a list of 1–${SHELL_LIMITS.scenes} entries`, Array.isArray(scenes) ? scenes.length : scenes, 'an array');
+    if (!Array.isArray(scenes) || scenes.length < 1) err(errors, 'field_value', `${path}/scenes`, 'scenes is a list of at least one entry', Array.isArray(scenes) ? scenes.length : scenes, 'an array');
     else {
       scenes.forEach((s, i) => {
         const p = `${path}/scenes/${i}`;

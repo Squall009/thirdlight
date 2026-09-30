@@ -166,7 +166,7 @@ export interface BehaviorSpawnControl {
    * `options.position` (`[x, y]` keeps the root's authored z, or `[x, y, z]`),
    * optional `rotation` (quaternion `[x, y, z, w]`) and `scale` (number or
    * `[x, y, z]`). Returns the new root id (`spawn-<n>`), or `null` when an
-   * engine limit refuses it (64 spawns per step, 1024 live spawned entities).
+   * engine limit refuses it (`MAX_SPAWNS_PER_STEP` a step, `MAX_LIVE_SPAWNED` alive).
    * An unknown prefab or bad options throw.
    */
   spawn(prefabId: string, options: { position: readonly number[]; rotation?: readonly number[]; scale?: number | readonly number[] }): string | null;

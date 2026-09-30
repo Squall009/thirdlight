@@ -12,7 +12,7 @@
  * editor/backend/workspace edge. The `IntentSet` is the runtime's own
  * step-scoped data; nothing here reads a clock or a global.
  */
-import { MAX_LEN } from '@thirdlight/project-model';
+import { MAX_LEN, MAX_OWNED_TRANSFORMS } from '@thirdlight/project-model';
 import { JUMP_PHASES, type JumpPhase } from './actions';
 import { clipMessage } from './errors';
 import type { SimulationPhase } from './types';
@@ -208,8 +208,12 @@ export interface IntentSet {
  * per-step count; the retained ring is the behavior host's per-instance ring.)
  */
 export const INTENT_LIMITS = Object.freeze({
-  /** Accepted intents per instance per step (defense in depth: the closed maximum). */
-  perInstancePerStep: 5,
+  /**
+   * Accepted intents per instance per step (defense in depth): room for a
+   * transform and a pose on each of a script's owned entities and its
+   * character and control intents, each channel once.
+   */
+  perInstancePerStep: 2 * MAX_OWNED_TRANSFORMS + 8,
   /** Accepted intents per step across all instances/modules. */
   perStep: 64,
   /** Transform writes per owned entity per step (one per axis). */

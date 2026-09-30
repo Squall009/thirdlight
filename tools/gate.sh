@@ -21,7 +21,7 @@ set -u
 mode=${1:-}
 shift || true
 cd "$(dirname "$0")/.."
-SMOKE=(tests/e2e/start.e2e.ts tests/e2e/play-export.e2e.ts tests/e2e/menus.e2e.ts tests/e2e/scenes.e2e.ts tests/e2e/rendering.e2e.ts tests/e2e/inspector.e2e.ts tests/e2e/scale-bench.e2e.ts)
+SMOKE=(tests/e2e/start.e2e.ts tests/e2e/play-export.e2e.ts tests/e2e/menus.e2e.ts tests/e2e/scenes.e2e.ts tests/e2e/rendering.e2e.ts tests/e2e/inspector.e2e.ts tests/e2e/scale-bench.e2e.ts tests/e2e/count-caps.e2e.ts)
 export TL_E2E_WORKERS=${TL_E2E_WORKERS:-3}
 L=${TL_GATE_LOGS:-$HOME/.cache/thirdlight-logs/gate-$mode-$(date +%Y%m%d-%H%M%S)}
 mkdir -p "$L"

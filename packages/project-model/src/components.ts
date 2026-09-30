@@ -30,9 +30,12 @@ export const ID_RE_V2 = ID_RE;
 export const PROPERTY_KEY_RE = /^[a-z][a-z0-9_]{0,63}$/;
 
 export const MAX_ENTITIES_V2 = 1024;
-export const MAX_COLLIDERS = 256;
+/**
+ * The points of one 2D polygon collider. A scene has no collider count of its
+ * own: every entity may carry one (the scene's entity cap bounds them);
+ * 16,384 static colliders cost Rapier about 3 ms a step (measured).
+ */
 export const MAX_POLYGON_VERTICES = 8;
-export const MAX_POLYGON_VERTICES_TOTAL = 1024;
 export const MAX_COLLIDER_EXTENT = 64;
 export const MIN_POLYGON_AREA = 1e-6;
 export const CONVEX_TOL = 1e-9;
@@ -54,10 +57,11 @@ const KNOWN_MESH_SHAPE_FIELDS = new Set(['type', 'vertices', 'triangles']);
  * a mesh of 1,024 vertices / 2,048 triangles are far beyond a collision
  * proxy (a `_COL` node is a handful of boxes' worth of triangles) and keep
  * one collider inside a command request (64 KiB); a scene holds at most
- * 32,768 hull/mesh points in all. Every coordinate lies within the 64 m
- * collider extent, like a polygon's.
+ * 1,048,576 hull/mesh points in all (a thousand full meshes: Rapier builds
+ * them in about 2 s at load and steps them in under 1 ms, measured). Every
+ * coordinate lies within the 64 m collider extent, like a polygon's.
  */
-export const COLLIDER_3D_LIMITS = Object.freeze({ convexPoints: 64, meshVertices: 1024, meshTriangles: 2048, pointsTotal: 32768 });
+export const COLLIDER_3D_LIMITS = Object.freeze({ convexPoints: 64, meshVertices: 1024, meshTriangles: 2048, pointsTotal: 1_048_576 });
 /** The 3D collider shape types (a 3D project only; a 2D plane uses box and polygon). */
 export const COLLIDER_3D_SHAPES = ['sphere', 'capsule', 'convex', 'mesh'] as const;
 const KNOWN_TRANSFORM_FIELDS = new Set(['position', 'rotation', 'scale']);
@@ -465,6 +469,7 @@ function hasVolume(pts: readonly (readonly [number, number, number])[]): boolean
  * sees. The names are identifiers (letters, digits, _; 1–32 characters).
  */
 export const DEFAULT_COLLISION_LAYER = 'default';
+/** Named layers besides `default`: Rapier's collision groups are 16 bits. */
 export const MAX_COLLISION_LAYERS = 15;
 const LAYER_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]{0,31}$/;
 

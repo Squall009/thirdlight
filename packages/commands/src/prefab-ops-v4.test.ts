@@ -399,8 +399,8 @@ describe('deterministic ID allocation and limits', () => {
     expect(nextFreeEntityId(used, 'box')).toBe('box-000001');
     used.add('box-000001');
     expect(nextFreeEntityId(used, 'box')).toBe('box-000002');
-    // Exhaustion is unreachable before the project's entity capacity.
-    expect(nextFreeEntityId({ has: () => true } as unknown as ReadonlySet<string>, 'box')).toBeUndefined();
+    // Exhaustion is unreachable for a real set (one of the first size + 1 numbers is free); a set that says every id is taken gets none.
+    expect(nextFreeEntityId({ has: () => true, size: 16_384 } as unknown as ReadonlySet<string>, 'box')).toBe(undefined);
   });
 
   it('the result entity bound is checked before ID allocation', () => {
@@ -429,7 +429,7 @@ describe('deterministic ID allocation and limits', () => {
     expect(JSON.stringify(state)).toBe(before);
   });
 
-  it('rejects 65 overrides and a 257-entity definition with the contract limits', () => {
+  it('rejects 65 overrides; takes more definitions than the 128 once allowed', () => {
     const state = stateThrough('M5');
     const definition = state.content?.prefabs[0] as PrefabDefinition;
     const overrides = Array.from({ length: 65 }, () => ({ localId: 'model-0001', key: 'speed', value: 1 }));
@@ -439,18 +439,14 @@ describe('deterministic ID allocation and limits', () => {
       current: 65,
       max: 64,
     });
-    // Definition count bound: 128 existing definitions, then a 129th capture.
-    const prefabs = Array.from({ length: 128 }, (_, i) => ({
+    // No count of definitions: 192 existing ones, then one more capture.
+    const prefabs = Array.from({ length: 192 }, (_, i) => ({
       ...definition,
       prefabId: `prefab-${String(i + 1).padStart(4, '0')}`,
     }));
-    const full = createCommandState(BEFORE.scene, { ...BEFORE.content, prefabs });
-    expect(failError(mutation(full, 'createPrefab', { prefabId: 'prefab-0200', displayName: 'X', sourceEntityId: 'group-0001' }))).toMatchObject({
-      code: 'limits_exceeded',
-      limit: 'prefabs',
-      current: 129,
-      max: 128,
-    });
+    const full = createCommandState(BEFORE.scene, { ...state.content!, prefabs });
+    const more = mutation(full, 'createPrefab', { prefabId: 'prefab-0200', displayName: 'X', sourceEntityId: 'group-0001' });
+    expect(more.ok, JSON.stringify(more.result).slice(0, 400)).toBe(true);
   });
 
   it('rejects an instantiation that would exceed the scene entity or depth limit', () => {

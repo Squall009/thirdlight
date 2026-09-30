@@ -27,7 +27,10 @@ export const PLAY_CONTENT_GRACE_SECONDS = 60;
 export const PLAY_CONTENT_ID_BYTES = 32;
 /** The manifest document cap: the runtime content manifest's. */
 export const PLAY_CONTENT_MANIFEST_MAX_BYTES = RUNTIME_CONTENT_MANIFEST_MAX_BYTES;
-/** The whole artifact-set cap. */
+/**
+ * The whole artifact-set cap. Kept while a Play build's files are held in the
+ * backend's memory; it goes when Play serves them from disk.
+ */
 export const PLAY_CONTENT_SET_MAX_BYTES = 536_870_912;
 /** The single-artifact cap: one content file's. */
 export const PLAY_CONTENT_ARTIFACT_MAX_BYTES = MANIFEST_CONTENT_FILE_MAX_BYTES;

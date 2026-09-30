@@ -55,16 +55,13 @@ export const SCRIPT_LIBRARY_ENTRY = 'src/index.ts';
 
 /**
  * Bounds. A library has a behavior source's bounds (16 files, 64 KiB per
- * file, 256 KiB per container — the compiler's limits); a project keeps at
- * most 32 libraries and 1 MiB of library text in total, since libraries are
- * stored inline in the content document.
+ * file, 256 KiB per container — the compiler's limits). A project has as
+ * many libraries as it needs: each is its own file and its own module.
  */
 export const SCRIPT_LIBRARY_LIMITS = Object.freeze({
-  libraries: 32,
   files: MAX_BEHAVIOR_FILES,
   fileBytes: MAX_BEHAVIOR_FILE_BYTES,
   containerBytes: MAX_BEHAVIOR_SOURCE_BYTES,
-  totalBytes: 1_048_576,
 });
 const PATH_RE = /^[a-z0-9][a-z0-9._-]*(\/[a-z0-9][a-z0-9._-]*)*$/;
 
@@ -156,12 +153,10 @@ export function validateScriptLibrary(value: unknown, path: string, errors: Mode
   }
 }
 
-/** `content.scriptLibraries`: at most 32 libraries with unique ids and 1 MiB of text in total. */
+/** `content.scriptLibraries`: libraries with unique ids. */
 export function validateScriptLibraries(value: unknown, path: string, errors: ModelErrorV2[], trusted?: ReadonlySet<unknown>): void {
   if (!Array.isArray(value)) return err(errors, 'field_type', path, 'scriptLibraries is a list', value, 'array of script libraries');
-  if (value.length > SCRIPT_LIBRARY_LIMITS.libraries) err(errors, 'limits_exceeded', path, `a project has at most ${SCRIPT_LIBRARY_LIMITS.libraries} script libraries`, value.length, `<= ${SCRIPT_LIBRARY_LIMITS.libraries}`);
   const seen = new Set<string>();
-  let total = 0;
   value.forEach((l, i) => {
     if (!trusted?.has(l)) validateScriptLibrary(l, `${path}/${i}`, errors);
     if (!isPlainObject(l)) return;
@@ -170,9 +165,7 @@ export function validateScriptLibraries(value: unknown, path: string, errors: Mo
       if (seen.has(id)) err(errors, 'id_duplicate', `${path}/${i}/libraryId`, 'libraryId is used twice', id);
       seen.add(id);
     }
-    if (Array.isArray(l['files'])) for (const f of l['files'] as unknown[]) if (isPlainObject(f) && typeof f['text'] === 'string') total += utf8Length(f['text']);
   });
-  if (total > SCRIPT_LIBRARY_LIMITS.totalBytes) err(errors, 'limits_exceeded', path, `the script libraries hold at most ${SCRIPT_LIBRARY_LIMITS.totalBytes} bytes of text in total`, total, `<= ${SCRIPT_LIBRARY_LIMITS.totalBytes}`);
 }
 
 export function canonicalScriptLibrary(l: ScriptLibrary): ScriptLibrary {
@@ -183,10 +176,10 @@ export function canonicalScriptLibraries(list: readonly ScriptLibrary[]): Script
   return [...list].sort((a, b) => (a.libraryId < b.libraryId ? -1 : a.libraryId > b.libraryId ? 1 : 0)).map(canonicalScriptLibrary);
 }
 
-/** A behavior source record's pins: 1-32 `{libraryId, sourceDigest}`, ascending unique ids. */
+/** A behavior source record's pins: at least one `{libraryId, sourceDigest}`, ascending unique ids. */
 export function validateLibraryPins(value: unknown, path: string, errors: ModelErrorV2[]): void {
-  if (!Array.isArray(value) || value.length < 1 || value.length > SCRIPT_LIBRARY_LIMITS.libraries) {
-    return err(errors, 'field_value', path, `libraries is absent or lists 1-${SCRIPT_LIBRARY_LIMITS.libraries} library pins`, value, `1-${SCRIPT_LIBRARY_LIMITS.libraries} { libraryId, sourceDigest }`);
+  if (!Array.isArray(value) || value.length < 1) {
+    return err(errors, 'field_value', path, 'libraries is absent or lists at least one library pin', value, 'a list of { libraryId, sourceDigest }');
   }
   value.forEach((p, i) => {
     const pp = `${path}/${i}`;

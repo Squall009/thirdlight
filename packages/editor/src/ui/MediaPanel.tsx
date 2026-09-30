@@ -14,7 +14,6 @@
  */
 import { useState, type JSX } from 'react';
 import type { DescriptorRegistry, EventCue, ObjectFieldDescriptor } from '@thirdlight/project-model';
-import { EVENT_CUE_LIMITS } from '@thirdlight/project-model/limits';
 import type { AssetView } from '../session/content-projection';
 import type { PreviewAudioStatus, PreviewAudioDiagnostic } from '../session/preview-audio';
 import { componentPatch } from '../session/descriptor-fields';
@@ -34,8 +33,6 @@ interface Props {
   /** `base`: the table the edit was made on (re-applied row by row onto the table as it is at send time). */
   onSetEventCues?: (next: EventCue[], base: EventCue[]) => void;
 }
-
-const MAX_EVENT_CUES = EVENT_CUE_LIMITS.cues;
 
 function cueItemDesc(registry: DescriptorRegistry | null | undefined): ObjectFieldDescriptor | null {
   const d = registry?.content.find((b) => b.key === 'eventCues')?.value;
@@ -63,7 +60,7 @@ function EventSounds(p: Props): JSX.Element | null {
   const ctx = p.fieldContext;
   const sounds = p.assets.filter((a) => a.kind === 'audio');
   const pick = sound !== '' ? sound : (sounds[0]?.assetId ?? '');
-  const canAdd = name.trim() !== '' && pick !== '' && cues.length < MAX_EVENT_CUES;
+  const canAdd = name.trim() !== '' && pick !== '';
   const add = (): void => {
     if (!canAdd) return;
     set([...cues, { on, name: name.trim(), assetId: pick }]);
@@ -71,7 +68,7 @@ function EventSounds(p: Props): JSX.Element | null {
   };
   return (
     <section className="tl-media__events" aria-label="event sounds">
-      <div className="tl-panel__title">Event sounds — {cues.length} / {MAX_EVENT_CUES}</div>
+      <div className="tl-panel__title">Event sounds — {cues.length}</div>
       <p className="tl-note">A sound played when a signal is sent (by its name) or an event happens (a trigger&apos;s enter or exit, collected, damaged, died, contact…; optionally only one object&apos;s).</p>
       {cues.map((c, i) => (
         <div className="tl-media__event" key={i} data-event-cue={i} aria-label={`event sound ${i + 1}`}>

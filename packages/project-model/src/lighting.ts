@@ -59,6 +59,7 @@ export interface LightingBake {
 
 export type LightingMap = Record<string, LightingBake>;
 
+/** One scene bake's atlases, entries and baked lights: the bake format's own bounds (scalable lighting reworks the bake). */
 export const MAX_LIGHTMAP_ATLASES = 16;
 export const MAX_LIGHTMAP_ENTRIES = 4096;
 export const MAX_BAKED_LIGHTS = 64;

@@ -774,27 +774,36 @@ export function assetSourceChanged(
   return e as unknown as CommandError;
 }
 
-/** `content_quota_exceeded`: project quota or
- * device free space is insufficient; nothing is written. */
+/** A byte count for a person: `1.5 GiB`, `320 MiB`, `12 KiB`. */
+function byteSize(n: number): string {
+  const units = ['bytes', 'KiB', 'MiB', 'GiB', 'TiB'];
+  let v = n;
+  let u = 0;
+  while (v >= 1024 && u < units.length - 1) {
+    v /= 1024;
+    u += 1;
+  }
+  return u === 0 ? `${n} bytes` : `${v >= 100 ? Math.round(v) : Math.round(v * 10) / 10} ${units[u]}`;
+}
+
+/** `content_quota_exceeded`: the disk the file goes to is short; nothing is
+ * written. A project has no byte quota of its own: only the disk bounds it. */
 export function contentQuotaExceeded(
-  kind: 'project_quota' | 'device_space',
-  used: number,
-  limit: number,
+  kind: 'device_space',
+  free: number,
+  reserve: number,
   needed: number,
 ): CommandError {
   return {
     code: 'content_quota_exceeded',
     cls: 'validation',
     kind,
-    current: used,
-    max: limit,
-    message:
-      kind === 'project_quota'
-        ? `the project's authoritative bytes (${used}) would exceed the quota ${limit}`
-        : `the device free space after writing ${needed} bytes would fall below the required reserve`,
-    hint:
-      'free device space or raise the configured quota; M2 never evicts retained versions to make room',
-  };
+    current: free,
+    max: reserve,
+    needed,
+    message: `the disk has ${byteSize(free)} free; writing ${byteSize(needed)} would leave less than the ${byteSize(reserve)} kept free`,
+    hint: 'free space on the disk the game folder is on, then import again',
+  } as CommandError;
 }
 
 /** `content_publish_failed`: a non-envelope

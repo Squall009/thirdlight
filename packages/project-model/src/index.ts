@@ -301,7 +301,7 @@ export { materialsInUse, type MaterialUseInput } from './material-use';
 // The assigned entity ids (at least six digits; four-digit ids still load).
 export { ENTITY_ID_DIGITS, ENTITY_ID_MAX, entityIdAt, nextFreeEntityIdOf } from './entity-ids';
 export { validateSceneV4, validateMergedSceneV4, validateInstancesComponent, DIRECTIONAL_SHADOW_DEFAULTS, DIRECTIONAL_SHADOW_LIMITS, ENTITY_FLAGS, MAX_ENTITIES_V4, V4_REGISTRY } from './scene-v3';
-export { validateContentV4, isNormalizedContent, MAX_SCENES, ENGINE_TIMING_DEFAULTS, MAX_AUDIO_ASSETS } from './content';
+export { validateContentV4, isNormalizedContent, ENGINE_TIMING_DEFAULTS } from './content';
 // Texture arrays and packed textures.
 export { arrayTextureIds, TEXTURE_ARRAY_KIND, MAX_TEXTURE_LAYERS, KTX2_ENCODINGS, canonicalLabels, isAssetLabel, type Ktx2Encoding } from './content';
 // Prefabs spawned into a running game (the snapshot/manifest carry them).
@@ -374,7 +374,6 @@ export {
   curveValueError,
   gradientValueError,
   GRAPH_OP_NAMES,
-  MAX_GRAPH_DOCUMENTS,
   nodeDef,
   nodeFieldValue,
   nodePorts,
@@ -667,7 +666,6 @@ export {
   animatorStates,
   canonicalAnimatorController,
   canonicalAnimators,
-  MAX_ANIMATORS,
   MAX_ANIMATOR_LAYERS,
   MAX_LAYER_MASK,
   validateAnimatorComponent,
@@ -730,7 +728,6 @@ export {
   type MaterialParamsComponent,
   type MaterialParameter,
   type MaterialParameterValue,
-  MAX_MATERIALS,
   MAX_MATERIAL_SLOTS,
   validateEnvironment,
   validateMaterialMapping,

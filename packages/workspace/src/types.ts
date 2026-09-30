@@ -102,14 +102,11 @@ export interface WorkspaceServiceConfig {
    * runs on the real filesystem.
    */
   ops?: import('./write').WriteOps;
-  /** Authoritative-bytes quota per project (default
-   * 536 870 912 = 512 MiB). Deployment-configurable. */
-  maxSourceBytesPerProject?: number;
   /** Device free space that must remain after a blob write (default
    * 67 108 864 = 64 MiB). */
   deviceSpaceReserveBytes?: number;
-  /** Device free-space probe (default `statfs` on the data root). */
-  freeSpaceBytes?: () => number;
+  /** Device free-space probe for the disk a path is on (default `statfs`; the data root's when no path is given). */
+  freeSpaceBytes?: (path?: string) => number;
   /** Millisecond clock for the stage TTL and abandoned-stage retention
    * (default `Date.now`; tests pin it for deterministic TTL cases). */
   now?: () => number;
