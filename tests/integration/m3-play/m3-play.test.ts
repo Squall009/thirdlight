@@ -88,8 +88,9 @@ describe('buildPlayContentM3 (the v3 play artifact set)', () => {
       expect(artifact, `artifact for ${asset.path}`).toBeDefined();
       if (asset.kind === 'model') expect(artifact?.contentType).toBe('model/gltf-binary');
       if (asset.kind === 'audio') expect(artifact?.contentType).toBe('audio/x-audio');
-      // The artifact bytes re-hash to the declared digest.
-      expect(sha256Hex(artifact!.bytes)).toBe(asset.sourceDigest);
+      // A Play build names each asset's file (served from disk, verified while sent), under its declared digest.
+      expect(artifact).toMatchObject({ digest: asset.sourceDigest, byteLength: asset.sourceByteLength, file: { digest: asset.sourceDigest } });
+      expect(artifact).not.toHaveProperty('bytes');
     }
     // No behavior artifacts (M3 fails closed on behaviors — none here).
     expect(built.artifacts.every((a) => a.path !== 'behaviors/x.js')).toBe(true);

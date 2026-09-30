@@ -16,13 +16,18 @@
  * - `captureRuntimeContentManifest` is a compatibility adapter over
  *   `project-model`'s pure `captureManifest` (one assembler, no second copy).
  *
- * No authoritative or project write ever happens here; the artifact bytes are
- * buffered and bounded (512 MiB per set, 32 MiB per artifact) so a locator
- * read can never reach a project directory, a temp directory or a listing.
+ * No authoritative or project write ever happens here. What a Play build
+ * generates (the manifest, scene files, compiled scripts, content files) is
+ * held in memory, each at most 32 MiB; the project's files (assets, instance
+ * buffers) are not held at all: a set names where the workspace found each
+ * one, and it is served from disk, verified while it is sent. So a Play's
+ * memory does not grow with the project's assets, and a locator read can only
+ * reach a file the build located, never a directory, a temp file or a listing.
  */
 import { createHash, createHmac, randomBytes as nodeRandomBytes } from 'node:crypto';
 
-import { PLAY_CONTENT_ARTIFACT_MAX_BYTES, PLAY_CONTENT_GRACE_SECONDS, PLAY_CONTENT_SET_MAX_BYTES, PLAY_CONTENT_TTL_SECONDS, type LocatorPath, type SessionError } from '@thirdlight/protocol';
+import { PLAY_CONTENT_ARTIFACT_MAX_BYTES, PLAY_CONTENT_GRACE_SECONDS, PLAY_CONTENT_TTL_SECONDS, type LocatorPath, type SessionError } from '@thirdlight/protocol';
+import type { BlobFile } from '@thirdlight/workspace';
 
 /** SHA-256 (lowercase hex) of one byte string. */
 export function sha256HexBytes(bytes: Uint8Array): string {
@@ -48,6 +53,22 @@ export interface PlayArtifact {
   readonly contentType: string;
 }
 
+/** An artifact served from its file on disk (never held in memory). */
+export interface PlayFileArtifact {
+  readonly path: string;
+  readonly digest: string;
+  readonly byteLength: number;
+  readonly contentType: string;
+  readonly file: BlobFile;
+}
+
+/** What a set serves at one path: bytes it holds, or a file. */
+export type PlayServed = PlayArtifact | PlayFileArtifact;
+
+export function isFileArtifact(a: PlayServed): a is PlayFileArtifact {
+  return (a as PlayFileArtifact).file !== undefined;
+}
+
 export interface PlayContentSet {
   readonly contentId: string;
   readonly playSessionId: string;
@@ -57,7 +78,9 @@ export interface PlayContentSet {
   readonly buildId: string;
   readonly contentDigest: string;
   readonly manifestBytes: Uint8Array;
-  readonly artifacts: ReadonlyMap<string, PlayArtifact>;
+  readonly artifacts: ReadonlyMap<string, PlayServed>;
+  /** The page needs the Basis transcoder (a shipped KTX2 texture, or a model that uses it). */
+  readonly needsBasis: boolean;
   readonly issuedAtMs: number;
   readonly expiresAtMs: number;
   terminalAtMs: number | null;
@@ -68,7 +91,6 @@ export interface PlayContentStoreOptions {
   ttlMs?: number;
   graceMs?: number;
   randomId?: () => string;
-  maxSetBytes?: number;
   maxArtifactBytes?: number;
   /** The prune sweep interval (one timer for the whole store). */
   sweepMs?: number;
@@ -82,7 +104,9 @@ export interface PublishPlayContentInput {
   buildId: string;
   contentDigest: string;
   manifestBytes: Uint8Array;
-  artifacts: ReadonlyArray<PlayArtifact>;
+  artifacts: ReadonlyArray<PlayServed>;
+  /** The page needs the Basis transcoder. */
+  needsBasis?: boolean;
 }
 
 export type PublishPlayContentResult =
@@ -118,7 +142,6 @@ export class PlayContentStore {
   private readonly ttlMs: number;
   private readonly graceMs: number;
   private readonly randomId: () => string;
-  private readonly maxSetBytes: number;
   private readonly maxArtifactBytes: number;
   private readonly sets = new Map<string, PlayContentSet>();
   private readonly byPlay = new Map<string, string>();
@@ -127,7 +150,7 @@ export class PlayContentStore {
    * content shares the bytes of the Plays before it instead of holding a
    * copy), with the sets that declare it.
    */
-  private readonly blobs = new Map<string, { artifact: PlayArtifact; holders: Set<string> }>();
+  private readonly blobs = new Map<string, { artifact: PlayServed; holders: Set<string> }>();
   /** The per-project cache root ids (a keyed hash of the project id) → the project. */
   private readonly cacheIds = new Map<string, string>();
   private readonly cacheSecret = nodeRandomBytes(32);
@@ -143,7 +166,6 @@ export class PlayContentStore {
     this.ttlMs = opts.ttlMs ?? PLAY_CONTENT_TTL_SECONDS * 1000;
     this.graceMs = opts.graceMs ?? PLAY_CONTENT_GRACE_SECONDS * 1000;
     this.randomId = opts.randomId ?? randomContentId;
-    this.maxSetBytes = opts.maxSetBytes ?? PLAY_CONTENT_SET_MAX_BYTES;
     this.maxArtifactBytes = opts.maxArtifactBytes ?? PLAY_CONTENT_ARTIFACT_MAX_BYTES;
     const sweepMs = opts.sweepMs ?? 30_000;
     if (sweepMs > 0) {
@@ -155,35 +177,32 @@ export class PlayContentStore {
 
   /** Publish one immutable set (the play build's completion point). */
   publish(input: PublishPlayContentInput): PublishPlayContentResult {
-    let total = input.manifestBytes.length;
+    // Only what the set holds in memory is bounded here (per file); files are served from disk.
     for (const a of input.artifacts) {
-      if (a.bytes.length > this.maxArtifactBytes) {
+      if (!isFileArtifact(a) && a.bytes.length > this.maxArtifactBytes) {
         return {
           ok: false,
           error: limitError('play_build_unavailable', `artifact ${a.path} exceeds the single-artifact cap`, 'artifact_bytes', a.bytes.length, this.maxArtifactBytes),
         };
       }
-      total += a.bytes.length;
-    }
-    if (total > this.maxSetBytes) {
-      return {
-        ok: false,
-        error: limitError('play_build_unavailable', 'the artifact set exceeds the 512 MiB closure cap', 'closure_bytes', total, this.maxSetBytes),
-      };
     }
     const nowMs = this.now();
     let contentId = this.randomId();
     while (this.sets.has(contentId)) contentId = this.randomId();
-    const artifacts = new Map<string, PlayArtifact>();
+    const artifacts = new Map<string, PlayServed>();
     for (const a of input.artifacts) {
-      // The bytes already held under this digest are shared, not kept twice.
+      // What is already held under this digest is shared, not kept twice (a file's newest location wins).
       const held = this.blobs.get(a.digest);
-      if (held !== undefined && held.artifact.bytes.length === a.bytes.length) {
+      if (held !== undefined && !isFileArtifact(a) && !isFileArtifact(held.artifact) && held.artifact.bytes.length === a.bytes.length) {
         artifacts.set(a.path, held.artifact.path === a.path && held.artifact.contentType === a.contentType ? held.artifact : { ...a, bytes: held.artifact.bytes });
         held.holders.add(contentId);
       } else {
         artifacts.set(a.path, a);
         if (held === undefined) this.blobs.set(a.digest, { artifact: a, holders: new Set([contentId]) });
+        else {
+          held.artifact = a;
+          held.holders.add(contentId);
+        }
       }
     }
     const set: PlayContentSet = {
@@ -196,6 +215,7 @@ export class PlayContentStore {
       contentDigest: input.contentDigest,
       manifestBytes: input.manifestBytes,
       artifacts,
+      needsBasis: input.needsBasis === true,
       issuedAtMs: nowMs,
       expiresAtMs: nowMs + this.ttlMs,
       terminalAtMs: null,
@@ -234,7 +254,7 @@ export class PlayContentStore {
    * only while a set of that project that declares it can still be read
    * (live, or in its grace window).
    */
-  artifactByDigest(projectId: string, digest: string): PlayArtifact | undefined {
+  artifactByDigest(projectId: string, digest: string): PlayServed | undefined {
     this.reads += 1;
     const held = this.blobs.get(digest);
     if (held === undefined) return undefined;
@@ -278,7 +298,7 @@ export class PlayContentStore {
   }
 
   /** Resolve one locator path within a set (declared paths only). */
-  artifactFor(set: PlayContentSet, locator: LocatorPath): PlayArtifact | undefined {
+  artifactFor(set: PlayContentSet, locator: LocatorPath): PlayServed | undefined {
     this.reads += 1;
     switch (locator.kind) {
       case 'manifest':
@@ -336,7 +356,7 @@ export class PlayContentStore {
     let bytes = 0;
     for (const set of this.sets.values()) bytes += set.manifestBytes.length;
     const unique = new Set<Uint8Array>();
-    for (const set of this.sets.values()) for (const a of set.artifacts.values()) unique.add(a.bytes);
+    for (const set of this.sets.values()) for (const a of set.artifacts.values()) if (!isFileArtifact(a)) unique.add(a.bytes);
     for (const b of unique) bytes += b.length;
     return {
       sets: this.sets.size,

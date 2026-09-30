@@ -28,10 +28,10 @@ import type { ScaleResult } from './scale-generate';
 import { opusVoice } from './scale-media';
 import { summarize, type Summary } from './stats';
 
-export type ScaleStep = 'open' | 'commands' | 'import' | 'play' | 'walk' | 'dialogue' | 'export';
+export type ScaleStep = 'files' | 'open' | 'commands' | 'import' | 'play' | 'walk' | 'dialogue' | 'export';
 /** Every step; `import` (a folder of new files imported in one command) runs only when asked for. */
-export const SCALE_STEPS: readonly ScaleStep[] = ['open', 'commands', 'import', 'play', 'walk', 'dialogue', 'export'];
-export const SCALE_DEFAULT_STEPS: readonly ScaleStep[] = ['open', 'commands', 'play', 'walk', 'dialogue', 'export'];
+export const SCALE_STEPS: readonly ScaleStep[] = ['files', 'open', 'commands', 'import', 'play', 'walk', 'dialogue', 'export'];
+export const SCALE_DEFAULT_STEPS: readonly ScaleStep[] = ['files', 'open', 'commands', 'play', 'walk', 'dialogue', 'export'];
 
 export interface ScaleBenchOptions {
   dataRoot: string;
@@ -70,7 +70,14 @@ export interface ScaleReport {
   commands?: { sceneEdit: Summary; contentEdit: Summary | null; contentBytes: number | null };
   /** One `importAssets` of a folder of new voice files: the command's round trip (inspection included), and one scene edit after it. */
   import?: { files: number; added: number; ms: number; sceneEditAfterMs: number; backendRssMiB: number | null };
-  play?: { split: PlayStartSplit; memory: MemorySample };
+  /**
+   * The file check ("check files", run by the editor on connect and focus and before Play): the first after the
+   * project is copied in (every file hashed), again at once (stats only), and the first after a restart (the
+   * stamps the last run kept); each with the backend's resident set after it.
+   */
+  files?: { firstMs: number; againMs: number; afterRestartMs: number; entries: number; backendRssMiB: { first: number | null; again: number | null; afterRestart: number | null } };
+  /** `backendRssPeakMiB`: sampled every 50 ms from the click to the first frame; `backendRssAfterStopMiB`: once the play stopped. */
+  play?: { split: PlayStartSplit; memory: MemorySample; backendRssPeakMiB?: number | null; backendRssAfterStopMiB?: number | null };
   walk?: {
     scenes: number;
     /** Request → loaded in the observation, and → unloaded (as the relay sees it). */
@@ -197,6 +204,7 @@ export class ScaleBench {
         const made = await this.backend.post('/api/v1/admin/projects', { projectId: this.opts.projectId, name: 'Scale bench starter', template: 'starter' });
         if (made.status !== 200 && made.status !== 201) throw new Error(`template project: ${JSON.stringify(made.json).slice(0, 300)}`);
       }
+      if (want('files')) await this.attempt('files', () => this.measureFileCheck());
       const opened = await this.attempt('open', () => this.measureOpen());
       if (!opened) return this.report;
       if (want('commands')) await this.attempt('commands', () => this.measureCommands());
@@ -228,6 +236,37 @@ export class ScaleBench {
       this.opts.log(`scale: ${step} broke: ${msg.slice(0, 300)}`);
       return false;
     }
+  }
+
+  /** One file check over HTTP (what the editor asks for), its time and the report's size. */
+  private async fileCheck(): Promise<{ ms: number; entries: number }> {
+    const t = performance.now();
+    const r = await this.backend.post(`/api/v1/projects/${this.opts.projectId}/content/files/check`, { problems: true });
+    const ms = Math.round(performance.now() - t);
+    if (r.status !== 200) throw new Error(`the file check was refused: ${JSON.stringify(r.json).slice(0, 300)}`);
+    return { ms, entries: Number((r.json['summary'] as { total?: number } | undefined)?.total ?? 0) };
+  }
+
+  /**
+   * The file check's cost: the first after the copy (every file is hashed), a second at once, and the first
+   * after a restart; the backend is started again after it so the open step measures a fresh open.
+   */
+  private async measureFileCheck(): Promise<void> {
+    await this.backend.project(this.opts.projectId).query('queryProject');
+    const first = await this.fileCheck();
+    const firstRss = backendRssMiB(this.backend.pid);
+    const again = await this.fileCheck();
+    const againRss = backendRssMiB(this.backend.pid);
+    const restart = async (): Promise<void> => {
+      await this.backend.stop();
+      this.be = await startPerfBackend(this.opts.dataRoot, this.opts.exportRoot);
+    };
+    await restart();
+    await this.backend.project(this.opts.projectId).query('queryProject');
+    const after = await this.fileCheck();
+    const afterRss = backendRssMiB(this.backend.pid);
+    await restart();
+    this.report.files = { firstMs: first.ms, againMs: again.ms, afterRestartMs: after.ms, entries: first.entries, backendRssMiB: { first: firstRss, again: againRss, afterRestart: afterRss } };
   }
 
   /** The backend's first read of the project, then the editor page connected and drawn. */
@@ -373,6 +412,12 @@ export class ScaleBench {
     const page = this.page!;
     const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'), { timeout: 600_000 });
     const before = new Set(page.frames());
+    // The backend's resident set, sampled until the first frame.
+    let rssPeak: number | null = null;
+    const sampler = setInterval(() => {
+      const v = backendRssMiB(this.backend.pid);
+      if (v !== null && (rssPeak === null || v > rssPeak)) rssPeak = v;
+    }, 50);
     const t0 = Date.now();
     await page.getByTitle('Start an isolated play preview').click();
     const response = await started;
@@ -383,11 +428,11 @@ export class ScaleBench {
     const frame = await poll(async () => page.frames().find((f) => !before.has(f) && f.url().startsWith(this.backend.previewOrigin)), (f) => f !== undefined, 300_000, 'the preview iframe');
     this.play = { psid, frame: frame! };
     await poll(() => this.observe(), (o) => o?.state === 'running', 600_000, 'the play preview to run');
-    const firstEpoch = await poll(() => frame!.evaluate(() => (window as unknown as { __tlPerf?: { firstDrawEpoch: number | null } }).__tlPerf?.firstDrawEpoch ?? null), (v) => v !== null, 300_000, 'the first Play frame');
+    const firstEpoch = await poll(() => frame!.evaluate(() => (window as unknown as { __tlPerf?: { firstDrawEpoch: number | null } }).__tlPerf?.firstDrawEpoch ?? null), (v) => v !== null, 300_000, 'the first Play frame').finally(() => clearInterval(sampler));
     const wait = firstEpoch! + 10_500 - Date.now();
     if (wait > 0) await sleep(wait);
     const diag = (await this.relay(`${psid}/diagnostics`)).json as { diagnostics?: { startTimings?: StartTimingsReport }; buildTimings?: Record<string, number> };
-    this.report.play = { split: splitOf(t0, responseEpoch, diag.buildTimings ?? null, diag.diagnostics?.startTimings), memory: await this.memory() };
+    this.report.play = { split: splitOf(t0, responseEpoch, diag.buildTimings ?? null, diag.diagnostics?.startTimings), memory: await this.memory(), backendRssPeakMiB: rssPeak };
   }
 
   /** Load each on-demand scene, sample, unload it; memory before, after each load, and after the walk. */
@@ -506,6 +551,7 @@ export class ScaleBench {
     await this.page?.getByTitle('Stop the play preview').click().catch(() => undefined);
     await poll(async () => (await this.relay(`${psid}/observe`)).status, (st) => st === 404, 60_000, 'the play to stop').catch(() => undefined);
     this.play = null;
+    if (this.report.play !== undefined) this.report.play.backendRssAfterStopMiB = backendRssMiB(this.backend.pid);
   }
 
   /** The export request, its output on disk, and the exported game's first frame in its own page. */

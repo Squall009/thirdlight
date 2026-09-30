@@ -64,6 +64,8 @@ import {
 } from './errors';
 import type { CommandError } from '@thirdlight/commands';
 import { writeAtomic, type WriteOps } from './write';
+import { FileStamps } from './file-stamps';
+import { assetRecordOf } from './catalog-lookup';
 import { assetRoot, hasImported, importKeyOfConverted, PROJECT_OWN_ENTRIES, readImported, type ConvertedLike } from './asset-files';
 
 // ---- bounds --------------------------------------------
@@ -155,6 +157,8 @@ export interface ContentContext {
    * are files inside it.
    */
   gameFolder?: string | null;
+  /** What the project's files hashed to, by their stamps (the session's; absent: remembered for this call only). */
+  stamps?: FileStamps;
 }
 
 /**
@@ -801,7 +805,7 @@ export function preparedMediaFacts(
   if (catalog === null || catalog.assets === undefined) {
     return { ok: false, error: { code: 'asset_not_found', cls: 'validation', assetId: String(assetId), message: `asset '${String(assetId)}' does not exist in the catalog`, hint: 'query the catalog (queryAssets) for current IDs' } };
   }
-  const record = catalog.assets.find((a) => a.assetId === assetId);
+  const record = assetRecordOf(catalog.assets, assetId);
   if (record === undefined) {
     return { ok: false, error: { code: 'asset_not_found', cls: 'validation', assetId: String(assetId), message: `asset '${String(assetId)}' does not exist in the catalog`, hint: 'query the catalog (queryAssets) for current IDs' } };
   }
@@ -833,7 +837,7 @@ function findVersion(
 ): { ok: true; digest: string; byteLength: number; version: number; sourcePath?: string; convertedFrom?: ConvertedLike } | { ok: false; error: CommandError } {
   const found = preparedMediaFacts(ctx, assetId, version);
   if (!found.ok) return found;
-  const record = (ctx.content as unknown as { assets: readonly CatalogAssetLike[] }).assets.find((a) => a.assetId === assetId);
+  const record = assetRecordOf((ctx.content as unknown as { assets: readonly CatalogAssetLike[] }).assets, assetId);
   const convertedFrom = record?.versions.find((v) => v.version === found.facts.version)?.convertedFrom;
   return {
     ok: true,
@@ -1064,61 +1068,38 @@ function readReferencedSource(
   const r = readProjectFileBytes(ctx, sourcePath);
   if (!r.ok) return { ok: false, error: r.missing === true ? assetSourceMissing(digest, sourcePath, assetId, version) : r.error };
   const h = sha256Hex(r.bytes);
-  rememberDigest(r.real, h);
+  rememberRead(ctx, r.real, r.bytes.length, h);
   if (h !== digest || r.bytes.length !== byteLength) {
     return { ok: false, error: assetSourceChanged(digest, sourcePath, h, assetId, version) };
   }
   return { ok: true, bytes: r.bytes };
 }
 
-/**
- * Digests of game-folder files keyed by (realpath, size, mtime, ctime, inode):
- * the integrity report runs on open, on focus and on demand, and must not
- * re-hash an unchanged 30 MB model every time. Reads that serve bytes always
- * hash what they read; only the status report uses this cache.
- */
-const digestCache = new Map<string, { stamp: string; digest: string }>();
-const DIGEST_CACHE_MAX = 1024;
-
-function fileStamp(real: string): string | null {
-  try {
-    const st = statSync(real);
-    return `${st.size}:${st.mtimeMs}:${st.ctimeMs}:${st.ino}`;
-  } catch {
-    return null;
-  }
+/** The project's file stamps (a context without a session gets memory-only ones). */
+function stampsOf(ctx: ContentContext): FileStamps {
+  if (ctx.stamps !== undefined) return ctx.stamps;
+  return (unsessionedStamps ??= new FileStamps(null));
 }
+let unsessionedStamps: FileStamps | undefined;
 
-function rememberDigest(real: string, digest: string): void {
-  const stamp = fileStamp(real);
-  if (stamp === null) return;
-  digestCache.delete(real);
-  digestCache.set(real, { stamp, digest });
-  while (digestCache.size > DIGEST_CACHE_MAX) digestCache.delete(digestCache.keys().next().value as string);
+/** What a whole read of a file hashed to, kept under the file's stamp when the read saw all of it. */
+function rememberRead(ctx: ContentContext, real: string, length: number, digest: string): void {
+  const stamp = FileStamps.stat(real);
+  if (stamp !== null && stamp.size === length) stampsOf(ctx).remember(real, stamp, digest);
 }
 
 /** The digest of a file's current bytes (remembered by its stamp), or null when it cannot be read. */
-export function fileDigest(real: string): string | null {
-  const cached = digestCache.get(real);
-  if (cached !== undefined && cached.stamp === fileStamp(real)) return cached.digest;
-  const r = readBlobBytes(real);
-  if (!r.ok) return null;
-  const h = sha256Hex(r.bytes);
-  rememberDigest(real, h);
-  return h;
+export function fileDigest(ctx: ContentContext, real: string): string | null {
+  return stampsOf(ctx).digestOf(real)?.digest ?? null;
 }
 
 function referencedStatus(ctx: ContentContext, sourcePath: string, digest: string, byteLength: number): ContentIntegrityEntry['status'] {
   const res = resolveProjectFile(ctx, sourcePath);
   if (!res.ok) return res.missing === true ? 'missing' : 'unreadable';
   if (res.size !== byteLength) return 'changed';
-  const cached = digestCache.get(res.real);
-  if (cached !== undefined && cached.stamp === fileStamp(res.real)) return cached.digest === digest ? 'ok' : 'changed';
-  const r = readProjectFileBytes(ctx, sourcePath);
-  if (!r.ok) return r.missing === true ? 'missing' : 'unreadable';
-  const h = sha256Hex(r.bytes);
-  rememberDigest(r.real, h);
-  return h === digest ? 'ok' : 'changed';
+  const found = stampsOf(ctx).digestOf(res.real);
+  if (found === null) return 'unreadable';
+  return found.digest === digest ? 'ok' : 'changed';
 }
 
 /** One entry of a game-folder listing (importable files and subfolders only). */
@@ -1199,7 +1180,7 @@ export function conversionSource(ctx: ContentContext, sourcePath: unknown): Conv
   const r = readBlobBytes(res.real);
   if (!r.ok) return { ok: false, error: pathRejected(path, `${path} could not be read`) };
   const digest = sha256Hex(r.bytes);
-  rememberDigest(res.real, digest);
+  rememberRead(ctx, res.real, r.bytes.length, digest);
   return { ok: true, sourcePath: path, real: res.real, digest, byteLength: r.bytes.length };
 }
 
@@ -1247,7 +1228,7 @@ export function inspectProjectFile(
   if (!read.ok) return read;
   const path = sourcePath as string;
   if (read.bytes.length === 0) return { ok: false, error: pathRejected(path, `${path} is empty`) };
-  rememberDigest(read.real, sha256Hex(read.bytes));
+  rememberRead(ctx, read.real, read.bytes.length, sha256Hex(read.bytes));
   const makeProposalId = options.proposalId ?? defaultProposalId;
   const expiresAt = new Date(core.content.now() + STAGE_TTL_SECONDS * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z');
   const job: ImportJobPort = {
@@ -1305,8 +1286,15 @@ export interface ContentIntegritySummary {
 }
 
 export type ContentIntegrityResult =
-  | { ok: true; entries: ContentIntegrityEntry[]; summary: ContentIntegritySummary }
+  | { ok: true; entries: ContentIntegrityEntry[]; summary: ContentIntegritySummary; page?: { offset: number; limit: number; total: number } }
   | { ok: false; error: CommandError };
+
+/** A page of the integrity report (`problems`: only the entries that are not `ok`; `total` counts what the filter keeps). */
+export interface IntegrityPage {
+  limit?: number;
+  offset?: number;
+  problems?: boolean;
+}
 
 /** `inspectStage(projectId, stageId)`: reads the staged bytes through the workspace's own path rules,
  * runs the injected bounded inspector with a caller-owned job identity, and
@@ -1388,6 +1376,7 @@ export function inspectStage(
 export function contentIntegrity(
   core: { ops: WriteOps; content: ContentConfig },
   ctx: ContentContext,
+  page?: IntegrityPage,
 ): ContentIntegrityResult {
   const entries: ContentIntegrityEntry[] = [];
   const known = new Set<string>();
@@ -1447,7 +1436,12 @@ export function contentIntegrity(
     changed: entries.filter((e) => e.status === 'changed').length,
     orphanBlobs,
   };
-  return { ok: true, entries, summary };
+  ctx.stamps?.save();
+  if (page === undefined) return { ok: true, entries, summary };
+  const kept = page.problems === true ? entries.filter((e) => e.status !== 'ok' || (e.convertedFrom !== undefined && e.convertedFrom.status !== 'ok')) : entries;
+  const offset = page.offset ?? 0;
+  const limit = page.limit ?? kept.length;
+  return { ok: true, entries: kept.slice(offset, offset + limit), summary, page: { offset, limit, total: kept.length } };
 }
 
 /** A converted version's bytes: in the import cache (checked by size; reads verify), else in the blob store of a project from before it. */
@@ -1466,10 +1460,9 @@ function blobStatus(ctx: ContentContext, digest: string, byteLength: number): Co
     return 'missing';
   }
   if (st.isSymbolicLink() || !st.isFile()) return 'corrupt';
-  const r = readBlobBytes(path);
-  if (!r.ok) return r.code === 'ENOENT' ? 'missing' : 'unreadable';
-  const h = sha256Hex(r.bytes);
-  if (h !== digest || r.bytes.length !== byteLength) return 'corrupt';
+  const found = stampsOf(ctx).digestOf(path);
+  if (found === null) return 'unreadable';
+  if (found.digest !== digest || found.stamp.size !== byteLength) return 'corrupt';
   return 'ok';
 }
 

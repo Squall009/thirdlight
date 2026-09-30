@@ -19,8 +19,8 @@ export function noisePng(seed: number, size: number): Buffer {
   });
 }
 
-/** A textured UV sphere GLB (radius 0.5, resting on y = 0). */
-export function sphereGlb(seed: number, segments: number, textureSize: number): Buffer {
+/** A textured UV sphere GLB (radius 0.5, resting on y = 0); `fill` makes its texture one solid colour instead of noise. */
+export function sphereGlb(seed: number, segments: number, textureSize: number, fill?: readonly [number, number, number]): Buffer {
   const rows = segments;
   const cols = segments;
   const verts = (rows + 1) * (cols + 1);
@@ -54,7 +54,7 @@ export function sphereGlb(seed: number, segments: number, textureSize: number): 
       i += 6;
     }
   }
-  const png = noisePng(seed, textureSize);
+  const png = fill !== undefined ? makePng(textureSize, textureSize, () => [fill[0], fill[1], fill[2], 255]) : noisePng(seed, textureSize);
   const parts: Buffer[] = [];
   const views: Record<string, unknown>[] = [];
   let offset = 0;

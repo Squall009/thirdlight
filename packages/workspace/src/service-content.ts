@@ -5,8 +5,8 @@
  * (the on-demand open) and runs one content-store / asset-files operation on
  * its session; none of them changes authoritative state (only commands do).
  */
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, realpathSync } from 'node:fs';
+import { join, sep } from 'node:path';
 
 import type { CommandError } from '@thirdlight/commands';
 import type { ContentCatalogV4 } from '@thirdlight/project-model';
@@ -33,6 +33,7 @@ import {
   writeHeader,
   writeImported,
   headerKey,
+  IMPORT_CACHE_SEGMENTS,
   type ImportHeader,
   type ImportKey,
   type RecordLike,
@@ -59,6 +60,7 @@ import {
   type CapturedV3ReadResult,
   type ContentContext,
   type ContentIntegrityResult,
+  type IntegrityPage,
   type ConversionSourceResult,
   type InspectProjectFileResult,
   type InspectStageOptions,
@@ -76,6 +78,8 @@ import { deepFreeze } from './isolate';
 import { ensureSession, type Core, type ProjectSession } from './session';
 import { restoreSidecars } from './session-v4';
 import { checkResourceFiles } from './resource-check';
+import { locateBlob, locateSourceBlob, openBlobFile, type BlobFile, type LocateBlobResult, type OpenBlobResult } from './blob-files';
+import { FileStamps, FILE_STAMPS_NAME } from './file-stamps';
 
 /** The session as the content-store operations need it. */
 export function contentCtx(s: ProjectSession): ContentContext {
@@ -88,8 +92,22 @@ export function contentCtx(s: ProjectSession): ContentContext {
     scene: s.scene,
     content: s.content,
     gameFolder: s.gameFolder ?? null,
+    stamps: stampsOfSession(s),
     ...(s.v4 ? { scenes: [...s.v4.scenes.values()] } : {}),
   };
+}
+
+function realDir(dir: string): string {
+  try {
+    return realpathSync(dir);
+  } catch {
+    return dir;
+  }
+}
+
+/** The session's file stamps, read from the import cache the first time they are asked for. */
+export function stampsOfSession(s: ProjectSession): FileStamps {
+  return (s.fileStamps ??= new FileStamps(join(s.dir, ...IMPORT_CACHE_SEGMENTS, FILE_STAMPS_NAME)));
 }
 
 /** One asset's file as the check of the game folder sees it (the current version). */
@@ -156,6 +174,8 @@ export function contentOps(core: Core) {
       const sidecarProblems: string[] = [];
       const lost: RecordLike[] = [];
       const root = assetRoot(ctx);
+      const stamps = stampsOfSession(s);
+      const seen = new Set<string>();
       for (const r of records) {
         const v = currentVersionOf(r);
         if (v === undefined) continue;
@@ -167,7 +187,8 @@ export function contentOps(core: Core) {
           const res = resolveProjectFile(ctx, file);
           if (!res.ok) status = res.missing === true ? 'missing' : 'unreadable';
           else {
-            found = fileDigest(res.real);
+            seen.add(res.real);
+            found = fileDigest(ctx, res.real);
             status = found === null ? 'unreadable' : found === facts.digest && res.size === facts.byteLength ? 'ok' : 'changed';
           }
         }
@@ -189,6 +210,11 @@ export function contentOps(core: Core) {
         if (file !== null && status !== 'missing' && status !== 'unreadable' && !existsSync(join(root, ...sidecarPath(file).split('/')))) lost.push(r);
       }
       sidecarProblems.push(...restoreSidecars(core, s, lost));
+      // Game-folder files no asset uses any more drop out of the stamps; the project's own stores (blobs, import cache) stay.
+      const dirReal = realDir(s.dir);
+      const own = [join(dirReal, 'cache') + sep, join(dirReal, 'sources') + sep];
+      stamps.retainOnly(seen, (p) => !own.some((o) => p.startsWith(o)));
+      stamps.save();
       return { ok: true, entries, sidecarProblems };
     }) as AssetFilesResult;
   }
@@ -324,7 +350,24 @@ export function contentOps(core: Core) {
     readBlob: (projectId: string, request: BlobReadRequest): BlobReadResult => run(projectId, (s) => readBlob(core, contentCtx(s), request)),
     /** A digest-addressed verified read of one blob (behavior source containers, instance buffers). */
     readSourceBlob: (projectId: string, request: SourceBlobReadRequest): SourceBlobReadResult => run(projectId, (s) => readSourceBlob(core, contentCtx(s), request)),
-    contentIntegrity: (projectId: string): ContentIntegrityResult => run(projectId, (s) => contentIntegrity(core, contentCtx(s))),
+    contentIntegrity: (projectId: string, page?: IntegrityPage): ContentIntegrityResult => run(projectId, (s) => contentIntegrity(core, contentCtx(s), page)),
+    locateBlobs: (projectId: string, requests: readonly BlobReadRequest[]): { ok: true; results: LocateBlobResult[] } | { ok: false; error: CommandError } =>
+      withOpenSession<{ ok: true; results: LocateBlobResult[] } | { ok: false; error: CommandError }>(
+        projectId,
+        (s) => {
+          const ctx = contentCtx(s);
+          const results = requests.map((r) => locateBlob(ctx, r));
+          stampsOfSession(s).save();
+          return { ok: true, results };
+        },
+        (error) => ({ ok: false, error }),
+      ),
+    locateSourceBlob: (projectId: string, digest: string): { ok: true; file: BlobFile } | { ok: false; error: CommandError } =>
+      withOpenSession<{ ok: true; file: BlobFile } | { ok: false; error: CommandError }>(projectId, (s) => locateSourceBlob(contentCtx(s), digest), (error) => ({ ok: false, error })),
+    openBlobFile: (projectId: string, file: BlobFile): OpenBlobResult =>
+      withOpenSession<OpenBlobResult>(projectId, (s) => openBlobFile(contentCtx(s), file), (error) => ({ ok: false, error, changed: false })),
+    fileStampStats: (projectId: string): { files: number; hashes: number } | null =>
+      withOpenSession(projectId, (s) => ({ files: stampsOfSession(s).size, hashes: stampsOfSession(s).hashes }), () => null),
     /** The single acknowledged project read (scenes + content). */
     readCapturedV3: (projectId: string): CapturedV3ReadResult => run(projectId, (s) => readCapturedV3(contentCtx(s))),
     assetFiles,

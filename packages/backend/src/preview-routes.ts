@@ -4,7 +4,8 @@ import { join } from 'node:path';
 import { classifyLocatorPath, isContentId, redactContentId, sessionError, type SessionError } from '@thirdlight/protocol';
 import { type BackendConfig } from './config';
 import { decodersNeeded } from '@thirdlight/exporter';
-import { PlayContentStore, type PlayArtifact, type PlayContentSet } from './play-content';
+import { isFileArtifact, PlayContentStore, type PlayContentSet, type PlayFileArtifact, type PlayServed } from './play-content';
+import { BlobChangedError, type OpenBlobResult } from '@thirdlight/workspace';
 import { etagMatches, parsePlayBuildPath, type PlayBuildCache } from './play-build';
 
 import { hex } from './util';
@@ -24,10 +25,14 @@ export interface PreviewRoutesContext {
   readonly playBuild: PlayBuildCache;
   /** COOP + COEP when the deployment asks for cross-origin isolation (`embeddable`: the play page itself). */
   readonly isolationHeaders: (res: ServerResponse, embeddable?: boolean) => void;
+  /** Open a project's file to send it (the workspace verifies it: by its stamp at open, by its hash while it is read). */
+  readonly openFile: (projectId: string, file: PlayFileArtifact['file']) => OpenBlobResult;
+  /** A served file no longer had its digest: the project's files are checked again (a changed file is imported again). */
+  readonly onFileChanged: (projectId: string) => void;
 }
 
 export function makePreviewRoutes(ctx: PreviewRoutesContext) {
-  const { config, logStartup, playContent, sendJson, parseQuery, serveStatic, previewCsp, locatorBaseHeaders, previewTemplate, previewShellHtml, isolationHeaders, playBuild } = ctx;
+  const { config, logStartup, playContent, sendJson, parseQuery, serveStatic, previewCsp, locatorBaseHeaders, previewTemplate, previewShellHtml, isolationHeaders, playBuild, openFile, onFileChanged } = ctx;
 
   /** The page's stable roots (the project's cache root, the play build). */
   const rootsOf = (set: PlayContentSet): { cacheRoot: string; buildRoot: string | null } => ({
@@ -57,6 +62,75 @@ export function makePreviewRoutes(ctx: PreviewRoutesContext) {
   };
   /** A year: digest-named bytes never change. */
   const IMMUTABLE_MAX_AGE = 31_536_000;
+
+  /**
+   * One digest-named response from a project file on disk: the same headers
+   * as held bytes, streamed. A file that no longer has the digest is refused
+   * before anything is sent (and the files are checked again); one that
+   * changes while it is sent ends the response short, so no client ever keeps
+   * other bytes under the digest.
+   */
+  const sendFile = (req: IncomingMessage, res: ServerResponse, projectId: string, a: PlayFileArtifact, maxAge: number): void => {
+    const etag = `"${a.digest}"`;
+    if (etagMatches(req.headers['if-none-match'], etag)) {
+      res.setHeader('etag', etag);
+      res.setHeader('cache-control', `private, max-age=${maxAge}, immutable`);
+      res.setHeader('x-thirdlight-digest', a.digest);
+      locatorBaseHeaders(res);
+      res.statusCode = 304;
+      res.end();
+      return;
+    }
+    const opened = openFile(projectId, a.file);
+    if (!opened.ok) {
+      if (opened.changed) onFileChanged(projectId);
+      locatorError(res, sessionError('asset_source_changed', 'conflict', 'this file changed on disk since the play was built; the project files are checked again (start a new play)'), 409);
+      return;
+    }
+    const blob = opened.blob;
+    res.setHeader('etag', etag);
+    res.setHeader('cache-control', `private, max-age=${maxAge}, immutable`);
+    res.setHeader('x-thirdlight-digest', a.digest);
+    locatorBaseHeaders(res);
+    res.setHeader('content-type', a.contentType);
+    res.setHeader('content-length', String(blob.byteLength));
+    if (req.method === 'HEAD') {
+      blob.close();
+      res.end();
+      return;
+    }
+    const chunks = blob.chunks();
+    res.on('close', () => void chunks.return(undefined).catch(() => undefined));
+    void (async () => {
+      try {
+        for await (const chunk of chunks) {
+          if (res.destroyed) return;
+          if (!res.write(chunk)) await new Promise<void>((resolve) => {
+            const done = (): void => {
+              res.off('drain', done);
+              res.off('close', done);
+              resolve();
+            };
+            res.on('drain', done);
+            res.on('close', done);
+          });
+        }
+        res.end();
+      } catch (e) {
+        if (e instanceof BlobChangedError) {
+          logStartup(`play content: a file changed while it was sent (${a.digest.slice(0, 12)}…); the response was cut short`);
+          onFileChanged(projectId);
+        }
+        res.destroy();
+      }
+    })();
+  };
+
+  /** Held bytes or a file, whichever the set has at this path. */
+  const sendServed = (req: IncomingMessage, res: ServerResponse, projectId: string, a: PlayServed, maxAge: number): void => {
+    if (isFileArtifact(a)) sendFile(req, res, projectId, a, maxAge);
+    else sendImmutable(req, res, a, maxAge);
+  };
 
   /** `trusted`: the page request came from a trusted network — the editor then asks for no token. */
   const serveEditorPage = (res: ServerResponse, trusted = false): void => {
@@ -105,7 +179,7 @@ export function makePreviewRoutes(ctx: PreviewRoutesContext) {
   };
 
   /** Does this play ship a KTX2/Basis texture (the transcoder then needs 'unsafe-eval')? */
-  const needsBasis = (set: PlayContentSet): boolean => decodersNeeded([...set.artifacts.values()]).includes('basis');
+  const needsBasis = (set: PlayContentSet): boolean => set.needsBasis || decodersNeeded([...set.artifacts.values()].filter((a) => !isFileArtifact(a)) as { bytes: Uint8Array; contentType: string }[]).includes('basis');
 
   const dispatchPreview = (req: IncomingMessage, res: ServerResponse): void => {
     const url = req.url ?? '';
@@ -169,12 +243,12 @@ export function makePreviewRoutes(ctx: PreviewRoutesContext) {
         const cacheProject = playContent.cacheProject(locator.contentId);
         if (cacheProject !== undefined) {
           const digest = locator.kind === 'asset-digest' ? locator.digest : locator.kind === 'behavior' || locator.kind === 'library' ? locator.outputDigest : null;
-          const artifact: PlayArtifact | undefined = digest === null ? undefined : playContent.artifactByDigest(cacheProject, digest);
+          const artifact: PlayServed | undefined = digest === null ? undefined : playContent.artifactByDigest(cacheProject, digest);
           if (artifact === undefined) {
             locatorError(res, sessionError('path_rejected', 'not_found', 'no play of this project declares this artifact'), 404);
             return;
           }
-          sendImmutable(req, res, artifact, IMMUTABLE_MAX_AGE);
+          sendServed(req, res, cacheProject, artifact, IMMUTABLE_MAX_AGE);
           return;
         }
         const set = playContent.get(locator.contentId);
@@ -213,7 +287,7 @@ export function makePreviewRoutes(ctx: PreviewRoutesContext) {
           locatorError(res, sessionError('path_rejected', 'validation', 'the requested artifact is not declared by the served manifest'), 400);
           return;
         }
-        sendImmutable(req, res, artifact, playContent.remainingMaxAge(set));
+        sendServed(req, res, set.projectId, artifact, playContent.remainingMaxAge(set));
         return;
       }
     } catch (err) {

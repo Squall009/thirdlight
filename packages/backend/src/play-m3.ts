@@ -24,7 +24,7 @@ import { buildContentClosureM3, type ClosureSourceMap, type ContentClosureM3 } f
 import type { RuntimeContentManifestV2 } from '@thirdlight/project-model';
 import type { WorkspaceService } from '@thirdlight/workspace';
 import { generateGraphSource, type BehaviorCompiler } from '@thirdlight/behavior-build';
-import { sha256HexBytes, type PlayArtifact } from './play-content';
+import { sha256HexBytes, type PlayServed } from './play-content';
 
 /**
  * The Play debug build of a visual script (the closure's
@@ -83,7 +83,9 @@ export interface BuiltPlayContentM3 {
   snapshotId: string;
   moduleIds: readonly string[];
   /** The immutable play artifact set (locator-relative paths). */
-  artifacts: readonly PlayArtifact[];
+  artifacts: readonly PlayServed[];
+  /** The page needs the Basis transcoder. */
+  needsBasis: boolean;
   /** The compiled outputs' source maps (error and log locations map back to sources; never served). */
   sourceMaps: readonly ClosureSourceMap[];
 }
@@ -135,6 +137,8 @@ export async function buildPlayContentM3(input: BuildPlayContentM3Input): Promis
     ...(input.timings !== undefined ? { timings: { now: () => performance.now(), add: (stage: string, ms: number) => void (input.timings![stage] = Math.round(ms)) } } : {}),
     // Node's native SHA-256 for the scene files (the same digests as the portable one).
     sha256: sha256HexBytes,
+    // The page reads each asset when it needs it: the build only finds and checks the files.
+    locate: true,
   });
   if (!built.ok) {
     return { ok: false, error: sessionErrorFromM3Closure(built.error) };
@@ -157,7 +161,7 @@ export async function buildPlayContentM3(input: BuildPlayContentM3Input): Promis
     };
   }
 
-  const artifacts: PlayArtifact[] = [];
+  const artifacts: PlayServed[] = [];
   // manifest.json (the runtime-content manifest v2 document; carries
   // sceneDigest for the bridge-delivered snapshot verification).
   artifacts.push({
@@ -178,6 +182,10 @@ export async function buildPlayContentM3(input: BuildPlayContentM3Input): Promis
   for (const a of [...closure.assetArtifacts, ...closure.behaviorArtifacts, ...closure.libraryArtifacts, ...closure.sceneArtifacts, ...closure.bufferArtifacts, ...closure.contentFileArtifacts]) {
     artifacts.push({ path: a.path, bytes: a.bytes, digest: a.digest, contentType: a.contentType });
   }
+  // The project's files (assets, instance buffers) are served from disk, not held.
+  for (const a of [...closure.assetFiles, ...closure.bufferFiles]) {
+    artifacts.push({ path: a.path, digest: a.digest, byteLength: a.byteLength, contentType: a.contentType, file: a.file });
+  }
   // The play entry: the prebuilt bundle served as game.js (the page
   // bootstrap's import target).
   artifacts.push({ path: 'game.js', bytes: input.gameBundle, digest: input.gameBundleDigest ?? sha256HexBytes(input.gameBundle), contentType: 'text/javascript; charset=utf-8' });
@@ -192,6 +200,7 @@ export async function buildPlayContentM3(input: BuildPlayContentM3Input): Promis
       snapshotId: closure.snapshotId,
       moduleIds: closure.moduleIds,
       artifacts,
+      needsBasis: closure.decoders.includes('basis'),
       sourceMaps: closure.sourceMaps,
     },
   };

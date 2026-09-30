@@ -209,7 +209,11 @@ export function fakeService(opts?: {
   const revision = opts?.revision ?? 1;
   return {
     query: (q: { op: string }) => {
-      if (q.op === 'queryBehaviors') return { ok: true, behaviors };
+      if (q.op === 'queryBehaviors') {
+        const a = (q as { args?: { limit?: number; offset?: number } }).args ?? {};
+        const offset = a.offset ?? 0;
+        return { ok: true, behaviors: behaviors.slice(offset, offset + (a.limit ?? 128)), total: behaviors.length, offset, limit: a.limit ?? 128 };
+      }
       if (q.op === 'queryProject') return { ok: true, manifest: { revision }, revision };
       return { ok: true, manifest: { revision }, revision };
     },
@@ -220,5 +224,15 @@ export function fakeService(opts?: {
       const digest = opts?.tamperDigest ?? b.digest;
       return { ok: true, digest, byteLength: b.byteLength, bytes: b.bytes };
     },
+    // Where each asset's bytes are (a Play build locates, the export reads); the same answers as readBlob.
+    locateBlobs: (_projectId: string, reqs: readonly { assetId: string; version: number }[]) => ({
+      ok: true,
+      results: reqs.map((req) => {
+        if (opts?.blobError) return { ok: false, error: opts.blobError };
+        const b = blobs?.get(req.assetId);
+        if (b === undefined) return { ok: false, error: { code: 'blob_missing', cls: 'unavailable', message: `no blob for ${req.assetId}` } };
+        return { ok: true, assetId: req.assetId, version: req.version, file: { digest: opts?.tamperDigest ?? b.digest, byteLength: b.byteLength, real: `/fake/${req.assetId}` } };
+      }),
+    }),
   } as never;
 }

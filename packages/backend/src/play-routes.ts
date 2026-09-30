@@ -5,7 +5,7 @@ import { makeDiagnosticsRequest, makeInputRelayRequest, makePlayStarted, playSna
 import { type CommandError, type QueryResult, type WorkspaceService } from '@thirdlight/workspace';
 import { type BackendConfig } from './config';
 import { createBehaviorCompilerPort } from './content';
-import { PlayContentStore, sha256HexBytes, type PlayArtifact } from './play-content';
+import { PlayContentStore, sha256HexBytes, type PlayServed } from './play-content';
 import { buildPlayContentM3 } from './play-m3';
 import { SessionRegistry, type SessionRecord } from './sessions';
 import { PlayManager, type PlayRecord, type RelayOutcome, type InputRelayOutcome, type GameRelayOutcome, type GameRelayCode } from './play';
@@ -218,7 +218,7 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
       );
       return;
     }
-    let builtCore: { buildId: string; contentDigest: string; manifestBytes: Uint8Array; artifacts: readonly PlayArtifact[] };
+    let builtCore: { buildId: string; contentDigest: string; manifestBytes: Uint8Array; artifacts: readonly PlayServed[]; needsBasis: boolean };
     // The compiled outputs' source maps (kept on the play record, never served).
     let playSourceMaps: ReadonlyMap<string, { behaviorId?: string; libraryId?: string; sourceMap: string }> | undefined;
     let startNotes: string[] = [];
@@ -308,6 +308,7 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
         contentDigest: builtM3.built.contentDigest,
         manifestBytes: builtM3.built.manifestBytes,
         artifacts: builtM3.built.artifacts,
+        needsBasis: builtM3.built.needsBasis,
       };
       playSourceMaps = new Map(builtM3.built.sourceMaps.map((m) => [m.outputDigest, m] as const));
     }
@@ -320,6 +321,7 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
       contentDigest: builtCore.contentDigest,
       manifestBytes: builtCore.manifestBytes,
       artifacts: builtCore.artifacts,
+      needsBasis: builtCore.needsBasis,
     });
     mark('publish');
     if (!published.ok) {

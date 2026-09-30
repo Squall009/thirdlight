@@ -287,9 +287,15 @@ export function createAssetFileCheck(deps: AssetFileCheckDeps) {
     importFile,
     /** The whole check: moved files found by their sidecars, changed files imported again, the import cache made whole. */
     check: (projectId: string) => serialized(projectId, { reimport: true, relocate: true }),
-    /** Before Play and export: only the import cache is made whole (the build reads what the catalog records). */
+    /**
+     * Before Play and export (Unity refreshes its asset database before
+     * entering Play mode): a file changed on disk is imported again, and the
+     * import cache made whole, so the build ships what the files hold. Files
+     * are hashed only when their stamp changed, so this costs one stat per
+     * asset. Moves are left to the full check.
+     */
     ensureImported: async (projectId: string): Promise<void> => {
-      await serialized(projectId, { reimport: false, relocate: false });
+      await serialized(projectId, { reimport: true, relocate: false });
     },
   };
 }

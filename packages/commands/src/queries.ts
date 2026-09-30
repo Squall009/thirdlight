@@ -77,6 +77,68 @@ function parseQueryRequest(
   return { ok: true, base: { op, projectId, args: (args ?? {}) as Record<string, unknown> } };
 }
 
+/**
+ * A list in id order, made once per list: queries page from it instead of
+ * copying and sorting the catalog on every call. Lists are immutable values
+ * (a command replaces the list it changes), so the list is the key; a page
+ * whose records no longer carry the ids the order was made from (a list
+ * changed in place) makes the order again.
+ */
+interface IdOrder {
+  readonly length: number;
+  /** Positions in the list, in ascending id order. */
+  readonly order: readonly number[];
+  /** The ids in that order. */
+  readonly ids: readonly string[];
+  /** Id → its place in the order. */
+  readonly rank: ReadonlyMap<string, number>;
+}
+const idOrders = new WeakMap<readonly object[], IdOrder>();
+
+function makeIdOrder<T>(list: readonly T[], idOf: (r: T) => string): IdOrder {
+  const order = list.map((_, i) => i).sort((a, b) => {
+    const x = idOf(list[a]!);
+    const y = idOf(list[b]!);
+    return x < y ? -1 : x > y ? 1 : 0;
+  });
+  const ids = order.map((i) => idOf(list[i]!));
+  const made: IdOrder = { length: list.length, order, ids, rank: new Map(ids.map((id, k) => [id, k] as const)) };
+  idOrders.set(list as unknown as readonly object[], made);
+  return made;
+}
+
+/** The records of `list` in id order from `offset` (at most `limit`), and one by id; `total` is the list's length. */
+export function idOrderedPage<T>(list: readonly T[], idOf: (r: T) => string, offset: number, limit: number, only?: string): { total: number; records: T[]; found: boolean } {
+  let o = idOrders.get(list as unknown as readonly object[]);
+  if (o === undefined || o.length !== list.length) o = makeIdOrder(list, idOf);
+  const pick = (from: number, to: number): T[] | null => {
+    const out: T[] = [];
+    for (let k = from; k < to; k += 1) {
+      const r = list[o!.order[k]!]!;
+      if (idOf(r) !== o!.ids[k]) return null;
+      out.push(r);
+    }
+    return out;
+  };
+  if (only !== undefined) {
+    let k = o.rank.get(only);
+    let got = k === undefined ? [] : pick(k, k + 1);
+    if (got === null) {
+      o = makeIdOrder(list, idOf);
+      k = o.rank.get(only);
+      got = k === undefined ? [] : pick(k, k + 1)!;
+    }
+    return { total: got.length, records: got.slice(offset, offset + limit), found: got.length > 0 };
+  }
+  const to = Math.min(list.length, offset + limit);
+  let got = offset >= to ? [] : pick(offset, to);
+  if (got === null) {
+    o = makeIdOrder(list, idOf);
+    got = pick(offset, to)!;
+  }
+  return { total: list.length, records: got, found: true };
+}
+
 function parsePageArgs(
   args: Record<string, unknown>,
   known: readonly string[],
@@ -141,22 +203,16 @@ export function queryAssets(
     return { ok: false, op: 'queryAssets', projectId, error: fieldType('/args/assetId', args['assetId'], 'string (asset ID)') };
   }
   const content = contentOf(state.content);
-  let records = [...content.assets].sort((a, b) => (a.assetId < b.assetId ? -1 : a.assetId > b.assetId ? 1 : 0));
-  if (typeof args['assetId'] === 'string') {
-    const wanted = args['assetId'];
-    const one = records.find((a) => a.assetId === wanted);
-    if (one === undefined) {
-      return {
-        ok: false,
-        op: 'queryAssets',
-        projectId,
-        error: { code: 'asset_not_found', cls: 'validation', assetId: wanted, message: 'no asset record with this id exists in content.assets' },
-      };
-    }
-    records = [one];
+  const wanted = typeof args['assetId'] === 'string' ? args['assetId'] : undefined;
+  const { total, records: pageRecords, found } = idOrderedPage(content.assets, (a) => a.assetId, page.offset, page.limit, wanted);
+  if (!found) {
+    return {
+      ok: false,
+      op: 'queryAssets',
+      projectId,
+      error: { code: 'asset_not_found', cls: 'validation', assetId: wanted!, message: 'no asset record with this id exists in content.assets' },
+    };
   }
-  const total = records.length;
-  const pageRecords = records.slice(page.offset, page.offset + page.limit);
   const assets: AssetSummary[] = pageRecords.map((a) => {
     const summary: AssetSummary = {
       assetId: a.assetId,
@@ -232,22 +288,16 @@ export function queryBehaviors(
     return { ok: false, op: 'queryBehaviors', projectId, error: fieldType('/args/behaviorId', args['behaviorId'], 'string (behavior ID)') };
   }
   const content = contentOf(state.content);
-  let records = [...content.behaviors].sort((a, b) => (a.behaviorId < b.behaviorId ? -1 : a.behaviorId > b.behaviorId ? 1 : 0));
-  if (typeof args['behaviorId'] === 'string') {
-    const wanted = args['behaviorId'];
-    const one = records.find((b) => b.behaviorId === wanted);
-    if (one === undefined) {
-      return {
-        ok: false,
-        op: 'queryBehaviors',
-        projectId,
-        error: { code: 'behavior_not_found', cls: 'validation', behaviorId: wanted, message: 'no behavior record with this id exists in content.behaviors' },
-      };
-    }
-    records = [one];
+  const wanted = typeof args['behaviorId'] === 'string' ? args['behaviorId'] : undefined;
+  const { total, records: pageRecords, found } = idOrderedPage(content.behaviors, (b) => b.behaviorId, page.offset, page.limit, wanted);
+  if (!found) {
+    return {
+      ok: false,
+      op: 'queryBehaviors',
+      projectId,
+      error: { code: 'behavior_not_found', cls: 'validation', behaviorId: wanted!, message: 'no behavior record with this id exists in content.behaviors' },
+    };
   }
-  const total = records.length;
-  const pageRecords = records.slice(page.offset, page.offset + page.limit);
   // `includeDeclaration: true` returns the exact stored record (the
   // query fixture pins this shape), never source bytes.
   const behaviors: BehaviorQueryEntry[] = pageRecords.map((b) => {
@@ -293,13 +343,10 @@ export function queryPrefabs(
     };
   }
   const content = contentOf(state.content);
-  let records = [...content.prefabs].sort((a, b) =>
-    a.prefabId < b.prefabId ? -1 : a.prefabId > b.prefabId ? 1 : 0,
-  );
-  if (typeof args['prefabId'] === 'string') {
-    const wanted = args['prefabId'];
-    const one = records.find((d) => d.prefabId === wanted);
-    if (one === undefined) {
+  const wanted = typeof args['prefabId'] === 'string' ? args['prefabId'] : undefined;
+  const { total, records: pageRecords, found } = idOrderedPage(content.prefabs, (d) => d.prefabId, page.offset, page.limit, wanted);
+  {
+    if (!found) {
       return {
         ok: false,
         op: 'queryPrefabs',
@@ -307,15 +354,12 @@ export function queryPrefabs(
         error: {
           code: 'prefab_not_found',
           cls: 'validation',
-          prefabId: wanted,
+          prefabId: wanted!,
           message: 'no prefab definition with this id exists in content.prefabs',
         },
       };
     }
-    records = [one];
   }
-  const total = records.length;
-  const pageRecords = records.slice(page.offset, page.offset + page.limit);
   // `includeEntities: true` returns the exact stored definition value (the
   // query fixture pins this shape), never a projection.
   const prefabs: PrefabQueryEntry[] = pageRecords.map((d) => {

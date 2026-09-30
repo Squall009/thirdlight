@@ -31,17 +31,22 @@ test('the scale bench generates, opens, edits, plays, walks scenes, plays a voic
     commands: 3,
     walk: 3,
     lines: SCALE_SMALL.walkthroughLines,
-    steps: ['open', 'commands', 'play', 'walk', 'dialogue', 'export'],
+    steps: ['files', 'open', 'commands', 'play', 'walk', 'dialogue', 'export'],
     log: () => undefined,
   });
   const r = await bench.run();
   expect(r.broke).toEqual({});
+  // The file check saw every asset's file, before and after a restart.
+  expect(r.files!.entries).toBe(generated.counts['assets']);
+  expect(r.files!.afterRestartMs).toBeGreaterThan(0);
   expect(r.open!.assetsListed).toBe(generated.counts['assets']);
   expect(r.open!.editorFirstFrameMs).toBeGreaterThan(0);
   expect(r.commands!.sceneEdit.n).toBe(3);
   expect(r.commands!.contentEdit!.n).toBe(3);
   expect(r.play!.split.firstFrameMs).toBeGreaterThan(0);
   expect(r.play!.memory.heapMiB).toBeGreaterThan(1);
+  expect(r.play!.backendRssPeakMiB).toBeGreaterThan(0);
+  expect(r.play!.backendRssAfterStopMiB).toBeGreaterThan(0);
   // Each walked scene was loaded (its prefab copies read their models and textures) and unloaded.
   expect(r.walk!.scenes).toBe(3);
   expect(r.walk!.loaded).toHaveLength(3);

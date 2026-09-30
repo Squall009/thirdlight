@@ -12,6 +12,8 @@ for (const path of process.argv.slice(2)) {
   const src = g !== undefined ? Object.values(g.sourceBytes).reduce((a, b) => a + b, 0) : null;
   console.log(`== ${name} (${commit}, ${machine.gpu})`);
   if (g !== undefined) console.log(`counts ${JSON.stringify(g.counts)}; content.json ${f(g.contentJsonBytes / 1024)} KiB (canonical ${f((g.contentCanonicalBytes ?? 0) / 1024)} KiB), sources ${f(src / 1048576, 1)} MiB, generated in ${f(g.generateMs / 1000, 1)} s`);
+  const fc = r.files;
+  if (fc) console.log(`file check (${fc.entries} files): first ${fc.firstMs} ms, again ${fc.againMs} ms, after a restart ${fc.afterRestartMs} ms; backend RSS ${f(fc.backendRssMiB.first)} / ${f(fc.backendRssMiB.again)} / ${f(fc.backendRssMiB.afterRestart)} MiB`);
   const o = r.open;
   if (o) console.log(`open: backend ${o.backendMs} ms, editor connected ${o.editorConnectedMs} ms, first frame ${f(o.editorFirstFrameMs)} ms, editor heap ${f(o.editorHeapMiB, 1)} MiB, backend RSS ${f(o.backendRssMiB)} MiB`);
   const c = r.commands;
@@ -20,7 +22,7 @@ for (const path of process.argv.slice(2)) {
   if (p) {
     const s = p.split;
     const st = (n) => s.stages.find((x) => x.name === n);
-    console.log(`play: response ${s.responseMs} ms (backend total ${s.backend?.total}, closure ${s.backend?.closure}, closure.assets ${s.backend?.['closure.assets']}), manifest ${st('manifest')?.note ?? '–'}, ready ${f(s.readyMs)} ms, first frame ${f(s.firstFrameMs)} ms; heap ${f(p.memory.heapMiB, 1)} MiB, gpu ${f(p.memory.gpuMiB, 1)} MiB, backend RSS ${f(p.memory.backendRssMiB)} MiB`);
+    console.log(`play: response ${s.responseMs} ms (backend total ${s.backend?.total}, closure ${s.backend?.closure}, closure.assets ${s.backend?.['closure.assets']}), manifest ${st('manifest')?.note ?? '–'}, ready ${f(s.readyMs)} ms, first frame ${f(s.firstFrameMs)} ms; heap ${f(p.memory.heapMiB, 1)} MiB, gpu ${f(p.memory.gpuMiB, 1)} MiB, backend RSS ${f(p.memory.backendRssMiB)} MiB (peak during the start ${f(p.backendRssPeakMiB)}, after the stop ${f(p.backendRssAfterStopMiB)})`);
   }
   const w = r.walk;
   if (w) {

@@ -64,7 +64,7 @@ import { INSTANCE_FLOATS, MAX_INSTANCES } from '@thirdlight/project-model/limits
 import { inspectAudio, inspectFont, inspectGlb, inspectImage, AUDIO_TOOLCHAIN, FONT_TOOLCHAIN, IMAGE_TOOLCHAIN, M2_GLTF_TOOLCHAIN, type ImportJobPort, type ImportProposal } from '@thirdlight/asset-pipeline';
 import { createBehaviorCompiler } from '@thirdlight/behavior-build';
 import type { BehaviorCompiler } from '@thirdlight/behavior-build';
-import { importKeyOfConverted, type CommandError, type MutationSuccess, type StageInspector, type WorkspaceService } from '@thirdlight/workspace';
+import { importKeyOfConverted, type CommandError, type IntegrityPage, type MutationSuccess, type StageInspector, type WorkspaceService } from '@thirdlight/workspace';
 import { isFbx, type FbxConverter } from './fbx';
 import { KTX2_ENCODER, type Ktx2Mode, type PackLayer, type PackSource, type TextureEncoder } from './texture-encode';
 import type { AssetFileCheck } from './asset-files';
@@ -669,7 +669,7 @@ export class ContentRoutes {
     // GET /api/v1/projects/:projectId/content/integrity
     if (n === 6 && parts[5] === 'integrity') {
       if (method !== 'GET') return this.methodNotAllowed(res, 'GET');
-      this.integrity(req, res, projectId);
+      this.integrity(req, res, projectId, query);
       return true;
     }
     // POST /api/v1/projects/:projectId/content/buffers (an instance-set buffer)
@@ -1465,26 +1465,32 @@ export class ContentRoutes {
     this.deps.sendJson(res, 200, { ok: true, asset: summary, versions });
   }
 
-  private integrity(req: IncomingMessage, res: ServerResponse, projectId: string): void {
+  private integrity(req: IncomingMessage, res: ServerResponse, projectId: string, query: Map<string, string>): void {
     const auth = this.deps.requireAuth(req, projectId, false);
     if (auth !== null) return this.deps.sendError(res, auth);
-    const result = this.deps.service.contentIntegrity(projectId);
+    const page = integrityPageOf({ limit: query.get('limit'), offset: query.get('offset'), problems: query.get('problems') }, true);
+    if (!page.ok) return this.deps.sendError(res, page.error);
+    const result = this.deps.service.contentIntegrity(projectId, page.page);
     if (!result.ok) return this.deps.sendError(res, commandErrorToSession(result.error));
-    this.deps.sendJson(res, 200, { ok: true, entries: result.entries, summary: result.summary });
+    this.deps.sendJson(res, 200, { ok: true, entries: result.entries, summary: result.summary, ...pageFields(result.page) });
   }
 
   private async checkFiles(req: IncomingMessage, res: ServerResponse, projectId: string): Promise<void> {
     const auth = this.deps.requireAuth(req, projectId, false);
     if (auth !== null) return this.deps.sendError(res, auth);
+    const body = await this.readJsonBody(req, res);
+    if (body === null) return;
+    const page = integrityPageOf(body as Record<string, unknown>, false);
+    if (!page.ok) return this.deps.sendError(res, page.error);
     const check = this.deps.assetFiles;
     if (check === undefined) return this.deps.sendError(res, sessionError('invalid_request', 'unavailable', 'this backend does not check asset files'));
     const done = await check.check(projectId);
     if (!done.ok) return this.deps.sendError(res, sessionError(done.code as SessionError['code'], 'unavailable', done.message));
     for (const f of done.report.failed) this.deps.onJobFailed?.(projectId, 'file check', f.code, `${f.assetId}${f.file !== null ? ` (${f.file})` : ''}: ${f.message}`);
     for (const p of done.report.resources?.problems ?? []) this.deps.onJobFailed?.(projectId, 'file check', 'resource_file_invalid', p.message);
-    const result = this.deps.service.contentIntegrity(projectId);
+    const result = this.deps.service.contentIntegrity(projectId, page.page);
     if (!result.ok) return this.deps.sendError(res, commandErrorToSession(result.error));
-    this.deps.sendJson(res, 200, { ok: true, check: done.report, entries: result.entries, summary: result.summary });
+    this.deps.sendJson(res, 200, { ok: true, check: done.report, entries: result.entries, summary: result.summary, ...pageFields(result.page) });
   }
 
   private job(req: IncomingMessage, res: ServerResponse, projectId: string, rawJobId: string): void {
@@ -1770,4 +1776,33 @@ export class ContentRoutes {
       req.on('error', () => fail(sessionError('invalid_request', 'validation', 'request body read failed')));
     });
   }
+}
+
+/**
+ * A page of the integrity report: `limit`, `offset`, `problems` (only the
+ * entries that are not ok), from a query string (`fromQuery`) or a JSON body.
+ * None given: every entry, as before pages existed.
+ */
+function integrityPageOf(src: Record<string, unknown>, fromQuery: boolean): { ok: true; page: IntegrityPage | undefined } | { ok: false; error: SessionError } {
+  if (typeof src !== 'object' || src === null || Array.isArray(src)) return { ok: false, error: sessionError('invalid_request', 'validation', 'the body must be a JSON object') };
+  const bad = (field: string, expected: string): { ok: false; error: SessionError } => ({ ok: false, error: sessionError('field_value', 'validation', `${field} must be ${expected}`, { path: `/${field}` }) });
+  for (const k of Object.keys(src)) if (!fromQuery && !['limit', 'offset', 'problems'].includes(k)) return { ok: false, error: sessionError('field_unexpected', 'validation', `unexpected field ${k.slice(0, 64)} (limit, offset, problems)`, { path: `/${k.slice(0, 64)}` }) };
+  const num = (v: unknown): number | null | undefined => (v === undefined ? undefined : fromQuery ? (typeof v === 'string' && /^\d{1,9}$/.test(v) ? Number(v) : null) : Number.isSafeInteger(v) ? (v as number) : null);
+  const page: IntegrityPage = {};
+  const limit = num(src['limit']);
+  if (limit === null || (limit !== undefined && limit < 1)) return bad('limit', 'an integer >= 1');
+  if (limit !== undefined) page.limit = limit;
+  const offset = num(src['offset']);
+  if (offset === null || (offset !== undefined && offset < 0)) return bad('offset', 'an integer >= 0');
+  if (offset !== undefined) page.offset = offset;
+  const problems = fromQuery ? (src['problems'] === undefined ? undefined : src['problems'] === 'true' ? true : src['problems'] === 'false' ? false : null) : src['problems'];
+  if (problems !== undefined && typeof problems !== 'boolean') return bad('problems', 'true or false');
+  if (problems === true) page.problems = true;
+  return { ok: true, page: Object.keys(page).length === 0 ? undefined : page };
+}
+
+/** A paged report's position: the entries the filter keeps and the next offset (null: the last page). */
+function pageFields(page: { offset: number; limit: number; total: number } | undefined): Record<string, unknown> {
+  if (page === undefined) return {};
+  return { total: page.total, nextCursor: page.offset + page.limit < page.total ? String(page.offset + page.limit) : null };
 }

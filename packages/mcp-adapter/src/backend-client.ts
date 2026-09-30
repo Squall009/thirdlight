@@ -301,13 +301,14 @@ export class BackendClient {
   }
 
   /** GET the bounded content integrity report. */
-  contentIntegrity(projectId: string): Promise<BackendResponse> {
-    return this.request('GET', `/api/v1/projects/${encodeURIComponent(projectId)}/content/integrity`);
+  contentIntegrity(projectId: string, page: { limit?: number; offset?: number; problems?: boolean } = {}): Promise<BackendResponse> {
+    const q = [page.limit !== undefined ? `limit=${page.limit}` : '', page.offset !== undefined ? `offset=${page.offset}` : '', page.problems === true ? 'problems=true' : ''].filter((x) => x.length > 0).join('&');
+    return this.request('GET', `/api/v1/projects/${encodeURIComponent(projectId)}/content/integrity${q.length > 0 ? `?${q}` : ''}`);
   }
 
-  /** POST "check files": the catalog brought in step with the game folder, then the integrity report. */
-  checkFiles(projectId: string): Promise<BackendResponse> {
-    return this.request('POST', `/api/v1/projects/${encodeURIComponent(projectId)}/content/files/check`, {});
+  /** POST "check files": the catalog brought in step with the game folder, then the integrity report (paged like it). */
+  checkFiles(projectId: string, page: { limit?: number; offset?: number; problems?: boolean } = {}): Promise<BackendResponse> {
+    return this.request('POST', `/api/v1/projects/${encodeURIComponent(projectId)}/content/files/check`, page);
   }
 
   /** GET one bounded content job (job_not_found / job_expired). */

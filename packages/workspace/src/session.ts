@@ -149,6 +149,8 @@ export interface ProjectSession {
   preparedImports?: Map<string, PreparedImportFile[]>;
   /** Resource and scene files the file check read for the next `importResources` (read once by the command). */
   preparedResources?: import('./resource-check').PreparedResourceFiles;
+  /** What the project's files hashed to, by their stamps (kept in the import cache between runs; file-stamps.ts). */
+  fileStamps?: import('./file-stamps').FileStamps;
   /** Resource files the file check found unchanged, by size, time and the hash they matched (not read again until one differs). */
   resourceStats?: Map<string, string>;
   /** Game-folder files a committed command could not bring in step (the next file check reports and repairs them). */

@@ -35,6 +35,7 @@ import type { ContentConfig, ContentContext } from './content-store';
 import { readBlobBytes, resolveProjectFile } from './content-store';
 import { layoutProjectJson } from './project-json';
 import { SIDECAR_SUFFIX } from './resource-files';
+import { assetRecordOf } from './catalog-lookup';
 
 // ---- layout --------------------------------------------------------------
 
@@ -529,6 +530,19 @@ export function readImported(ctx: ContentContext, key: ImportKey, digest: string
   return r.bytes;
 }
 
+/** Where the cache keeps an artifact (null: a malformed key or digest, or the cache does not hold it). */
+export function importedArtifactPath(ctx: ContentContext, key: ImportKey, digest: string): string | null {
+  const segs = importCacheSegments(key);
+  if (segs === null || !DIGEST_RE.test(digest)) return null;
+  const path = join(ctx.dir, ...segs, artifactName(digest));
+  try {
+    const st = lstatSync(path);
+    return st.isFile() ? realpathSync(path) : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Whether the cache holds an artifact (by size and name; a read verifies the bytes). */
 export function hasImported(ctx: ContentContext, key: ImportKey, digest: string, byteLength: number): boolean {
   const segs = importCacheSegments(key);
@@ -819,7 +833,7 @@ export function planPlacement(core: Core, ctx: ContentContext, args: Record<stri
   const bytes = readHeld(ctx, fileDigest) ?? readLegacyBlob(fileDigest);
   if (bytes === null) return null;
   const assetId = args['assetId'];
-  const existing = ((content?.assets ?? []) as unknown as RecordLike[]).find((a) => a.assetId === assetId) ?? null;
+  const existing = assetRecordOf((content?.assets ?? []) as unknown as RecordLike[], assetId) ?? null;
   const kind = typeof args['kind'] === 'string' ? args['kind'] : (existing?.kind ?? 'model');
   const ext = extensionFor(kind, args['metrics'], conv?.format);
   const existingFile = existing !== null ? fileOfRecord(existing) : null;

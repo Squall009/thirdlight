@@ -244,6 +244,7 @@ export function updateIndex(index: ProjectIndex, before: IndexSource, after: Ind
   for (const key of removes) {
     const old = entries.get(key);
     if (old === undefined) continue;
+    orderedKeys.delete(index);
     dropReferrers(referrers, key, old.refs);
     entries.delete(key);
     dropId(old.id);
@@ -253,9 +254,23 @@ export function updateIndex(index: ProjectIndex, before: IndexSource, after: Ind
     const key = keyOf(e.kind, e.id);
     const old = entries.get(key);
     if (old !== undefined) dropReferrers(referrers, key, old.refs);
+    else orderedKeys.delete(index);
     entries.set(key, e);
     addReferrers(referrers, key, e.refs);
   }
+}
+
+/** Each index's keys in ascending order, made when first asked for after the key set changed (queries page from it). */
+const orderedKeys = new WeakMap<ProjectIndex, readonly string[]>();
+
+/** The index's `kind:id` keys, ascending. */
+export function sortedKeys(index: ProjectIndex): readonly string[] {
+  let keys = orderedKeys.get(index);
+  if (keys === undefined || keys.length !== index.entries.size) {
+    keys = [...index.entries.keys()].sort();
+    orderedKeys.set(index, keys);
+  }
+  return keys;
 }
 
 /** The entries that reference an id (by `kind:id`, ascending). */

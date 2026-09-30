@@ -35,6 +35,7 @@ import type {
   CapturedV3ReadResult,
   ContentIntegrityResult,
   ConversionSourceResult,
+  IntegrityPage,
   InspectProjectFileResult,
   InspectStageOptions,
   InspectStageResult,
@@ -45,6 +46,7 @@ import type {
   StageResult,
 } from './content-store';
 import type { AssetFilesResult } from './service-content';
+import type { BlobFile, LocateBlobResult, OpenBlobResult } from './blob-files';
 import type { ImportHeader, ImportKey } from './asset-files';
 import type {
   PrepareBehaviorSourceRequest,
@@ -385,8 +387,26 @@ export interface WorkspaceService {
    * catalog assets, so `readBlob` cannot address them).
    */
   readSourceBlob(projectId: string, request: SourceBlobReadRequest): SourceBlobReadResult;
-  /** `contentIntegrity` — bounded integrity report. */
-  contentIntegrity(projectId: string): ContentIntegrityResult;
+  /**
+   * Where these asset versions' verified bytes are on disk, checked by each
+   * file's stamp (a file unchanged since it was hashed is not read again).
+   * One result per request, in order; the same errors as `readBlob`.
+   */
+  locateBlobs(projectId: string, requests: readonly BlobReadRequest[]): { ok: true; results: LocateBlobResult[] } | { ok: false; error: CommandError };
+  /** Where a stored blob is (instance buffers), checked by its stamp. */
+  locateSourceBlob(projectId: string, digest: string): { ok: true; file: BlobFile } | { ok: false; error: CommandError };
+  /**
+   * Open a located file to send it: refused (`changed: true`) when it no
+   * longer has its digest; the chunks are verified while they are read.
+   */
+  openBlobFile(projectId: string, file: BlobFile): OpenBlobResult;
+  /**
+   * `contentIntegrity` — the integrity report: every entry, or a page of
+   * them (`problems`: only the entries that are not `ok`).
+   */
+  contentIntegrity(projectId: string, page?: IntegrityPage): ContentIntegrityResult;
+  /** How many files the project's file stamps know, and how many were hashed since the project opened. */
+  fileStampStats(projectId: string): { files: number; hashes: number } | null;
   /**
    * Every asset's file in the game folder against the catalog (moved,
    * changed, missing, what the import cache holds), writing the `.tlasset`

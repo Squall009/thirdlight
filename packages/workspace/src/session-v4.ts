@@ -76,7 +76,7 @@ import { defaultResourcePath, gamePathOf, gameRel, recordsOfKind, RESOURCE_KINDS
 import { fileOfRecord, sidecarPath, type RecordLike } from './asset-files';
 import { EMPTY_BYTES } from './write';
 import { commandContentOf } from './content-shapes';
-import { buildIndex, updateIndex, type IndexEntry } from './project-index';
+import { buildIndex, sortedKeys, updateIndex } from './project-index';
 import type { OwnershipRecord } from './ownership';
 import type { QueryResult } from './types';
 
@@ -1173,23 +1173,25 @@ function serveQueryIndex(s: ProjectSession, state: V4State, projectId: string, a
   if (!isSafeInt(limit) || (limit as number) < 1 || (limit as number) > MAX_INDEX_PAGE) return failure(op, projectId, fieldValueType('/args/limit', limit, `integer 1-${MAX_INDEX_PAGE}`, 'limit pages the index'));
   if (!isSafeInt(offset) || (offset as number) < 0) return failure(op, projectId, fieldValueType('/args/offset', offset, 'integer >= 0', 'offset pages the index'));
   const index = s.index ?? buildIndex(state);
-  const source: Iterable<[string, IndexEntry]> =
-    typeof a['referencing'] === 'string'
-      ? [...(index.referrers.get(a['referencing']) ?? [])].map((key) => [key, index.entries.get(key)!] as [string, IndexEntry])
-      : index.entries;
-  const rows: [string, IndexEntry][] = [];
-  for (const [key, e] of source) {
+  // The keys in order, made once per change of the index's key set: a page is read from it, not sorted per query.
+  const keys: readonly string[] = typeof a['referencing'] === 'string' ? [...(index.referrers.get(a['referencing']) ?? [])].sort() : sortedKeys(index);
+  const from = offset as number;
+  const to = from + (limit as number);
+  let total = 0;
+  const page: Record<string, unknown>[] = [];
+  for (const key of keys) {
+    const e = index.entries.get(key);
+    if (e === undefined) continue;
     if (a['kind'] !== undefined && e.kind !== a['kind']) continue;
     if (a['id'] !== undefined && e.id !== a['id']) continue;
     if (a['label'] !== undefined && !e.labels.includes(a['label'] as string)) continue;
     if (a['address'] !== undefined && e.address !== a['address']) continue;
     // Loadable: an address or a label (what a script may load by name).
     if (a['loadable'] !== undefined && (e.address !== null || e.labels.length > 0) !== a['loadable']) continue;
-    rows.push([key, e]);
+    if (total >= from && total < to) page.push({ kind: e.kind, id: e.id, path: e.path, name: e.name, labels: [...e.labels], ...(e.address !== null ? { address: e.address } : {}), refs: [...e.refs] });
+    total += 1;
   }
-  rows.sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0));
-  const page = rows.slice(offset as number, (offset as number) + (limit as number)).map(([, e]) => ({ kind: e.kind, id: e.id, path: e.path, name: e.name, labels: [...e.labels], ...(e.address !== null ? { address: e.address } : {}), refs: [...e.refs] }));
-  return { ok: true, projectId, revision: state.revision, total: rows.length, entries: page } as unknown as QueryResult;
+  return { ok: true, projectId, revision: state.revision, total, entries: page } as unknown as QueryResult;
 }
 
 /**

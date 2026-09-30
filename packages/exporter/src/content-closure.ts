@@ -27,8 +27,8 @@ import type { GameMode } from '@thirdlight/project-model';
 import type { EventCue, GameShell, TimelineAsset } from '@thirdlight/project-model';
 import type { AnimatorController, EnvironmentConfig, PrefabDefinition, InputConfig, LightingMap, MaterialDef, UiDocument, UiTheme } from '@thirdlight/project-model';
 import { animatorsForRuntime, effectsForRuntime, type EffectDef, materialFunctionsForRuntime, materialsForRuntime, type GraphDocument, captureContentViewV3, captureManifestV2, M3_ENGINE_PINS, resolveMediaIdentityV3, sha256Hex, type GameplaySettings, type ManifestAssetInputV2, type ManifestBehaviorInput, type MediaBlock, type RuntimeContentManifestV2, type ManifestSceneRow, physicsDimensionOf, resolveRequiredModules, materialsInUse, resolveMaterialInstances, loadableAssetIds, loadableResourceIds, loadableRows, scriptLibraryContainerText, scriptLibraryDigest, type ScriptLibrary } from '@thirdlight/project-model';
-import { audioLoadOf, MODEL_RIG_LIMITS, readModelRig, type AudioLoadType, type ModelRig } from '@thirdlight/project-model';
-import type { WorkspaceService } from '@thirdlight/workspace';
+import { ASSET_QUERY_PAGE_MAX, audioLoadOf, MODEL_RIG_LIMITS, readModelRig, type AudioLoadType, type ModelRig } from '@thirdlight/project-model';
+import type { BlobFile, WorkspaceService } from '@thirdlight/workspace';
 
 /** The injected compiler port (structural; no behavior-build edge). */
 export interface ContentClosureCompilerPort {
@@ -94,6 +94,20 @@ export interface ClosureArtifact {
   contentType: string;
 }
 
+/**
+ * One declared artifact found on disk but not read (a Play build's assets
+ * and instance buffers): the host serves it from its file, which the
+ * workspace verifies while it is sent.
+ */
+export interface ClosureFileArtifact {
+  path: string;
+  digest: string;
+  byteLength: number;
+  contentType: string;
+  /** Where the workspace found it (backend-internal; `real` is a host path). */
+  file: BlobFile;
+}
+
 /** One reachable source-bearing behavior of the closure. */
 export interface ClosureBehavior {
   behaviorId: string;
@@ -121,6 +135,8 @@ export interface ContentClosureError {
 }
 
 const DIGEST_RE = /^[0-9a-f]{64}$/;
+/** One page of the behavior query (its largest). */
+const BEHAVIOR_PAGE = ASSET_QUERY_PAGE_MAX;
 
 function fromCommandError(e: {
   code: string;
@@ -188,6 +204,13 @@ export interface ContentClosureM3Input {
    * The digests are the same either way.
    */
   sha256?: (bytes: Uint8Array) => string;
+  /**
+   * Find the assets and instance buffers on disk instead of reading them
+   * (Play: the page reads each file when it needs it, served from disk).
+   * They are then `assetFiles` and `bufferFiles`, and `assetArtifacts` and
+   * `bufferArtifacts` are empty. An export reads them (default).
+   */
+  locate?: boolean;
 }
 
 export interface ContentClosureM3 {
@@ -212,6 +235,12 @@ export interface ContentClosureM3 {
   sceneArtifacts: readonly ClosureArtifact[];
   /** The instance-set buffers (`content/sha256/<digest>`). */
   bufferArtifacts: readonly ClosureArtifact[];
+  /** With `locate`: the reachable asset artifacts found on disk, not read (sorted by path). */
+  assetFiles: readonly ClosureFileArtifact[];
+  /** With `locate`: the instance-set buffers found on disk. */
+  bufferFiles: readonly ClosureFileArtifact[];
+  /** The decoders the shipped assets need, from their records (a model's used extensions, a KTX2 texture). */
+  decoders: readonly ('draco' | 'basis')[];
   /**
    * The manifest's content files (`content/sha256/<digest>`,
    * JSON: materials, material functions, UI documents, dialogue, the buffer
@@ -241,9 +270,9 @@ async function compileReachableBehaviors(
   | { ok: true; behaviorArtifacts: ClosureArtifact[]; behaviorInputs: ManifestBehaviorInput[]; behaviors: ClosureBehavior[]; libraryArtifacts: ClosureArtifact[]; libraryRows: ManifestLibraryInput[]; sourceMaps: ClosureSourceMap[] }
   | { ok: false; error: ContentClosureError }
 > {
-  const behaviorQuery = service.query({ op: 'queryBehaviors', projectId, args: { includeDeclaration: true, limit: 128, offset: 0 } });
-  if (!behaviorQuery.ok) return { ok: false, error: fromCommandError(behaviorQuery.error) };
-  const behaviorRows = (behaviorQuery as unknown as { behaviors: Array<Record<string, unknown>> }).behaviors;
+  const all = allBehaviorRows(service, projectId, true);
+  if (!all.ok) return all;
+  const behaviorRows = all.rows;
   const behaviorArtifacts: ClosureArtifact[] = [];
   const behaviorInputs: ManifestBehaviorInput[] = [];
   const behaviors: ClosureBehavior[] = [];
@@ -390,6 +419,19 @@ async function compileReachableBehaviors(
   return { ok: true, behaviorArtifacts, behaviorInputs, behaviors, libraryArtifacts, libraryRows, sourceMaps };
 }
 
+/** Every behavior record, page by page (a project has any number of them). */
+function allBehaviorRows(service: WorkspaceService, projectId: string, includeDeclaration: boolean): { ok: true; rows: Array<Record<string, unknown>> } | { ok: false; error: ContentClosureError } {
+  const rows: Array<Record<string, unknown>> = [];
+  for (let offset = 0; ; ) {
+    const q = service.query({ op: 'queryBehaviors', projectId, args: { includeDeclaration, limit: BEHAVIOR_PAGE, offset } });
+    if (!q.ok) return { ok: false, error: fromCommandError(q.error) };
+    const page = q as unknown as { behaviors: Array<Record<string, unknown>>; total?: number };
+    for (const r of page.behaviors) rows.push(r);
+    offset += page.behaviors.length;
+    if (page.behaviors.length < BEHAVIOR_PAGE || typeof page.total !== 'number' || offset >= page.total) return { ok: true, rows };
+  }
+}
+
 /** One manifest `libraries` row input. */
 type ManifestLibraryInput = { libraryId: string; sourceDigest: string; outputDigest: string; outputByteLength: number };
 
@@ -413,7 +455,8 @@ interface DerivedCapture {
   readonly media: MediaBlock;
   readonly sceneArtifacts: readonly ClosureArtifact[];
   readonly sceneRows: readonly ManifestSceneRow[];
-  readonly bufferArtifacts: readonly ClosureArtifact[];
+  /** The instance buffers the scenes name (read or located per build). */
+  readonly buffers: readonly { digest: string; byteLength: number }[];
   readonly sceneBytes: Uint8Array;
   readonly sceneDigest: string;
 }
@@ -525,9 +568,9 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
   // 3. The required engine modules, derived from the declared dependencies
   //    (the referenced content, what each behavior requires).
   //    An unresolved dependency refuses the build here, before any compile.
-  const declaredBehaviors = service.query({ op: 'queryBehaviors', projectId, args: { includeDeclaration: false, limit: 128, offset: 0 } });
-  if (!declaredBehaviors.ok) return { ok: false, error: fromCommandError(declaredBehaviors.error) };
-  const behaviorDeps = ((declaredBehaviors as unknown as { behaviors: Array<Record<string, unknown>> }).behaviors ?? [])
+  const declaredBehaviors = allBehaviorRows(service, projectId, false);
+  if (!declaredBehaviors.ok) return declaredBehaviors;
+  const behaviorDeps = declaredBehaviors.rows
     .filter((row) => row['source'] !== null && row['source'] !== undefined)
     .map((row) => ({
       behaviorId: String(row['behaviorId']),
@@ -554,51 +597,62 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
   const { behaviorArtifacts, behaviorInputs, behaviors, libraryArtifacts, libraryRows, sourceMaps } = compiledBehaviors;
   stage('behaviors');
 
-  // 5. The declared asset bytes (verified digest-addressed reads, kind-aware MIME).
+  // 5. The declared asset bytes (verified digest-addressed reads, kind-aware MIME), or, when the
+  //    build only locates them, where each verified file is.
   const assetArtifacts: ClosureArtifact[] = [];
+  const assetFiles: ClosureFileArtifact[] = [];
   const assets: ManifestAssetInputV2[] = [];
+  const locate = input.locate === true;
+  // The records by id, once (the rows below read each asset's own).
+  const recordsById = new Map<string, { assetId: string; kind?: string; versions?: { version: number; metrics?: { durationMs?: unknown; format?: unknown } }[] }>();
+  for (const r of ((input.content as { assets?: { assetId: string }[] } | null)?.assets ?? [])) recordsById.set(r.assetId, r);
   // Each audio version's recorded duration (the simulation computes script sounds' ends from it).
   const durationOf = (assetId: string, version: number): number | undefined => {
-    const rec = ((input.content as { assets?: { assetId: string; versions?: { version: number; metrics?: { durationMs?: unknown } }[] }[] } | null)?.assets ?? []).find((r) => r.assetId === assetId);
-    const ms = rec?.versions?.find((v) => v.version === version)?.metrics?.durationMs;
+    const ms = recordsById.get(assetId)?.versions?.find((v) => v.version === version)?.metrics?.durationMs;
     return typeof ms === 'number' && Number.isInteger(ms) && ms >= 1 ? ms : undefined;
   };
   const audioLoadRowOf = (assetId: string): { loadType?: AudioLoadType; preload?: boolean } => {
-    const rec = ((input.content as { assets?: { assetId: string }[] } | null)?.assets ?? []).find((r) => r.assetId === assetId);
+    const rec = recordsById.get(assetId);
     return rec === undefined ? {} : audioLoadOf(rec as Parameters<typeof audioLoadOf>[0]);
   };
   /** The model bytes, for the rigs sockets are resolved on (read once below when the project uses sockets). */
   const modelBytes = new Map<string, Uint8Array>();
-  for (const a of view.assets) {
-    const read = service.readBlob(projectId, { assetId: a.assetId, version: a.version });
-    if (!read.ok) {
-      // A file referenced in place that changed or went missing: the message
-      // names it; the reason keeps the workspace code through the closed
-      // export/play error sets.
-      const e = read.error;
-      const referenced = e.code === 'asset_source_changed' || e.code === 'asset_source_missing';
-      return { ok: false, error: fromCommandError(referenced && e.reason === undefined ? { ...e, reason: e.code } : e) };
+  const readError = (e: Parameters<typeof fromCommandError>[0] & { code: string; reason?: string }): ContentClosureError => {
+    // A file referenced in place that changed or went missing: the message
+    // names it; the reason keeps the workspace code through the closed
+    // export/play error sets.
+    const referenced = e.code === 'asset_source_changed' || e.code === 'asset_source_missing';
+    return fromCommandError(referenced && e.reason === undefined ? { ...e, reason: e.code } : e);
+  };
+  const mismatch = (a: { assetId: string; version: number; sourceDigest: string }, found: string): ContentClosureError => ({
+    code: 'asset_digest_mismatch',
+    cls: 'unavailable',
+    reason: 'asset_digest_mismatch',
+    message: `asset ${a.assetId}@${a.version} no longer matches the captured view`,
+    found,
+    expected: a.sourceDigest,
+  });
+  const located = locate ? service.locateBlobs(projectId, view.assets.map((a) => ({ assetId: a.assetId, version: a.version }))) : null;
+  if (located !== null && !located.ok) return { ok: false, error: fromCommandError(located.error) };
+  for (let i = 0; i < view.assets.length; i += 1) {
+    const a = view.assets[i]!;
+    if (located !== null) {
+      const at = located.ok ? located.results[i]! : null;
+      if (at === null || !at.ok) return { ok: false, error: readError(at!.ok ? ({ code: 'internal', cls: 'internal', message: 'unreachable' } as never) : at!.error) };
+      if (at.file.digest !== a.sourceDigest || at.file.byteLength !== a.sourceByteLength) return { ok: false, error: mismatch(a, at.file.digest) };
+      assetFiles.push({ path: `content/sha256/${at.file.digest}`, digest: at.file.digest, byteLength: at.file.byteLength, contentType: ASSET_CONTENT_TYPE[a.kind], file: at.file });
+    } else {
+      const read = service.readBlob(projectId, { assetId: a.assetId, version: a.version });
+      if (!read.ok) return { ok: false, error: readError(read.error) };
+      if (read.digest !== a.sourceDigest || read.byteLength !== a.sourceByteLength) return { ok: false, error: mismatch(a, read.digest) };
+      if (a.kind === 'model') modelBytes.set(a.assetId, read.bytes);
+      assetArtifacts.push({
+        path: `content/sha256/${read.digest}`,
+        bytes: read.bytes,
+        digest: read.digest,
+        contentType: ASSET_CONTENT_TYPE[a.kind],
+      });
     }
-    if (read.digest !== a.sourceDigest || read.byteLength !== a.sourceByteLength) {
-      return {
-        ok: false,
-        error: {
-          code: 'asset_digest_mismatch',
-          cls: 'unavailable',
-          reason: 'asset_digest_mismatch',
-          message: `asset ${a.assetId}@${a.version} no longer matches the captured view`,
-          found: read.digest,
-          expected: a.sourceDigest,
-        },
-      };
-    }
-    if (a.kind === 'model') modelBytes.set(a.assetId, read.bytes);
-    assetArtifacts.push({
-      path: `content/sha256/${read.digest}`,
-      bytes: read.bytes,
-      digest: read.digest,
-      contentType: ASSET_CONTENT_TYPE[a.kind],
-    });
     assets.push({
       assetId: a.assetId,
       kind: a.kind,
@@ -616,16 +670,26 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
       ...(a.kind === 'audio' ? audioLoadRowOf(a.assetId) : {}),
     });
   }
+  // The decoders the shipped assets need, from what their records say (the bytes are not read here).
+  const decoders = new Set<'draco' | 'basis'>();
+  for (const a of view.assets) {
+    if (a.kind === 'model') {
+      const used = (a.recipe as { extensions?: unknown } | undefined)?.extensions;
+      if (Array.isArray(used) && used.includes('KHR_draco_mesh_compression')) decoders.add('draco');
+      if (Array.isArray(used) && used.includes('KHR_texture_basisu')) decoders.add('basis');
+    } else if (a.kind === 'texture' && recordsById.get(a.assetId)?.versions?.find((v) => v.version === a.version)?.metrics?.format === 'ktx2') decoders.add('basis');
+  }
 
   stage('assets');
   // 5b. Every scene of a v4 project as its own artifact, and the
   //     instance-set buffers (verified digest-addressed reads).
   const sceneArtifacts: ClosureArtifact[] = derived !== null ? [...derived.sceneArtifacts] : [];
   const sceneRows: ManifestSceneRow[] = derived !== null ? [...derived.sceneRows] : [];
-  const bufferArtifacts: ClosureArtifact[] = derived !== null ? [...derived.bufferArtifacts] : [];
+  const bufferArtifacts: ClosureArtifact[] = [];
+  const bufferFiles: ClosureFileArtifact[] = [];
+  const buffers = new Map<string, number>(derived !== null ? derived.buffers.map((b) => [b.digest, b.byteLength] as const) : []);
   if (input.scenes !== undefined && derived === null) {
     const start = new Set(input.startScenes ?? []);
-    const buffers = new Map<string, number>();
     for (const doc of input.scenes) {
       const sc = doc as { sceneId: string; entities: { components: { instances?: { buffer: string; count: number } } }[] };
       const bytes = new TextEncoder().encode(`${JSON.stringify(doc, null, 2)}\n`);
@@ -638,12 +702,18 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
         if (inst !== undefined) buffers.set(inst.buffer, inst.count * 40);
       }
     }
-    for (const [digest, byteLength] of [...buffers.entries()].sort(([a], [b]) => (a < b ? -1 : 1))) {
+  }
+  for (const [digest, byteLength] of [...buffers.entries()].sort(([a], [b]) => (a < b ? -1 : 1))) {
+    const badSize = (found: number): { ok: false; error: ContentClosureError } => ({ ok: false, error: { code: 'export_scene_invalid', cls: 'validation', reason: 'instances_buffer', message: `instance buffer ${digest.slice(0, 12)}… holds ${found} bytes, not ${byteLength} (count × 40)` } });
+    if (locate) {
+      const at = service.locateSourceBlob(projectId, digest);
+      if (!at.ok) return { ok: false, error: fromCommandError(at.error) };
+      if (at.file.byteLength !== byteLength) return badSize(at.file.byteLength);
+      bufferFiles.push({ path: `content/sha256/${digest}`, digest, byteLength, contentType: 'application/octet-stream', file: at.file });
+    } else {
       const read = service.readSourceBlob(projectId, { digest });
       if (!read.ok) return { ok: false, error: fromCommandError(read.error) };
-      if (read.byteLength !== byteLength) {
-        return { ok: false, error: { code: 'export_scene_invalid', cls: 'validation', reason: 'instances_buffer', message: `instance buffer ${digest.slice(0, 12)}… holds ${read.byteLength} bytes, not ${byteLength} (count × 40)` } };
-      }
+      if (read.byteLength !== byteLength) return badSize(read.byteLength);
       bufferArtifacts.push({ path: `content/sha256/${digest}`, bytes: read.bytes, digest, contentType: 'application/octet-stream' });
     }
   }
@@ -651,14 +721,26 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
   stage('scenes');
   // 5c. The model rigs, only when the project uses sockets (a socketAttach component in a scene
   //     or prefab, or a script that names ctx.sockets) — every other project's manifest stays byte-identical.
-  const rigs = usesSockets(input.scenes, prefabDefs, [...behaviorArtifacts, ...libraryArtifacts]) ? modelRigs(view.assets, modelBytes) : undefined;
+  let rigs: Record<string, ModelRig> | undefined;
+  if (usesSockets(input.scenes, prefabDefs, [...behaviorArtifacts, ...libraryArtifacts])) {
+    // A located build reads the models now (only a project with sockets needs their rigs).
+    if (locate) {
+      for (const a of view.assets) {
+        if (a.kind !== 'model') continue;
+        const read = service.readBlob(projectId, { assetId: a.assetId, version: a.version });
+        if (!read.ok) return { ok: false, error: readError(read.error) };
+        modelBytes.set(a.assetId, read.bytes);
+      }
+    }
+    rigs = modelRigs(view.assets, modelBytes);
+  }
 
   stage('rigs');
   // 6. The emitted scene bytes + sceneDigest (the manifest's sceneDigest input).
   const sceneBytes = derived !== null ? derived.sceneBytes : new TextEncoder().encode(`${JSON.stringify(input.scene, null, 2)}\n`);
   const sceneDigest = derived !== null ? derived.sceneDigest : hash(sceneBytes);
   if (derived === null && contentKey !== null && identities !== null) {
-    derivedCaptures.set(contentKey, { projectId, revision: input.revision, startScenes: startKey, identities, view, media, sceneArtifacts: [...sceneArtifacts], sceneRows: [...sceneRows], bufferArtifacts: [...bufferArtifacts], sceneBytes, sceneDigest });
+    derivedCaptures.set(contentKey, { projectId, revision: input.revision, startScenes: startKey, identities, view, media, sceneArtifacts: [...sceneArtifacts], sceneRows: [...sceneRows], buffers: [...buffers.entries()].map(([digest, byteLength]) => ({ digest, byteLength })), sceneBytes, sceneDigest });
   }
 
   // 6b. Only the materials the game uses (an object, a prefab, a shipped model's default
@@ -741,7 +823,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
     // The block types and the cell metadata schema (the runtime and the renderer read them).
     ...((input.content as { blockTypes?: BlockType[] } | null)?.blockTypes !== undefined ? { blockTypes: (input.content as { blockTypes: BlockType[] }).blockTypes } : {}),
     ...((input.content as { cellFields?: CellField[] } | null)?.cellFields !== undefined ? { cellFields: (input.content as { cellFields: CellField[] }).cellFields } : {}),
-    ...(input.scenes !== undefined ? { scenes: sceneRows, buffers: bufferArtifacts.map((b) => ({ digest: b.digest, byteLength: b.bytes.length })) } : {}),
+    ...(input.scenes !== undefined ? { scenes: sceneRows, buffers: [...buffers.entries()].sort(([a], [b]) => (a < b ? -1 : 1)).map(([digest, byteLength]) => ({ digest, byteLength })) } : {}),
     media,
     moduleIds,
     enginePins: M3_ENGINE_PINS,
@@ -754,9 +836,10 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
   // The content files the manifest lists (JSON, by digest).
   const contentFileArtifacts: ClosureArtifact[] = captured.contentFiles.map((f) => ({ path: f.path, bytes: f.bytes, digest: f.digest, contentType: 'application/json' }));
   assetArtifacts.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  assetFiles.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   behaviorArtifacts.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   behaviors.sort((a, b) => (a.behaviorId < b.behaviorId ? -1 : a.behaviorId > b.behaviorId ? 1 : 0));
-  const declaredPaths = [...new Set([...assetArtifacts.map((a) => a.path), ...behaviorArtifacts.map((a) => a.path), ...libraryArtifacts.map((a) => a.path), ...sceneArtifacts.map((a) => a.path), ...bufferArtifacts.map((a) => a.path), ...contentFileArtifacts.map((a) => a.path)])].sort();
+  const declaredPaths = [...new Set([...assetArtifacts.map((a) => a.path), ...assetFiles.map((a) => a.path), ...behaviorArtifacts.map((a) => a.path), ...libraryArtifacts.map((a) => a.path), ...sceneArtifacts.map((a) => a.path), ...bufferArtifacts.map((a) => a.path), ...bufferFiles.map((a) => a.path), ...contentFileArtifacts.map((a) => a.path)])].sort();
   return {
     ok: true,
     closure: {
@@ -774,6 +857,9 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
       behaviorArtifacts,
       sceneArtifacts,
       bufferArtifacts,
+      assetFiles,
+      bufferFiles,
+      decoders: [...decoders].sort(),
       contentFileArtifacts,
       libraryArtifacts,
       sourceMaps,

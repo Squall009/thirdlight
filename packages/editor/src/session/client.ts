@@ -705,7 +705,8 @@ export class SessionClient extends SessionClientCore {
    */
   async checkFiles(): Promise<{ ok: true; entries: IntegrityEntryView[]; check: FileCheckView } | { ok: false; error: { code: string; message: string } }> {
     try {
-      const r = await this.request<{ ok: true; entries: IntegrityEntryView[]; check: FileCheckView }>(`/projects/${this.cfg.projectId}/content/files/check`, { method: 'POST', body: '{}' });
+      // Only the entries that need attention (a project of thousands of files answers with its problems, not every file).
+      const r = await this.request<{ ok: true; entries: IntegrityEntryView[]; check: FileCheckView }>(`/projects/${this.cfg.projectId}/content/files/check`, { method: 'POST', body: '{"problems":true}' });
       return { ok: true, entries: r.entries, check: r.check };
     } catch (e) {
       return { ok: false, error: this.describeError(e) };

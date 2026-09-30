@@ -410,7 +410,8 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'import cache is made whole; the changes are ordinary undoable commands) and returns what it did as `check`; it checks the resource and scene files too ' +
       '(check.resources: a file moved outside the editor is followed, one added or copied comes in — a copy gets a new id from its file name, a copied scene\'s objects new ids — ' +
       'a changed resource file is reloaded and a removed one leaves the project, all in one undoable importResources; a changed or removed scene file, a resource file that no longer ' +
-      'reads or validates, or one removed while something uses it pauses the project on that file as an external change does); target="game" returns the ' +
+      'reads or validates, or one removed while something uses it pauses the project on that file as an external change does); the report pages with limit and offset ' +
+      '(total and nextCursor), and problems=true keeps only the entries that are not ok; target="game" returns the ' +
       'full normalized `content.game` block (the v3 `queryGameConfig`, or null; includeDescriptors adds the ' +
       'component and content descriptor registry: every field\'s type, unit, range, default, label, tooltip and ' +
       'Scene handle, ~120 KB); target="projectFiles" lists one ' +
@@ -436,6 +437,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
         referencing: { type: 'string', description: 'target="index": only the entries that reference this id (what uses it)' },
         materialId: { type: 'string', description: 'target="materials": one material' },
         check: { type: 'boolean', description: 'target="integrity": check the game folder first (moved files, changed files imported again)' },
+        problems: { type: 'boolean', description: 'target="integrity": only the entries that are not ok (limit and offset page them; total counts them)' },
         withProblems: { type: 'boolean', description: 'target="materials": only materials whose graph has problems' },
         sceneId: { type: 'string', description: 'target="blocks": the scene whose layers are listed' },
         entityId: { type: 'string', description: 'target="blocks": one block layer (the entity carrying blockLayer)' },
@@ -1113,7 +1115,11 @@ async function contentQuery(ctx: McpContext, a: Record<string, unknown>): Promis
   }
   if (target === 'integrity') {
     if (a.check !== undefined && typeof a.check !== 'boolean') return toolError('check must be a boolean');
-    const res = a.check === true ? await ctx.client.checkFiles(ctx.projectId) : await ctx.client.contentIntegrity(ctx.projectId);
+    if (a.problems !== undefined && typeof a.problems !== 'boolean') return toolError('problems must be a boolean');
+    const paged = pageArgs(a);
+    if (!paged.ok) return paged.error;
+    const page = { ...(paged.args as { limit?: number; offset?: number }), ...(a.problems === true ? { problems: true } : {}) };
+    const res = a.check === true ? await ctx.client.checkFiles(ctx.projectId, page) : await ctx.client.contentIntegrity(ctx.projectId, page);
     return isObj(res.body) && res.body.ok === true ? toolOk(res.body) : surfaceBackendError(res);
   }
   // The v3 game-config query (commands.md) over the same shared command

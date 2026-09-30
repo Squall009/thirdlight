@@ -57,7 +57,7 @@ describe('locator path classification', () => {
 describe('PlayContentStore', () => {
   const TTL = 900_000;
   const GRACE = 60_000;
-  const makeStore = (nowRef: { t: number }, overrides: Partial<{ maxSetBytes: number; maxArtifactBytes: number }> = {}): PlayContentStore =>
+  const makeStore = (nowRef: { t: number }, overrides: Partial<{ maxArtifactBytes: number }> = {}): PlayContentStore =>
     new PlayContentStore({
       now: () => nowRef.t,
       ttlMs: TTL,
@@ -114,9 +114,9 @@ describe('PlayContentStore', () => {
     expect(store.status(set)).toBe('expired');
   });
 
-  it('enforces the single-artifact and closure byte caps before publishing', () => {
+  it('caps each held artifact, not the set; files it serves from disk are never held', () => {
     const nowRef = { t: 0 };
-    const store = makeStore(nowRef, { maxArtifactBytes: 10, maxSetBytes: 20 });
+    const store = makeStore(nowRef, { maxArtifactBytes: 10 });
     const tooBig = store.publish({
       playSessionId: `play-${'3'.repeat(32)}`,
       projectId: 'demo-0001',
@@ -129,7 +129,9 @@ describe('PlayContentStore', () => {
     });
     expect(tooBig.ok).toBe(false);
     if (!tooBig.ok) expect(tooBig.error.limit).toBe('artifact_bytes');
-    const tooLargeSet = store.publish({
+    expect(store.counters().sets).toBe(0);
+    // Many held artifacts under the per-file cap, and a file far larger than it: the set publishes.
+    const many = store.publish({
       playSessionId: `play-${'4'.repeat(32)}`,
       projectId: 'demo-0001',
       revision: 1,
@@ -138,13 +140,13 @@ describe('PlayContentStore', () => {
       contentDigest: 'b'.repeat(64),
       manifestBytes: new TextEncoder().encode('{}'),
       artifacts: [
-        { path: 'a', bytes: new Uint8Array(10), digest: 'c'.repeat(64), contentType: 'text/javascript' },
-        { path: 'b', bytes: new Uint8Array(10), digest: 'd'.repeat(64), contentType: 'text/javascript' },
+        ...Array.from({ length: 64 }, (_, i) => ({ path: `scenes/s${i}.json`, bytes: new Uint8Array(10).fill(i), digest: i.toString(16).padStart(64, '0'), contentType: 'application/json' })),
+        { path: `content/sha256/${'e'.repeat(64)}`, digest: 'e'.repeat(64), byteLength: 1 << 30, contentType: 'audio/x-audio', file: { digest: 'e'.repeat(64), byteLength: 1 << 30, real: '/nonexistent' } },
       ],
     });
-    expect(tooLargeSet.ok).toBe(false);
-    if (!tooLargeSet.ok) expect(tooLargeSet.error.limit).toBe('closure_bytes');
-    expect(store.counters().sets).toBe(0);
+    expect(many.ok).toBe(true);
+    // What the store holds is the manifest and the held artifacts only (the file's bytes are on disk).
+    expect(store.counters().bytes).toBe(2 + 64 * 10);
   });
 
   it('prunes expired sets only after the retention window and counts its timers', () => {

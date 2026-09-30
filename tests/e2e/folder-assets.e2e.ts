@@ -3,7 +3,7 @@
  * the real backend and Chromium, with the game folder outside the data root:
  * import a .glb from the project folder in the picker, place it, reload,
  * restart, Play, export and run the export with the backend stopped; then
- * rebuild the file: the editor's file check imports it again, and Play/export
+ * rebuild the file: an export takes it in first, the editor shows it imported again, and Play/export
  * use the new bytes. The MCP server does the same import from inside the game
  * folder, and its check (integrity check=true) imports a rebuilt file again.
  */
@@ -200,14 +200,10 @@ test('import a .glb from the project folder, place, reload, restart, Play, expor
 
   // Rebuild the file (other bytes at the same path).
   copyFileSync(GLB_V2, file);
-  // Until the backend notices, export refuses the changed file and names it.
-  const refused = await be.admin('projects/meadow/export');
-  expect(refused.status).not.toBe(200);
-  expect(JSON.stringify(refused.json)).toContain('assets/props/crate.glb');
-  expect(refused.json.error).toMatchObject({ reason: 'asset_source_changed' });
+  // An export takes a changed file in first (imported again before the build), so it ships the new bytes.
+  await exportWith(D2, D1);
 
-  // The file is the asset: the check when the editor opens (a reload here)
-  // imports it again, the change arrives on the change feed, nothing is left in Problems.
+  // The file is the asset: the editor shows the import on the change feed, nothing is left in Problems.
   await page.reload();
   await expect(status(page)).toContainText('connected');
   await expect(rows(page).filter({ hasText: 'crate' })).toHaveCount(1);

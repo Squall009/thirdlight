@@ -2703,7 +2703,7 @@ its reason (the same line is next to its constant in the code):
 | Asset file | 32 MiB per imported file (128 MiB for an FBX to convert); fonts 4 MiB, images 16 MiB; audio of any length within the 32 MiB | One read and one inspection in the backend's memory |
 | Disk | An import or upload is refused only when the disk the game folder is on would keep less than 64 MiB free; the message gives the free space | No project quota |
 | Runtime content manifest | `manifest.json` of a Play build or an export: 32 MiB, the content file cap (asset rows, rigs and prefabs are still inline; phase 26.9 moves them to a catalog). The parts listed by digest (`content/sha256/<digest>`: used materials, material functions, UI documents, dialogue, the instance-set buffer table, script library modules) are 32 MiB each | One file of the build |
-| Play content set | 512 MiB of a Play build held in the backend's memory | Kept until Play serves files from disk (phase 26.8) |
+| Play build in memory | 32 MiB per file the build generates (the manifest's content files, scene files, compiled scripts); no cap on the whole build. The project's files (assets, instance buffers) are not held: Play serves them from disk at their digest URLs, verified while sent | One file the backend holds; what the page reads of the project is read from disk per request |
 | Fixed-step catch-up per frame | 8 steps (the rest are dropped) | A slow frame must not make the next one slower |
 | Script physics queries | 1,024 per step, 2D and 3D together (1,024 rays cost Rapier about 1.6 ms with 16,384 colliders) | Runtime budget against a runaway loop |
 | Game-view events kept | 32 | A display ring |

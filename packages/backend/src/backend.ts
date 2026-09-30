@@ -1799,7 +1799,14 @@ export function createBackend(
 
   const { serveStatic, previewCsp, locatorBaseHeaders, previewTemplate, previewShellHtml, isolationHeaders } = makeStaticRoutes({ config, sendJson });
 
-  const { serveEditorPage, dispatchPreview } = makePreviewRoutes({ config, logStartup, playContent, sendJson, parseQuery, serveStatic, previewCsp, locatorBaseHeaders, previewTemplate, previewShellHtml, isolationHeaders, playBuild });
+  // A Play file that no longer has its digest has the project's files checked again (one check waiting at a time).
+  const recheckQueued = new Set<string>();
+  const onFileChanged = (projectId: string): void => {
+    if (recheckQueued.has(projectId)) return;
+    recheckQueued.add(projectId);
+    void assetFiles.check(projectId).finally(() => recheckQueued.delete(projectId));
+  };
+  const { serveEditorPage, dispatchPreview } = makePreviewRoutes({ config, logStartup, playContent, sendJson, parseQuery, serveStatic, previewCsp, locatorBaseHeaders, previewTemplate, previewShellHtml, isolationHeaders, playBuild, openFile: (projectId, file) => service.openBlobFile(projectId, file), onFileChanged });
 
   authoringServer.on('request', (req, res) => {
     void dispatch(req, res);
