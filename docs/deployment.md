@@ -320,7 +320,7 @@ in the label and what it does in the tooltip. Numbers have a text box (Enter
 or leaving the box commits, Escape reverts) and, when bounded, a slider
 (commits on release); whole numbers, switches, choices, colours, vectors
 (one box per axis), rotations (degrees), asset pickers (only assets of the
-right kind — models, sounds, music, textures), object pickers (only objects
+right kind — models, audio, textures), object pickers (only objects
 with the right component, e.g. a spawn), scene pickers, material, animator,
 script and prefab pickers, signal names (with the names already in use as
 suggestions), texts, nested groups (a **+ add** / **×** pair for optional
@@ -2275,12 +2275,36 @@ order the shell's scene list, and anything like lives or a level timer is
 the game's own scripts over named counters. A project that still has a
 `content.flow` is refused on open, naming it (see "What you can do now").
 
-**Music** assets are Ogg (Vorbis or Opus) or MP3 files, up to 10 minutes and
-16 MB (import them like other assets; a long WAV can be imported with kind
-`music` through MCP). Music starts with the first key press or click (the
-browser's sound rule) and plays through scripts (`ctx.audio.music`) or an
-audio source. `tl_game_observe` reports `loops` (each audio source's current
-gain).
+**Audio** is one kind of asset, whatever its length or use (Unity's
+`AudioClip`, Godot's `AudioStream`): Ogg Vorbis, Ogg Opus, MP3, WAV (integer
+PCM of 8–32 bits or 32/64-bit float, plain or extensible) and FLAC, at any
+channel count and sample rate, of any length; only the file size is bounded
+(32 MiB, as every imported file). Sound effects, music, voice and UI are
+mixer buses, not kinds: a footstep, a voice line and an hour of ambience are
+all `audio`, and any of them can be a dialogue voice or blip, an audio
+source, an event sound, a timeline key, `ctx.audio.play` or
+`ctx.audio.music`. The import reads the headers only (no transcoding). A WAV
+of ADPCM, µ-law or A-law is refused (MDN lists no browser that plays them);
+Ogg Vorbis and Ogg Opus are imported, and the Problems list notes that
+Safari before 18.4 (macOS 15.4, iOS 18.4) does not play them, as it does for
+more than 32 channels or a rate outside 8–96 kHz.
+
+Each audio asset has two import settings, in its `.tlasset` sidecar and in
+the Assets tab's side panel (`setAssetOptions {assetId, loadType, preload}`,
+one undo): the **load type** — *decode on load* (decoded into memory when it
+loads, no wait when played), *decode while playing* (kept compressed,
+decoded when played) or *stream* — defaulting by length: under 5 s decode on
+load, over 60 s stream, anything between decode while playing; and
+**preload** — read with the scene that uses it (the default) or only when
+played (a long dialogue's voice lines). The runtime manifest carries both.
+Until the runtime loads audio by load type (phase 26.11), an asset decoded on
+load and preloaded is read and decoded when the game starts, and any other
+is read on first use and decoded when played. A project with `music`
+records (or short-sound records of the old fixed 2 s mono WAV profile) is
+upgraded on open: each becomes `audio` with its id and file kept, and the
+upgrade is listed in Problems. Sound starts with the first key press or
+click (the browser's sound rule). `tl_game_observe` reports `loops` (each
+audio source's current gain).
 
 **Font** assets are TrueType (.ttf), OpenType (.otf), WOFF2 or WOFF files up
 to 4 MiB, as many as the project needs. Choose or drop the file in
@@ -2290,7 +2314,7 @@ container only (the family name of a TTF/OTF is shown when it has one); the
 game's UI loads the font in the browser. A font ships with Play and the export
 when the project's UI uses it.
 
-Inspector → "+ Add component" → **Audio source** loops an audio or music asset where
+Inspector → "+ Add component" → **Audio source** loops an audio asset where
 the object is: full volume within a quarter of its range, fading to silent
 at the range (measured along X from the player); the Scene view draws both
 distances. Scripts play a sound with `ctx.audio.play(assetId, { volume })`
@@ -2664,7 +2688,7 @@ puts an optional value back to its default).
 ### Engine limits (constants)
 
 These protect the runtime and are not tuning values. A project has **no count
-limit on its assets or resources** (models, textures, sounds, music, fonts,
+limit on its assets or resources** (models, textures, audio, fonts,
 prefabs, scripts, scenes, materials, animators, timelines, UI documents and
 themes, dialogues and speakers, effects, graphs, script libraries,
 environment presets, event sounds, block types and stamps): each is its own
@@ -2676,7 +2700,7 @@ its reason (the same line is next to its constant in the code):
 | Limit | Value | Why |
 |---|---|---|
 | Content file | 1 MiB of canonical JSON per file: each resource record (material, dialogue, UI document, …, environment preset, prefab) and `content.json`'s project-wide settings | What one parse and one change carry; the number of files is not bounded |
-| Asset file | 32 MiB per imported file (128 MiB for an FBX to convert); fonts 4 MiB, images and music 16 MiB | One read and one inspection in the backend's memory |
+| Asset file | 32 MiB per imported file (128 MiB for an FBX to convert); fonts 4 MiB, images 16 MiB; audio of any length within the 32 MiB | One read and one inspection in the backend's memory |
 | Disk | An import or upload is refused only when the disk the game folder is on would keep less than 64 MiB free; the message gives the free space | No project quota |
 | Runtime content manifest | `manifest.json` of a Play build or an export: 32 MiB, the content file cap (asset rows, rigs and prefabs are still inline; phase 26.9 moves them to a catalog). The parts listed by digest (`content/sha256/<digest>`: used materials, material functions, UI documents, dialogue, the instance-set buffer table, script library modules) are 32 MiB each | One file of the build |
 | Play content set | 512 MiB of a Play build held in the backend's memory | Kept until Play serves files from disk (phase 26.8) |
@@ -2684,7 +2708,7 @@ its reason (the same line is next to its constant in the code):
 | Script physics queries | 1,024 per step, 2D and 3D together (1,024 rays cost Rapier about 1.6 ms with 16,384 colliders) | Runtime budget against a runaway loop |
 | Game-view events kept | 32 | A display ring |
 | Sound voices | 32 at most (the `audio_voices` setting's range; default 8) | Mixing cost; as Unity's real-voice default |
-| Decoded music kept | 64 decoded tracks, the most recently used (older ones are decoded again from their bytes when played) | Memory of long voiced dialogues, until audio loads by load type (phase 26.11) |
+| Decoded audio kept (read on first use) | 64 decoded files, the most recently used, of the audio not decoded on load (older ones are decoded again from their bytes when played) | Memory of long voiced dialogues, until audio loads by load type (phase 26.11) |
 | Spawns | 64 per step (a spawn costs about 0.1 ms with 16,384 alive); 16,384 alive (one scene's entity capacity) | Runtime budget per step; spawned copies live like a scene's entities |
 | Timers | 64 per script instance | Named timers of one script, saved with it; a script needing more keeps a list |
 | Script intents (move, jump, transform, pose, respawn) | 40 per script instance per step (a transform and a pose on each of its 16 owned entities and its control intents); per step at most 64 or 40 × the running script instances, whichever is larger | Defense in depth against a runaway script |
@@ -3924,8 +3948,8 @@ engine as project content; the game's own rules stay in its scripts.
   auto-advance and its delay; how low music and effects go under a voice;
   backlog length; the UI document and theme of the dialogue box).
 - **Dialogue tab** ("Dialogue: <name>"): the conversation is a node graph.
-  Start → Lines (speaker, expression, text, voice clip — an audio or music
-  asset —, auto-advance default/on/off) → Choice → Options (text, condition,
+  Start → Lines (speaker, expression, text, voice clip — an audio asset of
+  any length —, auto-advance default/on/off) → Choice → Options (text, condition,
   effects, once; top to bottom) → Branch (condition), Set (effects), Signal
   (name, value; *wait* holds until a script resumes), Wait (seconds), Jump
   (to another conversation or one of its named Entries), End. Select a node to

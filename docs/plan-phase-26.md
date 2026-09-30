@@ -189,7 +189,8 @@ at the boundary it changes (Playwright for any editor surface).
 | 26.3 | done 2026-09-29: A files and sidecars (uploads filed into `assets/`, `.tlasset` sidecars, import cache, file check re-imports and follows moves, project.json 5 with the upgrade of a 4); B folder import with labels (`importAssets`, one undo; editor and MCP), uploads into the folder named, a folder uploaded file by file, labels on records and sidecars, whole-folder moves, upgrade report in Problems |
 | 26.4 | done 2026-09-30: A storage out of `buildService` (typed readers); resources as files, asset records in their sidecars, `content.json` project-wide only; the index (`queryIndex`); validation of what a command touched (D61); one command's latency flat at full size (§6); environment presets as files (their order in `content.json`). B scenes as files anywhere in the game folder (`<name>.scene.json`), `folder` on every create (editor "new items in"), files added, moved, copied, changed or removed while open taken in by the file check (`importResources`, one undo), lost sidecars put back at the open (D63; D64 open) |
 | 26.5 | done 2026-09-30: no per-project count cap on assets or resources (model, commands, editor, game host, MCP, docs; guarded by `tests/count-caps.test.ts` and `tests/e2e/count-caps.e2e.ts`); `MAX_CONTENT_FILE_BYTES` per file; no project quota (disk space only); manifest at the content file cap; animation keys per model; limits audit (§7; table in `docs/deployment.md`); full bench uncapped on main (§6) |
-| 26.6–26.14 | — |
+| 26.6 | done 2026-09-30: one `audio` kind (Ogg Vorbis/Opus, MP3, WAV integer or float, FLAC; any channels, rate, bits, length; the 32 MiB file cap only); header inspection per format; load type and preload in the sidecar (`setAssetOptions`), defaults by length, carried in the manifest; `music` and short-sound records upgraded on open (v4 and earlier v5, ids kept, replays answered); browser gaps as a Problem; asset inspector shows the facts and settings; e2e `audio-kinds` |
+| 26.7–26.14 | — |
 
 ## 6. Measurements
 
@@ -360,6 +361,16 @@ asset is still read and decoded at mount (26.11); the export bundles every
 reachable file into memory (12 s: 26.9). This session's host ran 26.4 B's
 commands at 13–15 / 40 ms (§6 above), so the command numbers are within
 spread of that run.
+
+After 26.6 (one audio kind; generator version 5 — voices are `audio`
+records with preload off, sounds `audio` decoded on load; `--factor 0.1
+--steps open,play,dialogue --gpu`, commit `2f9e9f34`, 2026-09-30; report
+`scale-x0.1-2026-09-30T04-00-01-131Z.json`): Play click → first frame
+867 ms (905 in 26.2), backend build 403 ms; the 200-line voiced dialogue
+heard 200/200, line → voice p50/p95/max 32/34/40 ms, gap p50/p95/max
+5/10/17 ms (26.2: 35 p95, 5/11/26). The voices take the same path as the
+`music` records did (read on first use, decoded when played), so no change
+beyond spread; the 100 sounds are still decoded at start (26.11).
 
 Proposed targets for "Done when" (fixed in 26.14 from these numbers):
 
@@ -891,3 +902,59 @@ Proposed targets for "Done when" (fixed in 26.14 from these numbers):
   the constant. The packer's literal 256 layers now reads
   `MAX_TEXTURE_LAYERS`, and a behavior source's literal 262,144 bytes
   `MAX_BEHAVIOR_SOURCE_BYTES`.
+- 2026-09-30 (26.6): the browsers, from MDN's codec guide and container
+  tables (checked 2026-09-30): MP3, FLAC (own container or Ogg) and linear
+  PCM WAV play in Chromium, Firefox and Safari; ADPCM, GSM, µ-law and MP3 in
+  WAV play in none (refused at import); Ogg Vorbis and Ogg Opus play in
+  Chromium and Firefox, and in Safari only from 18.4 (macOS 15.4, iOS 18.4;
+  the codec guide still says Safari plays Opus only in CAF, the container
+  table and WebKit's 18.4 notes say Ogg; reports of incomplete support in
+  18.4 exist). So Ogg is imported and one `audio_browser_support` Problem per
+  command names the files and "Safari before 18.4"; the same rule flags more
+  than 32 channels and rates outside 8–96 kHz (what Web Audio promises). MDN
+  names no WAV bit depths; Chromium decodes 8/16/24/32-bit integer and 32/64
+  float, which the importer takes. Whether Safari's `decodeAudioData` takes
+  Ogg is not documented: owner check on a Mac pending.
+- 2026-09-30 (26.6): no duration cap; the audio file cap is the one
+  imported-file cap `MAX_SOURCE_BYTES` (32 MiB, also the upload stage's):
+  3 minutes of 16-bit 44.1 kHz stereo WAV or hours of Opus. Raising it waits
+  on Play reading files from disk (26.8). `AUDIO_PCM_WAV_PROFILE`, the music
+  duration and size caps and `MAX_MUSIC_VERSIONS` are gone.
+- 2026-09-30 (26.6): the record: `kind: "audio"`, recipe `{profile:
+  "audio", recipeVersion 1, toolchain {asset-pipeline}}`, metrics `{format,
+  channels, sampleRate, bitsPerSample? (WAV, FLAC), float? (WAV),
+  durationMs}` — header facts only, no PCM arithmetic. Opus records 48 kHz
+  (what it decodes and counts granules at). The load settings live on the
+  record as `loadType?` and `preload?: false`, stored only when changed (as
+  `vertexColors`), so thresholds can move without rewriting records; the
+  sidecar's `importSettings` states the effective values, and the manifest
+  row carries `loadType` and `preload` for 26.11.
+- 2026-09-30 (26.6): thresholds kept at the plan's defaults (under 5 s
+  decode on load, over 60 s stream). 26.2's bench shows voice lines of 1–15 s
+  read and decoded when played start within 35 ms p95 with gaps p95 11 ms, so
+  decoding a mid-length file per play costs no audible gap; 5 s keeps a
+  decoded effect under ~2 MiB (stereo 48 kHz float), 60 s is where a decoded
+  buffer passes ~23 MiB. Preload defaults on (Unity's Preload Audio Data);
+  the bench generator turns it off for its 10,000 voice lines, as a voiced
+  game would.
+- 2026-09-30 (26.6): until 26.11 the game host uses its two existing paths
+  by the load settings: an asset decoded on load and preloaded is read and
+  decoded at start (the old sound path); any other is read on first use and
+  decoded when played, least recently used dropped (the old music path).
+  Event cues, dialogue voices and timelines already go through the script
+  sound path, which waits for bytes, so any audio asset plays in every role.
+- 2026-09-30 (26.6): the upgrade is pure (`upgradeAudioAssets` in the model)
+  and runs on every open before validation, for a storage-v3 envelope, a v4
+  `content.json` and v5 sidecars alike; it bumps the revision once and
+  writes the changed sidecars back (the file check then finds nothing), and
+  the note is a `project_upgraded` Problem. Fixture
+  `fixtures/phase26/legacy-v5-music` was written by the engine at `e235e907`.
+  The M3 contract fixtures (`fixtures/m3/contracts`) now hold the one-kind
+  record; `captureManifestV2` takes a supplied recipe table as the table
+  (as it does engine pins) so the M3 manifest example keeps its bytes.
+- 2026-09-30 (26.6): test fixtures: no ffmpeg on the host, but Blender's
+  audaspace writes FLAC, 5.1 Vorbis and 24-bit WAV
+  (`fixtures/music/make-music.py`, checked in with their base64 bundle);
+  float/extensible WAV, FLAC STREAMINFO, MP3 frame runs and Ogg pages of
+  other codecs are built byte by byte in `inspect-audio.test.ts`; the e2e's
+  70 s Opus comes from the scale bench's Opus packet pool.
