@@ -373,6 +373,18 @@ heard 200/200, line → voice p50/p95/max 32/34/40 ms, gap p50/p95/max
 `music` records did (read on first use, decoded when played), so no change
 beyond spread; the 100 sounds are still decoded at start (26.11).
 
+After 26.7 (addresses and labels; generator version 6 — sidecars in format
+3, no labels, so nothing extra ships; `--factor 0.1 --steps
+open,commands,play --gpu`, commit `2a313745`, 2026-09-30, five runs; report
+`scale-x0.1-2026-09-30T04-54-31-021Z.json` and four more): open backend
+125–204 ms, editor connected 0.99–1.19 s; scene edit p50 5.4–7.3 / p95
+8.6–32 ms, content edit p50 13.5–15.0 / p95 14–25 ms; Play click → first
+frame 872–1,225 ms (backend build 428–524, closure 267–317); manifest
+927,842 B, the same bytes as before (no `loadable` rows without labels). Two
+runs of `360abfc0` in the same session: Play 919–954 ms, closure 269–283, so
+Play is within spread; that build's open (4.6–4.9 s) and commands (41–124 ms
+p50) read its own generator-5 cached project and are not compared.
+
 Proposed targets for "Done when" (fixed in 26.14 from these numbers):
 
 - One command at full size: p95 ≤ 100 ms for a scene edit and a content edit,
