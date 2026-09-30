@@ -128,15 +128,23 @@ games (phase 24.7): games live in their own repositories.
 
 A project directory holds:
 
-- `project.json`: id, name, engine version (schemaVersion 4; a 3 is
-  upgraded on open without changing a document, phase 25.7);
-- `content.json`: assets, prefabs, scripts, settings, tags, UI documents,
-  the game shell, event sounds, the save schema, the scene list and the
-  start scenes;
+- `project.json`: id, name, engine version (schemaVersion 5; a 4 or older
+  is upgraded on open);
+- `content.json`: the project-wide settings: settings, tags, the scene list
+  and the start scenes, the environment (its presets' order), input, the game
+  shell, event sounds, modes, the save schema, speakers and dialogue
+  settings, the revision and the retry records;
 - `scenes/<sceneId>.json`: one file per scene;
-- `sources/sha256/<digest>`: imported asset and script sources, and
-  instance-set buffers. A folder project's assets can instead stay in the
-  game folder, see "Assets referenced in place".
+- `sources/sha256/<digest>`: script sources and instance-set buffers (and
+  asset versions an older project stored there).
+
+In the game folder (a project in the data root is its own), each asset is a
+file with its `.tlasset` sidecar, which holds the asset's record (id, kind,
+import settings, labels); each prefab, script (behavior), material, animator,
+graph, effect, script library, UI document and theme, dialogue, timeline and
+environment preset is its own `<name>.<kind>.json` file, in `assets/<kind>/`
+unless moved (the open finds them anywhere in the game folder by their name
+and id).
 
 `content.json` and the scene files are indented JSON with every list of
 objects written one item per line (one entity, material or retry record per
