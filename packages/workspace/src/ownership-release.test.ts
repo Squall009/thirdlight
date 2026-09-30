@@ -626,17 +626,19 @@ describe('T4: R5 — operator envelope writes honor new-undurable (memory reconc
     if (trigger.ok) throw new Error('unreachable');
     expect(trigger.error?.code).toBe('external_change_unresolved');
 
-    // The accept's W: the rename lands (the accepted envelope — the
-    // external scene canonically re-serialized, revision 10, retry
-    // records cleared — reaches disk) and the directory flush fails
-    // (scenes-dir fault) ⇒ new-undurable.
-    faults.dirFsyncThrow = (dir: string) => dir === scenesDir(root);
+    // The accept rewrites content.json and the scene file in one journaled
+    // transaction: the journal (the commit point) lands, content.json is
+    // replaced, and the scene file's rename fails on every attempt ⇒
+    // new-undurable (committed by the journal, which the next write
+    // completes; the scene file on disk is still the foreign bytes, which
+    // hold the same revision, records and names as the accepted ones).
+    faults.renameThrow = (to: string) => to === scenePath(root);
     const acc = svcA.acceptExternalState(PROJECT) as {
       ok: boolean;
       revision?: number;
       error?: { code: string; onDiskState?: string };
     };
-    faults.dirFsyncThrow = undefined;
+    faults.renameThrow = undefined;
 
     // The operation reports FAILURE for unproven durability — but the
     // intended state is now the running state (in-memory state is

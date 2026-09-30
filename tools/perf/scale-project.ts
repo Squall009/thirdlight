@@ -45,22 +45,10 @@ export interface ProjectWindowScaleOptions {
 /** The label the step gives the chosen files. */
 export const PROJECT_BATCH_LABEL = 'window-batch';
 
-/** Whether a query failed because the backend reset its connection (the harness asks again). */
-function connectionReset(e: unknown): boolean {
-  return (e as { cause?: { code?: string } } | null)?.cause?.code === 'ECONNRESET';
-}
-
 async function waitFor(what: string, check: () => Promise<boolean>, timeoutMs = 300_000): Promise<void> {
   const t = Date.now();
   for (;;) {
-    let done = false;
-    try {
-      done = await check();
-    } catch (e) {
-      // A command that holds the backend past its keep-alive timeout resets the connection a query waited on.
-      if (!connectionReset(e)) throw e;
-    }
-    if (done) return;
+    if (await check()) return;
     if (Date.now() - t > timeoutMs) throw new Error(`${what}: not within ${timeoutMs} ms`);
     await new Promise((r) => setTimeout(r, 10));
   }

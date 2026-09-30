@@ -13,8 +13,9 @@
  *   publish-before blob published, then publishAsset, SIGKILL before the
  *                  content.json rename (the unreferenced-blob crash point)
  *   publish-after  blob published, then publishAsset, SIGKILL after the
- *                  content.json rename (the project directory flush, before
- *                  the ack; the durable-reference crash point)
+ *                  content.json rename (the project directory flush, after
+ *                  the ack: the journal is the commit point; the
+ *                  durable-reference crash point)
  *
  * The project is storage v4 (the parent upgrades the seeded copy first).
  *
@@ -42,11 +43,11 @@ function directPath(root: string, projectId: string, rel: string): string {
   return `${root}/projects/${projectId}/${rel}`;
 }
 
-function killBeforeRename(target: string): WriteOps {
+function killBeforeRename(target: string | RegExp): WriteOps {
   return {
     ...defaultWriteOps,
     renameFile: (from: string, to: string) => {
-      if (to === target) killSelf();
+      if (typeof target === 'string' ? to === target : target.test(to)) killSelf();
       defaultWriteOps.renameFile(from, to);
     },
   };
@@ -55,6 +56,11 @@ function killBeforeRename(target: string): WriteOps {
 function killAfterDirFlush(pred: (dir: string) => boolean): WriteOps {
   return {
     ...defaultWriteOps,
+    // A journaled transaction flushes its directories after the answer.
+    flushPath: async (p: string) => {
+      if (pred(p)) killSelf();
+      await defaultWriteOps.flushPath(p);
+    },
     fsyncDir: (d: string) => {
       if (pred(d)) killSelf();
       defaultWriteOps.fsyncDir(d);
@@ -84,7 +90,7 @@ const METRICS = {
   decodedImageBytes: 0,
 };
 
-function main(): void {
+async function main(): Promise<void> {
   const [mode, root, projectId, backendId] = process.argv.slice(2);
   if (!mode || !root || !projectId || !backendId) {
     console.error('usage: mode root projectId backendId');
@@ -104,7 +110,7 @@ function main(): void {
     svc = openWorkspaceService({ root, backendId, ops: killBeforeRename(sceneAbs) });
   } else if (mode === 'publish-before') {
     // A publication writes the asset's sidecar and content.json together: the journal is the commit point.
-    svc = openWorkspaceService({ root, backendId, ops: killBeforeRename(`${projectDirAbs}/.thirdlight/journal.json`) });
+    svc = openWorkspaceService({ root, backendId, ops: killBeforeRename(/\/\.thirdlight\/journal-\d+\.json$/) });
   } else if (mode === 'env-after') {
     svc = openWorkspaceService({ root, backendId, ops: killAfterDirFlush((d) => d.endsWith('scenes')) });
   } else if (mode === 'publish-after') {
@@ -148,6 +154,8 @@ function main(): void {
       },
     });
     if (!r.ok) fail('publishAsset', r);
+    // The sidecar and content.json are one journaled transaction: its directories are flushed after the answer.
+    await svc.flushed();
     console.log(JSON.stringify({ ok: true, unexpected: r }));
     process.exit(0);
   }
@@ -166,4 +174,4 @@ function main(): void {
   process.exit(0);
 }
 
-main();
+void main();

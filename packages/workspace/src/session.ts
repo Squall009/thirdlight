@@ -73,6 +73,7 @@ import {
 } from './ownership';
 import type { PendingChangeInfo, QueryResult } from './types';
 import { cleanLeftoverTempsV4, type V4State } from './store-v4';
+import { settleFlushSync } from './journal-flush';
 import type { ProjectIndex } from './project-index';
 import {
   acceptExternalV4,
@@ -1228,6 +1229,8 @@ export function releaseProject(
     return cleared;
   }
   if (s.ownership === null) return { ok: false, error: ownershipConflict(null) };
+  // The next owner may open it right away: every committed file on disk first.
+  settleFlushSync(core.ops, s.thirdlightDir);
   const relV4 = releaseOwnership(s.thirdlightDir, s.ownership, core.ops);
   if (relV4.ok) {
     s.ownership = { ...s.ownership, state: 'released' };
@@ -1252,6 +1255,7 @@ export function releaseProject(
  */
 export function releaseOnShutdown(core: Core, s: ProjectSession): void {
   if (s.mode !== 'open' || s.ownership === null) return;
+  settleFlushSync(core.ops, s.thirdlightDir);
   const rel = releaseOwnership(s.thirdlightDir, s.ownership, core.ops);
   if (rel.ok || rel.failed?.onDiskState === 'new-undurable') {
     s.ownership = { ...s.ownership, state: 'released' };

@@ -48,9 +48,10 @@ function ok(svc: WorkspaceService, op: string, args: Record<string, unknown>): M
 }
 
 const hashOf = (p: string): string => createHash('sha256').update(readFileSync(p)).digest('hex');
+const journals = (dir: string): string[] => readdirSync(join(dir, '.thirdlight')).filter((f) => /^journal/.test(f));
 
 describe('storage v4', () => {
-  it('upgrades a v3 project on open, writes per scene, and keeps ids unique across scenes', () => {
+  it('upgrades a v3 project on open, writes per scene, and keeps ids unique across scenes', async () => {
     const root = makeRoot('storage-v4');
     seedV3DemoProject(root, PROJECT_ID);
     const dir = join(root, 'projects', PROJECT_ID);
@@ -76,7 +77,8 @@ describe('storage v4', () => {
     // A new scene: index + empty file in one transaction; a box created in it.
     ok(svc, 'createScene', { sceneId: 'scene-cave', name: 'Cave' });
     expect(existsSync(join(dir, 'scenes', 'scene-cave.json'))).toBe(true);
-    expect(existsSync(join(dir, '.thirdlight', 'journal.json'))).toBe(false);
+    await svc.flushed();
+    expect(journals(dir)).toEqual([]);
     const caveBox = ok(svc, 'createEntity', { kind: 'box', name: 'rock', sceneId: 'scene-cave' });
     expect(caveBox.createdId).not.toBe(box.createdId); // ids unique across scenes
     const cave = JSON.parse(readFileSync(join(dir, 'scenes', 'scene-cave.json'), 'utf8')) as { scene: { entities: { id: string }[] } };
@@ -118,7 +120,7 @@ describe('storage v4', () => {
     svc2.dispose();
   });
 
-  it('pauses on an external edit of one scene file, and completes a journal left by a crash', () => {
+  it('pauses on an external edit of one scene file, and completes a journal left by a crash', async () => {
     const root = makeRoot('storage-v4-ext');
     seedV3DemoProject(root, PROJECT_ID);
     const dir = join(root, 'projects', PROJECT_ID);
@@ -136,9 +138,10 @@ describe('storage v4', () => {
     expect(accepted.ok, JSON.stringify(accepted)).toBe(true);
     const q = svc.query({ op: 'queryEntity', projectId: PROJECT_ID, args: { entityId: 'box-9001' } }) as unknown as { ok: boolean; sceneId: string };
     expect(q.sceneId).toBe('scene-b');
+    await svc.flushed();
     svc.dispose();
 
-    // A crash after the journal was written: the next open completes it.
+    // A crash after the journal was written: the next open completes it (an older build's journal name).
     const contentPath = join(dir, 'content.json');
     const content = JSON.parse(readFileSync(contentPath, 'utf8')) as { revision: number; content: { scenes: { sceneId: string; name: string }[] } };
     content.content.scenes.push({ sceneId: 'scene-c', name: 'C' });
@@ -158,6 +161,40 @@ describe('storage v4', () => {
     expect(q2.ok, JSON.stringify(q2)).toBe(true);
     expect(q2.scenes.map((x) => x.sceneId)).toContain('scene-c');
     expect(existsSync(join(dir, '.thirdlight', 'journal.json'))).toBe(false);
+    svc2.dispose();
+  });
+
+  it('answers a command of several files once its journal is on disk, flushes the files after, and a crash before that replays every journal in order', async () => {
+    const root = makeRoot('storage-v4-flush');
+    seedV3DemoProject(root, PROJECT_ID);
+    const dir = join(root, 'projects', PROJECT_ID);
+    const svc = open(root);
+    await svc.flushed(); // the upgrade's own transaction
+    ok(svc, 'createScene', { sceneId: 'scene-d', name: 'D' });
+    // Answered: the files are in place and the journal waits for their flush.
+    expect(existsSync(join(dir, 'scenes', 'scene-d.json'))).toBe(true);
+    const first = journals(dir);
+    expect(first).toHaveLength(1);
+    // A one-file edit while it waits is journaled too, so replaying the first can never undo it.
+    ok(svc, 'renameScene', { sceneId: 'scene-d', name: 'D2' });
+    const both = journals(dir);
+    expect(both).toHaveLength(2);
+    const num = (f: string): number => Number(/\d+/.exec(f)?.[0]);
+    expect(num(both.find((f) => f !== first[0]) as string)).toBeGreaterThan(num(first[0] as string));
+    const rev = (svc.query({ op: 'queryProject', projectId: PROJECT_ID }) as { revision: number }).revision;
+    // The process dies before the flush: the journals stay, the next open replays both, oldest first.
+    svc.dispose();
+    const svc2 = open(root);
+    const q = svc2.query({ op: 'queryProject', projectId: PROJECT_ID }) as unknown as { revision: number; scenes: { sceneId: string; name: string }[] };
+    expect(q.revision).toBe(rev);
+    expect(q.scenes.find((x) => x.sceneId === 'scene-d')?.name).toBe('D2');
+    expect(journals(dir)).toEqual([]);
+    // Back to in-place writes once nothing waits; a journaled one is flushed and its journal removed.
+    ok(svc2, 'renameScene', { sceneId: 'scene-d', name: 'D3' });
+    expect(journals(dir)).toEqual([]);
+    ok(svc2, 'createScene', { sceneId: 'scene-e', name: 'E' });
+    await svc2.flushed();
+    expect(journals(dir)).toEqual([]);
     svc2.dispose();
   });
 });

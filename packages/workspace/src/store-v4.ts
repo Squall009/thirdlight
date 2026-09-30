@@ -80,13 +80,16 @@ import { RETRY_RECORD_VERSION, RETRY_RETENTION, validateRetryBlock, type RetryRe
 import { snapshotForeignBytes } from './recovery';
 import { pointerSegment, type LoadDetail, type UnavailableReason } from './errors';
 import { writeAtomic, type WriteOps } from './write';
+import { flushPending, journalInFlight, nextJournalName, scheduleFlush } from './journal-flush';
 import { layoutProjectJson } from './project-json';
 import { fileOfRecord, parseSidecar, PROJECT_OWN_ENTRIES, SIDECAR_FORMAT_PRE_ADDRESS, sidecarBytes, sidecarOf, sidecarPath, type RecordLike } from './asset-files';
 import { ENV_PRESETS, gamePathOf, gameRel, isResourcePath, SIDECAR_SUFFIX, parseResourceFile, recordsOfKind, RESOURCE_KINDS, RESOURCE_LISTS, resourceFileBytes, resourceStem, scanResourceFiles, defaultResourcePath, type ResourceLoading } from './resource-files';
 
 export const CONTENT_REL = 'content.json';
 export const MANIFEST_REL_V4 = 'project.json';
+/** The journal an older build wrote (one at a time); journals are numbered now (`journal-<n>.json`). */
 export const JOURNAL_NAME = 'journal.json';
+const JOURNAL_FILE_RE = /^journal(?:-(\d{1,15}))?\.json$/;
 export const sceneRel = (sceneId: string): string => `scenes/${sceneId}.json`;
 
 const CONTENT_FILE_KEYS = ['storageVersion', 'type', 'projectId', 'revision', 'content', 'retry'] as const;
@@ -769,7 +772,7 @@ export function isV4Layout(ops: WriteOps, dir: string): boolean {
 /** A `W` temp of a v4 project file: `.<target>.tmp-<pid>-<nonce>` (write.ts). */
 const V4_TEMP_IN_PROJECT = /^\.(content|project)\.json\.tmp-/;
 const V4_TEMP_IN_SCENES = /^\.[a-z0-9][a-z0-9_-]{0,63}\.json\.tmp-/;
-const V4_TEMP_IN_THIRDLIGHT = /^\.journal\.json\.tmp-/;
+const V4_TEMP_IN_THIRDLIGHT = /^\.journal(?:-\d{1,15})?\.json\.tmp-/;
 const V4_TEMP_IN_CHUNKS = /^\.[a-z0-9][a-z0-9_-]{0,63}\.-?\d{1,4}\.-?\d{1,4}\.json\.tmp-/;
 
 /**
@@ -840,12 +843,13 @@ function relSafe(rel: string): boolean {
   return rel === CONTENT_REL || rel === MANIFEST_REL_V4 || /^scenes\/[a-z0-9][a-z0-9_-]{0,63}\.json$/.test(rel) || CHUNK_REL_RE.test(rel);
 }
 
-function applyWrite(ops: WriteOps, dir: string, gameRoot: string, w: FileWrite): { ok: true } | { ok: false; errno?: string } {
+function applyWrite(ops: WriteOps, dir: string, gameRoot: string, w: FileWrite, touched?: Set<string>): { ok: true } | { ok: false; errno?: string } {
   const target = absOf(dir, gameRoot, w.rel);
   if (w.bytes === null) {
     try {
       ops.removeFile(target);
       ops.fsyncDir(dirname(target));
+      touched?.add(dirname(target));
       return { ok: true };
     } catch (e) {
       // Gone already (a sidecar moved with its file outside the editor): the removal is done.
@@ -853,37 +857,65 @@ function applyWrite(ops: WriteOps, dir: string, gameRoot: string, w: FileWrite):
       return { ok: false, errno: (e as { code?: string }).code };
     }
   }
-  ensureParentDir(ops, dir, gameRoot, w.rel);
+  const made = ensureParentDir(ops, dir, gameRoot, w.rel);
+  if (made !== null) touched?.add(made);
   const res = writeAtomic({ dir: dirname(target), target, bytes: w.bytes, allowedPreHashes: [], previousHash: null, ops });
-  if (res.failed) return { ok: false, ...(res.failed.errno !== undefined ? { errno: res.failed.errno } : {}) };
+  // Any outcome but a verified write leaves the file short of the journal's bytes.
+  if (!res.ok) return { ok: false, ...(res.failed?.errno !== undefined ? { errno: res.failed.errno } : {}) };
+  touched?.add(dirname(target));
   return { ok: true };
 }
 
-/** A chunk file's directory (`scenes/<sceneId>.blocks`) and a resource file's folders are made on first write. */
-function ensureParentDir(ops: WriteOps, dir: string, gameRoot: string, rel: string): void {
-  if (!CHUNK_REL_RE.test(rel) && gamePathOf(rel) === null) return;
+/**
+ * A chunk file's directory (`scenes/<sceneId>.blocks`) and a resource file's
+ * folders are made on first write. Returns the directory that now names the
+ * new one (null: nothing made).
+ */
+function ensureParentDir(ops: WriteOps, dir: string, gameRoot: string, rel: string): string | null {
+  if (!CHUNK_REL_RE.test(rel) && gamePathOf(rel) === null) return null;
   const d = dirname(absOf(dir, gameRoot, rel));
-  if (ops.dirExists(d)) return;
+  if (ops.dirExists(d)) return null;
   try {
     mkdirSync(d, { recursive: true, mode: 0o755 });
     ops.fsyncDir(dirname(d));
+    return dirname(d);
   } catch {
     // the atomic write below reports a real failure
+    return null;
   }
 }
 
+/** The transaction journals in `.thirdlight/`, oldest first (the older build's single journal, then by number). */
+function journalsOnDisk(ops: WriteOps, thirdlightDir: string): string[] {
+  const order = (name: string): number => Number(JOURNAL_FILE_RE.exec(name)?.[1] ?? 0);
+  return ops.listDir(thirdlightDir).filter((n) => JOURNAL_FILE_RE.test(n)).sort((a, b) => order(a) - order(b));
+}
+
 /**
- * Complete a journal left by an interrupted transaction (the journal is the
- * commit point: its writes are redone, then it is removed). A journal that
- * does not verify is left in place and reported — never half-applied.
+ * Complete the journals left by interrupted transactions, oldest first (a
+ * journal is its transaction's commit point: its writes are redone, flushed,
+ * then it is removed). Journals whose transaction is still being flushed by
+ * this process are left to it. A journal that does not verify is left in
+ * place and reported — never half-applied.
  */
 export function rollForwardJournal(ops: WriteOps, dir: string, thirdlightDir: string, projectId: string, gameRoot: string): { ok: true; applied: number } | { ok: false; error: LoadDetail } {
-  const path = join(thirdlightDir, JOURNAL_NAME);
-  if (!ops.fileExists(path)) return { ok: true, applied: 0 };
+  let applied = 0;
+  for (const name of journalsOnDisk(ops, thirdlightDir)) {
+    if (journalInFlight(thirdlightDir, name)) continue;
+    const r = rollForwardOne(ops, dir, thirdlightDir, projectId, gameRoot, name);
+    if (!r.ok) return r;
+    applied += r.applied;
+  }
+  return { ok: true, applied };
+}
+
+function rollForwardOne(ops: WriteOps, dir: string, thirdlightDir: string, projectId: string, gameRoot: string, name: string): { ok: true; applied: number } | { ok: false; error: LoadDetail } {
+  const path = join(thirdlightDir, name);
+  const at = `/.thirdlight/${name}`;
   const read = readJson(ops, path);
-  if (!read.ok) return { ok: false, error: { code: 'envelope_invalid', path: '/.thirdlight/journal.json', message: 'an interrupted transaction journal is unreadable', expected: 'a readable journal (restore from backup, or remove it to drop the transaction)' } };
+  if (!read.ok) return { ok: false, error: { code: 'envelope_invalid', path: at, message: 'an interrupted transaction journal is unreadable', expected: 'a readable journal (restore from backup, or remove it to drop the transaction)' } };
   const doc = read.value as unknown as JournalDoc;
-  const bad = (message: string): { ok: false; error: LoadDetail } => ({ ok: false, error: { code: 'envelope_invalid', path: '/.thirdlight/journal.json', message, expected: 'a valid transaction journal' } });
+  const bad = (message: string): { ok: false; error: LoadDetail } => ({ ok: false, error: { code: 'envelope_invalid', path: at, message, expected: 'a valid transaction journal' } });
   if (doc.journalVersion !== 1 || doc.projectId !== projectId || !Array.isArray(doc.writes)) return bad('the transaction journal is not a journal of this project');
   const writes: FileWrite[] = [];
   for (const w of doc.writes) {
@@ -975,7 +1007,10 @@ function writeFiles(
     if (pc !== null && w.bytes === null && isSidecarRel(w.rel) && 'external' in pc && pc.external.bytes.length === 0) continue;
     if (pc !== null) return pc;
   }
-  if (writes.length === 1) {
+  // One file is written in place, unless an earlier transaction's journal still
+  // waits for its flush: journals replay in order after a crash, so this write
+  // must be one too, or an older journal would replay over it.
+  if (writes.length === 1 && !flushPending(thirdlightDir)) {
     const w = writes[0] as FileWrite;
     const target = absOf(dir, gameRoot, w.rel);
     if (w.bytes !== null) ensureParentDir(ops, dir, gameRoot, w.rel);
@@ -998,6 +1033,7 @@ function writeFiles(
     return { ok: true };
   }
   // Several files: the journal is the commit point.
+  const name = nextJournalName(thirdlightDir);
   const journal: JournalDoc = {
     journalVersion: 1,
     projectId,
@@ -1006,15 +1042,26 @@ function writeFiles(
   if (!ops.dirExists(thirdlightDir)) {
     return { ok: false, failed: { onDiskState: 'previous', errno: 'ENOENT' } };
   }
-  const jres = writeAtomic({ dir: thirdlightDir, target: join(thirdlightDir, JOURNAL_NAME), bytes: jsonBytes(journal), allowedPreHashes: [], previousHash: null, ops });
+  const jres = writeAtomic({ dir: thirdlightDir, target: join(thirdlightDir, name), bytes: jsonBytes(journal), allowedPreHashes: [], previousHash: null, ops });
   if (jres.failed) {
     // The journal is not durable: nothing is committed (a torn journal fails
     // its digest check and is reported at the next open, never applied).
-    ops.removeFile(join(thirdlightDir, JOURNAL_NAME));
+    ops.removeFile(join(thirdlightDir, name));
     return { ok: false, failed: { onDiskState: 'previous', ...(jres.failed.errno !== undefined ? { errno: jres.failed.errno } : {}) } };
   }
-  const done = rollForwardJournal(ops, dir, thirdlightDir, projectId, gameRoot);
-  if (!done.ok) return { ok: false, failed: { onDiskState: 'new-undurable' } };
+  // Committed. Every file is renamed into place now, so readers see the new
+  // bytes; flushing them to the disk (each file, each directory once) is left
+  // to the background, and the journal stays until that is done.
+  const inPlace: WriteOps = { ...ops, fsyncFile: () => undefined, fsyncDir: () => undefined };
+  const files: string[] = [];
+  const dirs = new Set<string>();
+  for (const w of writes) {
+    const r = applyWrite(inPlace, dir, gameRoot, w, dirs);
+    // The journal stays on disk, not in flight: the next transaction or open completes it.
+    if (!r.ok) return { ok: false, failed: { onDiskState: 'new-undurable', ...(r.errno !== undefined ? { errno: r.errno } : {}) } };
+    if (w.bytes !== null) files.push(absOf(dir, gameRoot, w.rel));
+  }
+  scheduleFlush(ops, thirdlightDir, name, files, dirs);
   return { ok: true };
 }
 

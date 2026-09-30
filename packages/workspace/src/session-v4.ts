@@ -72,6 +72,7 @@ import {
   type ResourcePaths,
   type V4State,
 } from './store-v4';
+import { dropFlushes } from './journal-flush';
 import { defaultResourcePath, gamePathOf, gameRel, recordsOfKind, RESOURCE_KINDS, resourceFileBytes, scenePathIn } from './resource-files';
 import { fileOfRecord, sidecarPath, type RecordLike } from './asset-files';
 import { EMPTY_BYTES } from './write';
@@ -212,6 +213,8 @@ export function openV4(
     if (!m.ok) return { kind: 'blocked', reason: 'envelope_invalid', errors: [m.error], count: 1 };
     notes = m.notes;
   }
+  // An open replays every journal on disk, including any this process was still flushing for an earlier session.
+  dropFlushes(thirdlightDir);
   const j = rollForwardJournal(core.ops, dir, thirdlightDir, projectId, gameRoot);
   if (!j.ok) return { kind: 'blocked', reason: 'envelope_invalid', errors: [j.error], count: 1 };
   const recovered = loadRecoveringSidecars(core, dir, thirdlightDir, projectId, gameRoot);

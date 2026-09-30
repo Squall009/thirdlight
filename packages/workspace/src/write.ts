@@ -47,8 +47,11 @@
  */
 
 import {
+  close,
   closeSync,
+  fsync,
   fsyncSync,
+  open,
   openSync,
   readFileSync,
   readdirSync,
@@ -91,6 +94,12 @@ export interface WriteOps {
   dirExists(path: string): boolean;
   /** List directory names (empty when absent). */
   listDir(path: string): string[];
+  /**
+   * Flush a file or directory already in place to the disk, off the event
+   * loop (open read-only, fsync, close). A journaled transaction's files are
+   * flushed this way after the command is answered.
+   */
+  flushPath(path: string): Promise<void>;
 }
 
 const realOps: WriteOps = {
@@ -141,6 +150,20 @@ const realOps: WriteOps = {
     } catch {
       return [];
     }
+  },
+  flushPath(p) {
+    return new Promise<void>((resolve, reject) => {
+      open(p, 'r', (err, fd) => {
+        if (err !== null) return reject(err);
+        fsync(fd, (syncErr) =>
+          close(fd, (closeErr) => {
+            const failed = syncErr ?? closeErr;
+            if (failed !== null) reject(failed);
+            else resolve();
+          }),
+        );
+      });
+    });
   },
 };
 

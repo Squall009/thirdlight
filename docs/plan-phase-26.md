@@ -675,7 +675,18 @@ them; then both undone from the Edit menu:
 
 The time is the transaction's `fsync` of every file (a profile of the ×0.1
 run: 14 s of `fsyncSync`), not the project's size; the backend answers
-nothing meanwhile (D80). The rest of the step is as in 26.13 A: usable
+nothing meanwhile (D80).
+
+After D80's fix (a command of several files is answered once its journal is
+on disk; its files are renamed into place at once and flushed in the
+background, a few at a time and each directory once), the same step, full
+size, GPU host, 2026-09-30 (`scale-full-2026-09-30T17-50-16-752Z.json`):
+labelled 2,603 → 354 ms, moved 4,352 → 641 ms (listed 747 ms), undo of the
+move 7,735 → 575 ms, of the label 3,010 → 402 ms. The workspace service
+alone at ×0.1 on the same disk (the flush measured to its end): label /
+move / undo move / undo label answered in 155 / 314 / 252 / 151 ms, on disk
+0.2–0.3 s (label) and 1.0 s (move) after that; the longest event-loop stall
+over the four 0.3–0.5 s (the commands themselves), where it was 6.5–7.8 s. The rest of the step is as in 26.13 A: usable
 585 ms, the scroll (9,600 screens now: the list is narrower beside the
 folder tree) at frame p50/p95/max 16.7/16.7/16.8 ms.
 
@@ -1950,3 +1961,27 @@ Proposed targets for "Done when" (fixed in 26.14 from these numbers):
   preview moved to `ui/assets/useAssetPreview.ts`, the project window's
   state and openers are `ui/project/useProjectWindow.ts`. `RESOURCE_KIND_TABLE`
   is in the `limits` subpath (the editor's search names the kinds).
+- 2026-09-30 (D80): durability of a command of several files. Its journal
+  (every byte it writes) is written and flushed with its directory: that is
+  the commit point, and the command is answered after it. The files are then
+  written beside their targets and renamed into place at once, without a
+  flush each, so readers see the new bytes. In the background the files are
+  flushed two at a time (libuv's pool keeps two threads for the reads the
+  backend serves), then each directory touched once, then the journal is
+  removed and `.thirdlight/` flushed. A crash anywhere before that leaves the
+  journal and the next open replays it; a failed flush leaves it for the next
+  command, which replays it flushing each file. Journals are numbered and
+  replay oldest first; while one waits, every later write is journaled too
+  (even one file), so an older journal can never replay over a newer write.
+  A graceful close or release finishes the flushes first. Crash-safety is
+  unchanged: every file is still written to a temp and renamed.
+- 2026-09-30 (D80): why connections were reset. A request that arrives on a
+  kept-alive connection while the event loop is blocked for longer than the
+  server's keep-alive timeout (Node's 5 s) is reset: when the loop comes
+  back, the connection's idle timer fires before its data is read
+  (reproduced with a bare `http` server: a 6 s block resets, 4 s does not).
+  With the commands no longer blocking for seconds the bench's retry on
+  `ECONNRESET` is gone. Why an undo took up to twice its command: it does the
+  same file operations (counted), and which of the steps was slow varied
+  between runs; each flush also paid for the unflushed writes before it (the
+  record cache, the moved files) in the disk's journal commit.

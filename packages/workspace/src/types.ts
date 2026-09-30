@@ -499,6 +499,12 @@ export interface WorkspaceService {
   dispose(): void;
   /** Graceful shutdown: release every held project, then discard in-memory state. */
   close(): void;
+  /**
+   * Resolves once every answered command's files are flushed to the disk. A
+   * command of several files is durable when answered (its journal is), and
+   * its files are flushed in the background; tests and benches wait here.
+   */
+  flushed(): Promise<void>;
   /** Create a new project from a template: scene + content + referenced blob bytes. */
   createProjectFrom(projectId: string, name: string, source: ProjectSource): CreateProjectResult;
   /** Register an existing project folder (holding `thirdlight.json`); idempotent for the same folder. */

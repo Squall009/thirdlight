@@ -63,6 +63,7 @@ import {
 } from './errors';
 import { requestDigest } from './digest';
 import { runCommandV4 } from './command-v4';
+import { dropFlushes, whenFlushed } from './journal-flush';
 import { completeInterruptedCreation, createProjectFrom, createProjectImpl } from './project-create';
 import { canonicalIssue, echoOp, echoProjectId, envelopeProjectId, envelopeRequestId, failRequest, invalidRequestFor, validateQueryRequest } from './request-envelope';
 import { defaultOps, listLeftoverTemps } from './write';
@@ -408,7 +409,9 @@ function buildService(core: Core): WorkspaceService {
   function dispose(): void {
     // Process-exit semantics: discard all in-memory
     // state without writing. The ownership records persist; the next
-    // backend reclaims them once this process is dead.
+    // backend reclaims them once this process is dead. Journals still being
+    // flushed stay on disk for the next open to replay.
+    for (const s of core.sessions.values()) dropFlushes(s.thirdlightDir);
     core.sessions.clear();
   }
 
@@ -626,6 +629,7 @@ function buildService(core: Core): WorkspaceService {
     scan,
     dispose,
     close,
+    flushed: whenFlushed,
     checkExternal,
     createProjectFrom: (projectId: string, name: string, source: ProjectSource) => createProjectFrom(core, projectId, name, source),
     registerProject,
