@@ -293,6 +293,11 @@ test('a content table built from its descriptor sends a second edit on top of a 
   await expect.poll(cues).toEqual([{ on: 'signal', name: 'neutral-test', assetId: second }]);
   await undo(page);
   await expect.poll(() => cues()[0]?.assetId).toBe(first);
+  // The row's lateness bound (how late its sound may still start) is a field of the same form.
+  const late = row.getByLabel('eventCue maxLateMs', { exact: true });
+  await late.fill('250');
+  await late.press('Enter');
+  await expect.poll(() => (cues()[0] as { maxLateMs?: number } | undefined)?.maxLateMs).toBe(250);
 });
 
 test('the gameplay settings are built from their descriptor: a number and the step-rate choice', async ({ page }) => {

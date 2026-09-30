@@ -2331,9 +2331,27 @@ load, over 60 s stream, anything between decode while playing; and
 **preload** — read with the scene that uses it (the default) or only when
 played (a long dialogue's voice lines). The runtime catalog's entry for the
 file carries both.
-Until the runtime loads audio by load type (phase 26.11), an asset decoded on
-load and preloaded is read and decoded when the game starts, and any other
-is read on first use and decoded when played. A project with `music`
+Nothing audio is read when a game starts. A preloaded file is read with the
+scene that names it (an audio source, say) and kept until that scene
+unloads; files the project-wide parts name (event sounds, timelines, the
+shell) are read after the start and kept for the play. A file that is not
+preloaded is read when first played and then kept while the scenes loaded at
+that moment stay loaded. *Decode on load* keeps the decoded sound, *decode
+while playing* keeps the compressed file and decodes it for each play,
+*stream* plays through a media element that reads the file as it plays
+(nothing is kept). A running conversation reads the voices of the lines
+ahead on every branch, three lines deep, and decodes those of the next
+lines, so a voice starts with its line. A sound played before its file is
+ready starts when it is, unless it would start later than its bound, then it
+is dropped: `maxLateMs` on `ctx.audio.play` / `stinger` (default 500 ms, 0:
+now or never, at most 60 s), on an event sound row, on a timeline stinger or
+sfx key, and the dialogue setting `voiceMaxLateMs` (default 1000 ms) for
+voices; loops and music wait as long as it takes. `tl_game_observe` `audio.
+late` counts the sounds that started late and those dropped, with the newest
+of each (asset, how late, the bound, and whether it waited for its file or
+for the first click), and `resources.resident` reports `audio` (decoded),
+`audio-bytes` (kept compressed) and `audio-stream` (streams playing). A
+project with `music`
 records (or short-sound records of the old fixed 2 s mono WAV profile) is
 upgraded on open: each becomes `audio` with its id and file kept, and the
 upgrade is listed in Problems. Sound starts with the first key press or

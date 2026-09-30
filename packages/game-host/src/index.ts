@@ -19,7 +19,7 @@
  * (`./audio`) and the host core (`./host`) are DOM-free, deterministic and
  * Node-testable with injected fakes.
  */
-import type { AudioContextLike } from './audio';
+import type { AudioContextLike, MediaElementLike } from './audio';
 export {
   AUDIO_MAX_VOICES,
   AUDIO_MAX_DIAGNOSTICS,
@@ -100,7 +100,25 @@ export function browserContextFactory(): (() => AudioContextLike | null) | null 
       return null; // construction refused (e.g. no device) → owner: unsupported/blocked
     }
   };
-}export {
+}
+
+/**
+ * The media elements streamed audio files play through (each through the
+ * owner's context as a MediaElementAudioSourceNode). Same-origin files
+ * only: a cross-origin element without CORS would be heard as silence.
+ * Null without a document.
+ */
+export function browserMediaElementFactory(): (() => MediaElementLike | null) | null {
+  if (typeof document === 'undefined') return null;
+  return () => {
+    try {
+      return document.createElement('audio') as unknown as MediaElementLike;
+    } catch {
+      return null;
+    }
+  };
+}
+export {
   bufferResolver,
   prepareSceneCatalog,
   // The manifest's content files read back under their keys.

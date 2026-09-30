@@ -17,7 +17,8 @@
  * - `animator`   the target's animator [kind set | trigger | play, name,
  *                value, fade, layer];
  * - `audio`      [kind music | release | stinger | sfx, asset, fade, volume,
- *                loop, duration, at (a slot: positional)]; track
+ *                loop, duration, at (a slot: positional), maxLateMs (how late
+ *                a stinger or sfx whose file is not ready may still start)]; track
  *                `releaseMusic`: give the music back at the end;
  * - `dialogue`   run a dialogue node and wait [dialogue, node, wait];
  * - `effect`     [effect, duration, at, position, params];
@@ -38,6 +39,7 @@
  * materials are checked against the project by `validateTimelineReferences`.
  * Pure: no I/O.
  */
+import { AUDIO_MAX_LATE_MS_LIMIT } from './content-limits';
 import { ID_RE } from './validate';
 import type { ModelErrorV2 } from './errors';
 import { isPlainObject } from './validate';
@@ -102,6 +104,8 @@ export interface TimelineKey {
   volume?: number;
   loop?: boolean;
   at?: string;
+  /** Stinger / sfx: how late (ms) it may still start when its file is not ready yet (absent: the engine's default). */
+  maxLateMs?: number;
   // dialogue
   dialogue?: string;
   node?: string;
@@ -202,7 +206,7 @@ const KEY_FIELDS: Record<TimelineTrackType, readonly string[]> = {
   camera: ['time', 'camera', 'release', 'blend', 'blendTime', 'progress', 'easing'],
   transform: ['time', 'position', 'rotation', 'scale', 'easing'],
   animator: ['time', 'kind', 'name', 'value', 'fade', 'layer'],
-  audio: ['time', 'kind', 'asset', 'fade', 'volume', 'loop', 'duration', 'at'],
+  audio: ['time', 'kind', 'asset', 'fade', 'volume', 'loop', 'duration', 'at', 'maxLateMs'],
   dialogue: ['time', 'dialogue', 'node', 'wait'],
   effect: ['time', 'effect', 'duration', 'at', 'position', 'params'],
   activation: ['time', 'active'],
@@ -323,6 +327,8 @@ function validateKey(type: TimelineTrackType, k: unknown, path: string, duration
       if (kind !== 'sfx' && (k['loop'] !== undefined || k['duration'] !== undefined || k['at'] !== undefined)) err(errors, 'field_unexpected', path, 'loop, duration and at belong to an sfx key', undefined, 'kind sfx');
       num(errors, k['duration'], `${path}/duration`, 0.001, TIMELINE_LIMITS.duration, 'duration (seconds)');
       slot(k['at'], `${path}/at`, 'at', false);
+      if (k['maxLateMs'] !== undefined && kind !== 'sfx' && kind !== 'stinger') err(errors, 'field_unexpected', `${path}/maxLateMs`, 'maxLateMs belongs to a stinger or sfx key', k['maxLateMs'], 'kind stinger or sfx');
+      if (k['maxLateMs'] !== undefined && !(Number.isInteger(k['maxLateMs']) && isNum(k['maxLateMs'], 0, AUDIO_MAX_LATE_MS_LIMIT))) err(errors, 'field_value', `${path}/maxLateMs`, `maxLateMs is a whole number of milliseconds 0–${AUDIO_MAX_LATE_MS_LIMIT}`, k['maxLateMs'], `0..${AUDIO_MAX_LATE_MS_LIMIT}`);
       break;
     }
     case 'dialogue':

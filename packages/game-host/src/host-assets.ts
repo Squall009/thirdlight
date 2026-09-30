@@ -8,11 +8,6 @@
  * changes are drawn, and reports what is resident. The host itself loads:
  *
  * - the input glyph images (object URLs, held until the host is disposed);
- * - the audio assets' bytes for the audio owner: a sound decoded on load is
- *   read and registered when the game starts, any other when something first
- *   plays it (a script, an event cue, an audio source); a sound the start
- *   rows do not name is found in the catalog first.
- *
  * - what scripts load with `ctx.assets`: the simulation's load requests are
  *   carried out by the page's `loadAssets` (the key resolved, the assets
  *   read, parsed or decoded, and held for the handle's holder), and the
@@ -24,16 +19,11 @@
  */
 import { createResourceManager, RESOURCE_HANDLE_PREFIX, type AssetHandleAnswer, type AssetHandleRequest, type ResourceManager, type ResourceObservation } from '@thirdlight/runtime';
 
-import type { GameAudioOwner } from './audio';
-
 /** What the asset loading reads from the host's config. */
 export interface HostAssetsConfig {
   readonly readArtifact: (path: string) => Promise<ArrayBuffer>;
-  readonly audio: GameAudioOwner;
   readonly assetPaths?: Record<string, string>;
-  readonly assetKinds?: Readonly<Record<string, string>>;
-  readonly audioLoad?: Readonly<Record<string, { readonly loadType?: string; readonly preload?: boolean }>>;
-  readonly lookupAsset?: (assetId: string) => Promise<{ readonly path: string; readonly kind: string; readonly loadType?: string; readonly preload?: boolean } | undefined>;
+  readonly lookupAsset?: (assetId: string) => Promise<{ readonly path: string; readonly kind: string } | undefined>;
   readonly resources?: ResourceManager;
   /**
    * Load what a script's key names (an asset id, an address or a label) and
@@ -77,10 +67,6 @@ export interface HostAssets {
   readonly resources: ResourceManager;
   /** A glyph image's object URL (null while it loads; loaded on first ask). */
   glyphImageUrl(assetId: string): string | null;
-  /** Read and register the sounds decoded on load (the game starts). */
-  registerStartSounds(): void;
-  /** Something is about to play this sound: its bytes are read and registered (once) if they are not yet. */
-  soundWanted(assetId: string): void;
   /** Carry out the simulation's asset loads and releases; the answers go to `answer` (the next step's input). */
   serviceHandles(requests: readonly AssetHandleRequest[], answer: (a: AssetHandleAnswer) => void): void;
   /** The frame's scene changes are drawn: free what lost its last holder. */
@@ -98,31 +84,6 @@ export function createHostAssets(config: HostAssetsConfig, live: () => boolean):
   const own = config.resources === undefined;
   const glyphUrls = new Map<string, string | null>();
 
-  /** An audio file read on first use and decoded when played (not decoded on load with its scene). */
-  const readOnUse = (assetId: string): boolean => {
-    if (config.assetKinds?.[assetId] !== 'audio') return false;
-    const load = config.audioLoad?.[assetId];
-    return load !== undefined && (load.loadType !== 'decode-on-load' || load.preload === false);
-  };
-  /** Sounds found through `lookupAsset` (asked once each): read, then registered by their load settings. */
-  const lookupAsked = new Set<string>();
-  const findSound = (assetId: string): void => {
-    if (config.lookupAsset === undefined || config.assetPaths?.[assetId] !== undefined || lookupAsked.has(assetId)) return;
-    lookupAsked.add(assetId);
-    void config
-      .lookupAsset(assetId)
-      .then(async (row) => {
-        if (!live() || row === undefined || row.kind !== 'audio') return;
-        const buffer = await config.readArtifact(row.path);
-        if (!live()) return;
-        const onUse = row.loadType !== undefined && (row.loadType !== 'decode-on-load' || row.preload === false);
-        if (onUse && config.audio.registerMusic !== undefined) config.audio.registerMusic(assetId, new Uint8Array(buffer));
-        else config.audio.registerCue(assetId, new Uint8Array(buffer));
-      })
-      .catch(() => undefined);
-  };
-  /** Files read on first use, asked once each. */
-  const onUseAsked = new Set<string>();
 
   /** Scripts' handles the host holds for (by handle number). */
   interface HostHandle {
@@ -187,45 +148,6 @@ export function createHostAssets(config: HostAssetsConfig, live: () => boolean):
           () => undefined,
         );
       return null;
-    },
-    registerStartSounds() {
-      // Resolve every audio asset through the injected reader (async — the
-      // game plays silently until a sound's bytes arrive and decode; the owner
-      // skips unregistered assets with a bounded diagnostic).
-      if (config.assetPaths === undefined) return;
-      const registered = new Set<string>();
-      const soundIds = Object.entries(config.assetKinds ?? {}).filter(([id, k]) => k === 'audio' && !readOnUse(id)).map(([id]) => id);
-      for (const assetId of soundIds) {
-        if (registered.has(assetId)) continue;
-        const path = config.assetPaths[assetId];
-        if (typeof path !== 'string' || path.length === 0) continue;
-        registered.add(assetId);
-        void config
-          .readArtifact(path)
-          .then((buffer) => {
-            if (!live()) return;
-            const r = config.audio.registerCue(assetId, new Uint8Array(buffer));
-            if (r.ok === false) console.warn('[game-host] cue registration failed', r.error.code);
-          })
-          .catch((error: unknown) => {
-            // Bounded: the cue stays unregistered; the owner skips it and
-            // the game plays silently (no page error, no unhandled reject).
-            console.warn('[game-host] cue artifact read failed', error instanceof Error ? error.message : String(error));
-          });
-      }
-    },
-    soundWanted(assetId) {
-      findSound(assetId);
-      if (!readOnUse(assetId) || onUseAsked.has(assetId)) return;
-      onUseAsked.add(assetId);
-      const path = config.assetPaths?.[assetId];
-      if (typeof path !== 'string' || config.audio.registerMusic === undefined) return;
-      void config
-        .readArtifact(path)
-        .then((buffer) => {
-          if (live()) config.audio.registerMusic?.(assetId, new Uint8Array(buffer));
-        })
-        .catch(() => undefined);
     },
     serviceHandles(requests, answer) {
       for (const r of requests) {

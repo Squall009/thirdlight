@@ -95,6 +95,14 @@ export const MAX_TEXTURE_LAYERS = 256;
 export const AUDIO_VOICE_CAP = 32;
 /** The `audio_voices` default: enough for overlapping effects in any scene. */
 export const AUDIO_VOICES_DEFAULT = 8;
+/**
+ * How late a sound played before its file is ready may still start (ms)
+ * when its caller does not say: half a second after its moment a hit or a
+ * bark still reads as that moment's; later it is dropped.
+ */
+export const AUDIO_MAX_LATE_MS_DEFAULT = 500;
+/** The largest lateness bound a caller may set (ms): a minute, longer than any wait for one file. */
+export const AUDIO_MAX_LATE_MS_LIMIT = 60_000;
 
 /** The largest JSON chunk of an imported GLB (bytes). */
 export const MODEL_JSON_CHUNK_BYTES_MAX = 8_388_608;

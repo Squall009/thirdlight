@@ -201,6 +201,8 @@ export async function startM3Preview(cfg: M3PreviewConfig): Promise<M3PreviewHan
     read: readDeclared,
     // The worker and the page import each compiled script from the locator (absolute same-origin URLs).
     scriptUrl: (path) => new URL(urlOf(path), location.href).href,
+    // A streamed audio file plays from its locator URL (same origin: Web Audio hears it).
+    assetUrl: (path) => new URL(urlOf(path), location.href).href,
     workerUrl: new URL(`${cfg.buildRoot ?? '/'}${PREVIEW_SIM_WORKER_FILE}`, location.href).href,
     physics3dUrl: new URL(`${cfg.buildRoot ?? '/'}${PREVIEW_PHYSICS_3D_FILE}`, location.href).href,
     decoderBase: PREVIEW_DECODER_BASE,

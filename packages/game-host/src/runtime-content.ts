@@ -61,6 +61,8 @@ export interface RuntimeCatalog {
   sceneEntriesRead(sceneId: string): readonly CatalogRow[] | undefined;
   /** Every row known now. */
   known(): readonly CatalogRow[];
+  /** What the project-wide blocks need (event cues, timelines, the shell, the UI; v4: every row). */
+  shared(): readonly CatalogRow[];
   /** What scripts may load by address or label (read once, on first ask). */
   loadable(): Promise<readonly { kind: string; id: string; address?: string; labels?: readonly string[] }[]>;
   /** Catalog files read and their bytes (the manifest's content files for v4). */
@@ -88,7 +90,8 @@ async function readChecked(io: SceneCatalogIo, ref: CatalogFileRef, what: string
   return JSON.parse(new TextDecoder().decode(buf)) as unknown;
 }
 
-function createCatalog(version: 4 | 5, io: SceneCatalogIo, root: CatalogRootV5 | null, counted: { files: number; bytes: number }): RuntimeCatalog & { add(rows: readonly CatalogRow[]): void } {
+function createCatalog(version: 4 | 5, io: SceneCatalogIo, root: CatalogRootV5 | null, counted: { files: number; bytes: number }): RuntimeCatalog & { add(rows: readonly CatalogRow[]): void; setShared(rows: readonly CatalogRow[]): void } {
+  let sharedRows: readonly CatalogRow[] | null = null;
   const byKey = new Map<string, CatalogRow>();
   const byId = new Map<string, CatalogRow>();
   const byPath = new Map<string, CatalogRow>();
@@ -172,6 +175,12 @@ function createCatalog(version: 4 | 5, io: SceneCatalogIo, root: CatalogRootV5 |
     known() {
       return [...byKey.values()];
     },
+    shared() {
+      return sharedRows ?? [...byKey.values()];
+    },
+    setShared(rows) {
+      sharedRows = rows;
+    },
     loadable() {
       loadableRead ??= Promise.all(loadableFiles.map((f) => read(f, 'the loadable file'))).then((parts) => (parts.length === 0 ? [] : (joinCatalogParts('loadable', parts) as { kind: string; id: string }[])));
       return loadableRead;
@@ -242,6 +251,7 @@ export async function openRuntimeContent<M = Record<string, unknown>>(doc: unkno
   for (const [key, list] of grouped) blocks[key] = joinCatalogParts(key, list);
   const shared = (blocks['dependencies'] as CatalogEntry[] | undefined) ?? [];
   catalog.add(shared as unknown as CatalogRow[]);
+  catalog.setShared(shared as unknown as CatalogRow[]);
   const header: Record<string, unknown> = {};
   for (const k of HEADER_KEYS) header[k] = (m as unknown as Record<string, unknown>)[k];
   const { media, behaviors, facts, dependencies: _shared, ...rest } = blocks;

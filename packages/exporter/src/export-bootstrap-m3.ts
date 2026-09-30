@@ -82,6 +82,8 @@ async function main(): Promise<void> {
       snapshot,
       read: readArtifact,
       scriptUrl: (path) => new URL(path, document.baseURI).href,
+      // A streamed audio file plays from its path next to index.html.
+      assetUrl: (path) => new URL(path, document.baseURI).href,
       workerUrl: new URL(EXPORT_SIM_WORKER_PATH, document.baseURI).href,
       physics3dUrl: new URL(EXPORT_PHYSICS_3D_PATH, location.href).href,
       decoderBase: EXPORT_DECODER_BASE,

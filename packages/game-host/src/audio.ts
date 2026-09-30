@@ -9,10 +9,12 @@
  * chars, log-safe).
  *
  * Normative rules realized here:
- *  1. Bytes in only — registerCue takes a Uint8Array the host obtained via
- *     the accepted immutable blob read. No URL, locator, data: string, fetch,
- *     XHR, <audio> element or base64 anywhere in this module. Cue events
- *     carry assetId only.
+ *  1. Bytes in, by the host's reader — registerCue takes a Uint8Array the
+ *     host obtained via the verified read, and the host's `source` gives
+ *     each file's load settings and verified bytes. No fetch, XHR, data:
+ *     string or base64 anywhere in this module; the one URL is a streamed
+ *     file's, handed to a media element the page's factory makes
+ *     (audio-loading.ts). Cue events carry assetId only.
  *  2. Decode is bounded and asynchronous — decodeAudioData on a COPY of the
  *     supplied bytes; a failure is a bounded per-cue diagnostic, never a
  *     throw across the host boundary; bytes are never mutated.
@@ -51,8 +53,12 @@
  * additive read-only method).
  */
 
-import { createResourceManager, type ResourceManager } from '@thirdlight/runtime';
+import { AUDIO_MAX_LATE_MS_DEFAULT, createResourceManager, type ResourceManager } from '@thirdlight/runtime';
 import { AUDIO_VOICE_CAP, AUDIO_VOICES_DEFAULT, distanceGain, listenerRelative } from '@thirdlight/runtime';
+
+import { createAudioLoader, type AudioAssetSource, type AudioLoadType, type LoaderContextLike, type MediaElementLike, type Playable, type StreamValue } from './audio-loading';
+
+export type { AudioAssetSource, AudioLoadType, MediaElementLike } from './audio-loading';
 
 /**
  * Rule 3 — the concurrent voice cap: the default of the project's
@@ -103,6 +109,7 @@ export type GameAudioDiagnosticCode =
   | 'voice_cap'
   | 'stale_work_discarded'
   | 'cue_skipped'
+  | 'late_dropped'
   | 'suspend_failed';
 
 export interface GameAudioDiagnostic {
@@ -184,6 +191,8 @@ export interface AudioContextLike {
   createBufferSource(): BufferSourceLike;
   createGain(): GainNodeLike;
   readonly destination: AudioNodeLike;
+  /** A streamed file's element in the graph (absent: streams play as decode-while-playing). */
+  createMediaElementSource?(element: MediaElementLike): AudioNodeLike & { disconnect?(): void };
   /** The clock the music crossfades on (absent: gains jump). */
   readonly currentTime?: number;
   /** Positional sound (absent: positional sounds play unpanned). */
@@ -215,7 +224,7 @@ export interface AudioSpatialLike {
 
 /** One command of the simulation's audio intent log (runtime `AudioCommand`, structurally). */
 export type AudioCommandLike =
-  | { readonly op: 'play'; readonly stepIndex: number; readonly handle: number; readonly assetId: string; readonly bus: 'sfx' | 'music' | 'voice' | 'ui'; readonly volume: number; readonly loop: boolean; readonly pitch: number; readonly fadeIn: number; readonly stinger?: true; readonly entityId?: string; readonly position?: readonly [number, number, number]; readonly spatial?: AudioSpatialLike }
+  | { readonly op: 'play'; readonly stepIndex: number; readonly handle: number; readonly assetId: string; readonly bus: 'sfx' | 'music' | 'voice' | 'ui'; readonly volume: number; readonly loop: boolean; readonly pitch: number; readonly fadeIn: number; readonly stinger?: true; readonly entityId?: string; readonly position?: readonly [number, number, number]; readonly spatial?: AudioSpatialLike; readonly maxLateMs?: number }
   | { readonly op: 'stop'; readonly stepIndex: number; readonly handle: number; readonly fade: number }
   | { readonly op: 'fade'; readonly stepIndex: number; readonly handle: number; readonly to: number; readonly seconds: number }
   | { readonly op: 'set'; readonly stepIndex: number; readonly handle: number; readonly volume?: number; readonly pitch?: number; readonly loop?: boolean }
@@ -238,6 +247,8 @@ export interface AudioVoiceInfo {
   readonly gain: number;
   /** The source's playback rate. */
   readonly rate: number;
+  /** A script sound that started late: how long after its play command (ms; absent: at once). */
+  readonly lateMs?: number;
   /** Positional: the panner's stereo pan for the listener (−1 left … 1 right) and its distance gain. */
   readonly pan?: number;
   readonly distanceGain?: number;
@@ -260,20 +271,43 @@ export interface AudioObservation {
   readonly panningModel: string;
   /** The owner's newest diagnostics (at most 3, each ≤ 256 chars, log-safe). */
   readonly diagnostics: readonly string[];
+  /**
+   * Script sounds whose file was not ready when played: how many started
+   * late (and the latest lateness) and how many were dropped past their
+   * bound, with the newest outcomes (at most `AUDIO_OBSERVED_LATE`).
+   */
+  readonly late: AudioLateReport;
+}
+
+/** Late outcomes listed in the observation. */
+export const AUDIO_OBSERVED_LATE = 8;
+
+/** What happened to script sounds that were not ready when played. */
+export interface AudioLateReport {
+  /** Started after their play command (the file was read or decoded first). */
+  readonly started: number;
+  /** Dropped: not ready within their bound. */
+  readonly dropped: number;
+  readonly recent: readonly AudioLateOutcome[];
+}
+
+export interface AudioLateOutcome {
+  readonly handle: number;
+  readonly assetId: string;
+  readonly outcome: 'started' | 'dropped';
+  /** How late it started, or how long it had waited when dropped (ms). */
+  readonly lateMs: number;
+  /** The caller's bound (ms). */
+  readonly maxLateMs: number;
+  /** Dropped: what it waited for (its file, or the player's first gesture that turns sound on). */
+  readonly waitedFor?: 'file' | 'unlock';
 }
 /** Names each owner's holders apart in a shared resource manager. */
 let ownerSerial = 0;
 /** One-shot sounds' holder names. */
 let soundSerial = 0;
-/** The holder of the sounds decoded on load (their registration). */
+/** The holder of the files given to the owner directly (registerCue, registerMusic). */
 const REGISTERED = 'registered';
-
-/** The resident size of a decoded buffer (32-bit float samples per channel). */
-function decodedBytes(b: AudioBufferLike): number {
-  const x = b as { length?: number; numberOfChannels?: number; duration?: number; sampleRate?: number };
-  const frames = typeof x.length === 'number' ? x.length : Math.round((x.duration ?? 0) * (x.sampleRate ?? 0));
-  return frames * Math.max(1, x.numberOfChannels ?? 1) * 4;
-}
 
 export interface GameAudioOwnerConfig {
   /**
@@ -288,22 +322,21 @@ export interface GameAudioOwnerConfig {
   /** The project's `audio_voices` (1–32; absent: `AUDIO_MAX_VOICES`). */
   readonly maxVoices?: number;
   /**
-   * The page's resource manager. A sound decoded when played is held there
-   * by what plays it (a voice, a loop, the music track) and freed once the
-   * last of them stopped; a sound decoded on load is held by its
-   * registration. Absent: a manager of the owner's own.
+   * The page's resource manager: every file's bytes, decoded buffer and
+   * stream are held there (see audio-loading.ts). Absent: a manager of the
+   * owner's own.
    */
   readonly resources?: ResourceManager;
+  /** Each audio file's load settings and verified bytes (the host's catalog); absent: only registered files play. */
+  readonly source?: (assetId: string) => Promise<AudioAssetSource | undefined>;
+  /** A media element for a streamed file (the browser page's; absent: streams play as decode-while-playing). */
+  readonly createMediaElement?: () => MediaElementLike | null;
+  /** A millisecond clock for the lateness bound (absent: `performance.now`). */
+  readonly now?: () => number;
 }
 
-type AssetState =
-  | { state: 'pending'; bytes: Uint8Array; token: number }
-  | { state: 'decoding'; bytes: Uint8Array; token: number }
-  | { state: 'ready'; buffer: AudioBufferLike; token: number }
-  | { state: 'failed'; token: number };
-
 interface Voice {
-  readonly source: BufferSourceLike;
+  readonly source: PlaySource;
   readonly assetId: string;
   /** True once the source fired onended (stop() must not be called again —
    * real Web Audio throws InvalidStateNode on stop-after-ender). */
@@ -371,7 +404,119 @@ export interface GameAudioOwner {
   setSpatialLoop?(key: string, assetId: string | null, gain: number, position: readonly number[], spatial: AudioSpatialLike): void;
   /** The audio observation, or null before scripts used audio and while nothing positional plays. */
   observeAudio?(): AudioObservation | null;
+  /**
+   * Load what `holder` keeps of a file ahead of its plays: a scene's preload,
+   * dialogue lines read ahead (by its load type). `decode`: a file decoded
+   * while playing is decoded now too (a play that is about to come).
+   */
+  holdAudio?(assetId: string, holder: string, decode?: boolean): void;
+  /** Let go of what `holder` holds (a scene unloaded, lines no longer ahead). */
+  releaseAudio?(holder: string): void;
+  /** The holders a sound's first play keeps its file for (the scenes loaded now; empty: the whole play). */
+  setAudioScope?(holders: readonly string[]): void;
 }
+
+/**
+ * One playing sound in the graph: a buffer source, or a streamed file's
+ * element (its node in the graph; start/stop/loop/rate on the element).
+ */
+interface PlaySource {
+  readonly node: AudioNodeLike;
+  onended: (() => void) | null;
+  loop: boolean;
+  rate: number;
+  start(): void;
+  /** Stop now, or at the context time `when` (after a fade). */
+  stop(when?: number): void;
+  /**
+   * A stream's element plays on while the context is suspended (its clock is
+   * its own): hidden pauses it and visible plays it on, so it resumes in place
+   * like a buffer source. Absent for buffer sources (the context holds them).
+   */
+  hold?(paused: boolean): void;
+}
+
+function bufferPlay(ctx: AudioContextLike, buffer: AudioBufferLike): PlaySource {
+  const s = ctx.createBufferSource();
+  s.buffer = buffer;
+  return {
+    node: s,
+    get onended() {
+      return s.onended;
+    },
+    set onended(f) {
+      s.onended = f;
+    },
+    get loop() {
+      return s.loop === true;
+    },
+    set loop(v) {
+      s.loop = v;
+    },
+    get rate() {
+      return s.playbackRate?.value ?? 1;
+    },
+    set rate(v) {
+      if (s.playbackRate !== undefined) s.playbackRate.value = v;
+    },
+    start: () => s.start(),
+    stop: (when) => (when === undefined ? s.stop() : s.stop(when)),
+  };
+}
+
+function streamPlay(ctx: AudioContextLike, v: StreamValue): PlaySource {
+  const el = v.element;
+  let ended: (() => void) | null = null;
+  const onEnded = (): void => {
+    if (!el.loop) ended?.();
+  };
+  el.addEventListener('ended', onEnded);
+  // The rate changes the pitch too, as a buffer source's does.
+  el.preservesPitch = false;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let stopped = false;
+  return {
+    node: v.node as AudioNodeLike,
+    hold: (paused) => {
+      if (stopped) return;
+      if (paused) el.pause();
+      else void el.play().catch(() => undefined);
+    },
+    get onended() {
+      return ended;
+    },
+    set onended(f) {
+      ended = f;
+    },
+    get loop() {
+      return el.loop;
+    },
+    set loop(x) {
+      el.loop = x;
+    },
+    get rate() {
+      return el.playbackRate;
+    },
+    set rate(x) {
+      el.playbackRate = x;
+    },
+    start: () => {
+      // After the unlock gesture the page has the user activation the autoplay policy asks for.
+      void el.play().catch(() => ended?.());
+    },
+    stop: (when) => {
+      const now = ctx.currentTime;
+      stopped = true;
+      if (when === undefined || now === undefined || when <= now) {
+        el.pause();
+        return;
+      }
+      if (timer !== null) clearTimeout(timer);
+      timer = setTimeout(() => el.pause(), (when - now) * 1000);
+    },
+  };
+}
+
 
 export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAudioOwner {
   const factory = config.contextFactory;
@@ -379,6 +524,8 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
     typeof config.maxVoices === 'number' && Number.isFinite(config.maxVoices)
       ? Math.max(1, Math.min(AUDIO_VOICE_LIMIT, Math.floor(config.maxVoices)))
       : AUDIO_MAX_VOICES;
+  const perf = (globalThis as { performance?: { now(): number } }).performance;
+  const now = config.now ?? (() => (perf !== undefined ? perf.now() : 0));
 
   let disposed = false;
   let context: AudioContextLike | null = null;
@@ -388,13 +535,9 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
   let hidden = false;
   let blockedReason: 'autoplay_denied' | 'no_device' | null = null;
 
-  /** Bumped by a runId change and by dispose(): every in-flight decode
-   * captures the epoch it started in; a resolve under a newer epoch is
-   * stale (rule 5). */
-  let epoch = 0;
+  /** Bumped by a runId change and by dispose() (rule 5: a cue of an old run is never played into a new one). */
   let activeRunId: string | null = null;
   const playedIds = new Set<string>();
-  const assets = new Map<string, AssetState>();
   const voices = new Set<Voice>();
   const diagnostics: GameAudioDiagnostic[] = [];
   // Buses (created with the context) and music.
@@ -408,52 +551,33 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
   let sfxDuckLevel = 1;
   /** The scripts' mix per bus (each bus gain = the player's volume × this). */
   const mix: Record<'sfx' | 'music' | 'voice' | 'ui', number> = { sfx: 1, music: 1, voice: 1, ui: 1 };
-  /** Sounds decoded when played: their bytes (26.11 reads them per load type), whether a decode failed. */
-  const music = new Map<string, { bytes: Uint8Array; failed: boolean }>();
-  /** Decoded buffers live in the resource manager (`audio`), held by what plays them. */
   const resources: ResourceManager = config.resources ?? createResourceManager({ schedule: (run) => queueMicrotask(run) });
   ownerSerial += 1;
   const holderPrefix = `audio${ownerSerial}/`;
-  /** Every holder name this owner used (all let go at dispose). */
-  const heldAs = new Set<string>();
-  const letGo = (holder: string): void => {
-    heldAs.delete(holder);
-    resources.releaseHolder(holderPrefix + holder);
-  };
-  /**
-   * The decoded buffer of a sound decoded when played, held for `holder`
-   * (the decode starts on the first ask, with a context); null while decoding.
-   */
-  function playedBuffer(assetId: string, holder: string): AudioBufferLike | null {
-    const m = music.get(assetId);
-    if (m === undefined || m.failed || context === null) return resources.peek<AudioBufferLike>('audio', assetId) ?? null;
-    const ctx = context;
-    const bytes = m.bytes;
-    heldAs.add(holder);
-    void resources
-      .acquire<AudioBufferLike>('audio', assetId, holderPrefix + holder, () =>
-        Promise.resolve()
-          .then(() => ctx.decodeAudioData(bytes.slice().buffer))
-          .then((buffer) => ({ value: buffer, bytes: decodedBytes(buffer) })),
-      )
-      .then(
-        () => {
-          if (!disposed && wantedMusic === assetId) syncMusic();
-        },
-        () => {
-          if (music.get(assetId) !== m) return;
-          m.failed = true;
-          diag('audio_decode_failed', assetId, 'decode failed; the game plays without it');
-        },
-      );
-    return resources.peek<AudioBufferLike>('audio', assetId) ?? null;
-  }
+  /** Every file's bytes, buffers and streams, by load type, in the resource manager. */
+  const loader = createAudioLoader({
+    resources,
+    prefix: holderPrefix,
+    ...(config.source !== undefined ? { source: config.source } : {}),
+    ...(config.createMediaElement !== undefined ? { createMediaElement: config.createMediaElement } : {}),
+    onReady: () => {
+      if (disposed) return;
+      pumpPending();
+      if (wantedMusic !== null && (track === null || track.assetId !== wantedMusic)) syncMusic();
+    },
+    onFailed: (assetId, message) => diag('audio_decode_failed', assetId, `${assetId} could not be read or decoded (${message}); the game plays without it`),
+  });
+  /** What a play for `holder` gets now; nothing is decoded or read while muted. */
+  const playable = (assetId: string, holder: string): Playable => (muted ? 'wait' : loader.playable(assetId, holder));
+  const letGo = (holder: string): void => loader.release(holder);
+
   /** The host's track (`playMusic`) and the scripts' (undefined: the host owns the music). */
   let hostMusic: string | null = null;
   let scriptMusic: string | null | undefined = undefined;
   let wantedMusic: string | null = null;
   let wantedFade = 1;
-  let track: { assetId: string; source: BufferSourceLike; gain: GainNodeLike } | null = null;
+  let track: { assetId: string; source: PlaySource; gain: GainNodeLike } | null = null;
+  let trackSerial = 0;
 
   const busGain = (bus: Exclude<AudioBus, 'master'>): number => volumes[bus] * mix[bus] * (bus === 'sfx' ? sfxDuckLevel : 1);
 
@@ -482,18 +606,21 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
   }
 
   function ramp(g: GainNodeLike, to: number, seconds: number, ctx: AudioContextLike): void {
-    const now = ctx.currentTime;
-    if (now === undefined || g.gain.linearRampToValueAtTime === undefined || seconds <= 0) {
+    const t = ctx.currentTime;
+    if (t === undefined || g.gain.linearRampToValueAtTime === undefined || seconds <= 0) {
       g.gain.value = to;
       return;
     }
-    g.gain.cancelScheduledValues?.(now);
-    g.gain.setValueAtTime?.(g.gain.value, now);
-    g.gain.linearRampToValueAtTime(to, now + seconds);
+    g.gain.cancelScheduledValues?.(t);
+    g.gain.setValueAtTime?.(g.gain.value, t);
+    g.gain.linearRampToValueAtTime(to, t + seconds);
   }
 
+  /** A playing source for what `playable` gave. */
+  const sourceOf = (ctx: AudioContextLike, p: Exclude<Playable, 'wait' | 'failed'>): PlaySource => (p.kind === 'buffer' ? bufferPlay(ctx, p.buffer as AudioBufferLike) : streamPlay(ctx, p.stream));
+
   // Looping emitters (audio sources) by key.
-  const loopVoices = new Map<string, { assetId: string; source: BufferSourceLike; gain: GainNodeLike }>();
+  const loopVoices = new Map<string, { assetId: string; source: PlaySource; gain: GainNodeLike }>();
   const loopGains = new Map<string, number>();
   /** Positional loops' panners and places (key → ...). */
   const loopSpatial = new Map<string, { panner: PannerNodeLike | null; position: [number, number, number]; spatial: AudioSpatialLike }>();
@@ -509,7 +636,7 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
     /** The volume the simulation has now (applied as is when a pending voice starts). */
     volume: number;
     fadeIn: number;
-    source: BufferSourceLike | null;
+    source: PlaySource | null;
     gain: GainNodeLike | null;
     panner: PannerNodeLike | null;
     readonly entityId: string | null;
@@ -519,14 +646,22 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
     /** Where it is now (positional). */
     world: [number, number, number] | null;
     stopping: boolean;
-    /** Frames it waited for its bytes (a one-shot gives up after PENDING_FRAMES). */
-    waited: number;
+    /** When its play command arrived (the owner's clock, ms) and how late it may start. */
+    readonly askedAt: number;
+    readonly maxLateMs: number;
+    /** How late it started (ms). */
+    lateMs: number;
   }
-  /** A one-shot that cannot start within this many frames (~0.5 s) is dropped: a late bark is worse than none. */
-  const PENDING_FRAMES = 30;
   const handleVoices = new Map<number, HandleVoice>();
   let audioUsed = false;
   let listenerPose: { position: [number, number, number]; rotation: [number, number, number, number] } | null = null;
+  const late = { started: 0, dropped: 0, recent: [] as AudioLateOutcome[] };
+  const noteLate = (o: AudioLateOutcome): void => {
+    if (o.outcome === 'started') late.started += 1;
+    else late.dropped += 1;
+    late.recent.push(o);
+    if (late.recent.length > AUDIO_OBSERVED_LATE) late.recent.shift();
+  };
 
   const clamp01 = (v: number): number => Math.max(0, Math.min(1, Number.isFinite(v) ? v : 0));
 
@@ -577,22 +712,22 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
     return n;
   }
 
-  /** Start a pending voice when it can (unlocked, its bytes decoded, a free voice). */
-  function tryStart(v: HandleVoice): 'started' | 'wait' | 'drop' {
+  /** Start a pending voice when it can (unlocked, its file ready, a free voice). */
+  function tryStart(v: HandleVoice, atOnce = false): 'started' | 'wait' | 'drop' {
     if (disposed || context === null || !unlocked || context.state === 'closed') return 'wait';
-    const buffer = bufferOf(v.assetId, `voice:${v.handle}`);
-    if (buffer === null) return 'wait';
+    const p = playable(v.assetId, `voice:${v.handle}`);
+    if (p === 'failed') return 'drop';
+    if (p === 'wait') return 'wait';
     if (voices.size + startedHandleVoices() >= maxVoices) {
       diag('voice_cap', v.assetId, `sound ${v.handle} (${v.assetId}) dropped: ${maxVoices} voices busy`);
       return 'drop';
     }
     const ctx = context;
-    const source = ctx.createBufferSource();
-    source.buffer = buffer;
+    const source = sourceOf(ctx, p);
     source.loop = v.loop;
-    if (source.playbackRate !== undefined) source.playbackRate.value = v.pitch;
+    source.rate = v.pitch;
     const gain = ctx.createGain();
-    source.connect(gain);
+    source.node.connect(gain);
     let out: AudioNodeLike = gain;
     if (v.spatial !== null && v.world !== null) {
       v.panner = makePanner(ctx, v.spatial, v.world);
@@ -602,7 +737,9 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
       }
     }
     out.connect(ensureBuses(ctx)[v.bus]);
-    if (v.fadeIn > 0 && v.waited === 0) {
+    // Started by its own play command: on time; else as late as its file made it.
+    v.lateMs = atOnce ? 0 : Math.max(0, Math.round(now() - v.askedAt));
+    if (v.fadeIn > 0 && v.lateMs === 0) {
       gain.gain.value = 0;
       ramp(gain, v.volume, v.fadeIn, ctx);
     } else gain.gain.value = v.volume;
@@ -613,6 +750,7 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
     v.source = source;
     v.gain = gain;
     if (v.bus === 'sfx' || v.bus === 'ui') played[v.bus] += 1;
+    if (v.lateMs > 0) noteLate({ handle: v.handle, assetId: v.assetId, outcome: 'started', lateMs: v.lateMs, maxLateMs: v.maxLateMs });
     return 'started';
   }
 
@@ -632,25 +770,29 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
     v.panner?.disconnect?.();
   }
 
-  /** A handle's voice is gone (ended, stopped or dropped): its buffer is no longer held for it. */
+  /** A handle's voice is gone (ended, stopped or dropped): its file is no longer held for it. */
   function forgetHandle(v: HandleVoice): void {
     if (handleVoices.get(v.handle) === v) handleVoices.delete(v.handle);
     letGo(`voice:${v.handle}`);
   }
 
+  /** Start the voices whose file became ready; drop a one-shot later than its bound (a loop waits: it plays on). */
   function pumpPending(): void {
     for (const v of [...handleVoices.values()]) {
       if (v.source !== null || v.stopping) continue;
       const r = tryStart(v);
       if (r === 'drop') forgetHandle(v);
-      else if (r === 'wait') {
-        v.waited += 1;
-        if (!v.loop && v.waited > PENDING_FRAMES) {
-          diag('cue_skipped', v.assetId, `sound ${v.handle} (${v.assetId}) dropped: not playable within ${PENDING_FRAMES} frames (sound off or still decoding)`);
-          forgetHandle(v);
-        }
-      }
+      else if (r === 'wait' && !v.loop && now() - v.askedAt > v.maxLateMs) dropLate(v);
     }
+  }
+
+  /** A one-shot not ready within its bound: dropped, and the observation says so. */
+  function dropLate(v: HandleVoice): void {
+    const waited = Math.round(now() - v.askedAt);
+    const waitedFor = context === null || !unlocked ? 'unlock' : 'file';
+    diag('late_dropped', v.assetId, `sound ${v.handle} (${v.assetId}) dropped: not ready within its ${v.maxLateMs} ms (${waitedFor === 'unlock' ? 'sound is off until the player’s first key or click' : 'its file was still loading'})`);
+    noteLate({ handle: v.handle, assetId: v.assetId, outcome: 'dropped', lateMs: waited, maxLateMs: v.maxLateMs, waitedFor });
+    forgetHandle(v);
   }
 
   function setDuck(level: number, seconds: number, bus?: 'sfx'): void {
@@ -701,10 +843,14 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
           // An entity-bound voice is placed by the next spatialFrame; until then at its offset.
           world: offset !== null ? [offset[0], offset[1], offset[2]] : null,
           stopping: false,
-          waited: 0,
+          askedAt: now(),
+          maxLateMs: typeof c.maxLateMs === 'number' && Number.isFinite(c.maxLateMs) ? Math.max(0, c.maxLateMs) : AUDIO_MAX_LATE_MS_DEFAULT,
+          lateMs: 0,
         };
         handleVoices.set(v.handle, v);
-        if (tryStart(v) === 'drop') forgetHandle(v);
+        const r = tryStart(v, true);
+        if (r === 'drop') forgetHandle(v);
+        else if (r === 'wait' && !v.loop && v.maxLateMs === 0) dropLate(v);
         return;
       }
       case 'stop': {
@@ -739,7 +885,7 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
         }
         if (c.pitch !== undefined) {
           v.pitch = c.pitch;
-          if (v.source?.playbackRate !== undefined) v.source.playbackRate.value = c.pitch;
+          if (v.source !== null) v.source.rate = c.pitch;
         }
         if (c.loop !== undefined) {
           v.loop = c.loop;
@@ -792,20 +938,12 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
       state: v.source === null ? ('pending' as const) : v.stopping ? ('stopping' as const) : ('playing' as const),
       loop: v.loop,
       gain: r4(v.gain !== null ? v.gain.gain.value : 0),
-      rate: r4(v.source?.playbackRate !== undefined ? v.source.playbackRate.value : v.pitch),
+      rate: r4(v.source !== null ? v.source.rate : v.pitch),
+      ...(v.source !== null && v.lateMs > 0 ? { lateMs: v.lateMs } : {}),
     };
     const at = pannerPosition(v.panner) ?? v.world;
     if (v.spatial === null || at === null) return base;
     return { ...base, ...spatialInfo(v.spatial, v.panner, at) };
-  }
-
-  /** The decoded buffer of a registered cue, or of a sound decoded when played (held for `holder`). */
-  function bufferOf(assetId: string, holder: string): AudioBufferLike | null {
-    const cue = assets.get(assetId);
-    if (cue?.state === 'ready') return cue.buffer;
-    if (cue?.state === 'pending' && context !== null && !muted) startDecode(assetId);
-    if (music.has(assetId)) return playedBuffer(assetId, holder);
-    return null;
   }
 
   function stopLoop(key: string): void {
@@ -827,8 +965,12 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
   function stopTrack(fadeSeconds: number): void {
     const t = track;
     track = null;
-    if (t !== null) resources.release('audio', t.assetId, holderPrefix + 'track');
-    if (t === null || context === null) return;
+    if (t === null) return;
+    const holder = `track:${trackSerial}`;
+    if (context === null) {
+      letGo(holder);
+      return;
+    }
     ramp(t.gain, 0, fadeSeconds, context);
     const stop = (): void => {
       try {
@@ -837,12 +979,14 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
         // already stopped
       }
       t.gain.disconnect?.();
+      // The old track holds its file until it is silent.
+      letGo(holder);
     };
     if (fadeSeconds > 0 && context.currentTime !== undefined) setTimeout(stop, fadeSeconds * 1000 + 50);
     else stop();
   }
 
-  /** Start the wanted track once the context is unlocked and its bytes decoded. */
+  /** Start the wanted track once the context is unlocked and its file ready (a track waits as long as it takes). */
   function syncMusic(): void {
     if (disposed || context === null || !unlocked) return;
     const ctx = context;
@@ -851,58 +995,38 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
       stopTrack(wantedFade);
       return;
     }
-    let buffer: AudioBufferLike | null = null;
-    const entry = music.get(wantedMusic);
-    if (entry === undefined) {
-      // A script may pick an audio (cue) asset as its track.
-      const cue = assets.get(wantedMusic);
-      if (cue === undefined || cue.state === 'failed') {
-        stopTrack(wantedFade);
-        return;
-      }
-      if (cue.state !== 'ready') {
-        if (cue.state === 'pending' && !muted) startDecode(wantedMusic);
-        return; // spatialFrame retries once it decoded
-      }
-      buffer = cue.buffer;
-    } else {
-      if (entry.failed) {
-        stopTrack(wantedFade);
-        return;
-      }
-      // Held by the wanted track while it decodes and plays (the decode's end syncs again).
-      buffer = playedBuffer(wantedMusic, 'wanted');
-      if (buffer === null) return;
+    // Held by the wanted track while it loads; the playing track takes it over.
+    const p = playable(wantedMusic, 'wanted');
+    if (p === 'failed') {
+      stopTrack(wantedFade);
+      return;
     }
+    if (p === 'wait') return; // the load's end (or the next frame) syncs again
     stopTrack(wantedFade);
+    trackSerial += 1;
+    // The track holds its file until it stops; a stream's element moves over with it.
+    if (p.kind === 'buffer') {
+      loader.playable(wantedMusic, `track:${trackSerial}`);
+      letGo('wanted');
+    } else loader.adopt('wanted', `track:${trackSerial}`);
     const bus = ensureBuses(ctx);
-    const source = ctx.createBufferSource();
-    // The track holds its buffer until it stops.
-    if (resources.hold('audio', wantedMusic, holderPrefix + 'track')) heldAs.add('track');
-    source.buffer = buffer;
+    const source = sourceOf(ctx, p);
     source.loop = true;
     const gain = ctx.createGain();
     gain.gain.value = 0;
-    source.connect(gain);
+    source.node.connect(gain);
     gain.connect(duckNode ?? bus.music);
     ramp(gain, 1, wantedFade, ctx);
     source.start();
     track = { assetId: wantedMusic, source, gain };
   }
 
-  function diag(
-    code: GameAudioDiagnosticCode,
-    assetId: string | null,
-    message: string,
-  ): void {
+  function diag(code: GameAudioDiagnosticCode, assetId: string | null, message: string): void {
     diagnostics.push({ code, assetId, message: clipMessage(message) });
     if (diagnostics.length > AUDIO_MAX_DIAGNOSTICS) diagnostics.shift();
   }
 
-  function error(
-    code: GameAudioError['code'],
-    message: string,
-  ): { ok: false; error: GameAudioError } {
+  function error(code: GameAudioError['code'], message: string): { ok: false; error: GameAudioError } {
     return { ok: false, error: { code, message: clipMessage(message) } };
   }
 
@@ -926,70 +1050,23 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
     for (const voice of [...voices]) releaseVoice(voice);
   }
 
-  function startDecode(assetId: string): void {
-    const entry = assets.get(assetId);
-    if (!entry || entry.state === 'ready' || entry.state === 'failed') return;
-    if (!context) return; // decode is deferred until unlock (no context yet)
-    const bytes = entry.bytes;
-    const token = entry.token + 1;
-    const startedEpoch = epoch;
-    assets.set(assetId, { state: 'decoding', bytes, token });
-    // Rule 2: decode a COPY — the supplied bytes are never read beyond the
-    // copy and never mutated. The real decodeAudioData fails asynchronously,
-    // but a misbehaving platform could throw synchronously: either way the
-    // failure is a bounded per-cue diagnostic, never a throw across the
-    // host boundary.
-    const copy = bytes.slice();
-    let decodePromise: Promise<AudioBufferLike>;
-    try {
-      decodePromise = context.decodeAudioData(copy.buffer);
-    } catch (err) {
-      decodePromise = Promise.reject(err);
-    }
-    decodePromise
-      .then((buffer) => {
-        if (disposed) {
-          diag('stale_work_discarded', assetId, 'decode resolved after dispose; buffer discarded, never played');
-          return;
-        }
-        const cur = assets.get(assetId);
-        if (!cur || cur.state !== 'decoding' || cur.token !== token) {
-          // Superseded by a re-register (the owner's single store slot per
-          // asset): this buffer is discarded, never played.
-          diag('stale_work_discarded', assetId, 'decode resolved for a superseded registration; discarded');
-          return;
-        }
-        if (startedEpoch !== epoch) {
-          // Rule 5: a runId change bumped the epoch while this decode was in
-          // flight — the old buffer is discarded and never played; a fresh
-          // decode for the SAME asset is re-armed so a legitimate cue of the
-          // new run can still sound (the cue is an asset reference; run
-          // identity is on the event, which submit re-checks).
-          diag('stale_work_discarded', assetId, 'decode resolved after a run change; discarded, decode re-armed for the current run');
-          assets.set(assetId, { state: 'pending', bytes: cur.bytes, token: cur.token });
-          startDecode(assetId);
-          return;
-        }
-        assets.set(assetId, { state: 'ready', buffer, token: cur.token });
-        // A sound decoded on load is held by its registration.
-        heldAs.add(REGISTERED);
-        void resources.acquire('audio', assetId, holderPrefix + REGISTERED, () => Promise.resolve({ value: buffer, bytes: decodedBytes(buffer) })).catch(() => undefined);
-      })
-      .catch(() => {
-        if (disposed) return;
-        const cur = assets.get(assetId);
-        if (!cur || cur.state !== 'decoding' || cur.token !== token) return;
-        assets.set(assetId, { state: 'failed', token: cur.token });
-        diag('audio_decode_failed', assetId, 'decodeAudioData rejected; the cue is skipped, one bounded diagnostic recorded, the game continues');
-      });
-  }
-
-  /** Eagerly decode everything registered-but-pending (unlock / unmute). */
-  function decodeAllPending(): void {
-    for (const assetId of [...assets.keys()]) {
-      const entry = assets.get(assetId);
-      if (entry && entry.state === 'pending') startDecode(assetId);
-    }
+  /** A one-shot through the cue path or playSound: a buffer or stream on `bus`, held for `holder` until it ends. */
+  function startOneShot(ctx: AudioContextLike, p: Exclude<Playable, 'wait' | 'failed'>, assetId: string, volume: number, bus: 'sfx' | 'ui', holder: string): void {
+    const source = sourceOf(ctx, p);
+    const gain = ctx.createGain();
+    gain.gain.value = Math.max(0, Math.min(1, volume));
+    source.node.connect(gain);
+    gain.connect(ensureBuses(ctx)[bus]);
+    const voice: Voice = { source, assetId, ended: false, released: false, holder };
+    source.onended = () => {
+      voice.ended = true;
+      releaseVoice(voice);
+    };
+    // A suspended (hidden) context keeps the graph paused: no sound
+    // while hidden, and resume continues in place — no fast-forward,
+    // no replay (rule 6).
+    source.start();
+    voices.add(voice);
   }
 
   function currentStatus(): GameAudioStatus {
@@ -1017,22 +1094,18 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
     return { state: 'blocked', reason: 'autoplay_denied' };
   }
 
+  const register = (assetId: string, bytes: Uint8Array, loadType: AudioLoadType, what: string): { ok: true } | { ok: false; error: GameAudioError } => {
+    if (disposed) return error('audio_disposed', `${what} after dispose`);
+    if (!assetId || typeof assetId !== 'string') return error('audio_invalid_bytes', 'assetId must be a non-empty string');
+    if (!(bytes instanceof Uint8Array) || bytes.length === 0) return error('audio_invalid_bytes', 'the bytes must be a non-empty Uint8Array (bytes in only — rule 1)');
+    loader.register(assetId, loadType, bytes, REGISTERED);
+    return { ok: true };
+  };
+
   return {
     registerCue(assetId, bytes) {
-      if (disposed) return error('audio_disposed', 'registerCue after dispose');
-      if (!assetId || typeof assetId !== 'string') {
-        return error('audio_invalid_bytes', 'assetId must be a non-empty string');
-      }
-      if (!(bytes instanceof Uint8Array) || bytes.length === 0) {
-        return error('audio_invalid_bytes', 'cue bytes must be a non-empty Uint8Array (bytes in only — rule 1)');
-      }
-      resources.release('audio', assetId, holderPrefix + REGISTERED);
-      assets.set(assetId, { state: 'pending', bytes, token: 0 });
-      // Rule 2: nothing is decoded while muted; with a live context
-      // and sound on, decode eagerly (a cue must not wait for the first
-      // submit after unlock — the "late decode" failure mode).
-      if (!muted && context) startDecode(assetId);
-      return { ok: true };
+      // Decoded as soon as there is a context (a cue must not wait for the first submit after unlock).
+      return register(assetId, bytes, 'decode-on-load', 'registerCue');
     },
     submit(events) {
       if (disposed) return error('audio_disposed', 'submit after dispose');
@@ -1042,12 +1115,11 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
       // from an old run — never replayed into the new run (rule 5).
       const runId = events[0]!.runId;
       if (activeRunId !== null && activeRunId !== runId) {
-        // stop()/replay() — a run change: every in-flight decode and
-        // pending voice is stale (rule 5); the dedupe set clears (rule 4).
-        epoch += 1;
+        // stop()/replay() — a run change: every voice stops (rule 5) and the
+        // dedupe set clears (rule 4). A decoded file stays: it is the file's, not the run's.
         stopAllVoices();
         playedIds.clear();
-        diag('stale_work_discarded', null, `run changed (${activeRunId} -> ${runId}); in-flight work marked stale, dedupe cleared`);
+        diag('stale_work_discarded', null, `run changed (${activeRunId} -> ${runId}); voices stopped, dedupe cleared`);
       }
       activeRunId = runId;
 
@@ -1071,39 +1143,24 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
           diag('cue_skipped', event.assetId, `cue ${event.id} skipped: context closed`);
           continue;
         }
-        const entry = assets.get(event.assetId);
-        if (!entry) {
+        if (loader.loadTypeOf(event.assetId) === undefined) {
           diag('cue_skipped', event.assetId, `cue ${event.id} skipped: asset not registered (the host registers every referenced cue's bytes at load)`);
           continue;
         }
-        if (entry.state !== 'ready') {
-          diag(
-            'cue_skipped',
-            event.assetId,
-            `cue ${event.id} skipped: asset ${entry.state === 'failed' ? 'decode failed' : `still ${entry.state}`}`,
-          );
+        soundSerial += 1;
+        const holder = `cue:${soundSerial}`;
+        const p = loader.playable(event.assetId, holder);
+        if (p === 'wait' || p === 'failed') {
+          letGo(holder);
+          diag('cue_skipped', event.assetId, `cue ${event.id} skipped: asset ${p === 'failed' ? 'decode failed' : 'still decoding'}`);
           continue;
         }
         if (voices.size >= maxVoices) {
+          letGo(holder);
           diag('voice_cap', event.assetId, `cue ${event.id} dropped: ${maxVoices} voices busy (voice_cap — never queued)`);
           continue;
         }
-        const source = ctx.createBufferSource();
-        source.buffer = entry.buffer;
-        const gain = ctx.createGain();
-        gain.gain.value = 1;
-        source.connect(gain);
-        gain.connect(ensureBuses(ctx).sfx);
-        const voice: Voice = { source, assetId: event.assetId, ended: false, released: false };
-        source.onended = () => {
-          voice.ended = true;
-          releaseVoice(voice);
-        };
-        // A suspended (hidden) context keeps the graph paused: no sound
-        // while hidden, and resume continues in place — no fast-forward,
-        // no replay (rule 6).
-        source.start();
-        voices.add(voice);
+        startOneShot(ctx, p, event.assetId, 1, 'sfx', holder);
       }
       return { ok: true };
     },
@@ -1144,10 +1201,10 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
       unlocked = true;
       blockedReason = null;
       ensureBuses(ctx);
-      // Eagerly decode everything registered before the gesture (the host
-      // registers at load; the first cue must not wait).
-      decodeAllPending();
+      // Decode what was held to be decoded on load before the gesture (the first cue must not wait).
+      if (!muted) loader.contextReady(ctx as unknown as LoaderContextLike);
       syncMusic();
+      pumpPending();
       if (hidden && ctx.state === 'running') {
         try {
           await ctx.suspend();
@@ -1164,14 +1221,13 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
       muted = next;
       if (buses !== null) buses.master.gain.value = muted ? 0 : volumes.master;
       if (muted) {
-        // Nothing is decoded or played while muted — current
-        // voices stop now; pending decodes are deferred (startDecode is a
-        // no-op while muted, via the register/unlock/mute paths' guard).
+        // Nothing is decoded or played while muted — current voices stop now.
+        loader.pause();
         stopAllVoices();
         diag('cue_skipped', null, 'muted: current voices stopped, nothing decoded or played');
-      } else if (context) {
+      } else if (context && unlocked) {
         // Unmute: decode what was deferred while muted.
-        decodeAllPending();
+        loader.contextReady(context as unknown as LoaderContextLike);
       }
       return currentStatus();
     },
@@ -1181,10 +1237,9 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
       hidden = next;
       const ctx = context;
       if (ctx && unlocked) {
+        for (const src of [...[...voices].map((x) => x.source), ...[...handleVoices.values()].map((x) => x.source), ...[...loopVoices.values()].map((x) => x.source), track?.source ?? null]) src?.hold?.(next);
         if (next) {
-          ctx
-            .suspend()
-            .catch(() => diag('suspend_failed', null, 'suspend (hidden) rejected; no sound while hidden is best-effort'));
+          ctx.suspend().catch(() => diag('suspend_failed', null, 'suspend (hidden) rejected; no sound while hidden is best-effort'));
         } else {
           // Rule 6: resume ONLY when already unlocked — and a rejected
           // resume degrades to blocked, not an error.
@@ -1211,14 +1266,12 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
     dispose() {
       if (disposed) return { ok: true, alreadyDisposed: true };
       disposed = true;
-      epoch += 1; // every in-flight decode is stale (rule 5)
       stopAllVoices();
       stopTrack(0);
       for (const v of [...handleVoices.values()]) releaseHandle(v, true);
       for (const key of [...loopVoices.keys()]) stopLoop(key);
-      music.clear();
-      // Every decoded buffer this owner held goes (a manager of its own with it).
-      for (const h of [...heldAs]) letGo(h);
+      // Every file this owner held goes (a manager of its own with it).
+      loader.dispose();
       if (config.resources === undefined) resources.dispose();
       if (context) {
         // Rule 8: close exactly the contexts THIS owner created, once.
@@ -1240,11 +1293,9 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
     },
 
     registerMusic(assetId, bytes) {
-      if (disposed) return error('audio_disposed', 'registerMusic after dispose');
-      if (!assetId || !(bytes instanceof Uint8Array) || bytes.length === 0) return error('audio_invalid_bytes', 'music needs an assetId and non-empty bytes');
-      music.set(assetId, { bytes, failed: false });
-      if (wantedMusic === assetId) syncMusic();
-      return { ok: true };
+      const r = register(assetId, bytes, 'decode-while-playing', 'registerMusic');
+      if (r.ok && wantedMusic === assetId) syncMusic();
+      return r;
     },
 
     playMusic(assetId, fadeSeconds = 1) {
@@ -1274,30 +1325,17 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
         diag('voice_cap', assetId, `sound ${assetId} dropped: ${maxVoices} voices busy`);
         return false;
       }
-      // A sound still decoding is not played now; its decode is held for the next ask.
-      const buffer = bufferOf(assetId, `decode:${assetId}`);
-      if (buffer === null) return false;
+      // A sound not ready is not played now; its load goes on for the next ask.
+      const p = playable(assetId, `decode:${assetId}`);
+      if (p === 'wait' || p === 'failed') return false;
       soundSerial += 1;
       const holder = `sound:${soundSerial}`;
-      if (music.has(assetId)) {
-        if (resources.hold('audio', assetId, holderPrefix + holder)) heldAs.add(holder);
+      if (p.kind === 'buffer') {
+        loader.playable(assetId, holder);
         letGo(`decode:${assetId}`);
-      }
-      const ctx = context;
-      const source = ctx.createBufferSource();
-      source.buffer = buffer;
-      const gain = ctx.createGain();
-      gain.gain.value = Math.max(0, Math.min(1, volume));
-      source.connect(gain);
-      gain.connect(ensureBuses(ctx)[bus === 'ui' ? 'ui' : 'sfx']);
+      } else loader.adopt(`decode:${assetId}`, holder);
+      startOneShot(context, p, assetId, volume, bus === 'ui' ? 'ui' : 'sfx', holder);
       played[bus === 'ui' ? 'ui' : 'sfx'] += 1;
-      const voice: Voice = { source, assetId, ended: false, released: false, holder };
-      source.onended = () => {
-        voice.ended = true;
-        releaseVoice(voice);
-      };
-      source.start();
-      voices.add(voice);
       return true;
     },
 
@@ -1316,17 +1354,17 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
         live.gain.gain.value = g;
         return;
       }
-      stopLoop(key);
+      if (live !== undefined) stopLoop(key);
       if (context === null || !unlocked || loopVoices.size >= 16) return;
-      const buffer = bufferOf(assetId, `loop:${key}`);
-      if (buffer === null) return; // decoding: the next frame's call starts it
+      // A loop waits as long as its file takes (the next frame's call starts it).
+      const p = playable(assetId, `loop:${key}`);
+      if (p === 'wait' || p === 'failed') return;
       const ctx = context;
-      const source = ctx.createBufferSource();
-      source.buffer = buffer;
+      const source = sourceOf(ctx, p);
       source.loop = true;
       const gainNode = ctx.createGain();
       gainNode.gain.value = g;
-      source.connect(gainNode);
+      source.node.connect(gainNode);
       // A positional loop (the panner model) goes through its panner.
       const sp = loopSpatial.get(key);
       if (sp !== undefined) {
@@ -1385,7 +1423,7 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
         if (v.panner !== null) placePanner(v.panner, v.world);
       }
       pumpPending();
-      // A script's track that waited for its bytes.
+      // A script's track that waited for its file.
       if (wantedMusic !== null && (track === null || track.assetId !== wantedMusic)) syncMusic();
     },
 
@@ -1403,7 +1441,7 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
           state: 'playing',
           loop: true,
           gain: r4(live.gain.gain.value),
-          rate: r4(live.source.playbackRate?.value ?? 1),
+          rate: r4(live.source.rate),
           ...spatialInfo(sp.spatial, sp.panner, pannerPosition(sp.panner) ?? sp.position),
         });
       }
@@ -1423,6 +1461,7 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
         panningModel: AUDIO_PANNING_MODEL,
         // The newest bounded diagnostics (a sound that stays pending says why).
         diagnostics: diagnostics.slice(-3).map((d) => `${d.code}: ${d.message}`),
+        late: { started: late.started, dropped: late.dropped, recent: [...late.recent] },
       };
     },
 
@@ -1436,6 +1475,18 @@ export function createGameAudioOwner(config: GameAudioOwnerConfig = {}): GameAud
 
     musicStatus() {
       return { assetId: wantedMusic, playing: track !== null && track.assetId === wantedMusic, gain: buses !== null ? buses.music.gain.value : volumes.music };
+    },
+
+    holdAudio(assetId, holder, decode) {
+      if (!disposed) loader.hold(assetId, holder, decode === true && !muted);
+    },
+
+    releaseAudio(holder) {
+      letGo(holder);
+    },
+
+    setAudioScope(holders) {
+      loader.setScope(holders);
     },
   };
 }

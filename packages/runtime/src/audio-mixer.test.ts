@@ -5,6 +5,8 @@
  */
 import { describe, expect, it } from 'vitest';
 
+import { AUDIO_MAX_LATE_MS_LIMIT } from '@thirdlight/project-model';
+
 import { AUDIO_MAX_PLAYS_PER_STEP, AudioMixer, distanceGain, listenerRelative, type AudioCommand } from './audio-mixer';
 
 const HZ = 120;
@@ -200,6 +202,26 @@ describe('audio intent log', () => {
     expect(mix.busVolume('music')).toBe(1);
     expect(mix.take().at(-1)).toEqual({ op: 'reset', stepIndex: 1 });
     expect(mix.play('b')).toBe(2); // handles stay unique across runs
+  });
+});
+
+describe('the lateness bound', () => {
+  it('a play or a stinger carries the caller\'s maxLateMs (whole ms, 0 to the limit); without one the command has none and the host\'s default applies', () => {
+    const { mix } = rig();
+    mix.play('a', { maxLateMs: 250.4 });
+    mix.play('b');
+    mix.play('c', { maxLateMs: -5 });
+    mix.play('d', { maxLateMs: 1e9 });
+    mix.stinger('e', { maxLateMs: 0 });
+    const cmds = mix.take().filter((c): c is Extract<AudioCommand, { op: 'play' }> => c.op === 'play');
+    expect(cmds.map((c) => [c.assetId, c.maxLateMs])).toEqual([
+      ['a', 250],
+      ['b', undefined],
+      ['c', 0],
+      ['d', AUDIO_MAX_LATE_MS_LIMIT],
+      ['e', 0],
+    ]);
+    expect('maxLateMs' in cmds[1]!).toBe(false);
   });
 });
 

@@ -4,6 +4,7 @@
  */
 
 import { EVENT_CUE_BUSES, EVENT_CUE_LIMITS, EVENT_CUE_SOURCES } from './event-cues';
+import { AUDIO_MAX_LATE_MS_DEFAULT, AUDIO_MAX_LATE_MS_LIMIT } from './content-limits';
 import { SHELL_LIMITS } from './shell';
 import { SAVE_LIMITS, SAVE_SECTIONS } from './save-schema';
 import { MAX_ANIMATOR_MORPHS } from './animator';
@@ -495,6 +496,7 @@ export const CONTENT: readonly ContentBlockDescriptor[] = [
       asset('assetId', 'Sound', 'The audio asset played.', ['audio'], { required: true }),
       num('volume', 'Volume', 'How loud (0–1).', { min: 0, max: 1, step: 0.05, default: 1 }),
       enm('bus', 'Bus', 'The mixer bus it plays on.', EVENT_CUE_BUSES, { default: 'sfx' }),
+      int('maxLateMs', 'Late by at most', 'When its file is not loaded yet, it still starts this long after the event; later it is dropped.', { min: 0, max: AUDIO_MAX_LATE_MS_LIMIT, unit: 'ms', default: AUDIO_MAX_LATE_MS_DEFAULT }),
     ]), { default: [] }),
     ops: ['setEventCues'],
   },
@@ -502,7 +504,7 @@ export const CONTENT: readonly ContentBlockDescriptor[] = [
   // Dialogue — conversations (dialogue graphs, edited in the Dialogue tab with graphEdit), the speaker registry, the settings.
   { key: 'dialogues', label: 'Dialogues', tooltip: 'Conversations: node graphs of lines (speaker, expression, text, voice clip), choices, conditions and effects, signals and jumps.', required: false, value: list('dialogues', 'Dialogues', 'The project\'s conversations (each its own file).', json('*', 'Dialogue', 'A conversation: { dialogueId, name, graph } (graph kind dialogue).', { readOnly: true }), { default: [] }), ops: ['setDialogue', 'deleteDialogue', 'graphEdit'] },
   { key: 'speakers', label: 'Speakers', tooltip: 'Who speaks in conversations: name, name-plate colour, portraits per expression, voice profile, text blip.', required: false, value: list('speakers', 'Speakers', 'The project\'s speakers.', json('*', 'Speaker', 'A speaker: { speakerId, name, color?, portraits? {expression: texture}, defaultExpression?, voiceProfile?, blip?, blipEvery?, blipVolume? }.', { readOnly: true }), { default: [] }), ops: ['setSpeaker', 'deleteSpeaker'] },
-  { key: 'dialogueSettings', label: 'Dialogue settings', tooltip: 'Text speed, auto-advance and its delay, the music/SFX duck under a voice, the backlog length, the dialogue UI document and theme.', required: false, value: json('dialogueSettings', 'Dialogue settings', '{ textSpeed? (chars/s, 0 instant), autoAdvance?, autoDelay? (s), duck? (0–1), backlog? (1–100), document? (uiDocumentId), theme? (uiThemeId) }.', { readOnly: true }), ops: ['setDialogueSettings'] },
+  { key: 'dialogueSettings', label: 'Dialogue settings', tooltip: 'Text speed, auto-advance and its delay, the music/SFX duck under a voice, the backlog length, the dialogue UI document and theme.', required: false, value: json('dialogueSettings', 'Dialogue settings', '{ textSpeed? (chars/s, 0 instant), autoAdvance?, autoDelay? (s), duck? (0–1), backlog? (1–100), document? (uiDocumentId), theme? (uiThemeId), voiceMaxLateMs? (ms a voice whose file is not loaded may still start late; 1000) }.', { readOnly: true }), ops: ['setDialogueSettings'] },
   // Timelines (tracks of keys on a time ruler; edited in the Timeline tab).
   { key: 'timelines', label: 'Timelines', tooltip: 'Sequences of camera cuts, moves, animation, sound, dialogue, effects, signals and fades on a time ruler, played by scripts or signals.', required: false, value: list('timelines', 'Timelines', 'The project\'s timelines (each its own file).', json('*', 'Timeline', 'A timeline: { timelineId, name, duration, slots?, markers?, tracks, … }.', { readOnly: true }), { default: [] }), ops: ['setTimeline', 'deleteTimeline'] },
   // Standalone node graphs; their body is edited in the graph editor (graphEdit ops).

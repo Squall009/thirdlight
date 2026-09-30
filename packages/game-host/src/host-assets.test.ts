@@ -19,7 +19,6 @@ function setup() {
   const assets = createHostAssets(
     {
       readArtifact: () => Promise.reject(new Error('no reads here')),
-      audio: {} as never,
       resources,
       // Holds one 100-byte resource per key for the holder, when the test lets the key's load finish.
       loadAssets: (key, holder) =>

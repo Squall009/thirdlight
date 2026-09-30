@@ -3872,7 +3872,7 @@ class RuntimeInstance implements Runtime {
         hit = log !== null && log.events.some((e) => e.name === c.name && (c.entity === undefined || e.entity === c.entity));
         if (!hit) hit = clips.some((e) => e.name === c.name && (c.entity === undefined || e.entityId === c.entity));
       }
-      if (hit) this.audio.play(c.assetId, { volume: c.volume ?? 1, ...(c.bus !== undefined ? { bus: c.bus } : {}) });
+      if (hit) this.audio.play(c.assetId, { volume: c.volume ?? 1, ...(c.bus !== undefined ? { bus: c.bus } : {}), ...(c.maxLateMs !== undefined ? { maxLateMs: c.maxLateMs } : {}) });
     }
   }
 
@@ -3924,7 +3924,7 @@ class RuntimeInstance implements Runtime {
       audio: {
         music: (assetId, fade) => rt.audio.music(assetId, fade),
         releaseMusic: (fade) => rt.audio.releaseMusic(fade),
-        stinger: (assetId, volume) => rt.audio.stinger(assetId, volume !== undefined ? { volume } : undefined),
+        stinger: (assetId, volume, maxLateMs) => rt.audio.stinger(assetId, volume !== undefined || maxLateMs !== undefined ? { ...(volume !== undefined ? { volume } : {}), ...(maxLateMs !== undefined ? { maxLateMs } : {}) } : undefined),
         play: (assetId, options) => rt.audio.play(assetId, options),
         stop: (handle, fade) => rt.audio.stop(handle, fade),
         playing: (handle) => rt.audio.playing(handle),

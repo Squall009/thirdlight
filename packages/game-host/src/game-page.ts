@@ -64,6 +64,7 @@ import {
 import {
   AssetReadError,
   browserContextFactory,
+  browserMediaElementFactory,
   browserProjectSaveBackend,
   browserSaveStorage,
   browserWorkerAvailable,
@@ -102,6 +103,7 @@ import {
   type StartTimings,
   type VerifiedAssetReader,
 } from './index';
+import { pageAudio } from './page-audio';
 
 /** The runtime-content manifest as a game page reads it (the catalog's blocks already folded in by `openRuntimeContent`). */
 export interface GamePageManifest {
@@ -185,6 +187,8 @@ export interface GamePageOptions {
   readonly read: (path: string) => Promise<ArrayBuffer>;
   /** The absolute URL a compiled script is imported from. */
   readonly scriptUrl: (path: string) => string;
+  /** The same-origin URL of a declared artifact (a streamed audio file is played from it); absent: streams are read whole. */
+  readonly assetUrl?: (path: string) => string;
   /** The simulation worker's script and the 3D physics backend's script. */
   readonly workerUrl: string;
   readonly physics3dUrl: string;
@@ -725,7 +729,16 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
             setFrameInput: (f: Parameters<typeof browserInput.setFrameInput>[0]) => browserInput.setFrameInput(f),
           };
     // The project's sound voice count (absent: 8).
-    const audio = createGameAudioOwner({ contextFactory: browserContextFactory() ?? undefined, resources, ...(settings.audio_voices !== undefined ? { maxVoices: settings.audio_voices } : {}) });
+    // Each audio file is read by its load type when something needs it (see audio-loading.ts).
+    const audioFiles = pageAudio({ catalog: content.catalog, bytes: (assetId, version) => assetReader.bytes(assetId, version), ...(o.assetUrl !== undefined ? { assetUrl: o.assetUrl } : {}) });
+    const mediaElements = browserMediaElementFactory();
+    const audio = createGameAudioOwner({
+      contextFactory: browserContextFactory() ?? undefined,
+      resources,
+      source: (assetId) => audioFiles.source(assetId),
+      ...(mediaElements !== null ? { createMediaElement: mediaElements } : {}),
+      ...(settings.audio_voices !== undefined ? { maxVoices: settings.audio_voices } : {}),
+    });
     releases.push(() => void audio.dispose());
     const assetPathsById: Record<string, string> = {};
     for (const asset of manifest.assets) assetPathsById[asset.assetId] = asset.path;
@@ -793,9 +806,11 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
       ...(browserSaveStorage() !== null ? { saveStorage: browserSaveStorage()!, saveNamespace: o.saveNamespace } : {}),
       ...(browserProjectSaveBackend() !== null ? { projectSaveBackend: browserProjectSaveBackend()! } : {}),
       assetKinds: Object.fromEntries(manifest.assets.map((r) => [r.assetId, r.kind])),
-      audioLoad: Object.fromEntries((manifest.assets as unknown as { assetId: string; kind: string; loadType?: string; preload?: boolean }[]).filter((r) => r.kind === 'audio' && r.loadType !== undefined).map((r) => [r.assetId, { loadType: r.loadType, preload: r.preload !== false }])),
-      // An asset the rows above do not name: its catalog shard, read when a sound asks for it.
-      lookupAsset: (assetId) => content.catalog.lookup(assetId).then((r) => (r === undefined ? undefined : { path: r.path, kind: r.kind, ...(typeof r['loadType'] === 'string' ? { loadType: r['loadType'] } : {}), ...(typeof r['preload'] === 'boolean' ? { preload: r['preload'] } : {}) })),
+      // An asset the rows above do not name (a portrait, say): its catalog shard, read when it is asked for.
+      lookupAsset: (assetId) => content.catalog.lookup(assetId).then((r) => (r === undefined ? undefined : { path: r.path, kind: r.kind })),
+      // The audio files each scene and the project-wide blocks name, read ahead by their preload setting.
+      sceneAudio: (sceneId) => audioFiles.sceneAudio(sceneId),
+      projectAudio: () => audioFiles.projectAudio(),
       // How audio sources are heard (the audio_spatial setting; 3D: panned).
       audioSpatial: audioSpatialOf(settings),
       ...(o.debugConsole ? { debugConsole: true, focusGame: () => o.canvas.focus() } : {}),

@@ -23,6 +23,8 @@
  * stinger's, and dialogue voice — and comes back up when the
  * deepest one ends.
  */
+import { AUDIO_MAX_LATE_MS_LIMIT } from '@thirdlight/project-model';
+
 import type { AudioFinishedEvent, AudioMusicState, AudioPlayOptions, AudioStingerOptions } from './types';
 
 export type { AudioFinishedEvent, AudioMusicState, AudioPlayOptions, AudioStingerOptions };
@@ -88,6 +90,8 @@ export type AudioCommand =
       /** ... or plays at this world position. */
       readonly position?: readonly [number, number, number];
       readonly spatial?: AudioSpatial;
+      /** How late it may still start (ms; absent: the host's default): the caller's bound, not simulation state. */
+      readonly maxLateMs?: number;
     }
   | { readonly op: 'stop'; readonly stepIndex: number; readonly handle: number; readonly fade: number }
   | { readonly op: 'fade'; readonly stepIndex: number; readonly handle: number; readonly to: number; readonly seconds: number }
@@ -175,6 +179,12 @@ export function listenerRelative(lp: readonly number[], lq: readonly number[], s
   return { pan, distance, local: [x, y, z] };
 }
 
+/** A caller's lateness bound (ms, whole, 0–the limit), or undefined when it gave none (the host's default applies). */
+export function lateBoundOf(v: unknown): number | undefined {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return undefined;
+  return Math.round(clamp(v, 0, AUDIO_MAX_LATE_MS_LIMIT));
+}
+
 /** Resolve a positional play's spatial options (null: not positional). */
 export function spatialOf(options: AudioPlayOptions | undefined): AudioSpatial | null {
   if (options === undefined || (options.entityId === undefined && options.position === undefined)) return null;
@@ -211,7 +221,7 @@ export class AudioMixer {
 
   // ---- script calls ---------------------------------------------------------
 
-  play(assetId: unknown, options?: AudioPlayOptions, stinger?: { duck: number; fade: number }): number {
+  play(assetId: unknown, options?: AudioPlayOptions, stinger?: { duck: number; fade: number; maxLateMs?: number }): number {
     if (typeof assetId !== 'string' || !ASSET_RE.test(assetId) || assetId.length === 0) return 0;
     const step = this.stepOf();
     if (this.playsStep !== step) {
@@ -249,6 +259,7 @@ export class AudioMixer {
     if (spatial !== null && Array.isArray(o.position)) position = [num(o.position[0], 0), num(o.position[1], 0), num(o.position[2], 0)];
     else if (spatial !== null) position = [0, 0, 0];
     const entityId = spatial !== null && typeof o.entityId === 'string' && o.entityId.length > 0 && o.entityId.length <= 128 ? o.entityId : undefined;
+    const maxLateMs = lateBoundOf(stinger !== undefined ? stinger.maxLateMs : o.maxLateMs);
     this.push({
       op: 'play',
       stepIndex: step,
@@ -263,6 +274,7 @@ export class AudioMixer {
       ...(entityId !== undefined ? { entityId } : {}),
       ...(position !== undefined ? { position: Object.freeze(position) as readonly [number, number, number] } : {}),
       ...(spatial !== null ? { spatial } : {}),
+      ...(maxLateMs !== undefined ? { maxLateMs } : {}),
     });
     if (stinger !== undefined) this.setDuck(`stinger:${handle}`, stinger.duck, stinger.fade);
     return handle;
@@ -272,7 +284,7 @@ export class AudioMixer {
     const o = (typeof options === 'object' && options !== null ? options : {}) as AudioStingerOptions;
     const duck = clamp(num(o.duck, STINGER_DEFAULTS.duck), 0, 1);
     const fade = this.steps(clamp(num(o.fade, STINGER_DEFAULTS.fade), 0, AUDIO_FADE_MAX_SECONDS)) / this.hz;
-    return this.play(assetId, { volume: num(o.volume, 1) }, { duck, fade });
+    return this.play(assetId, { volume: num(o.volume, 1) }, { duck, fade, ...(o.maxLateMs !== undefined ? { maxLateMs: o.maxLateMs } : {}) });
   }
 
   stop(handle: unknown, fadeSeconds?: unknown): void {

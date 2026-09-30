@@ -299,6 +299,13 @@ export interface AudioPlayOptions {
   maxDistance?: number;
   /** Positional: how fast it fades (1). */
   rolloff?: number;
+  /**
+   * How late it may still start, in ms (500): a sound whose file is not
+   * ready when it is played starts when it is, unless that is later than
+   * this; then it is dropped (the audio observation says which happened).
+   * 0: now or never. The simulation's timing never waits for it.
+   */
+  maxLateMs?: number;
 }
 
 /** Options of `ctx.audio.stinger`. */
@@ -309,6 +316,8 @@ export interface AudioStingerOptions {
   duck?: number;
   /** Seconds to duck and to come back (0.25). */
   fade?: number;
+  /** How late it may still start, in ms (500; see `AudioPlayOptions.maxLateMs`). */
+  maxLateMs?: number;
 }
 
 /** A script's view of the music (`ctx.audio.musicState()`). */
@@ -329,7 +338,7 @@ export interface AudioMusicState {
  */
 export interface BehaviorAudio {
   /**
-   * Play an audio asset of any length (volume 0–1). Returns its handle (0 when refused: a bad id, more than 32 plays in one step or 64 sounds alive). Options: `loop`, `pitch` (playback rate 0.25–4), `bus` (sfx, music, voice, ui), `fadeIn` seconds; positional with `entityId` (it follows the entity) and/or `position` (world metres, or the offset from the entity), fading by `distanceModel` (linear, inverse, exponential), `refDistance` (2 m), `maxDistance` (30 m) and `rolloff` (1).
+   * Play an audio asset of any length (volume 0–1). Returns its handle (0 when refused: a bad id, more than 32 plays in one step or 64 sounds alive). Options: `loop`, `pitch` (playback rate 0.25–4), `bus` (sfx, music, voice, ui), `fadeIn` seconds; positional with `entityId` (it follows the entity) and/or `position` (world metres, or the offset from the entity), fading by `distanceModel` (linear, inverse, exponential), `refDistance` (2 m), `maxDistance` (30 m) and `rolloff` (1); `maxLateMs` (500): a sound whose file is not ready yet starts when it is, or is dropped once it would start later than this.
    * @graphNode Play sound
    * @graphLabel assetId sound
    * @graphAsset assetId audio

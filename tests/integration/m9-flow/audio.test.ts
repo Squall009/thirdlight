@@ -130,7 +130,7 @@ describe('sounds (real host, Rapier)', () => {
       }
     };
     await new Promise((r) => setTimeout(r, 0));
-    expect(audio.registered.sort()).toEqual(['beep', 'brook']); // every audio asset, for scripts and sources
+    expect(audio.registered).toEqual([]); // nothing is read at mount: the owner loads each file by its load type when needed
     tick(242); // 2 s: the script beeped
     expect(audio.played.length).toBeGreaterThanOrEqual(3);
     expect(audio.played[0]).toEqual({ assetId: 'beep', volume: 0.5 });

@@ -1,7 +1,7 @@
 /**
  * The resource manager: everything a game page loads from its assets (the
  * verified bytes, models, textures (the sky's and the grading LUT's too),
- * animation clips, decoded audio, fonts, UI images, effect models) is held here by its holders
+ * animation clips, audio (decoded, compressed or streamed), fonts, UI images, effect models) is held here by its holders
  * and freed when the last one goes, as Godot frees a refcounted `Resource`.
  *
  * - A holder is a string naming who keeps the resource: a loaded scene, a
@@ -21,10 +21,15 @@
  * `schedule` (a microtask or a task) and the settle runs there.
  */
 
-/** The kinds of resources a page loads from assets. */
-export type ResourceKind = 'bytes' | 'model' | 'texture' | 'clip' | 'audio' | 'font' | 'image' | 'effect-model';
+/**
+ * The kinds of resources a page loads from assets. Audio has three, one per
+ * way a sound file is held: `audio` decoded buffers, `audio-bytes` the
+ * compressed bytes of files decoded when played, `audio-stream` the media
+ * elements of files streamed as they play.
+ */
+export type ResourceKind = 'bytes' | 'model' | 'texture' | 'clip' | 'audio' | 'audio-bytes' | 'audio-stream' | 'font' | 'image' | 'effect-model';
 
-export const RESOURCE_KINDS: readonly ResourceKind[] = Object.freeze(['bytes', 'model', 'texture', 'clip', 'audio', 'font', 'image', 'effect-model']);
+export const RESOURCE_KINDS: readonly ResourceKind[] = Object.freeze(['bytes', 'model', 'texture', 'clip', 'audio', 'audio-bytes', 'audio-stream', 'font', 'image', 'effect-model']);
 
 /** The key of one asset version's resource (its bytes, its parsed model or clips). Textures and the other decoded kinds are keyed by asset id. */
 export function assetVersionKey(assetId: string, version: number): string {

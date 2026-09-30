@@ -417,7 +417,7 @@ describe('committed cue submission: dedupe, cap, stale runs', () => {
     owner.dispose();
   });
 
-  it('a run change stops every voice, marks in-flight decodes stale, and clears the dedupe set', async () => {
+  it('a run change stops every voice and clears the dedupe set; a decode in flight serves the new run', async () => {
     const ctx = new FakeContext();
     ctx.gateDecodes = true;
     const { owner } = makeEnv([ctx]);
@@ -432,17 +432,12 @@ describe('committed cue submission: dedupe, cap, stale runs', () => {
     const stale = owner.diagnostics().filter((d) => d.code === 'stale_work_discarded');
     expect(stale.length).toBeGreaterThanOrEqual(1);
     expect(stale[0]!.message).toContain('run changed');
-    // The in-flight decodes resolve after the run change: the OLD buffers
-    // are discarded, never played (rule 5), and fresh decodes are re-armed
-    // for the current run — which the gate catches again (proof they are
-    // NEW work, not the stale buffers):
+    // A decoded file is the file's, not the run's: the decode in flight lands once and the new run uses it.
     ctx.releaseAllGates();
     await settle();
-    expect(ctx.gates.length).toBe(2); // the re-armed decodes
-    ctx.releaseAllGates();
-    await settle();
+    expect(ctx.gates.length).toBe(0);
     expect(owner.submit([cue('run-2', 'open', 2, 'cue-hit')])).toEqual({ ok: true });
-    expect(ctx.liveVoices()).toBe(1); // the re-armed decode served the new run
+    expect(ctx.liveVoices()).toBe(1);
     // A cue from the PREVIOUS run is never replayed into the new run: it
     // arrives inside a current-run submit (a committed view is single-run;
     // a late old-run event is the "cue from old run" failure mode):
@@ -573,7 +568,6 @@ describe('mute, hidden, dispose', () => {
     ctx.releaseAllGates();
     await settle();
     expect(ctx.sources).toHaveLength(1); // no new voice
-    expect(owner.diagnostics().some((d) => d.code === 'stale_work_discarded')).toBe(true);
   });
 
   it('a re-registered asset (a new version) serves the new bytes to later cues', async () => {

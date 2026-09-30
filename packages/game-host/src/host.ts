@@ -65,6 +65,7 @@ import {
 import type { ScenePreloader } from './scene-preload';
 import type { ResourceManager } from '@thirdlight/runtime';
 import { createHostAssets, type GameResourcesObservation, type HostAssets } from './host-assets';
+import { createHostAudio, type AudioRow, type HostAudio, type HostAudioConfig } from './host-audio';
 import type { MenuSample } from '@thirdlight/input';
 import type { AudioObservation, AudioSpatialLike, GameAudioOwner } from './audio';
 import type { HostDom, HostDomNode, UiEdges } from './dom';
@@ -382,22 +383,18 @@ export interface GameHostConfig {
   readonly shell?: ShellConfigLike;
   /** The input actions the game runs with (the settings screen rebinds them). */
   readonly inputConfig?: { actions: readonly { name: string; type: string; map: string; bindings: readonly unknown[] }[]; cursor?: { [map: string]: 'free' | 'locked' | undefined } };
-  /** Each declared asset's kind (the host registers every audio asset for scripts, event cues and audio sources). */
+  /** Each declared asset's kind (glyph images and UI images are read by it). */
   readonly assetKinds?: Readonly<Record<string, string>>;
   /**
-   * Each audio asset's load settings (the manifest's rows). One decoded on
-   * load and read with its scene is read and decoded when the game starts;
-   * any other is read on first use and decoded when played. Absent for an
-   * asset: decoded on load.
-   */
-  readonly audioLoad?: Readonly<Record<string, { readonly loadType?: string; readonly preload?: boolean }>>;
-  /**
    * An asset the maps above do not name (a build whose catalog is read as
-   * the game needs it): its path, kind and load settings, or undefined when
-   * the build does not have it. A sound found this way is read and
-   * registered by its load settings once, then plays.
+   * the game needs it): its path and kind, or undefined when the build does
+   * not have it.
    */
-  readonly lookupAsset?: (assetId: string) => Promise<{ readonly path: string; readonly kind: string; readonly loadType?: string; readonly preload?: boolean } | undefined>;
+  readonly lookupAsset?: (assetId: string) => Promise<{ readonly path: string; readonly kind: string } | undefined>;
+  /** The audio files a scene names, with their preload setting (read with the scene when it loads). */
+  readonly sceneAudio?: (sceneId: string) => Promise<readonly AudioRow[]>;
+  /** The audio files the project-wide blocks name (event cues, timelines, the shell), read after the mount when preloaded. */
+  readonly projectAudio?: () => Promise<readonly AudioRow[]>;
   /**
    * The page's resource manager (everything loaded from assets is held
    * there: the reader's bytes, the adapter's models and textures, the audio
@@ -787,6 +784,15 @@ export function createGameHost(config: GameHostConfig): GameHost {
   let bindings: InputBindingsController | null = null;
   /** What the host loads from assets (glyph images, sounds) and the resource manager it is held in. */
   const assets: HostAssets = createHostAssets(config, () => !disposed && mounted);
+  const hostAudio: HostAudio = createHostAudio({
+    audio: config.audio,
+    snapshot: config.snapshot as unknown as HostAudioConfig['snapshot'],
+    panner: config.audioSpatial === 'panner',
+    ...(config.sceneAudio !== undefined ? { sceneAudio: config.sceneAudio } : {}),
+    ...(config.projectAudio !== undefined ? { projectAudio: config.projectAudio } : {}),
+    readTransform: (rt, id, out) => readTransform(rt, id, out),
+    live: () => !disposed && mounted,
+  });
   let adapter: HostRenderAdapter | null = null;
   /** The debug console (config.debugConsole) and what became of config.start. */
   let debugConsole: DebugConsole | null = null;
@@ -1156,87 +1162,6 @@ export function createGameHost(config: GameHostConfig): GameHost {
     return v === null ? {} : { timeline: v };
   };
 
-  /** The loaded audio sources (recomputed when the scene set changes). */
-  let sourcesRevision = -1;
-  let sources: { id: string; assetId: string; volume: number; range: number; spatial: AudioSpatialLike }[] = [];
-  const liveLoops = new Set<string>();
-  /** The character (the first controller entity; null: none) — the legacy audio-source model hears from it. */
-  let characterId: string | null | undefined;
-  const serviceAudioSources = (rt: Runtime): void => {
-    if (config.audio.setLoop === undefined) return;
-    const set = rt.sceneSet?.();
-    const revision = set?.revision ?? 0;
-    if (revision !== sourcesRevision) {
-      sourcesRevision = revision;
-      const loaded = set !== undefined && set.batches.length > 0 ? set.batches.flatMap((b) => b.entities) : config.snapshot.scene.entities;
-      // A spawned copy's audio source plays too.
-      const entities = [...loaded, ...((set?.spawned ?? []) as unknown as typeof loaded)];
-      sources = [];
-      for (const e of entities) {
-        const a = ((e.components ?? {}) as unknown as { audioSource?: { assetId: string; volume: number; range: number; distanceModel?: AudioSpatialLike['distanceModel']; refDistance?: number; rolloff?: number } }).audioSource;
-        // The panner model's distance fade — the range is its max distance; absent fields keep the
-        // legacy curve's shape (linear from a quarter of the range).
-        if (a !== undefined) sources.push({ id: e.id, assetId: a.assetId, volume: a.volume, range: a.range, spatial: { distanceModel: a.distanceModel ?? 'linear', refDistance: Math.min(a.range, a.refDistance ?? a.range / 4), maxDistance: a.range, rolloff: a.rolloff ?? 1 } });
-      }
-      // A source whose file is read on first use needs its bytes registered (once).
-      for (const s of sources) assets.soundWanted(s.assetId);
-    }
-    if (sources.length === 0 && liveLoops.size === 0) return;
-    // Only the character and the sources are read (no per-frame copy of every transform).
-    characterId ??= config.snapshot.scene.entities.find((e) => ((e.components ?? {}) as unknown as Record<string, unknown>)['controller'] !== undefined)?.id ?? null;
-    const player = characterId !== null && readTransform(rt, characterId, playerAt) ? playerAt : undefined;
-    const seen = new Set<string>();
-    // A switched-off object's audio source is silent (it plays again when switched on).
-    const off = rt.inactiveEntities?.();
-    for (const s of sources) {
-      if (off !== undefined && off.size > 0 && off.has(s.id)) continue;
-      if (!readTransform(rt, s.id, sourceAt)) continue;
-      const t = sourceAt;
-      if (panner && config.audio.setSpatialLoop !== undefined) {
-        // A panner per source; the listener is the active camera (spatialFrame).
-        config.audio.setSpatialLoop(s.id, s.assetId, s.volume, t.position, s.spatial);
-        seen.add(s.id);
-        liveLoops.add(s.id);
-        continue;
-      }
-      const dx = player !== undefined ? Math.abs(t.position[0]! - player.position[0]!) : 0;
-      const near = s.range / 4;
-      const gain = s.volume * Math.max(0, Math.min(1, 1 - (dx - near) / Math.max(1e-6, s.range - near)));
-      config.audio.setLoop(s.id, s.assetId, gain);
-      seen.add(s.id);
-      liveLoops.add(s.id);
-    }
-    for (const id of [...liveLoops]) {
-      if (seen.has(id)) continue;
-      config.audio.setLoop(id, null, 0);
-      liveLoops.delete(id);
-    }
-  };
-
-  /** Audio sources in the panner model (the project's `audio_spatial`). */
-  const panner = config.audioSpatial === 'panner';
-  /** Script sounds: execute the simulation's audio commands (a file read on use gets its bytes on first use). */
-  const serviceScriptAudio = (rt: Runtime): void => {
-    const commands = rt.takeAudioRequests?.() ?? [];
-    for (const c of commands) {
-      const assetId = c.op === 'play' || c.op === 'music' ? c.assetId : null;
-      if (assetId !== null) assets.soundWanted(assetId);
-      if (config.audio.command !== undefined) config.audio.command(c);
-      else if (c.op === 'play') config.audio.playSound?.(c.assetId, c.volume);
-    }
-    if (config.audio.spatialFrame !== undefined) config.audio.spatialFrame(listenerOf(rt), (entityId) => (readTransform(rt, entityId, spatialAt) ? spatialAt.position : null));
-  };
-  const spatialAt = { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
-  const listenerAt = { position: [0, 0, 0], rotation: [0, 0, 0, 1], scale: [1, 1, 1] };
-  let cameraEntityId: string | null | undefined;
-  /** The listener: the active camera — the resolved virtual camera, else the scene camera. */
-  const listenerOf = (rt: Runtime): { position: readonly number[]; rotation: readonly number[] } | null => {
-    if (rt.readCameraView?.(listenerAt.position, listenerAt.rotation) != null) return listenerAt;
-    cameraEntityId ??= config.snapshot.scene.entities.find((e) => ((e.components ?? {}) as unknown as Record<string, unknown>)['camera'] !== undefined)?.id ?? null;
-    if (cameraEntityId !== null && readTransform(rt, cameraEntityId, listenerAt)) return listenerAt;
-    return null;
-  };
-
   /** The simulation's UI diff, then the layer's frame (bindings, $flow values, the view size). */
   const serviceUi = (rt: Runtime): void => {
     if (uiLayer === null) return;
@@ -1299,9 +1224,9 @@ export function createGameHost(config: GameHostConfig): GameHost {
       const r = disposed || runtime === null ? undefined : runtime.queueAssetAnswer?.(answer);
       if (r !== undefined && !r.ok) console.warn('[game-host] asset answer refused:', r.error.message);
     });
-    // The sounds of scripts and event cues (the runtime's audio intent log), and the audio sources' loops.
-    serviceScriptAudio(runtime);
-    serviceAudioSources(runtime);
+    // The sounds of scripts, event cues, dialogue and timelines (the runtime's audio intent log), the audio
+    // sources' loops, and the files the scenes and the running conversation have loaded ahead.
+    hostAudio.frame(runtime);
     adapter?.renderFrame();
     serviceAnchors();
     // The frame drew the step's scene changes: what lost its last holder in them is freed now
@@ -1568,8 +1493,8 @@ export function createGameHost(config: GameHostConfig): GameHost {
     // The game shell (a title, pause, settings, controls, save/load screens and the HUD as UI documents).
     if (config.shell !== undefined) shellCtl = makeShell(res.runtime);
     mounted = true;
-    // Script sounds, event cues and audio sources.
-    assets.registerStartSounds();
+    // The project's preloaded sounds are read now, after the mount (the scenes' as they load).
+    hostAudio.start();
     if (config.start !== undefined) startOutcome = applyStart(res.runtime, config.start);
     // A start given by a test or the debugger begins in play (no title).
     shellCtl?.start(config.start !== undefined);
@@ -1683,7 +1608,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
         inputMode: 'physical',
         ...(tr !== undefined ? { player: { x: tr.position[0], y: tr.position[1], z: tr.position[2] } } : {}),
         ...scenesObservation(runtime, config.scenes),
-        ...(liveLoops.size > 0 && config.audio.loops !== undefined ? { loops: config.audio.loops() } : {}),
+        ...(hostAudio.hasLoops() && config.audio.loops !== undefined ? { loops: config.audio.loops() } : {}),
         ...cameraObservation(runtime),
         ...environmentObservation(runtime),
         ...audioObservation(),
@@ -1742,26 +1667,8 @@ export function createGameHost(config: GameHostConfig): GameHost {
       }
       runtime = null;
     }
-    // What this host started on the wrapper-owned audio owner
-    // stops with it — the loops of audio sources — so a new composition on
-    // the same owner (a new Play snapshot) does not keep the old one's loops
-    // playing.
-    if (config.audio.setLoop !== undefined) {
-      for (const id of liveLoops) {
-        try {
-          config.audio.setLoop(id, null, 0);
-        } catch {
-          /* a closed context: nothing plays */
-        }
-      }
-    }
-    liveLoops.clear();
-    // And the scripts' sounds, music hold, duck and mix.
-    try {
-      config.audio.command?.({ op: 'reset', stepIndex: 0 });
-    } catch {
-      /* a closed context: nothing plays */
-    }
+    // What this host started on the wrapper-owned audio owner stops with it (loops, script sounds, holds).
+    hostAudio.dispose();
     debugConsole?.dispose();
     debugConsole = null;
     bindings?.dispose();

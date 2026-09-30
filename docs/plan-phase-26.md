@@ -194,7 +194,8 @@ at the boundary it changes (Playwright for any editor surface).
 | 26.8 | done 2026-09-30: a file's digest checked once per change (stamps in memory and in `cache/imported/file-stamps.json`, a restart hashes nothing unchanged); Play serves assets and instance buffers from disk at their digest URLs, verified while sent (a changed file refused, or cut short, and re-checked); the 512 MiB Play set cap gone (per held file only); record lookups and query pages from indexes, the integrity report paged (`limit`, `offset`, `problems`); the check before Play and export takes changed files in; full-size Play 9.0 → 2.8 s (§6); D67 logged, D68 fixed; e2e `play-files` |
 | 26.9 | done 2026-09-30. A: runtime content manifest 5 (identity, settings, start scenes, the catalog's location; ~1.7 KB at any size); the catalog (root, block files in parts, entry shards by id with address, labels and dependencies, a dependency file per scene) read lazily by the game page (`openRuntimeContent`: a scene load reads its file and its dependency file, an unnamed id its one shard); a v4 build read the same way (fixture `legacy-v4-build`); D67 fixed; an asset property's default ships; the content view no longer validates or hashes what the model did; e2e `manifest-keys`, integration `m26-catalog`. B: the export copies assets and buffers from disk one at a time, hashed while copied (the 26.8 serving path), into a temp directory renamed into place (a failure leaves nothing); the bundle names no artifact (one relative reader by row path); one game page (`game-host/game-page`) starts Play and exports, their differences injected; full export 7.7 → 5.2 s, growth +171 → +104 MiB; HTTP test `export-streaming` |
 | 26.10 | done 2026-09-30. A: one resource manager per game page (runtime `createResourceManager`, held by the game host and settled after each frame) for verified bytes, models, animation-only clips, textures, decoded audio, fonts, UI and glyph images, environment maps and effect models; each freed when its last holder (entity, scene being prepared, material, voice, UI layer…) went, a same-step transition keeps what both scenes use; the store forgets freed models; the decoded-music LRU replaced; scene preparation and read-ahead through it; the Scene view's models and material textures through its own manager; `resources` in `tl_game_observe` and Play diagnostics (handles slot for B); 50-scene walk: resident bytes of every kind back to zero, heap +50 → +5 MiB at full (§6); e2e `resource-manager`. B: `ctx.assets.load(id, address or label)` → a handle (loading, ready, failed) and `release`; the page loads what the key names (a prefab's or material's models and textures too) and holds it for the handle; the answer is the simulation's input (a recording replays it at its step, page and worker alike, a recorded input takes no live answer); a handle open when a run ends is released and reported (`resources.open`/`notReleased`, script log); visual-script nodes; bench step `handles`: 1,000 labelled assets loaded and released at full, resident back to zero (§6); a texture that is the sky and a map decoded once; compiled graph materials and their textures go with their last mesh; prefabs stay whole at open, no grace before a free (§7); e2e `asset-handles`, integration `m26-asset-handles` |
-| 26.11–26.14 | — |
+| 26.11 | done 2026-09-30: nothing audio is read at mount; each file loads by its load type through the resource manager (`audio` decoded, `audio-bytes` kept compressed and decoded per play, `audio-stream` a media element through Web Audio), held by its scene (preload) or from its first play by the scenes loaded then; a sound not ready starts when ready or is dropped past `maxLateMs` (script play/stinger, event cues, timeline keys, dialogue `voiceMaxLateMs`), reported in `audio.late`; a conversation reads its next voices ahead on every branch three lines deep (the next lines decoded); the per-kind audio stores gone; full 500-line dialogue: every voice heard, line → voice p95 0 ms, gap p95 12 ms, Play start reads no audio (§6); e2e `audio-loading` |
+| 26.12–26.14 | — |
 
 ## 6. Measurements
 
@@ -532,6 +533,33 @@ the cache; 7.3 MiB crossed the network of 16.6 MiB read (6.0 MiB is the
 distinct assets' first reads). Scene load request → drawn p50 110 / p95 121
 ms (A: 119 / 144; before A: 68 / 86). What a re-read costs is the decode
 (hash, parse, texture decode), not the backend.
+
+After 26.11 (audio loaded by load type; `--preset full --steps
+open,play,dialogue --gpu` and `--preset small`, the working tree on
+`d975b882`, GPU host, 2026-09-30; reports
+`scale-full-2026-09-30T10-54-49-646Z.json`,
+`scale-small-2026-09-30T10-54-14-589Z.json`). The walkthrough's voices are
+the generator's 1 s lines, decode on load, preload off: each is read and
+decoded when the conversation is three lines before it (the next line
+decoded), none at the start.
+
+| | full before (26.9 A) | full after |
+|---|---|---|
+| Play: click → first frame; audio files read before it | 1,278; every start-row sound decoded at mount | 1,234; 0 (`startAssetReads` 0) |
+| dialogue: lines heard | 500/500 | 500/500 |
+| dialogue: line start → voice playing p50 / p95 / max (ms) | – / 35 / – | 0 / 0 / 16 (only the first line: not read ahead, 18 ms late) |
+| dialogue: gap p50 / p95 / max (ms, the relay's resolution 5–10 ms) | – / 10 / 23 | 7 / 12 / 23 |
+| dialogue: voices started late / dropped | not observable | 1 / 0 |
+| resident audio KiB during (most) → after | not observable | before 0; most `audio` 1,027 + `audio-bytes` 10; after `audio` 171 (the first line's voice, kept by the start scene from its first play) |
+
+A voice now starts on the step its line starts (it was read, decoded and
+waited on per line: 35 ms p95). The gap between one voice ending and the
+next starting stays what the relay's observation round trip resolves
+(5–10 ms per poll); what the ear hears is owner listen pending. Resident
+audio during the conversation is the voices three lines ahead and the one
+playing (about 1 MiB of decoded 1 s mono voices), not the conversation's
+500. Play start does not read audio at any size (it read and decoded the
+start rows' decode-on-load sounds before).
 
 Proposed targets for "Done when" (fixed in 26.14 from these numbers):
 
@@ -1503,3 +1531,72 @@ Proposed targets for "Done when" (fixed in 26.14 from these numbers):
   after the handles. Play diagnostics carry `catalogReads` (catalog files
   read so far), and the bench counts the page's fetches and those the HTTP
   cache answered.
+- 2026-09-30 (26.11): the browser mechanics, checked against MDN and the
+  Web Audio spec: `decodeAudioData` decodes only complete files, resamples
+  to the context's rate and detaches its input (a copy is decoded; the kept
+  bytes stay usable). WebCodecs `AudioDecoder` (chunked decode) is not
+  Baseline, is secure-context only and takes demuxed packets (the page would
+  need Ogg, MP3 and FLAC demuxers): decode-while-playing decodes the whole
+  file per play (26.2's bench: 1–15 s voices decoded in tens of ms). Stream
+  is an `<audio>` element per play through `createMediaElementSource`
+  (Baseline since 2015; one node per element), made on the page's main
+  thread (AudioContext is `[Exposed=Window]`; the simulation's worker only
+  sends the audio intent log). Autoplay: the context is created and resumed
+  on the first trusted key or click (unchanged), and an element's `play()`
+  after that gesture has the sticky user activation MDN's autoplay guide
+  asks for; the Play page's CSP gains `media-src 'self'` (streams are
+  same-origin: a cross-origin element without CORS is heard as silence).
+  Safari's behaviour with streams through Web Audio: owner check on a Mac
+  pending.
+- 2026-09-30 (26.11): lifetimes follow Unity's Preload Audio Data. A
+  preloaded file is held by each loaded scene whose dependency list names it
+  (`scene:<id>`, read after the scene is loaded, not during its
+  preparation: a read-ahead scene never loaded would keep it) and by the
+  play for the project-wide blocks' files (event cues, timelines, shell); a
+  file not preloaded is held from its first play by the scenes loaded then
+  (freed when they have all unloaded). What is held is the load type's
+  data: the decoded buffer (decode on load) or the compressed bytes (decode
+  while playing); a play holds its decoded buffer or its stream until it
+  ends. Before the first gesture there is no context: files to be decoded
+  keep their bytes and are decoded at the unlock. A stream reads nothing
+  ahead; its element and node are freed when its play ends (resident bytes
+  0: what the element buffers is not observable).
+- 2026-09-30 (26.11): the lateness bound. `maxLateMs` (whole ms, 0–60,000;
+  `AUDIO_MAX_LATE_MS_DEFAULT` 500 and `AUDIO_MAX_LATE_MS_LIMIT` in
+  project-model) on `ctx.audio.play` and `stinger` (and the visual-script
+  node), event cue rows, timeline stinger/sfx keys, and the dialogue setting
+  `voiceMaxLateMs` (default 1,000: a voice a second late still matches its
+  subtitle). It rides on the play command only when given (the simulation's
+  state and digests are unchanged); the host measures from the command's
+  arrival with the page clock. A one-shot not started within it is dropped
+  (`audio.late` says started-late or dropped, how late, and whether it
+  waited for its file or the unlock); loops, audio sources and music wait as
+  long as it takes. It replaces the fixed 30-frame drop. The simulation's
+  timing never waits (a late voice ends later than its line's recorded
+  length).
+- 2026-09-30 (26.11): dialogue reads ahead in the page, not the
+  simulation: each time the conversation's node changes, the voices on
+  every path from it (options, branches, jumps) up to three lines deep are
+  held by the conversation (`dialogue:<n>`), the next lines' decoded too, and
+  the previous set let go after the new one is held (voices still ahead are
+  not read again). A file held ahead is not added to the first-play scope,
+  so a long conversation keeps only what is ahead (full: ~1 MiB during, one
+  voice after). The conversation's first line is not read ahead (nothing
+  says it is about to start); a game that wants it ready holds a handle on
+  its label.
+- 2026-09-30 (26.11): the audio owner's per-asset stores (`assets`, the
+  registered cues' bytes and buffers; `music`, the read-on-use files'
+  bytes) are gone: every byte, buffer and stream is a resource of the page's
+  manager, kinds `audio`, `audio-bytes`, `audio-stream` (so
+  `resources.resident` reports each). `registerCue`/`registerMusic` stay (the
+  M3 owner contract, the dialogue previewer) and hold what they are given
+  under the owner's `registered` holder; a file registered again is a new
+  resource (a play of the old one keeps its buffer). A decode is the
+  file's, not the run's: a run change stops voices and clears the cue
+  dedupe but no longer re-decodes. The host's audio moved out of `host.ts`
+  (1,896 lines) into `host-audio.ts`, the loading into `audio-loading.ts`
+  and the page's catalog side into `page-audio.ts`. Left: the editor's
+  dialogue previewer still registers every voice of the project's
+  conversations when it opens (an editor tool; the owner holds them in its
+  own manager); the event cue and timeline editors show `maxLateMs` only
+  where their forms come from the descriptors (event cues do).

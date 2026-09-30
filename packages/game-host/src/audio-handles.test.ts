@@ -100,7 +100,8 @@ describe('audio owner: script sound handles', () => {
 
   it('a play waiting for its bytes starts on a later frame; a one-shot that cannot start in time is dropped', async () => {
     const f = fakeContext();
-    const owner = createGameAudioOwner({ contextFactory: () => f.ctx });
+    let t = 0;
+    const owner = createGameAudioOwner({ contextFactory: () => f.ctx, now: () => t });
     owner.command!(play(1, 'late', { loop: true })); // not registered yet, not unlocked
     owner.command!(play(2, 'late'));
     expect(owner.observeAudio!()!.voices.map((v) => v.state)).toEqual(['pending', 'pending']);
@@ -109,10 +110,15 @@ describe('audio owner: script sound handles', () => {
     await flush();
     owner.spatialFrame!(null, () => null);
     expect(owner.observeAudio!()!.voices.map((v) => [v.handle, v.state])).toEqual([[1, 'playing'], [2, 'playing']]);
-    // A one-shot for an asset that never arrives gives up.
+    // A one-shot for an asset that never arrives is dropped once it is later than its bound (500 ms by default).
     owner.command!(play(3, 'never'));
-    for (let k = 0; k < 40; k += 1) owner.spatialFrame!(null, () => null);
+    t += 400;
+    owner.spatialFrame!(null, () => null);
+    expect(owner.observeAudio!()!.voices.map((v) => v.handle)).toEqual([1, 2, 3]);
+    t += 200;
+    owner.spatialFrame!(null, () => null);
     expect(owner.observeAudio!()!.voices.map((v) => v.handle)).toEqual([1, 2]);
+    expect(owner.observeAudio!()!.late).toEqual({ started: 0, dropped: 1, recent: [{ handle: 3, assetId: 'never', outcome: 'dropped', lateMs: 600, maxLateMs: 500, waitedFor: 'file' }] });
   });
 
   it('music: the scripts hold a track over the host\'s; release gives it back; the duck node sits between the tracks and the music bus', async () => {

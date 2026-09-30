@@ -793,7 +793,7 @@ export class DialogueRunner {
     c.lastLine = l;
     c.choice = null;
     if (n.voice !== '' && this.audio !== null) {
-      l.voiceHandle = this.audio.play(n.voice, { bus: 'voice' });
+      l.voiceHandle = this.audio.play(n.voice, { bus: 'voice', maxLateMs: this.data?.settings.voiceMaxLateMs ?? DIALOGUE_DEFAULTS.voiceMaxLateMs });
       const duck = this.duckLevel();
       if (duck < 1) {
         this.audio.setDuck('dialogue-voice', duck, DUCK_IN_SECONDS, 'music');

@@ -62,14 +62,16 @@ export function makeStaticRoutes(ctx: StaticRoutesContext) {
     // blob: (connect/img): GLTFLoader hands a GLB's embedded textures to the
     // image decoder as blob: URLs of bytes already in the page. worker-src
     // blob:: three's Draco/KTX2 decoders run in workers built from blob: URLs;
-    // 'self': the game's simulation worker (/sim-worker.js).
+    // 'self': the game's simulation worker (/sim-worker.js). media-src 'self':
+    // a streamed audio file plays through a media element from its
+    // same-origin artifact URL (read as it plays, heard through Web Audio).
     // 'unsafe-eval' only for a play whose models carry KTX2/Basis textures:
     // three's Basis transcoder (Emscripten embind) builds functions at run
     // time, and its worker inherits this policy.
     "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'" +
     (allowEval ? " 'unsafe-eval'" : '') +
     (nonce !== undefined ? ` 'nonce-${nonce}'` : '') +
-    "; connect-src 'self' blob:; img-src 'self' data: blob:; style-src 'self'; font-src 'none'; worker-src 'self' blob:; " +
+    "; connect-src 'self' blob:; img-src 'self' data: blob:; media-src 'self'; style-src 'self'; font-src 'none'; worker-src 'self' blob:; " +
     "object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'; " +
     `frame-ancestors ${config.authoringOrigin}`;
 

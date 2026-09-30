@@ -231,7 +231,8 @@ describe('dialogue runner', () => {
     r.api.start('voiced');
     step();
     const play = commands.find((c) => c.op === 'play')!;
-    expect(play).toMatchObject({ assetId: 'vo-a', bus: 'voice' });
+    // A voice may start later than an effect: the dialogue default bound (the settings' voiceMaxLateMs).
+    expect(play).toMatchObject({ assetId: 'vo-a', bus: 'voice', maxLateMs: 1000 });
     expect(commands.filter((c) => c.op === 'duck')).toEqual([
       expect.objectContaining({ level: 0.3 }),
       expect.objectContaining({ level: 0.3, bus: 'sfx' }),

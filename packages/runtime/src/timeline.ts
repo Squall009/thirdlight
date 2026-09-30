@@ -233,8 +233,8 @@ export interface TimelineHost {
   audio: {
     music(assetId: string | null, fade: number): void;
     releaseMusic(fade: number): void;
-    stinger(assetId: string, volume: number | undefined): number;
-    play(assetId: string, options: { volume?: number; loop?: boolean; entityId?: string }): number;
+    stinger(assetId: string, volume: number | undefined, maxLateMs?: number): number;
+    play(assetId: string, options: { volume?: number; loop?: boolean; entityId?: string; maxLateMs?: number }): number;
     stop(handle: number, fade: number): void;
     playing(handle: number): boolean;
   };
@@ -627,11 +627,11 @@ export class TimelineSystem {
           else if (k.kind === 'release') this.host.audio.releaseMusic(k.fade ?? 1);
           else if (skipping) break;
           else if (k.kind === 'stinger' && k.asset !== undefined) {
-            const h = this.host.audio.stinger(k.asset, k.volume);
+            const h = this.host.audio.stinger(k.asset, k.volume, k.maxLateMs);
             if (h > 0) inst.sounds.push(h);
           } else if (k.kind === 'sfx' && k.asset !== undefined) {
             const at = this.bound(inst, k.at, 'sound position');
-            const h = this.host.audio.play(k.asset, { ...(k.volume !== undefined ? { volume: k.volume } : {}), ...(k.loop === true ? { loop: true } : {}), ...(at !== null ? { entityId: at } : {}) });
+            const h = this.host.audio.play(k.asset, { ...(k.volume !== undefined ? { volume: k.volume } : {}), ...(k.loop === true ? { loop: true } : {}), ...(at !== null ? { entityId: at } : {}), ...(k.maxLateMs !== undefined ? { maxLateMs: k.maxLateMs } : {}) });
             if (h > 0) {
               inst.sounds.push(h);
               if (k.duration !== undefined) inst.timed.push({ at: s + Math.max(1, this.toSteps(k.duration)), kind: 'sound', handle: h });

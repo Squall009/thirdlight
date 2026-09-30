@@ -126,6 +126,10 @@ export interface ScaleReport {
     wallMs: number;
     /** The first lines' times from the dialogue start (ms): line start, voice playing, voice gone. */
     trace: { line: string; voice: string | null; start: number; playing: number | null; gone: number | null }[];
+    /** Voices that started after their play command (read or decoded first) and voices dropped past their bound. */
+    late: { started: number; dropped: number; maxLateMs: number };
+    /** Resident audio KiB per kind (decoded, compressed, streams) before, at most during, and after the dialogue (settled). */
+    audioKiB: { before: Record<string, number>; most: Record<string, number>; after: Record<string, number> };
   };
   /**
    * The export request (its time, the backend's resident set before it and its peak while it ran, sampled every
@@ -185,12 +189,15 @@ function dirSize(dir: string): { files: number; bytes: number } {
 
 type Obs = {
   state?: string;
-  resources?: { loading: number; waiting: number; handles: number; open?: { handle: number; key: string; state: string; assets: number }[] };
+  resources?: { loading: number; waiting: number; handles: number; open?: { handle: number; key: string; state: string; assets: number }[]; resident?: Partial<Record<string, { count: number; bytes: number }>> };
   sound?: { unlocked?: boolean };
   scenes?: { loaded?: string[] };
   dialogue?: { running?: boolean; line?: { id?: string } | null } | null;
-  audio?: { voices?: { assetId: string; bus: string; state: string }[] };
+  audio?: { voices?: { assetId: string; bus: string; state: string }[]; late?: { started: number; dropped: number; recent: { lateMs: number }[] } };
 };
+
+/** Resident audio KiB per audio resource kind (decoded buffers, compressed bytes, streams). */
+const audioKiB = (o: Obs | null): Record<string, number> => Object.fromEntries(Object.entries(o?.resources?.resident ?? {}).filter(([k, v]) => k.startsWith('audio') && v !== undefined).map(([k, v]) => [k, Math.round((v!.bytes / 1024) * 10) / 10]));
 
 export class ScaleBench {
   readonly report: ScaleReport;
@@ -568,6 +575,11 @@ export class ScaleBench {
     await page.mouse.click(box.x + box.width / 2, box.y + 20);
     await poll(() => this.observe(), (o) => o?.sound?.unlocked === true, 30_000, 'sound to unlock');
     const lines = Math.min(this.opts.lines, gen.walkthrough.lines);
+    const first = await this.observe();
+    const before = audioKiB(first);
+    const lateBefore = { started: first?.audio?.late?.started ?? 0, dropped: first?.audio?.late?.dropped ?? 0 };
+    const most: Record<string, number> = { ...before };
+    let maxLateMs = 0;
     const asked = await this.relay(`${this.play!.psid}/control`, { command: 'debugCommand', name: 'benchDialogue', args: { id: gen.walkthrough.dialogueId } });
     if (asked.status !== 200) throw new Error(`the dialogue could not be started: ${JSON.stringify(asked.json).slice(0, 300)}`);
     // Line k of the walkthrough is node `l<k>` and says the k-th walkthrough voice.
@@ -589,6 +601,8 @@ export class ScaleBench {
       if (o === null) throw new Error('the play stopped during the dialogue');
       const id = o.dialogue?.line?.id;
       if (o.dialogue?.running === true) started = true;
+      for (const [k, v] of Object.entries(audioKiB(o))) most[k] = Math.max(most[k] ?? 0, v);
+      for (const r of o.audio?.late?.recent ?? []) maxLateMs = Math.max(maxLateMs, r.lateMs);
       if (typeof id === 'string' && !lineStart.has(id)) {
         lineStart.set(id, now);
         order.push(id);
@@ -625,7 +639,11 @@ export class ScaleBench {
     }
     const rel = (v: number | undefined): number | null => (v === undefined ? null : v - t0);
     const trace = order.slice(0, 20).map((line) => ({ line, voice: expected(line), start: lineStart.get(line)! - t0, playing: rel(playing.get(line)), gone: rel(gone.get(line)) }));
-    this.report.dialogue = { lines, linesSeen: Math.min(order.length, lines), voicesHeard: heard, startLatencyMs: summarize(latency), gapMs: summarize(gaps), wallMs, trace };
+    // After: the voices' files let go once the conversation ended and the last voice stopped.
+    const settled = await poll(() => this.observe(), (o) => o !== null && (o.audio?.voices ?? []).every((v) => v.bus !== 'voice') && (o.resources?.loading ?? 0) + (o.resources?.waiting ?? 0) === 0, 30_000, 'the voices to end').catch(() => null);
+    const end = settled ?? (await this.observe());
+    const late = { started: (end?.audio?.late?.started ?? 0) - lateBefore.started, dropped: (end?.audio?.late?.dropped ?? 0) - lateBefore.dropped, maxLateMs };
+    this.report.dialogue = { lines, linesSeen: Math.min(order.length, lines), voicesHeard: heard, startLatencyMs: summarize(latency), gapMs: summarize(gaps), wallMs, trace, late, audioKiB: { before, most, after: audioKiB(end) } };
   }
 
   private async stopPlay(): Promise<void> {

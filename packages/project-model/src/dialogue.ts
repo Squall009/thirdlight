@@ -29,6 +29,7 @@
  * Pure data rules: validation, canonical form, the compiled runtime form and
  * the engine's default dialogue UI document.
  */
+import { AUDIO_MAX_LATE_MS_LIMIT } from './content-limits';
 import { ID_RE } from './validate';
 import type { ModelErrorV2 } from './errors';
 import { canonicalGraphData, GRAPH_ITEM_ID_RE, nodeFieldValue, validateGraphData, type GraphData, type GraphFieldDef, type GraphKindDef, type GraphNode } from './graph';
@@ -81,6 +82,8 @@ export interface DialogueSettings {
   document?: string;
   /** A UI theme the engine's default document uses (its styles override the default look). */
   theme?: string;
+  /** How late (ms) a line's voice may still start when its file is not ready yet; later it is dropped and the line plays silent (absent: 1000). */
+  voiceMaxLateMs?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -118,7 +121,8 @@ export const DIALOGUE_LIMITS = Object.freeze({
  * - backlog 50 lines: a scene's worth of history in a small view model.
  * - blipEvery 2, blipVolume 0.6: a blip per syllable-ish, under the music.
  */
-export const DIALOGUE_DEFAULTS = Object.freeze({ textSpeed: 40, autoAdvance: false, autoDelay: 0.5, duck: 0.4, backlog: 50, blipEvery: 2, blipVolume: 0.6, expression: 'neutral' });
+// A voice may start later than an effect (voiceMaxLateMs): a line's words still match its subtitle a second in.
+export const DIALOGUE_DEFAULTS = Object.freeze({ textSpeed: 40, autoAdvance: false, autoDelay: 0.5, duck: 0.4, backlog: 50, blipEvery: 2, blipVolume: 0.6, expression: 'neutral', voiceMaxLateMs: 1000 });
 
 /** The engine's default dialogue UI document id (a project document with this id replaces it). */
 export const DIALOGUE_DOCUMENT_ID = 'tl-dialogue';
@@ -677,7 +681,7 @@ export function validateSpeakers(v: unknown, path: string, errors: ModelErrorV2[
   });
 }
 
-const SETTINGS_KEYS = ['textSpeed', 'autoAdvance', 'autoDelay', 'duck', 'backlog', 'document', 'theme'];
+const SETTINGS_KEYS = ['textSpeed', 'autoAdvance', 'autoDelay', 'duck', 'backlog', 'document', 'theme', 'voiceMaxLateMs'];
 
 export function validateDialogueSettings(v: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isObj(v)) {
@@ -693,6 +697,7 @@ export function validateDialogueSettings(v: unknown, path: string, errors: Model
   range('autoDelay', 0, 10);
   range('duck', 0, 1);
   range('backlog', 1, DIALOGUE_LIMITS.backlog, true);
+  range('voiceMaxLateMs', 0, AUDIO_MAX_LATE_MS_LIMIT, true);
   if (v['autoAdvance'] !== undefined && typeof v['autoAdvance'] !== 'boolean') errors.push(fieldType(`${path}/autoAdvance`, v['autoAdvance'], 'boolean'));
   for (const k of ['document', 'theme']) if (v[k] !== undefined && (typeof v[k] !== 'string' || !ID_RE.test(v[k] as string))) errors.push(bad(`${path}/${k}`, v[k], `${k} is a UI ${k} id`, 'an id'));
 }

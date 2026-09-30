@@ -601,23 +601,28 @@ describe('observe and the identity (B08/B09)', () => {
   });
 });
 
-describe('sound bytes (B13)', () => {
-  it('every audio asset is registered through the injected reader; music and other kinds are not cues', async () => {
-    const { host, tick, audioCalls, artifactReads } = harness({
-      assetPaths: { 'snd-a': 'audio/a.wav', 'snd-b': 'audio/b.wav', 'mus-a': 'audio/m.ogg', 'tex-a': 'textures/t.png' },
-      assetKinds: { 'snd-a': 'audio', 'snd-b': 'audio', 'mus-a': 'music', 'tex-a': 'texture' },
-      artifacts: { 'audio/a.wav': 8, 'audio/b.wav': 8 },
+describe('sound files: nothing read at mount', () => {
+  it('the mount reads no audio file; the project-wide preloaded files are held for the play after it, the others not', async () => {
+    const base = harness({ assetPaths: { 'snd-a': 'audio/a.wav', 'snd-b': 'audio/b.wav' }, assetKinds: { 'snd-a': 'audio', 'snd-b': 'audio' } });
+    const holds: [string, string][] = [];
+    const audio = { ...base.audio, holdAudio: (id: string, holder: string) => void holds.push([id, holder]), releaseAudio: (holder: string) => void holds.push(['-', holder]) } as unknown as GameAudioOwner;
+    let asked = 0;
+    const host = createGameHost({
+      ...base.config,
+      audio,
+      projectAudio: async () => {
+        asked += 1;
+        return [{ assetId: 'snd-a', preload: true }, { assetId: 'snd-b', preload: false }];
+      },
     });
     host.mount();
-    // The async registration settles on the microtask queue.
+    expect(base.artifactReads.value).toEqual([]);
     await new Promise((r) => setTimeout(r, 0));
-    expect(audioCalls.register.sort()).toEqual(['snd-a', 'snd-b']);
-    expect(artifactReads.value.sort()).toEqual(['audio/a.wav', 'audio/b.wav']);
-    tick();
-    tick();
-    // No game session: the host submits no run cues of its own (event sounds come from the runtime's audio intent log).
-    expect(audioCalls.submit).toEqual([]);
+    expect(asked).toBe(1);
+    expect(holds).toEqual([['snd-a', 'project']]);
+    expect(base.artifactReads.value).toEqual([]);
     host.dispose();
+    expect(holds.at(-1)).toEqual(['-', 'project']);
   });
 });
 
