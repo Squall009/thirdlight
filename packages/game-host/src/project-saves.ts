@@ -66,6 +66,8 @@ export interface ProjectSaveServiceConfig {
   /** The synchronous storage the settings document is in (absent: settings last for the session only). */
   readonly settingsStorage?: SaveStorage;
   readonly captureThumbnail?: ThumbnailCapture;
+  /** True while no picture can be drawn yet (the renderer is still starting): requests wait for it. */
+  readonly pictureWaits?: () => boolean;
   /** Apply an engine setting a settings field drives. */
   readonly applyEngine?: (binding: 'music' | 'sfx' | 'ui' | 'quality', value: SettingsFieldValue) => void;
   /** The player's clock (ISO text) for `savedAt`. */
@@ -76,7 +78,10 @@ export interface ProjectSaveServiceConfig {
 export interface ProjectSaveService {
   /** Read the slot list and hand it to the simulation. */
   start(): Promise<void>;
-  /** Carry out the simulation's requests (in order; a thumbnail is captured now, before any await). */
+  /**
+   * Carry out the simulation's requests (in order; a thumbnail is captured now, before any await).
+   * Called every frame: requests held back while a picture cannot be drawn yet are carried out then.
+   */
   handle(requests: readonly SaveRequest[]): void;
   /** Load a slot into the simulation (a `tl_play_start` save slot). */
   loadSlot(slot: number): Promise<void>;
@@ -140,6 +145,7 @@ export function createProjectSaveService(cfg: ProjectSaveServiceConfig): Project
   let settingsDoc = readProjectSettings(schema, cfg.settingsStorage, ns);
   const thumb = { ...SAVE_THUMBNAIL_DEFAULT, ...(schema.thumbnail ?? {}) };
 
+  const held: SaveRequest[] = [];
   const enqueue = (job: () => Promise<void>): void => {
     chain = chain.then(job).catch((e: unknown) => log(`save storage: ${e instanceof Error ? e.message : String(e)}`));
   };
@@ -286,7 +292,11 @@ export function createProjectSaveService(cfg: ProjectSaveServiceConfig): Project
       await chain;
     },
     handle(requests) {
-      for (const r of requests) {
+      // A script may save on its first step, before the view has drawn anything: the save (and
+      // what follows it, to keep the order) waits for the renderer so the slot gets its picture.
+      held.push(...requests);
+      if (held.length === 0 || (held.some((r) => r.op === 'save' && r.meta.thumbnail) && cfg.pictureWaits?.() === true)) return;
+      for (const r of held.splice(0)) {
         switch (r.op) {
           case 'save':
             save(r);

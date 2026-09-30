@@ -155,6 +155,8 @@ export interface HostRenderAdapter {
   dispose(): unknown;
   /** Draw a frame and return it downscaled (a save slot's picture). */
   captureThumbnail?(width: number, height: number, type: 'image/jpeg' | 'image/webp', quality: number): { dataUrl: string; width: number; height: number } | null;
+  /** The renderer is still starting (a capture now would draw nothing). */
+  rendererStarting?(): boolean;
   /** Project an entity or world point through the rendered camera (world-anchored UI widgets). */
   projectToScreen?: UiProjector;
   /** The scene set revision the last presented frame drew (a transition fades in once it is on screen). */
@@ -1340,11 +1342,8 @@ export function createGameHost(config: GameHostConfig): GameHost {
     serviceFade(runtime);
     // The cursor (free/locked per input map, a script's request; hidden while a gamepad drives).
     serviceCursor(runtime);
-    // The simulation's save requests (a thumbnail is drawn now, in this frame).
-    if (projectSaves !== null) {
-      const reqs = runtime.takeSaveRequests?.() ?? [];
-      if (reqs.length > 0) projectSaves.handle(reqs);
-    }
+    // The simulation's save requests (a thumbnail is drawn now, in this frame; held ones go once it can be).
+    if (projectSaves !== null) projectSaves.handle(runtime.takeSaveRequests?.() ?? []);
     // The sounds of scripts and event cues (the runtime's audio intent log), and the audio sources' loops.
     serviceScriptAudio(runtime);
     serviceAudioSources(runtime);
@@ -1539,6 +1538,7 @@ export function createGameHost(config: GameHostConfig): GameHost {
         },
         ...(config.saveStorage !== undefined ? { settingsStorage: config.saveStorage } : {}),
         captureThumbnail: (w, h, type, q) => adapter?.captureThumbnail?.(w, h, type, q) ?? null,
+        pictureWaits: () => adapter?.rendererStarting?.() === true,
         applyEngine: (binding, value) => {
           if (binding === 'quality') {
             if (value === 'low' || value === 'medium' || value === 'high') config.setQuality?.(value);

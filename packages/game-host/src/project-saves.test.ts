@@ -34,3 +34,47 @@ describe('project saves: clear', () => {
     expect(last?.slots).toEqual([]);
   });
 });
+
+describe('project saves: a picture before the first frame', () => {
+  it('holds a save with a picture (and what follows it) while the renderer is still starting, then saves it with its picture', async () => {
+    const map = new Map<string, string>();
+    let starting = true;
+    let captures = 0;
+    const svc = createProjectSaveService({
+      schema: { version: 1, slots: 3 },
+      backend: memoryProjectSaveBackend(map),
+      namespace: 'thirdlight:game-a',
+      queue: () => undefined,
+      captureThumbnail: (width, height) => {
+        captures += 1;
+        return starting ? null : { dataUrl: 'data:image/jpeg;base64,AAAA', width, height };
+      },
+      pictureWaits: () => starting,
+      now: () => '2026-09-28T00:00:00.000Z',
+    });
+    await svc.start();
+    const doc = JSON.stringify({ format: 'thirdlight.save', version: 1, doc: {} });
+    svc.handle([
+      { op: 'save', slot: 1, meta: { title: 'A', chapter: '', location: '', playSeconds: 1, version: 1, thumbnail: true }, text: doc },
+      { op: 'delete', slot: 2 },
+    ]);
+    svc.handle([]);
+    await svc.idle();
+    expect(captures).toBe(0);
+    expect(svc.slots()).toEqual([]);
+
+    starting = false;
+    svc.handle([]);
+    await svc.idle();
+    expect(captures).toBe(1);
+    expect(svc.slots().find((s) => s.slot === 1)?.thumbnail).toMatchObject({ type: 'image/jpeg', width: 256, height: 144 });
+  });
+
+  it('carries out requests without a picture at once', async () => {
+    const svc = createProjectSaveService({ schema: { version: 1, slots: 3 }, backend: memoryProjectSaveBackend(new Map()), namespace: 'n', queue: () => undefined, pictureWaits: () => true, now: () => '2026-09-28T00:00:00.000Z' });
+    await svc.start();
+    svc.handle([{ op: 'save', slot: 1, meta: { title: 'A', chapter: '', location: '', playSeconds: 1, version: 1, thumbnail: false }, text: JSON.stringify({ format: 'thirdlight.save', version: 1, doc: {} }) }]);
+    await svc.idle();
+    expect(svc.slots().map((s) => s.slot)).toEqual([1]);
+  });
+});

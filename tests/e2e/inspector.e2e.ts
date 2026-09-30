@@ -265,18 +265,22 @@ test('a content table built from its descriptor sends a second edit on top of a 
   const row = table.getByLabel('event sound 1', { exact: true });
   // The second edit must be sent after the first and on top of it, not refused as a conflict.
   holdName = true;
-  // The backend applies the held command at route.fetch, before its ack reaches the page: unroute only
-  // after the held ack is delivered, or the late fulfill fails with "Route is already handled".
-  let heldDelivered: Promise<void> = Promise.resolve();
+  // Only the first edit is held: the second is built on top of it, so its body names 'neutral-test'
+  // too. The route stays in place (every other command passes straight through): unrouting while
+  // the second command is inside the handler leaves that request without an answer, and the
+  // editor, which sends its own commands one at a time, then waits on it for good.
+  let held = false;
+  let heldDelivered!: () => void;
+  const delivered = new Promise<void>((r) => { heldDelivered = r; });
   await page.route('**/commands', async (route) => {
     const body = route.request().postData() ?? '';
-    if (body.includes('"setEventCues"') && body.includes('neutral-test')) {
-      let done!: () => void;
-      heldDelivered = new Promise<void>((r) => { done = r; });
+    if (!held && body.includes('"setEventCues"') && body.includes('neutral-test')) {
+      held = true;
+      // The backend applies the command here; only its ack reaches the page late.
       const res = await route.fetch();
       await new Promise((r) => setTimeout(r, 1500));
       await route.fulfill({ response: res });
-      done();
+      heldDelivered();
     } else await route.continue();
   });
   const name = row.getByLabel('eventCue name', { exact: true });
@@ -284,8 +288,7 @@ test('a content table built from its descriptor sends a second edit on top of a 
   await name.press('Enter');
   await row.getByLabel('eventCue assetId', { exact: true }).selectOption(second);
   await expect.poll(() => cues()[0]?.name).toBe('neutral-test');
-  await heldDelivered;
-  await page.unroute('**/commands');
+  await delivered;
   holdName = false;
   await expect.poll(cues).toEqual([{ on: 'signal', name: 'neutral-test', assetId: second }]);
   await undo(page);
