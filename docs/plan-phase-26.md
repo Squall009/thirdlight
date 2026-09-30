@@ -188,7 +188,8 @@ at the boundary it changes (Playwright for any editor surface).
 | 26.2 | done 2026-09-29: scale bench (generator, harness, small-size tests in the fast gate); before numbers in §6; D61 |
 | 26.3 | done 2026-09-29: A files and sidecars (uploads filed into `assets/`, `.tlasset` sidecars, import cache, file check re-imports and follows moves, project.json 5 with the upgrade of a 4); B folder import with labels (`importAssets`, one undo; editor and MCP), uploads into the folder named, a folder uploaded file by file, labels on records and sidecars, whole-folder moves, upgrade report in Problems |
 | 26.4 | done 2026-09-30: A storage out of `buildService` (typed readers); resources as files, asset records in their sidecars, `content.json` project-wide only; the index (`queryIndex`); validation of what a command touched (D61); one command's latency flat at full size (§6); environment presets as files (their order in `content.json`). B scenes as files anywhere in the game folder (`<name>.scene.json`), `folder` on every create (editor "new items in"), files added, moved, copied, changed or removed while open taken in by the file check (`importResources`, one undo), lost sidecars put back at the open (D63; D64 open) |
-| 26.5–26.14 | — |
+| 26.5 | done 2026-09-30: no per-project count cap on assets or resources (model, commands, editor, game host, MCP, docs; guarded by `tests/count-caps.test.ts` and `tests/e2e/count-caps.e2e.ts`); `MAX_CONTENT_FILE_BYTES` per file; no project quota (disk space only); manifest at the content file cap; animation keys per model; limits audit (§7; table in `docs/deployment.md`); full bench uncapped on main (§6) |
+| 26.6–26.14 | — |
 
 ## 6. Measurements
 
@@ -327,6 +328,38 @@ record cache being filled in the background after that first open (18,000
 sidecar copies in batches of 256 between commands; later opens find it
 filled). The 1.5 s poll no longer hashes the game folder's thousands of
 resource files; the file check's cost at full size is 26.8's to measure.
+
+After 26.5 (no count caps on main, no scratch patch: the first uncapped run
+on main; `node tools/perf/run.mjs scale --preset full --gpu`, commit
+`efc3eeeb`, GPU host, 2026-09-30; report
+`scale-full-2026-09-30T03-08-27-613Z.json`): every step ran at full size
+(18,000 assets, 5,000 prefabs, 2,000 materials, 300 scenes, 2,000 voiced
+lines).
+
+| | full (26.2, scratch) | full (26.5, main) |
+|---|---|---|
+| open: backend's first read | 6,703 | 954 |
+| open: editor connected / Scene view first frame | 1,128 / 603 | 1,064 / 644 |
+| backend resident after open | 560 | 342 |
+| command: scene edit (setTransform) | 11,198 / 11,804 | 15.7 / 43.8 |
+| command: content edit (setMaterial) | 26,057 / 27,505 | 44.1 / 63.9 |
+| Play: click → first frame | 22,778 | 9,033 |
+| Play: backend build (closure) / manifest bytes | 22,077 (22,048) / 9.2 M | 8,358 (6,772; its asset reads 5,354) / 9.2 M + 2 content files 0.97 M |
+| scene load: request → drawn (game timings) | 138 / 156 | 145 / 158 |
+| walk: scenes; heap before → after | 50; 66.2 → 115.1 | 50; 67.0 → 115.8 |
+| walk: live GPU textures before → loaded → after | 4 → 49 → 5 | 4 → 49 → 5 |
+| dialogue: lines heard; line → voice p95; gap p50 / p95 / max | 500/500; 35; 4 / 11 / 28 | 500/500; 35; 6 / 10 / 26 |
+| export: time; files; MiB; exported first frame | 9,058; 9,309; 119; 852 | 12,175; 9,309; 119; 848 |
+
+Nothing is refused any more. What still does not scale is the later items':
+Play start is 9 s and grows with the asset count (the backend's closure reads
+and verifies every reachable asset, 5.4 s of it: 26.8); the manifest is 9.2 MB
+because asset rows, rigs and prefabs are inline (26.9); the heap grows about
+1 MiB per distinct scene walked and is not given back (26.10); every `audio`
+asset is still read and decoded at mount (26.11); the export bundles every
+reachable file into memory (12 s: 26.9). This session's host ran 26.4 B's
+commands at 13–15 / 40 ms (§6 above), so the command numbers are within
+spread of that run.
 
 Proposed targets for "Done when" (fixed in 26.14 from these numbers):
 
@@ -795,7 +828,8 @@ Proposed targets for "Done when" (fixed in 26.14 from these numbers):
   package, names a per-project count: `MAX_<kind>`, `*_LIMITS.<kind>`,
   `<kind>_PER_PROJECT`) and `tests/e2e/count-caps.e2e.ts` (a project with 1.5 ×
   every old cap of every kind opens, takes one command of each kind that
-  makes one more, plays and exports in the browser).
+  makes one more, plays and exports in the browser). The e2e guard is in the fast
+  gate's smoke set (about 25 s), so a cap coming back fails every gate.
 - 2026-09-30 (26.5): the byte caps. `MAX_CONTENT_FILE_BYTES` (1 MiB) is the
   one per-file cap: each resource record, each environment preset (they were
   measured with `content.json`) and `content.json`'s project-wide part; a
