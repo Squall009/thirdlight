@@ -32,6 +32,7 @@ import { BEHAVIOR_API_DTS } from './behavior-api.generated';
 import { CodeEditor, revealPosition, type InlineDiagnostic } from './CodeEditor';
 import { API_TYPINGS_PATH, CHECK_IDLE_MS, useSourceFocus } from './ScriptDocument';
 import type { SourceFocus } from '../../session/source-location';
+import { LibrariesSaveAll, type LibrariesSaveAllProps } from './LibrariesSaveAll';
 
 /** A library's unsaved edits (kept by the app while the session exists). */
 export interface LibraryDraft {
@@ -60,12 +61,14 @@ export interface LibraryDocumentProps {
   activePlay: { snapshotId: string; revision: number } | null;
   check: (libraryId: string, files: readonly ScriptFile[]) => Promise<LibraryCheckResult>;
   save: (libraryId: string, files: { path: string; text: string | null }[], acknowledge: boolean) => Promise<LibrarySaveOutcome>;
-  /** A draft changed (the Libraries panel lists the libraries with unsaved edits). */
+  /** A draft changed ("Save all" lists the libraries with unsaved edits). */
   onDraftChange?: () => void;
-  /** Bumped when drafts change outside this tab (the panel's "Save all" marks them saved). */
+  /** Bumped when drafts change outside this tab ("Save all" marks them saved). */
   draftsVersion?: number;
   /** A position to show (the Console's source locations; for this library when its id matches). */
   focus?: SourceFocus | null;
+  /** Saving every library with unsaved edits at once (shown above the editor). */
+  saveAll?: LibrariesSaveAllProps;
 }
 
 type CheckState =
@@ -284,6 +287,7 @@ export function LibraryDocument(p: LibraryDocumentProps): JSX.Element {
       </div>
 
       <div className="tl-script__main">
+        {p.saveAll !== undefined && <LibrariesSaveAll {...p.saveAll} />}
         <div className="tl-script__bar">
           <span className="tl-script__path">
             @lib/{libraryId} · {openPath}

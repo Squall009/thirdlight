@@ -1,6 +1,7 @@
 /**
- * Prefab authoring: make a prefab from the selection, place a copy with
- * overridden declared properties, delete a definition.
+ * Prefab authoring: make a prefab from the selection, choose one in the
+ * project window, place a copy with overridden declared properties, delete a
+ * definition.
  */
 import { useCallback, useMemo, useState, type MutableRefObject } from 'react';
 import type { ProjectedEntity } from '../../session/projection';
@@ -34,6 +35,20 @@ export function usePrefabAuthoring(deps: PrefabAuthoringDeps) {
   const [copyError, setCopyError] = useState<UiError | null>(null);
   const [prefabDeleteError, setPrefabDeleteError] = useState<string | null>(null);
   const [overrideDrafts, setOverrideDrafts] = useState<Record<string, string>>({});
+  // Bumped when a chosen definition has been read (its override targets come from it).
+  const [definitionsRead, setDefinitionsRead] = useState(0);
+
+  /** A prefab chosen in the project window: its Inspector places copies of it (the definition is read by id). */
+  const choosePrefab = useCallback(
+    (prefabId: string) => {
+      setSelectedPrefabId(prefabId);
+      setOverrideDrafts({});
+      setCopyError(null);
+      setPrefabDeleteError(null);
+      void clientRef.current?.catalog.ensurePrefabs([prefabId]).then(() => setDefinitionsRead((n) => n + 1));
+    },
+    [clientRef],
+  );
 
   const deletePrefab = useCallback(async (prefabId: string) => {
     const c = clientRef.current;
@@ -79,7 +94,8 @@ export function usePrefabAuthoring(deps: PrefabAuthoringDeps) {
     const definition = c.prefabs.getDefinition(selectedPrefabId);
     if (!definition) return [];
     return deriveOverrideTargets(definition, declarations);
-  }, [clientRef, selectedPrefabId, declarations]);
+    // definitionsRead: the definition may arrive after it was chosen.
+  }, [clientRef, selectedPrefabId, declarations, definitionsRead]); // eslint-disable-line react-hooks/exhaustive-deps -- definitionsRead only re-reads the client's definitions
 
   const commitOverride = useCallback((localId: string, key: string, raw: string) => {
     setOverrideDrafts((prev) => ({ ...prev, [overrideDraftKey(localId, key)]: raw }));
@@ -124,7 +140,7 @@ export function usePrefabAuthoring(deps: PrefabAuthoringDeps) {
   );
 
   return {
-    selectedPrefabId, setSelectedPrefabId, copyError, setCopyError, prefabDeleteError, overrideDrafts, setOverrideDrafts,
+    selectedPrefabId, setSelectedPrefabId, choosePrefab, copyError, setCopyError, prefabDeleteError, overrideDrafts, setOverrideDrafts,
     deletePrefab, createPrefabFromSelection, overrideTargets, commitOverride, placeCopy,
   };
 }

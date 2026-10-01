@@ -10,7 +10,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng } from './png';
-import { openWindow, closeEditor, openEditor as openItemEditor, expectEditorOpen, editorTab, viewTab, editorWindow, inspector as inspectorOf } from './ui';
+import { openWindow, chooseItem, createItem, closeEditor, openEditor as openItemEditor, expectEditorOpen, editorTab, viewTab, editorWindow, inspector as inspectorOf } from './ui';
 
 let be: E2EBackend;
 test.afterEach(async () => {
@@ -88,10 +88,7 @@ async function openEditor(page: Page): Promise<{ stage: Locator; box: { x: numbe
   be = await startBackend();
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  await openWindow(page, 'Graphs');
-  await page.getByLabel('Graph kind').selectOption('test');
-  await page.getByLabel('New graph name').fill('Maths');
-  await page.getByRole('button', { name: 'Create graph' }).click();
+  await createItem(page, ['Graph', 'Test graph'], 'Maths');
   await expectEditorOpen(page, 'Graph', 'Maths');
   const stage = page.locator('.tl-graph__stage');
   await expect(stage).toBeVisible();
@@ -365,9 +362,7 @@ test('graph editing: copy/paste (also into another graph), duplicate, delete, al
   await node(page, 'a').click({ position: { x: 90 * fz, y: 30 * fz } });
   await node(page, 'sum').click({ position: { x: 90 * fz, y: 40 * fz }, modifiers: ['Shift'] });
   await page.keyboard.press('Control+c');
-  await openWindow(page, 'Graphs');
-  await page.getByLabel('New graph name').fill('Other');
-  await page.getByRole('button', { name: 'Create graph' }).click();
+  await createItem(page, ['Graph', 'Test graph'], 'Other');
   await expectEditorOpen(page, 'Graph', 'Other');
   await page.locator('.tl-graph').focus();
   await page.keyboard.press('Control+v');
@@ -438,15 +433,14 @@ test('graph editing: a 2000-node graph renders, fits, zooms and pans in the edit
   const tab = editorTab(page, 'Graph', 'Maths');
   await expect(tab).toHaveAttribute('aria-selected', 'true');
   await expect(page.locator('.tl-graph__stage')).toBeVisible();
-  await openWindow(page, 'Graphs');
-  await expect(page.locator('[data-graph-id="maths"]')).toContainText('2000 nodes');
-  // Opening an open graph focuses its tab (no second tab); double-click opens too.
+  // Opening an open graph (its Inspector's "open", a double-click in the project window) focuses its tab: no second tab.
   await closeEditor(page);
   await expect(page.locator('.tl-graph__stage')).toHaveCount(0);
-  await page.getByRole('button', { name: 'Open Maths' }).click();
+  await chooseItem(page, 'graph', 'Maths');
+  await inspectorOf(page).getByRole('button', { name: 'open', exact: true }).click();
   await expect(tab).toHaveAttribute('aria-selected', 'true');
   await closeEditor(page);
-  await page.locator('[data-graph-id="maths"] .tl-graphs__meta').dblclick();
+  await openItemEditor(page, 'Graph', 'Maths');
   await expect(tab).toHaveAttribute('aria-selected', 'true');
   await expect(editorTab(page, 'Graph')).toHaveCount(1);
   expect((await graphOf('maths')).edges).toHaveLength(N - 1);

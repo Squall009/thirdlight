@@ -16,7 +16,7 @@ import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
 import { editorUrlFor, expectRendererBackend, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
-import { menu, projectWindow, openWindow } from './ui';
+import { menu, projectWindow, createItem } from './ui';
 
 let be: E2EBackend;
 let dir: string;
@@ -83,9 +83,7 @@ for (const variant of RENDERER_VARIANTS) {
     const viewport = page.locator('canvas.tl-viewport');
     await expectRendererBackend(viewport, variant);
     await importTexture(page, file);
-    await openWindow(page, 'Materials');
-    await page.getByRole('button', { name: '+ new material' }).click();
-    await expect(page.locator('.tl-materials li[data-material-id]')).toHaveCount(1);
+    await createItem(page, 'Material', 'Material 1');
     await page.getByRole('combobox', { name: 'texture map' }).selectOption({ label: 'checker' });
     await menu(page, 'GameObject', 'Box');
     await expect(page.locator('.tl-hierarchy__list li.tl-row.is-selected')).toContainText('box');

@@ -20,7 +20,7 @@ import { createHash } from 'node:crypto';
 import { expect, test, type Page } from '@playwright/test';
 
 import { type E2EBackend, startBackend } from './backend';
-import { openWindow, openEditor, editorPane } from './ui';
+import { openWindow, openEditor, editorPane, createItem } from './ui';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -122,12 +122,10 @@ test('a library made in the editor is imported by two scripts; Play shows it; sa
     await cmd('setBehaviorProperties', { entityId: String(made.createdId), behaviorId: `user-${id}`, values: {} });
   }
 
-  // The Libraries tab: create "Scoring" (→ @lib/scoring); its tab opens with a starting entry module.
+  // The project window's Create menu: "Scoring" (→ @lib/scoring); its editor opens with a starting entry module.
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  await openWindow(page, 'Libraries');
-  await page.getByLabel('New library name').fill('Scoring');
-  await page.getByRole('button', { name: 'Create library' }).click();
+  await createItem(page, 'Script library', 'Scoring');
   const view = editorPane(page, 'Library', 'Scoring');
   await expect(view.getByLabel('library editor')).toHaveAttribute('data-library', 'scoring');
   const status = view.getByLabel('compile status');

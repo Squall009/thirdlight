@@ -27,7 +27,6 @@ import {
   resizeWidgetBy,
   snapEdge,
   snapSpan,
-  uniqueDocId,
   uniqueName,
   widgetAt,
   withPlacement,
@@ -116,8 +115,6 @@ describe('widget paths and the tree', () => {
   it('names stay unique and in the id syntax', () => {
     expect(uniqueName('text', new Set(['text', 'text2']))).toBe('text3');
     expect(uniqueName('9 items!', new Set())).toBe('items');
-    expect(uniqueDocId('Main HUD', ['main-hud'], 'ui')).toBe('main-hud-2');
-    expect(uniqueDocId('!!!', [], 'ui')).toBe('ui');
     const w = newWidget('bar', new Set(['bar']), null);
     expect(w).toMatchObject({ id: 'bar2', type: 'bar', value: 0.5 });
     expect(newWidget('image', new Set(), null)).toHaveProperty('error');

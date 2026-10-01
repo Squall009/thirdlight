@@ -31,7 +31,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
-import { editorTab, menu, projectWindow, openWindow, previewPane } from './ui';
+import { editorTab, menu, projectWindow, openWindow, openEditor, previewPane } from './ui';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 let be: E2EBackend | null = null;
@@ -347,8 +347,7 @@ test('editor: the timeline tab scrubs the Scene view; a key drag is one command 
 
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  await openWindow(page, 'Timelines');
-  await page.getByRole('button', { name: 'Open Slide' }).click();
+  await openEditor(page, 'Timeline', 'Slide');
   await expect(editorTab(page, 'Timeline', /Slide/)).toBeVisible();
   const ruler = page.getByLabel('Timeline ruler');
   await expect(ruler).toBeVisible();

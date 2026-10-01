@@ -15,7 +15,7 @@ import { join } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
-import { projectWindow, closeEditor, openWindow } from './ui';
+import { projectWindow, closeEditor, chooseItem, createItem } from './ui';
 
 let be: E2EBackend;
 test.afterEach(async () => {
@@ -61,9 +61,7 @@ test('new scenes and materials go into the folder named; files added outside the
   expect(existsSync(join(be.projectDir, 'scenes', `${sceneId}.json`))).toBe(false);
 
   // A new material: the same folder.
-  await openWindow(page, 'Materials');
-  await page.getByRole('button', { name: '+ new material' }).click();
-  await expect(page.locator('.tl-materials li[data-material-id]')).toHaveCount(1);
+  await createItem(page, 'Material', 'Material 1');
   await expect.poll(() => readdirSync(join(be.projectDir, 'world', 'levels')).filter((n) => n.endsWith('.material.json')).length).toBe(1);
 
   // Outside the editor: a scene with one object, and a material, dropped into a folder.
@@ -81,8 +79,7 @@ test('new scenes and materials go into the folder named; files added outside the
   await open.selectOption({ label: 'Arena' });
   await expect(header(page, 'Arena')).toHaveCount(1);
   await expect(row(page, 'Barrel')).toHaveCount(1);
-  await openWindow(page, 'Materials');
-  await expect(page.locator('.tl-materials li[data-material-id="sand"]')).toHaveCount(1);
+  await chooseItem(page, 'material', 'Sand');
   await page.screenshot({ path: 'test-results/resource-folders.png' });
 
   // It stays where it was put.

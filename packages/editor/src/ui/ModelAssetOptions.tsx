@@ -10,7 +10,7 @@ import type { MaterialDef } from '@thirdlight/project-model';
 
 import type { AssetView } from '../session/content-projection';
 import { ClipsForField } from './ClipsForField';
-import { MaterialMappingEditor } from './MaterialsPanel';
+import { MaterialMappingEditor } from './material/MaterialInspector';
 
 export function ModelAssetOptions(p: {
   asset: AssetView;

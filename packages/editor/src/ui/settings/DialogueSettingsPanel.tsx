@@ -1,179 +1,52 @@
 /**
- * The Dialogue window (bottom dock) — the project's
- * conversations (create, rename, delete, open the "Dialogue: <name>" tab),
- * the speaker registry (name, name-plate colour, portraits per expression,
- * default expression, voice profile, text blip) and the dialogue settings
- * (text speed, auto-advance and its delay, the music/SFX duck under a voice,
- * the backlog length, the UI document and theme). Every change is one
- * command (setDialogue, deleteDialogue, setSpeaker, deleteSpeaker,
- * setDialogueSettings), the same MCP sends.
+ * Project Settings → Dialogue: the speaker registry (name, name-plate colour,
+ * portraits per expression, default expression, voice profile, text blip) and
+ * the dialogue settings (text speed, auto-advance and its delay, the
+ * music/SFX duck under a voice, the backlog length, the UI document and
+ * theme). Both are project-wide, as the Input or Audio settings are; the
+ * conversations themselves are items of the project window. Every change is
+ * one command (setSpeaker, deleteSpeaker, setDialogueSettings), the same MCP
+ * sends.
  *
  * Browser-only (React).
  */
 import { DIALOGUE_LIMITS } from '@thirdlight/project-model/limits';
 import { useEffect, useState, type JSX } from 'react';
-import type { DialogueDocument, DialogueSettings, DialogueSpeaker, UiDocument, UiTheme } from '@thirdlight/project-model';
+import type { DialogueSettings, DialogueSpeaker, UiDocument, UiTheme } from '@thirdlight/project-model';
 
-import type { IndexEntryView } from '../../session/catalog';
+import { idFromName } from '../../session/project-items';
 import { AUDIO_KINDS, RefPicker, TEXTURE_KINDS, useFirstEntry } from '../catalog/RefPicker';
-import { useIndexList } from '../catalog/useIndexList';
-import { VirtualList } from '../catalog/VirtualList';
 
-/** The conversations, paged from the project index. */
-const DIALOGUE_KINDS: readonly string[] = ['dialogue'];
-/** One row of the conversation list (px). */
-const DIALOGUE_ROW = 30;
-
-export interface DialoguePanelProps {
-  /** The conversations the editor has read (their line counts); the list itself comes from the index. */
-  dialogues: readonly DialogueDocument[];
+export interface DialogueSettingsPanelProps {
   speakers: readonly DialogueSpeaker[];
   settings: DialogueSettings | null;
   uiDocuments: readonly UiDocument[];
   uiThemes: readonly UiTheme[];
-  openId: string | null;
+  /** The last refused change, or null. */
   error: string | null;
-  onOpen: (dialogueId: string) => void;
-  onCreate: (name: string) => void;
-  onRename: (dialogueId: string, name: string) => void;
-  onDelete: (dialogueId: string) => void;
   onSaveSpeaker: (speaker: DialogueSpeaker) => void;
   onDeleteSpeaker: (speakerId: string) => void;
   onSaveSettings: (settings: DialogueSettings | null) => void;
 }
 
-/** A lower-case id from a name, unique among `taken`. */
-export function dialogueIdFrom(name: string, taken: readonly string[], fallback: string): string {
-  const base = name.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^[-_]+|[-_]+$/g, '').slice(0, 56) || fallback;
-  let id = base;
-  for (let n = 2; taken.includes(id); n++) id = `${base}-${n}`;
-  return id;
-}
-
-/**
- * A dialogue id no dialogue has: the name's id, else it numbered, each
- * candidate looked up by id in the index (the editor holds only the
- * conversations it opened, and `setDialogue` replaces one that exists).
- */
-export async function freeDialogueId(name: string, taken: (ids: readonly string[]) => Promise<ReadonlySet<string>>): Promise<string> {
-  const base = dialogueIdFrom(name, [], 'dialogue');
-  const batch = 64;
-  for (let from = 1; ; from += batch) {
-    const candidates = Array.from({ length: batch }, (_, i) => (from + i === 1 ? base : `${base}-${from + i}`));
-    const used = await taken(candidates);
-    const free = candidates.find((c) => !used.has(c));
-    if (free !== undefined) return free;
-  }
-}
-
-export function DialoguePanel(p: DialoguePanelProps): JSX.Element {
-  const [name, setName] = useState('');
-  const [section, setSection] = useState<'dialogues' | 'speakers' | 'settings'>('dialogues');
+export function DialogueSettingsPanel(p: DialogueSettingsPanelProps): JSX.Element {
   return (
     <div className="tl-panel tl-dialogue-panel">
-      <div className="tl-panel__title">Dialogue</div>
-      <div className="tl-tabs" role="tablist" aria-label="dialogue sections">
-        {(['dialogues', 'speakers', 'settings'] as const).map((s) => (
-          <button key={s} type="button" role="tab" aria-selected={section === s} className={`tl-tab${section === s ? ' is-active' : ''}`} onClick={() => setSection(s)}>
-            {s === 'dialogues' ? 'Conversations' : s === 'speakers' ? 'Speakers' : 'Settings'}
-          </button>
-        ))}
-      </div>
       {p.error !== null && (
         <p className="tl-error" role="alert">
           {p.error}
         </p>
       )}
-      {section === 'dialogues' && (
-        <>
-          <form
-            className="tl-graphs__new"
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (name.trim() === '') return;
-              p.onCreate(name.trim());
-              setName('');
-            }}
-          >
-            <input className="tl-input" aria-label="New dialogue name" placeholder="New conversation name" maxLength={64} value={name} onChange={(e) => setName(e.target.value)} />
-            <button className="tl-btn tl-btn--small" type="submit" disabled={name.trim() === ''}>
-              Create dialogue
-            </button>
-          </form>
-          <p className="tl-hint">A conversation is a node graph: lines (speaker, expression, text, voice clip), choices, conditions and effects on dialogue variables, signals, jumps. Scripts start one with ctx.dialogue.start(id).</p>
-          <DialogueList {...p} />
-        </>
-      )}
-      {section === 'speakers' && <SpeakersEditor {...p} />}
-      {section === 'settings' && <SettingsEditor {...p} />}
+      <div className="tl-subhead">Speakers</div>
+      <SpeakersEditor {...p} />
+      <div className="tl-subhead">Dialogue settings</div>
+      <SettingsEditor {...p} />
     </div>
   );
 }
 
-/** The conversations of the project, paged from the index as the list scrolls. */
-function DialogueList(p: DialoguePanelProps): JSX.Element {
-  const list = useIndexList({ kinds: DIALOGUE_KINDS });
-  if (list.total === 0) return <div className="tl-inspector__empty">No conversations yet.</div>;
-  const loaded = new Map(p.dialogues.map((d) => [d.dialogueId, d] as const));
-  return (
-    <VirtualList
-      className="tl-effects__list"
-      ariaLabel="Dialogue list"
-      count={list.total ?? 0}
-      stride={DIALOGUE_ROW}
-      onRange={list.need}
-      renderItem={(i) => {
-        const e = list.entry(i);
-        return e === undefined ? <li key={`i${i}`} className="tl-effects__row" style={{ height: DIALOGUE_ROW - 2 }} /> : <DialogueRow key={e.id} d={e} doc={loaded.get(e.id)} active={p.openId === e.id} onOpen={p.onOpen} onRename={p.onRename} onDelete={p.onDelete} />;
-      }}
-    />
-  );
-}
-
-function DialogueRow({ d, doc, active, onOpen, onRename, onDelete }: { d: IndexEntryView; doc: DialogueDocument | undefined; active: boolean; onOpen: (id: string) => void; onRename: (id: string, name: string) => void; onDelete: (id: string) => void }): JSX.Element {
-  const [renaming, setRenaming] = useState<string | null>(null);
-  const lines = doc?.graph.nodes.filter((n) => n.type === 'line').length;
-  return (
-    <li className={`tl-effects__row${active ? ' is-active' : ''}`} data-dialogue-id={d.id} onDoubleClick={() => onOpen(d.id)}>
-      {renaming !== null ? (
-        <input
-          autoFocus
-          className="tl-input"
-          aria-label="Dialogue name"
-          maxLength={64}
-          value={renaming}
-          onChange={(e) => setRenaming(e.target.value)}
-          onBlur={() => {
-            if (renaming.trim() !== '' && renaming.trim() !== d.name) onRename(d.id, renaming.trim());
-            setRenaming(null);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-            if (e.key === 'Escape') setRenaming(null);
-          }}
-        />
-      ) : (
-        <span className="tl-effects__name">{d.name}</span>
-      )}
-      <span className="tl-effects__meta">
-        {d.id}
-        {lines !== undefined ? ` · ${lines} line${lines === 1 ? '' : 's'}` : ''}
-      </span>
-      <button className="tl-btn tl-btn--small" onClick={() => onOpen(d.id)} aria-label={`Open ${d.name}`}>
-        Open
-      </button>
-      <button className="tl-btn tl-btn--small" onClick={() => setRenaming(d.name)} aria-label={`Rename ${d.name}`}>
-        Rename
-      </button>
-      <button className="tl-btn tl-btn--small" onClick={() => onDelete(d.id)} aria-label={`Delete ${d.name}`}>
-        Delete
-      </button>
-    </li>
-  );
-}
-
 /** Speakers: pick one to edit (or a new one); Save sends one setSpeaker. */
-function SpeakersEditor(p: DialoguePanelProps): JSX.Element {
+function SpeakersEditor(p: DialogueSettingsPanelProps): JSX.Element {
   const [editing, setEditing] = useState<string | null>(null);
   const current = editing !== null ? (p.speakers.find((s) => s.speakerId === editing) ?? null) : null;
   const blank: DialogueSpeaker = { speakerId: '', name: '' };
@@ -204,7 +77,7 @@ function SpeakersEditor(p: DialoguePanelProps): JSX.Element {
         <span>Id</span>
         <input className="tl-input" aria-label="speaker id" value={draft.speakerId} disabled={!isNew} maxLength={64} onChange={(e) => set({ speakerId: e.target.value })} placeholder="e.g. guide" />
         <span>Name</span>
-        <input className="tl-input" aria-label="speaker name" value={draft.name} maxLength={64} onChange={(e) => set({ name: e.target.value, ...(isNew && draft.speakerId === dialogueIdFrom(draft.name, [], '') ? { speakerId: dialogueIdFrom(e.target.value, [], '') } : {}) })} />
+        <input className="tl-input" aria-label="speaker name" value={draft.name} maxLength={64} onChange={(e) => set({ name: e.target.value, ...(isNew && draft.speakerId === idFromName(draft.name, '') ? { speakerId: idFromName(e.target.value, '') } : {}) })} />
         <span>Name plate colour</span>
         <input className="tl-input" type="color" aria-label="speaker colour" value={draft.color ?? '#ffd480'} onChange={(e) => set({ color: e.target.value.toLowerCase() })} />
         <span>Default expression</span>
@@ -247,7 +120,7 @@ function SpeakersEditor(p: DialoguePanelProps): JSX.Element {
 }
 
 /** The dialogue settings; Apply sends one setDialogueSettings (Reset sends null). */
-function SettingsEditor(p: DialoguePanelProps): JSX.Element {
+function SettingsEditor(p: DialogueSettingsPanelProps): JSX.Element {
   const [draft, setDraft] = useState<DialogueSettings>(p.settings ?? {});
   useEffect(() => setDraft(p.settings ?? {}), [p.settings]);
   const num = (k: 'textSpeed' | 'autoDelay' | 'duck' | 'backlog', v: string): void => setDraft((d) => {

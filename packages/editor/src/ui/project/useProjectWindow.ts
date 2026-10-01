@@ -2,7 +2,8 @@
  * The project window's state the editor shares: the chosen folder — where
  * new scenes and resources are created (Unity's Create menu uses the project
  * window's folder) and where uploads land — its file commands, and what a
- * double-click opens for each kind of item.
+ * double-click opens for each kind of item (its editor; the Scene view for a
+ * scene; the Inspector for an asset, a prefab or a shader material).
  *
  * Browser-only (React).
  */
@@ -20,13 +21,15 @@ export interface ProjectOpeners {
   openDocument(kind: string, id: string): void;
   /** Whether a behavior is a visual script (it opens as a graph). */
   isVisualScript(behaviorId: string): boolean;
+  /** Whether a material is a graph material (it opens as a graph; a shader material shows in the Inspector). */
+  isGraphMaterial(materialId: string): boolean;
   /** Open a scene in the Scene view and make it the active one. */
   openScene(sceneId: string): void;
-  /** Show a prefab in the Prefabs panel. */
-  showPrefab(prefabId: string): void;
+  /** Show an item in the Inspector (a prefab, a shader material, an asset). */
+  inspect(item: ProjectItem): void;
   /** Show the environment panel (its presets). */
   showEnvironment(): void;
-  /** Choose an asset and realize its preview. */
+  /** Choose an asset and realize its preview (in its Inspector). */
   previewAsset(assetId: string): void;
 }
 
@@ -50,9 +53,13 @@ export function useProjectWindow(clientRef: MutableRefObject<SessionClient | nul
     [clientRef, onUploadFolder],
   );
   const open = (item: ProjectItem): void => {
-    if (isAssetKind(item.kind)) return openers.previewAsset(item.id);
+    if (isAssetKind(item.kind)) {
+      openers.inspect(item);
+      return openers.previewAsset(item.id);
+    }
     if (item.kind === 'scene') return openers.openScene(item.id);
-    if (item.kind === 'prefab') return openers.showPrefab(item.id);
+    // A prefab has no editor (copies are placed from its Inspector); nor has a shader material (its values are its Inspector).
+    if (item.kind === 'prefab' || (item.kind === 'material' && !openers.isGraphMaterial(item.id))) return openers.inspect(item);
     if (item.kind === 'envpreset') return openers.showEnvironment();
     const doc = documentOfItem(item);
     if (doc === null) return;

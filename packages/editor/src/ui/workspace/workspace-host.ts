@@ -96,6 +96,7 @@ export function workspaceHostOf(input: WorkspaceHostInput): WorkspaceHost {
       onDraftChange: onLibraryDraftChange,
       draftsVersion: libraryDraftsVersion,
       focus: sourceFocus,
+      saveAll: { dirty: input.scripting.dirtyLibraries, outcome: input.scripting.saveAllOutcome, onSaveAll: (acknowledge) => void input.scripting.saveAllLibraries(acknowledge) },
     },
     graph: {
       graphs,

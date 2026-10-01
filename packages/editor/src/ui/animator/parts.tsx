@@ -34,6 +34,19 @@ export interface ClipChoice extends ClipInfo {
   source: string | null;
 }
 
+/** The project's animator controllers and what their editors and the Create menu need of them. */
+export interface AnimatorControllersProps {
+  controllers: AnimatorController[];
+  /** Open a controller in the editor window. */
+  onOpen: (controllerId: string) => void;
+  clipsOf: (assetId: string) => Promise<ClipInfo[]>;
+  /** The model's skeleton (its bones, or its nodes when it has none). */
+  skeletonOf?: (assetId: string) => Promise<BoneInfo[]>;
+  onSave: (controller: AnimatorController) => void;
+  onDelete: (controllerId: string) => void;
+  error: string | null;
+}
+
 /** A running live preview of one controller: its model under the preview pane's stage, stepped by the pane's frames. */
 export interface AnimatorPreview {
   readonly root: THREE.Object3D;

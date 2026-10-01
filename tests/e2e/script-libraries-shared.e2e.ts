@@ -265,25 +265,22 @@ test('staged library edits: Save all commits two libraries in one commit; a larg
 
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  await openWindow(page, 'Libraries');
-  // Edit both libraries in their tabs (unsaved).
+  // Edit both libraries in their editors (unsaved).
   for (const [name, text] of [['Alpha', 'export const alpha = 3;\n'], ['Beta', 'export const beta = 4;\n']] as const) {
-    await openWindow(page, 'Libraries');
-    await page.getByRole('button', { name: `Open ${name}` }).click();
+    await openEditor(page, 'Library', name);
     const view = editorPane(page, 'Library', name);
     await expect(view.getByLabel('compile status')).toHaveAttribute('data-status', 'ok', { timeout: 20_000 });
     await replaceCode(page, view, text);
-    await expect(view.getByText('unsaved edits')).toBeVisible();
+    await expect(view.getByText('unsaved edits', { exact: true })).toBeVisible();
   }
   const pending = page.getByLabel('unsaved libraries');
   await expect(pending).toContainText('@lib/alpha, @lib/beta');
 
-  // Save all: both staged, one commit; the new digests are acknowledged first; the script is recompiled once.
+  // Save all (above each library's editor): both staged, one commit; the new digests are acknowledged first; the script is recompiled once.
   const commits: Record<string, unknown>[] = [];
   page.on('response', (r) => {
     if (r.request().method() === 'POST' && r.url().endsWith('/commands') && (r.request().postData() ?? '').includes('commitScriptLibraryStage')) void r.json().then((j) => commits.push(j as Record<string, unknown>), () => undefined);
   });
-  await openWindow(page, 'Libraries');
   await pending.getByRole('button', { name: 'Save all' }).click();
   const trust = page.getByRole('group', { name: 'save all trust acknowledgment' });
   await expect(trust).toBeVisible({ timeout: 20_000 });
@@ -306,8 +303,7 @@ test('staged library edits: Save all commits two libraries in one commit; a larg
   await cmd('redo', {});
 
   // Files larger than one command request, saved from their tab: several patches (a file in pieces), one commit.
-  await openWindow(page, 'Libraries');
-  await page.getByRole('button', { name: 'Open Alpha' }).click();
+  await openEditor(page, 'Library', 'Alpha');
   const alpha = editorPane(page, 'Library', 'Alpha');
   const table = (from: number): string => `${JSON.stringify({ rows: Array.from({ length: 800 }, (_, i) => ({ id: from + i, label: `row number ${from + i} of a large neutral table` })) })}\n`;
   const bigFiles = [{ path: 'src/big-a.json', text: table(0) }, { path: 'src/big-b.json', text: table(800) }];

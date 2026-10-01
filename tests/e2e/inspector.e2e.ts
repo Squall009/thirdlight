@@ -19,7 +19,7 @@ const expect = baseExpect.configure({ timeout: 15_000 });
 
 import { startBackend, type E2EBackend } from './backend';
 import { skinnedGlb } from './skinned-glb';
-import { menu, projectWindow, openWindow, closeEditor, openProjectSettings, expectEditorOpen } from './ui';
+import { menu, projectWindow, openWindow, closeEditor, openProjectSettings, expectEditorOpen, chooseItem, createItem } from './ui';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 
@@ -200,10 +200,9 @@ test('every component kind: added, edited (one undo) and removed through the Ins
   await inspector(page).getByRole('button', { name: 'Add', exact: true }).click();
   await expect.poll(comp(id, 'model')).toEqual({ asset: { assetId: model } });
   await expect(inspector(page).locator('.tl-inspector__kind')).toHaveText('model');
-  // An animator for the model: a controller made in the Animator window, picked in the Inspector.
-  await openWindow(page, 'Animator');
-  await page.getByLabel('animator model').selectOption(model);
-  await page.getByRole('button', { name: 'New controller' }).click();
+  // An animator for the model: a controller made from the project window's Create menu, picked in the Inspector.
+  await chooseItem(page, 'model', model);
+  await createItem(page, 'Animator controller', 'New animator');
   await expect.poll(async () => (((await be.command({ op: 'queryGameConfig', projectId: be.projectId }))['animators'] as unknown[]) ?? []).length).toBe(1);
   // The new controller opens in the editor window (the Inspector then shows the graph); back to the Scene.
   await expectEditorOpen(page, 'Animator', 'New animator');

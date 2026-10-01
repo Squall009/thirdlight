@@ -374,20 +374,25 @@ test('graph diagnostics after an edit of a 2000-node graph (long tasks logged)',
   }
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  await openWindow(page, 'Graphs');
-  await expect(page.locator('[data-graph-id="big"]')).toContainText('2000 nodes', { timeout: 30_000 });
+  // The editor has every edit once its revision is the backend's (the status bar shows it).
+  const caughtUp = async (): Promise<void> => {
+    const want = Number((await query('queryProject')).revision);
+    await expect(page.locator('.tl-statusbar__rev')).toHaveText(`revision ${want}`, { timeout: 30_000 });
+  };
+  await openWindow(page, 'Assets');
+  await caughtUp();
   await settle(page);
   const results: LongTasks[] = [];
   const prof = await startProfile(page);
   for (let i = 0; i < 5; i += 1) {
     const t0 = await now(page);
     await cmd('graphEdit', { owner: { kind: 'graph', id: 'big' }, ops: [{ op: 'addNodes', nodes: [{ id: `x${i}`, type: 'label', position: [-300, i * 100] }] }] });
-    await expect(page.locator('[data-graph-id="big"]')).toContainText(`${2001 + i} nodes`, { timeout: 30_000 });
+    await caughtUp();
     await page.waitForTimeout(1500);
     results.push(await longTasksSince(page, t0));
   }
   const sum = results.reduce((a, r) => ({ count: a.count + r.count, longestMs: Math.max(a.longestMs, r.longestMs), totalMs: a.totalMs + r.totalMs, windowMs: a.windowMs + r.windowMs }), { count: 0, longestMs: 0, totalMs: 0, windowMs: 0 });
-  report('graph edit x5 (2000-node graph, Graphs list open, graph tab closed)', sum, { perEdit: results.map((r) => r.totalMs) });
+  report('graph edit x5 (2000-node graph, project window open, graph tab closed)', sum, { perEdit: results.map((r) => r.totalMs) });
   await prof.stop('graph edit x5');
   // The Problems tab counts the graph's diagnostics: the worker's count, then the same inline.
   const count = page.locator('.tl-tab__count').first();

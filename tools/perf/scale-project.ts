@@ -64,7 +64,9 @@ export async function measureProjectWindowAtScale(page: Page, o: ProjectWindowSc
   const parent = o.folder.includes('/') ? o.folder.slice(0, o.folder.lastIndexOf('/')) : '';
   const name = `${o.folder.slice(o.folder.lastIndexOf('/') + 1)}-moved`;
   const to = parent === '' ? name : `${parent}/${name}`;
-  await showDockTab(page, 'Assets');
+  await showDockTab(page, 'Project');
+  // From an empty search (an earlier step may have searched for the item it opened).
+  await page.locator('.tl-assets').getByLabel('search the project').fill('');
 
   // A new folder beside the voices.
   await page.getByRole('button', { name: parent === '' ? 'folder (game folder)' : `folder ${parent}`, exact: true }).click();

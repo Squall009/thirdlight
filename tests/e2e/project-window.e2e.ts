@@ -21,7 +21,7 @@ import { join, resolve } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 
 import { startBackend, STARTER, type E2EBackend } from './backend';
-import { menu, projectWindow, expectWindowOpen, editorWindow } from './ui';
+import { menu, projectWindow, editorWindow, inspector } from './ui';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 const OPUS = readFileSync(join(REPO, 'fixtures', 'music', 'chord-opus.ogg'));
@@ -222,7 +222,8 @@ test('a double-click opens each kind of item in its editor; the kind menu writes
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   const model = ((await be.command({ op: 'queryIndex', projectId: be.projectId, args: { kind: 'model', limit: 1 } }))['entries'] as { id: string }[])[0]!.id;
-  await cmd('setMaterial', { material: { materialId: 'mat-one', name: 'Mat One', shader: 'standard', params: { roughness: 0.5 }, textures: {} } });
+  await cmd('setMaterial', { material: { materialId: 'mat-one', name: 'Mat One', shader: 'standard', params: { roughness: 0.5 }, textures: {}, graph: { nodes: [{ id: 'output', type: 'pbr', position: [400, 0] }], edges: [] } } });
+  await cmd('setMaterial', { material: { materialId: 'mat-plain', name: 'Mat Plain', shader: 'standard', params: { roughness: 0.5 }, textures: {} } });
   await cmd('setTimeline', { timeline: { timelineId: 'tl-one', name: 'Timeline One', duration: 5, tracks: [] } });
   await cmd('setUiDocument', { document: { uiDocumentId: 'ui-one', name: 'Hud One', root: { type: 'panel', stretch: 'both' } } });
   await cmd('setDialogue', { dialogue: { dialogueId: 'talk-one', name: 'Talk One', graph: { nodes: [{ id: 'start', type: 'start', position: [0, 0] }], edges: [] } } });
@@ -253,14 +254,20 @@ test('a double-click opens each kind of item in its editor; the kind menu writes
   await opens('anim-one', 'animator', 'Animator One');
   await opens('script-one', 'behavior', 'Script One');
   await opens('lib-one', 'library', 'Library One');
-  // A scene opens in the Scene view (its header in the Hierarchy), a prefab in the Prefabs panel.
+  // A scene opens in the Scene view (its header in the Hierarchy); a prefab and a shader material have no editor: the Inspector shows them.
   await search.fill('t:scene scene-two');
   await itemTile(page, 'scene-two').dblclick();
   await expect(page.locator('.tl-scene-header', { hasText: 'Scene Two' })).toBeVisible();
   await projectWindow(page);
   await search.fill('t:prefab');
   await itemTile(page, 'prefab-one').dblclick();
-  await expectWindowOpen(page, 'Prefabs');
+  await expect(inspector(page).getByLabel('prefab inspector')).toBeVisible();
+  await expect(inspector(page).getByRole('button', { name: 'place copy', exact: true })).toBeVisible();
+  await search.fill('t:material mat-plain');
+  await itemTile(page, 'mat-plain').dblclick();
+  await expect(editorWindow(page)).toHaveCount(0);
+  await expect(inspector(page).getByLabel('material inspector')).toBeVisible();
+  await expect(inspector(page).getByRole('combobox', { name: 'shader', exact: true })).toHaveValue('standard');
 
   // The kind menu writes the t: of the search; list view draws rows.
   await projectWindow(page);

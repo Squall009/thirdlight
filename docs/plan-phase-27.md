@@ -307,7 +307,8 @@ moves at least as many lines out as it adds.
 | 27.12 | done 2026-10-01: one preview pane above the one Inspector in the editor window, one renderer for as long as the window shows: a material on a shape or model, an effect (timeline, counters, cost, preview parameters), a model with its animator; a timeline, a conversation and a UI document at the editor's resolution on their scene (the Scene view's canvas lent to the pane); editors say what to preview (`usePreview`), none builds a renderer; the material/effect/Animator/asset-stage renderers are gone, the timeline window is no longer see-through; e2e `preview-pane` (pixels on WebGPU, WebGL 2 and the webgpu project), the area's specs and the memory e2e (switching previews, both renderers) green; D109 found |
 | 27.13 | done 2026-10-01: File → Project Settings… opens one full window over the editor (and over the editor window), sub-tabs Gameplay, Input, Tags, Collision layers, Quality, Saves, Game modes, Game shell, Scripts on the left with a search that filters them by name and by the settings they hold; the panels moved unchanged (same commands); Quality = the environment's quality level and the settings' Rendering group (texture budget); the moved tabs left the dock and the Window menu; e2e `project-settings` (each sub-tab's edit read back over HTTP, search, Esc/×, Scripts opening the editor window); look: owner look pending |
 | 27.14 | done 2026-10-01: Window → Lighting and Window → Environment open floating windows over the Scene view (moved by the title bar, resized by the corner, place and open state remembered per browser; set aside by the Game view, the editor window and Project Settings), each naming the scene it edits with a scene picker (the active scene; picking opens and activates another, so the Scene view previews what the window edits); a block layer's tools are in its Inspector while it is selected (GameObject → Block layer; the move gizmo stands aside while they are armed); GameObject → Create prefab from selection and the Hierarchy's new context menu; an audio asset chosen in the project window shows in the Inspector (facts, load type, preload, listening); Project Settings → Audio holds the event sounds; the Lighting, Environment, Blocks and Media dock tabs are gone; e2e `window-tools` (two scenes, pixels, move/resize/reload); test backends no longer lose their ports (D110); look: owner look pending |
-| 27.15–27.17 | — |
+| 27.15 | done 2026-10-01: the bottom dock holds Project (the project window), Console and Problems; the Materials, Animator, Prefabs, Graphs, Effects, Dialogue, Timelines, Libraries and UI tabs are gone, and the Window menu lists the three; every kind is listed, made (Create menu: the "create" button or a right-click, named in place, in the folder shown), opened, renamed and deleted from the project window and the Inspector; the Assets side panel is gone: the chosen asset, material, prefab, resource or scene shows in the one Inspector (facts, options, preview, placing, address and labels); speakers and dialogue settings in Project Settings → Dialogue; libraries' "Save all" above each library's editor; e2e `project-items` (dock DOM, Window menu, creating and opening every kind, the Inspector, deletes); look: owner look pending |
+| 27.16–27.17 | — |
 
 ## 6. Decision log
 
@@ -711,3 +712,40 @@ moves at least as many lines out as it adds.
   spec only needed the item open it uses `openEditor`. The tab strip's own
   tests (`workspace-tabs`, the project window's double-click table) keep
   their direct selectors: 27.11 rewrites them with the window.
+- 2026-10-01 (27.15): the dock keeps the project window (its tab named
+  "Project", as Unity's), Console and Problems. Every list a removed tab
+  showed is the project window filtered by kind (its kind menu writes the
+  `t:`); every "New …" is its Create menu (Unity's Create menu; the "create"
+  button above the list and a right-click on it), which asks for the name in
+  place (Unity's in-place rename of a new asset) and makes the item in the
+  folder shown, under an id from its name that no item of its kind has (looked
+  up in the index, so it holds at any project size). The new item shows in
+  the Inspector and opens in its editor where it has one. A right-click on an
+  item opens or deletes it (one command, one undo; a refusal names the uses
+  under the item in the Inspector). Graph material templates and graph kinds
+  are Create submenus. A new animator controller plays the clips of the model
+  chosen in the project window (else the project's first model), since a
+  controller without a motion cannot be stored; "character locomotion" builds
+  the states from the clip names as the Animator tab's button did.
+- 2026-10-01 (27.15): the Inspector shows whatever the project window chose
+  last until something is selected (Unity's rule, 27.14 for audio, now every
+  kind): an asset's file, conversion, labels, address, texture facts and
+  streaming, audio load settings and listening, a model's vertex colours,
+  materials, clips, extracted textures and its preview, "place" and "delete";
+  a shader material's or an instance's values (with "Convert to graph" and
+  "+ new instance"), a graph material's summary with "Open graph"; a prefab's
+  "place copy" with its initial overrides and "delete"; any other resource or
+  scene its kind, file, name (a rename is one command), address and labels,
+  "open" and "delete". A shader material and a prefab have no editor: a
+  double-click (and "Open" beside an Inspector reference) shows them in the
+  Inspector. An import shows its asset there. The lists' extra facts (a
+  graph's node count, an effect's systems) are in their editors, not in the
+  project window.
+- 2026-10-01 (27.15): the speaker registry and the dialogue settings are
+  project-wide, like Audio's event sounds: Project Settings → Dialogue. The
+  libraries' "Save all" (one commit for every library with unsaved edits)
+  stands above each library's editor. GameObject → "Model from asset…" and
+  "Prefab copy…" show the project window searching `t:model` / `t:prefab`.
+  e2e helpers: `createItem(page, entry | [submenu, entry], name)`,
+  `chooseItem(page, kind, name or id)`; `windowTab('Assets')` is the Project
+  tab.

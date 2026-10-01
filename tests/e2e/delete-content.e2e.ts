@@ -14,7 +14,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { expect, test } from '@playwright/test';
 
 import { publishWav, startBackend, STARTER, type E2EBackend } from './backend';
-import { projectWindow, openWindow, closeEditor } from './ui';
+import { projectWindow, chooseItem, closeEditor } from './ui';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 
@@ -88,9 +88,9 @@ test('prefabs: refused while a copy is placed, deleted after; createEntities is 
   expect(placed.isError, JSON.stringify(placed.body)).toBe(false);
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  await openWindow(page, 'Prefabs');
-
-  const tile = page.locator('.tl-prefabs__list li').filter({ hasText: 'Crate' });
+  // The prefab, chosen in the project window: its Inspector deletes it.
+  await chooseItem(page, 'prefab', 'Crate');
+  const tile = page.locator('.tl-assets__list li[data-item-id="crate"]');
   await expect(tile).toHaveCount(1);
   await page.getByRole('button', { name: 'delete prefab Crate' }).click();
   await expect(page.getByTestId('prefab-delete-error')).toContainText('prefab "crate" is still used');
@@ -103,6 +103,7 @@ test('prefabs: refused while a copy is placed, deleted after; createEntities is 
   const rootId = String(((placed.body.result ?? placed.body) as { change?: { rootId?: string } }).change?.rootId ?? '');
   expect(rootId).not.toBe('');
   expect((await command('deleteEntity', { entityId: rootId })).isError).toBe(false);
+  await chooseItem(page, 'prefab', 'Crate');
   await page.getByRole('button', { name: 'delete prefab Crate' }).click();
   await expect(tile).toHaveCount(0);
   expect((await command('undo', {})).isError).toBe(false);

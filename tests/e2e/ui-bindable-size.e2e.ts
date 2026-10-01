@@ -21,7 +21,7 @@ import { expect, test, type Locator } from '@playwright/test';
 
 import { STARTER, type E2EBackend, startBackend } from './backend';
 import { decodePng } from './png';
-import { projectWindow } from './ui';
+import { createItem } from './ui';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -126,8 +126,7 @@ test('a bound size and start angle: set in the UI editor, and following the view
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
 
   // ---- editor: a panel's width and a radial bar's start angle bound ----
-  await projectWindow(page);
-  await page.getByRole('button', { name: 'new UI document', exact: true }).click();
+  await createItem(page, 'UI document', 'UI document 1');
   const DOC_ID = 'ui-document-1';
   const editor = page.locator(`[data-ui-document="${DOC_ID}"]`);
   await expect(editor).toBeVisible();

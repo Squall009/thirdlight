@@ -126,15 +126,6 @@ export function uniqueName(base: string, taken: ReadonlySet<string>): string {
   return `${stem}${Date.now() % 100_000}`;
 }
 
-/** A document/theme id from a name: lower-case id syntax, unique among `taken`. */
-export function uniqueDocId(name: string, taken: readonly string[], fallback: string): string {
-  let base = name.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^[^a-z0-9]+/, '').replace(/-+$/, '').slice(0, 56);
-  if (base === '') base = fallback;
-  if (!taken.includes(base)) return base;
-  for (let i = 2; i < 10_000; i += 1) if (!taken.includes(`${base}-${i}`)) return `${base}-${i}`;
-  return `${base}-${Date.now() % 100_000}`;
-}
-
 /** Give every id in a copied subtree a fresh one (and keep references inside the copy pointing at the copies). */
 function renameIds(w: UiWidget, taken: Set<string>, map: Map<string, string>): UiWidget {
   const out: UiWidget = { ...w };

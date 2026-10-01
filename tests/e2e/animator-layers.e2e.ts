@@ -24,7 +24,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
 import { clipsOnlyGlb, skinnedGlb } from './skinned-glb';
-import { openWindow, openEditor, editorPane, inspector as inspectorOf, previewCanvas, previewPane } from './ui';
+import { chooseItem, createItem, openEditor, editorPane, inspector as inspectorOf, previewCanvas, previewPane } from './ui';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -95,9 +95,8 @@ test('an upper-body layer masked by bone plays clips of an animation-only file i
   await expect(page.getByLabel('clips for rig check')).toHaveText('every animated bone is in the rig', { timeout: 15_000 });
 
   // A controller on the column: idle on the base layer (it opens in the editor window).
-  await openWindow(page, 'Animator');
-  await page.getByLabel('animator model').selectOption(column.assetId);
-  await page.getByRole('button', { name: 'New controller' }).click();
+  await chooseItem(page, 'model', column.assetId);
+  await createItem(page, 'Animator controller', 'New animator');
   const doc = editorPane(page, 'Animator', 'New animator');
   const graph = doc.getByLabel('animator graph');
   const inspector = inspectorOf(page);

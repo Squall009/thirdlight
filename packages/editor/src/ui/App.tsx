@@ -46,7 +46,7 @@ import { StatusBar } from './StatusBar';
 import { CatalogProvider } from './catalog/catalog-context';
 import { ItemOpenerProvider } from './catalog/item-opener';
 import { useUiPreviewAssets } from './uidoc/useUiPreviewAssets';
-import { MATERIAL_DRAG_TYPE } from './MaterialsPanel';
+import { MATERIAL_DRAG_TYPE } from './material/MaterialInspector';
 import { CentreTabs, EditorWindow, useSelectionAcrossWindow, useWorkspace } from './workspace/EditorWindow';
 import { ProjectSettingsWindow, useProjectSettingsWindow } from './settings/ProjectSettingsWindow';
 import { activeDoc } from '../session/editor-window';
@@ -70,6 +70,8 @@ import { useSceneViewLending } from './shell/useSceneViewLending';
 import { useEntityEditing } from './shell/useEntityEditing';
 import { usePrefabAuthoring } from './shell/usePrefabAuthoring';
 import { useAssetsWindow } from './shell/useAssetsWindow';
+import { useItemActions } from './project/useItemActions';
+import type { ProjectItem } from '../session/project-items';
 import { useAssetActions } from './shell/useAssetActions';
 import { useLightingBake } from './shell/useLightingBake';
 import { useScripting } from './shell/useScripting';
@@ -118,6 +120,8 @@ function EditorApp(): JSX.Element {
   const [gizmoMode, setGizmoMode] = useState<GizmoMode>('translate');
   /** The bottom dock's active panel. */
   const [bottomTab, setBottomTab] = useState<BottomTab>('assets');
+  /** A search the project window is asked to show (the GameObject menu's "Prefab copy…"); `n` makes a repeat a new request. */
+  const [projectSearch, setProjectSearch] = useState<{ text: string; n: number } | null>(null);
   /**
    * The centre's Scene/Game view and the editor window with its open items
    * (remembered per project in the layout storage).
@@ -597,9 +601,17 @@ function EditorApp(): JSX.Element {
   const cue = useCuePreview(clientRef);
   const entityEditing = useEntityEditing({ clientRef, viewportRef, modelInstancesRef, refreshEntities, reportFailure, setNotice, registry, entities, selectedId });
   const prefab = usePrefabAuthoring({ clientRef, selectedIdRef, declarations: content.declarations, runTypedCommand: entityEditing.runTypedCommand, setNotice });
-  /** An asset chosen in the project window since the last selection: the Inspector shows it (an audio asset). */
-  const [inspectedAsset, setInspectedAsset] = useState<string | null>(null);
-  useEffect(() => setInspectedAsset(null), [selection]);
+  /** An item chosen in the project window since the last selection: the Inspector shows it. */
+  const [inspectedItem, setInspectedItem] = useState<ProjectItem | null>(null);
+  useEffect(() => setInspectedItem(null), [selection]);
+  const { choosePrefab } = prefab;
+  const inspect = useCallback(
+    (item: ProjectItem) => {
+      setInspectedItem(item);
+      if (item.kind === 'prefab') choosePrefab(item.id);
+    },
+    [choosePrefab],
+  );
   /** The Window menu's floating tool windows over the Scene view. */
   const toolWindows = useToolWindows();
   const workareaRef = useRef<HTMLDivElement | null>(null);
@@ -632,10 +644,8 @@ function EditorApp(): JSX.Element {
         void sceneAction({ kind: 'open', sceneId }).then(() => sceneAction({ kind: 'activate', sceneId }));
         setCenterTab('scene');
       },
-      showPrefab: (id) => {
-        prefab.setSelectedPrefabId(id);
-        setBottomTab('prefabs');
-      },
+      isGraphMaterial: (id) => materials.find((m) => m.materialId === id)?.graph !== undefined,
+      inspect,
       showEnvironment: () => showToolWindow('environment'),
     },
   });
@@ -673,6 +683,20 @@ function EditorApp(): JSX.Element {
 
   const animatorTools = useAnimatorTools({ clientRef, modelInstancesRef, reportFailure, animators, openDocument, sendGraphEdit: docCmds.sendGraphEdit });
   const { modelNodesOf } = animatorTools;
+  // New items, renames and deletes in the project window and the Inspector.
+  const items = useItemActions({
+    clientRef,
+    content,
+    workspaceDispatch,
+    inspect,
+    openDocument,
+    onDeleted: (item) => setInspectedItem((cur) => (cur !== null && cur.kind === item.kind && cur.id === item.id ? null : cur)),
+    chosenModel: () => {
+      const id = assets.selectedAssetIdRef.current;
+      return id !== null && clientRef.current?.content.getAsset(id)?.kind === 'model' ? id : null;
+    },
+    clipsOf: animatorTools.clipsOf,
+  });
 
   // What every render derived from all entities is memoised on
   // the entity list (the same array until an entity changes), so a selection,
@@ -848,6 +872,12 @@ function EditorApp(): JSX.Element {
       closeSettings();
       setBottomTab(tab);
     },
+    showProject: (text: string) => {
+      closeSettings();
+      workspaceDispatch({ type: 'show', on: false });
+      setBottomTab('assets');
+      setProjectSearch((cur) => ({ text, n: (cur?.n ?? 0) + 1 }));
+    },
     openProjectSettings: () => settingsWindow.show(),
     showToolWindow,
     createPrefabFromSelection: () => void prefab.createPrefabFromSelection(),
@@ -888,9 +918,14 @@ function EditorApp(): JSX.Element {
       setBrushOn={setBrushOn}
       reportFailure={reportFailure}
       setNotice={setNotice}
-      inspectedAsset={inspectedAsset}
+      inspectedItem={inspectedItem}
+      inspect={inspect}
+      openDocument={openDocument}
+      items={items}
       cue={cue}
-      assetOptions={assets.assetOptions}
+      assets={assets}
+      assetActions={assetActions}
+      prefab={prefab}
       tileThumbnails={tileThumbnails}
       select={setSelectedId}
       sceneInFront={centerTab === 'scene'}
@@ -1054,12 +1089,9 @@ function EditorApp(): JSX.Element {
             onTab={setBottomTab}
             height={sizes.bottom}
             clientRef={clientRef}
-            content={content}
             docState={docState}
             docCmds={docCmds}
             scripting={scripting}
-            animator={animatorTools}
-            prefab={prefab}
             play={playSession}
             problems={problems}
             problemLog={ui.problems}
@@ -1071,14 +1103,11 @@ function EditorApp(): JSX.Element {
               assets,
               actions: assetActions,
               folderImport: fileCheck.checkable,
-              materials,
-              animator: animatorTools,
-              uiDocumentCount: uiDocuments.length,
-              createUiDocument: docCmds.createUiDocument,
               tileThumbnails,
-              inspect: setInspectedAsset,
+              inspect,
+              items,
+              search: projectSearch,
             }}
-            workspace={workspace}
             workspaceDispatch={workspaceDispatch}
             openDocument={openDocument}
           />

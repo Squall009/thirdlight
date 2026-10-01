@@ -32,8 +32,9 @@ import type { Scripting } from '../shell/useScripting';
 import type { PlaySession } from '../shell/usePlaySession';
 import { QualityPanel } from './QualityPanel';
 import { AudioPanel } from './AudioPanel';
+import { DialogueSettingsPanel } from './DialogueSettingsPanel';
 
-export type SettingsSection = 'gameplay' | 'input' | 'tags' | 'layers' | 'quality' | 'audio' | 'saves' | 'modes' | 'shell' | 'scripts';
+export type SettingsSection = 'gameplay' | 'input' | 'tags' | 'layers' | 'quality' | 'audio' | 'dialogue' | 'saves' | 'modes' | 'shell' | 'scripts';
 
 /**
  * The sub-tabs in the order the window lists them, with the words the search
@@ -47,6 +48,7 @@ export const SETTINGS_SECTIONS: ReadonlyArray<{ id: SettingsSection; label: stri
   { id: 'layers', label: 'Collision layers', keywords: ['physics', 'collision', 'layers', 'masks'] },
   { id: 'quality', label: 'Quality', keywords: ['graphics', 'rendering', 'quality level'] },
   { id: 'audio', label: 'Audio', keywords: ['sound', 'event sounds', 'cues', 'signals'] },
+  { id: 'dialogue', label: 'Dialogue', keywords: ['speakers', 'portraits', 'voice', 'text speed', 'backlog', 'conversations'] },
   { id: 'saves', label: 'Saves', keywords: ['save', 'slots', 'schema', 'migrations', 'settings document'] },
   { id: 'modes', label: 'Game modes', keywords: ['modes', 'behavior groups', 'pause'] },
   { id: 'shell', label: 'Game shell', keywords: ['menus', 'hud', 'title', 'scenes', 'ui documents'] },
@@ -229,6 +231,19 @@ function Section(props: ProjectSettingsWindowProps & { id: SettingsSection }): J
       );
     case 'audio':
       return <AudioPanel registry={registry} eventCues={s.eventCues} fieldContext={props.fieldContext} eventCuesError={s.eventCuesError} onSetEventCues={(next, base) => void s.saveEventCues(next, base)} />;
+    case 'dialogue':
+      return (
+        <DialogueSettingsPanel
+          speakers={props.content.speakers}
+          settings={props.content.dialogueSettings}
+          uiDocuments={props.content.projectUiDocs}
+          uiThemes={props.content.projectUiThemes}
+          error={props.docCmds.dialogueError}
+          onSaveSpeaker={(speaker) => void props.docCmds.dialogueCommand('setSpeaker', { speaker })}
+          onDeleteSpeaker={(speakerId) => void props.docCmds.dialogueCommand('deleteSpeaker', { speakerId })}
+          onSaveSettings={(settings) => void props.docCmds.dialogueCommand('setDialogueSettings', { settings })}
+        />
+      );
     case 'saves':
       return <SavesPanel schema={s.saveSchema} error={s.saveSchemaError} onSave={(next) => void s.saveSaveSchema(next)} note={props.play.playSaveNote} onClearPlaySave={props.play.clearPlaySave} />;
     case 'modes':

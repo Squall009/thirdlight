@@ -219,7 +219,8 @@ test('items open in a window over the editor: editor left, the one Inspector rig
 
 test('"Open" beside an Inspector reference opens the item in the window; Esc returns with the selection', async ({ page }) => {
   test.setTimeout(90_000);
-  await cmd('setMaterial', { material: { materialId: 'mat-one', name: 'Mat One', shader: 'standard', params: { roughness: 0.5 }, textures: {} } });
+  await cmd('setMaterial', { material: { materialId: 'mat-one', name: 'Mat One', shader: 'standard', params: { roughness: 0.5 }, textures: {}, graph: { nodes: [{ id: 'output', type: 'pbr', position: [400, 0] }], edges: [] } } });
+  await cmd('setMaterial', { material: { materialId: 'mat-plain', name: 'Mat Plain', shader: 'standard', params: { roughness: 0.5 }, textures: {} } });
   const crate = String((await cmd('createEntity', { kind: 'box', name: 'Crate', box: { size: [1, 1, 1], material: { color: '#b0b0b0' } }, transform: { position: [0, 0.5, 0] }, components: { materials: { '*': 'mat-one' } } }))['createdId']);
   await open(page);
   await row(page, crate).click();
@@ -235,6 +236,12 @@ test('"Open" beside an Inspector reference opens the item in the window; Esc ret
   await expect(editorWindow(page)).toHaveCount(0);
   await expect(row(page, crate)).toHaveAttribute('aria-selected', 'true');
   await expect(inspector(page).getByRole('button', { name: 'Open material for all', exact: true })).toBeVisible();
+  // A shader material has no editor: "Open" shows it in the Inspector, as a double-click in the project window does.
+  await cmd('setComponent', { entityId: crate, component: 'materials', value: { '*': 'mat-plain' } });
+  await inspector(page).getByRole('button', { name: 'Open material for all', exact: true }).click();
+  await expect(inspector(page).getByLabel('material inspector')).toBeVisible();
+  await expect(inspector(page).getByRole('combobox', { name: 'shader', exact: true })).toHaveValue('standard');
+  await expect(editorWindow(page)).toHaveCount(0);
 });
 
 test('the default view keeps the Scene and Game views and the maximize toggle', async ({ page }) => {

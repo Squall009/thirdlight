@@ -13,7 +13,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
-import { menu, openWindow, closeEditor, openEditor, editorTab, inspector as inspectorOf } from './ui';
+import { menu, createItem, closeEditor, openEditor, editorTab, inspector as inspectorOf } from './ui';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -72,13 +72,10 @@ test('an effect: create, add a system, spawn burst → lifetime → billboard ch
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
 
-  // Effects tab → a new effect opens in the editor window.
-  await openWindow(page, 'Effects');
-  await page.getByLabel('New effect name').fill('Sparks');
-  await page.getByRole('button', { name: 'Create effect' }).click();
+  // The project window's Create menu → a new effect opens in the editor window.
+  await createItem(page, 'Effect', 'Sparks');
   const tab = editorTab(page, 'Effect', 'Sparks');
   await expect(tab).toHaveAttribute('aria-selected', 'true');
-  await expect(page.locator('.tl-effects li[data-effect-id="sparks"]')).toContainText('0 systems');
   await expect(page.getByRole('note')).toContainText('The preview plays the effect as Play would');
 
   // "+ System": the system graph starts with the four contexts.

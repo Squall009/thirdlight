@@ -91,9 +91,12 @@ async function leaveEditorWindow(page: Page): Promise<void> {
 
 const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+/** The dock tab a name stands for: the project window's tab is "Project" (specs may still say "Assets"). */
+const DOCK_TAB_NAME: Readonly<Record<string, string>> = { Assets: 'Project' };
+
 /** A tool window's tab (to read what it shows, e.g. the Problems count); Problems carries its count in its name ("Problems3"). */
 export function windowTab(page: Page, name: string): Locator {
-  return dockTabs(page).getByRole('tab', { name: name === 'Problems' ? /^Problems\s*\d*$/ : name, exact: true });
+  return dockTabs(page).getByRole('tab', { name: name === 'Problems' ? /^Problems\s*\d*$/ : (DOCK_TAB_NAME[name] ?? name), exact: true });
 }
 
 /** Tools whose panel moved into Project Settings, and the sub-tab that holds it (Media's event sounds are Audio). */
@@ -194,28 +197,93 @@ export async function expectWindowOpen(page: Page, name: string): Promise<void> 
  * is put back the next time the project window shows (a fill on the covered
  * field would type into the editor in front).
  */
-const searchBefore = new WeakMap<Page, string>();
+const searchBefore = new WeakMap<Page, { search: string; view: 'all' | string }>();
+
+/** What the project window shows: All assets, or a folder (`''`: the game folder). */
+async function projectView(panel: Locator): Promise<'all' | string> {
+  if ((await panel.locator('.tl-project__crumbs .tl-project__crumb.is-current').textContent()) === 'All assets') return 'all';
+  return (await panel.locator('.tl-project').getAttribute('data-folder')) ?? '';
+}
 
 /** Show the project window (folders, search, items) and return the panel that holds it. */
 export async function projectWindow(page: Page): Promise<Locator> {
   await leaveEditorWindow(page);
   await leaveBlockTools(page);
-  await windowTab(page, 'Assets').click();
+  await windowTab(page, 'Project').click();
   await restoreSearch(page);
   return page.locator('.tl-assets');
 }
 
-/** Put back a search openEditor typed, once the project window shows again. */
+/**
+ * The tile of an item in the project window, found by its name (or its id)
+ * with the project window's search (`t:<kind>` narrows it), so it works
+ * however many items there are. The search is put back the next time the
+ * project window shows.
+ */
+async function findItem(page: Page, kind: string | null, name: string): Promise<Locator> {
+  const panel = await projectWindow(page);
+  const search = panel.getByLabel('search the project');
+  const view = await projectView(panel);
+  if (!searchBefore.has(page)) searchBefore.set(page, { search: await search.inputValue(), view });
+  // All assets finds any kind a `t:` names; a folder finds only what is inside it: search the whole game folder.
+  if (view !== 'all' || kind === null) await panel.getByRole('button', { name: 'folder (game folder)', exact: true }).click();
+  await search.fill(kind === null ? name : `t:${kind} ${name}`);
+  const items = panel.locator(kind === null ? 'li.tl-project__item' : `li.tl-project__item[data-item-kind="${kind}"], li[data-asset-id][data-kind="${kind}"]`);
+  const id = JSON.stringify(name);
+  const tile = items.filter({ has: page.locator('.tl-tile__name', { hasText: new RegExp(`^${escapeRe(name)}$`) }) }).or(items.and(panel.locator(`li[data-asset-id=${id}], li[data-item-id=${id}]`))).first();
+  await expect(tile).toBeVisible();
+  return tile;
+}
+
+/**
+ * Show an item in the Inspector: one click on it in the project window (an
+ * asset, a material, a prefab, a resource, a scene), by name or id. `kind` is
+ * the project window's kind (`material`, `prefab`, `model`, `audio`, …).
+ */
+export async function chooseItem(page: Page, kind: string, name: string): Promise<void> {
+  await (await findItem(page, kind, name)).click();
+  // A resource's Inspector names it as "<kind> inspector", an asset's as "<kind> asset inspector".
+  await expect(inspector(page).locator(`[aria-label="${kind} inspector"], [aria-label="${kind} asset inspector"]`)).toBeVisible();
+}
+
+/**
+ * Make a new item from the project window's Create menu, in the folder it
+ * shows: `what` is the menu entry ("Material", "Effect", "UI theme"), or a
+ * submenu and its entry (["Graph material", "Water"], ["Graph", "Test"]); the
+ * name is typed where the menu asks for it. Items with an editor open in it.
+ */
+export async function createItem(page: Page, what: string | readonly [string, string], name: string): Promise<void> {
+  const panel = await projectWindow(page);
+  await panel.getByRole('button', { name: /^create/ }).click();
+  const menu = page.getByRole('menu', { name: 'create menu', exact: true });
+  await expect(menu).toBeVisible();
+  if (typeof what === 'string') await menu.getByRole('menuitem', { name: what, exact: true }).first().click();
+  else {
+    await menu.getByRole('menuitem', { name: what[0], exact: true }).click();
+    await menu.getByRole('menu', { name: what[0], exact: true }).getByRole('menuitem', { name: what[1], exact: true }).click();
+  }
+  const field = panel.getByLabel('new item name', { exact: true });
+  await field.fill(name);
+  await field.press('Enter');
+  await expect(field).toHaveCount(0);
+}
+
+/** Put back the search (and the folder) a lookup changed, once the project window shows again. */
 async function restoreSearch(page: Page): Promise<void> {
-  const search = searchBefore.get(page);
-  if (search === undefined) return;
+  const before = searchBefore.get(page);
+  if (before === undefined) return;
   searchBefore.delete(page);
-  await page.locator('.tl-assets').getByLabel('search the project').fill(search);
+  const panel = page.locator('.tl-assets');
+  if ((await projectView(panel)) !== before.view) {
+    const node = before.view === 'all' ? panel.getByRole('button', { name: 'all assets', exact: true }) : panel.getByRole('button', { name: `folder ${before.view === '' ? '(game folder)' : before.view}`, exact: true });
+    if (await node.isVisible()) await node.click();
+  }
+  await panel.getByLabel('search the project').fill(before.search);
 }
 
 
 /** The project-wide settings, by section (the Project Settings window's sub-tabs). */
-export type ProjectSettingsSection = 'Gameplay' | 'Input' | 'Tags' | 'Collision layers' | 'Quality' | 'Audio' | 'Saves' | 'Game modes' | 'Game shell' | 'Scripts';
+export type ProjectSettingsSection = 'Gameplay' | 'Input' | 'Tags' | 'Collision layers' | 'Quality' | 'Audio' | 'Dialogue' | 'Saves' | 'Game modes' | 'Game shell' | 'Scripts';
 
 /** A sub-tab of the Project Settings window. */
 export function settingsTab(page: Page, section: ProjectSettingsSection): Locator {
@@ -289,15 +357,7 @@ export async function openEditor(page: Page, kind: EditorKind, name: string): Pr
   await closeProjectSettings(page);
   const tab = editorTab(page, kind, name);
   if ((await tab.count()) === 0) {
-    const panel = await projectWindow(page);
-    await panel.getByRole('button', { name: 'folder (game folder)', exact: true }).click();
-    const search = panel.getByLabel('search the project');
-    const before = await search.inputValue();
-    const t = ITEM_KIND_OF[kind];
-    if (!searchBefore.has(page)) searchBefore.set(page, before);
-    await search.fill(t === null ? name : `t:${t} ${name}`);
-    const items = panel.locator(t === null ? 'li.tl-project__item' : `li.tl-project__item[data-item-kind="${t}"]`);
-    await items.filter({ has: page.locator('.tl-tile__name', { hasText: new RegExp(`^${escapeRe(name)}$`) }) }).first().dblclick();
+    await (await findItem(page, ITEM_KIND_OF[kind], name)).dblclick();
     await expect(tab).toHaveCount(1);
   }
   await tab.click();

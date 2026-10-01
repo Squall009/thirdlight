@@ -112,3 +112,24 @@ const DOCUMENT_KIND_OF: Readonly<Record<string, string>> = {
   timeline: 'timeline',
   behavior: 'script',
 };
+
+/** A lower-case id from a name (letters, digits, `-` and `_`), or `fallback` when the name has none. */
+export function idFromName(name: string, fallback: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^[-_]+|[-_]+$/g, '').slice(0, 56) || fallback;
+}
+
+/**
+ * An id no item of a kind has: the name's id, else it numbered (`-2`, `-3`,
+ * …). Candidates are looked up in batches through `taken` (the project index),
+ * since the editor holds only the records it has read.
+ */
+export async function freeItemId(name: string, fallback: string, taken: (ids: readonly string[]) => Promise<ReadonlySet<string>>): Promise<string> {
+  const base = idFromName(name, fallback);
+  const batch = 64;
+  for (let from = 1; ; from += batch) {
+    const candidates = Array.from({ length: batch }, (_, i) => (from + i === 1 ? base : `${base}-${from + i}`));
+    const used = await taken(candidates);
+    const free = candidates.find((c) => !used.has(c));
+    if (free !== undefined) return free;
+  }
+}

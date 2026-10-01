@@ -20,7 +20,7 @@ import { KIT_PIECES, multiPieceGlb } from './multi-piece-glb';
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
 import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
-import { menu, projectWindow, openWindow } from './ui';
+import { menu, projectWindow, openWindow, createItem, inspector } from './ui';
 
 let be: E2EBackend;
 let dir: string;
@@ -104,11 +104,9 @@ for (const variant of RENDERER_VARIANTS) test(`a foliage material moves in the w
   expect(await motion(viewport)).toBeLessThan(20);
 
   // A foliage material, strong bend.
-  await openWindow(page, 'Materials');
-  await page.getByRole('button', { name: '+ new material' }).click();
-  await expect(page.locator('.tl-materials li[data-material-id]')).toHaveCount(1);
-  await page.getByRole('combobox', { name: 'shader' }).selectOption('foliage');
-  await expect(page.locator('.tl-materials li[data-material-id]')).toContainText('foliage');
+  await createItem(page, 'Material', 'Material 1');
+  await inspector(page).getByRole('combobox', { name: 'shader' }).selectOption('foliage');
+  await expect(inspector(page).getByRole('combobox', { name: 'shader' })).toHaveValue('foliage');
   // One step up, not the maximum: the fixture's pieces bend as a whole (full weight), and at
   // windBend 4 with wind strength 10 they swing ~5 m, out of the frame for ~2 s of every
   // ~3.7 s sway — two screenshots that both land there read "no motion" (the load-only flake).
@@ -131,9 +129,7 @@ for (const variant of RENDERER_VARIANTS) test(`a foliage material moves in the w
   await expect.poll(() => motion(viewport), { timeout: 30_000 }).toBeGreaterThan(50);
 
   // A textured standard material on a box.
-  await openWindow(page, 'Materials');
-  await page.getByRole('button', { name: '+ new material' }).click();
-  await expect(page.locator('.tl-materials li[data-material-id]')).toHaveCount(2);
+  await createItem(page, 'Material', 'Material 2');
   await page.getByRole('combobox', { name: 'texture map' }).selectOption({ label: 'checker' });
   await menu(page, 'GameObject', 'Box');
   const boxRow = page.locator('.tl-hierarchy__list li.tl-row.is-selected');

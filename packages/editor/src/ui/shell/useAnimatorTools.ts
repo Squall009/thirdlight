@@ -8,7 +8,7 @@ import { useCallback, useRef, useState } from 'react';
 import { AnimatorMachine, type AnimatorControllerLike } from '@thirdlight/runtime';
 import { createAnimatorPlayer } from '@thirdlight/three-adapter';
 import type { AnimatorController } from '@thirdlight/project-model';
-import type { AnimatorPanelProps, AnimatorPreview } from '../AnimatorPanel';
+import type { AnimatorControllersProps, AnimatorPreview } from '../animator/parts';
 import type { GraphOp } from '../../graph/model';
 import { refusal, type ClientRef, type ModelsRef, type ReportFailure } from './commands';
 
@@ -149,7 +149,7 @@ export function useAnimatorTools(deps: AnimatorToolsDeps) {
     }
     return [...wanted].filter((n) => n !== '' && !have.has(n)).sort();
   }, [modelInstancesRef]);
-  const animatorProps: AnimatorPanelProps = {
+  const animatorProps: AnimatorControllersProps = {
     controllers: animators,
     clipsOf,
     skeletonOf,

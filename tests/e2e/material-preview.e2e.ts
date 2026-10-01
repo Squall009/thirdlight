@@ -20,7 +20,7 @@ import { KIT_PIECES, multiPieceGlb } from './multi-piece-glb';
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
 import { backendOf, editorUrlFor, onlyInItsProject, type RendererVariant } from './renderer-variants';
-import { projectWindow, openWindow, expectEditorOpen, openEditor, previewCanvas } from './ui';
+import { projectWindow, openWindow, createItem, inspector, expectEditorOpen, openEditor, previewCanvas } from './ui';
 
 let be: E2EBackend;
 let dir: string;
@@ -152,25 +152,21 @@ test('templates, Convert to graph for wind/kit/water, and compile problems on th
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   await importFile(page, checker);
-  await openWindow(page, 'Materials');
-
-  // "+ new graph material" from the water template: its graph and public parameters.
-  await page.getByLabel('graph material template').selectOption('water');
-  await page.getByRole('button', { name: '+ new graph material' }).click();
+  // A new graph material from the water template (the project window's Create menu): its graph and public parameters.
+  await createItem(page, ['Graph material', 'Water'], 'Graph material 1');
   await expectEditorOpen(page, 'Material', 'Graph material 1');
   await expect.poll(async () => (await materials())[0]?.graph?.nodes.some((n) => n.type === 'fresnel') ?? false).toBe(true);
   expect(((await materials())[0]!.parameters ?? []).map((p) => p.key).sort()).toEqual(['color', 'fresnel', 'shallowColor']);
   await expect(page.getByLabel('exposed parameters').locator('[data-parameter]')).toHaveCount(3);
 
   // Convert to graph: enabled for every shader type; foliage becomes a wind graph, kit a world-UV graph, water a fresnel graph.
-  await openWindow(page, 'Materials');
   for (const [shader, expectType] of [['foliage', 'vertexOffset'], ['kit', 'objectPosition'], ['water', 'fresnel']] as const) {
     const count = (await materials()).length;
-    await page.getByRole('button', { name: '+ new material' }).click();
+    await createItem(page, 'Material', `Plain ${shader}`);
     await expect.poll(async () => (await materials()).length).toBe(count + 1);
-    await page.getByRole('combobox', { name: 'shader' }).selectOption(shader);
+    await inspector(page).getByRole('combobox', { name: 'shader' }).selectOption(shader);
     // The editor has the new shader (Convert reads its copy of the material).
-    await expect(page.locator('.tl-materials li.is-selected .tl-tile__meta')).toHaveText(shader);
+    await expect(inspector(page).getByRole('combobox', { name: 'shader' })).toHaveValue(shader);
     if (shader === 'kit') {
       // The world-X shift moves the kit's textures: give it one.
       await page.getByRole('combobox', { name: 'texture map' }).selectOption({ label: 'checker' });
@@ -181,7 +177,6 @@ test('templates, Convert to graph for wind/kit/water, and compile problems on th
     await expect(convert).toBeEnabled();
     await convert.click();
     await expect.poll(async () => (await materials()).find((m) => m.shader === shader && m.graph !== undefined)?.graph?.nodes.some((n) => n.type === expectType) ?? false).toBe(true);
-    await openWindow(page, 'Materials');
   }
 
   // A compile problem: a Sample texture without a texture reads white — a warning on its node and in the Problems tab.

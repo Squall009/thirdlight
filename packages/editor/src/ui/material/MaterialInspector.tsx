@@ -1,50 +1,41 @@
 /**
- * The Materials tab — project materials as tiles plus a material
- * inspector built from the shader-type table (project-model
- * `MATERIAL_PARAMS` / `MATERIAL_TEXTURE_SLOTS`). A parameter that is not set
+ * A material in the Inspector (chosen in the project window): a shader
+ * material's values, built from the shader-type table (project-model
+ * `MATERIAL_PARAMS` / `MATERIAL_TEXTURE_SLOTS`) — a parameter that is not set
  * keeps the file's value (on a model) or the shader default; "reset" removes
- * the override. Every edit is one `setMaterial` (committed when the control is
- * released), so each is one undo.
+ * the override — "Convert to graph" (a standard or unlit material as an
+ * equivalent graph, opened in the editor window), a graph material's summary
+ * with "Open graph", and a material instance's parent and changed values
+ * (its parent's look with some values changed; an instance is a material
+ * like any other: object, model-asset and block-type mappings may name it).
+ * "+ new instance" makes an instance of the material shown. Every edit is one
+ * `setMaterial` (committed when the control is released), so each is one
+ * undo.
  *
- * Also the reusable material mapping editor (object inspector and asset
- * panel): each of a model's materials, or "*" for all of them, can use a
- * project material.
- *
- * Graph materials — "+ new graph material" (a PBR output graph),
- * "Convert to graph" (a standard or unlit material as an equivalent graph),
- * and a graph material opens as a "Material: <name>" tab of the editor window (double-click
- * its tile or "Open graph").
- *
- * Material instances — "+ new instance" makes an instance of
- * the selected material (or instance): its parent's look with some values
- * changed (a shader material's parameters and texture slots, a graph
- * material's parameters). An instance is a material like any other: object,
- * model-asset and block-type mappings may name it.
+ * Also the reusable material mapping editor (object and model inspectors):
+ * each of a model's materials, or "*" for all of them, can use a project
+ * material.
  *
  * Browser-only (React).
  */
 import { useEffect, useState, type DragEvent, type JSX } from 'react';
 import type { MaterialDef, MaterialParameterValue, MaterialParamType, MaterialParamValue, MaterialShader } from '@thirdlight/project-model';
-import { ParameterValue } from './material/MaterialDocument';
-import { MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS } from '../session/material-schema';
+import { ParameterValue } from './MaterialDocument';
+import { MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS } from '../../session/material-schema';
 import { resolveMaterialInstancesLike, type MaterialDefLike } from '@thirdlight/three-adapter';
 
-import { ASSET_DRAG_TYPE, parseAssetDrag } from '../session/placement';
-import { CONVERTIBLE_SHADERS, convertToGraph, newMaterialGraph, templateMaterial } from '../session/material-graph';
-import { RefPicker, TEXTURE_KINDS, useEntryName } from './catalog/RefPicker';
-import { OpenItemButton } from './catalog/item-opener';
+import { ASSET_DRAG_TYPE, parseAssetDrag } from '../../session/placement';
+import { CONVERTIBLE_SHADERS, convertToGraph } from '../../session/material-graph';
+import { RefPicker, TEXTURE_KINDS, useEntryName } from '../catalog/RefPicker';
+import { OpenItemButton } from '../catalog/item-opener';
 
-/** The DataTransfer type a material tile drags (onto an object in the Scene view). */
+/** The DataTransfer type a dragged material carries (dropped onto an object in the Scene view). */
 export const MATERIAL_DRAG_TYPE = 'application/x-thirdlight-material';
 
 interface Props {
-  materials: readonly MaterialDef[];
-  selectedId: string | null;
-  onSelect: (materialId: string | null) => void;
   onSave: (material: MaterialDef) => void;
   onDelete: (materialId: string) => void;
-  error: string | null;
-  /** Open a graph material's tab. */
+  /** Open a graph material in the editor window. */
   onOpen: (materialId: string) => void;
 }
 
@@ -78,122 +69,43 @@ function selfAndDescendants(list: readonly MaterialDef[], id: string): Set<strin
   return out;
 }
 
-function swatch(m: MaterialDef): string {
-  const c = m.params['color'];
-  return typeof c === 'string' ? c : m.shader === 'water' ? '#1d5f8a' : '#c8c8c8';
-}
-
-/** What "+ new graph material" starts from — an empty PBR output or a shader type's built-in template. */
-const GRAPH_TEMPLATES: readonly { value: string; label: string }[] = [
-  { value: '', label: 'empty (PBR output)' },
-  { value: 'standard', label: 'template: standard' },
-  { value: 'foliage', label: 'template: foliage wind' },
-  { value: 'kit', label: 'template: world-aligned kit' },
-  { value: 'unlit', label: 'template: unlit' },
-  { value: 'water', label: 'template: water' },
-  // Four PBR layers from texture arrays, mixed by vertex colours / painted terrain through a Height blend.
-  { value: 'layers', label: 'template: height-blended layers (painted terrain)' },
-];
-
-export function MaterialsPanel(p: Props): JSX.Element {
-  const selected = p.materials.find((m) => m.materialId === p.selectedId) ?? null;
+/**
+ * A material chosen in the project window, in the Inspector: a shader
+ * material's or an instance's values, a graph material's summary with "Open
+ * graph"; "New instance" makes an instance of it and shows that.
+ */
+export function MaterialItemInspector(p: { materialId: string; materials: readonly MaterialDef[]; onSave: Props['onSave']; onDelete: Props['onDelete']; onOpen: Props['onOpen']; onShow: (materialId: string) => void }): JSX.Element {
+  const selected = p.materials.find((m) => m.materialId === p.materialId) ?? null;
+  if (selected === null) return <p className="tl-inspector__hint">Reading the material…</p>;
   const resolved = resolvedMaterials(p.materials);
-  const shown = (m: MaterialDef): MaterialDef => resolved.find((r) => r.materialId === m.materialId) ?? m;
   const createInstance = (): void => {
-    if (selected === null) return;
     const name = `${selected.name} instance`.slice(0, 128);
-    const def: MaterialDef = { materialId: newMaterialId(p.materials, name), name, shader: shown(selected).shader, params: {}, textures: {}, instanceOf: selected.materialId };
+    const def: MaterialDef = { materialId: newMaterialId(p.materials, name), name, shader: (resolved.find((r) => r.materialId === selected.materialId) ?? selected).shader, params: {}, textures: {}, instanceOf: selected.materialId };
     p.onSave(def);
-    p.onSelect(def.materialId);
-  };
-  const [template, setTemplate] = useState('');
-  const create = (): void => {
-    const name = `Material ${p.materials.length + 1}`;
-    const def: MaterialDef = { materialId: newMaterialId(p.materials, name), name, shader: 'standard', params: {}, textures: {} };
-    p.onSave(def);
-    p.onSelect(def.materialId);
-  };
-  const createGraph = (): void => {
-    const name = `Graph material ${p.materials.filter((m) => m.graph !== undefined).length + 1}`;
-    const materialId = newMaterialId(p.materials, name);
-    const def: MaterialDef = template === '' ? { materialId, name, shader: 'standard', params: {}, textures: {}, graph: newMaterialGraph() } : templateMaterial(template, materialId, name);
-    p.onSave(def);
-    p.onSelect(def.materialId);
-    p.onOpen(def.materialId);
+    p.onShow(def.materialId);
   };
   return (
-    <div className="tl-panel tl-materials">
-      <div className="tl-panel__title">
-        Materials
-        <button className="tl-btn tl-btn--small" onClick={create} title="A new standard material (then pick a shader type)">
-          + new material
-        </button>
-        <button className="tl-btn tl-btn--small" onClick={createGraph} title="A new material built as a node graph (opens its tab)">
-          + new graph material
-        </button>
-        <button className="tl-btn tl-btn--small" onClick={createInstance} disabled={selected === null} title="A material instance of the selected material: its look, with the values you change here (select a material first)">
-          + new instance
-        </button>
-        <select className="tl-input tl-input--small" aria-label="graph material template" value={template} onChange={(e) => setTemplate(e.target.value)} title="What a new graph material starts from: an empty PBR output, or a shader type as a graph (the same look)">
-          {GRAPH_TEMPLATES.map((t) => (
-            <option key={t.value} value={t.value}>
-              {t.label}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div className="tl-assets__body">
-        <div className="tl-assets__main">
-          <ul className="tl-tiles" aria-label="materials">
-            {p.materials.map((m) => (
-              <li
-                key={m.materialId}
-                className={m.materialId === p.selectedId ? 'tl-tile is-selected' : 'tl-tile'}
-                data-material-id={m.materialId}
-                title={`${m.name} (${m.instanceOf !== undefined ? `instance of ${p.materials.find((x) => x.materialId === m.instanceOf)?.name ?? m.instanceOf}` : m.shader}) — drag onto an object in the Scene view`}
-                onClick={() => p.onSelect(m.materialId)}
-                onDoubleClick={() => m.graph !== undefined && p.onOpen(m.materialId)}
-                draggable
-                onDragStart={(ev) => {
-                  ev.dataTransfer.setData(MATERIAL_DRAG_TYPE, m.materialId);
-                  ev.dataTransfer.effectAllowed = 'copy';
-                }}
-              >
-                <span className="tl-tile__icon" aria-hidden="true">
-                  <span className="tl-material-swatch" style={{ background: swatch(shown(m)) }} />
-                </span>
-                <span className="tl-tile__name">{m.name}</span>
-                <span className="tl-tile__meta">{m.instanceOf !== undefined ? 'instance' : m.graph !== undefined ? 'graph' : m.shader}</span>
-              </li>
-            ))}
-            {p.materials.length === 0 && <li className="tl-row tl-row--empty">no materials yet</li>}
-          </ul>
-          {p.error !== null && <div className="tl-assets__error" role="alert">{p.error}</div>}
+    <div className="tl-material-item" data-material-id={selected.materialId}>
+      {selected.instanceOf !== undefined ? (
+        <InstanceInspector key={selected.materialId} instance={selected} materials={p.materials} onSave={p.onSave} onDelete={p.onDelete} />
+      ) : selected.graph !== undefined ? (
+        <div className="tl-material-inspector" aria-label={`material ${selected.name}`}>
+          <p className="tl-hint">
+            “{selected.name}” is a graph material ({selected.graph.nodes.length} node{selected.graph.nodes.length === 1 ? '' : 's'}, {(selected.parameters ?? []).length} exposed parameter{(selected.parameters ?? []).length === 1 ? '' : 's'}).
+          </p>
+          <button className="tl-btn tl-btn--small" onClick={() => p.onOpen(selected.materialId)}>
+            Open graph
+          </button>
+          <button className="tl-btn tl-btn--small tl-btn--danger" onClick={() => p.onDelete(selected.materialId)} title="Delete (refused while an object or an asset uses it)">
+            delete material
+          </button>
         </div>
-        <div className="tl-assets__side">
-          {selected !== null ? (
-            selected.instanceOf !== undefined ? (
-              <InstanceInspector key={selected.materialId} instance={selected} materials={p.materials} onSave={p.onSave} onDelete={p.onDelete} />
-            ) : selected.graph !== undefined ? (
-              <div className="tl-material-inspector" aria-label={`material ${selected.name}`}>
-                <p className="tl-hint">
-                  “{selected.name}” is a graph material ({selected.graph.nodes.length} node{selected.graph.nodes.length === 1 ? '' : 's'}, {(selected.parameters ?? []).length} exposed parameter{(selected.parameters ?? []).length === 1 ? '' : 's'}).
-                </p>
-                <button className="tl-btn tl-btn--small" onClick={() => p.onOpen(selected.materialId)}>
-                  Open graph
-                </button>
-                <button className="tl-btn tl-btn--small tl-btn--danger" onClick={() => p.onDelete(selected.materialId)} title="Delete (refused while an object or an asset uses it)">
-                  delete material
-                </button>
-              </div>
-            ) : (
-              <MaterialInspector key={selected.materialId} material={selected} onSave={p.onSave} onDelete={p.onDelete} onOpen={p.onOpen} />
-            )
-          ) : (
-            <p className="tl-inspector__hint">Select a material to edit it.</p>
-          )}
-        </div>
-      </div>
+      ) : (
+        <MaterialInspector key={selected.materialId} material={selected} onSave={p.onSave} onDelete={p.onDelete} onOpen={p.onOpen} />
+      )}
+      <button className="tl-btn tl-btn--small" onClick={createInstance} title="A material instance of this material: its look, with the values you change in it">
+        + new instance
+      </button>
     </div>
   );
 }

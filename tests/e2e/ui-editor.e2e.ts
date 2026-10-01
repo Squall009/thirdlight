@@ -25,7 +25,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { type E2EBackend, startBackend } from './backend';
 import { decodePng } from './png';
-import { menu, openWindow, projectWindow, openProjectSettings } from './ui';
+import { menu, createItem, openProjectSettings } from './ui';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -126,10 +126,8 @@ test('UI document editor: build a HUD, drag, anchor, theme colour, undo/redo, th
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
 
-  // A theme from the UI list: its tab opens; a "tint" style with a red background.
-  await openWindow(page, 'UI');
-  await page.getByLabel('New UI theme name').fill('Neutral');
-  await page.getByRole('button', { name: 'Create UI theme', exact: true }).click();
+  // A theme from the project window's Create menu: its editor opens; a "tint" style with a red background.
+  await createItem(page, 'UI theme', 'Neutral');
   const themeEditor = page.locator('[data-ui-theme="neutral"]');
   await expect(themeEditor).toBeVisible();
   await themeEditor.getByLabel('theme new style name').fill('tint');
@@ -140,9 +138,8 @@ test('UI document editor: build a HUD, drag, anchor, theme colour, undo/redo, th
   await bgRed.blur();
   await expect.poll(async () => ((await query('queryGameConfig'))['uiThemes'] as { styles: Record<string, { background?: string }> }[])[0]?.styles['tint']?.background).toBe('#ff0000');
 
-  // A UI document from the Assets panel: its tab opens.
-  await projectWindow(page);
-  await page.getByRole('button', { name: 'new UI document', exact: true }).click();
+  // A UI document from the project window's Create menu: its editor opens.
+  await createItem(page, 'UI document', 'UI document 1');
   const editor = page.locator(`[data-ui-document="${DOC_ID}"]`);
   await expect(editor).toBeVisible();
   await expect.poll(async () => (await storedDoc())?.root.type).toBe('panel');

@@ -14,7 +14,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 import { STARTER, startBackend, type E2EBackend, controls } from './backend';
 import { LOCOMOTION_CLIPS, skinnedGlb } from './skinned-glb';
-import { openWindow, closeEditor, editorPane } from './ui';
+import { chooseItem, createItem, closeEditor, editorPane } from './ui';
 
 const shots = process.env['TL_ANIM_SHOTS'];
 
@@ -63,9 +63,8 @@ test("a rigged character's clips play on the starter's player: idle, run, airbor
   const character = (await assets()).find((a) => a.displayName.includes('char_rigged'))!.assetId;
   const model = String((await cmd('createEntity', { kind: 'model', name: 'Character', parentId: STARTER.playerId, model: { asset: { assetId: character } }, transform: { position: [0, 0, 0] } })).createdId);
 
-  await openWindow(page, 'Animator');
-  await page.getByLabel('animator model').selectOption(character);
-  await page.getByRole('button', { name: 'New from clips: Character locomotion' }).click();
+  await chooseItem(page, 'model', character);
+  await createItem(page, 'Animator controller: character locomotion', 'Character locomotion');
   // The new controller opens in the editor window (its state graph).
   const graph = editorPane(page, 'Animator', 'Character locomotion').getByLabel('animator graph');
   for (const s of ['Idle', 'Run', 'Jump', 'Fall', 'Land']) await expect(graph.getByRole('group', { name: new RegExp(`^State ${s} node `) })).toBeVisible();

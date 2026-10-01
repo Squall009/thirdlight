@@ -31,7 +31,7 @@ import { publishBytes, startBackend, type E2EBackend } from './backend';
 import { multiPieceGlb } from './multi-piece-glb';
 import { count, isBlue, isGreenish, isMagenta, materials, packNormalAndOrm, publishLayerSources, reds, useArrays } from './painted-layers';
 import { decodePng, type Image } from './png';
-import { menu, projectWindow, openWindow, closeEditor } from './ui';
+import { menu, projectWindow, openWindow, closeEditor, createItem } from './ui';
 import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
 
 let be: E2EBackend | null = null;
@@ -142,9 +142,7 @@ for (const variant of RENDERER_VARIANTS) test(`painted terrain: height-blended l
   expect(assets.find((a) => a.assetId === 'terrain-orm')!.image).toEqual({ format: 'ktx2', width: 16, height: 16, codec: 'uastc', levels: 5, layers: 4 });
 
   // ---- Editor: the height-blended layers template, its texture parameters set to the arrays.
-  await openWindow(page, 'Materials');
-  await page.getByRole('combobox', { name: 'graph material template' }).selectOption('layers');
-  await page.getByRole('button', { name: '+ new graph material' }).click();
+  await createItem(page, ['Graph material', 'Height-blended layers (painted terrain)'], 'Graph material 1');
   await expect.poll(async () => (await materials(be!)).filter((m) => JSON.stringify(m.graph ?? {}).includes('heightBlend')).length, { timeout: 15_000 }).toBe(1);
   const mat = (await materials(be)).find((m) => JSON.stringify(m.graph ?? {}).includes('heightBlend'))!.materialId;
   await useArrays(be, mat, { albedoHeight: albedo.assetId, normals: 'terrain-normals', orm: 'terrain-orm' });

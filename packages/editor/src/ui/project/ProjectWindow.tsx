@@ -13,13 +13,17 @@
  * - Moving: drag items and folders onto a folder (a tile, the tree, the
  *   breadcrumb), or cut (Ctrl/Cmd-X) and paste (Ctrl/Cmd-V) into the folder
  *   shown; each move is one command and one undo. New folder, rename folder.
- * - Opening: a double-click opens a folder, or the item's editor.
+ * - Opening: a double-click opens a folder, or the item's editor; a click
+ *   shows the item in the Inspector.
+ * - Making: the Create menu (the "create" button, or a right-click) makes a
+ *   new item of a kind in the folder shown, named in place first (Unity's
+ *   Create menu); a right-click on an item also opens or deletes it.
  *
  * Display and intent only: every change is a command through the session.
  *
  * Browser-only (React).
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type JSX, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type JSX, type KeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react';
 
 import { ASSET_KINDS, INDEX_PAGE_DEFAULT, INDEX_PAGE_MAX } from '@thirdlight/project-model/limits';
 
@@ -31,9 +35,12 @@ import type { TileThumbnails } from '../../viewport/thumbnails';
 import { useCatalog } from '../catalog/catalog-context';
 import { useIndexList } from '../catalog/useIndexList';
 import { VirtualList } from '../catalog/VirtualList';
-import { MATERIAL_DRAG_TYPE } from '../MaterialsPanel';
+import { MATERIAL_DRAG_TYPE } from '../material/MaterialInspector';
 import { LabelsBar } from '../LoadableFields';
 import type { LoadingNameActions } from '../useLoadingNames';
+import { ContextMenu } from '../ContextMenu';
+import type { MenuEntry } from '../MenuBar';
+import type { ItemActions } from './useItemActions';
 import { FolderTree } from './FolderTree';
 import { AssetTile, FolderTile, ItemTile, PieceTile, type ChooseEvent, type ProjectView } from './ProjectTiles';
 import type { ProjectCommands } from './useProjectCommands';
@@ -44,10 +51,14 @@ interface Props {
   onFolder: (folder: string | null) => void;
   selectedAssetId: string | null;
   onSelectAsset: (assetId: string) => void;
-  /** A resource or scene was chosen (null: an asset or nothing): the side panel shows it. */
-  onFocus: (entry: IndexEntryView | null) => void;
+  /** An item was chosen: the Inspector shows it. */
+  onInspect: (item: ProjectItem) => void;
   onOpen: (item: ProjectItem) => void;
   commands: ProjectCommands;
+  /** New items, deletes (the Create menu and the right-click menu). */
+  actions?: ItemActions;
+  /** A search asked for from outside (a menu's "Prefab copy…"); each new `n` applies it once. */
+  search?: { text: string; n: number } | null;
   loading?: LoadingNameActions;
   thumbnails: TileThumbnails | null;
   /** The selected model's pieces (a file of 2+ expands into piece tiles). */
@@ -94,12 +105,23 @@ export function ProjectWindow(p: Props): JSX.Element {
   const [anchor, setAnchor] = useState<number | null>(null);
   const [clip, setClip] = useState<ProjectSelection | null>(null);
   const [dropping, setDropping] = useState<string | null>(null);
-  const [naming, setNaming] = useState<{ mode: 'new' | 'rename'; folder: string; value: string } | null>(null);
+  // A name being typed: a new folder's, a renamed folder's, or a new item's (`create` = its Create menu key).
+  const [naming, setNaming] = useState<{ mode: 'new' | 'rename' | 'create'; folder: string; value: string; create?: { key: string; label: string } } | null>(null);
+  // The open menu: the Create menu under its button, or the right-click menu (on an item, or on the list).
+  const [menuAt, setMenuAt] = useState<{ x: number; y: number; item: ProjectItem | null; createOnly?: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [openAt, setOpenAt] = useState<number | null>(null);
 
+  // Searched everywhere (All assets lists any kind a `t:` names).
+  const asked = p.search ?? null;
+  const { onFolder } = p;
+  useEffect(() => {
+    if (asked === null) return;
+    setText(asked.text);
+    onFolder(null);
+  }, [asked, onFolder]);
   const search = useMemo(() => parseSearch(text), [text]);
   const searching = search.text !== '' || search.kinds !== null || search.labels.length > 0;
   const folder = p.folder;
@@ -180,10 +202,9 @@ export function ProjectWindow(p: Props): JSX.Element {
       setChosen(new Set([key]));
       setAnchor(index);
     }
-    if (entry !== null && isAssetKind(entry.kind)) {
-      p.onSelectAsset(entry.id);
-      p.onFocus(null);
-    } else p.onFocus(entry);
+    if (entry === null) return;
+    if (isAssetKind(entry.kind)) p.onSelectAsset(entry.id);
+    p.onInspect({ kind: entry.kind, id: entry.id });
   };
 
   const run = async (what: Promise<string | null>): Promise<boolean> => {
@@ -254,6 +275,10 @@ export function ProjectWindow(p: Props): JSX.Element {
     if (naming === null) return;
     const name = naming.value.trim();
     if (name === '') return;
+    if (naming.mode === 'create' && naming.create !== undefined && p.actions !== undefined) {
+      if (await run(p.actions.create(naming.create.key, name))) setNaming(null);
+      return;
+    }
     if (naming.mode === 'new') {
       const path = naming.folder === '' ? name : `${naming.folder}/${name}`;
       if (await run(p.commands.createFolder(path))) setNaming(null);
@@ -267,6 +292,63 @@ export function ProjectWindow(p: Props): JSX.Element {
       if (folder !== null && isWithin(folder, naming.folder)) p.onFolder(`${renamed}${folder.slice(naming.folder.length)}`);
       setChosen(new Set());
     }
+  };
+
+  /** Start naming a new item of a kind (it is made in the folder shown when the name is confirmed). */
+  const startCreate = (key: string, label: string, defaultName: string): void => {
+    setError(null);
+    setNaming({ mode: 'create', folder: folder ?? '', value: defaultName, create: { key, label } });
+  };
+  /** The Create menu: each kind, grouped into submenus where a kind has variants (graph material templates, graph kinds). */
+  const createEntries = (): MenuEntry[] => {
+    const out: MenuEntry[] = [{ label: 'Folder', disabled: folder === null, reason: 'Choose a folder of the game folder first', onSelect: startNew }];
+    const groups = new Map<string, MenuEntry[]>();
+    for (const k of p.actions?.createKinds ?? []) {
+      const entry = { label: k.label, onSelect: () => startCreate(k.key, k.group !== undefined ? `${k.group}: ${k.label}` : k.label, k.defaultName) };
+      if (k.group === undefined) {
+        out.push(entry);
+        continue;
+      }
+      let g = groups.get(k.group);
+      if (g === undefined) {
+        g = [];
+        groups.set(k.group, g);
+        out.push({ label: k.group, items: g });
+      }
+      g.push(entry);
+    }
+    return out;
+  };
+  const deleteItem = async (item: ProjectItem): Promise<void> => {
+    if (p.actions === undefined) return;
+    if (await run(p.actions.remove(item))) setChosen(new Set());
+  };
+  const menuEntries = (item: ProjectItem | null): MenuEntry[] => [
+    ...(item !== null
+      ? ([
+          { label: 'Open', onSelect: () => p.onOpen(item) },
+          ...(p.actions?.canDelete(item.kind) === true ? [{ label: 'Delete', onSelect: () => void deleteItem(item) }] : []),
+          'separator',
+        ] as MenuEntry[])
+      : []),
+    { label: 'Create', items: createEntries() },
+  ];
+  /** A right-click on an item chooses it (when it is not chosen) and offers it; elsewhere in the list, the Create menu. */
+  const onContextMenu = (ev: ReactMouseEvent<HTMLDivElement>): void => {
+    if (p.actions === undefined) return;
+    if ((ev.target as HTMLElement).closest('.tl-project__list') === null) return;
+    ev.preventDefault();
+    // An item tile names its kind and id; an asset tile its asset (a piece tile is part of its file: no item menu).
+    const li = (ev.target as HTMLElement).closest('li');
+    const kind = li?.getAttribute('data-item-kind') ?? (li?.hasAttribute('data-piece') === false ? li.getAttribute('data-kind') : null) ?? null;
+    const id = li?.getAttribute('data-item-id') ?? (li?.hasAttribute('data-piece') === false ? li.getAttribute('data-asset-id') : null) ?? null;
+    const item = kind !== null && id !== null ? { kind, id } : null;
+    if (item !== null && !chosen.has(itemKey(item))) {
+      setChosen(new Set([itemKey(item)]));
+      if (isAssetKind(item.kind)) p.onSelectAsset(item.id);
+      p.onInspect(item);
+    }
+    setMenuAt({ x: ev.clientX, y: ev.clientY, item });
   };
 
   const listRef = useRef<HTMLDivElement | null>(null);
@@ -305,7 +387,7 @@ export function ProjectWindow(p: Props): JSX.Element {
   return (
     <div className="tl-project" data-folder={folder ?? ''}>
       <FolderTree folder={folder} onFolder={(f) => p.onFolder(f)} dropping={dropping} onDragOver={dragOver} onDragLeave={() => setDropping(null)} onDrop={drop} />
-      <div className="tl-project__main" ref={listRef} tabIndex={-1} onKeyDown={onKeyDown}>
+      <div className="tl-project__main" ref={listRef} tabIndex={-1} onKeyDown={onKeyDown} onContextMenu={onContextMenu}>
         <div className="tl-project__bar">
           <nav className="tl-project__crumbs" aria-label="folder path">
             {folder === null ? (
@@ -355,6 +437,20 @@ export function ProjectWindow(p: Props): JSX.Element {
           {view === 'grid' && <input className="tl-project__size" type="range" aria-label="tile size" min={72} max={192} step={8} value={size} onChange={(e) => setSize(Number(e.target.value))} />}
         </div>
         <div className="tl-project__bar">
+          {p.actions !== undefined && (
+            <button
+              className="tl-btn tl-btn--small"
+              aria-haspopup="menu"
+              disabled={busy}
+              onClick={(ev) => {
+                const r = ev.currentTarget.getBoundingClientRect();
+                setMenuAt({ x: r.left, y: r.bottom, item: null, createOnly: true });
+              }}
+              title={`Make a new material, graph, effect, conversation, timeline, script library, UI document… in ${folder === null || folder === '' ? 'its kind’s default folder' : folder} (or right-click the list)`}
+            >
+              create ▾
+            </button>
+          )}
           <button className="tl-btn tl-btn--small" disabled={folder === null || busy} onClick={startNew} title={folder === null ? 'Choose a folder of the game folder first' : 'Make a folder here'}>
             new folder
           </button>
@@ -374,10 +470,12 @@ export function ProjectWindow(p: Props): JSX.Element {
           )}
           {naming !== null && (
             <span className="tl-project__naming">
+              {naming.create !== undefined && <span className="tl-project__naming-kind">new {naming.create.label}:</span>}
               <input
                 className="tl-input tl-input--small"
-                aria-label="folder name"
+                aria-label={naming.create !== undefined ? 'new item name' : 'folder name'}
                 autoFocus
+                onFocus={(e) => e.target.select()}
                 value={naming.value}
                 onChange={(e) => setNaming({ ...naming, value: e.target.value })}
                 onKeyDown={(e) => {
@@ -386,7 +484,10 @@ export function ProjectWindow(p: Props): JSX.Element {
                 }}
               />
               <button className="tl-btn tl-btn--small" onClick={() => void finishNaming()}>
-                {naming.mode === 'new' ? 'make' : 'rename'}
+                {naming.mode === 'rename' ? 'rename' : naming.mode === 'create' ? 'create' : 'make'}
+              </button>
+              <button className="tl-btn tl-btn--small" onClick={() => setNaming(null)}>
+                cancel
               </button>
             </span>
           )}
@@ -467,6 +568,7 @@ export function ProjectWindow(p: Props): JSX.Element {
             );
           }}
         />
+        {menuAt !== null && <ContextMenu at={{ x: menuAt.x, y: menuAt.y }} items={menuAt.createOnly === true ? createEntries() : menuEntries(menuAt.item)} label={menuAt.createOnly === true ? 'create menu' : 'project window menu'} onClose={() => setMenuAt(null)} />}
         <div className="tl-assets__paging" data-total={list.total ?? ''}>
           {folderCount > 0 ? `${folderCount} folder(s) · ` : ''}
           {list.total ?? '…'} item(s)

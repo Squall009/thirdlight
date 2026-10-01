@@ -65,7 +65,7 @@ export function MaterialDocument(p: MaterialDocumentProps): JSX.Element {
   );
   if (m === null) return <p className="tl-hint">This material no longer exists (deleted or undone). Close the tab, or undo the deletion.</p>;
   if (kind === undefined) return <p className="tl-hint">Loading the material node catalogue…</p>;
-  if (m.graph === undefined) return <p className="tl-hint">"{m.name}" is a shader material (no graph). Use "Convert to graph" in the Materials tab.</p>;
+  if (m.graph === undefined) return <p className="tl-hint">"{m.name}" is a shader material (no graph). Choose it in the project window and use "Convert to graph" in its Inspector.</p>;
   const newNodeData = (type: string): Record<string, GraphValue> | undefined => {
     // A new Parameter node reads the first declared parameter; a new call runs the first function.
     if (type === 'parameter' && (m.parameters ?? []).length > 0) return { key: m.parameters![0]!.key };

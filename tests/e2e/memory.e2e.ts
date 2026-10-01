@@ -38,7 +38,7 @@ import { gpuAvailable } from './browser-env.mjs';
 import { type E2EBackend, startBackend } from './backend';
 import { cycles, describe as summary, expectBack, installProbe, MemoryProbe, TOLERANCE, type MemorySample, type Tolerance } from './memory-probe';
 import { skinnedGlb } from './skinned-glb';
-import { projectWindow, editorPane, editorTab, closeEditor, expectEditorOpen, openWindow, previewCanvas, previewPane, type EditorKind } from './ui';
+import { projectWindow, editorPane, editorTab, closeEditor, createItem, expectEditorOpen, openEditor as openEditorTab, openWindow, previewCanvas, previewPane, type EditorKind } from './ui';
 
 // Small scenes, a smaller page: the CPU renderer draws each frame faster (the counts do not depend on the size).
 test.use({ viewport: { width: 1280, height: 720 } });
@@ -168,10 +168,7 @@ test('document tabs: every kind opened and closed 50× returns heap and GPU coun
     },
   });
   // A standalone graph and a visual script, made in the editor (their tabs open once; closed here).
-  await openWindow(page, 'Graphs');
-  await page.getByLabel('Graph kind').selectOption('test');
-  await page.getByLabel('New graph name').fill('Maths');
-  await page.getByRole('button', { name: 'Create graph' }).click();
+  await createItem(page, ['Graph', 'Test graph'], 'Maths');
   await expectEditorOpen(page, 'Graph', 'Maths');
   await closeEditor(page, 'Graph', 'Maths');
   await openWindow(page, 'Behaviors');
@@ -181,13 +178,18 @@ test('document tabs: every kind opened and closed 50× returns heap and GPU coun
   await closeEditor(page, 'Graph', 'Gift giver');
 
   const n = cycles(50);
-  const kinds: { label: string; dock: string; open: () => Promise<void>; kind: EditorKind; name: string; ready: (view: Locator) => Promise<void> }[] = [
+  // An item of the project window, found once by its search and double-clicked each cycle.
+  const item = (kind: string, id: string): { dock: string; search: string; open: () => Promise<void> } => ({
+    dock: 'Assets',
+    search: `t:${kind} ${id}`,
+    open: () => page.locator(`.tl-assets li[data-item-id="${id}"]`).dblclick(),
+  });
+  const kinds: { label: string; dock: string; search?: string; open: () => Promise<void>; kind: EditorKind; name: string; ready: (view: Locator) => Promise<void> }[] = [
     {
       label: 'Animator tab',
-      dock: 'Animator',
+      ...item('animator', 'animator-01'),
       kind: 'Animator',
       name: 'Walker',
-      open: () => page.getByLabel('animator controllers').getByRole('button', { name: 'Walker' }).dblclick(),
       ready: (v) => expect(v.getByLabel('animator graph').getByRole('group', { name: 'State Idle node state-01' })).toBeVisible(),
     },
     {
@@ -195,23 +197,25 @@ test('document tabs: every kind opened and closed 50× returns heap and GPU coun
       dock: 'Behaviors',
       kind: 'Script',
       name: 'Mover',
-      open: () => page.locator('.tl-behaviors__list .tl-tile', { hasText: 'Mover' }).dblclick(),
+      // Opening a script closes Project Settings (the item is what was asked for): it is shown again each time.
+      open: async () => {
+        await openWindow(page, 'Behaviors');
+        await page.locator('.tl-behaviors__list .tl-tile', { hasText: 'Mover' }).dblclick();
+      },
       ready: (v) => expect(v.locator('.cm-editor')).toBeVisible(),
     },
     {
       label: 'Graph tab',
-      dock: 'Graphs',
+      ...item('graph', 'maths'),
       kind: 'Graph',
       name: 'Maths',
-      open: () => page.locator('[data-graph-id] .tl-graphs__meta').first().dblclick(),
       ready: (v) => expect(v.locator('.tl-graph__stage')).toBeVisible(),
     },
     {
       label: 'Material tab (with its preview)',
-      dock: 'Materials',
+      ...item('material', 'mat-graph'),
       kind: 'Material',
       name: 'Graph',
-      open: () => page.locator('.tl-materials li[data-material-id="mat-graph"]').dblclick(),
       ready: async () => expect.poll(async () => Number((await previewCanvas(page).getAttribute('data-frames')) ?? 0), { timeout: 30_000 }).toBeGreaterThan(0),
     },
     {
@@ -219,15 +223,17 @@ test('document tabs: every kind opened and closed 50× returns heap and GPU coun
       dock: 'Behaviors',
       kind: 'Graph',
       name: 'Gift giver',
-      open: () => page.locator('.tl-behaviors__list .tl-tile', { hasText: 'Gift giver' }).dblclick(),
+      open: async () => {
+        await openWindow(page, 'Behaviors');
+        await page.locator('.tl-behaviors__list .tl-tile', { hasText: 'Gift giver' }).dblclick();
+      },
       ready: (v) => expect(v.getByLabel('visual script', { exact: true })).toBeVisible(),
     },
     {
       label: 'Effect tab (with its preview)',
-      dock: 'Effects',
+      ...item('effect', 'fx-stream'),
       kind: 'Effect',
       name: 'Stream',
-      open: () => page.getByRole('button', { name: 'Open Stream' }).click(),
       ready: async () => expect.poll(async () => JSON.parse((await previewPane(page).getByLabel('effect preview', { exact: true }).getAttribute('data-tl-effect-preview')) ?? '{}').executor ?? null, { timeout: 30_000 }).not.toBeNull(),
     },
   ];
@@ -235,6 +241,7 @@ test('document tabs: every kind opened and closed 50× returns heap and GPU coun
     // Renderer-free tabs are the same on both backends: only the preview tabs run again in the webgpu project.
     if (webgpuProject() && !k.label.includes('preview')) continue;
     await openWindow(page, k.dock);
+    if (k.search !== undefined) await page.locator('.tl-assets').getByLabel('search the project').fill(k.search);
     await leakCheck(page, probe, k.label, n, async () => {
       await k.open();
       await expectEditorOpen(page, k.kind, k.name);
@@ -265,15 +272,15 @@ test('preview panes: the asset preview, switching the editor window\'s preview b
   });
   const n = cycles(50);
 
-  // The asset browser's preview: a new canvas and renderer each time the Assets tab shows the selected model.
+  // The asset preview: a new canvas and renderer each time the Inspector shows the chosen model (an object
+  // selected in the Hierarchy takes the Inspector back).
   await projectWindow(page);
-  await page.locator('.tl-assets__list .tl-tile').first().click();
-  await leakCheck(page, probe, 'Asset preview (Assets tab shown/hidden, model loaded)', n, async () => {
-    await projectWindow(page);
+  await leakCheck(page, probe, 'Asset preview (the model chosen in the project window, then an object selected; model loaded)', n, async () => {
+    await page.locator(`.tl-assets__list li[data-asset-id="${asset}"]`).click();
     await expect(page.locator('.tl-assets__preview-canvas')).toHaveAttribute('data-tl-renderer-state', 'ready', { timeout: 30_000 });
     await page.getByRole('button', { name: 'load preview' }).click();
     await expect(page.locator('.tl-assets__preview-body')).toBeVisible();
-    await openWindow(page, 'Problems');
+    await page.locator('.tl-hierarchy__list li.tl-row').first().click();
     await expect(page.locator('.tl-assets__preview-canvas')).toHaveCount(0);
   });
 
@@ -281,18 +288,10 @@ test('preview panes: the asset preview, switching the editor window\'s preview b
   // turns on the pane's one renderer (each switch releases the last subject), and a timeline borrows the Scene view.
   await cmd('setEffect', { effect: streamEffect() });
   await cmd('setTimeline', { timeline: { timelineId: 'cut', name: 'Cut', duration: 2, tracks: [] } });
-  await openWindow(page, 'Timelines');
-  await page.getByRole('button', { name: 'Open Cut' }).click();
-  await expectEditorOpen(page, 'Timeline', 'Cut');
-  await openWindow(page, 'Animator');
-  await page.getByLabel('animator controllers').getByRole('button', { name: 'Walker' }).dblclick();
-  await expectEditorOpen(page, 'Animator', 'Walker');
-  await openWindow(page, 'Materials');
-  await page.locator('.tl-materials li[data-material-id="mat-graph"]').dblclick();
-  await expectEditorOpen(page, 'Material', 'Graph');
-  await openWindow(page, 'Effects');
-  await page.getByRole('button', { name: 'Open Stream' }).click();
-  await expectEditorOpen(page, 'Effect', 'Stream');
+  await openEditorTab(page, 'Timeline', 'Cut');
+  await openEditorTab(page, 'Animator', 'Walker');
+  await openEditorTab(page, 'Material', 'Graph');
+  await openEditorTab(page, 'Effect', 'Stream');
   const canvas = previewCanvas(page);
   const frames = async (): Promise<number> => Number((await canvas.getAttribute('data-frames')) ?? 0);
   const pane = previewPane(page);

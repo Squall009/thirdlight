@@ -26,7 +26,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
 import { socketGlb } from './socket-glb';
-import { openWindow, editorPane, previewPane } from './ui';
+import { openEditor, editorPane, previewPane } from './ui';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -289,8 +289,7 @@ test('editor: "+ Add component" → Socket, the Inspector node list from the mod
   await expect.poll(async () => (await comp(lamp, 'socketAttach'))?.['position']).toEqual([0, 0.3, 0]);
 
   // The Animator's live preview at ×1 and ×0.5: the clip time advances at half the rate.
-  await openWindow(page, 'Animator');
-  await page.getByLabel('animator controllers').getByRole('button', { name: 'Slide' }).dblclick();
+  await openEditor(page, 'Animator', 'Slide');
   await expect(editorPane(page, 'Animator', 'Slide')).toBeVisible();
   const pane = previewPane(page);
   const preview = pane.getByLabel('animator preview', { exact: true });

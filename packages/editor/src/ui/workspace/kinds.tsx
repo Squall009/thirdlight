@@ -21,7 +21,7 @@ import { MaterialDocument, type MaterialDocumentProps } from '../material/Materi
 import { EffectDocument, type EffectDocumentProps } from '../effect/EffectDocument';
 import type { DocRef } from '../../session/editor-window';
 import type { PreviewDeps } from '../preview/use-subject';
-import type { AnimatorPanelProps } from '../AnimatorPanel';
+import type { AnimatorControllersProps } from '../animator/parts';
 import { AnimatorDocument, type AnimatorDocumentProps } from '../animator/AnimatorDocument';
 import type { BehaviorPanelProps } from '../BehaviorPanel';
 import { ScriptDocument, type ScriptDocumentProps } from '../script/ScriptDocument';
@@ -37,7 +37,7 @@ import { UiThemeDocument, type UiThemeDocumentProps } from '../uidoc/UiThemeDocu
 /** What document views get from the app: the data and actions of the panels they reuse. */
 export interface WorkspaceHost {
   /** The Animator's props (the bottom-dock panel uses the same). */
-  animator: AnimatorPanelProps;
+  animator: AnimatorControllersProps;
   /** The props of one controller's tab (graph, layers, parameters). */
   animatorDocument: (controllerId: string) => AnimatorDocumentProps;
   /** The Behaviors panel's props (the bottom-dock panel uses the same). */

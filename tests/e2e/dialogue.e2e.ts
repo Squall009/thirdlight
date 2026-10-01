@@ -32,7 +32,7 @@ import { expect, test, type Frame, type Locator, type Page } from '@playwright/t
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng } from './png';
 import { makePng } from './png-make';
-import { projectWindow, openWindow, editorTab, previewPane } from './ui';
+import { projectWindow, openEditor, editorTab, previewPane } from './ui';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 let be: E2EBackend | null = null;
@@ -377,11 +377,8 @@ test('dialogue with voice: the editor previewer, Play and the export', async ({ 
   be = await startBackend('dialogue-e2e');
   const ids = await setUp(page);
 
-  // The editor: the Dialogue window lists the conversation; its tab shows the graph; the previewer plays it outside Play.
-  await openWindow(page, 'Dialogue');
-  const row = page.locator('.tl-dialogue-panel li[data-dialogue-id="talk"]');
-  await expect(row).toContainText('Garden talk');
-  await page.getByRole('button', { name: 'Open Garden talk' }).click();
+  // The editor: the project window lists the conversation; its editor shows the graph; the previewer plays it outside Play.
+  await openEditor(page, 'Dialogue', 'Garden talk');
   await expect(editorTab(page, 'Dialogue', 'Garden talk')).toBeVisible();
   await expect(page.locator('[aria-label="dialogue graph"]')).toBeVisible();
   // The previewer is the editor window's preview pane: the conversation plays over its scene (the Scene view's canvas).

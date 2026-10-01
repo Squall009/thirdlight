@@ -1,6 +1,6 @@
 /**
- * The Assets tab's preview of one asset: the preview renderer (the one path
- * the editor window's preview pane draws with) on the side panel's canvas,
+ * The preview of one asset in its Inspector: the preview renderer (the one
+ * path the editor window's preview pane draws with) on the Inspector's canvas,
  * where the selected model's current version is realized and its clips
  * played, paused and scrubbed. The host owns the clip clock while a clip
  * plays (the controller installs none).
@@ -13,11 +13,20 @@ import type { SessionClient } from '../../session/client';
 import type { AssetPreviewSession, ModelInstances } from '../../viewport/model-instances';
 import { PreviewRenderer } from '../../viewport/preview-renderer';
 import { ModelSubject } from '../../viewport/preview-subjects';
-import type { AssetPreviewView } from '../AssetBrowser';
+
+/** What the preview shows: the model, its clips, the clip playing and where. */
+export interface AssetPreviewView {
+  assetId: string;
+  clips: readonly { index: number; name: string; durationSeconds: number }[];
+  clipIndex: number | null;
+  playing: boolean;
+  timeSeconds: number;
+  durationSeconds: number;
+}
 
 export interface AssetPreview {
   readonly view: AssetPreviewView | null;
-  /** Mounts/unmounts the preview canvas (the side panel mounts a new one each time). */
+  /** Mounts/unmounts the preview canvas (the Inspector mounts a new one each time). */
   readonly canvasRef: (canvas: HTMLCanvasElement | null) => void;
   load(assetId: string): Promise<void>;
   play(): void;
@@ -42,7 +51,7 @@ export function useAssetPreview(deps: {
 
   const canvasRef = useCallback(
     (canvas: HTMLCanvasElement | null) => {
-      // The asset browser mounts a new canvas each time: the old one's renderer and context go with it.
+      // The Inspector mounts a new canvas each time: the old one's renderer and context go with it.
       stageRef.current?.dispose();
       stageRef.current = null;
       if (canvas === null) {

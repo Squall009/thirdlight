@@ -297,7 +297,7 @@ describe('no script evaluation and no apply/revert/variant/link affordance', () 
     'packages/editor/src/session/property-controls.ts',
     'packages/editor/src/session/prefab-authoring.ts',
     'packages/editor/src/session/prefab-projection.ts',
-    'packages/editor/src/ui/PrefabPanel.tsx',
+    'packages/editor/src/ui/PrefabInspector.tsx',
     'packages/editor/src/ui/Inspector.tsx',
     'packages/editor/src/ui/PropertyControls.tsx',
   ];

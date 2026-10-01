@@ -21,7 +21,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
 import { backendOf, editorUrlFor, expectRendererBackend, onlyInItsProject, type RendererVariant } from './renderer-variants';
-import { menu, openWindow, expectEditorOpen, closeEditor, openEditor, previewCanvas, previewPane } from './ui';
+import { menu, expectEditorOpen, closeEditor, openEditor, previewCanvas, previewPane } from './ui';
 
 let be: E2EBackend;
 test.afterEach(async () => {
@@ -129,12 +129,8 @@ for (const variant of VARIANTS) test(`the Effect tab previews an effect: particl
   await cmd('setEffect', { effect: streamEffect(40) });
   await page.goto(editorUrlFor(be.editorUrl, variant));
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  await openWindow(page, 'Effects');
-  const openTab = async (): Promise<void> => {
-    await page.getByRole('button', { name: 'Open Stream' }).click();
-    await expectEditorOpen(page, 'Effect', 'Stream');
-  };
-  await openTab();
+  await openEditor(page, 'Effect', 'Stream');
+  await expectEditorOpen(page, 'Effect', 'Stream');
 
   // The preview draws the effect with the executor Play would use.
   const canvas = previewCanvas(page);

@@ -28,7 +28,7 @@ import { exportedContent, publishBytes, startBackend, type E2EBackend } from './
 import { multiPieceGlb } from './multi-piece-glb';
 import { decodePng, type Image } from './png';
 import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
-import { openWindow, projectWindow, closeEditor } from './ui';
+import { openWindow, projectWindow, closeEditor, chooseItem, inspector } from './ui';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -143,17 +143,15 @@ for (const variant of VARIANTS) test(`material instances on an object, a model a
 
   // Editor: two instances of Glow.
   const materialsNow = async (): Promise<{ materialId: string; name: string; instanceOf?: string; values?: Record<string, unknown> }[]> => (await query('queryGameConfig')).materials as never;
-  await openWindow(page, 'Materials');
-  const tiles = page.locator('.tl-materials li[data-material-id]');
+  // Glow chosen in the project window: "+ new instance" in its Inspector makes one, and the Inspector shows it.
   const newInstanceOfGlow = async (): Promise<string> => {
-    await page.locator('.tl-materials li[data-material-id="glow"]').click();
+    await chooseItem(page, 'material', 'glow');
     const before = (await materialsNow()).length;
-    await page.getByRole('button', { name: '+ new instance' }).click();
+    await inspector(page).getByRole('button', { name: '+ new instance' }).click();
     await expect.poll(async () => (await materialsNow()).length).toBe(before + 1);
     const made = (await materialsNow()).filter((m) => m.instanceOf === 'glow').map((m) => m.materialId);
     const id = made[made.length - 1]!;
-    await expect(page.locator(`.tl-materials li[data-material-id="${id}"]`)).toHaveClass(/is-selected/);
-    await expect(page.locator(`.tl-materials li[data-material-id="${id}"]`)).toContainText('instance');
+    await expect(inspector(page).locator(`.tl-material-item[data-material-id="${id}"]`)).toBeVisible();
     return id;
   };
   const redId = await newInstanceOfGlow();
@@ -168,7 +166,7 @@ for (const variant of VARIANTS) test(`material instances on an object, a model a
   await expect.poll(async () => (await materialsNow()).find((m) => m.materialId === yellowId)?.name).toBe('Yellow');
   await page.getByLabel('instance tint').fill('#ffff00');
   await expect.poll(async () => (await materialsNow()).find((m) => m.materialId === yellowId)?.values).toEqual({ tint: '#ffff00' });
-  await expect(tiles).toHaveCount(5);
+  expect(await materialsNow()).toHaveLength(5);
 
   // Box A's Inspector maps the red instance; the Slab asset's default mapping the yellow one.
   await page.locator('.tl-hierarchy__list li.tl-row').filter({ hasText: 'Box A' }).click();

@@ -51,6 +51,15 @@ export function useAssetsWindow(deps: AssetsWindowDeps) {
   useEffect(() => {
     selectedAssetIdRef.current = selectedAssetId;
   }, [selectedAssetId]);
+  // An asset an import brings (a new one, or new bytes for one) is chosen and shows in the Inspector.
+  const { inspect } = openers;
+  const chooseImported = useCallback(
+    (id: string | null) => {
+      setSelectedAssetId(id);
+      if (id !== null) inspect({ kind: 'asset', id });
+    },
+    [inspect],
+  );
   const assetPreview = useAssetPreview({ clientRef, modelInstancesRef, selectedAssetId, onFailure: (e) => setImportState(importFailed(importStateRef.current, e)) });
   const [filePicker, setFilePicker] = useState<'create' | 'reimport' | null>(null);
   const loadProjectFiles = useCallback(
@@ -68,7 +77,7 @@ export function useAssetsWindow(deps: AssetsWindowDeps) {
     importStateRef,
     selectedAssetIdRef,
     setImportState,
-    setSelectedAssetId,
+    setSelectedAssetId: chooseImported,
     reimportRoles,
     setReimportRoles,
     reimportEntity,

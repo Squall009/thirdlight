@@ -1,16 +1,14 @@
 /**
- * The Assets tab: the project window (folders, tiles, search), imports and
- * re-imports, and the chosen item's side panel (preview, options, placing).
+ * The Project tab: the project window (folders, tiles, search, the Create
+ * menu), imports and re-imports. The chosen item shows in the Inspector.
  */
 import type { JSX } from 'react';
-import { assetPlacementAvailable } from '../../session/placement';
 import { TileThumbnails } from '../../viewport/thumbnails';
-import type { MaterialDef } from '@thirdlight/project-model';
 import { AssetBrowser } from '../AssetBrowser';
-import { ModelAssetOptions } from '../ModelAssetOptions';
 import { AssetFolders } from '../AssetFolders';
 import type { ClientRef } from './commands';
-import type { AnimatorTools } from './useAnimatorTools';
+import type { ProjectItem } from '../../session/project-items';
+import type { ItemActions } from '../project/useItemActions';
 import type { AssetsWindow } from './useAssetsWindow';
 import type { AssetActions } from './useAssetActions';
 
@@ -20,35 +18,32 @@ export interface AssetsTabProps {
   actions: AssetActions;
   /** Imports from the project folder are offered (the file check can list it). */
   folderImport: boolean;
-  materials: MaterialDef[];
-  animator: Pick<AnimatorTools, 'missingBones' | 'setAssetClipsFor'>;
-  uiDocumentCount: number;
-  createUiDocument: (name: string) => Promise<void>;
   tileThumbnails: TileThumbnails | null;
-  /** The chosen asset shows in the Inspector (an audio asset's settings and listening are there). */
-  inspect: (assetId: string) => void;
+  /** The chosen item shows in the Inspector. */
+  inspect: (item: ProjectItem) => void;
+  /** The Create menu, deletes. */
+  items: ItemActions;
+  /** A search the project window is asked to show. */
+  search: { text: string; n: number } | null;
 }
 
 export function AssetsTab(props: AssetsTabProps): JSX.Element {
-  const { clientRef, materials, tileThumbnails, createUiDocument } = props;
-  const { missingBones, setAssetClipsFor } = props.animator;
-  const { importState, selectedAssetId, setSelectedAssetId, mediaPendingRef, reimportRoles, setReimportRoles, reimportEntity, setReimportEntity, assetPreview, setFilePicker, loadProjectFiles } = props.assets;
-  const { importSettings, textureEncoding, reimportWithExtract, uploadFolder, setUploadFolder, importFile, publish, cancelImportFlow, discardImportFlow, projectWindow, assetOptions, loadingNames, selectedAsset, assetSourceMaterials } = props.assets;
-  const { assetDeleteError, setAssetDeleteError, placementError, placement, placeAsset, deleteAsset, refreshAssets } = props.actions;
+  const { clientRef, tileThumbnails } = props;
+  const { importState, selectedAssetId, setSelectedAssetId, mediaPendingRef, reimportRoles, setReimportRoles, reimportEntity, setReimportEntity, setFilePicker, loadProjectFiles } = props.assets;
+  const { importSettings, textureEncoding, uploadFolder, setUploadFolder, importFile, publish, cancelImportFlow, discardImportFlow, projectWindow, loadingNames, selectedAsset } = props.assets;
+  const { setAssetDeleteError, refreshAssets } = props.actions;
   return (
     <AssetBrowser
-      onNewUiDocument={() => void createUiDocument(`UI document ${props.uiDocumentCount + 1}`)}
       importState={importState}
       selectedAssetId={selectedAssetId}
-      placementAvailable={placement !== null && assetPlacementAvailable()}
-      placementMessage={placementError?.message ?? null}
-      preview={assetPreview.view}
       onRefresh={() => void refreshAssets()}
       onSelect={(id) => {
         setSelectedAssetId(id);
         setAssetDeleteError(null);
-        props.inspect(id);
       }}
+      onInspect={props.inspect}
+      search={props.search}
+      actions={props.items}
       onImport={(f) => void importFile(f, 'create')}
       importSettings={importSettings}
       onPackTexture={async (req) => {
@@ -67,12 +62,6 @@ export function AssetsTab(props: AssetsTabProps): JSX.Element {
       onPublish={() => void publish()}
       onCancel={() => void cancelImportFlow()}
       onDiscard={() => void discardImportFlow()}
-      onPreview={(id) => void assetPreview.load(id)}
-      previewCanvasRef={assetPreview.canvasRef}
-      onPreviewPlay={assetPreview.play}
-      onPreviewPause={assetPreview.pause}
-      onPreviewScrub={assetPreview.scrub}
-      onPlace={() => void placeAsset()}
       roleMapping={mediaPendingRef.current !== null && mediaPendingRef.current.referencingEntityIds.length > 0 ? { clipNames: mediaPendingRef.current.clipNames ?? [], referencingEntityIds: mediaPendingRef.current.referencingEntityIds } : null}
       roleEntity={reimportEntity}
       roleDraft={reimportRoles}
@@ -80,9 +69,6 @@ export function AssetsTab(props: AssetsTabProps): JSX.Element {
       onRoleDraftChange={setReimportRoles}
       thumbnails={tileThumbnails}
       pieces={selectedAsset.pieces}
-      assetOptions={assetOptions}
-      onDelete={(id) => void deleteAsset(id)}
-      deleteError={assetDeleteError}
       importExtra={
         <AssetFolders
           clientRef={clientRef}
@@ -99,11 +85,6 @@ export function AssetsTab(props: AssetsTabProps): JSX.Element {
       onFolder={projectWindow.setFolder}
       onOpenItem={projectWindow.open}
       projectCommands={projectWindow.commands}
-      sideExtra={
-        selectedAssetId !== null && selectedAsset.summary?.kind === 'model' ? (
-          <ModelAssetOptions asset={selectedAsset.summary} materials={materials} sourceMaterials={assetSourceMaterials} missingBones={missingBones} onClipsFor={(rig) => void setAssetClipsFor(selectedAssetId, rig)} onMaterials={(mapping) => void assetOptions.setAssetMaterials(selectedAssetId, mapping)} onReimportExtract={(path, extract) => void reimportWithExtract(selectedAssetId, path, extract)} />
-        ) : null
-      }
     />
   );
 }

@@ -15,7 +15,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { startBackend, type E2EBackend } from './backend';
 import { ALBEDO_HEIGHT_LAYERS, count, isBlue, materials, packNormalAndOrm, packTexture, publishLayerSources, useArrays } from './painted-layers';
 import { decodePng } from './png';
-import { openWindow, closeEditor } from './ui';
+import { openWindow, closeEditor, createItem } from './ui';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -98,9 +98,7 @@ test('Paint mode: a drag paints a layer (one undo step), Ctrl erases, undo/redo,
 
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  await openWindow(page, 'Materials');
-  await page.getByRole('combobox', { name: 'graph material template' }).selectOption('layers');
-  await page.getByRole('button', { name: '+ new graph material' }).click();
+  await createItem(page, ['Graph material', 'Height-blended layers (painted terrain)'], 'Graph material 1');
   await expect.poll(async () => (await materials(be!)).filter((m) => JSON.stringify(m.graph ?? {}).includes('heightBlend')).length, { timeout: 15_000 }).toBe(1);
   const mat = (await materials(be)).find((m) => JSON.stringify(m.graph ?? {}).includes('heightBlend'))!.materialId;
   await useArrays(be, mat, { albedoHeight: 'terrain-albedo', normals: 'terrain-normals', orm: 'terrain-orm' });

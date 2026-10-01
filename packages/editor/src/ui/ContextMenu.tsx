@@ -1,6 +1,6 @@
 /**
  * A context menu (right-click) at the pointer: the same menu entries as the
- * menu bar's (label, shortcut, disabled with the reason), one level. Escape,
+ * menu bar's (label, shortcut, disabled with the reason, submenus). Escape,
  * a click elsewhere or choosing an item closes it.
  *
  * Browser-only (React).
@@ -40,29 +40,62 @@ export function ContextMenu(p: { at: { x: number; y: number }; items: MenuEntry[
       window.removeEventListener('blur', onClose);
     };
   }, [onClose]);
-  return (
-    <div ref={root} className="tl-menu tl-context-menu" role="menu" aria-label={p.label} style={{ left: pos.x, top: pos.y }} onContextMenu={(e) => e.preventDefault()}>
-      {p.items.map((it, i) =>
-        it === 'separator' ? (
-          <div key={`sep-${i}`} className="tl-menu__sep" role="separator" />
-        ) : (
-          <button
-            key={it.label}
-            className="tl-menu__item"
+  // The submenu path open (`/Create/Graph`): a submenu shows while its path is this one or leads to it.
+  const [sub, setSub] = useState<string>('');
+  const shown = (key: string): boolean => sub === key || sub.startsWith(`${key}/`);
+  const renderItems = (items: MenuEntry[], path: string): JSX.Element[] =>
+    items.map((it, i) => {
+      if (it === 'separator') return <div key={`${path}-sep-${i}`} className="tl-menu__sep" role="separator" />;
+      const key = `${path}/${it.label}`;
+      if (it.items !== undefined && it.disabled !== true) {
+        return (
+          <div
+            key={key}
+            className="tl-menu__item tl-menu__item--sub"
             role="menuitem"
+            tabIndex={-1}
             aria-label={it.label}
-            disabled={it.disabled === true}
-            title={it.disabled ? it.reason : undefined}
-            onClick={() => {
-              onClose();
-              it.onSelect?.();
+            aria-haspopup="menu"
+            aria-expanded={shown(key)}
+            onMouseEnter={() => setSub(key)}
+            onClick={(e) => {
+              e.stopPropagation();
+              setSub(key);
             }}
           >
             <span>{it.label}</span>
-            {it.shortcut ? <span className="tl-menu__shortcut">{it.shortcut}</span> : null}
-          </button>
-        ),
-      )}
+            <span className="tl-menu__arrow">▸</span>
+            {shown(key) && (
+              <div className="tl-menu" role="menu" aria-label={it.label}>
+                {renderItems(it.items, key)}
+              </div>
+            )}
+          </div>
+        );
+      }
+      return (
+        <button
+          key={key}
+          className="tl-menu__item"
+          role="menuitem"
+          aria-label={it.label}
+          disabled={it.disabled === true}
+          title={it.disabled ? it.reason : undefined}
+          // Leaving a submenu for an item beside it closes that submenu.
+          onMouseEnter={() => setSub(path)}
+          onClick={() => {
+            onClose();
+            it.onSelect?.();
+          }}
+        >
+          <span>{it.label}</span>
+          {it.shortcut ? <span className="tl-menu__shortcut">{it.shortcut}</span> : null}
+        </button>
+      );
+    });
+  return (
+    <div ref={root} className={`tl-menu tl-context-menu${pos.y > window.innerHeight / 2 ? ' tl-context-menu--up' : ''}`} role="menu" aria-label={p.label} style={{ left: pos.x, top: pos.y }} onContextMenu={(e) => e.preventDefault()}>
+      {renderItems(p.items, '')}
     </div>
   );
 }

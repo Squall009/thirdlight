@@ -17,7 +17,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
 import { makePng } from './png-make';
-import { menu, projectWindow, openWindow, closeEditor, expectEditorOpen, editorTab, openEditor, inspector as inspectorOf } from './ui';
+import { menu, projectWindow, openWindow, chooseItem, createItem, closeEditor, expectEditorOpen, editorTab, openEditor, inspector as inspectorOf } from './ui';
 
 let be: E2EBackend;
 let dir: string;
@@ -86,12 +86,10 @@ test('a graph material: new tab, nodes from the catalogue, texture × tint into 
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   await importTexture(page, checker);
 
-  // Materials → "+ new graph material": the material opens in the editor window with a PBR output.
-  await openWindow(page, 'Materials');
-  await page.getByRole('button', { name: '+ new graph material' }).click();
+  // Create → Graph material → Empty: the material opens in the editor window with a PBR output.
+  await createItem(page, ['Graph material', 'Empty (PBR output)'], 'Graph material 1');
   const tab = editorTab(page, 'Material', 'Graph material 1');
   await expect(tab).toHaveAttribute('aria-selected', 'true');
-  await expect(page.locator('.tl-materials li[data-material-id]')).toContainText('graph');
   const stage = page.locator('.tl-graph__stage');
   await expect(stage).toBeVisible();
   // The graph renders (the note says so).
@@ -158,9 +156,7 @@ test('Convert to graph turns a standard material into an equivalent graph and op
   test.setTimeout(120_000);
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  await openWindow(page, 'Materials');
-  await page.getByRole('button', { name: '+ new material' }).click();
-  await expect(page.locator('.tl-materials li[data-material-id]')).toHaveCount(1);
+  await createItem(page, 'Material', 'Material 1');
   await page.getByRole('spinbutton', { name: 'roughness', exact: true }).fill('0.3');
   await page.getByRole('spinbutton', { name: 'roughness', exact: true }).blur();
   await expect.poll(async () => (await materials())[0]?.shader === 'standard' && JSON.stringify(await materials()).includes('"roughness":0.3')).toBe(true);
@@ -172,9 +168,9 @@ test('Convert to graph turns a standard material into an equivalent graph and op
   expect(rough.data?.['value']).toBe(0.3);
   expect(m.graph!.edges.some((e) => e.from.node === 'roughness' && e.to.node === 'output' && e.to.port === 'roughness')).toBe(true);
   await expect(node(page, 'output')).toBeVisible();
-  // The Materials tab shows it as a graph material now.
-  await expect(page.locator('.tl-materials li[data-material-id]')).toContainText('graph');
-  await expect(page.getByRole('button', { name: 'Open graph' })).toBeVisible();
+  // Its Inspector shows it as a graph material now.
+  await chooseItem(page, 'material', 'Material 1');
+  await expect(inspectorOf(page).getByRole('button', { name: 'Open graph' })).toBeVisible();
 });
 
 let seq = 0;
