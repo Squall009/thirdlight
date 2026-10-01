@@ -20,6 +20,7 @@ import { createHash } from 'node:crypto';
 import { expect, test, type Page } from '@playwright/test';
 
 import { type E2EBackend, startBackend } from './backend';
+import { openWindow, openEditor, editorPane } from './ui';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -86,9 +87,9 @@ test('script tab: edit, see a compile error inline, fix it, publish, Play runs i
 
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  await page.getByRole('tab', { name: 'Behaviors' }).click();
+  await openWindow(page, 'Behaviors');
   await page.locator('.tl-behaviors__list .tl-tile', { hasText: 'Counter' }).dblclick();
-  const view = page.getByRole('tabpanel', { name: 'Script: Counter' });
+  const view = editorPane(page, 'Script', 'Counter');
   const script = view.getByLabel('script editor');
   await expect(script).toHaveAttribute('data-behavior', 'counter');
   // The declaration editor docks beside the code.
@@ -178,7 +179,7 @@ test('script tab: edit, see a compile error inline, fix it, publish, Play runs i
   // A reload keeps the tab; the editor loads the published source from the backend.
   await page.reload();
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  await page.getByRole('tab', { name: 'Script: Counter', exact: true }).click();
+  await openEditor(page, 'Script', 'Counter');
   await expect(view.locator('.tl-script__file[data-file="src/util.ts"]')).toHaveCount(1);
   await expect(view.locator('.cm-content')).toContainText('amountOf(ctx.properties.amount));');
   await expect(view.getByText('published', { exact: true })).toBeVisible();
@@ -192,9 +193,9 @@ test('an import-scan hit in a comment is marked on its line and says it is in a 
   await cmd('setBehaviorProperties', { entityId: String(made.createdId), behaviorId: 'scanned', values: {} });
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  await page.getByRole('tab', { name: 'Behaviors' }).click();
+  await openWindow(page, 'Behaviors');
   await page.locator('.tl-behaviors__list .tl-tile', { hasText: 'Scanned' }).dblclick();
-  const view = page.getByRole('tabpanel', { name: 'Script: Scanned' });
+  const view = editorPane(page, 'Script', 'Scanned');
   const status = view.getByLabel('compile status');
   await expect(status).toHaveAttribute('data-status', 'ok', { timeout: 20_000 });
   await replaceCode(page, ['export default {', '  step() {},', "  // never require('fs') here", '};', ''].join('\n'));

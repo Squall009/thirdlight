@@ -21,7 +21,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 import { exportedContent, startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
 import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, type RendererVariant } from './renderer-variants';
-import { menu } from './ui';
+import { menu, closeEditor, openEditor } from './ui';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -103,9 +103,7 @@ for (const variant of VARIANTS) test(`a Custom-lit graph (two N·L bands) shades
   await expectRendererBackend(viewport, variant);
 
   // The Material tab: the catalogue has the Lighting inputs; the preview sphere shows both bands, without errors.
-  await page.getByRole('tab', { name: 'Materials' }).click();
-  await page.locator('.tl-materials li[data-material-id="mat-cel"]').dblclick();
-  await expect(page.getByRole('tab', { name: 'Material: Cel' })).toHaveAttribute('aria-selected', 'true');
+  await openEditor(page, 'Material', 'Cel');
   const stage = page.locator('.tl-graph__stage');
   const box = (await stage.boundingBox())!;
   await page.mouse.click(box.x + box.width * 0.1, box.y + box.height * 0.8, { button: 'right' });
@@ -124,13 +122,11 @@ for (const variant of VARIANTS) test(`a Custom-lit graph (two N·L bands) shades
   const pv = await shot(preview);
   console.log(`[material-custom-lit] ${variant} preview: yellow ${count(pv, yellow)}, blue ${count(pv, blue)}`);
   // The wrong one: the preview counts its compile error.
-  await page.getByRole('tab', { name: 'Materials' }).click();
-  await page.locator('.tl-materials li[data-material-id="mat-wrong"]').dblclick();
-  await expect(page.getByRole('tab', { name: 'Material: Wrong' })).toHaveAttribute('aria-selected', 'true');
+  await openEditor(page, 'Material', 'Wrong');
   await expect(page.locator('.tl-material-preview__status')).toContainText('1 error', { timeout: 30_000 });
 
   // A box (twice the size, turned 45° so two side faces show) wears it under the default sun.
-  await page.getByRole('tab', { name: 'Scene', exact: true }).click();
+  await closeEditor(page);
   const before = await shot(viewport);
   await menu(page, 'GameObject', 'Box');
   const row = page.locator('.tl-hierarchy__list li.tl-row.is-selected');

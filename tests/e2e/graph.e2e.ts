@@ -10,6 +10,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng } from './png';
+import { openWindow, closeEditor, openEditor as openItemEditor, expectEditorOpen, editorTab, viewTab } from './ui';
 
 let be: E2EBackend;
 test.afterEach(async () => {
@@ -87,11 +88,11 @@ async function openEditor(page: Page): Promise<{ stage: Locator; box: { x: numbe
   be = await startBackend();
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  await page.getByRole('tab', { name: 'Graphs' }).click();
+  await openWindow(page, 'Graphs');
   await page.getByLabel('Graph kind').selectOption('test');
   await page.getByLabel('New graph name').fill('Maths');
   await page.getByRole('button', { name: 'Create graph' }).click();
-  await expect(page.getByRole('tab', { name: 'Graph: Maths' })).toHaveAttribute('aria-selected', 'true');
+  await expectEditorOpen(page, 'Graph', 'Maths');
   const stage = page.locator('.tl-graph__stage');
   await expect(stage).toBeVisible();
   return { stage, box: (await stage.boundingBox())! };
@@ -207,10 +208,10 @@ test('graph editing: catalogue, wires (typed, conversions, refusals), box select
   await expect.poll(async () => (await graphOf('maths')).nodes.find((n) => n.id === c1)!.data).toEqual({ value: 5 });
   // The Graph inspector belongs to the graph tab: with Scene in front the right dock shows the scene Inspector again.
   const graphHint = page.locator('.tl-dock--right').getByText('Select a node, wire, group or comment.');
-  await page.getByRole('tab', { name: 'Scene', exact: true }).click();
+  await closeEditor(page);
   await expect(value).toHaveCount(0);
   await expect(graphHint).toHaveCount(0);
-  await page.getByRole('tab', { name: 'Graph: Maths' }).click();
+  await openItemEditor(page, 'Graph', 'Maths');
   await expect(graphHint).toBeVisible();
   await node(page, c1!).click({ position: { x: 90, y: 40 } });
   await expect(value).toHaveValue('5');
@@ -242,12 +243,12 @@ test('graph editing: copy/paste (also into another graph), duplicate, delete, al
   await page.keyboard.press('Shift+F');
 
   // Problems tab: the kind's diagnostics; a click opens the graph at the node.
-  await page.getByRole('tab', { name: 'Problems' }).click();
+  await openWindow(page, 'Problems');
   const issue = page.getByRole('button', { name: /Maths › Add \(sum\): Add: input "b" is not connected/ });
   await expect(issue).toBeVisible();
-  await page.getByRole('tab', { name: 'Scene', exact: true }).click();
+  await closeEditor(page);
   await issue.click();
-  await expect(page.getByRole('tab', { name: 'Graph: Maths' })).toHaveAttribute('aria-selected', 'true');
+  await expectEditorOpen(page, 'Graph', 'Maths');
   await expect(node(page, 'sum')).toHaveAttribute('aria-selected', 'true');
   await expect(node(page, 'sum')).toBeFocused();
 
@@ -354,10 +355,10 @@ test('graph editing: copy/paste (also into another graph), duplicate, delete, al
   await node(page, 'a').click({ position: { x: 90, y: 40 } });
   await node(page, 'sum').click({ position: { x: 90, y: 40 }, modifiers: ['Shift'] });
   await page.keyboard.press('Control+c');
-  await page.getByRole('tab', { name: 'Graphs' }).click();
+  await openWindow(page, 'Graphs');
   await page.getByLabel('New graph name').fill('Other');
   await page.getByRole('button', { name: 'Create graph' }).click();
-  await expect(page.getByRole('tab', { name: 'Graph: Other' })).toHaveAttribute('aria-selected', 'true');
+  await expectEditorOpen(page, 'Graph', 'Other');
   await page.locator('.tl-graph').focus();
   await page.keyboard.press('Control+v');
   await expect.poll(async () => (await graphOf('other')).nodes.map((n) => n.type).sort()).toEqual(['add', 'constant']);
@@ -424,24 +425,24 @@ test('graph editing: a 2000-node graph renders, fits, zooms and pans in the edit
   await page.reload();
   await expect(page.locator('.tl-statusbar')).toContainText('connected', { timeout: 30_000 });
   console.log(`[graph 2000 nodes] reload to connected after a backend restart: ${Date.now() - tr} ms`);
-  const tab = page.getByRole('tab', { name: 'Graph: Maths' });
+  const tab = editorTab(page, 'Graph', 'Maths');
   await expect(tab).toHaveAttribute('aria-selected', 'true');
   await expect(page.locator('.tl-graph__stage')).toBeVisible();
-  await page.getByRole('tab', { name: 'Graphs' }).click();
+  await openWindow(page, 'Graphs');
   await expect(page.locator('[data-graph-id="maths"]')).toContainText('2000 nodes');
   // Opening an open graph focuses its tab (no second tab); double-click opens too.
-  await page.getByRole('tab', { name: 'Scene', exact: true }).click();
+  await closeEditor(page);
   await expect(page.locator('.tl-graph__stage')).toHaveCount(0);
   await page.getByRole('button', { name: 'Open Maths' }).click();
   await expect(tab).toHaveAttribute('aria-selected', 'true');
-  await page.getByRole('tab', { name: 'Scene', exact: true }).click();
+  await closeEditor(page);
   await page.locator('[data-graph-id="maths"] .tl-graphs__meta').dblclick();
   await expect(tab).toHaveAttribute('aria-selected', 'true');
-  await expect(page.getByRole('tab', { name: /^Graph: / })).toHaveCount(1);
+  await expect(editorTab(page, 'Graph')).toHaveCount(1);
   expect((await graphOf('maths')).edges).toHaveLength(N - 1);
   // Closing the tab removes its editor (its left neighbour, Game, takes over).
-  await page.getByRole('button', { name: 'Close Graph: Maths' }).click();
+  await closeEditor(page, 'Graph', 'Maths');
   await expect(tab).toHaveCount(0);
   await expect(page.locator('.tl-graph__stage')).toHaveCount(0);
-  await expect(page.getByRole('tab', { name: 'Game', exact: true })).toHaveAttribute('aria-selected', 'true');
+  await expect(viewTab(page, 'Game')).toHaveAttribute('aria-selected', 'true');
 });

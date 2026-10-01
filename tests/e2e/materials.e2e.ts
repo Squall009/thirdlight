@@ -20,7 +20,7 @@ import { KIT_PIECES, multiPieceGlb } from './multi-piece-glb';
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
 import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
-import { menu } from './ui';
+import { menu, projectWindow, openWindow } from './ui';
 
 let be: E2EBackend;
 let dir: string;
@@ -60,7 +60,7 @@ async function motion(target: Locator | Page): Promise<number> {
   return changed(a, b);
 }
 async function importFile(page: Page, file: string): Promise<void> {
-  await page.getByRole('tab', { name: 'Assets' }).click();
+  await projectWindow(page);
   await page.locator('.tl-assets__file').first().setInputFiles(file);
   const publish = page.getByRole('button', { name: 'publish' });
   await expect(publish).toBeEnabled({ timeout: 15_000 });
@@ -104,7 +104,7 @@ for (const variant of RENDERER_VARIANTS) test(`a foliage material moves in the w
   expect(await motion(viewport)).toBeLessThan(20);
 
   // A foliage material, strong bend.
-  await page.getByRole('tab', { name: 'Materials' }).click();
+  await openWindow(page, 'Materials');
   await page.getByRole('button', { name: '+ new material' }).click();
   await expect(page.locator('.tl-materials li[data-material-id]')).toHaveCount(1);
   await page.getByRole('combobox', { name: 'shader' }).selectOption('foliage');
@@ -117,20 +117,20 @@ for (const variant of RENDERER_VARIANTS) test(`a foliage material moves in the w
   await expect(page.locator('.tl-param[data-param="windBend"]')).toHaveClass(/is-set/);
 
   // Strong wind.
-  await page.getByRole('tab', { name: 'Environment' }).click();
+  await openWindow(page, 'Environment');
   await page.getByRole('slider', { name: 'wind strength' }).focus();
   await page.keyboard.press('End');
   await expect.poll(async () => JSON.stringify((await be.command({ op: 'queryGameConfig', projectId: be.projectId }))['environment'])).toContain('"strength":10');
 
   // The kit's default material: every placement bends in the wind.
-  await page.getByRole('tab', { name: 'Assets' }).click();
+  await projectWindow(page);
   await kitTile.click();
   await page.getByRole('combobox', { name: 'material for all' }).selectOption({ label: 'Material 1' });
   // Generous waits: the first frames with a new node material compile its pipeline (slow on the CPU renderer here).
   await expect.poll(() => motion(viewport), { timeout: 30_000 }).toBeGreaterThan(50);
 
   // A textured standard material on a box.
-  await page.getByRole('tab', { name: 'Materials' }).click();
+  await openWindow(page, 'Materials');
   await page.getByRole('button', { name: '+ new material' }).click();
   await expect(page.locator('.tl-materials li[data-material-id]')).toHaveCount(2);
   await page.getByRole('combobox', { name: 'texture map' }).selectOption({ label: 'checker' });

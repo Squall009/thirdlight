@@ -19,7 +19,7 @@ import { exportedContent, startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
 import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, type RendererVariant } from './renderer-variants';
-import { menu } from './ui';
+import { menu, projectWindow } from './ui';
 
 let be: E2EBackend;
 let dir: string;
@@ -41,7 +41,7 @@ async function cmd(op: string, args: Record<string, unknown>): Promise<Record<st
   return r;
 }
 async function importFile(page: Page, file: string): Promise<void> {
-  await page.getByRole('tab', { name: 'Assets' }).click();
+  await projectWindow(page);
   await page.locator('.tl-assets__file').first().setInputFiles(file);
   const publish = page.getByRole('button', { name: 'publish' });
   await expect(publish).toBeEnabled({ timeout: 15_000 });

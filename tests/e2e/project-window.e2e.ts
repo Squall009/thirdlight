@@ -21,7 +21,7 @@ import { join, resolve } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 
 import { startBackend, STARTER, type E2EBackend } from './backend';
-import { menu } from './ui';
+import { menu, projectWindow, expectWindowOpen } from './ui';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 const OPUS = readFileSync(join(REPO, 'fixtures', 'music', 'chord-opus.ogg'));
@@ -61,7 +61,7 @@ async function voices(): Promise<void> {
 async function openAssets(page: Page): Promise<void> {
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  await page.getByRole('tab', { name: 'Assets' }).click();
+  await projectWindow(page);
 }
 
 test('a new folder, an asset dragged into it, the folder renamed, t: and l: search, a reload — all on disk', async ({ page }) => {
@@ -135,7 +135,7 @@ test('a new folder, an asset dragged into it, the folder renamed, t: and l: sear
   // A reload: the folder and the moved asset are there.
   await page.reload();
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  await page.getByRole('tab', { name: 'Assets' }).click();
+  await projectWindow(page);
   await treeFolder(page, '').click();
   await expect(folderTile(page, 'sounds')).toBeVisible();
   await folderTile(page, 'sounds').dblclick();
@@ -255,13 +255,13 @@ test('a double-click opens each kind of item in its editor; the kind menu writes
   await search.fill('t:scene scene-two');
   await itemTile(page, 'scene-two').dblclick();
   await expect(page.locator('.tl-scene-header', { hasText: 'Scene Two' })).toBeVisible();
-  await page.getByRole('tab', { name: 'Assets' }).click();
+  await projectWindow(page);
   await search.fill('t:prefab');
   await itemTile(page, 'prefab-one').dblclick();
-  await expect(page.getByRole('tab', { name: 'Prefabs' })).toHaveAttribute('aria-selected', 'true');
+  await expectWindowOpen(page, 'Prefabs');
 
   // The kind menu writes the t: of the search; list view draws rows.
-  await page.getByRole('tab', { name: 'Assets' }).click();
+  await projectWindow(page);
   await search.fill('One');
   await page.getByLabel('filter by kind').selectOption('timeline');
   await expect(search).toHaveValue('t:timeline One');

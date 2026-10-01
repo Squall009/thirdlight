@@ -20,6 +20,7 @@ import { KIT_PIECES, multiPieceGlb } from './multi-piece-glb';
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
 import { backendOf, editorUrlFor, onlyInItsProject, type RendererVariant } from './renderer-variants';
+import { projectWindow, openWindow, expectEditorOpen, openEditor } from './ui';
 
 let be: E2EBackend;
 let dir: string;
@@ -45,7 +46,7 @@ async function materials(): Promise<Mat[]> {
   return ((await be.command({ op: 'queryGameConfig', projectId: be.projectId, args: {} })).materials ?? []) as Mat[];
 }
 async function importFile(page: Page, file: string): Promise<void> {
-  await page.getByRole('tab', { name: 'Assets' }).click();
+  await projectWindow(page);
   await page.locator('.tl-assets__file').first().setInputFiles(file);
   const publish = page.getByRole('button', { name: 'publish' });
   await expect(publish).toBeEnabled({ timeout: 15_000 });
@@ -107,9 +108,7 @@ for (const variant of VARIANTS) test(`the Material tab previews the graph on a s
   await page.goto(editorUrlFor(be.editorUrl, variant));
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   await importFile(page, glb);
-  await page.getByRole('tab', { name: 'Materials' }).click();
-  await page.locator('.tl-materials li[data-material-id="mat-orange"]').dblclick();
-  await expect(page.getByRole('tab', { name: 'Material: Orange' })).toHaveAttribute('aria-selected', 'true');
+  await openEditor(page, 'Material', 'Orange');
   const canvas = page.getByLabel('material preview canvas');
   await expect.poll(() => canvas.getAttribute('data-tl-renderer'), { timeout: 30_000 }).toBe(backendOf(variant));
   await expect(page.getByLabel('material preview').getByRole('status')).toContainText(backendOf(variant));
@@ -153,18 +152,18 @@ test('templates, Convert to graph for wind/kit/water, and compile problems on th
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   await importFile(page, checker);
-  await page.getByRole('tab', { name: 'Materials' }).click();
+  await openWindow(page, 'Materials');
 
   // "+ new graph material" from the water template: its graph and public parameters.
   await page.getByLabel('graph material template').selectOption('water');
   await page.getByRole('button', { name: '+ new graph material' }).click();
-  await expect(page.getByRole('tab', { name: 'Material: Graph material 1' })).toHaveAttribute('aria-selected', 'true');
+  await expectEditorOpen(page, 'Material', 'Graph material 1');
   await expect.poll(async () => (await materials())[0]?.graph?.nodes.some((n) => n.type === 'fresnel') ?? false).toBe(true);
   expect(((await materials())[0]!.parameters ?? []).map((p) => p.key).sort()).toEqual(['color', 'fresnel', 'shallowColor']);
   await expect(page.getByLabel('exposed parameters').locator('[data-parameter]')).toHaveCount(3);
 
   // Convert to graph: enabled for every shader type; foliage becomes a wind graph, kit a world-UV graph, water a fresnel graph.
-  await page.getByRole('tab', { name: 'Materials' }).click();
+  await openWindow(page, 'Materials');
   for (const [shader, expectType] of [['foliage', 'vertexOffset'], ['kit', 'objectPosition'], ['water', 'fresnel']] as const) {
     const count = (await materials()).length;
     await page.getByRole('button', { name: '+ new material' }).click();
@@ -182,7 +181,7 @@ test('templates, Convert to graph for wind/kit/water, and compile problems on th
     await expect(convert).toBeEnabled();
     await convert.click();
     await expect.poll(async () => (await materials()).find((m) => m.shader === shader && m.graph !== undefined)?.graph?.nodes.some((n) => n.type === expectType) ?? false).toBe(true);
-    await page.getByRole('tab', { name: 'Materials' }).click();
+    await openWindow(page, 'Materials');
   }
 
   // A compile problem: a Sample texture without a texture reads white — a warning on its node and in the Problems tab.
@@ -202,11 +201,11 @@ test('templates, Convert to graph for wind/kit/water, and compile problems on th
       },
     },
   });
-  await page.getByRole('tab', { name: 'Problems' }).click();
+  await openWindow(page, 'Problems');
   const problem = page.locator('.tl-problem__link[data-material="mat-empty-tex"]');
   await expect(problem).toContainText('no texture');
   await expect(page.locator('.tl-problem').filter({ has: problem })).toContainText('material warning');
   await problem.click();
-  await expect(page.getByRole('tab', { name: 'Material: Empty texture' })).toHaveAttribute('aria-selected', 'true');
+  await expectEditorOpen(page, 'Material', 'Empty texture');
   await expect(page.locator('[data-node-id="sampler"]')).toHaveAttribute('data-problems', /warning/);
 });

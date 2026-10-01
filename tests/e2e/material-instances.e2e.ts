@@ -28,6 +28,7 @@ import { exportedContent, publishBytes, startBackend, type E2EBackend } from './
 import { multiPieceGlb } from './multi-piece-glb';
 import { decodePng, type Image } from './png';
 import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, RENDERER_VARIANTS, type RendererVariant } from './renderer-variants';
+import { openWindow, projectWindow, closeEditor } from './ui';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -142,7 +143,7 @@ for (const variant of VARIANTS) test(`material instances on an object, a model a
 
   // Editor: two instances of Glow.
   const materialsNow = async (): Promise<{ materialId: string; name: string; instanceOf?: string; values?: Record<string, unknown> }[]> => (await query('queryGameConfig')).materials as never;
-  await page.getByRole('tab', { name: 'Materials' }).click();
+  await openWindow(page, 'Materials');
   const tiles = page.locator('.tl-materials li[data-material-id]');
   const newInstanceOfGlow = async (): Promise<string> => {
     await page.locator('.tl-materials li[data-material-id="glow"]').click();
@@ -172,13 +173,13 @@ for (const variant of VARIANTS) test(`material instances on an object, a model a
   // Box A's Inspector maps the red instance; the Slab asset's default mapping the yellow one.
   await page.locator('.tl-hierarchy__list li.tl-row').filter({ hasText: 'Box A' }).click();
   await page.getByLabel('materials component').getByRole('combobox', { name: 'material for all' }).selectOption({ label: 'Glow instance' });
-  await page.getByRole('tab', { name: 'Assets' }).click();
+  await projectWindow(page);
   await page.locator('.tl-assets__list li[data-asset-id="slab"]:not([data-piece])').click();
   await page.getByLabel('Default materials (every placement)').getByRole('combobox', { name: 'material for all' }).selectOption({ label: 'Yellow' });
   await expect.poll(async () => JSON.stringify(((await query('queryAssets', { limit: 10, offset: 0 }))['assets'] as { assetId: string; materials?: unknown }[]).find((a) => a.assetId === 'slab')?.materials)).toBe(JSON.stringify({ '*': yellowId }));
 
   // Scene view.
-  await page.getByRole('tab', { name: 'Scene', exact: true }).click();
+  await closeEditor(page);
   await page.keyboard.press('Escape');
   let problem: string | null = 'not checked';
   await expect.poll(async () => (problem = checkPicture(await shot(viewport), true)), { timeout: 30_000, message: 'Scene view picture' }).toBeNull();

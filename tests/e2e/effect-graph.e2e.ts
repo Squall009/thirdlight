@@ -13,7 +13,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
-import { menu } from './ui';
+import { menu, openWindow, closeEditor, openEditor, editorTab } from './ui';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -73,10 +73,10 @@ test('an effect: create, add a system, spawn burst → lifetime → billboard ch
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
 
   // Effects tab → a new effect opens as a centre tab.
-  await page.getByRole('tab', { name: 'Effects' }).click();
+  await openWindow(page, 'Effects');
   await page.getByLabel('New effect name').fill('Sparks');
   await page.getByRole('button', { name: 'Create effect' }).click();
-  const tab = page.getByRole('tab', { name: 'Effect: Sparks' });
+  const tab = editorTab(page, 'Effect', 'Sparks');
   await expect(tab).toHaveAttribute('aria-selected', 'true');
   await expect(page.locator('.tl-effects li[data-effect-id="sparks"]')).toContainText('0 systems');
   await expect(page.getByRole('note')).toContainText('The preview plays the effect as Play would');
@@ -150,7 +150,7 @@ test('an effect: create, add a system, spawn burst → lifetime → billboard ch
   await expect.poll(async () => (await effects())[0]!.parameters?.map((x) => x.key)).toEqual(['param1']);
 
   // A box plays the effect: "+ Add component" → Effect (it picks the project's effect).
-  await page.getByRole('tab', { name: 'Scene', exact: true }).click();
+  await closeEditor(page);
   await menu(page, 'GameObject', 'Box');
   const row = page.locator('.tl-hierarchy__list li.tl-row.is-selected');
   await expect(row).toContainText('box');
@@ -174,7 +174,7 @@ test('an effect: create, add a system, spawn burst → lifetime → billboard ch
   await expect(page.locator('.tl-statusbar')).toContainText('connected', { timeout: 30_000 });
   expect(JSON.stringify(await graph())).toBe(before);
   expect((await components(id))['effect']).toEqual({ effectId: 'sparks', params: { param1: 5 } });
-  await page.getByRole('tab', { name: 'Effect: Sparks' }).click();
+  await openEditor(page, 'Effect', 'Sparks');
   await expect(node(page, bb!)).toBeVisible();
   await expect(page.locator('[data-edge-id]')).toHaveCount(4);
 

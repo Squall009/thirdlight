@@ -6,6 +6,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
+import { projectWindow, openWindow, showView, viewTab } from './ui';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -42,28 +43,28 @@ test('docks sit where Unity puts them and the bottom dock hosts the panels', asy
 
   // Hierarchy is always visible; the panels live in the bottom dock.
   await expect(page.locator('.tl-dock--left .tl-hierarchy__list li.tl-row')).toHaveCount(10); // the starter template's ten objects
-  await page.getByRole('tab', { name: 'Assets' }).click();
+  await projectWindow(page);
   await expect(page.locator('.tl-dock--bottom .tl-assets__list')).toBeVisible();
   // Tile and hierarchy icons are real image files that load.
   await expect.poll(() => page.locator('.tl-tile__img').first().evaluate((i) => (i as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
   await expect.poll(() => page.locator('.tl-row__icon').first().evaluate((i) => (i as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
   await expect.poll(() => page.locator('.tl-btn__icon').first().evaluate((i) => (i as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
-  await page.getByRole('tab', { name: /Problems/ }).click();
+  await openWindow(page, 'Problems');
   await expect(page.locator('.tl-dock--bottom .tl-problems, .tl-dock--bottom .tl-panel').first()).toBeVisible();
   await expect(page.locator('.tl-dock--left .tl-hierarchy__list li.tl-row')).toHaveCount(10);
 });
 
 test('Play opens in the Game tab; the Scene tab shows the viewport while the game keeps running', async ({ page }) => {
   await open(page);
-  await expect(page.getByRole('tab', { name: 'Scene' })).toHaveAttribute('aria-selected', 'true');
-  await page.getByRole('tab', { name: 'Game', exact: true }).click();
+  await expect(viewTab(page, 'Scene')).toHaveAttribute('aria-selected', 'true');
+  await showView(page, 'Game');
   await expect(page.getByText('Press ▶ play to run the game here.')).toBeVisible();
-  await page.getByRole('tab', { name: 'Scene' }).click();
+  await showView(page, 'Scene');
 
   const started = page.waitForResponse((r) => r.request().method() === 'POST' && r.url().endsWith('/play'));
   await page.getByTitle('Start an isolated play preview').click();
   const psid = String(((await (await started).json()) as { playSessionId: string }).playSessionId);
-  await expect(page.getByRole('tab', { name: 'Game', exact: true })).toHaveAttribute('aria-selected', 'true');
+  await expect(viewTab(page, 'Game')).toHaveAttribute('aria-selected', 'true');
   const frame = page.locator('iframe.tl-app__preview-frame');
   await expect(frame).toBeVisible();
   const stage = await box(page, '.tl-app__stage');
@@ -82,17 +83,17 @@ test('Play opens in the Game tab; the Scene tab shows the viewport while the gam
   await expect.poll(observe, { timeout: 15_000 }).toBe('running');
 
   // Scene tab: the viewport is back; the game is still there (observable, hidden not unmounted).
-  await page.getByRole('tab', { name: 'Scene' }).click();
+  await showView(page, 'Scene');
   await expect(frame).toBeHidden();
   await expect(frame).toHaveCount(1);
   expect(await observe()).toBe('running');
-  await page.getByRole('tab', { name: 'Game', exact: true }).click();
+  await showView(page, 'Game');
   await expect(frame).toBeVisible();
 
   await page.getByTitle('Stop the play preview').click();
   // Stop is a backend round trip plus the preview's teardown: seconds on a loaded CPU-rendered host.
   await expect(frame).toHaveCount(0, { timeout: 30_000 });
-  await expect(page.getByRole('tab', { name: 'Scene' })).toHaveAttribute('aria-selected', 'true');
+  await expect(viewTab(page, 'Scene')).toHaveAttribute('aria-selected', 'true');
 });
 
 test('splitters resize the docks, the viewport follows, and the sizes survive a reload', async ({ page }) => {

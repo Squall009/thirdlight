@@ -20,6 +20,7 @@ import { createHash } from 'node:crypto';
 import { expect, test, type Page } from '@playwright/test';
 
 import { type E2EBackend, startBackend } from './backend';
+import { openWindow, openEditor, editorPane } from './ui';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -124,10 +125,10 @@ test('a library made in the editor is imported by two scripts; Play shows it; sa
   // The Libraries tab: create "Scoring" (→ @lib/scoring); its tab opens with a starting entry module.
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  await page.getByRole('tab', { name: 'Libraries' }).click();
+  await openWindow(page, 'Libraries');
   await page.getByLabel('New library name').fill('Scoring');
   await page.getByRole('button', { name: 'Create library' }).click();
-  const view = page.getByRole('tabpanel', { name: 'Library: Scoring' });
+  const view = editorPane(page, 'Library', 'Scoring');
   await expect(view.getByLabel('library editor')).toHaveAttribute('data-library', 'scoring');
   const status = view.getByLabel('compile status');
   await expect(status).toHaveAttribute('data-status', 'ok', { timeout: 20_000 });
@@ -168,7 +169,7 @@ test('a library made in the editor is imported by two scripts; Play shows it; sa
   await playCounters(page, { alpha: 2, beta: 3 });
 
   // Edit the data in the library tab; saving asks to acknowledge the new digest, then recompiles both scripts.
-  await page.getByRole('tab', { name: 'Library: Scoring', exact: true }).click();
+  await openEditor(page, 'Library', 'Scoring');
   await expect(view.getByLabel('library dependents')).toContainText('user-alpha, user-beta', { timeout: 20_000 });
   await view.locator('.tl-script__file[data-file="src/table.json"]').click();
   await replaceCode(page, '{ "alpha": 20, "beta": 30 }\n');

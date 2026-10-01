@@ -13,6 +13,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
 import { skinnedGlb } from './skinned-glb';
+import { openWindow, editorPane, closeEditor } from './ui';
 
 let be: E2EBackend;
 let seq = 0;
@@ -71,10 +72,10 @@ test('document tabs open, switch, reorder, close, survive a reload; maximize; Ct
   expect(await centreTabs(page)).toEqual(['Scene', 'Game']);
 
   // Double-click a behavior tile → its script tab, in front, a real editor.
-  await page.getByRole('tab', { name: 'Behaviors', exact: true }).click();
+  await openWindow(page, 'Behaviors');
   await page.locator('.tl-behaviors__list .tl-tile', { hasText: 'Mover' }).dblclick();
   await expect(tab(page, 'Script: Mover')).toHaveAttribute('aria-selected', 'true');
-  const scriptView = page.getByRole('tabpanel', { name: 'Script: Mover' });
+  const scriptView = editorPane(page, 'Script', 'Mover');
   await expect(scriptView.getByLabel('declaration editor')).toHaveAttribute('data-behavior', 'mover');
   await expect(page.locator('canvas.tl-viewport')).toBeVisible(); // laid out underneath
   await scriptView.getByLabel('property 1 default', { exact: true }).fill('5');
@@ -84,10 +85,10 @@ test('document tabs open, switch, reorder, close, survive a reload; maximize; Ct
     .toBe(5);
 
   // Double-click a controller in the Animator's list → its tab with the graph.
-  await page.getByRole('tab', { name: 'Animator', exact: true }).click();
+  await openWindow(page, 'Animator');
   await page.getByLabel('animator controllers').getByRole('button', { name: 'Walker' }).dblclick();
   await expect(tab(page, 'Animator: Walker')).toHaveAttribute('aria-selected', 'true');
-  const animView = page.getByRole('tabpanel', { name: 'Animator: Walker' });
+  const animView = editorPane(page, 'Animator', /Walker/); // renamed to "Walker B" below while open
   await expect(animView.getByLabel('animator graph').getByRole('group', { name: 'State Idle node state-01' })).toBeVisible();
   // The document view has no controller picker (it edits this one controller) and edits reach the backend.
   await expect(animView.getByLabel('animator controller', { exact: true })).toHaveCount(0);
@@ -97,7 +98,7 @@ test('document tabs open, switch, reorder, close, survive a reload; maximize; Ct
   await expect.poll(async () => ((await query('queryGameConfig'))['animators'] as { controllerId: string; name: string }[] | undefined)?.find((c) => c.controllerId === 'animator-01')?.name).toBe('Walker B');
 
   // Opening an open document focuses its tab (no second tab).
-  await page.getByRole('tab', { name: 'Behaviors', exact: true }).click();
+  await openWindow(page, 'Behaviors');
   await page.locator('.tl-behaviors__list .tl-tile', { hasText: 'Mover' }).dblclick();
   await expect(tab(page, 'Script: Mover')).toHaveAttribute('aria-selected', 'true');
   expect(await centreTabs(page)).toEqual(['Scene', 'Game', 'Script: Mover', 'Animator: Walker B']);
@@ -116,7 +117,7 @@ test('document tabs open, switch, reorder, close, survive a reload; maximize; Ct
   await page.locator('.tl-behaviors__list .tl-tile', { hasText: 'Door' }).dblclick();
   await expect(tab(page, 'Script: Door')).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByRole('button', { name: /^Close (Scene|Game)$/ })).toHaveCount(0);
-  await page.getByRole('button', { name: 'Close Script: Door', exact: true }).click();
+  await closeEditor(page, 'Script', 'Door');
   await expect(tab(page, 'Script: Door')).toHaveCount(0);
   // The closed active tab hands over to its left neighbour.
   await expect(tab(page, 'Script: Mover')).toHaveAttribute('aria-selected', 'true');
@@ -139,7 +140,7 @@ test('document tabs open, switch, reorder, close, survive a reload; maximize; Ct
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   await expect.poll(() => centreTabs(page)).toEqual(['Scene', 'Game', 'Animator: Walker B', 'Script: Mover']);
   await expect(tab(page, 'Script: Mover')).toHaveAttribute('aria-selected', 'true');
-  await expect(page.getByRole('tabpanel', { name: 'Script: Mover' }).getByLabel('declaration editor')).toHaveAttribute('data-behavior', 'mover');
+  await expect(editorPane(page, 'Script', 'Mover').getByLabel('declaration editor')).toHaveAttribute('data-behavior', 'mover');
 
   // Maximize hides the docks and the centre grows; restoring brings them back.
   const stageBefore = (await page.locator('.tl-app__stage').boundingBox())!;
@@ -159,7 +160,7 @@ test('document tabs open, switch, reorder, close, survive a reload; maximize; Ct
   // Middle-click closes a document tab; closing every document leaves Scene and Game.
   await tab(page, 'Animator: Walker B').click({ button: 'middle' });
   await expect(tab(page, 'Animator: Walker B')).toHaveCount(0);
-  await page.getByRole('button', { name: 'Close Script: Mover', exact: true }).click();
+  await closeEditor(page, 'Script', 'Mover');
   expect(await centreTabs(page)).toEqual(['Scene', 'Game']);
   await page.reload();
   await expect(page.locator('.tl-statusbar')).toContainText('connected');

@@ -28,6 +28,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
 import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, type RendererVariant } from './renderer-variants';
+import { closeEditor, openEditor } from './ui';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -199,9 +200,7 @@ for (const variant of VARIANTS) test(`a script sets one object's colour and writ
   await expectRendererBackend(viewport, variant);
 
   // Editor: + parameter → key "cells", type data, size 4 × 4 (the material document's parameter list).
-  await page.getByRole('tab', { name: 'Materials' }).click();
-  await page.locator('.tl-materials li[data-material-id="overlay"]').dblclick();
-  await expect(page.getByRole('tab', { name: 'Material: Overlay' })).toHaveAttribute('aria-selected', 'true');
+  await openEditor(page, 'Material', 'Overlay');
   const params = page.getByLabel('exposed parameters');
   await params.getByRole('button', { name: '+ parameter' }).click();
   const materialOf = async (): Promise<{ parameters?: Record<string, unknown>[] }> => ((await query('queryGameConfig')).materials as { materialId: string; parameters?: Record<string, unknown>[] }[]).find((m) => m.materialId === 'overlay')!;
@@ -238,7 +237,7 @@ for (const variant of VARIANTS) test(`a script sets one object's colour and writ
   await script('painter', PAINTER, painter, ['tinted', 'patterned'], { tinted, patterned });
 
   // Scene view: both boxes in the material's own tint (no script runs in the editor).
-  await page.getByRole('tab', { name: 'Scene', exact: true }).click();
+  await closeEditor(page);
   await page.keyboard.press('Escape');
   await expect.poll(async () => count(await shot(viewport), green), { timeout: 30_000 }).toBeGreaterThan(600);
   expect(count(await shot(viewport), blue)).toBeLessThan(50);

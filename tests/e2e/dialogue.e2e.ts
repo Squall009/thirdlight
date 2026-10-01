@@ -32,6 +32,7 @@ import { expect, test, type Frame, type Locator, type Page } from '@playwright/t
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng } from './png';
 import { makePng } from './png-make';
+import { projectWindow, openWindow, editorTab } from './ui';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 let be: E2EBackend | null = null;
@@ -67,7 +68,7 @@ async function api(path: string, body: unknown): Promise<{ status: number; json:
 async function importFile(page: Page, file: string, name: string): Promise<string> {
   const assets = async () => (await query('queryAssets', { limit: 50, offset: 0 }))['assets'] as { assetId: string; displayName: string }[];
   const before = (await assets()).length;
-  await page.getByRole('tab', { name: 'Assets' }).click();
+  await projectWindow(page);
   await page.locator('.tl-assets__file').first().setInputFiles(file);
   const publish = page.getByRole('button', { name: 'publish' });
   await expect(publish).toBeEnabled({ timeout: 15_000 });
@@ -377,11 +378,11 @@ test('dialogue with voice: the editor previewer, Play and the export', async ({ 
   const ids = await setUp(page);
 
   // The editor: the Dialogue window lists the conversation; its tab shows the graph; the previewer plays it outside Play.
-  await page.getByRole('tab', { name: 'Dialogue' }).click();
+  await openWindow(page, 'Dialogue');
   const row = page.locator('.tl-dialogue-panel li[data-dialogue-id="talk"]');
   await expect(row).toContainText('Garden talk');
   await page.getByRole('button', { name: 'Open Garden talk' }).click();
-  await expect(page.getByRole('tab', { name: 'Dialogue: Garden talk' })).toBeVisible();
+  await expect(editorTab(page, 'Dialogue', 'Garden talk')).toBeVisible();
   await expect(page.locator('[aria-label="dialogue graph"]')).toBeVisible();
   await page.getByRole('button', { name: 'play dialogue preview' }).click();
   const stage = page.locator('[aria-label="dialogue preview stage"]');

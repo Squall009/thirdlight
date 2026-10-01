@@ -25,7 +25,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { type E2EBackend, startBackend } from './backend';
 import { decodePng } from './png';
-import { menu } from './ui';
+import { menu, openWindow, projectWindow, openProjectSettings } from './ui';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -127,7 +127,7 @@ test('UI document editor: build a HUD, drag, anchor, theme colour, undo/redo, th
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
 
   // A theme from the UI list: its tab opens; a "tint" style with a red background.
-  await page.getByRole('tab', { name: 'UI', exact: true }).click();
+  await openWindow(page, 'UI');
   await page.getByLabel('New UI theme name').fill('Neutral');
   await page.getByRole('button', { name: 'Create UI theme', exact: true }).click();
   const themeEditor = page.locator('[data-ui-theme="neutral"]');
@@ -141,7 +141,7 @@ test('UI document editor: build a HUD, drag, anchor, theme colour, undo/redo, th
   await expect.poll(async () => ((await query('queryGameConfig'))['uiThemes'] as { styles: Record<string, { background?: string }> }[])[0]?.styles['tint']?.background).toBe('#ff0000');
 
   // A UI document from the Assets panel: its tab opens.
-  await page.getByRole('tab', { name: 'Assets', exact: true }).click();
+  await projectWindow(page);
   await page.getByRole('button', { name: 'new UI document', exact: true }).click();
   const editor = page.locator(`[data-ui-document="${DOC_ID}"]`);
   await expect(editor).toBeVisible();
@@ -284,7 +284,7 @@ test('UI document editor: build a HUD, drag, anchor, theme colour, undo/redo, th
   await expect.poll(async () => (await innerColour(page, stack))[2], { timeout: 10_000 }).toBeGreaterThan(200);
 
   // The game shell: its pause screen becomes this document (the Game shell tab's screen picker).
-  await page.getByRole('tab', { name: 'Game shell' }).click();
+  await openProjectSettings(page, 'Game shell');
   const shellPanel = page.getByLabel('game shell', { exact: true });
   const shell = async (): Promise<{ screens?: Record<string, string> } | null> => ((await query('queryGameConfig'))['shell'] as { screens?: Record<string, string> } | undefined) ?? null;
   await shellPanel.getByRole('button', { name: 'add game shell' }).click();

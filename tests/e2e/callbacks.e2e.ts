@@ -23,6 +23,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
+import { openWindow, expectEditorOpen, editorPane } from './ui';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -120,9 +121,9 @@ test('callbacks: completion in the script editor, On enable in the node menu, li
   await openEditor(page);
 
   // Script editor: the callbacks complete inside export default, and the event parameter's fields.
-  await page.getByRole('tab', { name: 'Behaviors' }).click();
+  await openWindow(page, 'Behaviors');
   await page.locator('.tl-behaviors__list .tl-tile', { hasText: 'Watcher' }).dblclick();
-  const script = page.getByRole('tabpanel', { name: 'Script: Watcher' });
+  const script = editorPane(page, 'Script', 'Watcher');
   await expect(script.getByLabel('script editor')).toHaveAttribute('data-behavior', 'watcher');
   const completion = page.locator('.cm-tooltip-autocomplete');
   await script.locator('.cm-line', { hasText: 'onDisable' }).click();
@@ -142,10 +143,10 @@ test('callbacks: completion in the script editor, On enable in the node menu, li
 
   // Graph editor: "On enable" from the node menu, wired to Add to counter "vs_on"; published and put on the lamp.
   await openEditor(page);
-  await page.getByRole('tab', { name: 'Behaviors' }).click();
+  await openWindow(page, 'Behaviors');
   await page.getByLabel('New visual script name').fill('Lamp lit');
   await page.getByRole('button', { name: '+ Visual script' }).click();
-  await expect(page.getByRole('tab', { name: 'Graph: Lamp lit' })).toHaveAttribute('aria-selected', 'true');
+  await expectEditorOpen(page, 'Graph', 'Lamp lit');
   const view = page.getByLabel('visual script', { exact: true });
   await expect(view).toHaveAttribute('data-behavior', 'lamp-lit');
   const stage = page.locator('.tl-graph__stage');

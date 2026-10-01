@@ -21,7 +21,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
 import { backendOf, editorUrlFor, expectRendererBackend, onlyInItsProject, type RendererVariant } from './renderer-variants';
-import { menu } from './ui';
+import { menu, openWindow, expectEditorOpen, closeEditor } from './ui';
 
 let be: E2EBackend;
 test.afterEach(async () => {
@@ -128,10 +128,10 @@ for (const variant of VARIANTS) test(`the Effect tab previews an effect: particl
   await cmd('setEffect', { effect: streamEffect(40) });
   await page.goto(editorUrlFor(be.editorUrl, variant));
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  await page.getByRole('tab', { name: 'Effects' }).click();
+  await openWindow(page, 'Effects');
   const openTab = async (): Promise<void> => {
     await page.getByRole('button', { name: 'Open Stream' }).click();
-    await expect(page.getByRole('tab', { name: 'Effect: Stream' })).toHaveAttribute('aria-selected', 'true');
+    await expectEditorOpen(page, 'Effect', 'Stream');
   };
   await openTab();
 
@@ -207,7 +207,7 @@ for (const variant of VARIANTS) test(`the Effect tab previews an effect: particl
 
   // Leak check: close the tab, then open and close it 10 times — every preview is disposed and returned the renderer's
   // geometry and attribute counts to their baseline.
-  await page.getByRole('button', { name: 'Close Effect: Stream' }).click();
+  await closeEditor(page, 'Effect', 'Stream');
   await expect(canvas).toHaveCount(0);
   const before = await ledger(page);
   expect(before.open).toBe(0);
@@ -215,7 +215,7 @@ for (const variant of VARIANTS) test(`the Effect tab previews an effect: particl
     await openTab();
     // Wait until the preview built its play (the baseline exists and the effect was simulated).
     await expect.poll(async () => (await state(canvas)).steps, { timeout: 60_000 }).toBeGreaterThan(0);
-    await page.getByRole('button', { name: 'Close Effect: Stream' }).click();
+    await closeEditor(page, 'Effect', 'Stream');
     await expect(canvas).toHaveCount(0);
   }
   const after = await ledger(page);

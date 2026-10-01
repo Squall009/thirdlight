@@ -26,6 +26,7 @@ import { extname, join, normalize } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 
 import { exportedContent, type E2EBackend, startBackend } from './backend';
+import { openWindow, editorPane } from './ui';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -187,7 +188,7 @@ test('libraries are shared modules in Play (worker and page) and the export; the
   expect(worker.libraryRequests.length).toBeGreaterThan(0);
 
   // The Console: the log at the script's line, the library's error at the library's line and the calling frame.
-  await page.getByRole('tab', { name: 'Console', exact: true }).click();
+  await openWindow(page, 'Console');
   const consolePanel = page.getByLabel('console', { exact: true });
   const log = consolePanel.locator('li[data-code="behavior_log"]').filter({ hasText: 'tally a 1' });
   await expect(log.getByLabel('source location')).toHaveText(new RegExp(`^user-a · src/index\\.ts:${LOG_LINE}:\\d+$`), { timeout: 30_000 });
@@ -199,13 +200,13 @@ test('libraries are shared modules in Play (worker and page) and the export; the
   expect(d.diagnostics.runtime.errors.find((e) => e.code !== 'behavior_log')?.source).toMatchObject({ libraryId: 'tally', path: 'src/index.ts', line: TALLY_THROW_LINE });
   // A location opens the library's file with the cursor on the line.
   await failure.getByLabel('source location').click();
-  const libView = page.getByRole('tabpanel', { name: 'Library: Tally' });
+  const libView = editorPane(page, 'Library', 'Tally');
   await expect(libView.locator('.cm-lineNumbers .cm-activeLineGutter')).toHaveText(String(TALLY_THROW_LINE), { timeout: 20_000 });
   await expect(libView.locator('.cm-activeLine')).toContainText('the tally gave up');
   // And the script's log opens the script's file at its line.
-  await page.getByRole('tab', { name: 'Console', exact: true }).click();
+  await openWindow(page, 'Console');
   await log.getByLabel('source location').click();
-  const scriptView = page.getByRole('tabpanel', { name: 'Script: user-a' });
+  const scriptView = editorPane(page, 'Script', 'user-a');
   await expect(scriptView.locator('.cm-lineNumbers .cm-activeLineGutter')).toHaveText(String(LOG_LINE), { timeout: 30_000 });
   await expect(scriptView.locator('.cm-activeLine')).toContainText("ctx.log('info'");
   await page.getByTitle('Stop the play preview').click();
@@ -264,11 +265,11 @@ test('staged library edits: Save all commits two libraries in one commit; a larg
 
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  await page.getByRole('tab', { name: 'Libraries' }).click();
+  await openWindow(page, 'Libraries');
   // Edit both libraries in their tabs (unsaved).
   for (const [name, text] of [['Alpha', 'export const alpha = 3;\n'], ['Beta', 'export const beta = 4;\n']] as const) {
     await page.getByRole('button', { name: `Open ${name}` }).click();
-    const view = page.getByRole('tabpanel', { name: `Library: ${name}` });
+    const view = editorPane(page, 'Library', name);
     await expect(view.getByLabel('compile status')).toHaveAttribute('data-status', 'ok', { timeout: 20_000 });
     await replaceCode(page, view, text);
     await expect(view.getByText('unsaved edits')).toBeVisible();
@@ -294,7 +295,7 @@ test('staged library edits: Save all commits two libraries in one commit; a larg
   expect(ok.libraryStage.dependents.map((d) => d.behaviorId)).toEqual(['user-ab']);
   expect((await stored())['alpha']![0]!.text).toBe('export const alpha = 3;\n');
   expect((await stored())['beta']![0]!.text).toBe('export const beta = 4;\n');
-  await expect(page.getByRole('tabpanel', { name: 'Library: Beta' }).getByText('saved', { exact: true })).toBeVisible();
+  await expect(editorPane(page, 'Library', 'Beta').getByText('saved', { exact: true })).toBeVisible();
   // One undo takes both back.
   await cmd('undo', {});
   expect((await stored())['alpha']![0]!.text).toBe(ALPHA);
@@ -303,7 +304,7 @@ test('staged library edits: Save all commits two libraries in one commit; a larg
 
   // Files larger than one command request, saved from their tab: several patches (a file in pieces), one commit.
   await page.getByRole('button', { name: 'Open Alpha' }).click();
-  const alpha = page.getByRole('tabpanel', { name: 'Library: Alpha' });
+  const alpha = editorPane(page, 'Library', 'Alpha');
   const table = (from: number): string => `${JSON.stringify({ rows: Array.from({ length: 800 }, (_, i) => ({ id: from + i, label: `row number ${from + i} of a large neutral table` })) })}\n`;
   const bigFiles = [{ path: 'src/big-a.json', text: table(0) }, { path: 'src/big-b.json', text: table(800) }];
   // Each file is within a library's 64 KiB per file; together they are over the 64 KiB command request cap.

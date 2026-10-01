@@ -21,6 +21,7 @@ import { expect, test } from '@playwright/test';
 
 import { type E2EBackend, startBackend, controls } from './backend';
 import { decodePng } from './png';
+import { projectWindow, openEditor } from './ui';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 
@@ -164,9 +165,7 @@ test('an MCP agent builds a visual script with graphEdit, publishes it through t
   expect(bad.isError).toBe(true);
 
   // The editor shows the MCP-built graph (the behavior list, then its Graph tab) and its compile check passes.
-  await page.getByRole('tab', { name: 'Behaviors' }).click();
-  await page.locator('.tl-behaviors__list .tl-tile', { hasText: 'MCP gifts' }).dblclick();
-  await expect(page.getByRole('tab', { name: 'Graph: MCP gifts' })).toHaveAttribute('aria-selected', 'true');
+  await openEditor(page, 'Graph', 'MCP gifts');
   const view = page.getByLabel('visual script', { exact: true });
   await expect(page.locator('[data-node-id="give"]')).toBeVisible();
   await expect(view.getByLabel('compile status')).toHaveAttribute('data-status', 'ok', { timeout: 20_000 });
@@ -232,7 +231,7 @@ test('an MCP agent organizes the project: a folder made, a resource moved into i
   const refused = await call('tl_command', { op: 'createFolder', expectedRevision: before, args: { folder: 'looks' } });
   expect(refused.isError).toBe(true);
   expect(await rev()).toBe(before);
-  await page.getByRole('tab', { name: 'Assets' }).click();
+  await projectWindow(page);
   await page.getByRole('button', { name: 'folder (game folder)', exact: true }).click();
   await expect(page.locator('.tl-assets__list li[data-folder="looks"]')).toBeVisible();
 

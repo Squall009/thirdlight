@@ -21,6 +21,7 @@ import { createHash } from 'node:crypto';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { type E2EBackend, startBackend } from './backend';
+import { openWindow, closeEditor, openEditor, expectEditorOpen } from './ui';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -92,9 +93,7 @@ test('visual script editor and debugging: problems, variables, functions, switch
 
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  await page.getByRole('tab', { name: 'Behaviors' }).click();
-  await page.locator('.tl-behaviors__list .tl-tile', { hasText: 'Stepper' }).dblclick();
-  await expect(page.getByRole('tab', { name: 'Graph: Stepper' })).toHaveAttribute('aria-selected', 'true');
+  await openEditor(page, 'Graph', 'Stepper');
   const view = page.getByLabel('visual script', { exact: true });
   await expect(node(page, 'add')).toBeVisible();
   // Exec wires are drawn as flow (the kind says so); the compile problem is on its node.
@@ -102,12 +101,12 @@ test('visual script editor and debugging: problems, variables, functions, switch
   await expect(node(page, 'add')).toHaveAttribute('data-problems', /error/);
 
   // The Problems tab lists it; a click (from the Scene tab) opens the Graph tab at the node.
-  await page.getByRole('tab', { name: 'Problems' }).click();
+  await openWindow(page, 'Problems');
   const issue = page.getByRole('button', { name: /Stepper › Add to counter \(add\): fill in the counter/ });
   await expect(issue).toBeVisible();
-  await page.getByRole('tab', { name: 'Scene', exact: true }).click();
+  await closeEditor(page);
   await issue.click();
-  await expect(page.getByRole('tab', { name: 'Graph: Stepper' })).toHaveAttribute('aria-selected', 'true');
+  await expectEditorOpen(page, 'Graph', 'Stepper');
   await expect(node(page, 'add')).toHaveAttribute('aria-selected', 'true');
   // Fix it in the Inspector.
   const inspector = page.locator('.tl-dock--right');
@@ -198,7 +197,7 @@ test('visual script editor and debugging: problems, variables, functions, switch
   await expect.poll(async () => (await observe()).counters?.['hits'] ?? 0, { timeout: 30_000 }).toBeGreaterThan(0);
 
   // Back in the Graph tab: the debugger watches the box; the nodes that run light up.
-  await page.getByRole('tab', { name: 'Graph: Stepper' }).click();
+  await openEditor(page, 'Graph', 'Stepper');
   const debuggerPanel = view.getByLabel('debugger');
   await expect(debuggerPanel).toHaveAttribute('data-state', 'running', { timeout: 30_000 });
   await expect(debuggerPanel.getByLabel('Debug object')).toHaveValue(boxId);

@@ -17,7 +17,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
 import { makePng } from './png-make';
-import { menu } from './ui';
+import { menu, projectWindow, openWindow, closeEditor, expectEditorOpen, editorTab, openEditor } from './ui';
 
 let be: E2EBackend;
 let dir: string;
@@ -70,7 +70,7 @@ async function addFromCatalogue(page: Page, at: { x: number; y: number }, query:
   await expect(popup).toHaveCount(0);
 }
 async function importTexture(page: Page, file: string): Promise<void> {
-  await page.getByRole('tab', { name: 'Assets' }).click();
+  await projectWindow(page);
   await page.locator('.tl-assets__file').first().setInputFiles(file);
   const publish = page.getByRole('button', { name: 'publish' });
   await expect(publish).toBeEnabled({ timeout: 15_000 });
@@ -87,9 +87,9 @@ test('a graph material: new tab, nodes from the catalogue, texture × tint into 
   await importTexture(page, checker);
 
   // Materials → "+ new graph material": the material opens as a centre tab with a PBR output.
-  await page.getByRole('tab', { name: 'Materials' }).click();
+  await openWindow(page, 'Materials');
   await page.getByRole('button', { name: '+ new graph material' }).click();
-  const tab = page.getByRole('tab', { name: 'Material: Graph material 1' });
+  const tab = editorTab(page, 'Material', 'Graph material 1');
   await expect(tab).toHaveAttribute('aria-selected', 'true');
   await expect(page.locator('.tl-materials li[data-material-id]')).toContainText('graph');
   const stage = page.locator('.tl-graph__stage');
@@ -142,7 +142,7 @@ test('a graph material: new tab, nodes from the catalogue, texture × tint into 
   const before = JSON.stringify((await graphMaterial()).graph);
   await page.reload();
   await expect(page.locator('.tl-statusbar')).toContainText('connected', { timeout: 30_000 });
-  await expect(page.getByRole('tab', { name: 'Material: Graph material 1' })).toHaveAttribute('aria-selected', 'true');
+  await expectEditorOpen(page, 'Material', 'Graph material 1');
   await expect(node(page, mul!)).toBeVisible();
   await expect(port(page, mul!, 'out', 'out')).toHaveAttribute('aria-label', /out \(vec3\)/);
   expect(JSON.stringify((await graphMaterial()).graph)).toBe(before);
@@ -158,14 +158,14 @@ test('Convert to graph turns a standard material into an equivalent graph and op
   test.setTimeout(120_000);
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  await page.getByRole('tab', { name: 'Materials' }).click();
+  await openWindow(page, 'Materials');
   await page.getByRole('button', { name: '+ new material' }).click();
   await expect(page.locator('.tl-materials li[data-material-id]')).toHaveCount(1);
   await page.getByRole('spinbutton', { name: 'roughness', exact: true }).fill('0.3');
   await page.getByRole('spinbutton', { name: 'roughness', exact: true }).blur();
   await expect.poll(async () => (await materials())[0]?.shader === 'standard' && JSON.stringify(await materials()).includes('"roughness":0.3')).toBe(true);
   await page.getByRole('button', { name: 'Convert to graph' }).click();
-  await expect(page.getByRole('tab', { name: 'Material: Material 1' })).toHaveAttribute('aria-selected', 'true');
+  await expectEditorOpen(page, 'Material', 'Material 1');
   const m = await graphMaterial();
   expect(m.shader).toBe('standard');
   const rough = m.graph!.nodes.find((n) => n.id === 'roughness')!;
@@ -231,9 +231,7 @@ test('a material function call takes its ports from the function; an object over
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
 
   // Open the material from its tile (double-click) and add a Function call: it runs the project's function.
-  await page.getByRole('tab', { name: 'Materials' }).click();
-  await page.locator('.tl-materials li[data-material-id="mat-glow"]').dblclick();
-  await expect(page.getByRole('tab', { name: 'Material: Glow' })).toHaveAttribute('aria-selected', 'true');
+  await openEditor(page, 'Material', 'Glow');
   await expect(page.getByLabel('exposed parameters').locator('[data-parameter]')).toHaveCount(2);
   const stage = page.locator('.tl-graph__stage');
   const box = (await stage.boundingBox())!;
@@ -250,7 +248,7 @@ test('a material function call takes its ports from the function; an object over
   await expect(port(page, param!, 'out', 'value')).toHaveAttribute('aria-label', /value \(vec3\)/);
 
   // A box using the material: the Inspector's Materials section offers the public parameter only.
-  await page.getByRole('tab', { name: 'Scene', exact: true }).click();
+  await closeEditor(page);
   await menu(page, 'GameObject', 'Box');
   const row = page.locator('.tl-hierarchy__list li.tl-row.is-selected');
   await expect(row).toContainText('box');

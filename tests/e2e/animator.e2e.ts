@@ -22,6 +22,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
 import { skinnedGlb } from './skinned-glb';
+import { openWindow, closeEditor, openEditor, expectEditorOpen, editorPane, windowTab } from './ui';
 
 let be: E2EBackend;
 let seq = 0;
@@ -108,16 +109,16 @@ test('a controller built in the Animator tab poses a skinned model in Play by it
   const column = String((await cmd('createEntity', { kind: 'model', name: 'column', model: { asset: { assetId } }, transform: { position: [0, 0, 0] } })).createdId);
 
   // The bottom-dock Animator lists controllers; a new one opens as a centre tab with its graph.
-  await page.getByRole('tab', { name: 'Animator', exact: true }).click();
+  await openWindow(page, 'Animator');
   await expect(page.getByLabel('animator model')).toHaveValue(assetId);
   await page.getByRole('button', { name: 'New controller' }).click();
-  await expect(page.getByRole('tab', { name: 'Animator: New animator', exact: true })).toHaveAttribute('aria-selected', 'true');
-  const doc = page.getByRole('tabpanel', { name: 'Animator: New animator' });
+  await expectEditorOpen(page, 'Animator', 'New animator');
+  const doc = editorPane(page, 'Animator', 'New animator');
   const graph = doc.getByLabel('animator graph');
   await expect(graph.getByRole('group', { name: 'State idle node state-01' })).toBeVisible();
   await expect(graph.getByRole('group', { name: 'Entry node ENTRY' })).toBeVisible();
   await expect(graph.getByRole('group', { name: 'Any State node ANY' })).toBeVisible();
-  await expect(page.getByRole('tab', { name: 'Animator', exact: true })).toBeVisible();
+  await expect(windowTab(page, 'Animator')).toBeVisible();
   const inspector = page.locator('.tl-dock--right');
 
   await doc.getByLabel('new parameter name').fill('bent');
@@ -198,7 +199,7 @@ test('a controller built in the Animator tab poses a skinned model in Play by it
   expect(JSON.stringify(await controllers())).not.toContain('"default":true');
 
   // Put the controller on the model (Scene tab → the Inspector shows the object again).
-  await page.getByRole('tab', { name: 'Scene', exact: true }).click();
+  await closeEditor(page);
   await page.locator(`.tl-hierarchy__list li[data-entity-id="${column}"]`).click();
   // "+ Add component" → Animator, then pick its controller.
   await page.locator('.tl-inspector').getByLabel('add component', { exact: true }).selectOption({ label: 'Animator' });
@@ -208,7 +209,7 @@ test('a controller built in the Animator tab poses a skinned model in Play by it
 
   // Play: bent = false → straight; bent = true → the upper half leans over.
   const straight = bentPixels(await play(page));
-  await page.getByRole('tab', { name: 'Animator: New animator', exact: true }).click();
+  await openEditor(page, 'Animator', 'New animator');
   await doc.getByLabel('parameter bent default').click();
   await expect.poll(async () => JSON.stringify(await controllers())).toContain('"default":true');
   const bent = bentPixels(await play(page));
@@ -243,9 +244,9 @@ test('animator graph: a moved state keeps its place after a reload and undo; a p
     },
   });
 
-  await page.getByRole('tab', { name: 'Animator', exact: true }).click();
+  await openWindow(page, 'Animator');
   await page.getByLabel('animator controllers').getByRole('button', { name: 'Poser' }).dblclick();
-  const doc = page.getByRole('tabpanel', { name: 'Animator: Poser' });
+  const doc = editorPane(page, 'Animator', 'Poser');
   const graph = doc.getByLabel('animator graph');
   await expect(node(graph, 'still')).toBeVisible();
   const inspector = page.locator('.tl-dock--right');
@@ -275,7 +276,7 @@ test('animator graph: a moved state keeps its place after a reload and undo; a p
   // Reload: the tab comes back and the state is where it was put (graph offset from `still` kept).
   await page.reload();
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  const doc2 = page.getByRole('tabpanel', { name: 'Animator: Poser' });
+  const doc2 = editorPane(page, 'Animator', 'Poser');
   const graph2 = doc2.getByLabel('animator graph');
   await expect(node(graph2, 'lean')).toBeVisible({ timeout: 15_000 });
   const z2 = parseFloat((await doc2.getByLabel('Zoom').textContent()) ?? '100') / 100;

@@ -32,6 +32,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { addTitleShell, publishWav, startBackend, type E2EBackend } from './backend';
 import { decodePng } from './png';
+import { openWindow, openEditor, expectEditorOpen } from './ui';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -80,12 +81,12 @@ test('visual script: build On start → Add to counter in the Graph tab, publish
 
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  await page.getByRole('tab', { name: 'Behaviors' }).click();
+  await openWindow(page, 'Behaviors');
   await page.getByLabel('New visual script name').fill('Gift giver');
   await page.getByRole('button', { name: '+ Visual script' }).click();
 
   // The Graph tab: the generic graph editor with the behavior kind.
-  await expect(page.getByRole('tab', { name: 'Graph: Gift giver' })).toHaveAttribute('aria-selected', 'true');
+  await expectEditorOpen(page, 'Graph', 'Gift giver');
   const view = page.getByLabel('visual script', { exact: true });
   await expect(view).toHaveAttribute('data-behavior', 'gift-giver');
   await expect(node(page, 'start')).toBeVisible();
@@ -155,7 +156,7 @@ test('visual script: build On start → Add to counter in the Graph tab, publish
   // A reload keeps the Graph tab (a behavior with a graph opens as a visual script).
   await page.reload();
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  await page.getByRole('tab', { name: 'Graph: Gift giver', exact: true }).click();
+  await openEditor(page, 'Graph', 'Gift giver');
   await expect(node(page, addId)).toBeVisible();
 });
 
@@ -181,10 +182,10 @@ test('visual script from the catalogue search: on trigger enter → timer → hi
 
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  await page.getByRole('tab', { name: 'Behaviors' }).click();
+  await openWindow(page, 'Behaviors');
   await page.getByLabel('New visual script name').fill('Timed door');
   await page.getByRole('button', { name: '+ Visual script' }).click();
-  await expect(page.getByRole('tab', { name: 'Graph: Timed door' })).toHaveAttribute('aria-selected', 'true');
+  await expectEditorOpen(page, 'Graph', 'Timed door');
   const view = page.getByLabel('visual script', { exact: true });
   await expect(view).toHaveAttribute('data-behavior', 'timed-door');
   const stage = page.locator('.tl-graph__stage');

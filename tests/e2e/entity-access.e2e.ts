@@ -27,6 +27,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
 import { editorUrlFor, expectRendererBackend, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
+import { openWindow, editorPane } from './ui';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -170,9 +171,9 @@ for (const variant of RENDERER_VARIANTS) test(`ctx.entity: object properties pic
   await expect(inspector.locator('select[data-entity-ref="wall"]')).toHaveValue(wallId);
 
   // Script editor: the typings complete the new context members.
-  await page.getByRole('tab', { name: 'Behaviors' }).click();
+  await openWindow(page, 'Behaviors');
   await page.locator('.tl-behaviors__list .tl-tile', { hasText: 'Director' }).dblclick();
-  const view = page.getByRole('tabpanel', { name: 'Script: Director' });
+  const view = editorPane(page, 'Script', 'Director');
   await expect(view.getByLabel('script editor')).toHaveAttribute('data-behavior', 'director');
   await view.locator('.cm-line', { hasText: "ctx.phase !== 'intent'" }).click();
   await page.keyboard.press('End');

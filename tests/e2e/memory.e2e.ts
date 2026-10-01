@@ -36,6 +36,7 @@ import { gpuAvailable } from './browser-env.mjs';
 import { type E2EBackend, startBackend } from './backend';
 import { cycles, describe as summary, expectBack, installProbe, MemoryProbe, TOLERANCE, type MemorySample, type Tolerance } from './memory-probe';
 import { skinnedGlb } from './skinned-glb';
+import { projectWindow, editorPane, editorTab, closeEditor, expectEditorOpen, openWindow, type EditorKind } from './ui';
 
 // Small scenes, a smaller page: the CPU renderer draws each frame faster (the counts do not depend on the size).
 test.use({ viewport: { width: 1280, height: 720 } });
@@ -100,7 +101,7 @@ async function leakCheck(page: Page, probe: MemoryProbe, label: string, n: numbe
 async function importModel(page: Page): Promise<string> {
   const dir = mkdtempSync(join(tmpdir(), 'tl-memory-'));
   writeFileSync(join(dir, 'column.glb'), skinnedGlb());
-  await page.getByRole('tab', { name: 'Assets', exact: true }).click();
+  await projectWindow(page);
   await page.locator('.tl-assets__file').first().setInputFiles(join(dir, 'column.glb'));
   rmSync(dir, { recursive: true, force: true });
   const publish = page.getByRole('button', { name: 'publish' });
@@ -110,8 +111,6 @@ async function importModel(page: Page): Promise<string> {
   const assets = (await query('queryAssets', { limit: 10, offset: 0 }))['assets'] as { assetId: string }[];
   return assets[0]!.assetId;
 }
-
-const tab = (page: Page, name: string): Locator => page.getByRole('tab', { name, exact: true });
 
 /** A looping stream of billboards (neutral fixture, as in effect-editor.e2e). */
 function streamEffect(): Record<string, unknown> {
@@ -167,59 +166,65 @@ test('document tabs: every kind opened and closed 50× returns heap and GPU coun
     },
   });
   // A standalone graph and a visual script, made in the editor (their tabs open once; closed here).
-  await tab(page, 'Graphs').click();
+  await openWindow(page, 'Graphs');
   await page.getByLabel('Graph kind').selectOption('test');
   await page.getByLabel('New graph name').fill('Maths');
   await page.getByRole('button', { name: 'Create graph' }).click();
-  await expect(tab(page, 'Graph: Maths')).toHaveAttribute('aria-selected', 'true');
-  await page.getByRole('button', { name: 'Close Graph: Maths', exact: true }).click();
-  await tab(page, 'Behaviors').click();
+  await expectEditorOpen(page, 'Graph', 'Maths');
+  await closeEditor(page, 'Graph', 'Maths');
+  await openWindow(page, 'Behaviors');
   await page.getByLabel('New visual script name').fill('Gift giver');
   await page.getByRole('button', { name: '+ Visual script' }).click();
-  await expect(tab(page, 'Graph: Gift giver')).toHaveAttribute('aria-selected', 'true');
-  await page.getByRole('button', { name: 'Close Graph: Gift giver', exact: true }).click();
+  await expectEditorOpen(page, 'Graph', 'Gift giver');
+  await closeEditor(page, 'Graph', 'Gift giver');
 
   const n = cycles(50);
-  const kinds: { label: string; dock: string; open: () => Promise<void>; title: string; ready: (view: Locator) => Promise<void> }[] = [
+  const kinds: { label: string; dock: string; open: () => Promise<void>; kind: EditorKind; name: string; ready: (view: Locator) => Promise<void> }[] = [
     {
       label: 'Animator tab',
       dock: 'Animator',
-      title: 'Animator: Walker',
+      kind: 'Animator',
+      name: 'Walker',
       open: () => page.getByLabel('animator controllers').getByRole('button', { name: 'Walker' }).dblclick(),
       ready: (v) => expect(v.getByLabel('animator graph').getByRole('group', { name: 'State Idle node state-01' })).toBeVisible(),
     },
     {
       label: 'Script tab',
       dock: 'Behaviors',
-      title: 'Script: Mover',
+      kind: 'Script',
+      name: 'Mover',
       open: () => page.locator('.tl-behaviors__list .tl-tile', { hasText: 'Mover' }).dblclick(),
       ready: (v) => expect(v.locator('.cm-editor')).toBeVisible(),
     },
     {
       label: 'Graph tab',
       dock: 'Graphs',
-      title: 'Graph: Maths',
+      kind: 'Graph',
+      name: 'Maths',
       open: () => page.locator('[data-graph-id] .tl-graphs__meta').first().dblclick(),
       ready: (v) => expect(v.locator('.tl-graph__stage')).toBeVisible(),
     },
     {
       label: 'Material tab (with its preview)',
       dock: 'Materials',
-      title: 'Material: Graph',
+      kind: 'Material',
+      name: 'Graph',
       open: () => page.locator('.tl-materials li[data-material-id="mat-graph"]').dblclick(),
       ready: async (v) => expect.poll(async () => Number((await v.getByLabel('material preview canvas').getAttribute('data-tl-preview-frames')) ?? 0), { timeout: 30_000 }).toBeGreaterThan(0),
     },
     {
       label: 'Visual script tab',
       dock: 'Behaviors',
-      title: 'Graph: Gift giver',
+      kind: 'Graph',
+      name: 'Gift giver',
       open: () => page.locator('.tl-behaviors__list .tl-tile', { hasText: 'Gift giver' }).dblclick(),
       ready: (v) => expect(v.getByLabel('visual script', { exact: true })).toBeVisible(),
     },
     {
       label: 'Effect tab (with its preview)',
       dock: 'Effects',
-      title: 'Effect: Stream',
+      kind: 'Effect',
+      name: 'Stream',
       open: () => page.getByRole('button', { name: 'Open Stream' }).click(),
       ready: async (v) => expect.poll(async () => JSON.parse((await v.getByLabel('effect preview canvas').getAttribute('data-tl-effect-preview')) ?? '{}').executor ?? null, { timeout: 30_000 }).not.toBeNull(),
     },
@@ -227,13 +232,13 @@ test('document tabs: every kind opened and closed 50× returns heap and GPU coun
   for (const k of kinds) {
     // Renderer-free tabs are the same on both backends: only the preview tabs run again in the webgpu project.
     if (webgpuProject() && !k.label.includes('preview')) continue;
-    await tab(page, k.dock).click();
+    await openWindow(page, k.dock);
     await leakCheck(page, probe, k.label, n, async () => {
       await k.open();
-      await expect(tab(page, k.title)).toHaveAttribute('aria-selected', 'true');
-      await k.ready(page.getByRole('tabpanel', { name: k.title }));
-      await page.getByRole('button', { name: `Close ${k.title}`, exact: true }).click();
-      await expect(tab(page, k.title)).toHaveCount(0);
+      await expectEditorOpen(page, k.kind, k.name);
+      await k.ready(editorPane(page, k.kind, k.name));
+      await closeEditor(page, k.kind, k.name);
+      await expect(editorTab(page, k.kind, k.name)).toHaveCount(0);
     });
   }
   await probe.detach();
@@ -259,33 +264,33 @@ test('preview panes: the asset preview, the Animator preview and the material pr
   const n = cycles(50);
 
   // The asset browser's preview: a new canvas and renderer each time the Assets tab shows the selected model.
-  await tab(page, 'Assets').click();
+  await projectWindow(page);
   await page.locator('.tl-assets__list .tl-tile').first().click();
   await leakCheck(page, probe, 'Asset preview (Assets tab shown/hidden, model loaded)', n, async () => {
-    await tab(page, 'Assets').click();
+    await projectWindow(page);
     await expect(page.locator('.tl-assets__preview-canvas')).toHaveAttribute('data-tl-renderer-state', 'ready', { timeout: 30_000 });
     await page.getByRole('button', { name: 'load preview' }).click();
     await expect(page.locator('.tl-assets__preview-body')).toBeVisible();
-    await tab(page, 'Problems').click();
+    await openWindow(page, 'Problems');
     await expect(page.locator('.tl-assets__preview-canvas')).toHaveCount(0);
   });
 
   // The Animator's live preview in its tab: started and stopped.
-  await tab(page, 'Animator').click();
+  await openWindow(page, 'Animator');
   await page.getByLabel('animator controllers').getByRole('button', { name: 'Walker' }).dblclick();
-  const view = page.getByRole('tabpanel', { name: 'Animator: Walker' });
+  const view = editorPane(page, 'Animator', 'Walker');
   await leakCheck(page, probe, 'Animator preview', n, async () => {
     await view.getByRole('button', { name: 'Preview', exact: true }).click();
     await expect(view.getByLabel('animator preview', { exact: true })).toHaveAttribute('data-state', 'Idle', { timeout: 30_000 });
     await view.getByRole('button', { name: 'Stop preview' }).click();
     await expect(view.getByLabel('animator preview', { exact: true })).toHaveCount(0);
   });
-  await page.getByRole('button', { name: 'Close Animator: Walker', exact: true }).click();
+  await closeEditor(page, 'Animator', 'Walker');
 
   // The material preview: its primitive shapes switched (a shape owns its geometry and material).
-  await tab(page, 'Materials').click();
+  await openWindow(page, 'Materials');
   await page.locator('.tl-materials li[data-material-id="mat-graph"]').dblclick();
-  const mat = page.getByRole('tabpanel', { name: 'Material: Graph' });
+  const mat = editorPane(page, 'Material', 'Graph');
   const canvas = mat.getByLabel('material preview canvas');
   const frames = async (): Promise<number> => Number((await canvas.getAttribute('data-tl-preview-frames')) ?? 0);
   await expect.poll(frames, { timeout: 30_000 }).toBeGreaterThan(0);

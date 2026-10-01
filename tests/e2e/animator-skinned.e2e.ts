@@ -14,6 +14,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 import { STARTER, startBackend, type E2EBackend, controls } from './backend';
 import { LOCOMOTION_CLIPS, skinnedGlb } from './skinned-glb';
+import { openWindow, closeEditor, editorPane } from './ui';
 
 const shots = process.env['TL_ANIM_SHOTS'];
 
@@ -62,13 +63,13 @@ test("a rigged character's clips play on the starter's player: idle, run, airbor
   const character = (await assets()).find((a) => a.displayName.includes('char_rigged'))!.assetId;
   const model = String((await cmd('createEntity', { kind: 'model', name: 'Character', parentId: STARTER.playerId, model: { asset: { assetId: character } }, transform: { position: [0, 0, 0] } })).createdId);
 
-  await page.getByRole('tab', { name: 'Animator', exact: true }).click();
+  await openWindow(page, 'Animator');
   await page.getByLabel('animator model').selectOption(character);
   await page.getByRole('button', { name: 'New from clips: Character locomotion' }).click();
   // The new controller opens as a centre tab (its state graph).
-  const graph = page.getByRole('tabpanel', { name: 'Animator: Character locomotion' }).getByLabel('animator graph');
+  const graph = editorPane(page, 'Animator', 'Character locomotion').getByLabel('animator graph');
   for (const s of ['Idle', 'Run', 'Jump', 'Fall', 'Land']) await expect(graph.getByRole('group', { name: new RegExp(`^State ${s} node `) })).toBeVisible();
-  await page.getByRole('tab', { name: 'Scene', exact: true }).click();
+  await closeEditor(page);
   await page.locator(`.tl-hierarchy__list li[data-entity-id="${model}"]`).click();
   // The Inspector's animator section (added from "+ Add component" when absent).
   const inspector = page.locator('.tl-inspector');

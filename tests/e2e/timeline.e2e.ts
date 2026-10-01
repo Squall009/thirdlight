@@ -31,7 +31,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
-import { menu } from './ui';
+import { editorTab, menu, projectWindow, openWindow } from './ui';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 let be: E2EBackend | null = null;
@@ -86,7 +86,7 @@ async function script(behaviorId: string, source: string, entityId: string, valu
 /** Import a WAV through the editor's Assets tab; returns its asset id. */
 async function importWav(page: Page, file: string, name: string): Promise<string> {
   const before = ((await query('queryAssets', { limit: 50, offset: 0 }))['assets'] as unknown[]).length;
-  await page.getByRole('tab', { name: 'Assets' }).click();
+  await projectWindow(page);
   await page.locator('.tl-assets__file').first().setInputFiles(join(REPO, 'fixtures', 'm3', 'media', 'wav', file));
   const publish = page.getByRole('button', { name: 'publish' });
   await expect(publish).toBeEnabled({ timeout: 15_000 });
@@ -347,9 +347,9 @@ test('editor: the timeline tab scrubs the Scene view; a key drag is one command 
 
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  await page.getByRole('tab', { name: 'Timelines' }).click();
+  await openWindow(page, 'Timelines');
   await page.getByRole('button', { name: 'Open Slide' }).click();
-  await expect(page.getByRole('tab', { name: /Timeline: Slide/ })).toBeVisible();
+  await expect(editorTab(page, 'Timeline', /Slide/)).toBeVisible();
   const ruler = page.getByLabel('Timeline ruler');
   await expect(ruler).toBeVisible();
   const canvas = page.locator('canvas[data-timeline-preview]');

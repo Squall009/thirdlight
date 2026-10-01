@@ -24,6 +24,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
 import { clipsOnlyGlb, skinnedGlb } from './skinned-glb';
+import { openWindow, openEditor, editorPane } from './ui';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -94,10 +95,10 @@ test('an upper-body layer masked by bone plays clips of an animation-only file i
   await expect(page.getByLabel('clips for rig check')).toHaveText('every animated bone is in the rig', { timeout: 15_000 });
 
   // A controller on the column: idle on the base layer (it opens as a centre tab).
-  await page.getByRole('tab', { name: 'Animator', exact: true }).click();
+  await openWindow(page, 'Animator');
   await page.getByLabel('animator model').selectOption(column.assetId);
   await page.getByRole('button', { name: 'New controller' }).click();
-  const doc = page.getByRole('tabpanel', { name: 'Animator: New animator' });
+  const doc = editorPane(page, 'Animator', 'New animator');
   const graph = doc.getByLabel('animator graph');
   const inspector = page.locator('.tl-dock--right');
   await expect(graph.getByRole('group', { name: 'State idle node state-01' })).toBeVisible();
@@ -178,7 +179,7 @@ test('an upper-body layer masked by bone plays clips of an animation-only file i
   const put = await be.command({ op: 'setComponent', projectId: be.projectId, expectedRevision: q2.revision, requestId: 'req-00000000000000000000000000146a02', origin: { kind: 'mcp', clientId: 'e2e-layers' }, args: { entityId: created['createdId'], component: 'animator', value: { controller: (stored as unknown as { controllerId: string }).controllerId } } });
   expect(put.ok, JSON.stringify(put)).toBe(true);
   const rootOnly = await play(page, 'baseline');
-  await page.getByRole('tab', { name: 'Animator: New animator', exact: true }).click();
+  await openEditor(page, 'Animator', 'New animator');
   await doc.getByRole('tab', { name: 'Layer 1' }).click();
   await doc.getByLabel('mask bone root').click();
   await expect.poll(async () => JSON.stringify(((await be.command({ op: 'queryGameConfig', projectId: be.projectId }))['animators'] as { layers?: unknown[] }[])[0]?.layers)).toContain('"mask":[]');

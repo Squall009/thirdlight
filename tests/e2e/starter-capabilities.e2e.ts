@@ -33,7 +33,7 @@ import { expect, test, type FrameLocator, type Locator, type Page } from '@playw
 import { STARTER, startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
-import { menu } from './ui';
+import { menu, openWindow, projectWindow, closeEditor, editorPane } from './ui';
 
 const PROJECT = 'starter-capabilities';
 
@@ -146,7 +146,7 @@ async function rename(page: Page, name: string): Promise<void> {
   await expect(page.locator('.tl-hierarchy__list li.tl-row.is-selected')).toContainText(name);
 }
 async function select(page: Page, id: string): Promise<void> {
-  await page.getByRole('tab', { name: 'Scene', exact: true }).click().catch(() => undefined);
+  await closeEditor(page).catch(() => undefined);
   await page.locator(`.tl-hierarchy__list li[data-entity-id="${id}"]`).click();
   await expect(page.locator('.tl-hierarchy__list li.is-selected')).toHaveAttribute('data-entity-id', id);
 }
@@ -177,7 +177,7 @@ async function attach(page: Page, entityId: string, displayName: string): Promis
 
 /** Declare a script in the Behaviors tab (one Object property, or none), then write and publish it in its Script tab. */
 async function script(page: Page, behaviorId: string, displayName: string, objectProperty: string | null, source: string): Promise<void> {
-  await page.getByRole('tab', { name: 'Behaviors' }).click();
+  await openWindow(page, 'Behaviors');
   const panel = page.locator('.tl-behaviors:not(.tl-behaviors--document)');
   await panel.getByRole('button', { name: '+ New behavior' }).click();
   const decl = panel.getByLabel('declaration editor');
@@ -195,7 +195,7 @@ async function script(page: Page, behaviorId: string, displayName: string, objec
   const tile = panel.locator('.tl-behaviors__list .tl-tile', { hasText: displayName });
   await expect(tile).toHaveCount(1);
   await tile.dblclick();
-  const view = page.getByRole('tabpanel', { name: `Script: ${displayName}` });
+  const view = editorPane(page, 'Script', displayName);
   await expect(view.getByLabel('script editor')).toHaveAttribute('data-behavior', behaviorId);
   await replaceCode(page, view, source);
   await expect(view.getByLabel('compile status')).toHaveAttribute('data-status', 'ok', { timeout: 30_000 });
@@ -260,7 +260,7 @@ test('a new Starter project: scene lights with a spot cookie, a script writing a
   // The cookie texture, imported in the Assets tab.
   const png = test.info().outputPath('stripes.png');
   writeFileSync(png, makePng(64, 64, (x) => (Math.floor(x / 8) % 2 === 0 ? [255, 255, 255, 255] : [0, 0, 0, 255])));
-  await page.getByRole('tab', { name: 'Assets' }).click();
+  await projectWindow(page);
   await page.locator('.tl-assets__file').first().setInputFiles(png);
   const publish = page.getByRole('button', { name: 'publish' });
   await expect(publish).toBeEnabled({ timeout: 30_000 });
@@ -270,7 +270,7 @@ test('a new Starter project: scene lights with a spot cookie, a script writing a
   const cookieId = (await textures())[0]!.assetId;
 
   // The spot light: above the character's area, pointing at the wall, a hard 22° cone, the cookie.
-  await page.getByRole('tab', { name: 'Scene', exact: true }).click();
+  await closeEditor(page);
   const spotId = await created(page, () => menu(page, 'GameObject', 'Light', 'Spot light'));
   await place(page, [4, 7.5, 4]);
   await field(page, 'light direction z', '-1');
@@ -282,10 +282,10 @@ test('a new Starter project: scene lights with a spot cookie, a script writing a
   await expect.poll(async () => comp(spotId, 'light')).toMatchObject({ type: 'spot', color: '#ffffff', intensity: 400, angle: 22, penumbra: 0, direction: [0, 0, -1], cookie: cookieId });
 
   // The shared library.
-  await page.getByRole('tab', { name: 'Libraries' }).click();
+  await openWindow(page, 'Libraries');
   await page.getByLabel('New library name').fill('Shared');
   await page.getByRole('button', { name: 'Create library' }).click();
-  const lib = page.getByRole('tabpanel', { name: 'Library: Shared' });
+  const lib = editorPane(page, 'Library', 'Shared');
   await expect(lib.getByLabel('library editor')).toHaveAttribute('data-library', 'shared');
   await replaceCode(page, lib, LIBRARY);
   await expect(lib.getByLabel('compile status')).toHaveAttribute('data-status', 'ok', { timeout: 30_000 });
@@ -297,7 +297,7 @@ test('a new Starter project: scene lights with a spot cookie, a script writing a
   await script(page, 'watcher', 'Watcher', null, WATCHER);
 
   // Keeper on a new empty object, its lamp picked in the Inspector; Watcher on the crate.
-  await page.getByRole('tab', { name: 'Scene', exact: true }).click();
+  await closeEditor(page);
   const directorId = await created(page, () => menu(page, 'GameObject', 'Create empty'));
   await rename(page, 'Director');
   await attach(page, directorId, 'Keeper');
