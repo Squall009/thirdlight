@@ -48,6 +48,7 @@ import { ItemOpenerProvider } from './catalog/item-opener';
 import { useUiPreviewAssets } from './uidoc/useUiPreviewAssets';
 import { MATERIAL_DRAG_TYPE } from './MaterialsPanel';
 import { CentreTabs, EditorWindow, useSelectionAcrossWindow, useWorkspace } from './workspace/EditorWindow';
+import { ProjectSettingsWindow, useProjectSettingsWindow } from './settings/ProjectSettingsWindow';
 import { activeDoc } from '../session/editor-window';
 import { DEFAULT_SNAP_SETTINGS, loadSnapSettings, type SnapSettings } from '../session/snapping';
 import { ProjectFilePicker } from './ProjectFilePicker';
@@ -125,12 +126,16 @@ function EditorApp(): JSX.Element {
   /** The centre view: the editor scene or the running game. */
   const centerTab = workspace.view;
   /** Show the Scene or Game view, in front (the editor window steps aside). */
+  /** The Project Settings window (over the editor and the editor window). */
+  const settingsWindow = useProjectSettingsWindow(workspace);
+  const closeSettings = settingsWindow.close;
   const setCenterTab = useCallback(
     (key: 'scene' | 'game') => {
       workspaceDispatch({ type: 'view', view: key });
       workspaceDispatch({ type: 'show', on: false });
+      closeSettings();
     },
-    [workspaceDispatch],
+    [workspaceDispatch, closeSettings],
   );
   const windowOpen = activeDoc(workspace) !== null;
   // The Animator and Behaviors panels: the bottom dock and the editor window's tabs share these.
@@ -823,7 +828,12 @@ function EditorApp(): JSX.Element {
     workspace,
     workspaceDispatch,
     setCenterTab,
-    setBottomTab,
+    // A tool window shows in the default view, so the settings window closes for it.
+    setBottomTab: (tab: BottomTab) => {
+      closeSettings();
+      setBottomTab(tab);
+    },
+    openProjectSettings: () => settingsWindow.show(),
     resync,
     scene: sceneEditing,
     entity: entityEditing,
@@ -892,7 +902,7 @@ function EditorApp(): JSX.Element {
       />
       <div className="tl-app__workarea">
       {/* Under the editor window the default view keeps its state but takes no input. */}
-      <div className={`tl-app__body${workspace.maximized ? ' is-maximized' : ''}`} inert={windowOpen}>
+      <div className={`tl-app__body${workspace.maximized ? ' is-maximized' : ''}`} inert={windowOpen || settingsWindow.open}>
         <div className="tl-app__main">
           <div className="tl-app__row">
             <div className="tl-dock tl-dock--left" style={{ width: sizes.left }}>
@@ -1054,22 +1064,36 @@ function EditorApp(): JSX.Element {
             entities={entities}
             selected={selected}
             selectedId={selectedId}
-            setSelection={setSelection}
             refreshEntities={refreshEntities}
             setNotice={setNotice}
             activeScene={activeScene}
             fieldContext={fieldContextMemo}
             gameFieldContext={gameFieldContext}
-            tagUsage={tagUsage}
-            layerUsage={layerUsageMemo}
-            groupUsage={groupUsageMemo}
             tileThumbnails={tileThumbnails}
           />
         </div>
         <div className="tl-splitter tl-splitter--v" onPointerDown={splitter('right')} role="separator" aria-orientation="vertical" aria-label="Resize the inspector" />
         {windowOpen ? <div className="tl-dock" style={{ width: sizes.right }} /> : inspector('dock')}
       </div>
-      <EditorWindow state={workspace} dispatch={workspaceDispatch} host={workspaceHost} inspector={windowOpen ? inspector('window') : null} onSplitter={splitter('window')} />
+      {/* The settings window covers the editor window too; what is under it takes no input. */}
+      <div className="tl-app__layer" inert={settingsWindow.open}>
+        <EditorWindow state={workspace} dispatch={workspaceDispatch} host={workspaceHost} inspector={windowOpen ? inspector('window') : null} onSplitter={splitter('window')} />
+      </div>
+      <ProjectSettingsWindow
+        state={settingsWindow}
+        settings={projectSettings}
+        content={content}
+        docCmds={docCmds}
+        scripting={scripting}
+        play={playSession}
+        entities={entities}
+        setSelection={setSelection}
+        fieldContext={fieldContextMemo}
+        gameFieldContext={gameFieldContext}
+        tagUsage={tagUsage}
+        layerUsage={layerUsageMemo}
+        groupUsage={groupUsageMemo}
+      />
       </div>
       <StatusBar state={ui} onResync={resync} renderer={sceneRenderer} />
       {filePicker !== null && (

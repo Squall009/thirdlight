@@ -305,7 +305,8 @@ moves at least as many lines out as it adds.
 | 27.10 | done 2026-10-01: each scene file carries its look (`SceneV4.environment`: sky, fog, post, wind); `content.environment` keeps the default quality and the presets; `project.json` schemaVersion 6, a 5 upgraded on open (the project look copied into every scene; fixture `fixtures/phase27/legacy-v5-environment` upgraded, replayed and exported over HTTP); `setEnvironment {sceneId}` (MCP too), `createScene {environmentFrom}`, a deleted scene's look kept for undo; the runtime's active scene (`ctx.scenes.active/setActive`, a transition taking over the active scene's place makes its scene active over the fade) blends the looks as simulation state (page, worker, replay agree); Scene view, Play and export draw the active scene's look, checked in pixels in a two-scene Play and its export (D107) |
 | 27.11 | done 2026-10-01: an item opens in the editor window over the editor (double-click in the project window, "Open" beside an Inspector reference): its editor left, the one Inspector right (the same `InspectorDock`, moved), one split with a remembered width; open items are its tabs (reorder, close, middle-click, Ctrl+Tab), remembered per project; Esc/× return to the default view with the selection it had; undo, the change feed and MCP edits reach the open editor; the centre keeps Scene and Game; e2e `editor-window` (DOM structure, geometry, selection, reload) |
 | 27.12 | done 2026-10-01: one preview pane above the one Inspector in the editor window, one renderer for as long as the window shows: a material on a shape or model, an effect (timeline, counters, cost, preview parameters), a model with its animator; a timeline, a conversation and a UI document at the editor's resolution on their scene (the Scene view's canvas lent to the pane); editors say what to preview (`usePreview`), none builds a renderer; the material/effect/Animator/asset-stage renderers are gone, the timeline window is no longer see-through; e2e `preview-pane` (pixels on WebGPU, WebGL 2 and the webgpu project), the area's specs and the memory e2e (switching previews, both renderers) green; D109 found |
-| 27.13–27.17 | — |
+| 27.13 | done 2026-10-01: File → Project Settings… opens one full window over the editor (and over the editor window), sub-tabs Gameplay, Input, Tags, Collision layers, Quality, Saves, Game modes, Game shell, Scripts on the left with a search that filters them by name and by the settings they hold; the panels moved unchanged (same commands); Quality = the environment's quality level and the settings' Rendering group (texture budget); the moved tabs left the dock and the Window menu; e2e `project-settings` (each sub-tab's edit read back over HTTP, search, Esc/×, Scripts opening the editor window); look: owner look pending |
+| 27.14–27.17 | — |
 
 ## 6. Decision log
 
@@ -643,6 +644,24 @@ moves at least as many lines out as it adds.
   each switch (`idle`), which must not grow over switches (effect-editor) and
   the memory e2e's heap and GPU counts over 50 switches between an animator,
   a material, an effect and a timeline.
+- 2026-10-01 (27.13): Project Settings is its own full window over the work
+  area (z above the editor window, which stays under it, inert), not a
+  document kind of the editor window: it has no Inspector and no item, like
+  Unity's and Godot's. Sub-tabs on the left, search above them (Godot's
+  filter); the search matches a sub-tab's name, a few words per sub-tab and,
+  for Gameplay and Quality, the labels of the settings they hold (from the
+  settings descriptor). The settings' Rendering group (renderer, depth,
+  instance chunks, texture budget) shows only under Quality, the rest under
+  Gameplay (`RENDERING_SETTINGS_GROUP`, project-model limits); the quality
+  level left the Environment window. Tags and Collision layers are two
+  sub-tabs (one dock tab before). Scripts holds the Behaviors panel whole
+  (its list, new visual script, declaration, source, trust, publish); the
+  Behaviors dock tab is gone and the e2e helper `openWindow('Behaviors')`
+  opens Project Settings → Scripts. File → "Project tags" is gone (one
+  "Project Settings…" item). Opening an item in the editor window, a tool
+  window from the Window menu, the Scene/Game view or Play closes the
+  settings window. Audio (the event → sound table) stays in the Media tab
+  until 27.14 splits Media, then joins Project Settings as its own sub-tab.
 - 2026-10-01 (27.9): the helpers name what a person opens, not where it is:
   `openWindow(name)` for tools, `openProjectSettings(section)` for the
   settings that 27.13 moves, `openEditor(kind, name)` with the kind as the

@@ -44,7 +44,8 @@ function load(projectId: string | null): WorkspaceState {
   }
 }
 
-const isTyping = (t: EventTarget | null): boolean => {
+/** Whether a key goes to a field being typed in (window keys leave it alone). */
+export const isTyping = (t: EventTarget | null): boolean => {
   const el = t as HTMLElement | null;
   return el !== null && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable === true);
 };

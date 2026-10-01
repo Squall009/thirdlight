@@ -1,10 +1,10 @@
 /**
  * The Environment window — the active scene's look (sky, fog,
- * post-processing, wind), named at the top, and the project's default
- * quality. The Scene view previews it with game lighting (the same renderer
- * Play and export use). Each control commits on release as one
- * `setEnvironment` (one undo): `{sceneId}` for the scene's look, without for
- * the quality and the presets.
+ * post-processing, wind), named at the top. The Scene view previews it with
+ * game lighting (the same renderer Play and export use). Each control
+ * commits on release as one `setEnvironment` (one undo): `{sceneId}` for the
+ * scene's look, without for the presets. The quality is the player's
+ * setting, not the scene's: it is under Project Settings → Quality.
  *
  * Environment presets (project-wide) — "capture current as preset" stores
  * the scene's sky, fog and post-processing and every scene light's colour /
@@ -21,7 +21,7 @@ import { DEFAULT_WIND } from '../session/material-schema';
 import { RefPicker, TEXTURE_KINDS } from './catalog/RefPicker';
 
 interface Props {
-  /** The project's part: the default quality and the presets. */
+  /** The project's part (the presets; its quality is edited in Project Settings). */
   environment: EnvironmentConfig | null;
   onSave: (environment: EnvironmentConfig) => void;
   /** The scene whose look this edits (the active scene) and its look (null: the engine defaults). */
@@ -264,7 +264,7 @@ function Toggle(props: { label: string; name: string; value: boolean; onCommit: 
 }
 
 export function EnvironmentPanel(p: Props): JSX.Element {
-  // The project's quality and presets; the scene's look (sky, fog, post, wind).
+  // The project's presets; the scene's look (sky, fog, post, wind).
   const project: EnvironmentConfig = p.environment ?? {};
   const saveProject = (patch: Partial<EnvironmentConfig>): void => p.onSave({ ...project, ...patch });
   const env: SceneEnvironment = p.look ?? {};
@@ -372,7 +372,6 @@ export function EnvironmentPanel(p: Props): JSX.Element {
           {post.dof?.enabled === true && <Slider label="focus distance (m)" name="dof focus" value={post.dof.focus ?? 10} min={0.5} max={100} step={0.5} onCommit={(v) => setPost({ dof: { ...post.dof!, focus: v } })} />}
           <Choice label="anti-aliasing" name="antialias" value={post.antialias ?? 'none'} options={[['none', 'none (MSAA only)'], ['fxaa', 'FXAA'], ['smaa', 'SMAA']]} onCommit={(v) => setPost({ antialias: v })} />
           </>
-          <Choice label="quality (project default)" name="quality" value={project.quality ?? 'high'} options={[['low', 'low'], ['medium', 'medium'], ['high', 'high']]} onCommit={(v) => saveProject({ quality: v })} />
         </section>
 
         <section className="tl-inspector__section" aria-label="wind">

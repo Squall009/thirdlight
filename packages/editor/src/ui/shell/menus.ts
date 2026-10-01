@@ -41,6 +41,8 @@ export interface EditorMenuInput {
   workspaceDispatch: Dispatch<WorkspaceAction>;
   setCenterTab: (key: 'scene' | 'game') => void;
   setBottomTab: (tab: BottomTab) => void;
+  /** Open the Project Settings window (at the sub-tab last shown). */
+  openProjectSettings: () => void;
   resync: () => void;
   scene: SceneEditing;
   entity: EntityEditing;
@@ -49,7 +51,7 @@ export interface EditorMenuInput {
 
 export function editorMenus(input: EditorMenuInput): Menu[] {
   const { registry, settings, sceneHeaders, closedScenes, entities, selected, selectedId, selectedComponents, ui, snapping, setSnapping, snapSettings } = input;
-  const { gizmos, setGizmos, effectPreview, setEffectPreview, workspace, workspaceDispatch, setCenterTab, setBottomTab, resync } = input;
+  const { gizmos, setGizmos, effectPreview, setEffectPreview, workspace, workspaceDispatch, setCenterTab, setBottomTab, openProjectSettings, resync } = input;
   const { clipboardRef, copySelection, createCamera, createEmpty, createEntityAt, createFolder, createLight, del, duplicate, newBox, paste, redo, undo } = input.scene;
   const { addComponentTo, colliderFromModel, colliderFromModel3D, editComponent } = input.entity;
   const { setDialog, setExportState, setSnapDraft } = input.dialogs;
@@ -109,8 +111,7 @@ export function editorMenus(input: EditorMenuInput): Menu[] {
         'separator',
         { label: 'Export game…', onSelect: () => { setExportState({ busy: false, result: null, error: null }); setDialog('export'); } },
         'separator',
-        { label: 'Project settings', onSelect: () => setBottomTab('gameplay') },
-        { label: 'Project tags', onSelect: () => setBottomTab('tags') },
+        { label: 'Project Settings…', onSelect: () => openProjectSettings() },
         { label: 'Reload from disk', onSelect: () => resync() },
       ],
     },

@@ -5,11 +5,6 @@
 import type { JSX, Dispatch } from 'react';
 import type { ClientUiState } from '../../session/client';
 import type { ProjectedEntity } from '../../session/projection';
-import { TagsPanel } from '../TagsPanel';
-import { CollisionLayersPanel } from '../CollisionLayersPanel';
-import { ModesPanel } from '../ModesPanel';
-import { ShellPanel } from '../ShellPanel';
-import { SavesPanel } from '../SavesPanel';
 import type { FieldContext } from '../DescriptorFields';
 import { TileThumbnails } from '../../viewport/thumbnails';
 import type { SceneHeaderView } from '../Hierarchy';
@@ -17,12 +12,9 @@ import { MaterialsPanel } from '../MaterialsPanel';
 import { EnvironmentPanel } from '../EnvironmentPanel';
 import { LightingPanel } from '../LightingPanel';
 import { AnimatorPanel } from '../AnimatorPanel';
-import { InputPanel } from '../InputPanel';
 import { bakeIsStale } from '../../viewport/bake-run';
 import { PrefabPanel } from '../PrefabPanel';
-import { BehaviorPanel } from '../BehaviorPanel';
 import { activeDoc, docKey, type WorkspaceAction, type WorkspaceState } from '../../session/editor-window';
-import { GameplayPanel } from '../GameplayPanel';
 import { BlocksPanel } from '../BlocksPanel';
 import { MediaPanel } from '../MediaPanel';
 import { ProblemsPanel } from '../ProblemsPanel';
@@ -87,36 +79,31 @@ export interface BottomDockProps {
   entities: ProjectedEntity[];
   selected: ProjectedEntity | null;
   selectedId: string | null;
-  setSelection: (selection: { ids: string[]; primary: string | null }) => void;
   refreshEntities: () => void;
   setNotice: SetNotice;
   activeScene: SceneHeaderView | null;
   fieldContext: FieldContext;
   gameFieldContext: Omit<FieldContext, 'sceneId'>;
-  tagUsage: Map<number, number>;
-  layerUsage: Map<string, number>;
-  groupUsage: Map<string, number>;
   tileThumbnails: TileThumbnails | null;
 }
 
 export function BottomDock(props: BottomDockProps): JSX.Element {
   const { tab: bottomTab, onTab: setBottomTab, height, clientRef, viewportRef, problemLog, viewFailures, fileCheck, reimportIssue, workspace, workspaceDispatch, openDocument } = props;
-  const { entities, selected, selectedId, setSelection, refreshEntities, setNotice, activeScene, gameFieldContext, tileThumbnails, tagUsage } = props;
-  const { fieldContext: fieldContextMemo, layerUsage: layerUsageMemo, groupUsage: groupUsageMemo } = props;
+  const { entities, selected, selectedId, refreshEntities, setNotice, activeScene, gameFieldContext, tileThumbnails } = props;
+  const { fieldContext: fieldContextMemo } = props;
   const { dialogues, dialogueSettings, effects, environment, sceneLook, graphKinds, graphs, lighting, materials, prefabSummaries, projectUiDocs, projectUiThemes, registry, scriptLibraries, speakers, timelines, uiDocuments, uiThemes } = props.content;
-  const { behaviorGroups, collisionLayers, eventCues, eventCuesError, gameplayError, inputConfig, inputDefaults, inputError, layersError, modes, modesError } = props.settings;
-  const { saveBehaviorGroups, saveCollisionLayers, saveEventCues, saveInput, saveModes, saveSaveSchema, saveSchema, saveSchemaError, saveSettings, saveShell, saveTags, settings, shell, shellError, tags, tagsError } = props.settings;
+  const { eventCues, eventCuesError, saveEventCues } = props.settings;
   const { activeDialogueId, activeEffectId, activeGraphId, setMaterialFocus, setVisualFocus } = props.docState;
   const { createUiDocument, deleteMaterial, dialogueCommand, dialogueError, graphDocCommand, graphsError, effectCommand, effectError, materialError, saveEnvironment, saveSceneEnvironment, saveMaterial } = props.docCmds;
   const { selectedMaterialId, setSelectedMaterialId, setDialogueError, setUiError, showGraph, timelineCommand, timelineError, uiCommand, uiError } = props.docCmds;
-  const { behaviorProps, dirtyLibraries, libraryCommand, libraryDependents, libraryError, openSource, saveAllLibraries, saveAllOutcome } = props.scripting;
+  const { dirtyLibraries, libraryCommand, libraryDependents, libraryError, openSource, saveAllLibraries, saveAllOutcome } = props.scripting;
   const { animatorProps } = props.animator;
   const { bakeAbortRef, bakeBusy, bakeFinal, bakeHost, bakeMessage, bakePreview, bakeSettings, clearBake, setBakeSettings } = props.bake;
   const { blockEdit, blockEditor, blockHandlersRef, blockLayerId, blockLayerIdRef, blockRows, blockRun, blockStamps, blockTypes, cellFields, createBlockLayer, setBlockLayerId } = props.blocks;
   const { captureError, captureIdRef, captureName, capturePrefab, commitOverride, copyError, deletePrefab, overrideDrafts, overrideTargets, placeCopy } = props.prefab;
   const { prefabDeleteError, selectedPrefabId, setCaptureName, setCopyError, setOverrideDrafts, setSelectedPrefabId } = props.prefab;
   const { previewCue, previewOwnerRef, unlockPreview } = props.cue;
-  const { playInfo, playing, playSaveNote, clearPlaySave } = props.play;
+  const { playInfo, playing } = props.play;
   const { setFlag } = props.scene;
   const { graphIssues, scriptIssues, materialIssues } = props.problems;
   return (
@@ -358,18 +345,6 @@ export function BottomDock(props: BottomDockProps): JSX.Element {
         onOverrideCommit={commitOverride}
       />
     )}
-    {bottomTab === 'behaviors' && <BehaviorPanel {...behaviorProps} />}
-    {bottomTab === 'gameplay' && (
-      <GameplayPanel
-        entities={entities}
-        settings={settings}
-        onSelectEntity={(id) => setSelection({ ids: [id], primary: id })}
-        registry={registry}
-        fieldContext={gameFieldContext}
-        onSaveSettings={(s) => void saveSettings(s)}
-        backendError={gameplayError}
-      />
-    )}
     {bottomTab === 'materials' && (
       <MaterialsPanel
         materials={materials}
@@ -395,7 +370,6 @@ export function BottomDock(props: BottomDockProps): JSX.Element {
         }}
       />
     )}
-    {bottomTab === 'input' && <InputPanel input={inputConfig} defaults={inputDefaults} onSave={(i) => void saveInput(i)} error={inputError} />}
     {bottomTab === 'animator' && <AnimatorPanel {...animatorProps} />}
     {bottomTab === 'lighting' && (
       activeScene === null ? (
@@ -416,45 +390,6 @@ export function BottomDock(props: BottomDockProps): JSX.Element {
           onClear={() => void clearBake()}
         />
       )
-    )}
-    {bottomTab === 'shell' && <ShellPanel registry={registry} shell={shell} fieldContext={fieldContextMemo} error={shellError} onSetShell={(next, base) => void saveShell(next, base)} />}
-    {bottomTab === 'modes' && (
-      <ModesPanel
-        registry={registry}
-        modes={modes}
-        groups={behaviorGroups}
-        groupUsage={groupUsageMemo}
-        fieldContext={fieldContextMemo}
-        error={modesError}
-        onSetModes={(next) => void saveModes(next)}
-        onSetGroups={(next) => void saveBehaviorGroups(next)}
-      />
-    )}
-    {bottomTab === 'tags' && (
-      <TagsPanel
-        tags={tags}
-        usage={tagUsage}
-        error={tagsError}
-        onSetTags={(next) => void saveTags(next)}
-      />
-    )}
-    {bottomTab === 'tags' && (
-      <CollisionLayersPanel
-        layers={collisionLayers}
-        usage={layerUsageMemo}
-        dimension={settings?.['physics_dimension'] === 3 ? 3 : 2}
-        error={layersError}
-        onSetLayers={(next) => void saveCollisionLayers(next)}
-      />
-    )}
-    {bottomTab === 'saves' && (
-      <SavesPanel
-        schema={saveSchema}
-        error={saveSchemaError}
-        onSave={(next) => void saveSaveSchema(next)}
-        note={playSaveNote}
-        onClearPlaySave={clearPlaySave}
-      />
     )}
     {bottomTab === 'media' && (
       <MediaPanel

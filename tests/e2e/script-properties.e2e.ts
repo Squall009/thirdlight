@@ -17,7 +17,7 @@ import { createHash } from 'node:crypto';
 import { expect, test, type Page } from '@playwright/test';
 
 import { type E2EBackend, startBackend } from './backend';
-import { openWindow } from './ui';
+import { closeProjectSettings, openWindow } from './ui';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -142,7 +142,8 @@ test('a public and a private script property: Inspector, per-object override and
   };
   await expect.poll(stored).toEqual({ behaviorId: 'probe', values: { speed: 3 } });
 
-  // Inspector: only the public property, in its group, with its tooltip.
+  // Inspector: only the public property, in its group, with its tooltip (the Hierarchy is under the settings window).
+  await closeProjectSettings(page);
   await page.locator(`.tl-hierarchy__list li[data-entity-id="${boxId}"]`).click();
   const inspector = page.locator('.tl-inspector');
   await expect(inspector.locator('[data-property="speed"]')).toHaveCount(1);

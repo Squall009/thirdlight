@@ -51,6 +51,12 @@ export interface SettingsKeySpec {
   group?: string;
 }
 
+/**
+ * The settings group that draws the game (renderer, depth, instance chunks,
+ * texture budget): the editor shows it with the quality, apart from gameplay.
+ */
+export const RENDERING_SETTINGS_GROUP = 'Rendering';
+
 /** The six-key gameplay settings registry (a fixed table). */
 export const M2_SETTINGS_KEYS: readonly SettingsKeySpec[] = [
   // Reasons (these six are always resolved into the manifest, so they
@@ -81,7 +87,7 @@ export const M2_SETTINGS_KEYS: readonly SettingsKeySpec[] = [
   // where the browser can start it, else WebGL 2: every browser with WebGL 2
   // draws and the faster API is used where it exists. 0 was the archived WebGL
   // renderer ("legacy"): still valid in an older project, read as auto.
-  { key: 'render_backend', type: 'number', default: 1, values: [1, 2, 3], legacyValues: [0], valueLabels: ['Auto (WebGPU, else WebGL 2)', 'WebGPU', 'WebGL 2'], integer: true, unit: '', optional: true, group: 'Rendering', label: 'Renderer', tooltip: 'Which backend draws the game and the Scene view: WebGPU where the browser has it (else WebGL 2), WebGPU, or WebGL 2. WebGPU needs https or localhost. A page URL flag ?renderer=auto|webgpu|webgl2 overrides it.' },
+  { key: 'render_backend', type: 'number', default: 1, values: [1, 2, 3], legacyValues: [0], valueLabels: ['Auto (WebGPU, else WebGL 2)', 'WebGPU', 'WebGL 2'], integer: true, unit: '', optional: true, group: RENDERING_SETTINGS_GROUP, label: 'Renderer', tooltip: 'Which backend draws the game and the Scene view: WebGPU where the browser has it (else WebGL 2), WebGPU, or WebGL 2. WebGPU needs https or localhost. A page URL flag ?renderer=auto|webgpu|webgl2 overrides it.' },
   // Where the game's simulation runs (game-host SIM_THREAD_SETTING_VALUES).
   // 1, a worker: runtime, physics and scripts run off the page's main thread, so
   // a long step never delays a frame or an input event — every genre gains and
@@ -109,7 +115,7 @@ export const M2_SETTINGS_KEYS: readonly SettingsKeySpec[] = [
   // choice of the game (they cost a little: logarithmic writes depth per pixel,
   // reversed-Z needs WebGPU or WebGL 2's EXT_clip_control and falls back to
   // standard without it).
-  { key: 'depth_buffer', type: 'number', default: 1, values: [1, 2, 3], valueLabels: ['Standard', 'Logarithmic (far vistas)', 'Reversed Z (far vistas)'], integer: true, unit: '', optional: true, group: 'Rendering', label: 'Depth precision', tooltip: 'How depth is stored: standard, logarithmic or reversed Z. The last two keep close objects sharp while scenery kilometres away still draws in the right order (pair with a large camera far plane). Reversed Z needs WebGPU or a WebGL 2 browser with EXT_clip_control (else standard).' },
+  { key: 'depth_buffer', type: 'number', default: 1, values: [1, 2, 3], valueLabels: ['Standard', 'Logarithmic (far vistas)', 'Reversed Z (far vistas)'], integer: true, unit: '', optional: true, group: RENDERING_SETTINGS_GROUP, label: 'Depth precision', tooltip: 'How depth is stored: standard, logarithmic or reversed Z. The last two keep close objects sharp while scenery kilometres away still draws in the right order (pair with a large camera far plane). Reversed Z needs WebGPU or a WebGL 2 browser with EXT_clip_control (else standard).' },
   // How audio sources are heard. 0, automatic: a 2D-plane project
   // keeps the X-distance model (louder as the player comes near along X, no
   // panning) so every existing project sounds exactly as before; a 3D project
@@ -121,13 +127,13 @@ export const M2_SETTINGS_KEYS: readonly SettingsKeySpec[] = [
   // to a usual view distance, so chunks out of view are culled and a chunk's
   // level of detail (picked at its centre) is off by at most ~23 m (three-adapter
   // INSTANCE_CHUNK_METERS, the same value).
-  { key: 'instance_chunk_m', type: 'number', default: 32, min: 1, max: 4096, unit: 'm', optional: true, group: 'Rendering', label: 'Instance chunk size', tooltip: 'Instance sets are drawn in square chunks of about this size (m), each hidden when out of view and given its level of detail on its own. Smaller: finer culling and LOD, more draw calls. A set can set its own.' },
+  { key: 'instance_chunk_m', type: 'number', default: 32, min: 1, max: 4096, unit: 'm', optional: true, group: RENDERING_SETTINGS_GROUP, label: 'Instance chunk size', tooltip: 'Instance sets are drawn in square chunks of about this size (m), each hidden when out of view and given its level of detail on its own. Smaller: finer culling and LOD, more draw calls. A set can set its own.' },
   { key: 'audio_spatial', type: 'number', default: 0, values: [0, 1, 2], valueLabels: ['Automatic (2D: by distance to the player, 3D: panned)', 'By distance to the player (X)', 'Panned (listener on the camera)'], integer: true, unit: '', optional: true, group: 'Engine', label: 'Audio sources', tooltip: 'How audio sources are heard: by their X distance to the player (the 2D default, no panning) or through a panner with the listener on the active camera (the 3D default: left/right panning and each source\'s distance model). Script sounds with a position are always panned.' },
   // The texture budget of Play and the export (MiB; project-model
   // TEXTURE_BUDGET_DEFAULT_MB, where the default's reason is): streamed
   // textures load the mips their on-screen size needs inside it, the least
   // needed dropped first when it is full.
-  { key: 'texture_budget_mb', type: 'number', default: TEXTURE_BUDGET_DEFAULT_MB, min: TEXTURE_BUDGET_MIN_MB, max: TEXTURE_BUDGET_MAX_MB, integer: true, unit: 'MiB', optional: true, group: 'Rendering', label: 'Texture budget', tooltip: 'GPU memory (MiB) for textures in Play and the export. Streamed textures (large KTX2 textures; per texture in its import settings) load the detail their size on screen needs inside it; when it is full, the least-needed detail is dropped first.' },
+  { key: 'texture_budget_mb', type: 'number', default: TEXTURE_BUDGET_DEFAULT_MB, min: TEXTURE_BUDGET_MIN_MB, max: TEXTURE_BUDGET_MAX_MB, integer: true, unit: 'MiB', optional: true, group: RENDERING_SETTINGS_GROUP, label: 'Texture budget', tooltip: 'GPU memory (MiB) for textures in Play and the export. Streamed textures (large KTX2 textures; per texture in its import settings) load the detail their size on screen needs inside it; when it is full, the least-needed detail is dropped first.' },
 ];
 
 /** The simulation's dimension (the `physics_dimension` setting's values). */

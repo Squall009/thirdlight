@@ -64,8 +64,25 @@ export function inspector(page: Page): Locator {
   return page.locator('[data-tl-inspector]');
 }
 
-/** Back to the default view when the editor window shows (its tabs stay for the next item opened). */
+/** The Project Settings window (over the editor and the editor window), while it shows. */
+export function settingsWindow(page: Page): Locator {
+  return page.getByRole('region', { name: 'project settings', exact: true });
+}
+
+/** Close the Project Settings window when it shows (× in its corner). */
+export async function closeProjectSettings(page: Page): Promise<void> {
+  const win = settingsWindow(page);
+  if ((await win.count()) === 0) return;
+  await win.getByRole('button', { name: 'Close project settings', exact: true }).click();
+  await expect(win).toHaveCount(0);
+}
+
+/**
+ * Back to the default view when a full window shows: Project Settings
+ * closes, then the editor window (its tabs stay for the next item opened).
+ */
 async function leaveEditorWindow(page: Page): Promise<void> {
+  await closeProjectSettings(page);
   const win = editorWindow(page);
   if ((await win.count()) === 0) return;
   await win.getByRole('button', { name: 'Close the editor window', exact: true }).click();
@@ -79,8 +96,13 @@ export function windowTab(page: Page, name: string): Locator {
   return dockTabs(page).getByRole('tab', { name: name === 'Problems' ? /^Problems\s*\d*$/ : name, exact: true });
 }
 
+/** Tools whose panel moved into Project Settings, and the sub-tab that holds it. */
+const IN_PROJECT_SETTINGS: Readonly<Record<string, ProjectSettingsSection>> = { Behaviors: 'Scripts' };
+
 /** Show a tool window (Lighting, Environment, Console, Problems, Materials, Behaviors, …). */
 export async function openWindow(page: Page, name: string): Promise<void> {
+  const section = IN_PROJECT_SETTINGS[name];
+  if (section !== undefined) return openProjectSettings(page, section);
   await leaveEditorWindow(page);
   await windowTab(page, name).click();
   if (name === 'Assets') await restoreSearch(page);
@@ -116,13 +138,28 @@ async function restoreSearch(page: Page): Promise<void> {
 }
 
 
-/** The project-wide settings, by section. */
-export type ProjectSettingsSection = 'Gameplay' | 'Input' | 'Tags' | 'Saves' | 'Game modes' | 'Game shell';
+/** The project-wide settings, by section (the Project Settings window's sub-tabs). */
+export type ProjectSettingsSection = 'Gameplay' | 'Input' | 'Tags' | 'Collision layers' | 'Quality' | 'Saves' | 'Game modes' | 'Game shell' | 'Scripts';
 
-/** Show one section of the project settings. */
+/** A sub-tab of the Project Settings window. */
+export function settingsTab(page: Page, section: ProjectSettingsSection): Locator {
+  return settingsWindow(page).getByRole('tablist', { name: 'project settings sections' }).getByRole('tab', { name: section, exact: true });
+}
+
+/**
+ * Show one section of the project settings: File → Project Settings… (over
+ * the default view), its search cleared, the section's sub-tab chosen.
+ */
 export async function openProjectSettings(page: Page, section: ProjectSettingsSection): Promise<void> {
-  await leaveEditorWindow(page);
-  await windowTab(page, section).click();
+  if ((await settingsWindow(page).count()) === 0) {
+    await leaveEditorWindow(page);
+    await menu(page, 'File', 'Project Settings…');
+    await expect(settingsWindow(page)).toBeVisible();
+  }
+  const search = settingsWindow(page).getByLabel('Search project settings', { exact: true });
+  if ((await search.inputValue()) !== '') await search.fill('');
+  await settingsTab(page, section).click();
+  await expect(settingsTab(page, section)).toHaveAttribute('aria-selected', 'true');
 }
 
 /**
@@ -173,6 +210,7 @@ export async function expectEditorOpen(page: Page, kind: EditorKind, name: strin
  * works however many items there are).
  */
 export async function openEditor(page: Page, kind: EditorKind, name: string): Promise<void> {
+  await closeProjectSettings(page);
   const tab = editorTab(page, kind, name);
   if ((await tab.count()) === 0) {
     const panel = await projectWindow(page);

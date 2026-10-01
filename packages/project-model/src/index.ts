@@ -99,6 +99,7 @@ export * from './limits';
 
 export {
   M2_SETTINGS_KEYS,
+  RENDERING_SETTINGS_GROUP,
   AUDIO_VOICE_CAP,
   PHYSICS_DIMENSIONS,
   audioSpatialOf,

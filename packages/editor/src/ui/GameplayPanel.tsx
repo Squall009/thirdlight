@@ -2,7 +2,8 @@
  * The Gameplay panel (generic) over the projected
  * backend state:
  *  - **Settings** — the project settings (the character's physics and the
- *    engine settings), built from their descriptor; each edit is one partial
+ *    engine settings; the Rendering group shows under Project Settings →
+ *    Quality), built from their descriptor; each edit is one partial
  *    `setSettings`;
  *  - **Camera** — points at the camera objects, whose lens and rig (a
  *    virtual camera's `track` follows a target) are Inspector sections
@@ -18,6 +19,7 @@ import { useState } from 'react';
 import type { JSX } from 'react';
 import type { ProjectedEntity } from '../session/projection';
 import type { DescriptorRegistry } from '@thirdlight/project-model';
+import { RENDERING_SETTINGS_GROUP } from '@thirdlight/project-model/limits';
 import { ObjectFields, type FieldContext } from './DescriptorFields';
 
 /** The app's single backend error (the last failed command, explained). */
@@ -78,30 +80,37 @@ function CameraTab({ entities, onSelectEntity }: { entities: readonly ProjectedE
 // ---------------------------------------------------------------------------
 
 /**
- * The settings built from their descriptor (integration of 15.1 + 15.3):
- * every registry key, the engine settings included (a choice of numbers is a
- * select). Each edit is one partial `setSettings`; a setting cannot be
- * removed (the command has no removal), so an emptied field is refused here.
+ * The settings built from their descriptor: the registry's keys, the engine
+ * settings included (a choice of numbers is a select). Each edit is one
+ * partial `setSettings`; a setting cannot be removed (the command has no
+ * removal), so an emptied field is refused here. `group` picks the fields of
+ * one settings group (`only`) or all but one (`except`): the Rendering group
+ * shows with the quality, the rest under Gameplay.
  */
-function SettingsBlockTab({
+export function SettingsFields({
   settings,
   backendError,
   onSaveSettings,
   registry,
   fieldContext,
+  group,
+  label,
 }: {
   settings: Record<string, unknown> | null;
   backendError: GameplayBackendError | null;
   onSaveSettings: (settings: Record<string, number>) => void;
   registry: DescriptorRegistry;
   fieldContext: FieldContext;
+  group: { only: string } | { except: string };
+  label: string;
 }): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const desc = registry.content.find((b) => b.key === 'settings')?.value;
   if (desc === undefined || desc.type !== 'object') return <p className="tl-note">The settings have no description.</p>;
   const current = settings ?? {};
+  const skip = desc.fields.filter((f) => ('only' in group ? f.group !== group.only : f.group === group.except)).map((f) => f.key);
   return (
-    <div className="tl-gameplay__tab" aria-label="gameplay settings">
+    <div className="tl-gameplay__tab" aria-label={label}>
       <BackendError error={backendError} />
       {error !== null && (
         <div className="tl-prop__error" role="alert">
@@ -115,6 +124,7 @@ function SettingsBlockTab({
         path={[]}
         component="settings"
         ctx={fieldContext}
+        skip={skip}
         onFail={setError}
         onEdit={(path, next) => {
           const key = String(path[0]);
@@ -150,7 +160,7 @@ export function GameplayPanel(props: Props): JSX.Element {
       </div>
       {shown === 'settings' &&
         (props.registry !== null ? (
-          <SettingsBlockTab settings={props.settings} backendError={props.backendError} onSaveSettings={props.onSaveSettings} registry={props.registry} fieldContext={props.fieldContext} />
+          <SettingsFields settings={props.settings} backendError={props.backendError} onSaveSettings={props.onSaveSettings} registry={props.registry} fieldContext={props.fieldContext} group={{ except: RENDERING_SETTINGS_GROUP }} label="gameplay settings" />
         ) : (
           <p className="tl-note">Loading the settings…</p>
         ))}

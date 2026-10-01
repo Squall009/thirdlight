@@ -27,7 +27,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
-import { menu, openProjectSettings } from './ui';
+import { openProjectSettings } from './ui';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -285,7 +285,7 @@ test('editor: a pointer binding and a locked cursor in the Input window; a colli
   await attack.getByRole('button', { name: 'remove binding Mouse left from attack' }).click();
   await expect.poll(async () => JSON.stringify(((await query('queryGameConfig'))['input'] as { cursor?: unknown }).cursor)).toBe(JSON.stringify({ gameplay: 'locked' }));
 
-  await menu(page, 'File', 'Project tags');
+  await openProjectSettings(page, 'Collision layers');
   const layers = page.getByLabel('collision layers', { exact: true });
   await layers.getByLabel('new collision layer name', { exact: true }).fill('units');
   await layers.getByRole('button', { name: 'add layer' }).click();

@@ -9,7 +9,7 @@ import { createHash } from 'node:crypto';
 import { expect, test, type Page } from '@playwright/test';
 
 import { STARTER, type E2EBackend, startBackend } from './backend';
-import { menu } from './ui';
+import { closeProjectSettings, openProjectSettings } from './ui';
 
 let be: E2EBackend;
 test.afterEach(async () => {
@@ -51,7 +51,7 @@ test('tags in project settings and the inspector: add, rename keeps the bit, fol
   await page.goto(be.editorUrl);
   await expect(status(page)).toContainText('connected');
 
-  await menu(page, 'File', 'Project tags');
+  await openProjectSettings(page, 'Tags');
   const panel = page.getByLabel('project tags');
   for (const name of ['enemy', 'pickup']) {
     await panel.getByLabel('new tag name').fill(name);
@@ -65,7 +65,8 @@ test('tags in project settings and the inspector: add, rename keeps the bit, fol
   await expect(panel.locator('[data-tag="foe"] .tl-tags__bit')).toHaveText('#0');
   await expect(panel.locator('[data-tag="pickup"] .tl-tags__bit')).toHaveText('#1');
 
-  // A folder tagged "foe" with a box inside.
+  // A folder tagged "foe" with a box inside (the Hierarchy and the Inspector are under the settings window).
+  await closeProjectSettings(page);
   const folderId = String((await cmd('createEntity', { kind: 'folder', name: 'Enemies' })).createdId);
   const boxId = String((await cmd('createEntity', { kind: 'box', name: 'grunt', parentId: folderId })).createdId);
   await row(page, 'Enemies').click();
@@ -83,14 +84,17 @@ test('tags in project settings and the inspector: add, rename keeps the bit, fol
   await page.screenshot({ path: 'test-results/tags-inspector.png' });
 
   // A tag in use cannot be removed; an unused one can.
+  await openProjectSettings(page, 'Tags');
   await expect(panel.locator('[data-tag="foe"] .tl-tags__used')).toHaveText('on 1 object');
   await expect(panel.getByRole('button', { name: 'remove tag foe' })).toBeDisabled();
   await panel.getByRole('button', { name: 'remove tag pickup' }).click();
   await expect(panel.locator('[data-tag="pickup"]')).toHaveCount(0);
   await page.screenshot({ path: 'test-results/tags-panel.png' });
   // Undo brings pickup back on bit 1.
+  await closeProjectSettings(page);
   await page.locator('canvas.tl-viewport').hover();
   await page.keyboard.press('Control+z');
+  await openProjectSettings(page, 'Tags');
   await expect(panel.locator('[data-tag="pickup"] .tl-tags__bit')).toHaveText('#1');
 });
 

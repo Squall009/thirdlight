@@ -169,10 +169,9 @@ test('the project setting picks the backend of the Scene view, Play (tl_game_obs
   const be = await backend('starter');
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
-  // The setting is a select in the descriptor-built settings form.
-  await openProjectSettings(page, 'Gameplay');
-  await page.locator('.tl-gameplay__tabs').getByRole('button', { name: 'settings', exact: true }).click();
-  const field = page.getByLabel('gameplay settings').getByLabel('settings render_backend', { exact: true });
+  // The setting is a select in the descriptor-built settings form (the Rendering group, under Quality).
+  await openProjectSettings(page, 'Quality');
+  const field = page.getByLabel('quality settings').getByLabel('settings render_backend', { exact: true });
   // Unset: the default, auto (1); the archived WebGL renderer (0) is no longer offered.
   await expect(field).toHaveValue('1');
   await expect(field.locator('option')).toHaveText(['Auto (WebGPU, else WebGL 2)', 'WebGPU', 'WebGL 2']);
