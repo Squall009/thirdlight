@@ -50,6 +50,8 @@ export interface SaveSectionOwners {
   readonly saveStore: Map<string, unknown>;
   readonly dialogue: DialogueRunner;
   readonly environment: EnvironmentDirector;
+  /** Whether a scene is loaded now (a saved active scene comes back only then). */
+  sceneLoaded(sceneId: string): boolean;
   readonly entityAccess: EntityAccess;
   /** The gameplay blocks now (null without them). */
   blocks(): GameplayBlocks | null;
@@ -144,7 +146,7 @@ export function saveSectionsPort(o: SaveSectionOwners): SaveSectionsPort {
           // Each section returns here: a restore never falls through into the next section's.
           return null;
         case 'environment':
-          o.environment.restoreState(value as EnvironmentSaveState | undefined);
+          o.environment.restoreState(value as EnvironmentSaveState | undefined, (id) => o.sceneLoaded(id));
           return null;
         case 'components': {
           const { counters, fields, ...rest } = (value ?? {}) as Record<string, unknown>;

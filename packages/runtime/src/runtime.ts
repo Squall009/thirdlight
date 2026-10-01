@@ -83,8 +83,10 @@ import { AnimatorMachine, type AnimatorControllerLike, type AnimatorPose } from 
 import { AudioMixer, type AudioCommand } from './audio-mixer';
 import { DialogueRunner, validateDialogueInput, type DialogueInputRecord } from './dialogue';
 import { CameraBrain, type CameraViewInfo } from './camera-brain';
-import { EnvironmentDirector, type EnvironmentSaveState } from './environment-director';
-import type { EnvironmentBlendView } from './environment-blend';
+import { EnvironmentDirector, MAX_ENVIRONMENT_BLEND_SECONDS, type EnvironmentSaveState } from './environment-director';
+import { emptyMutableIntents, resetMutableIntents, type MutableIntentSet } from './mutable-intents';
+import { colliderEntityOf, PHYSICS_QUERY_LIMIT, queryDistance, queryPositive, queryQuat, queryVec3 } from './physics-query-args';
+import { ENVIRONMENT_EASINGS, type EnvironmentBlendView, type EnvironmentEasing } from './environment-blend';
 import type { ClimbQuery } from './types';
 import { SocketSystem } from './sockets';
 import { TimelineSystem, type TimelineView } from './timeline';
@@ -127,6 +129,7 @@ import {
   type DiagnosticErrorEntry,
   type RuntimeSceneRow,
   type SceneLoadOptions,
+  type SceneActivateOptions,
   type SceneLoadRequest,
   type SceneLoadingView,
   type SceneTransitionView,
@@ -166,50 +169,7 @@ export interface HeldPointer extends PointerSample {
 }
 
 
-/**
- * At most this many physics queries (rays, overlaps, picks; 2D and 3D) a
- * step, for every script together: a runtime budget. A game's agents each
- * test line of sight and probe around them every step; 1,024 rays cost
- * Rapier about 1.6 ms in a scene of 16,384 colliders (measured). Beyond it a
- * query finds nothing (warned once in 3D).
- */
-export const PHYSICS_QUERY_LIMIT = 1024;
-
-/** A query's [x, y, z] (a script error when it is not three finite numbers). */
-function queryVec3(v: unknown, what: string): [number, number, number] {
-  if (!Array.isArray(v) || v.length < 3 || !v.slice(0, 3).every((n) => typeof n === 'number' && Number.isFinite(n))) throw new Error(`${what} is [x, y, z] (finite numbers)`);
-  return [v[0] as number, v[1] as number, v[2] as number];
-}
-
-/** A query's optional rotation quaternion [x, y, z, w] (normalized; absent: none). */
-function queryQuat(v: unknown, what: string): PhysicsQuat | undefined {
-  if (v === undefined || v === null) return undefined;
-  if (!Array.isArray(v) || v.length !== 4 || !v.every((n) => typeof n === 'number' && Number.isFinite(n))) throw new Error(`${what} is a quaternion [x, y, z, w]`);
-  const len = Math.hypot(v[0] as number, v[1] as number, v[2] as number, v[3] as number);
-  if (!(len > 1e-9)) throw new Error(`${what} is a quaternion [x, y, z, w] of non-zero length`);
-  return { x: (v[0] as number) / len, y: (v[1] as number) / len, z: (v[2] as number) / len, w: (v[3] as number) / len };
-}
-
-function queryPositive(v: unknown, what: string): number {
-  if (typeof v !== 'number' || !Number.isFinite(v) || v <= 0) throw new Error(`${what} is a positive number (m)`);
-  return v;
-}
-
-/**
- * The entity a physics collider belongs to — a block layer's
- * chunk collider (`<layer>#blocks:<chunk>:<piece>`) is its layer.
- */
-function colliderEntityOf(colliderId: string): string {
-  const i = colliderId.indexOf('#blocks:');
-  return i > 0 ? colliderId.slice(0, i) : colliderId;
-}
-
-/** A query's reach (absent: `fallback`; at most 10 km). */
-function queryDistance(v: unknown, fallback: number, what: string): number {
-  if (v === undefined || v === null) return fallback;
-  if (typeof v !== 'number' || !Number.isFinite(v) || v <= 0) throw new Error(`${what} maxDistance is a positive number (m)`);
-  return Math.min(v, 10_000);
-}
+export { PHYSICS_QUERY_LIMIT } from './physics-query-args';
 
 /** The default step rate. */
 const DEFAULT_FIXED_STEP_HZ = 120;
@@ -260,66 +220,6 @@ const PHYSICS_PORT_REASON = 'physics_port';
 
 interface BehaviorLogSink {
   handler: ((moduleId: string, level: BehaviorLogLevel, message: string, at?: { file: string; line: number; column: number }) => void) | null;
-}
-
-/** The runtime-owned mutable per-step intent set. */
-interface MutableIntentSet {
-  stepIndex: number;
-  move: number | null;
-  jump: JumpPhase | null;
-  moveWriter: string | null;
-  jumpWriter: string | null;
-  transformWrites: IntentTransformWrite[];
-  /**
-   * Committed channels per entity in this step: `axesTag * 64 +
-   * mask` with position x/y/z = 1/2/4, rotation 8, scale 16; a value with an
-   * older tag counts as none, so nothing is cleared per step.
-   */
-  axes: Map<string, number>;
-  axesTag: number;
-  /** Accepted intents committed in this step. */
-  count: number;
-  /** The committed control_move's second axis, and the character intents with their writers (null: none this step). */
-  moveY: number | null;
-  characterMove: { x: number; z: number; run: boolean } | null;
-  characterPlace: { x: number; y: number; z: number } | null;
-  characterEnabled: boolean | null;
-  characterWriters: Map<string, string>;
-}
-
-function emptyMutableIntents(stepIndex: number): MutableIntentSet {
-  return {
-    stepIndex,
-    move: null,
-    jump: null,
-    moveWriter: null,
-    jumpWriter: null,
-    transformWrites: [],
-    axes: new Map(),
-    axesTag: 1,
-    count: 0,
-    moveY: null,
-    characterMove: null,
-    characterPlace: null,
-    characterEnabled: null,
-    characterWriters: new Map(),
-  };
-}
-
-function resetMutableIntents(s: MutableIntentSet, stepIndex: number): void {
-  s.stepIndex = stepIndex;
-  s.move = null;
-  s.jump = null;
-  s.moveWriter = null;
-  s.jumpWriter = null;
-  s.transformWrites.length = 0;
-  s.axesTag += 1;
-  s.count = 0;
-  s.moveY = null;
-  s.characterMove = null;
-  s.characterPlace = null;
-  s.characterEnabled = null;
-  if (s.characterWriters.size > 0) s.characterWriters.clear();
 }
 
 interface WallAnchor {
@@ -1190,7 +1090,11 @@ interface TransitionSpec {
   readonly fade: number;
   readonly color: string;
 }
-type SceneOp = { op: 'load'; sceneId: string; at?: readonly [number, number, number]; transition?: TransitionSpec } | { op: 'unload'; sceneId: string };
+type SceneOp =
+  | { op: 'load'; sceneId: string; at?: readonly [number, number, number]; transition?: TransitionSpec }
+  | { op: 'unload'; sceneId: string }
+  /** `ctx.scenes.setActive`: its look blends in over `blend` seconds. */
+  | { op: 'activate'; sceneId: string; blend: number; easing: EnvironmentEasing };
 /**
  * The time a step boundary spends preparing loaded scenes'
  * entities (copying and freezing them) before it attaches them; a large
@@ -1718,7 +1622,8 @@ class RuntimeInstance implements Runtime {
     this.shellControl = this.buildShellControl();
     this.materials.addEntities(args.initialEntities);
     // The environment preset blend (before the saves, whose sections read it).
-    this.environment = new EnvironmentDirector(this.hz, args.environmentPresets, (message) => this.recordBehaviorLog('thirdlight.runtime:environment', 'warn', message));
+    // The first start scene is the active one (its look is the base look).
+    this.environment = new EnvironmentDirector(this.hz, args.environmentPresets, (message) => this.recordBehaviorLog('thirdlight.runtime:environment', 'warn', message), args.sceneRows !== null ? (args.startBatches[0]?.sceneId ?? null) : null);
     // Project saves (the document, slots, settings; inert without a save schema).
     this.saves = new RuntimeSaves(args.saveSchema, this.hz, this.buildSaveSections(), args.projectSettings, (message) => this.recordBehaviorLog('thirdlight.runtime:saves', 'warn', message));
     for (const c of args.animatorControllers) this.animatorControllers.set(c.controllerId, c);
@@ -2114,6 +2019,7 @@ class RuntimeInstance implements Runtime {
       get saveStore() { return rt.saveStore; },
       get dialogue() { return rt.dialogue; },
       get environment() { return rt.environment; },
+      sceneLoaded: (sceneId) => rt.batches.has(sceneId),
       get entityAccess() { return rt.entityAccess; },
       blocks: () => rt.blocks,
       spawnedCopies: () => rt.spawnedCopies(),
@@ -3559,6 +3465,8 @@ class RuntimeInstance implements Runtime {
     }
     this.cameras.reset();
     this.timelines.reset();
+    // The look starts over too: the first start scene's, no preset (a replay sees what the first run saw).
+    this.environment.reset();
     this.cursorMode = null;
     this.resetAnimators();
     this.sockets.reset();
@@ -4172,9 +4080,14 @@ class RuntimeInstance implements Runtime {
     return null;
   }
 
-  /** Queue a validated op: loads go to the host, unloads wait for the next boundary. */
+  /** Queue a validated op: loads go to the host, unloads wait for the next boundary; an activation applies now. */
   private enqueueSceneOp(op: SceneOp): void {
     const status = this.sceneStatus.get(op.sceneId);
+    if (op.op === 'activate') {
+      // Still loaded when the step commits (an unload earlier in the step wins).
+      if (status === 'loaded' && !this.pendingUnloads.has(op.sceneId)) this.environment.activate(op.sceneId, op.blend, op.easing);
+      return;
+    }
     if (op.op === 'load') {
       if (status === 'loaded') {
         this.pendingUnloads.delete(op.sceneId); // load after unload in one step: stays loaded
@@ -4238,6 +4151,19 @@ class RuntimeInstance implements Runtime {
       transition() {
         return rt.sceneLoadingView().transition;
       },
+      active(): string | null {
+        return rt.environment.activeScene();
+      },
+      setActive(sceneId: string, options?: SceneActivateOptions): void {
+        if (rt.sceneRows === null) refuse('ctx.scenes.setActive: this game has no scene catalog (a v4 project runs with one)');
+        if (typeof sceneId !== 'string' || !rt.batches.has(sceneId)) refuse(`ctx.scenes.setActive: scene ${JSON.stringify(String(sceneId))} is not loaded`);
+        const o = (typeof options === 'object' && options !== null ? options : {}) as SceneActivateOptions;
+        const blend = o.blend ?? 0;
+        if (typeof blend !== 'number' || !Number.isFinite(blend) || blend < 0 || blend > MAX_ENVIRONMENT_BLEND_SECONDS) refuse(`ctx.scenes.setActive: blend is 0–${MAX_ENVIRONMENT_BLEND_SECONDS} seconds`);
+        const easing = o.easing ?? 'linear';
+        if (!(ENVIRONMENT_EASINGS as readonly string[]).includes(easing)) refuse(`ctx.scenes.setActive: easing is one of ${ENVIRONMENT_EASINGS.join(', ')}`);
+        rt.stepSceneOps.push({ op: 'activate', sceneId, blend, easing });
+      },
     });
   }
 
@@ -4250,6 +4176,8 @@ class RuntimeInstance implements Runtime {
     if (this.pendingUnloads.size > 0) {
       for (const sceneId of this.pendingUnloads) this.removeBatch(sceneId);
       this.pendingUnloads.clear();
+      // The active scene unloaded on its own: the first scene still loaded (in load order) is active, at once.
+      this.reactivateIfGone();
     }
     // Fade-outs advance one step per step (a paused game draws no fade: it is done at once).
     for (const t of this.transitions.values()) {
@@ -4276,11 +4204,21 @@ class RuntimeInstance implements Runtime {
       const at = this.fetchingLoads.get(sceneId)?.at;
       this.fetchingLoads.delete(sceneId);
       // A transition's unloads leave in the step its scene arrives (never an empty world between).
+      let takesActive = false;
       if (t !== undefined) {
         this.transitions.delete(sceneId);
-        for (const u of t.unload) if (u !== sceneId && this.batches.has(u) && this.sceneOpProblem('unload', u) === null) this.removeBatch(u);
+        for (const u of t.unload) {
+          if (u === sceneId || !this.batches.has(u) || this.sceneOpProblem('unload', u) !== null) continue;
+          if (u === this.environment.activeScene()) takesActive = true;
+          this.removeBatch(u);
+        }
       }
       if (!this.addBatch(sceneId, offsetEntities(prep.out, at), false, at === undefined)) return false;
+      // The scene loaded in place of the active one is active: its look blends in over the transition's fade.
+      if (takesActive) {
+        if (this.batches.has(sceneId)) this.environment.activate(sceneId, t!.fade);
+        else this.reactivateIfGone();
+      }
       if (t !== undefined) {
         this.lastSwap = { scene: sceneId, revision: this.sceneRevision, seconds: t.fade, color: t.color };
         this.loadingViewCache = null;
@@ -4489,6 +4427,14 @@ class RuntimeInstance implements Runtime {
   }
 
   /** Remove one scene and release what belongs to it. */
+  /** The active scene is no longer loaded: the first scene still loaded (in load order) becomes active at once; none loaded keeps the look. */
+  private reactivateIfGone(): void {
+    const active = this.environment.activeScene();
+    if (active === null || this.batches.has(active)) return;
+    const next = this.batches.keys().next();
+    if (next.done !== true) this.environment.activate(next.value);
+  }
+
   private removeBatch(sceneId: string): void {
     const batch = this.batches.get(sceneId);
     if (batch === undefined) return;

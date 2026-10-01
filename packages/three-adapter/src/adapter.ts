@@ -40,7 +40,7 @@ import { BlockLayerView, blockLookFromObject, type BlockLayerViewDiagnostics, ty
 import { RuntimeMaterialView, type MaterialRenderChangeLike, type RuntimeMaterialsDiagnostics } from './runtime-materials';
 import type { BlockLayerComponent, BlockLayerData, BlockType, GridRenderChange } from '@thirdlight/runtime';
 import type { Runtime, RuntimeSnapshot } from '@thirdlight/runtime';
-import { blendEnvironment, blendLight, blendTouchesLights, type EnvironmentBlendView, type EnvironmentLightValues } from '@thirdlight/runtime';
+import { blendEnvironment, blendEnvironmentOver, blendLight, blendTouchesLights, type EnvironmentBlendView, type EnvironmentLightValues } from '@thirdlight/runtime';
 import { adapterError, type AdapterError } from './errors';
 import { createFrameCapture, type ScreenshotResult } from './capture';
 export type { ScreenshotResult } from './capture';
@@ -264,8 +264,11 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
   /** The size last handed to the environment renderer (it rebuilds its post stack on a change). */
   let environmentSize: [number, number] | null = null;
   let playerQuality: QualityLevel | null = opts.environment?.quality ?? null;
-  /** A look laid over the project environment (null: none). */
-  let environmentLayer: EnvironmentLayerLike | null = null;
+  /** The scenes' looks (absent: the environment's value is the whole look). */
+  const sceneLooks = opts.environment?.scenes ?? null;
+  /** The scene whose look is laid over the project environment now, and that look (null: none). */
+  let layerScene: string | null = sceneLooks?.start ?? null;
+  let environmentLayer: EnvironmentLayerLike | null = layerScene !== null ? (sceneLooks?.look(layerScene) ?? null) : null;
   /**
    * The lights environment presets may change (scene-level
    * directional/ambient lights and the entities' point/spot/hemisphere lights)
@@ -1114,11 +1117,15 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
    */
   function applyEnvironmentBlend(): void {
     const view = envPreview ?? ((opts.runtime as { readEnvironmentBlend?: () => EnvironmentBlendView | null }).readEnvironmentBlend?.() ?? null);
+    followActiveScene(view);
+    // Only the active scene's look, no preset: the look is drawn as it is (no blend).
+    const fading = view?.scene !== undefined && view.scene.from !== null && view.scene.weight < 1;
+    const plain = view === null || (!fading && view.weights.length === 1 && view.weights[0]![0] === '' && Object.keys(view.overrides).length === 0);
     const layerKey = JSON.stringify(environmentLayer);
-    const key = view === null ? '' : `${JSON.stringify(view.weights)}|${JSON.stringify(view.overrides)}|${envLightsRevision}|${layerKey}`;
+    const key = plain ? '' : `${JSON.stringify(view.weights)}|${JSON.stringify(view.overrides)}|${JSON.stringify(view.scene ?? null)}|${envLightsRevision}|${layerKey}`;
     if (key === envAppliedKey) return;
     envAppliedKey = key;
-    if (view === null) {
+    if (plain) {
       if (!envBlendActive) return;
       envBlendActive = false;
       environmentRenderer?.setBlend(null);
@@ -1128,7 +1135,9 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     }
     envBlendActive = true;
     const base = layerEnvironment(opts.environment?.value ?? null, environmentLayer) ?? {};
-    const look = blendEnvironment(base as never, envPresets, view);
+    // While the active scene's look blends in, every key resolves over both scenes' looks.
+    const from = fading ? (layerEnvironment(opts.environment?.value ?? null, sceneLooks?.look(view.scene!.from!) ?? null) ?? {}) : null;
+    const look = from === null ? blendEnvironment(base as never, envPresets, view) : blendEnvironmentOver([[from as never, 1 - view.scene!.weight], [base as never, view.scene!.weight]], envPresets, view);
     environmentRenderer?.setBlend(look as never);
     lightmaps?.setLook(look.lightmap.intensity, look.lightmap.tint);
     if (!blendTouchesLights(base as never, envPresets, view)) {
@@ -1140,6 +1149,20 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
       const v = blendLight(rec.authored, rec, envTagBits, base as never, envPresets, view);
       setLightValues(rec, v);
     }
+  }
+  /**
+   * The active scene's look laid over the project environment: a new active
+   * scene (the view names it) replaces the layer, the drawn environment and
+   * the wind at once; its blend from the look before is `applyEnvironmentBlend`'s.
+   */
+  function followActiveScene(view: EnvironmentBlendView | null): void {
+    if (sceneLooks === null) return;
+    const active = view?.scene?.active ?? sceneLooks.start;
+    if (active === layerScene || active === null) return;
+    layerScene = active;
+    environmentLayer = sceneLooks.look(active);
+    environmentRenderer?.set(effectiveEnvironment());
+    if (materialLibrary !== null) materialLibrary.setWind(((environmentLayer?.wind as WindLike | undefined) ?? opts.materials?.wind ?? null) as WindLike | null);
   }
   /**
    * The light values scripts wrote (`ctx.entity(id).set('light',
@@ -1521,7 +1544,10 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     try {
       // A player's quality level also applies without a project environment (the low
       // level draws without MSAA), so the environment renderer draws then too.
-      if ((opts.environment !== undefined || playerQuality !== null) && environmentRenderer === null) {
+      // With the scenes' looks given, only once there is something to draw (a look, presets, a blend):
+      // a game whose scenes set no look renders as one without an environment.
+      const wanted = opts.environment !== undefined && (sceneLooks === null || effectiveEnvironment() !== null || envPresets.size > 0 || envBlendActive);
+      if ((wanted || playerQuality !== null) && environmentRenderer === null) {
         // The sky, its faces and the grading LUT are held for the environment's life. They are the same
         // decoded textures materials draw with (the environment builds its cube, equirect copy and LUT
         // from their images and never changes them), so a texture used by both is decoded once.
@@ -1824,12 +1850,6 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
     },
     presentedSceneRevision(): number {
       return presentedRevision;
-    },
-    setEnvironmentLayer(layer: EnvironmentLayerLike | null): void {
-      if (JSON.stringify(layer) === JSON.stringify(environmentLayer)) return;
-      environmentLayer = layer;
-      environmentRenderer?.set(effectiveEnvironment());
-      if (materialLibrary !== null) materialLibrary.setWind(((layer?.wind as WindLike | undefined) ?? opts.materials?.wind ?? null) as WindLike | null);
     },
   };
   // The settle surface — present iff the `models` option was

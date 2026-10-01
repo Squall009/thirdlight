@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { EnvironmentPreset } from '@thirdlight/project-model';
 
-import { blendEnvironment, blendLight, colorToLinear, easeEnvironment, linearToColor, mixColors, type EnvironmentBlendView } from './environment-blend';
+import { blendEnvironment, blendEnvironmentOver, blendLight, colorToLinear, easeEnvironment, linearToColor, mixColors, type EnvironmentBlendView } from './environment-blend';
 import { EnvironmentDirector } from './environment-director';
 
 const DAY: EnvironmentPreset = {
@@ -184,5 +184,28 @@ describe('the environment director (simulation state)', () => {
     expect(e.checkState({ weights: 'x' })).not.toBeNull();
     d.reset();
     expect(d.view(1)).toBeNull();
+  });
+});
+
+describe('blending two scenes\' looks (a change of active scene)', () => {
+  const A = { sky: { mode: 'color' as const, color: '#ff0000' }, fog: { mode: 'linear' as const, color: '#ffffff', near: 10, far: 50 } };
+  const B = { sky: { mode: 'color' as const, color: '#0000ff' } };
+  const base = { weights: [['', 1]] as [string, number][], overrides: {} };
+  it('one scene at share 1 is that scene exactly; a part it leaves out is gone', () => {
+    const only = blendEnvironmentOver([[A, 0], [B, 1]], new Map(), base);
+    expect(only.sky).toEqual({ mode: 'color', color: '#0000ff', intensity: 1, environmentIntensity: 1 });
+    expect(only.fog).toBeUndefined();
+  });
+  it('half way: the colours mix, the fog of the one scene thins, a preset lays over both', () => {
+    const half = blendEnvironmentOver([[A, 0.5], [B, 0.5]], new Map(), base);
+    expect(half.sky?.color).toBe(mixColors([['#ff0000', 0.5], ['#0000ff', 0.5]]));
+    expect(half.fog?.mode).toBe('linear');
+    expect(half.fog!.far!).toBeGreaterThan(50);
+    const night = new Map([['night', { presetId: 'night', name: 'Night', post: { exposure: 0.5 } }]]) as never;
+    const preset = blendEnvironmentOver([[A, 0.5], [B, 0.5]], night, { weights: [['night', 1]], overrides: {} });
+    expect(preset.post?.exposure).toBe(0.5);
+    expect(preset.sky?.color).toBe(half.sky?.color);
+    // One base is blendEnvironment itself.
+    expect(blendEnvironmentOver([[A, 1]], new Map(), base)).toEqual(blendEnvironment(A, new Map(), base));
   });
 });

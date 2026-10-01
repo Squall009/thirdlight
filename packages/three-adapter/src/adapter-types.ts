@@ -71,6 +71,14 @@ export interface SceneAdapterOptions {
     readonly loadTexture: (assetId: string) => Promise<THREE.Texture | null>;
     /** A player's quality setting (null = the environment's). */
     readonly quality?: QualityLevel | null;
+    /**
+     * Each scene's look (sky, fog, post, wind) over `value` (the project's
+     * quality and presets): the active scene's is drawn — `start` until the
+     * runtime's environment view names another — and a change of active scene
+     * blends the two looks by the view's share. `look` answers for the scenes
+     * read so far (a scene's look arrives with its document).
+     */
+    readonly scenes?: { readonly start: string | null; look(sceneId: string): EnvironmentLayerLike | null };
   };
   /**
    * The texture decoder for spot light cookies (bytes from the
@@ -250,12 +258,6 @@ export interface SceneAdapter {
   modelsSettled?(): Promise<ModelsSettledResult>;
   /** A player's quality setting (low/medium/high) over the environment's. */
   setQuality?(level: QualityLevel): void;
-  /**
-   * A look (sky, fog, post, wind) laid over the project
-   * environment; null = the project environment. Needs the `environment`
-   * option for sky/fog/post and the `materials` option for wind.
-   */
-  setEnvironmentLayer?(layer: EnvironmentLayerLike | null): void;
   /**
    * Show an environment preset blend instead of the running
    * game's (an editor preview; null: the game's again).

@@ -226,6 +226,23 @@ export interface BehaviorSceneControl {
    * @graphNode Scene transition
    */
   transition(): SceneTransitionView | null;
+  /**
+   * The active scene: its sky, fog, post-processing and wind are the look (the first start scene at first; a transition that unloads it makes its scene active).
+   * @graphPure
+   * @graphNode Active scene
+   */
+  active(): string | null;
+  /**
+   * Make a loaded scene the active one: its look blends in over `blend` seconds (0: at once). Applies with the step.
+   * @graphNode Set active scene
+   */
+  setActive(sceneId: string, options?: SceneActivateOptions): void;
+}
+
+/** `ctx.scenes.setActive` options: the look's blend (seconds, 0–600) and its easing. */
+export interface SceneActivateOptions {
+  blend?: number;
+  easing?: 'linear' | 'easeIn' | 'easeOut' | 'easeInOut';
 }
 
 /** A read-only view of entity transforms (`ctx.world`). */

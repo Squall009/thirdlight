@@ -214,6 +214,8 @@ export interface GameHostEnvironmentObservation {
   readonly target: string | null;
   readonly progress: number;
   readonly weights: Readonly<Record<string, number>>;
+  /** The active scene once it is not the start scene: its look blending in from `from`'s (`weight`: its share, 1 when done). */
+  readonly scene?: { readonly active: string | null; readonly from: string | null; readonly weight: number };
 }
 
 /**
@@ -1573,13 +1575,13 @@ export function createGameHost(config: GameHostConfig): GameHost {
     };
   };
 
-  /** The environment blend, once a script changed it (weights by key: '' the base look, a preset id, a patched preset's key). */
+  /** The environment blend, once a script changed it or the active scene changed (weights by key: '' the base look, a preset id, a patched preset's key). */
   const environmentObservation = (rt: Runtime): { environment?: GameHostEnvironmentObservation } => {
     const v = rt.readEnvironmentBlend?.() ?? null;
     if (v === null) return {};
     const weights: Record<string, number> = {};
     for (const [k, w] of v.weights) weights[k] = w;
-    return { environment: { target: v.target, progress: v.progress, weights } };
+    return { environment: { target: v.target, progress: v.progress, weights, ...(v.scene !== undefined ? { scene: { ...v.scene } } : {}) } };
   };
 
   /** The resolved camera, while the game has virtual cameras. */

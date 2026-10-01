@@ -302,7 +302,8 @@ moves at least as many lines out as it adds.
 | 27.7 | done 2026-10-01: the model import setting "extract textures" (on for a new model; an existing one switches only when re-imported with it, from its inspector) takes a GLB's images out into texture assets in `<model>_textures/` (PNG/JPEG encoded to KTX2 with mips by what the material samples them as, KTX2/WebP as they are, one image a texture asset however many models carry it); the model is stored without them (one-pixel stand-ins, `convertedFrom: glb`) and names them in `textures`; Play, the export, the Scene view and model thumbnails draw them from the texture assets, streamed by mip; publish, folder import and the file check do it; e2e `extract-textures` (both renderers, the webgpu project too); bench below (D105; D106 found) |
 | 27.8 | done 2026-10-01: `App.tsx` split, no behaviour change: 4,826 → 1,083 lines; each area's state and commands in a hook returning one object (`ui/shell/use*.ts`, `ui/workspace/useDocument*.ts`), the shell's pieces as components taking those objects (`BottomDock`, `AssetsTab`, `InspectorDock`, `EditorDialogs`), the menus as `editorMenus`, the document tabs' host as `workspaceHostOf`; fast gate with 38 editor-shell specs + the smoke set green (D91) |
 | 27.9 | done 2026-10-01: `tests/e2e/ui.ts` opens tool windows (`openWindow`, `windowTab`, `expectWindowOpen`), the project window (`projectWindow`), settings sections (`openProjectSettings`), item editors (`openEditor` — to the front if open, else a double-click in the project window found by search — `closeEditor`, `editorTab`, `editorPane`, `expectEditorOpen`) and the Scene/Game views (`showView`, `viewTab`); 78 specs moved to them (the 74 counted plus four that only named editor panes), two fast gates with every moved spec green |
-| 27.10–27.17 | — |
+| 27.10 | done 2026-10-01: each scene file carries its look (`SceneV4.environment`: sky, fog, post, wind); `content.environment` keeps the default quality and the presets; `project.json` schemaVersion 6, a 5 upgraded on open (the project look copied into every scene; fixture `fixtures/phase27/legacy-v5-environment` upgraded, replayed and exported over HTTP); `setEnvironment {sceneId}` (MCP too), `createScene {environmentFrom}`, a deleted scene's look kept for undo; the runtime's active scene (`ctx.scenes.active/setActive`, a transition taking over the active scene's place makes its scene active over the fade) blends the looks as simulation state (page, worker, replay agree); Scene view, Play and export draw the active scene's look, checked in pixels in a two-scene Play and its export (D107) |
+| 27.11–27.17 | — |
 
 ## 6. Decision log
 
@@ -559,6 +560,37 @@ moves at least as many lines out as it adds.
   view), the projection refresh and the layout. The bottom dock's panels are
   still branches of one component (`BottomDock.tsx`) until 27.13–27.15 move
   them to their windows.
+- 2026-10-01 (27.10): a scene's look is `{sky, fog, post, wind}` in its own
+  file; the quality (the player's setting) and the presets (named looks laid
+  over the active scene's) stay the project's. `setEnvironment` takes a look
+  with `sceneId` and the project part without it; a look sent without a
+  sceneId is refused saying where it goes (no "current scene" on the
+  backend). A new scene starts from the engine defaults (no look, as a project
+  that never set one; Godot's new scene has none) or copies one
+  (`environmentFrom`; the editor's select beside "+ Scene", default the
+  engine defaults). A v5 project's look goes into every scene so every scene
+  looks as before; a v5 project without a look only rewrites `project.json`
+  (no new revision).
+- 2026-10-01 (27.10): the active scene follows Unity's rule (its look applies)
+  and is simulation state in the environment director. The first start scene
+  is active; `ctx.scenes.setActive(id, {blend, easing})` (a loaded scene;
+  0–600 s) makes another; a transition that unloads the active scene makes its
+  own scene active over its fade (the look blends while the view fades back
+  in); a plain unload of the active scene makes the first scene still loaded
+  active at once; with none loaded the look stays. Unity replaces the
+  settings at once; the blend is this engine's deliberate difference. The
+  blend resolves every preset over both scenes' looks, so a part one scene
+  leaves out (its fog) thins away. The wind follows the active scene at once
+  (it is a material input, not blended); effects keep the start scene's wind.
+  Nothing new enters digests, observations or saves until the active scene
+  first changes. A save restores its active scene only when that scene is
+  loaded. A restart now resets the look (D107).
+- 2026-10-01 (27.10): the editor shows the active scene's look in the Scene
+  view and the material/effect previews, and today's Environment window
+  edits the active scene's look (named at its top); 27.14 builds the Window
+  menu's Environment window with a scene picker. The editor reads the looks
+  with `queryProject {environments: true}` (opt-in: the rows stay small for
+  every other caller, MCP `tl_inspect` too).
 - 2026-10-01 (27.9): the helpers name what a person opens, not where it is:
   `openWindow(name)` for tools, `openProjectSettings(section)` for the
   settings that 27.13 moves, `openEditor(kind, name)` with the kind as the

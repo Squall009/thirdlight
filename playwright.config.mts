@@ -96,6 +96,8 @@ export default defineConfig({
         '**/environment-presets.e2e.ts',
         // Phase 25.3: a new blend t every step drops no steps; re-bakes only when the sky changes, on WebGPU.
         '**/environment-blend-cost.e2e.ts',
+        // Each scene's look in the Scene view, and the active scene's blend in Play and the export, on WebGPU.
+        '**/scene-environment.e2e.ts',
         // Phase 24.4h: per-object look overrides (emissive, tint) on WebGPU.
         '**/look-override.e2e.ts',
         // Phase 25.2: Play screenshots read back from WebGPU, image textures included.

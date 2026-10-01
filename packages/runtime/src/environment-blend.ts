@@ -35,6 +35,12 @@ export interface EnvironmentBlendView {
   readonly target: string | null;
   /** How far the running blend is (0–1; 1 when none runs). */
   readonly progress: number;
+  /**
+   * The active scene, once it is not the start scene (absent before): its look
+   * is the base look, blending in from `from`'s with `weight` (the active
+   * scene's share, 0–1; 1 and `from` null when no blend runs).
+   */
+  readonly scene?: { readonly active: string | null; readonly from: string | null; readonly weight: number };
 }
 
 export interface EnvironmentOverride {
@@ -320,8 +326,23 @@ function blendPost(parts: readonly (readonly [PostConfig | undefined, number])[]
 
 /** The look of a blend state over a base look. */
 export function blendEnvironment(base: EnvironmentBaseLook, presets: ReadonlyMap<string, EnvironmentPreset>, view: Pick<EnvironmentBlendView, 'weights' | 'overrides'>): BlendedEnvironment {
-  const parts = view.weights.filter(([, w]) => w > 0).map(([k, w]) => [resolveEnvironmentKey(k, base, presets, view.overrides), w] as const);
-  if (parts.length === 0) parts.push([resolveEnvironmentKey('', base, presets, {}), 1]);
+  return blendEnvironmentOver([[base, 1]], presets, view);
+}
+
+/**
+ * The look of a blend state over several base looks, each with its share
+ * (two scenes' looks while the active scene's blends in): every key resolves
+ * over every base, weighted by both, so a part one scene leaves out (its fog)
+ * thins as that scene's share grows, and a single base of share 1 is that
+ * scene's look exactly.
+ */
+export function blendEnvironmentOver(bases: readonly (readonly [EnvironmentBaseLook, number])[], presets: ReadonlyMap<string, EnvironmentPreset>, view: Pick<EnvironmentBlendView, 'weights' | 'overrides'>): BlendedEnvironment {
+  const parts: (readonly [ResolvedParts, number])[] = [];
+  for (const [base, share] of bases) {
+    if (!(share > 0)) continue;
+    for (const [k, w] of view.weights) if (w > 0) parts.push([resolveEnvironmentKey(k, base, presets, view.overrides), w * share] as const);
+  }
+  if (parts.length === 0) parts.push([resolveEnvironmentKey('', bases[0]?.[0] ?? {}, presets, {}), 1]);
   // Sky: group by mode and images; one group blends, several cross-fade.
   const groups = new Map<string, { skies: [SkyConfig, number][]; none: boolean; weight: number }>();
   for (const [r, w] of parts) {

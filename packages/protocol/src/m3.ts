@@ -864,6 +864,10 @@ export function validateGameObservation(value: unknown): FieldErrorResult {
     if (!isPlainObject(e) || !(e['target'] === null || typeof e['target'] === 'string') || typeof e['progress'] !== 'number' || !isPlainObject(e['weights']) || Object.keys(e['weights']).length > 64 || !Object.values(e['weights']).every((w) => typeof w === 'number' && Number.isFinite(w))) {
       return fieldError('field_type', '/environment', 'environment is { target: presetId|null, progress, weights: { key: 0-1 } } (at most 64 keys)');
     }
+    const sc = e['scene'];
+    if (sc !== undefined && (!isPlainObject(sc) || !(sc['active'] === null || typeof sc['active'] === 'string') || !(sc['from'] === null || typeof sc['from'] === 'string') || typeof sc['weight'] !== 'number' || !Number.isFinite(sc['weight']))) {
+      return fieldError('field_type', '/environment/scene', 'environment.scene is { active: sceneId|null, from: sceneId|null, weight: 0-1 }');
+    }
   }
   // The optional objects riding on sockets (entity, target, node, world position).
   if (value.sockets !== undefined) {

@@ -86,7 +86,7 @@ export interface EnvironmentBlendLike extends EnvironmentLike {
   readonly skyLayers?: readonly { readonly sky: SkyLike | null; readonly weight: number }[];
 }
 
-/** A level's look (`flow.levels[].environment`), laid over the project environment. */
+/** A scene's look (`SceneV4.environment`), laid over the project environment (its quality and presets). */
 export interface EnvironmentLayerLike {
   readonly sky?: SkyLike;
   readonly fog?: FogLike;
@@ -95,8 +95,8 @@ export interface EnvironmentLayerLike {
 }
 
 /**
- * The project environment with a layer laid over it: each part
- * the layer gives — `sky`, `fog` and `wind` replace the project's part whole
+ * The project environment with a scene's look laid over it: each part
+ * the look gives — `sky`, `fog` and `wind` replace the project's part whole
  * (a sky mode's fields only make sense together), `post` merges per effect
  * (a layer may change only its bloom or its grading). No layer: the base
  * unchanged.

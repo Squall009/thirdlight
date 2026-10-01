@@ -476,7 +476,7 @@ function pageTextureLoader(reader: VerifiedAssetReader, catalog: RuntimeCatalog,
 }
 
 /** The adapter's materials, environment, lighting and light options (textures from the verified bytes). */
-function materialsOptionOf(manifest: GamePageManifest, env: GamePageManifest['environment'], loadTexture: NonNullable<SceneAdapterOptions['materials']>['loadTexture'], streamer: TextureStreamer): { materials?: SceneAdapterOptions['materials']; environment?: SceneAdapterOptions['environment']; lighting?: SceneAdapterOptions['lighting']; lights: NonNullable<SceneAdapterOptions['lights']> } {
+function materialsOptionOf(manifest: GamePageManifest, env: GamePageManifest['environment'], scenes: { start: string | null; look(sceneId: string): SceneLookLike | null } | null, loadTexture: NonNullable<SceneAdapterOptions['materials']>['loadTexture'], streamer: TextureStreamer): { materials?: SceneAdapterOptions['materials']; environment?: SceneAdapterOptions['environment']; lighting?: SceneAdapterOptions['lighting']; lights: NonNullable<SceneAdapterOptions['lights']> } {
   // A sky, a cookie or a lightmap is not a mesh's surface whose size on screen says what it needs: a streamed texture they draw is kept at full size.
   const loadWhole: typeof loadTexture = (assetId) =>
     loadTexture(assetId).then((t) => {
@@ -484,11 +484,16 @@ function materialsOptionOf(manifest: GamePageManifest, env: GamePageManifest['en
       return t;
     });
   const lights = { loadTexture: loadWhole };
-  if (manifest.materials === undefined && env === undefined && manifest.lighting === undefined) return { lights };
+  if (manifest.materials === undefined && env === undefined && manifest.lighting === undefined && scenes === null) return { lights };
   return {
     lights,
-    // Environment presets need the environment renderer too (scripts blend the look).
-    ...(environmentHasLook(env) || (env?.presets?.length ?? 0) > 0 ? { environment: { value: env ?? {}, loadTexture: loadWhole } } : {}),
+    // The scenes' looks: the active scene's is drawn (the adapter draws nothing until there is a look, presets or a blend).
+    ...(scenes !== null
+      ? { environment: { value: manifest.environment ?? {}, loadTexture: loadWhole, scenes: scenes as NonNullable<NonNullable<SceneAdapterOptions['environment']>['scenes']> } }
+      : // Environment presets need the environment renderer too (scripts blend the look).
+        environmentHasLook(env) || (env?.presets?.length ?? 0) > 0
+        ? { environment: { value: env ?? {}, loadTexture: loadWhole } }
+        : {}),
     ...(manifest.lighting !== undefined ? { lighting: { bakes: manifest.lighting, loadTexture: loadWhole } } : {}),
     materials: { defs: manifest.materials ?? [], functions: manifest.materialFunctions ?? [], wind: env?.wind ?? null, loadTexture },
   };
@@ -552,12 +557,12 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
 
   // The scene catalog: start scenes read once for their members, the others on demand.
   timings?.begin('startScenes');
-  // Each scene's look as its document is read (the first start scene's draws).
+  // Each scene's look as its document is read (the active scene's draws: the first start scene's at first).
   const sceneLooks = new Map<string, SceneLookLike | null>();
   const catalog0 = manifest.scenes !== undefined ? await prepareSceneCatalog(manifest.scenes, io, content.catalog, (sceneId, look) => sceneLooks.set(sceneId, look)) : null;
   const firstStart = manifest.scenes?.find((r) => r.start)?.sceneId;
   const startLook = firstStart !== undefined ? (sceneLooks.get(firstStart) ?? null) : null;
-  // The environment the page draws: the project's quality and presets with the start scene's look.
+  // The environment the page starts with: the project's quality and presets with the start scene's look (its textures are read with the start's).
   const environment = startLook === null ? manifest.environment : ({ ...(manifest.environment ?? {}), ...startLook } as GamePageManifest['environment']);
   timings?.end('startScenes');
   // Scene loads go through the preloader (read, then prepared on the render side before the
@@ -812,7 +817,7 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
           ...(timings !== undefined ? { onFrameDrawn: (f: FrameDrawnInfo) => timings.frame(f) } : {}),
           // A model's extracted images draw from their texture assets, streamed like a material's.
           ...(models !== null ? { models: { ...models, loadTexture: pageTextures }, modelsLoader: loader() } : {}),
-          ...materialsOptionOf(manifest, environment, pageTextures, textureStreamer),
+          ...materialsOptionOf(manifest, environment, catalog0 !== null ? { start: firstStart ?? null, look: (sceneId) => sceneLooks.get(sceneId) ?? null } : null, pageTextures, textureStreamer),
           textureStreamer,
           // The visual effects (textures and models from the verified bytes).
           ...(manifest.effects !== undefined && manifest.effects.length > 0
