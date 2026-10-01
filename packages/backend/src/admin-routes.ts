@@ -22,7 +22,7 @@ export interface AdminRoutesContext {
   readonly workspaceError: (e: CommandError) => SessionError;
   readonly recordProblem: (projectId: string, source: Problem["source"], code: string, message: string) => void;
   /** Make the import cache whole before the export reads what the catalog records. */
-  readonly ensureImported?: (projectId: string) => Promise<void>;
+  readonly ensureImported?: (projectId: string) => Promise<unknown>;
 }
 
 export function makeAdminRoutes(ctx: AdminRoutesContext) {

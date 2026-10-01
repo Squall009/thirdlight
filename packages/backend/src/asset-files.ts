@@ -28,7 +28,12 @@ import { KTX2_ENCODER, type Ktx2Mode, type TextureEncoder } from './texture-enco
 /** What one check did. */
 export interface AssetFileCheckReport {
   relocated: { assetId: string; from: string | null; to: string }[];
-  reimported: { assetId: string; file: string; version: number }[];
+  /**
+   * Each asset imported again, with its file's digest before and after
+   * (`file_changed`), or the same file whose conversion made other bytes
+   * (`converted_again`: another Blender or encoder; the digests are equal).
+   */
+  reimported: AssetReimport[];
   rebuilt: { assetId: string; file: string }[];
   failed: { assetId: string; file: string | null; code: string; message: string }[];
   sidecarProblems: string[];
@@ -36,6 +41,44 @@ export interface AssetFileCheckReport {
   resources: ResourceCheckReport | null;
   /** Which asset files were looked at: all, or the ones the folder watch saw change (and why all, when it could not be relied on). */
   checked: { scope: 'all' | 'changed'; visited: number; reason?: string } | null;
+}
+
+/** One asset the check imported again. */
+export interface AssetReimport {
+  assetId: string;
+  file: string;
+  /** The asset's version after the re-import. */
+  version: number;
+  reason: 'file_changed' | 'converted_again';
+  /** The file's recorded digest before the re-import. */
+  oldDigest: string;
+  /** The file's digest the re-import recorded. */
+  newDigest: string;
+}
+
+/** How many re-imports of one check get a Problems line of their own (the check's report lists every one). */
+export const REIMPORT_PROBLEM_LINES = 8;
+
+/** A digest as a Problems line shows it (as git shortens a commit id). */
+function shortDigest(d: string): string {
+  return d.slice(0, 12);
+}
+
+/**
+ * The Problems lines for one check's re-imports: one per asset (file, asset,
+ * old and new digest) up to `REIMPORT_PROBLEM_LINES`, then one line counting
+ * the rest, so a check that re-imports thousands of files does not push
+ * everything else out of the log.
+ */
+export function reimportProblemLines(reimported: readonly AssetReimport[]): string[] {
+  const lines = reimported.slice(0, REIMPORT_PROBLEM_LINES).map((r) =>
+    r.reason === 'file_changed'
+      ? `${r.file} changed on disk and was imported again (${r.assetId}, version ${r.version}): ${shortDigest(r.oldDigest)} → ${shortDigest(r.newDigest)}`
+      : `${r.file} was converted again into other bytes and imported again (${r.assetId}, version ${r.version}; file ${shortDigest(r.newDigest)} unchanged)`,
+  );
+  const rest = reimported.length - REIMPORT_PROBLEM_LINES;
+  if (rest > 0) lines.push(`${rest} more asset file${rest === 1 ? ' was' : 's were'} imported again; the file check's report (and a Play start's check) lists every one with its digests`);
+  return lines;
 }
 
 export interface AssetFileCheckDeps {
@@ -48,6 +91,8 @@ export interface AssetFileCheckDeps {
   onApplied: (projectId: string, result: MutationSuccess) => void;
   /** A full check (every file looked at) finished. */
   onChecked?: (projectId: string) => void;
+  /** A check (full, or before Play or export) imported files again. */
+  onReimported?: (projectId: string, reimported: readonly AssetReimport[]) => void;
 }
 
 type Kind = 'model' | 'audio' | 'texture' | 'font';
@@ -173,19 +218,22 @@ export function createAssetFileCheck(deps: AssetFileCheckDeps) {
     const fail = (code: string, message: string): void => void report.failed.push({ assetId: e.assetId, file, code, message });
     if (e.animated === true) return fail('animation_mapping_required', `${file} changed; the asset's animation roles must be chosen again: re-import it from the Assets tab`);
     let args: Record<string, unknown>;
+    let newDigest: string;
     if (e.converted !== undefined) {
       const c = await convertFile(projectId, file, e.converted, e.kind as Kind);
       if ('code' in c) return fail(c.code, c.message);
       args = { convertedFrom: c.convertedFrom, ...factsArgs(c.facts) };
+      newDigest = c.convertedFrom.sourceDigest as string;
     } else {
       const f = inspectFile(projectId, file, e.kind as Kind, e.foundDigest ?? null);
       if ('code' in f) return fail(f.code, f.message);
       args = { sourcePath: file, ...factsArgs(f) };
+      newDigest = f.sourceDigest;
     }
     const r = command(projectId, 'publishAsset', { mode: 'reimport', assetId: e.assetId, ...args, importedAt: utcSecond(deps.now()) });
     if (!r.ok) return fail(r.code, r.message);
     const next = (r.result.change as { next?: { currentVersion?: number } }).next;
-    report.reimported.push({ assetId: e.assetId, file, version: next?.currentVersion ?? e.version + 1 });
+    report.reimported.push({ assetId: e.assetId, file, version: next?.currentVersion ?? e.version + 1, reason: 'file_changed', oldDigest: e.digest, newDigest });
   };
 
   /** Make a converted asset's cached data again; bytes that differ from the recorded ones are a re-import. */
@@ -207,7 +255,7 @@ export function createAssetFileCheck(deps: AssetFileCheckDeps) {
       return;
     }
     const next = (r.result.change as { next?: { currentVersion?: number } }).next;
-    report.reimported.push({ assetId: e.assetId, file: e.file!, version: next?.currentVersion ?? e.version + 1 });
+    report.reimported.push({ assetId: e.assetId, file: e.file!, version: next?.currentVersion ?? e.version + 1, reason: 'converted_again', oldDigest: e.digest, newDigest: c.convertedFrom.sourceDigest as string });
   };
 
   async function runCheck(projectId: string, options: { reimport: boolean; relocate: boolean }): Promise<{ ok: true; report: AssetFileCheckReport } | { ok: false; code: string; message: string }> {
@@ -259,6 +307,8 @@ export function createAssetFileCheck(deps: AssetFileCheckDeps) {
       if (e.status === 'changed' && options.reimport) await reimport(projectId, e, report);
       else if (e.status === 'ok' && e.converted?.imported === 'missing') await rebuild(projectId, e, report);
     }
+    // Whoever asked (the editor's check, a Play, an export), the re-imports are reported once, from here.
+    if (report.reimported.length > 0) deps.onReimported?.(projectId, report.reimported);
     return { ok: true, report };
   }
 
@@ -311,13 +361,14 @@ export function createAssetFileCheck(deps: AssetFileCheckDeps) {
      * on), and hashes a file only when its stamp changed. Moves and resource
      * files are left to the whole check.
      */
-    ensureImported: async (projectId: string): Promise<void> => {
+    ensureImported: async (projectId: string): Promise<{ ok: true; report: AssetFileCheckReport } | { ok: false; code: string; message: string }> => {
       // A check already running or queued (the editor's on connect or focus,
       // or another Play's) does all of this: join the last one instead of
       // queuing a second pass behind it. A file changed after that pass read
       // it is still caught when Play or the export sends it (hashed while
       // sent; a mismatch is refused and starts a check).
-      await (running.get(projectId) ?? serialized(projectId, { reimport: true, relocate: false }));
+      // The check's report (the one joined, or this one) tells the Play what was imported again.
+      return await (running.get(projectId) ?? serialized(projectId, { reimport: true, relocate: false }));
     },
   };
 }

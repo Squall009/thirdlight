@@ -14,6 +14,7 @@ import type { HeadlessEditors } from './headless';
 import { resolvePlayStart } from './play-start';
 import { withSourceLocations } from './source-locations';
 import type { PlayBuildCache } from './play-build';
+import type { AssetFileCheckReport } from './asset-files';
 
 // ---- ID / token allocation (hex, CSPRNG) ----------------------
 
@@ -47,7 +48,7 @@ export interface PlayRoutesContext {
   /** The prebuilt play scripts (the bundle served as `game.js`). */
   readonly playBuild: PlayBuildCache;
   /** Make the import cache whole before a build reads what the catalog records. */
-  readonly ensureImported?: (projectId: string) => Promise<void>;
+  readonly ensureImported?: (projectId: string) => Promise<{ ok: true; report: AssetFileCheckReport } | { ok: false; code: string; message: string }>;
 }
 
 /** How long a project must be left alone after a file check before its next Play is built ahead. */
@@ -259,7 +260,9 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
     }
     // What the import cache should hold (a converted model, a KTX2 encode) is made again if it went missing.
     mark('request');
-    await ensureImported?.(projectId);
+    // What it imported again (old and new digests) goes back in the start result's `check`, as the file check's own report.
+    const checked = await ensureImported?.(projectId);
+    const check = checked?.ok === true ? checked.report : undefined;
     mark('check');
     // A build made ahead of this Play (after a file check) finishes first: this one then reuses what it derived.
     await warming.get(projectId);
@@ -470,6 +473,7 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
       ...(snapshot.start !== undefined ? { start: { ...snapshot.start, ...(startNotes.length > 0 ? { notes: startNotes } : {}) } } : {}),
       expiresAt: new Date(rec.expiresAt).toISOString(),
       ...(placeholders.length > 0 ? { placeholders } : {}),
+      ...(check !== undefined ? { check } : {}),
       // The backend's part of the start (ms per stage).
       timings: buildTimings,
       playContent: {

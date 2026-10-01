@@ -97,7 +97,8 @@ export interface IntegrityEntryView {
 /** What the backend's file check did: moved files found by their sidecars, changed files imported again, the import cache made whole. */
 export interface FileCheckView {
   relocated: { assetId: string; from: string | null; to: string }[];
-  reimported: { assetId: string; file: string; version: number }[];
+  /** With the file's digest before and after (the Problems log says the same in a line each). */
+  reimported: { assetId: string; file: string; version: number; reason: 'file_changed' | 'converted_again'; oldDigest: string; newDigest: string }[];
   rebuilt: { assetId: string; file: string }[];
   failed: { assetId: string; file: string | null; code: string; message: string }[];
   sidecarProblems: string[];

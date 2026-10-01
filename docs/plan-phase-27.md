@@ -296,7 +296,8 @@ moves at least as many lines out as it adds.
 | 27.1 | done 2026-10-01: screenshot answers keep their own bound (`SCREENSHOT_DATA_URL_MAX`, protocol, used by preview, bridge rule, WS ack bound and backend); a refused bridge message answers its relay with `bridge_message_refused` and the reason; e2e captures a ~280 KiB PNG over HTTP and MCP on WebGPU and WebGL 2 (D95) |
 | 27.2 | done 2026-10-01: signals, trigger events, script messages (and the primitives' events) turn over every step whatever the mode's physics; the 2D step without scripts too (D96, D97); Play diagnostics carry `runtime.messageQueue` (refused sends with a warning) and an `audio` block (unlock state, what plays by bus, started, skipped by why, late, notes), read over HTTP and MCP before and after the unlock in a real browser |
 | 27.3 | done 2026-10-01: missing asset files are listed in Problems at open and after each file check (path, asset, who uses it; paged, one log line per change; `GET problems/missing-files`, MCP `tl_diagnostics`); a Play or export refusal names every missing file (`missingFiles`); Play stands placeholders in (magenta box, checker texture, silence) for missing files no start scene draws and lists them in its result (`placeholders`); the Play button's refusal shows its reason (D98, D99) |
-| 27.4–27.17 | — |
+| 27.4 | done 2026-10-01: every file check (the editor's, before Play, before export) reports its re-imports: a Problems line per asset (`asset_reimported`, file, asset, version, old → new digest) and the Play start result's `check` (the check's report; `reimported` carries `reason`, `oldDigest`, `newDigest`); e2e over HTTP, MCP and the Problems tab (D100) |
+| 27.5–27.17 | — |
 
 ## 6. Decision log
 
@@ -356,6 +357,13 @@ moves at least as many lines out as it adds.
   re-import" setting. Unity and Godot re-import changed files without asking
   (§3) and Play must match the files on disk; the re-imports are reported
   (Problems note, `check` block with old and new digests) instead.
+- 2026-10-01 (27.4): the start result's `check` is the report of the check
+  the Play ran or joined (a check already running is joined, not repeated);
+  re-imports a check finished before the Play asked show in Problems only.
+  The digests are the file's (a converted asset's original), what changed
+  on disk. Problems gets one line per asset up to 8
+  (`REIMPORT_PROBLEM_LINES`), then one line counting the rest, so a big
+  re-import does not push the log's other entries out; the report lists all.
 - 2026-10-01 (27.0): textures inside models (27.6/27.7): both options, in
   order — first count embedded images in the texture budget (cheap, covers
   existing projects), then an import setting that extracts a GLB's images

@@ -30,7 +30,7 @@ import { mergeTimeouts, parseBackendConfig, type BackendConfig } from './config'
 import { publishBehaviorSource } from './behavior';
 import { diagnosticsWithNodes, generateGraphSource, graphProblemsFailure } from '@thirdlight/behavior-build';
 import { ContentRoutes, createAssetInspector, createBehaviorCompilerPort } from './content';
-import { createAssetFileCheck } from './asset-files';
+import { createAssetFileCheck, reimportProblemLines } from './asset-files';
 import { createMissingFiles, makeMissingFilesRoute } from './missing-files';
 import { createFolderImport } from './folder-import';
 import { createFbxConverter } from './fbx';
@@ -303,6 +303,9 @@ export function createBackend(
     onChecked: (projectId) => {
       missingFiles.refresh(projectId);
       warmPlay?.(projectId);
+    },
+    onReimported: (projectId, reimported) => {
+      for (const line of reimportProblemLines(reimported)) recordProblem(projectId, 'import', 'asset_reimported', line);
     },
   });
   let warmPlay: ((projectId: string) => void) | undefined;

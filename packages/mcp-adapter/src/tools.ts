@@ -745,7 +745,10 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
       'save - a project save document {format: "thirdlight.save", formatVersion: 2, version, playSeconds?, doc, sections?, world: {scenes, activeSpawn, listedScene, character: {position, velocity} | null}} (a project with a save schema; <= 1 MiB; loaded at the first step, older versions migrated; world puts the character back where it was saved; a formatVersion 1 document without world still loads) or saveSlot 1-99 (a project slot of the Play page); ' +
       'mode - the game mode the run starts in (checked against content.modes; ignored and noted in start.notes when the project has none). ' +
       'Variables apply at the start and again at every restart (replay, a shell\'s new game). threads - worker|single: where this play\'s simulation runs. ' +
-      'The result echoes the resolved start; tl_game_observe reports start {ok, applied | reason}.',
+      'The result echoes the resolved start; tl_game_observe reports start {ok, applied | reason}. ' +
+      'Before building, the file check imports again every asset file changed on disk (as Unity refreshes before Play, without asking); the result\'s check is that check\'s report ' +
+      '(as the file check\'s check): check.reimported [{assetId, file, version, reason file_changed|converted_again, oldDigest, newDigest}], check.failed, check.rebuilt; ' +
+      'each re-import is also a Problems line (code asset_reimported, tl_diagnostics).',
     inputSchema: {
       type: 'object',
       properties: {
