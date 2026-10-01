@@ -2928,9 +2928,9 @@ its reason (the same line is next to its constant in the code):
 | Scenes / entities | As many scenes as the game needs; 16,384 entities per scene (a big world is several scenes loaded together) | A scene is one load unit and one file |
 | Prefabs | 1,024 entities and 16 levels per prefab; 1 MiB (the content file cap) | One definition is one file and one command's copy |
 | Collision layers / tags | 15 named layers (+ `default`) / 32 tags | Rapier's 16-bit collision groups / a 32-bit tag mask |
-| Local lights | 16 point and spot lights per scene, 16 drawn across loaded scenes | Forward-lighting cost; scalable lighting is phase 27 |
+| Local lights | 16 point and spot lights per scene, 16 drawn across loaded scenes | Forward-lighting cost; scalable lighting is phase 28 |
 | Fog volumes | 16 per scene | A fixed-size uniform array in the shader |
-| Lightmaps | 16 atlases and 4,096 entries per scene bake, 64 baked lights | The bake's own format; phase 27 reworks lighting |
+| Lightmaps | 16 atlases and 4,096 entries per scene bake, 64 baked lights | The bake's own format; phase 28 reworks lighting |
 | Texture arrays | 256 layers | What WebGL 2 and WebGPU both guarantee |
 | Texture edge | 4,096 px | Kept after streaming: the KTX2 encoder makes at most about 3,500² (12 Mpix), WebGL 2 promises only 2,048 and many devices stop at 4,096, and a streamed texture close to the camera still needs its full-size level |
 | Texture budget | 512 MiB by default (`texture_budget_mb`, 1–65,536) | A runtime budget: streamed textures' mips fit it, the least needed dropped first; the mip tails and textures that do not stream are counted, never dropped |
