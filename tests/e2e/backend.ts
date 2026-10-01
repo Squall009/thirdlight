@@ -5,11 +5,11 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
-import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 import { readRuntimeContentSync, type ExpandedRuntimeContent } from '@thirdlight/project-model';
+import { launchOnFreePorts, type BackendPorts } from '../../tools/perf/ports';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 
@@ -35,46 +35,35 @@ export interface E2EBackend {
   command(body: Record<string, unknown>): Promise<Record<string, unknown>>;
 }
 
-function freePort(): Promise<number> {
-  return new Promise((ok, fail) => {
-    const s = createServer();
-    s.once('error', fail);
-    s.listen(0, '127.0.0.1', () => {
-      const port = (s.address() as { port: number }).port;
-      s.close(() => ok(port));
-    });
-  });
-}
-
 export async function startBackend(projectId = 'e2e-0001', template?: string, extraEnv: Record<string, string> = {}): Promise<E2EBackend> {
   const dataRoot = mkdtempSync(join(tmpdir(), 'tl-e2e-'));
   const exportRoot = mkdtempSync(join(tmpdir(), 'tl-e2e-export-'));
-  const [authPort, previewPort] = [await freePort(), await freePort()];
-  const origin = `http://127.0.0.1:${authPort}`;
-  const previewOrigin = `http://127.0.0.1:${previewPort}`;
   // One owner token covers the project routes and the admin routes.
   const token = `e2e-owner-${Math.random().toString(16).slice(2)}${Math.random().toString(16).slice(2)}`;
   const adminToken = token;
-  const env = {
-    ...process.env,
-    THIRDLIGHT_DATA_ROOT: dataRoot,
-    THIRDLIGHT_AUTHORING_ORIGIN: origin,
-    THIRDLIGHT_PREVIEW_ORIGIN: previewOrigin,
-    THIRDLIGHT_AUTHORING_BIND: `127.0.0.1:${authPort}`,
-    THIRDLIGHT_PREVIEW_BIND: `127.0.0.1:${previewPort}`,
-    THIRDLIGHT_AUTHORING_ORIGINS: origin,
-    THIRDLIGHT_EDITOR_DIR: join(REPO, 'dist', 'editor'),
-    THIRDLIGHT_PREVIEW_DIR: join(REPO, 'dist', 'preview'),
-    THIRDLIGHT_OWNER_TOKEN: token,
-    THIRDLIGHT_EXPORT_ROOT: exportRoot,
-    THIRDLIGHT_ENGINE_ROOT: REPO,
-    // No headless editor unless a test asks for one.
-    THIRDLIGHT_HEADLESS: 'off',
-    ...extraEnv,
+  const envFor = (ports: BackendPorts): NodeJS.ProcessEnv => {
+    const origin = `http://127.0.0.1:${ports.authoring}`;
+    return {
+      ...process.env,
+      THIRDLIGHT_DATA_ROOT: dataRoot,
+      THIRDLIGHT_AUTHORING_ORIGIN: origin,
+      THIRDLIGHT_PREVIEW_ORIGIN: `http://127.0.0.1:${ports.preview}`,
+      THIRDLIGHT_AUTHORING_BIND: `127.0.0.1:${ports.authoring}`,
+      THIRDLIGHT_PREVIEW_BIND: `127.0.0.1:${ports.preview}`,
+      THIRDLIGHT_AUTHORING_ORIGINS: origin,
+      THIRDLIGHT_EDITOR_DIR: join(REPO, 'dist', 'editor'),
+      THIRDLIGHT_PREVIEW_DIR: join(REPO, 'dist', 'preview'),
+      THIRDLIGHT_OWNER_TOKEN: token,
+      THIRDLIGHT_EXPORT_ROOT: exportRoot,
+      THIRDLIGHT_ENGINE_ROOT: REPO,
+      // No headless editor unless a test asks for one.
+      THIRDLIGHT_HEADLESS: 'off',
+      ...extraEnv,
+    };
   };
 
   let proc: ChildProcess | null = null;
-  const launch = async (): Promise<void> => {
+  const launch = async (env: NodeJS.ProcessEnv): Promise<void> => {
     const child = spawn(process.execPath, [join(REPO, 'dist', 'backend', 'backend.mjs')], { env, stdio: ['ignore', 'ignore', 'pipe'] });
     proc = child;
     let log = '';
@@ -104,7 +93,10 @@ export async function startBackend(projectId = 'e2e-0001', template?: string, ex
     clearTimeout(timer);
   };
 
-  await launch();
+  // The ports are fixed for the backend's life: a restart binds them again (the page's URL names them).
+  const { ports } = await launchOnFreePorts((p) => launch(envFor(p)));
+  const env = envFor(ports);
+  const origin = `http://127.0.0.1:${ports.authoring}`;
   const created = await fetch(`${origin}/api/v1/admin/projects`, {
     method: 'POST',
     headers: { authorization: `Bearer ${adminToken}`, 'content-type': 'application/json' },
@@ -131,7 +123,7 @@ export async function startBackend(projectId = 'e2e-0001', template?: string, ex
     },
     restart: async () => {
       await halt();
-      await launch();
+      await launch(env);
     },
     stop: async () => {
       await halt();

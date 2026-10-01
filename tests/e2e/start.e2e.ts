@@ -13,18 +13,9 @@ import { join, resolve } from 'node:path';
 
 import { expect, test } from '@playwright/test';
 
-const REPO = resolve(import.meta.dirname, '..', '..');
+import { pickPorts } from '../../tools/perf/ports';
 
-function freePort(): Promise<number> {
-  return new Promise((ok, fail) => {
-    const s = createServer();
-    s.once('error', fail);
-    s.listen(0, '127.0.0.1', () => {
-      const port = (s.address() as { port: number }).port;
-      s.close(() => ok(port));
-    });
-  });
-}
+const REPO = resolve(import.meta.dirname, '..', '..');
 
 function portFree(port: number): Promise<boolean> {
   return new Promise((ok) => {
@@ -70,7 +61,7 @@ async function start(dataRoot: string, port: number, previewPort: number, extra:
 
 test('one command starts the backend; the printed URL opens the picker; stop is clean; the token persists', async ({ page }) => {
   const dataRoot = mkdtempSync(join(tmpdir(), 'tl-start-'));
-  const [port, previewPort] = [await freePort(), await freePort()];
+  const { authoring: port, preview: previewPort } = await pickPorts();
   try {
     const first = await start(dataRoot, port, previewPort);
     expect(first.output()).toContain('created the owner token');
@@ -121,7 +112,7 @@ test('one command starts the backend; the printed URL opens the picker; stop is 
 
 test('behind a reverse proxy: --origin/--preview-origin are the origins the browser uses', async ({ page }) => {
   const dataRoot = mkdtempSync(join(tmpdir(), 'tl-start-proxy-'));
-  const [port, previewPort] = [await freePort(), await freePort()];
+  const { authoring: port, preview: previewPort } = await pickPorts();
   // "localhost" stands in for the proxy hostname: a different origin string
   // from the 127.0.0.1 bind, exactly like a proxied name would be.
   const origin = `http://localhost:${port}`;

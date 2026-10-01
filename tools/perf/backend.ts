@@ -7,9 +7,10 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
-import { createServer } from 'node:net';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
+
+import { launchOnFreePorts, type BackendPorts } from './ports';
 
 export const REPO = resolve(import.meta.dirname, '..', '..');
 /** Where benchmark projects, runs and reports live. */
@@ -42,58 +43,51 @@ export interface ProjectClient {
   revision(): Promise<number>;
 }
 
-function freePort(): Promise<number> {
-  return new Promise((ok, fail) => {
-    const s = createServer();
-    s.once('error', fail);
-    s.listen(0, '127.0.0.1', () => {
-      const port = (s.address() as { port: number }).port;
-      s.close(() => ok(port));
-    });
-  });
-}
-
 const FRAME = 1 << 20;
 
 export async function startPerfBackend(dataRoot: string, exportRoot = join(dataRoot, '..', `${dataRoot.split('/').pop()}-exports`)): Promise<PerfBackend> {
   mkdirSync(dataRoot, { recursive: true });
   mkdirSync(exportRoot, { recursive: true });
-  const [authPort, previewPort] = [await freePort(), await freePort()];
-  const origin = `http://127.0.0.1:${authPort}`;
-  const previewOrigin = `http://127.0.0.1:${previewPort}`;
   const token = `perf-${randomBytes(24).toString('hex')}`;
-  const env = {
-    ...process.env,
-    THIRDLIGHT_DATA_ROOT: dataRoot,
-    THIRDLIGHT_AUTHORING_ORIGIN: origin,
-    THIRDLIGHT_PREVIEW_ORIGIN: previewOrigin,
-    THIRDLIGHT_AUTHORING_BIND: `127.0.0.1:${authPort}`,
-    THIRDLIGHT_PREVIEW_BIND: `127.0.0.1:${previewPort}`,
-    THIRDLIGHT_AUTHORING_ORIGINS: origin,
-    THIRDLIGHT_EDITOR_DIR: join(REPO, 'dist', 'editor'),
-    THIRDLIGHT_PREVIEW_DIR: join(REPO, 'dist', 'preview'),
-    THIRDLIGHT_OWNER_TOKEN: token,
-    THIRDLIGHT_EXPORT_ROOT: exportRoot,
-    THIRDLIGHT_ENGINE_ROOT: REPO,
-    THIRDLIGHT_HEADLESS: 'off',
-  };
-  const child: ChildProcess = spawn(process.execPath, [join(REPO, 'dist', 'backend', 'backend.mjs')], { env, stdio: ['ignore', 'ignore', 'pipe'] });
-  let log = '';
-  await new Promise<void>((ok, fail) => {
-    const timer = setTimeout(() => fail(new Error(`backend did not start: ${log}`)), 30_000);
-    child.stderr!.on('data', (d: Buffer) => {
-      log += d.toString();
-      if (log.length > 20_000) log = log.slice(-10_000);
-      if (log.includes('listening')) {
+  const launch = async (ports: BackendPorts): Promise<ChildProcess> => {
+    const origin = `http://127.0.0.1:${ports.authoring}`;
+    const env = {
+      ...process.env,
+      THIRDLIGHT_DATA_ROOT: dataRoot,
+      THIRDLIGHT_AUTHORING_ORIGIN: origin,
+      THIRDLIGHT_PREVIEW_ORIGIN: `http://127.0.0.1:${ports.preview}`,
+      THIRDLIGHT_AUTHORING_BIND: `127.0.0.1:${ports.authoring}`,
+      THIRDLIGHT_PREVIEW_BIND: `127.0.0.1:${ports.preview}`,
+      THIRDLIGHT_AUTHORING_ORIGINS: origin,
+      THIRDLIGHT_EDITOR_DIR: join(REPO, 'dist', 'editor'),
+      THIRDLIGHT_PREVIEW_DIR: join(REPO, 'dist', 'preview'),
+      THIRDLIGHT_OWNER_TOKEN: token,
+      THIRDLIGHT_EXPORT_ROOT: exportRoot,
+      THIRDLIGHT_ENGINE_ROOT: REPO,
+      THIRDLIGHT_HEADLESS: 'off',
+    };
+    const child: ChildProcess = spawn(process.execPath, [join(REPO, 'dist', 'backend', 'backend.mjs')], { env, stdio: ['ignore', 'ignore', 'pipe'] });
+    let log = '';
+    await new Promise<void>((ok, fail) => {
+      const timer = setTimeout(() => fail(new Error(`backend did not start: ${log}`)), 30_000);
+      child.stderr!.on('data', (d: Buffer) => {
+        log += d.toString();
+        if (log.length > 20_000) log = log.slice(-10_000);
+        if (log.includes('listening')) {
+          clearTimeout(timer);
+          ok();
+        }
+      });
+      child.once('exit', (code) => {
         clearTimeout(timer);
-        ok();
-      }
+        fail(new Error(`backend exited (${code}): ${log}`));
+      });
     });
-    child.once('exit', (code) => {
-      clearTimeout(timer);
-      fail(new Error(`backend exited (${code}): ${log}`));
-    });
-  });
+    return child;
+  };
+  const { value: child, ports } = await launchOnFreePorts(launch);
+  const origin = `http://127.0.0.1:${ports.authoring}`;
+  const previewOrigin = `http://127.0.0.1:${ports.preview}`;
   const headers = { authorization: `Bearer ${token}`, origin };
   const post = async (path: string, body: unknown): Promise<{ status: number; json: Record<string, unknown> }> => {
     const r = await fetch(`${origin}${path}`, { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify(body) });
