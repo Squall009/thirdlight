@@ -10,10 +10,10 @@ import type { ProjectedEntity } from '../../session/projection';
 import { addEntries, createEntries, withOtherScene } from '../../session/descriptor-fields';
 import type { DescriptorRegistry } from '@thirdlight/project-model';
 import type { SceneHeaderView } from '../Hierarchy';
-import { resetWorkspaces } from '../workspace/WorkspaceTabs';
+import { resetWorkspaces } from '../workspace/EditorWindow';
 import type { SnapSettings } from '../../session/snapping';
 import type { Dispatch, SetStateAction } from 'react';
-import type { WorkspaceAction, WorkspaceState } from '../../session/workspace-tabs';
+import type { WorkspaceAction, WorkspaceState } from '../../session/editor-window';
 import type { SceneEditing } from './useSceneEditing';
 import type { EntityEditing } from './useEntityEditing';
 import type { EditorDialogsState } from './useEditorDialogs';
@@ -207,11 +207,18 @@ export function editorMenus(input: EditorMenuInput): Menu[] {
       items: [
         { label: 'Scene', onSelect: () => setCenterTab('scene') },
         { label: 'Game', onSelect: () => setCenterTab('game') },
+        {
+          label: 'Editor window',
+          disabled: workspace.docs.length === 0,
+          reason: 'no item is open (double-click one in the project window)',
+          onSelect: () => workspaceDispatch({ type: 'show', on: true }),
+        },
         { label: 'Next tab', shortcut: 'Ctrl+Tab', onSelect: () => workspaceDispatch({ type: 'cycle', dir: 1 }) },
         { label: 'Previous tab', shortcut: 'Ctrl+Shift+Tab', onSelect: () => workspaceDispatch({ type: 'cycle', dir: -1 }) },
         { label: workspace.maximized ? 'Restore docks' : 'Maximize centre area', onSelect: () => workspaceDispatch({ type: 'maximize' }) },
         'separator',
-        ...BOTTOM_TABS.map<MenuEntry>((t) => ({ label: t.label, onSelect: () => setBottomTab(t.id) })),
+        // A tool window shows in the default view: the editor window steps aside.
+        ...BOTTOM_TABS.map<MenuEntry>((t) => ({ label: t.label, onSelect: () => { workspaceDispatch({ type: 'show', on: false }); setBottomTab(t.id); } })),
         'separator',
         { label: 'Full screen', shortcut: 'Shift+F11', onSelect: () => { if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined); else void document.documentElement.requestFullscreen().catch(() => undefined); } },
         { label: 'Reset layout', onSelect: () => { resetLayout(); resetWorkspaces(); window.location.reload(); } },

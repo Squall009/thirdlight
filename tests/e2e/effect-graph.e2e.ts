@@ -13,7 +13,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
-import { menu, openWindow, closeEditor, openEditor, editorTab } from './ui';
+import { menu, openWindow, closeEditor, openEditor, editorTab, inspector as inspectorOf } from './ui';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -72,7 +72,7 @@ test('an effect: create, add a system, spawn burst → lifetime → billboard ch
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
 
-  // Effects tab → a new effect opens as a centre tab.
+  // Effects tab → a new effect opens in the editor window.
   await openWindow(page, 'Effects');
   await page.getByLabel('New effect name').fill('Sparks');
   await page.getByRole('button', { name: 'Create effect' }).click();
@@ -132,7 +132,7 @@ test('an effect: create, add a system, spawn burst → lifetime → billboard ch
   expect(await wires()).toHaveLength(4);
 
   // The Inspector edits a number field of the burst and the size curve (curve widget).
-  const inspector = page.locator('.tl-dock--right');
+  const inspector = inspectorOf(page);
   await node(page, burst!).click({ position: { x: 90, y: 8 } });
   await inspector.getByLabel('Count', { exact: true }).fill('50');
   await inspector.getByLabel('Count', { exact: true }).press('Enter');

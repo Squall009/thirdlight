@@ -12,7 +12,7 @@
  *
  * Graph materials — "+ new graph material" (a PBR output graph),
  * "Convert to graph" (a standard or unlit material as an equivalent graph),
- * and a graph material opens as a "Material: <name>" centre tab (double-click
+ * and a graph material opens as a "Material: <name>" tab of the editor window (double-click
  * its tile or "Open graph").
  *
  * Material instances — "+ new instance" makes an instance of
@@ -32,6 +32,7 @@ import { resolveMaterialInstancesLike, type MaterialDefLike } from '@thirdlight/
 import { ASSET_DRAG_TYPE, parseAssetDrag } from '../session/placement';
 import { CONVERTIBLE_SHADERS, convertToGraph, newMaterialGraph, templateMaterial } from '../session/material-graph';
 import { RefPicker, TEXTURE_KINDS, useEntryName } from './catalog/RefPicker';
+import { OpenItemButton } from './catalog/item-opener';
 
 /** The DataTransfer type a material tile drags (onto an object in the Scene view). */
 export const MATERIAL_DRAG_TYPE = 'application/x-thirdlight-material';
@@ -548,6 +549,7 @@ export function MaterialMappingEditor(props: {
               </option>
             ))}
           </select>
+          <OpenItemButton kind="material" id={current[slot] ?? ''} aria={`material for ${slot === '*' ? 'all' : slot}`} />
         </label>
       ))}
       {props.overrides !== undefined && <ParameterOverrides mapping={current} materials={props.materials} {...props.overrides} />}

@@ -877,6 +877,8 @@ export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus, ed
     if (mod && key === 'z') return; // project undo/redo (the app handles it)
     if (mod && key === 'y') return;
     if (ev.key === 'Escape') {
+      // Nothing to cancel: Esc is the editor window's (back to the Scene).
+      if (catalogue === null && pendingPort === null && dragRef.current === null) return;
       handled();
       setCatalogue(null);
       setPendingPort(null);

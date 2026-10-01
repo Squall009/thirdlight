@@ -1,6 +1,6 @@
 /**
  * The bottom-dock Animator — the project's animator
- * controllers as a list. A controller opens as a centre tab
+ * controllers as a list. A controller opens as a tab of the editor window
  * ("Animator: <controller>", the state-graph editor: AnimatorDocument) with
  * a double-click, Enter or **Open**; "New controller" and "New from clips:
  * Character locomotion" create one from the chosen model's clips and open it. Every
@@ -20,7 +20,7 @@ export { locomotionController } from './animator/parts';
 
 export interface AnimatorPanelProps {
   controllers: AnimatorController[];
-  /** Open a controller in its own centre tab. */
+  /** Open a controller in the editor window. */
   onOpen: (controllerId: string) => void;
   /** Start a live preview of `controller` in `canvas`, or say why not. */
   preview?: StartPreview;
@@ -98,7 +98,7 @@ export function AnimatorPanel(p: AnimatorPanelProps): JSX.Element {
       {p.controllers.length === 0 ? (
         <p className="tl-hint">No animator controllers yet: pick a model with clips and create one.</p>
       ) : (
-        <ul className="tl-animator__list" aria-label="animator controllers" title="Double-click (or Enter) to open in a centre tab">
+        <ul className="tl-animator__list" aria-label="animator controllers" title="Double-click (or Enter) to open in the editor window">
           {p.controllers.map((c) => {
             const states = [c, ...(c.layers ?? [])].reduce((n, l) => n + l.states.length, 0);
             return (

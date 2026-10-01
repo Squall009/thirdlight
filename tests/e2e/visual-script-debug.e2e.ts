@@ -21,7 +21,7 @@ import { createHash } from 'node:crypto';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { type E2EBackend, startBackend } from './backend';
-import { openWindow, closeEditor, openEditor, expectEditorOpen } from './ui';
+import { openWindow, closeEditor, openEditor, expectEditorOpen, inspector as inspectorOf } from './ui';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -109,7 +109,7 @@ test('visual script editor and debugging: problems, variables, functions, switch
   await expectEditorOpen(page, 'Graph', 'Stepper');
   await expect(node(page, 'add')).toHaveAttribute('aria-selected', 'true');
   // Fix it in the Inspector.
-  const inspector = page.locator('.tl-dock--right');
+  const inspector = inspectorOf(page);
   const counter = inspector.getByLabel('counter', { exact: true });
   await counter.fill('hits');
   await counter.press('Enter');
@@ -173,8 +173,7 @@ test('visual script editor and debugging: problems, variables, functions, switch
   // ---- a Switch with a data-dependent number of cases ----
   await cmd('graphEdit', { owner: { kind: 'behavior', id: 'stepper' }, ops: [{ op: 'addNodes', nodes: [{ id: 'sw', type: 'flow.switch', position: [480, 400], data: { cases: 'red, green, blue, gold' } }] }] });
   await expect.poll(async () => (await record('stepper'))?.graph?.nodes.some((n) => n.id === 'sw')).toBe(true);
-  // Fit everything (nothing selected) so the new node is in view.
-  await page.keyboard.press('Escape');
+  // Fit everything (nothing selected: a click on empty canvas) so the new node is in view.
   await stage.click({ position: { x: 20, y: sb.height - 20 } });
   await page.locator('.tl-graph__toolbar').getByRole('button', { name: 'Fit', exact: true }).click();
   await expect(page.locator('[data-node="sw"][data-side="out"]')).toHaveCount(5);

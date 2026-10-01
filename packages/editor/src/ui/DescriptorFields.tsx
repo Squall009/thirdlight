@@ -15,6 +15,7 @@ import { useEffect, useId, useState, type JSX, type KeyboardEvent, type ReactNod
 import * as THREE from 'three';
 import type { ComponentDescriptor, FieldDescriptor, ObjectFieldDescriptor } from '@thirdlight/project-model';
 import { RefPicker } from './catalog/RefPicker';
+import { OpenItemButton } from './catalog/item-opener';
 import {
   entityChoices,
   INDEX_REF_TARGETS,
@@ -334,7 +335,10 @@ export function FieldRow(p: RowProps): JSX.Element | null {
       }
       return (
         <Row f={f} label={p.label} isDefault={isDefault}>
-          <SelectWidget aria={aria} value={typeof shown === 'string' ? shown : ''} options={list.map((r) => ({ value: r.id, label: r.name }))} none={optional ? 'none' : null} onPick={(v) => (v === '' ? clear() : p.onEdit(p.path, v))} />
+          <span className="tl-ref">
+            <SelectWidget aria={aria} value={typeof shown === 'string' ? shown : ''} options={list.map((r) => ({ value: r.id, label: r.name }))} none={optional ? 'none' : null} onPick={(v) => (v === '' ? clear() : p.onEdit(p.path, v))} />
+            <OpenItemButton kind={target} id={typeof shown === 'string' ? shown : ''} aria={aria} />
+          </span>
         </Row>
       );
     }

@@ -1,5 +1,5 @@
 /**
- * The "Material: <name>" centre tab — a graph material's
+ * The "Material: <name>" tab of the editor window — a graph material's
  * node graph on the graph framework with the material node catalogue.
  *
  * - The graph: every gesture is one `graphEdit` on owner kind `material`

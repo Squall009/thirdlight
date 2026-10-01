@@ -1,6 +1,6 @@
 /**
  * Editor layout state: the three dock sizes (left/right widths, bottom
- * height) with draggable splitters, remembered per browser in localStorage.
+ * height) and the editor window's Inspector width, with draggable splitters, remembered per browser in localStorage.
  * Layout is presentation only: it never touches project data.
  */
 import { useCallback, useEffect, useState, type PointerEvent as ReactPointerEvent } from 'react';
@@ -9,11 +9,13 @@ export interface DockSizes {
   left: number;
   right: number;
   bottom: number;
+  /** The Inspector's width in the editor window (its one split). */
+  window: number;
 }
 
 const KEY = 'thirdlight.layout.v2';
-export const DEFAULT_SIZES: DockSizes = { left: 280, right: 320, bottom: 300 };
-const MIN = { left: 160, right: 220, bottom: 120 } as const;
+export const DEFAULT_SIZES: DockSizes = { left: 280, right: 320, bottom: 300, window: 360 };
+const MIN = { left: 160, right: 220, bottom: 120, window: 220 } as const;
 /** Keep the centre at least this wide/tall whatever the docks ask for. */
 const MIN_CENTER = 360;
 
@@ -21,7 +23,8 @@ function clampSizes(s: DockSizes, viewportW: number, viewportH: number): DockSiz
   const left = Math.max(MIN.left, Math.min(s.left, viewportW - MIN_CENTER - MIN.right));
   const right = Math.max(MIN.right, Math.min(s.right, viewportW - MIN_CENTER - left));
   const bottom = Math.max(MIN.bottom, Math.min(s.bottom, viewportH - 200));
-  return { left, right, bottom };
+  const win = Math.max(MIN.window, Math.min(s.window, viewportW - MIN_CENTER));
+  return { left, right, bottom, window: win };
 }
 
 function load(): DockSizes {
@@ -30,7 +33,7 @@ function load(): DockSizes {
     if (!raw) return DEFAULT_SIZES;
     const v = JSON.parse(raw) as Partial<DockSizes>;
     const num = (x: unknown, d: number): number => (typeof x === 'number' && Number.isFinite(x) ? x : d);
-    return { left: num(v.left, DEFAULT_SIZES.left), right: num(v.right, DEFAULT_SIZES.right), bottom: num(v.bottom, DEFAULT_SIZES.bottom) };
+    return { left: num(v.left, DEFAULT_SIZES.left), right: num(v.right, DEFAULT_SIZES.right), bottom: num(v.bottom, DEFAULT_SIZES.bottom), window: num(v.window, DEFAULT_SIZES.window) };
   } catch {
     return DEFAULT_SIZES;
   }
@@ -61,7 +64,7 @@ export function useDockSizes(): { sizes: DockSizes; splitter: (which: keyof Dock
       const start = sizes[which];
       handle.setPointerCapture(e.pointerId);
       const onMove = (ev: PointerEvent): void => {
-        const delta = which === 'left' ? ev.clientX - startX : which === 'right' ? startX - ev.clientX : startY - ev.clientY;
+        const delta = which === 'left' ? ev.clientX - startX : which === 'bottom' ? startY - ev.clientY : startX - ev.clientX;
         setSizes((s) => clampSizes({ ...s, [which]: start + delta }, window.innerWidth, window.innerHeight));
       };
       const onUp = (): void => {

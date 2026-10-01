@@ -1,7 +1,7 @@
 /**
  * The Animator. A skinned test model (two joints, clips
  * `idle` and `bend`) gets a controller built in the "Animator: <controller>"
- * centre tab on the graph framework: an entry state playing `idle`, a second
+ * editor window tab on the graph framework: an entry state playing `idle`, a second
  * state (added from the node catalogue) playing `bend`, a transition wire
  * dragged between them with a condition on a bool parameter (edited in the
  * right-dock Inspector). The live preview pane shows the pose change; Play
@@ -22,7 +22,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
 import { skinnedGlb } from './skinned-glb';
-import { openWindow, closeEditor, openEditor, expectEditorOpen, editorPane, windowTab } from './ui';
+import { openWindow, closeEditor, openEditor, expectEditorOpen, editorPane, windowTab, inspector as inspectorOf } from './ui';
 
 let be: E2EBackend;
 let seq = 0;
@@ -108,7 +108,7 @@ test('a controller built in the Animator tab poses a skinned model in Play by it
   const assetId = await importColumn(page);
   const column = String((await cmd('createEntity', { kind: 'model', name: 'column', model: { asset: { assetId } }, transform: { position: [0, 0, 0] } })).createdId);
 
-  // The bottom-dock Animator lists controllers; a new one opens as a centre tab with its graph.
+  // The bottom-dock Animator lists controllers; a new one opens in the editor window with its graph.
   await openWindow(page, 'Animator');
   await expect(page.getByLabel('animator model')).toHaveValue(assetId);
   await page.getByRole('button', { name: 'New controller' }).click();
@@ -119,7 +119,7 @@ test('a controller built in the Animator tab poses a skinned model in Play by it
   await expect(graph.getByRole('group', { name: 'Entry node ENTRY' })).toBeVisible();
   await expect(graph.getByRole('group', { name: 'Any State node ANY' })).toBeVisible();
   await expect(windowTab(page, 'Animator')).toBeVisible();
-  const inspector = page.locator('.tl-dock--right');
+  const inspector = inspectorOf(page);
 
   await doc.getByLabel('new parameter name').fill('bent');
   await doc.getByLabel('new parameter type').selectOption('bool');
@@ -249,7 +249,7 @@ test('animator graph: a moved state keeps its place after a reload and undo; a p
   const doc = editorPane(page, 'Animator', 'Poser');
   const graph = doc.getByLabel('animator graph');
   await expect(node(graph, 'still')).toBeVisible();
-  const inspector = page.locator('.tl-dock--right');
+  const inspector = inspectorOf(page);
 
   // Two transitions of one pair: one wire with a count; its Inspector lists both (in priority order).
   const pairWire = graph.getByRole('button', { name: 'wire Still → Lean (×2)' });

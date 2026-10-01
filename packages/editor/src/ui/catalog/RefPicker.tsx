@@ -18,6 +18,7 @@ import type { IndexEntryView } from '../../session/catalog';
 import { useCatalog } from './catalog-context';
 import { useIndexList } from './useIndexList';
 import { VirtualList } from './VirtualList';
+import { OpenItemButton, useItemOpener } from './item-opener';
 
 /** The most choices a picker shows as a plain select (one index page: the first page has them all); more are searched. */
 export const PICKER_SELECT_MAX = INDEX_PAGE_DEFAULT;
@@ -129,11 +130,30 @@ export function EntryName(p: { id: string; kinds: readonly string[] }): JSX.Elem
   return <>{e !== null && e !== undefined ? e.name : p.id}</>;
 }
 
+/**
+ * The picker, with "Open" beside it when the chosen item opens in an editor
+ * (a material, an effect, a script, …; not an asset such as a texture).
+ */
 export function RefPicker(p: RefPickerProps): JSX.Element {
+  const value = p.value ?? '';
+  const current = useEntryName(value === '' ? null : value, p.kinds);
+  const control = <RefPickerControl {...p} current={current} />;
+  const kind = current !== null && current !== undefined ? current.kind : null;
+  // The wrapper only where "Open" shows, so other pickers keep their layout.
+  if (useItemOpener(value === '' ? null : kind) === null) return control;
+  return (
+    <span className="tl-ref">
+      {control}
+      <OpenItemButton kind={kind} id={value} aria={p.aria} />
+    </span>
+  );
+}
+
+function RefPickerControl(p: RefPickerProps & { current: IndexEntryView | null | undefined }): JSX.Element {
   const first = useIndexList({ kinds: p.kinds });
   const labelOf = p.label ?? defaultLabel(p.kinds);
   const value = p.value ?? '';
-  const current = useEntryName(value === '' ? null : value, p.kinds);
+  const current = p.current;
   const small = first.total !== null && first.total <= PICKER_SELECT_MAX;
   if (first.total === null || small) {
     // Every choice fits the first page: its entries are the options.

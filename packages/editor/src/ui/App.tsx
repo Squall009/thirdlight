@@ -2,8 +2,9 @@
  * Editor app root (React). Makes the session client (backend transport) and
  * the imperative three.js viewport (framework-free) once per mount, keeps the
  * Scene view in step with the projection, and lays out the shell: menus,
- * toolbar, hierarchy, the centre workspace (Scene, Game, document tabs), the
- * bottom dock, the Inspector and the dialogs. React renders the panels + the
+ * toolbar, hierarchy, the centre (Scene and Game views), the bottom dock, the
+ * Inspector, the editor window over them (an opened item's editor beside the
+ * same Inspector) and the dialogs. React renders the panels + the
  * canvas element; it never instantiates or mutates Object3Ds (the viewport
  * owns those).
  *
@@ -43,9 +44,11 @@ import { Hierarchy, type SceneAction, type SceneHeaderView } from './Hierarchy';
 import { Toolbar } from './Toolbar';
 import { StatusBar } from './StatusBar';
 import { CatalogProvider } from './catalog/catalog-context';
+import { ItemOpenerProvider } from './catalog/item-opener';
 import { useUiPreviewAssets } from './uidoc/useUiPreviewAssets';
 import { MATERIAL_DRAG_TYPE } from './MaterialsPanel';
-import { ActiveDocument, WorkspaceTabs, useWorkspace } from './workspace/WorkspaceTabs';
+import { CentreTabs, EditorWindow, useSelectionAcrossWindow, useWorkspace } from './workspace/EditorWindow';
+import { activeDoc } from '../session/editor-window';
 import { DEFAULT_SNAP_SETTINGS, loadSnapSettings, type SnapSettings } from '../session/snapping';
 import { ProjectFilePicker } from './ProjectFilePicker';
 import { useAssetFileCheck } from './useAssetFileCheck';
@@ -112,16 +115,24 @@ function EditorApp(): JSX.Element {
   /** The bottom dock's active panel. */
   const [bottomTab, setBottomTab] = useState<BottomTab>('assets');
   /**
-   * The centre workspace — Scene, Game and the open document tabs
+   * The centre's Scene/Game view and the editor window with its open items
    * (remembered per project in the layout storage).
    */
   const [workspace, workspaceDispatch] = useWorkspace(cfg.current.ok ? cfg.current.config.projectId : null);
   const workspaceRef = useRef(workspace);
   workspaceRef.current = workspace;
-  /** The centre view: the editor scene, the running game or a document. */
-  const centerTab: 'scene' | 'game' | 'document' = workspace.active === 'scene' || workspace.active === 'game' ? workspace.active : 'document';
-  const setCenterTab = useCallback((key: 'scene' | 'game') => workspaceDispatch({ type: 'activate', key }), [workspaceDispatch]);
-  // The Animator and Behaviors panels: the bottom dock and the centre document tabs share these.
+  /** The centre view: the editor scene or the running game. */
+  const centerTab = workspace.view;
+  /** Show the Scene or Game view, in front (the editor window steps aside). */
+  const setCenterTab = useCallback(
+    (key: 'scene' | 'game') => {
+      workspaceDispatch({ type: 'view', view: key });
+      workspaceDispatch({ type: 'show', on: false });
+    },
+    [workspaceDispatch],
+  );
+  const windowOpen = activeDoc(workspace) !== null;
+  // The Animator and Behaviors panels: the bottom dock and the editor window's tabs share these.
   const openDocument = (kind: string, id: string): void => workspaceDispatch({ type: 'open', doc: { kind, id } });
   const content = useProjectContent();
   const { materials, animators, effects, registry, prefabSummaries, behaviorViews, uiDocuments, uiThemes, receive: receiveContent } = content;
@@ -277,8 +288,8 @@ function EditorApp(): JSX.Element {
       },
       onPlayStopped: () => {
         setPlaying(false);
-        // Back to the Scene from the (now empty) Game tab; a document tab stays in front.
-        if (workspaceRef.current.active === 'game') setCenterTab('scene');
+        // Back to the Scene from the (now empty) Game view; an editor window stays in front.
+        if (workspaceRef.current.view === 'game') workspaceDispatch({ type: 'view', view: 'scene' });
         setPlayInfo(null);
         bridgeRef.current = null;
       },
@@ -533,6 +544,7 @@ function EditorApp(): JSX.Element {
   useEffect(() => {
     clientRef.current?.setSelection(selection.ids);
   }, [selection]);
+  useSelectionAcrossWindow(windowOpen, selection, setSelection, (id) => clientRef.current?.projection.getEntity(id) !== undefined);
   // Drop selected ids whose entity is gone (deleted, undone).
   useEffect(() => {
     const present = new Set(entities.map((e) => e.id));
@@ -815,8 +827,42 @@ function EditorApp(): JSX.Element {
     dialogs,
   });
 
+  /** The one Inspector, on the right dock or on the editor window's right side. */
+  const inspector = (placement: 'dock' | 'window'): JSX.Element => (
+    <InspectorDock
+      placement={placement}
+      width={placement === 'dock' ? sizes.right : sizes.window}
+      clientRef={clientRef}
+      viewportRef={viewportRef}
+      content={content}
+      settings={projectSettings}
+      docState={docState}
+      docCmds={docCmds}
+      animator={animatorTools}
+      entity={entityEditing}
+      scene={sceneEditing}
+      blocks={blocks}
+      play={playSession}
+      entities={entities}
+      selected={selected}
+      selection={selection}
+      hierarchyFlags={hierarchyFlags}
+      fieldContext={fieldContext}
+      gizmoMode={gizmoMode}
+      setGizmoMode={setGizmoMode}
+      instanceChunks={instanceChunks}
+      selectedCopy={selectedCopy}
+      setSelectedCopy={setSelectedCopy}
+      brushOn={brushOn}
+      setBrushOn={setBrushOn}
+      reportFailure={reportFailure}
+      setNotice={setNotice}
+    />
+  );
+
   return (
     <CatalogProvider catalog={sessionClient?.catalog ?? null} asset={assetSummary}>
+    <ItemOpenerProvider opener={assets.itemOpener}>
     <div className="tl-app">
       <MenuBar menus={menus} />
       <Toolbar
@@ -841,7 +887,9 @@ function EditorApp(): JSX.Element {
         onStop={() => void stop()}
         {...(playMode !== null ? { playMode } : {})}
       />
-      <div className={`tl-app__body${workspace.maximized ? ' is-maximized' : ''}`}>
+      <div className="tl-app__workarea">
+      {/* Under the editor window the default view keeps its state but takes no input. */}
+      <div className={`tl-app__body${workspace.maximized ? ' is-maximized' : ''}`} inert={windowOpen}>
         <div className="tl-app__main">
           <div className="tl-app__row">
             <div className="tl-dock tl-dock--left" style={{ width: sizes.left }}>
@@ -866,7 +914,7 @@ function EditorApp(): JSX.Element {
             </div>
             <div className="tl-splitter tl-splitter--v" onPointerDown={splitter('left')} role="separator" aria-orientation="vertical" aria-label="Resize the hierarchy" />
             <div className="tl-app__center">
-              <WorkspaceTabs state={workspace} dispatch={workspaceDispatch} host={workspaceHost} />
+              <CentreTabs state={workspace} dispatch={workspaceDispatch} />
         <div
           className={assetDropActive ? 'tl-app__stage is-asset-drop' : 'tl-app__stage'}
           ref={stageRef}
@@ -906,7 +954,6 @@ function EditorApp(): JSX.Element {
           }}
         >
           <div ref={viewportHostRef} className="tl-viewport-host" />
-          <ActiveDocument state={workspace} host={workspaceHost} />
           {centerTab === 'game' && !playing && (
             <div className="tl-app__game-empty">Press ▶ play to run the game here.</div>
           )}
@@ -1017,34 +1064,9 @@ function EditorApp(): JSX.Element {
           />
         </div>
         <div className="tl-splitter tl-splitter--v" onPointerDown={splitter('right')} role="separator" aria-orientation="vertical" aria-label="Resize the inspector" />
-        <InspectorDock
-          width={sizes.right}
-          clientRef={clientRef}
-          viewportRef={viewportRef}
-          content={content}
-          settings={projectSettings}
-          docState={docState}
-          docCmds={docCmds}
-          animator={animatorTools}
-          entity={entityEditing}
-          scene={sceneEditing}
-          blocks={blocks}
-          play={playSession}
-          entities={entities}
-          selected={selected}
-          selection={selection}
-          hierarchyFlags={hierarchyFlags}
-          fieldContext={fieldContext}
-          gizmoMode={gizmoMode}
-          setGizmoMode={setGizmoMode}
-          instanceChunks={instanceChunks}
-          selectedCopy={selectedCopy}
-          setSelectedCopy={setSelectedCopy}
-          brushOn={brushOn}
-          setBrushOn={setBrushOn}
-          reportFailure={reportFailure}
-          setNotice={setNotice}
-        />
+        {windowOpen ? <div className="tl-dock" style={{ width: sizes.right }} /> : inspector('dock')}
+      </div>
+      <EditorWindow state={workspace} dispatch={workspaceDispatch} host={workspaceHost} inspector={windowOpen ? inspector('window') : null} onSplitter={splitter('window')} />
       </div>
       <StatusBar state={ui} onResync={resync} renderer={sceneRenderer} />
       {filePicker !== null && (
@@ -1072,6 +1094,7 @@ function EditorApp(): JSX.Element {
         setSnapSettingsState={setSnapSettingsState}
       />
     </div>
+    </ItemOpenerProvider>
     </CatalogProvider>
   );
 }

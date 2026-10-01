@@ -21,7 +21,7 @@ import { join, resolve } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 
 import { startBackend, STARTER, type E2EBackend } from './backend';
-import { menu, projectWindow, expectWindowOpen } from './ui';
+import { menu, projectWindow, expectWindowOpen, editorWindow } from './ui';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 const OPUS = readFileSync(join(REPO, 'fixtures', 'music', 'chord-opus.ogg'));
@@ -236,11 +236,13 @@ test('a double-click opens each kind of item in its editor; the kind menu writes
   await openAssets(page);
   await treeFolder(page, '').click();
   const search = page.getByLabel('search the project');
-  const centreTabs = page.locator('.tl-tabs--center [role="tab"]');
+  // Each opens in the editor window (its tab in front); Esc returns to the project window.
   const opens = async (id: string, kind: string, title: string): Promise<void> => {
     await search.fill(`t:${kind} ${id}`);
     await itemTile(page, id).dblclick();
-    await expect(centreTabs.filter({ hasText: title }), `${kind} ${id}`).toHaveCount(1);
+    await expect(editorWindow(page).getByRole('tablist', { name: 'open items' }).getByRole('tab', { selected: true }), `${kind} ${id}`).toContainText(title);
+    await page.keyboard.press('Escape');
+    await expect(editorWindow(page)).toHaveCount(0);
   };
   await opens('mat-one', 'material', 'Mat One');
   await opens('tl-one', 'timeline', 'Timeline One');

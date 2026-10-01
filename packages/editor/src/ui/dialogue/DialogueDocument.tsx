@@ -1,5 +1,5 @@
 /**
- * The "Dialogue: <name>" centre tab — one conversation's node
+ * The "Dialogue: <name>" tab of the editor window — one conversation's node
  * graph (graph kind `dialogue` on the graph framework) and a previewer.
  *
  * - The graph: every gesture is one `graphEdit` on owner kind `dialogue`

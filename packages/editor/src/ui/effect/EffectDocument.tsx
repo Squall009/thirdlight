@@ -1,5 +1,5 @@
 /**
- * The "Effect: <name>" centre tab — an effect's particle
+ * The "Effect: <name>" tab of the editor window — an effect's particle
  * systems, each a node graph (graph kind `effect`) on the graph framework.
  *
  * - Left: the effect's settings (duration, loop, seed, culling bounds), its

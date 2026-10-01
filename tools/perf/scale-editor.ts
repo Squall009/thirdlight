@@ -13,6 +13,17 @@ import type { Page } from '@playwright/test';
 import { readSample } from './instrument';
 import { summarize, type Summary } from './stats';
 
+/**
+ * Show one of the bottom dock's panels. An item's editor window (opened by an
+ * earlier step, or remembered from an earlier visit) covers the dock: it is
+ * closed first, as a person would with Esc.
+ */
+export async function showDockTab(page: Page, name: string): Promise<void> {
+  const close = page.getByRole('button', { name: 'Close the editor window', exact: true });
+  if ((await close.count()) > 0) await close.click();
+  await page.locator('.tl-dock--bottom > [role="tablist"]').getByRole('tab', { name, exact: true }).click();
+}
+
 export interface EditorScaleReport {
   /** Page opened → connected, and → the asset list showing its first tiles and the catalog's size. */
   connectedMs: number;
@@ -103,12 +114,12 @@ export async function measureEditorAtScale(page: Page, o: EditorScaleOptions): P
     await page.goto(o.url);
     await page.locator('.tl-statusbar').filter({ hasText: 'connected' }).waitFor({ timeout: 600_000 });
     connectedMs = Date.now() - t0;
-    await page.getByRole('tab', { name: 'Assets', exact: true }).click();
+    await showDockTab(page, 'Assets');
     await page.locator('.tl-assets__paging[data-total]:not([data-total=""])').waitFor({ timeout: 120_000 });
     await list.locator('li[data-asset-id]').first().waitFor({ timeout: 120_000 });
     interactiveMs = Date.now() - t0;
   } else {
-    await page.getByRole('tab', { name: 'Assets', exact: true }).click();
+    await showDockTab(page, 'Assets');
     await list.locator('li[data-asset-id]').first().waitFor({ timeout: 120_000 });
   }
   const listTotal = Number(await page.locator('.tl-assets__paging').getAttribute('data-total'));
@@ -216,7 +227,7 @@ export async function measureEditorAtScale(page: Page, o: EditorScaleOptions): P
   const voices = await o.query('queryIndex', { kind: 'audio', refs: false, limit: 1, offset: Math.max(0, Number((await o.query('queryIndex', { kind: 'audio', refs: false, limit: 1 }))['total'] ?? 1) - 1) });
   const voice = ((voices['entries'] as { id: string; name: string }[]) ?? [])[0];
   if (voice === undefined) throw new Error('the bench project has no sound');
-  await page.getByRole('tab', { name: 'Dialogue', exact: true }).click();
+  await showDockTab(page, 'Dialogue');
   await page.locator(`.tl-dialogue-panel li[data-dialogue-id="${dialogue.id}"]`).getByRole('button', { name: `Open ${dialogue.name}` }).click();
   const graph = page.locator('[aria-label="dialogue graph"]');
   await graph.waitFor({ timeout: 60_000 });

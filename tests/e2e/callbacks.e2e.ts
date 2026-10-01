@@ -23,7 +23,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
-import { openWindow, expectEditorOpen, editorPane } from './ui';
+import { openWindow, expectEditorOpen, editorPane, inspector as inspectorOf } from './ui';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -150,7 +150,7 @@ test('callbacks: completion in the script editor, On enable in the node menu, li
   const view = page.getByLabel('visual script', { exact: true });
   await expect(view).toHaveAttribute('data-behavior', 'lamp-lit');
   const stage = page.locator('.tl-graph__stage');
-  const inspector = page.locator('.tl-dock--right');
+  const inspector = inspectorOf(page);
   const nodes = async (): Promise<GNode[]> => (((await query('queryBehaviors', { includeDeclaration: true, behaviorId: 'lamp-lit' }))['behaviors'] as { graph?: { nodes: GNode[] } }[])[0]?.graph?.nodes ?? []);
   const edges = async (): Promise<GEdge[]> => (((await query('queryBehaviors', { includeDeclaration: true, behaviorId: 'lamp-lit' }))['behaviors'] as { graph?: { edges: GEdge[] } }[])[0]?.graph?.edges ?? []);
   const add = async (search: string, label: string, type: string, fx: number, fy: number, group?: string): Promise<string> => {

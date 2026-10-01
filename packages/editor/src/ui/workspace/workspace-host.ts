@@ -10,7 +10,7 @@ import { useUiPreviewAssets } from '../uidoc/useUiPreviewAssets';
 import { conversationsFrom } from '../../session/dialogue-closure';
 import type { WorkspaceHost } from './kinds';
 import type { MaterialDocumentProps } from '../material/MaterialDocument';
-import { docKey, type WorkspaceAction } from '../../session/workspace-tabs';
+import { docKey, type WorkspaceAction } from '../../session/editor-window';
 import type { EffectDocumentProps } from '../effect/EffectDocument';
 import type { DebugRequest, DebugResult } from '../../preview/play-debug';
 import type { Dispatch, MutableRefObject } from 'react';

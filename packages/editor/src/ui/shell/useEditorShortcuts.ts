@@ -2,11 +2,11 @@
  * The editor's keyboard shortcuts (tools, frame, delete, undo/redo,
  * duplicate/copy/paste, the block tools' keys) and Shift held to turn
  * snapping off for one gesture. Never while typing into a field; with a
- * document tab in front only undo/redo stay on.
+ * the editor window showing only undo/redo stay on.
  */
 import { useEffect, type MutableRefObject } from 'react';
 import { Gesture } from '../../session/gesture';
-import { activeDoc, type WorkspaceState } from '../../session/workspace-tabs';
+import { activeDoc, type WorkspaceState } from '../../session/editor-window';
 import type { BlockPanelHandlers } from '../BlocksPanel';
 import type { GizmoMode } from '../../viewport/viewport';
 import type { ViewportRef } from './commands';
@@ -40,7 +40,7 @@ export function useEditorShortcuts(deps: EditorShortcutsDeps): void {
       // Editor shortcuts — never while typing into a field.
       const t = e.target as HTMLElement | null;
       const typing = t !== null && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable);
-      // With a document tab in front, the scene's shortcuts (delete,
+      // With the editor window showing, the scene's shortcuts (delete,
       // tools, frame, copy/paste) stay off; undo/redo remain global.
       const sceneHidden = activeDoc(workspaceRef.current) !== null;
       if (!typing && sceneHidden && (e.ctrlKey || e.metaKey) && ['z', 'y'].includes(e.key.toLowerCase())) {
@@ -85,7 +85,7 @@ export function useEditorShortcuts(deps: EditorShortcutsDeps): void {
             viewportRef.current?.focus(selectedIdRef.current);
             return;
           }
-          if (e.key === 'Escape' && selectedIdRef.current !== null) {
+          if (e.key === 'Escape' && !e.defaultPrevented && selectedIdRef.current !== null) {
             setSelectedId(null);
             return;
           }

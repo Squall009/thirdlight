@@ -12,7 +12,7 @@ import type { ScriptLibrary, PropertyDeclaration } from '@thirdlight/project-mod
 import type { BehaviorPanelProps } from '../BehaviorPanel';
 import type { ScriptCheckResult, ScriptDraft, ScriptPublishOutcome } from '../script/ScriptDocument';
 import { publishScriptSource } from '../../session/script-publish';
-import { activeDoc, type WorkspaceAction, type WorkspaceState } from '../../session/workspace-tabs';
+import { activeDoc, type WorkspaceAction, type WorkspaceState } from '../../session/editor-window';
 import type { DeclarationSave } from '../DeclarationEditor';
 import type { SourceFocus, SourceLocation } from '../../session/source-location';
 import { savedDraft, type LibraryDraft, type LibrarySaveOutcome } from '../script/LibraryDocument';

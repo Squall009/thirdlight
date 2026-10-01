@@ -1,6 +1,6 @@
 /**
  * A visual script (a behavior whose source is a graph) as a
- * "Graph: <behavior>" centre tab.
+ * "Graph: <behavior>" tab of the editor window.
  *
  * - Tabs inside the document: the **event graph** and one tab per function
  *   of the script (`BehaviorRecord.functions`, edited as owner

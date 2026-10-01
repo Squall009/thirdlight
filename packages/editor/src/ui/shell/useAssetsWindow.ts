@@ -2,9 +2,10 @@
  * The project window and the chosen asset: imports and re-imports (from a
  * file or the project folder, with the media drop's pending context), the
  * chosen asset's summary, preview and options, and what a double-click in
- * the project window opens.
+ * the project window (or an Inspector reference's "Open") opens.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { ItemOpener } from '../catalog/item-opener';
 import { importFailed, initialImportState, publishArgsFromProposal, type AssetImportState, type ImportTarget } from '../../session/asset-browser';
 import { useAssetPreview } from '../assets/useAssetPreview';
 import { useProjectWindow } from '../project/useProjectWindow';
@@ -84,6 +85,10 @@ export function useAssetsWindow(deps: AssetsWindowDeps) {
       void assetPreview.load(id);
     },
   });
+  // An Inspector reference's "Open" does what a double-click does (one stable object for the context).
+  const openItemRef = useRef(projectWindow.open);
+  openItemRef.current = projectWindow.open;
+  const itemOpener = useMemo<ItemOpener>(() => ({ open: (item) => openItemRef.current(item) }), []);
   const assetOptions = useAssetOptions(clientRef, reportFailure);
   const loadingNames = useLoadingNames(clientRef);
   // The chosen asset (its summary, and a model's pieces and material names, loaded when it is chosen).
@@ -93,7 +98,7 @@ export function useAssetsWindow(deps: AssetsWindowDeps) {
   return {
     importState, selectedAssetId, setSelectedAssetId, selectedAssetIdRef, mediaPendingRef, reimportRoles, setReimportRoles, reimportEntity, setReimportEntity, assetPreview,
     filePicker, setFilePicker, loadProjectFiles, importSettings, textureEncoding, reimportWithExtract, uploadFolder, setUploadFolder, importFile, importFromFolder, publish,
-    reimportIssue, cancelImportFlow, discardImportFlow, projectWindow, assetOptions, loadingNames, selectedAsset, assetSourceMaterials,
+    reimportIssue, cancelImportFlow, discardImportFlow, projectWindow, itemOpener, assetOptions, loadingNames, selectedAsset, assetSourceMaterials,
   };
 }
 

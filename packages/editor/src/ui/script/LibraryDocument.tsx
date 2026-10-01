@@ -1,5 +1,5 @@
 /**
- * The "Library: <name>" centre tab — the code editor for a shared
+ * The "Library: <name>" tab of the editor window — the code editor for a shared
  * script library (TypeScript and JSON modules every script imports as
  * `@lib/<libraryId>`).
  *

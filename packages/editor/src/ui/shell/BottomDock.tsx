@@ -21,7 +21,7 @@ import { InputPanel } from '../InputPanel';
 import { bakeIsStale } from '../../viewport/bake-run';
 import { PrefabPanel } from '../PrefabPanel';
 import { BehaviorPanel } from '../BehaviorPanel';
-import { activeDoc, docKey, type WorkspaceAction, type WorkspaceState } from '../../session/workspace-tabs';
+import { activeDoc, docKey, type WorkspaceAction, type WorkspaceState } from '../../session/editor-window';
 import { GameplayPanel } from '../GameplayPanel';
 import { BlocksPanel } from '../BlocksPanel';
 import { MediaPanel } from '../MediaPanel';

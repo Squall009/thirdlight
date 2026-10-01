@@ -10,6 +10,8 @@
  */
 import type { Page } from '@playwright/test';
 
+import { showDockTab } from './scale-editor';
+
 export interface ProjectWindowScaleReport {
   /** The files chosen, labelled and moved. */
   files: number;
@@ -62,7 +64,7 @@ export async function measureProjectWindowAtScale(page: Page, o: ProjectWindowSc
   const parent = o.folder.includes('/') ? o.folder.slice(0, o.folder.lastIndexOf('/')) : '';
   const name = `${o.folder.slice(o.folder.lastIndexOf('/') + 1)}-moved`;
   const to = parent === '' ? name : `${parent}/${name}`;
-  await page.getByRole('tab', { name: 'Assets', exact: true }).click();
+  await showDockTab(page, 'Assets');
 
   // A new folder beside the voices.
   await page.getByRole('button', { name: parent === '' ? 'folder (game folder)' : `folder ${parent}`, exact: true }).click();

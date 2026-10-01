@@ -1,5 +1,5 @@
 /**
- * The "UI theme: <name>" centre tab — a theme's named styles
+ * The "UI theme: <name>" tab of the editor window — a theme's named styles
  * (colours, fonts, box, 9-slice backgrounds, hover / focus / pressed /
  * disabled states) and its rich-text icons, shared by every UI document that
  * names the theme. Each change is one `setUiTheme` (one undo step). The

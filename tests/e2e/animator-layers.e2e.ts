@@ -24,7 +24,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
 import { clipsOnlyGlb, skinnedGlb } from './skinned-glb';
-import { openWindow, openEditor, editorPane } from './ui';
+import { openWindow, openEditor, editorPane, inspector as inspectorOf } from './ui';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -94,13 +94,13 @@ test('an upper-body layer masked by bone plays clips of an animation-only file i
   await expect.poll(async () => (await assets()).find((a) => a.assetId === moves.assetId)?.clipsFor).toBe(column.assetId);
   await expect(page.getByLabel('clips for rig check')).toHaveText('every animated bone is in the rig', { timeout: 15_000 });
 
-  // A controller on the column: idle on the base layer (it opens as a centre tab).
+  // A controller on the column: idle on the base layer (it opens in the editor window).
   await openWindow(page, 'Animator');
   await page.getByLabel('animator model').selectOption(column.assetId);
   await page.getByRole('button', { name: 'New controller' }).click();
   const doc = editorPane(page, 'Animator', 'New animator');
   const graph = doc.getByLabel('animator graph');
-  const inspector = page.locator('.tl-dock--right');
+  const inspector = inspectorOf(page);
   await expect(graph.getByRole('group', { name: 'State idle node state-01' })).toBeVisible();
 
   // The live preview (the pane inside the tab): the straight column.

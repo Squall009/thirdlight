@@ -1,5 +1,5 @@
 /**
- * A timeline's centre tab ("Timeline: <name>").
+ * A timeline's editor window tab ("Timeline: <name>").
  *
  * - The timeline's own fields (name, duration, skip action, play on start /
  *   on a signal) and its binding slots (a name and a default object).

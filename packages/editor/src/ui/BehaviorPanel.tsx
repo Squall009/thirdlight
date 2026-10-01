@@ -11,7 +11,7 @@
  *  - source bytes are **staged** (non-authoritative) and published through the
  *    ordinary `publishBehavior{mode:"source"}` command; the panel displays the
  *    bounded compile/publication error verbatim instead of faking a build;
- *  - the same view is the "Script: <behavior>" centre tab
+ *  - the same view is the "Script: <behavior>" tab of the editor window
  *    (`document`: one behavior, no list); double-clicking a tile opens it;
  *  - a declaration editor (`DeclarationEditor`: every property
  *    type, visibility, groups, headers, tooltips) creates or updates the
@@ -46,9 +46,9 @@ export interface BehaviorPanelProps {
   onPublishSource: () => void;
   /** Create or update a declaration (one publishBehavior command). */
   onSaveDeclaration: (save: DeclarationSave) => Promise<boolean>;
-  /** Document mode — the "Script: <behavior>" centre tab edits `selectedBehaviorId` only. */
+  /** Document mode — the "Script: <behavior>" tab of the editor window edits `selectedBehaviorId` only. */
   document?: boolean;
-  /** Open a behavior in its own centre tab (double-click its tile). */
+  /** Open a behavior in the editor window (double-click its tile). */
   onOpen?: (behaviorId: string) => void;
   /** Create a visual script (a behavior whose source is a graph) with this name. */
   onCreateVisualScript?: (displayName: string) => void;

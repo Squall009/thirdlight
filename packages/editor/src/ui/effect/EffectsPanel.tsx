@@ -1,7 +1,7 @@
 /**
  * The Effects list (bottom dock) — the project's visual effects
  * with their systems; create (a name → an id), rename, delete and open (the
- * "Effect: <name>" centre tab). Each action is one command (setEffect,
+ * "Effect: <name>" tab of the editor window). Each action is one command (setEffect,
  * renameEffect, deleteEffect).
  *
  * Browser-only (React).

@@ -1,5 +1,5 @@
 /**
- * The commands of the documents the dock lists and the centre tabs edit:
+ * The commands of the documents the dock lists and the editor window edits:
  * materials, the environment, conversations, effects, timelines, UI
  * documents and themes, standalone graphs and every graph edit (queued, so a
  * burst of gestures never races its own revision), with each list's last
@@ -11,7 +11,7 @@ import type { EnvironmentConfig, MaterialDef, SceneEnvironment } from '@thirdlig
 import type { TimelinePreviewValue } from '../timeline/TimelineDocument';
 import { newUiDocument, uniqueDocId } from '../../session/ui-edit';
 import type { GraphOp } from '../../graph/model';
-import type { WorkspaceAction } from '../../session/workspace-tabs';
+import type { WorkspaceAction } from '../../session/editor-window';
 import { refusal, type ClientRef, type ViewportRef } from '../shell/commands';
 
 export interface DocumentCommandsDeps {

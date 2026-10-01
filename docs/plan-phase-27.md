@@ -303,7 +303,8 @@ moves at least as many lines out as it adds.
 | 27.8 | done 2026-10-01: `App.tsx` split, no behaviour change: 4,826 → 1,083 lines; each area's state and commands in a hook returning one object (`ui/shell/use*.ts`, `ui/workspace/useDocument*.ts`), the shell's pieces as components taking those objects (`BottomDock`, `AssetsTab`, `InspectorDock`, `EditorDialogs`), the menus as `editorMenus`, the document tabs' host as `workspaceHostOf`; fast gate with 38 editor-shell specs + the smoke set green (D91) |
 | 27.9 | done 2026-10-01: `tests/e2e/ui.ts` opens tool windows (`openWindow`, `windowTab`, `expectWindowOpen`), the project window (`projectWindow`), settings sections (`openProjectSettings`), item editors (`openEditor` — to the front if open, else a double-click in the project window found by search — `closeEditor`, `editorTab`, `editorPane`, `expectEditorOpen`) and the Scene/Game views (`showView`, `viewTab`); 78 specs moved to them (the 74 counted plus four that only named editor panes), two fast gates with every moved spec green |
 | 27.10 | done 2026-10-01: each scene file carries its look (`SceneV4.environment`: sky, fog, post, wind); `content.environment` keeps the default quality and the presets; `project.json` schemaVersion 6, a 5 upgraded on open (the project look copied into every scene; fixture `fixtures/phase27/legacy-v5-environment` upgraded, replayed and exported over HTTP); `setEnvironment {sceneId}` (MCP too), `createScene {environmentFrom}`, a deleted scene's look kept for undo; the runtime's active scene (`ctx.scenes.active/setActive`, a transition taking over the active scene's place makes its scene active over the fade) blends the looks as simulation state (page, worker, replay agree); Scene view, Play and export draw the active scene's look, checked in pixels in a two-scene Play and its export (D107) |
-| 27.11–27.17 | — |
+| 27.11 | done 2026-10-01: an item opens in the editor window over the editor (double-click in the project window, "Open" beside an Inspector reference): its editor left, the one Inspector right (the same `InspectorDock`, moved), one split with a remembered width; open items are its tabs (reorder, close, middle-click, Ctrl+Tab), remembered per project; Esc/× return to the default view with the selection it had; undo, the change feed and MCP edits reach the open editor; the centre keeps Scene and Game; e2e `editor-window` (DOM structure, geometry, selection, reload) |
+| 27.12–27.17 | — |
 
 ## 6. Decision log
 
@@ -591,6 +592,30 @@ moves at least as many lines out as it adds.
   menu's Environment window with a scene picker. The editor reads the looks
   with `queryProject {environments: true}` (opt-in: the rows stay small for
   every other caller, MCP `tl_inspect` too).
+- 2026-10-01 (27.11): the editor window covers the editor's work area (the
+  Hierarchy, the Scene/Game centre, the dock and the Inspector's dock) and
+  leaves the menu bar, the toolbar and the status bar, so Play, undo and the
+  menus stay in reach; the default view underneath keeps its state but is
+  `inert`. The one Inspector is the same `InspectorDock`, rendered in the
+  window's right side while it shows and in the dock otherwise (never both).
+  Esc and × close the window and keep its tabs (remembered per project with
+  the window's state and the split width), so the next item opened from the
+  project window joins them; Window → Editor window brings them back; closing
+  the last tab closes the window. Unity's separate windows close with their
+  item; keeping the tabs is this editor's choice because the window covers
+  the project window a second item is opened from. Ctrl+Tab cycles the
+  window's tabs, and swaps Scene and Game without the window. Starting Play,
+  Window → Scene/Game and a Window-menu tool window set the window aside.
+  Closing returns the selection the default view had when the window opened
+  (objects that still exist), whatever was selected meanwhile (a box made
+  from the menu bar, say). An editor's own Esc (a wire being drawn, the node
+  search) is taken first; a graph with nothing to cancel lets Esc close the
+  window. "Open" stands beside an Inspector reference whose item opens in an
+  editor (`RefPicker`, descriptor `ref` fields, the material mapping), doing
+  what the project window's double-click does; asset references (textures,
+  models) have none. Until 27.12's preview pane, a timeline's window is
+  see-through above the timeline panel so its scrub preview in the Scene view
+  stays visible.
 - 2026-10-01 (27.9): the helpers name what a person opens, not where it is:
   `openWindow(name)` for tools, `openProjectSettings(section)` for the
   settings that 27.13 moves, `openEditor(kind, name)` with the kind as the

@@ -205,7 +205,7 @@ test('every component kind: added, edited (one undo) and removed through the Ins
   await page.getByLabel('animator model').selectOption(model);
   await page.getByRole('button', { name: 'New controller' }).click();
   await expect.poll(async () => (((await be.command({ op: 'queryGameConfig', projectId: be.projectId }))['animators'] as unknown[]) ?? []).length).toBe(1);
-  // The new controller opens as a centre tab (the Inspector then shows the graph); back to the Scene.
+  // The new controller opens in the editor window (the Inspector then shows the graph); back to the Scene.
   await expectEditorOpen(page, 'Animator', 'New animator');
   await closeEditor(page);
   await select(page, id);

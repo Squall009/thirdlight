@@ -8,7 +8,7 @@
  */
 import { useCallback, useEffect, useMemo, useState, type Dispatch, type MutableRefObject } from 'react';
 import type { SessionClient } from '../../session/client';
-import { activeDoc, docKey, type WorkspaceAction, type WorkspaceState } from '../../session/workspace-tabs';
+import { activeDoc, docKey, type WorkspaceAction, type WorkspaceState } from '../../session/editor-window';
 import { graphsPortContext } from '../../session/material-graph';
 import type { VisualScriptProblem } from '../script/VisualScriptDocument';
 import type { ProjectContent } from '../shell/useProjectContent';
@@ -23,7 +23,7 @@ export function useDocumentState(
   const { graphs, graphKinds, graphsLoaded, dialogues } = content;
   const [graphSelection, setGraphSelection] = useState<readonly string[]>([]);
   const [graphFocus, setGraphFocus] = useState<{ id: string; nonce: number } | null>(null);
-  /** The graph of the active centre tab (its inspector shows in the right dock). */
+  /** The graph of the tab in front of the editor window (its inspector shows beside it). */
   const activeGraphId = (() => {
     const d = activeDoc(workspace);
     return d !== null && d.kind === 'graph' ? d.id : null;
@@ -67,7 +67,7 @@ export function useDocumentState(
   }, [activeAnimatorId]);
   // Sub-graph calls (material functions) read their ports from the project's graphs.
   const graphsContext = useMemo(() => graphsPortContext(graphs, graphKinds), [graphs, graphKinds]);
-  // The graph material of the active centre tab (its node inspector shows in the right dock).
+  // The graph material of the tab in front of the editor window (its node inspector shows beside it).
   const [materialSelection, setMaterialSelection] = useState<readonly string[]>([]);
   const [materialFocus, setMaterialFocus] = useState<{ id: string; nonce: number; materialId?: string } | null>(null);
   const activeMaterialId = (() => {
@@ -79,7 +79,7 @@ export function useDocumentState(
     // A focus request for the tab being opened (a Problems click) survives the switch.
     setMaterialFocus((f) => (f !== null && f.materialId === activeMaterialId ? f : null));
   }, [activeMaterialId]);
-  // The effect of the active centre tab (the selected node of its shown system shows in the right dock).
+  // The effect of the tab in front of the editor window (the selected node of its shown system shows in the Inspector).
   const [effectSelection, setEffectSelection] = useState<readonly string[]>([]);
   const [effectFocus, setEffectFocus] = useState<{ id: string; nonce: number } | null>(null);
   const activeEffectId = (() => {
@@ -90,7 +90,7 @@ export function useDocumentState(
     setEffectSelection([]);
     setEffectFocus(null);
   }, [activeEffectId]);
-  // The conversation of the active centre tab (its selected node shows in the right dock).
+  // The conversation of the tab in front of the editor window (its selected node shows in the Inspector).
   const [dialogueSelection, setDialogueSelection] = useState<readonly string[]>([]);
   const [dialogueFocus, setDialogueFocus] = useState<{ id: string; nonce: number } | null>(null);
   const activeDialogueId = (() => {

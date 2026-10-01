@@ -1,5 +1,5 @@
 /**
- * The "Animator: <controller>" centre tab — the controller's
+ * The "Animator: <controller>" tab of the editor window — the controller's
  * state machine on the graph framework.
  *
  * - The graph: the layer's states (clip, blend tree, empty), the fixed Entry

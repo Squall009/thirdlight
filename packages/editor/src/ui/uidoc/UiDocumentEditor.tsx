@@ -1,5 +1,5 @@
 /**
- * The "UI: <name>" centre tab — the visual editor of one UI
+ * The "UI: <name>" tab of the editor window — the visual editor of one UI
  * document (project UI).
  *
  * - Left: the widget hierarchy — select, add (a widget of any type into the

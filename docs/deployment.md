@@ -297,33 +297,38 @@ project scripts (in its own repository when it has one).
   checkpoint, score, platformer, …; `tools/check-boundaries.mjs`, with a
   short reviewed allowlist for the upgrade code).
 
-## Workspace tabs
+## Editor window
 
-The centre area holds **Scene**, **Game** and any number of document tabs
-next to them. Double-click an animator controller (bottom dock → Animator,
-the controller list under the toolbar, or **Open in tab**) to open
-"Animator: <controller>", or a behavior tile (bottom dock → Behaviors) to
-open "Script: <behavior>". The document takes over the centre area: the
-Animator tab is the full state-graph editor for that one controller
-(states, transitions, layers, parameters, live preview — see "Animation
-(Animator)" below); the Script tab is
-the behavior's code editor (see "Script editor" below) with its declaration
-editor docked beside it. Edits
-are the same commands as in the bottom dock (one undo step each; Ctrl+Z
-works while a document is in front; the scene's own shortcuts — Delete,
-W/E/R, F, copy/paste — do not act on the hidden scene).
+The centre of the editor shows the **Scene** or the **Game** view, nothing
+else. An item — a material, effect, graph, timeline, animator controller,
+dialogue, script, script library, UI document or theme — opens in the
+**editor window**, a full window over the editor: double-click it in the
+project window (or in its bottom-dock list), or press **Open** beside a
+reference to it in the Inspector. The item's editor is on the left and the
+Inspector on the right (the same Inspector as in the default view, showing
+the selected node, state or object); drag the line between them to resize
+it. The menu bar, the toolbar and the status bar stay in reach: Play, Edit →
+Undo/Redo and Ctrl+Z work while the window shows, and changes made over MCP
+show in the open editor at once. The scene's own shortcuts (Delete, W/E/R,
+F, copy/paste) do not act on the hidden scene.
 
-Opening a document that is already open focuses its tab. Document tabs close
-with their **×** or a middle click; Scene and Game cannot be closed. Drag a
-tab onto another to reorder. **Ctrl+Tab** / **Ctrl+Shift+Tab** (or Window →
-Next tab / Previous tab) cycle through all tabs. Some browsers keep
-Ctrl+Tab for their own tabs in a normal window; the Window menu entries
-always work. The **⤢** button at the right of the tab strip (or Window →
-Maximize centre area) hides the docks so the centre fills the window; press
-it again to restore them. The open tabs, their order, the active tab and
-the maximize state are remembered per project in the browser's layout
-storage (Window → Reset layout forgets them). A tab whose document was
-deleted says so; close it.
+Several open items are tabs at the top of the window: opening an open item
+brings its tab to the front; a tab closes with its **×** or a middle click;
+drag a tab onto another to reorder. **Ctrl+Tab** / **Ctrl+Shift+Tab** (or
+Window → Next tab / Previous tab) cycle the window's tabs, or switch Scene
+and Game while the window is closed. Some browsers keep Ctrl+Tab for their
+own tabs in a normal window; the Window menu entries always work.
+
+**Esc** or the window's **×** (top right) return to the default view with
+the selection it had when the window opened; the window's tabs stay, so the
+next item you open joins them, and Window → Editor window shows them again.
+Closing the last tab closes the window. Starting Play or choosing a tool
+window from the Window menu also sets the window aside. The open tabs, the
+one in front, whether the window shows and the Inspector's width are
+remembered per project in the browser's layout storage (Window → Reset
+layout forgets them). The **⤢** button at the right of the Scene/Game tabs
+(or Window → Maximize centre area) hides the docks so the view fills the
+editor. A tab whose document was deleted says so; close it.
 
 ## Script editor
 

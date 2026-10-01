@@ -1,7 +1,7 @@
 /**
  * The Libraries list (bottom dock) — the project's shared script
  * libraries: create (a name → an id, imported as `@lib/<id>`), rename, delete
- * and open (the "Library: <name>" centre tab). Each action is one command
+ * and open (the "Library: <name>" tab of the editor window). Each action is one command
  * (setScriptLibrary, deleteScriptLibrary — refused while a published script
  * imports the library). "Save all" commits every library with
  * unsaved edits at once (staged in several patches, one commit: one

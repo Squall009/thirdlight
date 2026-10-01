@@ -32,7 +32,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { addTitleShell, publishWav, startBackend, type E2EBackend } from './backend';
 import { decodePng } from './png';
-import { openWindow, openEditor, expectEditorOpen } from './ui';
+import { openWindow, openEditor, expectEditorOpen, inspector as inspectorOf } from './ui';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -119,7 +119,7 @@ test('visual script: build On start → Add to counter in the Graph tab, publish
 
   // Fill in the counter name and the amount in the Inspector (each one setNodeData).
   await node(page, addId).click({ position: { x: 90, y: 12 } });
-  const inspector = page.locator('.tl-dock--right');
+  const inspector = inspectorOf(page);
   const name = inspector.getByLabel('counter', { exact: true });
   await expect(name).toHaveValue('');
   await name.fill('gifts');
@@ -189,7 +189,7 @@ test('visual script from the catalogue search: on trigger enter → timer → hi
   const view = page.getByLabel('visual script', { exact: true });
   await expect(view).toHaveAttribute('data-behavior', 'timed-door');
   const stage = page.locator('.tl-graph__stage');
-  const inspector = page.locator('.tl-dock--right');
+  const inspector = inspectorOf(page);
   const nodes = async (): Promise<GNode[]> => (await record('timed-door'))?.graph?.nodes ?? [];
 
   /** Right click at a spot of the graph, search the catalogue, pick the node; returns its id (it is selected, so the Inspector shows it). */

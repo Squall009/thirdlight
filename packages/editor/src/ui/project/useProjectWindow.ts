@@ -16,7 +16,7 @@ import { useProjectCommands, type ProjectCommands } from './useProjectCommands';
 
 /** What a double-click on an item needs from the editor. */
 export interface ProjectOpeners {
-  /** Open a document tab (material, timeline, script, …). */
+  /** Open an item in the editor window (material, timeline, script, …). */
   openDocument(kind: string, id: string): void;
   /** Whether a behavior is a visual script (it opens as a graph). */
   isVisualScript(behaviorId: string): boolean;

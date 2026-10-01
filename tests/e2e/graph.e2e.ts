@@ -10,7 +10,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng } from './png';
-import { openWindow, closeEditor, openEditor as openItemEditor, expectEditorOpen, editorTab, viewTab } from './ui';
+import { openWindow, closeEditor, openEditor as openItemEditor, expectEditorOpen, editorTab, viewTab, editorWindow, inspector as inspectorOf } from './ui';
 
 let be: E2EBackend;
 test.afterEach(async () => {
@@ -201,13 +201,13 @@ test('graph editing: catalogue, wires (typed, conversions, refusals), box select
 
   // The Inspector edits the selected node's fields (one setNodeData).
   await node(page, c1!).click({ position: { x: 90, y: 40 } });
-  const value = page.locator('.tl-dock--right').getByLabel('Value');
+  const value = inspectorOf(page).getByLabel('Value');
   await expect(value).toHaveValue('0');
   await value.fill('5');
   await value.press('Enter');
   await expect.poll(async () => (await graphOf('maths')).nodes.find((n) => n.id === c1)!.data).toEqual({ value: 5 });
   // The Graph inspector belongs to the graph tab: with Scene in front the right dock shows the scene Inspector again.
-  const graphHint = page.locator('.tl-dock--right').getByText('Select a node, wire, group or comment.');
+  const graphHint = inspectorOf(page).getByText('Select a node, wire, group or comment.');
   await closeEditor(page);
   await expect(value).toHaveCount(0);
   await expect(graphHint).toHaveCount(0);
@@ -222,7 +222,12 @@ test('graph editing: catalogue, wires (typed, conversions, refusals), box select
 
   // An MCP edit shows up in the open editor.
   await mcp('graphEdit', { owner: { kind: 'graph', id: 'maths' }, ops: [{ op: 'addNodes', nodes: [{ id: 'from-mcp', type: 'toggle', position: [0, -200] }] }] });
-  await page.keyboard.press('Shift+F');
+  // The change feed is asynchronous: frame everything once the node has arrived.
+  await expect.poll(async () => (await graphOf('maths')).nodes.some((n) => n.id === 'from-mcp')).toBe(true);
+  await expect.poll(async () => {
+    await page.keyboard.press('Shift+F');
+    return node(page, 'from-mcp').count();
+  }).toBe(1);
   await expect(node(page, 'from-mcp')).toBeVisible();
   await expect(node(page, 'from-mcp')).toHaveAttribute('aria-label', /Toggle node from-mcp/);
 });
@@ -350,10 +355,15 @@ test('graph editing: copy/paste (also into another graph), duplicate, delete, al
   await page.mouse.click(mini.x + 10, mini.y + 10);
   await expect.poll(() => layer.getAttribute('style')).not.toBe(t1);
   await page.getByRole('button', { name: 'Fit', exact: true }).click();
+  // Fitting the selection may leave other nodes out of view (the editor window is tall): everything in view again;
+  // the clicks below land at the same place on the nodes whatever the zoom.
+  await page.keyboard.press('Shift+F');
+  const fz = parseFloat((await page.getByLabel('Zoom').textContent()) ?? '100') / 100;
 
   // Paste into another graph of the same kind (another document of the kind).
-  await node(page, 'a').click({ position: { x: 90, y: 40 } });
-  await node(page, 'sum').click({ position: { x: 90, y: 40 }, modifiers: ['Shift'] });
+  // Just under a's title bar: the group's title covers a's, and b (aligned and dragged) covers a from y 40.
+  await node(page, 'a').click({ position: { x: 90 * fz, y: 30 * fz } });
+  await node(page, 'sum').click({ position: { x: 90 * fz, y: 40 * fz }, modifiers: ['Shift'] });
   await page.keyboard.press('Control+c');
   await openWindow(page, 'Graphs');
   await page.getByLabel('New graph name').fill('Other');
@@ -418,7 +428,7 @@ test('graph editing: a 2000-node graph renders, fits, zooms and pans in the edit
   await expect.poll(() => page.locator('.tl-graph__node').count()).toBeGreaterThan(0);
 
   // The graph is project data: it survives a backend restart and a reload;
-  // its centre tab is remembered per project and comes back in front.
+  // its editor window tab is remembered per project and comes back in front.
   await be.restart();
   // A restart reloads the 2000-node graph: allow for it on a loaded machine (seen 3-7 s).
   const tr = Date.now();
@@ -440,9 +450,10 @@ test('graph editing: a 2000-node graph renders, fits, zooms and pans in the edit
   await expect(tab).toHaveAttribute('aria-selected', 'true');
   await expect(editorTab(page, 'Graph')).toHaveCount(1);
   expect((await graphOf('maths')).edges).toHaveLength(N - 1);
-  // Closing the tab removes its editor (its left neighbour, Game, takes over).
+  // Closing the last tab closes the editor window: the default view (the Scene) is back.
   await closeEditor(page, 'Graph', 'Maths');
   await expect(tab).toHaveCount(0);
   await expect(page.locator('.tl-graph__stage')).toHaveCount(0);
-  await expect(viewTab(page, 'Game')).toHaveAttribute('aria-selected', 'true');
+  await expect(editorWindow(page)).toHaveCount(0);
+  await expect(viewTab(page, 'Scene')).toHaveAttribute('aria-selected', 'true');
 });

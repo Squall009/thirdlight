@@ -1,6 +1,6 @@
 /**
  * Graph materials in the browser against the real backend.
- * A new graph material opens as a "Material: <name>" centre tab on the graph
+ * A new graph material opens as a "Material: <name>" editor window tab on the graph
  * framework with the material catalogue; nodes are added through the
  * search catalogue, a texture × tint is wired into the PBR output's base
  * colour (the multiply takes the vec3 width of its wires), each gesture is
@@ -17,7 +17,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
 import { makePng } from './png-make';
-import { menu, projectWindow, openWindow, closeEditor, expectEditorOpen, editorTab, openEditor } from './ui';
+import { menu, projectWindow, openWindow, closeEditor, expectEditorOpen, editorTab, openEditor, inspector as inspectorOf } from './ui';
 
 let be: E2EBackend;
 let dir: string;
@@ -86,7 +86,7 @@ test('a graph material: new tab, nodes from the catalogue, texture × tint into 
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   await importTexture(page, checker);
 
-  // Materials → "+ new graph material": the material opens as a centre tab with a PBR output.
+  // Materials → "+ new graph material": the material opens in the editor window with a PBR output.
   await openWindow(page, 'Materials');
   await page.getByRole('button', { name: '+ new graph material' }).click();
   const tab = editorTab(page, 'Material', 'Graph material 1');
@@ -118,7 +118,7 @@ test('a graph material: new tab, nodes from the catalogue, texture × tint into 
 
   // The Inspector edits the nodes: the texture asset and the tint colour.
   await node(page, tex!).click({ position: { x: 90, y: 8 } });
-  const inspector = page.locator('.tl-dock--right');
+  const inspector = inspectorOf(page);
   await inspector.getByLabel('Texture', { exact: true }).selectOption({ label: 'checker' });
   await expect.poll(async () => (await graphMaterial()).graph!.nodes.find((n) => n.id === tex)!.data?.['texture']).toMatch(/^[a-z0-9]/);
   await node(page, tint!).click({ position: { x: 90, y: 8 } });

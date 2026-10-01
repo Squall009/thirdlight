@@ -66,7 +66,7 @@ test("a rigged character's clips play on the starter's player: idle, run, airbor
   await openWindow(page, 'Animator');
   await page.getByLabel('animator model').selectOption(character);
   await page.getByRole('button', { name: 'New from clips: Character locomotion' }).click();
-  // The new controller opens as a centre tab (its state graph).
+  // The new controller opens in the editor window (its state graph).
   const graph = editorPane(page, 'Animator', 'Character locomotion').getByLabel('animator graph');
   for (const s of ['Idle', 'Run', 'Jump', 'Fall', 'Land']) await expect(graph.getByRole('group', { name: new RegExp(`^State ${s} node `) })).toBeVisible();
   await closeEditor(page);

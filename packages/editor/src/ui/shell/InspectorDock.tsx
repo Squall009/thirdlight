@@ -1,5 +1,6 @@
 /**
- * The right dock: the one Inspector. With a graph-like document in front
+ * The one Inspector — on the default view's right dock, or on the right of
+ * the editor window while that shows (moved there, never a second copy). With a graph-like document in front
  * (an Animator controller, a visual script, a graph, a conversation, an
  * effect, a graph material) it shows that document's selection; otherwise
  * the selected object (EntityInspector), and the running Play's script
@@ -37,6 +38,8 @@ import type { EntityEditing } from './useEntityEditing';
 
 export interface InspectorDockProps {
   width: number;
+  /** Where the one Inspector stands: the default view's right dock, or the editor window's right side. */
+  placement: 'dock' | 'window';
   clientRef: ClientRef;
   viewportRef: ViewportRef;
   content: ProjectContent;
@@ -65,7 +68,7 @@ export interface InspectorDockProps {
 }
 
 export function InspectorDock(props: InspectorDockProps): JSX.Element {
-  const { width, selected } = props;
+  const { width, selected, placement } = props;
   const { animators, behaviorViews, dialogues, effects, graphKinds, graphs, materials } = props.content;
   const { activeAnimatorId, activeDialogueId, activeEffectId, activeMaterialId, activeVisualId, activeVisualTarget, animatorSelection, animatorTargets, dialogueSelection, effectSelection, effectSystems } = props.docState;
   const { graphSelection, graphsContext, materialSelection, openGraph, setAnimatorFocus, setAnimatorSelection, setAnimatorTargets, visualSelection } = props.docState;
@@ -74,7 +77,7 @@ export function InspectorDock(props: InspectorDockProps): JSX.Element {
   const { observeEntity, playInfo, playing } = props.play;
   const activeVisual = activeVisualId !== null ? (behaviorViews.find((b) => b.behaviorId === activeVisualId) ?? null) : null;
   return (
-    <div className="tl-dock tl-dock--right" style={{ width: width }}>
+    <div className={placement === 'dock' ? 'tl-dock tl-dock--right' : 'tl-dock tl-editor-window__inspector'} data-tl-inspector={placement} style={{ width: width }}>
     {activeAnimatorId !== null && animators.some((a) => a.controllerId === activeAnimatorId) ? (
       <div className="tl-inspector" aria-label="animator inspector">
         <div className="tl-panel__title">Inspector</div>

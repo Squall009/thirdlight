@@ -1,7 +1,7 @@
 /**
- * The document-kind registry of the centre workspace.
+ * The document-kind registry of the editor window.
  *
- * A document kind says how one kind of document appears as a centre tab:
+ * A document kind says how one kind of document appears as a tab of the editor window:
  * its label ("Animator"), its icon, the tab title for a document id and the
  * view that edits it. The tab strip, the layout storage, Ctrl+Tab, closing
  * and reordering are generic; a later phase (materials, effects, visual
@@ -19,7 +19,7 @@ import { GraphEditor } from '../../graph/GraphEditor';
 import type { GraphContext, GraphKindDef, GraphOp } from '../../graph/model';
 import { MaterialDocument, type MaterialDocumentProps } from '../material/MaterialDocument';
 import { EffectDocument, type EffectDocumentProps } from '../effect/EffectDocument';
-import type { DocRef } from '../../session/workspace-tabs';
+import type { DocRef } from '../../session/editor-window';
 import type { AnimatorPanelProps } from '../AnimatorPanel';
 import { AnimatorDocument, type AnimatorDocumentProps } from '../animator/AnimatorDocument';
 import type { BehaviorPanelProps } from '../BehaviorPanel';
@@ -262,7 +262,7 @@ const uiThemeKind: DocumentKind = {
   render: (id, host) => <UiThemeDocument key={id} {...host.ui.theme(id)} />,
 };
 
-/** Every document kind the centre workspace can open, in no particular order. */
+/** Every document kind the editor window can open, in no particular order. */
 export const DOCUMENT_KINDS: readonly DocumentKind[] = [animatorKind, scriptKind, graphKind, materialKind, visualScriptKind, effectKind, libraryKind, uiDocumentKind, uiThemeKind, timelineKind, dialogueKind];
 
 const BY_KIND = new Map(DOCUMENT_KINDS.map((k) => [k.kind, k]));

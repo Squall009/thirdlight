@@ -1,5 +1,5 @@
 /**
- * The "Script: <behavior>" centre tab — a code editor for a
+ * The "Script: <behavior>" tab of the editor window — a code editor for a
  * behavior's source.
  *
  * - The source-graph container's files as a file list (add, rename, delete;

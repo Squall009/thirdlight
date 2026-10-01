@@ -693,8 +693,31 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-playdebug__script { margin-top: 4px; }
 .tl-playdebug .tl-comp__field[data-visibility="private"] .tl-comp__name { font-style: italic; }
 
-/* Centre workspace tabs (Scene, Game, documents) and maximize. */
-.tl-tabs--center { flex-wrap: nowrap; overflow-x: auto; align-items: flex-end; }
+/* The editor window: over the default view (menus, toolbar and status bar stay), an opened item's
+ * editor left, the one Inspector right, its tabs and close button on top. */
+.tl-app__workarea { flex: 1; display: flex; position: relative; min-height: 0; }
+.tl-editor-window { position: absolute; inset: 0; z-index: 5; display: flex; flex-direction: column; background: var(--surface-0); }
+.tl-editor-window__head { flex: none; display: flex; align-items: flex-end; gap: 4px; background: var(--surface-0); border-bottom: 1px solid var(--line); }
+.tl-tabs--window { flex: 1; min-width: 0; flex-wrap: nowrap; overflow-x: auto; align-items: flex-end; }
+.tl-editor-window__close { flex: none; align-self: center; margin: 0 6px; width: 24px; height: 24px; border: 0; border-radius: var(--radius);
+  background: none; color: var(--text-dim); cursor: pointer; font-size: 16px; line-height: 1; }
+.tl-editor-window__close:hover { background: var(--surface-3); color: var(--text); }
+.tl-editor-window__body { flex: 1; display: flex; min-height: 0; }
+.tl-editor-window__editor { flex: 1; position: relative; min-width: 0; }
+/* A timeline draws its scrub preview in the Scene view: the window is see-through above it. */
+.tl-editor-window[data-doc-kind="timeline"] { background: transparent; pointer-events: none; }
+.tl-editor-window[data-doc-kind="timeline"] .tl-editor-window__head,
+.tl-editor-window[data-doc-kind="timeline"] .tl-editor-window__inspector,
+.tl-editor-window[data-doc-kind="timeline"] .tl-splitter { pointer-events: auto; }
+
+/* A reference with "Open" beside it (the item opens in the editor window). */
+.tl-ref { display: flex; align-items: center; gap: 4px; min-width: 0; flex: 1; }
+.tl-ref > select, .tl-ref > .tl-picker, .tl-ref > .tl-input { flex: 1; min-width: 0; }
+.tl-ref__open { flex: none; }
+.tl-field > .tl-ref__open { margin-left: 4px; }
+
+/* Centre tabs (Scene, Game) and maximize; the editor window's tabs share the tab look. */
+.tl-tabs--center, .tl-tabs--window { flex-wrap: nowrap; overflow-x: auto; align-items: flex-end; }
 .tl-wtab { display: flex; align-items: center; flex: none; border-radius: var(--radius) var(--radius) 0 0; }
 .tl-wtab.is-drop-target { box-shadow: inset 2px 0 0 var(--select-line); }
 .tl-tab--doc { display: flex; align-items: center; gap: 6px; padding-right: 26px; max-width: 260px;
@@ -706,7 +729,7 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-tabs__maximize { margin-left: auto; align-self: center; flex: none; border: 1px solid transparent; border-radius: var(--radius);
   background: none; color: var(--text-dim); cursor: pointer; font-size: 14px; padding: 2px 8px; }
 .tl-tabs__maximize:hover, .tl-tabs__maximize.is-active { color: var(--text); background: var(--surface-2); }
-/* A document tab covers the viewport (which stays laid out underneath); notices stay on top. */
+/* An item's editor fills the editor window's left side. */
 .tl-workspace__doc { position: absolute; inset: 0; z-index: 1; display: flex; flex-direction: column;
   background: var(--panel); overflow: hidden; }
 .tl-workspace__view { flex: 1; display: flex; flex-direction: column; min-height: 0; padding: 8px; overflow: auto; }

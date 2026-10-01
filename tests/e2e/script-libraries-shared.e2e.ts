@@ -26,7 +26,7 @@ import { extname, join, normalize } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 
 import { exportedContent, type E2EBackend, startBackend } from './backend';
-import { openWindow, editorPane } from './ui';
+import { openWindow, editorPane, openEditor } from './ui';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -268,6 +268,7 @@ test('staged library edits: Save all commits two libraries in one commit; a larg
   await openWindow(page, 'Libraries');
   // Edit both libraries in their tabs (unsaved).
   for (const [name, text] of [['Alpha', 'export const alpha = 3;\n'], ['Beta', 'export const beta = 4;\n']] as const) {
+    await openWindow(page, 'Libraries');
     await page.getByRole('button', { name: `Open ${name}` }).click();
     const view = editorPane(page, 'Library', name);
     await expect(view.getByLabel('compile status')).toHaveAttribute('data-status', 'ok', { timeout: 20_000 });
@@ -282,6 +283,7 @@ test('staged library edits: Save all commits two libraries in one commit; a larg
   page.on('response', (r) => {
     if (r.request().method() === 'POST' && r.url().endsWith('/commands') && (r.request().postData() ?? '').includes('commitScriptLibraryStage')) void r.json().then((j) => commits.push(j as Record<string, unknown>), () => undefined);
   });
+  await openWindow(page, 'Libraries');
   await pending.getByRole('button', { name: 'Save all' }).click();
   const trust = page.getByRole('group', { name: 'save all trust acknowledgment' });
   await expect(trust).toBeVisible({ timeout: 20_000 });
@@ -295,6 +297,7 @@ test('staged library edits: Save all commits two libraries in one commit; a larg
   expect(ok.libraryStage.dependents.map((d) => d.behaviorId)).toEqual(['user-ab']);
   expect((await stored())['alpha']![0]!.text).toBe('export const alpha = 3;\n');
   expect((await stored())['beta']![0]!.text).toBe('export const beta = 4;\n');
+  await openEditor(page, 'Library', 'Beta');
   await expect(editorPane(page, 'Library', 'Beta').getByText('saved', { exact: true })).toBeVisible();
   // One undo takes both back.
   await cmd('undo', {});
@@ -303,6 +306,7 @@ test('staged library edits: Save all commits two libraries in one commit; a larg
   await cmd('redo', {});
 
   // Files larger than one command request, saved from their tab: several patches (a file in pieces), one commit.
+  await openWindow(page, 'Libraries');
   await page.getByRole('button', { name: 'Open Alpha' }).click();
   const alpha = editorPane(page, 'Library', 'Alpha');
   const table = (from: number): string => `${JSON.stringify({ rows: Array.from({ length: 800 }, (_, i) => ({ id: from + i, label: `row number ${from + i} of a large neutral table` })) })}\n`;
