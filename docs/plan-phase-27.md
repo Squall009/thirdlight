@@ -11,7 +11,9 @@ than the API. Read `docs/roadmap.md` (principles 1, 1b and 2) first.
 Phase 27 starts after phase 26; scalable lighting (phase 28) follows and
 builds on the per-scene environment. Requests: the owner; Skyforge Tactics'
 upgrade gaps E46–E51 (`engine-gaps.md` in its repo), rolled in by the owner
-on 2026-10-01 and worked first (27.1–27.7).
+on 2026-10-01 and worked first (27.1–27.7); smooth block-layer normals
+(E52) and an instance brush, from Skyforge's first playtest, added by the
+owner on 2026-10-01 (27.18, 27.19).
 
 ## 1. Owner decisions (2026-09-30)
 
@@ -251,6 +253,8 @@ moves at least as many lines out as it adds.
 | 27.15 | **The dock.** The bottom dock holds the project window, Console and Problems; the other 20 tabs go. The Window menu stops listing them. Every kind stays reachable from the project window (filter by kind, 26.13). The Assets tab's side panel (preview, options, address, labels) is gone: the chosen item shows in the one Inspector. |
 | 27.16 | **Icons and the look.** One icon registry (defined once) for every asset and resource kind and each editor's toolbar actions, generated with the Studio (`generate_image`, as phase 9's set) in one style with the object icons, shipped small (PNG or WebP at the sizes used, file sizes reported). Shared tokens in `editor.css` for spacing, colour and type. Each editor gets a header (icon, name, kind, folder), a toolbar, an empty state with its first actions, and graph nodes styled by category. Screenshots of every editor, before and after, for the owner; the look is **unverified until the owner has seen it**, and a round of owner changes is expected. |
 | 27.17 | **Acceptance and docs.** Playwright: open each kind by double-click, edit, close, back to the default view; each Project Settings sub-tab; Lighting and Environment windows on two scenes; a two-scene Play switching environments; a v5 project upgrades and its replays match. By hand in a real browser: build a material, an effect and a timeline without the API. `docs/deployment.md`'s editor section and the MCP descriptions updated. `tools/gate.sh full` green. |
+| 27.18 | **Smooth block-layer tops** (E52). A block layer gets a crease angle (`smoothAngle`, a block-layer field in the Inspector and MCP; the default keeps today's flat shading so existing scenes look the same). Tops that share an edge at the same height get averaged vertex normals across cells and across chunk edges (the mesher reads the whole grid); edges steeper than the angle (cliffs, walls) stay hard. Optional subdivided tops (`topSubdivision` 1 or 2: a 2×2 top per cell, the corner heights interpolated), so noise reads as rolling ground. Colliders keep their current shape. Scene view, Play and export agree; both renderers; pixels checked (no seam at a chunk edge, a hard edge at a cliff). |
+| 27.19 | **Instance brush.** Instance sets get a paint brush in the Scene view beside today's rectangle fill: paint and erase on any collider surface (terrain, block-layer tops, models), radius, density per m², spacing, random scale, rotation and alignment to the surface normal, a seed. One stroke is one command and one undo; MCP gets the same op. The brush shows in the Inspector when an instance set is selected (with the block tools, 27.14). Copies keep 25.7d's chunking. Playwright: paint a stroke, undo, redo, reload. |
 
 **Done when:**
 - A screenshot of a large scene (PNG well over 64 KiB) answers in Play on
@@ -278,6 +282,10 @@ moves at least as many lines out as it adds.
   view, Play and the export, on both renderers.
 - A version-5 project opens and upgrades; its replays still match.
 - The owner has looked at the editors' new look.
+- A block layer with a crease angle shows smooth rolling tops and hard
+  cliffs, with no seam at chunk edges, on both renderers (27.18).
+- An instance set is painted and erased with a brush on terrain, one undo
+  per stroke (27.19).
 - `tools/gate.sh full` is green.
 
 ## 5. Progress
@@ -351,6 +359,17 @@ moves at least as many lines out as it adds.
   into KTX2 texture assets, on by default for new imports (Godot's glTF
   default is Extract Textures; Unity offers Extract Textures). Existing
   models change only when re-imported with the setting, never on open.
+- 2026-10-01: Skyforge's first playtest (`plan-playtest-fixes.md` in its
+  repo) added two items here (owner): 27.18 smooth block-layer normals (E52)
+  and 27.19 the instance brush. They are numbered after 27.17 so the items
+  already under way keep their numbers; **27.17 (acceptance and the full
+  gate) runs last, after 27.18 and 27.19**. The rest of that playtest's
+  engine asks went where their code is: LOD bias, hysteresis and finer
+  LOD for instance sets (E53) into 28.6, which already replaces the fixed
+  LOD screen fractions; a scene-depth (depth-fade) material input into
+  phase 30, which needs scene depth for projected decals. Its
+  "32-portrait cap" is per speaker (`DIALOGUE_LIMITS.portraits` counts one
+  speaker's expressions), not a project total, so nothing changes.
 - 2026-10-01 (27.0): replay (27.5) is reproduced on the scale bench before
   any fix; the fix answers when the restart is applied (or "pending" with
   the new run id), it does not raise the relay timeout.
