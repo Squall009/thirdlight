@@ -56,8 +56,8 @@ import { makePlayRoutes } from './play-routes';
 import { comparePin, engineIdentity, makeEngineInfo } from './engine';
 import { createMaterialProblemChecker, materialProblemLine, type MaterialRow } from './material-problems';
 
-import { MAX_DIAGNOSTICS, MAX_HTTP_BODY, MAX_SCREENSHOT, SESSION_LIST_MAX, STARTUP_LOG_RING, utf8Len, type OriginDoc } from './util';
-export { MAX_DIAGNOSTICS, MAX_HTTP_BODY, MAX_SCREENSHOT, SESSION_LIST_MAX, STARTUP_LOG_RING };
+import { MAX_DIAGNOSTICS, MAX_HTTP_BODY, SESSION_LIST_MAX, STARTUP_LOG_RING, utf8Len, type OriginDoc } from './util';
+export { MAX_DIAGNOSTICS, MAX_HTTP_BODY, SESSION_LIST_MAX, STARTUP_LOG_RING };
 
 export interface SessionView {
   sessionId: string;

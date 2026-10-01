@@ -11,7 +11,6 @@ export {
   createBackend,
   MAX_DIAGNOSTICS,
   MAX_HTTP_BODY,
-  MAX_SCREENSHOT,
   SESSION_LIST_MAX,
   STARTUP_LOG_RING,
   type Backend,

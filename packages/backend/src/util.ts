@@ -35,8 +35,6 @@ export interface OriginDoc {
 export const MAX_HTTP_BODY = 1024 * 1024;
 /** Diagnostics relay payload bound. */
 export const MAX_DIAGNOSTICS = 16 * 1024;
-/** Screenshot image bound (the dataUrl length, in bytes). */
-export const MAX_SCREENSHOT = 1024 * 1024;
 
 export const TEXT_ENCODER = new TextEncoder();
 /** UTF-8 byte length of a string (no `Buffer` dependency). */

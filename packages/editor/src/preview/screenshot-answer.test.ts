@@ -1,7 +1,8 @@
 /**
  * The preview always answers a screenshot relay, inside the
- * relay's bounds (the bridge drops a message over 256 characters; the
- * backend refuses a data URL over 1 MiB).
+ * relay's bounds (the bridge refuses an error message over 256 characters;
+ * every hop refuses a data URL over the screenshot bound), and an answer it
+ * sends is one the bridge carries.
  */
 import { validateBridgePreviewToEditor } from '@thirdlight/protocol';
 import { describe, expect, it } from 'vitest';
@@ -62,6 +63,8 @@ describe('answerScreenshot', () => {
     expect(widths[0]).toBe(2048);
     expect(widths.length).toBeGreaterThan(1);
     expect(a.width).toBeGreaterThan(1000);
+    // A real scene's PNG, far over the bridge's general message bound, crosses the bridge.
+    expect(bridged(a).ok).toBe(true);
   });
 
   it('still over the bound at the smallest width ⇒ screenshot_failed saying so', () => {

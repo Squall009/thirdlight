@@ -1,7 +1,7 @@
 import { type IncomingMessage, type ServerResponse } from 'node:http';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { makeDiagnosticsRequest, makeInputRelayRequest, makePlayStarted, playSnapshotPath, makeScreenshotRequest, parseAdminNoArgsBody, parseInputRelayRequest, parsePlayStartRequest, parseScreenshotRequest, parseStrictJsonBytes, sessionError, statusFor, WS_OUT_FRAME_MAX, makeGameControlRequest, makeGameObserveRequest, parseGameControlRequest, parseGameObserveRequest, GAME_CONTROL_BODY_MAX_BYTES, GAME_OBSERVE_BODY_MAX_BYTES, type RuntimeSnapshotDoc, type SessionError } from '@thirdlight/protocol';
+import { makeDiagnosticsRequest, makeInputRelayRequest, makePlayStarted, playSnapshotPath, makeScreenshotRequest, parseAdminNoArgsBody, parseInputRelayRequest, parsePlayStartRequest, parseScreenshotRequest, parseStrictJsonBytes, SCREENSHOT_DATA_URL_MAX, sessionError, statusFor, WS_OUT_FRAME_MAX, makeGameControlRequest, makeGameObserveRequest, parseGameControlRequest, parseGameObserveRequest, GAME_CONTROL_BODY_MAX_BYTES, GAME_OBSERVE_BODY_MAX_BYTES, type RuntimeSnapshotDoc, type SessionError } from '@thirdlight/protocol';
 import { type CommandError, type QueryResult, type WorkspaceService } from '@thirdlight/workspace';
 import { type BackendConfig } from './config';
 import { createBehaviorCompilerPort } from './content';
@@ -17,7 +17,7 @@ import type { PlayBuildCache } from './play-build';
 // ---- ID / token allocation (hex, CSPRNG) ----------------------
 
 import type { Problem } from './backend';
-import { MAX_DIAGNOSTICS, MAX_SCREENSHOT, hex, newPlaySessionId, newRelayId, utf8Len, type OriginDoc } from './util';
+import { MAX_DIAGNOSTICS, hex, newPlaySessionId, newRelayId, utf8Len, type OriginDoc } from './util';
 
 export interface PlayRoutesContext {
   readonly config: BackendConfig;
@@ -564,8 +564,8 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
     const outcome: RelayOutcome = await plays.relay(rec.playSessionId, kind, relayId, payload);
     sessions.record(owner, kind, relayId, rec.revision, nowMs(), outcome.ok ? 'ok' : (outcome.ok ? undefined : outcome.code));
     if (outcome.ok && outcome.kind === 'screenshot') {
-      if (outcome.dataUrl.length > MAX_SCREENSHOT) {
-        sendError(res, sessionError('relay_failed', 'unavailable', 'screenshot dataUrl exceeds the 1 MiB bound', { cause: 'dataUrl_too_large' }), 503);
+      if (outcome.dataUrl.length > SCREENSHOT_DATA_URL_MAX) {
+        sendError(res, sessionError('relay_failed', 'unavailable', `screenshot dataUrl exceeds the ${SCREENSHOT_DATA_URL_MAX}-character bound`, { cause: 'dataUrl_too_large' }), 503);
         return;
       }
       sendJson(res, 200, {

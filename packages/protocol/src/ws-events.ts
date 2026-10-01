@@ -22,6 +22,7 @@ import {
 } from './strict';
 import { validateGameControlResult, validateGameObservation } from './m3';
 import type { SessionError } from './errors';
+import { SCREENSHOT_DATA_URL_MAX } from './http';
 
 // ---- catalog constants (the exhaustive allowlists) -----------
 
@@ -689,7 +690,8 @@ function checkAckFields(
  * `frame_too_big` (close 1009).
  */
 export const WS_IN_FRAME_MAX = 64 * 1024;
-export const WS_SCREENSHOT_ACK_MAX = 1.5 * 1024 * 1024;
+// The answer's data URL bound plus room for the rest of the frame (ids, error text, JSON).
+export const WS_SCREENSHOT_ACK_MAX = SCREENSHOT_DATA_URL_MAX + 512 * 1024;
 /**
  * Outgoing (server → client) frames are at most 1 MiB — a documented limit
  * that keeps one message from stalling the socket. Nothing is

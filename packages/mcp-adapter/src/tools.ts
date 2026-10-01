@@ -40,6 +40,7 @@ import {
   RELAY_GAMEPAD_BUTTONS,
   RELAY_MAX_UI_EDGES,
   RELAY_UI_EDGES,
+  SCREENSHOT_DATA_URL_MAX,
   SCREENSHOT_MAX_WIDTH_MAX,
   SCREENSHOT_MAX_WIDTH_MIN,
   SIGNAL_DEBUG_COMMAND_NAME,
@@ -832,7 +833,7 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
   {
     name: 'tl_screenshot',
     description:
-      `Capture a bounded screenshot (dataUrl ≤ 1 MiB, maxWidth ${SCREENSHOT_MAX_WIDTH_MIN}–${SCREENSHOT_MAX_WIDTH_MAX}) from a play session's ` +
+      `Capture a bounded screenshot (dataUrl ≤ ${SCREENSHOT_DATA_URL_MAX / 1_048_576} MiB, maxWidth ${SCREENSHOT_MAX_WIDTH_MIN}–${SCREENSHOT_MAX_WIDTH_MAX}) from a play session's ` +
       'selected connected browser preview. Fails structurally if the play is not presented or the ' +
       'editor browser is not connected; a capture the preview cannot make says why (error.cause and ' +
       'message). A PNG over the bound comes back smaller (see width).',

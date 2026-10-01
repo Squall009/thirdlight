@@ -9,7 +9,8 @@ import {
   validateBridgeEditorToPreview,
   validateBridgePreviewToEditor,
 } from './bridge';
-import { parseInputRelayRequest } from './delivery';
+import { BRIDGE_MESSAGE_MAX_BYTES, parseInputRelayRequest } from './delivery';
+import { SCREENSHOT_DATA_URL_MAX } from './http';
 import { makeInputRelayRequest } from './ws-events';
 
 const hex32 = '0123456789abcdef0123456789abcdef';
@@ -271,6 +272,27 @@ describe('preview → editor validators', () => {
       error: { code: 'render_unsupported', message: 'no WebGL' },
     });
     expect(err.ok).toBe(true);
+  });
+
+  it('tl.screenshot.result takes a PNG up to the screenshot bound, past the general message bound', () => {
+    const shot = (chars: number): Record<string, unknown> => ({
+      v: 2,
+      type: 'tl.screenshot.result',
+      playSessionId: play,
+      relayId: relay,
+      ok: true,
+      dataUrl: `data:image/png;base64,${'A'.repeat(chars - 'data:image/png;base64,'.length)}`,
+      width: 1024,
+      height: 576,
+    });
+    expect(validateBridgePreviewToEditor(shot(BRIDGE_MESSAGE_MAX_BYTES * 4)).ok).toBe(true);
+    expect(validateBridgePreviewToEditor(shot(SCREENSHOT_DATA_URL_MAX)).ok).toBe(true);
+    const over = validateBridgePreviewToEditor(shot(SCREENSHOT_DATA_URL_MAX + 1));
+    expect(over).toMatchObject({ ok: false, path: '/dataUrl' });
+    expect(over.ok ? '' : over.reason).toContain(`${SCREENSHOT_DATA_URL_MAX}-character screenshot bound`);
+    // Every other answer keeps the general bound.
+    const control = validateBridgePreviewToEditor({ v: 2, type: 'tl.game.control.result', playSessionId: play, relayId: relay, ok: true, result: { pad: 'x'.repeat(BRIDGE_MESSAGE_MAX_BYTES) } });
+    expect(control.ok ? '' : control.reason).toContain(`${BRIDGE_MESSAGE_MAX_BYTES}-byte bound`);
   });
 
   it('tl.diagnostics.result (≤ 16 KiB) / tl.error (phase) / tl.pong', () => {

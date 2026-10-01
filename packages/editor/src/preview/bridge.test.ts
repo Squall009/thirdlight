@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { Bridge, type BridgeMessageEvent } from './bridge';
+import { BRIDGE_MESSAGE_MAX_BYTES, SCREENSHOT_DATA_URL_MAX } from '@thirdlight/protocol';
+
+import { BRIDGE_REFUSED_CODE, Bridge, type BridgeMessageEvent } from './bridge';
 
 const EDITOR_ORIGIN = 'http://127.0.0.1:8501';
 const PREVIEW_ORIGIN = 'http://127.0.0.1:8502';
@@ -176,6 +178,69 @@ describe('Bridge — v2 relay messages', () => {
     const progress = { v: 2, type: 'tl.load.progress', playSessionId: PLAY_ID, phase: 'assets', loadedBytes: 0, totalBytes: 0 };
     deliver(editor, { origin: PREVIEW_ORIGIN, source: { tag: 'preview-window' }, data: progress });
     expect(editor.drops.total).toBe(0);
+  });
+});
+
+describe('Bridge — large screenshots and refused messages', () => {
+  const RELAY = 'relay-' + '2'.repeat(32);
+  const png = (chars: number): string => `data:image/png;base64,${'A'.repeat(chars - 'data:image/png;base64,'.length)}`;
+
+  it('a screenshot answer far over the general message bound crosses the bridge whole', () => {
+    const { editor, previewWin, postedPreviewToEditor, preview } = makePair();
+    const got: unknown[] = [];
+    editor.on('tl.screenshot.result', (m) => got.push(m));
+    const dataUrl = png(BRIDGE_MESSAGE_MAX_BYTES * 8);
+    preview.sendScreenshotResult(PLAY_ID, RELAY, { ok: true, dataUrl, width: 1024, height: 576 });
+    expect(postedPreviewToEditor).toHaveLength(1);
+    deliver(editor, { origin: PREVIEW_ORIGIN, source: previewWin, data: postedPreviewToEditor[0]!.data });
+    expect(editor.drops.total).toBe(0);
+    expect(got).toEqual([expect.objectContaining({ ok: true, dataUrl, width: 1024 })]);
+  });
+
+  it('a refused answer is replaced by an error answer naming the reason (preview side)', () => {
+    const { editor, previewWin, postedPreviewToEditor, preview } = makePair();
+    const got: Array<Record<string, unknown>> = [];
+    editor.on('tl.screenshot.result', (m) => got.push(m as Record<string, unknown>));
+    preview.sendScreenshotResult(PLAY_ID, RELAY, { ok: true, dataUrl: png(SCREENSHOT_DATA_URL_MAX + 1), width: 1024, height: 576 });
+    expect(preview.drops.total).toBe(1);
+    expect(Object.keys(preview.drops.byReason)[0]).toMatch(/^refused:tl\.screenshot\.result:dataUrl is \d+ characters/);
+    expect(postedPreviewToEditor).toHaveLength(1);
+    deliver(editor, { origin: PREVIEW_ORIGIN, source: previewWin, data: postedPreviewToEditor[0]!.data });
+    expect(got).toHaveLength(1);
+    expect(got[0]).toMatchObject({ ok: false, relayId: RELAY, error: { code: BRIDGE_REFUSED_CODE } });
+    expect(String((got[0]!.error as { message: string }).message)).toContain(`the bridge refused tl.screenshot.result: dataUrl is ${SCREENSHOT_DATA_URL_MAX + 1} characters`);
+  });
+
+  it('a refused request answers its own side with the reason (editor side)', () => {
+    const { editor, postedEditorToPreview } = makePair();
+    const got: Array<Record<string, unknown>> = [];
+    editor.on('tl.screenshot.result', (m) => got.push(m as Record<string, unknown>));
+    editor.requestScreenshot(PLAY_ID, RELAY, 100);
+    expect(postedEditorToPreview).toHaveLength(0);
+    expect(got).toHaveLength(1);
+    expect(got[0]).toMatchObject({ playSessionId: PLAY_ID, relayId: RELAY, ok: false, error: { code: BRIDGE_REFUSED_CODE } });
+    expect(String((got[0]!.error as { message: string }).message)).toMatch(/^the bridge refused tl\.screenshot\.request: .*maxWidth/);
+    expect(editor.drops.total).toBe(1);
+  });
+
+  it('an invalid answer from the trusted peer still answers its relay with the reason (editor side)', () => {
+    const { editor, previewWin } = makePair();
+    const got: Array<Record<string, unknown>> = [];
+    editor.on('tl.diagnostics.result', (m) => got.push(m as Record<string, unknown>));
+    const big = { v: 2, type: 'tl.diagnostics.result', playSessionId: PLAY_ID, relayId: RELAY, ok: true, diagnostics: { pad: 'x'.repeat(20_000) } };
+    deliver(editor, { origin: PREVIEW_ORIGIN, source: previewWin, data: big });
+    expect(editor.drops.total).toBe(1);
+    expect(got).toEqual([expect.objectContaining({ ok: false, relayId: RELAY, error: expect.objectContaining({ code: BRIDGE_REFUSED_CODE }) })]);
+    // An untrusted sender gets nothing dispatched.
+    deliver(editor, { origin: 'http://evil.example', source: previewWin, data: big });
+    expect(got).toHaveLength(1);
+  });
+
+  it('a refused message without a waiting relay is counted, not posted', () => {
+    const { preview, postedPreviewToEditor } = makePair();
+    preview.sendLoadProgress(PLAY_ID, 'assets', -1, 0);
+    expect(postedPreviewToEditor).toHaveLength(0);
+    expect(Object.keys(preview.drops.byReason)[0]).toMatch(/^refused:tl\.load\.progress:/);
   });
 });
 

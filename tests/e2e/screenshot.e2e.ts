@@ -6,15 +6,22 @@
  *    dragged into the scene, and the relay's PNG shows the texture's colour.
  *    On the webgpu project this is headless WebGPU (Dawn on SwiftShader
  *    without a GPU), so image textures upload there too.
+ *  - A real scene's capture comes back whole: a noisy textured scene whose
+ *    PNG is many times the bridge's general message bound answers over HTTP
+ *    and over MCP `tl_screenshot`, on each backend.
  *  - A capture that fails always answers: the backend's reply carries the
  *    preview's reason instead of a `screenshot_timeout`, and the next
- *    capture works again.
+ *    capture works again; a capture too large even at the smallest width
+ *    says so.
  */
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { expect, test, type Frame, type Page } from '@playwright/test';
+import { BRIDGE_MESSAGE_MAX_BYTES, SCREENSHOT_DATA_URL_MAX } from '@thirdlight/protocol';
 
 import { startBackend, type E2EBackend } from './backend';
 import { multiPieceGlb } from './multi-piece-glb';
@@ -56,11 +63,24 @@ async function screenshot(psid: string, maxWidth: number): Promise<{ status: num
 
 const pngOf = (dataUrl: unknown): Image => decodePng(Buffer.from(String(dataUrl).replace(/^data:image\/png;base64,/, ''), 'base64'));
 
+const checkerTexture = (): Buffer => makePng(32, 32, (x, y) => (((x >> 2) + (y >> 2)) % 2 === 0 ? [40, 220, 60, 255] : [20, 140, 40, 255]));
+
+/** Seeded random colours: a texture (and so a frame) that PNG cannot compress. */
+function noiseTexture(size: number): Buffer {
+  let s = 0x2545f491;
+  const next = (): number => {
+    s ^= s << 13;
+    s ^= s >>> 17;
+    s ^= s << 5;
+    return (s >>> 0) & 255;
+  };
+  return makePng(size, size, () => [next(), next(), next(), 255]);
+}
+
 /** Import the textured GLB, drag it into the scene and start Play; the play id. */
-async function playTexturedCrate(page: Page, variant: RendererVariant): Promise<string> {
-  const texture = makePng(32, 32, (x, y) => (((x >> 2) + (y >> 2)) % 2 === 0 ? [40, 220, 60, 255] : [20, 140, 40, 255]));
+async function playTexturedCrate(page: Page, variant: RendererVariant, texture = checkerTexture(), size: [number, number, number] = [2, 2, 2]): Promise<string> {
   const file = join(dir, 'crate.glb');
-  writeFileSync(file, multiPieceGlb([{ name: 'crate', lods: [[2, 2, 2]] }], { texturePng: texture }));
+  writeFileSync(file, multiPieceGlb([{ name: 'crate', lods: [size] }], { texturePng: texture }));
   await page.goto(editorUrlFor(be.editorUrl, variant));
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   await expectRendererBackend(page.locator('canvas.tl-viewport'), variant);
@@ -106,6 +126,85 @@ for (const variant of RENDERER_VARIANTS) {
     await expect(page.locator('.tl-notice')).toHaveCount(0);
   });
 }
+
+const REPO = resolve(import.meta.dirname, '..', '..');
+/** A capture this big is well past the bridge's general message bound (which refused every real scene's PNG). */
+const LARGE = 2 * BRIDGE_MESSAGE_MAX_BYTES;
+
+/** Distinct colours on a 4-pixel grid. */
+function distinctColours(img: Image): number {
+  const colours = new Set<string>();
+  for (let y = 0; y < img.height; y += 4) for (let x = 0; x < img.width; x += 4) colours.add(img.pixel(x, y).slice(0, 3).join(','));
+  return colours.size;
+}
+
+/** An MCP client (stdio, the official SDK) against this test's backend. */
+async function mcpClient(): Promise<Client> {
+  const mcp = new Client({ name: 'thirdlight-e2e', version: '0.0.0' });
+  await mcp.connect(
+    new StdioClientTransport({
+      command: process.execPath,
+      args: [join(REPO, 'dist', 'mcp-adapter', 'mcp.mjs')],
+      env: { ...process.env, THIRDLIGHT_AUTHORING_ORIGIN: be.origin, THIRDLIGHT_PROJECT_ID: be.projectId, THIRDLIGHT_MCP_TOKEN: be.token } as Record<string, string>,
+      stderr: 'ignore',
+    }),
+  );
+  return mcp;
+}
+
+for (const variant of RENDERER_VARIANTS) {
+  test(`a large, noisy scene's screenshot comes back whole over HTTP and MCP (${variant})`, async ({ page }) => {
+    onlyInItsProject(variant);
+    test.setTimeout(180_000);
+    // A crate with a noise texture fills much of the view: its PNG cannot be small.
+    const psid = await playTexturedCrate(page, variant, noiseTexture(512), [4, 4, 4]);
+    // The page shows the texture before the capture is taken.
+    await expect.poll(async () => distinctColours(decodePng(await page.locator('iframe.tl-app__preview-frame').screenshot())), { timeout: 20_000 }).toBeGreaterThan(1_000);
+    const t0 = Date.now();
+    const shot = await screenshot(psid, 1024);
+    expect(shot.status, JSON.stringify(shot.json).slice(0, 300)).toBe(200);
+    expect(Date.now() - t0).toBeLessThan(10_000);
+    const dataUrl = String(shot.json['dataUrl']);
+    // Many times the bridge's general message bound, within the screenshot bound.
+    expect(dataUrl.length).toBeGreaterThan(LARGE);
+    expect(dataUrl.length).toBeLessThanOrEqual(SCREENSHOT_DATA_URL_MAX);
+    const img = pngOf(dataUrl);
+    expect(img.width).toBe(shot.json['width']);
+    expect(img.height).toBe(shot.json['height']);
+    expect(distinctColours(img)).toBeGreaterThan(1_000);
+
+    const mcp = await mcpClient();
+    try {
+      const res = (await mcp.callTool({ name: 'tl_screenshot', arguments: { playSessionId: psid, maxWidth: 1024 } })) as { isError?: boolean; content: Array<{ text: string }> };
+      const body = JSON.parse(res.content[0]!.text) as Record<string, unknown>;
+      expect(res.isError === true, JSON.stringify(body).slice(0, 300)).toBe(false);
+      expect(String(body['dataUrl']).length).toBeGreaterThan(LARGE);
+      expect(pngOf(body['dataUrl']).width).toBe(body['width']);
+    } finally {
+      await mcp.close();
+    }
+    await expect(page.locator('.tl-notice')).toHaveCount(0);
+  });
+}
+
+test('a capture too large even at the smallest width answers with a named reason', async ({ page }) => {
+  test.setTimeout(150_000);
+  test.skip(test.info().project.name === 'webgpu', 'renderer-independent (the default project runs it)');
+  const psid = await playTexturedCrate(page, 'auto');
+  await expect.poll(async () => (await screenshot(psid, 256)).status, { timeout: 20_000 }).toBe(200);
+  // Every read gives a PNG over the screenshot bound.
+  await previewFrame(page).evaluate((max) => {
+    const proto = HTMLCanvasElement.prototype as unknown as { toDataURL: unknown };
+    proto.toDataURL = () => `data:image/png;base64,${'A'.repeat(max + 16)}`;
+  }, SCREENSHOT_DATA_URL_MAX);
+  const t0 = Date.now();
+  const failed = await screenshot(psid, 1024);
+  expect(failed.status).toBe(503);
+  const error = failed.json['error'] as { code: string; cause?: string; message: string };
+  expect(error.cause).toBe('screenshot_failed');
+  expect(error.message).toContain(`over the ${SCREENSHOT_DATA_URL_MAX}-character bound`);
+  expect(Date.now() - t0).toBeLessThan(5_000);
+});
 
 test('a capture that fails answers with the reason, and the next one works', async ({ page }) => {
   test.setTimeout(150_000);

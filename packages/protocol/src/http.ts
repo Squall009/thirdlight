@@ -215,6 +215,13 @@ export function parsePlayStartRequest(value: unknown):
 export const SCREENSHOT_MAX_WIDTH_MIN = 256;
 export const SCREENSHOT_MAX_WIDTH_MAX = 2048;
 export const SCREENSHOT_MAX_WIDTH_DEFAULT = 1024;
+/**
+ * The screenshot answer's bound: data URL characters (a base64 PNG). The one
+ * bound every hop applies — the preview shrinks a capture to fit it, the
+ * bridge's screenshot rule and the backend's reply check it — so an answer
+ * the preview sends is never refused further along.
+ */
+export const SCREENSHOT_DATA_URL_MAX = 1024 * 1024;
 
 export interface ScreenshotRequest {
   maxWidth: number;

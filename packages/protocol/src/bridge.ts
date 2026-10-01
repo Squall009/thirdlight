@@ -23,6 +23,7 @@ import {
   relayFrameEnd,
   validateInputRelayResult,
 } from './delivery';
+import { SCREENSHOT_DATA_URL_MAX, SCREENSHOT_MAX_WIDTH_MAX } from './http';
 import { debugCommandCallProblem } from './m3';
 
 /** The exhaustive allowlists (v2). */
@@ -289,8 +290,13 @@ export function validateBridgePreviewToEditor(value: unknown): Verdict {
   if (typeof type !== 'string' || !(BRIDGE_PREVIEW_TO_EDITOR_TYPES as readonly string[]).includes(type)) {
     return { ok: false, reason: 'type not in the preview→editor allowlist', path: '/type' };
   }
-  const general = tooLarge(m, BRIDGE_MESSAGE_MAX_BYTES);
-  if (general !== null) return { ok: false, reason: general.reason };
+  // A screenshot answer carries the image and has its own bound (every field
+  // is bounded below, the data URL by SCREENSHOT_DATA_URL_MAX); the general
+  // bound would refuse any real scene's PNG.
+  if (type !== 'tl.screenshot.result') {
+    const general = tooLarge(m, BRIDGE_MESSAGE_MAX_BYTES);
+    if (general !== null) return { ok: false, reason: general.reason };
+  }
   switch (type) {
     case 'tl.handshake.ack': {
       const bad = rejectUnknown(m, ['v', 'type', 'playSessionId', 'nonce']);
@@ -354,11 +360,14 @@ export function validateBridgePreviewToEditor(value: unknown): Verdict {
       if (!isRelayId(m['relayId'])) return { ok: false, reason: 'relayId must be relay- + 32 hex', path: '/relayId' };
       if (typeof m['ok'] !== 'boolean') return { ok: false, reason: 'ok must be a boolean', path: '/ok' };
       if (m['ok']) {
-        if (!str(m['dataUrl'], 10, 4 * 1024 * 1024)) return { ok: false, reason: 'dataUrl required when ok', path: '/dataUrl' };
+        if (typeof m['dataUrl'] !== 'string' || m['dataUrl'].length < 10) return { ok: false, reason: 'dataUrl required when ok', path: '/dataUrl' };
+        if (m['dataUrl'].length > SCREENSHOT_DATA_URL_MAX) {
+          return { ok: false, reason: `dataUrl is ${m['dataUrl'].length} characters, over the ${SCREENSHOT_DATA_URL_MAX}-character screenshot bound`, path: '/dataUrl' };
+        }
         if (!(m['dataUrl'] as string).startsWith('data:image/png;base64,')) {
           return { ok: false, reason: 'dataUrl must be a base64 PNG data URL', path: '/dataUrl' };
         }
-        if (!int(m['width'], 1, 2048)) return { ok: false, reason: 'width must be an integer 1–2048 when ok', path: '/width' };
+        if (!int(m['width'], 1, SCREENSHOT_MAX_WIDTH_MAX)) return { ok: false, reason: `width must be an integer 1–${SCREENSHOT_MAX_WIDTH_MAX} when ok`, path: '/width' };
         if (!int(m['height'], 1, 100_000)) return { ok: false, reason: 'height must be an integer ≥ 1 when ok', path: '/height' };
         if (m['error'] !== undefined) return { ok: false, reason: 'error must be absent when ok', path: '/error' };
       } else {

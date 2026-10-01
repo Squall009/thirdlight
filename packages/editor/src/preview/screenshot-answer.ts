@@ -4,17 +4,15 @@
  * adapter's own code) with the reason, never a missing reply that the
  * backend can only report as `screenshot_timeout`.
  *
- * The answer also stays inside the relay's bounds, which would otherwise
- * drop it silently: the bridge refuses an error message over 256 characters,
- * and the backend refuses a data URL over 1 MiB (and a WS frame over
- * 1.5 MiB). A PNG over the bound is captured again at a smaller width (the
- * answer reports the width it has); at the smallest width it is an error.
+ * The answer also stays inside the relay's bounds: the bridge refuses an
+ * error message over 256 characters, and every hop refuses a data URL over
+ * the screenshot bound. A PNG over the bound is captured again at a smaller
+ * width (the answer reports the width it has); at the smallest width (the
+ * request's lower maxWidth bound) it is an error.
  */
 
-/** The backend's screenshot bound (`MAX_SCREENSHOT`): data URL characters. */
-export const SCREENSHOT_DATA_URL_MAX = 1024 * 1024;
-/** The smallest width a too-large capture is retried at (the MCP tool's lower maxWidth bound). */
-export const SCREENSHOT_MIN_RETRY_WIDTH = 256;
+import { SCREENSHOT_DATA_URL_MAX, SCREENSHOT_MAX_WIDTH_MIN } from '@thirdlight/protocol';
+
 /** The bridge's error message bound. */
 const MESSAGE_MAX = 256;
 
@@ -51,11 +49,11 @@ export function answerScreenshot(capture: ((maxWidth: number) => CaptureOutcome)
     if (!shot.ok) return failed(shot.error.code, shot.error.message);
     const { dataUrl, width: w, height: h } = shot.result;
     if (dataUrl.length <= dataUrlMax) return { ok: true, dataUrl, width: w, height: h };
-    if (w <= SCREENSHOT_MIN_RETRY_WIDTH) {
+    if (w <= SCREENSHOT_MAX_WIDTH_MIN) {
       return failed('screenshot_failed', `the PNG is ${dataUrl.length} characters at ${w} pixels wide, over the ${dataUrlMax}-character bound`);
     }
     // PNG size grows about with the pixel count: shrink by the square root of the excess, with a margin.
-    const next = Math.max(SCREENSHOT_MIN_RETRY_WIDTH, Math.floor(w * Math.sqrt(dataUrlMax / dataUrl.length) * 0.9));
+    const next = Math.max(SCREENSHOT_MAX_WIDTH_MIN, Math.floor(w * Math.sqrt(dataUrlMax / dataUrl.length) * 0.9));
     width = Math.min(next, w - 1);
   }
 }

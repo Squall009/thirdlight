@@ -293,7 +293,8 @@ moves at least as many lines out as it adds.
 | Item | Status |
 |---|---|
 | 27.0 | done 2026-10-01: §2 re-checked against the code, §3 confirmed with links (two corrections), phase-26 review and open defects read (§2), three.js 0.186.1 is the latest (nothing to take); Skyforge E46–E51 planned as 27.1–27.7, layout items renumbered 27.8–27.17 |
-| 27.1–27.17 | — |
+| 27.1 | done 2026-10-01: screenshot answers keep their own bound (`SCREENSHOT_DATA_URL_MAX`, protocol, used by preview, bridge rule, WS ack bound and backend); a refused bridge message answers its relay with `bridge_message_refused` and the reason; e2e captures a ~280 KiB PNG over HTTP and MCP on WebGPU and WebGL 2 (D95) |
+| 27.2–27.17 | — |
 
 ## 6. Decision log
 
@@ -373,3 +374,16 @@ moves at least as many lines out as it adds.
 - 2026-10-01 (27.0): replay (27.5) is reproduced on the scale bench before
   any fix; the fix answers when the restart is applied (or "pending" with
   the new run id), it does not raise the relay timeout.
+- 2026-10-01 (27.1): the screenshot bound is the protocol's
+  `SCREENSHOT_DATA_URL_MAX` (1 MiB of data URL characters, the backend's old
+  value; the bridge rule allowed 4 MiB, a bound nothing else accepted); the
+  WS ack frame bound is derived from it. A message the bridge refuses to send
+  is counted in the drop stats (`refused:<type>:<reason>`, in Play
+  diagnostics' `frameDrops`); a refused relay request answers the editor's
+  own handlers and a refused answer is replaced by an error answer, both
+  `bridge_message_refused` with the reason; the editor also answers a relay
+  whose answer from the trusted preview fails validation. A refused message
+  with no waiting relay (load progress, ready) is only counted: answering it
+  with `tl.error` would stop a Play over a progress report. Checked: without
+  the validator change the new e2e gets 503 `bridge_message_refused`
+  "message exceeds the 65536-byte bound" at once instead of a timeout.

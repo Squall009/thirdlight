@@ -15,6 +15,12 @@
  *      nonce does not match the handshake is DROPPED.
  * Anything else is dropped and counted (never executed).
  *
+ * A message this side refuses to send (its own validator says no) never
+ * vanishes either: it is counted, and when it answers or asks for an answer
+ * (a relay), the waiting side gets an error answer naming the reason — the
+ * peer for a refused answer, this side's own handlers for a refused request —
+ * so the backend's waiting call answers instead of timing out.
+ *
  * The bridge CARRIES NO CREDENTIALS: the page config is
  * `{ v, authoringOrigin, playSessionId, contentId, manifestPath }`; the
  * authoring token and the authoring API URL are never sent across the bridge
@@ -68,6 +74,41 @@ export interface DropStats {
 }
 
 const NONCE_LEN = 16;
+
+/** The error code of an answer that stands in for a message the bridge refused. */
+export const BRIDGE_REFUSED_CODE = 'bridge_message_refused';
+/** The bridge's error message bound. */
+const ERROR_MESSAGE_MAX = 256;
+
+/** Each relay request and the answer type its sender waits for (paired by relayId, or requestId for input). */
+const ANSWER_OF: Readonly<Record<string, string>> = {
+  'tl.input.request': 'tl.input.result',
+  'tl.screenshot.request': 'tl.screenshot.result',
+  'tl.diagnostics.request': 'tl.diagnostics.result',
+  'tl.game.control': 'tl.game.control.result',
+  'tl.game.observe': 'tl.game.observe.result',
+  'tl.debug.request': 'tl.debug.result',
+};
+const ANSWER_TYPES: ReadonlySet<string> = new Set(Object.values(ANSWER_OF));
+
+/**
+ * The error answer of `type` (an answer type) for the relay `msg` names,
+ * saying why the bridge refused the real message; null when `msg` has no
+ * well-formed ids (then there is no waiting call to answer).
+ */
+function refusalAnswer(type: string, msg: Record<string, unknown>, refused: string, reason: string): Record<string, unknown> | null {
+  const id = type === 'tl.input.result' ? 'requestId' : 'relayId';
+  const text = `the bridge refused ${refused}: ${reason}`;
+  const answer = {
+    v: 2,
+    type,
+    playSessionId: msg['playSessionId'],
+    [id]: msg[id],
+    ok: false,
+    error: { code: BRIDGE_REFUSED_CODE, message: text.length > ERROR_MESSAGE_MAX ? `${text.slice(0, ERROR_MESSAGE_MAX - 1)}…` : text },
+  };
+  return validateBridgePreviewToEditor(answer).ok ? answer : null;
+}
 
 function defaultNonce(): string {
   let s = '';
@@ -311,8 +352,23 @@ export class Bridge {
     // Local validation before crossing the origin boundary (fail fast; the
     // peer re-validates independently).
     const verdict = this.direction === 'editor' ? validateBridgeEditorToPreview(msg) : validateBridgePreviewToEditor(msg);
-    if (!verdict.ok) return; // a malformed local message is never posted
-    this.post(msg, this.targetOrigin);
+    if (verdict.ok) {
+      this.post(msg, this.targetOrigin);
+      return;
+    }
+    // A refused message is never posted, and never dropped without a word.
+    const type = String(msg['type']);
+    this.drop(`refused:${type}:${verdict.reason}`);
+    const awaited = ANSWER_OF[type];
+    if (awaited !== undefined) {
+      // A refused request: this side's own handlers get the error answer (the editor acks the backend with it).
+      const answer = refusalAnswer(awaited, msg, type, verdict.reason);
+      if (answer !== null) this.dispatch(awaited, answer, { origin: this.expectedOrigin, source: null, data: answer });
+    } else if (ANSWER_TYPES.has(type)) {
+      // A refused answer: the peer gets an error answer in its place.
+      const answer = refusalAnswer(type, msg, type, verdict.reason);
+      if (answer !== null) this.post(answer, this.targetOrigin);
+    }
   }
 
   /**
@@ -344,6 +400,13 @@ export class Bridge {
         : validateBridgeEditorToPreview(body);
     if (!verdict.ok) {
       this.drop(`invalid:${verdict.reason}`);
+      // An answer from the trusted peer that fails validation still answers its relay: the
+      // waiting call gets the reason instead of a timeout.
+      const refusedType = String(body['type']);
+      if (this.direction === 'editor' && ANSWER_TYPES.has(refusedType)) {
+        const answer = refusalAnswer(refusedType, body, refusedType, verdict.reason);
+        if (answer !== null) this.dispatch(refusedType, answer, event);
+      }
       return;
     }
     const type = body.type as string;
