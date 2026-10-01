@@ -31,8 +31,9 @@ import type { DocumentCommands } from '../workspace/useDocumentCommands';
 import type { Scripting } from '../shell/useScripting';
 import type { PlaySession } from '../shell/usePlaySession';
 import { QualityPanel } from './QualityPanel';
+import { AudioPanel } from './AudioPanel';
 
-export type SettingsSection = 'gameplay' | 'input' | 'tags' | 'layers' | 'quality' | 'saves' | 'modes' | 'shell' | 'scripts';
+export type SettingsSection = 'gameplay' | 'input' | 'tags' | 'layers' | 'quality' | 'audio' | 'saves' | 'modes' | 'shell' | 'scripts';
 
 /**
  * The sub-tabs in the order the window lists them, with the words the search
@@ -45,6 +46,7 @@ export const SETTINGS_SECTIONS: ReadonlyArray<{ id: SettingsSection; label: stri
   { id: 'tags', label: 'Tags', keywords: ['tag', 'labels'] },
   { id: 'layers', label: 'Collision layers', keywords: ['physics', 'collision', 'layers', 'masks'] },
   { id: 'quality', label: 'Quality', keywords: ['graphics', 'rendering', 'quality level'] },
+  { id: 'audio', label: 'Audio', keywords: ['sound', 'event sounds', 'cues', 'signals'] },
   { id: 'saves', label: 'Saves', keywords: ['save', 'slots', 'schema', 'migrations', 'settings document'] },
   { id: 'modes', label: 'Game modes', keywords: ['modes', 'behavior groups', 'pause'] },
   { id: 'shell', label: 'Game shell', keywords: ['menus', 'hud', 'title', 'scenes', 'ui documents'] },
@@ -225,6 +227,8 @@ function Section(props: ProjectSettingsWindowProps & { id: SettingsSection }): J
           fieldContext={props.gameFieldContext}
         />
       );
+    case 'audio':
+      return <AudioPanel registry={registry} eventCues={s.eventCues} fieldContext={props.fieldContext} eventCuesError={s.eventCuesError} onSetEventCues={(next, base) => void s.saveEventCues(next, base)} />;
     case 'saves':
       return <SavesPanel schema={s.saveSchema} error={s.saveSchemaError} onSave={(next) => void s.saveSaveSchema(next)} note={props.play.playSaveNote} onClearPlaySave={props.play.clearPlaySave} />;
     case 'modes':

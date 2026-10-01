@@ -2,9 +2,11 @@
  * The one Inspector — on the default view's right dock, or on the right of
  * the editor window while that shows (moved there, never a second copy). With a graph-like document in front
  * (an Animator controller, a visual script, a graph, a conversation, an
- * effect, a graph material) it shows that document's selection; otherwise
- * the selected object (EntityInspector), and the running Play's script
- * values for it.
+ * effect, a graph material) it shows that document's selection; with an
+ * audio asset chosen in the project window since the last selection, that
+ * asset (its load settings and listening); otherwise the selected object
+ * (EntityInspector, a block layer's tools included), and the running Play's
+ * script values for it.
  */
 import type { JSX, Dispatch, SetStateAction } from 'react';
 import type { ProjectedEntity } from '../../session/projection';
@@ -25,6 +27,11 @@ import { behaviorPortContext } from '../../session/behavior-graph';
 import { materialPortContext } from '../../session/material-graph';
 import { SURFACE_PRESET_NAMES, type SurfacePresetName } from '../../session/media';
 import type { GizmoMode } from '../../viewport/viewport';
+import type { TileThumbnails } from '../../viewport/thumbnails';
+import { BlocksPanel } from '../BlocksPanel';
+import { AudioAssetInspector, useAudioAsset } from '../assets/AudioAssetInspector';
+import type { CuePreview } from './useCuePreview';
+import type { AssetsWindow } from './useAssetsWindow';
 import type { ClientRef, ReportFailure, SetNotice, ViewportRef } from './commands';
 import type { ProjectContent } from './useProjectContent';
 import type { ProjectSettings } from './useProjectSettings';
@@ -65,6 +72,15 @@ export interface InspectorDockProps {
   setBrushOn: Dispatch<SetStateAction<boolean>>;
   reportFailure: ReportFailure;
   setNotice: SetNotice;
+  /** An asset chosen in the project window after the last selection (shown instead of the selection when it is audio). */
+  inspectedAsset: string | null;
+  cue: CuePreview;
+  assetOptions: AssetsWindow['assetOptions'];
+  tileThumbnails: TileThumbnails | null;
+  /** Select one object (a block layer chosen in its tools). */
+  select: (id: string) => void;
+  /** The Scene view is in front (a block layer's tools are armed only then). */
+  sceneInFront: boolean;
 }
 
 export function InspectorDock(props: InspectorDockProps): JSX.Element {
@@ -76,6 +92,8 @@ export function InspectorDock(props: InspectorDockProps): JSX.Element {
   const { sendGraphEdit } = props.docCmds;
   const { observeEntity, playInfo, playing } = props.play;
   const activeVisual = activeVisualId !== null ? (behaviorViews.find((b) => b.behaviorId === activeVisualId) ?? null) : null;
+  const audioAsset = useAudioAsset(props.inspectedAsset);
+  const cueOwner = props.cue.previewOwnerRef.current;
   return (
     <div className={placement === 'dock' ? 'tl-dock tl-dock--right' : 'tl-dock tl-editor-window__inspector'} data-tl-inspector={placement} style={{ width: width }}>
     {activeAnimatorId !== null && animators.some((a) => a.controllerId === activeAnimatorId) ? (
@@ -191,6 +209,16 @@ export function InspectorDock(props: InspectorDockProps): JSX.Element {
           );
         })()}
       </div>
+    ) : audioAsset !== null ? (
+      <AudioAssetInspector
+        assetId={audioAsset.assetId}
+        status={cueOwner?.status() ?? { state: 'unsupported' }}
+        diagnostics={cueOwner?.diagnostics() ?? []}
+        onUnlock={props.cue.unlockPreview}
+        onListen={(id) => void props.cue.previewCue(id)}
+        onLoadType={(id, t) => void props.assetOptions.setAudioLoadType(id, t)}
+        onPreload={(id, v) => void props.assetOptions.setAudioPreload(id, v)}
+      />
     ) : (
     <EntityInspector {...props} />
     )}
@@ -208,7 +236,7 @@ function EntityInspector(props: InspectorDockProps): JSX.Element {
   const { settings, tags } = props.settings;
   const { addComponentTo, applyPreset, colliderFromModel, colliderFromModel3D, componentError, editComponent, editProperty, fitCapsuleToModel, propertyError, selectedSourceMaterials, setEntityMaterialParams, setEntityMaterials } = props.entity;
   const { editCopiesRef, editTransform, rename, setEntityTags, setFlag } = props.scene;
-  const { propLayers, writeFootprint } = props.blocks;
+  const { propLayers, writeFootprint, blockEditor, blockRows, blockTypes, cellFields, blockStamps, blockHandlersRef, blockRun, blockEdit, createBlockLayer } = props.blocks;
   return (
     <Inspector
       entity={selected}
@@ -292,6 +320,28 @@ function EntityInspector(props: InspectorDockProps): JSX.Element {
         selected === null
           ? {}
           : {
+              // The selected block layer's tools: they edit it in the Scene view.
+              blockLayer: (
+                <BlocksPanel
+                  editor={blockEditor}
+                  visible={props.placement === 'dock' && props.sceneInFront}
+                  layers={blockRows}
+                  layerId={selected.id}
+                  onLayer={(id) => id !== null && props.select(id)}
+                  types={blockTypes}
+                  fields={cellFields}
+                  stamps={blockStamps}
+                  registry={registry}
+                  fieldContext={fieldContext}
+                  thumbnails={props.tileThumbnails}
+                  handlers={blockHandlersRef}
+                  run={blockRun}
+                  edit={blockEdit}
+                  onCreateLayer={() => void createBlockLayer()}
+                  onSetFlag={(id, flag, value) => void setFlag(id, flag, value)}
+                  onNotice={setNotice}
+                />
+              ),
               // Write the footprint's metadata into the cells beneath, or land the object on the cell tops.
               blockFootprint: (
                 <div className="tl-inspector__modes">

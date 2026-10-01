@@ -182,6 +182,8 @@ export class Viewport {
   private framesDrawn = 0;
   /** The entity whose meshes carry the selection highlight. */
   private highlightedId: string | null = null;
+  /** Armed block tools own the left button: the selection (the layer they edit) gets no gizmo meanwhile. */
+  private blockToolsArmed = false;
   /** When animated materials started (their clock). */
   private readonly clockStart = performance.now();
 
@@ -391,7 +393,20 @@ export class Viewport {
   /** The block-layer editing tools (created on first use with the App's callbacks). */
   blockEditor(cb?: BlockEditorCallbacks): BlockEditor | null {
     if (this.blockEditorInst === null && cb !== undefined) {
-      this.blockEditorInst = new BlockEditor({ scene: this.scene, camera: this.camera, canvas: this.root, requestRender: () => this.requestRender(), view: () => this.ensureBlockView() }, cb);
+      this.blockEditorInst = new BlockEditor(
+        {
+          scene: this.scene,
+          camera: this.camera,
+          canvas: this.root,
+          requestRender: () => this.requestRender(),
+          view: () => this.ensureBlockView(),
+          armed: (on) => {
+            this.blockToolsArmed = on;
+            this.setSelected(this.selectedId);
+          },
+        },
+        cb,
+      );
     }
     return this.blockEditorInst;
   }
@@ -1375,7 +1390,7 @@ export class Viewport {
     this.syncCopyProxy();
     // No gizmo on a folder (no transform) or a locked entity.
     const movable = id !== null && !this.folderIds.has(id) && this.hierarchyFlags.get(id)?.locked !== true;
-    const target = this.copySel !== null && this.copyProxy.parent !== null ? this.copyProxy : id && movable ? this.targetFor(id) : null;
+    const target = this.blockToolsArmed ? null : this.copySel !== null && this.copyProxy.parent !== null ? this.copyProxy : id && movable ? this.targetFor(id) : null;
     if (id && target) {
       if (this.gizmo.object !== target) this.gizmo.attach(target);
       this.gizmo.setMode(mode);
@@ -1546,8 +1561,8 @@ export class Viewport {
   private onPointerDown = (e: PointerEvent): void => {
     this.downAt = { x: e.clientX, y: e.clientY };
     if (e.button !== 0) return;
-    // Armed block tools take the left button (not over a gizmo handle).
-    if (this.blockEditorInst?.isActive() === true && this.gizmo.axis === null && this.blockEditorInst.pointerDown(e)) {
+    // Armed block tools take the left button (the gizmo stands aside while they are armed).
+    if (this.blockEditorInst?.isActive() === true && this.blockEditorInst.pointerDown(e)) {
       e.stopImmediatePropagation();
       this.downAt = null;
       this.orbit.enabled = false;

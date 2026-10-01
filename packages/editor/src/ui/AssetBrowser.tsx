@@ -19,7 +19,6 @@ import { useAssetSummaries, useCatalog } from './catalog/catalog-context';
 import { EntryName, TEXTURE_KINDS } from './catalog/RefPicker';
 import type { AnimationRoleKey } from '../session/media';
 import { TexturePackForm, type PackRequest } from './TexturePackForm';
-import { AudioAssetOptions } from './AudioAssetOptions';
 import { TextureAssetOptions } from './TextureAssetOptions';
 import type { AssetOptionActions } from './useAssetOptions';
 import { LoadableFields } from './LoadableFields';
@@ -72,9 +71,8 @@ interface Props {
   thumbnails: TileThumbnails | null;
   /** The pieces of the selected model file, read when it was selected (a file with 2+ pieces expands into piece tiles). */
   pieces: { assetId: string; list: readonly { name: string }[] } | null;
-  /** The asset inspector's option commands (vertex colours, audio load settings, texture streaming). */
-  assetOptions: Pick<AssetOptionActions, 'setVertexColors' | 'setAudioLoadType' | 'setAudioPreload' | 'setTextureStreaming'>;
-  /** An audio file's load type (null: the default for its length) and whether it is read with its scene. */
+  /** The side panel's option commands (vertex colours, texture streaming; an audio asset's are in the Inspector). */
+  assetOptions: Pick<AssetOptionActions, 'setVertexColors' | 'setTextureStreaming'>;
   /** How new files are imported: a PNG/JPEG texture as is or encoded to KTX2; a model's images extracted into texture assets or kept inside. */
   importSettings?: ImportSettings;
   /** Pack a KTX2 texture (array) from texture assets; resolves to an error message or null. */
@@ -376,7 +374,7 @@ export function AssetBrowser(p: Props): JSX.Element {
             </div>
           )}
           {selected.streaming !== undefined && <TextureAssetOptions assetId={selected.assetId} streaming={selected.streaming} image={selected.image} onStreaming={(id, v) => void p.assetOptions.setTextureStreaming(id, v)} />}
-          {selected.audio !== undefined && <AudioAssetOptions assetId={selected.assetId} audio={selected.audio} onLoadType={(id, t) => void p.assetOptions.setAudioLoadType(id, t)} onPreload={(id, v) => void p.assetOptions.setAudioPreload(id, v)} />}
+          {selected.audio !== undefined && <p className="tl-assets__source">Load type, preload and listening: in the Inspector.</p>}
           {selected.kind === 'model' && (
             <label className="tl-field" title="COLOR_0 as shader data (foliage bend weights and the like) or as a tint multiplied into the base colour">
               <span className="tl-field__label">vertex colour</span>

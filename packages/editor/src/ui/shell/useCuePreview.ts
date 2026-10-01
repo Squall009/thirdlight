@@ -1,6 +1,7 @@
 /**
- * The Media tab's listening: one audio preview owner per session (unlocked
- * by a gesture, disposed on teardown) that plays committed cues.
+ * Listening to an audio asset (its Inspector): one audio preview owner per
+ * session (unlocked by a gesture, disposed on teardown) that plays committed
+ * sounds.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPreviewAudioOwner, type PreviewAudioOwner } from '../../session/preview-audio';

@@ -306,7 +306,8 @@ moves at least as many lines out as it adds.
 | 27.11 | done 2026-10-01: an item opens in the editor window over the editor (double-click in the project window, "Open" beside an Inspector reference): its editor left, the one Inspector right (the same `InspectorDock`, moved), one split with a remembered width; open items are its tabs (reorder, close, middle-click, Ctrl+Tab), remembered per project; Esc/× return to the default view with the selection it had; undo, the change feed and MCP edits reach the open editor; the centre keeps Scene and Game; e2e `editor-window` (DOM structure, geometry, selection, reload) |
 | 27.12 | done 2026-10-01: one preview pane above the one Inspector in the editor window, one renderer for as long as the window shows: a material on a shape or model, an effect (timeline, counters, cost, preview parameters), a model with its animator; a timeline, a conversation and a UI document at the editor's resolution on their scene (the Scene view's canvas lent to the pane); editors say what to preview (`usePreview`), none builds a renderer; the material/effect/Animator/asset-stage renderers are gone, the timeline window is no longer see-through; e2e `preview-pane` (pixels on WebGPU, WebGL 2 and the webgpu project), the area's specs and the memory e2e (switching previews, both renderers) green; D109 found |
 | 27.13 | done 2026-10-01: File → Project Settings… opens one full window over the editor (and over the editor window), sub-tabs Gameplay, Input, Tags, Collision layers, Quality, Saves, Game modes, Game shell, Scripts on the left with a search that filters them by name and by the settings they hold; the panels moved unchanged (same commands); Quality = the environment's quality level and the settings' Rendering group (texture budget); the moved tabs left the dock and the Window menu; e2e `project-settings` (each sub-tab's edit read back over HTTP, search, Esc/×, Scripts opening the editor window); look: owner look pending |
-| 27.14–27.17 | — |
+| 27.14 | done 2026-10-01: Window → Lighting and Window → Environment open floating windows over the Scene view (moved by the title bar, resized by the corner, place and open state remembered per browser; set aside by the Game view, the editor window and Project Settings), each naming the scene it edits with a scene picker (the active scene; picking opens and activates another, so the Scene view previews what the window edits); a block layer's tools are in its Inspector while it is selected (GameObject → Block layer; the move gizmo stands aside while they are armed); GameObject → Create prefab from selection and the Hierarchy's new context menu; an audio asset chosen in the project window shows in the Inspector (facts, load type, preload, listening); Project Settings → Audio holds the event sounds; the Lighting, Environment, Blocks and Media dock tabs are gone; e2e `window-tools` (two scenes, pixels, move/resize/reload); test backends no longer lose their ports (D110); look: owner look pending |
+| 27.15–27.17 | — |
 
 ## 6. Decision log
 
@@ -662,6 +663,43 @@ moves at least as many lines out as it adds.
   window from the Window menu, the Scene/Game view or Play closes the
   settings window. Audio (the event → sound table) stays in the Media tab
   until 27.14 splits Media, then joins Project Settings as its own sub-tab.
+- 2026-10-01 (27.14): Lighting and Environment are floating windows inside
+  the work area, over the Scene view (Unity's Lighting window floats or
+  docks; it is never a full window), shown while the Scene view is in front:
+  the Game view, the editor window and Project Settings set them aside
+  without closing them. They open side by side along the top of the Scene
+  view; where each stands and whether it is open are remembered per browser
+  like the dock sizes (Window → Reset layout forgets them). The scene they
+  edit is the active scene (Unity's rule, and the one the Scene view draws),
+  so the picker at their top makes the chosen scene active, opening it when
+  it is closed: both windows always name the same scene, and an edit shows
+  in the Scene view at once. A per-window scene that is not the active one
+  would edit a look nobody sees; not taken.
+- 2026-10-01 (27.14): a block layer's tools are its Inspector section's
+  extension, shown while the layer is the selection (Godot's GridMap and
+  Unity's terrain tools work the same way) and armed only while the
+  Inspector is on the default view and the Scene view is in front; armed,
+  they own the left button and the layer's move gizmo stands aside ("Edit
+  cells" off brings it back). Choosing another layer in the tools selects
+  it. A new layer comes from GameObject → Block layer (and "+ Layer" in the
+  tools); both select it. "Create prefab from selection" names the prefab
+  after the object without asking (renamed later, as Unity's dragged
+  prefabs are) and reports through the notice line; the Hierarchy's context
+  menu (right-click; the row is selected first when it is not part of the
+  selection) offers it with Duplicate, Copy and Delete. The Prefabs tab keeps
+  its list and "place copy" until 27.15. The Inspector shows an audio asset
+  chosen in the project window until the next selection (Unity's Inspector
+  shows whatever was chosen last); other asset kinds stay in the side panel
+  until 27.15. The Media tab's sound list is gone (the project window lists
+  sounds by kind). Project Settings → Audio is the event → sound table.
+- 2026-10-01 (27.14): e2e helpers: `openWindow('Lighting'|'Environment')`
+  opens the window from the Window menu and drags it over the right end of
+  the bottom dock (specs read the Scene view's pixels with it open);
+  `openWindow('Blocks')` selects the first block layer, and showing another
+  dock tab or the project window deselects it (as showing another tab
+  closed the Blocks tab); `openWindow('Media')` is Project Settings →
+  Audio; `toolWindow`, `toolWindowScene`. Test backends pick their ports
+  below the kernel's ephemeral range and retry a lost one (D110).
 - 2026-10-01 (27.9): the helpers name what a person opens, not where it is:
   `openWindow(name)` for tools, `openProjectSettings(section)` for the
   settings that 27.13 moves, `openEditor(kind, name)` with the kind as the

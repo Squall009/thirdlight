@@ -10,6 +10,9 @@
  *   at the root (of its own scene), at the end. World positions are kept by
  *   the command.
  * - Double-click renames.
+ * - Right-click shows the context menu for the selection (the row is
+ *   selected first when it is not part of it): the prefab, duplicate, copy
+ *   and delete entries of the menu bar.
  *
  * - Several scenes: each open scene is a header with its own
  *   tree. Clicking a header makes it the active scene (new objects go
@@ -24,7 +27,7 @@
  * Rows are memoised, rebuilt only when the tree's shape changes,
  * and a long list is windowed (see HIERARCHY_WINDOW_MIN_ROWS).
  */
-import { memo, useEffect, useMemo, useRef, useState, type DragEvent, type JSX, type MouseEvent } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type JSX, type MouseEvent } from 'react';
 
 import {
   draggedRoots,
@@ -38,6 +41,8 @@ import {
   type EffectiveEntityFlags,
 } from '../session/hierarchy';
 import type { ProjectedEntity } from '../session/projection';
+import { ContextMenu } from './ContextMenu';
+import type { MenuEntry } from './MenuBar';
 import { iconKindFor, iconSrc, type IconTable } from '../viewport/icons';
 import { ASSET_DRAG_TYPE, parseAssetDrag, type AssetDragPayload } from '../session/placement';
 
@@ -71,6 +76,8 @@ interface Props {
   onAssetDrop?: (asset: AssetDragPayload, parentId: string | null, sceneId: string | null) => void;
   /** Which component shows which row icon (from the descriptors; absent: none yet). */
   icons?: IconTable;
+  /** A row's context menu (right-click): the entries for the selection as it is when the menu shows. */
+  contextMenu?: () => MenuEntry[];
 }
 
 const NO_ICONS: IconTable = [];
@@ -141,6 +148,7 @@ function itemAt(tops: Float64Array, y: number): number {
 /** What a row needs from the panel at event time (a stable ref, so rows can be memoised). */
 interface RowHandlers {
   click: (ev: MouseEvent<HTMLLIElement>, id: string) => void;
+  contextMenu: (ev: MouseEvent<HTMLLIElement>, id: string) => void;
   startRename: (id: string, name: string) => void;
   dragStart: (ev: DragEvent<HTMLLIElement>, id: string) => void;
   dragEnd: () => void;
@@ -173,10 +181,12 @@ const HierarchyRow = memo(function HierarchyRow({ entity: e, row: r, flags: f, s
   return (
     <li
       data-entity-id={r.id}
+      data-block-layer={e.components['blockLayer'] !== undefined ? '' : undefined}
       aria-selected={selected}
       style={{ paddingLeft: `${4 + r.depth * 14}px` }}
       className={['tl-row', selected ? 'is-selected' : '', primary ? 'is-primary' : '', inactive ? 'is-inactive' : '', dropClass].join(' ').replace(/\s+/g, ' ').trim()}
       onClick={(ev) => handlers.current.click(ev, r.id)}
+      onContextMenu={(ev) => handlers.current.contextMenu(ev, r.id)}
       onDoubleClick={() => handlers.current.startRename(r.id, e.name)}
       draggable={draft === null}
       onDragStart={(ev) => handlers.current.dragStart(ev, r.id)}
@@ -237,8 +247,11 @@ const HierarchyRow = memo(function HierarchyRow({ entity: e, row: r, flags: f, s
   );
 });
 
-export function Hierarchy({ entities, structureKey, flags, projectId, selectedIds, primaryId, onSelect, onRename, onMove, scenes, closedScenes, onSceneAction, onAssetDrop, icons = NO_ICONS }: Props): JSX.Element {
+export function Hierarchy({ entities, structureKey, flags, projectId, selectedIds, primaryId, onSelect, onRename, onMove, scenes, closedScenes, onSceneAction, onAssetDrop, icons = NO_ICONS, contextMenu }: Props): JSX.Element {
   const [filter, setFilter] = useState('');
+  /** Where the context menu shows (null: closed). */
+  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
+  const closeMenu = useCallback(() => setMenuAt(null), []);
   const [renaming, setRenaming] = useState<{ id: string; draft: string } | null>(null);
   const [renamingScene, setRenamingScene] = useState<{ sceneId: string; draft: string } | null>(null);
   const [hint, setHint] = useState<string | null>(null);
@@ -442,6 +455,16 @@ export function Hierarchy({ entities, structureKey, flags, projectId, selectedId
       const next = nextSelection(selectedIds, anchor.current, id, { toggle: ev.ctrlKey || ev.metaKey, range: ev.shiftKey }, rows);
       anchor.current = next.anchor;
       onSelect(next.ids, next.primary);
+    },
+    contextMenu: (ev, id) => {
+      if (contextMenu === undefined) return;
+      ev.preventDefault();
+      // Right-click on a row outside the selection selects it first (the menu acts on the selection).
+      if (!selected.has(id)) {
+        anchor.current = id;
+        onSelect([id], id);
+      }
+      setMenuAt({ x: ev.clientX, y: ev.clientY });
     },
     startRename: (id, name) => setRenaming({ id, draft: name }),
     dragStart: (ev, id) => {
@@ -679,6 +702,7 @@ export function Hierarchy({ entities, structureKey, flags, projectId, selectedId
         {body}
         {rows.length === 0 && <li className="tl-row tl-row--empty">no entities</li>}
       </ul>
+      {menuAt !== null && contextMenu !== undefined && <ContextMenu at={menuAt} items={contextMenu()} label="Hierarchy context menu" onClose={closeMenu} />}
     </div>
   );
 }

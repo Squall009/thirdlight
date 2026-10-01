@@ -96,20 +96,95 @@ export function windowTab(page: Page, name: string): Locator {
   return dockTabs(page).getByRole('tab', { name: name === 'Problems' ? /^Problems\s*\d*$/ : name, exact: true });
 }
 
-/** Tools whose panel moved into Project Settings, and the sub-tab that holds it. */
-const IN_PROJECT_SETTINGS: Readonly<Record<string, ProjectSettingsSection>> = { Behaviors: 'Scripts' };
+/** Tools whose panel moved into Project Settings, and the sub-tab that holds it (Media's event sounds are Audio). */
+const IN_PROJECT_SETTINGS: Readonly<Record<string, ProjectSettingsSection>> = { Behaviors: 'Scripts', Media: 'Audio' };
 
-/** Show a tool window (Lighting, Environment, Console, Problems, Materials, Behaviors, …). */
+/** The Window menu's floating tool windows (scene settings over the Scene view). */
+const FLOATING = new Set(['Lighting', 'Environment']);
+
+/** A floating tool window (Lighting, Environment), while it shows. */
+export function toolWindow(page: Page, name: string): Locator {
+  return page.getByRole('region', { name: `${name} window`, exact: true });
+}
+
+/** A floating tool window's scene bar: the scene it edits (`data-scene-id`) and its picker. */
+export function toolWindowScene(page: Page, name: string): Locator {
+  return toolWindow(page, name).locator('.tl-tool-window__scene');
+}
+
+/**
+ * Open a floating tool window from the Window menu and move it out of the
+ * Scene view by its title bar, over the right end of the bottom dock (below
+ * its tab strip), sized to fit there: specs read the Scene view's pixels with
+ * the window open, and a person moves such a window out of the way as well.
+ */
+async function openToolWindow(page: Page, name: string): Promise<void> {
+  await leaveEditorWindow(page);
+  await menu(page, 'Window', name);
+  const win = toolWindow(page, name);
+  await expect(win).toBeVisible();
+  const dock = await page.locator('.tl-dock--bottom').boundingBox();
+  const tabs = await dockTabs(page).boundingBox();
+  const box = await win.boundingBox();
+  if (dock === null || tabs === null || box === null) throw new Error(`the ${name} window or the bottom dock has no box`);
+  const top = tabs.y + tabs.height + 4;
+  const room = { width: 420, height: dock.y + dock.height - top - 4 };
+  // Resize first (the corner), then move (the title bar): each drag is a real pointer drag.
+  const corner = win.getByLabel(`Resize the ${name} window`, { exact: true });
+  const c = (await corner.boundingBox())!;
+  await page.mouse.move(c.x + c.width / 2, c.y + c.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + room.width - c.width / 2, box.y + room.height - c.height / 2, { steps: 4 });
+  await page.mouse.up();
+  const title = win.getByLabel(`Move the ${name} window`, { exact: true });
+  const t = (await title.boundingBox())!;
+  const grab = { x: t.x + 60, y: t.y + t.height / 2 };
+  const to = { x: dock.x + dock.width - room.width - 4, y: top };
+  await page.mouse.move(grab.x, grab.y);
+  await page.mouse.down();
+  await page.mouse.move(to.x + 60, to.y + t.height / 2, { steps: 6 });
+  await page.mouse.up();
+  await expect.poll(async () => Math.abs(((await win.boundingBox())?.y ?? 0) - to.y)).toBeLessThan(2);
+}
+
+/**
+ * Show a block layer's tools: they are in the Inspector while a block layer
+ * is selected, so the first block layer in the Hierarchy is selected.
+ */
+async function openBlockTools(page: Page): Promise<void> {
+  await leaveEditorWindow(page);
+  const panel = page.getByLabel('blocks panel', { exact: true });
+  if (await panel.isVisible()) return;
+  await page.locator('.tl-hierarchy__list li[data-block-layer]').first().click();
+  await expect(panel).toBeVisible();
+}
+
+/**
+ * Put a block layer's tools away by deselecting the layer (Ctrl+click its
+ * row): they were a dock tab that showing another tab closed, and specs that
+ * read the Scene view's pixels after that expect them disarmed.
+ */
+async function leaveBlockTools(page: Page): Promise<void> {
+  if (!(await page.getByLabel('blocks panel', { exact: true }).isVisible())) return;
+  await page.locator('.tl-hierarchy__list li.tl-row.is-selected[data-block-layer]').first().click({ modifiers: ['ControlOrMeta'] });
+  await expect(page.getByLabel('blocks panel', { exact: true })).toHaveCount(0);
+}
+
+/** Show a tool window (Lighting, Environment, Blocks, Console, Problems, Materials, Behaviors, …). */
 export async function openWindow(page: Page, name: string): Promise<void> {
   const section = IN_PROJECT_SETTINGS[name];
   if (section !== undefined) return openProjectSettings(page, section);
+  if (FLOATING.has(name)) return openToolWindow(page, name);
+  if (name === 'Blocks') return openBlockTools(page);
   await leaveEditorWindow(page);
+  await leaveBlockTools(page);
   await windowTab(page, name).click();
   if (name === 'Assets') await restoreSearch(page);
 }
 
-/** Assert that a tool window is the one showing. */
+/** Assert that a tool window is the one showing (a floating one: that it shows). */
 export async function expectWindowOpen(page: Page, name: string): Promise<void> {
+  if (FLOATING.has(name)) return expect(toolWindow(page, name)).toBeVisible();
   await expect(windowTab(page, name)).toHaveAttribute('aria-selected', 'true');
 }
 
@@ -124,6 +199,7 @@ const searchBefore = new WeakMap<Page, string>();
 /** Show the project window (folders, search, items) and return the panel that holds it. */
 export async function projectWindow(page: Page): Promise<Locator> {
   await leaveEditorWindow(page);
+  await leaveBlockTools(page);
   await windowTab(page, 'Assets').click();
   await restoreSearch(page);
   return page.locator('.tl-assets');
@@ -139,7 +215,7 @@ async function restoreSearch(page: Page): Promise<void> {
 
 
 /** The project-wide settings, by section (the Project Settings window's sub-tabs). */
-export type ProjectSettingsSection = 'Gameplay' | 'Input' | 'Tags' | 'Collision layers' | 'Quality' | 'Saves' | 'Game modes' | 'Game shell' | 'Scripts';
+export type ProjectSettingsSection = 'Gameplay' | 'Input' | 'Tags' | 'Collision layers' | 'Quality' | 'Audio' | 'Saves' | 'Game modes' | 'Game shell' | 'Scripts';
 
 /** A sub-tab of the Project Settings window. */
 export function settingsTab(page: Page, section: ProjectSettingsSection): Locator {

@@ -36,7 +36,7 @@ export type CellBox = [number, number, number, number, number, number];
 
 export type BlockToolId = 'single' | 'line' | 'rect' | 'box' | 'flood' | 'column' | 'height' | 'smooth' | 'flatten' | 'paint' | 'erase' | 'eyedropper' | 'replace' | 'meta' | 'select' | 'paste' | 'stamp' | 'region';
 
-/** The tools the Blocks panel offers (label, key, what it does). */
+/** The block tools a block layer's Inspector offers (label, key, what it does). */
 export const BLOCK_TOOLS: readonly { id: BlockToolId; label: string; hint: string }[] = [
   { id: 'single', label: 'Paint', hint: 'Paint the brush block cell by cell (drag).' },
   { id: 'line', label: 'Line', hint: 'Drag a straight line of blocks.' },

@@ -1,5 +1,6 @@
 /**
- * The Lighting window — bake the active scene's lightmaps.
+ * The Lighting window's panel — bake the active scene's lightmaps (the
+ * window names the scene).
  *
  * "Bake preview" runs in this browser (direct light and sky occlusion from
  * the lights set to "baked"; no bounce light). "Bake final" sends the scene
@@ -16,7 +17,6 @@ import type { LightingBake } from '@thirdlight/project-model';
 import type { BakeSettings } from '../viewport/bake-run';
 
 interface Props {
-  sceneName: string;
   bake: LightingBake | null;
   stale: boolean;
   settings: BakeSettings;
@@ -55,7 +55,6 @@ export function LightingPanel(p: Props): JSX.Element {
   );
   return (
     <div className="tl-panel tl-lighting" aria-label="lighting">
-      <div className="tl-panel__title">Lighting — {p.sceneName}</div>
       <p className="tl-hint">
         Static objects (Inspector → Static) get lightmaps from the lights set to <b>baked</b> or <b>mixed</b>. Baked lights are then no longer
         realtime; mixed lights stay realtime and add their bounce light in the final bake.

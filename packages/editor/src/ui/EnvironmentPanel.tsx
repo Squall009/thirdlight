@@ -1,6 +1,6 @@
 /**
- * The Environment window — the active scene's look (sky, fog,
- * post-processing, wind), named at the top. The Scene view previews it with
+ * The Environment window's panel — the active scene's look (sky, fog,
+ * post-processing, wind; the window names the scene). The Scene view previews it with
  * game lighting (the same renderer Play and export use). Each control
  * commits on release as one `setEnvironment` (one undo): `{sceneId}` for the
  * scene's look, without for the presets. The quality is the player's
@@ -24,8 +24,7 @@ interface Props {
   /** The project's part (the presets; its quality is edited in Project Settings). */
   environment: EnvironmentConfig | null;
   onSave: (environment: EnvironmentConfig) => void;
-  /** The scene whose look this edits (the active scene) and its look (null: the engine defaults). */
-  scene: { sceneId: string; name: string } | null;
+  /** The look of the scene this edits (the active scene, named by the window; null: the engine defaults). */
   look: SceneEnvironment | null;
   onSaveLook: (look: SceneEnvironment) => void;
   error: string | null;
@@ -281,13 +280,7 @@ export function EnvironmentPanel(p: Props): JSX.Element {
 
   return (
     <div className="tl-panel tl-environment">
-      <div className="tl-panel__title">
-        <img className="tl-row__icon" src="./icons/sky.png" alt="" aria-hidden="true" /> Environment
-      </div>
-      <p className="tl-environment__scene" data-scene-id={p.scene?.sceneId ?? ''}>
-        Scene: <strong>{p.scene?.name ?? '—'}</strong> <span className="tl-hint">(each scene has its own sky, fog, post-processing and wind; the active scene's applies)</span>
-      </p>
-      <p className="tl-inspector__hint">The Scene view shows this with game lighting (toolbar “light: game”); Play and the export use the same.</p>
+      <p className="tl-inspector__hint">Each scene has its own sky, fog, post-processing and wind; the active scene's applies. The Scene view shows it with game lighting (toolbar “light: game”); Play and the export use the same.</p>
       <div className="tl-environment__grid">
         <section className="tl-inspector__section" aria-label="sky">
           <div className="tl-subhead">Sky</div>

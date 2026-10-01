@@ -1,8 +1,11 @@
 /**
- * The Blocks panel — block-layer editing in the Scene view.
+ * A block layer's tools — block-layer editing in the Scene view, shown in the
+ * Inspector while a block layer is selected (Godot's GridMap and Unity's
+ * terrain tools show where the selected node or object is inspected).
  *
- * - Layer: which block layer the tools edit, its visibility and lock (the
- *   object's Hierarchy flags), the height slice (PageUp/PageDown or ] / [).
+ * - Layer: the selected layer (choosing another selects it), its visibility
+ *   and lock (the object's Hierarchy flags), the height slice
+ *   (PageUp/PageDown or ] / [).
  * - Tools: paint, line, rectangle, box, flood, raise/lower, erase, pick,
  *   replace-all, metadata, select, paste, stamp, region; brush rotation (Q),
  *   randomized looks, the box height.
@@ -69,11 +72,12 @@ export interface BlockPanelHandlers {
 
 interface Props {
   editor: BlockEditor | null;
-  /** The panel is in front (the tools are armed only then). */
+  /** The tools are in front (the Inspector shows them over the default view; they are armed only then). */
   visible: boolean;
   layers: readonly BlockLayerRow[];
-  /** The layer the tools edit (the App holds it: the Scene view draws its grid). */
+  /** The layer the tools edit: the selected object (the Scene view draws its grid). */
   layerId: string | null;
+  /** Choose another layer (it becomes the selection). */
   onLayer: (entityId: string | null) => void;
   types: readonly BlockType[];
   fields: readonly CellField[];
@@ -149,11 +153,6 @@ export function BlocksPanel(p: Props): JSX.Element {
   const [hover, setHover] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
 
-  // The first layer is chosen when none is (or the chosen one is gone).
-  useEffect(() => {
-    if (layerId !== null && p.layers.some((l) => l.entityId === layerId)) return;
-    setLayerId(p.layers[0]?.entityId ?? null);
-  }, [p.layers, layerId, setLayerId]);
   const layer = p.layers.find((l) => l.entityId === layerId) ?? null;
   const typeOf = useMemo(() => new Map(p.types.map((t) => [t.blockId, t])), [p.types]);
   const field = p.fields.find((f) => f.key === metaField) ?? null;
@@ -332,7 +331,6 @@ export function BlocksPanel(p: Props): JSX.Element {
           </>
         )}
       </div>
-      {p.layers.length === 0 && <p className="tl-note">No block layers in this scene. + Layer adds one (or add the Block layer component to an object).</p>}
 
       <div className="tl-blocks__tools" role="toolbar" aria-label="block tools">
         {BLOCK_TOOLS.map((t) => (

@@ -1,13 +1,13 @@
 /**
- * Prefab authoring: capture the selection as a prefab, place a copy with
+ * Prefab authoring: make a prefab from the selection, place a copy with
  * overridden declared properties, delete a definition.
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
+import { useCallback, useMemo, useState, type MutableRefObject } from 'react';
 import type { ProjectedEntity } from '../../session/projection';
 import { collectOverrides, newPrefabDraft, overrideDraftKey, planCreatePrefab, planInstantiatePrefab, type CaptureEntityView } from '../../session/prefab-authoring';
 import { deriveOverrideTargets } from '../../session/property-controls';
 import type { PropertyDeclaration } from '@thirdlight/project-model';
-import { refusal, type ClientRef, type UiError } from './commands';
+import { refusal, type ClientRef, type SetNotice, type UiError } from './commands';
 
 /** The capture preflight view of one projected entity. */
 function toCaptureView(e: ProjectedEntity): CaptureEntityView {
@@ -22,42 +22,19 @@ function toCaptureView(e: ProjectedEntity): CaptureEntityView {
 
 export interface PrefabAuthoringDeps {
   clientRef: ClientRef;
-  selectedId: string | null;
   selectedIdRef: MutableRefObject<string | null>;
   declarations: Map<string, PropertyDeclaration>;
   runTypedCommand: (op: string, args: unknown, onError: (e: UiError) => void, withDetail?: boolean) => Promise<boolean>;
+  setNotice: SetNotice;
 }
 
 export function usePrefabAuthoring(deps: PrefabAuthoringDeps) {
-  const { clientRef, selectedId, selectedIdRef, declarations, runTypedCommand } = deps;
+  const { clientRef, selectedIdRef, declarations, runTypedCommand, setNotice } = deps;
   const [selectedPrefabId, setSelectedPrefabId] = useState<string | null>(null);
-  const [captureName, setCaptureName] = useState('');
-  const [captureError, setCaptureError] = useState<UiError | null>(null);
   const [copyError, setCopyError] = useState<UiError | null>(null);
   const [prefabDeleteError, setPrefabDeleteError] = useState<string | null>(null);
   const [overrideDrafts, setOverrideDrafts] = useState<Record<string, string>>({});
-  // The generated prefabId for the current selection (stable while selected).
-  const captureIdRef = useRef<string | null>(null);
 
-  /**
-   * A fresh capture draft whenever the selection changes. The draft is a local
-   * form value; the prefabId is generated once per selection so typing a name
-   * does not churn it.
-   */
-  useEffect(() => {
-    const c = clientRef.current;
-    const sel = selectedId ? (c?.projection.getEntity(selectedId) ?? null) : null;
-    if (!c || !sel) {
-      captureIdRef.current = null;
-      setCaptureName('');
-      setCaptureError(null);
-      return;
-    }
-    const draft = newPrefabDraft({ id: sel.id, name: sel.name }, c.prefabs.prefabIds);
-    captureIdRef.current = draft.prefabId;
-    setCaptureName(draft.displayName);
-    setCaptureError(null);
-  }, [clientRef, selectedId]);
   const deletePrefab = useCallback(async (prefabId: string) => {
     const c = clientRef.current;
     if (!c) return;
@@ -66,29 +43,35 @@ export function usePrefabAuthoring(deps: PrefabAuthoringDeps) {
     if (err === null) setSelectedPrefabId((cur) => (cur === prefabId ? null : cur));
   }, [clientRef]);
 
-  const capturePrefab = useCallback(async () => {
+  /**
+   * GameObject → Create prefab from selection (and the Hierarchy's context
+   * menu): the selected object and its children become a new definition named
+   * after the object (renamed later in the project window); the outcome is a
+   * notice.
+   */
+  const createPrefabFromSelection = useCallback(async () => {
     const c = clientRef.current;
     const sourceEntityId = selectedIdRef.current;
-    const prefabId = captureIdRef.current;
-    if (!c || !sourceEntityId || !prefabId) return;
+    const sel = sourceEntityId !== null ? c?.projection.getEntity(sourceEntityId) : undefined;
+    if (!c || sourceEntityId === null || sel === undefined) return setNotice('Create prefab: select an object first.');
+    const draft = newPrefabDraft({ id: sel.id, name: sel.name }, c.prefabs.prefabIds);
     const scene = c.projection.listEntities();
     const plan = planCreatePrefab({
-      prefabId,
-      displayName: captureName,
+      prefabId: draft.prefabId,
+      displayName: draft.displayName,
       sourceEntityId,
       scene: scene.map(toCaptureView),
       existingPrefabIds: c.prefabs.prefabIds,
       declarations: c.prefabs.declarationMap(),
       cameraId: scene.find((e) => e.kind === 'camera')?.id ?? null,
     });
-    if (!plan.ok) {
-      setCaptureError({ code: plan.error.code, message: plan.error.message });
-      return;
-    }
-    setCaptureError(null);
-    const ok = await runTypedCommand('createPrefab', plan.command.args, setCaptureError);
-    if (ok) setSelectedPrefabId(plan.command.args.prefabId);
-  }, [captureName, clientRef, runTypedCommand, selectedIdRef]);
+    if (!plan.ok) return setNotice(`Create prefab: ${plan.error.message}`);
+    let failure: UiError | null = null;
+    const ok = await runTypedCommand('createPrefab', plan.command.args, (e) => (failure = e));
+    if (!ok) return setNotice(`Create prefab: ${(failure as UiError | null)?.message ?? 'refused'}`);
+    setSelectedPrefabId(plan.command.args.prefabId);
+    setNotice(`Prefab “${plan.command.args.displayName}” created from ${sel.name ?? sel.id}.`);
+  }, [clientRef, runTypedCommand, selectedIdRef, setNotice]);
 
   const overrideTargets = useMemo(() => {
     const c = clientRef.current;
@@ -141,8 +124,8 @@ export function usePrefabAuthoring(deps: PrefabAuthoringDeps) {
   );
 
   return {
-    selectedPrefabId, setSelectedPrefabId, captureName, setCaptureName, captureError, copyError, setCopyError, prefabDeleteError, overrideDrafts, setOverrideDrafts,
-    captureIdRef, deletePrefab, capturePrefab, overrideTargets, commitOverride, placeCopy,
+    selectedPrefabId, setSelectedPrefabId, copyError, setCopyError, prefabDeleteError, overrideDrafts, setOverrideDrafts,
+    deletePrefab, createPrefabFromSelection, overrideTargets, commitOverride, placeCopy,
   };
 }
 

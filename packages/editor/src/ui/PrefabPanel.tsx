@@ -3,8 +3,8 @@
  *
  * The authoring UI for prefab **copies**:
  *
- *  - "Create Prefab Definition" captures the current selection into an
- *    immutable definition (`createPrefab`);
+ *  - a definition is made from the selection by GameObject → Create prefab
+ *    from selection or the Hierarchy's context menu (`createPrefab`);
  *  - "Place Copy" instantiates one independent materialized copy
  *    (`instantiatePrefab`), optionally with one or more **declared-property**
  *    initial overrides.
@@ -20,7 +20,6 @@
  * Browser-only (React).
  */
 import type { JSX } from 'react';
-import type { ProjectedEntity } from '../session/projection';
 import { useIndexList } from './catalog/useIndexList';
 import { VirtualList } from './catalog/VirtualList';
 import type { BehaviorControlsView } from '../session/property-controls';
@@ -28,19 +27,14 @@ import type { PrefabSummaryView } from '../session/prefab-projection';
 import { PropertyControlList, type ControlErrorView } from './PropertyControls';
 
 export interface PrefabPanelProps {
-  selection: ProjectedEntity | null;
   /** The definitions read so far (by id); the list itself pages the project index. */
   definitions: readonly PrefabSummaryView[];
   selectedPrefabId: string | null;
   /** Declared-property targets of the selected definition (override editor). */
   targets: readonly BehaviorControlsView[];
-  captureDraft: { prefabId: string; displayName: string } | null;
-  captureError: ControlErrorView | null;
   copyError: ControlErrorView | null;
   /** How many initial overrides the draft currently holds. */
   overrideCount: number;
-  onCaptureName: (name: string) => void;
-  onCapture: () => void;
   onSelect: (prefabId: string) => void;
   onPlaceCopy: (prefabId: string) => void;
   /** Delete a definition (`deletePrefab`; refused while a copy or anything else uses it). */
@@ -64,36 +58,7 @@ export function PrefabPanel(p: PrefabPanelProps): JSX.Element {
     <div className="tl-panel tl-prefabs">
       <div className="tl-panel__title">Prefabs — copies, not links</div>
 
-      <div className="tl-prefabs__capture">
-        <div className="tl-prop__caption">
-          Capture the selected subtree as an immutable definition ("Create Prefab Definition").
-        </div>
-        <div className="tl-prefabs__row">
-          <input
-            className="tl-prop__input"
-            value={p.captureDraft?.displayName ?? ''}
-            placeholder="definition name"
-            disabled={!p.captureDraft}
-            onChange={(e) => p.onCaptureName(e.target.value)}
-            title="1–128 characters, display only"
-          />
-          <button
-            className="tl-btn tl-btn--small"
-            disabled={!p.captureDraft}
-            onClick={p.onCapture}
-            title={p.selection ? `Capture ${p.selection.id}` : 'Select an entity first'}
-          >
-            create definition
-          </button>
-        </div>
-        {p.captureDraft && <div className="tl-prop__caption">id: {p.captureDraft.prefabId}</div>}
-        {!p.selection && <div className="tl-prop__caption">select an entity in the hierarchy or viewport</div>}
-        {p.captureError && (
-          <div className="tl-prop__error" title={p.captureError.message}>
-            {p.captureError.code}: {p.captureError.message}
-          </div>
-        )}
-      </div>
+      <p className="tl-prop__caption">New prefab: select an object, then GameObject → Create prefab from selection (or right-click it in the Hierarchy).</p>
 
       <VirtualList
         className="tl-prefabs__list tl-tiles tl-tiles--virtual"

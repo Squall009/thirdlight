@@ -74,10 +74,12 @@ import { useAssetActions } from './shell/useAssetActions';
 import { useLightingBake } from './shell/useLightingBake';
 import { useScripting } from './shell/useScripting';
 import { useAnimatorTools } from './shell/useAnimatorTools';
-import { editorMenus } from './shell/menus';
+import { editorMenus, hierarchyContextMenu } from './shell/menus';
 import { BottomDock } from './shell/BottomDock';
 import { InspectorDock } from './shell/InspectorDock';
 import type { BottomTab } from './shell/dock-tabs';
+import { TOOL_WINDOWS, useToolWindows, type ToolWindowId } from './tools/tool-windows';
+import { defaultToolPlace, SceneToolWindows } from './tools/SceneToolWindows';
 import type { ReportFailure } from './shell/commands';
 
 // KTX2 textures (and GLBs with KHR_texture_basisu) transcode with three's Basis files next to the editor page.
@@ -192,7 +194,7 @@ function EditorApp(): JSX.Element {
   const [snapping, setSnapping] = useState(true);
   // The snapping steps and cell-top snapping (editor settings per project, in this browser).
   const [snapSettings, setSnapSettingsState] = useState<SnapSettings>({ ...DEFAULT_SNAP_SETTINGS });
-  const blocks = useBlockLayers({ clientRef, viewportRef, registry, cellTops: snapSettings.cellTops, reportFailure, setNotice });
+  const blocks = useBlockLayers({ clientRef, viewportRef, registry, cellTops: snapSettings.cellTops, reportFailure, setNotice, selectedId, select: setSelectedId });
   const { setBlockEditor, blockHandlersRef, writeFootprintRef, receive: receiveBlocks } = blocks;
   const modelInstancesRef = useRef<ModelInstances | null>(null);
   const shiftRef = useRef(false);
@@ -594,7 +596,20 @@ function EditorApp(): JSX.Element {
 
   const cue = useCuePreview(clientRef);
   const entityEditing = useEntityEditing({ clientRef, viewportRef, modelInstancesRef, refreshEntities, reportFailure, setNotice, registry, entities, selectedId });
-  const prefab = usePrefabAuthoring({ clientRef, selectedId, selectedIdRef, declarations: content.declarations, runTypedCommand: entityEditing.runTypedCommand });
+  const prefab = usePrefabAuthoring({ clientRef, selectedIdRef, declarations: content.declarations, runTypedCommand: entityEditing.runTypedCommand, setNotice });
+  /** An asset chosen in the project window since the last selection: the Inspector shows it (an audio asset). */
+  const [inspectedAsset, setInspectedAsset] = useState<string | null>(null);
+  useEffect(() => setInspectedAsset(null), [selection]);
+  /** The Window menu's floating tool windows over the Scene view. */
+  const toolWindows = useToolWindows();
+  const workareaRef = useRef<HTMLDivElement | null>(null);
+  const showToolWindow = useCallback(
+    (id: ToolWindowId) => {
+      setCenterTab('scene');
+      toolWindows.show(id, defaultToolPlace(workareaRef.current, stageRef.current, TOOL_WINDOWS.findIndex((t) => t.id === id)));
+    },
+    [setCenterTab, toolWindows],
+  );
   // ---- Asset files in the game folder -------------
   // The file check (useAssetFileCheck.ts): moved and changed files, Problems rows.
   const fileCheck = useAssetFileCheck(clientRef, ui.connection);
@@ -621,7 +636,7 @@ function EditorApp(): JSX.Element {
         prefab.setSelectedPrefabId(id);
         setBottomTab('prefabs');
       },
-      showEnvironment: () => setBottomTab('environment'),
+      showEnvironment: () => showToolWindow('environment'),
     },
   });
   const assetActions = useAssetActions({
@@ -639,7 +654,7 @@ function EditorApp(): JSX.Element {
   const { filePicker, setFilePicker } = assets;
   const docCmds = useDocumentCommands({ clientRef, viewportRef, workspaceDispatch, setGraphFocus: docState.setGraphFocus });
   const activeScene = sceneHeaders?.find((h) => h.active) ?? null;
-  const bake = useLightingBake(clientRef, viewportRef, activeScene, refreshEntities, bottomTab === 'lighting');
+  const bake = useLightingBake(clientRef, viewportRef, activeScene, refreshEntities, toolWindows.isOpen('lighting'));
 
   const scripting = useScripting({ clientRef, behaviorViews, scriptLibraries: content.scriptLibraries, refreshEntities, workspace, workspaceDispatch, openDocument, playInfo });
 
@@ -834,6 +849,9 @@ function EditorApp(): JSX.Element {
       setBottomTab(tab);
     },
     openProjectSettings: () => settingsWindow.show(),
+    showToolWindow,
+    createPrefabFromSelection: () => void prefab.createPrefabFromSelection(),
+    createBlockLayer: () => void blocks.createBlockLayer(),
     resync,
     scene: sceneEditing,
     entity: entityEditing,
@@ -870,6 +888,12 @@ function EditorApp(): JSX.Element {
       setBrushOn={setBrushOn}
       reportFailure={reportFailure}
       setNotice={setNotice}
+      inspectedAsset={inspectedAsset}
+      cue={cue}
+      assetOptions={assets.assetOptions}
+      tileThumbnails={tileThumbnails}
+      select={setSelectedId}
+      sceneInFront={centerTab === 'scene'}
     />
   );
 
@@ -900,7 +924,7 @@ function EditorApp(): JSX.Element {
         onStop={() => void stop()}
         {...(playMode !== null ? { playMode } : {})}
       />
-      <div className="tl-app__workarea">
+      <div className="tl-app__workarea" ref={workareaRef}>
       {/* Under the editor window the default view keeps its state but takes no input. */}
       <div className={`tl-app__body${workspace.maximized ? ' is-maximized' : ''}`} inert={windowOpen || settingsWindow.open}>
         <div className="tl-app__main">
@@ -923,6 +947,7 @@ function EditorApp(): JSX.Element {
             void dropAsset(asset, [Math.round(focus[0] * 4) / 4, Math.round(focus[1] * 4) / 4, Math.round(focus[2] * 4) / 4], parentId);
           }}
           {...(sceneHeaders !== null ? { scenes: sceneHeaders, closedScenes, onSceneAction: (a: SceneAction) => void sceneAction(a) } : {})}
+          contextMenu={() => hierarchyContextMenu(sceneEditing, () => void prefab.createPrefabFromSelection())}
         />
             </div>
             <div className="tl-splitter tl-splitter--v" onPointerDown={splitter('left')} role="separator" aria-orientation="vertical" aria-label="Resize the hierarchy" />
@@ -1029,19 +1054,13 @@ function EditorApp(): JSX.Element {
             onTab={setBottomTab}
             height={sizes.bottom}
             clientRef={clientRef}
-            viewportRef={viewportRef}
             content={content}
-            settings={projectSettings}
             docState={docState}
             docCmds={docCmds}
             scripting={scripting}
             animator={animatorTools}
-            bake={bake}
-            blocks={blocks}
             prefab={prefab}
-            cue={cue}
             play={playSession}
-            scene={sceneEditing}
             problems={problems}
             problemLog={ui.problems}
             viewFailures={viewFailures}
@@ -1057,24 +1076,31 @@ function EditorApp(): JSX.Element {
               uiDocumentCount: uiDocuments.length,
               createUiDocument: docCmds.createUiDocument,
               tileThumbnails,
+              inspect: setInspectedAsset,
             }}
             workspace={workspace}
             workspaceDispatch={workspaceDispatch}
             openDocument={openDocument}
-            entities={entities}
-            selected={selected}
-            selectedId={selectedId}
-            refreshEntities={refreshEntities}
-            setNotice={setNotice}
-            activeScene={activeScene}
-            fieldContext={fieldContextMemo}
-            gameFieldContext={gameFieldContext}
-            tileThumbnails={tileThumbnails}
           />
         </div>
         <div className="tl-splitter tl-splitter--v" onPointerDown={splitter('right')} role="separator" aria-orientation="vertical" aria-label="Resize the inspector" />
         {windowOpen ? <div className="tl-dock" style={{ width: sizes.right }} /> : inspector('dock')}
       </div>
+      {/* Scene settings float over the Scene view while it is in front (the editor window, Project Settings and the Game view set them aside). */}
+      {centerTab === 'scene' && !windowOpen && !settingsWindow.open && (
+        <SceneToolWindows
+          tools={toolWindows}
+          area={workareaRef}
+          clientRef={clientRef}
+          viewportRef={viewportRef}
+          content={content}
+          docCmds={docCmds}
+          bake={bake}
+          entities={entities}
+          sceneHeaders={sceneHeaders}
+          activateScene={(sceneId) => void sceneAction({ kind: 'activate', sceneId })}
+        />
+      )}
       {/* The settings window covers the editor window too; what is under it takes no input. */}
       <div className="tl-app__layer" inert={settingsWindow.open}>
         <EditorWindow state={workspace} dispatch={workspaceDispatch} host={workspaceHost} inspector={windowOpen ? inspector('window') : null} onSplitter={splitter('window')} />

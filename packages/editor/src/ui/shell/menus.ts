@@ -18,6 +18,7 @@ import type { SceneEditing } from './useSceneEditing';
 import type { EntityEditing } from './useEntityEditing';
 import type { EditorDialogsState } from './useEditorDialogs';
 import { BOTTOM_TABS, type BottomTab } from './dock-tabs';
+import { resetToolWindows, TOOL_WINDOWS, type ToolWindowId } from '../tools/tool-windows';
 
 export interface EditorMenuInput {
   registry: DescriptorRegistry | null;
@@ -43,6 +44,12 @@ export interface EditorMenuInput {
   setBottomTab: (tab: BottomTab) => void;
   /** Open the Project Settings window (at the sub-tab last shown). */
   openProjectSettings: () => void;
+  /** Open a floating tool window over the Scene view (or bring it to the front). */
+  showToolWindow: (id: ToolWindowId) => void;
+  /** GameObject → Create prefab from selection. */
+  createPrefabFromSelection: () => void;
+  /** GameObject → Block layer (a new layer, selected so its tools show). */
+  createBlockLayer: () => void;
   resync: () => void;
   scene: SceneEditing;
   entity: EntityEditing;
@@ -51,7 +58,7 @@ export interface EditorMenuInput {
 
 export function editorMenus(input: EditorMenuInput): Menu[] {
   const { registry, settings, sceneHeaders, closedScenes, entities, selected, selectedId, selectedComponents, ui, snapping, setSnapping, snapSettings } = input;
-  const { gizmos, setGizmos, effectPreview, setEffectPreview, workspace, workspaceDispatch, setCenterTab, setBottomTab, openProjectSettings, resync } = input;
+  const { gizmos, setGizmos, effectPreview, setEffectPreview, workspace, workspaceDispatch, setCenterTab, setBottomTab, openProjectSettings, showToolWindow, createPrefabFromSelection, createBlockLayer, resync } = input;
   const { clipboardRef, copySelection, createCamera, createEmpty, createEntityAt, createFolder, createLight, del, duplicate, newBox, paste, redo, undo } = input.scene;
   const { addComponentTo, colliderFromModel, colliderFromModel3D, editComponent } = input.entity;
   const { setDialog, setExportState, setSnapDraft } = input.dialogs;
@@ -150,7 +157,10 @@ export function editorMenus(input: EditorMenuInput): Menu[] {
         'separator',
         { label: 'Model from asset…', onSelect: () => setBottomTab('assets') },
         { label: 'Instance set…', onSelect: () => setDialog('instances') },
+        { label: 'Block layer', onSelect: () => createBlockLayer() },
         { label: 'Prefab copy…', onSelect: () => setBottomTab('prefabs') },
+        'separator',
+        { label: 'Create prefab from selection', disabled: noSelection, reason: need, onSelect: () => createPrefabFromSelection() },
       ],
     },
     {
@@ -218,11 +228,14 @@ export function editorMenus(input: EditorMenuInput): Menu[] {
         { label: 'Previous tab', shortcut: 'Ctrl+Shift+Tab', onSelect: () => workspaceDispatch({ type: 'cycle', dir: -1 }) },
         { label: workspace.maximized ? 'Restore docks' : 'Maximize centre area', onSelect: () => workspaceDispatch({ type: 'maximize' }) },
         'separator',
+        // Scene settings float over the Scene view (it previews them): the editor window steps aside.
+        ...TOOL_WINDOWS.map<MenuEntry>((t) => ({ label: t.label, onSelect: () => showToolWindow(t.id) })),
+        'separator',
         // A tool window shows in the default view: the editor window steps aside.
         ...BOTTOM_TABS.map<MenuEntry>((t) => ({ label: t.label, onSelect: () => { workspaceDispatch({ type: 'show', on: false }); setBottomTab(t.id); } })),
         'separator',
         { label: 'Full screen', shortcut: 'Shift+F11', onSelect: () => { if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined); else void document.documentElement.requestFullscreen().catch(() => undefined); } },
-        { label: 'Reset layout', onSelect: () => { resetLayout(); resetWorkspaces(); window.location.reload(); } },
+        { label: 'Reset layout', onSelect: () => { resetLayout(); resetWorkspaces(); resetToolWindows(); window.location.reload(); } },
       ],
     },
     {
@@ -234,4 +247,15 @@ export function editorMenus(input: EditorMenuInput): Menu[] {
     },
   ];
   return menus;
+}
+
+/** The Hierarchy's context menu (right-click a row): what the menu bar does to the selection. */
+export function hierarchyContextMenu(scene: Pick<SceneEditing, 'duplicate' | 'copySelection' | 'del'>, createPrefabFromSelection: () => void): MenuEntry[] {
+  return [
+    { label: 'Create prefab from selection', onSelect: createPrefabFromSelection },
+    'separator',
+    { label: 'Duplicate', shortcut: 'Ctrl+D', onSelect: () => void scene.duplicate() },
+    { label: 'Copy', shortcut: 'Ctrl+C', onSelect: () => void scene.copySelection() },
+    { label: 'Delete', shortcut: 'Del', onSelect: () => void scene.del() },
+  ];
 }

@@ -25,6 +25,8 @@ export interface AssetsTabProps {
   uiDocumentCount: number;
   createUiDocument: (name: string) => Promise<void>;
   tileThumbnails: TileThumbnails | null;
+  /** The chosen asset shows in the Inspector (an audio asset's settings and listening are there). */
+  inspect: (assetId: string) => void;
 }
 
 export function AssetsTab(props: AssetsTabProps): JSX.Element {
@@ -45,6 +47,7 @@ export function AssetsTab(props: AssetsTabProps): JSX.Element {
       onSelect={(id) => {
         setSelectedAssetId(id);
         setAssetDeleteError(null);
+        props.inspect(id);
       }}
       onImport={(f) => void importFile(f, 'create')}
       importSettings={importSettings}

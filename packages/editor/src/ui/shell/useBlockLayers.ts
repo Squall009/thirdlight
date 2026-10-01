@@ -1,14 +1,15 @@
 /**
- * Block-layer editing: the Blocks panel's layers, types, cell fields and
- * stamps, the Scene view's block tools, props' block footprints and
- * cell-top snapping. `receive` copies the layers from the session client
- * after every applied change and hands them to the Scene view.
+ * Block-layer editing: the block tools' layers, types, cell fields and
+ * stamps (the tools show in the Inspector while a block layer is selected,
+ * and edit that layer), the Scene view's block tools, props' block
+ * footprints and cell-top snapping. `receive` copies the layers from the
+ * session client after every applied change and hands them to the Scene view.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { SessionClient } from '../../session/client';
+import { SessionClient, type BlockLayerView } from '../../session/client';
 import { effectiveFlagsOf } from '../../session/hierarchy';
 import { presetValue } from '../../session/descriptor-fields';
-import type { DescriptorRegistry, BlockEdit, BlockFootprintComponent, BlockStamp, BlockType, CellField } from '@thirdlight/project-model';
+import type { DescriptorRegistry, BlockEdit, BlockFootprintComponent, BlockLayerComponent, BlockStamp, BlockType, CellField } from '@thirdlight/project-model';
 import type { BlockLayerRow, BlockPanelHandlers } from '../BlocksPanel';
 import type { BlockEditor } from '../../viewport/block-editor';
 import { BlockGrid } from '@thirdlight/runtime';
@@ -24,11 +25,15 @@ export interface BlockLayersDeps {
   cellTops: boolean;
   reportFailure: ReportFailure;
   setNotice: SetNotice;
+  /** The selected object: the tools edit it while it is a block layer. */
+  selectedId: string | null;
+  /** Select an object (a new layer is selected, so its tools show). */
+  select: (id: string) => void;
 }
 
 export function useBlockLayers(deps: BlockLayersDeps) {
-  const { clientRef, viewportRef, registry, cellTops, reportFailure, setNotice } = deps;
-  // Block-layer editing (the Blocks panel and the Scene view's block tools).
+  const { clientRef, viewportRef, registry, cellTops, reportFailure, setNotice, selectedId, select } = deps;
+  // Block-layer editing (the tools in the Inspector and the Scene view's block tools).
   const [blockEditor, setBlockEditor] = useState<BlockEditor | null>(null);
   const [blockRows, setBlockRows] = useState<readonly BlockLayerRow[]>([]);
   const [blockTypes, setBlockTypes] = useState<readonly BlockType[]>([]);
@@ -110,10 +115,31 @@ export function useBlockLayers(deps: BlockLayersDeps) {
     if (!res.ok || res.createdId === undefined) return reportFailure('New block layer', res);
     const id = res.createdId;
     reportFailure('New block layer', await c.command('setComponent', { entityId: id, component: 'blockLayer', value }, c.projection.revision));
-    setBlockLayerId(id);
-  }, [clientRef, registry, reportFailure, setNotice]);
+    select(id);
+  }, [clientRef, registry, reportFailure, setNotice, select]);
 
-  /** The block layers (cells, block types) at their entities' positions, for the panel and the Scene view. */
+  /** The Scene view's block tools edit the chosen layer (none: no layer chosen, or it is gone). */
+  const pushLayer = useCallback((c: SessionClient, layers: ReadonlyMap<string, { component: BlockLayerComponent; chunks: BlockLayerView['chunks']; origin: number[] }>, rows: readonly BlockLayerRow[]) => {
+    const sel = blockLayerIdRef.current;
+    const l = sel !== null ? layers.get(sel) : undefined;
+    const row = rows.find((r) => r.entityId === sel);
+    viewportRef.current?.blockEditor()?.setLayer(l !== undefined && row !== undefined ? { entityId: sel!, component: l.component, origin: l.origin, chunks: l.chunks, regions: row.regions, locked: row.locked, hidden: !row.active } : null, c.getBlockRevision());
+  }, [viewportRef]);
+  const rowsRef = useRef<readonly BlockLayerRow[]>([]);
+  rowsRef.current = blockRows;
+  // Selecting a block layer makes it the one the tools edit (the Inspector shows its tools).
+  useEffect(() => {
+    const c = clientRef.current;
+    if (c === null || selectedId === null || selectedId === blockLayerIdRef.current) return;
+    const l = c.getBlockLayers().get(selectedId);
+    const e = c.projection.getEntity(selectedId);
+    if (l === undefined || e === undefined) return;
+    blockLayerIdRef.current = selectedId;
+    setBlockLayerId(selectedId);
+    pushLayer(c, new Map([[selectedId, { component: l.component, chunks: l.chunks, origin: e.position }]]), rowsRef.current);
+  }, [clientRef, selectedId, pushLayer, blockRows]);
+
+  /** The block layers (cells, block types) at their entities' positions, for the tools and the Scene view. */
   const receive = useCallback((c: SessionClient, stable: Stable) => {
     // The block layers (cells, block types) at their entities' positions.
     const blockLayers = c.getBlockLayers();
@@ -124,21 +150,18 @@ export function useBlockLayers(deps: BlockLayersDeps) {
       const flags = effectiveFlagsOf(c.projection.listEntities());
       for (const [id, l] of layers) (l as { hidden?: boolean }).hidden = flags.get(id)?.active === false;
       viewportRef.current?.setBlockLayers(c.getBlockTypes(), layers, c.getBlockRevision());
-      // The Blocks panel's layer list and the Scene view's selected layer.
+      // The tools' layer list and the Scene view's chosen layer.
       const rows: BlockLayerRow[] = [...blockLayers]
         .filter(([id]) => byId.has(id))
         .map(([id, l]) => ({ entityId: id, name: byId.get(id)!.name ?? id, component: l.component, regions: l.regions, active: flags.get(id)?.active !== false, locked: flags.get(id)?.locked === true }));
       setBlockRows(stable('blockRows', rows));
-      const sel = blockLayerIdRef.current;
-      const l = sel !== null ? layers.get(sel) : undefined;
-      const row = rows.find((r) => r.entityId === sel);
-      viewportRef.current?.blockEditor()?.setLayer(l !== undefined && row !== undefined ? { entityId: sel!, component: l.component, origin: l.origin, chunks: l.chunks, regions: row.regions, locked: row.locked, hidden: !row.active } : null, c.getBlockRevision());
+      pushLayer(c, layers, rows);
     } else setBlockRows(stable('blockRows', []));
     setBlockTypes(stable('blockTypes', c.getBlockTypes()));
     setCellFields(stable('cellFields', c.getCellFields()));
     setBlockStamps(stable('blockStamps', c.getBlockStamps()));
     viewportRef.current?.blockEditor()?.setContent(c.getBlockTypes(), c.getCellFields(), c.getBlockStamps());
-  }, [viewportRef]);
+  }, [viewportRef, pushLayer]);
 
   return {
     blockEditor, setBlockEditor, blockRows, blockTypes, cellFields, blockStamps, blockLayerId, setBlockLayerId, blockLayerIdRef, blockHandlersRef,

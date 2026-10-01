@@ -4,19 +4,10 @@
  */
 import type { JSX, Dispatch } from 'react';
 import type { ClientUiState } from '../../session/client';
-import type { ProjectedEntity } from '../../session/projection';
-import type { FieldContext } from '../DescriptorFields';
-import { TileThumbnails } from '../../viewport/thumbnails';
-import type { SceneHeaderView } from '../Hierarchy';
 import { MaterialsPanel } from '../MaterialsPanel';
-import { EnvironmentPanel } from '../EnvironmentPanel';
-import { LightingPanel } from '../LightingPanel';
 import { AnimatorPanel } from '../AnimatorPanel';
-import { bakeIsStale } from '../../viewport/bake-run';
 import { PrefabPanel } from '../PrefabPanel';
 import { activeDoc, docKey, type WorkspaceAction, type WorkspaceState } from '../../session/editor-window';
-import { BlocksPanel } from '../BlocksPanel';
-import { MediaPanel } from '../MediaPanel';
 import { ProblemsPanel } from '../ProblemsPanel';
 import { EffectsPanel } from '../effect/EffectsPanel';
 import { DialoguePanel, freeDialogueId } from '../dialogue/DialoguePanel';
@@ -31,19 +22,14 @@ import { newEffect, uniqueId } from '../../session/effect-edit';
 import { GraphsPanel } from '../../graph/GraphsPanel';
 import type { SourceIssue } from '../../session/asset-sources';
 import { useAssetFileCheck } from '../useAssetFileCheck';
-import type { ClientRef, SetNotice, ViewportRef } from './commands';
+import type { ClientRef } from './commands';
 import type { ProjectContent } from './useProjectContent';
-import type { ProjectSettings } from './useProjectSettings';
 import type { DocumentState } from '../workspace/useDocumentState';
 import type { DocumentCommands } from '../workspace/useDocumentCommands';
 import type { Scripting } from './useScripting';
 import type { AnimatorTools } from './useAnimatorTools';
-import type { LightingBakeState } from './useLightingBake';
-import type { BlockLayers } from './useBlockLayers';
 import type { PrefabAuthoring } from './usePrefabAuthoring';
-import type { CuePreview } from './useCuePreview';
 import type { PlaySession } from './usePlaySession';
-import type { SceneEditing } from './useSceneEditing';
 import type { EditorProblems } from './useEditorProblems';
 import { BOTTOM_TABS, type BottomTab } from './dock-tabs';
 import { AssetsTab, type AssetsTabProps } from './AssetsTab';
@@ -53,19 +39,13 @@ export interface BottomDockProps {
   onTab: (tab: BottomTab) => void;
   height: number;
   clientRef: ClientRef;
-  viewportRef: ViewportRef;
   content: ProjectContent;
-  settings: ProjectSettings;
   docState: DocumentState;
   docCmds: DocumentCommands;
   scripting: Scripting;
   animator: AnimatorTools;
-  bake: LightingBakeState;
-  blocks: BlockLayers;
   prefab: PrefabAuthoring;
-  cue: CuePreview;
   play: PlaySession;
-  scene: SceneEditing;
   problems: EditorProblems;
   /** The client's problem log (the Problems tab). */
   problemLog: ClientUiState['problems'];
@@ -76,35 +56,19 @@ export interface BottomDockProps {
   workspace: WorkspaceState;
   workspaceDispatch: Dispatch<WorkspaceAction>;
   openDocument: (kind: string, id: string) => void;
-  entities: ProjectedEntity[];
-  selected: ProjectedEntity | null;
-  selectedId: string | null;
-  refreshEntities: () => void;
-  setNotice: SetNotice;
-  activeScene: SceneHeaderView | null;
-  fieldContext: FieldContext;
-  gameFieldContext: Omit<FieldContext, 'sceneId'>;
-  tileThumbnails: TileThumbnails | null;
 }
 
 export function BottomDock(props: BottomDockProps): JSX.Element {
-  const { tab: bottomTab, onTab: setBottomTab, height, clientRef, viewportRef, problemLog, viewFailures, fileCheck, reimportIssue, workspace, workspaceDispatch, openDocument } = props;
-  const { entities, selected, selectedId, refreshEntities, setNotice, activeScene, gameFieldContext, tileThumbnails } = props;
-  const { fieldContext: fieldContextMemo } = props;
-  const { dialogues, dialogueSettings, effects, environment, sceneLook, graphKinds, graphs, lighting, materials, prefabSummaries, projectUiDocs, projectUiThemes, registry, scriptLibraries, speakers, timelines, uiDocuments, uiThemes } = props.content;
-  const { eventCues, eventCuesError, saveEventCues } = props.settings;
+  const { tab: bottomTab, onTab: setBottomTab, height, clientRef, problemLog, viewFailures, fileCheck, reimportIssue, workspace, workspaceDispatch, openDocument } = props;
+  const { dialogues, dialogueSettings, effects, graphKinds, graphs, materials, prefabSummaries, projectUiDocs, projectUiThemes, scriptLibraries, speakers, timelines, uiDocuments, uiThemes } = props.content;
   const { activeDialogueId, activeEffectId, activeGraphId, setMaterialFocus, setVisualFocus } = props.docState;
-  const { createUiDocument, deleteMaterial, dialogueCommand, dialogueError, graphDocCommand, graphsError, effectCommand, effectError, materialError, saveEnvironment, saveSceneEnvironment, saveMaterial } = props.docCmds;
+  const { createUiDocument, deleteMaterial, dialogueCommand, dialogueError, graphDocCommand, graphsError, effectCommand, effectError, materialError, saveMaterial } = props.docCmds;
   const { selectedMaterialId, setSelectedMaterialId, setDialogueError, setUiError, showGraph, timelineCommand, timelineError, uiCommand, uiError } = props.docCmds;
   const { dirtyLibraries, libraryCommand, libraryDependents, libraryError, openSource, saveAllLibraries, saveAllOutcome } = props.scripting;
   const { animatorProps } = props.animator;
-  const { bakeAbortRef, bakeBusy, bakeFinal, bakeHost, bakeMessage, bakePreview, bakeSettings, clearBake, setBakeSettings } = props.bake;
-  const { blockEdit, blockEditor, blockHandlersRef, blockLayerId, blockLayerIdRef, blockRows, blockRun, blockStamps, blockTypes, cellFields, createBlockLayer, setBlockLayerId } = props.blocks;
-  const { captureError, captureIdRef, captureName, capturePrefab, commitOverride, copyError, deletePrefab, overrideDrafts, overrideTargets, placeCopy } = props.prefab;
-  const { prefabDeleteError, selectedPrefabId, setCaptureName, setCopyError, setOverrideDrafts, setSelectedPrefabId } = props.prefab;
-  const { previewCue, previewOwnerRef, unlockPreview } = props.cue;
+  const { commitOverride, copyError, deletePrefab, overrideDrafts, overrideTargets, placeCopy } = props.prefab;
+  const { prefabDeleteError, selectedPrefabId, setCopyError, setOverrideDrafts, setSelectedPrefabId } = props.prefab;
   const { playInfo, playing } = props.play;
-  const { setFlag } = props.scene;
   const { graphIssues, scriptIssues, materialIssues } = props.problems;
   return (
     <div className="tl-dock tl-dock--bottom" style={{ height: height }}>
@@ -239,31 +203,6 @@ export function BottomDock(props: BottomDockProps): JSX.Element {
         }}
       />
     )}
-    {bottomTab === 'blocks' && (
-      <BlocksPanel
-        editor={blockEditor}
-        visible={bottomTab === 'blocks' && activeDoc(workspace) === null}
-        layers={blockRows}
-        layerId={blockLayerId}
-        onLayer={(id) => {
-          setBlockLayerId(id);
-          blockLayerIdRef.current = id;
-          refreshEntities();
-        }}
-        types={blockTypes}
-        fields={cellFields}
-        stamps={blockStamps}
-        registry={registry}
-        fieldContext={gameFieldContext}
-        thumbnails={tileThumbnails}
-        handlers={blockHandlersRef}
-        run={blockRun}
-        edit={blockEdit}
-        onCreateLayer={() => void createBlockLayer()}
-        onSetFlag={(id, flag, value) => void setFlag(id, flag, value)}
-        onNotice={setNotice}
-      />
-    )}
     {bottomTab === 'problems' && (
       <ProblemsPanel
         graphIssues={[...graphIssues, ...scriptIssues, ...materialIssues]}
@@ -324,16 +263,11 @@ export function BottomDock(props: BottomDockProps): JSX.Element {
     {bottomTab === 'assets' && <AssetsTab {...props.assetsTab} />}
     {bottomTab === 'prefabs' && (
       <PrefabPanel
-        selection={selected}
         definitions={prefabSummaries}
         selectedPrefabId={selectedPrefabId}
         targets={overrideTargets}
-        captureDraft={captureIdRef.current && selectedId ? { prefabId: captureIdRef.current, displayName: captureName } : null}
-        captureError={captureError}
         copyError={copyError}
         overrideCount={Object.keys(overrideDrafts).length}
-        onCaptureName={setCaptureName}
-        onCapture={() => void capturePrefab()}
         onSelect={(id) => {
           setSelectedPrefabId(id);
           setOverrideDrafts({});
@@ -356,54 +290,7 @@ export function BottomDock(props: BottomDockProps): JSX.Element {
         onOpen={(id) => openDocument('material', id)}
       />
     )}
-    {bottomTab === 'environment' && (
-      <EnvironmentPanel
-        environment={environment}
-        onSave={(env) => void saveEnvironment(env, environment)}
-        scene={activeScene === null ? null : { sceneId: activeScene.sceneId, name: activeScene.name }}
-        look={sceneLook}
-        onSaveLook={(look) => activeScene !== null && void saveSceneEnvironment(activeScene.sceneId, look, sceneLook)}
-        error={materialError}
-        presets={{
-          lights: entities.filter((e) => e.light !== undefined).map((e) => ({ id: e.id, type: e.light!.type, color: e.light!.color, intensity: e.light!.intensity, ...(e.light!.direction !== undefined ? { direction: e.light!.direction } : {}), ...(e.light!.groundColor !== undefined ? { groundColor: e.light!.groundColor } : {}) })),
-          onPreview: (weights) => viewportRef.current?.previewEnvironmentBlend(weights === null ? null : { weights }, new Map((clientRef.current?.getTags() ?? []).map((t) => [t.name, t.bit]))),
-        }}
-      />
-    )}
     {bottomTab === 'animator' && <AnimatorPanel {...animatorProps} />}
-    {bottomTab === 'lighting' && (
-      activeScene === null ? (
-        <p className="tl-hint">Lighting bakes need a project with scenes (storage v4).</p>
-      ) : (
-        <LightingPanel
-          sceneName={activeScene.name}
-          bake={lighting[activeScene.sceneId] ?? null}
-          stale={lighting[activeScene.sceneId] !== undefined && bakeIsStale(lighting[activeScene.sceneId]!, (clientRef.current?.projection.listEntities() ?? []).filter((e) => e.sceneId === activeScene.sceneId), (id) => clientRef.current?.getBlockLayers().get(id)?.chunks)}
-          settings={bakeSettings}
-          onSettings={setBakeSettings}
-          busy={bakeBusy}
-          finalUnavailable={bakeHost}
-          message={bakeMessage}
-          onBakePreview={() => void bakePreview()}
-          onBakeFinal={() => void bakeFinal()}
-          onCancel={() => bakeAbortRef.current?.abort()}
-          onClear={() => void clearBake()}
-        />
-      )
-    )}
-    {bottomTab === 'media' && (
-      <MediaPanel
-        previewStatus={previewOwnerRef.current?.status() ?? { state: 'unsupported' }}
-        previewDiagnostics={previewOwnerRef.current?.diagnostics() ?? []}
-        onUnlockPreview={unlockPreview}
-        onPreviewCue={(id) => void previewCue(id)}
-        registry={registry}
-        eventCues={eventCues}
-        fieldContext={fieldContextMemo}
-        eventCuesError={eventCuesError}
-        onSetEventCues={(next, base) => void saveEventCues(next, base)}
-      />
-    )}
     </div>
   );
 }

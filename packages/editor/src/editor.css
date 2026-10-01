@@ -1109,3 +1109,23 @@ input.tl-inspector__name:hover, input.tl-inspector__name:focus { border-color: v
 .tl-project__row .tl-project__folder-icon { width: 16px; height: 16px; }
 .tl-project__row .tl-tile__name { text-align: left; }
 .tl-project__cell { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 11px; }
+
+/* Floating tool windows (Lighting, Environment) over the Scene view: a title bar to drag, the scene they
+ * edit with its picker, the panel, a corner to resize. Below the editor window and Project Settings. */
+.tl-tool-windows { position: absolute; inset: 0; z-index: 4; pointer-events: none; }
+.tl-tool-window { position: absolute; display: flex; flex-direction: column; min-width: 0; pointer-events: auto; overflow: hidden;
+  background: var(--surface-1); border: 1px solid var(--line-strong); border-radius: var(--radius); box-shadow: 0 8px 24px rgba(0, 0, 0, .45); }
+.tl-tool-window__title { flex: none; display: flex; align-items: center; justify-content: space-between; height: 30px; padding-left: 10px;
+  background: var(--surface-2); border-bottom: 1px solid var(--line); cursor: move; user-select: none; touch-action: none; }
+.tl-tool-window__name { font-weight: 600; }
+.tl-tool-window__scene { flex: none; display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--line); }
+.tl-tool-window__scene > select { flex: 1; min-width: 0; }
+.tl-tool-window__body { flex: 1; min-height: 0; overflow: auto; padding: 6px 10px 10px; }
+.tl-tool-window__body > .tl-panel { height: auto; }
+.tl-tool-window__body .tl-environment__grid { grid-template-columns: 1fr; }
+.tl-tool-window__resize { position: absolute; right: 0; bottom: 0; width: 14px; height: 14px; cursor: nwse-resize; touch-action: none;
+  background: linear-gradient(135deg, transparent 50%, var(--line-strong) 50%); }
+/* A context menu at the pointer (the Hierarchy's). */
+.tl-context-menu { position: fixed; z-index: 20; }
+/* A block layer's tools inside its Inspector section. */
+.tl-inspector .tl-blocks { flex: none; overflow: visible; padding: 4px 0; }

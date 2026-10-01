@@ -103,6 +103,12 @@ export interface BlockEditorHost {
   requestRender(): void;
   /** The chunk renderer (the preview writes into it). */
   view(): BlockLayerView;
+  /**
+   * The tools were armed or disarmed. Armed, they own the left button in the
+   * Scene view, so the host stands its transform gizmo aside (the layer they
+   * edit is the selection, and its gizmo would sit over the cells).
+   */
+  armed?(on: boolean): void;
 }
 
 const HOVER_ADD = 0x6ee7a0;
@@ -206,6 +212,7 @@ export class BlockEditor {
     if (!on) this.cancel();
     this.syncVisibility();
     this.host.canvas.setAttribute('data-block-tool', on ? this.opts.tool : '');
+    this.host.armed?.(on);
   }
 
   isActive(): boolean {
@@ -319,11 +326,11 @@ export class BlockEditor {
     if (!this.active || e.button !== 0 || e.altKey) return false;
     const layer = this.layer;
     if (layer === null) {
-      this.cb.onRefused('Choose a block layer first (Blocks panel).');
+      this.cb.onRefused('Select a block layer first (its tools are in the Inspector).');
       return true;
     }
     if (layer.locked && this.opts.tool !== 'eyedropper' && this.opts.tool !== 'select') {
-      this.cb.onRefused('The layer is locked (unlock it in the Blocks panel or the Hierarchy).');
+      this.cb.onRefused('The layer is locked (unlock it in its tools in the Inspector or in the Hierarchy).');
       return true;
     }
     if (layer.hidden) {

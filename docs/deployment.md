@@ -416,8 +416,9 @@ editor, which knows the model's own material names) and a script (its
 declared properties). Gameplay → Settings is built the same way (every project setting, the engine
 settings included; the step rate is a choice of 60, 120 or 240 Hz; each
 change is saved at once); the Gameplay tab's Camera page points to the camera object, whose
-lens and follow settings are Inspector sections. The Media tab is for
-listening to the project's sounds.
+lens and follow settings are Inspector sections. An audio asset chosen in
+the project window shows in the Inspector: its load type, preload and a play
+button (after "enable preview sound").
 
 ## Hierarchy: folders and flags
 
@@ -1171,7 +1172,9 @@ node tools/project.mjs register ~/projects/my-game-restored
 
 ## Baked lighting
 
-The Lighting tab bakes lightmaps for the active scene's static objects
+The Lighting window (Window → Lighting, floating over the Scene view; it
+names the scene it edits and its picker makes another scene active) bakes
+lightmaps for the active scene's static objects
 (Inspector → Static; boxes, and models with a second UV set) from the lights
 set to **baked** (direct + bounce; no longer realtime once baked) or
 **mixed** (realtime direct light, baked bounce light). The atlases become
@@ -2108,7 +2111,7 @@ Generic again: both dimensions.
 - **Look overrides**: `ctx.look.set(id, {emissive, emissiveIntensity, tint})`
   glows and tints an object on both renderers until `ctx.look.clear(id)` or a
   new run (`ctx.look.get(id)` reads it; saved in the `components` section).
-- **Event sounds** (Media tab): rows that play a sound when a **signal** is
+- **Event sounds** (Project Settings → Audio): rows that play a sound when a **signal** is
   sent (by name) or an **event** happens (`enter`, `exit`, `collected`,
   `damaged`, `died`, `contact`, … or an animator clip event's name;
   optionally only one object's), at a volume on a bus. The export carries

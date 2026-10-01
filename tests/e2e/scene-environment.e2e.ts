@@ -27,7 +27,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
 import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
-import { openWindow } from './ui';
+import { openWindow, toolWindowScene } from './ui';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -101,9 +101,9 @@ for (const variant of RENDERER_VARIANTS) test(`each scene's look in the Scene vi
 
   // The Environment window names the scene it edits; an edit goes to that scene only.
   await openWindow(page, 'Environment');
-  const named = page.locator('.tl-environment__scene');
+  const named = toolWindowScene(page, 'Environment');
   await expect(named).toHaveAttribute('data-scene-id', 'scene-two');
-  await expect(named).toContainText('Two');
+  await expect(named.getByRole('combobox')).toHaveValue('scene-two');
   await page.getByRole('combobox', { name: 'sky mode' }).selectOption('gradient');
   await expect.poll(async () => (await looks())['scene-two']).toMatchObject({ sky: { mode: 'gradient' } });
   expect((await looks())['scene-main']).toEqual({ sky: { color: '#d02020', mode: 'color' } });

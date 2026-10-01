@@ -19,7 +19,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
 import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, RENDERER_VARIANTS } from './renderer-variants';
-import { menu, openWindow } from './ui';
+import { menu, openWindow, toolWindowScene } from './ui';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -154,7 +154,7 @@ for (const variant of RENDERER_VARIANTS) test(`sky, vignette, bloom and a fog vo
   await expect.poll(async () => bright(avg(await shot(viewport), 0.35, 0.45, 0.65, 0.7)), { timeout: 10_000 }).toBeGreaterThan(foggy - 10);
   expect(await storedLook()).toMatchObject({ sky: { mode: 'color' }, post: { vignette: { enabled: true } } });
   // The scene the window edits is named at its top.
-  await expect(page.locator('.tl-environment__scene')).toHaveAttribute('data-scene-id', 'scene-main');
+  await expect(toolWindowScene(page, 'Environment')).toHaveAttribute('data-scene-id', 'scene-main');
 
   // Play: the sky colour and the fog volume are there.
   await page.getByTitle('Start an isolated play preview').click();

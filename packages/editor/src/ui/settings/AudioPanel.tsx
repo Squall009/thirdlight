@@ -1,42 +1,25 @@
 /**
- * The Media tab: asset-level sound work — listen to the project's sounds.
- *
- * The object and game settings that lived here moved to where
- * the data is edited: a surface (with its presets), lights and the old
- * model-animation roles are Inspector sections built from their descriptors
- * (sounds for events are the event sounds table below). What stays is per asset: the preview of an audio asset.
- *
- * The PREVIEW plays committed bytes through the injected preview-audio owner
- * (explicit local gesture; the authoring token stays the session credential of
- * the content read, never a resource).
+ * Project Settings → Audio: the event → sound table — which sound plays when
+ * a signal is sent or an event happens (Unity keeps its project-wide audio
+ * under Project Settings → Audio too). Listening to a sound is in the audio
+ * asset's Inspector.
  *
  * Browser-only (React).
  */
 import { useState, type JSX } from 'react';
 import type { DescriptorRegistry, EventCue, ObjectFieldDescriptor } from '@thirdlight/project-model';
-import type { PreviewAudioStatus, PreviewAudioDiagnostic } from '../session/preview-audio';
-import { componentPatch } from '../session/descriptor-fields';
-import { ObjectFields, type FieldContext } from './DescriptorFields';
-import { useAssetSummaries } from './catalog/catalog-context';
-import { AUDIO_KINDS, RefPicker, useFirstEntry } from './catalog/RefPicker';
-import { useIndexList } from './catalog/useIndexList';
-import { VirtualList } from './catalog/VirtualList';
-
-/** One row of the sound list (px). */
-const SOUND_ROW = 28;
+import { componentPatch } from '../../session/descriptor-fields';
+import { ObjectFields, type FieldContext } from '../DescriptorFields';
+import { AUDIO_KINDS, RefPicker, useFirstEntry } from '../catalog/RefPicker';
 
 interface Props {
-  previewStatus: PreviewAudioStatus;
-  previewDiagnostics: readonly PreviewAudioDiagnostic[];
-  onUnlockPreview: () => void;
-  onPreviewCue: (assetId: string) => void;
   /** The event → cue table (edited with the `eventCues` content descriptor's item). */
-  registry?: DescriptorRegistry | null;
-  eventCues?: readonly EventCue[];
-  fieldContext?: FieldContext;
-  eventCuesError?: string | null;
+  registry: DescriptorRegistry | null;
+  eventCues: readonly EventCue[];
+  fieldContext: FieldContext;
+  eventCuesError: string | null;
   /** `base`: the table the edit was made on (re-applied row by row onto the table as it is at send time). */
-  onSetEventCues?: (next: EventCue[], base: EventCue[]) => void;
+  onSetEventCues: (next: EventCue[], base: EventCue[]) => void;
 }
 
 function cueItemDesc(registry: DescriptorRegistry | null | undefined): ObjectFieldDescriptor | null {
@@ -52,15 +35,15 @@ function cueItemDesc(registry: DescriptorRegistry | null | undefined): ObjectFie
  * generic descriptor form. Every edit is one `setEventCues` command (the
  * whole table), issued by the app — one undo step.
  */
-function EventSounds(p: Props): JSX.Element | null {
+export function AudioPanel(p: Props): JSX.Element | null {
   const [on, setOn] = useState<'signal' | 'event'>('signal');
   const [name, setName] = useState('');
   const [sound, setSound] = useState('');
   const [error, setError] = useState<string | null>(null);
   const desc = cueItemDesc(p.registry);
-  const cues = p.eventCues ?? [];
+  const cues = p.eventCues;
   const first = useFirstEntry(AUDIO_KINDS).first;
-  if (p.onSetEventCues === undefined || p.fieldContext === undefined || desc === null) return null;
+  if (desc === null) return null;
   const setCues = p.onSetEventCues;
   const set = (next: EventCue[]): void => setCues(next, [...cues]);
   const ctx = p.fieldContext;
@@ -122,65 +105,5 @@ function EventSounds(p: Props): JSX.Element | null {
       </div>
       {(error ?? p.eventCuesError ?? null) !== null && <div className="tl-prop__error" role="alert">{error ?? p.eventCuesError}</div>}
     </section>
-  );
-}
-
-/** One sound of the list: its name, its version once read, and a preview button. */
-function SoundRow(p: { id: string; name: string; onPreview: (assetId: string) => void }): JSX.Element {
-  const [a] = useAssetSummaries([p.id]);
-  return (
-    <div className="tl-media__cue-row" style={{ height: SOUND_ROW - 2 }}>
-      <span className="tl-media__cue-label">{p.name}</span>
-      <span className="tl-inspector__hint">{a !== undefined ? `v${a.currentVersion}` : ''}</span>
-      <button className="tl-btn tl-btn--small" aria-label={`preview ${p.name}`} onClick={() => p.onPreview(p.id)} title="Play the sound (enable preview sound first)">
-        ▶
-      </button>
-    </div>
-  );
-}
-
-export function MediaPanel(props: Props): JSX.Element {
-  const sounds = useIndexList({ kinds: AUDIO_KINDS });
-  const status = props.previewStatus;
-  return (
-    <div className="tl-panel tl-media" aria-label="media">
-      <div className="tl-panel__title">Media</div>
-      <p className="tl-note">
-        Listen to the project's sounds. Where they are used is set in the Inspector (an audio source, a component's sound field) and in the event sounds below (a sound for a signal or an event).
-      </p>
-      {sounds.total === 0 ? (
-        <p className="tl-note">No sounds yet: import a WAV in the Assets tab.</p>
-      ) : (
-        <VirtualList
-          as="div"
-          className="tl-media__cues tl-virtual"
-          count={sounds.total ?? 0}
-          stride={SOUND_ROW}
-          onRange={sounds.need}
-          renderItem={(i) => {
-            const e = sounds.entry(i);
-            return e === undefined ? <div key={`i${i}`} style={{ height: SOUND_ROW }} /> : <SoundRow key={e.id} id={e.id} name={e.name} onPreview={props.onPreviewCue} />;
-          }}
-        />
-      )}
-      <p className="tl-note">
-        Preview: <code>{status.state}{status.state === 'ready' ? (status.muted ? ' (muted)' : '') : ''}</code>. Sound starts only after the button below (no autoplay).
-      </p>
-      {status.state === 'blocked' && (
-        <button className="tl-btn" onClick={props.onUnlockPreview}>
-          enable preview sound
-        </button>
-      )}
-      <EventSounds {...props} />
-      {props.previewDiagnostics.length > 0 && (
-        <div className="tl-media__diag">
-          {props.previewDiagnostics.slice(-4).map((d, i) => (
-            <div key={i} className="tl-media__diag-line">
-              <code>{d.code}</code> {d.message}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
   );
 }
