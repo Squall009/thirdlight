@@ -308,7 +308,8 @@ moves at least as many lines out as it adds.
 | 27.13 | done 2026-10-01: File → Project Settings… opens one full window over the editor (and over the editor window), sub-tabs Gameplay, Input, Tags, Collision layers, Quality, Saves, Game modes, Game shell, Scripts on the left with a search that filters them by name and by the settings they hold; the panels moved unchanged (same commands); Quality = the environment's quality level and the settings' Rendering group (texture budget); the moved tabs left the dock and the Window menu; e2e `project-settings` (each sub-tab's edit read back over HTTP, search, Esc/×, Scripts opening the editor window); look: owner look pending |
 | 27.14 | done 2026-10-01: Window → Lighting and Window → Environment open floating windows over the Scene view (moved by the title bar, resized by the corner, place and open state remembered per browser; set aside by the Game view, the editor window and Project Settings), each naming the scene it edits with a scene picker (the active scene; picking opens and activates another, so the Scene view previews what the window edits); a block layer's tools are in its Inspector while it is selected (GameObject → Block layer; the move gizmo stands aside while they are armed); GameObject → Create prefab from selection and the Hierarchy's new context menu; an audio asset chosen in the project window shows in the Inspector (facts, load type, preload, listening); Project Settings → Audio holds the event sounds; the Lighting, Environment, Blocks and Media dock tabs are gone; e2e `window-tools` (two scenes, pixels, move/resize/reload); test backends no longer lose their ports (D110); look: owner look pending |
 | 27.15 | done 2026-10-01: the bottom dock holds Project (the project window), Console and Problems; the Materials, Animator, Prefabs, Graphs, Effects, Dialogue, Timelines, Libraries and UI tabs are gone, and the Window menu lists the three; every kind is listed, made (Create menu: the "create" button or a right-click, named in place, in the folder shown), opened, renamed and deleted from the project window and the Inspector; the Assets side panel is gone: the chosen asset, material, prefab, resource or scene shows in the one Inspector (facts, options, preview, placing, address and labels); speakers and dialogue settings in Project Settings → Dialogue; libraries' "Save all" above each library's editor; e2e `project-items` (dock DOM, Window menu, creating and opening every kind, the Inspector, deletes); look: owner look pending |
-| 27.16–27.17 | — |
+| 27.16 | done 2026-10-01: one icon registry for every kind and every editor toolbar action, the art generated with the Studio in the phase-9 style and shipped as small WebPs (47 files, 105.7 KiB); `editor.css` spacing, type, radius and icon tokens; every item editor has a header (picture, name renamed in place, kind, folder), a toolbar of picture buttons and, while empty, an empty state with its first actions; graph nodes are coloured by category family; the timeline fills its window (D112); e2e `editor-chrome` (headers, toolbars, empty states acting, node header pixels, project-window pictures); before/after screenshots for the owner; look: owner look pending |
+| 27.17 | — |
 
 ## 6. Decision log
 
@@ -749,3 +750,38 @@ moves at least as many lines out as it adds.
   e2e helpers: `createItem(page, entry | [submenu, entry], name)`,
   `chooseItem(page, kind, name or id)`; `windowTab('Assets')` is the Project
   tab.
+- 2026-10-01 (27.16): one icon registry (`editor/src/session/item-icons.ts`):
+  a picture per index kind (the asset kinds, the resource kinds, scenes),
+  folders and visual scripts, and per toolbar action (the Scene view's move,
+  rotate and scale too). The art is the Studio's (Qwen-Image, 256 px,
+  transparent, the phase-9 prompt style; prompts, seeds and job ids in
+  `tools/icons/editor-icons.tsv`); model, audio, prefab, behavior and the
+  transform tools reuse the phase-9 object icons. Shipped as WebP cropped to
+  what they draw: kinds 96 px (project tiles show them at ~50 CSS px), actions
+  32 px (16 CSS px); 47 files, 105.7 KiB (`tools/icons/pack-editor-icons.mjs`
+  prints each). The inline SVG tab glyphs and the project window's letter
+  glyphs are gone.
+- 2026-10-01 (27.16): every item editor has a header (picture, name, kind,
+  folder from the index) above its own toolbar; the header's name field is
+  the project window's rename (one command), so the editors' own name fields
+  left their toolbars (a behavior keeps its name in its declaration; its
+  header shows it without a field). Toolbars are rows of picture + name
+  buttons (`ui/chrome/EditorChrome.tsx`); picture-only for the graph's align
+  and distribute actions, as before. Empty states, with their first actions:
+  a graph holding only the nodes its kind requires (an output, a Start), an
+  effect without systems, a timeline without tracks, a UI document with only
+  its root, a theme without styles. Scripts, libraries and animator
+  controllers start with content and have none.
+- 2026-10-01 (27.16): graph nodes are styled by their category's family
+  (inputs, maths, logic, events, outputs, rendering, states, actions, notes;
+  `graph/node-style.ts`): the canvas paints a node's header in the family's
+  colour, a `--node-<family>` token in `editor.css` that the canvas reads, so
+  the colour is defined once. The structural categories are named; anything
+  else, such as a visual script's game API namespaces, is an action, so a new
+  API namespace needs no entry. `editor.css` gained spacing, type, radius and
+  icon-size scales beside its colour tokens; the new rules use them.
+- 2026-10-01 (27.16): screenshots of every editor before and after, same
+  views of the same generated Starter project (`editor-look.e2e.ts`, run with
+  `TL_LOOK_DIR`), are in `~/.cache/thirdlight-phase27/look/` with a README
+  pairing them. The look is unverified until the owner has seen them; a round
+  of owner changes is expected.

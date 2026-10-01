@@ -26,6 +26,7 @@ import type { GraphContext, GraphKindDef, GraphOp } from '../../graph/model';
 import { newSystem, uniqueId } from '../../session/effect-edit';
 import { ParameterValue } from '../material/MaterialDocument';
 import { usePreview } from '../preview/preview-request';
+import { EditorToolbar, EmptyState, ToolButton, ToolbarSpacer } from '../chrome/EditorChrome';
 
 export interface EffectDocumentProps {
   effectId: string;
@@ -38,8 +39,6 @@ export interface EffectDocumentProps {
   onEdit: (ownerId: string, ops: GraphOp[]) => Promise<string | null>;
   /** One `setEffect`. */
   onSave: (effect: EffectDef) => void;
-  /** One `renameEffect`. */
-  onRename: (effectId: string, name: string) => void;
   onSelection: (ids: readonly string[]) => void;
   focus: { id: string; nonce: number } | null;
   error: string | null;
@@ -82,10 +81,13 @@ export function EffectDocument(p: EffectDocumentProps): JSX.Element {
   };
   return (
     <div className="tl-animator-doc tl-effect-doc" aria-label="effect graph">
-      <div className="tl-animator__bar">
-        <input className="tl-input" aria-label="effect name" defaultValue={fx.name} key={`${fx.effectId}:${fx.name}`} onBlur={(e) => e.target.value.trim() !== '' && e.target.value.trim() !== fx.name && p.onRename(fx.effectId, e.target.value.trim().slice(0, 128))} onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()} />
-        <span className="tl-hint">Effect · {fx.systems.length} system{fx.systems.length === 1 ? '' : 's'}</span>
-      </div>
+      <EditorToolbar label="effect toolbar">
+        <ToolButton action="add" label="System" aria="add system" title="A particle system (its graph starts with the Spawn, Initialize, Update and Output contexts)" onClick={addSystem} disabled={fx.systems.length >= EFFECT_LIMITS.systems} />
+        <ToolbarSpacer />
+        <span className="tl-editor-toolbar__note">
+          {fx.systems.length} system{fx.systems.length === 1 ? '' : 's'}
+        </span>
+      </EditorToolbar>
       <p className="tl-hint tl-material-doc__note" role="note">
         The preview plays the effect as Play would (WebGPU compute, or the CPU executor on WebGL 2) and follows every edit. Effects are visual only: they never change the game simulation.
       </p>
@@ -109,12 +111,7 @@ export function EffectDocument(p: EffectDocumentProps): JSX.Element {
             <span>Bounds size</span>
             <VecBox label="effect bounds size" value={fx.bounds.size} positive onCommit={(v) => save({ bounds: { ...fx.bounds, size: v } })} />
           </div>
-          <div className="tl-subhead">
-            Systems
-            <button type="button" className="tl-btn tl-btn--small" aria-label="add system" onClick={addSystem} disabled={fx.systems.length >= EFFECT_LIMITS.systems}>
-              + System
-            </button>
-          </div>
+          <div className="tl-subhead">Systems</div>
           <div className="tl-effect-doc__systems" role="tablist" aria-label="systems">
             {fx.systems.map((s) => (
               <button key={s.systemId} type="button" role="tab" aria-selected={s.systemId === system?.systemId} className={`tl-tab${s.systemId === system?.systemId ? ' is-active' : ''}`} onClick={() => p.onSystem(fx.effectId, s.systemId)}>
@@ -143,7 +140,9 @@ export function EffectDocument(p: EffectDocumentProps): JSX.Element {
         </div>
         <div className="tl-animator-doc__graph">
           {system === null ? (
-            <p className="tl-hint">No systems yet: "+ System" adds one (its graph starts with the Spawn, Initialize, Update and Output contexts).</p>
+            <EmptyState kind="effect" title="No particle systems yet" actions={<ToolButton action="add" label="Add a system" onClick={addSystem} />}>
+              An effect is one or more particle systems. A new system's graph starts with the Spawn, Initialize, Update and Output contexts; the preview plays it as Play would.
+            </EmptyState>
           ) : (
             <GraphEditor
               key={`${fx.effectId}/${system.systemId}`}
@@ -177,9 +176,7 @@ function EffectParameters({ effect, onSave }: { effect: EffectDef; onSave: (e: E
     <div className="tl-material-params" aria-label="exposed parameters">
       <div className="tl-subhead">
         Exposed parameters
-        <button type="button" className="tl-btn tl-btn--small" onClick={add} title="A value Parameter nodes read (objects may override public ones)" disabled={list.length >= EFFECT_LIMITS.parameters}>
-          + parameter
-        </button>
+        <ToolButton action="add" label="Parameter" aria="add parameter" title="A value Parameter nodes read (objects may override public ones)" onClick={add} disabled={list.length >= EFFECT_LIMITS.parameters} />
       </div>
       {list.length === 0 && <p className="tl-hint">None yet. Parameter nodes read these; objects override the public ones (Inspector → Effect).</p>}
       {list.map((x, i) => (

@@ -80,6 +80,8 @@ import {
   type Rect,
   type View,
 } from './model';
+import { ToolButton, ToolbarSeparator, ToolbarSpacer, EmptyState } from '../ui/chrome/EditorChrome';
+import { familyOf } from './node-style';
 import { drawGraph, drawMinimap, type Scene } from './render';
 
 export interface GraphOwnerRef {
@@ -624,7 +626,7 @@ export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus, ed
   // ---- pointer input ----------------------------------------------------------------------
 
   const onPointerDown = (ev: ReactPointerEvent<HTMLDivElement>): void => {
-    if ((ev.target as HTMLElement).closest('.tl-graph__popup, .tl-graph__toolbar, .tl-graph__edit, .tl-graph__minimap')) return;
+    if ((ev.target as HTMLElement).closest('.tl-graph__popup, .tl-graph__toolbar, .tl-graph__edit, .tl-graph__minimap, .tl-empty-state')) return;
     const { sx, sy } = localPoint(ev.clientX, ev.clientY);
     const p = toGraph(viewRef.current, sx, sy);
     pointerDownRef.current = true;
@@ -807,7 +809,7 @@ export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus, ed
   };
 
   const onDoubleClick = (ev: ReactMouseEvent<HTMLDivElement>): void => {
-    if ((ev.target as HTMLElement).closest('.tl-graph__popup, .tl-graph__toolbar, .tl-graph__edit, .tl-graph__minimap')) return;
+    if ((ev.target as HTMLElement).closest('.tl-graph__popup, .tl-graph__toolbar, .tl-graph__edit, .tl-graph__minimap, .tl-empty-state')) return;
     const { sx, sy } = localPoint(ev.clientX, ev.clientY);
     const p = toGraph(viewRef.current, sx, sy);
     const hit = hitTest(p);
@@ -1096,6 +1098,9 @@ export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus, ed
     return gr !== undefined ? { x: gr.rect[0], y: gr.rect[1], w: gr.rect[2], h: GROUP_HEADER } : null;
   })();
 
+  // Nothing but the nodes every graph of the kind must have (an output, an entry): the editor says how to begin.
+  const required = graph.nodes.map((n) => nodeDefOf(kind, n.type)).filter((d) => d?.required === true).map((d) => d!.label);
+  const structureOnly = graph.nodes.length === required.length;
   return (
     <div
       ref={rootRef}
@@ -1107,55 +1112,42 @@ export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus, ed
       onKeyDown={onKeyDown}
       onKeyUp={onKeyUp}
     >
-      <div className="tl-graph__toolbar" role="toolbar" aria-label="Graph tools">
-        <button className="tl-btn tl-btn--small" onClick={() => openCatalogue(sizeRef.current.w / 2 - 120, 60, null)} title="Add a node (right click or Space in the graph)">
-          + Node
-        </button>
-        <button className="tl-btn tl-btn--small" onClick={() => void addComment()} title="Add a comment">
-          Comment
-        </button>
-        <button className="tl-btn tl-btn--small" onClick={() => void addGroup()} title="Frame the selected nodes in a group (Ctrl+G)">
-          Group
-        </button>
+      <div className="tl-graph__toolbar tl-editor-toolbar" role="toolbar" aria-label="Graph tools">
+        <ToolButton action="add-node" label="Node" title="Add a node (right click or Space in the graph)" onClick={() => openCatalogue(sizeRef.current.w / 2 - 120, 60, null)} />
+        <ToolButton action="comment" label="Comment" title="Add a comment" onClick={() => void addComment()} />
+        <ToolButton action="group" label="Group" title="Frame the selected nodes in a group (Ctrl+G)" onClick={() => void addGroup()} />
         {onToggleBreakpoint !== undefined && (
-          <button
-            className="tl-btn tl-btn--small"
+          <ToolButton
+            action="breakpoint"
+            label="Breakpoint"
             title="Toggle a breakpoint on the selected nodes (F9): Play pauses after the step in which the node runs"
             onClick={() => {
               const ids = graphRef.current.nodes.filter((n) => selectionRef.current.has(n.id)).map((n) => n.id);
               if (ids.length > 0) onToggleBreakpoint(ids);
               else setStatus({ text: 'select a node to put a breakpoint on it', error: false });
             }}
-          >
-            ● Breakpoint
-          </button>
+          />
         )}
-        <span className="tl-graph__sep" />
+        <ToolbarSeparator />
         {(
           [
-            ['left', '⇤', 'Align left edges'],
-            ['centerX', '↔', 'Align horizontal centres'],
-            ['right', '⇥', 'Align right edges'],
-            ['top', '⤒', 'Align top edges'],
-            ['centerY', '↕', 'Align vertical centres'],
-            ['bottom', '⤓', 'Align bottom edges'],
-            ['distributeX', '⋯', 'Distribute horizontally'],
-            ['distributeY', '⋮', 'Distribute vertically'],
+            ['left', 'align-left', 'Align left edges'],
+            ['centerX', 'align-center-x', 'Align horizontal centres'],
+            ['right', 'align-right', 'Align right edges'],
+            ['top', 'align-top', 'Align top edges'],
+            ['centerY', 'align-center-y', 'Align vertical centres'],
+            ['bottom', 'align-bottom', 'Align bottom edges'],
+            ['distributeX', 'distribute-x', 'Distribute horizontally'],
+            ['distributeY', 'distribute-y', 'Distribute vertically'],
           ] as const
         ).map(([how, icon, label]) => (
-          <button key={how} className="tl-btn tl-btn--small tl-graph__icon" aria-label={label} title={label} onClick={() => void align(how)}>
-            {icon}
-          </button>
+          <ToolButton key={how} action={icon} aria={label} onClick={() => void align(how)} />
         ))}
-        <span className="tl-graph__sep" />
-        <button className="tl-btn tl-btn--small" onClick={() => frame(selectionRef.current)} title="Fit the selection (F); Shift+F fits everything">
-          Fit
-        </button>
-        <label className="tl-graph__check" title="Snap positions to the grid">
-          <input type="checkbox" checked={snapOn} onChange={(e) => setSnapOn(e.target.checked)} /> Snap
-        </label>
+        <ToolbarSeparator />
+        <ToolButton action="fit" label="Fit" title="Fit the selection (F); Shift+F fits everything" onClick={() => frame(selectionRef.current)} />
+        <ToolButton action="snap" label="Snap" title="Snap positions to the grid" pressed={snapOn} onClick={() => setSnapOn(!snapOn)} />
         <span ref={zoomLabelRef} className="tl-graph__zoom" aria-label="Zoom" />
-        <span className="tl-graph__spacer" />
+        <ToolbarSpacer />
         <span className={`tl-graph__problems${errorCount > 0 ? ' is-error' : warnCount > 0 ? ' is-warn' : ''}`} aria-label="Graph problems">
           {errorCount} error{errorCount === 1 ? '' : 's'}, {warnCount} warning{warnCount === 1 ? '' : 's'}
         </span>
@@ -1194,6 +1186,16 @@ export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus, ed
         }}
       >
         <canvas ref={canvasRef} className="tl-graph__canvas" aria-hidden="true" />
+        {structureOnly && (
+          <EmptyState
+            overlay
+            kind={owner.kind === 'behavior' ? 'visual-script' : owner.kind}
+            title="No nodes yet"
+            actions={<ToolButton action="add-node" label="Add a node" onClick={() => openCatalogue(sizeRef.current.w / 2 - 120, 60, null)} />}
+          >
+            {required.length > 0 ? `Wire nodes into ${required.join(', ')}. ` : ''}Right-click or press Space in the graph for the node catalogue, or drag from a port.
+          </EmptyState>
+        )}
         <div ref={layerRef} className="tl-graph__layer" style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})` }}>
           {domNodes.map((n) => {
             const def = nodeDefOf(kind, n.type);
@@ -1211,6 +1213,7 @@ export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus, ed
                 aria-selected={selection.has(n.id)}
                 data-node-id={n.id}
                 data-node-type={n.type}
+                data-node-family={familyOf(def?.category)}
                 data-problems={probs.length > 0 ? probs.map((x) => x.severity).join(' ') : undefined}
                 data-breakpoint={breakpoints?.has(n.id) === true ? 'true' : undefined}
                 data-active={highlighted?.has(n.id) === true ? 'true' : undefined}
@@ -1316,7 +1319,9 @@ export function GraphEditor({ kind, owner, graph, onEdit, onSelection, focus, ed
                 if (items.length === 0) return null;
                 return (
                   <div key={cat} role="group" aria-label={cat}>
-                    <div className="tl-graph__cat">{cat}</div>
+                    <div className="tl-graph__cat" data-node-family={familyOf(cat)}>
+                      {cat}
+                    </div>
                     {items.map((d) => {
                       const index = catalogueEntries.indexOf(d);
                       return (

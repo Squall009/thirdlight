@@ -143,7 +143,7 @@ test('an effect: create, add a system, spawn burst → lifetime → billboard ch
   await expect.poll(async () => (await graph()).nodes.find((n) => n.id === sizeCurve)!.data?.['curve']).toEqual([0, 1, 0.5, 0.75, 1, 0.5]);
 
   // An exposed parameter (public): objects may override it.
-  await page.getByRole('button', { name: '+ parameter' }).click();
+  await page.getByRole('button', { name: 'add parameter' }).click();
   await expect.poll(async () => (await effects())[0]!.parameters?.map((x) => x.key)).toEqual(['param1']);
 
   // A box plays the effect: "+ Add component" → Effect (it picks the project's effect).

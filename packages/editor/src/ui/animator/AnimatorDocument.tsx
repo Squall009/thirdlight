@@ -28,6 +28,7 @@ import { animatorBlendStateOf, animatorGraphOf, animatorLayerOf, animatorOwnerId
 import type { GraphKindDef, GraphOp } from '../../graph/model';
 import { allStateIds, LayerSettings, MAX_LAYERS, newId, ParameterList, useClipChoices, useRigOf, type BoneInfo, type ClipInfo } from './parts';
 import { usePreview } from '../preview/preview-request';
+import { EditorToolbar, ToolButton, ToolbarSpacer } from '../chrome/EditorChrome';
 import { MODEL_KINDS, RefPicker, useFirstEntry } from '../catalog/RefPicker';
 
 export interface AnimatorDocumentProps {
@@ -130,16 +131,27 @@ export function AnimatorDocument(p: AnimatorDocumentProps): JSX.Element {
   const layerTabs = [controller as AnimatorController | AnimatorLayer, ...(controller.layers ?? [])];
   const blendState = target !== null && 'blendState' in target ? animatorBlendStateOf(controller, target.blendState) : null;
 
+  const addLayer = (): void => {
+    const id = newId('state', allStateIds(controller));
+    const n = (controller.layers?.length ?? 0) + 1;
+    const next: AnimatorLayer = { name: `Layer ${n}`, mask: [], weight: 1, states: [{ id, name: 'Empty', motion: { kind: 'empty' }, speed: 1, loop: true, position: [180, 40] }], transitions: [], entry: id };
+    save({ ...controller, layers: [...(controller.layers ?? []), next] });
+    p.onTarget(animatorOwnerId({ controllerId: controller.controllerId, layer: n }));
+  };
   return (
     <div className="tl-animator-doc" aria-label="animator">
-      <div className="tl-animator__bar">
-        <input className="tl-input" aria-label="controller name" defaultValue={controller.name} key={`${controller.controllerId}:${controller.name}`} onBlur={(e) => e.target.value.trim() !== '' && e.target.value.trim() !== controller.name && save({ ...controller, name: e.target.value.trim() })} />
+      <EditorToolbar label="animator toolbar">
         <RefPicker aria="animator model" kinds={MODEL_KINDS} value={model} none={model === '' ? '— no model —' : null} title="The model whose clips the pickers list" onPick={setModel} />
-        <button type="button" className="tl-button" onClick={() => p.onDelete(controller.controllerId)}>
-          Delete controller
-        </button>
-        <span className="tl-graph__spacer" />
-      </div>
+        <ToolButton
+          action="layer"
+          label="Add layer"
+          disabled={(controller.layers?.length ?? 0) >= MAX_LAYERS}
+          title="An override layer: its own states on the bones of its mask (e.g. an upper-body attack while running)"
+          onClick={addLayer}
+        />
+        <ToolbarSpacer />
+        <ToolButton action="delete" label="Delete controller" onClick={() => p.onDelete(controller.controllerId)} />
+      </EditorToolbar>
       {p.error !== null && (
         <p className="tl-lighting__message" role="alert">
           {p.error}
@@ -158,21 +170,6 @@ export function AnimatorDocument(p: AnimatorDocumentProps): JSX.Element {
             {i === 0 ? 'Base layer' : (l as AnimatorLayer).name}
           </button>
         ))}
-        <button
-          type="button"
-          className="tl-button"
-          disabled={(controller.layers?.length ?? 0) >= MAX_LAYERS}
-          title="An override layer: its own states on the bones of its mask (e.g. an upper-body attack while running)"
-          onClick={() => {
-            const id = newId('state', allStateIds(controller));
-            const n = (controller.layers?.length ?? 0) + 1;
-            const next: AnimatorLayer = { name: `Layer ${n}`, mask: [], weight: 1, states: [{ id, name: 'Empty', motion: { kind: 'empty' }, speed: 1, loop: true, position: [180, 40] }], transitions: [], entry: id };
-            save({ ...controller, layers: [...(controller.layers ?? []), next] });
-            p.onTarget(animatorOwnerId({ controllerId: controller.controllerId, layer: n }));
-          }}
-        >
-          Add layer
-        </button>
       </div>
       {blendState !== null && (
         <nav className="tl-animator-doc__path" aria-label="graph path">

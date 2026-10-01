@@ -845,6 +845,7 @@ function EditorApp(): JSX.Element {
     openDocument,
     workspaceDispatch,
     sceneView,
+    items,
   });
 
   const menus = editorMenus({

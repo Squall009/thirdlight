@@ -29,7 +29,8 @@ import {
   type WorkspaceAction,
   type WorkspaceState,
 } from '../../session/editor-window';
-import { KNOWN_DOCUMENT_KINDS, documentKind, documentTitle, type WorkspaceHost } from './kinds';
+import { KNOWN_DOCUMENT_KINDS, documentIcon, documentKind, documentTitle, type WorkspaceHost } from './kinds';
+import { EditorHeader } from './EditorHeader';
 import { PreviewPane } from '../preview/PreviewPane';
 import { PreviewRequestContext, type PreviewRequest } from '../preview/preview-request';
 
@@ -185,6 +186,7 @@ function OpenEditorWindow({ state, dispatch, host, inspector, onSplitter }: Edit
       <div className="tl-editor-window__body">
         <div className="tl-editor-window__editor">
           <div className="tl-workspace__doc" role="tabpanel" aria-label={documentTitle(doc, host)}>
+            <EditorHeader key={`header:${docKey(doc)}`} doc={doc} host={host} />
             {/* Keyed by the document: every tab gets its own view state. */}
             <div className="tl-workspace__view" key={docKey(doc)}>
               <PreviewRequestContext.Provider value={setPreview}>{documentKind(doc.kind)?.render(doc.id, host) ?? <p className="tl-hint">Unknown document kind "{doc.kind}".</p>}</PreviewRequestContext.Provider>
@@ -249,7 +251,7 @@ function WindowTabs({ state, dispatch, host }: { state: WorkspaceState; dispatch
                 dispatch({ type: 'close', key });
               }}
             >
-              <img className="tl-tab__icon" src={documentKind(d.kind)?.icon} alt="" aria-hidden="true" />
+              <img className="tl-tab__icon" src={documentIcon(d.kind)} alt="" aria-hidden="true" />
               {title}
             </button>
             <button type="button" className="tl-wtab__close" aria-label={`Close ${title}`} title="Close" onClick={() => dispatch({ type: 'close', key })}>

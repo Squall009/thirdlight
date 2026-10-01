@@ -26,6 +26,7 @@ import { materialPortContext, parameterDefault } from '../../session/material-gr
 import { stringsIn, useTextureIds } from '../catalog/catalog-context';
 import { RefPicker, TEXTURE_KINDS } from '../catalog/RefPicker';
 import { usePreview } from '../preview/preview-request';
+import { EditorToolbar, ToolButton, ToolbarSpacer } from '../chrome/EditorChrome';
 
 export interface MaterialDocumentProps {
   materialId: string;
@@ -74,22 +75,19 @@ export function MaterialDocument(p: MaterialDocumentProps): JSX.Element {
   };
   return (
     <div className="tl-animator-doc tl-material-doc" aria-label="material graph">
-      <div className="tl-animator__bar">
-        <input className="tl-input" aria-label="material name" defaultValue={m.name} key={`${m.materialId}:${m.name}`} onBlur={(e) => e.target.value.trim() !== '' && e.target.value.trim() !== m.name && p.onSave({ ...m, name: e.target.value.trim().slice(0, 128) })} />
-        <span className="tl-hint">Graph material</span>
-        <span className="tl-graph__spacer" />
-        <button
-          type="button"
-          className="tl-button"
+      <EditorToolbar label="material toolbar">
+        <span className="tl-editor-toolbar__note">Graph material</span>
+        <ToolbarSpacer />
+        <ToolButton
+          action="delete"
+          label="Remove graph"
           title="Back to the shader material (the graph is removed; undo brings it back)"
           onClick={() => {
             const { graph: _g, ...rest } = m;
             p.onSave(rest);
           }}
-        >
-          Remove graph
-        </button>
-      </div>
+        />
+      </EditorToolbar>
       <p className="tl-hint tl-material-doc__note" role="note">
         The preview, the Scene view, Play and exports draw this graph (compiled to a node material); the {m.shader} shader part is used only after Remove graph.
       </p>
@@ -135,9 +133,7 @@ function ParameterEditor({ material, onSave }: { material: MaterialDef; onSave: 
     <div className="tl-material-params" aria-label="exposed parameters">
       <div className="tl-subhead">
         Exposed parameters
-        <button type="button" className="tl-btn tl-btn--small" onClick={add} title="A parameter Parameter nodes read (objects may override public ones)">
-          + parameter
-        </button>
+        <ToolButton action="add" label="Parameter" aria="add parameter" title="A parameter Parameter nodes read (objects may override public ones)" onClick={add} />
       </div>
       {list.length === 0 && <p className="tl-hint">None yet. Parameter nodes read these; objects override the public ones (Inspector → Materials).</p>}
       {list.map((x, i) => (

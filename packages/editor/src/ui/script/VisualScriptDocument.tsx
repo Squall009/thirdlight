@@ -52,6 +52,7 @@ import {
   VARIABLE_KINDS,
 } from '../../session/visual-debug';
 import type { ScriptPublishOutcome } from './ScriptDocument';
+import { EditorToolbar, ToolButton } from '../chrome/EditorChrome';
 
 export type VisualScriptCheckResult =
   | { ok: true; compiled: true; sourceDigest: string; warnings: { message: string; nodeId?: string }[] }
@@ -572,14 +573,10 @@ export function VisualScriptDocument(p: VisualScriptDocumentProps): JSX.Element 
             <span className="tl-script__spacer" />
             <span className="tl-script__status">{digest !== null && digest === published ? 'published' : published === null ? 'not published' : 'unpublished edits'}</span>
           </div>
-          <div className="tl-script__row">
-            <button className="tl-btn tl-btn--small" onClick={() => void runCheck()} title="Compile the graph now (nothing is written)">
-              Check
-            </button>
-            <button className="tl-btn tl-btn--small tl-btn--primary" disabled={compileStatus !== 'ok' || publishing?.kind === 'working'} onClick={() => void doPublish(false)} title="Compile and publish the graph (Play and exports run the published script)">
-              Publish
-            </button>
-          </div>
+          <EditorToolbar label="visual script toolbar" className="tl-script__row">
+            <ToolButton action="compile" label="Check" title="Compile the graph now (nothing is written)" onClick={() => void runCheck()} />
+            <ToolButton action="publish" label="Publish" primary disabled={compileStatus !== 'ok' || publishing?.kind === 'working'} title="Compile and publish the graph (Play and exports run the published script)" onClick={() => void doPublish(false)} />
+          </EditorToolbar>
           <div className="tl-script__problems" aria-label="script problems">
             {problems.length === 0 ? (
               <span className="tl-hint">No problems.</span>

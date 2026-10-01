@@ -23,6 +23,7 @@ import type { AnimatorController, TimelineAsset, TimelineKey, TimelineTrack, Tim
 import { AnimatorMachine, evaluateTimelineAt, TIMELINE_EASINGS, TIMELINE_TARGET_TRACKS, TIMELINE_TRACK_TYPES, type AnimatorControllerLike } from '@thirdlight/runtime';
 import { AUDIO_KINDS, RefPicker, useFirstEntry } from '../catalog/RefPicker';
 import { usePreview } from '../preview/preview-request';
+import { EditorToolbar, EmptyState, ToolButton, ToolbarSeparator, ToolbarSpacer } from '../chrome/EditorChrome';
 
 export interface TimelineEntityLike {
   id: string;
@@ -510,10 +511,19 @@ export function TimelineDocument(props: TimelineDocumentProps): JSX.Element {
     return props.animators.find((a) => a.controllerId === id);
   };
 
+  const addSlot = (): void => {
+    let n = slots.length + 1;
+    while (slots.some((s) => s.name === `slot${n}`)) n += 1;
+    void save({ ...tl, slots: [...slots, { name: `slot${n}` }] });
+  };
+  const addMarker = (): void => {
+    let n = (tl.markers ?? []).length + 1;
+    while ((tl.markers ?? []).some((m) => m.name === `marker${n}`)) n += 1;
+    void save({ ...tl, markers: [...(tl.markers ?? []), { name: `marker${n}`, time: round3(snap(time)) }] });
+  };
   return (
     <div className="tl-timeline tl-timeline-doc" data-timeline-id={tl.timelineId}>
       <div className="tl-timeline__head" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-        <input className="tl-input" aria-label="Timeline name" defaultValue={tl.name} key={`name:${tl.name}`} onBlur={(e) => e.target.value.trim() !== '' && e.target.value.trim() !== tl.name && void save({ ...tl, name: e.target.value.trim() })} />
         <label>
           Duration (s){' '}
           <input className="tl-input" aria-label="Timeline duration" type="number" step={0.1} min={0.1} defaultValue={tl.duration} key={`dur:${tl.duration}`} onBlur={(e) => Number(e.target.value) > 0 && Number(e.target.value) !== tl.duration && void save({ ...tl, duration: Number(e.target.value) })} />
@@ -552,27 +562,19 @@ export function TimelineDocument(props: TimelineDocumentProps): JSX.Element {
             </select>
           </span>
         ))}
-        <button
-          className="tl-btn tl-btn--small"
-          onClick={() => {
-            let n = slots.length + 1;
-            while (slots.some((s) => s.name === `slot${n}`)) n += 1;
-            void save({ ...tl, slots: [...slots, { name: `slot${n}` }] });
-          }}
-        >
-          Add slot
-        </button>
+        <ToolButton action="add" label="Add slot" title="A slot names an object of the scene the tracks act on" onClick={addSlot} />
       </div>
-      <div className="tl-timeline__bar" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
-        <button className="tl-btn tl-btn--small" aria-label={playing ? 'Pause preview' : 'Play preview'} onClick={() => (playing ? setPlaying(false) : (setTime((t) => (t >= tl.duration ? 0 : t)), setPlaying(true)))}>
-          {playing ? 'Pause' : 'Play'}
-        </button>
-        <span aria-label="Timeline time" data-time={round3(time)}>
+      <EditorToolbar label="timeline toolbar" className="tl-timeline__bar">
+        <ToolButton
+          action={playing ? 'pause' : 'play'}
+          label={playing ? 'Pause' : 'Play'}
+          aria={playing ? 'Pause preview' : 'Play preview'}
+          onClick={() => (playing ? setPlaying(false) : (setTime((t) => (t >= tl.duration ? 0 : t)), setPlaying(true)))}
+        />
+        <span className="tl-editor-toolbar__note" aria-label="Timeline time" data-time={round3(time)}>
           {time.toFixed(2)} s / {tl.duration} s
         </span>
-        <label>
-          Zoom <input type="range" aria-label="Timeline zoom" min={20} max={400} value={zoom} onChange={(e) => setZoom(Number(e.target.value))} />
-        </label>
+        <ToolbarSeparator />
         <select className="tl-input" aria-label="New track type" value={addType} onChange={(e) => setAddType(e.target.value as TimelineTrackType)}>
           {TIMELINE_TRACK_TYPES.map((t) => (
             <option key={t} value={t}>
@@ -580,26 +582,15 @@ export function TimelineDocument(props: TimelineDocumentProps): JSX.Element {
             </option>
           ))}
         </select>
-        <button className="tl-btn tl-btn--small" onClick={addTrack}>
-          Add track
-        </button>
-        <button className="tl-btn tl-btn--small" onClick={addKey} disabled={selTrack === undefined}>
-          Add key at playhead
-        </button>
-        <button className="tl-btn tl-btn--small" onClick={deleteKey} disabled={selKey === undefined}>
-          Delete key
-        </button>
-        <button
-          className="tl-btn tl-btn--small"
-          onClick={() => {
-            let n = (tl.markers ?? []).length + 1;
-            while ((tl.markers ?? []).some((m) => m.name === `marker${n}`)) n += 1;
-            void save({ ...tl, markers: [...(tl.markers ?? []), { name: `marker${n}`, time: round3(snap(time)) }] });
-          }}
-        >
-          Add marker
-        </button>
-      </div>
+        <ToolButton action="add" label="Add track" onClick={addTrack} />
+        <ToolButton action="add-key" label="Add key at playhead" onClick={addKey} disabled={selTrack === undefined} />
+        <ToolButton action="delete" label="Delete key" onClick={deleteKey} disabled={selKey === undefined} />
+        <ToolButton action="marker" label="Add marker" onClick={addMarker} />
+        <ToolbarSpacer />
+        <label className="tl-editor-toolbar__note">
+          Zoom <input type="range" aria-label="Timeline zoom" min={20} max={400} value={zoom} onChange={(e) => setZoom(Number(e.target.value))} />
+        </label>
+      </EditorToolbar>
       {(props.error !== null || localError !== null) && (
         <p className="tl-error" role="alert">
           {localError ?? props.error}
@@ -699,7 +690,20 @@ export function TimelineDocument(props: TimelineDocumentProps): JSX.Element {
           ];
         })}
       </div>
-      {tl.tracks.length === 0 && <p className="tl-hint">No tracks yet: add slots for the objects it acts on, then add tracks.</p>}
+      {tl.tracks.length === 0 && (
+        <EmptyState
+          kind="timeline"
+          title="No tracks yet"
+          actions={
+            <>
+              <ToolButton action="add" label="Add a slot" onClick={addSlot} />
+              <ToolButton action="add" label={`Add a ${TYPE_LABEL[addType].toLowerCase()} track`} onClick={addTrack} />
+            </>
+          }
+        >
+          A timeline moves objects, cameras, fades, sounds and signals over time. Slots name the objects of the scene it acts on; tracks hold the keys. The preview shows the scene at the playhead.
+        </EmptyState>
+      )}
       {keyInspector()}
       <p className="tl-hint">
         Preview at {time.toFixed(2)} s:{' '}

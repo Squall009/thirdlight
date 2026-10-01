@@ -42,6 +42,7 @@ import { BEHAVIOR_API_DTS } from './behavior-api.generated';
 import { CodeEditor, revealPosition, type InlineDiagnostic } from './CodeEditor';
 import type { SourceFocus } from '../../session/source-location';
 import type { ScriptPublishOutcome } from '../../session/script-publish';
+import { EditorToolbar, ToolButton, ToolbarSpacer } from '../chrome/EditorChrome';
 
 export type { ScriptPublishOutcome };
 
@@ -371,20 +372,16 @@ export function ScriptDocument(p: ScriptDocumentProps): JSX.Element {
       </div>
 
       <div className="tl-script__main">
-        <div className="tl-script__bar">
+        <EditorToolbar label="script toolbar" className="tl-script__bar">
           <span className="tl-script__path">{openPath}</span>
           <span className={`tl-script__status tl-script__status--${check.status}`} aria-label="compile status" data-status={check.status}>
             {status}
           </span>
-          <span className="tl-script__spacer" />
+          <ToolbarSpacer />
           <span className="tl-prop__caption">{draft.dirty ? 'unpublished edits' : draft.baseDigest !== null ? 'published' : 'not published yet'}</span>
-          <button className="tl-btn tl-btn--small" onClick={saveNow} title="Compile now (Ctrl+S); it also compiles after a short pause">
-            Compile
-          </button>
-          <button className="tl-btn tl-btn--small tl-btn--primary" disabled={publishing?.kind === 'working'} onClick={() => void doPublish(false)} title="Compile and publish this source (one undo step); Play then runs it">
-            Publish
-          </button>
-        </div>
+          <ToolButton action="compile" label="Compile" title="Compile now (Ctrl+S); it also compiles after a short pause" onClick={saveNow} />
+          <ToolButton action="publish" label="Publish" primary disabled={publishing?.kind === 'working'} title="Compile and publish this source (one undo step); Play then runs it" onClick={() => void doPublish(false)} />
+        </EditorToolbar>
         {stale && <div className="tl-hint">The published source changed since these edits started; publishing replaces it.</div>}
         <div className="tl-script__editor" ref={codeRef}>
           <CodeEditor

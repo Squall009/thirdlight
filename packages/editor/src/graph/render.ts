@@ -33,6 +33,7 @@ import {
   type Rect,
   type View,
 } from './model';
+import { familyColor, familyOf } from './node-style';
 
 export interface Scene {
   kind: GraphKindDef;
@@ -66,7 +67,6 @@ const COLORS = {
   gridMajor: '#20252e',
   node: '#20252d',
   nodeLine: '#343b47',
-  header: '#2b3a52',
   text: '#e8ebf0',
   dim: '#9aa3b2',
   select: '#4c8dff',
@@ -288,7 +288,8 @@ function drawNode(ctx: CanvasRenderingContext2D, scene: Scene, n: GraphNode, r: 
   const problems = scene.problems.get(n.id) ?? [];
   ctx.fillStyle = COLORS.node;
   ctx.fillRect(r.x, r.y, r.w, r.h);
-  ctx.fillStyle = COLORS.header;
+  // The header in its category family's colour, so inputs, maths, logic, events and outputs read apart at a glance.
+  ctx.fillStyle = familyColor(familyOf(def?.category));
   ctx.fillRect(r.x, r.y, r.w, HEADER);
   const lit = scene.highlighted?.has(n.id) === true;
   const current = scene.current === n.id;

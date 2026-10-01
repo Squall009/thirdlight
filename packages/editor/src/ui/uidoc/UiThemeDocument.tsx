@@ -13,7 +13,8 @@ import type { UiDescriptors, UiDocument, UiTheme } from '@thirdlight/project-mod
 
 import type { FieldContext } from '../DescriptorFields';
 import { IconMapEditor } from './UiDocumentEditor';
-import { CommitText, StyleMapEditor } from './UiFields';
+import { StyleMapEditor } from './UiFields';
+import { EditorToolbar, EmptyState, ToolButton, ToolbarSpacer } from '../chrome/EditorChrome';
 
 export interface UiThemeDocumentProps {
   uiThemeId: string;
@@ -27,6 +28,11 @@ export interface UiThemeDocumentProps {
   onError: (message: string | null) => void;
 }
 
+/** A style name the theme does not have yet (`style1`, `style2`, …). */
+function freeStyleName(theme: UiTheme): string {
+  for (let n = 1; ; n++) if (!Object.prototype.hasOwnProperty.call(theme.styles, `style${n}`)) return `style${n}`;
+}
+
 export function UiThemeDocument(p: UiThemeDocumentProps): JSX.Element {
   const theme = p.themes.find((t) => t.uiThemeId === p.uiThemeId) ?? null;
   if (theme === null) return <p className="tl-hint">This UI theme no longer exists (deleted or undone). Close the tab, or undo the deletion.</p>;
@@ -35,12 +41,18 @@ export function UiThemeDocument(p: UiThemeDocumentProps): JSX.Element {
   const save = (next: UiTheme): void => void p.onSave(next).then(p.onError);
   return (
     <div className="tl-uitheme" aria-label="UI theme editor" data-ui-theme={theme.uiThemeId}>
-      <div className="tl-animator__bar">
-        <CommitText aria="UI theme name" value={theme.name} onCommit={(v) => v.trim() !== '' && save({ ...theme, name: v.trim().slice(0, 64) })} />
-        <span className="tl-hint">
-          UI theme · {Object.keys(theme.styles).length} style{Object.keys(theme.styles).length === 1 ? '' : 's'}
+      <EditorToolbar label="UI theme toolbar">
+        <ToolButton action="add" label="Style" title="A new style documents using this theme can name" onClick={() => save({ ...theme, styles: { ...theme.styles, [freeStyleName(theme)]: {} } })} />
+        <ToolbarSpacer />
+        <span className="tl-editor-toolbar__note">
+          {Object.keys(theme.styles).length} style{Object.keys(theme.styles).length === 1 ? '' : 's'} · used by {users.length} document{users.length === 1 ? '' : 's'}
         </span>
-      </div>
+      </EditorToolbar>
+      {Object.keys(theme.styles).length === 0 && Object.keys(theme.icons ?? {}).length === 0 && (
+        <EmptyState kind="uitheme" title="No styles yet" actions={<ToolButton action="add" label="Add a style" onClick={() => save({ ...theme, styles: { ...theme.styles, [freeStyleName(theme)]: {} } })} />}>
+          A theme holds named styles (colours, fonts, borders) and icons that every UI document using it shares. Add a style, then pick this theme in a document (Document → Theme).
+        </EmptyState>
+      )}
       {p.error !== null && (
         <p className="tl-error" role="alert">
           {p.error}

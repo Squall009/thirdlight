@@ -42,6 +42,8 @@ export interface WorkspaceHostInput {
   workspaceDispatch: Dispatch<WorkspaceAction>;
   /** The Scene view lent to the preview pane (what is shown on its scene). */
   sceneView: PreviewDeps['sceneView'];
+  /** Renaming an item (the editor header's name). */
+  items: WorkspaceHost['items'];
 }
 
 export function workspaceHostOf(input: WorkspaceHostInput): WorkspaceHost {
@@ -126,7 +128,6 @@ export function workspaceHostOf(input: WorkspaceHostInput): WorkspaceHost {
       },
       onEdit: (ownerId, ops) => sendGraphEdit({ kind: 'effect', id: ownerId }, ops),
       onSave: (effect) => void effectCommand('setEffect', { effect }),
-      onRename: (effectId, name) => void effectCommand('renameEffect', { effectId, name }),
       onSelection: setEffectSelection,
       focus: effectFocus,
       error: effectError,
@@ -172,7 +173,6 @@ export function workspaceHostOf(input: WorkspaceHostInput): WorkspaceHost {
         return c !== null ? c.assetBytes(assetId, version) : Promise.reject(new Error('not connected'));
       },
       onEdit: (dialogueId, ops) => sendGraphEdit({ kind: 'dialogue', id: dialogueId }, ops),
-      onRename: (dialogueId, name) => void dialogueCommand('setDialogue', { dialogue: { dialogueId, name } }),
       onSelection: setDialogueSelection,
       selection: dialogueSelection,
       focus: dialogueFocus,
@@ -249,6 +249,7 @@ export function workspaceHostOf(input: WorkspaceHostInput): WorkspaceHost {
       }),
     },
     close: (doc) => workspaceDispatch({ type: 'close', key: docKey(doc) }),
+    items: input.items,
   };
   return workspaceHost;
 }

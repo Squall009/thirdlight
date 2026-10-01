@@ -2,7 +2,7 @@
  * The document-kind registry of the editor window.
  *
  * A document kind says how one kind of document appears as a tab of the editor window:
- * its label ("Animator"), its icon, the tab title for a document id and the
+ * its label ("Animator"), the tab title for a document id and the
  * view that edits it. The tab strip, the layout storage, Ctrl+Tab, closing
  * and reordering are generic; a later phase (materials, effects, visual
  * scripts) adds an entry to `DOCUMENT_KINDS` (and, when its view needs data
@@ -20,6 +20,9 @@ import type { GraphContext, GraphKindDef, GraphOp } from '../../graph/model';
 import { MaterialDocument, type MaterialDocumentProps } from '../material/MaterialDocument';
 import { EffectDocument, type EffectDocumentProps } from '../effect/EffectDocument';
 import type { DocRef } from '../../session/editor-window';
+import type { ItemActions } from '../project/useItemActions';
+import { kindIcon } from '../../session/item-icons';
+import { iconKindOfDocument } from '../../session/project-items';
 import type { PreviewDeps } from '../preview/use-subject';
 import type { AnimatorControllersProps } from '../animator/parts';
 import { AnimatorDocument, type AnimatorDocumentProps } from '../animator/AnimatorDocument';
@@ -80,6 +83,8 @@ export interface WorkspaceHost {
   preview: PreviewDeps;
   /** Close a document's tab (e.g. after the document was deleted from its tab). */
   close: (doc: DocRef) => void;
+  /** Renaming the open item from its header (the project window's rename: one command). */
+  items: Pick<ItemActions, 'canRename' | 'rename'>;
 }
 
 export interface DocumentKind {
@@ -87,8 +92,6 @@ export interface DocumentKind {
   kind: string;
   /** The tab title's prefix ("Animator: Locomotion"). */
   label: string;
-  /** A small image shown in the tab. */
-  icon: string;
   /** The document's display name (falls back to its id when it is gone). */
   name: (id: string, host: WorkspaceHost) => string;
   /** The view that edits the document; it fills the centre area. */
@@ -98,7 +101,6 @@ export interface DocumentKind {
 const animatorKind: DocumentKind = {
   kind: 'animator',
   label: 'Animator',
-  icon: './icons/model.png',
   name: (id, host) => host.animator.controllers.find((c) => c.controllerId === id)?.name ?? id,
   // The controller's state machine on the graph framework (AnimatorDocument).
   render: (id, host) => {
@@ -119,7 +121,6 @@ const animatorKind: DocumentKind = {
 const scriptKind: DocumentKind = {
   kind: 'script',
   label: 'Script',
-  icon: './icons/script.png',
   name: (id, host) => host.behavior.behaviors.find((b) => b.behaviorId === id)?.displayName ?? id,
   // The code editor (files, compile diagnostics, publish) with
   // the declaration editor docked beside it. Keyed by the behavior so a
@@ -129,17 +130,9 @@ const scriptKind: DocumentKind = {
   ),
 };
 
-/** A small node-graph glyph (three linked boxes) for graph tabs. */
-const GRAPH_ICON =
-  'data:image/svg+xml,' +
-  encodeURIComponent(
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M5 4h4M5 4l5 8" stroke="#8fb4ff" stroke-width="1.5" fill="none"/><rect x="1" y="2" width="5" height="4" rx="1" fill="#8fb4ff"/><rect x="9" y="2" width="6" height="4" rx="1" fill="#f2b544"/><rect x="9" y="10" width="6" height="4" rx="1" fill="#7ed491"/></svg>',
-  );
-
 const graphKind: DocumentKind = {
   kind: 'graph',
   label: 'Graph',
-  icon: GRAPH_ICON,
   name: (id, host) => host.graph.graphs.find((g) => g.graphId === id)?.name ?? id,
   // A standalone graph document in the generic graph editor.
   // Keyed by the graph so view state (pan, zoom, selection) is per graph.
@@ -163,15 +156,9 @@ const graphKind: DocumentKind = {
   },
 };
 
-/** A small sphere glyph for material tabs. */
-const MATERIAL_ICON =
-  'data:image/svg+xml,' +
-  encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><defs><radialGradient id="g" cx="0.35" cy="0.35" r="0.7"><stop offset="0" stop-color="#ffe6a8"/><stop offset="1" stop-color="#b8742a"/></radialGradient></defs><circle cx="8" cy="8" r="6.5" fill="url(#g)"/></svg>');
-
 const materialKind: DocumentKind = {
   kind: 'material',
   label: 'Material',
-  icon: MATERIAL_ICON,
   name: (id, host) => host.material.materials.find((m) => m.materialId === id)?.name ?? id,
   // A graph material's node graph (MaterialDocument). Keyed by the material.
   render: (id, host) => <MaterialDocument key={id} {...host.material} materialId={id} />,
@@ -184,21 +171,14 @@ const materialKind: DocumentKind = {
 const visualScriptKind: DocumentKind = {
   kind: 'visual-script',
   label: 'Graph',
-  icon: GRAPH_ICON,
   name: (id, host) => host.behavior.behaviors.find((b) => b.behaviorId === id)?.displayName ?? id,
   render: (id, host) => <VisualScriptDocument key={id} {...host.visualScript} behaviorId={id} behavior={host.behavior.behaviors.find((b) => b.behaviorId === id) ?? null} />,
 };
-
-/** A small spark glyph for effect tabs. */
-const EFFECT_ICON =
-  'data:image/svg+xml,' +
-  encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M8 1l1.6 4.4L14 7l-4.4 1.6L8 13l-1.6-4.4L2 7l4.4-1.6z" fill="#f2b544"/><circle cx="13" cy="13" r="1.6" fill="#ff7f9e"/><circle cx="3" cy="13.5" r="1.1" fill="#8fb4ff"/></svg>');
 
 /** An effect's particle systems, each a graph of kind `effect` ("Effect: <name>"). */
 const effectKind: DocumentKind = {
   kind: 'effect',
   label: 'Effect',
-  icon: EFFECT_ICON,
   name: (id, host) => host.effect.effects.find((e) => e.effectId === id)?.name ?? id,
   render: (id, host) => <EffectDocument key={id} {...host.effect} effectId={id} />,
 };
@@ -207,7 +187,6 @@ const effectKind: DocumentKind = {
 const libraryKind: DocumentKind = {
   kind: 'script-library',
   label: 'Library',
-  icon: './icons/script.png',
   name: (id, host) => host.library.libraries.find((l) => l.libraryId === id)?.name ?? id,
   render: (id, host) => {
     const { libraries, ...rest } = host.library;
@@ -215,43 +194,25 @@ const libraryKind: DocumentKind = {
   },
 };
 
-/** A small speech-bubble glyph for dialogue tabs. */
-const DIALOGUE_ICON =
-  'data:image/svg+xml,' +
-  encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M2 3h12v7H7l-3 3v-3H2z" fill="#8fb4ff"/><rect x="4" y="5" width="8" height="1.2" fill="#1b1f2a"/><rect x="4" y="7.2" width="5" height="1.2" fill="#1b1f2a"/></svg>');
-
 /** A conversation's node graph and its previewer ("Dialogue: <name>"). */
 const dialogueKind: DocumentKind = {
   kind: 'dialogue',
   label: 'Dialogue',
-  icon: DIALOGUE_ICON,
   name: (id, host) => host.dialogue.dialogues.find((d) => d.dialogueId === id)?.name ?? id,
   render: (id, host) => <DialogueDocument key={id} {...host.dialogue} dialogueId={id} />,
 };
-/** A small ruler-and-keys glyph for timeline tabs. */
-const TIMELINE_ICON =
-  'data:image/svg+xml,' +
-  encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect x="1" y="3" width="14" height="2" fill="#8fb4ff"/><rect x="1" y="7" width="14" height="2" fill="#5e81ac"/><rect x="1" y="11" width="14" height="2" fill="#5e81ac"/><path d="M5 6.5l1.5 1.5L5 9.5 3.5 8z" fill="#f2b544"/><path d="M11 10.5l1.5 1.5-1.5 1.5L9.5 12z" fill="#f2b544"/><rect x="7.5" y="1" width="1" height="14" fill="#ff7f9e"/></svg>');
-
 /** A timeline's tracks on a time ruler ("Timeline: <name>"). */
 const timelineKind: DocumentKind = {
   kind: 'timeline',
   label: 'Timeline',
-  icon: TIMELINE_ICON,
   name: (id, host) => host.timeline.timelines.find((t) => t.timelineId === id)?.name ?? id,
   render: (id, host) => <TimelineDocument key={id} {...host.timeline} timelineId={id} />,
 };
-
-/** A small screen-with-widgets glyph for UI tabs. */
-const UI_ICON =
-  'data:image/svg+xml,' +
-  encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect x="1" y="2" width="14" height="12" rx="1.5" fill="none" stroke="#8fb4ff" stroke-width="1.4"/><rect x="3" y="4" width="6" height="2" fill="#7ed491"/><rect x="3" y="8" width="10" height="2" rx="1" fill="#f2b544"/></svg>');
 
 /** A UI document's visual editor ("UI: <name>"). */
 const uiDocumentKind: DocumentKind = {
   kind: 'ui-document',
   label: 'UI',
-  icon: UI_ICON,
   name: (id, host) => host.ui.documents.find((d) => d.uiDocumentId === id)?.name ?? id,
   render: (id, host) => <UiDocumentEditor key={id} {...host.ui.document(id)} />,
 };
@@ -260,7 +221,6 @@ const uiDocumentKind: DocumentKind = {
 const uiThemeKind: DocumentKind = {
   kind: 'ui-theme',
   label: 'UI theme',
-  icon: UI_ICON,
   name: (id, host) => host.ui.themes.find((t) => t.uiThemeId === id)?.name ?? id,
   render: (id, host) => <UiThemeDocument key={id} {...host.ui.theme(id)} />,
 };
@@ -273,6 +233,11 @@ export const KNOWN_DOCUMENT_KINDS: ReadonlySet<string> = new Set(BY_KIND.keys())
 
 export function documentKind(kind: string): DocumentKind | undefined {
   return BY_KIND.get(kind);
+}
+
+/** A document kind's picture (the registry's picture of the item it edits). */
+export function documentIcon(kind: string): string | undefined {
+  return kindIcon(iconKindOfDocument(kind));
 }
 
 /** "Animator: Locomotion" — the tab's title and accessible name. */

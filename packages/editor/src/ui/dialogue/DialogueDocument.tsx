@@ -19,6 +19,7 @@ import type { DialogueDocument as DialogueDoc, DialogueSettings, DialogueSpeaker
 import { GraphEditor } from '../../graph/GraphEditor';
 import type { GraphKindDef, GraphOp } from '../../graph/model';
 import { usePreview } from '../preview/preview-request';
+import { EditorToolbar } from '../chrome/EditorChrome';
 import type { PreviewAssetRef } from './preview-host';
 
 export interface DialogueDocumentProps {
@@ -36,8 +37,6 @@ export interface DialogueDocumentProps {
   conversations: (dialogueId: string) => Promise<readonly DialogueDoc[]>;
   /** Sends `graphEdit` ops (queued; resolves with a refusal or null). */
   onEdit: (dialogueId: string, ops: GraphOp[]) => Promise<string | null>;
-  /** One `setDialogue` (a rename). */
-  onRename: (dialogueId: string, name: string) => void;
   onSelection: (ids: readonly string[]) => void;
   selection: readonly string[];
   focus: { id: string; nonce: number } | null;
@@ -60,12 +59,11 @@ export function DialogueDocument(p: DialogueDocumentProps): JSX.Element {
   const lines = d.graph.nodes.filter((n) => n.type === 'line').length;
   return (
     <div className="tl-animator-doc tl-dialogue-doc" aria-label="dialogue graph">
-      <div className="tl-animator__bar">
-        <input className="tl-input" aria-label="dialogue name" defaultValue={d.name} key={`${d.dialogueId}:${d.name}`} maxLength={64} onBlur={(e) => e.target.value.trim() !== '' && e.target.value.trim() !== d.name && p.onRename(d.dialogueId, e.target.value.trim())} onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()} />
-        <span className="tl-hint">
-          Dialogue · {lines} line{lines === 1 ? '' : 's'} · id {d.dialogueId}
+      <EditorToolbar label="dialogue toolbar">
+        <span className="tl-editor-toolbar__note">
+          {lines} line{lines === 1 ? '' : 's'} · id {d.dialogueId}
         </span>
-      </div>
+      </EditorToolbar>
       <p className="tl-hint tl-material-doc__note" role="note">
         Wire Start → Lines → Choices (options top to bottom) → … Line text is rich text: [b] [i] [color=#hex], {'{var}'} values, [pause=0.5]. Conditions and effects use the dialogue variables (Inspector).
       </p>

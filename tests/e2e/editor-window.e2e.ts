@@ -149,8 +149,8 @@ test('items open in a window over the editor: editor left, the one Inspector rig
   await expect(inspector(page).locator('[aria-label="animator inspector"]')).toHaveCount(1);
   // An edit from the window, undone with Ctrl+Z while it shows; an MCP edit reaches the open tab.
   const storedName = async (): Promise<string | undefined> => ((await query('queryGameConfig'))['animators'] as { controllerId: string; name: string }[] | undefined)?.find((c) => c.controllerId === 'animator-01')?.name;
-  await animView.getByLabel('controller name').fill('Walker B');
-  await animView.getByLabel('controller name').blur();
+  await animView.getByLabel('animator name').fill('Walker B');
+  await animView.getByLabel('animator name').blur();
   await expect(editorTab(page, 'Animator', 'Walker B')).toBeVisible();
   await expect.poll(storedName).toBe('Walker B');
   await page.keyboard.press('Control+z');

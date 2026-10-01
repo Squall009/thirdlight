@@ -33,6 +33,7 @@ import { CodeEditor, revealPosition, type InlineDiagnostic } from './CodeEditor'
 import { API_TYPINGS_PATH, CHECK_IDLE_MS, useSourceFocus } from './ScriptDocument';
 import type { SourceFocus } from '../../session/source-location';
 import { LibrariesSaveAll, type LibrariesSaveAllProps } from './LibrariesSaveAll';
+import { EditorToolbar, ToolButton, ToolbarSpacer } from '../chrome/EditorChrome';
 
 /** A library's unsaved edits (kept by the app while the session exists). */
 export interface LibraryDraft {
@@ -288,22 +289,18 @@ export function LibraryDocument(p: LibraryDocumentProps): JSX.Element {
 
       <div className="tl-script__main">
         {p.saveAll !== undefined && <LibrariesSaveAll {...p.saveAll} />}
-        <div className="tl-script__bar">
+        <EditorToolbar label="library toolbar" className="tl-script__bar">
           <span className="tl-script__path">
             @lib/{libraryId} · {openPath}
           </span>
           <span className={`tl-script__status tl-script__status--${check.status}`} aria-label="compile status" data-status={check.status}>
             {status}
           </span>
-          <span className="tl-script__spacer" />
+          <ToolbarSpacer />
           <span className="tl-prop__caption">{draft.dirty ? 'unsaved edits' : 'saved'}</span>
-          <button className="tl-btn tl-btn--small" onClick={() => void runCheck(draft.files)} title="Compile now (Ctrl+S); it also compiles after a short pause">
-            Compile
-          </button>
-          <button className="tl-btn tl-btn--small tl-btn--primary" disabled={saving?.kind === 'working' || !draft.dirty} onClick={() => void doSave(false)} title="Save the library (one undo step); the scripts that import it are recompiled with it">
-            Save
-          </button>
-        </div>
+          <ToolButton action="compile" label="Compile" title="Compile now (Ctrl+S); it also compiles after a short pause" onClick={() => void runCheck(draft.files)} />
+          <ToolButton action="save" label="Save" primary disabled={saving?.kind === 'working' || !draft.dirty} title="Save the library (one undo step); the scripts that import it are recompiled with it" onClick={() => void doSave(false)} />
+        </EditorToolbar>
         {draft.dirty && draft.base !== storedText && <div className="tl-hint">The library changed since these edits started; saving replaces the files you edited.</div>}
         <div className="tl-script__editor" ref={codeRef}>
           <CodeEditor

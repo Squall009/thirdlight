@@ -119,8 +119,10 @@ test('graph editing: catalogue, wires (typed, conversions, refusals), box select
   const [out] = await nodesOfType('maths', 'output', 1);
   // A new graph without a connected output shows its problems (on the node and in the toolbar).
   await expect(node(page, out!)).toHaveAttribute('data-problems', /error/);
-  // Observed in pixels: the canvas drew the node header (#2b3a52) and the red error badge.
-  await expect.poll(async () => near(await pixelOn(page, c1!, (w) => w / 2, 6), [0x2b, 0x3a, 0x52])).toBe(true);
+  // Observed in pixels: the canvas drew the node header (an input's: the stylesheet's --node-input) and the red error badge.
+  const inputHex = (await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--node-input').trim())).replace('#', '');
+  const inputRgb = [0, 2, 4].map((i) => parseInt(inputHex.slice(i, i + 2), 16)) as [number, number, number];
+  await expect.poll(async () => near(await pixelOn(page, c1!, (w) => w / 2, 6), inputRgb)).toBe(true);
   await expect.poll(async () => near(await pixelOn(page, out!, (w) => w - 16.5, 13), [0xff, 0x5d, 0x5d], 40)).toBe(true);
   await expect(page.getByLabel('Graph problems')).toContainText(/[1-9] error/);
 

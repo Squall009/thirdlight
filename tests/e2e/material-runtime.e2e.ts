@@ -202,7 +202,7 @@ for (const variant of VARIANTS) test(`a script sets one object's colour and writ
   // Editor: + parameter → key "cells", type data, size 4 × 4 (the material document's parameter list).
   await openEditor(page, 'Material', 'Overlay');
   const params = page.getByLabel('exposed parameters');
-  await params.getByRole('button', { name: '+ parameter' }).click();
+  await params.getByRole('button', { name: 'add parameter' }).click();
   const materialOf = async (): Promise<{ parameters?: Record<string, unknown>[] }> => ((await query('queryGameConfig')).materials as { materialId: string; parameters?: Record<string, unknown>[] }[]).find((m) => m.materialId === 'overlay')!;
   await expect.poll(async () => (await materialOf()).parameters?.length).toBe(2);
   const key = params.getByLabel('parameter 2 key');

@@ -70,6 +70,7 @@ import {
   type WidgetPath,
 } from '../../session/ui-edit';
 import { ActionsField, BindingField, CommitText, SizeField, StyleEditor, StyleMapEditor, StyleRefField } from './UiFields';
+import { EditorToolbar, EmptyState, ToolButton } from '../chrome/EditorChrome';
 import { UiPreview, type Measured, type PreviewAssets, type PreviewHandle } from './UiPreview';
 import { usePreview } from '../preview/preview-request';
 import { RefPicker, TEXTURE_KINDS, useFirstEntry } from '../catalog/RefPicker';
@@ -328,8 +329,7 @@ export function UiDocumentEditor(p: UiDocumentEditorProps): JSX.Element {
 
   return (
     <div className="tl-uidoc" aria-label="UI document editor" data-ui-document={doc.uiDocumentId}>
-      <div className="tl-animator__bar tl-uidoc__bar">
-        <CommitText aria="UI document name" value={doc.name} onCommit={(v) => v.trim() !== '' && void edit((d) => ({ ...d, name: v.trim().slice(0, 64) }))} />
+      <EditorToolbar label="UI document toolbar" className="tl-uidoc__bar">
         <label className="tl-flag">
           Resolution
           <select className="tl-input" aria-label="preview resolution" value={res} onChange={(e) => setRes(e.target.value)}>
@@ -360,7 +360,7 @@ export function UiDocumentEditor(p: UiDocumentEditorProps): JSX.Element {
           <input type="checkbox" aria-label="snap to guides" checked={snapGuides} onChange={(e) => setSnapGuides(e.target.checked)} />
           guides
         </label>
-      </div>
+      </EditorToolbar>
       {error !== null && (
         <p className="tl-error" role="alert">
           {error}
@@ -487,8 +487,8 @@ function Hierarchy(p: { doc: UiDocument; selKey: string; onSelect: (k: string) =
   const sel = parsePathKey(p.selKey) ?? [];
   const selW = widgetAt(p.doc.root, sel);
   const containers = rows.filter((r) => holds(r.widget) === 'children' && !(pathKey(r.path).startsWith(p.selKey) && (pathKey(r.path) === p.selKey || pathKey(r.path).startsWith(`${p.selKey}.`))));
-  const add = (): void => {
-    const made = newWidget(addType, collectIds(p.doc.root), firstTexture);
+  const add = (type: UiWidgetType = addType): void => {
+    const made = newWidget(type, collectIds(p.doc.root), firstTexture);
     if ('error' in made) return p.onFail(made.error);
     p.treeOp((root) => {
       const target = selW !== null && holds(selW) !== null && !(holds(selW) === 'template' && selW.template !== undefined) ? sel : sel.length > 0 ? parentPath(sel) : [];
@@ -515,9 +515,7 @@ function Hierarchy(p: { doc: UiDocument; selKey: string; onSelect: (k: string) =
             </option>
           ))}
         </select>
-        <button type="button" className="tl-btn tl-btn--small" aria-label="add widget" onClick={add} title="Add into the selected container (or next to the selected widget)">
-          + Add
-        </button>
+        <ToolButton action="add" label="Add" aria="add widget" title="Add into the selected container (or next to the selected widget)" onClick={() => add()} />
       </div>
       <div className="tl-uidoc__row">
         <button type="button" className="tl-btn tl-btn--small" aria-label="move widget up" disabled={sel.length === 0} onClick={() => p.treeOp((root) => reorderWidget(root, sel, -1))}>
@@ -529,9 +527,7 @@ function Hierarchy(p: { doc: UiDocument; selKey: string; onSelect: (k: string) =
         <button type="button" className="tl-btn tl-btn--small" aria-label="duplicate widget" disabled={sel.length === 0} onClick={() => p.treeOp((root) => duplicateWidget(root, sel))}>
           Duplicate
         </button>
-        <button type="button" className="tl-btn tl-btn--small" aria-label="delete widget" disabled={sel.length === 0} onClick={() => p.treeOp((root) => removeWidget(root, sel))}>
-          Delete
-        </button>
+        <ToolButton action="delete" label="Delete" aria="delete widget" disabled={sel.length === 0} onClick={() => p.treeOp((root) => removeWidget(root, sel))} />
       </div>
       <div className="tl-uidoc__row">
         <select className="tl-input" aria-label="move into container" value={moveTo} onChange={(e) => setMoveTo(e.target.value)}>
@@ -586,6 +582,21 @@ function Hierarchy(p: { doc: UiDocument; selKey: string; onSelect: (k: string) =
           );
         })}
       </ul>
+      {rows.length === 1 && (
+        <EmptyState
+          kind="ui"
+          title="No widgets yet"
+          actions={
+            <>
+              <ToolButton action="add" label="Text" aria="add a text widget" onClick={() => add('text')} />
+              <ToolButton action="add" label="Button" aria="add a button widget" onClick={() => add('button')} />
+              <ToolButton action="add" label="Bar" aria="add a bar widget" onClick={() => add('bar')} />
+            </>
+          }
+        >
+          A UI document is a tree of widgets inside its root panel, drawn over the game. Add one here, then place it on the canvas and bind its values in the inspector.
+        </EmptyState>
+      )}
     </div>
   );
 }
