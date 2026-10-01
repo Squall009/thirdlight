@@ -33,7 +33,7 @@ test.afterEach(async () => {
 test('the editor at 1,800 assets: open, scroll the whole catalog, place, a voice through the picker, tiles from the import cache', async ({ page }) => {
   test.setTimeout(600_000);
   const spec = scaledSpec(0.1);
-  const generated = generateScaleProject(join(root, 'data'), 'scale', spec);
+  const generated = await generateScaleProject(join(root, 'data'), 'scale', spec);
   be = await startPerfBackend(join(root, 'data'), join(root, 'exports'));
   const p = be.project('scale');
   const query = (op: string, args: Record<string, unknown> = {}): Promise<Record<string, unknown>> => p.query(op, args);

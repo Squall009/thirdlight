@@ -37,12 +37,15 @@ import {
 import { audioLoadOf } from '@thirdlight/project-model';
 import { CONTENT_STORAGE_VERSION, defaultResourcePath, RESOURCE_KINDS, resourceFileBytes, SIDECAR_FORMAT } from '@thirdlight/workspace';
 
-import { sphereGlb } from './assets';
+import { encodeKtx2 } from '../../packages/backend/src/texture-encode';
+import { makePng } from '../../tests/e2e/png-make';
+import { makeTwoColourWebp } from '../../tests/e2e/webp-make';
+import { sphereGlb, sphereGlbWith } from './assets';
 import { prng } from './generate';
 import { opusVoice, pcmWav, scalePng } from './scale-media';
 
 /** Bump when the generated content changes (it keys cached projects and recorded numbers). */
-export const SCALE_GENERATOR_VERSION = 7;
+export const SCALE_GENERATOR_VERSION = 8;
 export const SCALE_DEFAULT_SEED = 26;
 
 export interface ScaleSpec {
@@ -66,6 +69,14 @@ export interface ScaleSpec {
   walkthroughVoiceMs: number;
   /** Textures and models (alternately) carrying the label `SCALE_BATCH_LABEL`, which a script loads and releases by it. */
   labelled: number;
+  /**
+   * Every `embedEvery`-th model (from the first; 0: none) carries a larger
+   * base colour image inside its file, `embedSize` px a side: a Basis
+   * Universal KTX2 with mips and a WebP alternately, as exported art does.
+   * The other models carry an 8 px PNG.
+   */
+  embedEvery: number;
+  embedSize: number;
 }
 
 /** The label the bench's script loads (`labelled` assets carry it). */
@@ -87,6 +98,8 @@ export const SCALE_FULL: Readonly<ScaleSpec> = Object.freeze({
   walkthroughLines: 500,
   walkthroughVoiceMs: 1_000,
   labelled: 1_000,
+  embedEvery: 10,
+  embedSize: 512,
 });
 
 /**
@@ -141,6 +154,8 @@ export const SCALE_SMALL: Readonly<ScaleSpec> = Object.freeze({
   walkthroughLines: 6,
   walkthroughVoiceMs: 400,
   labelled: 8,
+  embedEvery: 4,
+  embedSize: 128,
 });
 
 export const SCALE_PRESETS: Readonly<Record<string, Readonly<ScaleSpec>>> = { full: SCALE_FULL, caps: SCALE_AT_CAPS, 'half-caps': SCALE_HALF_CAPS, small: SCALE_SMALL };
@@ -226,7 +241,7 @@ interface Proposal {
  * Write `<dataRoot>/projects/<projectId>/` for `spec` (replacing one that is
  * there). The backend must not hold the project while this runs.
  */
-export function generateScaleProject(dataRoot: string, projectId: string, spec: ScaleSpec, seed = SCALE_DEFAULT_SEED, log: (s: string) => void = () => undefined): ScaleResult {
+export async function generateScaleProject(dataRoot: string, projectId: string, spec: ScaleSpec, seed = SCALE_DEFAULT_SEED, log: (s: string) => void = () => undefined): Promise<ScaleResult> {
   const t0 = performance.now();
   const dir = join(dataRoot, 'projects', projectId);
   rmSync(dir, { recursive: true, force: true });
@@ -291,13 +306,28 @@ export function generateScaleProject(dataRoot: string, projectId: string, spec: 
   }
   log(`scale: ${spec.sounds} sounds, ${spec.textures} textures`);
   const modelIds: string[] = [];
+  // One KTX2 (the engine's own encoder, as an import with `ktx2: color` makes it), shared by the models that embed one; each file differs by its tag.
+  const size = spec.embedSize;
+  let ktx2: Uint8Array | null = null;
+  if (spec.embedEvery > 0 && spec.models > 0) {
+    const encoded = await encodeKtx2(makePng(size, size, (x, y) => (((x >> 4) + (y >> 4)) % 2 === 0 ? [200, 120, 60, 255] : [40, 90, 160, 255])), 'color');
+    if (!encoded.ok) throw new Error(`the embedded KTX2 could not be encoded: ${encoded.message}`);
+    ktx2 = encoded.ktx2;
+  }
+  let embedded = 0;
   for (let i = 0; i < spec.models; i++) {
     const id = `model-${pad(i)}`;
-    const bytes = sphereGlb(seedOf(), 6 + (i % 6), 8);
+    const embeds = ktx2 !== null && i % spec.embedEvery === 0;
+    const s = seedOf();
+    const bytes = !embeds
+      ? sphereGlb(s, 6 + (i % 6), 8)
+      : (embedded++ % 2 === 0
+        ? sphereGlbWith(6 + (i % 6), { bytes: ktx2!, format: 'ktx2' }, id)
+        : sphereGlbWith(6 + (i % 6), { bytes: makeTwoColourWebp(size, size, [(s >> 8) & 255, (s >> 16) & 255, 30], [20, s & 255, 200], (x, y) => (((x >> 4) + (y >> 4)) % 2 === 0 ? 0 : 1)), format: 'webp' }, id));
     addAsset(id, 'model', `Model ${i}`, bytes, inspectGlb(bytes, { profile: 'gltf-glb', recipeVersion: 1, toolchain: M2_GLTF_TOOLCHAIN }) as unknown as Proposal, 'model', {}, labelsOf('model', i));
     modelIds.push(id);
   }
-  log(`scale: ${spec.models} models`);
+  log(`scale: ${spec.models} models (${embedded} with a ${size} px KTX2 or WebP inside)`);
   assets.sort((a, b) => ((a['assetId'] as string) < (b['assetId'] as string) ? -1 : 1));
 
   // Materials: a base colour map each, normal maps and ORM maps over the rest of the textures.

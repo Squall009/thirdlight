@@ -61,7 +61,7 @@ export async function runScaleCli(argv: readonly string[]): Promise<void> {
     let made: ScaleResult;
     if (cached !== null && cached.key === key) made = cached.result;
     else {
-      made = generateScaleProject(pristine, projectId, spec, seed, log);
+      made = await generateScaleProject(pristine, projectId, spec, seed, log);
       writeFileSync(stamp, JSON.stringify({ key, result: made }));
     }
     // A run edits its project (the driver script, the command round trips): each run gets a fresh copy.

@@ -39,11 +39,34 @@ export function assetVersionKey(assetId: string, version: number): string {
 /** A holder name that starts with this is a script's handle (counted for the end-of-play report). */
 export const RESOURCE_HANDLE_PREFIX = 'handle:';
 
+/**
+ * Textures a resource carries inside it (the images embedded in a model
+ * file): `count` images, `bytes` of the resource's own `bytes`. They are the
+ * resource's (loaded and freed with it), and they are textures all the same,
+ * so the texture budget counts them with the texture assets.
+ */
+export interface EmbeddedTextures {
+  readonly count: number;
+  readonly bytes: number;
+}
+
+/** Resources listed by `embeddedTextures` in Play diagnostics (the totals cover all; the list keeps the frame small). */
+export const EMBEDDED_TEXTURES_LISTED = 8;
+
+/** The bytes of the textures resident resources carry inside them, over every kind. */
+export function embeddedTextureBytes(o: ResourceObservation): number {
+  let n = 0;
+  for (const r of Object.values(o.resident)) n += r?.textures?.bytes ?? 0;
+  return n;
+}
+
 /** What a load gives the manager: the value, its resident size and how it is freed. */
 export interface LoadedResource<T> {
   readonly value: T;
   /** Resident bytes (CPU and GPU; an estimate where the platform does not say). */
   readonly bytes: number;
+  /** The textures inside the value (part of `bytes`); absent or zero for most kinds. */
+  readonly textures?: EmbeddedTextures;
   /** Let go of what the value holds (dispose GPU data, close an image, delete a font face). */
   readonly free?: (value: T) => void;
 }
@@ -52,6 +75,19 @@ export interface LoadedResource<T> {
 export interface ResidentCount {
   readonly count: number;
   readonly bytes: number;
+  /** Of `bytes`, the textures these resources carry inside them (present when any carries one). */
+  readonly textures?: EmbeddedTextures;
+}
+
+/** The resident resources that carry textures inside them, against the texture budget. */
+export interface EmbeddedTexturesObservation {
+  /** Images and their bytes over every resident resource that carries some. */
+  readonly count: number;
+  readonly bytes: number;
+  /** How many resources carry them. */
+  readonly resources: number;
+  /** The resources carrying the most texture bytes, most first (a bounded list; the totals cover all). */
+  readonly largest: readonly { readonly kind: ResourceKind; readonly key: string; readonly count: number; readonly bytes: number }[];
 }
 
 /** The manager as observers see it. */
@@ -98,6 +134,8 @@ export interface ResourceManager {
   /** Free what lost its last holder since the last settle and was not taken again; returns how many. */
   settle(): number;
   observe(): ResourceObservation;
+  /** The textures resident resources carry inside them: totals and the `listed` largest. */
+  embeddedTextures(listed: number): EmbeddedTexturesObservation;
   /** Free everything (a page closing); later acquires reject. Idempotent. */
   dispose(): void;
 }
@@ -118,11 +156,20 @@ interface Entry {
   state: 'loading' | 'ready';
   value: unknown;
   bytes: number;
+  textures: EmbeddedTextures | undefined;
   free: ((value: unknown) => void) | undefined;
   readonly promise: Promise<unknown>;
 }
 
 const idOf = (kind: ResourceKind, key: string): string => `${kind}\u0000${key}`;
+
+/** A load's embedded textures, kept only when there are some, and never more bytes than the whole resource. */
+function embeddedOf(t: EmbeddedTextures | undefined, bytes: number): EmbeddedTextures | undefined {
+  if (t === undefined) return undefined;
+  const count = Number.isFinite(t.count) && t.count > 0 ? Math.floor(t.count) : 0;
+  const b = Number.isFinite(t.bytes) && t.bytes > 0 ? Math.min(t.bytes, bytes) : 0;
+  return count > 0 || b > 0 ? { count, bytes: b } : undefined;
+}
 
 export function createResourceManager(options: ResourceManagerOptions = {}): ResourceManager {
   const entries = new Map<string, Entry>();
@@ -231,6 +278,7 @@ export function createResourceManager(options: ResourceManagerOptions = {}): Res
               entry.state = 'ready';
               entry.value = r.value;
               entry.bytes = Number.isFinite(r.bytes) && r.bytes > 0 ? r.bytes : 0;
+              entry.textures = embeddedOf(r.textures, entry.bytes);
               entry.free = r.free as ((value: unknown) => void) | undefined;
               loads[kind] = (loads[kind] ?? 0) + 1;
               // Every holder went while it loaded: it waits for the settle like any other.
@@ -250,7 +298,7 @@ export function createResourceManager(options: ResourceManagerOptions = {}): Res
           );
         // The caller of each acquire sees the failure; the manager itself never leaves one unhandled.
         promise.catch(() => undefined);
-        entry = { kind, key, id, holders: new Set(), state: 'loading', value: undefined, bytes: 0, free: undefined, promise };
+        entry = { kind, key, id, holders: new Set(), state: 'loading', value: undefined, bytes: 0, textures: undefined, free: undefined, promise };
         entries.set(id, entry);
         e = entry;
       }
@@ -289,7 +337,7 @@ export function createResourceManager(options: ResourceManagerOptions = {}): Res
     },
     settle,
     observe() {
-      const resident: Partial<Record<ResourceKind, { count: number; bytes: number }>> = {};
+      const resident: Partial<Record<ResourceKind, { count: number; bytes: number; textures?: { count: number; bytes: number } }>> = {};
       let loading = 0;
       for (const e of entries.values()) {
         if (e.state !== 'ready') {
@@ -299,10 +347,29 @@ export function createResourceManager(options: ResourceManagerOptions = {}): Res
         const r = (resident[e.kind] ??= { count: 0, bytes: 0 });
         r.count += 1;
         r.bytes += e.bytes;
+        if (e.textures !== undefined) {
+          const t = (r.textures ??= { count: 0, bytes: 0 });
+          t.count += e.textures.count;
+          t.bytes += e.textures.bytes;
+        }
       }
       let handles = 0;
       for (const h of byHolder.keys()) if (h.startsWith(RESOURCE_HANDLE_PREFIX)) handles += 1;
       return { resident, loading, loads: { ...loads }, frees: { ...frees }, failed, waiting: dropped.size, handles };
+    },
+    embeddedTextures(listed) {
+      let count = 0;
+      let bytes = 0;
+      const carrying: Entry[] = [];
+      for (const e of entries.values()) {
+        if (e.state !== 'ready' || e.textures === undefined) continue;
+        count += e.textures.count;
+        bytes += e.textures.bytes;
+        carrying.push(e);
+      }
+      carrying.sort((a, b) => b.textures!.bytes - a.textures!.bytes || (a.id < b.id ? -1 : 1));
+      const largest = carrying.slice(0, Math.max(0, Math.floor(listed))).map((e) => ({ kind: e.kind, key: e.key, count: e.textures!.count, bytes: e.textures!.bytes }));
+      return { count, bytes, resources: carrying.length, largest };
     },
     dispose() {
       if (disposed) return;

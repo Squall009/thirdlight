@@ -62,7 +62,13 @@ export interface GameResourcesObservation extends ResourceObservation {
   /** Handles still open when a run ended (a restart): released then; the last 32, `notReleasedCount` all. */
   readonly notReleased?: readonly ScriptHandleReport[];
   readonly notReleasedCount?: number;
-  /** Texture streaming: resident texture bytes against the budget, each streamed texture's levels. */
+  /**
+   * Texture streaming: resident texture bytes against the budget, each
+   * streamed texture's levels, and `embedded` — the images model files carry
+   * inside them (in the budget's `fixedBytes`; also part of their model's
+   * bytes under `resident`), with the models carrying the most (key
+   * `<assetId>@<version>`).
+   */
   readonly textures?: object;
 }
 

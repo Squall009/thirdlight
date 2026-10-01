@@ -191,14 +191,17 @@ export async function publishWav(be: E2EBackend, file: string, assetId: string, 
   return publishBytes(be, readFileSync(join(REPO, 'fixtures', 'm3', 'media', 'wav', file)), 'audio', assetId, displayName);
 }
 
-/** Publish bytes as a project asset of `kind` (model, texture, audio …) through the real content route; returns the asset id. */
-export async function publishBytes(be: E2EBackend, bytes: Uint8Array, kind: string, assetId: string, displayName = assetId): Promise<string> {
+/**
+ * Publish bytes as a project asset of `kind` (model, texture, audio …) through the real content route; returns the asset id.
+ * `inspect` adds import options to the inspection (`{ ktx2: 'color' }` encodes a texture to KTX2, recorded as converted).
+ */
+export async function publishBytes(be: E2EBackend, bytes: Uint8Array, kind: string, assetId: string, displayName = assetId, inspect: Record<string, unknown> = {}): Promise<string> {
   const headers = { authorization: `Bearer ${be.token}`, origin: be.origin };
   const base = `${be.origin}/api/v1/projects/${be.projectId}/content/stages`;
   const stage = (await (await fetch(base, { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: '{}' })).json()) as { stageId: string };
   const put = await fetch(`${base}/${stage.stageId}/bytes`, { method: 'PUT', headers: { ...headers, 'content-type': 'application/octet-stream', 'x-thirdlight-offset': '0', 'x-thirdlight-total': String(bytes.length) }, body: bytes });
   if (!put.ok) throw new Error(`publish ${assetId} upload: ${put.status}`);
-  const inspected = (await (await fetch(`${base}/${stage.stageId}/inspect`, { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ kind }) })).json()) as { proposal?: Record<string, unknown> };
+  const inspected = (await (await fetch(`${base}/${stage.stageId}/inspect`, { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body: JSON.stringify({ ...inspect, kind }) })).json()) as { proposal?: Record<string, unknown>; convertedFrom?: Record<string, unknown> };
   const p = inspected.proposal;
   if (p === undefined) throw new Error(`publish ${assetId} inspect: ${JSON.stringify(inspected).slice(0, 300)}`);
   const q = await be.command({ op: 'queryProject', projectId: be.projectId, args: {} });
@@ -208,7 +211,7 @@ export async function publishBytes(be: E2EBackend, bytes: Uint8Array, kind: stri
     expectedRevision: Number(q['revision']),
     requestId: `req-${randomUUID().replace(/-/g, '')}`,
     origin: { kind: 'mcp', clientId: 'e2e-publish' },
-    args: { mode: 'create', assetId, kind, displayName, sourceDigest: p['sourceDigest'], sourceByteLength: p['sourceByteLength'], importRecipe: p['importRecipe'], metrics: p['metrics'], importedAt: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z') },
+    args: { mode: 'create', assetId, kind, displayName, sourceDigest: p['sourceDigest'], sourceByteLength: p['sourceByteLength'], ...(inspected.convertedFrom !== undefined ? { convertedFrom: inspected.convertedFrom } : {}), importRecipe: p['importRecipe'], metrics: p['metrics'], importedAt: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z') },
   });
   if (r['ok'] !== true) throw new Error(`publish ${assetId}: ${JSON.stringify(r).slice(0, 400)}`);
   return assetId;

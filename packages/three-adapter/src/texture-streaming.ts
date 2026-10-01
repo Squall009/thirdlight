@@ -165,7 +165,8 @@ export interface TextureStreamerOptions {
   /**
    * Bytes of every decoded texture of the page, streamed ones counted once
    * at their resident size (the resource manager's `texture` total, kept in
-   * step through `onResize`); what is not the streamer's own is fixed.
+   * step through `onResize`, and the images inside model files); what is not
+   * the streamer's own is fixed.
    */
   readonly textureBytes?: () => number;
   /** A streamed texture's resident bytes (one copy) changed (the resource manager's entry). */

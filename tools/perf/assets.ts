@@ -19,8 +19,22 @@ export function noisePng(seed: number, size: number): Buffer {
   });
 }
 
+/** An image a model file carries inside it: a PNG (core glTF), a WebP (EXT_texture_webp) or a Basis Universal KTX2 (KHR_texture_basisu). */
+export interface EmbeddedImage {
+  readonly bytes: Uint8Array;
+  readonly format: 'png' | 'webp' | 'ktx2';
+}
+
+const IMAGE_EXTENSION: Record<EmbeddedImage['format'], string | null> = { png: null, webp: 'EXT_texture_webp', ktx2: 'KHR_texture_basisu' };
+
 /** A textured UV sphere GLB (radius 0.5, resting on y = 0); `fill` makes its texture one solid colour instead of noise. */
 export function sphereGlb(seed: number, segments: number, textureSize: number, fill?: readonly [number, number, number]): Buffer {
+  const png = fill !== undefined ? makePng(textureSize, textureSize, () => [fill[0], fill[1], fill[2], 255]) : noisePng(seed, textureSize);
+  return sphereGlbWith(segments, { bytes: png, format: 'png' });
+}
+
+/** A UV sphere GLB (radius 0.5, resting on y = 0) whose base colour is `image`, embedded in the file; `tag` (in the asset's extras) makes files with the same image distinct. */
+export function sphereGlbWith(segments: number, image: EmbeddedImage, tag?: string): Buffer {
   const rows = segments;
   const cols = segments;
   const verts = (rows + 1) * (cols + 1);
@@ -54,7 +68,6 @@ export function sphereGlb(seed: number, segments: number, textureSize: number, f
       i += 6;
     }
   }
-  const png = fill !== undefined ? makePng(textureSize, textureSize, () => [fill[0], fill[1], fill[2], 255]) : noisePng(seed, textureSize);
   const parts: Buffer[] = [];
   const views: Record<string, unknown>[] = [];
   let offset = 0;
@@ -70,18 +83,20 @@ export function sphereGlb(seed: number, segments: number, textureSize: number, f
   const vNrm = view(b(nrm), 34962);
   const vUv = view(b(uv), 34962);
   const vIdx = view(b(idx), 34963);
-  const vImg = view(png);
+  const vImg = view(Buffer.from(image.bytes.buffer, image.bytes.byteOffset, image.bytes.byteLength));
+  const ext = IMAGE_EXTENSION[image.format];
   const bin = Buffer.concat(parts);
   const json = {
-    asset: { version: '2.0', generator: 'thirdlight perf asset-heavy fixture' },
+    asset: { version: '2.0', generator: 'thirdlight perf asset-heavy fixture', ...(tag !== undefined ? { extras: { tag } } : {}) },
     scene: 0,
     scenes: [{ nodes: [0] }],
     nodes: [{ name: 'body', mesh: 0 }],
     meshes: [{ name: 'body', primitives: [{ attributes: { POSITION: 0, NORMAL: 1, TEXCOORD_0: 2 }, indices: 3, material: 0 }] }],
     materials: [{ name: 'body', pbrMetallicRoughness: { baseColorTexture: { index: 0 }, metallicFactor: 0, roughnessFactor: 0.7 } }],
-    images: [{ bufferView: vImg, mimeType: 'image/png' }],
+    images: [{ bufferView: vImg, mimeType: `image/${image.format}` }],
     samplers: [{ magFilter: 9729, minFilter: 9987 }],
-    textures: [{ source: 0, sampler: 0 }],
+    textures: [ext === null ? { source: 0, sampler: 0 } : { sampler: 0, extensions: { [ext]: { source: 0 } } }],
+    ...(ext === null ? {} : { extensionsUsed: [ext], extensionsRequired: [ext] }),
     accessors: [
       { bufferView: vPos, componentType: 5126, count: verts, type: 'VEC3', min: [-0.5, 0, -0.5], max: [0.5, 1, 0.5] },
       { bufferView: vNrm, componentType: 5126, count: verts, type: 'VEC3' },

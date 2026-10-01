@@ -95,7 +95,7 @@ for (const threads of ['worker', 'single'] as const) {
   test(`a replay answers once applied with the new run id, or pending while the game takes no step, over HTTP and MCP (scale bench, ${threads})`, async ({ page }) => {
     test.setTimeout(240_000);
     root = join(PERF_ROOT, 'e2e', `replay-${threads}-${process.pid}-${Date.now()}`);
-    const generated = generateScaleProject(join(root, 'data'), 'scale', SCALE_SMALL);
+    const generated = await generateScaleProject(join(root, 'data'), 'scale', SCALE_SMALL);
     be = await startPerfBackend(join(root, 'data'), join(root, 'exports'));
     const h = await play(page, 'scale', threads);
     try {

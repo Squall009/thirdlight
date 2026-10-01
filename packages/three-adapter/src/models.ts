@@ -671,7 +671,7 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
     const res = await handle.result;
     if (pendingHandles.get(row.assetId) === handle) pendingHandles.delete(row.assetId);
     if (res.ok === false) throw new ModelFileError(res.error.code, res.error.message);
-    return { value: res.resource, bytes: res.resource.byteSize(), free: (r) => store.release(r) };
+    return { value: res.resource, ...res.resource.residentBytes(), free: (r) => store.release(r) };
   };
 
   /**

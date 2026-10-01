@@ -20,8 +20,8 @@ afterAll(() => rmSync(root, { recursive: true, force: true }));
 const read = (dir: string, rel: string): unknown => JSON.parse(readFileSync(join(dir, rel), 'utf8'));
 
 describe('scale bench generator', () => {
-  it('writes a small project the backend opens as it stands, each asset a file with its sidecar holding its record', () => {
-    const r = generateScaleProject(join(root, 'a'), 'scale', SCALE_SMALL, 7);
+  it('writes a small project the backend opens as it stands, each asset a file with its sidecar holding its record', async () => {
+    const r = await generateScaleProject(join(root, 'a'), 'scale', SCALE_SMALL, 7);
     // The workspace reads it the way it reads any project: content.json, the scenes, the resource files and the sidecars.
     const svc = openWorkspaceService({ root: join(root, 'a'), processMarker: 'node' });
     try {
@@ -48,15 +48,30 @@ describe('scale bench generator', () => {
     }
   });
 
-  it('is deterministic for a seed and differs for another', () => {
+  it('is deterministic for a seed and differs for another', async () => {
     const digests = (dir: string): string[] => readdirSync(join(dir, 'assets'), { recursive: true, encoding: 'utf8' }).filter((f) => f.endsWith('.tlasset')).map((f) => (read(dir, join('assets', f)) as { record: { versions: { sourceDigest: string }[] } }).record.versions[0]!.sourceDigest).sort();
-    const a = generateScaleProject(join(root, 'b1'), 'scale', SCALE_SMALL, 11);
-    const b = generateScaleProject(join(root, 'b2'), 'scale', SCALE_SMALL, 11);
-    const c = generateScaleProject(join(root, 'b3'), 'scale', SCALE_SMALL, 12);
+    const a = await generateScaleProject(join(root, 'b1'), 'scale', SCALE_SMALL, 11);
+    const b = await generateScaleProject(join(root, 'b2'), 'scale', SCALE_SMALL, 11);
+    const c = await generateScaleProject(join(root, 'b3'), 'scale', SCALE_SMALL, 12);
     expect(digests(a.dir).length).toBeGreaterThan(0);
     expect(digests(b.dir)).toEqual(digests(a.dir));
     expect(readFileSync(join(b.dir, 'content.json'))).toEqual(readFileSync(join(a.dir, 'content.json')));
     expect(digests(c.dir)).not.toEqual(digests(a.dir));
+  });
+
+  it('embeds a KTX2 or a WebP in every embedEvery-th model, alternately, the inspector accepting both', async () => {
+    const r = await generateScaleProject(join(root, 'e'), 'scale', SCALE_SMALL, 7);
+    const formats: string[] = [];
+    for (let i = 0; i < SCALE_SMALL.models; i++) {
+      const id = `model-${String(i).padStart(5, '0')}`;
+      const sidecar = read(r.dir, `assets/model/${id}.glb.tlasset`) as { record: { versions: { metrics: { images: number; decodedImageBytes: number } }[] } };
+      const glb = readFileSync(join(r.dir, 'assets', 'model', `${id}.glb`));
+      const json = JSON.parse(glb.subarray(20, 20 + glb.readUInt32LE(12)).toString('utf8')) as { images: { mimeType: string }[]; extensionsRequired?: string[] };
+      formats.push(json.images[0]!.mimeType);
+      const size = i % SCALE_SMALL.embedEvery === 0 ? SCALE_SMALL.embedSize : 8;
+      expect(sidecar.record.versions[0]!.metrics).toMatchObject({ images: 1, decodedImageBytes: size * size * 4 });
+    }
+    expect(formats).toEqual(Array.from({ length: SCALE_SMALL.models }, (_, i) => (i % SCALE_SMALL.embedEvery !== 0 ? 'image/png' : (i / SCALE_SMALL.embedEvery) % 2 === 0 ? 'image/ktx2' : 'image/webp')));
   });
 
   it('scales the full size by a factor', () => {

@@ -39,7 +39,7 @@ import { applyTransformToObject3D, type AdapterQuat, type AdapterVec3 } from './
 import { applyLodGroups, applyVertexColorMode, keepOnlyPiece, modelPieces, pieceBounds, pieceCollider2D,
   pieceCollider3D, stripCollisionNodes, type ModelCollider3D, type VertexColorMode } from './pieces';
 import { disposeObjectTree } from './dispose';
-import { objectByteSize } from './resource-bytes';
+import { objectResidentBytes, type ObjectResidentBytes } from './resource-bytes';
 
 /**
  * The approved visual descriptor: the immutable, path-free per-version facts a
@@ -247,8 +247,8 @@ export interface PreparedVisualResource {
   skeleton(): readonly { readonly name: string; readonly parent: string | null; readonly depth: number }[];
   diagnostics(): VisualResourceDiagnostics;
   ownership(): ResourceOwnership;
-  /** What the file keeps resident once parsed (geometry arrays and textures, bytes). */
-  byteSize(): number;
+  /** What the file keeps resident once parsed (geometry arrays and textures), and of that its embedded textures. */
+  residentBytes(): ObjectResidentBytes;
   /** Retire the resource: no new instances; shared resources are released when
    *  the last live instance is gone. Idempotent. */
   dispose(): { readonly ok: true; readonly alreadyDisposed?: true } | { readonly ok: false; readonly error: AdapterError };
@@ -866,8 +866,8 @@ function createResource(descriptor: AssetVersionDescriptor, loaded: LoadedGlb, l
     skeleton() {
       return skeletonOf(loaded.root);
     },
-    byteSize() {
-      return objectByteSize(loaded.root);
+    residentBytes() {
+      return objectResidentBytes(loaded.root);
     },
     createInstance(options: CreateInstanceOptions = {}) {
       if (disposed) {

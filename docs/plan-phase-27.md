@@ -298,7 +298,8 @@ moves at least as many lines out as it adds.
 | 27.3 | done 2026-10-01: missing asset files are listed in Problems at open and after each file check (path, asset, who uses it; paged, one log line per change; `GET problems/missing-files`, MCP `tl_diagnostics`); a Play or export refusal names every missing file (`missingFiles`); Play stands placeholders in (magenta box, checker texture, silence) for missing files no start scene draws and lists them in its result (`placeholders`); the Play button's refusal shows its reason (D98, D99) |
 | 27.4 | done 2026-10-01: every file check (the editor's, before Play, before export) reports its re-imports: a Problems line per asset (`asset_reimported`, file, asset, version, old → new digest) and the Play start result's `check` (the check's report; `reimported` carries `reason`, `oldDigest`, `newDigest`); e2e over HTTP, MCP and the Problems tab (D100) |
 | 27.5 | done 2026-10-01: E49's timeout not reproduced (scale bench at full, 20 and 150 scenes loaded, worker and single thread: answers in ≤ 0.1 s / ≤ 0.55 s); a replay now answers once the new run began (`restart {applied, atStep}`, run id `<snapshot>#<run>`) or `pending` with the run id it will have when no step comes in time; observations carry the current run id; a game without scripts applies a restart at all (D101, D102); bench step `replay` (`--threads`, `--replays`, `--replay-scenes`) |
-| 27.6–27.17 | — |
+| 27.6 | done 2026-10-01: the images inside model files are counted against the texture budget (its `fixedBytes`, so streamed textures make room for them) and reported under the textures in Play diagnostics and observe (`textures.embedded`: images, bytes, models, the 8 largest by `<assetId>@<version>`) and under their models (`resident.model.textures`); the Scene view counts them with the same function (`data-resources`); bench numbers below the decision log entry; e2e `embedded-textures` (WebP and KTX2 inside bench spheres, both renderers; fails without the fix) (D103); the bench's new KTX2 models showed the Assets tab drawing no model thumbnails after one (D104, fixed) |
+| 27.7–27.17 | — |
 
 ## 6. Decision log
 
@@ -449,3 +450,35 @@ moves at least as many lines out as it adds.
   queued before a step make one restart (the pending answers name the same
   run). A replay does not lift the engine pause (as before; the pause
   panel's restart does) — a paused game answers pending until it runs.
+- 2026-10-01 (27.6): an image inside a model file stays the model's (read,
+  kept and freed with it, part of its bytes under `resident.model`, which now
+  also says `textures {count, bytes}`) and is counted again where the budget
+  looks: the texture budget's fixed bytes, which streamed textures make room
+  for. The two views overlap by design (the budget counts every texture,
+  wherever it lives); nothing is resident twice. Images are counted once per
+  image (`texture.source`: a loader's copies for another sampler share it).
+  They do not stream (27.7 extracts them). Play diagnostics list the totals
+  and the 8 models with the most (`EMBEDDED_TEXTURES_LISTED`, runtime) to keep
+  the 16 KiB frame. The Scene view has no texture budget; it reports the same
+  per-model counts (`objectResidentBytes`, three-adapter, used by Play and
+  the view). The export runs the same game page.
+- 2026-10-01 (27.6): bench generator version 8: every 10th model (200 at
+  full) carries a 512² image inside, a KTX2 (ETC1S with mips, the engine's
+  encoder) and a WebP (lossless, written by `tests/e2e/webp-make.ts`)
+  alternately; the rest keep their 8 px PNG. Full preset, `files,open,play,walk`,
+  GPU, WebGL 2, two runs each on the same generated project before (`69652e00`)
+  and after:
+
+  | | before | after |
+  |---|---|---|
+  | Play: click → first frame (ms) | 2,460 / 1,496 | 1,769 / 1,448 |
+  | walk 50: model bytes, mean / max per scene | 1.45 / 1.74 MiB | 1.45 / 1.74 MiB (unchanged) |
+  | walk 50: texture budget's resident bytes, mean / max | 0.92 / 0.94 MiB | 2.31 / 2.61 MiB |
+  | walk 50: of those, inside models, max | not counted | 1.67 MiB (every scene has some) |
+  | walk 50: scene load p50 (ms) | 155 / 158 | 165 / 158 |
+  | after the walk: model, texture, embedded bytes | 0 | 0 |
+
+  Play start is unchanged within the runs' spread (the first run after a
+  build is the slow one either way). The models' bytes do not change; the
+  budget now sees the 1.4 MiB a scene's model images average, which it did
+  not before (Skyforge's 945 MB of model bytes is this case at full scale).

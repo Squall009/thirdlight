@@ -24,25 +24,39 @@ export function textureByteSize(t: THREE.Texture): number {
   return t.generateMipmaps ? Math.round((n * 4) / 3) : n;
 }
 
-/** Everything under `root` a GPU draws from: geometry arrays and textures, each counted once. */
-export function objectByteSize(root: THREE.Object3D): number {
+/** What an object tree keeps resident: all of it, and of that the textures it carries (each image counted once). */
+export interface ObjectResidentBytes {
+  readonly bytes: number;
+  readonly textures: { readonly count: number; readonly bytes: number };
+}
+
+/**
+ * Everything under `root` a GPU draws from: geometry arrays and textures,
+ * each counted once. Textures are counted per image (`texture.source`): the
+ * copies a loader makes of one image (another sampler, a UV transform) share
+ * it, as the renderer uploads it once.
+ */
+export function objectResidentBytes(root: THREE.Object3D): ObjectResidentBytes {
   const geometries = new Set<THREE.BufferGeometry>();
-  const textures = new Set<THREE.Texture>();
+  const textures = new Map<unknown, THREE.Texture>();
   root.traverse((o) => {
     const mesh = o as THREE.Mesh;
     if (mesh.geometry !== undefined) geometries.add(mesh.geometry);
     const mats = mesh.material === undefined ? [] : Array.isArray(mesh.material) ? mesh.material : [mesh.material];
     for (const m of mats) {
-      for (const v of Object.values(m as unknown as Record<string, unknown>)) if (v instanceof THREE.Texture) textures.add(v);
+      for (const v of Object.values(m as unknown as Record<string, unknown>)) {
+        if (v instanceof THREE.Texture && !textures.has(v.source ?? v)) textures.set(v.source ?? v, v);
+      }
     }
   });
-  let n = 0;
+  let geometry = 0;
   for (const g of geometries) {
-    for (const a of Object.values(g.attributes)) n += (a as THREE.BufferAttribute).array?.byteLength ?? 0;
-    n += g.index?.array.byteLength ?? 0;
+    for (const a of Object.values(g.attributes)) geometry += (a as THREE.BufferAttribute).array?.byteLength ?? 0;
+    geometry += g.index?.array.byteLength ?? 0;
   }
-  for (const t of textures) n += textureByteSize(t);
-  return n;
+  let texture = 0;
+  for (const t of textures.values()) texture += textureByteSize(t);
+  return { bytes: geometry + texture, textures: { count: textures.size, bytes: texture } };
 }
 
 /** Let go of a decoded texture: its GPU copy and the image it was made from (an `ImageBitmap` is closed). */

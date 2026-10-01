@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { createResourceManager, type LoadedResource } from './resources';
+import { createResourceManager, embeddedTextureBytes, type LoadedResource } from './resources';
 
 /** A load that counts its calls and frees, resolving with `value`. */
 function counted<T>(value: T, bytes = 10): { load: () => Promise<LoadedResource<T>>; loads: number; frees: T[] } {
@@ -139,5 +139,34 @@ describe('resource manager', () => {
     resolve({ value: 'late', bytes: 1, free: (v) => frees.push(v) });
     await expect(p).rejects.toThrow('closed');
     expect(frees).toEqual(['late']);
+  });
+
+  it('reports the textures resources carry inside them per kind and in total, the largest first, until they are freed', async () => {
+    const m = createResourceManager();
+    await m.acquire('model', 'oak@1', 'entity:a', async () => ({ value: 'oak', bytes: 1000, textures: { count: 2, bytes: 800 } }));
+    await m.acquire('model', 'rock@3', 'entity:b', async () => ({ value: 'rock', bytes: 500, textures: { count: 1, bytes: 300 } }));
+    await m.acquire('model', 'box@1', 'entity:c', async () => ({ value: 'box', bytes: 200 }));
+    // A count of nothing is no texture; more texture bytes than the whole resource is held to the whole.
+    await m.acquire('model', 'odd@1', 'entity:d', async () => ({ value: 'odd', bytes: 50, textures: { count: 1, bytes: 90 } }));
+    await m.acquire('model', 'none@1', 'entity:e', async () => ({ value: 'none', bytes: 40, textures: { count: 0, bytes: 0 } }));
+    await m.acquire('texture', 't1', 'entity:a', async () => ({ value: 't1', bytes: 64 }));
+    const o = m.observe();
+    expect(o.resident).toEqual({ model: { count: 5, bytes: 1790, textures: { count: 4, bytes: 1150 } }, texture: { count: 1, bytes: 64 } });
+    expect(embeddedTextureBytes(o)).toBe(1150);
+    expect(m.embeddedTextures(2)).toEqual({
+      count: 4,
+      bytes: 1150,
+      resources: 3,
+      largest: [
+        { kind: 'model', key: 'oak@1', count: 2, bytes: 800 },
+        { kind: 'model', key: 'rock@3', count: 1, bytes: 300 },
+      ],
+    });
+    m.release('model', 'oak@1', 'entity:a');
+    m.settle();
+    expect(m.embeddedTextures(8)).toMatchObject({ count: 2, bytes: 350, resources: 2 });
+    expect(embeddedTextureBytes(m.observe())).toBe(350);
+    m.dispose();
+    expect(m.embeddedTextures(8)).toEqual({ count: 0, bytes: 0, resources: 0, largest: [] });
   });
 });

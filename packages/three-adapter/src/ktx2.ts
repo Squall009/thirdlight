@@ -34,7 +34,10 @@ export function isKtx2(bytes: Uint8Array): boolean {
  */
 export function textureSupport(): { isWebGPURenderer: false; extensions: { has(name: string): boolean; get(name: string): unknown } } {
   const doc = (globalThis as { document?: { createElement(tag: string): { getContext(kind: string): unknown } } }).document;
-  const gl = doc?.createElement('canvas').getContext('webgl2') as { getExtension(name: string): unknown } | null | undefined;
+  // A worker (the editor's thumbnails) has no document: an OffscreenCanvas asks the same GPU.
+  const Offscreen = (globalThis as { OffscreenCanvas?: new (w: number, h: number) => { getContext(kind: string): unknown } }).OffscreenCanvas;
+  const canvas = doc !== undefined ? doc.createElement('canvas') : Offscreen !== undefined ? new Offscreen(1, 1) : undefined;
+  const gl = canvas?.getContext('webgl2') as { getExtension(name: string): unknown } | null | undefined;
   const get = (name: string): unknown => (gl ? gl.getExtension(name) : null);
   return { isWebGPURenderer: false, extensions: { has: (name) => get(name) !== null, get } };
 }

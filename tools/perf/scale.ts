@@ -10,8 +10,9 @@
  * Every step is attempted and records either its numbers or why it could not
  * be taken (a cap refusing the open, a Play build refusing the content, a
  * timeout), so a run at a size the engine cannot hold still says where it
- * broke. Resident bytes by kind are not observable in the game host today;
- * the bench records what is: the JS heap after a collection
+ * broke. It records the resident bytes per kind (the resource manager, from
+ * Play diagnostics; a model's embedded images also under the texture
+ * budget's `embedded`), the JS heap after a collection
  * (performance.memory), the graphics API's live objects and bytes (the
  * instrumentation), three's renderer counts and the asset bytes read (Play
  * diagnostics), and the backend's resident set.
@@ -89,8 +90,8 @@ export interface MemorySample {
   catalogReads?: { files: number; bytes: number };
   /** What the game holds from assets (the resource manager: resident count and bytes per kind, loads, frees, script handles open); absent before it existed. */
   resources?: { resident: Record<string, { count: number; bytes: number }>; loads: Record<string, number>; frees: Record<string, number>; handles?: number };
-  /** Resident texture bytes against the texture budget (streamed textures, each GPU copy, and the ones that do not stream). */
-  textures?: { budgetBytes: number; residentBytes: number; streamedBytes: number; over: boolean };
+  /** Resident texture bytes against the texture budget (streamed textures, each GPU copy, and the ones that do not stream, the images inside model files among them: `embedded`). */
+  textures?: { budgetBytes: number; residentBytes: number; streamedBytes: number; fixedBytes?: number; over: boolean; embedded?: { count: number; bytes: number; resources: number } };
   backendRssMiB: number | null;
 }
 
@@ -548,7 +549,7 @@ export class ScaleBench {
       ...(catalogReads !== undefined ? { catalogReads } : {}),
       ...(s?.fetches !== undefined ? { fetches: s.fetches } : {}),
       ...(resources !== undefined ? { resources: { resident: resources.resident, loads: resources.loads, frees: resources.frees, ...(resources.handles !== undefined ? { handles: resources.handles } : {}) } } : {}),
-      ...(tex !== undefined ? { textures: { budgetBytes: tex.budgetBytes, residentBytes: tex.residentBytes, streamedBytes: tex.streamedBytes, over: tex.over } } : {}),
+      ...(tex !== undefined ? { textures: { budgetBytes: tex.budgetBytes, residentBytes: tex.residentBytes, streamedBytes: tex.streamedBytes, ...(tex.fixedBytes !== undefined ? { fixedBytes: tex.fixedBytes } : {}), over: tex.over, ...(tex.embedded !== undefined ? { embedded: { count: tex.embedded.count, bytes: tex.embedded.bytes, resources: tex.embedded.resources } } : {}) } } : {}),
       backendRssMiB: backendRssMiB(this.backend.pid),
     };
   }

@@ -22,7 +22,7 @@ test.afterEach(() => rmSync(root, { recursive: true, force: true }));
 
 test('the scale bench generates, opens, edits, plays, walks scenes, loads by label, plays a voiced dialogue, streams textures and exports', async () => {
   test.setTimeout(300_000);
-  const generated = generateScaleProject(join(root, 'data'), 'scale', SCALE_SMALL);
+  const generated = await generateScaleProject(join(root, 'data'), 'scale', SCALE_SMALL);
   const bench = new ScaleBench({
     dataRoot: join(root, 'data'),
     exportRoot: join(root, 'exports'),

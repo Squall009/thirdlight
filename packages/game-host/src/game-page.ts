@@ -31,7 +31,7 @@
  * Browser-only (DOM, WebGL/WebGPU, Web Audio, Web Crypto).
  */
 import { audioSpatialOf, dependencyTables, depthBufferOf, instanceChunkSizeOf, physicsDimensionOf, scanDependencies, sha256HexAsync, textureBudgetBytesOf, type SaveSchema } from '@thirdlight/project-model';
-import { assetVersionKey, createResourceManager, type ResourceManager, type ResourceObservation } from '@thirdlight/runtime';
+import { assetVersionKey, createResourceManager, EMBEDDED_TEXTURES_LISTED, embeddedTextureBytes, type ResourceManager, type ResourceObservation } from '@thirdlight/runtime';
 import { attachBrowserInput, DEFAULT_INPUT_CONFIG, DEFAULT_INPUT_CONFIG_3D, focusGameSurface, type InputConfigLike } from '@thirdlight/input';
 import { createPhysicsPort, type RapierPhysicsInitConfig, type RapierPhysicsPort, type RapierStaticColliderSpec } from '@thirdlight/physics-rapier';
 import { batchingFromUrl, createSceneAdapter, createTextureStreamer, decodeTexture, effectsOptionFrom, environmentHasLook, pageSearch, resolveRendererPreference, setKtx2DecoderBase } from '@thirdlight/three-adapter';
@@ -575,10 +575,14 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
   // Every declared asset is read through this reader, checked against its catalog row.
   const assetReader = createVerifiedAssetReader(manifest.assets, io, { catalog: content.catalog, resources });
   // Streamed textures load the mips their size on screen needs, inside the project's texture budget
-  // (the manager's texture entries follow their resident size).
+  // (the manager's texture entries follow their resident size). The images model files carry inside
+  // them are textures on the GPU like any other: the budget counts them, so they press on the streamed ones.
   const textureStreamer = createTextureStreamer({
     budgetBytes: textureBudgetBytesOf(settings as unknown as Readonly<Record<string, unknown>>),
-    textureBytes: () => resources.observe().resident.texture?.bytes ?? 0,
+    textureBytes: () => {
+      const o = resources.observe();
+      return (o.resident.texture?.bytes ?? 0) + embeddedTextureBytes(o);
+    },
     onResize: (id, texture, bytes) => resources.resize('texture', id, texture, bytes),
   });
   // A 3D project's physics is the 3D backend; a plain scene (no player controller) plays without physics.
@@ -821,7 +825,7 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
       buildId: manifest.buildId,
       resources,
       // Scripts' loads by id, address or label (`ctx.assets`).
-      textureStreaming: () => textureStreamer.observe(),
+      textureStreaming: () => ({ ...textureStreamer.observe(), embedded: resources.embeddedTextures(EMBEDDED_TEXTURES_LISTED) }),
       loadAssets: pageAssetLoader({ manifest, catalog: content.catalog, reader: assetReader, resources, adapter: () => adapterRef.current }),
       assetPaths: assetPathsById,
       ...(manifest.shell !== undefined ? { shell: manifest.shell } : {}),

@@ -100,7 +100,7 @@ function addOtherKinds(dir: string, sceneIds: readonly string[], soundId: string
 test('a project above every old count cap opens, takes one command of each kind, plays and exports', async () => {
   test.setTimeout(600_000);
   const dataRoot = join(root, 'data');
-  const generated = generateScaleProject(dataRoot, 'caps', SPEC);
+  const generated = await generateScaleProject(dataRoot, 'caps', SPEC);
   addOtherKinds(generated.dir, generated.sceneIds, 'sound-00000');
 
   const be = await startPerfBackend(dataRoot, join(root, 'exports-a'));

@@ -230,7 +230,7 @@ export class ModelInstances {
       }
       if (this.failures.delete(assetId)) this.options.onFailuresChanged?.(this.failures);
       this.failed.delete(assetId);
-      return { value: result.resource, bytes: result.resource.byteSize(), free: (r) => this.store.release(r) };
+      return { value: result.resource, ...result.resource.residentBytes(), free: (r) => this.store.release(r) };
     });
   }
 

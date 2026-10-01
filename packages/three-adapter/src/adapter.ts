@@ -57,7 +57,7 @@ import {
 import type { GlbLoaderPort } from './visual';
 import { createResourceManager, type ResourceManager } from '@thirdlight/runtime';
 import { textureHolds, type TextureHolds } from './texture-holds';
-import { objectByteSize } from './resource-bytes';
+import { objectResidentBytes } from './resource-bytes';
 import {
   ANIMATION_MAX_DELTA_SECONDS,
   type AnimationRoleView,
@@ -395,7 +395,7 @@ export function createSceneAdapter(canvas: unknown, opts: SceneAdapterOptions): 
                     .acquire<THREE.Object3D>('effect-model', assetId, EFFECTS_HOLDER, async () => {
                       const root = await effectModelLoad(assetId);
                       if (root === null) throw new Error(`effect model ${assetId} is not available`);
-                      return { value: root, bytes: objectByteSize(root), free: (r) => disposeObjectTree(r) };
+                      return { value: root, ...objectResidentBytes(root), free: (r) => disposeObjectTree(r) };
                     })
                     .catch(() => null),
               }

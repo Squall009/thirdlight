@@ -426,7 +426,7 @@ describe('store supersession (reimport) semantics', () => {
     const load = store.load(suppliedBytes(descriptorFor(bytes, { version: 1 }), bytes), { loader: fake.port });
     fake.last().resolveWith();
     const resource = ready(await load.result);
-    expect(resource.byteSize()).toBeGreaterThanOrEqual(0);
+    expect(resource.residentBytes().bytes).toBeGreaterThanOrEqual(0);
     const instance = instanceOf(resource);
     store.release(resource);
     expect(store.current(resource.descriptor.assetId)).toBeNull();
