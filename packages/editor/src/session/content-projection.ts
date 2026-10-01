@@ -141,7 +141,7 @@ export class ContentProjection {
     const previous = this.assets.get(change.assetId);
     const pathOf = (v: unknown): string | undefined => (v as { sourcePath?: string } | undefined)?.sourcePath;
     const current = next.versions.find((v) => v.version === next.currentVersion) as
-      | { convertedFrom?: { format: 'fbx' | 'png' | 'jpeg'; sourcePath?: string; encoding?: 'color' | 'normal' | 'data' }; packedFrom?: { encoding: 'color' | 'normal' | 'data'; layers: ({ assetId?: string } | { value: number })[][] }; metrics?: unknown }
+      | { convertedFrom?: { format: 'fbx' | 'glb' | 'png' | 'jpeg'; sourcePath?: string; encoding?: 'color' | 'normal' | 'data' }; packedFrom?: { encoding: 'color' | 'normal' | 'data'; layers: ({ assetId?: string } | { value: number })[][] }; metrics?: unknown }
       | undefined;
     const image = next.kind === 'texture' ? (current?.metrics as { format: string; width: number; height: number; codec?: 'etc1s' | 'uastc'; levels?: number; layers?: number } | undefined) : undefined;
     // A packed texture's encoding and source assets.
@@ -159,6 +159,8 @@ export class ContentProjection {
       ...(next.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}),
       ...((next as { materials?: Record<string, string> }).materials !== undefined ? { materials: { ...(next as unknown as { materials: Record<string, string> }).materials } } : {}),
       ...(typeof (next as { clipsFor?: string }).clipsFor === 'string' ? { clipsFor: (next as unknown as { clipsFor: string }).clipsFor } : {}),
+      ...(next.extractTextures === true ? { extractTextures: true as const } : {}),
+      ...(next.textures !== undefined ? { textures: { ...next.textures } } : {}),
       ...(next.labels !== undefined ? { labels: [...next.labels] } : {}),
       ...((next as { address?: string }).address !== undefined ? { address: (next as { address?: string }).address } : {}),
       ...(sourcePath !== undefined ? { sourcePath } : {}),
@@ -225,6 +227,8 @@ function cloneSummary(a: AssetSummary): AssetSummary {
     ...(a.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}),
     ...(a.materials !== undefined ? { materials: { ...a.materials } } : {}),
     ...(a.clipsFor !== undefined ? { clipsFor: a.clipsFor } : {}),
+    ...(a.extractTextures === true ? { extractTextures: true as const } : {}),
+    ...(a.textures !== undefined ? { textures: { ...a.textures } } : {}),
     ...(a.labels !== undefined ? { labels: [...a.labels] } : {}),
     ...(a.address !== undefined ? { address: a.address } : {}),
     ...(a.sourcePath !== undefined ? { sourcePath: a.sourcePath } : {}),

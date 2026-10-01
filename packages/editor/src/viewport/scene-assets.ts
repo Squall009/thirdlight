@@ -87,6 +87,8 @@ export function createSceneViewAssets(o: {
     vertexColorsFor: (assetId) => (client.content.getAsset(assetId)?.vertexColors === 'tint' ? 'tint' : 'data'),
     materialLibrary,
     assetMaterialsFor: (assetId) => client.content.getAsset(assetId)?.materials ?? null,
+    loadTexture,
+    assetTexturesFor: (assetId) => client.content.getAsset(assetId)?.textures ?? null,
     // The project's instance chunk size; the Inspector shows each set's chunk count.
     instanceChunkSize: () => {
       const v = client.getSettings()?.['instance_chunk_m'];

@@ -106,6 +106,65 @@ export function sphereGlbWith(segments: number, image: EmbeddedImage, tag?: stri
     bufferViews: views,
     buffers: [{ byteLength: bin.length }],
   };
+  return packGlb(json, bin);
+}
+
+/**
+ * A 1 × 1 quad GLB in the XY plane facing +Z (centred on the origin), drawn
+ * unlit (KHR_materials_unlit) with `image` as its base colour: the image's
+ * top-left corner at the quad's top-left. What it shows on screen is the
+ * image's own pixels, without lighting.
+ */
+export function texturedQuadGlb(image: EmbeddedImage, name = 'quad'): Buffer {
+  const pos = new Float32Array([-0.5, 0.5, 0, 0.5, 0.5, 0, 0.5, -0.5, 0, -0.5, -0.5, 0]);
+  const nrm = new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1]);
+  const uv = new Float32Array([0, 0, 1, 0, 1, 1, 0, 1]);
+  const idx = new Uint16Array([0, 3, 2, 0, 2, 1]);
+  const parts: Buffer[] = [];
+  const views: Record<string, unknown>[] = [];
+  let offset = 0;
+  const view = (data: Buffer, target?: number): number => {
+    const pad = (4 - (data.length % 4)) % 4;
+    views.push({ buffer: 0, byteOffset: offset, byteLength: data.length, ...(target !== undefined ? { target } : {}) });
+    parts.push(data, Buffer.alloc(pad));
+    offset += data.length + pad;
+    return views.length - 1;
+  };
+  const b = (a: ArrayBufferView): Buffer => Buffer.from(a.buffer, a.byteOffset, a.byteLength);
+  const vPos = view(b(pos), 34962);
+  const vNrm = view(b(nrm), 34962);
+  const vUv = view(b(uv), 34962);
+  const vIdx = view(b(idx), 34963);
+  const vImg = view(Buffer.from(image.bytes.buffer, image.bytes.byteOffset, image.bytes.byteLength));
+  const ext = IMAGE_EXTENSION[image.format];
+  const used = ['KHR_materials_unlit', ...(ext !== null ? [ext] : [])];
+  const bin = Buffer.concat(parts);
+  const json = {
+    asset: { version: '2.0', generator: 'thirdlight perf textured quad' },
+    scene: 0,
+    scenes: [{ nodes: [0] }],
+    nodes: [{ name, mesh: 0 }],
+    meshes: [{ name, primitives: [{ attributes: { POSITION: 0, NORMAL: 1, TEXCOORD_0: 2 }, indices: 3, material: 0 }] }],
+    materials: [{ name, pbrMetallicRoughness: { baseColorTexture: { index: 0 }, metallicFactor: 0, roughnessFactor: 1 }, extensions: { KHR_materials_unlit: {} } }],
+    images: [{ name: `${name}-albedo`, bufferView: vImg, mimeType: `image/${image.format}` }],
+    samplers: [{ magFilter: 9729, minFilter: 9987 }],
+    textures: [ext === null ? { source: 0, sampler: 0 } : { sampler: 0, extensions: { [ext]: { source: 0 } } }],
+    extensionsUsed: used,
+    ...(ext === null ? {} : { extensionsRequired: [ext] }),
+    accessors: [
+      { bufferView: vPos, componentType: 5126, count: 4, type: 'VEC3', min: [-0.5, -0.5, 0], max: [0.5, 0.5, 0] },
+      { bufferView: vNrm, componentType: 5126, count: 4, type: 'VEC3' },
+      { bufferView: vUv, componentType: 5126, count: 4, type: 'VEC2' },
+      { bufferView: vIdx, componentType: 5123, count: 6, type: 'SCALAR' },
+    ],
+    bufferViews: views,
+    buffers: [{ byteLength: bin.length }],
+  };
+  return packGlb(json, bin);
+}
+
+/** A GLB container of a glTF JSON and its binary chunk. */
+function packGlb(json: unknown, bin: Buffer): Buffer {
   let jsonBuf = Buffer.from(JSON.stringify(json), 'utf8');
   jsonBuf = Buffer.concat([jsonBuf, Buffer.alloc((4 - (jsonBuf.length % 4)) % 4, 0x20)]);
   const header = Buffer.alloc(12);

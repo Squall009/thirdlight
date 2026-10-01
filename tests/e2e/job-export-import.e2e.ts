@@ -140,9 +140,9 @@ test('a job export (folder, zip in the game folder, uploaded zip) imports throug
       },
     });
   };
-  const assets = async (): Promise<{ assetId: string; displayName: string }[]> => {
+  const assets = async (): Promise<{ assetId: string; kind: string; displayName: string; textures?: Record<string, string> }[]> => {
     const q = await call('tl_content_query', { target: 'assets' });
-    return (q.body.assets ?? []) as { assetId: string; displayName: string }[];
+    return (q.body.assets ?? []) as { assetId: string; kind: string; displayName: string; textures?: Record<string, string> }[];
   };
 
   try {
@@ -196,7 +196,12 @@ test('a job export (folder, zip in the game folder, uploaded zip) imports throug
     expect(uploaded.body.sourcePath).toBe('assets/Crate-upload/crate.glb');
     const pub3 = await publish('crate-upload', uploaded.body);
     expect(pub3.isError, JSON.stringify(pub3.body)).toBe(false);
-    expect((await assets()).map((a) => [a.assetId, a.displayName]).sort()).toEqual([['crate-folder', 'Crate'], ['crate-upload', 'Crate upload'], ['crate-zip', 'Crate']]);
+    const all = await assets();
+    expect(all.filter((a) => a.kind === 'model').map((a) => [a.assetId, a.displayName]).sort()).toEqual([['crate-folder', 'Crate'], ['crate-upload', 'Crate upload'], ['crate-zip', 'Crate']]);
+    // Their image became one texture asset the three share (extract textures, on for a new model).
+    const shared = new Set(all.filter((a) => a.kind === 'model').map((a) => a.textures?.['0']));
+    expect(shared.size).toBe(1);
+    expect(all.filter((a) => a.kind === 'texture').map((a) => a.assetId)).toEqual([...shared]);
     // The imported model is usable like any other.
     const project = await call('tl_inspect', { target: 'project' });
     const placed = await call('tl_command', { op: 'createEntity', expectedRevision: project.body.revision, args: { kind: 'model', name: 'Crate', model: { asset: { assetId: 'crate-zip' } }, transform: { position: [0, 0, 0] } } });
@@ -218,7 +223,7 @@ test('a job export (folder, zip in the game folder, uploaded zip) imports throug
     const escape = await api('content/job-exports/inspect', { path: '../outside' });
     expect(escape.json.error).toMatchObject({ code: 'path_rejected' });
     expect((await call('tl_inspect', { target: 'project' })).body.revision).toBe(before);
-    expect((await assets()).length).toBe(3);
+    expect((await assets()).length).toBe(all.length);
   } finally {
     await mcp.close();
   }

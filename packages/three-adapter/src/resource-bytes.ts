@@ -9,6 +9,13 @@ import * as THREE from 'three';
 
 type ImageLike = { width?: number; height?: number; close?: () => void };
 
+/**
+ * Texture user data key: the texture asset a model's extracted image is drawn
+ * from. Such a texture is the texture asset's (counted with the textures,
+ * streamed by mip), not the model file's.
+ */
+export const TEXTURE_ASSET_KEY = 'textureAsset';
+
 /** A texture's resident size (bytes). */
 export function textureByteSize(t: THREE.Texture): number {
   const mipmaps = (t as { mipmaps?: readonly { data?: { byteLength?: number } }[] }).mipmaps;
@@ -45,7 +52,7 @@ export function objectResidentBytes(root: THREE.Object3D): ObjectResidentBytes {
     const mats = mesh.material === undefined ? [] : Array.isArray(mesh.material) ? mesh.material : [mesh.material];
     for (const m of mats) {
       for (const v of Object.values(m as unknown as Record<string, unknown>)) {
-        if (v instanceof THREE.Texture && !textures.has(v.source ?? v)) textures.set(v.source ?? v, v);
+        if (v instanceof THREE.Texture && v.userData[TEXTURE_ASSET_KEY] === undefined && !textures.has(v.source ?? v)) textures.set(v.source ?? v, v);
       }
     }
   });

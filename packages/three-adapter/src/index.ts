@@ -119,6 +119,7 @@ export {
   type AssetPreviewController,
   type AssetVersionDescriptor,
   type GlbLoaderPort,
+  type ExtractedImages,
   type LoadedGlb,
   type ModelInstance,
   type PrepareVisualOptions,

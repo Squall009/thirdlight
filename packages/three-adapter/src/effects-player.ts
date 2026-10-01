@@ -630,6 +630,8 @@ export interface EffectAssetRowLike {
   readonly kind: string;
   readonly sourceDigest: string;
   readonly sourceByteLength: number;
+  /** A model's images extracted into texture assets (image index → texture assetId). */
+  readonly textures?: Readonly<Record<string, string>>;
 }
 
 /**
@@ -648,21 +650,24 @@ export function effectsOptionFrom(input: {
 }): { defs: readonly EffectDefLike[]; wind: EffectsPlayerOptions['wind']; loadTexture: (assetId: string) => Promise<THREE.Texture | null>; loadModel?: (assetId: string) => Promise<THREE.Object3D | null> } {
   const row = (kind: string, assetId: string): EffectAssetRowLike | undefined => input.assets.find((a) => a.kind === kind && a.assetId === assetId);
   const loader = input.loader;
+  const loadTexture = async (assetId: string): Promise<THREE.Texture | null> => {
+    const r = row('texture', assetId);
+    const buf = r !== undefined ? await input.bytes(r.assetId, r.version) : undefined;
+    return buf !== undefined ? ((await decodeTexture(buf)) as unknown as THREE.Texture | null) : null;
+  };
   return {
     defs: input.defs,
     wind: input.wind,
-    loadTexture: async (assetId) => {
-      const r = row('texture', assetId);
-      const buf = r !== undefined ? await input.bytes(r.assetId, r.version) : undefined;
-      return buf !== undefined ? ((await decodeTexture(buf)) as unknown as THREE.Texture | null) : null;
-    },
+    loadTexture,
     ...(loader !== undefined
       ? {
           loadModel: async (assetId: string): Promise<THREE.Object3D | null> => {
             const r = row('model', assetId);
             const buf = r !== undefined ? await input.bytes(r.assetId, r.version) : undefined;
             if (r === undefined || buf === undefined) return null;
-            const glb = await loader.load(new Uint8Array(buf), { signal: new AbortController().signal, descriptor: { assetId: r.assetId, version: r.version, sourceDigest: r.sourceDigest, sourceByteLength: r.sourceByteLength } });
+            // A mesh whose file had its images extracted draws them from their texture assets.
+            const images = r.textures !== undefined ? { images: { map: r.textures, load: loadTexture } } : {};
+            const glb = await loader.load(new Uint8Array(buf), { signal: new AbortController().signal, descriptor: { assetId: r.assetId, version: r.version, sourceDigest: r.sourceDigest, sourceByteLength: r.sourceByteLength }, ...images });
             return glb.createInstance() as unknown as THREE.Object3D;
           },
         }

@@ -102,8 +102,9 @@ for (const variant of RENDERER_VARIANTS) test(`images inside model files count a
   const webp = makeTwoColourWebp(1024, 1024, [220, 90, 40], [40, 160, 220], (x, y) => (((x >> 5) + (y >> 5)) % 2 === 0 ? 0 : 1));
   const encoded = await encodeKtx2(makePng(512, 512, (x, y) => (((x >> 4) + (y >> 4)) % 2 === 0 ? [240, 220, 40, 255] : [30, 120, 60, 255])), 'color');
   if (!encoded.ok) throw new Error(encoded.message);
-  await publishBytes(be, sphereGlbWith(16, { bytes: webp, format: 'webp' }, 'webp-ball'), 'model', 'webp-ball');
-  await publishBytes(be, sphereGlbWith(16, { bytes: encoded.ktx2, format: 'ktx2' }, 'ktx2-ball'), 'model', 'ktx2-ball');
+  // Imported with their images kept inside (the "extract textures" setting off): what this spec counts.
+  await publishBytes(be, sphereGlbWith(16, { bytes: webp, format: 'webp' }, 'webp-ball'), 'model', 'webp-ball', 'webp-ball', {}, { extractTextures: false });
+  await publishBytes(be, sphereGlbWith(16, { bytes: encoded.ktx2, format: 'ktx2' }, 'ktx2-ball'), 'model', 'ktx2-ball', 'ktx2-ball', {}, { extractTextures: false });
   await publishBytes(be, new Uint8Array(makePng(2048, 2048, (x, y) => (((x >> 3) + (y >> 3)) % 2 === 0 ? [235, 235, 235, 255] : [15, 15, 15, 255]))), 'texture', 'checker', 'checker', { ktx2: 'color' });
 
   // The scene: the camera at z 6 looking along −Z, the checker on an unlit box in front, the two spheres beside it.

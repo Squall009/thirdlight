@@ -28,11 +28,25 @@
  */
 import {
   BufferGeometry,
+  ClampToEdgeWrapping,
+  LinearFilter,
+  LinearMipmapLinearFilter,
+  LinearMipMapNearestFilter,
   Material,
+  MirroredRepeatWrapping,
+  NearestFilter,
+  NearestMipmapLinearFilter,
+  NearestMipmapNearestFilter,
+  NoColorSpace,
   Object3D,
+  RepeatWrapping,
   Texture,
   type AnimationClip,
+  type MagnificationTextureFilter,
+  type MinificationTextureFilter,
+  type Wrapping,
 } from 'three';
+import type { GLTFParser, GLTFLoaderPlugin } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
@@ -42,9 +56,61 @@ import { sharedKtx2Loader } from './ktx2';
 import {
   visualLoadFailure,
   type AssetVersionDescriptor,
+  type ExtractedImages,
   type GlbLoaderPort,
   type LoadedGlb,
 } from './visual';
+import { TEXTURE_ASSET_KEY } from './resource-bytes';
+
+const GL_FILTERS: Readonly<Record<number, MagnificationTextureFilter | MinificationTextureFilter>> = {
+  9728: NearestFilter,
+  9729: LinearFilter,
+  9984: NearestMipmapNearestFilter,
+  9985: LinearMipMapNearestFilter,
+  9986: NearestMipmapLinearFilter,
+  9987: LinearMipmapLinearFilter,
+};
+const GL_WRAPS: Readonly<Record<number, Wrapping>> = { 33071: ClampToEdgeWrapping, 33648: MirroredRepeatWrapping, 10497: RepeatWrapping };
+
+/**
+ * The loader plugin that draws a file's extracted images from their texture
+ * assets: a texture whose image the model names is a copy of the asset's
+ * texture (a streamed one's copy joins its stream) with the file's sampler,
+ * marked as the asset's; a texture asset that is not there draws the file's
+ * stand-in. The copies are the load's own (disposed with it).
+ */
+function extractedImagesPlugin(images: ExtractedImages, copies: Set<Texture>): (parser: GLTFParser) => GLTFLoaderPlugin {
+  return (parser) => ({
+    name: 'thirdlight_extracted_images',
+    loadTexture(textureIndex: number): Promise<Texture> | null {
+      const json = parser.json as { textures?: { source?: number; sampler?: number; name?: string }[]; samplers?: { magFilter?: number; minFilter?: number; wrapS?: number; wrapT?: number }[]; images?: { name?: string }[] };
+      const def = json.textures?.[textureIndex];
+      const source = def?.source;
+      if (def === undefined || source === undefined) return null;
+      const assetId = images.map[String(source)];
+      if (assetId === undefined) return null;
+      return images.load(assetId).then((t) => {
+        if (t === null) return parser.loadTextureImage(textureIndex, source, parser.textureLoader) as Promise<Texture>;
+        const c = t.clone();
+        const sampler = def.sampler !== undefined ? (json.samplers?.[def.sampler] ?? {}) : {};
+        c.flipY = false;
+        c.name = def.name ?? json.images?.[source]?.name ?? '';
+        // The material's slot gives the colour space (glTF: sRGB for colour maps); data otherwise.
+        c.colorSpace = NoColorSpace;
+        c.magFilter = (GL_FILTERS[sampler.magFilter ?? -1] as MagnificationTextureFilter | undefined) ?? LinearFilter;
+        c.minFilter = (GL_FILTERS[sampler.minFilter ?? -1] as MinificationTextureFilter | undefined) ?? LinearMipmapLinearFilter;
+        c.wrapS = GL_WRAPS[sampler.wrapS ?? -1] ?? RepeatWrapping;
+        c.wrapT = GL_WRAPS[sampler.wrapT ?? -1] ?? RepeatWrapping;
+        if (!(c as { isCompressedTexture?: boolean }).isCompressedTexture) c.generateMipmaps = c.minFilter !== NearestFilter && c.minFilter !== LinearFilter;
+        c.userData[TEXTURE_ASSET_KEY] = assetId;
+        c.needsUpdate = true;
+        copies.add(c);
+        parser.associations.set(c, { textures: textureIndex });
+        return c;
+      });
+    },
+  });
+}
 
 /** The extensions this realization path honors: the import allowlist. */
 export const GLTF_LOADER_ALLOWED_EXTENSIONS: readonly string[] = M2_GLTF_EXTENSION_ALLOWLIST;
@@ -164,7 +230,7 @@ export function createGltfLoaderPort(options: GltfLoaderPortOptions = {}): GlbLo
   return {
     async load(
       bytes: Uint8Array,
-      loadOptions: { readonly signal: AbortSignal; readonly descriptor: AssetVersionDescriptor },
+      loadOptions: { readonly signal: AbortSignal; readonly descriptor: AssetVersionDescriptor; readonly images?: ExtractedImages },
     ): Promise<LoadedGlb> {
       const guard = readContainerGuard(bytes);
       if (!guard.ok) throw guard.failure;
@@ -181,6 +247,9 @@ export function createGltfLoaderPort(options: GltfLoaderPortOptions = {}): GlbLo
       const arrayBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
       const loader = new GLTFLoader();
       loader.setMeshoptDecoder(MeshoptDecoder);
+      // Copies of texture assets this load draws extracted images with (and the loader's copies of those).
+      const assetCopies = new Set<Texture>();
+      if (loadOptions.images !== undefined) loader.register(extractedImagesPlugin(loadOptions.images, assetCopies));
       if (needs.has('draco')) {
         if (draco === null) {
           draco = new DRACOLoader();
@@ -200,6 +269,14 @@ export function createGltfLoaderPort(options: GltfLoaderPortOptions = {}): GlbLo
       }
 
       const owned = collectOwned(gltf);
+      // A material's copy of an asset's texture (a UV set or transform of its own) belongs to this load too.
+      gltf.scene.traverse((o) => {
+        const m = (o as { material?: Material | Material[] }).material;
+        for (const mat of m === undefined ? [] : Array.isArray(m) ? m : [m]) {
+          for (const v of Object.values(mat)) if (v instanceof Texture && v.userData[TEXTURE_ASSET_KEY] !== undefined) owned.textures.add(v);
+        }
+      });
+      for (const c of assetCopies) owned.textures.add(c);
       let released = false;
       const release = (): void => {
         if (released) return;

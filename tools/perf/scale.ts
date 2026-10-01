@@ -33,13 +33,13 @@ import { summarize, type Summary } from './stats';
 import { measureEditorAtScale, type EditorScaleReport } from './scale-editor';
 import { measureProjectWindowAtScale, type ProjectWindowScaleReport } from './scale-project';
 
-export type ScaleStep = 'files' | 'open' | 'commands' | 'editor' | 'import' | 'play' | 'walk' | 'handles' | 'dialogue' | 'stream' | 'replay' | 'export';
+export type ScaleStep = 'files' | 'open' | 'commands' | 'editor' | 'import' | 'extract' | 'play' | 'walk' | 'handles' | 'dialogue' | 'stream' | 'replay' | 'export';
 /**
  * Every step; `import` (a folder of new files imported in one command), `stream` (large KTX2 textures
  * streamed past the camera under a small texture budget) and `replay` (the run restarted with scenes
  * loaded) run only when asked for.
  */
-export const SCALE_STEPS: readonly ScaleStep[] = ['files', 'open', 'commands', 'editor', 'import', 'play', 'walk', 'handles', 'dialogue', 'stream', 'replay', 'export'];
+export const SCALE_STEPS: readonly ScaleStep[] = ['files', 'open', 'commands', 'editor', 'import', 'extract', 'play', 'walk', 'handles', 'dialogue', 'stream', 'replay', 'export'];
 export const SCALE_DEFAULT_STEPS: readonly ScaleStep[] = ['files', 'open', 'commands', 'editor', 'play', 'walk', 'handles', 'dialogue', 'export'];
 
 export interface ScaleBenchOptions {
@@ -106,6 +106,13 @@ export interface ScaleReport {
   projectWindow?: ProjectWindowScaleReport;
   /** One `importAssets` of a folder of new voice files: the command's round trip (inspection included), and one scene edit after it. */
   import?: { files: number; added: number; ms: number; sceneEditAfterMs: number; backendRssMiB: number | null };
+  /**
+   * The models with an image inside re-imported with "extract textures" on
+   * (as the model inspector does): textures made and shared, the time, and
+   * the backend's resident memory before, at its sampled peak and its
+   * lifetime high-water mark (VmHWM) after.
+   */
+  extract?: { models: number; created: number; reused: number; kept: number; ms: number; perModelMsP50: number; rssBeforeMiB: number | null; rssPeakMiB: number | null; hwmMiB: number | null };
   /**
    * The file check ("check files", run by the editor on connect and focus and before Play): the first after the
    * project is copied in (every file hashed), again at once (stats only), and the first after a restart (the
@@ -318,6 +325,7 @@ export class ScaleBench {
       if (want('commands')) await this.attempt('commands', () => this.measureCommands());
       if (want('editor')) await this.attempt('editor', () => this.measureEditor());
       if (want('import')) await this.attempt('import', () => this.measureFolderImport());
+      if (want('extract')) await this.attempt('extract', () => this.measureExtraction());
       if (want('stream')) await this.attempt('stream', () => this.setUpStreaming());
       const needPlay = want('play') || want('walk') || want('handles') || want('dialogue') || want('stream') || want('replay');
       if (needPlay && (await this.attempt('play', () => this.measurePlayStart()))) {
@@ -507,6 +515,57 @@ export class ScaleBench {
       sceneEditAfterMs = Math.round(performance.now() - t1);
     }
     this.report.import = { files, added, ms, sceneEditAfterMs, backendRssMiB: backendRssMiB(this.backend.pid) };
+  }
+
+  /** Re-import every model with an image inside with "extract textures" on, one after another. */
+  private async measureExtraction(): Promise<void> {
+    const pid = this.opts.projectId;
+    const p = this.backend.project(pid);
+    const ids = this.opts.generated?.embeddedModelIds ?? [];
+    const paths = new Map<string, string>();
+    for (let i = 0; i < ids.length; i += 128) {
+      const page = ((await p.query('queryAssets', { ids: ids.slice(i, i + 128) }))['assets'] ?? []) as { assetId: string; sourcePath?: string }[];
+      for (const a of page) if (a.sourcePath !== undefined) paths.set(a.assetId, a.sourcePath);
+    }
+    const rssBefore = backendRssMiB(this.backend.pid);
+    let rssPeak = rssBefore;
+    const sampler = setInterval(() => {
+      const v = backendRssMiB(this.backend.pid);
+      if (v !== null && (rssPeak === null || v > rssPeak)) rssPeak = v;
+    }, 50);
+    const times: number[] = [];
+    let created = 0;
+    let reused = 0;
+    let kept = 0;
+    const t0 = performance.now();
+    try {
+      for (const id of ids) {
+        const path = paths.get(id);
+        if (path === undefined) continue;
+        const t = performance.now();
+        const inspected = await this.backend.post(`/api/v1/projects/${pid}/content/project-files/inspect`, { path, kind: 'model' });
+        const prop = inspected.json['proposal'] as { sourceDigest: string; sourceByteLength: number; importRecipe: unknown; metrics: unknown } | undefined;
+        if (prop === undefined) throw new Error(`inspect ${path}: ${JSON.stringify(inspected.json).slice(0, 300)}`);
+        const r = await p.command('publishAsset', { mode: 'reimport', assetId: id, sourcePath: path, sourceDigest: prop.sourceDigest, sourceByteLength: prop.sourceByteLength, importRecipe: prop.importRecipe, metrics: prop.metrics, importedAt: '2026-01-01T00:00:00Z', extractTextures: true });
+        const report = r['textureExtraction'] as { images: { reused?: boolean; file?: string }[]; created: string[] } | undefined;
+        created += report?.created.length ?? 0;
+        reused += report?.images.filter((x) => x.reused === true).length ?? 0;
+        kept += report?.images.filter((x) => x.file === undefined).length ?? 0;
+        times.push(performance.now() - t);
+      }
+    } finally {
+      clearInterval(sampler);
+    }
+    const ms = Math.round(performance.now() - t0);
+    times.sort((a, b) => a - b);
+    let hwm: number | null = null;
+    try {
+      const m = /VmHWM:\s+(\d+) kB/.exec(readFileSync(`/proc/${this.backend.pid}/status`, 'utf8'));
+      hwm = m === null ? null : Math.round((Number(m[1]) / 1024) * 10) / 10;
+    } catch {
+      hwm = null;
+    }
+    this.report.extract = { models: times.length, created, reused, kept, ms, perModelMsP50: Math.round(times[Math.floor(times.length / 2)] ?? 0), rssBeforeMiB: rssBefore, rssPeakMiB: rssPeak, hwmMiB: hwm };
   }
 
   private async installDriver(): Promise<void> {

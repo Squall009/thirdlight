@@ -580,6 +580,17 @@ export function contentOps(core: Core) {
     takeUpgradeNotes,
     takeOpenProblems,
     writeUploadedFile: (projectId: string, path: string, bytes: Uint8Array) => run(projectId, (s) => writeUploadedFile(core, contentCtx(s), path, bytes)),
+    preparePublish: (projectId: string, requestId: string, prepared: { args: Record<string, unknown>; expectedRevision: number } | null): void =>
+      void withOpenSession(
+        projectId,
+        (s) => {
+          s.preparedPublishes ??= new Map();
+          if (prepared === null) s.preparedPublishes.delete(requestId);
+          else s.preparedPublishes.set(requestId, prepared);
+          return null;
+        },
+        () => null,
+      ),
     readHeldBytes: (projectId: string, digest: string): Uint8Array | null => withOpenSession(projectId, (s) => readHeld(contentCtx(s), digest), () => null),
     // Only a file that still holds what was written is taken back (one changed since is the user's).
     removeWrittenFile: (projectId: string, path: string, digest: string): void =>

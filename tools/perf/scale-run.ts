@@ -3,7 +3,7 @@
  *
  *   --preset full|caps|small|starter   the generated size (starter: the Starter template, no generation)
  *   --factor F                         the full size times F instead of a preset
- *   --steps files,open,commands,editor,import,play,walk,handles,dialogue,stream,replay,export   (import, stream and replay only when named)
+ *   --steps files,open,commands,editor,import,extract,play,walk,handles,dialogue,stream,replay,export   (import, extract, stream and replay only when named)
  *   --replays N --replay-scenes N      restarts the replay step asks for (10), on-demand scenes loaded before each (10)
  *   --threads worker|single            where Play runs the simulation (the project's sim_thread)
  *   --import N                         voice files the import step writes into a new folder and imports (1000)

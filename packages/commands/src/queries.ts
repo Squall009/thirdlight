@@ -258,7 +258,7 @@ export function queryAssets(
       versionCount: a.versions.length,
     };
     const current = a.versions.find((v) => v.version === a.currentVersion) as
-      | { sourcePath?: string; convertedFrom?: { format: 'fbx' | 'png' | 'jpeg'; sourcePath?: string; encoding?: 'color' | 'normal' | 'data' }; packedFrom?: { encoding: 'color' | 'normal' | 'data'; layers: ({ assetId?: string } | { value: number })[][] }; metrics?: unknown }
+      | { sourcePath?: string; convertedFrom?: { format: 'fbx' | 'glb' | 'png' | 'jpeg'; sourcePath?: string; encoding?: 'color' | 'normal' | 'data' }; packedFrom?: { encoding: 'color' | 'normal' | 'data'; layers: ({ assetId?: string } | { value: number })[][] }; metrics?: unknown }
       | undefined;
     if (current?.sourcePath !== undefined) summary.sourcePath = current.sourcePath;
     if ((a as { vertexColors?: string }).vertexColors === 'tint') summary.vertexColors = 'tint';
@@ -266,6 +266,9 @@ export function queryAssets(
     if (defaultMaterials !== undefined) summary.materials = { ...defaultMaterials };
     const clipsFor = (a as { clipsFor?: string }).clipsFor;
     if (clipsFor !== undefined) summary.clipsFor = clipsFor;
+    const extracted = a as { extractTextures?: true; textures?: Record<string, string> };
+    if (extracted.extractTextures === true) summary.extractTextures = true;
+    if (extracted.textures !== undefined) summary.textures = { ...extracted.textures };
     const labels = (a as { labels?: string[] }).labels;
     if (labels !== undefined) summary.labels = [...labels];
     const address = (a as { address?: string }).address;

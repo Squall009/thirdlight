@@ -111,6 +111,8 @@ export default defineConfig({
         '**/painted-terrain.e2e.ts',
         // Mip streaming of large KTX2 textures under the texture budget (Play, the export's files) on WebGPU.
         '**/texture-streaming.e2e.ts',
+        // A model's images extracted into texture assets, drawn and streamed (Scene view, Play, export) on WebGPU.
+        '**/extract-textures.e2e.ts',
       ],
       use: { launchOptions: { env: browserLaunchEnv(), args: [...GL_ARGS, ...WEBGPU_ARGS] } },
     },

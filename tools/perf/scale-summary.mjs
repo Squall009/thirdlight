@@ -27,6 +27,8 @@ for (const path of process.argv.slice(2)) {
     const pw = r.projectWindow;
     if (pw) console.log(`project window: ${pw.files} files from ${pw.from}: chosen ${pw.chooseMs} ms, labelled ${pw.labelMs} ms, moved ${pw.moveMs} ms (shown ${pw.moveShownMs} ms), move undone ${pw.undoMoveMs} ms, label undone ${pw.undoLabelMs} ms; revisions ${JSON.stringify(pw.revisions)}`);
   }
+  const x = r.extract;
+  if (x) console.log(`extract: ${x.models} models re-imported with their images extracted in ${x.ms} ms (p50 ${x.perModelMsP50} ms a model), ${x.created} textures made, ${x.reused} images an existing texture, ${x.kept} kept inside; backend RSS ${f(x.rssBeforeMiB)} → sampled peak ${f(x.rssPeakMiB)} MiB, high-water mark ${f(x.hwmMiB)} MiB`);
   const p = r.play;
   if (p) {
     const s = p.split;

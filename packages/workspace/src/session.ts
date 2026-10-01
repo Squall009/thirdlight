@@ -148,6 +148,13 @@ export interface ProjectSession {
   openProblems?: import('./asset-recovery').RecoveryProblem[];
   /** A folder's files the backend inspected for the next `importAssets` of that folder (read once by the command). */
   preparedImports?: Map<string, PreparedImportFile[]>;
+  /**
+   * A `publishAsset` the host prepared (by request id): the args it runs with
+   * and the revision it runs at (a model's extracted textures came in just
+   * before it). The request itself stays as sent, so a retry of it is the
+   * same request.
+   */
+  preparedPublishes?: Map<string, { args: Record<string, unknown>; expectedRevision: number }>;
   /** Resource and scene files the file check read for the next `importResources` (read once by the command). */
   preparedResources?: import('./resource-check').PreparedResourceFiles;
   /** What the project's files hashed to, by their stamps (kept in the import cache between runs; file-stamps.ts). */

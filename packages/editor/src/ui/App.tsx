@@ -76,7 +76,7 @@ import { Viewport } from '../viewport/viewport';
 import { iconTableOf } from '../viewport/icons';
 import { ModelInstances } from '../viewport/model-instances';
 import { createSceneViewAssets } from '../viewport/scene-assets';
-import { TileThumbnails } from '../viewport/thumbnails';
+import { extractedImagePictures, TileThumbnails } from '../viewport/thumbnails';
 import { AnimatorMachine, type AnimatorControllerLike } from '@thirdlight/runtime';
 import { BATCHING_URL_PARAM, batchingFromUrl, createAnimatorPlayer, setKtx2DecoderBase, layerEnvironment, pageSearch, rendererPreferenceFromUrl, RENDERER_URL_PARAM, resolveRendererPreference, type EnvironmentLike, type LightingBakeLike, type MaterialDefLike, type MaterialFunctionLike, type MaterialLibrary, type RendererInfo, type WindLike } from '@thirdlight/three-adapter';
 import { editorRendererChoice, setEditorRendererChoice } from '../viewport/renderer-choice';
@@ -1041,6 +1041,7 @@ function EditorApp(): JSX.Element {
       modelBytes: (assetId, version) => client.assetBytes(assetId, version),
       vertexColorsFor: (assetId) => (client.content.getAsset(assetId)?.vertexColors === 'tint' ? 'tint' : 'data'),
       renderer: () => editorRendererChoice(),
+      extractedImages: (assetId) => extractedImagePictures(client, assetId),
     });
     setTileThumbnails(thumbnails);
     // Records read by id arrived (a model the Scene view waited for) or the catalog changed: draw again.
@@ -2051,7 +2052,7 @@ function EditorApp(): JSX.Element {
     [],
   );
 
-  const { textureEncoding, setTextureEncoding, uploadFolder, setUploadFolder, importFile, importFromFolder, publish, reimportIssue, cancelImportFlow, discardImportFlow } = useAssetImport({
+  const { importSettings, textureEncoding, reimportWithExtract, uploadFolder, setUploadFolder, importFile, importFromFolder, publish, reimportIssue, cancelImportFlow, discardImportFlow } = useAssetImport({
     clientRef,
     pendingProposalRef,
     mediaPendingRef,
@@ -4077,8 +4078,7 @@ function EditorApp(): JSX.Element {
                 setAssetDeleteError(null);
               }}
               onImport={(f) => void importFile(f, 'create')}
-              textureEncoding={textureEncoding}
-              onTextureEncoding={setTextureEncoding}
+              importSettings={importSettings}
               onPackTexture={async (req) => {
                 const c = clientRef.current;
                 if (c === null) return 'not connected';
@@ -4129,7 +4129,7 @@ function EditorApp(): JSX.Element {
               projectCommands={projectWindow.commands}
               sideExtra={
                 selectedAssetId !== null && selectedAsset.summary?.kind === 'model' ? (
-                  <ModelAssetOptions asset={selectedAsset.summary} materials={materials} sourceMaterials={assetSourceMaterials} missingBones={missingBones} onClipsFor={(rig) => void setAssetClipsFor(selectedAssetId, rig)} onMaterials={(mapping) => void assetOptions.setAssetMaterials(selectedAssetId, mapping)} />
+                  <ModelAssetOptions asset={selectedAsset.summary} materials={materials} sourceMaterials={assetSourceMaterials} missingBones={missingBones} onClipsFor={(rig) => void setAssetClipsFor(selectedAssetId, rig)} onMaterials={(mapping) => void assetOptions.setAssetMaterials(selectedAssetId, mapping)} onReimportExtract={(path, extract) => void reimportWithExtract(selectedAssetId, path, extract)} />
                 ) : null
               }
             />

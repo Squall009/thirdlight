@@ -636,7 +636,17 @@ export function captureContentViewV3(
   const refs = collectAssetRefsV3(normScene, normContent);
   if (include !== undefined && include.length > 0) {
     const named = new Set(refs.map((r) => r.assetId));
-    for (const assetId of include) if (!named.has(assetId) && byId.has(assetId)) refs.push({ assetId, version: null });
+    for (const assetId of include) {
+      if (named.has(assetId) || !byId.has(assetId)) continue;
+      named.add(assetId);
+      refs.push({ assetId, version: null });
+      // A loadable model's extracted textures come with it.
+      for (const id of Object.values(byId.get(assetId)!.textures ?? {})) {
+        if (named.has(id) || !byId.has(id)) continue;
+        named.add(id);
+        refs.push({ assetId: id, version: null });
+      }
+    }
   }
   for (const ref of refs) {
     const record = byId.get(ref.assetId);

@@ -55,7 +55,8 @@ test('a model file changed on disk between two Plays: the second Play shows the 
   const file = join(root, 'data', 'projects', ID, 'assets', 'look', 'ball.glb');
   mkdirSync(join(file, '..'), { recursive: true });
   writeFileSync(file, RED);
-  await p.command('importAssets', { folder: 'assets/look' });
+  // The model keeps its image inside (extract textures off): its file is what Play serves.
+  await p.command('importAssets', { folder: 'assets/look', extractTextures: false });
   await p.command('setTransform', { entityId: 'cam-main', transform: { position: [0, 0.5, 3] } });
   await p.command('createEntity', { sceneId: 'scene-main', kind: 'model', name: 'Ball', transform: { position: [0, 0, 0], scale: [2, 2, 2] }, model: { asset: { assetId: 'ball' } } });
 

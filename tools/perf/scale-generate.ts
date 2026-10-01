@@ -45,7 +45,7 @@ import { prng } from './generate';
 import { opusVoice, pcmWav, scalePng } from './scale-media';
 
 /** Bump when the generated content changes (it keys cached projects and recorded numbers). */
-export const SCALE_GENERATOR_VERSION = 8;
+export const SCALE_GENERATOR_VERSION = 9;
 export const SCALE_DEFAULT_SEED = 26;
 
 export interface ScaleSpec {
@@ -72,8 +72,8 @@ export interface ScaleSpec {
   /**
    * Every `embedEvery`-th model (from the first; 0: none) carries a larger
    * base colour image inside its file, `embedSize` px a side: a Basis
-   * Universal KTX2 with mips and a WebP alternately, as exported art does.
-   * The other models carry an 8 px PNG.
+   * Universal KTX2 with mips (the same image in every such file), a WebP and
+   * a PNG in turn, as exported art does. The other models carry an 8 px PNG.
    */
   embedEvery: number;
   embedSize: number;
@@ -200,6 +200,8 @@ export interface ScaleResult {
   walkthrough: { dialogueId: string; lines: number; voices: string[] };
   /** The entity the bench attaches its script to (in the start scene). */
   driverEntityId: string;
+  /** The models carrying a larger image inside their files (`embedEvery`). */
+  embeddedModelIds: string[];
   generateMs: number;
 }
 
@@ -315,19 +317,27 @@ export async function generateScaleProject(dataRoot: string, projectId: string, 
     ktx2 = encoded.ktx2;
   }
   let embedded = 0;
+  const embeddedModelIds: string[] = [];
   for (let i = 0; i < spec.models; i++) {
     const id = `model-${pad(i)}`;
     const embeds = ktx2 !== null && i % spec.embedEvery === 0;
     const s = seedOf();
+    const kind = embedded % 3;
+    const a: [number, number, number] = [(s >> 8) & 255, (s >> 16) & 255, 30];
+    const b: [number, number, number] = [20, s & 255, 200];
     const bytes = !embeds
       ? sphereGlb(s, 6 + (i % 6), 8)
-      : (embedded++ % 2 === 0
+      : kind === 0
         ? sphereGlbWith(6 + (i % 6), { bytes: ktx2!, format: 'ktx2' }, id)
-        : sphereGlbWith(6 + (i % 6), { bytes: makeTwoColourWebp(size, size, [(s >> 8) & 255, (s >> 16) & 255, 30], [20, s & 255, 200], (x, y) => (((x >> 4) + (y >> 4)) % 2 === 0 ? 0 : 1)), format: 'webp' }, id));
+        : kind === 1
+          ? sphereGlbWith(6 + (i % 6), { bytes: makeTwoColourWebp(size, size, a, b, (x, y) => (((x >> 4) + (y >> 4)) % 2 === 0 ? 0 : 1)), format: 'webp' }, id)
+          : sphereGlbWith(6 + (i % 6), { bytes: makePng(size, size, (x, y) => [...(((x >> 4) + (y >> 4)) % 2 === 0 ? a : b), 255]), format: 'png' }, id);
+    if (embeds) embedded += 1;
     addAsset(id, 'model', `Model ${i}`, bytes, inspectGlb(bytes, { profile: 'gltf-glb', recipeVersion: 1, toolchain: M2_GLTF_TOOLCHAIN }) as unknown as Proposal, 'model', {}, labelsOf('model', i));
     modelIds.push(id);
+    if (embeds) embeddedModelIds.push(id);
   }
-  log(`scale: ${spec.models} models (${embedded} with a ${size} px KTX2 or WebP inside)`);
+  log(`scale: ${spec.models} models (${embedded} with a ${size} px KTX2, WebP or PNG inside)`);
   assets.sort((a, b) => ((a['assetId'] as string) < (b['assetId'] as string) ? -1 : 1));
 
   // Materials: a base colour map each, normal maps and ORM maps over the rest of the textures.
@@ -483,6 +493,7 @@ export async function generateScaleProject(dataRoot: string, projectId: string, 
     startSceneId,
     walkthrough: { dialogueId: 'walkthrough', lines: walkLines, voices: Array.from({ length: walkLines }, (_, k) => voiceIds[k % voiceIds.length]!) },
     driverEntityId,
+    embeddedModelIds,
     generateMs: Math.round(performance.now() - t0),
   };
   log(`scale: ${projectId} written in ${result.generateMs} ms: content.json ${result.contentJsonBytes} B, sources ${Object.values(sourceBytes).reduce((a, b) => a + b, 0)} B`);

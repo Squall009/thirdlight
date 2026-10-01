@@ -23,6 +23,8 @@ export interface ModelThumbnailInput {
   readonly digest: string;
   readonly vertexColors: VertexColorMode;
   readonly renderer: { preference: RendererPreference; source: RendererPreferenceSource };
+  /** The file's extracted images as small PNGs (their textures' tile pictures); absent ones draw their stand-ins. */
+  readonly images?: readonly { readonly image: string; readonly png: Uint8Array }[];
 }
 
 export interface ModelThumbnailOutput {
@@ -54,9 +56,30 @@ function rendererFor(choice: ModelThumbnailInput['renderer']): { handle: Rendere
 }
 
 export async function renderModelThumbnails(input: ModelThumbnailInput): Promise<ModelThumbnailOutput> {
-  const handle = prepareVisualResource(suppliedBytes({ assetId: input.assetId, version: input.version, sourceDigest: input.digest, sourceByteLength: input.bytes.byteLength }, input.bytes), { loader });
+  // The extracted images are drawn from plain PNG pictures (no KTX2 is decoded here).
+  const pictures = new Map((input.images ?? []).map((i) => [i.image, i.png]));
+  const decoded: THREE.Texture[] = [];
+  const images =
+    pictures.size === 0
+      ? undefined
+      : {
+          map: Object.fromEntries([...pictures.keys()].map((k) => [k, k])),
+          load: async (image: string): Promise<THREE.Texture | null> => {
+            const png = pictures.get(image);
+            if (png === undefined) return null;
+            const bitmap = await createImageBitmap(new Blob([png as BlobPart], { type: 'image/png' }), { imageOrientation: 'none', premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
+            const t = new THREE.Texture(bitmap as unknown as HTMLImageElement);
+            t.needsUpdate = true;
+            decoded.push(t);
+            return t;
+          },
+        };
+  const handle = prepareVisualResource(suppliedBytes({ assetId: input.assetId, version: input.version, sourceDigest: input.digest, sourceByteLength: input.bytes.byteLength }, input.bytes), { loader, ...(images !== undefined ? { images } : {}) });
   const prepared = await handle.result;
-  if (!prepared.ok) return { file: null, pieces: [] };
+  if (!prepared.ok) {
+    for (const t of decoded) (t.image as ImageBitmap).close();
+    return { file: null, pieces: [] };
+  }
   const resource = prepared.resource;
   try {
     const { handle: rh, canvas } = rendererFor(input.renderer);
@@ -105,5 +128,9 @@ export async function renderModelThumbnails(input: ModelThumbnailInput): Promise
     return { file, pieces };
   } finally {
     resource.dispose();
+    for (const t of decoded) {
+      t.dispose();
+      (t.image as ImageBitmap).close();
+    }
   }
 }

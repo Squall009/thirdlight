@@ -15,6 +15,16 @@ import { DEFAULT_UPLOAD_FOLDER } from '../session/folder-upload';
 
 type MediaKind = 'model' | 'audio' | 'texture' | 'font';
 
+/** The Assets panel's import settings for new files (editor preferences, not project data). */
+export interface ImportSettings {
+  /** How a PNG/JPEG texture is imported: as is, or encoded to KTX2. */
+  textureEncoding: 'none' | 'color' | 'normal' | 'data';
+  setTextureEncoding: (v: 'none' | 'color' | 'normal' | 'data') => void;
+  /** Whether a new model's images become texture assets. */
+  extractTextures: boolean;
+  setExtractTextures: (v: boolean) => void;
+}
+
 export interface AssetImportDeps {
   clientRef: MutableRefObject<SessionClient | null>;
   pendingProposalRef: MutableRefObject<{ proposal: Parameters<typeof publishArgsFromProposal>[0]; target: ImportTarget } | null>;
@@ -67,6 +77,12 @@ export function useAssetImport(deps: AssetImportDeps) {
   const [textureEncoding, setTextureEncoding] = useState<'none' | 'color' | 'normal' | 'data'>('none');
   const textureEncodingRef = useRef(textureEncoding);
   textureEncodingRef.current = textureEncoding;
+  // Whether a new model's images become texture assets (the model import setting "extract textures"; Godot's default).
+  const [extractTextures, setExtractTextures] = useState(true);
+  const extractTexturesRef = useRef(extractTextures);
+  extractTexturesRef.current = extractTextures;
+  /** A re-import from the asset's inspector carries the setting chosen there (else a re-import keeps the model's own). */
+  const reimportExtractRef = useRef<boolean | null>(null);
 
   const importFile = useCallback(async (file: File, mode: 'create' | 'reimport') => {
     const c = clientRef.current;
@@ -152,7 +168,10 @@ export function useAssetImport(deps: AssetImportDeps) {
     if (!c || !pending || !media) return;
     const animated = animatedReimportArgs();
     if (!animated.complete) return; // the panel keeps the publish disabled
-    const args = publishArgsFromProposal(pending.proposal, pending.target, utcSecondTimestamp(), media.kind, animated.animation ?? undefined);
+    const made = publishArgsFromProposal(pending.proposal, pending.target, utcSecondTimestamp(), media.kind, animated.animation ?? undefined);
+    const extract = media.kind !== 'model' ? null : pending.target.mode === 'create' ? extractTexturesRef.current : reimportExtractRef.current;
+    reimportExtractRef.current = null;
+    const args = made.ok && extract !== null ? { ok: true as const, args: { ...made.args, extractTextures: extract } } : made;
     if (!args.ok) {
       setImportState(importFailed(importStateRef.current, args.error));
       return;
@@ -191,6 +210,20 @@ export function useAssetImport(deps: AssetImportDeps) {
     [importFromFolder, publish, showAssets],
   );
 
+  /**
+   * A model's inspector: import its file again with "extract textures" on or
+   * off (Unity's Apply, Godot's Reimport after changing an import setting).
+   */
+  const reimportWithExtract = useCallback(
+    async (assetId: string, path: string, extract: boolean) => {
+      reimportExtractRef.current = extract;
+      const ready = await importFromFolder(path, 'reimport', assetId);
+      if (ready) await publish();
+      else showAssets();
+    },
+    [importFromFolder, publish, showAssets],
+  );
+
   const cancelImportFlow = useCallback(async () => {
     const c = clientRef.current;
     if (!c) return;
@@ -223,5 +256,6 @@ export function useAssetImport(deps: AssetImportDeps) {
     }
   }, [clientRef, importStateRef, mediaPendingRef, pendingProposalRef, setImportState]);
 
-  return { acceptProposal, textureEncoding, setTextureEncoding, uploadFolder, setUploadFolder, importFile, importFromFolder, animatedReimportArgs, publish, reimportIssue, cancelImportFlow, discardImportFlow };
+  const importSettings: ImportSettings = { textureEncoding, setTextureEncoding, extractTextures, setExtractTextures };
+  return { acceptProposal, importSettings, textureEncoding, reimportWithExtract, uploadFolder, setUploadFolder, importFile, importFromFolder, animatedReimportArgs, publish, reimportIssue, cancelImportFlow, discardImportFlow };
 }

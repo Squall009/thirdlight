@@ -70,6 +70,7 @@ import {
 import { buildInstanceSet, INSTANCE_CHUNK_METERS, type BuiltInstanceSet } from './instancing';
 import type { MaterialLibrary, MaterialOverridesLike } from './material-library';
 import { releaseEmissiveLooks, SHARED_MATERIAL_KEY } from './node-materials';
+import { textureHolds } from './texture-holds';
 import {
   createAnimationRoleController,
   type AnimationRoleController,
@@ -97,6 +98,8 @@ export interface SceneAdapterModelAsset {
   readonly materials?: Readonly<Record<string, string>>;
   /** An animation-only file whose clips play on this model asset's rig. */
   readonly clipsFor?: string;
+  /** The file's images extracted into texture assets (image index → texture assetId). */
+  readonly textures?: Readonly<Record<string, string>>;
 }
 
 /** One committed `modelAnimation` entity mapping. */
@@ -138,6 +141,11 @@ export interface SceneAdapterModels {
   readonly rowOf?: (assetId: string) => SceneAdapterModelAsset | undefined;
   /** The same, reading what it takes to find the row (undefined: not a model of this build). */
   readonly findRow?: (assetId: string) => Promise<SceneAdapterModelAsset | undefined>;
+  /**
+   * A texture asset's decoded texture (streamed when it streams), for the
+   * images a model's file had extracted. Absent: those draw their stand-ins.
+   */
+  readonly loadTexture?: (assetId: string) => Promise<THREE.Texture | null>;
 }
 
 /** The bounded `models` diagnostics block (delivery.md —
@@ -655,6 +663,9 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
     return row === undefined ? undefined : resources.peek<PreparedVisualResource>(kindOf(row), keyOf(row));
   };
 
+  /** The texture assets models' extracted images are drawn from, held per file. */
+  const imageHolds = ctx.models.loadTexture !== undefined ? textureHolds(resources, ctx.models.loadTexture) : null;
+
   /** The resource manager's load of one file: its verified bytes, then the cancellable store load. */
   const loadFile = (row: SceneAdapterModelAsset) => async (): Promise<LoadedResource<PreparedVisualResource>> => {
     let bytes: ArrayBuffer;
@@ -666,12 +677,25 @@ export function createModelsRealization(ctx: ModelsRealizationContext): {
     if (disposed) throw new ModelFileError('asset_load_cancelled', 'the realization was disposed');
     if (bytes.byteLength === 0) throw new ModelFileError('asset_load_cancelled', 'no bytes');
     const descriptor: AssetVersionDescriptor = { assetId: row.assetId, version: row.version, sourceDigest: row.sourceDigest, sourceByteLength: bytes.byteLength };
-    const handle = store.load({ kind: 'bytes', descriptor, bytes: new Uint8Array(bytes) }, { loader });
+    // The file's extracted images are texture assets, held while the file is.
+    const imageHolder = `model:${keyOf(row)}`;
+    const images = row.textures !== undefined && imageHolds !== null ? { map: row.textures, load: (id: string) => imageHolds.get(id, imageHolder) } : undefined;
+    const handle = store.load({ kind: 'bytes', descriptor, bytes: new Uint8Array(bytes) }, { loader, ...(images !== undefined ? { images } : {}) });
     pendingHandles.set(row.assetId, handle);
     const res = await handle.result;
     if (pendingHandles.get(row.assetId) === handle) pendingHandles.delete(row.assetId);
-    if (res.ok === false) throw new ModelFileError(res.error.code, res.error.message);
-    return { value: res.resource, ...res.resource.residentBytes(), free: (r) => store.release(r) };
+    if (res.ok === false) {
+      imageHolds?.releaseHolder(imageHolder);
+      throw new ModelFileError(res.error.code, res.error.message);
+    }
+    return {
+      value: res.resource,
+      ...res.resource.residentBytes(),
+      free: (r) => {
+        store.release(r);
+        imageHolds?.releaseHolder(imageHolder);
+      },
+    };
   };
 
   /**

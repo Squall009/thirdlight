@@ -51,7 +51,8 @@ async function sphereProject(projectId: string, cells: number, perCell: number):
   const inspected = await be.post(`/api/v1/projects/${projectId}/content/stages/${stageId}/inspect`, { kind: 'model' });
   const proposal = inspected.json['proposal'] as Record<string, unknown>;
   expect(proposal, JSON.stringify(inspected.json).slice(0, 300)).toBeDefined();
-  await p.command('publishAsset', { mode: 'create', assetId: 'sphere', kind: 'model', displayName: 'Sphere', sourceDigest: proposal['sourceDigest'], sourceByteLength: proposal['sourceByteLength'], importRecipe: proposal['importRecipe'], metrics: proposal['metrics'], importedAt: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z') });
+  // The model keeps its image inside (extract textures off): its one file is what the cache serves.
+  await p.command('publishAsset', { mode: 'create', assetId: 'sphere', kind: 'model', displayName: 'Sphere', sourceDigest: proposal['sourceDigest'], sourceByteLength: proposal['sourceByteLength'], importRecipe: proposal['importRecipe'], metrics: proposal['metrics'], importedAt: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'), extractTextures: false });
   await be.discardStage(projectId, stageId);
   await p.command('setTransform', { entityId: 'cam-main', transform: { position: [0, 0, 330] } });
   await p.command('setComponent', { entityId: 'cam-main', component: 'camera', value: { type: 'perspective', fovY: 60, near: 0.5, far: 2000 } });

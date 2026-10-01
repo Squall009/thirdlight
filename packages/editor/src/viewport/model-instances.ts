@@ -38,6 +38,8 @@ import {
   type VertexColorMode,
   type MaterialLibrary,
   type MaterialOverridesLike,
+  textureHolds,
+  type TextureHolds,
 } from '@thirdlight/three-adapter';
 import { createGltfLoaderPort } from '@thirdlight/three-adapter/gltf-loader';
 import { assetVersionKey, createResourceManager, readModelRig, rigNodeNames, type LoadedResource, type ResourceManager } from '@thirdlight/runtime';
@@ -79,6 +81,10 @@ export interface ModelInstancesOptions {
   resources?: ResourceManager;
   /** An instance set was (re)built with this many chunks (the Inspector shows it). */
   onSetBuilt?: (entityId: string, chunks: number) => void;
+  /** A texture asset, decoded (the images a model's file had extracted are drawn from these). */
+  loadTexture?: (assetId: string) => Promise<THREE.Texture | null>;
+  /** An asset's extracted images (image index → texture assetId), or null. */
+  assetTexturesFor?: (assetId: string) => Readonly<Record<string, string>> | null;
 }
 
 interface LiveInstance {
@@ -136,6 +142,8 @@ export class ModelInstances {
   private entities: readonly ProjectedEntity[] = [];
   /** Where the parsed files are held (`model`, keyed `<assetId>@<version>`), by the objects that show them. */
   private readonly resources: ResourceManager;
+  /** The texture assets models' extracted images are drawn from, held per file. */
+  private readonly imageHolds: TextureHolds | null;
   /** The file each object holds (its key), and this instance's holder names in the manager. */
   private readonly entityKeys = new Map<string, string>();
   private readonly tag: string;
@@ -155,6 +163,7 @@ export class ModelInstances {
     this.scene = scene;
     this.options = options;
     this.resources = options.resources ?? createResourceManager({ schedule: (run) => setTimeout(run, 0) });
+    this.imageHolds = options.loadTexture !== undefined ? textureHolds(this.resources, options.loadTexture) : null;
     modelInstancesSerial += 1;
     this.tag = `view${modelInstancesSerial}`;
   }
@@ -215,10 +224,16 @@ export class ModelInstances {
     const assetId = descriptor.assetId;
     this.loading.add(assetId);
     const source = injectedResolver(descriptor, () => this.options.resolve(descriptor));
-    const handle = this.store.load(source, { loader: this.loader });
+    // The file's extracted images are texture assets, held while the file is.
+    const map = this.options.assetTexturesFor?.(assetId) ?? null;
+    const holds = this.imageHolds;
+    const imageHolder = `model:${assetVersionKey(assetId, descriptor.version)}`;
+    const images = map !== null && holds !== null ? { map, load: (id: string) => holds.get(id, imageHolder) } : undefined;
+    const handle = this.store.load(source, { loader: this.loader, ...(images !== undefined ? { images } : {}) });
     return handle.result.then((result) => {
       this.loading.delete(assetId);
       if (!result.ok) {
+        holds?.releaseHolder(imageHolder);
         if (!this.disposed) {
           this.failures.set(assetId, { code: result.error.code, message: result.error.message });
           this.options.onFailuresChanged?.(this.failures);
@@ -230,7 +245,14 @@ export class ModelInstances {
       }
       if (this.failures.delete(assetId)) this.options.onFailuresChanged?.(this.failures);
       this.failed.delete(assetId);
-      return { value: result.resource, ...result.resource.residentBytes(), free: (r) => this.store.release(r) };
+      return {
+        value: result.resource,
+        ...result.resource.residentBytes(),
+        free: (r) => {
+          this.store.release(r);
+          holds?.releaseHolder(imageHolder);
+        },
+      };
     });
   }
 

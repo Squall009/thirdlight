@@ -78,13 +78,14 @@ function noiseTexture(size: number): Buffer {
 }
 
 /** Import the textured GLB, drag it into the scene and start Play; the play id. */
-async function playTexturedCrate(page: Page, variant: RendererVariant, texture = checkerTexture(), size: [number, number, number] = [2, 2, 2]): Promise<string> {
+async function playTexturedCrate(page: Page, variant: RendererVariant, texture = checkerTexture(), size: [number, number, number] = [2, 2, 2], extract = true): Promise<string> {
   const file = join(dir, 'crate.glb');
   writeFileSync(file, multiPieceGlb([{ name: 'crate', lods: [size] }], { texturePng: texture }));
   await page.goto(editorUrlFor(be.editorUrl, variant));
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   await expectRendererBackend(page.locator('canvas.tl-viewport'), variant);
   await page.getByRole('tab', { name: 'Assets' }).click();
+  await page.getByLabel('extract model textures').setChecked(extract);
   await page.locator('.tl-assets__file').first().setInputFiles(file);
   const publish = page.getByRole('button', { name: 'publish' });
   await expect(publish).toBeEnabled({ timeout: 15_000 });
@@ -157,7 +158,8 @@ for (const variant of RENDERER_VARIANTS) {
     onlyInItsProject(variant);
     test.setTimeout(180_000);
     // A crate with a noise texture fills much of the view: its PNG cannot be small.
-    const psid = await playTexturedCrate(page, variant, noiseTexture(512), [4, 4, 4]);
+    // The noise stays inside the file as it is (a KTX2 encode would merge its colours).
+    const psid = await playTexturedCrate(page, variant, noiseTexture(512), [4, 4, 4], false);
     // The page shows the texture before the capture is taken.
     await expect.poll(async () => distinctColours(decodePng(await page.locator('iframe.tl-app__preview-frame').screenshot())), { timeout: 20_000 }).toBeGreaterThan(1_000);
     const t0 = Date.now();

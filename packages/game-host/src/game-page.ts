@@ -281,8 +281,8 @@ function referencedModelAssetIds(snapshot: RuntimeSnapshot): Set<string> {
 
 /** The adapter's row of one model (id, version, digest; tint, material map, clips' rig). */
 function modelRowOf(r: { assetId: string; version: number; sourceDigest: string }): SceneAdapterModels['assets'][number] {
-  const x = r as { vertexColors?: unknown; materials?: unknown; clipsFor?: unknown };
-  return { assetId: r.assetId, version: r.version, sourceDigest: r.sourceDigest, ...(x.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}), ...(x.materials !== undefined ? { materials: x.materials as Record<string, string> } : {}), ...(typeof x.clipsFor === 'string' ? { clipsFor: x.clipsFor } : {}) };
+  const x = r as { vertexColors?: unknown; materials?: unknown; clipsFor?: unknown; textures?: unknown };
+  return { assetId: r.assetId, version: r.version, sourceDigest: r.sourceDigest, ...(x.vertexColors === 'tint' ? { vertexColors: 'tint' as const } : {}), ...(x.materials !== undefined ? { materials: x.materials as Record<string, string> } : {}), ...(typeof x.clipsFor === 'string' ? { clipsFor: x.clipsFor } : {}), ...(x.textures !== undefined ? { textures: x.textures as Record<string, string> } : {}) };
 }
 
 /**
@@ -455,11 +455,14 @@ function physicsConfigFromSnapshot(snapshot: RuntimeSnapshot, settings: Gameplay
   };
 }
 
-/** The adapter's materials, environment, lighting and light options (textures from the verified bytes). */
-function materialsOptionOf(manifest: GamePageManifest, reader: VerifiedAssetReader, catalog: RuntimeCatalog, streamer: TextureStreamer): { materials?: SceneAdapterOptions['materials']; environment?: SceneAdapterOptions['environment']; lighting?: SceneAdapterOptions['lighting']; lights: NonNullable<SceneAdapterOptions['lights']> } {
-  // Read (once, checked) when a material, a bake, the sky or a spot cookie first needs it (its row from the catalog);
-  // a streamed texture reads its head (the mip tail) and streams larger levels as it is drawn.
-  const loadTexture: NonNullable<SceneAdapterOptions['materials']>['loadTexture'] = (assetId) =>
+/**
+ * A texture asset, decoded from the verified bytes: read (once, checked) when
+ * a material, a model's extracted image, a bake, the sky or a spot cookie first
+ * needs it (its row from the catalog); a streamed texture reads its head (the
+ * mip tail) and streams larger levels as it is drawn.
+ */
+function pageTextureLoader(reader: VerifiedAssetReader, catalog: RuntimeCatalog, streamer: TextureStreamer): NonNullable<SceneAdapterOptions['materials']>['loadTexture'] {
+  return (assetId) =>
     catalog.lookup(assetId).then(
       (row) => {
         if (row === undefined || row.kind !== 'texture') return null;
@@ -469,6 +472,10 @@ function materialsOptionOf(manifest: GamePageManifest, reader: VerifiedAssetRead
       },
       () => null,
     );
+}
+
+/** The adapter's materials, environment, lighting and light options (textures from the verified bytes). */
+function materialsOptionOf(manifest: GamePageManifest, loadTexture: NonNullable<SceneAdapterOptions['materials']>['loadTexture'], streamer: TextureStreamer): { materials?: SceneAdapterOptions['materials']; environment?: SceneAdapterOptions['environment']; lighting?: SceneAdapterOptions['lighting']; lights: NonNullable<SceneAdapterOptions['lights']> } {
   // A sky, a cookie or a lightmap is not a mesh's surface whose size on screen says what it needs: a streamed texture they draw is kept at full size.
   const loadWhole: typeof loadTexture = (assetId) =>
     loadTexture(assetId).then((t) => {
@@ -777,6 +784,7 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
     const behaviorModules = remote !== null ? [] : await linkBehaviorModules(behaviorRows, enginePins, (path) => import(/* @vite-ignore */ o.scriptUrl(path)));
     if (remote === null && behaviorRows.length > 0) timings?.end('behaviors');
     const loader = (): ReturnType<typeof createGltfLoaderPort> => createGltfLoaderPort({ decoderBase: o.decoderBase });
+    const pageTextures = pageTextureLoader(assetReader, content.catalog, textureStreamer);
     const config: GameHostConfig = {
       snapshot,
       settings,
@@ -796,8 +804,9 @@ export async function startGamePage(o: GamePageOptions): Promise<GamePageHandle>
           batching: batchingFromUrl(pageSearch()),
           // The first frame, slow frames and scene attaches for the start timings.
           ...(timings !== undefined ? { onFrameDrawn: (f: FrameDrawnInfo) => timings.frame(f) } : {}),
-          ...(models !== null ? { models, modelsLoader: loader() } : {}),
-          ...materialsOptionOf(manifest, assetReader, content.catalog, textureStreamer),
+          // A model's extracted images draw from their texture assets, streamed like a material's.
+          ...(models !== null ? { models: { ...models, loadTexture: pageTextures }, modelsLoader: loader() } : {}),
+          ...materialsOptionOf(manifest, pageTextures, textureStreamer),
           textureStreamer,
           // The visual effects (textures and models from the verified bytes).
           ...(manifest.effects !== undefined && manifest.effects.length > 0

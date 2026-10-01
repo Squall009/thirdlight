@@ -248,6 +248,20 @@ describe('extract textures over HTTP (a project in the data root)', () => {
     expect(asset('keg')!.versions[0]!.convertedFrom).toBeUndefined();
   });
 
+  it('answers a retried extracting publish from its record (the same request, nothing extracted again)', async () => {
+    const p = await upload(quadGlb({ base: checker(64, [7, 70, 140], [140, 70, 7]) }, 'retry'));
+    const body = { op: 'publishAsset', projectId: PID, expectedRevision: revision(), requestId: mkRequestId(), origin: { kind: 'mcp', clientId: 'extract-test' }, args: { mode: 'create', assetId: 'crate-retry', kind: 'model', displayName: 'retry', sourceDigest: p.sourceDigest, sourceByteLength: p.sourceByteLength, importRecipe: p.importRecipe, metrics: p.metrics, importedAt: '2026-10-01T00:00:00Z', folder: 'assets/props' } };
+    const send = () => api(`${tb.authUrl}/api/v1/projects/${PID}/commands`, { body, token: tb.adminToken, origin: null });
+    const first = await send();
+    expect(first.status, JSON.stringify(first.json)).toBe(200);
+    const count = content().assets.length;
+    const again = await send();
+    expect(again.status, JSON.stringify(again.json)).toBe(200);
+    expect((again.json as { duplicated: boolean }).duplicated).toBe(true);
+    expect(content().assets.length).toBe(count);
+    expect(asset('crate-retry')!.textures!['0']).toBeDefined();
+  });
+
   it('refuses to delete a texture a model draws with', async () => {
     const id = asset('crate')!.textures!['1']!;
     const r = await command('deleteAsset', { assetId: id });

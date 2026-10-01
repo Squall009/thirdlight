@@ -449,6 +449,12 @@ export interface WorkspaceService {
   prepareAssetImport(projectId: string, folder: string, files: readonly PreparedImportFile[]): { ok: true } | { ok: false; error: CommandError };
   /** Write one uploaded file into a folder of the game folder (never over another file). */
   writeUploadedFile(projectId: string, path: string, bytes: Uint8Array): { ok: true; written: boolean } | { ok: false; error: CommandError };
+  /**
+   * The args and revision the `publishAsset` with this request id runs with
+   * (the request stays as sent, so a retry is the same request); null
+   * forgets them.
+   */
+  preparePublish(projectId: string, requestId: string, prepared: { args: Record<string, unknown>; expectedRevision: number } | null): void;
   /** Bytes held for a coming `publishAsset` (an upload), verified by their digest; null when not held. */
   readHeldBytes(projectId: string, digest: string): Uint8Array | null;
   /** Take back a file this backend wrote for an import that did not happen (only while it still has `digest`). */

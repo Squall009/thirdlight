@@ -70,8 +70,16 @@ function publishedBlobRefs(
  * is checked against the cross-scene rules; only the changed files are
  * written (one `W`, or a journaled transaction for several).
  */
-export function runCommandV4(core: Core, s: ProjectSession, request: unknown, D: string): MutationResult {
+export function runCommandV4(core: Core, s: ProjectSession, sent: unknown, D: string): MutationResult {
   const state = s.v4 as V4State;
+  // A publish the host prepared runs with its prepared args and revision (`D` stays the sent request's).
+  let request = sent;
+  const rid = (sent as { requestId?: unknown }).requestId;
+  const prepared = (sent as { op?: unknown }).op === 'publishAsset' && typeof rid === 'string' ? s.preparedPublishes?.get(rid) : undefined;
+  if (prepared !== undefined) {
+    s.preparedPublishes!.delete(rid as string);
+    request = { ...(sent as object), expectedRevision: prepared.expectedRevision, args: prepared.args };
+  }
   const req = request as { op?: unknown; args?: unknown };
   const op = typeof req.op === 'string' ? req.op : '';
   const args = (req.args !== null && typeof req.args === 'object' && !Array.isArray(req.args) ? req.args : {}) as Record<string, unknown>;

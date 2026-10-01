@@ -72,7 +72,8 @@ async function publish(pid: string, assetId: string, kind: 'model' | 'texture', 
   const inspected = await be.post(`/api/v1/projects/${pid}/content/stages/${stageId}/inspect`, { kind });
   const proposal = inspected.json['proposal'] as Record<string, unknown>;
   expect(proposal, JSON.stringify(inspected.json).slice(0, 300)).toBeDefined();
-  await p.command('publishAsset', { mode: 'create', assetId, kind, displayName: assetId, sourceDigest: proposal['sourceDigest'], sourceByteLength: proposal['sourceByteLength'], importRecipe: proposal['importRecipe'], metrics: proposal['metrics'], importedAt: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z') });
+  // A model keeps its image inside (extract textures off): the spec counts one file per model.
+  await p.command('publishAsset', { mode: 'create', assetId, kind, displayName: assetId, sourceDigest: proposal['sourceDigest'], sourceByteLength: proposal['sourceByteLength'], importRecipe: proposal['importRecipe'], metrics: proposal['metrics'], importedAt: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'), ...(kind === 'model' ? { extractTextures: false } : {}) });
   await be.discardStage(pid, stageId);
 }
 

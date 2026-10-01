@@ -26,6 +26,7 @@ import { LoadableFields } from './LoadableFields';
 import type { LoadingNameActions } from './useLoadingNames';
 import { ProjectWindow } from './project/ProjectWindow';
 import type { ProjectCommands } from './project/useProjectCommands';
+import type { ImportSettings } from './useAssetImport';
 
 export interface AssetPreviewView {
   assetId: string;
@@ -74,9 +75,8 @@ interface Props {
   /** The asset inspector's option commands (vertex colours, audio load settings, texture streaming). */
   assetOptions: Pick<AssetOptionActions, 'setVertexColors' | 'setAudioLoadType' | 'setAudioPreload' | 'setTextureStreaming'>;
   /** An audio file's load type (null: the default for its length) and whether it is read with its scene. */
-  /** How an imported PNG/JPEG texture is stored — as is, or encoded to KTX2 (colour: ETC1S, normal map: UASTC; data, UASTC linear). */
-  textureEncoding?: 'none' | 'color' | 'normal' | 'data';
-  onTextureEncoding?: (v: 'none' | 'color' | 'normal' | 'data') => void;
+  /** How new files are imported: a PNG/JPEG texture as is or encoded to KTX2; a model's images extracted into texture assets or kept inside. */
+  importSettings?: ImportSettings;
   /** Pack a KTX2 texture (array) from texture assets; resolves to an error message or null. */
   onPackTexture?: (req: PackRequest) => Promise<string | null>;
   /** Extra sections for the selected asset (its default materials). */
@@ -220,10 +220,16 @@ export function AssetBrowser(p: Props): JSX.Element {
         >
           reimport…
         </button>
-        {p.onTextureEncoding !== undefined && (
+        {p.importSettings !== undefined && (
+          <label className="tl-field tl-field--inline" title="A new model's images become texture assets next to it (in <model>_textures/, PNG and JPEG encoded to KTX2 with mipmaps), counted and streamed like any texture; off: they stay inside the model file. An existing model keeps its own setting (change it in its inspector).">
+            <input type="checkbox" aria-label="extract model textures" checked={p.importSettings.extractTextures} onChange={(e) => p.importSettings?.setExtractTextures(e.target.checked)} />
+            <span className="tl-field__label">extract model textures</span>
+          </label>
+        )}
+        {p.importSettings !== undefined && (
           <label className="tl-field tl-field--inline" title="How a PNG or JPEG texture is imported: as is, or encoded to KTX2 with mipmaps — colour art as ETC1S (small), normal maps as UASTC (precise, linear). A KTX2 stays compressed on the GPU.">
             <span className="tl-field__label">textures</span>
-            <select className="tl-input tl-input--small" aria-label="texture import encoding" value={p.textureEncoding ?? 'none'} onChange={(e) => p.onTextureEncoding?.(e.target.value as 'none' | 'color' | 'normal' | 'data')}>
+            <select className="tl-input tl-input--small" aria-label="texture import encoding" value={p.importSettings.textureEncoding} onChange={(e) => p.importSettings?.setTextureEncoding(e.target.value as 'none' | 'color' | 'normal' | 'data')}>
               <option value="none">keep the image</option>
               <option value="color">KTX2 colour (ETC1S)</option>
               <option value="normal">KTX2 normal map (UASTC)</option>

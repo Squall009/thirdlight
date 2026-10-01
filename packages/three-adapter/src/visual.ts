@@ -143,8 +143,20 @@ const REASON_TO_CODE: Readonly<Record<VisualLoadFailureReason, AdapterErrorCode>
 export interface GlbLoaderPort {
   load(
     bytes: Uint8Array,
-    options: { readonly signal: AbortSignal; readonly descriptor: AssetVersionDescriptor },
+    options: { readonly signal: AbortSignal; readonly descriptor: AssetVersionDescriptor; readonly images?: ExtractedImages },
   ): Promise<LoadedGlb>;
+}
+
+/**
+ * The images of a model file that were extracted into texture assets: the
+ * file holds a one-pixel stand-in for each, and the loader draws the texture
+ * asset instead (decoded and held by the caller, streamed when it streams).
+ */
+export interface ExtractedImages {
+  /** The file's image index → texture assetId. */
+  readonly map: Readonly<Record<string, string>>;
+  /** The texture asset's decoded texture (null: unavailable; the stand-in is drawn). */
+  load(assetId: string): Promise<THREE.Texture | null>;
 }
 
 /**
@@ -183,6 +195,8 @@ export interface VisualClipInfo {
 /** Options for one preparation. */
 export interface PrepareVisualOptions {
   readonly loader: GlbLoaderPort;
+  /** The file's extracted images (absent: none). */
+  readonly images?: ExtractedImages;
 }
 
 /** Lifecycle of one load handle. */
@@ -1036,7 +1050,7 @@ function startVisualLoad(source: AssetByteSource, options: PrepareVisualOptions,
     // --- step 2: the injected loader port ------------------------------------
     let loaded: LoadedGlb;
     try {
-      loaded = await loader.load(bytes, { signal: abort.signal, descriptor });
+      loaded = await loader.load(bytes, { signal: abort.signal, descriptor, ...(options.images !== undefined ? { images: options.images } : {}) });
     } catch (e) {
       if (isAbort(e) || abort.signal.aborted) {
         state = cancelReason === 'stale' ? 'stale' : 'cancelled';

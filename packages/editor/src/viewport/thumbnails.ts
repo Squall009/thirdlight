@@ -35,6 +35,34 @@ export interface ThumbnailSource {
   modelBytes(assetId: string, version: number): Promise<Uint8Array>;
   vertexColorsFor(assetId: string): VertexColorMode;
   renderer(): { preference: RendererPreference; source: RendererPreferenceSource };
+  /**
+   * A model's images that were extracted into texture assets, as those
+   * textures' own tile pictures (small PNGs): its thumbnail draws them, never
+   * the textures' KTX2 bytes.
+   */
+  extractedImages?(assetId: string): Promise<readonly { image: string; png: Uint8Array }[]>;
+}
+
+/** The tile pictures of a model's extracted textures, read (or made by the backend) like any texture tile's. */
+export async function extractedImagePictures(
+  client: {
+    readonly content: { getAsset(id: string): { textures?: Record<string, string> } | undefined; resolveVersion(id: string): { sourceDigest: string } | null };
+    readonly catalog: { ensureAssets(ids: readonly string[]): Promise<unknown> };
+    thumbnail(digest: string, piece: string | null, make?: { asset: string }): Promise<Blob | null>;
+  },
+  assetId: string,
+): Promise<{ image: string; png: Uint8Array }[]> {
+  const map = client.content.getAsset(assetId)?.textures;
+  if (map === undefined) return [];
+  await client.catalog.ensureAssets(Object.values(map));
+  const out: { image: string; png: Uint8Array }[] = [];
+  for (const [image, id] of Object.entries(map)) {
+    const digest = client.content.resolveVersion(id)?.sourceDigest;
+    if (digest === undefined) continue;
+    const blob = await client.thumbnail(digest, null, { asset: id }).catch(() => null);
+    if (blob !== null) out.push({ image, png: new Uint8Array(await blob.arrayBuffer()) });
+  }
+  return out;
 }
 
 /** What a tile shows: an asset version (and one of its pieces). */
@@ -182,12 +210,14 @@ export class TileThumbnails {
 
   private async drawAndStore(ref: TileRef): Promise<boolean> {
     const bytes = await this.source.modelBytes(ref.assetId, ref.version);
-    const input = { bytes, assetId: ref.assetId, version: ref.version, digest: ref.digest, vertexColors: this.source.vertexColorsFor(ref.assetId), renderer: this.source.renderer() };
+    const images = (await this.source.extractedImages?.(ref.assetId).catch(() => [])) ?? [];
+    const input = { bytes, assetId: ref.assetId, version: ref.version, digest: ref.digest, vertexColors: this.source.vertexColorsFor(ref.assetId), renderer: this.source.renderer(), images };
     const out = await editorWorkers().run(
       'modelThumbnail',
       () => {
         const copy = bytes.slice();
-        return { input: { ...input, bytes: copy }, transfer: [copy.buffer] };
+        const pictures = images.map((i) => ({ image: i.image, png: i.png.slice() }));
+        return { input: { ...input, bytes: copy, images: pictures }, transfer: [copy.buffer, ...pictures.map((i) => i.png.buffer)] };
       },
       { lane: 'thumbnails', inline: () => renderModelThumbnails(input) },
     );

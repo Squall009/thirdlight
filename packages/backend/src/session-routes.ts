@@ -243,7 +243,6 @@ export function makeSessionRoutes(ctx: SessionRoutesContext) {
       }
       // A model publish with "extract textures" on: its images become texture assets first (their own command).
       let extraction: TextureExtractionReport | null = null;
-      let command = env;
       if (envelope.op === 'publishAsset' && textures !== undefined) {
         let refused: CommandError | null = null;
         const prep = await textures.beforePublish(projectId, env, (request) => {
@@ -263,12 +262,11 @@ export function makeSessionRoutes(ctx: SessionRoutesContext) {
           else sendJson(res, 400, { ok: false, error: { code: prep.code, cls: 'validation', message: prep.message } });
           return;
         }
-        if (prep !== null) {
-          command = prep.envelope;
-          extraction = prep.report;
-        }
+        if (prep !== null) extraction = prep.report;
       }
-      const result = service.runCommand(command);
+      const result = service.runCommand(env);
+      // What was prepared for it is used once (a refused or replayed publish leaves nothing behind).
+      if (envelope.op === 'publishAsset' && typeof env['requestId'] === 'string') service.preparePublish(projectId, env['requestId'], null);
       if (result.ok && extraction !== null && result.duplicated === false) {
         if (session) sessions.record(session, 'command', result.requestId, result.revision, nowMs());
         notifyMutationApplied(projectId, result.requestId, result.revision, envOrigin, result.change, (result as { sceneId?: string }).sceneId);

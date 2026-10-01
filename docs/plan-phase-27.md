@@ -299,7 +299,8 @@ moves at least as many lines out as it adds.
 | 27.4 | done 2026-10-01: every file check (the editor's, before Play, before export) reports its re-imports: a Problems line per asset (`asset_reimported`, file, asset, version, old → new digest) and the Play start result's `check` (the check's report; `reimported` carries `reason`, `oldDigest`, `newDigest`); e2e over HTTP, MCP and the Problems tab (D100) |
 | 27.5 | done 2026-10-01: E49's timeout not reproduced (scale bench at full, 20 and 150 scenes loaded, worker and single thread: answers in ≤ 0.1 s / ≤ 0.55 s); a replay now answers once the new run began (`restart {applied, atStep}`, run id `<snapshot>#<run>`) or `pending` with the run id it will have when no step comes in time; observations carry the current run id; a game without scripts applies a restart at all (D101, D102); bench step `replay` (`--threads`, `--replays`, `--replay-scenes`) |
 | 27.6 | done 2026-10-01: the images inside model files are counted against the texture budget (its `fixedBytes`, so streamed textures make room for them) and reported under the textures in Play diagnostics and observe (`textures.embedded`: images, bytes, models, the 8 largest by `<assetId>@<version>`) and under their models (`resident.model.textures`); the Scene view counts them with the same function (`data-resources`); bench numbers below the decision log entry; e2e `embedded-textures` (WebP and KTX2 inside bench spheres, both renderers; fails without the fix) (D103); the bench's new KTX2 models showed the Assets tab drawing no model thumbnails after one (D104, fixed) |
-| 27.7–27.17 | — |
+| 27.7 | done 2026-10-01: the model import setting "extract textures" (on for a new model; an existing one switches only when re-imported with it, from its inspector) takes a GLB's images out into texture assets in `<model>_textures/` (PNG/JPEG encoded to KTX2 with mips by what the material samples them as, KTX2/WebP as they are, one image a texture asset however many models carry it); the model is stored without them (one-pixel stand-ins, `convertedFrom: glb`) and names them in `textures`; Play, the export, the Scene view and model thumbnails draw them from the texture assets, streamed by mip; publish, folder import and the file check do it; e2e `extract-textures` (both renderers, the webgpu project too); bench below (D105; D106 found) |
+| 27.8–27.17 | — |
 
 ## 6. Decision log
 
@@ -482,3 +483,66 @@ moves at least as many lines out as it adds.
   build is the slow one either way). The models' bytes do not change; the
   budget now sees the 1.4 MiB a scene's model images average, which it did
   not before (Skyforge's 945 MB of model bytes is this case at full scale).
+- 2026-10-01 (27.7): extraction follows Unity's and Godot's model: the
+  model keeps its own materials and points their image slots at the texture
+  assets (no project materials are made). The stored GLB is the file with
+  each extracted image replaced by a one-pixel stand-in (white, a flat normal
+  for a normal map), so it stays a valid self-contained GLB the import
+  profile accepts; the loader draws a copy of the texture asset's texture
+  (a streamed one's copy joins its stream) with the file's sampler and the
+  slot's colour space. The record says `extractTextures: true` (the setting)
+  and `textures {image index: assetId}` (the current version's); the
+  version is converted from the GLB (`converter texture-extract 1.0`), so a
+  cleared cache is made again from the file and a changed file is extracted
+  again. Not a format change: two optional fields, as `streaming` was.
+- 2026-10-01 (27.7): the texture files go next to the model, in
+  `<model folder>/<model>_textures/`, named after the image (Godot puts them
+  beside the scene; Unity asks for a folder). A PNG/JPEG is encoded to KTX2
+  with mips — colour (ETC1S) for base colour, emissive, sheen and specular
+  colour, normal (UASTC) for normal maps, data (UASTC linear) for the rest;
+  an image sampled two ways gets the most exact. A KTX2 or WebP comes in as
+  it is (no WebP decoder on the server), and an image over the encoder's 12
+  Mpix cap as a plain image (it does not stream). An image some texture
+  asset already holds with the same encoding is that asset: models sharing
+  an image share one texture (the bench's 67 KTX2 models now share one).
+  An image whose texture cannot be made stays inside the file, counted as
+  27.6 counts it, and the result's `textureExtraction` says why. A model
+  converted from FBX keeps its images (its GLB is Blender's). Seen in the
+  gate: an extracted model whose GLB file went missing is still listed as
+  missing but plays from its cached file (no placeholder), as its stored
+  bytes are the import cache's; specs that count one file per model or need
+  an image's exact pixels (noise) import with the setting off.
+- 2026-10-01 (27.7): a new model's publish runs the textures' `importAssets`
+  first, at the revision the publish was sent for, then the publish at the
+  next one (two undo steps: undoing the model keeps the textures). A folder
+  import puts the textures and the models in its one command. The default
+  for new imports is one constant (`EXTRACT_TEXTURES_ON_NEW_IMPORT`,
+  backend); the editor's Assets panel has the checkbox (on), and a model's
+  inspector shows its setting and its textures with a "reimport" button when
+  the setting is changed. Model thumbnails draw the extracted images from
+  the textures' own tile pictures (small PNGs), so the editor worker never
+  decodes their KTX2 (D104's open half is not met on this path).
+- 2026-10-01 (27.7): bench generator version 9: the 200 models with a 512²
+  image carry a KTX2 (the same image in each), a WebP and a PNG in turn.
+  The new bench step `extract` re-imports them with the setting on, as the
+  inspector does. Full preset, GPU, `files,open,play,walk` before and
+  `files,open,extract,play,walk` after, two runs each on the same project:
+
+  | | before | after |
+  |---|---|---|
+  | extract: 200 models (ms, p50 a model) | – | 82,974 / 81,634 (277 / 264) |
+  | extract: textures made / an existing texture / kept inside | – | 134 / 66 / 0 |
+  | backend RSS during the re-imports, sampled peak (MiB) | – | 1,390 / 990 (from 396) |
+  | the same 200 re-imports without extraction (MiB) | 1,332 (from 359), 36,295 ms | – |
+  | Play: click → first frame (ms) | 1,792 / 1,589 | 1,252 / 1,266 |
+  | walk 50: model resident, most (KiB) | 2,805 | 75 |
+  | walk 50: texture resident, most (KiB) | 960 | 3,669 |
+  | walk 50: texture budget's resident bytes, mean / max (MiB) | 2.63 / 3.59 | 2.12 / 3.59 |
+  | walk 50: of those inside models, max (MiB) | 2.67 | 0.01 (the 8 px PNGs of models not re-imported) |
+  | walk 50: scene load p50 (ms) | 142 / 155 | 152 / 154 |
+
+  D93: the encodes run one at a time on the encoder worker and add nothing
+  the plain re-imports do not: the backend's peak comes from 200
+  re-imports of an 18,000-asset catalog one after another (D106), not from
+  KTX2 encoding.
+

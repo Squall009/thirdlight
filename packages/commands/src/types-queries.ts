@@ -17,7 +17,7 @@ export interface AssetSummary {
   /** The current version's file in the game folder, when it is referenced in place. */
   sourcePath?: string;
   /** The current version's original when it was converted at import (FBX; a PNG/JPEG encoded to KTX2). */
-  convertedFrom?: { format: 'fbx' | 'png' | 'jpeg'; sourcePath?: string; encoding?: 'color' | 'normal' | 'data' };
+  convertedFrom?: { format: 'fbx' | 'glb' | 'png' | 'jpeg'; sourcePath?: string; encoding?: 'color' | 'normal' | 'data' };
   /** The current version was packed from texture assets: its encoding and the source assets. */
   packedFrom?: { encoding: 'color' | 'normal' | 'data'; sources: string[] };
   /** Texture only: the current version's image facts (a KTX2's codec and mip levels; a texture array's layers). */
@@ -39,6 +39,10 @@ export interface AssetSummary {
   materials?: Record<string, string>;
   /** Model only: an animation-only file whose clips play on this model asset's rig. */
   clipsFor?: string;
+  /** Model only: the "extract textures" import setting is on. */
+  extractTextures?: true;
+  /** Model only: the texture asset each extracted image of the file became (image index → assetId). */
+  textures?: Record<string, string>;
   /** The asset's labels (absent: none). */
   labels?: string[];
   /** The asset's address (absent: none). */

@@ -41,7 +41,7 @@ import { KTX2_ENCODER, type Ktx2Mode, type TextureEncoder } from './texture-enco
  * Whether a new model's import extracts its images when the request does not
  * say (an existing model keeps its own setting until a re-import changes it).
  */
-export const EXTRACT_TEXTURES_ON_NEW_IMPORT = false;
+export const EXTRACT_TEXTURES_ON_NEW_IMPORT = true;
 
 /** The extraction's converter record (a new version when the stripped file it writes changes). */
 export const TEXTURE_EXTRACT = { name: 'texture-extract', version: '1.0' } as const;
@@ -392,29 +392,36 @@ export function createTextureExtraction(deps: TextureExtractionDeps) {
    * The command route's step before a `publishAsset`: extract, bring the
    * new textures in at the revision the publish was sent for (one
    * `importAssets`, its own request id derived from the publish's), and
-   * answer the publish envelope to run next (at the following revision,
-   * with the model's `textures`). Null: the envelope runs as sent.
+   * prepare the publish to run with the model's facts and `textures` at the
+   * following revision. The publish request itself runs as sent, so a retry
+   * of it is the same request (the workspace answers it from its record).
+   * Null: nothing to prepare.
    */
   async function beforePublish(
     projectId: string,
     envelope: Record<string, unknown>,
     run: (request: Record<string, unknown>) => ExtractionCommandResult,
-  ): Promise<{ ok: true; envelope: Record<string, unknown>; report: TextureExtractionReport | null } | { ok: false; code: string; message: string } | null> {
+  ): Promise<{ ok: true; report: TextureExtractionReport | null } | { ok: false; code: string; message: string } | null> {
     const args = envelope['args'];
-    if (typeof args !== 'object' || args === null || Array.isArray(args)) return null;
+    const requestId = envelope['requestId'];
+    const expectedRevision = envelope['expectedRevision'];
+    if (typeof args !== 'object' || args === null || Array.isArray(args) || typeof requestId !== 'string' || typeof expectedRevision !== 'number') return null;
     const prep = await preparePublish(projectId, args as Record<string, unknown>);
     if (prep === null || !prep.ok) return prep;
     const p = prep.plan;
-    if (p === null || p.model === null) return { ok: true, envelope: { ...envelope, args: prep.args }, report: p?.report ?? null };
-    let expected = envelope['expectedRevision'];
-    const requestId = typeof envelope['requestId'] === 'string' ? envelope['requestId'] : '';
+    if (p === null || p.model === null) {
+      service.preparePublish(projectId, requestId, { args: prep.args, expectedRevision });
+      return { ok: true, report: p?.report ?? null };
+    }
+    let expected = expectedRevision;
     const committed = commit(projectId, p, (op, a) => {
       const r = run({ ...envelope, op, args: a, requestId: `req-${sha256(new TextEncoder().encode(`${requestId}:textures`)).slice(0, 32)}` });
       if (r.ok) expected = r.revision;
       return r;
     });
     if (!committed.ok) return committed;
-    return { ok: true, envelope: { ...envelope, expectedRevision: expected, args: { ...prep.args, textures: committed.textures } }, report: p.report };
+    service.preparePublish(projectId, requestId, { args: { ...prep.args, textures: committed.textures }, expectedRevision: expected });
+    return { ok: true, report: p.report };
   }
 
   return { plan, commit, discard, readModelFile, preparePublish, beforePublish };

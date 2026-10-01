@@ -65,9 +65,10 @@ test('missing files are listed at open and in Problems; Play stands placeholders
   // Many small textures nothing uses: the Problems list pages.
   const bulk = 60;
   for (let i = 0; i < bulk; i += 1) put(`assets/bulk/bulk-${String(i).padStart(3, '0')}.png`, makePng(4, 4, () => [i, 10, 10, 255]));
-  await p.command('importAssets', { folder: 'assets/start' });
-  await p.command('importAssets', { folder: 'assets/later' });
-  await p.command('importAssets', { folder: 'assets/bulk' });
+  // The models keep their images inside (extract textures off): each is one file the spec takes away.
+  await p.command('importAssets', { folder: 'assets/start', extractTextures: false });
+  await p.command('importAssets', { folder: 'assets/later', extractTextures: false });
+  await p.command('importAssets', { folder: 'assets/bulk', extractTextures: false });
   await p.command('setMaterial', { material: { materialId: 'mat-green', name: 'Green', shader: 'unlit', params: {}, textures: { map: 'tex-green' } } });
   await p.command('createScene', { sceneId: 'scene-later', name: 'Later' });
   await p.command('setTransform', { entityId: 'cam-main', transform: { position: [0, 0, 10] } });
