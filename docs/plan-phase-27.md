@@ -301,7 +301,8 @@ moves at least as many lines out as it adds.
 | 27.6 | done 2026-10-01: the images inside model files are counted against the texture budget (its `fixedBytes`, so streamed textures make room for them) and reported under the textures in Play diagnostics and observe (`textures.embedded`: images, bytes, models, the 8 largest by `<assetId>@<version>`) and under their models (`resident.model.textures`); the Scene view counts them with the same function (`data-resources`); bench numbers below the decision log entry; e2e `embedded-textures` (WebP and KTX2 inside bench spheres, both renderers; fails without the fix) (D103); the bench's new KTX2 models showed the Assets tab drawing no model thumbnails after one (D104, fixed) |
 | 27.7 | done 2026-10-01: the model import setting "extract textures" (on for a new model; an existing one switches only when re-imported with it, from its inspector) takes a GLB's images out into texture assets in `<model>_textures/` (PNG/JPEG encoded to KTX2 with mips by what the material samples them as, KTX2/WebP as they are, one image a texture asset however many models carry it); the model is stored without them (one-pixel stand-ins, `convertedFrom: glb`) and names them in `textures`; Play, the export, the Scene view and model thumbnails draw them from the texture assets, streamed by mip; publish, folder import and the file check do it; e2e `extract-textures` (both renderers, the webgpu project too); bench below (D105; D106 found) |
 | 27.8 | done 2026-10-01: `App.tsx` split, no behaviour change: 4,826 → 1,083 lines; each area's state and commands in a hook returning one object (`ui/shell/use*.ts`, `ui/workspace/useDocument*.ts`), the shell's pieces as components taking those objects (`BottomDock`, `AssetsTab`, `InspectorDock`, `EditorDialogs`), the menus as `editorMenus`, the document tabs' host as `workspaceHostOf`; fast gate with 38 editor-shell specs + the smoke set green (D91) |
-| 27.9–27.17 | — |
+| 27.9 | done 2026-10-01: `tests/e2e/ui.ts` opens tool windows (`openWindow`, `windowTab`, `expectWindowOpen`), the project window (`projectWindow`), settings sections (`openProjectSettings`), item editors (`openEditor` — to the front if open, else a double-click in the project window found by search — `closeEditor`, `editorTab`, `editorPane`, `expectEditorOpen`) and the Scene/Game views (`showView`, `viewTab`); 78 specs moved to them (the 74 counted plus four that only named editor panes), two fast gates with every moved spec green |
+| 27.10–27.17 | — |
 
 ## 6. Decision log
 
@@ -558,3 +559,14 @@ moves at least as many lines out as it adds.
   view), the projection refresh and the layout. The bottom dock's panels are
   still branches of one component (`BottomDock.tsx`) until 27.13–27.15 move
   them to their windows.
+- 2026-10-01 (27.9): the helpers name what a person opens, not where it is:
+  `openWindow(name)` for tools, `openProjectSettings(section)` for the
+  settings that 27.13 moves, `openEditor(kind, name)` with the kind as the
+  editor shows it ("Material", "Graph", "UI theme"). A click on the Scene
+  tab that set an editor aside became `closeEditor()` (it ends on the Scene
+  view, so it stays right once editors are full windows); only the view
+  tests (`layout`) use `showView`. Opening from a domain panel (the
+  Materials or Behaviors list) stays in specs that test that panel; where a
+  spec only needed the item open it uses `openEditor`. The tab strip's own
+  tests (`workspace-tabs`, the project window's double-click table) keep
+  their direct selectors: 27.11 rewrites them with the window.
