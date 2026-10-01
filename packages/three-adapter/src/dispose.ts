@@ -36,6 +36,12 @@ import * as THREE from 'three';
 interface RendererInternals {
   _objects?: { _renderObjects?: Set<RenderObjectLike> } | null;
   _attributes?: { delete(attribute: unknown): unknown } | null;
+  _geometries?: GeometriesInternals | null;
+}
+interface GeometriesInternals {
+  _geometryDisposeListeners?: Map<unknown, (event: unknown) => void>;
+  delete?(geometry: unknown): unknown;
+  info?: { memory?: { geometries?: number } } | null;
 }
 interface RenderObjectLike {
   object?: unknown;
@@ -96,6 +102,54 @@ export function releaseNodeAttributes(objects: ReadonlySet<unknown>, renderers: 
     }
   }
   return freed;
+}
+
+/**
+ * Dispose a geometry that shares attributes (or its index) with other
+ * geometries, freeing only `own` on the GPU.
+ *
+ * three 0.186's renderer frees, when a geometry it drew is disposed, its
+ * current attributes and index AND every attribute its first render object
+ * drew that is no longer on it. Taking the shared attributes off first
+ * therefore does not save them: their GPU buffers are destroyed while the
+ * geometries still holding them draw, every later submit is refused and the
+ * view stops updating for good. Here the renderer's dispose listener for this
+ * geometry is detached and its record dropped (private API of the pinned
+ * three version, guarded), then only `own` is freed.
+ *
+ * Returns false (and leaves the geometry undisposed) when a live renderer
+ * drew it but lacks the expected internals: a leaked wrapper is recoverable,
+ * a destroyed shared buffer is not.
+ */
+export function disposeSharingGeometry(geometry: THREE.BufferGeometry, own: readonly object[], renderers: readonly unknown[] = liveRenderers()): boolean {
+  const plan: { geometries: GeometriesInternals; listener: ((event: unknown) => void) | undefined; attributes: NonNullable<RendererInternals['_attributes']> }[] = [];
+  for (const r of renderers) {
+    const internals = r as RendererInternals | null;
+    const geometries = internals?._geometries;
+    if (geometries === undefined || geometries === null) continue;
+    const listeners = geometries._geometryDisposeListeners;
+    const attributes = internals?._attributes;
+    if (!(listeners instanceof Map) || typeof geometries.delete !== 'function' || attributes === undefined || attributes === null || typeof attributes.delete !== 'function') return false;
+    plan.push({ geometries, listener: listeners.get(geometry), attributes });
+  }
+  for (const { geometries, listener, attributes } of plan) {
+    if (listener === undefined) continue;
+    geometry.removeEventListener('dispose', listener as never);
+    geometries._geometryDisposeListeners!.delete(geometry);
+    geometries.delete!(geometry);
+    const memory = geometries.info?.memory;
+    if (memory !== undefined && typeof memory.geometries === 'number') memory.geometries -= 1;
+    for (const a of own) {
+      try {
+        attributes.delete(a);
+      } catch {
+        /* best effort: the collector frees what is left */
+      }
+    }
+  }
+  // Render objects still listening for it (already disposed with their object) let go of it here.
+  geometry.dispose();
+  return true;
 }
 
 export interface DisposeTreeOptions {

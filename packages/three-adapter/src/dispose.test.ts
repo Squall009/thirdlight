@@ -313,7 +313,7 @@ describe('fixes built on the helpers', () => {
     expect(sharedDisposed).toBe(0);
   });
 
-  it('the auto-batcher disposes a released batch (its mesh and its own geometry, never the shared attributes)', async () => {
+  it('the auto-batcher disposes a released batch (its mesh and its own geometry, never the source geometry)', async () => {
     const scene = new THREE.Scene();
     const geometry = new THREE.BoxGeometry();
     const material = new THREE.MeshLambertMaterial();
@@ -335,15 +335,11 @@ describe('fixes built on the helpers', () => {
       });
       return found;
     };
-    /** The batch's object and geometry disposals, and what its geometry held when it went. */
-    const watch = (mesh: THREE.Mesh): { object: number; geometry: number; heldAtDispose: string[][] } => {
-      const w = { object: 0, geometry: 0, heldAtDispose: [] as string[][] };
+    /** The batch's object and geometry disposals (which buffers the renderer frees is checked in a real browser). */
+    const watch = (mesh: THREE.Mesh): { object: number; geometry: number } => {
+      const w = { object: 0, geometry: 0 };
       mesh.addEventListener('dispose' as never, () => void (w.object += 1));
-      const g = mesh.geometry;
-      g.addEventListener('dispose', () => {
-        w.geometry += 1;
-        w.heldAtDispose.push([...Object.keys(g.attributes), ...(g.index !== null ? ['index'] : [])]);
-      });
+      mesh.geometry.addEventListener('dispose', () => void (w.geometry += 1));
       return w;
     };
     batcher.update(camera);
@@ -357,7 +353,7 @@ describe('fixes built on the helpers', () => {
     members[0]!.visible = false;
     batcher.update(camera);
     expect(batcher.diagnostics().groups).toBe(0);
-    expect(w1).toEqual({ object: 1, geometry: 1, heldAtDispose: [[0, 1, 2, 3].map((i) => `tlInstanceMatrix${i}`)] });
+    expect(w1).toEqual({ object: 1, geometry: 1 });
     expect(sourceDisposed).toBe(0);
     // The group forms again; its material disposed before the next frame (the last box went) takes it out at
     // once and disposes it after the material's own listeners ran (the renderer's render objects go by those).
@@ -370,7 +366,7 @@ describe('fixes built on the helpers', () => {
     expect(batchMesh()).toBeNull();
     expect(w2.object).toBe(0);
     await Promise.resolve();
-    expect(w2).toEqual({ object: 1, geometry: 1, heldAtDispose: [[0, 1, 2, 3].map((i) => `tlInstanceMatrix${i}`)] });
+    expect(w2).toEqual({ object: 1, geometry: 1 });
     expect(sourceDisposed).toBe(0);
     batcher.dispose();
   });

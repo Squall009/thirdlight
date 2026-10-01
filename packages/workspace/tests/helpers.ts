@@ -246,9 +246,11 @@ export function buildFakeProc(
 ): string {
   const procRoot = join(root, 'proc');
   mkdirSync(procRoot, { recursive: true });
-  const bootWallMs = Date.now() - uptime() * 1000;
   // The liveness check derives start times from `btime` in <procRoot>/stat
-  // (the same clock the fake start times are built against).
+  // (the same clock the fake start times are built against). The fake boot is
+  // put before `openedAt` when the host booted later, or a live process could
+  // not have started before it opened the project and would read as reused.
+  const bootWallMs = Math.min(Date.now() - uptime() * 1000, Date.parse(openedAt) - 3_600_000);
   writeFileSync(join(procRoot, 'stat'), `btime ${Math.floor(bootWallMs / 1000)}\n`);
   for (const [pid, kind] of Object.entries(procs)) {
     const n = Number(pid);

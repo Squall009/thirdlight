@@ -283,6 +283,6 @@ export { EFFECT_LIGHT_LIMIT } from './effects-draw';
 export { EFFECT_TIMELINE_STEP, EffectTimeline, type EffectSystemCounter, type EffectTimelineOptions } from './effects-timeline';
 
 // Releasing objects that leave the scene for good (render objects, node-made buffers, shadow maps).
-export { disposeObjectTree, installProgramRelease, installVaoSweep, liveRenderers, releaseNodeAttributes, trackRenderer, trackTextureListeners, type DisposeTreeOptions } from './dispose';
+export { disposeObjectTree, disposeSharingGeometry, installProgramRelease, installVaoSweep, liveRenderers, releaseNodeAttributes, trackRenderer, trackTextureListeners, type DisposeTreeOptions } from './dispose';
 // Block layers — merged chunk meshes (the Play/export adapter and the editor's Scene view share it).
 export { BlockLayerView, blockChunkKey, blockLookFromObject, type BlockChunkLightmapTarget, type BlockLayerViewDeps, type BlockLayerViewDiagnostics, type BlockModelLook } from './block-layers';

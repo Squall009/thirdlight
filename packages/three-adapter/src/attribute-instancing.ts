@@ -22,6 +22,7 @@
 import * as THREE from 'three';
 import { attribute, Fn, mat4, normalLocal, positionLocal, positionPrevious, transformNormal, type vec3 } from 'three/tsl';
 import { NodeMaterial, type NodeBuilder } from 'three/webgpu';
+import { disposeSharingGeometry } from './dispose';
 
 /** The name prefix of the four instance-matrix columns (`…0` to `…3`, `vec4` each). */
 export const INSTANCE_MATRIX_ATTRIBUTE = 'tlInstanceMatrix';
@@ -109,18 +110,18 @@ export function createAttributeInstancedMesh(source: THREE.BufferGeometry, mater
   installAttributeInstancing();
   const geometry = new THREE.InstancedBufferGeometry();
   geometry.name = source.name;
-  const shared: string[] = [];
-  for (const [name, a] of Object.entries(source.attributes)) {
-    geometry.setAttribute(name, a);
-    shared.push(name);
-  }
+  for (const [name, a] of Object.entries(source.attributes)) geometry.setAttribute(name, a);
   if (source.index !== null) geometry.setIndex(source.index);
   for (const g of source.groups) geometry.addGroup(g.start, g.count, g.materialIndex);
   geometry.setDrawRange(source.drawRange.start, source.drawRange.count);
   const array = new Float32Array(capacity * 16);
   const buffer = new THREE.InstancedInterleavedBuffer(array, 16, 1);
   buffer.setUsage(THREE.DynamicDrawUsage);
-  for (let i = 0; i < 4; i += 1) geometry.setAttribute(COLUMNS[i]!, new THREE.InterleavedBufferAttribute(buffer, 4, i * 4));
+  const columns = COLUMNS.map((name, i) => {
+    const column = new THREE.InterleavedBufferAttribute(buffer, 4, i * 4);
+    geometry.setAttribute(name, column);
+    return column;
+  });
   geometry.instanceCount = 0;
   if (source.boundingSphere === null) source.computeBoundingSphere();
   geometry.boundingSphere = new THREE.Sphere();
@@ -156,12 +157,10 @@ export function createAttributeInstancedMesh(source: THREE.BufferGeometry, mater
       if (disposed) return;
       disposed = true;
       mesh.removeFromParent();
-      // The render objects go with the object; the geometry's record frees only what it owns: the shared
-      // attributes and index are taken off before its `dispose` (which frees every attribute it holds).
+      // The render objects go with the object. The geometry shares the source's attributes and index,
+      // which a plain `dispose` would free on the GPU while the source and its other groups still draw them.
       (mesh as unknown as { dispose?: () => void }).dispose?.();
-      for (const name of shared) geometry.deleteAttribute(name);
-      geometry.setIndex(null);
-      geometry.dispose();
+      disposeSharingGeometry(geometry, columns);
     },
   };
   if (options.raycast === true) {
