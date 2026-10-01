@@ -203,6 +203,7 @@ export async function exportProjectM3(
           : 'export_scene_invalid';
     return fail(code, e.cls === 'unavailable' ? 'unavailable' : e.cls === 'conflict' ? 'conflict' : 'validation', e.message, {
       ...(e.reason !== undefined ? { reason: e.reason } : {}),
+      ...(e.missingFiles !== undefined ? { missingFiles: e.missingFiles } : {}),
     });
   }
   const closure: ContentClosureM3 = closureResult.closure;

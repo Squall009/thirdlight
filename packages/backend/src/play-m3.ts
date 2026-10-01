@@ -21,10 +21,11 @@
  */
 import { PLAY_CONTENT_ARTIFACT_MAX_BYTES, type SessionError } from '@thirdlight/protocol';
 import { buildContentClosureM3, type ClosureSourceMap, type ContentClosureM3 } from '@thirdlight/exporter';
-import type { RuntimeContentManifestV5 } from '@thirdlight/project-model';
+import type { MissingPlayFile, RuntimeContentManifestV5 } from '@thirdlight/project-model';
 import type { WorkspaceService } from '@thirdlight/workspace';
 import { generateGraphSource, type BehaviorCompiler } from '@thirdlight/behavior-build';
 import { sha256HexBytes, type PlayServed } from './play-content';
+import { placeholderBytes } from './play-placeholders';
 
 /**
  * The Play debug build of a visual script (the closure's
@@ -74,6 +75,8 @@ export interface BuildPlayContentM3Input {
   timings?: Record<string, number>;
   /** Made ahead of a Play (the closure then gives the event loop back between its stages). */
   background?: boolean;
+  /** The start scenes of this Play when its start options load others too (what the start draws; default `startScenes`). */
+  drawnScenes?: readonly string[];
 }
 
 export interface BuiltPlayContentM3 {
@@ -90,17 +93,20 @@ export interface BuiltPlayContentM3 {
   needsBasis: boolean;
   /** The compiled outputs' source maps (error and log locations map back to sources; never served). */
   sourceMaps: readonly ClosureSourceMap[];
+  /** The missing files placeholders stand in for (none the start draws). */
+  placeholders: readonly MissingPlayFile[];
 }
 
 export type BuildPlayContentM3Result = { ok: true; built: BuiltPlayContentM3 } | { ok: false; error: SessionError };
 
 /** Surface a closure error as a session error (unchanged codes/reasons). */
-function sessionErrorFromM3Closure(e: { code: string; cls: string; message: string; reason?: string }): SessionError {
+function sessionErrorFromM3Closure(e: { code: string; cls: string; message: string; reason?: string; missingFiles?: SessionError['missingFiles'] }): SessionError {
   return {
     code: e.code as SessionError['code'],
     cls: e.cls as SessionError['cls'],
     message: e.message.slice(0, 256),
     ...(e.reason !== undefined ? { reason: e.reason } : {}),
+    ...(e.missingFiles !== undefined ? { missingFiles: e.missingFiles } : {}),
   };
 }
 
@@ -142,6 +148,9 @@ export async function buildPlayContentM3(input: BuildPlayContentM3Input): Promis
     // The page reads each asset when it needs it: the build only finds and checks the files.
     locate: true,
     ...(input.background === true ? { background: true } : {}),
+    // A missing file the start does not draw is stood in for; one it draws refuses the Play, naming every missing file.
+    placeholders: placeholderBytes,
+    ...(input.drawnScenes !== undefined ? { drawnScenes: input.drawnScenes } : {}),
   });
   if (!built.ok) {
     return { ok: false, error: sessionErrorFromM3Closure(built.error) };
@@ -208,6 +217,7 @@ export async function buildPlayContentM3(input: BuildPlayContentM3Input): Promis
       artifacts,
       needsBasis: closure.decoders.includes('basis'),
       sourceMaps: closure.sourceMaps,
+      placeholders: closure.placeholders,
     },
   };
 }

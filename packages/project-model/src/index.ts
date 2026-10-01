@@ -296,6 +296,7 @@ export {
 } from './manifest-v2';
 // What scenes, models and the project-wide blocks need of the shipped assets (the catalog's dependency lists).
 export { dependencyTables, scanDependencies, type DependencyScanTables } from './catalog-dependencies';
+export { assetUsers, projectWideRoots, startDrawSet, type MissingAssetFile, type MissingFileUser, type MissingPlayFile } from './missing-files';
 // The v5 manifest (identity, start, the catalog's location) and its catalog files.
 export {
   captureManifestV5,

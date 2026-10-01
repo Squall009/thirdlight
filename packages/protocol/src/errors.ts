@@ -132,6 +132,8 @@ export interface SessionError {
   expiresAt?: string;
   /** `screenshot_timeout` / `diagnostics_timeout`. */
   relayId?: string;
+  /** `asset_source_missing` / `blob_missing` refusing a Play or an export: every asset whose file is missing. */
+  missingFiles?: readonly import('@thirdlight/project-model').MissingPlayFile[];
   /** `relay_failed`: the preview/bridge cause. The top-level `code` is
    *  fixed to `relay_failed`, so the cause travels under `cause`. */
   cause?: string;

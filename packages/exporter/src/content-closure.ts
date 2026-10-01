@@ -27,6 +27,7 @@ import type { GameMode } from '@thirdlight/project-model';
 import type { EventCue, GameShell, TimelineAsset } from '@thirdlight/project-model';
 import type { AnimatorController, EnvironmentConfig, PrefabDefinition, InputConfig, LightingMap, MaterialDef, UiDocument, UiTheme } from '@thirdlight/project-model';
 import { animatorsForRuntime, effectsForRuntime, type EffectDef, materialFunctionsForRuntime, materialsForRuntime, type GraphDocument, captureContentViewV3, captureManifestV5, restampManifestV5, type CatalogFile, dependencyTables, scanDependencies, M3_ENGINE_PINS, resolveMediaIdentityV3, sha256Hex, type GameplaySettings, type ManifestAssetInputV2, type ManifestAssetInputV5, type ManifestBehaviorInput, type MediaBlock, type RuntimeContentManifestV5, type ManifestSceneRow, physicsDimensionOf, resolveRequiredModules, materialsInUse, resolveMaterialInstances, loadableAssetIds, loadableResourceIds, loadableRows, scriptLibraryContainerText, scriptLibraryDigest, type ScriptLibrary } from '@thirdlight/project-model';
+import { projectWideRoots, startDrawSet, type MissingPlayFile } from '@thirdlight/project-model';
 import { ASSET_QUERY_PAGE_MAX, audioLoadOf, MODEL_RIG_LIMITS, readModelRig, textureStreamingOf, type AudioLoadType, type ManifestMipPart, type ModelRig } from '@thirdlight/project-model';
 import type { BlobFile, WorkspaceService } from '@thirdlight/workspace';
 
@@ -139,7 +140,15 @@ export interface ContentClosureError {
   sourceDigest?: string;
   found?: string;
   expected?: string;
+  /** Every asset whose file is missing (a refusal names them all, not the first). */
+  missingFiles?: readonly MissingPlayFile[];
 }
+
+/** The workspace's codes for an asset whose bytes are not on disk (its file, its import cache entry or its stored blob). */
+const MISSING_CODES: ReadonlySet<string> = new Set(['asset_source_missing', 'blob_missing']);
+
+/** The bytes a placeholder stands in with for a missing asset (null: none for this kind). */
+export type ClosurePlaceholderMaker = (asset: { readonly assetId: string; readonly kind: string; readonly bounds?: unknown }) => Uint8Array | null;
 
 const DIGEST_RE = /^[0-9a-f]{64}$/;
 /** One page of the behavior query (its largest). */
@@ -224,6 +233,16 @@ export interface ContentClosureM3Input {
    * build (the output is the same).
    */
   background?: boolean;
+  /**
+   * Play: an asset whose file is missing and that the start scenes and the
+   * project-wide blocks do not draw ships as a placeholder made here (a
+   * scene loaded later shows it in the asset's place). Absent (an export),
+   * or a missing file the start draws: the build refuses, naming every
+   * missing file.
+   */
+  placeholders?: ClosurePlaceholderMaker;
+  /** The scenes the start loads when they are not only `startScenes` (a Play started in another scene). */
+  drawnScenes?: readonly string[];
 }
 
 export interface ContentClosureM3 {
@@ -236,6 +255,8 @@ export interface ContentClosureM3 {
   /** The emitted `scene.json` bytes (the `manifest.sceneDigest` input). */
   sceneBytes: Uint8Array;
   moduleIds: readonly string[];
+  /** The missing files placeholders stand in for (Play only). */
+  placeholders: readonly MissingPlayFile[];
   /** The resolved six-key settings (registry order) the composition consumes. */
   settings: GameplaySettings;
   /** The resolved media identity (the animation rows; no cue slots). */
@@ -688,8 +709,40 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
   const shippedKey: string[] = [];
   const located = locate ? service.locateBlobs(projectId, view.assets.map((a) => ({ assetId: a.assetId, version: a.version }))) : null;
   if (located !== null && !located.ok) return { ok: false, error: fromCommandError(located.error) };
+  // Every missing file at once: a placeholder for each the start does not draw, else one refusal naming them all.
+  const standIns = new Map<number, Uint8Array>();
+  const placeholders: MissingPlayFile[] = [];
+  if (located !== null && located.ok) {
+    const missing = missingOfLocated(view.assets, located.results, input);
+    if (missing.files.length > 0) {
+      const made = missing.files.every((f) => !f.inStart) && input.placeholders !== undefined ? missing.indices.map((i) => input.placeholders!(view.assets[i]!)) : null;
+      if (made === null || made.some((b) => b === null)) return { ok: false, error: missingError(missing.files, missing.first, input.placeholders !== undefined) };
+      missing.indices.forEach((i, k) => standIns.set(i, made[k]!));
+      placeholders.push(...missing.files);
+    }
+  }
   for (let i = 0; i < view.assets.length; i += 1) {
     const a = view.assets[i]!;
+    const standIn = standIns.get(i);
+    if (standIn !== undefined) {
+      // The placeholder's own bytes and digest; the asset's material map, clips and streaming do not apply to it.
+      const digest = hash(standIn);
+      assetArtifacts.push({ path: `content/sha256/${digest}`, bytes: standIn, digest, contentType: ASSET_CONTENT_TYPE[a.kind] });
+      shippedKey.push(digest);
+      assets.push({
+        assetId: a.assetId,
+        kind: a.kind,
+        version: a.version,
+        sourceDigest: digest,
+        sourceByteLength: standIn.length,
+        recipe: a.recipe,
+        metricsDigest: a.metricsDigest,
+        ...(a.bounds !== undefined ? { bounds: a.bounds } : {}),
+        ...(a.kind === 'audio' && durationOf(a.assetId, a.version) !== undefined ? { durationMs: durationOf(a.assetId, a.version)! } : {}),
+        ...(a.kind === 'audio' ? audioLoadRowOf(a.assetId) : {}),
+      });
+      continue;
+    }
     if (located !== null) {
       const at = located.ok ? located.results[i]! : null;
       if (at === null || !at.ok) return { ok: false, error: readError(at!.ok ? ({ code: 'internal', cls: 'internal', message: 'unreachable' } as never) : at!.error) };
@@ -797,7 +850,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
     // A located build reads the models now (only a project with sockets needs their rigs).
     if (locate) {
       for (const a of view.assets) {
-        if (a.kind !== 'model') continue;
+        if (a.kind !== 'model' || placeholders.some((p) => p.assetId === a.assetId)) continue;
         const read = service.readBlob(projectId, { assetId: a.assetId, version: a.version });
         if (!read.ok) return { ok: false, error: readError(read.error) };
         modelBytes.set(a.assetId, read.bytes);
@@ -875,7 +928,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
       if (remember !== null) remember.sceneDependencies = sceneDependencies;
     }
     // (The speakers' portraits and blips; a line's voice is read when it plays.)
-    const sharedDependencies = scanDependencies(tables, [content['environment'], runtimeEffects, content['uiDocuments'], content['uiThemes'], content['shell'], content['timelines'], content['eventCues'], content['blockTypes'], content['input'], content['speakers']]);
+    const sharedDependencies = scanDependencies(tables, projectWideRoots(content, runtimeEffects ?? null));
     // Each shipped asset with its address and labels (scripts load it by them) and, for a model, the textures its material map draws with.
     const namesById = new Map<string, { address?: string; labels?: readonly string[] }>();
     for (const r of ((content['assets'] as { assetId: string; address?: string; labels?: readonly string[] }[] | undefined) ?? [])) if (r.address !== undefined || (r.labels?.length ?? 0) > 0) namesById.set(r.assetId, r);
@@ -977,6 +1030,7 @@ export async function buildContentClosureM3(input: ContentClosureM3Input): Promi
       sceneDigest,
       sceneBytes,
       moduleIds,
+      placeholders,
       settings: view.settings,
       media,
       assetArtifacts,
@@ -1042,4 +1096,51 @@ function modelRigs(assets: readonly { assetId: string; kind: string; clipsFor?: 
     out[a.clipsFor] = { nodes: rig.nodes, clips, ...(rig.truncated === true || r.rig.truncated === true ? { truncated: true as const } : {}) };
   }
   return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/**
+ * The located assets whose bytes are missing, each marked by whether the
+ * start draws it (the start scenes with their bakes, the project-wide
+ * blocks), with the first one's error (the refusal keeps its code).
+ */
+function missingOfLocated(
+  assets: readonly { assetId: string; kind: string }[],
+  results: readonly ({ ok: true } | { ok: false; error: { code: string; path?: unknown } })[],
+  input: ContentClosureM3Input,
+): { files: MissingPlayFile[]; indices: number[]; first: Parameters<typeof fromCommandError>[0] | null } {
+  const indices: number[] = [];
+  let first: Parameters<typeof fromCommandError>[0] | null = null;
+  results.forEach((r, i) => {
+    if (r.ok || !MISSING_CODES.has(r.error.code)) return;
+    indices.push(i);
+    first ??= r.error as Parameters<typeof fromCommandError>[0];
+  });
+  if (indices.length === 0) return { files: [], indices, first };
+  const scenes = input.scenes ?? [input.scene];
+  const start = input.scenes !== undefined ? (input.drawnScenes ?? input.startScenes ?? []) : [String((input.scene as { sceneId?: unknown } | null)?.sceneId ?? '')];
+  const drawn = startDrawSet(input.content, scenes, start);
+  const files = indices.map((i): MissingPlayFile => {
+    const a = assets[i]!;
+    const e = (results[i] as { ok: false; error: { code: string; path?: unknown } }).error;
+    // A stored blob's path is the project's own store, not a game-folder file.
+    const path = typeof e.path === 'string' && !e.path.startsWith('sources/') ? e.path : null;
+    return { assetId: a.assetId, kind: a.kind, path, inStart: drawn.has(a.assetId), code: e.code };
+  });
+  return { files, indices, first };
+}
+
+/** The refusal naming every missing file (the code is the first one's; `missingFiles` lists them all). */
+function missingError(files: readonly MissingPlayFile[], first: Parameters<typeof fromCommandError>[0] | null, play: boolean): ContentClosureError {
+  const e = first ?? { code: 'asset_source_missing', cls: 'not_found', message: '' };
+  // As every read error of a file referenced in place: the reason keeps the workspace code through the closed export/play error sets.
+  const base = fromCommandError(e.code === 'asset_source_missing' && e.reason === undefined ? { ...e, reason: e.code } : e);
+  const name = (f: MissingPlayFile): string => f.path ?? f.assetId;
+  const listed = files.slice(0, 4).map(name).join(', ');
+  const drawn = files.filter((f) => f.inStart).length;
+  const why = !play ? '' : drawn > 0 ? ` (${drawn} drawn by the start scenes)` : ' (no placeholder for this kind)';
+  return {
+    ...base,
+    message: `${files.length} asset file${files.length === 1 ? ' is' : 's are'} missing${why}: ${listed}${files.length > 4 ? ', …' : ''}`.slice(0, 256),
+    missingFiles: files,
+  };
 }

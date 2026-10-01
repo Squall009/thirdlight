@@ -9,9 +9,9 @@ import { existsSync, mkdirSync, realpathSync } from 'node:fs';
 import { basename, join, sep } from 'node:path';
 
 import type { CommandError } from '@thirdlight/commands';
-import type { ContentCatalogV4 } from '@thirdlight/project-model';
+import type { ContentCatalogV4, MissingAssetFile } from '@thirdlight/project-model';
 
-import { isValidSourcePath } from '@thirdlight/project-model';
+import { assetUsers, isValidSourcePath } from '@thirdlight/project-model';
 
 import {
   DEFAULT_ASSET_FOLDER,
@@ -311,6 +311,31 @@ export function contentOps(core: Core) {
     return { records, visit, finish };
   }
 
+  /**
+   * The assets whose file is not in the game folder (the current version's
+   * file, a converted asset's original), with what uses each. One stat per
+   * file, nothing hashed: the problems list asks after every file check.
+   */
+  function missingAssetFiles(projectId: string): { ok: true; files: MissingAssetFile[] } | { ok: false; error: CommandError } {
+    return run(projectId, (s): { ok: true; files: MissingAssetFile[] } => {
+      const ctx = contentCtx(s);
+      const records = ((s.content as ContentCatalogV4 | null)?.assets ?? []) as unknown as (RecordLike & { displayName?: string })[];
+      const found: { record: RecordLike & { displayName?: string }; path: string }[] = [];
+      for (const r of records) {
+        const file = fileOfRecord(r);
+        if (file === null) continue;
+        const res = resolveProjectFile(ctx, file);
+        if (!res.ok && res.missing === true) found.push({ record: r, path: file });
+      }
+      if (found.length === 0) return { ok: true, files: [] };
+      const users = assetUsers(s.content, [...(s.v4?.scenes.values() ?? [])], new Set(found.map((f) => f.record.assetId)));
+      const files = found
+        .map(({ record, path }) => ({ assetId: record.assetId, displayName: record.displayName ?? record.assetId, kind: record.kind ?? 'model', path, usedBy: users.get(record.assetId) ?? [] }))
+        .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+      return { ok: true, files };
+    }) as { ok: true; files: MissingAssetFile[] } | { ok: false; error: CommandError };
+  }
+
   /** Every asset's file against the catalog, in one go (see `assetFilesWalk`). */
   function assetFiles(projectId: string): AssetFilesResult {
     return run(projectId, (s): AssetFilesResult => {
@@ -534,6 +559,7 @@ export function contentOps(core: Core) {
     readCapturedV3: (projectId: string): CapturedV3ReadResult => run(projectId, (s) => readCapturedV3(contentCtx(s))),
     assetFiles,
     assetFilesYielding,
+    missingAssetFiles,
     findMovedAssets,
     holdAssetBytes,
     writeImportedArtifact,

@@ -95,6 +95,8 @@ export interface ExportError {
     frozenRevision?: number;
     currentRevision?: number;
     reason?: string;
+    /** Every asset whose file is missing (the export refuses naming them all). */
+    missingFiles?: readonly import('@thirdlight/project-model').MissingPlayFile[];
   };
 }
 

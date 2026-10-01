@@ -1,12 +1,14 @@
 /**
- * Problems panel: asset files in the game folder the file check could not
- * bring in step (live state, with re-import), then the backend's recent
+ * Problems panel: asset files missing from the game folder (path, asset, who
+ * uses it; paged), asset files the file check could not bring in step (live
+ * state, with re-import), then the backend's recent
  * project problems (failed commands, Play and export failures, external
  * edits), newest first.
  */
 import type { JSX } from 'react';
 import type { ProblemView } from '../session/client';
 import type { SourceIssue } from '../session/asset-sources';
+import type { AssetFileCheck, MissingFilesView } from './useAssetFileCheck';
 
 /** One graph problem (from the graph kind's rules); a click opens the graph at the node. */
 export interface GraphIssueView {
@@ -29,26 +31,58 @@ interface Props {
   problems: readonly ProblemView[];
   /** Models the scene view could not load (by asset or entity). */
   viewFailures: readonly { id: string; name: string; code: string; message: string }[];
-  /** null until the project's folder has been checked. */
-  sourceIssues: readonly SourceIssue[] | null;
-  checking: boolean;
-  onCheckFiles: () => void;
+  /** The file check (null: the project has no folder to check). */
+  fileCheck: AssetFileCheck | null;
   onReimport: (issue: SourceIssue) => void;
 }
 
-export function ProblemsPanel({ graphIssues = [], onGraphIssue, problems, viewFailures, sourceIssues, checking, onCheckFiles, onReimport }: Props): JSX.Element {
+/** How one use of a missing file reads. */
+function userText(u: MissingFilesView['files'][number]['usedBy'][number]): string {
+  return u.kind === 'project' ? `project ${u.id}` : `${u.kind} ${u.id}`;
+}
+
+function MissingFiles({ missing }: { missing: MissingFilesView }): JSX.Element {
+  return (
+    <ul className="tl-problems__list tl-problems__sources" aria-label="Missing files">
+      <li className="tl-problem tl-problem--heading">
+        {missing.total} asset file{missing.total === 1 ? ' is' : 's are'} missing from the game folder. Put them back, or move each together with its .tlasset file and check files again.
+      </li>
+      {missing.files.map((f) => (
+        <li key={f.assetId} className="tl-problem" data-asset={f.assetId}>
+          <span className="tl-problem__source tl-problem__source--asset">missing</span>
+          <span className="tl-problem__message" title={`${f.kind} asset ${f.assetId}`}>
+            <span className="tl-problem__path">{f.path}</span> ({f.displayName}
+            {f.displayName !== f.assetId ? `, ${f.assetId}` : ''}) — {f.usedBy.length > 0 ? `used by ${f.usedBy.map(userText).join(', ')}` : 'nothing uses it'}
+          </span>
+        </li>
+      ))}
+      {missing.files.length < missing.total && (
+        <li className="tl-problem">
+          <button className="tl-btn tl-btn--small" onClick={missing.more}>
+            Show more ({missing.total - missing.files.length} more)
+          </button>
+        </li>
+      )}
+    </ul>
+  );
+}
+
+export function ProblemsPanel({ graphIssues = [], onGraphIssue, problems, viewFailures, fileCheck, onReimport }: Props): JSX.Element {
   const newest = [...problems].reverse();
-  const issues = sourceIssues ?? [];
+  const issues = fileCheck?.sourceIssues ?? [];
+  const missing = fileCheck?.missing ?? null;
+  const checking = fileCheck?.checking ?? false;
   return (
     <div className="tl-panel tl-problems">
       <div className="tl-panel__title">
         Problems
-        {sourceIssues !== null && (
-          <button className="tl-btn tl-btn--small" disabled={checking} onClick={onCheckFiles} title="Check the asset files in the game folder: a file moved with its .tlasset file keeps its asset, a changed file is imported again">
+        {fileCheck !== null && fileCheck.sourceIssues !== null && (
+          <button className="tl-btn tl-btn--small" disabled={checking} onClick={() => void fileCheck.checkFiles()} title="Check the asset files in the game folder: a file moved with its .tlasset file keeps its asset, a changed file is imported again">
             {checking ? 'checking…' : 'check files'}
           </button>
         )}
       </div>
+      {missing !== null && missing.total > 0 && <MissingFiles missing={missing} />}
       {issues.length > 0 && (
         <ul className="tl-problems__list tl-problems__sources" aria-label="Asset files">
           {issues.map((i) => (
@@ -91,7 +125,7 @@ export function ProblemsPanel({ graphIssues = [], onGraphIssue, problems, viewFa
           ))}
         </ul>
       )}
-      {newest.length === 0 && issues.length === 0 && viewFailures.length === 0 && graphIssues.length === 0 ? (
+      {newest.length === 0 && issues.length === 0 && (missing?.total ?? 0) === 0 && viewFailures.length === 0 && graphIssues.length === 0 ? (
         <div className="tl-inspector__empty">No problems reported.</div>
       ) : (
         <ul className="tl-problems__list">

@@ -31,6 +31,7 @@ import { publishBehaviorSource } from './behavior';
 import { diagnosticsWithNodes, generateGraphSource, graphProblemsFailure } from '@thirdlight/behavior-build';
 import { ContentRoutes, createAssetInspector, createBehaviorCompilerPort } from './content';
 import { createAssetFileCheck } from './asset-files';
+import { createMissingFiles, makeMissingFilesRoute } from './missing-files';
 import { createFolderImport } from './folder-import';
 import { createFbxConverter } from './fbx';
 import { createInlineTextureEncoder, createWorkerTextureEncoder } from './texture-encode';
@@ -299,7 +300,10 @@ export function createBackend(
     now: nowMs,
     onApplied: (projectId, r) => notifyMutationApplied(projectId, r.requestId, r.revision, { kind: 'admin', clientId: 'file-check' }, r.change, (r as { sceneId?: string }).sceneId),
     // A full check is when a Play build is made ahead (the Play routes are made below).
-    onChecked: (projectId) => warmPlay?.(projectId),
+    onChecked: (projectId) => {
+      missingFiles.refresh(projectId);
+      warmPlay?.(projectId);
+    },
   });
   let warmPlay: ((projectId: string) => void) | undefined;
   // A folder's files are inspected before its importAssets command.
@@ -538,6 +542,10 @@ export function createBackend(
     for (const p of service.takeOpenProblems(projectId)) recordProblem(projectId, 'workspace', p.code, p.message);
   };
 
+  // The missing asset files (read at the first problems query and after each file check or asset change).
+  const missingFiles = createMissingFiles({ service, recordProblem: (projectId, code, message) => recordProblem(projectId, 'workspace', code, message), logStartup, closed: () => closed });
+  const missingFilesRoute = makeMissingFilesRoute({ missingFiles, requireAuth, sendJson, sendError });
+
   // Scripts that name an asset that is not loadable (checked on load and after a change that can matter).
   const scriptNames = createScriptNameChecker({ service, recordProblem: (projectId, code, message) => recordProblem(projectId, 'compile', code, message), logStartup, closed: () => closed });
 
@@ -606,7 +614,11 @@ export function createBackend(
     sceneId?: string,
   ): void => {
     // Materials are checked again after a change that can change what they compile to.
-    if (changeReachesMaterials(change)) scheduleMaterialCheck(projectId);
+    if (changeReachesMaterials(change)) {
+      scheduleMaterialCheck(projectId);
+      // An asset moved, removed or added, or a material's textures changed: the missing files and their uses.
+      missingFiles.schedule(projectId);
+    }
     scriptNames.changed(projectId, change);
     for (const line of audioPlaybackProblems(change)) recordProblem(projectId, 'import', 'audio_browser_support', line);
     const s = sessions.sessionForProject(projectId);
@@ -1587,8 +1599,15 @@ export function createBackend(
           const rows = materialRows(projectId);
           reportUpgradeNotes(projectId);
           scriptNames.loaded(projectId);
+          // The missing asset files (the first page; the missing-files route pages them).
+          const missing = missingFiles.firstPage(projectId);
           const list = problems.get(projectId) ?? [];
-          sendJson(res, 200, { ok: true, projectId, total: list.length, problems: list.slice(-50), ...(rows !== null ? { materialProblems: rows.filter((r) => r.problems.length > 0).slice(0, 64) } : {}) });
+          sendJson(res, 200, { ok: true, projectId, total: list.length, problems: list.slice(-50), ...(rows !== null ? { materialProblems: rows.filter((r) => r.problems.length > 0).slice(0, 64) } : {}), ...(missing !== null ? { missingFiles: missing } : {}) });
+          return;
+        }
+        // GET /api/v1/projects/:projectId/problems/missing-files?offset=&limit= — one page of the missing asset files
+        if (parts.length === 6 && parts[2] === 'projects' && parts[4] === 'problems' && parts[5] === 'missing-files') {
+          missingFilesRoute(req, res, parts[3]!, query);
           return;
         }
         // POST /api/v1/projects/:projectId/external/(accept|discard)

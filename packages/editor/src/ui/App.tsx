@@ -153,6 +153,7 @@ import type { GraphDocument, SaveSchema } from '@thirdlight/project-model';
 import { ProjectFilePicker } from './ProjectFilePicker';
 import { type SourceIssue } from '../session/asset-sources';
 import { useAssetFileCheck } from './useAssetFileCheck';
+import { waitFor } from './wait-for';
 import { useAssetOptions } from './useAssetOptions';
 import { useAssetImport } from './useAssetImport';
 import { AssetFolders } from './AssetFolders';
@@ -169,21 +170,8 @@ interface UiError {
 
 /** The bounded backend error for a failed command (the panels explain it, never lose it). */
 
-/** Poll `get` each animation frame (up to ~2 s) until it yields a value (a change arriving over the socket). */
 // KTX2 textures (and GLBs with KHR_texture_basisu) transcode with three's Basis files next to the editor page.
 setKtx2DecoderBase('./decoders/');
-
-function waitFor<T>(get: () => T | null): Promise<T | null> {
-  return new Promise((resolve) => {
-    const started = performance.now();
-    const tick = (): void => {
-      const v = get();
-      if (v !== null || performance.now() - started > 2000) resolve(v);
-      else requestAnimationFrame(tick);
-    };
-    tick();
-  });
-}
 
 function commandError(res: { response: MutationResponse }): GameplayBackendError {
   const r = res.response;
@@ -1915,7 +1903,9 @@ function EditorApp(): JSX.Element {
   const play = useCallback(async (start?: Parameters<SessionClient['playStart']>[1]) => {
     const c = clientRef.current;
     if (!c) return;
-    const r = await c.playStart(false, start);
+    // A refused start (missing files, a script that does not compile) says why; the Problems log keeps it.
+    const r = await c.playStart(false, start).catch((e: unknown) => void setNotice(`Play refused: ${c.describeError(e).message}`));
+    if (r === undefined) return;
     // The snapshot arrives via the retained play.started WS event; the iframe
     // is created once both playBase (HTTP) and snapshot (WS) are present.
     setPlayInfo((p) => ({
@@ -2049,7 +2039,7 @@ function EditorApp(): JSX.Element {
 
   // ---- Asset files in the game folder -------------
   // The file check (useAssetFileCheck.ts): moved and changed files, Problems rows.
-  const { checkable: folderProject, sourceIssues, checking: checkingFiles, checkFiles } = useAssetFileCheck(clientRef, ui.connection);
+  const fileCheck = useAssetFileCheck(clientRef, ui.connection);
   const [filePicker, setFilePicker] = useState<'create' | 'reimport' | null>(null);
   /** Models the scene view could not show (never silent). */
   const [viewFailures, setViewFailures] = useState<{ id: string; name: string; code: string; message: string }[]>([]);
@@ -2074,7 +2064,7 @@ function EditorApp(): JSX.Element {
     reimportEntity,
     setReimportEntity,
     refreshEntities,
-    checkFiles,
+    checkFiles: fileCheck.checkFiles,
     showAssets: () => setBottomTab('assets'),
   });
   // The project window: its folder (new items and uploads go there), moves, and what a double-click opens.
@@ -3864,7 +3854,7 @@ function EditorApp(): JSX.Element {
               {BOTTOM_TABS.map((t) => (
                 <button key={t.id} role="tab" aria-selected={bottomTab === t.id} className={`tl-tab${bottomTab === t.id ? ' is-active' : ''}`} onClick={() => setBottomTab(t.id)}>
                   {t.label}
-                  {t.id === 'problems' && ui.problems.length + (sourceIssues?.length ?? 0) + viewFailures.length + graphIssues.length + scriptIssues.length + materialIssues.length > 0 ? <span className="tl-tab__count">{ui.problems.length + (sourceIssues?.length ?? 0) + viewFailures.length + graphIssues.length + scriptIssues.length + materialIssues.length}</span> : null}
+                  {t.id === 'problems' && ui.problems.length + fileCheck.count + viewFailures.length + graphIssues.length + scriptIssues.length + materialIssues.length > 0 ? <span className="tl-tab__count">{ui.problems.length + fileCheck.count + viewFailures.length + graphIssues.length + scriptIssues.length + materialIssues.length}</span> : null}
                 </button>
               ))}
             </div>
@@ -4032,9 +4022,7 @@ function EditorApp(): JSX.Element {
               }}
               problems={ui.problems}
               viewFailures={viewFailures}
-              sourceIssues={folderProject ? sourceIssues : null}
-              checking={checkingFiles}
-              onCheckFiles={() => void checkFiles()}
+              fileCheck={fileCheck.checkable ? fileCheck : null}
               onReimport={(i) => void reimportIssue(i)}
             />
           )}
@@ -4101,7 +4089,7 @@ function EditorApp(): JSX.Element {
                 return null;
               }}
               onReimport={(f) => void importFile(f, 'reimport')}
-              folderImport={folderProject}
+              folderImport={fileCheck.checkable}
               onImportFromFolder={() => setFilePicker('create')}
               onReimportFromFolder={() => setFilePicker('reimport')}
               onPublish={() => void publish()}

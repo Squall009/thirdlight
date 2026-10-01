@@ -295,7 +295,8 @@ moves at least as many lines out as it adds.
 | 27.0 | done 2026-10-01: §2 re-checked against the code, §3 confirmed with links (two corrections), phase-26 review and open defects read (§2), three.js 0.186.1 is the latest (nothing to take); Skyforge E46–E51 planned as 27.1–27.7, layout items renumbered 27.8–27.17 |
 | 27.1 | done 2026-10-01: screenshot answers keep their own bound (`SCREENSHOT_DATA_URL_MAX`, protocol, used by preview, bridge rule, WS ack bound and backend); a refused bridge message answers its relay with `bridge_message_refused` and the reason; e2e captures a ~280 KiB PNG over HTTP and MCP on WebGPU and WebGL 2 (D95) |
 | 27.2 | done 2026-10-01: signals, trigger events, script messages (and the primitives' events) turn over every step whatever the mode's physics; the 2D step without scripts too (D96, D97); Play diagnostics carry `runtime.messageQueue` (refused sends with a warning) and an `audio` block (unlock state, what plays by bus, started, skipped by why, late, notes), read over HTTP and MCP before and after the unlock in a real browser |
-| 27.3–27.17 | — |
+| 27.3 | done 2026-10-01: missing asset files are listed in Problems at open and after each file check (path, asset, who uses it; paged, one log line per change; `GET problems/missing-files`, MCP `tl_diagnostics`); a Play or export refusal names every missing file (`missingFiles`); Play stands placeholders in (magenta box, checker texture, silence) for missing files no start scene draws and lists them in its result (`placeholders`); the Play button's refusal shows its reason (D98, D99) |
+| 27.4–27.17 | — |
 
 ## 6. Decision log
 
@@ -410,3 +411,18 @@ moves at least as many lines out as it adds.
   context_closed, stale_run) — a muted script play and the host's fallback
   `playSound` now note why instead of returning silently; lists stay
   bounded (8 sounds, 4 notes, 4 late outcomes) inside the 16 KiB frame.
+- 2026-10-01 (27.3): a missing file is one the game folder no longer has
+  (the current version's file, a converted asset's original), found by one
+  stat per asset after each file check and each asset change; "who uses it"
+  is the build's own dependency scan per scene, prefab, material, effect,
+  animator, model material map and project-wide block. The start's draw set
+  is the start scenes' (and a debug start's scene) dependencies plus the
+  project-wide blocks'; a missing file in it, or one of a kind without a
+  placeholder (fonts), refuses the Play naming every missing file in the
+  build (`missingFiles`, the first file's code kept); the export refuses the
+  same way. Placeholders (Unity's magenta, Godot's error texture): a magenta
+  box the size of the model's recorded bounds, an 8 × 8 magenta and black
+  checker, 0.1 s of silence, shipped under their own digests (the asset's
+  material map, clips and streaming do not apply to them). The list pages with
+  the asset list's bounds (50 / 128); the Problems log gets one line when the
+  list changes, and "no files missing" when it empties.

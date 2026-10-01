@@ -427,6 +427,8 @@ export interface WorkspaceService {
   assetFiles(projectId: string): AssetFilesResult;
   /** `assetFiles`, giving the event loop back between slices of the walk (the file check's). */
   assetFilesYielding(projectId: string, options?: { changedOnly?: boolean }): Promise<AssetFilesResult>;
+  /** The assets whose file is not in the game folder, with what uses each (sorted by path; one stat per file). */
+  missingAssetFiles(projectId: string): { ok: true; files: import('@thirdlight/project-model').MissingAssetFile[] } | { ok: false; error: CommandError };
   /** Where these assets' files are now, found by their sidecars (a move made outside the editor). */
   findMovedAssets(projectId: string, assetIds: readonly string[]): { ok: true; found: Record<string, string> } | { ok: false; error: CommandError };
   /**

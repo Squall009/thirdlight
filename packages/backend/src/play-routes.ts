@@ -3,6 +3,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { makeDiagnosticsRequest, makeInputRelayRequest, makePlayStarted, playSnapshotPath, makeScreenshotRequest, parseAdminNoArgsBody, parseInputRelayRequest, parsePlayStartRequest, parseScreenshotRequest, parseStrictJsonBytes, SCREENSHOT_DATA_URL_MAX, sessionError, statusFor, WS_OUT_FRAME_MAX, makeGameControlRequest, makeGameObserveRequest, parseGameControlRequest, parseGameObserveRequest, GAME_CONTROL_BODY_MAX_BYTES, GAME_OBSERVE_BODY_MAX_BYTES, type RuntimeSnapshotDoc, type SessionError } from '@thirdlight/protocol';
 import { type CommandError, type QueryResult, type WorkspaceService } from '@thirdlight/workspace';
+import type { MissingPlayFile } from '@thirdlight/project-model';
 import { type BackendConfig } from './config';
 import { createBehaviorCompilerPort } from './content';
 import { PlayContentStore, sha256HexBytes, type PlayServed } from './play-content';
@@ -311,6 +312,8 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
     // The compiled outputs' source maps (kept on the play record, never served).
     let playSourceMaps: ReadonlyMap<string, { behaviorId?: string; libraryId?: string; sourceMap: string }> | undefined;
     let startNotes: string[] = [];
+    // The missing files this Play stands placeholders in for (a scene loaded later shows them).
+    let placeholders: readonly MissingPlayFile[] = [];
     {
       mark('state');
       const captured = service.readCapturedV3(projectId);
@@ -379,6 +382,7 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
         gameBundle: gameBundleM3.bytes,
         gameBundleDigest: gameBundleM3.digest,
         ...(v4 ? { scenes: captured.read.scenes!, startScenes: captured.read.startScenes ?? [] } : {}),
+        ...(v4 && snapshot.start?.scenes !== undefined ? { drawnScenes: snapshot.start.scenes } : {}),
         timings: closureTimings,
       });
       mark('closure');
@@ -400,6 +404,8 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
         needsBasis: builtM3.built.needsBasis,
       };
       playSourceMaps = new Map(builtM3.built.sourceMaps.map((m) => [m.outputDigest, m] as const));
+      placeholders = builtM3.built.placeholders;
+      if (placeholders.length > 0) recordProblem(projectId, 'play', 'play_placeholders', `Play started with placeholders for ${placeholders.length} missing file${placeholders.length === 1 ? '' : 's'} no start scene draws: ${placeholders.slice(0, 4).map((p) => p.path ?? p.assetId).join(', ')}${placeholders.length > 4 ? ', …' : ''}`);
     }
     const published = playContent.publish({
       playSessionId,
@@ -463,6 +469,7 @@ export function makePlayRoutes(ctx: PlayRoutesContext) {
       // The resolved start (and what was ignored, e.g. a mode before the project has modes).
       ...(snapshot.start !== undefined ? { start: { ...snapshot.start, ...(startNotes.length > 0 ? { notes: startNotes } : {}) } } : {}),
       expiresAt: new Date(rec.expiresAt).toISOString(),
+      ...(placeholders.length > 0 ? { placeholders } : {}),
       // The backend's part of the start (ms per stage).
       timings: buildTimings,
       playContent: {

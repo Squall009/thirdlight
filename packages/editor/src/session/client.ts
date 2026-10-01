@@ -39,7 +39,7 @@ import {
   type CompileDiagnosticView,
 } from './behavior-publication';
 import type { ContentJobView } from '@thirdlight/protocol';
-import type { PropertyDeclaration } from '@thirdlight/project-model';
+import type { MissingAssetFile, PropertyDeclaration } from '@thirdlight/project-model';
 import { type ProjectFileListing, type IntegrityEntryView, type FileCheckView, makeAssetId, SessionClientCore } from './client-core';
 
 export * from './client-core';
@@ -688,6 +688,16 @@ export class SessionClient extends SessionClientCore {
       // Only the entries that need attention (a project of thousands of files answers with its problems, not every file).
       const r = await this.request<{ ok: true; entries: IntegrityEntryView[]; check: FileCheckView }>(`/projects/${this.cfg.projectId}/content/files/check`, { method: 'POST', body: '{"problems":true}' });
       return { ok: true, entries: r.entries, check: r.check };
+    } catch (e) {
+      return { ok: false, error: this.describeError(e) };
+    }
+  }
+
+  /** One page of the asset files missing from the game folder, with what uses each (read after every file check). */
+  async missingFiles(offset: number, limit: number): Promise<{ ok: true; total: number; files: MissingAssetFile[] } | { ok: false; error: { code: string; message: string } }> {
+    try {
+      const r = await this.request<{ ok: true; total: number; files: MissingAssetFile[] }>(`/projects/${this.cfg.projectId}/problems/missing-files?offset=${offset}&limit=${limit}`, { method: 'GET' });
+      return { ok: true, total: r.total, files: r.files };
     } catch (e) {
       return { ok: false, error: this.describeError(e) };
     }

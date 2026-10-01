@@ -776,7 +776,10 @@ export const TOOL_DEFINITIONS: readonly ToolDefinition[] = [
     description:
       'Without playSessionId: the project\'s recent problems (failed commands, import/compile/Play/' +
       'export failures, external file edits, a material whose graph has new problems, code material_graph_problems) and whether editing is paused, ' +
-      'plus materialProblems [{materialId, name, problems: [{nodeId?, severity, message}]}] - the graph materials that have problems now (the backend compiles them at load and after each change). With playSessionId: bounded ' +
+      'plus materialProblems [{materialId, name, problems: [{nodeId?, severity, message}]}] - the graph materials that have problems now (the backend compiles them at load and after each change), ' +
+      'and missingFiles {total, offset, files: [{assetId, displayName, kind, path, usedBy: [{kind scene|prefab|material|effect|animator|asset|project, id}]}]} - the asset files missing from the game folder now (listed at the first read and after each file check; ' +
+      'the first page here, every page from GET problems/missing-files). A Play refused for missing files names every one in error.missingFiles [{assetId, kind, path, inStart, code}]; ' +
+      'a Play whose missing files no start scene draws starts with placeholders (magenta box, checker texture, silence) listed in its result\'s placeholders. With playSessionId: bounded ' +
       'runtime diagnostics (≤ 16 KiB) from that play\'s connected preview; its renderer block names the backend ' +
       'that draws (renderer.backend legacy|webgpu|webgl2, renderer.state) and why (renderer.reason); renderer.effects is the ' +
       'visual-effect player: executor webgpu|cpu with its caps, what plays, refused plays, unknown effect ids, per-effect executor and why an effect runs on the CPU on WebGPU. ' +
@@ -1053,7 +1056,7 @@ async function diagnostics(ctx: McpContext, a: Record<string, unknown>): Promise
     const project = await ctx.client.command(ctx.projectId, { op: 'queryProject', args: {} });
     const workspace = isObj(project.body) && project.body.ok === true ? project.body.workspace : null;
     // The graph materials that have problems.
-    return toolOk({ ok: true, workspace, total: problems.body.total, problems: problems.body.problems, ...(problems.body.materialProblems !== undefined ? { materialProblems: problems.body.materialProblems } : {}) });
+    return toolOk({ ok: true, workspace, total: problems.body.total, problems: problems.body.problems, ...(problems.body.materialProblems !== undefined ? { materialProblems: problems.body.materialProblems } : {}), ...(problems.body.missingFiles !== undefined ? { missingFiles: problems.body.missingFiles } : {}) });
   }
   if (typeof a.playSessionId !== 'string' || a.playSessionId.length === 0) return toolError('playSessionId must be a non-empty string');
   const res = await ctx.client.diagnostics(ctx.projectId, a.playSessionId);
