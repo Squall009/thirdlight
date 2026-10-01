@@ -1,29 +1,17 @@
 /**
- * The Effect tab's preview pane (right column) — the looping
- * preview canvas (`viewport/effect-preview.ts`), its timeline (play/pause,
- * restart, scrub, preview length), the spawn counters per system, the frame
- * cost (GPU timestamps or CPU frame time, labelled) and sliders for
- * preview-only parameter values (never saved: the Inspector's Effect
- * component sets an object's values).
+ * The preview pane's effect controls — the effect looping on its timeline
+ * (play/pause, restart, scrub, preview length), the spawn counters per
+ * system, the frame cost (GPU timestamps or CPU frame time, labelled) and
+ * sliders for preview-only parameter values (never saved: the Inspector's
+ * Effect component sets an object's values).
  *
- * The preview is created when the tab opens and disposed when it closes (or
- * another tab becomes active). Browser-only (React).
+ * Browser-only (React).
  */
 import { useEffect, useRef, useState, type JSX } from 'react';
 import type { EffectDef, EffectParameter } from '@thirdlight/project-model';
-import type { EnvironmentLike, WindLike } from '@thirdlight/three-adapter';
-import type * as THREE from 'three';
 
-import { EffectPreview, PREVIEW_MAX_LENGTH, type EffectPreviewStats, type PreviewParamValue } from '../../viewport/effect-preview';
-
-export interface EffectPreviewPaneProps {
-  effect: EffectDef;
-  /** The project environment with its wind (null: a neutral dark backdrop). */
-  environment: (EnvironmentLike & { wind?: WindLike }) | null;
-  loadTexture: (assetId: string) => Promise<THREE.Texture | null>;
-  /** A model asset's scene for mesh particles and mesh-surface shapes (null: unavailable). */
-  loadModel?: (assetId: string) => Promise<THREE.Object3D | null>;
-}
+import { EffectSubject, PREVIEW_MAX_LENGTH, type EffectPreviewStats, type PreviewParamValue } from '../../viewport/preview-effect';
+import { useSubject, type PreviewControlsProps } from './use-subject';
 
 /** The default preview length: two cycles of a looping effect (the second shows the steady state), one cycle plus a second for a one-shot (its last particles fade). */
 export function defaultPreviewLength(fx: Pick<EffectDef, 'duration' | 'loop'>): number {
@@ -49,46 +37,36 @@ export function costText(cost: EffectPreviewStats['cost']): string {
   return `CPU frame time (no GPU timestamp queries on this device): simulation ${fmt(cost.simulation, 3)} ms · draw ${fmt(cost.draw, 3)} ms per frame`;
 }
 
-export function EffectPreviewPane(p: EffectPreviewPaneProps): JSX.Element {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const previewRef = useRef<EffectPreview | null>(null);
+export function EffectPreview({ renderer, request, deps }: PreviewControlsProps<'effect'>): JSX.Element {
   const [stats, setStats] = useState<EffectPreviewStats | null>(null);
   const [playing, setPlaying] = useState(true);
   const [scrub, setScrub] = useState<number | null>(null);
-  const lengthKey = `${p.effect.duration}|${p.effect.loop}`;
-  const [length, setLength] = useState(() => defaultPreviewLength(p.effect));
+  const effect = request.effect;
+  const lengthKey = `${effect.duration}|${effect.loop}`;
+  const [length, setLength] = useState(() => defaultPreviewLength(effect));
   const [overrides, setOverrides] = useState<Record<string, PreviewParamValue>>({});
-  const latest = useRef(p);
-  latest.current = p;
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (canvas === null) return undefined;
-    const preview = new EffectPreview(canvas, {
-      loadTexture: (id) => latest.current.loadTexture(id),
-      loadModel: (id) => latest.current.loadModel?.(id) ?? Promise.resolve(null),
-      onStats: (s) => {
-        setStats(s);
-        // A scrub shows its own value until the preview reports the time it re-simulated to.
-        setScrub(null);
-      },
-    });
-    previewRef.current = preview;
-    preview.setEnvironment(latest.current.environment);
-    preview.setEffect(latest.current.effect as never);
-    return () => {
-      preview.dispose();
-      previewRef.current = null;
-    };
-  }, []);
-  useEffect(() => previewRef.current?.setEffect(p.effect as never), [p.effect]);
-  useEffect(() => previewRef.current?.setEnvironment(p.environment), [p.environment]);
-  useEffect(() => previewRef.current?.setOverrides(overrides), [overrides]);
+  const latest = useRef(deps);
+  latest.current = deps;
+  const subject = useSubject(
+    renderer,
+    () =>
+      new EffectSubject(effect.effectId, {
+        loadTexture: (id) => latest.current.loadTexture(id),
+        loadModel: (id) => latest.current.loadEffectModel(id),
+        onStats: (s) => {
+          setStats(s);
+          // A scrub shows its own value until the preview reports the time it re-simulated to.
+          setScrub(null);
+        },
+      }),
+  );
+  useEffect(() => subject?.setEffect(effect as never), [subject, effect]);
+  useEffect(() => subject?.setOverrides(overrides), [subject, overrides]);
   // A new duration or loop setting: the default length follows it.
-  useEffect(() => setLength(defaultPreviewLength(latest.current.effect)), [lengthKey]);
-  useEffect(() => previewRef.current?.setLength(length), [length]);
+  useEffect(() => setLength(defaultPreviewLength(effect)), [lengthKey]); // eslint-disable-line react-hooks/exhaustive-deps -- keyed by duration and loop only
+  useEffect(() => subject?.setLength(length), [subject, length]);
   // Overrides of parameters that no longer exist (or changed type) are dropped.
-  const params = p.effect.parameters ?? [];
+  const params = effect.parameters ?? [];
   const paramsKey = params.map((x) => `${x.key}:${x.type}`).join(',');
   useEffect(() => {
     setOverrides((o) => {
@@ -100,28 +78,26 @@ export function EffectPreviewPane(p: EffectPreviewPaneProps): JSX.Element {
 
   const time = scrub ?? stats?.time ?? 0;
   const togglePlay = (): void => {
-    const pv = previewRef.current;
-    if (pv === null) return;
-    if (playing) pv.pause();
-    else pv.play();
+    if (subject === null) return;
+    if (playing) subject.pause();
+    else subject.play();
     setPlaying(!playing);
   };
   const cost = stats?.cost ?? null;
+  const summary = stats === null ? null : { executor: stats.executor, time: Math.round(stats.time * 1000) / 1000, steps: stats.steps, playing: stats.playing, systems: stats.systems.map((x) => ({ id: x.systemId, spawned: x.spawned, living: x.living })), cost: stats.cost === null ? null : `${stats.cost.simulationBy}/${stats.cost.drawBy}` };
   return (
-    <div className="tl-effect-preview" aria-label="effect preview">
-      <div className="tl-subhead">Preview</div>
-      <canvas ref={canvasRef} className="tl-effect-preview__canvas" aria-label="effect preview canvas" />
+    <div className="tl-effect-preview" aria-label="effect preview" data-tl-effect-preview={summary === null ? undefined : JSON.stringify(summary)}>
       <span className="tl-hint tl-effect-preview__status" role="status" aria-label="preview status">
         {stats === null || stats.backend === null ? 'starting…' : `${stats.backend} · ${stats.executor === 'webgpu' ? 'WebGPU compute' : stats.executor === 'cpu' ? 'CPU executor' : 'no systems'}`}
         {stats?.reason != null ? ` (${stats.reason})` : ''}
-        {p.environment === null ? ' · neutral backdrop' : ' · project environment'}
+        {deps.environment === null ? ' · neutral backdrop' : " · the active scene's look"}
         {stats !== null && stats.errors > 0 ? ` · ${stats.errors} graph error${stats.errors === 1 ? '' : 's'}` : ''}
       </span>
       <div className="tl-effect-preview__timeline" role="group" aria-label="preview timeline">
         <button type="button" className="tl-btn tl-btn--small" aria-label={playing ? 'pause preview' : 'play preview'} title={playing ? 'Pause' : 'Play'} onClick={togglePlay}>
           {playing ? '❚❚' : '▶'}
         </button>
-        <button type="button" className="tl-btn tl-btn--small" aria-label="restart preview" title="Restart from the seed" onClick={() => previewRef.current?.restart()}>
+        <button type="button" className="tl-btn tl-btn--small" aria-label="restart preview" title="Restart from the seed" onClick={() => subject?.restart()}>
           ⟲
         </button>
         <input
@@ -135,7 +111,7 @@ export function EffectPreviewPane(p: EffectPreviewPaneProps): JSX.Element {
           onChange={(e) => {
             const t = Number(e.target.value);
             setScrub(t);
-            previewRef.current?.seek(t);
+            subject?.seek(t);
           }}
         />
         <span className="tl-effect-preview__time" aria-label="preview time readout">

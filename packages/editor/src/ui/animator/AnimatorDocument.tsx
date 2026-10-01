@@ -15,9 +15,8 @@
  * - Left: the controller's parameters and, on an override layer, the
  *   layer's settings (weight, bone mask). Controller-level edits are
  *   `setAnimator` (one undo each).
- * - The live preview is a pane inside the tab, docked right or at the
- *   bottom, or hidden (remembered in the browser); the states it is in are
- *   highlighted in the graph.
+ * - The editor window's preview pane runs the controller on its model; the
+ *   states it is in are highlighted in the graph.
  *
  * Browser-only (React).
  */
@@ -27,7 +26,8 @@ import type { AnimatorController, AnimatorLayer, GraphValue } from '@thirdlight/
 import { GraphEditor } from '../../graph/GraphEditor';
 import { animatorBlendStateOf, animatorGraphOf, animatorLayerOf, animatorOwnerId, animatorTransitionPairs, parseAnimatorOwnerId, type AnimatorOwnerTarget } from '../../graph/animator';
 import type { GraphKindDef, GraphOp } from '../../graph/model';
-import { allStateIds, LayerSettings, LivePreview, MAX_LAYERS, newId, ParameterList, useClipChoices, useRigOf, type BoneInfo, type ClipInfo, type StartPreview } from './parts';
+import { allStateIds, LayerSettings, MAX_LAYERS, newId, ParameterList, useClipChoices, useRigOf, type BoneInfo, type ClipInfo } from './parts';
+import { usePreview } from '../preview/preview-request';
 import { MODEL_KINDS, RefPicker, useFirstEntry } from '../catalog/RefPicker';
 
 export interface AnimatorDocumentProps {
@@ -35,7 +35,6 @@ export interface AnimatorDocumentProps {
   controllers: AnimatorController[];
   clipsOf: (assetId: string) => Promise<ClipInfo[]>;
   skeletonOf?: (assetId: string) => Promise<BoneInfo[]>;
-  preview?: StartPreview;
   onSave: (controller: AnimatorController) => void;
   onDelete: (controllerId: string) => void;
   error: string | null;
@@ -50,17 +49,6 @@ export interface AnimatorDocumentProps {
   onSelection: (ownerId: string, ids: readonly string[]) => void;
   /** An item to select and frame (from the Inspector). */
   focus: { id: string; nonce: number } | null;
-}
-
-type PreviewDock = 'right' | 'bottom' | 'hidden';
-const DOCK_KEY = 'thirdlight.animatorPreviewDock.v1';
-function loadDock(): PreviewDock {
-  try {
-    const v = localStorage.getItem(DOCK_KEY);
-    return v === 'bottom' || v === 'hidden' ? v : 'right';
-  } catch {
-    return 'right';
-  }
 }
 
 /** The target to show: the requested one when it still exists, else the base layer. */
@@ -96,16 +84,8 @@ export function AnimatorDocument(p: AnimatorDocumentProps): JSX.Element {
       live = false;
     };
   }, [model]); // eslint-disable-line react-hooks/exhaustive-deps -- bones reload when the model changes; skeletonOf is a new closure each render
-  const [dock, setDockState] = useState<PreviewDock>(loadDock);
-  const setDock = (d: PreviewDock): void => {
-    setDockState(d);
-    try {
-      localStorage.setItem(DOCK_KEY, d);
-    } catch {
-      /* storage unavailable: the choice lasts for this page */
-    }
-  };
-  const [previewStates, setPreviewStates] = useState<string[]>([]);
+  const [previewStates, setPreviewStates] = useState<readonly string[]>([]);
+  usePreview(useMemo(() => (controller !== null ? { kind: 'animator' as const, controller, onStates: setPreviewStates } : null), [controller]));
 
   const target = controller !== null ? resolveTarget(controller, p.target) : null;
   const ownerId = target !== null ? animatorOwnerId(target) : '';
@@ -150,13 +130,6 @@ export function AnimatorDocument(p: AnimatorDocumentProps): JSX.Element {
   const layerTabs = [controller as AnimatorController | AnimatorLayer, ...(controller.layers ?? [])];
   const blendState = target !== null && 'blendState' in target ? animatorBlendStateOf(controller, target.blendState) : null;
 
-  const previewPane =
-    p.preview !== undefined && dock !== 'hidden' ? (
-      <div className={`tl-animator-doc__preview tl-animator-doc__preview--${dock}`} aria-label="animator preview pane">
-        <LivePreview controller={controller} start={p.preview} onStates={setPreviewStates} />
-      </div>
-    ) : null;
-
   return (
     <div className="tl-animator-doc" aria-label="animator">
       <div className="tl-animator__bar">
@@ -166,16 +139,6 @@ export function AnimatorDocument(p: AnimatorDocumentProps): JSX.Element {
           Delete controller
         </button>
         <span className="tl-graph__spacer" />
-        {p.preview !== undefined && (
-          <span className="tl-animator-doc__dock" role="group" aria-label="preview pane position">
-            <span className="tl-hint">Preview:</span>
-            {(['right', 'bottom', 'hidden'] as const).map((d) => (
-              <button key={d} type="button" className={`tl-button${dock === d ? ' is-active' : ''}`} aria-pressed={dock === d} onClick={() => setDock(d)}>
-                {d === 'right' ? 'Right' : d === 'bottom' ? 'Bottom' : 'Hide'}
-              </button>
-            ))}
-          </span>
-        )}
       </div>
       {p.error !== null && (
         <p className="tl-lighting__message" role="alert">
@@ -220,7 +183,7 @@ export function AnimatorDocument(p: AnimatorDocumentProps): JSX.Element {
           <span aria-current="page">Blend tree: {blendState.name}</span>
         </nav>
       )}
-      <div className={`tl-animator-doc__body${dock === 'bottom' ? ' is-column' : ' is-row'}`}>
+      <div className="tl-animator-doc__body is-row">
         <div className="tl-animator-doc__main">
           <div className="tl-animator-doc__side">
             {layerIndex > 0 && controller.layers?.[layerIndex - 1] !== undefined && (
@@ -261,8 +224,6 @@ export function AnimatorDocument(p: AnimatorDocumentProps): JSX.Element {
             )}
           </div>
         </div>
-        {/* One place in the tree for both docks (CSS moves it), so re-docking keeps a running preview. */}
-        {previewPane}
       </div>
     </div>
   );

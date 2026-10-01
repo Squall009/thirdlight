@@ -22,7 +22,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
 import { skinnedGlb } from './skinned-glb';
-import { openWindow, closeEditor, openEditor, expectEditorOpen, editorPane, windowTab, inspector as inspectorOf } from './ui';
+import { openWindow, closeEditor, openEditor, expectEditorOpen, editorPane, windowTab, inspector as inspectorOf, previewCanvas, previewPane } from './ui';
 
 let be: E2EBackend;
 let seq = 0;
@@ -168,15 +168,17 @@ test('a controller built in the Animator tab poses a skinned model in Play by it
   expect(stored[0]!.states.map((s) => s.name)).toEqual(['idle', 'Bent']);
   expect(stored[0]!.transitions).toEqual([{ from: 'state-01', to: bentId, conditions: [{ parameter: 'bent', op: 'true' }], duration: 0 }]);
 
-  // The live preview pane inside the tab: the controller runs on its model; flipping `bent` moves to Bent and changes the pose.
-  await expect(doc.getByLabel('animator preview pane', { exact: true })).toBeVisible();
-  await doc.getByRole('button', { name: 'Preview', exact: true }).click();
-  const preview = doc.getByLabel('animator preview', { exact: true });
-  await expect(preview).toHaveAttribute('data-state', 'idle', { timeout: 20_000 });
+  // The preview pane above the Inspector: the controller runs on its model; flipping `bent` moves to Bent and changes the pose.
+  const pane = previewPane(page);
+  await expect(pane).toBeVisible();
+  const readout = pane.getByLabel('animator preview', { exact: true });
+  const preview = previewCanvas(page);
+  await expect(preview).toHaveAttribute('data-subject', /^animator:/);
+  await expect(readout).toHaveAttribute('data-state', 'idle', { timeout: 20_000 });
   await page.waitForTimeout(500);
   const before = decodePng(await preview.screenshot());
-  await doc.getByLabel('preview bent').check();
-  await expect(preview).toHaveAttribute('data-state', 'Bent');
+  await pane.getByLabel('preview bent').check();
+  await expect(readout).toHaveAttribute('data-state', 'Bent');
   await page.waitForTimeout(500);
   const after = decodePng(await preview.screenshot());
   let changed = 0;
@@ -189,12 +191,6 @@ test('a controller built in the Animator tab poses a skinned model in Play by it
   }
   console.log(`[animator] preview pixels changed by the pose: ${changed}`);
   expect(changed).toBeGreaterThan(20);
-  // The pane docks at the bottom of the tab (the preview keeps running there) and can be hidden.
-  await doc.getByRole('button', { name: 'Bottom', exact: true }).click();
-  await expect(doc.locator('.tl-animator-doc__preview--bottom')).toBeVisible();
-  await doc.getByRole('button', { name: 'Stop preview' }).click();
-  await expect(preview).toHaveCount(0);
-  await doc.getByRole('button', { name: 'Right', exact: true }).click();
   // Nothing was saved by the preview.
   expect(JSON.stringify(await controllers())).not.toContain('"default":true');
 

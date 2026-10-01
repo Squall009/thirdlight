@@ -1,15 +1,14 @@
 /**
  * Pieces shared by the Animator's views — the bottom-dock
  * controller list, the "Animator: <controller>" tab (graph, layers,
- * parameters, preview pane) and its Inspector extension: clip choices of a
- * controller's model, the clip picker, layer settings (weight, bone mask),
- * the parameter list and the live preview.
- *
- * (Moved here from the 9.7 AnimatorPanel; behaviour unchanged.)
+ * parameters) and its Inspector extension: clip choices of a controller's
+ * model, the clip picker, layer settings (weight, bone mask) and the
+ * parameter list. The live preview runs in the editor window's preview pane.
  *
  * Browser-only (React).
  */
-import { useEffect, useMemo, useRef, useState, type JSX } from 'react';
+import { useEffect, useState, type JSX } from 'react';
+import type * as THREE from 'three';
 import type { AnimatorClipRef, AnimatorController, AnimatorLayer, AnimatorParameter, AnimatorState, AnimatorTransition } from '@thirdlight/project-model';
 import { MAX_ANIMATOR_LAYERS } from '@thirdlight/project-model/limits';
 
@@ -35,8 +34,11 @@ export interface ClipChoice extends ClipInfo {
   source: string | null;
 }
 
-/** A running live preview of one controller (App owns the model and the frame loop). */
+/** A running live preview of one controller: its model under the preview pane's stage, stepped by the pane's frames. */
 export interface AnimatorPreview {
+  readonly root: THREE.Object3D;
+  /** Step the controller and pose the model (seconds, before the speed). */
+  step(dtSeconds: number): void;
   set(name: string, value: number | boolean): void;
   trigger(name: string): void;
   /** The current state's name. */
@@ -52,7 +54,8 @@ export interface AnimatorPreview {
   dispose(): void;
 }
 
-export type StartPreview = (controller: AnimatorController, canvas: HTMLCanvasElement) => Promise<AnimatorPreview | string>;
+/** Realize `controller`'s model under `parent` with the controller running, or say why not. */
+export type StartPreview = (controller: AnimatorController, parent: THREE.Object3D) => Promise<AnimatorPreview | string>;
 
 export const MAX_LAYERS = MAX_ANIMATOR_LAYERS;
 
@@ -386,142 +389,6 @@ export function ParameterList({ controller, onSave }: { controller: AnimatorCont
           Add parameter
         </button>
       </div>
-    </div>
-  );
-}
-
-/**
- * The live preview: the controller runs on its model in a small canvas, with
- * the parameters as sliders, checkboxes and trigger buttons (nothing saved).
- * `onStates`: every layer's current state name (the graph highlights them).
- */
-export function LivePreview({ controller, start, onStates }: { controller: AnimatorController; start: StartPreview; onStates?: (names: string[]) => void }): JSX.Element {
-  const [on, setOn] = useState(false);
-  const [state, setState] = useState('');
-  const [layerStates, setLayerStates] = useState<string[]>([]);
-  const [clipTime, setClipTime] = useState(0);
-  const [elapsed, setElapsed] = useState(0);
-  const [error, setError] = useState<string | null>(null);
-  const [values, setValues] = useState<Record<string, number | boolean>>({});
-  // The preview's playback speed (kept across restarts, like the parameter values).
-  const [speed, setSpeed] = useState(1);
-  const speedRef = useRef(speed);
-  speedRef.current = speed;
-  const canvas = useRef<HTMLCanvasElement | null>(null);
-  const live = useRef<AnimatorPreview | null>(null);
-  const valuesRef = useRef(values);
-  valuesRef.current = values;
-  const onStatesRef = useRef(onStates);
-  onStatesRef.current = onStates;
-  // The game's view of the controller (the editor-only layout does not restart the preview).
-  const key = useMemo(() => JSON.stringify(controller, (k, v: unknown) => (k === 'layout' || k === 'position' ? undefined : v)), [controller]);
-  // (Re)start while on: an edited controller restarts the preview with the values kept.
-  useEffect(() => {
-    if (!on || canvas.current === null) return;
-    let cancelled = false;
-    void start(controller, canvas.current).then((r) => {
-      if (typeof r === 'string') {
-        if (!cancelled) {
-          setError(r);
-          setOn(false);
-        }
-        return;
-      }
-      if (cancelled) {
-        r.dispose();
-        return;
-      }
-      setError(null);
-      for (const [k, v] of Object.entries(valuesRef.current)) r.set(k, v);
-      r.setSpeed?.(speedRef.current);
-      live.current = r;
-    });
-    let last = '';
-    const timer = setInterval(() => {
-      const s = live.current?.state() ?? '';
-      const ls = live.current?.layerStates?.() ?? [];
-      setState(s);
-      setLayerStates(ls);
-      setClipTime(live.current?.clipTime?.() ?? 0);
-      setElapsed(live.current?.elapsed?.() ?? 0);
-      const all = ls.length > 0 ? ls : s !== '' ? [s] : [];
-      if (all.join('|') !== last) {
-        last = all.join('|');
-        onStatesRef.current?.(all);
-      }
-    }, 100);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-      live.current?.dispose();
-      live.current = null;
-      onStatesRef.current?.([]);
-    };
-  }, [on, key]); // eslint-disable-line react-hooks/exhaustive-deps -- the preview restarts on toggle or content key; callbacks are read through refs
-  const set = (name: string, v: number | boolean): void => {
-    setValues((x) => ({ ...x, [name]: v }));
-    live.current?.set(name, v);
-  };
-  const valueOf = (x: AnimatorParameter): number | boolean => values[x.name] ?? x.default ?? (x.type === 'bool' ? false : 0);
-  return (
-    <div aria-label="animator preview panel">
-      <div className="tl-panel__title">Live preview</div>
-      <button type="button" className="tl-button" onClick={() => setOn(!on)} disabled={controller.states.length === 0}>
-        {on ? 'Stop preview' : 'Preview'}
-      </button>
-      {error !== null && (
-        <p className="tl-hint" role="alert">
-          {error}
-        </p>
-      )}
-      {on && (
-        <>
-          <canvas className="tl-animator__preview" aria-label="animator preview" data-state={state} data-layer-states={layerStates.slice(1).join('|')} data-clip-time={clipTime.toFixed(4)} data-elapsed={elapsed.toFixed(4)} ref={canvas} />
-          <div className="tl-hint">
-            state: <b aria-label="preview state">{state}</b>
-            {layerStates.slice(1).map((x, i) => (
-              <span key={i}>
-                {' '}
-                · {controller.layers?.[i]?.name ?? `layer ${i + 1}`}: <b aria-label={`preview layer ${i + 1} state`}>{x}</b>
-              </span>
-            ))}
-          </div>
-          <div className="tl-animator__row">
-            <span className="tl-animator__param" title="Playback speed of every clip and crossfade (scripts: ctx.animator(id).setSpeed).">speed</span>
-            <input
-              type="range"
-              aria-label="preview speed"
-              min={0}
-              max={3}
-              step={0.05}
-              value={speed}
-              onChange={(e) => {
-                const v = Number(e.target.value);
-                setSpeed(v);
-                live.current?.setSpeed?.(v);
-              }}
-            />
-            <small aria-label="preview speed value">×{speed.toFixed(2)}</small>
-          </div>
-          {controller.parameters.map((x) => (
-            <div className="tl-animator__row" key={x.name}>
-              <span className="tl-animator__param">{x.name}</span>
-              {x.type === 'bool' && <input type="checkbox" aria-label={`preview ${x.name}`} checked={valueOf(x) === true} onChange={(e) => set(x.name, e.target.checked)} />}
-              {(x.type === 'float' || x.type === 'int') && (
-                <>
-                  <input type="range" aria-label={`preview ${x.name}`} min={-10} max={10} step={x.type === 'int' ? 1 : 0.1} value={Number(valueOf(x))} onChange={(e) => set(x.name, Number(e.target.value))} />
-                  <small>{Number(valueOf(x)).toFixed(x.type === 'int' ? 0 : 1)}</small>
-                </>
-              )}
-              {x.type === 'trigger' && (
-                <button type="button" className="tl-button" aria-label={`preview ${x.name}`} onClick={() => live.current?.trigger(x.name)}>
-                  fire
-                </button>
-              )}
-            </div>
-          ))}
-        </>
-      )}
     </div>
   );
 }

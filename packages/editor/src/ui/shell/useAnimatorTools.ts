@@ -8,7 +8,6 @@ import { useCallback, useRef, useState } from 'react';
 import { AnimatorMachine, type AnimatorControllerLike } from '@thirdlight/runtime';
 import { createAnimatorPlayer } from '@thirdlight/three-adapter';
 import type { AnimatorController } from '@thirdlight/project-model';
-import { PreviewStage } from '../../viewport/preview-stage';
 import type { AnimatorPanelProps, AnimatorPreview } from '../AnimatorPanel';
 import type { GraphOp } from '../../graph/model';
 import { refusal, type ClientRef, type ModelsRef, type ReportFailure } from './commands';
@@ -25,9 +24,9 @@ export interface AnimatorToolsDeps {
 export function useAnimatorTools(deps: AnimatorToolsDeps) {
   const { clientRef, modelInstancesRef, reportFailure, animators, openDocument, sendGraphEdit } = deps;
   const [animatorError, setAnimatorError] = useState<string | null>(null);
-  // The Animator window's live preview — the controller's model in
-  // its own small stage, posed every frame by the runtime's state machine.
-  const previewAnimator = useCallback(async (controller: AnimatorController, canvas: HTMLCanvasElement): Promise<AnimatorPreview | string> => {
+  // The Animator's live preview — the controller's model realized under the
+  // preview pane's stage, posed every pane frame by the runtime's state machine.
+  const previewAnimator = useCallback(async (controller: AnimatorController, parent: THREE.Object3D): Promise<AnimatorPreview | string> => {
     const c = clientRef.current;
     const m = modelInstancesRef.current;
     if (!c || !m) return 'the editor is not ready';
@@ -51,29 +50,20 @@ export function useAnimatorTools(deps: AnimatorToolsDeps) {
     }
     const v = c.content.resolveVersion(assetId);
     if (!v || !/^[0-9a-f]{64}$/.test(v.sourceDigest)) return 'the model has no published version';
-    const stage = new PreviewStage(canvas);
-    const res = await m.previewAsset({ assetId, version: v.version, sourceDigest: v.sourceDigest, sourceByteLength: v.sourceByteLength }, stage.scene);
-    if (!res.ok) {
-      stage.dispose();
-      return res.message;
-    }
-    stage.frame(res.session.root);
+    const res = await m.previewAsset({ assetId, version: v.version, sourceDigest: v.sourceDigest, sourceByteLength: v.sourceByteLength }, parent);
+    if (!res.ok) return res.message;
     const machine = new AnimatorMachine(controller as unknown as AnimatorControllerLike);
     const player = createAnimatorPlayer(res.session.root, res.session.animationClips, assetId, { clipsOf: (id) => foreign.get(id) ?? null });
-    let last = performance.now();
-    let raf = 0;
     let elapsed = 0;
-    const tick = (now: number): void => {
-      const dt = Math.min(0.1, Math.max(0, (now - last) / 1000));
-      elapsed += dt;
-      machine.step(dt);
-      last = now;
-      player.apply(machine.pose());
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
     let done = false;
     return {
+      root: res.session.root,
+      step: (dt) => {
+        if (done) return;
+        elapsed += dt;
+        machine.step(dt);
+        player.apply(machine.pose());
+      },
       set: (name, value) => void machine.set(name, value),
       trigger: (name) => void machine.trigger(name),
       state: () => machine.stateName(),
@@ -90,10 +80,9 @@ export function useAnimatorTools(deps: AnimatorToolsDeps) {
       dispose: () => {
         if (done) return;
         done = true;
-        cancelAnimationFrame(raf);
         player.dispose();
+        // A later preview (the asset preview) already released this session when it replaced it.
         if (m.previewSession() === res.session) m.clearPreview();
-        stage.dispose();
       },
     };
   }, [clientRef, modelInstancesRef]);
@@ -164,7 +153,6 @@ export function useAnimatorTools(deps: AnimatorToolsDeps) {
     controllers: animators,
     clipsOf,
     skeletonOf,
-    preview: previewAnimator,
     onSave: (controller) => void saveAnimator(controller),
     onDelete: (id) => void deleteAnimator(id),
     onOpen: (id) => openDocument('animator', id),

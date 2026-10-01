@@ -20,6 +20,7 @@ import type { GraphContext, GraphKindDef, GraphOp } from '../../graph/model';
 import { MaterialDocument, type MaterialDocumentProps } from '../material/MaterialDocument';
 import { EffectDocument, type EffectDocumentProps } from '../effect/EffectDocument';
 import type { DocRef } from '../../session/editor-window';
+import type { PreviewDeps } from '../preview/use-subject';
 import type { AnimatorPanelProps } from '../AnimatorPanel';
 import { AnimatorDocument, type AnimatorDocumentProps } from '../animator/AnimatorDocument';
 import type { BehaviorPanelProps } from '../BehaviorPanel';
@@ -37,7 +38,7 @@ import { UiThemeDocument, type UiThemeDocumentProps } from '../uidoc/UiThemeDocu
 export interface WorkspaceHost {
   /** The Animator's props (the bottom-dock panel uses the same). */
   animator: AnimatorPanelProps;
-  /** The props of one controller's tab (graph, layers, preview pane). */
+  /** The props of one controller's tab (graph, layers, parameters). */
   animatorDocument: (controllerId: string) => AnimatorDocumentProps;
   /** The Behaviors panel's props (the bottom-dock panel uses the same). */
   behavior: BehaviorPanelProps;
@@ -75,6 +76,8 @@ export interface WorkspaceHost {
     document: (uiDocumentId: string) => UiDocumentEditorProps;
     theme: (uiThemeId: string) => UiThemeDocumentProps;
   };
+  /** What the editor window's preview pane builds its subjects from. */
+  preview: PreviewDeps;
   /** Close a document's tab (e.g. after the document was deleted from its tab). */
   close: (doc: DocRef) => void;
 }

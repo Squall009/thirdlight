@@ -24,7 +24,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
 import { clipsOnlyGlb, skinnedGlb } from './skinned-glb';
-import { openWindow, openEditor, editorPane, inspector as inspectorOf } from './ui';
+import { openWindow, openEditor, editorPane, inspector as inspectorOf, previewCanvas, previewPane } from './ui';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -103,10 +103,10 @@ test('an upper-body layer masked by bone plays clips of an animation-only file i
   const inspector = inspectorOf(page);
   await expect(graph.getByRole('group', { name: 'State idle node state-01' })).toBeVisible();
 
-  // The live preview (the pane inside the tab): the straight column.
-  await doc.getByRole('button', { name: 'Preview', exact: true }).click();
-  const preview = doc.getByLabel('animator preview', { exact: true });
-  await expect(preview).toHaveAttribute('data-state', 'idle', { timeout: 20_000 });
+  // The live preview (the editor window's preview pane): the straight column.
+  const readout = previewPane(page).getByLabel('animator preview', { exact: true });
+  const preview = previewCanvas(page);
+  await expect(readout).toHaveAttribute('data-state', 'idle', { timeout: 20_000 });
   await page.waitForTimeout(500);
   const straight = leanRight(decodePng(await preview.screenshot()));
 
@@ -137,8 +137,8 @@ test('an upper-body layer masked by bone plays clips of an animation-only file i
   await expect.poll(async () => JSON.stringify(((await be.command({ op: 'queryGameConfig', projectId: be.projectId }))['animators'] as { layers?: unknown[] }[])[0]?.layers)).toContain('"mask":["upper"]');
 
   // The live preview shows the upper-body layer: the upper half bends to the right.
-  await expect(preview).toHaveAttribute('data-layer-states', 'Wave', { timeout: 20_000 });
-  await expect(preview).toHaveAttribute('data-state', 'idle');
+  await expect(readout).toHaveAttribute('data-layer-states', 'Wave', { timeout: 20_000 });
+  await expect(readout).toHaveAttribute('data-state', 'idle');
   await page.waitForTimeout(500);
   const bent = leanRight(decodePng(await preview.screenshot()));
   console.log(`[animator-layers] top of the column right of its base (width fraction): base only ${straight.toFixed(3)}, with the upper-body layer ${bent.toFixed(3)}`);
@@ -150,7 +150,7 @@ test('an upper-body layer masked by bone plays clips of an animation-only file i
   await expect.poll(async () => JSON.stringify(((await be.command({ op: 'queryGameConfig', projectId: be.projectId }))['animators'] as { layers?: unknown[] }[])[0]?.layers)).toContain('"mask":[]');
   await doc.getByLabel('mask bone root').click();
   await expect.poll(async () => JSON.stringify(((await be.command({ op: 'queryGameConfig', projectId: be.projectId }))['animators'] as { layers?: unknown[] }[])[0]?.layers)).toContain('"mask":["root"]');
-  await expect(preview).toHaveAttribute('data-layer-states', 'Wave', { timeout: 20_000 });
+  await expect(readout).toHaveAttribute('data-layer-states', 'Wave', { timeout: 20_000 });
   await page.waitForTimeout(800);
   const masked = leanRight(decodePng(await preview.screenshot()));
   console.log(`[animator-layers] masked to root: ${masked.toFixed(3)}`);
@@ -171,7 +171,6 @@ test('an upper-body layer masked by bone plays clips of an animation-only file i
 
   // Play: the runtime steps both layers and the renderer plays the clips file's
   // `wave` on the column's bones — only when the layer's mask holds `upper`.
-  await doc.getByRole('button', { name: 'Stop preview' }).click();
   const q = await be.command({ op: 'queryProject', projectId: be.projectId, args: {} });
   const created = await be.command({ op: 'createEntity', projectId: be.projectId, expectedRevision: q.revision, requestId: 'req-00000000000000000000000000146a01', origin: { kind: 'mcp', clientId: 'e2e-layers' }, args: { kind: 'model', name: 'column', model: { asset: { assetId: column.assetId } }, transform: { position: [0, 0, 0] } } });
   expect(created.ok, JSON.stringify(created)).toBe(true);

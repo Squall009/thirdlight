@@ -6,6 +6,7 @@
  * left, the editor's one Inspector on the right (the same component the
  * default view docks, moved here while the window shows, never a second
  * copy), one splitter between them whose width the layout storage remembers.
+ * Editors that preview share one preview pane above that Inspector.
  * Several open items are tabs of the window: closable, reorderable by drag,
  * middle-click closes, Ctrl+Tab / Ctrl+Shift+Tab cycle them. Esc or the
  * window's × return to the default view with the selection it had; the tabs
@@ -29,6 +30,8 @@ import {
   type WorkspaceState,
 } from '../../session/editor-window';
 import { KNOWN_DOCUMENT_KINDS, documentKind, documentTitle, type WorkspaceHost } from './kinds';
+import { PreviewPane } from '../preview/PreviewPane';
+import { PreviewRequestContext, type PreviewRequest } from '../preview/preview-request';
 
 const TAB_DRAG_TYPE = 'application/x-thirdlight-workspace-tab';
 
@@ -162,9 +165,14 @@ export interface EditorWindowProps {
 }
 
 /** The full window over the editor (rendered only while it shows). */
-export function EditorWindow({ state, dispatch, host, inspector, onSplitter }: EditorWindowProps): JSX.Element | null {
-  const doc = activeDoc(state);
-  if (doc === null) return null;
+export function EditorWindow(props: EditorWindowProps): JSX.Element | null {
+  return activeDoc(props.state) === null ? null : <OpenEditorWindow {...props} />;
+}
+
+function OpenEditorWindow({ state, dispatch, host, inspector, onSplitter }: EditorWindowProps): JSX.Element {
+  const doc = activeDoc(state)!;
+  // What the front editor asks the preview pane to show (it asks again when it comes to the front).
+  const [preview, setPreview] = useState<PreviewRequest | null>(null);
   return (
     <section className="tl-editor-window" aria-label="editor window" data-doc-kind={doc.kind}>
       <div className="tl-editor-window__head">
@@ -178,12 +186,16 @@ export function EditorWindow({ state, dispatch, host, inspector, onSplitter }: E
           <div className="tl-workspace__doc" role="tabpanel" aria-label={documentTitle(doc, host)}>
             {/* Keyed by the document: every tab gets its own view state. */}
             <div className="tl-workspace__view" key={docKey(doc)}>
-              {documentKind(doc.kind)?.render(doc.id, host) ?? <p className="tl-hint">Unknown document kind "{doc.kind}".</p>}
+              <PreviewRequestContext.Provider value={setPreview}>{documentKind(doc.kind)?.render(doc.id, host) ?? <p className="tl-hint">Unknown document kind "{doc.kind}".</p>}</PreviewRequestContext.Provider>
             </div>
           </div>
         </div>
         <div className="tl-splitter tl-splitter--v" onPointerDown={onSplitter} role="separator" aria-orientation="vertical" aria-label="Resize the editor window's inspector" />
-        {inspector}
+        {/* The one preview pane above the one Inspector; it keeps its renderer while the window shows. */}
+        <div className="tl-editor-window__side">
+          <PreviewPane request={preview} deps={host.preview} />
+          {inspector}
+        </div>
       </div>
     </section>
   );

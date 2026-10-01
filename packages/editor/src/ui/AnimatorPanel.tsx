@@ -12,7 +12,7 @@
 import { useEffect, useState, type JSX } from 'react';
 import type { AnimatorController } from '@thirdlight/project-model';
 
-import { newId, locomotionController, type BoneInfo, type ClipInfo, type StartPreview } from './animator/parts';
+import { newId, locomotionController, type BoneInfo, type ClipInfo } from './animator/parts';
 import { MODEL_KINDS, RefPicker, useFirstEntry } from './catalog/RefPicker';
 
 export type { AnimatorPreview, BoneInfo, ClipInfo } from './animator/parts';
@@ -22,8 +22,6 @@ export interface AnimatorPanelProps {
   controllers: AnimatorController[];
   /** Open a controller in the editor window. */
   onOpen: (controllerId: string) => void;
-  /** Start a live preview of `controller` in `canvas`, or say why not. */
-  preview?: StartPreview;
   clipsOf: (assetId: string) => Promise<ClipInfo[]>;
   /** The model's skeleton (its bones, or its nodes when it has none). */
   skeletonOf?: (assetId: string) => Promise<BoneInfo[]>;

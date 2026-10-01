@@ -10,10 +10,10 @@
  *   kind `effect` (owner id `<effectId>/<systemId>`); the selection shows in
  *   the right dock's Inspector (GraphInspector with curve and gradient
  *   widgets).
- * - The looping preview pane (right column, `EffectPreviewPane`):
- *   the effect on its own renderer with the executor Play would use, a
- *   timeline (play/pause, restart, scrub), spawn counters, the frame cost and
- *   preview-only parameter sliders; it follows every edit live.
+ * - The editor window's preview pane loops the effect with the executor
+ *   Play would use, a timeline (play/pause, restart, scrub), spawn counters,
+ *   the frame cost and preview-only parameter sliders; it follows every edit
+ *   live.
  *
  * Browser-only (React).
  */
@@ -25,7 +25,7 @@ import { GraphEditor } from '../../graph/GraphEditor';
 import type { GraphContext, GraphKindDef, GraphOp } from '../../graph/model';
 import { newSystem, uniqueId } from '../../session/effect-edit';
 import { ParameterValue } from '../material/MaterialDocument';
-import { EffectPreviewPane, type EffectPreviewPaneProps } from './EffectPreviewPane';
+import { usePreview } from '../preview/preview-request';
 
 export interface EffectDocumentProps {
   effectId: string;
@@ -43,12 +43,6 @@ export interface EffectDocumentProps {
   onSelection: (ids: readonly string[]) => void;
   focus: { id: string; nonce: number } | null;
   error: string | null;
-  /** The preview's environment (the project's, with its wind; null = a neutral backdrop). */
-  environment: EffectPreviewPaneProps['environment'];
-  /** A texture asset's texture (particle textures in the preview). */
-  loadTexture: EffectPreviewPaneProps['loadTexture'];
-  /** A model asset's scene (mesh particles and mesh-surface shapes in the preview). */
-  loadModel?: EffectPreviewPaneProps['loadModel'];
 }
 
 /** The system a tab shows: the chosen one while it exists (a new one may still be on its way), else the first. */
@@ -69,6 +63,7 @@ export function EffectDocument(p: EffectDocumentProps): JSX.Element {
   const kind = p.kinds['effect'];
   const portContext = useMemo(() => effectPortContext(fx?.parameters), [fx?.parameters]);
   const system = fx !== null ? shownSystem(fx, p.systemOf(p.effectId)) : null;
+  usePreview(useMemo(() => (fx !== null ? { kind: 'effect' as const, effect: fx } : null), [fx]));
   if (fx === null) return <p className="tl-hint">This effect no longer exists (deleted or undone). Close the tab, or undo the deletion.</p>;
   if (kind === undefined) return <p className="tl-hint">Loading the effect node catalogue…</p>;
   const save = (patch: Partial<EffectDef>): void => p.onSave({ ...fx, ...patch });
@@ -162,9 +157,6 @@ export function EffectDocument(p: EffectDocumentProps): JSX.Element {
               portContext={portContext}
             />
           )}
-        </div>
-        <div className="tl-animator-doc__preview tl-animator-doc__preview--right tl-effect-doc__preview">
-          <EffectPreviewPane effect={fx} environment={p.environment} loadTexture={p.loadTexture} {...(p.loadModel !== undefined ? { loadModel: p.loadModel } : {})} />
         </div>
       </div>
     </div>

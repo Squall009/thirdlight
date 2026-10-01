@@ -46,6 +46,16 @@ export function editorWindow(page: Page): Locator {
   return page.getByRole('region', { name: 'editor window', exact: true });
 }
 
+/** The editor window's one preview pane (above the Inspector), shown while the front editor previews. */
+export function previewPane(page: Page): Locator {
+  return editorWindow(page).getByRole('region', { name: 'preview pane', exact: true });
+}
+
+/** The preview pane's canvas (its renderer's frames, subject and live resource counts are its data attributes). */
+export function previewCanvas(page: Page): Locator {
+  return previewPane(page).getByLabel('preview canvas', { exact: true });
+}
+
 /** The editor window's tab strip: one tab per open item. */
 const windowTabs = (page: Page): Locator => editorWindow(page).getByRole('tablist', { name: 'open items' });
 

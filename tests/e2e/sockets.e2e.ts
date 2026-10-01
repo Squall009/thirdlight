@@ -26,7 +26,7 @@ import { expect, test, type Page } from '@playwright/test';
 
 import { startBackend, type E2EBackend } from './backend';
 import { socketGlb } from './socket-glb';
-import { openWindow, editorPane } from './ui';
+import { openWindow, editorPane, previewPane } from './ui';
 
 let be: E2EBackend | null = null;
 test.afterEach(async () => {
@@ -291,9 +291,9 @@ test('editor: "+ Add component" → Socket, the Inspector node list from the mod
   // The Animator's live preview at ×1 and ×0.5: the clip time advances at half the rate.
   await openWindow(page, 'Animator');
   await page.getByLabel('animator controllers').getByRole('button', { name: 'Slide' }).dblclick();
-  const doc = editorPane(page, 'Animator', 'Slide');
-  await doc.getByRole('button', { name: 'Preview', exact: true }).click();
-  const preview = doc.getByLabel('animator preview', { exact: true });
+  await expect(editorPane(page, 'Animator', 'Slide')).toBeVisible();
+  const pane = previewPane(page);
+  const preview = pane.getByLabel('animator preview', { exact: true });
   await expect(preview).toHaveAttribute('data-state', 'Slide', { timeout: 20_000 });
   const rateOf = async (): Promise<number> => {
     // Clip time over the preview's own stepped time (frame-rate independent), within one loop of the 4 s clip.
@@ -318,8 +318,8 @@ test('editor: "+ Add component" → Socket, the Inspector node list from the mod
     throw new Error('the preview clip time did not advance');
   };
   const full = await rateOf();
-  await doc.getByLabel('preview speed', { exact: true }).fill('0.5');
-  await expect(doc.getByLabel('preview speed value')).toHaveText('×0.50');
+  await pane.getByLabel('preview speed', { exact: true }).fill('0.5');
+  await expect(pane.getByLabel('preview speed value')).toHaveText('×0.50');
   const half = await rateOf();
   expect(Math.abs(full - 1), `×1: ${full.toFixed(3)}`).toBeLessThan(0.02);
   expect(Math.abs(half - 0.5), `×0.5: ${half.toFixed(3)}`).toBeLessThan(0.02);

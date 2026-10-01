@@ -8,26 +8,24 @@
  * - Left: the exposed parameters (key, type, default, range, visibility) —
  *   Parameter nodes read them, objects override the public ones. Each change
  *   is one `setMaterial`.
- * - A live preview (sphere, plane, cube or a model of the
- *   project, in the project environment) compiled like the Scene view, Play
- *   and exports draw it; the compile problems show on their nodes
- *   (with the kind's own rules) and in the Problems tab.
+ * - The editor window's preview pane shows the material on a shape or a
+ *   model of the project, compiled like the Scene view, Play and exports
+ *   draw it; the compile problems show on their nodes (with the kind's own
+ *   rules) and in the Problems tab.
  *
  * Browser-only (React).
  */
-import { useEffect, useMemo, useRef, useState, type JSX } from 'react';
+import { useMemo, useState, type JSX } from 'react';
 import type { GraphDocument, GraphValue, MaterialDef, MaterialParameter } from '@thirdlight/project-model';
 import { MATERIAL_DATA_MAX } from '@thirdlight/project-model/limits';
-import { materialGraphProblems, type EnvironmentLike, type MaterialDefLike, type MaterialFunctionLike, type WindLike } from '@thirdlight/three-adapter';
-import type * as THREE from 'three';
+import { materialGraphProblems, type MaterialFunctionLike } from '@thirdlight/three-adapter';
 
 import { GraphEditor } from '../../graph/GraphEditor';
 import type { GraphKindDef, GraphOp } from '../../graph/model';
 import { materialPortContext, parameterDefault } from '../../session/material-graph';
-import { MaterialPreview, type PreviewShape } from '../../viewport/material-preview';
 import { stringsIn, useTextureIds } from '../catalog/catalog-context';
-import { MODEL_KINDS, RefPicker, TEXTURE_KINDS } from '../catalog/RefPicker';
-import { useIndexList } from '../catalog/useIndexList';
+import { RefPicker, TEXTURE_KINDS } from '../catalog/RefPicker';
+import { usePreview } from '../preview/preview-request';
 
 export interface MaterialDocumentProps {
   materialId: string;
@@ -43,12 +41,6 @@ export interface MaterialDocumentProps {
   onSelection: (ids: readonly string[]) => void;
   focus: { id: string; nonce: number } | null;
   error: string | null;
-  /** The preview's environment (the project's, with its wind); null = a neutral backdrop. */
-  environment: (EnvironmentLike & { wind?: WindLike }) | null;
-  /** A texture asset's texture (the preview's own library). */
-  loadTexture: (assetId: string) => Promise<THREE.Texture | null>;
-  /** A model asset as a new object for the preview (null: unavailable); `dispose` releases it. */
-  loadModel: (assetId: string) => Promise<{ root: THREE.Object3D; dispose: () => void } | null>;
 }
 
 const PARAM_TYPES: readonly MaterialParameter['type'][] = ['float', 'vec2', 'vec3', 'vec4', 'color', 'texture', 'data'];
@@ -63,6 +55,10 @@ export function MaterialDocument(p: MaterialDocumentProps): JSX.Element {
   // The textures it names (read by id: the project may hold thousands).
   const named = useMemo(() => stringsIn([m?.graph ?? null, m?.parameters ?? null]), [m?.graph, m?.parameters]);
   const textureIds = useTextureIds(named);
+  // The preview pane shows this material (the functions it may call compile with it).
+  const functions = useMemo(() => p.graphs.filter((g) => g.kind === 'material-function'), [p.graphs]);
+  const hasGraph = m?.graph !== undefined;
+  usePreview(useMemo(() => (hasGraph ? { kind: 'material' as const, materialId: p.materialId, materials: p.materials, functions: functions as unknown as MaterialFunctionLike[] } : null), [hasGraph, p.materialId, p.materials, functions]));
   const compileProblems = useMemo(
     () => (m?.graph !== undefined ? materialGraphProblems({ graph: m.graph, ...(m.parameters !== undefined ? { parameters: m.parameters } : {}) }, p.graphs as unknown as MaterialFunctionLike[], textureIds) : []),
     [m?.graph, m?.parameters, p.graphs, textureIds],
@@ -70,7 +66,6 @@ export function MaterialDocument(p: MaterialDocumentProps): JSX.Element {
   if (m === null) return <p className="tl-hint">This material no longer exists (deleted or undone). Close the tab, or undo the deletion.</p>;
   if (kind === undefined) return <p className="tl-hint">Loading the material node catalogue…</p>;
   if (m.graph === undefined) return <p className="tl-hint">"{m.name}" is a shader material (no graph). Use "Convert to graph" in the Materials tab.</p>;
-  const functions = p.graphs.filter((g) => g.kind === 'material-function');
   const newNodeData = (type: string): Record<string, GraphValue> | undefined => {
     // A new Parameter node reads the first declared parameter; a new call runs the first function.
     if (type === 'parameter' && (m.parameters ?? []).length > 0) return { key: m.parameters![0]!.key };
@@ -105,7 +100,6 @@ export function MaterialDocument(p: MaterialDocumentProps): JSX.Element {
       )}
       <div className="tl-animator-doc__main">
         <div className="tl-animator-doc__side">
-          <PreviewPane materialId={m.materialId} materials={p.materials} graphs={p.graphs} environment={p.environment} loadTexture={p.loadTexture} loadModel={p.loadModel} />
           <ParameterEditor material={m} onSave={p.onSave} />
         </div>
         <div className="tl-animator-doc__graph">
@@ -123,99 +117,6 @@ export function MaterialDocument(p: MaterialDocumentProps): JSX.Element {
           />
         </div>
       </div>
-    </div>
-  );
-}
-
-/**
- * The live preview — the material on a sphere, a plane, a cube
- * or a model of the project, in the project environment; drag to orbit.
- */
-function PreviewPane(p: Pick<MaterialDocumentProps, 'materials' | 'graphs' | 'environment' | 'loadTexture' | 'loadModel'> & { materialId: string }): JSX.Element {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const previewRef = useRef<MaterialPreview | null>(null);
-  const [shape, setShape] = useState<PreviewShape>('sphere');
-  const [modelId, setModelId] = useState('');
-  const [status, setStatus] = useState('starting…');
-  const latest = useRef(p);
-  latest.current = p;
-  // The project's first model stands in until one is chosen (the models are paged from the index).
-  const models = useIndexList({ kinds: MODEL_KINDS });
-  const firstModel = models.entry(0)?.id ?? '';
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (canvas === null) return undefined;
-    const preview = new MaterialPreview(canvas, { loadTexture: (id) => latest.current.loadTexture(id) });
-    previewRef.current = preview;
-    const timer = window.setInterval(() => {
-      const info = preview.info();
-      const probs = preview.problems();
-      const errors = (probs ?? []).filter((x) => x.severity === 'error').length;
-      setStatus(info.state !== 'ready' ? `${info.state}…` : `${info.backend}${errors > 0 ? ` · ${errors} error${errors === 1 ? '' : 's'}` : ''}`);
-      canvas.dataset['tlPreviewFrames'] = String(preview.frameCount());
-      canvas.dataset['tlRenderer'] = info.backend ?? '';
-    }, 250);
-    return () => {
-      window.clearInterval(timer);
-      preview.dispose();
-      previewRef.current = null;
-    };
-  }, []);
-  useEffect(() => {
-    previewRef.current?.setMaterial(p.materials as unknown as MaterialDefLike[], p.graphs.filter((g) => g.kind === 'material-function') as unknown as MaterialFunctionLike[], p.materialId);
-  }, [p.materials, p.graphs, p.materialId]);
-  useEffect(() => {
-    previewRef.current?.setEnvironment(p.environment);
-  }, [p.environment]);
-  useEffect(() => {
-    const preview = previewRef.current;
-    if (preview === null) return undefined;
-    if (shape !== 'model') {
-      preview.setShape(shape);
-      return undefined;
-    }
-    const id = modelId !== '' ? modelId : firstModel;
-    if (id === '') {
-      preview.setShape('sphere');
-      return undefined;
-    }
-    let live = true;
-    let loaded: { root: THREE.Object3D; dispose: () => void } | null = null;
-    void latest.current.loadModel(id).then((m) => {
-      if (!live) {
-        m?.dispose();
-        return;
-      }
-      loaded = m;
-      preview.setShape(m !== null ? 'model' : 'sphere', m?.root ?? null);
-    });
-    return () => {
-      live = false;
-      if (loaded !== null) {
-        preview.setShape('sphere');
-        loaded.dispose();
-      }
-    };
-  }, [shape, modelId, firstModel]);
-  return (
-    <div className="tl-material-preview" aria-label="material preview">
-      <div className="tl-subhead">
-        Preview
-        <select className="tl-input" aria-label="preview shape" value={shape} onChange={(e) => setShape(e.target.value as PreviewShape)}>
-          <option value="sphere">sphere</option>
-          <option value="plane">plane</option>
-          <option value="cube">cube</option>
-          <option value="model" disabled={models.total === 0}>
-            model
-          </option>
-        </select>
-      </div>
-      {shape === 'model' && firstModel !== '' && <RefPicker aria="preview model" kinds={MODEL_KINDS} value={modelId !== '' ? modelId : firstModel} onPick={setModelId} />}
-      <canvas ref={canvasRef} className="tl-material-preview__canvas" aria-label="material preview canvas" />
-      <span className="tl-hint tl-material-preview__status" role="status">
-        {status}
-        {p.environment === null ? ' · neutral backdrop (no project environment)' : ' · project environment'}
-      </span>
     </div>
   );
 }

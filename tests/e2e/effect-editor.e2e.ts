@@ -21,7 +21,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 import { startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
 import { backendOf, editorUrlFor, expectRendererBackend, onlyInItsProject, type RendererVariant } from './renderer-variants';
-import { menu, openWindow, expectEditorOpen, closeEditor } from './ui';
+import { menu, openWindow, expectEditorOpen, closeEditor, openEditor, previewCanvas, previewPane } from './ui';
 
 let be: E2EBackend;
 test.afterEach(async () => {
@@ -110,14 +110,15 @@ const green = (r: number, g: number, b: number): boolean => g > 150 && r < 0.55 
 const shot = async (t: Locator | Page): Promise<Image> => decodePng(await t.screenshot());
 
 interface PreviewState { executor: string | null; time: number; steps: number; playing: boolean; systems: { id: string; spawned: number; living: number | null }[] }
-async function state(canvas: Locator): Promise<PreviewState> {
-  return JSON.parse((await canvas.getAttribute('data-tl-effect-preview')) ?? '{"systems":[]}') as PreviewState;
+/** The effect controls' published state (the preview pane's effect subject). */
+async function state(page: Page): Promise<PreviewState> {
+  return JSON.parse((await previewPane(page).getByLabel('effect preview', { exact: true }).getAttribute('data-tl-effect-preview')) ?? '{"systems":[]}') as PreviewState;
 }
-const spawned = async (canvas: Locator): Promise<number> => (await state(canvas)).systems[0]?.spawned ?? -1;
-interface Ledger { open: number; opened: number; closed: number; leaks: number; last: { baseline: Record<string, number>; after: Record<string, number> } | null }
-const ledger = async (page: Page): Promise<Ledger> => JSON.parse((await page.locator('html').getAttribute('data-tl-effect-previews')) ?? '{"open":0,"opened":0,"closed":0,"leaks":0,"last":null}') as Ledger;
+const spawned = async (page: Page): Promise<number> => (await state(page)).systems[0]?.spawned ?? -1;
+interface Ledger { open: number; opened: number; closed: number; shown: number; released: number; idle: Record<string, number> | null }
+const ledger = async (page: Page): Promise<Ledger> => JSON.parse((await page.locator('html').getAttribute('data-tl-previews')) ?? '{"open":0,"opened":0,"closed":0,"shown":0,"released":0,"idle":null}') as Ledger;
 
-const VARIANTS: readonly RendererVariant[] = ['auto', 'webgpu'];
+const VARIANTS: readonly RendererVariant[] = ['auto', 'webgl2', 'webgpu'];
 
 for (const variant of VARIANTS) test(`the Effect tab previews an effect: particles, pause, deterministic scrub, restart, parameter slider, live edit, no leaks (${variant})`, async ({ page }) => {
   onlyInItsProject(variant);
@@ -136,40 +137,40 @@ for (const variant of VARIANTS) test(`the Effect tab previews an effect: particl
   await openTab();
 
   // The preview draws the effect with the executor Play would use.
-  const canvas = page.getByLabel('effect preview canvas');
+  const canvas = previewCanvas(page);
   await expectRendererBackend(canvas, variant);
-  await expect.poll(async () => (await state(canvas)).executor, { timeout: 60_000 }).toBe(executor);
+  await expect.poll(async () => (await state(page)).executor, { timeout: 60_000 }).toBe(executor);
   await expect(page.getByLabel('preview status')).toContainText(executor === 'webgpu' ? 'WebGPU compute' : 'CPU executor');
   // The frame cost says how it was measured: the WebGPU executor's simulation in GPU time, the CPU executor's in CPU time.
   await expect(page.getByLabel('frame cost')).toContainText(executor === 'webgpu' ? /GPU time \(timestamp queries\): simulation|CPU frame time \(no GPU timestamp queries/ : /Simulation \(CPU executor\): [0-9.]+ ms CPU time|CPU frame time \(no GPU timestamp queries/, { timeout: 30_000 });
   let playingPixels = 0;
   await expect.poll(async () => (playingPixels = count(await shot(canvas), magenta)), { timeout: 60_000 }).toBeGreaterThan(40);
-  await expect.poll(async () => spawned(canvas), { timeout: 30_000 }).toBeGreaterThan(0);
+  await expect.poll(async () => spawned(page), { timeout: 30_000 }).toBeGreaterThan(0);
 
   // Pause: the counter stops.
   await page.getByRole('button', { name: 'pause preview' }).click();
   await expect(page.getByRole('button', { name: 'play preview' })).toBeVisible();
-  await expect.poll(async () => (await state(canvas)).playing, { timeout: 10_000 }).toBe(false);
-  const frozen = await spawned(canvas);
+  await expect.poll(async () => (await state(page)).playing, { timeout: 10_000 }).toBe(false);
+  const frozen = await spawned(page);
   await page.waitForTimeout(700);
-  expect(await spawned(canvas)).toBe(frozen);
+  expect(await spawned(page)).toBe(frozen);
 
   // Scrub: a re-simulation from the seed — 60 steps of 40/60 = exactly 40 born, all alive (1.5 s lives).
   const scrub = page.getByLabel('preview time', { exact: true });
   const scrubTo = async (t: string, steps: number, born: number): Promise<void> => {
     await scrub.fill(t);
-    await expect.poll(async () => (await state(canvas)).steps, { timeout: 30_000 }).toBe(steps);
-    expect(await spawned(canvas)).toBe(born);
+    await expect.poll(async () => (await state(page)).steps, { timeout: 30_000 }).toBe(steps);
+    expect(await spawned(page)).toBe(born);
   };
   await scrubTo('1', 60, 40);
-  await expect.poll(async () => (await state(canvas)).systems[0]?.living, { timeout: 30_000 }).toBe(40);
+  await expect.poll(async () => (await state(page)).systems[0]?.living, { timeout: 30_000 }).toBe(40);
   const row = page.getByRole('table', { name: 'spawn counters' }).locator('tr[data-system-id="motes"]');
   await expect(row.locator('[data-counter="spawned"]')).toHaveText('40');
   await expect(row).toContainText('Motes');
   await page.waitForTimeout(400);
   const atOne = count(await shot(canvas), magenta);
   await scrubTo('0.5', 30, 20);
-  await expect.poll(async () => (await state(canvas)).systems[0]?.living, { timeout: 30_000 }).toBe(20);
+  await expect.poll(async () => (await state(page)).systems[0]?.living, { timeout: 30_000 }).toBe(20);
   await scrubTo('1', 60, 40);
   await page.waitForTimeout(400);
   const atOneAgain = count(await shot(canvas), magenta);
@@ -182,7 +183,7 @@ for (const variant of VARIANTS) test(`the Effect tab previews an effect: particl
   await page.getByLabel('preview parameter size').fill('0.9');
   let bigger = 0;
   await expect.poll(async () => (bigger = count(await shot(canvas), magenta)), { timeout: 30_000 }).toBeGreaterThan(atOne * 2);
-  expect(await spawned(canvas)).toBe(40);
+  expect(await spawned(page)).toBe(40);
   console.log(`[effect-editor] ${variant}: size 0.9 → magenta ${bigger}; ${await page.getByLabel('frame cost').textContent()}`);
   await page.screenshot({ path: test.info().outputPath('effect-tab.png') });
   const saved = (await be.command({ op: 'queryGameConfig', projectId: be.projectId, args: {} })) as { effects: { parameters: { default: number }[] }[] };
@@ -192,40 +193,44 @@ for (const variant of VARIANTS) test(`the Effect tab previews an effect: particl
 
   // Restart: back to time 0 (paused: nothing born yet); play again: it grows.
   await page.getByRole('button', { name: 'restart preview' }).click();
-  await expect.poll(async () => (await state(canvas)).steps, { timeout: 30_000 }).toBe(0);
-  expect(await spawned(canvas)).toBe(0);
+  await expect.poll(async () => (await state(page)).steps, { timeout: 30_000 }).toBe(0);
+  expect(await spawned(page)).toBe(0);
   await expect(page.getByLabel('preview time readout')).toHaveText('0.00 / 4.00 s');
   await page.getByRole('button', { name: 'play preview' }).click();
-  await expect.poll(async () => spawned(canvas), { timeout: 30_000 }).toBeGreaterThan(0);
+  await expect.poll(async () => spawned(page), { timeout: 30_000 }).toBeGreaterThan(0);
 
   // Live: an edit of the graph (a new rate) shows in the preview at once — paused at 1 s, 60 steps of 120/60.
   await page.getByRole('button', { name: 'pause preview' }).click();
   await scrubTo('1', 60, 40);
   await cmd('setEffect', { effect: streamEffect(120) });
-  await expect.poll(async () => spawned(canvas), { timeout: 30_000 }).toBe(120);
-  expect((await state(canvas)).steps).toBe(60);
+  await expect.poll(async () => spawned(page), { timeout: 30_000 }).toBe(120);
+  expect((await state(page)).steps).toBe(60);
 
-  // Leak check: close the tab, then open and close it 10 times — every preview is disposed and returned the renderer's
-  // geometry and attribute counts to their baseline.
-  await closeEditor(page, 'Effect', 'Stream');
-  await expect(canvas).toHaveCount(0);
+  // Leak check: switching between two effects 10 times swaps the pane's subject on its one renderer (none is made
+  // per switch) and every switch leaves the renderer's resource counts of the empty stage where they were.
+  await cmd('setEffect', { effect: { ...streamEffect(40, '#00ff00'), effectId: 'fx-other', name: 'Other' } });
+  await openEditor(page, 'Effect', 'Other');
+  await expect.poll(async () => (await state(page)).steps, { timeout: 60_000 }).toBeGreaterThan(0);
   const before = await ledger(page);
-  expect(before.open).toBe(0);
+  expect(before.open).toBe(1);
+  const idle: Record<string, number>[] = [];
   for (let k = 0; k < 10; k++) {
-    await openTab();
-    // Wait until the preview built its play (the baseline exists and the effect was simulated).
-    await expect.poll(async () => (await state(canvas)).steps, { timeout: 60_000 }).toBeGreaterThan(0);
-    await closeEditor(page, 'Effect', 'Stream');
-    await expect(canvas).toHaveCount(0);
+    for (const name of ['Stream', 'Other']) {
+      await openEditor(page, 'Effect', name);
+      await expect(canvas).toHaveAttribute('data-subject', name === 'Stream' ? 'effect:fx-stream' : 'effect:fx-other');
+      // Wait until the preview built its play (the effect was simulated).
+      await expect.poll(async () => (await state(page)).steps, { timeout: 60_000 }).toBeGreaterThan(0);
+    }
+    idle.push((await ledger(page)).idle!);
   }
   const after = await ledger(page);
   console.log(`[effect-editor] ${variant}: ledger ${JSON.stringify(after)}`);
-  expect(after.open).toBe(0);
-  expect(after.opened - before.opened).toBe(10);
-  expect(after.closed - before.closed).toBe(10);
-  expect(after.leaks).toBe(0);
-  expect(after.last).not.toBeNull();
-  for (const k of Object.keys(after.last!.baseline)) expect(after.last!.after[k], k).toBe(after.last!.baseline[k]);
+  expect(after.opened).toBe(before.opened);
+  expect(after.released - before.released).toBe(20);
+  for (const k of Object.keys(idle[0]!)) expect(idle.map((x) => x[k]), k).toEqual(idle.map(() => idle[0]![k]));
+  await closeEditor(page);
+  await expect(canvas).toHaveCount(0);
+  expect((await ledger(page)).open).toBe(0);
   // The Scene view still draws (no context was lost to the previews).
   await expect(page.locator('canvas.tl-viewport')).toHaveAttribute('data-tl-renderer-state', 'ready');
 });

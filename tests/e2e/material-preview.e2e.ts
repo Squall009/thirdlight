@@ -20,7 +20,7 @@ import { KIT_PIECES, multiPieceGlb } from './multi-piece-glb';
 import { decodePng, type Image } from './png';
 import { makePng } from './png-make';
 import { backendOf, editorUrlFor, onlyInItsProject, type RendererVariant } from './renderer-variants';
-import { projectWindow, openWindow, expectEditorOpen, openEditor } from './ui';
+import { projectWindow, openWindow, expectEditorOpen, openEditor, previewCanvas } from './ui';
 
 let be: E2EBackend;
 let dir: string;
@@ -77,7 +77,7 @@ function changed(a: Image, b: Image): number {
 const orange = (r: number, g: number, b: number): boolean => r > 90 && r > 1.4 * g && g > 1.4 * b;
 const red = (r: number, g: number, b: number): boolean => r > 150 && g < 60 && b < 60;
 
-const VARIANTS: readonly RendererVariant[] = ['auto', 'webgpu'];
+const VARIANTS: readonly RendererVariant[] = ['auto', 'webgl2', 'webgpu'];
 
 for (const variant of VARIANTS) test(`the Material tab previews the graph on a sphere, a plane, a cube and a model in the project environment (${variant})`, async ({ page }) => {
   onlyInItsProject(variant);
@@ -109,7 +109,7 @@ for (const variant of VARIANTS) test(`the Material tab previews the graph on a s
   await expect(page.locator('.tl-statusbar')).toContainText('connected');
   await importFile(page, glb);
   await openEditor(page, 'Material', 'Orange');
-  const canvas = page.getByLabel('material preview canvas');
+  const canvas = previewCanvas(page);
   await expect.poll(() => canvas.getAttribute('data-tl-renderer'), { timeout: 30_000 }).toBe(backendOf(variant));
   await expect(page.getByLabel('material preview').getByRole('status')).toContainText(backendOf(variant));
 
@@ -135,7 +135,7 @@ for (const variant of VARIANTS) test(`the Material tab previews the graph on a s
   await shape.selectOption('sphere');
   expect(share(await shot(canvas), red)).toBeLessThan(0.05);
   await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: '#ff0000', intensity: 1, environmentIntensity: 0 } } });
-  await expect(page.getByLabel('material preview').getByRole('status')).toContainText('project environment');
+  await expect(page.getByLabel('material preview').getByRole('status')).toContainText("the active scene's look");
   await expect.poll(async () => share(await shot(canvas), red), { timeout: 30_000 }).toBeGreaterThan(0.3);
   await expect.poll(async () => share(await shot(canvas), orange)).toBeGreaterThan(0.1);
 

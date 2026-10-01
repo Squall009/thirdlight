@@ -21,7 +21,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 import { exportedContent, startBackend, type E2EBackend } from './backend';
 import { decodePng, type Image } from './png';
 import { editorUrlFor, expectRendererBackend, exportQueryFor, onlyInItsProject, type RendererVariant } from './renderer-variants';
-import { menu, closeEditor, openEditor } from './ui';
+import { menu, closeEditor, openEditor, previewCanvas } from './ui';
 
 let be: E2EBackend;
 test.beforeEach(async () => {
@@ -111,11 +111,11 @@ for (const variant of VARIANTS) test(`a Custom-lit graph (two N·L bands) shades
   await expect(popup.getByRole('group', { name: 'Lighting' })).toBeVisible();
   for (const label of ['Main light', 'Shadow', 'Diffuse light', 'Ambient light']) await expect(popup.getByRole('option', { name: label, exact: true })).toBeVisible();
   await page.keyboard.press('Escape');
-  const preview = page.getByLabel('material preview canvas');
+  const preview = previewCanvas(page);
   await expect.poll(() => preview.getAttribute('data-tl-renderer'), { timeout: 30_000 }).toBe(variant);
   const status = page.locator('.tl-material-preview__status');
   await expect(status).toContainText(variant);
-  await expect.poll(async () => Number(await preview.getAttribute('data-tl-preview-frames')), { timeout: 30_000 }).toBeGreaterThan(5);
+  await expect.poll(async () => Number(await preview.getAttribute('data-frames')), { timeout: 30_000 }).toBeGreaterThan(5);
   await expect.poll(async () => count(await shot(preview), yellow), { timeout: 30_000 }).toBeGreaterThan(150);
   await expect.poll(async () => count(await shot(preview), blue), { timeout: 30_000 }).toBeGreaterThan(40);
   await expect(status).not.toContainText('error');

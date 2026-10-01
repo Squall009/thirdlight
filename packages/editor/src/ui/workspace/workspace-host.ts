@@ -9,9 +9,8 @@ import type { FieldContext } from '../DescriptorFields';
 import { useUiPreviewAssets } from '../uidoc/useUiPreviewAssets';
 import { conversationsFrom } from '../../session/dialogue-closure';
 import type { WorkspaceHost } from './kinds';
-import type { MaterialDocumentProps } from '../material/MaterialDocument';
 import { docKey, type WorkspaceAction } from '../../session/editor-window';
-import type { EffectDocumentProps } from '../effect/EffectDocument';
+import type { PreviewDeps } from '../preview/use-subject';
 import type { DebugRequest, DebugResult } from '../../preview/play-debug';
 import type { Dispatch, MutableRefObject } from 'react';
 import type { ClientRef, ModelsRef } from '../shell/commands';
@@ -61,7 +60,6 @@ export function workspaceHostOf(input: WorkspaceHostInput): WorkspaceHost {
       controllers: animators,
       clipsOf,
       skeletonOf,
-      preview: previewAnimator,
       onSave: (controller) => void saveAnimator(controller),
       onDelete: (id) => void deleteAnimator(id),
       error: animatorError,
@@ -114,15 +112,6 @@ export function workspaceHostOf(input: WorkspaceHostInput): WorkspaceHost {
       onSelection: setMaterialSelection,
       focus: materialFocus,
       error: materialError,
-      // The live preview (the active scene's look, its models, the editor's texture bytes).
-      environment: shownEnvironment as unknown as MaterialDocumentProps['environment'],
-      loadTexture: (assetId) => loadTextureRef.current?.(assetId) ?? Promise.resolve(null),
-      loadModel: async (assetId) => {
-        const r = await modelInstancesRef.current?.prepared(assetId);
-        const made = r?.createInstance();
-        if (made === undefined || !made.ok) return null;
-        return { root: made.instance.root, dispose: () => void made.instance.dispose() };
-      },
     },
     effect: {
       effects,
@@ -138,14 +127,23 @@ export function workspaceHostOf(input: WorkspaceHostInput): WorkspaceHost {
       onSelection: setEffectSelection,
       focus: effectFocus,
       error: effectError,
-      // The preview pane (the active scene's look, the editor's texture bytes, its models).
-      environment: shownEnvironment as unknown as EffectDocumentProps['environment'],
+    },
+    // The preview pane's subjects: the active scene's look, the editor's texture bytes and its models.
+    preview: {
+      environment: shownEnvironment as unknown as PreviewDeps['environment'],
       loadTexture: (assetId) => loadTextureRef.current?.(assetId) ?? Promise.resolve(null),
       loadModel: async (assetId) => {
         const r = await modelInstancesRef.current?.prepared(assetId);
         const made = r?.createInstance();
+        if (made === undefined || !made.ok) return null;
+        return { root: made.instance.root, dispose: () => void made.instance.dispose() };
+      },
+      loadEffectModel: async (assetId) => {
+        const r = await modelInstancesRef.current?.prepared(assetId);
+        const made = r?.createInstance();
         return made !== undefined && made.ok ? made.instance.root : null;
       },
+      startAnimator: previewAnimator,
     },
     dialogue: {
       dialogues,

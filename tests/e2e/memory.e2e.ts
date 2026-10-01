@@ -10,10 +10,11 @@
  *
  * - every centre document tab kind (Animator, Script, Graph, Material,
  *   Visual script, Effect) opened and closed 50× — the material and effect
- *   tabs carry a preview renderer each;
- * - the preview panes 50×: the asset browser's model preview and the
- *   Animator's live preview (the material and effect previews are their
- *   tabs above), and the material preview's shapes;
+ *   show in the editor window's preview pane (its renderer goes with the
+ *   window);
+ * - the preview panes 50×: the asset browser's model preview, the editor
+ *   window's preview pane switched between an animator, a material and an
+ *   effect, and the material preview's shapes;
  * - the Scene view: an editor scene closed/opened 50× (its objects leave and
  *   come back), instancing groups formed and dissolved 50×, the renderer
  *   backend swapped 10× (a new canvas each time);
@@ -36,7 +37,7 @@ import { gpuAvailable } from './browser-env.mjs';
 import { type E2EBackend, startBackend } from './backend';
 import { cycles, describe as summary, expectBack, installProbe, MemoryProbe, TOLERANCE, type MemorySample, type Tolerance } from './memory-probe';
 import { skinnedGlb } from './skinned-glb';
-import { projectWindow, editorPane, editorTab, closeEditor, expectEditorOpen, openWindow, type EditorKind } from './ui';
+import { projectWindow, editorPane, editorTab, closeEditor, expectEditorOpen, openWindow, previewCanvas, previewPane, type EditorKind } from './ui';
 
 // Small scenes, a smaller page: the CPU renderer draws each frame faster (the counts do not depend on the size).
 test.use({ viewport: { width: 1280, height: 720 } });
@@ -210,7 +211,7 @@ test('document tabs: every kind opened and closed 50× returns heap and GPU coun
       kind: 'Material',
       name: 'Graph',
       open: () => page.locator('.tl-materials li[data-material-id="mat-graph"]').dblclick(),
-      ready: async (v) => expect.poll(async () => Number((await v.getByLabel('material preview canvas').getAttribute('data-tl-preview-frames')) ?? 0), { timeout: 30_000 }).toBeGreaterThan(0),
+      ready: async () => expect.poll(async () => Number((await previewCanvas(page).getAttribute('data-frames')) ?? 0), { timeout: 30_000 }).toBeGreaterThan(0),
     },
     {
       label: 'Visual script tab',
@@ -226,7 +227,7 @@ test('document tabs: every kind opened and closed 50× returns heap and GPU coun
       kind: 'Effect',
       name: 'Stream',
       open: () => page.getByRole('button', { name: 'Open Stream' }).click(),
-      ready: async (v) => expect.poll(async () => JSON.parse((await v.getByLabel('effect preview canvas').getAttribute('data-tl-effect-preview')) ?? '{}').executor ?? null, { timeout: 30_000 }).not.toBeNull(),
+      ready: async () => expect.poll(async () => JSON.parse((await previewPane(page).getByLabel('effect preview', { exact: true }).getAttribute('data-tl-effect-preview')) ?? '{}').executor ?? null, { timeout: 30_000 }).not.toBeNull(),
     },
   ];
   for (const k of kinds) {
@@ -244,7 +245,7 @@ test('document tabs: every kind opened and closed 50× returns heap and GPU coun
   await probe.detach();
 });
 
-test('preview panes: the asset preview, the Animator preview and the material preview shapes, 50× each', async ({ page }) => {
+test('preview panes: the asset preview, switching the editor window\'s preview between kinds, and the material preview shapes, 50× each', async ({ page }) => {
   test.setTimeout(600_000);
   be = await startBackend('memory-previews');
   await cmd('setMaterial', { material: GRAPH_MATERIAL });
@@ -275,29 +276,42 @@ test('preview panes: the asset preview, the Animator preview and the material pr
     await expect(page.locator('.tl-assets__preview-canvas')).toHaveCount(0);
   });
 
-  // The Animator's live preview in its tab: started and stopped.
+  // The editor window's preview pane switching previews: the animator's model, the material and the effect take
+  // turns on the pane's one renderer (each switch releases the last subject).
+  await cmd('setEffect', { effect: streamEffect() });
   await openWindow(page, 'Animator');
   await page.getByLabel('animator controllers').getByRole('button', { name: 'Walker' }).dblclick();
-  const view = editorPane(page, 'Animator', 'Walker');
-  await leakCheck(page, probe, 'Animator preview', n, async () => {
-    await view.getByRole('button', { name: 'Preview', exact: true }).click();
-    await expect(view.getByLabel('animator preview', { exact: true })).toHaveAttribute('data-state', 'Idle', { timeout: 30_000 });
-    await view.getByRole('button', { name: 'Stop preview' }).click();
-    await expect(view.getByLabel('animator preview', { exact: true })).toHaveCount(0);
-  });
-  await closeEditor(page, 'Animator', 'Walker');
-
-  // The material preview: its primitive shapes switched (a shape owns its geometry and material).
+  await expectEditorOpen(page, 'Animator', 'Walker');
   await openWindow(page, 'Materials');
   await page.locator('.tl-materials li[data-material-id="mat-graph"]').dblclick();
-  const mat = editorPane(page, 'Material', 'Graph');
-  const canvas = mat.getByLabel('material preview canvas');
-  const frames = async (): Promise<number> => Number((await canvas.getAttribute('data-tl-preview-frames')) ?? 0);
+  await expectEditorOpen(page, 'Material', 'Graph');
+  await openWindow(page, 'Effects');
+  await page.getByRole('button', { name: 'Open Stream' }).click();
+  await expectEditorOpen(page, 'Effect', 'Stream');
+  const canvas = previewCanvas(page);
+  const frames = async (): Promise<number> => Number((await canvas.getAttribute('data-frames')) ?? 0);
+  const pane = previewPane(page);
+  const opened = (await page.locator('html').getAttribute('data-tl-previews')) ?? '';
+  await leakCheck(page, probe, 'Preview pane switching (animator → material → effect)', n, async () => {
+    await editorTab(page, 'Animator', 'Walker').click();
+    await expect(pane.getByLabel('animator preview', { exact: true })).toHaveAttribute('data-state', 'Idle', { timeout: 30_000 });
+    await editorTab(page, 'Material', 'Graph').click();
+    await expect(canvas).toHaveAttribute('data-subject', 'material:mat-graph');
+    const before = await frames();
+    await expect.poll(frames, { timeout: 10_000 }).toBeGreaterThan(before + 1);
+    await editorTab(page, 'Effect', 'Stream').click();
+    await expect.poll(async () => JSON.parse((await pane.getByLabel('effect preview', { exact: true }).getAttribute('data-tl-effect-preview')) ?? '{}').steps ?? 0, { timeout: 30_000 }).toBeGreaterThan(0);
+  });
+  // One renderer for all of it: no renderer was made per switch.
+  expect(JSON.parse((await page.locator('html').getAttribute('data-tl-previews')) ?? '{}').opened).toBe(JSON.parse(opened).opened);
+
+  // The material preview: its primitive shapes switched (a shape owns its geometry and material).
+  await editorTab(page, 'Material', 'Graph').click();
   await expect.poll(frames, { timeout: 30_000 }).toBeGreaterThan(0);
   await leakCheck(page, probe, 'Material preview shapes (sphere → cube → plane)', n, async () => {
     for (const shape of ['cube', 'plane', 'sphere']) {
       const before = await frames();
-      await mat.getByLabel('preview shape').selectOption(shape);
+      await pane.getByLabel('preview shape').selectOption(shape);
       await expect.poll(frames, { timeout: 10_000 }).toBeGreaterThan(before + 1);
     }
   });

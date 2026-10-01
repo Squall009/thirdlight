@@ -1,8 +1,9 @@
 /**
- * The Assets tab's preview of one asset: an isolated stage on the side
- * panel's canvas where the selected model's current version is realized and
- * its clips played, paused and scrubbed. The host owns the frame loop while a
- * clip plays (the controller installs none).
+ * The Assets tab's preview of one asset: the preview renderer (the one path
+ * the editor window's preview pane draws with) on the side panel's canvas,
+ * where the selected model's current version is realized and its clips
+ * played, paused and scrubbed. The host owns the clip clock while a clip
+ * plays (the controller installs none).
  *
  * Browser-only (React).
  */
@@ -10,7 +11,8 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 
 import type { SessionClient } from '../../session/client';
 import type { AssetPreviewSession, ModelInstances } from '../../viewport/model-instances';
-import { PreviewStage } from '../../viewport/preview-stage';
+import { PreviewRenderer } from '../../viewport/preview-renderer';
+import { ModelSubject } from '../../viewport/preview-subjects';
 import type { AssetPreviewView } from '../AssetBrowser';
 
 export interface AssetPreview {
@@ -34,14 +36,14 @@ export function useAssetPreview(deps: {
   const { clientRef, modelInstancesRef } = deps;
   const [view, setView] = useState<AssetPreviewView | null>(null);
   const sessionRef = useRef<AssetPreviewSession | null>(null);
-  const stageRef = useRef<PreviewStage | null>(null);
+  const stageRef = useRef<PreviewRenderer | null>(null);
   const failRef = useRef(deps.onFailure);
   failRef.current = deps.onFailure;
 
   const canvasRef = useCallback(
     (canvas: HTMLCanvasElement | null) => {
-      // The asset browser mounts a new canvas each time: the old one's context goes with it.
-      stageRef.current?.dispose(true);
+      // The asset browser mounts a new canvas each time: the old one's renderer and context go with it.
+      stageRef.current?.dispose();
       stageRef.current = null;
       if (canvas === null) {
         modelInstancesRef.current?.clearPreview();
@@ -49,7 +51,8 @@ export function useAssetPreview(deps: {
         setView(null);
         return;
       }
-      stageRef.current = new PreviewStage(canvas);
+      // A model's own materials and textures: the stage needs no texture assets of its own.
+      stageRef.current = new PreviewRenderer(canvas, { loadTexture: () => Promise.resolve(null) });
     },
     [modelInstancesRef],
   );
@@ -70,12 +73,23 @@ export function useAssetPreview(deps: {
         return;
       }
       const stage = stageRef.current;
-      const res = await m.previewAsset({ assetId, version: v.version, sourceDigest: v.sourceDigest, sourceByteLength: v.sourceByteLength }, stage?.scene);
+      if (stage === null) return;
+      const descriptor = { assetId, version: v.version, sourceDigest: v.sourceDigest, sourceByteLength: v.sourceByteLength };
+      const res = await new Promise<Awaited<ReturnType<typeof m.previewAsset>>>((resolve) => {
+        stage.show(
+          new ModelSubject(`asset:${assetId}`, async (parent) => {
+            const r = await m.previewAsset(descriptor, parent);
+            resolve(r);
+            if (!r.ok) return r.message;
+            // A later preview (the Animator's) already released this session when it replaced it.
+            return { root: r.session.root, dispose: () => (m.previewSession() === r.session ? m.clearPreview() : undefined) };
+          }),
+        );
+      });
       if (!res.ok) {
         failRef.current({ code: res.code, message: res.message });
         return;
       }
-      stage?.frame(res.session.root);
       sessionRef.current = res.session;
       setView({ assetId, clips: res.session.clips, clipIndex: null, playing: false, timeSeconds: 0, durationSeconds: 0 });
     },
