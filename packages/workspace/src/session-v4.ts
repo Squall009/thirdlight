@@ -229,7 +229,7 @@ export function openV4(
   }
   // A layout change alone (resources out of content.json) is no edit: the revision stays.
   const bump = l.upgraded?.documents === true || l.upgraded?.assetFiles === true;
-  const upgraded = l.upgraded !== undefined ? writeUpgradedProject(core, dir, thirdlightDir, projectId, loaded, loadNotes, bump) : { state: loaded, notes: [] };
+  const upgraded = l.upgraded !== undefined ? writeUpgradedProject(core, dir, thirdlightDir, projectId, loaded, loadNotes, bump, l.upgraded.manifest === true) : { state: loaded, notes: [] };
   const migrated = migrateModelAnimationsOnOpen(core, dir, thirdlightDir, projectId, upgraded.state);
   // Assets from before addresses and labels decided what ships: the ones scripts name keep shipping.
   const legacy = l.upgraded?.assetFiles === true || l.upgraded?.resourceFiles === true ? 'all' : l.preAddressSidecars !== undefined ? new Set(l.preAddressSidecars.keys()) : null;
@@ -332,7 +332,7 @@ function ensureCacheIgnored(dir: string): void {
  * opens upgraded in memory (the next open upgrades it again) and the notes
  * say so.
  */
-function writeUpgradedProject(core: Core, dir: string, thirdlightDir: string, projectId: string, state: V4State, notes: string[], bump: boolean): { state: V4State; notes: string[] } {
+function writeUpgradedProject(core: Core, dir: string, thirdlightDir: string, projectId: string, state: V4State, notes: string[], bump: boolean, manifest = false): { state: V4State; notes: string[] } {
   const revision = bump ? state.revision + 1 : state.revision;
   const files = new Map(state.files);
   const writes: FileWrite[] = [];
@@ -341,7 +341,8 @@ function writeUpgradedProject(core: Core, dir: string, thirdlightDir: string, pr
   writes.push({ rel: CONTENT_REL, bytes: contentBytes });
   files.set(CONTENT_REL, { bytes: contentBytes, hash: sha256Hex(contentBytes) });
   const scenes = new Map<string, SceneV4>(state.scenes);
-  if (bump) {
+  // A new schemaVersion alone is written without a new revision.
+  if (bump || manifest) {
     const manifestBytes = manifestV2Bytes(state.manifest);
     writes.push({ rel: MANIFEST_REL_V4, bytes: manifestBytes });
     files.set(MANIFEST_REL_V4, { bytes: manifestBytes, hash: sha256Hex(manifestBytes) });
@@ -516,15 +517,16 @@ export function changedFiles(projectId: string, before: V4State, after: { conten
     }
     return list;
   };
-  // Scenes: written when their entities changed; created / removed with the index.
+  // Scenes: written when their entities, cells or look changed; created / removed with the index.
   for (const [id, scene] of after.scenes) {
     const prev = before.scenes.get(id);
     // A scene the command did not touch is the same object (or
     // holds the same entity array) — skip it without serializing it; only the
     // edited scene is compared by value.
-    // The scene's block cells count too (they live in its chunk files).
+    // The scene's block cells count too (they live in its chunk files), and its look.
     const sameBlocks = prev !== undefined && (prev.blocks === scene.blocks || JSON.stringify(prev.blocks ?? null) === JSON.stringify(scene.blocks ?? null));
-    if (prev !== undefined && (prev === scene || (sameBlocks && (prev.entities === scene.entities || JSON.stringify(prev.entities) === JSON.stringify(scene.entities))))) continue;
+    const sameLook = prev !== undefined && (prev.environment === scene.environment || JSON.stringify(prev.environment ?? null) === JSON.stringify(scene.environment ?? null));
+    if (prev !== undefined && (prev === scene || (sameBlocks && sameLook && (prev.entities === scene.entities || JSON.stringify(prev.entities) === JSON.stringify(scene.entities))))) continue;
     let rel = scenePaths.get(id);
     if (rel === undefined) {
       rel = newSceneRel(id);
@@ -1127,7 +1129,10 @@ export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, 
   if (op === 'queryBlocks') return serveQueryBlocks(state, projectId, a);
   if (op === 'queryIndex') return serveQueryIndex(s, state, projectId, a);
   if (op === 'queryProject') {
-    for (const k of Object.keys(a)) return failure(op, projectId, fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'queryProject takes no args'));
+    // `{environments: true}`: each scene row carries its look (sky, fog, post, wind) when it has one.
+    for (const k of Object.keys(a)) if (k !== 'environments') return failure(op, projectId, fieldUnexpected(`/args/${pointerSegment(k)}`, k, 'environments'));
+    if (a['environments'] !== undefined && typeof a['environments'] !== 'boolean') return failure(op, projectId, fieldTypeError('/args/environments', a['environments'], 'boolean'));
+    const looks = a['environments'] === true;
     const scene = primaryScene(state);
     return {
       ok: true,
@@ -1140,7 +1145,10 @@ export function serveQueryV4(s: ProjectSession, op: QueryOp, projectId: string, 
         entityCount: [...state.scenes.values()].reduce((n, x) => n + x.entities.length, 0),
         cameraId: [...state.scenes.values()].flatMap((x) => x.entities).find((e) => e.components.camera !== undefined)?.id ?? '',
       },
-      scenes: state.content.scenes.map((e) => ({ sceneId: e.sceneId, name: e.name, entityCount: state.scenes.get(e.sceneId)?.entities.length ?? 0 })),
+      scenes: state.content.scenes.map((e) => {
+        const sc = state.scenes.get(e.sceneId);
+        return { sceneId: e.sceneId, name: e.name, entityCount: sc?.entities.length ?? 0, ...(looks && sc?.environment !== undefined ? { environment: JSON.parse(JSON.stringify(sc.environment)) as unknown } : {}) };
+      }),
       startScenes: [...state.content.startScenes],
       history: { undoDepth: s.history.cursor, redoDepth: s.history.entries.length - s.history.cursor },
       workspace,

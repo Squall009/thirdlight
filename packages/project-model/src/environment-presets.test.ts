@@ -35,12 +35,12 @@ const NIGHT: EnvironmentPreset = {
 
 describe('environment presets', () => {
   it('accepts presets in the environment block and keeps an environment without presets byte-identical', () => {
-    expect(errorsOf((e) => validateEnvironment({ sky: { mode: 'color', color: '#000000' }, presets: [DAY, NIGHT] }, '', e))).toEqual([]);
-    const plain = { sky: { mode: 'color' as const, color: '#112233' }, quality: 'high' as const };
-    expect(JSON.stringify(canonicalEnvironment(plain))).toBe(JSON.stringify({ sky: { color: '#112233', mode: 'color' }, quality: 'high' }));
+    expect(errorsOf((e) => validateEnvironment({ quality: 'high', presets: [DAY, NIGHT] }, '', e))).toEqual([]);
+    const plain = { quality: 'high' as const };
+    expect(JSON.stringify(canonicalEnvironment(plain))).toBe(JSON.stringify({ quality: 'high' }));
     // Presets come last, in the list's own order, colours lowercased.
     const c = canonicalEnvironment({ ...plain, presets: [NIGHT, { ...DAY, sky: { mode: 'color', color: '#AABBCC' } }] });
-    expect(Object.keys(c)).toEqual(['sky', 'quality', 'presets']);
+    expect(Object.keys(c)).toEqual(['quality', 'presets']);
     expect(c.presets!.map((p) => p.presetId)).toEqual(['night', 'day']);
     expect(c.presets![1]!.sky).toEqual({ color: '#aabbcc', mode: 'color' });
     // An empty list is no list.

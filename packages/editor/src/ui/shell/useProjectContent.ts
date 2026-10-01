@@ -6,7 +6,7 @@
  * every applied change; the backend stays the sole authority.
  */
 import { useCallback, useState } from 'react';
-import type { AnimatorController, DescriptorRegistry, DialogueDocument as DialogueDoc, DialogueSettings, DialogueSpeaker, EffectDef, EnvironmentConfig, GraphDocument, LightingBake, MaterialDef, PropertyDeclaration, ScriptLibrary, TimelineAsset, UiDocument, UiTheme, UiDocument as ProjectUiDocument, UiTheme as ProjectUiTheme } from '@thirdlight/project-model';
+import type { AnimatorController, DescriptorRegistry, DialogueDocument as DialogueDoc, DialogueSettings, DialogueSpeaker, EffectDef, EnvironmentConfig, GraphDocument, SceneEnvironment, LightingBake, MaterialDef, PropertyDeclaration, ScriptLibrary, TimelineAsset, UiDocument, UiTheme, UiDocument as ProjectUiDocument, UiTheme as ProjectUiTheme } from '@thirdlight/project-model';
 import type { SessionClient } from '../../session/client';
 import type { BehaviorDeclarationView, PrefabSummaryView } from '../../session/prefab-projection';
 import type { GraphKindDef } from '../../graph/model';
@@ -26,6 +26,9 @@ export function useProjectContent() {
   /** The project materials and the environment, for the panels. */
   const [materials, setMaterials] = useState<MaterialDef[]>([]);
   const [environment, setEnvironment] = useState<EnvironmentConfig | null>(null);
+  /** The active scene's look, and what the Scene view and the previews show (that look with the project's quality and presets). */
+  const [sceneLook, setSceneLook] = useState<SceneEnvironment | null>(null);
+  const [shownEnvironment, setShownEnvironment] = useState<(EnvironmentConfig & SceneEnvironment) | null>(null);
   const [lighting, setLighting] = useState<Record<string, LightingBake>>({});
   // The animator controllers.
   const [animators, setAnimators] = useState<AnimatorController[]>([]);
@@ -62,6 +65,9 @@ export function useProjectContent() {
     const env = stable('environment', c.getEnvironment());
     setMaterials(mats);
     setEnvironment(env);
+    const active = c.getSceneView().active;
+    setSceneLook(stable('sceneLook', active === null ? null : c.getSceneEnvironment(active)));
+    setShownEnvironment(stable('shownEnvironment', c.getShownEnvironment()));
     setAnimators(stable('animators', c.getAnimators()));
     setEffects(c.getEffects());
     setDialogues(c.getDialogues());
@@ -86,7 +92,7 @@ export function useProjectContent() {
   }, []);
 
   return {
-    graphs, graphKinds, graphsLoaded, materials, environment, lighting, animators, effects, dialogues, setDialogues, speakers, dialogueSettings, projectUiDocs, projectUiThemes,
+    graphs, graphKinds, graphsLoaded, materials, environment, sceneLook, shownEnvironment, lighting, animators, effects, dialogues, setDialogues, speakers, dialogueSettings, projectUiDocs, projectUiThemes,
     timelines, scriptLibraries, uiDocuments, uiThemes, registry, prefabSummaries, declarations, behaviorViews, receive,
   };
 }

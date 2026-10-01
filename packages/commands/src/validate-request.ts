@@ -34,7 +34,7 @@
  */
 
 import { AUDIO_LOAD_TYPES, isValidSourcePath, validateGraphOps, blockEditsShapeError, validateBlockType, validateCellFields, validateBlockStamp, BLOCK_LIMITS, type GraphDocument, type GraphOp, type ModelErrorV2 } from '@thirdlight/project-model';
-import { ENTITY_FLAGS, M2_SETTINGS_KEYS, MAX_TAGS, TAG_NAME_RE, type AnimatorController, type InputConfig, type EnvironmentConfig, type LightingBake, type MaterialDef, type EffectDef } from '@thirdlight/project-model';
+import { ENTITY_FLAGS, M2_SETTINGS_KEYS, MAX_TAGS, TAG_NAME_RE, type AnimatorController, type InputConfig, type EnvironmentConfig, type SceneEnvironment, type LightingBake, type MaterialDef, type EffectDef } from '@thirdlight/project-model';
 
 import {
   ID_RE,
@@ -1122,7 +1122,7 @@ function validateUpdateEntityArgs(args: Record<string, unknown>):
 function validateSceneIndexArgs(op: 'createScene' | 'renameScene' | 'deleteScene' | 'setStartScenes', args: Record<string, unknown>):
   | { ok: true; args: SceneIndexArgs }
   | { ok: false; error: CommandError } {
-  const allowed = op === 'createScene' ? ['sceneId', 'name'] : op === 'renameScene' ? ['sceneId', 'name'] : op === 'deleteScene' ? ['sceneId'] : ['sceneIds'];
+  const allowed = op === 'createScene' ? ['sceneId', 'name', 'environmentFrom'] : op === 'renameScene' ? ['sceneId', 'name'] : op === 'deleteScene' ? ['sceneId'] : ['sceneIds'];
   for (const key of Object.keys(args)) {
     if (!allowed.includes(key)) return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(key)}`, key, allowed.join(', ')) };
   }
@@ -1138,7 +1138,9 @@ function validateSceneIndexArgs(op: 'createScene' | 'renameScene' | 'deleteScene
     if (sceneId === undefined) return { ok: false, error: fieldMissing('/args/sceneId', 'sceneId') };
     if (typeof sceneId !== 'string') return { ok: false, error: fieldType('/args/sceneId', sceneId, 'string (scene id)') };
   }
-  if (op === 'createScene') return { ok: true, args: { op, name: name as string, ...(sceneId !== undefined ? { sceneId: sceneId as string } : {}) } };
+  const from = args['environmentFrom'];
+  if (op === 'createScene' && from !== undefined && typeof from !== 'string') return { ok: false, error: fieldType('/args/environmentFrom', from, 'string (the scene whose look the new scene copies)') };
+  if (op === 'createScene') return { ok: true, args: { op, name: name as string, ...(sceneId !== undefined ? { sceneId: sceneId as string } : {}), ...(from !== undefined ? { environmentFrom: from as string } : {}) } };
   if (op === 'renameScene') return { ok: true, args: { op, sceneId: sceneId as string, name: name as string } };
   if (op === 'deleteScene') return { ok: true, args: { op, sceneId: sceneId as string } };
   const ids = args['sceneIds'];
@@ -1284,7 +1286,7 @@ export type ValidatedOpArgs =
   | { op: 'pasteEntities'; args: PasteEntitiesArgs }
   | { op: 'setMaterial'; args: { material: MaterialDef } }
   | { op: 'deleteMaterial'; args: { materialId: string } }
-  | { op: 'setEnvironment'; args: { environment: EnvironmentConfig } }
+  | { op: 'setEnvironment'; args: { environment: EnvironmentConfig | SceneEnvironment; sceneId?: string } }
   | { op: 'setLighting'; args: { sceneId: string; lighting: LightingBake | null } }
   | { op: 'setAnimator'; args: { controller: AnimatorController } }
   | { op: 'deleteAnimator'; args: { controllerId: string } }
@@ -1526,7 +1528,9 @@ export function validateOpArgs(
     case 'deleteMaterial':
     case 'setEnvironment': {
       const key = op === 'setMaterial' ? 'material' : op === 'deleteMaterial' ? 'materialId' : 'environment';
-      for (const k of Object.keys(args)) if (k !== key) return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, key) };
+      // setEnvironment {sceneId, environment}: that scene's look; without sceneId the project's quality and presets.
+      for (const k of Object.keys(args)) if (k !== key && !(op === 'setEnvironment' && k === 'sceneId')) return { ok: false, error: fieldUnexpected(`/args/${pointerSegment(k)}`, k, op === 'setEnvironment' ? 'environment, sceneId' : key) };
+      if (op === 'setEnvironment' && args['sceneId'] !== undefined && typeof args['sceneId'] !== 'string') return { ok: false, error: fieldType('/args/sceneId', args['sceneId'], 'string (scene id)') };
       if (args[key] === undefined) return { ok: false, error: fieldMissing(`/args/${key}`, key) };
       if (op === 'deleteMaterial' ? typeof args[key] !== 'string' : !isPlainObject(args[key])) {
         return { ok: false, error: fieldType(`/args/${key}`, args[key], op === 'deleteMaterial' ? 'string (materialId)' : 'object') };

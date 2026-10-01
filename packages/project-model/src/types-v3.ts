@@ -276,6 +276,8 @@ export interface SceneV4 {
   schemaVersion: 4;
   sceneId: string;
   revision: number;
+  /** The scene's look: sky, fog, post-processing, wind (absent: the engine defaults). The active scene's applies when several are loaded. */
+  environment?: import('./materials').SceneEnvironment;
   entities: SceneEntityV3[];
   /** The block layers' cells and regions (one entry per layer holding any; absent = none). */
   blocks?: import('./block-layers').BlockLayerData[];
@@ -395,7 +397,7 @@ export interface ContentCatalogV4 extends Omit<ContentCatalogV3, 'game'> {
   startScenes: string[];
   /** The project materials (absent = none). */
   materials?: MaterialDef[];
-  /** The environment (global wind, sky, fog, post). */
+  /** The project's part of the environment: the default quality and the presets (each scene carries its own look). */
   environment?: EnvironmentConfig;
   /** Baked lighting per scene (absent = no bakes). */
   lighting?: LightingMap;

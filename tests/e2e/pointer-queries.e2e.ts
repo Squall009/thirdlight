@@ -103,7 +103,7 @@ type Scene = { red: string; green: string; blue: string; redLamp: string; greenL
 async function buildScene(): Promise<Scene> {
   await cmd('setSettings', { settings: { physics_dimension: 3 } });
   await cmd('setCollisionLayers', { layers: ['pickable'] });
-  await cmd('setEnvironment', { environment: { sky: { mode: 'color', color: '#202428' } } });
+  await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: '#202428' } } });
   // The scene camera 12 m in front of the boxes, looking down −Z at their height.
   const ents = (await query('queryEntities', { limit: 200, offset: 0 }))['entities'] as { id: string; components: Record<string, unknown> }[];
   const camera = ents.find((e) => e.components['camera'] !== undefined)!;

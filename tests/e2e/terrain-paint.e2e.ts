@@ -94,7 +94,7 @@ test('Paint mode: a drag paints a layer (one undo step), Ctrl erases, undo/redo,
   await publishLayerSources(be);
   await packNormalAndOrm(be);
   await packTexture(be, ALBEDO_HEIGHT_LAYERS, 'color', 'terrain-albedo');
-  await cmd('setEnvironment', { environment: { sky: { mode: 'color', color: '#303030' } } });
+  await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: '#303030' } } });
 
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');

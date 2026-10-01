@@ -22,7 +22,7 @@ import { environmentPresetTextureRefs, type EnvironmentPreset } from './environm
 import { animatorAssetIds, type AnimatorController } from './animator';
 import { graphAssetRefs, type GraphDocument } from './graph';
 import { MATERIAL_FUNCTION_GRAPH_KIND } from './material-graph-kinds';
-import { materialFunctionsForRuntime, materialTextureRefs, resolveMaterialInstances, type MaterialDef } from './materials';
+import { environmentTextureRefs, materialFunctionsForRuntime, materialTextureRefs, resolveMaterialInstances, type MaterialDef, type SceneEnvironment } from './materials';
 import { effectAssetRefs, type EffectDef } from './effects';
 import type { ModelErrorV2, ModelResultV2 } from './errors';
 import type { CapturedAsset, CapturedContent, ContentCatalog, ImportRecipe, PropertyValue } from './types-v2';
@@ -72,7 +72,12 @@ function declaredAssetRefKeys(content: ContentCatalog): Map<string, Set<string>>
 /** A reachable asset with either an explicit pinned version or `null` (current). */
 export type AssetRefV3 = { assetId: string; version: number | null };
 
-export function collectAssetRefsV3(scene: SceneV3, content: ContentCatalogV3): AssetRefV3[] {
+export function collectAssetRefsV3(
+  scene: SceneV3,
+  content: ContentCatalogV3,
+  /** The scenes' looks (sky images, grading LUTs): each scene of a v4 project has its own. */
+  looks: readonly (SceneEnvironment | undefined)[] = [(scene as { environment?: SceneEnvironment }).environment],
+): AssetRefV3[] {
   const refs = new Map<string, number | null>();
   const setRef = (assetId: string, explicitVersion?: number): void => {
     const current = refs.get(assetId);
@@ -148,11 +153,8 @@ export function collectAssetRefsV3(scene: SceneV3, content: ContentCatalogV3): A
   for (const id of timelineRefs((content as { timelines?: TimelineAsset[] }).timelines).assets) setRef(id);
   // The sounds of the event → cue table.
   for (const c of (content as { eventCues?: { assetId: string }[] }).eventCues ?? []) setRef(c.assetId);
-  // The sky images and the grading LUT.
-  const env = (content as { environment?: { sky?: { texture?: string; cube?: string[] }; post?: { grading?: { lut?: string } } } }).environment;
-  if (env?.sky?.texture !== undefined) setRef(env.sky.texture);
-  for (const id of env?.sky?.cube ?? []) setRef(id);
-  if (env?.post?.grading?.lut !== undefined) setRef(env.post.grading.lut);
+  // The scenes' sky images and grading LUTs.
+  for (const look of looks) if (look !== undefined) for (const id of environmentTextureRefs(look)) setRef(id);
   // The environment presets' sky images and LUTs.
   for (const id of environmentPresetTextureRefs((content as { environment?: { presets?: EnvironmentPreset[] } }).environment?.presets)) setRef(id);
   // The models an animator controller takes clips from.

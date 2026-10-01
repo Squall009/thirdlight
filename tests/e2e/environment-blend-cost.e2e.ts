@@ -138,7 +138,8 @@ for (const variant of VARIANTS) test(`environment blend: a new t every step at 1
   await cmd('setInput', { input: { actions: [{ name: 'switchPair', type: 'button', map: 'gameplay', bindings: [{ kind: 'key', code: 'Digit1' }] }] } });
   await script('env-driver', DRIVER, driver);
   await cmd('setComponent', { entityId: 'light-0001', component: 'light', value: { type: 'directional', color: '#ffffff', intensity: 2.5, direction: [0.2, -1, -0.3], castShadow: true } });
-  await cmd('setEnvironment', { environment: { sky: NOON_SKY, fog: PRESETS[0]!.fog, post: { exposure: 1 }, presets: PRESETS } });
+  await cmd('setEnvironment', { environment: { presets: PRESETS } });
+  await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: NOON_SKY, fog: PRESETS[0]!.fog, post: { exposure: 1 } } });
 
   page.on('pageerror', (e) => console.log(`[page pageerror] ${e.message} ${e.stack?.slice(0, 600)}`));
   page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') console.log(`[page console] ${m.type()} ${m.text().slice(0, 300)}`); });

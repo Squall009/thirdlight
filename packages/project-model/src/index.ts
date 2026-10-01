@@ -361,6 +361,7 @@ export {
   PROJECT_SCHEMA_VERSION_UPGRADED,
   PROJECT_SCHEMA_VERSION_V24,
   PROJECT_SCHEMA_VERSION_V25,
+  PROJECT_SCHEMA_VERSION_PROJECT_LOOK,
   isUpgradedProjectSchemaVersion,
   REMOVED_FROM_ENGINE,
   REMOVED_COMPONENTS,
@@ -371,6 +372,8 @@ export {
 } from './upgrade-v24';
 // project.json schemaVersion 4 (a 3 is upgraded on load without changing a document).
 export { upgradeProjectDocsV25, type UpgradeV25Result } from './upgrade-v25';
+// project.json schemaVersion 6 (a 5's project-wide look is copied into every scene on load).
+export { upgradeSceneEnvironments, type UpgradeSceneEnvironmentResult } from './upgrade-scene-environment';
 // The materials a game uses (the manifest leaves the others out).
 export { materialsInUse, type MaterialUseInput } from './material-use';
 // The assigned entity ids (at least six digits; four-digit ids still load).
@@ -775,7 +778,7 @@ export {
   type LightingEntry,
   type LightingMap,
 } from './lighting';
-// Materials, material mappings and the environment (wind).
+// Materials, material mappings and the environment (a scene's look, the project's quality and presets).
 export {
   canonicalEnvironment,
   canonicalMaterialMapping,
@@ -816,10 +819,12 @@ export {
   validateMaterialInstances,
   validateFogVolumeComponent,
   MAX_FOG_VOLUMES,
-  canonicalLevelEnvironment,
+  canonicalSceneEnvironment,
   environmentTextureRefs,
-  validateLevelEnvironment,
-  type LevelEnvironment,
+  SCENE_ENVIRONMENT_FIELDS,
+  sceneEnvironmentIsEmpty,
+  validateSceneEnvironment,
+  type SceneEnvironment,
   type EnvironmentConfig,
   type FogConfig,
   type FogVolumeComponent,

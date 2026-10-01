@@ -40,7 +40,7 @@ import { UI_DESCRIPTORS } from './ui-descriptors';
 import { blockFootprint, blockLayer } from './block-descriptors';
 import { COMPONENT_ICONS, type ComponentDescriptor, type DescriptorRegistry, type FieldDescriptor, HANDLE_KINDS, HANDLE_ROLES, type ObjectFieldDescriptor } from './descriptor-types';
 import { animator, audioSource, behavior, behaviorGroupC, box, camera, cameraPath, cameraRegion, climbVolume, collectible, collider, controller, effectComponent, ENTITY, faceMovement, fogVolume, folder, gravityC, health, hitbox, instances, light, materialParams, materials, model, modelAnimation, mover, patrol, playerSpawn, prefab, socketAttach, surface, switchC, transform, trigger, virtualCamera } from './descriptor-components';
-import { CONTENT } from './descriptor-content';
+import { CONTENT, SCENE_ENVIRONMENT } from './descriptor-content';
 export { HANDLE_KINDS, HANDLE_ROLES, ASSET_KINDS, COMPONENT_ICONS } from './descriptor-types';
 export type { DescriptorJson, DescriptorScalar, DescriptorUnit, HandleKind, DescriptorAssetKind, DescriptorRefTarget, DescriptorStringFormat, FieldCondition, NumberFieldDescriptor, IntFieldDescriptor, BoolFieldDescriptor, EnumOption, EnumFieldDescriptor, VecFieldDescriptor, QuatFieldDescriptor, ColorFieldDescriptor, AssetRefFieldDescriptor, EntityRefFieldDescriptor, SceneRefFieldDescriptor, RefFieldDescriptor, SignalFieldDescriptor, StringFieldDescriptor, ObjectFieldDescriptor, ListFieldDescriptor, MapFieldDescriptor, ComponentsFieldDescriptor, JsonFieldDescriptor, FieldDescriptor, FieldType, HandleDescriptor, ComponentAdd, ComponentIcon, CreateEntryDescriptor, ComponentRelation, ComponentDescriptor, ContentBlockDescriptor, DescriptorRegistry } from './descriptor-types';
 
@@ -150,4 +150,5 @@ export const DESCRIPTORS: DescriptorRegistry = deepFreeze({
   icons: [...COMPONENT_ICONS],
   content: CONTENT,
   ui: UI_DESCRIPTORS,
+  sceneEnvironment: SCENE_ENVIRONMENT,
 });

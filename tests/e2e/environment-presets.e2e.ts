@@ -240,7 +240,7 @@ for (const variant of VARIANTS) test(`environment presets: capture and preview i
     },
   });
   await script('env-director', DIRECTOR, director);
-  await cmd('setEnvironment', { environment: DAY_LOOK });
+  await cmd('setEnvironment', { sceneId: 'scene-main', environment: DAY_LOOK });
   await setLights(DAY_LIGHTS);
 
   page.on('pageerror', (e) => console.log(`[page pageerror] ${e.message} ${e.stack?.slice(0, 600)}`));
@@ -269,9 +269,8 @@ for (const variant of VARIANTS) test(`environment presets: capture and preview i
     { entity: 'light-0002', color: '#8090a8', intensity: 0.5 },
   ]);
 
-  // Night: the look (keeping the presets) and the lights, then capture it too.
-  const envNow = (await query('queryGameConfig'))['environment'] as Record<string, unknown>;
-  await cmd('setEnvironment', { environment: { ...envNow, ...NIGHT_LOOK } });
+  // Night: the scene's look (the presets are the project's) and the lights, then capture it too.
+  await cmd('setEnvironment', { sceneId: 'scene-main', environment: NIGHT_LOOK });
   await setLights(NIGHT_LIGHTS);
   await synced();
   await panel.getByLabel('new preset name').fill('Night');

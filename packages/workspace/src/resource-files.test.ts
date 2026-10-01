@@ -155,7 +155,7 @@ describe('project resources as files', () => {
     const written: string[] = [];
     const { dir, open } = project('presets', written);
     let s = open();
-    const env = (dusk: string): Record<string, unknown> => ({ wind: { direction: [1, 0], strength: 1, gust: 0.5, gustFrequency: 0.3, turbulence: 0.2 }, presets: [{ presetId: 'night', name: 'Night', lightmap: { intensity: 0.2 } }, { presetId: 'dusk', name: dusk, lightmap: { intensity: 0.6 } }] });
+    const env = (dusk: string): Record<string, unknown> => ({ quality: 'medium', presets: [{ presetId: 'night', name: 'Night', lightmap: { intensity: 0.2 } }, { presetId: 'dusk', name: dusk, lightmap: { intensity: 0.6 } }] });
     try {
       ok(s, 'setEnvironment', { environment: env('Dusk') });
       expect(json(join(dir, 'assets', 'environment', 'dusk.envpreset.json'))).toMatchObject({ kind: 'envpreset', id: 'dusk', data: { presetId: 'dusk', name: 'Dusk' } });

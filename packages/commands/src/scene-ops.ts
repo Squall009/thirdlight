@@ -5,12 +5,14 @@
  * undone by restoring the previous index); the workspace keeps the scene
  * files in step with the index (a created scene gets an empty file, a
  * removed one loses its file — the workspace only lets an empty scene go).
+ * A scene's look travels with the change (`environments`): a new scene may
+ * copy another's (`environmentFrom`), and an undone delete gets its look back.
  *
  * Pure: values in, values out.
  */
 import { ID_RE } from '@thirdlight/project-model';
 
-import type { SceneIndexEntry } from '@thirdlight/project-model';
+import type { SceneEnvironment, SceneIndexEntry } from '@thirdlight/project-model';
 
 import { fieldValue, type CommandError } from './errors';
 import { contentOf, type OpInput } from './content-ops';
@@ -93,12 +95,26 @@ function nextIndex(index: SceneIndex, args: SceneIndexArgs): SceneIndex | { erro
   }
 }
 
-export function applySceneIndexOp(input: OpInput, args: SceneIndexArgs): OpOutcome {
+export function applySceneIndexOp(input: OpInput, args: SceneIndexArgs, looks?: ReadonlyMap<string, SceneEnvironment>): OpOutcome {
   const catalog = contentOf(input.content);
   const index = indexOf(catalog);
   if (index === null || input.scene.schemaVersion !== 4) return { ok: false, error: notV4() };
   const next = nextIndex(index, args);
   if ('error' in next) return { ok: false, error: next.error };
+  // A scene's look: the edited scene's own, another's from the host's facts.
+  const lookOf = (sceneId: string): SceneEnvironment | undefined => (sceneId === input.scene.sceneId ? (input.scene as { environment?: SceneEnvironment }).environment : looks?.get(sceneId));
+  const environments: Record<string, SceneEnvironment> = {};
+  if (args.op === 'createScene' && args.environmentFrom !== undefined) {
+    if (!index.scenes.some((e) => e.sceneId === args.environmentFrom)) return { ok: false, error: unknownScene('/args/environmentFrom', args.environmentFrom) };
+    const look = lookOf(args.environmentFrom);
+    const created = next.scenes[next.scenes.length - 1]!.sceneId;
+    if (look !== undefined) environments[created] = deepClone(look);
+  }
+  if (args.op === 'deleteScene') {
+    const look = lookOf(args.sceneId);
+    if (look !== undefined) environments[args.sceneId] = deepClone(look);
+  }
+  const withLooks = Object.keys(environments).length > 0 ? { environments } : {};
   // A scene's bake goes first (one undo each, nothing dropped silently).
   if (args.op === 'deleteScene' && (catalog as { lighting?: Record<string, unknown> }).lighting?.[args.sceneId] !== undefined) {
     return { ok: false, error: fieldValue('/args/sceneId', args.sceneId, 'a scene without baked lighting', 'this scene has baked lighting; clear it first (Lighting window or setLighting {sceneId, lighting: null})') };
@@ -111,9 +127,10 @@ export function applySceneIndexOp(input: OpInput, args: SceneIndexArgs): OpOutco
     type: 'setSceneIndex',
     previous: deepClone(index),
     next: deepClone(next),
+    ...withLooks,
   };
   return {
     ok: true,
-    op: { scene: gate.scene, content: gate.content, change, inverse: { kind: 'setSceneIndex', restore: deepClone(index) } },
+    op: { scene: gate.scene, content: gate.content, change, inverse: { kind: 'setSceneIndex', restore: deepClone(index), ...(withLooks.environments !== undefined ? { environments: deepClone(withLooks.environments) } : {}) } },
   };
 }

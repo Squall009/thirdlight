@@ -26,7 +26,7 @@ const at = (x: number, y = 0) => ({ position: [x, y, 0], rotation: [0, 0, 0, 1],
 const DIGEST = 'ab'.repeat(32);
 const camera = (id = 'cam-main') => ({ id, components: { transform: T, camera: { type: 'perspective', fovY: 60, near: 0.1, far: 100 } } });
 const scene = (sceneId: string, entities: unknown[]) => ({ schemaVersion: 4, sceneId, revision: 1, entities });
-const MANIFEST = { schemaVersion: 5, engineVersion: '0.1.0', id: 'p', name: 'P', createdAt: '2026-09-23T00:00:00Z' };
+const MANIFEST = { schemaVersion: 6, engineVersion: '0.1.0', id: 'p', name: 'P', createdAt: '2026-09-23T00:00:00Z' };
 const content = (extra: Record<string, unknown> = {}) => ({
   assets: [MODEL],
   prefabs: [],

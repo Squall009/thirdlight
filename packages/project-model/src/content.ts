@@ -750,18 +750,10 @@ function validateMaterialReferences(doc: Record<string, unknown>, errors: ModelE
       });
     });
   }
-  // Sky images and the grading LUT are texture assets too.
+  // The presets' sky images and grading LUTs are texture assets too (a scene's own look is checked with the scene).
   const env = doc['environment'];
   if (isPlainObject(env) && !unchanged('environment')) {
     const refs: [string, unknown][] = [];
-    const sky = env['sky'];
-    if (isPlainObject(sky)) {
-      if (sky['texture'] !== undefined) refs.push(['/environment/sky/texture', sky['texture']]);
-      if (Array.isArray(sky['cube'])) sky['cube'].forEach((id, i) => refs.push([`/environment/sky/cube/${i}`, id]));
-    }
-    const post = env['post'];
-    if (isPlainObject(post) && isPlainObject(post['grading']) && post['grading']['lut'] !== undefined) refs.push(['/environment/post/grading/lut', post['grading']['lut']]);
-    // The presets' sky images and LUTs.
     if (Array.isArray(env['presets'])) {
       (env['presets'] as unknown[]).forEach((pr, i) => {
         if (!isPlainObject(pr)) return;

@@ -36,9 +36,12 @@ test('the play preview holds a fixed set of GPU resources while the game runs wi
     expectedRevision: rev,
     requestId: `req-${'7'.repeat(32)}`,
     origin: { kind: 'mcp', clientId: 'e2e-play-memory' },
-    args: { environment: { quality: 'high', post: { bloom: { enabled: true }, vignette: { enabled: true }, antialias: 'fxaa' } } },
+    args: { sceneId: 'scene-main', environment: { post: { bloom: { enabled: true }, vignette: { enabled: true }, antialias: 'fxaa' } } },
   });
   expect(set['ok'], JSON.stringify(set)).toBe(true);
+  // The quality is the project's (each scene has its own look).
+  const quality = await be.command({ op: 'setEnvironment', projectId: be.projectId, expectedRevision: rev + 1, requestId: `req-${'8'.repeat(32)}`, origin: { kind: 'mcp', clientId: 'e2e-play-memory' }, args: { environment: { quality: 'high' } } });
+  expect(quality['ok'], JSON.stringify(quality)).toBe(true);
 
   await page.goto(be.editorUrl);
   await expect(page.locator('.tl-statusbar')).toContainText('connected');

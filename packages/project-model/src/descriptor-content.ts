@@ -146,14 +146,13 @@ const PRESET = obj('*', 'Preset', 'A named look: sky, fog, post-processing, ligh
   ]),
 ], { rules: ['Preset ids are unique.'] });
 
-const ENVIRONMENT: FieldDescriptor = obj('environment', 'Environment', 'Sky, fog, post-processing, wind and the default quality.', [
-  SKY,
-  FOG,
-  POST,
-  WIND,
+const ENVIRONMENT: FieldDescriptor = obj('environment', 'Environment', 'The default quality and the presets; each scene has its own sky, fog, post-processing and wind.', [
   enm('quality', 'Quality', 'The default graphics quality (players change it in Settings).', ['low', 'medium', 'high'], { default: 'high' }),
-  list('presets', 'Presets', 'Named looks scripts switch or blend to at run time (ctx.environment).', PRESET, { maxItems: 64 }),
+  list('presets', 'Presets', 'Named looks scripts switch or blend to at run time (ctx.environment), laid over the active scene\'s look.', PRESET, { maxItems: 64 }),
 ]);
+
+/** A scene's look (`SceneV4.environment`): with several scenes loaded the active scene's applies. */
+export const SCENE_ENVIRONMENT: ObjectFieldDescriptor = obj('environment', 'Scene environment', 'This scene\'s sky, fog, post-processing and wind.', [SKY, FOG, POST, WIND]);
 
 const KEY_CODE = { format: 'keyCode' as const, minLength: 1, maxLength: 32 };
 const BINDING_KINDS = ['key', 'gamepadButton', 'gamepadAxis', 'keys1d', 'keys2d', 'gamepadButtons1d', 'gamepadStick', 'pointerButton', 'pointerPosition', 'pointerDelta', 'pointerAxis'] as const;
@@ -390,7 +389,7 @@ const SETTINGS: FieldDescriptor = obj('settings', 'Gameplay settings', 'The play
 }), { required: true, default: {}, rules: ['min_slope_slide_deg ≤ max_slope_climb_deg'] });
 
 export const CONTENT: readonly ContentBlockDescriptor[] = [
-  { key: 'environment', label: 'Environment', tooltip: 'Sky, fog, post-processing, wind and quality.', required: false, value: ENVIRONMENT, ops: ['setEnvironment'] },
+  { key: 'environment', label: 'Environment', tooltip: 'The default quality and the environment presets (each scene has its own look).', required: false, value: ENVIRONMENT, ops: ['setEnvironment'] },
   { key: 'input', label: 'Input', tooltip: 'Actions and their bindings.', required: false, value: INPUT, ops: ['setInput'] },
   { key: 'materials', label: 'Materials', tooltip: 'Project materials.', required: false, value: list('materials', 'Materials', 'The project\'s materials (each its own file).', MATERIAL_ITEM, { default: [] }), ops: ['setMaterial', 'deleteMaterial'] },
   { key: 'animators', label: 'Animator controllers', tooltip: 'State machines for model animation.', required: false, value: list('animators', 'Animator controllers', 'The project\'s controllers (each its own file).', ANIMATOR_ITEM, { default: [] }), ops: ['setAnimator', 'deleteAnimator'] },

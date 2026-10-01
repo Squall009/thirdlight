@@ -1,0 +1,61 @@
+{
+  "op": "setEnvironment",
+  "projectId": "legacy-v5-environment",
+  "requestId": "req-eeeeeeeeeeeeeeeeeeeeeeeeeeeeeee4",
+  "expectedRevision": 3,
+  "args": {
+    "environment": {
+      "wind": {
+        "direction": [
+          0,
+          1
+        ],
+        "strength": 1.5,
+        "gust": 0.5,
+        "gustFrequency": 0.4,
+        "turbulence": 0.2
+      },
+      "sky": {
+        "mode": "gradient",
+        "topColor": "#204080",
+        "horizonColor": "#c0d8f0",
+        "bottomColor": "#404040",
+        "environmentIntensity": 0.8
+      },
+      "fog": {
+        "mode": "linear",
+        "color": "#b0c4de",
+        "near": 20,
+        "far": 140
+      },
+      "post": {
+        "toneMapping": "aces",
+        "exposure": 1.2,
+        "bloom": {
+          "enabled": true,
+          "strength": 0.4
+        }
+      },
+      "quality": "medium",
+      "presets": [
+        {
+          "presetId": "dusk",
+          "name": "Dusk",
+          "sky": {
+            "mode": "color",
+            "color": "#402030"
+          },
+          "fog": {
+            "mode": "exp2",
+            "color": "#302028",
+            "density": 0.02
+          }
+        }
+      ]
+    }
+  },
+  "origin": {
+    "kind": "mcp",
+    "clientId": "fixture-v5-env"
+  }
+}

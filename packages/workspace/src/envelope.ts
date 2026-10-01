@@ -809,6 +809,9 @@ const V2_CHANGE_OPTIONAL_KEYS: Record<string, readonly string[]> = {
   updateEntity: ['transform'],
   // A folder created with its children in one transaction (a multi-piece model drop).
   createEntity: ['children'],
+  // A scene's look (with sceneId), and the looks of the scenes a scene-index change adds or removes.
+  setEnvironment: ['sceneId'],
+  setSceneIndex: ['environments'],
 };
 
 /** Forward-op → change-type correspondence for the `M2_RESULT_OPS`. */

@@ -60,7 +60,7 @@ describe('createProject (§8)', () => {
     const manRaw = readFileSync(manPath, 'utf8');
     const man = JSON.parse(manRaw);
     expect(man).toEqual({
-      schemaVersion: 5,
+      schemaVersion: 6,
       engineVersion: '0.1.0',
       id: 'proj-new',
       name: 'New Project',

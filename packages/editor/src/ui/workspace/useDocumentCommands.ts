@@ -7,7 +7,7 @@
  */
 import { useCallback, useRef, useState, type Dispatch } from 'react';
 import { mergeDocumentEdit } from '../../session/own-commands';
-import type { EnvironmentConfig, MaterialDef } from '@thirdlight/project-model';
+import type { EnvironmentConfig, MaterialDef, SceneEnvironment } from '@thirdlight/project-model';
 import type { TimelinePreviewValue } from '../timeline/TimelineDocument';
 import { newUiDocument, uniqueDocId } from '../../session/ui-edit';
 import type { GraphOp } from '../../graph/model';
@@ -138,10 +138,17 @@ export function useDocumentCommands(deps: DocumentCommandsDeps) {
     const build = (): { environment: EnvironmentConfig } => ({ environment: mergeDocumentEdit(base, env, c.getEnvironment()) ?? env });
     setMaterialError(refusal(await c.command('setEnvironment', build, c.projection.revision)));
   }, [clientRef]);
+  /** One scene's look (sky, fog, post, wind): `setEnvironment {sceneId}`, merged over what changed meanwhile. */
+  const saveSceneEnvironment = useCallback(async (sceneId: string, look: SceneEnvironment, base: SceneEnvironment | null) => {
+    const c = clientRef.current;
+    if (!c) return;
+    const build = (): { sceneId: string; environment: SceneEnvironment } => ({ sceneId, environment: mergeDocumentEdit(base, look, c.getSceneEnvironment(sceneId)) ?? look });
+    setMaterialError(refusal(await c.command('setEnvironment', build, c.projection.revision)));
+  }, [clientRef]);
 
   return {
     graphsError, effectError, dialogueError, setDialogueError, timelineError, uiError, setUiError, selectedMaterialId, setSelectedMaterialId, materialError,
-    saveMaterial, deleteMaterial, saveEnvironment, dialogueCommand, effectCommand, timelineCommand, onTimelinePreview, uiCommand, createUiDocument, sendGraphEdit, graphDocCommand, showGraph,
+    saveMaterial, deleteMaterial, saveEnvironment, saveSceneEnvironment, dialogueCommand, effectCommand, timelineCommand, onTimelinePreview, uiCommand, createUiDocument, sendGraphEdit, graphDocCommand, showGraph,
   };
 }
 

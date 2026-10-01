@@ -137,7 +137,7 @@ const shot = async (t: Locator | Page): Promise<Image> => decodePng(await t.scre
 async function buildScene(): Promise<{ a: string; b: string }> {
   await cmd('setMaterial', { material: { materialId: 'mat-a', name: 'A', shader: 'unlit', params: { tiling: [0.25, 0.25] }, textures: { map: 'checker-a' } } });
   await cmd('setMaterial', { material: { materialId: 'mat-b', name: 'B', shader: 'unlit', params: { tiling: [0.25, 0.25] }, textures: { map: 'checker-b' } } });
-  await cmd('setEnvironment', { environment: { sky: { mode: 'color', color: '#303030' } } });
+  await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: '#303030' } } });
   const ents = ((await query('queryEntities', { limit: 100, offset: 0 })) as { entities: { id: string; components: Record<string, unknown> }[] }).entities;
   const cam = ents.find((e) => e.components['camera'] !== undefined)!.id;
   await cmd('setTransform', { entityId: cam, transform: { position: [0, 0, 6], rotation: [0, 0, 0, 1] } });

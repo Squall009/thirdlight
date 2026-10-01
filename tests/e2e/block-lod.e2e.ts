@@ -80,7 +80,7 @@ for (const variant of RENDERER_VARIANTS) test(`block-layer chunks switch to the 
   onlyInItsProject(variant);
   test.setTimeout(300_000);
   be = await startBackend('block-lod-e2e');
-  await cmd('setEnvironment', { environment: { sky: { mode: 'color', color: '#303030' } } });
+  await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: '#303030' } } });
   await publishBytes(be, multiPieceGlb([{ name: 'crate', lods: [[1, 1, 1], [1, 1, 1]], colors: [[1, 0.02, 0.02], [0.02, 0.05, 1]] }]), 'model', 'kit', 'Kit');
   await cmd('setBlockType', { block: { blockId: 'crate', name: 'Crate', variants: [{ model: { assetId: 'kit', piece: 'crate' } }], shape: 'full' } });
   const layer = String((await cmd('createEntity', { parentId: null, kind: 'group', name: 'Crates', transform: { position: [0, 0, 0] } }))['createdId']);

@@ -1,0 +1,21 @@
+{
+  "storageVersion": 4,
+  "type": "scene",
+  "projectId": "legacy-v5-environment",
+  "scene": {
+    "schemaVersion": 4,
+    "sceneId": "scene-two",
+    "revision": 3,
+    "entities": [
+      {"id":"box-000002","name":"Far crate","components":{"transform":{"position":[0,0,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"box":{"size":[1,1,1],"material":{"color":"#b0b0b0"}}}}
+    ]
+  },
+  "retry": {
+    "recordVersion": 2,
+    "retention": 128,
+    "records": [
+      {"requestId":"req-eeeeeeeeeeeeeeeeeeeeeeeeeeeeeee2","digest":"77b1fa83486d5be850b0a0c5219d0c659a8dce406961d116d11278870778f3c5","appliedRevision":2,"result":{"ok":true,"op":"createScene","projectId":"legacy-v5-environment","requestId":"req-eeeeeeeeeeeeeeeeeeeeeeeeeeeeeee2","revision":2,"duplicated":false,"change":{"type":"setSceneIndex","previous":{"scenes":[{"sceneId":"scene-main","name":"Main"}],"startScenes":["scene-main"]},"next":{"scenes":[{"sceneId":"scene-main","name":"Main"},{"sceneId":"scene-two","name":"Scene two"}],"startScenes":["scene-main"]}},"history":{"undoDepth":2,"redoDepth":0}}},
+      {"requestId":"req-eeeeeeeeeeeeeeeeeeeeeeeeeeeeeee3","digest":"bfdb474ca0a7785a04e18d70260cbcad56e8f6ae977429ec3ef006d30db1e381","appliedRevision":3,"result":{"ok":true,"op":"createEntity","projectId":"legacy-v5-environment","requestId":"req-eeeeeeeeeeeeeeeeeeeeeeeeeeeeeee3","revision":3,"duplicated":false,"createdId":"box-000002","change":{"type":"createEntity","id":"box-000002","entity":{"id":"box-000002","name":"Far crate","components":{"transform":{"position":[0,0,0],"rotation":[0,0,0,1],"scale":[1,1,1]},"box":{"size":[1,1,1],"material":{"color":"#b0b0b0"}}}}},"history":{"undoDepth":3,"redoDepth":0},"sceneId":"scene-two"}}
+    ]
+  }
+}

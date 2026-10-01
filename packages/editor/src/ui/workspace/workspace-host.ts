@@ -45,7 +45,7 @@ export interface WorkspaceHostInput {
 
 export function workspaceHostOf(input: WorkspaceHostInput): WorkspaceHost {
   const { clientRef, modelInstancesRef, loadTextureRef, entities, selectedId, gameFieldContext, uiPreviewAssets, openDocument, workspaceDispatch, debugPlay } = input;
-  const { animators, dialogueSettings, dialogues, effects, environment, graphKinds, graphs, materials, projectUiDocs, projectUiThemes, registry, scriptLibraries, speakers, timelines, uiDocuments, uiThemes } = input.content;
+  const { animators, dialogueSettings, dialogues, effects, shownEnvironment, graphKinds, graphs, materials, projectUiDocs, projectUiThemes, registry, scriptLibraries, speakers, timelines, uiDocuments, uiThemes } = input.content;
   const { inputConfig, inputDefaults, modes } = input.settings;
   const { activeVisualId, animatorFocus, animatorTargets, dialogueFocus, dialogueSelection, effectFocus, effectSystems, graphFocus, graphsContext, materialFocus, onVisualProblems, onVisualTarget } = input.docState;
   const { setAnimatorFocus, setAnimatorSelection, setAnimatorTargets, setDialogueSelection, setEffectSelection, setEffectSystems, setGraphSelection, setMaterialSelection } = input.docState;
@@ -114,8 +114,8 @@ export function workspaceHostOf(input: WorkspaceHostInput): WorkspaceHost {
       onSelection: setMaterialSelection,
       focus: materialFocus,
       error: materialError,
-      // The live preview (the project environment, its models, the editor's texture bytes).
-      environment: environment as unknown as MaterialDocumentProps['environment'],
+      // The live preview (the active scene's look, its models, the editor's texture bytes).
+      environment: shownEnvironment as unknown as MaterialDocumentProps['environment'],
       loadTexture: (assetId) => loadTextureRef.current?.(assetId) ?? Promise.resolve(null),
       loadModel: async (assetId) => {
         const r = await modelInstancesRef.current?.prepared(assetId);
@@ -138,8 +138,8 @@ export function workspaceHostOf(input: WorkspaceHostInput): WorkspaceHost {
       onSelection: setEffectSelection,
       focus: effectFocus,
       error: effectError,
-      // The preview pane (the project environment, the editor's texture bytes, its models).
-      environment: environment as unknown as EffectDocumentProps['environment'],
+      // The preview pane (the active scene's look, the editor's texture bytes, its models).
+      environment: shownEnvironment as unknown as EffectDocumentProps['environment'],
       loadTexture: (assetId) => loadTextureRef.current?.(assetId) ?? Promise.resolve(null),
       loadModel: async (assetId) => {
         const r = await modelInstancesRef.current?.prepared(assetId);

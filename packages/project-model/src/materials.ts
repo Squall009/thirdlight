@@ -1,6 +1,7 @@
 /**
  * Project materials, the per-object material assignment and the
- * project environment (global wind).
+ * environment (a scene's look: sky, fog, post, wind; the project's quality
+ * and presets).
  *
  * A material is a shader type plus overrides. On a model it starts from the
  * file's own material (its textures and values) and changes only what it sets;
@@ -644,7 +645,7 @@ export function canonicalMaterialMapping(m: Record<string, string>): Record<stri
   return Object.fromEntries(Object.keys(m).sort().map((k) => [k, m[k] as string]));
 }
 
-// ---- environment (global wind, sky, fog, post) ----------------------
+// ---- environment (a scene's sky, fog, post and wind; the project's quality and presets) ----
 
 export interface WindConfig {
   /** Horizontal direction [x, z] (normalized by the runtime; not both zero). */
@@ -709,16 +710,32 @@ export interface PostConfig {
   antialias?: 'none' | 'fxaa' | 'smaa';
 }
 
-export interface EnvironmentConfig {
+/**
+ * A scene's look (sky, fog, post-processing, wind): each scene document
+ * carries its own (`SceneV4.environment`). With several scenes loaded the
+ * active scene's applies.
+ */
+export interface SceneEnvironment {
   wind?: WindConfig;
   sky?: SkyConfig;
   fog?: FogConfig;
   post?: PostConfig;
+}
+
+/**
+ * The project's part of the environment (`content.environment`): the default
+ * quality level (the player's setting, so project-wide) and the presets
+ * (named looks scripts switch or blend to, laid over the active scene's look).
+ */
+export interface EnvironmentConfig {
   /** The project's default quality level (players can change it in the settings menu). */
   quality?: 'low' | 'medium' | 'high';
   /** Named looks scripts switch or blend to at run time (environment-presets.ts). */
   presets?: EnvironmentPreset[];
 }
+
+/** The fields of a scene's look (the rest of the environment is the project's). */
+export const SCENE_ENVIRONMENT_FIELDS: readonly (keyof SceneEnvironment)[] = ['wind', 'sky', 'fog', 'post'];
 
 /** The wind when a project sets none — a light breeze along +X (0.5 with 0.4 gusts every ~3 s, a little turbulence): foliage moves a little in any scene; 0 strength stills it. */
 export const DEFAULT_WIND: Readonly<WindConfig> = Object.freeze({ direction: [1, 0] as [number, number], strength: 0.5, gust: 0.4, gustFrequency: 0.3, turbulence: 0.3 });
@@ -728,41 +745,49 @@ export function validateEnvironment(value: unknown, path: string, errors: ModelE
     err(errors, 'field_type', path, 'environment is an object', value);
     return;
   }
-  for (const k of Object.keys(value)) if (!['wind', 'sky', 'fog', 'post', 'quality', 'presets'].includes(k)) err(errors, 'field_unexpected', `${path}/${k}`, `unknown environment field "${k}"`, k, 'wind, sky, fog, post, quality, presets');
+  for (const k of Object.keys(value)) {
+    if ((SCENE_ENVIRONMENT_FIELDS as readonly string[]).includes(k)) err(errors, 'field_unexpected', `${path}/${k}`, `"${k}" is part of a scene's look: each scene has its own sky, fog, post-processing and wind (setEnvironment {sceneId, environment})`, k, 'quality, presets');
+    else if (!['quality', 'presets'].includes(k)) err(errors, 'field_unexpected', `${path}/${k}`, `unknown environment field "${k}"`, k, 'quality, presets');
+  }
   if (value['presets'] !== undefined) validateEnvironmentPresets(value['presets'], `${path}/presets`, errors);
-  if (value['sky'] !== undefined) validateSky(value['sky'], `${path}/sky`, errors);
-  if (value['fog'] !== undefined) validateFog(value['fog'], `${path}/fog`, errors);
-  if (value['post'] !== undefined) validatePost(value['post'], `${path}/post`, errors);
   if (value['quality'] !== undefined && !['low', 'medium', 'high'].includes(value['quality'] as string)) err(errors, 'field_value', `${path}/quality`, 'quality is low, medium or high', value['quality']);
-  if (value['wind'] !== undefined) validateWind(value['wind'], `${path}/wind`, errors);
 }
 
-/**
- * A level's look (`flow.levels[].environment`) — the parts of the
- * environment a level may lay over the project's while it plays. Quality is
- * the player's setting and stays project-wide.
- */
-export type LevelEnvironment = Pick<EnvironmentConfig, 'sky' | 'fog' | 'post' | 'wind'>;
-
-export function validateLevelEnvironment(value: unknown, path: string, errors: ModelErrorV2[]): void {
+/** A scene's look: `{ sky?, fog?, post?, wind? }`. */
+export function validateSceneEnvironment(value: unknown, path: string, errors: ModelErrorV2[]): void {
   if (!isPlainObject(value)) {
-    err(errors, 'field_type', path, 'a level environment is an object { sky?, fog?, post?, wind? }', value);
+    err(errors, 'field_type', path, 'a scene environment is an object { sky?, fog?, post?, wind? }', value);
     return;
   }
-  for (const k of Object.keys(value)) if (!['wind', 'sky', 'fog', 'post'].includes(k)) err(errors, 'field_unexpected', `${path}/${k}`, `unknown level environment field "${k}"`, k, 'sky, fog, post, wind');
+  for (const k of Object.keys(value)) {
+    if (k === 'quality' || k === 'presets') err(errors, 'field_unexpected', `${path}/${k}`, `"${k}" is the project's, not a scene's (setEnvironment without a sceneId)`, k, 'sky, fog, post, wind');
+    else if (!(SCENE_ENVIRONMENT_FIELDS as readonly string[]).includes(k)) err(errors, 'field_unexpected', `${path}/${k}`, `unknown scene environment field "${k}"`, k, 'sky, fog, post, wind');
+  }
   if (value['sky'] !== undefined) validateSky(value['sky'], `${path}/sky`, errors);
   if (value['fog'] !== undefined) validateFog(value['fog'], `${path}/fog`, errors);
   if (value['post'] !== undefined) validatePost(value['post'], `${path}/post`, errors);
   if (value['wind'] !== undefined) validateWind(value['wind'], `${path}/wind`, errors);
 }
 
-export function canonicalLevelEnvironment(e: LevelEnvironment): LevelEnvironment {
-  const { quality: _q, presets: _p, ...rest } = canonicalEnvironment(e);
-  return rest;
+/** A scene's look in its stored form (fixed part order, sorted keys inside, lowercase colours). */
+export function canonicalSceneEnvironment(e: SceneEnvironment): SceneEnvironment {
+  return {
+    ...(e.wind !== undefined
+      ? { wind: { direction: [e.wind.direction[0], e.wind.direction[1]], strength: e.wind.strength, gust: e.wind.gust, gustFrequency: e.wind.gustFrequency, turbulence: e.wind.turbulence } }
+      : {}),
+    ...(e.sky !== undefined ? { sky: canonicalObject(e.sky) } : {}),
+    ...(e.fog !== undefined ? { fog: canonicalObject(e.fog) } : {}),
+    ...(e.post !== undefined ? { post: canonicalObject(e.post) } : {}),
+  };
 }
 
-/** The texture assets a level look names (sky images, the grading LUT). */
-export function environmentTextureRefs(e: Pick<EnvironmentConfig, 'sky' | 'post'>): string[] {
+/** True when a scene's look sets nothing (the engine defaults). */
+export function sceneEnvironmentIsEmpty(e: SceneEnvironment | undefined | null): boolean {
+  return e === undefined || e === null || SCENE_ENVIRONMENT_FIELDS.every((k) => e[k] === undefined);
+}
+
+/** The texture assets a scene's look names (sky images, the grading LUT). */
+export function environmentTextureRefs(e: Pick<SceneEnvironment, 'sky' | 'post'>): string[] {
   const out: string[] = [];
   if (e.sky?.texture !== undefined) out.push(e.sky.texture);
   for (const id of e.sky?.cube ?? []) out.push(id);
@@ -800,12 +825,6 @@ function canonicalObject<T extends object>(o: T): T {
 
 export function canonicalEnvironment(e: EnvironmentConfig): EnvironmentConfig {
   return {
-    ...(e.wind !== undefined
-      ? { wind: { direction: [e.wind.direction[0], e.wind.direction[1]], strength: e.wind.strength, gust: e.wind.gust, gustFrequency: e.wind.gustFrequency, turbulence: e.wind.turbulence } }
-      : {}),
-    ...(e.sky !== undefined ? { sky: canonicalObject(e.sky) } : {}),
-    ...(e.fog !== undefined ? { fog: canonicalObject(e.fog) } : {}),
-    ...(e.post !== undefined ? { post: canonicalObject(e.post) } : {}),
     ...(e.quality !== undefined ? { quality: e.quality } : {}),
     // Last, so an environment without presets keeps its exact bytes.
     ...(e.presets !== undefined && e.presets.length > 0 ? { presets: canonicalEnvironmentPresets(e.presets) } : {}),

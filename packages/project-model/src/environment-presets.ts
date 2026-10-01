@@ -4,10 +4,9 @@
  * content):
  *
  * - `sky`, `fog`: a whole sky / fog (the environment's own shapes; a
- *   preset without one keeps the base's — the project environment with the
- *   playing level's look over it);
+ *   preset without one keeps the base's — the active scene's look);
  * - `post`: merged per effect over the base's post (exposure, tone mapping,
- *   grading, bloom, vignette, …), like a level's look;
+ *   grading, bloom, vignette, …);
  * - `lights`: colour / intensity / direction / ground colour for the scene
  *   lights an entry matches — by `entity` id, by `tag` name or by light
  *   `type` (e.g. every ambient or hemisphere light), or every light when it
@@ -24,7 +23,7 @@
  */
 import { ID_RE } from './validate';
 import type { ModelErrorV2 } from './errors';
-import { canonicalEnvironment, validateFog, validatePost, validateSky, type FogConfig, type PostConfig, type SkyConfig } from './materials';
+import { canonicalSceneEnvironment, validateFog, validatePost, validateSky, type FogConfig, type PostConfig, type SkyConfig } from './materials';
 
 /** Engine limits of environment presets (documented in deployment.md). */
 export const ENVIRONMENT_PRESET_LIMITS = Object.freeze({
@@ -179,7 +178,7 @@ function canonicalLight(l: EnvironmentPresetLight): EnvironmentPresetLight {
 }
 
 function canonicalParts(p: EnvironmentLookParts): EnvironmentLookParts {
-  const look = canonicalEnvironment({ ...(p.sky !== undefined ? { sky: p.sky } : {}), ...(p.fog !== undefined ? { fog: p.fog } : {}), ...(p.post !== undefined ? { post: p.post } : {}) });
+  const look = canonicalSceneEnvironment({ ...(p.sky !== undefined ? { sky: p.sky } : {}), ...(p.fog !== undefined ? { fog: p.fog } : {}), ...(p.post !== undefined ? { post: p.post } : {}) });
   return {
     ...(look.sky !== undefined ? { sky: look.sky } : {}),
     ...(look.fog !== undefined ? { fog: look.fog } : {}),

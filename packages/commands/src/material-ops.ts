@@ -4,8 +4,10 @@
  * `setMaterial {material}` creates or replaces one material (by materialId);
  * `deleteMaterial {materialId}` removes one (refused while an object or an
  * asset still uses it — the resulting-state check reports the reference);
- * `setEnvironment {environment}` replaces the environment block. Each is one
- * undo; the change records carry the whole block before and after.
+ * `setEnvironment {sceneId, environment}` replaces that scene's look (sky,
+ * fog, post, wind); `setEnvironment {environment}` the project's part (the
+ * default quality and the presets). Each is one undo; the change records
+ * carry the whole block before and after.
  *
  * `setLighting {sceneId, lighting}` sets or clears one scene's
  * bake (`content.lighting[sceneId]`); the change carries that bake before and
@@ -13,7 +15,7 @@
  */
 
 import { canonicalAnimators, canonicalInput, validateAnimatorController, validateInput, type AnimatorController, type InputConfig } from '@thirdlight/project-model';
-import { canonicalEnvironment, canonicalLighting, GRAPH_KINDS, graphDocumentsContext, validateEnvironment, validateLightingBake, validateMaterials, type EnvironmentConfig, type GraphDocument, type LightingBake, type MaterialDef, type ModelErrorV2 } from '@thirdlight/project-model';
+import { canonicalEnvironment, canonicalLighting, canonicalSceneEnvironment, GRAPH_KINDS, graphDocumentsContext, sceneEnvironmentIsEmpty, validateEnvironment, validateLightingBake, validateMaterials, validateSceneEnvironment, type EnvironmentConfig, type GraphDocument, type LightingBake, type MaterialDef, type ModelErrorV2, type SceneEnvironment } from '@thirdlight/project-model';
 
 import { fieldValue, type CommandError } from './errors';
 import { contentOf, type OpInput } from './content-ops';
@@ -33,7 +35,7 @@ function commit(
   change: SetMaterialChange | SetEnvironmentChange | SetLightingChange | SetAnimatorChange | SetInputChange,
   inverse:
     | { kind: 'setMaterial'; materialId: string; restore: MaterialDef | null }
-    | { kind: 'setEnvironment'; restore: EnvironmentConfig | null }
+    | { kind: 'setEnvironment'; sceneId?: string; restore: EnvironmentConfig | SceneEnvironment | null }
     | { kind: 'setLighting'; sceneId: string; restore: LightingBake | null }
     | { kind: 'setAnimator'; controllerId: string; restore: AnimatorController | null }
     | { kind: 'setInput'; restore: InputConfig | null },
@@ -73,14 +75,44 @@ export function applyDeleteMaterial(input: OpInput, args: { materialId: string }
   return commit(input, withMaterial(catalog, args.materialId, null) as WithMaterials, { type: 'setMaterial', materialId: args.materialId, previous, next: null }, { kind: 'setMaterial', materialId: args.materialId, restore: previous });
 }
 
-export function applySetEnvironment(input: OpInput, args: { environment: EnvironmentConfig }): OpOutcome {
+export function applySetEnvironment(input: OpInput, args: { environment: EnvironmentConfig | SceneEnvironment; sceneId?: string }): OpOutcome {
   const catalog = contentOf(input.content) as WithMaterials;
   const errors: ModelErrorV2[] = [];
+  if (args.sceneId !== undefined) {
+    // One scene's look: the edited scene is the one named (the workspace routes the command to it).
+    if (input.scene.schemaVersion !== 4) return { ok: false, error: fieldValue('/args/sceneId', args.sceneId, 'a scene of a v4 project', 'a scene carries its own look only in a v4 project (one file per scene)') };
+    if (input.scene.sceneId !== args.sceneId) return { ok: false, error: fieldValue('/args/sceneId', args.sceneId, 'an existing scene id', `no scene "${args.sceneId}" in this project`) };
+    validateSceneEnvironment(args.environment, '', errors);
+    if (errors.length > 0) return { ok: false, error: modelError(errors[0] as ModelErrorV2, '/args/environment') };
+    const scene = input.scene as SceneWithLook;
+    const previous = scene.environment !== undefined ? deepClone(scene.environment) : null;
+    const next = sceneEnvironmentIsEmpty(args.environment as SceneEnvironment) ? null : canonicalSceneEnvironment(args.environment as SceneEnvironment);
+    return commitScene(input, withSceneEnvironment(scene, next), { type: 'setEnvironment', sceneId: args.sceneId, previous, next }, { kind: 'setEnvironment', sceneId: args.sceneId, restore: previous });
+  }
   validateEnvironment(args.environment, '', errors);
   if (errors.length > 0) return { ok: false, error: modelError(errors[0] as ModelErrorV2, '/args/environment') };
   const previous = catalog.environment !== undefined ? deepClone(catalog.environment) : null;
-  const next = canonicalEnvironment(args.environment);
+  const next = canonicalEnvironment(args.environment as EnvironmentConfig);
   return commit(input, { ...catalog, environment: next }, { type: 'setEnvironment', previous, next }, { kind: 'setEnvironment', restore: previous });
+}
+
+type SceneWithLook = OpInput['scene'] & { environment?: SceneEnvironment };
+
+/** The scene with its look replaced (null: none, the engine defaults). */
+export function withSceneEnvironment<S extends OpInput['scene']>(scene: S, look: SceneEnvironment | null): S {
+  const out = { ...scene } as S & { environment?: SceneEnvironment };
+  if (look !== null) out.environment = deepClone(look);
+  else delete out.environment;
+  return out;
+}
+
+/** A change to the edited scene alone (its look): the content is unchanged. */
+function commitScene(input: OpInput, scene: OpInput['scene'], change: SetEnvironmentChange, inverse: { kind: 'setEnvironment'; sceneId: string; restore: SceneEnvironment | null }): OpOutcome {
+  const catalog = contentOf(input.content);
+  const resultScene = { ...scene, revision: input.scene.revision + 1 };
+  const gate = gateResultState({ scene: input.scene, content: catalog, manifest: input.manifest }, resultScene, catalog);
+  if (!gate.ok) return gate;
+  return { ok: true, op: { scene: gate.scene, content: gate.content, change, inverse } };
 }
 
 export function applySetLighting(input: OpInput, args: { sceneId: string; lighting: LightingBake | null }): OpOutcome {

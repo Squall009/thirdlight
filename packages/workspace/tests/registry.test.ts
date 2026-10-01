@@ -44,7 +44,7 @@ describe('projects in their own folders', () => {
     expect(existsSync(join(game, 'thirdlight', 'project.json'))).toBe(true);
     expect(existsSync(join(game, 'thirdlight', 'content.json'))).toBe(true);
     expect(existsSync(join(game, 'thirdlight', 'scenes', 'scene-main.json'))).toBe(true);
-    expect(JSON.parse(readFileSync(join(game, 'thirdlight', 'project.json'), 'utf8')).schemaVersion).toBe(5);
+    expect(JSON.parse(readFileSync(join(game, 'thirdlight', 'project.json'), 'utf8')).schemaVersion).toBe(6);
     expect(readFileSync(join(game, 'thirdlight', '.gitignore'), 'utf8')).toContain('.thirdlight/');
     expect(existsSync(join(root, 'projects', 'my-game'))).toBe(false);
     expect(JSON.parse(readFileSync(join(root, 'registry.json'), 'utf8'))).toEqual({ registryVersion: 1, projects: { 'my-game': { folder: game } } });

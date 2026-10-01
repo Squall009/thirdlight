@@ -131,6 +131,7 @@ export {
   type ManifestBufferRow,
   type ManifestSceneRow,
   type SceneCatalogIo,
+  type SceneLookLike,
 } from './scene-catalog';
 // A build's runtime content: the manifest and the catalog, read as the game needs it (v5; a v4 build opens the same way).
 export { openRuntimeContent, type CatalogRow, type RuntimeCatalog, type RuntimeContent } from './runtime-content';

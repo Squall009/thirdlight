@@ -55,7 +55,9 @@ import {
   PROJECT_SCHEMA_VERSION_UPGRADED,
   PROJECT_SCHEMA_VERSION_V24,
   PROJECT_SCHEMA_VERSION_V25,
+  PROJECT_SCHEMA_VERSION_PROJECT_LOOK,
   isUpgradedProjectSchemaVersion,
+  upgradeSceneEnvironments,
   upgradeAudioAssets,
   canonicalLoadable,
   type LoadableEntry,
@@ -389,7 +391,7 @@ export type LoadV4Outcome =
   | {
       kind: 'loaded';
       state: V4State;
-      upgraded?: { notes: string[]; documents?: true; assetFiles?: true; resourceFiles?: true };
+      upgraded?: { notes: string[]; documents?: true; assetFiles?: true; resourceFiles?: true; manifest?: true };
       skipped?: { path: string; message: string }[];
       /** The assets read from sidecars written before the record held the address (id → the address beside it, or null). */
       preAddressSidecars?: Map<string, string | null>;
@@ -481,7 +483,7 @@ export function loadV4(ops: WriteOps, dir: string, projectId: string, gameRoot: 
   let manifestDoc: unknown = man.value;
   let contentDoc: unknown = content.value['content'];
   let docs: unknown[] = sceneDocs;
-  let upgraded: { notes: string[]; documents?: true; assetFiles?: true; resourceFiles?: true } | undefined;
+  let upgraded: { notes: string[]; documents?: true; assetFiles?: true; resourceFiles?: true; manifest?: true } | undefined;
   // The resources: their own files in the game folder, or (an older content.json) still inside it.
   const resourcePaths = new Map<string, Map<string, string>>();
   const skipped: { path: string; message: string }[] = [];
@@ -520,9 +522,17 @@ export function loadV4(ops: WriteOps, dir: string, projectId: string, gameRoot: 
     upgraded.notes = [...upgraded.notes, note];
   }
   // A 4 (or older, just upgraded to 4) becomes 5 at the open, which writes its asset files (upgrade-assets.ts).
-  if (isUpgradedProjectSchemaVersion(fromVersion)) {
-    manifestDoc = { ...man.value, schemaVersion: PROJECT_SCHEMA_VERSION };
+  if (isUpgradedProjectSchemaVersion(fromVersion) && fromVersion !== PROJECT_SCHEMA_VERSION_PROJECT_LOOK) {
     upgraded = { ...(upgraded ?? {}), notes: upgraded?.notes ?? [], assetFiles: true };
+  }
+  // A 5 (or older, just upgraded to 5): each scene gets the project's look (sky, fog, post, wind), the content keeps the quality and presets.
+  if (isUpgradedProjectSchemaVersion(fromVersion)) {
+    const u = upgradeSceneEnvironments(contentDoc, docs);
+    contentDoc = u.content;
+    docs = u.scenes;
+    manifestDoc = { ...man.value, schemaVersion: PROJECT_SCHEMA_VERSION };
+    // A project without a look of its own keeps its documents (and its revision): only project.json says 6.
+    upgraded = { ...(upgraded ?? {}), ...(u.notes.length > 0 ? { documents: true as const } : {}), manifest: true, notes: [...(upgraded?.notes ?? []), `project schemaVersion ${PROJECT_SCHEMA_VERSION_PROJECT_LOOK} → ${PROJECT_SCHEMA_VERSION}`, ...u.notes] };
   }
   // An older content.json holds the resources itself: the open writes each to its own file.
   if (content.value['storageVersion'] !== CONTENT_STORAGE_VERSION) {

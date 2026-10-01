@@ -120,7 +120,7 @@ async function buildProject(): Promise<Ids> {
   const player = await create('Player', [0, 0.91, 0]);
   await cmd('setComponent', { entityId: player, component: 'controller', value: {} });
   await cmd('setSettings', { settings: { physics_dimension: 3 } });
-  await cmd('setEnvironment', { environment: { sky: { mode: 'color', color: '#7ec8ff' } } });
+  await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: '#7ec8ff' } } });
   // The input: a project map "tactical" (its select action), the gameplay move, the ui actions and the mode toggle.
   await cmd('setInput', {
     input: {

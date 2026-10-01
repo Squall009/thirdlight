@@ -150,7 +150,7 @@ for (const variant of RENDERER_VARIANTS) test(`painted terrain: height-blended l
   await useArrays(be, mat, { albedoHeight: albedo.assetId, normals: 'terrain-normals', orm: 'terrain-orm' });
 
   // ---- The scene: a dark sky, the camera straight down over the layer, the project's boxes out of the way.
-  await cmd('setEnvironment', { environment: { sky: { mode: 'color', color: '#303030' } } });
+  await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: '#303030' } } });
   const ents = ((await query('queryEntities', { limit: 200, offset: 0 })) as { entities: { id: string; components: Record<string, unknown> }[] }).entities;
   const cam = ents.find((e) => e.components['camera'] !== undefined)!.id;
   // −90° about X: looking down −Y, the screen's up is −Z.

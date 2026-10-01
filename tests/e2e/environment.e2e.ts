@@ -112,7 +112,9 @@ for (const variant of RENDERER_VARIANTS) test(`sky, vignette, bloom and a fog vo
 
   // Bloom with threshold 0 and full strength: the box glows, the view brightens.
   const box = bright(avg(await shot(viewport), 0.4, 0.4, 0.6, 0.6));
-  const storedPost = async (): Promise<unknown> => ((await be.command({ op: 'queryGameConfig', projectId: be.projectId }))['environment'] as { post: unknown }).post;
+  // The look is the scene's (the Environment window edits the active scene's).
+  const storedLook = async (): Promise<Record<string, unknown>> => (((await be.command({ op: 'queryProject', projectId: be.projectId, args: { environments: true } }))['scenes'] as { sceneId: string; environment?: Record<string, unknown> }[]).find((r) => r.sceneId === 'scene-main')?.environment ?? {});
+  const storedPost = async (): Promise<unknown> => (await storedLook())['post'];
   await page.getByRole('checkbox', { name: 'bloom', exact: true }).check();
   await expect.poll(storedPost).toMatchObject({ bloom: { enabled: true } });
   await synced();
@@ -150,8 +152,9 @@ for (const variant of RENDERER_VARIANTS) test(`sky, vignette, bloom and a fog vo
   await page.keyboard.press('Home');
   await viewport.click({ position: { x: 5, y: 5 } });
   await expect.poll(async () => bright(avg(await shot(viewport), 0.35, 0.45, 0.65, 0.7)), { timeout: 10_000 }).toBeGreaterThan(foggy - 10);
-  const env = (await be.command({ op: 'queryGameConfig', projectId: be.projectId }))['environment'] as Record<string, unknown>;
-  expect(env).toMatchObject({ sky: { mode: 'color' }, post: { vignette: { enabled: true } } });
+  expect(await storedLook()).toMatchObject({ sky: { mode: 'color' }, post: { vignette: { enabled: true } } });
+  // The scene the window edits is named at its top.
+  await expect(page.locator('.tl-environment__scene')).toHaveAttribute('data-scene-id', 'scene-main');
 
   // Play: the sky colour and the fog volume are there.
   await page.getByTitle('Start an isolated play preview').click();

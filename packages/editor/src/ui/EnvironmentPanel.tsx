@@ -1,26 +1,33 @@
 /**
- * The Environment window — sky, fog, post-processing, quality
- * and the global wind. The Scene view previews it with game lighting (the
- * same renderer Play and export use). Each control commits on release as one
- * `setEnvironment` (one undo).
+ * The Environment window — the active scene's look (sky, fog,
+ * post-processing, wind), named at the top, and the project's default
+ * quality. The Scene view previews it with game lighting (the same renderer
+ * Play and export use). Each control commits on release as one
+ * `setEnvironment` (one undo): `{sceneId}` for the scene's look, without for
+ * the quality and the presets.
  *
- * Environment presets (project mode) — "capture current as
- * preset" stores the environment's sky, fog and post-processing and every
- * scene light's colour / intensity / direction as a named preset (one
- * `setEnvironment`, one undo); a preset can be previewed in the Scene view,
- * or a blend of two with the preview slider (the runtime's blend maths, as
- * Play draws it; nothing is stored).
+ * Environment presets (project-wide) — "capture current as preset" stores
+ * the scene's sky, fog and post-processing and every scene light's colour /
+ * intensity / direction as a named preset (one `setEnvironment`, one undo); a
+ * preset can be previewed in the Scene view, or a blend of two with the
+ * preview slider (the runtime's blend maths, as Play draws it; nothing is
+ * stored).
  *
  * Browser-only (React).
  */
 import { useEffect, useState, type JSX } from 'react';
-import type { EnvironmentConfig, EnvironmentPreset, EnvironmentPresetLight, FogConfig, PostConfig, SkyConfig, WindConfig } from '@thirdlight/project-model';
+import type { EnvironmentConfig, EnvironmentPreset, EnvironmentPresetLight, FogConfig, PostConfig, SceneEnvironment, SkyConfig, WindConfig } from '@thirdlight/project-model';
 import { DEFAULT_WIND } from '../session/material-schema';
 import { RefPicker, TEXTURE_KINDS } from './catalog/RefPicker';
 
 interface Props {
+  /** The project's part: the default quality and the presets. */
   environment: EnvironmentConfig | null;
   onSave: (environment: EnvironmentConfig) => void;
+  /** The scene whose look this edits (the active scene) and its look (null: the engine defaults). */
+  scene: { sceneId: string; name: string } | null;
+  look: SceneEnvironment | null;
+  onSaveLook: (look: SceneEnvironment) => void;
   error: string | null;
   /** The scene lights a captured preset records, and the Scene view's preset preview. */
   presets?: {
@@ -47,9 +54,9 @@ export function presetIdFor(name: string, taken: ReadonlySet<string>): string {
   for (let i = 2; ; i += 1) if (!taken.has(`${slug}-${i}`)) return `${slug}-${i}`;
 }
 
-/** The environment and the scene lights as they are now, as a preset. */
-export function capturePreset(env: EnvironmentConfig, lights: readonly PresetLightSource[], name: string): EnvironmentPreset {
-  const taken = new Set((env.presets ?? []).map((q) => q.presetId));
+/** The scene's look and its lights as they are now, as a preset. */
+export function capturePreset(env: SceneEnvironment, presets: readonly EnvironmentPreset[], lights: readonly PresetLightSource[], name: string): EnvironmentPreset {
+  const taken = new Set(presets.map((q) => q.presetId));
   const copy = <T,>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
   const entries: EnvironmentPresetLight[] = lights.slice(0, 32).map((l) => ({
     entity: l.id,
@@ -69,7 +76,7 @@ export function capturePreset(env: EnvironmentConfig, lights: readonly PresetLig
 }
 
 /** The preset list, capture, preview and the blend preview slider. */
-function PresetsSection(props: { env: EnvironmentConfig; lights: readonly PresetLightSource[]; save: (patch: Partial<EnvironmentConfig>) => void; onPreview: (weights: [string, number][] | null) => void }): JSX.Element {
+function PresetsSection(props: { env: EnvironmentConfig; look: SceneEnvironment; lights: readonly PresetLightSource[]; save: (patch: Partial<EnvironmentConfig>) => void; onPreview: (weights: [string, number][] | null) => void }): JSX.Element {
   const list = props.env.presets ?? [];
   const [name, setName] = useState('');
   const [from, setFrom] = useState('');
@@ -91,7 +98,7 @@ function PresetsSection(props: { env: EnvironmentConfig; lights: readonly Preset
           type="button"
           className="tl-button"
           onClick={() => {
-            props.save({ presets: [...list, capturePreset(props.env, props.lights, name || `Preset ${list.length + 1}`)] });
+            props.save({ presets: [...list, capturePreset(props.look, list, props.lights, name || `Preset ${list.length + 1}`)] });
             setName('');
           }}
         >
@@ -257,8 +264,11 @@ function Toggle(props: { label: string; name: string; value: boolean; onCommit: 
 }
 
 export function EnvironmentPanel(p: Props): JSX.Element {
-  const env: EnvironmentConfig = p.environment ?? {};
-  const save = (patch: Partial<EnvironmentConfig>): void => p.onSave({ ...env, ...patch });
+  // The project's quality and presets; the scene's look (sky, fog, post, wind).
+  const project: EnvironmentConfig = p.environment ?? {};
+  const saveProject = (patch: Partial<EnvironmentConfig>): void => p.onSave({ ...project, ...patch });
+  const env: SceneEnvironment = p.look ?? {};
+  const save = (patch: Partial<SceneEnvironment>): void => p.onSaveLook({ ...env, ...patch });
   const sky: SkyConfig = env.sky ?? { mode: 'procedural' };
   const setSky = (patch: Partial<SkyConfig>): void => save({ sky: { ...sky, ...patch } });
   const fog: FogConfig = env.fog ?? { mode: 'none', color: '#c8d2dc' }; // the descriptor's default, so there is one value
@@ -274,6 +284,9 @@ export function EnvironmentPanel(p: Props): JSX.Element {
       <div className="tl-panel__title">
         <img className="tl-row__icon" src="./icons/sky.png" alt="" aria-hidden="true" /> Environment
       </div>
+      <p className="tl-environment__scene" data-scene-id={p.scene?.sceneId ?? ''}>
+        Scene: <strong>{p.scene?.name ?? '—'}</strong> <span className="tl-hint">(each scene has its own sky, fog, post-processing and wind; the active scene's applies)</span>
+      </p>
       <p className="tl-inspector__hint">The Scene view shows this with game lighting (toolbar “light: game”); Play and the export use the same.</p>
       <div className="tl-environment__grid">
         <section className="tl-inspector__section" aria-label="sky">
@@ -359,7 +372,7 @@ export function EnvironmentPanel(p: Props): JSX.Element {
           {post.dof?.enabled === true && <Slider label="focus distance (m)" name="dof focus" value={post.dof.focus ?? 10} min={0.5} max={100} step={0.5} onCommit={(v) => setPost({ dof: { ...post.dof!, focus: v } })} />}
           <Choice label="anti-aliasing" name="antialias" value={post.antialias ?? 'none'} options={[['none', 'none (MSAA only)'], ['fxaa', 'FXAA'], ['smaa', 'SMAA']]} onCommit={(v) => setPost({ antialias: v })} />
           </>
-          <Choice label="quality (default)" name="quality" value={env.quality ?? 'high'} options={[['low', 'low'], ['medium', 'medium'], ['high', 'high']]} onCommit={(v) => save({ quality: v })} />
+          <Choice label="quality (project default)" name="quality" value={project.quality ?? 'high'} options={[['low', 'low'], ['medium', 'medium'], ['high', 'high']]} onCommit={(v) => saveProject({ quality: v })} />
         </section>
 
         <section className="tl-inspector__section" aria-label="wind">
@@ -384,7 +397,7 @@ export function EnvironmentPanel(p: Props): JSX.Element {
           </>
         </section>
       </div>
-      {p.presets !== undefined && <PresetsSection env={env} lights={p.presets.lights} save={save} onPreview={p.presets.onPreview} />}
+      {p.presets !== undefined && <PresetsSection env={project} look={env} lights={p.presets.lights} save={saveProject} onPreview={p.presets.onPreview} />}
       {p.error !== null && <div className="tl-assets__error" role="alert">{p.error}</div>}
     </div>
   );

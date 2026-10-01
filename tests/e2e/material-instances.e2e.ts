@@ -121,7 +121,7 @@ for (const variant of VARIANTS) test(`material instances on an object, a model a
 
   await cmd('setMaterial', { material: { materialId: 'glow', name: 'Glow', shader: 'unlit', params: {}, textures: {}, parameters: [{ key: 'tint', type: 'color', default: '#00ff00' }], graph: GLOW_GRAPH } });
   await cmd('setMaterial', { material: { materialId: 'plain', name: 'Plain', shader: 'unlit', params: { color: '#00ff00' }, textures: {} } });
-  await cmd('setEnvironment', { environment: { sky: { mode: 'color', color: '#303030' } } });
+  await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: '#303030' } } });
   const ents = ((await query('queryEntities', { limit: 100, offset: 0 })) as { entities: { id: string; components: Record<string, unknown> }[] }).entities;
   const cam = ents.find((e) => e.components['camera'] !== undefined)!.id;
   await cmd('setTransform', { entityId: cam, transform: { position: [0, 0, 6], rotation: [0, 0, 0, 1] } });

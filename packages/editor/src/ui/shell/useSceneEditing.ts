@@ -249,7 +249,8 @@ export function useSceneEditing(deps: SceneEditingDeps) {
         let n = c.projection.scenes.length + 1;
         while (taken.has(`Scene ${n}`)) n += 1;
         const before = new Set(c.projection.scenes.map((r) => r.sceneId));
-        const res = await c.command('createScene', { name: `Scene ${n}` }, c.projection.revision);
+        // A new scene starts from the engine defaults, or copies the look of the scene chosen beside "+ Scene".
+        const res = await c.command('createScene', { name: `Scene ${n}`, ...(action.environmentFrom !== undefined ? { environmentFrom: action.environmentFrom } : {}) }, c.projection.revision);
         reportFailure('New scene', res);
         if (res.ok) {
           // The index arrives with mutation.applied; activate the new scene once it is there.

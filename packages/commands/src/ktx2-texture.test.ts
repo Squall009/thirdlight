@@ -130,8 +130,9 @@ describe('packed textures and texture arrays', () => {
       },
     });
     expect(graph.ok, JSON.stringify(graph.result).slice(0, 400)).toBe(true);
-    const sky = run(s, 'setEnvironment', { environment: { sky: { mode: 'texture', texture: 'tex-arr' } } });
+    const sky = run(s, 'setEnvironment', { sceneId: s.scene.sceneId, environment: { sky: { mode: 'texture', texture: 'tex-arr' } } });
     expect(sky.ok).toBe(false);
+    expect(JSON.stringify(sky.result)).toMatch(/plain\) texture asset/);
   });
 });
 

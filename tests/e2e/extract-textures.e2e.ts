@@ -207,7 +207,7 @@ for (const variant of RENDERER_VARIANTS) test(`a model's extracted images are te
   expect(assets.find((a) => a.assetId === 'twin')!.textures).toBeUndefined();
 
   // ---- The scene: the camera close in front, the extracted quad left of centre, the twin right.
-  await cmd('setEnvironment', { environment: { sky: { mode: 'color', color: '#303030' } } });
+  await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: '#303030' } } });
   const ents = ((await query('queryEntities', { limit: 100, offset: 0 })) as { entities: { id: string; components: Record<string, unknown> }[] }).entities;
   const cam = ents.find((e) => e.components['camera'] !== undefined)!.id;
   await cmd('setTransform', { entityId: cam, transform: { position: [0, 1.6, 3.6], rotation: [0, 0, 0, 1] } });

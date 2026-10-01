@@ -50,7 +50,7 @@ import { applyPasteEntities } from './paste-ops';
 import { applySetCollisionLayers } from './layer-ops';
 import { applySetSaveSchema } from './save-schema-ops';
 import { applyDeleteAnimator, applyDeleteMaterial, applySetAnimator, applySetEnvironment, applySetInput, applySetLighting, applySetMaterial } from './material-ops';
-import type { AnimatorController, EffectDef, EnvironmentConfig, InputConfig, LightingBake, MaterialDef } from '@thirdlight/project-model';
+import type { AnimatorController, EffectDef, EnvironmentConfig, InputConfig, LightingBake, MaterialDef, SceneEnvironment } from '@thirdlight/project-model';
 import { applySceneIndexOp } from './scene-ops';
 import { applyDeleteGraph, applyGraphEdit, applySetGraph } from './graph-ops';
 import { applyDeleteEffect, applyRenameEffect, applySetEffect } from './effect-ops';
@@ -354,7 +354,7 @@ export function applyMutation<S extends SceneDocument>(
     case 'renameScene':
     case 'deleteScene':
     case 'setStartScenes': {
-      const r = applySceneIndexOp(input, va.validated.args);
+      const r = applySceneIndexOp(input, va.validated.args, state.sceneEnvironments);
       if (!r.ok) return { ok: false, result: failure(request, r.error) };
       return completeForward(state, va.validated.op, envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
     }
@@ -372,7 +372,7 @@ export function applyMutation<S extends SceneDocument>(
           ? applySetMaterial(input, a as { material: MaterialDef })
           : va.validated.op === 'deleteMaterial'
             ? applyDeleteMaterial(input, a as { materialId: string })
-            : applySetEnvironment(input, a as { environment: EnvironmentConfig });
+            : applySetEnvironment(input, a as { environment: EnvironmentConfig | SceneEnvironment; sceneId?: string });
       if (!r.ok) return { ok: false, result: failure(request, r.error) };
       return completeForward(state, va.validated.op, envelope.projectId, envelope.requestId, revision, envelope.origin, r.op);
     }

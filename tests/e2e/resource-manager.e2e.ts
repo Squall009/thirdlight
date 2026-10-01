@@ -190,7 +190,7 @@ test('Play: a texture that is both the sky and a material\'s map is decoded once
   const pid = 'resources-sky';
   const p = await newProject(pid);
   await publish(pid, 'tex-sky', 'texture', makePng(64, 32, (_x, y) => (y < 16 ? [90, 150, 230, 255] : [60, 140, 60, 255])));
-  await p.command('setEnvironment', { environment: { sky: { mode: 'texture', texture: 'tex-sky' } } });
+  await p.command('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'texture', texture: 'tex-sky' } } });
   await p.command('setMaterial', { material: { materialId: 'mat-sky', name: 'Sky map', shader: 'unlit', params: {}, textures: { map: 'tex-sky' } } });
   await p.command('createScene', { sceneId: 'scene-a', name: 'A' });
   await p.command('setStartScenes', { sceneIds: ['scene-main'] });

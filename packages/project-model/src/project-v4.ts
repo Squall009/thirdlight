@@ -36,7 +36,7 @@ import { isFolderEntity } from './types-v3';
 import { materialOverrideErrors } from './materials';
 import { behaviorGroupErrors } from './modes';
 import { effectComponentErrors } from './effects';
-import { PROJECT_SCHEMA_VERSION, PROJECT_SCHEMA_VERSION_UPGRADED, PROJECT_SCHEMA_VERSION_V25, isUpgradedProjectSchemaVersion } from './upgrade-v24';
+import { PROJECT_SCHEMA_VERSION, PROJECT_SCHEMA_VERSION_PROJECT_LOOK, PROJECT_SCHEMA_VERSION_UPGRADED, PROJECT_SCHEMA_VERSION_V25, isUpgradedProjectSchemaVersion } from './upgrade-v24';
 import { nextFreeEntityIdOf } from './entity-ids';
 
 /**
@@ -61,7 +61,7 @@ export function validateManifestV2Project(doc: unknown): ModelResultV3<ProjectMa
   if (doc['schemaVersion'] !== PROJECT_SCHEMA_VERSION) {
     errors.push(
       isUpgradedProjectSchemaVersion(doc['schemaVersion'])
-        ? fieldValue('/schemaVersion', doc['schemaVersion'], String(PROJECT_SCHEMA_VERSION), `a schemaVersion ${String(doc['schemaVersion'])} project is upgraded by the loader before it is validated (${doc['schemaVersion'] === PROJECT_SCHEMA_VERSION_UPGRADED ? 'upgradeProjectDocsV24, then ' : ''}${doc['schemaVersion'] === PROJECT_SCHEMA_VERSION_V25 ? '' : 'upgradeProjectDocsV25, then '}the asset-file upgrade of the open)`)
+        ? fieldValue('/schemaVersion', doc['schemaVersion'], String(PROJECT_SCHEMA_VERSION), `a schemaVersion ${String(doc['schemaVersion'])} project is upgraded by the loader before it is validated (${doc['schemaVersion'] === PROJECT_SCHEMA_VERSION_UPGRADED ? 'upgradeProjectDocsV24, then ' : ''}${doc['schemaVersion'] === PROJECT_SCHEMA_VERSION_V25 || doc['schemaVersion'] === PROJECT_SCHEMA_VERSION_PROJECT_LOOK ? '' : 'upgradeProjectDocsV25, then '}${doc['schemaVersion'] === PROJECT_SCHEMA_VERSION_PROJECT_LOOK ? '' : 'the asset-file upgrade of the open, then '}upgradeSceneEnvironments)`)
         : fieldValue('/schemaVersion', doc['schemaVersion'], String(PROJECT_SCHEMA_VERSION), `a v4 project manifest has schemaVersion ${PROJECT_SCHEMA_VERSION}`),
     );
   }
@@ -611,6 +611,21 @@ function composeSceneRules(s: SceneV4, content: ContentCatalogV4, errors: ModelE
     composeBlockLayers(s.blocks, s.entities as unknown as { id: string; components: Record<string, unknown> }[], content as unknown as BlockContentView, local5);
     for (const x of local5) errors.push(sceneError(s.sceneId, x));
   }
+  // The scene's sky images and grading LUT are plain texture assets of the project.
+  if (s.environment !== undefined) {
+    const sky = s.environment.sky;
+    const refs: [string, string][] = [];
+    if (sky?.texture !== undefined) refs.push(['/environment/sky/texture', sky.texture]);
+    (sky?.cube ?? []).forEach((id, i) => refs.push([`/environment/sky/cube/${i}`, id]));
+    const lut = s.environment.post?.grading?.lut;
+    if (lut !== undefined) refs.push(['/environment/post/grading/lut', lut]);
+    for (const [path, id] of refs) {
+      const record = assetById.get(id);
+      if (record === undefined || record.kind !== 'texture' || arrayTextureIds(content).has(id)) {
+        errors.push(sceneError(s.sceneId, withFound({ code: 'asset_reference_missing', path, message: 'this environment image must name a (plain) texture asset of this project', expected: 'a texture assetId' }, id)));
+      }
+    }
+  }
   s.entities.forEach((e, i) => {
     const inst = e.components.instances;
     if (inst === undefined) return;
@@ -697,6 +712,7 @@ export function migrateProjectV3ToV4(manifest: M1Manifest, scene: SceneV3, conte
     scenes: [{ sceneId: scene.sceneId, name: MIGRATED_SCENE_NAME }],
     startScenes: [scene.sceneId],
   };
+
   const manifestV2: ProjectManifestV2 = {
     schemaVersion: PROJECT_SCHEMA_VERSION,
     engineVersion: manifest.engineVersion,

@@ -48,6 +48,7 @@ import type {
   TrustEntry,
   SceneV4,
   EnvironmentConfig,
+  SceneEnvironment,
   LightingBake,
   AnimatorController,
   InputConfig,
@@ -428,11 +429,18 @@ export interface SetSceneIndexChange {
   type: 'setSceneIndex';
   previous: { scenes: SceneIndexEntry[]; startScenes: string[] };
   next: { scenes: SceneIndexEntry[]; startScenes: string[] };
+  /**
+   * The looks of the scenes this change adds or removes (by scene id; a scene
+   * without a look is not listed): the workspace writes an added scene's file
+   * with its look, so an undone delete or a redone create keeps it.
+   */
+  environments?: Record<string, SceneEnvironment>;
 }
 
 /** The args of the four scene-index ops, tagged with the op. */
 export type SceneIndexArgs =
-  | { op: 'createScene'; sceneId?: string; name: string }
+  /** `environmentFrom`: a scene whose look the new scene copies (absent: the engine defaults). */
+  | { op: 'createScene'; sceneId?: string; name: string; environmentFrom?: string }
   | { op: 'renameScene'; sceneId: string; name: string }
   | { op: 'deleteScene'; sceneId: string }
   | { op: 'setStartScenes'; sceneIds: string[] };
@@ -449,11 +457,15 @@ export interface SetMaterialChange {
   next: MaterialDef | null;
 }
 
-/** `setEnvironment` change data (null = no environment block). */
+/**
+ * `setEnvironment` change data: with `sceneId` that scene's look (sky, fog,
+ * post, wind), else the project's part (quality, presets); null = none.
+ */
 export interface SetEnvironmentChange {
   type: 'setEnvironment';
-  previous: EnvironmentConfig | null;
-  next: EnvironmentConfig | null;
+  sceneId?: string;
+  previous: EnvironmentConfig | SceneEnvironment | null;
+  next: EnvironmentConfig | SceneEnvironment | null;
 }
 
 /** `setAnimator`/`deleteAnimator` (and a `graphEdit` of a controller) change data: the one controller before and after (null: none). */
@@ -1193,10 +1205,11 @@ export interface SetMaterialInverse {
   restore: MaterialDef | null;
 }
 
-/** Undo of `setEnvironment`: restore the previous block (null = none). */
+/** Undo of `setEnvironment`: restore the previous block, or with `sceneId` the scene's look (null = none). */
 export interface SetEnvironmentInverse {
   kind: 'setEnvironment';
-  restore: EnvironmentConfig | null;
+  sceneId?: string;
+  restore: EnvironmentConfig | SceneEnvironment | null;
 }
 
 /** Undo of `setAnimator`/`deleteAnimator` (and a controller's `graphEdit`): put the one controller back as it was (null: none). */
@@ -1251,10 +1264,11 @@ export interface SetTagsInverse {
   restore: TagDefinition[];
 }
 
-/** Undo of a scene-index op: restore the whole previous index. */
+/** Undo of a scene-index op: restore the whole previous index (and the looks of the scenes it brings back). */
 export interface SetSceneIndexInverse {
   kind: 'setSceneIndex';
   restore: { scenes: SceneIndexEntry[]; startScenes: string[] };
+  environments?: Record<string, SceneEnvironment>;
 }
 
 export type InverseSpec =
@@ -1403,6 +1417,8 @@ export interface CommandState<S extends SceneDocument = SceneDocument> {
   preparedResourceImport?: PreparedResourceImport;
   /** The host's prepared file and folder moves (`moveResources`, `renameFolder`, `createFolder` read only these). */
   preparedMoves?: PreparedMoves;
+  /** The looks of the scenes a scene-index op names besides the edited one (a deleted scene, the scene a new one copies). */
+  sceneEnvironments?: ReadonlyMap<string, SceneEnvironment>;
 }
 
 /**

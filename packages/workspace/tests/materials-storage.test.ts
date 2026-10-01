@@ -1,5 +1,5 @@
 /**
- * Phase 9.4 — project materials, object material mappings and the environment
+ * Project materials, object material mappings and a scene's wind
  * on the real filesystem (storage v4): validation, references, undo/redo and
  * reload.
  */
@@ -60,25 +60,32 @@ describe('materials and environment (storage v4)', () => {
     ok(svc, 'undo', {});
     expect(gameConfig(svc).materials.map((m) => m.materialId)).toEqual(['mat-foliage']);
 
-    // Wind.
-    ok(svc, 'setEnvironment', { environment: { wind: { direction: [1, 0], strength: 2, gust: 1, gustFrequency: 0.5, turbulence: 0.4 } } });
-    expect(send(svc, 'setEnvironment', { environment: { wind: { direction: [0, 0], strength: 2, gust: 1, gustFrequency: 0.5, turbulence: 0.4 } } }).ok).toBe(false);
-    expect(send(svc, 'setEnvironment', { environment: { fog: {} } }).ok).toBe(false);
-    ok(svc, 'setEnvironment', { environment: { wind: { direction: [0.5, 0.5], strength: 3, gust: 1, gustFrequency: 0.5, turbulence: 0.4 } } });
+    // Wind: a scene's (each scene has its own look, in its own file).
+    const sceneId = (svc.query({ op: 'queryProject', projectId: PROJECT_ID }) as unknown as { scenes: { sceneId: string }[] }).scenes[0]!.sceneId;
+    const windOf = (s: WorkspaceService): number | undefined => (s.query({ op: 'queryProject', projectId: PROJECT_ID, args: { environments: true } }) as unknown as { scenes: { sceneId: string; environment?: { wind?: { strength: number } } }[] }).scenes.find((r) => r.sceneId === sceneId)?.environment?.wind?.strength;
+    ok(svc, 'setEnvironment', { sceneId, environment: { wind: { direction: [1, 0], strength: 2, gust: 1, gustFrequency: 0.5, turbulence: 0.4 } } });
+    expect(send(svc, 'setEnvironment', { sceneId, environment: { wind: { direction: [0, 0], strength: 2, gust: 1, gustFrequency: 0.5, turbulence: 0.4 } } }).ok).toBe(false);
+    expect(send(svc, 'setEnvironment', { sceneId, environment: { fog: {} } }).ok).toBe(false);
+    // Without a sceneId the look is refused: it is no longer the project's.
+    expect(send(svc, 'setEnvironment', { environment: { wind: { direction: [1, 0], strength: 2, gust: 1, gustFrequency: 0.5, turbulence: 0.4 } } }).ok).toBe(false);
+    ok(svc, 'setEnvironment', { sceneId, environment: { wind: { direction: [0.5, 0.5], strength: 3, gust: 1, gustFrequency: 0.5, turbulence: 0.4 } } });
     ok(svc, 'undo', {});
-    expect(gameConfig(svc).environment?.wind?.strength).toBe(2);
+    expect(windOf(svc)).toBe(2);
+    expect(gameConfig(svc).environment).toBeNull();
 
     // The material is its own file in the game folder (a data-root project is its own),
-    // the environment a project-wide setting in content.json; both survive a reopen.
-    const onDisk = JSON.parse(readFileSync(join(dir, 'content.json'), 'utf8')) as { content: { materials?: unknown[]; environment: unknown } };
+    // the wind in its scene's file; both survive a reopen.
+    const onDisk = JSON.parse(readFileSync(join(dir, 'content.json'), 'utf8')) as { content: { materials?: unknown[]; environment?: unknown } };
     expect(onDisk.content.materials).toBeUndefined();
+    expect(onDisk.content.environment).toBeUndefined();
     const file = JSON.parse(readFileSync(join(dir, 'assets', 'materials', 'mat-foliage.material.json'), 'utf8')) as { kind: string; id: string; data: { materialId: string } };
     expect([file.kind, file.id, file.data.materialId]).toEqual(['material', 'mat-foliage', 'mat-foliage']);
-    expect(onDisk.content.environment).toEqual({ wind: { direction: [1, 0], strength: 2, gust: 1, gustFrequency: 0.5, turbulence: 0.4 } });
+    const sceneFile = JSON.parse(readFileSync(join(dir, 'scenes', `${sceneId}.json`), 'utf8')) as { scene: { environment?: unknown } };
+    expect(sceneFile.scene.environment).toEqual({ wind: { direction: [1, 0], strength: 2, gust: 1, gustFrequency: 0.5, turbulence: 0.4 } });
     svc.close();
     svc = open(root);
     expect(gameConfig(svc).materials[0]!.params).toEqual({ color: '#e0ffe0', windBend: 1.5 });
-    expect(gameConfig(svc).environment?.wind?.strength).toBe(2);
+    expect(windOf(svc)).toBe(2);
     svc.close();
   });
 });

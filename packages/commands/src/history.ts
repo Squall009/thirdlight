@@ -22,8 +22,8 @@
  * (defensive).
  */
 
-import type { AnimatorController, EnvironmentConfig, InputConfig, LightingBake, MaterialDef } from '@thirdlight/project-model';
-import { withAnimator, withEnvironment, withInput, withLighting, withMaterial } from './material-ops';
+import type { AnimatorController, EnvironmentConfig, InputConfig, LightingBake, MaterialDef, SceneEnvironment } from '@thirdlight/project-model';
+import { withAnimator, withEnvironment, withInput, withLighting, withMaterial, withSceneEnvironment } from './material-ops';
 import { withCollisionLayers } from './layer-ops';
 import { withSaveSchema } from './save-schema-ops';
 import { editOwnerGraph, withGraphDocument } from './graph-ops';
@@ -504,7 +504,8 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
   if (inv.kind === 'setSceneIndex') {
     const before = sceneIndexOf(content);
     const after = deepClone(inv.restore);
-    const change: ChangeData = { type: 'setSceneIndex', previous: before, next: after };
+    // The looks of the scenes the undo brings back (or of those it removes) travel with it.
+    const change: ChangeData = { type: 'setSceneIndex', previous: before, next: after, ...(inv.environments !== undefined ? { environments: deepClone(inv.environments) } : {}) };
     return finish(state, bumped(scene), { ...content, scenes: after.scenes, startScenes: after.startScenes } as ContentDocument, change, entry.requestId);
   }
 
@@ -515,9 +516,16 @@ function applyInverse(state: CommandState<SceneDocument>, entry: HistoryEntry): 
   }
 
   if (inv.kind === 'setEnvironment') {
+    if (inv.sceneId !== undefined) {
+      // One scene's look (the history entry routed the undo to that scene).
+      const before = (scene as { environment?: SceneEnvironment }).environment ?? null;
+      const restore = inv.restore as SceneEnvironment | null;
+      const change: ChangeData = { type: 'setEnvironment', sceneId: inv.sceneId, previous: before === null ? null : deepClone(before), next: restore === null ? null : deepClone(restore) };
+      return finish(state, bumped(withSceneEnvironment(scene, restore)), content, change, entry.requestId);
+    }
     const before = (content as { environment?: EnvironmentConfig }).environment ?? null;
     const change: ChangeData = { type: 'setEnvironment', previous: before === null ? null : deepClone(before), next: inv.restore === null ? null : deepClone(inv.restore) };
-    return finish(state, bumped(scene), withEnvironment(content, inv.restore), change, entry.requestId);
+    return finish(state, bumped(scene), withEnvironment(content, inv.restore as EnvironmentConfig | null), change, entry.requestId);
   }
 
 
@@ -1035,7 +1043,7 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
   if (f.type === 'setSceneIndex') {
     const before = sceneIndexOf(content);
     const after = deepClone(f.next);
-    const change: ChangeData = { type: 'setSceneIndex', previous: before, next: after };
+    const change: ChangeData = { type: 'setSceneIndex', previous: before, next: after, ...(f.environments !== undefined ? { environments: deepClone(f.environments) } : {}) };
     return finish(state, bumped(scene), { ...content, scenes: after.scenes, startScenes: after.startScenes } as ContentDocument, change, entry.requestId);
   }
 
@@ -1046,9 +1054,15 @@ function applyForward(state: CommandState<SceneDocument>, entry: HistoryEntry): 
   }
 
   if (f.type === 'setEnvironment') {
+    if (f.sceneId !== undefined) {
+      const before = (scene as { environment?: SceneEnvironment }).environment ?? null;
+      const look = f.next as SceneEnvironment | null;
+      const change: ChangeData = { type: 'setEnvironment', sceneId: f.sceneId, previous: before === null ? null : deepClone(before), next: look === null ? null : deepClone(look) };
+      return finish(state, bumped(withSceneEnvironment(scene, look)), content, change, entry.requestId);
+    }
     const before = (content as { environment?: EnvironmentConfig }).environment ?? null;
     const change: ChangeData = { type: 'setEnvironment', previous: before === null ? null : deepClone(before), next: f.next === null ? null : deepClone(f.next) };
-    return finish(state, bumped(scene), withEnvironment(content, f.next), change, entry.requestId);
+    return finish(state, bumped(scene), withEnvironment(content, f.next as EnvironmentConfig | null), change, entry.requestId);
   }
 
 

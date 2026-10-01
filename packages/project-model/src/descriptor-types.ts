@@ -382,4 +382,6 @@ export interface DescriptorRegistry {
   readonly content: readonly ContentBlockDescriptor[];
   /** The fields of a UI document, a widget, a style and a tween (the UI document editor's Inspector). */
   readonly ui?: UiDescriptors;
+  /** A scene's look (sky, fog, post-processing, wind): each scene document's `environment`, set with `setEnvironment {sceneId}`. */
+  readonly sceneEnvironment?: ObjectFieldDescriptor;
 }

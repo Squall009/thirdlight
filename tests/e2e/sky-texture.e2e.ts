@@ -46,7 +46,7 @@ for (const variant of RENDERER_VARIANTS) test(`a texture sky is upright: sky abo
   await expect(page.locator('.tl-assets__list li[data-asset-id]').filter({ hasText: 'sky' })).toHaveCount(1, { timeout: 10_000 });
   const assets = (await be.command({ op: 'queryAssets', projectId: be.projectId, args: { limit: 10, offset: 0 } }))['assets'] as { assetId: string }[];
   const rev = Number((await be.command({ op: 'queryProject', projectId: be.projectId, args: {} })).revision);
-  const res = await be.command({ op: 'setEnvironment', projectId: be.projectId, expectedRevision: rev, requestId: `req-${'5'.repeat(32)}`, origin: { kind: 'mcp', clientId: 'e2e-sky' }, args: { environment: { sky: { mode: 'texture', texture: assets[0]!.assetId } } } });
+  const res = await be.command({ op: 'setEnvironment', projectId: be.projectId, expectedRevision: rev, requestId: `req-${'5'.repeat(32)}`, origin: { kind: 'mcp', clientId: 'e2e-sky' }, args: { sceneId: 'scene-main', environment: { sky: { mode: 'texture', texture: assets[0]!.assetId } } } });
   expect(res['ok'], JSON.stringify(res)).toBe(true);
   const viewport = page.locator('canvas.tl-viewport');
   const band = async (el: typeof viewport, from: number, to: number): Promise<[number, number, number]> => {

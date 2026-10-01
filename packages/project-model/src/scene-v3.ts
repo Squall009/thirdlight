@@ -22,7 +22,7 @@ import { canonicalSocketAttach, SOCKET_ATTACH_CONFLICTS, validateSocketAttachCom
 import { canonicalBehaviorGroup, validateBehaviorGroupComponent, type BehaviorGroupComponent } from './modes';
 import { canonicalCameraPath, canonicalCameraRegion, canonicalVirtualCamera, validateCameraPathComponent, validateCameraRegionComponent, validateVirtualCameraComponent, type CameraPathComponent, type CameraRegionComponent, type VirtualCameraComponent } from './cameras';
 import { canonicalAnimatorComponent, validateAnimatorComponent, type AnimatorComponent } from './animator';
-import { canonicalFogVolume, canonicalMaterialMapping, canonicalMaterialParams, MAX_FOG_VOLUMES, validateFogVolumeComponent, validateMaterialMapping, validateMaterialParamsComponent, type FogVolumeComponent, type MaterialParamsComponent } from './materials';
+import { canonicalFogVolume, canonicalMaterialMapping, canonicalMaterialParams, canonicalSceneEnvironment, MAX_FOG_VOLUMES, sceneEnvironmentIsEmpty, validateFogVolumeComponent, validateMaterialMapping, validateMaterialParamsComponent, validateSceneEnvironment, type FogVolumeComponent, type MaterialParamsComponent, type SceneEnvironment } from './materials';
 import {
   canonicalBox,
   canonicalCamera,
@@ -115,7 +115,7 @@ export const SURFACE_DEFAULTS = Object.freeze({
 
 const KNOWN_SCENE_FIELDS = new Set(['schemaVersion', 'sceneId', 'revision', 'entities']);
 // `blocks` — the scene's block-layer cells and regions (absent = none).
-const KNOWN_SCENE_FIELDS_V4 = new Set(['schemaVersion', 'sceneId', 'revision', 'entities', 'blocks']);
+const KNOWN_SCENE_FIELDS_V4 = new Set(['schemaVersion', 'sceneId', 'revision', 'environment', 'entities', 'blocks']);
 /** The v4 per-scene entity cap: a scene is one load unit (a big world is several scenes loaded together; instance sets hold dense detail). */
 export const MAX_ENTITIES_V4 = 16_384;
 /** The boolean flags an entity may carry (only a non-default value is stored). */
@@ -1253,6 +1253,8 @@ export function validateSceneV3Value(doc: Record<string, unknown>, version: 3 | 
   }
   // The scene's block-layer cells and regions.
   if (version === 4 && doc['blocks'] !== undefined && entities !== null) validateSceneBlocks(doc['blocks'], entities, errors, merged);
+  // The scene's look (sky, fog, post, wind).
+  if (version === 4 && doc['environment'] !== undefined) validateSceneEnvironment(doc['environment'], '/environment', errors as never);
   if (errors.length > 0) return { errors };
   const canonical = canonicalSceneV3(doc, entities as unknown[], version);
   checkFolderHierarchy(canonical, errors);
@@ -1303,10 +1305,13 @@ function canonicalSceneV3(doc: Record<string, unknown>, ents: unknown[], version
   if (version === 4) {
     // `blocks` present only when a layer holds cells or regions.
     const blocks = Array.isArray(doc['blocks']) ? canonicalSceneBlocks(doc['blocks'] as BlockLayerData[]) : null;
+    // `environment` present only when the scene sets part of its look (none: the engine defaults).
+    const env = doc['environment'] as SceneEnvironment | undefined;
     return {
       schemaVersion: 4,
       sceneId: doc['sceneId'] as string,
       revision: canonNum(doc['revision']),
+      ...(!sceneEnvironmentIsEmpty(env) ? { environment: canonicalSceneEnvironment(env!) } : {}),
       entities: (ents as Record<string, unknown>[]).map(canonicalEntityV3),
       ...(blocks !== null ? { blocks } : {}),
     } as unknown as SceneV3;

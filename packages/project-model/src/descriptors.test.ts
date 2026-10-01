@@ -41,7 +41,7 @@ import { validateInput } from './input';
 import { validateModes } from './modes';
 import { validateEventCues } from './event-cues';
 import { validateShell } from './shell';
-import { MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS, validateEnvironment, validateMaterials } from './materials';
+import { MATERIAL_PARAMS, MATERIAL_SHADERS, MATERIAL_TEXTURE_SLOTS, validateEnvironment, validateMaterials, validateSceneEnvironment } from './materials';
 import { validateEffects } from './effects';
 import { validateBlockStamps, validateBlockTypes, validateCellFields } from './block-layers';
 import { validateUiDocument } from './ui-documents';
@@ -554,11 +554,16 @@ const POST_FULL = {
   dof: { enabled: false, focus: 10, aperture: 0.002, maxBlur: 0.01 },
 };
 const WIND_FULL = { direction: [1, 0], strength: 0.5, gust: 0.4, gustFrequency: 0.3, turbulence: 0.3 };
-const ENV_BASES: J[] = [
-  { sky: SKY_PROCEDURAL, fog: { mode: 'linear', color: '#c8d2dc', near: 10, far: 120 }, post: POST_FULL, wind: WIND_FULL, quality: 'medium' },
+// A scene's look.
+const SCENE_ENV_BASES: J[] = [
+  { sky: SKY_PROCEDURAL, fog: { mode: 'linear', color: '#c8d2dc', near: 10, far: 120 }, post: POST_FULL, wind: WIND_FULL },
   { sky: { mode: 'gradient', topColor: '#3d7cd6', horizonColor: '#bfe3ff', bottomColor: '#6b7b5a', intensity: 1 }, fog: { mode: 'exp2', color: '#c8d2dc', density: 0.01 } },
   { sky: { mode: 'texture', texture: 'tex-a', cube: ['px', 'nx', 'py', 'ny', 'pz', 'nz'] }, fog: { mode: 'none', color: '#c8d2dc' } },
   { sky: { mode: 'color', color: '#7ec8ff' } },
+];
+// The project's part: the quality and the presets.
+const ENV_BASES: J[] = [
+  { quality: 'medium' },
   // Environment presets.
   {
     presets: [
@@ -794,6 +799,7 @@ function runAllProbes(): void {
   probe('entity', sceneErrors, { schemaVersion: 4, sceneId: 'main', revision: 1, entities: [{ id: 'parent-0001', components: { transform: T } }, { id: 'subject-0001', name: 'Thing', parentId: 'parent-0001', active: false, visible: false, locked: true, static: true, tags: 5, components: { transform: T } }] }, '/entities/1', DESCRIPTORS.entity, 'entity:');
   // content blocks
   ENV_BASES.forEach((b, i) => probe(`environment[${i}]`, (v) => errorsOf((e) => validateEnvironment(v, '', e)), b, '', block('environment'), 'environment:'));
+  SCENE_ENV_BASES.forEach((b, i) => probe(`sceneEnvironment[${i}]`, (v) => errorsOf((e) => validateSceneEnvironment(v, '', e)), b, '', DESCRIPTORS.sceneEnvironment!, 'sceneEnvironment:'));
   INPUT_BASES.forEach((b, i) => probe(`input[${i}]`, (v) => errorsOf((e) => validateInput(v, '', e)), b, '', block('input'), 'input:'));
   MATERIAL_BASES.forEach((b, i) => probe(`materials[${i}]`, (v) => errorsOf((e) => validateMaterials(v, '', e)), b, '', block('materials'), 'materials:'));
   EFFECT_BASES.forEach((b, i) => probe(`effects[${i}]`, (v) => errorsOf((e) => validateEffects(v, '', e)), b, '', block('effects'), 'effects:'));

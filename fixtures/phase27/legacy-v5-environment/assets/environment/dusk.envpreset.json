@@ -1,0 +1,18 @@
+{
+  "tlresource": 1,
+  "kind": "envpreset",
+  "id": "dusk",
+  "data": {
+    "presetId": "dusk",
+    "name": "Dusk",
+    "sky": {
+      "color": "#402030",
+      "mode": "color"
+    },
+    "fog": {
+      "color": "#302028",
+      "density": 0.02,
+      "mode": "exp2"
+    }
+  }
+}

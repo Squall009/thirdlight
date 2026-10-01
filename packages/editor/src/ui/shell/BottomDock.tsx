@@ -103,11 +103,11 @@ export function BottomDock(props: BottomDockProps): JSX.Element {
   const { tab: bottomTab, onTab: setBottomTab, height, clientRef, viewportRef, problemLog, viewFailures, fileCheck, reimportIssue, workspace, workspaceDispatch, openDocument } = props;
   const { entities, selected, selectedId, setSelection, refreshEntities, setNotice, activeScene, gameFieldContext, tileThumbnails, tagUsage } = props;
   const { fieldContext: fieldContextMemo, layerUsage: layerUsageMemo, groupUsage: groupUsageMemo } = props;
-  const { dialogues, dialogueSettings, effects, environment, graphKinds, graphs, lighting, materials, prefabSummaries, projectUiDocs, projectUiThemes, registry, scriptLibraries, speakers, timelines, uiDocuments, uiThemes } = props.content;
+  const { dialogues, dialogueSettings, effects, environment, sceneLook, graphKinds, graphs, lighting, materials, prefabSummaries, projectUiDocs, projectUiThemes, registry, scriptLibraries, speakers, timelines, uiDocuments, uiThemes } = props.content;
   const { behaviorGroups, collisionLayers, eventCues, eventCuesError, gameplayError, inputConfig, inputDefaults, inputError, layersError, modes, modesError } = props.settings;
   const { saveBehaviorGroups, saveCollisionLayers, saveEventCues, saveInput, saveModes, saveSaveSchema, saveSchema, saveSchemaError, saveSettings, saveShell, saveTags, settings, shell, shellError, tags, tagsError } = props.settings;
   const { activeDialogueId, activeEffectId, activeGraphId, setMaterialFocus, setVisualFocus } = props.docState;
-  const { createUiDocument, deleteMaterial, dialogueCommand, dialogueError, graphDocCommand, graphsError, effectCommand, effectError, materialError, saveEnvironment, saveMaterial } = props.docCmds;
+  const { createUiDocument, deleteMaterial, dialogueCommand, dialogueError, graphDocCommand, graphsError, effectCommand, effectError, materialError, saveEnvironment, saveSceneEnvironment, saveMaterial } = props.docCmds;
   const { selectedMaterialId, setSelectedMaterialId, setDialogueError, setUiError, showGraph, timelineCommand, timelineError, uiCommand, uiError } = props.docCmds;
   const { behaviorProps, dirtyLibraries, libraryCommand, libraryDependents, libraryError, openSource, saveAllLibraries, saveAllOutcome } = props.scripting;
   const { animatorProps } = props.animator;
@@ -385,6 +385,9 @@ export function BottomDock(props: BottomDockProps): JSX.Element {
       <EnvironmentPanel
         environment={environment}
         onSave={(env) => void saveEnvironment(env, environment)}
+        scene={activeScene === null ? null : { sceneId: activeScene.sceneId, name: activeScene.name }}
+        look={sceneLook}
+        onSaveLook={(look) => activeScene !== null && void saveSceneEnvironment(activeScene.sceneId, look, sceneLook)}
         error={materialError}
         presets={{
           lights: entities.filter((e) => e.light !== undefined).map((e) => ({ id: e.id, type: e.light!.type, color: e.light!.color, intensity: e.light!.intensity, ...(e.light!.direction !== undefined ? { direction: e.light!.direction } : {}), ...(e.light!.groundColor !== undefined ? { groundColor: e.light!.groundColor } : {}) })),

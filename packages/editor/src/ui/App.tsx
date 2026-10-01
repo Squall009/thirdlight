@@ -36,7 +36,7 @@ import { iconTableOf } from '../viewport/icons';
 import { ModelInstances } from '../viewport/model-instances';
 import { createSceneViewAssets } from '../viewport/scene-assets';
 import { extractedImagePictures, TileThumbnails } from '../viewport/thumbnails';
-import { setKtx2DecoderBase, layerEnvironment, pageSearch, resolveRendererPreference, type EnvironmentLike, type LightingBakeLike, type MaterialDefLike, type MaterialFunctionLike, type MaterialLibrary, type RendererInfo, type WindLike } from '@thirdlight/three-adapter';
+import { setKtx2DecoderBase, pageSearch, resolveRendererPreference, type EnvironmentLike, type LightingBakeLike, type MaterialDefLike, type MaterialFunctionLike, type MaterialLibrary, type RendererInfo, type WindLike } from '@thirdlight/three-adapter';
 import { editorRendererChoice, setEditorRendererChoice } from '../viewport/renderer-choice';
 import type { EffectComponent } from '@thirdlight/project-model';
 import { Hierarchy, type SceneAction, type SceneHeaderView } from './Hierarchy';
@@ -184,12 +184,11 @@ function EditorApp(): JSX.Element {
     snappingRef.current = snapping;
   }, [snapping]);
 
-  /** The environment the Scene view shows (the project's). */
+  /** The environment the Scene view shows: the active scene's look with the project's quality and presets. */
   const applyEnvironmentView = useCallback(() => {
     const c = clientRef.current;
     if (!c) return;
-    const env = c.getEnvironment();
-    const shown = layerEnvironment(env as unknown as (EnvironmentLike & { wind?: unknown }) | null, null);
+    const shown = c.getShownEnvironment() as unknown as (EnvironmentLike & { wind?: unknown }) | null;
     materialLibraryRef.current?.setWind(((shown as { wind?: WindLike } | null)?.wind ?? null) as WindLike | null);
     const envKey = JSON.stringify(shown);
     if (envKey !== environmentKeyRef.current && loadTextureRef.current !== null) {

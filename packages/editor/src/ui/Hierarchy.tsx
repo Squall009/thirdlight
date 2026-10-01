@@ -89,7 +89,8 @@ export type SceneAction =
   | { kind: 'activate'; sceneId: string }
   | { kind: 'open'; sceneId: string }
   | { kind: 'close'; sceneId: string }
-  | { kind: 'create' }
+  /** `environmentFrom`: the scene whose look the new one copies (absent: the engine defaults). */
+  | { kind: 'create'; environmentFrom?: string }
   | { kind: 'rename'; sceneId: string; name: string }
   | { kind: 'delete'; sceneId: string }
   | { kind: 'toggleStart'; sceneId: string };
@@ -241,6 +242,8 @@ export function Hierarchy({ entities, structureKey, flags, projectId, selectedId
   const [renaming, setRenaming] = useState<{ id: string; draft: string } | null>(null);
   const [renamingScene, setRenamingScene] = useState<{ sceneId: string; draft: string } | null>(null);
   const [hint, setHint] = useState<string | null>(null);
+  /** The scene whose look "+ Scene" copies ('' : the engine defaults). */
+  const [newLook, setNewLook] = useState('');
   const [collapsed, setCollapsed] = useState<Set<string>>(() => loadCollapsed(projectId));
   const [drop, setDrop] = useState<{ targetId: string | null; target: DropTarget } | null>(null);
   const dragging = useRef<string[] | null>(null);
@@ -608,9 +611,17 @@ export function Hierarchy({ entities, structureKey, flags, projectId, selectedId
       />
       {scenes !== undefined && (
         <div className="tl-hierarchy__scenes">
-          <button className="tl-btn" onClick={() => onSceneAction?.({ kind: 'create' })}>
+          <button className="tl-btn" onClick={() => onSceneAction?.({ kind: 'create', ...(newLook !== '' ? { environmentFrom: newLook } : {}) })}>
             + Scene
           </button>
+          <select aria-label="new scene look" title="The new scene's sky, fog, post-processing and wind" value={scenes.some((sc) => sc.sceneId === newLook) ? newLook : ''} onChange={(ev) => setNewLook(ev.target.value)}>
+            <option value="">engine default look</option>
+            {scenes.map((sc) => (
+              <option key={sc.sceneId} value={sc.sceneId}>
+                look of {sc.name}
+              </option>
+            ))}
+          </select>
           {closedScenes !== undefined && closedScenes.length > 0 && (
             <select
               aria-label="open scene"

@@ -15,7 +15,7 @@ import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { api, exportContentOf, mkSessionId, startBackend, type TestBackend } from './test-helpers';
+import { api, exportContentOf, mkRequestId, mkSessionId, startBackend, type TestBackend } from './test-helpers';
 
 const FIXTURES = resolve(import.meta.dirname, '..', '..', '..', 'fixtures', 'phase24');
 
@@ -32,7 +32,7 @@ describe('a schemaVersion 2 project opened over HTTP', () => {
     await tb.teardown();
   });
 
-  it('upgrades the generic data and writes the project back as schemaVersion 5', async () => {
+  it('upgrades the generic data and writes the project back as schemaVersion 6', async () => {
     const r = await api(`${tb.authUrl}/api/v1/sessions`, {
       body: { projectId: 'legacy-v2-upgradable', sessionId: mkSessionId(), clientInfo: { kind: 'browser', label: 'format-upgrade' } },
       token: tb.adminToken,
@@ -48,8 +48,8 @@ describe('a schemaVersion 2 project opened over HTTP', () => {
     expect(comps('box-0002')['collectible']).toEqual({ counter: 'stars', amount: 5 });
     expect(comps('box-0003')['health']).toEqual({ max: 3 });
 
-    // On disk: the manifest says 5 (2 → 3 → 4 → 5 in one open), content.json has no game key, the scene file the upgraded components.
-    expect(readJson('legacy-v2-upgradable', 'project.json')['schemaVersion']).toBe(5);
+    // On disk: the manifest says 6 (2 → 3 → 4 → 5 → 6 in one open), content.json has no game key, the scene file the upgraded components.
+    expect(readJson('legacy-v2-upgradable', 'project.json')['schemaVersion']).toBe(6);
     const content = readJson('legacy-v2-upgradable', 'content.json');
     expect(content['revision']).toBe(4);
     expect('game' in (content['content'] as Record<string, unknown>)).toBe(false);
@@ -112,7 +112,7 @@ describe('a schemaVersion 3 project with four-digit ids opened over HTTP', () =>
     await tb.teardown();
   });
 
-  it('keeps the old ids, writes schemaVersion 5, and gives new objects six-digit ids unique across scenes', async () => {
+  it('keeps the old ids, writes schemaVersion 6, and gives new objects six-digit ids unique across scenes', async () => {
     const before = readJson('scenes/scene-b.json');
     const r = await api(`${tb.authUrl}/api/v1/sessions`, {
       body: { projectId: ID, sessionId: mkSessionId(), clientInfo: { kind: 'browser', label: 'format-upgrade-25' } },
@@ -126,8 +126,8 @@ describe('a schemaVersion 3 project with four-digit ids opened over HTTP', () =>
     expect(j.scene.entities.map((e) => e.id)).toEqual(['cam-main', 'light-0001', 'light-0002', 'spawn-0001', 'box-0001', 'group-0001', 'box-0002', 'box-0003', 'spawn-0002']);
     expect(j.scene.entities.find((e) => e.id === 'box-0002')!.parentId).toBe('group-0001');
 
-    // On disk: the manifest says 5; the scene files keep their ids (only the revision stamp moved).
-    expect(readJson('project.json')['schemaVersion']).toBe(5);
+    // On disk: the manifest says 6; the scene files keep their ids (only the revision stamp moved).
+    expect(readJson('project.json')['schemaVersion']).toBe(6);
     const sceneB = readJson('scenes/scene-b.json')['scene'] as { revision: number; entities: Ent[] };
     expect(sceneB.revision).toBe(4);
     expect(sceneB.entities).toEqual((before['scene'] as { entities: Ent[] }).entities);
@@ -158,7 +158,7 @@ describe('a schemaVersion 3 project with four-digit ids opened over HTTP', () =>
 /**
  * A schemaVersion 4 project whose assets are stored versions in
  * `sources/sha256/` (`fixtures/phase26/legacy-v4-assets`, written by the
- * engine before the asset-file format) opens over HTTP as schemaVersion 5:
+ * engine before the asset-file format) opens over HTTP as schemaVersion 6 (5, then 6 on the same open):
  * each asset's current version becomes a file with its `.tlasset` sidecar
  * (the KTX2 texture's PNG is the file, the KTX2 goes to the import cache),
  * the older version stays in `sources/` and is listed in the report, the
@@ -192,7 +192,7 @@ describe('a schemaVersion 4 project with stored asset versions opened over HTTP'
     const r = await api(`${tb.authUrl}/api/v1/sessions`, { body: { projectId: ID, sessionId: mkSessionId(), clientInfo: { kind: 'browser', label: 'format-upgrade-26' } }, token: tb.adminToken });
     expect(r.status, JSON.stringify(r.json)).toBe(200);
     expect((r.json as { revision: number }).revision).toBe(8);
-    expect(readJson('project.json')['schemaVersion']).toBe(5);
+    expect(readJson('project.json')['schemaVersion']).toBe(6);
 
     // Each asset's current version is a file in the project's own folder with its sidecar.
     const crate = readFileSync(join(dir(), 'assets', 'Crate.glb'));
@@ -343,5 +343,135 @@ describe('a project with music and short-sound records opened over HTTP', () => 
     const doc = sidecar(ID, 'Beep.wav');
     expect(doc).toMatchObject({ id: 'beep', kind: 'audio', importSettings: { loadType: 'decode-on-load', preload: true } });
     expect((doc['record'] as Rec).versions[0]!.metrics).toEqual({ format: 'wav', channels: 1, sampleRate: 48000, bitsPerSample: 16, durationMs: 100 });
+  }, 60_000);
+});
+
+/**
+ * Each scene its own look. A schemaVersion 5 project with one project-wide
+ * environment (`fixtures/phase27/legacy-v5-environment`, written by that
+ * engine through its own backend: two scenes, a gradient sky, linear fog, post,
+ * wind, quality medium and a preset) opens over HTTP as schemaVersion 6: the
+ * sky, fog, post and wind are copied into both scene files, the content keeps
+ * the quality and the preset, the upgrade is reported, the recorded command
+ * replays from its record, and the export ships each scene with its look.
+ */
+describe('a schemaVersion 5 project with one project-wide environment opened over HTTP', () => {
+  const REPO = resolve(import.meta.dirname, '..', '..', '..');
+  const FIXTURE = join(REPO, 'fixtures', 'phase27', 'legacy-v5-environment');
+  const ID = 'legacy-v5-environment';
+  let tb: TestBackend;
+  let exportRoot: string;
+  const dir = (): string => join(tb.root, 'data', 'projects', ID);
+  const readJson = (rel: string): Record<string, unknown> => JSON.parse(readFileSync(join(dir(), rel), 'utf8')) as Record<string, unknown>;
+  const LOOK = {
+    wind: { direction: [0, 1], strength: 1.5, gust: 0.5, gustFrequency: 0.4, turbulence: 0.2 },
+    sky: { bottomColor: '#404040', environmentIntensity: 0.8, horizonColor: '#c0d8f0', mode: 'gradient', topColor: '#204080' },
+    fog: { color: '#b0c4de', far: 140, mode: 'linear', near: 20 },
+    post: { bloom: { enabled: true, strength: 0.4 }, exposure: 1.2, toneMapping: 'aces' },
+  };
+
+  beforeAll(async () => {
+    exportRoot = mkdtempSync(join(process.env.TMPDIR ?? '/tmp', 'tl-env-upgrade-export-'));
+    tb = await startBackend({ tokens: [], exportRoot, engineRoot: REPO });
+    cpSync(FIXTURE, dir(), { recursive: true });
+  });
+  afterAll(async () => {
+    await tb.teardown();
+    rmSync(exportRoot, { recursive: true, force: true });
+  });
+
+  it('copies the look into every scene, keeps quality and presets, replays, and exports each scene with its look', async () => {
+    const before = JSON.parse(readFileSync(join(FIXTURE, 'content.json'), 'utf8')) as { content: { environment: Record<string, unknown> } };
+    // The fixture is the old format: the look is the project's.
+    expect(Object.keys(before.content.environment)).toEqual(['wind', 'sky', 'fog', 'post', 'quality', 'presets']);
+    const r = await api(`${tb.authUrl}/api/v1/sessions`, { body: { projectId: ID, sessionId: mkSessionId(), clientInfo: { kind: 'browser', label: 'env-upgrade' } }, token: tb.adminToken });
+    expect(r.status, JSON.stringify(r.json)).toBe(200);
+    // One new revision for the upgrade (the files were at 4).
+    expect((r.json as { revision: number }).revision).toBe(5);
+    expect(readJson('project.json')['schemaVersion']).toBe(6);
+
+    // The content keeps the quality and the preset's id (the preset is its own file, untouched).
+    expect((readJson('content.json')['content'] as { environment: unknown }).environment).toEqual({ quality: 'medium', presets: ['dusk'] });
+    expect(readFileSync(join(dir(), 'assets', 'environment', 'dusk.envpreset.json')).equals(readFileSync(join(FIXTURE, 'assets', 'environment', 'dusk.envpreset.json')))).toBe(true);
+    // Every scene file carries the old look, the objects as they were.
+    for (const sceneId of ['scene-main', 'scene-two']) {
+      const scene = readJson(`scenes/${sceneId}.json`)['scene'] as { revision: number; environment?: unknown; entities: unknown[] };
+      const old = (JSON.parse(readFileSync(join(FIXTURE, 'scenes', `${sceneId}.json`), 'utf8')) as { scene: { entities: unknown[] } }).scene;
+      expect(scene.environment, sceneId).toEqual(LOOK);
+      expect(scene.entities, sceneId).toEqual(old.entities);
+      expect(scene.revision, sceneId).toBe(5);
+    }
+    // The upgrade is reported where the user and MCP look.
+    const problems = await api(`${tb.authUrl}/api/v1/projects/${ID}/problems`, { method: 'GET', token: tb.adminToken, origin: null });
+    const upgraded = (problems.json as { problems: { code: string; message: string }[] }).problems.filter((p) => p.code === 'project_upgraded');
+    expect(upgraded.map((p) => p.message).join('\n')).toContain('copied into 2 scenes');
+
+    // The queries: the project part, and each scene's look on request.
+    const q = async (op: string, args?: Record<string, unknown>): Promise<Record<string, unknown>> => (await api(`${tb.authUrl}/api/v1/projects/${ID}/commands`, { body: { op, projectId: ID, ...(args !== undefined ? { args } : {}) }, token: tb.adminToken, origin: null })).json as Record<string, unknown>;
+    expect((await q('queryGameConfig'))['environment']).toMatchObject({ quality: 'medium', presets: [{ presetId: 'dusk', name: 'Dusk' }] });
+    const rows = (await q('queryProject', { environments: true }))['scenes'] as { sceneId: string; environment?: unknown }[];
+    expect(rows.map((x) => [x.sceneId, x.environment])).toEqual([['scene-main', LOOK], ['scene-two', LOOK]]);
+    expect(((await q('queryProject'))['scenes'] as Record<string, unknown>[]).some((x) => 'environment' in x)).toBe(false);
+
+    // The last recorded command (the old project-wide setEnvironment), sent again, replays its recorded result.
+    const replay = JSON.parse(readFileSync(join(FIXTURE, 'replay.json'), 'utf8')) as Record<string, unknown>;
+    const again = await api(`${tb.authUrl}/api/v1/projects/${ID}/commands`, { body: replay, token: tb.adminToken, origin: null });
+    expect(again.status, JSON.stringify(again.json)).toBe(200);
+    expect(again.json).toMatchObject({ ok: true, duplicated: true, revision: 4, requestId: replay['requestId'] });
+
+    // The file check finds nothing to do; the files stay as the upgrade wrote them.
+    const files = ['project.json', 'content.json', 'scenes/scene-main.json', 'scenes/scene-two.json'].map((f) => readFileSync(join(dir(), f)));
+    const check = await api(`${tb.authUrl}/api/v1/projects/${ID}/content/files/check`, { body: {}, token: tb.adminToken, origin: null });
+    expect(check.status, JSON.stringify(check.json)).toBe(200);
+    expect((check.json as { check: { reimported: unknown[]; failed: unknown[]; sidecarProblems: unknown[] } }).check).toMatchObject({ reimported: [], failed: [], sidecarProblems: [] });
+    ['project.json', 'content.json', 'scenes/scene-main.json', 'scenes/scene-two.json'].forEach((f, i) => expect(readFileSync(join(dir(), f)).equals(files[i]!), f).toBe(true));
+
+    // The export: the project part in the manifest, each scene's look in its scene file.
+    const exported = await api(`${tb.authUrl}/api/v1/admin/projects/${ID}/export`, { body: {}, token: tb.adminToken, origin: null });
+    expect(exported.status, JSON.stringify(exported.json)).toBe(200);
+    const out = join(exportRoot, String((exported.json as { outputDir: string }).outputDir));
+    const manifest = exportContentOf(out) as unknown as { environment?: unknown; scenes?: unknown[] };
+    expect(manifest.environment).toMatchObject({ quality: 'medium', presets: [{ presetId: 'dusk' }] });
+    expect(manifest.environment).not.toHaveProperty('sky');
+    for (const row of (manifest.scenes ?? []) as { sceneId: string; path: string }[]) {
+      const doc = JSON.parse(readFileSync(join(out, row.path), 'utf8')) as { environment?: unknown };
+      expect(doc.environment, row.sceneId).toEqual(LOOK);
+    }
+    expect(((manifest.scenes ?? []) as unknown[]).length).toBe(2);
+  }, 120_000);
+
+  it('a new scene copies a look or starts from the engine defaults; an undone delete gets its look back', async () => {
+    const send = async (op: string, args: Record<string, unknown>): Promise<Record<string, unknown>> => {
+      const rev = Number(((await api(`${tb.authUrl}/api/v1/projects/${ID}/commands`, { body: { op: 'queryProject', projectId: ID }, token: tb.adminToken, origin: null })).json as { revision: number }).revision);
+      const res = await api(`${tb.authUrl}/api/v1/projects/${ID}/commands`, { body: { op, projectId: ID, requestId: mkRequestId(), expectedRevision: rev, args, origin: { kind: 'mcp', clientId: 'env-scenes' } }, token: tb.adminToken, origin: null });
+      return res.json as Record<string, unknown>;
+    };
+    const lookOf = (sceneId: string): unknown => (readJson(`scenes/${sceneId}.json`)['scene'] as { environment?: unknown }).environment;
+    expect((await send('createScene', { sceneId: 'scene-copy', name: 'Copy', environmentFrom: 'scene-two' }))['ok']).toBe(true);
+    expect(lookOf('scene-copy')).toEqual(LOOK);
+    expect((await send('createScene', { sceneId: 'scene-plain', name: 'Plain' }))['ok']).toBe(true);
+    expect(lookOf('scene-plain')).toBeUndefined();
+    // A scene's own look: only that scene's file changes.
+    const mainBefore = readFileSync(join(dir(), 'scenes', 'scene-main.json'));
+    const set = await send('setEnvironment', { sceneId: 'scene-copy', environment: { sky: { mode: 'color', color: '#FF8000' } } });
+    expect(set, JSON.stringify(set)).toMatchObject({ ok: true, sceneId: 'scene-copy', change: { type: 'setEnvironment', sceneId: 'scene-copy' } });
+    expect(lookOf('scene-copy')).toEqual({ sky: { color: '#ff8000', mode: 'color' } });
+    expect(readFileSync(join(dir(), 'scenes', 'scene-main.json')).equals(mainBefore)).toBe(true);
+    // Refused: a look without a sceneId, an unknown scene.
+    const noScene = await send('setEnvironment', { environment: { sky: { mode: 'color', color: '#000000' } } });
+    expect(noScene['ok']).toBe(false);
+    expect(JSON.stringify(noScene)).toContain('sceneId');
+    expect((await send('setEnvironment', { sceneId: 'nope', environment: {} }))['ok']).toBe(false);
+    // Delete the copied scene, undo: it comes back with its look; redo removes it again.
+    expect((await send('deleteScene', { sceneId: 'scene-copy' }))['ok']).toBe(true);
+    expect(existsSync(join(dir(), 'scenes', 'scene-copy.json'))).toBe(false);
+    expect((await send('undo', {}))['ok']).toBe(true);
+    expect(lookOf('scene-copy')).toEqual({ sky: { color: '#ff8000', mode: 'color' } });
+    expect((await send('redo', {}))['ok']).toBe(true);
+    expect(existsSync(join(dir(), 'scenes', 'scene-copy.json'))).toBe(false);
+    // Undo, then undo the look: the copied look again.
+    expect((await send('undo', {}))['ok']).toBe(true);
+    expect((await send('undo', {}))['ok']).toBe(true);
+    expect(lookOf('scene-copy')).toEqual(LOOK);
   }, 60_000);
 });

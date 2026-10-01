@@ -8,7 +8,7 @@
 
 import { applyMutation, contentInUse, FILE_MOVE_OPS } from '@thirdlight/commands';
 import type { AdoptedScene, CommandError, CommandState, ContentDocument, HistoryEntry, HistoryState, MoveResourcesChange, MutationResult, MutationSuccess, SceneDocument } from '@thirdlight/commands';
-import type { ModelErrorV3, SceneV4 } from '@thirdlight/project-model';
+import type { ModelErrorV3, SceneEnvironment, SceneV4 } from '@thirdlight/project-model';
 import { composeV4, INSTANCE_FLOATS, RESOURCE_CREATING_OPS } from '@thirdlight/project-model';
 
 import type { RetryRecord } from './envelope';
@@ -119,6 +119,10 @@ export function runCommandV4(core: Core, s: ProjectSession, sent: unknown, D: st
   };
   if (core.content.behaviorCompiler !== undefined) commandState.behaviorPreparerRegistered = true;
   if (s.preparedSources.size > 0) commandState.preparedBehaviorSources = preparedFactsOf(s.preparedSources);
+  // The look of a scene a scene-index op names besides the edited one: the scene a new one copies, a deleted scene.
+  const named = op === 'createScene' ? args['environmentFrom'] : op === 'deleteScene' ? args['sceneId'] : undefined;
+  const namedLook = typeof named === 'string' ? state.scenes.get(named)?.environment : undefined;
+  if (namedLook !== undefined) commandState.sceneEnvironments = new Map([[named as string, namedLook]]);
   // The staged library edit sets (a commit reads only these).
   const stages = libraryStageFacts(s);
   if (stages !== undefined) commandState.scriptLibraryStages = stages;
@@ -224,11 +228,15 @@ export function runCommandV4(core: Core, s: ProjectSession, sent: unknown, D: st
   const nextScenes = new Map<string, SceneV4>();
   // Scene files the command adopts (and their redo) bring their documents.
   const adopted = new Map<string, SceneV4>();
-  const change = outcome.result.change as { type: string; scenesAdded?: AdoptedScene[] };
+  const change = outcome.result.change as { type: string; scenesAdded?: AdoptedScene[]; environments?: Record<string, SceneEnvironment> };
   if (change.type === 'importResources') for (const a of change.scenesAdded ?? []) adopted.set(a.sceneId, a.scene as SceneV4);
   for (const entry of nextContent.scenes) {
     if (entry.sceneId === carrierId) nextScenes.set(entry.sceneId, { ...resultScene, sceneId: carrierId });
-    else nextScenes.set(entry.sceneId, state.scenes.get(entry.sceneId) ?? adopted.get(entry.sceneId) ?? { schemaVersion: 4, sceneId: entry.sceneId, revision: newRevision, entities: [] });
+    else {
+      // A scene the index gains gets a new file, with the look the change carries (a copied look, an undone delete's).
+      const look = change.type === 'setSceneIndex' ? change.environments?.[entry.sceneId] : undefined;
+      nextScenes.set(entry.sceneId, state.scenes.get(entry.sceneId) ?? adopted.get(entry.sceneId) ?? { schemaVersion: 4, sceneId: entry.sceneId, revision: newRevision, ...(look !== undefined ? { environment: look } : {}), entities: [] });
+    }
   }
   const errors: ModelErrorV3[] = [];
   composeV4([...nextScenes.values()], nextContent, errors, newRevision);
@@ -349,6 +357,12 @@ function targetSceneV4(
     return { ok: true, sceneId: own ?? primarySceneIdV4(state) };
   }
   if (op === 'createPrefab') return { ok: true, sceneId: sceneOf(args['sourceEntityId']) ?? primarySceneIdV4(state) };
+  // A scene's look is that scene's edit.
+  if (op === 'setEnvironment' && args['sceneId'] !== undefined) {
+    const explicit = args['sceneId'];
+    if (typeof explicit !== 'string' || !state.scenes.has(explicit)) return { ok: false, error: sceneMissing(explicit) };
+    return { ok: true, sceneId: explicit };
+  }
   if (op === 'publishAsset') {
     const anim = args['animation'] as { entityId?: unknown } | undefined;
     return { ok: true, sceneId: anim !== undefined ? sceneOf(anim.entityId) : null };

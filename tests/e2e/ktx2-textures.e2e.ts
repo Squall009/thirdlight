@@ -149,7 +149,7 @@ for (const variant of RENDERER_VARIANTS) test(`KTX2 textures encoded on import (
   // The scene: a dark sky, the camera looking along −Z at two boxes wearing unlit KTX2-textured materials.
   await cmd('setMaterial', { material: { materialId: 'mat-checker', name: 'Checker', shader: 'unlit', params: {}, textures: { map: checkerAsset.assetId } } });
   await cmd('setMaterial', { material: { materialId: 'mat-normal', name: 'Normal', shader: 'unlit', params: {}, textures: { map: 'flat-normal' } } });
-  await cmd('setEnvironment', { environment: { sky: { mode: 'color', color: '#303030' } } });
+  await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: '#303030' } } });
   const ents = ((await query('queryEntities', { limit: 100, offset: 0 })) as { entities: { id: string; components: Record<string, unknown> }[] }).entities;
   const cam = ents.find((e) => e.components['camera'] !== undefined)!.id;
   await cmd('setTransform', { entityId: cam, transform: { position: [0, 0, 6], rotation: [0, 0, 0, 1] } });

@@ -1,0 +1,58 @@
+{
+  "storageVersion": 5,
+  "type": "project-content",
+  "projectId": "legacy-v5-environment",
+  "revision": 4,
+  "content": {
+    "assets": [],
+    "settings": {},
+    "behaviorTrust": {
+      "entries": []
+    },
+    "scenes": [
+      {"sceneId":"scene-main","name":"Main"},
+      {"sceneId":"scene-two","name":"Scene two"}
+    ],
+    "startScenes": ["scene-main"],
+    "environment": {
+      "wind": {
+        "direction": [0,1],
+        "strength": 1.5,
+        "gust": 0.5,
+        "gustFrequency": 0.4,
+        "turbulence": 0.2
+      },
+      "sky": {
+        "bottomColor": "#404040",
+        "environmentIntensity": 0.8,
+        "horizonColor": "#c0d8f0",
+        "mode": "gradient",
+        "topColor": "#204080"
+      },
+      "fog": {
+        "color": "#b0c4de",
+        "far": 140,
+        "mode": "linear",
+        "near": 20
+      },
+      "post": {
+        "bloom": {
+          "enabled": true,
+          "strength": 0.4
+        },
+        "exposure": 1.2,
+        "toneMapping": "aces"
+      },
+      "quality": "medium",
+      "presets": ["dusk"]
+    }
+  },
+  "retry": {
+    "recordVersion": 2,
+    "retention": 128,
+    "records": [
+      {"requestId":"req-eeeeeeeeeeeeeeeeeeeeeeeeeeeeeee2","digest":"77b1fa83486d5be850b0a0c5219d0c659a8dce406961d116d11278870778f3c5","appliedRevision":2,"result":{"ok":true,"op":"createScene","projectId":"legacy-v5-environment","requestId":"req-eeeeeeeeeeeeeeeeeeeeeeeeeeeeeee2","revision":2,"duplicated":false,"change":{"type":"setSceneIndex","previous":{"scenes":[{"sceneId":"scene-main","name":"Main"}],"startScenes":["scene-main"]},"next":{"scenes":[{"sceneId":"scene-main","name":"Main"},{"sceneId":"scene-two","name":"Scene two"}],"startScenes":["scene-main"]}},"history":{"undoDepth":2,"redoDepth":0}}},
+      {"requestId":"req-eeeeeeeeeeeeeeeeeeeeeeeeeeeeeee4","digest":"f10beadb93f4900268ed6c2d1532c6fa8fa63cb9256df11c5b62777b0eb5a2eb","appliedRevision":4,"result":{"ok":true,"op":"setEnvironment","projectId":"legacy-v5-environment","requestId":"req-eeeeeeeeeeeeeeeeeeeeeeeeeeeeeee4","revision":4,"duplicated":false,"change":{"type":"setEnvironment","previous":null,"next":{"wind":{"direction":[0,1],"strength":1.5,"gust":0.5,"gustFrequency":0.4,"turbulence":0.2},"sky":{"bottomColor":"#404040","environmentIntensity":0.8,"horizonColor":"#c0d8f0","mode":"gradient","topColor":"#204080"},"fog":{"color":"#b0c4de","far":140,"mode":"linear","near":20},"post":{"bloom":{"enabled":true,"strength":0.4},"exposure":1.2,"toneMapping":"aces"},"quality":"medium","presets":[{"presetId":"dusk","name":"Dusk","sky":{"color":"#402030","mode":"color"},"fog":{"color":"#302028","density":0.02,"mode":"exp2"}}]}},"history":{"undoDepth":4,"redoDepth":0},"sceneId":"scene-main"}}
+    ]
+  }
+}

@@ -134,7 +134,7 @@ for (const variant of VARIANTS) test(`the Material tab previews the graph on a s
   // The project environment: a red colour sky shows behind the object.
   await shape.selectOption('sphere');
   expect(share(await shot(canvas), red)).toBeLessThan(0.05);
-  await cmd('setEnvironment', { environment: { sky: { mode: 'color', color: '#ff0000', intensity: 1, environmentIntensity: 0 } } });
+  await cmd('setEnvironment', { sceneId: 'scene-main', environment: { sky: { mode: 'color', color: '#ff0000', intensity: 1, environmentIntensity: 0 } } });
   await expect(page.getByLabel('material preview').getByRole('status')).toContainText('project environment');
   await expect.poll(async () => share(await shot(canvas), red), { timeout: 30_000 }).toBeGreaterThan(0.3);
   await expect.poll(async () => share(await shot(canvas), orange)).toBeGreaterThan(0.1);

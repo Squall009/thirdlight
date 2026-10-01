@@ -120,7 +120,8 @@ for (const variant of RENDERER_VARIANTS) test(`a foliage material moves in the w
   await openWindow(page, 'Environment');
   await page.getByRole('slider', { name: 'wind strength' }).focus();
   await page.keyboard.press('End');
-  await expect.poll(async () => JSON.stringify((await be.command({ op: 'queryGameConfig', projectId: be.projectId }))['environment'])).toContain('"strength":10');
+  // The wind is the scene's (each scene has its own look).
+  await expect.poll(async () => JSON.stringify((await be.command({ op: 'queryProject', projectId: be.projectId, args: { environments: true } }))['scenes'])).toContain('"strength":10');
 
   // The kit's default material: every placement bends in the wind.
   await projectWindow(page);

@@ -26,21 +26,23 @@
 import type { ModelErrorV3 } from './errors';
 
 /**
- * The `project.json` schemaVersion this build writes (5: every imported
- * file is kept in the game folder with a `.tlasset` sidecar; the workspace's
- * open upgrades a 4, see `upgrade-v26.ts`).
+ * The `project.json` schemaVersion this build writes (6: each scene carries
+ * its own sky, fog, post and wind; the workspace's open upgrades a 5, see
+ * `upgrade-scene-environment.ts`, and older formats on the way).
  */
-export const PROJECT_SCHEMA_VERSION = 5;
-/** The format whose asset versions were stored in `sources/sha256/` (`project.json` schemaVersion 4), upgraded to 5 on open. */
+export const PROJECT_SCHEMA_VERSION = 6;
+/** The format with one project-wide look (`project.json` schemaVersion 5), upgraded to 6 on open (`upgradeSceneEnvironments`). */
+export const PROJECT_SCHEMA_VERSION_PROJECT_LOOK = 5;
+/** The format whose asset versions were stored in `sources/sha256/` (`project.json` schemaVersion 4), upgraded to 5 on open (then to 6). */
 export const PROJECT_SCHEMA_VERSION_V25 = 4;
-/** The format without the genre layer (`project.json` schemaVersion 3), upgraded to 4 on load (`upgradeProjectDocsV25`), then to 5. */
+/** The format without the genre layer (`project.json` schemaVersion 3), upgraded to 4 on load (`upgradeProjectDocsV25`), then on. */
 export const PROJECT_SCHEMA_VERSION_V24 = 3;
 /** The `project.json` schemaVersion `upgradeProjectDocsV24` upgrades (the format with the genre layer), then `upgradeProjectDocsV25`. */
 export const PROJECT_SCHEMA_VERSION_UPGRADED = 2;
 
-/** Whether the loader upgrades a project of this `project.json` schemaVersion (2, 3 or 4). */
-export function isUpgradedProjectSchemaVersion(v: unknown): v is 2 | 3 | 4 {
-  return v === PROJECT_SCHEMA_VERSION_UPGRADED || v === PROJECT_SCHEMA_VERSION_V24 || v === PROJECT_SCHEMA_VERSION_V25;
+/** Whether the loader upgrades a project of this `project.json` schemaVersion (2, 3, 4 or 5). */
+export function isUpgradedProjectSchemaVersion(v: unknown): v is 2 | 3 | 4 | 5 {
+  return v === PROJECT_SCHEMA_VERSION_UPGRADED || v === PROJECT_SCHEMA_VERSION_V24 || v === PROJECT_SCHEMA_VERSION_V25 || v === PROJECT_SCHEMA_VERSION_PROJECT_LOOK;
 }
 
 /** The tail every refusal of removed game data carries. */

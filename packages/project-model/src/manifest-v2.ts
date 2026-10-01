@@ -43,7 +43,7 @@
  */
 import { canonicalSaveSchema, validateSaveSchema, type SaveSchema } from './save-schema';
 import { canonicalBlockTypes, canonicalCellFields, validateBlockTypes, validateCellFields, type BlockType, type CellField } from './block-layers';
-import { canonicalEnvironment, canonicalMaterialMapping, canonicalMaterials, validateEnvironment, validateMaterials, type EnvironmentConfig, type MaterialDef } from './materials';
+import { canonicalEnvironment, canonicalMaterialMapping, canonicalMaterials, validateEnvironment, validateMaterials, type EnvironmentConfig, type MaterialDef, type SceneEnvironment } from './materials';
 import { canonicalAnimators, validateAnimators, type AnimatorController } from './animator';
 import { validateModelRig, type ModelRig } from './model-rig';
 import { canonicalInput, projectInputMaps, validateInput, type InputConfig } from './input';
@@ -633,7 +633,9 @@ export function captureContentViewV3(
   const byId = new Map<string, AssetRecordV3>(normContent.assets.map((a) => [a.assetId, a]));
   const errors: ModelErrorV2[] = [];
   const assets: CapturedAssetV3[] = [];
-  const refs = collectAssetRefsV3(normScene, normContent);
+  // Every scene's look names its images (a scene loaded later needs them too).
+  const looks = v4 && allScenes !== undefined ? allScenes.map((sc) => (sc as { environment?: SceneEnvironment } | null)?.environment) : undefined;
+  const refs = collectAssetRefsV3(normScene, normContent, looks);
   if (include !== undefined && include.length > 0) {
     const named = new Set(refs.map((r) => r.assetId));
     for (const assetId of include) {

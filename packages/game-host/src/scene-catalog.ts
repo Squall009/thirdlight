@@ -6,7 +6,8 @@
  *
  * - `prepareSceneCatalog` reads the start scenes once (their entity ids become
  *   the snapshot's scene membership) and returns the loader the host calls
- *   when the game asks for another scene;
+ *   when the game asks for another scene; each scene's look (sky, fog, post,
+ *   wind) is handed on as its document is read;
  * - `bufferResolver` reads and verifies instance-set buffers on demand.
  *
  * Every read is re-hashed against the manifest before it is used. The page
@@ -51,6 +52,8 @@ export async function prepareSceneCatalog(
   io: SceneCatalogIo,
   /** A v5 build's catalog: a scene's load reads its dependency file with it. */
   catalog?: { sceneEntries(sceneId: string): Promise<unknown> | null },
+  /** Each scene's look as its document is read (a start scene's at once, another's when it loads). */
+  onLook?: (sceneId: string, look: SceneLookLike | null) => void,
 ): Promise<{ rows: RuntimeSceneRow[]; loadScene: (sceneId: string) => Promise<LoadedSceneBatch['entities']> }> {
   const out: RuntimeSceneRow[] = [];
   for (const row of rows) {
@@ -58,9 +61,10 @@ export async function prepareSceneCatalog(
       out.push({ sceneId: row.sceneId, start: false });
       continue;
     }
-    const doc = JSON.parse(new TextDecoder().decode(await readVerified(io, row.path, row.digest, row.byteLength))) as { entities?: { id?: unknown }[] };
+    const doc = JSON.parse(new TextDecoder().decode(await readVerified(io, row.path, row.digest, row.byteLength))) as { entities?: { id?: unknown }[]; environment?: unknown };
     const entityIds = (doc.entities ?? []).map((e) => e.id).filter((id): id is string => typeof id === 'string');
     out.push({ sceneId: row.sceneId, start: true, entityIds });
+    onLook?.(row.sceneId, lookOf(doc));
   }
   const bySceneId = new Map(rows.map((r) => [r.sceneId, r]));
   const loadScene = async (sceneId: string): Promise<LoadedSceneBatch['entities']> => {
@@ -71,9 +75,24 @@ export async function prepareSceneCatalog(
     const doc: unknown = JSON.parse(new TextDecoder().decode(bytes));
     const res = sceneEntitiesFromDocument(doc, sceneId);
     if (!res.ok) throw new Error(res.message);
+    onLook?.(sceneId, lookOf(doc));
     return res.entities;
   };
   return { rows: out, loadScene };
+}
+
+/** A scene's look as its document carries it (sky, fog, post, wind; project-model `SceneEnvironment`). */
+export interface SceneLookLike {
+  readonly sky?: unknown;
+  readonly fog?: unknown;
+  readonly post?: unknown;
+  readonly wind?: unknown;
+}
+
+/** The look a scene document carries (null: none, the engine defaults). */
+function lookOf(doc: unknown): SceneLookLike | null {
+  const env = (doc as { environment?: unknown } | null)?.environment;
+  return typeof env === 'object' && env !== null && !Array.isArray(env) ? (env as SceneLookLike) : null;
 }
 
 /** The instance-set buffer resolver for the adapter's `models.resolveBuffer`. */

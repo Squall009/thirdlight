@@ -23,7 +23,7 @@
 import { applyGraphOpsLocal } from '../graph/model';
 import type { BlockChunk, BlockLayerComponent, BlockRegion, BlockStamp, BlockType, CellField, SaveSchema } from '@thirdlight/project-model';
 import type { DialogueDocument, DialogueSettings, DialogueSpeaker } from '@thirdlight/project-model';
-import type { AnimatorController, DescriptorRegistry, GraphDocument, GraphKindDef, EnvironmentConfig, InputConfig, LightingBake, MaterialDef, EffectDef, ScriptLibrary, UiDocument, UiTheme, TimelineAsset, GameMode, EventCue, GameShell, LoadableEntry } from '@thirdlight/project-model';
+import type { AnimatorController, DescriptorRegistry, GraphDocument, GraphKindDef, EnvironmentConfig, SceneEnvironment, InputConfig, LightingBake, MaterialDef, EffectDef, ScriptLibrary, UiDocument, UiTheme, TimelineAsset, GameMode, EventCue, GameShell, LoadableEntry } from '@thirdlight/project-model';
 import type { CommandError, ChangeData } from '@thirdlight/commands';
 import {
   makeEnvelope,
@@ -296,6 +296,8 @@ export class SessionClientCore {
   /** The project materials and the environment (from queryGameConfig, then changes). */
   private materials: MaterialDef[] = [];
   private environment: EnvironmentConfig | null = null;
+  /** Each scene's look (scenes without one are not listed). */
+  private sceneLooks = new Map<string, SceneEnvironment>();
   /** Each scene's bake (from queryGameConfig, then setLighting changes). */
   private lighting: Record<string, LightingBake> = {};
   /** The animator controllers. */
@@ -511,11 +513,13 @@ export class SessionClientCore {
   async fullResync(): Promise<void> {
     // A v4 project lists its scenes; its entities are read in
     // pages (each names its scene).
-    const proj = await this.api<{ ok: boolean; revision?: number; scenes?: { sceneId: string; name: string }[]; startScenes?: string[] }>(
+    // The scene rows carry each scene's look (sky, fog, post, wind).
+    const proj = await this.api<{ ok: boolean; revision?: number; scenes?: { sceneId: string; name: string; environment?: SceneEnvironment }[]; startScenes?: string[] }>(
       `/projects/${this.cfg.projectId}/commands`,
-      { op: 'queryProject', projectId: this.cfg.projectId },
+      { op: 'queryProject', projectId: this.cfg.projectId, args: { environments: true } },
     );
     const v4 = proj.ok && Array.isArray(proj.scenes);
+    if (v4) this.sceneLooks = new Map(proj.scenes!.filter((r) => r.environment !== undefined).map((r) => [r.sceneId, r.environment!]));
     const page = v4 ? 16_384 : 1024;
     const entities: unknown[] = [];
     const entitySceneIds: string[] = [];
@@ -854,7 +858,17 @@ export class SessionClientCore {
         const rest = this.materials.filter((m) => m.materialId !== change.materialId);
         this.materials = change.next === null ? rest : [...rest, structuredClone(change.next)].sort((a, b) => (a.materialId < b.materialId ? -1 : 1));
       } else if (change.type === 'setEnvironment') {
-        this.environment = change.next === null ? null : structuredClone(change.next);
+        // A scene's look, or the project's quality and presets.
+        if (change.sceneId !== undefined) {
+          if (change.next === null) this.sceneLooks.delete(change.sceneId);
+          else this.sceneLooks.set(change.sceneId, structuredClone(change.next as SceneEnvironment));
+        } else this.environment = change.next === null ? null : structuredClone(change.next as EnvironmentConfig);
+      } else if (change.type === 'setSceneIndex') {
+        // A scene the index gains brings the look the change carries (the looks listed are those of the
+        // scenes added or removed; the wire leaves out `previous`); a removed one takes its look along.
+        const kept = new Set(change.next.scenes.map((r) => r.sceneId));
+        for (const id of [...this.sceneLooks.keys()]) if (!kept.has(id)) this.sceneLooks.delete(id);
+        for (const [id, look] of Object.entries(change.environments ?? {})) if (kept.has(id)) this.sceneLooks.set(id, structuredClone(look));
       } else if (change.type === 'setInput') {
         this.input = change.next === null ? null : structuredClone(change.next);
       } else if (change.type === 'setCollisionLayers') {
@@ -1402,9 +1416,26 @@ export class SessionClientCore {
     return structuredClone(this.materials);
   }
 
-  /** The environment (null = defaults). */
+  /** The project's part of the environment: the default quality and the presets (null = none). */
   getEnvironment(): EnvironmentConfig | null {
     return this.environment === null ? null : structuredClone(this.environment);
+  }
+
+  /** A scene's look: sky, fog, post, wind (null: the engine defaults). */
+  getSceneEnvironment(sceneId: string): SceneEnvironment | null {
+    const look = this.sceneLooks.get(sceneId);
+    return look === undefined ? null : structuredClone(look);
+  }
+
+  /**
+   * What the Scene view and the previews show: the active scene's look with
+   * the project's quality and presets (Unity's rule: with several scenes open
+   * the active scene's settings apply). Null when neither sets anything.
+   */
+  getShownEnvironment(): (EnvironmentConfig & SceneEnvironment) | null {
+    const look = this.activeScene !== null ? this.sceneLooks.get(this.activeScene) : undefined;
+    if (look === undefined && this.environment === null) return null;
+    return structuredClone({ ...(this.environment ?? {}), ...(look ?? {}) });
   }
 
   /** The project save schema (null: no project saves). */
